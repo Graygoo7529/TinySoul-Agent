@@ -271,7 +271,7 @@ Agent Home 失败分三层：
 2. 模块边界异常：home root 不可用、已有内容无法按 UTF-8 解释、链接映射不变量破坏、runtime copy 缺失且无法本地修复、索引损坏、配置不可解释；
 3. Runtime 语义异常：启动配置失败映射为 `runtime.startup_failed`，User Turn 中不可继续失败默认映射为 `runtime.turn_end`，运行时副本准备映射为 `home.runtime_copy_required`；Home Maintenance failure 结束对应 maintenance task，不伪装为 User Turn failure。
 
-Agent Home 应定义 `AgentHomeFailureKind`，并通过 `tinysoul/runtime/bridge/` 下的专门 bridge 转换为 Runtime 通用原因。`home.runtime_copy_required` 的 payload 应包含 `link`、`source_path`、`runtime_path`、`error_type` 和模块失败类型等摘要，不包含文件正文。Home 配置错误应由 home bridge 映射为 `runtime.startup_failed`，而不是落入 infra 或 app 的兜底失败。
+Agent Home 通过自身 `runtime_bridge.py` 将 `AgentHomeFailureKind` 转换为运行原因。`home.runtime_copy_required` 由 Home failures.py 声明，payload 保留 link、error_type、module 和 kind；source_path/runtime_path 仅留在本地异常，不跨 Runtime 边界。恢复由 Home owner 解析 Link。Home 配置错误由 Home bridge 映射为 `runtime.startup_failed`。
 
 当 Home action 或 provider 需要通过 Runtime 触发 copy handler 时，action runner 必须允许 `RuntimeException` 穿透到 Loop/Trap，而不是把它吞成普通 `ActionResult`。
 

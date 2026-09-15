@@ -46,7 +46,8 @@ from tinysoul.memory import (
     inline_memory_links,
 )
 from tinysoul.memory.errors import MemoryError
-from tinysoul.runtime.bridge import RuntimeMemoryBridge, RuntimeWorkspaceBridge
+from tinysoul.memory.runtime_bridge import RuntimeMemoryBridge
+from tinysoul.workspace.runtime_bridge import RuntimeWorkspaceBridge
 from tinysoul.session import SessionMemoryFactsProjection
 from tinysoul.workspace import (
     WorkspaceArchiveView,

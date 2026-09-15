@@ -17,7 +17,7 @@ from tinysoul.action import (
     ActionTraceProjection,
 )
 from tinysoul.infra.json import JsonObject, to_json_object
-from tinysoul.runtime.bridge import RuntimeMemoryBridge
+from tinysoul.memory.runtime_bridge import RuntimeMemoryBridge
 
 from .active import MemoryPatchOperation
 from .catalog import MemoryInspectRequest

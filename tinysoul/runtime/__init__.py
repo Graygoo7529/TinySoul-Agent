@@ -1,9 +1,6 @@
 """TinySoul runtime control primitives."""
 
 from .exception import (
-    CONTEXT_COMPRESSION_REQUIRED,
-    HOME_RUNTIME_COPY_REQUIRED,
-    WORKSPACE_TRASH_RESTORE_REQUIRED,
     RUNTIME_CYCLE_END,
     RUNTIME_PROGRAM_END,
     RUNTIME_STARTUP_FAILED,
@@ -41,10 +38,7 @@ from .generation import (
 )
 
 __all__ = [
-    "CONTEXT_COMPRESSION_REQUIRED",
     "CyclePhase",
-    "HOME_RUNTIME_COPY_REQUIRED",
-    "WORKSPACE_TRASH_RESTORE_REQUIRED",
     "RUNTIME_CYCLE_END",
     "RUNTIME_PROGRAM_END",
     "RUNTIME_STARTUP_FAILED",

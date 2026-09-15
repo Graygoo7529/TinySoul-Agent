@@ -45,7 +45,7 @@ from tinysoul.llm.responses import (
 from tinysoul.loop import TurnPreparationRequest
 from tinysoul.infra.time import BusinessDay
 from tinysoul.runtime import RunLevel, RunScope, SignalBus
-from tinysoul.runtime.bridge import RuntimeWorkspaceBridge
+from tinysoul.workspace.runtime_bridge import RuntimeWorkspaceBridge
 import tinysoul.workspace.engine as workspace_engine_module
 from tinysoul.workspace import (
     WorkspaceContractError,

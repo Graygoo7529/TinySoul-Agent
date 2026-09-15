@@ -106,9 +106,9 @@ profile 文件由 package project template 拥有，但其中各 section 的语�
 
 配置错误应尽早暴露，错误信息应包含配置键、来源、原始值、期望类型和失败原因。AppBuilder 先拒绝未知顶层 section，各模块 parser 再拒绝自身 table 中的未知键；嵌套未知键也不允许静默穿过。`ConfigEnvironment.parse_section` 根据最终获胜的 main/include/dotenv/environment/override source 为模块 parser 产生的 `ConfigError` 补充来源，因此拼写错误和语义错误使用同一套 key/source 诊断。
 
-Infra 自身只抛出配置和基础设施语义的错误，不直接表达 Runtime 控制流。当前 Infra bridge 的真实跨模块路径只有配置加载失败，并将其映射为启动失败；JSON 和受控文件系统错误由拥有具体调用流程的业务模块局部处理或通过该模块 bridge 映射。Infra 不为没有消费路径的假想失败维护枚举项。这样 Infra 保持纯基础设施边界，Runtime 也不会反向侵入配置加载实现。
+Infra 自身只抛出配置和基础设施语义的错误，不导入 Runtime，不维护 Runtime bridge 或 failure 枚举。配置源加载由 App 组合根解释；模块配置解释由对应 owner bridge 处理；UserTurnBuilder 的 staging 失败由 Loop 以资源准备失败报告启动失败。JSON 和受控文件系统错误同样由实际调用 owner 处理。
 
-Infra bridge 只翻译确实需要 Runtime 协调的模块失败，不替业务模块兜底分类。bridge 显式构造稳定、精简、JSON 安全的 payload；原始异常链用于调试，payload 不承载 traceback、文件内容或调用方内部对象。
+ConfigError 本地保留完整诊断供调试；`config_error_payload` 只提供有界 key 和 expected，不复制 source、value 或原始异常文本。业务 bridge 使用这份纯 JSON 投影并自行确定 module、kind 和运行原因，避免把本地调试数据直接变成 Runtime/Observation 协议。
 
 JSON 值类型、JSON 对象校验和稳定序列化属于 Infra 的公共基础能力。来自模型输出、配置文件或外部接口的动态 JSON 数据应在进入模块内部边界时转换为明确的 JSON 值结构。具体 JSON 内容表达什么业务含义，仍由使用它的模块解释。
 

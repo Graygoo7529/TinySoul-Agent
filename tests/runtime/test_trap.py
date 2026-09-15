@@ -5,9 +5,7 @@ from dataclasses import dataclass, field
 import pytest
 
 from tinysoul.runtime.errors import RuntimeInvariantError
-from tinysoul.runtime.exception import (
-    CONTEXT_COMPRESSION_REQUIRED,
-    HOME_RUNTIME_COPY_REQUIRED,
+from tinysoul.runtime import (
     RUNTIME_CYCLE_END,
     RUNTIME_PROGRAM_END,
     RUNTIME_STARTUP_FAILED,
@@ -23,6 +21,9 @@ from tinysoul.runtime.trap import (
     TrapSnap,
 )
 from tinysoul.runtime.transfer import RuntimeTransfer
+
+TEST_RECOVERY = "test.recovery"
+TEST_UNREGISTERED = "test.unregistered"
 
 
 @dataclass
@@ -47,12 +48,12 @@ def test_trap_captures_snap_and_dispatches_handler() -> None:
     assert current is not None
     handler = _Handler(transfer=RuntimeTransfer.retry(current))
     registry = TrapHandlerRegistry()
-    registry.register(CONTEXT_COMPRESSION_REQUIRED, handler)
+    registry.register(TEST_RECOVERY, handler)
     trap = RuntimeTrap(registry=registry)
 
     result = trap.capture(
         RuntimeException(
-            reason=CONTEXT_COMPRESSION_REQUIRED,
+            reason=TEST_RECOVERY,
             message="compress",
             payload={"limit": 100},
         ),
@@ -60,7 +61,7 @@ def test_trap_captures_snap_and_dispatches_handler() -> None:
     )
 
     assert result.transfer == RuntimeTransfer.retry(current)
-    assert handler.snaps[0].reason == CONTEXT_COMPRESSION_REQUIRED
+    assert handler.snaps[0].reason == TEST_RECOVERY
     assert handler.snaps[0].scope == scope
     assert handler.snaps[0].payload == {"limit": 100}
 
@@ -118,7 +119,7 @@ def test_trap_unknown_reason_raises_runtime_invariant_error() -> None:
 
     with pytest.raises(RuntimeInvariantError) as raised:
         trap.capture(
-            RuntimeException(reason=HOME_RUNTIME_COPY_REQUIRED, message="copy", payload={}),
+            RuntimeException(reason=TEST_UNREGISTERED, message="copy", payload={}),
             scope,
         )
 

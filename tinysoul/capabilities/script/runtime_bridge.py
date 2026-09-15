@@ -4,22 +4,30 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from tinysoul.capabilities.script.errors import (
-    ScriptContractError,
-    ScriptPolicyError,
-)
+from tinysoul.capabilities.script.errors import ScriptContractError, ScriptPolicyError
 from tinysoul.capabilities.script.failures import ScriptFailureKind
 from tinysoul.infra.config import ConfigError
+from tinysoul.infra.config.errors import config_error_payload
 from tinysoul.infra.json import JsonObject
-
-from ..exception import RUNTIME_STARTUP_FAILED, RUNTIME_TURN_END, RuntimeException
-from ._payload import config_error_payload, exception_payload, runtime_exception
+from tinysoul.runtime.exception import (
+    RUNTIME_STARTUP_FAILED,
+    RUNTIME_TURN_END,
+    RuntimeException,
+)
+from tinysoul.runtime.failures import exception_payload, runtime_exception
 
 
 SCRIPT_RUNTIME_REASON_MAP: dict[ScriptFailureKind, str] = {
     ScriptFailureKind.CONFIGURATION_FAILED: RUNTIME_STARTUP_FAILED,
     ScriptFailureKind.CONTRACT_VIOLATION: RUNTIME_TURN_END,
     ScriptFailureKind.INTERNAL_FAILURE: RUNTIME_TURN_END,
+}
+
+
+SCRIPT_FAILURE_MESSAGES: dict[ScriptFailureKind, str] = {
+    ScriptFailureKind.CONFIGURATION_FAILED: "Script configuration is invalid.",
+    ScriptFailureKind.CONTRACT_VIOLATION: "Script call violated its contract.",
+    ScriptFailureKind.INTERNAL_FAILURE: "Script operation failed internally.",
 }
 
 
@@ -37,7 +45,7 @@ class RuntimeScriptBridge:
         return runtime_exception(
             module="script",
             kind=kind,
-            reason_map=SCRIPT_RUNTIME_REASON_MAP,
+            reason=SCRIPT_RUNTIME_REASON_MAP[kind],
             message=message,
             payload=payload,
         )
@@ -53,13 +61,13 @@ class RuntimeScriptBridge:
             kind = ScriptFailureKind.CONTRACT_VIOLATION
         return self.from_failure(
             kind,
-            message=str(error),
+            message=SCRIPT_FAILURE_MESSAGES[kind],
             payload=exception_payload(error, payload),
         )
 
     def from_config_error(self, error: ConfigError) -> RuntimeException:
         return self.from_failure(
             ScriptFailureKind.CONFIGURATION_FAILED,
-            message=error.message,
+            message=SCRIPT_FAILURE_MESSAGES[ScriptFailureKind.CONFIGURATION_FAILED],
             payload=config_error_payload(error),
         )

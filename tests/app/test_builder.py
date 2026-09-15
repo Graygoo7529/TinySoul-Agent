@@ -1112,9 +1112,9 @@ def test_app_builder_missing_agent_is_context_startup_failure(tmp_path: Path) ->
         ({"home.max_read_chars": 0}, "home", "home.max_read_chars", None),
         (
             {"infra.embedding.batch_size": 0},
-            "infra",
+            "app",
             "infra.embedding.batch_size",
-            "infra.configuration_failed",
+            "app.configuration_failed",
         ),
         (
             {"workspace.max_files": 0},

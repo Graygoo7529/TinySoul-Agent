@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from tinysoul.infra.json import JsonObject
+
 
 @dataclass
 class ConfigError(Exception):
@@ -30,4 +32,10 @@ class ConfigError(Exception):
 
 class ConfigCatalogError(Exception):
     """Raised when the package-owned configuration catalog is invalid."""
+
+
+def config_error_payload(error: ConfigError) -> JsonObject:
+    """Project bounded schema diagnostics, excluding source, value and message."""
+
+    return {"key": error.key[:256], "expected": error.expected[:256]}
 

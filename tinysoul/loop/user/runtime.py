@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 from tinysoul.context import ContextEngine
+from tinysoul.llm.failures import LLM_CONTEXT_CAPACITY_EXCEEDED
 from tinysoul.home import AgentHomeEngine, AgentHomeRuntimeCopyTrapHandler
+from tinysoul.context.failures import CONTEXT_COMPRESSION_REQUIRED
+from tinysoul.home.failures import HOME_RUNTIME_COPY_REQUIRED
+from tinysoul.workspace.failures import WORKSPACE_TRASH_RESTORE_REQUIRED
 from tinysoul.runtime import (
-    CONTEXT_COMPRESSION_REQUIRED,
-    HOME_RUNTIME_COPY_REQUIRED,
     RUNTIME_CYCLE_END,
     RUNTIME_PROGRAM_END,
     RUNTIME_STARTUP_FAILED,
     RUNTIME_TURN_END,
-    WORKSPACE_TRASH_RESTORE_REQUIRED,
     RunLevel,
     RuntimeTrap,
     TrapHandlerRegistry,
@@ -38,16 +39,15 @@ def build_user_turn_trap(
     registry.register(RUNTIME_CYCLE_END, EndFrameTrapHandler(RunLevel.CYCLE))
     registry.register(RUNTIME_PROGRAM_END, EndFrameTrapHandler(RunLevel.PROGRAM))
     registry.register(RUNTIME_STARTUP_FAILED, EndFrameTrapHandler(RunLevel.PROGRAM))
-    registry.register(
-        CONTEXT_COMPRESSION_REQUIRED,
-        ContextPressureTrapHandler(
-            UserContextPressureRecovery(
-                context=context,
-                workspace=workspace,
-                target_ratio=context.compression_target_ratio,
-            )
-        ),
+    pressure_handler = ContextPressureTrapHandler(
+        UserContextPressureRecovery(
+            context=context,
+            workspace=workspace,
+            target_ratio=context.compression_target_ratio,
+        )
     )
+    registry.register(CONTEXT_COMPRESSION_REQUIRED, pressure_handler)
+    registry.register(LLM_CONTEXT_CAPACITY_EXCEEDED, pressure_handler)
     registry.register(HOME_RUNTIME_COPY_REQUIRED, AgentHomeRuntimeCopyTrapHandler(home))
     registry.register(
         WORKSPACE_TRASH_RESTORE_REQUIRED,

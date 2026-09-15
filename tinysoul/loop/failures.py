@@ -9,5 +9,6 @@ class LoopFailureKind(StrEnum):
     """Stable loop failures that need runtime-level control flow."""
 
     CONFIGURATION_FAILED = "loop.configuration_failed"
+    RESOURCE_PREPARATION_FAILED = "loop.resource_preparation_failed"
     CONTRACT_VIOLATION = "loop.contract_violation"
     INTERNAL_FAILURE = "loop.internal_failure"

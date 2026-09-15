@@ -9,11 +9,9 @@ from tinysoul.home.errors import AgentHomeError
 from tinysoul.infra.config import ConfigError
 from tinysoul.memory import ActiveMemoryBackgroundEntryProvider, MemoryEngine
 from tinysoul.runtime import ObservationEmitter
-from tinysoul.runtime.bridge import (
-    RuntimeAgentHomeBridge,
-    RuntimeContextBridge,
-    RuntimeMemoryBridge,
-)
+from tinysoul.home.runtime_bridge import RuntimeAgentHomeBridge
+from tinysoul.context.runtime_bridge import RuntimeContextBridge
+from tinysoul.memory.runtime_bridge import RuntimeMemoryBridge
 
 
 def build_user_context(
@@ -60,11 +58,11 @@ def build_user_context(
         raise context_bridge.from_config_error(exc) from exc
     except ContextError as exc:
         raise context_bridge.startup_failure(
-            message=str(exc),
+            message="User Turn context could not be initialized.",
             payload={"error_type": type(exc).__name__},
         ) from exc
     except AgentHomeError as exc:
         raise home_bridge.startup_failure(
-            message=str(exc),
+            message="Home context guidance could not be loaded.",
             payload={"error_type": type(exc).__name__},
         ) from exc

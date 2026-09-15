@@ -14,11 +14,9 @@ from tinysoul.context import ContextEngine
 from tinysoul.context.actions import register_context_actions
 from tinysoul.infra.config import ConfigError
 from tinysoul.runtime import ObservationEmitter
-from tinysoul.runtime.bridge import (
-    RuntimeActionBridge,
-    RuntimeContextBridge,
-    RuntimeSessionBridge,
-)
+from tinysoul.action.runtime_bridge import RuntimeActionBridge
+from tinysoul.context.runtime_bridge import RuntimeContextBridge
+from tinysoul.session.runtime_bridge import RuntimeSessionBridge
 from tinysoul.session.actions import SessionInspector, register_session_actions
 
 from .errors import MaintenanceContractError
@@ -103,6 +101,6 @@ def build_maintenance_action(
         raise action_bridge.from_config_error(exc) from exc
     except ActionError as exc:
         raise action_bridge.startup_failure(
-            message=str(exc),
+            message="Maintenance actions could not be initialized.",
             payload={"error_type": type(exc).__name__},
         ) from exc

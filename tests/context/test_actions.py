@@ -10,7 +10,7 @@ from tinysoul.action.core.loader import ActionCatalogLoader
 from tinysoul.context import ContextEngineBuilder, build_trace_phase_note_signal
 from tinysoul.context.actions import ContextInspectExecutor
 from tinysoul.runtime import RunLevel, RunScope, SignalBus
-from tinysoul.runtime.bridge import RuntimeContextBridge
+from tinysoul.context.runtime_bridge import RuntimeContextBridge
 
 
 def test_context_inspect_continuation_is_visible_only() -> None:

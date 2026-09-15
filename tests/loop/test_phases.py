@@ -57,7 +57,7 @@ from tinysoul.runtime import (
     RuntimeTrap,
     TrapHandlerRegistry,
 )
-from tinysoul.runtime.bridge import RuntimeMemoryBridge
+from tinysoul.memory.runtime_bridge import RuntimeMemoryBridge
 from tinysoul.workspace import (
     WorkspaceEngine,
     WorkspaceEngineBuilder,
@@ -1058,7 +1058,7 @@ def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
             turn_id=turn_id,
         )
 
-    assert raised.value.payload["kind"] == "loop.contract_violation"
+    assert raised.value.payload["kind"] == "loop.internal_failure"
 
 
 def _action_engine(

@@ -13,7 +13,7 @@ from tinysoul.action import (
     ActionResultStage,
 )
 from tinysoul.infra.json import JsonObject
-from tinysoul.runtime.bridge import RuntimeAgentHomeBridge
+from tinysoul.home.runtime_bridge import RuntimeAgentHomeBridge
 
 from .engine import AgentHomeEngine
 from .errors import (

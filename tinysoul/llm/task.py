@@ -12,10 +12,11 @@ from tinysoul.runtime import (
     ObservationEvent,
     ObservationLevel,
     RuntimeException,
+    RuntimeTransferInterrupt,
     emit_observation,
     observation_enabled,
 )
-from tinysoul.runtime.bridge import RuntimeLLMBridge
+from tinysoul.llm.runtime_bridge import RuntimeLLMBridge
 
 from .errors import LLMContractError, LLMError, LLMInvariantError, TaskCancelled
 from .failures import LLMFailureKind
@@ -277,9 +278,9 @@ class LLMTaskRunner:
             kind = LLMFailureKind.MODEL_CONTEXT_LIMIT_REACHED
             if (
                 call.context_overflow_policy
-                is ModelContextOverflowPolicy.RECOMPOSE_CONTEXT
+                is ModelContextOverflowPolicy.REQUEST_RECOVERY
             ):
-                kind = LLMFailureKind.MODEL_CONTEXT_COMPRESSION_REQUIRED
+                kind = LLMFailureKind.MODEL_CONTEXT_PRESSURE
             raise self._runtime_bridge.from_exception(
                 kind,
                 exc,
@@ -307,7 +308,7 @@ class LLMTaskRunner:
                 exc,
                 payload={"profile": call.profile},
             ) from exc
-        except RuntimeException:
+        except (RuntimeException, RuntimeTransferInterrupt):
             raise
         except Exception as exc:
             raise self._runtime_bridge.from_exception(
@@ -709,7 +710,7 @@ class LLMTaskRunner:
     def _classify_chain_error(self, error: Exception) -> ChainErrorDisposition:
         if isinstance(error, TaskCancelled):
             return ChainErrorDisposition.ABORT
-        if isinstance(error, RuntimeException):
+        if isinstance(error, (RuntimeException, RuntimeTransferInterrupt)):
             return ChainErrorDisposition.ABORT
         if isinstance(error, ModelContextPressureError):
             return ChainErrorDisposition.ABORT

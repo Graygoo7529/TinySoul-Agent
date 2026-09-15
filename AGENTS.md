@@ -173,7 +173,7 @@ Trap/Runtime 语义异常：只用于需要改变运行位置的控制流，例�
 - 模块内部可以使用普通 Python 异常或模块私有异常表达内部失败；跨出模块边界并交给 Runtime 处理的异常，应在模块边界转换为 Runtime 可理解的语义异常，避免供应商、解析器或具体实现错误类型污染全局运行控制。
 - 表达模块语义失败时，不直接抛出裸 `ValueError`、`TypeError` 等内置异常；应转为局部结果或使用模块私有异常；需要改变运行控制流时，再由模块边界的 bridge 转换为 Runtime 语义异常。
 - 模块稳定失败语义应由模块内部维护；需要交给 Runtime 的失败由专门 bridge 映射为少量通用 Runtime 原因。bridge 应显式构造 message 和 JSON payload；原始异常链用于调试，不作为 payload 协议。
-- 新模块接入 Runtime 时，应优先遵循 LLM、Action 和 Infra 的模式：模块内用 `failures.py` 维护服务于 Runtime bridge 的稳定失败枚举；需要 Runtime 协调控制流的失败由模块自带的 runtime bridge（内核模块位于 `tinysoul/runtime/bridge/`，插件位于插件包内 `runtime_bridge.py`）通过映射表转换为 Runtime 语义异常；Trap 原因常量由定义该原因的 owner 声明并登记处理器，`runtime` 只声明自身的启动失败与结束 Turn/Cycle/Agent 原因；模块内部可自行处理或结构化返回的失败不进入 Runtime，也不必强行纳入 bridge failure 枚举。
+- 新模块接入 Runtime 时，应优先遵循 LLM 和 Action 的模式；Infra 保持纯基础设施，不设置 Runtime bridge，由实际调用 owner 解释其失败：模块内用 `failures.py` 维护服务于 Runtime bridge 的稳定失败枚举；需要 Runtime 协调控制流的失败由模块自带的 runtime bridge（统一位于所属 owner 包内 `runtime_bridge.py`）通过映射表转换为 Runtime 语义异常；Trap 原因常量由定义该原因的 owner 声明并登记处理器，`runtime` 只声明自身的启动失败与结束 Turn/Cycle/Agent 原因；模块内部可自行处理或结构化返回的失败不进入 Runtime，也不必强行纳入 bridge failure 枚举。
 - 模块 failure payload 应保持稳定、精简和 JSON 安全。跨 Runtime 边界时 payload 至少应能表达模块名和模块失败类型，其中 `kind` 使用 `<module>.<failure_name>` 格式的全局稳定标识，`module` 字段继续保留用于筛选和展示；并可按需携带 `error_type`、配置 key、profile、资源句柄等摘要字段；不要放原始异常对象、traceback、大块文件内容、完整消息栈或业务模块内部对象。
 - Runtime 语义异常应通过稳定原因标识进入 Trap，由 Trap 处理器返回运行转移；Runtime 原因应收敛为启动失败、结束 Turn、结束 Cycle、结束 Program 和少量全局恢复原因，不要为恢复、中断、退出和无法处理的错误过早扩展庞大的异常继承树。
 - Runtime 运行转移应以运行位置栈中的 frame 为目标，并收敛为重试 frame 或结束 frame；重试目标必须具备可重放语义，结束 Program frame 表示退出程序。
@@ -239,7 +239,7 @@ conda activate TinySoul
 
 ## 当前任务
 
-当前任务是按 `docs/analysis/20260915-agent-architecture-refactor-plan.md` 讨论、完善并分阶段落实分层 Agent 架构重构；当前处于设计确认与计划修订，未进入代码实施：以 `Agent` 门面统一输入、输出与状态；以 asyncio 事件总线与 `EnvironmentEvent` 协议把 Agent 置于环境之中；以段协议把 Context 语境段的内容与维护反转给外围插件，内核只知槽位、形状与 ref scheme；以 Job 框架统一后台进程与 ACP 外部 sub-agent，内部嵌套 Turn 留待实际需求扩展；按 `infra → runtime/llm → kernel → plugins/environment → agent → gateway` 重排包布局。该执行计划在重构期间是唯一设计来源，不向后兼容，不保留兼容层、重复状态或跨模块捷径。重构的长期目标不变：构造功能强、可用性高、具有智能性的泛用智能体，并通过记忆和 Home 维护构造持续长期稳定运行的个性化助手。
+当前任务是按 `docs/analysis/20260915-agent-architecture-refactor-plan.md` 讨论、完善并分阶段落实分层 Agent 架构重构；当前已按确认的第一轮子计划实施 S1 的底层依赖与失败协议整理，正在完成验证；S1 的 async/事件/取消及后续阶段尚未完成：以 `Agent` 门面统一输入、输出与状态；以 asyncio 事件总线与 `EnvironmentEvent` 协议把 Agent 置于环境之中；以段协议把 Context 语境段的内容与维护反转给外围插件，内核只知槽位、形状与 ref scheme；以 Job 框架统一后台进程与 ACP 外部 sub-agent，内部嵌套 Turn 留待实际需求扩展；按 `infra → runtime/llm → kernel → plugins/environment → agent → gateway` 重排包布局。该执行计划在重构期间是唯一设计来源，不向后兼容，不保留兼容层、重复状态或跨模块捷径。重构的长期目标不变：构造功能强、可用性高、具有智能性的泛用智能体，并通过记忆和 Home 维护构造持续长期稳定运行的个性化助手。
 
 过渡期文档约定：本文件"核心定义""项目规约""代码风格""运行环境与验证"中的模块名（`app`、`loop`、`context`、`action`、`endpoint` 等）、按 owner 名固定的 MessageStack 顺序、Context 由 `context` 模块直接拥有四类语义段、`tests/<module>/` 布局等表述描述的是重构前的实现事实；与执行计划冲突处以执行计划为准，并在计划 S7 阶段整体重写本文件。已被执行计划明确替代的条款：
 

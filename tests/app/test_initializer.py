@@ -323,7 +323,8 @@ def test_initialized_project_reports_model_chain_exhaustion_without_enabled_prov
     captured = capsys.readouterr()
     assert result == 1
     assert "llm.model_chain_exhausted" in captured.err
-    assert "no model with an enabled provider" in captured.err
+    assert '"module":"llm"' in captured.err
+    assert '"reason":"runtime.turn_end"' in captured.err
 
 
 def _tree_snapshot(root: Path) -> dict[str, bytes]:

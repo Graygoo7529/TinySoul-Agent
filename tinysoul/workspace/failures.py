@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from enum import StrEnum
 
+WORKSPACE_TRASH_RESTORE_REQUIRED = "workspace.trash_restore_required"
+
 
 class WorkspaceFailureKind(StrEnum):
     """Stable workspace failure kinds that can cross into Runtime."""

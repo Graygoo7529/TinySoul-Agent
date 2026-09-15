@@ -28,7 +28,8 @@ from tinysoul.runtime import (
     emit_observation,
     observation_enabled,
 )
-from tinysoul.runtime.bridge import RuntimeContextBridge, RuntimeLoopBridge
+from tinysoul.context.runtime_bridge import RuntimeContextBridge
+from tinysoul.loop.runtime_bridge import RuntimeLoopBridge
 
 from .cancellation import TurnCancellation
 from .context_signals import ContextSignalConsumer

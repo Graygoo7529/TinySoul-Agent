@@ -10,7 +10,7 @@ from tinysoul.infra.json import JsonObject
 from tinysoul.infra.time import BusinessDay
 from tinysoul.loop.preparation import TurnPreparationRequest
 from tinysoul.runtime import Signal
-from tinysoul.runtime.bridge import RuntimeSessionBridge
+from tinysoul.session.runtime_bridge import RuntimeSessionBridge
 from tinysoul.session import SessionArchiveView
 from tinysoul.session.errors import SessionError
 from tinysoul.workspace import WorkspaceArchiveView, workspace_snapshot_signal

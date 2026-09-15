@@ -38,8 +38,9 @@ from tinysoul.llm.responses import (
     TaskResult,
     TextAnswer,
 )
+from tinysoul.context.failures import CONTEXT_COMPRESSION_REQUIRED
+from tinysoul.llm.failures import LLM_CONTEXT_CAPACITY_EXCEEDED
 from tinysoul.runtime import (
-    CONTEXT_COMPRESSION_REQUIRED,
     RunLevel,
     RunScope,
     RuntimeException,
@@ -380,10 +381,11 @@ def test_answer_executor_uses_reference_links_and_returns_answer_payload() -> No
     assert "task_prompt:input:test-ref" in labels
 
 
-def test_llm_action_context_pressure_carries_active_resource_links() -> None:
+@pytest.mark.parametrize("reason", [CONTEXT_COMPRESSION_REQUIRED, LLM_CONTEXT_CAPACITY_EXCEEDED])
+def test_llm_action_context_pressure_carries_active_resource_links(reason: str) -> None:
     context = ContextEngineBuilder(system_text="system").build()
     pressure = RuntimeException(
-        reason=CONTEXT_COMPRESSION_REQUIRED,
+        reason=reason,
         message="model context pressure",
         payload={"model_id": "small"},
     )
@@ -409,7 +411,7 @@ def test_llm_action_context_pressure_carries_active_resource_links() -> None:
             subject="test",
         )
 
-    assert exc_info.value.reason == CONTEXT_COMPRESSION_REQUIRED
+    assert exc_info.value.reason == reason
     assert exc_info.value.payload["protected_resource_links"] == [
         "workspace:target.md",
         "workspace:reference.md",

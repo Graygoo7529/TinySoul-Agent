@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from tinysoul.loop import LoopContractError, LoopFailureKind
+from tinysoul.loop.errors import LoopInvariantError
 from tinysoul.runtime import RUNTIME_STARTUP_FAILED, RUNTIME_TURN_END
-from tinysoul.runtime.bridge import RuntimeLoopBridge
+from tinysoul.loop.runtime_bridge import RuntimeLoopBridge
 
 
 def test_loop_bridge_maps_contract_failure_to_turn_end() -> None:
@@ -22,3 +23,15 @@ def test_loop_bridge_maps_startup_failure() -> None:
 
     assert exc.reason == RUNTIME_STARTUP_FAILED
     assert exc.payload["key"] == "loop.x"
+
+
+def test_loop_bridge_distinguishes_resource_preparation_and_invariant_failures() -> None:
+    bridge = RuntimeLoopBridge()
+    resource = bridge.from_exception(LoopFailureKind.RESOURCE_PREPARATION_FAILED,
+                                     OSError("C:/private/staging"))
+    assert resource.reason == RUNTIME_STARTUP_FAILED
+    assert resource.payload["kind"] == "loop.resource_preparation_failed"
+    invariant = bridge.from_loop_error(LoopInvariantError("private state"))
+    assert invariant.reason == RUNTIME_TURN_END
+    assert invariant.payload["kind"] == "loop.internal_failure"
+    assert "private" not in str(resource) + str(invariant)

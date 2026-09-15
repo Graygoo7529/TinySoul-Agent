@@ -34,8 +34,12 @@ from tinysoul.llm.responses import (
     TextAnswer,
 )
 from tinysoul.llm.tools import ToolUse
-from tinysoul.runtime import CONTEXT_COMPRESSION_REQUIRED, RuntimeException
-from tinysoul.runtime.bridge import RuntimeContextBridge
+from tinysoul.context.failures import CONTEXT_COMPRESSION_REQUIRED
+from tinysoul.llm.failures import LLM_CONTEXT_CAPACITY_EXCEEDED
+from tinysoul.runtime import (
+    RuntimeException,
+)
+from tinysoul.context.runtime_bridge import RuntimeContextBridge
 
 from tinysoul.action.config import LLMActionProfileResolver
 
@@ -254,7 +258,7 @@ class LLMActionTaskRunner:
                     ),
                     scope=execution.framework.scope,
                     context_overflow_policy=(
-                        ModelContextOverflowPolicy.RECOMPOSE_CONTEXT
+                        ModelContextOverflowPolicy.REQUEST_RECOVERY
                     ),
                     cancellation=cancellation,
                 )
@@ -304,7 +308,10 @@ class LLMActionTaskRunner:
                 },
             )
         except RuntimeException as exc:
-            if exc.reason != CONTEXT_COMPRESSION_REQUIRED:
+            if exc.reason not in {
+                CONTEXT_COMPRESSION_REQUIRED,
+                LLM_CONTEXT_CAPACITY_EXCEEDED,
+            }:
                 raise
             protected_links = _protected_resource_links(execution)
             if not protected_links:

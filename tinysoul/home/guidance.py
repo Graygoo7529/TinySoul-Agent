@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from tinysoul.action.backends.llm_action import ActionSkillGuidance
-from tinysoul.runtime.bridge import RuntimeAgentHomeBridge
+from tinysoul.home.runtime_bridge import RuntimeAgentHomeBridge
 
 from .engine import AgentHomeEngine
 from .errors import AgentHomeError, AgentHomeRuntimeCopyRequired

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from tinysoul.context import BackgroundCatalog, BackgroundCatalogItem
-from tinysoul.runtime.bridge import RuntimeAgentHomeBridge
+from tinysoul.home.runtime_bridge import RuntimeAgentHomeBridge
 
 from .engine import AgentHomeEngine
 from .errors import (
@@ -30,7 +30,6 @@ class HomeBackgroundContentLoader:
         except AgentHomeRuntimeCopyRequired as exc:
             raise self.runtime_bridge.runtime_copy_required(
                 link=exc.link,
-                message=str(exc),
                 payload=exc.to_payload(),
             ) from exc
         except AgentHomeError as exc:

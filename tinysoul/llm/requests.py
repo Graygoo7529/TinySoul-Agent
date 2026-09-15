@@ -30,8 +30,8 @@ class TaskProfile(StrEnum):
 class ModelContextOverflowPolicy(StrEnum):
     """How a caller handles a model context hard-water failure."""
 
-    END_TURN = "end_turn"
-    RECOMPOSE_CONTEXT = "recompose_context"
+    FAIL = "fail"
+    REQUEST_RECOVERY = "request_recovery"
 
 
 @dataclass(frozen=True)
@@ -142,7 +142,7 @@ class TaskCall:
     settings: CallSettings = field(default_factory=CallSettings)
     scope: RunScope = field(default_factory=RunScope)
     context_overflow_policy: ModelContextOverflowPolicy = (
-        ModelContextOverflowPolicy.END_TURN
+        ModelContextOverflowPolicy.FAIL
     )
     cancellation: TaskCancellation | None = None
 

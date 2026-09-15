@@ -79,21 +79,18 @@ from tinysoul.runtime import (
     RuntimeGenerationError,
     SignalBus,
 )
-from tinysoul.runtime.bridge import (
-    RuntimeActionBridge,
-    RuntimeAgentHomeBridge,
-    RuntimeAppBridge,
-    RuntimeContextBridge,
-    RuntimeInfraBridge,
-    RuntimeLLMBridge,
-    RuntimeLoopBridge,
-    RuntimeMemoryBridge,
-    RuntimeSessionBridge,
-    RuntimeScriptBridge,
-    RuntimeShellBridge,
-    RuntimeSupervisedProcessBridge,
-    RuntimeWorkspaceBridge,
-)
+from tinysoul.action.runtime_bridge import RuntimeActionBridge
+from tinysoul.home.runtime_bridge import RuntimeAgentHomeBridge
+from tinysoul.app.runtime_bridge import RuntimeAppBridge
+from tinysoul.context.runtime_bridge import RuntimeContextBridge
+from tinysoul.llm.runtime_bridge import RuntimeLLMBridge
+from tinysoul.loop.runtime_bridge import RuntimeLoopBridge
+from tinysoul.memory.runtime_bridge import RuntimeMemoryBridge
+from tinysoul.session.runtime_bridge import RuntimeSessionBridge
+from tinysoul.capabilities.script.runtime_bridge import RuntimeScriptBridge
+from tinysoul.capabilities.shell.runtime_bridge import RuntimeShellBridge
+from tinysoul.capabilities.supervised_process.runtime_bridge import RuntimeSupervisedProcessBridge
+from tinysoul.workspace.runtime_bridge import RuntimeWorkspaceBridge
 from tinysoul.session import SessionEngine, parse_session_settings
 from tinysoul.session.errors import SessionError
 from tinysoul.workspace import (
@@ -230,7 +227,6 @@ class TinySoulAppBuilder:
 
     def build(self) -> TinySoulApp:
         app_bridge = RuntimeAppBridge()
-        infra_bridge = RuntimeInfraBridge()
         llm_bridge = RuntimeLLMBridge()
         maintenance_bridge = MaintenanceRuntimeBridge()
         try:
@@ -442,15 +438,15 @@ class TinySoulAppBuilder:
                 endpoint=endpoint,
             )
         except ConfigCatalogError as exc:
-            raise infra_bridge.startup_failure(
-                message=str(exc),
+            raise app_bridge.startup_failure(
+                message="Project configuration catalog could not be loaded.",
                 payload={"error_type": type(exc).__name__},
             ) from exc
         except ConfigError as exc:
-            raise infra_bridge.from_config_error(exc) from exc
+            raise self._map_owned_config_error(exc) from exc
         except ProviderError as exc:
             raise llm_bridge.startup_failure(
-                message=str(exc),
+                message="LLM provider could not be initialized.",
                 payload={"error_type": type(exc).__name__},
             ) from exc
         except AppError as exc:
@@ -763,9 +759,8 @@ class TinySoulAppBuilder:
             "session": RuntimeSessionBridge(),
             "workspace": RuntimeWorkspaceBridge(),
             "maintenance": MaintenanceRuntimeBridge(),
-            "infra": RuntimeInfraBridge(),
         }
-        bridge = bridges.get(key, RuntimeInfraBridge())
+        bridge = bridges.get(key, RuntimeAppBridge())
         return bridge.from_config_error(error)
 
     def _build_llm(
@@ -855,7 +850,7 @@ class TinySoulAppBuilder:
             raise bridge.from_config_error(exc) from exc
         except AgentHomeError as exc:
             raise bridge.startup_failure(
-                message=str(exc),
+                message="Home could not be initialized.",
                 payload={"error_type": type(exc).__name__},
             ) from exc
 
@@ -881,7 +876,7 @@ class TinySoulAppBuilder:
             raise bridge.from_config_error(exc) from exc
         except WorkspaceError as exc:
             raise bridge.startup_failure(
-                message=str(exc),
+                message="Workspace could not be initialized.",
                 payload={"error_type": type(exc).__name__},
             ) from exc
 
@@ -907,7 +902,7 @@ class TinySoulAppBuilder:
             raise bridge.from_config_error(exc) from exc
         except MemoryError as exc:
             raise bridge.startup_failure(
-                message=str(exc),
+                message="Memory could not be initialized.",
                 payload={"error_type": type(exc).__name__},
             ) from exc
 
@@ -967,7 +962,7 @@ class TinySoulAppBuilder:
             raise bridge.from_config_error(exc) from exc
         except SessionError as exc:
             raise bridge.startup_failure(
-                message=str(exc),
+                message="Session could not be initialized.",
                 payload={"error_type": type(exc).__name__},
             ) from exc
 

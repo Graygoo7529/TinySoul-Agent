@@ -8,7 +8,7 @@ import json
 from typing import Protocol
 
 from tinysoul.context import BackgroundCatalog, BackgroundCatalogItem
-from tinysoul.runtime.bridge import RuntimeMemoryBridge
+from tinysoul.memory.runtime_bridge import RuntimeMemoryBridge
 
 from .active import ActiveMemorySnapshot
 from .engine import MemoryEngine

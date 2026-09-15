@@ -9,7 +9,7 @@ from tinysoul.endpoint.errors import (
 )
 from tinysoul.endpoint.failures import EndpointFailureKind
 from tinysoul.runtime import RUNTIME_STARTUP_FAILED
-from tinysoul.runtime.bridge import RuntimeEndpointBridge
+from tinysoul.endpoint.runtime_bridge import RuntimeEndpointBridge
 
 
 @pytest.mark.parametrize(
@@ -31,3 +31,4 @@ def test_endpoint_bridge_maps_startup_failures(
     assert failure.reason == RUNTIME_STARTUP_FAILED
     assert failure.payload["module"] == "endpoint"
     assert failure.payload["kind"] == kind.value
+    assert str(error) not in failure.message

@@ -11,15 +11,21 @@ from tinysoul.endpoint.errors import (
 )
 from tinysoul.endpoint.failures import EndpointFailureKind
 from tinysoul.infra.json import JsonObject
-
-from ..exception import RUNTIME_STARTUP_FAILED, RuntimeException
-from ._payload import exception_payload, runtime_exception
+from tinysoul.runtime.exception import RUNTIME_STARTUP_FAILED, RuntimeException
+from tinysoul.runtime.failures import exception_payload, runtime_exception
 
 
 ENDPOINT_RUNTIME_REASON_MAP: dict[EndpointFailureKind, str] = {
     EndpointFailureKind.CONFIGURATION_FAILED: RUNTIME_STARTUP_FAILED,
     EndpointFailureKind.SERVER_FAILED: RUNTIME_STARTUP_FAILED,
     EndpointFailureKind.INTERNAL_FAILURE: RUNTIME_STARTUP_FAILED,
+}
+
+
+ENDPOINT_FAILURE_MESSAGES: dict[EndpointFailureKind, str] = {
+    EndpointFailureKind.CONFIGURATION_FAILED: "Endpoint configuration is invalid.",
+    EndpointFailureKind.SERVER_FAILED: "Endpoint service could not start.",
+    EndpointFailureKind.INTERNAL_FAILURE: "Endpoint operation failed internally.",
 }
 
 
@@ -37,7 +43,7 @@ class RuntimeEndpointBridge:
         return runtime_exception(
             module="endpoint",
             kind=kind,
-            reason_map=ENDPOINT_RUNTIME_REASON_MAP,
+            reason=ENDPOINT_RUNTIME_REASON_MAP[kind],
             message=message,
             payload=payload,
         )
@@ -50,6 +56,6 @@ class RuntimeEndpointBridge:
             kind = EndpointFailureKind.SERVER_FAILED
         return self.from_failure(
             kind,
-            message=str(error),
+            message=ENDPOINT_FAILURE_MESSAGES[kind],
             payload=exception_payload(error),
         )

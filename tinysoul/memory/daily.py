@@ -179,7 +179,7 @@ class LLMDailyMemoryComposer:
                     tool_use=ToolUse.DISABLED,
                 ),
                 scope=scope,
-                context_overflow_policy=ModelContextOverflowPolicy.END_TURN,
+                context_overflow_policy=ModelContextOverflowPolicy.FAIL,
             )
         )
         if result.status is TaskResultStatus.FAILURE or not isinstance(result.answer, JsonAnswer):

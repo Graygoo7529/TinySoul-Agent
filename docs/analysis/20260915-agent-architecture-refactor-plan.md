@@ -551,7 +551,7 @@ WS 断开不取消 Turn；问题可由状态查询恢复，Observation gap 不�
 | 阶段 | 范围 | 必需证据 |
 |---|---|---|
 | S0 | 已记录架构/SUSPEND/Inbox 确认；同步 AGENTS，细化动作组合与连接契约 | 无冲突目标、待决有状态 |
-| S1 | bridge 归 owner、async LLM、事件/取消原语、import 检查 | frame 重放、取消身份、旁路隔离 |
+| S1 | R1 已完成：bridge 归 owner、失败协议、LLM 容量恢复、import/重放检查；async LLM、事件/取消原语仍待实施 | R1：Fast/Full/typecheck 与依赖审计通过；剩余项沿原验收继续 |
 | S2 | 新内核/SDK/CLI/段/Job/等待；同步迁移所有旧内核消费者至新公共入口、插件接入与打包 | 完整导入图可用，submit→wait→resume→finish；既有 owner 可通过新架构运行 |
 | S3 | 在 S2 可运行架构上深化 Session Map、Workspace 去 CAS、精简 Reflection、execution 合并等领域语义 | 各 owner 正反路径、完整日切；无旧业务契约残余 |
 | S4 | fswatch/scheduler、ask/reply、容量、reload/restart、完整监督 | 暂停收事件、午夜、短操作取消与进程回收 |

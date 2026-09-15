@@ -2,7 +2,7 @@
 
 ## 定位
 
-Runtime 是 TinySoul 的顶层运行控制模块。它负责描述程序运行位置、异常陷入、运行转移、运行中断、内部信号分发和非控制性观察事件协议。
+Runtime 是 TinySoul 的底层运行控制协议模块。它负责描述程序运行位置、异常陷入、运行转移、运行中断、内部信号分发和非控制性观察事件协议。
 
 Runtime 不负责执行业务动作，不构造模型消息栈，不修改语境状态，不读写 Workspace、Agent Home 或 Memory，也不解释 LLM、Action、Context 的业务结果。具体模块负责完成自身局部处理，并在模块边界通过异常或信号向 Runtime 和其他模块表达需要上层协调的运行事实。
 
@@ -28,7 +28,7 @@ Runtime 使用运行位置记录当前执行栈。运行位置应能表达 Progr
 
 异常用于表达执行失败、运行恢复需求和中断请求。异常的核心作用是进入 Trap，并由 Trap 处理器决定后续运行转移。
 
-模块内部可以先执行局部恢复。例如 LLM 模块负责模型链重试、模型切换和响应解释；Action 执行器负责把 Action 运行失败、超时或参数错误结构化为 Action Result；Phase 可以把一次无法解析的 LLM 输出反馈到下一次同 Phase 的模型调用中。上述情况只要能在模块或 Phase 内完成，就不需要进入全局 Runtime 陷入。
+模块内部可以先执行局部恢复。例如 LLM 模块负责模型链重试、模型切换和响应解释；Action 执行器负责把 Action 运行失败、超时或参数错误结构化为 Action Result。Phase1/Phase2 的可修正协议失败形成 PhaseFailure，在失败 Phase 边界结束当前 Cycle，反馈进入下一完整 Cycle，不在同一 Phase 内重复协议调用。这些局部结果不进入全局 Runtime 陷入。
 
 模块内部可以使用普通 Python 异常或模块私有异常表达内部失败，例如参数错误、供应商错误、解析错误或局部状态错误。这些异常不应直接跨出模块边界进入 Runtime。模块边界负责捕获内部异常，先执行局部恢复、错误映射或结果结构化；只有确实需要上层运行控制介入时，才转换为 Runtime 可理解的语义异常。这样可以避免 Runtime 被供应商、解析器或具体模块内部错误类型污染。
 
@@ -44,7 +44,7 @@ TrapSnap 是 Trap 捕获异常后形成的陷入上下文快照。它包含原�
 
 ## 模块接入约定
 
-其他模块接入 Runtime 时应遵循与 LLM 和 Infra 一致的桥接模式。
+业务模块接入 Runtime 时使用 owner 自带的 runtime_bridge.py。Runtime 不导入任何上层 owner，包括类型检查分支与延迟导入；Infra 不导入 Runtime，也不设置 Infra bridge。
 
 模块内部先定义服务于 Runtime bridge 的稳定失败语义。稳定失败语义属于模块，而不是 Runtime；它用于表达该模块跨出边界后需要 Runtime 协调控制流的失败类别。模块内部可自行处理或结构化返回给调用方的失败不必纳入 bridge failure 枚举；这类失败应使用模块结果、模型反馈或专门的局部结果协议表达。模块内部临时异常、实现细节异常和第三方库异常不应直接成为跨模块协议。
 
@@ -52,11 +52,13 @@ TrapSnap 是 Trap 捕获异常后形成的陷入上下文快照。它包含原�
 
 Runtime bridge 是模块失败语义和 Runtime 通用原因之间的唯一翻译层。bridge 应通过显式映射表把模块失败类型映射为 Runtime 原因，并显式构造错误消息和 JSON payload。payload 至少应表达模块名和模块失败类型，并可包含 `error_type`、配置 key、任务 profile、资源句柄等稳定摘要字段。traceback 和原始异常对象不属于 payload 协议；实现上可以通过异常链保留调试信息。
 
-不同 bridge 可以复用私有 helper 完成机械性的 payload 拼装、异常类型摘要和 `ConfigError` 投影，但模块名、模块 failure enum、Runtime reason 映射表和专用恢复入口仍保留在各自 bridge 文件中。公共 helper 不承担模块失败分类，也不决定控制流语义。
+各 bridge 复用公开的 `runtime/failures.py` 构造 RuntimeException 和异常类型摘要；纯 ConfigError 投影由 `infra/config/errors.py` 提供。模块名、failure enum、failure→reason 映射表与诊断语义仍由 owner 维护。message 使用明确的失败摘要，payload 不包含原始异常文本、配置原值、绝对路径或完整资源正文；保留容量度量、保护 Link 等实际恢复输入。公共 helper 不分类业务失败，不决定控制流。
 
 模块事件和状态变更请求不应通过 Runtime 异常表达。模块完成一次动作、产生状态 patch、需要追加 TurnTrace 或需要通知其他模块消费数据时，应发出信号；只需要向外部报告运行边界时应发布 ObservationEvent。只有结束 Turn、结束 Cycle、结束 Program、触发全局恢复或启动失败这类控制流变化，才进入 Runtime Trap。
 
 ## 运行转移
+
+Runtime 只声明自身 startup/turn_end/cycle_end/program_end 原因。Context、Home、Workspace 的恢复原因由各自 failures.py 声明；LLM 声明独立的 `llm.context_capacity_exceeded`，不引用 Context。User 与 Maintenance 装配将 LLM 容量原因和 Context 预算原因登记到各自压力策略，是否回收与重建由调用方决定。
 
 Runtime 的陷入结果是运行转移。运行转移应指向运行位置栈中的 frame，使运行器能够明确知道 Trap 处理结束后应重试或结束哪个运行边界。
 
@@ -153,13 +155,13 @@ Trap 的异常入口接收 Runtime 语义异常和运行位置，转换为 TrapS
 
 Trap 不执行 LLM 调用，不重跑 Phase，不修改 Context，不写 Action Record，也不直接写 Workspace。它只负责把 Runtime 语义异常转换为运行转移，并把必要的副作用意图表达为信号。具体恢复任务由注册的 Trap 处理器执行；具体运行跳转由 Program、Turn、Phase 或 Module 运行器执行。
 
-这种边界避免将旧实现中的 trap、interrupt handler、QueryState 和 Action Record 绑定在一起。Runtime 提供控制协议；Loop、Context、Action、LLM 和 Infra 在各自边界内接入。
+这种边界避免将旧实现中的 trap、interrupt handler、QueryState 和 Action Record 绑定在一起。Runtime 提供控制协议；Loop、Context、Action 和 LLM 在各自边界内接入；Infra 失败由实际调用 owner 解释。
 
 ## 与 LLM 的关系
 
 LLM 模块保持现有边界：它负责模型调用输入输出的统一表达、供应商适配、能力校验、模型选择、重试切换和输出解释。LLM 不执行 Action，不修改 Context，不消费 Control Tool 或 Action Tool 的业务语义。
 
-LLM 内部的 provider 错误、模型链切换和有限重试属于局部恢复，不进入 Runtime。暂时性供应商错误可以在同一模型上重试；其他供应商错误默认跳过同模型重试并切换到下一个模型。模型链耗尽、调用设置不满足、调用契约错误等跨出 LLM 边界的失败，由 LLM bridge 根据模块失败类型映射为 Runtime 通用原因，默认结束当前 Turn。Phase 可以先进行局部反馈和重试；局部策略耗尽后，再交给 Runtime 陷入处理。
+LLM 内部的 provider 错误、模型链切换和有限重试属于局部恢复，不进入 Runtime。暂时性供应商错误可以在同一模型上重试；其他供应商错误默认跳过同模型重试并切换到下一个模型。模型链耗尽、调用设置不满足、调用契约错误等跨出 LLM 边界的失败，由 LLM bridge 根据模块失败类型映射为 Runtime 通用原因，默认结束当前 Turn。Phase 协议失败返回局部结果，由下一完整 Cycle 反馈；模块边界失败才交给 Runtime。
 
 LLM 输出解释失败不默认进入 Runtime。若模型调用已经成功返回，但回答无法解析或工具调用不满足任务解释协议，LLM Task 可以返回失败任务结果，其中 `model_feedback` 提供给模型看的简短错误反馈，框架内部数据只作为上层参考。调用方模块据此决定是否把反馈加入下一次任务提示、结束当前 Cycle，或在局部策略耗尽后再通过 Runtime 语义异常进入 Trap。模型链耗尽、调用契约错误、无法在模块内继续处理的供应商错误等需要改变运行控制流的情况，才通过专门桥接层转换为 Runtime 语义异常。
 
@@ -171,9 +173,9 @@ LLM 是模块接入 Runtime 的参考实现之一。供应商错误先由 LLM �
 
 Infra 继续提供配置、JSON 边界和受控文件系统能力。Runtime 可以使用 Infra 的 JSON 基础能力约束信号载荷和异常详情，但 Runtime 不属于 Infra。
 
-配置加载错误可以在配置模块边界转换为表示启动失败的 Runtime 语义异常。观察事件由 Runtime 或业务运行器通过 ObservationEmitter 发布，并由 App 输出边界渲染；Infra 不拥有终端输出语义。资源读写、Workspace 边界检查和 Agent Home 运行时副本机制应由对应资源模块实现；当这些机制需要全局恢复流程时，再通过 Runtime 语义异常或 Runtime 保留信号进入 Trap。
+配置加载错误由 App 装配边界转换为启动失败，各业务模块的配置解释错误仍归各自 bridge。观察事件由 Runtime 或业务运行器通过 ObservationEmitter 发布，并由 App 输出边界渲染；Infra 不拥有终端输出语义。资源读写、Workspace 边界检查和 Agent Home 运行时副本机制应由对应资源模块实现；当这些机制需要全局恢复流程时，再通过 Runtime 语义异常或 Runtime 保留信号进入 Trap。
 
-Infra 自身不表达 Runtime 控制流。当前 Infra bridge 只映射配置加载失败为启动失败；JSON 与文件系统边界错误由实际拥有该调用流程的业务模块局部处理或归入自身 bridge，不维持没有真实调用路径的通用失败分类。
+Infra 自身不表达 Runtime 控制流，不保留 InfraFailureKind 或 RuntimeInfraBridge。JSON、配置与文件系统异常由实际调用 owner 局部处理或归入自身 bridge；共享配置源失败归 App，UserTurnBuilder 的 staging 失败归 Loop 的资源准备失败。
 
 ## 设计范围
 

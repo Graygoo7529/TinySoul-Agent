@@ -12,15 +12,15 @@ from tinysoul.loop.trap_handlers import (
     ContextPressureTrapHandler,
 )
 from tinysoul.loop.user.trap_handlers import WorkspaceTrashRestoreTrapHandler
+from tinysoul.context.failures import CONTEXT_COMPRESSION_REQUIRED
+from tinysoul.workspace.failures import WORKSPACE_TRASH_RESTORE_REQUIRED
 from tinysoul.runtime import (
-    CONTEXT_COMPRESSION_REQUIRED,
     CyclePhase,
     RunLevel,
     RunScope,
     RuntimeTransferAction,
     SignalBus,
     TrapSnap,
-    WORKSPACE_TRASH_RESTORE_REQUIRED,
 )
 from tinysoul.workspace import WorkspaceEngineBuilder, WorkspaceSettings
 from tinysoul.workspace.projection import workspace_snapshot_signal

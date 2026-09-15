@@ -7,6 +7,13 @@ from typing import cast
 import pytest
 
 from tinysoul.infra.config import ConfigError, ConfigSource, ConfigSourceKind
+from tinysoul.infra.config.errors import config_error_payload
+
+
+def test_config_diagnostics_exclude_source_value_and_free_text() -> None:
+    error = ConfigError("private message", key="k" * 300,
+                        source="C:/private/config.toml", value=object(), expected="e" * 300)
+    assert config_error_payload(error) == {"key": "k" * 256, "expected": "e" * 256}
 
 
 def test_config_source_rejects_empty_name_as_config_error() -> None:

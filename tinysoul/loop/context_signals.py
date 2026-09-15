@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from tinysoul.context import ContextEngine, ControlResult
 from tinysoul.context.errors import ContextError
 from tinysoul.runtime import RunScope, RuntimeModuleRunner, Signal, SignalBus
-from tinysoul.runtime.bridge import RuntimeContextBridge
+from tinysoul.context.runtime_bridge import RuntimeContextBridge
 
 
 @dataclass(frozen=True)

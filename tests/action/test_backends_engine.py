@@ -45,7 +45,11 @@ from tinysoul.action.core.specs import (
     ActionToolSpec,
 )
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
-from tinysoul.runtime import HOME_RUNTIME_COPY_REQUIRED, RunScope, RuntimeException
+from tinysoul.home.failures import HOME_RUNTIME_COPY_REQUIRED
+from tinysoul.runtime import (
+    RunScope,
+    RuntimeException,
+)
 from tests.action_helpers import (
     FunctionActionEngineBuilder,
     FunctionActionExecutor,

@@ -33,9 +33,8 @@ class AgentHomeRuntimeCopyRequired(AgentHomeError):
         self.runtime_path = runtime_path
 
     def to_payload(self) -> JsonObject:
+        """Project recovery identity; physical paths stay on the local exception."""
         return {
             "link": self.link,
-            "source_path": str(self.source_path),
-            "runtime_path": str(self.runtime_path),
             "error_type": type(self).__name__,
         }

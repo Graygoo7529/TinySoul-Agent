@@ -23,20 +23,19 @@ from tinysoul.home import (
 from tinysoul.home.errors import AgentHomeError
 from tinysoul.infra import StagingDirectoryManager, StagingError
 from tinysoul.loop.assembly import build_turn_kernel
+from tinysoul.loop.failures import LoopFailureKind
+from tinysoul.loop.runtime_bridge import RuntimeLoopBridge
 from tinysoul.loop.completion import TurnCompletionHandler, TurnCompletionPipeline
 from tinysoul.loop.config import LoopSettings
 from tinysoul.loop.preparation import TurnPreparationPipeline
 from tinysoul.loop.prompts import DomainSkillProvider
 from tinysoul.memory import MemoryEngine
 from tinysoul.runtime import ObservationEmitter, SignalBus
-from tinysoul.runtime.bridge import (
-    RuntimeAgentHomeBridge,
-    RuntimeContextBridge,
-    RuntimeInfraBridge,
-    RuntimeSessionBridge,
-    RuntimeSupervisedProcessBridge,
-    RuntimeWorkspaceBridge,
-)
+from tinysoul.home.runtime_bridge import RuntimeAgentHomeBridge
+from tinysoul.context.runtime_bridge import RuntimeContextBridge
+from tinysoul.session.runtime_bridge import RuntimeSessionBridge
+from tinysoul.capabilities.supervised_process.runtime_bridge import RuntimeSupervisedProcessBridge
+from tinysoul.workspace.runtime_bridge import RuntimeWorkspaceBridge
 from tinysoul.session import SessionEngine
 from tinysoul.session.projection import (
     SessionTurnCompletionHandler,
@@ -136,9 +135,9 @@ class UserTurnBuilder:
             try:
                 staging.prepare()
             except StagingError as exc:
-                raise RuntimeInfraBridge().startup_failure(
-                    message=str(exc),
-                    payload={"error_type": type(exc).__name__},
+                raise RuntimeLoopBridge().from_exception(
+                    LoopFailureKind.RESOURCE_PREPARATION_FAILED,
+                    exc,
                 ) from exc
             process_jobs = SupervisedProcessManager(
                 settings=self._capabilities_settings.supervised_process,
@@ -195,7 +194,7 @@ class UserTurnBuilder:
             )
         except AgentHomeError as exc:
             raise RuntimeAgentHomeBridge().startup_failure(
-                message=str(exc),
+                message="Home action guidance could not be validated.",
                 payload={"error_type": type(exc).__name__},
             ) from exc
 

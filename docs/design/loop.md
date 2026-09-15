@@ -102,7 +102,9 @@ Phase1/Phase2 的共用 task prompt 可以叠加 `turn_guidance`。User profile 
 
 ## Trap 与失败
 
-各运行器只在自己的 frame 边界消费 Runtime transfer。通用 handler 只包含 frame 与 pressure 协议；User runtime policy 额外注册 Home runtime copy、active Workspace pressure cleanup 和 Workspace trash restore，Maintenance runtime policy 只注册 Context pressure。`MaintenanceTurnEntry` 解释通用 Turn outcome 并将指向 Program 的 transfer 以 `RuntimeTransferInterrupt` 原样展开，task 不直接依赖 `TurnRunner`/`TurnOutcomeStatus`；Program 使用独立 Program-only trap。
+Loop bridge 位于自身 runtime_bridge.py。配置、调用契约与内部不变量分别归类，UserTurnBuilder 的 staging 失败归资源准备失败并映射为启动失败；桥接诊断不串接原始异常文本。
+
+各运行器只在自己的 frame 边界消费 Runtime transfer。通用 handler 只包含 frame 与 pressure 协议；User runtime policy 额外注册 Home runtime copy、active Workspace pressure cleanup 和 Workspace trash restore，Maintenance runtime policy 只注册自身 Context pressure。两种 policy 均接收 Context 预算原因与 LLM 容量原因；有进展时重试最近可重放 Module/Phase，无进展则结束 Turn。`MaintenanceTurnEntry` 解释通用 Turn outcome 并将指向 Program 的 transfer 以 `RuntimeTransferInterrupt` 原样展开，task 不直接依赖 `TurnRunner`/`TurnOutcomeStatus`；Program 使用独立 Program-only trap。
 
 Action 局部失败留在 ActionResult 中供下一 Cycle 修正。LLM 链耗尽、Context 不变量或 owner preparation failure 经模块 bridge 进入 Runtime，再形成有界 `TurnFailure`。User answer、用户 stop/exit 和正常 Maintenance completion 不伪装为失败。
 

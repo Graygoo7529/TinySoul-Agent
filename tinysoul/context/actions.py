@@ -14,7 +14,7 @@ from tinysoul.action import (
     ActionTraceProjection,
 )
 from tinysoul.infra.json import JsonObject
-from tinysoul.runtime.bridge import RuntimeContextBridge
+from tinysoul.context.runtime_bridge import RuntimeContextBridge
 
 from .engine import ContextEngine
 from .errors import (

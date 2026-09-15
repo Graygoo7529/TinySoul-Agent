@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 
@@ -48,10 +48,14 @@ from tinysoul.llm.errors import LLMContractError, TaskCancelled
 from tinysoul.llm.task import (
     LLMTaskRunner,
 )
-from tinysoul.runtime.exception import (
-    CONTEXT_COMPRESSION_REQUIRED,
+from tinysoul.llm.failures import LLM_CONTEXT_CAPACITY_EXCEEDED
+from tinysoul.runtime import (
     RUNTIME_TURN_END,
     RuntimeException,
+    RuntimeTransferInterrupt,
+    RuntimeTransfer,
+    RunFrame,
+    RunLevel,
 )
 from tinysoul.runtime import ObservationEvent, ObservationLevel
 from tinysoul.llm.tools import (
@@ -320,15 +324,15 @@ def test_context_hard_water_requests_runtime_recomposition_before_provider() -> 
                 profile="framework",
                 messages=MessageStack.of(UserMessage.from_text("hello")),
                 context_overflow_policy=(
-                    ModelContextOverflowPolicy.RECOMPOSE_CONTEXT
+                    ModelContextOverflowPolicy.REQUEST_RECOVERY
                 ),
             )
         )
 
-    assert exc_info.value.reason == CONTEXT_COMPRESSION_REQUIRED
+    assert exc_info.value.reason == LLM_CONTEXT_CAPACITY_EXCEEDED
     assert (
         exc_info.value.payload["kind"]
-        == LLMFailureKind.MODEL_CONTEXT_COMPRESSION_REQUIRED
+        == LLMFailureKind.MODEL_CONTEXT_PRESSURE
     )
     assert exc_info.value.payload["used_tokens"] == 81
     assert exc_info.value.payload["trigger_tokens"] == 80
@@ -421,13 +425,13 @@ def test_smaller_fallback_requests_recomposition_without_chain_checkpoint() -> N
     call = TaskCall(
         profile="framework",
         messages=MessageStack.of(UserMessage.from_text("hello")),
-        context_overflow_policy=ModelContextOverflowPolicy.RECOMPOSE_CONTEXT,
+        context_overflow_policy=ModelContextOverflowPolicy.REQUEST_RECOVERY,
     )
 
     with pytest.raises(RuntimeException) as exc_info:
         runner.run(call)
 
-    assert exc_info.value.reason == CONTEXT_COMPRESSION_REQUIRED
+    assert exc_info.value.reason == LLM_CONTEXT_CAPACITY_EXCEEDED
     assert exc_info.value.payload["model_id"] == "small"
     assert provider.calls == ["large"]
 
@@ -462,12 +466,12 @@ def test_provider_context_limit_uses_same_recomposition_path() -> None:
                 profile="framework",
                 messages=MessageStack.of(UserMessage.from_text("hello")),
                 context_overflow_policy=(
-                    ModelContextOverflowPolicy.RECOMPOSE_CONTEXT
+                    ModelContextOverflowPolicy.REQUEST_RECOVERY
                 ),
             )
         )
 
-    assert exc_info.value.reason == CONTEXT_COMPRESSION_REQUIRED
+    assert exc_info.value.reason == LLM_CONTEXT_CAPACITY_EXCEEDED
     assert exc_info.value.payload["provider_reported_limit"] is True
     assert provider.calls == ["model"]
 
@@ -1356,6 +1360,37 @@ def test_model_chain_exhaustion_payload_reports_non_transient_provider_error() -
     assert exc_info.value.payload["last_error_type"] == "ProviderError"
     assert exc_info.value.payload["provider_error_kind"] == "config"
     assert provider.calls == ["a", "b"]
+
+
+@pytest.mark.parametrize(
+    "control",
+    (
+        RuntimeException(reason=RUNTIME_TURN_END, message="Stop."),
+        RuntimeTransferInterrupt(RuntimeTransfer.end(RunFrame(RunLevel.TURN, "turn"))),
+        TaskCancelled("cancelled"),
+    ),
+    ids=("runtime_exception", "resolved_transfer", "task_cancelled"),
+)
+def test_classified_control_preserves_identity_without_retry(control: Exception) -> None:
+    class ControlledProvider(FakeProvider):
+        def invoke(self, request: ProviderRequest) -> RawResponse:
+            self.calls.append(request.model.id)
+            raise control
+
+    provider = ControlledProvider(provider_id="fake")
+    runner = LLMTaskRunner(
+        models=_models("a", "b"),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(ModelChain(profile="framework", model_ids=("a", "b"))),
+    )
+
+    with pytest.raises(type(control)) as raised:
+        runner.run(TaskCall(
+            profile="framework", messages=MessageStack.of(UserMessage.from_text("hello")),
+        ))
+
+    assert raised.value is control
+    assert provider.calls == ["a"]
 
 
 def test_programming_error_aborts_chain_without_switching_models() -> None:

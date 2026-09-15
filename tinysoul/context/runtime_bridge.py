@@ -9,23 +9,26 @@ from tinysoul.context.errors import (
     ContextContractError,
     ContextInvariantError,
 )
-from tinysoul.context.failures import ContextFailureKind
+from tinysoul.context.failures import ContextFailureKind, CONTEXT_COMPRESSION_REQUIRED
 from tinysoul.infra.config import ConfigError
+from tinysoul.infra.config.errors import config_error_payload
 from tinysoul.infra.json import JsonObject
-
-from ..exception import (
-    CONTEXT_COMPRESSION_REQUIRED,
-    RUNTIME_STARTUP_FAILED,
-    RUNTIME_TURN_END,
-    RuntimeException,
-)
-from ._payload import config_error_payload, exception_payload, runtime_exception
+from tinysoul.runtime import RUNTIME_STARTUP_FAILED, RUNTIME_TURN_END, RuntimeException
+from tinysoul.runtime.failures import exception_payload, runtime_exception
 
 CONTEXT_RUNTIME_REASON_MAP: dict[ContextFailureKind, str] = {
     ContextFailureKind.CONFIGURATION_FAILED: RUNTIME_STARTUP_FAILED,
     ContextFailureKind.CONTRACT_VIOLATION: RUNTIME_TURN_END,
     ContextFailureKind.INTERNAL_FAILURE: RUNTIME_TURN_END,
     ContextFailureKind.BUDGET_EXCEEDED: CONTEXT_COMPRESSION_REQUIRED,
+}
+
+
+CONTEXT_FAILURE_MESSAGES: dict[ContextFailureKind, str] = {
+    ContextFailureKind.CONFIGURATION_FAILED: "Context configuration is invalid.",
+    ContextFailureKind.CONTRACT_VIOLATION: "Context call violated its contract.",
+    ContextFailureKind.INTERNAL_FAILURE: "Context operation failed internally.",
+    ContextFailureKind.BUDGET_EXCEEDED: "Context exceeds its capacity budget.",
 }
 
 
@@ -43,7 +46,7 @@ class RuntimeContextBridge:
         return runtime_exception(
             module="context",
             kind=kind,
-            reason_map=CONTEXT_RUNTIME_REASON_MAP,
+            reason=CONTEXT_RUNTIME_REASON_MAP[kind],
             message=message,
             payload=payload,
         )
@@ -57,7 +60,7 @@ class RuntimeContextBridge:
     ) -> RuntimeException:
         return self.from_failure(
             kind,
-            message=str(error),
+            message=CONTEXT_FAILURE_MESSAGES[kind],
             payload=exception_payload(error, payload),
         )
 
@@ -103,6 +106,6 @@ class RuntimeContextBridge:
     def from_config_error(self, error: ConfigError) -> RuntimeException:
         return self.from_failure(
             ContextFailureKind.CONFIGURATION_FAILED,
-            message=error.message,
+            message=CONTEXT_FAILURE_MESSAGES[ContextFailureKind.CONFIGURATION_FAILED],
             payload=config_error_payload(error),
         )

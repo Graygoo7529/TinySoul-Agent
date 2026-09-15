@@ -5,17 +5,30 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from tinysoul.infra.config import ConfigError
+from tinysoul.infra.config.errors import config_error_payload
 from tinysoul.infra.json import JsonObject
-from tinysoul.loop.errors import LoopContractError, LoopInvariantError
+from tinysoul.loop.errors import LoopContractError
 from tinysoul.loop.failures import LoopFailureKind
-
-from ..exception import RUNTIME_STARTUP_FAILED, RUNTIME_TURN_END, RuntimeException
-from ._payload import config_error_payload, exception_payload, runtime_exception
+from tinysoul.runtime.exception import (
+    RUNTIME_STARTUP_FAILED,
+    RUNTIME_TURN_END,
+    RuntimeException,
+)
+from tinysoul.runtime.failures import exception_payload, runtime_exception
 
 LOOP_RUNTIME_REASON_MAP: dict[LoopFailureKind, str] = {
     LoopFailureKind.CONFIGURATION_FAILED: RUNTIME_STARTUP_FAILED,
+    LoopFailureKind.RESOURCE_PREPARATION_FAILED: RUNTIME_STARTUP_FAILED,
     LoopFailureKind.CONTRACT_VIOLATION: RUNTIME_TURN_END,
     LoopFailureKind.INTERNAL_FAILURE: RUNTIME_TURN_END,
+}
+
+
+LOOP_FAILURE_MESSAGES: dict[LoopFailureKind, str] = {
+    LoopFailureKind.CONFIGURATION_FAILED: "Loop configuration is invalid.",
+    LoopFailureKind.RESOURCE_PREPARATION_FAILED: "Turn execution resources could not be prepared.",
+    LoopFailureKind.CONTRACT_VIOLATION: "Loop call violated its contract.",
+    LoopFailureKind.INTERNAL_FAILURE: "Loop operation failed internally.",
 }
 
 
@@ -33,7 +46,7 @@ class RuntimeLoopBridge:
         return runtime_exception(
             module="loop",
             kind=kind,
-            reason_map=LOOP_RUNTIME_REASON_MAP,
+            reason=LOOP_RUNTIME_REASON_MAP[kind],
             message=message,
             payload=payload,
         )
@@ -47,7 +60,7 @@ class RuntimeLoopBridge:
     ) -> RuntimeException:
         return self.from_failure(
             kind,
-            message=str(error),
+            message=LOOP_FAILURE_MESSAGES[kind],
             payload=exception_payload(error, payload),
         )
 
@@ -58,7 +71,7 @@ class RuntimeLoopBridge:
         payload: JsonObject | None = None,
     ) -> RuntimeException:
         kind = LoopFailureKind.INTERNAL_FAILURE
-        if isinstance(error, (LoopContractError, LoopInvariantError)):
+        if isinstance(error, LoopContractError):
             kind = LoopFailureKind.CONTRACT_VIOLATION
         return self.from_exception(kind, error, payload=payload)
 
@@ -77,6 +90,6 @@ class RuntimeLoopBridge:
     def from_config_error(self, error: ConfigError) -> RuntimeException:
         return self.from_failure(
             LoopFailureKind.CONFIGURATION_FAILED,
-            message=error.message,
+            message=LOOP_FAILURE_MESSAGES[LoopFailureKind.CONFIGURATION_FAILED],
             payload=config_error_payload(error),
         )

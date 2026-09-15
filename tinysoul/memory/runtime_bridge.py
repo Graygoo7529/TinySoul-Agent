@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from tinysoul.infra.config import ConfigError
+from tinysoul.infra.config.errors import config_error_payload
 from tinysoul.infra.json import JsonObject
 from tinysoul.memory.errors import (
     MemoryContractError,
@@ -12,9 +13,12 @@ from tinysoul.memory.errors import (
     MemoryInvariantError,
 )
 from tinysoul.memory.failures import MemoryFailureKind
-
-from ..exception import RUNTIME_STARTUP_FAILED, RUNTIME_TURN_END, RuntimeException
-from ._payload import config_error_payload, exception_payload, runtime_exception
+from tinysoul.runtime.exception import (
+    RUNTIME_STARTUP_FAILED,
+    RUNTIME_TURN_END,
+    RuntimeException,
+)
+from tinysoul.runtime.failures import exception_payload, runtime_exception
 
 
 MEMORY_RUNTIME_REASON_MAP: dict[MemoryFailureKind, str] = {
@@ -22,6 +26,14 @@ MEMORY_RUNTIME_REASON_MAP: dict[MemoryFailureKind, str] = {
     MemoryFailureKind.CONTRACT_VIOLATION: RUNTIME_TURN_END,
     MemoryFailureKind.IO_FAILED: RUNTIME_TURN_END,
     MemoryFailureKind.INTERNAL_FAILURE: RUNTIME_TURN_END,
+}
+
+
+MEMORY_FAILURE_MESSAGES: dict[MemoryFailureKind, str] = {
+    MemoryFailureKind.CONFIGURATION_FAILED: "Memory configuration is invalid.",
+    MemoryFailureKind.CONTRACT_VIOLATION: "Memory call violated its contract.",
+    MemoryFailureKind.IO_FAILED: "Memory storage operation failed.",
+    MemoryFailureKind.INTERNAL_FAILURE: "Memory operation failed internally.",
 }
 
 
@@ -37,7 +49,7 @@ class RuntimeMemoryBridge:
         return runtime_exception(
             module="memory",
             kind=kind,
-            reason_map=MEMORY_RUNTIME_REASON_MAP,
+            reason=MEMORY_RUNTIME_REASON_MAP[kind],
             message=message,
             payload=payload,
         )
@@ -57,7 +69,7 @@ class RuntimeMemoryBridge:
             kind = MemoryFailureKind.INTERNAL_FAILURE
         return self.from_failure(
             kind,
-            message=str(error),
+            message=MEMORY_FAILURE_MESSAGES[kind],
             payload=exception_payload(error, payload),
         )
 
@@ -76,6 +88,6 @@ class RuntimeMemoryBridge:
     def from_config_error(self, error: ConfigError) -> RuntimeException:
         return self.from_failure(
             MemoryFailureKind.CONFIGURATION_FAILED,
-            message=error.message,
+            message=MEMORY_FAILURE_MESSAGES[MemoryFailureKind.CONFIGURATION_FAILED],
             payload=config_error_payload(error),
         )

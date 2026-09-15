@@ -215,7 +215,7 @@ Workspace 失败分三层：
 2. 模块边界异常：workspace root 不可用、manifest 无法解释、路径沙箱不变量破坏、模块调用契约错误；
 3. Runtime 语义异常：启动阶段配置失败映射为 `runtime.startup_failed`，运行期不可继续失败默认映射为 `runtime.turn_end`。
 
-Workspace 应定义自己的 `WorkspaceFailureKind`，并通过 `tinysoul/runtime/bridge/` 下的专门 bridge 转换为 Runtime 通用原因。Runtime payload 只携带模块名、失败类型、资源链接、路径摘要和错误类型，不携带文件内容或 traceback。Workspace 配置错误应由 workspace bridge 映射为 `runtime.startup_failed`，而不是落入 infra 或 app 的兜底失败。
+Workspace 通过自身 `runtime_bridge.py` 将 `WorkspaceFailureKind` 转换为运行原因；Trash 恢复原因由 Workspace failures.py 声明。Runtime payload 只携带模块名、失败类型、资源 Link、Trash 引用、必要度量和错误类型，不携带绝对路径、文件正文或 traceback。Workspace 配置错误由自身 bridge 映射为 `runtime.startup_failed`。
 
 ## 组装入口
 

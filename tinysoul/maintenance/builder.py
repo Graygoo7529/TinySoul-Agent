@@ -12,11 +12,9 @@ from tinysoul.loop.preparation import TurnPreparationPipeline
 from tinysoul.loop.phases import LLMRunner
 from tinysoul.memory import LLMDailyMemoryComposer, MemoryEngine
 from tinysoul.runtime import ObservationEmitter, SignalBus
-from tinysoul.runtime.bridge import (
-    RuntimeContextBridge,
-    RuntimeSessionBridge,
-    RuntimeWorkspaceBridge,
-)
+from tinysoul.context.runtime_bridge import RuntimeContextBridge
+from tinysoul.session.runtime_bridge import RuntimeSessionBridge
+from tinysoul.workspace.runtime_bridge import RuntimeWorkspaceBridge
 from tinysoul.session import SessionEngine
 from tinysoul.session.projection import SessionTurnPreparationHandler
 from tinysoul.workspace import WorkspaceEngine, WorkspaceTurnPreparationHandler

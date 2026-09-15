@@ -16,7 +16,7 @@ from tinysoul.action import (
     ActionTraceProjection,
 )
 from tinysoul.infra.json import JsonObject
-from tinysoul.runtime.bridge import RuntimeSessionBridge
+from tinysoul.session.runtime_bridge import RuntimeSessionBridge
 
 from .errors import SessionError, SessionInspectRequestError
 

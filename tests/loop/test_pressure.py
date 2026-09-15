@@ -2,19 +2,181 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
 
-from tinysoul.context import ContextEngineBuilder, ContextSignalBatch
+import pytest
+
+from tinysoul.context import (
+    ContextEngineBuilder,
+    ContextSignalBatch,
+    build_trace_phase_note_signal,
+)
+from tinysoul.context.prompts import PromptBlock, TaskPrompt
+from tinysoul.home import AgentHomeEngineBuilder, AgentHomeSettings
+from tinysoul.llm.adapter import adapter_spec
+from tinysoul.llm.adapter_types import AdapterKind, ProviderApiStyle
+from tinysoul.llm.model_chain import ModelChain, TaskSpec, TaskSpecTable
+from tinysoul.llm.models import (
+    ModelCapability,
+    ModelProviderBinding,
+    ModelRegistry,
+    ModelSpec,
+)
+from tinysoul.llm.provider import ProviderError, ProviderErrorKind, ProviderRequest
+from tinysoul.llm.provider.registry import ProviderRegistry
+from tinysoul.llm.requests import CallSettings, ModelContextOverflowPolicy, TaskCall
+from tinysoul.llm.responses import AnswerFormat, RawResponse, TaskResult, TaskResultStatus
+from tinysoul.llm.task import LLMTaskRunner
+from tinysoul.llm.tools import ToolUse
+from tinysoul.loop.user.runtime import build_user_turn_trap
+from tinysoul.maintenance.turn.runtime import build_maintenance_turn_trap
 from tinysoul.loop.pressure import PressureRecoveryStatus, required_chars
 from tinysoul.loop.user.pressure import UserContextPressureRecovery
 from tinysoul.maintenance.turn import MaintenanceContextPressureRecovery
-from tinysoul.runtime import RunLevel, RunScope
+from tinysoul.runtime import (
+    CyclePhase,
+    RunLevel,
+    RunScope,
+    RuntimeModuleRunner,
+    RuntimeTransferAction,
+    RuntimeTransferInterrupt,
+    SignalBus,
+)
 from tinysoul.workspace import (
     WorkspaceEngineBuilder,
     WorkspaceRetention,
     WorkspaceSettings,
 )
 from tinysoul.workspace.projection import workspace_snapshot_signal
+
+
+@dataclass
+class _CapacityProvider:
+    provider_id: str = "capacity"
+    adapter_kind: AdapterKind = AdapterKind.OPENAI_COMPATIBLE_CHAT
+    requests: list[ProviderRequest] = field(default_factory=list)
+
+    @property
+    def api_style(self) -> ProviderApiStyle:
+        return adapter_spec(self.adapter_kind).api_style
+
+    def invoke(self, request: ProviderRequest) -> RawResponse:
+        self.requests.append(request)
+        if len(self.requests) == 1:
+            raise ProviderError("private provider detail", kind=ProviderErrorKind.CONTEXT_LIMIT)
+        return RawResponse(
+            answer_text='{"ok": true}',
+            model_id=request.model.id,
+            provider_id=self.provider_id,
+        )
+
+
+@pytest.mark.parametrize("maintenance", [False, True], ids=["user", "maintenance"])
+@pytest.mark.parametrize("reclaimable", [False, True], ids=["no_progress", "recompose"])
+def test_capacity_recovery_rebuilds_task_or_ends_without_replaying_completed_work(
+    tmp_path: Path,
+    maintenance: bool,
+    reclaimable: bool,
+) -> None:
+    context = (
+        ContextEngineBuilder(system_text="system")
+        .with_trace_heap(chunk_max_chars=12000, branch_factor=4, min_hot_entries=0)
+        .build()
+    )
+    turn_id = context.begin_turn("continue")
+    scope = (
+        _scope(turn_id)
+        .push(RunLevel.CYCLE, "next")
+        .push(RunLevel.PHASE, CyclePhase.PHASE3.value)
+    )
+    bus = SignalBus()
+    if reclaimable:
+        for index in range(3):
+            bus.emit(
+                build_trace_phase_note_signal(
+                    {"detail": "x" * 1000},
+                    scope=scope,
+                    source="test",
+                    cycle_id=f"previous_{index}",
+                    phase=CyclePhase.PHASE3,
+                )
+            )
+        context.consume_signals(bus)
+    context.complete_preparation()
+    canonical = context.seal_trace()
+    workspace = _workspace(tmp_path / "workspace")
+    (tmp_path / "home").mkdir()
+    home = AgentHomeEngineBuilder(
+        AgentHomeSettings(
+            original_root=tmp_path / "home",
+            runtime_root=tmp_path / "runtime" / "home",
+        )
+    ).build()
+    trap = (
+        build_maintenance_turn_trap(context)
+        if maintenance
+        else build_user_turn_trap(context=context, home=home, workspace=workspace)
+    )
+    modules = RuntimeModuleRunner(trap=trap, bus=bus)
+    writes: list[str] = []
+
+    def write_resource(module_scope: RunScope) -> None:
+        writes.append("committed")
+        workspace.write_text("workspace:committed.txt", "committed")
+
+    modules.run(scope=scope, name="workspace.write", callback=write_resource)
+    provider = _CapacityProvider()
+    runner = LLMTaskRunner(
+        models=ModelRegistry([
+            ModelSpec(
+                id="model",
+                providers=(ModelProviderBinding(provider.provider_id, "model"),),
+                context_window_tokens=262144,
+                adapter=provider.adapter_kind,
+                capabilities=frozenset({
+                    ModelCapability.TEXT_INPUT, ModelCapability.JSON_OBJECT_OUTPUT,
+                }),
+            ),
+        ]),
+        providers=ProviderRegistry([provider]),
+        tasks=TaskSpecTable([
+            TaskSpec(
+                profile="test",
+                chain=ModelChain(profile="test", model_ids=("model",)),
+                settings=CallSettings(
+                    answer_format=AnswerFormat.JSON_OBJECT, tool_use=ToolUse.DISABLED,
+                ),
+            ),
+        ]),
+    )
+
+    def invoke(module_scope: RunScope) -> TaskResult:
+        return runner.run(
+            TaskCall(
+                profile="test",
+                messages=context.compose(
+                    TaskPrompt(guide_blocks=(PromptBlock.from_text("task", "Reply with JSON."),))
+                ),
+                scope=module_scope,
+                context_overflow_policy=ModelContextOverflowPolicy.REQUEST_RECOVERY,
+            )
+        )
+
+    if reclaimable:
+        result = modules.run(scope=scope, name="llm.task", callback=invoke)
+        assert result.status is TaskResultStatus.SUCCESS
+        assert len(provider.requests) == 2
+        assert provider.requests[0].messages != provider.requests[1].messages
+    else:
+        with pytest.raises(RuntimeTransferInterrupt) as raised:
+            modules.run(scope=scope, name="llm.task", callback=invoke)
+        assert raised.value.transfer.action is RuntimeTransferAction.END
+        assert raised.value.transfer.target == scope.nearest(RunLevel.TURN)
+        assert len(provider.requests) == 1
+    assert writes == ["committed"]
+    assert (tmp_path / "workspace" / "committed.txt").read_text(encoding="utf-8") == "committed"
+    assert context.seal_trace() == canonical
 
 
 def test_pressure_recovery_trashes_workspace_resource_and_syncs_context(

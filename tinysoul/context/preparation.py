@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from tinysoul.loop.preparation import TurnPreparationRequest
 from tinysoul.runtime import Signal
-from tinysoul.runtime.bridge import RuntimeContextBridge
+from tinysoul.context.runtime_bridge import RuntimeContextBridge
 
 from .engine import ContextEngine
 from .errors import ContextError

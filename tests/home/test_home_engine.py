@@ -45,14 +45,15 @@ from tinysoul.context.signals import build_background_patch_signal
 from tinysoul.loop.context_signals import ContextSignalConsumer
 from tinysoul.infra.config import ConfigError
 from tinysoul.infra.json import JsonObject
+from tinysoul.home.failures import HOME_RUNTIME_COPY_REQUIRED
 from tinysoul.runtime import (
-    HOME_RUNTIME_COPY_REQUIRED,
     RUNTIME_TURN_END,
     RunLevel,
     RunScope,
     RuntimeException,
     RuntimeModuleRunner,
     RuntimeTrap,
+    Signal,
     SignalBus,
     TrapHandlerRegistry,
     RuntimeTransferAction,
@@ -149,6 +150,7 @@ def test_top_files_cannot_be_addressed_as_progressive_resources(
 
 def test_home_background_is_copied_only_when_context_loads_it(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source = tmp_path / "home" / "agent" / "context" / "project.md"
     source.parent.mkdir(parents=True)
@@ -193,6 +195,20 @@ def test_home_background_is_copied_only_when_context_loads_it(
         tmp_path / "runtime" / "home" / "agent" / "context" / "project.md"
     )
     assert not runtime_path.exists()
+    late_signal = build_background_patch_signal(
+        BackgroundPatch(evict_links=(link,)),
+        call_id="evict_later",
+        scope=scope,
+        source="test",
+    )
+    take_namespace = bus.consume_namespace
+
+    def take_then_receive_later(prefix: str) -> tuple[Signal, ...]:
+        signals = take_namespace(prefix)
+        bus.emit(late_signal)
+        return signals
+
+    monkeypatch.setattr(bus, "consume_namespace", take_then_receive_later)
     bus.emit(
         build_background_patch_signal(
             BackgroundPatch(load_links=(link,)),
@@ -206,6 +222,7 @@ def test_home_background_is_copied_only_when_context_loads_it(
 
     assert runtime_path.read_text(encoding="utf-8") == "project knowledge"
     assert context.background_links() == (link,)
+    assert late_signal in bus.peek()
 
 
 def test_home_provides_default_background_without_exposing_domain_skills(tmp_path: Path) -> None:
@@ -747,7 +764,7 @@ def test_home_runtime_copy_failure_ends_nearest_turn(tmp_path: Path) -> None:
     assert result.transfer.action is RuntimeTransferAction.END
     assert result.transfer.target == scope.nearest(RunLevel.TURN)
 
-def test_home_runtime_copy_required_payload_contains_paths(tmp_path: Path) -> None:
+def test_home_runtime_copy_required_payload_contains_only_recovery_identity(tmp_path: Path) -> None:
     ref = tmp_path / "home" / "skills" / "refactor" / "references"
     ref.mkdir(parents=True)
     (ref / "checklist.md").write_text("abcdef", encoding="utf-8")
@@ -771,12 +788,9 @@ def test_home_runtime_copy_required_payload_contains_paths(tmp_path: Path) -> No
         assert exc.reason == HOME_RUNTIME_COPY_REQUIRED
         assert exc.payload["link"] == "home:skills/refactor/references/checklist.md"
         assert exc.payload["error_type"] == "AgentHomeRuntimeCopyRequired"
-        source_path = exc.payload["source_path"]
-        runtime_path = exc.payload["runtime_path"]
-        assert isinstance(source_path, str)
-        assert isinstance(runtime_path, str)
-        assert str(tmp_path / "home" / "skills" / "refactor") in source_path
-        assert str(tmp_path / "runtime" / "home" / "skills" / "refactor") in runtime_path
+        assert "source_path" not in exc.payload
+        assert "runtime_path" not in exc.payload
+        assert str(tmp_path) not in str(exc)
     else:
         raise AssertionError("home.resource.read should require runtime copy")
 

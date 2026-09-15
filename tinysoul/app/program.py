@@ -308,8 +308,8 @@ class ProgramRunner(Generic[ProgramGenerationT]):
                 return generation.maintenance.preflight(scope=self._scope)
         except MaintenanceError as exc:
             raise self._maintenance_bridge.startup_failure(
-                message=str(exc),
-                payload={"stage": "daily_rollover"},
+                message="Daily transition could not be completed.",
+                payload={"stage": "daily_rollover", "error_type": type(exc).__name__},
             ) from exc
 
     def _run_user_request(

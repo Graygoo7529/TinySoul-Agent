@@ -41,14 +41,22 @@ from tinysoul.action.core.specs import (
 )
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
+from tinysoul.home.failures import HOME_RUNTIME_COPY_REQUIRED
+from tinysoul.llm.failures import LLM_CONTEXT_CAPACITY_EXCEEDED, LLMFailureKind
+from tinysoul.llm.runtime_bridge import RuntimeLLMBridge
 from tinysoul.runtime import (
-    HOME_RUNTIME_COPY_REQUIRED,
     RunFrame,
     RunLevel,
     RunScope,
     RuntimeException,
     RuntimeTransfer,
     RuntimeTransferInterrupt,
+    RuntimeModuleRunner,
+    RuntimeTrap,
+    SignalBus,
+    TrapHandlerRegistry,
+    TrapResult,
+    TrapSnap,
 )
 
 
@@ -264,6 +272,51 @@ def test_runner_allows_runtime_exception_to_reach_trap() -> None:
 
     assert raised.value.reason == HOME_RUNTIME_COPY_REQUIRED
     assert raised.value.payload["link"] == "home:skills/test/ref.md"
+
+
+def test_capacity_retry_replays_only_interrupted_action() -> None:
+    peer_committed = Event()
+    _, batch = _parallel_runtime_batch()
+    attempts: list[str] = []
+    commits: list[str] = []
+
+    def recovering(execution, context):
+        attempts.append(execution.framework.invoke_id)
+        if len(attempts) == 1:
+            assert peer_committed.wait(1.0)
+            raise RuntimeLLMBridge().from_failure(
+                LLMFailureKind.MODEL_CONTEXT_PRESSURE,
+                message="Capacity recovery required.",
+            )
+        return {"recovered": True}
+
+    def committing(execution, context):
+        commits.append(execution.call.call_id)
+        peer_committed.set()
+        return {"committed": True}
+
+    class RecoveryHandler:
+        def handle(self, snap: TrapSnap) -> TrapResult:
+            frame = snap.scope.current()
+            assert frame is not None and frame.level is RunLevel.MODULE
+            return TrapResult(transfer=RuntimeTransfer.retry(frame))
+
+    registry = TrapHandlerRegistry()
+    registry.register(LLM_CONTEXT_CAPACITY_EXCEEDED, RecoveryHandler())
+    executors = ExecutorRegistry()
+    executors.register("test.interrupt", FunctionActionExecutor(recovering))
+    executors.register("test.peer", FunctionActionExecutor(committing))
+    results = ActionBatchRunner(executors=executors).run(
+        batch,
+        ActionExecutionContext(module_runner=RuntimeModuleRunner(
+            trap=RuntimeTrap(registry=registry), bus=SignalBus(),
+        )),
+    )
+
+    assert len(attempts) == 2 and attempts[0] == attempts[1]
+    assert commits == ["call_2"]
+    assert len(results) == 2
+    assert all(result.status is ActionResultStatus.SUCCESS for result in results)
 
 
 def test_runtime_transfer_cancels_parallel_cooperative_action() -> None:

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from tinysoul.infra.json import JsonObject
-from tinysoul.runtime.bridge import RuntimeEndpointBridge
+from tinysoul.endpoint.runtime_bridge import RuntimeEndpointBridge
 
 from .config import EndpointSettings
 from .engine import EndpointEngine

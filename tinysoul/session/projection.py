@@ -6,7 +6,7 @@ from tinysoul.context import build_session_sync_signal
 from tinysoul.loop.completion import TurnCompletion
 from tinysoul.loop.preparation import TurnPreparationRequest
 from tinysoul.runtime import Signal
-from tinysoul.runtime.bridge import RuntimeSessionBridge
+from tinysoul.session.runtime_bridge import RuntimeSessionBridge
 
 from .engine import SessionEngine
 from .errors import SessionError

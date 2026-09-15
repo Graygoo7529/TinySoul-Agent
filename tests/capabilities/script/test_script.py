@@ -42,7 +42,7 @@ from tinysoul.runtime import (
     SignalBus,
     SignalWatch,
 )
-from tinysoul.runtime.bridge import RuntimeSupervisedProcessBridge
+from tinysoul.capabilities.supervised_process.runtime_bridge import RuntimeSupervisedProcessBridge
 from tinysoul.workspace import (
     WorkspaceEngineBuilder,
     WorkspaceMirrorConflict,

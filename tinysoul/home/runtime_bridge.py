@@ -9,17 +9,12 @@ from tinysoul.home.errors import (
     AgentHomeInvariantError,
     AgentHomeIOError,
 )
-from tinysoul.home.failures import AgentHomeFailureKind
+from tinysoul.home.failures import AgentHomeFailureKind, HOME_RUNTIME_COPY_REQUIRED
 from tinysoul.infra.config import ConfigError
+from tinysoul.infra.config.errors import config_error_payload
 from tinysoul.infra.json import JsonObject
-
-from ..exception import (
-    HOME_RUNTIME_COPY_REQUIRED,
-    RUNTIME_STARTUP_FAILED,
-    RUNTIME_TURN_END,
-    RuntimeException,
-)
-from ._payload import config_error_payload, exception_payload, runtime_exception
+from tinysoul.runtime import RUNTIME_STARTUP_FAILED, RUNTIME_TURN_END, RuntimeException
+from tinysoul.runtime.failures import exception_payload, runtime_exception
 
 HOME_RUNTIME_REASON_MAP: dict[AgentHomeFailureKind, str] = {
     AgentHomeFailureKind.CONFIGURATION_FAILED: RUNTIME_STARTUP_FAILED,
@@ -27,6 +22,15 @@ HOME_RUNTIME_REASON_MAP: dict[AgentHomeFailureKind, str] = {
     AgentHomeFailureKind.IO_FAILED: RUNTIME_TURN_END,
     AgentHomeFailureKind.RUNTIME_COPY_REQUIRED: HOME_RUNTIME_COPY_REQUIRED,
     AgentHomeFailureKind.INTERNAL_FAILURE: RUNTIME_TURN_END,
+}
+
+
+HOME_FAILURE_MESSAGES: dict[AgentHomeFailureKind, str] = {
+    AgentHomeFailureKind.CONFIGURATION_FAILED: "Home configuration is invalid.",
+    AgentHomeFailureKind.CONTRACT_VIOLATION: "Home call violated its contract.",
+    AgentHomeFailureKind.IO_FAILED: "Home storage operation failed.",
+    AgentHomeFailureKind.RUNTIME_COPY_REQUIRED: "Home runtime copy is required.",
+    AgentHomeFailureKind.INTERNAL_FAILURE: "Home operation failed internally.",
 }
 
 
@@ -44,7 +48,7 @@ class RuntimeAgentHomeBridge:
         return runtime_exception(
             module="home",
             kind=kind,
-            reason_map=HOME_RUNTIME_REASON_MAP,
+            reason=HOME_RUNTIME_REASON_MAP[kind],
             message=message,
             payload=payload,
         )
@@ -58,7 +62,7 @@ class RuntimeAgentHomeBridge:
     ) -> RuntimeException:
         return self.from_failure(
             kind,
-            message=str(error),
+            message=HOME_FAILURE_MESSAGES[kind],
             payload=exception_payload(error, payload),
         )
 
@@ -108,6 +112,6 @@ class RuntimeAgentHomeBridge:
     def from_config_error(self, error: ConfigError) -> RuntimeException:
         return self.from_failure(
             AgentHomeFailureKind.CONFIGURATION_FAILED,
-            message=error.message,
+            message=HOME_FAILURE_MESSAGES[AgentHomeFailureKind.CONFIGURATION_FAILED],
             payload=config_error_payload(error),
         )

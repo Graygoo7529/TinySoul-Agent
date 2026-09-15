@@ -27,16 +27,14 @@ from tinysoul.infra import StagingDirectoryManager
 from tinysoul.infra.config import ConfigError
 from tinysoul.memory import MemoryEngine, register_memory_actions
 from tinysoul.runtime import ObservationEmitter, SignalBus
-from tinysoul.runtime.bridge import (
-    RuntimeActionBridge,
-    RuntimeAgentHomeBridge,
-    RuntimeContextBridge,
-    RuntimeMemoryBridge,
-    RuntimeScriptBridge,
-    RuntimeSessionBridge,
-    RuntimeShellBridge,
-    RuntimeWorkspaceBridge,
-)
+from tinysoul.action.runtime_bridge import RuntimeActionBridge
+from tinysoul.home.runtime_bridge import RuntimeAgentHomeBridge
+from tinysoul.context.runtime_bridge import RuntimeContextBridge
+from tinysoul.memory.runtime_bridge import RuntimeMemoryBridge
+from tinysoul.capabilities.script.runtime_bridge import RuntimeScriptBridge
+from tinysoul.session.runtime_bridge import RuntimeSessionBridge
+from tinysoul.capabilities.shell.runtime_bridge import RuntimeShellBridge
+from tinysoul.workspace.runtime_bridge import RuntimeWorkspaceBridge
 from tinysoul.session import SessionEngine
 from tinysoul.session.actions import register_session_actions
 from tinysoul.workspace import (
@@ -187,6 +185,6 @@ def build_user_action(
         raise action_bridge.from_config_error(exc) from exc
     except ActionError as exc:
         raise action_bridge.startup_failure(
-            message=str(exc),
+            message="User Turn actions could not be initialized.",
             payload={"error_type": type(exc).__name__},
         ) from exc

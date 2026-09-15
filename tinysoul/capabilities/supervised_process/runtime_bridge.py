@@ -12,11 +12,15 @@ from tinysoul.capabilities.supervised_process.errors import (
 from tinysoul.capabilities.supervised_process.failures import (
     SupervisedProcessFailureKind,
 )
-from tinysoul.infra.json import JsonObject
 from tinysoul.infra.config import ConfigError
-
-from ..exception import RUNTIME_STARTUP_FAILED, RUNTIME_TURN_END, RuntimeException
-from ._payload import config_error_payload, exception_payload, runtime_exception
+from tinysoul.infra.config.errors import config_error_payload
+from tinysoul.infra.json import JsonObject
+from tinysoul.runtime.exception import (
+    RUNTIME_STARTUP_FAILED,
+    RUNTIME_TURN_END,
+    RuntimeException,
+)
+from tinysoul.runtime.failures import exception_payload, runtime_exception
 
 
 SUPERVISED_PROCESS_RUNTIME_REASON_MAP: dict[
@@ -26,6 +30,14 @@ SUPERVISED_PROCESS_RUNTIME_REASON_MAP: dict[
     SupervisedProcessFailureKind.CONTRACT_VIOLATION: RUNTIME_TURN_END,
     SupervisedProcessFailureKind.EXECUTION_FAILED: RUNTIME_TURN_END,
     SupervisedProcessFailureKind.INTERNAL_FAILURE: RUNTIME_TURN_END,
+}
+
+
+SUPERVISED_PROCESS_FAILURE_MESSAGES: dict[SupervisedProcessFailureKind, str] = {
+    SupervisedProcessFailureKind.CONFIGURATION_FAILED: "Supervised process configuration is invalid.",
+    SupervisedProcessFailureKind.CONTRACT_VIOLATION: "Supervised process call violated its contract.",
+    SupervisedProcessFailureKind.EXECUTION_FAILED: "Supervised process execution failed.",
+    SupervisedProcessFailureKind.INTERNAL_FAILURE: "Supervised process operation failed internally.",
 }
 
 
@@ -41,7 +53,7 @@ class RuntimeSupervisedProcessBridge:
         return runtime_exception(
             module="supervised_process",
             kind=kind,
-            reason_map=SUPERVISED_PROCESS_RUNTIME_REASON_MAP,
+            reason=SUPERVISED_PROCESS_RUNTIME_REASON_MAP[kind],
             message=message,
             payload=payload,
         )
@@ -62,13 +74,13 @@ class RuntimeSupervisedProcessBridge:
             kind = SupervisedProcessFailureKind.EXECUTION_FAILED
         return self.from_failure(
             kind,
-            message=str(error),
+            message=SUPERVISED_PROCESS_FAILURE_MESSAGES[kind],
             payload=exception_payload(error, payload),
         )
 
     def from_config_error(self, error: ConfigError) -> RuntimeException:
         return self.from_failure(
             SupervisedProcessFailureKind.CONFIGURATION_FAILED,
-            message=error.message,
+            message=SUPERVISED_PROCESS_FAILURE_MESSAGES[SupervisedProcessFailureKind.CONFIGURATION_FAILED],
             payload=config_error_payload(error),
         )

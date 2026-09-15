@@ -47,7 +47,9 @@ from tinysoul.runtime import (
     emit_observation,
     observation_enabled,
 )
-from tinysoul.runtime.bridge import RuntimeActionBridge, RuntimeContextBridge, RuntimeLoopBridge
+from tinysoul.action.runtime_bridge import RuntimeActionBridge
+from tinysoul.context.runtime_bridge import RuntimeContextBridge
+from tinysoul.loop.runtime_bridge import RuntimeLoopBridge
 
 from .cancellation import TurnCancellation
 from .context_signals import ContextSignalConsumer
@@ -187,7 +189,7 @@ class Phase1Unit:
                 tool_scope=tool_scope,
                 settings=_required_tool_settings(),
                 scope=scope,
-                context_overflow_policy=ModelContextOverflowPolicy.RECOMPOSE_CONTEXT,
+                context_overflow_policy=ModelContextOverflowPolicy.REQUEST_RECOVERY,
                 cancellation=_turn_task_cancellation(cancellation),
             )
         )
@@ -368,7 +370,7 @@ class Phase2Unit:
                 tool_scope=preparation.tool_scope,
                 settings=_required_tool_settings(),
                 scope=scope,
-                context_overflow_policy=ModelContextOverflowPolicy.RECOMPOSE_CONTEXT,
+                context_overflow_policy=ModelContextOverflowPolicy.REQUEST_RECOVERY,
                 cancellation=_turn_task_cancellation(cancellation),
             )
         )

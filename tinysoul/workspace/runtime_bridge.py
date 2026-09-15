@@ -5,7 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from tinysoul.infra.config import ConfigError
+from tinysoul.infra.config.errors import config_error_payload
 from tinysoul.infra.json import JsonObject
+from tinysoul.runtime import RUNTIME_STARTUP_FAILED, RUNTIME_TURN_END, RuntimeException
+from tinysoul.runtime.failures import exception_payload, runtime_exception
 from tinysoul.workspace.errors import (
     WorkspaceContractError,
     WorkspaceInvariantError,
@@ -13,15 +16,10 @@ from tinysoul.workspace.errors import (
     WorkspaceReconciliationError,
     WorkspaceTrashRestoreRequired,
 )
-from tinysoul.workspace.failures import WorkspaceFailureKind
-
-from ..exception import (
-    RUNTIME_STARTUP_FAILED,
-    RUNTIME_TURN_END,
+from tinysoul.workspace.failures import (
+    WorkspaceFailureKind,
     WORKSPACE_TRASH_RESTORE_REQUIRED,
-    RuntimeException,
 )
-from ._payload import config_error_payload, exception_payload, runtime_exception
 
 WORKSPACE_RUNTIME_REASON_MAP: dict[WorkspaceFailureKind, str] = {
     WorkspaceFailureKind.CONFIGURATION_FAILED: RUNTIME_STARTUP_FAILED,
@@ -29,6 +27,15 @@ WORKSPACE_RUNTIME_REASON_MAP: dict[WorkspaceFailureKind, str] = {
     WorkspaceFailureKind.IO_FAILED: RUNTIME_TURN_END,
     WorkspaceFailureKind.TRASH_RESTORE_REQUIRED: WORKSPACE_TRASH_RESTORE_REQUIRED,
     WorkspaceFailureKind.INTERNAL_FAILURE: RUNTIME_TURN_END,
+}
+
+
+WORKSPACE_FAILURE_MESSAGES: dict[WorkspaceFailureKind, str] = {
+    WorkspaceFailureKind.CONFIGURATION_FAILED: "Workspace configuration is invalid.",
+    WorkspaceFailureKind.CONTRACT_VIOLATION: "Workspace call violated its contract.",
+    WorkspaceFailureKind.IO_FAILED: "Workspace storage operation failed.",
+    WorkspaceFailureKind.TRASH_RESTORE_REQUIRED: "Workspace resource must be restored from Trash.",
+    WorkspaceFailureKind.INTERNAL_FAILURE: "Workspace operation failed internally.",
 }
 
 
@@ -46,7 +53,7 @@ class RuntimeWorkspaceBridge:
         return runtime_exception(
             module="workspace",
             kind=kind,
-            reason_map=WORKSPACE_RUNTIME_REASON_MAP,
+            reason=WORKSPACE_RUNTIME_REASON_MAP[kind],
             message=message,
             payload=payload,
         )
@@ -60,7 +67,7 @@ class RuntimeWorkspaceBridge:
     ) -> RuntimeException:
         return self.from_failure(
             kind,
-            message=str(error),
+            message=WORKSPACE_FAILURE_MESSAGES[kind],
             payload=exception_payload(error, payload),
         )
 
@@ -111,6 +118,6 @@ class RuntimeWorkspaceBridge:
     def from_config_error(self, error: ConfigError) -> RuntimeException:
         return self.from_failure(
             WorkspaceFailureKind.CONFIGURATION_FAILED,
-            message=error.message,
+            message=WORKSPACE_FAILURE_MESSAGES[WorkspaceFailureKind.CONFIGURATION_FAILED],
             payload=config_error_payload(error),
         )

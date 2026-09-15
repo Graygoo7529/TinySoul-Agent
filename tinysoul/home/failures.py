@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from enum import StrEnum
 
+HOME_RUNTIME_COPY_REQUIRED = "home.runtime_copy_required"
+
 
 class AgentHomeFailureKind(StrEnum):
     """Stable Agent Home failure kinds that can cross into Runtime."""

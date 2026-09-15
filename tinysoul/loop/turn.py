@@ -32,7 +32,8 @@ from tinysoul.runtime import (
     emit_observation,
     observation_enabled,
 )
-from tinysoul.runtime.bridge import RuntimeContextBridge, RuntimeLoopBridge
+from tinysoul.context.runtime_bridge import RuntimeContextBridge
+from tinysoul.loop.runtime_bridge import RuntimeLoopBridge
 
 from .cancellation import TurnCancellation
 from .config import TurnSettings
@@ -447,10 +448,10 @@ class TurnRunner:
                             {
                                 "call_id": result.call_id,
                                 "tool_name": result.tool_name,
-                                "feedback": result.model_feedback,
                             }
-                            for result in rejected
-                        ]
+                            for result in rejected[:8]
+                        ],
+                        "rejected_count": len(rejected),
                     }
                 ),
             )

@@ -6,6 +6,7 @@ from collections.abc import Mapping
 
 from tinysoul.context import ContextEngine
 from tinysoul.context.errors import ContextError
+from tinysoul.llm.failures import LLM_CONTEXT_CAPACITY_EXCEEDED
 from tinysoul.infra.json import JsonValue
 from tinysoul.loop.pressure import (
     PressureRecoveryResult,
@@ -17,8 +18,8 @@ from tinysoul.loop.trap_handlers import (
     EndFrameTrapHandler,
     EndTurnOrProgramTrapHandler,
 )
+from tinysoul.context.failures import CONTEXT_COMPRESSION_REQUIRED
 from tinysoul.runtime import (
-    CONTEXT_COMPRESSION_REQUIRED,
     RUNTIME_CYCLE_END,
     RUNTIME_PROGRAM_END,
     RUNTIME_STARTUP_FAILED,
@@ -72,9 +73,10 @@ def build_maintenance_turn_trap(context: ContextEngine) -> RuntimeTrap:
     registry.register(RUNTIME_CYCLE_END, EndFrameTrapHandler(RunLevel.CYCLE))
     registry.register(RUNTIME_PROGRAM_END, EndFrameTrapHandler(RunLevel.PROGRAM))
     registry.register(RUNTIME_STARTUP_FAILED, EndFrameTrapHandler(RunLevel.PROGRAM))
-    registry.register(
-        CONTEXT_COMPRESSION_REQUIRED,
-        ContextPressureTrapHandler(MaintenanceContextPressureRecovery(context)),
+    pressure_handler = ContextPressureTrapHandler(
+        MaintenanceContextPressureRecovery(context)
     )
+    registry.register(CONTEXT_COMPRESSION_REQUIRED, pressure_handler)
+    registry.register(LLM_CONTEXT_CAPACITY_EXCEEDED, pressure_handler)
     registry.register_fallback(EndTurnOrProgramTrapHandler())
     return RuntimeTrap(registry=registry)

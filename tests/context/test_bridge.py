@@ -8,12 +8,28 @@ from tinysoul.context import (
     ContextInvariantError,
 )
 from tinysoul.context.failures import ContextFailureKind
+from tinysoul.context.failures import CONTEXT_COMPRESSION_REQUIRED
 from tinysoul.runtime import (
-    CONTEXT_COMPRESSION_REQUIRED,
     RUNTIME_STARTUP_FAILED,
     RUNTIME_TURN_END,
 )
-from tinysoul.runtime.bridge import RuntimeContextBridge
+from tinysoul.context.runtime_bridge import RuntimeContextBridge
+from tinysoul.infra.config import ConfigError
+
+
+def test_context_bridge_projects_config_and_internal_failures() -> None:
+    bridge = RuntimeContextBridge()
+    config = bridge.from_config_error(ConfigError(
+        "private config", key="context.limit", source="C:/private/config.toml",
+        value="private credential", expected="positive integer",
+    ))
+    assert config.reason == RUNTIME_STARTUP_FAILED
+    assert config.payload["key"] == "context.limit"
+    assert "private" not in str(config) + repr(config.payload)
+    internal = bridge.from_context_error(ContextInvariantError("private state"))
+    assert internal.payload["kind"] == ContextFailureKind.INTERNAL_FAILURE.value
+    assert internal.payload["error_type"] == "ContextInvariantError"
+    assert "private" not in str(internal) + repr(internal.payload)
 
 
 def test_budget_error_maps_to_compression_reason() -> None:

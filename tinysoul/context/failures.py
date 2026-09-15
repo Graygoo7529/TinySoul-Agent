@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from enum import StrEnum
 
+CONTEXT_COMPRESSION_REQUIRED = "context.compression_required"
+
 
 class ContextFailureKind(StrEnum):
     """Stable context failure kinds used by runtime bridges."""

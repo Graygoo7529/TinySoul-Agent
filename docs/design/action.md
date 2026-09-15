@@ -215,7 +215,7 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 无法绑定到具体 action tool call、但仍属于当前 Action phase 局部流程的问题，应收敛为 phase-level result，例如 Phase2 无法准备可用 action scope，或 Phase3 的批次准备出现无法归因到单个 call 的问题。Context 模块可以把这类结果记录为当前 cycle phase 的执行反馈，并在后续 message stack 中按需呈现给模型。
 
-防御性不变量异常和模块调用契约错误不属于可继续的 action flow。它们表示 Action 模块内部对象关系、catalog、执行输入或公共边界被破坏，应在模块公共边界通过 Runtime bridge 映射为 Runtime 语义异常，由 Trap 决定结束当前 Turn 或采取其他运行转移。Runtime payload 只携带模块名、稳定失败类型和必要摘要，不携带原始异常对象、大块上下文或完整消息栈。
+防御性不变量异常和模块调用契约错误不属于可继续的 action flow。它们表示 Action 模块内部对象关系、catalog、执行输入或公共边界被破坏，应在模块公共边界通过 Runtime bridge 映射为 Runtime 语义异常，由 Trap 决定结束当前 Turn 或采取其他运行转移。Action bridge 位于自身 runtime_bridge.py，区分调用契约与内部不变量。Runtime payload 只携带模块名、稳定失败类型和必要摘要，不携带原始异常文本、大块上下文或完整消息栈。
 
 因此 Action 失败处理分为三层：action call 级局部结果、phase 级局部结果、Runtime 语义异常。前两者服务于 Context 记录和模型反馈，后者服务于运行控制流。
 
@@ -251,7 +251,7 @@ Memory 的三个 native action 都只调用 `MemoryEngine`：memorize 使用 `me
 
 Phase3 action-internal LLM task 会自动追加 domain skill 与 action skill guide blocks。Action 层只依赖 `ActionSkillProvider` 协议；Agent Home 可提供 `HomeActionSkillProvider`，但 action executor 不感知 Home 目录结构。`skills_domain` 与 `skills_action` 属于局部自动 prompt 挂载机制，不进入普通渐进式加载，也不由 `home.resource.read` 按需读取。
 
-嵌套 LLM task 禁用模型侧工具调用，但回答协议由 action 语义决定。`run_json` 服务结构化业务结果，例如 `core.reason`、`core.answer` 和 `workspace.analyze`；`run_text` 服务将完整模型文本作为暂态工件交给 owner 的 write/commit 边界。文本工件只在 Phase3 executor 内存中存在，不能先包装成 ActionResult 再从 Context 取回；owner 成功提交后仍只返回 Link、digest、size、revision 等元数据。Context 构造失败、Runtime 语义异常、引用解析失败、LLM task failure 或回答形态不匹配都收敛为 execute 阶段的局部 `ActionResult`，未完成文本不会提交。
+嵌套 LLM task 禁用模型侧工具调用，但回答协议由 action 语义决定。`run_json` 服务结构化业务结果，例如 `core.reason`、`core.answer` 和 `workspace.analyze`；`run_text` 服务将完整模型文本作为暂态工件交给 owner 的 write/commit 边界。文本工件只在 Phase3 executor 内存中存在，不能先包装成 ActionResult 再从 Context 取回；owner 成功提交后仍只返回 Link、digest、size、revision 等元数据。LLM task failure 或回答形态不匹配收敛为 execute 阶段局部 `ActionResult`；Context 模块边界错误通过 Context bridge 转换，Runtime 控制异常继续传播，未完成文本不会提交。内部 Task 使用 `REQUEST_RECOVERY`；Context 预算与 LLM 容量原因均附带目标/参考资源保护 Link，恢复只重放当前未提交调用，不重复之前已经完成的 Action。
 
 `llm_action` backend options 由 backend kind validator 在 Catalog 构建边界统一校验：`max_output_tokens` 覆盖 `LLM_ACTION` profile 的 provider 生成上限，`max_output_chars` 限制 `run_text` 接受的完整工件字符数。前者属于 LLM 调用与上下文窗口预留，后者属于 action 工件边界；两者都不控制 ActionResult 进入 Context 的大小。结构化业务输出仍由 executor 校验自己的字段和结果预算，ActionResult trace 继续服从 Catalog 的 standard/foldable 生命周期。
 
