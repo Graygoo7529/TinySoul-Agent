@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tinysoul.workspace.projection import workspace_segment_registration
+
 from pathlib import Path
 
 from tinysoul.action import ActionEngine, LoadedActionCatalog
@@ -124,6 +126,7 @@ class UserTurnBuilder:
             memory=self._memory,
             observations=self._observations,
         )
+        context.register_segment(workspace_segment_registration())
         domain_skills = self._domain_skills or HomeDomainSkillProvider(
             self._home,
             runtime_bridge=RuntimeAgentHomeBridge(),

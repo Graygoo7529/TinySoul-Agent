@@ -60,6 +60,7 @@ def project_turn_record(
             for item in completion.inputs
         ),
         working=completion.working,
+        segments=completion.segments,
         background_links=completion.background_links,
         output=output,
         exhausted=exhausted,

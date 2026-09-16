@@ -2,18 +2,18 @@
 
 ## 定位
 
-Context 拥有一个活动 Turn 的模型语境。它持有 User Inputs、固定 Session Background、通用 Background、WorkingContext 与 TurnTraceHeap，并按稳定顺序构造 MessageStack。Context 不拥有跨 Turn 历史、Workspace 文件、Home 内容或 Memory 文件；这些模块只通过明确的 provider、snapshot 或 signal 协议向 Context 投影。
+Context 拥有一个活动 Turn 的模型语境。内核维护 User Inputs、plan 与 TurnTraceHeap；Workspace 通过注册的独立段维护本轮资源投影。固定 Session Background 和 Home/Memory 通用 Background 仍由既有 provider/snapshot 接入。Context 不拥有跨 Turn 历史、Workspace 文件、Home 内容或 Memory 文件。
 
 ## MessageStack
 
-MessageStack 顺序固定为：
+Composer 只接收带段描述的消息投影，按 Background → Trace → Working 槽位、段 order 和 id 排序，最后附加 TaskPrompt。当前装配顺序为：
 
 1. system identity；
-2. 当前 Turn 的有序 User Inputs；
-3. Session Background；
+2. Session Background；
+3. 当前 Turn 的有序 User Inputs；
 4. Home、Memory 等通用 Background；
 5. TurnTraceHeap 当前可见内容；
-6. WorkingContext 当前快照；
+6. plan 的 milestones/todos，以及独立 workspace 段的资源摘要；
 7. 当前 LLM Task 的 prompt overlay。
 
 除 system identity 外，框架构造的语境使用 user role；TinySoul ToolResult 仍按内部工具消息语义表达，并由 provider adapter 决定供应商协议映射。前端在 model Observation 中看到的 MessageStack 就是实际交给 LLM 层的构造结果，不另建 Context REST snapshot。
@@ -22,9 +22,17 @@ MessageStack 顺序固定为：
 
 Session Background 只在 Turn preparation 期间通过版本化全量 signal 注入，在该 Turn 内固定且不可逐出。通用 Background 每 Turn 重建；默认 Home 条目、按需加载的 Top Link 和 Memory 动态投影都属于当前 Turn。User/Home Maintenance 装配不可逐出的 `memory:current + optional memory:latest`，Memory Maintenance 装配不可逐出的 `memory:target + optional memory:latest`；latest 是严格早于 Context Business Day 的最近 daily，缺失时省略。Background catalog 只提供有界 Link、title 和 description，不等同于已加载正文。
 
-WorkingContext 是原位替换的当前快照，只向模型呈现 milestones、todos 与 Workspace resource Link/summary。Milestone 是少量、可复用的事实寄存器：可以记录有价值的完成、尝试、失败、阻塞、测量值、决定、来源 Link、版本/digest 或局部成果，供后续 Cycle 防止遗忘；它不是 todo 的镜像、进度徽章或对模型的自我确认。失败或仅尝试过的工作必须明确记录其状态，不能登记为完成事实。典型事实包括已计算的平均值、正在编辑的文档 Link/当前范围/digest、权威网址，或某次写入在已知边界失败。只有事实发生变化时才更新。Workspace revision、digest 和 Context 内部同步标识不进入模型投影。
+WorkingContext 维护 plan，只向模型呈现 milestones 与 todos，不持有 Workspace 快照。Milestone 是少量、可复用的事实寄存器：可以记录有价值的完成、尝试、失败、阻塞、测量值、决定、来源 Link、版本/digest 或局部成果，供后续 Cycle 防止遗忘；它不是 todo 的镜像、进度徽章或对模型的自我确认。失败或仅尝试过的工作必须明确记录其状态，不能登记为完成事实。Workspace 段只呈现 resource Link/summary；revision 等 owner 一致性字段不进入模型投影。
 
-Context 更新从 SignalBus 捕获当前 Turn 的固定批次；解析、候选校验与背景读取全部结束后才安装。准备入口和批次消费均为 async；短背景读取使用 joined owner 操作，取消时等待读取结束且不安装候选。默认背景的 catalog、provider 索引和正文也先完整准备，再一起安装，不在加载失败前暴露部分新目录。恢复信号以独立固定批次由内核提交，不从 Trap handler 直接修改视图。此处仍使用现有 Background/Working owner，尚未实现通用 Segment SPI。
+Context 更新从 SignalBus 捕获当前 Turn 的固定批次；解析、候选校验、背景读取和注册段的 prepare 全部结束后才安装。准备入口和批次消费均为 async；短背景读取使用 joined owner 操作，取消时等待读取结束且不安装候选。默认背景的 catalog、provider 索引和正文也先完整准备，再一起安装，不在加载失败前暴露部分新目录。恢复信号以独立固定批次由内核提交，不从 Trap handler 直接修改视图。
+
+## 注册段
+
+SegmentRegistry 在装配时校验段 id 与更新路由唯一性。描述声明 owner、slot 和 order；provider 每 Turn 创建实例。已注册的更新信号在注册边界解码为 owner 的具体类型，再交给该段 prepare，异构调度不把内部候选退化为任意 JSON。当前真实注册消费者是 Workspace；Home、Memory、Session 和核心状态尚未全部迁入该生命周期，shape 回收、profile 选择、ref 路由和可选 finish 也未接入。
+
+prepare 不改变活动视图或持久事实；全部候选准备成功才同步 install。候选只属于准备它的 Turn 且只能安装一次。安装缺陷使段集合停止接受后续更新和渲染，不回滚业务副作用或重放已安装候选。渲染只读已安装视图；seal 返回以 segment id 标识的 JSON 快照，不解释 owner 内容。
+
+部分 open 失败关闭已经交出的视图；尚未交出的资源由 provider 自行回收。Turn 在必要 finish 后逆序 close 段，连续取消仍等待清理完成。close 不关闭跨 Turn Engine，不再次提交 Session；失败成为独立有限诊断。
 
 ## TurnTraceHeap
 
@@ -55,9 +63,9 @@ TurnTraceHeap 是当前 Turn 的 append-only 运行事实：
 
 ## Turn Completion
 
-`end_turn()` 产生 typed immutable `ContextTurnCompletion`，包含 Turn identity、有序输入文本与接收时间、Working 终态、Background links 和 `SealedTurnTrace`。Sealed trace 保存 turn id、有序 canonical entries 及类型化 Action 执行事实，不携带 heap topology。
+`end_turn()` 产生 typed immutable `ContextTurnCompletion`，包含 Turn identity、有序输入文本与接收时间、plan 终态、Background links、按 id 标识的段快照和 `SealedTurnTrace`。Sealed trace 保存 turn id、有序 canonical entries 及类型化 Action 执行事实，不携带 heap topology。
 
-该对象只在 Loop completion pipeline 中传递。Session 在自己的提交边界直接投影类型化 Action 事实及 Turn 终态为 v6 业务记录，不从模型消息猜测 call/result 配对；Context 不生成持久 `TurnSummary`、trace digest 或 JSON canonical trace。Session 提交后也不保留当前 Turn trace。
+该对象只在 Loop completion pipeline 中传递。Session 在自己的提交边界直接投影类型化 Action 事实及 Turn 终态为 v7 业务记录，保留段快照，不从模型消息猜测 call/result 配对；Context 不生成持久 `TurnSummary`、trace digest 或 JSON canonical trace。Session 提交后也不保留当前 Turn trace。
 
 ## 失败边界
 

@@ -6,11 +6,11 @@ Session 拥有一个 business day 内已经完成的 prior Turns。它保存不�
 
 ## 持久事实
 
-Turn record 使用 schema v6，显式保存：
+Turn record 使用 schema v7，显式保存：
 
 - ref、day 与 recorded time；
 - 有序输入文本和接收时间；
-- Working 终态与 Background links；
+- plan 终态、Background links 与按 segment id 标识的 owner 快照；
 - 最终状态、可选正式输出、references 与 exhausted；
 - 类型化执行失败与必要 finish 失败，明确区分两者；
 - 按发生顺序排列的 Action 业务记录。
@@ -21,7 +21,7 @@ Session 直接消费 sealed Trace 的类型化 Action 事实，不从 Phase2/Pha
 
 Summary record 与 Turn 使用同一 schema version，只保存 deterministic ref、day、recorded time 和至少两个有序 direct child refs。Summary 是索引节点，不复制子节点 Background、Action counts 或正文。
 
-Manifest 使用 schema v2，只保存 day、内部 revision 与有序 root refs。v6 record 和 v2 manifest 严格拒绝未知字段；Session 不读取、不迁移旧 schema。
+Manifest 使用 schema v2，只保存 day、内部 revision 与有序 root refs。v7 record 和 v2 manifest 严格拒绝未知字段；Session 不读取、不迁移旧 schema。段快照从 TurnCompletion 原样进入同一业务记录及 Memory facts，Session 不反向拥有活动段；Workspace 内容不再混入 plan 状态。
 
 Session preparation 异步读取历史 snapshot，inspect Action 使用短本地 owner 执行边界；Session completion 位于必要 finish 的最后，异步等待本地 owner 提交完成。执行或前置 finish 失败时仍记录已知事实，但不把回答候选保存为正式输出。Session 自身提交失败由 Turn 报告；资源 close 失败不触发第二次提交或改写已完成记录。
 

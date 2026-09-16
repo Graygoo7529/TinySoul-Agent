@@ -42,7 +42,7 @@ A User Turn may contain multiple Agent Cycles. Each Cycle first updates Context 
 
 ## Context
 
-Context is constructed for each model task from the current UserInputs, BackgroundContext, TurnTraceContext, WorkingContext, and task prompt. Background holds loaded durable knowledge. TurnTraceContext holds current-Turn decisions and action feedback. The later WorkingContext holds the current materialized task state and Workspace resource descriptions.
+Context is constructed for each model task in Background, Trace, and Working order, followed by the task prompt. Background presents identity, prior Session facts, current UserInputs, and loaded Home/Memory guidance. Trace holds current-Turn decisions and action feedback. Working contains a plan with milestones and todos, followed by a separate workspace projection of current resource Links and summaries.
 
 Top-level Home content can enter Background. A Link is not its body: use `load_background` for one or more relevant Top Links already exposed in the current Context. Progressive Home resources, Memory inspect or recall results, and action results belong in TurnTrace rather than Background. Workspace Links remain resource handles until an owning action resolves them.
 

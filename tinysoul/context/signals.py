@@ -32,13 +32,10 @@ from .working import (
     TodoItem,
     TodoStatus,
     WorkingPatch,
-    WorkspaceResource,
-    WorkspaceSnapshot,
 )
 
 SIGNAL_NAMESPACE = "context"
 SIGNAL_WORKING_PATCH = "context.working.patch"
-SIGNAL_WORKSPACE_SYNC = "context.workspace.sync"
 SIGNAL_SESSION_SYNC = "context.session.sync"
 SIGNAL_BACKGROUND_PATCH = "context.background.patch"
 SIGNAL_TRACE_APPEND = "context.trace.append"
@@ -105,51 +102,6 @@ def working_patch_from_json(value: JsonObject) -> WorkingPatch:
             for item in _object_list(value, "set_todos")
         ),
         remove_todos=_str_tuple(value, "remove_todos"),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Workspace snapshot
-
-
-def build_workspace_sync_signal(
-    snapshot: WorkspaceSnapshot,
-    *,
-    call_id: str,
-    scope: RunScope,
-    source: str,
-) -> Signal:
-    return Signal(
-        name=SIGNAL_WORKSPACE_SYNC,
-        source=source,
-        scope=scope,
-        payload={
-            "call_id": call_id,
-            "revision": snapshot.revision,
-            "resources": [
-                {"link": resource.link, "summary": resource.summary}
-                for resource in snapshot.resources
-            ],
-        },
-    )
-
-
-def parse_workspace_sync_signal(signal: Signal) -> tuple[str, WorkspaceSnapshot]:
-    call_id = _required_str(signal.payload, "call_id")
-    revision = signal.payload.get("revision")
-    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
-        raise ContextContractError(
-            "Workspace sync revision must be a non-negative integer"
-        )
-    return call_id, WorkspaceSnapshot(
-        revision=revision,
-        resources=tuple(
-            WorkspaceResource(
-                link=_required_str(item, "link"),
-                summary=_required_str(item, "summary"),
-            )
-            for item in _object_list(signal.payload, "resources")
-        ),
     )
 
 

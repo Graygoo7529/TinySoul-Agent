@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+
 from dataclasses import replace
 import pytest
 
@@ -22,8 +23,6 @@ from tinysoul.context.working import (
     TodoStatus,
     WorkingContext,
     WorkingPatch,
-    WorkspaceResource,
-    WorkspaceSnapshot,
 )
 from tinysoul.llm.messages import AssistantMessage, JsonPart, ToolResultMessage, UserMessage
 from tinysoul.runtime import CyclePhase, RunScope
@@ -161,16 +160,6 @@ def test_working_patch_check_and_apply() -> None:
     working.apply_patch(patch)
     assert working.milestones()[0].content == "ship context module"
     assert working.todos()[0].status is TodoStatus.PENDING
-    working.apply_workspace_snapshot(
-        WorkspaceSnapshot(
-            revision=1,
-            resources=(
-                WorkspaceResource(link="workspace:doc/a.md", summary="notes"),
-            ),
-        )
-    )
-    assert working.workspace_revision == 1
-    assert working.resources()[0].link == "workspace:doc/a.md"
 
     removal = WorkingPatch(remove_todos=("t1",))
     working.apply_patch(removal)
@@ -205,7 +194,7 @@ def test_working_message_hides_internal_revisions_without_changing_state() -> No
     assert "as_of_trace" not in part.value
     assert "workspace_revision" not in part.value
     assert "as_of_trace" not in working.to_json()
-    assert working.to_json()["workspace_revision"] == -1
+    assert set(working.to_json()) == {"milestones", "todos"}
 
 
 def test_working_patch_sequence_validates_projected_state() -> None:

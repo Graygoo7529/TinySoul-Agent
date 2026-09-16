@@ -1,6 +1,6 @@
 # Agent 架构重构：设计语义、契约与执行计划
 
-状态：`in_progress`（R1 已完成；R2 继续落实 Memory 异步检索、Turn 必要收尾与 Session 失败记录、异步语境准备及恢复信号消费，核验见第二轮子计划第 13 节；S1 剩余及 S2 完整内核/SDK 闭环仍在实施）。
+状态：`in_progress`（R1 已完成；R2 已继续接入注册段生命周期、Workspace 独立投影、通用槽位组合和段快照收尾，核验见第二轮子计划第 14 节；S1 剩余及 S2 完整内核/SDK 闭环仍在实施）。
 修订日期：2026-09-15。初始复审代码：`e930c9c444deb0073ab3d7f016057245bad66ca6`（当次查询远端 HEAD 相同）；R2 分析基线为本地 `6821983`，本次未查询远端。
 
 本文件描述目标设计，不代表当前实现。用户本轮授权分析、修订计划与讨论，不据历史“全面授权”直接实施代码。确认状态见第 14 节。用户本轮已确认上一轮架构方向，特别是受限 SUSPEND 与 Inbox 保障边界，并补充 Reflection 通用动作叠加、ACP 显式连接及 Working 呈现；新增具体签名与连接寿命仍标明建议。原“正文 + 替换预览”合并为单一方案，旧版由 Git 保存，不并行保留互相冲突的接口。API 均为契约草图，具体名称与类型在子计划落定。
@@ -209,7 +209,7 @@ wait 只观察就绪，不与边界消费者竞争删除事件。登记和入队
 
 ### 7.1 插槽、形状、段与能力
 
-当前代码尚未落地通用段架构：composer.py 的 ContextSection 是固定分区枚举，compose 显式接收 inputs/background/working/trace；engine.py 仍持有具体领域快照；trace.py 的 TurnTraceHeap 是折叠实现。这些是可复用基础，不等于已经有统一 shape/slot SPI。下文描述重构目标。
+通用段重构已从 Workspace 接入：composer.py 按注册投影的 slot/order 组合，Workspace 视图已脱离内核 Working；engine.py 仍持有 Session 与通用 Background，trace.py 的 TurnTraceHeap 仍是折叠实现。当前并非完整的 shape/slot/能力 SPI；下文继续描述重构目标。
 
 四个正交概念：
 

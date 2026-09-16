@@ -50,18 +50,15 @@ from .signals import (
     SIGNAL_SESSION_SYNC,
     SIGNAL_TRACE_APPEND,
     SIGNAL_WORKING_PATCH,
-    SIGNAL_WORKSPACE_SYNC,
     build_input_append_signal,
     build_session_sync_signal,
     build_trace_action_result_signal,
     build_trace_decision_signal,
     build_trace_phase_note_signal,
-    build_workspace_sync_signal,
     parse_input_append_signal,
 )
-from .working import WorkspaceResource, WorkspaceSnapshot
 from .background import SessionBackgroundItem, SessionBackgroundSnapshot
-from .composer import ContextBudgetReport, ContextSection, ContextSectionUsage
+from .composer import ContextBudgetReport, ContextSectionUsage
 from .compress import ContextPressureReport
 from .segments import ContextSegment, SegmentRegistry
 
@@ -89,7 +86,6 @@ __all__ = [
     "ContextTurnInput",
     "ContextSignalBatch",
     "ContextSettings",
-    "ContextSection",
     "ContextSectionUsage",
     "ContextPressureReport",
     "ContextSegment",
@@ -108,19 +104,15 @@ __all__ = [
     "SIGNAL_SESSION_SYNC",
     "SIGNAL_TRACE_APPEND",
     "SIGNAL_WORKING_PATCH",
-    "SIGNAL_WORKSPACE_SYNC",
     "StaticBackgroundContentLoader",
     "SessionBackgroundItem",
     "SessionBackgroundSnapshot",
     "TaskPrompt",
-    "WorkspaceResource",
-    "WorkspaceSnapshot",
     "build_input_append_signal",
     "build_session_sync_signal",
     "build_trace_action_result_signal",
     "build_trace_decision_signal",
     "build_trace_phase_note_signal",
-    "build_workspace_sync_signal",
     "parse_context_settings",
     "parse_input_append_signal",
     "register_context_actions",

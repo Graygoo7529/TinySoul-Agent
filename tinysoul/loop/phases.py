@@ -18,7 +18,6 @@ from tinysoul.action import (
 from tinysoul.context import (
     ContextEngine,
     ControlResult,
-    SIGNAL_WORKSPACE_SYNC,
     build_trace_action_result_signal,
     build_trace_decision_signal,
     build_trace_phase_note_signal,
@@ -569,16 +568,7 @@ class Phase3Unit:
         results = normalization.merged_results(
             (*preparation.results, *execution_results)
         )
-        expected_workspace_call_ids = frozenset(
-            result.call_id
-            for result in results
-            if result.domain == "workspace"
-            and result.status is ActionResultStatus.SUCCESS
-        )
-        (await self._consume_action_effects(
-            scope=scope,
-            expected_workspace_call_ids=expected_workspace_call_ids,
-        ))
+        await self._consume_action_effects(scope=scope)
         self._observe_action_results(results, scope=scope)
         (await self._emit_action_results(results, scope=scope, cycle_id=cycle_id))
         phase_results = preparation.phase_results
@@ -625,24 +615,17 @@ class Phase3Unit:
         self,
         *,
         scope: RunScope,
-        expected_workspace_call_ids: frozenset[str],
     ) -> None:
         consume_results = (await self._signal_consumer.consume(scope=scope))
-        workspace_failures = tuple(
-            result
-            for result in consume_results
-            if result.tool_name == SIGNAL_WORKSPACE_SYNC
-            and result.call_id in expected_workspace_call_ids
-        )
-        if workspace_failures:
+        if consume_results:
             raise self._loop_bridge.from_loop_error(
                 LoopInvariantError(
-                    "Context rejected an authoritative Workspace snapshot"
+                    "Context rejected an internal Action update"
                 ),
                 payload={
                     "results": [
                         _control_result_payload(result)
-                        for result in workspace_failures
+                        for result in consume_results
                     ]
                 },
             )

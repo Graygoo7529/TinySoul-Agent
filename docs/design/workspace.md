@@ -10,14 +10,16 @@
 
 Workspace 模块负责 TinySoul 当日工作区的资源管理，是 `workspace:` 链接的唯一语义归属方。
 
-Workspace 不维护语境状态，不解释外部输入命令，也不读取 Agent Home。`WorkspaceEngine` 不直接执行模型调用；需要 LLM 的 workspace action executor 在 ActionExecutor 语义内构造 `TaskPrompt`，并通过 action 层共享 `LLMActionTaskRunner` 调用模型。Workspace 通过 context 信号同步资源摘要，并通过自身门面处理 workspace 链接解析、路径边界、资源扫描、manifest 更新和文件读写。
+WorkspaceEngine 拥有文件与 manifest，WorkspaceSegment 只维护一个 Turn 的资源投影；Workspace 不拥有整个 Context，不解释外部输入命令，也不读取 Agent Home。`WorkspaceEngine` 不直接执行模型调用；需要 LLM 的 workspace action executor 在 ActionExecutor 语义内构造 `TaskPrompt`，并通过 action 层共享 `LLMActionTaskRunner` 调用模型。Workspace 通过注册的 context 更新路由同步资源摘要，并通过自身门面处理 workspace 链接解析、路径边界、资源扫描、manifest 更新和文件读写。
+
+WorkspaceSnapshot、更新 codec 和 revision 冲突判断均属于 Workspace。provider 每 Turn 新建空视图，准备 handler 完成 reconcile 后发送初始全量快照，Action 后续发送已提交快照。段在 prepare 中计算候选、install 中替换引用；旧 revision 不回退视图，同 revision 冲突经 Workspace bridge 结束当前流程，不成为普通模型反馈。render 只投影 Link/summary，seal 保留 owner 快照；Context 不再持有 Workspace 私有字段或解析 Workspace 更新。关闭段释放本轮视图，不关闭 Engine。
 
 Action 侧的有界本地读取和写入通过 JoinedOperations 执行。纯本地动作使用 LocalActionExecutor；混合动作在读取后异步调用 LLM，再进入独立的 owner 提交。提交和 Workspace snapshot 通知一同完成后返回真实结果，已提交的成功不会因调用方随后取消而丢失；取消传播仍由 Action runner 在记录执行事实后负责。
 
 ## 设计目标
 
 1. `workspace:` 链接有唯一解析和校验入口，避免路径规则散落在 app、action 或具体工具函数中。
-2. WorkingContext 只保存 workspace 资源句柄和摘要，不保存文件正文、图片字节或长内容。
+2. Working 槽位中的 workspace 段只保存资源句柄和摘要，不保存文件正文、图片字节或长内容；plan 段只维护 todos 与 milestones。
 3. workspace 文件内容只在具体 action 执行期读取；隐式或无界整文件读取禁止，显式有界 inspection 可以把片段作为当前 Turn 的 foldable ActionResult overlay，action-internal LLM 仍只使用临时 task prompt。
 4. `workspace.scan` 保持现有外部行为，但扫描规则、摘要格式和 WorkingContext patch 构造迁入 Workspace 模块。
 5. workspace 根目录、忽略规则、manifest 损坏、路径越界和读写失败有清楚的失败语义。
@@ -82,7 +84,7 @@ Workspace manifest 记录资源摘要，而不是资源内容。一个资源记�
 - `retention`：`ephemeral`、`turn`、`day` 或 `persistent`；
 - `owner_turn_id`：产生该资源的 Turn，可用于生命周期回收和审计。
 
-投影到 Context 时只提交轻量信息。当前 WorkingContext 已有 `WorkspaceResource(link, summary)`，Workspace 模块可以先投影为这两个字段；后续如需 size、kind、mtime，应先扩展 Context 的资源摘要协议，而不是把完整 manifest 塞进 trace。模型 MessageStack 先渲染 TurnTrace、再渲染 Working，因此该资源投影是交互历史之后的当前状态；Working 消息的 `as_of_trace` 只标记同次组装边界，不改变 Workspace revision 的所有权。
+投影到 Context 时只提交轻量信息。Workspace owner 的 `WorkspaceResource` 表达 Link/summary；新增资源语义也由 Workspace 定义，不把完整 manifest 塞进 trace。模型 MessageStack 先渲染 TurnTrace、再渲染 Working 槽位，因此 workspace 段表达交互历史之后的当前状态；模型投影不带 `as_of_trace` 或 revision。
 
 ## Manifest
 
@@ -264,6 +266,6 @@ AppBuilder 的目标职责是：
 - Workspace 配置错误经 workspace bridge 映射，并保留 `module = workspace`；
 - create/append/patch/delete/rewrite action 使用 `target_link` 表达变更目标；create/rewrite 在 action 内部调用 LLM 生成完整文本，append 追加精确片段，patch 确定性应用 Phase2 生成的小幅替换参数；执行失败应收敛为 `ActionResult`，成功结果不携带文件正文；
 - workspace 配置错误和 manifest 不变量错误经 Runtime bridge 映射；
-- Context 测试继续证明 WorkingContext 只保存链接和摘要。
+- Workspace 段测试保护资源摘要与 revision 判断，Context 测试保护跨段批次、组合顺序及生命周期。
 
 Document conversion action 已由 Resource capability 提供；日终 workspace/trash 归档与 partial resume 已有故障测试。

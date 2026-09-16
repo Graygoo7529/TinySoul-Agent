@@ -14,6 +14,7 @@ from tinysoul.context.errors import ContextBudgetError
 from tinysoul.context.prompts import PromptBlock, TaskPrompt
 from tinysoul.context.trace import PendingInputs, TurnTraceHeap
 from tinysoul.context.working import WorkingContext
+from tinysoul.context.segments import SegmentDescriptor, SegmentProjection, SegmentSlot
 from tinysoul.llm.messages import (
     AssistantMessage,
     ImagePart,
@@ -27,7 +28,7 @@ from tinysoul.llm.reasoning import Reasoning
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
 
 
-def _sections() -> tuple[PendingInputs, BackgroundContext, WorkingContext, TurnTraceHeap]:
+def _sections() -> tuple[SegmentProjection, ...]:
     inputs = PendingInputs()
     inputs.add("hello there", merged=True)
     background = BackgroundContext(journal="journal text")
@@ -37,17 +38,20 @@ def _sections() -> tuple[PendingInputs, BackgroundContext, WorkingContext, TurnT
     working = WorkingContext()
     trace = TurnTraceHeap()
     trace.append_phase_note("trace note")
-    return inputs, background, working, trace
+    return (
+        SegmentProjection(SegmentDescriptor("plan", "context", SegmentSlot.WORKING, 10), working.render_messages()),
+        SegmentProjection(SegmentDescriptor("trace", "context", SegmentSlot.TRACE, 10), trace.render_messages()),
+        SegmentProjection(SegmentDescriptor("identity", "context", SegmentSlot.BACKGROUND, 10),
+                          (SystemMessage.from_text("identity text", label="identity"),)),
+        SegmentProjection(SegmentDescriptor("inputs", "context", SegmentSlot.BACKGROUND, 30), inputs.render_messages()),
+        SegmentProjection(SegmentDescriptor("background", "context", SegmentSlot.BACKGROUND, 40), background.render_messages()),
+    )
 
 
 def test_compose_section_order_and_labels() -> None:
-    inputs, background, working, trace = _sections()
-    composer = MessageStackComposer(system_text="identity text")
+    composer = MessageStackComposer()
     stack = composer.compose(
-        inputs=inputs,
-        background=background,
-        working=working,
-        trace=trace,
+        segments=_sections(),
         task_prompt=TaskPrompt(
             guide_blocks=(
                 PromptBlock.from_text(
@@ -84,7 +88,7 @@ def test_compose_section_order_and_labels() -> None:
         "background:journal",
         "background:home:skills@x",
         "phase_note",
-        "working",
+        "plan",
         "task_prompt:guide:phase",
         "task_prompt:guide:domain_skill:1",
         "task_prompt:input:details",
@@ -108,9 +112,7 @@ def test_compose_section_order_and_labels() -> None:
 
 
 def test_compose_image_budget_exceeded_raises() -> None:
-    inputs, background, working, trace = _sections()
     composer = MessageStackComposer(
-        system_text="identity text",
         budget=ContextBudget(max_image_bytes=2),
     )
     image_block = PromptBlock(
@@ -123,10 +125,7 @@ def test_compose_image_budget_exceeded_raises() -> None:
 
     with pytest.raises(ContextBudgetError) as exc_info:
         composer.compose(
-            inputs=inputs,
-            background=background,
-            working=working,
-            trace=trace,
+            segments=_sections(),
             task_prompt=TaskPrompt(
                 guide_blocks=(PromptBlock.from_text("guide", "guide"),),
                 input_blocks=(image_block,),

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tinysoul.workspace.projection import WorkspaceSnapshot, build_workspace_sync_signal
+
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import date
@@ -18,8 +20,6 @@ from tinysoul.context import (
     BackgroundCatalogItem,
     ContextEngine,
     ContextEngineBuilder,
-    WorkspaceSnapshot,
-    build_workspace_sync_signal,
 )
 from tinysoul.context.trace import TraceKind
 from tinysoul.infra.json import JsonObject
@@ -355,6 +355,7 @@ async def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the
 
     context.complete_preparation()
     context.end_turn()
+    await context.close_segments()
     context.begin_turn("next turn")
     await context.prepare_default_background(date(2026, 7, 14))
     assert "home:skills@review" not in context.background_links()
@@ -916,7 +917,7 @@ async def test_phase3_maps_multiple_answer_completion_contract_error() -> None:
     assert context.turn_active is True
 
 
-async def test_phase3_ignores_stale_workspace_sync_failure_from_another_call() -> None:
+async def test_phase3_rejects_misdirected_internal_update_even_from_another_call() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("reason now")
     action = _action_engine()
@@ -955,14 +956,14 @@ async def test_phase3_ignores_stale_workspace_sync_failure_from_another_call() -
         )
     )
 
-    outcome = (await Phase3Unit(context=context, action=action, bus=bus).run(
-        normalization=normalization,
-        scope=scope,
-        cycle_id="cycle_1",
-        turn_id=turn_id,
-    ))
-
-    assert outcome.results[0].status.value == "success"
+    with pytest.raises(RuntimeException) as raised:
+        await Phase3Unit(context=context, action=action, bus=bus).run(
+            normalization=normalization,
+            scope=scope,
+            cycle_id="cycle_1",
+            turn_id=turn_id,
+        )
+    assert raised.value.payload["kind"] == "loop.internal_failure"
 
 
 async def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:

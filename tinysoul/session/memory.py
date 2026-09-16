@@ -25,6 +25,7 @@ class SessionMemoryFact:
     user_inputs: tuple[str, ...]
     status: TurnOutcomeStatus
     working: JsonObject = field(default_factory=dict)
+    segments: JsonObject = field(default_factory=dict)
     background_links: tuple[str, ...] = field(default_factory=tuple)
     answer: str = ""
     references: tuple[str, ...] = field(default_factory=tuple)
@@ -66,6 +67,7 @@ class SessionMemoryFact:
             tuple(to_json_object(action) for action in actions),
         )
         object.__setattr__(self, "working", to_json_object(self.working))
+        object.__setattr__(self, "segments", to_json_object(self.segments))
 
     def to_json(self) -> JsonObject:
         return {
@@ -73,6 +75,7 @@ class SessionMemoryFact:
             "started_at": self.started_at.isoformat(),
             "user_inputs": list(self.user_inputs),
             "working": self.working,
+            "segments": self.segments,
             "background_links": list(self.background_links),
             "answer": self.answer,
             "references": list(self.references),
@@ -157,6 +160,7 @@ def _turn_fact(record: SessionTurnRecord) -> SessionMemoryFact:
         started_at=_turn_started_at(record),
         user_inputs=tuple(item.text for item in record.inputs),
         working=record.working,
+        segments=record.segments,
         background_links=record.background_links,
         answer=output.text if output is not None else "",
         references=output.references if output is not None else (),

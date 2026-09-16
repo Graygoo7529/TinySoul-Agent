@@ -336,64 +336,73 @@ class TurnRunner:
         if output is not None and self._is_turn_end(transfer, turn_scope):
             transfer = None
         try:
-            context_completion, finish_boundary = self._finish_turn(turn_scope)
-        finally:
-            self._set_active_scope(None)
-        if finish_boundary is not None:
-            if transfer is None:
-                transfer = finish_boundary.transfer
-            failure = failure or finish_boundary.failure
-        completion_committed = False
-        if context_completion is not None:
-            execution_status, failure = self._outcome_status(
-                output=output,
-                completion=completion,
-                completion_committed=True,
-                exhausted=exhausted,
-                stopped=stopped,
-                transfer=transfer,
-                failure=failure,
-            )
-
-            def capture_finish_failure(
-                exc: RuntimeException | RuntimeTransferInterrupt,
-            ) -> TurnFailure:
-                nonlocal transfer
-                captured = (
-                    self._from_interrupt(exc)
-                    if isinstance(exc, RuntimeTransferInterrupt)
-                    else self._capture(exc, turn_scope)
-                )
+            try:
+                context_completion, finish_boundary = self._finish_turn(turn_scope)
+            finally:
+                self._set_active_scope(None)
+            if finish_boundary is not None:
                 if transfer is None:
-                    transfer = captured.transfer
-                return captured.failure or TurnFailure(
-                    reason=RUNTIME_TURN_END,
-                    message="Required Turn completion was interrupted.",
-                    module="loop",
-                    kind=LoopFailureKind.CONTRACT_VIOLATION.value,
+                    transfer = finish_boundary.transfer
+                failure = failure or finish_boundary.failure
+            completion_committed = False
+            if context_completion is not None:
+                execution_status, failure = self._outcome_status(
+                    output=output,
+                    completion=completion,
+                    completion_committed=True,
+                    exhausted=exhausted,
+                    stopped=stopped,
+                    transfer=transfer,
+                    failure=failure,
                 )
 
-            finalizer = asyncio.create_task(self._completion_pipeline.run(
-                TurnCompletion(
-                    context_completion=context_completion,
-                    business_day=business_day,
-                    status=execution_status,
-                    output=output,
-                    exhausted=exhausted,
-                    completion=completion,
-                    failure=failure,
-                ),
-                capture_failure=capture_finish_failure,
-            ))
-            while not finalizer.done():
+                def capture_finish_failure(
+                    exc: RuntimeException | RuntimeTransferInterrupt,
+                ) -> TurnFailure:
+                    nonlocal transfer
+                    captured = (
+                        self._from_interrupt(exc)
+                        if isinstance(exc, RuntimeTransferInterrupt)
+                        else self._capture(exc, turn_scope)
+                    )
+                    if transfer is None:
+                        transfer = captured.transfer
+                    return captured.failure or TurnFailure(
+                        reason=RUNTIME_TURN_END,
+                        message="Required Turn completion was interrupted.",
+                        module="loop",
+                        kind=LoopFailureKind.CONTRACT_VIOLATION.value,
+                    )
+
+                finalizer = asyncio.create_task(self._completion_pipeline.run(
+                    TurnCompletion(
+                        context_completion=context_completion,
+                        business_day=business_day,
+                        status=execution_status,
+                        output=output,
+                        exhausted=exhausted,
+                        completion=completion,
+                        failure=failure,
+                    ),
+                    capture_failure=capture_finish_failure,
+                ))
+                while not finalizer.done():
+                    try:
+                        await asyncio.shield(finalizer)
+                    except asyncio.CancelledError as exc:
+                        task_cancellation = task_cancellation or exc
+                finalized = finalizer.result()
+                finish_failures = finalized.finish_failures
+                completion_committed = not finish_failures
+                failure = failure or (finish_failures[0] if finish_failures else None)
+        finally:
+            closer = asyncio.create_task(self._context.close_segments())
+            while not closer.done():
                 try:
-                    await asyncio.shield(finalizer)
+                    await asyncio.shield(closer)
                 except asyncio.CancelledError as exc:
                     task_cancellation = task_cancellation or exc
-            finalized = finalizer.result()
-            finish_failures = finalized.finish_failures
-            completion_committed = not finish_failures
-            failure = failure or (finish_failures[0] if finish_failures else None)
+            cleanup_diagnostics.extend(closer.result())
         status, failure = self._outcome_status(
             output=output,
             completion=completion,

@@ -9,7 +9,7 @@ from uuid import uuid4
 from tinysoul.action.core.call import ActionCall, ExecutionFact
 from tinysoul.action.core.result import ActionResult
 
-from tinysoul.infra.concurrency import JoinedOperations
+from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.continuation import (
     MIN_CONTINUATION_PAGE_CHARS,
     ContinuationError,
@@ -24,6 +24,7 @@ from tinysoul.llm.messages import (
     Message,
     MessageStack,
     TextPart,
+    SystemMessage,
     ToolResultMessage,
 )
 from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolScope
@@ -74,14 +75,12 @@ from .signals import (
     SIGNAL_SESSION_SYNC,
     SIGNAL_TRACE_APPEND,
     SIGNAL_WORKING_PATCH,
-    SIGNAL_WORKSPACE_SYNC,
     TraceAppend,
     parse_background_patch_signal,
     parse_input_append_signal,
     parse_session_sync_signal,
     parse_trace_append_signal,
     parse_working_patch_signal,
-    parse_workspace_sync_signal,
 )
 from .trace import (
     PendingInputs,
@@ -91,7 +90,11 @@ from .trace import (
     TraceKind,
     TurnTraceHeap,
 )
-from .working import WorkingContext, WorkingPatch, WorkspaceSnapshot
+from .working import WorkingContext, WorkingPatch
+from .segments import (
+    RegisteredSegment, SegmentDescriptor, SegmentProjection, SegmentRegistry,
+    SegmentSlot, TurnInfo, TurnSegments,
+)
 
 
 @dataclass(frozen=True)
@@ -123,6 +126,7 @@ class ContextTurnCompletion:
     working: JsonObject
     background_links: tuple[str, ...]
     trace: SealedTurnTrace
+    segments: JsonObject = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.turn_id:
@@ -136,6 +140,7 @@ class ContextTurnCompletion:
             )
         object.__setattr__(self, "inputs", inputs)
         object.__setattr__(self, "working", to_json_object(self.working))
+        object.__setattr__(self, "segments", to_json_object(self.segments))
         links = tuple(self.background_links)
         if any(not isinstance(link, str) or not link for link in links):
             raise ContextContractError(
@@ -199,6 +204,7 @@ class ContextEngine:
         self,
         *,
         composer: MessageStackComposer,
+        system_text: str,
         compressor: ContextCompressor,
         background: BackgroundContext,
         default_entries: tuple[BackgroundEntry, ...],
@@ -210,6 +216,9 @@ class ContextEngine:
         observations: ObservationEmitter | None = None,
     ) -> None:
         self._composer = composer
+        self._system_text = system_text
+        self._segment_registry = SegmentRegistry()
+        self._segments: TurnSegments | None = None
         self._compressor = compressor
         self._background = background
         self._default_entries = tuple(default_entries)
@@ -257,6 +266,35 @@ class ContextEngine:
         self._require_turn()
         return to_json_object(self._working.to_json())
 
+    def register_segment(self, registration: RegisteredSegment) -> None:
+        """Register one owner contribution before starting any Turn."""
+        if self._turn_id or self._segments is not None:
+            raise ContextContractError("Segments must be registered before Turn execution")
+        if registration.descriptor.id in {"identity", "session", "inputs", "background", "trace", "plan", "task_prompt"}:
+            raise ContextContractError("Segment id conflicts with a core projection")
+        if registration.signal_name in {
+            SIGNAL_WORKING_PATCH, SIGNAL_SESSION_SYNC, SIGNAL_BACKGROUND_PATCH,
+            SIGNAL_TRACE_APPEND, SIGNAL_INPUT_APPEND,
+        }:
+            raise ContextContractError("Segment update route conflicts with a core update")
+        self._segment_registry = self._segment_registry.register(registration)
+
+    def segment_snapshot(self, segment_id: str) -> JsonObject:
+        self._require_turn()
+        value = self._segments.seal().get(segment_id) if self._segments is not None else None
+        if not isinstance(value, dict):
+            raise ContextContractError("No active segment has this identity")
+        return to_json_object(value)
+
+    async def close_segments(self) -> tuple[CleanupDiagnostic, ...]:
+        segments = self._segments
+        if segments is None:
+            return ()
+        try:
+            return await segments.close()
+        finally:
+            self._segments = None
+
     def trace_kinds(self) -> tuple[TraceKind, ...]:
         """Return trace entry kinds for observation and tests."""
 
@@ -264,8 +302,8 @@ class ContextEngine:
         return tuple(entry.kind for entry in self._trace.entries())
 
     def begin_turn(self, user_input: str) -> str:
-        if self._turn_id:
-            raise ContextContractError("A turn is already active")
+        if self._turn_id or self._segments is not None:
+            raise ContextContractError("Previous Turn must be ended and its segments closed")
         if not user_input:
             raise ContextContractError("begin_turn requires non-empty user input")
         self._turn_id = f"turn_{uuid4().hex[:8]}"
@@ -296,6 +334,9 @@ class ContextEngine:
         operations.check_cancelled()
         if self._turn_id != turn_id:
             raise ContextContractError("Background preparation outlived its Turn")
+        if self._segments is None:
+            self._segments = self._segment_registry.for_turn(TurnInfo(turn_id, business_day))
+            await self._segments.open()
         self._business_day = business_day
         self._provider_by_link = {
             link: provider for provider, catalog in bindings for link in catalog.loadable_links
@@ -348,11 +389,24 @@ class ContextEngine:
 
     def compose(self, task_prompt: TaskPrompt) -> MessageStack:
         self._require_turn()
+        if self._segment_registry.registrations and self._segments is None:
+            raise ContextContractError("Registered Context segments must be opened before composition")
         return self._composer.compose(
-            inputs=self._inputs,
-            background=self._background,
-            working=self._working,
-            trace=self._trace,
+            segments=(
+                SegmentProjection(SegmentDescriptor("identity", "context", SegmentSlot.BACKGROUND, 10),
+                                  (SystemMessage.from_text(self._system_text, label="identity"),)),
+                SegmentProjection(SegmentDescriptor("session", "session", SegmentSlot.BACKGROUND, 20),
+                                  self._background.render_session_messages()),
+                SegmentProjection(SegmentDescriptor("inputs", "context", SegmentSlot.BACKGROUND, 30),
+                                  self._inputs.render_messages()),
+                SegmentProjection(SegmentDescriptor("background", "context", SegmentSlot.BACKGROUND, 40),
+                                  self._background.render_background_messages()),
+                SegmentProjection(SegmentDescriptor("trace", "context", SegmentSlot.TRACE, 10),
+                                  self._trace.render_messages()),
+                SegmentProjection(SegmentDescriptor("plan", "context", SegmentSlot.WORKING, 10),
+                                  self._working.render_messages()),
+                *(self._segments.render() if self._segments is not None else ()),
+            ),
             task_prompt=task_prompt,
         )
 
@@ -411,7 +465,7 @@ class ContextEngine:
         background_before = self._background.links()
         results: list[ControlResult] = []
         working_candidates: list[tuple[int, Signal, str, WorkingPatch]] = []
-        workspace_candidates: list[tuple[int, Signal, str, WorkspaceSnapshot]] = []
+        segment_signals: list[Signal] = []
         session_candidates: list[
             tuple[int, Signal, str, SessionBackgroundSnapshot]
         ] = []
@@ -423,6 +477,8 @@ class ContextEngine:
             sequence = index + 1
             scope_problem = self._signal_scope_problem(signal)
             if scope_problem:
+                if self._segments is not None and self._segments.accepts(signal):
+                    raise ContextContractError("Registered segment update has invalid Turn scope")
                 results.append(
                     _consume_failure(
                         signal,
@@ -436,11 +492,8 @@ class ContextEngine:
                 if signal.name == SIGNAL_WORKING_PATCH:
                     call_id, patch = parse_working_patch_signal(signal)
                     working_candidates.append((sequence, signal, call_id, patch))
-                elif signal.name == SIGNAL_WORKSPACE_SYNC:
-                    call_id, snapshot = parse_workspace_sync_signal(signal)
-                    workspace_candidates.append(
-                        (sequence, signal, call_id, snapshot)
-                    )
+                elif self._segments is not None and self._segments.accepts(signal):
+                    segment_signals.append(signal)
                 elif signal.name == SIGNAL_SESSION_SYNC:
                     if not self._preparing_turn:
                         raise ContextContractError(
@@ -480,10 +533,6 @@ class ContextEngine:
             working_candidates,
             results=results,
         )
-        workspace_snapshots = self._validated_workspace_snapshots(
-            workspace_candidates,
-            results=results,
-        )
         session_snapshots = self._validated_session_snapshots(
             session_candidates,
             results=results,
@@ -502,10 +551,14 @@ class ContextEngine:
             if self._turn_id != batch.turn_id:
                 raise ContextContractError("Context batch preparation outlived its Turn")
 
+        if self._segments is not None:
+            prepared_segments = await self._segments.prepare(tuple(segment_signals))
+            if self._turn_id != batch.turn_id:
+                raise ContextContractError("Segment preparation outlived its Turn")
+            self._segments.install(prepared_segments)
+
         for patch in working_patches:
             self._working.apply_patch(patch)
-        for snapshot in workspace_snapshots:
-            self._working.apply_workspace_snapshot(snapshot)
         for snapshot in session_snapshots:
             self._background.apply_session_snapshot(snapshot)
         for patch in background_patches:
@@ -675,6 +728,7 @@ class ContextEngine:
             working=self._working.to_json(),
             background_links=self._background.links(),
             trace=self._trace.seal(),
+            segments=self._segments.seal() if self._segments is not None else {},
         )
         self._turn_id = ""
         self._preparing_turn = False
@@ -745,25 +799,6 @@ class ContextEngine:
                 results.append(_consume_failure(signal, call_id, sequence, problem))
                 continue
             valid.append(patch)
-        return tuple(valid)
-
-    def _validated_workspace_snapshots(
-        self,
-        candidates: list[tuple[int, Signal, str, WorkspaceSnapshot]],
-        *,
-        results: list[ControlResult],
-    ) -> tuple[WorkspaceSnapshot, ...]:
-        snapshots = tuple(snapshot for _, _, _, snapshot in candidates)
-        problems = self._working.check_workspace_sequence(snapshots)
-        valid: list[WorkspaceSnapshot] = []
-        for (sequence, signal, call_id, snapshot), problem in zip(
-            candidates,
-            problems,
-        ):
-            if problem:
-                results.append(_consume_failure(signal, call_id, sequence, problem))
-                continue
-            valid.append(snapshot)
         return tuple(valid)
 
     def _validated_session_snapshots(
@@ -1106,8 +1141,8 @@ class ContextEngineBuilder:
                 StaticBackgroundContentLoader(entry.content),
             )
         return ContextEngine(
+            system_text=self._system_text,
             composer=MessageStackComposer(
-                system_text=self._system_text,
                 budget=ContextBudget(
                     max_image_bytes=self._max_image_bytes,
                 ),

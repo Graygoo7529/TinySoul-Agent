@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+from tinysoul.infra.concurrency import CleanupDiagnostic
+
 import asyncio
 import pytest
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from threading import Event
 from typing import cast
 
 from tinysoul.context import ContextEngine, ContextEngineBuilder
 from tinysoul.context.errors import ContextContractError
+from tinysoul.context.preparation import ContextTurnPreparationHandler
+from tinysoul.context.runtime_bridge import RuntimeContextBridge
+from tinysoul.context.segments import TurnInfo
+from tinysoul.workspace.projection import WorkspaceSegment, workspace_segment_registration
 from tinysoul.loop import (
     TurnCompletion,
     TurnCompletionPipeline,
@@ -136,6 +142,9 @@ class _EndFailingContext:
     def abort_turn(self) -> None:
         self.active = False
         self.aborted += 1
+
+    async def close_segments(self) -> tuple[CleanupDiagnostic, ...]:
+        return ()
 
     def consume_signals(self, bus: SignalBus) -> tuple[object, ...]:
         return ()
@@ -441,6 +450,91 @@ async def test_turn_completion_pipeline_receives_summary_and_output() -> None:
     )
     assert output_event.payload["text"] == "done"
     assert timeline.index("completion") < timeline.index("turn.output")
+
+
+async def test_segment_close_diagnostics_do_not_replace_recorded_answer() -> None:
+    timeline: list[str] = []
+
+    class ClosingSegment(WorkspaceSegment):
+        async def close(self) -> None:
+            timeline.append("close")
+            raise ContextContractError("close failed")
+
+    class Provider:
+        async def open(self, info: TurnInfo) -> ClosingSegment:
+            return ClosingSegment()
+
+    context = ContextEngineBuilder(system_text="sys").build()
+    context.register_segment(replace(workspace_segment_registration(), provider=Provider()))
+    recorder = _CompletionRecorder([], timeline)
+    observations = _RecordingObservations([], timeline)
+    runner = TurnRunner(
+        context=context, bus=SignalBus(), trap=_trap(),
+        cycle_runner=cast(CycleRunner, _OutputCycleRunner()),
+        settings=TurnSettings(max_cycles=1),
+        preparation_pipeline=TurnPreparationPipeline((
+            ContextTurnPreparationHandler(context, RuntimeContextBridge()),
+        )),
+        completion_to_output=lambda _completion: TurnOutput(text="done", result_id="answer"),
+        completion_pipeline=TurnCompletionPipeline((recorder,)),
+        observations=observations,
+    )
+    outcome = await runner.run("hello", business_day=DAY, scope=_program_scope())
+    assert outcome.answered
+    assert len(recorder.completions) == 1
+    assert recorder.completions[0].context_completion.segments["workspace"] == {
+        "revision": -1, "resources": [],
+    }
+    assert outcome.cleanup_diagnostics == (CleanupDiagnostic("workspace", "ContextContractError"),)
+    assert timeline.index("completion") < timeline.index("close") < timeline.index("turn.output")
+    assert await context.close_segments() == ()
+
+
+async def test_task_cancellation_joins_segment_close_before_releasing_the_turn() -> None:
+    entered, release = asyncio.Event(), asyncio.Event()
+    closed: list[str] = []
+
+    class ClosingSegment(WorkspaceSegment):
+        async def close(self) -> None:
+            entered.set()
+            await release.wait()
+            closed.append("workspace")
+
+    class Provider:
+        async def open(self, info: TurnInfo) -> ClosingSegment:
+            return ClosingSegment()
+
+    context = ContextEngineBuilder(system_text="sys").build()
+    context.register_segment(replace(workspace_segment_registration(), provider=Provider()))
+    recorder = _CompletionRecorder([], [])
+    runner = TurnRunner(
+        context=context, bus=SignalBus(), trap=_trap(),
+        cycle_runner=cast(CycleRunner, _OutputCycleRunner()),
+        settings=TurnSettings(max_cycles=1),
+        preparation_pipeline=TurnPreparationPipeline((
+            ContextTurnPreparationHandler(context, RuntimeContextBridge()),
+        )),
+        completion_to_output=lambda _completion: TurnOutput(text="done", result_id="answer"),
+        completion_pipeline=TurnCompletionPipeline((recorder,)),
+    )
+    task = asyncio.create_task(runner.run("hello", business_day=DAY, scope=_program_scope()))
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        task.cancel()
+        await asyncio.sleep(0)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done()
+        assert len(recorder.completions) == 1
+        with pytest.raises(ContextContractError):
+            context.begin_turn("too early")
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert closed == ["workspace"]
+    context.begin_turn("next")
+    context.abort_turn()
 
 
 async def test_turn_preparation_retry_replays_only_preparation() -> None:

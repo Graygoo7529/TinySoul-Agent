@@ -16,7 +16,7 @@ from tinysoul.loop.outcomes import TurnFailure, TurnOutcomeStatus
 from .errors import SessionContractError
 
 
-SESSION_RECORD_SCHEMA_VERSION = 6
+SESSION_RECORD_SCHEMA_VERSION = 7
 SESSION_MANIFEST_SCHEMA_VERSION = 2
 _TURN_REF = re.compile(r"^session:turn/([a-z0-9_-]+)$")
 _SUMMARY_REF = re.compile(r"^session:summary/([a-z0-9_-]+)$")
@@ -182,6 +182,7 @@ class SessionTurnRecord:
     exhausted: bool
     actions: tuple[SessionActionRecord, ...]
     status: TurnOutcomeStatus
+    segments: JsonObject = field(default_factory=dict)
     failure: TurnFailure | None = None
     finish_failures: tuple[TurnFailure, ...] = ()
     recorded_at_ns: int = field(default_factory=time_ns)
@@ -197,6 +198,7 @@ class SessionTurnRecord:
             raise SessionContractError("Session Turn requires typed inputs")
         object.__setattr__(self, "inputs", inputs)
         object.__setattr__(self, "working", to_json_object(self.working))
+        object.__setattr__(self, "segments", to_json_object(self.segments))
         object.__setattr__(
             self,
             "background_links",
@@ -241,6 +243,7 @@ class SessionTurnRecord:
             "recorded_at_ns": self.recorded_at_ns,
             "inputs": [item.to_json() for item in self.inputs],
             "working": self.working,
+            "segments": self.segments,
             "background_links": list(self.background_links),
             "output": self.output.to_json() if self.output is not None else None,
             "exhausted": self.exhausted,
@@ -263,6 +266,7 @@ class SessionTurnRecord:
                 "recorded_at_ns",
                 "inputs",
                 "working",
+                "segments",
                 "background_links",
                 "output",
                 "exhausted",
@@ -282,6 +286,7 @@ class SessionTurnRecord:
             recorded_at_ns=_non_negative_int(value, "recorded_at_ns"),
             inputs=tuple(SessionInputRecord.from_json(item) for item in raw_inputs),
             working=_required_object(value, "working"),
+            segments=_required_object(value, "segments"),
             background_links=_string_list(
                 value.get("background_links", []), "background_links"
             ),

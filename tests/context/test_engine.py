@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+
 import asyncio
 from dataclasses import dataclass, field
 from datetime import date
@@ -27,13 +28,10 @@ from tinysoul.context import (
     ContextTurnInput,
     PromptBlock,
     TaskPrompt,
-    WorkspaceResource,
-    WorkspaceSnapshot,
     build_input_append_signal,
     build_trace_action_result_signal,
     build_trace_decision_signal,
     build_trace_phase_note_signal,
-    build_workspace_sync_signal,
 )
 from tinysoul.context.trace import SealedTurnTrace, TraceKind
 from tinysoul.context.signals import build_working_patch_signal
@@ -553,6 +551,7 @@ async def test_home_background_is_rebuilt_for_each_user_turn() -> None:
     )
     engine.complete_preparation()
     engine.end_turn()
+    await engine.close_segments()
 
     engine.begin_turn("second")
     assert engine.background_links() == ()
@@ -560,129 +559,6 @@ async def test_home_background_is_rebuilt_for_each_user_turn() -> None:
     assert engine.background_links() == ("home:agent@AGENT",)
 
 
-async def test_workspace_snapshot_can_be_consumed_from_signal() -> None:
-    engine = _engine()
-    scope = _scope(engine.begin_turn("hi"))
-    bus = SignalBus()
-    bus.emit(
-        build_workspace_sync_signal(
-            WorkspaceSnapshot(
-                revision=1,
-                resources=(
-                    WorkspaceResource(
-                        link="workspace:doc/a.md",
-                        summary="draft notes",
-                    ),
-                )
-            ),
-            call_id="workspace_sync",
-            scope=scope,
-            source="workspace.scan",
-        )
-    )
-
-    results = await engine.consume_signals(bus)
-
-    assert results == ()
-    assert engine.working_snapshot()["workspace_resources"] == [
-        {"link": "workspace:doc/a.md", "summary": "draft notes"}
-    ]
-    assert engine.working_snapshot()["workspace_revision"] == 1
-
-
-async def test_context_rejects_workspace_snapshot_from_previous_turn() -> None:
-    engine = _engine()
-    old_turn = engine.begin_turn("first")
-    engine.end_turn()
-    engine.begin_turn("second")
-    bus = SignalBus()
-    bus.emit(
-        build_workspace_sync_signal(
-            WorkspaceSnapshot(
-                revision=1,
-                resources=(
-                    WorkspaceResource(
-                        link="workspace:stale.md",
-                        summary="stale",
-                    ),
-                ),
-            ),
-            call_id="stale_sync",
-            scope=_scope(old_turn),
-            source="workspace.scan",
-        )
-    )
-
-    results = await engine.consume_signals(bus)
-
-    assert len(results) == 1
-    assert "another Turn" in results[0].model_feedback
-    assert engine.working_snapshot()["workspace_resources"] == []
-    assert engine.working_snapshot()["workspace_revision"] == -1
-
-
-async def test_context_rejects_conflicting_workspace_snapshot_revision() -> None:
-    engine = _engine()
-    scope = _scope(engine.begin_turn("hi"))
-    bus = SignalBus()
-    first = WorkspaceSnapshot(
-        revision=1,
-        resources=(WorkspaceResource(link="workspace:a.md", summary="a"),),
-    )
-    conflicting = WorkspaceSnapshot(
-        revision=1,
-        resources=(WorkspaceResource(link="workspace:b.md", summary="b"),),
-    )
-    bus.emit(
-        build_workspace_sync_signal(
-            first,
-            call_id="sync_1",
-            scope=scope,
-            source="workspace.scan",
-        )
-    )
-    assert await engine.consume_signals(bus) == ()
-    bus.emit(
-        build_workspace_sync_signal(
-            conflicting,
-            call_id="sync_2",
-            scope=scope,
-            source="workspace.scan",
-        )
-    )
-
-    results = await engine.consume_signals(bus)
-
-    assert len(results) == 1
-    assert "conflicts" in results[0].model_feedback
-    assert engine.working_snapshot()["workspace_resources"] == [
-        {"link": "workspace:a.md", "summary": "a"}
-    ]
-
-
-async def test_context_ignores_stale_workspace_snapshot_without_regression() -> None:
-    engine = _engine()
-    scope = _scope(engine.begin_turn("hi"))
-    bus = SignalBus()
-    for revision, link in ((2, "workspace:new.md"), (1, "workspace:old.md")):
-        bus.emit(
-            build_workspace_sync_signal(
-                WorkspaceSnapshot(
-                    revision=revision,
-                    resources=(WorkspaceResource(link=link, summary=link),),
-                ),
-                call_id=f"sync_{revision}",
-                scope=scope,
-                source="workspace.scan",
-            )
-        )
-        assert await engine.consume_signals(bus) == ()
-
-    snapshot = engine.working_snapshot()
-    assert snapshot["workspace_revision"] == 2
-    assert snapshot["workspace_resources"] == [
-        {"link": "workspace:new.md", "summary": "workspace:new.md"}
-    ]
 
 
 async def test_context_observes_committed_background_entries_with_content() -> None:
@@ -880,6 +756,7 @@ async def test_abort_turn_discards_active_state() -> None:
     assert engine.background_links() == ("home:agent@AGENT",)
 
     engine.abort_turn()
+    await engine.close_segments()
 
     assert engine.turn_active is False
     assert engine.background_links() == ()

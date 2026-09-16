@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import date
+from tinysoul.workspace.projection import workspace_segment_registration
+
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -193,7 +196,9 @@ async def test_pressure_recovery_trashes_workspace_resource_and_syncs_context(
         owner_turn_id="turn_owner",
     )
     context = ContextEngineBuilder(system_text="system").build()
+    context.register_segment(workspace_segment_registration())
     turn_id = context.begin_turn("continue")
+    await context.prepare_default_background(date(2026, 7, 12))
     scope = _scope(turn_id)
     initial = workspace_snapshot_signal(
         workspace.snapshot(),
@@ -221,7 +226,7 @@ async def test_pressure_recovery_trashes_workspace_resource_and_syncs_context(
     assert await context.consume_signal_batch(
         ContextSignalBatch(turn_id=turn_id, signals=result.signals)
     ) == ()
-    assert context.working_snapshot()["workspace_resources"] == []
+    assert context.segment_snapshot("workspace")["resources"] == []
 
 
 def test_model_pressure_converts_target_token_gap_to_char_reclaim() -> None:
@@ -279,7 +284,9 @@ async def test_pressure_recovery_preserves_active_action_resource_links(
             retention=WorkspaceRetention.EPHEMERAL,
         )
     context = ContextEngineBuilder(system_text="system").build()
+    context.register_segment(workspace_segment_registration())
     turn_id = context.begin_turn("continue")
+    await context.prepare_default_background(date(2026, 7, 12))
     scope = _scope(turn_id)
     initial = workspace_snapshot_signal(
         workspace.snapshot(),

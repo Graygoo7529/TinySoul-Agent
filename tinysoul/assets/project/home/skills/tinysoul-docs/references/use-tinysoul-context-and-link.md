@@ -2,7 +2,7 @@
 
 ## Read the Current Context
 
-Start with the Context already constructed for the current model task. UserInputs state the current request. Background contains automatically loaded Agent defaults, optional automatic Memory, general skill metadata, and any Top content loaded during this Turn. TurnTrace then records current-Turn decisions and action feedback. The later WorkingContext describes the current milestones, todos, and Workspace resource projection and carries the Trace boundary at which that state is valid.
+Start with the Context already constructed for the current model task. Background presents identity, prior Session facts, current UserInputs, and loaded Home/Memory guidance. TurnTrace then records current-Turn decisions and action feedback. In the later Working section, plan describes milestones and todos, while workspace presents current resource Links and summaries. Resource bodies remain inside explicit reads or Action-local task input.
 
 ## Follow Link Ownership
 

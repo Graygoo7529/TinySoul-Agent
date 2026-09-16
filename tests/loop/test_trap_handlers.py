@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import date
+from tinysoul.workspace.projection import workspace_segment_registration
+
 from pathlib import Path
 
 from tinysoul.context import (
@@ -94,6 +97,7 @@ async def test_workspace_trash_restore_trap_syncs_context_and_retries_module(
     tmp_path: Path,
 ) -> None:
     context = ContextEngineBuilder(system_text="sys").build()
+    context.register_segment(workspace_segment_registration())
     workspace = WorkspaceEngineBuilder(
         WorkspaceSettings(
             root=tmp_path,
@@ -102,6 +106,7 @@ async def test_workspace_trash_restore_trap_syncs_context_and_retries_module(
     ).build()
     workspace.write_text("workspace:draft.md", "draft")
     turn_id = context.begin_turn("continue")
+    await context.prepare_default_background(date(2026, 7, 12))
     scope = (
         RunScope()
         .push(RunLevel.PROGRAM, "program")
@@ -154,13 +159,13 @@ async def test_workspace_trash_restore_trap_syncs_context_and_retries_module(
                 payload={"link": "workspace:draft.md", "trash_ref": trash.ref},
             )
         assert module_scope.current() is not None
-        assert context.working_snapshot()["workspace_resources"]
+        assert context.segment_snapshot("workspace")["resources"]
         assert bus.peek() == (pending,)
 
     await modules.run(scope=scope, name="restore", callback=invoke)
     assert attempts == 2
     assert (tmp_path / "draft.md").read_text(encoding="utf-8") == "draft"
-    resources = context.working_snapshot()["workspace_resources"]
+    resources = context.segment_snapshot("workspace")["resources"]
     assert isinstance(resources, list)
     resource = resources[0]
     assert isinstance(resource, dict)

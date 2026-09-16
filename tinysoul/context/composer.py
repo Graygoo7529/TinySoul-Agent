@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
 
 from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
 from tinysoul.llm.messages import (
@@ -12,16 +11,13 @@ from tinysoul.llm.messages import (
     JsonPart,
     Message,
     MessageStack,
-    SystemMessage,
     TextPart,
     ToolResultMessage,
 )
 
-from .background import BackgroundContext
 from .errors import ContextBudgetError, ContextInvariantError
 from .prompts import TaskPrompt
-from .trace import PendingInputs, TurnTraceHeap
-from .working import WorkingContext
+from .segments import SegmentProjection
 
 
 @dataclass(frozen=True)
@@ -37,18 +33,6 @@ class ContextBudget:
             )
 
 
-class ContextSection(StrEnum):
-    """Stable sections used for budget diagnostics and recovery planning."""
-
-    IDENTITY = "identity"
-    USER_INPUTS = "user_inputs"
-    SESSION_BACKGROUND = "session_background"
-    BACKGROUND = "background"
-    TRACE = "trace"
-    WORKING = "working"
-    TASK_PROMPT = "task_prompt"
-
-
 @dataclass(frozen=True)
 class ContextSectionUsage:
     chars: int
@@ -62,7 +46,7 @@ class ContextSectionUsage:
 class ContextBudgetReport:
     """Per-section usage for one attempted MessageStack composition."""
 
-    sections: dict[ContextSection, ContextSectionUsage]
+    sections: dict[str, ContextSectionUsage]
     total_chars: int
     total_image_bytes: int
     max_image_bytes: int | None
@@ -70,7 +54,7 @@ class ContextBudgetReport:
     def to_json(self) -> JsonObject:
         return to_json_object({
             "sections": {
-                section.value: usage.to_json()
+                section: usage.to_json()
                 for section, usage in self.sections.items()
             },
             "total_chars": self.total_chars,
@@ -82,10 +66,7 @@ class ContextBudgetReport:
 class MessageStackComposer:
     """Compose the full message stack from context sections plus a task prompt."""
 
-    def __init__(self, *, system_text: str, budget: ContextBudget | None = None) -> None:
-        if not system_text:
-            raise ContextInvariantError("MessageStackComposer.system_text must be non-empty")
-        self._system_text = system_text
+    def __init__(self, *, budget: ContextBudget | None = None) -> None:
         self._budget = budget or ContextBudget()
 
     @property
@@ -95,35 +76,28 @@ class MessageStackComposer:
     def compose(
         self,
         *,
-        inputs: PendingInputs,
-        background: BackgroundContext,
-        working: WorkingContext,
-        trace: TurnTraceHeap,
+        segments: tuple[SegmentProjection, ...],
         task_prompt: TaskPrompt,
     ) -> MessageStack:
-        section_messages: dict[ContextSection, tuple[Message, ...]] = {
-            ContextSection.IDENTITY: (
-                SystemMessage.from_text(self._system_text, label="identity"),
-            ),
-            ContextSection.USER_INPUTS: inputs.render_messages(),
-            ContextSection.SESSION_BACKGROUND: background.render_session_messages(),
-            ContextSection.BACKGROUND: background.render_background_messages(),
-            ContextSection.TRACE: trace.render_messages(),
-            ContextSection.WORKING: working.render_messages(),
-            ContextSection.TASK_PROMPT: task_prompt.render_messages(),
-        }
-        messages = tuple(
-            message
-            for section in ContextSection
-            for message in section_messages[section]
+        ids = tuple(segment.descriptor.id for segment in segments)
+        if len(ids) != len(set(ids)) or "task_prompt" in ids:
+            raise ContextInvariantError("Context projection ids must be unique and exclude task_prompt")
+        ordered = sorted(
+            segments,
+            key=lambda item: item.descriptor.sort_key,
         )
+        section_messages = {
+            item.descriptor.id: item.messages for item in ordered
+        }
+        section_messages["task_prompt"] = task_prompt.render_messages()
+        messages = tuple(message for section in section_messages.values() for message in section)
         report = ContextBudgetReport(
             sections={
                 section: ContextSectionUsage(
-                    chars=estimate_chars(section_messages[section]),
-                    image_bytes=estimate_image_bytes(section_messages[section]),
+                    chars=estimate_chars(value),
+                    image_bytes=estimate_image_bytes(value),
                 )
-                for section in ContextSection
+                for section, value in section_messages.items()
             },
             total_chars=estimate_chars(messages),
             total_image_bytes=estimate_image_bytes(messages),

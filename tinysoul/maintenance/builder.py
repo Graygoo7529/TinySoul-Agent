@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tinysoul.workspace.projection import workspace_segment_registration
+
 from tinysoul.action import ActionEngine, LoadedActionCatalog
 from tinysoul.context import ContextEngine, ContextSettings
 from tinysoul.context.preparation import ContextTurnPreparationHandler
@@ -88,6 +90,8 @@ class MaintenanceBuilder:
             memory_target_binding=archived_context,
         )
         home_controller = HomeMaintenanceActionController(self._home)
+        home_context.register_segment(workspace_segment_registration())
+        memory_context.register_segment(workspace_segment_registration())
         memory_controller = MemoryMaintenanceActionController(
             memory=self._memory,
             composer=LLMDailyMemoryComposer(self._llm),

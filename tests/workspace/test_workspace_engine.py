@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tinysoul.workspace.projection import SIGNAL_WORKSPACE_SYNC, workspace_segment_registration
 import asyncio
 
 from collections.abc import Callable
@@ -27,7 +28,6 @@ from tinysoul.action.core.specs import (
 from tinysoul.context import (
     ContextEngineBuilder,
     PromptReferenceError,
-    SIGNAL_WORKSPACE_SYNC,
 )
 from tinysoul.infra.config import ConfigError
 from tinysoul.infra.json import JsonObject
@@ -477,7 +477,9 @@ async def test_workspace_turn_preparation_projects_manifest_into_context(
     ).build()
     workspace.initialize_day(DAY)
     context = ContextEngineBuilder(system_text="system").build()
+    context.register_segment(workspace_segment_registration())
     turn_id = context.begin_turn("hello")
+    await context.prepare_default_background(DAY.value)
     scope = RunScope().push(RunLevel.PROGRAM, "program").push(RunLevel.TURN, turn_id)
     bus = SignalBus()
     handler = WorkspaceTurnPreparationHandler(
@@ -496,9 +498,9 @@ async def test_workspace_turn_preparation_projects_manifest_into_context(
         bus.emit(signal)
     assert await context.consume_signals(bus) == ()
 
-    working = context.working_snapshot()
-    assert working["workspace_revision"] == workspace.load_manifest().revision
-    assert working["workspace_resources"] == [
+    working = context.segment_snapshot("workspace")
+    assert working["revision"] == workspace.load_manifest().revision
+    assert working["resources"] == [
         {"link": "workspace:a.md", "summary": "Markdown text, 5 bytes"}
     ]
 

@@ -50,7 +50,7 @@ Turn scope 建立后，Runner 依次：
 
 `TurnOutcomeStatus` 对两类 Turn 统一表达 `completed/exhausted/stopped/failed`。profile 可以把 completion 映射为用户输出，也可以仅保留 owner completion；通用 Runner 不假定每个 Turn 都产生聊天回答。
 
-TurnCompletion 区分执行状态、执行失败与必要 finish 失败；TurnOutcome 保留必要提交失败及活动资源清理诊断。必要 finish 失败阻止回答发布，close 诊断不改变已经成立的业务结果。完成管线进入后由 Turn 持有独立任务，调用方取消或重复取消都等待它结束再传播；已封存并开始提交的回答不会因等待者取消而被改写。当前活动进程回收仍由旧 controller 在 seal 前执行，统一 Job/段 close 顺序尚未落地。
+TurnCompletion 区分执行状态、执行失败与必要 finish 失败；TurnOutcome 保留必要提交失败及活动资源清理诊断。必要 finish 失败阻止回答发布，close 诊断不改变已经成立的业务结果。完成管线进入后由 Turn 持有独立任务，调用方取消或重复取消都等待它结束再传播；已封存并开始提交的回答不会因等待者取消而被改写。注册段在必要 finish 后逆序 close，close 位于收尾的 finally 边界；部分 open 失败也回收已打开视图。清理结束前不能复用同一 Context 开始下一 Turn，正式输出晚于 close。当前活动进程回收仍由旧 controller 在 seal 前执行，统一 Job/lease 生命周期尚未落地。
 
 ## User Turn
 
@@ -60,7 +60,7 @@ User Turn preparation 按以下顺序构造情景：
 2. Session 投影当前业务日的跨 Turn 历史；
 3. Workspace reconcile 当前业务日并投影 Manifest。
 
-User ActionEngine 只加载 `tinysoul.action` 自有 catalog；Maintenance domain 物理上不在该资源根，因此不需要字符串过滤。唯一成功的 `core.answer` 由 `UserAnswerCompletionDetector` 直接转换为 Turn completion，再由 User profile 转换为用户输出；默认 completion pipeline 先按依赖运行必要的完成 handler，再由 Session 投影 sealed Trace 的类型化 Action 事实并幂等写入 schema v6 User Turn record。必要 handler 失败后停止后续依赖 handler，但仍让 Session 记录执行事实和必要提交失败；Session 自身失败通过 TurnOutcome 报告，不宣称记录已经持久化。`core.answer` 可以交付当前成果，也可以在继续推进依赖人的判断、信息、授权、进一步指示或路线选择时提出聚焦问题或请求确认。completion 只表示当前 User Turn 已经产生正式用户响应，不宣告整体多轮目标或 WorkingContext todos 已完成；用户回复后通过普通新 User Turn 和 Session Background 继续，不建立平行的 ask、pause 或 awaiting 状态。
+User ActionEngine 只加载 `tinysoul.action` 自有 catalog；Maintenance domain 物理上不在该资源根，因此不需要字符串过滤。唯一成功的 `core.answer` 由 `UserAnswerCompletionDetector` 直接转换为 Turn completion，再由 User profile 转换为用户输出；默认 completion pipeline 先按依赖运行必要的完成 handler，再由 Session 投影 sealed Trace 的类型化 Action 事实并幂等写入 schema v7 User Turn record。必要 handler 失败后停止后续依赖 handler，但仍让 Session 记录执行事实和必要提交失败；Session 自身失败通过 TurnOutcome 报告，不宣称记录已经持久化。`core.answer` 可以交付当前成果，也可以在继续推进依赖人的判断、信息、授权、进一步指示或路线选择时提出聚焦问题或请求确认。completion 只表示当前 User Turn 已经产生正式用户响应，不宣告整体多轮目标或 WorkingContext todos 已完成；用户回复后通过普通新 User Turn 和 Session Background 继续，不建立平行的 ask、pause 或 awaiting 状态。
 
 User Turn 可以在 Phase/Cycle 边界消费当前 Turn scope 的 `context.input.append` 和 `loop.control.request`；旧 scope 或无 Turn scope 的信号不得影响后续 Turn。
 

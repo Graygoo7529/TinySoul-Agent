@@ -34,8 +34,10 @@ DAY = "2026-07-25"
 
 
 def test_turn_record_round_trips_and_rejects_unknown_fields() -> None:
-    record = _turn("turn_roundtrip")
-    assert SESSION_RECORD_SCHEMA_VERSION == 6
+    record = replace(_turn("turn_roundtrip"), segments={
+        "workspace": {"revision": 3, "resources": [{"link": "workspace:a.md", "summary": "a"}]},
+    })
+    assert record.schema_version == SESSION_RECORD_SCHEMA_VERSION
     assert session_record_from_json(record.to_json()) == record
 
     invalid = {**record.to_json(), "trace": []}
