@@ -1,6 +1,16 @@
-"""User Turn ActionEngine assembly."""
+"""Shared action assembly for User and Reflection profiles."""
 
 from __future__ import annotations
+
+from pathlib import Path
+from tinysoul.action.config import ActionSettings, LLMActionProfileResolver
+from tinysoul.home import HomeActionSkillProvider
+from tinysoul.infra import StagingError
+from tinysoul.capabilities.supervised_process import SupervisedProcessWaitPolicy
+from tinysoul.capabilities.supervised_process.runtime_bridge import RuntimeSupervisedProcessBridge
+from tinysoul.workspace import WorkspaceMirrorService
+from .failures import LoopFailureKind
+from .runtime_bridge import RuntimeLoopBridge
 
 from tinysoul.action import (
     ActionEngine,
@@ -32,26 +42,22 @@ from tinysoul.home.runtime_bridge import RuntimeAgentHomeBridge
 from tinysoul.context.runtime_bridge import RuntimeContextBridge
 from tinysoul.memory.runtime_bridge import RuntimeMemoryBridge
 from tinysoul.capabilities.script.runtime_bridge import RuntimeScriptBridge
-from tinysoul.session.runtime_bridge import RuntimeSessionBridge
 from tinysoul.capabilities.shell.runtime_bridge import RuntimeShellBridge
 from tinysoul.workspace.runtime_bridge import RuntimeWorkspaceBridge
-from tinysoul.session import SessionEngine
-from tinysoul.session.actions import register_session_actions
 from tinysoul.workspace import (
     WorkspaceEngine,
     WorkspacePromptReferenceResolver,
     register_workspace_actions,
 )
 
-from ..phases import LLMRunner
+from .phases import LLMRunner
 
 
-def build_user_action(
+def prepare_common_actions(
     *,
     bus: SignalBus,
     workspace: WorkspaceEngine,
     context: ContextEngine,
-    session: SessionEngine,
     home: AgentHomeEngine,
     memory: MemoryEngine,
     llm_action: LLMActionTaskRunner,
@@ -63,13 +69,12 @@ def build_user_action(
     process_jobs: SupervisedProcessManager,
     script_resolver: ScriptSourceResolver,
     action_catalog: LoadedActionCatalog,
-) -> ActionEngine:
-    """Build the complete User ActionEngine from the primary catalog."""
+) -> ActionEngineBuilder:
+    """Register common domains; the profile may add its own contributions."""
 
     home_bridge = RuntimeAgentHomeBridge()
     memory_bridge = RuntimeMemoryBridge()
     context_bridge = RuntimeContextBridge()
-    session_bridge = RuntimeSessionBridge()
     workspace_bridge = RuntimeWorkspaceBridge()
     action_bridge = RuntimeActionBridge()
     script_bridge = RuntimeScriptBridge()
@@ -81,11 +86,6 @@ def build_user_action(
             builder,
             context=context,
             runtime_bridge=context_bridge,
-        )
-        register_session_actions(
-            builder,
-            session=session,
-            runtime_bridge=session_bridge,
         )
         register_workspace_actions(
             builder,
@@ -180,11 +180,95 @@ def build_user_action(
             ),
             llm_action=llm_action,
         )
-        return builder.build()
+        return builder
     except ConfigError as exc:
         raise action_bridge.from_config_error(exc) from exc
     except ActionError as exc:
         raise action_bridge.startup_failure(
-            message="User Turn actions could not be initialized.",
+            message="Common actions could not be initialized.",
             payload={"error_type": type(exc).__name__},
         ) from exc
+
+
+class CommonActionAssembly:
+    """Generation services used to create one profile's action surface."""
+
+    def __init__(
+        self, *, root: Path, home: AgentHomeEngine, memory: MemoryEngine,
+        workspace: WorkspaceEngine, bus: SignalBus, llm: LLMRunner,
+        observations: ObservationEmitter, action_settings: ActionSettings,
+        capabilities_settings: CapabilitiesSettings,
+        supervised_process_wait: SupervisedProcessWaitPolicy,
+        runtime_env: dict[str, str],
+    ) -> None:
+        self._root = root
+        self._home = home
+        self._memory = memory
+        self._workspace = workspace
+        self._bus = bus
+        self._llm = llm
+        self._observations = observations
+        self._action_settings = action_settings
+        self._capabilities_settings = capabilities_settings
+        self._supervised_process_wait = supervised_process_wait
+        self._runtime_env = dict(runtime_env)
+
+    def prepare(
+        self, context: ContextEngine, catalog: LoadedActionCatalog,
+    ) -> tuple[ActionEngineBuilder, SupervisedProcessManager]:
+        staging = StagingDirectoryManager(self._root)
+        try:
+            staging.prepare()
+        except StagingError as exc:
+            raise RuntimeLoopBridge().from_exception(
+                LoopFailureKind.RESOURCE_PREPARATION_FAILED,
+                exc,
+            ) from exc
+        process_jobs = SupervisedProcessManager(
+            settings=self._capabilities_settings.supervised_process,
+            wait_policy=self._supervised_process_wait,
+            mirror_service=WorkspaceMirrorService(
+                self._workspace,
+                max_files=self._capabilities_settings.supervised_process.max_mirror_files,
+                max_total_bytes=(
+                    self._capabilities_settings.supervised_process.max_mirror_bytes
+                ),
+                max_file_bytes=(
+                    self._capabilities_settings.supervised_process.max_mirror_file_bytes
+                ),
+            ),
+            staging=staging,
+            runtime_bridge=RuntimeSupervisedProcessBridge(),
+        )
+        script_resolver = ScriptSourceResolver(
+            workspace=self._workspace,
+            home=self._home,
+            max_source_chars=self._capabilities_settings.script.max_source_chars,
+        )
+        builder = prepare_common_actions(
+            bus=self._bus,
+            workspace=self._workspace,
+            context=context,
+            home=self._home,
+            memory=self._memory,
+            llm_action=LLMActionTaskRunner(
+                llm_runner=self._llm,
+                context=context,
+                action_skills=HomeActionSkillProvider(
+                    self._home,
+                    runtime_bridge=RuntimeAgentHomeBridge(),
+                ),
+                profile_resolver=LLMActionProfileResolver(
+                    self._action_settings.llm_action
+                ),
+            ),
+            llm=self._llm,
+            observations=self._observations,
+            capabilities_settings=self._capabilities_settings,
+            runtime_env=self._runtime_env,
+            staging=staging,
+            process_jobs=process_jobs,
+            script_resolver=script_resolver,
+            action_catalog=catalog,
+        )
+        return builder, process_jobs

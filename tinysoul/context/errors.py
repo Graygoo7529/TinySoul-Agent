@@ -15,22 +15,23 @@ class ContextContractError(ContextError):
     """Raised when a context public boundary receives invalid inputs."""
 
 
-class ContextTraceFailureReason(StrEnum):
-    """Stable request-local failures for Context trace navigation."""
+class ContextInspectFailureReason(StrEnum):
+    """Stable request-local failures for Context segment navigation."""
 
     INVALID_REF = "invalid_ref"
     UNKNOWN_REF = "unknown_ref"
     REF_NOT_LEAF = "ref_not_leaf"
+    WRONG_RECORD_KIND = "wrong_record_kind"
     INVALID_CONTINUATION = "invalid_continuation"
     PAGE_BUDGET_TOO_SMALL = "page_budget_too_small"
 
 
-class ContextTraceRequestError(ContextContractError):
-    """A caller can correct one Context trace request."""
+class ContextInspectRequestError(ContextContractError):
+    """A caller can correct one Context inspection request."""
 
     def __init__(
         self,
-        reason: ContextTraceFailureReason,
+        reason: ContextInspectFailureReason,
         message: str,
         *,
         constraint: JsonObject | None = None,

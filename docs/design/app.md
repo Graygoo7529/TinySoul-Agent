@@ -184,5 +184,5 @@ Program 运行期的 availability、User request preflight 或 Maintenance reque
 - 对 runtime：app 注册 Trap handler，并通过 RuntimeAppBridge 映射 app 边界失败。
 - 对 action：app 调用模块 registrar 注册 action executor；具体 action 语义仍由 action 模块调度，由对应业务模块执行。
 - 对 context：app 注入 Home/Memory 的 `BackgroundEntryProvider`，不物化 core、不读取 Agent Home 或 Memory 文件。它同时装配共享 ContextSignalConsumer 和 TurnCompletionPipeline 接入点。
-- 对 session：app 只构建门面、注册 `core.session.inspect` executor 和安装 Turn preparation/completion adapters，不读取 Session 持久文件，也不向 Endpoint 暴露专用历史查询。
+- 对 session：app 只构建门面、注册 Session 段、统一 Context inspect 路由及 completion adapter，不读取 Session 持久文件，也不向 Endpoint 暴露专用历史查询。
 - 对 workspace / Agent Home / Memory：app 只装配模块门面、provider 和 executor，不解释 `workspace:`、`home:` 或 `memory:` 链接。

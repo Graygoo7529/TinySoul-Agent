@@ -6,9 +6,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from enum import StrEnum
-from hashlib import sha256
 from pathlib import Path
-import re
+from threading import RLock
 from typing import cast
 
 import yaml
@@ -78,19 +77,12 @@ class MemoryPatchOperation:
 @dataclass(frozen=True)
 class ActiveMemoryDocument:
     day: date
-    revision: int
     updated_at: datetime | None
     content: str
 
     def __post_init__(self) -> None:
         if not isinstance(self.day, date):
             raise MemoryContractError("Active Memory day must be a date")
-        if (
-            isinstance(self.revision, bool)
-            or not isinstance(self.revision, int)
-            or self.revision < 0
-        ):
-            raise MemoryContractError("Active Memory revision cannot be negative")
         if self.updated_at is not None and (
             not isinstance(self.updated_at, datetime)
             or self.updated_at.tzinfo is None
@@ -98,21 +90,6 @@ class ActiveMemoryDocument:
             raise MemoryContractError("Active Memory updated_at must include timezone")
         if not isinstance(self.content, str):
             raise MemoryContractError("Active Memory content must be text")
-
-
-@dataclass(frozen=True)
-class ActiveMemorySnapshot:
-    document: ActiveMemoryDocument
-    text: str
-    digest: str
-
-    @property
-    def day(self) -> date:
-        return self.document.day
-
-    @property
-    def content(self) -> str:
-        return self.document.content
 
 
 class ActiveMemoryStore:
@@ -125,6 +102,7 @@ class ActiveMemoryStore:
             raise MemoryContractError("Active Memory limit must be positive")
         self._session_root = session_root
         self._max_chars = max_chars
+        self._lock = RLock()
 
     @property
     def session_root(self) -> Path:
@@ -134,7 +112,7 @@ class ActiveMemoryStore:
     def path(self) -> Path:
         return self._session_root / "Memory.md"
 
-    def initialize_day(self, day: date) -> ActiveMemorySnapshot:
+    def initialize_day(self, day: date) -> ActiveMemoryDocument:
         if not isinstance(day, date):
             raise MemoryContractError("Active Memory day must be a date")
         if not self._session_root.is_dir():
@@ -145,13 +123,12 @@ class ActiveMemoryStore:
             return self.read(day)
         document = ActiveMemoryDocument(
             day=day,
-            revision=0,
             updated_at=None,
             content="",
         )
         return self._write(document)
 
-    def read(self, expected_day: date | None = None) -> ActiveMemorySnapshot:
+    def read(self, expected_day: date | None = None) -> ActiveMemoryDocument:
         return self.read_from_root(self._session_root, expected_day=expected_day)
 
     def read_from_root(
@@ -159,7 +136,7 @@ class ActiveMemoryStore:
         root: Path,
         *,
         expected_day: date | None = None,
-    ) -> ActiveMemorySnapshot:
+    ) -> ActiveMemoryDocument:
         path = root / "Memory.md"
         if path.is_symlink():
             raise MemoryInvariantError("Active Memory cannot be a symlink")
@@ -178,61 +155,42 @@ class ActiveMemoryStore:
             raise MemoryInvariantError("Active Memory content exceeds its limit")
         if expected_day is not None and document.day != expected_day:
             raise MemoryInvariantError("Active Memory day does not match Session day")
-        return ActiveMemorySnapshot(
-            document=document,
-            text=read.text,
-            digest=sha256(read.text.encode("utf-8")).hexdigest(),
-        )
+        return document
 
     def patch(
         self,
         *,
         day: date,
-        expected_digest: str,
         operations: Sequence[MemoryPatchOperation],
-    ) -> ActiveMemorySnapshot:
-        if (
-            not isinstance(expected_digest, str)
-            or re.fullmatch(r"[0-9a-f]{64}", expected_digest) is None
-        ):
-            raise MemoryContractError("Memory patch expected_digest is invalid")
+    ) -> ActiveMemoryDocument:
         operations = tuple(operations)
         if not operations:
             raise MemoryContractError("Memory patch requires operations")
         if any(not isinstance(item, MemoryPatchOperation) for item in operations):
             raise MemoryContractError("Memory patch operations are invalid")
-        current = self.read(day)
-        if current.digest != expected_digest:
-            raise MemoryContractError("Active Memory digest is stale")
-        content = current.content
-        for operation in operations:
-            content = _apply_operation(content, operation)
-        if len(content) > self._max_chars:
-            raise MemoryContractError("Active Memory content exceeds its limit")
-        if content == current.content:
-            raise MemoryContractError("Memory patch did not change content")
-        document = ActiveMemoryDocument(
-            day=day,
-            revision=current.document.revision + 1,
-            updated_at=datetime.now(UTC),
-            content=content,
-        )
-        # Re-check immediately before replace to catch external synchronization.
-        if self.read(day).digest != expected_digest:
-            raise MemoryContractError("Active Memory digest is stale")
-        return self._write(document)
+        with self._lock:
+            current = self.read(day)
+            content = current.content
+            for operation in operations:
+                content = _apply_operation(content, operation)
+            if len(content) > self._max_chars:
+                raise MemoryContractError("Active Memory content exceeds its limit")
+            if content == current.content:
+                raise MemoryContractError("Memory patch did not change content")
+            document = ActiveMemoryDocument(
+                day=day,
+                updated_at=datetime.now(UTC),
+                content=content,
+            )
+            return self._write(document)
 
-    def _write(self, document: ActiveMemoryDocument) -> ActiveMemorySnapshot:
+    def _write(self, document: ActiveMemoryDocument) -> ActiveMemoryDocument:
         text = _render_active(document)
         try:
             atomic_write_text(self.path, text)
         except OSError as exc:
             raise MemoryIOError(f"Failed to write Active Memory: {exc}") from exc
-        return ActiveMemorySnapshot(
-            document=document,
-            text=text,
-            digest=sha256(text.encode("utf-8")).hexdigest(),
-        )
+        return document
 
 
 def _apply_operation(content: str, operation: MemoryPatchOperation) -> str:
@@ -255,10 +213,9 @@ def _apply_operation(content: str, operation: MemoryPatchOperation) -> str:
 
 def _render_active(document: ActiveMemoryDocument) -> str:
     metadata = {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "active",
         "day": document.day.isoformat(),
-        "revision": document.revision,
         "updated_at": (
             document.updated_at.isoformat() if document.updated_at is not None else None
         ),
@@ -281,10 +238,10 @@ def _parse_active(text: str) -> ActiveMemoryDocument:
     if not isinstance(values, Mapping):
         raise MemoryInvariantError("Active Memory frontmatter must be a mapping")
     values = cast(Mapping[str, object], values)
-    expected = {"schema_version", "kind", "day", "revision", "updated_at"}
+    expected = {"schema_version", "kind", "day", "updated_at"}
     if set(values) != expected:
         raise MemoryInvariantError("Active Memory frontmatter fields are invalid")
-    if values.get("schema_version") != 1 or values.get("kind") != "active":
+    if values.get("schema_version") != 2 or values.get("kind") != "active":
         raise MemoryInvariantError("Active Memory schema or kind is invalid")
     raw_day = values.get("day")
     if not isinstance(raw_day, str):
@@ -293,9 +250,6 @@ def _parse_active(text: str) -> ActiveMemoryDocument:
         day = date.fromisoformat(raw_day)
     except ValueError as exc:
         raise MemoryInvariantError("Active Memory day is invalid") from exc
-    revision = values.get("revision")
-    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
-        raise MemoryInvariantError("Active Memory revision is invalid")
     raw_updated = values.get("updated_at")
     updated_at: datetime | None = None
     if raw_updated is not None:
@@ -310,7 +264,6 @@ def _parse_active(text: str) -> ActiveMemoryDocument:
     content = text[end + 4 :].lstrip("\r\n").rstrip()
     return ActiveMemoryDocument(
         day=day,
-        revision=revision,
         updated_at=updated_at,
         content=content,
     )

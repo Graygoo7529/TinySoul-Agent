@@ -14,6 +14,8 @@ from tinysoul.action import (
     ActionResultStage,
 )
 from tinysoul.infra.json import JsonObject
+from tinysoul.runtime import Signal
+from .background import HOME_CONTEXT_UPDATE
 from tinysoul.home.runtime_bridge import RuntimeAgentHomeBridge
 
 from .engine import AgentHomeEngine
@@ -401,6 +403,7 @@ class HomeTopWriteExecutor(LocalActionExecutor):
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        bus = context.require_signal_bus()
         link = execution.call.params.get("link")
         text = execution.call.params.get("text")
         overwrite = execution.call.params.get("overwrite", False)
@@ -436,6 +439,10 @@ class HomeTopWriteExecutor(LocalActionExecutor):
                 reason="top_write_failed",
                 frame_data={"error_type": type(exc).__name__},
             )
+        bus.emit(Signal(
+            name=HOME_CONTEXT_UPDATE, source="home.action", scope=execution.framework.scope,
+            payload={"refresh": True},
+        ))
         return _mutation_success(execution, result)
 
 
@@ -455,6 +462,7 @@ class HomeTopPatchExecutor(LocalActionExecutor):
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        bus = context.require_signal_bus()
         link = execution.call.params.get("link")
         old_text = execution.call.params.get("old_text")
         new_text = execution.call.params.get("new_text")
@@ -488,6 +496,10 @@ class HomeTopPatchExecutor(LocalActionExecutor):
                 reason="top_patch_failed",
                 frame_data={"error_type": type(exc).__name__},
             )
+        bus.emit(Signal(
+            name=HOME_CONTEXT_UPDATE, source="home.action", scope=execution.framework.scope,
+            payload={"refresh": True},
+        ))
         return _mutation_success(execution, result)
 
 
@@ -507,6 +519,7 @@ class HomeTopDeleteExecutor(LocalActionExecutor):
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        bus = context.require_signal_bus()
         link = execution.call.params.get("link")
         expected_digest = execution.call.params.get("expected_digest", "")
         if not isinstance(link, str) or not link or not isinstance(expected_digest, str):
@@ -526,6 +539,10 @@ class HomeTopDeleteExecutor(LocalActionExecutor):
                 reason="top_delete_failed",
                 frame_data={"error_type": type(exc).__name__},
             )
+        bus.emit(Signal(
+            name=HOME_CONTEXT_UPDATE, source="home.action", scope=execution.framework.scope,
+            payload={"refresh": True},
+        ))
         return _mutation_success(execution, result)
 
 

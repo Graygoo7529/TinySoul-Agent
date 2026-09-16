@@ -19,8 +19,8 @@ from tinysoul.context.runtime_bridge import RuntimeContextBridge
 from .engine import ContextEngine
 from .errors import (
     ContextError,
-    ContextTraceFailureReason,
-    ContextTraceRequestError,
+    ContextInspectFailureReason,
+    ContextInspectRequestError,
 )
 
 
@@ -67,11 +67,11 @@ class ContextInspectExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "core.context.inspect continuation must be a non-empty opaque string",
-                reason=ContextTraceFailureReason.INVALID_CONTINUATION.value,
+                reason=ContextInspectFailureReason.INVALID_CONTINUATION.value,
             )
         try:
-            payload = self._context.inspect_trace(ref, continuation=continuation)
-        except ContextTraceRequestError as exc:
+            payload = await self._context.inspect(ref, continuation=continuation)
+        except ContextInspectRequestError as exc:
             return _failed_request(execution, exc)
         except ContextError as exc:
             raise self._runtime_bridge.from_context_error(exc) from exc
@@ -111,7 +111,7 @@ def _success(
 
 def _failed_request(
     execution: ActionExecution,
-    error: ContextTraceRequestError,
+    error: ContextInspectRequestError,
 ) -> ActionResult:
     return _failed(
         execution,

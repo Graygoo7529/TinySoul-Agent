@@ -61,11 +61,11 @@ class MaintenanceTurnEntry:
         completed = (
             outcome.status is TurnOutcomeStatus.COMPLETED
             and outcome.completion is not None
-            and outcome.completion.get("task") == self._kind
+            and outcome.completion.get("kind") == "answer"
         )
         return MaintenanceTurnResult(
             completed=completed,
-            details={} if completed else self._failure_details(outcome),
+            details={"summary": outcome.completion["text"]} if completed and outcome.completion is not None else self._failure_details(outcome),
         )
 
     @staticmethod

@@ -17,7 +17,7 @@ DAY = BusinessDay.parse("2026-07-12")
 ZONE = ZoneInfo("Asia/Shanghai")
 
 
-def test_memory_projection_expands_summary_to_chronological_turn_facts(
+def test_memory_projection_uses_chronological_turn_facts(
     tmp_path: Path,
 ) -> None:
     session = _session(tmp_path, background_max_chars=512)
@@ -76,9 +76,6 @@ def _session(tmp_path: Path, *, background_max_chars: int = 24000) -> SessionEng
         SessionSettings(
             root=tmp_path / "runtime" / "session",
             background_max_chars=background_max_chars,
-            summary_watermark_ratio=0.60,
-            summary_target_ratio=0.40,
-            min_recent_turns=1,
         )
     )
     session.initialize_day(DAY)

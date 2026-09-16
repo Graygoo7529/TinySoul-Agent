@@ -11,9 +11,9 @@ from tinysoul.infra.time import BusinessDay
 from tinysoul.loop.outcomes import TurnFailure, TurnOutcomeStatus
 
 from .errors import SessionContractError, SessionInvariantError
-from .models import SessionSummaryRecord, SessionTurnRecord
+from .models import SessionTurnRecord
 from .store import SessionStore
-from .validation import validate_summary_record, validate_turn_record
+from .validation import validate_turn_record
 
 
 @dataclass(frozen=True)
@@ -123,7 +123,7 @@ def project_session_memory_facts(
     revision: int,
     refs: tuple[str, ...],
 ) -> SessionMemoryFactsProjection:
-    """Expand one validated Session graph to chronological Turn facts."""
+    """Project the immutable Turn index to chronological Memory evidence."""
 
     store = SessionStore(root=root)
     visited: set[str] = set()
@@ -136,11 +136,6 @@ def project_session_memory_facts(
             )
         visited.add(ref)
         record = store.load_record(ref)
-        if isinstance(record, SessionSummaryRecord):
-            summary = validate_summary_record(record)
-            for child_ref in summary.child_refs:
-                visit(child_ref)
-            return
         facts.append(_turn_fact(validate_turn_record(record)))
 
     for ref in refs:

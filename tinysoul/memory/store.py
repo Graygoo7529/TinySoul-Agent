@@ -112,8 +112,7 @@ class MemoryStore:
             document = self._codec.parse(link, read.text)
         except MemoryContractError as exc:
             raise MemoryInvariantError(f"Invalid Memory document {link}: {exc}") from exc
-        # Digest the decoded text as read, rather than a canonical re-render, so
-        # externally changed frontmatter ordering and spacing remain CAS-visible.
+        # Derived indexes identify the exact stored content, including formatting.
         from hashlib import sha256
 
         return StoredMemoryDocument(
@@ -125,9 +124,6 @@ class MemoryStore:
     def write(
         self,
         document: PersistentMemoryDocument,
-        *,
-        expected_digest: str | None = None,
-        expected_absent: bool = False,
     ) -> StoredMemoryDocument:
         stored = self._codec.stored(document)
         if len(stored.text) > self.max_chars(document.kind):
@@ -135,15 +131,6 @@ class MemoryStore:
                 f"Memory exceeds {self.max_chars(document.kind)} characters: {document.link}"
             )
         path = self.validate_write_target(document.link)
-        exists = path.is_file()
-        if expected_absent and exists:
-            raise MemoryContractError(f"Memory already exists: {document.link}")
-        if expected_digest is not None:
-            if not exists:
-                raise MemoryContractError(f"Memory disappeared: {document.link}")
-            current = self.read(document.link)
-            if current.digest != expected_digest:
-                raise MemoryContractError(f"Memory digest is stale: {document.link}")
         try:
             atomic_write_text(path, stored.text)
         except OSError as exc:
@@ -151,7 +138,7 @@ class MemoryStore:
         return stored
 
     def validate_write_target(self, link: MemoryLink) -> Path:
-        """Return an owner-validated target for Store and transaction writes."""
+        """Return an owner-validated target for single-document replacement."""
 
         self._validate_root()
         path = self.path_for(link)

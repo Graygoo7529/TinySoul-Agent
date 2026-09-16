@@ -3,6 +3,7 @@ from __future__ import annotations
 from tinysoul.infra.concurrency import CleanupDiagnostic
 
 import asyncio
+from datetime import date
 import pytest
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -11,7 +12,6 @@ from typing import cast
 
 from tinysoul.context import ContextEngine, ContextEngineBuilder
 from tinysoul.context.errors import ContextContractError
-from tinysoul.context.preparation import ContextTurnPreparationHandler
 from tinysoul.context.runtime_bridge import RuntimeContextBridge
 from tinysoul.context.segments import TurnInfo
 from tinysoul.workspace.projection import WorkspaceSegment, workspace_segment_registration
@@ -133,7 +133,7 @@ class _EndFailingContext:
         self.active = True
         return "turn_1"
 
-    def complete_preparation(self) -> None:
+    async def open_segments(self, day: date) -> None:
         pass
 
     def end_turn(self) -> object:
@@ -260,7 +260,7 @@ class _OutputCycleRunner:
     ) -> CycleOutcome:
         return CycleOutcome(
             cycle_id=f"cycle_{cycle_index}",
-            completion={"kind": "user_answer"},
+            completion={"kind": "answer"},
         )
 
 
@@ -473,7 +473,6 @@ async def test_segment_close_diagnostics_do_not_replace_recorded_answer() -> Non
         cycle_runner=cast(CycleRunner, _OutputCycleRunner()),
         settings=TurnSettings(max_cycles=1),
         preparation_pipeline=TurnPreparationPipeline((
-            ContextTurnPreparationHandler(context, RuntimeContextBridge()),
         )),
         completion_to_output=lambda _completion: TurnOutput(text="done", result_id="answer"),
         completion_pipeline=TurnCompletionPipeline((recorder,)),
@@ -512,7 +511,6 @@ async def test_task_cancellation_joins_segment_close_before_releasing_the_turn()
         cycle_runner=cast(CycleRunner, _OutputCycleRunner()),
         settings=TurnSettings(max_cycles=1),
         preparation_pipeline=TurnPreparationPipeline((
-            ContextTurnPreparationHandler(context, RuntimeContextBridge()),
         )),
         completion_to_output=lambda _completion: TurnOutput(text="done", result_id="answer"),
         completion_pipeline=TurnCompletionPipeline((recorder,)),

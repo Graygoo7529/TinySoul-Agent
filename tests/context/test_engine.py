@@ -33,6 +33,9 @@ from tinysoul.context import (
     build_trace_decision_signal,
     build_trace_phase_note_signal,
 )
+from tinysoul.context.background import heap_segment_registration
+from tinysoul.context.providers import BackgroundEntryProvider
+from tinysoul.context.segments import SegmentCapability, SegmentDescriptor, SegmentShape, SegmentSlot
 from tinysoul.context.trace import SealedTurnTrace, TraceKind
 from tinysoul.context.signals import build_working_patch_signal
 from tinysoul.context.working import WorkingPatch
@@ -69,12 +72,34 @@ def _scope(turn_id: str) -> RunScope:
     )
 
 
+@dataclass
+class TextSource:
+    texts: dict[str, str] = field(default_factory=lambda: {
+        "home:agent@AGENT": "core rules", "home:skills@x": "entity x",
+    })
+
+    def catalog(self, business_day: date) -> BackgroundCatalog:
+        return BackgroundCatalog(
+            owner="home", default_links=("home:agent@AGENT",),
+            loadable_links=tuple(self.texts), evictable_default_links=("home:agent@AGENT",),
+        )
+
+    def load(self, link: str, business_day: date) -> str:
+        return self.texts[link]
+
+
+def _registration(source: BackgroundEntryProvider):
+    return heap_segment_registration(
+        SegmentDescriptor("home", "home", SegmentSlot.BACKGROUND, 40, shape=SegmentShape.HEAP, capabilities=frozenset({SegmentCapability.SELECT, SegmentCapability.RECLAIM})),
+        source, signal_name="context.home.update",
+    )
+
+
 def _engine():
     return (
         ContextEngineBuilder(system_text="You are TinySoul.")
         .with_journal("day journal")
-        .add_default_background("home:agent@AGENT", "core rules")
-        .add_loadable_background("home:skills@x", "entity x")
+        .with_segment(_registration(TextSource()))
         .build()
     )
 
@@ -99,12 +124,12 @@ async def test_background_prepare_failure_installs_neither_catalog_nor_entries()
         def load(self, link: str, business_day: date) -> str:
             return ""  # A broken owner response after the catalog was prepared.
 
-    engine = ContextEngineBuilder(system_text="sys").add_background_provider(Provider()).build()
+    engine = ContextEngineBuilder(system_text="sys").with_segment(_registration(Provider())).build()
     engine.begin_turn("question")
-    before = engine.compose(_prompt())
-    with pytest.raises(ContextInvariantError, match="empty content"):
-        await engine.prepare_default_background(date(2026, 9, 15))
-    assert engine.compose(_prompt()) == before
+    with pytest.raises(ContextInvariantError, match="content must be non-empty"):
+        await engine.open_segments(date(2026, 9, 15))
+    with pytest.raises(ContextContractError, match="opened"):
+        engine.compose(_prompt())
     assert engine.background_links() == ()
 
 
@@ -125,10 +150,9 @@ async def test_cancelled_background_prepare_joins_read_without_installing_view()
             assert release.wait(timeout=5)
             return "Rules"
 
-    engine = ContextEngineBuilder(system_text="sys").add_background_provider(Provider()).build()
+    engine = ContextEngineBuilder(system_text="sys").with_segment(_registration(Provider())).build()
     engine.begin_turn("question")
-    before = engine.compose(_prompt())
-    preparing = asyncio.create_task(engine.prepare_default_background(date(2026, 9, 15)))
+    preparing = asyncio.create_task(engine.open_segments(date(2026, 9, 15)))
     try:
         await asyncio.wait_for(entered.wait(), timeout=2)
         preparing.cancel()
@@ -138,7 +162,8 @@ async def test_cancelled_background_prepare_joins_read_without_installing_view()
         release.set()
     with pytest.raises(asyncio.CancelledError):
         await preparing
-    assert engine.compose(_prompt()) == before
+    with pytest.raises(ContextContractError, match="opened"):
+        engine.compose(_prompt())
 
 
 async def test_background_batch_retry_keeps_new_input_outside_prepared_batch() -> None:
@@ -149,7 +174,10 @@ async def test_background_batch_retry_keeps_new_input_outside_prepared_batch() -
     class Loader:
         calls = 0
 
-        def load(self) -> str:
+        def catalog(self, business_day: date) -> BackgroundCatalog:
+            return BackgroundCatalog(owner="home", loadable_links=("home:skills@guide",))
+
+        def load(self, link: str, business_day: date) -> str:
             self.calls += 1
             if self.calls == 1:
                 loop.call_soon_threadsafe(entered.set)
@@ -158,8 +186,9 @@ async def test_background_batch_retry_keeps_new_input_outside_prepared_batch() -
             return "Loaded details"
 
     loader = Loader()
-    engine = ContextEngineBuilder(system_text="sys").add_lazy_background("home:skills@guide", loader).build()
+    engine = ContextEngineBuilder(system_text="sys").with_segment(_registration(loader)).build()
     turn_id = engine.begin_turn("question")
+    await engine.open_segments(date(2026, 7, 14))
     scope = _scope(turn_id)
     bus = SignalBus()
     normalized = engine.normalize_controls((
@@ -203,10 +232,11 @@ async def test_turn_lifecycle_and_compose() -> None:
         engine.compose(_prompt("g"))
 
     turn_id = engine.begin_turn("please help")
+    await engine.open_segments(date(2026, 7, 14))
     assert turn_id
     with pytest.raises(ContextContractError):
         engine.begin_turn("again")
-    await engine.prepare_default_background(date(2026, 7, 14))
+    await engine.open_segments(date(2026, 7, 14))
 
     stack = engine.compose(_prompt("Phase one."))
     labels = [message.label for message in stack.messages]
@@ -224,6 +254,7 @@ async def test_turn_lifecycle_and_compose() -> None:
 async def test_foldable_action_result_persists_only_compact_trace_payload() -> None:
     engine = _engine()
     scope = _scope(engine.begin_turn("read workspace"))
+    await engine.open_segments(date(2026, 7, 14))
     bus = SignalBus()
     bus.emit(
         build_trace_action_result_signal(
@@ -294,6 +325,7 @@ async def test_control_scope_tracks_background_state() -> None:
         engine.control_scope()
 
     turn_id = engine.begin_turn("hi")
+    await engine.open_segments(date(2026, 7, 14))
     scope = _scope(turn_id)
     names = [tool.name for tool in engine.control_scope().tools]
     # WHAT is loadable; the Agent core is loaded (and evictable).
@@ -321,6 +353,7 @@ async def test_control_scope_tracks_background_state() -> None:
 async def test_consume_signals_commits_feasible_valid_changes() -> None:
     engine = _engine()
     turn_id = engine.begin_turn("hi")
+    await engine.open_segments(date(2026, 7, 14))
     scope = _scope(turn_id)
     bus = SignalBus()
 
@@ -355,6 +388,7 @@ async def test_consume_signals_commits_feasible_valid_changes() -> None:
 async def test_consume_signals_validates_working_batch_against_projection() -> None:
     engine = _engine()
     scope = _scope(engine.begin_turn("hi"))
+    await engine.open_segments(date(2026, 7, 14))
     bus = SignalBus()
 
     setup = engine.normalize_controls(
@@ -402,6 +436,7 @@ async def test_consume_signals_validates_working_batch_against_projection() -> N
 async def test_consume_signal_results_preserve_signal_order() -> None:
     engine = _engine()
     scope = _scope(engine.begin_turn("hi"))
+    await engine.open_segments(date(2026, 7, 14))
     bus = SignalBus()
     bus.emit(
         Signal(
@@ -415,25 +450,21 @@ async def test_consume_signal_results_preserve_signal_order() -> None:
             },
         )
     )
-    bus.emit(
-        Signal(
-            name=SIGNAL_TRACE_APPEND,
-            source="test",
-            scope=scope,
-            payload={"kind": "unknown_trace_kind"},
-        )
-    )
+    bus.emit(build_working_patch_signal(
+        WorkingPatch(remove_todos=("missing",)), call_id="working_second", scope=scope, source="test",
+    ))
 
     results = await engine.consume_signals(bus)
 
     assert [result.sequence for result in results] == [1, 2]
     assert results[0].call_id == "background_first"
-    assert "Unknown trace append kind" in results[1].model_feedback
+    assert results[1].call_id == "working_second"
 
 
 async def test_consume_signals_validates_background_batch_against_projection() -> None:
     engine = _engine()
     scope = _scope(engine.begin_turn("hi"))
+    await engine.open_segments(date(2026, 7, 14))
     bus = SignalBus()
     bus.emit(
         Signal(
@@ -482,6 +513,7 @@ async def test_consume_signals_validates_background_batch_against_projection() -
 async def test_background_signal_rejects_load_evict_conflict() -> None:
     engine = _engine()
     scope = _scope(engine.begin_turn("hi"))
+    await engine.open_segments(date(2026, 7, 14))
     bus = SignalBus()
     bus.emit(
         Signal(
@@ -506,6 +538,7 @@ async def test_background_signal_rejects_load_evict_conflict() -> None:
 async def test_background_signal_treats_loaded_link_load_as_noop() -> None:
     engine = _engine()
     scope = _scope(engine.begin_turn("hi"))
+    await engine.open_segments(date(2026, 7, 14))
     bus = SignalBus()
     bus.emit(
         Signal(
@@ -529,7 +562,7 @@ async def test_background_signal_treats_loaded_link_load_as_noop() -> None:
 async def test_home_background_is_rebuilt_for_each_user_turn() -> None:
     engine = _engine()
     first_turn = engine.begin_turn("first")
-    await engine.prepare_default_background(date(2026, 7, 14))
+    await engine.open_segments(date(2026, 7, 14))
     bus = SignalBus()
     bus.emit(
         Signal(
@@ -549,29 +582,27 @@ async def test_home_background_is_rebuilt_for_each_user_turn() -> None:
         "home:agent@AGENT",
         "home:skills@x",
     )
-    engine.complete_preparation()
     engine.end_turn()
     await engine.close_segments()
 
     engine.begin_turn("second")
     assert engine.background_links() == ()
-    await engine.prepare_default_background(date(2026, 7, 14))
+    await engine.open_segments(date(2026, 7, 14))
     assert engine.background_links() == ("home:agent@AGENT",)
 
 
 
 
-async def test_context_observes_committed_background_entries_with_content() -> None:
+async def test_context_observes_committed_background_selection() -> None:
     observations = RecordingObservations()
     engine = (
         ContextEngineBuilder(system_text="sys")
         .with_observations(observations)
-        .add_default_background("home:agent@AGENT", "core rules")
-        .add_loadable_background("home:skills@x", "concept body")
+        .with_segment(_registration(TextSource({"home:agent@AGENT": "core rules", "home:skills@x": "concept body"})))
         .build()
     )
     scope = _scope(engine.begin_turn("hi"))
-    await engine.prepare_default_background(date(2026, 7, 19))
+    await engine.open_segments(date(2026, 7, 19))
     bus = SignalBus()
     bus.emit(
         Signal(
@@ -597,20 +628,14 @@ async def test_context_observes_committed_background_entries_with_content() -> N
         "context.background.snapshot",
         "context.background.changed",
     ]
-    entries = background_events[-1].payload["entries"]
-    assert isinstance(entries, list)
-    assert entries[-1] == {
-        "link": "home:skills@x",
-        "content": "concept body",
-        "source": "phase1",
-        "owner": "context",
-        "evictable": True,
-    }
+    assert background_events[-1].payload["loaded_links"] == ["home:skills@x"]
+    assert "concept body" in str(engine.compose(_prompt()).messages)
 
 
 async def test_trace_append_rejects_unknown_kind() -> None:
     engine = _engine()
     scope = _scope(engine.begin_turn("hi"))
+    await engine.open_segments(date(2026, 7, 14))
     bus = SignalBus()
     bus.emit(
         Signal(
@@ -621,15 +646,15 @@ async def test_trace_append_rejects_unknown_kind() -> None:
         )
     )
 
-    results = await engine.consume_signals(bus)
-
-    assert len(results) == 1
-    assert "Unknown trace append kind" in results[0].model_feedback
+    with pytest.raises(ContextContractError, match="Unknown trace append kind"):
+        await engine.consume_signals(bus)
+    assert engine.trace_kinds() == ()
 
 
 async def test_consume_trace_and_input_signals() -> None:
     engine = _engine()
     scope = _scope(engine.begin_turn("hi"))
+    await engine.open_segments(date(2026, 7, 14))
     bus = SignalBus()
 
     bus.emit(
@@ -712,6 +737,7 @@ async def test_compress_via_engine() -> None:
         .build()
     )
     turn_id = engine.begin_turn("hi")
+    await engine.open_segments(date(2026, 7, 14))
     scope = _scope(turn_id)
     bus = SignalBus()
     for index in range(3):
@@ -729,13 +755,13 @@ async def test_compress_via_engine() -> None:
     assert report.changed is True
     assert report.compacted_count == 3
     assert engine.trace_kinds() == (TraceKind.PHASE_NOTE,) * 3
-    nodes = engine.inspect_trace(f"turn:trace@{turn_id}")["nodes"]
+    nodes = (await engine.inspect(f"turn:trace@{turn_id}"))["nodes"]
     assert isinstance(nodes, list) and nodes
     root = nodes[0]
     assert isinstance(root, dict)
     ref = root["ref"]
     assert isinstance(ref, str)
-    page = engine.inspect_trace(ref)
+    page = await engine.inspect(ref)
     assert page["kind"] == "context_trace_leaf"
     assert page["ref"] == ref
     interactions = page["interactions"]
@@ -751,7 +777,7 @@ async def test_compress_via_engine() -> None:
 async def test_abort_turn_discards_active_state() -> None:
     engine = _engine()
     engine.begin_turn("hi")
-    await engine.prepare_default_background(date(2026, 7, 14))
+    await engine.open_segments(date(2026, 7, 14))
     assert engine.turn_active is True
     assert engine.background_links() == ("home:agent@AGENT",)
 
@@ -786,11 +812,11 @@ async def test_provider_catalog_metadata_is_automatic_background() -> None:
 
     engine = (
         ContextEngineBuilder(system_text="sys")
-        .add_background_provider(_Provider())
+        .with_segment(_registration(_Provider()))
         .build()
     )
     engine.begin_turn("review changes")
-    await engine.prepare_default_background(date(2026, 7, 14))
+    await engine.open_segments(date(2026, 7, 14))
 
     stack = engine.compose(_prompt())
 
@@ -809,6 +835,31 @@ async def test_provider_catalog_metadata_is_automatic_background() -> None:
         ],
     }
     assert engine.background_links() == ()
+
+
+async def test_heap_refresh_replaces_loaded_content_and_catalog_atomically() -> None:
+    source = TextSource()
+    engine = ContextEngineBuilder(system_text="identity").with_segment(_registration(source)).build()
+    turn = engine.begin_turn("update")
+    await engine.open_segments(date(2026, 7, 14))
+    source.texts["home:agent@AGENT"] = "new rules"
+    source.texts["home:skills@new"] = "new skill"
+    bus = SignalBus()
+    bus.emit(Signal(
+        name="context.home.update", source="home.action", scope=_scope(turn),
+        payload={"refresh": True},
+    ))
+    assert "new rules" not in str(engine.compose(_prompt()).messages)
+    await engine.consume_signals(bus)
+    assert "new rules" in str(engine.compose(_prompt()).messages)
+    assert "new skill" not in str(engine.compose(_prompt()).messages)
+    bus.emit(Signal(
+        name=SIGNAL_BACKGROUND_PATCH, source="test", scope=_scope(turn),
+        payload={"call_id": "load_new", "load_links": ["home:skills@new"]},
+    ))
+    assert await engine.consume_signals(bus) == ()
+    assert "new skill" in str(engine.compose(_prompt()).messages)
+    await engine.close_segments()
 
 
 def test_engine_exposes_snapshots_not_mutable_context_holders() -> None:
@@ -834,18 +885,4 @@ def test_builder_validates_background_configuration() -> None:
             .with_compression_trigger_ratio(0.5)
             .with_compression_target_ratio(0.5)
             .build()
-        )
-    with pytest.raises(ContextContractError):
-        ContextEngineBuilder(system_text="sys").add_default_background("", "content")
-    with pytest.raises(ContextContractError):
-        (
-            ContextEngineBuilder(system_text="sys")
-            .add_default_background("home:agent@AGENT", "a")
-            .add_default_background("home:agent@AGENT", "a")
-        )
-    with pytest.raises(ContextContractError):
-        (
-            ContextEngineBuilder(system_text="sys")
-            .add_loadable_background("home:skills@x", "a")
-            .add_loadable_background("home:skills@x", "b")
         )

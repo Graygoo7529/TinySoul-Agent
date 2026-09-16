@@ -476,6 +476,10 @@ class TurnRunner:
             )
         while True:
             try:
+                try:
+                    await self._context.open_segments(business_day.value)
+                except ContextError as exc:
+                    raise self._context_bridge.from_context_error(exc) from exc
                 signals = await self._preparation_pipeline.prepare(
                     TurnPreparationRequest(
                         turn_id=turn_id,
@@ -485,7 +489,6 @@ class TurnRunner:
                     )
                 )
                 (await self._commit_preparation_signals(signals, scope=scope))
-                self._context.complete_preparation()
                 return None
             except RuntimeTransferInterrupt as interrupt:
                 boundary = self._from_interrupt(interrupt)

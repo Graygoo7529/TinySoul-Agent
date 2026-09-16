@@ -1,3 +1,5 @@
+from datetime import date as CalendarDate
+
 from pathlib import Path
 
 from tinysoul.action import (
@@ -25,6 +27,7 @@ async def test_context_inspect_continuation_is_visible_only() -> None:
         .build()
     )
     turn_id = context.begin_turn("inspect")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     scope = RunScope().push(RunLevel.TURN, turn_id)
     bus = SignalBus()
     bus.emit(
@@ -37,7 +40,7 @@ async def test_context_inspect_continuation_is_visible_only() -> None:
     )
     await context.consume_signals(bus)
     context.compress()
-    nodes = context.inspect_trace(f"turn:trace@{turn_id}")["nodes"]
+    nodes = (await context.inspect(f"turn:trace@{turn_id}"))["nodes"]
     assert isinstance(nodes, list)
     root = nodes[0]
     assert isinstance(root, dict)

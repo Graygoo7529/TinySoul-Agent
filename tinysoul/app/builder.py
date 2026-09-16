@@ -64,6 +64,7 @@ from tinysoul.loop.completion import TurnCompletionHandler
 from tinysoul.loop.phases import LLMRunner
 from tinysoul.loop.prompts import DomainSkillProvider
 from tinysoul.loop.user import UserTurnBuilder
+from tinysoul.loop.actions import CommonActionAssembly
 from tinysoul.maintenance import (
     BusinessClock,
     MaintenanceBuilder,
@@ -605,6 +606,14 @@ class TinySoulAppBuilder:
                 user_builder.add_completion_handler(handler)
             user_turn = user_builder.build()
             maintenance = MaintenanceBuilder(
+                action_assembly=CommonActionAssembly(
+                    root=self._root, home=home, memory=memory, workspace=workspace,
+                    bus=bus, llm=llm, observations=observations,
+                    action_settings=action_settings,
+                    capabilities_settings=capabilities_settings,
+                    supervised_process_wait=plan.supervised_process_wait,
+                    runtime_env=config.runtime_env,
+                ),
                 context_settings=context_settings,
                 loop_settings=loop_settings,
                 settings=maintenance_settings,

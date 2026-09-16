@@ -1,0 +1,8 @@
+name = "home_reflection"
+description = "Review and accept or reject effective Home changes."
+selection_hint = "Use after inspecting relevant facts and existing content."
+
+[runtime]
+enabled = true
+timeout_seconds = 60
+parallel_policy = "serial"

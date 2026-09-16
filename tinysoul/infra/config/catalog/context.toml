@@ -84,12 +84,6 @@ title = "Semantic Search"
 description = "Controls the rebuildable embedding cache used by Memory inspection."
 
 [[field_group]]
-id = "memory.daily_composition"
-surface = "memory"
-title = "Daily Composition"
-description = "Bounds source processing, model calls, and validation during daily Memory composition."
-
-[[field_group]]
 id = "workspace.storage"
 surface = "workspace"
 title = "Storage And Files"
@@ -236,30 +230,6 @@ description = "Maximum completed-turn history characters included as fixed Sessi
 value_kind = "integer"
 
 [[field]]
-path = "session.summary_watermark_ratio"
-surface = "session"
-group = "session.background"
-title = "Summary Watermark"
-description = "Context usage ratio at which older completed turns are summarized."
-value_kind = "number"
-
-[[field]]
-path = "session.summary_target_ratio"
-surface = "session"
-group = "session.background"
-title = "Summary Target"
-description = "Target history ratio retained after Session background summarization."
-value_kind = "number"
-
-[[field]]
-path = "session.min_recent_turns"
-surface = "session"
-group = "session.background"
-title = "Recent Turns"
-description = "Minimum number of recent completed turns kept in direct Session background form."
-value_kind = "integer"
-
-[[field]]
 path = "session.inspect_max_chars"
 surface = "session"
 group = "session.inspection"
@@ -384,42 +354,6 @@ surface = "memory"
 group = "memory.semantic_search"
 title = "Embedding Cache Text"
 description = "Maximum source text characters retained in the rebuildable semantic-search embedding cache."
-value_kind = "integer"
-importance = "advanced"
-
-[[field]]
-path = "memory.daily_composition.chunk_max_chars"
-surface = "memory"
-group = "memory.daily_composition"
-title = "Composition Chunk Length"
-description = "Maximum source characters presented in one daily Memory composition chunk."
-value_kind = "integer"
-importance = "advanced"
-
-[[field]]
-path = "memory.daily_composition.source_max_chars"
-surface = "memory"
-group = "memory.daily_composition"
-title = "Composition Source Length"
-description = "Maximum total Session and Workspace source characters considered for daily composition."
-value_kind = "integer"
-importance = "advanced"
-
-[[field]]
-path = "memory.daily_composition.max_calls"
-surface = "memory"
-group = "memory.daily_composition"
-title = "Composition Calls"
-description = "Maximum LLM calls allowed while composing one daily Memory changeset."
-value_kind = "integer"
-importance = "advanced"
-
-[[field]]
-path = "memory.daily_composition.validation_retries"
-surface = "memory"
-group = "memory.daily_composition"
-title = "Composition Validation Retries"
-description = "Maximum correction attempts after an invalid daily Memory composition result."
 value_kind = "integer"
 importance = "advanced"
 

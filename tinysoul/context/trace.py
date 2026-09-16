@@ -24,8 +24,8 @@ from tinysoul.runtime import CyclePhase
 from .errors import (
     ContextContractError,
     ContextInvariantError,
-    ContextTraceFailureReason,
-    ContextTraceRequestError,
+    ContextInspectFailureReason,
+    ContextInspectRequestError,
 )
 
 class TraceKind(StrEnum):
@@ -385,8 +385,8 @@ class TurnTraceHeap:
 
         node = self._node_for_ref(ref)
         if node.kind is not TraceHeapNodeKind.LEAF:
-            raise ContextTraceRequestError(
-                ContextTraceFailureReason.REF_NOT_LEAF,
+            raise ContextInspectRequestError(
+                ContextInspectFailureReason.REF_NOT_LEAF,
                 "Context inspect requires a leaf ref for interaction content",
                 constraint={"ref": ref},
             )
@@ -545,16 +545,16 @@ class TurnTraceHeap:
     def _node_for_ref(self, ref: str) -> TraceHeapNode:
         prefix = f"turn:trace/{self._turn_id}/"
         if not ref.startswith(prefix):
-            raise ContextTraceRequestError(
-                ContextTraceFailureReason.INVALID_REF,
+            raise ContextInspectRequestError(
+                ContextInspectFailureReason.INVALID_REF,
                 "Trace ref does not belong to the active Turn",
                 constraint={"ref": ref},
             )
         node_id = ref[len(prefix) :]
         node = self._nodes.get(node_id)
         if node is None:
-            raise ContextTraceRequestError(
-                ContextTraceFailureReason.UNKNOWN_REF,
+            raise ContextInspectRequestError(
+                ContextInspectFailureReason.UNKNOWN_REF,
                 "Unknown Context trace ref",
                 constraint={"ref": ref},
             )

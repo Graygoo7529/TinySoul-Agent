@@ -2,7 +2,7 @@
 
 ## 定位
 
-Context 拥有一个活动 Turn 的模型语境。内核维护 User Inputs、plan 与 TurnTraceHeap；Workspace 通过注册的独立段维护本轮资源投影。固定 Session Background 和 Home/Memory 通用 Background 仍由既有 provider/snapshot 接入。Context 不拥有跨 Turn 历史、Workspace 文件、Home 内容或 Memory 文件。
+Context 拥有一个活动 Turn 的模型语境。内核维护 User Inputs、plan 与 TurnTraceHeap；Workspace 与 Session 通过独立注册段维护本轮资源投影和固定历史视图。Home/Memory 的目录、加载视图和刷新也属于各自的 Heap 段。Context 不拥有跨 Turn 历史、Workspace 文件、Home 内容或 Memory 文件。
 
 ## MessageStack
 
@@ -20,17 +20,17 @@ Composer 只接收带段描述的消息投影，按 Background → Trace → Wor
 
 ## Background 与 Working
 
-Session Background 只在 Turn preparation 期间通过版本化全量 signal 注入，在该 Turn 内固定且不可逐出。通用 Background 每 Turn 重建；默认 Home 条目、按需加载的 Top Link 和 Memory 动态投影都属于当前 Turn。User/Home Maintenance 装配不可逐出的 `memory:current + optional memory:latest`，Memory Maintenance 装配不可逐出的 `memory:target + optional memory:latest`；latest 是严格早于 Context Business Day 的最近 daily，缺失时省略。Background catalog 只提供有界 Link、title 和 description，不等同于已加载正文。
+Session provider 在段 open 时读取历史视图，在该 Turn 内固定且不可逐出。通用 Background 每 Turn 重建；默认 Home 条目、按需加载的 Top Link 和 Memory 动态投影都属于当前 Turn。User/Home Maintenance 装配不可逐出的 `memory:current + optional memory:latest`，Memory Maintenance 装配不可逐出的 `memory:target + optional memory:latest`；latest 是严格早于 Context Business Day 的最近 daily，缺失时省略。Background catalog 只提供有界 Link、title 和 description，不等同于已加载正文。
 
 WorkingContext 维护 plan，只向模型呈现 milestones 与 todos，不持有 Workspace 快照。Milestone 是少量、可复用的事实寄存器：可以记录有价值的完成、尝试、失败、阻塞、测量值、决定、来源 Link、版本/digest 或局部成果，供后续 Cycle 防止遗忘；它不是 todo 的镜像、进度徽章或对模型的自我确认。失败或仅尝试过的工作必须明确记录其状态，不能登记为完成事实。Workspace 段只呈现 resource Link/summary；revision 等 owner 一致性字段不进入模型投影。
 
-Context 更新从 SignalBus 捕获当前 Turn 的固定批次；解析、候选校验、背景读取和注册段的 prepare 全部结束后才安装。准备入口和批次消费均为 async；短背景读取使用 joined owner 操作，取消时等待读取结束且不安装候选。默认背景的 catalog、provider 索引和正文也先完整准备，再一起安装，不在加载失败前暴露部分新目录。恢复信号以独立固定批次由内核提交，不从 Trap handler 直接修改视图。
+Context 更新从 SignalBus 捕获当前 Turn 的固定批次；解析、候选校验、背景读取和注册段的 prepare 全部结束后才安装。准备入口和批次消费均为 async；短背景读取使用 joined owner 操作，取消时等待读取结束且不安装候选。默认背景的 catalog、provider 索引和正文也先完整准备，再一起安装，不在加载失败前暴露部分新目录。恢复信号以独立固定批次由内核提交，不从 Trap handler 直接修改视图。Home 顶层变更和活动 Memory 写入先提交 owner，再通知本轮段刷新；刷新只替换本轮目录与已加载内容，不自动内联新资源。
 
 ## 注册段
 
-SegmentRegistry 在装配时校验段 id 与更新路由唯一性。描述声明 owner、slot 和 order；provider 每 Turn 创建实例。已注册的更新信号在注册边界解码为 owner 的具体类型，再交给该段 prepare，异构调度不把内部候选退化为任意 JSON。当前真实注册消费者是 Workspace；Home、Memory、Session 和核心状态尚未全部迁入该生命周期，shape 回收、profile 选择、ref 路由和可选 finish 也未接入。
+SegmentRegistry 在装配时校验段 id、更新路由唯一性与 ref 前缀不重叠。描述统一声明 owner、slot、order、shape、能力与可选 ref 路由；provider 每 Turn 创建实例。只读段不注册空的更新通道，声明 ref 路由的段必须提供真实 inspect 能力。已注册的更新信号在注册边界解码为 owner 的具体类型，再交给该段 prepare，异构调度不把内部候选退化为任意 JSON。identity、inputs、trace、plan、固定 journal、Home、Memory、Session 和 Workspace 都通过同一生命周期注册。Turn 内核必经 open，不要求外部装配重复添加 Context preparation handler；每个新 Turn 都创建新视图。统一 core.context.inspect 路由到 Trace 或 Session；选择能力提供当前可加载/已加载/受保护 ref，Heap 的加载/逐出和 owner 刷新使用相同 prepare/install。shape 按 State → Heap → Stack → Map 参与回收顺序，仅调用声明了 reclaim 的段，保留受保护默认内容。尚待完成 profile 贡献注册与有真实消费者的段 finish 接入。
 
-prepare 不改变活动视图或持久事实；全部候选准备成功才同步 install。候选只属于准备它的 Turn 且只能安装一次。安装缺陷使段集合停止接受后续更新和渲染，不回滚业务副作用或重放已安装候选。渲染只读已安装视图；seal 返回以 segment id 标识的 JSON 快照，不解释 owner 内容。
+prepare 不改变活动视图或持久事实；全部候选准备成功才同步 install。候选只属于准备它的 Turn 且只能安装一次。安装缺陷使段集合停止接受后续更新和渲染，不回滚业务副作用或重放已安装候选。渲染只读已安装视图；seal 返回以 segment id 标识的 JSON 快照，不解释领域 owner 内容。核心 inputs/plan/trace 通过类型化 ContextTurnCompletion 交付业务事实，持久段快照不再重复保存同一核心事实。
 
 部分 open 失败关闭已经交出的视图；尚未交出的资源由 provider 自行回收。Turn 在必要 finish 后逆序 close 段，连续取消仍等待清理完成。close 不关闭跨 Turn Engine，不再次提交 Session；失败成为独立有限诊断。
 
@@ -48,7 +48,7 @@ TurnTraceHeap 是当前 Turn 的 append-only 运行事实：
 
 ### 渐进检查
 
-模型只通过 `core.context.inspect` 检查当前 Turn 的冷轨迹：
+模型通过 `core.context.inspect` 检查段声明的 ref。Trace 段负责当前 Turn 冷轨迹：
 
 - head ref 返回直接 root headers；
 - branch ref 返回直接 child headers；

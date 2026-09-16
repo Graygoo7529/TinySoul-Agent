@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date as CalendarDate
+
 from datetime import date
 from tinysoul.workspace.projection import workspace_segment_registration
 
@@ -54,6 +56,7 @@ async def test_context_pressure_trap_retries_current_phase_when_trace_changes(
         )
     ).build()
     turn_id = context.begin_turn("compress me")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     bus = SignalBus()
     scope = (
         RunScope()
@@ -106,7 +109,7 @@ async def test_workspace_trash_restore_trap_syncs_context_and_retries_module(
     ).build()
     workspace.write_text("workspace:draft.md", "draft")
     turn_id = context.begin_turn("continue")
-    await context.prepare_default_background(date(2026, 7, 12))
+    await context.open_segments(date(2026, 7, 12))
     scope = (
         RunScope()
         .push(RunLevel.PROGRAM, "program")
@@ -124,7 +127,6 @@ async def test_workspace_trash_restore_trap_syncs_context_and_retries_module(
     assert await context.consume_signal_batch(
         ContextSignalBatch(turn_id=turn_id, signals=(initial,))
     ) == ()
-    context.complete_preparation()
     trash = workspace.trash_resource("workspace:draft.md", reason="pressure")
     removed = workspace_snapshot_signal(
         workspace.snapshot(),

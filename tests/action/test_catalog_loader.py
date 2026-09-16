@@ -98,10 +98,6 @@ def test_load_builtin_catalog() -> None:
         catalog.get_action("core.context.inspect").runtime.result.trace_mode
         is ActionTraceMode.FOLDABLE
     )
-    assert (
-        catalog.get_action("core.session.inspect").runtime.result.trace_mode
-        is ActionTraceMode.FOLDABLE
-    )
     wait_schema = catalog.get_action("execution.wait").tool.schema
     wait_properties = wait_schema["properties"]
     assert isinstance(wait_properties, dict)

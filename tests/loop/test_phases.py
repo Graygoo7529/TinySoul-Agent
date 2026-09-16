@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from datetime import date as CalendarDate
+
+from tinysoul.context.background import heap_segment_registration
+from tinysoul.context.segments import SegmentCapability, SegmentDescriptor, SegmentShape, SegmentSlot
+
 from tinysoul.workspace.projection import WorkspaceSnapshot, build_workspace_sync_signal
 
 from collections import deque
@@ -38,7 +43,7 @@ from tinysoul.loop import (
     Phase3Unit,
     PhaseFailure,
 )
-from tinysoul.loop.user import UserAnswerCompletionDetector
+from tinysoul.loop.completion import AnswerCompletionDetector
 from tinysoul.memory import (
     DailyMemoryDocument,
     MemoryEngine,
@@ -91,6 +96,7 @@ class RecordingObservations:
 async def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("answer now")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     action = _action_engine()
     bus = SignalBus()
     llm = FakeLLM(
@@ -149,7 +155,7 @@ async def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
         action=action,
         bus=bus,
         observations=observations,
-        completion_detector=UserAnswerCompletionDetector(),
+        completion_detector=AnswerCompletionDetector(),
     ).run(
         normalization=phase2.normalization,
         scope=phase3_scope,
@@ -160,7 +166,7 @@ async def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
     assert phase1.selected_domains == ("core",)
     assert phase2.normalization.calls[0].action_name == "core.answer"
     assert phase3.completion is not None
-    assert phase3.completion["kind"] == "user_answer"
+    assert phase3.completion["kind"] == "answer"
     assert phase3.completion["text"] == "done"
     assert str(phase3.completion["result_id"]).startswith("action_result_")
     assert context.trace_kinds() == (
@@ -183,6 +189,7 @@ async def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
 async def test_phase_units_use_independent_task_profiles() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("answer now")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     action = _action_engine()
     bus = SignalBus()
     llm = FakeLLM(
@@ -262,11 +269,14 @@ async def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the
 
     context = (
         ContextEngineBuilder(system_text="sys")
-        .add_background_provider(_SkillProvider())
+        .with_segment(heap_segment_registration(
+            SegmentDescriptor("home", "home", SegmentSlot.BACKGROUND, 40, shape=SegmentShape.HEAP, capabilities=frozenset({SegmentCapability.SELECT, SegmentCapability.RECLAIM})),
+            _SkillProvider(), signal_name="context.home.update",
+        ))
         .build()
     )
     turn_id = context.begin_turn("review Home")
-    await context.prepare_default_background(date(2026, 7, 14))
+    await context.open_segments(date(2026, 7, 14))
     action = _action_engine()
     llm = FakeLLM(
         (
@@ -353,11 +363,11 @@ async def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the
     assert isinstance(loaded.parts[0], TextPart)
     assert loaded.parts[0].text == "SKILL BODY: compare runtime and actual Home."
 
-    context.complete_preparation()
     context.end_turn()
     await context.close_segments()
+    await context.close_segments()
     context.begin_turn("next turn")
-    await context.prepare_default_background(date(2026, 7, 14))
+    await context.open_segments(date(2026, 7, 14))
     assert "home:skills@review" not in context.background_links()
 
 
@@ -371,17 +381,14 @@ async def test_real_memory_actions_record_turn_trace_without_background_mutation
     memory.write_document(
         DailyMemoryDocument(
             day=date(2026, 7, 13),
-            revision=0,
             created_on=date(2026, 7, 13),
             updated_on=date(2026, 7, 13),
-            session_revision=1,
-            active_memory_digest="0" * 64,
             content="free-form remembered fact",
         ),
-        expected_absent=True,
     )
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("recall yesterday")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     action = _action_engine(memory=memory)
     normalization = action.normalize(
         (
@@ -448,6 +455,7 @@ async def test_real_workspace_inspection_actions_preserve_trace_lifecycle(
 
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("inspect workspace")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     bus = SignalBus()
     llm = FakeLLM(
         (
@@ -543,7 +551,8 @@ async def test_real_workspace_inspection_actions_preserve_trace_lifecycle(
 
 async def test_phase1_returns_invalid_domain_selection_for_next_cycle() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
-    context.begin_turn("answer now")
+    turn_id = context.begin_turn("answer now")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     action = _action_engine()
     bus = SignalBus()
     llm = FakeLLM(
@@ -566,7 +575,7 @@ async def test_phase1_returns_invalid_domain_selection_for_next_cycle() -> None:
             ),
         )
     )
-    scope = RunScope().push(RunLevel.PHASE, CyclePhase.PHASE1.value)
+    scope = RunScope().push(RunLevel.TURN, turn_id).push(RunLevel.PHASE, CyclePhase.PHASE1.value)
 
     outcome = (await Phase1Unit(
         context=context,
@@ -585,7 +594,8 @@ async def test_phase1_returns_invalid_domain_selection_for_next_cycle() -> None:
 
 async def test_phase1_returns_provider_failure_for_next_cycle() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
-    context.begin_turn("answer now")
+    turn_id = context.begin_turn("answer now")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     action = _action_engine()
     llm = FakeLLM(
         (
@@ -608,7 +618,7 @@ async def test_phase1_returns_provider_failure_for_next_cycle() -> None:
         bus=SignalBus(),
         task_profile="framework",
     ).run(
-        scope=RunScope().push(RunLevel.PHASE, CyclePhase.PHASE1.value),
+        scope=RunScope().push(RunLevel.TURN, turn_id).push(RunLevel.PHASE, CyclePhase.PHASE1.value),
         cycle_id="cycle_1",
     ))
 
@@ -621,6 +631,7 @@ async def test_phase1_returns_provider_failure_for_next_cycle() -> None:
 async def test_phase1_invalid_selection_returns_local_failure() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("answer now")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     action = _action_engine()
     bus = SignalBus()
     llm = FakeLLM(
@@ -671,6 +682,7 @@ async def test_phase1_invalid_selection_returns_local_failure() -> None:
 async def test_phase1_applies_working_reconciliation_before_returning() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("finish current work")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     action = _action_engine()
     bus = SignalBus()
     llm = FakeLLM(
@@ -751,6 +763,7 @@ async def test_phase1_maps_loop_scope_failure_to_runtime(
 ) -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("answer now")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     action = _action_engine()
     duplicate_scope = context.control_scope()
     monkeypatch.setattr(
@@ -778,6 +791,7 @@ async def test_phase1_maps_loop_scope_failure_to_runtime(
 async def test_phase2_returns_framework_failure_for_next_cycle() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("answer now")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     action = _action_engine()
     bus = SignalBus()
     llm = FakeLLM(
@@ -820,6 +834,7 @@ async def test_phase2_returns_framework_failure_for_next_cycle() -> None:
 async def test_cycle_stops_after_phase2_failure_without_running_phase3() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("write a report")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     action = _action_engine()
     bus = SignalBus()
 
@@ -874,6 +889,7 @@ async def test_cycle_stops_after_phase2_failure_without_running_phase3() -> None
 async def test_phase3_maps_multiple_answer_completion_contract_error() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("answer now")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     action = _action_engine()
     bus = SignalBus()
     scope = (
@@ -905,7 +921,7 @@ async def test_phase3_maps_multiple_answer_completion_contract_error() -> None:
             context=context,
             action=action,
             bus=bus,
-            completion_detector=UserAnswerCompletionDetector(),
+            completion_detector=AnswerCompletionDetector(),
         ).run(
             normalization=normalization,
             scope=scope,
@@ -920,6 +936,7 @@ async def test_phase3_maps_multiple_answer_completion_contract_error() -> None:
 async def test_phase3_rejects_misdirected_internal_update_even_from_another_call() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("reason now")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     action = _action_engine()
     bus = SignalBus()
     scope = (
@@ -969,6 +986,7 @@ async def test_phase3_rejects_misdirected_internal_update_even_from_another_call
 async def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("scan now")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     bus = SignalBus()
     old_scope = (
         RunScope()

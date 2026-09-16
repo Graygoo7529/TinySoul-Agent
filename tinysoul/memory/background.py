@@ -8,9 +8,11 @@ import json
 from typing import Protocol
 
 from tinysoul.context import BackgroundCatalog, BackgroundCatalogItem
+from tinysoul.context.background import HeapCandidate, HeapUpdate, heap_segment_registration
+from tinysoul.context.segments import SegmentCapability, SegmentDescriptor, SegmentRegistration, SegmentShape, SegmentSlot
 from tinysoul.memory.runtime_bridge import RuntimeMemoryBridge
 
-from .active import ActiveMemorySnapshot
+from .active import ActiveMemoryDocument
 from .engine import MemoryEngine
 from .errors import MemoryContractError, MemoryError, MemoryInvariantError
 from .links import MemoryBackgroundRef
@@ -18,7 +20,7 @@ from .documents import DailyMemoryDocument, StoredMemoryDocument
 
 
 class TargetMemoryBinding(Protocol):
-    def memory_target(self) -> tuple[date, ActiveMemorySnapshot]:
+    def memory_target(self) -> tuple[date, ActiveMemoryDocument]:
         ...
 
 
@@ -67,7 +69,6 @@ class ActiveMemoryBackgroundEntryProvider:
                 return _active_projection(
                     MemoryBackgroundRef.CURRENT,
                     self.memory.read_active(business_day),
-                    include_digest=True,
                 )
             if link == MemoryBackgroundRef.LATEST.value:
                 latest = self.memory.latest_daily_before(business_day)
@@ -132,7 +133,6 @@ class TargetMemoryBackgroundEntryProvider:
                 return _active_projection(
                     MemoryBackgroundRef.TARGET,
                     snapshot,
-                    include_digest=False,
                 )
             if link == MemoryBackgroundRef.LATEST.value:
                 latest = self.memory.latest_daily_before(target_day)
@@ -146,17 +146,12 @@ class TargetMemoryBackgroundEntryProvider:
 
 def _active_projection(
     ref: MemoryBackgroundRef,
-    snapshot: ActiveMemorySnapshot,
-    *,
-    include_digest: bool,
+    snapshot: ActiveMemoryDocument,
 ) -> str:
     metadata: dict[str, object] = {
         "ref": ref.value,
         "day": snapshot.day.isoformat(),
-        "revision": snapshot.document.revision,
     }
-    if include_digest:
-        metadata["expected_digest"] = snapshot.digest
     header = json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
     content = snapshot.content if snapshot.content else "(empty)"
     return f"{header}\n\n{content}"
@@ -171,3 +166,18 @@ def _latest_projection(stored: StoredMemoryDocument) -> str:
         "day": stored.document.day.isoformat(),
     }
     return f"{json.dumps(metadata, ensure_ascii=False, separators=(',', ':'))}\n\n{stored.text}"
+
+
+
+MEMORY_SEGMENT = SegmentDescriptor("memory", "memory", SegmentSlot.BACKGROUND, 50, shape=SegmentShape.HEAP, capabilities=frozenset({SegmentCapability.SELECT, SegmentCapability.RECLAIM}))
+MEMORY_CONTEXT_UPDATE = "context.memory.update"
+
+
+def memory_segment_registration(
+    memory: MemoryEngine, *, target: TargetMemoryBinding | None = None,
+) -> SegmentRegistration[HeapUpdate, HeapCandidate]:
+    source = (
+        TargetMemoryBackgroundEntryProvider(memory=memory, binding=target)
+        if target is not None else ActiveMemoryBackgroundEntryProvider(memory=memory)
+    )
+    return heap_segment_registration(MEMORY_SEGMENT, source, signal_name=MEMORY_CONTEXT_UPDATE)

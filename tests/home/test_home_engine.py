@@ -39,7 +39,7 @@ from tinysoul.home import (
     HomeTopWriteExecutor,
     HomeTopLink,
 )
-from tinysoul.maintenance.context import ActualHomeBackgroundEntryProvider
+from tinysoul.home.background import ActualHomeBackgroundEntryProvider, home_segment_registration
 from tinysoul.context import ContextEngineBuilder
 from tinysoul.context.background import BackgroundPatch
 from tinysoul.context.signals import build_background_patch_signal
@@ -156,6 +156,8 @@ async def test_home_background_is_copied_only_when_context_loads_it(
     source = tmp_path / "home" / "agent" / "context" / "project.md"
     source.parent.mkdir(parents=True)
     source.write_text("project knowledge", encoding="utf-8")
+    core = tmp_path / "home" / "agent" / "AGENT.md"
+    core.write_text("core identity", encoding="utf-8")
     home = AgentHomeEngineBuilder(
         AgentHomeSettings(
             original_root=tmp_path / "home",
@@ -165,13 +167,12 @@ async def test_home_background_is_copied_only_when_context_loads_it(
     link = "home:agent@context/project"
     context = (
         ContextEngineBuilder(system_text="sys")
-        .add_lazy_background(
-            link,
-            HomeBackgroundContentLoader(home=home, link=link),
-        )
+        .with_segment(home_segment_registration(home))
         .build()
     )
     turn_id = context.begin_turn("load project background")
+    home.ensure_runtime_copy(HomeTopLink.parse("home:agent@AGENT"))
+    await context.open_segments(date(2026, 7, 14))
     scope = (
         RunScope()
         .push(RunLevel.PROGRAM, "program")
@@ -222,7 +223,7 @@ async def test_home_background_is_copied_only_when_context_loads_it(
     assert await consumer.consume(scope=scope) == ()
 
     assert runtime_path.read_text(encoding="utf-8") == "project knowledge"
-    assert context.background_links() == (link,)
+    assert link in context.background_links()
     assert late_signal in bus.peek()
 
 
@@ -526,6 +527,7 @@ async def test_home_resource_read_rejects_non_positive_limit(tmp_path: Path) -> 
 async def test_home_top_and_prompt_mount_write_executors_use_home_mutation_boundary(
     tmp_path: Path,
 ) -> None:
+    bus = SignalBus()
     home_root = tmp_path / "home"
     home_root.mkdir()
     home = AgentHomeEngineBuilder(
@@ -541,7 +543,7 @@ async def test_home_top_and_prompt_mount_write_executors_use_home_mutation_bound
             "home.top.write",
             {"link": "home:agent@project", "text": "project"},
         ),
-        ActionExecutionContext(),
+        ActionExecutionContext(signal_bus=bus),
     )
     created = await HomeTopWriteExecutor(home).execute(
         _execution(
@@ -551,7 +553,7 @@ async def test_home_top_and_prompt_mount_write_executors_use_home_mutation_bound
                 "text": "project",
             },
         ),
-        ActionExecutionContext(),
+        ActionExecutionContext(signal_bus=bus),
     )
     prompt = await HomePromptMountWriteExecutor(home).execute(
         _execution(
@@ -561,9 +563,10 @@ async def test_home_top_and_prompt_mount_write_executors_use_home_mutation_bound
                 "text": "workspace guidance",
             },
         ),
-        ActionExecutionContext(),
+        ActionExecutionContext(signal_bus=bus),
     )
 
+    assert [signal.name for signal in bus.peek()] == ["context.home.update"]
     assert missing_kind.status is ActionResultStatus.SUCCESS
     assert missing_kind.payload["state"] == "created"
     assert created.status is ActionResultStatus.FAILED

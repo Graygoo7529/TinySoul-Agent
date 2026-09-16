@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date as CalendarDate
+
 from tinysoul.context import ContextEngineBuilder, build_input_append_signal
 from tinysoul.loop import (
     LoopControlKind,
@@ -53,6 +55,7 @@ def test_consume_control_requests_leaves_non_loop_signals() -> None:
 async def test_context_signal_consumer_emits_and_commits_one_group() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("initial")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     scope = (
         RunScope()
         .push(RunLevel.PROGRAM, "program")

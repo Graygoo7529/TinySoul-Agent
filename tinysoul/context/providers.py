@@ -88,3 +88,21 @@ class BackgroundEntryProvider(Protocol):
 
     def load(self, link: str, business_day: date) -> str:
         ...
+
+
+@dataclass(frozen=True)
+class SegmentSelectionView:
+    """Current navigation choices; content remains in the segment."""
+
+    available: tuple[str, ...] = ()
+    loaded: tuple[str, ...] = ()
+    protected: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        for name in ("available", "loaded", "protected"):
+            refs = tuple(getattr(self, name))
+            if any(not isinstance(ref, str) or not ref for ref in refs) or len(set(refs)) != len(refs):
+                raise ContextInvariantError("Segment selection references must be unique text")
+            object.__setattr__(self, name, refs)
+        if not set(self.loaded).issubset(self.available) or not set(self.protected).issubset(self.available):
+            raise ContextInvariantError("Segment selection state is outside its catalog")

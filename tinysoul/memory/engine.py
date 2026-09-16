@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from collections.abc import Sequence
 from pathlib import Path
 import secrets
+from threading import RLock
 
 from tinysoul.infra.time import BusinessDay
 from tinysoul.infra import EmbeddingClient
@@ -15,7 +15,6 @@ from tinysoul.infra.json import JsonObject, to_json_object
 
 from .active import (
     ActiveMemoryDocument,
-    ActiveMemorySnapshot,
     ActiveMemoryStore,
     MemoryPatchOperation,
 )
@@ -38,12 +37,6 @@ from .errors import MemoryContractError, MemoryInvariantError
 from .embeddings import MemoryEmbeddingIndex
 from .links import MemoryKind, MemoryLink
 from .store import MemoryStore
-from .transaction import (
-    MemoryChangeSet,
-    MemoryCommitOutcome,
-    MemoryDocumentChange,
-    MemoryTransactionService,
-)
 
 
 @dataclass(frozen=True)
@@ -97,12 +90,8 @@ class MemoryEngine:
             if active_session_root is not None
             else None
         )
-        self._transactions = MemoryTransactionService(
-            store=self._store,
-            codec=self._codec,
-            validate_documents=self._catalog.validate_overlay,
-        )
-        self.recover()
+        self._lock = RLock()
+        self._catalog.rebuild()
 
     @property
     def root(self) -> Path:
@@ -126,32 +115,30 @@ class MemoryEngine:
             max_chars=self._settings.max_active_chars,
         )
 
-    def initialize_active_day(self, day: date | BusinessDay) -> ActiveMemorySnapshot:
+    def initialize_active_day(self, day: date | BusinessDay) -> ActiveMemoryDocument:
         return self._require_active().initialize_day(_date(day))
 
     def active_day(self) -> BusinessDay:
         return BusinessDay(self._require_active().read().day)
 
-    def read_active(self, day: date | BusinessDay | None = None) -> ActiveMemorySnapshot:
+    def read_active(self, day: date | BusinessDay | None = None) -> ActiveMemoryDocument:
         return self._require_active().read(expected_day=_date(day) if day is not None else None)
 
-    def validate_active_day(self, day: date | BusinessDay) -> ActiveMemorySnapshot:
+    def validate_active_day(self, day: date | BusinessDay) -> ActiveMemoryDocument:
         return self.read_active(day)
 
     def patch_active(
         self,
         *,
         day: date | BusinessDay,
-        expected_digest: str,
         operations: tuple[MemoryPatchOperation, ...],
-    ) -> ActiveMemorySnapshot:
+    ) -> ActiveMemoryDocument:
         return self._require_active().patch(
             day=_date(day),
-            expected_digest=expected_digest,
             operations=operations,
         )
 
-    def read_archived_active(self, day: date | BusinessDay, session_archive_root: Path) -> ActiveMemorySnapshot:
+    def read_archived_active(self, day: date | BusinessDay, session_archive_root: Path) -> ActiveMemoryDocument:
         return ActiveMemoryStore(
             session_root=session_archive_root,
             max_chars=self._settings.max_active_chars,
@@ -172,7 +159,7 @@ class MemoryEngine:
         self.read_archived_active(day, session_archive_root)
         return True
 
-    def validate_archived_active(self, day: date | BusinessDay, session_archive_root: Path) -> ActiveMemorySnapshot:
+    def validate_archived_active(self, day: date | BusinessDay, session_archive_root: Path) -> ActiveMemoryDocument:
         return self.read_archived_active(day, session_archive_root)
 
     def links(
@@ -195,54 +182,31 @@ class MemoryEngine:
     async def inspect(
         self,
         request: MemoryInspectRequest,
-        *,
-        documents: Sequence[PersistentMemoryDocument] = (),
-        page_overhead: int = 0,
     ) -> MemoryInspectResult:
         operations = JoinedOperations()
-        snapshot = (
-            await operations.run(lambda: self._catalog.snapshot_for(documents))
-            if documents else self._catalog.snapshot
-        )
         operations.check_cancelled()
         return await self._catalog.inspect(
             request,
-            snapshot=snapshot,
-            page_overhead=page_overhead,
+            snapshot=self._catalog.snapshot,
         )
 
     def recall(
         self,
         memory_link: MemoryLink | str,
-        *,
-        documents: Sequence[PersistentMemoryDocument] = (),
     ) -> MemoryRecallResult:
         link = MemoryLink.parse(memory_link) if isinstance(memory_link, str) else memory_link
         if not isinstance(link, MemoryLink):
             raise MemoryContractError("Memory recall requires a persistent MemoryLink")
-        staged = {document.link: document for document in documents}
-        if len(staged) != len(tuple(documents)):
-            raise MemoryContractError("Memory recall draft Links are not unique")
-        stored = (
-            self._codec.stored(staged[link])
-            if link in staged
-            else self._store.read(link)
-        )
+        stored = self._store.read(link)
         document = stored.document
         raw_metadata: dict[str, object] = {
-            "schema_version": 1,
+            "schema_version": 2,
             "kind": link.kind.value,
             "cite": link.cite,
             "status": document.status.value,
             "created_on": _metadata_date(document, "created_on"),
             "updated_on": _metadata_date(document, "updated_on"),
         }
-        if hasattr(document, "activity"):
-            activity = getattr(document, "activity")
-            raw_metadata["activity"] = {
-                "last_activated_on": activity.last_activated_on.isoformat(),
-                "activation_count": activity.activation_count,
-            }
         for name in ("summary", "title", "relations", "evidence", "redirect_to"):
             if hasattr(document, name):
                 value = getattr(document, name)
@@ -251,7 +215,7 @@ class MemoryEngine:
                 elif isinstance(value, MemoryLink):
                     value = str(value)
                 raw_metadata[name] = value
-        snapshot = self._catalog.snapshot_for(documents) if documents else self._catalog.snapshot
+        snapshot = self._catalog.snapshot
         chain = resolve_redirect(
             snapshot,
             link,
@@ -294,20 +258,27 @@ class MemoryEngine:
         return self._codec.render(document)
 
     def write_document(
-        self,
-        document: PersistentMemoryDocument,
-        *,
-        expected_digest: str | None = None,
-        expected_absent: bool = False,
+        self, document: PersistentMemoryDocument,
     ) -> StoredMemoryDocument:
-        self._catalog.validate_overlay((document,))
-        result = self._store.write(
-            document,
-            expected_digest=expected_digest,
-            expected_absent=expected_absent,
-        )
-        self._catalog.rebuild()
-        return result
+        """Validate the new graph before atomically replacing exactly one document."""
+        with self._lock:
+            # Existing storage damage is a boundary failure; a proposed invalid
+            # relation/redirect is a correctable write request.
+            self._catalog.rebuild()
+            try:
+                candidate = self._catalog.snapshot_for((document,))
+            except MemoryInvariantError as exc:
+                raise MemoryContractError("Memory write has invalid references or redirects") from exc
+            result = self._store.write(document)
+            self._catalog.install(candidate)
+            return result
+
+    def write_markdown(self, link: MemoryLink, markdown: str) -> StoredMemoryDocument:
+        try:
+            document = self._codec.parse(link, markdown)
+        except MemoryInvariantError as exc:
+            raise MemoryContractError("Memory Markdown does not satisfy its document schema") from exc
+        return self.write_document(document)
 
     def new_link(self, kind: MemoryKind) -> MemoryLink:
         if kind not in {MemoryKind.FACT, MemoryKind.NOTE}:
@@ -318,30 +289,9 @@ class MemoryEngine:
             if not self._store.exists(link):
                 return link
 
-    def prepare_changeset(
-        self,
-        *,
-        target_day: date | BusinessDay,
-        changes: tuple[MemoryDocumentChange, ...],
-    ) -> MemoryChangeSet:
-        self._catalog.validate_overlay(tuple(change.document for change in changes))
-        return MemoryChangeSet.create(
-            target_day=_date(target_day),
-            base_generation=self._catalog.snapshot.generation,
-            changes=changes,
-        )
-
-    def commit(self, changeset: MemoryChangeSet) -> MemoryCommitOutcome:
-        outcome = self._transactions.commit(
-            changeset,
-            current_generation=self._catalog.snapshot.generation,
-        )
-        self._catalog.rebuild()
-        return outcome
-
-    def recover(self) -> None:
-        self._transactions.recover()
-        self._catalog.rebuild()
+    def rebuild_catalog(self) -> None:
+        with self._lock:
+            self._catalog.rebuild()
 
     def _require_active(self) -> ActiveMemoryStore:
         if self._active is None:

@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+from datetime import date as CalendarDate
 from tinysoul.workspace.projection import SIGNAL_WORKSPACE_SYNC, workspace_segment_registration
 import asyncio
 
@@ -479,7 +481,7 @@ async def test_workspace_turn_preparation_projects_manifest_into_context(
     context = ContextEngineBuilder(system_text="system").build()
     context.register_segment(workspace_segment_registration())
     turn_id = context.begin_turn("hello")
-    await context.prepare_default_background(DAY.value)
+    await context.open_segments(DAY.value)
     scope = RunScope().push(RunLevel.PROGRAM, "program").push(RunLevel.TURN, turn_id)
     bus = SignalBus()
     handler = WorkspaceTurnPreparationHandler(
@@ -1050,6 +1052,7 @@ async def test_workspace_analyze_returns_grounded_standard_result(tmp_path: Path
     engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
     context_engine = ContextEngineBuilder(system_text="system").build()
     context_engine.begin_turn("analyze files")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
     llm = FakeLLMRunner(
         answer={"answer": "Alpha and beta are present.", "source_ids": ["source_1"]}
     )
@@ -1102,6 +1105,7 @@ async def test_workspace_analyze_budget_failure_does_not_call_llm(tmp_path: Path
     ).build()
     context_engine = ContextEngineBuilder(system_text="system").build()
     context_engine.begin_turn("analyze files")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
     llm = FakeLLMRunner(
         answer={"answer": "unused", "source_ids": ["source_1"]}
     )
@@ -1128,6 +1132,7 @@ async def test_workspace_analyze_rejects_invented_source_id(tmp_path: Path) -> N
     engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
     context_engine = ContextEngineBuilder(system_text="system").build()
     context_engine.begin_turn("analyze files")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
     llm = FakeLLMRunner(
         answer={"answer": "Invented.", "source_ids": ["source_99"]}
     )
@@ -1155,6 +1160,7 @@ async def test_workspace_analyze_requires_at_least_one_grounding_source(
     engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
     context_engine = ContextEngineBuilder(system_text="system").build()
     context_engine.begin_turn("analyze files")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
     llm = FakeLLMRunner(answer={"answer": "Alpha is present.", "source_ids": []})
 
     result = await WorkspaceAnalyzeExecutor(
@@ -1710,6 +1716,7 @@ async def test_workspace_describe_executor_updates_manifest_and_working_patch(
     bus = SignalBus()
     context_engine = ContextEngineBuilder(system_text="system").build()
     context_engine.begin_turn("user asks")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
     llm = FakeLLMRunner(answer={"description": "A small greeting document."})
     llm_action = LLMActionTaskRunner(llm_runner=llm, context=context_engine)
     execution = _execution(
@@ -1741,6 +1748,7 @@ async def test_workspace_create_keeps_committed_result_and_snapshot_when_cancell
     engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
     context_engine = ContextEngineBuilder(system_text="system").build()
     context_engine.begin_turn("write a note")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
     bus = SignalBus()
     llm = FakeLLMRunner({"text": "committed note"})
     started = asyncio.Event()
@@ -1792,6 +1800,7 @@ async def test_workspace_create_executor_generates_text_inside_action(
     ).build()
     context_engine = ContextEngineBuilder(system_text="sys").build()
     context_engine.begin_turn("user asks")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
     bus = SignalBus()
     llm = FakeLLMRunner({"text": "generated text"})
     execution = _execution(
@@ -1852,6 +1861,7 @@ async def test_workspace_create_output_limit_does_not_commit_partial_artifact(
     ).build()
     context_engine = ContextEngineBuilder(system_text="sys").build()
     context_engine.begin_turn("user asks")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
     bus = SignalBus()
     failure = TaskFailure(
         model_feedback="Model generation reached its output token limit.",
@@ -1901,6 +1911,7 @@ async def test_workspace_create_rejects_absent_target_created_after_prompt(
     ).build()
     context_engine = ContextEngineBuilder(system_text="sys").build()
     context_engine.begin_turn("user asks")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
     bus = SignalBus()
 
     def create_target() -> None:
@@ -2018,6 +2029,7 @@ async def test_workspace_rewrite_executor_loads_target_and_references_inside_act
     ).build()
     context_engine = ContextEngineBuilder(system_text="sys").build()
     context_engine.begin_turn("user asks")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
     bus = SignalBus()
     llm = FakeLLMRunner({"text": "new text"})
     execution = _execution(
@@ -2083,6 +2095,7 @@ async def test_workspace_rewrite_rejects_truncated_target_before_llm_call(
     ).build()
     context_engine = ContextEngineBuilder(system_text="sys").build()
     context_engine.begin_turn("user asks")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
     bus = SignalBus()
     llm = FakeLLMRunner({"text": "should not run"})
     execution = _execution(
@@ -2124,6 +2137,7 @@ async def test_workspace_rewrite_executor_rejects_target_changed_after_prompt(
     ).build()
     context_engine = ContextEngineBuilder(system_text="sys").build()
     context_engine.begin_turn("user asks")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
     bus = SignalBus()
     def change_target() -> None:
         target.write_text("changed elsewhere", encoding="utf-8")
@@ -2169,6 +2183,7 @@ async def test_workspace_rewrite_rejects_reference_changed_after_prompt(
     ).build()
     context_engine = ContextEngineBuilder(system_text="sys").build()
     context_engine.begin_turn("user asks")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
     bus = SignalBus()
 
     def change_reference() -> None:

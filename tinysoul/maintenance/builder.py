@@ -6,19 +6,21 @@ from tinysoul.workspace.projection import workspace_segment_registration
 
 from tinysoul.action import ActionEngine, LoadedActionCatalog
 from tinysoul.context import ContextEngine, ContextSettings
-from tinysoul.context.preparation import ContextTurnPreparationHandler
 from tinysoul.home import AgentHomeEngine
 from tinysoul.loop.assembly import build_turn_kernel
+from tinysoul.loop.actions import CommonActionAssembly
+from tinysoul.loop.completion import AnswerCompletionDetector
+from tinysoul.capabilities.supervised_process import SupervisedProcessManager
+from tinysoul.home import HomeDomainSkillProvider
 from tinysoul.loop.config import LoopSettings
 from tinysoul.loop.preparation import TurnPreparationPipeline
 from tinysoul.loop.phases import LLMRunner
-from tinysoul.memory import LLMDailyMemoryComposer, MemoryEngine
+from tinysoul.memory import MemoryEngine
 from tinysoul.runtime import ObservationEmitter, SignalBus
 from tinysoul.context.runtime_bridge import RuntimeContextBridge
-from tinysoul.session.runtime_bridge import RuntimeSessionBridge
 from tinysoul.workspace.runtime_bridge import RuntimeWorkspaceBridge
 from tinysoul.session import SessionEngine
-from tinysoul.session.projection import SessionTurnPreparationHandler
+from tinysoul.session.projection import session_segment_registration
 from tinysoul.workspace import WorkspaceEngine, WorkspaceTurnPreparationHandler
 
 from .actions import build_maintenance_action
@@ -35,7 +37,6 @@ from .memory import (
     MemoryMaintenanceTask,
 )
 from .turn import (
-    MaintenanceCompletionDetector,
     MaintenanceTurnEntry,
     build_maintenance_turn_trap,
     maintenance_turn_guidance,
@@ -60,6 +61,7 @@ class MaintenanceBuilder:
         observations: ObservationEmitter,
         clock: BusinessClock | None = None,
         action_catalog: LoadedActionCatalog,
+        action_assembly: CommonActionAssembly,
     ) -> None:
         self._context_settings = context_settings
         self._loop_settings = loop_settings
@@ -73,6 +75,7 @@ class MaintenanceBuilder:
         self._observations = observations
         self._clock = clock
         self._action_catalog = action_catalog
+        self._action_assembly = action_assembly
 
     def build(self) -> MaintenanceEngine:
         archived_context = ArchivedMemoryMaintenanceContext()
@@ -91,25 +94,24 @@ class MaintenanceBuilder:
         )
         home_controller = HomeMaintenanceActionController(self._home)
         home_context.register_segment(workspace_segment_registration())
+        home_context.register_segment(session_segment_registration(self._session))
+        memory_context.register_segment(session_segment_registration(archived_context))
         memory_context.register_segment(workspace_segment_registration())
         memory_controller = MemoryMaintenanceActionController(
             memory=self._memory,
-            composer=LLMDailyMemoryComposer(self._llm),
         )
-        home_action = build_maintenance_action(
+        home_action, home_jobs = build_maintenance_action(
             kind="home",
             context=home_context,
-            session=self._session,
-            observations=self._observations,
+            assembly=self._action_assembly,
             home_controller=home_controller,
             memory_controller=memory_controller,
             action_catalog=self._action_catalog,
         )
-        memory_action = build_maintenance_action(
+        memory_action, memory_jobs = build_maintenance_action(
             kind="memory",
             context=memory_context,
-            session=archived_context,
-            observations=self._observations,
+            assembly=self._action_assembly,
             home_controller=home_controller,
             memory_controller=memory_controller,
             action_catalog=self._action_catalog,
@@ -118,16 +120,9 @@ class MaintenanceBuilder:
             kind="home",
             context=home_context,
             action=home_action,
+            jobs=home_jobs,
             preparation=TurnPreparationPipeline(
                 (
-                    ContextTurnPreparationHandler(
-                        home_context,
-                        runtime_bridge=RuntimeContextBridge(),
-                    ),
-                    SessionTurnPreparationHandler(
-                        self._session,
-                        runtime_bridge=RuntimeSessionBridge(),
-                    ),
                     WorkspaceTurnPreparationHandler(
                         self._workspace,
                         runtime_bridge=RuntimeWorkspaceBridge(),
@@ -139,20 +134,17 @@ class MaintenanceBuilder:
             kind="memory",
             context=memory_context,
             action=memory_action,
+            jobs=memory_jobs,
             preparation=TurnPreparationPipeline(
                 (
-                    ContextTurnPreparationHandler(
-                        memory_context,
-                        runtime_bridge=RuntimeContextBridge(),
-                    ),
                     archived_context,
                 )
             ),
         )
         return MaintenanceEngine(
             archive=DailyLifecycleCoordinator(
-                archive_root=self._settings.archive_root,
                 session=self._session,
+                archive_root=self._settings.archive_root,
                 workspace=self._workspace,
                 memory=self._memory,
                 observations=self._observations,
@@ -163,8 +155,8 @@ class MaintenanceBuilder:
                 turn=home_turn,
             ),
             memory=MemoryMaintenanceTask(
-                memory=self._memory,
                 session=self._session,
+                memory=self._memory,
                 workspace=self._workspace,
                 archived_context=archived_context,
                 controller=memory_controller,
@@ -183,6 +175,7 @@ class MaintenanceBuilder:
         kind: str,
         context: ContextEngine,
         action: ActionEngine,
+        jobs: SupervisedProcessManager,
         preparation: TurnPreparationPipeline,
     ) -> MaintenanceTurnEntry:
         runner = build_turn_kernel(
@@ -194,8 +187,10 @@ class MaintenanceBuilder:
             settings=self._settings.turn,
             cycle_settings=self._loop_settings.cycle,
             turn_guidance=maintenance_turn_guidance(kind),
-            completion_detector=MaintenanceCompletionDetector(),
+            completion_detector=AnswerCompletionDetector(),
             preparation_pipeline=preparation,
+            domain_skills=HomeDomainSkillProvider(self._home),
+            activity_controller=jobs,
             observations=self._observations,
         )
         return MaintenanceTurnEntry(runner, kind=kind)

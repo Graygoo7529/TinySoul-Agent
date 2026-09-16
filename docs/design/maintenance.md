@@ -115,7 +115,7 @@ User、Home Maintenance、Memory Maintenance 共用 Context/Loop 构造，但拥
 - `maintenance.complete` 是 owner-bound 完成协议，不是用户回答。
 
 精确 Action surface 先从 configured catalog 选择 Turn 所需 identity，再与 Action activation 和 runtime
-support 求交。复用的 `core.context.inspect`、`core.session.inspect` 遵守项目 Action policy；Maintenance
+support 求交。复用的 `core.context.inspect` 遵守项目 Action policy；Maintenance
 package 自有 Action 使用 package Domain default，并且不进入 User Action 设置页。
 
 ## 失败与观察

@@ -16,7 +16,7 @@ from tinysoul.infra.json import JsonObject, to_json_object
 from .errors import SessionContractError, SessionIOError, SessionInvariantError
 from .models import (
     SessionManifest,
-    SessionRecord,
+    SessionTurnRecord,
     SessionRecordKind,
     same_record_facts,
     session_record_from_json,
@@ -54,7 +54,7 @@ class SessionStore:
     def save_manifest(self, manifest: SessionManifest) -> None:
         self._write_object(self._manifest_path, manifest.to_json(), label="manifest")
 
-    def save_record_if_absent(self, record: SessionRecord) -> SessionRecord:
+    def save_record_if_absent(self, record: SessionTurnRecord) -> SessionTurnRecord:
         """Persist one immutable record or reuse identical business facts."""
 
         path = self._record_path(record.ref, kind=record.kind)
@@ -68,25 +68,25 @@ class SessionStore:
         self._write_object(path, record.to_json(), label="record")
         return record
 
-    def load_record(self, ref: str) -> SessionRecord:
+    def load_record(self, ref: str) -> SessionTurnRecord:
         kind = session_ref_kind(ref)
         path = self._record_path(ref, kind=kind)
         if not path.is_file():
             raise SessionContractError(f"Unknown Session ref: {ref}")
         return self._load_record_path(path, ref=ref, kind=kind)
 
-    def list_records(self, kind: SessionRecordKind) -> tuple[SessionRecord, ...]:
-        directory = self._root / _record_directory(kind)
+    def list_records(self) -> tuple[SessionTurnRecord, ...]:
+        directory = self._root / "turns"
         if not directory.exists():
             return ()
         if not directory.is_dir():
             raise SessionInvariantError(
                 f"Session record location is not a directory: {directory}"
             )
-        records: list[SessionRecord] = []
+        records: list[SessionTurnRecord] = []
         for path in sorted(directory.glob("*.json"), key=lambda item: item.name):
-            ref = f"session:{kind.value}/{path.stem}"
-            records.append(self._load_record_path(path, ref=ref, kind=kind))
+            ref = f"session:turn/{path.stem}"
+            records.append(self._load_record_path(path, ref=ref, kind=SessionRecordKind.TURN))
         return tuple(records)
 
     def archive_to(self, target: Path) -> None:
@@ -104,7 +104,7 @@ class SessionStore:
         *,
         ref: str,
         kind: SessionRecordKind,
-    ) -> SessionRecord:
+    ) -> SessionTurnRecord:
         try:
             record = session_record_from_json(
                 self._read_object(path, label="record")
@@ -124,7 +124,7 @@ class SessionStore:
         try:
             return resolve_under_root(
                 self._root,
-                f"{_record_directory(kind)}/{record_id}.json",
+                f"turns/{record_id}.json",
             )
         except FilesystemBoundaryError as exc:
             raise SessionContractError(f"Invalid Session ref: {ref}") from exc
@@ -150,7 +150,3 @@ class SessionStore:
             )
         except OSError as exc:
             raise SessionIOError(f"Failed to write Session {label}: {exc}") from exc
-
-
-def _record_directory(kind: SessionRecordKind) -> str:
-    return "turns" if kind is SessionRecordKind.TURN else "summaries"

@@ -12,7 +12,6 @@ from .trace import TraceCompactionReport, TurnTraceHeap
 class ContextPressureReport:
     changed: bool
     reclaimed_chars: int
-    trace: TraceCompactionReport
     evicted_background_links: tuple[str, ...] = ()
 
 

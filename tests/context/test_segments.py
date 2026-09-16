@@ -11,7 +11,7 @@ import pytest
 from tinysoul.context import ContextEngineBuilder, PromptBlock, TaskPrompt
 from tinysoul.context.errors import ContextContractError, ContextInvariantError
 from tinysoul.context.segments import (
-    SegmentDescriptor, SegmentRegistration, SegmentRegistry, SegmentSlot, TurnInfo,
+    ReadOnlySegmentRegistration, SegmentCapability, SegmentDescriptor, SegmentRegistration, SegmentRegistry, SegmentSlot, TurnInfo,
 )
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.messages import Message, UserMessage
@@ -69,6 +69,20 @@ class CounterProvider:
         return segment
 
 
+async def test_read_only_views_require_real_inspection_and_nonoverlapping_routes() -> None:
+    provider = CounterProvider()
+    descriptor = SegmentDescriptor("history", "test", SegmentSlot.BACKGROUND, 1, ("history:",), capabilities=frozenset({SegmentCapability.INSPECT}))
+    registry = SegmentRegistry((ReadOnlySegmentRegistration(descriptor, provider),))
+    with pytest.raises(ContextContractError, match="overlap"):
+        registry.register(ReadOnlySegmentRegistration(
+            replace(descriptor, id="other", ref_prefixes=("history:turn/",)), provider,
+        ))
+    views = registry.for_turn(TurnInfo("turn_read", date(2026, 9, 16)))
+    with pytest.raises(ContextContractError, match="inspectable"):
+        await views.open()
+    assert provider.opened[0].closed == 1
+
+
 def _decode(signal: Signal) -> int:
     value = signal.payload.get("increment")
     if isinstance(value, bool) or not isinstance(value, int):
@@ -96,7 +110,7 @@ async def test_registered_updates_retry_fixed_batch_without_installing_other_vie
     context.register_segment(_registration("first", first))
     context.register_segment(_registration("second", second, 2))
     turn = context.begin_turn("input")
-    await context.prepare_default_background(date(2026, 9, 16))
+    await context.open_segments(date(2026, 9, 16))
     second.opened[0].reject_prepare = True
     bus = SignalBus()
     bus.emit(_signal("first", turn, 3))
@@ -122,7 +136,7 @@ async def test_registered_updates_retry_fixed_batch_without_installing_other_vie
     assert first.opened[0].closed == second.opened[0].closed == 1
 
     context.begin_turn("another input")
-    await context.prepare_default_background(date(2026, 9, 16))
+    await context.open_segments(date(2026, 9, 16))
     assert context.segment_snapshot("first") == {"value": 0}
     context.end_turn()
     await context.close_segments()

@@ -43,7 +43,7 @@ Turn/Cycle/Phase 与内部 LLM Action 使用同一异步调用链。Action 和 L
 Turn scope 建立后，Runner 依次：
 
 1. 调用 Context begin，建立独立 UserInputs、Background、TurnTrace 和 Working 状态；
-2. 运行有序 `TurnPreparationPipeline`，批量提交 Background、Session、Workspace 等 owner signals；
+2. 运行有序 `TurnPreparationPipeline`，打开 Context 各 owner 段，再批量提交 Workspace 等准备 signals；
 3. 循环运行 Cycle，直到 profile completion、Runtime transfer、失败或 cycle budget 耗尽；
 4. 结束并封存 Context，对已开始 Turn 的完成事实运行 `TurnCompletionPipeline`；
 5. 清除活动 scope，必要记录成功后发布输出；外层 task 取消先完成 activity 回收、Context 结束与完成记录，再保持取消身份传播。
@@ -72,7 +72,7 @@ Maintenance Context 与 User Context 相互独立，并使用 actual Home provid
 
 Maintenance ActionEngine 只包含：
 
-- 两类 Turn 可复用的只读 `core.context.inspect`、`core.session.inspect`；
+- 两类 Turn 可复用的只读 `core.context.inspect`；
 - 当前 task 的精确 `maintenance.home.*` 或 `maintenance.memory.*` actions；
 - task owner-bound `maintenance.complete`。
 

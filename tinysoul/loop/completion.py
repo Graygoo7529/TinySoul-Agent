@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Protocol
 
+from tinysoul.action import ActionResult, ActionResultStatus
 from tinysoul.context import ContextTurnCompletion
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.time import BusinessDay
@@ -101,3 +102,39 @@ class TurnCompletionPipeline:
             )
             return capture_failure(mapped)
         return None
+
+
+
+class AnswerCompletionDetector:
+    def detect(self, results: tuple[ActionResult, ...]) -> JsonObject | None:
+        answers = tuple(
+            result
+            for result in results
+            if result.action_name == "core.answer"
+            and result.status is ActionResultStatus.SUCCESS
+        )
+        if not answers:
+            return None
+        if len(answers) != 1:
+            raise LoopContractError(
+                "A Turn cycle produced multiple successful core.answer results"
+            )
+        result = answers[0]
+        text = result.payload.get("text")
+        references = result.payload.get("references", [])
+        if not isinstance(text, str) or not text:
+            raise LoopContractError(
+                "A successful core.answer result must contain non-empty text"
+            )
+        if not isinstance(references, list) or any(
+            not isinstance(item, str) or not item for item in references
+        ):
+            raise LoopContractError(
+                "A successful core.answer result must contain string references"
+            )
+        return {
+            "kind": "answer",
+            "result_id": result.result_id,
+            "text": text,
+            "references": references,
+        }

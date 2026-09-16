@@ -15,7 +15,7 @@ from tinysoul.home import AgentHomeEngineBuilder, AgentHomeSettings
 from tinysoul.infra.json import JsonObject
 from tinysoul.maintenance.home import HomeMaintenanceActionController
 from tinysoul.maintenance.resources import maintenance_action_catalog_root
-from tinysoul.runtime import RunLevel, RunScope
+from tinysoul.runtime import RunLevel, RunScope, SignalBus
 
 
 _SKILL_TEXT = """---
@@ -29,7 +29,7 @@ Keep the current method.
 """
 
 
-async def test_home_actions_require_inspect_before_resolving_skill_review(
+async def test_home_diff_and_review_do_not_require_stage_tokens(
     tmp_path: Path,
 ) -> None:
     skill = tmp_path / "home" / "skills" / "review" / "SKILL.md"
@@ -46,46 +46,17 @@ async def test_home_actions_require_inspect_before_resolving_skill_review(
         "The method was useful as written.",
     )
     controller = HomeMaintenanceActionController(home)
-    controller.begin()
 
-    listed = await _execute(controller, "maintenance.home.list", {})
-    items = listed.payload["items"]
-    assert isinstance(items, list)
-    item = items[0]
-    assert isinstance(item, dict)
-    assert item["kind"] == "skill_review"
-    assert item["allowed_resolutions"] == ["reject", "rewrite"]
-    token = item["token"]
-    assert isinstance(token, str)
-
-    premature = await _execute(
-        controller,
-        "maintenance.home.reject",
-        {"token": token},
-    )
-    assert premature.status is ActionResultStatus.FAILED
+    listed = await _execute(controller, "home_reflection.diff", {})
+    assert listed.status is ActionResultStatus.SUCCESS
     assert home.review_pending().skill_memory_count == 1
-
-    inspected = await _execute(
-        controller,
-        "maintenance.home.inspect",
-        {"token": token},
-    )
+    inspected = await _execute(controller, "home_reflection.diff", {"paths": ["home:skills@review"]})
     assert inspected.status is ActionResultStatus.SUCCESS
-    actual = inspected.payload["actual"]
-    assert isinstance(actual, dict)
-    assert actual["text"] == _SKILL_TEXT
-    resolved = await _execute(
-        controller,
-        "maintenance.home.reject",
-        {"token": token},
-    )
+    resolved = await _execute(controller, "home_reflection.review", {
+        "paths": ["home:skills@review"], "decision": "reject",
+    })
     assert resolved.status is ActionResultStatus.SUCCESS
-    assert resolved.payload["remaining_reviews"] == 0
-
-    completed = await _execute(controller, "maintenance.complete", {})
-    assert completed.status is ActionResultStatus.SUCCESS
-    assert controller.finish()["runtime_home_removed"] is True
+    assert not home.review_pending().pending
 
 
 async def _execute(
@@ -108,8 +79,8 @@ async def _execute(
                 invoke_id=f"invoke_{action_name}",
                 batch_id="batch_home_maintenance",
                 scope=RunScope().push(RunLevel.TURN, "turn_home_maintenance"),
-                domain="maintenance",
+                domain="home_reflection",
             ),
         ),
-        ActionExecutionContext(),
+        ActionExecutionContext(signal_bus=SignalBus()),
     )

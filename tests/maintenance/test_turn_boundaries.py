@@ -28,7 +28,7 @@ from tinysoul.maintenance import (
 )
 from tinysoul.maintenance.turn import MaintenanceTurnEntry
 from tinysoul.maintenance.memory import ArchivedMemoryMaintenanceContext
-from tinysoul.memory import ActiveMemoryDocument, ActiveMemorySnapshot
+from tinysoul.memory import ActiveMemoryDocument
 from tinysoul.runtime import (
     RUNTIME_PROGRAM_END,
     RunLevel,
@@ -287,18 +287,8 @@ class _ArchiveSession:
         return {}
 
 
-def _active(day: BusinessDay) -> ActiveMemorySnapshot:
-    return ActiveMemorySnapshot(
-        document=ActiveMemoryDocument(
-            day=day.value,
-            revision=0,
-            updated_at=None,
-            content="",
-        ),
-        text="",
-        digest="0" * 64,
-    )
-
+def _active(day: BusinessDay) -> ActiveMemoryDocument:
+    return ActiveMemoryDocument(day=day.value, updated_at=None, content="Archived memory.")
 
 def _program_trap() -> RuntimeTrap:
     registry = TrapHandlerRegistry()

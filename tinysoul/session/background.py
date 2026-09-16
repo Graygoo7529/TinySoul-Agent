@@ -2,10 +2,56 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
+from .errors import SessionContractError
+
 from tinysoul.infra.json import JsonObject, to_json_object, to_json_value
 
-from .models import SessionSummaryRecord, SessionTurnRecord
+from .models import SessionTurnRecord
 from .navigation import action_collection_ref, action_outcomes
+
+
+@dataclass(frozen=True)
+class SessionBackgroundItem:
+    """One Session-owned message projected into BackgroundContext."""
+
+    item_id: str
+    content: JsonObject
+
+    def __post_init__(self) -> None:
+        if not self.item_id:
+            raise SessionContractError(
+                "SessionBackgroundItem.item_id must be non-empty"
+            )
+        object.__setattr__(self, "content", to_json_object(self.content))
+
+
+@dataclass(frozen=True)
+class SessionBackgroundSnapshot:
+    """Immutable Session history projection for one Turn."""
+
+    revision: int
+    items: tuple[SessionBackgroundItem, ...] = field(default_factory=tuple)
+    refs: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if isinstance(self.revision, bool) or not isinstance(self.revision, int) or self.revision < 0:
+            raise SessionContractError(
+                "SessionBackgroundSnapshot.revision cannot be negative"
+            )
+        object.__setattr__(self, "items", tuple(self.items))
+        if any(not isinstance(item, SessionBackgroundItem) for item in self.items):
+            raise SessionContractError("Session view requires typed background items")
+        ids = tuple(item.item_id for item in self.items)
+        if len(ids) != len(set(ids)):
+            raise SessionContractError(
+                "SessionBackgroundSnapshot.items must have unique ids"
+            )
+        refs = tuple(self.refs)
+        if len(set(refs)) != len(refs) or any(not isinstance(ref, str) or not ref for ref in refs):
+            raise SessionContractError("Session view references must be unique non-empty strings")
+        object.__setattr__(self, "refs", refs)
 
 
 _TURN_ASK_ITEM_MAX_CHARS = 1200
@@ -46,25 +92,11 @@ def project_turn_background(record: SessionTurnRecord) -> JsonObject:
     return to_json_object(value)
 
 
-def project_summary_background(
-    record: SessionSummaryRecord,
-    *,
-    turn_count: int,
-) -> JsonObject:
-    """Project one immutable Summary as a compact heap navigation node."""
-
-    return {
-        "kind": "session_summary",
-        "ref": record.ref,
-        "turn_count": turn_count,
-        "child_count": len(record.child_refs),
-    }
-
-
 def project_overflow_background() -> JsonObject:
     return {
-        "kind": "session_overflow_head",
-        "inspect_action": "core.session.inspect",
+        "kind": "session_map",
+        "ref": "session:map",
+        "inspect_action": "core.context.inspect",
     }
 
 

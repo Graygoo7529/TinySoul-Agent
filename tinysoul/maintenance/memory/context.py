@@ -5,17 +5,15 @@ from __future__ import annotations
 from threading import RLock
 from datetime import date
 
-from tinysoul.context import build_session_sync_signal
 from tinysoul.infra.json import JsonObject
-from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.time import BusinessDay
 from tinysoul.loop.preparation import TurnPreparationRequest
 from tinysoul.runtime import Signal
 from tinysoul.session.runtime_bridge import RuntimeSessionBridge
 from tinysoul.session import SessionArchiveView
-from tinysoul.session.errors import SessionError
+from tinysoul.session.background import SessionBackgroundSnapshot
 from tinysoul.workspace import WorkspaceArchiveView, workspace_snapshot_signal
-from tinysoul.memory import ActiveMemorySnapshot
+from tinysoul.memory import ActiveMemoryDocument
 
 from ..errors import MaintenanceContractError, MaintenanceInvariantError
 
@@ -29,7 +27,7 @@ class ArchivedMemoryMaintenanceContext:
         self._target_day: BusinessDay | None = None
         self._session: SessionArchiveView | None = None
         self._workspace: WorkspaceArchiveView | None = None
-        self._active_memory: ActiveMemorySnapshot | None = None
+        self._active_memory: ActiveMemoryDocument | None = None
 
     def bind(
         self,
@@ -37,7 +35,7 @@ class ArchivedMemoryMaintenanceContext:
         target_day: BusinessDay,
         session: SessionArchiveView,
         workspace: WorkspaceArchiveView | None,
-        active_memory: ActiveMemorySnapshot,
+        active_memory: ActiveMemoryDocument,
     ) -> None:
         if not isinstance(target_day, BusinessDay):
             raise MaintenanceContractError(
@@ -72,7 +70,7 @@ class ArchivedMemoryMaintenanceContext:
             self._workspace = None
             self._active_memory = None
 
-    def memory_target(self) -> tuple[date, ActiveMemorySnapshot]:
+    def memory_target(self) -> tuple[date, ActiveMemoryDocument]:
         with self._lock:
             target_day, _session, _workspace = self._require_binding()
             if self._active_memory is None:
@@ -88,20 +86,7 @@ class ArchivedMemoryMaintenanceContext:
             raise MaintenanceInvariantError(
                 "Memory Turn BusinessDay does not match its archived context"
             )
-        try:
-            operations = JoinedOperations()
-            snapshot = await operations.run(session.background_snapshot)
-            operations.check_cancelled()
-        except SessionError as exc:
-            raise self._session_bridge.from_session_error(exc) from exc
-        signals: list[Signal] = [
-            build_session_sync_signal(
-                snapshot,
-                call_id=f"{request.turn_id}:archived_session",
-                scope=request.scope,
-                source="maintenance.memory.session_prepare",
-            )
-        ]
+        signals: list[Signal] = []
         if workspace is not None:
             signals.append(
                 workspace_snapshot_signal(
@@ -113,16 +98,26 @@ class ArchivedMemoryMaintenanceContext:
             )
         return tuple(signals)
 
+    def background_snapshot(self, day: BusinessDay) -> SessionBackgroundSnapshot:
+        with self._lock:
+            target_day, session, _workspace = self._require_binding()
+        if day != target_day:
+            raise MaintenanceInvariantError("Session source day does not match Memory target")
+        return session.background_snapshot()
+
     def inspect(
         self,
         ref: str | None = None,
         *,
         action: str | None = None,
         continuation: str | None = None,
+        expected_revision: int | None = None,
     ) -> JsonObject:
         with self._lock:
             _target_day, session, _workspace = self._require_binding()
-        return session.inspect(ref, action=action, continuation=continuation)
+        return session.inspect(
+            ref, action=action, continuation=continuation, expected_revision=expected_revision,
+        )
 
     def _require_binding(
         self,

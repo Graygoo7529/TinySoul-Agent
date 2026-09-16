@@ -59,9 +59,7 @@ class HomeMaintenanceTask:
                 },
             )
 
-        completed = False
         try:
-            self._controller.begin()
             outcome = (await self._turn.run(
                 "Review and resolve every current runtime Home difference.",
                 business_day=business_day,
@@ -70,16 +68,19 @@ class HomeMaintenanceTask:
                 input_source="maintenance.home",
             ))
             if not outcome.completed:
-                self._controller.abort()
-                completed = True
                 return MaintenanceTaskOutcome(
                     kind=MaintenanceTaskKind.HOME,
                     status=MaintenanceTaskStatus.FAILED,
                     reason="maintenance_turn_failed",
                     details=outcome.details,
                 )
-            details = self._controller.finish()
-            completed = True
+            pending = self._home.review_pending()
+            details = {
+                **outcome.details,
+                "remaining_changes": pending.change_count,
+                "remaining_skill_reviews": pending.skill_memory_count,
+                "runtime_home_removed": self._home.remove_resolved_overlay() if not pending.pending else False,
+            }
             return MaintenanceTaskOutcome(
                 kind=MaintenanceTaskKind.HOME,
                 status=MaintenanceTaskStatus.COMPLETED,
@@ -87,6 +88,3 @@ class HomeMaintenanceTask:
             )
         except AgentHomeIOError as exc:
             raise MaintenanceTaskExecutionError("Home Maintenance task failed") from exc
-        finally:
-            if not completed:
-                self._controller.abort()

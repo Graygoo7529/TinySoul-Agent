@@ -2,7 +2,7 @@ name = "core.context.inspect"
 domain = "core"
 
 [tool]
-description = "Inspect one current-Turn trace heap ref by one semantic level."
+description = "Inspect a visible Context segment reference, including current Turn trace and prior-Turn Session Map."
 
 [tool.schema]
 type = "object"
@@ -11,15 +11,15 @@ additionalProperties = false
 
 [tool.schema.properties.ref]
 type = "string"
-description = "A current turn:trace heap head, branch, or leaf ref already visible in Context."
+description = "A visible turn:trace ref, session:map entry point, Session Turn or Action occurrence ref."
 
 [tool.schema.properties.continuation]
 type = "string"
 description = "Opaque continuation returned for unfinished content from this same ref."
 
 [semantic]
-use_when = ["A needed current-Turn decision or Action result is hidden behind a trace heap ref"]
-avoid_when = ["The needed interaction is already visible", "The needed Turn is already completed and belongs to Session"]
+use_when = ["A needed decision, Action result or prior-Turn fact is behind a visible Context reference"]
+avoid_when = ["The needed fact is already visible"]
 effects = ["read_only"]
 examples = ["Inspect a visible branch ref, then inspect one returned leaf ref"]
 

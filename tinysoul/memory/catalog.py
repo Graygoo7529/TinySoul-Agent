@@ -16,7 +16,6 @@ from tinysoul.infra.json import JsonObject, to_json_object
 
 from .config import MemoryInspectSettings
 from .documents import (
-    MemoryActivity,
     MemoryConfidence,
     PersistentMemoryDocument,
     StoredMemoryDocument,
@@ -47,8 +46,6 @@ class MemoryCatalogEntry:
     backlinks: tuple[MemoryLink, ...] = ()
     redirect_to: MemoryLink | None = None
     updated_on: date = date.min
-    last_activated_on: date = date.min
-    activation_count: int = 0
     confidence: str | None = None
 
     @property
@@ -101,7 +98,6 @@ class MemoryInspectItem:
     score: float
     reasons: tuple[str, ...]
     updated_on: str
-    activity: JsonObject
     confidence: str | None = None
 
     def to_json(self) -> JsonObject:
@@ -114,7 +110,6 @@ class MemoryInspectItem:
             "score": round(self.score, 6),
             "reasons": list(self.reasons),
             "updated_on": self.updated_on,
-            "activity": self.activity,
             "confidence": self.confidence,
         })
 
@@ -183,11 +178,14 @@ class MemoryCatalog:
         self._snapshot = snapshot
         return snapshot
 
+    def install(self, snapshot: MemoryCatalogSnapshot) -> None:
+        self._snapshot = snapshot
+
     def snapshot_for(
         self,
         documents: Sequence[PersistentMemoryDocument],
     ) -> MemoryCatalogSnapshot:
-        """Build a validated, non-persistent view with draft documents applied."""
+        """Prepare a validated index before the owner replaces a document."""
         by_link = {link: self._store.read(link) for link in self._store.links()}
         for document in documents:
             by_link[document.link] = self._store.codec.stored(document)
@@ -210,7 +208,6 @@ class MemoryCatalog:
                 backlinks[target].append(source)
         entries: dict[MemoryLink, MemoryCatalogEntry] = {}
         for item in stored:
-            activity = getattr(item.document, "activity", None)
             confidence = getattr(item.document, "confidence", None)
             entries[item.link] = MemoryCatalogEntry(
                 link=item.link,
@@ -222,16 +219,6 @@ class MemoryCatalog:
                 backlinks=tuple(sorted(backlinks[item.link], key=str)),
                 redirect_to=getattr(item.document, "redirect_to", None),
                 updated_on=item.document.updated_on,
-                last_activated_on=(
-                    activity.last_activated_on
-                    if isinstance(activity, MemoryActivity)
-                    else item.document.updated_on
-                ),
-                activation_count=(
-                    activity.activation_count
-                    if isinstance(activity, MemoryActivity)
-                    else 0
-                ),
                 confidence=(
                     confidence.value
                     if isinstance(confidence, MemoryConfidence)
@@ -358,9 +345,7 @@ class MemoryCatalog:
         scored.sort(
             key=lambda item: (
                 -item[0],
-                -item[1].last_activated_on.toordinal(),
                 -item[1].updated_on.toordinal(),
-                -item[1].activation_count,
                 -_confidence_rank(item[1].confidence),
                 str(item[1].link),
             )
@@ -450,9 +435,7 @@ class MemoryCatalog:
             key=lambda item: (
                 -item[0],
                 -item[1],
-                -item[2].last_activated_on.toordinal(),
                 -item[2].updated_on.toordinal(),
-                -item[2].activation_count,
                 -_confidence_rank(item[2].confidence),
                 str(item[2].link),
             )
@@ -636,10 +619,6 @@ def _inspect_item(
         score=score,
         reasons=reasons,
         updated_on=entry.updated_on.isoformat(),
-        activity=to_json_object({
-            "last_activated_on": entry.last_activated_on.isoformat(),
-            "activation_count": entry.activation_count,
-        }),
         confidence=entry.confidence,
     )
 

@@ -1,261 +1,119 @@
-"""Home Maintenance action state and owner-bound executors."""
+"""Home Reflection diff/review over the Home owner's effective copies."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from threading import RLock
-
 from tinysoul.action import (
-    ActionEngineBuilder,
-    ActionExecution,
-    ActionExecutionContext,
-    ActionExecutor,
-    ActionFailureDisposition,
-    ActionLocalFailure,
-    ActionResult,
-    ActionResultStage,
+    ActionEngineBuilder, ActionExecution, ActionExecutionContext,
+    ActionResult, ActionResultStage, ActionLocalFailure,
+    ActionFailureDisposition, LocalActionExecutor,
 )
-from tinysoul.home import (
-    AgentHomeEngine,
-    HomeReviewChange,
-    HomeReviewResolution,
-    HomeSkillReview,
-)
-from tinysoul.home.errors import AgentHomeError, AgentHomeInvariantError
-from tinysoul.infra.json import JsonObject
+from tinysoul.home import AgentHomeEngine, HomeReviewChange, HomeReviewResolution
+from tinysoul.home.errors import AgentHomeContractError, AgentHomeError
+from tinysoul.home.runtime_bridge import RuntimeAgentHomeBridge
+from tinysoul.home.background import HOME_CONTEXT_UPDATE
+from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.runtime import Signal
 
-from ..errors import MaintenanceContractError, MaintenanceInvariantError
-
-HOME_MAINTENANCE_ACTIONS = (
-    "maintenance.home.list",
-    "maintenance.home.inspect",
-    "maintenance.home.accept",
-    "maintenance.home.reject",
-    "maintenance.home.rewrite",
-    "maintenance.complete",
-)
+HOME_MAINTENANCE_ACTIONS = ("home_reflection.diff", "home_reflection.review")
 
 
-@dataclass
-class _HomeTaskState:
-    completed: bool = False
-    resolved: int = 0
-    inspected_tokens: set[str] = field(default_factory=set)
-
-
-class HomeMaintenanceActionController:
-    """Own ephemeral action state for one Home Maintenance Turn."""
+class HomeMaintenanceActionController(LocalActionExecutor):
+    """Expose selected review operations without a separate task state machine."""
 
     def __init__(self, home: AgentHomeEngine) -> None:
         self._home = home
-        self._lock = RLock()
-        self._state: _HomeTaskState | None = None
 
-    def begin(self) -> None:
-        with self._lock:
-            if self._state is not None:
-                raise MaintenanceInvariantError("A Home Maintenance task is already active")
-            self._state = _HomeTaskState()
-
-    def finish(self) -> JsonObject:
-        with self._lock:
-            state = self._require_state()
-            try:
-                if not state.completed:
-                    raise MaintenanceInvariantError(
-                        "Home Maintenance Turn ended without maintenance.complete"
-                    )
-                pending = self._home.review_pending()
-                if pending.pending:
-                    raise MaintenanceInvariantError(
-                        "Home Maintenance completed with unresolved runtime differences"
-                    )
-                removed = self._home.remove_resolved_overlay()
-                return {
-                    "resolved": state.resolved,
-                    "remaining_reviews": 0,
-                    "runtime_home_removed": removed,
-                }
-            finally:
-                self._state = None
-
-    def abort(self) -> None:
-        with self._lock:
-            self._state = None
-
-    async def execute(
-        self,
-        execution: ActionExecution,
-        context: ActionExecutionContext,
+    def execute_local(
+        self, execution: ActionExecution, context: ActionExecutionContext,
     ) -> ActionResult:
-        del context
-        try:
-            with self._lock:
-                state = self._require_state()
-                payload = self._execute(state, execution)
-            return _success(execution, payload)
-        except AgentHomeInvariantError as exc:
-            reason = "stale_change" if "stale" in str(exc).casefold() else "home_failed"
-            return _failed(execution, str(exc), reason=reason)
-        except (MaintenanceContractError, MaintenanceInvariantError, AgentHomeError) as exc:
-            return _failed(execution, str(exc), reason="home_failed")
-
-    def _execute(
-        self,
-        state: _HomeTaskState,
-        execution: ActionExecution,
-    ) -> JsonObject:
-        name = execution.call.action_name
         params = execution.call.params
-        if name == "maintenance.home.list":
+        raw_paths = params.get("paths", [])
+        if not isinstance(raw_paths, list) or any(
+            not isinstance(path, str) or not path for path in raw_paths
+        ):
+            return _failed(execution, "paths must contain Home Links")
+        paths = tuple(dict.fromkeys(str(path) for path in raw_paths))
+        try:
             snapshot = self._home.review_snapshot()
-            return {
-                "count": len(snapshot.reviews),
-                "items": [_review_summary(review) for review in snapshot.reviews],
-            }
-        if name == "maintenance.home.inspect":
-            review = self._review(_required_text(params, "token"))
-            state.inspected_tokens.add(review.token)
-            return review.to_review_json()
-        if name in {
-            "maintenance.home.accept",
-            "maintenance.home.reject",
-            "maintenance.home.rewrite",
-        }:
-            resolution = {
-                "maintenance.home.accept": HomeReviewResolution.ACCEPT,
-                "maintenance.home.reject": HomeReviewResolution.REJECT,
-                "maintenance.home.rewrite": HomeReviewResolution.REWRITE,
-            }[name]
-            token = _required_text(params, "token")
-            if token not in state.inspected_tokens:
-                raise MaintenanceContractError(
-                    "Home Maintenance review must be inspected before resolution"
+            if execution.call.action_name == "home_reflection.diff":
+                selected = tuple(
+                    review for review in snapshot.reviews if not paths or review.link in paths
                 )
-            outcome = self._home.resolve_review(
-                token,
-                resolution,
-                rewrite_text=(
-                    _required_text(params, "text")
-                    if resolution is HomeReviewResolution.REWRITE
-                    else None
-                ),
-            )
-            state.inspected_tokens.discard(token)
-            state.resolved += 1
-            return {
-                "link": outcome.link,
-                "resolution": outcome.resolution.value,
-                "remaining_reviews": outcome.remaining_reviews,
-            }
-        if name == "maintenance.complete":
-            snapshot = self._home.review_snapshot()
-            if snapshot.pending or self._home.review_pending().pending:
-                raise MaintenanceContractError(
-                    "Home Maintenance still has unresolved reviews"
-                )
-            state.completed = True
-            return {"completed": True, "task": "home"}
-        raise MaintenanceContractError(f"Unknown Home Maintenance action: {name}")
-
-    def _review(self, token: str):
-        matches = tuple(
-            review
-            for review in self._home.review_snapshot().reviews
-            if review.token == token
+                payload: JsonObject = {
+                    "items": [
+                        review.to_review_json() if paths else {
+                            "link": review.link,
+                            "kind": "change" if isinstance(review, HomeReviewChange) else "skill_review",
+                        }
+                        for review in selected
+                    ],
+                }
+            else:
+                bus = context.require_signal_bus()
+                decision = params.get("decision")
+                if not paths or decision not in {"accept", "reject"}:
+                    return _failed(execution, "Select Home Links and accept or reject")
+                resolution = HomeReviewResolution(str(decision))
+                results: list[JsonObject] = []
+                for path in paths:
+                    reviews = tuple(review for review in snapshot.reviews if review.link == path)
+                    if not reviews:
+                        results.append({"link": path, "reviewed": False, "reason": "no_pending_change"})
+                        continue
+                    changes = tuple(review for review in reviews if isinstance(review, HomeReviewChange))
+                    if resolution is HomeReviewResolution.ACCEPT and not changes:
+                        results.append({
+                            "link": path, "reviewed": False,
+                            "reason": "edit_effective_skill_before_accepting",
+                        })
+                        continue
+                    for review in reviews:
+                        if not isinstance(review, HomeReviewChange):
+                            current = tuple(
+                                item for item in self._home.review_snapshot().reviews
+                                if item.link == path and not isinstance(item, HomeReviewChange)
+                            )
+                            if not current:
+                                continue
+                            review = current[0]
+                        self._home.resolve_review(
+                            review.token,
+                            resolution if isinstance(review, HomeReviewChange) else HomeReviewResolution.REJECT,
+                        )
+                    results.append({"link": path, "reviewed": True, "decision": decision})
+                payload = to_json_object({"items": results})
+                bus.emit(Signal(
+                    name=HOME_CONTEXT_UPDATE, source="home_reflection.review",
+                    scope=execution.framework.scope, payload={"refresh": True},
+                ))
+        except AgentHomeContractError:
+            return _failed(execution, "Home review request is invalid; inspect the current diff")
+        except AgentHomeError as exc:
+            raise RuntimeAgentHomeBridge().from_home_error(exc) from exc
+        return ActionResult.success(
+            call_id=execution.call.call_id, invoke_id=execution.framework.invoke_id,
+            batch_id=execution.framework.batch_id, action_name=execution.call.action_name,
+            sequence=execution.call.sequence, domain=execution.framework.domain,
+            payload=payload,
         )
-        if len(matches) != 1:
-            raise AgentHomeInvariantError(
-                "Home Maintenance review token is stale or unknown"
-            )
-        return matches[0]
-
-    def _require_state(self) -> _HomeTaskState:
-        if self._state is None:
-            raise MaintenanceInvariantError("No Home Maintenance task is active")
-        return self._state
-
-
-class HomeMaintenanceActionExecutor(ActionExecutor):
-    def __init__(self, controller: HomeMaintenanceActionController) -> None:
-        self._controller = controller
-
-    async def execute(
-        self,
-        execution: ActionExecution,
-        context: ActionExecutionContext,
-    ) -> ActionResult:
-        return (await self._controller.execute(execution, context))
 
 
 def register_home_maintenance_actions(
-    builder: ActionEngineBuilder,
-    *,
-    controller: HomeMaintenanceActionController,
+    builder: ActionEngineBuilder, *, controller: HomeMaintenanceActionController,
 ) -> ActionEngineBuilder:
-    executor = HomeMaintenanceActionExecutor(controller)
     for handler in HOME_MAINTENANCE_ACTIONS:
-        builder.register_executor(handler, executor)
+        builder.register_executor(handler, controller)
     return builder
 
 
-def _required_text(params: JsonObject, name: str) -> str:
-    value = params.get(name)
-    if not isinstance(value, str) or not value:
-        raise MaintenanceContractError(
-            f"Home Maintenance parameter {name} must be non-empty text"
-        )
-    return value
-
-
-def _review_summary(review: HomeReviewChange | HomeSkillReview) -> JsonObject:
-    if isinstance(review, HomeReviewChange):
-        return {
-            "kind": "change",
-            "token": review.token,
-            "link": review.link,
-            "state": review.state.value,
-            "baseline_digest": review.baseline_digest,
-            "runtime_digest": review.runtime_digest,
-            "actual_digest": review.actual_digest,
-            "allowed_resolutions": ["accept", "reject", "rewrite"],
-        }
-    return {
-        "kind": "skill_review",
-        "token": review.token,
-        "link": review.link,
-        "skill": review.skill,
-        "actual_digest": review.actual_digest,
-        "skill_memory_digest": review.skill_memory.digest,
-        "allowed_resolutions": ["reject", "rewrite"],
-    }
-
-
-def _success(execution: ActionExecution, payload: JsonObject) -> ActionResult:
-    return ActionResult.success(
-        call_id=execution.call.call_id,
-        invoke_id=execution.framework.invoke_id,
-        batch_id=execution.framework.batch_id,
-        action_name=execution.call.action_name,
-        sequence=execution.call.sequence,
-        domain=execution.framework.domain,
-        payload=payload,
-    )
-
-
-def _failed(execution: ActionExecution, feedback: str, *, reason: str) -> ActionResult:
+def _failed(execution: ActionExecution, feedback: str) -> ActionResult:
     return ActionResult.failed(
-        call_id=execution.call.call_id,
-        invoke_id=execution.framework.invoke_id,
-        batch_id=execution.framework.batch_id,
-        action_name=execution.call.action_name,
-        stage=ActionResultStage.EXECUTE,
-        sequence=execution.call.sequence,
+        call_id=execution.call.call_id, invoke_id=execution.framework.invoke_id,
+        batch_id=execution.framework.batch_id, action_name=execution.call.action_name,
+        stage=ActionResultStage.EXECUTE, sequence=execution.call.sequence,
         domain=execution.framework.domain,
         failure=ActionLocalFailure(
-            reason=reason,
-            scope="maintenance.home",
-            disposition=ActionFailureDisposition.CHANGE_REQUEST,
-            feedback=feedback,
+            reason="invalid_review", scope="home.reflection",
+            disposition=ActionFailureDisposition.CHANGE_REQUEST, feedback=feedback,
         ),
     )

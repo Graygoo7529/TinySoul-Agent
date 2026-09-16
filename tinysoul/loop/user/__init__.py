@@ -1,6 +1,6 @@
 """User Turn policy, preparation, prompts, completion, and outcomes."""
 
-from .completion import UserAnswerCompletionDetector, user_output_from_completion
+from .completion import user_output_from_completion
 from .builder import UserTurnBuilder
 from .entry import UserTurnEntry
 from .outcomes import TurnOutcome
@@ -19,6 +19,5 @@ __all__ = [
     "TurnPreparationHandler",
     "TurnPreparationPipeline",
     "TurnPreparationRequest",
-    "UserAnswerCompletionDetector",
     "user_output_from_completion",
 ]

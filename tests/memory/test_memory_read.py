@@ -18,10 +18,8 @@ from tinysoul.memory import (
     DailyMemoryDocument,
     EntityMemoryDocument,
     FactMemoryDocument,
-    MemoryActivity,
     MemoryConfidence,
     MemoryContractError,
-    MemoryDocumentChange,
     MemoryEngine,
     MemoryInspectRequest,
     MemoryInspectSettings,
@@ -36,7 +34,6 @@ from tinysoul.memory import (
     NoteMemoryDocument,
     parse_memory_settings,
 )
-import tinysoul.memory.transaction as transaction_module
 
 
 DAY = BusinessDay.parse("2026-07-12")
@@ -71,9 +68,9 @@ def test_five_kind_links_are_canonical_and_map_to_stable_paths() -> None:
 
 def test_document_dates_headings_and_redirect_kinds_are_strict() -> None:
     with pytest.raises(MemoryContractError, match="target day"):
-        replace(_daily(DAY.value, "0" * 64), updated_on=NEXT_DAY.value)
+        replace(_daily(DAY.value), updated_on=NEXT_DAY.value)
     with pytest.raises(MemoryContractError, match="level-1"):
-        replace(_daily(DAY.value, "0" * 64), content="Title\n===")
+        replace(_daily(DAY.value), content="Title\n===")
     with pytest.raises(MemoryContractError, match="same kind"):
         replace(
             _entity("old-entity"),
@@ -91,11 +88,9 @@ def test_active_memory_and_non_evictable_current_latest_background(
     memory = _memory(tmp_path, session_root=session_root)
     initial = memory.initialize_active_day(NEXT_DAY)
     assert initial.content == ""
-    assert initial.document.revision == 0
 
     patched = memory.patch_active(
         day=NEXT_DAY,
-        expected_digest=initial.digest,
         operations=(
             MemoryPatchOperation(
                 MemoryPatchKind.APPEND,
@@ -103,15 +98,14 @@ def test_active_memory_and_non_evictable_current_latest_background(
             ),
         ),
     )
-    assert patched.document.revision == 1
     assert "memory:concept/agent-design" in patched.content
 
-    memory.write_document(_daily(DAY.value, initial.digest), expected_absent=True)
+    memory.write_document(_daily(DAY.value))
     provider = ActiveMemoryBackgroundEntryProvider(memory)
     catalog = provider.catalog(NEXT_DAY.value)
     assert catalog.default_links == ("memory:current", "memory:latest")
     assert catalog.evictable_default_links == ()
-    assert patched.digest in provider.load("memory:current", NEXT_DAY.value)
+    assert patched.content in provider.load("memory:current", NEXT_DAY.value)
     latest = provider.load("memory:latest", NEXT_DAY.value)
     assert "memory:daily/2026-07-12" in latest
     assert "Daily evidence" in latest
@@ -120,27 +114,26 @@ def test_active_memory_and_non_evictable_current_latest_background(
 async def test_documents_inspect_backlinks_recall_and_redirects(tmp_path: Path) -> None:
     memory = _memory(tmp_path)
     daily = memory.write_document(
-        _daily(DAY.value, "0" * 64),
-        expected_absent=True,
+        _daily(DAY.value),
     )
     entity = _entity("graygoo")
-    memory.write_document(entity, expected_absent=True)
+    memory.write_document(entity)
     concept = _concept("agent-design", relations=(entity.link,))
-    memory.write_document(concept, expected_absent=True)
+    memory.write_document(concept)
     fact = _fact(
         "f-a71c9d2e5f42",
         "TinySoul uses explicit active memory.",
         relations=(concept.link,),
         evidence=(daily.link,),
     )
-    memory.write_document(fact, expected_absent=True)
+    memory.write_document(fact)
     note = _note(
         "n-a71c9d2e5f42",
         "Active memory design",
         relations=(entity.link, concept.link),
         evidence=(daily.link, fact.link),
     )
-    memory.write_document(note, expected_absent=True)
+    memory.write_document(note)
 
     query = await memory.inspect(MemoryInspectRequest(query="active memory design"))
     assert {item.link for item in query.items} >= {str(note.link), str(fact.link)}
@@ -170,7 +163,7 @@ async def test_documents_inspect_backlinks_recall_and_redirects(tmp_path: Path) 
     assert recalled.resolution_chain == (str(note.link),)
 
     replacement = _entity("apple")
-    memory.write_document(replacement, expected_absent=True)
+    memory.write_document(replacement)
     stored = memory.read_document(entity.link)
     redirected = replace(
         entity,
@@ -179,55 +172,35 @@ async def test_documents_inspect_backlinks_recall_and_redirects(tmp_path: Path) 
         content="Merged into memory:entity/apple.",
         updated_on=DAY.value,
     )
-    memory.write_document(redirected, expected_digest=stored.digest)
+    memory.write_document(redirected)
     assert memory.recall(entity.link).resolution_chain == (
         "memory:entity/graygoo",
         "memory:entity/apple",
     )
 
 
-def test_changeset_validates_cross_document_links_and_commits_atomically(
-    tmp_path: Path,
-) -> None:
+def test_single_document_write_requires_existing_references(tmp_path: Path) -> None:
     memory = _memory(tmp_path)
-    daily = _daily(DAY.value, "1" * 64)
-    memory.write_document(daily, expected_absent=True)
     concept = _concept("memory-systems")
-    note = _note(
-        "n-b71c9d2e5f42",
-        "Memory systems",
-        relations=(concept.link,),
-        evidence=(daily.link,),
-    )
-    changeset = memory.prepare_changeset(
-        target_day=DAY,
-        changes=(
-            MemoryDocumentChange(concept, expected_absent=True),
-            MemoryDocumentChange(note, expected_absent=True),
-        ),
-    )
-    outcome = memory.commit(changeset)
-    assert outcome.changed_links == (concept.link, note.link)
+    note = _note("n-b71c9d2e5f42", "Memory systems", relations=(concept.link,), evidence=())
+    with pytest.raises(MemoryContractError, match="references"):
+        memory.write_document(note)
+    memory.write_document(concept)
+    memory.write_document(note)
+    missing = _note("n-c71c9d2e5f42", "Broken note", evidence=(), relations=(
+        MemoryLink.parse("memory:concept/missing"),
+    ))
+    with pytest.raises(MemoryContractError, match="references"):
+        memory.write_document(missing)
     assert memory.recall(note.link).metadata["title"] == "Memory systems"
-
-    missing = _note(
-        "n-c71c9d2e5f42",
-        "Broken note",
-        relations=(MemoryLink.parse("memory:concept/missing"),),
-        evidence=(daily.link,),
-    )
-    with pytest.raises(MemoryInvariantError, match="missing"):
-        memory.prepare_changeset(
-            target_day=DAY,
-            changes=(MemoryDocumentChange(missing, expected_absent=True),),
-        )
+    assert memory.read_document(concept.link).document == concept
 
 
 async def test_semantic_inspect_uses_deletable_embedding_cache(tmp_path: Path) -> None:
     client = _EmbeddingClient()
     memory = _memory(tmp_path, embedding_client=client)
-    memory.write_document(_entity("semantic-target", content="Unrelated words"), expected_absent=True)
-    memory.write_document(_entity("other", content="Another document"), expected_absent=True)
+    memory.write_document(_entity("semantic-target", content="Unrelated words"))
+    memory.write_document(_entity("other", content="Another document"))
 
     result = await memory.inspect(MemoryInspectRequest(query="orbit"))
     assert result.items[0].link == "memory:entity/semantic-target"
@@ -258,14 +231,14 @@ async def test_cancelled_embedding_refresh_preserves_committed_memory_and_cache(
     client = BlockingClient()
     memory = _memory(tmp_path, embedding_client=client)
     document = _entity("semantic-target")
-    memory.write_document(document, expected_absent=True)
+    memory.write_document(document)
     await memory.inspect(MemoryInspectRequest(query="orbit"))
     cache = tmp_path / "memory" / ".tinysoul" / "embedding-cache.json"
     previous_cache = cache.read_bytes()
     stored = memory.read_document(document.link)
     updated = replace(document, content="New durable knowledge.")
     client.block = True
-    memory.write_document(updated, expected_digest=stored.digest)
+    memory.write_document(updated)
     task = asyncio.create_task(memory.inspect(MemoryInspectRequest(query="orbit")))
     await asyncio.wait_for(client.started.wait(), timeout=2)
     task.cancel()
@@ -288,7 +261,7 @@ async def test_embedding_failure_falls_back_to_current_lexical_facts(
 
     memory = _memory(tmp_path, embedding_client=FailingClient())
     document = _entity("durable", content="Fresh lexical knowledge.")
-    memory.write_document(document, expected_absent=True)
+    memory.write_document(document)
     result = await memory.inspect(MemoryInspectRequest(query="Fresh lexical"))
     assert result.items[0].link == str(document.link)
     assert "semantic" not in result.items[0].reasons
@@ -307,7 +280,7 @@ async def test_link_inspect_uses_semantic_related_with_lexical_fallback_and_kind
     semantic_target = _entity("semantic-target", content="Unrelated wording.")
     lexical_target = _entity("lexical-target", content="Source topic is reused here.")
     for document in (source, direct, semantic_target, lexical_target):
-        memory.write_document(document, expected_absent=True)
+        memory.write_document(document)
 
     result = await memory.inspect(
         MemoryInspectRequest(
@@ -336,7 +309,6 @@ def test_memory_config_uses_current_sections_and_rejects_old_names(tmp_path: Pat
             "max_active_chars": 1000,
             "inspect": {"candidate_limit": 12, "default_top_k": 3, "max_top_k": 6},
             "semantic_search": {"embedding_cache_max_chars": 123456},
-            "daily_composition": {"chunk_max_chars": 100, "source_max_chars": 500},
         },
         project_root=tmp_path,
     )
@@ -365,7 +337,6 @@ async def test_inspect_enforces_page_budget_and_continues_without_duplicates(
     for index in range(5):
         memory.write_document(
             _entity(f"memory-item-{index}", content="memory " + "detail " * 20),
-            expected_absent=True,
         )
 
     first = await memory.inspect(MemoryInspectRequest(query="memory", limit=5))
@@ -392,161 +363,31 @@ async def test_inspect_enforces_page_budget_and_continues_without_duplicates(
         )
 
 
-async def test_inspect_tie_breaks_by_persistent_activity(tmp_path: Path) -> None:
-    memory = _memory(tmp_path)
-    high = replace(
-        _entity("ranking-high", content="ranking memory"),
-        activity=MemoryActivity(DAY.value, 9),
-    )
-    low = _entity("ranking-low", content="ranking memory")
-    memory.write_document(low, expected_absent=True)
-    memory.write_document(high, expected_absent=True)
-
-    result = await memory.inspect(MemoryInspectRequest(query="ranking memory", limit=2))
-
-    assert result.items[0].link == str(high.link)
-    assert result.items[0].activity["activation_count"] == 9
-
-
 def test_all_active_relation_targets_resolve_to_active_entity_or_concept(
     tmp_path: Path,
 ) -> None:
     memory = _memory(tmp_path)
-    daily = _daily(DAY.value, "0" * 64)
+    daily = _daily(DAY.value)
     fact = _fact(
         "f-a1b2c3d4e5f6",
         "A relation target fact.",
         relations=(),
         evidence=(daily.link,),
     )
-    memory.write_document(daily, expected_absent=True)
-    memory.write_document(fact, expected_absent=True)
+    memory.write_document(daily)
+    memory.write_document(fact)
     old = replace(
         _entity("old-relation-target"),
         status=MemoryStatus.RETRACTED,
         redirect_to=fact.link,
         content="Retracted because this was not an entity.",
     )
-    memory.write_document(old, expected_absent=True)
+    memory.write_document(old)
 
-    with pytest.raises(MemoryInvariantError, match="active entity/concept"):
+    with pytest.raises(MemoryContractError, match="references"):
         memory.write_document(
             _concept("relation-source", relations=(old.link,)),
-            expected_absent=True,
         )
-
-
-def test_recovery_discards_preparing_and_completed_transaction_directories(
-    tmp_path: Path,
-) -> None:
-    memory = _memory(tmp_path)
-    root = tmp_path / "memory" / ".tinysoul" / "transactions"
-    preparing = root / (".preparing-memory_" + "a" * 32)
-    completed = root / (".completed-memory_" + "b" * 32)
-    preparing.mkdir(parents=True)
-    completed.mkdir(parents=True)
-    (preparing / "partial").write_text("partial", encoding="utf-8")
-    (completed / "partial").write_text("partial", encoding="utf-8")
-
-    memory.recover()
-
-    assert not preparing.exists()
-    assert not completed.exists()
-    assert not root.exists()
-
-
-def test_transaction_rolls_forward_after_a_mid_commit_write_failure(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    memory = _memory(tmp_path)
-    concept = _concept("transaction-concept")
-    entity = _entity("transaction-entity")
-    changeset = memory.prepare_changeset(
-        target_day=DAY,
-        changes=(
-            MemoryDocumentChange(concept, expected_absent=True),
-            MemoryDocumentChange(entity, expected_absent=True),
-        ),
-    )
-    original_write = transaction_module.atomic_write_text
-    failed = False
-
-    def fail_second_target(path: Path, text: str, *, encoding: str = "utf-8") -> None:
-        nonlocal failed
-        if path.name == "transaction-entity.md" and not failed:
-            failed = True
-            raise OSError("injected target failure")
-        original_write(path, text, encoding=encoding)
-
-    monkeypatch.setattr(transaction_module, "atomic_write_text", fail_second_target)
-    with pytest.raises(MemoryIOError, match="transaction write failed"):
-        memory.commit(changeset)
-    assert (tmp_path / "memory" / "concept" / "transaction-concept.md").is_file()
-    assert not (tmp_path / "memory" / "entity" / "transaction-entity.md").exists()
-
-    monkeypatch.setattr(transaction_module, "atomic_write_text", original_write)
-    memory.recover()
-    assert memory.recall(concept.link).link == str(concept.link)
-    assert memory.recall(entity.link).link == str(entity.link)
-    assert not (tmp_path / "memory" / ".tinysoul" / "transactions").exists()
-
-
-def test_transaction_prechecks_every_cas_before_writing_any_target(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    memory = _memory(tmp_path)
-    concept = _concept("cas-concept")
-    entity = _entity("cas-entity")
-    changeset = memory.prepare_changeset(
-        target_day=DAY,
-        changes=(
-            MemoryDocumentChange(concept, expected_absent=True),
-            MemoryDocumentChange(entity, expected_absent=True),
-        ),
-    )
-    original_write = transaction_module.atomic_write_text
-
-    def inject_conflict(path: Path, text: str, *, encoding: str = "utf-8") -> None:
-        original_write(path, text, encoding=encoding)
-        if path.name == "manifest.json":
-            target = tmp_path / "memory" / "entity" / "cas-entity.md"
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text("external conflict", encoding="utf-8")
-
-    monkeypatch.setattr(transaction_module, "atomic_write_text", inject_conflict)
-    with pytest.raises(MemoryInvariantError, match="absent CAS"):
-        memory.commit(changeset)
-    assert not (tmp_path / "memory" / "concept" / "cas-concept.md").exists()
-
-
-def test_transaction_recovery_retries_after_completed_cleanup_failure(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    memory = _memory(tmp_path)
-    concept = _concept("cleanup-concept")
-    changeset = memory.prepare_changeset(
-        target_day=DAY,
-        changes=(MemoryDocumentChange(concept, expected_absent=True),),
-    )
-    original_cleanup = cast(Callable[..., None], transaction_module.shutil.rmtree)
-
-    def fail_completed_cleanup(path: Path, *args: object, **kwargs: object) -> None:
-        if path.name.startswith(".completed-"):
-            raise OSError("injected completed cleanup failure")
-        original_cleanup(path, *args, **kwargs)
-
-    monkeypatch.setattr(transaction_module.shutil, "rmtree", fail_completed_cleanup)
-    with pytest.raises(MemoryIOError, match="cleanup failed"):
-        memory.commit(changeset)
-    assert (tmp_path / "memory" / "concept" / "cleanup-concept.md").is_file()
-
-    monkeypatch.setattr(transaction_module.shutil, "rmtree", original_cleanup)
-    memory.recover()
-    assert memory.recall(concept.link).link == str(concept.link)
-    assert not (tmp_path / "memory" / ".tinysoul" / "transactions").exists()
 
 
 class _EmbeddingClient:
@@ -589,14 +430,11 @@ def _memory(
     )
 
 
-def _daily(day: date, active_digest: str) -> DailyMemoryDocument:
+def _daily(day: date) -> DailyMemoryDocument:
     return DailyMemoryDocument(
         day=day,
-        revision=0,
         created_on=day,
         updated_on=day,
-        session_revision=1,
-        active_memory_digest=active_digest,
         content="## Events\n\nDaily evidence.",
     )
 
@@ -607,7 +445,6 @@ def _entity(cite: str, *, content: str = "A known entity.") -> EntityMemoryDocum
         status=MemoryStatus.ACTIVE,
         created_on=DAY.value,
         updated_on=DAY.value,
-        activity=MemoryActivity(DAY.value, 1),
         content=content,
     )
 
@@ -622,7 +459,6 @@ def _concept(
         status=MemoryStatus.ACTIVE,
         created_on=DAY.value,
         updated_on=DAY.value,
-        activity=MemoryActivity(DAY.value, 1),
         content="A durable concept.",
         relations=relations,
     )
@@ -640,7 +476,6 @@ def _fact(
         status=MemoryStatus.ACTIVE,
         created_on=DAY.value,
         updated_on=DAY.value,
-        activity=MemoryActivity(DAY.value, 1),
         content=summary,
         summary=summary,
         confidence=MemoryConfidence.HIGH,
@@ -661,7 +496,6 @@ def _note(
         status=MemoryStatus.ACTIVE,
         created_on=DAY.value,
         updated_on=DAY.value,
-        activity=MemoryActivity(DAY.value, 1),
         content="A complete note that develops one durable idea.",
         title=title,
         relations=relations,

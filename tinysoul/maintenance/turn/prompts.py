@@ -7,22 +7,25 @@ from ..errors import MaintenanceContractError
 
 def maintenance_turn_guidance(kind: str) -> tuple[str, ...]:
     common = (
-        "This is an autonomous Maintenance Turn, not a user conversation.",
+        "This is an autonomous Reflection Turn.",
         "Use the supplied Background, Session, Workspace, and TurnTrace as context.",
-        "Do not produce a user answer or wait for human approval.",
-        "Call maintenance.complete only after all owner postconditions are satisfied.",
+        "Common domains remain available. Inspect evidence and act in small steps.",
+        "Use core.answer to conclude with a summary of changes, remaining work and limitations.",
+        "The summary is a Reflection result, not a user response. Normal Reflection needs no approval.",
     )
     if kind == "home":
         return (
             *common,
             "Review every runtime Home difference against actual Home and the actual core rules.",
-            "Resolve each difference with accept, reject, or rewrite until none remain.",
+            "Use home_reflection.diff; edit effective copies through home actions as needed.",
+            "Use home_reflection.review to accept or reject selected changes.",
         )
     if kind == "memory":
         return (
             *common,
-            "Treat the task's closed Business Day as the scene's temporal frame.",
+            "Distinguish the target day from the current execution day.",
             "Reflect on the closed day's archived Session facts and Workspace projection.",
-            "Consolidate the durable Memory document before completing.",
+            "Inspect/recall before writing. Write one document at a time and inspect the result.",
+            "Create redirect targets before retiring source documents; committed writes remain if later work fails.",
         )
     raise MaintenanceContractError(f"Unknown Maintenance Turn kind: {kind}")

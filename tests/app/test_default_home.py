@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tinysoul.home.background import home_segment_registration
+
 from datetime import date
 from pathlib import Path, PurePosixPath
 import re
@@ -62,11 +64,11 @@ async def test_packaged_default_home_exposes_only_context_visible_load_targets(
 
     context = (
         ContextEngineBuilder(system_text="You are TinySoul.")
-        .add_background_provider(provider)
+        .with_segment(home_segment_registration(home))
         .build()
     )
     turn_id = context.begin_turn("Use the referenced TinySoul documentation.")
-    await context.prepare_default_background(date(2026, 7, 15))
+    await context.open_segments(date(2026, 7, 15))
 
     assert context.background_links() == catalog.default_links
     initial_labels = {

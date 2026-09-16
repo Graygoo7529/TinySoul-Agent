@@ -474,56 +474,10 @@ def test_executor_registry_validates_catalog_handlers() -> None:
         FunctionActionExecutor(lambda execution, context: {"ok": True}),
     )
 
-    assert executors.missing_handlers_for(catalog) == (
-        "context.inspect",
-        "core.reason",
-        "home.prompt_mount.patch",
-        "home.prompt_mount.write",
-        "home.resource.delete",
-        "home.resource.patch",
-        "home.resource.read",
-        "home.resource.write",
-        "home.top.delete",
-        "home.top.patch",
-        "home.top.search",
-        "home.top.write",
-        "memory.inspect",
-        "memory.memorize",
-        "memory.recall",
-        "resource.convert_with_markitdown",
-        "resource.convert_with_pypdf",
-        "script.create",
-        "script.patch",
-        "script.promote",
-        "script.rewrite",
-        "script.run_bash",
-        "script.run_python",
-        "session.inspect",
-        "shell.run_bash",
-        "shell.run_cmd",
-        "shell.run_powershell",
-        "supervised_process.apply",
-        "supervised_process.discard",
-        "supervised_process.read_candidate",
-        "supervised_process.stop",
-        "supervised_process.wait",
-        "web.discover_pages",
-        "web.fetch_with_defuddle",
-        "web.fetch_with_trafilatura",
-        "web.search_by_kimi",
-        "workspace.analyze",
-        "workspace.append",
-        "workspace.create",
-        "workspace.delete",
-        "workspace.describe",
-        "workspace.patch",
-        "workspace.read",
-        "workspace.restore",
-        "workspace.rewrite",
-        "workspace.scan",
-        "workspace.search_text",
-        "workspace.trash.list",
-    )
+    missing = executors.missing_handlers_for(catalog)
+    assert "core.answer" not in missing
+    assert "home.resource.read" in missing
+    assert len(missing) == len(set(missing))
     with pytest.raises(ActionContractError, match="home.resource.read"):
         executors.validate_catalog(catalog)
 

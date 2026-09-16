@@ -19,8 +19,10 @@ from tinysoul.action import (
 )
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.memory.runtime_bridge import RuntimeMemoryBridge
+from tinysoul.runtime import Signal
 
 from .active import MemoryPatchOperation
+from .background import MEMORY_CONTEXT_UPDATE
 from .catalog import MemoryInspectRequest
 from .engine import MemoryEngine
 from .errors import MemoryContractError, MemoryError, MemoryInvariantError
@@ -45,12 +47,11 @@ class MemoryMemorizeExecutor(LocalActionExecutor):
         self._runtime_bridge = runtime_bridge
 
     def execute_local(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
-        del context
+        bus = context.require_signal_bus()
         params = execution.call.params
-        expected = params.get("expected_digest")
         raw_operations = params.get("operations")
-        if not isinstance(expected, str) or not isinstance(raw_operations, list):
-            return _failed(execution, "core.memory.memorize requires expected_digest and operations", "invalid_patch")
+        if not isinstance(raw_operations, list):
+            return _failed(execution, "core.memory.memorize requires operations", "invalid_patch")
         try:
             parsed_operations: list[MemoryPatchOperation] = []
             for item in raw_operations:
@@ -64,21 +65,22 @@ class MemoryMemorizeExecutor(LocalActionExecutor):
             operations = tuple(parsed_operations)
             snapshot = self._memory.patch_active(
                 day=self._memory.active_day(),
-                expected_digest=expected,
                 operations=operations,
             )
         except MemoryContractError as exc:
-            return _failed(execution, str(exc), "invalid_or_stale_patch")
+            return _failed(execution, str(exc), "invalid_patch")
         except MemoryError as exc:
             raise self._runtime_bridge.from_memory_error(exc) from exc
         payload = to_json_object({
             "ref": "memory:current",
-            "revision": snapshot.document.revision,
-            "digest": snapshot.digest,
             "changed": True,
             "cleared": not bool(snapshot.content),
             "chars": len(snapshot.content),
         })
+        bus.emit(Signal(
+            name=MEMORY_CONTEXT_UPDATE, source="memory.memorize",
+            scope=execution.framework.scope, payload={"refresh": True},
+        ))
         return _success(execution, payload)
 
 

@@ -24,8 +24,6 @@ from tinysoul.runtime import CyclePhase, RunScope, Signal
 from .errors import ContextContractError
 from .background import (
     BackgroundPatch,
-    SessionBackgroundItem,
-    SessionBackgroundSnapshot,
 )
 from .working import (
     Milestone,
@@ -36,7 +34,6 @@ from .working import (
 
 SIGNAL_NAMESPACE = "context"
 SIGNAL_WORKING_PATCH = "context.working.patch"
-SIGNAL_SESSION_SYNC = "context.session.sync"
 SIGNAL_BACKGROUND_PATCH = "context.background.patch"
 SIGNAL_TRACE_APPEND = "context.trace.append"
 SIGNAL_INPUT_APPEND = "context.input.append"
@@ -103,51 +100,6 @@ def working_patch_from_json(value: JsonObject) -> WorkingPatch:
         ),
         remove_todos=_str_tuple(value, "remove_todos"),
     )
-
-
-# ---------------------------------------------------------------------------
-# Session background snapshot
-
-
-def build_session_sync_signal(
-    snapshot: SessionBackgroundSnapshot,
-    *,
-    call_id: str,
-    scope: RunScope,
-    source: str,
-) -> Signal:
-    return Signal(
-        name=SIGNAL_SESSION_SYNC,
-        source=source,
-        scope=scope,
-        payload={
-            "call_id": call_id,
-            "revision": snapshot.revision,
-            "items": [
-                {"item_id": item.item_id, "content": item.content}
-                for item in snapshot.items
-            ],
-        },
-    )
-
-
-def parse_session_sync_signal(
-    signal: Signal,
-) -> tuple[str, SessionBackgroundSnapshot]:
-    call_id = _required_str(signal.payload, "call_id")
-    revision = signal.payload.get("revision")
-    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
-        raise ContextContractError(
-            "Session background snapshot revision must be non-negative"
-        )
-    items = tuple(
-        SessionBackgroundItem(
-            item_id=_required_str(item, "item_id"),
-            content=_object_field(item, "content"),
-        )
-        for item in _object_list(signal.payload, "items")
-    )
-    return call_id, SessionBackgroundSnapshot(revision=revision, items=items)
 
 
 # ---------------------------------------------------------------------------

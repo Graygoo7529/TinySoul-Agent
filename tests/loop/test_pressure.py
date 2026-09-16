@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date as CalendarDate
+
 from datetime import date
 from tinysoul.workspace.projection import workspace_segment_registration
 
@@ -91,6 +93,7 @@ async def test_capacity_recovery_rebuilds_task_or_ends_without_replaying_complet
         .build()
     )
     turn_id = context.begin_turn("continue")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     scope = (
         _scope(turn_id)
         .push(RunLevel.CYCLE, "next")
@@ -109,7 +112,6 @@ async def test_capacity_recovery_rebuilds_task_or_ends_without_replaying_complet
                 )
             )
         await context.consume_signals(bus)
-    context.complete_preparation()
     canonical = context.seal_trace()
     workspace = _workspace(tmp_path / "workspace")
     (tmp_path / "home").mkdir()
@@ -198,7 +200,7 @@ async def test_pressure_recovery_trashes_workspace_resource_and_syncs_context(
     context = ContextEngineBuilder(system_text="system").build()
     context.register_segment(workspace_segment_registration())
     turn_id = context.begin_turn("continue")
-    await context.prepare_default_background(date(2026, 7, 12))
+    await context.open_segments(date(2026, 7, 12))
     scope = _scope(turn_id)
     initial = workspace_snapshot_signal(
         workspace.snapshot(),
@@ -209,7 +211,6 @@ async def test_pressure_recovery_trashes_workspace_resource_and_syncs_context(
     assert await context.consume_signal_batch(
         ContextSignalBatch(turn_id=turn_id, signals=(initial,))
     ) == ()
-    context.complete_preparation()
 
     result = UserContextPressureRecovery(
         context=context,
@@ -244,7 +245,7 @@ def test_model_pressure_converts_target_token_gap_to_char_reclaim() -> None:
     assert required == 400
 
 
-def test_image_only_pressure_does_not_delete_workspace_files(tmp_path: Path) -> None:
+async def test_image_only_pressure_does_not_delete_workspace_files(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path)
     workspace.write_text(
         "workspace:temporary.txt",
@@ -253,8 +254,8 @@ def test_image_only_pressure_does_not_delete_workspace_files(tmp_path: Path) -> 
     )
     context = ContextEngineBuilder(system_text="system").build()
     turn_id = context.begin_turn("continue")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     scope = _scope(turn_id)
-    context.complete_preparation()
 
     result = UserContextPressureRecovery(
         context=context,
@@ -286,7 +287,7 @@ async def test_pressure_recovery_preserves_active_action_resource_links(
     context = ContextEngineBuilder(system_text="system").build()
     context.register_segment(workspace_segment_registration())
     turn_id = context.begin_turn("continue")
-    await context.prepare_default_background(date(2026, 7, 12))
+    await context.open_segments(date(2026, 7, 12))
     scope = _scope(turn_id)
     initial = workspace_snapshot_signal(
         workspace.snapshot(),
@@ -297,7 +298,6 @@ async def test_pressure_recovery_preserves_active_action_resource_links(
     assert await context.consume_signal_batch(
         ContextSignalBatch(turn_id=turn_id, signals=(initial,))
     ) == ()
-    context.complete_preparation()
 
     result = UserContextPressureRecovery(
         context=context,
@@ -318,7 +318,7 @@ async def test_pressure_recovery_preserves_active_action_resource_links(
     }
 
 
-def test_maintenance_pressure_never_reclaims_active_workspace(tmp_path: Path) -> None:
+async def test_maintenance_pressure_never_reclaims_active_workspace(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path)
     workspace.write_text(
         "workspace:active.txt",
@@ -327,7 +327,7 @@ def test_maintenance_pressure_never_reclaims_active_workspace(tmp_path: Path) ->
     )
     context = ContextEngineBuilder(system_text="system").build()
     turn_id = context.begin_turn("maintain memory")
-    context.complete_preparation()
+    await context.open_segments(CalendarDate(2026, 7, 12))
 
     MaintenanceContextPressureRecovery(context).recover(
         payload={"estimated_chars": 1000, "max_chars": 100},

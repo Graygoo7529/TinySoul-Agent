@@ -1,106 +1,60 @@
-"""Maintenance-owned ActionEngine assembly."""
+"""Reflection action views: common domains plus one owner write domain."""
 
 from __future__ import annotations
 
-from tinysoul.action import (
-    ActionCatalog,
-    ActionCatalogLoader,
-    ActionEngine,
-    ActionEngineBuilder,
-    ActionError,
-    LoadedActionCatalog,
-)
+from dataclasses import replace
+
+from tinysoul.action import ActionCatalog, ActionCatalogLoader, ActionEngine, LoadedActionCatalog
 from tinysoul.context import ContextEngine
-from tinysoul.context.actions import register_context_actions
-from tinysoul.infra.config import ConfigError
-from tinysoul.runtime import ObservationEmitter
-from tinysoul.action.runtime_bridge import RuntimeActionBridge
-from tinysoul.context.runtime_bridge import RuntimeContextBridge
-from tinysoul.session.runtime_bridge import RuntimeSessionBridge
-from tinysoul.session.actions import SessionInspector, register_session_actions
+from tinysoul.loop.actions import CommonActionAssembly
+from tinysoul.capabilities.supervised_process import SupervisedProcessManager
 
 from .errors import MaintenanceContractError
-from .home import (
-    HOME_MAINTENANCE_ACTIONS,
-    HomeMaintenanceActionController,
-    register_home_maintenance_actions,
-)
-from .memory import (
-    MEMORY_MAINTENANCE_ACTIONS,
-    MemoryMaintenanceActionController,
-    register_memory_maintenance_actions,
-)
+from .home import HomeMaintenanceActionController, register_home_maintenance_actions
+from .memory import MemoryMaintenanceActionController, register_memory_maintenance_actions
 from .resources import maintenance_action_catalog_root
-
-COMMON_MAINTENANCE_READ_ACTIONS = (
-    "core.context.inspect",
-    "core.session.inspect",
-)
 
 
 def build_maintenance_action(
-    *,
-    kind: str,
-    context: ContextEngine,
-    session: SessionInspector,
-    observations: ObservationEmitter,
+    *, kind: str, context: ContextEngine,
     home_controller: HomeMaintenanceActionController,
     memory_controller: MemoryMaintenanceActionController,
     action_catalog: LoadedActionCatalog,
-) -> ActionEngine:
-    """Build one exact Home or Memory Maintenance action surface."""
-
-    task_actions = {
-        "home": HOME_MAINTENANCE_ACTIONS,
-        "memory": MEMORY_MAINTENANCE_ACTIONS,
-    }.get(kind)
-    if task_actions is None:
-        raise MaintenanceContractError(f"Unknown Maintenance task kind: {kind}")
-    action_bridge = RuntimeActionBridge()
-    try:
-        with maintenance_action_catalog_root() as maintenance_root:
-            maintenance_catalog = ActionCatalogLoader().load(maintenance_root)
-            combined = LoadedActionCatalog(
-                catalog=ActionCatalog(
-                    domains=(
-                        *action_catalog.catalog.domains(),
-                        *maintenance_catalog.domains(),
-                    ),
-                    actions=(
-                        *action_catalog.catalog.actions(),
-                        *maintenance_catalog.actions(),
-                    ),
+    assembly: CommonActionAssembly,
+) -> tuple[ActionEngine, SupervisedProcessManager]:
+    if kind not in {"home", "memory"}:
+        raise MaintenanceContractError("Unknown Reflection kind")
+    domain = f"{kind}_reflection"
+    with maintenance_action_catalog_root() as root:
+        reflection = ActionCatalogLoader().load(root).with_domains((domain,))
+    actions = []
+    for action in action_catalog.catalog.actions():
+        if action.name == "core.answer":
+            action = replace(
+                action,
+                tool=replace(
+                    action.tool,
+                    description="Conclude this Reflection with a concise summary of accepted changes, remaining work and limitations.",
                 ),
-                documents=action_catalog.documents,
+                semantic=replace(
+                    action.semantic,
+                    use_when=("The Reflection has a useful result or an explicit stopping reason",),
+                    avoid_when=("More inspection or a known necessary correction is required",),
+                    examples=(),
+                ),
             )
-            builder = ActionEngineBuilder(combined)
-            builder.with_observations(observations)
-            builder.include_actions(*COMMON_MAINTENANCE_READ_ACTIONS, *task_actions)
-            register_context_actions(
-                builder,
-                context=context,
-                runtime_bridge=RuntimeContextBridge(),
-            )
-            register_session_actions(
-                builder,
-                session=session,
-                runtime_bridge=RuntimeSessionBridge(),
-            )
-            if kind == "home":
-                register_home_maintenance_actions(
-                    builder,
-                    controller=home_controller,
-                )
-            else:
-                register_memory_maintenance_actions(
-                    builder,
-                    controller=memory_controller,
-                )
-            return builder.build()
-    except ConfigError as exc:
-        raise action_bridge.from_config_error(exc) from exc
-    except ActionError as exc:
-        raise action_bridge.startup_failure(
-            message="Maintenance actions could not be initialized.",
-            payload={"error_type": type(exc).__name__},
-        ) from exc
+        actions.append(action)
+    combined = LoadedActionCatalog(
+        catalog=ActionCatalog(
+            domains=(*action_catalog.catalog.domains(), *reflection.domains()),
+            actions=(*actions, *reflection.actions()),
+        ),
+        documents=action_catalog.documents,
+    )
+    builder, jobs = assembly.prepare(context, combined)
+    if kind == "home":
+        register_home_maintenance_actions(builder, controller=home_controller)
+    else:
+        builder.mark_actions_unsupported("core.memory.memorize")
+        register_memory_maintenance_actions(builder, controller=memory_controller)
+    return builder.build(), jobs

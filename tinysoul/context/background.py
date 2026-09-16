@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from tinysoul.llm.messages import Message, UserMessage
-from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.concurrency import JoinedOperations
+from tinysoul.infra.json import JsonObject
+from tinysoul.runtime import Signal
 
 from .errors import ContextContractError, ContextInvariantError
-from .providers import BackgroundCatalog
+from .providers import BackgroundCatalog, BackgroundEntryProvider, SegmentSelectionView
+
+if TYPE_CHECKING:
+    from .segments import SegmentDescriptor, SegmentRegistration, SegmentReclaim, TurnInfo
 
 
 class BackgroundSource(StrEnum):
@@ -61,47 +68,12 @@ class BackgroundEvictionReport:
     evicted_links: tuple[str, ...] = field(default_factory=tuple)
 
 
-@dataclass(frozen=True)
-class SessionBackgroundItem:
-    """One Session-owned message projected into BackgroundContext."""
-
-    item_id: str
-    content: JsonObject
-
-    def __post_init__(self) -> None:
-        if not self.item_id:
-            raise ContextInvariantError(
-                "SessionBackgroundItem.item_id must be non-empty"
-            )
-        object.__setattr__(self, "content", to_json_object(self.content))
-
-
-@dataclass(frozen=True)
-class SessionBackgroundSnapshot:
-    """Immutable Session history projection for one Turn."""
-
-    revision: int
-    items: tuple[SessionBackgroundItem, ...] = field(default_factory=tuple)
-
-    def __post_init__(self) -> None:
-        if self.revision < 0:
-            raise ContextInvariantError(
-                "SessionBackgroundSnapshot.revision cannot be negative"
-            )
-        ids = tuple(item.item_id for item in self.items)
-        if len(ids) != len(set(ids)):
-            raise ContextInvariantError(
-                "SessionBackgroundSnapshot.items must have unique ids"
-            )
-
-
 class BackgroundContext:
     """Ordered top-level content entries plus the day journal."""
 
     def __init__(self, *, journal: str = "") -> None:
         self._entries: dict[str, BackgroundEntry] = {}
         self._journal = journal
-        self._session = SessionBackgroundSnapshot(revision=0)
         self._catalogs: tuple[BackgroundCatalog, ...] = ()
 
     @property
@@ -111,33 +83,11 @@ class BackgroundContext:
     def set_journal(self, journal: str) -> None:
         self._journal = journal
 
-    def reset_session(self) -> None:
-        self._session = SessionBackgroundSnapshot(revision=0)
-
     def reset_catalogs(self, catalogs: tuple[BackgroundCatalog, ...] = ()) -> None:
         self._catalogs = tuple(catalogs)
 
     def reset_entries(self, entries: tuple[BackgroundEntry, ...] = ()) -> None:
         self._entries = {entry.link: entry for entry in entries}
-
-    def check_session_snapshot(self, snapshot: SessionBackgroundSnapshot) -> str:
-        if snapshot.revision < self._session.revision:
-            return (
-                "Session background snapshot revision is stale: "
-                f"current {self._session.revision}, received {snapshot.revision}"
-            )
-        if snapshot.revision == self._session.revision and snapshot != self._session:
-            return (
-                "Session background snapshot conflicts with current revision: "
-                f"{snapshot.revision}"
-            )
-        return ""
-
-    def apply_session_snapshot(self, snapshot: SessionBackgroundSnapshot) -> None:
-        problem = self.check_session_snapshot(snapshot)
-        if problem:
-            raise ContextInvariantError(problem)
-        self._session = snapshot
 
     def has(self, link: str) -> bool:
         return link in self._entries
@@ -204,16 +154,7 @@ class BackgroundContext:
         return tuple(problems)
 
     def render_messages(self) -> tuple[Message, ...]:
-        return (*self.render_session_messages(), *self.render_background_messages())
-
-    def render_session_messages(self) -> tuple[Message, ...]:
-        return tuple(
-            UserMessage.from_json(
-                item.content,
-                label=f"background:session:{item.item_id}",
-            )
-            for item in self._session.items
-        )
+        return self.render_background_messages()
 
     def render_background_messages(self) -> tuple[Message, ...]:
         messages: list[Message] = []
@@ -268,8 +209,8 @@ class BackgroundContext:
             evicted_links=tuple(evicted),
         )
 
+    @staticmethod
     def _check_patch_against_loaded(
-        self,
         patch: BackgroundPatch,
         *,
         loaded: set[str],
@@ -310,3 +251,171 @@ def _first_duplicate(values: tuple[str, ...]) -> str:
             return value
         seen.add(value)
     return ""
+
+
+def check_background_patches(
+    view: SegmentSelectionView, patches: tuple[BackgroundPatch, ...],
+) -> tuple[str, ...]:
+    loaded = set(view.loaded)
+    problems: list[str] = []
+    for patch in patches:
+        candidate = set(loaded)
+        problem = BackgroundContext._check_patch_against_loaded(
+            patch, loaded=candidate, loadable_links=view.available,
+            evictable_links=tuple(ref for ref in view.available if ref not in view.protected),
+        )
+        problems.append(problem)
+        if not problem:
+            loaded = candidate
+    return tuple(problems)
+
+
+@dataclass(frozen=True)
+class HeapUpdate:
+    selection: BackgroundPatch = field(default_factory=BackgroundPatch)
+    refresh: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.selection, BackgroundPatch) or not isinstance(self.refresh, bool):
+            raise ContextContractError("Heap update must use typed selection and refresh")
+        if not self.refresh and self.selection.is_empty():
+            raise ContextContractError("Heap update cannot be empty")
+
+
+def decode_heap_update(signal: Signal) -> HeapUpdate:
+    fields = signal.payload
+    if set(fields) - {"load_links", "evict_links", "refresh"}:
+        raise ContextContractError("Heap update contains unsupported fields")
+    refs: list[tuple[str, ...]] = []
+    for name in ("load_links", "evict_links"):
+        value = fields.get(name, [])
+        if not isinstance(value, list) or any(not isinstance(ref, str) or not ref for ref in value):
+            raise ContextContractError("Heap selection requires resource references")
+        refs.append(tuple(ref for ref in value if isinstance(ref, str)))
+    refresh = fields.get("refresh", False)
+    if not isinstance(refresh, bool):
+        raise ContextContractError("Heap refresh must be a boolean")
+    return HeapUpdate(BackgroundPatch(*refs), refresh)
+
+
+@dataclass(frozen=True)
+class HeapCandidate:
+    catalog: BackgroundCatalog
+    entries: tuple[BackgroundEntry, ...]
+
+
+class HeapSegment:
+    """Reusable Turn-local heap algorithm; the injected owner reads all content."""
+
+    def __init__(self, source: BackgroundEntryProvider, day: date, candidate: HeapCandidate) -> None:
+        self._source = source
+        self._day = day
+        self._catalog = candidate.catalog
+        self._view = BackgroundContext()
+        self.install(candidate)
+
+    def selection_view(self) -> SegmentSelectionView:
+        return SegmentSelectionView(
+            self._catalog.loadable_links, self._view.links(),
+            tuple(ref for ref in self._catalog.default_links if ref not in self._catalog.evictable_default_links),
+        )
+
+    async def prepare(self, updates: tuple[HeapUpdate, ...]) -> HeapCandidate:
+        operations = JoinedOperations()
+        candidate = await operations.run(lambda: self._prepare(updates))
+        operations.check_cancelled()
+        return candidate
+
+    def _prepare(self, updates: tuple[HeapUpdate, ...]) -> HeapCandidate:
+        catalog = self._catalog
+        entries = {entry.link: entry for entry in self._view.entries()}
+        for update in updates:
+            if update.refresh:
+                catalog = self._source.catalog(self._day)
+                if catalog.owner != self._catalog.owner:
+                    raise ContextInvariantError("Heap refresh changed its owner")
+                selected = tuple(dict.fromkeys((*catalog.default_links, *entries)))
+                entries = {
+                    ref: _heap_entry(self._source, self._day, catalog, ref, entries.get(ref))
+                    for ref in selected if ref in catalog.loadable_links
+                }
+            patch = update.selection
+            if patch.is_empty():
+                continue
+            protected = tuple(ref for ref in catalog.default_links if ref not in catalog.evictable_default_links)
+            problems = check_background_patches(
+                SegmentSelectionView(catalog.loadable_links, tuple(entries), protected), (patch,),
+            )
+            if problems[0]:
+                raise ContextContractError(problems[0])
+            for ref in patch.evict_links:
+                del entries[ref]
+            for ref in patch.load_links:
+                if ref not in entries:
+                    entries[ref] = _heap_entry(self._source, self._day, catalog, ref)
+        return HeapCandidate(catalog, tuple(entries.values()))
+
+    def install(self, prepared: HeapCandidate) -> None:
+        self._catalog = prepared.catalog
+        self._view.reset_catalogs((prepared.catalog,))
+        self._view.reset_entries(prepared.entries)
+
+    def render(self) -> tuple[Message, ...]:
+        return self._view.render_messages()
+
+    def seal(self) -> JsonObject:
+        return {"loaded_refs": list(self._view.links())}
+
+    def reclaim(self, required_chars: int) -> SegmentReclaim:
+        from .segments import SegmentReclaim
+        report = self._view.evict_for_budget(required_chars=required_chars)
+        return SegmentReclaim(report.reclaimed_chars, report.evicted_links)
+
+    async def close(self) -> None:
+        self._view.reset_entries()
+        self._view.reset_catalogs()
+
+
+def _heap_entry(
+    source: BackgroundEntryProvider, day: date, catalog: BackgroundCatalog,
+    ref: str, previous: BackgroundEntry | None = None,
+) -> BackgroundEntry:
+    content = source.load(ref, day)
+    if ref in catalog.default_links:
+        evictable = ref in catalog.evictable_default_links
+        origin = BackgroundSource.AUTOMATIC if evictable else BackgroundSource.DEFAULT
+    else:
+        evictable = True
+        origin = previous.source if previous is not None else BackgroundSource.PHASE1
+    return BackgroundEntry(ref, content, origin, catalog.owner, evictable)
+
+
+class HeapSegmentProvider:
+    def __init__(self, source: BackgroundEntryProvider, *, owner: str) -> None:
+        self._source = source
+        self._owner = owner
+
+    async def open(self, info: TurnInfo) -> HeapSegment:
+        def prepare() -> HeapCandidate:
+            catalog = self._source.catalog(info.day)
+            if catalog.owner != self._owner:
+                raise ContextInvariantError("Heap catalog belongs to another registered owner")
+            return HeapCandidate(catalog, tuple(
+                _heap_entry(self._source, info.day, catalog, ref) for ref in catalog.default_links
+            ))
+        operations = JoinedOperations()
+        candidate = await operations.run(prepare)
+        operations.check_cancelled()
+        return HeapSegment(self._source, info.day, candidate)
+
+
+def heap_segment_registration(
+    descriptor: SegmentDescriptor, source: BackgroundEntryProvider, *, signal_name: str,
+) -> SegmentRegistration[HeapUpdate, HeapCandidate]:
+    from .segments import SegmentRegistration, SegmentShape
+    if descriptor.shape is not SegmentShape.HEAP:
+        raise ContextContractError("Heap provider requires heap shape")
+    return SegmentRegistration(
+        descriptor, HeapSegmentProvider(source, owner=descriptor.owner), signal_name,
+        HeapUpdate, decode_heap_update,
+    )

@@ -18,13 +18,11 @@ from .controls import (
     ControlResultStatus,
 )
 from .engine import (
-    BackgroundContentLoader,
     ContextTurnCompletion,
     ContextTurnInput,
     ContextEngine,
     ContextEngineBuilder,
     ContextSignalBatch,
-    StaticBackgroundContentLoader,
 )
 from .config import ContextSettings, parse_context_settings
 from .errors import (
@@ -32,11 +30,10 @@ from .errors import (
     ContextContractError,
     ContextError,
     ContextInvariantError,
-    ContextTraceFailureReason,
-    ContextTraceRequestError,
+    ContextInspectFailureReason,
+    ContextInspectRequestError,
 )
 from .prompts import PromptBlock, TaskPrompt
-from .preparation import ContextTurnPreparationHandler
 from .providers import (
     BackgroundCatalog,
     BackgroundCatalogItem,
@@ -47,24 +44,20 @@ from .signals import (
     SIGNAL_BACKGROUND_PATCH,
     SIGNAL_INPUT_APPEND,
     SIGNAL_NAMESPACE,
-    SIGNAL_SESSION_SYNC,
     SIGNAL_TRACE_APPEND,
     SIGNAL_WORKING_PATCH,
     build_input_append_signal,
-    build_session_sync_signal,
     build_trace_action_result_signal,
     build_trace_decision_signal,
     build_trace_phase_note_signal,
     parse_input_append_signal,
 )
-from .background import SessionBackgroundItem, SessionBackgroundSnapshot
 from .composer import ContextBudgetReport, ContextSectionUsage
 from .compress import ContextPressureReport
 from .segments import ContextSegment, SegmentRegistry
 
 __all__ = [
     "ContextBudgetReport",
-    "BackgroundContentLoader",
     "BackgroundCatalog",
     "BackgroundCatalogItem",
     "BackgroundEntryProvider",
@@ -80,8 +73,8 @@ __all__ = [
     "ContextEngineBuilder",
     "ContextError",
     "ContextInvariantError",
-    "ContextTraceFailureReason",
-    "ContextTraceRequestError",
+    "ContextInspectFailureReason",
+    "ContextInspectRequestError",
     "ContextTurnCompletion",
     "ContextTurnInput",
     "ContextSignalBatch",
@@ -90,7 +83,6 @@ __all__ = [
     "ContextPressureReport",
     "ContextSegment",
     "SegmentRegistry",
-    "ContextTurnPreparationHandler",
     "ControlNormalization",
     "ControlResult",
     "ControlResultStage",
@@ -101,15 +93,10 @@ __all__ = [
     "SIGNAL_BACKGROUND_PATCH",
     "SIGNAL_INPUT_APPEND",
     "SIGNAL_NAMESPACE",
-    "SIGNAL_SESSION_SYNC",
     "SIGNAL_TRACE_APPEND",
     "SIGNAL_WORKING_PATCH",
-    "StaticBackgroundContentLoader",
-    "SessionBackgroundItem",
-    "SessionBackgroundSnapshot",
     "TaskPrompt",
     "build_input_append_signal",
-    "build_session_sync_signal",
     "build_trace_action_result_signal",
     "build_trace_decision_signal",
     "build_trace_phase_note_signal",

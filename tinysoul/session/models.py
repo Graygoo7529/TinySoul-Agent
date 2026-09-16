@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from hashlib import sha256
 import re
 from time import time_ns
 
 from tinysoul.action import ActionInvariantError, ActionLocalFailure
-from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
+from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.loop.errors import LoopContractError
 from tinysoul.loop.outcomes import TurnFailure, TurnOutcomeStatus
 
@@ -17,14 +16,12 @@ from .errors import SessionContractError
 
 
 SESSION_RECORD_SCHEMA_VERSION = 7
-SESSION_MANIFEST_SCHEMA_VERSION = 2
+SESSION_MANIFEST_SCHEMA_VERSION = 3
 _TURN_REF = re.compile(r"^session:turn/([a-z0-9_-]+)$")
-_SUMMARY_REF = re.compile(r"^session:summary/([a-z0-9_-]+)$")
 
 
 class SessionRecordKind(StrEnum):
     TURN = "turn"
-    SUMMARY = "summary"
 
 
 class SessionActionOutcome(StrEnum):
@@ -329,67 +326,6 @@ def _turn_failure(value: object) -> TurnFailure:
 
 
 @dataclass(frozen=True)
-class SessionSummaryRecord:
-    ref: str
-    day: str
-    child_refs: tuple[str, ...]
-    recorded_at_ns: int = field(default_factory=time_ns)
-    kind: SessionRecordKind = field(default=SessionRecordKind.SUMMARY, init=False)
-    schema_version: int = field(default=SESSION_RECORD_SCHEMA_VERSION, init=False)
-
-    def __post_init__(self) -> None:
-        if _SUMMARY_REF.fullmatch(self.ref) is None:
-            raise SessionContractError("Session Summary ref is invalid")
-        _require_day(self.day)
-        children = _non_empty_strings(
-            self.child_refs,
-            "Session Summary child refs",
-            unique=True,
-        )
-        if len(children) < 2:
-            raise SessionContractError("Session Summary requires at least two children")
-        for ref in children:
-            session_ref_kind(ref)
-        object.__setattr__(self, "child_refs", children)
-        _require_recorded_at(self.recorded_at_ns)
-
-    def to_json(self) -> JsonObject:
-        return {
-            "schema_version": self.schema_version,
-            "kind": self.kind.value,
-            "ref": self.ref,
-            "day": self.day,
-            "recorded_at_ns": self.recorded_at_ns,
-            "child_refs": list(self.child_refs),
-        }
-
-    @classmethod
-    def from_json(cls, value: JsonObject) -> "SessionSummaryRecord":
-        _require_record_header(value, SessionRecordKind.SUMMARY)
-        _require_fields(
-            value,
-            {
-                "schema_version",
-                "kind",
-                "ref",
-                "day",
-                "recorded_at_ns",
-                "child_refs",
-            },
-            "Session Summary record",
-        )
-        return cls(
-            ref=_required_text(value, "ref"),
-            day=_required_text(value, "day"),
-            recorded_at_ns=_non_negative_int(value, "recorded_at_ns"),
-            child_refs=_string_list(value.get("child_refs", []), "child_refs"),
-        )
-
-
-SessionRecord = SessionTurnRecord | SessionSummaryRecord
-
-
-@dataclass(frozen=True)
 class SessionManifest:
     day: str
     revision: int = 0
@@ -431,7 +367,7 @@ class SessionManifest:
         )
 
 
-def session_record_from_json(value: JsonObject) -> SessionRecord:
+def session_record_from_json(value: JsonObject) -> SessionTurnRecord:
     if value.get("schema_version") != SESSION_RECORD_SCHEMA_VERSION:
         raise SessionContractError(
             f"Session record schema_version must be {SESSION_RECORD_SCHEMA_VERSION}"
@@ -439,8 +375,6 @@ def session_record_from_json(value: JsonObject) -> SessionRecord:
     kind = value.get("kind")
     if kind == SessionRecordKind.TURN.value:
         return SessionTurnRecord.from_json(value)
-    if kind == SessionRecordKind.SUMMARY.value:
-        return SessionSummaryRecord.from_json(value)
     raise SessionContractError("Session record kind is invalid")
 
 
@@ -449,27 +383,10 @@ def session_ref_kind(ref: str) -> SessionRecordKind:
         raise SessionContractError("Session ref must be text")
     if _TURN_REF.fullmatch(ref) is not None:
         return SessionRecordKind.TURN
-    if _SUMMARY_REF.fullmatch(ref) is not None:
-        return SessionRecordKind.SUMMARY
     raise SessionContractError(f"Invalid Session ref: {ref}")
 
 
-def summary_ref(day: str, child_refs: tuple[str, ...]) -> str:
-    """Return the deterministic identity of one Summary index node."""
-
-    _require_day(day)
-    children = _non_empty_strings(
-        child_refs,
-        "Session Summary child refs",
-        unique=True,
-    )
-    if len(children) < 2:
-        raise SessionContractError("Session Summary requires at least two children")
-    encoded = dumps_json({"day": day, "child_refs": list(children)}).encode("utf-8")
-    return f"session:summary/summary_{sha256(encoded).hexdigest()[:16]}"
-
-
-def same_record_facts(left: SessionRecord, right: SessionRecord) -> bool:
+def same_record_facts(left: SessionTurnRecord, right: SessionTurnRecord) -> bool:
     left_value = left.to_json()
     right_value = right.to_json()
     left_value.pop("recorded_at_ns", None)

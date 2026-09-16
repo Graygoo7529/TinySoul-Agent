@@ -2,8 +2,8 @@ name = "core.memory.memorize"
 domain = "core"
 
 [tool]
-description = "Patch today's explicit memory:current using its expected digest. Preserve useful canonical memory:daily/entity/concept/fact/note links that already appear in context so later turns can inspect or recall them."
-schema = { type = "object", properties = { expected_digest = { type = "string" }, operations = { type = "array", items = { type = "object", properties = { kind = { type = "string", enum = ["append", "replace", "remove", "clear"] }, text = { type = "string" }, old_text = { type = "string" }, new_text = { type = "string" } }, required = ["kind"], additionalProperties = false } } }, required = ["expected_digest", "operations"], additionalProperties = false }
+description = "Patch today's explicit memory:current. Preserve useful canonical memory:daily/entity/concept/fact/note links that already appear in context so later turns can inspect or recall them."
+schema = { type = "object", properties = { operations = { type = "array", items = { type = "object", properties = { kind = { type = "string", enum = ["append", "replace", "remove", "clear"] }, text = { type = "string" }, old_text = { type = "string" }, new_text = { type = "string" } }, required = ["kind"], additionalProperties = false } } }, required = ["operations"], additionalProperties = false }
 
 [semantic]
 use_when = ["A preference, decision, open thread, or useful Memory Link should remain explicit across later turns today", "The user explicitly asks to remember or forget something"]

@@ -2,76 +2,50 @@
 
 ## 定位
 
-Session 拥有一个 business day 内已经完成的 prior Turns。它保存不可变业务事实，以 immutable Summary graph 收缩活动历史头部，并从同一记录图派生 Session Background、模型渐进检查和 Memory facts。Session 不保存当前 Turn 的运行时 heap，不是通用日志或前端审计数据库。
+Session 拥有同一 business day 内已完成 User Turns 的不可变业务事实。固定的 prior-Turn 语境、基础事实 Map、渐进检查和 Memory evidence 都从同一组 Turn records 派生；不保存活动 Turn 的运行轨迹，不承担前端审计日志职责。
 
-## 持久事实
+## 持久事实与恢复
 
-Turn record 使用 schema v7，显式保存：
+Turn record 使用 schema v7，保存有序用户输入、plan 终态、Background links、owner 段快照、正式输出及来源、类型化终态、执行失败、必要 finish 失败和有序 Action 事实。Session 段自己的快照只保存来源日、revision 和 Turn refs，避免将历史正文递归复制进后续记录。
 
-- ref、day 与 recorded time；
-- 有序输入文本和接收时间；
-- plan 终态、Background links 与按 segment id 标识的 owner 快照；
-- 最终状态、可选正式输出、references 与 exhausted；
-- 类型化执行失败与必要 finish 失败，明确区分两者；
-- 按发生顺序排列的 Action 业务记录。
+Action 事实直接来自 sealed Trace。success、failed、timeout 保存已知 canonical result 或局部失败；cancelled、not_executed、unknown 保留实际执行事实，不伪造工具结果。Action 身份配对、状态转移与发生顺序由 Trace 校验，Session 不从模型消息猜测执行状态。
 
-Action record 保存行动语义、请求、执行 outcome、已知 canonical result、局部失败与 references。success/failed/timeout 之外，cancelled/not_executed/unknown 明确表达中断事实，后者不携带伪造结果。局部失败复用 Action 公共 SPI 的 `ActionLocalFailure`，持久恢复经过同一严格解析边界；Cycle、调用身份和状态迁移校验属于 Trace，不另建 Session 执行审计。
+Manifest schema v3 只索引该日的有序 Turn refs 与内部 revision。没有 Summary records、Summary 树、压缩阈值或平行关系日志。当前 record/manifest 均严格校验字段和版本，不读取或自动迁移旧 schema。
 
-Session 直接消费 sealed Trace 的类型化 Action 事实，不从 Phase2/Phase3 消息反推配对。Trace 按 Cycle 与调用顺序登记意图、校验执行身份与状态转移，并保持跨 Cycle 的发生顺序。归一化失败和准备失败同样保留；取消、未执行、结果未知只表达执行状态，不构造工具失败或重试建议。折叠结果使用 canonical payload 与来源 references，模型消息是否已投影不影响完成记录。
+Store 对同 ref 的相同业务事实幂等复用，recorded time 不参与比较；同身份内容冲突属于不变量失败。Reconciliation 校验日期、缺失或重复引用，按写入时间和 ref 收养“record 已原子写入、manifest 尚未提交”的孤立 Turn。Archive 使用同一验证入口。
 
-Summary record 与 Turn 使用同一 schema version，只保存 deterministic ref、day、recorded time 和至少两个有序 direct child refs。Summary 是索引节点，不复制子节点 Background、Action counts 或正文。
+## Turn 视图与基础 Map
 
-Manifest 使用 schema v2，只保存 day、内部 revision 与有序 root refs。v7 record 和 v2 manifest 严格拒绝未知字段；Session 不读取、不迁移旧 schema。段快照从 TurnCompletion 原样进入同一业务记录及 Memory facts，Session 不反向拥有活动段；Workspace 内容不再混入 plan 状态。
+Session provider 在每个 Turn 的段 open 中，通过 joined owner 读取建立独立固定视图。Background 显示有界的最近问答、执行终态、失败摘要和 Action 集合入口；字符预算不足时保留可容纳的连续最近后缀，并提供 `session:map`。背景不展示内部 revision、digest、调用身份或完整 Action result。
 
-Session preparation 异步读取历史 snapshot，inspect Action 使用短本地 owner 执行边界；Session completion 位于必要 finish 的最后，异步等待本地 owner 提交完成。执行或前置 finish 失败时仍记录已知事实，但不把回答候选保存为正式输出。Session 自身提交失败由 Turn 报告；资源 close 失败不触发第二次提交或改写已完成记录。
+基础 Map 由不可变事实确定性派生：
 
-## 唯一验证边界
+- Turn 节点保存有界问答和 Action outcomes；
+- Action 节点使用 Turn 内的 occurrence ref，区分同名重复调用；
+- resource 节点复用完成输出和 Action 明确保存的 references；
+- precedes 表达 Turn 提交顺序，contains 表达 Turn 所含 Action，references 表达记录中的显式引用。
 
-Session-owned validator 在写入、读取、reconciliation、archive snapshot、Background、inspect 与 Memory projection 前验证 typed record identity。Store 对同 ref 的相同业务事实幂等复用，内容冲突成为 invariant failure；recorded time 不参与幂等事实比较。
-
-Reconciliation 验证 day、缺失引用、重复可达引用和 graph cycle，按 recorded time 收养未提交 orphan Turn。不可达 Summary 只作为完整性事实报告，不自动接入 active root。
-
-## Background 与 Summary Heap
-
-Session Background 在每个 Turn preparation 期间从当前 Manifest root 派生：
-
-- Turn item 包含 kind/ref、`user_ask`、status、可选 answer/references/exhausted 和有界失败摘要；
-- 存在 Action 时包含一个 `#actions` 集合 ref、Action 数量和按 Action name 聚合的非零执行 outcome counts；
-- Summary item 只包含 kind/ref、turn count 与 direct child count；
-- 极端预算不足时使用 overflow head，提示调用 `core.session.inspect`。
-
-Background 不包含 trace、pairing、digest、revision、occurrence detail 或 ActionResult payload。ask/answer 有 owner 上限；整体不足时只保留可容纳的连续最近后缀，不能跳过较新的大节点再选择更旧节点。
-
-超过 summary watermark 时，Session 把保留最近 Turn 之前的连续 roots 组成 immutable Summary，并尽量回收到 target ratio。原 Turn 和旧 Summary record 不删除，因此 archive 和 Memory 仍可递归恢复完整业务事实。
+所有关系标记为 fact，不从文本猜测语义关系，也不把推断当作执行事实。当前没有模型整理或关系编辑接口；这部分仍在后续 Session 整理范围内。
 
 ## 渐进检查
 
-模型只通过 Core domain 的 `core.session.inspect` 探索 prior Turns：
+模型通过统一 `core.context.inspect` 进入段声明的 `session:` 路由：
 
-```text
-active head -> Summary -> Turn -> Action collection -> Action leaf
-```
+- `session:map` 分页返回事实节点和关系；
+- Turn ref 返回问答、终态、失败和 Action 集合入口；
+- `#actions` 返回按发生顺序排列的有界 Action headers；
+- `#action/<occurrence>` 返回一次调用的请求与已知结果或中断事实。
 
-- 无 ref：返回 active root 的直接 headers；
-- Summary ref：返回 direct children headers；
-- Turn ref：返回 ask、status、answer、references、exhausted、失败事实、Action outcomes 与 Action collection ref；
-- Action collection ref：按发生顺序返回 compact Action leaf headers，可按已知 Action name 过滤；
-- Action leaf ref：返回该 Action 的 request、outcome、result/references 或 failure。
+集合和叶子身份从原始 Turn records 派生，不单独落盘。超长对象使用 opaque continuation；Map 分页绑定 manifest revision，Action 集合分页绑定过滤条件。来源版本在固定 Turn 视图期间发生变化属于契约失败，不能静默混入后来完成的 Turn。单次检查不会改写固定 Background。
 
-失败/timeout leaf header 可以内联有界 failure feedback 和简短 result，避免仅为确认失败多调用一次；成功 header 不复制 result。Action collection/leaf ref 从 immutable ordered Actions 确定性派生，不落盘、不进入 Manifest，模型只复制 owner 签发的 ref。
+`core.context.inspect` 的完整输出只进入当前交互，压力回收后保留来源 ref 与精简 canonical payload。不存在独立的 Session inspect Action 或兼容入口。
 
-`ref` 决定向下展开的节点；`continuation` 只继续同一节点未交付完的 direct children 或单个超大语义对象。active head continuation 在 opaque token 内绑定内部 Manifest revision，过滤后的集合 continuation 绑定 filter；这些事实不进入模型字段。响应不暴露 cursor、index、offset、digest、coverage 或 requested/effective limits。
+## 完成与 Memory
 
-`core.session.inspect` 是 foldable Action，完整结果和 continuation 只进入当前 Turn Interaction；compact canonical payload 不保存 continuation，也不改写固定 Session Background。Session 不提供独立 actions/recall Action，也不提供模型或 Endpoint canonical trace 查询。
+Session completion 位于必要 finish 的最后，通过 joined owner 边界等待实际本地提交。执行或前置 finish 失败仍记录已知事实，但不发布回答候选为正式输出。Session 自身提交失败由 Turn 报告；后续 close 失败只追加诊断，不二次提交。
 
-## Memory 与 Daily
-
-Session root 同时承载 Memory owner 的活动 `Memory.md`，但 Session 不解析或修改该文件。Daily Lifecycle 在 Session 初始化后要求 Memory 创建当日空正文文件，归档前由 Memory 校验，再随整个 Session root 一起移动；因此 Archive 中的 Session facts 与目标日活动记忆具有同一日切身份。
-
-Daily Lifecycle 归档 Session 根后，`archive_available()`/`archive_snapshot()` 用同一 manifest/record validator 区分“归档缺失”和“归档存在但损坏”。Memory facts 递归展开 Summary，按输入开始时间和 ref 稳定排序，交付输入、Working、Background links、正式输出、Actions、终态和执行/必要提交失败；不交付 trace 或执行元数据。
-
-SessionEngine 只负责自身初始化、提交、reconciliation、archive participant 与只读 projection。Maintenance Archive 决定关闭日与归档位置；Memory Maintenance 只消费 Session 交付的 typed facts/archive view；Context 只消费 Background snapshot；Endpoint 不直接依赖 SessionEngine。
+活动 `Memory.md` 位于 Session root，但始终由 Memory owner 解释和维护。确定性日切将校验后的 Session 根整体归档。Memory facts 从同一 Turn 索引投影，按输入开始时间和 ref 排序，交付完整业务事实，不交付运行时 trace 或第二份历史账本。
 
 ## 失败边界
 
-无效模型 ref/continuation 由 `SessionInspectRequestError` 转成局部 Action failure。持久 I/O、graph 损坏和内部不变量经 RuntimeSessionBridge 结束当前流程，不能伪装成可修正 inspect 请求。配置拒绝未知键，字符预算只由 owner settings 控制，模型不能覆盖。
+错误 ref、未知节点或失效 continuation 是可修正的局部检查失败，由 Session 段映射为 Context 检查协议。持久化 I/O、损坏索引、固定视图版本冲突等模块失败经 RuntimeSessionBridge 转换，不能成为模型可重试的普通结果。配置拒绝未知键，字符预算由 owner 控制。

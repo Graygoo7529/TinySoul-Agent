@@ -37,7 +37,7 @@ class MemoryMaintenanceTask:
         self._turn = turn
 
     def recover(self) -> None:
-        self._memory.recover()
+        self._memory.rebuild_catalog()
 
     def eligible(
         self,
@@ -94,16 +94,13 @@ class MemoryMaintenanceTask:
             )
             self._controller.begin(
                 target_day=target_day,
-                projection=projection,
-                active_memory=active,
-                workspace=workspace,
             )
             outcome = (await self._turn.run(
                 (
                     "Maintain daily, entity, concept, fact, and note Memory for the "
                     f"closed Business Day {target_day}. Inspect and reuse existing "
-                    "Memory before creating. Compose and stage the complete target daily, "
-                    "preview the full draft, commit it, then complete the task."
+                    "Memory before creating. Write one complete document at a time; "
+                    "create redirect targets before retiring sources. Finish with core.answer."
                 ),
                 business_day=target_day,
                 scope=scope,

@@ -1,4 +1,4 @@
-"""Session business engine: immutable Turns, Summary heap, and projections."""
+"""Session business engine: immutable Turns, factual Map, and projections."""
 
 from __future__ import annotations
 
@@ -8,8 +8,6 @@ from threading import RLock
 
 from tinysoul.context import (
     ContextTurnCompletion,
-    SessionBackgroundItem,
-    SessionBackgroundSnapshot,
 )
 from tinysoul.infra.continuation import (
     ContinuationError,
@@ -22,8 +20,9 @@ from tinysoul.infra.time import BusinessDay
 from tinysoul.loop.outcomes import TurnFailure, TurnOutcomeStatus
 
 from .background import (
+    SessionBackgroundItem,
+    SessionBackgroundSnapshot,
     project_overflow_background,
-    project_summary_background,
     project_turn_background,
 )
 from .completion import project_turn_record
@@ -38,11 +37,7 @@ from .memory import SessionMemoryFactsProjection, project_session_memory_facts
 from .models import (
     SessionManifest,
     SessionOutputRecord,
-    SessionRecord,
-    SessionRecordKind,
-    SessionSummaryRecord,
     SessionTurnRecord,
-    summary_ref,
 )
 from .navigation import (
     action_collection_ref,
@@ -50,12 +45,12 @@ from .navigation import (
     parse_action_ref,
     project_action,
     project_action_header,
-    project_navigation_header,
+    project_map,
     project_turn,
 )
 from .reconcile import SessionReconcileResult, SessionReconciler
 from .store import SessionStore
-from .validation import validate_record, validate_summary_record, validate_turn_record
+from .validation import validate_turn_record
 
 
 @dataclass(frozen=True)
@@ -250,6 +245,7 @@ class SessionEngine:
             return SessionBackgroundSnapshot(
                 revision=manifest.revision,
                 items=items,
+                refs=manifest.refs,
             )
 
     def record_turn(
@@ -278,9 +274,9 @@ class SessionEngine:
             validate_turn_record(record)
             stored = validate_turn_record(self._store.save_record_if_absent(record))
             manifest = self._require_manifest()
-            if self._is_reachable(stored.ref, manifest.refs):
+            if stored.ref in manifest.refs:
                 return
-            refs = self._compact_refs((*manifest.refs, stored.ref), day=day)
+            refs = (*manifest.refs, stored.ref)
             committed = SessionManifest(
                 day=manifest.day,
                 revision=manifest.revision + 1,
@@ -298,11 +294,14 @@ class SessionEngine:
         *,
         action: str | None = None,
         continuation: str | None = None,
+        expected_revision: int | None = None,
     ) -> JsonObject:
-        """Inspect one Session heap node by exactly one semantic level."""
+        """Inspect the factual Map, one Turn, or its Action occurrences."""
 
         with self._lock:
             manifest = self._require_manifest()
+            if expected_revision is not None and expected_revision != manifest.revision:
+                raise SessionContractError("Session view source changed during its Turn")
             if action is not None and (not isinstance(action, str) or not action):
                 raise SessionInspectRequestError(
                     SessionInspectFailureReason.INVALID_REF,
@@ -366,29 +365,17 @@ class SessionEngine:
                     "Session Action filter requires an Action collection ref",
                     ref=ref,
                 )
-            if ref is None:
-                nodes = tuple(self._navigation_header(item) for item in manifest.refs)
+            if ref is None or ref == "session:map":
+                nodes = project_map(tuple(self._record(item) for item in manifest.refs))
                 return self._page(
                     nodes,
-                    base={"kind": "session_head"},
+                    base={"kind": "session_map", "ref": "session:map"},
                     item_field="nodes",
                     continuation=continuation,
-                    ref="session:head",
+                    ref="session:map",
                     binding={"revision": manifest.revision},
                 )
             record = self._requested_record(ref)
-            if isinstance(record, SessionSummaryRecord):
-                nodes = tuple(
-                    self._navigation_header(child_ref)
-                    for child_ref in record.child_refs
-                )
-                return self._page(
-                    nodes,
-                    base={"kind": "session_summary", "ref": ref},
-                    item_field="nodes",
-                    continuation=continuation,
-                    ref=ref,
-                )
             detail = project_turn(record)
             return self._page(
                 (detail,),
@@ -433,14 +420,8 @@ class SessionEngine:
         if not scan.orphan_turn_records:
             return SessionReconcileResult(
                 revision=manifest.revision,
-                orphan_summary_refs=scan.orphan_summary_refs,
             )
-        refs = manifest.refs
-        for record in scan.orphan_turn_records:
-            refs = self._compact_refs(
-                (*refs, record.ref),
-                day=BusinessDay.parse(manifest.day),
-            )
+        refs = (*manifest.refs, *(record.ref for record in scan.orphan_turn_records))
         committed = SessionManifest(
             day=manifest.day,
             revision=manifest.revision + len(scan.orphan_turn_records),
@@ -453,76 +434,10 @@ class SessionEngine:
             adopted_turn_refs=tuple(
                 record.ref for record in scan.orphan_turn_records
             ),
-            orphan_summary_refs=scan.orphan_summary_refs,
         )
-
-    def _compact_refs(
-        self,
-        refs: tuple[str, ...],
-        *,
-        day: BusinessDay,
-    ) -> tuple[str, ...]:
-        watermark = int(
-            self._settings.background_max_chars
-            * self._settings.summary_watermark_ratio
-        )
-        if self._background_chars(refs) <= watermark:
-            return refs
-        keep_start = _recent_turn_start(
-            refs,
-            store=self._store,
-            count=self._settings.min_recent_turns,
-        )
-        if keep_start < 2:
-            return refs
-        target = int(
-            self._settings.background_max_chars
-            * self._settings.summary_target_ratio
-        )
-        cut = keep_start
-        for candidate in range(2, keep_start + 1):
-            trial_children = refs[:candidate]
-            trial = SessionSummaryRecord(
-                ref=summary_ref(str(day), trial_children),
-                day=str(day),
-                child_refs=trial_children,
-            )
-            trial_chars = len(
-                dumps_json(
-                    project_summary_background(
-                        trial,
-                        turn_count=sum(
-                            self._turn_count(child_ref)
-                            for child_ref in trial_children
-                        ),
-                    )
-                )
-            ) + self._background_chars(refs[candidate:])
-            if trial_chars <= target:
-                cut = candidate
-                break
-        children = refs[:cut]
-        record = SessionSummaryRecord(
-            ref=summary_ref(str(day), children),
-            day=str(day),
-            child_refs=children,
-        )
-        validate_summary_record(record)
-        stored = validate_summary_record(self._store.save_record_if_absent(record))
-        compacted = (stored.ref, *refs[cut:])
-        return compacted
-
-    def _background_chars(self, refs: tuple[str, ...]) -> int:
-        return sum(len(dumps_json(self._background_for_ref(ref))) for ref in refs)
 
     def _background_for_ref(self, ref: str) -> JsonObject:
-        record = self._record(ref)
-        if isinstance(record, SessionTurnRecord):
-            return project_turn_background(record)
-        return project_summary_background(
-            record,
-            turn_count=self._turn_count(record.ref),
-        )
+        return project_turn_background(self._record(ref))
 
     def _fit_background(
         self,
@@ -548,37 +463,24 @@ class SessionEngine:
         selected.reverse()
         return (overflow, *selected)
 
-    def _navigation_header(self, ref: str) -> JsonObject:
-        record = self._record(ref)
-        return project_navigation_header(
-            record,
-            turn_count=self._turn_count(ref),
-        )
-
-    def _turn_count(self, ref: str) -> int:
-        record = self._record(ref)
-        if isinstance(record, SessionTurnRecord):
-            return 1
-        return sum(self._turn_count(child_ref) for child_ref in record.child_refs)
-
-    def _record(self, ref: str) -> SessionRecord:
+    def _record(self, ref: str) -> SessionTurnRecord:
         try:
-            return validate_record(self._store.load_record(ref))
+            return validate_turn_record(self._store.load_record(ref))
         except SessionContractError as exc:
             raise SessionInvariantError(
                 f"Session graph references a missing record: {ref}"
             ) from exc
 
-    def _requested_record(self, ref: str) -> SessionRecord:
+    def _requested_record(self, ref: str) -> SessionTurnRecord:
         try:
-            record = validate_record(self._store.load_record(ref))
+            record = validate_turn_record(self._store.load_record(ref))
         except SessionContractError as exc:
             raise _request_error(
                 SessionInspectFailureReason.UNKNOWN_REF,
                 "Unknown Session ref",
                 ref=ref,
             ) from exc
-        if not self._is_reachable(ref, self._require_manifest().refs):
+        if ref not in self._require_manifest().refs:
             raise _request_error(
                 SessionInspectFailureReason.UNKNOWN_REF,
                 "Unknown Session ref",
@@ -587,25 +489,7 @@ class SessionEngine:
         return record
 
     def _load_turn(self, ref: str) -> SessionTurnRecord:
-        record = self._requested_record(ref)
-        if not isinstance(record, SessionTurnRecord):
-            raise _request_error(
-                SessionInspectFailureReason.WRONG_RECORD_KIND,
-                "Session Action ref must belong to a Turn",
-                ref=ref,
-            )
-        return record
-
-    def _is_reachable(self, target: str, refs: tuple[str, ...]) -> bool:
-        for ref in refs:
-            if ref == target:
-                return True
-            record = self._record(ref)
-            if isinstance(record, SessionSummaryRecord) and self._is_reachable(
-                target, record.child_refs
-            ):
-                return True
-        return False
+        return self._requested_record(ref)
 
     def _require_manifest(self) -> SessionManifest:
         if self._manifest is None:
@@ -638,25 +522,11 @@ class SessionArchiveView:
         *,
         action: str | None = None,
         continuation: str | None = None,
+        expected_revision: int | None = None,
     ) -> JsonObject:
-        return self.engine.inspect(ref, action=action, continuation=continuation)
-
-
-def _recent_turn_start(
-    refs: tuple[str, ...],
-    *,
-    store: SessionStore,
-    count: int,
-) -> int:
-    if count == 0:
-        return len(refs)
-    seen = 0
-    for index in range(len(refs) - 1, -1, -1):
-        if isinstance(store.load_record(refs[index]), SessionTurnRecord):
-            seen += 1
-            if seen == count:
-                return index
-    return 0
+        return self.engine.inspect(
+            ref, action=action, continuation=continuation, expected_revision=expected_revision,
+        )
 
 
 def _request_error(

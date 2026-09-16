@@ -19,15 +19,16 @@ from tinysoul.infra.time import BusinessDay
 from tinysoul.runtime import RunScope
 from tinysoul.session.runtime_bridge import RuntimeSessionBridge
 from tinysoul.session import SessionEngine, SessionSettings
-from tinysoul.session.actions import SessionInspectExecutor
+from tinysoul.context import ContextEngineBuilder
+from tinysoul.context.actions import ContextInspectExecutor
+from tinysoul.context.runtime_bridge import RuntimeContextBridge
+from tinysoul.session.projection import session_segment_registration
 from tinysoul.session.errors import (
     SessionInspectFailureReason,
     SessionInspectRequestError,
 )
 from tinysoul.session.models import (
     SessionOutputRecord,
-    SessionSummaryRecord,
-    summary_ref,
 )
 from tinysoul.session.store import SessionStore
 
@@ -138,10 +139,10 @@ def test_inspect_uses_opaque_continuation_for_oversized_content(
     assert mismatch.value.reason is SessionInspectFailureReason.INVALID_CONTINUATION
 
 
-def test_summary_heap_keeps_recent_turn_and_expands_one_level(
+def test_map_preserves_all_facts_when_background_is_bounded(
     tmp_path: Path,
 ) -> None:
-    session = _session(tmp_path, background_max_chars=512, min_recent_turns=1)
+    session = _session(tmp_path, background_max_chars=512)
     for index in range(3):
         session.record_turn(
             completion(f"turn_{index}", ask=f"question {index}"),
@@ -153,20 +154,18 @@ def test_summary_heap_keeps_recent_turn_and_expands_one_level(
 
     root = session.inspect()
     nodes = _json_object_list(root["nodes"])
-    assert [node["kind"] for node in nodes] == ["summary", "turn"]
-    summary_ref = nodes[0]["ref"]
-    assert isinstance(summary_ref, str)
-    summary = session.inspect(summary_ref)
-    children = _json_object_list(summary["nodes"])
-    assert [child["ref"] for child in children] == [
-        "session:turn/turn_0",
-        "session:turn/turn_1",
-    ]
+    turns = [node for node in nodes if node["kind"] == "turn"]
+    assert [node["ref"] for node in turns] == [f"session:turn/turn_{index}" for index in range(3)]
+    edges = [node for node in nodes if node["kind"] == "relation"]
+    assert len(edges) == 2
+    assert all(edge["basis"] == "fact" and edge["relation"] == "precedes" for edge in edges)
+    assert not (session.root / "summaries").exists()
 
     background = session.background_snapshot(DAY)
     assert background.items[0].content == {
-        "kind": "session_overflow_head",
-        "inspect_action": "core.session.inspect",
+        "kind": "session_map",
+        "ref": "session:map",
+        "inspect_action": "core.context.inspect",
     }
 
 
@@ -202,18 +201,13 @@ def test_inspect_rejects_record_outside_authoritative_graph(tmp_path: Path) -> N
             status=TurnOutcomeStatus.EXHAUSTED,
             exhausted=True,
         )
-    children = (
-        "session:turn/turn_root_1",
-        "session:turn/turn_root_2",
-    )
-    orphan_ref = summary_ref(str(DAY), children)
-    SessionStore(root=session.root).save_record_if_absent(
-        SessionSummaryRecord(
-            ref=orphan_ref,
-            day=str(DAY),
-            child_refs=children,
-        )
-    )
+    from tinysoul.session.completion import project_turn_record
+
+    orphan_ref = "session:turn/not_indexed"
+    SessionStore(root=session.root).save_record_if_absent(project_turn_record(
+        completion("not_indexed"), day=DAY, output=None,
+        status=TurnOutcomeStatus.STOPPED, exhausted=False,
+    ))
 
     with pytest.raises(SessionInspectRequestError) as raised:
         session.inspect(orphan_ref)
@@ -233,7 +227,7 @@ async def test_session_inspect_executor_returns_foldable_origin(
         exhausted=True,
     )
     catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
-    action = catalog.get_action("core.session.inspect")
+    action = catalog.get_action("core.context.inspect")
     execution = ActionExecution(
         action=action,
         call=ActionCall(
@@ -249,10 +243,14 @@ async def test_session_inspect_executor_returns_foldable_origin(
             domain="core",
         ),
     )
-    result = await SessionInspectExecutor(
-        session,
-        runtime_bridge=RuntimeSessionBridge(),
+    context = ContextEngineBuilder(system_text="identity").build()
+    context.register_segment(session_segment_registration(session))
+    context.begin_turn("inspect prior turn")
+    await context.open_segments(DAY.value)
+    result = await ContextInspectExecutor(
+        context, runtime_bridge=RuntimeContextBridge(),
     ).execute(execution, ActionExecutionContext())
+    await context.close_segments()
     assert result.status is ActionResultStatus.SUCCESS
     assert result.trace_projection is not None
     assert result.trace_projection.origin_refs == (
@@ -260,6 +258,56 @@ async def test_session_inspect_executor_returns_foldable_origin(
     )
     assert "next_continuation" in result.payload
     assert "next_continuation" not in result.trace_projection.canonical_payload
+
+
+async def test_session_segment_is_fixed_and_seals_references_not_history(tmp_path: Path) -> None:
+    from tinysoul.context.errors import ContextInspectRequestError
+    from tinysoul.runtime import RuntimeException
+
+    session = _session(tmp_path)
+    session.record_turn(
+        completion("prior", ask="private prior body"), day=DAY,
+        output=SessionOutputRecord(text="prior answer"),
+        status=TurnOutcomeStatus.ANSWERED, exhausted=False,
+    )
+    context = ContextEngineBuilder(system_text="identity").build()
+    context.register_segment(session_segment_registration(session))
+    context.begin_turn("next")
+    await context.open_segments(DAY.value)
+    sealed = context.segment_snapshot("session")
+    assert sealed["refs"] == ["session:turn/prior"]
+    assert "private prior body" not in str(sealed)
+    assert (await context.inspect("session:map"))["kind"] == "session_map"
+    with pytest.raises(ContextInspectRequestError):
+        await context.inspect("session:turn/not_in_view")
+    session.record_turn(
+        completion("later"), day=DAY, output=None,
+        status=TurnOutcomeStatus.STOPPED, exhausted=False,
+    )
+    assert context.segment_snapshot("session") == sealed
+    with pytest.raises(RuntimeException):
+        await context.inspect("session:map")
+    await context.close_segments()
+
+
+def test_session_map_relates_occurrences_and_shared_resources(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+    session.record_turn(
+        completion("mapped", actions=(
+            SyntheticAction("workspace.read", result={"read": True}, references=("workspace:report.md",)),
+            SyntheticAction("workspace.read", result={"read": True}, references=("workspace:report.md",)),
+        )),
+        day=DAY, output=None, status=TurnOutcomeStatus.STOPPED, exhausted=False,
+    )
+    nodes = _json_object_list(session.inspect("session:map")["nodes"])
+    resources = [node for node in nodes if node["kind"] == "resource"]
+    actions = [node for node in nodes if node["kind"] == "action"]
+    edges = [node for node in nodes if node["kind"] == "relation"]
+    assert len(resources) == 1
+    assert len({action["ref"] for action in actions}) == 2
+    assert len([edge for edge in edges if edge["relation"] == "contains"]) == 2
+    assert len([edge for edge in edges if edge["relation"] == "references"]) == 2
+    assert all(edge["basis"] == "fact" for edge in edges)
 
 
 def test_archive_snapshot_contains_only_validated_roots(tmp_path: Path) -> None:
@@ -282,16 +330,12 @@ def _session(
     tmp_path: Path,
     *,
     background_max_chars: int = 24000,
-    min_recent_turns: int = 2,
     inspect_max_chars: int = 8000,
 ) -> SessionEngine:
     session = SessionEngine(
         SessionSettings(
             root=tmp_path / "runtime" / "session",
             background_max_chars=background_max_chars,
-            summary_watermark_ratio=0.60,
-            summary_target_ratio=0.40,
-            min_recent_turns=min_recent_turns,
             inspect_max_chars=inspect_max_chars,
         )
     )

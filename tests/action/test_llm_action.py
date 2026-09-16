@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date as CalendarDate
+
 import pytest
 
 from tinysoul.action.backends.llm_action import (
@@ -141,6 +143,7 @@ class TestActionSkillProvider:
 async def test_llm_action_uses_splittable_prompt_blocks_and_reference_links() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     llm = FakeLLMRunner()
     executor = CoreReasonActionExecutor(
         llm_action=LLMActionTaskRunner(llm_runner=llm, context=context),
@@ -170,6 +173,7 @@ async def test_llm_action_uses_splittable_prompt_blocks_and_reference_links() ->
 async def test_llm_action_reports_unsupported_reference_link() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     llm = FakeLLMRunner({"text": "done"})
     executor = CoreReasonActionExecutor(
         llm_action=LLMActionTaskRunner(llm_runner=llm, context=context)
@@ -194,6 +198,7 @@ async def test_llm_action_reports_unsupported_reference_link() -> None:
 async def test_llm_action_cancellation_stops_before_nested_task() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     llm = FakeLLMRunner()
     control = ActionExecutionControl()
     control.request_cancel("timeout")
@@ -219,6 +224,7 @@ async def test_llm_action_cancellation_stops_before_nested_task() -> None:
 async def test_llm_action_reserves_owner_time_for_completion() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     llm = FakeLLMRunner({"text": "done"})
     control = FixedRemainingControl(12.0)
     executor = CoreAnswerActionExecutor(
@@ -243,6 +249,7 @@ async def test_llm_action_reserves_owner_time_for_completion() -> None:
 async def test_llm_action_reserved_deadline_returns_ordinary_action_timeout() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     llm = FakeLLMRunner({"text": "done"})
     control = FixedRemainingControl(4.0)
     executor = CoreAnswerActionExecutor(
@@ -272,6 +279,7 @@ async def test_llm_action_reserved_deadline_returns_ordinary_action_timeout() ->
 async def test_llm_action_rechecks_completion_reserve_after_successful_return() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     control = FixedRemainingControl(12.0)
     llm = ReturningAfterReserveLLMRunner(control)
     executor = CoreAnswerActionExecutor(
@@ -296,6 +304,7 @@ async def test_llm_action_rechecks_completion_reserve_after_successful_return() 
 async def test_llm_action_preserves_failure_returned_after_completion_reserve() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     control = FixedRemainingControl(12.0)
     failure = TaskFailure(
         model_feedback="Model generation reached its output token limit.",
@@ -326,6 +335,7 @@ async def test_llm_action_preserves_failure_returned_after_completion_reserve() 
 async def test_llm_action_injects_domain_and_action_skills_as_guide_blocks() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     llm = FakeLLMRunner()
     executor = CoreReasonActionExecutor(
         llm_action=LLMActionTaskRunner(
@@ -359,6 +369,7 @@ async def test_llm_action_injects_domain_and_action_skills_as_guide_blocks() -> 
 async def test_answer_executor_uses_reference_links_and_returns_answer_payload() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     llm = FakeLLMRunner({"text": "done"})
     executor = CoreAnswerActionExecutor(
         llm_action=LLMActionTaskRunner(llm_runner=llm, context=context),
@@ -390,6 +401,7 @@ async def test_llm_action_context_pressure_carries_active_resource_links(reason:
         payload={"model_id": "small"},
     )
     context.begin_turn("user asks")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     runner = LLMActionTaskRunner(
         llm_runner=FakeLLMRunner(runtime_error=pressure),
         context=context,
@@ -422,6 +434,7 @@ async def test_llm_action_context_pressure_carries_active_resource_links(reason:
 async def test_llm_action_text_artifact_uses_action_limits() -> None:
     context = ContextEngineBuilder(system_text="system").build()
     context.begin_turn("write a document")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     llm = FakeLLMRunner({"text": "complete artifact"})
     runner = LLMActionTaskRunner(llm_runner=llm, context=context)
     execution = _execution(
@@ -446,6 +459,7 @@ async def test_llm_action_text_artifact_uses_action_limits() -> None:
 async def test_llm_action_text_artifact_limit_returns_bounded_failure() -> None:
     context = ContextEngineBuilder(system_text="system").build()
     context.begin_turn("write a document")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     runner = LLMActionTaskRunner(
         llm_runner=FakeLLMRunner({"text": "too long"}),
         context=context,
@@ -480,6 +494,7 @@ async def test_llm_action_text_artifact_limit_returns_bounded_failure() -> None:
 async def test_llm_action_owner_artifact_limit_overrides_catalog_default() -> None:
     context = ContextEngineBuilder(system_text="system").build()
     context.begin_turn("write a document")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     runner = LLMActionTaskRunner(
         llm_runner=FakeLLMRunner({"text": "123456"}),
         context=context,
@@ -505,6 +520,7 @@ async def test_llm_action_owner_artifact_limit_overrides_catalog_default() -> No
 async def test_llm_action_output_limit_preserves_recovery_scope() -> None:
     context = ContextEngineBuilder(system_text="system").build()
     context.begin_turn("write a document")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     failure = TaskFailure(
         model_feedback="Model generation reached its output token limit.",
         reason=TaskFailureReason.OUTPUT_LIMIT_REACHED,

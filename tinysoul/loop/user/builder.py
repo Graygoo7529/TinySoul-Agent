@@ -16,7 +16,6 @@ from tinysoul.capabilities.supervised_process import (
     SupervisedProcessWaitPolicy,
 )
 from tinysoul.context import ContextEngine, ContextSettings
-from tinysoul.context.preparation import ContextTurnPreparationHandler
 from tinysoul.home import (
     AgentHomeEngine,
     HomeActionSkillProvider,
@@ -41,7 +40,7 @@ from tinysoul.workspace.runtime_bridge import RuntimeWorkspaceBridge
 from tinysoul.session import SessionEngine
 from tinysoul.session.projection import (
     SessionTurnCompletionHandler,
-    SessionTurnPreparationHandler,
+    session_segment_registration,
 )
 from tinysoul.workspace import (
     WorkspaceEngine,
@@ -50,8 +49,9 @@ from tinysoul.workspace import (
 )
 
 from ..phases import LLMRunner
-from .actions import build_user_action
-from .completion import UserAnswerCompletionDetector, user_output_from_completion
+from ..actions import CommonActionAssembly
+from ..completion import AnswerCompletionDetector
+from .completion import user_output_from_completion
 from .context import build_user_context
 from .entry import UserTurnEntry
 from .prompts import USER_TURN_GUIDANCE
@@ -127,6 +127,7 @@ class UserTurnBuilder:
             observations=self._observations,
         )
         context.register_segment(workspace_segment_registration())
+        context.register_segment(session_segment_registration(self._session))
         domain_skills = self._domain_skills or HomeDomainSkillProvider(
             self._home,
             runtime_bridge=RuntimeAgentHomeBridge(),
@@ -134,62 +135,15 @@ class UserTurnBuilder:
         process_jobs: SupervisedProcessManager | None = None
         action = self._action
         if action is None:
-            staging = StagingDirectoryManager(self._root)
-            try:
-                staging.prepare()
-            except StagingError as exc:
-                raise RuntimeLoopBridge().from_exception(
-                    LoopFailureKind.RESOURCE_PREPARATION_FAILED,
-                    exc,
-                ) from exc
-            process_jobs = SupervisedProcessManager(
-                settings=self._capabilities_settings.supervised_process,
-                wait_policy=self._supervised_process_wait,
-                mirror_service=WorkspaceMirrorService(
-                    self._workspace,
-                    max_files=self._capabilities_settings.supervised_process.max_mirror_files,
-                    max_total_bytes=(
-                        self._capabilities_settings.supervised_process.max_mirror_bytes
-                    ),
-                    max_file_bytes=(
-                        self._capabilities_settings.supervised_process.max_mirror_file_bytes
-                    ),
-                ),
-                staging=staging,
-                runtime_bridge=RuntimeSupervisedProcessBridge(),
-            )
-            script_resolver = ScriptSourceResolver(
-                workspace=self._workspace,
-                home=self._home,
-                max_source_chars=self._capabilities_settings.script.max_source_chars,
-            )
-            action = build_user_action(
-                bus=self._bus,
-                workspace=self._workspace,
-                context=context,
-                session=self._session,
-                home=self._home,
-                memory=self._memory,
-                llm_action=LLMActionTaskRunner(
-                    llm_runner=self._llm,
-                    context=context,
-                    action_skills=HomeActionSkillProvider(
-                        self._home,
-                        runtime_bridge=RuntimeAgentHomeBridge(),
-                    ),
-                    profile_resolver=LLMActionProfileResolver(
-                        self._action_settings.llm_action
-                    ),
-                ),
-                llm=self._llm,
-                observations=self._observations,
+            builder, process_jobs = CommonActionAssembly(
+                root=self._root, home=self._home, memory=self._memory,
+                workspace=self._workspace, bus=self._bus, llm=self._llm,
+                observations=self._observations, action_settings=self._action_settings,
                 capabilities_settings=self._capabilities_settings,
+                supervised_process_wait=self._supervised_process_wait,
                 runtime_env=self._runtime_env,
-                staging=staging,
-                process_jobs=process_jobs,
-                script_resolver=script_resolver,
-                action_catalog=self._action_catalog,
-            )
+            ).prepare(context, self._action_catalog)
+            action = builder.build()
         try:
             self._home.reconcile_prompt_mounts(
                 domains=action.domain_names(),
@@ -218,19 +172,11 @@ class UserTurnBuilder:
             settings=self._loop_settings.user,
             cycle_settings=self._loop_settings.cycle,
             turn_guidance=USER_TURN_GUIDANCE,
-            completion_detector=UserAnswerCompletionDetector(),
+            completion_detector=AnswerCompletionDetector(),
             completion_to_output=user_output_from_completion,
             domain_skills=domain_skills,
             preparation_pipeline=TurnPreparationPipeline(
                 (
-                    ContextTurnPreparationHandler(
-                        context,
-                        runtime_bridge=context_bridge,
-                    ),
-                    SessionTurnPreparationHandler(
-                        self._session,
-                        runtime_bridge=session_bridge,
-                    ),
                     WorkspaceTurnPreparationHandler(
                         self._workspace,
                         runtime_bridge=workspace_bridge,

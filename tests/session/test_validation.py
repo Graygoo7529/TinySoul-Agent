@@ -21,13 +21,10 @@ from tinysoul.session.models import (
     SessionActionRecord,
     SessionInputRecord,
     SessionManifest,
-    SessionSummaryRecord,
     SessionTurnRecord,
     session_record_from_json,
-    summary_ref,
 )
 from tinysoul.session.store import SessionStore
-from tinysoul.session.validation import validate_summary_record
 
 
 DAY = "2026-07-25"
@@ -147,28 +144,15 @@ def test_store_rejects_malformed_persisted_action_failure(tmp_path: Path) -> Non
         store.load_record("session:turn/turn_invalid_failure")
 
 
-def test_manifest_v2_is_only_an_ordered_root_set() -> None:
+def test_manifest_v3_indexes_only_immutable_turns() -> None:
     manifest = SessionManifest(day=DAY, revision=2, refs=("session:turn/turn_a",))
-    assert SESSION_MANIFEST_SCHEMA_VERSION == 2
+    assert SESSION_MANIFEST_SCHEMA_VERSION == 3
     assert manifest.to_json() == {
-        "schema_version": 2,
+        "schema_version": 3,
         "day": DAY,
         "revision": 2,
         "refs": ["session:turn/turn_a"],
     }
-
-
-def test_summary_identity_is_derived_from_direct_children() -> None:
-    children = ("session:turn/turn_a", "session:turn/turn_b")
-    record = SessionSummaryRecord(
-        ref=summary_ref(DAY, children),
-        day=DAY,
-        child_refs=children,
-    )
-    assert validate_summary_record(record) is record
-
-    with pytest.raises(SessionInvariantError, match="identity"):
-        validate_summary_record(replace(record, ref="session:summary/summary_wrong"))
 
 
 def test_store_reuses_equal_facts_and_rejects_conflicts(tmp_path: Path) -> None:

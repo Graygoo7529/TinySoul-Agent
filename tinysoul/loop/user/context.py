@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from tinysoul.context import ContextEngine, ContextEngineBuilder, ContextSettings
 from tinysoul.context.errors import ContextError
-from tinysoul.home import AgentHomeEngine, HomeBackgroundEntryProvider
+from tinysoul.home import AgentHomeEngine
+from tinysoul.home.background import home_segment_registration
 from tinysoul.home.errors import AgentHomeError
 from tinysoul.infra.config import ConfigError
-from tinysoul.memory import ActiveMemoryBackgroundEntryProvider, MemoryEngine
+from tinysoul.memory import MemoryEngine
+from tinysoul.memory.background import memory_segment_registration
 from tinysoul.runtime import ObservationEmitter
 from tinysoul.home.runtime_bridge import RuntimeAgentHomeBridge
 from tinysoul.context.runtime_bridge import RuntimeContextBridge
-from tinysoul.memory.runtime_bridge import RuntimeMemoryBridge
 
 
 def build_user_context(
@@ -25,7 +26,6 @@ def build_user_context(
 
     context_bridge = RuntimeContextBridge()
     home_bridge = RuntimeAgentHomeBridge()
-    memory_bridge = RuntimeMemoryBridge()
     try:
         return (
             ContextEngineBuilder(system_text=settings.system_text)
@@ -40,18 +40,8 @@ def build_user_context(
             .with_trace_inspect_max_chars(settings.trace_inspect_max_chars)
             .with_compression_trigger_ratio(settings.compression_trigger_ratio)
             .with_compression_target_ratio(settings.compression_target_ratio)
-            .add_background_provider(
-                HomeBackgroundEntryProvider(
-                    home=home,
-                    runtime_bridge=home_bridge,
-                )
-            )
-            .add_background_provider(
-                ActiveMemoryBackgroundEntryProvider(
-                    memory=memory,
-                    runtime_bridge=memory_bridge,
-                )
-            )
+            .with_segment(home_segment_registration(home))
+            .with_segment(memory_segment_registration(memory))
             .build()
         )
     except ConfigError as exc:

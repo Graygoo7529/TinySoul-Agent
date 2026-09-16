@@ -1,16 +1,17 @@
-"""Model-facing Session heap refs and semantic node projections."""
+"""Model-facing Session Map refs and semantic node projections."""
 
 from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+from enum import StrEnum
 import re
 
 from tinysoul.action import ActionLocalFailure
 from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
 
 from .errors import SessionContractError
-from .models import SessionActionRecord, SessionSummaryRecord, SessionTurnRecord
+from .models import SessionActionOutcome, SessionActionRecord, SessionTurnRecord
 
 
 _ACTION_COLLECTION = re.compile(r"^(session:turn/[a-z0-9_-]+)#actions$")
@@ -18,6 +19,50 @@ _ACTION_LEAF = re.compile(r"^(session:turn/[a-z0-9_-]+)#action/([0-9]+)$")
 _FAILED_RESULT_PREVIEW_CHARS = 1200
 _FAILURE_FEEDBACK_PREVIEW_CHARS = 800
 _TURN_TEXT_PREVIEW_CHARS = 600
+
+
+class SessionRelationKind(StrEnum):
+    PRECEDES = "precedes"
+    CONTAINS = "contains"
+    REFERENCES = "references"
+
+
+def project_map(records: tuple[SessionTurnRecord, ...]) -> tuple[JsonObject, ...]:
+    """Derive nodes and explicit factual edges; never infer semantic relationships."""
+
+    values: list[JsonObject] = []
+    resources: set[str] = set()
+    previous: str | None = None
+
+    def edge(source: str, target: str, relation: SessionRelationKind) -> None:
+        values.append({
+            "kind": "relation", "source": source, "target": target,
+            "relation": relation.value, "basis": "fact",
+        })
+
+    def references(source: str, refs: tuple[str, ...]) -> None:
+        for ref in dict.fromkeys(refs):
+            if ref not in resources:
+                values.append({"kind": "resource", "ref": ref})
+                resources.add(ref)
+            edge(source, ref, SessionRelationKind.REFERENCES)
+
+    for record in records:
+        values.append(project_navigation_header(record))
+        if previous is not None:
+            edge(previous, record.ref, SessionRelationKind.PRECEDES)
+        previous = record.ref
+        if record.output is not None:
+            references(record.ref, record.output.references)
+        for index, action in enumerate(record.actions):
+            ref = action_leaf_ref(record.ref, index)
+            values.append({
+                "kind": "action", "ref": ref, "action": action.action,
+                "outcome": action.outcome.value,
+            })
+            edge(record.ref, ref, SessionRelationKind.CONTAINS)
+            references(ref, action.references)
+    return tuple(values)
 
 
 @dataclass(frozen=True)
@@ -57,18 +102,7 @@ def parse_action_ref(ref: str) -> SessionActionRef | None:
     return None
 
 
-def project_navigation_header(
-    record: SessionTurnRecord | SessionSummaryRecord,
-    *,
-    turn_count: int,
-) -> JsonObject:
-    if isinstance(record, SessionSummaryRecord):
-        return {
-            "kind": "summary",
-            "ref": record.ref,
-            "turn_count": turn_count,
-            "child_count": len(record.child_refs),
-        }
+def project_navigation_header(record: SessionTurnRecord) -> JsonObject:
     value: JsonObject = {
         "kind": "turn",
         "ref": record.ref,
@@ -84,7 +118,7 @@ def project_navigation_header(
 
 def action_outcomes(record: SessionTurnRecord) -> tuple[JsonObject, ...]:
     counters: dict[str, dict[str, int]] = defaultdict(
-        lambda: {"success": 0, "failed": 0, "timeout": 0}
+        lambda: {outcome.value: 0 for outcome in SessionActionOutcome}
     )
     for action in record.actions:
         counters[action.action][action.outcome.value] += 1

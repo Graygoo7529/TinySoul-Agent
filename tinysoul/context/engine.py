@@ -4,30 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Protocol
 from uuid import uuid4
 from tinysoul.action.core.call import ActionCall, ExecutionFact
 from tinysoul.action.core.result import ActionResult
 
-from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
-from tinysoul.infra.continuation import (
-    MIN_CONTINUATION_PAGE_CHARS,
-    ContinuationError,
-    ContinuationFailureReason,
-    OpaqueContinuationCodec,
-    continue_json_sequence,
-)
-from tinysoul.infra.json import JsonObject, JsonValue, dumps_json, to_json_object
-from tinysoul.llm.messages import (
-    AssistantMessage,
-    JsonPart,
-    Message,
-    MessageStack,
-    TextPart,
-    SystemMessage,
-    ToolResultMessage,
-)
-from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolScope
+from tinysoul.infra.concurrency import CleanupDiagnostic
+from tinysoul.infra.continuation import MIN_CONTINUATION_PAGE_CHARS
+from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.llm.messages import MessageStack
+from tinysoul.llm.tools import ToolCallRecord, ToolScope
 from tinysoul.runtime import (
     NullObservationEmitter,
     ObservationEmitter,
@@ -42,11 +27,8 @@ from tinysoul.runtime import (
 )
 
 from .background import (
-    BackgroundContext,
-    BackgroundEntry,
     BackgroundPatch,
-    BackgroundSource,
-    SessionBackgroundSnapshot,
+    check_background_patches,
 )
 from .composer import ContextBudget, MessageStackComposer
 from .compress import ContextCompressor, ContextPressureReport
@@ -60,41 +42,28 @@ from .controls import (
 from .errors import (
     ContextContractError,
     ContextInvariantError,
-    ContextTraceFailureReason,
-    ContextTraceRequestError,
 )
 from .prompts import TaskPrompt
-from .providers import (
-    BackgroundCatalog,
-    BackgroundEntryProvider,
-)
+from .providers import SegmentSelectionView
 from .signals import (
     SIGNAL_BACKGROUND_PATCH,
     SIGNAL_INPUT_APPEND,
     SIGNAL_NAMESPACE,
-    SIGNAL_SESSION_SYNC,
     SIGNAL_TRACE_APPEND,
     SIGNAL_WORKING_PATCH,
-    TraceAppend,
     parse_background_patch_signal,
-    parse_input_append_signal,
-    parse_session_sync_signal,
-    parse_trace_append_signal,
     parse_working_patch_signal,
 )
 from .trace import (
     PendingInputs,
     SealedTurnTrace,
     TraceCompactionReport,
-    TraceEntry,
     TraceKind,
     TurnTraceHeap,
 )
 from .working import WorkingContext, WorkingPatch
-from .segments import (
-    RegisteredSegment, SegmentDescriptor, SegmentProjection, SegmentRegistry,
-    SegmentSlot, TurnInfo, TurnSegments,
-)
+from .segments import RegisteredSegment, SegmentRegistry, TurnInfo, TurnSegments
+from .core import CORE_DESCRIPTORS, CORE_SEGMENT_IDS, InputsSegment, PlanSegment, TraceSegment, core_registrations
 
 
 @dataclass(frozen=True)
@@ -161,24 +130,6 @@ class ContextTurnCompletion:
             )
 
 
-class BackgroundContentLoader(Protocol):
-    """Load one BackgroundContext entry at the moment it becomes visible."""
-
-    def load(self) -> str:
-        """Return non-empty entry content."""
-        ...
-
-
-@dataclass(frozen=True)
-class StaticBackgroundContentLoader:
-    """In-memory loader used for static or already-materialized content."""
-
-    content: str
-
-    def load(self) -> str:
-        return self.content
-
-
 @dataclass(frozen=True)
 class ContextSignalBatch:
     """A replayable group of context signals owned by one active Turn."""
@@ -206,10 +157,8 @@ class ContextEngine:
         composer: MessageStackComposer,
         system_text: str,
         compressor: ContextCompressor,
-        background: BackgroundContext,
-        default_entries: tuple[BackgroundEntry, ...],
-        loadable_entries: dict[str, BackgroundContentLoader],
-        background_providers: tuple[BackgroundEntryProvider, ...],
+        journal: str,
+        registrations: tuple[RegisteredSegment, ...],
         trace_inspect_max_chars: int,
         compression_trigger_ratio: float,
         compression_target_ratio: float,
@@ -218,30 +167,34 @@ class ContextEngine:
         self._composer = composer
         self._system_text = system_text
         self._segment_registry = SegmentRegistry()
+        self._turn_registry = SegmentRegistry()
         self._segments: TurnSegments | None = None
         self._compressor = compressor
-        self._background = background
-        self._default_entries = tuple(default_entries)
-        self._loadable_entries = dict(loadable_entries)
-        self._background_providers = tuple(background_providers)
-        self._provider_by_link: dict[str, BackgroundEntryProvider] = {}
-        self._catalog_by_owner: dict[str, BackgroundCatalog] = {}
-        self._business_day: date | None = None
+        self._journal = journal
         self._trace_inspect_max_chars = trace_inspect_max_chars
-        self._trace_continuations = OpaqueContinuationCodec(
-            owner="context",
-            operation="inspect",
-        )
         self._compression_trigger_ratio = compression_trigger_ratio
         self._compression_target_ratio = compression_target_ratio
         self._observations = observations or NullObservationEmitter()
         self._scope_builder = ContextControlScopeBuilder()
         self._normalizer = ControlCallNormalizer()
-        self._working = WorkingContext()
-        self._trace = compressor.new_trace("detached")
-        self._inputs = PendingInputs()
+        self._plan_segment = PlanSegment()
+        self._trace_segment = TraceSegment(compressor.new_trace("detached"), inspect_max_chars=trace_inspect_max_chars)
+        self._inputs_segment = InputsSegment()
         self._turn_id = ""
-        self._preparing_turn = False
+        for registration in registrations:
+            self.register_segment(registration)
+
+    @property
+    def _trace(self) -> TurnTraceHeap:
+        return self._trace_segment.state
+
+    @property
+    def _inputs(self) -> PendingInputs:
+        return self._inputs_segment.state
+
+    @property
+    def _working(self) -> WorkingContext:
+        return self._plan_segment.state
 
     @property
     def turn_active(self) -> bool:
@@ -258,7 +211,7 @@ class ContextEngine:
     def background_links(self) -> tuple[str, ...]:
         """Return currently loaded background links without exposing mutable state."""
 
-        return self._background.links()
+        return self._selection_view().loaded
 
     def working_snapshot(self) -> JsonObject:
         """Return a JSON-safe copy of the working context."""
@@ -270,10 +223,16 @@ class ContextEngine:
         """Register one owner contribution before starting any Turn."""
         if self._turn_id or self._segments is not None:
             raise ContextContractError("Segments must be registered before Turn execution")
-        if registration.descriptor.id in {"identity", "session", "inputs", "background", "trace", "plan", "task_prompt"}:
+        if registration.descriptor.id in CORE_SEGMENT_IDS | {"task_prompt"}:
             raise ContextContractError("Segment id conflicts with a core projection")
+        for prefix in registration.descriptor.ref_prefixes:
+            if any(
+                prefix.startswith(reserved) or reserved.startswith(prefix)
+                for descriptor in CORE_DESCRIPTORS for reserved in descriptor.ref_prefixes
+            ):
+                raise ContextContractError("Segment reference route conflicts with a core segment")
         if registration.signal_name in {
-            SIGNAL_WORKING_PATCH, SIGNAL_SESSION_SYNC, SIGNAL_BACKGROUND_PATCH,
+            SIGNAL_WORKING_PATCH, SIGNAL_BACKGROUND_PATCH,
             SIGNAL_TRACE_APPEND, SIGNAL_INPUT_APPEND,
         }:
             raise ContextContractError("Segment update route conflicts with a core update")
@@ -307,119 +266,52 @@ class ContextEngine:
         if not user_input:
             raise ContextContractError("begin_turn requires non-empty user input")
         self._turn_id = f"turn_{uuid4().hex[:8]}"
-        self._working = WorkingContext()
-        self._trace = self._compressor.new_trace(self._turn_id)
-        self._inputs = PendingInputs()
-        self._inputs.add(user_input, merged=True)
-        self._background.reset_entries()
-        self._background.reset_session()
-        self._background.reset_catalogs()
-        self._provider_by_link = {}
-        self._catalog_by_owner = {}
-        self._business_day = None
-        self._preparing_turn = True
+        self._plan_segment = PlanSegment()
+        self._trace_segment = TraceSegment(
+            self._compressor.new_trace(self._turn_id), inspect_max_chars=self._trace_inspect_max_chars,
+        )
+        self._inputs_segment = InputsSegment(user_input)
+        self._turn_registry = SegmentRegistry((
+            *core_registrations(identity=self._system_text, journal=self._journal,
+                                inputs=self._inputs_segment, plan=self._plan_segment, trace=self._trace_segment),
+            *self._segment_registry.registrations,
+        ))
         return self._turn_id
 
-    async def prepare_default_background(self, business_day: date) -> None:
-        """Load all provider defaults for one captured Business Day."""
-
+    async def open_segments(self, business_day: date) -> None:
+        """Open every owner view before the first model task."""
         self._require_turn()
         if not isinstance(business_day, date):
-            raise ContextContractError("Background preparation requires a date")
-        turn_id = self._turn_id
-        operations = JoinedOperations()
-        bindings, entries = await operations.run(
-            lambda: self._prepare_default_background(business_day)
-        )
-        operations.check_cancelled()
-        if self._turn_id != turn_id:
-            raise ContextContractError("Background preparation outlived its Turn")
-        if self._segments is None:
-            self._segments = self._segment_registry.for_turn(TurnInfo(turn_id, business_day))
-            await self._segments.open()
-        self._business_day = business_day
-        self._provider_by_link = {
-            link: provider for provider, catalog in bindings for link in catalog.loadable_links
-        }
-        self._catalog_by_owner = {catalog.owner: catalog for _, catalog in bindings}
-        self._background.reset_catalogs(tuple(catalog for _, catalog in bindings))
-        self._background.reset_entries(entries)
+            raise ContextContractError("Segment preparation requires a date")
+        if self._segments is not None:
+            return
+        views = self._turn_registry.for_turn(TurnInfo(self._turn_id, business_day))
+        await views.open()
+        try:
+            views.selection_view()  # Reject overlapping dynamic catalogs before publishing views.
+        except Exception:
+            await views.close()
+            raise
+        self._segments = views
         self._emit_background_observation(
-            name="context.background.snapshot",
-            message="Top-level background context prepared.",
+            name="context.background.snapshot", message="Turn background views opened.",
         )
 
-    def _prepare_default_background(
-        self, business_day: date,
-    ) -> tuple[tuple[tuple[BackgroundEntryProvider, BackgroundCatalog], ...], tuple[BackgroundEntry, ...]]:
-        bindings = self._collect_background_catalogs(business_day)
-        entries = list(self._default_entries)
-        seen = {entry.link for entry in entries}
-        for provider, catalog in bindings:
-            for link in catalog.default_links:
-                if link in seen:
-                    raise ContextInvariantError(
-                        f"Duplicate default Background link: {link}"
-                    )
-                content = provider.load(link, business_day)
-                if not content:
-                    raise ContextInvariantError(
-                        f"Background provider returned empty content: {link}"
-                    )
-                evictable = link in catalog.evictable_default_links
-                entries.append(
-                    BackgroundEntry(
-                        link=link,
-                        content=content,
-                        source=(
-                            BackgroundSource.AUTOMATIC
-                            if evictable
-                            else BackgroundSource.DEFAULT
-                        ),
-                        owner=catalog.owner,
-                        evictable=evictable,
-                    )
-                )
-                seen.add(link)
-        return bindings, tuple(entries)
-
-    def complete_preparation(self) -> None:
-        self._require_turn()
-        self._preparing_turn = False
+    def _selection_view(self) -> SegmentSelectionView:
+        return self._segments.selection_view() if self._segments is not None else SegmentSelectionView()
 
     def compose(self, task_prompt: TaskPrompt) -> MessageStack:
         self._require_turn()
-        if self._segment_registry.registrations and self._segments is None:
-            raise ContextContractError("Registered Context segments must be opened before composition")
-        return self._composer.compose(
-            segments=(
-                SegmentProjection(SegmentDescriptor("identity", "context", SegmentSlot.BACKGROUND, 10),
-                                  (SystemMessage.from_text(self._system_text, label="identity"),)),
-                SegmentProjection(SegmentDescriptor("session", "session", SegmentSlot.BACKGROUND, 20),
-                                  self._background.render_session_messages()),
-                SegmentProjection(SegmentDescriptor("inputs", "context", SegmentSlot.BACKGROUND, 30),
-                                  self._inputs.render_messages()),
-                SegmentProjection(SegmentDescriptor("background", "context", SegmentSlot.BACKGROUND, 40),
-                                  self._background.render_background_messages()),
-                SegmentProjection(SegmentDescriptor("trace", "context", SegmentSlot.TRACE, 10),
-                                  self._trace.render_messages()),
-                SegmentProjection(SegmentDescriptor("plan", "context", SegmentSlot.WORKING, 10),
-                                  self._working.render_messages()),
-                *(self._segments.render() if self._segments is not None else ()),
-            ),
-            task_prompt=task_prompt,
-        )
+        if self._segments is None:
+            raise ContextContractError("Context segments must be opened before composition")
+        return self._composer.compose(segments=self._segments.render(), task_prompt=task_prompt)
 
     def control_scope(self) -> ToolScope:
         self._require_turn()
-        loadable_links = self._all_loadable_links()
-        loadable = tuple(
-            link for link in loadable_links if not self._background.has(link)
-        )
-        evictable = self._background.evictable_links()
+        view = self._selection_view()
         return self._scope_builder.build(
-            loadable_links=loadable,
-            loaded_links=evictable,
+            loadable_links=tuple(ref for ref in view.available if ref not in view.loaded),
+            loaded_links=tuple(ref for ref in view.loaded if ref not in view.protected),
         )
 
     def normalize_controls(
@@ -451,7 +343,8 @@ class ContextEngine:
     ) -> tuple[ControlResult, ...]:
         """Prepare and atomically commit a replayable context signal batch.
 
-        Invalid signals become local results. Valid working/background patches are
+        Model control failures become local results; invalid owner updates stop at
+        the contract boundary. Valid working/background patches are
         checked against a projected batch state. Lazy background content is fully
         loaded before the first state mutation, so a Runtime Trap can retry this
         exact batch without observing a partial commit.
@@ -462,16 +355,11 @@ class ContextEngine:
             raise ContextContractError(
                 "Context signal batch belongs to a different active Turn"
             )
-        background_before = self._background.links()
+        background_before = self.background_links()
         results: list[ControlResult] = []
         working_candidates: list[tuple[int, Signal, str, WorkingPatch]] = []
-        segment_signals: list[Signal] = []
-        session_candidates: list[
-            tuple[int, Signal, str, SessionBackgroundSnapshot]
-        ] = []
+        segment_signals: list[tuple[int, Signal]] = []
         background_candidates: list[tuple[int, Signal, str, BackgroundPatch]] = []
-        trace_appends: list[TraceAppend] = []
-        input_texts: list[str] = []
 
         for index, signal in enumerate(batch.signals):
             sequence = index + 1
@@ -493,23 +381,10 @@ class ContextEngine:
                     call_id, patch = parse_working_patch_signal(signal)
                     working_candidates.append((sequence, signal, call_id, patch))
                 elif self._segments is not None and self._segments.accepts(signal):
-                    segment_signals.append(signal)
-                elif signal.name == SIGNAL_SESSION_SYNC:
-                    if not self._preparing_turn:
-                        raise ContextContractError(
-                            "Session background can only be synchronized during Turn preparation"
-                        )
-                    call_id, snapshot = parse_session_sync_signal(signal)
-                    session_candidates.append(
-                        (sequence, signal, call_id, snapshot)
-                    )
+                    segment_signals.append((sequence, signal))
                 elif signal.name == SIGNAL_BACKGROUND_PATCH:
                     call_id, patch = parse_background_patch_signal(signal)
                     background_candidates.append((sequence, signal, call_id, patch))
-                elif signal.name == SIGNAL_TRACE_APPEND:
-                    trace_appends.append(parse_trace_append_signal(signal))
-                elif signal.name == SIGNAL_INPUT_APPEND:
-                    input_texts.append(parse_input_append_signal(signal))
                 else:
                     results.append(
                         _consume_failure(
@@ -529,45 +404,28 @@ class ContextEngine:
                     )
                 )
 
-        working_patches = self._validated_working_patches(
-            working_candidates,
-            results=results,
+        problems = self._working.check_patch_sequence(tuple(patch for _, _, _, patch in working_candidates))
+        for (sequence, signal, call_id, _patch), problem in zip(working_candidates, problems):
+            if problem:
+                results.append(_consume_failure(signal, call_id, sequence, problem))
+            else:
+                segment_signals.append((sequence, signal))
+        problems = check_background_patches(
+            self._selection_view(), tuple(patch for _, _, _, patch in background_candidates),
         )
-        session_snapshots = self._validated_session_snapshots(
-            session_candidates,
-            results=results,
-        )
-        background_patches = self._validated_background_patches(
-            background_candidates,
-            results=results,
-        )
-        prepared_background: dict[str, str] = {}
-        if background_patches:
-            operations = JoinedOperations()
-            prepared_background = await operations.run(
-                lambda: self._prepare_background(background_patches)
-            )
-            operations.check_cancelled()
-            if self._turn_id != batch.turn_id:
-                raise ContextContractError("Context batch preparation outlived its Turn")
+        for (sequence, signal, call_id, patch), problem in zip(background_candidates, problems):
+            if problem:
+                results.append(_consume_failure(signal, call_id, sequence, problem))
+            elif self._segments is not None:
+                segment_signals.extend((sequence, update) for update in self._segments.selection_signals(patch, signal))
 
         if self._segments is not None:
-            prepared_segments = await self._segments.prepare(tuple(segment_signals))
+            prepared_segments = await self._segments.prepare(tuple(signal for _, signal in sorted(segment_signals, key=lambda item: item[0])))
             if self._turn_id != batch.turn_id:
                 raise ContextContractError("Segment preparation outlived its Turn")
             self._segments.install(prepared_segments)
 
-        for patch in working_patches:
-            self._working.apply_patch(patch)
-        for snapshot in session_snapshots:
-            self._background.apply_session_snapshot(snapshot)
-        for patch in background_patches:
-            self._apply_background_patch(patch, prepared=prepared_background)
-        for append in trace_appends:
-            self._apply_trace_append(append)
-        for text in input_texts:
-            self._inputs.add(text)
-        background_after = self._background.links()
+        background_after = self.background_links()
         if background_after != background_before:
             before = set(background_before)
             after = set(background_after)
@@ -598,27 +456,20 @@ class ContextEngine:
 
     def reclaim_pressure(self, *, required_chars: int) -> ContextPressureReport:
         self._require_turn()
-        trace_report = self._compressor.compress(
-            self._trace,
-            required_chars=max(0, required_chars),
-        )
-        remaining = max(0, required_chars - trace_report.reclaimed_chars)
-        background_report = self._background.evict_for_budget(
-            required_chars=remaining
-        )
+        from .segments import SegmentReclaim
+        background_report = self._segments.reclaim(required_chars) if self._segments is not None else SegmentReclaim()
         report = ContextPressureReport(
-            changed=trace_report.changed or background_report.changed,
+            changed=bool(background_report.reclaimed_chars),
             reclaimed_chars=(
-                trace_report.reclaimed_chars + background_report.reclaimed_chars
+                background_report.reclaimed_chars
             ),
-            trace=trace_report,
-            evicted_background_links=background_report.evicted_links,
+            evicted_background_links=background_report.evicted_refs,
         )
-        if background_report.evicted_links:
+        if background_report.evicted_refs:
             self._emit_background_observation(
                 name="context.background.changed",
                 message="Top-level background context evicted for budget.",
-                evicted_links=background_report.evicted_links,
+                evicted_links=background_report.evicted_refs,
             )
         return report
 
@@ -632,7 +483,6 @@ class ContextEngine:
     ) -> None:
         if not observation_enabled(self._observations, ObservationLevel.VERBOSE):
             return
-        entries = tuple(self._background.entries())
         emit_observation(
             self._observations,
             ObservationEvent(
@@ -643,63 +493,18 @@ class ContextEngine:
                 message=message,
                 payload={
                     "turn_id": self._turn_id,
-                    "links": [entry.link for entry in entries],
+                    "links": list(self.background_links()),
                     "loaded_links": list(loaded_links),
                     "evicted_links": list(evicted_links),
-                    "entries": [
-                        {
-                            "link": entry.link,
-                            "content": entry.content,
-                            "source": entry.source.value,
-                            "owner": entry.owner,
-                            "evictable": entry.evictable,
-                        }
-                        for entry in entries
-                    ],
                 },
             ),
         )
 
-    def inspect_trace(
-        self,
-        ref: str,
-        *,
-        continuation: str | None = None,
-    ) -> JsonObject:
-        """Inspect one current-Turn heap node without flattening the hierarchy."""
-
+    async def inspect(self, ref: str, *, continuation: str | None = None) -> JsonObject:
         self._require_turn()
-        structure = self._trace.inspect(ref)
-        if structure.get("kind") != "context_trace_leaf":
-            if continuation is not None:
-                raise ContextTraceRequestError(
-                    ContextTraceFailureReason.INVALID_CONTINUATION,
-                    "This Context node has no continuation; inspect its child ref",
-                    constraint={"ref": ref},
-                )
-            if len(dumps_json(structure)) > self._trace_inspect_max_chars:
-                raise ContextTraceRequestError(
-                    ContextTraceFailureReason.PAGE_BUDGET_TOO_SMALL,
-                    "Context heap header exceeds the inspect character limit",
-                    constraint={"ref": ref},
-                )
-            return structure
-        interactions = tuple(
-            _semantic_trace_entry(entry)
-            for entry in self._trace.leaf_entries(ref)
-        )
-        try:
-            return continue_json_sequence(
-                interactions,
-                base={"kind": "context_trace_leaf", "ref": ref},
-                item_field="interactions",
-                continuation=continuation,
-                codec=self._trace_continuations,
-                ref=ref,
-                max_chars=self._trace_inspect_max_chars,
-            )
-        except ContinuationError as exc:
-            raise _context_continuation_error(exc, ref=ref) from exc
+        if self._segments is None:
+            raise ContextContractError("Context segments must be opened before inspection")
+        return await self._segments.inspect(ref, continuation=continuation)
 
     def record_execution(self, fact: ExecutionFact) -> None:
         self._require_turn()
@@ -726,9 +531,12 @@ class ContextEngine:
                 for item in self._inputs.all()
             ),
             working=self._working.to_json(),
-            background_links=self._background.links(),
+            background_links=self.background_links(),
             trace=self._trace.seal(),
-            segments=self._segments.seal() if self._segments is not None else {},
+            segments={
+                key: value for key, value in (self._segments.seal() if self._segments is not None else {}).items()
+                if key not in CORE_SEGMENT_IDS
+            },
         )
         self._turn_id = ""
         self._preparing_turn = False
@@ -740,206 +548,8 @@ class ContextEngine:
         if not self._turn_id:
             return
         self._turn_id = ""
-        self._working = WorkingContext()
-        self._trace = self._compressor.new_trace("detached")
-        self._inputs = PendingInputs()
-        self._background.reset_entries()
-        self._background.reset_session()
-        self._background.reset_catalogs()
-        self._provider_by_link = {}
-        self._catalog_by_owner = {}
-        self._business_day = None
+
         self._preparing_turn = False
-
-    def _validated_working_patches(
-        self,
-        candidates: list[tuple[int, Signal, str, WorkingPatch]],
-        *,
-        results: list[ControlResult],
-    ) -> tuple[WorkingPatch, ...]:
-        patches = tuple(patch for _, _, _, patch in candidates)
-        problems = self._working.check_patch_sequence(patches)
-        valid: list[WorkingPatch] = []
-        for (sequence, signal, call_id, patch), problem in zip(candidates, problems):
-            if problem:
-                results.append(_consume_failure(signal, call_id, sequence, problem))
-                continue
-            valid.append(patch)
-        return tuple(valid)
-
-    def _validated_background_patches(
-        self,
-        candidates: list[tuple[int, Signal, str, BackgroundPatch]],
-        *,
-        results: list[ControlResult],
-    ) -> tuple[BackgroundPatch, ...]:
-        patches = tuple(patch for _, _, _, patch in candidates)
-        non_evictable_loaded = set(self._background.links()).difference(
-            self._background.evictable_links()
-        )
-        protected_defaults = {
-            link
-            for catalog in self._catalog_by_owner.values()
-            for link in catalog.default_links
-            if link not in catalog.evictable_default_links
-        }
-        evictable_links = tuple(
-            link
-            for link in self._all_loadable_links()
-            if link not in non_evictable_loaded and link not in protected_defaults
-        )
-        problems = self._background.check_patch_sequence(
-            patches,
-            loadable_links=self._all_loadable_links(),
-            evictable_links=evictable_links,
-        )
-        valid: list[BackgroundPatch] = []
-        for (sequence, signal, call_id, patch), problem in zip(candidates, problems):
-            if problem:
-                results.append(_consume_failure(signal, call_id, sequence, problem))
-                continue
-            valid.append(patch)
-        return tuple(valid)
-
-    def _validated_session_snapshots(
-        self,
-        candidates: list[tuple[int, Signal, str, SessionBackgroundSnapshot]],
-        *,
-        results: list[ControlResult],
-    ) -> tuple[SessionBackgroundSnapshot, ...]:
-        if len(candidates) > 1:
-            for sequence, signal, call_id, _ in candidates:
-                results.append(
-                    _consume_failure(
-                        signal,
-                        call_id,
-                        sequence,
-                        "A preparation batch may contain only one Session snapshot",
-                    )
-                )
-            return ()
-        valid: list[SessionBackgroundSnapshot] = []
-        for sequence, signal, call_id, snapshot in candidates:
-            problem = self._background.check_session_snapshot(snapshot)
-            if problem:
-                results.append(_consume_failure(signal, call_id, sequence, problem))
-                continue
-            valid.append(snapshot)
-        return tuple(valid)
-
-    def _prepare_background(
-        self,
-        patches: tuple[BackgroundPatch, ...],
-    ) -> dict[str, str]:
-        prepared: dict[str, str] = {}
-        loaded = set(self._background.links())
-        for patch in patches:
-            for link in patch.load_links:
-                if link in loaded:
-                    continue
-                content = prepared.get(link)
-                if content is None:
-                    content = self._load_background(link)
-                    if not content:
-                        raise ContextContractError(
-                            f"Background loader returned empty content: {link}"
-                        )
-                    prepared[link] = content
-                loaded.add(link)
-            for link in patch.evict_links:
-                loaded.discard(link)
-        return prepared
-
-    def _collect_background_catalogs(
-        self,
-        business_day: date,
-    ) -> tuple[tuple[BackgroundEntryProvider, BackgroundCatalog], ...]:
-        catalogs: list[tuple[BackgroundEntryProvider, BackgroundCatalog]] = []
-        links = set(self._loadable_entries)
-        owners: set[str] = set()
-        for provider in self._background_providers:
-            catalog = provider.catalog(business_day)
-            if not isinstance(catalog, BackgroundCatalog):
-                raise ContextInvariantError(
-                    "Background provider returned an invalid catalog"
-                )
-            if catalog.owner in owners:
-                raise ContextInvariantError(
-                    f"Duplicate Background provider owner: {catalog.owner}"
-                )
-            duplicates = links.intersection(catalog.loadable_links)
-            if duplicates:
-                raise ContextInvariantError(
-                    f"Duplicate Background link: {sorted(duplicates)[0]}"
-                )
-            owners.add(catalog.owner)
-            links.update(catalog.loadable_links)
-            catalogs.append((provider, catalog))
-        return tuple(catalogs)
-
-    def _all_loadable_links(self) -> tuple[str, ...]:
-        return (*self._loadable_entries, *self._provider_by_link)
-
-    def _load_background(self, link: str) -> str:
-        loader = self._loadable_entries.get(link)
-        if loader is not None:
-            return loader.load()
-        provider = self._provider_by_link.get(link)
-        if provider is None:
-            raise ContextInvariantError(f"Unknown Background link: {link}")
-        if self._business_day is None:
-            raise ContextInvariantError("Background providers are not prepared")
-        return provider.load(link, self._business_day)
-
-    def _apply_background_patch(
-        self,
-        patch: BackgroundPatch,
-        *,
-        prepared: dict[str, str],
-    ) -> None:
-        for link in patch.load_links:
-            if self._background.has(link):
-                continue
-            self._background.load(
-                BackgroundEntry(
-                    link=link,
-                    content=prepared[link],
-                    source=BackgroundSource.PHASE1,
-                    owner=self._owner_for_link(link),
-                    evictable=True,
-                )
-            )
-        for link in patch.evict_links:
-            self._background.evict(link)
-
-    def _owner_for_link(self, link: str) -> str:
-        if link in self._loadable_entries:
-            return "context"
-        for owner, catalog in self._catalog_by_owner.items():
-            if link in catalog.loadable_links:
-                return owner
-        raise ContextInvariantError(f"Unknown Background link owner: {link}")
-
-    def _apply_trace_append(self, append: TraceAppend) -> None:
-        if append.decision is not None:
-            self._trace.append_decision(
-                append.decision,
-                cycle_id=append.cycle_id,
-                phase=append.phase,
-            )
-        elif append.action_result is not None:
-            self._trace.append_action_result(
-                append.action_result,
-                cycle_id=append.cycle_id,
-                canonical_message=append.canonical_action_result,
-                origin_refs=append.origin_refs,
-            )
-        elif append.note is not None:
-            self._trace.append_phase_note(
-                append.note,
-                cycle_id=append.cycle_id,
-                phase=append.phase,
-            )
 
     def _require_turn(self) -> None:
         if not self._turn_id:
@@ -988,9 +598,7 @@ class ContextEngineBuilder:
         self._trace_inspect_max_chars = 8000
         self._compression_trigger_ratio = 0.80
         self._compression_target_ratio = 0.50
-        self._default_entries: list[BackgroundEntry] = []
-        self._loadable_entries: dict[str, BackgroundContentLoader] = {}
-        self._background_providers: list[BackgroundEntryProvider] = []
+        self._registrations: list[RegisteredSegment] = []
         self._observations: ObservationEmitter = NullObservationEmitter()
 
     def with_journal(self, journal: str) -> "ContextEngineBuilder":
@@ -1074,71 +682,14 @@ class ContextEngineBuilder:
         self._compression_trigger_ratio = ratio
         return self
 
-    def add_default_background(self, link: str, content: str) -> "ContextEngineBuilder":
-        if not link or not content:
-            raise ContextContractError(
-                "Default background entries require non-empty link and content"
-            )
-        for entry in self._default_entries:
-            if entry.link == link:
-                raise ContextContractError(f"Duplicate default background link: {link}")
-        self._default_entries.append(
-            BackgroundEntry(
-                link=link,
-                content=content,
-                source=BackgroundSource.DEFAULT,
-                evictable=True,
-            )
-        )
-        return self
-
-    def add_loadable_background(self, link: str, content: str) -> "ContextEngineBuilder":
-        if not link or not content:
-            raise ContextContractError(
-                "Loadable background entries require non-empty link and content"
-            )
-        return self.add_lazy_background(
-            link,
-            StaticBackgroundContentLoader(content),
-        )
-
-    def add_lazy_background(
-        self,
-        link: str,
-        loader: BackgroundContentLoader,
-    ) -> "ContextEngineBuilder":
-        if not link:
-            raise ContextContractError("Lazy background link must be non-empty")
-        if link in self._loadable_entries:
-            raise ContextContractError(f"Duplicate loadable background link: {link}")
-        if not hasattr(loader, "load"):
-            raise ContextContractError("Lazy background loader must provide load()")
-        self._loadable_entries[link] = loader
-        return self
-
-    def add_background_provider(
-        self,
-        provider: BackgroundEntryProvider,
-    ) -> "ContextEngineBuilder":
-        if not hasattr(provider, "catalog") or not hasattr(provider, "load"):
-            raise ContextContractError(
-                "Background provider must provide catalog() and load()"
-            )
-        self._background_providers.append(provider)
+    def with_segment(self, registration: RegisteredSegment) -> "ContextEngineBuilder":
+        self._registrations.append(registration)
         return self
 
     def build(self) -> ContextEngine:
         if self._compression_target_ratio >= self._compression_trigger_ratio:
             raise ContextContractError(
                 "Context compression target ratio must be below the trigger ratio"
-            )
-        background = BackgroundContext(journal=self._journal)
-        loadable = dict(self._loadable_entries)
-        for entry in self._default_entries:
-            # Default entries are evictable and reloadable like Phase1-loaded ones.
-            loadable.setdefault(
-                entry.link,
-                StaticBackgroundContentLoader(entry.content),
             )
         return ContextEngine(
             system_text=self._system_text,
@@ -1152,111 +703,13 @@ class ContextEngineBuilder:
                 branch_factor=self._trace_branch_factor,
                 min_hot_entries=self._trace_min_hot_entries,
             ),
-            background=background,
-            default_entries=tuple(self._default_entries),
-            loadable_entries=loadable,
-            background_providers=tuple(self._background_providers),
+            journal=self._journal,
+            registrations=tuple(self._registrations),
             trace_inspect_max_chars=self._trace_inspect_max_chars,
             compression_trigger_ratio=self._compression_trigger_ratio,
             compression_target_ratio=self._compression_target_ratio,
             observations=self._observations,
         )
-
-
-def _context_continuation_error(
-    error: ContinuationError,
-    *,
-    ref: str,
-) -> ContextTraceRequestError:
-    reason_map = {
-        ContinuationFailureReason.INVALID: (
-            ContextTraceFailureReason.INVALID_CONTINUATION
-        ),
-        ContinuationFailureReason.MISMATCH: (
-            ContextTraceFailureReason.INVALID_CONTINUATION
-        ),
-        ContinuationFailureReason.OUT_OF_RANGE: (
-            ContextTraceFailureReason.INVALID_CONTINUATION
-        ),
-        ContinuationFailureReason.CONTENT_CHANGED: (
-            ContextTraceFailureReason.INVALID_CONTINUATION
-        ),
-        ContinuationFailureReason.BUDGET_TOO_SMALL: (
-            ContextTraceFailureReason.PAGE_BUDGET_TOO_SMALL
-        ),
-    }
-    reason = reason_map.get(error.reason)
-    if reason is None:
-        raise ContextInvariantError("Unexpected Context continuation failure") from error
-    return ContextTraceRequestError(
-        reason,
-        str(error),
-        constraint={"ref": ref},
-    )
-
-
-def _semantic_trace_entry(entry: TraceEntry) -> JsonObject:
-    message = entry.message
-    content = _semantic_parts(message)
-    if isinstance(message, AssistantMessage):
-        value: JsonObject = {"kind": "decision"}
-        if content:
-            value["content"] = content[0] if len(content) == 1 else content
-        actions: list[JsonValue] = [
-            to_json_object({"action": call.name, "request": call.arguments})
-            for call in message.tool_calls
-            if call.kind is ToolKind.ACTION
-        ]
-        controls: list[JsonValue] = [
-            to_json_object({"control": call.name, "request": call.arguments})
-            for call in message.tool_calls
-            if call.kind is ToolKind.CONTROL
-        ]
-        if actions:
-            value["actions"] = actions
-        if controls:
-            value["controls"] = controls
-        return to_json_object(value)
-    if isinstance(message, ToolResultMessage):
-        value = {
-            "kind": "action_result",
-            "action": message.tool_name,
-            "outcome": message.status.value,
-        }
-        envelope = content[0] if len(content) == 1 and isinstance(content[0], dict) else None
-        if envelope is not None:
-            status = envelope.get("status")
-            if isinstance(status, str) and status:
-                value["outcome"] = status
-            payload = envelope.get("payload")
-            if isinstance(payload, dict) and payload:
-                value["result"] = payload
-            failure = envelope.get("failure")
-            if isinstance(failure, dict) and failure:
-                value["failure"] = {
-                    key: failure[key]
-                    for key in ("reason", "disposition", "feedback", "constraint")
-                    if key in failure
-                }
-        elif content:
-            value["result"] = content[0] if len(content) == 1 else content
-        if entry.origin_refs:
-            value["references"] = list(entry.origin_refs)
-        return to_json_object(value)
-    value = {"kind": "phase_note"}
-    if content:
-        value["content"] = content[0] if len(content) == 1 else content
-    return to_json_object(value)
-
-
-def _semantic_parts(message: Message) -> list[JsonValue]:
-    values: list[JsonValue] = []
-    for part in message.parts:
-        if isinstance(part, TextPart):
-            values.append(part.text)
-        elif isinstance(part, JsonPart):
-            values.append(part.value)
-    return values
 
 
 def _signal_call_id(signal: Signal) -> str:

@@ -19,9 +19,3 @@ page_max_chars = 8000
 
 [memory.semantic_search]
 embedding_cache_max_chars = 16000000
-
-[memory.daily_composition]
-chunk_max_chars = 12000
-source_max_chars = 240000
-max_calls = 48
-validation_retries = 2

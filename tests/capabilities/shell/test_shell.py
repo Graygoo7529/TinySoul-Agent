@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date as CalendarDate
+
 from base64 import b64decode
 from pathlib import Path
 import shutil
@@ -526,6 +528,7 @@ async def test_shell_action_engine_result_enters_turn_trace(local_tmp: Path) -> 
     engine, manager, _, bus = _shell_engine(local_tmp, settings)
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("run an immediate command")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     normalization = engine.normalize(
         (
             ToolCallRecord(
@@ -568,6 +571,7 @@ async def test_execution_lifecycle_action_resolves_shell_owner(local_tmp: Path) 
     engine, manager, _, bus = _shell_engine(local_tmp, settings)
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("stop the active execution")
+    await context.open_segments(CalendarDate(2026, 7, 12))
     running = manager.start(
         turn_id=turn_id,
         owner=SupervisedProcessOwner.SHELL,

@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import date
 
 from tinysoul.context import (
-    BackgroundCatalog,
-    BackgroundCatalogItem,
     ContextEngine,
     ContextEngineBuilder,
     ContextSettings,
@@ -17,55 +13,13 @@ from tinysoul.home import AgentHomeEngine
 from tinysoul.home.errors import AgentHomeError
 from tinysoul.infra.config import ConfigError
 from tinysoul.memory import (
-    ActiveMemoryBackgroundEntryProvider,
     MemoryEngine,
-    TargetMemoryBackgroundEntryProvider,
 )
-from tinysoul.memory.background import TargetMemoryBinding
+from tinysoul.memory.background import TargetMemoryBinding, memory_segment_registration
+from tinysoul.home.background import home_segment_registration
 from tinysoul.runtime import ObservationEmitter
 from tinysoul.home.runtime_bridge import RuntimeAgentHomeBridge
 from tinysoul.context.runtime_bridge import RuntimeContextBridge
-from tinysoul.memory.runtime_bridge import RuntimeMemoryBridge
-
-
-@dataclass(frozen=True)
-class ActualHomeBackgroundEntryProvider:
-    """Expose actual Home as the Maintenance Background baseline."""
-
-    home: AgentHomeEngine
-    runtime_bridge: RuntimeAgentHomeBridge = RuntimeAgentHomeBridge()
-
-    def catalog(self, business_day: date) -> BackgroundCatalog:
-        del business_day
-        try:
-            links = self.home.actual_top_links()
-            defaults = self.home.actual_default_background_links()
-            skills = self.home.actual_skill_metadata()
-        except AgentHomeError as exc:
-            raise self.runtime_bridge.from_home_error(exc) from exc
-        return BackgroundCatalog(
-            owner="home",
-            default_links=defaults,
-            loadable_links=links,
-            items=tuple(
-                BackgroundCatalogItem(
-                    link=str(skill.link),
-                    title=skill.title,
-                    description=skill.description,
-                )
-                for skill in skills
-            ),
-        )
-
-    def load(self, link: str, business_day: date) -> str:
-        del business_day
-        try:
-            return self.home.read_actual_top(link)
-        except AgentHomeError as exc:
-            raise self.runtime_bridge.from_home_error(
-                exc,
-                payload={"link": link},
-            ) from exc
 
 
 def build_maintenance_context(
@@ -78,7 +32,6 @@ def build_maintenance_context(
 ) -> ContextEngine:
     context_bridge = RuntimeContextBridge()
     home_bridge = RuntimeAgentHomeBridge()
-    memory_bridge = RuntimeMemoryBridge()
     try:
         return (
             ContextEngineBuilder(system_text=settings.system_text)
@@ -93,24 +46,8 @@ def build_maintenance_context(
             .with_trace_inspect_max_chars(settings.trace_inspect_max_chars)
             .with_compression_trigger_ratio(settings.compression_trigger_ratio)
             .with_compression_target_ratio(settings.compression_target_ratio)
-            .add_background_provider(
-                ActualHomeBackgroundEntryProvider(
-                    home=home,
-                    runtime_bridge=home_bridge,
-                )
-            )
-            .add_background_provider(
-                TargetMemoryBackgroundEntryProvider(
-                    memory=memory,
-                    binding=memory_target_binding,
-                    runtime_bridge=memory_bridge,
-                )
-                if memory_target_binding is not None
-                else ActiveMemoryBackgroundEntryProvider(
-                    memory=memory,
-                    runtime_bridge=memory_bridge,
-                )
-            )
+            .with_segment(home_segment_registration(home, actual=True))
+            .with_segment(memory_segment_registration(memory, target=memory_target_binding))
             .build()
         )
     except ConfigError as exc:

@@ -31,29 +31,10 @@ class MemoryConfidence(StrEnum):
 
 
 @dataclass(frozen=True)
-class MemoryActivity:
-    last_activated_on: date
-    activation_count: int
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.last_activated_on, date):
-            raise MemoryContractError("Memory activity date must be a date")
-        if (
-            isinstance(self.activation_count, bool)
-            or not isinstance(self.activation_count, int)
-            or self.activation_count < 0
-        ):
-            raise MemoryContractError("Memory activation_count cannot be negative")
-
-
-@dataclass(frozen=True)
 class DailyMemoryDocument:
     day: date
-    revision: int
     created_on: date
     updated_on: date
-    session_revision: int
-    active_memory_digest: str
     content: str
 
     def __post_init__(self) -> None:
@@ -62,9 +43,6 @@ class DailyMemoryDocument:
             for item in (self.day, self.created_on, self.updated_on)
         ):
             raise MemoryContractError("Daily Memory dates must be dates")
-        _non_negative_int(self.revision, "Daily Memory revision")
-        _non_negative_int(self.session_revision, "Daily Memory session_revision")
-        _digest(self.active_memory_digest, "Daily Memory active_memory_digest")
         _content(self.content, "Daily Memory")
         _without_h1(self.content, "Daily Memory content")
         if self.created_on != self.day or self.updated_on != self.day:
@@ -95,7 +73,6 @@ class _KnowledgeDocument:
     status: MemoryStatus
     created_on: date
     updated_on: date
-    activity: MemoryActivity
     content: str
     relations: tuple[MemoryLink, ...] = field(default_factory=tuple)
     evidence: tuple[MemoryLink, ...] = field(default_factory=tuple)
@@ -113,8 +90,6 @@ class _KnowledgeDocument:
             raise MemoryContractError("Memory created_on/updated_on must be dates")
         if self.created_on > self.updated_on:
             raise MemoryContractError("Memory created_on exceeds updated_on")
-        if not isinstance(self.activity, MemoryActivity):
-            raise MemoryContractError("Memory activity is invalid")
         _content(self.content, "Persistent Memory")
         relations = _links(self.relations, "relations")
         evidence = _links(self.evidence, "evidence")
@@ -251,7 +226,6 @@ class _KnowledgeFields(TypedDict):
     status: MemoryStatus
     created_on: date
     updated_on: date
-    activity: MemoryActivity
     content: str
     relations: tuple[MemoryLink, ...]
     evidence: tuple[MemoryLink, ...]
@@ -285,7 +259,7 @@ class MemoryDocumentCodec:
             raise MemoryContractError("Memory codec requires a MemoryLink")
         frontmatter, content = _split_frontmatter(text)
         version = _required_int(frontmatter, "schema_version")
-        if version != 1:
+        if version != 2:
             raise MemoryInvariantError("Unsupported Memory schema_version")
         raw_kind = _required_text(frontmatter, "kind")
         if raw_kind != link.kind.value:
@@ -297,28 +271,21 @@ class MemoryDocumentCodec:
     def render(self, document: PersistentMemoryDocument) -> str:
         if isinstance(document, DailyMemoryDocument):
             metadata: dict[str, object] = {
-                "schema_version": 1,
+                "schema_version": 2,
                 "kind": "daily",
                 "day": document.day.isoformat(),
-                "revision": document.revision,
                 "created_on": document.created_on.isoformat(),
                 "updated_on": document.updated_on.isoformat(),
-                "session_revision": document.session_revision,
-                "active_memory_digest": document.active_memory_digest,
             }
             content = f"# {document.day.isoformat()}\n\n{document.content.strip()}"
             return _render_file(metadata, content)
         metadata = {
-            "schema_version": 1,
+            "schema_version": 2,
             "kind": document.kind.value,
             "cite": document.cite,
             "status": document.status.value,
             "created_on": document.created_on.isoformat(),
             "updated_on": document.updated_on.isoformat(),
-            "activity": {
-                "last_activated_on": document.activity.last_activated_on.isoformat(),
-                "activation_count": document.activity.activation_count,
-            },
             "relations": [str(link) for link in document.relations],
             "evidence": [str(link) for link in document.evidence],
             "redirect_to": (
@@ -356,11 +323,8 @@ class MemoryDocumentCodec:
                 "schema_version",
                 "kind",
                 "day",
-                "revision",
                 "created_on",
                 "updated_on",
-                "session_revision",
-                "active_memory_digest",
             },
         )
         day = _required_date(values, "day")
@@ -373,11 +337,8 @@ class MemoryDocumentCodec:
             raise MemoryInvariantError("Daily Memory day does not match its Link")
         return DailyMemoryDocument(
             day=day,
-            revision=_required_int(values, "revision"),
             created_on=_required_date(values, "created_on"),
             updated_on=_required_date(values, "updated_on"),
-            session_revision=_required_int(values, "session_revision"),
-            active_memory_digest=_required_text(values, "active_memory_digest"),
             content=body,
         )
 
@@ -394,7 +355,6 @@ class MemoryDocumentCodec:
             "status",
             "created_on",
             "updated_on",
-            "activity",
             "relations",
             "evidence",
             "redirect_to",
@@ -410,21 +370,9 @@ class MemoryDocumentCodec:
         cite = _required_text(values, "cite")
         if cite != link.cite:
             raise MemoryInvariantError("Memory cite does not match its Link")
-        raw_activity = values.get("activity")
-        if not isinstance(raw_activity, Mapping):
-            raise MemoryInvariantError("Memory activity must be a mapping")
-        activity_values = cast(Mapping[str, object], raw_activity)
-        _exact_keys(
-            activity_values,
-            {"last_activated_on", "activation_count"},
-        )
         status = _enum(MemoryStatus, values, "status")
         created_on = _required_date(values, "created_on")
         updated_on = _required_date(values, "updated_on")
-        activity = MemoryActivity(
-            last_activated_on=_required_date(activity_values, "last_activated_on"),
-            activation_count=_required_int(activity_values, "activation_count"),
-        )
         relations = _link_list(values.get("relations"), "relations")
         evidence = _link_list(values.get("evidence"), "evidence")
         redirect_to = _optional_link(values.get("redirect_to"))
@@ -434,7 +382,6 @@ class MemoryDocumentCodec:
             "status": status,
             "created_on": created_on,
             "updated_on": updated_on,
-            "activity": activity,
             "content": content.strip(),
             "relations": relations,
             "evidence": evidence,
@@ -641,15 +588,6 @@ def _without_h1(value: str, owner: str) -> None:
         ):
             raise MemoryContractError(f"{owner} cannot contain a setext level-1 heading")
 
-
-def _non_negative_int(value: object, owner: str) -> None:
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise MemoryContractError(f"{owner} cannot be negative")
-
-
-def _digest(value: object, owner: str) -> None:
-    if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
-        raise MemoryContractError(f"{owner} must be a sha256 digest")
 
 
 def _normalize_statement(value: str) -> str:

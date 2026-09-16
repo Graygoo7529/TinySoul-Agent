@@ -99,6 +99,11 @@ class ActionExecutionContext:
     record_execution: Callable[[ExecutionFact], None] | None = None
     owner_operations: JoinedOperations = field(default_factory=JoinedOperations)
 
+    def require_signal_bus(self) -> SignalBus:
+        if self.signal_bus is None:
+            raise ActionContractError("This Action requires an owner update channel")
+        return self.signal_bus
+
 
 class ActionExecutor(Protocol):
     """Protocol for concrete action executors."""

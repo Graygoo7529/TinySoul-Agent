@@ -7,14 +7,19 @@ from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
 import re
-from typing import Callable, Protocol
+from typing import Callable, Protocol, runtime_checkable
 
 from tinysoul.infra.concurrency import AsyncResourceScope, CleanupDiagnostic
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.llm.messages import Message
 from tinysoul.runtime import RunLevel, RuntimeException, RuntimeTransferInterrupt, Signal
 
-from .errors import ContextContractError, ContextError, ContextInvariantError
+from .errors import (
+    ContextContractError, ContextError, ContextInvariantError,
+    ContextInspectFailureReason, ContextInspectRequestError,
+)
+from .background import BackgroundPatch
+from .providers import SegmentSelectionView
 
 
 class SegmentSlot(StrEnum):
@@ -23,12 +28,28 @@ class SegmentSlot(StrEnum):
     WORKING = "working"
 
 
+class SegmentShape(StrEnum):
+    STATE = "state"
+    HEAP = "heap"
+    STACK = "stack"
+    MAP = "map"
+
+
+class SegmentCapability(StrEnum):
+    INSPECT = "inspect"
+    SELECT = "select"
+    RECLAIM = "reclaim"
+
+
 @dataclass(frozen=True)
 class SegmentDescriptor:
     id: str
     owner: str
     slot: SegmentSlot
     order: int
+    ref_prefixes: tuple[str, ...] = ()
+    shape: SegmentShape = SegmentShape.STATE
+    capabilities: frozenset[SegmentCapability] = frozenset()
 
     def __post_init__(self) -> None:
         if (
@@ -42,6 +63,18 @@ class SegmentDescriptor:
             raise ContextContractError("Segment slot must be a SegmentSlot")
         if isinstance(self.order, bool) or not isinstance(self.order, int):
             raise ContextContractError("Segment order must be an integer")
+        prefixes = tuple(self.ref_prefixes)
+        if any(not isinstance(prefix, str) or not prefix for prefix in prefixes):
+            raise ContextContractError("Segment reference routes must be non-empty text")
+        object.__setattr__(self, "ref_prefixes", prefixes)
+        if not isinstance(self.shape, SegmentShape):
+            raise ContextContractError("Segment shape must be a SegmentShape")
+        capabilities = frozenset(self.capabilities)
+        if any(not isinstance(item, SegmentCapability) for item in capabilities):
+            raise ContextContractError("Segment capabilities must be typed")
+        if bool(prefixes) != (SegmentCapability.INSPECT in capabilities):
+            raise ContextContractError("Inspection capability requires explicit reference routes")
+        object.__setattr__(self, "capabilities", capabilities)
 
     @property
     def sort_key(self) -> tuple[int, int, str]:
@@ -86,6 +119,35 @@ class SegmentProvider[S: ContextSegment](Protocol):
     async def open(self, info: TurnInfo) -> S: ...
 
 
+@runtime_checkable
+class InspectableSegment(Protocol):
+    async def inspect(self, ref: str, *, continuation: str | None = None) -> JsonObject: ...
+
+
+@runtime_checkable
+class SelectableSegment(Protocol):
+    def selection_view(self) -> SegmentSelectionView: ...
+
+
+@dataclass(frozen=True)
+class SegmentReclaim:
+    reclaimed_chars: int = 0
+    evicted_refs: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if isinstance(self.reclaimed_chars, bool) or not isinstance(self.reclaimed_chars, int) or self.reclaimed_chars < 0:
+            raise ContextInvariantError("Segment reclamation must report non-negative characters")
+        refs = tuple(self.evicted_refs)
+        if any(not isinstance(ref, str) or not ref for ref in refs):
+            raise ContextInvariantError("Reclaimed references must be non-empty text")
+        object.__setattr__(self, "evicted_refs", refs)
+
+
+@runtime_checkable
+class ReclaimableSegment(Protocol):
+    def reclaim(self, required_chars: int) -> SegmentReclaim: ...
+
+
 class _Installation(Protocol):
     def install(self) -> None: ...
 
@@ -125,8 +187,8 @@ class _TypedUpdatePort[U, P]:
 class _OpenedSegment:
     descriptor: SegmentDescriptor
     segment: ContextSegment
-    signal_name: str
-    updates: _UpdatePort
+    signal_name: str | None = None
+    updates: _UpdatePort | None = None
 
 
 class RegisteredSegment(Protocol):
@@ -134,9 +196,26 @@ class RegisteredSegment(Protocol):
     def descriptor(self) -> SegmentDescriptor: ...
 
     @property
-    def signal_name(self) -> str: ...
+    def signal_name(self) -> str | None: ...
 
     async def open(self, info: TurnInfo) -> _OpenedSegment: ...
+
+
+@dataclass(frozen=True)
+class ReadOnlySegmentRegistration:
+    """Open a fixed Turn view without inventing an update channel."""
+
+    descriptor: SegmentDescriptor
+    provider: SegmentProvider[ContextSegment]
+    signal_name: None = None
+
+    async def open(self, info: TurnInfo) -> _OpenedSegment:
+        try:
+            return _OpenedSegment(self.descriptor, await self.provider.open(info))
+        except (ContextError, RuntimeException, RuntimeTransferInterrupt):
+            raise
+        except Exception as exc:
+            raise ContextInvariantError("Segment provider failed to open a view") from exc
 
 
 @dataclass(frozen=True)
@@ -173,9 +252,13 @@ class SegmentRegistry:
     def __post_init__(self) -> None:
         object.__setattr__(self, "registrations", tuple(self.registrations))
         ids = tuple(item.descriptor.id for item in self.registrations)
-        routes = tuple(item.signal_name for item in self.registrations)
+        routes = tuple(item.signal_name for item in self.registrations if item.signal_name is not None)
         if len(set(ids)) != len(ids) or len(set(routes)) != len(routes):
             raise ContextContractError("Segment identities and update routes must be unique")
+        prefixes = tuple(prefix for item in self.registrations for prefix in item.descriptor.ref_prefixes)
+        for index, prefix in enumerate(prefixes):
+            if any(prefix.startswith(other) or other.startswith(prefix) for other in prefixes[:index]):
+                raise ContextContractError("Segment reference routes must not overlap")
 
     def register(self, registration: RegisteredSegment) -> SegmentRegistry:
         return SegmentRegistry((*self.registrations, registration))
@@ -216,6 +299,15 @@ class TurnSegments:
                 opened = await registration.open(self._info)
                 self._resources.register(opened.descriptor.id, opened.segment.close)
                 self._opened.append(opened)
+                declared = opened.descriptor.capabilities
+                if SegmentCapability.INSPECT in declared and not isinstance(opened.segment, InspectableSegment):
+                    raise ContextContractError("A reference route requires an inspectable segment")
+                if SegmentCapability.SELECT in declared and (
+                    not isinstance(opened.segment, SelectableSegment) or opened.updates is None
+                ):
+                    raise ContextContractError("Selection capability requires a view and update channel")
+                if SegmentCapability.RECLAIM in declared and not isinstance(opened.segment, ReclaimableSegment):
+                    raise ContextContractError("Reclamation capability requires a reclaim handler")
         except (Exception, asyncio.CancelledError):
             try:
                 await self.close()
@@ -227,6 +319,53 @@ class TurnSegments:
 
     def accepts(self, signal: Signal) -> bool:
         return any(item.signal_name == signal.name for item in self._opened)
+
+    def selection_view(self) -> SegmentSelectionView:
+        self._require_ready()
+        views = tuple(
+            item.segment.selection_view() for item in self._opened
+            if SegmentCapability.SELECT in item.descriptor.capabilities and isinstance(item.segment, SelectableSegment)
+        )
+        return SegmentSelectionView(
+            available=tuple(ref for view in views for ref in view.available),
+            loaded=tuple(ref for view in views for ref in view.loaded),
+            protected=tuple(ref for view in views for ref in view.protected),
+        )
+
+    def selection_signals(self, patch: BackgroundPatch, source: Signal) -> tuple[Signal, ...]:
+        """Route a validated generic selection to each contributing owner."""
+        self._require_ready()
+        signals: list[Signal] = []
+        for item in self._opened:
+            if SegmentCapability.SELECT not in item.descriptor.capabilities or not isinstance(item.segment, SelectableSegment):
+                continue
+            refs = set(item.segment.selection_view().available)
+            load = tuple(ref for ref in patch.load_links if ref in refs)
+            evict = tuple(ref for ref in patch.evict_links if ref in refs)
+            if not load and not evict:
+                continue
+            if item.signal_name is None:
+                raise ContextInvariantError("Selectable segment requires an update channel")
+            signals.append(Signal(
+                name=item.signal_name, source=source.source, scope=source.scope,
+                payload={"load_links": list(load), "evict_links": list(evict)},
+            ))
+        return tuple(signals)
+
+    def reclaim(self, required_chars: int) -> SegmentReclaim:
+        self._require_ready()
+        reclaimed = 0
+        refs: list[str] = []
+        for item in sorted(self._opened, key=lambda item: (
+            tuple(SegmentShape).index(item.descriptor.shape), item.descriptor.sort_key,
+        )):
+            if reclaimed >= required_chars:
+                break
+            if SegmentCapability.RECLAIM in item.descriptor.capabilities and isinstance(item.segment, ReclaimableSegment):
+                result = item.segment.reclaim(required_chars - reclaimed)
+                reclaimed += result.reclaimed_chars
+                refs.extend(result.evicted_refs)
+        return SegmentReclaim(reclaimed, tuple(refs))
 
     async def prepare(self, signals: tuple[Signal, ...]) -> PreparedSegmentBatch:
         self._require_ready()
@@ -245,6 +384,8 @@ class TurnSegments:
             for opened in self._opened:
                 batch = tuple(signal for signal in signals if signal.name == opened.signal_name)
                 if batch:
+                    if opened.updates is None:
+                        raise ContextInvariantError("Read-only segment received an update")
                     prepared.append(await opened.updates.prepare(batch))
             self._require_ready()
             self._pending = PreparedSegmentBatch(tuple(prepared))
@@ -263,6 +404,22 @@ class TurnSegments:
         except (Exception, asyncio.CancelledError) as exc:
             self._install_failed = True
             raise ContextInvariantError("Context segment installation failed; batch cannot be replayed") from exc
+
+    async def inspect(self, ref: str, *, continuation: str | None = None) -> JsonObject:
+        self._require_ready()
+        for item in self._opened:
+            if any(ref.startswith(prefix) for prefix in item.descriptor.ref_prefixes):
+                assert isinstance(item.segment, InspectableSegment)
+                try:
+                    return to_json_object(await item.segment.inspect(ref, continuation=continuation))
+                except (ContextError, RuntimeException, RuntimeTransferInterrupt):
+                    raise
+                except Exception as exc:
+                    raise ContextInvariantError("Segment inspector violated its contract") from exc
+        raise ContextInspectRequestError(
+            ContextInspectFailureReason.UNKNOWN_REF, "No Context segment owns this reference",
+            constraint={"ref": ref},
+        )
 
     def render(self) -> tuple[SegmentProjection, ...]:
         self._require_ready()
