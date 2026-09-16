@@ -368,7 +368,7 @@ User 根 Turn 进入用户 Session，Reflection 不进入。当前 ACP 委派通
 
 ## 9. Home、Memory、Reflection 与 CalendarDay
 
-两个独立 profile 和专属 domain：home_reflection、memory_reflection。共用内核、动作配置、模型链、TaskPrompt/Skill 挂载，不保留维护专用第二套 Loop。
+同一个 Agent 的两种 Reflection 执行情景由 home_reflection、memory_reflection 两个独立 profile 承载，当前分别使用同名专属 domain。共用内核、动作配置、模型链、TaskPrompt/Skill 挂载，不保留维护专用第二套 Loop。
 
 已确认 Reflection = 通用 action domains + 当前 Reflection 专属域。通用推理、检索、Context、Workspace、home 副本操作、execution/subagent/expand 等已配置能力仍可使用；home_reflection/memory_reflection 不互相自动附加。profile 改目标、视图与输出解释，不重写执行器，也不把 Reflection 关进只有几个命令的工作流。
 
@@ -380,7 +380,9 @@ User 根 Turn 进入用户 Session，Reflection 不进入。当前 ACP 委派通
 | Home Reflection | 审核后 actual Home | 通用域 + home_reflection.diff/review |
 | Memory Reflection | target daily、entity/concept/fact/note | 通用域 + memory_reflection.write_daily/write |
 
-User 的实际 Action surface 不含专属域，注入的服务也限制写权限，不只靠提示词。子 profile 不继承超出父 profile 的长期写能力。
+User 的实际 Action surface 不含 Reflection 专属动作，注入的服务也限制写权限，不只靠提示词。子 profile 不继承超出父 profile 的长期写能力。
+
+执行情景由 TurnProfile 统一承载；domain 是规划分组，action 是具体操作，情景策略可在同一 domain 内细化可用动作，并与执行校验、Service 权限保持一致。R2 收口复用现有目录视图落实该边界；将 Reflection 动作归入通用 Home/Memory 分组保留为 S3 评估项，当前不改变动作身份与专属 domain，也不为“情景”新增运行状态机。具体依据与实施范围见 R2 收口子计划 6.4。
 
 精简专属动作草图（本轮新增签名建议）：
 
