@@ -1,0 +1,38 @@
+name = "core.ask"
+domain = "core"
+
+[tool]
+description = "Ask for a decision or missing information and pause this Turn until the matching reply arrives. Ordinary additional input does not answer the question."
+
+[tool.schema]
+type = "object"
+required = ["text"]
+additionalProperties = false
+
+[tool.schema.properties.text]
+type = "string"
+description = "Non-empty question, at most 4000 characters."
+
+[tool.schema.properties.options]
+type = "array"
+description = "Up to eight optional choices, each at most 400 characters."
+items = { type = "string" }
+
+[tool.schema.properties.timeout_seconds]
+type = "number"
+minimum = 0.001
+description = "Optional waiting limit. Omit to wait until reply or cancellation."
+
+[semantic]
+use_when = ["Continuing needs the user's decision or information"]
+avoid_when = ["The information can be investigated independently"]
+effects = ["read_only"]
+examples = ["Ask the user to choose a project direction, then continue in this Turn"]
+
+[runtime]
+timeout_seconds = 5
+parallel_policy = "serial"
+
+[backend]
+kind = "native"
+handler = "core.ask"

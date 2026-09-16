@@ -85,7 +85,7 @@ async def test_config_controller_reads_sources_and_patches_toml_and_dotenv(tmp_p
         )
     )
 
-    assert result["state"] == "active"
+    assert result["state"] == "saved"
     assert "enabled" in (tmp_path / "configs" / "infra.toml").read_text(encoding="utf-8")
     assert "API_KEY=new" in (tmp_path / ".env").read_text(encoding="utf-8")
     assert controller.environment.runtime_env["API_KEY"] == "new"
@@ -146,55 +146,28 @@ async def test_document_mutation_is_candidate_local_until_commit(tmp_path: Path)
     ] == {"enabled": True}
 
 
-async def test_document_and_merged_source_roll_back_together(tmp_path: Path) -> None:
+async def test_saved_sources_remain_saved_when_reload_fails(tmp_path: Path) -> None:
     environment = _project_with_document(tmp_path)
-    merged = tmp_path / "configs" / "infra.toml"
-    document = tmp_path / "configs" / "documents" / "item.toml"
-    dotenv = tmp_path / ".env"
-    originals = (
-        merged.read_text(encoding="utf-8"),
-        document.read_text(encoding="utf-8"),
-        dotenv.read_text(encoding="utf-8"),
-    )
 
     async def prepare(_candidate: ConfigEnvironment) -> PreparedConfigActivation:
         return PreparedConfigActivation(commit=lambda: (_ for _ in ()).throw(RuntimeError("fail")))
 
-    controller = ConfigController(
-        root=tmp_path,
-        environment=environment,
-        activator=prepare,
-    )
+    controller = ConfigController(root=tmp_path, environment=environment, activator=prepare)
     source_id = environment.document_set("test.documents").documents[0].source_id
-
+    mutations = (
+        ConfigMutation("project:configs/infra.toml", "infra.embedding.enabled", "set", True),
+        ConfigMutation(source_id, "settings.enabled", "set", True),
+        ConfigMutation("dotenv", "TOKEN", "set", "new"),
+    )
+    assert (await controller.patch(mutations))["state"] == "saved"
+    saved = controller.environment
     with pytest.raises(RuntimeError, match="fail"):
-        await controller.patch(
-            (
-                ConfigMutation(
-                    source_id="project:configs/infra.toml",
-                    path="infra.embedding.enabled",
-                    op="set",
-                    value=True,
-                ),
-                ConfigMutation(
-                    source_id=source_id,
-                    path="settings.enabled",
-                    op="set",
-                    value=True,
-                ),
-                ConfigMutation(
-                    source_id="dotenv",
-                    path="TOKEN",
-                    op="set",
-                    value="new",
-                ),
-            )
-        )
-
-    assert merged.read_text(encoding="utf-8") == originals[0]
-    assert document.read_text(encoding="utf-8") == originals[1]
-    assert dotenv.read_text(encoding="utf-8") == originals[2]
-    assert controller.environment is environment
+        await controller.reload()
+    assert controller.environment is saved
+    assert controller.status()["pending_reload"] is True
+    assert "enabled = true" in (tmp_path / "configs/infra.toml").read_text(encoding="utf-8")
+    assert "enabled = true" in (tmp_path / "configs/documents/item.toml").read_text(encoding="utf-8")
+    assert "TOKEN=new" in (tmp_path / ".env").read_text(encoding="utf-8")
 
 
 async def test_retirement_failure_does_not_roll_back_committed_activation(tmp_path: Path) -> None:
@@ -211,15 +184,18 @@ async def test_retirement_failure_does_not_roll_back_committed_activation(tmp_pa
     result = await controller.patch((ConfigMutation(
         source_id="project:configs/infra.toml", path="infra.embedding.enabled", op="set", value=True,
     ),))
+    assert activated == []
+    result = await controller.reload()
     assert result["state"] == "active"
     assert result["cleanup_diagnostics"] == [{"resource": "config.retirement", "error_type": "RuntimeError"}]
     assert controller.environment is activated[0]
     assert "enabled = true" in (tmp_path / "configs" / "infra.toml").read_text(encoding="utf-8")
 
 
-async def test_abort_failure_preserves_activation_failure_and_disk_rollback(tmp_path: Path) -> None:
+async def test_abort_failure_preserves_primary_failure_and_saved_candidate(tmp_path: Path) -> None:
     environment = _project(tmp_path)
     primary = RuntimeError("activation failed")
+    events: list[str] = []
 
     async def prepare(candidate: ConfigEnvironment) -> PreparedConfigActivation:
         def commit() -> None:
@@ -230,93 +206,55 @@ async def test_abort_failure_preserves_activation_failure_and_disk_rollback(tmp_
 
         return PreparedConfigActivation(commit=commit, abort=abort)
 
-    controller = ConfigController(root=tmp_path, environment=environment, activator=prepare)
-    with pytest.raises(RuntimeError) as caught:
-        await controller.patch((ConfigMutation(
-            source_id="project:configs/infra.toml", path="infra.embedding.enabled", op="set", value=True,
-        ),))
-    assert caught.value is primary
-    assert controller.environment is environment
-    assert "enabled = false" in (tmp_path / "configs" / "infra.toml").read_text(encoding="utf-8")
-
-
-async def test_patch_rejected_while_runtime_is_active(tmp_path: Path) -> None:
     controller = ConfigController(
-        root=tmp_path,
-        environment=_project(tmp_path),
-        activity=lambda: "user_turn",
-    )
-
-    with pytest.raises(ConfigError) as raised:
-        await controller.patch(
-            (
-                ConfigMutation(
-                    source_id="project:configs/infra.toml",
-                    path="infra.embedding.enabled",
-                    op="set",
-                    value=True,
-                ),
-            )
-        )
-
-    assert raised.value.key == "config.activation_unavailable"
-    assert "enabled = false" in (
-        tmp_path / "configs" / "infra.toml"
-    ).read_text(encoding="utf-8")
-
-
-async def test_activation_failure_rolls_back_documents(tmp_path: Path) -> None:
-    environment = _project(tmp_path)
-    target = tmp_path / "configs" / "infra.toml"
-    original = target.read_text(encoding="utf-8")
-
-    async def prepare(_candidate: ConfigEnvironment) -> PreparedConfigActivation:
-        def fail() -> None:
-            raise RuntimeError("activation failed")
-
-        return PreparedConfigActivation(commit=fail)
-
-    controller = ConfigController(
-        root=tmp_path,
-        environment=environment,
-        activator=prepare,
-    )
-
-    with pytest.raises(RuntimeError, match="activation failed"):
-        await controller.patch(
-            (
-                ConfigMutation(
-                    source_id="project:configs/infra.toml",
-                    path="infra.embedding.enabled",
-                    op="set",
-                    value=True,
-                ),
-            )
-        )
-
-    assert target.read_text(encoding="utf-8") == original
-    assert controller.environment is environment
-
-
-async def test_activation_observer_receives_lifecycle_events(tmp_path: Path) -> None:
-    events: list[str] = []
-    controller = ConfigController(
-        root=tmp_path,
-        environment=_project(tmp_path),
+        root=tmp_path, environment=environment, activator=prepare,
         activation_observer=lambda state, _payload: events.append(state),
     )
+    await controller.patch((ConfigMutation("project:configs/infra.toml", "infra.embedding.enabled", "set", True),))
+    saved = controller.environment
+    with pytest.raises(RuntimeError) as caught:
+        await controller.reload()
+    assert caught.value is primary
+    assert controller.environment is saved
+    assert events == ["started", "cleanup.failed", "failed"]
+    assert "enabled = true" in (tmp_path / "configs/infra.toml").read_text(encoding="utf-8")
 
-    await controller.patch(
-        (
-            ConfigMutation(
-                source_id="project:configs/infra.toml",
-                path="infra.embedding.enabled",
-                op="set",
-                value=True,
-            ),
-        )
+
+async def test_save_allowed_while_active_but_reload_requires_idle(tmp_path: Path) -> None:
+    activity = "user_turn"
+    activated: list[ConfigEnvironment] = []
+
+    async def prepare(candidate: ConfigEnvironment) -> PreparedConfigActivation:
+        return PreparedConfigActivation(commit=lambda: activated.append(candidate))
+
+    controller = ConfigController(
+        root=tmp_path, environment=_project(tmp_path),
+        activity=lambda: activity, activator=prepare,
     )
+    await controller.patch((ConfigMutation("project:configs/infra.toml", "infra.embedding.enabled", "set", True),))
+    assert activated == []
+    with pytest.raises(ConfigError) as raised:
+        await controller.reload()
+    assert raised.value.key == "config.activation_unavailable"
+    activity = "idle"
+    assert (await controller.reload())["state"] == "active"
+    assert len(activated) == 1
+    assert controller.status()["pending_reload"] is False
 
+
+async def test_activation_observer_receives_only_explicit_reload_events(tmp_path: Path) -> None:
+    events: list[str] = []
+
+    async def prepare(candidate: ConfigEnvironment) -> PreparedConfigActivation:
+        return PreparedConfigActivation(commit=lambda: None)
+
+    controller = ConfigController(
+        root=tmp_path, environment=_project(tmp_path), activator=prepare,
+        activation_observer=lambda state, _payload: events.append(state),
+    )
+    await controller.patch((ConfigMutation("project:configs/infra.toml", "infra.embedding.enabled", "set", True),))
+    assert events == []
+    await controller.reload()
     assert events == ["started", "completed"]
 
 

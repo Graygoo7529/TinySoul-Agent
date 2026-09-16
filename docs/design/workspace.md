@@ -99,7 +99,7 @@ Manifest 读写属于 Workspace 模块。Manifest 文件应放在 workspace 根�
 
 Manifest 损坏属于 Workspace 模块边界失败。启动或装配阶段会主动加载并校验 manifest，损坏时映射为 Workspace 启动失败；运行期损坏同样显式失败，不静默重建。Manifest revision 只在资源事实或有效语义描述发生变化时递增，无变化 reconciliation 保持 revision。
 
-Manifest schema 当前为 v3，新增 ISO business day；读取 v1/v2 时迁移为未标记 legacy state，由 Maintenance Archive coordinator 按 active Session day 认领。磁盘、Manifest 与 WorkingContext 的一致性通过“磁盘事实 -> 完整 reconciliation -> Manifest 原子提交 -> 版本化全量 Context snapshot”建立。任何需要缩减 Workspace 语境的行为必须先改变 active Workspace/Manifest，不能只在 Context 中隐藏仍然 active 的资源。
+Manifest schema 当前为 v3，新增 ISO business day；读取 v1/v2 时迁移为未标记 legacy state，由 Reflection Archive coordinator 按 active Session day 认领。磁盘、Manifest 与 WorkingContext 的一致性通过“磁盘事实 -> 完整 reconciliation -> Manifest 原子提交 -> 版本化全量 Context snapshot”建立。任何需要缩减 Workspace 语境的行为必须先改变 active Workspace/Manifest，不能只在 Context 中隐藏仍然 active 的资源。
 
 ## Trash 与压力回收
 
@@ -128,9 +128,9 @@ archive/
     trash/
 ```
 
-Workspace 模块只管理 `runtime/workspace` 或配置传入的 workspace root。日切时旧 Workspace 与 active Trash 被移出 runtime，分别进入统一时间戳归档的 `workspace/`、`trash/`；新日 runtime Workspace 从空 Manifest 开始。日终归档由 workspace 门面提供归档能力，但跨模块调度不属于 Workspace 自身。Home/Memory Maintenance 都不通过 active Trash API 追踪或恢复旧日 Trash，Home runtime 也不参与 Workspace 的日切事务。
+Workspace 模块只管理 `runtime/workspace` 或配置传入的 workspace root。日切时旧 Workspace 与 active Trash 被移出 runtime，分别进入统一时间戳归档的 `workspace/`、`trash/`；新日 runtime Workspace 从空 Manifest 开始。日终归档由 workspace 门面提供归档能力，但跨模块调度不属于 Workspace 自身。Home/Memory Reflection 都不通过 active Trash API 追踪或恢复旧日 Trash，Home runtime 也不参与 Workspace 的日切事务。
 
-当前实现默认使用 `runtime/workspace` 作为 workspace root。Manifest 与 Trash 路径固定为 module-owned `.tinysoul/workspace_manifest.json`、`.tinysoul/trash`，不再允许配置到 active root 外；`configs/workspace.toml` 配置 root、通用读取/扫描上限、写入工件上限、忽略规则，以及嵌套的确定性搜索和分析预算。Workspace 模块解析配置并拒绝嵌套未知键；Action Catalog 不复制这些业务预算。AppBuilder 只传递 section tree并构建门面。
+当前实现默认使用 `runtime/workspace` 作为 workspace root。Manifest 与 Trash 路径固定为 module-owned `.tinysoul/workspace_manifest.json`、`.tinysoul/trash`，不再允许配置到 active root 外；`configs/workspace.toml` 配置 root、通用读取/扫描上限、写入工件上限、忽略规则，以及嵌套的确定性搜索和分析预算。Workspace 模块解析配置并拒绝嵌套未知键；Action Catalog 不复制这些业务预算。AgentBuilder 只传递 section tree并构建门面。
 
 ## Action 接入
 
@@ -226,7 +226,7 @@ Workspace 通过自身 `runtime_bridge.py` 将 `WorkspaceFailureKind` 转换为�
 当前目录：
 
 ```text
-tinysoul/workspace/
+tinysoul/plugins/workspace/
   __init__.py
   engine.py
   config.py
@@ -243,9 +243,9 @@ tinysoul/workspace/
   failures.py
 ```
 
-`WorkspaceEngine` 是资源管理门面，除资源操作外提供 active day 初始化/校验、`archive_day(workspace_target, trash_target)` 和归档只读 manifest projection。`WorkspaceReconciler` 维护磁盘发现与 Manifest 提交事务；`projection.py` 只接受与 Turn 相同 business day 的 Manifest；`WorkspaceEngineBuilder` 负责接收已解析设置、校验 module-owned 路径、主动验证 manifest 并装配 store。Maintenance Archive/Memory task 只调用这些门面，不理解 Workspace 内部资源路径。
+`WorkspaceEngine` 是资源管理门面，除资源操作外提供 active day 初始化/校验、`archive_day(workspace_target, trash_target)` 和归档只读 manifest projection。`WorkspaceReconciler` 维护磁盘发现与 Manifest 提交事务；`projection.py` 只接受与 Turn 相同 business day 的 Manifest；`WorkspaceEngineBuilder` 负责接收已解析设置、校验 module-owned 路径、主动验证 manifest 并装配 store。Reflection Archive/Memory task 只调用这些门面，不理解 Workspace 内部资源路径。
 
-AppBuilder 的目标职责是：
+AgentBuilder 的目标职责是：
 
 1. 构建 `WorkspaceEngine`；
 2. 调用 Workspace 提供的 registrar 把 workspace handler/executor 注册到 `ActionEngineBuilder`；
@@ -255,8 +255,8 @@ AppBuilder 的目标职责是：
 
 验收点：
 
-- `workspace.scan`、`workspace.read`、`workspace.search_text`、`workspace.analyze`、`workspace.describe`、`workspace.create`、`workspace.append`、`workspace.patch`、`workspace.delete` 和 `workspace.rewrite` 行为测试位于 `tests/workspace/`；
-- AppBuilder 不包含 workspace 扫描闭包；
+- `workspace.scan`、`workspace.read`、`workspace.search_text`、`workspace.analyze`、`workspace.describe`、`workspace.create`、`workspace.append`、`workspace.patch`、`workspace.delete` 和 `workspace.rewrite` 行为测试位于 `tests/plugins/workspace/`；
+- AgentBuilder 不包含 workspace 扫描闭包；
 - `workspace:` 链接解析和越界防护有单元测试；
 - manifest 完整 reconciliation、incomplete 不提交、无变化 revision 稳定和 description digest 失效有单元测试；
 - Turn preparation 在首个 Phase 前投影完整 Manifest；

@@ -1,232 +1,49 @@
 # Memory 设计
 
-## 状态与定位
+## 所有权与事实
 
-本轮 Memory 系统已实施。`tinysoul.memory` 是活动记忆、五类持久 Memory Markdown、检索目录、引用关系、派生向量缓存和多文档提交的唯一 owner；`tinysoul.maintenance.memory` 只负责把一个关闭 Business Day 绑定到 Memory Maintenance Turn，并通过 Memory 门面维护这些事实。
+`plugins/memory` 是活动 Memory.md、五类持久 Markdown、Link、codec、检索 catalog、backlinks 与 embedding cache 的唯一 owner。`plugins/reflection/memory` 绑定关闭日来源并运行维护 Turn，不直接操作 Memory 私有路径。
 
-Memory 与 Home、Session、Context 的边界如下：
+User Turn 通过 core.memory.memorize 修改当日 Session root 中的活动 Memory.md，通过 inspect/recall 读取持久知识。只有 Memory Reflection profile 注册持久写 Action。Home 负责身份与技能，Session 负责已完成 User Turn，Memory 不复制二者的历史日志。
 
-- Home 保存当前有效的身份规约、用户偏好和技能；
-- Session 保存同一 Business Day 已完成 User Turn，并在自己的 root 中承载当日 `Memory.md`；
-- Context 只装配当前 Turn 的 `memory:current|latest|target` 投影和 ActionResult；
-- 持久 `memory/` 保存 daily、entity、concept、fact、note Markdown；
-- User Turn 只能修改活动 `Memory.md`，持久 Memory 只能由 Memory Maintenance Turn 修改。
+Markdown 是业务事实；catalog、lexical 单元、正向引用、backlinks 与 embedding cache 可删除并重建。schema v2 使用严格 YAML frontmatter，拒绝未知字段和旧文档 schema；部署数据转换不隐含在启动中。
 
-Markdown 是唯一业务事实。进程内 catalog、正向引用、backlinks、lexical 单元和 `.tinysoul/embedding-cache.json` 都可以删除并从 Markdown 重建，不具有独立业务语义。
+## 活动记忆与五类文档
 
-## 三层记忆
+新 CalendarDay 由 owner 初始化正文为空的 Memory.md，同日重启保留。memorize 在 owner 锁内执行 append/replace/remove/clear 并原子替换，不要求模型传 CAS digest。成功后发刷新 Signal，在下一 Context 边界更新当前 Memory 段。活动记忆随 Session 归档，不是持久 memory: Link。
 
-### 活动记忆
+daily 保存目标日的情景证据；entity/concept 保存稳定实体与概念，fact 保存有来源的原子陈述，note 保存完整发展的知识主题。持久文档具有非空正文，已有 Link 不 hard delete。非 active 文档保留迁移说明与有效非 daily redirect；merged/superseded 指向同类目标。
 
-活动记忆固定为 Session root 下的 `Memory.md`。新 Business Day 在 Session root 建立后初始化 schema v1 frontmatter，正文为空；同日重启保留现有文件。User Turn 的 `core.memory.memorize` 使用当前 Background 暴露的 digest 做 CAS patch，支持 append、replace、remove、clear。变更不改写本轮已经构造的 Background，从下一 User Turn 起生效。
+relations 只表达 entity/concept 关联，evidence 指向 daily/fact/note。fact 必须具有 daily evidence 和 confidence；active fact 正文与陈述一致，active note 至少关联一个 entity/concept。daily 的日期元数据属于目标日，不改成执行日。没有 revision、activation_count、session_revision 或 active_memory_digest 持久字段。
 
-活动 `Memory.md` 随 Session 一起归档，是目标日 Maintenance 的直接输入；它不复制到持久 `memory/`，也不是持久 Memory Link。
+## Link 与 Context
 
-### Daily 情景证据
+canonical Link 分别是 memory:daily/YYYY-MM-DD、memory:entity/name、memory:concept/name、memory:fact/cite、memory:note/cite。owner 解析并映射到 Markdown；动态 ref、扩展名、路径穿越和非规范身份不作为持久 Link。
 
-`memory:daily/YYYY-MM-DD` 是指定日期 Session 与活动记忆的完整提炼。daily 只描述该日发生的事件、决策、行动、结果、语境变化和未完事项，不作为当前百科。显式重新维护同一目标日时，已有 daily 是复查输入；Maintenance 根据目标日资料决定保持不变或完整替换，不存在独立 append 操作。
+memory:current 指向活动 Memory，memory:target 指向绑定的归档活动 Memory，memory:latest 指向严格早于来源日的最近 daily。latest 缺失时静默省略。User/Home Reflection 使用 current/latest，Memory Reflection 使用 target/latest；这些默认内容受保护，不可因压力逐出。
 
-### 持久知识
+Memory provider 每 Turn 打开 Heap 段，维护本轮加载视图、目录与渐进检查；Context 只按 descriptor、ref 路由和通用能力调用。加载视图与持久事实分开，catalog 与正文更新由 owner 负责，TaskPrompt 中局部资源不自动进入通用背景。
 
-entity、concept、fact、note 保持当前最有效表达。Maintenance 先检索并复用已有内容，再做更新、纠正或必要的新建。既有 Link 一旦创建就不更名、不 hard delete；合并、替代或撤回通过非空迁移说明、非 active status 和有效 redirect 表达，使旧引用继续可精确召回。
+## 检索与召回
 
-## Link 与磁盘映射
+core.memory.inspect 提供有界发现：query 综合 exact identity、lexical、grep、中文 bigram 与可选 semantic；Link 模式检查正向引用、backlinks 和相关候选。query 只返回 active 候选，精确旧 Link 仍可 inspect。continuation 绑定 catalog generation 和请求身份，结果受条数、摘要与整页字符预算约束。
 
-五类 canonical Link 与路径为：
+core.memory.recall 接受精确持久 Link，返回完整 Markdown、类型、metadata、内容 digest 与 redirect chain；不会自动内联目标正文。模型根据检索结果渐进读取，Trace 保留有限投影和来源 Link，检索本身不改变 Background 或知识文档。
 
-```text
-memory:daily/2026-08-05       -> memory/daily/2026/08/2026-08-05.md
-memory:entity/graygoo         -> memory/entity/graygoo.md
-memory:concept/agent-design   -> memory/concept/agent-design.md
-memory:fact/f-a71c9d2e5f42   -> memory/fact/f-a71c9d2e5f42.md
-memory:note/n-a71c9d2e5f42   -> memory/note/n-a71c9d2e5f42.md
-```
+Embedding 使用 infra 的异步 provider-neutral 客户端。inspect 捕获固定 catalog，按需计算候选/query 向量；完整候选准备后原子替换 schema v2 cache。缓存身份包含模型设置与实际输入摘要。缺失、损坏或供应商失败降级到 lexical/relations/backlinks；取消保持取消语义，不安装半批缓存。Markdown 写入不调用网络，凭据不进入缓存。
 
-entity/concept cite 就是实体或概念的规范小写连字符名称，最长 120 字符。fact/note cite 是 Memory owner 生成的不透明稳定身份；模型可见语义分别来自 `summary` 和 `title`，不从 cite 猜测。旧日期 Link、`.md` Link、大小写变体、反斜杠、路径穿越和动态 Context ref 都不能按持久 Link 解析。
+## Reflection 与单文档提交
 
-以下身份只在所属 Context 中动态解析：
+Memory Reflection 的执行日是 Agent 当前日，source/target 单独绑定关闭日。归档 Session 和活动 Memory 必须存在且有效，至少一份有内容；缺失或全空为 skipped，损坏为模块失败。历史 Workspace 由只读段提供，当前 Workspace 仍为工作台。
 
-- `memory:current`：活动 Session 的 `Memory.md`；
-- `memory:latest`：严格早于 Context Business Day 的最近一份 daily；
-- `memory:target`：Memory Maintenance 绑定的归档目标日 `Memory.md`。
+模型先 inspect/recall 已有知识，再选择 memory_reflection.write_daily 或 write。write_daily 写目标日完整 daily；write 写一份非 daily Markdown。MemoryEngine 在 owner 锁内构造候选 catalog，校验文档、全部引用和 redirect，然后原子替换目标文件并安装新 catalog。
 
-动态 ref 不写入持久文档，也不能传给 exact recall。
+每次 Action 都是独立已收敛提交。引用与迁移目标须先写入，后续无效写入不会回滚此前成功文档。没有 draft、inspection receipt、preview、changeset、多文档 journal 或专用 complete 状态机。检索 digest 是读取摘要，不是持久写 CAS。core.answer 在共享 Reflection 完成管线中保存总结。
 
-## 文档契约
+自动 scheduled 请求检查 daily 缺失，避免重复维护；手动明确目标允许复查。日切和归档由 Agent/Archive 协调，不依赖维护模型成功。关闭日资料只作为来源，持久 memory/ 与 Home 不随日切归档。
 
-所有持久文档使用严格 YAML frontmatter 和非空 Markdown 正文；未知、缺失、重复或类型错误的字段均失败。daily 的框架 H1 是日期，正文不得再含 ATX 或 Setext H1。
+## 失败边界
 
-daily 元数据包含：schema version、kind、day、revision、`created_on`、`updated_on`、Session revision 和活动 Memory digest。`created_on`、`updated_on` 始终等于目标日；显式复查替换时 revision 增加，但日期语义不改成执行日。
+模型参数、Markdown schema、引用或 redirect 使当前写入无效时返回简短局部 Action failure，供模型修正。损坏既有文档、目录不变量、I/O 和配置失败在 Memory owner 边界归类，由 runtime_bridge 转为 Runtime 可理解的原因；不把原始异常正文传给模型。
 
-entity/concept/fact/note 共同包含：cite、status、`created_on`、`updated_on`、activity、relations、evidence、redirect 和可选 confidence。正文始终非空，包括已经迁移的旧文档。
-
-- `status`: `active | merged | superseded | retracted`；
-- `activity`: `last_activated_on` 与持久 `activation_count`；
-- `relations`: 只允许指向 entity/concept，用于稳定实体和概念关系；
-- `evidence`: 只允许指向 daily/fact/note，用于情景来源、事实支持和笔记依据；
-- `redirect_to`: active 时为空；非 active 时必须存在且不能指向 daily；merged/superseded 必须指向同类文档；
-- fact: `summary` 是最长 480 字符的一条陈述，active 正文与该原子陈述一致，必须有 confidence 和至少一条 daily evidence；
-- note: `title` 最长 240 字符，正文完整发展一个卢曼卡片式主题，active 时至少关联一个 entity 或 concept。
-
-这种 relations/evidence 分工避免把所有引用混成一个字段：entity/concept 负责“与什么有关”，daily/fact/note 负责“依据是什么”。正文中的 canonical Memory Link 也进入正向引用和 backlinks，但必须指向实际存在的文档。
-
-## Context 装配
-
-User Turn 和 Home Maintenance 使用同一活动 provider：
-
-```text
-memory:current + optional memory:latest
-```
-
-Memory Maintenance 使用 target-bound provider：
-
-```text
-memory:target + optional memory:latest
-```
-
-所有成功装配的 Memory 默认条目都不可被 Context pressure 逐出。latest 缺失是正常状态：不创建占位、不在 Context 解释缺失，也不阻止 Turn。provider 每 Turn 重新解析 latest；latest 永远严格早于 current/target 的 Business Day。
-
-`memory:current` 额外公开 memorize 所需 digest。`memory:latest` 公开 resolved daily Link。`memory:target` 来自归档 Session root，不能误读当前活动 Session。
-
-## User Action
-
-### `core.memory.memorize`
-
-只 patch `memory:current`。模型应保留 Context 中已经确认且对后续有用的 canonical Memory Link；不知道 Link 时先 inspect，不能为持久知识编造 Link。memorize 不创建或更新 daily/entity/concept/fact/note。
-
-### `core.memory.inspect`
-
-inspect 是有界发现和一跳探索，不返回完整 Markdown：
-
-- query 模式综合 exact identity、lexical term、正文 grep、中文 bigram 和可选 embedding 相似度；
-- link 模式返回该 Link 的正向引用、backlinks，以及优先使用 semantic related、无 embedding 时回退 lexical related 的有界候选，另返回各类关系计数；
-- kinds 可限制五类候选，continuation 绑定当前 catalog generation 与完整请求身份；
-- 只返回 active query candidate；已知非 active Link 仍可用 link 模式检查；
-- 结果同时受 top-k、candidate count、单摘要和整页字符预算约束；Maintenance 追加
-  `inspection_ref` 时由 Memory owner 预留对应 page overhead，完整 ActionResult 仍不超限。
-
-模型自行决定多跳路径：query 找候选，inspect 候选 Link 查看引用/backlinks，再 inspect 下一 Link；需要完整证据时切换 recall。inspect 结果以 foldable Trace 投影进入当前 Turn，不改变 Background。
-
-### `core.memory.recall`
-
-recall 只接受一个精确持久 Link，返回 owner 校验后的完整 Markdown、kind、cite、digest、metadata 和 redirect resolution chain。它不自动内联 redirect 终点正文，旧 Link 与新 Link 的内容保持可区分；模型可根据 chain 再 recall 目标。
-
-## 派生检索与 Embedding
-
-Memory 启动和提交后从所有 Markdown 重建进程内 catalog。catalog 验证缺失引用、redirect cycle/hop、所有 active 知识文档的 relation 最终目标，并生成正向引用和 backlinks。Lexical/grep 检索始终可用，不依赖外部模型。Maintenance 可以让 Memory owner 在不改变全局 catalog 的情况下，从当前 Markdown 与暂存文档集合构造临时 snapshot，供同一 Turn 的 inspect/recall 使用。
-
-Embedding 是 `tinysoul.infra` 的 provider-neutral 基础设施，通过 `[infra.embedding]` 配置。当前项目模板默认关闭，启用示例：
-
-```toml
-[infra.embedding]
-enabled = true
-base_url = "https://open.bigmodel.cn/api/paas/v4"
-model = "embedding-3"
-api_key_env = "GLM_EMBEDDING_API_KEY"
-dimensions = 1024
-batch_size = 64
-timeout_seconds = 30.0
-
-[memory.semantic_search]
-embedding_cache_max_chars = 16000000
-```
-
-密钥只从专用的 `GLM_EMBEDDING_API_KEY` 环境变量读取，不能复用 `GLM_API_KEY`，也不能写入 TOML 或缓存。Markdown commit 只提交文档和重建 catalog，不调用 embedding 网络。inspect 捕获固定 catalog 视图，异步补齐或刷新本次候选的向量，再计算 query 向量；它可以更新派生缓存，不写业务 Markdown。缓存按 provider/model/dimensions identity 和实际 embedding 输入文本的 digest 复用，缓存 schema v2 不读取旧缓存格式；缺失、损坏、不匹配、请求失败或维度异常时回退 lexical/relations/backlinks，不影响 exact recall。刷新期间的候选向量全部生成后才原子写入缓存并安装内存视图；网络取消直接传播，不安装半批向量。已经开始的短本地缓存写入先等待结束，再传播取消。并发检索串行访问同一 cache owner，避免候选刷新互相覆盖。Embedding-3 的当前端点、批量和维度限制以智谱官方文档为准：<https://docs.bigmodel.cn/api-reference/模型-api/文本嵌入>。
-
-## Memory Maintenance
-
-### 目标输入
-
-一个目标日必须小于当前 Business Day，并且有 authoritative ArchiveProjection。维护前要求归档 Session 和其中的 `Memory.md` 均存在且可读，且 Session facts 或活动 Memory 正文至少一项非空。缺失资料或两者都为空表示 not-ready/skipped；文件存在但 schema、日期、UTF-8 或大小不合法是 owner invariant failure。
-
-Memory Maintenance Context 精确绑定：
-
-```text
-target-day Session turn facts
-+ target-day archived Memory.md
-+ optional latest daily strictly before target
-+ optional existing target daily
-+ read-only target-day Workspace archive view
-```
-
-Workspace 只通过 owner 生成的 manifest 和 digest-bound bounded text read 暴露，不提供任意归档路径访问。existing target daily 通过 exact recall 检查；`memory:target` 和 latest 已由 Background 提供，`inspect_sources` 不复制这些完整正文。
-
-### Action 工作流
-
-Controller 在一个 Maintenance Turn 内拥有 draft、inspection refs 和提交状态：
-
-1. `inspect_sources` 以 `source=session|workspace` 分页理解 Session facts 或 Workspace resource 摘要，必要时 `read_workspace`；
-2. `inspect` 搜索已有持久 Memory，`recall` 读取精确 Markdown 并绑定 digest；
-3. `stage_create` 必须持有 query inspection ref；`stage_rewrite` 和 `stage_redirect` 必须持有 exact recall ref 与 digest；
-4. `compose_daily` 对目标资料做有界分块、分层 reduce 和完整 daily composition；
-5. `stage_daily` 选择 create、replace 或 unchanged，不存在 append；
-6. `preview` 将知识变更、activity 更新和 daily 组成一个 owner changeset并验证所有引用；
-7. `commit` 只接受未过期 preview revision；
-8. `maintenance.complete` 只在 commit 后成功。
-
-暂存文档可以互相引用，preview 对“现有 Markdown + 全部暂存文档”的最终视图统一验证。无关 stage 不使 inspection ref 失效；外部 catalog generation 或 source digest 变化会使它失效。User Turn 没有这些 mutation actions。
-
-Maintenance 中真正被来源、inspect、recall、rewrite 或 redirect 使用的非 daily Link 更新 activity；同一任务内用集合去重，每个 Link 至多增加一次。activation 不在 User inspect/recall 中持久变化，也不为显式重复或乱序维护增加额外账本。
-
-### 触发路径
-
-自动和手动只有触发检查不同，进入同一个 Memory Maintenance Turn 后行为完全一致：
-
-- 自动路径由每天的 scheduled Daily request 选择前一日；availability 只在目标 daily 缺失且目标 source ready 时登记，daily 已存在用于防止重复触发和启动重复提示；
-- 手动路径为 `/maintenance memory YYYY-MM-DD`，明确目标日后即使 daily 已存在也复查 daily 与持久知识；
-- 项目没有 `--rebuild` 或 `rebuild_memory`；
-- 启动 preflight 只恢复日切、刷新 availability 和发提示，不运行 LLM；scheduler 在进程已经运行并越过配置时刻时投递 request，启动晚于时刻不 catch up。
-
-## 提交与恢复
-
-Memory changeset 为每份文档记录 expected digest 或 expected absent，绑定 catalog generation 和目标日。事务目录使用三种可恢复状态：`.preparing-<id>` 是尚未发布的临时目录，`<id>` 是已发布、可执行的 ready journal，`.completed-<id>` 表示所有目标已写入、只待清理。提交先在 preparing 目录中写入所有新 Markdown 和 manifest，完成校验后原子改名为 ready，再执行以下步骤：
-
-1. 校验整份 manifest、顺序、staged digest、Markdown schema、目标日字段和全部 CAS；
-2. 确认所有知识文档在前、daily 在最后；
-3. 在首个目标写入前验证完整暂存文档集合与最终引用；
-4. 按稳定顺序逐份原子替换，daily 最后写入；
-5. 所有目标达到新 digest 后把 ready journal 原子改名为 completed，再清理 journal、重建 catalog。派生 embedding cache 由后续异步 inspect 按需刷新，网络失败不会改变文档提交结果。
-
-任何 staged 文档、引用或 CAS 在预检阶段失败时一份目标都不写。进程在 preparing 阶段中断时只清理临时目录；在 ready 的部分替换阶段中断时，下一次 Memory recovery 根据每个目标的 new digest 幂等前滚剩余操作；在 completed 清理阶段中断时只重试清理，不重复业务写入。因此 User Turn 不会在正常 Program 串行边界观察到 Maintenance 的半提交状态。事务只承诺项目现有的进程/文件操作恢复语义，不夸大为 fsync/power-loss durability。
-
-## 日切与归档
-
-`DailyLifecycleCoordinator` 的参与者为 Session、活动 Memory、Workspace。初始化顺序是 Session root、空 `Memory.md`、Workspace；归档前校验活动 Memory 日期，Session archive 完成后再次从归档 root 校验 `Memory.md`。pending transition 恢复也执行相同校验。持久 `memory/` 与 Home 不进入 archive。
-
-活动日 lease 同时核对 Session、Workspace 和 Memory 的 Business Day；任一不一致都阻止 User/Endpoint 工作，避免把当前活动记忆写入错误日期。
-
-## 模块与失败边界
-
-```text
-tinysoul/memory/
-  engine.py            # 唯一业务门面
-  links.py             # 五类持久 Link 与三类 Context ref
-  documents.py         # strict frontmatter/Markdown
-  active.py            # Session/Memory.md CAS
-  store.py             # 持久文档读写
-  catalog.py           # lexical/grep/references/backlinks/semantic fusion
-  embeddings.py        # 可删除的 Memory 向量缓存
-  transaction.py       # 多文档 journal/前滚
-  daily.py             # daily 分层 composition
-  background.py / actions.py / config.py
-
-tinysoul/maintenance/memory/
-  context.py           # target archive binding
-  task.py              # readiness 与 Maintenance Turn
-  actions.py           # draft/inspection refs/commit controller
-```
-
-可修正的参数、stale digest/ref、not-found 和 draft 顺序错误返回局部 Action failure。持久文档损坏、缺失引用、redirect cycle、事务 journal 损坏和原子写失败停在 Memory/Maintenance owner 边界并通过 Runtime bridge 处理。Embedding 失败是派生能力降级，不改变 Markdown 事实或 recall 可用性。
-
-## 核心不变量
-
-- User Turn 只修改活动 `Memory.md`；
-- current/latest/target 是 Context ref，不是持久 Link；
-- five-kind Markdown 是唯一业务事实；
-- relations 只指向 entity/concept，evidence 只指向 daily/fact/note；
-- fact 至少有 daily evidence，active note 至少有关联 entity/concept；
-- 先 inspect/recall 再新增或更新，已有 Link 不 hard delete；
-- explicit target 可复查已有 daily，自动路径用 daily existence 去重；
-- daily 与知识通过一个 changeset提交，daily 最后写入并可恢复；
-- embedding cache 可删除、可降级且不含 API key；
-- Home、Archive 和 User action 不绕过 Memory owner 写持久 `memory/`。
+短本地读取、提交与缓存写通过 JoinedOperations 接入异步执行，已开始写入完成并记录真实结果后才传播取消。可选 embedding 失败只影响派生检索，不改变已提交 Markdown 或 exact recall。

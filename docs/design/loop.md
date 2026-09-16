@@ -1,126 +1,53 @@
 # Loop 设计
 
-## 定位
+## 边界与装配
 
-Loop 模块只负责一次 Turn 内的运行编排：Turn、Cycle、Phase 及 Runtime 运行转移的消费。顶层 Program、typed request queue、外部输入和 scheduler 属于 `tinysoul.app`；业务日、确定性日切和 Archive/Home/Memory 任务编排属于 `tinysoul.maintenance`。
+`kernel/loop` 只拥有 Turn/Cycle/Phase 的异步执行、预算、等待与运行转移消费。Agent 管根队列、日期和世代；plugins 管领域事实及 profile 贡献。内核不 import Home、Memory、Session、Workspace 或 Reflection，也不访问它们的私有存储。
 
-Loop 根不维护语境状态，不定义行动或 Maintenance 业务语义，不做模型供应商适配，也不直接读写 Home、Memory、Session 或 Workspace。`assembly.py` 把 context、action、llm 三个门面组合成可复用的 3-stage Turn kernel；`loop.user` 构造 User Turn 主线，Maintenance 支线在 `tinysoul.maintenance.turn` 内复用 kernel。
+冻结的 TurnProfile 绑定 Context、Action、完成策略、准备/完成管线与类型化服务表。User 装配位于 agent/user，Reflection 装配位于 plugins/reflection；两者调用 build_turn_kernel，共用唯一 TurnRunner/CycleRunner/Phase 实现。
 
-## 目录组织
+## Turn 生命周期
 
-```text
-tinysoul/loop/
-  assembly.py                # owner-neutral Turn kernel assembly
-  turn.py                    # 通用 TurnRunner
-  cycle.py                   # 共用 CycleRunner
-  phases.py                  # Phase1/Phase2/Phase3
-  preparation.py             # 通用 preparation pipeline
-  completion.py              # 通用 completion pipeline
-  prompts.py                 # 共用 Phase prompt 构造
-  outcomes.py                # TurnOutcomeStatus / TurnFailure
-  signals.py                 # Turn 内 control/output 信号
-  context_signals.py         # Context signal 批量提交
-  pressure.py                # owner-neutral pressure protocol/result/sizing
-  trap_handlers.py           # owner-neutral frame/pressure handler
-  user/
-    builder.py / entry.py    # User Turn 构造与 App 轻量入口
-    actions.py / context.py  # User ActionEngine 与 effective Context
-    runtime.py / pressure.py # User Home/Workspace runtime policy
-    preparation.py           # User Turn preparation exports
-    completion.py            # core.answer completion
-    prompts.py               # User Turn guidance
-    outcomes.py              # User Turn outcome exports
-```
+Agent 在进入 Turn 前捕获 CalendarDay 并持有 day/generation lease。Turn 内不重读系统日期，跨午夜等待仍属于原执行日。Context 每轮打开独立段视图，准备操作通过 owner 门面读取，所有候选成功后安装。
 
-`loop/__init__.py` 只导出通用运行 SPI；`loop.user` 导出主线 builder/entry。Loop 根和 User 包都不导入 `tinysoul.maintenance`，也不存在 `loop.maintenance`、`loop.program`、`loop.daily` 或跨模块 Maintenance runner。
+执行链统一 async：provider、LLMTask、Phase、内部 LLM Action、Cycle 与 Turn。网络等待可直接取消；短 owner 操作开始后等待完成并交付真实结果，再传播取消；脚本和 Shell 由受控进程执行。取消不变成 Action timeout，执行中断也不伪造工具结果。
 
-## 通用 Turn
+收尾顺序为关闭普通受理、Action/Job 收敛、消费已接受终态、seal、必要 finish、Session recorder、全部 close，随后释放外层 lease 并完成句柄。prepare/open 部分失败同样回收已取得资源。重复取消等待既有收尾任务，不能让未结束的 owner 写入遗留到下一 Turn。
 
-Turn/Cycle/Phase 与内部 LLM Action 使用同一异步调用链。Action 和 LLM 的协作取消在 Cycle 边界解释为控制意图；普通 asyncio task 取消由 Turn 收尾后原样传播。Program 已使用异步队列与执行锁；完成 handler 统一 async，Session 的本地提交在 joined owner 边界完成。准备 handler 统一 async，Context 背景读取、Session 历史读取、Workspace reconcile 和归档历史读取均等待短 owner 操作收敛；部分 Action、恢复处理器与生命周期 I/O 尚未迁移，完整的异步 SDK 生命周期尚未建成。
-
-`TurnRunner` 接受本轮输入、权威 `BusinessDay`、Program scope 和 request identity。BusinessDay 由调用方捕获；同一 Turn 内不再读取系统日期，因此跨午夜仍属于开始时的业务日。
-
-Turn scope 建立后，Runner 依次：
-
-1. 调用 Context begin，建立独立 UserInputs、Background、TurnTrace 和 Working 状态；
-2. 运行有序 `TurnPreparationPipeline`，打开 Context 各 owner 段，再批量提交 Workspace 等准备 signals；
-3. 循环运行 Cycle，直到 profile completion、Runtime transfer、失败或 cycle budget 耗尽；
-4. 结束并封存 Context，对已开始 Turn 的完成事实运行 `TurnCompletionPipeline`；
-5. 清除活动 scope，必要记录成功后发布输出；外层 task 取消先完成 activity 回收、Context 结束与完成记录，再保持取消身份传播。
-
-`TurnOutcomeStatus` 对两类 Turn 统一表达 `completed/exhausted/stopped/failed`。profile 可以把 completion 映射为用户输出，也可以仅保留 owner completion；通用 Runner 不假定每个 Turn 都产生聊天回答。
-
-TurnCompletion 区分执行状态、执行失败与必要 finish 失败；TurnOutcome 保留必要提交失败及活动资源清理诊断。必要 finish 失败阻止回答发布，close 诊断不改变已经成立的业务结果。完成管线进入后由 Turn 持有独立任务，调用方取消或重复取消都等待它结束再传播；已封存并开始提交的回答不会因等待者取消而被改写。注册段在必要 finish 后逆序 close，close 位于收尾的 finally 边界；部分 open 失败也回收已打开视图。清理结束前不能复用同一 Context 开始下一 Turn，正式输出晚于 close。当前活动进程回收仍由旧 controller 在 seal 前执行，统一 Job/lease 生命周期尚未落地。
-
-## User Turn
-
-User Turn preparation 按以下顺序构造情景：
-
-1. Context 从 effective Home 与 `memory:current + optional latest` 等 provider 原子重建 Background；
-2. Session 投影当前业务日的跨 Turn 历史；
-3. Workspace reconcile 当前业务日并投影 Manifest。
-
-User ActionEngine 只加载 `tinysoul.action` 自有 catalog；Maintenance domain 物理上不在该资源根，因此不需要字符串过滤。唯一成功的 `core.answer` 由 `UserAnswerCompletionDetector` 直接转换为 Turn completion，再由 User profile 转换为用户输出；默认 completion pipeline 先按依赖运行必要的完成 handler，再由 Session 投影 sealed Trace 的类型化 Action 事实并幂等写入 schema v7 User Turn record。必要 handler 失败后停止后续依赖 handler，但仍让 Session 记录执行事实和必要提交失败；Session 自身失败通过 TurnOutcome 报告，不宣称记录已经持久化。`core.answer` 可以交付当前成果，也可以在继续推进依赖人的判断、信息、授权、进一步指示或路线选择时提出聚焦问题或请求确认。completion 只表示当前 User Turn 已经产生正式用户响应，不宣告整体多轮目标或 WorkingContext todos 已完成；用户回复后通过普通新 User Turn 和 Session Background 继续，不建立平行的 ask、pause 或 awaiting 状态。
-
-User Turn 可以在 Phase/Cycle 边界消费当前 Turn scope 的 `context.input.append` 和 `loop.control.request`；旧 scope 或无 Turn scope 的信号不得影响后续 Turn。
-
-## Maintenance Turn
-
-Maintenance Turn 由 `tinysoul.maintenance.turn` 拥有，并与 User Turn 使用同一个 `TurnRunner`、`CycleRunner` 和 Phase1/2/3 kernel。它不是一次独立裸 LLM 调用，而是在完整情景中继续思考和整理：仍有 Background、Session、Workspace、TurnTrace 和 Working，只改变输入、专用 guidance、精确 ActionEngine 与 completion policy。
-
-Maintenance Context 与 User Context 相互独立，并使用 actual Home provider，避免待审 runtime override 先成为判断规则。Home 与 Memory Turn 也各自构造 Context、SignalConsumer 和 trap，不共享活跃 Turn 状态。Home preparation 注入当前 Session 与 Workspace；目标关闭日的 Session/Workspace 绑定属于 `tinysoul.maintenance.memory.ArchivedMemoryMaintenanceContext`。Maintenance pressure recovery 只回收自身 Context，不注册 User 专属的 active Workspace cleanup、Workspace trash restore 或 Home runtime copy；Memory 任一路径都不会修改 active Workspace。Maintenance Turn 不写入 User Session completion。
-
-Maintenance ActionEngine 只包含：
-
-- 两类 Turn 可复用的只读 `core.context.inspect`；
-- 当前 task 的精确 `maintenance.home.*` 或 `maintenance.memory.*` actions；
-- task owner-bound `maintenance.complete`。
-
-Home 与 Memory Maintenance Turn 不互相暴露 actions，也不提供 `core.answer`、普通 Home mutation、Workspace mutation、Shell 或其它 User actions。成功的 `maintenance.complete` 先由 action owner 校验所有后置条件，再由 `MaintenanceCompletionDetector` 结束 Turn；模型不能用普通文本自行宣布完成，也不能等待人类审批。
+TurnCompletion 保存执行状态、typed Trace、输入和段快照。必要 finish 失败阻止正式回答，recorder 仍尝试保存已有失败事实；Session 自身失败明确报告。close diagnostics 不改写已提交结果。TurnExecutionCancelled 携带封存 TurnOutcome，并保持 asyncio 取消语义。Observation 输出晚于必要记录与关闭。
 
 ## Cycle 与 Phase
 
-Cycle 阶段 task profile 路由由 Loop 所有，并在 `[loop.cycle]` 下配置。
-`phase1_task_profile` 和 `phase2_task_profile` 引用 `llm.tasks` 所有的 profile；
-同一组引用由 User Turn 和所有 Maintenance Turn 共享。Turn-specific prompt、
-Action scope、preparation 和 cycle budget 仍由各自 Turn builder 管理。Phase
-单元继续保持固定的框架协议（`answer_format=none`、`tool_use=required`），
-选中的 LLM profile 提供模型链和通用调用默认值。
+每个 Cycle 顺序执行：
 
-当前 standard/development 配置和 `CycleSettings` 默认值使用 `frame_stage1` 与
-`frame_stage2` 两条阶段模型链；两条链由 User Turn、Home Maintenance Turn 和
-Memory Maintenance Turn 共同使用。自定义配置可以替换 profile，但跨模块装配时必须
-引用实际存在的 LLM task profile。
+1. Phase1 构造 MessageStack，只暴露 Control Tools 和域级语义，消费语境控制并选择行动域。
+2. Phase2 只暴露所选域的 Action Tools，挂载相应领域 Skill，生成并归一化 ActionCall。
+3. Phase3 执行 ActionBatch，把 typed 执行事实交给 Trace，并解释完成/问题意图。
 
-每个 Cycle 固定顺序执行三个单元：
+Phase1/Phase2 的可修正协议失败是 PhaseFailure，当前 Cycle 在失败 Phase 结束，有限反馈交给下一完整 Cycle；不在 Phase 内重复同一协议调用，不以空 ActionBatch 进入 Phase3。供应商/模型链重试归 LLM，模块契约失败经 owner bridge 进入 Runtime。
 
-1. Phase1 基于完整 Context 调用 `[loop.cycle].phase1_task_profile` 指定的 task profile，消费 Context control tools，并选择一个或多个可见 action domain。可由模型修正的协议失败返回 `PhaseFailure`，当前 Cycle 在 Phase1 边界结束，反馈随下一完整 Cycle 的 Phase1 prompt 重新构造；Phase1 不在同一 Cycle 内重复协议调用。
-2. Phase2 只暴露已选 domain 的具体 Action Tools，使用 `[loop.cycle].phase2_task_profile` 指定的 task profile 生成并归一化 ActionCall。可由模型修正的协议失败同样返回 `PhaseFailure`，Cycle 在 Phase2 边界结束，不把空 normalization 交给 Phase3；下一完整 Cycle 重新经过 Phase1，由模型决定修正 Context、域或行动计划。
-3. Phase3 装配和执行 ActionBatch，把 ActionResult 反馈写入 TurnTrace，并交给 profile completion detector。
+Phase task profile 由 loop.cycle 配置，三 profile 共用模型链选择；TaskPrompt 只叠加当前引导和 Skill。背景、Trace、Working 均由 Context 按段描述组合，Phase 不解释领域内容。
 
-PhaseFailure 是 Loop 内部的局部恢复结果，不是 Runtime exception。TurnRunner 只负责把有限 feedback 去重后带到下一个 Cycle，并继续服从 `max_cycles`、supervision cycle、取消和 Runtime transfer。LLM provider/model chain 的调用级重试仍归 LLM 模块；模型链耗尽、Context 不变量和模块边界错误继续经 bridge 进入 Runtime。
+## 输入、问题与预算
 
-Phase1/Phase2 的共用 task prompt 可以叠加 `turn_guidance`。User profile 要求围绕当前用户请求工作并最终调用 `core.answer`；Maintenance profile 说明这是自治维护、应结合 Background/Session/Workspace、不得生成用户回答或等待审批，并要求仅在 owner 后置条件满足后调用 `maintenance.complete`。
+TurnInbox 从请求受理到收尾持续接收。固定批次经 Context prepare/install 成功后 ack；准备期间到达的记录留在后批。inputs 保存正文，Trace 只引用输入身份与顺序。等待只观察就绪，不能抢走消费者记录。
 
-`ContextSignalConsumer.emit_and_consume` 把同一逻辑步骤的 decision、action results 或 phase notes 作为可重放批次提交。背景资源读取使用 joined owner 操作，完成后才安装本批候选；读取期间取消不安装候选。Home 缺页或 Context 压缩 Trap 发生在批次提交前时，Module 重试保留同一批次，不混入新输入。
+core.ask 是已收敛的 Action 意图。Turn 在 Phase3 后登记问题、发出中间观察输出并等待指定回复；普通追加或环境事件不答复问题。默认无限等待，显式超时以 awaiting_user 结束并保存事实。core.answer 产生完成候选；多个 ask/answer 意图构成可反馈 PhaseFailure。
 
-Workspace 压力恢复和 Trash 恢复通过 TrapResult 返回 snapshot Signal；handler 不直接提交 Context，也不因投影拒绝伪回滚已经完成的磁盘操作。ModuleRunner 的恢复信号入口由内核注入，在重试前消费本次恢复信号；队列中新到达的输入保留到正常边界。Phase 重试也先消费待处理更新，再重新构造模型输入。
+带 Inbox 的 Turn 在下一 Cycle 开始前检查预算；不足时经 Loop-owned reason 和 Trap SUSPEND 当前 Turn frame。next_cycle_index 保留，事件就绪不能越过预算，grant 绑定请求身份且幂等。模型不见剩余 Cycle，不得自动补额。不带 Inbox 的单次内核调用以有限预算终态收敛。
+
+正常完成前复查 Inbox 与活 Job。已接受输入使候选失效并继续推理；活 Job 由模型等待或停止。取消独立于队列容量，停止普通受理后仍接收内部清理终态，消费并 seal 后才注销目标。
+
+## Job 与完成策略
+
+Kernel JobRegistry 管身份、配额、监督、终态预留和 Turn 收尾；具体 backend 管进程及输出资源。Job 可跨 Cycle，不跨所属 Turn。后台 monitor 在 Turn 等待期间仍更新 owner 状态和终态，段视图在正常边界刷新，不由 monitor 并发修改 Context。
+
+User 的 core.answer 经 profile 映射为正式用户输出，由 Session 保存 schema v8 完成事实。Home/Memory Reflection 复用同一完成检测和内核，core.answer 表示维护总结，不写 User Session；各自专属 Action 权限由装配决定，内核不按 profile 字符串分支解释业务。
 
 ## Trap 与失败
 
-Loop bridge 位于自身 runtime_bridge.py。配置、调用契约与内部不变量分别归类，UserTurnBuilder 的 staging 失败归资源准备失败并映射为启动失败；桥接诊断不串接原始异常文本。
+可反馈 Action/Phase 失败留在本轮语境。模块失败在自身 bridge 映射为有限 Runtime 原因；Trap 只决定合法 frame 的重试、结束或受限 SUSPEND。已解析的 RuntimeTransferInterrupt 原样展开，不重复捕获。
 
-各运行器只在自己的 frame 边界消费 Runtime transfer。通用 handler 只包含 frame 与 pressure 协议；User runtime policy 额外注册 Home runtime copy、active Workspace pressure cleanup 和 Workspace trash restore，Maintenance runtime policy 只注册自身 Context pressure。两种 policy 均接收 Context 预算原因与 LLM 容量原因；有进展时重试最近可重放 Module/Phase，无进展则结束 Turn。`MaintenanceTurnEntry` 解释通用 Turn outcome 并将指向 Program 的 transfer 以 `RuntimeTransferInterrupt` 原样展开，task 不直接依赖 `TurnRunner`/`TurnOutcomeStatus`；Program 使用独立 Program-only trap。
+Context/LLM 容量恢复使用同一压力协议，段按能力和形状回收；有进展才重试，无进展结束恢复。需要 Workspace/Home owner 恢复的策略由外围注册，handler 发 Signal，内核在重试前消费；不直接安装 Context，也不因投影失败撤销已完成 owner 提交。
 
-Action 局部失败留在 ActionResult 中供下一 Cycle 修正。LLM 链耗尽、Context 不变量或 owner preparation failure 经模块 bridge 进入 Runtime，再形成有界 `TurnFailure`。User answer、用户 stop/exit 和正常 Maintenance completion 不伪装为失败。
-
-## 模块边界
-
-- 对 app：App 只调用 `loop.user.UserTurnBuilder/UserTurnEntry`，Loop 不接收顶层 AppRequest。
-- 对 maintenance：MaintenanceBuilder 使用通用 kernel SPI 构造自己的 Turn；Loop 不导入或解释 Maintenance、archive journal、Home diff 或 MEMORY 文件。
-- 对 context：只经 ContextEngine 门面构造 MessageStack、消费 control tools/signals 和管理 Turn 生命周期。
-- 对 action：只经 ActionEngine 门面选择 domain/action、归一化调用并执行批次。
-- 对 llm：构造 TaskCall 并消费 provider-neutral TaskResult。
-- 对 runtime：信号经 SignalBus，控制流经 RuntimeException、Trap 和 RuntimeTransfer。
-
-Loop 的设计范围到 Turn 边界为止。Program queue、scheduler、日切、Maintenance plan、外部协议、持久化目录与业务 owner 状态均不得回流到 Loop。
+Agent queue、环境触发、外部协议、Archive journal 与领域存储均留在 Turn 内核之外。

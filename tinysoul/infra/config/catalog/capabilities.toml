@@ -677,12 +677,3 @@ group = "capabilities.execution.supervision"
 title = "Maximum Process Runtime"
 description = "Hard runtime limit for one supervised process."
 value_kind = "number"
-
-[[field]]
-path = "capabilities.supervised_process.max_supervision_cycles"
-surface = "capabilities.execution"
-group = "capabilities.execution.supervision"
-title = "Supervision Cycles"
-description = "Maximum Agent cycles allowed while supervising one process."
-value_kind = "integer"
-importance = "advanced"

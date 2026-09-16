@@ -2,7 +2,7 @@
 
 ## Replay
 
-`GET /v1/events?after=0&mode=model&limit=200` 返回 `events`、`next_sequence` 和 `gap`。mode 为 `normal`、`verbose` 或 `model`。前端先从 status 捕获 `latest_event_sequence`，再按 cursor 分页到该目标；`gap=true` 时清理事件派生视图并重新读取权威 status、Maintenance 和 Workspace projection。
+`GET /v1/events?after=0&mode=model&limit=200` 返回 `events`、`next_sequence` 和 `gap`。mode 为 `normal`、`verbose` 或 `model`。前端先从 status 捕获 `latest_event_sequence`，再按 cursor 分页到该目标；`gap=true` 时清理事件派生视图并重新读取权威 status、Reflection 和 Workspace projection。
 
 ## WebSocket
 

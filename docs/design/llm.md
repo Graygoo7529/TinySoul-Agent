@@ -88,7 +88,7 @@ MessageStack 可以在 Phase3 action-internal LLM task 构造时包含当前 Pha
 
 LLM 模块需要改变运行控制流的失败应通过 Runtime bridge 进入 Trap，而不是伪装成任务失败结果。典型场景包括模型链耗尽、供应商不可恢复失败、任务调用契约错误、配置错误和模块内部错误。进入 Runtime bridge 的 payload 只携带模块名、稳定失败类型和必要摘要；原始异常链只用于日志和调试，不成为上下文或 payload 协议。
 
-因此 LLM 模块的失败边界分为两层：任务解释层的局部失败返回给调用方处理，模块边界层的不可继续失败映射为 Runtime 语义异常。两者都可以携带面向模型或框架的摘要，但只有 Runtime 语义异常会改变 Turn、Cycle 或 Program 的运行控制流。
+因此 LLM 模块的失败边界分为两层：任务解释层的局部失败返回给调用方处理，模块边界层的不可继续失败映射为 Runtime 语义异常。两者都可以携带面向模型或框架的摘要，但只有 Runtime 语义异常会改变 Turn、Cycle 或 Agent 的运行控制流。
 
 LLM 模块内部领域对象和注册表不使用裸 `ValueError`、`TypeError` 或 `KeyError` 表达模块语义失败。调用契约问题统一使用 `LLMContractError`，注册表重复注册等内部不变量破坏使用 `LLMInvariantError`；配置和 provider 动态边界再分别转换为 `ConfigError` 或 `ProviderError`。`CallSettings`、`TaskCall`、`ModelChain`、`TaskSpec`、`ProviderRequest` 和 `PromptCache` 等核心请求对象在直接构造时校验类型、非空标识、正数限制、模型链唯一性与 JSON 安全性，使绕过配置 parser 的调用路径仍满足同一领域不变量。
 
@@ -150,7 +150,7 @@ Reasoning 的三个字段语义不同：`content` 是可传给支持 Chat 历史
 
 每次候选模型尝试在 provider 调用前执行上下文硬水位预检，但一个 LLM Task 内所有候选始终共享上层已经构造的同一个 MessageStack。预检不会为不同模型维护平行 MessageStack，也不修改 ModelChainRunner 的位置状态；若当前 Task 允许 Context 重建，则容量压力立即中止整个 LLM Task，经 Runtime Trap 压缩 Context 后由上层重新构造一个新的 LLM Task。重放仍从既有 preferred model 开始，可能再次调用先前失败的大窗口模型，这是无容量 checkpoint 设计的明确成本。
 
-`ModelContextOverflowPolicy` 区分两类调用恢复契约：Framework 和 `llm_action` 使用 `REQUEST_RECOVERY`，由 LLM-owned runtime bridge 把 `llm.model_context_pressure` 映射为 `llm.context_capacity_exceeded`。上层 User/Maintenance 装配决定回收并重建 Task；LLM 不导入 Context，也不选择回收算法。User policy 可以清理 active Workspace，Maintenance policy 只回收自己的 Context。Home Search 与 Memory daily composition 使用 `FAIL`（默认值），容量失败以 `llm.model_context_limit_reached` 结束当前 Turn，不重复固定输入或清理 active User Context。Memory inspect 是确定性目录检索，不创建独立 LLM task。
+`ModelContextOverflowPolicy` 区分两类调用恢复契约：Framework 和 `llm_action` 使用 `REQUEST_RECOVERY`，由 LLM-owned runtime bridge 把 `llm.model_context_pressure` 映射为 `llm.context_capacity_exceeded`。上层 User/Reflection 装配决定回收并重建 Task；LLM 不导入 Context，也不选择回收算法。User policy 可以清理 active Workspace，Reflection policy 只回收自己的 Context。Home Search 与 Memory daily composition 使用 `FAIL`（默认值），容量失败以 `llm.model_context_limit_reached` 结束当前 Turn，不重复固定输入或清理 active User Context。Memory inspect 是确定性目录检索，不创建独立 LLM task。
 
 个人项目场景下，模型链默认进行有限但较充分的循环尝试，以容忍暂时网络故障，同时避免错误配置导致调用永久卡住。需要持续等待暂时性故障时，可以显式把 `max_cycles` 配置为无限；永久错误仍只尝试每个 Provider 和 Model 一次。`RetryPolicy` 在 LLM 领域边界保证 Provider 重试次数是非负整数、`max_cycles` 是正整数或无限，并保证等待与成功偏好时长都是有限非负数；配置解析失败统一收敛为 `ConfigError`，不作为一次调用失败进入 fallback。每次 Provider 重试、Provider/Model 切换和失败通过 ObservationEvent 暴露，并遵守配置的等待间隔。
 
@@ -176,7 +176,7 @@ LLM 配置属于 LLM 模块。Infra 只负责读取和合并配置文件，LLM �
 
 供应商配置把端点/凭据身份和行为适配类型分开描述：provider id 表示一个可独立启停的端点与凭据集合，`adapters` 声明该端点支持的一组 Adapter。一个代理端点可以同时声明 `openai`、`kimi` 和 `openai_compatible_chat`，模型按自身所需的 Adapter 筛选可用 Provider。模型只引用实际提供它的 provider id，而不假定 provider 名称等于适配器名称。同一模型在不同平台具有不同供应商模型名时，配置必须使用目标端点公开的模型 id，不把一个平台的具体模型名发送给另一个端点。`enabled = false` 的 Provider 不构建 Adapter，也不要求当前环境存在凭据；它仍可长期保留在 Model Binding 和 Task Model Chain 中。`enabled = true` 则要求当前 Generation 能从 `api_key_envs` 中解析到至少一个去除外围空白后非空的值，否则配置在候选校验或进程启动边界严格失败。启用只表达本地装配就绪，不是远端鉴权、网络或模型存在性的健康检查。密钥本身不写入项目配置文件，应放在本地环境文件或系统环境变量中。
 
-LLM 为每个 Runtime Generation 投影只读、无 secret 的 Provider 凭据状态，只包含 Provider identity、声明的环境变量名和 `configured | missing`。Endpoint 可以把该状态提供给设置界面，用于在提交 enable 前给出明确引导；配置中的 `enabled` 仍是唯一启用事实，后端候选校验仍是权威边界。零 enabled Provider 是合法的可配置状态，服务可以启动并接受配置；此时若某项 LLM Task 没有任何可路由模型，则按既有模型链耗尽语义结束该 Turn，而不是终止 Program。
+LLM 为每个 Runtime Generation 投影只读、无 secret 的 Provider 凭据状态，只包含 Provider identity、声明的环境变量名和 `configured | missing`。Endpoint 可以把该状态提供给设置界面，用于在提交 enable 前给出明确引导；配置中的 `enabled` 仍是唯一启用事实，后端候选校验仍是权威边界。零 enabled Provider 是合法的可配置状态，服务可以启动并接受配置；此时若某项 LLM Task 没有任何可路由模型，则按既有模型链耗尽语义结束该 Turn，而不是终止 Agent。
 
 同一模型系列中的性能与成本档位仍是独立 `ModelSpec`，而不是 provider 或 adapter 的子类型。任务 profile 按自身用途静态选择优先档位，模型链继续表达有序失败恢复，不承担运行时复杂度分类或动态成本路由。配置应使用端点公开的具体模型 id；当供应商同时提供会重定向到某个档位的浮动别名时，初始化模板不为该别名复制第二个 TinySoul 模型身份，也不让隐式重定向替代明确档位选择。
 
@@ -212,7 +212,7 @@ Model 以四项边界清晰的事实参与调用：`providers` 按顺序保存 P
 
 内置 `home_search` profile 服务于 Home-owned top candidate reranker：禁用工具、要求 JSON object、使用低 temperature 和有界输出。模型只看到确定性候选 metadata，只能返回候选内唯一 Link；Task failure 或任何结构/业务校验失败都由 Home search service 回退到稳定的确定性顺序，不影响只读搜索可用性。
 
-内置 `memory_daily` profile 只服务于 Memory-owned daily composer：禁用工具、要求 JSON object、使用较低 temperature，并为目标日 source 的分层 reduce 和最终完整 daily 正文保留明确输出预算。每次输出只接受精确 `content` 字段；validator 负责非空、文档大小和 H1 约束，最终 Link/status/reference 校验仍在 Memory changeset preview。entity/concept/fact/note 的判断与维护发生在 Memory Maintenance Turn 的普通 Phase/Action 循环，不另建专用 task profile。Memory inspect 的 lexical/grep/references/backlinks 是确定性能力，可选 embedding 通过 Infra adapter 调用，不使用 LLM task。
+内置 `memory_daily` profile 只服务于 Memory-owned daily composer：禁用工具、要求 JSON object、使用较低 temperature，并为目标日 source 的分层 reduce 和最终完整 daily 正文保留明确输出预算。每次输出只接受精确 `content` 字段；validator 负责非空、文档大小和 H1 约束，最终 Link/status/reference 校验仍在 Memory changeset preview。entity/concept/fact/note 的判断与维护发生在 Memory Reflection Turn 的普通 Phase/Action 循环，不另建专用 task profile。Memory inspect 的 lexical/grep/references/backlinks 是确定性能力，可选 embedding 通过 Infra adapter 调用，不使用 LLM task。
 
 单次调用可以显式覆盖任务配置中的调用设置。模型配置不承担回答格式和工具使用策略，因为输出形态表达的是任务意图，而不是模型身份。通用调用参数通常来自任务或单次调用；当某个具体模型有固定要求时，模型级 `request_overrides` 在最终请求阶段具有更高优先级。
 

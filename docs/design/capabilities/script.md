@@ -2,7 +2,7 @@
 
 ## 定位
 
-`tinysoul.capabilities.script` 提供临时与长期脚本的编写、修改、显式提升和 Turn 内监督执行。它不拥有新的 Link namespace：临时脚本使用 `workspace:scripts/...`，长期脚本使用 `home:skills/<skill>/scripts/...`。长期目标必须属于已存在的通用 skill；创建 skill 不属于本阶段。
+`tinysoul.plugins.capabilities.script` 提供临时与长期脚本的编写、修改、显式提升和 Turn 内监督执行。它不拥有新的 Link namespace：临时脚本使用 `workspace:scripts/...`，长期脚本使用 `home:skills/<skill>/scripts/...`。长期目标必须属于已存在的通用 skill；创建 skill 不属于本阶段。
 
 脚本执行面向 Workspace 资源处理。执行器为每个 job 建立 active Workspace 的有界事务镜像，以镜像根作为进程 `cwd`，并设置 `TINYSOUL_WORKSPACE` 指向同一目录。脚本只修改镜像；成功退出只进入 `ready_to_apply`，不隐式修改 active Workspace。这里的安全语义是事务隔离、语法/参数/资源限制和受控进程终止，不宣称操作系统级硬沙箱。
 
@@ -11,7 +11,7 @@
 - `execution.create_script` / `execution.rewrite_script` 复用 `LLMActionTaskRunner.run_text`，因此继承当前 Turn Context、Workspace reference 和 Home-owned domain/action skill；create 只允许新目标，rewrite 才覆盖已有目标；模型只返回完整 source 文本工件，不使用 JSON wrapper；
 - `execution.patch_script` 只做唯一精确替换，并在写入前执行确定性语法策略检查；
 - `execution.promote_script` 只允许从 `workspace:scripts/...` 复制到 `home:skills/<existing-skill>/scripts/...`，扩展名必须保持一致；
-- promote 写入 lazy runtime Home，随后由普通 Home Maintenance review/apply；它不直接写实际 Home，也不自动创建 skill。
+- promote 写入 lazy runtime Home，随后由普通 Home Reflection review/apply；它不直接写实际 Home，也不自动创建 skill。
 
 `ScriptSource` 是一次 read 产生的不可变源码 snapshot。owner resource digest 绑定 Workspace/Home Link 的资源版本和后续 CAS；解码后的 snapshot 另以固定 UTF-8 字节计算 `snapshot_digest`。policy 只校验该 snapshot，process 也只执行 job `source/` 中经 snapshot digest 复核的冻结入口；不得在 policy 后再次按 Link 读取执行内容。Workspace mirror 创建时逐文件复核复制字节与 baseline resource digest，Workspace source 的 baseline digest 还必须等于 resolver 读取时的 owner digest。`execution.promote_script` 同样直接写入已校验 snapshot，不二次读取 source Link。
 
@@ -37,7 +37,7 @@ failed、timed_out、stopped 只能 inspect/read/discard。即使进程快速成
 
 ## 长任务监督
 
-普通 Turn Cycle 上限耗尽后，共享 manager 中任一 unresolved Script/Shell job 都可以申请额外监督 Cycle；额外预算与进程最大运行时间分别受限。running job 由此继续监督，ready/failed/timed-out/stopped job 由此获得有界 apply/discard 收尾机会。每个额外 Cycle 仍完整执行 Phase1、Phase2、Phase3，因此新的 job ActionResult 进入 TurnTrace interaction context，Background 仍按每 Cycle 的既有规则重建，job 状态不进入 Background。
+进程 manager 不授予 Cycle 预算。带 Inbox 的 Turn 在预算不足时由 Loop 经 Trap 暂停，只有明确匹配的外部补额才启动下一 Cycle；不带 Inbox 的单次入口仍以 exhausted 收尾。进程最大运行时间独立受限，Turn 取消和结束仍清理其进程。`max_supervision_cycles` 配置及自动补额方法已删除。
 
 模型可选 wait 默认 15 秒，范围为 15 至 60 秒；三项值由项目 `execution.wait` Action TOML 的 Tool Schema 单一拥有，并可在 Action Catalog 设置页修改。Generation 编译时，supervised-process 把有效 `ActionSpec` 转换为强类型 wait policy；Manager 用其校验边界，executor 用其解释缺省参数。运行中 job 在没有显式 wait 时受默认 `cycle_wait_seconds=15` 的防空转间隔约束；该间隔与 Action 参数 contract 分属不同语义。显式 wait 正常到期时本身已经完成 pacing，下一 Cycle 立即开始，不再追加自动间隔。run initial wait 是独立的内部首次观察窗口。进程结束、当前 Turn input/control 可提前进入下一 Cycle。SignalBus 使用 emission cursor 和 predicate 提供 non-consuming wait，唤醒不抢走业务 Signal，同一旧 Signal 也不能反复唤醒。
 
@@ -62,14 +62,14 @@ runtime/.staging/supervised-process-job-*/
 
 当前实现已在保持本文件上述 Script 行为不变的前提下完成以下迁移：
 
-- job manager、Workspace transaction 协调、日志/候选观察、Cycle pacing、额外 Cycle 与 cleanup 位于 capability-internal `tinysoul.capabilities.supervised_process`；`tinysoul.workspace` 仍拥有 mirror/diff/CAS/bundle mutation；
+- job manager、Workspace transaction 协调、日志/候选观察、Cycle pacing 与 cleanup 位于 capability-internal `tinysoul.plugins.capabilities.supervised_process`；`tinysoul.plugins.workspace` 仍拥有 mirror/diff/CAS/bundle mutation；
 - Catalog 使用 `backend.kind=supervised_process`，Script registrar 仍注册 Script 专用 author/run handler；共享层只注册 `execution.wait/stop/read_candidate/apply/discard` 对应的生命周期 handler，不存在接受任意 inline 参数的通用 run executor；
 - staging identity 为 `runtime/.staging/supervised-process-job-*`；Script job 使用 `source/` 保存经 snapshot digest 复核的冻结入口，Shell job 不需要该目录；
 - `[capabilities.script]` 只保留 Script-owned source、authoring、Python/Bash 与依赖配置；runtime/log/mirror/candidate 及内部 initial/cycle pacing 位于 `[capabilities.supervised_process]`；模型显式 wait 的 minimum/default/maximum 属于 `execution.wait` Action contract；
 - 同一 Turn 的唯一 unresolved job 从“仅 Script”提升为“Script 与 Shell 共用”；启动 action 记录 owner，后续生命周期 action 只提交 execution id，由 Manager 在当前 Turn 内解析实际 owner，模型无需先判断它是 Script 还是 Shell job；
 - `core.answer` admission 由共享 manager 判断任一 owner 的 unresolved job；Loop 仍只依赖一个通用 activity controller。
 
-该组织不改变 Script 的身份：authoring/run 继续只接受 `workspace:scripts/...` 或 `home:skills/<existing-skill>/scripts/...` Link，不接受 inline source；promote、source policy/digest、成功后显式 apply/discard 和 Home Maintenance 语义都保持不变。Script 配置、依赖和 source 失败仍由 Script 拥有；共用 wait/continuation/cleanup 的 non-Action activity failure 由 `supervised_process` Runtime bridge 表达。
+该组织不改变 Script 的身份：authoring/run 继续只接受 `workspace:scripts/...` 或 `home:skills/<existing-skill>/scripts/...` Link，不接受 inline source；promote、source policy/digest、成功后显式 apply/discard 和 Home Reflection 语义都保持不变。Script 配置、依赖和 source 失败仍由 Script 拥有；共用 wait/continuation/cleanup 的 non-Action activity failure 由 `supervised_process` Runtime bridge 表达。
 
 ## Workspace 提交
 
@@ -84,6 +84,6 @@ runtime/.staging/supervised-process-job-*/
 
 ## 失败语义
 
-无效 Link、缺失 skill、语法拒绝、source digest 变化、参数越界、非零退出、日志越界、运行超时、非法状态和 apply 冲突是局部 ActionResult。Home lazy copy 与 Workspace Trash restore 保留既有 Runtime trap 语义。Home/Workspace IO、reconciliation 与 invariant 失败通过 owner Runtime bridge 保留模块归属；Loop 直接调用的 `wait_before_cycle` 与 `allow_additional_cycle` 属于共享 non-Action activity 边界，内部失败使用 `supervised_process` failure kind/Runtime bridge。Script 配置错误和启用 Bash 但 executable 不存在使用 `script.configuration_failed`；Catalog/Action registrar 自身不一致仍属于 Action 启动失败。
+无效 Link、缺失 skill、语法拒绝、source digest 变化、参数越界、非零退出、日志越界、运行超时、非法状态和 apply 冲突是局部 ActionResult。Home lazy copy 与 Workspace Trash restore 保留既有 Runtime trap 语义。Home/Workspace IO、reconciliation 与 invariant 失败通过 owner Runtime bridge 保留模块归属；Loop 直接调用的 异步 `wait_before_cycle` 属于共享 non-Action activity 边界，内部失败使用 `supervised_process` failure kind/Runtime bridge。Script 配置错误和启用 Bash 但 executable 不存在使用 `script.configuration_failed`；Catalog/Action registrar 自身不一致仍属于 Action 启动失败。
 
 job 的原始 staging 绝对路径不进入 ActionResult。结果只暴露 execution id、source Link/digest、状态、等待/活动事实、有界日志、候选相对路径及 digest/size；候选正文只能通过显式有界读取获得。

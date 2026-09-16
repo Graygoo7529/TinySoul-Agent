@@ -64,7 +64,7 @@ Memory 生命周期
 | Context | done for current User Turn | MessageStack、Context-owned 多 provider Background、Working/Trace、信号批次和压力恢复 | Home core 不可逐出，昨日 Memory 与 Phase1 动态项按 source 回收。 |
 | Session | done for lifecycle and Memory projection | 不可变 Turn record、summary、orphan reconciliation、日归档、archive snapshot、递归 Summary 的 Memory facts projection | Stage 6 已通过 Loop Maintenance runner 按日期定位并调用 projection。 |
 | Workspace | done for active lifecycle | 当日资源、Manifest、Trash、日归档 | 从目标日切看已基本闭合，不参与 Maintenance。 |
-| Loop | done through Stage 7 | User Turn、显式 BusinessDay、可恢复 rollover 与 crash matrix、Session archive 定位、typed Maintenance work/outcome、启动 preflight/reminder、分层 Observation，以及 MemoryEngine/Background provider 协作 | 生命周期核心闭环已完成。 |
+| Loop | done through Stage 7 | User Turn、显式 CalendarDay、可恢复 rollover 与 crash matrix、Session archive 定位、typed Maintenance work/outcome、启动 preflight/reminder、分层 Observation，以及 MemoryEngine/Background provider 协作 | 生命周期核心闭环已完成。 |
 | Agent Home | done through Stage 7 | Link、动态 effective Background provider、schema v2 跨日 overlay、resource/top/prompt mount mutation、Catalog mount reconcile、SKILL_MEMORY、WHAT/WHY/HOW top search、无持久状态 Home Maintenance、crash recovery 与 verbose Observation | Home 对日期 Memory 零所有权。 |
 | Memory | done through Stage 7 | 独立 Link/store/config/search/recall/Background/Maintenance/consolidator/action/failure/bridge，默认顶层 `memory/`，自由结构单日 consolidation、按日 search、有界 Link hints、原子写恢复与 verbose Observation | 生命周期核心闭环已完成。 |
 | App | done through Stage 7 | Builder、CLI、输入分发、输出路由、Maintenance channel、启动提示、scheduler、共享 Observation 装配、受控 BusinessClock seam，以及独立 MemoryEngine/provider/registrar/bridge 装配 | 无网络正式装配 E2E 已覆盖；发布资产留待 Stage 8。 |
@@ -127,7 +127,7 @@ archive/
 
 ## User Turn 处理流程
 
-1. Program 在 work lock 内捕获唯一 aware time 与 `BusinessDay`；
+1. Program 在 work lock 内捕获唯一 aware time 与 `CalendarDay`；
 2. `DailyLifecycleCoordinator.ensure_active_day` 只校验/归档 Session 与 Workspace/Trash；
 3. Context `begin_turn` 清空上一 Turn 的通用 Background、Session Background 与 Turn 内状态；
 4. Context 从 Home provider 重建默认 core/catalog，并从 Memory provider 加载精确昨日的完整有界正文（如有）；不回退更早日期；

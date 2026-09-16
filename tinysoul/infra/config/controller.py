@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import cast
 
 from tinysoul.infra.json import JsonObject, JsonValue, to_json_object, to_json_value
-from tinysoul.infra.concurrency import AsyncResourceScope, CleanupDiagnostic
+from tinysoul.infra.concurrency import AsyncResourceScope, CleanupDiagnostic, JoinedOperations
 
 from .dotenv import DotenvDocument, DotenvSource, _env_mapping_to_dotted
 from .documents import ConfigDocument, ConfigDocumentSet
@@ -95,6 +95,7 @@ class ConfigController:
         self._activation_observer = activation_observer
         self._generation_id_provider = generation_id
         self._catalog = catalog or load_config_catalog()
+        self._pending_reload = False
 
     @property
     def environment(self) -> ConfigEnvironment:
@@ -102,7 +103,7 @@ class ConfigController:
 
     def status(self) -> JsonObject:
         activity = self._activity()
-        can_write = activity == "idle"
+        can_reload = activity == "idle"
         source_items: list[JsonObject] = []
         for source in self._environment.sources:
             source_items.append(
@@ -124,9 +125,11 @@ class ConfigController:
         return to_json_object({
             "activity": {
                 "state": activity,
-                "can_write": can_write,
-                "reason": "" if can_write else _activity_reason(activity),
+                "can_write": True,
+                "can_reload": can_reload,
+                "reason": "" if can_reload else _activity_reason(activity),
             },
+            "pending_reload": self._pending_reload,
             "sources": source_items,
             "fields": self._effective_fields(),
         })
@@ -137,64 +140,64 @@ class ConfigController:
         return self._catalog.to_json()
 
     async def patch(self, mutations: tuple[ConfigMutation, ...]) -> JsonObject:
+        """Validate and save a candidate without replacing the active generation."""
         async with self._lock:
             if not mutations:
+                raise ConfigError("Configuration patch must contain operations", key="operations")
+            operations = JoinedOperations()
+            result = await operations.run(lambda: self._save(mutations))
+            operations.check_cancelled()
+            return result
+
+    def _save(self, mutations: tuple[ConfigMutation, ...]) -> JsonObject:
+        # Refresh source contents so an unrelated external file edit is not overwritten.
+        environment = self._environment.reload()
+        candidate, writes = self._candidate(mutations, environment)
+        if self._validator is not None:
+            self._validator(candidate)
+        receipt = ConfigFileTransaction(self.root).commit(tuple(writes))
+        receipt.complete()
+        self._environment = candidate
+        self._pending_reload = True
+        return to_json_object({
+            "state": "saved",
+            "pending_reload": True,
+            "changed_sources": sorted({mutation.source_id for mutation in mutations}),
+            "changed_fields": sorted({mutation.path for mutation in mutations}),
+        })
+
+    async def reload(self) -> JsonObject:
+        """Activate saved files only when the current generation is idle."""
+        async with self._lock:
+            if self._activity() != "idle" or self._activator is None:
                 raise ConfigError(
-                    "Configuration patch must contain operations",
-                    key="operations",
-                )
-            if self._activity() != "idle":
-                raise ConfigError(
-                    "Configuration changes require an idle runtime",
+                    "Configuration activation requires an idle runtime with an activator",
                     key="config.activation_unavailable",
                 )
-            self._observe(
-                "started",
-                {"operation_count": len(mutations)},
-            )
+            self._observe("started", {})
+            prepared: PreparedConfigActivation | None = None
             try:
-                candidate, writes = self._candidate(mutations)
-                if self._validator is not None:
-                    self._validator(candidate)
-                prepared = (
-                    await self._activator(candidate) if self._activator is not None else None
-                )
-            except BaseException as exc:
-                self._observe("failed", {"error_type": type(exc).__name__})
-                raise
-            try:
-                receipt = ConfigFileTransaction(self.root).commit(tuple(writes))
+                operations = JoinedOperations()
+                candidate = await operations.run(self._environment.reload)
+                operations.check_cancelled()
+                validator = self._validator
+                if validator is not None:
+                    await operations.run(lambda: validator(candidate))
+                    operations.check_cancelled()
+                prepared = await self._activator(candidate)
+                prepared.commit()
             except BaseException as exc:
                 await self._abort(prepared)
                 self._observe("failed", {"error_type": type(exc).__name__})
                 raise
-            try:
-                if prepared is not None:
-                    prepared.commit()
-            except BaseException as exc:
-                receipt.rollback()
-                await self._abort(prepared)
-                self._observe("failed", {"error_type": type(exc).__name__})
-                raise
-            receipt.complete()
             self._environment = candidate
-            self._observe(
-                "completed",
-                {"changed_field_count": len({item.path for item in mutations})},
-            )
-            result = to_json_object({
-                "state": "active",
-                "changed_sources": sorted(
-                    {mutation.source_id for mutation in mutations}
-                ),
-                "changed_fields": sorted({mutation.path for mutation in mutations}),
-            })
+            self._pending_reload = False
+            self._observe("completed", {})
+            result: JsonObject = {"state": "active", "pending_reload": False}
             generation_id = self._generation_id()
             if generation_id:
                 result["generation_id"] = generation_id
-            # Activation is committed. Retirement is not part of the file
-            # transaction and cannot roll back the now-visible generation.
-            if prepared is not None and prepared.retire is not None:
+            if prepared.retire is not None:
                 retirement = AsyncResourceScope()
                 retirement.register("config.retirement", prepared.retire)
                 diagnostics = await retirement.close()
@@ -237,15 +240,16 @@ class ConfigController:
     def _candidate(
         self,
         mutations: tuple[ConfigMutation, ...],
+        environment: ConfigEnvironment,
     ) -> tuple[ConfigEnvironment, list[ConfigDocumentWrite]]:
         documents: dict[Path, ConfigFileToml | DotenvDocument] = {}
         source_by_id: dict[str, ConfigSource | ConfigDocument] = {
-            source.source_id: source for source in self._environment.sources
+            source.source_id: source for source in environment.sources
         }
         source_by_id.update(
-            {document.source_id: document for document in self._environment.documents}
+            {document.source_id: document for document in environment.documents}
         )
-        dotenv_path = self._environment.dotenv_path
+        dotenv_path = environment.dotenv_path
         source_by_id.setdefault(
             "dotenv",
             DotenvSource(dotenv_path).load(),
@@ -313,7 +317,7 @@ class ConfigController:
                 document.delete_value(mutation.path)
 
         candidate_sources: list[ConfigSource] = []
-        for source in self._environment.sources:
+        for source in environment.sources:
             document = documents.get(source.path) if source.path is not None else None
             if source.kind is ConfigSourceKind.PROJECT_TOML and isinstance(
                 document, ConfigFileToml
@@ -346,7 +350,7 @@ class ConfigController:
             candidate_sources.append(DotenvSource(dotenv_path).load())
 
         candidate_document_sets: list[ConfigDocumentSet] = []
-        for document_set in self._environment.document_sets:
+        for document_set in environment.document_sets:
             candidate_documents: list[ConfigDocument] = []
             for source in document_set.documents:
                 document = documents.get(source.path)
@@ -381,10 +385,10 @@ class ConfigController:
         runtime_env = (
             {
                 **dotenv_document.values,
-                **self._environment.process_env,
+                **environment.process_env,
             }
             if dotenv_document is not None
-            else self._environment.runtime_env
+            else environment.runtime_env
         )
         candidate_dotenv_path = _dotenv_path_from_tree(self.root, project_tree)
         if candidate_dotenv_path != dotenv_path:
@@ -415,10 +419,10 @@ class ConfigController:
             )
 
         candidate = ConfigEnvironment(
-            project=self._environment.project,
+            project=environment.project,
             sources=candidate_sources,
             runtime_env=runtime_env,
-            process_env=self._environment.process_env,
+            process_env=environment.process_env,
             project_tree=project_tree,
             dotenv_path=candidate_dotenv_path,
             document_sets=candidate_document_sets,

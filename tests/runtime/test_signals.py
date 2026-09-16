@@ -67,7 +67,7 @@ def test_signal_bus_matching_wait_is_non_consuming_and_cursor_bound() -> None:
 
 
 def test_signal_normalizes_payload() -> None:
-    scope = RunScope.of(RunFrame(RunLevel.PROGRAM, "main"))
+    scope = RunScope.of(RunFrame(RunLevel.AGENT, "main"))
 
     signal = Signal("runtime.trace", "trap", scope, {"a": 1})
 
@@ -75,7 +75,7 @@ def test_signal_normalizes_payload() -> None:
 
 
 def test_signal_rejects_non_object_payload() -> None:
-    scope = RunScope.of(RunFrame(RunLevel.PROGRAM, "main"))
+    scope = RunScope.of(RunFrame(RunLevel.AGENT, "main"))
 
     with pytest.raises(RuntimeContractError):
         Signal("runtime.trace", "trap", scope, cast(JsonObject, ["x"]))

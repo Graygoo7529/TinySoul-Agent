@@ -9,7 +9,7 @@ Capabilities 承载不拥有独立持久化、Link namespace 或 Runtime/Trap �
 ## 组织原则
 
 ```text
-tinysoul/capabilities/
+tinysoul/plugins/capabilities/
   <capability>/
     config.py
     dependencies.py
@@ -82,13 +82,13 @@ Capability 不重复实现 Action backend。需要硬停止的第三方解析、
 
 ## 共用监督执行层
 
-Script 与 Shell 都需要让进程在启动 Action 返回后继续运行，并在同一 Turn 的后续 Cycle 中观察、等待、停止或收尾。该能力由 `tinysoul/capabilities/supervised_process/` 提供：它是 capability-internal 共用设施，不是模型可见 domain，不建立 Skill、Link namespace 或独立持久状态；它为模型侧 `execution` Domain 注册唯一一组生命周期 handler。
+Script 与 Shell 都需要让进程在启动 Action 返回后继续运行，并在同一 Turn 的后续 Cycle 中观察、等待、停止或收尾。该能力由 `tinysoul/plugins/capabilities/supervised_process/` 提供：它是 capability-internal 共用设施，不是模型可见 domain，不建立 Skill、Link namespace 或独立持久状态；它为模型侧 `execution` Domain 注册唯一一组生命周期 handler。
 
-共用层拥有 Turn-scoped 单 job manager、日志/候选观察、Cycle pacing、额外 Cycle、apply/discard 协调、生命周期 executor 和 cleanup，并复用注入的 Workspace transaction mirror service。同一 Turn 跨 Script/Shell 最多一个 unresolved job；启动 action 写入 owner，后续 lifecycle action 只用 execution id 在当前 Turn 内解析实际 owner。`tinysoul.workspace` 继续拥有 mirror、diff、baseline CAS 和 bundle mutation；共享层不能复制这些规则。Script/Shell 仍各自拥有启动 action schema、source/command policy、依赖、handler 和结果解释；共享层不能退化为接受任意 params 的通用 run executor。
+共用层拥有 Turn-scoped 单 job manager、日志/候选观察、Cycle pacing、apply/discard 协调、生命周期 executor 和 cleanup，并复用注入的 Workspace transaction mirror service。同一 Turn 跨 Script/Shell 最多一个 unresolved job；启动 action 写入 owner，后续 lifecycle action 只用 execution id 在当前 Turn 内解析实际 owner。`tinysoul.plugins.workspace` 继续拥有 mirror、diff、baseline CAS 和 bundle mutation；共享层不能复制这些规则。Script/Shell 仍各自拥有启动 action schema、source/command policy、依赖、handler 和结果解释；共享层不能退化为接受任意 params 的通用 run executor。
 
 配置使用 `[capabilities.supervised_process]` 承载真正共用的 wait/runtime/log/mirror/candidate 上限。Script 只保留 source、Python/Bash 和 authoring 相关设置，Shell 只保留 interpreter/command 相关设置。原 `[capabilities.script]` 共用键已一次性迁移，不保留 alias；未知旧键显式失败。
 
-Action backend 已从 `script` 迁移为 `supervised_process`。同步 `subprocess` 必须在当前 Action batch 内结束；`supervised_process` 可以保留 Turn-scoped job，但 run/wait/stop/read/apply/discard 每个 Action 仍在自己的 batch 内收敛。模型侧 Script/Shell Action 合并进宽泛的 `execution` Domain，但两个 Capability 包及配置保持独立；Resource conversion 同理并入 `workspace` Domain。Domain 用于 Stage1 大致方向选择，不要求与 Capability 或 handler owner 一一对应。受控进程与同步子进程都复用 `tinysoul/action/backends/process.py`，而不是复制进程启动和终止代码。
+Action backend 已从 `script` 迁移为 `supervised_process`。同步 `subprocess` 必须在当前 Action batch 内结束；`supervised_process` 可以保留 Turn-scoped job，但 run/wait/stop/read/apply/discard 每个 Action 仍在自己的 batch 内收敛。模型侧 Script/Shell Action 合并进宽泛的 `execution` Domain，但两个 Capability 包及配置保持独立；Resource conversion 同理并入 `workspace` Domain。Domain 用于 Stage1 大致方向选择，不要求与 Capability 或 handler owner 一一对应。受控进程与同步子进程都复用 `tinysoul/kernel/action/backends/process.py`，而不是复制进程启动和终止代码。
 
 需要产生中间文件的 capability 共用 App 按项目根装配的 `runtime/.staging/`，由 Infra 的 staging manager 提供启动清理、唯一 action 子目录和作用域结束清理。该目录是无业务身份的短期执行设施，不属于 Workspace、Session、Home、Memory 或 archive；capability 不自行创建平行 temp root。原子写同目录临时文件、subprocess 输出捕获和项目 initializer staging 具有不同语义，不纳入此 capability staging 根。
 
@@ -107,7 +107,7 @@ Capability 失败分为三层：
 
 1. 参数不满足 action schema、输入格式不支持、目标冲突、内容损坏、资源超限和 worker 非零结果属于局部 ActionResult；
 2. capability 配置非法、启用能力缺少依赖和 registrar/Catalog 装配矛盾属于模块/App 启动边界失败；
-3. Runtime transfer、Program/Turn/Cycle 控制和全局恢复继续由 RuntimeException 表达，capability 不吞掉或降级。
+3. Runtime transfer、Agent/Turn/Cycle 控制和全局恢复继续由 RuntimeException 表达，capability 不吞掉或降级。
 
 worker 的非零退出、格式错误或无效输出属于当前 action 的局部失败；它不能破坏宿主 Workspace，也不能把 worker traceback、绝对路径或原始输出带入模型反馈。宿主内部对象关系被破坏时仍按 Action 模块的公共失败边界处理。
 

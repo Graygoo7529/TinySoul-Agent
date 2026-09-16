@@ -11,7 +11,7 @@ from .errors import RuntimeContractError
 RUNTIME_STARTUP_FAILED = "runtime.startup_failed"
 RUNTIME_TURN_END = "runtime.turn_end"
 RUNTIME_CYCLE_END = "runtime.cycle_end"
-RUNTIME_PROGRAM_END = "runtime.program_end"
+RUNTIME_AGENT_END = "runtime.agent_end"
 
 
 @dataclass

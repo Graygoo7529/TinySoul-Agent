@@ -5,6 +5,7 @@ from __future__ import annotations
 from ..errors import RuntimeContractError, RuntimeInvariantError
 from ..exception import RuntimeException
 from ..scope import RunScope
+from ..transfer import RuntimeTransferAction
 from .snap import TrapSnap
 from .handler import TrapResult
 from .registry import TrapHandlerRegistry
@@ -25,6 +26,9 @@ class RuntimeTrap:
                 f"No trap handler registered for runtime reason: {snap.reason}"
             ) from exc
         result = handler.handle(snap)
+        if (result.transfer.action is RuntimeTransferAction.SUSPEND
+                and result.transfer.target != snap.scope.current()):
+            raise RuntimeInvariantError("Suspension requires the current Turn boundary")
         if not snap.scope.contains(result.transfer.target):
             raise RuntimeInvariantError(
                 "Trap handler returned a transfer target outside the captured scope: "

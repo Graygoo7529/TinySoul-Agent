@@ -95,6 +95,19 @@ class ConfigEnvironment:
     def project_tree(self) -> dict[str, object]:
         return deep_copy_mapping(self._project_tree)
 
+    def reload(self) -> "ConfigEnvironment":
+        """Read current project files while retaining explicit process inputs."""
+        overrides: dict[str, object] = {}
+        for source in self._sources:
+            if source.kind is ConfigSourceKind.OVERRIDE:
+                overrides.update(source.values)
+        return type(self).from_project_root(
+            self._project.root,
+            project_file_name=self._project.main_path.relative_to(self._project.root).as_posix(),
+            dotenv_name=self._dotenv_path.relative_to(self._project.root).as_posix(),
+            env=self._process_env, overrides=overrides,
+        )
+
     @property
     def project(self) -> ProjectConfig:
         """Project source graph and its configured dotenv path."""
@@ -208,6 +221,10 @@ class ConfigEnvironment:
 
         allowed_names = frozenset(allowed)
         for source in self._sources:
+            # Process environment is also the provider credential namespace;
+            # arbitrary keys there are not project configuration sections.
+            if source.kind is ConfigSourceKind.ENVIRONMENT:
+                continue
             for key, value in source.values.items():
                 section = key.split(".", 1)[0]
                 if section not in allowed_names:

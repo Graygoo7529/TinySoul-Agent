@@ -59,7 +59,7 @@ Loop 通过明确的 Turn definition/profile 支持 User 与 Maintenance：
 
 Maintenance 是每日维护领域门面，拥有：
 
-- BusinessDay/BusinessClock 与 `[maintenance]` 配置；
+- CalendarDay/BusinessClock 与 `[maintenance]` 配置；
 - 可恢复 Archive lifecycle coordinator；
 - Maintenance request/plan/outcome；
 - Home/Memory task eligibility、顺序、失败隔离和 Maintenance Turn 构建；

@@ -9,4 +9,3 @@ max_log_delta_chars = 4000
 initial_wait_seconds = 10
 cycle_wait_seconds = 15
 max_runtime_seconds = 1800
-max_supervision_cycles = 32

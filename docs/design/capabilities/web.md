@@ -2,7 +2,7 @@
 
 ## 定位
 
-`tinysoul.capabilities.web` 是无独立持久状态的只读外部 Web 能力。它不拥有 Link namespace、缓存、索引或 Runtime/Trap 生命周期；搜索的交互结果进入 TurnTrace，需保留的长结果和网页正文写入现有 `workspace:` 资源。
+`tinysoul.plugins.capabilities.web` 是无独立持久状态的只读外部 Web 能力。它不拥有 Link namespace、缓存、索引或 Runtime/Trap 生命周期；搜索的交互结果进入 TurnTrace，需保留的长结果和网页正文写入现有 `workspace:` 资源。
 
 Web domain 当前暴露四个独立 action：
 

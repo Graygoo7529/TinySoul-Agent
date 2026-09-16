@@ -7,7 +7,7 @@ import pytest
 from tinysoul.runtime.errors import RuntimeInvariantError
 from tinysoul.runtime import (
     RUNTIME_CYCLE_END,
-    RUNTIME_PROGRAM_END,
+    RUNTIME_AGENT_END,
     RUNTIME_STARTUP_FAILED,
     RUNTIME_TURN_END,
     RuntimeException,
@@ -39,7 +39,7 @@ class _Handler:
 
 def test_trap_captures_snap_and_dispatches_handler() -> None:
     scope = RunScope.of(
-        RunFrame(RunLevel.PROGRAM, "main"),
+        RunFrame(RunLevel.AGENT, "main"),
         RunFrame(RunLevel.TURN, "user"),
         RunFrame(RunLevel.CYCLE, "1"),
         RunFrame(RunLevel.PHASE, "phase1"),
@@ -67,7 +67,7 @@ def test_trap_captures_snap_and_dispatches_handler() -> None:
 
 
 def test_trap_registry_supports_prefix_handlers() -> None:
-    scope = RunScope.of(RunFrame(RunLevel.PROGRAM, "main"))
+    scope = RunScope.of(RunFrame(RunLevel.AGENT, "main"))
     current = scope.current()
     assert current is not None
     handler = _Handler(transfer=RuntimeTransfer.end(current))
@@ -77,7 +77,7 @@ def test_trap_registry_supports_prefix_handlers() -> None:
 
     result = trap.capture(
         RuntimeException(
-            reason=RUNTIME_PROGRAM_END,
+            reason=RUNTIME_AGENT_END,
             message="exit",
             payload={},
         ),
@@ -85,7 +85,7 @@ def test_trap_registry_supports_prefix_handlers() -> None:
     )
 
     assert result.transfer == RuntimeTransfer.end(current)
-    assert handler.snaps[0].reason == RUNTIME_PROGRAM_END
+    assert handler.snaps[0].reason == RUNTIME_AGENT_END
 
 
 def test_trap_handler_can_emit_signals() -> None:
@@ -114,7 +114,7 @@ def test_trap_handler_can_emit_signals() -> None:
 
 
 def test_trap_unknown_reason_raises_runtime_invariant_error() -> None:
-    scope = RunScope.of(RunFrame(RunLevel.PROGRAM, "main"))
+    scope = RunScope.of(RunFrame(RunLevel.AGENT, "main"))
     trap = RuntimeTrap(registry=TrapHandlerRegistry())
 
     with pytest.raises(RuntimeInvariantError) as raised:
@@ -127,7 +127,7 @@ def test_trap_unknown_reason_raises_runtime_invariant_error() -> None:
 
 
 def test_trap_rejects_transfer_target_outside_captured_scope() -> None:
-    scope = RunScope.of(RunFrame(RunLevel.PROGRAM, "main"))
+    scope = RunScope.of(RunFrame(RunLevel.AGENT, "main"))
     handler = _Handler(
         transfer=RuntimeTransfer.end(RunFrame(RunLevel.TURN, "foreign"))
     )
@@ -145,7 +145,7 @@ def test_trap_rejects_transfer_target_outside_captured_scope() -> None:
 
 
 def test_trap_registry_uses_explicit_fallback_for_unknown_reason() -> None:
-    scope = RunScope.of(RunFrame(RunLevel.PROGRAM, "main"))
+    scope = RunScope.of(RunFrame(RunLevel.AGENT, "main"))
     current = scope.current()
     assert current is not None
     fallback = _Handler(transfer=RuntimeTransfer.end(current))

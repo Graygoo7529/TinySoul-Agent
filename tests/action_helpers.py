@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from functools import cache
 from typing import Self
 
-from tinysoul.action import (
+from tinysoul.kernel.action import (
     ActionEngineBuilder,
     ActionExecution,
     ActionExecutionContext,
@@ -15,12 +16,20 @@ from tinysoul.action import (
     ActionCatalogLoader,
 )
 from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.agent.catalog import builtin_action_catalog_root
 
 ActionFunction = Callable[[ActionExecution, ActionExecutionContext], JsonObject]
 
 
 def load_action_catalog(root: Path) -> ActionCatalog:
     return ActionCatalogLoader().load(root)
+
+
+@cache
+def builtin_catalog() -> ActionCatalog:
+    """One immutable assembled catalog per suite, shared by execution tests."""
+    with builtin_action_catalog_root() as root:
+        return ActionCatalogLoader().load(root)
 
 
 class FunctionActionExecutor:

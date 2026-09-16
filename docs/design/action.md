@@ -71,7 +71,7 @@ Phase3 不保留长期运行或 ongoing Action。正常完成以成功、失败�
 
 ActionExecutor 统一提供异步执行入口。runner 拥有已启动任务直到其收敛：Action deadline 取消异步 I/O 并生成 timeout；Turn 取消保持取消身份。短本地 owner 调用通过 JoinedOperations 保留并等待 worker 结果，结果先交付 Trace，再传播取消；迟到的真实成功不改写为超时。
 
-LocalActionExecutor 是明确的有界本地执行协议，由 Home、Workspace 的纯本地动作消费，不是同步 executor 兼容回退。它把 owner 操作、结果构造和通知一起完成后返回。Workspace 的混合动作分为有界读取、异步 LLM、owner 提交；提交包含 Workspace snapshot 通知。Home 搜索只把文档读取放入短操作，rerank 仍为原生异步 LLM。Memory、Maintenance 与进程能力的剩余同步边界继续按重构计划迁移，不能把含网络或长期进程工作的整个 executor 投入该适配。
+LocalActionExecutor 是明确的有界本地执行协议，由 Home、Workspace 的纯本地动作消费，不是同步 executor 兼容回退。它把 owner 操作、结果构造和通知一起完成后返回。Workspace 的混合动作分为有界读取、异步 LLM、owner 提交；提交包含 Workspace snapshot 通知。Home 搜索只把文档读取放入短操作，rerank 仍为原生异步 LLM。Memory、Reflection 与进程能力的剩余同步边界继续按重构计划迁移，不能把含网络或长期进程工作的整个 executor 投入该适配。
 
 并行组按完成就绪处理任务；同一批同时失败按提交顺序选择主失败。未知 executor 异常、非法结果身份和 trace policy 错配由 Action bridge 转为模块失败；已知业务拒绝保持局部结果。RuntimeException 与 RuntimeTransferInterrupt 保持原身份，同批工作回收后传播。执行事实独立于模型视图提交，因此部分批次失败不抹去已提交结果。runner 不保留失联线程 grace 或“泄漏后继续”策略；受控进程的停止仍由进程 owner 负责。
 
@@ -108,8 +108,8 @@ available = runtime.enabled && supported
 Builder 因此保留 configured catalog、exact include view、supported identities 和 effective catalog。
 Phase1/Phase2、执行 identity、executor 完整性校验与 Home prompt mount reconciliation 只消费
 effective catalog；设置与 Endpoint 投影遍历 configured catalog，使关闭或暂不支持的 Action 仍可读。
-Maintenance 精确视图在 configured catalog 上选择 Turn 所需 Action，再与 activation/support 求交；
-复用的项目 Action 遵守同一 policy，Maintenance package Action 使用自己的 package 默认值。
+Reflection 精确视图在 configured catalog 上选择 Turn 所需 Action，再与 activation/support 求交；
+复用的项目 Action 遵守同一 policy，Reflection package Action 使用自己的 package 默认值。
 
 ## 执行语义
 
@@ -239,17 +239,17 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 `subprocess` 与 `supervised_process` 的边界不是使用哪一个解释器，而是进程生命周期：`subprocess` 必须在当前 Action batch 内完成并收敛；`supervised_process` 可以在启动 Action 返回后保留一个 Turn-scoped job，由后续 Cycle 的 wait/stop/read/apply/discard Action 继续监督。每个监督 action 自身仍在所属 batch 内收敛，不引入 ongoing Action。
 
-`supervised_process` 不提供通用命令 executor，也不允许 Catalog 仅凭 backend kind 执行参数。Script 与 Shell 使用不同 handler、参数协议和业务 policy，但共用 capability-internal job manager、Workspace transaction 协调、日志/候选观察、Cycle pacing、额外 Cycle 和 cleanup；实际 mirror/diff/CAS/bundle mutation 仍由 `tinysoul.workspace` 拥有。同一 Turn 跨两者最多一个 unresolved job。`tinysoul/action/backends/process.py` 继续作为不注册到 ActionEngine 的低层 lifecycle primitive；`subprocess.py` 在其上提供同步受控进程 adapter，共享监督层则直接复用 managed process。业务 capability 不得复制 `Popen`/终止逻辑，也不得假设 backend kind 存在同名通用 handler。
+`supervised_process` 不提供通用命令 executor，也不允许 Catalog 仅凭 backend kind 执行参数。Script 与 Shell 使用不同 handler、参数协议和业务 policy，但共用 capability-internal job manager、Workspace transaction 协调、日志/候选观察、Cycle pacing 和 cleanup；实际 mirror/diff/CAS/bundle mutation 仍由 `tinysoul.plugins.workspace` 拥有。同一 Turn 跨两者最多一个 unresolved job。`tinysoul/kernel/action/backends/process.py` 继续作为不注册到 ActionEngine 的低层 lifecycle primitive；`subprocess.py` 在其上提供同步受控进程 adapter，共享监督层则直接复用 managed process。业务 capability 不得复制 `Popen`/终止逻辑，也不得假设 backend kind 存在同名通用 handler。
 
 ### llm_action
 
-`llm_action` 表示 action 内部还需要一次受控 LLM task。它仍处于 `ActionExecutor` 语义内：Phase3 执行具体 executor，executor 在自身业务边界构造 `TaskPrompt`，再调用 action 层共享的 `LLMActionTaskRunner`。共享服务位于 `tinysoul/action/backends/llm_action.py`，负责集中处理 Phase3 自动 skill、Context message stack 构造、`LLM_ACTION` task 调用、回答形态解释和局部失败归一化；业务 executor 不直接拼供应商请求，也不直接读取 Agent Home 文件。
+`llm_action` 表示 action 内部还需要一次受控 LLM task。它仍处于 `ActionExecutor` 语义内：Phase3 执行具体 executor，executor 在自身业务边界构造 `TaskPrompt`，再调用 action 层共享的 `LLMActionTaskRunner`。共享服务位于 `tinysoul/kernel/action/backends/llm_action.py`，负责集中处理 Phase3 自动 skill、Context message stack 构造、`LLM_ACTION` task 调用、回答形态解释和局部失败归一化；业务 executor 不直接拼供应商请求，也不直接读取 Agent Home 文件。
 
 `llm_action` 的业务参数使用 `TaskPrompt` 的 PromptBlock-only 协议。`guide_blocks`、`input_blocks` 与 `output_blocks` 都由 `{label?, text}` 块组成，并可分别渲染为多条 `PromptBlock`。通用 LLM action 只接受 `reference_links` 作为 Phase2/Phase3 边界上的只读资源链接，由注入的 `PromptReferenceResolver.resolve_reference(link)` 解析为临时 `PromptBlock`。Workspace-owned LLM action 由 Workspace 模块提供 executor：修改类 action 接收 `target_link` 和 `reference_links`；分析类 action 可以只接收 Phase2 已选择的明确 `reference_links` 与意图。二者都在 action 内部加载正文并调用共享 LLM action 服务，不把正文作为 Phase2 参数。新增动作必须直接使用 block/link 协议。
 
 `home.top.search` 是 Home-owned native action，其 executor 调用 Home search service，并使用注入的专用 `LLMHomeSearchReranker` 完成候选重排；它不使用通用 `llm_action` backend，因为确定性候选、candidate-only validator 和 fallback 都属于 Home 搜索业务语义。Action 层仍只负责执行 catalog 中的 handler 和承载结构化结果。
 
-Memory 的三个 native action 都只调用 `MemoryEngine`：memorize 使用 `memory:current` 暴露的 digest 对 Session root 内 `Memory.md` 做 CAS patch；inspect 以 query 或已知五类持久 Link 执行 lexical/grep/正向引用/backlinks/可选 semantic 的有界发现；recall 只按精确 `memory:daily|entity|concept|fact|note/<cite>` 返回完整 Markdown 和 redirect chain。inspect/recall 使用 foldable trace projection 记录 origin Link 与有界 canonical facts，不修改 Background；memorize 只影响下一 Turn 重建的 current Background。Action 模块不解释 Memory 物理路径、文档关系或 Maintenance mutation。
+Memory 的三个 native action 都只调用 `MemoryEngine`：memorize 在 Memory owner 边界 patch Session root 内的活动 `Memory.md`；inspect 以 query 或已知五类持久 Link 执行 lexical/grep/正向引用/backlinks/可选 semantic 的有界发现；recall 只按精确 `memory:daily|entity|concept|fact|note/<cite>` 返回完整 Markdown 和 redirect chain。inspect/recall 使用 foldable trace projection 记录 origin Link 与有界 canonical facts，不修改 Background；memorize 提交后发 Signal，在下一 Context 边界刷新本轮 current 视图。Action 模块不解释 Memory 物理路径、文档关系或 Reflection mutation。
 
 Phase3 action-internal LLM task 会自动追加 domain skill 与 action skill guide blocks。Action 层只依赖 `ActionSkillProvider` 协议；Agent Home 可提供 `HomeActionSkillProvider`，但 action executor 不感知 Home 目录结构。`skills_domain` 与 `skills_action` 属于局部自动 prompt 挂载机制，不进入普通渐进式加载，也不由 `home.resource.read` 按需读取。
 
@@ -257,14 +257,14 @@ Phase3 action-internal LLM task 会自动追加 domain skill 与 action skill gu
 
 `llm_action` backend options 由 backend kind validator 在 Catalog 构建边界统一校验：`max_output_tokens` 覆盖 `LLM_ACTION` profile 的 provider 生成上限，`max_output_chars` 限制 `run_text` 接受的完整工件字符数。前者属于 LLM 调用与上下文窗口预留，后者属于 action 工件边界；两者都不控制 ActionResult 进入 Context 的大小。结构化业务输出仍由 executor 校验自己的字段和结果预算，ActionResult trace 继续服从 Catalog 的 standard/foldable 生命周期。
 
-LLM task failure 由共享服务映射为 `ActionLocalFailure`，再由 renderer 作为 envelope 顶层 `failure` 投影。`retry_same` 可以在 disposition 允许的瞬态或可恢复条件下重复同一参数；运行时不把重复参数判为错误。`change_request` 要求改变 `scope` 指出的限制条件；`use_fallback` 要求改变真实生成/执行路径；`stop` 表示当前配置不可继续。该协议不自动调度重试，也不把 provider 或诊断异常暴露给模型。内置 `core.reason` 由 `tinysoul/action/builtins/core/actions.py` 提供，作为通用推理动作，只接受 `reference_links`；内置 `core.answer` 同样由 Action builtins core actions 提供，作为 User Turn 正常完成动作，要求内部 LLM task 返回包含字符串 `text` 的 JSON object，并可把使用过的 `reference_links` 一并返回为来源链接。它既可以交付当前成果，也可以在后续工作依赖用户时提出问题、请求确认、申请进一步指示或请求路线选择；成功只表示当前 User Turn 已产生正式响应，不表示整体多轮目标或 WorkingContext todos 已完成。Workspace 内置 `workspace.create`、`workspace.append`、`workspace.patch` 与 `workspace.rewrite` 分别表达创建、精确追加、精确替换和完整覆盖；`workspace.analyze` 仍返回经过 executor 验证的结构化结论。Phase3 在外层 ActionResult 产生前就可能启动嵌套 task，因此 LLM provider 适配器不能把当前未完成的 Phase2 tool call 当作完整 provider-native history 回放；当嵌套 task 禁用工具时，已完成的 ToolResultMessage 也只作为普通上下文文本传入。
+LLM task failure 由共享服务映射为 `ActionLocalFailure`，再由 renderer 作为 envelope 顶层 `failure` 投影。`retry_same` 可以在 disposition 允许的瞬态或可恢复条件下重复同一参数；运行时不把重复参数判为错误。`change_request` 要求改变 `scope` 指出的限制条件；`use_fallback` 要求改变真实生成/执行路径；`stop` 表示当前配置不可继续。该协议不自动调度重试，也不把 provider 或诊断异常暴露给模型。内置 `core.reason` 由 `tinysoul/kernel/action/builtins/core/actions.py` 提供，作为通用推理动作，只接受 `reference_links`；内置 `core.answer` 同样由 Action builtins core actions 提供，作为 User Turn 正常完成动作，要求内部 LLM task 返回包含字符串 `text` 的 JSON object，并可把使用过的 `reference_links` 一并返回为来源链接。它既可以交付当前成果，也可以在后续工作依赖用户时提出问题、请求确认、申请进一步指示或请求路线选择；成功只表示当前 User Turn 已产生正式响应，不表示整体多轮目标或 WorkingContext todos 已完成。Workspace 内置 `workspace.create`、`workspace.append`、`workspace.patch` 与 `workspace.rewrite` 分别表达创建、精确追加、精确替换和完整覆盖；`workspace.analyze` 仍返回经过 executor 验证的结构化结论。Phase3 在外层 ActionResult 产生前就可能启动嵌套 task，因此 LLM provider 适配器不能把当前未完成的 Phase2 tool call 当作完整 provider-native history 回放；当嵌套 task 禁用工具时，已完成的 ToolResultMessage 也只作为普通上下文文本传入。
 
 `llm_action` 后端只表达“动作内部需要一次模型推理”，不拥有独立语境，也不绕开 Context/LLM 模块的调用协议。外层 Action control 通过 LLM task cancellation contract 传入；`LLMActionTaskRunner` 从 owner 剩余时间中固定预留 5 秒，让内部 Task 在 owner deadline 前完成取消、失败归一化和 executor 返回，再把扣除后的剩余时间交给 LLM runner/provider request timeout。Task 成功返回后，runner 在把结果交给领域 executor 前重新检查同一 cancellation，从而阻止迟返工件进入 Workspace/Script mutation；迟返失败仍保留原 Task failure。预留窗口到期映射为普通 `execution_timeout/action.timeout`，不向模型暴露 backend、provider 或线程事实。
 
 项目配置 `[action.llm_action]` 包含 `timeout_seconds`、`default_task_profile` 和 inline-table
 `overrides`。timeout（默认 600）只填充未声明专用超时的 `llm_action`；具体 Action 的 runtime
 值仍可覆盖通用默认。`LLMActionProfileResolver` 先按完整 Action ID 查 override，再回退 default
-profile，并把字符串 profile 交给现有 LLM task runner。候选 AppConfigPlan 构建时，Action
+profile，并把字符串 profile 交给现有 LLM task runner。候选 AgentConfigPlan 构建时，Action
 模块会把 override Action ID 对照当前候选 project catalog，要求 backend kind 为 `llm_action`；App 再用
 LLM `TaskSpecTable.profiles()` 协调 profile 引用。unknown Action、非 LLM Action、unknown
 profile 和重复 override 都在文件提交前形成 Action-owned `ConfigError`，不会推迟到执行期。
@@ -273,7 +273,7 @@ profile 和重复 override 都在文件提交前形成 Action-owned `ConfigError
 
 ## 组装入口
 
-`ActionEngine` 是 action 模块面向 Loop/Context 的唯一调用门面，位于 `tinysoul/action/engine.py`。它以私有字段持有 catalog、scope builder、normalizer、execution builder、runner 和 result renderer，不把内部组件作为公共状态暴露，不改变结果模型，也不引入 batch result。
+`ActionEngine` 是 action 模块面向 Loop/Context 的唯一调用门面，位于 `tinysoul/kernel/action/engine.py`。它以私有字段持有 catalog、scope builder、normalizer、execution builder、runner 和 result renderer，不把内部组件作为公共状态暴露，不改变结果模型，也不引入 batch result。
 
 上层模块应通过 `ActionEngine` 获取 action scope、执行批次和结果渲染，不直接调用 action 内部 builder、runner 或 renderer。`ActionEngine` 提供 action result、phase result 与 tool result replay 的渲染门面；renderer 仍是模块内部组件，用于保持结果模型和模型回放格式集中。
 
@@ -342,52 +342,9 @@ Phase1 和 Phase2 只是在这个基础上选择不同的工具作用域和不�
 
 ## 目录组织
 
-Action 目录按四类职责组织：TOML catalog、通用 backend、Action 自有内置 executor、业务能力代码。
+`tinysoul/kernel/action` 只保存通用执行机制、Action 契约、通用 core executor 与 core catalog。Workspace、Home、Memory 和 Capabilities 的 catalog fragment 与 executor 均随 owner 发布，具体业务逻辑仍属于 Engine/service。
 
-```text
-tinysoul/action/
-  engine.py
-  resources.py
-  core/
-  backends/
-  builtins/
-    core/
-      actions.py
-  catalog/
-    core/
-      domain.toml
-      actions/*.toml
-    workspace/
-      domain.toml
-      actions/*.toml
-    home/
-      domain.toml
-      actions/*.toml
-    memory/
-      domain.toml
-      actions/*.toml
-
-tinysoul/workspace/
-  actions.py
-
-tinysoul/home/
-  actions.py
-
-tinysoul/memory/
-  actions.py
-
-tinysoul/capabilities/       # 只有存在真实轻量能力时才建立
-  <capability>/
-    actions.py
-    service.py
-```
-
-`tinysoul/action/catalog` 是版本化的只读 bootstrap template；`tinysoul init/reset` 将其完整复制到
-`<project>/configs/action/catalog`。运行时没有 package fallback 或 package+project overlay，项目
-catalog 是全部共享内置 Action 的唯一事实。AppConfigPlan 从候选 `action.catalog` document set
-得到 `LoadedActionCatalog`，User builder 直接注入它。Maintenance builder 将同一 project base
-catalog 与只读 `tinysoul/maintenance/catalog` fragment 类型化合并，再通过 `include_actions()` 构造
-Home/Memory 精确 surface；Maintenance 专属定义不进入项目可写页面。
+Agent 的显式 catalog 合成把这些 package fragments 物化为项目 configs/action/catalog，重复文档被拒绝。运行实例从项目配置加载，没有 package fallback 或并行 overlay。Reflection 将同一通用 catalog 与 plugins/reflection/catalog 的相应专属域合并，User 不获得专属写 Action；专属 fragment 不进入项目 User Action 设置页。
 
 ### TOML catalog
 
@@ -404,11 +361,11 @@ TOML 只描述模型侧工具协议、补充语义、运行配置和后端落点
 
 ### Python executor 与业务归属
 
-`tinysoul/action/backends` 只放通用执行机制，不放具体业务动作。`tinysoul/action/builtins` 只放 Action 模块自己拥有的内置动作实现，例如 `core.reason` 与 `core.answer`。Workspace、Agent Home、Memory 等有独立业务模型、链接语义、持久化或 runtime/trap 生命周期的模块，Action 集成保留在所属模块的 `actions.py` 中，并通过 registrar 注册到 `ActionEngineBuilder`。
+`tinysoul/kernel/action/backends` 只放通用执行机制，不放具体业务动作。`tinysoul/kernel/action/builtins` 只放 Action 模块自己拥有的内置动作实现，例如 `core.reason` 与 `core.answer`。Workspace、Agent Home、Memory 等有独立业务模型、链接语义、持久化或 runtime/trap 生命周期的模块，Action 集成保留在所属模块的 `actions.py` 中，并通过 registrar 注册到 `ActionEngineBuilder`。
 
 `actions.py` 是模块与 ActionEngine 的集成边界，不等同于业务逻辑容器。它可以包含 `ActionExecutor` 实现类、模型参数解析、局部失败到 `ActionResult` 的映射、信号发送和 `register_<domain>_actions` registrar。executor 类名仍使用 `*ActionExecutor` 后缀，以明确它们实现 `ActionExecutor` 协议；registrar 使用 `register_<domain>_actions` 命名，例如 `register_core_actions`、`register_workspace_actions`、`register_home_actions`、`register_memory_actions`。真实业务规则应继续下沉到 engine/service/client/evaluator 等文件，避免 `actions.py` 变成业务大杂烩。
 
-轻量业务能力不应全部堆入 Action executor 目录，也不必升级为 Workspace 级顶层模块。数学计算、网页搜索等能力在真实 action、边界和测试都明确后放入 `tinysoul/capabilities/<capability>`：业务逻辑放在该能力包的 service/evaluator/client 中，action-facing 代码位于该能力包的 `actions.py`，只负责参数解析、调用业务服务和映射 `ActionResult`，再由 registrar 接入 ActionBuilder。没有真实 capability 时不保留空包或空 action。Action Domain 服务于 Stage1 的大致方向选择，可以覆盖多个 Capability，也不要求与 handler owner 正交或一一对应；Resource conversion 因操作对象并入 Workspace，Script/Shell 因任务方向合并为 Execution。进程 backend 作为执行机制存在，不意味着向模型提供未受限的任意 shell 或 inline script action。
+轻量业务能力不应全部堆入 Action executor 目录，也不必升级为 Workspace 级顶层模块。数学计算、网页搜索等能力在真实 action、边界和测试都明确后放入 `tinysoul/plugins/capabilities/<capability>`：业务逻辑放在该能力包的 service/evaluator/client 中，action-facing 代码位于该能力包的 `actions.py`，只负责参数解析、调用业务服务和映射 `ActionResult`，再由 registrar 接入 ActionBuilder。没有真实 capability 时不保留空包或空 action。Action Domain 服务于 Stage1 的大致方向选择，可以覆盖多个 Capability，也不要求与 handler owner 正交或一一对应；Resource conversion 因操作对象并入 Workspace，Script/Shell 因任务方向合并为 Execution。进程 backend 作为执行机制存在，不意味着向模型提供未受限的任意 shell 或 inline script action。
 
 ### 继承规则
 
@@ -430,7 +387,7 @@ TOML 只描述模型侧工具协议、补充语义、运行配置和后端落点
 2. Phase2 只在 domain 内选 action。
 3. Phase3 统一执行批次。
 4. Action 定义保持模型侧语义、框架运行配置和后端执行配置分离。
-5. 所有 action tool call 都收敛为局部 action result。
+5. 正常执行收敛为 ActionResult；取消、未执行和未知结果由 typed 执行事实表达，不伪造工具结果。
 6. 无法绑定到具体 action call 的 action phase 问题收敛为 phase-level result。
 7. 防御性不变量异常通过 Runtime bridge 映射为运行时语义异常。
 8. 所有 LLM 调用都基于上下文模块构造的 base `MessageStack`，Action 只追加临时 prompt。

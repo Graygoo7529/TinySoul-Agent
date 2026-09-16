@@ -1,0 +1,2274 @@
+from __future__ import annotations
+
+from datetime import date as CalendarDate
+from tinysoul.plugins.workspace.projection import SIGNAL_WORKSPACE_SYNC, workspace_segment_registration
+import asyncio
+
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from hashlib import sha256
+import os
+from pathlib import Path
+from threading import Barrier, Event, get_ident
+from typing import cast
+
+import pytest
+
+from tinysoul.kernel.action.core.call import ActionCall, ActionExecution, ActionExecutionBuilder
+from tinysoul.kernel.action.core.catalog import ActionCatalog
+from tinysoul.kernel.action.core.executor import ActionExecutionContext
+from tinysoul.kernel.action.backends.llm_action import LLMActionTaskRunner
+from tinysoul.kernel.action.core.specs import (
+    ActionBackendKind,
+    ActionBackendSpec,
+    ActionDomainSpec,
+    ActionRuntimeSpec,
+    ActionSemanticSpec,
+    ActionSpec,
+    ActionToolSpec,
+)
+from tinysoul.kernel.context import (
+    ContextEngineBuilder,
+    PromptReferenceError,
+)
+from tinysoul.infra.config import ConfigError
+from tinysoul.infra.json import JsonObject
+from tinysoul.llm.messages import ImagePart, TextPart, UserMessage
+from tinysoul.llm.requests import TaskCall
+from tinysoul.llm.responses import (
+    AnswerFormat,
+    JsonAnswer,
+    RawResponse,
+    TaskFailure,
+    TaskFailureReason,
+    TaskFailureScope,
+    TaskResult,
+    TextAnswer,
+)
+from tinysoul.kernel.loop import TurnPreparationRequest
+from tinysoul.infra.time import CalendarDay
+from tinysoul.runtime import RunLevel, RunScope, SignalBus
+from tinysoul.plugins.workspace.runtime_bridge import RuntimeWorkspaceBridge
+import tinysoul.plugins.workspace.engine as workspace_engine_module
+from tinysoul.plugins.workspace import (
+    WorkspaceContractError,
+    WorkspaceAnalysisSettings,
+    WorkspaceBundleWrite,
+    WorkspaceDiscoverySkipKind,
+    WorkspaceEngineBuilder,
+    WorkspaceLink,
+    WorkspaceManifest,
+    WorkspacePromptInput,
+    WorkspacePromptReferenceResolver,
+    WorkspaceReconciliationError,
+    WorkspaceReconcileStatus,
+    WorkspaceRetention,
+    WorkspaceResourceKind,
+    WorkspaceSearchScope,
+    WorkspaceSearchScopeKind,
+    WorkspaceSearchSettings,
+    WorkspaceSettings,
+    WorkspaceTextSlice,
+    WorkspaceTrashRestoreRequired,
+    parse_workspace_settings,
+)
+
+
+def test_workspace_settings_parse_search_and_analysis_tables(tmp_path: Path) -> None:
+    settings = parse_workspace_settings(
+        {
+            "search": {
+                "max_scan_chars": 1234,
+                "max_excerpt_chars": 321,
+                "max_result_chars": 4321,
+            },
+            "analysis": {
+                "max_reference_links": 3,
+                "max_source_chars": 6000,
+                "max_chars_per_reference": 2000,
+            },
+        },
+        project_root=tmp_path,
+    )
+
+    assert settings.search.max_scan_chars == 1234
+    assert settings.search.max_excerpt_chars == 321
+    assert settings.search.max_result_chars == 4321
+    assert settings.analysis.max_reference_links == 3
+    assert settings.analysis.max_source_chars == 6000
+    assert settings.analysis.max_chars_per_reference == 2000
+
+
+def test_workspace_settings_reject_unknown_nested_key(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError) as exc_info:
+        parse_workspace_settings(
+            {"search": {"semantic_provider": "implicit"}},
+            project_root=tmp_path,
+        )
+
+    assert exc_info.value.key == "workspace.search.semantic_provider"
+
+
+def test_workspace_search_excerpt_budget_must_contain_query() -> None:
+    with pytest.raises(ConfigError) as exc_info:
+        WorkspaceSearchSettings(
+            max_query_chars=20,
+            max_excerpt_chars=10,
+        )
+
+    assert exc_info.value.key == "workspace.search.max_excerpt_chars"
+
+
+def test_workspace_document_read_is_bounded_and_digest_checked(local_tmp: Path) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(root=(local_tmp / "workspace").resolve())
+    ).build()
+    source = engine.root / "report.pdf"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_bytes(b"%PDF-test")
+    engine.reconcile()
+
+    document = engine.read_document("workspace:report.pdf", max_bytes=100)
+
+    assert document.data == b"%PDF-test"
+    assert document.suffix == ".pdf"
+    with pytest.raises(WorkspaceContractError, match="exceeds the read limit"):
+        engine.read_document("workspace:report.pdf", max_bytes=2)
+
+
+def test_workspace_bundle_commits_one_revision_and_rolls_back_on_limit(
+    local_tmp: Path,
+) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(root=(local_tmp / "workspace").resolve(), max_files=3)
+    ).build()
+    before = engine.snapshot().revision
+
+    result = engine.write_bundle(
+        (
+            WorkspaceBundleWrite("workspace:out/report.md", b"report"),
+            WorkspaceBundleWrite(
+                "workspace:out/report.assets/image.png", b"\x89PNG\r\n\x1a\n"
+            ),
+        )
+    )
+
+    assert result.manifest.revision == before + 1
+    assert len(result.records) == 2
+
+    limited = WorkspaceEngineBuilder(
+        WorkspaceSettings(root=(local_tmp / "limited").resolve(), max_files=1)
+    ).build()
+    with pytest.raises(WorkspaceReconciliationError):
+        limited.write_bundle(
+            (
+                WorkspaceBundleWrite("workspace:a.md", b"a"),
+                WorkspaceBundleWrite("workspace:b.md", b"b"),
+            )
+        )
+    assert not (limited.root / "a.md").exists()
+    assert not (limited.root / "b.md").exists()
+from tinysoul.plugins.workspace.engine import WorkspaceEngine
+from tinysoul.plugins.workspace.errors import WorkspaceIOError
+from tinysoul.plugins.workspace.manifest import WorkspaceManifestStore
+from tinysoul.plugins.workspace.projection import WorkspaceTurnPreparationHandler
+from tinysoul.plugins.workspace.pressure import WorkspacePressureReclaimer
+from tinysoul.plugins.workspace.actions import (
+    WorkspaceAnalyzeExecutor,
+    WorkspaceAppendExecutor,
+    WorkspaceCreateExecutor,
+    WorkspaceDeleteExecutor,
+    WorkspaceDescribeExecutor,
+    WorkspacePatchExecutor,
+    WorkspaceRewriteExecutor,
+    WorkspaceReadExecutor,
+    WorkspaceSearchTextExecutor,
+    WorkspaceScanExecutor,
+)
+
+
+DAY = CalendarDay.parse("2026-07-12")
+
+
+class FakeLLMRunner:
+    def __init__(
+        self,
+        answer: JsonObject | None = None,
+        on_run: Callable[[], None] | None = None,
+        failure: TaskFailure | None = None,
+    ) -> None:
+        self.calls: list[TaskCall] = []
+        self.answer = answer or {"text": "new text"}
+        self.on_run = on_run
+        self.failure = failure
+
+    async def run(self, call: TaskCall) -> TaskResult:
+        self.calls.append(call)
+        if self.on_run is not None:
+            self.on_run()
+        raw_response = RawResponse(
+            answer_text="{}",
+            model_id="fake",
+            provider_id="fake",
+        )
+        if self.failure is not None:
+            return TaskResult.failure_result(
+                raw_response=raw_response,
+                failure=self.failure,
+            )
+        if call.settings.answer_format is AnswerFormat.TEXT:
+            text = self.answer.get("text")
+            assert isinstance(text, str)
+            answer = TextAnswer(text)
+        else:
+            answer = JsonAnswer(self.answer)
+        return TaskResult.success(
+            raw_response=raw_response,
+            answer=answer,
+            tool_calls=(),
+        )
+
+
+class _FailingManifestStore:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.manifest = WorkspaceManifest()
+
+    def load(self) -> WorkspaceManifest:
+        return self.manifest
+
+    def save(self, manifest: WorkspaceManifest) -> None:
+        raise WorkspaceIOError("manifest unavailable")
+
+
+def test_workspace_link_rejects_unsafe_paths() -> None:
+    assert str(WorkspaceLink.parse("workspace:docs/a.md")) == "workspace:docs/a.md"
+    with pytest.raises(WorkspaceContractError):
+        WorkspaceLink.parse("file:docs/a.md")
+    with pytest.raises(WorkspaceContractError):
+        WorkspaceLink.parse("workspace:../secret.md")
+    with pytest.raises(WorkspaceContractError):
+        WorkspaceLink.parse("workspace:C:/secret.md")
+
+
+async def test_workspace_scan_updates_manifest_and_emits_workspace_snapshot(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "a.md").write_text("hello", encoding="utf-8")
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "ignored").write_text("x", encoding="utf-8")
+    manifest_path = tmp_path / ".tinysoul" / "workspace_manifest.json"
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(root=tmp_path, manifest_path=manifest_path)
+    ).build()
+    bus = SignalBus()
+    execution = _execution("workspace.scan", {})
+
+    result = await WorkspaceScanExecutor(engine, bus).execute(
+        execution,
+        ActionExecutionContext(signal_bus=bus),
+    )
+
+    assert result.payload is not None
+    payload = result.payload
+    assert payload["count"] == 1
+    assert payload["resources"] == [
+        {"link": "workspace:docs/a.md", "summary": "Markdown text, 5 bytes"}
+    ]
+    assert payload["skipped_count"] == 0
+    assert payload["skip_counts"] == {}
+    assert payload["limit_reached"] is False
+    assert manifest_path.is_file()
+    snapshot = _workspace_snapshot_payload(bus)
+    assert snapshot["revision"] == engine.load_manifest().revision
+    resources = snapshot["resources"]
+    assert isinstance(resources, list)
+    first_resource = resources[0]
+    assert isinstance(first_resource, dict)
+    assert first_resource["link"] == "workspace:docs/a.md"
+
+
+def test_workspace_scan_manifest_file_does_not_hide_root(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("hello", encoding="utf-8")
+    manifest_path = tmp_path / "workspace_manifest.json"
+    manifest_path.write_text("{}", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(root=tmp_path, manifest_path=manifest_path)
+    ).build()
+
+    result = engine.reconcile()
+
+    assert [resource.link for resource in result.resources] == ["workspace:a.md"]
+    assert result.skipped_count == 1
+    assert result.skipped[0].kind is WorkspaceDiscoverySkipKind.INTERNAL
+
+
+def test_workspace_scan_reports_limit_reached(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("a", encoding="utf-8")
+    (tmp_path / "b.md").write_text("b", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+            max_files=1,
+        )
+    ).build()
+
+    result = engine.reconcile()
+
+    assert [resource.link for resource in result.resources] == ["workspace:a.md"]
+    assert result.limit_reached is True
+    assert result.status is WorkspaceReconcileStatus.INCOMPLETE
+    assert engine.load_manifest().resources == ()
+
+
+def test_workspace_reconcile_keeps_revision_when_disk_is_unchanged(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.md").write_text("hello", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    first = engine.reconcile()
+    second = engine.reconcile()
+
+    assert first.changed is True
+    assert second.changed is False
+    assert second.manifest.revision == first.manifest.revision
+
+
+def test_workspace_reconcile_preserves_manifest_when_candidate_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = tmp_path / "a.md"
+    target.write_text("hello", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    original_stat = Path.stat
+    target_stat_calls = 0
+
+    def changing_stat(
+        path: Path,
+        *,
+        follow_symlinks: bool = True,
+    ) -> os.stat_result:
+        nonlocal target_stat_calls
+        stat = original_stat(path, follow_symlinks=follow_symlinks)
+        if path == target:
+            target_stat_calls += 1
+            if target_stat_calls >= 2:
+                values = list(stat)
+                values[6] += 1
+                return os.stat_result(values)
+        return stat
+
+    monkeypatch.setattr(Path, "stat", changing_stat)
+
+    result = engine.reconcile()
+
+    assert result.status is WorkspaceReconcileStatus.INCOMPLETE
+    assert result.skipped[-1].kind is WorkspaceDiscoverySkipKind.CONCURRENT_CHANGE
+    assert engine.load_manifest().resources == ()
+
+
+def test_workspace_classifies_prompt_access_kinds(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("hello", encoding="utf-8")
+    (tmp_path / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (tmp_path / "report.pdf").write_bytes(b"%PDF")
+    (tmp_path / "archive.bin").write_bytes(b"\x00\x01")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+
+    records = {record.link: record for record in engine.reconcile().manifest.resources}
+
+    assert records["workspace:a.md"].kind is WorkspaceResourceKind.TEXT
+    assert records["workspace:image.png"].kind is WorkspaceResourceKind.IMAGE
+    assert records["workspace:report.pdf"].kind is WorkspaceResourceKind.DOCUMENT
+    assert records["workspace:archive.bin"].kind is WorkspaceResourceKind.BINARY
+
+
+def test_workspace_prompt_resolver_loads_images_and_rejects_documents(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (tmp_path / "report.pdf").write_bytes(b"%PDF")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    resolver = WorkspacePromptReferenceResolver(engine)
+
+    blocks = resolver.resolve_reference("workspace:image.png")
+
+    assert any(isinstance(part, ImagePart) for part in blocks[0].message.parts)
+    with pytest.raises(PromptReferenceError) as raised:
+        resolver.resolve_reference("workspace:report.pdf")
+    assert raised.value.reason == "conversion_required"
+
+
+def test_workspace_prompt_resolver_rejects_image_with_invalid_signature(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "image.png").write_bytes(b"not a png")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    resolver = WorkspacePromptReferenceResolver(engine)
+
+    with pytest.raises(PromptReferenceError) as raised:
+        resolver.resolve_reference("workspace:image.png")
+
+    assert raised.value.reason == "invalid_image_resource"
+
+
+def test_workspace_description_is_cleared_when_content_changes(tmp_path: Path) -> None:
+    path = tmp_path / "a.md"
+    path.write_text("hello", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    record = engine.reconcile().manifest.resources[0]
+    described = engine.set_description(
+        record.link,
+        "A greeting document.",
+        expected_digest=record.digest,
+    )
+
+    engine.write_text(
+        record.link,
+        "changed",
+        overwrite=True,
+        expected_digest=described.digest,
+    )
+
+    current = engine.load_manifest().resources[0]
+    assert current.description == ""
+    assert current.described_digest == ""
+
+
+async def test_workspace_turn_preparation_projects_manifest_into_context(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.md").write_text("hello", encoding="utf-8")
+    workspace = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    workspace.initialize_day(DAY)
+    context = ContextEngineBuilder(system_text="system").build()
+    context.register_segment(workspace_segment_registration())
+    turn_id = context.begin_turn("hello")
+    await context.open_segments(DAY.value)
+    scope = RunScope().push(RunLevel.AGENT, "program").push(RunLevel.TURN, turn_id)
+    bus = SignalBus()
+    handler = WorkspaceTurnPreparationHandler(
+        workspace,
+        runtime_bridge=RuntimeWorkspaceBridge(),
+    )
+
+    for signal in await handler.prepare(
+        TurnPreparationRequest(
+            turn_id=turn_id,
+            turn_input="hello",
+            business_day=DAY,
+            scope=scope,
+        )
+    ):
+        bus.emit(signal)
+    assert await context.consume_signals(bus) == ()
+
+    working = context.segment_snapshot("workspace")
+    assert working["revision"] == workspace.load_manifest().revision
+    assert working["resources"] == [
+        {"link": "workspace:a.md", "summary": "Markdown text, 5 bytes"}
+    ]
+
+
+def test_workspace_read_text_returns_bounded_text(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("abcdef", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+
+    result = engine.read_text("workspace:a.md", max_chars=3)
+
+    assert result.link == "workspace:a.md"
+    assert result.text == "abc"
+    assert result.truncated is True
+    assert engine.load_manifest().resources == ()
+
+
+def test_workspace_read_text_rejects_non_positive_limit(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("abcdef", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+
+    with pytest.raises(WorkspaceContractError, match="positive"):
+        engine.read_text("workspace:a.md", max_chars=0)
+
+
+def test_workspace_prepare_task_input_renders_bounded_resources(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("abcdef", encoding="utf-8")
+    (tmp_path / "b.md").write_text("xyz", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+
+    task_input = engine.prepare_task_input(
+        ("workspace:a.md", "workspace:b.md"),
+        max_chars_per_resource=3,
+    )
+
+    assert isinstance(task_input, WorkspacePromptInput)
+    assert len(task_input.slices) == 2
+    assert isinstance(task_input.slices[0], WorkspaceTextSlice)
+    assert task_input.slices[0].range_label == "prefix:3"
+    assert task_input.truncated is True
+    rendered = task_input.render()
+    assert "## workspace:a.md" in rendered
+    assert "range: prefix:3" in rendered
+    assert "abc" in rendered
+    assert "truncated: true" in rendered
+    assert "## workspace:b.md" in rendered
+
+
+def test_workspace_prompt_reference_resolver_returns_prefix_block(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.md").write_text("abcdef", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+            max_read_chars=3,
+        )
+    ).build()
+    resolver = WorkspacePromptReferenceResolver(engine)
+
+    blocks = resolver.resolve_reference("workspace:a.md")
+
+    assert len(blocks) == 1
+    assert blocks[0].label == "task_prompt:input:workspace:reference:workspace:a.md:prefix:3"
+    text = _message_text(blocks[0].message)
+    assert "# Workspace Reference" in text
+    assert "link: workspace:a.md" in text
+    assert "abc" in text
+    assert "truncated: true" in text
+
+
+def test_workspace_prompt_reference_resolver_returns_target_block(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.md").write_text("abcdef", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+            max_read_chars=3,
+        )
+    ).build()
+    resolver = WorkspacePromptReferenceResolver(engine)
+
+    blocks = resolver.resolve_target("workspace:a.md")
+
+    assert len(blocks) == 1
+    assert blocks[0].label == "task_prompt:input:workspace:target:workspace:a.md:prefix:3"
+    text = _message_text(blocks[0].message)
+    assert "# Workspace Target" in text
+    assert "link: workspace:a.md" in text
+    assert "abc" in text
+    assert "truncated: true" in text
+
+
+def test_workspace_read_text_slice_returns_line_range(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("one\ntwo\nthree\nfour\n", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+
+    result = engine.read_text_slice(
+        "workspace:a.md",
+        start_line=2,
+        max_lines=2,
+        max_chars=100,
+    )
+
+    assert result.link == "workspace:a.md"
+    assert result.range_label == "lines:2-3"
+    assert result.text == "two\nthree\n"
+    assert result.truncated is True
+
+
+def test_workspace_read_text_slice_applies_char_limit(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("abcdef\n", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+
+    result = engine.read_text_slice(
+        "workspace:a.md",
+        start_line=1,
+        max_chars=3,
+    )
+
+    assert result.range_label == "lines:1-1"
+    assert result.text == "abc"
+    assert result.truncated is True
+
+
+def test_workspace_read_text_slice_rejects_invalid_bounds(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("abcdef", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+
+    with pytest.raises(WorkspaceContractError, match="start_line"):
+        engine.read_text_slice("workspace:a.md", start_line=0)
+    with pytest.raises(WorkspaceContractError, match="max_lines"):
+        engine.read_text_slice("workspace:a.md", max_lines=0)
+    with pytest.raises(WorkspaceContractError, match="limit"):
+        engine.read_text_slice("workspace:a.md", max_chars=0)
+
+
+def test_workspace_read_text_range_continues_inside_long_line(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("abcdef\nsecond\n", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(root=tmp_path, max_read_chars=4)
+    ).build()
+
+    first = engine.read_text_range(
+        "workspace:a.md",
+        start_line=1,
+        end_line=1,
+        max_chars=3,
+    )
+    second = engine.read_text_range(
+        "workspace:a.md",
+        start_line=1,
+        end_line=1,
+        cursor=first.page.next_cursor or 0,
+        max_chars=10,
+        expected_digest=first.digest,
+    )
+
+    assert first.page.text == "abc"
+    assert first.page.truncated is True
+    assert first.page.next_cursor == 3
+    assert first.page.next_position is not None
+    assert (first.page.next_position.line, first.page.next_position.column) == (1, 4)
+    assert second.page.text == "def\n"
+    assert second.page.truncated is False
+    assert second.max_chars == 4
+
+
+def test_workspace_read_text_range_rejects_invalid_cursor_and_digest(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.md").write_text("one\n", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+
+    with pytest.raises(WorkspaceContractError, match="cursor exceeds"):
+        engine.read_text_range(
+            "workspace:a.md",
+            start_line=1,
+            end_line=1,
+            cursor=10,
+        )
+    with pytest.raises(WorkspaceContractError, match="digest mismatch"):
+        engine.read_text_range(
+            "workspace:a.md",
+            start_line=1,
+            end_line=1,
+            expected_digest="stale",
+        )
+
+
+def test_workspace_read_text_range_normalizes_crlf_unicode_and_reports_eof(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.txt").write_bytes("alpha\r\n中文".encode())
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    engine.reconcile()
+
+    result = engine.read_text_range(
+        "workspace:a.txt",
+        start_line=2,
+        end_line=2,
+    )
+
+    assert result.page.text == "中文"
+    assert result.page.actual_start is not None
+    assert result.page.actual_start.line == 2
+    assert result.page.actual_start.column == 1
+    assert result.page.actual_end is not None
+    assert result.page.actual_end.column == 2
+    assert result.page.eof_reached is True
+    assert result.page.truncated is False
+
+
+async def test_workspace_read_action_returns_foldable_text_range(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("one\ntwo\nthree\n", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(root=tmp_path, max_read_chars=7)
+    ).build()
+
+    result = await WorkspaceReadExecutor(engine).execute(
+        _execution(
+            "workspace.read",
+            {"link": "workspace:a.md", "start_line": 2, "end_line": 3},
+        ),
+        ActionExecutionContext(),
+    )
+
+    assert result.status.value == "success"
+    assert result.payload["text"] == "two\nthr"
+    assert result.payload["truncated"] is True
+    assert result.trace_projection is not None
+    assert result.trace_projection.origin_refs == ("workspace:a.md",)
+    assert "text" not in result.trace_projection.canonical_payload
+
+
+def test_workspace_search_text_scopes_directory_and_returns_fragments(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src2").mkdir()
+    (tmp_path / "src" / "a.py").write_text(
+        "before\nWorkspaceContractError here\nafter\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "src2" / "b.py").write_text(
+        "WorkspaceContractError elsewhere\n",
+        encoding="utf-8",
+    )
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    engine.reconcile()
+
+    result = engine.search_text(
+        "WorkspaceContractError",
+        scope=WorkspaceSearchScope(
+            WorkspaceSearchScopeKind.DIRECTORY,
+            "workspace:src/",
+        ),
+        case_sensitive=True,
+    )
+
+    assert result.coverage.complete is True
+    assert result.match_line_count == 1
+    assert len(result.fragments) == 1
+    assert result.fragments[0].link == "workspace:src/a.py"
+    assert (result.fragments[0].start_line, result.fragments[0].end_line) == (1, 3)
+    assert "WorkspaceContractError here" in result.fragments[0].text
+
+
+@pytest.mark.parametrize(
+    ("kind", "locator"),
+    (
+        (WorkspaceSearchScopeKind.FILE, "workspace:a.md"),
+        (WorkspaceSearchScopeKind.DIRECTORY, "workspace:src/"),
+        (WorkspaceSearchScopeKind.WORKSPACE, ""),
+    ),
+)
+def test_workspace_search_scope_serializes_tool_contract(
+    kind: WorkspaceSearchScopeKind,
+    locator: str,
+) -> None:
+    scope = WorkspaceSearchScope(kind, locator)
+
+    assert scope.to_json() == {"kind": kind.value, "locator": locator}
+
+
+def test_workspace_search_text_returns_line_hints_after_fragment_limit(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.md").write_text(
+        "needle one\nmiddle\nneedle two\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "b.md").write_text("needle three\n", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            search=WorkspaceSearchSettings(context_lines=0, default_top_k=1),
+        )
+    ).build()
+    engine.reconcile()
+
+    result = engine.search_text(
+        "needle",
+        scope=WorkspaceSearchScope(WorkspaceSearchScopeKind.WORKSPACE),
+        top_k=1,
+    )
+
+    assert len(result.fragments) == 1
+    assert [(item.link, item.line) for item in result.line_hints] == [
+        ("workspace:a.md", 3),
+        ("workspace:b.md", 1),
+    ]
+    assert result.truncated is True
+
+
+def test_workspace_search_text_reports_incomplete_scan_budget(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("x" * 20 + "needle", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            search=WorkspaceSearchSettings(max_scan_chars=10),
+        )
+    ).build()
+    engine.reconcile()
+
+    result = engine.search_text(
+        "needle",
+        scope=WorkspaceSearchScope(
+            WorkspaceSearchScopeKind.FILE,
+            "workspace:a.md",
+        ),
+    )
+
+    assert result.fragments == ()
+    assert result.coverage.complete is False
+    assert result.coverage.reason == "scan_limit"
+    assert result.coverage.characters_scanned == 10
+
+
+def test_workspace_search_text_workspace_scope_centers_long_match(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "b.txt").write_text("no match", encoding="utf-8")
+    (tmp_path / "a.txt").write_text(
+        "x" * 700 + "Needle" + "z" * 700,
+        encoding="utf-8",
+    )
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            search=WorkspaceSearchSettings(
+                max_query_chars=20,
+                max_excerpt_chars=80,
+                max_result_chars=4000,
+            ),
+        )
+    ).build()
+    engine.reconcile()
+
+    result = engine.search_text(
+        "needle",
+        scope=WorkspaceSearchScope(WorkspaceSearchScopeKind.WORKSPACE),
+    )
+
+    assert len(result.fragments) == 1
+    fragment = result.fragments[0]
+    assert fragment.link == "workspace:a.txt"
+    assert "Needle" in fragment.text
+    assert fragment.excerpt_truncated is True
+    assert fragment.start_column is not None
+    assert fragment.start_column > 1
+
+
+def test_workspace_search_text_casefold_excerpt_uses_original_columns(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.txt").write_text(
+        "ß" * 700 + "Needle" + "z" * 700,
+        encoding="utf-8",
+    )
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            search=WorkspaceSearchSettings(
+                max_query_chars=20,
+                max_excerpt_chars=80,
+                max_result_chars=4000,
+            ),
+        )
+    ).build()
+    engine.reconcile()
+
+    result = engine.search_text(
+        "needle",
+        scope=WorkspaceSearchScope(WorkspaceSearchScopeKind.WORKSPACE),
+    )
+
+    fragment = result.fragments[0]
+    assert "Needle" in fragment.text
+    assert fragment.start_column is not None
+    assert fragment.start_column <= 701
+    assert fragment.end_column is not None
+    assert fragment.end_column >= 706
+
+
+def test_workspace_search_text_casefold_match_can_expand_source_character(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.txt").write_text(
+        "x" * 700 + "Straße" + "z" * 700,
+        encoding="utf-8",
+    )
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            search=WorkspaceSearchSettings(
+                max_query_chars=20,
+                max_excerpt_chars=80,
+                max_result_chars=4000,
+            ),
+        )
+    ).build()
+    engine.reconcile()
+
+    result = engine.search_text(
+        "STRASSE",
+        scope=WorkspaceSearchScope(WorkspaceSearchScopeKind.WORKSPACE),
+    )
+
+    fragment = result.fragments[0]
+    assert "Straße" in fragment.text
+    assert fragment.start_column is not None
+    assert fragment.start_column <= 701
+    assert fragment.end_column is not None
+    assert fragment.end_column >= 706
+
+
+def test_workspace_search_text_skips_invalid_utf8_with_partial_coverage(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.txt").write_bytes(b"\xff\xfe")
+    (tmp_path / "b.txt").write_text("needle", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    engine.reconcile()
+
+    result = engine.search_text(
+        "needle",
+        scope=WorkspaceSearchScope(WorkspaceSearchScopeKind.WORKSPACE),
+    )
+
+    assert [fragment.link for fragment in result.fragments] == ["workspace:b.txt"]
+    assert result.coverage.complete is False
+    assert result.coverage.reason == "unreadable_text"
+    assert result.coverage.skipped_count == 1
+
+
+async def test_workspace_search_action_returns_foldable_fragments(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("needle\n", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    engine.reconcile()
+
+    result = await WorkspaceSearchTextExecutor(engine).execute(
+        _execution(
+            "workspace.search_text",
+            {
+                "query": "needle",
+                "scope": {"kind": "file", "locator": "workspace:a.md"},
+            },
+        ),
+        ActionExecutionContext(),
+    )
+
+    assert result.status.value == "success"
+    expected_scope = {"kind": "file", "locator": "workspace:a.md"}
+    assert result.payload["scope"] == expected_scope
+    fragments = result.payload["fragments"]
+    assert isinstance(fragments, list)
+    fragment = fragments[0]
+    assert isinstance(fragment, dict)
+    assert fragment["text"] == "needle\n"
+    assert result.trace_projection is not None
+    compact = result.trace_projection.canonical_payload
+    assert compact["scope"] == expected_scope
+    compact_fragments = compact["fragments"]
+    assert isinstance(compact_fragments, list)
+    compact_fragment = compact_fragments[0]
+    assert isinstance(compact_fragment, dict)
+    assert "text" not in compact_fragment
+
+
+async def test_workspace_search_action_rejects_legacy_scope_shape(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("needle\n", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    engine.reconcile()
+
+    result = await WorkspaceSearchTextExecutor(engine).execute(
+        _execution(
+            "workspace.search_text",
+            {
+                "query": "needle",
+                "scope": {"kind": "file", "link": "workspace:a.md"},
+            },
+        ),
+        ActionExecutionContext(),
+    )
+
+    assert result.status.value == "failed"
+    assert result.failure is not None
+    assert result.failure.reason == "invalid_scope"
+
+
+async def test_workspace_analyze_returns_grounded_standard_result(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("alpha\n", encoding="utf-8")
+    (tmp_path / "b.md").write_text("beta\n", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    context_engine = ContextEngineBuilder(system_text="system").build()
+    context_engine.begin_turn("analyze files")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
+    llm = FakeLLMRunner(
+        answer={"answer": "Alpha and beta are present.", "source_ids": ["source_1"]}
+    )
+    executor = WorkspaceAnalyzeExecutor(
+        workspace=engine,
+        llm_action=LLMActionTaskRunner(llm_runner=llm, context=context_engine),
+    )
+    before = engine.reconcile().manifest
+
+    result = await executor.execute(
+        _execution(
+            "workspace.analyze",
+            {
+                "intent": "Compare the files.",
+                "reference_links": ["workspace:a.md", "workspace:b.md"],
+            },
+        ),
+        ActionExecutionContext(),
+    )
+
+    assert result.status.value == "success"
+    assert result.payload["answer"] == "Alpha and beta are present."
+    assert result.payload["sources"] == [
+        {
+            "source_id": "source_1",
+            "link": "workspace:a.md",
+            "digest": engine.inspect("workspace:a.md").digest,
+            "size": engine.inspect("workspace:a.md").size,
+            "range": {"start_line": 1, "end_line": 1},
+        }
+    ]
+    assert result.trace_projection is None
+    assert engine.load_manifest() == before
+    assert len(llm.calls) == 1
+    assert "alpha" in _task_call_text_for_label(
+        llm.calls[0], "task_prompt:input:workspace:analysis:source_1"
+    )
+
+
+async def test_workspace_analyze_budget_failure_does_not_call_llm(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("abcdef", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            analysis=WorkspaceAnalysisSettings(
+                max_chars_per_reference=5,
+                max_source_chars=10,
+            ),
+        )
+    ).build()
+    context_engine = ContextEngineBuilder(system_text="system").build()
+    context_engine.begin_turn("analyze files")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
+    llm = FakeLLMRunner(
+        answer={"answer": "unused", "source_ids": ["source_1"]}
+    )
+
+    result = await WorkspaceAnalyzeExecutor(
+        workspace=engine,
+        llm_action=LLMActionTaskRunner(llm_runner=llm, context=context_engine),
+    ).execute(
+        _execution(
+            "workspace.analyze",
+            {"intent": "Analyze.", "reference_links": ["workspace:a.md"]},
+        ),
+        ActionExecutionContext(),
+    )
+
+    assert result.status.value == "failed"
+    assert result.payload["reason"] == "reference_chars_exceeded"
+    assert result.payload["offending_link"] == "workspace:a.md"
+    assert llm.calls == []
+
+
+async def test_workspace_analyze_rejects_invented_source_id(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("alpha", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    context_engine = ContextEngineBuilder(system_text="system").build()
+    context_engine.begin_turn("analyze files")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
+    llm = FakeLLMRunner(
+        answer={"answer": "Invented.", "source_ids": ["source_99"]}
+    )
+
+    result = await WorkspaceAnalyzeExecutor(
+        workspace=engine,
+        llm_action=LLMActionTaskRunner(llm_runner=llm, context=context_engine),
+    ).execute(
+        _execution(
+            "workspace.analyze",
+            {"intent": "Analyze.", "reference_links": ["workspace:a.md"]},
+        ),
+        ActionExecutionContext(),
+    )
+
+    assert result.status.value == "failed"
+    assert result.failure is not None
+    assert result.failure.reason == "unknown_analysis_source_ids"
+
+
+async def test_workspace_analyze_requires_at_least_one_grounding_source(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.md").write_text("alpha", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    context_engine = ContextEngineBuilder(system_text="system").build()
+    context_engine.begin_turn("analyze files")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
+    llm = FakeLLMRunner(answer={"answer": "Alpha is present.", "source_ids": []})
+
+    result = await WorkspaceAnalyzeExecutor(
+        workspace=engine,
+        llm_action=LLMActionTaskRunner(llm_runner=llm, context=context_engine),
+    ).execute(
+        _execution(
+            "workspace.analyze",
+            {"intent": "Analyze.", "reference_links": ["workspace:a.md"]},
+        ),
+        ActionExecutionContext(),
+    )
+
+    assert result.status.value == "failed"
+    assert result.failure is not None
+    assert result.failure.reason == "invalid_analysis_source_ids"
+
+
+def test_workspace_write_text_creates_resource_and_manifest(tmp_path: Path) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+
+    record = engine.write_text("workspace:docs/a.md", "hello")
+
+    assert (tmp_path / "docs" / "a.md").read_text(encoding="utf-8") == "hello"
+    assert record.link == "workspace:docs/a.md"
+    assert record.size == 5
+    assert engine.load_manifest().resources[0].link == "workspace:docs/a.md"
+
+
+def test_workspace_write_text_rejects_existing_without_overwrite(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("old", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+
+    with pytest.raises(WorkspaceContractError, match="already exists"):
+        engine.write_text("workspace:a.md", "new")
+
+
+def test_workspace_write_rolls_back_when_manifest_reconciliation_fails(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "a.md"
+    target.write_bytes(b"old\r\ncontent")
+    settings = WorkspaceSettings(
+        root=tmp_path,
+        manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+    )
+    store = _FailingManifestStore(settings.manifest_path)
+    engine = WorkspaceEngine(
+        settings=settings,
+        manifest_store=cast(WorkspaceManifestStore, store),
+    )
+
+    with pytest.raises(WorkspaceIOError, match="manifest unavailable"):
+        engine.write_text(
+            "workspace:a.md",
+            "new content",
+            overwrite=True,
+        )
+
+    assert target.read_bytes() == b"old\r\ncontent"
+    assert engine.load_manifest() == WorkspaceManifest()
+
+
+def test_workspace_write_text_rejects_stale_expected_digest(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("old", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    before = engine.inspect("workspace:a.md")
+    (tmp_path / "a.md").write_text("changed", encoding="utf-8")
+
+    with pytest.raises(WorkspaceContractError, match="digest mismatch"):
+        engine.write_text(
+            "workspace:a.md",
+            "new",
+            overwrite=True,
+            expected_digest=before.digest,
+        )
+
+    assert (tmp_path / "a.md").read_text(encoding="utf-8") == "changed"
+
+
+def test_workspace_text_mutations_enforce_bounded_write_size(tmp_path: Path) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+            max_write_chars=4,
+        )
+    ).build()
+
+    with pytest.raises(WorkspaceContractError, match="configured limit"):
+        engine.write_text("workspace:a.md", "12345")
+
+    engine.write_text("workspace:a.md", "base")
+    with pytest.raises(WorkspaceContractError, match="configured limit"):
+        engine.patch_text("workspace:a.md", old_text="base", new_text="12345")
+
+    with pytest.raises(WorkspaceContractError, match="configured limit"):
+        engine.append_text("workspace:a.md", text="12345")
+
+
+def test_workspace_append_text_is_exact_and_digest_guarded(tmp_path: Path) -> None:
+    target = tmp_path / "a.md"
+    target.write_text("base", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    before = engine.reconcile().manifest.resources[0]
+
+    record = engine.append_text(
+        "workspace:a.md",
+        text="\ncontinued",
+        expected_digest=before.digest,
+    )
+
+    assert target.read_text(encoding="utf-8") == "base\ncontinued"
+    assert record.size == target.stat().st_size
+    with pytest.raises(WorkspaceContractError, match="digest mismatch"):
+        engine.append_text(
+            "workspace:a.md",
+            text=" again",
+            expected_digest=before.digest,
+        )
+
+
+def test_workspace_expected_digest_hashes_exact_same_stat_base_bytes(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "a.md"
+    target.write_text("old", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    before = engine.reconcile().manifest.resources[0]
+    old_stat = target.stat()
+    target.write_text("new", encoding="utf-8")
+    os.utime(
+        target,
+        ns=(old_stat.st_atime_ns, old_stat.st_mtime_ns),
+    )
+
+    with pytest.raises(WorkspaceContractError, match="digest mismatch"):
+        engine.write_text(
+            "workspace:a.md",
+            "replacement",
+            overwrite=True,
+            expected_digest=before.digest,
+        )
+
+    assert target.read_text(encoding="utf-8") == "new"
+
+
+def test_workspace_expected_digest_linearizes_competing_engine_writes(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "a.md"
+    target.write_text("base", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    expected = engine.reconcile().manifest.resources[0].digest
+    barrier = Barrier(2)
+
+    def write(text: str) -> str:
+        barrier.wait(timeout=1.0)
+        try:
+            engine.write_text(
+                "workspace:a.md",
+                text,
+                overwrite=True,
+                expected_digest=expected,
+            )
+        except WorkspaceContractError:
+            return "conflict"
+        return text
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = tuple(pool.map(write, ("first", "second")))
+
+    assert results.count("conflict") == 1
+    winner = next(result for result in results if result != "conflict")
+    assert target.read_text(encoding="utf-8") == winner
+
+
+def test_workspace_write_text_rejects_ignored_parent(tmp_path: Path) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+
+    with pytest.raises(WorkspaceContractError, match="ignored"):
+        engine.write_text("workspace:.git/config", "unsafe")
+
+
+def test_workspace_patch_text_replaces_exact_match(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("hello world", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    before = engine.inspect("workspace:a.md")
+
+    record = engine.patch_text(
+        "workspace:a.md",
+        old_text="world",
+        new_text="TinySoul",
+        expected_digest=before.digest,
+    )
+
+    assert (tmp_path / "a.md").read_text(encoding="utf-8") == "hello TinySoul"
+    assert record.link == "workspace:a.md"
+    assert record.digest != before.digest
+
+
+def test_workspace_patch_refreshes_digest_when_size_and_mtime_are_unchanged(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = tmp_path / "a.md"
+    target.write_text("old", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    before = engine.reconcile().manifest.resources[0]
+    before_stat = target.stat()
+    atomic_write = workspace_engine_module.atomic_write_text
+
+    def write_with_preserved_mtime(path: Path, text: str) -> None:
+        atomic_write(path, text)
+        os.utime(
+            path,
+            ns=(before_stat.st_atime_ns, before_stat.st_mtime_ns),
+        )
+
+    monkeypatch.setattr(
+        workspace_engine_module,
+        "atomic_write_text",
+        write_with_preserved_mtime,
+    )
+
+    record = engine.patch_text(
+        "workspace:a.md",
+        old_text="old",
+        new_text="new",
+        expected_digest=before.digest,
+    )
+
+    assert record.size == before.size
+    assert record.mtime_ns == before.mtime_ns
+    assert record.digest == sha256(b"new").hexdigest()
+    assert record.digest != before.digest
+
+
+def test_workspace_patch_text_rejects_ambiguous_or_stale_patch(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("same same", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+
+    with pytest.raises(WorkspaceContractError, match="not unique"):
+        engine.patch_text("workspace:a.md", old_text="same", new_text="other")
+    with pytest.raises(WorkspaceContractError, match="digest mismatch"):
+        engine.patch_text(
+            "workspace:a.md",
+            old_text="same same",
+            new_text="other",
+            expected_digest="stale",
+        )
+
+
+def test_workspace_trash_resource_removes_file_and_manifest(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("hello", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    engine.reconcile()
+
+    record = engine.trash_resource(
+        "workspace:a.md",
+        reason="test",
+    ).original
+
+    assert record.link == "workspace:a.md"
+    assert not (tmp_path / "a.md").exists()
+    assert engine.load_manifest().resources == ()
+
+
+def test_workspace_trash_restore_preserves_lifecycle_metadata(tmp_path: Path) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    created = engine.write_text(
+        "workspace:draft.md",
+        "draft",
+        retention=WorkspaceRetention.TURN,
+        owner_turn_id="turn_1",
+    )
+    created = engine.set_description(
+        created.link,
+        "Temporary draft",
+        expected_digest=created.digest,
+    )
+
+    trash = engine.trash_resource(
+        created.link,
+        reason="test_restore",
+        source_turn_id="turn_1",
+    )
+    restored = engine.restore_resource(trash.ref)
+
+    assert restored.retention is WorkspaceRetention.TURN
+    assert restored.owner_turn_id == "turn_1"
+    assert restored.description == "Temporary draft"
+    assert (tmp_path / "draft.md").read_text(encoding="utf-8") == "draft"
+    assert engine.trash_items() == ()
+
+
+def test_workspace_trash_uses_current_disk_digest_after_external_change(
+    tmp_path: Path,
+) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    created = engine.write_text("workspace:draft.md", "old")
+    engine.set_description(
+        created.link,
+        "Old description",
+        expected_digest=created.digest,
+    )
+    (tmp_path / "draft.md").write_text("new", encoding="utf-8")
+
+    trash = engine.trash_resource(created.link, reason="external_change")
+    restored = engine.restore_resource(trash.ref)
+
+    assert restored.digest != created.digest
+    assert restored.description == ""
+    assert (tmp_path / "draft.md").read_text(encoding="utf-8") == "new"
+
+
+def test_workspace_missing_active_resource_exposes_trash_restore_ref(
+    tmp_path: Path,
+) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    engine.write_text("workspace:draft.md", "draft")
+    trash = engine.trash_resource("workspace:draft.md", reason="context_pressure")
+
+    with pytest.raises(WorkspaceTrashRestoreRequired) as exc_info:
+        engine.inspect("workspace:draft.md")
+
+    assert exc_info.value.link == "workspace:draft.md"
+    assert exc_info.value.trash_ref == trash.ref
+
+
+def test_workspace_explicit_delete_requires_manual_restore(tmp_path: Path) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    engine.write_text("workspace:draft.md", "draft")
+    engine.trash_resource("workspace:draft.md", reason="workspace.delete")
+
+    with pytest.raises(WorkspaceContractError, match="does not exist"):
+        engine.inspect("workspace:draft.md")
+
+    assert engine.trash_items()[0].original.link == "workspace:draft.md"
+
+
+def test_workspace_pressure_rolls_back_prior_moves_when_a_later_move_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    for name in ("a.txt", "b.txt"):
+        engine.write_text(
+            f"workspace:{name}",
+            name,
+            retention=WorkspaceRetention.EPHEMERAL,
+        )
+    original = engine.trash_resource
+    calls = 0
+
+    def fail_second(
+        link: WorkspaceLink | str,
+        *,
+        reason: str,
+        source_turn_id: str = "",
+    ):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise WorkspaceIOError("injected failure")
+        return original(
+            link,
+            reason=reason,
+            source_turn_id=source_turn_id,
+        )
+
+    monkeypatch.setattr(engine, "trash_resource", fail_second)
+
+    with pytest.raises(WorkspaceIOError, match="injected failure"):
+        WorkspacePressureReclaimer(engine).reclaim(required_chars=10000)
+
+    assert {record.link for record in engine.snapshot().resources} == {
+        "workspace:a.txt",
+        "workspace:b.txt",
+    }
+    assert engine.trash_items() == ()
+
+
+def test_workspace_pressure_only_trashes_explicitly_reclaimable_resources(
+    tmp_path: Path,
+) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    engine.write_text(
+        "workspace:temporary.txt",
+        "temporary",
+        retention=WorkspaceRetention.EPHEMERAL,
+        owner_turn_id="turn_1",
+    )
+    engine.write_text(
+        "workspace:daily.txt",
+        "daily",
+        retention=WorkspaceRetention.DAY,
+        owner_turn_id="turn_1",
+    )
+
+    report = WorkspacePressureReclaimer(engine).reclaim(
+        required_chars=1,
+        turn_id="turn_1",
+    )
+
+    assert report.removed_links == ("workspace:temporary.txt",)
+    assert tuple(record.link for record in engine.snapshot().resources) == (
+        "workspace:daily.txt",
+    )
+    assert len(engine.trash_items()) == 1
+
+
+def test_workspace_manifest_v1_migrates_lifecycle_defaults() -> None:
+    manifest = WorkspaceManifest.from_json(
+        {
+            "schema_version": 1,
+            "revision": 3,
+            "resources": [
+                {
+                    "link": "workspace:old.md",
+                    "relative_path": "old.md",
+                    "kind": "text",
+                    "media_type": "text/markdown",
+                    "suffix": ".md",
+                    "summary": "Markdown text, 3 bytes",
+                    "size": 3,
+                    "mtime_ns": 1,
+                    "digest": "abc",
+                }
+            ],
+        }
+    )
+
+    assert manifest.schema_version == 3
+    assert manifest.day == ""
+    assert manifest.resources[0].retention is WorkspaceRetention.DAY
+    assert manifest.resources[0].owner_turn_id == ""
+
+
+def test_workspace_prepare_task_input_rejects_empty_links(tmp_path: Path) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+
+    with pytest.raises(WorkspaceContractError, match="at least one"):
+        engine.prepare_task_input(())
+
+
+def test_workspace_describe_rejects_internal_manifest(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "workspace_manifest.json"
+    manifest_path.write_text("{}", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(root=tmp_path, manifest_path=manifest_path)
+    ).build()
+
+    with pytest.raises(WorkspaceContractError, match="internal"):
+        engine.inspect("workspace:workspace_manifest.json")
+
+
+async def test_workspace_describe_executor_updates_manifest_and_working_patch(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.md").write_text("hello", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    bus = SignalBus()
+    context_engine = ContextEngineBuilder(system_text="system").build()
+    context_engine.begin_turn("user asks")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
+    llm = FakeLLMRunner(answer={"description": "A small greeting document."})
+    llm_action = LLMActionTaskRunner(llm_runner=llm, context=context_engine)
+    execution = _execution(
+        "workspace.describe",
+        {"target_link": "workspace:a.md"},
+    )
+
+    result = await WorkspaceDescribeExecutor(engine, bus, llm_action).execute(
+        execution,
+        ActionExecutionContext(signal_bus=bus),
+    )
+
+    assert result.status.value == "success"
+    assert result.payload["summary"] == "Markdown text, 5 bytes"
+    assert result.payload["description"] == "A small greeting document."
+    assert engine.load_manifest().resources[0].link == "workspace:a.md"
+    snapshot = _workspace_snapshot_payload(bus)
+    assert snapshot["revision"] == engine.load_manifest().revision
+    resources = snapshot["resources"]
+    assert isinstance(resources, list)
+    resource = resources[0]
+    assert isinstance(resource, dict)
+    assert resource["summary"] == (
+        "Markdown text, 5 bytes. A small greeting document."
+    )
+
+
+async def test_workspace_create_keeps_committed_result_and_snapshot_when_cancelled(tmp_path: Path, monkeypatch) -> None:
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    context_engine = ContextEngineBuilder(system_text="system").build()
+    context_engine.begin_turn("write a note")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
+    bus = SignalBus()
+    llm = FakeLLMRunner({"text": "committed note"})
+    started = asyncio.Event()
+    release = Event()
+    loop = asyncio.get_running_loop()
+    loop_thread = get_ident()
+    commit = engine.commit_edit_text
+
+    def delayed_commit(*args, **kwargs):
+        assert get_ident() != loop_thread
+        record = commit(*args, **kwargs)
+        loop.call_soon_threadsafe(started.set)
+        assert release.wait(3)
+        return record
+
+    monkeypatch.setattr(engine, "commit_edit_text", delayed_commit)
+    execution_context = ActionExecutionContext(signal_bus=bus)
+    executor = WorkspaceCreateExecutor(workspace=engine, bus=bus,
+        llm_action=LLMActionTaskRunner(llm_runner=llm, context=context_engine))
+    work = asyncio.create_task(executor.execute(_execution("workspace.create", {
+        "target_link": "workspace:note.md", "instruction": "Write a note.", "reference_links": [],
+    }), execution_context))
+    try:
+        await asyncio.wait_for(started.wait(), 2)
+        work.cancel()
+        await asyncio.sleep(0)
+        assert not work.done()
+    finally:
+        release.set()
+    result = await work
+    assert result.status.value == "success"
+    assert (tmp_path / "note.md").read_text(encoding="utf-8") == "committed note"
+    assert _workspace_snapshot_payload(bus)["resources"]
+    # The runner records the returned fact, then propagates deferred cancellation.
+    with pytest.raises(asyncio.CancelledError):
+        execution_context.owner_operations.check_cancelled()
+
+
+async def test_workspace_create_executor_generates_text_inside_action(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "ref.md").write_text("reference text", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+            max_read_chars=100,
+        )
+    ).build()
+    context_engine = ContextEngineBuilder(system_text="sys").build()
+    context_engine.begin_turn("user asks")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
+    bus = SignalBus()
+    llm = FakeLLMRunner({"text": "generated text"})
+    execution = _execution(
+        "workspace.create",
+        {
+            "target_link": "workspace:a.md",
+            "instruction": "Create a short note.",
+            "reference_links": ["workspace:ref.md"],
+        },
+    )
+
+    llm_action = LLMActionTaskRunner(llm_runner=llm, context=context_engine)
+    result = await WorkspaceCreateExecutor(
+        workspace=engine,
+        bus=bus,
+        llm_action=llm_action,
+    ).execute(execution, ActionExecutionContext(signal_bus=bus))
+
+    assert result.status.value == "success"
+    assert result.payload["created"] is True
+    assert result.payload["link"] == "workspace:a.md"
+    assert "text" not in result.payload
+    assert (tmp_path / "a.md").read_text(encoding="utf-8") == "generated text"
+    target_prompt = _task_call_text_for_label(
+        llm.calls[0],
+        "task_prompt:input:workspace_create_target",
+    )
+    reference_prompt = _task_call_text_for_label(
+        llm.calls[0],
+        "task_prompt:input:workspace:reference:workspace:ref.md:prefix:100",
+    )
+    assert "link: workspace:a.md" in target_prompt
+    assert "reference text" in reference_prompt
+    snapshot = _workspace_snapshot_payload(bus)
+    resources = snapshot["resources"]
+    assert isinstance(resources, list)
+    assert {item["link"] for item in resources if isinstance(item, dict)} == {
+        "workspace:a.md",
+        "workspace:ref.md",
+    }
+    first_resource = next(
+        item
+        for item in resources
+        if isinstance(item, dict) and item.get("link") == "workspace:a.md"
+    )
+    assert isinstance(first_resource, dict)
+    assert first_resource["link"] == "workspace:a.md"
+
+
+async def test_workspace_create_output_limit_does_not_commit_partial_artifact(
+    tmp_path: Path,
+) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    context_engine = ContextEngineBuilder(system_text="sys").build()
+    context_engine.begin_turn("user asks")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
+    bus = SignalBus()
+    failure = TaskFailure(
+        model_feedback="Model generation reached its output token limit.",
+        reason=TaskFailureReason.OUTPUT_LIMIT_REACHED,
+        scope=TaskFailureScope.OUTPUT,
+        constraint={"max_output_tokens": 16384},
+    )
+    execution = _execution(
+        "workspace.create",
+        {
+            "target_link": "workspace:partial.md",
+            "instruction": "Create a complete report.",
+        },
+    )
+
+    result = await WorkspaceCreateExecutor(
+        workspace=engine,
+        bus=bus,
+        llm_action=LLMActionTaskRunner(
+            llm_runner=FakeLLMRunner(failure=failure),
+            context=context_engine,
+        ),
+    ).execute(execution, ActionExecutionContext(signal_bus=bus))
+
+    assert result.status.value == "failed"
+    assert result.failure is not None
+    assert result.failure.to_json() == {
+        "reason": "output_limit_reached",
+        "scope": "llm.output",
+        "disposition": "change_request",
+        "feedback": "Model generation reached its output token limit.",
+        "constraint": {"max_output_tokens": 16384},
+    }
+    assert not (tmp_path / "partial.md").exists()
+    assert bus.consume_namespace("context") == ()
+
+
+async def test_workspace_create_rejects_absent_target_created_after_prompt(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "created-elsewhere.md"
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    context_engine = ContextEngineBuilder(system_text="sys").build()
+    context_engine.begin_turn("user asks")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
+    bus = SignalBus()
+
+    def create_target() -> None:
+        target.write_text("external content", encoding="utf-8")
+
+    execution = _execution(
+        "workspace.create",
+        {
+            "target_link": "workspace:created-elsewhere.md",
+            "instruction": "Create a note.",
+        },
+    )
+    result = await WorkspaceCreateExecutor(
+        workspace=engine,
+        bus=bus,
+        llm_action=LLMActionTaskRunner(
+            llm_runner=FakeLLMRunner({"text": "generated"}, on_run=create_target),
+            context=context_engine,
+        ),
+    ).execute(execution, ActionExecutionContext(signal_bus=bus))
+
+    assert result.status.value == "failed"
+    assert result.failure is not None
+    assert result.failure.reason == "source_changed"
+    assert target.read_text(encoding="utf-8") == "external content"
+    assert bus.consume_namespace("context") == ()
+
+
+async def test_workspace_append_executor_commits_fragment_without_old_text(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "a.md"
+    target.write_text("existing", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    engine.reconcile()
+    bus = SignalBus()
+    before = engine.inspect("workspace:a.md")
+    result = await WorkspaceAppendExecutor(engine, bus).execute(
+        _execution(
+            "workspace.append",
+            {
+                "target_link": "workspace:a.md",
+                "text": "\nadded",
+                "expected_digest": before.digest,
+            },
+        ),
+        ActionExecutionContext(signal_bus=bus),
+    )
+
+    assert result.status.value == "success"
+    assert result.payload["appended"] is True
+    assert result.payload["appended_chars"] == len("\nadded")
+    assert target.read_text(encoding="utf-8") == "existing\nadded"
+
+async def test_workspace_patch_executor_failure_is_local_result(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("hello", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    bus = SignalBus()
+    execution = _execution(
+        "workspace.patch",
+        {"target_link": "workspace:a.md", "old_text": "missing", "new_text": "x"},
+    )
+
+    result = await WorkspacePatchExecutor(engine, bus).execute(
+        execution,
+        ActionExecutionContext(signal_bus=bus),
+    )
+
+    assert result.status.value == "failed"
+    assert result.failure is not None
+    assert "not found" in result.failure.feedback
+    assert bus.consume_namespace("context") == ()
+
+
+async def test_workspace_delete_executor_emits_empty_workspace_snapshot(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("hello", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    bus = SignalBus()
+    execution = _execution("workspace.delete", {"target_link": "workspace:a.md"})
+
+    result = await WorkspaceDeleteExecutor(engine, bus).execute(
+        execution,
+        ActionExecutionContext(signal_bus=bus),
+    )
+
+    assert result.status.value == "success"
+    assert result.payload["deleted"] is True
+    assert not (tmp_path / "a.md").exists()
+    snapshot = _workspace_snapshot_payload(bus)
+    assert snapshot["resources"] == []
+
+
+
+async def test_workspace_rewrite_executor_loads_target_and_references_inside_action(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "target.md").write_text("old text", encoding="utf-8")
+    (tmp_path / "ref.md").write_text("reference text", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+            max_read_chars=100,
+        )
+    ).build()
+    context_engine = ContextEngineBuilder(system_text="sys").build()
+    context_engine.begin_turn("user asks")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
+    bus = SignalBus()
+    llm = FakeLLMRunner({"text": "new text"})
+    execution = _execution(
+        "workspace.rewrite",
+        {
+            "target_link": "workspace:target.md",
+            "instruction": "Rewrite tersely.",
+            "reference_links": ["workspace:ref.md"],
+        },
+    )
+
+    llm_action = LLMActionTaskRunner(llm_runner=llm, context=context_engine)
+    result = await WorkspaceRewriteExecutor(
+        workspace=engine,
+        bus=bus,
+        llm_action=llm_action,
+    ).execute(execution, ActionExecutionContext(signal_bus=bus))
+
+    assert result.status.value == "success"
+    assert result.payload["rewritten"] is True
+    assert result.payload["link"] == "workspace:target.md"
+    assert "text" not in result.payload
+    assert (tmp_path / "target.md").read_text(encoding="utf-8") == "new text"
+    target_prompt = _task_call_text_for_label(
+        llm.calls[0],
+        "task_prompt:input:workspace:target:workspace:target.md:prefix:100",
+    )
+    reference_prompt = _task_call_text_for_label(
+        llm.calls[0],
+        "task_prompt:input:workspace:reference:workspace:ref.md:prefix:100",
+    )
+    assert "# Workspace Target" in target_prompt
+    assert "old text" in target_prompt
+    assert "# Workspace Reference" in reference_prompt
+    assert "reference text" in reference_prompt
+    snapshot = _workspace_snapshot_payload(bus)
+    resources = snapshot["resources"]
+    assert isinstance(resources, list)
+    assert {item["link"] for item in resources if isinstance(item, dict)} == {
+        "workspace:ref.md",
+        "workspace:target.md",
+    }
+    first_resource = next(
+        item
+        for item in resources
+        if isinstance(item, dict) and item.get("link") == "workspace:target.md"
+    )
+    assert isinstance(first_resource, dict)
+    assert first_resource["link"] == "workspace:target.md"
+
+
+async def test_workspace_rewrite_rejects_truncated_target_before_llm_call(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "target.md"
+    target.write_text("0123456789", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+            max_read_chars=4,
+        )
+    ).build()
+    context_engine = ContextEngineBuilder(system_text="sys").build()
+    context_engine.begin_turn("user asks")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
+    bus = SignalBus()
+    llm = FakeLLMRunner({"text": "should not run"})
+    execution = _execution(
+        "workspace.rewrite",
+        {
+            "target_link": "workspace:target.md",
+            "instruction": "Rewrite one paragraph.",
+        },
+    )
+
+    result = await WorkspaceRewriteExecutor(
+        workspace=engine,
+        bus=bus,
+        llm_action=LLMActionTaskRunner(
+            llm_runner=llm,
+            context=context_engine,
+        ),
+    ).execute(execution, ActionExecutionContext(signal_bus=bus))
+
+    assert result.status.value == "failed"
+    assert result.failure is not None
+    assert result.failure.reason == "target_truncated"
+    assert llm.calls == []
+    assert target.read_text(encoding="utf-8") == "0123456789"
+    assert bus.consume_namespace("context") == ()
+
+
+async def test_workspace_rewrite_executor_rejects_target_changed_after_prompt(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "target.md"
+    target.write_text("old text", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+            max_read_chars=100,
+        )
+    ).build()
+    context_engine = ContextEngineBuilder(system_text="sys").build()
+    context_engine.begin_turn("user asks")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
+    bus = SignalBus()
+    def change_target() -> None:
+        target.write_text("changed elsewhere", encoding="utf-8")
+
+    llm = FakeLLMRunner(
+        {"text": "new text"},
+        on_run=change_target,
+    )
+    execution = _execution(
+        "workspace.rewrite",
+        {
+            "target_link": "workspace:target.md",
+            "instruction": "Rewrite tersely.",
+        },
+    )
+
+    llm_action = LLMActionTaskRunner(llm_runner=llm, context=context_engine)
+    result = await WorkspaceRewriteExecutor(
+        workspace=engine,
+        bus=bus,
+        llm_action=llm_action,
+    ).execute(execution, ActionExecutionContext(signal_bus=bus))
+
+    assert result.status.value == "failed"
+    assert result.failure is not None
+    assert result.failure.reason == "source_changed"
+    assert target.read_text(encoding="utf-8") == "changed elsewhere"
+    assert bus.consume_namespace("context") == ()
+
+
+async def test_workspace_rewrite_rejects_reference_changed_after_prompt(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "target.md"
+    reference = tmp_path / "ref.md"
+    target.write_text("old target", encoding="utf-8")
+    reference.write_text("old reference", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    context_engine = ContextEngineBuilder(system_text="sys").build()
+    context_engine.begin_turn("user asks")
+    await context_engine.open_segments(CalendarDate(2026, 7, 12))
+    bus = SignalBus()
+
+    def change_reference() -> None:
+        reference.write_text("changed reference", encoding="utf-8")
+
+    execution = _execution(
+        "workspace.rewrite",
+        {
+            "target_link": "workspace:target.md",
+            "instruction": "Rewrite from the reference.",
+            "reference_links": ["workspace:ref.md"],
+        },
+    )
+    result = await WorkspaceRewriteExecutor(
+        workspace=engine,
+        bus=bus,
+        llm_action=LLMActionTaskRunner(
+            llm_runner=FakeLLMRunner(
+                {"text": "generated"},
+                on_run=change_reference,
+            ),
+            context=context_engine,
+        ),
+    ).execute(execution, ActionExecutionContext(signal_bus=bus))
+
+    assert result.status.value == "failed"
+    assert result.failure is not None
+    assert result.failure.reason == "source_changed"
+    assert target.read_text(encoding="utf-8") == "old target"
+    assert reference.read_text(encoding="utf-8") == "changed reference"
+    assert bus.consume_namespace("context") == ()
+
+
+def _message_text(message: UserMessage) -> str:
+    return "\n".join(part.text for part in message.parts if isinstance(part, TextPart))
+
+
+def _workspace_snapshot_payload(bus: SignalBus) -> JsonObject:
+    signals = bus.consume_namespace("context")
+    assert len(signals) == 1
+    assert signals[0].name == SIGNAL_WORKSPACE_SYNC
+    return signals[0].payload
+
+
+
+def _task_call_text_for_label(call: TaskCall, label: str) -> str:
+    for message in call.messages.messages:
+        if message.label != label:
+            continue
+        return "\n".join(
+            part.text for part in message.parts if isinstance(part, TextPart)
+        )
+    raise AssertionError(f"Missing message label: {label}")
+
+
+def _execution(action_name: str, params: JsonObject) -> ActionExecution:
+    catalog = ActionCatalog(
+        domains=(ActionDomainSpec(name="workspace", description="Workspace."),),
+        actions=(
+            ActionSpec(
+                name=action_name,
+                domain="workspace",
+                tool=ActionToolSpec(
+                    name=action_name,
+                    description="Scan.",
+                    schema={
+                        "type": "object",
+                        "properties": {},
+                        "required": [],
+                        "additionalProperties": False,
+                    },
+                ),
+                semantic=ActionSemanticSpec(),
+                runtime=ActionRuntimeSpec(),
+                backend=ActionBackendSpec(
+                    kind=ActionBackendKind.NATIVE,
+                    handler=action_name,
+                ),
+            ),
+        ),
+    )
+    preparation = ActionExecutionBuilder().prepare_batch(
+        (ActionCall("call_1", action_name, params, 1),),
+        catalog=catalog,
+        scope=RunScope().push(RunLevel.PHASE, "phase3"),
+        batch_id="batch_1",
+    )
+    return preparation.batch.executions[0]

@@ -12,19 +12,19 @@ Runtime 采用 OS 风格的陷入设计：模块内部正常执行时不依赖�
 
 ## 运行层级
 
-TinySoul 的运行层级从外到内分为 Program、Turn、Cycle、Phase 和 Module。
+TinySoul 的运行层级从外到内分为 Agent、Turn、Cycle、Phase 和 Module。
 
-Program 是程序顶层，由 App 拥有 typed request queue 和 Program frame。它把 `UserTurnRequest` 分派给 User Turn，把 `MaintenanceRequest` 分派给 MaintenanceEngine，把 `ExitRequest` 交给 Program trap。每项新日 work 前的确定性 Archive preflight 是 Program 边界前置条件，但其业务归 Maintenance 所有；它只恢复 journal、归档旧日 Session/Workspace/Trash 并打开新日 Session/Workspace，不触发 LLM、不移动跨日 Home overlay，也不读写顶层 Memory。Program 不直接介入 Phase 或具体模块细节。
+Agent 是程序顶层，由 App 拥有 typed request queue 和 Agent frame。它把 `UserTurnRequest` 分派给 User Turn，把 `ReflectionRequest` 分派给 ReflectionEngine，把 `ExitRequest` 交给 Agent trap。每项新日 work 前的确定性 Archive preflight 是 Agent 边界前置条件，但其业务归 Reflection 所有；它只恢复 journal、归档旧日 Session/Workspace/Trash 并打开新日 Session/Workspace，不触发 LLM、不移动跨日 Home overlay，也不读写顶层 Memory。Agent 不直接介入 Phase 或具体模块细节。
 
-Turn 是 Program work 中需要 3-stage 推理的一次顶层任务。User Turn 由用户输入形成；Home/Memory task 由 MaintenanceEngine 在 eligible 时启动独立 Maintenance Turn。二者使用相同 Turn/Cycle/Phase 层级，但 preparation、Context 实例、Action view、completion 和输出语义不同。User Turn 可以接收用户追加输入；Maintenance 期间新输入只在 Program queue 排队，不进入当前 Turn。Runtime 不保存 Maintenance 业务状态：Home 重试重新读取 runtime overlay 与 actual Home，Memory 重试重新读取指定日期 Archive projection 与同日期 MEMORY。
+Turn 是 Agent work 中需要 3-stage 推理的一次顶层任务。User Turn 由用户输入形成；Home/Memory task 由 ReflectionEngine 在 eligible 时启动独立 Reflection Turn。二者使用相同 Turn/Cycle/Phase 层级，但 preparation、Context 实例、Action view、completion 和输出语义不同。User Turn 可以接收用户追加输入；Reflection 期间新输入只在 Agent queue 排队，不进入当前 Turn。Runtime 不保存 Reflection 业务状态：Home 重试重新读取 runtime overlay 与 actual Home，Memory 重试重新读取指定日期 Archive projection 与同日期 MEMORY。
 
-Cycle 是任一 User/Maintenance Turn 内的一次执行轮。一个 Turn 可以包含多个 Cycle，每个 Cycle 按顺序组织 Phase。
+Cycle 是任一 User/Reflection Turn 内的一次执行轮。一个 Turn 可以包含多个 Cycle，每个 Cycle 按顺序组织 Phase。
 
 Phase 是执行轮内的执行单元。Phase1 负责更新语境与决策行动域，Phase2 负责生成行动参数，Phase3 负责采取行动。每个 Phase 都可以包含一次或多次模块级任务。Phase 的稳定标识由 Runtime 以 CyclePhase 提供，供业务模块在结果与轨迹元数据中引用同一语义。
 
 Module 是具体模块执行边界，包括 LLM Task、Action 执行、Context 操作、Workspace、Agent Home 或 Memory 相关操作。模块优先在自身边界内完成局部恢复和错误映射；只有局部策略耗尽或需要全局协调时，才向 Runtime 上抛异常或发出信号。
 
-Runtime 使用运行位置记录当前执行栈。运行位置应能表达 Program、Turn、Cycle、Phase 和 Module 的嵌套关系，从而定位异常发生处和恢复目标。运行位置只描述控制流位置，不承载业务参数。Action 输入、LLM profile、Context patch 等业务内容应存在模块异常详情或信号载荷中。
+Runtime 使用运行位置记录当前执行栈。运行位置应能表达 Agent、Turn、Cycle、Phase 和 Module 的嵌套关系，从而定位异常发生处和恢复目标。运行位置只描述控制流位置，不承载业务参数。Action 输入、LLM profile、Context patch 等业务内容应存在模块异常详情或信号载荷中。
 
 ## 异常与陷入
 
@@ -34,7 +34,7 @@ Runtime 使用运行位置记录当前执行栈。运行位置应能表达 Progr
 
 模块内部可以使用普通 Python 异常或模块私有异常表达内部失败，例如参数错误、供应商错误、解析错误或局部状态错误。这些异常不应直接跨出模块边界进入 Runtime。模块边界负责捕获内部异常，先执行局部恢复、错误映射或结果结构化；只有确实需要上层运行控制介入时，才转换为 Runtime 可理解的语义异常。这样可以避免 Runtime 被供应商、解析器或具体模块内部错误类型污染。
 
-当局部处理失败，或发生需要全局协调的情况时，模块边界抛出 Runtime 可理解的语义异常，异常进入 Runtime 陷入流程。Runtime 语义异常使用少量稳定原因标识表达陷入后的运行意图，例如启动失败、结束 Turn、结束 Cycle、结束 Program、语境压缩或 Agent Home 运行时副本准备。Trap 将异常和当前运行位置转换为 TrapSnap，并按照原因标识查找处理器。
+当局部处理失败，或发生需要全局协调的情况时，模块边界抛出 Runtime 可理解的语义异常，异常进入 Runtime 陷入流程。Runtime 语义异常使用少量稳定原因标识表达陷入后的运行意图，例如启动失败、结束 Turn、结束 Cycle、结束 Agent、语境压缩或 Agent Home 运行时副本准备。Trap 将异常和当前运行位置转换为 TrapSnap，并按照原因标识查找处理器。
 
 Runtime 的异常入口应保持单一。模块外交给 Runtime 的异常使用统一异常类型承载原因标识、错误消息和结构化载荷。Runtime 不通过庞大的异常继承树区分恢复、中断和退出，也不直接接收各模块的细粒度失败原因；模块失败原因由模块内部维护，并通过 bridge 映射到 Runtime 的通用原因。这样可以保持异常入口稳定，并避免 LLM、Infra、Action 或 Context 的内部错误分类污染 Runtime 控制协议。
 
@@ -42,7 +42,7 @@ Runtime 自身仍然有模块内部的契约和不变量错误。`RuntimeExcepti
 
 TrapSnap 是 Trap 捕获异常后形成的陷入上下文快照。它包含原因标识、错误消息、结构化载荷和运行位置。结构化载荷是模块 bridge 显式构造的 JSON 对象；原始异常链可以供日志和调试使用，但不应成为 payload 协议。TrapSnap 不再被抛出；它只在 Trap 处理器、日志、TurnTrace 和可观测流程中流动。
 
-常见原因包括：程序启动失败、结束 Turn、结束 Cycle、结束 Program、需要语境压缩、需要 Agent Home 运行时副本准备。具体 Runtime 原因名称属于模块间协议，应稳定、可记录、可测试；具体模块失败类型应放在 payload 的模块命名空间字段中。
+常见原因包括：程序启动失败、结束 Turn、结束 Cycle、结束 Agent、需要语境压缩、需要 Agent Home 运行时副本准备。具体 Runtime 原因名称属于模块间协议，应稳定、可记录、可测试；具体模块失败类型应放在 payload 的模块命名空间字段中。
 
 ## 模块接入约定
 
@@ -56,19 +56,21 @@ Runtime bridge 是模块失败语义和 Runtime 通用原因之间的唯一翻�
 
 各 bridge 复用公开的 `runtime/failures.py` 构造 RuntimeException 和异常类型摘要；纯 ConfigError 投影由 `infra/config/errors.py` 提供。模块名、failure enum、failure→reason 映射表与诊断语义仍由 owner 维护。message 使用明确的失败摘要，payload 不包含原始异常文本、配置原值、绝对路径或完整资源正文；保留容量度量、保护 Link 等实际恢复输入。公共 helper 不分类业务失败，不决定控制流。
 
-模块事件和状态变更请求不应通过 Runtime 异常表达。模块完成一次动作、产生状态 patch、需要追加 TurnTrace 或需要通知其他模块消费数据时，应发出信号；只需要向外部报告运行边界时应发布 ObservationEvent。只有结束 Turn、结束 Cycle、结束 Program、触发全局恢复或启动失败这类控制流变化，才进入 Runtime Trap。
+模块事件和状态变更请求不应通过 Runtime 异常表达。模块完成一次动作、产生状态 patch、需要追加 TurnTrace 或需要通知其他模块消费数据时，应发出信号；只需要向外部报告运行边界时应发布 ObservationEvent。只有结束 Turn、结束 Cycle、结束 Agent、触发全局恢复或启动失败这类控制流变化，才进入 Runtime Trap。
 
 ## 运行转移
 
-Runtime 只声明自身 startup/turn_end/cycle_end/program_end 原因。Context、Home、Workspace 的恢复原因由各自 failures.py 声明；LLM 声明独立的 `llm.context_capacity_exceeded`，不引用 Context。User 与 Maintenance 装配将 LLM 容量原因和 Context 预算原因登记到各自压力策略，是否回收与重建由调用方决定。
+Runtime 只声明自身 startup/turn_end/cycle_end/agent_end 原因。Context、Home、Workspace 的恢复原因由各自 failures.py 声明；LLM 声明独立的 `llm.context_capacity_exceeded`，不引用 Context。User 与 Reflection 装配将 LLM 容量原因和 Context 预算原因登记到各自压力策略，是否回收与重建由调用方决定。
 
 Runtime 的陷入结果是运行转移。运行转移应指向运行位置栈中的 frame，使运行器能够明确知道 Trap 处理结束后应重试或结束哪个运行边界。
 
-运行转移只包含重试某个 frame 和结束某个 frame。重试表示恢复例程完成后重新执行目标 frame，使原本被陷入打断的工作继续完成；结束表示结束目标 frame。结束 Program frame 表示退出程序；结束 Turn frame 表示结束当前 User Turn 或 Maintenance Turn；结束 Cycle frame 表示结束当前执行轮，后续是否进入下一 Cycle 由 Turn 运行器基于当前 Turn 状态决定。程序退出、Turn 中断、Cycle 收束和恢复失败都不需要单独的动作枚举，而是通过结束对应 frame 表达。
+运行转移包含 RETRY、END 与受限 SUSPEND。RETRY 重放可重放 frame，END 结束目标 frame；SUSPEND 仅允许当前捕获栈顶恰为 Turn 的边界，不能在 Module/Phase/Cycle 中挂起祖先。Loop 在下一 Cycle 启动前以 `loop.budget_required` 经专属处理器暂停，保留下一 Cycle 位置与 Inbox；Runtime 不持有预算、不等待补额，也不重放已完成的 Cycle。结束 Agent frame 表示退出程序。
+
+`runtime.events` 提供 EnvironmentEvent 与异步 EventBus。EventBus 校验有界 JSON envelope、序列化投递并保留有界幂等回执，不持久化事件正文。目标路由属于 Agent，受理/批次/等待属于 Loop；INPUT/reply/预算决定走相应受理门面，外部事件不能伪造这些控制授权。Signal 和 Observation 的职责不变。
 
 重试目标 frame 必须具备可重放语义。模块级重试只有在模块边界保存了可重放调用时才成立，例如资源操作、Action Invoke 或明确的 LLM Task 调用。否则处理器应选择重试 Phase、Cycle，或结束 Turn。Runtime 不提供从异常抛出点下一行继续执行的语义；若某个问题可以在模块内部继续调度，它不应进入 Trap，而应由模块内部流程或信号系统处理。
 
-运行器负责消费运行转移。Program、Turn、Cycle 和 Phase 运行器只消费指向自身 frame 的转移；`RuntimeModuleRunner` 为 action invoke、Context signal batch 等可重放调用建立 Module frame，捕获一次 RuntimeException、发出 Trap 信号并在 RETRY 指向自身时重放同一调用。指向上层 frame 的转移通过 `RuntimeTransferInterrupt` 展开传播，不会在每层重复进入 Trap；Maintenance task 在判断 task outcome 前必须展开非 Turn transfer，不能吞掉 Program transfer。Runtime 本身不直接提交业务状态。
+运行器负责消费运行转移。Agent、Turn、Cycle 和 Phase 运行器只消费指向自身 frame 的转移；`RuntimeModuleRunner` 为 action invoke、Context signal batch 等可重放调用建立 Module frame，捕获一次 RuntimeException、发出 Trap 信号并在 RETRY 指向自身时重放同一调用。指向上层 frame 的转移通过 `RuntimeTransferInterrupt` 展开传播，不会在每层重复进入 Trap；Reflection task 在判断 task outcome 前必须展开非 Turn transfer，不能吞掉 Agent transfer。Runtime 本身不直接提交业务状态。
 
 Trap 只接受指向本次捕获 `RunScope` 内 frame 的运行转移。处理器若返回外部 scope、已经失效或从未属于该运行栈的 target，Trap 以 `RuntimeInvariantError` 拒绝结果；运行器不能消费一个没有栈归属的跳转目标。这个校验位于 Trap 边界，而不是分散到每级运行器。
 
@@ -78,11 +80,11 @@ Runtime 将异常处理统一为 Trap 处理器调度。
 
 Runtime 使用 Trap 处理器表处理不同陷入原因。处理器表类似 OS 中断向量表：原因标识和运行位置共同决定处理器，处理器返回运行转移。
 
-Trap 处理器负责解释 Runtime 原因标识。它可以直接返回结束 Turn、结束 Program 等转移，也可以执行全局恢复例程后返回重试某个 frame 的转移。新增模块失败类型通常不应新增 Runtime 原因，而应在模块 bridge 的映射表中映射到既有通用原因；只有需要独立恢复例程或独立全局控制语义时，才新增 Runtime 原因并注册处理器。处理器可以读取 TrapSnap，但不应反向依赖具体业务模块内部状态。
+Trap 处理器负责解释 Runtime 原因标识。它可以直接返回结束 Turn、结束 Agent 等转移，也可以执行全局恢复例程后返回重试某个 frame 的转移。新增模块失败类型通常不应新增 Runtime 原因，而应在模块 bridge 的映射表中映射到既有通用原因；只有需要独立恢复例程或独立全局控制语义时，才新增 Runtime 原因并注册处理器。处理器可以读取 TrapSnap，但不应反向依赖具体业务模块内部状态。
 
-Trap registry 支持精确 reason、命名空间前缀和一个显式 fallback。应用装配为未识别的 RuntimeException 注册 fallback：运行期结束最近 Turn，启动期结束 Program。这样无法由业务处理器恢复的 RuntimeException 不会泄漏为普通 Python 异常。registry 重复注册、非法 key、错误 Signal/TrapResult 等 Runtime 自身契约和装配错误仍使用 `RuntimeContractError`/`RuntimeInvariantError`，不进入 fallback。
+Trap registry 支持精确 reason、命名空间前缀和一个显式 fallback。应用装配为未识别的 RuntimeException 注册 fallback：运行期结束最近 Turn，启动期结束 Agent。这样无法由业务处理器恢复的 RuntimeException 不会泄漏为普通 Python 异常。registry 重复注册、非法 key、错误 Signal/TrapResult 等 Runtime 自身契约和装配错误仍使用 `RuntimeContractError`/`RuntimeInvariantError`，不进入 fallback。
 
-通用处理策略包括：启动失败结束 Program；结束 Turn 原因结束当前 Turn；结束 Cycle 原因结束当前执行轮；结束 Program 原因退出程序；语境压缩或 Agent Home 运行时副本准备等原因由对应处理器执行恢复后返回运行转移；Maintenance contract/invariant failure 由专用 bridge 映射为 `runtime.program_end` 并在 Program 边界收束；未处理 RuntimeException 由 fallback 结束 Turn 或 Program。普通 User/Maintenance completion 由 Loop profile 的 completion detector 产生，不通过 Runtime reason 或 Trap 传递。
+通用处理策略包括：启动失败结束 Agent；结束 Turn 原因结束当前 Turn；结束 Cycle 原因结束当前执行轮；结束 Agent 原因退出程序；语境压缩或 Agent Home 运行时副本准备等原因由对应处理器执行恢复后返回运行转移；Reflection contract/invariant failure 由专用 bridge 映射为 `runtime.agent_end` 并在 Agent 边界收束；未处理 RuntimeException 由 fallback 结束 Turn 或 Agent。普通 User/Reflection completion 由 Loop profile 的 completion detector 产生，不通过 Runtime reason 或 Trap 传递。
 
 Trap 处理器可以发出信号，例如请求记录 TurnTrace 或通知某个恢复任务已完成。Trap 处理器不应直接修改业务状态；实际状态修改仍由对应信号消费者完成。运行器可在捕获 Trap 后另行发布观察事件，但输出适配器不参与 Trap 决策。
 
@@ -92,7 +94,7 @@ Trap 处理器可以发出信号，例如请求记录 TurnTrace 或通知某个�
 
 恢复例程通过 Trap 处理器注册表接入 Runtime。Trap 捕获 Runtime 语义异常后，记录陷入位置，按照原因标识查找处理器，执行必要的恢复任务，并依据处理结果生成运行转移。
 
-Trap 处理器的结果应表达运行转移和需要发出的信号。恢复成功后可以建议重试陷入模块、当前 Phase 或当前 Cycle。恢复失败时可以建议结束当前 Turn；用户或程序级中断时可以建议结束 Program。
+Trap 处理器的结果应表达运行转移和需要发出的信号。恢复成功后可以建议重试陷入模块、当前 Phase 或当前 Cycle。恢复失败时可以建议结束当前 Turn；用户或程序级中断时可以建议结束 Agent。
 
 例如，Agent Home 运行时副本缺失时，处理器可以创建所需副本，并建议重试陷入模块；MessageStack 超出预算时，处理器可以压缩语境，并建议重试当前 Phase；压缩失败时，处理器可以建议结束当前 Turn，并发出故障记录信号供 TurnTrace 或可观测模块消费。
 
@@ -114,13 +116,13 @@ Runtime 只定义信号信封和分发机制，不定义所有业务载荷字段
 
 信号消费由拥有业务协议的模块在明确边界负责。消费者通过 SignalBus 的精确名称或命名空间批量选择能力取得信号，再按自身类型解析、投影和提交；Runtime 不维护一个脱离业务所有权的通用 SignalHandlerRegistry。Phase1 产生的状态信号应在 Phase1 结束后按消费模块协议批量处理；Phase3 的 Action 结果信号应在并行执行完成后批量消费；用户追加输入信号应在 User Turn 可接收输入的位置合并进当前 Turn。
 
-模块信号的主链路是 SignalBus 和业务模块消费者，不是 Trap。这样可以保持异常控制流和模块事件流分离。Trap 不识别控制信号；请求结束当前 Turn、请求结束 Program 或请求进入全局恢复流程等控制流变化，应由运行器构造 Runtime 语义异常进入 Trap。其他信号由对应模块在自身安全边界消费。
+模块信号的主链路是 SignalBus 和业务模块消费者，不是 Trap。这样可以保持异常控制流和模块事件流分离。Trap 不识别控制信号；请求结束当前 Turn、请求结束 Agent 或请求进入全局恢复流程等控制流变化，应由运行器构造 Runtime 语义异常进入 Trap。其他信号由对应模块在自身安全边界消费。
 
 信号消费者不应依赖发送方的内部对象。发送方负责在边界处把动态数据转换为清晰的 JSON 对象；接收方负责把 JSON 载荷解析为自身模块的明确类型，并执行校验和状态提交。这样可以避免宽泛动态对象在模块内部扩散。
 
-控制流变化不通过普通信号表达。需要结束 Turn、结束 Program、触发全局恢复或处理无法继续的错误时，应构造 Runtime 语义异常进入 Trap。信号用于模块事件和状态变更请求，例如追加 TurnTrace、提交 WorkingContext patch、记录 trace 或传递用户追加内容。
+控制流变化不通过普通信号表达。需要结束 Turn、结束 Agent、触发全局恢复或处理无法继续的错误时，应构造 Runtime 语义异常进入 Trap。信号用于模块事件和状态变更请求，例如追加 TurnTrace、提交 WorkingContext patch、记录 trace 或传递用户追加内容。
 
-外部输入也遵循这个边界。用户追加普通内容时，可以先形成用户追加信号，由 Turn 运行器在安全边界合并；如果外部输入请求停止当前 Turn 或结束 Program，则由对应运行器构造 Runtime 语义异常进入 Trap，并由 Trap 返回结束 Turn 或结束 Program 的运行转移。
+外部输入也遵循这个边界。用户追加普通内容时，可以先形成用户追加信号，由 Turn 运行器在安全边界合并；如果外部输入请求停止当前 Turn 或结束 Agent，则由对应运行器构造 Runtime 语义异常进入 Trap，并由 Trap 返回结束 Turn 或结束 Agent 的运行转移。
 
 ## Runtime Generation
 
@@ -128,15 +130,14 @@ Runtime 只定义信号信封和分发机制，不定义所有业务载荷字段
 `activity.py`、`handle.py` 和 `__init__.py` 组成；lease 类型与句柄实现集中在 `handle.py`，
 不额外拆分没有独立职责的 lifecycle 或 receipt 模块。`RuntimeHandle[T]`
 持有当前业务 Generation，读者通过 `read()` lease 固定一次请求或 Turn 的对象，写者通过
-`write()` 在无 reader 时串行切换。`activity_lease()` 将 User Turn、Maintenance Turn 和每日
-确定性切换登记到同一句柄；配置激活使用 `begin_activation()`、候选构建、文件事务和
-`activate()` 的两阶段流程。活跃工作期间激活不会写入文件，竞争失败映射为配置不可用。
+`write()` 在无 reader 时串行切换。`activity_lease()` 将 User Turn、Reflection Turn 和每日
+确定性切换登记到同一句柄；配置保存先独立原子写入候选，显式激活使用 `begin_activation()`、候选构建和
+`activate()`。活跃或等待工作期间拒绝激活，竞争失败映射为配置不可用。
 
 句柄只表达 activity、generation id 和激活状态，不导入 App、LLM、Memory 或 Workspace。
-业务 `AppRuntimeGeneration` 由 App factory 构造并聚合 User Turn、Maintenance、Workspace、
+业务 `AgentRuntimeGeneration` 由 AgentBuilder 构造并聚合 User Turn、Reflection、Workspace、
 LLM、Embedding、Action、Context 及各 owner 门面；切换完成后旧 Generation 执行自身登记的
-close callbacks。当前装配的业务对象没有额外 Generation-owned close callback，`close()` 保留
-为明确的资源释放边界，未来仅由实际拥有资源的 Generation 注册清理函数。EndpointHost、事件
+close callbacks。自建 LLM 和 embedding 客户端由世代资源作用域逆序关闭，借用对象不关闭；关闭失败保留有限诊断并继续其余清理。EndpointHost、事件
 缓冲、连接信息、程序请求队列和实例锁属于稳定进程外壳，不进入 Generation。
 
 ## 观察事件
@@ -145,7 +146,7 @@ close callbacks。当前装配的业务对象没有额外 Generation-owned close
 
 Runtime transfer 本身只表达恢复位置，不等于业务失败。Loop 在消费 transfer 时可从原始 `RuntimeException` 异常链提取 bridge 已提供的 reason/module/kind，形成有界 Turn failure；用户 stop/exit 和无模块失败字段的控制 END 不得被归类为失败。该分类属于 Loop 的 Turn outcome 语义，不扩展 RuntimeTransfer 字段，也不把 traceback 或大 payload 带入 Observation。
 
-Observation 与 Signal 的区别由消费语义决定：SignalBus 中的事件等待业务模块消费并可能形成状态提交；Observation 只面向人机界面、日志适配或嵌入方，不排队等待业务确认。Observation 与 Trap 的区别由控制语义决定：emitter/sink 失败不能触发恢复、重试或结束 frame。发布 helper 吞掉 emitter 异常，App router 隔离失败 sink，并在业务边界结束后由 App 语义报告输出故障。
+Observation 与 Signal 的区别由消费语义决定：SignalBus 中的事件等待业务模块消费并可能形成状态提交；Observation 只面向人机界面、日志适配或嵌入方，不排队等待业务确认。Observation 与 Trap 的区别由控制语义决定：emitter/sink 失败不能触发恢复、重试或结束 frame。发布 helper 吞掉 emitter 异常，Agent router 隔离失败 sink，状态查询报告有限诊断，不补抛业务失败。
 
 详细 observation payload 必须 provider-neutral、JSON 安全且有界表达二进制和敏感结构。MODEL 级可以表达文本消息、工具协议和归一化回答以支持诊断，但图片只携带摘要，推理原文、加密项原文与 provider 原始响应不进入事件。是否渲染及文本裁剪属于 App/OutputSink 责任，不属于 Runtime 控制协议。
 
@@ -155,7 +156,7 @@ Trap 是 Runtime 的 OS 风格陷入控制器。它处理 Runtime 语义异常�
 
 Trap 的异常入口接收 Runtime 语义异常和运行位置，转换为 TrapSnap，按照原因标识查找处理器，验证处理器给出的 target 属于捕获 scope，再返回运行转移。Trap 不处理普通信号或 ObservationEvent；模块状态信号和动作结果信号由各业务模块从 SignalBus 消费，观察事件直接进入已注入 emitter。
 
-Trap 不执行 LLM 调用，不重跑 Phase，不修改 Context，不写 Action Record，也不直接写 Workspace。它只负责把 Runtime 语义异常转换为运行转移，并把必要的副作用意图表达为信号。具体恢复任务由注册的 Trap 处理器执行；具体运行跳转由 Program、Turn、Phase 或 Module 运行器执行。
+Trap 不执行 LLM 调用，不重跑 Phase，不修改 Context，不写 Action Record，也不直接写 Workspace。它只负责把 Runtime 语义异常转换为运行转移，并把必要的副作用意图表达为信号。具体恢复任务由注册的 Trap 处理器执行；具体运行跳转由 Agent、Turn、Phase 或 Module 运行器执行。
 
 这种边界避免将旧实现中的 trap、interrupt handler、QueryState 和 Action Record 绑定在一起。Runtime 提供控制协议；Loop、Context、Action 和 LLM 在各自边界内接入；Infra 失败由实际调用 owner 解释。
 

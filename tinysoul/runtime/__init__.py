@@ -2,7 +2,7 @@
 
 from .exception import (
     RUNTIME_CYCLE_END,
-    RUNTIME_PROGRAM_END,
+    RUNTIME_AGENT_END,
     RUNTIME_STARTUP_FAILED,
     RUNTIME_TURN_END,
     RuntimeException,
@@ -26,6 +26,7 @@ from .observation import (
 from .transfer import RuntimeTransfer, RuntimeTransferAction
 from .trap import TrapHandler, TrapHandlerRegistry, TrapResult, TrapSnap, RuntimeTrap
 from .signals import Signal, SignalBus, SignalWatch
+from .events import EnvironmentEvent, EventBus, EventCapacityError, EventKind, EventProtocolError, EventReceipt
 from .generation import (
     RuntimeActivationState,
     RuntimeActivity,
@@ -40,7 +41,7 @@ from .generation import (
 __all__ = [
     "CyclePhase",
     "RUNTIME_CYCLE_END",
-    "RUNTIME_PROGRAM_END",
+    "RUNTIME_AGENT_END",
     "RUNTIME_STARTUP_FAILED",
     "RUNTIME_TURN_END",
     "RuntimeException",
@@ -65,6 +66,12 @@ __all__ = [
     "Signal",
     "SignalBus",
     "SignalWatch",
+    "EnvironmentEvent",
+    "EventBus",
+    "EventCapacityError",
+    "EventKind",
+    "EventProtocolError",
+    "EventReceipt",
     "TrapHandler",
     "TrapHandlerRegistry",
     "TrapResult",

@@ -92,17 +92,34 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
         "PYTHONPATH": str(installed),
     }
     script = f"""
+import asyncio
+import importlib.util
 from pathlib import Path
 
-from tinysoul.action import builtin_action_catalog_root
-from tinysoul.action.core.loader import ActionCatalogLoader
-from tinysoul.app.cli import main
+from tinysoul.agent import Agent, AgentState, TurnState, UserTurnRequest
+from tinysoul.agent.catalog import builtin_action_catalog_root
+from tinysoul.kernel.action.core.loader import ActionCatalogLoader
+from tinysoul.gateway.cli import main
 
 development = Path({str(development)!r})
 with builtin_action_catalog_root() as root:
     catalog = ActionCatalogLoader().load(root)
 assert catalog.has_domain("core")
 assert main(["init", {str(initialized)!r}]) == 0
+assert importlib.util.find_spec("tinysoul.app") is None
+
+async def verify_sdk():
+    agent = await Agent.create(Path({str(initialized)!r}), overrides={{"maintenance.schedule.enabled": False}})
+    assert agent.state is AgentState.CREATED
+    try:
+        await agent.start()
+        handle = await agent.submit_turn(UserTurnRequest("No provider is configured"))
+        result = await handle.wait()
+        assert result.state is TurnState.FAILED
+    finally:
+        assert await agent.shutdown() == ()
+
+asyncio.run(verify_sdk())
 assert main([
     "init",
     {str(development)!r},

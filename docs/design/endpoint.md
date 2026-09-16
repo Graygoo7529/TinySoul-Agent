@@ -2,7 +2,7 @@
 
 ## 定位
 
-`endpoint` 是本地客户端协议适配层，与 Terminal 共用同一个 App 和业务 Engine。它负责鉴权、请求 schema、请求映射、Observation replay 和服务生命周期；不拥有 Program、Turn、Context、Session、Workspace、Action 或配置事实。
+`gateway/endpoint` 是本地客户端协议适配层，与 Terminal 共用同一个 Agent 和业务 Engine。它负责鉴权、请求 schema、请求映射、Observation replay 和服务生命周期；不拥有 Agent、Turn、Context、Session、Workspace、Action 或配置事实。
 
 Endpoint 的稳定外观是 `EndpointEngine`。它只装配各领域 engine：
 
@@ -14,12 +14,12 @@ endpoint.engine.configuration
 endpoint.engine.workspace
 ```
 
-各领域 engine 通过 `EndpointEngineContext` 使用 RuntimeHandle、App gateway、ConfigController、Workspace lease 和 Observation source。Context 只保存依赖与 lease 工厂，不复制业务状态；Generation 重建时，EndpointHost、进程外壳、事件 buffer、实例锁和连接信息保持稳定。
+各领域 engine 通过 `EndpointEngineContext` 使用 RuntimeHandle、Agent ingress、ConfigController、Workspace lease 和 Observation source。Context 只保存依赖与 lease 工厂，不复制业务状态；Generation 重建时，EndpointHost、进程外壳、事件 buffer、实例锁和连接信息保持稳定。
 
 ## 目录边界
 
 ```text
-tinysoul/endpoint/
+tinysoul/gateway/endpoint/
   config.py, errors.py, failures.py, host.py
   engine/
     contracts.py, context.py, runtime.py, maintenance.py
@@ -32,7 +32,7 @@ tinysoul/endpoint/
     routes/{health,runtime,maintenance,events,configuration,workspace}.py
 ```
 
-HTTP route 只做路径参数/schema 转换和 engine 调用，不直接访问业务私有状态。`http/app.py` 集中注册 middleware、认证、统一错误处理和 routes；`http/server.py` 在 App 的事件循环上运行 uvicorn task，异步等待启动与停止，不创建独立服务器线程，也不接管宿主信号处理。
+HTTP route 只做路径参数/schema 转换和 engine 调用，不直接访问业务私有状态。`http/app.py` 集中注册 middleware、认证、统一错误处理和 routes；`http/server.py` 在 Agent 的事件循环上运行 uvicorn task，异步等待启动与停止，不创建独立服务器线程，也不接管宿主信号处理。
 
 ## Observation
 
@@ -44,9 +44,9 @@ WebSocket 在首帧完成 token、cursor 和 mode 认证；断线续传由前端
 
 `EndpointConfigurationEngine` 读取 ConfigController 的 status/catalog，并在 RuntimeHandle read lease 中读取当前 Generation 的 `user_turn.action_catalog()`。Action catalog 的数据所有权仍属于 ActionEngine；Endpoint 不扫描 TOML、不缓存副本。它通过 `GET /v1/config/actions` 暴露给 Settings 配置工作流，不将其定义为聊天运行时 Action API。
 
-`PATCH /v1/config` 把 typed `set`/`delete` mutation 交给 ConfigController。ConfigController 负责候选环境、owner validator、持久化事务和 Runtime activation；Endpoint 不自行重建 Generation。所有业务配置在 idle 时统一持久化并激活，成功响应表示新 Generation 已可由后续读取观察到。进程外壳配置保持只读。
+`PATCH /v1/config` 把 typed `set`/`delete` mutation 交给 ConfigController。ConfigController 负责候选环境、owner validator、持久化事务和 Runtime activation；Endpoint 不自行重建 Generation。PATCH 只校验并保存候选，返回 saved/pending_reload；POST /v1/config/reload 在 idle 时显式构造并激活新 Generation。活跃或等待 work 不阻止保存候选，但会阻止激活。进程外壳配置保持只读。
 
-配置 PATCH 全链异步等待候选构造、失败候选关闭与旧资源退休。退休失败返回有限 cleanup diagnostics，响应仍明确表示新世代已经 active；它不进入“原世代仍生效”的激活失败路径。
+配置 reload 全链异步等待候选构造、失败候选关闭与旧资源退休。退休失败返回有限 cleanup diagnostics，响应仍明确表示新世代已经 active；它不进入“原世代仍生效”的激活失败路径。
 
 ## Workspace
 

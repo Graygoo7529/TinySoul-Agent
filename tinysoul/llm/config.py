@@ -1,4 +1,4 @@
-﻿"""Public LLM configuration facade."""
+"""Public LLM configuration facade."""
 
 from __future__ import annotations
 

@@ -1,9 +1,9 @@
 # Agent 架构重构：设计语义、契约与执行计划
 
-状态：`in_progress`（R1 已完成；R2 已继续迁入核心段、Home/Memory Heap、Session 事实 Map 与统一检查路由，实施见第二轮子计划第 15 节；S1 剩余及 S2 完整内核/SDK 闭环仍在实施）。
-修订日期：2026-09-15。初始复审代码：`e930c9c444deb0073ab3d7f016057245bad66ca6`（当次查询远端 HEAD 相同）；R2 分析基线为本地 `6821983`，本次未查询远端。
+状态：`in_progress`（R1/R2 已完成并归档；S1/S2 已通过实现、文档与完整门禁核验。R2 完成证据见第二轮子计划第 24 节；S3–S7 未整体完成，保持原定范围）。
+修订日期：2026-09-16。初始复审代码：`e930c9c444deb0073ab3d7f016057245bad66ca6`（当次查询远端 HEAD 相同）；R2 分析基线为本地 `6821983`，本次未查询远端。
 
-本文件描述目标设计，不代表当前实现。用户本轮授权分析、修订计划与讨论，不据历史“全面授权”直接实施代码。确认状态见第 14 节。用户本轮已确认上一轮架构方向，特别是受限 SUSPEND 与 Inbox 保障边界，并补充 Reflection 通用动作叠加、ACP 显式连接及 Working 呈现；新增具体签名与连接寿命仍标明建议。原“正文 + 替换预览”合并为单一方案，旧版由 Git 保存，不并行保留互相冲突的接口。API 均为契约草图，具体名称与类型在子计划落定。
+本文件描述目标设计，不代表全部已实现。初始复审仅授权分析、修订计划与讨论；后续 R1/R2 已获明确实施授权，实际完成范围见第 13 节。确认状态见第 14 节。用户已确认架构方向，特别是受限 SUSPEND 与 Inbox 保障边界，并补充 Reflection 通用动作叠加、ACP 显式连接及 Working 呈现；未实施的具体签名与连接寿命仍标明建议。原“正文 + 替换预览”合并为单一方案，旧版由 Git 保存，不并行保留互相冲突的接口。API 为契约草图，具体名称与类型在子计划落定。
 
 ## 1. 项目理解与重构意图
 
@@ -405,7 +405,7 @@ Memory 删除 8 步控制器、preview、多文档 CAS/journal、revision/activa
 
 Reflection 插件编排触发/去重/完成，Home/Memory 管存储，日切归 agent/day。有 Session 无 daily 可触发补记；已有 daily 仍允许手动重整今天/历史日。失败调度有界，不即时无限重入。不保留 availability.json 平行事实。
 
-CalendarDay 取代 BusinessDay；面向用户说“今天、总结、整理”。根开始锁定 day/世代，跨午夜继续原日；根及子工作完全收尾后归档再开新根。Reflection target/source_day 与运行 active_day 分开，历史 Workspace 只读参考，当日 Workspace 仍可操作。
+CalendarDay 取代 CalendarDay；面向用户说“今天、总结、整理”。根开始锁定 day/世代，跨午夜继续原日；根及子工作完全收尾后归档再开新根。Reflection target/source_day 与运行 active_day 分开，历史 Workspace 只读参考，当日 Workspace 仍可操作。
 
 保留 home/memory/runtime/archive 布局、确定性日切恢复 journal；删除 Memory 事务不等于删除归档恢复。TOML 原则稳定，仅已确认 app→agent、maintenance→reflection 及新增能力配置。新 Session schema 不隐式兼容 v4，不自动 reset 用户数据。
 
@@ -546,22 +546,22 @@ WS 断开不取消 Turn；问题可由状态查询恢复，Observation gap 不�
 
 ## 13. 执行计划与验收
 
-子计划进度：[R1 底层依赖与失败协议](done/20260915-done-Agent重构第一轮子计划-底层依赖与失败协议.md) 已完成；[R2 异步内核与 SDK 运行闭环](<20260915 Agent重构第二轮子计划-异步内核与SDK运行闭环.md>) 为 `in_progress`，维护者已确认纳入 S2/S3 必要契约项并授权实施。
+子计划进度：[R1 底层依赖与失败协议](done/20260915-done-Agent重构第一轮子计划-底层依赖与失败协议.md) 与 [R2 异步内核与 SDK 运行闭环](done/20260915-done-Agent重构第二轮子计划-异步内核与SDK运行闭环.md) 均为 `done`；R2 已落实维护者确认纳入的 S2/S3 必要契约项。
 
-所有实施阶段未完成。历史 S0 定稿不代表本轮复审关闭。子计划只有实现/文档/必要验证全部通过才 done 并归档；docs/design 只写已落地部分。
+S1/S2 已完成；S3–S7 尚未整体完成。历史 S0 定稿不代表后续协议细化关闭。子计划只有实现/文档/必要验证全部通过才 done 并归档；docs/design 只写已落地部分。
 
 | 阶段 | 范围 | 必需证据 |
 |---|---|---|
 | S0 | 已记录架构/SUSPEND/Inbox 确认；同步 AGENTS，细化动作组合与连接契约 | 无冲突目标、待决有状态 |
-| S1 | R1 已完成：bridge 归 owner、失败协议、LLM 容量恢复、import/重放检查；async LLM、事件/取消原语仍待实施 | R1：Fast/Full/typecheck 与依赖审计通过；剩余项沿原验收继续 |
-| S2 | 新内核/SDK/CLI/段/Job/等待；同步迁移所有旧内核消费者至新公共入口、插件接入与打包 | 完整导入图可用，submit→wait→resume→finish；既有 owner 可通过新架构运行 |
+| S1 `done` | bridge 归 owner、失败协议、LLM 容量恢复、import/重放检查；async LLM、事件/取消原语 | R1/R2 的 Fast/Full/typecheck 与依赖审计通过 |
+| S2 `done` | 新内核/SDK/CLI/段/Job/等待；同步迁移所有旧内核消费者至新公共入口、插件接入与打包 | R2：完整导入图、三 profile、submit→wait→resume→finish、wheel/包外 SDK；Full 1065 passed，typecheck 通过 |
 | S3 | 在 S2 可运行架构上深化 Session Map、Workspace 去 CAS、精简 Reflection、execution 合并等领域语义 | 各 owner 正反路径、完整日切；无旧业务契约残余 |
 | S4 | fswatch/scheduler、ask/reply、容量、reload/restart、完整监督 | 暂停收事件、午夜、短操作取消与进程回收 |
 | S5 | Gateway v2、项目命令、HTTP/WS/replay、协议文档 | SDK 映射、重连、wheel/init |
 | S6 | 锁 ACP/MCP adapter/协议/SDK，connect/delegate、连接段；内部子调用留后续 | 建连→多次委派→收尾，fake 故障矩阵，真实 smoke 单独声明 |
 | S7 | 全仓文档/AGENTS/测试/打包一致，删旧入口/死抽象 | Full/typecheck/import 图/完整 E2E |
 
-S1–S2 为相邻基础迁移单元，不宣称中间提交可部署。S2 工作量必须如实包含所有现有消费者的接口迁移：当前 maintenance/builder.py、session/engine.py、workspace/projection.py 和能力 actions 等都依赖旧 loop/context/action，不能删除旧内核后留到 S3 修 imports。采用一套新运行路径、注册真实 owner 段与动作，保留可复用领域算法；不增加兼容 alias、旧管线转发器或临时伪插件。
+S1–S2 为相邻基础迁移单元，不宣称中间提交可部署。S2 工作量包含全部消费者的接口迁移：迁移基线中的 maintenance/builder.py、session/engine.py、workspace/projection.py 和能力 actions 等依赖旧 loop/context/action，不能删除旧内核后留到 S3 修 imports。现已采用一套新运行路径、注册真实 owner 段与动作，保留可复用领域算法；无兼容 alias、旧管线转发器或临时伪插件。
 
 S3 是领域语义变更，不负责补齐 S2 留下的损坏依赖。S2 子计划按真实依赖拆成可审阅提交，但阶段完成必须具备完整可运行路径。现部署继续旧 checkout，不 reset 用户数据。
 
@@ -585,7 +585,7 @@ S3 是领域语义变更，不负责补齐 S2 留下的损坏依赖。S2 子计�
 16. connect 后 Working 可见；同连接两次委派 Job 身份不同；空闲连接不阻止回答；Job 先收尾，再按 Q8 保留/关闭连接。新根的 ACP session 不隐式继承旧上下文，日切前旧连接已关闭。
 17. 插件仅注册描述和 handler 即能提供段；新段无需修改 composer 的 owner 分支。slot/order 决定顺序，shape/能力一致性可验证，关闭 Segment 不误关跨 Turn Engine 服务。
 
-验证遵循 AGENTS：聚焦 → Fast → Full → typecheck，generation/wheel/external 分别执行；不全局 skip 掩盖损坏。测试保护协议和失败，不固定提示词全文/文件数/私有实现。本轮仅文档修改，核验 diff、路径、状态与交叉引用，没有运行代码门禁或外部能力测试。
+验证遵循 AGENTS：聚焦 → Fast → Full → typecheck，generation/wheel/external 分别执行；不全局 skip 掩盖损坏。测试保护协议和失败，不固定提示词全文/文件数/私有实现。初始复审仅修改文档；后续实施门禁与未运行的外部验证分别记录在各轮子计划。
 
 ## 14. 决策状态与修订记录
 

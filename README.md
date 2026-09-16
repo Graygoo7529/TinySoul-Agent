@@ -27,6 +27,29 @@ For one non-interactive turn:
 tinysoul start --root my-agent --once "Summarize today's work"
 ```
 
+## SDK
+
+The same project can be embedded through the asynchronous SDK:
+
+```python
+import asyncio
+from tinysoul.agent import Agent, UserTurnRequest
+
+async def main():
+    agent = await Agent.create("my-agent")
+    try:
+        await agent.start()
+        handle = await agent.submit_turn(UserTurnRequest("Summarize today's work"))
+        result = await handle.wait()
+        print(result.state)
+    finally:
+        await agent.shutdown()
+
+asyncio.run(main())
+```
+
+SDK creation does not open a terminal or HTTP listener. Question replies, Cycle grants, cancellation and observations use the same Turn identity; see [Agent design](docs/design/agent.md). Configuration PATCH saves a candidate; call reload explicitly to activate it when idle.
+
 ## Development
 
 The development profile enables the repository maintainer's providers and capability settings, including Kimi search, but contains no credentials. Its enabled providers must have their declared credentials before the backend starts.
@@ -70,7 +93,7 @@ The frontend discovers the running TinySoul project automatically and does not m
 
 ```powershell
 .\scripts\test.ps1
-.\scripts\test.ps1 -TestPath tests/action/test_backends_engine.py
+.\scripts\test.ps1 -TestPath tests/kernel/action/test_backends_engine.py
 .\scripts\test.ps1 -Suite Full
 .\scripts\test.ps1 -Suite Generation
 $env:TINYSOUL_PYTHON=(Get-Command python).Source

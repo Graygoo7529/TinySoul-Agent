@@ -4,7 +4,7 @@
 
 Infra 提供项目底层运行设施。它不表达具体业务语义，也不拥有上层模块的领域配置。
 
-Infra 当前负责配置环境、JSON 动态边界、受控文件系统读写、Python 依赖可用性检查、owner-neutral 的 `BusinessDay` 值对象，以及 provider-neutral 的文本 embedding 配置和窄客户端协议。每项基础能力都保持小而明确的边界，避免反向了解 Loop、Action、LLM、Memory、Workspace 或具体 capability 的业务细节；业务时区、业务日切策略、检索融合、日志和通用进程运行不属于 Infra 当前职责。
+Infra 当前负责配置环境、JSON 动态边界、受控文件系统读写、Python 依赖可用性检查、owner-neutral 的 `CalendarDay` 值对象，以及 provider-neutral 的文本 embedding 配置和窄客户端协议。每项基础能力都保持小而明确的边界，避免反向了解 Loop、Action、LLM、Memory、Workspace 或具体 capability 的业务细节；业务时区、业务日切策略、检索融合、日志和通用进程运行不属于 Infra 当前职责。
 
 ## 配置边界
 
@@ -44,7 +44,7 @@ project TOML 执行 source-aware mutation。Custom Model 因此不增加重复�
 运行时配置控制仍由 Infra 提供 source-aware 的无业务控制面：`ConfigSource` 带有
 `PROJECT_TOML`、`DOTENV`、`ENVIRONMENT` 和 `OVERRIDE` 类型、稳定 `source_id` 与项目相对路径。
 `ConfigFileToml` 和 `DotenvDocument` 在临时文档上执行结构化 set/delete；`ConfigFileTransaction`
-以同根原子替换多个文档，并在后续激活失败时恢复已替换文件。`ConfigController` 只编排 source
+以同根原子替换多个文档，保存失败时恢复已替换文件。`ConfigController` 只编排 source
 图、候选环境、校验回调和两阶段 activation callback，不解析业务 section。dotenv 原始键值
 单独保留在 `runtime_env`，系统环境仍覆盖 dotenv，进程 `os.environ` 不被写回。
 配置 dotted path 的纯数字段保留为列表索引，因此项目 TOML 的映射键不得为纯数字。
@@ -53,8 +53,8 @@ project TOML 执行 source-aware mutation。Custom Model 因此不增加重复�
 稳定展开为 `ConfigDocumentSet/ConfigDocument`，为每个文件分配项目相对的稳定 source ID，并拒绝
 同一文件同时属于 merged include 或多个 document set。`ConfigEnvironment` 在当前与候选快照中
 携带这些文档；document mutation 的 path 是文件内局部 path。`ConfigController` 先在内存中构造
-完整候选环境并调用 owner validator/Generation activator，成功后才与普通 TOML、dotenv 一起提交，
-激活提交失败则统一回滚。旧资源退休在激活成功后独立执行，退休失败不回滚文件或已生效世代。document 内容不进入 `effective_values()` 或普通 section parser。
+完整候选环境并调用 owner validator，成功后与普通 TOML、dotenv 一起提交为待激活候选。
+显式 reload 在空闲时调用 Generation activator；失败保留当前世代和已保存候选。旧资源退休在激活成功后独立执行，退休失败不回滚文件或已生效世代。document 内容不进入 `effective_values()` 或普通 section parser。
 
 配置写入由 `ConfigController` 的异步锁串行化；事务在替换前保存原文，并在候选激活失败时
 回滚已替换文件。当前不计算或暴露 source fingerprint/revision，也不提供基于 revision 的并发
@@ -106,7 +106,7 @@ profile 文件由 package project template 拥有，但其中各 section 的语�
 
 复杂领域配置不应退化为任意字典在模块内部流动。需要复杂结构时，应由对应模块定义清楚的配置形态，从配置树入口读取动态数据，并在模块边界完成解析和校验。
 
-配置错误应尽早暴露，错误信息应包含配置键、来源、原始值、期望类型和失败原因。AppBuilder 先拒绝未知顶层 section，各模块 parser 再拒绝自身 table 中的未知键；嵌套未知键也不允许静默穿过。`ConfigEnvironment.parse_section` 根据最终获胜的 main/include/dotenv/environment/override source 为模块 parser 产生的 `ConfigError` 补充来源，因此拼写错误和语义错误使用同一套 key/source 诊断。
+配置错误应尽早暴露，错误信息应包含配置键、来源、原始值、期望类型和失败原因。AgentBuilder 先拒绝未知顶层 section，各模块 parser 再拒绝自身 table 中的未知键；嵌套未知键也不允许静默穿过。`ConfigEnvironment.parse_section` 根据最终获胜的 main/include/dotenv/environment/override source 为模块 parser 产生的 `ConfigError` 补充来源，因此拼写错误和语义错误使用同一套 key/source 诊断。
 
 Infra 自身只抛出配置和基础设施语义的错误，不导入 Runtime，不维护 Runtime bridge 或 failure 枚举。配置源加载由 App 组合根解释；模块配置解释由对应 owner bridge 处理；UserTurnBuilder 的 staging 失败由 Loop 以资源准备失败报告启动失败。JSON 和受控文件系统错误同样由实际调用 owner 处理。
 

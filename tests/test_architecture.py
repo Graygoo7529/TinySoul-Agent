@@ -9,35 +9,37 @@ import sys
 
 import pytest
 
-from tinysoul.action.failures import ActionFailureKind
-from tinysoul.app.failures import AppFailureKind
-from tinysoul.endpoint.failures import EndpointFailureKind
-from tinysoul.context.failures import ContextFailureKind
-from tinysoul.home.failures import AgentHomeFailureKind
+from tinysoul.kernel.action.failures import ActionFailureKind
+from tinysoul.agent.failures import AgentFailureKind
+from tinysoul.gateway.endpoint.failures import EndpointFailureKind
+from tinysoul.kernel.context.failures import ContextFailureKind
+from tinysoul.plugins.home.failures import AgentHomeFailureKind
 from tinysoul.llm.failures import LLMFailureKind
-from tinysoul.loop.failures import LoopFailureKind
-from tinysoul.maintenance.failures import MaintenanceFailureKind
-from tinysoul.memory.failures import MemoryFailureKind
-from tinysoul.session.failures import SessionFailureKind
-from tinysoul.capabilities.script.failures import ScriptFailureKind
-from tinysoul.capabilities.shell.failures import ShellFailureKind
-from tinysoul.capabilities.supervised_process.failures import (
+from tinysoul.kernel.loop.failures import LoopFailureKind
+from tinysoul.plugins.reflection.failures import ReflectionFailureKind
+from tinysoul.plugins.archive.failures import ArchiveFailureKind
+from tinysoul.plugins.memory.failures import MemoryFailureKind
+from tinysoul.plugins.session.failures import SessionFailureKind
+from tinysoul.plugins.capabilities.script.failures import ScriptFailureKind
+from tinysoul.plugins.capabilities.shell.failures import ShellFailureKind
+from tinysoul.plugins.capabilities.supervised_process.failures import (
     SupervisedProcessFailureKind,
 )
-from tinysoul.workspace.failures import WorkspaceFailureKind
+from tinysoul.plugins.workspace.failures import WorkspaceFailureKind
 
 
 @pytest.mark.parametrize(
     ("module", "failure_kind"),
     (
         ("action", ActionFailureKind),
-        ("app", AppFailureKind),
+        ("app", AgentFailureKind),
+        ("archive", ArchiveFailureKind),
         ("context", ContextFailureKind),
         ("endpoint", EndpointFailureKind),
         ("home", AgentHomeFailureKind),
         ("llm", LLMFailureKind),
         ("loop", LoopFailureKind),
-        ("maintenance", MaintenanceFailureKind),
+        ("maintenance", ReflectionFailureKind),
         ("memory", MemoryFailureKind),
         ("session", SessionFailureKind),
         ("script", ScriptFailureKind),
@@ -62,6 +64,10 @@ def test_runtime_failure_kind_values_are_module_qualified(
         ("infra", {"infra"}),
         ("runtime", {"infra", "runtime"}),
         ("llm", {"infra", "runtime", "llm"}),
+        ("kernel", {"infra", "runtime", "llm", "kernel"}),
+        ("plugins", {"infra", "runtime", "llm", "kernel", "plugins"}),
+        ("environment", {"infra", "runtime", "llm", "kernel", "plugins", "environment"}),
+        ("agent", {"infra", "runtime", "llm", "kernel", "plugins", "environment", "agent"}),
     ),
 )
 def test_foundation_imports_follow_ownership(owner: str, allowed: set[str]) -> None:
@@ -117,20 +123,19 @@ else:
 
 PROJECT_ROOT = Path(__file__).parents[1]
 MAINLINE_PACKAGES = (
-    "action",
-    "context",
-    "home",
-    "loop",
-    "memory",
+    "kernel",
+    "plugins/home",
+    "plugins/memory",
     "runtime",
-    "session",
-    "workspace",
+    "plugins/session",
+    "plugins/workspace",
 )
 
 
 def test_mainline_and_kernel_packages_do_not_import_maintenance() -> None:
     violations: list[str] = []
     for package in MAINLINE_PACKAGES:
+        assert (PROJECT_ROOT / "tinysoul" / package).is_dir()
         for path in (PROJECT_ROOT / "tinysoul" / package).rglob("*.py"):
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):
@@ -141,16 +146,16 @@ def test_mainline_and_kernel_packages_do_not_import_maintenance() -> None:
                 else:
                     continue
                 if any(
-                    module == "tinysoul.maintenance"
-                    or module.startswith("tinysoul.maintenance.")
+                    module == "tinysoul.plugins.reflection"
+                    or module.startswith("tinysoul.plugins.reflection.")
                     for module in modules
                 ):
                     violations.append(str(path.relative_to(PROJECT_ROOT)))
     assert violations == []
 
 
-def test_app_builder_does_not_assemble_turn_kernel_details() -> None:
-    source = (PROJECT_ROOT / "tinysoul" / "app" / "builder.py").read_text(
+def test_agent_builder_does_not_assemble_turn_kernel_details() -> None:
+    source = (PROJECT_ROOT / "tinysoul" / "agent" / "builder.py").read_text(
         encoding="utf-8"
     )
     forbidden = (
@@ -159,8 +164,8 @@ def test_app_builder_does_not_assemble_turn_kernel_details() -> None:
         "Phase3Unit",
         "CycleRunner",
         "ContextSignalConsumer",
-        "HomeMaintenanceActionController",
-        "MemoryMaintenanceActionController",
+        "HomeReflectionActionController",
+        "MemoryReflectionActionController",
     )
     assert [name for name in forbidden if name in source] == []
 

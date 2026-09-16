@@ -143,9 +143,17 @@ class JoinedOperations:
         return self._cancelled
 
     async def run(self, operation: Callable[[], T]) -> T:
+        return await self.run_async(lambda: asyncio.to_thread(operation))
+
+    async def run_async(self, operation: Callable[[], Awaitable[T]]) -> T:
+        """Join an owned async boundary before its caller records the result."""
         if self._cancelled:
             raise asyncio.CancelledError
-        worker = asyncio.create_task(asyncio.to_thread(operation))
+        return await self.finish(operation)
+
+    async def finish(self, operation: Callable[[], Awaitable[T]]) -> T:
+        """Complete cleanup required by an operation that already committed."""
+        worker = asyncio.ensure_future(operation())
         while True:
             try:
                 return await asyncio.shield(worker)

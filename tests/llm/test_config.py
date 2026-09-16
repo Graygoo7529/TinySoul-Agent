@@ -5,7 +5,7 @@ from typing import cast
 
 import pytest
 
-from tinysoul.app import ProjectConfigProfile
+from tinysoul.gateway.initializer import ProjectConfigProfile
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
 from tinysoul.llm.adapter_types import AdapterKind
 from tinysoul.llm.config import LLMConfigParser, ProviderCredentialState

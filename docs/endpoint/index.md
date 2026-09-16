@@ -10,7 +10,7 @@ Endpoint 是 loopback 本地协议。除 `GET /v1/health` 外，HTTP 请求都�
 | Runtime | `GET /v1/status` | 当前进程与 Runtime snapshot |
 | Runtime | `POST /v1/input` | 提交 User input |
 | Runtime | `POST /v1/control` | 提交 stop/exit control |
-| Maintenance | `GET/POST /v1/maintenance` | 读取 availability、提交维护请求 |
+| Reflection | `GET/POST /v1/maintenance` | 读取 availability、提交维护请求 |
 | Events | `GET /v1/events` | Observation replay |
 | Events | `WS /v1/events/ws` | Observation stream |
 | Configuration | `GET /v1/config` | 配置源/effective fields/runtime 状态 |

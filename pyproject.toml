@@ -25,7 +25,7 @@ dependencies = [
 ]
 
 [project.scripts]
-tinysoul = "tinysoul.app.cli:main"
+tinysoul = "tinysoul.gateway.cli:main"
 
 [project.optional-dependencies]
 dev = [
@@ -47,14 +47,18 @@ include = ["tinysoul*"]
 "tinysoul.infra.config" = [
     "catalog/*.toml",
 ]
-"tinysoul.action" = [
+"tinysoul.kernel.action" = [
     "catalog/*/*.toml",
     "catalog/*/actions/*.toml",
 ]
-"tinysoul.maintenance" = [
+"tinysoul.plugins.reflection" = [
     "catalog/*/*.toml",
     "catalog/*/actions/*.toml",
 ]
+"tinysoul.plugins.home" = ["catalog/*/*.toml", "catalog/*/actions/*.toml"]
+"tinysoul.plugins.memory" = ["catalog/*/actions/*.toml"]
+"tinysoul.plugins.workspace" = ["catalog/*/*.toml", "catalog/*/actions/*.toml"]
+"tinysoul.plugins.capabilities" = ["catalog/*/*.toml", "catalog/*/actions/*.toml"]
 "tinysoul.assets" = [
     "project/*",
     "project/.gitignore",
@@ -78,7 +82,7 @@ include = ["tinysoul*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q --strict-markers"
+addopts = "-q --strict-markers --import-mode=importlib"
 anyio_mode = "auto"
 cache_dir = ".local-test/pytest-cache"
 markers = [

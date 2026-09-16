@@ -6,7 +6,7 @@
 - `completed`：Stage 1，同步规约、设计文档与执行计划
 - `completed`：Stage 2，建立持久 Maintenance Availability 与增量 Memory 待办
 - `completed`：Stage 3，删除 MaintenancePlan 并收敛 Engine 与异常边界
-- `completed`：Stage 4，迁移 BusinessDay、删除兼容残留并对齐 App/Endpoint
+- `completed`：Stage 4，迁移 CalendarDay、删除兼容残留并对齐 App/Endpoint
 - `completed`：Stage 5，完成测试、类型检查和文档验收
 
 ## 背景
@@ -24,7 +24,7 @@
 5. 对前端，持久 availability 是唯一提示单；对维护执行，Archive、Memory 和 Home owner facts 仍是提交前必须复验的权威状态。Observation 只通知前端重新读取，不拥有待办事实。
 6. 删除 `MaintenancePlan` 和 `MaintenanceTaskPlan`。Engine 直接根据 typed request 与一次 availability 快照选择 Home 和按日排序的 Memory tasks。
 7. 手动与定时请求继续使用同一个 Engine 流程；启动只刷新并提示，不自动启动 LLM Maintenance，也不建立审批或阻塞状态。
-8. `BusinessDay` 是 Session、Workspace、Loop 与 Maintenance 共用的 owner-neutral 值对象，移到 `tinysoul.infra.time`；业务时区和 BusinessClock 仍归 Maintenance。
+8. `CalendarDay` 是 Session、Workspace、Loop 与 Maintenance 共用的 owner-neutral 值对象，移到 `tinysoul.infra.time`；业务时区和 BusinessClock 仍归 Maintenance。
 9. Engine 只把明确的可继续 task failure 收敛为失败 outcome。Runtime transfer 和未分类的程序错误原样传播；Archive 和 availability 不变量失败阻止新日 Program work。
 10. 删除本次边界内的兼容残留，包括旧 Turn output signal/trap、旧 Maintenance plan 导出和宽松的旧 journal 字段解释；数据保护检查不是兼容层，应保留。
 
@@ -72,7 +72,7 @@ Maintenance request
 
 ### Stage 4：共享类型与协议
 
-1. 将 `BusinessDay` 移到 `tinysoul.infra.time`，更新全部引用，不从 Maintenance 兼容重导出。
+1. 将 `CalendarDay` 移到 `tinysoul.infra.time`，更新全部引用，不从 Maintenance 兼容重导出。
 2. Program 启动先刷新 availability；Endpoint GET 只读取该投影。
 3. 删除旧 Turn output signal/trap 与测试，completion detector 成为唯一 Turn 输出路径。
 4. 收紧 Archive journal 的字段集合并拒绝旧字段。
@@ -88,7 +88,7 @@ Maintenance request
 - `MaintenanceAvailabilityStore` 已成为唯一前端提示单，Program 在 ProgramRequestSource、AppService 和 Endpoint 启动前完成 Archive preflight、增量 Memory 日期登记与 Home 计数重算；Endpoint GET 只读取该投影，前端连接后读取 GET，事件只触发重新读取。
 - Archive 已增加严格 `archive/catalog.json` 日期索引。Archive projection 由本次 transition 直接交付，按日期查询只读取索引指向的目标 journal，不再扫描全部关闭日。
 - Engine 已删除 `MaintenancePlan`、`MaintenanceTaskPlan`、`plan()` 与 `missed_memory_days()`；manual/scheduled request 进入同一路径，Memory 失败日期保留到下一次启动，Home 完成后按 owner 事实清除 runtime Home。
-- `BusinessDay` 已移动到 `tinysoul.infra.time`；旧 Maintenance 重导出、旧 journal 字段解释、Turn output signal/trap 及相关 Runtime reason 已删除。Task failure 只收敛明确 owner 异常，未知异常和 Runtime transfer 继续传播。
+- `CalendarDay` 已移动到 `tinysoul.infra.time`；旧 Maintenance 重导出、旧 journal 字段解释、Turn output signal/trap 及相关 Runtime reason 已删除。Task failure 只收敛明确 owner 异常，未知异常和 Runtime transfer 继续传播。
 - 本轮边界复核已完成：Home `SKILL_MEMORY.md` 被建模为独立 `skill_how_review`，`list/inspect` 与 `reject/rewrite` 由 Home owner 绑定 token，只有 inspect 后才能解决；HOW rewrite 在 actual 写入前复用严格 frontmatter parser，非法内容不会覆盖 actual 或清理临时记忆。
 - Maintenance task 新增统一外层 transfer 展开 helper；指向 Turn 之外的 transfer 原样抛出给 Program，不降级为普通 task failure。MaintenanceEngine 不再伪造没有 `RuntimeModuleRunner` owner 的 `MODULE` frame，调用方 Program scope 直接贯穿 Archive/Home/Memory task。
 - Memory 归档情景适配器已从 `loop.maintenance` 移入 `tinysoul.maintenance.memory.ArchivedMemoryMaintenanceContext`，绑定时校验目标日、Session day、Workspace day，prepare 时校验 Memory Turn business day；Memory Turn 使用目标关闭日，MaintenanceOutcome 仍记录执行日。

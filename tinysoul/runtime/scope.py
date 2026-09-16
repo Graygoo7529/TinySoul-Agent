@@ -12,7 +12,7 @@ from .errors import RuntimeContractError
 class RunLevel(StrEnum):
     """Runtime frame level."""
 
-    PROGRAM = "program"
+    AGENT = "agent"
     TURN = "turn"
     CYCLE = "cycle"
     PHASE = "phase"

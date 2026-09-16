@@ -4,7 +4,8 @@ import os
 from pathlib import Path
 from shutil import copytree
 
-from tinysoul.app import ProjectConfigProfile, ProjectInitializer
+from tinysoul.gateway.initializer import ProjectConfigProfile
+from tinysoul.gateway.initializer import ProjectInitializer
 from tests.support import TestSupportConfigurationError
 
 

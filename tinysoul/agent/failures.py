@@ -1,0 +1,13 @@
+"""App failure kinds used by the runtime bridge."""
+
+from __future__ import annotations
+
+from enum import StrEnum
+
+
+class AgentFailureKind(StrEnum):
+    """Stable app failures that need runtime-level control flow."""
+
+    CONFIGURATION_FAILED = "app.configuration_failed"
+    CONTRACT_VIOLATION = "app.contract_violation"
+    INTERNAL_FAILURE = "app.internal_failure"

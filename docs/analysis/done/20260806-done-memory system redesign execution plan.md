@@ -36,7 +36,7 @@ Turn 和原子单文件写入边界，但不能表达以下目标：
    Maintenance Context 默认加载 `memory:current` 与可选 `memory:latest`；Memory
    Maintenance Context 默认加载 `memory:target` 与相对于 target 的可选
    `memory:latest`。进入 Context 的这些内容都不可被 Context pressure 逐出。
-4. `memory:latest` 解析为 Context BusinessDay 之前最近一个实际存在的 daily；它不是
+4. `memory:latest` 解析为 Context CalendarDay 之前最近一个实际存在的 daily；它不是
    固定“自然日昨天”。没有任何更早 daily 时直接省略该 Context entry，不注入
    unavailable 占位，也不影响 User Turn 继续运行。
 5. Memory Maintenance 维护知识图时必须先检索、后创建；持续更新和纠正已有记忆文档，
@@ -209,11 +209,11 @@ canonical Link 部分。
 `memory:current`、`memory:latest` 和 Maintenance-only `memory:target` 是
 `MemoryBackgroundRef`，不属于 `MemoryLink`，也不被 `memory.recall` 接受：
 
-- `memory:current`：当前 User Turn BusinessDay 的活动 `Memory.md` 快照；
-- `memory:latest`：当前 Turn BusinessDay 之前最近存在的 canonical daily，可能不存在；
+- `memory:current`：当前 User Turn CalendarDay 的活动 `Memory.md` 快照；
+- `memory:latest`：当前 Turn CalendarDay 之前最近存在的 canonical daily，可能不存在；
 - `memory:target`：Memory Maintenance 目标日归档的最终 `Memory.md`。
 
-动态引用只在 Context provider 绑定的 BusinessDay/target 内解析，不能写入长期文档，
+动态引用只在 Context provider 绑定的 CalendarDay/target 内解析，不能写入长期文档，
 从而避免历史文档保存会随日期变化的动态引用。`latest` entry 只需标出实际解析出的
 canonical daily Link、day 和正文；完整性 digest 留在 owner 内部。`current` 额外公开
 `expected_digest`，因为它是 `memory.memorize` CAS 的真实模型输入；revision 不因内部
@@ -227,7 +227,7 @@ Memory context 是 Context owner 的语义投影，不是第二套消息状态�
 而不是为 current/latest/target 分别注册同 owner provider：
 
 - `ActiveMemoryBackgroundEntryProvider` 用于 User Context 与 Home Maintenance Context，
-  提供 `memory:current + optional memory:latest`，latest 严格早于当前 BusinessDay；
+  提供 `memory:current + optional memory:latest`，latest 严格早于当前 CalendarDay；
 - `TargetMemoryBackgroundEntryProvider` 用于 Memory Maintenance Context，从
   `ArchivedMemoryMaintenanceContext` 的目标日绑定读取快照，提供
   `memory:target + optional memory:latest`；latest 严格早于 target day，与执行日无关。
@@ -394,7 +394,7 @@ Note 使用卢曼卡片语义：一个清晰主题、一份可以脱离原 Sessi
 User Context 和 Home Maintenance Context 使用聚合的 Memory background provider：
 
 1. `memory:current` 始终是 default、loadable、non-evictable；
-2. `memory:latest` 是 default、loadable、non-evictable，按当前 BusinessDay 严格向前
+2. `memory:latest` 是 default、loadable、non-evictable，按当前 CalendarDay 严格向前
    选择最近实际存在的 daily，而不是简单减一天；
 3. latest daily 存在时，entry 包含解析出的 canonical daily Link、day 和正文；
 4. 没有更早 daily 时不创建 latest entry，Context 中忽视该项，不搜索或内联其它日期；
@@ -480,7 +480,7 @@ Exact recall 永远不依赖派生目录或 embedding。
 
 ## Memory Maintenance 输入
 
-Memory Maintenance Turn 接受精确 `target_day`，且该日必须小于当前 BusinessDay 并
+Memory Maintenance Turn 接受精确 `target_day`，且该日必须小于当前 CalendarDay 并
 存在可读取的 ArchiveProjection。自动触发和手动显式触发都必须具备目标日 Session 与
 归档 `Memory.md`；二者只是进入队列的路径不同，进入 Turn 后行为一致。输入事实固定为：
 
@@ -660,7 +660,7 @@ Memory 的第二状态源：
 3. 启动不扫描全部 archive catalog，不把已有 daily 的日期重新登记；
 4. startup/User preflight 只恢复 transaction、rollover 和 availability，不运行 LLM；
 5. scheduler 继续提交 `MaintenanceScope.DAILY` 的 typed request；该请求使用
-   `if_absent` 选择语义，只处理“当前 BusinessDay 前一日且仍在 availability 中”的目标；
+   `if_absent` 选择语义，只处理“当前 CalendarDay 前一日且仍在 availability 中”的目标；
    更早 backlog 保留为启动/availability 提醒，等待显式 target，不被一次 DAILY request
    批量消费；
 6. 手动/Endpoint `MaintenanceScope.MEMORY + target_day` 绕过 pending 要求，只要目标日
@@ -685,7 +685,7 @@ Memory 的第二状态源：
    错过的任务；长时间睡眠最多折叠为一个 request。该行为与“启动只提醒、自动维护由
    定时触发”一致。
 5. Program 串行消费队列并调用 `MaintenanceEngine.run()`；Daily request 的
-   `if_absent` 选择器只选择当前 BusinessDay 的前一日，且仅当该日仍 pending、Session
+   `if_absent` 选择器只选择当前 CalendarDay 的前一日，且仅当该日仍 pending、Session
    与归档 `Memory.md` 可读时才启动 Memory Turn；否则返回 typed skipped outcome。更早
    backlog 原样保留，已有 daily 不会因为 scheduler 到点而再次触发或启动提示。显式
    target request 不经过该重复触发门槛，但仍要求同样的目标 source readiness，并进入
@@ -922,7 +922,7 @@ Session facts、prompt 或绝对路径。
 - memorize append/replace/remove/clear、digest stale、原子写失败；
 - 当前 Turn Background 不变、下一 Turn 更新；
 - current 始终存在且不可逐出；latest 存在时不可逐出、无历史 daily 时省略 entry；
-- latest 选择严格早于 Context BusinessDay 的最大日期，并在 entry 中公开 resolved Link；
+- latest 选择严格早于 Context CalendarDay 的最大日期，并在 entry 中公开 resolved Link；
 - Maintenance target 不读取 active current，User 不读取 archived target。
 
 ### Inspect、Recall 与 Catalog

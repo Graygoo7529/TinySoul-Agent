@@ -62,7 +62,7 @@ from .staging import (
     StagingError,
 )
 from .settings import InfraSettings, parse_infra_settings
-from .time import BusinessDay, BusinessDayError
+from .time import CalendarDay, CalendarDayError
 from .continuation import (
     MIN_CONTINUATION_PAGE_CHARS,
     ContinuationError,
@@ -116,8 +116,8 @@ __all__ = [
     "StagingError",
     "TextLineSliceRead",
     "TextPrefixRead",
-    "BusinessDay",
-    "BusinessDayError",
+    "CalendarDay",
+    "CalendarDayError",
     "atomic_copy_file",
     "atomic_write_bytes",
     "atomic_write_text",

@@ -24,10 +24,10 @@ Action catalog 是配置页面的运行时投影，不是聊天 Action API；它
 {"op":"delete","source_id":"project:configs/llm/models/custom.toml","path":"llm.models.custom.adapter_options"}
 ```
 
-`set` 的 value 是不含 null 的递归 TOML/JSON value；`delete` 不携带 value。未知 op、缺失/多余字段和 `set(null)` 返回 `422 request.invalid`。PATCH 在 idle 时完成候选校验、持久化和 Runtime Generation 激活；活动 Turn、Maintenance Turn、daily transition 或既有 activation 返回 `409 config.activation_unavailable`。没有独立 validate/apply endpoint，也不要求 revision。
+`set` 的 value 是不含 null 的递归 TOML/JSON value；`delete` 不携带 value。未知 op、缺失/多余字段和 `set(null)` 返回 `422 request.invalid`。PATCH 与 SDK 的 `patch_config()` 都只校验并保存候选，返回 `state=saved, pending_reload=true`，不替换当前 Generation。随后调用 `POST /v1/config/reload`（无请求体）或 SDK `reload_config()` 激活；成功返回 `state=active, pending_reload=false`。活动或等待中的 Turn、Reflection、daily transition 或既有 activation 使 reload 返回 `409 config.activation_unavailable`；候选保存仍可用。不要求 revision。
 
 Provider 使用 `llm.providers.<id>.adapters` 声明一个非空、无重复的 Adapter 列表；Model 使用 `llm.models.<id>.adapter` 选择统一 Adapter，并以 `llm.models.<id>.providers` 的有序对象列表配置 Provider Chain。`api_style` 是 Adapter 的静态属性，不是可写的 Provider 字段；通用兼容端点使用 `openai_compatible_chat`，Responses 由 `openai` Adapter 提供。Provider Chain、Adapter 列表和 Adapter options 均以完整值提交，候选配置校验失败时整批 mutation 不持久化。
 
-disabled Provider 可以在没有凭据时长期保存。把 Provider 改为 enabled 时，候选 Generation 必须能从其 `api_key_envs` 中解析到至少一个非空值；否则 PATCH 返回 `422 config.invalid`，`details.key` 指向 `llm.providers.<id>.api_key_envs`，配置文件和当前 Generation 均保持不变。该校验只表示本地装配就绪，不探测远端服务。
+disabled Provider 可以在没有凭据时长期保存。把 Provider 改为 enabled 时，候选配置必须能从其 `api_key_envs` 中解析到至少一个非空值；否则 PATCH 返回 `422 config.invalid`，`details.key` 指向 `llm.providers.<id>.api_key_envs`，配置文件和当前 Generation 均保持不变。该校验只表示本地装配就绪，不探测远端服务。
 
 `.env` 作为 `dotenv` source 读取和写入；dotenv mutation 值必须是字符串。进程环境和进程外壳配置可读但不可由该 endpoint 改写。

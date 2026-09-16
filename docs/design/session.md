@@ -6,7 +6,7 @@ Session 拥有同一 business day 内已完成 User Turns 的不可变业务事�
 
 ## 持久事实与恢复
 
-Turn record 使用 schema v7，保存有序用户输入、plan 终态、Background links、owner 段快照、正式输出及来源、类型化终态、执行失败、必要 finish 失败和有序 Action 事实。Session 段自己的快照只保存来源日、revision 和 Turn refs，避免将历史正文递归复制进后续记录。
+Turn record 使用 schema v8，保存有序用户输入、plan 终态、Background links、owner 段快照、正式输出及来源、类型化终态、执行失败、必要 finish 失败和有序 Action 事实。输入保留稳定 input_id 与 reply_to，问题来自同一 core.ask Action 事实，回复正文只保存在输入中；inputs 段快照只引用身份。取消与等待用户超时分别记为 cancelled 与 awaiting_user。Session 段自己的快照只保存来源日、revision 和 Turn refs，避免将历史正文递归复制进后续记录。不静默迁移旧 schema。
 
 Action 事实直接来自 sealed Trace。success、failed、timeout 保存已知 canonical result 或局部失败；cancelled、not_executed、unknown 保留实际执行事实，不伪造工具结果。Action 身份配对、状态转移与发生顺序由 Trace 校验，Session 不从模型消息猜测执行状态。
 

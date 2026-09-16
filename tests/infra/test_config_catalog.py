@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from tinysoul.app.initializer import ProjectConfigProfile
+from tinysoul.gateway.initializer import ProjectConfigProfile
 from tinysoul.infra.config import ConfigEnvironment, load_config_catalog
 from tinysoul.infra.config.catalog import ConfigCollectionDeletePolicy
 from tinysoul.llm.adapter_types import AdapterKind

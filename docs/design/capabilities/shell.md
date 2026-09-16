@@ -6,9 +6,9 @@ status: implemented
 
 ## 定位
 
-`tinysoul.capabilities.shell` 提供即时 PowerShell、Cmd 和可选 Bash 命令执行。模型侧动作与 Script 一起位于宽泛的 `execution` action domain；Domain 不与 Capability 一一对应。Shell 不拥有 Link namespace、持久状态或 Home Maintenance 内容，解决“一次性输入命令并监督运行”的问题；可维护的 Python/Bash 程序仍由 Script 通过 Workspace/Home resource Link 编写、运行和 promote。
+`tinysoul.plugins.capabilities.shell` 提供即时 PowerShell、Cmd 和可选 Bash 命令执行。模型侧动作与 Script 一起位于宽泛的 `execution` action domain；Domain 不与 Capability 一一对应。Shell 不拥有 Link namespace、持久状态或 Home Reflection 内容，解决“一次性输入命令并监督运行”的问题；可维护的 Python/Bash 程序仍由 Script 通过 Workspace/Home resource Link 编写、运行和 promote。
 
-Shell 与 Script 使用不同启动 handler、参数 schema、policy 和依赖设置，同时共用 `tinysoul.capabilities.supervised_process` 的 Turn-scoped job manager、Workspace transaction mirror、日志/候选观察、Cycle pacing、额外 Cycle、生命周期 executor 和 cleanup。同一 Turn 跨 Script/Shell 最多一个 unresolved process job。
+Shell 与 Script 使用不同启动 handler、参数 schema、policy 和依赖设置，同时共用 `tinysoul.plugins.capabilities.supervised_process` 的 Turn-scoped job manager、Workspace transaction mirror、日志/候选观察、Cycle pacing、生命周期 executor 和 cleanup。同一 Turn 跨 Script/Shell 最多一个 unresolved process job。
 
 ## Action
 
@@ -67,7 +67,7 @@ working_directory: optional Workspace-mirror-relative directory, default "."
 
 生命周期 action 只接受 execution id；Manager 在当前 Turn 内找到 job 并解析其实际 owner，因此模型不需要选择 Script 或 Shell 版本。wait 复用共用的当前 Turn input/control predicate、Signal cursor 和 Cycle 最小间隔。stop 终止进程树但保留 staging。read_candidate 只读取 mirror 内有界 UTF-8 slice；候选路径在 apply 前不是 Link。
 
-Turn stop、failed、exhausted、Runtime transfer、正常离开和 Program shutdown 都强制终止 retained process 并 best-effort 清理。job 不跨 Turn、不持久化、不跨重启；启动 cleanup 只删除遗留 staging，不恢复 job。
+Turn stop、failed、exhausted、Runtime transfer、正常离开和 Agent shutdown 都强制终止 retained process 并 best-effort 清理。job 不跨 Turn、不持久化、不跨重启；启动 cleanup 只删除遗留 staging，不恢复 job。
 
 ## Context 与 ActionResult
 
@@ -79,7 +79,7 @@ Execution run/wait/stop/read/apply/discard 都是普通 Action，每次在所属
 
 - command/working directory/状态/execution id 非法、进程非零、超时、停止、输出或 mirror 上限、candidate read、apply conflict 属于局部 ActionResult；
 - Shell 配置非法、enabled executable 缺失或 registrar 与 effective Catalog 矛盾属于 `shell.configuration_failed`/装配边界；
-- 共用 wait pacing、额外 Cycle 和 cleanup 等 non-Action activity failure 归 `supervised_process` Runtime bridge；
+- 共用 wait pacing 和 cleanup 等 non-Action activity failure 归 `supervised_process` Runtime bridge；
 - Workspace IO/reconciliation/invariant 与 Runtime transfer 保持 owner module 语义，不能包装成普通 Shell 失败。
 
 ## 测试要求
