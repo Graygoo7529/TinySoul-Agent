@@ -239,7 +239,7 @@ conda activate TinySoul
 
 ## 当前任务
 
-当前任务是按 `docs/analysis/20260915-agent-architecture-refactor-plan.md` 分阶段落实分层 Agent 架构重构；R1 底层依赖与失败协议、R2 异步内核与 SDK 运行闭环均已逐项核验并归档，主计划 S1/S2 已完成，S3–S7 保留后续范围：以 `Agent` 门面统一输入、输出与状态；以 asyncio 事件总线与 `EnvironmentEvent` 协议把 Agent 置于环境之中；以段协议把 Context 语境段的内容与维护反转给外围插件，内核只知槽位、形状与 ref scheme；以 Job 框架统一后台进程与后续 ACP 外部 sub-agent，内部嵌套 Turn 留待实际需求扩展；包布局已按 `infra → runtime/llm → kernel → plugins/environment → agent → gateway` 重排。该执行计划在重构期间是唯一设计来源，不向后兼容，不保留兼容层、重复状态或跨模块捷径。重构的长期目标不变：构造功能强、可用性高、具有智能性的泛用智能体，并通过记忆和 Home 维护构造持续长期稳定运行的个性化助手。
+当前任务是按 `docs/analysis/20260915-agent-architecture-refactor-plan.md` 分阶段落实分层 Agent 架构重构；R1 已完成，R2 原实施批次保留归档记录，2026-09-16 复审发现的生命周期、统一等待与服务边界缺口由 `docs/analysis/20260916 Agent重构R2收口子计划.md` 承接（方案待确认）。主计划 S1 保持完成、S2 恢复进行中，S3–S7 保留后续范围：以 `Agent` 门面统一输入、输出与状态；以 asyncio 事件总线与 `EnvironmentEvent` 协议把 Agent 置于环境之中；以段协议把 Context 语境段的内容与维护反转给外围插件，内核只知槽位、形状与 ref scheme；以 Job 框架统一后台进程与后续 ACP 外部 sub-agent，内部嵌套 Turn 留待实际需求扩展；包布局已按 `infra → runtime/llm → kernel → plugins/environment → agent → gateway` 重排。该主执行计划及其已确认子计划在重构期间是设计来源，不向后兼容，不保留兼容层、重复状态或跨模块捷径。重构的长期目标不变：构造功能强、可用性高、具有智能性的泛用智能体，并通过记忆和 Home 维护构造持续长期稳定运行的个性化助手。
 
 过渡期文档约定：本文件"核心定义""项目规约""代码风格""运行环境与验证"中的模块名（`app`、`loop`、`context`、`action`、`endpoint` 等）、按 owner 名固定的 MessageStack 顺序、Context 由 `context` 模块直接拥有四类语义段、`tests/<module>/` 布局等表述描述的是重构前的实现事实；与执行计划冲突处以执行计划为准，并在计划 S7 阶段整体重写本文件。已被执行计划明确替代的条款：
 
