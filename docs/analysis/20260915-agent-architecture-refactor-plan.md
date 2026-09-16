@@ -405,6 +405,8 @@ Memory 删除 8 步控制器、preview、多文档 CAS/journal、revision/activa
 
 Reflection 插件编排触发/去重/完成，Home/Memory 管存储，日切归 agent/day。有 Session 无 daily 可触发补记；已有 daily 仍允许手动重整今天/历史日。失败调度有界，不即时无限重入。不保留 availability.json 平行事实。
 
+已确认触发语义：Reflection 是 Agent 在日切/每日策略触发，或用户明确允许本次整理时使用的插件能力；手动授权只安排本次指定目标的独立 Reflection Turn，不形成持续许可。普通 User Turn 不挂载 Reflection 专属提示、请求/整理动作或持久写服务；相应提示与能力在 Reflection profile 内提供，调度仍服从单根队列。
+
 CalendarDay 取代 CalendarDay；面向用户说“今天、总结、整理”。根开始锁定 day/世代，跨午夜继续原日；根及子工作完全收尾后归档再开新根。Reflection target/source_day 与运行 active_day 分开，历史 Workspace 只读参考，当日 Workspace 仍可操作。
 
 保留 home/memory/runtime/archive 布局、确定性日切恢复 journal；删除 Memory 事务不等于删除归档恢复。TOML 原则稳定，仅已确认 app→agent、maintenance→reflection 及新增能力配置。新 Session schema 不隐式兼容 v4，不自动 reset 用户数据。
@@ -546,7 +548,7 @@ WS 断开不取消 Turn；问题可由状态查询恢复，Observation gap 不�
 
 ## 13. 执行计划与验收
 
-子计划进度：[R1 底层依赖与失败协议](done/20260915-done-Agent重构第一轮子计划-底层依赖与失败协议.md) 为 `done`；[R2 异步内核与 SDK 运行闭环](done/20260915-done-Agent重构第二轮子计划-异步内核与SDK运行闭环.md) 保留历史实施与门禁记录。2026-09-16 复审更正 R2 整体完成结论，剩余事项统一进入 [R2 收口子计划](20260916%20Agent重构R2收口子计划.md)（`pending`，方案待确认）；原已纳入的 S2/S3 必要契约范围不变。
+子计划进度：[R1 底层依赖与失败协议](done/20260915-done-Agent重构第一轮子计划-底层依赖与失败协议.md) 为 `done`；[R2 异步内核与 SDK 运行闭环](done/20260915-done-Agent重构第二轮子计划-异步内核与SDK运行闭环.md) 保留历史实施与门禁记录。2026-09-16 复审更正 R2 整体完成结论，剩余事项统一进入 [R2 收口子计划](20260916%20Agent重构R2收口子计划.md)（`pending`，C1/C2 与 Reflection 单次授权语义已确认，待实施）；原已纳入的 S2/S3 必要契约范围不变。
 
 S1 已完成，S2 `in_progress`；S3–S7 尚未整体完成。历史 S0 定稿不代表后续协议细化关闭。子计划只有实现/文档/必要验证全部通过才 done 并归档；docs/design 只写已落地部分。
 
