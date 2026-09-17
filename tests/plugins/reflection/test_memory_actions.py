@@ -10,6 +10,7 @@ from tinysoul.infra.time import CalendarDay
 from tinysoul.plugins.reflection.memory import MemoryReflectionActionController
 from tinysoul.plugins.reflection.memory.actions import MemoryReflectionWriteExecutor
 from tinysoul.plugins.reflection.resources import maintenance_action_catalog_root
+from tinysoul.plugins.memory.services import MemoryKnowledgeService
 from tinysoul.plugins.memory import MemoryEngine, MemorySettings, EntityMemoryDocument, MemoryStatus
 from tinysoul.runtime import RunLevel, RunScope
 
@@ -18,7 +19,7 @@ DAY = CalendarDay.parse("2026-08-05")
 
 async def test_reflection_commits_one_document_and_preserves_it_after_rejected_write(tmp_path: Path) -> None:
     memory = MemoryEngine(settings=MemorySettings(root=tmp_path / "memory"))
-    controller = MemoryReflectionActionController(memory=memory)
+    controller = MemoryReflectionActionController(memory=MemoryKnowledgeService(memory))
     controller.begin(target_day=DAY)
     executor = MemoryReflectionWriteExecutor(controller)
     result = await executor.execute(_execution("write_daily", {"markdown": "## Events\n\nReviewed Memory."}), ActionExecutionContext())
@@ -37,7 +38,7 @@ async def test_reflection_commits_one_document_and_preserves_it_after_rejected_w
 
 async def test_reflection_writes_target_before_redirect_and_rejects_redirect_cycle(tmp_path: Path) -> None:
     memory = MemoryEngine(settings=MemorySettings(root=tmp_path / "memory"))
-    controller = MemoryReflectionActionController(memory=memory)
+    controller = MemoryReflectionActionController(memory=MemoryKnowledgeService(memory))
     controller.begin(target_day=DAY)
     executor = MemoryReflectionWriteExecutor(controller)
     source = EntityMemoryDocument(cite="source", status=MemoryStatus.ACTIVE,

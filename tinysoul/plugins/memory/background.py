@@ -13,7 +13,7 @@ from tinysoul.kernel.context.segments import SegmentCapability, SegmentDescripto
 from tinysoul.plugins.memory.runtime_bridge import RuntimeMemoryBridge
 
 from .active import ActiveMemoryDocument
-from .engine import MemoryEngine
+from .services import MemoryReadService
 from .errors import MemoryContractError, MemoryError, MemoryInvariantError
 from .links import MemoryBackgroundRef
 from .documents import DailyMemoryDocument, StoredMemoryDocument
@@ -28,13 +28,13 @@ class TargetMemoryBinding(Protocol):
 class ActiveMemoryBackgroundEntryProvider:
     """Expose current active Memory and the nearest earlier daily."""
 
-    memory: MemoryEngine
+    memory: MemoryReadService
     runtime_bridge: RuntimeMemoryBridge = RuntimeMemoryBridge()
 
-    def catalog(self, business_day: date) -> BackgroundCatalog:
+    async def catalog(self, business_day: date) -> BackgroundCatalog:
         try:
-            self.memory.read_active(business_day)
-            latest = self.memory.latest_daily_before(business_day)
+            await self.memory.read_active(business_day)
+            latest = await self.memory.latest_daily_before(business_day)
         except MemoryError as exc:
             raise self.runtime_bridge.from_memory_error(exc) from exc
         links = [MemoryBackgroundRef.CURRENT.value]
@@ -63,15 +63,15 @@ class ActiveMemoryBackgroundEntryProvider:
             items=tuple(items),
         )
 
-    def load(self, link: str, business_day: date) -> str:
+    async def load(self, link: str, business_day: date) -> str:
         try:
             if link == MemoryBackgroundRef.CURRENT.value:
                 return _active_projection(
                     MemoryBackgroundRef.CURRENT,
-                    self.memory.read_active(business_day),
+                    await self.memory.read_active(business_day),
                 )
             if link == MemoryBackgroundRef.LATEST.value:
-                latest = self.memory.latest_daily_before(business_day)
+                latest = await self.memory.latest_daily_before(business_day)
                 if latest is None:
                     raise MemoryInvariantError("Prepared latest Memory disappeared")
                 return _latest_projection(latest)
@@ -84,17 +84,17 @@ class ActiveMemoryBackgroundEntryProvider:
 class TargetMemoryBackgroundEntryProvider:
     """Expose archived target Memory and target-relative latest daily."""
 
-    memory: MemoryEngine
+    memory: MemoryReadService
     binding: TargetMemoryBinding
     runtime_bridge: RuntimeMemoryBridge = RuntimeMemoryBridge()
 
-    def catalog(self, business_day: date) -> BackgroundCatalog:
+    async def catalog(self, business_day: date) -> BackgroundCatalog:
         del business_day
         try:
             target_day, snapshot = self.binding.memory_target()
             if snapshot.day != target_day:
                 raise MemoryInvariantError("Memory target binding day mismatch")
-            latest = self.memory.latest_daily_before(target_day)
+            latest = await self.memory.latest_daily_before(target_day)
         except MemoryError as exc:
             raise self.runtime_bridge.from_memory_error(exc) from exc
         links = [MemoryBackgroundRef.TARGET.value]
@@ -123,7 +123,7 @@ class TargetMemoryBackgroundEntryProvider:
             items=tuple(items),
         )
 
-    def load(self, link: str, business_day: date) -> str:
+    async def load(self, link: str, business_day: date) -> str:
         del business_day
         try:
             target_day, snapshot = self.binding.memory_target()
@@ -135,7 +135,7 @@ class TargetMemoryBackgroundEntryProvider:
                     snapshot,
                 )
             if link == MemoryBackgroundRef.LATEST.value:
-                latest = self.memory.latest_daily_before(target_day)
+                latest = await self.memory.latest_daily_before(target_day)
                 if latest is None:
                     raise MemoryInvariantError("Prepared latest Memory disappeared")
                 return _latest_projection(latest)
@@ -174,7 +174,7 @@ MEMORY_CONTEXT_UPDATE = "context.memory.update"
 
 
 def memory_segment_registration(
-    memory: MemoryEngine, *, target: TargetMemoryBinding | None = None,
+    memory: MemoryReadService, *, target: TargetMemoryBinding | None = None,
 ) -> SegmentRegistration[HeapUpdate, HeapCandidate]:
     source = (
         TargetMemoryBackgroundEntryProvider(memory=memory, binding=target)

@@ -43,7 +43,7 @@ title = "Business Day"
 description = "Defines business time and the project roots used by daily lifecycle management."
 
 [[field_group]]
-id = "maintenance.turn"
+id = "maintenance.scenarios"
 surface = "maintenance"
 title = "Maintenance Turn"
 description = "Defines the execution boundary for Home and Memory maintenance work."
@@ -164,10 +164,18 @@ value_kind = "string"
 importance = "advanced"
 
 [[field]]
-path = "maintenance.turn.max_cycles"
+path = "maintenance.home.max_cycles"
 surface = "maintenance"
-group = "maintenance.turn"
-title = "Maintenance Turn Cycles"
+group = "maintenance.scenarios"
+title = "Home Reflection Cycles"
+description = "Maximum complete Agent Cycles allowed in one Home or Memory Maintenance Turn."
+value_kind = "integer"
+
+[[field]]
+path = "maintenance.memory.max_cycles"
+surface = "maintenance"
+group = "maintenance.scenarios"
+title = "Memory Reflection Cycles"
 description = "Maximum complete Agent Cycles allowed in one Home or Memory Maintenance Turn."
 value_kind = "integer"
 
@@ -271,4 +279,32 @@ group = "infrastructure.sources"
 title = "Managed Document Sets"
 description = "Process-owned declarations for independent project TOML documents managed by configuration transactions."
 value_kind = "object_list"
+importance = "advanced"
+[[field]]
+path = "loop.user.actions"
+surface = "behavior"
+group = "behavior.user_turn"
+title = "user Action Selection"
+description = "Domain defaults and explicit action overrides within the operations granted to this scenario."
+value_kind = "object"
+importance = "advanced"
+
+
+[[field]]
+path = "maintenance.home.actions"
+surface = "maintenance"
+group = "maintenance.scenarios"
+title = "home Action Selection"
+description = "Domain defaults and explicit action overrides within the operations granted to this scenario."
+value_kind = "object"
+importance = "advanced"
+
+
+[[field]]
+path = "maintenance.memory.actions"
+surface = "maintenance"
+group = "maintenance.scenarios"
+title = "memory Action Selection"
+description = "Domain defaults and explicit action overrides within the operations granted to this scenario."
+value_kind = "object"
 importance = "advanced"

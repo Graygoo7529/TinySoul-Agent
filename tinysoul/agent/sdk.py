@@ -9,7 +9,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
-from tinysoul.infra.concurrency import CleanupDiagnostic
+from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.config import ConfigController, ConfigMutation
 from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.loop.inbox import InboxLimits, InboxReceipt
@@ -64,7 +64,8 @@ class Agent:
         self._assembly: AgentAssembly | None = None
         self._worker: asyncio.Task[AgentRunResult] | None = None
         self._shutdown_task: asyncio.Task[tuple[CleanupDiagnostic, ...]] | None = None
-        self._lock = asyncio.Lock()
+        self._start_task: asyncio.Task[None] | None = None
+        self._restart_task: asyncio.Task[tuple[CleanupDiagnostic, ...]] | None = None
 
     @classmethod
     async def create(
@@ -107,28 +108,43 @@ class Agent:
         )
 
     async def start(self) -> None:
-        async with self._lock:
-            if self._state is AgentState.RUNNING:
-                return
-            if self._state is AgentState.STOPPING:
-                raise AgentClosedError("Agent is stopping")
+        if self._restart_task is not None and not self._restart_task.done() and asyncio.current_task() is not self._restart_task:
+            raise AgentClosedError("Agent is restarting")
+        if self._state is AgentState.RUNNING:
+            return
+        if self._state is AgentState.STOPPING:
+            raise AgentClosedError("Agent is stopping")
+        if self._start_task is None or self._start_task.done():
+            self._shutdown_task = None
+            self._start_task = asyncio.create_task(self._start(), name="tinysoul-start")
+        operation = JoinedOperations()
+        task = self._start_task
+        await operation.run_async(lambda: task)
+        operation.check_cancelled()
+
+    async def _start(self) -> None:
+        try:
             if self._state in {AgentState.STOPPED, AgentState.FAULTED} and self._assembly is not None:
                 await self._assembly.close()
                 self._assembly = None
             if self._assembly is None:
                 self._assembly = await self._factory()
-            try:
-                self._assembly.agent_runner.set_capacity(self._capacity, self._inbox_limits)
-                await self._assembly.activate()
-                self._worker = asyncio.create_task(self._serve(self._assembly), name="tinysoul-agent")
-                self._worker.add_done_callback(self._stopped)
-                self._state = AgentState.RUNNING
-                self._shutdown_task = None
-            except BaseException:
-                await self._assembly.close()
-                self._assembly = None
+            self._assembly.agent_runner.set_capacity(self._capacity, self._inbox_limits)
+            await self._assembly.activate()
+            if self._state is AgentState.STOPPING:
+                raise asyncio.CancelledError
+            self._worker = asyncio.create_task(self._serve(self._assembly), name="tinysoul-agent")
+            self._worker.add_done_callback(self._stopped)
+            self._state = AgentState.RUNNING
+        except BaseException:
+            if self._assembly is not None:
+                try:
+                    await self._assembly.close()
+                finally:
+                    self._assembly = None
+            if self._state is not AgentState.STOPPING:
                 self._state = AgentState.FAULTED
-                raise
+            raise
 
     @property
     def commands(self) -> AgentCommands:
@@ -143,7 +159,7 @@ class Agent:
         return await self.commands.submit_turn(request)
 
     async def cancel_turn(self, turn_id: str) -> bool:
-        return self.commands.cancel_turn(turn_id)
+        return await self.commands.cancel_turn(turn_id)
 
     async def append_input(self, turn_id: str, text: str, *, input_id: str = "") -> InboxReceipt:
         return await self.commands.append_input(turn_id, text, input_id=input_id)
@@ -157,8 +173,12 @@ class Agent:
     async def publish(self, event: EnvironmentEvent) -> EventReceipt:
         return await self.commands.publish(event)
 
-    def config_status(self) -> JsonObject:
-        return self._configuration().status()
+    async def config_status(self) -> JsonObject:
+        controller = self._configuration()
+        operations = JoinedOperations()
+        result = await operations.run(controller.status)
+        operations.check_cancelled()
+        return result
 
     async def patch_config(self, mutations: tuple[ConfigMutation, ...]) -> JsonObject:
         return await self._configuration().patch(mutations)
@@ -183,42 +203,63 @@ class Agent:
         return await asyncio.shield(self._worker)
 
     async def shutdown(self) -> tuple[CleanupDiagnostic, ...]:
+        restarting = self._restart_task
+        if restarting is not None and not restarting.done() and asyncio.current_task() is not restarting:
+            restarting.cancel()
         if self._shutdown_task is None:
             self._state = AgentState.STOPPING
-            self._shutdown_task = asyncio.create_task(self._shutdown())
-        cancellation: asyncio.CancelledError | None = None
-        while not self._shutdown_task.done():
-            try:
-                await asyncio.shield(self._shutdown_task)
-            except asyncio.CancelledError as exc:
-                cancellation = exc
-        diagnostics = self._shutdown_task.result()
-        if cancellation is not None:
-            raise cancellation
+            if self._assembly is not None:
+                self._assembly.stop_accepting()
+            if self._start_task is not None and not self._start_task.done():
+                self._start_task.cancel()
+            self._shutdown_task = asyncio.create_task(self._shutdown(), name="tinysoul-shutdown")
+        task = self._shutdown_task
+        operation = JoinedOperations()
+        diagnostics = await operation.run_async(lambda: task)
+        operation.check_cancelled()
         return diagnostics
 
     async def _shutdown(self) -> tuple[CleanupDiagnostic, ...]:
         diagnostics: tuple[CleanupDiagnostic, ...] = ()
-        async with self._lock:
-            try:
-                if self._worker is not None:
-                    self._worker.cancel()
-                    try:
-                        await self._worker
-                    except asyncio.CancelledError:
-                        pass
-                    except Exception as exc:
-                        diagnostics += (CleanupDiagnostic("agent.dispatch", type(exc).__name__),)
-                if self._assembly is not None:
-                    await self._assembly.agent_runner.close_requests()
-                    diagnostics += await self._assembly.close()
-            finally:
-                self._worker = None
-                self._assembly = None
-                self._state = AgentState.STOPPED
+        try:
+            if self._start_task is not None:
+                try:
+                    await self._start_task
+                except (Exception, asyncio.CancelledError):
+                    # Startup owns its primary failure and partial resources.
+                    pass
+            if self._worker is not None:
+                self._worker.cancel()
+                try:
+                    await self._worker
+                except asyncio.CancelledError:
+                    pass
+                except Exception as exc:
+                    diagnostics += (CleanupDiagnostic("agent.dispatch", type(exc).__name__),)
+            if self._assembly is not None:
+                await self._assembly.agent_runner.close_requests()
+                diagnostics += await self._assembly.close()
+        finally:
+            self._worker = None
+            self._assembly = None
+            self._state = AgentState.STOPPED
         return diagnostics
 
     async def restart(self) -> tuple[CleanupDiagnostic, ...]:
+        if self._restart_task is None or self._restart_task.done():
+            if self._shutdown_task is not None and self._shutdown_task.done():
+                self._shutdown_task = None
+            self._state = AgentState.STOPPING
+            if self._assembly is not None:
+                self._assembly.stop_accepting()
+            self._restart_task = asyncio.create_task(self._restart(), name="tinysoul-restart")
+        task = self._restart_task
+        operation = JoinedOperations()
+        diagnostics = await operation.run_async(lambda: task)
+        operation.check_cancelled()
+        return diagnostics
+
+    async def _restart(self) -> tuple[CleanupDiagnostic, ...]:
         diagnostics = await self.shutdown()
         await self.start()
         return diagnostics
@@ -232,10 +273,11 @@ class Agent:
         try:
             return await app.run()
         finally:
+            app.stop_accepting()
             await app.agent_runner.close_requests()
             app.observations.subscriptions.close()
 
     def _stopped(self, task: asyncio.Task[AgentRunResult]) -> None:
-        if self._state is AgentState.STOPPING:
+        if task is not self._worker or self._state is AgentState.STOPPING:
             return
         self._state = AgentState.FAULTED if task.cancelled() or task.exception() else AgentState.STOPPED

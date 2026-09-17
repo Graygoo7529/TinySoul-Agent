@@ -34,6 +34,8 @@ from tinysoul.runtime import (
     RuntimeException,
 )
 from tinysoul.plugins.session import SessionEngine, SessionSettings
+from tinysoul.kernel.registration import Service, ServiceRegistry
+from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceManifest, WorkspaceSettings
 
 
@@ -527,6 +529,8 @@ def _engine(
         DAY,
         now=datetime(2026, 7, 19, 9, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
     )
+    if config is None and not (tmp_path / "tinysoul.toml").exists():
+        (tmp_path / "tinysoul.toml").write_text("", encoding="utf-8")
     settings = EndpointSettings(
         token=TOKEN,
         websocket_heartbeat_seconds=websocket_heartbeat_seconds,
@@ -535,23 +539,24 @@ def _engine(
         settings=settings,
         events=events,
         gateway=gateway,
-        workspace=workspace,
-        maintenance=_EndpointReflection(daily),
-        day=daily,
-        config=config,
+        services=_EndpointServices(WorkspaceService(workspace)),
+        config=config or ConfigController(root=tmp_path, environment=ConfigEnvironment.from_project_root(tmp_path, env={})),
     )
     return engine, gateway, events
 
 
-@dataclass
-class _EndpointReflection:
-    daily: DailyLifecycleCoordinator
+class _EndpointServices:
+    def __init__(self, workspace: WorkspaceService) -> None:
+        self.registry = ServiceRegistry((Service(WorkspaceService, workspace),))
 
-    def active_day_lease(self):
-        return self.daily.active_day_lease()
+    def runtime_status(self, *, credentials: bool = False) -> JsonObject:
+        return {"generation_id": "test", "activity": "idle", "activation": "active", "active_day": str(DAY)}
 
-    def availability(self) -> ReflectionAvailability:
-        return ReflectionAvailability(checked_day=DAY)
+    async def action_catalog(self) -> JsonObject:
+        return {"domains": [], "actions": []}
+
+    async def reflection_status(self) -> JsonObject:
+        return ReflectionAvailability(checked_day=DAY).to_json()
 
 
 @dataclass
@@ -609,6 +614,7 @@ class _EndpointGateway:
         source: str,
         metadata: JsonObject,
         command_id: str | None = None,
+        instructions: str = "",
     ) -> CommandReceipt:
         typed_scope = (
             scope if isinstance(scope, ReflectionScope) else ReflectionScope(scope)

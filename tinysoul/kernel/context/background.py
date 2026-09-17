@@ -8,7 +8,6 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from tinysoul.llm.messages import Message, UserMessage
-from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.json import JsonObject
 from tinysoul.runtime import Signal
 
@@ -321,22 +320,16 @@ class HeapSegment:
         )
 
     async def prepare(self, updates: tuple[HeapUpdate, ...]) -> HeapCandidate:
-        operations = JoinedOperations()
-        candidate = await operations.run(lambda: self._prepare(updates))
-        operations.check_cancelled()
-        return candidate
-
-    def _prepare(self, updates: tuple[HeapUpdate, ...]) -> HeapCandidate:
         catalog = self._catalog
         entries = {entry.link: entry for entry in self._view.entries()}
         for update in updates:
             if update.refresh:
-                catalog = self._source.catalog(self._day)
+                catalog = await self._source.catalog(self._day)
                 if catalog.owner != self._catalog.owner:
                     raise ContextInvariantError("Heap refresh changed its owner")
                 selected = tuple(dict.fromkeys((*catalog.default_links, *entries)))
                 entries = {
-                    ref: _heap_entry(self._source, self._day, catalog, ref, entries.get(ref))
+                    ref: await _heap_entry(self._source, self._day, catalog, ref, entries.get(ref))
                     for ref in selected if ref in catalog.loadable_links
                 }
             patch = update.selection
@@ -352,7 +345,7 @@ class HeapSegment:
                 del entries[ref]
             for ref in patch.load_links:
                 if ref not in entries:
-                    entries[ref] = _heap_entry(self._source, self._day, catalog, ref)
+                    entries[ref] = await _heap_entry(self._source, self._day, catalog, ref)
         return HeapCandidate(catalog, tuple(entries.values()))
 
     def install(self, prepared: HeapCandidate) -> None:
@@ -376,11 +369,11 @@ class HeapSegment:
         self._view.reset_catalogs()
 
 
-def _heap_entry(
+async def _heap_entry(
     source: BackgroundEntryProvider, day: date, catalog: BackgroundCatalog,
     ref: str, previous: BackgroundEntry | None = None,
 ) -> BackgroundEntry:
-    content = source.load(ref, day)
+    content = await source.load(ref, day)
     if ref in catalog.default_links:
         evictable = ref in catalog.evictable_default_links
         origin = BackgroundSource.AUTOMATIC if evictable else BackgroundSource.DEFAULT
@@ -396,16 +389,12 @@ class HeapSegmentProvider:
         self._owner = owner
 
     async def open(self, info: TurnInfo) -> HeapSegment:
-        def prepare() -> HeapCandidate:
-            catalog = self._source.catalog(info.day)
-            if catalog.owner != self._owner:
-                raise ContextInvariantError("Heap catalog belongs to another registered owner")
-            return HeapCandidate(catalog, tuple(
-                _heap_entry(self._source, info.day, catalog, ref) for ref in catalog.default_links
-            ))
-        operations = JoinedOperations()
-        candidate = await operations.run(prepare)
-        operations.check_cancelled()
+        catalog = await self._source.catalog(info.day)
+        if catalog.owner != self._owner:
+            raise ContextInvariantError("Heap catalog belongs to another registered owner")
+        candidate = HeapCandidate(catalog, tuple([
+            await _heap_entry(self._source, info.day, catalog, ref) for ref in catalog.default_links
+        ]))
         return HeapSegment(self._source, info.day, candidate)
 
 

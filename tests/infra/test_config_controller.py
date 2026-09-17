@@ -150,7 +150,9 @@ async def test_saved_sources_remain_saved_when_reload_fails(tmp_path: Path) -> N
     environment = _project_with_document(tmp_path)
 
     async def prepare(_candidate: ConfigEnvironment) -> PreparedConfigActivation:
-        return PreparedConfigActivation(commit=lambda: (_ for _ in ()).throw(RuntimeError("fail")))
+        async def commit() -> None:
+            raise RuntimeError("fail")
+        return PreparedConfigActivation(commit=commit)
 
     controller = ConfigController(root=tmp_path, environment=environment, activator=prepare)
     source_id = environment.document_set("test.documents").documents[0].source_id
@@ -178,7 +180,9 @@ async def test_retirement_failure_does_not_roll_back_committed_activation(tmp_pa
         async def retire():
             raise RuntimeError("private retired client failure")
 
-        return PreparedConfigActivation(commit=lambda: activated.append(candidate), retire=retire)
+        async def commit() -> None:
+            activated.append(candidate)
+        return PreparedConfigActivation(commit=commit, retire=retire)
 
     controller = ConfigController(root=tmp_path, environment=environment, activator=prepare)
     result = await controller.patch((ConfigMutation(
@@ -198,7 +202,7 @@ async def test_abort_failure_preserves_primary_failure_and_saved_candidate(tmp_p
     events: list[str] = []
 
     async def prepare(candidate: ConfigEnvironment) -> PreparedConfigActivation:
-        def commit() -> None:
+        async def commit() -> None:
             raise primary
 
         async def abort():
@@ -225,7 +229,9 @@ async def test_save_allowed_while_active_but_reload_requires_idle(tmp_path: Path
     activated: list[ConfigEnvironment] = []
 
     async def prepare(candidate: ConfigEnvironment) -> PreparedConfigActivation:
-        return PreparedConfigActivation(commit=lambda: activated.append(candidate))
+        async def commit() -> None:
+            activated.append(candidate)
+        return PreparedConfigActivation(commit=commit)
 
     controller = ConfigController(
         root=tmp_path, environment=_project(tmp_path),
@@ -246,7 +252,9 @@ async def test_activation_observer_receives_only_explicit_reload_events(tmp_path
     events: list[str] = []
 
     async def prepare(candidate: ConfigEnvironment) -> PreparedConfigActivation:
-        return PreparedConfigActivation(commit=lambda: None)
+        async def commit() -> None:
+            pass
+        return PreparedConfigActivation(commit=commit)
 
     controller = ConfigController(
         root=tmp_path, environment=_project(tmp_path), activator=prepare,

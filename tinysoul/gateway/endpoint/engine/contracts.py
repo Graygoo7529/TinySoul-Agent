@@ -2,29 +2,31 @@
 
 from __future__ import annotations
 
-from contextlib import AbstractContextManager
-from typing import Protocol, TypeVar
+from typing import Protocol
 
 from tinysoul.infra.config import ConfigMutation
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.loop import LoopControlKind
-from tinysoul.agent.services import AgentRuntimeServices
-from tinysoul.plugins.reflection import (ReflectionAvailability, ReflectionScope)
+from tinysoul.kernel.registration import ServiceRegistry
+from tinysoul.plugins.reflection import (ReflectionScope)
 from tinysoul.runtime import RunScope
-from tinysoul.plugins.workspace import WorkspaceEngine, WorkspaceManifest
+from tinysoul.plugins.workspace import WorkspaceManifest
 
 
 class EndpointCommandReceipt(Protocol):
     def to_json(self) -> JsonObject: ...
 
 
-class EndpointReflectionStatus(Protocol):
-    def availability(self) -> ReflectionAvailability: ...
+class EndpointServices(Protocol):
+    @property
+    def registry(self) -> ServiceRegistry: ...
 
+    def runtime_status(self, *, credentials: bool = False) -> JsonObject: ...
 
-class EndpointDayStatus(Protocol):
-    def active_day_lease(self) -> AbstractContextManager[CalendarDay]: ...
+    async def action_catalog(self) -> JsonObject: ...
+
+    async def reflection_status(self) -> JsonObject: ...
 
 
 class EndpointAgentIngress(Protocol):
@@ -57,6 +59,7 @@ class EndpointAgentIngress(Protocol):
         source: str,
         metadata: JsonObject,
         command_id: str | None = None,
+        instructions: str = "",
     ) -> EndpointCommandReceipt: ...
 
     def sync_workspace_context(
@@ -75,6 +78,3 @@ class EndpointConfigController(Protocol):
     async def patch(self, mutations: tuple[ConfigMutation, ...]) -> JsonObject: ...
 
     async def reload(self) -> JsonObject: ...
-
-
-EndpointGenerationT = TypeVar("EndpointGenerationT", bound=AgentRuntimeServices)

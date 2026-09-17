@@ -10,7 +10,6 @@ from tinysoul.kernel.action import (
     ActionExecution,
     ActionExecutionContext,
     ActionExecutor,
-    LocalActionExecutor,
     ActionFailureDisposition,
     ActionLocalFailure,
     ActionResult,
@@ -24,7 +23,7 @@ from tinysoul.runtime import Signal
 from .active import MemoryPatchOperation
 from .background import MEMORY_CONTEXT_UPDATE
 from .catalog import MemoryInspectRequest
-from .engine import MemoryEngine
+from .services import MemoryReadService, MemoryService
 from .errors import MemoryContractError, MemoryError, MemoryInvariantError
 from .links import MemoryKind, MemoryLink
 
@@ -32,21 +31,23 @@ from .links import MemoryKind, MemoryLink
 def register_memory_actions(
     builder: ActionEngineBuilder,
     *,
-    memory: MemoryEngine,
+    memory: MemoryReadService,
     runtime_bridge: RuntimeMemoryBridge,
 ) -> ActionEngineBuilder:
-    builder.register_executor("memory.memorize", MemoryMemorizeExecutor(memory, runtime_bridge))
+    if isinstance(memory, MemoryService):
+        builder.register_executor("memory.memorize", MemoryMemorizeExecutor(memory, runtime_bridge))
     builder.register_executor("memory.inspect", MemoryInspectExecutor(memory, runtime_bridge))
     builder.register_executor("memory.recall", MemoryRecallExecutor(memory, runtime_bridge))
     return builder
 
 
-class MemoryMemorizeExecutor(LocalActionExecutor):
-    def __init__(self, memory: MemoryEngine, runtime_bridge: RuntimeMemoryBridge) -> None:
+class MemoryMemorizeExecutor(ActionExecutor):
+    def __init__(self, memory: MemoryService, runtime_bridge: RuntimeMemoryBridge) -> None:
         self._memory = memory
         self._runtime_bridge = runtime_bridge
 
-    def execute_local(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
+    async def execute(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
+        memory = self._memory.using(context.owner_operations)
         bus = context.require_signal_bus()
         params = execution.call.params
         raw_operations = params.get("operations")
@@ -63,8 +64,8 @@ class MemoryMemorizeExecutor(LocalActionExecutor):
                     )
                 )
             operations = tuple(parsed_operations)
-            snapshot = self._memory.patch_active(
-                day=self._memory.active_day(),
+            snapshot = await memory.patch_active(
+                day=await memory.active_day(),
                 operations=operations,
             )
         except MemoryContractError as exc:
@@ -85,16 +86,16 @@ class MemoryMemorizeExecutor(LocalActionExecutor):
 
 
 class MemoryInspectExecutor(ActionExecutor):
-    def __init__(self, memory: MemoryEngine, runtime_bridge: RuntimeMemoryBridge) -> None:
+    def __init__(self, memory: MemoryReadService, runtime_bridge: RuntimeMemoryBridge) -> None:
         self._memory = memory
         self._runtime_bridge = runtime_bridge
 
     async def execute(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
-        del context
+        memory = self._memory.using(context.owner_operations)
         params = execution.call.params
         try:
             request = _inspect_request(params)
-            result = await self._memory.inspect(request)
+            result = await memory.inspect(request)
         except MemoryContractError as exc:
             return _failed(execution, str(exc), "invalid_inspect")
         except MemoryError as exc:
@@ -117,18 +118,18 @@ class MemoryInspectExecutor(ActionExecutor):
         )
 
 
-class MemoryRecallExecutor(LocalActionExecutor):
-    def __init__(self, memory: MemoryEngine, runtime_bridge: RuntimeMemoryBridge) -> None:
+class MemoryRecallExecutor(ActionExecutor):
+    def __init__(self, memory: MemoryReadService, runtime_bridge: RuntimeMemoryBridge) -> None:
         self._memory = memory
         self._runtime_bridge = runtime_bridge
 
-    def execute_local(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
-        del context
+    async def execute(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
+        memory = self._memory.using(context.owner_operations)
         link = execution.call.params.get("memory_link")
         if not isinstance(link, str) or not link:
             return _failed(execution, "core.memory.recall requires memory_link", "invalid_link")
         try:
-            result = self._memory.recall(link)
+            result = await memory.recall(link)
         except MemoryContractError as exc:
             return _failed(execution, str(exc), "invalid_or_missing_memory")
         except MemoryInvariantError as exc:

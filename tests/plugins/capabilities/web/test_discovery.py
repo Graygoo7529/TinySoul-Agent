@@ -27,6 +27,7 @@ from tinysoul.plugins.capabilities.web.network import FetchedPage
 from tinysoul.plugins.capabilities.web.service import WebCapabilityService
 from tinysoul.infra import JsonValue, StagingDirectoryManager, dumps_json
 from tinysoul.runtime import RunScope, SignalBus
+from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
 
 
@@ -53,7 +54,7 @@ def test_discovery_config_and_dependency_are_independent() -> None:
     ] == ["web.discovery", "web.http"]
 
 
-def test_crawlee_discovery_returns_direct_candidates_and_recursive_metadata() -> None:
+async def test_crawlee_discovery_returns_direct_candidates_and_recursive_metadata() -> None:
     pages = {
         "https://example.com/docs/": FetchedPage(
             final_url="https://example.com/docs/",
@@ -105,7 +106,7 @@ def test_crawlee_discovery_returns_direct_candidates_and_recursive_metadata() ->
         )
         return direct, recursive
 
-    direct, recursive = asyncio.run(exercise())
+    direct, recursive = await exercise()
 
     direct_source = cast(dict[str, JsonValue], direct["source"])
     assert direct_source["title"] == "Documentation"
@@ -133,10 +134,10 @@ def test_crawlee_discovery_returns_direct_candidates_and_recursive_metadata() ->
     assert recursive["visited_count"] == 2
 
 
-def test_discovery_service_returns_complete_inline_result(local_tmp: Path) -> None:
+async def test_discovery_service_returns_complete_inline_result(local_tmp: Path) -> None:
     workspace = _workspace(local_tmp)
     service = WebCapabilityService(
-        workspace=workspace,
+        workspace=WorkspaceService(workspace),
         settings=WebSettings(
             discover_pages=WebDiscoverySettings(enabled=True),
         ),
@@ -145,7 +146,7 @@ def test_discovery_service_returns_complete_inline_result(local_tmp: Path) -> No
         process_runner=_DiscoveryRunner(page_count=2),
     )
 
-    result = service.discover_pages(
+    result = await service.discover_pages(
         start_url="https://example.com/docs/",
         max_visit_depth=0,
         include_globs=("/docs/**",),
@@ -209,7 +210,7 @@ async def test_oversized_discovery_spills_complete_json_and_emits_signal(
     workspace = _workspace(local_tmp)
     bus = SignalBus()
     service = WebCapabilityService(
-        workspace=workspace,
+        workspace=WorkspaceService(workspace),
         settings=WebSettings(
             discover_pages=WebDiscoverySettings(
                 enabled=True,

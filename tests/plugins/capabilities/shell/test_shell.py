@@ -13,6 +13,7 @@ import tomllib
 import pytest
 
 from tinysoul.gateway.initializer import ProjectConfigProfile
+from tinysoul.kernel.jobs.actions import register_job_actions
 from tinysoul.kernel.action import (ActionEngine, ActionEngineBuilder, ActionCall, ActionExecution, ActionExecutionContext, ActionExecutionControl, ActionFramework, ActionResultStatus)
 from tinysoul.agent.catalog import builtin_action_catalog_root
 from tinysoul.kernel.action.backends import ManagedProcessRequest
@@ -38,7 +39,6 @@ from tinysoul.plugins.capabilities.supervised_process import (
     SupervisedProcessOwner,
     SupervisedProcessSettings,
     SupervisedProcessState,
-    SupervisedProcessWaitPolicy,
     build_supervised_process_environment,
     register_supervised_process_actions,
 )
@@ -64,7 +64,7 @@ from tinysoul.plugins.workspace import (
     WorkspaceMirrorService,
     WorkspaceSettings,
 )
-from tests.support.process import PYTHON_WAIT_FOREVER
+from tests.support.process import PYTHON_WAIT_FOREVER, settled_process
 from tests.support.project import copy_initialized_project
 
 
@@ -239,9 +239,8 @@ async def test_powershell_success_without_diff_completes_and_cleans(local_tmp: P
     assert observation.payload["command_digest"]
     assert "ok" in _log_text(observation.payload, "stdout")
     assert manager.has_unresolved("turn_1") is False
-    assert not tuple(
-        (local_tmp / "runtime" / ".staging").glob("supervised-process-job-*")
-    )
+    await manager.cleanup_turn("turn_1")
+    assert not tuple((local_tmp / "runtime" / ".staging").glob("supervised-process-job-*"))
 
 
 @pytest.mark.skipif(shutil.which("powershell") is None, reason="PowerShell unavailable")
@@ -341,8 +340,8 @@ async def test_shell_timeout_and_stop_remain_owned_until_discard(local_tmp: Path
         local_tmp / "timeout",
         workspace,
         settings=SupervisedProcessSettings(
-            initial_wait_seconds=1,
-            cycle_wait_seconds=15,
+
+
             max_runtime_seconds=1,
         ),
     )
@@ -352,9 +351,9 @@ async def test_shell_timeout_and_stop_remain_owned_until_discard(local_tmp: Path
         identity={"command_digest": "timeout"},
         prepare=_PythonProcessPreparer(PYTHON_WAIT_FOREVER),
         control=ActionExecutionControl(),
-        bus=None,
         auto_complete_without_changes=True,
     )
+    timed_out = await settled_process(timeout_manager, "turn_timeout", timed_out)
     timeout_id = str(timed_out.payload["execution_id"])
 
     assert timed_out.timed_out is True
@@ -377,16 +376,15 @@ async def test_shell_timeout_and_stop_remain_owned_until_discard(local_tmp: Path
         identity={"command_digest": "stop"},
         prepare=_PythonProcessPreparer(PYTHON_WAIT_FOREVER),
         control=ActionExecutionControl(),
-        bus=None,
         auto_complete_without_changes=True,
     )
     stop_id = str(running.payload["execution_id"])
-    stopped = stop_manager.stop(
+    stop_manager.stop(
         turn_id="turn_stop",
         execution_id=stop_id,
     )
 
-    assert stopped.payload["job_state"] == "stopped"
+    assert stop_manager.registry.get("turn_stop", stop_id).poll().state.value == "stopped"
     assert stop_manager.has_unresolved("turn_stop") is True
     await stop_manager.discard(
         turn_id="turn_stop",
@@ -410,9 +408,9 @@ async def test_failed_shell_candidate_can_be_read_then_discarded(local_tmp: Path
             "raise SystemExit(9)\n"
         ),
         control=ActionExecutionControl(),
-        bus=None,
         auto_complete_without_changes=True,
     )
+    failed = await settled_process(manager, "turn_1", failed)
     execution_id = str(failed.payload["execution_id"])
 
     assert failed.failed is True
@@ -440,8 +438,8 @@ def test_shell_effective_catalog_pruning_preserves_action_contract(local_tmp: Pa
         bash=ShellAdapterSettings(False, "bash"),
     )
     process_settings = SupervisedProcessSettings(
-        initial_wait_seconds=1,
-        cycle_wait_seconds=15,
+
+
         max_runtime_seconds=60,
     )
     engine, _, _, _ = _shell_engine(
@@ -451,23 +449,12 @@ def test_shell_effective_catalog_pruning_preserves_action_contract(local_tmp: Pa
     )
     identifiers = engine.action_identifiers()
 
-    assert engine.domain_names() == ("execution",)
+    assert set(engine.domain_names()) == {"core", "execution"}
     assert ("execution", "execution.run_powershell") in identifiers
     assert ("execution", "execution.run_cmd") not in identifiers
     assert ("execution", "execution.run_bash_command") not in identifiers
     scope = engine.phase2_scope(("execution",))
     assert scope.tool_scope is not None
-    wait_tool = next(
-        tool for tool in scope.tool_scope.visible_tools() if tool.name == "execution.wait"
-    )
-    properties = wait_tool.parameters["properties"]
-    assert isinstance(properties, dict)
-    wait_seconds = properties["wait_seconds"]
-    assert isinstance(wait_seconds, dict)
-    assert wait_seconds["minimum"] == 15
-    assert wait_seconds["default"] == 15
-    assert wait_seconds["maximum"] == 60
-
     home_root = local_tmp / "enabled" / "home" / "skills_domain" / "execution"
     home_root.mkdir(parents=True)
     (home_root / "DOMAIN.md").write_text("shell guidance", encoding="utf-8")
@@ -547,8 +534,9 @@ async def test_shell_action_engine_result_enters_turn_trace(local_tmp: Path) -> 
     )
 
     assert outcome.results[0].status is ActionResultStatus.SUCCESS
-    assert outcome.results[0].payload["job_state"] == "completed"
-    assert "trace-ok" in _log_text(outcome.results[0].payload, "stdout")
+    assert outcome.results[0].payload["job_id"]
+    finished = await settled_process(manager, turn_id, SupervisedProcessObservation(outcome.results[0].payload))
+    assert "trace-ok" in _log_text(finished.payload, "stdout")
     assert context.trace_kinds() == (TraceKind.ACTION_RESULT,)
     assert manager.has_unresolved(turn_id) is False
 
@@ -570,7 +558,6 @@ async def test_execution_lifecycle_action_resolves_shell_owner(local_tmp: Path) 
         identity={"command_digest": "shared-lifecycle"},
         prepare=_PythonProcessPreparer(PYTHON_WAIT_FOREVER),
         control=ActionExecutionControl(),
-        bus=None,
         auto_complete_without_changes=True,
     )
     execution_id = str(running.payload["execution_id"])
@@ -578,8 +565,8 @@ async def test_execution_lifecycle_action_resolves_shell_owner(local_tmp: Path) 
         (
             ToolCallRecord(
                 id="stop_1",
-                name="execution.stop",
-                arguments={"execution_id": execution_id},
+                name="core.job.stop",
+                arguments={"job_id": execution_id},
                 kind=ToolKind.ACTION,
             ),
         )
@@ -600,8 +587,8 @@ async def test_execution_lifecycle_action_resolves_shell_owner(local_tmp: Path) 
     )
 
     assert outcome.results[0].status is ActionResultStatus.SUCCESS
-    assert outcome.results[0].payload["job_state"] == "stopped"
-    assert outcome.results[0].payload["owner"] == SupervisedProcessOwner.SHELL.value
+    assert outcome.results[0].payload["state"] == "stopped"
+    assert outcome.results[0].payload["kind"] == SupervisedProcessOwner.SHELL.value
     await manager.discard(turn_id=turn_id, execution_id=execution_id)
 
 
@@ -628,11 +615,11 @@ async def test_script_and_shell_share_one_job_resolved_by_execution_id(
             executable=shutil.which("powershell") or "powershell",
             command="Write-Output 'second'",
         )
-    stopped = manager.stop(
+    manager.stop(
         turn_id="turn_1",
         execution_id=execution_id,
     )
-    assert stopped.payload["owner"] == SupervisedProcessOwner.SHELL.value
+    assert manager.registry.get("turn_1", execution_id).poll().kind == "shell"
     await manager.discard(
         turn_id="turn_1",
         execution_id=execution_id,
@@ -650,7 +637,6 @@ async def test_shared_answer_guard_rejects_shell_owned_unresolved_job(
         identity={"command_digest": "test-digest"},
         prepare=_PythonProcessPreparer(PYTHON_WAIT_FOREVER),
         control=ActionExecutionControl(),
-        bus=None,
         auto_complete_without_changes=True,
     )
     catalog = builtin_catalog()
@@ -706,11 +692,11 @@ def _manager(
     return SupervisedProcessManager(
         settings=settings
         or SupervisedProcessSettings(
-            initial_wait_seconds=1,
-            cycle_wait_seconds=15,
+
+
             max_runtime_seconds=30,
         ),
-        wait_policy=SupervisedProcessWaitPolicy(15, 15, 60),
+
         mirror_service=WorkspaceMirrorService(
             workspace,
             max_files=100,
@@ -747,7 +733,7 @@ async def _start_shell(
     executable: str,
     command: str,
 ) -> SupervisedProcessObservation:
-    return await manager.start(
+    observation = await manager.start(
         turn_id=turn_id,
         owner=SupervisedProcessOwner.SHELL,
         identity={
@@ -762,9 +748,11 @@ async def _start_shell(
             working_directory=".",
         ),
         control=ActionExecutionControl(),
-        bus=None,
         auto_complete_without_changes=True,
     )
+    if command != "Wait-Event":
+        return await settled_process(manager, turn_id, observation)
+    return observation
 
 
 def _shell_engine(
@@ -781,8 +769,9 @@ def _shell_engine(
             "execution.run_powershell",
             "execution.run_cmd",
             "execution.run_bash_command",
-            "execution.wait",
-            "execution.stop",
+            "core.job.status",
+            "core.job.stop",
+            "core.job.wait",
             "execution.read_candidate",
             "execution.apply",
             "execution.discard",
@@ -797,7 +786,6 @@ def _shell_engine(
             builder,
             settings=settings,
             jobs=manager,
-            bus=bus,
         )
         register_supervised_process_actions(
             builder,
@@ -812,6 +800,7 @@ def _shell_engine(
             jobs=manager,
             bus=bus,
         )
+        register_job_actions(builder, manager.registry)
         engine = builder.build()
     return engine, manager, workspace, bus
 

@@ -653,24 +653,6 @@ value_kind = "integer"
 importance = "advanced"
 
 [[field]]
-path = "capabilities.supervised_process.initial_wait_seconds"
-surface = "capabilities.execution"
-group = "capabilities.execution.supervision"
-title = "Initial Process Wait"
-description = "Initial wait before the first supervised process status check."
-value_kind = "number"
-importance = "advanced"
-
-[[field]]
-path = "capabilities.supervised_process.cycle_wait_seconds"
-surface = "capabilities.execution"
-group = "capabilities.execution.supervision"
-title = "Cycle Process Wait"
-description = "Wait applied between Agent cycles while a process remains active."
-value_kind = "number"
-importance = "advanced"
-
-[[field]]
 path = "capabilities.supervised_process.max_runtime_seconds"
 surface = "capabilities.execution"
 group = "capabilities.execution.supervision"

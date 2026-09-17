@@ -83,10 +83,10 @@ class BackgroundCatalog:
 
 
 class BackgroundEntryProvider(Protocol):
-    def catalog(self, business_day: date) -> BackgroundCatalog:
+    async def catalog(self, business_day: date) -> BackgroundCatalog:
         ...
 
-    def load(self, link: str, business_day: date) -> str:
+    async def load(self, link: str, business_day: date) -> str:
         ...
 
 

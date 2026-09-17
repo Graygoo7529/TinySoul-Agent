@@ -10,7 +10,7 @@ from typing import Protocol
 from uuid import uuid4
 
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
-from tinysoul.infra.json import JsonObject
+from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.kernel.loop.inbox import InboxError, TurnInbox
 from tinysoul.runtime import RunScope, Signal, SignalBus
 
@@ -59,6 +59,10 @@ class JobBackend(Protocol):
     def close_execution(self) -> None: ...
 
     def cleanup(self) -> None: ...
+
+    def request_stop(self) -> None: ...
+
+    def describe(self) -> JsonObject: ...
 
 
 @dataclass
@@ -130,12 +134,25 @@ class JobRegistry[B: JobBackend]:
     def snapshots(self, turn_id: str) -> tuple[JobSnapshot, ...]:
         return tuple(job.snapshot for job in self._jobs.values() if job.turn_id == turn_id)
 
-    async def wait(self, turn_id: str, *, timeout: float) -> bool:
-        inbox = self._inboxes.get(turn_id)
-        if inbox is None:
-            await asyncio.sleep(timeout)
-            return False
-        return await inbox.wait(timeout=timeout)
+    def snapshot(self, turn_id: str, job_id: str) -> JobSnapshot:
+        self.get(turn_id, job_id)
+        return self._jobs[job_id].snapshot
+
+    async def describe(self, turn_id: str, job_id: str, *, operations: JoinedOperations) -> JsonObject:
+        backend = self.get(turn_id, job_id)
+        details = await operations.run(backend.describe)
+        return {**self.snapshot(turn_id, job_id).to_json(), "details": to_json_object(details)}
+
+    async def stop(self, turn_id: str, job_id: str, *, operations: JoinedOperations) -> JobSnapshot:
+        backend = self.get(turn_id, job_id)
+        job = self._jobs[job_id]
+        if job.snapshot.state is JobState.RUNNING:
+            await operations.run(backend.request_stop)
+            # The monitor alone publishes the terminal snapshot and fact.
+            monitor = job.monitor
+            if monitor is not None:
+                await operations.finish(lambda: monitor)
+        return job.snapshot
 
     async def _monitor(self, job: _Job[B]) -> None:
         backend = job.backend
@@ -160,8 +177,9 @@ class JobRegistry[B: JobBackend]:
             self._diagnostics.setdefault(job.turn_id, []).append(
                 CleanupDiagnostic("job.monitor", type(exc).__name__),
             )
-            job.snapshot = JobSnapshot(job.snapshot.job_id, job.snapshot.kind,
-                                       JobState.FAILED, "Job supervision failed.")
+            if job.snapshot.state is JobState.RUNNING:
+                job.snapshot = JobSnapshot(job.snapshot.job_id, job.snapshot.kind,
+                                           JobState.FAILED, "Job supervision failed.")
             try:
                 await JoinedOperations().run(backend.close_execution)
             except Exception as close_error:
@@ -198,23 +216,23 @@ class JobRegistry[B: JobBackend]:
                     )
             if job.backend is not None:
                 try:
-                    job.snapshot = await JoinedOperations().run(job.backend.poll)
+                    if job.snapshot.state is JobState.RUNNING:
+                        job.snapshot = await JoinedOperations().run(job.backend.poll)
                     if job.snapshot.state is JobState.RUNNING:
                         job.snapshot = JobSnapshot(job_id, job.snapshot.kind, JobState.STOPPED)
                 except Exception as exc:
                     self._diagnostics.setdefault(turn_id, []).append(
                         CleanupDiagnostic("job.final_state", type(exc).__name__),
                     )
-                    job.snapshot = JobSnapshot(job_id, job.snapshot.kind, JobState.FAILED,
-                                               "Job final state could not be read.")
+                    if job.snapshot.state is JobState.RUNNING:
+                        job.snapshot = JobSnapshot(job_id, job.snapshot.kind, JobState.FAILED,
+                                                   "Job final state could not be read.")
                 try:
                     await JoinedOperations().run(job.backend.cleanup)
                 except Exception as exc:
                     self._diagnostics.setdefault(turn_id, []).append(
                         CleanupDiagnostic("job.cleanup", type(exc).__name__),
                     )
-                    job.snapshot = JobSnapshot(job_id, job.snapshot.kind, JobState.FAILED,
-                                               "Job resource cleanup failed.")
                 try:
                     await self._terminal(job)
                 except Exception as exc:

@@ -26,30 +26,26 @@ def mount_endpoint(
 ) -> EndpointEngine:
     """Attach HTTP hosting and observation replay to an unstarted Agent."""
 
-    with assembly.generation_handle.read() as generation:
-        journal = None
-        if settings.journal_enabled:
-            journal = EndpointEventJournal(
-                settings.journal_root or (generation.config.project.root / "runtime" / "endpoint" / "events"),
-                max_segment_bytes=settings.journal_segment_bytes,
-                max_total_bytes=settings.journal_total_bytes,
-            )
-        events = EndpointEventBuffer(
-            capacity=settings.event_capacity,
-            max_bytes=settings.event_bytes,
-            page_bytes=settings.event_page_bytes,
-            journal=journal,
+    journal = None
+    if settings.journal_enabled:
+        journal = EndpointEventJournal(
+            settings.journal_root or (assembly.project_root / "runtime" / "endpoint" / "events"),
+            max_segment_bytes=settings.journal_segment_bytes,
+            max_total_bytes=settings.journal_total_bytes,
         )
-        engine = EndpointEngine(
-            settings=settings,
-            events=events,
-            gateway=assembly.gateway,
-            workspace=generation.workspace,
-            maintenance=generation.maintenance,
-            day=generation.day,
-            config=assembly.configuration,
-            runtime_handle=assembly.generation_handle,
-        )
+    events = EndpointEventBuffer(
+        capacity=settings.event_capacity,
+        max_bytes=settings.event_bytes,
+        page_bytes=settings.event_page_bytes,
+        journal=journal,
+    )
+    engine = EndpointEngine(
+        settings=settings,
+        events=events,
+        gateway=assembly.gateway,
+        services=assembly.service_access,
+        config=assembly.configuration,
+    )
     assembly.mount_service(EndpointHost(engine=engine, settings=settings, ready=ready))
     assembly.observations.add_route(ObservationRoute(sink=events, mode=ObservationLevel.MODEL))
     return engine

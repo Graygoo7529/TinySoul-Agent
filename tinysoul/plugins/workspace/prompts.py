@@ -18,11 +18,11 @@ from .engine import (
     WorkspaceAnalysisInput,
     WorkspaceEditReadSet,
     WorkspaceEditSources,
-    WorkspaceEngine,
     WorkspacePromptInput,
     WorkspacePromptSource,
     WorkspaceTextSlice,
 )
+from .services import WorkspaceService
 from .errors import (
     WorkspaceError,
     WorkspaceImageValidationError,
@@ -108,7 +108,7 @@ class WorkspacePromptReferenceResolver(PromptReferenceResolver):
 
     def __init__(
         self,
-        workspace: WorkspaceEngine,
+        workspace: WorkspaceService,
         *,
         runtime_bridge: WorkspaceTrashRuntimeBridge | None = None,
     ) -> None:
@@ -118,17 +118,17 @@ class WorkspacePromptReferenceResolver(PromptReferenceResolver):
     def supports(self, link: str) -> bool:
         return isinstance(link, str) and link.startswith(WORKSPACE_LINK_PREFIX)
 
-    def resolve_reference(self, link: str) -> tuple[PromptBlock, ...]:
+    async def resolve_reference(self, link: str) -> tuple[PromptBlock, ...]:
         """Resolve a workspace link as read-only prompt input."""
 
-        return self._resolve(link, role="reference")
+        return await self._resolve(link, role="reference")
 
-    def resolve_target(self, link: str) -> tuple[PromptBlock, ...]:
+    async def resolve_target(self, link: str) -> tuple[PromptBlock, ...]:
         """Resolve a workspace link as the target of a workspace action."""
 
-        return self._resolve(link, role="target")
+        return await self._resolve(link, role="target")
 
-    def _resolve(self, link: str, *, role: str) -> tuple[PromptBlock, ...]:
+    async def _resolve(self, link: str, *, role: str) -> tuple[PromptBlock, ...]:
         if not isinstance(link, str) or not link:
             raise PromptReferenceError(
                 "Workspace prompt reference requires a non-empty link.",
@@ -141,12 +141,12 @@ class WorkspacePromptReferenceResolver(PromptReferenceResolver):
                 payload={"link": link},
             )
         try:
-            record = self._workspace.inspect(link)
+            record = await self._workspace.inspect(link)
             if record.kind is WorkspaceResourceKind.TEXT:
-                prompt_input = self._workspace.prepare_task_input((link,))
+                prompt_input = await self._workspace.prepare_task_input((link,))
                 return prompt_blocks_from_workspace_input(prompt_input, role=role)
             if record.kind is WorkspaceResourceKind.IMAGE:
-                image = self._workspace.read_image(link)
+                image = await self._workspace.read_image(link)
                 label_role = "target" if role == "target" else "reference"
                 heading = (
                     "# Workspace Target"
@@ -232,20 +232,20 @@ class WorkspaceEditPromptBuilder:
 
     def __init__(
         self,
-        workspace: WorkspaceEngine,
+        workspace: WorkspaceService,
         *,
         runtime_bridge: WorkspaceTrashRuntimeBridge | None = None,
     ) -> None:
         self._workspace = workspace
         self._runtime_bridge = runtime_bridge
 
-    def build_describe(
+    async def build_describe(
         self,
         *,
         target_link: str,
         instruction: str,
     ) -> WorkspaceEditPrompt:
-        sources = self._prepare_sources(target_link, (), require_target=True)
+        sources = await self._prepare_sources(target_link, (), require_target=True)
         if sources.target is None:
             raise WorkspaceError("Workspace describe target is absent")
         target_blocks = _prompt_blocks_from_source(
@@ -280,14 +280,14 @@ class WorkspaceEditPromptBuilder:
             read_set=sources.read_set,
         )
 
-    def build_create(
+    async def build_create(
         self,
         *,
         target_link: str,
         instruction: str,
         reference_links: tuple[str, ...],
     ) -> WorkspaceEditPrompt:
-        sources = self._prepare_sources(
+        sources = await self._prepare_sources(
             target_link,
             reference_links,
             require_target=False,
@@ -297,7 +297,7 @@ class WorkspaceEditPromptBuilder:
             if sources.target is not None
             else ()
         )
-        write_limit = self._workspace.settings.max_write_chars
+        write_limit = self._workspace.max_write_chars
         return WorkspaceEditPrompt(
             prompt=TaskPrompt(
                 guide_blocks=(
@@ -354,14 +354,14 @@ class WorkspaceEditPromptBuilder:
             read_set=sources.read_set,
         )
 
-    def build_rewrite(
+    async def build_rewrite(
         self,
         *,
         target_link: str,
         instruction: str,
         reference_links: tuple[str, ...],
     ) -> WorkspaceEditPrompt:
-        sources = self._prepare_sources(
+        sources = await self._prepare_sources(
             target_link,
             reference_links,
             require_target=True,
@@ -377,14 +377,14 @@ class WorkspaceEditPromptBuilder:
                 payload={
                     "link": sources.target.version.link,
                     "size": sources.target.version.size,
-                    "read_limit": self._workspace.settings.max_read_chars,
+                    "read_limit": self._workspace.max_read_chars,
                     "hint": (
                         "Use workspace.read/search_text to obtain exact ranges, "
                         "then apply digest-guarded workspace.patch calls."
                     ),
                 },
             )
-        write_limit = self._workspace.settings.max_write_chars
+        write_limit = self._workspace.max_write_chars
         target_blocks = _prompt_blocks_from_source(sources.target, role="target")
         return WorkspaceEditPrompt(
             prompt=TaskPrompt(
@@ -429,7 +429,7 @@ class WorkspaceEditPromptBuilder:
             read_set=sources.read_set,
         )
 
-    def _prepare_sources(
+    async def _prepare_sources(
         self,
         target_link: str,
         reference_links: tuple[str, ...],
@@ -437,7 +437,7 @@ class WorkspaceEditPromptBuilder:
         require_target: bool,
     ) -> WorkspaceEditSources:
         try:
-            return self._workspace.prepare_edit_sources(
+            return await self._workspace.prepare_edit_sources(
                 target_link,
                 reference_links,
                 require_target=require_target,

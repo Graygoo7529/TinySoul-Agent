@@ -1,0 +1,35 @@
+name = "core.wait"
+domain = "core"
+
+[tool]
+description = "Pause before the next Cycle until a timer expires or an explicitly selected event arrives. New user instructions can interrupt; waiting never grants Cycle budget."
+
+[tool.schema]
+type = "object"
+additionalProperties = false
+
+[tool.schema.properties.timeout_seconds]
+type = "number"
+minimum = 0.001
+description = "Positive duration. With an event filter, either event or deadline resumes the Turn."
+
+[tool.schema.properties.event_kind]
+type = "string"
+enum = ["event", "timer", "job"]
+
+[tool.schema.properties.event_id]
+type = "string"
+description = "Optional exact event identity within the chosen kind."
+
+[semantic]
+use_when = ["Further work needs an environment event or an explicit delay"]
+avoid_when = ["Useful independent work remains"]
+effects = ["read_only"]
+
+[runtime]
+timeout_seconds = 5
+parallel_policy = "serial"
+
+[backend]
+kind = "native"
+handler = "core.wait"

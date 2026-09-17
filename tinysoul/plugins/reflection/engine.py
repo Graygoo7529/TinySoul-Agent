@@ -13,6 +13,7 @@ from tinysoul.infra.json import JsonObject
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.loop.inbox import TurnInbox
 from tinysoul.kernel.loop.turn import TurnExecutionCancelled
+from .models import ReflectionExecutionCancelled
 from tinysoul.plugins.memory import MemoryIOError, MemoryInvariantError
 from tinysoul.runtime import (
     NullObservationEmitter,
@@ -62,6 +63,7 @@ class HomeReflectionRunner(Protocol):
         scope: RunScope,
         request_id: str,
         inbox: TurnInbox | None = None,
+        instructions: str = "",
     ) -> ReflectionTaskOutcome: ...
 
 
@@ -85,6 +87,7 @@ class MemoryReflectionRunner(Protocol):
         scope: RunScope,
         request_id: str,
         inbox: TurnInbox | None = None,
+        instructions: str = "",
     ) -> ReflectionTaskOutcome: ...
 
 
@@ -143,15 +146,40 @@ class ReflectionEngine:
             )
             outcomes: list[ReflectionTaskOutcome] = []
 
+            def completed() -> ReflectionOutcome:
+                return ReflectionOutcome(
+                    request_id=request.request_id, business_day=business_day,
+                    status=_aggregate_status(tuple(outcomes)), tasks=tuple(outcomes),
+                )
+
+            async def run_task(
+                kind: ReflectionTaskKind,
+                run: Callable[[], Awaitable[ReflectionTaskOutcome]],
+                *, target_day: CalendarDay | None = None,
+            ) -> ReflectionTaskOutcome:
+                try:
+                    return await self._run_task(kind, run, target_day=target_day)
+                except TurnExecutionCancelled as exc:
+                    outcomes.append(ReflectionTaskOutcome.from_turn(
+                        kind, exc.outcome, target_day=target_day,
+                    ))
+                    raise ReflectionExecutionCancelled(completed()) from exc
+                except asyncio.CancelledError as exc:
+                    outcomes.append(ReflectionTaskOutcome(
+                        kind, ReflectionTaskStatus.CANCELLED, target_day=target_day,
+                    ))
+                    raise ReflectionExecutionCancelled(completed()) from exc
+
             if request.scope in {ReflectionScope.DAILY, ReflectionScope.HOME}:
                 outcomes.append(
-                    (await self._run_task(
+                    (await run_task(
                         ReflectionTaskKind.HOME,
                         lambda: self._home.run(
                             business_day=business_day,
                             scope=run_scope,
                             request_id=request.request_id,
                             inbox=inbox,
+                            instructions=request.instructions,
                         ),
                     ))
                 )
@@ -185,7 +213,7 @@ class ReflectionEngine:
                     archive = await operations.run(lambda: self._archive_for(target))
                     operations.check_cancelled()
                     outcomes.append(
-                        (await self._run_task(
+                        (await run_task(
                             ReflectionTaskKind.MEMORY,
                             lambda target=target: self._memory.run(
                                 business_day=business_day,
@@ -194,6 +222,7 @@ class ReflectionEngine:
                                 scope=run_scope,
                                 request_id=request.request_id,
                                 inbox=inbox,
+                                instructions=request.instructions,
                             ),
                             target_day=target,
                         ))
@@ -203,23 +232,15 @@ class ReflectionEngine:
                 DailyTransitionOutcome(active_day=business_day),
                 scope=run_scope,
             ))
-            if operations.cancelled:
-                for task in reversed(outcomes):
-                    if task.turn_outcome is not None:
-                        raise TurnExecutionCancelled(task.turn_outcome)
-                operations.check_cancelled()
-            outcome = ReflectionOutcome(
-                request_id=request.request_id,
-                business_day=business_day,
-                status=_aggregate_status(tuple(outcomes)),
-                tasks=tuple(outcomes),
-            )
+            outcome = completed()
             self._emit(
                 "maintenance.completed",
                 f"Reflection finished with {outcome.status.value}.",
                 outcome.to_json(),
                 scope=run_scope,
             )
+            if operations.cancelled:
+                raise ReflectionExecutionCancelled(outcome)
             return outcome
 
     def refresh_availability(
@@ -400,6 +421,7 @@ def _aggregate_status(
     if failed:
         return ReflectionStatus.PARTIAL
     for status in (
+        ReflectionTaskStatus.CANCELLED,
         ReflectionTaskStatus.AWAITING_USER,
         ReflectionTaskStatus.STOPPED,
         ReflectionTaskStatus.EXHAUSTED,

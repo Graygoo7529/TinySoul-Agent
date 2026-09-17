@@ -12,7 +12,8 @@ from tinysoul.infra.json import JsonValue
 class ReflectionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["daily", "home", "memory"]
+    kind: Literal["home", "memory"]
     target_day: str = ""
+    instructions: str = Field(default="", max_length=16000)
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
     command_id: str = Field(default="", max_length=128)

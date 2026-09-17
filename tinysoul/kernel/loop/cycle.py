@@ -48,6 +48,7 @@ from .phases import (
 )
 from .signals import LoopControlKind, consume_control_signal_requests
 from .inbox import QuestionRequest
+from .completion import WaitRequest
 
 T = TypeVar("T")
 
@@ -63,6 +64,7 @@ class CycleOutcome:
     completion: JsonObject | None = None
     phase_failure: PhaseFailure | None = None
     question: QuestionRequest | None = None
+    wait: WaitRequest | None = None
 
 
 @dataclass(frozen=True)
@@ -259,6 +261,7 @@ class CycleRunner:
             cycle_id=cycle_id,
             completion=phase3_outcome.completion,
             question=phase3_outcome.question,
+            wait=phase3_outcome.wait,
             phase_failure=phase3_outcome.failure,
         )
 

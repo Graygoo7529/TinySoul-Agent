@@ -45,7 +45,8 @@ class ReflectionSettings:
     timezone: str = "Asia/Shanghai"
     archive_root: Path = Path("archive")
     runtime_root: Path = Path("runtime/maintenance")
-    turn: TurnSettings = field(default_factory=TurnSettings)
+    home: TurnSettings = field(default_factory=TurnSettings)
+    memory: TurnSettings = field(default_factory=TurnSettings)
     schedule: ReflectionScheduleSettings = field(
         default_factory=ReflectionScheduleSettings
     )
@@ -81,13 +82,9 @@ class ReflectionSettings:
                 value=self.runtime_root,
                 expected="path",
             )
-        if not isinstance(self.turn, TurnSettings):
-            raise ConfigError(
-                "Reflection turn settings are invalid",
-                key="maintenance.turn",
-                value=self.turn,
-                expected="TurnSettings",
-            )
+        for name in ("home", "memory"):
+            if not isinstance(getattr(self, name), TurnSettings):
+                raise ConfigError("Reflection scenario settings are invalid", key=f"maintenance.{name}")
         if not isinstance(self.schedule, ReflectionScheduleSettings):
             raise ConfigError(
                 "Reflection schedule is invalid",
@@ -104,7 +101,7 @@ def parse_maintenance_settings(
 ) -> ReflectionSettings:
     reject_unknown_keys(
         tree,
-        {"timezone", "archive_root", "runtime_root", "turn", "schedule"},
+        {"timezone", "archive_root", "runtime_root", "home", "memory", "schedule"},
         key="maintenance",
     )
     timezone = tree.get("timezone", ReflectionSettings.timezone)
@@ -141,7 +138,8 @@ def parse_maintenance_settings(
         timezone=timezone,
         archive_root=archive_root,
         runtime_root=runtime_root,
-        turn=parse_turn_settings(tree.get("turn"), key="maintenance.turn"),
+        home=parse_turn_settings(tree.get("home"), key="maintenance.home"),
+        memory=parse_turn_settings(tree.get("memory"), key="maintenance.memory"),
         schedule=_parse_schedule(tree.get("schedule")),
     )
 

@@ -6,9 +6,9 @@ Use `execution.run_python_script` or `execution.run_bash_script` for maintained 
 
 All run actions execute without interactive stdin in a transactional mirror of the active Workspace. This provides transaction isolation, limits, process-tree termination, and explicit Workspace commit; it is not an OS security sandbox. A process may still access host paths, environment, network, or child processes outside the mirror, and those effects cannot be rolled back.
 
-A successful process with changes becomes `ready_to_apply`, not committed. Inspect bounded logs and candidate metadata, use `execution.read_candidate` when needed, then choose `execution.apply` or `execution.discard`. A successful immediate command with no Workspace changes completes and cleans itself automatically. Failed, timed-out, or stopped jobs cannot be applied and remain available only for inspection and discard.
+A successful process with changes becomes `ready_to_apply`, not committed. Inspect bounded logs and candidate metadata, use `execution.read_candidate` when needed, then choose `execution.apply` or `execution.discard`. A successful immediate command with no Workspace changes completes without requiring apply or discard; its resources are reclaimed before the next execution or when the Turn ends. Failed, timed-out, or stopped jobs cannot be applied and remain available only for inspection and discard.
 
-Use `execution.wait` with 15-60 seconds for paced supervision: prefer a short interval while observed activity is changing or completion is near, and a longer interval for an expected quiet operation. A completed interval already paces the next Cycle. Resolve the active Execution job before answering.
+Use `core.job.status` to inspect an active Execution job, `core.job.wait` to wait for its terminal state or an explicit timeout, and `core.job.stop` when it should be terminated. New user instructions can interrupt a wait. Resolve the active Execution job before answering.
 
 A successful `execution.apply` is the authoritative Workspace commit for the reported links and revision. Read committed content afterward only when the user requested verification or correctness cannot be established from the result and candidate metadata. After apply or discard resolves the job and the user goal is complete, update task state and answer.
 

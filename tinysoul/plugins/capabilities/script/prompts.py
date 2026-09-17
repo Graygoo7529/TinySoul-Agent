@@ -14,7 +14,7 @@ class ScriptEditPromptBuilder:
     def __init__(self, references: WorkspacePromptReferenceResolver) -> None:
         self._references = references
 
-    def build_create(
+    async def build_create(
         self,
         *,
         target_link: str,
@@ -42,7 +42,7 @@ class ScriptEditPromptBuilder:
                     "task_prompt:input:script_target",
                     "# Script Target\nlink: " + target_link,
                 ),
-                *self._reference_blocks(reference_links),
+                *(await self._reference_blocks(reference_links)),
             ),
             output_blocks=(
                 PromptBlock.from_text(
@@ -52,7 +52,7 @@ class ScriptEditPromptBuilder:
             ),
         )
 
-    def build_rewrite(
+    async def build_rewrite(
         self,
         *,
         source: ScriptSource,
@@ -76,7 +76,7 @@ class ScriptEditPromptBuilder:
                     "# Rewrite Instruction\n" + instruction,
                 ),
                 self._source_block(source, role="rewrite target"),
-                *self._reference_blocks(reference_links),
+                *(await self._reference_blocks(reference_links)),
             ),
             output_blocks=(
                 PromptBlock.from_text(
@@ -86,7 +86,7 @@ class ScriptEditPromptBuilder:
             ),
         )
 
-    def _reference_blocks(self, links: tuple[str, ...]) -> tuple[PromptBlock, ...]:
+    async def _reference_blocks(self, links: tuple[str, ...]) -> tuple[PromptBlock, ...]:
         blocks: list[PromptBlock] = []
         for link in links:
             if not self._references.supports(link):
@@ -95,7 +95,7 @@ class ScriptEditPromptBuilder:
                     reason="unsupported_script_reference",
                     payload={"link": link},
                 )
-            blocks.extend(self._references.resolve_reference(link))
+            blocks.extend(await self._references.resolve_reference(link))
         return tuple(blocks)
 
     @staticmethod

@@ -10,19 +10,19 @@
 
 AgentBuilder 读取明确传入的配置、构造领域 Engine 与资源作用域；AgentAssembly 保存根调度器、命令门面、配置控制器、当前世代和显式挂载的来源/服务。User、Home Reflection、Memory Reflection 分别解析真实 PluginDeclaration，先校验服务身份、依赖和段路由，再激活段与 Action 贡献。TurnProfile 绑定独立 Context、Action surface、准备/完成管线和类型化服务表。
 
-Agent.create 从项目根装配；Agent.assemble 接受显式装配工厂，供嵌入方注入 provider、时钟或来源。create 不启动来源，start 等待确定性日切与服务激活后才返回。SDK 的 submit、append、reply、cancel、grant 与 publish 经 AgentCommands 进入唯一调度器或指定 Inbox。状态查询为内存快照，TurnHandle 是结果权威；等待者取消不取消已受理 work。
+Agent.create 从项目根装配；Agent.assemble 接受显式装配工厂，供嵌入方注入 provider、时钟或来源。create 不启动来源，start 等待确定性日切与服务激活后才返回。SDK 的 submit、append、reply、cancel、grant 与 publish 经 AgentCommands 进入唯一调度器或指定 Inbox。状态查询为内存快照，TurnHandle 等待 owner 的 TurnOutcome/ReflectionOutcome；等待者取消不取消已受理 work。
 
-Agent.services 按 Facade 类型提供当前 User profile 服务，查找不触发 I/O；返回的 owner 门面属于当前世代，嵌入方应在 reload 后重新取得服务，并协调自身调用与生命周期。业务 SDK 请求和 Endpoint 访问由框架持有相应世代/day lease。领域短文件操作仍归 owner，同步门面通过 JoinedOperations 接入异步执行边界；模型和网络使用原生 async。
+Agent.services 按 Facade 类型提供当前 User profile 的 HomeService、MemoryService、SessionService 与 WorkspaceService，查找不触发 I/O。服务公开 I/O 为 async，短文件操作由 JoinedOperations 完整 join，模型和网络使用原生 async。每次调用按世代→日→owner 的顺序获取并复验 lease；闲置对象不占用运行边界。成功 reload、restart 或关闭使旧世代服务失效，日级服务还会在日切后失效；调用者重新获取，框架不重绑或重试写入。失败 reload 保留仍有效的旧对象。空闲后的新日调用先完成确定性准备，旧日服务随后在副作用前返回 AgentServiceStaleError；Home 服务只绑定世代。宿主无需创建 RunScope/Trap，日准备失败返回有界 AgentServiceUnavailableError。
 
-只运行一个根 Turn。等待用户、Job、定时器或预算期间仍占根位置，新 User/Reflection 请求排队。队列和已完成句柄保留有界；重复 request identity 必须内容相同。queued 阶段取消不伪造 Session Turn，开始后的取消先收尾再完成句柄。
+只运行一个根 Turn。等待用户、Job、定时器或预算期间仍占根位置，新 User/Reflection 请求排队。队列和已完成句柄保留有界；重复 request identity 必须内容相同。queued 阶段取消不伪造 Session Turn，开始后的取消先收尾再完成句柄。所有路径共用一次收敛出口；取消立即移除队列占位，完成按次序进入保留窗口。去重只保证活动请求和保留窗口内的身份一致；淘汰后外部已持 Handle 仍可 wait。
 
-shutdown 停止受理、取消根 work，等待 Action/Job、必要记录、段和来源回收，最后关闭世代。restart 重新装配，旧句柄保留旧结果。自建 LLM/embedding 客户端归世代关闭，注入对象保持借用。部分激活失败逆序关闭已创建资源；重复取消不抛弃清理任务，有限 cleanup diagnostics 不覆盖主失败。
+start/shutdown/restart 由各自拥有的任务串行衔接，并发等待者加入同一操作；启动中关闭立即停止受理并等待部分资源回收，旧 worker 回调不会修改新实例。shutdown 停止受理、取消根 work，等待 Action/Job、必要记录、段和来源回收，最后关闭世代。restart 重新装配，旧句柄保留旧结果。自建 LLM/embedding 客户端归世代关闭，注入对象保持借用。部分激活失败逆序关闭已创建资源；重复取消不抛弃清理任务，有限 cleanup diagnostics 不覆盖主失败。
 
 ## 输入、事件与容量
 
 Environment 的 InputEvent、InputSource、AgentRequestSource 只描述输入与来源生命周期。AgentIngress 解释可信终端命令和普通用户文本；InputCommandParser 纯解析，InputDispatcher 调用 AgentCommands。终端普通文本在空闲时提交 UserTurnRequest，活跃时追加到该 TurnInbox。Reflection 始终排入根队列。
 
-`/reply <question_id> <text>` 与 `/grant <request_id> <count>` 明确关联当前等待；普通追加不代替问题回复。取消、退出不排在普通输入后；退出停止后续根 work，取消当前 Turn 则保留后续请求。
+`/reply <question_id> <text>` 与 `/grant <request_id> <count>` 明确关联当前等待；普通追加作为新指示中断 INPUT/EVENT/TIMER 等待，保留原问题未答事实；它不伪造 reply，也不增加预算。取消、退出不排在普通输入后；退出停止后续根 work，取消当前 Turn 则保留后续请求。
 
 Runtime EventBus 只校验 envelope、保存有界幂等回执并投递。Agent EventRouter 将定向事件送到指定身份，过期目标不会回退给其他 Turn；无目标事件经订阅进入当前活动 Turn。事件不隐式创建根 work，外部事件不能伪造 reply、预算决定或 Job 终态。
 
@@ -38,9 +38,13 @@ daily 触发在 Agent 边界拆为 Home 与触发日前一日 Memory 两个独�
 
 ## 配置候选与世代激活
 
-SDK patch_config 与 HTTP PATCH 统一只校验并原子保存候选，返回 saved/pending_reload。当前运行世代继续服务；reload 在 idle 边界读取候选、校验并构造新世代后切换 RuntimeHandle。活动/等待 Turn、日切或既有激活会拒绝 reload。
+SDK patch_config 与 HTTP PATCH 统一只校验并原子保存候选，返回 saved/pending_reload。当前运行世代继续服务；reload 在 idle 边界读取候选、校验并构造新世代后切换 RuntimeHandle。活动/等待 Turn、已排队根请求、日切或既有激活会拒绝 reload。已获激活权后新到根可排队，但异步等待激活结束，候选失败后从旧世代继续分派。
 
 候选失败关闭候选并保留活动世代；已经保存的磁盘候选仍明确报告。切换成功后的退休只回收旧资源，失败返回诊断，不伪回滚可见新世代。EndpointHost、来源、实例锁与事件缓冲独立于业务世代，保持稳定。
+
+## 完成结果
+
+Handle 活动状态为 queued/preparing/running/waiting/finalizing/finished；TurnResult.status 从 owner outcome 投影，执行前失败或取消单独使用 RequestFailure，不构造虚假 Turn。finalizing 关闭普通受理，拒绝承诺迟到取消能改变已固定完成意图。必要 finish 失败影响主结果；Session 已提交后取消或 close 失败保留真实回答和独立诊断。Reflection 取消保留任务种类、目标日和底层 TurnOutcome。
 
 ## Observation 与 Gateway
 

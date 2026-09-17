@@ -68,9 +68,8 @@ class AgentCommands:
         handle.on_complete(lambda completed: self._router.unregister_target(completed.turn_id))
         return handle
 
-    def cancel_turn(self, turn_id: str) -> bool:
-        handle = self.turn(turn_id)
-        return handle.request_cancel() if handle is not None else False
+    async def cancel_turn(self, turn_id: str) -> bool:
+        return await self._scheduler.cancel_turn(turn_id)
 
     def request_exit(self, request: ExitRequest) -> None:
         self._scheduler.request_exit(request)

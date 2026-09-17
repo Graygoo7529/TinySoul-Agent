@@ -22,7 +22,7 @@ from tinysoul.plugins.capabilities.supervised_process import (
 )
 from tinysoul.plugins.capabilities.supervised_process.errors import SupervisedProcessError
 from tinysoul.infra import JsonObject
-from tinysoul.runtime import RuntimeException, SignalBus
+from tinysoul.runtime import RuntimeException
 from tinysoul.plugins.workspace import (
     WorkspaceContractError,
     WorkspaceError,
@@ -61,14 +61,12 @@ class ShellRunExecutor(ActionExecutor):
         adapter: ShellAdapterSettings,
         policy: ShellPolicy,
         jobs: SupervisedProcessManager,
-        bus: SignalBus,
         workspace_bridge: ShellWorkspaceRuntimeBridge | None,
     ) -> None:
         self._interpreter = interpreter
         self._adapter = adapter
         self._policy = policy
         self._jobs = jobs
-        self._bus = bus
         self._workspace_bridge = workspace_bridge
 
     async def execute(
@@ -101,7 +99,6 @@ class ShellRunExecutor(ActionExecutor):
                     working_directory=working_directory,
                 ),
                 control=context.control,
-                bus=context.signal_bus or self._bus,
                 auto_complete_without_changes=True,
             )
         except WorkspaceMirrorConflict:
@@ -128,7 +125,6 @@ def register_shell_actions(
     *,
     settings: ShellSettings,
     jobs: SupervisedProcessManager,
-    bus: SignalBus,
     workspace_bridge: ShellWorkspaceRuntimeBridge | None = None,
 ) -> ActionEngineBuilder:
     require_shell_dependencies(settings)
@@ -167,7 +163,6 @@ def register_shell_actions(
                 adapter=adapter,
                 policy=policy,
                 jobs=jobs,
-                bus=bus,
                 workspace_bridge=workspace_bridge,
             ),
         )

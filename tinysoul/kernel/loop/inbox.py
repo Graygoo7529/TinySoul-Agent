@@ -29,6 +29,67 @@ class WaitReason(StrEnum):
     BUDGET = "budget"
 
 
+class TurnState(StrEnum):
+    QUEUED = "queued"
+    PREPARING = "preparing"
+    RUNNING = "running"
+    WAITING = "waiting"
+    FINALIZING = "finalizing"
+    FINISHED = "finished"
+
+
+class WakeReason(StrEnum):
+    INPUT = "input"
+    REPLY = "reply"
+    EVENT = "event"
+    JOB = "job"
+    TIMER = "timer"
+
+
+@dataclass(frozen=True)
+class WaitCondition:
+    reason: WaitReason
+    after_sequence: int
+    deadline: float | None = None
+    event_kind: InboxKind | None = None
+    event_id: str | None = None
+    job_id: str | None = None
+    question: QuestionRequest | None = None
+
+    def __post_init__(self) -> None:
+        if self.reason not in {WaitReason.INPUT, WaitReason.EVENT, WaitReason.TIMER}:
+            raise InboxError("Ordinary wait requires input, event or timer")
+        if type(self.after_sequence) is not int or self.after_sequence < 0:
+            raise InboxError("Wait cursor must be non-negative")
+        if self.deadline is not None and (type(self.deadline) not in (int, float) or not isfinite(self.deadline)):
+            raise InboxError("Wait deadline must be finite")
+        if self.reason is WaitReason.INPUT and self.question is None:
+            raise InboxError("Input wait requires a question")
+        if self.reason is WaitReason.TIMER and self.deadline is None:
+            raise InboxError("Timer wait requires a deadline")
+        if self.reason is WaitReason.EVENT and self.event_kind is None and self.job_id is None:
+            raise InboxError("Event wait requires an explicit event or Job filter")
+        if self.event_kind is not None and self.event_kind not in {InboxKind.EVENT, InboxKind.TIMER, InboxKind.JOB}:
+            raise InboxError("Wait event kind is invalid")
+        if any(value is not None and (not isinstance(value, str) or not value) for value in (self.event_id, self.job_id)):
+            raise InboxError("Wait identities must be non-empty")
+
+
+@dataclass(frozen=True)
+class CycleReadiness:
+    granted_cycles: int = 0
+    reason: WakeReason | None = None
+    sequence: int | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.granted_cycles) is not int or self.granted_cycles < 0:
+            raise InboxError("Cycle readiness requires a non-negative grant")
+        if self.reason is not None and not isinstance(self.reason, WakeReason):
+            raise InboxError("Cycle readiness requires a typed wake reason")
+        if self.sequence is not None and (type(self.sequence) is not int or self.sequence <= 0):
+            raise InboxError("Wake sequence must be positive")
+
+
 @dataclass(frozen=True)
 class BudgetRequest:
     request_id: str
@@ -155,6 +216,23 @@ class TurnInbox:
         self._question: QuestionRequest | None = None
         self._reply: tuple[int, InboxRecord, int] | None = None
         self._terminals: dict[str, tuple[int, InboxRecord, int] | None] = {}
+        self._activity = TurnState.QUEUED
+        self._acknowledged_sequence = 0
+
+    @property
+    def acknowledged_sequence(self) -> int:
+        return self._acknowledged_sequence
+
+    @property
+    def activity(self) -> TurnState:
+        if self._activity is TurnState.RUNNING and self.wait_reason is not None:
+            return TurnState.WAITING
+        return self._activity
+
+    def set_activity(self, activity: TurnState) -> None:
+        if not isinstance(activity, TurnState):
+            raise InboxError("Turn activity must be typed")
+        self._activity = activity
 
     async def reserve_terminal(self, job_id: str, *, required_bytes: int = 1) -> None:
         async with self._condition:
@@ -219,22 +297,6 @@ class TurnInbox:
             self._condition.notify_all()
             return InboxReceipt(self._sequence, record.record_id, True)
 
-    async def wait_for_reply(self, question: QuestionRequest) -> bool:
-        async with self._condition:
-            if self._question is not question:
-                raise InboxError("Wait requires the active question")
-            self._wait_reason = WaitReason.INPUT
-            try:
-                await asyncio.wait_for(self._condition.wait_for(
-                    lambda: self._reply is not None or self._closed,
-                ), question.timeout_seconds)
-                return self._reply is not None
-            except TimeoutError:
-                return False
-            finally:
-                self._wait_reason = None
-                self._question = None
-
     @property
     def budget_request(self) -> BudgetRequest | None:
         return self._budget_request
@@ -269,24 +331,6 @@ class TurnInbox:
             self._grant = count
             self._condition.notify_all()
             return True
-
-    async def wait_for_budget(self, request: BudgetRequest) -> int:
-        async with self._condition:
-            if request is not self._budget_request:
-                raise InboxError("Wait requires the current budget request")
-            self._wait_reason = WaitReason.BUDGET
-            try:
-                await self._condition.wait_for(lambda: self._grant is not None or self._closed)
-                if self._closed:
-                    raise InboxClosedError("Turn ended while waiting for budget")
-                count = self._grant
-                if count is None:
-                    raise InboxError("Budget wait resumed without a grant")
-                self._budget_request = None
-                self._grant = None
-                return count
-            finally:
-                self._wait_reason = None
 
     async def accept(self, record: InboxRecord) -> InboxReceipt:
         if not isinstance(record, InboxRecord):
@@ -336,6 +380,7 @@ class TurnInbox:
             self._terminals = {key: item for key, item in self._terminals.items()
                                if item is None or item[0] > batch.next_sequence}
             self._bytes = sum(size for _, _, size in self._records)
+            self._acknowledged_sequence = max(self._acknowledged_sequence, batch.next_sequence)
             self._captured = None
             pending = {record.record_id for _, record, _ in self._records}
             if self._reply is not None:
@@ -346,33 +391,67 @@ class TurnInbox:
                 if record_id not in pending:
                     del self._receipts[record_id]
 
-    async def wait(self, *, after_sequence: int = 0, timeout: float | None = None) -> bool:
-        """Observe readiness without taking or acknowledging consumer records."""
-        if type(after_sequence) is not int or after_sequence < 0:
-            raise InboxError("Wait cursor must be a non-negative integer")
-        if timeout is not None and (
-            type(timeout) not in (int, float) or not isfinite(timeout) or timeout < 0
-        ):
-            raise InboxError("Wait timeout must be finite and non-negative")
+    async def wait_for_cycle(
+        self, condition: WaitCondition | None = None, *,
+        budget: BudgetRequest | None = None, job_ready: bool = False,
+    ) -> CycleReadiness:
+        """Observe ordinary readiness and budget together, without consuming facts."""
+        loop = asyncio.get_running_loop()
         async with self._condition:
-            def ready() -> bool:
-                return (any(seq > after_sequence for seq, _, _ in self._records)
-                        or any(item is not None and item[0] > after_sequence
-                               for item in self._terminals.values()))
-            if ready():
-                return True
-            if self._closed:
-                return False
+            if budget is not None and budget is not self._budget_request:
+                raise InboxError("Wait requires the active budget request")
+            if condition is not None and condition.question is not None and condition.question is not self._question:
+                raise InboxError("Wait requires the active question")
+            wake: tuple[WakeReason, int | None] | None = None
             try:
-                self._wait_reason = WaitReason.EVENT if timeout is None else WaitReason.TIMER
-                await asyncio.wait_for(
-                    self._condition.wait_for(lambda: ready() or self._closed), timeout,
-                )
-            except TimeoutError:
-                return False
+                while True:
+                    if self._closed:
+                        raise InboxClosedError("Turn ended while waiting")
+                    if condition is not None and wake is None:
+                        wake = self._ready(condition, job_ready=job_ready, now=loop.time())
+                        if wake is not None and condition.question is not None:
+                            self._question = None
+                    budget_ready = budget is None or self._grant is not None
+                    question_expired = (condition is not None and condition.question is not None
+                                        and wake is not None and wake[0] is WakeReason.TIMER)
+                    # An expired question ends the Turn; it needs no next Cycle.
+                    if question_expired or budget_ready and (condition is None or wake is not None):
+                        count = self._grant or 0
+                        if budget is not None:
+                            self._budget_request = None
+                            self._grant = None
+                        return CycleReadiness(count, wake[0] if wake else None, wake[1] if wake else None)
+                    self._wait_reason = WaitReason.BUDGET if not budget_ready else condition.reason if condition else None
+                    timeout = (max(0.0, condition.deadline - loop.time())
+                               if condition is not None and condition.deadline is not None and wake is None else None)
+                    try:
+                        await asyncio.wait_for(self._condition.wait(), timeout)
+                    except TimeoutError:
+                        pass  # Re-evaluate the deadline and budget under the same lock.
             finally:
                 self._wait_reason = None
-            return ready()
+                if condition is not None and condition.question is not None:
+                    self._question = None
+
+    def _ready(self, condition: WaitCondition, *, job_ready: bool, now: float) -> tuple[WakeReason, int | None] | None:
+        pending = [*self._records, *([self._reply] if self._reply is not None else []),
+                   *(item for item in self._terminals.values() if item is not None)]
+        for seq, record, _ in sorted(pending, key=lambda item: item[0]):
+            if seq <= condition.after_sequence:
+                continue
+            if record.kind is InboxKind.INPUT:
+                return WakeReason.INPUT, seq
+            if condition.question is not None and record.kind is InboxKind.REPLY:
+                return WakeReason.REPLY, seq
+            if condition.job_id is not None and record.kind is InboxKind.JOB and record.payload.get("job_id") == condition.job_id:
+                return WakeReason.JOB, seq
+            if condition.event_kind is record.kind and (condition.event_id is None or condition.event_id == record.record_id):
+                return WakeReason.EVENT, seq
+        if condition.job_id is not None and job_ready:
+            return WakeReason.JOB, None
+        if condition.deadline is not None and now >= condition.deadline:
+            return WakeReason.TIMER, None
+        return None
 
     async def close_if_empty(self) -> bool:
         async with self._condition:

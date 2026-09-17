@@ -25,7 +25,7 @@ from .observation import (
 )
 from .transfer import RuntimeTransfer, RuntimeTransferAction
 from .trap import TrapHandler, TrapHandlerRegistry, TrapResult, TrapSnap, RuntimeTrap
-from .signals import Signal, SignalBus, SignalWatch
+from .signals import Signal, SignalBus
 from .events import EnvironmentEvent, EventBus, EventCapacityError, EventKind, EventProtocolError, EventReceipt
 from .generation import (
     RuntimeActivationState,
@@ -65,7 +65,6 @@ __all__ = [
     "RuntimeTrap",
     "Signal",
     "SignalBus",
-    "SignalWatch",
     "EnvironmentEvent",
     "EventBus",
     "EventCapacityError",

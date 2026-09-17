@@ -12,6 +12,7 @@ import pytest
 
 from tinysoul.infra import EmbeddingBatch, EmbeddingError
 from tinysoul.infra.time import CalendarDay
+from tinysoul.plugins.memory.services import MemoryService
 from tinysoul.plugins.memory import (
     ActiveMemoryBackgroundEntryProvider,
     ConceptMemoryDocument,
@@ -80,7 +81,7 @@ def test_document_dates_headings_and_redirect_kinds_are_strict() -> None:
         )
 
 
-def test_active_memory_and_non_evictable_current_latest_background(
+async def test_active_memory_and_non_evictable_current_latest_background(
     tmp_path: Path,
 ) -> None:
     session_root = tmp_path / "runtime" / "session"
@@ -101,12 +102,12 @@ def test_active_memory_and_non_evictable_current_latest_background(
     assert "memory:concept/agent-design" in patched.content
 
     memory.write_document(_daily(DAY.value))
-    provider = ActiveMemoryBackgroundEntryProvider(memory)
-    catalog = provider.catalog(NEXT_DAY.value)
+    provider = ActiveMemoryBackgroundEntryProvider(MemoryService(memory))
+    catalog = await provider.catalog(NEXT_DAY.value)
     assert catalog.default_links == ("memory:current", "memory:latest")
     assert catalog.evictable_default_links == ()
-    assert patched.content in provider.load("memory:current", NEXT_DAY.value)
-    latest = provider.load("memory:latest", NEXT_DAY.value)
+    assert patched.content in await provider.load("memory:current", NEXT_DAY.value)
+    latest = await provider.load("memory:latest", NEXT_DAY.value)
     assert "memory:daily/2026-07-12" in latest
     assert "Daily evidence" in latest
 

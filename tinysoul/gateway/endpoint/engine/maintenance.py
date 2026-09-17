@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Generic
 
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.infra.time import CalendarDay, CalendarDayError
@@ -11,21 +10,18 @@ from tinysoul.runtime import RuntimeGatewayError
 from tinysoul.kernel.loop.errors import LoopError
 
 from ..errors import EndpointRequestError
-from .contracts import EndpointGenerationT
 from .context import EndpointEngineContext
 
 
-class EndpointReflectionEngine(Generic[EndpointGenerationT]):
+class EndpointReflectionEngine:
     """Translate Reflection requests through the shared App gateway."""
 
-    def __init__(self, context: EndpointEngineContext[EndpointGenerationT]) -> None:
+    def __init__(self, context: EndpointEngineContext) -> None:
         self._context = context
 
-    def status(self) -> JsonObject:
+    async def status(self) -> JsonObject:
         try:
-            with self._context.services_lease() as services:
-                maintenance = self._context.maintenance if services is None else services.maintenance
-                availability = maintenance.availability().to_json()
+            availability = await self._context.services.reflection_status()
         except (LoopError, ReflectionError) as exc:
             raise EndpointRequestError(
                 status_code=409,
@@ -42,12 +38,13 @@ class EndpointReflectionEngine(Generic[EndpointGenerationT]):
         target_day: str,
         metadata: JsonObject,
         command_id: str = "",
+        instructions: str = "",
     ) -> JsonObject:
-        if kind not in {"daily", "home", "memory"}:
+        if kind not in {"home", "memory"}:
             raise EndpointRequestError(
                 status_code=422,
                 code="maintenance.kind_invalid",
-                message="Reflection kind must be daily, home, or memory.",
+                message="Reflection kind must be home or memory.",
             )
         if kind == "memory" and not target_day:
             raise EndpointRequestError(
@@ -75,6 +72,7 @@ class EndpointReflectionEngine(Generic[EndpointGenerationT]):
             receipt = await self._context.gateway.request_maintenance(
                 ReflectionScope(kind),
                 target_day=day,
+                instructions=instructions,
                 source="endpoint",
                 metadata=to_json_object(metadata),
                 command_id=command_id or None,

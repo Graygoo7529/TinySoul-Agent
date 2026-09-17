@@ -8,7 +8,7 @@ from uuid import uuid4
 from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.loop import LoopControlKind
 from tinysoul.infra.time import CalendarDay
-from tinysoul.plugins.reflection import (ReflectionScope)
+from tinysoul.plugins.reflection import ReflectionScope, ReflectionContractError
 from tinysoul.runtime import RunLevel, RunScope, RuntimeGatewayError, SignalBus
 from tinysoul.plugins.workspace import WorkspaceManifest, workspace_snapshot_signal
 
@@ -94,6 +94,7 @@ class AgentIngress:
         source: str,
         metadata: JsonObject,
         command_id: str | None = None,
+        instructions: str = "",
     ) -> CommandReceipt:
         try:
             typed_scope = (
@@ -102,11 +103,12 @@ class AgentIngress:
             return await self._dispatcher.request_maintenance(
                 typed_scope,
                 target_day=target_day,
+                instructions=instructions,
                 source=source,
                 metadata=metadata,
                 command_id=command_id or f"command_{uuid4().hex}",
             )
-        except (AgentError, AgentSDKError, ValueError) as exc:
+        except (AgentError, AgentSDKError, ReflectionContractError, ValueError) as exc:
             raise RuntimeGatewayError(type(exc).__name__) from exc
 
     def sync_workspace_context(

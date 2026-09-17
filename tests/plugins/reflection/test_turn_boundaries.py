@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import asynccontextmanager
 from tinysoul.infra.concurrency import AsyncMailbox
 from pathlib import Path
 from typing import cast
@@ -180,14 +180,18 @@ class _TurnRunner:
 
 
 class _FailingReflection:
+    @property
+    def active_day(self):
+        return self.current_day()
+
     def current_day(self):
         return CalendarDay.parse("2026-08-03")
 
-    @contextmanager
-    def active_day_lease(self):
+    @asynccontextmanager
+    async def active_day_lease(self):
         yield DAY
 
-    def preflight(self, *, scope=None):
+    async def preflight(self, *, scope=None):
         del scope
         return DailyTransitionOutcome(active_day=DAY)
 
@@ -217,8 +221,8 @@ class _ScopeArchive:
     def __init__(self):
         self.scopes = []
 
-    @contextmanager
-    def active_day_lease(self):
+    @asynccontextmanager
+    async def active_day_lease(self):
         yield DAY
 
     def ensure_active_day(self, target_day, *, now, scope):
@@ -238,7 +242,7 @@ class _ScopeHome:
     def pending_counts(self):
         return (0, 0)
 
-    async def run(self, *, business_day, scope, request_id, inbox=None):
+    async def run(self, *, business_day, scope, request_id, inbox=None, instructions=""):
         del business_day, request_id
         self.scopes.append(scope)
         return ReflectionTaskOutcome(

@@ -115,7 +115,8 @@ async def verify_sdk():
         await agent.start()
         handle = await agent.submit_turn(UserTurnRequest("No provider is configured"))
         result = await handle.wait()
-        assert result.state is TurnState.FAILED
+        assert handle.state is TurnState.FINISHED
+        assert result.status.value == "failed"
     finally:
         assert await agent.shutdown() == ()
 

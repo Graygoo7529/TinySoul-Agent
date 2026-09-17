@@ -12,7 +12,7 @@ Stage 6.1 已将长期日期 Memory 整体移交给独立 `tinysoul.plugins.memo
 
 Agent Home 模块负责 TinySoul 的持久化身份规约、用户偏好、通用技能和领域/动作技能。它是 `home:` 链接的唯一语义归属方，不是 `memory:` 链接或长期日期记忆的归属方。
 
-纯本地 Home Action 通过 LocalActionExecutor 等待有界 owner 操作与结果构造；取消不丢弃已启动的修改。Home 搜索在 JoinedOperations 中读取固定候选文档，之后才异步执行 rerank；不在线程中执行模型调用，也不在读取已取消后继续调用模型。
+Home Action 通过 HomeService 调用有界 owner 操作，ServiceScope 复用 Action 的 JoinedOperations；取消不丢弃已启动的修改，真实结果先交给 runner 记录。Home 搜索在 JoinedOperations 中读取固定候选文档，之后才异步执行 rerank；不在线程中执行模型调用，也不在读取已取消后继续调用模型。
 
 Agent Home 不维护 Turn 内 Context 状态，不驱动 Loop，也不管理 workspace 或 Memory 文件。它向 User Context 提供 effective Home，向 Loop 提供领域 skill，向 Action 内部 LLM task 提供领域/动作 skill，并向 Action 提供普通 runtime mutation；Reflection-owned actual Home provider 不属于 Home 主线。Home owner 只公开中性的 `HomeReviewService` 与 review/resolve/remove overlay 门面，不拥有 Reflection task、reviewer、时钟、scheduler 或 Reflection Turn。
 
@@ -334,3 +334,7 @@ AgentBuilder 的目标职责是：
 - 每日日切不移动、清空或重新初始化 runtime Home，也不改变普通 User Turn 的三阶段主流程。
 
 当前测试覆盖 Home actual write、三种 resolution、stale token、overlay cleanup、空 runtime Home 移除与下一次访问重建；Reflection task/action/Turn 的完整编排由 `tests/maintenance` 与 AgentBuilder 测试覆盖。
+
+## 服务与情景权限
+
+HomeService 将有效 Home 的读取、Skill 指导和 overlay 修改暴露为 async 操作，供段、Action、prompt 和 SDK 共用；actual Home 提交不在其中。HomeReviewService 只供 Home Reflection 注入，提供 diff snapshot 和 review 提交。服务没有独立存储，owner 保持唯一；User SDK 服务绑定世代，日切不使 Home 对象失效。批量 review 开始后完成有界 owner 提交与结果记录，再传播取消。

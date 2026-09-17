@@ -63,7 +63,7 @@ class ActionSkillGuidance:
 class ActionSkillProvider(Protocol):
     """Provide domain and action skill text for nested LLM tasks."""
 
-    def guidance_for(self, *, domain: str, action_name: str) -> ActionSkillGuidance:
+    async def guidance_for(self, *, domain: str, action_name: str) -> ActionSkillGuidance:
         """Return skill snippets for one action execution."""
         ...
 
@@ -71,7 +71,7 @@ class ActionSkillProvider(Protocol):
 class EmptyActionSkillProvider:
     """Empty action skill provider used before Agent Home is connected."""
 
-    def guidance_for(self, *, domain: str, action_name: str) -> ActionSkillGuidance:
+    async def guidance_for(self, *, domain: str, action_name: str) -> ActionSkillGuidance:
         return ActionSkillGuidance()
 
 
@@ -111,7 +111,7 @@ class LLMActionTaskRunner:
         self._context_bridge = context_bridge or RuntimeContextBridge()
         self._profile_resolver = profile_resolver or LLMActionProfileResolver()
 
-    def prompt_with_skills(
+    async def prompt_with_skills(
         self,
         prompt: TaskPrompt,
         *,
@@ -121,7 +121,7 @@ class LLMActionTaskRunner:
 
         return with_action_skills(
             prompt,
-            self._action_skills.guidance_for(
+            await self._action_skills.guidance_for(
                 domain=execution.framework.domain,
                 action_name=execution.call.action_name,
             ),
@@ -226,7 +226,7 @@ class LLMActionTaskRunner:
         control: ActionExecutionControl | None,
         max_output_chars: int | None = None,
     ) -> TaskResult | ActionResult:
-        prompt = self.prompt_with_skills(prompt, execution=execution)
+        prompt = await self.prompt_with_skills(prompt, execution=execution)
         options = _execution_options(execution)
         if isinstance(options, ActionResult):
             return options

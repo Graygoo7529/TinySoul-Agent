@@ -7,6 +7,7 @@ from collections.abc import Callable
 
 from tinysoul.kernel.action import ActionCatalog, ActionCatalogLoader, ActionEngine, LoadedActionCatalog
 from tinysoul.kernel.context import ContextEngine
+from tinysoul.kernel.action.config import ActionPolicy
 from tinysoul.kernel.registration import PluginDeclaration, ServiceRegistry
 from tinysoul.plugins.workspace.engine import WorkspaceArchiveView
 from tinysoul.plugins.capabilities.assembly import CommonActionAssembly
@@ -25,6 +26,7 @@ def build_maintenance_action(
     action_catalog: LoadedActionCatalog,
     assembly: CommonActionAssembly,
     plugins: tuple[PluginDeclaration, ...],
+    policy: ActionPolicy,
     archive_source: Callable[[], WorkspaceArchiveView | None] | None = None,
 ) -> tuple[ActionEngine, SupervisedProcessManager, ServiceRegistry]:
     if kind not in {"home", "memory"}:
@@ -60,6 +62,7 @@ def build_maintenance_action(
     if kind == "home":
         register_home_maintenance_actions(builder, controller=home_controller)
     else:
-        builder.mark_actions_unsupported("core.memory.memorize")
+        builder.include_actions(*(action.name for action in combined.catalog.actions()
+                                  if action.name != "core.memory.memorize"))
         register_memory_maintenance_actions(builder, controller=memory_controller)
-    return builder.build(), jobs, services
+    return builder.with_policy(policy).build(), jobs, services

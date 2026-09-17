@@ -7,7 +7,6 @@ from tinysoul.kernel.action import (
     ActionExecution,
     ActionExecutionContext,
     ActionExecutor,
-    LocalActionExecutor,
     ActionFailureDisposition,
     ActionLocalFailure,
     ActionResult,
@@ -18,7 +17,7 @@ from tinysoul.runtime import Signal
 from .background import HOME_CONTEXT_UPDATE
 from tinysoul.plugins.home.runtime_bridge import RuntimeAgentHomeBridge
 
-from .engine import AgentHomeEngine
+from .services import HomeService
 from .errors import (
     AgentHomeError,
     AgentHomeInvariantError,
@@ -30,7 +29,7 @@ from .search import HomeSearchReranker
 def register_home_actions(
     builder: ActionEngineBuilder,
     *,
-    home: AgentHomeEngine,
+    home: HomeService,
     runtime_bridge: RuntimeAgentHomeBridge,
     search_reranker: HomeSearchReranker | None = None,
 ) -> ActionEngineBuilder:
@@ -88,7 +87,7 @@ class HomeTopSearchExecutor(ActionExecutor):
 
     def __init__(
         self,
-        home: AgentHomeEngine,
+        home: HomeService,
         *,
         reranker: HomeSearchReranker | None = None,
         runtime_bridge: RuntimeAgentHomeBridge | None = None,
@@ -102,6 +101,7 @@ class HomeTopSearchExecutor(ActionExecutor):
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        home = self._home.using(context.owner_operations)
         query = execution.call.params.get("query")
         top_k = execution.call.params.get("top_k")
         if not isinstance(query, str) or not query.strip():
@@ -119,7 +119,7 @@ class HomeTopSearchExecutor(ActionExecutor):
                 reason="invalid_top_k",
             )
         try:
-            result = (await self._home.search_top(
+            result = (await home.search_top(
                 query,
                 top_k=top_k if isinstance(top_k, int) else None,
                 reranker=self._reranker,
@@ -151,22 +151,23 @@ class HomeTopSearchExecutor(ActionExecutor):
         )
 
 
-class HomeResourceReadExecutor(LocalActionExecutor):
+class HomeResourceReadExecutor(ActionExecutor):
     """Read a bounded Agent Home progressive resource."""
 
     def __init__(
         self,
-        home: AgentHomeEngine,
+        home: HomeService,
         runtime_bridge: RuntimeAgentHomeBridge | None = None,
     ) -> None:
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    def execute_local(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        home = self._home.using(context.owner_operations)
         link = execution.call.params.get("link")
         if not isinstance(link, str) or not link:
             return self._failed(
@@ -184,7 +185,7 @@ class HomeResourceReadExecutor(LocalActionExecutor):
                 reason="invalid_max_chars",
             )
         try:
-            result = self._home.read_resource(
+            result = await home.read_resource(
                 link,
                 max_chars=max_chars if isinstance(max_chars, int) else None,
             )
@@ -243,22 +244,23 @@ class HomeResourceReadExecutor(LocalActionExecutor):
         )
 
 
-class HomeResourceWriteExecutor(LocalActionExecutor):
+class HomeResourceWriteExecutor(ActionExecutor):
     """Create or replace a progressive resource in the active Home overlay."""
 
     def __init__(
         self,
-        home: AgentHomeEngine,
+        home: HomeService,
         runtime_bridge: RuntimeAgentHomeBridge | None = None,
     ) -> None:
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    def execute_local(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        home = self._home.using(context.owner_operations)
         link = execution.call.params.get("link")
         text = execution.call.params.get("text")
         overwrite = execution.call.params.get("overwrite", False)
@@ -276,7 +278,7 @@ class HomeResourceWriteExecutor(LocalActionExecutor):
                 reason="invalid_precondition",
             )
         try:
-            result = self._home.write_resource(
+            result = await home.write_resource(
                 link,
                 text,
                 overwrite=overwrite,
@@ -294,22 +296,23 @@ class HomeResourceWriteExecutor(LocalActionExecutor):
         return _mutation_success(execution, result)
 
 
-class HomeResourcePatchExecutor(LocalActionExecutor):
+class HomeResourcePatchExecutor(ActionExecutor):
     """Apply one deterministic exact replacement to the active Home overlay."""
 
     def __init__(
         self,
-        home: AgentHomeEngine,
+        home: HomeService,
         runtime_bridge: RuntimeAgentHomeBridge | None = None,
     ) -> None:
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    def execute_local(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        home = self._home.using(context.owner_operations)
         link = execution.call.params.get("link")
         old_text = execution.call.params.get("old_text")
         new_text = execution.call.params.get("new_text")
@@ -328,7 +331,7 @@ class HomeResourcePatchExecutor(LocalActionExecutor):
                 reason="invalid_parameters",
             )
         try:
-            result = self._home.patch_resource(
+            result = await home.patch_resource(
                 link,
                 old_text=old_text,
                 new_text=new_text,
@@ -346,22 +349,23 @@ class HomeResourcePatchExecutor(LocalActionExecutor):
         return _mutation_success(execution, result)
 
 
-class HomeResourceDeleteExecutor(LocalActionExecutor):
+class HomeResourceDeleteExecutor(ActionExecutor):
     """Tombstone a progressive resource in the active Home overlay."""
 
     def __init__(
         self,
-        home: AgentHomeEngine,
+        home: HomeService,
         runtime_bridge: RuntimeAgentHomeBridge | None = None,
     ) -> None:
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    def execute_local(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        home = self._home.using(context.owner_operations)
         link = execution.call.params.get("link")
         expected_digest = execution.call.params.get("expected_digest", "")
         if not isinstance(link, str) or not link or not isinstance(expected_digest, str):
@@ -371,7 +375,7 @@ class HomeResourceDeleteExecutor(LocalActionExecutor):
                 reason="invalid_parameters",
             )
         try:
-            result = self._home.delete_resource(
+            result = await home.delete_resource(
                 link,
                 expected_digest=expected_digest,
             )
@@ -387,22 +391,23 @@ class HomeResourceDeleteExecutor(LocalActionExecutor):
         return _mutation_success(execution, result)
 
 
-class HomeTopWriteExecutor(LocalActionExecutor):
+class HomeTopWriteExecutor(ActionExecutor):
     """Create or replace a non-MEMORY top entry in the active overlay."""
 
     def __init__(
         self,
-        home: AgentHomeEngine,
+        home: HomeService,
         runtime_bridge: RuntimeAgentHomeBridge | None = None,
     ) -> None:
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    def execute_local(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        home = self._home.using(context.owner_operations)
         bus = context.require_signal_bus()
         link = execution.call.params.get("link")
         text = execution.call.params.get("text")
@@ -424,7 +429,7 @@ class HomeTopWriteExecutor(LocalActionExecutor):
                 reason="invalid_precondition",
             )
         try:
-            result = self._home.write_top(
+            result = await home.write_top(
                 link,
                 text,
                 overwrite=overwrite,
@@ -446,22 +451,23 @@ class HomeTopWriteExecutor(LocalActionExecutor):
         return _mutation_success(execution, result)
 
 
-class HomeTopPatchExecutor(LocalActionExecutor):
+class HomeTopPatchExecutor(ActionExecutor):
     """Patch one non-MEMORY top entry in the active overlay."""
 
     def __init__(
         self,
-        home: AgentHomeEngine,
+        home: HomeService,
         runtime_bridge: RuntimeAgentHomeBridge | None = None,
     ) -> None:
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    def execute_local(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        home = self._home.using(context.owner_operations)
         bus = context.require_signal_bus()
         link = execution.call.params.get("link")
         old_text = execution.call.params.get("old_text")
@@ -481,7 +487,7 @@ class HomeTopPatchExecutor(LocalActionExecutor):
                 reason="invalid_parameters",
             )
         try:
-            result = self._home.patch_top(
+            result = await home.patch_top(
                 link,
                 old_text=old_text,
                 new_text=new_text,
@@ -503,22 +509,23 @@ class HomeTopPatchExecutor(LocalActionExecutor):
         return _mutation_success(execution, result)
 
 
-class HomeTopDeleteExecutor(LocalActionExecutor):
+class HomeTopDeleteExecutor(ActionExecutor):
     """Tombstone one non-MEMORY top entry in the active overlay."""
 
     def __init__(
         self,
-        home: AgentHomeEngine,
+        home: HomeService,
         runtime_bridge: RuntimeAgentHomeBridge | None = None,
     ) -> None:
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    def execute_local(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        home = self._home.using(context.owner_operations)
         bus = context.require_signal_bus()
         link = execution.call.params.get("link")
         expected_digest = execution.call.params.get("expected_digest", "")
@@ -529,7 +536,7 @@ class HomeTopDeleteExecutor(LocalActionExecutor):
                 reason="invalid_parameters",
             )
         try:
-            result = self._home.delete_top(link, expected_digest=expected_digest)
+            result = await home.delete_top(link, expected_digest=expected_digest)
         except AgentHomeInvariantError as exc:
             raise self._runtime_bridge.from_home_error(exc) from exc
         except AgentHomeError as exc:
@@ -546,22 +553,23 @@ class HomeTopDeleteExecutor(LocalActionExecutor):
         return _mutation_success(execution, result)
 
 
-class HomePromptMountWriteExecutor(LocalActionExecutor):
+class HomePromptMountWriteExecutor(ActionExecutor):
     """Create or replace one catalog-defined prompt mount."""
 
     def __init__(
         self,
-        home: AgentHomeEngine,
+        home: HomeService,
         runtime_bridge: RuntimeAgentHomeBridge | None = None,
     ) -> None:
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    def execute_local(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        home = self._home.using(context.owner_operations)
         link = execution.call.params.get("link")
         text = execution.call.params.get("text")
         overwrite = execution.call.params.get("overwrite", False)
@@ -579,7 +587,7 @@ class HomePromptMountWriteExecutor(LocalActionExecutor):
                 reason="invalid_precondition",
             )
         try:
-            result = self._home.write_prompt_mount(
+            result = await home.write_prompt_mount(
                 link,
                 text,
                 overwrite=overwrite,
@@ -597,22 +605,23 @@ class HomePromptMountWriteExecutor(LocalActionExecutor):
         return _mutation_success(execution, result)
 
 
-class HomePromptMountPatchExecutor(LocalActionExecutor):
+class HomePromptMountPatchExecutor(ActionExecutor):
     """Patch one catalog-defined prompt mount."""
 
     def __init__(
         self,
-        home: AgentHomeEngine,
+        home: HomeService,
         runtime_bridge: RuntimeAgentHomeBridge | None = None,
     ) -> None:
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    def execute_local(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        home = self._home.using(context.owner_operations)
         link = execution.call.params.get("link")
         old_text = execution.call.params.get("old_text")
         new_text = execution.call.params.get("new_text")
@@ -631,7 +640,7 @@ class HomePromptMountPatchExecutor(LocalActionExecutor):
                 reason="invalid_parameters",
             )
         try:
-            result = self._home.patch_prompt_mount(
+            result = await home.patch_prompt_mount(
                 link,
                 old_text=old_text,
                 new_text=new_text,

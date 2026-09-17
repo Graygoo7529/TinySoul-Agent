@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+from tinysoul.infra.concurrency import JoinedOperations
+from tinysoul.runtime import RunLevel, RunScope
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
@@ -15,9 +17,6 @@ from tinysoul.kernel.action.config import (
     validate_llm_action_routes,
 )
 from tinysoul.plugins.capabilities import CapabilitiesSettings, parse_capabilities_settings
-from tinysoul.plugins.capabilities.supervised_process import (
-    compile_supervised_process_wait_policy,
-)
 from tinysoul.kernel.context import ContextEngine, ContextSettings, parse_context_settings
 from tinysoul.plugins.home import (
     AgentHomeEngine,
@@ -318,7 +317,7 @@ class AgentBuilder:
                     bus=bus,
                     after_commit=scheduler.refresh,
                 ),
-                activity=lambda: generation_handle.activity.value,
+                activity=lambda: ("queued" if agent_runner.queued_turn_ids else generation_handle.activity.value),
                 generation_id=lambda: generation_handle.generation_id,
                 activation_observer=lambda state, payload: observations.emit(
                     ObservationEvent(
@@ -393,8 +392,13 @@ class AgentBuilder:
 
         previous = handle.snapshot().generation
 
-        def commit() -> None:
-            with handle.write():
+        async def commit() -> None:
+            async with handle.write():
+                scope = RunScope().push(RunLevel.AGENT, "config_activation")
+                transition = await generation.day.preflight(scope=scope)
+                operations = JoinedOperations()
+                await operations.run(lambda: generation.maintenance.refresh_availability(transition, scope=scope))
+                operations.check_cancelled()
                 handle.activate(generation)
 
         async def abort() -> tuple[CleanupDiagnostic, ...]:
@@ -477,7 +481,6 @@ class AgentBuilder:
                 context_settings=context_settings,
                 loop_settings=loop_settings,
                 capabilities_settings=capabilities_settings,
-                supervised_process_wait=plan.supervised_process_wait,
                 runtime_env=config.runtime_env,
                 llm=llm,
                 home=home,
@@ -500,6 +503,7 @@ class AgentBuilder:
             )
             day = AgentDayCoordinator(
                 archive, memory, self._business_clock or IanaBusinessClock(maintenance_settings.timezone),
+                active_day=session.active_day,
             )
             reflection = ReflectionBuilder(
                 action_assembly=CommonActionAssembly(
@@ -507,7 +511,6 @@ class AgentBuilder:
                     bus=bus, llm=llm, observations=observations,
                     action_settings=action_settings,
                     capabilities_settings=capabilities_settings,
-                    supervised_process_wait=plan.supervised_process_wait,
                     runtime_env=config.runtime_env,
                 ),
                 context_settings=context_settings,
@@ -604,9 +607,6 @@ class AgentBuilder:
             },
             llm_action_timeout_seconds=action_settings.llm_action.timeout_seconds,
         ).load_documents(config.document_set("action.catalog"))
-        supervised_process_wait = compile_supervised_process_wait_policy(
-            action_catalog
-        )
         plan = AgentConfigPlan(
             environment=config,
             infra=config.parse_section("infra", parse_infra_settings),
@@ -620,7 +620,6 @@ class AgentBuilder:
             capabilities=config.parse_section(
                 "capabilities", parse_capabilities_settings
             ),
-            supervised_process_wait=supervised_process_wait,
             context=config.parse_section("context", parse_context_settings),
             llm=config.parse_section("llm", LLMConfigParser().parse),
             loop=(

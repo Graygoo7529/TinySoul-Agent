@@ -98,16 +98,10 @@ def test_load_builtin_catalog() -> None:
         catalog.get_action("core.context.inspect").runtime.result.trace_mode
         is ActionTraceMode.FOLDABLE
     )
-    wait_schema = catalog.get_action("execution.wait").tool.schema
-    wait_properties = wait_schema["properties"]
-    assert isinstance(wait_properties, dict)
-    wait_seconds = wait_properties["wait_seconds"]
-    assert isinstance(wait_seconds, dict)
-    assert wait_seconds["minimum"] == 15
-    assert wait_seconds["default"] == 15
-    assert wait_seconds["maximum"] == 60
-    assert catalog.get_action("execution.wait").runtime.timeout_seconds == 70.0
-    assert catalog.get_action("execution.wait").backend.handler == "supervised_process.wait"
+    assert catalog.has_action("core.wait")
+    assert catalog.has_action("core.job.wait")
+    assert not catalog.has_action("execution.wait")
+    assert not catalog.has_action("execution.stop")
 
 
 def test_load_project_documents_preserves_sources_and_timeout_provenance(

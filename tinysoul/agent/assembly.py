@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from functools import partial
+from pathlib import Path
 from tinysoul.agent.commands import AgentCommands
 from tinysoul.plugins.reflection import (ReflectionRequest)
 from .inputs import CommandReceipt
@@ -23,6 +24,7 @@ from tinysoul.environment.services import EnvironmentService
 from tinysoul.environment.scheduler import AgentRequestSource
 from tinysoul.runtime import RuntimeHandle
 from .generation import AgentRuntimeGeneration
+from .services import AgentRuntimeServices
 
 
 @dataclass
@@ -42,11 +44,16 @@ class AgentAssembly:
     resources: AsyncResourceScope = field(default_factory=AsyncResourceScope)
     _sources: AsyncResourceScope = field(default_factory=AsyncResourceScope, init=False)
     _activated: bool = field(default=False, init=False)
+    _accepting: bool = field(default=True, init=False)
+    service_access: AgentRuntimeServices = field(init=False)
+
+    @property
+    def project_root(self) -> Path:
+        return self.configuration.root
 
     @property
     def profile_services(self) -> ServiceRegistry:
-        with self.generation_handle.read() as generation:
-            return generation.user_turn.profile.services
+        return self.service_access.registry
 
     def mount_service(self, service: EnvironmentService) -> None:
         """Attach a gateway host before source activation."""
@@ -55,6 +62,7 @@ class AgentAssembly:
         self.services = (*self.services, service)
 
     def __post_init__(self) -> None:
+        self.service_access = AgentRuntimeServices(self.generation_handle, self.agent_runner, lambda: self._accepting)
         object.__setattr__(self, "input_sources", tuple(self.input_sources))
         object.__setattr__(self, "services", tuple(self.services))
         object.__setattr__(
@@ -128,10 +136,18 @@ class AgentAssembly:
 
     async def close(self) -> tuple[CleanupDiagnostic, ...]:
         """Release owned generations after all running work has returned."""
+        self.stop_accepting()
         try:
+            await self.configuration.close()
+            await self.generation_handle.close()
             return await self.resources.close()
         finally:
             self.observations.subscriptions.close()
+
+    def stop_accepting(self) -> None:
+        self._accepting = False
+        self.agent_runner.stop_accepting()
+        self.configuration.stop_accepting()
 
 
 async def _stop_source(source: InputSource | AgentRequestSource) -> None:

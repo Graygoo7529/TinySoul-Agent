@@ -66,7 +66,7 @@ class CoreReasonActionExecutor:
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
-        parse = self._prompt_builder.context_task_prompt(execution.call.params)
+        parse = await self._prompt_builder.context_task_prompt(execution.call.params)
         if parse.prompt is None:
             return _failed(
                 execution,
@@ -104,7 +104,7 @@ class CoreAnswerActionExecutor:
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
-        parse = self._prompt_builder.answer_prompt(execution.call.params)
+        parse = await self._prompt_builder.answer_prompt(execution.call.params)
         if parse.prompt is None:
             return _failed(
                 execution,
@@ -156,6 +156,21 @@ class CoreAskActionExecutor:
                                     "timeout_seconds": timeout})
 
 
+class CoreWaitActionExecutor:
+    """Accept a bounded wait intent; execution never waits inside Phase3."""
+
+    async def execute(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
+        params = execution.call.params
+        timeout, kind, event_id = params.get("timeout_seconds"), params.get("event_kind"), params.get("event_id")
+        if ((timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not isfinite(timeout) or timeout <= 0))
+                or kind not in {None, "event", "timer", "job"}
+                or (event_id is not None and (not isinstance(event_id, str) or not event_id or kind is None))
+                or (timeout is None and kind is None)):
+            return _failed(execution, "Choose a positive timeout or an explicit event kind and optional identity.",
+                           reason="invalid_wait")
+        return _success(execution, {"timeout_seconds": timeout, "event_kind": kind, "event_id": event_id})
+
+
 class _PromptArgumentBuilder:
     def __init__(
         self,
@@ -164,7 +179,7 @@ class _PromptArgumentBuilder:
     ) -> None:
         self._reference_resolvers = tuple(reference_resolvers)
 
-    def context_task_prompt(self, params: JsonObject) -> _PromptParse:
+    async def context_task_prompt(self, params: JsonObject) -> _PromptParse:
         try:
             reference_links = params.get("reference_links", [])
             return _PromptParse(
@@ -183,7 +198,7 @@ class _PromptArgumentBuilder:
                             section="input",
                             heading="Task Input",
                         ),
-                        *self._parse_reference_links(reference_links),
+                        *(await self._parse_reference_links(reference_links)),
                     ),
                     output_blocks=self._parse_blocks(
                         params.get("output_blocks"),
@@ -208,7 +223,7 @@ class _PromptArgumentBuilder:
                 frame_data=exc.payload,
             )
 
-    def answer_prompt(self, params: JsonObject) -> _PromptParse:
+    async def answer_prompt(self, params: JsonObject) -> _PromptParse:
         try:
             reference_links = params.get("reference_links", [])
             return _PromptParse(
@@ -227,7 +242,7 @@ class _PromptArgumentBuilder:
                             section="input",
                             heading="Answer Input",
                         ),
-                        *self._parse_reference_links(reference_links),
+                        *(await self._parse_reference_links(reference_links)),
                     ),
                     output_blocks=(
                         PromptBlock.from_text(
@@ -334,7 +349,7 @@ class _PromptArgumentBuilder:
             f"# {heading}\n{text}",
         )
 
-    def _parse_reference_links(self, value: object) -> tuple[PromptBlock, ...]:
+    async def _parse_reference_links(self, value: object) -> tuple[PromptBlock, ...]:
         if value is None:
             return ()
         if not isinstance(value, list):
@@ -357,7 +372,7 @@ class _PromptArgumentBuilder:
                     reason="unsupported_reference_link",
                     payload={"index": index, "link": item},
                 )
-            resolved = resolver.resolve_reference(item)
+            resolved = await resolver.resolve_reference(item)
             if not resolved:
                 raise PromptReferenceError(
                     f"Task prompt reference produced no content: {item}",
@@ -442,6 +457,8 @@ def register_core_actions(
 
     return builder.register_executor(
         "core.ask", CoreAskActionExecutor(),
+    ).register_executor(
+        "core.wait", CoreWaitActionExecutor(),
     ).register_executor(
         "core.reason",
         CoreReasonActionExecutor(

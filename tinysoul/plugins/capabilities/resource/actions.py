@@ -24,11 +24,11 @@ from tinysoul.infra import (
 from tinysoul.runtime import RuntimeException, SignalBus
 from tinysoul.plugins.workspace import (
     WorkspaceError,
-    WorkspaceEngine,
     WorkspaceTrashRestoreRequired,
     workspace_snapshot_signal,
 )
 
+from tinysoul.plugins.workspace.services import WorkspaceService
 from .config import ResourceSettings
 from .dependencies import require_resource_dependencies
 from .errors import (
@@ -86,7 +86,7 @@ class ResourceConversionExecutor(ActionExecutor):
         if isinstance(params, ActionResult):
             return params
         try:
-            result = self._service.convert(
+            result = await self._service.convert(
                 converter=self._converter,
                 source_link=params.source_link,
                 target_link=params.target_link,
@@ -95,6 +95,7 @@ class ResourceConversionExecutor(ActionExecutor):
                 expected_target_digest=params.expected_target_digest,
                 owner_turn_id=execution.framework.turn_id,
                 control=context.control,
+                operations=context.owner_operations,
             )
         except WorkspaceTrashRestoreRequired as exc:
             if self._runtime_bridge is None:
@@ -163,7 +164,7 @@ def register_resource_actions(
     builder: ActionEngineBuilder,
     *,
     settings: ResourceSettings,
-    workspace: WorkspaceEngine,
+    workspace: WorkspaceService,
     bus: SignalBus,
     staging: StagingDirectoryManager,
     runtime_bridge: ResourceActionRuntimeBridge | None = None,

@@ -49,3 +49,7 @@ Session completion 位于必要 finish 的最后，通过 joined owner 边界等
 ## 失败边界
 
 错误 ref、未知节点或失效 continuation 是可修正的局部检查失败，由 Session 段映射为 Context 检查协议。持久化 I/O、损坏索引、固定视图版本冲突等模块失败经 RuntimeSessionBridge 转换，不能成为模型可重试的普通结果。配置拒绝未知键，字符预算由 owner 控制。
+
+## 异步读取边界
+
+SessionService 只暴露已完成事实的背景投影与渐进检查；读取通过 joined owner 操作，SDK 服务绑定世代和业务日。当前 Turn 的完成记录仍由 owner completion handler 提交，User 服务不提供 record_turn 或日生命周期入口。段与 Session inspect Action 使用同一只读服务，不复制另一份历史事实。

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from tinysoul.plugins.home.services import HomeService
 from tinysoul.plugins.home import (
     AgentHomeContractError,
     AgentHomeEngine,
@@ -120,7 +121,7 @@ def test_skill_catalog_budget_fails_without_creating_runtime_skill(
     assert "home:skills@review" not in home.loadable_background_links()
 
 
-def test_home_provider_reflects_effective_skill_metadata_without_loading_body(
+async def test_home_provider_reflects_effective_skill_metadata_without_loading_body(
     tmp_path: Path,
 ) -> None:
     agent = tmp_path / "home" / "agent" / "AGENT.md"
@@ -133,9 +134,9 @@ def test_home_provider_reflects_effective_skill_metadata_without_loading_body(
         encoding="utf-8",
     )
     home = _home(tmp_path)
-    provider = HomeBackgroundEntryProvider(home)
+    provider = HomeBackgroundEntryProvider(HomeService(home))
 
-    first = provider.catalog(date(2026, 7, 14))
+    first = await provider.catalog(date(2026, 7, 14))
 
     assert [(item.link, item.title, item.description) for item in first.items] == [
         (
@@ -153,11 +154,11 @@ def test_home_provider_reflects_effective_skill_metadata_without_loading_body(
         old_text="title: Review Home",
         new_text="title: Review Home Daily",
     )
-    second = provider.catalog(date(2026, 7, 15))
+    second = await provider.catalog(date(2026, 7, 15))
     assert second.items[0].title == "Review Home Daily"
 
     home.delete_top("home:skills@review")
-    third = provider.catalog(date(2026, 7, 16))
+    third = await provider.catalog(date(2026, 7, 16))
     assert third.items == ()
 
 

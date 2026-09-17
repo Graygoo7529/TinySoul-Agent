@@ -13,6 +13,7 @@ from tinysoul.plugins.capabilities.web.dependencies import kimi_search_api_key
 from tinysoul.plugins.capabilities.web.service import WebCapabilityService
 from tinysoul.infra import JsonValue, StagingDirectoryManager
 from tinysoul.infra.config import ConfigEnvironment
+from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
 
 
@@ -25,7 +26,7 @@ pytestmark = [
 ]
 
 
-def test_real_kimi_search_returns_answer_and_structured_results(
+async def test_real_kimi_search_returns_answer_and_structured_results(
     local_tmp: Path,
 ) -> None:
     configured_root = os.environ.get("TINYSOUL_REAL_PROJECT_ROOT", "")
@@ -47,14 +48,14 @@ def test_real_kimi_search_returns_answer_and_structured_results(
         WorkspaceSettings(root=(local_tmp / "workspace").resolve(), max_files=20)
     ).build()
     service = WebCapabilityService(
-        workspace=workspace,
+        workspace=WorkspaceService(workspace),
         settings=settings,
         runtime_env=environment.runtime_env,
         staging=staging,
         kimi_api_key=kimi_search_api_key(settings, environment.runtime_env),
     )
 
-    result = service.search_by_kimi(
+    result = await service.search_by_kimi(
         query=(
             "What is the official homepage URL for the Python programming "
             "language? Answer in one sentence and include the most relevant source."

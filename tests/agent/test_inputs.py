@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import contextmanager
+from contextlib import asynccontextmanager
 
 import pytest
 
@@ -25,12 +25,12 @@ def test_input_parser_separates_user_and_active_turn_input() -> None:
 
 
 @pytest.mark.parametrize(("text", "kind"), [
-    ("/maintenance", InputIntentKind.MAINTENANCE),
+    ("/maintenance", InputIntentKind.REJECTED),
     ("/maintenance home", InputIntentKind.MAINTENANCE),
     ("/maintenance memory 2026-07-12", InputIntentKind.MAINTENANCE),
     ("/maintenance memory tomorrow", InputIntentKind.REJECTED),
     ("/maintenance memory", InputIntentKind.REJECTED),
-    ("/maintenance memory 2026-07-12 --rebuild", InputIntentKind.REJECTED),
+    ("/maintenance memory 2026-07-12 summarize knowledge", InputIntentKind.MAINTENANCE),
     ("/reply question A choice", InputIntentKind.REPLY),
     ("/grant budget 2", InputIntentKind.GRANT),
     ("/grant budget 0", InputIntentKind.REJECTED),
@@ -54,10 +54,14 @@ class _Work:
 
 
 class _Reflection:
+    @property
+    def active_day(self):
+        return self.current_day()
+
     def current_day(self):
         return CalendarDay.parse("2026-09-16")
 
-    def preflight(self, *, scope=None):
+    async def preflight(self, *, scope=None):
         return DailyTransitionOutcome(active_day=CalendarDay.parse("2026-09-16"))
 
     def availability(self):
@@ -66,8 +70,8 @@ class _Reflection:
     def refresh_availability(self, transition, *, scope):
         return self.availability()
 
-    @contextmanager
-    def active_day_lease(self):
+    @asynccontextmanager
+    async def active_day_lease(self):
         yield CalendarDay.parse("2026-09-16")
 
     async def run(self, request, *, business_day, scope=None, inbox=None):
@@ -120,7 +124,7 @@ async def test_all_ingress_uses_bounded_roots_and_the_active_inbox() -> None:
         exited = await dispatcher.submit(InputEvent("exit"))
         assert exited.accepted
         await asyncio.wait_for(worker, 2)
-        assert (await reflection.wait()).state.value == "cancelled"
+        assert (await reflection.wait()).status.value == "cancelled"
     finally:
         worker.cancel()
         await asyncio.gather(worker, return_exceptions=True)

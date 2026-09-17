@@ -71,7 +71,7 @@ Phase3 不保留长期运行或 ongoing Action。正常完成以成功、失败�
 
 ActionExecutor 统一提供异步执行入口。runner 拥有已启动任务直到其收敛：Action deadline 取消异步 I/O 并生成 timeout；Turn 取消保持取消身份。短本地 owner 调用通过 JoinedOperations 保留并等待 worker 结果，结果先交付 Trace，再传播取消；迟到的真实成功不改写为超时。
 
-LocalActionExecutor 是明确的有界本地执行协议，由 Home、Workspace 的纯本地动作消费，不是同步 executor 兼容回退。它把 owner 操作、结果构造和通知一起完成后返回。Workspace 的混合动作分为有界读取、异步 LLM、owner 提交；提交包含 Workspace snapshot 通知。Home 搜索只把文档读取放入短操作，rerank 仍为原生异步 LLM。Memory、Reflection 与进程能力的剩余同步边界继续按重构计划迁移，不能把含网络或长期进程工作的整个 executor 投入该适配。
+Home、Memory 与 Workspace Action 通过注入的 async Service 调用 owner；短文件操作由 ServiceScope 复用 Action 的 JoinedOperations，结果和通知先交付执行事实，再由 runner 传播取消。Workspace 的混合动作分为有界读取、异步 LLM、owner 提交；提交包含 Workspace snapshot 通知。Home 搜索只把文档读取放入短操作，rerank 仍为原生异步 LLM。Reflection 使用按用途授权的写服务，长进程使用受控 backend；不把含网络或长期进程工作的整个 executor 投入线程适配。
 
 并行组按完成就绪处理任务；同一批同时失败按提交顺序选择主失败。未知 executor 异常、非法结果身份和 trace policy 错配由 Action bridge 转为模块失败；已知业务拒绝保持局部结果。RuntimeException 与 RuntimeTransferInterrupt 保持原身份，同批工作回收后传播。执行事实独立于模型视图提交，因此部分批次失败不抹去已提交结果。runner 不保留失联线程 grace 或“泄漏后继续”策略；受控进程的停止仍由进程 owner 负责。
 
@@ -239,7 +239,7 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 `subprocess` 与 `supervised_process` 的边界不是使用哪一个解释器，而是进程生命周期：`subprocess` 必须在当前 Action batch 内完成并收敛；`supervised_process` 可以在启动 Action 返回后保留一个 Turn-scoped job，由后续 Cycle 的 wait/stop/read/apply/discard Action 继续监督。每个监督 action 自身仍在所属 batch 内收敛，不引入 ongoing Action。
 
-`supervised_process` 不提供通用命令 executor，也不允许 Catalog 仅凭 backend kind 执行参数。Script 与 Shell 使用不同 handler、参数协议和业务 policy，但共用 capability-internal job manager、Workspace transaction 协调、日志/候选观察、Cycle pacing 和 cleanup；实际 mirror/diff/CAS/bundle mutation 仍由 `tinysoul.plugins.workspace` 拥有。同一 Turn 跨两者最多一个 unresolved job。`tinysoul/kernel/action/backends/process.py` 继续作为不注册到 ActionEngine 的低层 lifecycle primitive；`subprocess.py` 在其上提供同步受控进程 adapter，共享监督层则直接复用 managed process。业务 capability 不得复制 `Popen`/终止逻辑，也不得假设 backend kind 存在同名通用 handler。
+`supervised_process` 不提供通用命令 executor，也不允许 Catalog 仅凭 backend kind 执行参数。Script 与 Shell 使用不同 handler、参数协议和业务 policy，但共用 capability-internal job manager、Workspace transaction 协调、日志/候选观察和 cleanup；实际 mirror/diff/CAS/bundle mutation 仍由 `tinysoul.plugins.workspace` 拥有。同一 Turn 跨两者最多一个 unresolved job。等待与下一 Cycle 属于 Loop，JobRegistry 拥有监督终态。`tinysoul/kernel/action/backends/process.py` 继续作为不注册到 ActionEngine 的低层 lifecycle primitive；`subprocess.py` 在其上提供同步受控进程 adapter，共享监督层则直接复用 managed process。业务 capability 不得复制 `Popen`/终止逻辑，也不得假设 backend kind 存在同名通用 handler。
 
 ### llm_action
 
@@ -296,6 +296,10 @@ Domain 同样返回默认 enabled 及其 provenance，`available` 仍表示至�
 effective catalog 中所有 handler 都有 executor；它不再隐式打开 package 或项目路径。registrar 不修改 tool
 schema，项目 Action TOML 是模型参数 contract 的唯一事实。
 
+## 情景动作策略
+
+TurnProfile 的 ActionPolicy 在已授予集合中应用 domain 默认与 action 显式覆盖，未指定项沿用 catalog 默认；未知身份与显式越权开启属于配置失败。backend support 独立于情景可见性，配置不能让不可用 backend 可用。每个情景生成独立 immutable catalog 视图；Phase1 域、Phase2 tools、normalize、prepare_batch 与 run_batch 使用同一有效集合。执行入口复验每条 ActionSpec，伪造或借自其他情景的范围外批次在任何副作用前拒绝。
+
 ## Action Schema
 
 Action tool schema 使用 TinySoul 支持的 JSON Schema 子集。加载 TOML 时必须检查 schema 自身，运行时再校验模型生成参数。
@@ -313,7 +317,7 @@ Action tool schema 使用 TinySoul 支持的 JSON Schema 子集。加载 TOML �
 - `maximum`
 - `default`
 
-`minimum` 与 `maximum` 只用于 `integer`/`number`，schema 定义边界和运行时参数都必须满足数值关系。`default` 是模型可见的 JSON Schema 注解，其值必须通过所在 schema；通用参数校验器不负责向缺失参数注入值，需要默认行为的 Action owner 从同一有效 `ActionSpec` 编译 typed policy 并由 executor 消费。例如 `execution.wait` 的 minimum/default/maximum 只定义在该 Action TOML，supervised-process 不再保存第二份边界配置。
+`minimum` 与 `maximum` 只用于 `integer`/`number`，schema 定义边界和运行时参数都必须满足数值关系。`default` 是模型可见的 JSON Schema 注解，其值必须通过所在 schema；通用参数校验器不负责向缺失参数注入值，需要默认行为的 Action owner 从同一有效 `ActionSpec` 编译 typed policy 并由 executor 消费。等待 Action 校验正数时限并返回意图，实际计时与恢复由 Loop 负责，不在 executor 内阻塞。
 
 当前支持的 type：
 

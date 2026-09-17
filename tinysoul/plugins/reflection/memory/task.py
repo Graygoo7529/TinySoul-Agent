@@ -67,6 +67,7 @@ class MemoryReflectionTask:
         scope: RunScope,
         request_id: str,
         inbox: TurnInbox | None = None,
+        instructions: str = "",
     ) -> ReflectionTaskOutcome:
         if target_day >= business_day:
             return _skipped(target_day, "target_day_is_open")
@@ -85,6 +86,7 @@ class MemoryReflectionTask:
                     f"closed Business Day {target_day}. Inspect and reuse existing "
                     "Memory before creating. Write one complete document at a time; "
                     "create redirect targets before retiring sources. Finish with core.answer."
+                    + (f"\nInstructions for this Reflection: {instructions}" if instructions else "")
                 ),
                 business_day=business_day,
                 scope=scope,

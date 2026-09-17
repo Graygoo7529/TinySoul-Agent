@@ -5,7 +5,7 @@ from __future__ import annotations
 from tinysoul.kernel.action.backends.llm_action import ActionSkillGuidance
 from tinysoul.plugins.home.runtime_bridge import RuntimeAgentHomeBridge
 
-from .engine import AgentHomeEngine
+from .services import HomeService
 from .errors import AgentHomeError, AgentHomeRuntimeCopyRequired
 
 
@@ -14,17 +14,17 @@ class HomeDomainSkillProvider:
 
     def __init__(
         self,
-        home: AgentHomeEngine,
+        home: HomeService,
         runtime_bridge: RuntimeAgentHomeBridge | None = None,
     ) -> None:
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    def guidance_for(self, domains: tuple[str, ...]) -> tuple[str, ...]:
+    async def guidance_for(self, domains: tuple[str, ...]) -> tuple[str, ...]:
         snippets: list[str] = []
         for domain in domains:
             try:
-                guidance = self._home.guidance_for_domain(domain)
+                guidance = await self._home.guidance_for_domain(domain)
             except AgentHomeRuntimeCopyRequired as exc:
                 raise self._runtime_bridge.runtime_copy_required(
                     link=exc.link,
@@ -45,16 +45,16 @@ class HomeActionSkillProvider:
 
     def __init__(
         self,
-        home: AgentHomeEngine,
+        home: HomeService,
         runtime_bridge: RuntimeAgentHomeBridge | None = None,
     ) -> None:
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    def guidance_for(self, *, domain: str, action_name: str) -> ActionSkillGuidance:
+    async def guidance_for(self, *, domain: str, action_name: str) -> ActionSkillGuidance:
         try:
-            domain_guidance = self._home.guidance_for_domain(domain)
-            action_guidance = self._home.guidance_for_action(domain, action_name)
+            domain_guidance = await self._home.guidance_for_domain(domain)
+            action_guidance = await self._home.guidance_for_action(domain, action_name)
         except AgentHomeRuntimeCopyRequired as exc:
             raise self._runtime_bridge.runtime_copy_required(
                 link=exc.link,

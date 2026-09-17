@@ -42,6 +42,7 @@ class HomeReflectionTask:
         scope: RunScope,
         request_id: str,
         inbox: TurnInbox | None = None,
+        instructions: str = "",
     ) -> ReflectionTaskOutcome:
         operations = JoinedOperations()
         try:
@@ -50,7 +51,8 @@ class HomeReflectionTask:
             if skipped is not None:
                 return skipped
             outcome = await self._turn.run(
-                "Review and resolve every current runtime Home difference.",
+                "Review and resolve every current runtime Home difference."
+                + (f"\nInstructions for this Reflection: {instructions}" if instructions else ""),
                 business_day=business_day,
                 scope=scope,
                 request_id=request_id,

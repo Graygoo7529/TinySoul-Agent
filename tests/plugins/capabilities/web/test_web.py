@@ -59,6 +59,7 @@ from tinysoul.infra import (
     to_json_object,
 )
 from tinysoul.runtime import RunScope, SignalBus
+from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
 
 
@@ -419,7 +420,7 @@ async def test_kimi_search_returns_answer_and_results_without_mode(
 ) -> None:
     workspace = _workspace(local_tmp)
     service = WebCapabilityService(
-        workspace=workspace,
+        workspace=WorkspaceService(workspace),
         settings=WebSettings(search_by_kimi=KimiSearchSettings(enabled=True)),
         runtime_env={"PATH": "test-path"},
         staging=_staging(local_tmp),
@@ -447,7 +448,7 @@ async def test_kimi_worker_failure_preserves_only_safe_shape_facts(
     local_tmp: Path,
 ) -> None:
     service = WebCapabilityService(
-        workspace=_workspace(local_tmp),
+        workspace=WorkspaceService(_workspace(local_tmp)),
         settings=WebSettings(search_by_kimi=KimiSearchSettings(enabled=True)),
         runtime_env={},
         staging=_staging(local_tmp),
@@ -456,7 +457,7 @@ async def test_kimi_worker_failure_preserves_only_safe_shape_facts(
     )
 
     with pytest.raises(WebProcessingError) as error:
-        service.search_by_kimi(
+        await service.search_by_kimi(
             query="current topic",
             invoke_id="invoke/1",
             call_id="call/1",
@@ -503,7 +504,7 @@ async def test_kimi_timeout_returns_model_visible_fallback_disposition(
     local_tmp: Path,
 ) -> None:
     service = WebCapabilityService(
-        workspace=_workspace(local_tmp),
+        workspace=WorkspaceService(_workspace(local_tmp)),
         settings=WebSettings(search_by_kimi=KimiSearchSettings(enabled=True)),
         runtime_env={},
         staging=_staging(local_tmp),
@@ -526,7 +527,7 @@ async def test_kimi_timeout_returns_model_visible_fallback_disposition(
     assert result.frame_data == {"executor_leaked": False}
 
 
-def test_oversized_kimi_search_spills_complete_answer_and_results(
+async def test_oversized_kimi_search_spills_complete_answer_and_results(
     local_tmp: Path,
 ) -> None:
     workspace = _workspace(local_tmp)
@@ -538,7 +539,7 @@ def test_oversized_kimi_search_spills_complete_answer_and_results(
         )
     )
     service = WebCapabilityService(
-        workspace=workspace,
+        workspace=WorkspaceService(workspace),
         settings=settings,
         runtime_env={},
         staging=_staging(local_tmp),
@@ -550,7 +551,7 @@ def test_oversized_kimi_search_spills_complete_answer_and_results(
         ),
     )
 
-    result = service.search_by_kimi(
+    result = await service.search_by_kimi(
         query="current topic",
         invoke_id="invoke/1",
         call_id="call/1",
@@ -611,19 +612,19 @@ def test_local_defuddle_cli_extracts_only_staged_html(local_tmp: Path) -> None:
     assert "Staged extraction content" in body
 
 
-def test_trafilatura_fetch_commits_only_workspace_markdown_and_metadata(
+async def test_trafilatura_fetch_commits_only_workspace_markdown_and_metadata(
     local_tmp: Path,
 ) -> None:
     workspace = _workspace(local_tmp)
     service = WebCapabilityService(
-        workspace=workspace,
+        workspace=WorkspaceService(workspace),
         settings=WebSettings(),
         runtime_env={},
         staging=_staging(local_tmp),
         process_runner=_FetchRunner(),
     )
 
-    result = service.fetch(
+    result = await service.fetch(
         extractor=WebExtractor.TRAFILATURA,
         url="https://example.com/article",
         target_link="workspace:web/pages/article.md",
@@ -650,7 +651,7 @@ async def test_fetch_action_result_omits_source_url_and_emits_workspace_signal(
     executor = WebFetchExecutor(
         extractor=WebExtractor.TRAFILATURA,
         service=WebCapabilityService(
-            workspace=workspace,
+            workspace=WorkspaceService(workspace),
             settings=WebSettings(),
             runtime_env={},
             staging=_staging(local_tmp),
@@ -675,12 +676,12 @@ async def test_fetch_action_result_omits_source_url_and_emits_workspace_signal(
     assert signals[0].name == "context.workspace.sync"
 
 
-def test_fetch_cancellation_after_worker_prevents_workspace_commit(
+async def test_fetch_cancellation_after_worker_prevents_workspace_commit(
     local_tmp: Path,
 ) -> None:
     workspace = _workspace(local_tmp)
     service = WebCapabilityService(
-        workspace=workspace,
+        workspace=WorkspaceService(workspace),
         settings=WebSettings(),
         runtime_env={},
         staging=_staging(local_tmp),
@@ -688,7 +689,7 @@ def test_fetch_cancellation_after_worker_prevents_workspace_commit(
     )
 
     with pytest.raises(WebProcessTimeout) as error:
-        service.fetch(
+        await service.fetch(
             extractor=WebExtractor.TRAFILATURA,
             url="https://example.com/article",
             target_link="workspace:web/pages/article.md",
@@ -717,7 +718,7 @@ def test_disabled_web_actions_are_absent_from_effective_catalog(
         ActionEngineBuilder(ActionCatalogLoader().load(catalog_root)),
         settings=settings,
         runtime_env={},
-        workspace=_workspace(local_tmp),
+        workspace=WorkspaceService(_workspace(local_tmp)),
         bus=SignalBus(),
         staging=_staging(local_tmp),
     ).build()
@@ -751,7 +752,7 @@ def test_action_policy_does_not_skip_capability_credential_validation(
             ActionEngineBuilder(ActionCatalogLoader().load(catalog_root)),
             settings=settings,
             runtime_env={},
-            workspace=_workspace(local_tmp),
+            workspace=WorkspaceService(_workspace(local_tmp)),
             bus=SignalBus(),
             staging=_staging(local_tmp),
             dependency_checker=_AvailableDependencyChecker(),

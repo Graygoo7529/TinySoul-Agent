@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
 from time import monotonic
-from typing import NoReturn, Protocol
 
 from tinysoul.kernel.action import ActionExecutionControl
 from tinysoul.kernel.action.backends import (
@@ -18,30 +17,13 @@ from tinysoul.kernel.action.backends import (
     ManagedProcessRunner,
     ManagedProcessStartError,
 )
-from tinysoul.kernel.context import (
-    SIGNAL_INPUT_APPEND,
-    ContextError,
-    parse_input_append_signal,
-)
 from tinysoul.infra import JsonObject, StagingDirectoryManager
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.kernel.jobs import JobError, JobRegistry, JobSnapshot, JobState
 from tinysoul.kernel.loop.inbox import TurnInbox
 from tinysoul.infra.concurrency import CleanupDiagnostic
 from tinysoul.runtime import RunScope
-from tinysoul.kernel.loop import LoopError
-from tinysoul.kernel.loop.signals import (
-    SIGNAL_CONTROL_REQUEST,
-    LoopControlKind,
-    parse_control_request_signal,
-)
-from tinysoul.runtime import (
-    RunLevel,
-    RuntimeException,
-    Signal,
-    SignalBus,
-    SignalWatch,
-)
+from tinysoul.runtime import SignalBus
 from tinysoul.plugins.workspace import (
     WorkspaceMirror,
     WorkspaceMirrorConflict,
@@ -49,7 +31,6 @@ from tinysoul.plugins.workspace import (
 )
 
 from .config import SupervisedProcessSettings
-from .policy import SupervisedProcessWaitPolicy
 from .errors import (
     SupervisedProcessContractError,
     SupervisedProcessExecutionError,
@@ -61,12 +42,12 @@ from .models import (
     SupervisedProcessOwner,
     SupervisedProcessPreparer,
     SupervisedProcessState,
-    SupervisedProcessWakeReason,
 )
 
 
 _RESERVED_IDENTITY_KEYS = {
     "execution_id",
+    "job_id",
     "owner",
     "job_state",
     "elapsed_seconds",
@@ -81,9 +62,6 @@ _RESERVED_IDENTITY_KEYS = {
     "deleted_links",
     "workspace_changes",
     "workspace_revision",
-    "wake_reason",
-    "requested_wait_seconds",
-    "actual_wait_seconds",
     "remaining_runtime_seconds",
     "observed_activity",
 }
@@ -100,14 +78,12 @@ class _ProcessJob:
     process: ManagedProcess
     started_at: float
     deadline: float
-    signal_watch: SignalWatch
     auto_complete_without_changes: bool
     controller: SupervisedProcessManager
     stdout_cursor: int = 0
     stderr_cursor: int = 0
     state: SupervisedProcessState = SupervisedProcessState.RUNNING
     failure_reason: str = ""
-    next_cycle_at: float = 0.0
     observation_index: int = 0
     observed_stdout_bytes: int = 0
     observed_stderr_bytes: int = 0
@@ -129,6 +105,13 @@ class _ProcessJob:
             return JobSnapshot(self.execution_id, self.owner.value, state,
                                self.failure_reason or self.state.value)
 
+    def request_stop(self) -> None:
+        self.controller.stop(turn_id=self.turn_id, execution_id=self.execution_id)
+
+    def describe(self) -> JsonObject:
+        with self.controller._lock:
+            return self.controller._observation(self).payload
+
     def close_execution(self) -> None:
         with self.controller._lock:
             self.process.close()
@@ -138,15 +121,6 @@ class _ProcessJob:
             self.controller._remove(self)
 
 
-class SupervisedProcessRuntimeBridge(Protocol):
-    def from_supervised_process_error(
-        self,
-        error: Exception,
-        *,
-        payload: JsonObject | None = None,
-    ) -> RuntimeException: ...
-
-
 class SupervisedProcessManager:
     """Own at most one unresolved Script or Shell job per active Turn."""
 
@@ -154,30 +128,26 @@ class SupervisedProcessManager:
         self,
         *,
         settings: SupervisedProcessSettings,
-        wait_policy: SupervisedProcessWaitPolicy,
         mirror_service: WorkspaceMirrorService,
         staging: StagingDirectoryManager,
         process_runner: ManagedProcessRunner | None = None,
-        runtime_bridge: SupervisedProcessRuntimeBridge | None = None,
         clock: Callable[[], float] = monotonic,
     ) -> None:
         self._settings = settings
-        self._wait_policy = wait_policy
         self._mirrors = mirror_service
         self._staging = staging
         self._process_runner = process_runner or ManagedProcessRunner()
-        self._runtime_bridge = runtime_bridge
         self._clock = clock
         self._registry = JobRegistry[_ProcessJob](per_turn_capacity=1)
         self._lock = RLock()
 
     @property
-    def settings(self) -> SupervisedProcessSettings:
-        return self._settings
+    def registry(self) -> JobRegistry[_ProcessJob]:
+        return self._registry
 
     @property
-    def wait_policy(self) -> SupervisedProcessWaitPolicy:
-        return self._wait_policy
+    def settings(self) -> SupervisedProcessSettings:
+        return self._settings
 
     async def start(
         self,
@@ -187,40 +157,35 @@ class SupervisedProcessManager:
         identity: JsonObject,
         prepare: SupervisedProcessPreparer,
         control: ActionExecutionControl,
-        bus: SignalBus | None,
         auto_complete_without_changes: bool = False,
     ) -> SupervisedProcessObservation:
+        control.check_cancelled()
         if not isinstance(owner, SupervisedProcessOwner):
             raise SupervisedProcessContractError("Process owner must be a supported capability")
+        for previous_id in self._registry.ids(turn_id):
+            previous = self._registry.get(turn_id, previous_id)
+            if previous.state is SupervisedProcessState.COMPLETED:
+                await self._registry.release(turn_id, previous_id)
         try:
             job = await self._registry.start(turn_id, owner.value, lambda execution_id: self._start(
                 turn_id=turn_id, owner=owner, identity=identity, prepare=prepare,
-                bus=bus, auto_complete_without_changes=auto_complete_without_changes,
+                auto_complete_without_changes=auto_complete_without_changes,
                 execution_id=execution_id,
             ))
         except JobError as exc:
             raise SupervisedProcessStateError("Turn cannot accept another process Job") from exc
+        operations = JoinedOperations()
         try:
-            result = await self._wait_job(
-                job,
-                wait_seconds=self._settings.initial_wait_seconds,
-                control=control,
-                bus=bus,
-                interval_reason=SupervisedProcessWakeReason.INITIAL_INTERVAL_ELAPSED,
-                release_next_cycle_on_interval=False,
-            )
-            if job.state is SupervisedProcessState.COMPLETED:
-                await self._registry.release(turn_id, job.execution_id)
+            result = await operations.run(lambda: self._observation(job))
+            operations.check_cancelled()
             return result
         except asyncio.CancelledError:
-            # A cancelled launch never hands an unreported live process to the
-            # next Cycle. The completed local launch is joined before cleanup.
             await self.cleanup_turn(turn_id)
             raise
 
     def _start(
         self, *, turn_id: str, owner: SupervisedProcessOwner, identity: JsonObject,
-        prepare: SupervisedProcessPreparer, bus: SignalBus | None,
+        prepare: SupervisedProcessPreparer,
         auto_complete_without_changes: bool,
         execution_id: str,
     ) -> _ProcessJob:
@@ -242,7 +207,6 @@ class SupervisedProcessManager:
                 "Supervised process identity uses reserved fields: "
                 + ", ".join(sorted(conflicts))
             )
-        signal_watch = bus.watch() if bus is not None else SignalBus().watch()
         with self._lock:
             staging_root: Path | None = None
             try:
@@ -255,7 +219,6 @@ class SupervisedProcessManager:
                     capture_root=staging_root / "logs",
                 )
             except Exception as exc:
-                _close_watch(signal_watch)
                 if staging_root is not None:
                     try:
                         self._staging.cleanup(staging_root)
@@ -277,60 +240,18 @@ class SupervisedProcessManager:
                 process=process,
                 started_at=now,
                 deadline=now + self._settings.max_runtime_seconds,
-                signal_watch=signal_watch,
                 auto_complete_without_changes=auto_complete_without_changes,
                 controller=self,
-                next_cycle_at=now + self._settings.cycle_wait_seconds,
                 last_observed_activity_at=now,
             )
         return job
-
-    async def wait(
-        self,
-        *,
-        turn_id: str,
-        execution_id: str,
-        wait_seconds: int,
-        control: ActionExecutionControl,
-        bus: SignalBus | None,
-    ) -> SupervisedProcessObservation:
-        job = self._job(turn_id, execution_id)
-        if job.state is not SupervisedProcessState.RUNNING:
-            operations = JoinedOperations()
-            result = await operations.run(lambda: self._observation_and_finalize(
-                job, wake_reason=SupervisedProcessWakeReason.ALREADY_RESOLVED,
-                requested_wait_seconds=wait_seconds, actual_wait_seconds=0.0,
-            ))
-            operations.check_cancelled()
-            if job.state is SupervisedProcessState.COMPLETED:
-                await self._registry.release(turn_id, execution_id)
-            return result
-        if not (
-            self._wait_policy.minimum_seconds
-            <= wait_seconds
-            <= self._wait_policy.maximum_seconds
-        ):
-            raise SupervisedProcessContractError(
-                "wait_seconds is outside the configured process boundaries"
-            )
-        result = await self._wait_job(
-            job,
-            wait_seconds=wait_seconds,
-            control=control,
-            bus=bus,
-            interval_reason=SupervisedProcessWakeReason.REQUESTED_INTERVAL_ELAPSED,
-            release_next_cycle_on_interval=True,
-        )
-        if job.state is SupervisedProcessState.COMPLETED:
-            await self._registry.release(turn_id, execution_id)
-        return result
 
     def stop(
         self,
         *,
         turn_id: str,
         execution_id: str,
-    ) -> SupervisedProcessObservation:
+    ) -> None:
         # Polling runs on another owner worker. Keep termination and its cause
         # in one transition so the monitor cannot classify our exit as failure.
         with self._lock:
@@ -340,12 +261,6 @@ class SupervisedProcessManager:
                 self._terminate(job)
                 job.state = SupervisedProcessState.STOPPED
                 job.failure_reason = "stopped_by_agent"
-            return self._observation_and_finalize(
-                job,
-                wake_reason=SupervisedProcessWakeReason.AGENT_STOPPED,
-                requested_wait_seconds=0,
-                actual_wait_seconds=0.0,
-            )
 
     def read_candidate(
         self,
@@ -458,7 +373,8 @@ class SupervisedProcessManager:
         return payload
 
     def has_unresolved(self, turn_id: str) -> bool:
-        return self._registry.has_unresolved(turn_id)
+        return any(self._registry.get(turn_id, job_id).state is not SupervisedProcessState.COMPLETED
+                   for job_id in self._registry.ids(turn_id))
 
     def bind_inbox(self, turn_id: str, inbox: TurnInbox | None) -> None:
         self._registry.bind_inbox(turn_id, inbox)
@@ -466,111 +382,8 @@ class SupervisedProcessManager:
     def sync(self, turn_id: str, *, bus: SignalBus, scope: RunScope) -> None:
         self._registry.sync(turn_id, bus=bus, scope=scope)
 
-    async def wait_before_cycle(self, turn_id: str, *, bus: SignalBus) -> None:
-        """Pace adjacent Cycles while the Turn owns a running process."""
-
-        try:
-            with self._lock:
-                ids = self._registry.ids(turn_id)
-                job = self._registry.get(turn_id, ids[0]) if ids else None
-            if job is None:
-                return
-            operations = JoinedOperations()
-            while True:
-                await operations.run(lambda: self._refresh(job))
-                operations.check_cancelled()
-                if job.state is not SupervisedProcessState.RUNNING:
-                    return
-                now = self._clock()
-                remaining = job.next_cycle_at - now
-                if remaining <= 0:
-                    job.next_cycle_at = now + self._settings.cycle_wait_seconds
-                    return
-                matched = job.signal_watch.wait_for_matching(
-                    lambda signal: _is_turn_wake_signal(signal, turn_id),
-                    0,
-                )
-                if matched is not None:
-                    job.next_cycle_at = self._clock() + self._settings.cycle_wait_seconds
-                    return
-                if await self._registry.wait(turn_id, timeout=min(0.1, remaining)):
-                    job.next_cycle_at = self._clock() + self._settings.cycle_wait_seconds
-                    return
-        except RuntimeException:
-            raise
-        except Exception as exc:
-            self._raise_runtime(
-                exc,
-                payload={"turn_id": turn_id, "operation": "wait_before_cycle"},
-            )
-
     async def cleanup_turn(self, turn_id: str) -> tuple[CleanupDiagnostic, ...]:
         return await self._registry.cleanup_turn(turn_id)
-
-    async def _wait_job(
-        self,
-        job: _ProcessJob,
-        *,
-        wait_seconds: int,
-        control: ActionExecutionControl,
-        bus: SignalBus | None,
-        interval_reason: SupervisedProcessWakeReason,
-        release_next_cycle_on_interval: bool,
-    ) -> SupervisedProcessObservation:
-        wait_started = self._clock()
-        wait_deadline = wait_started + wait_seconds
-        operations = JoinedOperations()
-        while True:
-            await operations.run(lambda: self._refresh(job))
-            operations.check_cancelled()
-            if job.state is not SupervisedProcessState.RUNNING:
-                return await operations.run(lambda: self._observation_and_finalize(
-                    job,
-                    wake_reason=_terminal_wake_reason(job),
-                    requested_wait_seconds=wait_seconds,
-                    actual_wait_seconds=max(0.0, self._clock() - wait_started),
-                ))
-            if control.is_cancelled() or control.is_expired():
-                await operations.run(lambda: self._terminate(job))
-                job.state = SupervisedProcessState.TIMED_OUT
-                job.failure_reason = control.cancel_reason or "action_cancelled"
-                return await operations.run(lambda: self._observation_and_finalize(
-                    job,
-                    wake_reason=SupervisedProcessWakeReason.ACTION_CANCELLED,
-                    requested_wait_seconds=wait_seconds,
-                    actual_wait_seconds=max(0.0, self._clock() - wait_started),
-                ))
-            remaining = wait_deadline - self._clock()
-            if remaining <= 0:
-                now = self._clock()
-                if release_next_cycle_on_interval:
-                    job.next_cycle_at = now
-                return await operations.run(lambda: self._observation(
-                    job,
-                    wake_reason=interval_reason,
-                    requested_wait_seconds=wait_seconds,
-                    actual_wait_seconds=max(0.0, now - wait_started),
-                ))
-            slice_seconds = min(0.1, remaining)
-            if bus is None:
-                await asyncio.sleep(slice_seconds)
-                continue
-            matched = job.signal_watch.wait_for_matching(
-                lambda signal: _turn_wake_reason(signal, job.turn_id) is not None,
-                0,
-            )
-            if matched is not None:
-                job.next_cycle_at = self._clock()
-                return await operations.run(lambda: self._observation(
-                    job,
-                    wake_reason=(
-                        _turn_wake_reason(matched, job.turn_id)
-                        or SupervisedProcessWakeReason.TURN_CONTROL
-                    ),
-                    requested_wait_seconds=wait_seconds,
-                    actual_wait_seconds=max(0.0, self._clock() - wait_started),
-                ))
-            await asyncio.sleep(slice_seconds)
 
     def _refresh(self, job: _ProcessJob) -> None:
         with self._lock:
@@ -604,30 +417,7 @@ class SupervisedProcessManager:
         else:
             job.state = SupervisedProcessState.READY_TO_APPLY
 
-    def _observation_and_finalize(
-        self,
-        job: _ProcessJob,
-        *,
-        wake_reason: SupervisedProcessWakeReason,
-        requested_wait_seconds: int,
-        actual_wait_seconds: float,
-    ) -> SupervisedProcessObservation:
-        observation = self._observation(
-            job,
-            wake_reason=wake_reason,
-            requested_wait_seconds=requested_wait_seconds,
-            actual_wait_seconds=actual_wait_seconds,
-        )
-        return observation
-
-    def _observation(
-        self,
-        job: _ProcessJob,
-        *,
-        wake_reason: SupervisedProcessWakeReason,
-        requested_wait_seconds: int,
-        actual_wait_seconds: float,
-    ) -> SupervisedProcessObservation:
+    def _observation(self, job: _ProcessJob) -> SupervisedProcessObservation:
         self._refresh(job)
         now = self._clock()
         stdout_bytes, stderr_bytes = job.process.output_sizes()
@@ -671,12 +461,10 @@ class SupervisedProcessManager:
         payload: JsonObject = {
             **job.identity,
             "execution_id": job.execution_id,
+            "job_id": job.execution_id,
             "owner": job.owner.value,
             "job_state": job.state.value,
             "elapsed_seconds": max(0.0, now - job.started_at),
-            "wake_reason": wake_reason.value,
-            "requested_wait_seconds": requested_wait_seconds,
-            "actual_wait_seconds": max(0.0, actual_wait_seconds),
             "remaining_runtime_seconds": (
                 max(0.0, job.deadline - now)
                 if job.state is SupervisedProcessState.RUNNING
@@ -751,10 +539,6 @@ class SupervisedProcessManager:
     def _remove(self, job: _ProcessJob) -> None:
         first_error: Exception | None = None
         try:
-            job.signal_watch.close()
-        except Exception as exc:
-            first_error = exc
-        try:
             job.process.close()
         except Exception as exc:
             first_error = first_error or exc
@@ -800,53 +584,3 @@ class SupervisedProcessManager:
             raise SupervisedProcessContractError(
                 "Supervised process cwd must stay inside the Workspace mirror"
             )
-
-    def _raise_runtime(self, error: Exception, *, payload: JsonObject) -> NoReturn:
-        if self._runtime_bridge is None:
-            raise error
-        raise self._runtime_bridge.from_supervised_process_error(
-            error,
-            payload=payload,
-        ) from error
-
-
-def _close_watch(watch: SignalWatch) -> None:
-    try:
-        watch.close()
-    except Exception:
-        pass
-
-
-def _turn_wake_reason(
-    signal: Signal,
-    turn_id: str,
-) -> SupervisedProcessWakeReason | None:
-    frame = signal.scope.nearest(RunLevel.TURN)
-    if frame is None or frame.name != turn_id:
-        return None
-    try:
-        if signal.name == SIGNAL_INPUT_APPEND:
-            if parse_input_append_signal(signal):
-                return SupervisedProcessWakeReason.USER_INPUT
-        if signal.name == SIGNAL_CONTROL_REQUEST:
-            request = parse_control_request_signal(signal)
-            if request.kind in {
-                LoopControlKind.STOP_TURN,
-                LoopControlKind.EXIT_PROGRAM,
-            }:
-                return SupervisedProcessWakeReason.TURN_CONTROL
-    except (ContextError, LoopError):
-        return None
-    return None
-
-
-def _is_turn_wake_signal(signal: Signal, turn_id: str) -> bool:
-    return _turn_wake_reason(signal, turn_id) is not None
-
-
-def _terminal_wake_reason(job: _ProcessJob) -> SupervisedProcessWakeReason:
-    if job.failure_reason == "runtime_limit_exceeded":
-        return SupervisedProcessWakeReason.RUNTIME_LIMIT
-    if job.state is SupervisedProcessState.TIMED_OUT:
-        return SupervisedProcessWakeReason.ACTION_CANCELLED
-    return SupervisedProcessWakeReason.PROCESS_EXITED

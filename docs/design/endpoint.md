@@ -14,7 +14,7 @@ endpoint.engine.configuration
 endpoint.engine.workspace
 ```
 
-各领域 engine 通过 `EndpointEngineContext` 使用 RuntimeHandle、Agent ingress、ConfigController、Workspace lease 和 Observation source。Context 只保存依赖与 lease 工厂，不复制业务状态；Generation 重建时，EndpointHost、进程外壳、事件 buffer、实例锁和连接信息保持稳定。
+各领域 engine 通过 EndpointEngineContext 使用 Agent ingress、ConfigController、受约束服务和 Observation source。Context 不持有 raw generation、完整 owner 或底层 lease 工厂；服务调用自行完成世代/日准入。Generation 重建时，EndpointHost、进程外壳、事件 buffer、实例锁和连接信息保持稳定。
 
 ## 目录边界
 
@@ -42,7 +42,7 @@ WebSocket 在首帧完成 token、cursor 和 mode 认证；断线续传由前端
 
 ## 配置与 Action projection
 
-`EndpointConfigurationEngine` 读取 ConfigController 的 status/catalog，并在 RuntimeHandle read lease 中读取当前 Generation 的 `user_turn.action_catalog()`。Action catalog 的数据所有权仍属于 ActionEngine；Endpoint 不扫描 TOML、不缓存副本。它通过 `GET /v1/config/actions` 暴露给 Settings 配置工作流，不将其定义为聊天运行时 Action API。
+`EndpointConfigurationEngine` 读取 ConfigController 的 status/catalog，并 await Agent 服务的 action_catalog 投影。Action catalog 的数据所有权仍属于 ActionEngine；Endpoint 不扫描 TOML、不缓存副本。它通过 `GET /v1/config/actions` 暴露给 Settings 配置工作流，不将其定义为聊天运行时 Action API。
 
 `PATCH /v1/config` 把 typed `set`/`delete` mutation 交给 ConfigController。ConfigController 负责候选环境、owner validator、持久化事务和 Runtime activation；Endpoint 不自行重建 Generation。PATCH 只校验并保存候选，返回 saved/pending_reload；POST /v1/config/reload 在 idle 时显式构造并激活新 Generation。活跃或等待 work 不阻止保存候选，但会阻止激活。进程外壳配置保持只读。
 
@@ -50,7 +50,7 @@ WebSocket 在首帧完成 token、cursor 和 mode 认证；断线续传由前端
 
 ## Workspace
 
-`EndpointWorkspaceEngine` 在 active-day lease 内调用唯一 Workspace owner，统一处理 manifest、text/blob read/write、revision/digest CAS、Trash/Restore 和 context sync。Endpoint 不提供任意文件 API；`PUT /v1/workspace/blob` 是完整 Workspace binary write 能力的一部分。
+`EndpointWorkspaceEngine` 通过 WorkspaceService 的 async operation 作用域调用唯一 Workspace owner，统一处理 manifest、text/blob read/write、revision/digest CAS、Trash/Restore 和 context sync。Endpoint 不提供任意文件 API；`PUT /v1/workspace/blob` 是完整 Workspace binary write 能力的一部分。
 
 ## 失败边界
 

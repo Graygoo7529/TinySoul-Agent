@@ -82,11 +82,11 @@ Capability 不重复实现 Action backend。需要硬停止的第三方解析、
 
 ## 共用监督执行层
 
-Script 与 Shell 都需要让进程在启动 Action 返回后继续运行，并在同一 Turn 的后续 Cycle 中观察、等待、停止或收尾。该能力由 `tinysoul/plugins/capabilities/supervised_process/` 提供：它是 capability-internal 共用设施，不是模型可见 domain，不建立 Skill、Link namespace 或独立持久状态；它为模型侧 `execution` Domain 注册唯一一组生命周期 handler。
+Script 与 Shell 都需要让进程在启动 Action 返回后继续运行，并在同一 Turn 的后续 Cycle 中观察、等待、停止或收尾。`tinysoul/plugins/capabilities/supervised_process/` 提供共用进程 backend 和候选资源操作；它不是模型可见 domain，不建立 Skill、Link namespace 或独立持久状态。通用监督操作由 Kernel JobRegistry 及 `core.job.status/stop/wait` 提供，实际等待由 Loop 负责。
 
-共用层拥有 Turn-scoped 单 job manager、日志/候选观察、Cycle pacing、apply/discard 协调、生命周期 executor 和 cleanup，并复用注入的 Workspace transaction mirror service。同一 Turn 跨 Script/Shell 最多一个 unresolved job；启动 action 写入 owner，后续 lifecycle action 只用 execution id 在当前 Turn 内解析实际 owner。`tinysoul.plugins.workspace` 继续拥有 mirror、diff、baseline CAS 和 bundle mutation；共享层不能复制这些规则。Script/Shell 仍各自拥有启动 action schema、source/command policy、依赖、handler 和结果解释；共享层不能退化为接受任意 params 的通用 run executor。
+共用层拥有 Turn-scoped 单 job manager、日志/候选观察、apply/discard 协调、候选 executor 和 cleanup，并复用注入的 Workspace transaction mirror service。同一 Turn 跨 Script/Shell 最多一个 unresolved job；启动 action 返回 job_id，通用监督使用 job_id，候选操作使用同值 execution_id，在当前 Turn 内解析实际 owner。`tinysoul.plugins.workspace` 继续拥有 mirror、diff、baseline CAS 和 bundle mutation；共享层不能复制这些规则。Script/Shell 仍各自拥有启动 action schema、source/command policy、依赖、handler 和结果解释；共享层不能退化为接受任意 params 的通用 run executor。
 
-配置使用 `[capabilities.supervised_process]` 承载真正共用的 wait/runtime/log/mirror/candidate 上限。Script 只保留 source、Python/Bash 和 authoring 相关设置，Shell 只保留 interpreter/command 相关设置。原 `[capabilities.script]` 共用键已一次性迁移，不保留 alias；未知旧键显式失败。
+配置使用 `[capabilities.supervised_process]` 承载共用的 runtime/log/mirror/candidate 上限；等待条件与 deadline 由 Loop 统一解释。Script 只保留 source、Python/Bash 和 authoring 相关设置，Shell 只保留 interpreter/command 相关设置。原 `[capabilities.script]` 共用键已一次性迁移，不保留 alias；未知旧键显式失败。
 
 Action backend 已从 `script` 迁移为 `supervised_process`。同步 `subprocess` 必须在当前 Action batch 内结束；`supervised_process` 可以保留 Turn-scoped job，但 run/wait/stop/read/apply/discard 每个 Action 仍在自己的 batch 内收敛。模型侧 Script/Shell Action 合并进宽泛的 `execution` Domain，但两个 Capability 包及配置保持独立；Resource conversion 同理并入 `workspace` Domain。Domain 用于 Stage1 大致方向选择，不要求与 Capability 或 handler owner 一一对应。受控进程与同步子进程都复用 `tinysoul/kernel/action/backends/process.py`，而不是复制进程启动和终止代码。
 

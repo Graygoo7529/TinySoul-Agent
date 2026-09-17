@@ -31,6 +31,6 @@ class PromptReferenceResolver(Protocol):
         """Return whether this resolver handles a resource link."""
         ...
 
-    def resolve_reference(self, link: str) -> tuple[PromptBlock, ...]:
+    async def resolve_reference(self, link: str) -> tuple[PromptBlock, ...]:
         """Resolve one read-only resource link into prompt blocks."""
         ...

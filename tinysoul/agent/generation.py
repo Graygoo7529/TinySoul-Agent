@@ -11,7 +11,6 @@ from tinysoul.infra import InfraSettings
 from tinysoul.kernel.action import LoadedActionCatalog
 from tinysoul.kernel.action.config import ActionSettings
 from tinysoul.plugins.capabilities import CapabilitiesSettings
-from tinysoul.plugins.capabilities.supervised_process import SupervisedProcessWaitPolicy
 from tinysoul.kernel.context import ContextSettings
 from tinysoul.plugins.home import AgentHomeSettings
 from tinysoul.llm.config_types import LLMConfig, ProviderCredentialStatus
@@ -37,7 +36,6 @@ class AgentConfigPlan:
     action: ActionSettings
     action_catalog: LoadedActionCatalog
     capabilities: CapabilitiesSettings
-    supervised_process_wait: SupervisedProcessWaitPolicy
     context: ContextSettings
     llm: LLMConfig
     loop: LoopSettings

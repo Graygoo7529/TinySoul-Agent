@@ -1,6 +1,6 @@
 # Workspace
 
-Workspace endpoint 使用 `workspace:` link 和 active-day lease，不提供任意物理文件路径。
+Workspace endpoint 使用 `workspace:` link 和受约束 async WorkspaceService，不提供任意物理文件路径。服务调用自行持有世代/day lease；每次 HTTP 操作重新获取服务。跨日准备导致已取得服务失效时返回 409，客户端重新取得状态后再决定是否重试；不自动重放写入。
 
 - `GET /v1/workspace/manifest`
 - `GET /v1/workspace/resource?link=...`

@@ -145,3 +145,7 @@ adapter 校验非空批次、批量上限、响应 index、向量数量、维度
 配置环境机制属于 Infra 的基础能力。其他基础设施应在存在清楚使用场景时建立，不应为了未来可能需要而提前创建没有实际使用场景的抽象。
 
 设计重点是保持配置清晰可读、来源可解释、错误可定位，并为模块重构提供稳定基础。
+
+## 异步 owner 适配
+
+ServiceScope 封装完整的 async 准入作用域；ScopedService 只将 owner 显式选择的方法暴露为 async 操作，不提供通用 getattr 或 owner 访问口。准入策略由 Agent 注入，Infra 不解释世代、业务日或 Runtime。短本地调用复用 JoinedOperations，取消先 join 并交付结果；operation 在复合调用中保持同一次准入，退出后临时视图失效。AsyncReadWriteLock 用协程等待处理跨 await 的日协调；同步锁只留在同一次短 owner 调用内部。Staging 的 async allocation 在取消后仍完成 cleanup。

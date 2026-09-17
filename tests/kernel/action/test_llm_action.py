@@ -121,7 +121,7 @@ class TestReferenceResolver:
     def supports(self, link: str) -> bool:
         return link in {"test:ref", "workspace:a.md"}
 
-    def resolve_reference(self, link: str) -> tuple[PromptBlock, ...]:
+    async def resolve_reference(self, link: str) -> tuple[PromptBlock, ...]:
         return (
             PromptBlock.from_text(
                 "task_prompt:input:test-ref",
@@ -131,7 +131,7 @@ class TestReferenceResolver:
 
 
 class TestActionSkillProvider:
-    def guidance_for(self, *, domain: str, action_name: str) -> ActionSkillGuidance:
+    async def guidance_for(self, *, domain: str, action_name: str) -> ActionSkillGuidance:
         assert domain == "core"
         assert action_name == "core.reason"
         return ActionSkillGuidance(

@@ -108,44 +108,23 @@ class InputCommandParser:
         )
 
     def _maintenance(self, event: InputEvent, text: str) -> InputIntent:
-        parts = text.split()
-        normalized = tuple(part.casefold() for part in parts)
-        if normalized == ("/maintenance",) or normalized == (
-            "/maintenance",
-            "daily",
-        ):
-            return self._intent(
-                InputIntentKind.MAINTENANCE,
-                event,
-                text=text,
-                maintenance_scope=ReflectionScope.DAILY,
-            )
-        if normalized == ("/maintenance", "home"):
-            return self._intent(
-                InputIntentKind.MAINTENANCE,
-                event,
-                text=text,
-                maintenance_scope=ReflectionScope.HOME,
-            )
-        if len(parts) >= 2 and normalized[:2] == ("/maintenance", "memory"):
-            target: CalendarDay | None = None
+        parts = text.split(maxsplit=2)
+        if len(parts) < 2:
+            return self._rejected(event, text)
+        kind = parts[1].casefold()
+        remainder = parts[2] if len(parts) == 3 else ""
+        if kind == "home":
+            return self._intent(InputIntentKind.MAINTENANCE, event,
+                                text=remainder, maintenance_scope=ReflectionScope.HOME)
+        if kind == "memory":
+            target_text, _, instructions = remainder.partition(" ")
             try:
-                for argument in parts[2:]:
-                    if target is None:
-                        target = CalendarDay.parse(argument)
-                    else:
-                        raise ReflectionContractError("too many arguments")
-            except (CalendarDayError, ReflectionContractError):
+                target = CalendarDay.parse(target_text)
+            except CalendarDayError:
                 return self._rejected(event, text)
-            if target is None:
-                return self._rejected(event, text)
-            return self._intent(
-                InputIntentKind.MAINTENANCE,
-                event,
-                text=text,
-                maintenance_scope=ReflectionScope.MEMORY,
-                target_day=target,
-            )
+            return self._intent(InputIntentKind.MAINTENANCE, event,
+                                text=instructions, maintenance_scope=ReflectionScope.MEMORY,
+                                target_day=target)
         return self._rejected(event, text)
 
     def _rejected(self, event: InputEvent, text: str) -> InputIntent:
@@ -154,8 +133,8 @@ class InputCommandParser:
             event,
             text=text,
             error=(
-                "Use /maintenance [daily|home] or "
-                "/maintenance memory YYYY-MM-DD."
+                "Use /maintenance home [instructions] or "
+                "/maintenance memory YYYY-MM-DD [instructions]."
             ),
         )
 
@@ -222,6 +201,7 @@ class InputDispatcher:
                 assert intent.maintenance_scope is not None
                 await self._commands.request_reflection(ReflectionRequest(
                     scope=intent.maintenance_scope, trigger=ReflectionTrigger.MANUAL,
+                    instructions=intent.text,
                     target_day=intent.target_day, source=intent.source,
                     request_id=intent.command_id, metadata=intent.metadata,
                 ))
@@ -235,7 +215,7 @@ class InputDispatcher:
             if active is None:
                 raise AgentClosedError("There is no active Turn")
             if intent.kind is InputIntentKind.STOP_TURN:
-                if not self._commands.cancel_turn(active.turn_id):
+                if not await self._commands.cancel_turn(active.turn_id):
                     raise AgentClosedError("Turn is already finished")
             elif intent.kind is InputIntentKind.APPEND_INPUT:
                 await self._commands.append_input(active.turn_id, intent.text, input_id=intent.command_id)
@@ -254,11 +234,11 @@ class InputDispatcher:
 
     async def request_maintenance(
         self, scope: ReflectionScope, *, target_day: CalendarDay | None,
-        source: str, metadata: JsonObject, command_id: str,
+        source: str, metadata: JsonObject, command_id: str, instructions: str = "",
     ) -> CommandReceipt:
         request = ReflectionRequest(
             scope=scope, trigger=ReflectionTrigger.MANUAL, target_day=target_day,
-            source=source, metadata=metadata, request_id=command_id,
+            source=source, metadata=metadata, request_id=command_id, instructions=instructions,
         )
         try:
             await self._commands.request_reflection(request)
@@ -281,7 +261,7 @@ class InputDispatcher:
             accepted = True
         else:
             active = self._commands.active_turn
-            accepted = active is not None and self._commands.cancel_turn(active.turn_id)
+            accepted = active is not None and await self._commands.cancel_turn(active.turn_id)
         return CommandReceipt(accepted, command_id, kind.value, "signaled" if accepted else "rejected")
 
     def _accepted(

@@ -25,11 +25,12 @@ from tinysoul.infra import (
 )
 from tinysoul.plugins.workspace import (
     WorkspaceBundleWrite,
-    WorkspaceEngine,
     WorkspaceLink,
     WorkspaceRetention,
 )
 
+from tinysoul.plugins.workspace.services import WorkspaceService
+from tinysoul.infra.concurrency import JoinedOperations
 from .config import ResourceSettings
 from .errors import (
     ResourceContractError,
@@ -72,7 +73,7 @@ class ResourceConversionService:
     def __init__(
         self,
         *,
-        workspace: WorkspaceEngine,
+        workspace: WorkspaceService,
         settings: ResourceSettings,
         staging: StagingDirectoryManager,
         process_runner: ControlledProcessRunner | None = None,
@@ -82,7 +83,7 @@ class ResourceConversionService:
         self._staging = staging
         self._process_runner = process_runner or ControlledProcessRunner()
 
-    def convert(
+    async def convert(
         self,
         *,
         converter: ResourceConverter,
@@ -93,7 +94,11 @@ class ResourceConversionService:
         expected_target_digest: str,
         owner_turn_id: str,
         control: ActionExecutionControl,
+        operations: JoinedOperations | None = None,
     ) -> ResourceConversionResult:
+
+        operations = operations or JoinedOperations()
+        workspace = self._workspace.using(operations)
         self._validate_params(
             source_link=source_link,
             target_link=target_link,
@@ -103,7 +108,7 @@ class ResourceConversionService:
             owner_turn_id=owner_turn_id,
         )
         _require_active(control)
-        source = self._workspace.read_document(
+        source = await workspace.read_document(
             source_link,
             max_bytes=self._settings.max_source_bytes,
         )
@@ -126,7 +131,7 @@ class ResourceConversionService:
             )
         current_assets = tuple(
             record.link
-            for record in self._workspace.snapshot().resources
+            for record in (await workspace.snapshot()).resources
             if record.link.startswith(asset_prefix + "/")
         )
         if current_assets and not overwrite:
@@ -136,10 +141,10 @@ class ResourceConversionService:
                 payload={"target_link": target_link},
             )
 
-        with self._staging.allocate("resource") as root:
+        async with self._staging.allocate_async("resource", operations) as root:
             source_path = root / f"source{source.suffix}"
             output_path = root / "output"
-            source_path.write_bytes(source.data)
+            await operations.run(lambda: source_path.write_bytes(source.data))
             request = self._worker_request(
                 converter=converter,
                 source_path=source_path,
@@ -147,7 +152,7 @@ class ResourceConversionService:
                 output_path=output_path,
                 asset_prefix=asset_prefix,
             )
-            outcome = self._process_runner.run(
+            outcome = await operations.run(lambda: self._process_runner.run(
                 ProcessRequest(
                     argv=(
                         sys.executable,
@@ -159,7 +164,7 @@ class ResourceConversionService:
                     stderr_limit=_MAX_WORKER_STDERR,
                 ),
                 control,
-            )
+            ))
             if outcome.status is ProcessStatus.TIMED_OUT:
                 raise ResourceProcessTimeout(
                     "Resource conversion worker timed out",
@@ -192,7 +197,7 @@ class ResourceConversionService:
                 asset_prefix=asset_prefix,
                 settings=self._settings,
             )
-            writes = self._bundle_writes(
+            writes = await operations.run(lambda: self._bundle_writes(
                 worker,
                 output_path=output_path,
                 target_link=str(target),
@@ -200,8 +205,8 @@ class ResourceConversionService:
                 expected_target_digest=expected_target_digest,
                 retention=source.retention,
                 owner_turn_id=owner_turn_id,
-            )
-            observed = self._workspace.inspect(source.link)
+            ))
+            observed = await workspace.inspect(source.link)
             if observed.digest != source.digest:
                 raise ResourceProcessingError(
                     "Workspace source changed during conversion",
@@ -215,7 +220,7 @@ class ResourceConversionService:
                 else ()
             )
             _require_active(control)
-            committed = self._workspace.write_bundle(
+            committed = await workspace.write_bundle(
                 writes,
                 delete_links=stale_assets,
             )

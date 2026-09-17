@@ -11,6 +11,7 @@ from typing import cast
 
 import pytest
 
+from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.kernel.context import (
     BackgroundCatalog,
     BackgroundCatalogItem,
@@ -78,13 +79,13 @@ class TextSource:
         "home:agent@AGENT": "core rules", "home:skills@x": "entity x",
     })
 
-    def catalog(self, business_day: date) -> BackgroundCatalog:
+    async def catalog(self, business_day: date) -> BackgroundCatalog:
         return BackgroundCatalog(
             owner="home", default_links=("home:agent@AGENT",),
             loadable_links=tuple(self.texts), evictable_default_links=("home:agent@AGENT",),
         )
 
-    def load(self, link: str, business_day: date) -> str:
+    async def load(self, link: str, business_day: date) -> str:
         return self.texts[link]
 
 
@@ -114,14 +115,14 @@ def _prompt(text: str = "next") -> TaskPrompt:
 
 async def test_background_prepare_failure_installs_neither_catalog_nor_entries() -> None:
     class Provider:
-        def catalog(self, business_day: date) -> BackgroundCatalog:
+        async def catalog(self, business_day: date) -> BackgroundCatalog:
             return BackgroundCatalog(
                 owner="home", loadable_links=("home:agent@AGENT",),
                 default_links=("home:agent@AGENT",),
                 items=(BackgroundCatalogItem(link="home:agent@AGENT", title="Rules", description="Rules"),),
             )
 
-        def load(self, link: str, business_day: date) -> str:
+        async def load(self, link: str, business_day: date) -> str:
             return ""  # A broken owner response after the catalog was prepared.
 
     engine = ContextEngineBuilder(system_text="sys").with_segment(_registration(Provider())).build()
@@ -139,15 +140,17 @@ async def test_cancelled_background_prepare_joins_read_without_installing_view()
     loop = asyncio.get_running_loop()
 
     class Provider:
-        def catalog(self, business_day: date) -> BackgroundCatalog:
+        async def catalog(self, business_day: date) -> BackgroundCatalog:
             return BackgroundCatalog(
                 owner="home", loadable_links=("home:agent@AGENT",),
                 default_links=("home:agent@AGENT",),
             )
 
-        def load(self, link: str, business_day: date) -> str:
+        async def load(self, link: str, business_day: date) -> str:
             loop.call_soon_threadsafe(entered.set)
-            assert release.wait(timeout=5)
+            operations = JoinedOperations()
+            assert await operations.run(lambda: release.wait(timeout=5))
+            operations.check_cancelled()
             return "Rules"
 
     engine = ContextEngineBuilder(system_text="sys").with_segment(_registration(Provider())).build()
@@ -174,14 +177,16 @@ async def test_background_batch_retry_keeps_new_input_outside_prepared_batch() -
     class Loader:
         calls = 0
 
-        def catalog(self, business_day: date) -> BackgroundCatalog:
+        async def catalog(self, business_day: date) -> BackgroundCatalog:
             return BackgroundCatalog(owner="home", loadable_links=("home:skills@guide",))
 
-        def load(self, link: str, business_day: date) -> str:
+        async def load(self, link: str, business_day: date) -> str:
             self.calls += 1
             if self.calls == 1:
                 loop.call_soon_threadsafe(entered.set)
-                assert release.wait(timeout=5)
+                operations = JoinedOperations()
+                assert await operations.run(lambda: release.wait(timeout=5))
+                operations.check_cancelled()
                 raise ContextInvariantError("Background temporarily unavailable")
             return "Loaded details"
 
@@ -794,7 +799,7 @@ async def test_abort_turn_discards_active_state() -> None:
 
 async def test_provider_catalog_metadata_is_automatic_background() -> None:
     class _Provider:
-        def catalog(self, business_day: date) -> BackgroundCatalog:
+        async def catalog(self, business_day: date) -> BackgroundCatalog:
             return BackgroundCatalog(
                 owner="home",
                 loadable_links=("home:skills@review",),
@@ -807,7 +812,7 @@ async def test_provider_catalog_metadata_is_automatic_background() -> None:
                 ),
             )
 
-        def load(self, link: str, business_day: date) -> str:
+        async def load(self, link: str, business_day: date) -> str:
             return "skill body"
 
     engine = (

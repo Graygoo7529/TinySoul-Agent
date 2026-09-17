@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from pathlib import PurePosixPath
 
-from tinysoul.plugins.home import AgentHomeEngine, HomeResourceLink, HomeTopLink
-from tinysoul.plugins.workspace import WorkspaceEngine, WorkspaceLink
+from tinysoul.plugins.home import HomeResourceLink, HomeTopLink
+from tinysoul.plugins.workspace import WorkspaceLink
+
+from tinysoul.plugins.home.services import HomeService
+from tinysoul.plugins.workspace.services import WorkspaceService
+from tinysoul.infra.concurrency import JoinedOperations
 
 from .errors import ScriptContractError
 from .models import ScriptLanguage, ScriptMutation, ScriptSource
@@ -15,13 +19,18 @@ class ScriptSourceResolver:
     def __init__(
         self,
         *,
-        workspace: WorkspaceEngine,
-        home: AgentHomeEngine,
+        workspace: WorkspaceService,
+        home: HomeService,
         max_source_chars: int,
     ) -> None:
         self._workspace = workspace
         self._home = home
         self._max_source_chars = max_source_chars
+
+    def using(self, operations: JoinedOperations) -> ScriptSourceResolver:
+        return ScriptSourceResolver(workspace=self._workspace.using(operations),
+                                    home=self._home.using(operations),
+                                    max_source_chars=self._max_source_chars)
 
     def validate_link(
         self,
@@ -41,16 +50,16 @@ class ScriptSourceResolver:
                 f"Script source exceeds {self._max_source_chars} characters"
             )
 
-    def target_exists(self, link: str) -> bool:
+    async def target_exists(self, link: str) -> bool:
         """Check a Script target without loading its complete source."""
 
         self.validate_link(link)
         if link.startswith("workspace:"):
-            return self._workspace.write_target_exists(link)
-        _require_existing_skill(self._home, link)
-        return self._home.resource_exists(link)
+            return await self._workspace.write_target_exists(link)
+        await _require_existing_skill(self._home, link)
+        return await self._home.resource_exists(link)
 
-    def read(
+    async def read(
         self,
         link: str,
         *,
@@ -58,13 +67,13 @@ class ScriptSourceResolver:
     ) -> ScriptSource:
         parsed_language = self.validate_link(link, language=language)
         if link.startswith("workspace:"):
-            result = self._workspace.read_text(
+            result = await self._workspace.read_text(
                 link,
                 max_chars=self._max_source_chars,
             )
         else:
-            _require_existing_skill(self._home, link)
-            result = self._home.read_resource(
+            await _require_existing_skill(self._home, link)
+            result = await self._home.read_resource(
                 link,
                 max_chars=self._max_source_chars,
             )
@@ -80,7 +89,7 @@ class ScriptSourceResolver:
             language=parsed_language,
         )
 
-    def write(
+    async def write(
         self,
         link: str,
         text: str,
@@ -92,7 +101,7 @@ class ScriptSourceResolver:
         self.validate_link(link)
         self.validate_text(text)
         if link.startswith("workspace:"):
-            result = self._workspace.write_text(
+            result = await self._workspace.write_text(
                 link,
                 text,
                 overwrite=overwrite,
@@ -105,8 +114,8 @@ class ScriptSourceResolver:
                 size=result.size,
                 state="written",
             )
-        _require_existing_skill(self._home, link)
-        result = self._home.write_resource(
+        await _require_existing_skill(self._home, link)
+        result = await self._home.write_resource(
             link,
             text,
             overwrite=overwrite,
@@ -119,7 +128,7 @@ class ScriptSourceResolver:
             state=result.state.value,
         )
 
-    def patch(
+    async def patch(
         self,
         source: ScriptSource,
         *,
@@ -134,7 +143,7 @@ class ScriptSourceResolver:
         candidate = source.text.replace(old_text, new_text, 1)
         self.validate_text(candidate)
         if source.link.startswith("workspace:"):
-            result = self._workspace.patch_text(
+            result = await self._workspace.patch_text(
                 source.link,
                 old_text=old_text,
                 new_text=new_text,
@@ -146,8 +155,8 @@ class ScriptSourceResolver:
                 size=result.size,
                 state="modified",
             )
-        _require_existing_skill(self._home, source.link)
-        result = self._home.patch_resource(
+        await _require_existing_skill(self._home, source.link)
+        result = await self._home.patch_resource(
             source.link,
             old_text=old_text,
             new_text=new_text,
@@ -160,7 +169,7 @@ class ScriptSourceResolver:
             state=result.state.value,
         )
 
-    def promote(
+    async def promote(
         self,
         source: ScriptSource,
         target_link: str,
@@ -182,7 +191,7 @@ class ScriptSourceResolver:
         self.validate_text(source.text)
         if _language_for_link(target_link) is not source.language:
             raise ScriptContractError("Script promote source and target languages differ")
-        return self.write(
+        return await self.write(
             target_link,
             source.text,
             overwrite=overwrite,
@@ -216,11 +225,11 @@ def _require_script_link(
         )
 
 
-def _require_existing_skill(home: AgentHomeEngine, link: str) -> None:
+async def _require_existing_skill(home: HomeService, link: str) -> None:
     parsed = HomeResourceLink.parse(link)
     skill = PurePosixPath(parsed.relative_path).parts[0]
     top = str(HomeTopLink("skills", skill))
-    if top not in home.loadable_background_links():
+    if top not in await home.loadable_background_links():
         raise ScriptContractError(f"Script target skill does not exist: {top}")
 
 

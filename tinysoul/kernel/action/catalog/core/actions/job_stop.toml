@@ -1,0 +1,27 @@
+name = "core.job.stop"
+domain = "core"
+
+[tool]
+description = "Request a Job stop and join its execution before returning. Repeating a stop preserves the terminal fact."
+
+[tool.schema]
+type = "object"
+required = ["job_id"]
+additionalProperties = false
+
+[tool.schema.properties.job_id]
+type = "string"
+description = "Job identity returned by a start action in this Turn."
+
+[semantic]
+use_when = ["Supervising work already started in this Turn"]
+avoid_when = ["No matching Job exists"]
+effects = ["modifying"]
+
+[runtime]
+timeout_seconds = 10
+parallel_policy = "serial"
+
+[backend]
+kind = "native"
+handler = "core.job.stop"

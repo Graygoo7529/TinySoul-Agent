@@ -14,9 +14,9 @@ Runtime 采用 OS 风格的陷入设计：模块内部正常执行时不依赖�
 
 TinySoul 的运行层级从外到内分为 Agent、Turn、Cycle、Phase 和 Module。
 
-Agent 是程序顶层，由 App 拥有 typed request queue 和 Agent frame。它把 `UserTurnRequest` 分派给 User Turn，把 `ReflectionRequest` 分派给 ReflectionEngine，把 `ExitRequest` 交给 Agent trap。每项新日 work 前的确定性 Archive preflight 是 Agent 边界前置条件，但其业务归 Reflection 所有；它只恢复 journal、归档旧日 Session/Workspace/Trash 并打开新日 Session/Workspace，不触发 LLM、不移动跨日 Home overlay，也不读写顶层 Memory。Agent 不直接介入 Phase 或具体模块细节。
+Agent 是程序顶层，由 App 拥有 typed request queue 和 Agent frame。它把 `UserTurnRequest` 分派给 User Turn，把 `ReflectionRequest` 分派给 ReflectionEngine，把 `ExitRequest` 交给 Agent trap。每项新日 work 前的确定性 Archive preflight 是 Agent 边界前置条件，日期决策归 AgentDayCoordinator，目录事实归 Archive 与各 owner 所有；它只恢复 journal、归档旧日 Session/Workspace/Trash 并打开新日 Session/Workspace，不触发 LLM、不移动跨日 Home overlay，也不读写顶层 Memory。Agent 不直接介入 Phase 或具体模块细节。
 
-Turn 是 Agent work 中需要 3-stage 推理的一次顶层任务。User Turn 由用户输入形成；Home/Memory task 由 ReflectionEngine 在 eligible 时启动独立 Reflection Turn。二者使用相同 Turn/Cycle/Phase 层级，但 preparation、Context 实例、Action view、completion 和输出语义不同。User Turn 可以接收用户追加输入；Reflection 期间新输入只在 Agent queue 排队，不进入当前 Turn。Runtime 不保存 Reflection 业务状态：Home 重试重新读取 runtime overlay 与 actual Home，Memory 重试重新读取指定日期 Archive projection 与同日期 MEMORY。
+Turn 是 Agent work 中需要 3-stage 推理的一次顶层任务。User Turn 由用户输入形成；Home/Memory task 由 ReflectionEngine 在 eligible 时启动独立 Reflection Turn。二者使用相同 Turn/Cycle/Phase 层级，但 preparation、Context 实例、Action view、completion 和输出语义不同。User Turn 可以接收用户追加输入；明确的新根请求在 Agent queue 排队；定向追加和回复可进入当前 Reflection Inbox。Runtime 不保存 Reflection 业务状态：Home 重试重新读取 runtime overlay 与 actual Home，Memory 重试重新读取指定日期 Archive projection 与同日期 MEMORY。
 
 Cycle 是任一 User/Reflection Turn 内的一次执行轮。一个 Turn 可以包含多个 Cycle，每个 Cycle 按顺序组织 Phase。
 
@@ -112,7 +112,7 @@ Runtime 只定义信号信封和分发机制，不定义所有业务载荷字段
 
 ## 信号分发与消费
 
-信号通过 SignalBus 发出和暂存。SignalBus 提供线程安全的发出、查看、批量消费和按命名空间前缀选择性消费的能力，以支持 Phase3 的并行动作执行、用户追加输入和后台事件；命名空间消费使某个模块可以只取走属于自己的信号，而不影响其他消费者的队列。
+信号通过 SignalBus 发出和暂存。SignalBus 不提供等待者、emission cursor 或唤醒协议；等待属于 TurnInbox，Signal 仅交给业务消费者。SignalBus 提供线程安全的发出、查看、批量消费和按命名空间前缀选择性消费的能力，以支持 Phase3 的并行动作执行、用户追加输入和后台事件；命名空间消费使某个模块可以只取走属于自己的信号，而不影响其他消费者的队列。
 
 信号消费由拥有业务协议的模块在明确边界负责。消费者通过 SignalBus 的精确名称或命名空间批量选择能力取得信号，再按自身类型解析、投影和提交；Runtime 不维护一个脱离业务所有权的通用 SignalHandlerRegistry。Phase1 产生的状态信号应在 Phase1 结束后按消费模块协议批量处理；Phase3 的 Action 结果信号应在并行执行完成后批量消费；用户追加输入信号应在 User Turn 可接收输入的位置合并进当前 Turn。
 
@@ -129,10 +129,12 @@ Runtime 只定义信号信封和分发机制，不定义所有业务载荷字段
 `tinysoul.runtime.generation` 提供不携带业务依赖的泛型运行时句柄。当前子包由
 `activity.py`、`handle.py` 和 `__init__.py` 组成；lease 类型与句柄实现集中在 `handle.py`，
 不额外拆分没有独立职责的 lifecycle 或 receipt 模块。`RuntimeHandle[T]`
-持有当前业务 Generation，读者通过 `read()` lease 固定一次请求或 Turn 的对象，写者通过
-`write()` 在无 reader 时串行切换。`activity_lease()` 将 User Turn、Reflection Turn 和每日
+持有当前业务 Generation，读者通过异步 `read()` lease 固定一次请求或 Turn 的对象，写者通过
+异步 `write()` 在无 reader 时串行切换。`activity_lease()` 将 User Turn、Reflection Turn 和每日
 确定性切换登记到同一句柄；配置保存先独立原子写入候选，显式激活使用 `begin_activation()`、候选构建和
 `activate()`。活跃或等待工作期间拒绝激活，竞争失败映射为配置不可用。
+
+lease 等待使用 asyncio 协调，不在事件循环中等待线程 Condition；snapshot 只读内存，不隐式访问存储。关闭等待已受理 reader/激活收敛，候选失败恢复原世代准入。
 
 句柄只表达 activity、generation id 和激活状态，不导入 App、LLM、Memory 或 Workspace。
 业务 `AgentRuntimeGeneration` 由 AgentBuilder 构造并聚合 User Turn、Reflection、Workspace、

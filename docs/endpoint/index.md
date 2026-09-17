@@ -16,7 +16,8 @@ Endpoint 是 loopback 本地协议。除 `GET /v1/health` 外，HTTP 请求都�
 | Configuration | `GET /v1/config` | 配置源/effective fields/runtime 状态 |
 | Configuration | `GET /v1/config/catalog` | Infra 配置展示 catalog |
 | Configuration | `GET /v1/config/actions` | 当前 Generation Action 配置投影 |
-| Configuration | `PATCH /v1/config` | 持久化并激活配置 |
+| Configuration | `PATCH /v1/config` | 校验并保存配置候选 |
+| Configuration | `POST /v1/config/reload` | 在 idle 边界显式激活候选 |
 | Workspace | `/v1/workspace/*` | manifest、resource/blob、trash/restore |
 
 不存在 `/v1/actions/catalog`、`/v1/config/sections/{section_id}`、`/v1/config/validate` 或 `/v1/session/*`。`GET /openapi.json`（需鉴权）是路径和 schema 的机器可读权威描述。
@@ -28,5 +29,7 @@ Endpoint 是 loopback 本地协议。除 `GET /v1/health` 外，HTTP 请求都�
 ```
 
 `401` 表示鉴权失败，`409` 表示未 ready、运行中或 CAS 冲突，`413` 表示大小超限，`422` 表示 schema/配置值无效，`500` 表示收敛后的模块或服务失败。
+
+服务调用在世代或日期切换后失效时返回 `409 service.stale`；Agent 停止受理或服务暂不可用时返回 `409 agent.not_ready`。客户端重新读取当前状态后决定后续操作，后端不自动重放写入。
 
 详细协议见 [runtime](runtime.md)、[maintenance](maintenance.md)、[events](events.md)、[configuration](configuration.md)、[workspace](workspace.md) 和 [frontend integration](frontend-integration.md)。

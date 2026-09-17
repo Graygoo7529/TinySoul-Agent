@@ -17,8 +17,6 @@ class SupervisedProcessSettings:
     max_candidate_read_chars: int = 12_000
     max_log_bytes: int = 2 * 1024 * 1024
     max_log_delta_chars: int = 4_000
-    initial_wait_seconds: int = 10
-    cycle_wait_seconds: int = 15
     max_runtime_seconds: int = 1_800
 
     def __post_init__(self) -> None:
@@ -31,13 +29,6 @@ class SupervisedProcessSettings:
                     value=value,
                     expected="positive int",
                 )
-        if self.initial_wait_seconds > self.max_runtime_seconds:
-            raise ConfigError(
-                "Supervised process initial wait exceeds the runtime limit",
-                key="capabilities.supervised_process.initial_wait_seconds",
-                value=self.initial_wait_seconds,
-                expected=f"<= {self.max_runtime_seconds}",
-            )
         if self.max_mirror_file_bytes > self.max_mirror_bytes:
             raise ConfigError(
                 "Supervised process mirror file limit cannot exceed total limit",
@@ -55,8 +46,6 @@ _SETTING_NAMES = (
     "max_candidate_read_chars",
     "max_log_bytes",
     "max_log_delta_chars",
-    "initial_wait_seconds",
-    "cycle_wait_seconds",
     "max_runtime_seconds",
 )
 

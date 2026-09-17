@@ -14,17 +14,25 @@ from tinysoul.agent.config import AgentSettings
 from tinysoul.agent.assembly import AgentAssembly
 from tinysoul.agent.builder import AgentBuilder
 from tinysoul.infra.config import ConfigEnvironment, ConfigMutation, ConfigError
-from tinysoul.plugins.workspace import WorkspaceEngine
+from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.home import AgentHomeEngineBuilder, AgentHomeSettings
 from tinysoul.plugins.reflection import (ReflectionRequest, ReflectionScope, ReflectionTrigger, ReflectionOutcome, ReflectionStatus)
 from tinysoul.llm.requests import TaskCall
 from tinysoul.llm.responses import JsonAnswer, RawResponse, TaskResult
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
 from tinysoul.kernel.loop.turn import TurnOutcome
+from tinysoul.kernel.loop.outcomes import TurnOutcomeStatus
+from tinysoul.agent import RequestFailure
+from tinysoul.agent import AgentServiceStaleError, HomeService
+from tinysoul.kernel.registration import RegistrationError
+from tinysoul.plugins.home.services import HomeReviewService
+from tinysoul.plugins.memory.services import MemoryKnowledgeService
+from tinysoul.plugins.memory import MemoryEngine
 from tinysoul.kernel.loop.inbox import InboxClosedError, WaitReason
 from tinysoul.runtime.events import EnvironmentEvent, EventKind
 from tests.support.project import copy_initialized_project
 from tinysoul.infra.time import CalendarDay
+from tinysoul.infra.json import JsonObject
 from tinysoul.infra.clock import BusinessClock
 from tinysoul.plugins.memory import MemoryLink
 
@@ -114,6 +122,44 @@ async def test_create_is_inactive_and_waiter_cancellation_preserves_real_turn(tm
         assert await agent.shutdown() == ()
 
 
+async def test_shutdown_joins_inflight_start_and_rejects_cached_commands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    agent = await _create(tmp_path, _LLM())
+    entered = asyncio.Event()
+    cleaned = asyncio.Event()
+
+    async def activate(assembly: AgentAssembly) -> None:
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            await asyncio.sleep(0)
+            cleaned.set()
+
+    monkeypatch.setattr(AgentAssembly, "activate", activate)
+    starting = asyncio.create_task(agent.start())
+    await asyncio.wait_for(entered.wait(), 3)
+    first, second = await asyncio.wait_for(asyncio.gather(agent.shutdown(), agent.shutdown()), 5)
+    assert first == second == ()
+    with pytest.raises(asyncio.CancelledError):
+        await starting
+    assert cleaned.is_set() and agent.state is AgentState.STOPPED
+    assert await agent.shutdown() == ()
+
+
+async def test_restart_stopped_agent_and_old_commands_do_not_reopen(tmp_path: Path) -> None:
+    agent = await _create(tmp_path, _LLM())
+    await agent.start()
+    commands = agent.commands
+    await agent.shutdown()
+    await agent.restart()
+    try:
+        assert agent.state is AgentState.RUNNING
+        with pytest.raises(AgentClosedError):
+            await commands.submit_turn(UserTurnRequest("old instance"))
+    finally:
+        await agent.shutdown()
+
+
 async def test_cancel_active_turn_keeps_dispatcher_and_queued_work_alive(tmp_path: Path) -> None:
     llm = _LLM()
     agent = await _create(tmp_path, llm)
@@ -125,7 +171,8 @@ async def test_cancel_active_turn_keeps_dispatcher_and_queued_work_alive(tmp_pat
         with pytest.raises(AgentQueueFullError):
             await agent.submit_turn(UserTurnRequest("three"))
         assert await agent.cancel_turn(active.turn_id)
-        assert (await asyncio.wait_for(active.wait(), 5)).state is TurnState.CANCELLED
+        assert (await asyncio.wait_for(active.wait(), 5)).status is TurnOutcomeStatus.CANCELLED
+        assert active.state is TurnState.FINISHED
         assert agent.state is AgentState.RUNNING
         llm.release.set()
         result = await asyncio.wait_for(queued.wait(), 5)
@@ -138,16 +185,176 @@ async def test_config_save_keeps_live_services_until_explicit_reload(tmp_path: P
     agent = await _create(tmp_path, _LLM())
     await agent.start()
     try:
-        previous = agent.services.get(WorkspaceEngine)
+        previous = agent.services.get(WorkspaceService)
+        await previous.write_text("workspace:same.txt", "before reload")
         saved = await agent.patch_config((ConfigMutation(
             source_id="project:configs/action/routing.toml",
             path="action.llm_action.timeout_seconds", op="set", value=30.0,
         ),))
         assert saved["state"] == "saved" and saved["pending_reload"] is True
-        assert agent.services.get(WorkspaceEngine) is previous
+        assert agent.services.get(WorkspaceService) is previous
         activated = await agent.reload_config()
         assert activated["state"] == "active"
-        assert agent.services.get(WorkspaceEngine) is not previous
+        assert agent.services.get(WorkspaceService) is not previous
+        with pytest.raises(AgentServiceStaleError):
+            await previous.write_text("workspace:stale.txt", "must not commit")
+        with pytest.raises(AgentServiceStaleError):
+            await previous.snapshot()
+        current = agent.services.get(WorkspaceService)
+        assert (await current.read_text("workspace:same.txt")).text == "before reload"
+        assert not await current.write_target_exists("workspace:stale.txt")
+    finally:
+        await agent.shutdown()
+
+
+async def test_failed_reload_preserves_acquired_service(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    agent = await _create(tmp_path, _LLM())
+    await agent.start()
+    previous = agent.services.get(WorkspaceService)
+
+    async def fail_candidate(*args, **kwargs):
+        raise ConfigError("Candidate cannot be built", key="candidate")
+
+    monkeypatch.setattr(AgentBuilder, "_build_generation", fail_candidate)
+    try:
+        with pytest.raises(ConfigError):
+            await agent.reload_config()
+        assert agent.services.get(WorkspaceService) is previous
+        await previous.write_text("workspace:still-active.txt", "valid")
+        assert (await previous.read_text("workspace:still-active.txt")).text == "valid"
+    finally:
+        await agent.shutdown()
+
+
+async def test_root_arriving_during_failed_activation_waits_without_blocking_event_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    llm = _LLM()
+    llm.release.set()
+    agent = await _create(tmp_path, llm)
+    await agent.start()
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def fail_candidate(*args, **kwargs):
+        entered.set()
+        await release.wait()
+        raise ConfigError("Candidate failed", key="candidate")
+
+    monkeypatch.setattr(AgentBuilder, "_build_generation", fail_candidate)
+    reloading = asyncio.create_task(agent.reload_config())
+    try:
+        await asyncio.wait_for(entered.wait(), 3)
+        handle = await agent.submit_turn(UserTurnRequest("arrived during activation"))
+        await asyncio.sleep(0)
+        assert not llm.started.is_set() and not handle.done
+        release.set()
+        with pytest.raises(ConfigError):
+            await asyncio.wait_for(reloading, 3)
+        assert (await asyncio.wait_for(handle.wait(), 5)).status is TurnOutcomeStatus.ANSWERED
+    finally:
+        release.set()
+        await agent.shutdown()
+
+
+async def test_sdk_local_write_is_joined_before_shutdown_releases_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from threading import Event
+    from tinysoul.plugins.workspace import WorkspaceEngine
+
+    agent = await _create(tmp_path, _LLM())
+    await agent.start()
+    entered, release = asyncio.Event(), Event()
+    loop, original = asyncio.get_running_loop(), WorkspaceEngine.write_text
+
+    def write(owner, *args, **kwargs):
+        loop.call_soon_threadsafe(entered.set)
+        assert release.wait(5)
+        return original(owner, *args, **kwargs)
+
+    monkeypatch.setattr(WorkspaceEngine, "write_text", write)
+    service = agent.services.get(WorkspaceService)
+
+    async def write_resource() -> None:
+        await service.write_text("workspace:committed.txt", "persist")
+
+    writing = asyncio.create_task(write_resource())
+    try:
+        await asyncio.wait_for(entered.wait(), 3)
+        writing.cancel()
+        stopping = asyncio.create_task(agent.shutdown())
+        await asyncio.sleep(0)
+        assert not writing.done() and not stopping.done()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(writing, 4)
+        await asyncio.wait_for(stopping, 4)
+        assert (tmp_path / "project" / "runtime" / "workspace" / "committed.txt").read_text(encoding="utf-8") == "persist"
+    finally:
+        release.set()
+        await agent.shutdown()
+
+
+async def test_shutdown_joins_reload_candidate_before_closing_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    agent = await _create(tmp_path, _LLM())
+    await agent.start()
+    service = agent.services.get(WorkspaceService)
+    entered, release = asyncio.Event(), asyncio.Event()
+    original = AgentBuilder._build_generation
+
+    async def build_candidate(builder, *args, **kwargs):
+        entered.set()
+        await release.wait()
+        return await original(builder, *args, **kwargs)
+
+    monkeypatch.setattr(AgentBuilder, "_build_generation", build_candidate)
+    reloading = asyncio.create_task(agent.reload_config())
+    try:
+        await asyncio.wait_for(entered.wait(), 3)
+        stopping = asyncio.create_task(agent.shutdown())
+        await asyncio.sleep(0)
+        assert agent.state is AgentState.STOPPING and not stopping.done()
+        with pytest.raises(AgentClosedError):
+            await service.write_text("workspace:closed.txt", "must not commit")
+        release.set()
+        assert (await asyncio.wait_for(reloading, 5))["state"] == "active"
+        assert await asyncio.wait_for(stopping, 5) == ()
+        assert agent.state is AgentState.STOPPED
+        assert not (tmp_path / "project" / "runtime" / "workspace" / "closed.txt").exists()
+    finally:
+        release.set()
+        await agent.shutdown()
+
+
+async def test_day_bound_service_rejects_stale_write_and_restart_closes_old_services(tmp_path: Path) -> None:
+    clock = _Clock()
+    agent = await _create(tmp_path, _LLM(), clock=clock)
+    await agent.start()
+    try:
+        previous = agent.services.get(WorkspaceService)
+        home = agent.services.get(HomeService)
+        for facade in (HomeReviewService, MemoryKnowledgeService, MemoryEngine):
+            with pytest.raises(RegistrationError):
+                agent.services.get(facade)
+        assert not hasattr(home, "resolve_review")
+        await previous.write_text("workspace:same.txt", "old day")
+        clock.value = datetime(2026, 9, 16, 12, tzinfo=ZoneInfo("Asia/Shanghai"))
+        with pytest.raises(AgentServiceStaleError):
+            await previous.write_text("workspace:same.txt", "wrong day", overwrite=True)
+        current = agent.services.get(WorkspaceService)
+        assert current is not previous
+        assert not await current.write_target_exists("workspace:same.txt")
+        await current.write_text("workspace:same.txt", "new day")
+        assert (await current.read_text("workspace:same.txt")).text == "new day"
+        await home.default_background_links()
+        await agent.restart()
+        with pytest.raises(AgentClosedError):
+            await current.snapshot()
+        with pytest.raises(AgentClosedError):
+            await home.default_background_links()
+        assert (await agent.services.get(WorkspaceService).read_text("workspace:same.txt")).text == "new day"
     finally:
         await agent.shutdown()
 
@@ -162,8 +369,8 @@ async def test_shutdown_settles_active_and_queued_handles_before_restart(tmp_pat
     queued = await agent.submit_turn(UserTurnRequest("two"))
     await agent.restart()
     try:
-        assert (await active.wait()).state is TurnState.CANCELLED
-        assert (await queued.wait()).state is TurnState.CANCELLED
+        assert (await active.wait()).status is TurnOutcomeStatus.CANCELLED
+        assert (await queued.wait()).status is RequestFailure.CANCELLED
         assert agent.state is AgentState.RUNNING
         with pytest.raises(StopAsyncIteration):
             await asyncio.wait_for(anext(old_stream), 1)
@@ -185,7 +392,7 @@ async def test_memory_reflection_uses_current_workbench_and_dated_read_only_sour
     await agent.start()
     try:
         user = await agent.submit_turn(UserTurnRequest("Remember this discussion"))
-        assert (await user.wait()).state is TurnState.FINISHED
+        assert (await user.wait()).status is TurnOutcomeStatus.ANSWERED
         clock.value = datetime(2026, 9, 16, 12, tzinfo=ZoneInfo("Asia/Shanghai"))
         for call in (
             ToolCallRecord("select_memory", "select_action_domains", {"domains": ["memory_reflection"]}, ToolKind.CONTROL),
@@ -239,7 +446,6 @@ async def test_question_reply_resumes_same_turn_and_keeps_new_root_queued(tmp_pa
         assert question is not None and not active.done
         clock.value = datetime(2026, 9, 16, 12, tzinfo=ZoneInfo("Asia/Shanghai"))
         queued = await agent.submit_turn(UserTurnRequest("later"))
-        await agent.append_input(active.turn_id, "additional context", input_id="extra")
         assert (await agent.publish(EnvironmentEvent(EventKind.EVENT, {"changed": True}, "e"))).delivered
         assert not (await agent.publish(EnvironmentEvent(EventKind.EVENT, {}, "stale", "previous_turn"))).delivered
         with pytest.raises(InboxClosedError):
@@ -257,7 +463,7 @@ async def test_question_reply_resumes_same_turn_and_keeps_new_root_queued(tmp_pa
         reply = completion.inputs[-1]
         assert reply.text == "A" and reply.input_id == receipt.record_id
         assert reply.reply_to == question.question_id
-        assert (await queued.wait()).state is TurnState.CANCELLED
+        assert (await queued.wait()).status is RequestFailure.CANCELLED
         llm.results.extend(_LLM().results)
         following = await agent.submit_turn(UserTurnRequest("new day"))
         new_result = await asyncio.wait_for(following.wait(), 5)
@@ -288,13 +494,16 @@ async def test_home_reflection_waits_and_retains_full_turn_without_user_session(
     try:
         handle = await agent.submit_turn(ReflectionRequest(
             scope=ReflectionScope.HOME, trigger=ReflectionTrigger.MANUAL,
+            instructions="Only review the requested communication preference.",
         ))
+        assert await agent.submit_turn(handle.request) is handle
         async with asyncio.timeout(4):
             while handle.wait_reason is not WaitReason.INPUT:
                 assert not handle.done
                 await asyncio.sleep(0.01)
         question = handle.question
         assert question is not None
+        assert any("Only review the requested communication preference." in str(call) for call in llm.calls)
         with pytest.raises(ConfigError) as busy:
             await agent.reload_config()
         assert busy.value.key == "config.activation_unavailable"
@@ -308,4 +517,86 @@ async def test_home_reflection_waits_and_retains_full_turn_without_user_session(
         assert result.outcome.to_json()["tasks"]
         assert not tuple((root / "runtime" / "session").rglob("turns/*.json"))
     finally:
+        await agent.shutdown()
+
+
+@pytest.mark.parametrize("wait_kind", ["event", "timer", "question"])
+async def test_append_resumes_unified_wait_on_same_turn(tmp_path: Path, wait_kind: str) -> None:
+    llm = _LLM()
+    action = "core.ask" if wait_kind == "question" else "core.wait"
+    params: JsonObject = ({"text": "Choose"} if wait_kind == "question" else
+              {"event_kind": "event", "event_id": "matching"} if wait_kind == "event" else
+              {"timeout_seconds": 60})
+    for call in reversed((
+        ToolCallRecord("select_wait", "select_action_domains", {"domains": ["core"]}, ToolKind.CONTROL),
+        ToolCallRecord("wait", action, params, ToolKind.ACTION),
+    )):
+        llm.results.appendleft(TaskResult.success(
+            raw_response=RawResponse("", "fake", "fake", tool_calls=(call,)),
+            answer=None, tool_calls=(call,),
+        ))
+    llm.release.set()
+    agent = await _create(tmp_path, llm)
+    await agent.start()
+    try:
+        handle = await agent.submit_turn(UserTurnRequest("wait"))
+        async with asyncio.timeout(5):
+            while handle.wait_reason is None:
+                assert not handle.done
+                await asyncio.sleep(0.01)
+        question = handle.question
+        queued = await agent.submit_turn(UserTurnRequest("next root"))
+        await agent.publish(EnvironmentEvent(EventKind.EVENT, {}, "unrelated"))
+        await asyncio.sleep(0)
+        assert len(llm.calls) == 2 and queued.state is TurnState.QUEUED
+        await agent.cancel_turn(queued.turn_id)
+        receipt = await agent.append_input(handle.turn_id, "Change direction", input_id="new")
+        result = await asyncio.wait_for(handle.wait(), 5)
+        assert isinstance(result.outcome, TurnOutcome) and result.outcome.answered
+        completion = result.outcome.context_completion
+        assert completion is not None and completion.turn_id == handle.turn_id
+        assert completion.inputs[-1].input_id == receipt.record_id
+        assert completion.inputs[-1].reply_to == ""
+        if question is not None:
+            with pytest.raises(AgentClosedError):
+                await agent.reply(handle.turn_id, question.question_id, "late")
+    finally:
+        await agent.shutdown()
+
+
+async def test_sdk_finalizing_rejects_late_cancel_and_preserves_session_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from threading import Event
+    from tinysoul.plugins.session import SessionEngine
+
+    llm = _LLM()
+    llm.release.set()
+    entered, release = asyncio.Event(), Event()
+    loop = asyncio.get_running_loop()
+    original = SessionEngine.record_turn
+
+    def record(owner, *args, **kwargs):
+        original(owner, *args, **kwargs)
+        loop.call_soon_threadsafe(entered.set)
+        assert release.wait(5)
+
+    monkeypatch.setattr(SessionEngine, "record_turn", record)
+    agent = await _create(tmp_path, llm)
+    await agent.start()
+    try:
+        handle = await agent.submit_turn(UserTurnRequest("answer"))
+        await asyncio.wait_for(entered.wait(), 4)
+        assert handle.state is TurnState.FINALIZING
+        assert not await agent.cancel_turn(handle.turn_id)
+        stopping = asyncio.create_task(agent.shutdown())
+        await asyncio.sleep(0)
+        assert not stopping.done()
+        release.set()
+        await asyncio.wait_for(stopping, 5)
+        result = await handle.wait()
+        assert result.status is TurnOutcomeStatus.ANSWERED
+        assert len(tuple((tmp_path / "project" / "runtime" / "session").rglob("turns/*.json"))) == 1
+    finally:
+        release.set()
         await agent.shutdown()

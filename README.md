@@ -41,7 +41,7 @@ async def main():
         await agent.start()
         handle = await agent.submit_turn(UserTurnRequest("Summarize today's work"))
         result = await handle.wait()
-        print(result.state)
+        print(result.status)
     finally:
         await agent.shutdown()
 
@@ -111,3 +111,4 @@ https://www.orcarouter.ai/ is now supported as built-in provider.
 
 orcarouter new user link：
 https://www.orcarouter.ai/ref/ref_5fac47f4440f623d372b
+SDK 通过 `agent.services.get(WorkspaceService)` 等类型取得受约束服务，I/O 方法需要 `await`。成功 reload/restart 或日级资源日切后，旧服务对象会失效，调用者应重新获取；写入不会自动重试。手动 Reflection 使用指定 Home 或日期 Memory 的 `ReflectionRequest`，仅授权本次独立整理。

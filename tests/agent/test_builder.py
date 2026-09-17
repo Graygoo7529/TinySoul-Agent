@@ -36,6 +36,11 @@ from tinysoul.runtime import (
     SignalBus,
 )
 from tests.support.project import copy_initialized_project
+from tinysoul.kernel.loop.assembly import TurnProfile
+from tinysoul.plugins.reflection.builder import ReflectionBuilder
+from tinysoul.plugins.home.services import HomeReviewService
+from tinysoul.plugins.memory.services import MemoryKnowledgeService, MemoryService, MemoryReadService
+from tinysoul.kernel.registration import RegistrationError
 
 
 class FakeLLM:
@@ -46,6 +51,49 @@ class FakeLLM:
     async def run(self, call: TaskCall) -> TaskResult:
         self.calls.append(call)
         return self.results.popleft()
+
+
+async def test_three_scenarios_have_independent_policies_and_owner_services(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "project"
+    copy_initialized_project(root)
+    profiles: list[TurnProfile] = []
+    original = ReflectionBuilder.build
+
+    def capture(builder):
+        result = original(builder)
+        profiles.extend(result.profiles)
+        return result
+
+    monkeypatch.setattr(ReflectionBuilder, "build", capture)
+    config = ConfigEnvironment.from_project_root(root, env={}, overrides={
+        "loop.user.actions": {"domains": {"home": False}, "actions": {"home.resource.read": True}},
+        "maintenance.home.actions": {"actions": {"home_reflection.review": False}},
+        "maintenance.memory.actions": {"actions": {"memory_reflection.write": False}},
+    })
+    app = await (AgentBuilder(root).with_config_environment(config)
+                 .with_agent_settings(AgentSettings(interactive=False)).with_llm_runner(FakeLLM(())).build())
+    try:
+        user = app.generation_handle.snapshot().generation.user_turn.profile
+        home, memory = profiles
+        identifiers = [{name for _, name in profile.action.action_identifiers()} for profile in (user, home, memory)]
+        assert {name for name in identifiers[0] if name.startswith("home.")} == {"home.resource.read"}
+        assert "home_reflection.diff" in identifiers[1] and "home_reflection.review" not in identifiers[1]
+        assert "memory_reflection.write_daily" in identifiers[2] and "memory_reflection.write" not in identifiers[2]
+        assert all(not name.startswith(("home_reflection.", "memory_reflection.")) for name in identifiers[0])
+        assert not identifiers[1].intersection({"memory_reflection.write", "memory_reflection.write_daily"})
+        assert "core.memory.memorize" not in identifiers[2]
+        assert home.services.get(HomeReviewService)
+        assert home.services.get(MemoryService)
+        assert memory.services.get(MemoryKnowledgeService)
+        assert memory.services.get(MemoryReadService)
+        for profile, denied in ((user, HomeReviewService), (user, MemoryKnowledgeService),
+                                (home, MemoryKnowledgeService), (memory, HomeReviewService), (memory, MemoryService)):
+            with pytest.raises(RegistrationError):
+                profile.services.get(denied)
+    finally:
+        await app.close()
 
 
 @dataclass
@@ -268,7 +316,7 @@ async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer
                 websocket_heartbeat_seconds=0.05,
             ))
     events = endpoint.events
-    before = endpoint.configuration.status()["runtime"]
+    before = (await endpoint.configuration.status())["runtime"]
     after_sequence = events.latest_sequence
 
     client = TestClient(create_endpoint_app(endpoint, endpoint.settings))
@@ -327,21 +375,12 @@ async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer
                             "Read one project workspace resource for the current task."
                         ),
                     },
-                    {
-                        "source_id": (
-                            "project-document:action.catalog:configs/action/catalog/"
-                            "execution/actions/wait.toml"
-                        ),
-                        "path": "tool.schema.properties.wait_seconds.default",
-                        "op": "set",
-                        "value": 20,
-                    },
                 ]
             },
         )
         assert response.status_code == 200
         assert response.json()["state"] == "saved"
-        assert endpoint.configuration.status()["runtime"] == before
+        assert (await endpoint.configuration.status())["runtime"] == before
         reloaded = client.post(
             "/v1/config/reload", headers={"Authorization": f"Bearer {'x' * 32}"},
         )
@@ -350,8 +389,12 @@ async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer
         assert isinstance(result, dict)
         websocket_event_names = receive_event_names()
         websocket_completed_names = receive_event_names()
+        for _ in range(12):
+            if "config.activation.completed" in websocket_completed_names:
+                break
+            websocket_completed_names = receive_event_names()
 
-    after = endpoint.configuration.status()["runtime"]
+    after = (await endpoint.configuration.status())["runtime"]
     action_catalog = client.get(
         "/v1/config/actions",
         headers={"Authorization": f"Bearer {'x' * 32}"},
@@ -386,13 +429,7 @@ async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer
         item["id"] == "web.search_by_kimi" and item["available"] is False
         for item in action_catalog.json()["actions"]
     )
-    assert any(
-        item["id"] == "execution.wait"
-        and item["tool"]["schema"]["properties"]["wait_seconds"]["default"] == 20
-        and "tool.schema.properties.wait_seconds.default"
-        in item["source"]["editable_paths"]
-        for item in action_catalog.json()["actions"]
-    )
+
     assert any(
         item["id"] == "workspace"
         and item["source"]["document_kind"] == "domain"
@@ -418,15 +455,6 @@ async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer
         / "workspace"
         / "actions"
         / "read.toml"
-    ).read_text(encoding="utf-8")
-    assert "default = 20" in (
-        project_root
-        / "configs"
-        / "action"
-        / "catalog"
-        / "execution"
-        / "actions"
-        / "wait.toml"
     ).read_text(encoding="utf-8")
     invalid = client.patch(
         "/v1/config",
@@ -471,7 +499,7 @@ async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer
     assert invalid_timeout.json()["error"]["details"]["key"].endswith(
         "runtime.timeout_seconds"
     )
-    current_runtime = endpoint.configuration.status()["runtime"]
+    current_runtime = (await endpoint.configuration.status())["runtime"]
     assert isinstance(current_runtime, dict)
     assert current_runtime["generation_id"] == after["generation_id"]
     assert "Read one project workspace resource for the current task." in (
@@ -488,7 +516,7 @@ async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer
         mode=ObservationLevel.NORMAL,
         limit=20,
     )
-    assert [event.name for event in activation_events.events] == [
+    assert [event.name for event in activation_events.events if event.name.startswith("config.activation.")] == [
         "config.activation.started",
         "config.activation.completed",
     ]
@@ -529,7 +557,7 @@ async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
         / "domain.toml"
     )
 
-    runtime_before = _json_object(endpoint.configuration.status()["runtime"])
+    runtime_before = _json_object((await endpoint.configuration.status())["runtime"])
     generation_before = runtime_before["generation_id"]
     invalid = client.patch(
         "/v1/config",
@@ -546,7 +574,7 @@ async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
         },
     )
     assert invalid.status_code == 422
-    runtime_after_invalid = _json_object(endpoint.configuration.status()["runtime"])
+    runtime_after_invalid = _json_object((await endpoint.configuration.status())["runtime"])
     assert runtime_after_invalid["generation_id"] == generation_before
     assert "enabled = true" in domain_path.read_text(encoding="utf-8")
 
@@ -779,7 +807,7 @@ async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_i
     assert incompatible.status_code == 422
     assert incompatible.json()["error"]["code"] == "config.invalid"
     assert model_path.read_text(encoding="utf-8") == switched_source
-    runtime = endpoint.configuration.status()["runtime"]
+    runtime = (await endpoint.configuration.status())["runtime"]
     assert isinstance(runtime, dict)
     assert runtime["generation_id"] == switched_generation
 

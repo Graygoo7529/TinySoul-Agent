@@ -24,11 +24,11 @@ from tinysoul.infra import (
 from tinysoul.runtime import RuntimeException, SignalBus
 from tinysoul.plugins.workspace import (
     WorkspaceError,
-    WorkspaceEngine,
     WorkspaceTrashRestoreRequired,
     workspace_snapshot_signal,
 )
 
+from tinysoul.plugins.workspace.services import WorkspaceService
 from .config import WebSettings
 from .dependencies import kimi_search_api_key, require_web_dependencies
 from .errors import (
@@ -99,12 +99,13 @@ class KimiSearchExecutor(ActionExecutor):
                 reason="invalid_query",
             )
         try:
-            result = self._service.search_by_kimi(
+            result = await self._service.search_by_kimi(
                 query=query,
                 invoke_id=execution.framework.invoke_id,
                 call_id=execution.call.call_id,
                 owner_turn_id=execution.framework.turn_id,
                 control=context.control,
+                operations=context.owner_operations,
             )
         except WebProcessTimeout as exc:
             return _timeout(execution, str(exc), reason=exc.reason)
@@ -158,7 +159,7 @@ class WebFetchExecutor(ActionExecutor):
         if isinstance(params, ActionResult):
             return params
         try:
-            result = self._service.fetch(
+            result = await self._service.fetch(
                 extractor=self._extractor,
                 url=params.url,
                 target_link=params.target_link,
@@ -166,6 +167,7 @@ class WebFetchExecutor(ActionExecutor):
                 expected_target_digest=params.expected_target_digest,
                 owner_turn_id=execution.framework.turn_id,
                 control=context.control,
+                operations=context.owner_operations,
             )
         except WorkspaceTrashRestoreRequired as exc:
             if self._runtime_bridge is None:
@@ -222,7 +224,7 @@ class WebDiscoveryExecutor(ActionExecutor):
         if isinstance(params, ActionResult):
             return params
         try:
-            result = self._service.discover_pages(
+            result = await self._service.discover_pages(
                 start_url=params.start_url,
                 max_visit_depth=params.max_visit_depth,
                 include_globs=params.include_globs,
@@ -231,6 +233,7 @@ class WebDiscoveryExecutor(ActionExecutor):
                 call_id=execution.call.call_id,
                 owner_turn_id=execution.framework.turn_id,
                 control=context.control,
+                operations=context.owner_operations,
             )
         except WebProcessTimeout as exc:
             return _timeout(execution, str(exc), reason=exc.reason)
@@ -264,7 +267,7 @@ def register_web_actions(
     *,
     settings: WebSettings,
     runtime_env: Mapping[str, str],
-    workspace: WorkspaceEngine,
+    workspace: WorkspaceService,
     bus: SignalBus,
     staging: StagingDirectoryManager,
     runtime_bridge: WebActionRuntimeBridge | None = None,

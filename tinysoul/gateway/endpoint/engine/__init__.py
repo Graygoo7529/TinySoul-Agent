@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Generic
 
 from ..config import EndpointSettings
 from ..events import EndpointEventBuffer
@@ -11,20 +10,15 @@ from .context import EndpointEngineContext
 from .contracts import (
     EndpointAgentIngress,
     EndpointConfigController,
-    EndpointGenerationT,
-    EndpointReflectionStatus,
-    EndpointDayStatus,
-    AgentRuntimeServices,
+    EndpointServices,
 )
 from .events import EndpointEventsEngine
 from .maintenance import EndpointReflectionEngine
 from .runtime import EndpointControlKind, EndpointRuntimeEngine
 from .workspace import EndpointResourceBlob, EndpointWorkspaceEngine
-from tinysoul.plugins.workspace import WorkspaceEngine
-from tinysoul.runtime import RuntimeHandle
 
 
-class EndpointEngine(Generic[EndpointGenerationT]):
+class EndpointEngine:
     """Aggregate the typed Endpoint engines over existing TinySoul modules."""
 
     def __init__(
@@ -33,21 +27,15 @@ class EndpointEngine(Generic[EndpointGenerationT]):
         settings: EndpointSettings,
         events: EndpointEventBuffer,
         gateway: EndpointAgentIngress,
-        workspace: WorkspaceEngine,
-        maintenance: EndpointReflectionStatus,
-        day: EndpointDayStatus,
-        config: EndpointConfigController | None = None,
-        runtime_handle: RuntimeHandle[EndpointGenerationT] | None = None,
+        services: EndpointServices,
+        config: EndpointConfigController,
     ) -> None:
         context = EndpointEngineContext(
             settings=settings,
             events=events,
             gateway=gateway,
-            workspace=workspace,
-            maintenance=maintenance,
-            day=day,
+            services=services,
             config=config,
-            runtime_handle=runtime_handle,
         )
         self._settings = settings
         self.runtime = EndpointRuntimeEngine(context)
@@ -65,7 +53,6 @@ __all__ = [
     "EndpointConfigController",
     "EndpointControlKind",
     "EndpointEngine",
-    "EndpointGenerationT",
     "EndpointResourceBlob",
-    "AgentRuntimeServices",
+    "EndpointServices",
 ]

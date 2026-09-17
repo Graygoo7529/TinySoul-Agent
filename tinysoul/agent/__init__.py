@@ -1,8 +1,12 @@
 """Public asynchronous Agent SDK facade."""
 
 from .sdk import Agent, AgentState, AgentSnapshot
-from .errors import AgentClosedError, AgentQueueFullError, AgentSDKError
-from .handles import TurnHandle, TurnState, TurnResult
+from .errors import AgentClosedError, AgentQueueFullError, AgentSDKError, AgentServiceStaleError, AgentServiceUnavailableError
+from tinysoul.plugins.home.services import HomeService
+from tinysoul.plugins.memory.services import MemoryService
+from tinysoul.plugins.session.services import SessionService
+from tinysoul.plugins.workspace.services import WorkspaceService
+from .handles import RequestFailure, TurnHandle, TurnState, TurnResult
 from .requests import UserTurnRequest
 from tinysoul.plugins.reflection.models import ReflectionRequest, ReflectionScope, ReflectionTrigger
 from tinysoul.runtime.events import (
@@ -24,6 +28,12 @@ __all__ = [
     "ObservationSubscription",
     "ServiceRegistry",
     "AgentSDKError",
+    "AgentServiceStaleError",
+    "AgentServiceUnavailableError",
+    "HomeService",
+    "MemoryService",
+    "SessionService",
+    "WorkspaceService",
     "AgentClosedError",
     "AgentQueueFullError",
     "TurnHandle",
@@ -33,6 +43,7 @@ __all__ = [
     "ReflectionTrigger",
     "InboxLimits",
     "TurnResult",
+    "RequestFailure",
     "TurnState",
     "EnvironmentEvent",
     "EventBus",

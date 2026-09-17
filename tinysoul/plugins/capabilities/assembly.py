@@ -7,13 +7,13 @@ from collections.abc import Callable
 from functools import partial
 from tinysoul.kernel.registration import PluginDeclaration, PluginRegistry, RegistrationError, Service, ServiceRegistry
 from tinysoul.plugins.workspace.plugin import declare_workspace
+from tinysoul.plugins.workspace.services import WorkspaceService
+from tinysoul.plugins.home.services import HomeService
 from tinysoul.plugins.workspace.engine import WorkspaceArchiveView
 from tinysoul.kernel.context.errors import ContextError
 from tinysoul.kernel.action.config import ActionSettings, LLMActionProfileResolver
 from tinysoul.plugins.home import HomeActionSkillProvider
 from tinysoul.infra import StagingError
-from tinysoul.plugins.capabilities.supervised_process import SupervisedProcessWaitPolicy
-from tinysoul.plugins.capabilities.supervised_process.runtime_bridge import RuntimeSupervisedProcessBridge
 from tinysoul.plugins.workspace import WorkspaceMirrorService
 from tinysoul.kernel.loop.failures import LoopFailureKind
 from tinysoul.kernel.loop.runtime_bridge import RuntimeLoopBridge
@@ -37,6 +37,7 @@ from tinysoul.plugins.capabilities.supervised_process import (
 from tinysoul.plugins.capabilities.web import register_web_actions
 from tinysoul.kernel.context import ContextEngine
 from tinysoul.kernel.jobs import jobs_segment_registration
+from tinysoul.kernel.jobs.actions import register_job_actions
 from tinysoul.kernel.context.actions import register_context_actions
 from tinysoul.plugins.home import AgentHomeEngine
 from tinysoul.infra import StagingDirectoryManager
@@ -60,7 +61,7 @@ def prepare_common_actions(
     builder: ActionEngineBuilder,
     *,
     bus: SignalBus,
-    workspace: WorkspaceEngine,
+    workspace: WorkspaceService,
     context: ContextEngine,
     llm_action: LLMActionTaskRunner,
     capabilities_settings: CapabilitiesSettings,
@@ -119,7 +120,6 @@ def prepare_common_actions(
                 builder,
                 settings=capabilities_settings.shell,
                 jobs=process_jobs,
-                bus=bus,
                 workspace_bridge=workspace_bridge,
             )
         except ConfigError as exc:
@@ -133,6 +133,7 @@ def prepare_common_actions(
             or capabilities_settings.shell.cmd.enabled
             or capabilities_settings.shell.bash.enabled
         )
+        register_job_actions(builder, process_jobs.registry)
         register_supervised_process_actions(
             builder,
             enabled=script_process_enabled or shell_process_enabled,
@@ -176,7 +177,6 @@ class CommonActionAssembly:
         workspace: WorkspaceEngine, bus: SignalBus, llm: LLMRunner,
         observations: ObservationEmitter, action_settings: ActionSettings,
         capabilities_settings: CapabilitiesSettings,
-        supervised_process_wait: SupervisedProcessWaitPolicy,
         runtime_env: dict[str, str],
     ) -> None:
         self._root = root
@@ -187,7 +187,6 @@ class CommonActionAssembly:
         self._observations = observations
         self._action_settings = action_settings
         self._capabilities_settings = capabilities_settings
-        self._supervised_process_wait = supervised_process_wait
         self._runtime_env = dict(runtime_env)
 
     def prepare(
@@ -205,7 +204,6 @@ class CommonActionAssembly:
             ) from exc
         process_jobs = SupervisedProcessManager(
             settings=self._capabilities_settings.supervised_process,
-            wait_policy=self._supervised_process_wait,
             mirror_service=WorkspaceMirrorService(
                 self._workspace,
                 max_files=self._capabilities_settings.supervised_process.max_mirror_files,
@@ -217,29 +215,29 @@ class CommonActionAssembly:
                 ),
             ),
             staging=staging,
-            runtime_bridge=RuntimeSupervisedProcessBridge(),
         )
+        workspace_service = WorkspaceService(self._workspace)
+        home_service = ServiceRegistry(tuple(service for plugin in plugins for service in plugin.services)).get(HomeService)
         script_resolver = ScriptSourceResolver(
-            workspace=self._workspace,
-            home=self._home,
+            workspace=workspace_service,
+            home=home_service,
             max_source_chars=self._capabilities_settings.script.max_source_chars,
         )
         llm_action = LLMActionTaskRunner(
             llm_runner=self._llm,
             context=context,
-            action_skills=HomeActionSkillProvider(self._home, runtime_bridge=RuntimeAgentHomeBridge()),
+            action_skills=HomeActionSkillProvider(home_service, runtime_bridge=RuntimeAgentHomeBridge()),
             profile_resolver=LLMActionProfileResolver(self._action_settings.llm_action),
         )
         declarations = (
             *plugins,
-            declare_workspace(self._workspace, bus=self._bus, llm_action=llm_action, archive_source=archive_source),
+            declare_workspace(workspace_service, bus=self._bus, llm_action=llm_action, archive_source=archive_source),
             PluginDeclaration(
                 "capabilities",
-                services=(Service(SupervisedProcessManager, process_jobs),),
-                requires=(AgentHomeEngine, WorkspaceEngine),
+                requires=(HomeService, WorkspaceService),
                 segments=(jobs_segment_registration(),),
                 actions=partial(
-                    prepare_common_actions, bus=self._bus, workspace=self._workspace,
+                    prepare_common_actions, bus=self._bus, workspace=workspace_service,
                     context=context, llm_action=llm_action,
                     capabilities_settings=self._capabilities_settings,
                     runtime_env=self._runtime_env, staging=staging,
@@ -263,4 +261,4 @@ class CommonActionAssembly:
                 message="Profile actions could not be initialized.",
                 payload={"error_type": type(exc).__name__},
             ) from exc
-        return builder, resolved.services.get(SupervisedProcessManager), resolved.services
+        return builder, process_jobs, resolved.services

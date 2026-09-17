@@ -28,10 +28,10 @@ from tinysoul.plugins.home import (
     AgentHomeError,
     AgentHomeRuntimeCopyRequired,
 )
+from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra import JsonObject
 from tinysoul.runtime import RuntimeException, SignalBus
 from tinysoul.plugins.workspace import (
-    WorkspaceEngine,
     WorkspaceContractError,
     WorkspaceError,
     WorkspaceMirrorConflict,
@@ -40,6 +40,7 @@ from tinysoul.plugins.workspace import (
     workspace_snapshot_signal,
 )
 
+from tinysoul.plugins.workspace.services import WorkspaceService
 from .config import ScriptSettings
 from .dependencies import require_script_dependencies
 from .errors import ScriptError, ScriptPolicyError
@@ -107,7 +108,7 @@ class ScriptAuthoringExecutor(ActionExecutor):
         policy: ScriptPolicy,
         prompts: ScriptEditPromptBuilder,
         llm_action: LLMActionTaskRunner,
-        workspace: WorkspaceEngine,
+        workspace: WorkspaceService,
         bus: SignalBus,
         home_bridge: ScriptHomeRuntimeBridge | None,
         workspace_bridge: ScriptWorkspaceRuntimeBridge | None,
@@ -127,14 +128,15 @@ class ScriptAuthoringExecutor(ActionExecutor):
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        resolver = self._resolver.using(context.owner_operations)
         params = _authoring_params(execution)
         if isinstance(params, ActionResult):
             return params
         try:
-            language = self._resolver.validate_link(params.target_link)
+            language = resolver.validate_link(params.target_link)
             existing: ScriptSource | None = None
             if self._mode == "rewrite":
-                existing = self._resolver.read(params.target_link)
+                existing = await resolver.read(params.target_link)
                 if params.expected_digest and existing.digest != params.expected_digest:
                     return _failed(
                         execution,
@@ -143,14 +145,14 @@ class ScriptAuthoringExecutor(ActionExecutor):
                         frame_data={"link": params.target_link},
                     )
             else:
-                if self._resolver.target_exists(params.target_link):
+                if await resolver.target_exists(params.target_link):
                     return _failed(
                         execution,
                         "Script create target already exists.",
                         reason="target_exists",
                         frame_data={"link": params.target_link},
                     )
-                prompt = self._prompts.build_create(
+                prompt = await self._prompts.build_create(
                     target_link=params.target_link,
                     instruction=params.instruction,
                     reference_links=params.reference_links,
@@ -158,7 +160,7 @@ class ScriptAuthoringExecutor(ActionExecutor):
             if self._mode == "rewrite":
                 if existing is None:
                     raise ScriptError("Script rewrite target disappeared")
-                prompt = self._prompts.build_rewrite(
+                prompt = await self._prompts.build_rewrite(
                     source=existing,
                     instruction=params.instruction,
                     reference_links=params.reference_links,
@@ -179,7 +181,7 @@ class ScriptAuthoringExecutor(ActionExecutor):
         try:
             source = ScriptSource(params.target_link, text, "", language)
             self._policy.validate(source)
-            mutation = self._resolver.write(
+            mutation = await resolver.write(
                 params.target_link,
                 text,
                 overwrite=self._mode == "rewrite",
@@ -195,7 +197,7 @@ class ScriptAuthoringExecutor(ActionExecutor):
                 return mapped
             raise
         if mutation.link.startswith("workspace:"):
-            _emit_workspace(self._workspace, self._bus, execution, context)
+            await _emit_workspace(self._workspace, self._bus, execution, context)
         return _success(execution, _mutation_payload(mutation, language))
 
     def _source_failure(
@@ -242,7 +244,7 @@ class ScriptPatchExecutor(ActionExecutor):
         *,
         resolver: ScriptSourceResolver,
         policy: ScriptPolicy,
-        workspace: WorkspaceEngine,
+        workspace: WorkspaceService,
         bus: SignalBus,
         home_bridge: ScriptHomeRuntimeBridge | None,
         workspace_bridge: ScriptWorkspaceRuntimeBridge | None,
@@ -259,6 +261,7 @@ class ScriptPatchExecutor(ActionExecutor):
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        resolver = self._resolver.using(context.owner_operations)
         target = _required_text(execution, "target_link")
         old_text = _required_text(execution, "old_text")
         new_text = execution.call.params.get("new_text")
@@ -276,7 +279,7 @@ class ScriptPatchExecutor(ActionExecutor):
                 reason="invalid_digest",
             )
         try:
-            current = self._resolver.read(target)
+            current = await resolver.read(target)
             if expected and current.digest != expected:
                 return _failed(
                     execution,
@@ -296,7 +299,7 @@ class ScriptPatchExecutor(ActionExecutor):
                 current.language,
             )
             self._policy.validate(candidate)
-            mutation = self._resolver.patch(
+            mutation = await resolver.patch(
                 current,
                 old_text=old_text,
                 new_text=new_text,
@@ -327,7 +330,7 @@ class ScriptPatchExecutor(ActionExecutor):
         except WorkspaceError as exc:
             _raise_workspace_error(exc, self._workspace_bridge)
         if mutation.link.startswith("workspace:"):
-            _emit_workspace(self._workspace, self._bus, execution, context)
+            await _emit_workspace(self._workspace, self._bus, execution, context)
         return _success(execution, _mutation_payload(mutation, current.language))
 
 
@@ -350,7 +353,7 @@ class ScriptPromoteExecutor(ActionExecutor):
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
-        del context
+        resolver = self._resolver.using(context.owner_operations)
         source = _required_text(execution, "source_link")
         target = _required_text(execution, "target_link")
         expected_source = execution.call.params.get("expected_source_digest", "")
@@ -369,9 +372,9 @@ class ScriptPromoteExecutor(ActionExecutor):
                 reason="invalid_digest",
             )
         try:
-            source_snapshot = self._resolver.read(source)
+            source_snapshot = await resolver.read(source)
             self._policy.validate(source_snapshot)
-            mutation = self._resolver.promote(
+            mutation = await resolver.promote(
                 source_snapshot,
                 target,
                 expected_source_digest=expected_source,
@@ -405,7 +408,7 @@ class ScriptPromoteExecutor(ActionExecutor):
             _raise_workspace_error(exc, self._workspace_bridge)
         return _success(
             execution,
-            _mutation_payload(mutation, self._resolver.validate_link(target)),
+            _mutation_payload(mutation, resolver.validate_link(target)),
         )
 
 
@@ -436,6 +439,7 @@ class ScriptRunExecutor(ActionExecutor):
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        resolver = self._resolver.using(context.owner_operations)
         source_link = _required_text(execution, "source_link")
         args = _string_list(execution.call.params.get("args", []))
         if source_link is None or args is None:
@@ -453,7 +457,7 @@ class ScriptRunExecutor(ActionExecutor):
                 reason="args_limit",
             )
         try:
-            source = self._resolver.read(source_link, language=self._language)
+            source = await resolver.read(source_link, language=self._language)
             self._policy.validate(source)
             observation = await self._jobs.start(
                 turn_id=execution.framework.turn_id,
@@ -470,7 +474,6 @@ class ScriptRunExecutor(ActionExecutor):
                     settings=self._settings,
                 ),
                 control=context.control,
-                bus=context.signal_bus or self._bus,
             )
         except AgentHomeRuntimeCopyRequired as exc:
             if self._home_bridge is None:
@@ -518,7 +521,7 @@ def register_script_actions(
     settings: ScriptSettings,
     resolver: ScriptSourceResolver,
     jobs: SupervisedProcessManager,
-    workspace: WorkspaceEngine,
+    workspace: WorkspaceService,
     bus: SignalBus,
     llm_action: LLMActionTaskRunner,
     home_bridge: ScriptHomeRuntimeBridge | None = None,
@@ -694,15 +697,15 @@ def _observation_result(
     return _success(execution, observation.payload)
 
 
-def _emit_workspace(
-    workspace: WorkspaceEngine,
+async def _emit_workspace(
+    workspace: WorkspaceService,
     bus: SignalBus,
     execution: ActionExecution,
     context: ActionExecutionContext,
 ) -> None:
     (context.signal_bus or bus).emit(
         workspace_snapshot_signal(
-            workspace.snapshot(),
+            await context.owner_operations.finish(workspace.using(JoinedOperations()).snapshot),
             call_id=execution.call.call_id,
             scope=execution.framework.scope,
             source=execution.call.action_name,

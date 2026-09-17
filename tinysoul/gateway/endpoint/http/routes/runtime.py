@@ -10,8 +10,8 @@ from ..schemas import ControlRequest, InputRequest
 
 def register_runtime_routes(app: FastAPI, engine: EndpointEngine) -> None:
     @app.get("/v1/status")
-    def status() -> JsonObject:
-        return engine.runtime.status()
+    async def status() -> JsonObject:
+        return await engine.runtime.status()
 
     @app.post("/v1/input", status_code=202)
     async def submit_input(body: InputRequest) -> JsonObject:

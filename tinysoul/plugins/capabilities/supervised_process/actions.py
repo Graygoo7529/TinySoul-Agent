@@ -25,12 +25,9 @@ from tinysoul.plugins.workspace import (
 
 from .errors import SupervisedProcessError
 from .manager import SupervisedProcessManager
-from .models import SupervisedProcessObservation
 
 
 EXECUTION_LIFECYCLE_ACTIONS = (
-    "execution.wait",
-    "execution.stop",
     "execution.read_candidate",
     "execution.apply",
     "execution.discard",
@@ -75,35 +72,6 @@ class SupervisedProcessJobExecutor(ActionExecutor):
                 reason="missing_execution_id",
             )
         try:
-            if self._operation == "wait":
-                wait = execution.call.params.get(
-                    "wait_seconds",
-                    self._jobs.wait_policy.default_seconds,
-                )
-                if isinstance(wait, bool) or not isinstance(wait, int):
-                    return _failed(
-                        execution,
-                        "Execution wait_seconds must be an integer.",
-                        reason="invalid_wait",
-                    )
-                return _observation_result(
-                    execution,
-                    await self._jobs.wait(
-                        turn_id=execution.framework.turn_id,
-                        execution_id=execution_id,
-                        wait_seconds=wait,
-                        control=context.control,
-                        bus=context.signal_bus or self._bus,
-                    ),
-                )
-            if self._operation == "stop":
-                return _observation_result(
-                    execution,
-                    await context.owner_operations.run(lambda: self._jobs.stop(
-                        turn_id=execution.framework.turn_id,
-                        execution_id=execution_id,
-                    )),
-                )
             if self._operation == "read_candidate":
                 path = _required_text(execution, "path")
                 cursor = execution.call.params.get("cursor", 0)
@@ -199,7 +167,7 @@ def register_supervised_process_actions(
     if not enabled:
         builder.mark_actions_unsupported(*EXECUTION_LIFECYCLE_ACTIONS)
         return builder
-    for operation in ("wait", "stop", "read_candidate", "apply", "discard"):
+    for operation in ("read_candidate", "apply", "discard"):
         builder.register_executor(
             f"supervised_process.{operation}",
             SupervisedProcessJobExecutor(
@@ -215,40 +183,6 @@ def register_supervised_process_actions(
 def _required_text(execution: ActionExecution, name: str) -> str | None:
     value = execution.call.params.get(name)
     return value if isinstance(value, str) and value else None
-
-
-def _observation_result(
-    execution: ActionExecution,
-    observation: SupervisedProcessObservation,
-) -> ActionResult:
-    if observation.timed_out:
-        return ActionResult.timeout(
-            call_id=execution.call.call_id,
-            invoke_id=execution.framework.invoke_id,
-            batch_id=execution.framework.batch_id,
-            action_name=execution.call.action_name,
-            sequence=execution.call.sequence,
-            domain=execution.framework.domain,
-            failure=ActionLocalFailure(
-                reason="process_job_timeout",
-                scope="supervised_process.action",
-                disposition=ActionFailureDisposition.CHANGE_REQUEST,
-                feedback=(
-                    "Execution job reached its configured timeout and must be discarded."
-                ),
-            ),
-            payload=observation.payload,
-            frame_data={"executor_leaked": False},
-        )
-    if observation.failed:
-        return _failed(
-            execution,
-            "Execution process failed. Logs and candidates remain inspectable but "
-            "cannot be applied.",
-            reason="process_failed",
-            payload=observation.payload,
-        )
-    return _success(execution, observation.payload)
 
 
 def _success(execution: ActionExecution, payload: JsonObject) -> ActionResult:

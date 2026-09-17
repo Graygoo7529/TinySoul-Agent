@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from tinysoul.plugins.home.services import HomeService
 from tinysoul.plugins.home.background import home_segment_registration
 
 from datetime import date
@@ -51,8 +52,8 @@ async def test_packaged_default_home_exposes_only_context_visible_load_targets(
     tmp_path: Path,
 ) -> None:
     _, home = _initialized_home(tmp_path)
-    provider = HomeBackgroundEntryProvider(home)
-    catalog = provider.catalog(date(2026, 7, 15))
+    provider = HomeBackgroundEntryProvider(HomeService(home))
+    catalog = await provider.catalog(date(2026, 7, 15))
 
     assert _REQUIRED_TOP_LINKS <= set(catalog.default_links)
     assert catalog.evictable_default_links == ()
@@ -64,7 +65,7 @@ async def test_packaged_default_home_exposes_only_context_visible_load_targets(
 
     context = (
         ContextEngineBuilder(system_text="You are TinySoul.")
-        .with_segment(home_segment_registration(home))
+        .with_segment(home_segment_registration(HomeService(home)))
         .build()
     )
     turn_id = context.begin_turn("Use the referenced TinySoul documentation.")

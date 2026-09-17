@@ -55,7 +55,7 @@ from .cancellation import TurnCancellation
 from .context_signals import ContextSignalConsumer
 from .errors import LoopContractError, LoopError, LoopInvariantError
 from .prompts import DomainSkillProvider, EmptyDomainSkillProvider, phase1_task_prompt, phase2_task_prompt
-from .completion import question_from_results
+from .completion import WaitRequest, question_from_results, wait_from_results
 from .inbox import QuestionRequest
 from .signals import LoopTraceNoteKind
 
@@ -115,6 +115,7 @@ class Phase3Outcome:
     phase_results: tuple[ActionPhaseResult, ...] = field(default_factory=tuple)
     completion: JsonObject | None = None
     question: QuestionRequest | None = None
+    wait: WaitRequest | None = None
     failure: PhaseFailure | None = None
 
 
@@ -360,7 +361,7 @@ class Phase2Unit:
             messages = self._context.compose(
                 phase2_task_prompt(
                     selected_domains=selected_domains,
-                    domain_skills=self._domain_skills.guidance_for(selected_domains),
+                    domain_skills=await self._domain_skills.guidance_for(selected_domains),
                     feedback=(),
                     turn_guidance=self._turn_guidance,
                 )
@@ -543,6 +544,14 @@ class Phase3Unit:
         turn_id: str = "",
         cancellation: TurnCancellation | None = None,
     ) -> Phase3Outcome:
+        intents = [call for call in normalization.calls if call.action_name in {
+            "core.answer", "core.ask", "core.wait", "core.job.wait",
+        }]
+        if len(intents) > 1:
+            return Phase3Outcome(failure=PhaseFailure(
+                phase=CyclePhase.PHASE3, reason="conflicting_turn_intents",
+                feedback=("Choose one answer, question or wait intent per Cycle; no actions were executed.",),
+            ))
         try:
             self._context.register_action_calls(normalization.calls, cycle_id=cycle_id)
             preparation = self._action.prepare_batch(
@@ -582,17 +591,9 @@ class Phase3Unit:
             cycle_id=cycle_id,
         ))
         try:
-            intents = [item for item in results
-                       if item.action_name in {"core.answer", "core.ask"}
-                       and item.status is ActionResultStatus.SUCCESS]
-            if len(intents) > 1:
-                return Phase3Outcome(results=results, phase_results=phase_results,
-                                     failure=PhaseFailure(
-                                         phase=CyclePhase.PHASE3, reason="conflicting_turn_intents",
-                                         feedback=("Choose exactly one question or final answer in a Cycle.",),
-                                     ))
             completion = self._completion_detector.detect(results)
             question = question_from_results(results)
+            wait = wait_from_results(results)
         except LoopError as exc:
             raise self._loop_bridge.from_loop_error(exc) from exc
         return Phase3Outcome(
@@ -600,6 +601,7 @@ class Phase3Unit:
             phase_results=phase_results,
             completion=completion,
             question=question,
+            wait=wait,
         )
 
     def _observe_action_results(

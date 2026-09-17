@@ -345,10 +345,6 @@ class _TurnActivity:
     remaining: int
     cleanup_calls: int = 0
 
-    async def wait_before_cycle(self, turn_id: str, *, bus: SignalBus) -> None:
-        assert turn_id
-        assert isinstance(bus, SignalBus)
-
     def bind_inbox(self, turn_id, inbox) -> None:
         pass
 

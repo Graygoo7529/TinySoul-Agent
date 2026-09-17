@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Protocol
 from collections.abc import Callable
 
 from tinysoul.kernel.context.segments import ReadOnlySegmentRegistration, SegmentCapability, SegmentDescriptor, SegmentShape, SegmentSlot, TurnInfo
@@ -16,25 +15,16 @@ from tinysoul.kernel.loop.outcomes import TurnOutcomeStatus
 from tinysoul.plugins.session.runtime_bridge import RuntimeSessionBridge
 
 from .engine import SessionEngine
+from .services import SessionService, SessionViewSource
 from .errors import SessionError, SessionInspectRequestError
 from .models import SessionOutputRecord
 from .background import SessionBackgroundSnapshot
 
 
-class SessionViewSource(Protocol):
-    def background_snapshot(self, day: CalendarDay) -> SessionBackgroundSnapshot: ...
-
-    def inspect(
-        self, ref: str | None = None, *, action: str | None = None,
-        continuation: str | None = None,
-        expected_revision: int | None = None,
-    ) -> JsonObject: ...
-
-
 class SessionSegment:
     """A fixed prior-Turn view with owner-routed progressive inspection."""
 
-    def __init__(self, source: SessionViewSource, snapshot: SessionBackgroundSnapshot, day: CalendarDay) -> None:
+    def __init__(self, source: SessionService, snapshot: SessionBackgroundSnapshot, day: CalendarDay) -> None:
         self._source = source
         self._snapshot = snapshot
         self._day = day
@@ -56,11 +46,9 @@ class SessionSegment:
                 constraint={"ref": ref},
             )
         try:
-            operations = JoinedOperations()
-            value = await operations.run(lambda: self._source.inspect(
+            value = await self._source.inspect(
                 ref, continuation=continuation, expected_revision=self._snapshot.revision,
-            ))
-            operations.check_cancelled()
+            )
             return value
         except SessionInspectRequestError as exc:
             raise ContextInspectRequestError(
@@ -74,23 +62,21 @@ class SessionSegment:
 
 
 class SessionSegmentProvider:
-    def __init__(self, source: SessionViewSource, source_day: Callable[[], CalendarDay] | None = None) -> None:
+    def __init__(self, source: SessionService, source_day: Callable[[], CalendarDay] | None = None) -> None:
         self._source = source
         self._source_day = source_day
 
     async def open(self, info: TurnInfo) -> SessionSegment:
         day = self._source_day() if self._source_day is not None else CalendarDay(info.day)
         try:
-            operations = JoinedOperations()
-            snapshot = await operations.run(lambda: self._source.background_snapshot(day))
-            operations.check_cancelled()
+            snapshot = await self._source.background_snapshot(day)
         except SessionError as exc:
             raise RuntimeSessionBridge().from_session_error(exc) from exc
         return SessionSegment(self._source, snapshot, day)
 
 
 def session_segment_registration(
-    source: SessionViewSource, *, source_day: Callable[[], CalendarDay] | None = None,
+    source: SessionService, *, source_day: Callable[[], CalendarDay] | None = None,
 ) -> ReadOnlySegmentRegistration:
     return ReadOnlySegmentRegistration(
         descriptor=SegmentDescriptor("session", "session", SegmentSlot.BACKGROUND, 20, ("session:",), SegmentShape.MAP, frozenset({SegmentCapability.INSPECT})),

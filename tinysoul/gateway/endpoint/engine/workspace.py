@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Generic
 
 from tinysoul.infra.json import JsonObject, to_json_object
-from tinysoul.kernel.loop.errors import LoopError
+from tinysoul.agent.errors import AgentSDKError
+from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.workspace import (
     WorkspaceBundleWrite,
     WorkspaceManifest,
@@ -15,7 +15,6 @@ from tinysoul.plugins.workspace import (
 from tinysoul.plugins.workspace.errors import WorkspaceContractError, WorkspaceError
 
 from ..errors import EndpointRequestError
-from .contracts import EndpointGenerationT
 from .context import EndpointEngineContext
 
 
@@ -28,17 +27,16 @@ class EndpointResourceBlob:
     digest: str
 
 
-class EndpointWorkspaceEngine(Generic[EndpointGenerationT]):
+class EndpointWorkspaceEngine:
     """Keep Workspace leases, CAS and context synchronization in one boundary."""
 
-    def __init__(self, context: EndpointEngineContext[EndpointGenerationT]) -> None:
+    def __init__(self, context: EndpointEngineContext) -> None:
         self._context = context
 
-    def manifest(self) -> JsonObject:
+    async def manifest(self) -> JsonObject:
         try:
-            with self._context.workspace_lease() as (maintenance, workspace):
-                with maintenance.active_day_lease():
-                    result = workspace.reconcile()
+            async with self._context.services.registry.get(WorkspaceService).operation() as workspace:
+                result = await workspace.reconcile()
                 if not result.complete:
                     raise EndpointRequestError(
                         status_code=409,
@@ -49,52 +47,50 @@ class EndpointWorkspaceEngine(Generic[EndpointGenerationT]):
                 return result.manifest.to_json()
         except EndpointRequestError:
             raise
-        except LoopError as exc:
+        except AgentSDKError as exc:
             raise _not_ready(exc) from exc
         except WorkspaceError as exc:
             raise _workspace_error(exc) from exc
 
-    def read_text(self, link: str) -> JsonObject:
+    async def read_text(self, link: str) -> JsonObject:
         try:
-            with self._context.workspace_lease() as (maintenance, workspace):
-                with maintenance.active_day_lease():
-                    read = workspace.read_text(
-                        link,
-                        max_chars=self._context.settings.max_resource_chars,
-                    )
-                    return {
-                        "link": read.link,
-                        "text": read.text,
-                        "truncated": read.truncated,
-                        "size": read.size,
-                        "digest": read.digest,
-                    }
-        except LoopError as exc:
+            async with self._context.services.registry.get(WorkspaceService).operation() as workspace:
+                read = await workspace.read_text(
+                    link,
+                    max_chars=self._context.settings.max_resource_chars,
+                )
+                return {
+                    "link": read.link,
+                    "text": read.text,
+                    "truncated": read.truncated,
+                    "size": read.size,
+                    "digest": read.digest,
+                }
+        except AgentSDKError as exc:
             raise _not_ready(exc) from exc
         except WorkspaceError as exc:
             raise _workspace_error(exc) from exc
 
-    def read_blob(self, link: str) -> EndpointResourceBlob:
+    async def read_blob(self, link: str) -> EndpointResourceBlob:
         try:
-            with self._context.workspace_lease() as (maintenance, workspace):
-                with maintenance.active_day_lease():
-                    read = workspace.read_bytes(
-                        link,
-                        max_bytes=self._context.settings.max_resource_bytes,
-                    )
-                    return EndpointResourceBlob(
-                        link=read.link,
-                        data=read.data,
-                        media_type=read.media_type,
-                        size=read.size,
-                        digest=read.digest,
-                    )
-        except LoopError as exc:
+            async with self._context.services.registry.get(WorkspaceService).operation() as workspace:
+                read = await workspace.read_bytes(
+                    link,
+                    max_bytes=self._context.settings.max_resource_bytes,
+                )
+                return EndpointResourceBlob(
+                    link=read.link,
+                    data=read.data,
+                    media_type=read.media_type,
+                    size=read.size,
+                    digest=read.digest,
+                )
+        except AgentSDKError as exc:
             raise _not_ready(exc) from exc
         except WorkspaceError as exc:
             raise _workspace_error(exc) from exc
 
-    def write_text(
+    async def write_text(
         self,
         *,
         link: str,
@@ -105,25 +101,24 @@ class EndpointWorkspaceEngine(Generic[EndpointGenerationT]):
         retention: WorkspaceRetention | None,
     ) -> JsonObject:
         try:
-            with self._context.workspace_lease() as (maintenance, workspace):
-                with maintenance.active_day_lease():
-                    record = workspace.write_text(
-                        link,
-                        text,
-                        overwrite=overwrite,
-                        expected_digest=expected_digest,
-                        expected_revision=expected_revision,
-                        retention=retention,
-                    )
-                    manifest = workspace.load_manifest()
-                    self._sync_workspace_change(manifest)
-                    return {"record": record.to_json(), "manifest": manifest.to_json()}
-        except LoopError as exc:
+            async with self._context.services.registry.get(WorkspaceService).operation() as workspace:
+                record = await workspace.write_text(
+                    link,
+                    text,
+                    overwrite=overwrite,
+                    expected_digest=expected_digest,
+                    expected_revision=expected_revision,
+                    retention=retention,
+                )
+                manifest = await workspace.load_manifest()
+                self._sync_workspace_change(manifest)
+                return {"record": record.to_json(), "manifest": manifest.to_json()}
+        except AgentSDKError as exc:
             raise _not_ready(exc) from exc
         except WorkspaceError as exc:
             raise _workspace_error(exc) from exc
 
-    def write_blob(
+    async def write_blob(
         self,
         *,
         link: str,
@@ -140,47 +135,45 @@ class EndpointWorkspaceEngine(Generic[EndpointGenerationT]):
                 message="Workspace blob is too large.",
             )
         try:
-            with self._context.workspace_lease() as (maintenance, workspace):
-                with maintenance.active_day_lease():
-                    result = workspace.write_bundle(
-                        (
-                            WorkspaceBundleWrite(
-                                link=link,
-                                data=data,
-                                overwrite=overwrite,
-                                expected_digest=expected_digest,
-                                retention=retention,
-                            ),
+            async with self._context.services.registry.get(WorkspaceService).operation() as workspace:
+                result = await workspace.write_bundle(
+                    (
+                        WorkspaceBundleWrite(
+                            link=link,
+                            data=data,
+                            overwrite=overwrite,
+                            expected_digest=expected_digest,
+                            retention=retention,
                         ),
-                        expected_revision=expected_revision,
-                    )
-                    record = result.records[0]
-                    self._sync_workspace_change(result.manifest)
-                    return {
-                        "record": record.to_json(),
-                        "manifest": result.manifest.to_json(),
-                    }
-        except LoopError as exc:
+                    ),
+                    expected_revision=expected_revision,
+                )
+                record = result.records[0]
+                self._sync_workspace_change(result.manifest)
+                return {
+                    "record": record.to_json(),
+                    "manifest": result.manifest.to_json(),
+                }
+        except AgentSDKError as exc:
             raise _not_ready(exc) from exc
         except WorkspaceError as exc:
             raise _workspace_error(exc) from exc
 
-    def trash(self) -> JsonObject:
+    async def trash(self) -> JsonObject:
         try:
-            with self._context.workspace_lease() as (maintenance, workspace):
-                with maintenance.active_day_lease():
-                    return {
-                        "items": [
-                            {"ref": item.ref, **item.to_json()}
-                            for item in workspace.trash_items()
-                        ]
-                    }
-        except LoopError as exc:
+            async with self._context.services.registry.get(WorkspaceService).operation() as workspace:
+                return {
+                    "items": [
+                        {"ref": item.ref, **item.to_json()}
+                        for item in await workspace.trash_items()
+                    ]
+                }
+        except AgentSDKError as exc:
             raise _not_ready(exc) from exc
         except WorkspaceError as exc:
             raise _workspace_error(exc) from exc
 
-    def trash_resource(
+    async def trash_resource(
         self,
         *,
         link: str,
@@ -188,42 +181,40 @@ class EndpointWorkspaceEngine(Generic[EndpointGenerationT]):
         expected_revision: int,
     ) -> JsonObject:
         try:
-            with self._context.workspace_lease() as (maintenance, workspace):
-                with maintenance.active_day_lease():
-                    item = workspace.trash_resource(
-                        link,
-                        reason="endpoint.delete",
-                        expected_digest=expected_digest,
-                        expected_revision=expected_revision,
-                    )
-                    manifest = workspace.load_manifest()
-                    self._sync_workspace_change(manifest)
-                    return {
-                        "trash": {"ref": item.ref, **item.to_json()},
-                        "manifest": manifest.to_json(),
-                    }
-        except LoopError as exc:
+            async with self._context.services.registry.get(WorkspaceService).operation() as workspace:
+                item = await workspace.trash_resource(
+                    link,
+                    reason="endpoint.delete",
+                    expected_digest=expected_digest,
+                    expected_revision=expected_revision,
+                )
+                manifest = await workspace.load_manifest()
+                self._sync_workspace_change(manifest)
+                return {
+                    "trash": {"ref": item.ref, **item.to_json()},
+                    "manifest": manifest.to_json(),
+                }
+        except AgentSDKError as exc:
             raise _not_ready(exc) from exc
         except WorkspaceError as exc:
             raise _workspace_error(exc) from exc
 
-    def restore(
+    async def restore(
         self,
         *,
         trash_ref: str,
         expected_revision: int,
     ) -> JsonObject:
         try:
-            with self._context.workspace_lease() as (maintenance, workspace):
-                with maintenance.active_day_lease():
-                    record = workspace.restore_resource(
-                        trash_ref,
-                        expected_revision=expected_revision,
-                    )
-                    manifest = workspace.load_manifest()
-                    self._sync_workspace_change(manifest)
-                    return {"record": record.to_json(), "manifest": manifest.to_json()}
-        except LoopError as exc:
+            async with self._context.services.registry.get(WorkspaceService).operation() as workspace:
+                record = await workspace.restore_resource(
+                    trash_ref,
+                    expected_revision=expected_revision,
+                )
+                manifest = await workspace.load_manifest()
+                self._sync_workspace_change(manifest)
+                return {"record": record.to_json(), "manifest": manifest.to_json()}
+        except AgentSDKError as exc:
             raise _not_ready(exc) from exc
         except WorkspaceError as exc:
             raise _workspace_error(exc) from exc

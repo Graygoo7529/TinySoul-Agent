@@ -12,17 +12,17 @@ from tinysoul.plugins.reflection import (ReflectionSettings, parse_maintenance_s
 
 def test_maintenance_owns_its_turn_budget(tmp_path: Path) -> None:
     settings = parse_maintenance_settings(
-        {"turn": {"max_cycles": 31}},
+        {"home": {"max_cycles": 31}},
         project_root=tmp_path,
     )
 
-    assert settings.turn == TurnSettings(max_cycles=31)
+    assert settings.home == TurnSettings(max_cycles=31)
 
 
 def test_maintenance_turn_budget_defaults_and_rejects_old_loop_shape(
     tmp_path: Path,
 ) -> None:
-    assert parse_maintenance_settings({}, project_root=tmp_path).turn == TurnSettings()
+    assert parse_maintenance_settings({}, project_root=tmp_path).home == TurnSettings()
     with pytest.raises(ConfigError, match="Unknown configuration key"):
         parse_maintenance_settings(
             {"maintenance": {"max_cycles": 31}},
@@ -31,9 +31,9 @@ def test_maintenance_turn_budget_defaults_and_rejects_old_loop_shape(
 
 
 def test_maintenance_settings_require_typed_turn_settings(tmp_path: Path) -> None:
-    with pytest.raises(ConfigError, match="turn settings"):
+    with pytest.raises(ConfigError, match="scenario settings"):
         ReflectionSettings(
             archive_root=tmp_path / "archive",
             runtime_root=tmp_path / "runtime",
-            turn=cast(TurnSettings, object()),
+            home=cast(TurnSettings, object()),
         )

@@ -19,6 +19,7 @@ from tinysoul.kernel.action.core.loader import ActionCatalogLoader
 from tinysoul.infra import JsonObject, JsonValue
 from tinysoul.infra.time import CalendarDay
 from tinysoul.runtime import RunScope
+from tinysoul.plugins.session.services import SessionService
 from tinysoul.plugins.session.runtime_bridge import RuntimeSessionBridge
 from tinysoul.plugins.session import SessionEngine, SessionSettings
 from tinysoul.kernel.context import ContextEngineBuilder
@@ -246,7 +247,7 @@ async def test_session_inspect_executor_returns_foldable_origin(
         ),
     )
     context = ContextEngineBuilder(system_text="identity").build()
-    context.register_segment(session_segment_registration(session))
+    context.register_segment(session_segment_registration(SessionService(session)))
     context.begin_turn("inspect prior turn")
     await context.open_segments(DAY.value)
     result = await ContextInspectExecutor(
@@ -273,7 +274,7 @@ async def test_session_segment_is_fixed_and_seals_references_not_history(tmp_pat
         status=TurnOutcomeStatus.ANSWERED, exhausted=False,
     )
     context = ContextEngineBuilder(system_text="identity").build()
-    context.register_segment(session_segment_registration(session))
+    context.register_segment(session_segment_registration(SessionService(session)))
     context.begin_turn("next")
     await context.open_segments(DAY.value)
     sealed = context.segment_snapshot("session")

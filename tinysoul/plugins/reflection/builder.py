@@ -10,7 +10,9 @@ from tinysoul.plugins.home.plugin import declare_home
 from tinysoul.plugins.memory.plugin import declare_memory
 from tinysoul.plugins.session.plugin import declare_session
 from tinysoul.kernel.loop.assembly import TurnProfile, build_turn_context, build_turn_kernel
-from tinysoul.kernel.registration import ServiceRegistry
+from tinysoul.kernel.registration import ServiceRegistry, Service, PluginDeclaration
+from tinysoul.plugins.home.services import HomeReviewService, HomeService
+from tinysoul.plugins.memory.services import MemoryKnowledgeService
 from tinysoul.plugins.capabilities.assembly import CommonActionAssembly
 from tinysoul.kernel.loop.completion import AnswerCompletionDetector
 from tinysoul.plugins.capabilities.supervised_process import SupervisedProcessManager
@@ -85,9 +87,11 @@ class ReflectionBuilder:
         archived_context = ArchivedMemoryReflectionContext()
         home_context = build_turn_context(self._context_settings, self._observations)
         memory_context = build_turn_context(self._context_settings, self._observations)
-        home_controller = HomeReflectionActionController(self._home)
+        home_review = HomeReviewService(self._home)
+        memory_knowledge = MemoryKnowledgeService(self._memory)
+        home_controller = HomeReflectionActionController(home_review)
         memory_controller = MemoryReflectionActionController(
-            memory=self._memory,
+            memory=memory_knowledge,
         )
         common_plugins = (declare_home(self._home, self._llm, actual=True),
                           declare_memory(self._memory), declare_session(self._session))
@@ -98,7 +102,8 @@ class ReflectionBuilder:
             home_controller=home_controller,
             memory_controller=memory_controller,
             action_catalog=self._action_catalog,
-            plugins=common_plugins,
+            plugins=(*common_plugins, PluginDeclaration("home_review", services=(Service(HomeReviewService, home_review),))),
+            policy=self._settings.home.actions,
         )
         memory_action, memory_jobs, memory_services = build_maintenance_action(
             kind="memory",
@@ -109,8 +114,10 @@ class ReflectionBuilder:
             action_catalog=self._action_catalog,
             plugins=(declare_home(self._home, self._llm, actual=True),
                      declare_memory(self._memory, target=archived_context),
-                     declare_session(self._session, source=archived_context, source_day=archived_context.source_day)),
+                     declare_session(self._session, source=archived_context, source_day=archived_context.source_day),
+                     PluginDeclaration("memory_knowledge", services=(Service(MemoryKnowledgeService, memory_knowledge),))),
             archive_source=archived_context.source_workspace,
+            policy=self._settings.memory.actions,
         )
         home_turn, home_profile = self._build_turn(
             kind="home",
@@ -176,12 +183,12 @@ class ReflectionBuilder:
             action=action,
             services=services,
             trap=build_maintenance_turn_trap(context, home=self._home, workspace=self._workspace),
-            settings=self._settings.turn,
+            settings=self._settings.home if kind == "home" else self._settings.memory,
             cycle_settings=self._loop_settings.cycle,
             turn_guidance=maintenance_turn_guidance(kind),
             completion_detector=AnswerCompletionDetector(),
             preparation_pipeline=preparation,
-            domain_skills=HomeDomainSkillProvider(self._home),
+            domain_skills=HomeDomainSkillProvider(services.get(HomeService)),
             activity_controller=jobs,
         )
         runner = build_turn_kernel(profile=profile, llm=self._llm, bus=self._bus, observations=self._observations)

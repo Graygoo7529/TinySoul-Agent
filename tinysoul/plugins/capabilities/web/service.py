@@ -26,11 +26,12 @@ from tinysoul.infra import (
 )
 from tinysoul.plugins.workspace import (
     WorkspaceBundleWrite,
-    WorkspaceEngine,
     WorkspaceLink,
     WorkspaceRetention,
 )
 
+from tinysoul.plugins.workspace.services import WorkspaceService
+from tinysoul.infra.concurrency import JoinedOperations
 from .config import WebSettings
 from .errors import (
     WebContractError,
@@ -73,7 +74,7 @@ class WebCapabilityService:
     def __init__(
         self,
         *,
-        workspace: WorkspaceEngine,
+        workspace: WorkspaceService,
         settings: WebSettings,
         runtime_env: Mapping[str, str],
         staging: StagingDirectoryManager,
@@ -91,7 +92,7 @@ class WebCapabilityService:
             or "defuddle"
         )
 
-    def search_by_kimi(
+    async def search_by_kimi(
         self,
         *,
         query: str,
@@ -99,8 +100,12 @@ class WebCapabilityService:
         call_id: str,
         owner_turn_id: str,
         control: ActionExecutionControl,
+        operations: JoinedOperations | None = None,
     ) -> WebSearchResult:
         """Return answer and sources inline, spilling only oversized output."""
+
+        operations = operations or JoinedOperations()
+        workspace = self._workspace.using(operations)
 
         search = self._settings.search_by_kimi
         if not isinstance(query, str) or not query.strip():
@@ -122,7 +127,7 @@ class WebCapabilityService:
                 reason="credential_unavailable",
             )
         _require_active(control)
-        response = self._run_worker(
+        response = await operations.run(lambda: self._run_worker(
             {
                 "operation": "search_by_kimi",
                 "query": query.strip(),
@@ -136,7 +141,7 @@ class WebCapabilityService:
             control=control,
             stdout_limit=search.max_result_chars + 16_000,
             include_kimi_key=True,
-        )
+        ))
         answer = _required_string(response, "answer")
         results = _search_results(response)
         usage = _optional_object(response, "usage")
@@ -161,7 +166,7 @@ class WebCapabilityService:
         target_link = _search_workspace_link(invoke_id, call_id)
         markdown = _search_markdown(query=query.strip(), answer=answer, results=results)
         _require_active(control)
-        committed = self._workspace.write_bundle(
+        committed = await workspace.write_bundle(
             (
                 WorkspaceBundleWrite(
                     link=target_link,
@@ -184,7 +189,7 @@ class WebCapabilityService:
             record=committed.records[0],
         )
 
-    def fetch(
+    async def fetch(
         self,
         *,
         extractor: WebExtractor,
@@ -194,8 +199,12 @@ class WebCapabilityService:
         expected_target_digest: str,
         owner_turn_id: str,
         control: ActionExecutionControl,
+        operations: JoinedOperations | None = None,
     ) -> WebFetchResult:
         """Fetch and extract one public page into Workspace Markdown."""
+
+        operations = operations or JoinedOperations()
+        workspace = self._workspace.using(operations)
 
         if not isinstance(extractor, WebExtractor):
             raise WebContractError("Web extractor is invalid")
@@ -215,7 +224,7 @@ class WebCapabilityService:
         if not isinstance(owner_turn_id, str):
             raise WebContractError("Web fetch owner turn id must be a string")
         _require_active(control)
-        with self._staging.allocate("web") as output_path:
+        async with self._staging.allocate_async("web", operations) as output_path:
             operation = f"fetch_with_{extractor.value}"
             worker_request: JsonObject = {
                 "operation": operation,
@@ -230,17 +239,17 @@ class WebCapabilityService:
             }
             if extractor is WebExtractor.DEFUDDLE:
                 worker_request["defuddle_executable"] = self._defuddle_executable
-            response = self._run_worker(
+            response = await operations.run(lambda: self._run_worker(
                 worker_request,
                 control=control,
                 stdout_limit=32_000,
-            )
+            ))
             markdown_file = _required_string(response, "markdown_file")
             if Path(markdown_file).name != markdown_file:
                 raise WebWorkerProtocolError("Web worker Markdown path is invalid")
             markdown_path = output_path / markdown_file
             try:
-                data = markdown_path.read_bytes()
+                data = await operations.run(markdown_path.read_bytes)
                 text = data.decode("utf-8")
             except (OSError, UnicodeDecodeError) as exc:
                 raise WebWorkerProtocolError(
@@ -251,7 +260,7 @@ class WebCapabilityService:
                     "Web worker Markdown output violates limits"
                 )
             _require_active(control)
-            committed = self._workspace.write_bundle(
+            committed = await workspace.write_bundle(
                 (
                     WorkspaceBundleWrite(
                         link=str(target),
@@ -285,7 +294,7 @@ class WebCapabilityService:
             warning_codes=_warning_codes(response),
         )
 
-    def discover_pages(
+    async def discover_pages(
         self,
         *,
         start_url: str,
@@ -296,8 +305,12 @@ class WebCapabilityService:
         call_id: str,
         owner_turn_id: str,
         control: ActionExecutionControl,
+        operations: JoinedOperations | None = None,
     ) -> WebDiscoveryResult:
         """Discover bounded same-origin page candidates without saving bodies."""
+
+        operations = operations or JoinedOperations()
+        workspace = self._workspace.using(operations)
 
         discovery = self._settings.discover_pages
         if not isinstance(start_url, str) or not start_url.strip():
@@ -328,7 +341,7 @@ class WebCapabilityService:
         if not isinstance(owner_turn_id, str):
             raise WebContractError("Web discovery owner turn id must be a string")
         _require_active(control)
-        response = self._run_worker(
+        response = await operations.run(lambda: self._run_worker(
             {
                 "operation": "discover_pages",
                 "start_url": start_url.strip(),
@@ -351,7 +364,7 @@ class WebCapabilityService:
             },
             control=control,
             stdout_limit=discovery.max_result_chars + 16_000,
-        )
+        ))
         full_payload = _discovery_payload(response, start_url=start_url.strip())
         if len(dumps_json(full_payload)) > discovery.max_result_chars:
             raise WebWorkerProtocolError(
@@ -368,7 +381,7 @@ class WebCapabilityService:
             sort_keys=True,
         ) + "\n"
         _require_active(control)
-        committed = self._workspace.write_bundle(
+        committed = await workspace.write_bundle(
             (
                 WorkspaceBundleWrite(
                     link=target_link,

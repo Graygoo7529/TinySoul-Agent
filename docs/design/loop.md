@@ -22,7 +22,7 @@ TurnCompletion 保存执行状态、typed Trace、输入和段快照。必要 fi
 
 1. Phase1 构造 MessageStack，只暴露 Control Tools 和域级语义，消费语境控制并选择行动域。
 2. Phase2 只暴露所选域的 Action Tools，挂载相应领域 Skill，生成并归一化 ActionCall。
-3. Phase3 执行 ActionBatch，把 typed 执行事实交给 Trace，并解释完成/问题意图。
+3. Phase3 执行 ActionBatch，把 typed 执行事实交给 Trace，并解释完成、问题和等待意图。
 
 Phase1/Phase2 的可修正协议失败是 PhaseFailure，当前 Cycle 在失败 Phase 结束，有限反馈交给下一完整 Cycle；不在 Phase 内重复同一协议调用，不以空 ActionBatch 进入 Phase3。供应商/模型链重试归 LLM，模块契约失败经 owner bridge 进入 Runtime。
 
@@ -32,17 +32,21 @@ Phase task profile 由 loop.cycle 配置，三 profile 共用模型链选择；T
 
 TurnInbox 从请求受理到收尾持续接收。固定批次经 Context prepare/install 成功后 ack；准备期间到达的记录留在后批。inputs 保存正文，Trace 只引用输入身份与顺序。等待只观察就绪，不能抢走消费者记录。
 
-core.ask 是已收敛的 Action 意图。Turn 在 Phase3 后登记问题、发出中间观察输出并等待指定回复；普通追加或环境事件不答复问题。默认无限等待，显式超时以 awaiting_user 结束并保存事实。core.answer 产生完成候选；多个 ask/answer 意图构成可反馈 PhaseFailure。
+core.ask、core.wait、core.job.wait 都先以 ActionResult 收敛，再由 Loop 在 Cycle 边界等待。ask、wait、answer 等互斥意图在批次执行前检查，冲突形成 PhaseFailure，不先执行部分副作用。ask 无默认超时，显式超时以 awaiting_user 结束；普通追加作为新指示恢复并记录原问题未答，过期问题拒绝迟到回复。
 
 带 Inbox 的 Turn 在下一 Cycle 开始前检查预算；不足时经 Loop-owned reason 和 Trap SUSPEND 当前 Turn frame。next_cycle_index 保留，事件就绪不能越过预算，grant 绑定请求身份且幂等。模型不见剩余 Cycle，不得自动补额。不带 Inbox 的单次内核调用以有限预算终态收敛。
+
+INPUT、EVENT、TIMER 和 BUDGET 共用 TurnInbox.wait_for_cycle。事件使用类型、显式身份与当前 Cycle 已消费 cursor 过滤，Job 使用权威终态；定时器使用单次 monotonic deadline。普通条件满足但预算不足时保留有限就绪凭据，先 grant 则继续等条件；计时不重启，事件与输入不自动补额。等待只观察，不删除 Inbox 正文；Job 在登记前或登记期间结束均能恢复。问题超时直接结束 Turn，不需要为不存在的下一 Cycle 补预算。恢复原因进入现有 Trace，不补造工具结果。
 
 正常完成前复查 Inbox 与活 Job。已接受输入使候选失效并继续推理；活 Job 由模型等待或停止。取消独立于队列容量，停止普通受理后仍接收内部清理终态，消费并 seal 后才注销目标。
 
 ## Job 与完成策略
 
-Kernel JobRegistry 管身份、配额、监督、终态预留和 Turn 收尾；具体 backend 管进程及输出资源。Job 可跨 Cycle，不跨所属 Turn。后台 monitor 在 Turn 等待期间仍更新 owner 状态和终态，段视图在正常边界刷新，不由 monitor 并发修改 Context。
+Kernel JobRegistry 管身份、配额、监督、终态预留和 Turn 收尾；具体 backend 管进程及输出资源。Job 可跨 Cycle，不跨所属 Turn。通用 core.job.status/stop/wait 查询、停止或构造等待条件，进程 manager 不管理下一 Cycle 节拍。后台 monitor 在 Turn 等待期间仍更新 owner 状态和终态，段视图在正常边界刷新，不由 monitor 并发修改 Context。
 
 User 的 core.answer 经 profile 映射为正式用户输出，由 Session 保存 schema v8 完成事实。Home/Memory Reflection 复用同一完成检测和内核，core.answer 表示维护总结，不写 User Session；各自专属 Action 权限由装配决定，内核不按 profile 字符串分支解释业务。
+
+Job 终态单调、只交付一次；执行关闭失败成为诊断，不把已成功终态改成失败。stop 对仍保留的已结束 Job 幂等，release 重复调用不再清理，释放后查询明确拒绝。有限日志和候选由 backend 解释，完整资源不进入 JobSnapshot。
 
 ## Trap 与失败
 

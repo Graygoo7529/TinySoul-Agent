@@ -23,6 +23,7 @@ from tinysoul.kernel.action.core.specs import (
     ActionSpec,
     ActionToolSpec,
 )
+from tinysoul.plugins.home.services import HomeService
 from tinysoul.plugins.home import (
     AgentHomeEngine,
     AgentHomeEngineBuilder,
@@ -201,7 +202,7 @@ async def test_home_top_search_action_uses_llm_profile_and_returns_metadata(
     home = _build_home(tmp_path)
     llm = _FakeLLM((_json_result({"links": ["home:skills@beta"]}),))
     executor = HomeTopSearchExecutor(
-        home,
+        HomeService(home),
         reranker=LLMHomeSearchReranker(llm),
     )
 

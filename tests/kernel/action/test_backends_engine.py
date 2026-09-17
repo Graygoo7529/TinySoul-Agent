@@ -395,6 +395,7 @@ async def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
         .register_function("workspace.scan", lambda execution, context: {"scanned": True})
         .register_function("workspace.create", lambda execution, context: {"created": True})
             .mark_actions_unsupported(
+                "core.wait", "core.job.status", "core.job.stop", "core.job.wait",
                 *SCRIPT_ACTIONS,
                 *SHELL_ACTIONS,
                 *EXECUTION_LIFECYCLE_ACTIONS,

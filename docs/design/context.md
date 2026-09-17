@@ -73,4 +73,4 @@ TurnTraceHeap 是当前 Turn 的 append-only 运行事实：
 
 ## 插件装配
 
-Turn Context 先由内核根据 `ContextSettings` 构造核心段。Home、Memory、Session、Workspace 和 Job 以显式 `PluginDeclaration` 提供服务、段和动作贡献；`PluginRegistry` 在安装前校验服务唯一性、依赖顺序以及段 id、ref 和 signal 路由。解析失败不会部分安装，激活只发生一次。段 provider 仍只创建当前 Turn 的视图，Engine 服务跨 Turn 持有领域事实。
+Turn Context 先由内核根据 `ContextSettings` 构造核心段。Home、Memory、Session、Workspace 和 Job 以显式 `PluginDeclaration` 提供服务、段和动作贡献；`PluginRegistry` 在安装前校验服务唯一性、依赖顺序以及段 id、ref 和 signal 路由。解析失败不会部分安装，激活只发生一次。实际注入的是 owner 定义的受约束 async Service，Action、背景 provider 与 Skill provider 使用同一实例；不在注册窄接口后闭包捕获完整 Engine。纯渲染只读已安装视图，文件读取和网络检索分别使用 joined 本地操作与原生 async。段 provider 仍只创建当前 Turn 的视图，Engine 服务跨 Turn 持有领域事实。

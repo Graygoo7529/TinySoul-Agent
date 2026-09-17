@@ -10,6 +10,7 @@ from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 
 from tinysoul.infra.json import JsonObject
+from tinysoul.agent.errors import AgentSDKError, AgentServiceStaleError
 
 from ..config import EndpointSettings
 from ..engine import EndpointEngine
@@ -83,6 +84,14 @@ def create_endpoint_app(
         error: EndpointRequestError,
     ) -> JSONResponse:
         return JSONResponse(status_code=error.status_code, content=error.to_json())
+
+    @app.exception_handler(AgentSDKError)
+    async def agent_service_error(request: Request, error: AgentSDKError) -> JSONResponse:
+        return error_response(
+            409, "service.stale" if isinstance(error, AgentServiceStaleError) else "agent.not_ready",
+            "Agent service is unavailable; reacquire current state.",
+            {"error_type": type(error).__name__},
+        )
 
     @app.exception_handler(RequestValidationError)
     async def request_validation_error(

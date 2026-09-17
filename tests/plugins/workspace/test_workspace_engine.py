@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date as CalendarDate
+from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.workspace.projection import SIGNAL_WORKSPACE_SYNC, workspace_segment_registration
 import asyncio
 
@@ -265,7 +266,7 @@ async def test_workspace_scan_updates_manifest_and_emits_workspace_snapshot(
     bus = SignalBus()
     execution = _execution("workspace.scan", {})
 
-    result = await WorkspaceScanExecutor(engine, bus).execute(
+    result = await WorkspaceScanExecutor(WorkspaceService(engine), bus).execute(
         execution,
         ActionExecutionContext(signal_bus=bus),
     )
@@ -400,7 +401,7 @@ def test_workspace_classifies_prompt_access_kinds(tmp_path: Path) -> None:
     assert records["workspace:archive.bin"].kind is WorkspaceResourceKind.BINARY
 
 
-def test_workspace_prompt_resolver_loads_images_and_rejects_documents(
+async def test_workspace_prompt_resolver_loads_images_and_rejects_documents(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n")
@@ -411,17 +412,17 @@ def test_workspace_prompt_resolver_loads_images_and_rejects_documents(
             manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
         )
     ).build()
-    resolver = WorkspacePromptReferenceResolver(engine)
+    resolver = WorkspacePromptReferenceResolver(WorkspaceService(engine))
 
-    blocks = resolver.resolve_reference("workspace:image.png")
+    blocks = await resolver.resolve_reference("workspace:image.png")
 
     assert any(isinstance(part, ImagePart) for part in blocks[0].message.parts)
     with pytest.raises(PromptReferenceError) as raised:
-        resolver.resolve_reference("workspace:report.pdf")
+        await resolver.resolve_reference("workspace:report.pdf")
     assert raised.value.reason == "conversion_required"
 
 
-def test_workspace_prompt_resolver_rejects_image_with_invalid_signature(
+async def test_workspace_prompt_resolver_rejects_image_with_invalid_signature(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "image.png").write_bytes(b"not a png")
@@ -431,10 +432,10 @@ def test_workspace_prompt_resolver_rejects_image_with_invalid_signature(
             manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
         )
     ).build()
-    resolver = WorkspacePromptReferenceResolver(engine)
+    resolver = WorkspacePromptReferenceResolver(WorkspaceService(engine))
 
     with pytest.raises(PromptReferenceError) as raised:
-        resolver.resolve_reference("workspace:image.png")
+        await resolver.resolve_reference("workspace:image.png")
 
     assert raised.value.reason == "invalid_image_resource"
 
@@ -565,7 +566,7 @@ def test_workspace_prepare_task_input_renders_bounded_resources(tmp_path: Path) 
     assert "## workspace:b.md" in rendered
 
 
-def test_workspace_prompt_reference_resolver_returns_prefix_block(
+async def test_workspace_prompt_reference_resolver_returns_prefix_block(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "a.md").write_text("abcdef", encoding="utf-8")
@@ -576,9 +577,9 @@ def test_workspace_prompt_reference_resolver_returns_prefix_block(
             max_read_chars=3,
         )
     ).build()
-    resolver = WorkspacePromptReferenceResolver(engine)
+    resolver = WorkspacePromptReferenceResolver(WorkspaceService(engine))
 
-    blocks = resolver.resolve_reference("workspace:a.md")
+    blocks = await resolver.resolve_reference("workspace:a.md")
 
     assert len(blocks) == 1
     assert blocks[0].label == "task_prompt:input:workspace:reference:workspace:a.md:prefix:3"
@@ -589,7 +590,7 @@ def test_workspace_prompt_reference_resolver_returns_prefix_block(
     assert "truncated: true" in text
 
 
-def test_workspace_prompt_reference_resolver_returns_target_block(
+async def test_workspace_prompt_reference_resolver_returns_target_block(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "a.md").write_text("abcdef", encoding="utf-8")
@@ -600,9 +601,9 @@ def test_workspace_prompt_reference_resolver_returns_target_block(
             max_read_chars=3,
         )
     ).build()
-    resolver = WorkspacePromptReferenceResolver(engine)
+    resolver = WorkspacePromptReferenceResolver(WorkspaceService(engine))
 
-    blocks = resolver.resolve_target("workspace:a.md")
+    blocks = await resolver.resolve_target("workspace:a.md")
 
     assert len(blocks) == 1
     assert blocks[0].label == "task_prompt:input:workspace:target:workspace:a.md:prefix:3"
@@ -754,7 +755,7 @@ async def test_workspace_read_action_returns_foldable_text_range(tmp_path: Path)
         WorkspaceSettings(root=tmp_path, max_read_chars=7)
     ).build()
 
-    result = await WorkspaceReadExecutor(engine).execute(
+    result = await WorkspaceReadExecutor(WorkspaceService(engine)).execute(
         _execution(
             "workspace.read",
             {"link": "workspace:a.md", "start_line": 2, "end_line": 3},
@@ -996,7 +997,7 @@ async def test_workspace_search_action_returns_foldable_fragments(tmp_path: Path
     engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
     engine.reconcile()
 
-    result = await WorkspaceSearchTextExecutor(engine).execute(
+    result = await WorkspaceSearchTextExecutor(WorkspaceService(engine)).execute(
         _execution(
             "workspace.search_text",
             {
@@ -1030,7 +1031,7 @@ async def test_workspace_search_action_rejects_legacy_scope_shape(tmp_path: Path
     engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
     engine.reconcile()
 
-    result = await WorkspaceSearchTextExecutor(engine).execute(
+    result = await WorkspaceSearchTextExecutor(WorkspaceService(engine)).execute(
         _execution(
             "workspace.search_text",
             {
@@ -1057,7 +1058,7 @@ async def test_workspace_analyze_returns_grounded_standard_result(tmp_path: Path
         answer={"answer": "Alpha and beta are present.", "source_ids": ["source_1"]}
     )
     executor = WorkspaceAnalyzeExecutor(
-        workspace=engine,
+        workspace=WorkspaceService(engine),
         llm_action=LLMActionTaskRunner(llm_runner=llm, context=context_engine),
     )
     before = engine.reconcile().manifest
@@ -1111,7 +1112,7 @@ async def test_workspace_analyze_budget_failure_does_not_call_llm(tmp_path: Path
     )
 
     result = await WorkspaceAnalyzeExecutor(
-        workspace=engine,
+        workspace=WorkspaceService(engine),
         llm_action=LLMActionTaskRunner(llm_runner=llm, context=context_engine),
     ).execute(
         _execution(
@@ -1138,7 +1139,7 @@ async def test_workspace_analyze_rejects_invented_source_id(tmp_path: Path) -> N
     )
 
     result = await WorkspaceAnalyzeExecutor(
-        workspace=engine,
+        workspace=WorkspaceService(engine),
         llm_action=LLMActionTaskRunner(llm_runner=llm, context=context_engine),
     ).execute(
         _execution(
@@ -1164,7 +1165,7 @@ async def test_workspace_analyze_requires_at_least_one_grounding_source(
     llm = FakeLLMRunner(answer={"answer": "Alpha is present.", "source_ids": []})
 
     result = await WorkspaceAnalyzeExecutor(
-        workspace=engine,
+        workspace=WorkspaceService(engine),
         llm_action=LLMActionTaskRunner(llm_runner=llm, context=context_engine),
     ).execute(
         _execution(
@@ -1724,7 +1725,7 @@ async def test_workspace_describe_executor_updates_manifest_and_working_patch(
         {"target_link": "workspace:a.md"},
     )
 
-    result = await WorkspaceDescribeExecutor(engine, bus, llm_action).execute(
+    result = await WorkspaceDescribeExecutor(WorkspaceService(engine), bus, llm_action).execute(
         execution,
         ActionExecutionContext(signal_bus=bus),
     )
@@ -1766,7 +1767,7 @@ async def test_workspace_create_keeps_committed_result_and_snapshot_when_cancell
 
     monkeypatch.setattr(engine, "commit_edit_text", delayed_commit)
     execution_context = ActionExecutionContext(signal_bus=bus)
-    executor = WorkspaceCreateExecutor(workspace=engine, bus=bus,
+    executor = WorkspaceCreateExecutor(workspace=WorkspaceService(engine), bus=bus,
         llm_action=LLMActionTaskRunner(llm_runner=llm, context=context_engine))
     work = asyncio.create_task(executor.execute(_execution("workspace.create", {
         "target_link": "workspace:note.md", "instruction": "Write a note.", "reference_links": [],
@@ -1814,7 +1815,7 @@ async def test_workspace_create_executor_generates_text_inside_action(
 
     llm_action = LLMActionTaskRunner(llm_runner=llm, context=context_engine)
     result = await WorkspaceCreateExecutor(
-        workspace=engine,
+        workspace=WorkspaceService(engine),
         bus=bus,
         llm_action=llm_action,
     ).execute(execution, ActionExecutionContext(signal_bus=bus))
@@ -1878,7 +1879,7 @@ async def test_workspace_create_output_limit_does_not_commit_partial_artifact(
     )
 
     result = await WorkspaceCreateExecutor(
-        workspace=engine,
+        workspace=WorkspaceService(engine),
         bus=bus,
         llm_action=LLMActionTaskRunner(
             llm_runner=FakeLLMRunner(failure=failure),
@@ -1925,7 +1926,7 @@ async def test_workspace_create_rejects_absent_target_created_after_prompt(
         },
     )
     result = await WorkspaceCreateExecutor(
-        workspace=engine,
+        workspace=WorkspaceService(engine),
         bus=bus,
         llm_action=LLMActionTaskRunner(
             llm_runner=FakeLLMRunner({"text": "generated"}, on_run=create_target),
@@ -1949,7 +1950,7 @@ async def test_workspace_append_executor_commits_fragment_without_old_text(
     engine.reconcile()
     bus = SignalBus()
     before = engine.inspect("workspace:a.md")
-    result = await WorkspaceAppendExecutor(engine, bus).execute(
+    result = await WorkspaceAppendExecutor(WorkspaceService(engine), bus).execute(
         _execution(
             "workspace.append",
             {
@@ -1980,7 +1981,7 @@ async def test_workspace_patch_executor_failure_is_local_result(tmp_path: Path) 
         {"target_link": "workspace:a.md", "old_text": "missing", "new_text": "x"},
     )
 
-    result = await WorkspacePatchExecutor(engine, bus).execute(
+    result = await WorkspacePatchExecutor(WorkspaceService(engine), bus).execute(
         execution,
         ActionExecutionContext(signal_bus=bus),
     )
@@ -2002,7 +2003,7 @@ async def test_workspace_delete_executor_emits_empty_workspace_snapshot(tmp_path
     bus = SignalBus()
     execution = _execution("workspace.delete", {"target_link": "workspace:a.md"})
 
-    result = await WorkspaceDeleteExecutor(engine, bus).execute(
+    result = await WorkspaceDeleteExecutor(WorkspaceService(engine), bus).execute(
         execution,
         ActionExecutionContext(signal_bus=bus),
     )
@@ -2043,7 +2044,7 @@ async def test_workspace_rewrite_executor_loads_target_and_references_inside_act
 
     llm_action = LLMActionTaskRunner(llm_runner=llm, context=context_engine)
     result = await WorkspaceRewriteExecutor(
-        workspace=engine,
+        workspace=WorkspaceService(engine),
         bus=bus,
         llm_action=llm_action,
     ).execute(execution, ActionExecutionContext(signal_bus=bus))
@@ -2107,7 +2108,7 @@ async def test_workspace_rewrite_rejects_truncated_target_before_llm_call(
     )
 
     result = await WorkspaceRewriteExecutor(
-        workspace=engine,
+        workspace=WorkspaceService(engine),
         bus=bus,
         llm_action=LLMActionTaskRunner(
             llm_runner=llm,
@@ -2156,7 +2157,7 @@ async def test_workspace_rewrite_executor_rejects_target_changed_after_prompt(
 
     llm_action = LLMActionTaskRunner(llm_runner=llm, context=context_engine)
     result = await WorkspaceRewriteExecutor(
-        workspace=engine,
+        workspace=WorkspaceService(engine),
         bus=bus,
         llm_action=llm_action,
     ).execute(execution, ActionExecutionContext(signal_bus=bus))
@@ -2198,7 +2199,7 @@ async def test_workspace_rewrite_rejects_reference_changed_after_prompt(
         },
     )
     result = await WorkspaceRewriteExecutor(
-        workspace=engine,
+        workspace=WorkspaceService(engine),
         bus=bus,
         llm_action=LLMActionTaskRunner(
             llm_runner=FakeLLMRunner(

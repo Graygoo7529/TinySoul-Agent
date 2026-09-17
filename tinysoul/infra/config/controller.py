@@ -61,7 +61,7 @@ ConfigCandidateValidator = Callable[[ConfigEnvironment], None]
 
 @dataclass(frozen=True)
 class PreparedConfigActivation:
-    commit: Callable[[], None]
+    commit: Callable[[], Awaitable[None]]
     abort: Callable[[], Awaitable[tuple[CleanupDiagnostic, ...]]] | None = None
     retire: Callable[[], Awaitable[tuple[CleanupDiagnostic, ...]]] | None = None
 
@@ -96,6 +96,20 @@ class ConfigController:
         self._generation_id_provider = generation_id
         self._catalog = catalog or load_config_catalog()
         self._pending_reload = False
+        self._closed = False
+
+    def stop_accepting(self) -> None:
+        self._closed = True
+
+    async def close(self) -> None:
+        """Join accepted mutations before the owner retires its resources."""
+        self.stop_accepting()
+        async with self._lock:
+            pass
+
+    def _require_open(self) -> None:
+        if self._closed:
+            raise ConfigError("Configuration control is closed", key="config.closed")
 
     @property
     def environment(self) -> ConfigEnvironment:
@@ -142,6 +156,7 @@ class ConfigController:
     async def patch(self, mutations: tuple[ConfigMutation, ...]) -> JsonObject:
         """Validate and save a candidate without replacing the active generation."""
         async with self._lock:
+            self._require_open()
             if not mutations:
                 raise ConfigError("Configuration patch must contain operations", key="operations")
             operations = JoinedOperations()
@@ -169,6 +184,7 @@ class ConfigController:
     async def reload(self) -> JsonObject:
         """Activate saved files only when the current generation is idle."""
         async with self._lock:
+            self._require_open()
             if self._activity() != "idle" or self._activator is None:
                 raise ConfigError(
                     "Configuration activation requires an idle runtime with an activator",
@@ -185,7 +201,7 @@ class ConfigController:
                     await operations.run(lambda: validator(candidate))
                     operations.check_cancelled()
                 prepared = await self._activator(candidate)
-                prepared.commit()
+                await operations.run_async(prepared.commit)
             except BaseException as exc:
                 await self._abort(prepared)
                 self._observe("failed", {"error_type": type(exc).__name__})
@@ -206,6 +222,7 @@ class ConfigController:
                         {"resource": item.resource, "error_type": item.error_type}
                         for item in diagnostics
                     ]
+            operations.check_cancelled()
             return result
 
     async def _abort(self, prepared: PreparedConfigActivation | None) -> None:

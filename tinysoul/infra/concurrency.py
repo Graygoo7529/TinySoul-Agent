@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TypeVar
 from threading import Condition, Lock, get_ident
@@ -13,6 +15,45 @@ from types import TracebackType
 
 class ConcurrencyContractError(Exception):
     """A lock was released without a matching acquisition."""
+
+
+class AsyncReadWriteLock:
+    """Shared async operations and exclusive transitions on one event loop."""
+
+    def __init__(self) -> None:
+        self._readers = 0
+        self._writer = False
+        self._waiting_writers = 0
+        self._changed = asyncio.Event()
+
+    @asynccontextmanager
+    async def read_locked(self) -> AsyncIterator[None]:
+        while self._writer or self._waiting_writers:
+            self._changed.clear()
+            await self._changed.wait()
+        self._readers += 1
+        try:
+            yield
+        finally:
+            self._readers -= 1
+            self._changed.set()
+
+    @asynccontextmanager
+    async def write_locked(self) -> AsyncIterator[None]:
+        self._waiting_writers += 1
+        try:
+            while self._writer or self._readers:
+                self._changed.clear()
+                await self._changed.wait()
+            self._writer = True
+        finally:
+            self._waiting_writers -= 1
+            self._changed.set()
+        try:
+            yield
+        finally:
+            self._writer = False
+            self._changed.set()
 
 
 class ReadWriteLock:
@@ -254,6 +295,15 @@ class AsyncMailbox[T]:
             if not self._items:
                 raise asyncio.QueueEmpty
             return self._items.popleft()
+
+    def discard(self, item: T) -> bool:
+        """Remove queued work without retaining a cancellation tombstone."""
+        with self._lock:
+            try:
+                self._items.remove(item)
+            except ValueError:
+                return False
+            return True
 
     async def get(self) -> T:
         loop = asyncio.get_running_loop()

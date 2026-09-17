@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import cast
 
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
+from tinysoul.kernel.action.config import ActionPolicy, parse_action_policy
 
 
 @dataclass(frozen=True)
@@ -14,8 +15,11 @@ class TurnSettings:
     """Cycle budget for one kind of Turn."""
 
     max_cycles: int = 20
+    actions: ActionPolicy = field(default_factory=ActionPolicy)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.actions, ActionPolicy):
+            raise ConfigError("Turn actions must be an ActionPolicy", key="turn.actions")
         if (
             isinstance(self.max_cycles, bool)
             or not isinstance(self.max_cycles, int)
@@ -128,14 +132,15 @@ def parse_turn_settings(value: object, *, key: str) -> TurnSettings:
             expected="table",
         )
     table = cast(Mapping[str, object], value)
-    reject_unknown_keys(table, {"max_cycles"}, key=key)
+    reject_unknown_keys(table, {"max_cycles", "actions"}, key=key)
     return TurnSettings(
         max_cycles=_optional_int(
             table,
             "max_cycles",
             default=TurnSettings.max_cycles,
             key=f"{key}.max_cycles",
-        )
+        ),
+        actions=parse_action_policy(table.get("actions"), key=f"{key}.actions"),
     )
 
 

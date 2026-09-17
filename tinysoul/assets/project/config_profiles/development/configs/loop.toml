@@ -4,3 +4,8 @@ phase2_task_profile = "frame_stage2"
 
 [loop.user]
 max_cycles = 20
+
+# Domain defaults and action overrides are scoped to this User scenario.
+[loop.user.actions.domains]
+
+[loop.user.actions.actions]

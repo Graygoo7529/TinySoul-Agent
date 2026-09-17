@@ -14,11 +14,39 @@ from tinysoul.plugins.archive import ArchiveProjection
 from tinysoul.plugins.archive import DailyTransitionOutcome
 from tinysoul.plugins.reflection import (ReflectionAvailability, ReflectionAvailabilityStore, ReflectionContractError, ReflectionEngine, ReflectionInvariantError, ReflectionRequest, ReflectionScope, ReflectionTaskKind, ReflectionTaskOutcome, ReflectionTaskStatus, ReflectionTrigger)
 from tinysoul.runtime import ObservationEvent, ObservationLevel, RunScope
+from tinysoul.kernel.loop.turn import TurnOutcome, TurnExecutionCancelled
+from tinysoul.kernel.loop.outcomes import TurnOutcomeStatus
+from tinysoul.plugins.reflection.models import ReflectionExecutionCancelled
 
 
 TODAY = CalendarDay.parse("2026-08-03")
 DAY_ONE = CalendarDay.parse("2026-08-01")
 DAY_TWO = CalendarDay.parse("2026-08-02")
+
+
+@pytest.mark.parametrize("status", [TurnOutcomeStatus.CANCELLED, TurnOutcomeStatus.COMPLETED])
+async def test_reflection_cancel_retains_target_and_owner_completion(tmp_path: Path, status: TurnOutcomeStatus) -> None:
+    turn = TurnOutcome(
+        context_completion=None, business_day=TODAY, status=status,
+        completion={"summary": "persisted before cancellation"} if status is TurnOutcomeStatus.COMPLETED else None,
+    )
+
+    class CancelledMemory(_Memory):
+        async def run(self, **kwargs):
+            raise TurnExecutionCancelled(turn)
+
+    engine, _ = _engine(tmp_path, archive=_Archive(tmp_path, (DAY_TWO,)), memory=CancelledMemory())
+    request = ReflectionRequest(
+        scope=ReflectionScope.MEMORY, trigger=ReflectionTrigger.MANUAL,
+        target_day=DAY_TWO,
+    )
+    with pytest.raises(ReflectionExecutionCancelled) as cancelled:
+        await engine.run(request, business_day=TODAY)
+    outcome = cancelled.value.outcome
+    assert outcome.request_id == request.request_id and outcome.business_day == TODAY
+    task = outcome.tasks[0]
+    assert task.kind is ReflectionTaskKind.MEMORY and task.target_day == DAY_TWO
+    assert task.turn_outcome is turn and task.status.value == status.value
 
 
 def test_preflight_registers_only_the_new_archive_day(tmp_path: Path) -> None:
@@ -55,7 +83,7 @@ def test_preflight_projects_home_and_all_memory_backlog(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     "trigger",
-    (ReflectionTrigger.MANUAL, ReflectionTrigger.SCHEDULED),
+    (ReflectionTrigger.SCHEDULED,),
 )
 async def test_daily_maintenance_processes_only_previous_day_and_retains_backlog(
     tmp_path: Path,
@@ -241,6 +269,7 @@ async def test_started_observation_distinguishes_execution_day_from_memory_targe
             "source": "endpoint",
             "request_id": "maintenance_request",
             "metadata": {},
+            "instructions": "",
             "target_day": str(DAY_ONE),
         },
     }
@@ -381,7 +410,7 @@ class _Home:
     def pending_counts(self) -> tuple[int, int]:
         return (1, 0) if self.pending else (0, 0)
 
-    async def run(self, *, business_day, scope, request_id, inbox=None):
+    async def run(self, *, business_day, scope, request_id, inbox=None, instructions=""):
         del business_day, scope, request_id
         if self.unexpected_failure:
             raise AttributeError("unexpected task bug")
@@ -414,6 +443,7 @@ class _Memory:
         scope,
         request_id,
         inbox=None,
+        instructions="",
     ):
         del business_day, archive, scope, request_id
         self.ran.append(target_day)

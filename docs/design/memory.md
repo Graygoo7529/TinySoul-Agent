@@ -47,3 +47,7 @@ Memory Reflection 的执行日是 Agent 当前日，source/target 单独绑定�
 模型参数、Markdown schema、引用或 redirect 使当前写入无效时返回简短局部 Action failure，供模型修正。损坏既有文档、目录不变量、I/O 和配置失败在 Memory owner 边界归类，由 runtime_bridge 转为 Runtime 可理解的原因；不把原始异常正文传给模型。
 
 短本地读取、提交与缓存写通过 JoinedOperations 接入异步执行，已开始写入完成并记录真实结果后才传播取消。可选 embedding 失败只影响派生检索，不改变已提交 Markdown 或 exact recall。
+
+## 服务与情景权限
+
+MemoryReadService 提供活动背景与持久检索/召回；MemoryService 增加当前活动记忆 patch，供 User 与 Home Reflection 使用。Memory Reflection 只取得只读 Memory 服务和独立 MemoryKnowledgeService，后者才提供目标文档提交。Action 与背景段使用实际注入的 async 门面；不注册完整 MemoryEngine。SDK 的 MemoryService 绑定世代和业务日，旧对象不自动转向新日 Memory.md。

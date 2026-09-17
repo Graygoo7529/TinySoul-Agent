@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Awaitable
 from datetime import date
 from pathlib import Path
 from typing import TypeVar
 
 import pytest
+from tinysoul.plugins.home.services import HomeService
 from tinysoul.plugins.home.links import parse_home_link
 
 from tinysoul.kernel.action.core.call import ActionCall, ActionExecution, ActionExecutionBuilder
@@ -167,7 +168,7 @@ async def test_home_background_is_copied_only_when_context_loads_it(
     link = "home:agent@context/project"
     context = (
         ContextEngineBuilder(system_text="sys")
-        .with_segment(home_segment_registration(home))
+        .with_segment(home_segment_registration(HomeService(home)))
         .build()
     )
     turn_id = context.begin_turn("load project background")
@@ -227,7 +228,7 @@ async def test_home_background_is_copied_only_when_context_loads_it(
     assert late_signal in bus.peek()
 
 
-def test_home_provides_default_background_without_exposing_domain_skills(tmp_path: Path) -> None:
+async def test_home_provides_default_background_without_exposing_domain_skills(tmp_path: Path) -> None:
     agent = tmp_path / "home" / "agent"
     agent.mkdir(parents=True)
     (agent / "AGENT.md").write_text("core rules", encoding="utf-8")
@@ -247,8 +248,8 @@ def test_home_provides_default_background_without_exposing_domain_skills(tmp_pat
         home=home,
     )
     loadable = home.loadable_background_links()
-    guidance = _run_copy_trap_after_runtime_exception(
-        lambda: HomeDomainSkillProvider(home).guidance_for(("workspace",)),
+    guidance = await _run_async_copy_trap(
+        lambda: HomeDomainSkillProvider(HomeService(home)).guidance_for(("workspace",)),
         home=home,
     )
 
@@ -278,7 +279,7 @@ def test_home_runtime_copy_can_be_prepared_explicitly(tmp_path: Path) -> None:
     ) == _SKILL_TEXT
 
 
-def test_home_background_provider_catalog_does_not_materialize_core(
+async def test_home_background_provider_catalog_does_not_materialize_core(
     tmp_path: Path,
 ) -> None:
     agent = tmp_path / "home" / "agent"
@@ -290,23 +291,23 @@ def test_home_background_provider_catalog_does_not_materialize_core(
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
-    provider = HomeBackgroundEntryProvider(home)
+    provider = HomeBackgroundEntryProvider(HomeService(home))
 
-    catalog = provider.catalog(date(2026, 7, 14))
+    catalog = await provider.catalog(date(2026, 7, 14))
 
     assert catalog.default_links == ("home:agent@AGENT",)
     assert not (tmp_path / "runtime" / "home" / "agent" / "AGENT.md").exists()
 
-    content = _run_copy_trap_after_runtime_exception(
-        lambda: provider.load("home:agent@AGENT", date(2026, 7, 14)),
-        home=home,
-    )
+    with pytest.raises(RuntimeException):
+        await provider.load("home:agent@AGENT", date(2026, 7, 14))
+    home.ensure_runtime_copy(home.parse_link("home:agent@AGENT"))
+    content = await provider.load("home:agent@AGENT", date(2026, 7, 14))
 
     assert content == "core rules"
     assert (tmp_path / "runtime" / "home" / "agent" / "AGENT.md").is_file()
 
 
-def test_actual_home_background_provider_ignores_runtime_overrides(
+async def test_actual_home_background_provider_ignores_runtime_overrides(
     tmp_path: Path,
 ) -> None:
     agent = tmp_path / "home" / "agent"
@@ -320,18 +321,18 @@ def test_actual_home_background_provider_ignores_runtime_overrides(
     ).build()
     home.write_top("home:agent@AGENT", "runtime rules", overwrite=True)
 
-    user_provider = HomeBackgroundEntryProvider(home)
-    maintenance_provider = ActualHomeBackgroundEntryProvider(home)
+    user_provider = HomeBackgroundEntryProvider(HomeService(home))
+    maintenance_provider = ActualHomeBackgroundEntryProvider(HomeService(home))
     day = date(2026, 8, 3)
 
-    assert user_provider.load("home:agent@AGENT", day) == "runtime rules"
-    assert maintenance_provider.catalog(day).default_links == (
+    assert await user_provider.load("home:agent@AGENT", day) == "runtime rules"
+    assert (await maintenance_provider.catalog(day)).default_links == (
         "home:agent@AGENT",
     )
-    assert maintenance_provider.load("home:agent@AGENT", day) == "actual rules"
+    assert await maintenance_provider.load("home:agent@AGENT", day) == "actual rules"
 
 
-def test_home_background_provider_automatically_loads_allowlisted_agent_tops(
+async def test_home_background_provider_automatically_loads_allowlisted_agent_tops(
     tmp_path: Path,
 ) -> None:
     agent = tmp_path / "home" / "agent"
@@ -350,9 +351,9 @@ def test_home_background_provider_automatically_loads_allowlisted_agent_tops(
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
-    provider = HomeBackgroundEntryProvider(home)
+    provider = HomeBackgroundEntryProvider(HomeService(home))
 
-    catalog = provider.catalog(date(2026, 7, 14))
+    catalog = await provider.catalog(date(2026, 7, 14))
 
     assert catalog.default_links == (
         "home:agent@AGENT",
@@ -366,7 +367,7 @@ def test_home_background_provider_automatically_loads_allowlisted_agent_tops(
 
     home.delete_top("home:agent@user/user")
 
-    assert provider.catalog(date(2026, 7, 15)).default_links == (
+    assert (await provider.catalog(date(2026, 7, 15))).default_links == (
         "home:agent@AGENT",
         "home:agent@context/working",
     )
@@ -463,7 +464,7 @@ async def test_home_resource_read_executor_returns_bounded_text(tmp_path: Path) 
         {"link": "home:skills/refactor/references/checklist.md", "max_chars": 3},
     )
 
-    executor = HomeResourceReadExecutor(home)
+    executor = HomeResourceReadExecutor(HomeService(home))
     home.ensure_runtime_copy(parse_home_link("home:skills/refactor/references/checklist.md"))
     with_runtime_copy = await executor.execute(execution, ActionExecutionContext())
 
@@ -491,7 +492,7 @@ async def test_home_resource_read_rejects_prompt_mount_spaces(tmp_path: Path) ->
         "home:skills_domain/workspace/DOMAIN.md",
         "home:skills_action/workspace/rewrite.md",
     ):
-        result = await HomeResourceReadExecutor(home).execute(
+        result = await HomeResourceReadExecutor(HomeService(home)).execute(
             _execution("home.resource.read", {"link": link}),
             ActionExecutionContext(),
         )
@@ -511,7 +512,7 @@ async def test_home_resource_read_rejects_non_positive_limit(tmp_path: Path) -> 
         )
     ).build()
 
-    result = await HomeResourceReadExecutor(home).execute(
+    result = await HomeResourceReadExecutor(HomeService(home)).execute(
         _execution(
             "home.resource.read",
             {"link": "home:skills/refactor/references/checklist.md", "max_chars": 0},
@@ -538,14 +539,14 @@ async def test_home_top_and_prompt_mount_write_executors_use_home_mutation_bound
     ).build()
     _bind_workspace_mounts(home)
 
-    missing_kind = await HomeTopWriteExecutor(home).execute(
+    missing_kind = await HomeTopWriteExecutor(HomeService(home)).execute(
         _execution(
             "home.top.write",
             {"link": "home:agent@project", "text": "project"},
         ),
         ActionExecutionContext(signal_bus=bus),
     )
-    created = await HomeTopWriteExecutor(home).execute(
+    created = await HomeTopWriteExecutor(HomeService(home)).execute(
         _execution(
             "home.top.write",
             {
@@ -555,7 +556,7 @@ async def test_home_top_and_prompt_mount_write_executors_use_home_mutation_bound
         ),
         ActionExecutionContext(signal_bus=bus),
     )
-    prompt = await HomePromptMountWriteExecutor(home).execute(
+    prompt = await HomePromptMountWriteExecutor(HomeService(home)).execute(
         _execution(
             "home.prompt_mount.write",
             {
@@ -590,7 +591,7 @@ def test_home_engine_resource_read_rejects_bool_limit(tmp_path: Path) -> None:
         home.read_resource("home:skills/refactor/references/checklist.md", max_chars=True)
 
 
-def test_home_domain_skills_uses_runtime_copy_trap(tmp_path: Path) -> None:
+async def test_home_domain_skills_uses_runtime_copy_trap(tmp_path: Path) -> None:
     skills_domain = tmp_path / "home" / "skills_domain" / "workspace"
     skills_domain.mkdir(parents=True)
     (skills_domain / "DOMAIN.md").write_text("workspace guidance", encoding="utf-8")
@@ -601,9 +602,9 @@ def test_home_domain_skills_uses_runtime_copy_trap(tmp_path: Path) -> None:
         )
     ).build()
     _bind_workspace_mounts(home)
-    provider = HomeDomainSkillProvider(home)
+    provider = HomeDomainSkillProvider(HomeService(home))
 
-    guidance = _run_copy_trap_after_runtime_exception(
+    guidance = await _run_async_copy_trap(
         lambda: provider.guidance_for(("workspace",)),
         home=home,
     )
@@ -611,7 +612,7 @@ def test_home_domain_skills_uses_runtime_copy_trap(tmp_path: Path) -> None:
     assert guidance == ("workspace guidance",)
 
 
-def test_home_action_skills_uses_runtime_copy_trap(tmp_path: Path) -> None:
+async def test_home_action_skills_uses_runtime_copy_trap(tmp_path: Path) -> None:
     actions = tmp_path / "home" / "skills_action" / "workspace"
     actions.mkdir(parents=True)
     (actions / "rewrite.md").write_text("rewrite guidance", encoding="utf-8")
@@ -622,9 +623,9 @@ def test_home_action_skills_uses_runtime_copy_trap(tmp_path: Path) -> None:
         )
     ).build()
     _bind_workspace_mounts(home)
-    provider = HomeActionSkillProvider(home)
+    provider = HomeActionSkillProvider(HomeService(home))
 
-    guidance = _run_copy_trap_after_runtime_exception(
+    guidance = await _run_async_copy_trap(
         lambda: provider.guidance_for(
             domain="workspace",
             action_name="workspace.rewrite",
@@ -643,7 +644,7 @@ def test_home_action_skills_uses_runtime_copy_trap(tmp_path: Path) -> None:
         / "rewrite.md"
     ).is_file()
 
-def test_home_action_skills_includes_domain_and_action_skills(tmp_path: Path) -> None:
+async def test_home_action_skills_includes_domain_and_action_skills(tmp_path: Path) -> None:
     skills_domain = tmp_path / "home" / "skills_domain" / "workspace"
     skills_action = tmp_path / "home" / "skills_action" / "workspace"
     skills_domain.mkdir(parents=True)
@@ -657,9 +658,9 @@ def test_home_action_skills_includes_domain_and_action_skills(tmp_path: Path) ->
         )
     ).build()
     _bind_workspace_mounts(home)
-    provider = HomeActionSkillProvider(home)
+    provider = HomeActionSkillProvider(HomeService(home))
 
-    guidance = _run_copy_trap_after_runtime_exception(
+    guidance = await _run_async_copy_trap(
         lambda: provider.guidance_for(
             domain="workspace",
             action_name="workspace.rewrite",
@@ -671,7 +672,7 @@ def test_home_action_skills_includes_domain_and_action_skills(tmp_path: Path) ->
     assert guidance.action == ("rewrite guidance",)
 
 
-def test_missing_home_prompt_mount_is_optional(tmp_path: Path) -> None:
+async def test_missing_home_prompt_mount_is_optional(tmp_path: Path) -> None:
     home_root = tmp_path / "home"
     home_root.mkdir()
     home = AgentHomeEngineBuilder(
@@ -683,14 +684,14 @@ def test_missing_home_prompt_mount_is_optional(tmp_path: Path) -> None:
     _bind_workspace_mounts(home)
 
 
-    assert HomeDomainSkillProvider(home).guidance_for(("workspace",)) == ()
-    assert HomeActionSkillProvider(home).guidance_for(
+    assert await HomeDomainSkillProvider(HomeService(home)).guidance_for(("workspace",)) == ()
+    assert (await HomeActionSkillProvider(HomeService(home)).guidance_for(
         domain="workspace",
         action_name="workspace.rewrite",
-    ).domain == ()
+    )).domain == ()
 
 
-def test_malformed_home_prompt_mount_maps_to_runtime_failure(tmp_path: Path) -> None:
+async def test_malformed_home_prompt_mount_maps_to_runtime_failure(tmp_path: Path) -> None:
     prompt_mount = tmp_path / "home" / "skills_domain" / "workspace" / "DOMAIN.md"
     prompt_mount.parent.mkdir(parents=True)
     prompt_mount.write_bytes(b"\xff")
@@ -704,7 +705,7 @@ def test_malformed_home_prompt_mount_maps_to_runtime_failure(tmp_path: Path) -> 
     home.ensure_runtime_copy(home.parse_link("home:skills_domain:workspace"))
 
     with pytest.raises(RuntimeException) as raised:
-        HomeDomainSkillProvider(home).guidance_for(("workspace",))
+        await HomeDomainSkillProvider(HomeService(home)).guidance_for(("workspace",))
 
     assert raised.value.reason == RUNTIME_TURN_END
     assert raised.value.payload["kind"] == AgentHomeFailureKind.CONTRACT_VIOLATION.value
@@ -712,7 +713,7 @@ def test_malformed_home_prompt_mount_maps_to_runtime_failure(tmp_path: Path) -> 
     assert raised.value.payload["error_type"] == "AgentHomeContractError"
 
 
-def test_home_prompt_mount_io_error_maps_to_runtime_failure(
+async def test_home_prompt_mount_io_error_maps_to_runtime_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -731,7 +732,7 @@ def test_home_prompt_mount_io_error_maps_to_runtime_failure(
     monkeypatch.setattr(AgentHomeEngine, "guidance_for_domain", fail_guidance)
 
     with pytest.raises(RuntimeException) as raised:
-        HomeDomainSkillProvider(home).guidance_for(("workspace",))
+        await HomeDomainSkillProvider(HomeService(home)).guidance_for(("workspace",))
 
     assert raised.value.reason == RUNTIME_TURN_END
     assert raised.value.payload["kind"] == AgentHomeFailureKind.IO_FAILED.value
@@ -776,7 +777,7 @@ async def test_home_runtime_copy_required_payload_contains_only_recovery_identit
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
-    executor = HomeResourceReadExecutor(home)
+    executor = HomeResourceReadExecutor(HomeService(home))
 
     try:
         await executor.execute(
@@ -889,3 +890,12 @@ def _bind_workspace_mounts(home: AgentHomeEngine) -> None:
         domains=("workspace",),
         actions=(("workspace", "workspace.rewrite"),),
     )
+
+async def _run_async_copy_trap(callback: Callable[[], Awaitable[T]], *, home: AgentHomeEngine) -> T:
+    scope = RunScope().push(RunLevel.AGENT, "program").push(RunLevel.TURN, "turn").push(RunLevel.PHASE, "phase")
+    while True:
+        try:
+            return await callback()
+        except RuntimeException as exc:
+            assert exc.reason == HOME_RUNTIME_COPY_REQUIRED
+            _handle_copy_trap(home, message=exc.message, payload=exc.payload, scope=scope)

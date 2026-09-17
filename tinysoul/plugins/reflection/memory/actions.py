@@ -6,12 +6,13 @@ from datetime import date
 
 from tinysoul.kernel.action import (
     ActionEngineBuilder, ActionExecution, ActionExecutionContext,
-    ActionResult, LocalActionExecutor,
+    ActionResult, ActionExecutor, ActionResultStage, ActionLocalFailure,
+    ActionFailureDisposition,
 )
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.time import CalendarDay
-from tinysoul.plugins.memory import DailyMemoryDocument, MemoryEngine, MemoryLink, MemoryKind
-from tinysoul.plugins.memory.actions import _failed, _success
+from tinysoul.plugins.memory import DailyMemoryDocument, MemoryLink, MemoryKind
+from tinysoul.plugins.memory.services import MemoryKnowledgeService
 from tinysoul.plugins.memory.errors import MemoryContractError, MemoryError
 from tinysoul.plugins.memory.runtime_bridge import RuntimeMemoryBridge
 
@@ -26,7 +27,7 @@ MEMORY_MAINTENANCE_ACTIONS = (
 class MemoryReflectionActionController:
     """Bind the Reflection target; all persistent facts remain with Memory."""
 
-    def __init__(self, *, memory: MemoryEngine) -> None:
+    def __init__(self, *, memory: MemoryKnowledgeService) -> None:
         self._memory = memory
         self._target_day: date | None = None
 
@@ -48,7 +49,8 @@ class MemoryReflectionActionController:
             raise ReflectionInvariantError("No Memory Reflection is active")
         return self._target_day
 
-    def write(self, execution: ActionExecution) -> ActionResult:
+    async def write(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
+        memory = self._memory.using(context.owner_operations)
         day = self.target_day()
         params = execution.call.params
         markdown = params.get("markdown")
@@ -56,7 +58,7 @@ class MemoryReflectionActionController:
             return _failed(execution, "Memory write requires non-empty Markdown.", "invalid_document")
         try:
             if execution.call.action_name == "memory_reflection.write_daily":
-                stored = self._memory.write_document(DailyMemoryDocument(
+                stored = await memory.write_document(DailyMemoryDocument(
                     day=day, created_on=day, updated_on=day, content=markdown,
                 ))
             else:
@@ -66,7 +68,7 @@ class MemoryReflectionActionController:
                 link = MemoryLink.parse(raw_link)
                 if link.kind is MemoryKind.DAILY:
                     raise MemoryContractError("Use write_daily for the Reflection target daily")
-                stored = self._memory.write_markdown(link, markdown)
+                stored = await memory.write_markdown(link, markdown)
         except MemoryContractError:
             return _failed(
                 execution,
@@ -78,14 +80,14 @@ class MemoryReflectionActionController:
         return _success(execution, {"link": str(stored.link), "written": True})
 
 
-class MemoryReflectionWriteExecutor(LocalActionExecutor):
+class MemoryReflectionWriteExecutor(ActionExecutor):
     def __init__(self, controller: MemoryReflectionActionController) -> None:
         self._controller = controller
 
-    def execute_local(
+    async def execute(
         self, execution: ActionExecution, context: ActionExecutionContext,
     ) -> ActionResult:
-        return self._controller.write(execution)
+        return await self._controller.write(execution, context)
 
 
 def register_memory_maintenance_actions(
@@ -95,3 +97,24 @@ def register_memory_maintenance_actions(
     for handler in MEMORY_MAINTENANCE_ACTIONS:
         builder.register_executor(handler, executor)
     return builder
+
+
+def _success(execution: ActionExecution, payload: JsonObject) -> ActionResult:
+    return ActionResult.success(
+        call_id=execution.call.call_id, invoke_id=execution.framework.invoke_id,
+        batch_id=execution.framework.batch_id, action_name=execution.call.action_name,
+        sequence=execution.call.sequence, domain=execution.framework.domain, payload=payload,
+    )
+
+
+def _failed(execution: ActionExecution, feedback: str, reason: str) -> ActionResult:
+    return ActionResult.failed(
+        call_id=execution.call.call_id, invoke_id=execution.framework.invoke_id,
+        batch_id=execution.framework.batch_id, action_name=execution.call.action_name,
+        sequence=execution.call.sequence, domain=execution.framework.domain,
+        stage=ActionResultStage.EXECUTE,
+        failure=ActionLocalFailure(
+            reason=reason, scope="memory.reflection",
+            disposition=ActionFailureDisposition.CHANGE_REQUEST, feedback=feedback,
+        ),
+    )

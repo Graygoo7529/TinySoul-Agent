@@ -2,26 +2,27 @@
 
 from __future__ import annotations
 
-from typing import Generic
 
 from tinysoul.infra.config import ConfigError, ConfigMutation
+from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.json import JsonObject
 from tinysoul.runtime import RuntimeException
 
 from ..errors import EndpointRequestError
-from .contracts import EndpointGenerationT
 from .context import EndpointEngineContext
 
 
-class EndpointConfigurationEngine(Generic[EndpointGenerationT]):
+class EndpointConfigurationEngine:
     """Expose Infra configuration and the current Action runtime projection."""
 
-    def __init__(self, context: EndpointEngineContext[EndpointGenerationT]) -> None:
+    def __init__(self, context: EndpointEngineContext) -> None:
         self._context = context
 
-    def status(self) -> JsonObject:
-        result = self._context.config_controller().status()
-        result["runtime"] = self._context.runtime_status(credentials=True)
+    async def status(self) -> JsonObject:
+        operations = JoinedOperations()
+        result = await operations.run(self._context.config_controller().status)
+        operations.check_cancelled()
+        result["runtime"] = self._context.services.runtime_status(credentials=True)
         result["process_shell"] = {
             "writable": False,
             "reason": "process_owned",
@@ -36,15 +37,8 @@ class EndpointConfigurationEngine(Generic[EndpointGenerationT]):
     def catalog(self) -> JsonObject:
         return self._context.config_controller().catalog()
 
-    def actions(self) -> JsonObject:
-        with self._context.services_lease() as services:
-            if services is None:
-                raise EndpointRequestError(
-                    status_code=404,
-                    code="actions.unavailable",
-                    message="Action catalog is not available.",
-                )
-            return services.user_turn.action_catalog()
+    async def actions(self) -> JsonObject:
+        return await self._context.services.action_catalog()
 
     async def patch(self, mutations: tuple[ConfigMutation, ...]) -> JsonObject:
         try:

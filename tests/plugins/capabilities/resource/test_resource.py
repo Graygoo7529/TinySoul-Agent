@@ -50,6 +50,7 @@ from tinysoul.infra import (
 )
 from tinysoul.infra.config import ConfigError
 from tinysoul.runtime import RunScope, SignalBus
+from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
 
 
@@ -111,7 +112,7 @@ def test_resource_config_rejects_nested_unknown_key() -> None:
     )
 
 
-def test_markitdown_conversion_commits_markdown_and_docx_image(
+async def test_markitdown_conversion_commits_markdown_and_docx_image(
     local_tmp: Path,
 ) -> None:
     workspace = _workspace(local_tmp)
@@ -119,12 +120,12 @@ def test_markitdown_conversion_commits_markdown_and_docx_image(
     _write_docx(source)
     workspace.reconcile()
     service = ResourceConversionService(
-        workspace=workspace,
+        workspace=WorkspaceService(workspace),
         settings=ResourceSettings(),
         staging=_staging(local_tmp),
     )
 
-    result = service.convert(
+    result = await service.convert(
         converter=ResourceConverter.MARKITDOWN,
         source_link="workspace:incoming/report.docx",
         target_link="workspace:converted/report.md",
@@ -148,7 +149,7 @@ def test_markitdown_conversion_commits_markdown_and_docx_image(
     assert result.manifest.revision == 2
 
 
-def test_pypdf_conversion_renders_blank_page_as_workspace_image(
+async def test_pypdf_conversion_renders_blank_page_as_workspace_image(
     local_tmp: Path,
 ) -> None:
     workspace = _workspace(local_tmp)
@@ -160,12 +161,12 @@ def test_pypdf_conversion_renders_blank_page_as_workspace_image(
         writer.write(handle)
     workspace.reconcile()
     service = ResourceConversionService(
-        workspace=workspace,
+        workspace=WorkspaceService(workspace),
         settings=ResourceSettings(),
         staging=_staging(local_tmp),
     )
 
-    result = service.convert(
+    result = await service.convert(
         converter=ResourceConverter.PYPDF,
         source_link="workspace:incoming/blank.pdf",
         target_link="workspace:converted/blank.md",
@@ -188,7 +189,7 @@ def test_pypdf_conversion_renders_blank_page_as_workspace_image(
     )
 
 
-def test_blank_pdf_without_page_rendering_does_not_commit_placeholder_only_output(
+async def test_blank_pdf_without_page_rendering_does_not_commit_placeholder_only_output(
     local_tmp: Path,
 ) -> None:
     workspace = _workspace(local_tmp)
@@ -200,13 +201,13 @@ def test_blank_pdf_without_page_rendering_does_not_commit_placeholder_only_outpu
         writer.write(handle)
     workspace.reconcile()
     service = ResourceConversionService(
-        workspace=workspace,
+        workspace=WorkspaceService(workspace),
         settings=ResourceSettings(render_pdf_pages=PdfPageRenderMode.DISABLED),
         staging=_staging(local_tmp),
     )
 
     with pytest.raises(ResourceProcessingError) as error:
-        service.convert(
+        await service.convert(
             converter=ResourceConverter.PYPDF,
             source_link="workspace:incoming/blank.pdf",
             target_link="workspace:converted/blank.md",
@@ -221,7 +222,7 @@ def test_blank_pdf_without_page_rendering_does_not_commit_placeholder_only_outpu
     assert not (workspace.root / "converted" / "blank.md").exists()
 
 
-def test_conversion_target_cannot_claim_its_source_as_a_stale_asset(
+async def test_conversion_target_cannot_claim_its_source_as_a_stale_asset(
     local_tmp: Path,
 ) -> None:
     workspace = _workspace(local_tmp)
@@ -233,13 +234,13 @@ def test_conversion_target_cannot_claim_its_source_as_a_stale_asset(
         writer.write(handle)
     workspace.reconcile()
     service = ResourceConversionService(
-        workspace=workspace,
+        workspace=WorkspaceService(workspace),
         settings=ResourceSettings(),
         staging=_staging(local_tmp),
     )
 
     with pytest.raises(ResourceContractError, match="target asset bundle"):
-        service.convert(
+        await service.convert(
             converter=ResourceConverter.PYPDF,
             source_link="workspace:converted/report.assets/source.pdf",
             target_link="workspace:converted/report.md",
@@ -272,7 +273,7 @@ def test_conversion_target_cannot_claim_its_source_as_a_stale_asset(
         ),
     ),
 )
-def test_pypdf_asset_limits_fail_without_committing_partial_output(
+async def test_pypdf_asset_limits_fail_without_committing_partial_output(
     local_tmp: Path,
     settings: ResourceSettings,
     reason: str,
@@ -282,13 +283,13 @@ def test_pypdf_asset_limits_fail_without_committing_partial_output(
     _write_image_pdf(source)
     before = workspace.reconcile().manifest
     service = ResourceConversionService(
-        workspace=workspace,
+        workspace=WorkspaceService(workspace),
         settings=settings,
         staging=_staging(local_tmp),
     )
 
     with pytest.raises(ResourceProcessingError) as error:
-        service.convert(
+        await service.convert(
             converter=ResourceConverter.PYPDF,
             source_link="workspace:incoming/images.pdf",
             target_link="workspace:converted/images.md",
@@ -354,7 +355,7 @@ def test_disabled_resource_actions_are_absent_from_effective_catalog(
     engine = register_resource_actions(
         ActionEngineBuilder(ActionCatalogLoader().load(catalog_root)),
         settings=settings,
-        workspace=_workspace(local_tmp),
+        workspace=WorkspaceService(_workspace(local_tmp)),
         bus=SignalBus(),
         staging=_staging(local_tmp),
     ).build()
@@ -376,7 +377,7 @@ async def test_resource_executor_returns_metadata_and_emits_one_workspace_signal
     workspace.reconcile()
     bus = SignalBus()
     service = ResourceConversionService(
-        workspace=workspace,
+        workspace=WorkspaceService(workspace),
         settings=ResourceSettings(),
         staging=_staging(local_tmp),
     )
@@ -437,7 +438,7 @@ async def test_resource_executor_cancellation_after_worker_prevents_commit_and_s
     before = workspace.reconcile().manifest
     control = ActionExecutionControl(deadline=monotonic() + 30)
     service = ResourceConversionService(
-        workspace=workspace,
+        workspace=WorkspaceService(workspace),
         settings=ResourceSettings(),
         staging=_staging(local_tmp),
         process_runner=_CompletedCancellingRunner(),
@@ -477,7 +478,7 @@ async def test_resource_executor_maps_invalid_worker_manifest_to_local_failure(
     executor = ResourceConversionExecutor(
         converter=ResourceConverter.PYPDF,
         service=ResourceConversionService(
-            workspace=workspace,
+            workspace=WorkspaceService(workspace),
             settings=ResourceSettings(),
             staging=_staging(local_tmp),
             process_runner=_InvalidManifestRunner(),

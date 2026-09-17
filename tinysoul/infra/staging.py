@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from contextlib import contextmanager
+import asyncio
+from collections.abc import Iterator, AsyncIterator
+from contextlib import contextmanager, asynccontextmanager
 from pathlib import Path
 import re
 import shutil
 import tempfile
 from threading import RLock
 
+from .concurrency import JoinedOperations
 from .filesystem import FilesystemBoundaryError, resolve_under_root
 
 
@@ -68,6 +70,15 @@ class StagingDirectoryManager:
             yield directory
         finally:
             self.cleanup(directory)
+
+    @asynccontextmanager
+    async def allocate_async(self, prefix: str, operations: JoinedOperations) -> AsyncIterator[Path]:
+        directory = await operations.run(lambda: self.create(prefix))
+        try:
+            operations.check_cancelled()
+            yield directory
+        finally:
+            await operations.finish(lambda: asyncio.to_thread(self.cleanup, directory))
 
     def create(self, prefix: str) -> Path:
         """Create one retained child for work spanning multiple action calls."""

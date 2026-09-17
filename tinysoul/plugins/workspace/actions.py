@@ -10,7 +10,6 @@ from tinysoul.kernel.action import (
     ActionExecution,
     ActionExecutionContext,
     ActionExecutor,
-    LocalActionExecutor,
     ActionFailureDisposition,
     ActionLocalFailure,
     ActionResult,
@@ -20,15 +19,16 @@ from tinysoul.kernel.action import (
 from tinysoul.kernel.context import (
     PromptReferenceError,
 )
+from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.runtime import RuntimeException, SignalBus
 
 from .engine import (
     WorkspaceAnalysisBudgetFailure,
-    WorkspaceEngine,
     WorkspaceResourceState,
     WorkspaceTextRangeResult,
 )
+from .services import WorkspaceService
 from .errors import (
     WorkspaceContractError,
     WorkspaceError,
@@ -52,19 +52,20 @@ class WorkspaceActionRuntimeBridge(Protocol):
     def trash_restore_required(self, *, link: str, trash_ref: str) -> RuntimeException:
         ...
 
-class WorkspaceScanExecutor(LocalActionExecutor):
+class WorkspaceScanExecutor(ActionExecutor):
     """Scan workspace resources and sync their summaries into WorkingContext."""
 
-    def __init__(self, workspace: WorkspaceEngine, bus: SignalBus) -> None:
+    def __init__(self, workspace: WorkspaceService, bus: SignalBus) -> None:
         self._workspace = workspace
         self._bus = bus
 
-    def execute_local(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
-        scan = self._workspace.reconcile()
+        workspace = self._workspace.using(context.owner_operations)
+        scan = await workspace.reconcile()
         if not scan.complete:
             skip_counts: JsonObject = {}
             for kind, count in scan.skip_counts().items():
@@ -79,8 +80,8 @@ class WorkspaceScanExecutor(LocalActionExecutor):
                     "limit_reached": scan.limit_reached,
                 },
             )
-        _emit_workspace_snapshot(
-            self._workspace,
+        await _emit_workspace_snapshot(
+            workspace,
             execution=execution,
             context=context,
             bus=self._bus,
@@ -107,7 +108,7 @@ class WorkspaceScanExecutor(LocalActionExecutor):
 def register_workspace_actions(
     builder: ActionEngineBuilder,
     *,
-    workspace: WorkspaceEngine,
+    workspace: WorkspaceService,
     bus: SignalBus,
     llm_action: LLMActionTaskRunner,
     runtime_bridge: WorkspaceActionRuntimeBridge | None = None,
@@ -190,23 +191,24 @@ def register_workspace_actions(
     )
 
 
-class WorkspaceReadExecutor(LocalActionExecutor):
+class WorkspaceReadExecutor(ActionExecutor):
     """Return one bounded, digest-bound Workspace text range."""
 
     def __init__(
         self,
-        workspace: WorkspaceEngine,
+        workspace: WorkspaceService,
         *,
         runtime_bridge: WorkspaceActionRuntimeBridge | None = None,
     ) -> None:
         self._workspace = workspace
         self._runtime_bridge = runtime_bridge
 
-    def execute_local(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        workspace = self._workspace.using(context.owner_operations)
         params = execution.call.params
         link = params.get("link")
         start_line = params.get("start_line")
@@ -253,7 +255,7 @@ class WorkspaceReadExecutor(LocalActionExecutor):
                 {"reason": "invalid_expected_digest"},
             )
         try:
-            result = self._workspace.read_text_range(
+            result = await workspace.read_text_range(
                 link,
                 start_line=start_line,
                 end_line=end_line,
@@ -289,23 +291,24 @@ class WorkspaceReadExecutor(LocalActionExecutor):
         )
 
 
-class WorkspaceSearchTextExecutor(LocalActionExecutor):
+class WorkspaceSearchTextExecutor(ActionExecutor):
     """Search an explicit Workspace text scope for one literal query."""
 
     def __init__(
         self,
-        workspace: WorkspaceEngine,
+        workspace: WorkspaceService,
         *,
         runtime_bridge: WorkspaceActionRuntimeBridge | None = None,
     ) -> None:
         self._workspace = workspace
         self._runtime_bridge = runtime_bridge
 
-    def execute_local(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        workspace = self._workspace.using(context.owner_operations)
         query = execution.call.params.get("query")
         if not isinstance(query, str) or not query:
             return _failed(
@@ -338,7 +341,7 @@ class WorkspaceSearchTextExecutor(LocalActionExecutor):
                 {"reason": "invalid_top_k"},
             )
         try:
-            result = self._workspace.search_text(
+            result = await workspace.search_text(
                 query,
                 scope=scope,
                 case_sensitive=case_sensitive,
@@ -384,7 +387,7 @@ class WorkspaceAnalyzeExecutor(ActionExecutor):
     def __init__(
         self,
         *,
-        workspace: WorkspaceEngine,
+        workspace: WorkspaceService,
         llm_action: LLMActionTaskRunner,
         runtime_bridge: WorkspaceActionRuntimeBridge | None = None,
     ) -> None:
@@ -398,6 +401,7 @@ class WorkspaceAnalyzeExecutor(ActionExecutor):
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        workspace = self._workspace.using(context.owner_operations)
         intent = execution.call.params.get("intent")
         if not isinstance(intent, str) or not intent.strip():
             return _failed(
@@ -405,7 +409,7 @@ class WorkspaceAnalyzeExecutor(ActionExecutor):
                 "workspace.analyze requires a non-empty 'intent' parameter.",
                 {"reason": "invalid_intent"},
             )
-        settings = self._workspace.settings.analysis
+        settings = workspace.analysis_settings
         if len(intent) > settings.max_intent_chars:
             return _failed(
                 execution,
@@ -427,7 +431,7 @@ class WorkspaceAnalyzeExecutor(ActionExecutor):
             )
         links = tuple(link for link in links_value if isinstance(link, str))
         try:
-            preparation = await context.owner_operations.run(lambda: self._workspace.prepare_analysis_references(links))
+            preparation = await workspace.prepare_analysis_references(links)
         except WorkspaceTrashRestoreRequired as exc:
             if self._runtime_bridge is None:
                 raise
@@ -554,7 +558,7 @@ class WorkspaceDescribeExecutor(ActionExecutor):
 
     def __init__(
         self,
-        workspace: WorkspaceEngine,
+        workspace: WorkspaceService,
         bus: SignalBus,
         llm_action: LLMActionTaskRunner,
         runtime_bridge: WorkspaceActionRuntimeBridge | None = None,
@@ -573,6 +577,7 @@ class WorkspaceDescribeExecutor(ActionExecutor):
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        workspace = self._workspace.using(context.owner_operations)
         target_link = _required_link(execution)
         if target_link is None:
             return _failed(
@@ -588,10 +593,10 @@ class WorkspaceDescribeExecutor(ActionExecutor):
                 {"reason": "invalid_instruction"},
             )
         try:
-            prompt_build = await context.owner_operations.run(lambda: self._prompt_builder.build_describe(
+            prompt_build = await self._prompt_builder.build_describe(
                 target_link=target_link,
                 instruction=instruction,
-            ))
+            )
         except PromptReferenceError as exc:
             return _failed(
                 execution,
@@ -623,9 +628,9 @@ class WorkspaceDescribeExecutor(ActionExecutor):
             )
         context.control.check_cancelled()
 
-        def commit() -> ActionResult:
+        async def commit() -> ActionResult:
             try:
-                record = self._workspace.set_description(
+                record = await workspace.set_description(
                     target_link,
                     description,
                     expected_digest=prompt_build.target_digest,
@@ -643,8 +648,8 @@ class WorkspaceDescribeExecutor(ActionExecutor):
                     f"Workspace describe failed: {exc}",
                     {"error_type": type(exc).__name__},
                 )
-            _emit_workspace_snapshot(
-                self._workspace,
+            await _emit_workspace_snapshot(
+                workspace,
                 execution=execution,
                 context=context,
                 bus=self._bus,
@@ -652,7 +657,7 @@ class WorkspaceDescribeExecutor(ActionExecutor):
             )
             return _success(execution, _record_payload(record))
 
-        return await context.owner_operations.run(commit)
+        return await context.owner_operations.run_async(commit)
 
 
 class WorkspaceCreateExecutor(ActionExecutor):
@@ -661,7 +666,7 @@ class WorkspaceCreateExecutor(ActionExecutor):
     def __init__(
         self,
         *,
-        workspace: WorkspaceEngine,
+        workspace: WorkspaceService,
         bus: SignalBus,
         llm_action: LLMActionTaskRunner,
         runtime_bridge: WorkspaceActionRuntimeBridge | None = None,
@@ -680,6 +685,7 @@ class WorkspaceCreateExecutor(ActionExecutor):
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        workspace = self._workspace.using(context.owner_operations)
         target_link = _required_link(execution)
         if target_link is None:
             return _failed(
@@ -715,11 +721,11 @@ class WorkspaceCreateExecutor(ActionExecutor):
                 {"reason": "invalid_reference_links"},
             )
         try:
-            prompt_build = await context.owner_operations.run(lambda: self._prompt_builder.build_create(
+            prompt_build = await self._prompt_builder.build_create(
                 target_link=target_link,
                 instruction=instruction,
                 reference_links=reference_links,
-            ))
+            )
             target_version = prompt_build.read_set.target
             if target_version.state is WorkspaceResourceState.PRESENT:
                 return _failed(
@@ -746,15 +752,15 @@ class WorkspaceCreateExecutor(ActionExecutor):
             prompt=prompt_build.prompt,
             subject="Workspace create LLM task",
             control=context.control,
-            max_output_chars=self._workspace.settings.max_write_chars,
+            max_output_chars=workspace.max_write_chars,
         ))
         if isinstance(text, ActionResult):
             return text
         context.control.check_cancelled()
 
-        def commit() -> ActionResult:
+        async def commit() -> ActionResult:
             try:
-                record = self._workspace.commit_edit_text(
+                record = await workspace.commit_edit_text(
                     target_link,
                     text,
                     read_set=prompt_build.read_set,
@@ -789,8 +795,8 @@ class WorkspaceCreateExecutor(ActionExecutor):
                     f"Workspace create failed: {exc}",
                     {"error_type": type(exc).__name__},
                 )
-            _emit_workspace_snapshot(
-                self._workspace,
+            await _emit_workspace_snapshot(
+                workspace,
                 execution=execution,
                 context=context,
                 bus=self._bus,
@@ -801,15 +807,15 @@ class WorkspaceCreateExecutor(ActionExecutor):
             result_payload["prompt_sources"] = prompt_build.read_set.to_json()
             return _success(execution, result_payload)
 
-        return await context.owner_operations.run(commit)
+        return await context.owner_operations.run_async(commit)
 
 
-class WorkspaceAppendExecutor(LocalActionExecutor):
+class WorkspaceAppendExecutor(ActionExecutor):
     """Append an exact text fragment to one existing Workspace text resource."""
 
     def __init__(
         self,
-        workspace: WorkspaceEngine,
+        workspace: WorkspaceService,
         bus: SignalBus,
         *,
         runtime_bridge: WorkspaceActionRuntimeBridge | None = None,
@@ -818,11 +824,12 @@ class WorkspaceAppendExecutor(LocalActionExecutor):
         self._bus = bus
         self._runtime_bridge = runtime_bridge
 
-    def execute_local(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        workspace = self._workspace.using(context.owner_operations)
         link = _required_link(execution)
         if link is None:
             return _failed(
@@ -845,7 +852,7 @@ class WorkspaceAppendExecutor(LocalActionExecutor):
                 {"reason": "invalid_expected_digest"},
             )
         try:
-            record = self._workspace.append_text(
+            record = await workspace.append_text(
                 link,
                 text=text,
                 expected_digest=expected_digest,
@@ -863,8 +870,8 @@ class WorkspaceAppendExecutor(LocalActionExecutor):
                 f"Workspace append failed: {exc}",
                 {"error_type": type(exc).__name__},
             )
-        _emit_workspace_snapshot(
-            self._workspace,
+        await _emit_workspace_snapshot(
+            workspace,
             execution=execution,
             context=context,
             bus=self._bus,
@@ -876,12 +883,12 @@ class WorkspaceAppendExecutor(LocalActionExecutor):
         return _success(execution, payload)
 
 
-class WorkspacePatchExecutor(LocalActionExecutor):
+class WorkspacePatchExecutor(ActionExecutor):
     """Apply an exact text replacement to one workspace resource."""
 
     def __init__(
         self,
-        workspace: WorkspaceEngine,
+        workspace: WorkspaceService,
         bus: SignalBus,
         *,
         runtime_bridge: WorkspaceActionRuntimeBridge | None = None,
@@ -890,11 +897,12 @@ class WorkspacePatchExecutor(LocalActionExecutor):
         self._bus = bus
         self._runtime_bridge = runtime_bridge
 
-    def execute_local(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        workspace = self._workspace.using(context.owner_operations)
         link = _required_link(execution)
         if link is None:
             return _failed(
@@ -924,7 +932,7 @@ class WorkspacePatchExecutor(LocalActionExecutor):
                 {"reason": "invalid_expected_digest"},
             )
         try:
-            record = self._workspace.patch_text(
+            record = await workspace.patch_text(
                 link,
                 old_text=old_text,
                 new_text=new_text,
@@ -943,8 +951,8 @@ class WorkspacePatchExecutor(LocalActionExecutor):
                 f"Workspace patch failed: {exc}",
                 {"error_type": type(exc).__name__},
             )
-        _emit_workspace_snapshot(
-            self._workspace,
+        await _emit_workspace_snapshot(
+            workspace,
             execution=execution,
             context=context,
             bus=self._bus,
@@ -953,18 +961,19 @@ class WorkspacePatchExecutor(LocalActionExecutor):
         return _success(execution, _record_payload(record))
 
 
-class WorkspaceDeleteExecutor(LocalActionExecutor):
+class WorkspaceDeleteExecutor(ActionExecutor):
     """Move one resource to recoverable Trash and remove its active summary."""
 
-    def __init__(self, workspace: WorkspaceEngine, bus: SignalBus) -> None:
+    def __init__(self, workspace: WorkspaceService, bus: SignalBus) -> None:
         self._workspace = workspace
         self._bus = bus
 
-    def execute_local(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        workspace = self._workspace.using(context.owner_operations)
         link = _required_link(execution)
         if link is None:
             return _failed(
@@ -973,7 +982,7 @@ class WorkspaceDeleteExecutor(LocalActionExecutor):
                 {"reason": "missing_target_link"},
             )
         try:
-            item = self._workspace.trash_resource(
+            item = await workspace.trash_resource(
                 link,
                 reason="workspace.delete",
                 source_turn_id=execution.framework.turn_id,
@@ -984,8 +993,8 @@ class WorkspaceDeleteExecutor(LocalActionExecutor):
                 f"Workspace delete failed: {exc}",
                 {"error_type": type(exc).__name__},
             )
-        _emit_workspace_snapshot(
-            self._workspace,
+        await _emit_workspace_snapshot(
+            workspace,
             execution=execution,
             context=context,
             bus=self._bus,
@@ -998,18 +1007,19 @@ class WorkspaceDeleteExecutor(LocalActionExecutor):
         return _success(execution, payload)
 
 
-class WorkspaceRestoreExecutor(LocalActionExecutor):
+class WorkspaceRestoreExecutor(ActionExecutor):
     """Restore one logically deleted resource from Workspace Trash."""
 
-    def __init__(self, workspace: WorkspaceEngine, bus: SignalBus) -> None:
+    def __init__(self, workspace: WorkspaceService, bus: SignalBus) -> None:
         self._workspace = workspace
         self._bus = bus
 
-    def execute_local(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        workspace = self._workspace.using(context.owner_operations)
         trash_ref = execution.call.params.get("trash_ref")
         if not isinstance(trash_ref, str) or not trash_ref:
             return _failed(
@@ -1018,15 +1028,15 @@ class WorkspaceRestoreExecutor(LocalActionExecutor):
                 {"reason": "missing_trash_ref"},
             )
         try:
-            record = self._workspace.restore_resource(trash_ref)
+            record = await workspace.restore_resource(trash_ref)
         except WorkspaceError as exc:
             return _failed(
                 execution,
                 f"Workspace restore failed: {exc}",
                 {"error_type": type(exc).__name__},
             )
-        _emit_workspace_snapshot(
-            self._workspace,
+        await _emit_workspace_snapshot(
+            workspace,
             execution=execution,
             context=context,
             bus=self._bus,
@@ -1038,19 +1048,20 @@ class WorkspaceRestoreExecutor(LocalActionExecutor):
         return _success(execution, payload)
 
 
-class WorkspaceTrashListExecutor(LocalActionExecutor):
+class WorkspaceTrashListExecutor(ActionExecutor):
     """List recoverable Workspace Trash items without exposing file content."""
 
-    def __init__(self, workspace: WorkspaceEngine) -> None:
+    def __init__(self, workspace: WorkspaceService) -> None:
         self._workspace = workspace
 
-    def execute_local(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        workspace = self._workspace.using(context.owner_operations)
         try:
-            items = self._workspace.trash_items()
+            items = await workspace.trash_items()
         except WorkspaceError as exc:
             return _failed(
                 execution,
@@ -1081,7 +1092,7 @@ class WorkspaceRewriteExecutor(ActionExecutor):
     def __init__(
         self,
         *,
-        workspace: WorkspaceEngine,
+        workspace: WorkspaceService,
         bus: SignalBus,
         llm_action: LLMActionTaskRunner,
         runtime_bridge: WorkspaceActionRuntimeBridge | None = None,
@@ -1100,6 +1111,7 @@ class WorkspaceRewriteExecutor(ActionExecutor):
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        workspace = self._workspace.using(context.owner_operations)
         target_link = _required_link(execution)
         if target_link is None:
             return _failed(
@@ -1131,11 +1143,11 @@ class WorkspaceRewriteExecutor(ActionExecutor):
                 {"reason": "invalid_reference_links"},
             )
         try:
-            prompt_build = await context.owner_operations.run(lambda: self._prompt_builder.build_rewrite(
+            prompt_build = await self._prompt_builder.build_rewrite(
                 target_link=target_link,
                 instruction=instruction,
                 reference_links=reference_links,
-            ))
+            )
             if expected_digest and prompt_build.target_digest != expected_digest:
                 return _failed(
                     execution,
@@ -1161,15 +1173,15 @@ class WorkspaceRewriteExecutor(ActionExecutor):
             prompt=prompt_build.prompt,
             subject="Workspace rewrite LLM task",
             control=context.control,
-            max_output_chars=self._workspace.settings.max_write_chars,
+            max_output_chars=workspace.max_write_chars,
         ))
         if isinstance(text, ActionResult):
             return text
         context.control.check_cancelled()
 
-        def commit() -> ActionResult:
+        async def commit() -> ActionResult:
             try:
-                record = self._workspace.commit_edit_text(
+                record = await workspace.commit_edit_text(
                     target_link,
                     text,
                     read_set=prompt_build.read_set,
@@ -1202,8 +1214,8 @@ class WorkspaceRewriteExecutor(ActionExecutor):
                     f"Workspace rewrite failed: {exc}",
                     {"error_type": type(exc).__name__},
                 )
-            _emit_workspace_snapshot(
-                self._workspace,
+            await _emit_workspace_snapshot(
+                workspace,
                 execution=execution,
                 context=context,
                 bus=self._bus,
@@ -1214,7 +1226,7 @@ class WorkspaceRewriteExecutor(ActionExecutor):
             result_payload["prompt_sources"] = prompt_build.read_set.to_json()
             return _success(execution, result_payload)
 
-        return await context.owner_operations.run(commit)
+        return await context.owner_operations.run_async(commit)
 
 
 def _required_link(execution: ActionExecution) -> str | None:
@@ -1239,8 +1251,8 @@ def _string_list_param(value: object) -> tuple[str, ...] | None:
     return tuple(result)
 
 
-def _emit_workspace_snapshot(
-    workspace: WorkspaceEngine,
+async def _emit_workspace_snapshot(
+    workspace: WorkspaceService,
     *,
     execution: ActionExecution,
     context: ActionExecutionContext,
@@ -1248,7 +1260,7 @@ def _emit_workspace_snapshot(
     source: str,
 ) -> None:
     signal_bus = context.signal_bus or bus
-    manifest = workspace.snapshot()
+    manifest = await context.owner_operations.finish(workspace.using(JoinedOperations()).snapshot)
     signal_bus.emit(
         workspace_snapshot_signal(
             manifest,

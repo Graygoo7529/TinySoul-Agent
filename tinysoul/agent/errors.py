@@ -23,3 +23,16 @@ class AgentQueueFullError(AgentSDKError):
 
 class AgentClosedError(AgentSDKError):
     """The Agent is not accepting work."""
+
+
+class AgentServiceStaleError(AgentSDKError):
+    """The service's generation or CalendarDay no longer owns active resources."""
+
+
+class AgentServiceUnavailableError(AgentSDKError):
+    """Owner preparation failed during an SDK call, without requiring a Trap."""
+
+    def __init__(self, *, module: str, kind: str) -> None:
+        super().__init__("Agent service preparation failed")
+        self.module = module
+        self.kind = kind

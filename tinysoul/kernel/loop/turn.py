@@ -45,7 +45,7 @@ from .completion import TurnCompletion, TurnCompletionPipeline
 from .context_signals import ContextSignalConsumer
 from .cycle import CycleOutcome, CycleRunner
 from .errors import LoopInvariantError
-from .inbox import InboxKind, TurnInbox
+from .inbox import InboxKind, TurnInbox, TurnState, WaitCondition, WaitReason, WakeReason
 from .failures import LOOP_BUDGET_REQUIRED, LoopFailureKind
 from .outcomes import TurnFailure, TurnOutcomeStatus, TurnOutput, failure_from_runtime
 from .preparation import TurnPreparationPipeline, TurnPreparationRequest
@@ -120,8 +120,6 @@ class TurnExecutionCancelled(asyncio.CancelledError):
 
 class TurnActivityController(Protocol):
     """Own work that must be cleaned with one Turn; never grant Cycle budget."""
-
-    async def wait_before_cycle(self, turn_id: str, *, bus: SignalBus) -> None: ...
 
     def bind_inbox(self, turn_id: str, inbox: TurnInbox | None) -> None: ...
 
@@ -277,11 +275,15 @@ class TurnRunner:
                 failure = preparation.failure
                 stopped = preparation.stopped
             if transfer is None:
+                if inbox is not None:
+                    inbox.set_activity(TurnState.RUNNING)
                 cycle_index = 1
                 cycle_limit = self._settings.max_cycles
                 phase_feedback: list[str] = []
+                pending_wait: WaitCondition | None = None
+                job_ready = False
                 while True:
-                    await self._consume_inbox(inbox, turn_scope)
+                    request = None
                     if cycle_index > cycle_limit:
                         if inbox is None:
                             exhausted = True
@@ -300,17 +302,26 @@ class TurnRunner:
                         self._emit(turn_scope, "turn.budget_requested", ObservationLevel.NORMAL,
                                    "Turn is waiting for a Cycle budget decision.",
                                    {"request_id": request.request_id, "next_cycle_index": cycle_index})
-                        cycle_limit += await inbox.wait_for_budget(request)
-                        # Receive inputs accumulated during SUSPEND before the
-                        # next, as-yet-unstarted Cycle. No completed Cycle replays.
-                        await self._consume_inbox(inbox, turn_scope)
+                    if inbox is not None and (pending_wait is not None or request is not None):
+                        readiness = await inbox.wait_for_cycle(pending_wait, budget=request, job_ready=job_ready)
+                        cycle_limit += readiness.granted_cycles
+                        if pending_wait is not None:
+                            question = pending_wait.question
+                            if question is not None and readiness.reason is WakeReason.TIMER:
+                                completion = {"kind": "awaiting_user", "question_id": question.question_id}
+                                break
+                            await self._signal_consumer.emit_and_consume((build_trace_phase_note_signal(
+                                {"kind": "wait_resumed", "reason": readiness.reason.value if readiness.reason else None,
+                                 "sequence": readiness.sequence,
+                                 "unanswered_question_id": question.question_id if question is not None and readiness.reason is WakeReason.INPUT else None},
+                                scope=turn_scope, source="loop.wait",
+                            ),), scope=turn_scope)
+                        pending_wait = None
+                        job_ready = False
+                    await self._consume_inbox(inbox, turn_scope)
                     if self._activity_controller is not None:
-                        await self._activity_controller.wait_before_cycle(
-                            turn_id,
-                            bus=self._bus,
-                        )
                         self._activity_controller.sync(turn_id, bus=self._bus, scope=turn_scope)
-                        await self._consume_inbox(inbox, turn_scope)
+                    cycle_cursor = inbox.acknowledged_sequence if inbox is not None else 0
                     cycle = (await self._cycle_runner.run(
                         turn_id=turn_id,
                         cycle_index=cycle_index,
@@ -340,9 +351,21 @@ class TurnRunner:
                         self._emit(turn_scope, "turn.question", ObservationLevel.NORMAL,
                                    question.text, {"question_id": question.question_id,
                                                    "options": list(question.options)})
-                        if inbox is None or not await inbox.wait_for_reply(question):
+                        if inbox is None:
                             completion = {"kind": "awaiting_user", "question_id": question.question_id}
                             break
+                        pending_wait = WaitCondition(
+                            WaitReason.INPUT, cycle_cursor,
+                            asyncio.get_running_loop().time() + question.timeout_seconds if question.timeout_seconds is not None else None,
+                            question=question,
+                        )
+                        cycle_index += 1
+                        continue
+                    if cycle.wait is not None:
+                        if inbox is None:
+                            raise LoopInvariantError("Wait action requires a Turn Inbox")
+                        pending_wait = cycle.wait.condition(cycle_cursor)
+                        job_ready = cycle.wait.ready
                         cycle_index += 1
                         continue
                     if cycle.completion is not None:
@@ -388,6 +411,7 @@ class TurnRunner:
             failure = failure or captured.failure
         finally:
             if inbox is not None:
+                inbox.set_activity(TurnState.FINALIZING)
                 async def close_ingress() -> None:
                     await inbox.close()
 

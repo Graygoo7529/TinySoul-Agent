@@ -11,6 +11,7 @@ from tinysoul.kernel.action import ActionExecutionControl
 from tinysoul.plugins.capabilities.web.config import WebDiscoverySettings, WebSettings
 from tinysoul.plugins.capabilities.web.service import WebCapabilityService
 from tinysoul.infra import JsonValue, StagingDirectoryManager
+from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
 
 
@@ -23,7 +24,7 @@ pytestmark = [
 ]
 
 
-def test_real_page_discovery_returns_same_origin_candidates(
+async def test_real_page_discovery_returns_same_origin_candidates(
     local_tmp: Path,
 ) -> None:
     staging = StagingDirectoryManager(local_tmp.resolve())
@@ -32,7 +33,7 @@ def test_real_page_discovery_returns_same_origin_candidates(
         WorkspaceSettings(root=(local_tmp / "workspace").resolve(), max_files=20)
     ).build()
     service = WebCapabilityService(
-        workspace=workspace,
+        workspace=WorkspaceService(workspace),
         settings=WebSettings(
             discover_pages=WebDiscoverySettings(
                 enabled=True,
@@ -50,7 +51,7 @@ def test_real_page_discovery_returns_same_origin_candidates(
         staging=staging,
     )
 
-    result = service.discover_pages(
+    result = await service.discover_pages(
         start_url="https://crawlee.dev/python/docs/",
         max_visit_depth=0,
         include_globs=("/python/docs/**",),

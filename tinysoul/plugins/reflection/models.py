@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from enum import StrEnum
 from uuid import uuid4
@@ -38,6 +39,7 @@ class ReflectionTaskStatus(StrEnum):
     AWAITING_USER = "awaiting_user"
     STOPPED = "stopped"
     EXHAUSTED = "exhausted"
+    CANCELLED = "cancelled"
 
 
 class ReflectionStatus(StrEnum):
@@ -48,6 +50,7 @@ class ReflectionStatus(StrEnum):
     AWAITING_USER = "awaiting_user"
     STOPPED = "stopped"
     EXHAUSTED = "exhausted"
+    CANCELLED = "cancelled"
 
 
 @dataclass(frozen=True)
@@ -56,6 +59,7 @@ class ReflectionRequest:
     trigger: ReflectionTrigger
     target_day: CalendarDay | None = None
     source: str = ""
+    instructions: str = ""
     request_id: str = field(default_factory=lambda: f"request_{uuid4().hex}")
     metadata: JsonObject = field(default_factory=dict)
 
@@ -76,6 +80,10 @@ class ReflectionRequest:
             )
         if not isinstance(self.source, str):
             raise ReflectionContractError("Reflection request source must be text")
+        if not isinstance(self.instructions, str) or len(self.instructions) > 16000:
+            raise ReflectionContractError("Reflection instructions must be text of at most 16000 characters")
+        if self.trigger is ReflectionTrigger.MANUAL and self.scope is ReflectionScope.DAILY:
+            raise ReflectionContractError("Manual Reflection must select Home or one closed Memory day")
         if not isinstance(self.request_id, str) or not self.request_id.strip():
             raise ReflectionContractError("Reflection request_id must be non-empty")
         object.__setattr__(self, "request_id", self.request_id.strip())
@@ -86,6 +94,7 @@ class ReflectionRequest:
             "scope": self.scope.value,
             "trigger": self.trigger.value,
             "source": self.source,
+            "instructions": self.instructions,
             "request_id": self.request_id,
             "metadata": self.metadata,
         }
@@ -151,6 +160,7 @@ class ReflectionTaskOutcome:
             TurnOutcomeStatus.STOPPED: ReflectionTaskStatus.STOPPED,
             TurnOutcomeStatus.EXHAUSTED: ReflectionTaskStatus.EXHAUSTED,
             TurnOutcomeStatus.FAILED: ReflectionTaskStatus.FAILED,
+            TurnOutcomeStatus.CANCELLED: ReflectionTaskStatus.CANCELLED,
         }
         if outcome.status not in statuses:
             raise ReflectionContractError("Unexpected Reflection Turn outcome")
@@ -185,6 +195,14 @@ class ReflectionOutcome:
             "status": self.status.value,
             "tasks": [task.to_json() for task in self.tasks],
         }
+
+
+class ReflectionExecutionCancelled(asyncio.CancelledError):
+    """Cancellation carrying the Reflection owner's completed facts."""
+
+    def __init__(self, outcome: ReflectionOutcome) -> None:
+        super().__init__("Reflection execution was interrupted")
+        self.outcome = outcome
 
 
 @dataclass(frozen=True)

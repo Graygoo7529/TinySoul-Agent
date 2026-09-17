@@ -7,6 +7,7 @@ from datetime import date as CalendarDate
 from tinysoul.kernel.context.background import heap_segment_registration
 from tinysoul.kernel.context.segments import SegmentCapability, SegmentDescriptor, SegmentShape, SegmentSlot
 
+from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.workspace.projection import WorkspaceSnapshot, build_workspace_sync_signal
 
 from collections import deque
@@ -46,6 +47,7 @@ from tinysoul.kernel.loop import (
     PhaseFailure,
 )
 from tinysoul.kernel.loop.completion import AnswerCompletionDetector
+from tinysoul.plugins.memory.services import MemoryService
 from tinysoul.plugins.memory import (
     DailyMemoryDocument,
     MemoryEngine,
@@ -252,7 +254,7 @@ async def test_phase_units_use_independent_task_profiles() -> None:
 
 async def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the_turn() -> None:
     class _SkillProvider:
-        def catalog(self, business_day: date) -> BackgroundCatalog:
+        async def catalog(self, business_day: date) -> BackgroundCatalog:
             return BackgroundCatalog(
                 owner="home",
                 loadable_links=("home:skills@review",),
@@ -265,7 +267,7 @@ async def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the
                 ),
             )
 
-        def load(self, link: str, business_day: date) -> str:
+        async def load(self, link: str, business_day: date) -> str:
             assert link == "home:skills@review"
             return "SKILL BODY: compare runtime and actual Home."
 
@@ -1031,6 +1033,7 @@ async def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None
         .register_function("workspace.create", lambda execution, context: {"created": True})
         .register_function("workspace.rewrite", lambda execution, context: {"rewritten": True})
         .mark_actions_unsupported(
+                "core.wait", "core.job.status", "core.job.stop", "core.job.wait",
             "core.ask",
             *SCRIPT_ACTIONS,
             *SHELL_ACTIONS,
@@ -1101,6 +1104,7 @@ def _action_engine(
         .register_function("context.inspect", lambda execution, context: {})
         .register_function("session.inspect", lambda execution, context: {})
         .mark_actions_unsupported(
+                "core.wait", "core.job.status", "core.job.stop", "core.job.wait",
             "core.ask",
             *SCRIPT_ACTIONS,
             *SHELL_ACTIONS,
@@ -1143,6 +1147,7 @@ def _action_engine(
                 "workspace.rewrite", lambda execution, context: {"rewritten": True}
             )
             .mark_actions_unsupported(
+                "core.wait", "core.job.status", "core.job.stop", "core.job.wait",
                 "workspace.analyze",
                 "workspace.read",
                 "workspace.search_text",
@@ -1153,7 +1158,7 @@ def _action_engine(
             raise AssertionError("Real Workspace actions require Context, SignalBus, and LLM")
         register_workspace_actions(
             builder,
-            workspace=workspace,
+            workspace=WorkspaceService(workspace),
             bus=workspace_bus,
             llm_action=LLMActionTaskRunner(
                 llm_runner=workspace_llm,
@@ -1174,7 +1179,7 @@ def _action_engine(
     else:
         register_memory_actions(
             builder,
-            memory=memory,
+            memory=MemoryService(memory),
             runtime_bridge=RuntimeMemoryBridge(),
         )
     return builder.build()

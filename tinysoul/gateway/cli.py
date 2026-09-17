@@ -266,6 +266,6 @@ class _SigintEscalation:
     def _request(self, kind: LoopControlKind) -> bool:
         if kind is LoopControlKind.STOP_TURN:
             active = self._commands.active_turn
-            return active is not None and self._commands.cancel_turn(active.turn_id)
+            return active is not None and active.request_cancel()
         self._commands.request_exit(ExitRequest(source="terminal.sigint", text=kind.value))
         return True

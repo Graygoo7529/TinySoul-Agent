@@ -2,20 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Generic
 
 from tinysoul.infra.json import JsonObject
 from tinysoul.runtime import ObservationLevel
 
 from ..events import EndpointEventPage
-from .contracts import EndpointGenerationT
 from .context import EndpointEngineContext
 
 
-class EndpointEventsEngine(Generic[EndpointGenerationT]):
+class EndpointEventsEngine:
     """Expose the owned event buffer without leaking it to HTTP routes."""
 
-    def __init__(self, context: EndpointEngineContext[EndpointGenerationT]) -> None:
+    def __init__(self, context: EndpointEngineContext) -> None:
         self._context = context
 
     @property

@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
+from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.kernel.action import (
     ActionEngineBuilder, ActionExecution, ActionExecutionContext,
     ActionResult, ActionResultStage, ActionLocalFailure,
-    ActionFailureDisposition, LocalActionExecutor,
+    ActionFailureDisposition, ActionExecutor,
 )
-from tinysoul.plugins.home import AgentHomeEngine, HomeReviewChange, HomeReviewResolution
+from tinysoul.plugins.home import HomeReviewChange, HomeReviewResolution
+from tinysoul.plugins.home.services import HomeReviewService
 from tinysoul.plugins.home.errors import AgentHomeContractError, AgentHomeError
 from tinysoul.plugins.home.runtime_bridge import RuntimeAgentHomeBridge
 from tinysoul.plugins.home.background import HOME_CONTEXT_UPDATE
@@ -17,15 +21,25 @@ from tinysoul.runtime import Signal
 HOME_MAINTENANCE_ACTIONS = ("home_reflection.diff", "home_reflection.review")
 
 
-class HomeReflectionActionController(LocalActionExecutor):
+class HomeReflectionActionController(ActionExecutor):
     """Expose selected review operations without a separate task state machine."""
 
-    def __init__(self, home: AgentHomeEngine) -> None:
+    def __init__(self, home: HomeReviewService) -> None:
         self._home = home
 
-    def execute_local(
+    async def execute(
         self, execution: ActionExecution, context: ActionExecutionContext,
     ) -> ActionResult:
+        # A bounded review finishes its selected owner commits and records them
+        # before the Action runner propagates cancellation.
+        return await context.owner_operations.run_async(lambda: self._review(
+            execution, replace(context, owner_operations=JoinedOperations()),
+        ))
+
+    async def _review(
+        self, execution: ActionExecution, context: ActionExecutionContext,
+    ) -> ActionResult:
+        home = self._home.using(context.owner_operations)
         params = execution.call.params
         raw_paths = params.get("paths", [])
         if not isinstance(raw_paths, list) or any(
@@ -34,7 +48,7 @@ class HomeReflectionActionController(LocalActionExecutor):
             return _failed(execution, "paths must contain Home Links")
         paths = tuple(dict.fromkeys(str(path) for path in raw_paths))
         try:
-            snapshot = self._home.review_snapshot()
+            snapshot = await home.review_snapshot()
             if execution.call.action_name == "home_reflection.diff":
                 selected = tuple(
                     review for review in snapshot.reviews if not paths or review.link in paths
@@ -70,13 +84,13 @@ class HomeReflectionActionController(LocalActionExecutor):
                     for review in reviews:
                         if not isinstance(review, HomeReviewChange):
                             current = tuple(
-                                item for item in self._home.review_snapshot().reviews
+                                item for item in (await home.review_snapshot()).reviews
                                 if item.link == path and not isinstance(item, HomeReviewChange)
                             )
                             if not current:
                                 continue
                             review = current[0]
-                        self._home.resolve_review(
+                        await home.resolve_review(
                             review.token,
                             resolution if isinstance(review, HomeReviewChange) else HomeReviewResolution.REJECT,
                         )

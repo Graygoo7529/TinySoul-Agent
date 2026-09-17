@@ -2,7 +2,7 @@
 
 ## 所有权
 
-`plugins/reflection` 编排 Home 与 Memory 的模型维护任务、维护可用性投影；`agent/day` 拥有日期决策；`plugins/archive` 协调确定性归档。Reflection 是与 User Turn 同级的 Agent work，复用同一 TurnProfile、Turn/Cycle/Phase 和 Action 内核，不写 User Session。
+`plugins/reflection` 编排 Home 与 Memory 的模型维护任务、维护可用性投影；`agent/day` 拥有日期决策；`plugins/archive` 协调确定性归档。Reflection 是同一个 Agent 的专门执行情景，由 Home/Memory TurnProfile 提供整理提示、语境与插件能力；它与 User Turn 同级，复用同一 Turn/Cycle/Phase 和 Action 内核，不写 User Session。普通对话不挂载 Reflection 提示、整理请求动作或专属持久写服务。
 
 Terminal、Endpoint 和定时来源只能提交 typed request。Agent 将 daily 触发拆成独立 Home 与前一日 Memory work；Memory 请求必须有明确 target_day。执行日始终是 Agent 持有的当前 CalendarDay，历史目标不修改执行日或当前工作区。
 
@@ -16,7 +16,7 @@ Agent 启动和每项 work 前运行日切，随后刷新 Reflection availabilit
 
 ## 请求与 availability
 
-手动命令保留 /maintenance [daily|home] 和 /maintenance memory YYYY-MM-DD；HTTP 使用结构化同义请求。scheduled daily 按触发日/profile 去重；自动 Memory 在 daily 已存在时跳过，手动目标仍可复查。定时源不执行任务、不保存业务 cursor，启动晚于计划时刻不追补。
+手动入口表示用户明确允许本次指定整理：`/maintenance home [整理要求]` 或 `/maintenance memory YYYY-MM-DD [整理要求]`，HTTP/SDK 传递同义 typed request 与 instructions。每次授权产生一个独立排队 Turn，不抢占活动根、不形成持续许可；受理回执与完成结果分别报告。daily 只供自动策略，在 Agent 边界拆成独立 Home 与前一日 Memory 请求；按触发日/profile 去重。自动 Memory 在 daily 已存在时跳过，手动目标仍可复查。定时源不执行任务、不保存业务 cursor，启动晚于计划时刻不追补。
 
 runtime/maintenance/availability.json 是可重算的待办投影：保存检查日、Home 待审计数和 Memory 日期。新关闭日来自 Archive transition，既有 backlog 跨重启保留；任务执行前仍查询真实 owner。缺失来源或 Session facts/活动 Memory 同时为空是 skipped，已存在但损坏的资料是模块失败。availability 不承担完成事实或审批状态。
 
@@ -27,6 +27,8 @@ runtime/maintenance/availability.json 是可重算的待办投影：保存检查
 Home 使用当前 Session、Workspace、memory:current 与可选 latest。Memory 使用目标归档 Session、目标活动 Memory 和严格早于目标日的 latest，当前 Workspace 仍可操作。历史 Workspace 以只读 workspace_archive 段提供日期引用，经 core.context.inspect 分页检查；不会冒充今日 workspace: 资源。
 
 core.ask 可以在确有信息缺口时暂停同一 Reflection Turn，回复、预算和取消仍由同一 Inbox 处理。core.answer 在 Reflection 中保存完成总结，不发布用户正式回答，也不写 User Session；等待超时、停止、耗尽和失败保留通用 TurnOutcome。
+
+情景策略分别配置于 `loop.user.actions`、`maintenance.home.actions` 和 `maintenance.memory.actions`。domains 设域默认，actions 按稳定 Action id 覆盖；未指定时沿用 catalog 默认。策略只在装配已授予能力内筛选，不能开启另一情景的持久写或不可用 backend。Phase1、Phase2 与实际批次执行使用同一有效视图，共享 catalog 不被修改；未知身份明确拒绝。HomeReviewService 和 MemoryKnowledgeService 只注入对应情景，通用服务不暴露持久提交或日生命周期操作。Reflection 动作仍位于 home_reflection/memory_reflection 域。
 
 ## Home Reflection
 
@@ -44,6 +46,6 @@ memory_reflection.write_daily 写目标日完整 daily；memory_reflection.write
 
 ## 失败与观察
 
-可修正参数和 review/write 拒绝是局部 ActionResult；损坏存储、契约或配置错误在所属 owner 边界归类并由 owner bridge 映射。Reflection task 的已知 I/O 失败形成有限 task outcome；Runtime transfer 与取消保留原身份。准备、可用性和清理文件操作均通过 joined owner 边界完成。
+可修正参数和 review/write 拒绝是局部 ActionResult；损坏存储、契约或配置错误在所属 owner 边界归类并由 owner bridge 映射。Reflection task 的已知 I/O 失败形成有限 task outcome；Runtime transfer 与取消保留原身份。取消后的 ReflectionOutcome 保留 task kind、target_day、底层 TurnOutcome 与已提交事实；不会返回裸 User outcome。准备、可用性和清理文件操作均通过 joined owner 边界完成。
 
 必要 Turn finish 失败阻止成功发布，close 失败保留诊断。Observation 只提供请求身份、执行/目标日期、状态、计数和有限错误类型；不替代业务事实。maintenance.started/completed 中 business_day 与内层 turn.started 都是当前执行日，target_day 单独表达历史来源。

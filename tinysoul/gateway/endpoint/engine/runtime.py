@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Generic
 
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.kernel.loop import LoopControlKind
-from tinysoul.kernel.loop.errors import LoopError
+from tinysoul.agent.errors import AgentSDKError
+from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.runtime import RuntimeGatewayError
 
 from ..errors import EndpointRequestError
-from .contracts import EndpointGenerationT
 from .context import EndpointEngineContext
 
 
@@ -20,21 +19,20 @@ class EndpointControlKind(StrEnum):
     EXIT_PROGRAM = "exit_program"
 
 
-class EndpointRuntimeEngine(Generic[EndpointGenerationT]):
+class EndpointRuntimeEngine:
     """Translate runtime status and control requests to the App gateway."""
 
-    def __init__(self, context: EndpointEngineContext[EndpointGenerationT]) -> None:
+    def __init__(self, context: EndpointEngineContext) -> None:
         self._context = context
 
-    def status(self) -> JsonObject:
+    async def status(self) -> JsonObject:
         turn_scope = self._context.gateway.active_turn_scope
-        runtime = self._context.runtime_status()
+        runtime = self._context.services.runtime_status()
         try:
-            with self._context.workspace_lease() as (maintenance, workspace):
-                with maintenance.active_day_lease() as day:
-                    workspace_revision = workspace.load_manifest().revision
-                    active_day = str(day)
-        except LoopError:
+            manifest = await self._context.services.registry.get(WorkspaceService).load_manifest()
+            workspace_revision = manifest.revision
+            active_day = manifest.day
+        except AgentSDKError:
             workspace_revision = -1
             active_day = ""
         return {

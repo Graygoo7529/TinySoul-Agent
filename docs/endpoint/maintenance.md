@@ -2,7 +2,7 @@
 
 `GET /v1/maintenance` 返回持久化 availability projection，包括 Home pending 和待处理 Memory dates。Endpoint 不扫描 Archive，也不建立第二份维护状态。
 
-`POST /v1/maintenance` 提交 `kind=daily|home|memory`、command id、metadata；Memory 必须携带 `target_day`。协议不包含 `rebuild_memory`。请求通过 AgentCommands 进入有界根队列；daily 展开成 Home 和触发日前一日的独立 Memory 请求，返回整批受理回执；执行前完成日切并由 owner 检查来源。更早 backlog 使用明确日期请求。容量不足返回 `accepted=false, state=full`，没有任何子请求被部分接受。scheduler 使用相同入口，满载时保留请求等待重试。
+`POST /v1/maintenance` 提交 `kind=home|memory`、command id、metadata 与可选 instructions（最多 16000 字符）；Memory 必须携带 target_day。该入口表示用户明确允许本次指定整理，只受理一个独立 Reflection Turn，正常对话不持有 Reflection 能力。相同身份与内容在活动及结果保留窗口内去重；受理成功不等于整理完成。容量不足返回 accepted=false、state=full。daily 仅由内部自动策略拆分受理，HTTP 不接受 daily 或 rebuild_memory。
 
 User Turn、Reflection Turn 或 daily transition 期间仍可读取配置并 PATCH 保存候选；`POST /v1/config/reload` 返回 `409 config.activation_unavailable`，待 idle 后激活。维护请求本身按其所属队列语义处理。
 
@@ -20,7 +20,8 @@ Endpoint 的 `/v1/events` 和 WebSocket 会转发 Reflection owner 的生命周�
     "request_id": "command_x",
     "target_day": "2026-08-17",
     "source": "endpoint",
-    "metadata": {}
+    "metadata": {},
+    "instructions": "整理这一天的项目决定"
   }
 }
 ```

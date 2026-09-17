@@ -10,7 +10,7 @@ from tinysoul.kernel.context import PromptBlock, TaskPrompt
 class DomainSkillProvider(Protocol):
     """Provide domain-level skills for Phase2 task prompts."""
 
-    def guidance_for(self, domains: tuple[str, ...]) -> tuple[str, ...]:
+    async def guidance_for(self, domains: tuple[str, ...]) -> tuple[str, ...]:
         """Return guidance snippets for selected domains."""
         ...
 
@@ -18,7 +18,7 @@ class DomainSkillProvider(Protocol):
 class EmptyDomainSkillProvider:
     """Empty domain skill provider used before Agent Home is connected."""
 
-    def guidance_for(self, domains: tuple[str, ...]) -> tuple[str, ...]:
+    async def guidance_for(self, domains: tuple[str, ...]) -> tuple[str, ...]:
         return ()
 
 

@@ -11,6 +11,7 @@ from tinysoul.kernel.action import (
     ActionResultStatus,
 )
 from tinysoul.kernel.action.core.loader import ActionCatalogLoader
+from tinysoul.plugins.home.services import HomeReviewService
 from tinysoul.plugins.home import AgentHomeEngineBuilder, AgentHomeSettings
 from tinysoul.infra.json import JsonObject
 from tinysoul.plugins.reflection.home import HomeReflectionActionController
@@ -45,7 +46,7 @@ async def test_home_diff_and_review_do_not_require_stage_tokens(
         "home:skills/review/SKILL_MEMORY.md",
         "The method was useful as written.",
     )
-    controller = HomeReflectionActionController(home)
+    controller = HomeReflectionActionController(HomeReviewService(home))
 
     listed = await _execute(controller, "home_reflection.diff", {})
     assert listed.status is ActionResultStatus.SUCCESS

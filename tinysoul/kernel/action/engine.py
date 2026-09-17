@@ -23,6 +23,7 @@ from .core.call import (
     ActionNormalization,
 )
 from .core.catalog import ActionCatalog
+from .config import ActionPolicy
 from .core.errors import ActionContractError
 from .core.executor import ActionExecutionContext, ActionExecutor, ExecutorRegistry
 from .core.rendering import ActionResultRenderer, RenderedActionResult
@@ -352,6 +353,10 @@ class ActionEngine:
         *,
         context: ActionExecutionContext | None = None,
     ) -> tuple[ActionResult, ...]:
+        for execution in batch.executions:
+            if (not self._catalog.has_action(execution.call.action_name)
+                    or execution.action != self._catalog.get_action(execution.call.action_name)):
+                raise ActionContractError("Batch contains an action outside the effective profile")
         return (await self._runner.run(batch, context or ActionExecutionContext()))
 
     def render_result_model_payload(self, result: ActionResult) -> JsonObject:
@@ -423,6 +428,11 @@ class ActionEngineBuilder:
         self._observations: ObservationEmitter = NullObservationEmitter()
         self._unsupported_actions: set[str] = set()
         self._included_actions: set[str] | None = None
+        self._policy = ActionPolicy()
+
+    def with_policy(self, policy: ActionPolicy) -> Self:
+        self._policy = policy
+        return self
 
     def register_executor(
         self,
@@ -496,7 +506,8 @@ class ActionEngineBuilder:
     def build(self) -> ActionEngine:
         complete_catalog = self._catalog
         complete_action_names = {action.name for action in complete_catalog.actions()}
-        configured_catalog = complete_catalog
+        granted = frozenset(complete_action_names if self._included_actions is None else self._included_actions)
+        configured_catalog = self._policy.apply(complete_catalog, granted=granted)
         if self._included_actions is not None:
             unknown_included = self._included_actions - complete_action_names
             if unknown_included:
@@ -504,7 +515,7 @@ class ActionEngineBuilder:
                     "Included actions are absent from the package catalog: "
                     + ", ".join(sorted(unknown_included))
                 )
-            configured_catalog = complete_catalog.with_actions(
+            configured_catalog = configured_catalog.with_actions(
                 tuple(sorted(self._included_actions))
             )
         unknown_unsupported = self._unsupported_actions - complete_action_names
@@ -569,11 +580,4 @@ def _action_editable_paths(action_name: str) -> tuple[str, ...]:
         "runtime.enabled",
         "runtime.timeout_seconds",
     )
-    if action_name == "execution.wait":
-        return (
-            *paths,
-            "tool.schema.properties.wait_seconds.minimum",
-            "tool.schema.properties.wait_seconds.default",
-            "tool.schema.properties.wait_seconds.maximum",
-        )
     return paths

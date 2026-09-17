@@ -14,7 +14,7 @@ WorkspaceEngine 拥有文件与 manifest，WorkspaceSegment 只维护一个 Turn
 
 WorkspaceSnapshot、更新 codec 和 revision 冲突判断均属于 Workspace。provider 每 Turn 新建空视图，准备 handler 完成 reconcile 后发送初始全量快照，Action 后续发送已提交快照。段在 prepare 中计算候选、install 中替换引用；旧 revision 不回退视图，同 revision 冲突经 Workspace bridge 结束当前流程，不成为普通模型反馈。render 只投影 Link/summary，seal 保留 owner 快照；Context 不再持有 Workspace 私有字段或解析 Workspace 更新。关闭段释放本轮视图，不关闭 Engine。
 
-Action 侧的有界本地读取和写入通过 JoinedOperations 执行。纯本地动作使用 LocalActionExecutor；混合动作在读取后异步调用 LLM，再进入独立的 owner 提交。提交和 Workspace snapshot 通知一同完成后返回真实结果，已提交的成功不会因调用方随后取消而丢失；取消传播仍由 Action runner 在记录执行事实后负责。
+Action 通过 WorkspaceService 调用有界本地读取和写入，ServiceScope 复用 Action 的 JoinedOperations；混合动作在读取后异步调用 LLM，再进入独立的 owner 提交。提交和 Workspace snapshot 通知一同完成后返回真实结果，已提交的成功不会因调用方随后取消而丢失；取消传播仍由 Action runner 在记录执行事实后负责。
 
 ## 设计目标
 
@@ -269,3 +269,7 @@ AgentBuilder 的目标职责是：
 - Workspace 段测试保护资源摘要与 revision 判断，Context 测试保护跨段批次、组合顺序及生命周期。
 
 Document conversion action 已由 Resource capability 提供；日终 workspace/trash 归档与 partial resume 已有故障测试。
+
+## 公共异步服务
+
+WorkspaceService 是 Action、prompt 构造与 SDK/Endpoint 使用的资源门面，提供 Link 操作和有限读写约束，不暴露日切、归档、根目录或完整 Engine。真实磁盘事实仍由 WorkspaceEngine 维护；Service 不复制 manifest。SDK 取得的对象绑定世代和业务日，跨边界后在副作用前失效；需要连续读取、写入与 snapshot 的调用使用同一 operation 作用域。取消后的已提交修改先形成结果与 Workspace signal，再结束 Action。

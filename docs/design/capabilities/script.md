@@ -23,12 +23,12 @@ Python 默认启用并使用当前 TinySoul Python 解释器。Bash 独立配置
 
 ## Job 生命周期
 
-Script 与 Shell 的模型侧动作统一位于宽泛的 `execution` Domain；Capability 仍分别拥有 source/command policy、配置、依赖和启动 handler。每个 Turn 跨 Script/Shell 最多拥有一个 unresolved job。job 不跨 Turn、不持久化、不跨重启。`execution.run_python_script` / `execution.run_bash_script` 启动进程后先等待配置的 initial interval，返回 execution id、owner、状态、有界增量日志和候选文件 metadata。
+Script 与 Shell 的模型侧动作统一位于宽泛的 `execution` Domain；Capability 仍分别拥有 source/command policy、配置、依赖和启动 handler。每个 Turn 跨 Script/Shell 最多拥有一个 unresolved job。job 不跨 Turn、不持久化、不跨重启。`execution.run_python_script` / `execution.run_bash_script` 启动进程后立即返回 job_id（候选操作沿用同值 execution_id）、owner、状态、有界增量日志和候选文件 metadata。
 
-后续动作固定为：
+后续使用 core.job.status 取得监督状态与 owner 提供的有界日志/候选详情，或使用以下操作：
 
-- `execution.wait`：等待进程完成、等待区间到期，或当前 Turn 中合法的 `context.input.append` / `loop.control.request`；日志增长、其它 namespace、其它 Turn 和非法 payload 不唤醒；结果区分 interval、process exit、user input、Turn control、runtime limit 与 action cancellation 等 wake reason；
-- `execution.stop`：终止进程并保留镜像供检查；stopped 不可 apply；
+- `core.job.wait`：为指定 Job 构造等待条件；Loop 在统一 TurnInbox 等待 Job 终态、事件、输入、定时器与预算，Job manager 不拥有独立等待循环；
+- `core.job.stop`：请求终止指定进程并保留镜像供检查；stopped 不可 apply；
 - `execution.read_candidate`：按候选相对路径读取有界 UTF-8 文本；候选路径不是 Link；
 - `execution.apply`：只允许 `ready_to_apply`，逐文件比较创建 job 时的 baseline digest 与当前 active Workspace；同路径并发变化拒绝整个提交，job 保留；
 - `execution.discard`：关闭非运行 job 并删除镜像、日志和候选，不修改 active Workspace。
@@ -39,11 +39,11 @@ failed、timed_out、stopped 只能 inspect/read/discard。即使进程快速成
 
 进程 manager 不授予 Cycle 预算。带 Inbox 的 Turn 在预算不足时由 Loop 经 Trap 暂停，只有明确匹配的外部补额才启动下一 Cycle；不带 Inbox 的单次入口仍以 exhausted 收尾。进程最大运行时间独立受限，Turn 取消和结束仍清理其进程。`max_supervision_cycles` 配置及自动补额方法已删除。
 
-模型可选 wait 默认 15 秒，范围为 15 至 60 秒；三项值由项目 `execution.wait` Action TOML 的 Tool Schema 单一拥有，并可在 Action Catalog 设置页修改。Generation 编译时，supervised-process 把有效 `ActionSpec` 转换为强类型 wait policy；Manager 用其校验边界，executor 用其解释缺省参数。运行中 job 在没有显式 wait 时受默认 `cycle_wait_seconds=15` 的防空转间隔约束；该间隔与 Action 参数 contract 分属不同语义。显式 wait 正常到期时本身已经完成 pacing，下一 Cycle 立即开始，不再追加自动间隔。run initial wait 是独立的内部首次观察窗口。进程结束、当前 Turn input/control 可提前进入下一 Cycle。SignalBus 使用 emission cursor 和 predicate 提供 non-consuming wait，唤醒不抢走业务 Signal，同一旧 Signal 也不能反复唤醒。
+Job wait 只接受正的有限 timeout，并返回等待意图，由 Loop 校验为类型化条件；实际 deadline 与恢复由统一 TurnInbox 负责。普通 INPUT、EVENT、TIMER 和 Job 终态都不增加预算，等待不消费 Inbox 正文；预算不足时保留就绪事实，需显式 grant 才进入下一 Cycle。目标进程结束满足对应 Job 等待，追加输入可以中断普通等待，原问题回复仍按 question id 校验。
 
-每次 job observation 还返回 requested/actual wait、剩余运行时间，以及相对上次 observation 的 observed activity：日志字节增量、Workspace diff 是否变化、候选数量变化和距上次观测到活动的时间。这些是 Manager 可以确定的运行事实，不解释日志业务含义或完成百分比；日志活动本身不触发新的模型 Cycle。所有 job observation 只进入 TurnTrace，不成为 Background 状态。
+每次 job observation 返回剩余运行时间，以及相对上次 observation 的 observed activity：日志字节增量、Workspace diff 是否变化、候选数量变化和距上次观测到活动的时间。这些是 Manager 可以确定的运行事实，不解释日志业务含义或完成百分比；日志活动本身不触发新的模型 Cycle。所有 job observation 只进入 TurnTrace，不成为 Background 状态。
 
-默认进程上限 1800 秒，额外监督 Cycle 上限 32。Turn stop、失败、耗尽、Runtime transfer 或正常离开时，TurnRunner 在 `finally` 中调用 job manager 终止进程并 best-effort 清理 retained staging；cleanup 错误只形成 Observation，不能替换原始 transfer 或失败。
+默认进程上限 1800 秒，Cycle 预算由 Turn 单独管理。Turn stop、失败、耗尽、Runtime transfer 或正常离开时，TurnRunner 在 `finally` 中调用 job manager 终止进程并 best-effort 清理 retained staging；cleanup 错误只形成 Observation，不能替换原始 transfer 或失败。
 
 每个 job 的完整 staging 固定为：
 
@@ -62,14 +62,14 @@ runtime/.staging/supervised-process-job-*/
 
 当前实现已在保持本文件上述 Script 行为不变的前提下完成以下迁移：
 
-- job manager、Workspace transaction 协调、日志/候选观察、Cycle pacing 与 cleanup 位于 capability-internal `tinysoul.plugins.capabilities.supervised_process`；`tinysoul.plugins.workspace` 仍拥有 mirror/diff/CAS/bundle mutation；
-- Catalog 使用 `backend.kind=supervised_process`，Script registrar 仍注册 Script 专用 author/run handler；共享层只注册 `execution.wait/stop/read_candidate/apply/discard` 对应的生命周期 handler，不存在接受任意 inline 参数的通用 run executor；
+- job manager、Workspace transaction 协调、日志/候选观察与 cleanup 位于 capability-internal `tinysoul.plugins.capabilities.supervised_process`；`tinysoul.plugins.workspace` 仍拥有 mirror/diff/CAS/bundle mutation；
+- Catalog 使用 `backend.kind=supervised_process`，Script registrar 仍注册 Script 专用 author/run handler；共享层注册 `core.job.status/stop/wait` 及候选读取/应用/丢弃 handler，不存在接受任意 inline 参数的通用 run executor；
 - staging identity 为 `runtime/.staging/supervised-process-job-*`；Script job 使用 `source/` 保存经 snapshot digest 复核的冻结入口，Shell job 不需要该目录；
-- `[capabilities.script]` 只保留 Script-owned source、authoring、Python/Bash 与依赖配置；runtime/log/mirror/candidate 及内部 initial/cycle pacing 位于 `[capabilities.supervised_process]`；模型显式 wait 的 minimum/default/maximum 属于 `execution.wait` Action contract；
-- 同一 Turn 的唯一 unresolved job 从“仅 Script”提升为“Script 与 Shell 共用”；启动 action 记录 owner，后续生命周期 action 只提交 execution id，由 Manager 在当前 Turn 内解析实际 owner，模型无需先判断它是 Script 还是 Shell job；
+- `[capabilities.script]` 只保留 Script-owned source、authoring、Python/Bash 与依赖配置；runtime/log/mirror/candidate 位于 `[capabilities.supervised_process]`；Job wait 的 timeout contract 属于 `core.job.wait`，计时与恢复属于 Loop；
+- 同一 Turn 的唯一 unresolved job 由 Script 与 Shell 共用；启动 action 记录 owner，通用监督 action 使用 job_id，候选操作使用同值 execution_id，模型无需先判断它是 Script 还是 Shell job；
 - `core.answer` admission 由共享 manager 判断任一 owner 的 unresolved job；Loop 仍只依赖一个通用 activity controller。
 
-该组织不改变 Script 的身份：authoring/run 继续只接受 `workspace:scripts/...` 或 `home:skills/<existing-skill>/scripts/...` Link，不接受 inline source；promote、source policy/digest、成功后显式 apply/discard 和 Home Reflection 语义都保持不变。Script 配置、依赖和 source 失败仍由 Script 拥有；共用 wait/continuation/cleanup 的 non-Action activity failure 由 `supervised_process` Runtime bridge 表达。
+该组织不改变 Script 的身份：authoring/run 继续只接受 `workspace:scripts/...` 或 `home:skills/<existing-skill>/scripts/...` Link，不接受 inline source；promote、source policy/digest、成功后显式 apply/discard 和 Home Reflection 语义都保持不变。Script 配置、依赖和 source 失败仍由 Script 拥有；监督失败形成有界 Job 终态，清理失败保留独立 diagnostics。
 
 ## Workspace 提交
 
@@ -84,6 +84,8 @@ runtime/.staging/supervised-process-job-*/
 
 ## 失败语义
 
-无效 Link、缺失 skill、语法拒绝、source digest 变化、参数越界、非零退出、日志越界、运行超时、非法状态和 apply 冲突是局部 ActionResult。Home lazy copy 与 Workspace Trash restore 保留既有 Runtime trap 语义。Home/Workspace IO、reconciliation 与 invariant 失败通过 owner Runtime bridge 保留模块归属；Loop 直接调用的 异步 `wait_before_cycle` 属于共享 non-Action activity 边界，内部失败使用 `supervised_process` failure kind/Runtime bridge。Script 配置错误和启用 Bash 但 executable 不存在使用 `script.configuration_failed`；Catalog/Action registrar 自身不一致仍属于 Action 启动失败。
+无效 Link、缺失 skill、语法拒绝、source digest 变化、参数越界、非零退出、日志越界、运行超时、非法状态和 apply 冲突是局部 ActionResult。Home lazy copy 与 Workspace Trash restore 保留既有 Runtime trap 语义。Home/Workspace IO、reconciliation 与 invariant 失败通过 owner Runtime bridge 保留模块归属。统一等待和 Job 终态由 Loop/JobRegistry 负责；不再有 capability 内部 pacing 或 SignalWatch。Script 配置错误和启用 Bash 但 executable 不存在使用 `script.configuration_failed`；Catalog/Action registrar 自身不一致仍属于 Action 启动失败。
+
+源码 resolver、Workspace prompt 与提交使用已注入的 HomeService/WorkspaceService；短 owner 操作完整 join，模型任务原生 await。取消不改写已提交文件事实。
 
 job 的原始 staging 绝对路径不进入 ActionResult。结果只暴露 execution id、source Link/digest、状态、等待/活动事实、有界日志、候选相对路径及 digest/size；候选正文只能通过显式有界读取获得。
