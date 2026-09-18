@@ -552,7 +552,7 @@ WS 断开不取消 Turn；问题可由状态查询恢复，Observation gap 不�
 
 子计划进度：[R1 底层依赖与失败协议](done/20260915-done-Agent重构第一轮子计划-底层依赖与失败协议.md) 为 `done`；[R2 异步内核与 SDK 运行闭环](done/20260915-done-Agent重构第二轮子计划-异步内核与SDK运行闭环.md) 保留历史实施与门禁记录。2026-09-16 复审发现的剩余事项已由 [R2 收口子计划](done/20260916-done-Agent重构R2收口子计划.md) 于 2026-09-17 完成（`done`，C1/C2/C3 已落实，C4 保留 S3 评估）；原已纳入的 S2/S3 必要契约范围不变。
 
-第三轮方案见 [R3 领域语义与能力组织子计划](20260917%20Agent重构第三轮子计划-领域语义与能力组织.md)，状态 `pending`。2026-09-17 最新确认：R3 的 Session 自动地图先限于事实与确定性关系，模型主动 organize 留待后续 core Action 细化；Reflection 动作本轮归回 Home/Memory 并改名；保留 capabilities 包，清除平行编排和状态。第 8 节的推导注释仍是后续目标，第 9 节专属 domain 的归并按新子计划推进；Memory 规划域、进程工作目录与当天 daily 来源语义仍待确认。目录分层和 catalog 集中方案同列预览，S3 尚未完成。
+第三轮方案见 [R3 领域语义与能力组织子计划](20260917%20Agent重构第三轮子计划-领域语义与能力组织.md)，状态 `pending`。2026-09-17 最新确认：R3 的 Session 自动地图先限于事实与确定性关系，模型主动 organize 留待后续 core Action 细化；Reflection 动作归回 Home/Memory，普通 Memory 一并归独立 memory domain；execution 直接操作真实当天 Workspace；daily 无则完整整理、有则在原文上修订补充，无冻结标记。capabilities 保留 web/resource 等工具，execution 考虑独立为插件并统一服从 Job。第 8 节推导注释仍为后续目标，第 9 节动作归并按子计划推进；具体 execution/Job 组织、日切停止失败边界、assets 提升与配置统一见子计划预览，S3 尚未完成。
 
 S1、S2 已完成；S3–S7 尚未整体完成。历史 S0 定稿不代表后续协议细化关闭。子计划只有实现/文档/必要验证全部通过才 done 并归档；docs/design 只写已落地部分。
 
