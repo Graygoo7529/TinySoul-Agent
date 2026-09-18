@@ -21,7 +21,7 @@ TinySoul 是长期运行的个人 Agent：在环境中感知与行动，通过�
 | 冰山、Trace 栈、工作台 | 三分区与 Heap/Map/Stack/State | 形状不规定领域内容或 Python 容器 |
 | 外围维护语境 | Engine 拥有事实，Segment 拥有本轮视图 | Context 组合段，不理解 Home/Memory 内容 |
 | 历史会话地图 | Session 事实、Map 投影与有来源注释 | 不再平行维护线性 Summary |
-| 自然知识沉淀 | 两个 Reflection profile 与专属域 | User 不写持久 Memory、不提交 actual Home |
+| 自然知识沉淀 | 两个 Reflection profile 与情景专属动作 | User 不写持久 Memory、不提交 actual Home |
 | 灵活工作区 | list/search/read/write/edit/append 等 | 去 CAS 不等于允许半写文件 |
 
 ## 2. 代码现状与复用判断
@@ -43,7 +43,7 @@ TinySoul 是长期运行的个人 Agent：在环境中感知与行动，通过�
 | `session/completion.py` | 从 Phase2/3 消息解析 Action 配对 | Trace 导出 typed 事实，Session 不猜消息布局 |
 | `loop/completion.py` | 有序完成处理管线 | 保留有序提交，区分 finish/close |
 | `workspace/engine.py` | digest/revision/read-set 深入提交逻辑 | 删除对应动作契约与测试，保留原子文件操作 |
-| `home/review.py`、`home/overlay.py` | actual/overlay/review | 保留边界，简化专属域 |
+| `home/review.py`、`home/overlay.py` | actual/overlay/review | 保留边界，精简情景专属动作 |
 | `memory/transaction.py`、`maintenance/*` | Memory 多文档流程、维护编排 | 单文档写，编排与存储分离 |
 | `maintenance/archive/engine.py` | active day lease、归档恢复 journal | 保留，不随 Memory 事务删除 |
 | `app/builder.py`、`app/generation.py` | 集中装配、世代与资源关闭 | 拆组合根与插件贡献 |
@@ -368,17 +368,17 @@ User 根 Turn 进入用户 Session，Reflection 不进入。当前 ACP 委派通
 
 ## 9. Home、Memory、Reflection 与 CalendarDay
 
-同一个 Agent 的两种 Reflection 执行情景由 home_reflection、memory_reflection 两个独立 profile 承载，当前分别使用同名专属 domain。共用内核、动作配置、模型链、TaskPrompt/Skill 挂载，不保留维护专用第二套 Loop。
+同一个 Agent 的两种 Reflection 执行情景由 home_reflection、memory_reflection 两个独立 profile 承载。当前实现使用同名专属 domain；按已确认 R3 方案，动作归回 Home/Memory domain，profile 名称保留。共用内核、动作配置、模型链、TaskPrompt/Skill 挂载，不保留维护专用第二套 Loop。
 
-已确认 Reflection = 通用 action domains + 当前 Reflection 专属域。通用推理、检索、Context、Workspace、home 副本操作、execution/subagent/expand 等已配置能力仍可使用；home_reflection/memory_reflection 不互相自动附加。profile 改目标、视图与输出解释，不重写执行器，也不把 Reflection 关进只有几个命令的工作流。
+已确认 Reflection = 通用 action domains + 本属域内的情景专属 actions。通用推理、检索、Context、Workspace、home 副本操作、execution/subagent/expand 等已配置能力仍可使用；Home/Memory 专属写能力不互相自动附加。profile 改目标、视图与输出解释，不重写执行器，也不把 Reflection 关进只有几个命令的工作流。
 
 历史 Session/Workspace 用作只读参考，当日 Workspace 仍作为可操作工作台；source_day 与 active_day 分开，不能为读取历史而禁用通用 workspace 写能力。通用工具可用不等于获得绕过 owner 写持久 Memory/actual Home 的业务权限；execution/subagent 的工作目录和服务能力仍遵循对应 owner 边界，不把 shell 作为长期写入捷径。
 
 | 工作类型 | 可写事实 | 动作与完成 |
 |---|---|---|
 | User Turn | 活动 Memory.md、Workspace、Home overlay | 正常回答或其它终态 |
-| Home Reflection | 审核后 actual Home | 通用域 + home_reflection.diff/review |
-| Memory Reflection | target daily、entity/concept/fact/note | 通用域 + memory_reflection.write_daily/write |
+| Home Reflection | 审核后 actual Home | 通用域 + home.diff/review（R3 迁移目标） |
+| Memory Reflection | target daily、entity/concept/fact/note | 通用域 + memory.write_daily/write（R3 迁移目标） |
 
 User 的实际 Action surface 不含 Reflection 专属动作，注入的服务也限制写权限，不只靠提示词。子 profile 不继承超出父 profile 的长期写能力。
 
@@ -533,7 +533,7 @@ WS 断开不取消 Turn；问题可由状态查询恢复，Observation gap 不�
 | SDK/事件/Signal | 同一命令经多条路径修改同一状态 | SDK 统一接受入口；owner 方法提交事实；Signal 同步视图；Observation 不回写 |
 | 普通 wait/预算 SUSPEND | 两个暂停控制器、两个收件箱或两套恢复位置 | 唯一 Turn 等待状态与处理流程；进入来源不同，收件箱/取消/恢复共用 |
 | Runtime bridge | bridge 移名后仍从底层 import kernel | bridge 随 owner；SUSPEND 只表达合法目标，Loop 持有等待语义 |
-| Reflection/普通 Turn | 专属完成器和固定步骤重新形成第二套维护内核 | common domains + 专属写域；同一完成意图，profile 解释输出 |
+| Reflection/普通 Turn | 专属完成器和固定步骤重新形成第二套维护内核 | common domains + 情景专属写动作；同一完成意图，profile 解释输出 |
 | Session/Trace | 当前 Turn 一边写 trace 一边复制进会话 Map | trace 保存当前过程；Session 记录已结束事实，整理只改有来源语义层 |
 | ACP Connection/Job | 连接存活被误判任务未完成，或结束 Job 被复活 | Connection 为服务资源；Job 为一次工作；保留空闲连接不保留活任务 |
 | 阶段计划 | S2 删除旧包，S3 才补依赖 | S2 同步全部消费者接入；S3 深化领域语义 |
@@ -587,7 +587,7 @@ S3 是领域语义变更，不负责补齐 S2 留下的损坏依赖。S2 子计�
 12. ACP final/权限/取消/断流；MCP schema/分页/错误/未知写结果有明确映射。
 13. runtime 不 import 上层，kernel 不识别领域内容，每个 SPI 有真实消费者。
 14. SDK 结果与 Observation 分离，重连能查询待答问题及终态。
-15. Reflection 通用域与各自专属域组合；inspect→write、diff→改副本→review 跨 Cycle 自主执行，共用完成意图。
+15. Reflection 通用域与各自情景专属动作组合；inspect→write、diff→改副本→review 跨 Cycle 自主执行，共用完成意图。
 16. connect 后 Working 可见；同连接两次委派 Job 身份不同；空闲连接不阻止回答；Job 先收尾，再按 Q8 保留/关闭连接。新根的 ACP session 不隐式继承旧上下文，日切前旧连接已关闭。
 17. 插件仅注册描述和 handler 即能提供段；新段无需修改 composer 的 owner 分支。slot/order 决定顺序，shape/能力一致性可验证，关闭 Segment 不误关跨 Turn Engine 服务。
 
@@ -630,7 +630,7 @@ S3 是领域语义变更，不负责补齐 S2 留下的损坏依赖。S2 子计�
 新增记录：
 
 - D30：受限 SUSPEND、Inbox 存活进程保障边界、架构依赖与 SDK 方向已确认。
-- D31：Reflection 保留通用 action domains，附加各自精简专属域，自主少量多步，不设计固定维护流程。
+- D31：Reflection 保留通用 action domains，附加各自精简专属能力；R3 归回 Home/Memory domain 内按情景开放的 actions，自主少量多步，不设计固定维护流程。
 - D32：ACP 建连与委派分开，已连接端点由插件 Working State 段呈现。
 - D33：干净性优先架构一致性；异常/取消以统一边界与生命周期轻量落实，不增加平行治理机制。
 - D34：ACP 空闲连接允许简单跨 Turn 复用；若需复杂迁移/恢复则直接在 Turn 收尾关闭。具体策略见 Q8。
