@@ -3,6 +3,7 @@
 import asyncio
 from dataclasses import replace
 from pathlib import Path
+import socket
 import sys
 
 import pytest
@@ -92,6 +93,52 @@ async def test_real_workspace_effects_and_repeated_output_collection(
         await jobs.cleanup_turn("turn")
     assert result_path.exists()
     assert (result_path.parent / "logs" / "stdout.log").exists()
+
+
+async def test_successful_root_closes_children_before_job_becomes_resolved(
+    tmp_path: Path,
+) -> None:
+    engine, jobs, workspace, home = _owners(tmp_path)
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        listener.settimeout(8)
+        child = (
+            "import socket\nfrom pathlib import Path\n"
+            f"with socket.create_connection({listener.getsockname()!r}) as connection:\n"
+            " connection.settimeout(8)\n"
+            " connection.sendall(b'ready')\n"
+            " Path('child-ready.txt').write_text('kept')\n"
+            " connection.recv(1)\n"
+        )
+        parent = (
+            "import subprocess,sys,time\nfrom pathlib import Path\n"
+            f"subprocess.Popen([sys.executable, '-c', {child!r}])\n"
+            "deadline = time.monotonic() + 8\n"
+            "while not Path('child-ready.txt').exists() and time.monotonic() < deadline:\n"
+            " time.sleep(0.01)\n"
+        )
+        backend = await _start(engine, workspace, home, parent)
+        try:
+            connection, _ = await asyncio.to_thread(listener.accept)
+            with connection:
+                connection.settimeout(1)
+                assert connection.recv(5) == b"ready"
+                async with asyncio.timeout(8):
+                    await engine.wait("turn", backend.job_id)
+                assert jobs.snapshot("turn", backend.job_id).state is JobState.SUCCEEDED
+                assert not jobs.has_unresolved("turn")
+                try:
+                    assert connection.recv(1) == b""
+                except ConnectionResetError:
+                    pass
+                assert backend.collect()["exit_code"] == 0
+        finally:
+            await jobs.cleanup_turn("turn")
+        assert jobs.ids("turn") == ()
+        assert (
+            workspace.root / "jobs" / backend.job_id / "child-ready.txt"
+        ).read_text() == "kept"
 
 
 async def test_terminal_results_do_not_occupy_live_slot_but_capacity_is_retained(

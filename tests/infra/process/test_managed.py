@@ -1,24 +1,22 @@
 """Process ownership is independent of Action and Job policy."""
 
 from pathlib import Path
+import socket
 import subprocess
 import sys
 from typing import cast
 
 import pytest
 
-from tinysoul.infra.process import managed as process_backend
 from tinysoul.infra.process import (
     ManagedProcess,
     ManagedProcessCloseError,
     ManagedProcessOptions,
     ManagedProcessRequest,
     ManagedProcessRunner,
+    ManagedProcessStartError,
     ProcessContractError,
 )
-
-PYTHON_WAIT_FOREVER = "import threading; threading.Event().wait()"
-
 
 def test_managed_process_preserves_caller_owned_capture_directory(
     tmp_path: Path,
@@ -45,7 +43,6 @@ def test_managed_process_options_reject_invalid_termination_wait(value) -> None:
 
 
 def test_managed_process_terminate_uses_configured_wait(
-    monkeypatch,
     tmp_path: Path,
 ) -> None:
     process = _FakeProcess()
@@ -61,34 +58,12 @@ def test_managed_process_terminate_uses_configured_wait(
         stderr_path=stderr_path,
         capture_directory=None,
         options=ManagedProcessOptions(termination_wait_seconds=0.25),
-    )
-    monkeypatch.setattr(
-        process_backend, "terminate_process_tree", lambda _process: None
+        scope=_FakeScope(process),
     )
 
     managed.terminate()
 
     assert process.wait_timeouts == [0.25]
-
-
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows termination fallback")
-def test_managed_process_falls_back_when_taskkill_is_denied(monkeypatch) -> None:
-    process = ManagedProcessRunner().start(
-        ManagedProcessRequest(
-            argv=(sys.executable, "-c", PYTHON_WAIT_FOREVER),
-        )
-    )
-    monkeypatch.setattr(
-        subprocess,
-        "run",
-        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], returncode=1),
-    )
-
-    try:
-        process.terminate()
-        assert process.running() is False
-    finally:
-        process.close()
 
 
 class _FakeCapture:
@@ -118,20 +93,31 @@ class _FakeProcess:
         return self.exit_code or 0
 
 
+class _FakeScope:
+    def __init__(self, process: _FakeProcess) -> None:
+        self.process = process
+
+    def terminate(self, timeout_seconds: float) -> None:
+        self.process.kill()
+        if self.process.poll() is None:
+            raise TimeoutError("Controlled execution remains alive")
+
+    def close(self) -> None:
+        pass
+
+
+@pytest.mark.parametrize("root_exited", [False, True])
 def test_failed_stop_keeps_execution_retryable_and_ancillary_failure_is_diagnostic(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path,
+    root_exited: bool,
 ) -> None:
-    class ResistantProcess(_FakeProcess):
+    class ResistantScope(_FakeScope):
         resistant = True
 
-        def kill(self) -> None:
-            if not self.resistant:
-                super().kill()
-
-        def wait(self, timeout=None) -> int:
+        def terminate(self, timeout_seconds: float) -> None:
             if self.resistant:
-                raise subprocess.TimeoutExpired("private command", timeout or 0)
-            return super().wait(timeout)
+                raise TimeoutError("private descendant still running")
+            super().terminate(timeout_seconds)
 
     class Capture(_FakeCapture):
         closes = 0
@@ -140,7 +126,10 @@ def test_failed_stop_keeps_execution_retryable_and_ancillary_failure_is_diagnost
             self.closes += 1
             raise OSError("private log path")
 
-    child, capture = ResistantProcess(), Capture()
+    child, capture = _FakeProcess(), Capture()
+    if root_exited:
+        child.exit_code = 0
+    scope = ResistantScope(child)
     managed = ManagedProcess(
         cast(subprocess.Popen[str], child),
         stdout_capture=capture,
@@ -149,17 +138,94 @@ def test_failed_stop_keeps_execution_retryable_and_ancillary_failure_is_diagnost
         stderr_path=tmp_path / "err",
         capture_directory=None,
         options=ManagedProcessOptions(0.01),
+        scope=scope,
     )
-    monkeypatch.setattr(process_backend, "terminate_process_tree", lambda _: None)
     with pytest.raises(ManagedProcessCloseError):
         managed.close()
-    assert managed.running() and capture.closes == 0
-    child.resistant = False
+    assert managed.running() is not root_exited
+    assert capture.closes == 0
+    scope.resistant = False
     diagnostics = managed.close()
     assert not managed.running() and capture.closes == 1
     assert diagnostics[0].resource == "process.stdout"
     assert "private" not in repr(diagnostics)
     assert managed.close() == diagnostics and capture.closes == 1
+
+
+@pytest.mark.parametrize("root_exits", [False, True])
+def test_close_stops_descendants_even_after_the_root_exits(
+    tmp_path: Path,
+    root_exits: bool,
+) -> None:
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        listener.settimeout(8)
+        child = (
+            "import socket\n"
+            f"with socket.create_connection({listener.getsockname()!r}) as connection:\n"
+            " connection.settimeout(8)\n"
+            " connection.sendall(b'ready')\n"
+            " connection.recv(1)\n"
+        )
+        parent = (
+            "import subprocess,sys,time\n"
+            f"subprocess.Popen([sys.executable, '-c', {child!r}])\n"
+            + ("" if root_exits else "time.sleep(8)\n")
+        )
+        with ManagedProcessRunner().start(
+            ManagedProcessRequest((sys.executable, "-c", parent)),
+            capture_root=tmp_path / "capture",
+        ) as process:
+            connection, _ = listener.accept()
+            with connection:
+                connection.settimeout(1)
+                assert connection.recv(5) == b"ready"
+                if root_exits:
+                    assert process.wait(5) == 0
+                process.close()
+                # The child's socket stays open until the child actually exits.
+                try:
+                    assert connection.recv(1) == b""
+                except ConnectionResetError:
+                    pass  # Windows reports a forcibly closed peer as a reset.
+                assert not process.running()
+                if root_exits:
+                    assert process.exit_code == 0
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows suspended startup")
+def test_failed_assignment_reaps_root_without_running_user_code(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tinysoul.infra.process.windows import WindowsProcessJob
+
+    children: list[subprocess.Popen[str]] = []
+    start = subprocess.Popen
+
+    def capture(*args, **kwargs):
+        process = start(*args, **kwargs)
+        children.append(process)
+        return process
+
+    def reject(self: WindowsProcessJob, pid: int) -> None:
+        raise OSError("private assignment failure")
+
+    marker = tmp_path / "should-not-run"
+    monkeypatch.setattr(subprocess, "Popen", capture)
+    monkeypatch.setattr(WindowsProcessJob, "attach", reject)
+    with pytest.raises(ManagedProcessStartError) as raised:
+        ManagedProcessRunner().start(
+            ManagedProcessRequest((
+                sys.executable,
+                "-c",
+                f"from pathlib import Path; Path({str(marker)!r}).touch()",
+            ))
+        )
+    assert len(children) == 1 and children[0].poll() is not None
+    assert not marker.exists()
+    assert "private" not in str(raised.value)
 
 
 def test_interactive_input_and_fixed_large_input_do_not_block_start(

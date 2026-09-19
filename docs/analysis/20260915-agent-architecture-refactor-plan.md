@@ -1,6 +1,6 @@
 # Agent 架构重构：设计语义、契约与执行计划
 
-状态：`in_progress`（R1、R2 收口与 R3 均已完成并归档。S1、S2 为 done；S3 的本轮领域重构已完成，organize/模型推导注释保留后续细化；S4–S7 未整体完成，保持原定范围）。
+状态：`in_progress`（R1、R2 收口、R3 及其收口均已完成并归档。S1、S2 为 done；S3 的本轮领域重构已完成，organize/模型推导注释保留后续细化；S4–S7 未整体完成，保持原定范围）。
 修订日期：2026-09-19。初始复审代码：`e930c9c444deb0073ab3d7f016057245bad66ca6`（当次查询远端 HEAD 相同）；R2 分析基线为本地 `6821983`，本次未查询远端。
 
 本文件描述目标设计，不代表全部已实现。初始复审仅授权分析、修订计划与讨论；后续 R1/R2/R3 已获明确实施授权，实际完成范围见第 13 节。确认状态见第 14 节。用户已确认架构方向，特别是受限 SUSPEND 与 Inbox 保障边界，并补充 Reflection 通用动作叠加、ACP 显式连接及 Working 呈现；未实施的具体签名与连接寿命仍标明建议。原“正文 + 替换预览”合并为单一方案，旧版由 Git 保存，不并行保留互相冲突的接口。API 为契约草图，具体名称与类型在子计划落定。
@@ -72,19 +72,19 @@ TinySoul 是长期运行的个人 Agent：在环境中感知与行动，通过�
 - `kernel/context/`：段协议、composer、pressure、inputs/identity/plan/trace/jobs 段与控制动作。
 - `kernel/action/`：catalog/schema/hook/批次/executor；`kernel/jobs/`：Job 协议、监督与控制。
 - `kernel/spi.py`：公共协议汇出；定义跟随各 owner，不建设巨型接口文件。
-- `plugins/{home,memory,session,workspace,reflection}/`。
-- `plugins/capabilities/{resource,web,execution,subagent,expand}/`。
+- `plugins/{home,memory,session,workspace,reflection,execution}/`。
+- `plugins/capabilities/{resource,web,subagent,expand}/`。
 - `environment/{terminal,scheduler,fswatch,console}.py`。
 - `agent/{agent,assembly,scheduler,router,generation,day,services,status,config}.py`。
 - `gateway/{cli,endpoint,project}/`；继续使用项目 assets。
 
 所有业务 bridge 随 owner；公共异常 payload 帮助放 runtime 公开模块，不跨模块 import 私有 `_payload`。infra 不依赖 runtime，由使用边界适配错误。CalendarDay 是通用日期值，CalendarClock/日切协调归 agent/day。
 
-Plugin 是装配单元，Engine 是领域服务，Segment 是当前 Turn 视图，Action 是模型可选择能力，不相互代替。插件按需拥有 plugin/config/engine/segments/actions/failures/runtime_bridge/catalog/jobs 文件，不强制空壳。
+Plugin 是装配单元，Engine 是领域服务，Segment 是当前 Turn 视图，Action 是模型可选择能力，不相互代替。插件按需拥有 plugin/config/engine/segments/actions/failures/runtime_bridge/jobs 等内部职责，不强制空壳；内置 catalog 文档统一放在 assets。
 
 装配：declare → resolve → activate。先声明贡献与依赖，再校验重复身份/依赖环/profile/ref 路由/服务，再启动连接与监听。失败逆序清理已激活资源。协议只公开真实消费者需要的能力，但允许合理的共同抽象，不以文件数衡量干净性。
 
-注册面保留明确用途：`context_segment(provider)`、`actions(registrar)`、`action_catalog_fragment(...)`、`turn_profile(profile)`、`trap_handler(reason, handler)`、`day_participant(...)`、`event_source(...)`、`schedule(...)`、`turn_trigger(...)`、`job_kind(kind, factory)`、`service(FacadeType, instance)`。可见 profile/surface 在 resolve 阶段确定，运行时不从任意字符串 service key 找私有对象。core catalog 归内核，各领域 fragment 随插件；init/reset 确定性合成用户项目 catalog，运行期 fragment 和项目可编辑配置边界明确。
+注册面保留明确用途：`context_segment(provider)`、`actions(registrar)`、`turn_profile(profile)`、`trap_handler(reason, handler)`、`day_participant(...)`、`event_source(...)`、`schedule(...)`、`turn_trigger(...)`、`job_kind(kind, factory)`、`service(FacadeType, instance)`。可见 profile/surface 在 resolve 阶段确定，运行时不从任意字符串 service key 找私有对象。内置 core 与各 domain/action 的 catalog TOML 统一位于 assets/common，和 standard/development 预设一起经项目资源生成入口初始化；运行期由 ConfigDocumentSet 统一加载项目可编辑文档，执行器与服务权限仍由各 owner 显式注册，不保留 fragment 拼接旁路。
 
 TurnProfile 汇总 guidance、Action surface、段 provider 集合、完成判定与输出映射、Trap 策略、预算和输入/等待策略；它不另建执行器。user、home_reflection、memory_reflection 均调用同一内核；未来内部 subagent 同样复用，不在本次预建专属调度/预算机制。内核提供 profile 协议，实际组合由 Agent/插件声明；例如 Reflection profile 选择目标日 session、只读历史 Workspace 与专属写域。
 
@@ -368,7 +368,7 @@ User 根 Turn 进入用户 Session，Reflection 不进入。当前 ACP 委派通
 
 ## 9. Home、Memory、Reflection 与 CalendarDay
 
-同一个 Agent 的两种 Reflection 执行情景由 home_reflection、memory_reflection 两个独立 profile 承载。当前实现使用同名专属 domain；按已确认 R3 方案，动作归回 Home/Memory domain，profile 名称保留。共用内核、动作配置、模型链、TaskPrompt/Skill 挂载，不保留维护专用第二套 Loop。
+同一个 Agent 的两种 Reflection 执行情景由 home_reflection、memory_reflection 两个独立 profile 承载。R3 已将专属动作归回 Home/Memory domain，profile 名称保留。共用内核、动作配置、模型链、TaskPrompt/Skill 挂载，不保留维护专用第二套 Loop。
 
 已确认 Reflection = 通用 action domains + 本属域内的情景专属 actions。通用推理、检索、Context、Workspace、home 副本操作、execution/subagent/expand 等已配置能力仍可使用；Home/Memory 专属写能力不互相自动附加。profile 改目标、视图与输出解释，不重写执行器，也不把 Reflection 关进只有几个命令的工作流。
 
@@ -377,8 +377,8 @@ User 根 Turn 进入用户 Session，Reflection 不进入。当前 ACP 委派通
 | 工作类型 | 可写事实 | 动作与完成 |
 |---|---|---|
 | User Turn | 活动 Memory.md、Workspace、Home overlay | 正常回答或其它终态 |
-| Home Reflection | 审核后 actual Home | 通用域 + home.diff/review（R3 迁移目标） |
-| Memory Reflection | target daily、entity/concept/fact/note | 通用域 + memory.write_daily/write（R3 迁移目标） |
+| Home Reflection | 审核后 actual Home | 通用域 + home.diff/review |
+| Memory Reflection | target daily、entity/concept/fact/note | 通用域 + memory.write_daily/write |
 
 User 的实际 Action surface 不含 Reflection 专属动作，注入的服务也限制写权限，不只靠提示词。子 profile 不继承超出父 profile 的长期写能力。
 
@@ -554,6 +554,8 @@ WS 断开不取消 Turn；问题可由状态查询恢复，Observation gap 不�
 
 第三轮 [R3 领域语义与能力组织子计划](done/20260917-done-Agent重构第三轮子计划-领域语义与能力组织.md) 于 2026-09-19 完成（`done`）。已落实 Session 确定性事实地图与跨日追溯、Reflection 动作归 Home/Memory 与今天/历史 daily 可修订、Workspace 去 CAS/压力 Trash、execution + Job + infra/process 统一生命周期、逐 domain/action 文档及情景可见性、assets/common/standard/development 和后端内部职责封装。Full 1066 passed、23 deselected，typecheck 通过，含生成、wheel 安装和 worker 启动验证；未运行真实 provider/network。第 8 节 organize/模型推导注释按已确认范围延后，S3 保持 in_progress；S4–S7 未扩大勾选。配置/动作/存储格式变化与部署边界见子计划 §13。
 
+[R3 收口子计划](done/20260919-done-Agent重构R3收口子计划.md) 于 2026-09-19 完成。关闭 `160781e` 复审发现的进程后代逃逸、Workspace 迁移元数据丢失、路径大小写别名及嵌套提交事实遗漏；复用既有 Process/Job 与 Workspace owner，没有新增模型协议或 CAS。Full 1081 passed、23 deselected，typecheck 通过；真实进程验证在 Windows 完成，POSIX 另做目标类型检查，未宣称 Linux 实机验证。原 S3 延后项与 S4–S7 范围不变。
+
 S1、S2 已完成；S3–S7 尚未整体完成。历史 S0 定稿不代表后续协议细化关闭。子计划只有实现/文档/必要验证全部通过才 done 并归档；docs/design 只写已落地部分。
 
 | 阶段 | 范围 | 必需证据 |
@@ -561,7 +563,7 @@ S1、S2 已完成；S3–S7 尚未整体完成。历史 S0 定稿不代表后续
 | S0 | 已记录架构/SUSPEND/Inbox 确认；同步 AGENTS，细化动作组合与连接契约 | 无冲突目标、待决有状态 |
 | S1 `done` | bridge 归 owner、失败协议、LLM 容量恢复、import/重放检查；async LLM、事件/取消原语 | R1/R2 的 Fast/Full/typecheck 与依赖审计通过 |
 | S2 `done` | 新内核/SDK/CLI/段/Job/等待；同步迁移所有旧内核消费者至新公共入口、插件接入与打包 | R2 收口 Full 1091 passed、2 skipped、23 deselected，typecheck 通过；生命周期、等待、服务权限与终态/保留缺口关闭，含导入边界、生成与 wheel 验收 |
-| S3 `in_progress` | R3 已完成 Session 事实 Map、Workspace 去 CAS、精简 Reflection、execution 合并及能力组织；organize/模型推导注释待后续细化 | R3 Full/typecheck、owner 正反路径与真实进程跨午夜通过；延后项未伪报完成 |
+| S3 `in_progress` | R3 与收口已完成 Session 事实 Map、Workspace 去 CAS、精简 Reflection、execution 合并及能力组织；organize/模型推导注释待后续细化 | R3 收口 Full/typecheck、owner 正反路径与含后代的真实进程跨午夜通过；延后项未伪报完成 |
 | S4 | fswatch/scheduler、ask/reply、容量、reload/restart、完整监督 | 暂停收事件、午夜、短操作取消与进程回收 |
 | S5 | Gateway v2、项目命令、HTTP/WS/replay、协议文档 | SDK 映射、重连、wheel/init |
 | S6 | 锁 ACP/MCP adapter/协议/SDK，connect/delegate、连接段；内部子调用留后续 | 建连→多次委派→收尾，fake 故障矩阵，真实 smoke 单独声明 |

@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import ExitStack
 from dataclasses import dataclass
 from math import isfinite
 import os
 from pathlib import Path
+import signal
 import subprocess
-from typing import BinaryIO
 from tempfile import TemporaryDirectory
 from threading import RLock
-from typing import Protocol
+from typing import BinaryIO, Protocol
 
 from tinysoul.infra.concurrency import CleanupDiagnostic
 
@@ -99,6 +100,30 @@ class CapturedOutput(Protocol):
     def flush(self) -> None: ...
 
 
+class ProcessScope(Protocol):
+    """Native ownership outlives the root PID; it contains no execution policy."""
+
+    def terminate(self, timeout_seconds: float) -> None: ...
+
+    def close(self) -> None: ...
+
+
+if os.name != "nt":
+
+    class PosixProcessGroup:
+        def __init__(self, pid: int) -> None:
+            self._pid = pid
+
+        def terminate(self, timeout_seconds: float) -> None:
+            try:
+                os.killpg(self._pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass  # The entire group has already gone, not just its leader.
+
+        def close(self) -> None:
+            pass  # No separately owned OS handle.
+
+
 class ManagedProcess:
     """A live process handle with bounded observation and hard termination."""
 
@@ -112,6 +137,7 @@ class ManagedProcess:
         stderr_path: Path,
         capture_directory: TemporaryDirectory[str] | None,
         options: ManagedProcessOptions,
+        scope: ProcessScope,
     ) -> None:
         self._process = process
         self._stdout = stdout_capture
@@ -120,8 +146,10 @@ class ManagedProcess:
         self._stderr_path = stderr_path
         self._capture_directory = capture_directory
         self._options = options
+        self._scope = scope
         self._lock = RLock()
         self._closed = False
+        self._terminated = False
         self._diagnostics: tuple[CleanupDiagnostic, ...] = ()
 
     @property
@@ -143,28 +171,20 @@ class ManagedProcess:
 
     def terminate(self) -> None:
         with self._lock:
+            if self._terminated:
+                return
             last_error: Exception | None = None
             for _ in range(2):
                 try:
-                    if self._process.poll() is not None:
-                        return
-                    terminate_process_tree(self._process)
-                    if self._process.poll() is None:
-                        self._process.kill()
+                    self._scope.terminate(self._options.termination_wait_seconds)
                     self._process.wait(timeout=self._options.termination_wait_seconds)
+                    self._terminated = True
                     return
                 except (OSError, subprocess.TimeoutExpired) as exc:
                     last_error = exc
-            try:
-                running = self._process.poll() is None
-            except OSError as exc:
-                raise ManagedProcessCloseError(
-                    "Process state could not be read after bounded stop"
-                ) from exc
-            if running:
-                raise ManagedProcessCloseError(
-                    "Controlled process remains alive after bounded stop"
-                ) from last_error
+            raise ManagedProcessCloseError(
+                "Controlled execution could not be stopped within its boundary"
+            ) from last_error
 
     def write_stdin(self, data: bytes, *, close: bool = False) -> int:
         """Accept a bounded nonblocking prefix; the caller owns any remainder."""
@@ -233,6 +253,10 @@ class ManagedProcess:
             # cannot make a running process look closed.
             self.terminate()
             failures: list[CleanupDiagnostic] = []
+            try:
+                self._scope.close()
+            except OSError as exc:
+                failures.append(CleanupDiagnostic("process.scope", type(exc).__name__))
             streams = (
                 ("stdout", self._stdout),
                 ("stderr", self._stderr),
@@ -313,6 +337,7 @@ class ManagedProcessRunner:
             subprocess.PIPE if request.interactive else subprocess.DEVNULL
         )
         process: subprocess.Popen[str] | None = None
+        scope: ProcessScope | None = None
         try:
             if capture_root is None:
                 capture_directory = TemporaryDirectory(prefix="tinysoul_process_")
@@ -338,6 +363,10 @@ class ManagedProcessRunner:
             stdout_capture = stdout_path.open("w+b")
             stderr_capture = stderr_path.open("w+b")
             if os.name == "nt":
+                from .windows import WindowsProcessJob
+
+                windows_scope = WindowsProcessJob()
+                scope = windows_scope
                 process = subprocess.Popen(
                     list(request.argv),
                     cwd=request.cwd,
@@ -350,8 +379,10 @@ class ManagedProcessRunner:
                     errors="replace",
                     shell=False,
                     creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
-                    | subprocess.CREATE_NO_WINDOW,
+                    | subprocess.CREATE_NO_WINDOW
+                    | WindowsProcessJob.CREATE_SUSPENDED,
                 )
+                windows_scope.attach(process.pid)
             else:
                 process = subprocess.Popen(
                     list(request.argv),
@@ -366,17 +397,35 @@ class ManagedProcessRunner:
                     shell=False,
                     start_new_session=True,
                 )
+                scope = PosixProcessGroup(process.pid)
             if request.interactive and process.stdin is not None:
                 os.set_blocking(process.stdin.fileno(), False)
         except Exception as exc:
-            if process is not None:
-                terminate_process_tree(process)
-            if stdout_capture is not None:
-                stdout_capture.close()
-            if stderr_capture is not None:
-                stderr_capture.close()
-            if capture_directory is not None:
-                capture_directory.cleanup()
+            try:
+                # Unwind every acquired resource even if another cleanup fails.
+                with ExitStack() as cleanup:
+                    if capture_directory is not None:
+                        cleanup.callback(capture_directory.cleanup)
+                    if stderr_capture is not None:
+                        cleanup.callback(stderr_capture.close)
+                    if stdout_capture is not None:
+                        cleanup.callback(stdout_capture.close)
+                    if scope is not None:
+                        cleanup.callback(scope.close)
+                    if process is not None:
+                        cleanup.callback(
+                            process.wait, timeout=self._options.termination_wait_seconds
+                        )
+                        # Also reap a root whose assignment failed while suspended.
+                        cleanup.callback(process.kill)
+                    if scope is not None:
+                        cleanup.callback(
+                            scope.terminate, self._options.termination_wait_seconds
+                        )
+            except Exception as cleanup_error:
+                raise ManagedProcessCloseError(
+                    "Controlled process startup resources could not close"
+                ) from cleanup_error
             if isinstance(exc, ProcessContractError):
                 raise
             raise ManagedProcessStartError(
@@ -387,6 +436,7 @@ class ManagedProcessRunner:
                 input_document.close()
         assert stdout_capture is not None
         assert stderr_capture is not None
+        assert scope is not None
         return ManagedProcess(
             process,
             stdout_capture=stdout_capture,
@@ -395,39 +445,8 @@ class ManagedProcessRunner:
             stderr_path=stderr_path,
             capture_directory=capture_directory,
             options=self._options,
+            scope=scope,
         )
-
-
-def terminate_process_tree(process: subprocess.Popen[str]) -> None:
-    """Request hard termination of one process tree without waiting for reaping."""
-
-    if process.poll() is not None:
-        return
-    if os.name == "nt":
-        try:
-            result = subprocess.run(
-                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-                timeout=1.0,
-            )
-            if result.returncode == 0:
-                return
-        except (OSError, subprocess.TimeoutExpired):
-            pass
-        try:
-            process.kill()
-        except OSError:
-            pass
-        return
-    try:
-        os.killpg(process.pid, 9)
-    except OSError:
-        try:
-            process.kill()
-        except OSError:
-            pass
 
 
 def _path_size(path: Path) -> int:

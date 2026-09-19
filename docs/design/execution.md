@@ -10,6 +10,8 @@
 
 Job 终态为 succeeded、failed 或 cancelled，超时与输出上限作为失败原因。监视器观察输出大小并停止超限进程，采样之间可能有额外输出；有界 collect 不承诺所有超限字节都能进入模型。进程终止后关闭执行句柄，结果在当前 Turn 内保留，不占活任务额度。结果容量耗尽时拒绝新任务，不悄悄逐出仍承诺可读的结果。
 
+主进程的退出事实决定执行结果，其后代由同一受控执行单元回收。即使主进程自然成功，JobRegistry 也必须等待 ManagedProcess 关闭后代后才能确认执行已关闭、解除回答阻塞或释放条目；自然成功不会因这个必要收尾被改写成取消。平台进程容器属于 infra/process，execution 和 Job 不枚举或另存一份后代状态。
+
 有界 run 遇到 Action 取消或超时，在退出等待边界前停止并 join 所属 Job。Turn 收尾通过 Agent 的 activity 组合先清理共享 Jobs，再让 Workspace reconcile 并同步最终投影，随后才释放日级执行位置。跨午夜的活动 Turn 始终使用其原日 Workspace。日志句柄或临时文件的附属清理失败保留有界诊断；持续无法停止的受控进程由 Jobs bridge 保留必要运行转移，不能伪造成功或移除仍活动的条目。
 
 未知 Job、已关闭 stdin、无效参数与启动失败属于可修正的 Action 结果。Job 监督、Workspace/Home IO 或模块不变量失败经各自 owner bridge 转换；模型反馈不包含原始异常文本、绝对路径或 traceback。通用 answer guard 只阻止存在尚未关闭执行的 Job，未 collect 的终态结果本身不阻止回答。

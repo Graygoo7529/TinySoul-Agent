@@ -1,6 +1,7 @@
 """The Workspace owner preserves metadata and reports committed file effects."""
 
 from pathlib import Path
+import os
 
 import pytest
 
@@ -12,12 +13,14 @@ from tinysoul.plugins.workspace import (
     WorkspaceTextEdit,
     WorkspaceSearchScope,
     WorkspaceSearchScopeKind,
+    WorkspaceBundleWrite,
 )
 from tinysoul.plugins.workspace.errors import WorkspaceIOError, WorkspaceInvariantError
 from tinysoul.plugins.workspace.storage.manifest import (
     WorkspaceManifest,
     WorkspaceManifestStore,
 )
+from tinysoul.plugins.workspace.storage.reconcile import WorkspaceReconciler
 
 
 @pytest.mark.parametrize(
@@ -149,6 +152,143 @@ def test_index_failure_reports_committed_files_without_claiming_rollback(
         engine.write_text("workspace:a.md", "committed")
     assert raised.value.committed_links == ("workspace:a.md",)
     assert (tmp_path / "a.md").read_text(encoding="utf-8") == "committed"
+    assert "private" not in str(raised.value)
+
+
+@pytest.mark.parametrize("operation", ["move", "restore"])
+@pytest.mark.parametrize("failure_at", ["metadata", "move", "index"])
+def test_relocation_failure_preserves_metadata_across_owner_reopen(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+    failure_at: str,
+) -> None:
+    settings = WorkspaceSettings(root=tmp_path / "workspace")
+    engine = WorkspaceEngineBuilder(settings).build()
+    engine.mkdir("workspace:notes")
+    engine.write_text("workspace:notes/a.md", "kept")
+    engine.tag("workspace:notes", (WorkspaceTag.PINNED,))
+    engine.set_description("workspace:notes/a.md", "retained description")
+    trash = engine.trash_resource("workspace:notes") if operation == "restore" else None
+    destination = "workspace:notes" if trash else "workspace:moved"
+    source = (
+        settings.trash_root / trash.trash_id / "content"
+        if trash
+        else engine.root / "notes"
+    )
+
+    def fail(*args, **kwargs):
+        raise WorkspaceIOError("injected private failure")
+
+    replace = os.replace
+
+    def fail_move(src, dst):
+        if src == source:
+            raise OSError("injected move failure")
+        return replace(src, dst)
+
+    with monkeypatch.context() as patch:
+        if failure_at == "metadata":
+            patch.setattr(WorkspaceManifestStore, "save", fail)
+        elif failure_at == "move":
+            patch.setattr(os, "replace", fail_move)
+        else:
+            patch.setattr(WorkspaceReconciler, "reconcile", fail)
+        with pytest.raises(WorkspaceIOError) as raised:
+            if trash:
+                engine.restore_resource(trash.ref)
+            else:
+                engine.move("workspace:notes", destination)
+        expected = ()
+        if failure_at == "index":
+            expected = (destination,) if trash else ("workspace:notes", destination)
+        assert raised.value.committed_links == expected
+
+    reopened = WorkspaceEngineBuilder(settings).build()
+    assert reopened.reconcile().complete
+    if failure_at != "index" and trash:
+        assert reopened.trash_items() == (trash,)
+        reopened.restore_resource(trash.ref)
+    location = destination if failure_at == "index" else "workspace:notes"
+    assert reopened.inspect(location).tags == (WorkspaceTag.PINNED,)
+    assert reopened.inspect(location + "/a.md").description == "retained description"
+    assert reopened.read_text(location + "/a.md").text == "kept"
+    assert {record.link for record in reopened.snapshot().resources} == {
+        location,
+        location + "/a.md",
+    }
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows case-insensitive paths")
+@pytest.mark.parametrize("conflict", ["writes", "write_delete", "deletes"])
+def test_bundle_rejects_case_aliases_before_any_write(
+    tmp_path: Path,
+    conflict: str,
+) -> None:
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    if conflict != "writes":
+        engine.write_text("workspace:a.md", "original")
+    if conflict == "writes":
+        writes = (
+            WorkspaceBundleWrite("workspace:a.md", b"first"),
+            WorkspaceBundleWrite("workspace:A.md", b"second"),
+        )
+        deletes = ()
+    else:
+        target = "workspace:A.md" if conflict == "write_delete" else "workspace:b.md"
+        writes = (WorkspaceBundleWrite(target, b"changed", overwrite=True),)
+        deletes = (
+            ("workspace:a.md",) if conflict == "write_delete"
+            else ("workspace:a.md", "workspace:A.md")
+        )
+    before = engine.snapshot()
+    with pytest.raises(WorkspaceContractError):
+        engine.write_bundle(writes, delete_links=deletes)
+    assert engine.snapshot() == before
+    assert engine.trash_items() == ()
+    if conflict == "writes":
+        assert not (tmp_path / "a.md").exists()
+    else:
+        assert engine.read_text("workspace:a.md").text == "original"
+        assert not (tmp_path / "b.md").exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows case-insensitive paths")
+def test_overwrite_alias_returns_disk_identity_and_preserves_metadata(
+    tmp_path: Path,
+) -> None:
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    original = engine.write_text("workspace:a.md", "first")
+    engine.tag(original.link, (WorkspaceTag.PINNED,))
+    engine.set_description(original.link, "retained")
+    record = engine.write_text("workspace:A.md", "replacement", overwrite=True)
+    assert record.link == original.link
+    assert record.tags == (WorkspaceTag.PINNED,)
+    assert record.description == "retained"
+    assert engine.read_text(original.link).text == "replacement"
+
+
+def test_bundle_failure_preserves_inner_delete_commit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    engine.write_text("workspace:a.md", "recoverable")
+
+    def fail_save(self: WorkspaceManifestStore, manifest: WorkspaceManifest) -> None:
+        raise WorkspaceIOError("private index failure")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(WorkspaceManifestStore, "save", fail_save)
+        with pytest.raises(WorkspaceIOError) as raised:
+            engine.write_bundle(
+                (WorkspaceBundleWrite("workspace:b.md", b"created"),),
+                delete_links=("workspace:a.md",),
+            )
+    assert raised.value.committed_links == ("workspace:b.md", "workspace:a.md")
+    assert not (tmp_path / "a.md").exists()
+    assert engine.read_text("workspace:b.md").text == "created"
+    assert len(engine.trash_items()) == 1
     assert "private" not in str(raised.value)
 
 

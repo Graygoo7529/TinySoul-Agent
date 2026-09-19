@@ -64,25 +64,22 @@ class WorkspaceMutations:
             not isinstance(item, WorkspaceBundleWrite) for item in items
         ):
             raise WorkspaceContractError("Workspace bundle requires typed writes")
-        if len({item.link for item in items}) != len(items):
-            raise WorkspaceContractError("Workspace bundle targets must be unique")
         with self._lock:
             deletes = tuple(delete_links)
-            if len(set(deletes)) != len(deletes) or set(deletes) & {
-                item.link for item in items
-            }:
+            paths = tuple(self._discovery.path_for(item.link) for item in items)
+            delete_paths = tuple(self._discovery.path_for(link) for link in deletes)
+            targets = (*paths, *delete_paths)
+            if len(set(targets)) != len(targets):
                 raise WorkspaceContractError(
-                    "Workspace bundle delete targets must be unique and separate"
+                    "Workspace bundle targets must be unique and separate"
                 )
-            for link in deletes:
-                record = self._discovery.inspect_record(self._discovery.path_for(link))
+            for path in delete_paths:
+                record = self._discovery.inspect_record(path)
                 if record.kind is WorkspaceResourceKind.DIRECTORY:
                     raise WorkspaceContractError(
                         "Workspace bundle deletion accepts files only"
                     )
-            paths: list[Path] = []
-            for item in items:
-                path = self._discovery.path_for(item.link)
+            for item, path in zip(items, paths, strict=True):
                 if path.exists() and (not path.is_file() or not item.overwrite):
                     raise WorkspaceContractError(
                         "Workspace target already exists or is not a file"
@@ -93,11 +90,10 @@ class WorkspaceMutations:
                     raise WorkspaceContractError(
                         "Workspace target parent is not a directory"
                     )
-                paths.append(path)
             if any(
                 first in second.parents or second in first.parents
-                for index, first in enumerate(paths)
-                for second in paths[index + 1 :]
+                for index, first in enumerate(targets)
+                for second in targets[index + 1 :]
             ):
                 raise WorkspaceContractError(
                     "Workspace bundle targets cannot contain one another"
@@ -116,15 +112,17 @@ class WorkspaceMutations:
                     committed_links=tuple(committed),
                 ) from exc
             except WorkspaceError as exc:
+                nested = exc.committed_links if isinstance(exc, WorkspaceIOError) else ()
                 raise WorkspaceIOError(
                     "Workspace bundle could not finish its changes",
-                    committed_links=tuple(committed),
+                    committed_links=tuple(dict.fromkeys((*committed, *nested))),
                 ) from exc
             manifest = self._index_after(tuple(committed))
-            by_link = {record.link: record for record in manifest.resources}
-            return WorkspaceBundleResult(
-                manifest, tuple(by_link[item.link] for item in items)
-            )
+            by_path = {
+                self._settings.root.resolve() / record.relative_path: record
+                for record in manifest.resources
+            }
+            return WorkspaceBundleResult(manifest, tuple(by_path[path] for path in paths))
 
     def write_text(
         self, link: str, text: str, *, overwrite: bool = False
@@ -187,28 +185,24 @@ class WorkspaceMutations:
                     "Workspace move source or target is invalid"
                 )
             current = self._store.load()
+            root = self._settings.root.resolve()
+            source_relative = source.relative_to(root).as_posix()
+            target_relative = target.relative_to(root).as_posix()
+            link = "workspace:" + source_relative
+            target_link = "workspace:" + target_relative
             changed_metadata = tuple(
                 replace(
                     record,
                     link=target_link + record.link[len(link) :],
-                    relative_path=target.relative_to(
-                        self._settings.root.resolve()
-                    ).as_posix()
-                    + record.relative_path[
-                        len(
-                            source.relative_to(self._settings.root.resolve()).as_posix()
-                        ) :
-                    ],
+                    relative_path=target_relative
+                    + record.relative_path[len(source_relative) :],
                 )
                 for record in current.resources
                 if record.link == link or record.link.startswith(link + "/")
             )
-            try:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                os.replace(source, target)
-            except OSError as exc:
-                raise WorkspaceIOError("Workspace resource cannot be moved") from exc
-            manifest = self._index_after((link, target_link), metadata=changed_metadata)
+            manifest = self._relocate(
+                source, target, current, changed_metadata, (link, target_link)
+            )
             return next(
                 record for record in manifest.resources if record.link == target_link
             )
@@ -241,26 +235,49 @@ class WorkspaceMutations:
     def restore_resource(self, ref: str) -> WorkspaceResourceRecord:
         with self._lock:
             item = self._trash.load(ref)
-            if item.day != self._store.load().day:
+            current = self._store.load()
+            if item.day != current.day:
                 raise WorkspaceContractError("Workspace Trash belongs to another day")
             target = self._discovery.path_for(item.original.link)
             if target.exists():
                 raise WorkspaceContractError("Workspace restore target already exists")
-            try:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                os.replace(self._trash.content_path(item), target)
-            except OSError as exc:
-                raise WorkspaceIOError(
-                    "Workspace Trash resource cannot be restored"
-                ) from exc
-            manifest = self._index_after(
-                (item.original.link,), metadata=(item.original, *item.descendants)
+            manifest = self._relocate(
+                self._trash.content_path(item),
+                target,
+                current,
+                (item.original, *item.descendants),
+                (item.original.link,),
             )
             return next(
                 record
                 for record in manifest.resources
                 if record.link == item.original.link
             )
+
+    def _relocate(
+        self,
+        source: Path,
+        target: Path,
+        current: WorkspaceManifest,
+        metadata: tuple[WorkspaceResourceRecord, ...],
+        committed: tuple[str, ...],
+    ) -> WorkspaceManifest:
+        # Persist destination metadata before moving content. The ordinary disk
+        # scan then retains whichever location exists, even after a fresh open.
+        records = {record.link: record for record in current.resources}
+        records.update((record.link, record) for record in metadata)
+        self._store.save(
+            replace(
+                current,
+                resources=tuple(sorted(records.values(), key=lambda item: item.link)),
+            )
+        )
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(source, target)
+        except OSError as exc:
+            raise WorkspaceIOError("Workspace resource cannot be moved") from exc
+        return self._index_after(committed)
 
     def _metadata(
         self,
@@ -320,11 +337,9 @@ class WorkspaceMutations:
     def _index_after(
         self,
         committed: tuple[str, ...],
-        *,
-        metadata: tuple[WorkspaceResourceRecord, ...] = (),
     ) -> WorkspaceManifest:
         try:
-            result = self._discovery.reconcile(metadata=metadata)
+            result = self._discovery.reconcile()
             if not result.complete:
                 raise WorkspaceIOError("Workspace index discovery was incomplete")
             return result.manifest

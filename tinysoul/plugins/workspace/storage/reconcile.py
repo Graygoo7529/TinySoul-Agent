@@ -176,17 +176,14 @@ class WorkspaceReconciler:
             tags=previous.tags if previous else (),
         )
 
-    def reconcile(
-        self, *, metadata: tuple[WorkspaceResourceRecord, ...] = ()
-    ) -> WorkspaceReconcileResult:
+    def reconcile(self) -> WorkspaceReconcileResult:
         try:
             self._settings.root.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             raise WorkspaceIOError("Workspace root cannot be prepared") from exc
         current = self._store.load()
-        previous = {record.link: record for record in current.resources}
-        # Move/restore metadata belongs to the same manifest commit as discovery.
-        previous.update((record.link, record) for record in metadata)
+        root = self._settings.root.resolve()
+        previous = {root / record.relative_path: record for record in current.resources}
         resources: list[WorkspaceResourceRecord] = []
         skipped: list[WorkspaceDiscoverySkip] = []
         limit_reached = False
@@ -196,7 +193,6 @@ class WorkspaceReconciler:
                 WorkspaceDiscoverySkip(WorkspaceDiscoverySkipKind.IO_ERROR, "directory")
             )
 
-        root = self._settings.root.resolve()
         for directory, names, filenames in os.walk(
             root, onerror=walk_error, followlinks=False
         ):
@@ -226,8 +222,7 @@ class WorkspaceReconciler:
                     limit_reached = True
                     break
                 try:
-                    link = str(WorkspaceLink.from_relative_path(relative))
-                    resources.append(self.inspect_record(path, previous.get(link)))
+                    resources.append(self.inspect_record(path, previous.get(path)))
                 except WorkspaceContractError:
                     skipped.append(
                         WorkspaceDiscoverySkip(

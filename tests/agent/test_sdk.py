@@ -760,8 +760,12 @@ async def test_execution_is_stopped_before_queued_next_day_work_can_archive(
         await workspace.write_text(
             "workspace:long.py",
             (
-                "from pathlib import Path\nimport sys\n"
-                "Path('old-day.txt').write_text('preserved', encoding='utf-8')\n"
+                "import subprocess,sys\n"
+                "subprocess.Popen([sys.executable, '-c', "
+                "\"import threading; from pathlib import Path; "
+                "f = Path('old-day.txt').open('w', encoding='utf-8'); "
+                "f.write('preserved'); f.flush(); threading.Event().wait(15)\"], "
+                "stdin=subprocess.DEVNULL)\n"
                 "sys.stdin.read()\n"
             ),
         )
