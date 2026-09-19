@@ -32,7 +32,7 @@ def test_parse_agent_settings_rejects_empty_commands() -> None:
         parse_agent_settings({"exit_commands": []})
 
 
-def test_parse_agent_settings_rejects_maintenance_schedule() -> None:
+def test_parse_agent_settings_rejects_reflection_schedule() -> None:
     with pytest.raises(ConfigError, match="Unknown configuration key"):
         parse_agent_settings({"scheduler": {"enabled": False}})
 

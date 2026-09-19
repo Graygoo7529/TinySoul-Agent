@@ -239,7 +239,9 @@ conda activate TinySoul
 
 ## 当前任务
 
-当前任务是按 `docs/analysis/20260915-agent-architecture-refactor-plan.md` 分阶段落实分层 Agent 架构重构；R1 与 R2 收口已完成，原 R2 实施批次保留历史归档记录，2026-09-16 复审缺口已由 `docs/analysis/done/20260916-done-Agent重构R2收口子计划.md` 关闭（2026-09-17 Full/typecheck 通过，C1/C2/C3 已落实，C4 保留后续评估）。主计划 S1、S2 已完成，S3–S7 保留后续范围：以 `Agent` 门面统一输入、输出与状态；以 asyncio 事件总线与 `EnvironmentEvent` 协议把 Agent 置于环境之中；以段协议把 Context 语境段的内容与维护反转给外围插件，内核只知槽位、形状与 ref scheme；以 Job 框架统一后台进程与后续 ACP 外部 sub-agent，内部嵌套 Turn 留待实际需求扩展；包布局已按 `infra → runtime/llm → kernel → plugins/environment → agent → gateway` 重排。该主执行计划及其已确认子计划在重构期间是设计来源，不向后兼容，不保留兼容层、重复状态或跨模块捷径。重构的长期目标不变：构造功能强、可用性高、具有智能性的泛用智能体，并通过记忆和 Home 维护构造持续长期稳定运行的个性化助手。
+当前任务是按 `docs/analysis/20260915-agent-architecture-refactor-plan.md` 分阶段落实分层 Agent 架构重构；R1 与 R2 收口已完成，原 R2 实施批次保留历史归档记录，2026-09-16 复审缺口已由 `docs/analysis/done/20260916-done-Agent重构R2收口子计划.md` 关闭（2026-09-17 Full/typecheck 通过，C1/C2/C3 已落实，C4 保留后续评估）。主计划 S1、S2 已完成；R3 已完成领域重构，S3 的 organize/模型推导注释与 S4–S7 保留后续范围。后续仍围绕以下目标推进：以 `Agent` 门面统一输入、输出与状态；以 asyncio 事件总线与 `EnvironmentEvent` 协议把 Agent 置于环境之中；以段协议把 Context 语境段的内容与维护反转给外围插件，内核只知槽位、形状与 ref scheme；以 Job 框架统一后台进程与后续 ACP 外部 sub-agent，内部嵌套 Turn 留待实际需求扩展；包布局已按 `infra → runtime/llm → kernel → plugins/environment → agent → gateway` 重排。该主执行计划及其已确认子计划在重构期间是设计来源，不向后兼容，不保留兼容层、重复状态或跨模块捷径。重构的长期目标不变：构造功能强、可用性高、具有智能性的泛用智能体，并通过记忆和 Home 维护构造持续长期稳定运行的个性化助手。
+
+R3 的实现、失败归属、内部组织和部署边界已逐项核对，见 `docs/analysis/done/20260917-done-Agent重构第三轮子计划-领域语义与能力组织.md`。2026-09-19 Full 1066 passed、23 deselected，typecheck 通过，含生成/wheel 和 worker 启动；真实 provider/network 未运行。配置、动作和存储格式不提供旧别名或隐式迁移，没有 reset 实际部署数据。
 
 过渡期文档约定：本文件"核心定义""项目规约""代码风格""运行环境与验证"中的模块名（`app`、`loop`、`context`、`action`、`endpoint` 等）、按 owner 名固定的 MessageStack 顺序、Context 由 `context` 模块直接拥有四类语义段、`tests/<module>/` 布局等表述描述的是重构前的实现事实；与执行计划冲突处以执行计划为准，并在计划 S7 阶段整体重写本文件。已被执行计划明确替代的条款：
 
@@ -249,13 +251,13 @@ conda activate TinySoul
 - Job 可跨 Cycle，不跨所属 Turn；Turn 结束时回收。受限 `SUSPEND` 表达预算暂停，模型不见 Cycle 余额，用户决定补充或中断；`core.ask` 可暂停等待回复。
 - TurnInbox 在暂停期间持续接收；有界内存保存关键元数据，大输出由 owner 落盘，已接受关键事件在存活进程中不静默丢弃；不承诺崩溃续跑 Turn。
 - 所有模块 bridge 随其 owner 放置，包括 kernel 与 llm；runtime 不 import 上层业务模块。Trap 原因由 owner 声明，通用构造帮助由 runtime 公开。
-- `BusinessDay` → `CalendarDay`；Maintenance → Reflection。通用 action domains 保持可用，再附加 `home_reflection` 或 `memory_reflection` 精简专属域；模型自主少量多步。User Turn 仍不写持久 Memory、不提交 actual Home。
+- `BusinessDay` → `CalendarDay`；Maintenance → Reflection。情景保持 `user`、`home_reflection`、`memory_reflection`；专属动作归回 `home.diff/review` 与 `memory.write_daily/write`，通用 Memory 动作为 `memory.memorize/inspect/recall`。domain/action TOML 的 visibility 统一表达情景选择，不能授予服务权限。模型自主少量多步，User Turn 仍不写持久 Memory、不提交 actual Home。
 - Reflection 是同一 Agent 的专门执行情景，由 TurnProfile 承载 domain/action 策略与受约束服务；每日策略或用户明确允许本次整理后，安排独立 Reflection Turn。普通对话不挂载 Reflection 专属能力，单次授权不形成持续许可。SDK 服务绑定世代，日级服务同时绑定 CalendarDay；切换后旧对象失效，由调用者重新获取。
 - ACP 先显式建立连接再委派 Job，连接由插件 Working State 段呈现；允许简单跨 Turn 复用空闲连接，若需要复杂迁移/恢复则 Turn 收尾关闭。Job 仍不跨 Turn，具体 adapter 与释放条件按计划核验。
 - 干净性以架构语义、依赖与内聚为主。取消复用执行生命周期：短 owner 操作完成后退出边界，长执行使用受控进程；不增加线程隔离及自动恢复的平行机制。
-- `session` 段为 Map 形状，承载对话事实、基于事实的发展关系和有来源的模型推导线索；事实与推导性质明确区分，不维护平行线性 Summary。追溯动作为单一 `core.context.inspect`。
+- `session` 段为 Map 形状，不维护平行线性 Summary。R3 自动地图只承载对话/行动事实和确定性关系，来源为唯一的不可变完成记录；有来源的模型推导线索及主动 organize 保留后续设计，不能声称当前已实现。追溯动作为单一 `core.context.inspect`。
 - 当前子智能体以 ACP 外部 agent 为主，不建设内部子额度协调；未来 TinySoul 子 Turn 使用独立配额，由调用 agent 决定。用户根 Turn 的预算暂停及用户补额语义不变。
-- Workspace 取消 digest/revision CAS、提交前复验与压力 trash，侧重 list/search/read/write/edit。
+- Workspace 取消 digest/revision CAS、提交前复验与压力 trash；提供文件/目录操作、说明和 pinned/tmp/library 标签，标签不改变日生命周期。execution 直接操作真实当日 Workspace，取消不回滚文件；plugins/execution、kernel/jobs、infra/process 分别拥有能力、监督和受控进程，必要收尾与附属清理诊断明确分开。
 
 运行环境假设：后端运行于一台 24h 开启的独立主机，前端连接主机；支持后端运行的主机具有硬隔离性，因此不需要考虑太多的安全性问题。
 

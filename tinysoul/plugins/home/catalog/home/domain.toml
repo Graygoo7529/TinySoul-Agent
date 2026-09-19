@@ -1,8 +1,0 @@
-name = "home"
-description = "Agent Home identity, knowledge, and skill resource actions."
-selection_hint = "Use to discover top knowledge, read progressive resources, or edit the active Agent Home overlay."
-
-[runtime]
-enabled = true
-timeout_seconds = 30
-parallel_policy = "serial"

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
 
 from tinysoul.kernel.action import (
     ActionEngineBuilder,
@@ -21,14 +20,15 @@ from tinysoul.infra import (
     StagingDirectoryManager,
     StagingError,
 )
-from tinysoul.runtime import RuntimeException, SignalBus
+from tinysoul.runtime import SignalBus
 from tinysoul.plugins.workspace import (
     WorkspaceError,
-    WorkspaceTrashRestoreRequired,
+    WorkspaceContractError,
     workspace_snapshot_signal,
 )
 
 from tinysoul.plugins.workspace.services import WorkspaceService
+from tinysoul.plugins.workspace.runtime_bridge import RuntimeWorkspaceBridge
 from .config import ResourceSettings
 from .dependencies import require_resource_dependencies
 from .errors import (
@@ -39,7 +39,6 @@ from .errors import (
 )
 from .models import ResourceConversionResult, ResourceConverter
 from .service import ResourceConversionService
-
 
 RESOURCE_MARKITDOWN_ACTION = "workspace.convert_with_markitdown"
 RESOURCE_PYPDF_ACTION = "workspace.convert_with_pypdf"
@@ -52,13 +51,6 @@ class _ConversionParams:
     source_link: str
     target_link: str
     overwrite: bool
-    expected_source_digest: str
-    expected_target_digest: str
-
-
-class ResourceActionRuntimeBridge(Protocol):
-    def trash_restore_required(self, *, link: str, trash_ref: str) -> RuntimeException:
-        ...
 
 
 class ResourceConversionExecutor(ActionExecutor):
@@ -70,7 +62,7 @@ class ResourceConversionExecutor(ActionExecutor):
         converter: ResourceConverter,
         service: ResourceConversionService,
         bus: SignalBus,
-        runtime_bridge: ResourceActionRuntimeBridge | None = None,
+        runtime_bridge: RuntimeWorkspaceBridge | None = None,
     ) -> None:
         self._converter = converter
         self._service = service
@@ -91,19 +83,9 @@ class ResourceConversionExecutor(ActionExecutor):
                 source_link=params.source_link,
                 target_link=params.target_link,
                 overwrite=params.overwrite,
-                expected_source_digest=params.expected_source_digest,
-                expected_target_digest=params.expected_target_digest,
-                owner_turn_id=execution.framework.turn_id,
                 control=context.control,
                 operations=context.owner_operations,
             )
-        except WorkspaceTrashRestoreRequired as exc:
-            if self._runtime_bridge is None:
-                raise
-            raise self._runtime_bridge.trash_restore_required(
-                link=exc.link,
-                trash_ref=exc.trash_ref,
-            ) from exc
         except ResourceProcessTimeout as exc:
             return ActionResult.timeout(
                 call_id=execution.call.call_id,
@@ -141,13 +123,15 @@ class ResourceConversionExecutor(ActionExecutor):
                 reason="staging_failed",
                 disposition=ActionFailureDisposition.STOP,
             )
-        except (ResourceContractError, WorkspaceError) as exc:
+        except (ResourceContractError, WorkspaceContractError) as exc:
             return _failed(
                 execution,
                 "Resource conversion could not be completed.",
                 reason="resource_conversion_failed",
                 frame_data={"error_type": type(exc).__name__},
             )
+        except WorkspaceError as exc:
+            raise RuntimeWorkspaceBridge().from_workspace_error(exc) from exc
         signal_bus = context.signal_bus or self._bus
         signal_bus.emit(
             workspace_snapshot_signal(
@@ -167,7 +151,7 @@ def register_resource_actions(
     workspace: WorkspaceService,
     bus: SignalBus,
     staging: StagingDirectoryManager,
-    runtime_bridge: ResourceActionRuntimeBridge | None = None,
+    runtime_bridge: RuntimeWorkspaceBridge | None = None,
     dependency_checker: DependencyChecker | None = None,
 ) -> ActionEngineBuilder:
     """Register enabled Resource executors and declare runtime support."""
@@ -188,23 +172,25 @@ def register_resource_actions(
     )
     if markitdown:
         builder.register_executor(
-            _RESOURCE_MARKITDOWN_HANDLER,
+            RESOURCE_MARKITDOWN_ACTION,
             ResourceConversionExecutor(
                 converter=ResourceConverter.MARKITDOWN,
                 service=service,
                 bus=bus,
                 runtime_bridge=runtime_bridge,
             ),
+            handler=_RESOURCE_MARKITDOWN_HANDLER,
         )
     if pypdf:
         builder.register_executor(
-            _RESOURCE_PYPDF_HANDLER,
+            RESOURCE_PYPDF_ACTION,
             ResourceConversionExecutor(
                 converter=ResourceConverter.PYPDF,
                 service=service,
                 bus=bus,
                 runtime_bridge=runtime_bridge,
             ),
+            handler=_RESOURCE_PYPDF_HANDLER,
         )
     return builder
 
@@ -231,26 +217,10 @@ def _params(execution: ActionExecution) -> _ConversionParams | ActionResult:
             "Resource conversion overwrite must be boolean.",
             reason="invalid_overwrite",
         )
-    expected_source_digest = execution.call.params.get("expected_source_digest", "")
-    if not isinstance(expected_source_digest, str):
-        return _failed(
-            execution,
-            "Resource conversion expected_source_digest must be a string.",
-            reason="invalid_expected_source_digest",
-        )
-    expected_target_digest = execution.call.params.get("expected_target_digest", "")
-    if not isinstance(expected_target_digest, str):
-        return _failed(
-            execution,
-            "Resource conversion expected_target_digest must be a string.",
-            reason="invalid_expected_target_digest",
-        )
     return _ConversionParams(
         source_link=source_link,
         target_link=target_link,
         overwrite=overwrite,
-        expected_source_digest=expected_source_digest,
-        expected_target_digest=expected_target_digest,
     )
 
 

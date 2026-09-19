@@ -1,0 +1,29 @@
+name = "execution.start"
+domain = "execution"
+[tool]
+description = "Start a script or shell command as a Turn-owned Job for later supervision."
+[tool.schema]
+type = "object"
+required = ["interpreter"]
+additionalProperties = false
+[tool.schema.properties.interpreter]
+type = "string"
+[tool.schema.properties.command]
+type = "string"
+[tool.schema.properties.source_link]
+type = "string"
+[tool.schema.properties.args]
+type = "array"
+items = { type = "string" }
+[tool.schema.properties.cwd_link]
+type = "string"
+[tool.schema.properties.interactive]
+type = "boolean"
+[semantic]
+use_when = ["A process must be supervised across Cycles"]
+effects = ["modifying"]
+[runtime]
+parallel_policy = "serial"
+[backend]
+kind = "native"
+handler = "execution.start"

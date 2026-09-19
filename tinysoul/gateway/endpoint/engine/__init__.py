@@ -13,7 +13,7 @@ from .contracts import (
     EndpointServices,
 )
 from .events import EndpointEventsEngine
-from .maintenance import EndpointReflectionEngine
+from .reflection import EndpointReflectionEngine
 from .runtime import EndpointControlKind, EndpointRuntimeEngine
 from .workspace import EndpointResourceBlob, EndpointWorkspaceEngine
 
@@ -39,7 +39,7 @@ class EndpointEngine:
         )
         self._settings = settings
         self.runtime = EndpointRuntimeEngine(context)
-        self.maintenance = EndpointReflectionEngine(context)
+        self.reflection = EndpointReflectionEngine(context)
         self.events = EndpointEventsEngine(context)
         self.configuration = EndpointConfigurationEngine(context)
         self.workspace = EndpointWorkspaceEngine(context)

@@ -9,22 +9,22 @@ import json
 from typing import Protocol
 
 from tinysoul.infra.json import JsonObject
-from tinysoul.llm.adapter_types import ProviderApiStyle
-from tinysoul.llm.message_rendering import (
+from tinysoul.llm.protocol.adapter_types import ProviderApiStyle
+from tinysoul.llm.execution.message_rendering import (
     MessageContentRenderer,
     RenderedContentPart,
     RenderedImage,
     RenderedImageUrl,
     RenderedText,
 )
-from tinysoul.llm.messages import (
+from tinysoul.llm.protocol.messages import (
     AssistantMessage,
     Message,
     SystemMessage,
     ToolResultMessage,
     UserMessage,
 )
-from tinysoul.llm.tools import (
+from tinysoul.llm.protocol.tools import (
     ToolCallIdMapper,
     ToolCallRecord,
     ToolResultStatus,
@@ -44,33 +44,28 @@ class OpenAIAdapterBehaviorProtocol(Protocol):
         tool: ToolSpec,
         *,
         api_style: ProviderApiStyle,
-    ) -> dict[str, object]:
-        ...
+    ) -> dict[str, object]: ...
 
     def tool_choice_payload(
         self,
         request: ProviderRequest,
         *,
         api_style: ProviderApiStyle,
-    ) -> object | None:
-        ...
+    ) -> object | None: ...
 
-    def include_chat_tool_result_name(self) -> bool:
-        ...
+    def include_chat_tool_result_name(self) -> bool: ...
 
     def chat_input_reasoning(
         self,
         message: Message,
         options: Mapping[str, object] | None,
-    ) -> str | None:
-        ...
+    ) -> str | None: ...
 
     def responses_input_reasoning(
         self,
         message: Message,
         options: Mapping[str, object] | None,
-    ) -> tuple[JsonObject, ...]:
-        ...
+    ) -> tuple[JsonObject, ...]: ...
 
 
 def to_responses_input(

@@ -4,12 +4,17 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from tinysoul.llm.config import ProviderSpec
-from tinysoul.llm.adapter_types import AdapterKind, ProviderApiStyle
-from tinysoul.llm.messages import AssistantMessage, Message
-from tinysoul.llm.reasoning import Reasoning, ReasoningKeep
+from tinysoul.llm.config.loader import ProviderSpec
+from tinysoul.llm.protocol.adapter_types import AdapterKind, ProviderApiStyle
+from tinysoul.llm.protocol.messages import AssistantMessage, Message
+from tinysoul.llm.protocol.reasoning import Reasoning, ReasoningKeep
 
-from .base import ProviderError, ProviderErrorKind, ProviderFailureScope, ProviderRequest
+from .base import (
+    ProviderError,
+    ProviderErrorKind,
+    ProviderFailureScope,
+    ProviderRequest,
+)
 from .openai_sdk import (
     OpenAIAdapterBehavior,
     OpenAIChatCompletionsClient,
@@ -47,7 +52,10 @@ class MiniMaxProviderBehavior(OpenAIAdapterBehavior):
         message: Message,
         options: Mapping[str, object] | None,
     ) -> str | None:
-        if adapter_reasoning_keep(options, adapter="MiniMax") is not ReasoningKeep.CONTENT:
+        if (
+            adapter_reasoning_keep(options, adapter="MiniMax")
+            is not ReasoningKeep.CONTENT
+        ):
             return None
         if not isinstance(message, AssistantMessage) or message.reasoning is None:
             return None

@@ -1,0 +1,171 @@
+[[surface]]
+id = "execution"
+title = "Execution"
+description = "Interpreter availability and bounded process execution."
+
+[[surface]]
+id = "jobs"
+title = "Jobs"
+description = "Shared capacity for Turn-owned background work."
+
+[[field_group]]
+id = "execution.adapters"
+surface = "execution"
+title = "Interpreters"
+description = "Explicitly enabled host executables; action visibility is configured separately."
+
+[[field_group]]
+id = "execution.limits"
+surface = "execution"
+title = "Limits"
+description = "Runtime, source, argument and output boundaries."
+
+[[field_group]]
+id = "jobs.capacity"
+surface = "jobs"
+title = "Capacity"
+description = "Live execution and retained result capacity."
+
+[[field]]
+path = "execution.enabled"
+surface = "execution"
+group = "execution.adapters"
+title = "Enabled"
+description = "Enabled."
+value_kind = "boolean"
+
+[[field]]
+path = "execution.interpreters.python.enabled"
+surface = "execution"
+group = "execution.adapters"
+title = "python enabled"
+description = "python enabled."
+value_kind = "boolean"
+
+[[field]]
+path = "execution.interpreters.python.executable"
+surface = "execution"
+group = "execution.adapters"
+title = "python executable"
+description = "python executable."
+value_kind = "string"
+
+[[field]]
+path = "execution.interpreters.bash.enabled"
+surface = "execution"
+group = "execution.adapters"
+title = "bash enabled"
+description = "bash enabled."
+value_kind = "boolean"
+
+[[field]]
+path = "execution.interpreters.bash.executable"
+surface = "execution"
+group = "execution.adapters"
+title = "bash executable"
+description = "bash executable."
+value_kind = "string"
+
+[[field]]
+path = "execution.interpreters.powershell.enabled"
+surface = "execution"
+group = "execution.adapters"
+title = "powershell enabled"
+description = "powershell enabled."
+value_kind = "boolean"
+
+[[field]]
+path = "execution.interpreters.powershell.executable"
+surface = "execution"
+group = "execution.adapters"
+title = "powershell executable"
+description = "powershell executable."
+value_kind = "string"
+
+[[field]]
+path = "execution.interpreters.cmd.enabled"
+surface = "execution"
+group = "execution.adapters"
+title = "cmd enabled"
+description = "cmd enabled."
+value_kind = "boolean"
+
+[[field]]
+path = "execution.interpreters.cmd.executable"
+surface = "execution"
+group = "execution.adapters"
+title = "cmd executable"
+description = "cmd executable."
+value_kind = "string"
+
+[[field]]
+path = "execution.max_runtime_seconds"
+surface = "execution"
+group = "execution.limits"
+title = "max runtime seconds"
+description = "max runtime seconds."
+value_kind = "integer"
+
+[[field]]
+path = "execution.max_output_bytes"
+surface = "execution"
+group = "execution.limits"
+title = "max output bytes"
+description = "max output bytes."
+value_kind = "integer"
+
+[[field]]
+path = "execution.max_collect_chars"
+surface = "execution"
+group = "execution.limits"
+title = "max collect chars"
+description = "max collect chars."
+value_kind = "integer"
+
+[[field]]
+path = "execution.max_source_chars"
+surface = "execution"
+group = "execution.limits"
+title = "max source chars"
+description = "max source chars."
+value_kind = "integer"
+
+[[field]]
+path = "execution.max_command_chars"
+surface = "execution"
+group = "execution.limits"
+title = "max command chars"
+description = "max command chars."
+value_kind = "integer"
+
+[[field]]
+path = "execution.max_args"
+surface = "execution"
+group = "execution.limits"
+title = "max args"
+description = "max args."
+value_kind = "integer"
+
+[[field]]
+path = "execution.max_arg_chars"
+surface = "execution"
+group = "execution.limits"
+title = "max arg chars"
+description = "max arg chars."
+value_kind = "integer"
+
+[[field]]
+path = "jobs.retained_capacity"
+surface = "jobs"
+group = "jobs.capacity"
+title = "Retained results"
+description = "Retained results."
+value_kind = "integer"
+
+[[field]]
+path = "jobs.per_turn_live_capacity"
+surface = "jobs"
+group = "jobs.capacity"
+title = "Live Jobs per Turn"
+description = "Live Jobs per Turn."
+value_kind = "integer"

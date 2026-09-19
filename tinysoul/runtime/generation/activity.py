@@ -8,7 +8,7 @@ from enum import StrEnum
 class RuntimeActivity(StrEnum):
     IDLE = "idle"
     USER_TURN = "user_turn"
-    MAINTENANCE_TURN = "maintenance_turn"
+    REFLECTION_TURN = "reflection_turn"
     DAILY_TRANSITION = "daily_transition"
     CONFIG_ACTIVATION = "config_activation"
 
@@ -17,4 +17,3 @@ class RuntimeActivationState(StrEnum):
     ACTIVE = "active"
     PREPARING = "preparing"
     FAILED = "failed"
-

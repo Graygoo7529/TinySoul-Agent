@@ -52,7 +52,7 @@ home:skills_action:<domain>/<action>
 `home:skills_domain:<domain>` 与 `home:skills_action:<domain>/<action>` 表示框架局部自动 prompt mount，只进入对应 Phase/task prompt，不进入 BackgroundContext，也不作为 `home.resource.read` 的渐进式资源。例如：
 
 - `home:skills_domain:workspace`
-- `home:skills_action:workspace/rewrite`
+- `home:skills_action:workspace/compose`
 链接规则:
 
 - 顶层 `space` 只能是 `agent` 和 `skills`；`skills_domain` 与 `skills_action` 只用于自动 prompt mount 链接；
@@ -130,7 +130,7 @@ home/
 
 core 作为简洁的身份、行为规约和前向 Top Link 索引；`agent/context/*` 分别说明 Background、TurnTrace、Working 与 Workspace 的稳定可见性、Link 去向和状态优先级；user 保存稳定用户事实；`tinysoul-docs` 是通用 skill，其详细使用说明是通过 `home.resource.read` 进入 TurnTrace 的真实 progressive reference。Context Agent Top 不复制 domain/action skill：它们不指导具体 action 选择或失败恢复。core 不静态宣称 Shell、Script、文档转换等具体能力是否可用；进入 Action Catalog 的能力可以拥有局部 domain/action skill，而实际启用状态仍由 capability 配置与 Action 装配决定。模板不声明 Backlink、Memory 片段检索等尚未实现的能力。默认内容的集成测试从 package template 初始化临时项目，不把仓库实际 `home/` 当成测试夹具。
 
-默认 Home 的唯一源码位置是 `tinysoul/assets/project/home/`，并由 standard/development 两种初始化共享；仓库根不保留第二份 Home，config profile 也不得包含 Home 副本。新增或调整通用使用说明、domain/action 行为约束时，应在这里同步维护对应 AGENT/skills 文档，并继续遵守本设计的 Link、frontmatter、prompt mount 与渐进资源规则。Action Catalog 增删 domain/action 时必须审查共享默认 Home 中相关 skill 是否仍然真实；缺少可选 guidance 合法，但不得留下宣称不存在 action 的陈旧内容。
+默认 Home 的唯一源码位置是 `tinysoul/assets/common/home/`，由 standard/development 初始化共享。新增或调整通用说明、domain/action 行为约束时，在对应 AGENT/skills 文档维护，并遵守 Link、frontmatter、prompt mount 与渐进资源规则。Action Catalog 增删身份时同步审查 Skill；缺少可选 guidance 合法，不保留宣称不存在动作的内容。
 
 package template 与已初始化项目之间没有双向同步。项目运行中的 runtime Home 和 Home Reflection 只更新该项目的 actual `home/`；它们既不会写回 assets，也不能成为默认内容的事实源。反之，wheel 升级后的模板变化也不会覆盖已有项目。默认 Home 变更由 initializer/Context/Home 集成测试和 clean-source wheel 资源完整性检查保护；测试关注目录结构、Link 引用、装载关系和初始化可用性，不固定可编辑文案或手写资源清单。
 
@@ -188,7 +188,7 @@ Loop 只依赖 `DomainSkillProvider` 协议，不读取 skill 文件。Agent Hom
 
 Action 内部 LLM task 只依赖 `ActionSkillProvider` 协议，不读取 Home 文件。Agent Home 提供 `HomeActionSkillProvider`，接收 `domain` 与 `action_name`，分别映射为 `home:skills_domain:<domain>` 与 `home:skills_action:<domain>/<action>`。这两类内容只注入 Phase3 action 内部嵌套 LLM task，用于延续 domain 约束，并约束具体 action 的文本风格、生成策略或领域动作细节。
 
-运行规约按稳定职责分层维护。`home:agent@AGENT` 只承载跨能力通用原则，例如每个 Cycle 应推进用户目标、先探索验证再规划执行并检查迭代、结构化失败必须按 scope/disposition 有界恢复、权威 mutation/apply 结果与必要验证的边界、Phase1 即时对账 WorkingContext，以及在交付成果或需要用户输入时及时执行唯一 `core.answer`。提问、确认请求、申请进一步指示或请求用户从可行路线中选择，都可以构成当前 User Turn 的有效 answer；这不宣告整体多轮目标已经完成，也不要求 WorkingContext todos 全部完成。WorkingContext milestone 是少量已验证事实或 checkpoint 的寄存器，不是 todo 镜像或完成徽章；应记录后续 Cycle 必须保留的值、决定、来源 Link、版本/digest 和局部成果，并仅在事实变化时更新。`retry_same` 是否可以重复由 failure disposition 和当前事实决定，不以相同参数作为运行时错误；所谓 fallback 必须改变真实 backend、输出协议或限制条件，不能只换 action 名称/domain。domain skill 只解释同一 action domain 内的选择、恢复和收束方式，例如 Workspace 工件失败、Web failure disposition 或 Shell apply/discard。action skill 只约束一个带内部 LLM task 的具体 action，例如 `workspace.create/rewrite` 对完整文本工件、截断输入、证据、结构保留和用户可见引用的要求。具体 capability/action 规则不得反向堆入 core，通用原则也不应在每个 action skill 中重复维护。
+运行规约按稳定职责分层维护。`home:agent@AGENT` 只承载跨能力通用原则，例如每个 Cycle 应推进用户目标、先探索验证再规划执行并检查迭代、结构化失败必须按 scope/disposition 有界恢复、权威 mutation 结果与必要验证的边界、Phase1 即时对账 WorkingContext，以及在交付成果或需要用户输入时及时执行唯一 `core.answer`。提问、确认请求、申请进一步指示或请求用户从可行路线中选择，都可以构成当前 User Turn 的有效 answer；这不宣告整体多轮目标已经完成，也不要求 WorkingContext todos 全部完成。WorkingContext milestone 是少量已验证事实或 checkpoint 的寄存器，不是 todo 镜像或完成徽章；应记录后续 Cycle 必须保留的值、决定、来源 Link、版本/digest 和局部成果，并仅在事实变化时更新。`retry_same` 是否可以重复由 failure disposition 和当前事实决定，不以相同参数作为运行时错误；所谓 fallback 必须改变真实 backend、输出协议或限制条件，不能只换 action 名称/domain。domain skill 只解释同一 action domain 内的选择、恢复和收束方式，例如 Workspace 工件失败、Web failure disposition 或 execution 的监督与结果收集。action skill 只约束一个带内部 LLM task 的具体 action，例如 `workspace.compose` 对完整文本工件、截断输入、证据、结构保留和用户可见引用的要求。具体 capability/action 规则不得反向堆入 core，通用原则也不应在每个 action skill 中重复维护。
 
 默认 Agent 人格与表达同样按职责分层：`agent/identity/identity.md` 描述名称、Nature、Vibe 和 Expression 等稳定身份特征；`agent/identity/soul.md` 描述主动协作、独立判断、创造性探索及事实边界；`home:agent@AGENT` 决定跨能力行动和人机交接原则；`home:skills_action:core/answer` 只约束 `core.answer` 内部 LLM task 的用户可见表达。方括号意图提示是可按对话语言选择的开放风格，不是固定枚举或输出协议，也不得污染代码、引文、生成工件、结构化输出或用户明确要求的格式。
 
@@ -224,7 +224,7 @@ prompt mount create/delete action。文件存在但编码损坏、不可读或�
 
 `home.top.search` 只检索通用 skill，不检索默认注入的 `agent` core，也不检索局部自动挂载的 `skills_domain`/`skills_action` 或任何 MEMORY。Engine 先按统一 effective view 解析每个 Home 顶层 Link：未物化 actual 条目直接有界读取 actual prefix，runtime-only 或 modified 条目读取现有 runtime 文件，tombstone 不进入目录。这个过程不创建 runtime copy、overlay record 或 Background entry。
 
-Home-owned `search.py` 从有界 effective skill 文档构造 metadata，严格复用 frontmatter `title`/`description`。digest 标识完整 effective 文件。确定性评分同时考虑 link、name、title、description 和 searchable prefix，并按 `score desc, link asc` 稳定排序。`home.search.candidate_limit` 默认 20；`default_top_k` 默认 5；`max_top_k` 默认 10。目录未超过候选上限时，词法零分条目仍保留给语义 rerank，避免小型 Home 因同义表达被提前丢弃。
+Home-owned `content/search.py` 从有界 effective skill 文档构造 metadata，严格复用 frontmatter `title`/`description`。digest 标识完整 effective 文件。确定性评分同时考虑 link、name、title、description 和 searchable prefix，并按 `score desc, link asc` 稳定排序。`home.search.candidate_limit` 默认 20；`default_top_k` 默认 5；`max_top_k` 默认 10。目录未超过候选上限时，词法零分条目仍保留给语义 rerank，避免小型 Home 因同义表达被提前丢弃。
 
 候选通过 JSON-only `home_search` profile 交给受控 LLM task，模型只返回候选内唯一 Link，也可以用空列表明确表示无匹配。Task failure、非 JSON、额外字段、重复 Link、超出 `top_k` 或候选外 Link 都不形成搜索失败，而是回退确定性顺序并标记 `reranked=false`；合法空列表返回空 items 且 `reranked=true`。action result 只返回 query、候选计数、rerank 标记和每项 link/space/title/summary/digest/score，不返回 searchable prefix 或完整正文，也不自动加载结果到 Background。模型后续仍须显式加载选中的顶层 Link。
 
@@ -271,7 +271,7 @@ Agent Home 失败分三层：
 
 1. 局部 action result：链接不存在、链接类别不适用于当前 mutation、skill frontmatter 不合法、core delete、文件过大、写入冲突、patch 不适用；
 2. 模块边界异常：home root 不可用、已有内容无法按 UTF-8 解释、链接映射不变量破坏、runtime copy 缺失且无法本地修复、索引损坏、配置不可解释；
-3. Runtime 语义异常：启动配置失败映射为 `runtime.startup_failed`，User Turn 中不可继续失败默认映射为 `runtime.turn_end`，运行时副本准备映射为 `home.runtime_copy_required`；Home Reflection failure 结束对应 maintenance task，不伪装为 User Turn failure。
+3. Runtime 语义异常：启动配置失败映射为 `runtime.startup_failed`，User Turn 中不可继续失败默认映射为 `runtime.turn_end`，运行时副本准备映射为 `home.runtime_copy_required`；Home Reflection failure 结束对应 reflection task，不伪装为 User Turn failure。
 
 Agent Home 通过自身 `runtime_bridge.py` 将 `AgentHomeFailureKind` 转换为运行原因。`home.runtime_copy_required` 由 Home failures.py 声明，payload 保留 link、error_type、module 和 kind；source_path/runtime_path 仅留在本地异常，不跨 Runtime 边界。恢复由 Home owner 解析 Link。Home 配置错误由 Home bridge 映射为 `runtime.startup_failed`。
 
@@ -333,8 +333,12 @@ AgentBuilder 的目标职责是：
 - Home Reflection 对顶层 `memory/` 零读写，Memory Reflection 验收归独立 Memory 模块；
 - 每日日切不移动、清空或重新初始化 runtime Home，也不改变普通 User Turn 的三阶段主流程。
 
-当前测试覆盖 Home actual write、三种 resolution、stale token、overlay cleanup、空 runtime Home 移除与下一次访问重建；Reflection task/action/Turn 的完整编排由 `tests/maintenance` 与 AgentBuilder 测试覆盖。
+当前测试覆盖 Home actual write、三种 resolution、stale token、overlay cleanup、空 runtime Home 移除与下一次访问重建；Reflection task/action/Turn 的完整编排由 `tests/plugins/reflection` 与 AgentBuilder 测试覆盖。
 
 ## 服务与情景权限
 
 HomeService 将有效 Home 的读取、Skill 指导和 overlay 修改暴露为 async 操作，供段、Action、prompt 和 SDK 共用；actual Home 提交不在其中。HomeReviewService 只供 Home Reflection 注入，提供 diff snapshot 和 review 提交。服务没有独立存储，owner 保持唯一；User SDK 服务绑定世代，日切不使 Home 对象失效。批量 review 开始后完成有界 owner 提交与结果记录，再传播取消。
+
+## 内部组织
+
+content 负责 effective 内容布局与搜索，skills 负责元数据、指导与局部挂载。overlay 将模型、文件协议、存储和操作分开；review 将审核事实与提交服务分开。Engine 是装配门面，普通及审核 actions 调用各自受约束服务。overlay 与 actual Home 各只有一份事实，审核使用真实来源 token；这些校验没有随 Workspace 去 CAS 删除。

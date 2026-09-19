@@ -4,13 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from tinysoul.llm.config import ProviderSpec
-from tinysoul.llm.adapter_types import AdapterKind, ProviderApiStyle
-from tinysoul.llm.messages import AssistantMessage, Message
-from tinysoul.llm.reasoning import ReasoningKeep
-from tinysoul.llm.tools import ToolUse
+from tinysoul.llm.config.loader import ProviderSpec
+from tinysoul.llm.protocol.adapter_types import AdapterKind, ProviderApiStyle
+from tinysoul.llm.protocol.messages import AssistantMessage, Message
+from tinysoul.llm.protocol.reasoning import ReasoningKeep
+from tinysoul.llm.protocol.tools import ToolUse
 
-from .base import ProviderError, ProviderErrorKind, ProviderFailureScope, ProviderRequest
+from .base import (
+    ProviderError,
+    ProviderErrorKind,
+    ProviderFailureScope,
+    ProviderRequest,
+)
 from .openai_sdk import (
     OpenAIAdapterBehavior,
     OpenAIChatCompletionsClient,

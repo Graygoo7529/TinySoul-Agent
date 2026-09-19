@@ -22,7 +22,7 @@ class ReflectionScheduleSettings:
         if not isinstance(self.enabled, bool):
             raise ConfigError(
                 "Reflection schedule enabled must be a boolean",
-                key="maintenance.schedule.enabled",
+                key="reflection.schedule.enabled",
                 value=self.enabled,
                 expected="bool",
             )
@@ -34,7 +34,7 @@ class ReflectionScheduleSettings:
         ):
             raise ConfigError(
                 "Reflection daily time must use local HH:MM minute precision",
-                key="maintenance.schedule.daily_time",
+                key="reflection.schedule.daily_time",
                 value=self.daily_time,
                 expected="HH:MM",
             )
@@ -44,7 +44,6 @@ class ReflectionScheduleSettings:
 class ReflectionSettings:
     timezone: str = "Asia/Shanghai"
     archive_root: Path = Path("archive")
-    runtime_root: Path = Path("runtime/maintenance")
     home: TurnSettings = field(default_factory=TurnSettings)
     memory: TurnSettings = field(default_factory=TurnSettings)
     schedule: ReflectionScheduleSettings = field(
@@ -55,7 +54,7 @@ class ReflectionSettings:
         if not isinstance(self.timezone, str) or not self.timezone:
             raise ConfigError(
                 "Reflection timezone must be a non-empty IANA timezone",
-                key="maintenance.timezone",
+                key="reflection.timezone",
                 value=self.timezone,
                 expected="IANA timezone",
             )
@@ -64,51 +63,46 @@ class ReflectionSettings:
         except ZoneInfoNotFoundError as exc:
             raise ConfigError(
                 "Reflection timezone is unknown",
-                key="maintenance.timezone",
+                key="reflection.timezone",
                 value=self.timezone,
                 expected="IANA timezone",
             ) from exc
         if not isinstance(self.archive_root, Path):
             raise ConfigError(
                 "Reflection archive_root must be a path",
-                key="maintenance.archive_root",
+                key="reflection.archive_root",
                 value=self.archive_root,
-                expected="path",
-            )
-        if not isinstance(self.runtime_root, Path):
-            raise ConfigError(
-                "Reflection runtime_root must be a path",
-                key="maintenance.runtime_root",
-                value=self.runtime_root,
                 expected="path",
             )
         for name in ("home", "memory"):
             if not isinstance(getattr(self, name), TurnSettings):
-                raise ConfigError("Reflection scenario settings are invalid", key=f"maintenance.{name}")
+                raise ConfigError(
+                    "Reflection scenario settings are invalid", key=f"reflection.{name}"
+                )
         if not isinstance(self.schedule, ReflectionScheduleSettings):
             raise ConfigError(
                 "Reflection schedule is invalid",
-                key="maintenance.schedule",
+                key="reflection.schedule",
                 value=self.schedule,
                 expected="ReflectionScheduleSettings",
             )
 
 
-def parse_maintenance_settings(
+def parse_reflection_settings(
     tree: Mapping[str, object],
     *,
     project_root: Path | None = None,
 ) -> ReflectionSettings:
     reject_unknown_keys(
         tree,
-        {"timezone", "archive_root", "runtime_root", "home", "memory", "schedule"},
-        key="maintenance",
+        {"timezone", "archive_root", "home", "memory", "schedule"},
+        key="reflection",
     )
     timezone = tree.get("timezone", ReflectionSettings.timezone)
     if not isinstance(timezone, str):
         raise ConfigError(
             "Reflection timezone must be a string",
-            key="maintenance.timezone",
+            key="reflection.timezone",
             value=timezone,
             expected="str",
         )
@@ -116,30 +110,18 @@ def parse_maintenance_settings(
     if not isinstance(archive_value, str) or not archive_value:
         raise ConfigError(
             "Reflection archive_root must be a non-empty path string",
-            key="maintenance.archive_root",
+            key="reflection.archive_root",
             value=archive_value,
             expected="str",
         )
     archive_root = Path(archive_value)
     if not archive_root.is_absolute():
         archive_root = (project_root or Path.cwd()) / archive_root
-    runtime_value = tree.get("runtime_root", "runtime/maintenance")
-    if not isinstance(runtime_value, str) or not runtime_value:
-        raise ConfigError(
-            "Reflection runtime_root must be a non-empty path string",
-            key="maintenance.runtime_root",
-            value=runtime_value,
-            expected="str",
-        )
-    runtime_root = Path(runtime_value)
-    if not runtime_root.is_absolute():
-        runtime_root = (project_root or Path.cwd()) / runtime_root
     return ReflectionSettings(
         timezone=timezone,
         archive_root=archive_root,
-        runtime_root=runtime_root,
-        home=parse_turn_settings(tree.get("home"), key="maintenance.home"),
-        memory=parse_turn_settings(tree.get("memory"), key="maintenance.memory"),
+        home=parse_turn_settings(tree.get("home"), key="reflection.home"),
+        memory=parse_turn_settings(tree.get("memory"), key="reflection.memory"),
         schedule=_parse_schedule(tree.get("schedule")),
     )
 
@@ -150,17 +132,17 @@ def _parse_schedule(value: object) -> ReflectionScheduleSettings:
     if not isinstance(value, Mapping):
         raise ConfigError(
             "Reflection schedule must be a table",
-            key="maintenance.schedule",
+            key="reflection.schedule",
             value=value,
             expected="table",
         )
     table = cast(Mapping[str, object], value)
-    reject_unknown_keys(table, {"enabled", "daily_time"}, key="maintenance.schedule")
+    reject_unknown_keys(table, {"enabled", "daily_time"}, key="reflection.schedule")
     enabled = table.get("enabled", True)
     if not isinstance(enabled, bool):
         raise ConfigError(
             "Reflection schedule enabled must be a boolean",
-            key="maintenance.schedule.enabled",
+            key="reflection.schedule.enabled",
             value=enabled,
             expected="bool",
         )
@@ -176,7 +158,7 @@ def _parse_wall_time(value: object) -> WallTime:
     if not isinstance(value, str):
         raise ConfigError(
             "Reflection daily time must be a string",
-            key="maintenance.schedule.daily_time",
+            key="reflection.schedule.daily_time",
             value=value,
             expected="HH:MM",
         )
@@ -185,7 +167,7 @@ def _parse_wall_time(value: object) -> WallTime:
     except ValueError as exc:
         raise ConfigError(
             "Reflection daily time is invalid",
-            key="maintenance.schedule.daily_time",
+            key="reflection.schedule.daily_time",
             value=value,
             expected="HH:MM",
         ) from exc

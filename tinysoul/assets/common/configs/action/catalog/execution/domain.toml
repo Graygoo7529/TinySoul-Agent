@@ -1,0 +1,10 @@
+name = "execution"
+description = "Bounded local script and shell execution against the actual daily Workspace."
+selection_hint = "Use when deterministic local code or an immediate command should process Workspace resources or run as a bounded longer task."
+
+[visibility]
+default = true
+
+[runtime]
+timeout_seconds = 70
+parallel_policy = "serial"

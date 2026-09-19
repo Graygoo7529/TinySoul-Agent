@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -12,32 +12,55 @@ from tinysoul.infra.time import CalendarDay
 from tinysoul.plugins.memory import MemoryIOError
 from tinysoul.plugins.archive import ArchiveProjection
 from tinysoul.plugins.archive import DailyTransitionOutcome
-from tinysoul.plugins.reflection import (ReflectionAvailability, ReflectionAvailabilityStore, ReflectionContractError, ReflectionEngine, ReflectionInvariantError, ReflectionRequest, ReflectionScope, ReflectionTaskKind, ReflectionTaskOutcome, ReflectionTaskStatus, ReflectionTrigger)
+from tinysoul.plugins.reflection import (
+    ReflectionAvailability,
+    ReflectionContractError,
+    ReflectionEngine,
+    ReflectionInvariantError,
+    ReflectionRequest,
+    ReflectionScope,
+    ReflectionTaskKind,
+    ReflectionTaskOutcome,
+    ReflectionTaskStatus,
+    ReflectionTrigger,
+)
 from tinysoul.runtime import ObservationEvent, ObservationLevel, RunScope
 from tinysoul.kernel.loop.turn import TurnOutcome, TurnExecutionCancelled
 from tinysoul.kernel.loop.outcomes import TurnOutcomeStatus
 from tinysoul.plugins.reflection.models import ReflectionExecutionCancelled
-
 
 TODAY = CalendarDay.parse("2026-08-03")
 DAY_ONE = CalendarDay.parse("2026-08-01")
 DAY_TWO = CalendarDay.parse("2026-08-02")
 
 
-@pytest.mark.parametrize("status", [TurnOutcomeStatus.CANCELLED, TurnOutcomeStatus.COMPLETED])
-async def test_reflection_cancel_retains_target_and_owner_completion(tmp_path: Path, status: TurnOutcomeStatus) -> None:
+@pytest.mark.parametrize(
+    "status", [TurnOutcomeStatus.CANCELLED, TurnOutcomeStatus.COMPLETED]
+)
+async def test_reflection_cancel_retains_target_and_owner_completion(
+    tmp_path: Path, status: TurnOutcomeStatus
+) -> None:
     turn = TurnOutcome(
-        context_completion=None, business_day=TODAY, status=status,
-        completion={"summary": "persisted before cancellation"} if status is TurnOutcomeStatus.COMPLETED else None,
+        context_completion=None,
+        business_day=TODAY,
+        status=status,
+        completion=(
+            {"summary": "persisted before cancellation"}
+            if status is TurnOutcomeStatus.COMPLETED
+            else None
+        ),
     )
 
     class CancelledMemory(_Memory):
         async def run(self, **kwargs):
             raise TurnExecutionCancelled(turn)
 
-    engine, _ = _engine(tmp_path, archive=_Archive(tmp_path, (DAY_TWO,)), memory=CancelledMemory())
+    engine = _engine(
+        tmp_path, archive=_Archive(tmp_path, (DAY_TWO,)), memory=CancelledMemory()
+    )
     request = ReflectionRequest(
-        scope=ReflectionScope.MEMORY, trigger=ReflectionTrigger.MANUAL,
+        scope=ReflectionScope.MEMORY,
+        trigger=ReflectionTrigger.MANUAL,
         target_day=DAY_TWO,
     )
     with pytest.raises(ReflectionExecutionCancelled) as cancelled:
@@ -49,33 +72,59 @@ async def test_reflection_cancel_retains_target_and_owner_completion(tmp_path: P
     assert task.turn_outcome is turn and task.status.value == status.value
 
 
-def test_preflight_registers_only_the_new_archive_day(tmp_path: Path) -> None:
+def test_preflight_rebuilds_candidates_from_owner_catalogs(tmp_path: Path) -> None:
     archive = _Archive(tmp_path, (DAY_ONE, DAY_TWO), transition_day=DAY_TWO)
     memory = _Memory()
-    engine, store = _engine(tmp_path, archive=archive, memory=memory)
+    engine = _engine(tmp_path, archive=archive, memory=memory)
 
-    engine.refresh_availability(archive.ensure_active_day(TODAY, now=_Clock().now()), scope=RunScope())
+    engine.refresh_availability(
+        archive.ensure_active_day(TODAY, now=_Clock().now()), scope=RunScope()
+    )
 
-    availability = store.require()
+    availability = engine.availability()
     assert availability.checked_day == TODAY
-    assert availability.memory_days == (DAY_TWO,)
-    assert archive.requested_days == [DAY_TWO]
+    assert availability.memory_days == (DAY_ONE, DAY_TWO)
+    assert set(archive.requested_days) == {DAY_ONE, DAY_TWO, TODAY}
+
+
+def test_candidate_pages_are_bounded_and_reconstructible(tmp_path: Path) -> None:
+    days = tuple(
+        CalendarDay(TODAY.value - timedelta(days=index)) for index in range(1, 140)
+    )
+    archive = _Archive(tmp_path, days)
+    memory = _Memory(existing={days[0]})
+    engine = _engine(tmp_path, archive=archive, memory=memory)
+    page = engine.refresh_availability(DailyTransitionOutcome(TODAY), scope=RunScope())
+    found: set[CalendarDay] = set()
+    while True:
+        assert page.scanned_days <= 64
+        assert not found.intersection(page.memory_days)
+        found.update(page.memory_days)
+        if page.next_before is None:
+            break
+        page = engine.availability(before=page.next_before)
+    assert found == set(days)
+    assert days[0] not in engine.availability().missing_daily_days
+    restarted = _engine(tmp_path, archive=archive, memory=memory)
+    assert (
+        restarted.refresh_availability(DailyTransitionOutcome(TODAY), scope=RunScope())
+        == engine.availability()
+    )
 
 
 def test_preflight_projects_home_and_all_memory_backlog(tmp_path: Path) -> None:
     archive = _Archive(tmp_path, (DAY_ONE,))
-    engine, store = _engine(
+    engine = _engine(
         tmp_path,
         archive=archive,
         home=_Home(pending=True),
     )
-    store.save(
-        ReflectionAvailability(checked_day=TODAY, memory_days=(DAY_ONE,))
+
+    engine.refresh_availability(
+        archive.ensure_active_day(TODAY, now=_Clock().now()), scope=RunScope()
     )
 
-    engine.refresh_availability(archive.ensure_active_day(TODAY, now=_Clock().now()), scope=RunScope())
-
-    availability = store.require()
+    availability = engine.availability()
     assert availability.home_pending
     assert availability.home_change_count == 1
     assert availability.memory_days == (DAY_ONE,)
@@ -85,24 +134,18 @@ def test_preflight_projects_home_and_all_memory_backlog(tmp_path: Path) -> None:
     "trigger",
     (ReflectionTrigger.SCHEDULED,),
 )
-async def test_daily_maintenance_processes_only_previous_day_and_retains_backlog(
+async def test_daily_reflection_processes_only_previous_day_and_retains_backlog(
     tmp_path: Path,
     trigger: ReflectionTrigger,
 ) -> None:
     archive = _Archive(tmp_path, (DAY_ONE, DAY_TWO))
     home = _Home(pending=True)
     memory = _Memory()
-    engine, store = _engine(
+    engine = _engine(
         tmp_path,
         archive=archive,
         home=home,
         memory=memory,
-    )
-    store.save(
-        ReflectionAvailability(
-            checked_day=TODAY,
-            memory_days=(DAY_ONE, DAY_TWO),
-        )
     )
 
     outcome = await engine.run(
@@ -119,19 +162,17 @@ async def test_daily_maintenance_processes_only_previous_day_and_retains_backlog
     ]
     assert memory.ran == [DAY_TWO]
     assert home.runs == 1
-    assert store.require().memory_days == (DAY_ONE,)
-    assert not store.require().home_pending
+    assert engine.availability().memory_days == (DAY_ONE, DAY_TWO)
+    assert engine.availability().missing_daily_days == (DAY_ONE,)
+    assert not engine.availability().home_pending
 
 
-async def test_daily_maintenance_skips_absent_previous_day_and_retains_backlog(
+async def test_daily_reflection_skips_absent_previous_day_and_retains_backlog(
     tmp_path: Path,
 ) -> None:
     archive = _Archive(tmp_path, (DAY_ONE,))
     memory = _Memory()
-    engine, store = _engine(tmp_path, archive=archive, memory=memory)
-    store.save(
-        ReflectionAvailability(checked_day=TODAY, memory_days=(DAY_ONE,))
-    )
+    engine = _engine(tmp_path, archive=archive, memory=memory)
 
     outcome = await engine.run(
         ReflectionRequest(
@@ -147,16 +188,15 @@ async def test_daily_maintenance_skips_absent_previous_day_and_retains_backlog(
     assert memory_outcome.target_day == DAY_TWO
     assert memory_outcome.reason == "previous_day_not_pending"
     assert memory.ran == []
-    assert store.require().memory_days == (DAY_ONE,)
+    assert engine.availability().memory_days == (DAY_ONE,)
 
 
-async def test_failed_memory_day_remains_available_across_restart(tmp_path: Path) -> None:
+async def test_failed_memory_day_remains_available_across_restart(
+    tmp_path: Path,
+) -> None:
     archive = _Archive(tmp_path, (DAY_ONE,))
     memory = _Memory(fail_days={DAY_ONE})
-    engine, store = _engine(tmp_path, archive=archive, memory=memory)
-    store.save(
-        ReflectionAvailability(checked_day=TODAY, memory_days=(DAY_ONE,))
-    )
+    engine = _engine(tmp_path, archive=archive, memory=memory)
 
     outcome = await engine.run(
         ReflectionRequest(
@@ -168,9 +208,11 @@ async def test_failed_memory_day_remains_available_across_restart(tmp_path: Path
     )
 
     assert outcome.tasks[0].status is ReflectionTaskStatus.FAILED
-    assert store.require().memory_days == (DAY_ONE,)
-    restarted, _ = _engine(tmp_path, archive=archive, memory=memory)
-    restarted.refresh_availability(archive.ensure_active_day(TODAY, now=_Clock().now()), scope=RunScope())
+    assert engine.availability().memory_days == (DAY_ONE,)
+    restarted = _engine(tmp_path, archive=archive, memory=memory)
+    restarted.refresh_availability(
+        archive.ensure_active_day(TODAY, now=_Clock().now()), scope=RunScope()
+    )
     assert restarted.availability().memory_days == (DAY_ONE,)
 
 
@@ -192,7 +234,7 @@ async def test_manual_and_scheduled_home_requests_use_the_same_task_path(
     ):
         home = _Home(pending=True)
         homes.append(home)
-        engine, _store = _engine(
+        engine = _engine(
             tmp_path / str(index),
             archive=_Archive(tmp_path / str(index), ()),
             home=home,
@@ -203,8 +245,8 @@ async def test_manual_and_scheduled_home_requests_use_the_same_task_path(
                     scope=ReflectionScope.HOME,
                     trigger=trigger,
                 ),
-        business_day=TODAY,
-    )
+                business_day=TODAY,
+            )
         )
 
     assert [home.runs for home in homes] == [1, 1]
@@ -214,11 +256,11 @@ async def test_manual_and_scheduled_home_requests_use_the_same_task_path(
     ]
 
 
-async def test_explicit_memory_maintenance_does_not_require_pending_entry(
+async def test_explicit_memory_reflection_does_not_require_pending_entry(
     tmp_path: Path,
 ) -> None:
     memory = _Memory(existing={DAY_ONE})
-    engine, store = _engine(
+    engine = _engine(
         tmp_path,
         archive=_Archive(tmp_path, (DAY_ONE, DAY_TWO)),
         memory=memory,
@@ -234,14 +276,15 @@ async def test_explicit_memory_maintenance_does_not_require_pending_entry(
     )
 
     assert memory.ran == [DAY_ONE]
-    assert store.require().memory_days == ()
+    assert engine.availability().memory_days == (DAY_ONE, DAY_TWO)
+    assert engine.availability().missing_daily_days == (DAY_TWO,)
 
 
 async def test_started_observation_distinguishes_execution_day_from_memory_target(
     tmp_path: Path,
 ) -> None:
     observations = _RecordingObservations()
-    engine, _store = _engine(
+    engine = _engine(
         tmp_path,
         archive=_Archive(tmp_path, (DAY_ONE,)),
         observations=observations,
@@ -253,13 +296,13 @@ async def test_started_observation_distinguishes_execution_day_from_memory_targe
             trigger=ReflectionTrigger.MANUAL,
             target_day=DAY_ONE,
             source="endpoint",
-            request_id="maintenance_request",
+            request_id="reflection_request",
         ),
         business_day=TODAY,
     )
 
     started = next(
-        event for event in observations.events if event.name == "maintenance.started"
+        event for event in observations.events if event.name == "reflection.started"
     )
     assert started.payload == {
         "business_day": str(TODAY),
@@ -267,7 +310,7 @@ async def test_started_observation_distinguishes_execution_day_from_memory_targe
             "scope": "memory",
             "trigger": "manual",
             "source": "endpoint",
-            "request_id": "maintenance_request",
+            "request_id": "reflection_request",
             "metadata": {},
             "instructions": "",
             "target_day": str(DAY_ONE),
@@ -275,19 +318,21 @@ async def test_started_observation_distinguishes_execution_day_from_memory_targe
     }
 
 
-def test_archive_outcome_requires_authoritative_catalog_identity(
+def test_availability_uses_archive_owner_instead_of_transition_paths(
     tmp_path: Path,
 ) -> None:
     archive = _Archive(tmp_path, (DAY_ONE,), transition_day=DAY_ONE)
     archive.transition_path = (tmp_path / "unknown-archive").resolve()
-    engine, _store = _engine(tmp_path, archive=archive)
+    engine = _engine(tmp_path, archive=archive)
 
-    with pytest.raises(ReflectionInvariantError, match="identity"):
-        engine.refresh_availability(archive.ensure_active_day(TODAY, now=_Clock().now()), scope=RunScope())
+    engine.refresh_availability(
+        archive.ensure_active_day(TODAY, now=_Clock().now()), scope=RunScope()
+    )
+    assert engine.availability().memory_days == (DAY_ONE,)
 
 
 async def test_unknown_task_exception_is_not_downgraded(tmp_path: Path) -> None:
-    engine, _store = _engine(
+    engine = _engine(
         tmp_path,
         archive=_Archive(tmp_path, ()),
         home=_Home(unexpected_failure=True),
@@ -299,8 +344,8 @@ async def test_unknown_task_exception_is_not_downgraded(tmp_path: Path) -> None:
                 scope=ReflectionScope.HOME,
                 trigger=ReflectionTrigger.MANUAL,
             ),
-        business_day=TODAY,
-    )
+            business_day=TODAY,
+        )
 
 
 def _engine(
@@ -310,17 +355,12 @@ def _engine(
     home: "_Home | None" = None,
     memory: "_Memory | None" = None,
     observations: "_RecordingObservations | None" = None,
-) -> tuple[ReflectionEngine, ReflectionAvailabilityStore]:
-    store = ReflectionAvailabilityStore(root / "runtime" / "maintenance")
-    return (
-        ReflectionEngine(
-            archive=archive,
-            home=home or _Home(),
-            memory=memory or _Memory(),
-            availability_store=store,
-            observations=observations,
-        ),
-        store,
+) -> ReflectionEngine:
+    return ReflectionEngine(
+        archive=archive,
+        home=home or _Home(),
+        memory=memory or _Memory(),
+        observations=observations,
     )
 
 
@@ -396,6 +436,13 @@ class _Archive:
     def active_day_lease(self):
         yield TODAY
 
+    def archived_days(self, *, before=None, limit=64):
+        return tuple(
+            day
+            for day in sorted(self._projections, reverse=True)
+            if before is None or day < before
+        )[:limit]
+
     def archive_for(self, day):
         self.requested_days.append(day)
         return self._projections.get(day)
@@ -410,7 +457,9 @@ class _Home:
     def pending_counts(self) -> tuple[int, int]:
         return (1, 0) if self.pending else (0, 0)
 
-    async def run(self, *, business_day, scope, request_id, inbox=None, instructions=""):
+    async def run(
+        self, *, business_day, scope, request_id, inbox=None, instructions=""
+    ):
         del business_day, scope, request_id
         if self.unexpected_failure:
             raise AttributeError("unexpected task bug")
@@ -431,8 +480,18 @@ class _Memory:
     def recover(self) -> None:
         return None
 
-    def eligible(self, day, *, archive, if_absent):
-        return archive is not None and (not if_absent or day not in self.existing)
+    def daily_days(self, *, before=None, limit=64):
+        return tuple(
+            day
+            for day in sorted(self.existing, reverse=True)
+            if before is None or day < before
+        )[:limit]
+
+    def has_daily(self, day):
+        return day in self.existing
+
+    def eligible(self, day, *, archive):
+        return archive is not None or day in self.existing
 
     async def run(
         self,

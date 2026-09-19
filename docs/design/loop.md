@@ -6,6 +6,8 @@
 
 冻结的 TurnProfile 绑定 Context、Action、完成策略、准备/完成管线与类型化服务表。User 装配位于 agent/user，Reflection 装配位于 plugins/reflection；两者调用 build_turn_kernel，共用唯一 TurnRunner/CycleRunner/Phase 实现。
 
+局部 phases 包保留共享 PhaseFailure/协议与三个 Phase 实现；lifecycle 聚合准备/完成，interaction 聚合 Inbox 与取消。TurnRunner 仍是唯一生命周期协调者，拆包不引入并行内核。
+
 ## Turn 生命周期
 
 Agent 在进入 Turn 前捕获 CalendarDay 并持有 day/generation lease。Turn 内不重读系统日期，跨午夜等待仍属于原执行日。Context 每轮打开独立段视图，准备操作通过 owner 门面读取，所有候选成功后安装。
@@ -44,14 +46,14 @@ INPUT、EVENT、TIMER 和 BUDGET 共用 TurnInbox.wait_for_cycle。事件使用�
 
 Kernel JobRegistry 管身份、配额、监督、终态预留和 Turn 收尾；具体 backend 管进程及输出资源。Job 可跨 Cycle，不跨所属 Turn。通用 core.job.status/stop/wait 查询、停止或构造等待条件，进程 manager 不管理下一 Cycle 节拍。后台 monitor 在 Turn 等待期间仍更新 owner 状态和终态，段视图在正常边界刷新，不由 monitor 并发修改 Context。
 
-User 的 core.answer 经 profile 映射为正式用户输出，由 Session 保存 schema v8 完成事实。Home/Memory Reflection 复用同一完成检测和内核，core.answer 表示维护总结，不写 User Session；各自专属 Action 权限由装配决定，内核不按 profile 字符串分支解释业务。
+User 的 core.answer 经 profile 映射为正式用户输出，由 Session 保存 schema v9 完成事实。Home/Memory Reflection 复用同一完成检测和内核，core.answer 表示维护总结，不写 User Session；各自专属 Action 权限由装配决定，内核不按 profile 字符串分支解释业务。
 
-Job 终态单调、只交付一次；执行关闭失败成为诊断，不把已成功终态改成失败。stop 对仍保留的已结束 Job 幂等，release 重复调用不再清理，释放后查询明确拒绝。有限日志和候选由 backend 解释，完整资源不进入 JobSnapshot。
+Job 终态单调、只交付一次。停止确认与附属清理分开：日志/临时文件清理失败保留诊断，不改写已停止的执行结果；明确活进程无法停止或监督依赖失败经 Jobs bridge 转换，Turn 的 activity cleanup 不吞掉必要运行转移。stop 对仍保留的终态幂等，成功 release 后查询拒绝；执行关闭失败不提前删除条目。日志与资源由 backend/Workspace 拥有，完整正文不进入 JobSnapshot。
 
 ## Trap 与失败
 
 可反馈 Action/Phase 失败留在本轮语境。模块失败在自身 bridge 映射为有限 Runtime 原因；Trap 只决定合法 frame 的重试、结束或受限 SUSPEND。已解析的 RuntimeTransferInterrupt 原样展开，不重复捕获。
 
-Context/LLM 容量恢复使用同一压力协议，段按能力和形状回收；有进展才重试，无进展结束恢复。需要 Workspace/Home owner 恢复的策略由外围注册，handler 发 Signal，内核在重试前消费；不直接安装 Context，也不因投影失败撤销已完成 owner 提交。
+Context/LLM 容量恢复使用同一压力协议，段按能力和形状回收；有进展才重试，无进展结束恢复。Home owner 恢复策略由外围注册，handler 发 Signal，内核在重试前消费；Workspace 不参与压力删除或 Trash 恢复，不直接安装 Context，也不因投影失败撤销已完成 owner 提交。
 
 Agent queue、环境触发、外部协议、Archive journal 与领域存储均留在 Turn 内核之外。

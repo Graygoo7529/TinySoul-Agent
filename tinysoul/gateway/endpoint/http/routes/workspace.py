@@ -6,7 +6,14 @@ from fastapi import Body, FastAPI, Query
 from starlette.responses import Response
 
 from tinysoul.infra.json import JsonObject
-from tinysoul.plugins.workspace import WorkspaceRetention
+from tinysoul.plugins.workspace import WorkspaceTextEdit
+from ..schemas.workspace import (
+    WorkspaceDirectoryRequest,
+    WorkspaceMoveRequest,
+    WorkspaceTagRequest,
+    WorkspaceEditRequest,
+    WorkspaceAppendRequest,
+)
 
 from ...engine import EndpointEngine
 from ..schemas import (
@@ -17,6 +24,31 @@ from ..schemas import (
 
 
 def register_workspace_routes(app: FastAPI, engine: EndpointEngine) -> None:
+    @app.post("/v1/workspace/directory")
+    async def workspace_directory(body: WorkspaceDirectoryRequest) -> JsonObject:
+        return await engine.workspace.mkdir(body.link)
+
+    @app.post("/v1/workspace/move")
+    async def workspace_move(body: WorkspaceMoveRequest) -> JsonObject:
+        return await engine.workspace.move(body.link, body.target_link)
+
+    @app.put("/v1/workspace/tags")
+    async def workspace_tags(body: WorkspaceTagRequest) -> JsonObject:
+        return await engine.workspace.tag(body.link, tuple(body.tags))
+
+    @app.post("/v1/workspace/edit")
+    async def workspace_edit(body: WorkspaceEditRequest) -> JsonObject:
+        return await engine.workspace.edit(
+            body.link,
+            tuple(
+                WorkspaceTextEdit(item.old_text, item.new_text) for item in body.edits
+            ),
+        )
+
+    @app.post("/v1/workspace/append")
+    async def workspace_append(body: WorkspaceAppendRequest) -> JsonObject:
+        return await engine.workspace.append(body.link, body.text)
+
     @app.get("/v1/workspace/manifest")
     async def workspace_manifest() -> JsonObject:
         return await engine.workspace.manifest()
@@ -33,7 +65,6 @@ def register_workspace_routes(app: FastAPI, engine: EndpointEngine) -> None:
             media_type=blob.media_type,
             headers={
                 "X-TinySoul-Link": blob.link,
-                "X-TinySoul-Digest": blob.digest,
                 "X-TinySoul-Size": str(blob.size),
             },
         )
@@ -44,9 +75,6 @@ def register_workspace_routes(app: FastAPI, engine: EndpointEngine) -> None:
             link=body.link,
             text=body.text,
             overwrite=body.overwrite,
-            expected_digest=body.expected_digest,
-            expected_revision=body.expected_revision,
-            retention=_retention(body.retention),
         )
 
     @app.put("/v1/workspace/blob")
@@ -54,17 +82,11 @@ def register_workspace_routes(app: FastAPI, engine: EndpointEngine) -> None:
         body: bytes = Body(media_type="application/octet-stream"),
         link: str = Query(min_length=1),
         overwrite: bool = Query(default=False),
-        expected_digest: str = Query(default=""),
-        expected_revision: int = Query(ge=0),
-        retention: WorkspaceRetention | None = Query(default=None),
     ) -> JsonObject:
         return await engine.workspace.write_blob(
             link=link,
             data=body,
             overwrite=overwrite,
-            expected_digest=expected_digest,
-            expected_revision=expected_revision,
-            retention=retention,
         )
 
     @app.get("/v1/workspace/trash")
@@ -75,17 +97,10 @@ def register_workspace_routes(app: FastAPI, engine: EndpointEngine) -> None:
     async def trash_workspace_resource(body: WorkspaceTrashRequest) -> JsonObject:
         return await engine.workspace.trash_resource(
             link=body.link,
-            expected_digest=body.expected_digest,
-            expected_revision=body.expected_revision,
         )
 
     @app.post("/v1/workspace/restore")
     async def restore_workspace_resource(body: WorkspaceRestoreRequest) -> JsonObject:
         return await engine.workspace.restore(
             trash_ref=body.trash_ref,
-            expected_revision=body.expected_revision,
         )
-
-
-def _retention(value: str | None) -> WorkspaceRetention | None:
-    return WorkspaceRetention(value) if value is not None else None

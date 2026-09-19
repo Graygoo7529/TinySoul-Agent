@@ -13,7 +13,7 @@ from tinysoul.runtime import ObservationLevel
 
 class _FakeConfig:
     def parse_section(self, section, parser):
-        assert section == "app"
+        assert section == "agent"
         return AgentSettings(
             interactive=False,
             output=OutputSettings(
@@ -45,8 +45,10 @@ class _FakeApp:
 
     async def submit_turn(self, request):
         self.once_inputs.append(request.text)
+
         async def wait():
             return SimpleNamespace(outcome=SimpleNamespace(status=self.status))
+
         return SimpleNamespace(wait=wait)
 
     async def wait(self):
@@ -78,6 +80,7 @@ class _FakeLease:
 def fake_agent(monkeypatch):
     async def create(factory):
         return await factory()
+
     monkeypatch.setattr(cli.Agent, "assemble", create)
 
 
@@ -140,9 +143,9 @@ def test_cli_once_uses_config_overrides_and_console_sink(
     assert result == 0
     assert captured["root"] == tmp_path.resolve()
     assert captured["overrides"] == {
-        "app.interactive": False,
-        "app.output.mode": "model",
-        "maintenance.schedule.enabled": False,
+        "agent.interactive": False,
+        "agent.output.mode": "model",
+        "reflection.schedule.enabled": False,
     }
     assert builder.sink_max_chars == 321
     assert app.once_inputs == ["hello"]
@@ -200,8 +203,8 @@ def test_cli_start_attaches_terminal_and_model_endpoint(
 
     assert result == 0
     assert captured["overrides"] == {
-        "app.interactive": True,
-        "app.output.mode": "verbose",
+        "agent.interactive": True,
+        "agent.output.mode": "verbose",
     }
     assert builder.endpoint_settings is not None
     assert builder.endpoint_settings.instance_id == "instance_test"

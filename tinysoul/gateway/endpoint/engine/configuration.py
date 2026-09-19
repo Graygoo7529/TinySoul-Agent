@@ -7,6 +7,7 @@ from tinysoul.infra.config import ConfigError, ConfigMutation
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.json import JsonObject
 from tinysoul.runtime import RuntimeException
+from tinysoul.agent.errors import AgentContractError
 
 from ..errors import EndpointRequestError
 from .context import EndpointEngineContext
@@ -37,8 +38,15 @@ class EndpointConfigurationEngine:
     def catalog(self) -> JsonObject:
         return self._context.config_controller().catalog()
 
-    async def actions(self) -> JsonObject:
-        return await self._context.services.action_catalog()
+    async def actions(self, *, scenario: str = "user") -> JsonObject:
+        try:
+            return await self._context.services.action_catalog(scenario=scenario)
+        except AgentContractError as exc:
+            raise EndpointRequestError(
+                status_code=422,
+                code="config.invalid_scenario",
+                message="Unknown Action scenario.",
+            ) from exc
 
     async def patch(self, mutations: tuple[ConfigMutation, ...]) -> JsonObject:
         try:
@@ -47,7 +55,8 @@ class EndpointConfigurationEngine:
             raise _config_error(exc) from exc
         except RuntimeException as exc:
             raise EndpointRequestError(
-                status_code=422, code="config.invalid",
+                status_code=422,
+                code="config.invalid",
                 message="Configuration candidate is invalid.",
                 details={"reason": exc.reason},
             ) from exc

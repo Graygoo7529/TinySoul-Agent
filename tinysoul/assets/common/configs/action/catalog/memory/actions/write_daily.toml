@@ -1,0 +1,28 @@
+name = "memory.write_daily"
+domain = "memory"
+
+[tool]
+description = "Write the complete Markdown body for this Reflection target daily. The owner supplies its day and heading. Inspect existing Memory first. Each call commits independently."
+schema = { type = "object", properties = { markdown = { type = "string" } }, required = ["markdown"], additionalProperties = false }
+
+[semantic]
+use_when = ["Relevant sources and existing owner content have been inspected"]
+effects = ["modifying"]
+
+[visibility]
+default = false
+[visibility.scenarios]
+memory_reflection = true
+
+[runtime]
+parallel_policy = "serial"
+
+[runtime.hooks]
+normalize = []
+execute = []
+
+[backend]
+kind = "native"
+handler = "memory.write_daily"
+
+

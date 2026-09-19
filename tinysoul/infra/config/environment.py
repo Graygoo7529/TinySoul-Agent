@@ -10,12 +10,12 @@ from pathlib import Path
 from types import NoneType
 from typing import TypeVar, cast, get_args, get_origin, get_type_hints
 
-from .dotenv import DotenvSource, _env_mapping_to_dotted
+from .sources.dotenv import DotenvSource, _env_mapping_to_dotted
 from .documents import ConfigDocument, ConfigDocumentSet, config_documents
 from .errors import ConfigError
-from .project import ProjectConfig
-from .source import ConfigSource, ConfigSourceKind
-from .toml_file import deep_copy_mapping
+from .sources.project import ProjectConfig
+from .sources.source import ConfigSource, ConfigSourceKind
+from .sources.toml_file import deep_copy_mapping
 
 T = TypeVar("T")
 
@@ -103,9 +103,12 @@ class ConfigEnvironment:
                 overrides.update(source.values)
         return type(self).from_project_root(
             self._project.root,
-            project_file_name=self._project.main_path.relative_to(self._project.root).as_posix(),
+            project_file_name=self._project.main_path.relative_to(
+                self._project.root
+            ).as_posix(),
             dotenv_name=self._dotenv_path.relative_to(self._project.root).as_posix(),
-            env=self._process_env, overrides=overrides,
+            env=self._process_env,
+            overrides=overrides,
         )
 
     @property
@@ -323,6 +326,7 @@ class ConfigEnvironment:
             )
         return settings_type(**kwargs)
 
+
 def _set_dotted_value(
     tree: dict[str, object],
     dotted_key: str,
@@ -385,7 +389,9 @@ def _set_dotted_value(
         current = cast(dict[str, object] | list[object], existing)
 
 
-def _convert_value(value: object, target_type: object, *, key: str, source: str) -> object:
+def _convert_value(
+    value: object, target_type: object, *, key: str, source: str
+) -> object:
     origin = get_origin(target_type)
     args = get_args(target_type)
 
@@ -395,7 +401,9 @@ def _convert_value(value: object, target_type: object, *, key: str, source: str)
     if origin is list:
         item_type = args[0] if args else str
         if isinstance(value, str):
-            items: list[object] = [item.strip() for item in value.split(",") if item.strip()]
+            items: list[object] = [
+                item.strip() for item in value.split(",") if item.strip()
+            ]
         elif isinstance(value, list):
             items = value
         else:
@@ -421,7 +429,9 @@ def _convert_value(value: object, target_type: object, *, key: str, source: str)
     )
 
 
-def _convert_scalar(value: object, target_type: object, *, key: str, source: str) -> object:
+def _convert_scalar(
+    value: object, target_type: object, *, key: str, source: str
+) -> object:
     if target_type is str:
         if isinstance(value, str):
             return value
@@ -466,7 +476,9 @@ def _convert_scalar(value: object, target_type: object, *, key: str, source: str
         try:
             return target_type(value)
         except ValueError as exc:
-            raise _type_error(value, key=key, source=source, expected=target_type.__name__) from exc
+            raise _type_error(
+                value, key=key, source=source, expected=target_type.__name__
+            ) from exc
     raise ConfigError(
         "Unsupported configuration field type",
         key=key,

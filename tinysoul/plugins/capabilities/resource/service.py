@@ -26,7 +26,6 @@ from tinysoul.infra import (
 from tinysoul.plugins.workspace import (
     WorkspaceBundleWrite,
     WorkspaceLink,
-    WorkspaceRetention,
 )
 
 from tinysoul.plugins.workspace.services import WorkspaceService
@@ -43,7 +42,6 @@ from .models import (
     ResourceConversionResult,
     ResourceConverter,
 )
-
 
 _MAX_WORKER_STDOUT = 64_000
 _MAX_WORKER_STDERR = 8_000
@@ -90,9 +88,6 @@ class ResourceConversionService:
         source_link: str,
         target_link: str,
         overwrite: bool,
-        expected_source_digest: str,
-        expected_target_digest: str,
-        owner_turn_id: str,
         control: ActionExecutionControl,
         operations: JoinedOperations | None = None,
     ) -> ResourceConversionResult:
@@ -103,21 +98,12 @@ class ResourceConversionService:
             source_link=source_link,
             target_link=target_link,
             overwrite=overwrite,
-            expected_source_digest=expected_source_digest,
-            expected_target_digest=expected_target_digest,
-            owner_turn_id=owner_turn_id,
         )
         _require_active(control)
         source = await workspace.read_document(
             source_link,
             max_bytes=self._settings.max_source_bytes,
         )
-        if expected_source_digest and source.digest != expected_source_digest:
-            raise ResourceProcessingError(
-                "Workspace source digest does not match the requested conversion",
-                reason="source_digest_mismatch",
-                payload={"source_link": source.link},
-            )
         self._validate_converter_source(converter, source.suffix)
         target = WorkspaceLink.parse(target_link)
         if target.path.suffix.lower() != ".md":
@@ -152,19 +138,21 @@ class ResourceConversionService:
                 output_path=output_path,
                 asset_prefix=asset_prefix,
             )
-            outcome = await operations.run(lambda: self._process_runner.run(
-                ProcessRequest(
-                    argv=(
-                        sys.executable,
-                        "-m",
-                        "tinysoul.plugins.capabilities.resource.worker",
+            outcome = await operations.run(
+                lambda: self._process_runner.run(
+                    ProcessRequest(
+                        argv=(
+                            sys.executable,
+                            "-m",
+                            "tinysoul.plugins.capabilities.resource.worker",
+                        ),
+                        stdin_text=dumps_json(request),
+                        stdout_limit=_MAX_WORKER_STDOUT,
+                        stderr_limit=_MAX_WORKER_STDERR,
                     ),
-                    stdin_text=dumps_json(request),
-                    stdout_limit=_MAX_WORKER_STDOUT,
-                    stderr_limit=_MAX_WORKER_STDERR,
-                ),
-                control,
-            ))
+                    control,
+                )
+            )
             if outcome.status is ProcessStatus.TIMED_OUT:
                 raise ResourceProcessTimeout(
                     "Resource conversion worker timed out",
@@ -197,22 +185,14 @@ class ResourceConversionService:
                 asset_prefix=asset_prefix,
                 settings=self._settings,
             )
-            writes = await operations.run(lambda: self._bundle_writes(
-                worker,
-                output_path=output_path,
-                target_link=str(target),
-                overwrite=overwrite,
-                expected_target_digest=expected_target_digest,
-                retention=source.retention,
-                owner_turn_id=owner_turn_id,
-            ))
-            observed = await workspace.inspect(source.link)
-            if observed.digest != source.digest:
-                raise ResourceProcessingError(
-                    "Workspace source changed during conversion",
-                    reason="source_changed",
-                    payload={"source_link": source.link},
+            writes = await operations.run(
+                lambda: self._bundle_writes(
+                    worker,
+                    output_path=output_path,
+                    target_link=str(target),
+                    overwrite=overwrite,
                 )
+            )
             new_links = {item.link for item in writes[1:]}
             stale_assets = (
                 tuple(link for link in current_assets if link not in new_links)
@@ -272,9 +252,6 @@ class ResourceConversionService:
         output_path: Path,
         target_link: str,
         overwrite: bool,
-        expected_target_digest: str,
-        retention: WorkspaceRetention,
-        owner_turn_id: str,
     ) -> tuple[WorkspaceBundleWrite, ...]:
         markdown_path = _worker_path(output_path, worker.markdown_file)
         try:
@@ -296,9 +273,6 @@ class ResourceConversionService:
                 link=target_link,
                 data=markdown,
                 overwrite=overwrite,
-                expected_digest=expected_target_digest,
-                retention=retention,
-                owner_turn_id=owner_turn_id,
             )
         ]
         total_asset_bytes = 0
@@ -322,8 +296,6 @@ class ResourceConversionService:
                     link=asset.link,
                     data=data,
                     overwrite=overwrite,
-                    retention=retention,
-                    owner_turn_id=owner_turn_id,
                 )
             )
         return tuple(writes)
@@ -356,24 +328,11 @@ class ResourceConversionService:
         source_link: str,
         target_link: str,
         overwrite: bool,
-        expected_source_digest: str,
-        expected_target_digest: str,
-        owner_turn_id: str,
     ) -> None:
         WorkspaceLink.parse(source_link)
         WorkspaceLink.parse(target_link)
         if not isinstance(overwrite, bool):
             raise ResourceContractError("Resource overwrite must be boolean")
-        if not isinstance(expected_source_digest, str) or not isinstance(
-            expected_target_digest, str
-        ):
-            raise ResourceContractError("Resource digest guards must be strings")
-        if expected_target_digest and not overwrite:
-            raise ResourceContractError(
-                "Expected target digest requires overwrite=true"
-            )
-        if not isinstance(owner_turn_id, str):
-            raise ResourceContractError("Resource owner turn id must be a string")
 
 
 def _asset_prefix(target: WorkspaceLink) -> str:
@@ -452,9 +411,7 @@ def _parse_worker_result(
     )
     asset_links = {asset.link for asset in assets}
     if any(link not in asset_links for link in visual):
-        raise ResourceWorkerProtocolError(
-            "Worker visual link is not a generated asset"
-        )
+        raise ResourceWorkerProtocolError("Worker visual link is not a generated asset")
     warnings = _bounded_strings(
         value.get("warning_codes"),
         limit=_MAX_WARNINGS,
@@ -483,9 +440,7 @@ def _worker_path(root: Path, relative: str) -> Path:
 def _required_string(value: Mapping[str, object], name: str) -> str:
     item = value.get(name)
     if not isinstance(item, str) or not item:
-        raise ResourceWorkerProtocolError(
-            f"Worker response field is invalid: {name}"
-        )
+        raise ResourceWorkerProtocolError(f"Worker response field is invalid: {name}")
     return item
 
 

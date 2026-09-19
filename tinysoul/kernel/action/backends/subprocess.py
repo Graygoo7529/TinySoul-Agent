@@ -6,10 +6,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
-from tinysoul.kernel.action.core.errors import ActionContractError
-from tinysoul.kernel.action.core.executor import ActionExecutionControl
+from tinysoul.kernel.action.errors import ActionContractError
+from tinysoul.kernel.action.execution.executor import ActionExecutionControl
 
-from .process import (
+from tinysoul.infra.process import (
     ManagedProcessRequest,
     ManagedProcessRunner,
     ManagedProcessStartError,
@@ -38,14 +38,14 @@ class ProcessRequest:
     stderr_limit: int = 4000
 
     def __post_init__(self) -> None:
-        if not self.argv or any(not isinstance(item, str) or not item for item in self.argv):
+        if not self.argv or any(
+            not isinstance(item, str) or not item for item in self.argv
+        ):
             raise ActionContractError("Process argv must contain non-empty strings")
         if self.cwd is not None and (not isinstance(self.cwd, str) or not self.cwd):
             raise ActionContractError("Process cwd must be a non-empty string or None")
         if self.env is not None and any(
-            not isinstance(key, str)
-            or not key
-            or not isinstance(value, str)
+            not isinstance(key, str) or not key or not isinstance(value, str)
             for key, value in self.env.items()
         ):
             raise ActionContractError("Process env must contain string keys and values")
@@ -114,10 +114,15 @@ class ControlledProcessRunner:
         except ManagedProcessStartError as exc:
             return ProcessOutcome(
                 status=ProcessStatus.START_FAILED,
-                error_type=type(exc.__cause__).__name__ if exc.__cause__ else type(exc).__name__,
+                error_type=(
+                    type(exc.__cause__).__name__
+                    if exc.__cause__
+                    else type(exc).__name__
+                ),
                 error_message=str(exc),
             )
         with handle:
+
             def terminate_on_cancel(_reason: str) -> None:
                 handle.terminate()
 

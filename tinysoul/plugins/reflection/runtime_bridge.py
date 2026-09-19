@@ -19,15 +19,14 @@ from tinysoul.runtime import (
 )
 from tinysoul.runtime.failures import exception_payload, runtime_exception
 
-
-MAINTENANCE_RUNTIME_REASON_MAP: dict[ReflectionFailureKind, str] = {
+REFLECTION_RUNTIME_REASON_MAP: dict[ReflectionFailureKind, str] = {
     ReflectionFailureKind.CONFIGURATION_FAILED: RUNTIME_STARTUP_FAILED,
     ReflectionFailureKind.CONTRACT_VIOLATION: RUNTIME_AGENT_END,
     ReflectionFailureKind.INVARIANT_VIOLATION: RUNTIME_AGENT_END,
 }
 
 
-MAINTENANCE_FAILURE_MESSAGES: dict[ReflectionFailureKind, str] = {
+REFLECTION_FAILURE_MESSAGES: dict[ReflectionFailureKind, str] = {
     ReflectionFailureKind.CONFIGURATION_FAILED: "Reflection configuration is invalid.",
     ReflectionFailureKind.CONTRACT_VIOLATION: "Reflection call violated its contract.",
     ReflectionFailureKind.INVARIANT_VIOLATION: "Reflection state violated an invariant.",
@@ -44,14 +43,14 @@ class ReflectionRuntimeBridge:
         payload: JsonObject | None = None,
     ) -> RuntimeException:
         return runtime_exception(
-            module="maintenance",
+            module="reflection",
             kind=kind,
-            reason=MAINTENANCE_RUNTIME_REASON_MAP[kind],
+            reason=REFLECTION_RUNTIME_REASON_MAP[kind],
             message=message,
             payload=payload,
         )
 
-    def from_maintenance_error(
+    def from_reflection_error(
         self,
         error: Exception,
         *,
@@ -64,7 +63,7 @@ class ReflectionRuntimeBridge:
             kind = ReflectionFailureKind.INVARIANT_VIOLATION
         return self.from_failure(
             kind,
-            message=MAINTENANCE_FAILURE_MESSAGES[kind],
+            message=REFLECTION_FAILURE_MESSAGES[kind],
             payload=exception_payload(error, payload),
         )
 
@@ -83,6 +82,8 @@ class ReflectionRuntimeBridge:
     def from_config_error(self, error: ConfigError) -> RuntimeException:
         return self.from_failure(
             ReflectionFailureKind.CONFIGURATION_FAILED,
-            message=MAINTENANCE_FAILURE_MESSAGES[ReflectionFailureKind.CONFIGURATION_FAILED],
+            message=REFLECTION_FAILURE_MESSAGES[
+                ReflectionFailureKind.CONFIGURATION_FAILED
+            ],
             payload=config_error_payload(error),
         )

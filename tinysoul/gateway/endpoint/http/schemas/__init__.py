@@ -6,7 +6,7 @@ from .configuration import (
     ConfigPatchRequest,
     ConfigSetMutationRequest,
 )
-from .maintenance import ReflectionRequest
+from .reflection import ReflectionRequest
 from .runtime import ControlRequest, InputRequest
 from .workspace import (
     WorkspaceRestoreRequest,

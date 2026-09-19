@@ -1,0 +1,28 @@
+name = "memory.write"
+domain = "memory"
+
+[tool]
+description = "Replace one entity/concept/fact/note Markdown document. Inspect or recall existing Memory first. YAML schema_version=2 requires kind, cite, status, created_on, updated_on, relations, evidence, redirect_to; fact also summary, note also title; confidence is optional. Relations reference entity/concept; evidence references daily/fact/note. References and redirect targets must already exist. Inactive documents retain migration text and a valid non-daily redirect."
+schema = { type = "object", properties = { memory_link = { type = "string" }, markdown = { type = "string" } }, required = ["memory_link", "markdown"], additionalProperties = false }
+
+[semantic]
+use_when = ["Relevant sources and existing owner content have been inspected"]
+effects = ["modifying"]
+
+[visibility]
+default = false
+[visibility.scenarios]
+memory_reflection = true
+
+[runtime]
+parallel_policy = "serial"
+
+[runtime.hooks]
+normalize = []
+execute = []
+
+[backend]
+kind = "native"
+handler = "memory.write"
+
+

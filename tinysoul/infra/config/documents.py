@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .errors import ConfigError
-from .toml_file import deep_copy_mapping
+from .sources.toml_file import deep_copy_mapping
 
 
 @dataclass(frozen=True)

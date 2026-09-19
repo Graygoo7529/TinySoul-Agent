@@ -16,7 +16,9 @@ from tinysoul.kernel.action import (
     ActionCatalogLoader,
 )
 from tinysoul.infra.json import JsonObject, to_json_object
-from tinysoul.agent.catalog import builtin_action_catalog_root
+from tests.support.catalog import builtin_action_catalog_root
+
+TEST_SCENARIOS = frozenset({"user", "home_reflection", "memory_reflection"})
 
 ActionFunction = Callable[[ActionExecution, ActionExecutionContext], JsonObject]
 
@@ -43,9 +45,11 @@ class FunctionActionExecutor:
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
-        payload = to_json_object(await context.owner_operations.run(
-            lambda: self._function(execution, context)
-        ))
+        payload = to_json_object(
+            await context.owner_operations.run(
+                lambda: self._function(execution, context)
+            )
+        )
         return ActionResult.success(
             call_id=execution.call.call_id,
             invoke_id=execution.framework.invoke_id,
@@ -60,6 +64,13 @@ class FunctionActionExecutor:
 class FunctionActionEngineBuilder(ActionEngineBuilder):
     """Keep fluent function registration confined to tests."""
 
-    def register_function(self, handler: str, function: ActionFunction) -> Self:
-        self.register_executor(handler, FunctionActionExecutor(function))
+    def __init__(self, catalog: ActionCatalog) -> None:
+        super().__init__(catalog, scenarios=TEST_SCENARIOS)
+
+    def register_function(
+        self, action_name: str, function: ActionFunction, *, handler: str | None = None
+    ) -> Self:
+        self.register_executor(
+            action_name, FunctionActionExecutor(function), handler=handler
+        )
         return self

@@ -1,0 +1,27 @@
+name = "home.diff"
+domain = "home"
+
+[tool]
+description = "Inspect pending effective Home changes. Omit paths to list Home Links; select paths to inspect bounded baseline and candidate details."
+schema = { type = "object", properties = { paths = { type = "array", items = { type = "string" } } }, required = [], additionalProperties = false }
+
+[semantic]
+use_when = ["Relevant sources and existing owner content have been inspected"]
+effects = ["read_only"]
+
+[visibility]
+default = false
+[visibility.scenarios]
+home_reflection = true
+
+[runtime]
+parallel_policy = "serial"
+
+[runtime.hooks]
+normalize = []
+execute = []
+
+[backend]
+kind = "native"
+handler = "home.diff"
+

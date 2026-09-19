@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
-from tinysoul.agent.assembly import AgentAssembly
-from tinysoul.agent.outputs import ObservationRoute
+from tinysoul.agent.composition.assembly import AgentAssembly
+from tinysoul.agent.observation.outputs import ObservationRoute
 from tinysoul.runtime import ObservationLevel
 
 from tinysoul.infra.json import JsonObject
@@ -29,7 +29,8 @@ def mount_endpoint(
     journal = None
     if settings.journal_enabled:
         journal = EndpointEventJournal(
-            settings.journal_root or (assembly.project_root / "runtime" / "endpoint" / "events"),
+            settings.journal_root
+            or (assembly.project_root / "runtime" / "endpoint" / "events"),
             max_segment_bytes=settings.journal_segment_bytes,
             max_total_bytes=settings.journal_total_bytes,
         )
@@ -47,7 +48,9 @@ def mount_endpoint(
         config=assembly.configuration,
     )
     assembly.mount_service(EndpointHost(engine=engine, settings=settings, ready=ready))
-    assembly.observations.add_route(ObservationRoute(sink=events, mode=ObservationLevel.MODEL))
+    assembly.observations.add_route(
+        ObservationRoute(sink=events, mode=ObservationLevel.MODEL)
+    )
     return engine
 
 

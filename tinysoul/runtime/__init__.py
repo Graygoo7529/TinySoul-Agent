@@ -1,20 +1,20 @@
 """TinySoul runtime control primitives."""
 
-from .exception import (
+from .control.exception import (
     RUNTIME_CYCLE_END,
     RUNTIME_AGENT_END,
     RUNTIME_STARTUP_FAILED,
     RUNTIME_TURN_END,
     RuntimeException,
 )
-from .frame_runner import RuntimeModuleRunner, RuntimeTransferInterrupt
+from .control.frame_runner import RuntimeModuleRunner, RuntimeTransferInterrupt
 from .errors import (
     RuntimeContractError,
     RuntimeGatewayError,
     RuntimeInvariantError,
     RuntimeModuleError,
 )
-from .scope import CyclePhase, RunFrame, RunLevel, RunScope
+from .control.scope import CyclePhase, RunFrame, RunLevel, RunScope
 from .observation import (
     NullObservationEmitter,
     ObservationEmitter,
@@ -23,10 +23,17 @@ from .observation import (
     emit_observation,
     observation_enabled,
 )
-from .transfer import RuntimeTransfer, RuntimeTransferAction
+from .control.transfer import RuntimeTransfer, RuntimeTransferAction
 from .trap import TrapHandler, TrapHandlerRegistry, TrapResult, TrapSnap, RuntimeTrap
 from .signals import Signal, SignalBus
-from .events import EnvironmentEvent, EventBus, EventCapacityError, EventKind, EventProtocolError, EventReceipt
+from .events import (
+    EnvironmentEvent,
+    EventBus,
+    EventCapacityError,
+    EventKind,
+    EventProtocolError,
+    EventReceipt,
+)
 from .generation import (
     RuntimeActivationState,
     RuntimeActivity,

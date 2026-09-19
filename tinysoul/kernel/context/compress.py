@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .errors import ContextInvariantError
-from .trace import TraceCompactionReport, TurnTraceHeap
+from .builtin.trace import TraceCompactionReport, TurnTraceHeap
 
 
 @dataclass(frozen=True)

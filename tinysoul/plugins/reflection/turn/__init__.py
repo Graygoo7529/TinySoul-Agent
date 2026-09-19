@@ -1,9 +1,9 @@
 """Reflection Turn policy, preparation, prompts, completion, and outcomes."""
 
 from .entry import ReflectionTurnEntry
-from .prompts import maintenance_turn_guidance
-from .runtime import ReflectionContextPressureRecovery, build_maintenance_turn_trap
-from tinysoul.kernel.loop.preparation import (
+from .prompts import reflection_turn_guidance
+from .runtime import ReflectionContextPressureRecovery, build_reflection_turn_trap
+from tinysoul.kernel.loop.lifecycle.preparation import (
     TurnPreparationHandler,
     TurnPreparationPipeline,
     TurnPreparationRequest,
@@ -15,6 +15,6 @@ __all__ = [
     "TurnPreparationHandler",
     "TurnPreparationPipeline",
     "TurnPreparationRequest",
-    "build_maintenance_turn_trap",
-    "maintenance_turn_guidance",
+    "build_reflection_turn_trap",
+    "reflection_turn_guidance",
 ]

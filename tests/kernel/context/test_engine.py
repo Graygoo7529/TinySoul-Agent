@@ -36,13 +36,23 @@ from tinysoul.kernel.context import (
 )
 from tinysoul.kernel.context.background import heap_segment_registration
 from tinysoul.kernel.context.providers import BackgroundEntryProvider
-from tinysoul.kernel.context.segments import SegmentCapability, SegmentDescriptor, SegmentShape, SegmentSlot
-from tinysoul.kernel.context.trace import SealedTurnTrace, TraceKind
+from tinysoul.kernel.context.segments import (
+    SegmentCapability,
+    SegmentDescriptor,
+    SegmentShape,
+    SegmentSlot,
+)
+from tinysoul.kernel.context.builtin.trace import SealedTurnTrace, TraceKind
 from tinysoul.kernel.context.signals import build_working_patch_signal
-from tinysoul.kernel.context.working import WorkingPatch
-from tinysoul.llm.messages import AssistantMessage, JsonPart, TextPart, ToolResultMessage
-from tinysoul.llm.reasoning import Reasoning
-from tinysoul.llm.tools import ToolCallRecord, ToolKind
+from tinysoul.kernel.context.builtin.working import WorkingPatch
+from tinysoul.llm.protocol.messages import (
+    AssistantMessage,
+    JsonPart,
+    TextPart,
+    ToolResultMessage,
+)
+from tinysoul.llm.protocol.reasoning import Reasoning
+from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind
 from tinysoul.runtime import (
     CyclePhase,
     ObservationEvent,
@@ -64,6 +74,7 @@ class RecordingObservations:
     def emit(self, event: ObservationEvent) -> None:
         self.events.append(event)
 
+
 def _scope(turn_id: str) -> RunScope:
     return (
         RunScope()
@@ -75,14 +86,19 @@ def _scope(turn_id: str) -> RunScope:
 
 @dataclass
 class TextSource:
-    texts: dict[str, str] = field(default_factory=lambda: {
-        "home:agent@AGENT": "core rules", "home:skills@x": "entity x",
-    })
+    texts: dict[str, str] = field(
+        default_factory=lambda: {
+            "home:agent@AGENT": "core rules",
+            "home:skills@x": "entity x",
+        }
+    )
 
     async def catalog(self, business_day: date) -> BackgroundCatalog:
         return BackgroundCatalog(
-            owner="home", default_links=("home:agent@AGENT",),
-            loadable_links=tuple(self.texts), evictable_default_links=("home:agent@AGENT",),
+            owner="home",
+            default_links=("home:agent@AGENT",),
+            loadable_links=tuple(self.texts),
+            evictable_default_links=("home:agent@AGENT",),
         )
 
     async def load(self, link: str, business_day: date) -> str:
@@ -91,8 +107,18 @@ class TextSource:
 
 def _registration(source: BackgroundEntryProvider):
     return heap_segment_registration(
-        SegmentDescriptor("home", "home", SegmentSlot.BACKGROUND, 40, shape=SegmentShape.HEAP, capabilities=frozenset({SegmentCapability.SELECT, SegmentCapability.RECLAIM})),
-        source, signal_name="context.home.update",
+        SegmentDescriptor(
+            "home",
+            "home",
+            SegmentSlot.BACKGROUND,
+            40,
+            shape=SegmentShape.HEAP,
+            capabilities=frozenset(
+                {SegmentCapability.SELECT, SegmentCapability.RECLAIM}
+            ),
+        ),
+        source,
+        signal_name="context.home.update",
     )
 
 
@@ -113,19 +139,30 @@ def _prompt(text: str = "next") -> TaskPrompt:
     )
 
 
-async def test_background_prepare_failure_installs_neither_catalog_nor_entries() -> None:
+async def test_background_prepare_failure_installs_neither_catalog_nor_entries() -> (
+    None
+):
     class Provider:
         async def catalog(self, business_day: date) -> BackgroundCatalog:
             return BackgroundCatalog(
-                owner="home", loadable_links=("home:agent@AGENT",),
+                owner="home",
+                loadable_links=("home:agent@AGENT",),
                 default_links=("home:agent@AGENT",),
-                items=(BackgroundCatalogItem(link="home:agent@AGENT", title="Rules", description="Rules"),),
+                items=(
+                    BackgroundCatalogItem(
+                        link="home:agent@AGENT", title="Rules", description="Rules"
+                    ),
+                ),
             )
 
         async def load(self, link: str, business_day: date) -> str:
             return ""  # A broken owner response after the catalog was prepared.
 
-    engine = ContextEngineBuilder(system_text="sys").with_segment(_registration(Provider())).build()
+    engine = (
+        ContextEngineBuilder(system_text="sys")
+        .with_segment(_registration(Provider()))
+        .build()
+    )
     engine.begin_turn("question")
     with pytest.raises(ContextInvariantError, match="content must be non-empty"):
         await engine.open_segments(date(2026, 9, 15))
@@ -134,7 +171,9 @@ async def test_background_prepare_failure_installs_neither_catalog_nor_entries()
     assert engine.background_links() == ()
 
 
-async def test_cancelled_background_prepare_joins_read_without_installing_view() -> None:
+async def test_cancelled_background_prepare_joins_read_without_installing_view() -> (
+    None
+):
     entered = asyncio.Event()
     release = Event()
     loop = asyncio.get_running_loop()
@@ -142,7 +181,8 @@ async def test_cancelled_background_prepare_joins_read_without_installing_view()
     class Provider:
         async def catalog(self, business_day: date) -> BackgroundCatalog:
             return BackgroundCatalog(
-                owner="home", loadable_links=("home:agent@AGENT",),
+                owner="home",
+                loadable_links=("home:agent@AGENT",),
                 default_links=("home:agent@AGENT",),
             )
 
@@ -153,7 +193,11 @@ async def test_cancelled_background_prepare_joins_read_without_installing_view()
             operations.check_cancelled()
             return "Rules"
 
-    engine = ContextEngineBuilder(system_text="sys").with_segment(_registration(Provider())).build()
+    engine = (
+        ContextEngineBuilder(system_text="sys")
+        .with_segment(_registration(Provider()))
+        .build()
+    )
     engine.begin_turn("question")
     preparing = asyncio.create_task(engine.open_segments(date(2026, 9, 15)))
     try:
@@ -178,7 +222,9 @@ async def test_background_batch_retry_keeps_new_input_outside_prepared_batch() -
         calls = 0
 
         async def catalog(self, business_day: date) -> BackgroundCatalog:
-            return BackgroundCatalog(owner="home", loadable_links=("home:skills@guide",))
+            return BackgroundCatalog(
+                owner="home", loadable_links=("home:skills@guide",)
+            )
 
         async def load(self, link: str, business_day: date) -> str:
             self.calls += 1
@@ -191,21 +237,32 @@ async def test_background_batch_retry_keeps_new_input_outside_prepared_batch() -
             return "Loaded details"
 
     loader = Loader()
-    engine = ContextEngineBuilder(system_text="sys").with_segment(_registration(loader)).build()
+    engine = (
+        ContextEngineBuilder(system_text="sys")
+        .with_segment(_registration(loader))
+        .build()
+    )
     turn_id = engine.begin_turn("question")
     await engine.open_segments(date(2026, 7, 14))
     scope = _scope(turn_id)
     bus = SignalBus()
-    normalized = engine.normalize_controls((
-        ToolCallRecord(
-            id="milestone", name=CONTROL_SET_MILESTONE,
-            arguments={"key": "m", "content": "Prepared fact"}, kind=ToolKind.CONTROL,
+    normalized = engine.normalize_controls(
+        (
+            ToolCallRecord(
+                id="milestone",
+                name=CONTROL_SET_MILESTONE,
+                arguments={"key": "m", "content": "Prepared fact"},
+                kind=ToolKind.CONTROL,
+            ),
+            ToolCallRecord(
+                id="background",
+                name=CONTROL_LOAD_BACKGROUND,
+                arguments={"links": ["home:skills@guide"]},
+                kind=ToolKind.CONTROL,
+            ),
         ),
-        ToolCallRecord(
-            id="background", name=CONTROL_LOAD_BACKGROUND,
-            arguments={"links": ["home:skills@guide"]}, kind=ToolKind.CONTROL,
-        ),
-    ), scope=scope)
+        scope=scope,
+    )
     assert not normalized.results
     for signal in normalized.signals:
         bus.emit(signal)
@@ -228,7 +285,10 @@ async def test_background_batch_retry_keeps_new_input_outside_prepared_batch() -
     assert bus.peek() == (pending,)
     assert loader.calls == 2
     assert await engine.consume_signals(bus) == ()
-    assert [item.text for item in engine.end_turn().inputs] == ["question", "later input"]
+    assert [item.text for item in engine.end_turn().inputs] == [
+        "question",
+        "later input",
+    ]
 
 
 async def test_turn_lifecycle_and_compose() -> None:
@@ -455,9 +515,14 @@ async def test_consume_signal_results_preserve_signal_order() -> None:
             },
         )
     )
-    bus.emit(build_working_patch_signal(
-        WorkingPatch(remove_todos=("missing",)), call_id="working_second", scope=scope, source="test",
-    ))
+    bus.emit(
+        build_working_patch_signal(
+            WorkingPatch(remove_todos=("missing",)),
+            call_id="working_second",
+            scope=scope,
+            source="test",
+        )
+    )
 
     results = await engine.consume_signals(bus)
 
@@ -596,14 +661,18 @@ async def test_home_background_is_rebuilt_for_each_user_turn() -> None:
     assert engine.background_links() == ("home:agent@AGENT",)
 
 
-
-
 async def test_context_observes_committed_background_selection() -> None:
     observations = RecordingObservations()
     engine = (
         ContextEngineBuilder(system_text="sys")
         .with_observations(observations)
-        .with_segment(_registration(TextSource({"home:agent@AGENT": "core rules", "home:skills@x": "concept body"})))
+        .with_segment(
+            _registration(
+                TextSource(
+                    {"home:agent@AGENT": "core rules", "home:skills@x": "concept body"}
+                )
+            )
+        )
         .build()
     )
     scope = _scope(engine.begin_turn("hi"))
@@ -669,7 +738,7 @@ async def test_consume_trace_and_input_signals() -> None:
                 JsonPart({"hint": "scan first"}),
                 reasoning=Reasoning(content="private trace", summary="scan plan"),
                 tool_calls=(
-                    ToolCallRecord(id="a1", name="workspace.scan", arguments={}),
+                    ToolCallRecord(id="a1", name="workspace.list", arguments={}),
                 ),
                 label="decision",
             ),
@@ -683,7 +752,7 @@ async def test_consume_trace_and_input_signals() -> None:
         build_trace_action_result_signal(
             ToolResultMessage.from_json(
                 call_id="a1",
-                tool_name="workspace.scan",
+                tool_name="workspace.list",
                 value={"status": "success"},
             ),
             scope=scope,
@@ -700,9 +769,11 @@ async def test_consume_trace_and_input_signals() -> None:
             phase=CyclePhase.PHASE2,
         )
     )
-    bus.emit(build_input_append_signal("also do this", scope=scope, source="app.inputs"))
+    bus.emit(
+        build_input_append_signal("also do this", scope=scope, source="agent.inputs")
+    )
     # Non-context signals stay queued for other consumers.
-    bus.emit(Signal(name="loop.control.request", source="app.inputs", scope=scope))
+    bus.emit(Signal(name="loop.control.request", source="agent.inputs", scope=scope))
 
     results = await engine.consume_signals(bus)
     assert results == ()
@@ -713,7 +784,9 @@ async def test_consume_trace_and_input_signals() -> None:
     )
     assert len(bus) == 1
     stack = engine.compose(_prompt("next"))
-    decision = next(message for message in stack.messages if message.label == "decision")
+    decision = next(
+        message for message in stack.messages if message.label == "decision"
+    )
     assert isinstance(decision, AssistantMessage)
     assert isinstance(decision.parts[1], JsonPart)
     assert decision.reasoning is not None
@@ -844,24 +917,36 @@ async def test_provider_catalog_metadata_is_automatic_background() -> None:
 
 async def test_heap_refresh_replaces_loaded_content_and_catalog_atomically() -> None:
     source = TextSource()
-    engine = ContextEngineBuilder(system_text="identity").with_segment(_registration(source)).build()
+    engine = (
+        ContextEngineBuilder(system_text="identity")
+        .with_segment(_registration(source))
+        .build()
+    )
     turn = engine.begin_turn("update")
     await engine.open_segments(date(2026, 7, 14))
     source.texts["home:agent@AGENT"] = "new rules"
     source.texts["home:skills@new"] = "new skill"
     bus = SignalBus()
-    bus.emit(Signal(
-        name="context.home.update", source="home.action", scope=_scope(turn),
-        payload={"refresh": True},
-    ))
+    bus.emit(
+        Signal(
+            name="context.home.update",
+            source="home.action",
+            scope=_scope(turn),
+            payload={"refresh": True},
+        )
+    )
     assert "new rules" not in str(engine.compose(_prompt()).messages)
     await engine.consume_signals(bus)
     assert "new rules" in str(engine.compose(_prompt()).messages)
     assert "new skill" not in str(engine.compose(_prompt()).messages)
-    bus.emit(Signal(
-        name=SIGNAL_BACKGROUND_PATCH, source="test", scope=_scope(turn),
-        payload={"call_id": "load_new", "load_links": ["home:skills@new"]},
-    ))
+    bus.emit(
+        Signal(
+            name=SIGNAL_BACKGROUND_PATCH,
+            source="test",
+            scope=_scope(turn),
+            payload={"call_id": "load_new", "load_links": ["home:skills@new"]},
+        )
+    )
     assert await engine.consume_signals(bus) == ()
     assert "new skill" in str(engine.compose(_prompt()).messages)
     await engine.close_segments()

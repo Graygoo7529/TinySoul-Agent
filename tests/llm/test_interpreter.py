@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from tinysoul.llm.responses import (
+from tinysoul.llm.protocol.responses import (
     JsonAnswer,
     RawResponse,
     AnswerFormat,
@@ -10,7 +10,14 @@ from tinysoul.llm.responses import (
     ResponseInterpreter,
     TextAnswer,
 )
-from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolScope, ToolSelection, ToolSpec, ToolUse
+from tinysoul.llm.protocol.tools import (
+    ToolCallRecord,
+    ToolKind,
+    ToolScope,
+    ToolSelection,
+    ToolSpec,
+    ToolUse,
+)
 
 
 def test_interpreter_extracts_json_object_from_fenced_text() -> None:
@@ -103,9 +110,7 @@ def test_interpreter_rejects_tool_calls_when_disabled() -> None:
         answer_text="",
         model_id="model-a",
         provider_id="provider-a",
-        tool_calls=(
-            ToolCallRecord(id="call_1", name="read_file", arguments={}),
-        ),
+        tool_calls=(ToolCallRecord(id="call_1", name="read_file", arguments={}),),
     )
 
     with pytest.raises(ResponseInterpretError):
@@ -236,9 +241,7 @@ def test_interpreter_rejects_missing_forced_tool_call() -> None:
         answer_text="",
         model_id="model-a",
         provider_id="provider-a",
-        tool_calls=(
-            ToolCallRecord(id="call_1", name="write_file", arguments={}),
-        ),
+        tool_calls=(ToolCallRecord(id="call_1", name="write_file", arguments={}),),
     )
     tool_scope = ToolScope(
         tools=(_tool("read_file"), _tool("write_file")),
@@ -259,9 +262,7 @@ def test_interpreter_rejects_unexpected_tool_call() -> None:
         answer_text="",
         model_id="model-a",
         provider_id="provider-a",
-        tool_calls=(
-            ToolCallRecord(id="call_1", name="write_file", arguments={}),
-        ),
+        tool_calls=(ToolCallRecord(id="call_1", name="write_file", arguments={}),),
     )
 
     with pytest.raises(ResponseInterpretError):

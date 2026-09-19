@@ -1,5 +1,7 @@
 # Context 设计
 
+内部 segments 区分段协议、注册声明与活动集合；builtin 提供内核自有 Inputs/Trace/Working，projection 负责组合与引用路由，control 负责模型侧控制意图。外部段由所属插件维护，目录分层不改变 ContextEngine 的单一消费入口。
+
 ## 定位
 
 Context 拥有一个活动 Turn 的模型语境。内核维护 User Inputs、plan 与 TurnTraceHeap；Workspace 与 Session 通过独立注册段维护本轮资源投影和固定历史视图。Home/Memory 的目录、加载视图和刷新也属于各自的 Heap 段。Context 不拥有跨 Turn 历史、Workspace 文件、Home 内容或 Memory 文件。
@@ -22,7 +24,7 @@ Composer 只接收带段描述的消息投影，按 Background → Trace → Wor
 
 Session provider 在段 open 时读取历史视图，在该 Turn 内固定且不可逐出。通用 Background 每 Turn 重建；默认 Home 条目、按需加载的 Top Link 和 Memory 动态投影都属于当前 Turn。User/Home Reflection 装配不可逐出的 `memory:current + optional memory:latest`，Memory Reflection 装配不可逐出的 `memory:target + optional memory:latest`；latest 是严格早于 Context Business Day 的最近 daily，缺失时省略。Background catalog 只提供有界 Link、title 和 description，不等同于已加载正文。
 
-WorkingContext 维护 plan，只向模型呈现 milestones 与 todos，不持有 Workspace 快照。Milestone 是少量、可复用的事实寄存器：可以记录有价值的完成、尝试、失败、阻塞、测量值、决定、来源 Link、版本/digest 或局部成果，供后续 Cycle 防止遗忘；它不是 todo 的镜像、进度徽章或对模型的自我确认。失败或仅尝试过的工作必须明确记录其状态，不能登记为完成事实。Workspace 段只呈现 resource Link/summary；revision 等 owner 一致性字段不进入模型投影。
+WorkingContext 维护 plan，只向模型呈现 milestones 与 todos，不持有 Workspace 快照。Milestone 是少量、可复用的事实寄存器：可以记录有价值的完成、尝试、失败、阻塞、测量值、决定、来源 Link、版本/digest 或局部成果，供后续 Cycle 防止遗忘；它不是 todo 的镜像、进度徽章或对模型的自我确认。失败或仅尝试过的工作必须明确记录其状态，不能登记为完成事实。Workspace 段只呈现 resource Link/summary；Workspace 不保存 revision 或内容 CAS；Session 的 continuation 等有消费者的独立协议仍由各自 owner 解释。
 
 Context 更新从 SignalBus 捕获当前 Turn 的固定批次；解析、候选校验、背景读取和注册段的 prepare 全部结束后才安装。准备入口和批次消费均为 async；短背景读取使用 joined owner 操作，取消时等待读取结束且不安装候选。默认背景的 catalog、provider 索引和正文也先完整准备，再一起安装，不在加载失败前暴露部分新目录。恢复信号以独立固定批次由内核提交，不从 Trap handler 直接修改视图。Home 顶层变更和活动 Memory 写入先提交 owner，再通知本轮段刷新；刷新只替换本轮目录与已加载内容，不自动内联新资源。
 
@@ -65,7 +67,7 @@ TurnTraceHeap 是当前 Turn 的 append-only 运行事实：
 
 `end_turn()` 产生 typed immutable `ContextTurnCompletion`，包含 Turn identity、有序输入文本与接收时间、plan 终态、Background links、按 id 标识的段快照和 `SealedTurnTrace`。Sealed trace 保存 turn id、有序 canonical entries 及类型化 Action 执行事实，不携带 heap topology。
 
-该对象只在 Loop completion pipeline 中传递。Session 在自己的提交边界直接投影类型化 Action 事实及 Turn 终态为 v8 业务记录，保留段快照，不从模型消息猜测 call/result 配对；Context 不生成持久 `TurnSummary`、trace digest 或 JSON canonical trace。Session 提交后也不保留当前 Turn trace。
+该对象只在 Loop completion pipeline 中传递。Session 在自己的提交边界直接投影类型化 Action 事实及 Turn 终态为 v9 业务记录，保留段快照，不从模型消息猜测 call/result 配对；Context 不生成持久 `TurnSummary`、trace digest 或 JSON canonical trace。Session 提交后也不保留当前 Turn trace。
 
 ## 失败边界
 

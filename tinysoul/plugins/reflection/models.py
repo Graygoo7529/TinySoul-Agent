@@ -81,9 +81,16 @@ class ReflectionRequest:
         if not isinstance(self.source, str):
             raise ReflectionContractError("Reflection request source must be text")
         if not isinstance(self.instructions, str) or len(self.instructions) > 16000:
-            raise ReflectionContractError("Reflection instructions must be text of at most 16000 characters")
-        if self.trigger is ReflectionTrigger.MANUAL and self.scope is ReflectionScope.DAILY:
-            raise ReflectionContractError("Manual Reflection must select Home or one closed Memory day")
+            raise ReflectionContractError(
+                "Reflection instructions must be text of at most 16000 characters"
+            )
+        if (
+            self.trigger is ReflectionTrigger.MANUAL
+            and self.scope is ReflectionScope.DAILY
+        ):
+            raise ReflectionContractError(
+                "Manual Reflection must select Home or one closed Memory day"
+            )
         if not isinstance(self.request_id, str) or not self.request_id.strip():
             raise ReflectionContractError("Reflection request_id must be non-empty")
         object.__setattr__(self, "request_id", self.request_id.strip())
@@ -121,7 +128,9 @@ class ReflectionTaskOutcome:
             raise ReflectionContractError("Reflection task target_day is invalid")
         if not isinstance(self.reason, str):
             raise ReflectionContractError("Reflection task reason must be text")
-        if self.turn_outcome is not None and not isinstance(self.turn_outcome, TurnOutcome):
+        if self.turn_outcome is not None and not isinstance(
+            self.turn_outcome, TurnOutcome
+        ):
             raise ReflectionContractError("Reflection task Turn outcome is invalid")
         object.__setattr__(self, "details", to_json_object(self.details))
 
@@ -141,7 +150,9 @@ class ReflectionTaskOutcome:
                 "status": turn.status.value,
                 "completion": turn.completion,
                 "failure": turn.failure.to_json() if turn.failure is not None else None,
-                "finish_failures": [failure.to_json() for failure in turn.finish_failures],
+                "finish_failures": [
+                    failure.to_json() for failure in turn.finish_failures
+                ],
                 "cleanup": [
                     {"resource": item.resource, "error_type": item.error_type}
                     for item in turn.cleanup_diagnostics
@@ -151,8 +162,12 @@ class ReflectionTaskOutcome:
 
     @classmethod
     def from_turn(
-        cls, kind: ReflectionTaskKind, outcome: TurnOutcome, *,
-        target_day: CalendarDay | None = None, details: JsonObject | None = None,
+        cls,
+        kind: ReflectionTaskKind,
+        outcome: TurnOutcome,
+        *,
+        target_day: CalendarDay | None = None,
+        details: JsonObject | None = None,
     ) -> ReflectionTaskOutcome:
         statuses = {
             TurnOutcomeStatus.COMPLETED: ReflectionTaskStatus.COMPLETED,
@@ -165,8 +180,11 @@ class ReflectionTaskOutcome:
         if outcome.status not in statuses:
             raise ReflectionContractError("Unexpected Reflection Turn outcome")
         return cls(
-            kind=kind, status=statuses[outcome.status], target_day=target_day,
-            details=details or {}, turn_outcome=outcome,
+            kind=kind,
+            status=statuses[outcome.status],
+            target_day=target_day,
+            details=details or {},
+            turn_outcome=outcome,
         )
 
 
@@ -211,10 +229,15 @@ class ReflectionAvailability:
     home_change_count: int = 0
     home_skill_memory_count: int = 0
     memory_days: tuple[CalendarDay, ...] = field(default_factory=tuple)
+    missing_daily_days: tuple[CalendarDay, ...] = field(default_factory=tuple)
+    next_before: CalendarDay | None = None
+    scanned_days: int = 0
 
     def __post_init__(self) -> None:
         if not isinstance(self.checked_day, CalendarDay):
-            raise ReflectionContractError("Reflection availability checked day is invalid")
+            raise ReflectionContractError(
+                "Reflection availability checked day is invalid"
+            )
         for value in (self.home_change_count, self.home_skill_memory_count):
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ReflectionContractError(
@@ -225,6 +248,25 @@ class ReflectionAvailability:
         if len(self.memory_days) != len(set(self.memory_days)):
             raise ReflectionContractError("Reflection availability days must be unique")
         object.__setattr__(self, "memory_days", tuple(sorted(self.memory_days)))
+        if len(self.missing_daily_days) != len(set(self.missing_daily_days)) or not set(
+            self.missing_daily_days
+        ).issubset(self.memory_days):
+            raise ReflectionContractError(
+                "Missing daily days must be unique eligible days"
+            )
+        object.__setattr__(
+            self, "missing_daily_days", tuple(sorted(self.missing_daily_days))
+        )
+        if self.next_before is not None and not isinstance(
+            self.next_before, CalendarDay
+        ):
+            raise ReflectionContractError(
+                "Reflection availability continuation must be a day"
+            )
+        if type(self.scanned_days) is not int or self.scanned_days < 0:
+            raise ReflectionContractError(
+                "Reflection availability scan count is invalid"
+            )
 
     @property
     def home_pending(self) -> bool:
@@ -246,4 +288,9 @@ class ReflectionAvailability:
             "home_skill_memory_count": self.home_skill_memory_count,
             "memory_pending": self.memory_pending,
             "memory_days": [str(day) for day in self.memory_days],
+            "missing_daily_days": [str(day) for day in self.missing_daily_days],
+            "next_before": (
+                str(self.next_before) if self.next_before is not None else None
+            ),
+            "scanned_days": self.scanned_days,
         }

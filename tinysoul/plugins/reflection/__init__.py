@@ -1,13 +1,12 @@
-"""Daily archive lifecycle and autonomous maintenance orchestration."""
+"""Daily archive lifecycle and autonomous reflection orchestration."""
 
 from __future__ import annotations
 
 from .config import (
     ReflectionScheduleSettings,
     ReflectionSettings,
-    parse_maintenance_settings,
+    parse_reflection_settings,
 )
-from .availability import ReflectionAvailabilityStore
 from .builder import ReflectionBuilder
 from .errors import (
     ReflectionContractError,
@@ -34,7 +33,6 @@ from .engine import ReflectionEngine
 
 __all__ = [
     "ReflectionAvailability",
-    "ReflectionAvailabilityStore",
     "ReflectionBuilder",
     "ReflectionContractError",
     "ReflectionEngine",
@@ -54,5 +52,5 @@ __all__ = [
     "ReflectionTaskOutcome",
     "ReflectionTaskStatus",
     "ReflectionTrigger",
-    "parse_maintenance_settings",
+    "parse_reflection_settings",
 ]

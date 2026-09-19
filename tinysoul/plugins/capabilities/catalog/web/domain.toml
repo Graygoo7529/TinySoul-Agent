@@ -1,8 +1,0 @@
-name = "web"
-description = "Search the public Web and extract readable pages into Workspace Markdown."
-selection_hint = "Use for current public information, source discovery, or a readable local copy of a public Web page."
-
-[runtime]
-enabled = true
-timeout_seconds = 120
-parallel_policy = "serial"

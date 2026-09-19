@@ -8,7 +8,7 @@ from tinysoul.kernel.action import (
     ActionExecutionContext,
     ActionFramework,
 )
-from tinysoul.kernel.action.core.loader import ActionCatalogLoader
+from tinysoul.kernel.action.catalog.loader import ActionCatalogLoader
 from tinysoul.kernel.context import ContextEngineBuilder, build_trace_phase_note_signal
 from tinysoul.kernel.context.actions import ContextInspectExecutor
 from tinysoul.runtime import RunLevel, RunScope, SignalBus
@@ -47,9 +47,7 @@ async def test_context_inspect_continuation_is_visible_only() -> None:
     ref = root["ref"]
     assert isinstance(ref, str)
 
-    action = builtin_catalog().get_action(
-        "core.context.inspect"
-    )
+    action = builtin_catalog().get_action("core.context.inspect")
     result = await ContextInspectExecutor(
         context,
         runtime_bridge=RuntimeContextBridge(),
@@ -75,4 +73,6 @@ async def test_context_inspect_continuation_is_visible_only() -> None:
     assert "next_continuation" in result.payload
     assert result.trace_projection is not None
     assert "next_continuation" not in result.trace_projection.canonical_payload
+
+
 from tests.action_helpers import builtin_catalog

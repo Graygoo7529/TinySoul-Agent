@@ -14,18 +14,15 @@ from tinysoul.plugins.workspace.errors import (
     WorkspaceInvariantError,
     WorkspaceIOError,
     WorkspaceReconciliationError,
-    WorkspaceTrashRestoreRequired,
 )
 from tinysoul.plugins.workspace.failures import (
     WorkspaceFailureKind,
-    WORKSPACE_TRASH_RESTORE_REQUIRED,
 )
 
 WORKSPACE_RUNTIME_REASON_MAP: dict[WorkspaceFailureKind, str] = {
     WorkspaceFailureKind.CONFIGURATION_FAILED: RUNTIME_STARTUP_FAILED,
     WorkspaceFailureKind.CONTRACT_VIOLATION: RUNTIME_TURN_END,
     WorkspaceFailureKind.IO_FAILED: RUNTIME_TURN_END,
-    WorkspaceFailureKind.TRASH_RESTORE_REQUIRED: WORKSPACE_TRASH_RESTORE_REQUIRED,
     WorkspaceFailureKind.INTERNAL_FAILURE: RUNTIME_TURN_END,
 }
 
@@ -34,7 +31,6 @@ WORKSPACE_FAILURE_MESSAGES: dict[WorkspaceFailureKind, str] = {
     WorkspaceFailureKind.CONFIGURATION_FAILED: "Workspace configuration is invalid.",
     WorkspaceFailureKind.CONTRACT_VIOLATION: "Workspace call violated its contract.",
     WorkspaceFailureKind.IO_FAILED: "Workspace storage operation failed.",
-    WorkspaceFailureKind.TRASH_RESTORE_REQUIRED: "Workspace resource must be restored from Trash.",
     WorkspaceFailureKind.INTERNAL_FAILURE: "Workspace operation failed internally.",
 }
 
@@ -78,30 +74,16 @@ class RuntimeWorkspaceBridge:
         payload: JsonObject | None = None,
     ) -> RuntimeException:
         kind = WorkspaceFailureKind.INTERNAL_FAILURE
-        if isinstance(error, WorkspaceTrashRestoreRequired):
-            return self.trash_restore_required(
-                link=error.link,
-                trash_ref=error.trash_ref,
-            )
         if isinstance(error, WorkspaceContractError):
             kind = WorkspaceFailureKind.CONTRACT_VIOLATION
         elif isinstance(error, WorkspaceInvariantError):
             kind = WorkspaceFailureKind.INTERNAL_FAILURE
         elif isinstance(error, (WorkspaceIOError, WorkspaceReconciliationError)):
             kind = WorkspaceFailureKind.IO_FAILED
-        return self.from_exception(kind, error, payload=payload)
-
-    def trash_restore_required(
-        self,
-        *,
-        link: str,
-        trash_ref: str,
-    ) -> RuntimeException:
-        return self.from_failure(
-            WorkspaceFailureKind.TRASH_RESTORE_REQUIRED,
-            message="Workspace resource must be restored from Trash.",
-            payload={"link": link, "trash_ref": trash_ref},
-        )
+        facts = dict(payload or {})
+        if isinstance(error, WorkspaceIOError) and error.committed_links:
+            facts["committed_links"] = list(error.committed_links)
+        return self.from_exception(kind, error, payload=facts)
 
     def startup_failure(
         self,
@@ -118,6 +100,8 @@ class RuntimeWorkspaceBridge:
     def from_config_error(self, error: ConfigError) -> RuntimeException:
         return self.from_failure(
             WorkspaceFailureKind.CONFIGURATION_FAILED,
-            message=WORKSPACE_FAILURE_MESSAGES[WorkspaceFailureKind.CONFIGURATION_FAILED],
+            message=WORKSPACE_FAILURE_MESSAGES[
+                WorkspaceFailureKind.CONFIGURATION_FAILED
+            ],
             payload=config_error_payload(error),
         )

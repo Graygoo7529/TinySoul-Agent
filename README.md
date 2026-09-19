@@ -50,6 +50,10 @@ asyncio.run(main())
 
 SDK creation does not open a terminal or HTTP listener. Question replies, Cycle grants, cancellation and observations use the same Turn identity; see [Agent design](docs/design/agent.md). Configuration PATCH saves a candidate; call reload explicitly to activate it when idle.
 
+Use `agent.services.get(WorkspaceService)` to obtain a scoped owner service and await its I/O methods. Reacquire services after reload/restart or a CalendarDay switch; writes are not retried automatically. A `ReflectionRequest` authorizes one independent Home or dated Memory Reflection Turn on the same Agent.
+
+Projects use `configs/agent.toml`, `configs/reflection.toml`, and `configs/execution.toml`. Domain/action TOML files live under `configs/action/catalog`; scenario visibility is editable, while service permissions are enforced by assembly. The R3 changes also update Workspace and Session formats and the [Endpoint protocol](docs/endpoint/index.md). Existing projects require explicit migration into a separately initialized project; `reset` is not a data migration tool. See the [R3 implementation record](docs/analysis/done/20260917-done-Agent重构第三轮子计划-领域语义与能力组织.md#133-格式变化与部署边界).
+
 ## Development
 
 The development profile enables the repository maintainer's providers and capability settings, including Kimi search, but contains no credentials. Its enabled providers must have their declared credentials before the backend starts.
@@ -93,7 +97,7 @@ The frontend discovers the running TinySoul project automatically and does not m
 
 ```powershell
 .\scripts\test.ps1
-.\scripts\test.ps1 -TestPath tests/kernel/action/test_backends_engine.py
+.\scripts\test.ps1 -TestPath tests/kernel/action/execution
 .\scripts\test.ps1 -Suite Full
 .\scripts\test.ps1 -Suite Generation
 $env:TINYSOUL_PYTHON=(Get-Command python).Source
@@ -111,4 +115,3 @@ https://www.orcarouter.ai/ is now supported as built-in provider.
 
 orcarouter new user link：
 https://www.orcarouter.ai/ref/ref_5fac47f4440f623d372b
-SDK 通过 `agent.services.get(WorkspaceService)` 等类型取得受约束服务，I/O 方法需要 `await`。成功 reload/restart 或日级资源日切后，旧服务对象会失效，调用者应重新获取；写入不会自动重试。手动 Reflection 使用指定 Home 或日期 Memory 的 `ReflectionRequest`，仅授权本次独立整理。

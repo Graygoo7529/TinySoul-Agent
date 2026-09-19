@@ -29,11 +29,11 @@ class EndpointRuntimeEngine:
         turn_scope = self._context.gateway.active_turn_scope
         runtime = self._context.services.runtime_status()
         try:
-            manifest = await self._context.services.registry.get(WorkspaceService).load_manifest()
-            workspace_revision = manifest.revision
+            manifest = await self._context.services.registry.get(
+                WorkspaceService
+            ).load_manifest()
             active_day = manifest.day
         except AgentSDKError:
-            workspace_revision = -1
             active_day = ""
         return {
             "protocol_version": 1,
@@ -43,7 +43,6 @@ class EndpointRuntimeEngine:
             "active_day": active_day,
             "turn_active": turn_scope is not None,
             "runtime": runtime,
-            "workspace_revision": workspace_revision,
             "latest_event_sequence": self._context.events.latest_sequence,
             "event_journal": self._context.events.journal_status(),
         }

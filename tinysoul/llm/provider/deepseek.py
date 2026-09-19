@@ -4,19 +4,24 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from tinysoul.llm.config import ProviderSpec
-from tinysoul.llm.adapter_types import AdapterKind, ProviderApiStyle
-from tinysoul.llm.messages import (
+from tinysoul.llm.config.loader import ProviderSpec
+from tinysoul.llm.protocol.adapter_types import AdapterKind, ProviderApiStyle
+from tinysoul.llm.protocol.messages import (
     AssistantMessage,
     ImagePart,
     ImageUrlPart,
     Message,
     UserMessage,
 )
-from tinysoul.llm.reasoning import ReasoningKeep
-from tinysoul.llm.tools import ToolSpec, ToolUse
+from tinysoul.llm.protocol.reasoning import ReasoningKeep
+from tinysoul.llm.protocol.tools import ToolSpec, ToolUse
 
-from .base import ProviderError, ProviderErrorKind, ProviderFailureScope, ProviderRequest
+from .base import (
+    ProviderError,
+    ProviderErrorKind,
+    ProviderFailureScope,
+    ProviderRequest,
+)
 from .openai_sdk import (
     OpenAIAdapterBehavior,
     OpenAIChatCompletionsClient,
@@ -59,7 +64,10 @@ class DeepSeekProviderBehavior(OpenAIAdapterBehavior):
         message: Message,
         options: Mapping[str, object] | None,
     ) -> str | None:
-        if adapter_reasoning_keep(options, adapter="DeepSeek") is not ReasoningKeep.CONTENT:
+        if (
+            adapter_reasoning_keep(options, adapter="DeepSeek")
+            is not ReasoningKeep.CONTENT
+        ):
             return None
         if not isinstance(message, AssistantMessage) or message.reasoning is None:
             return None

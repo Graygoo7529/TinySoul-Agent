@@ -1,6 +1,6 @@
 """TinySoul action module."""
 
-from .core.call import (
+from .call import (
     ActionBatch,
     ActionBatchPreparation,
     ActionCall,
@@ -8,17 +8,21 @@ from .core.call import (
     ActionFramework,
     ActionNormalization,
 )
-from .core.catalog import ActionCatalog
-from .core.errors import ActionContractError, ActionError, ActionInvariantError
-from .core.executor import ActionExecutionContext, ActionExecutionControl, ActionExecutor
-from .core.hooks import HookOutcome
-from .core.loader import (
+from .catalog.catalog import ActionCatalog
+from .errors import ActionContractError, ActionError, ActionInvariantError
+from .execution.executor import (
+    ActionExecutionContext,
+    ActionExecutionControl,
+    ActionExecutor,
+)
+from .execution.hooks import HookOutcome
+from .catalog.loader import (
     ActionCatalogDocumentIndex,
     ActionCatalogDocumentRef,
     ActionCatalogLoader,
     LoadedActionCatalog,
 )
-from .core.result import (
+from .result import (
     ActionFailureDisposition,
     ActionLocalFailure,
     ActionPhaseResult,
@@ -30,13 +34,13 @@ from .core.result import (
     ActionTraceMode,
     ActionTraceProjection,
 )
-from .core.scope import (
+from .planning.scope import (
     DOMAIN_SELECTION_TOOL,
     ActionDomainPromptRenderer,
     ActionDomainSelection,
     ActionScopePreparation,
 )
-from .core.specs import (
+from .catalog.specs import (
     ActionBackendKind,
     ActionBackendSpec,
     ActionDomainSpec,
@@ -48,6 +52,7 @@ from .core.specs import (
     ActionSemanticSpec,
     ActionSpec,
     ActionToolSpec,
+    ActionVisibilitySpec,
 )
 from .engine import ActionCatalogEntry, ActionEngine, ActionEngineBuilder
 
@@ -93,6 +98,7 @@ __all__ = [
     "ActionScopePreparation",
     "ActionSpec",
     "ActionToolSpec",
+    "ActionVisibilitySpec",
     "ActionContractError",
     "ActionInvariantError",
     "DOMAIN_SELECTION_TOOL",

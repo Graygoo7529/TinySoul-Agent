@@ -7,7 +7,7 @@ from tinysoul.infra.time import CalendarDay
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.json import JsonObject
 from tinysoul.runtime import RunScope
-from tinysoul.kernel.loop.inbox import TurnInbox
+from tinysoul.kernel.loop.interaction.inbox import TurnInbox
 from tinysoul.kernel.loop.outcomes import TurnOutcomeStatus
 from tinysoul.kernel.loop.turn import TurnExecutionCancelled
 
@@ -18,6 +18,7 @@ from ..models import (
     ReflectionTaskStatus,
 )
 from ..turn import ReflectionTurnEntry
+
 
 class HomeReflectionTask:
     """Run deterministic cleanup and an autonomous Turn for remaining Home diffs."""
@@ -52,11 +53,15 @@ class HomeReflectionTask:
                 return skipped
             outcome = await self._turn.run(
                 "Review and resolve every current runtime Home difference."
-                + (f"\nInstructions for this Reflection: {instructions}" if instructions else ""),
+                + (
+                    f"\nInstructions for this Reflection: {instructions}"
+                    if instructions
+                    else ""
+                ),
                 business_day=business_day,
                 scope=scope,
                 request_id=request_id,
-                input_source="maintenance.home",
+                input_source="reflection.home",
                 inbox=inbox,
             )
             if outcome.status is not TurnOutcomeStatus.COMPLETED:
@@ -65,7 +70,9 @@ class HomeReflectionTask:
             if operations.cancelled:
                 raise TurnExecutionCancelled(outcome)
             return ReflectionTaskOutcome.from_turn(
-                ReflectionTaskKind.HOME, outcome, details=details,
+                ReflectionTaskKind.HOME,
+                outcome,
+                details=details,
             )
         except AgentHomeIOError as exc:
             raise ReflectionTaskExecutionError("Home Reflection task failed") from exc
@@ -93,5 +100,7 @@ class HomeReflectionTask:
         return {
             "remaining_changes": pending.change_count,
             "remaining_skill_reviews": pending.skill_memory_count,
-            "runtime_home_removed": self._home.remove_resolved_overlay() if not pending.pending else False,
+            "runtime_home_removed": (
+                self._home.remove_resolved_overlay() if not pending.pending else False
+            ),
         }

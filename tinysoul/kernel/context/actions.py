@@ -33,8 +33,9 @@ def register_context_actions(
     """Register the current-Turn semantic heap inspector."""
 
     return builder.register_executor(
-        "context.inspect",
+        "core.context.inspect",
         ContextInspectExecutor(context, runtime_bridge=runtime_bridge),
+        handler="context.inspect",
     )
 
 

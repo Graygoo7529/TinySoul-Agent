@@ -1,0 +1,34 @@
+name = "workspace.list"
+domain = "workspace"
+
+[tool]
+description = "List current Workspace resources and tags in bounded pages."
+
+[tool.schema]
+type = "object"
+required = []
+additionalProperties = false
+
+[tool.schema.properties]
+
+[tool.schema.properties.directory]
+type = "string"
+
+[tool.schema.properties.offset]
+type = "integer"
+minimum = 0
+
+[tool.schema.properties.limit]
+type = "integer"
+minimum = 1
+maximum = 64
+
+[semantic]
+effects = ["read_only"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "native"
+handler = "workspace.list"

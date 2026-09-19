@@ -6,7 +6,7 @@ import pytest
 
 from tinysoul.infra.json import JsonObject
 from tinysoul.runtime.errors import RuntimeContractError
-from tinysoul.runtime.scope import RunFrame, RunLevel, RunScope
+from tinysoul.runtime.control.scope import RunFrame, RunLevel, RunScope
 from tinysoul.runtime.signals import Signal, SignalBus
 
 

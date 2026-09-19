@@ -6,9 +6,25 @@ from threading import Event
 import pytest
 
 from tinysoul.infra.json import JsonObject
-from tinysoul.infra.concurrency import JoinedOperations
-from tinysoul.kernel.jobs import JobError, JobRegistry, JobSnapshot, JobState
-from tinysoul.kernel.loop.inbox import InboxCapacityError, InboxKind, InboxLimits, InboxRecord, TurnInbox, WaitCondition, WaitReason, WakeReason
+from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
+from tinysoul.runtime import RuntimeException
+from tinysoul.kernel.jobs import (
+    JobError,
+    JobRequestError,
+    JobRegistry,
+    JobSnapshot,
+    JobState,
+)
+from tinysoul.kernel.loop.interaction.inbox import (
+    InboxCapacityError,
+    InboxKind,
+    InboxLimits,
+    InboxRecord,
+    TurnInbox,
+    WaitCondition,
+    WaitReason,
+    WakeReason,
+)
 
 
 class _Backend:
@@ -19,7 +35,11 @@ class _Backend:
         self.cleaned = Event()
 
     def poll(self) -> JobSnapshot:
-        return JobSnapshot(self.job_id, "test", JobState.SUCCEEDED if self.finished.is_set() else JobState.RUNNING)
+        return JobSnapshot(
+            self.job_id,
+            "test",
+            JobState.SUCCEEDED if self.finished.is_set() else JobState.RUNNING,
+        )
 
     def request_stop(self) -> None:
         self.finished.set()
@@ -27,12 +47,15 @@ class _Backend:
     def describe(self) -> JsonObject:
         return {"finished": self.finished.is_set()}
 
-    def close_execution(self) -> None:
+    def close_execution(self) -> tuple[CleanupDiagnostic, ...]:
+        self.request_stop()
         self.closed.set()
+        return ()
 
-    def cleanup(self) -> None:
+    def cleanup(self) -> tuple[CleanupDiagnostic, ...]:
         self.close_execution()
         self.cleaned.set()
+        return ()
 
 
 async def test_terminal_reservation_survives_full_and_closed_ordinary_ingress() -> None:
@@ -50,7 +73,10 @@ async def test_terminal_reservation_survives_full_and_closed_ordinary_ingress() 
     assert not backend.cleaned.is_set()
     await registry.cleanup_turn("turn")
     batch = await inbox.capture()
-    assert [record.kind for _, record in batch.records] == [InboxKind.EVENT, InboxKind.JOB]
+    assert [record.kind for _, record in batch.records] == [
+        InboxKind.EVENT,
+        InboxKind.JOB,
+    ]
     assert batch.records[-1][1].payload["state"] == "succeeded"
     await inbox.ack(batch)
     assert await inbox.close_if_empty()
@@ -97,39 +123,48 @@ async def test_launch_cancellation_joins_owner_then_cleans_created_backend() -> 
     assert backends[0].cleaned.is_set() and not registry.has_unresolved("turn")
 
 
-async def test_failed_poll_still_reclaims_backend_and_keeps_bounded_diagnostics() -> None:
+async def test_failed_poll_reclaims_backend_and_reports_supervision_failure() -> None:
     class FailingBackend(_Backend):
         def poll(self) -> JobSnapshot:
             raise OSError("private owner path")
 
     registry = JobRegistry[FailingBackend]()
     backend = await registry.start("turn", "test", FailingBackend)
-    diagnostics = await registry.cleanup_turn("turn")
+    with pytest.raises(RuntimeException) as raised:
+        await registry.cleanup_turn("turn")
     assert backend.cleaned.is_set()
-    assert diagnostics and all("private" not in repr(item) for item in diagnostics)
+    assert raised.value.payload["kind"] == "jobs.supervision_failed"
+    assert "private" not in repr(raised.value.payload)
 
 
 @pytest.mark.parametrize("finished_before_wait", [False, True])
-async def test_job_wait_observes_terminal_before_or_after_registration(finished_before_wait: bool) -> None:
+async def test_job_wait_observes_terminal_before_or_after_registration(
+    finished_before_wait: bool,
+) -> None:
     registry, inbox = JobRegistry[_Backend](), TurnInbox()
     registry.bind_inbox("turn", inbox)
     backend = await registry.start("turn", "test", _Backend)
     if finished_before_wait:
         backend.finished.set()
         async with asyncio.timeout(2):
-            while registry.snapshot("turn", backend.job_id).state is JobState.RUNNING:
+            while not registry.snapshot("turn", backend.job_id).state.terminal:
                 await asyncio.sleep(0.01)
-    waiter = asyncio.create_task(inbox.wait_for_cycle(
-        WaitCondition(WaitReason.EVENT, 0, job_id=backend.job_id),
-        job_ready=registry.snapshot("turn", backend.job_id).state is not JobState.RUNNING,
-    ))
+    waiter = asyncio.create_task(
+        inbox.wait_for_cycle(
+            WaitCondition(WaitReason.EVENT, 0, job_id=backend.job_id),
+            job_ready=registry.snapshot("turn", backend.job_id).state.terminal,
+        )
+    )
     if not finished_before_wait:
         await asyncio.sleep(0)
         assert not waiter.done()
         backend.finished.set()
     assert (await asyncio.wait_for(waiter, 2)).reason is WakeReason.JOB
     first = await registry.stop("turn", backend.job_id, operations=JoinedOperations())
-    assert await registry.stop("turn", backend.job_id, operations=JoinedOperations()) == first
+    assert (
+        await registry.stop("turn", backend.job_id, operations=JoinedOperations())
+        == first
+    )
     await registry.release("turn", backend.job_id)
     await registry.release("turn", backend.job_id)
     batch = await inbox.capture()
@@ -138,18 +173,64 @@ async def test_job_wait_observes_terminal_before_or_after_registration(finished_
 
 async def test_close_failure_preserves_published_terminal_state() -> None:
     class CloseFailure(_Backend):
-        def close_execution(self) -> None:
+        def close_execution(self) -> tuple[CleanupDiagnostic, ...]:
+            self.request_stop()
             self.closed.set()
-            raise OSError("private cleanup path")
+            return (CleanupDiagnostic("test.output", "OSError"),)
 
     registry, inbox = JobRegistry[CloseFailure](), TurnInbox()
     registry.bind_inbox("turn", inbox)
     backend = await registry.start("turn", "test", CloseFailure)
     backend.finished.set()
-    await asyncio.wait_for(inbox.wait_for_cycle(
-        WaitCondition(WaitReason.EVENT, 0, job_id=backend.job_id),
-    ), 2)
+    await asyncio.wait_for(
+        inbox.wait_for_cycle(
+            WaitCondition(WaitReason.EVENT, 0, job_id=backend.job_id),
+        ),
+        2,
+    )
     assert registry.snapshot("turn", backend.job_id).state is JobState.SUCCEEDED
     assert (await inbox.capture()).records[0][1].payload["state"] == "succeeded"
     diagnostics = await registry.cleanup_turn("turn")
     assert diagnostics and all("private" not in repr(item) for item in diagnostics)
+
+
+async def test_live_execution_close_failure_is_not_released_or_reported_stopped() -> (
+    None
+):
+    class LiveBackend(_Backend):
+        cannot_stop = True
+
+        def close_execution(self) -> tuple[CleanupDiagnostic, ...]:
+            if self.cannot_stop:
+                raise OSError("private process handle")
+            return super().close_execution()
+
+    registry = JobRegistry[LiveBackend]()
+    backend = await registry.start("turn", "test", LiveBackend)
+    with pytest.raises(RuntimeException) as raised:
+        await registry.cleanup_turn("turn")
+    assert raised.value.reason == "runtime.agent_end"
+    assert registry.has_unresolved("turn")
+    assert not registry.snapshots("turn")[0].state.terminal
+    assert not backend.cleaned.is_set()
+    backend.cannot_stop = False
+    await registry.cleanup_turn("turn")
+    assert not registry.ids("turn") and backend.cleaned.is_set()
+
+
+async def test_terminal_results_are_bounded_without_consuming_live_capacity() -> None:
+    registry = JobRegistry[_Backend](capacity=2, per_turn_capacity=1)
+    backends = []
+    for _ in range(2):
+        backend = await registry.start("turn", "test", _Backend)
+        backends.append(backend)
+        backend.finished.set()
+        async with asyncio.timeout(2):
+            while registry.has_unresolved("turn"):
+                await asyncio.sleep(0.01)
+    assert len(registry.ids("turn")) == 2
+    with pytest.raises(JobRequestError, match="capacity"):
+        await registry.start("turn", "test", _Backend)
+    assert not backends[0].cleaned.is_set()
+    assert registry.snapshot("turn", backends[-1].job_id).state is JobState.SUCCEEDED
+    await registry.cleanup_turn("turn")

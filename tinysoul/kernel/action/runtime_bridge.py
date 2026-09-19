@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from tinysoul.kernel.action.core.errors import ActionContractError
+from tinysoul.kernel.action.errors import ActionContractError
 from tinysoul.kernel.action.failures import ActionFailureKind
 from tinysoul.infra.config import ConfigError
 from tinysoul.infra.config.errors import config_error_payload
 from tinysoul.infra.json import JsonObject
-from tinysoul.runtime.exception import (
+from tinysoul.runtime.control.exception import (
     RUNTIME_STARTUP_FAILED,
     RUNTIME_TURN_END,
     RuntimeException,

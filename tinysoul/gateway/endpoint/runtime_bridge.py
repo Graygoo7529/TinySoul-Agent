@@ -11,9 +11,8 @@ from tinysoul.gateway.endpoint.errors import (
 )
 from tinysoul.gateway.endpoint.failures import EndpointFailureKind
 from tinysoul.infra.json import JsonObject
-from tinysoul.runtime.exception import RUNTIME_STARTUP_FAILED, RuntimeException
+from tinysoul.runtime.control.exception import RUNTIME_STARTUP_FAILED, RuntimeException
 from tinysoul.runtime.failures import exception_payload, runtime_exception
-
 
 ENDPOINT_RUNTIME_REASON_MAP: dict[EndpointFailureKind, str] = {
     EndpointFailureKind.CONFIGURATION_FAILED: RUNTIME_STARTUP_FAILED,

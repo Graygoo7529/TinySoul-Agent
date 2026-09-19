@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from tinysoul.kernel.action.core.call import ExecutionState
+from tinysoul.kernel.action.call import ExecutionState
 from tinysoul.kernel.context import ContextTurnCompletion
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.loop.outcomes import TurnFailure, TurnOutcomeStatus
 
-from .models import (
+from .records.models import (
     SessionActionOutcome,
     SessionActionRecord,
     SessionInputRecord,
@@ -37,27 +37,40 @@ def project_turn_record(
     for fact in completion.trace.actions:
         result = fact.result
         if result is None:
-            actions.append(SessionActionRecord(
-                action=fact.call.action_name,
-                request=fact.call.params,
-                outcome=interrupted[fact.state],
-            ))
+            actions.append(
+                SessionActionRecord(
+                    action=fact.call.action_name,
+                    request=fact.call.params,
+                    outcome=interrupted[fact.state],
+                )
+            )
             continue
         projection = result.trace_projection
-        actions.append(SessionActionRecord(
-            action=fact.call.action_name,
-            request=fact.call.params,
-            outcome=SessionActionOutcome(result.status.value),
-            result=projection.canonical_payload if projection is not None else result.payload,
-            failure=result.failure,
-            references=projection.origin_refs if projection is not None else (),
-        ))
+        actions.append(
+            SessionActionRecord(
+                action=fact.call.action_name,
+                result_id=result.result_id,
+                request=fact.call.params,
+                outcome=SessionActionOutcome(result.status.value),
+                result=(
+                    projection.canonical_payload
+                    if projection is not None
+                    else result.payload
+                ),
+                failure=result.failure,
+                references=projection.origin_refs if projection is not None else (),
+            )
+        )
     return SessionTurnRecord(
         ref=f"session:turn/{completion.turn_id}",
         day=str(day),
         inputs=tuple(
-            SessionInputRecord(text=item.text, received_at=item.received_at,
-                               input_id=item.input_id, reply_to=item.reply_to)
+            SessionInputRecord(
+                text=item.text,
+                received_at=item.received_at,
+                input_id=item.input_id,
+                reply_to=item.reply_to,
+            )
             for item in completion.inputs
         ),
         working=completion.working,

@@ -62,6 +62,6 @@ def test_loop_config_rejects_daily_and_invalid_turn_budget() -> None:
     with pytest.raises(ConfigError, match="Unknown configuration key"):
         parse_loop_settings({"daily": {}})
     with pytest.raises(ConfigError, match="Unknown configuration key"):
-        parse_loop_settings({"maintenance": {}})
+        parse_loop_settings({"reflection": {}})
     with pytest.raises(ConfigError, match="positive"):
         TurnSettings(max_cycles=0)

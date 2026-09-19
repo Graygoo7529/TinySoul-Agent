@@ -19,15 +19,19 @@ from tinysoul.infra import ConfigEnvironment, ConfigError
 from tinysoul.kernel.loop import LoopControlKind
 from tinysoul.runtime import ObservationLevel, RuntimeException, RuntimeGatewayError
 
-from tinysoul.agent.builder import AgentBuilder
-from tinysoul.agent.assembly import AgentAssembly
+from tinysoul.agent.composition.builder import AgentBuilder
+from tinysoul.agent.composition.assembly import AgentAssembly
 from tinysoul.agent.config import parse_agent_settings
 from tinysoul.agent.errors import AgentError
 from .errors import GatewayError
-from .initializer import ProjectConfigProfile, ProjectInitializer, ProjectResetter
-from .instance import ProjectInstanceLease
+from .project.initializer import (
+    ProjectConfigProfile,
+    ProjectInitializer,
+    ProjectResetter,
+)
+from .project.instance import ProjectInstanceLease
 from .console import ConsoleOutputSink
-from tinysoul.environment.terminal import TerminalInputSource
+from tinysoul.environment.sources.terminal import TerminalInputSource
 from .endpoint.host import mount_endpoint
 
 
@@ -149,23 +153,23 @@ def _start(argv: Sequence[str]) -> int:
     args = parser.parse_args(tuple(argv))
     root = args.root.resolve()
     overrides: dict[str, object] = {
-        "app.interactive": args.once is None,
+        "agent.interactive": args.once is None,
     }
     if args.mode is not None:
-        overrides["app.output.mode"] = args.mode
+        overrides["agent.output.mode"] = args.mode
     if args.once is not None:
-        overrides["maintenance.schedule.enabled"] = False
+        overrides["reflection.schedule.enabled"] = False
 
     try:
         with ProjectInstanceLease(root) as lease:
             config = ConfigEnvironment.from_project_root(root, overrides=overrides)
-            app_settings = config.parse_section("app", parse_agent_settings)
+            agent_settings = config.parse_section("agent", parse_agent_settings)
             builder = (
                 AgentBuilder(root)
                 .with_config_environment(config)
-                .with_agent_settings(app_settings)
+                .with_agent_settings(agent_settings)
                 .with_output_sink(
-                    ConsoleOutputSink(max_chars=app_settings.output.model_max_chars)
+                    ConsoleOutputSink(max_chars=agent_settings.output.model_max_chars)
                 )
             )
             endpoint_settings: EndpointSettings | None = None
@@ -175,13 +179,12 @@ def _start(argv: Sequence[str]) -> int:
                     instance_id=lease.identity.instance_id,
                     project_identity=lease.identity.project_identity,
                 )
-                builder = (
-                    builder.with_input_source(
-                        TerminalInputSource(
-                            eof_command=app_settings.input_commands.exit_commands[0]
-                        )
+                builder = builder.with_input_source(
+                    TerminalInputSource(
+                        eof_command=agent_settings.input_commands.exit_commands[0]
                     )
                 )
+
             async def factory() -> AgentAssembly:
                 assembly = await builder.build()
                 try:
@@ -195,22 +198,37 @@ def _start(argv: Sequence[str]) -> int:
             return asyncio.run(_run_application(factory, args.once))
     except KeyboardInterrupt:
         return 130
-    except (ConfigError, EndpointError, RuntimeException, AgentError, GatewayError) as exc:
+    except (
+        ConfigError,
+        EndpointError,
+        RuntimeException,
+        AgentError,
+        GatewayError,
+    ) as exc:
         print(f"tinysoul: {exc}", file=sys.stderr)
         return 1
 
 
-async def _run_application(factory: Callable[[], Awaitable[AgentAssembly]], once: str | None) -> int:
+async def _run_application(
+    factory: Callable[[], Awaitable[AgentAssembly]], once: str | None
+) -> int:
     agent = await Agent.assemble(factory)
     try:
         await agent.start()
         if once is not None:
             handle = await agent.submit_turn(UserTurnRequest(once, source="cli"))
             result = await handle.wait()
-            code = 0 if result.outcome is not None and result.outcome.status.value == "answered" else 1
+            code = (
+                0
+                if result.outcome is not None
+                and result.outcome.status.value == "answered"
+                else 1
+            )
         else:
             escalation = _SigintEscalation(agent.commands)
-            previous_handler = signal_module.signal(signal_module.SIGINT, escalation.handle)
+            previous_handler = signal_module.signal(
+                signal_module.SIGINT, escalation.handle
+            )
             try:
                 await agent.wait()
                 code = 0
@@ -219,7 +237,10 @@ async def _run_application(factory: Callable[[], Awaitable[AgentAssembly]], once
     finally:
         diagnostics = await agent.shutdown()
         for item in diagnostics:
-            print(f"tinysoul: cleanup failed: {item.resource} ({item.error_type})", file=sys.stderr)
+            print(
+                f"tinysoul: cleanup failed: {item.resource} ({item.error_type})",
+                file=sys.stderr,
+            )
     return 1 if diagnostics else code
 
 
@@ -267,5 +288,7 @@ class _SigintEscalation:
         if kind is LoopControlKind.STOP_TURN:
             active = self._commands.active_turn
             return active is not None and active.request_cancel()
-        self._commands.request_exit(ExitRequest(source="terminal.sigint", text=kind.value))
+        self._commands.request_exit(
+            ExitRequest(source="terminal.sigint", text=kind.value)
+        )
         return True

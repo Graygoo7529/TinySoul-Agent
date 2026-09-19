@@ -4,9 +4,11 @@
 
 - `GET /v1/config`：activity、sources、effective fields、Runtime generation/activation、LLM Provider 凭据就绪状态和 process shell projection。
 - `GET /v1/config/catalog`：Infra 维护的 surfaces、field groups、collections、field/document descriptors、choices 和 references。
-- `GET /v1/config/actions`：当前 Runtime Generation 的 Action domain/action 语义、enabled/available、runtime policy、schema/backend、source binding。
+- `GET /v1/config/actions?scenario=user`：当前 Runtime Generation 指定情景的 domain/action 定义、visibility、selection、granted/supported/available、runtime policy、schema/backend、source binding。scenario 支持 user、home_reflection、memory_reflection，默认 user；未知情景返回 422 config.invalid_scenario。
 
 Action catalog 是配置页面的运行时投影，不是聊天 Action API；它由当前 Generation 的 ActionEngine 生成，Endpoint 不缓存。
+
+selection 的 enabled/source 表示按“动作情景→域情景→动作 default→域 default→true”解析出的值与来源。unavailable_reason 为 not_granted、backend_unavailable、hidden 或 null。用户通过同一 PATCH 文档事务编辑 visibility.default 或 visibility.scenarios 对象；runtime.enabled 和 loop/reflection 的旧动作开关表不再接受。三个情景共用候选校验，显式启用未授权动作时拒绝保存，单纯域默认选择不增加授权。
 
 `runtime.llm.providers` 是当前 Runtime Generation 的只读、无 secret 投影。每项包含 Provider `id`、`credential_state`（`configured` 或 `missing`）以及声明的 `api_key_envs`；它不复制 `enabled`，后者继续由 effective fields 表达，也不返回任何凭据值。
 

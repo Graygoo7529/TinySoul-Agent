@@ -1,0 +1,22 @@
+name = "execution.stdin"
+domain = "execution"
+[tool]
+description = "Send at most a bounded UTF-8 input fragment to an interactive Job."
+[tool.schema]
+type = "object"
+required = ["job_id", "text"]
+additionalProperties = false
+[tool.schema.properties.job_id]
+type = "string"
+[tool.schema.properties.text]
+type = "string"
+[tool.schema.properties.close]
+type = "boolean"
+[semantic]
+use_when = ["An interactive process is waiting for input"]
+effects = ["modifying"]
+[runtime]
+parallel_policy = "serial"
+[backend]
+kind = "native"
+handler = "execution.stdin"

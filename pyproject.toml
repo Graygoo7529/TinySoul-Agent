@@ -19,6 +19,7 @@ dependencies = [
     "pypdf",
     "pypdfium2",
     "PyYAML>=6.0",
+    "regex>=2024.11.6",
     "trafilatura>=2.0",
     "uvicorn>=0.35,<1",
     "websockets>=15,<16",
@@ -47,37 +48,13 @@ include = ["tinysoul*"]
 "tinysoul.infra.config" = [
     "catalog/*.toml",
 ]
-"tinysoul.kernel.action" = [
-    "catalog/*/*.toml",
-    "catalog/*/actions/*.toml",
-]
-"tinysoul.plugins.reflection" = [
-    "catalog/*/*.toml",
-    "catalog/*/actions/*.toml",
-]
-"tinysoul.plugins.home" = ["catalog/*/*.toml", "catalog/*/actions/*.toml"]
-"tinysoul.plugins.memory" = ["catalog/*/actions/*.toml"]
-"tinysoul.plugins.workspace" = ["catalog/*/*.toml", "catalog/*/actions/*.toml"]
-"tinysoul.plugins.capabilities" = ["catalog/*/*.toml", "catalog/*/actions/*.toml"]
 "tinysoul.assets" = [
-    "project/*",
-    "project/.gitignore",
-    "project/config_profiles/*/.env.example",
-    "project/config_profiles/*/configs/*.toml",
-    "project/config_profiles/*/configs/action/*.toml",
-    "project/config_profiles/*/configs/capabilities/*.toml",
-    "project/config_profiles/*/configs/infra/*.toml",
-    "project/config_profiles/*/configs/llm/*.toml",
-    "project/config_profiles/*/configs/llm/models/*.toml",
-    "project/config_profiles/*/home/agent/user/*.md",
-    "project/home/agent/*.md",
-    "project/home/agent/*/*.md",
-    "project/home/skills/*/*.md",
-    "project/home/skills/*/references/*.md",
-    "project/home/skills/*/scripts/*.py",
-    "project/home/skills_domain/*.md",
-    "project/home/skills_domain/*/DOMAIN.md",
-    "project/home/skills_action/*/*.md",
+    "common/**/*",
+    "common/.gitignore",
+    "standard/**/*",
+    "standard/.env.example",
+    "development/**/*",
+    "development/.env.example",
 ]
 
 [tool.pytest.ini_options]

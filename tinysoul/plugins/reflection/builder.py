@@ -9,16 +9,19 @@ from tinysoul.plugins.home import AgentHomeEngine
 from tinysoul.plugins.home.plugin import declare_home
 from tinysoul.plugins.memory.plugin import declare_memory
 from tinysoul.plugins.session.plugin import declare_session
-from tinysoul.kernel.loop.assembly import TurnProfile, build_turn_context, build_turn_kernel
+from tinysoul.kernel.loop.assembly import (
+    TurnProfile,
+    build_turn_context,
+    build_turn_kernel,
+)
 from tinysoul.kernel.registration import ServiceRegistry, Service, PluginDeclaration
 from tinysoul.plugins.home.services import HomeReviewService, HomeService
 from tinysoul.plugins.memory.services import MemoryKnowledgeService
-from tinysoul.plugins.capabilities.assembly import CommonActionAssembly
-from tinysoul.kernel.loop.completion import AnswerCompletionDetector
-from tinysoul.plugins.capabilities.supervised_process import SupervisedProcessManager
+from tinysoul.kernel.loop.lifecycle.completion import AnswerCompletionDetector
+from tinysoul.kernel.loop.turn import TurnActivityController
 from tinysoul.plugins.home import HomeDomainSkillProvider
 from tinysoul.kernel.loop.config import LoopSettings
-from tinysoul.kernel.loop.preparation import TurnPreparationPipeline
+from tinysoul.kernel.loop.lifecycle.preparation import TurnPreparationPipeline
 from tinysoul.kernel.loop.phases import LLMRunner
 from tinysoul.plugins.memory import MemoryEngine
 from tinysoul.runtime import ObservationEmitter, SignalBus
@@ -26,20 +29,20 @@ from tinysoul.plugins.workspace.runtime_bridge import RuntimeWorkspaceBridge
 from tinysoul.plugins.session import SessionEngine
 from tinysoul.plugins.workspace import WorkspaceEngine, WorkspaceTurnPreparationHandler
 
-from .actions import build_maintenance_action
-from .availability import ReflectionAvailabilityStore
+from .actions import ReflectionActionAssembly, build_reflection_action
 from .config import ReflectionSettings
 from .engine import ArchiveReader, ReflectionEngine
-from .home import HomeReflectionActionController, HomeReflectionTask
+from .home import HomeReflectionTask
+from tinysoul.plugins.home.actions import HomeReviewExecutor
+from tinysoul.plugins.memory.actions import MemoryWriteSession
 from .memory import (
-    ArchivedMemoryReflectionContext,
-    MemoryReflectionActionController,
+    MemoryReflectionContext,
     MemoryReflectionTask,
 )
 from .turn import (
     ReflectionTurnEntry,
-    build_maintenance_turn_trap,
-    maintenance_turn_guidance,
+    build_reflection_turn_trap,
+    reflection_turn_guidance,
 )
 
 
@@ -67,7 +70,7 @@ class ReflectionBuilder:
         observations: ObservationEmitter,
         archive: ArchiveReader,
         action_catalog: LoadedActionCatalog,
-        action_assembly: CommonActionAssembly,
+        action_assembly: ReflectionActionAssembly,
     ) -> None:
         self._context_settings = context_settings
         self._loop_settings = loop_settings
@@ -84,40 +87,55 @@ class ReflectionBuilder:
         self._action_assembly = action_assembly
 
     def build(self) -> ReflectionAssembly:
-        archived_context = ArchivedMemoryReflectionContext()
+        target_context = MemoryReflectionContext()
         home_context = build_turn_context(self._context_settings, self._observations)
         memory_context = build_turn_context(self._context_settings, self._observations)
         home_review = HomeReviewService(self._home)
         memory_knowledge = MemoryKnowledgeService(self._memory)
-        home_controller = HomeReflectionActionController(home_review)
-        memory_controller = MemoryReflectionActionController(
+        home_controller = HomeReviewExecutor(home_review)
+        memory_controller = MemoryWriteSession(
             memory=memory_knowledge,
         )
-        common_plugins = (declare_home(self._home, self._llm, actual=True),
-                          declare_memory(self._memory), declare_session(self._session))
-        home_action, home_jobs, home_services = build_maintenance_action(
+        common_plugins = (
+            declare_home(self._home, self._llm, actual=True),
+            declare_memory(self._memory),
+            declare_session(self._session),
+        )
+        home_action, home_jobs, home_services = build_reflection_action(
             kind="home",
             context=home_context,
             assembly=self._action_assembly,
             home_controller=home_controller,
             memory_controller=memory_controller,
             action_catalog=self._action_catalog,
-            plugins=(*common_plugins, PluginDeclaration("home_review", services=(Service(HomeReviewService, home_review),))),
-            policy=self._settings.home.actions,
+            plugins=(
+                *common_plugins,
+                PluginDeclaration(
+                    "home_review", services=(Service(HomeReviewService, home_review),)
+                ),
+            ),
         )
-        memory_action, memory_jobs, memory_services = build_maintenance_action(
+        memory_action, memory_jobs, memory_services = build_reflection_action(
             kind="memory",
             context=memory_context,
             assembly=self._action_assembly,
             home_controller=home_controller,
             memory_controller=memory_controller,
             action_catalog=self._action_catalog,
-            plugins=(declare_home(self._home, self._llm, actual=True),
-                     declare_memory(self._memory, target=archived_context),
-                     declare_session(self._session, source=archived_context, source_day=archived_context.source_day),
-                     PluginDeclaration("memory_knowledge", services=(Service(MemoryKnowledgeService, memory_knowledge),))),
-            archive_source=archived_context.source_workspace,
-            policy=self._settings.memory.actions,
+            plugins=(
+                declare_home(self._home, self._llm, actual=True),
+                declare_memory(self._memory, target=target_context),
+                declare_session(
+                    self._session,
+                    source=target_context,
+                    source_day=target_context.source_day,
+                ),
+                PluginDeclaration(
+                    "memory_knowledge",
+                    services=(Service(MemoryKnowledgeService, memory_knowledge),),
+                ),
+            ),
+            archive_source=target_context.source_workspace,
         )
         home_turn, home_profile = self._build_turn(
             kind="home",
@@ -141,7 +159,9 @@ class ReflectionBuilder:
             jobs=memory_jobs,
             preparation=TurnPreparationPipeline(
                 (
-                    WorkspaceTurnPreparationHandler(self._workspace, runtime_bridge=RuntimeWorkspaceBridge()),
+                    WorkspaceTurnPreparationHandler(
+                        self._workspace, runtime_bridge=RuntimeWorkspaceBridge()
+                    ),
                 )
             ),
             services=memory_services,
@@ -156,12 +176,9 @@ class ReflectionBuilder:
                 session=self._session,
                 memory=self._memory,
                 workspace=self._workspace,
-                archived_context=archived_context,
+                target_context=target_context,
                 controller=memory_controller,
                 turn=memory_turn,
-            ),
-            availability_store=ReflectionAvailabilityStore(
-                self._settings.runtime_root
             ),
             observations=self._observations,
         )
@@ -173,7 +190,7 @@ class ReflectionBuilder:
         kind: str,
         context: ContextEngine,
         action: ActionEngine,
-        jobs: SupervisedProcessManager,
+        jobs: TurnActivityController,
         preparation: TurnPreparationPipeline,
         services: ServiceRegistry,
     ) -> tuple[ReflectionTurnEntry, TurnProfile]:
@@ -182,14 +199,19 @@ class ReflectionBuilder:
             context=context,
             action=action,
             services=services,
-            trap=build_maintenance_turn_trap(context, home=self._home, workspace=self._workspace),
+            trap=build_reflection_turn_trap(context, home=self._home),
             settings=self._settings.home if kind == "home" else self._settings.memory,
             cycle_settings=self._loop_settings.cycle,
-            turn_guidance=maintenance_turn_guidance(kind),
+            turn_guidance=reflection_turn_guidance(kind),
             completion_detector=AnswerCompletionDetector(),
             preparation_pipeline=preparation,
             domain_skills=HomeDomainSkillProvider(services.get(HomeService)),
             activity_controller=jobs,
         )
-        runner = build_turn_kernel(profile=profile, llm=self._llm, bus=self._bus, observations=self._observations)
+        runner = build_turn_kernel(
+            profile=profile,
+            llm=self._llm,
+            bus=self._bus,
+            observations=self._observations,
+        )
         return ReflectionTurnEntry(runner, kind=kind), profile

@@ -6,7 +6,7 @@ from typing import Protocol
 
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.loop.turn import TurnOutcome
-from tinysoul.kernel.loop.inbox import TurnInbox
+from tinysoul.kernel.loop.interaction.inbox import TurnInbox
 from tinysoul.runtime import RunLevel, RunScope, RuntimeTransferInterrupt
 
 from ..errors import ReflectionContractError
@@ -44,14 +44,14 @@ class ReflectionTurnEntry:
         input_source: str,
         inbox: TurnInbox | None = None,
     ) -> TurnOutcome:
-        outcome = (await self._runner.run(
+        outcome = await self._runner.run(
             turn_input,
             business_day=business_day,
             scope=scope,
             request_id=request_id,
             input_source=input_source,
             inbox=inbox,
-        ))
+        )
         self._propagate_outer_transfer(outcome)
         return outcome
 

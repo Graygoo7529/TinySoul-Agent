@@ -8,9 +8,6 @@ from tinysoul.kernel.context import ContextEngine
 from tinysoul.kernel.context.errors import ContextError
 from tinysoul.plugins.home import AgentHomeEngine, AgentHomeRuntimeCopyTrapHandler
 from tinysoul.plugins.home.failures import HOME_RUNTIME_COPY_REQUIRED
-from tinysoul.plugins.workspace import WorkspaceEngine
-from tinysoul.plugins.workspace.failures import WORKSPACE_TRASH_RESTORE_REQUIRED
-from tinysoul.plugins.workspace.trap_handlers import WorkspaceTrashRestoreTrapHandler
 from tinysoul.llm.failures import LLM_CONTEXT_CAPACITY_EXCEEDED
 from tinysoul.infra.json import JsonValue
 from tinysoul.kernel.loop.pressure import (
@@ -57,11 +54,11 @@ class ReflectionContextPressureRecovery:
         )
         try:
             report = self._context.reclaim_pressure(required_chars=required)
-        except ContextError as exc:
+        except ContextError:
             return PressureRecoveryResult(
                 status=PressureRecoveryStatus.FAILED,
                 reclaimed_chars=0,
-                error=str(exc),
+                error="Context pressure recovery failed.",
             )
         return PressureRecoveryResult(
             status=(
@@ -74,8 +71,10 @@ class ReflectionContextPressureRecovery:
         )
 
 
-def build_maintenance_turn_trap(
-    context: ContextEngine, *, home: AgentHomeEngine, workspace: WorkspaceEngine,
+def build_reflection_turn_trap(
+    context: ContextEngine,
+    *,
+    home: AgentHomeEngine,
 ) -> RuntimeTrap:
     registry = TrapHandlerRegistry()
     registry.register(LOOP_BUDGET_REQUIRED, BudgetSuspendTrapHandler())
@@ -89,9 +88,5 @@ def build_maintenance_turn_trap(
     registry.register(CONTEXT_COMPRESSION_REQUIRED, pressure_handler)
     registry.register(LLM_CONTEXT_CAPACITY_EXCEEDED, pressure_handler)
     registry.register(HOME_RUNTIME_COPY_REQUIRED, AgentHomeRuntimeCopyTrapHandler(home))
-    registry.register(
-        WORKSPACE_TRASH_RESTORE_REQUIRED,
-        WorkspaceTrashRestoreTrapHandler(workspace=workspace),
-    )
     registry.register_fallback(EndTurnOrAgentTrapHandler())
     return RuntimeTrap(registry=registry)

@@ -1,4 +1,4 @@
-"""Archived Session and Workspace context for Memory Reflection."""
+"""Fixed target-day sources for Memory Reflection."""
 
 from __future__ import annotations
 
@@ -7,21 +7,21 @@ from datetime import date
 
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.time import CalendarDay
-from tinysoul.plugins.session import SessionArchiveView
-from tinysoul.plugins.session.background import SessionBackgroundSnapshot
+from tinysoul.plugins.session import SessionView
+from tinysoul.plugins.session.views.background import SessionBackgroundSnapshot
 from tinysoul.plugins.workspace import WorkspaceArchiveView
 from tinysoul.plugins.memory import ActiveMemoryDocument
 
 from ..errors import ReflectionContractError, ReflectionInvariantError
 
 
-class ArchivedMemoryReflectionContext:
-    """Bind one closed-day projection to a serial Memory Reflection Turn."""
+class MemoryReflectionContext:
+    """Bind immutable Session/Memory sources independently of execution day."""
 
     def __init__(self) -> None:
         self._lock = RLock()
         self._target_day: CalendarDay | None = None
-        self._session: SessionArchiveView | None = None
+        self._session: SessionView | None = None
         self._workspace: WorkspaceArchiveView | None = None
         self._active_memory: ActiveMemoryDocument | None = None
 
@@ -29,7 +29,7 @@ class ArchivedMemoryReflectionContext:
         self,
         *,
         target_day: CalendarDay,
-        session: SessionArchiveView,
+        session: SessionView,
         workspace: WorkspaceArchiveView | None,
         active_memory: ActiveMemoryDocument,
     ) -> None:
@@ -70,9 +70,7 @@ class ArchivedMemoryReflectionContext:
         with self._lock:
             target_day, _session, _workspace = self._require_binding()
             if self._active_memory is None:
-                raise ReflectionInvariantError(
-                    "Archived active Memory is not bound"
-                )
+                raise ReflectionInvariantError("Archived active Memory is not bound")
             return target_day.value, self._active_memory
 
     def source_day(self) -> CalendarDay:
@@ -84,11 +82,16 @@ class ArchivedMemoryReflectionContext:
             return self._require_binding()[2]
 
     def background_snapshot(self, day: CalendarDay) -> SessionBackgroundSnapshot:
+        return self.snapshot_view(day).background_snapshot(day)
+
+    def snapshot_view(self, day: CalendarDay) -> SessionView:
         with self._lock:
             target_day, session, _workspace = self._require_binding()
         if day != target_day:
-            raise ReflectionInvariantError("Session source day does not match Memory target")
-        return session.background_snapshot()
+            raise ReflectionInvariantError(
+                "Session source day does not match Memory target"
+            )
+        return session
 
     def inspect(
         self,
@@ -101,12 +104,15 @@ class ArchivedMemoryReflectionContext:
         with self._lock:
             _target_day, session, _workspace = self._require_binding()
         return session.inspect(
-            ref, action=action, continuation=continuation, expected_revision=expected_revision,
+            ref,
+            action=action,
+            continuation=continuation,
+            expected_revision=expected_revision,
         )
 
     def _require_binding(
         self,
-    ) -> tuple[CalendarDay, SessionArchiveView, WorkspaceArchiveView | None]:
+    ) -> tuple[CalendarDay, SessionView, WorkspaceArchiveView | None]:
         if self._target_day is None or self._session is None:
             raise ReflectionInvariantError(
                 "Archived Memory Reflection Context is not bound"

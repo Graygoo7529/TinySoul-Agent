@@ -5,7 +5,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .projection import SessionTurnCompletionHandler
 from .config import SessionSettings, parse_session_settings
-from .engine import SessionArchiveSnapshot, SessionArchiveView, SessionEngine
+from .engine import SessionArchiveSnapshot, SessionEngine
+from .views import SessionView
 from .errors import (
     SessionContractError,
     SessionError,
@@ -15,8 +16,8 @@ from .errors import (
     SessionInvariantError,
 )
 from .failures import SessionFailureKind
-from .memory import SessionMemoryFact, SessionMemoryFactsProjection
-from .models import (
+from .views.memory import SessionMemoryFact, SessionMemoryFactsProjection
+from .records.models import (
     SessionActionOutcome,
     SessionActionRecord,
     SessionInputRecord,
@@ -25,7 +26,7 @@ from .models import (
     SessionRecordKind,
     SessionTurnRecord,
 )
-from .reconcile import SessionReconcileResult
+from .records.reconcile import SessionReconcileResult
 
 __all__ = [
     "SessionContractError",
@@ -33,7 +34,7 @@ __all__ = [
     "SessionActionRecord",
     "SessionArchiveSnapshot",
     "SessionEngine",
-    "SessionArchiveView",
+    "SessionView",
     "SessionError",
     "SessionInspectFailureReason",
     "SessionInspectRequestError",

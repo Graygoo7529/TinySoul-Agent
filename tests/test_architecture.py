@@ -20,11 +20,8 @@ from tinysoul.plugins.reflection.failures import ReflectionFailureKind
 from tinysoul.plugins.archive.failures import ArchiveFailureKind
 from tinysoul.plugins.memory.failures import MemoryFailureKind
 from tinysoul.plugins.session.failures import SessionFailureKind
-from tinysoul.plugins.capabilities.script.failures import ScriptFailureKind
-from tinysoul.plugins.capabilities.shell.failures import ShellFailureKind
-from tinysoul.plugins.capabilities.supervised_process.failures import (
-    SupervisedProcessFailureKind,
-)
+from tinysoul.plugins.execution.failures import ExecutionFailureKind
+from tinysoul.kernel.jobs.failures import JobFailureKind
 from tinysoul.plugins.workspace.failures import WorkspaceFailureKind
 
 
@@ -32,19 +29,18 @@ from tinysoul.plugins.workspace.failures import WorkspaceFailureKind
     ("module", "failure_kind"),
     (
         ("action", ActionFailureKind),
-        ("app", AgentFailureKind),
+        ("agent", AgentFailureKind),
         ("archive", ArchiveFailureKind),
         ("context", ContextFailureKind),
         ("endpoint", EndpointFailureKind),
         ("home", AgentHomeFailureKind),
         ("llm", LLMFailureKind),
         ("loop", LoopFailureKind),
-        ("maintenance", ReflectionFailureKind),
+        ("reflection", ReflectionFailureKind),
         ("memory", MemoryFailureKind),
         ("session", SessionFailureKind),
-        ("script", ScriptFailureKind),
-        ("shell", ShellFailureKind),
-        ("supervised_process", SupervisedProcessFailureKind),
+        ("execution", ExecutionFailureKind),
+        ("jobs", JobFailureKind),
         ("workspace", WorkspaceFailureKind),
     ),
 )
@@ -66,8 +62,14 @@ def test_runtime_failure_kind_values_are_module_qualified(
         ("llm", {"infra", "runtime", "llm"}),
         ("kernel", {"infra", "runtime", "llm", "kernel"}),
         ("plugins", {"infra", "runtime", "llm", "kernel", "plugins"}),
-        ("environment", {"infra", "runtime", "llm", "kernel", "plugins", "environment"}),
-        ("agent", {"infra", "runtime", "llm", "kernel", "plugins", "environment", "agent"}),
+        (
+            "environment",
+            {"infra", "runtime", "llm", "kernel", "plugins", "environment"},
+        ),
+        (
+            "agent",
+            {"infra", "runtime", "llm", "kernel", "plugins", "environment", "agent"},
+        ),
     ),
 )
 def test_foundation_imports_follow_ownership(owner: str, allowed: set[str]) -> None:
@@ -82,16 +84,23 @@ def test_foundation_imports_follow_ownership(owner: str, allowed: set[str]) -> N
             elif isinstance(node, ast.ImportFrom):
                 module = node.module or ""
                 if node.level:
-                    module = importlib.util.resolve_name("." * node.level + module, package)
+                    module = importlib.util.resolve_name(
+                        "." * node.level + module, package
+                    )
                 names = (
                     [f"{module}.{alias.name}" for alias in node.names]
-                    if module == "tinysoul" else [module]
+                    if module == "tinysoul"
+                    else [module]
                 )
             else:
                 continue
             for name in names:
                 parts = name.split(".")
-                if len(parts) > 1 and parts[0] == "tinysoul" and parts[1] not in allowed:
+                if (
+                    len(parts) > 1
+                    and parts[0] == "tinysoul"
+                    and parts[1] not in allowed
+                ):
                     violations.append(f"{path.relative_to(root)}:{node.lineno}: {name}")
     assert not violations, "\n".join(violations)
 
@@ -132,7 +141,7 @@ MAINLINE_PACKAGES = (
 )
 
 
-def test_mainline_and_kernel_packages_do_not_import_maintenance() -> None:
+def test_mainline_and_kernel_packages_do_not_import_reflection() -> None:
     violations: list[str] = []
     for package in MAINLINE_PACKAGES:
         assert (PROJECT_ROOT / "tinysoul" / package).is_dir()
@@ -155,9 +164,9 @@ def test_mainline_and_kernel_packages_do_not_import_maintenance() -> None:
 
 
 def test_agent_builder_does_not_assemble_turn_kernel_details() -> None:
-    source = (PROJECT_ROOT / "tinysoul" / "agent" / "builder.py").read_text(
-        encoding="utf-8"
-    )
+    source = (
+        PROJECT_ROOT / "tinysoul" / "agent" / "composition" / "builder.py"
+    ).read_text(encoding="utf-8")
     forbidden = (
         "Phase1Unit",
         "Phase2Unit",
@@ -179,7 +188,10 @@ def test_infra_config_does_not_raise_builtin_configuration_errors() -> None:
             if not isinstance(node, ast.Raise) or node.exc is None:
                 continue
             raised = node.exc.func if isinstance(node.exc, ast.Call) else node.exc
-            if isinstance(raised, ast.Name) and raised.id in {"ValueError", "TypeError"}:
+            if isinstance(raised, ast.Name) and raised.id in {
+                "ValueError",
+                "TypeError",
+            }:
                 violations.append(
                     f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}:{raised.id}"
                 )

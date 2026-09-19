@@ -7,16 +7,26 @@ from typing import cast
 
 import pytest
 
-from tinysoul.agent.scheduler import RootScheduler
+from tinysoul.agent.dispatch.scheduler import RootScheduler
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.loop import TurnOutcomeStatus
-from tinysoul.kernel.loop.preparation import TurnPreparationRequest
+from tinysoul.kernel.loop.lifecycle.preparation import TurnPreparationRequest
 from tinysoul.kernel.loop.trap_handlers import EndFrameTrapHandler
 from tinysoul.kernel.loop.turn import TurnOutcome
 from tinysoul.plugins.archive import DailyTransitionOutcome
-from tinysoul.plugins.reflection import (ReflectionAvailability, ReflectionAvailabilityStore, ReflectionEngine, ReflectionInvariantError, ReflectionRequest, ReflectionScope, ReflectionTaskKind, ReflectionTaskOutcome, ReflectionTaskStatus, ReflectionTrigger)
+from tinysoul.plugins.reflection import (
+    ReflectionAvailability,
+    ReflectionEngine,
+    ReflectionInvariantError,
+    ReflectionRequest,
+    ReflectionScope,
+    ReflectionTaskKind,
+    ReflectionTaskOutcome,
+    ReflectionTaskStatus,
+    ReflectionTrigger,
+)
 from tinysoul.plugins.reflection.turn import ReflectionTurnEntry
-from tinysoul.plugins.reflection.memory import ArchivedMemoryReflectionContext
+from tinysoul.plugins.reflection.memory import MemoryReflectionContext
 from tinysoul.plugins.memory import ActiveMemoryDocument
 from tinysoul.runtime import (
     RUNTIME_AGENT_END,
@@ -28,9 +38,8 @@ from tinysoul.runtime import (
     SignalBus,
     TrapHandlerRegistry,
 )
-from tinysoul.plugins.session import SessionArchiveView, SessionEngine
+from tinysoul.plugins.session import SessionEngine, SessionSettings
 from tinysoul.plugins.workspace import WorkspaceArchiveView, WorkspaceManifest
-
 
 DAY = CalendarDay.parse("2026-08-03")
 
@@ -60,10 +69,10 @@ async def test_outer_turn_transfer_is_unwound_without_downgrade() -> None:
     assert captured.value.transfer == transfer
 
 
-async def test_program_converts_maintenance_error_to_program_transfer() -> None:
+async def test_program_converts_reflection_error_to_program_transfer() -> None:
     runner = RootScheduler(
         user_turn=_UserTurn(),
-        maintenance=_FailingReflection(),
+        reflection=_FailingReflection(),
         day=_FailingReflection(),
         bus=SignalBus(),
         trap=_agent_trap(),
@@ -79,10 +88,12 @@ async def test_program_converts_maintenance_error_to_program_transfer() -> None:
 
     assert outcome.transfer is not None
     assert outcome.transfer.target.level is RunLevel.AGENT
-    assert outcome.maintenance_count == 0
+    assert outcome.reflection_count == 0
 
 
-async def test_maintenance_engine_does_not_add_fake_module_frames(tmp_path: Path) -> None:
+async def test_reflection_engine_does_not_add_fake_module_frames(
+    tmp_path: Path,
+) -> None:
     scope = RunScope().push(RunLevel.AGENT, "program")
     archive = _ScopeArchive()
     home = _ScopeHome()
@@ -90,7 +101,6 @@ async def test_maintenance_engine_does_not_add_fake_module_frames(tmp_path: Path
         archive=archive,
         home=home,
         memory=_ScopeMemory(),
-        availability_store=ReflectionAvailabilityStore(tmp_path / "runtime"),
     )
 
     await engine.run(
@@ -107,17 +117,16 @@ async def test_maintenance_engine_does_not_add_fake_module_frames(tmp_path: Path
     assert all(frame.level is not RunLevel.MODULE for frame in scope)
 
 
-def test_archived_memory_context_rejects_mismatched_owner_days() -> None:
-    context = ArchivedMemoryReflectionContext()
+def test_archived_memory_context_rejects_mismatched_owner_days(tmp_path: Path) -> None:
+    context = MemoryReflectionContext()
     other_day = CalendarDay.parse("2026-08-02")
 
     with pytest.raises(ReflectionInvariantError, match="Session day"):
         context.bind(
             target_day=DAY,
-            session=SessionArchiveView(
-                day=other_day,
-                engine=cast(SessionEngine, _ArchiveSession()),
-            ),
+            session=SessionEngine(
+                SessionSettings(root=tmp_path / "session")
+            ).empty_view(other_day),
             workspace=None,
             active_memory=_active(DAY),
         )
@@ -125,10 +134,9 @@ def test_archived_memory_context_rejects_mismatched_owner_days() -> None:
     with pytest.raises(ReflectionInvariantError, match="Workspace day"):
         context.bind(
             target_day=DAY,
-            session=SessionArchiveView(
-                day=DAY,
-                engine=cast(SessionEngine, _ArchiveSession()),
-            ),
+            session=SessionEngine(
+                SessionSettings(root=tmp_path / "session")
+            ).empty_view(DAY),
             workspace=WorkspaceArchiveView(
                 root=Path("."),
                 manifest=WorkspaceManifest(day=str(other_day)),
@@ -138,13 +146,14 @@ def test_archived_memory_context_rejects_mismatched_owner_days() -> None:
         )
 
 
-def test_archived_memory_context_retains_source_day_independently_of_turn_day() -> None:
-    context = ArchivedMemoryReflectionContext()
+def test_archived_memory_context_retains_source_day_independently_of_turn_day(
+    tmp_path: Path,
+) -> None:
+    context = MemoryReflectionContext()
     context.bind(
         target_day=DAY,
-        session=SessionArchiveView(
-            day=DAY,
-            engine=cast(SessionEngine, _ArchiveSession()),
+        session=SessionEngine(SessionSettings(root=tmp_path / "session")).empty_view(
+            DAY
         ),
         workspace=WorkspaceArchiveView(
             root=Path("."),
@@ -161,7 +170,9 @@ def test_archived_memory_context_retains_source_day_independently_of_turn_day() 
 
 
 class _UserTurn:
-    async def run(self, turn_input, *, business_day, scope, request_id, input_source, inbox=None):
+    async def run(
+        self, turn_input, *, business_day, scope, request_id, input_source, inbox=None
+    ):
         del turn_input, scope, request_id, input_source
         return TurnOutcome(
             context_completion=None,
@@ -174,7 +185,9 @@ class _TurnRunner:
     def __init__(self, outcome):
         self._outcome = outcome
 
-    async def run(self, turn_input, *, business_day, scope, request_id, input_source, inbox=None):
+    async def run(
+        self, turn_input, *, business_day, scope, request_id, input_source, inbox=None
+    ):
         del turn_input, business_day, scope, request_id, input_source
         return self._outcome
 
@@ -203,7 +216,7 @@ class _FailingReflection:
 
     async def run(self, request, *, business_day, scope=None, inbox=None):
         del request, scope
-        raise ReflectionInvariantError("maintenance invariant")
+        raise ReflectionInvariantError("reflection invariant")
 
 
 class _Clock:
@@ -230,6 +243,9 @@ class _ScopeArchive:
         self.scopes.append(scope)
         return DailyTransitionOutcome(active_day=target_day)
 
+    def archived_days(self, *, before=None, limit=64):
+        return ()
+
     def archive_for(self, day):
         del day
         return None
@@ -242,7 +258,9 @@ class _ScopeHome:
     def pending_counts(self):
         return (0, 0)
 
-    async def run(self, *, business_day, scope, request_id, inbox=None, instructions=""):
+    async def run(
+        self, *, business_day, scope, request_id, inbox=None, instructions=""
+    ):
         del business_day, request_id
         self.scopes.append(scope)
         return ReflectionTaskOutcome(
@@ -255,8 +273,14 @@ class _ScopeMemory:
     def recover(self) -> None:
         return None
 
-    def eligible(self, day, *, archive, if_absent):
-        del day, archive, if_absent
+    def daily_days(self, *, before=None, limit=64):
+        return ()
+
+    def has_daily(self, day):
+        return False
+
+    def eligible(self, day, *, archive):
+        del day, archive
         return False
 
     async def run(self, **kwargs):
@@ -267,17 +291,11 @@ class _ScopeMemory:
         )
 
 
-class _ArchiveSession:
-    def background_snapshot(self, day):
-        raise AssertionError(f"unexpected background read for {day}")
-
-    def inspect(self, ref=None, *, action=None, continuation=None):
-        del ref, action, continuation
-        return {}
-
-
 def _active(day: CalendarDay) -> ActiveMemoryDocument:
-    return ActiveMemoryDocument(day=day.value, updated_at=None, content="Archived memory.")
+    return ActiveMemoryDocument(
+        day=day.value, updated_at=None, content="Archived memory."
+    )
+
 
 def _agent_trap() -> RuntimeTrap:
     registry = TrapHandlerRegistry()

@@ -1,0 +1,797 @@
+"""Load action catalog definitions from TOML files."""
+
+from __future__ import annotations
+
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, replace
+from enum import StrEnum
+import math
+from pathlib import Path
+from types import MappingProxyType
+from typing import Protocol, TypeVar, cast
+
+from tinysoul.infra.config import (
+    ConfigDocument,
+    ConfigDocumentSet,
+    ConfigError,
+    reject_unknown_keys,
+)
+from tinysoul.infra.config.sources.toml_file import ConfigFileToml
+from tinysoul.infra.json import JsonObject, to_json_object
+
+from .catalog import ActionCatalog
+from .schema import check_action_schema
+from .specs import (
+    ActionBackendKind,
+    ActionBackendSpec,
+    ActionDomainSpec,
+    ActionEnvironmentEffect,
+    ActionHookSpec,
+    ActionParallelPolicy,
+    ActionResultRuntimeSpec,
+    ActionRuntimeSpec,
+    ActionSemanticSpec,
+    ActionSpec,
+    ActionToolSpec,
+    ActionVisibilitySpec,
+)
+from ..result import ActionTraceMode
+
+E = TypeVar("E", bound=StrEnum)
+
+
+@dataclass(frozen=True)
+class ActionCatalogDocumentRef:
+    """Stable source binding for one project-owned catalog object."""
+
+    source_id: str
+    path: str
+    document_kind: str
+
+
+@dataclass(frozen=True)
+class ActionCatalogDocumentIndex:
+    """Project document bindings and effective runtime provenance."""
+
+    domains: Mapping[str, ActionCatalogDocumentRef]
+    actions: Mapping[str, ActionCatalogDocumentRef]
+    domain_runtimes: Mapping[str, ActionRuntimeSpec]
+    timeout_sources: Mapping[str, str]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "domains", MappingProxyType(dict(self.domains)))
+        object.__setattr__(self, "actions", MappingProxyType(dict(self.actions)))
+        object.__setattr__(
+            self,
+            "domain_runtimes",
+            MappingProxyType(dict(self.domain_runtimes)),
+        )
+        object.__setattr__(
+            self,
+            "timeout_sources",
+            MappingProxyType(dict(self.timeout_sources)),
+        )
+
+
+@dataclass(frozen=True)
+class LoadedActionCatalog:
+    """One validated Action catalog and its project document bindings."""
+
+    catalog: ActionCatalog
+    documents: ActionCatalogDocumentIndex
+
+
+class ActionBackendOptionsValidator(Protocol):
+    """Validate backend-specific options at catalog loading time."""
+
+    def validate(self, backend: ActionBackendSpec, *, key: str) -> None:
+        """Raise ConfigError if backend options are not valid for this backend."""
+        ...
+
+
+class ActionCatalogLoader:
+    """Load domain packages from a catalog root directory."""
+
+    def __init__(
+        self,
+        parser: "ActionTomlParser | None" = None,
+        *,
+        backend_kind_options_validators: (
+            Mapping[ActionBackendKind, ActionBackendOptionsValidator] | None
+        ) = None,
+        llm_action_timeout_seconds: float | None = None,
+    ) -> None:
+        if llm_action_timeout_seconds is not None and (
+            isinstance(llm_action_timeout_seconds, bool)
+            or not isinstance(llm_action_timeout_seconds, (int, float))
+            or not math.isfinite(llm_action_timeout_seconds)
+            or llm_action_timeout_seconds <= 0
+        ):
+            raise ConfigError(
+                "llm_action_timeout_seconds must be positive and finite",
+                key="action.llm_action.timeout_seconds",
+                value=llm_action_timeout_seconds,
+                expected="positive finite number",
+            )
+        self._parser = parser or ActionTomlParser()
+        self._backend_kind_options_validators = dict(
+            backend_kind_options_validators or {}
+        )
+        self._llm_action_timeout_seconds = (
+            float(llm_action_timeout_seconds)
+            if llm_action_timeout_seconds is not None
+            else None
+        )
+
+    def load(self, root_path: Path) -> ActionCatalog:
+        return self.load_many((root_path,))
+
+    def load_many(self, root_paths: Iterable[Path]) -> ActionCatalog:
+        """Load and merge domain packages from one or more catalog roots."""
+
+        roots = tuple(root_paths)
+        if not roots:
+            raise ConfigError(
+                "Action catalog requires at least one root",
+                key="action.catalog",
+                expected="non-empty roots",
+            )
+        domains: list[ActionDomainSpec] = []
+        actions: list[ActionSpec] = []
+        for root_path in roots:
+            loaded_domains, loaded_actions = self._load_root(root_path)
+            domains.extend(loaded_domains)
+            actions.extend(loaded_actions)
+        return ActionCatalog(domains=domains, actions=actions)
+
+    def load_documents(self, document_set: ConfigDocumentSet) -> LoadedActionCatalog:
+        """Load one project-owned Action catalog document set."""
+
+        domain_documents: dict[Path, ConfigDocument] = {}
+        action_documents: dict[Path, list[ConfigDocument]] = {}
+        for document in document_set.documents:
+            if document.path.name == "domain.toml":
+                domain_documents[document.path.parent.resolve()] = document
+                continue
+            if (
+                document.path.suffix == ".toml"
+                and document.path.parent.name == "actions"
+            ):
+                domain_path = document.path.parent.parent.resolve()
+                action_documents.setdefault(domain_path, []).append(document)
+                continue
+            raise ConfigError(
+                "Action catalog document has an unsupported location",
+                key=document.source_id,
+                source=document.source_id,
+                expected="<domain>/domain.toml or <domain>/actions/*.toml",
+            )
+
+        orphan_paths = set(action_documents) - set(domain_documents)
+        if orphan_paths:
+            orphan = sorted(orphan_paths, key=str)[0]
+            document = sorted(
+                action_documents[orphan], key=lambda item: item.source_id
+            )[0]
+            raise ConfigError(
+                "Action catalog actions require a domain.toml in the same package",
+                key=document.source_id,
+                source=document.source_id,
+            )
+        if not domain_documents:
+            raise ConfigError(
+                "Action catalog document set contains no domains",
+                key="action.catalog",
+                expected="at least one domain.toml",
+            )
+
+        domains: list[ActionDomainSpec] = []
+        actions: list[ActionSpec] = []
+        domain_refs: dict[str, ActionCatalogDocumentRef] = {}
+        action_refs: dict[str, ActionCatalogDocumentRef] = {}
+        domain_runtimes: dict[str, ActionRuntimeSpec] = {}
+        timeout_sources: dict[str, str] = {}
+        for domain_path, domain_document in sorted(
+            domain_documents.items(), key=lambda item: item[1].source_id
+        ):
+            source = _document_display_path(domain_document)
+            domain_data = domain_document.data
+            try:
+                domain_runtime_table = _optional_table(
+                    domain_data,
+                    "runtime",
+                    key=source,
+                )
+                domain = self._parser.parse_domain(
+                    _as_table(domain_data, key=source),
+                    source=source,
+                )
+                default_runtime = self._parser.parse_runtime(
+                    domain_runtime_table,
+                    key=f"{source}.runtime",
+                )
+            except ConfigError as exc:
+                raise _with_document_source(exc, domain_document) from exc
+            if domain.name in domain_refs:
+                raise ConfigError(
+                    "Duplicate Action domain",
+                    key=f"{source}.name",
+                    source=domain_document.source_id,
+                    value=domain.name,
+                )
+            domains.append(domain)
+            domain_refs[domain.name] = _document_ref(domain_document, "domain")
+            domain_runtimes[domain.name] = default_runtime
+
+            for action_document in sorted(
+                action_documents.get(domain_path, ()),
+                key=lambda item: item.source_id,
+            ):
+                action_source = _document_display_path(action_document)
+                try:
+                    action_table = _as_table(action_document.data, key=action_source)
+                    action = self._parser.parse_action(
+                        action_table,
+                        source=action_source,
+                        default_runtime=default_runtime,
+                    )
+                except ConfigError as exc:
+                    raise _with_document_source(exc, action_document) from exc
+                if action.domain != domain.name:
+                    raise ConfigError(
+                        "Action domain must match its catalog package",
+                        key=f"{action_source}.domain",
+                        source=action_document.source_id,
+                        value=action.domain,
+                        expected=domain.name,
+                    )
+                if not action.name.startswith(f"{domain.name}."):
+                    raise ConfigError(
+                        "Action ID must use its domain namespace",
+                        key=f"{action_source}.name",
+                        source=action_document.source_id,
+                        value=action.name,
+                        expected=f"{domain.name}.*",
+                    )
+                try:
+                    action, timeout_source = self._resolve_timeout(
+                        action,
+                        action_table=action_table,
+                        default_runtime=default_runtime,
+                        source=action_source,
+                    )
+                    self._validate_backend_options(
+                        action.backend,
+                        key=f"{action_source}.backend.options",
+                    )
+                except ConfigError as exc:
+                    raise _with_document_source(exc, action_document) from exc
+                if action.name in action_refs:
+                    raise ConfigError(
+                        "Duplicate Action ID",
+                        key=f"{action_source}.name",
+                        source=action_document.source_id,
+                        value=action.name,
+                    )
+                actions.append(action)
+                action_refs[action.name] = _document_ref(action_document, "action")
+                timeout_sources[action.name] = timeout_source
+
+        return LoadedActionCatalog(
+            catalog=ActionCatalog(domains=domains, actions=actions),
+            documents=ActionCatalogDocumentIndex(
+                domains=domain_refs,
+                actions=action_refs,
+                domain_runtimes=domain_runtimes,
+                timeout_sources=timeout_sources,
+            ),
+        )
+
+    def _load_root(
+        self,
+        root_path: Path,
+    ) -> tuple[list[ActionDomainSpec], list[ActionSpec]]:
+        if not root_path.exists():
+            raise ConfigError(
+                "Action catalog root does not exist",
+                key=str(root_path),
+                expected="directory",
+            )
+        if not root_path.is_dir():
+            raise ConfigError(
+                "Action catalog root must be a directory",
+                key=str(root_path),
+                expected="directory",
+            )
+        domains: list[ActionDomainSpec] = []
+        actions: list[ActionSpec] = []
+        domain_dirs = sorted(
+            (path for path in root_path.iterdir() if path.is_dir()),
+            key=lambda path: path.name,
+        )
+        for domain_dir in domain_dirs:
+            domain_path = domain_dir / "domain.toml"
+            if not domain_path.exists():
+                continue
+            domain_data = ConfigFileToml(domain_path).data
+            domain = self._parser.parse_domain(
+                _as_table(domain_data, key=str(domain_path)),
+                source=str(domain_path),
+            )
+            domains.append(domain)
+
+            default_runtime = self._parser.parse_runtime(
+                _optional_table(domain_data, "runtime", key=str(domain_path)),
+                key=f"{domain_path}.runtime",
+            )
+            action_dir = domain_dir / "actions"
+            if not action_dir.exists():
+                continue
+            for action_path in sorted(
+                action_dir.glob("*.toml"), key=lambda path: path.name
+            ):
+                action_data = ConfigFileToml(action_path).data
+                action_table = _as_table(action_data, key=str(action_path))
+                action = self._parser.parse_action(
+                    action_table,
+                    source=str(action_path),
+                    default_runtime=default_runtime,
+                )
+                if action.domain != domain.name:
+                    raise ConfigError(
+                        "Action domain must match its catalog package",
+                        key=f"{action_path}.domain",
+                        value=action.domain,
+                        expected=domain.name,
+                    )
+                action, _timeout_source = self._resolve_timeout(
+                    action,
+                    action_table=action_table,
+                    default_runtime=default_runtime,
+                    source=str(action_path),
+                )
+                self._validate_backend_options(
+                    action.backend,
+                    key=f"{action_path}.backend.options",
+                )
+                actions.append(action)
+        return domains, actions
+
+    def _resolve_timeout(
+        self,
+        action: ActionSpec,
+        *,
+        action_table: Mapping[str, object],
+        default_runtime: ActionRuntimeSpec,
+        source: str,
+    ) -> tuple[ActionSpec, str]:
+        runtime_table = _optional_table(action_table, "runtime", key=source)
+        if "timeout_seconds" in runtime_table:
+            return action, "action"
+        if (
+            self._llm_action_timeout_seconds is not None
+            and action.backend.kind is ActionBackendKind.LLM_ACTION
+        ):
+            return (
+                replace(
+                    action,
+                    runtime=replace(
+                        action.runtime,
+                        timeout_seconds=self._llm_action_timeout_seconds,
+                    ),
+                ),
+                "llm_action",
+            )
+        if default_runtime.timeout_seconds is not None:
+            return action, "domain"
+        return action, "none"
+
+    def _validate_backend_options(
+        self, backend: ActionBackendSpec, *, key: str
+    ) -> None:
+        validator = self._backend_kind_options_validators.get(backend.kind)
+        if validator is not None:
+            validator.validate(backend, key=key)
+
+
+def _document_display_path(document: ConfigDocument) -> str:
+    prefix = f"project-document:{document.set_id}:"
+    if document.source_id.startswith(prefix):
+        return document.source_id[len(prefix) :]
+    return document.source_id
+
+
+def _document_ref(
+    document: ConfigDocument,
+    document_kind: str,
+) -> ActionCatalogDocumentRef:
+    return ActionCatalogDocumentRef(
+        source_id=document.source_id,
+        path=_document_display_path(document),
+        document_kind=document_kind,
+    )
+
+
+def _with_document_source(
+    error: ConfigError,
+    document: ConfigDocument,
+) -> ConfigError:
+    if error.source:
+        return error
+    return ConfigError(
+        error.message,
+        key=error.key,
+        source=document.source_id,
+        value=error.value,
+        expected=error.expected,
+    )
+
+
+class ActionTomlParser:
+    """Parse TOML mappings into explicit action spec objects."""
+
+    def parse_domain(
+        self,
+        table: Mapping[str, object],
+        *,
+        source: str,
+    ) -> ActionDomainSpec:
+        return ActionDomainSpec(
+            name=_required_str(table, "name", key=source),
+            description=_required_str(table, "description", key=source),
+            selection_hint=_optional_str(
+                table, "selection_hint", default="", key=source
+            ),
+            visibility=self.parse_visibility(
+                _optional_table(table, "visibility", key=source),
+                key=f"{source}.visibility",
+            ),
+        )
+
+    def parse_action(
+        self,
+        table: Mapping[str, object],
+        *,
+        source: str,
+        default_runtime: ActionRuntimeSpec | None = None,
+    ) -> ActionSpec:
+        name = _required_str(table, "name", key=source)
+        domain = _required_str(table, "domain", key=source)
+        tool = self.parse_tool(
+            _required_table(table, "tool", key=source),
+            action_name=name,
+            key=f"{source}.tool",
+        )
+        semantic = self.parse_semantic(
+            _optional_table(table, "semantic", key=source),
+            key=f"{source}.semantic",
+        )
+        runtime = self.parse_runtime(
+            _optional_table(table, "runtime", key=source),
+            key=f"{source}.runtime",
+            base=default_runtime,
+        )
+        backend = self.parse_backend(
+            _required_table(table, "backend", key=source),
+            key=f"{source}.backend",
+        )
+        return ActionSpec(
+            name=name,
+            domain=domain,
+            tool=tool,
+            semantic=semantic,
+            runtime=runtime,
+            backend=backend,
+            visibility=self.parse_visibility(
+                _optional_table(table, "visibility", key=source),
+                key=f"{source}.visibility",
+            ),
+        )
+
+    def parse_visibility(
+        self,
+        table: Mapping[str, object],
+        *,
+        key: str,
+    ) -> ActionVisibilitySpec:
+        reject_unknown_keys(table, {"default", "scenarios"}, key=key)
+        default = table.get("default")
+        if default is not None and type(default) is not bool:
+            raise ConfigError(
+                "Action visibility default must be boolean", key=f"{key}.default"
+            )
+        raw = table.get("scenarios", {})
+        if not isinstance(raw, Mapping) or any(
+            not isinstance(name, str) or not name.strip() or type(value) is not bool
+            for name, value in raw.items()
+        ):
+            raise ConfigError(
+                "Action visibility scenarios must be named booleans",
+                key=f"{key}.scenarios",
+            )
+        return ActionVisibilitySpec(
+            default=default,
+            scenarios=tuple(cast(Mapping[str, bool], raw).items()),
+        )
+
+    def parse_tool(
+        self,
+        table: Mapping[str, object],
+        *,
+        action_name: str,
+        key: str,
+    ) -> ActionToolSpec:
+        schema = _required_table(table, "schema", key=key)
+        schema_object = to_json_object(schema)
+        check_action_schema(schema_object, key=f"{key}.schema")
+        return ActionToolSpec(
+            name=action_name,
+            description=_required_str(table, "description", key=key),
+            schema=schema_object,
+        )
+
+    def parse_semantic(
+        self,
+        table: Mapping[str, object],
+        *,
+        key: str,
+    ) -> ActionSemanticSpec:
+        effects = tuple(
+            _enum_value(ActionEnvironmentEffect, value, key=f"{key}.effects")
+            for value in _optional_str_list(table, "effects", key=key)
+        )
+        return ActionSemanticSpec(
+            use_when=tuple(_optional_str_list(table, "use_when", key=key)),
+            avoid_when=tuple(_optional_str_list(table, "avoid_when", key=key)),
+            effects=effects,
+            examples=tuple(_optional_str_list(table, "examples", key=key)),
+        )
+
+    def parse_runtime(
+        self,
+        table: Mapping[str, object],
+        *,
+        key: str,
+        base: ActionRuntimeSpec | None = None,
+    ) -> ActionRuntimeSpec:
+        reject_unknown_keys(
+            table, {"timeout_seconds", "parallel_policy", "hooks", "result"}, key=key
+        )
+        timeout_seconds = (
+            base.timeout_seconds
+            if base is not None and "timeout_seconds" not in table
+            else _optional_positive_float_or_none(
+                table,
+                "timeout_seconds",
+                key=key,
+            )
+        )
+        parallel_default = (
+            base.parallel_policy.value
+            if base is not None
+            else ActionParallelPolicy.ALLOWED.value
+        )
+        base_hooks = base.hooks if base is not None else ActionHookSpec()
+        base_result = base.result if base is not None else ActionResultRuntimeSpec()
+        hook_table = _optional_table(table, "hooks", key=key)
+        result_table = _optional_table(table, "result", key=key)
+        return ActionRuntimeSpec(
+            timeout_seconds=timeout_seconds,
+            parallel_policy=_enum_value(
+                ActionParallelPolicy,
+                _optional_str(
+                    table,
+                    "parallel_policy",
+                    default=parallel_default,
+                    key=key,
+                ),
+                key=f"{key}.parallel_policy",
+            ),
+            hooks=ActionHookSpec(
+                normalize_hooks=(
+                    *base_hooks.normalize_hooks,
+                    *_optional_str_list(hook_table, "normalize", key=f"{key}.hooks"),
+                ),
+                execution_hooks=(
+                    *base_hooks.execution_hooks,
+                    *_optional_str_list(hook_table, "execute", key=f"{key}.hooks"),
+                ),
+            ),
+            result=ActionResultRuntimeSpec(
+                trace_mode=_enum_value(
+                    ActionTraceMode,
+                    _optional_str(
+                        result_table,
+                        "trace_mode",
+                        default=base_result.trace_mode.value,
+                        key=f"{key}.result",
+                    ),
+                    key=f"{key}.result.trace_mode",
+                )
+            ),
+        )
+
+    def parse_backend(
+        self,
+        table: Mapping[str, object],
+        *,
+        key: str,
+    ) -> ActionBackendSpec:
+        return ActionBackendSpec(
+            kind=_enum_value(
+                ActionBackendKind,
+                _required_str(table, "kind", key=key),
+                key=f"{key}.kind",
+            ),
+            handler=_required_str(table, "handler", key=key),
+            options=_optional_json_object(table, "options", key=key),
+        )
+
+
+def _required_table(
+    table: Mapping[str, object],
+    name: str,
+    *,
+    key: str,
+) -> Mapping[str, object]:
+    value = table.get(name)
+    if value is None:
+        raise ConfigError("Missing action configuration table", key=f"{key}.{name}")
+    return _as_table(value, key=f"{key}.{name}")
+
+
+def _optional_table(
+    table: Mapping[str, object],
+    name: str,
+    *,
+    key: str,
+) -> Mapping[str, object]:
+    value = table.get(name)
+    if value is None:
+        return {}
+    return _as_table(value, key=f"{key}.{name}")
+
+
+def _as_table(value: object, *, key: str) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        raise ConfigError(
+            "Action configuration value must be a table",
+            key=key,
+            value=value,
+            expected="table",
+        )
+    return cast(Mapping[str, object], value)
+
+
+def _required_str(table: Mapping[str, object], name: str, *, key: str) -> str:
+    value = table.get(name)
+    if not isinstance(value, str) or not value:
+        raise ConfigError(
+            "Action configuration value must be a non-empty string",
+            key=f"{key}.{name}",
+            value=value,
+            expected="str",
+        )
+    return value
+
+
+def _optional_str(
+    table: Mapping[str, object],
+    name: str,
+    *,
+    default: str,
+    key: str,
+) -> str:
+    value = table.get(name, default)
+    if not isinstance(value, str):
+        raise ConfigError(
+            "Action configuration value must be a string",
+            key=f"{key}.{name}",
+            value=value,
+            expected="str",
+        )
+    return value
+
+
+def _optional_bool(
+    table: Mapping[str, object],
+    name: str,
+    *,
+    default: bool,
+    key: str,
+) -> bool:
+    value = table.get(name, default)
+    if not isinstance(value, bool):
+        raise ConfigError(
+            "Action configuration value must be boolean",
+            key=f"{key}.{name}",
+            value=value,
+            expected="bool",
+        )
+    return value
+
+
+def _enum_value(enum_type: type[E], value: str, *, key: str) -> E:
+    try:
+        return enum_type(value)
+    except ValueError as exc:
+        expected = ", ".join(item.value for item in enum_type)
+        raise ConfigError(
+            "Action configuration value must be one of the supported enum values",
+            key=key,
+            value=value,
+            expected=expected,
+        ) from exc
+
+
+def _optional_str_list(
+    table: Mapping[str, object],
+    name: str,
+    *,
+    key: str,
+) -> list[str]:
+    value = table.get(name)
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ConfigError(
+            "Action configuration value must be a list of strings",
+            key=f"{key}.{name}",
+            value=value,
+            expected="list[str]",
+        )
+    result: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item:
+            raise ConfigError(
+                "Action configuration value must be a list of non-empty strings",
+                key=f"{key}.{name}",
+                value=value,
+                expected="list[str]",
+            )
+        result.append(item)
+    return result
+
+
+def _optional_positive_float_or_none(
+    table: Mapping[str, object],
+    name: str,
+    *,
+    key: str,
+) -> float | None:
+    value = table.get(name)
+    if value is None:
+        return None
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value <= 0
+    ):
+        raise ConfigError(
+            "Action configuration value must be a positive finite number or null",
+            key=f"{key}.{name}",
+            value=value,
+            expected="positive finite number | null",
+        )
+    return float(value)
+
+
+def _optional_json_object(
+    table: Mapping[str, object],
+    name: str,
+    *,
+    key: str,
+) -> JsonObject:
+    value = table.get(name)
+    if value is None:
+        return {}
+    try:
+        return to_json_object(value)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(
+            str(exc),
+            key=f"{key}.{name}",
+            value=value,
+            expected="json object",
+        ) from exc

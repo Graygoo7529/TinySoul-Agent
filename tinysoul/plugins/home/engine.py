@@ -17,7 +17,7 @@ from .errors import (
     AgentHomeInvariantError,
     AgentHomeRuntimeCopyRequired,
 )
-from .layout import AgentHomeLayout
+from .content.layout import AgentHomeLayout
 from .links import (
     HomeLink,
     HomePromptMountLink,
@@ -32,20 +32,19 @@ from .review import (
     HomeReviewPending,
     HomeReviewService,
 )
-from .metadata import (
+from .skills.metadata import (
     SKILL_FRONTMATTER_MAX_CHARS,
     HomeSkillMetadata,
     parse_home_skill_metadata,
 )
 from .overlay import HomeOverlayManager, HomeOverlayRecord, HomeOverlayState
-from .search import (
+from .content.search import (
     SEARCHABLE_HOME_SPACES,
     HomeSearchDocument,
     HomeSearchReranker,
     HomeSearchResult,
     HomeTopSearchService,
 )
-
 
 _DEFAULT_BACKGROUND_TOP_LINKS = (
     HomeTopLink("agent", "AGENT"),
@@ -284,13 +283,13 @@ class AgentHomeEngine:
         operations = JoinedOperations()
         documents = await operations.run(self._search_documents)
         operations.check_cancelled()
-        return (await self._search.search(
+        return await self._search.search(
             query=query,
             documents=tuple(documents),
             top_k=top_k,
             reranker=reranker,
             scope=scope,
-        ))
+        )
 
     def _search_documents(self) -> tuple[HomeSearchDocument, ...]:
         self._validate_overlay_semantics()
@@ -325,9 +324,7 @@ class AgentHomeEngine:
             digest = record.runtime_digest
         prefix = _read_text_prefix(path, self._search.prefix_max_chars)
         metadata = (
-            self._skill_metadata_for_link(link)
-            if link.space == "skills"
-            else None
+            self._skill_metadata_for_link(link) if link.space == "skills" else None
         )
         return HomeSearchDocument(
             link=link,
@@ -429,8 +426,7 @@ class AgentHomeEngine:
         domain_names = _validated_names(domains, label="Action Catalog domains")
         action_identifiers = _validated_action_identifiers(actions)
         expected = {
-            HomePromptMountLink("skills_domain", domain)
-            for domain in domain_names
+            HomePromptMountLink("skills_domain", domain) for domain in domain_names
         }
         for domain, action_name in action_identifiers:
             if domain not in domain_names or not action_name.startswith(f"{domain}."):
@@ -438,9 +434,7 @@ class AgentHomeEngine:
                     f"Action Catalog action/domain identity is inconsistent: {action_name}"
                 )
             action_key = action_name[len(domain) + 1 :]
-            expected.add(
-                HomePromptMountLink("skills_action", f"{domain}/{action_key}")
-            )
+            expected.add(HomePromptMountLink("skills_action", f"{domain}/{action_key}"))
 
         existing_relatives = set(self._layout.actual_prompt_mount_relatives())
         existing_relatives.update(
@@ -492,9 +486,8 @@ class AgentHomeEngine:
             materialized = not self._layout.runtime_for_relative(relative).is_file()
             record = self._overlay.record_for(relative)
             source = self._layout.source_for_relative(relative)
-            if (
-                (record is not None and record.state is HomeOverlayState.DELETED)
-                or (record is None and not source.exists())
+            if (record is not None and record.state is HomeOverlayState.DELETED) or (
+                record is None and not source.exists()
             ):
                 return False
         self._overlay.ensure_copy(relative)
@@ -805,10 +798,7 @@ class AgentHomeEngine:
                     raise AgentHomeInvariantError(
                         f"Runtime-only SKILL_MEMORY has an actual baseline: {relative}"
                     )
-                if (
-                    self._resolve_top_relative(HomeTopLink("skills", parts[1]))
-                    is None
-                ):
+                if self._resolve_top_relative(HomeTopLink("skills", parts[1])) is None:
                     raise AgentHomeInvariantError(
                         f"Runtime SKILL_MEMORY has no general skill: {relative}"
                     )

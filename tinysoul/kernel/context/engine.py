@@ -5,14 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 from uuid import uuid4
-from tinysoul.kernel.action.core.call import ActionCall, ExecutionFact
-from tinysoul.kernel.action.core.result import ActionResult
+from tinysoul.kernel.action.call import ActionCall, ExecutionFact
+from tinysoul.kernel.action.result import ActionResult
 
 from tinysoul.infra.concurrency import CleanupDiagnostic
 from tinysoul.infra.continuation import MIN_CONTINUATION_PAGE_CHARS
 from tinysoul.infra.json import JsonObject, to_json_object
-from tinysoul.llm.messages import MessageStack
-from tinysoul.llm.tools import ToolCallRecord, ToolScope
+from tinysoul.llm.protocol.messages import MessageStack
+from tinysoul.llm.protocol.tools import ToolCallRecord, ToolScope
 from tinysoul.runtime import (
     NullObservationEmitter,
     ObservationEmitter,
@@ -30,10 +30,10 @@ from .background import (
     BackgroundPatch,
     check_background_patches,
 )
-from .composer import ContextBudget, MessageStackComposer
+from .projection.composer import ContextBudget, MessageStackComposer
 from .compress import ContextCompressor, ContextPressureReport
 from .config import ContextSettings
-from .controls import (
+from .control.tools import (
     ContextControlScopeBuilder,
     ControlCallNormalizer,
     ControlNormalization,
@@ -55,16 +55,23 @@ from .signals import (
     parse_background_patch_signal,
     parse_working_patch_signal,
 )
-from .trace import (
+from .builtin.trace import (
     PendingInputs,
     SealedTurnTrace,
     TraceCompactionReport,
     TraceKind,
     TurnTraceHeap,
 )
-from .working import WorkingContext, WorkingPatch
+from .builtin.working import WorkingContext, WorkingPatch
 from .segments import RegisteredSegment, SegmentRegistry, TurnInfo, TurnSegments
-from .core import CORE_DESCRIPTORS, CORE_SEGMENT_IDS, InputsSegment, PlanSegment, TraceSegment, core_registrations
+from .builtin.core import (
+    CORE_DESCRIPTORS,
+    CORE_SEGMENT_IDS,
+    InputsSegment,
+    PlanSegment,
+    TraceSegment,
+    core_registrations,
+)
 
 
 @dataclass(frozen=True)
@@ -181,7 +188,9 @@ class ContextEngine:
         self._scope_builder = ContextControlScopeBuilder()
         self._normalizer = ControlCallNormalizer()
         self._plan_segment = PlanSegment()
-        self._trace_segment = TraceSegment(compressor.new_trace("detached"), inspect_max_chars=trace_inspect_max_chars)
+        self._trace_segment = TraceSegment(
+            compressor.new_trace("detached"), inspect_max_chars=trace_inspect_max_chars
+        )
         self._inputs_segment = InputsSegment()
         self._turn_id = ""
         for registration in registrations:
@@ -233,30 +242,47 @@ class ContextEngine:
         """Check contribution routes without installing providers or opening a Turn."""
         self._candidate_segments(registrations)
 
-    def _candidate_segments(self, registrations: tuple[RegisteredSegment, ...]) -> SegmentRegistry:
+    def _candidate_segments(
+        self, registrations: tuple[RegisteredSegment, ...]
+    ) -> SegmentRegistry:
         if self._turn_id or self._segments is not None:
-            raise ContextContractError("Segments must be registered before Turn execution")
+            raise ContextContractError(
+                "Segments must be registered before Turn execution"
+            )
         candidate = self._segment_registry
         for registration in registrations:
             if registration.descriptor.id in CORE_SEGMENT_IDS | {"task_prompt"}:
-                raise ContextContractError("Segment id conflicts with a core projection")
+                raise ContextContractError(
+                    "Segment id conflicts with a core projection"
+                )
             for prefix in registration.descriptor.ref_prefixes:
                 if any(
                     prefix.startswith(reserved) or reserved.startswith(prefix)
-                    for descriptor in CORE_DESCRIPTORS for reserved in descriptor.ref_prefixes
+                    for descriptor in CORE_DESCRIPTORS
+                    for reserved in descriptor.ref_prefixes
                 ):
-                    raise ContextContractError("Segment reference route conflicts with a core segment")
+                    raise ContextContractError(
+                        "Segment reference route conflicts with a core segment"
+                    )
             if registration.signal_name in {
-                SIGNAL_WORKING_PATCH, SIGNAL_BACKGROUND_PATCH,
-                SIGNAL_TRACE_APPEND, SIGNAL_INPUT_APPEND,
+                SIGNAL_WORKING_PATCH,
+                SIGNAL_BACKGROUND_PATCH,
+                SIGNAL_TRACE_APPEND,
+                SIGNAL_INPUT_APPEND,
             }:
-                raise ContextContractError("Segment update route conflicts with a core update")
+                raise ContextContractError(
+                    "Segment update route conflicts with a core update"
+                )
             candidate = candidate.register(registration)
         return candidate
 
     def segment_snapshot(self, segment_id: str) -> JsonObject:
         self._require_turn()
-        value = self._segments.seal().get(segment_id) if self._segments is not None else None
+        value = (
+            self._segments.seal().get(segment_id)
+            if self._segments is not None
+            else None
+        )
         if not isinstance(value, dict):
             raise ContextContractError("No active segment has this identity")
         return to_json_object(value)
@@ -278,22 +304,34 @@ class ContextEngine:
 
     def begin_turn(self, user_input: str, *, turn_id: str = "") -> str:
         if self._turn_id or self._segments is not None:
-            raise ContextContractError("Previous Turn must be ended and its segments closed")
+            raise ContextContractError(
+                "Previous Turn must be ended and its segments closed"
+            )
         if not user_input:
             raise ContextContractError("begin_turn requires non-empty user input")
         if not isinstance(turn_id, str) or (turn_id and not turn_id.strip()):
-            raise ContextContractError("Turn identity must be non-empty text when supplied")
+            raise ContextContractError(
+                "Turn identity must be non-empty text when supplied"
+            )
         self._turn_id = turn_id or f"turn_{uuid4().hex[:8]}"
         self._plan_segment = PlanSegment()
         self._trace_segment = TraceSegment(
-            self._compressor.new_trace(self._turn_id), inspect_max_chars=self._trace_inspect_max_chars,
+            self._compressor.new_trace(self._turn_id),
+            inspect_max_chars=self._trace_inspect_max_chars,
         )
         self._inputs_segment = InputsSegment(user_input)
-        self._turn_registry = SegmentRegistry((
-            *core_registrations(identity=self._system_text, journal=self._journal,
-                                inputs=self._inputs_segment, plan=self._plan_segment, trace=self._trace_segment),
-            *self._segment_registry.registrations,
-        ))
+        self._turn_registry = SegmentRegistry(
+            (
+                *core_registrations(
+                    identity=self._system_text,
+                    journal=self._journal,
+                    inputs=self._inputs_segment,
+                    plan=self._plan_segment,
+                    trace=self._trace_segment,
+                ),
+                *self._segment_registry.registrations,
+            )
+        )
         return self._turn_id
 
     async def open_segments(self, business_day: date) -> None:
@@ -312,23 +350,34 @@ class ContextEngine:
             raise
         self._segments = views
         self._emit_background_observation(
-            name="context.background.snapshot", message="Turn background views opened.",
+            name="context.background.snapshot",
+            message="Turn background views opened.",
         )
 
     def _selection_view(self) -> SegmentSelectionView:
-        return self._segments.selection_view() if self._segments is not None else SegmentSelectionView()
+        return (
+            self._segments.selection_view()
+            if self._segments is not None
+            else SegmentSelectionView()
+        )
 
     def compose(self, task_prompt: TaskPrompt) -> MessageStack:
         self._require_turn()
         if self._segments is None:
-            raise ContextContractError("Context segments must be opened before composition")
-        return self._composer.compose(segments=self._segments.render(), task_prompt=task_prompt)
+            raise ContextContractError(
+                "Context segments must be opened before composition"
+            )
+        return self._composer.compose(
+            segments=self._segments.render(), task_prompt=task_prompt
+        )
 
     def control_scope(self) -> ToolScope:
         self._require_turn()
         view = self._selection_view()
         return self._scope_builder.build(
-            loadable_links=tuple(ref for ref in view.available if ref not in view.loaded),
+            loadable_links=tuple(
+                ref for ref in view.available if ref not in view.loaded
+            ),
             loaded_links=tuple(ref for ref in view.loaded if ref not in view.protected),
         )
 
@@ -384,7 +433,9 @@ class ContextEngine:
             scope_problem = self._signal_scope_problem(signal)
             if scope_problem:
                 if self._segments is not None and self._segments.accepts(signal):
-                    raise ContextContractError("Registered segment update has invalid Turn scope")
+                    raise ContextContractError(
+                        "Registered segment update has invalid Turn scope"
+                    )
                 results.append(
                     _consume_failure(
                         signal,
@@ -422,23 +473,38 @@ class ContextEngine:
                     )
                 )
 
-        problems = self._working.check_patch_sequence(tuple(patch for _, _, _, patch in working_candidates))
-        for (sequence, signal, call_id, _patch), problem in zip(working_candidates, problems):
+        problems = self._working.check_patch_sequence(
+            tuple(patch for _, _, _, patch in working_candidates)
+        )
+        for (sequence, signal, call_id, _patch), problem in zip(
+            working_candidates, problems
+        ):
             if problem:
                 results.append(_consume_failure(signal, call_id, sequence, problem))
             else:
                 segment_signals.append((sequence, signal))
         problems = check_background_patches(
-            self._selection_view(), tuple(patch for _, _, _, patch in background_candidates),
+            self._selection_view(),
+            tuple(patch for _, _, _, patch in background_candidates),
         )
-        for (sequence, signal, call_id, patch), problem in zip(background_candidates, problems):
+        for (sequence, signal, call_id, patch), problem in zip(
+            background_candidates, problems
+        ):
             if problem:
                 results.append(_consume_failure(signal, call_id, sequence, problem))
             elif self._segments is not None:
-                segment_signals.extend((sequence, update) for update in self._segments.selection_signals(patch, signal))
+                segment_signals.extend(
+                    (sequence, update)
+                    for update in self._segments.selection_signals(patch, signal)
+                )
 
         if self._segments is not None:
-            prepared_segments = await self._segments.prepare(tuple(signal for _, signal in sorted(segment_signals, key=lambda item: item[0])))
+            prepared_segments = await self._segments.prepare(
+                tuple(
+                    signal
+                    for _, signal in sorted(segment_signals, key=lambda item: item[0])
+                )
+            )
             if self._turn_id != batch.turn_id:
                 raise ContextContractError("Segment preparation outlived its Turn")
             self._segments.install(prepared_segments)
@@ -475,12 +541,15 @@ class ContextEngine:
     def reclaim_pressure(self, *, required_chars: int) -> ContextPressureReport:
         self._require_turn()
         from .segments import SegmentReclaim
-        background_report = self._segments.reclaim(required_chars) if self._segments is not None else SegmentReclaim()
+
+        background_report = (
+            self._segments.reclaim(required_chars)
+            if self._segments is not None
+            else SegmentReclaim()
+        )
         report = ContextPressureReport(
             changed=bool(background_report.reclaimed_chars),
-            reclaimed_chars=(
-                background_report.reclaimed_chars
-            ),
+            reclaimed_chars=(background_report.reclaimed_chars),
             evicted_background_links=background_report.evicted_refs,
         )
         if background_report.evicted_refs:
@@ -521,14 +590,18 @@ class ContextEngine:
     async def inspect(self, ref: str, *, continuation: str | None = None) -> JsonObject:
         self._require_turn()
         if self._segments is None:
-            raise ContextContractError("Context segments must be opened before inspection")
+            raise ContextContractError(
+                "Context segments must be opened before inspection"
+            )
         return await self._segments.inspect(ref, continuation=continuation)
 
     def record_execution(self, fact: ExecutionFact) -> None:
         self._require_turn()
         self._trace.record_execution(fact)
 
-    def register_action_calls(self, calls: tuple[ActionCall, ...], *, cycle_id: str) -> None:
+    def register_action_calls(
+        self, calls: tuple[ActionCall, ...], *, cycle_id: str
+    ) -> None:
         self._require_turn()
         self._trace.register_action_calls(calls, cycle_id=cycle_id)
 
@@ -545,15 +618,22 @@ class ContextEngine:
         completion = ContextTurnCompletion(
             turn_id=self._turn_id,
             inputs=tuple(
-                ContextTurnInput(text=item.text, received_at=item.received_at,
-                                 input_id=item.input_id, reply_to=item.reply_to)
+                ContextTurnInput(
+                    text=item.text,
+                    received_at=item.received_at,
+                    input_id=item.input_id,
+                    reply_to=item.reply_to,
+                )
                 for item in self._inputs.all()
             ),
             working=self._working.to_json(),
             background_links=self.background_links(),
             trace=self._trace.seal(),
             segments={
-                key: value for key, value in (self._segments.seal() if self._segments is not None else {}).items()
+                key: value
+                for key, value in (
+                    self._segments.seal() if self._segments is not None else {}
+                ).items()
                 if key not in CORE_SEGMENT_IDS
             },
         )
@@ -611,9 +691,11 @@ class ContextEngineBuilder:
             cls(system_text=settings.system_text)
             .with_journal(settings.journal)
             .with_budget_max_image_bytes(settings.budget_max_image_bytes)
-            .with_trace_heap(chunk_max_chars=settings.trace_chunk_max_chars,
-                             branch_factor=settings.trace_branch_factor,
-                             min_hot_entries=settings.trace_min_hot_entries)
+            .with_trace_heap(
+                chunk_max_chars=settings.trace_chunk_max_chars,
+                branch_factor=settings.trace_branch_factor,
+                min_hot_entries=settings.trace_min_hot_entries,
+            )
             .with_trace_inspect_max_chars(settings.trace_inspect_max_chars)
             .with_compression_trigger_ratio(settings.compression_trigger_ratio)
             .with_compression_target_ratio(settings.compression_target_ratio)
@@ -621,7 +703,9 @@ class ContextEngineBuilder:
 
     def __init__(self, *, system_text: str) -> None:
         if not system_text:
-            raise ContextContractError("ContextEngineBuilder requires non-empty system text")
+            raise ContextContractError(
+                "ContextEngineBuilder requires non-empty system text"
+            )
         self._system_text = system_text
         self._journal = ""
         self._max_image_bytes: int | None = None
@@ -654,9 +738,7 @@ class ContextEngineBuilder:
         max_image_bytes: int | None,
     ) -> "ContextEngineBuilder":
         if max_image_bytes is not None and max_image_bytes <= 0:
-            raise ContextContractError(
-                "Context image byte budget must be positive"
-            )
+            raise ContextContractError("Context image byte budget must be positive")
         self._max_image_bytes = max_image_bytes
         return self
 

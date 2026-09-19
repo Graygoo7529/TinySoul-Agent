@@ -4,7 +4,9 @@
 
 Infra 提供项目底层运行设施。它不表达具体业务语义，也不拥有上层模块的领域配置。
 
-Infra 当前负责配置环境、JSON 动态边界、受控文件系统读写、Python 依赖可用性检查、owner-neutral 的 `CalendarDay` 值对象，以及 provider-neutral 的文本 embedding 配置和窄客户端协议。每项基础能力都保持小而明确的边界，避免反向了解 Loop、Action、LLM、Memory、Workspace 或具体 capability 的业务细节；业务时区、业务日切策略、检索融合、日志和通用进程运行不属于 Infra 当前职责。
+Infra 当前负责配置环境、JSON 动态边界、受控文件系统读写、Python 依赖可用性检查、owner-neutral 的 `CalendarDay` 值对象，以及 provider-neutral 的文本 embedding 配置和窄客户端协议。每项基础能力都保持小而明确的边界，避免反向了解 Loop、Action、LLM、Memory、Workspace 或具体 capability 的业务细节；业务时区、日切策略、检索融合与业务日志不属于 Infra。通用受控进程位于 infra/process，由 Action worker 适配器和 execution Job 后端共同消费，不携带 Job/Turn 身份。
+
+配置内部按 sources、editing、descriptors 分开来源读取、候选文件事务与展示描述；ConfigEnvironment/ConfigController 保持公开门面。描述符模型和加载器不创建业务对象，业务 owner 显式解释自己的 section。
 
 ## 配置边界
 
@@ -56,8 +58,8 @@ project TOML 执行 source-aware mutation。Custom Model 因此不增加重复�
 完整候选环境并调用 owner validator，成功后与普通 TOML、dotenv 一起提交为待激活候选。
 显式 reload 在空闲时调用 Generation activator；失败保留当前世代和已保存候选。旧资源退休在激活成功后独立执行，退休失败不回滚文件或已生效世代。document 内容不进入 `effective_values()` 或普通 section parser。
 
-配置写入由 `ConfigController` 的异步锁串行化；事务在替换前保存原文，并在候选激活失败时
-回滚已替换文件。当前不计算或暴露 source fingerprint/revision，也不提供基于 revision 的并发
+配置写入由 `ConfigController` 的异步锁串行化；事务在替换前保存原文，并在文件提交失败时
+恢复已替换文件。候选保存与显式激活分开，reload 失败保留已保存候选和旧活动世代。当前不计算或暴露 source fingerprint/revision，也不提供基于 revision 的并发
 提交协议；单次写入的一致性由候选校验、串行化、原子替换和回滚保证。
 
 通用并发设施提供 JoinedOperations、AsyncResourceScope 与 AsyncMailbox。JoinedOperations 只承载有界本地工作：调用开始后，即使调用方取消也等待真实结果，由业务 owner 记录后再传播取消。AsyncResourceScope 按注册逆序回收资源，嵌套作用域保留有限清理诊断，并发或重复关闭共用同一任务。AsyncMailbox 接受线程来源的投递，在一个事件循环上异步取出；它只提供唤醒与队列基础，不解释业务输入、事件路由、预算或 Turn 受理。
@@ -74,11 +76,11 @@ project TOML 执行 source-aware mutation。Custom Model 因此不增加重复�
 
 项目配置文件用于可读、可写、可提交的非敏感配置。本地环境文件用于密钥、本机差异和开发环境临时值。系统环境变量用于部署、持续集成和命令行覆盖。显式传入覆盖用于测试或上层调用。
 
-项目配置由 `tinysoul.toml` 作为入口，显式 include `configs/*.toml`、`configs/action/*.toml`、`configs/capabilities/*.toml`、`configs/infra/*.toml`、`configs/llm/*.toml` 与 `configs/llm/models/*.toml`。Action routing 位于 `configs/action/routing.toml`；独立 Action 定义位于 `configs/action/catalog`，由 `action.catalog` document set 管理而不参与 merged include。单一业务 owner 的 app/context/home/memory/loop/workspace 等配置保留在 `configs/` 根部；独立 capability 配置位于 `configs/capabilities/`；Infra-owned 外部基础能力位于 `configs/infra/`；LLM provider/task 与按模型族拆分的 model 配置位于 `configs/llm/`。文件层次只表达维护归属，不改变 TOML section identity。Memory 使用独立 `[memory]`，Embedding 使用 `[infra.embedding]`，Home parser 不接受旧 `[home.memory]`。include/document-set pattern 必须是项目根内的相对路径：绝对路径与含 `..` 的路径在展开前拒绝，每个 glob 命中项在解析真实路径后还必须位于项目根内。glob 展开顺序稳定；主文件和每个 include 作为独立有序 source 保留，后加载文件覆盖前文件时仍可定位最终值来自哪个实际路径。ConfigEnvironment 只负责读取、合并或携带文档快照；各业务模块在自己的 parser/loader 边界解释内容。
+项目配置由 `tinysoul.toml` 作为入口，显式 include `configs/*.toml`、`configs/action/*.toml`、`configs/capabilities/*.toml`、`configs/infra/*.toml`、`configs/llm/*.toml` 与 `configs/llm/models/*.toml`。Action routing 位于 `configs/action/routing.toml`；独立 Action 定义位于 `configs/action/catalog`，由 `action.catalog` document set 管理而不参与 merged include。单一业务 owner 的 agent/reflection/context/home/memory/loop/workspace/execution/jobs 等配置保留在 `configs/` 根部；独立 capability 配置位于 `configs/capabilities/`；Infra-owned 外部基础能力位于 `configs/infra/`；LLM provider/task 与按模型族拆分的 model 配置位于 `configs/llm/`。文件层次只表达维护归属，不改变 TOML section identity。Memory 使用独立 `[memory]`，Embedding 使用 `[infra.embedding]`，Home parser 不接受旧 `[home.memory]`。include/document-set pattern 必须是项目根内的相对路径：绝对路径与含 `..` 的路径在展开前拒绝，每个 glob 命中项在解析真实路径后还必须位于项目根内。glob 展开顺序稳定；主文件和每个 include 作为独立有序 source 保留，后加载文件覆盖前文件时仍可定位最终值来自哪个实际路径。ConfigEnvironment 只负责读取、合并或携带文档快照；各业务模块在自己的 parser/loader 边界解释内容。
 
-`tinysoul init --config-profile` 与 `tinysoul reset --config-profile` 属于 App-owned 的项目模板物化期文件选择，不是新的配置来源。standard/development profile 各自提供一套完整配置，initializer/resetter 只物化其中一套为普通 `configs/` 与 `.env.example`；resetter 只把旧项目的普通 `.env` 作为不解释内容的保留文件复制进新项目。生成项目不保存 profile identity，Infra 也不读取 package profile、执行 profile overlay 或自动同步模板更新。运行时配置优先级仍只有代码默认值、项目文件、本地环境文件、系统环境变量和显式覆盖。
+`tinysoul init --config-profile` 与 `tinysoul reset --config-profile` 属于 Gateway-owned 的项目模板物化期文件选择，不是新的配置来源。standard/development profile 各自提供一套完整配置，initializer/resetter 只物化其中一套为普通 `configs/` 与 `.env.example`；resetter 只把旧项目的普通 `.env` 作为不解释内容的保留文件复制进新项目。生成项目不保存 profile identity，Infra 也不读取 package profile、执行 profile overlay 或自动同步模板更新。运行时配置优先级仍只有代码默认值、项目文件、本地环境文件、系统环境变量和显式覆盖。
 
-profile 文件由 package project template 拥有，但其中各 section 的语义仍归对应业务模块。模块新增、删除、重命名配置键或拆分 TOML 文件时，开发者必须同步审查 `config_profiles/standard/configs` 与 `config_profiles/development/configs`：两者保持相同相对文件集合、相同 section/schema 形状并各自通过模块 parser，值差异只能表达已确认的初始化策略。代码默认值不通过复制 profile 推导，profile 也不能替代模块默认值或校验。profile 引用的 credential/专用环境变量名必须出现在同 profile 的 `.env.example` 中，但真实值永不进入模板。该同步责任属于源码维护与发布验收，不属于 ConfigEnvironment 运行时。
+公共文件位于 assets/common，预设文件位于 assets/standard 或 assets/development；生成时复制 common 与选中预设并拒绝重复目标。profile 文件由 package assets 拥有，但其中各 section 的语义仍归对应业务模块。模块新增、删除、重命名配置键或拆分 TOML 文件时，开发者必须同步审查 `assets/standard/configs` 与 `assets/development/configs`：两者保持相同相对文件集合、相同 section/schema 形状并各自通过模块 parser，值差异只能表达已确认的初始化策略。代码默认值不通过复制 profile 推导，profile 也不能替代模块默认值或校验。profile 引用的 credential/专用环境变量名必须出现在同 profile 的 `.env.example` 中，但真实值永不进入模板。该同步责任属于源码维护与发布验收，不属于 ConfigEnvironment 运行时。
 
 ## 可写配置
 
@@ -149,3 +151,7 @@ adapter 校验非空批次、批量上限、响应 index、向量数量、维度
 ## 异步 owner 适配
 
 ServiceScope 封装完整的 async 准入作用域；ScopedService 只将 owner 显式选择的方法暴露为 async 操作，不提供通用 getattr 或 owner 访问口。准入策略由 Agent 注入，Infra 不解释世代、业务日或 Runtime。短本地调用复用 JoinedOperations，取消先 join 并交付结果；operation 在复合调用中保持同一次准入，退出后临时视图失效。AsyncReadWriteLock 用协程等待处理跨 await 的日协调；同步锁只留在同一次短 owner 调用内部。Staging 的 async allocation 在取消后仍完成 cleanup。
+
+## 受控进程
+
+ManagedProcessRunner 显式接收请求，拥有进程组、标准流捕获和有界硬停止。执行关闭与附属资源清理分开：已停止后日志/临时文件失败形成有限 CleanupDiagnostic；有界复查后仍无法停止则保留可再次关闭的句柄并抛出 Process 层错误。Action 与 Jobs 的适配器分别解释其失败，Infra 不产生 Runtime 转移，也不复制业务终态。输出读取有界，完整输出由调用方选择的捕获目录承载。

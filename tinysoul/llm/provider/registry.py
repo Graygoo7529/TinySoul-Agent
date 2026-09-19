@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from tinysoul.llm.errors import LLMContractError, LLMInvariantError
-from tinysoul.llm.adapter_types import AdapterKind
+from tinysoul.llm.protocol.adapter_types import AdapterKind
 from tinysoul.infra.concurrency import AsyncResourceScope, CleanupDiagnostic
 
 from .base import ProviderAdapter
@@ -25,7 +25,9 @@ class ProviderRegistry:
                 "Provider adapter already registered: "
                 f"{adapter.provider_id}/{adapter.adapter_kind.value}"
             )
-        self._resources.register(f"llm.{adapter.provider_id}.{adapter.adapter_kind.value}", adapter.close)
+        self._resources.register(
+            f"llm.{adapter.provider_id}.{adapter.adapter_kind.value}", adapter.close
+        )
         self._adapters[key] = adapter
 
     def get(

@@ -19,23 +19,33 @@ from tinysoul.kernel.context import (
 )
 from tinysoul.kernel.context.prompts import PromptBlock, TaskPrompt
 from tinysoul.plugins.home import AgentHomeEngineBuilder, AgentHomeSettings
-from tinysoul.llm.adapter import adapter_spec
-from tinysoul.llm.adapter_types import AdapterKind, ProviderApiStyle
-from tinysoul.llm.model_chain import ModelChain, TaskSpec, TaskSpecTable
-from tinysoul.llm.models import (
+from tinysoul.llm.protocol.adapter import adapter_spec
+from tinysoul.llm.protocol.adapter_types import AdapterKind, ProviderApiStyle
+from tinysoul.llm.protocol.routing import ModelChain, TaskSpec
+from tinysoul.llm.execution.model_chain import TaskSpecTable
+from tinysoul.llm.protocol.models import (
     ModelCapability,
     ModelProviderBinding,
-    ModelRegistry,
     ModelSpec,
 )
+from tinysoul.llm.execution.registry import ModelRegistry
 from tinysoul.llm.provider import ProviderError, ProviderErrorKind, ProviderRequest
 from tinysoul.llm.provider.registry import ProviderRegistry
-from tinysoul.llm.requests import CallSettings, ModelContextOverflowPolicy, TaskCall
-from tinysoul.llm.responses import AnswerFormat, RawResponse, TaskResult, TaskResultStatus
-from tinysoul.llm.task import LLMTaskRunner
-from tinysoul.llm.tools import ToolUse
+from tinysoul.llm.protocol.requests import (
+    CallSettings,
+    ModelContextOverflowPolicy,
+    TaskCall,
+)
+from tinysoul.llm.protocol.responses import (
+    AnswerFormat,
+    RawResponse,
+    TaskResult,
+    TaskResultStatus,
+)
+from tinysoul.llm.execution.task import LLMTaskRunner
+from tinysoul.llm.protocol.tools import ToolUse
 from tinysoul.agent.user.runtime import build_user_turn_trap
-from tinysoul.plugins.reflection.turn.runtime import build_maintenance_turn_trap
+from tinysoul.plugins.reflection.turn.runtime import build_reflection_turn_trap
 from tinysoul.kernel.loop.pressure import PressureRecoveryStatus, required_chars
 from tinysoul.agent.user.pressure import UserContextPressureRecovery
 from tinysoul.plugins.reflection.turn import ReflectionContextPressureRecovery
@@ -50,7 +60,6 @@ from tinysoul.runtime import (
 )
 from tinysoul.plugins.workspace import (
     WorkspaceEngineBuilder,
-    WorkspaceRetention,
     WorkspaceSettings,
 )
 from tinysoul.plugins.workspace.projection import workspace_snapshot_signal
@@ -72,7 +81,9 @@ class _CapacityProvider:
     async def invoke(self, request: ProviderRequest) -> RawResponse:
         self.requests.append(request)
         if len(self.requests) == 1:
-            raise ProviderError("private provider detail", kind=ProviderErrorKind.CONTEXT_LIMIT)
+            raise ProviderError(
+                "private provider detail", kind=ProviderErrorKind.CONTEXT_LIMIT
+            )
         return RawResponse(
             answer_text='{"ok": true}',
             model_id=request.model.id,
@@ -80,11 +91,11 @@ class _CapacityProvider:
         )
 
 
-@pytest.mark.parametrize("maintenance", [False, True], ids=["user", "maintenance"])
+@pytest.mark.parametrize("reflection", [False, True], ids=["user", "reflection"])
 @pytest.mark.parametrize("reclaimable", [False, True], ids=["no_progress", "recompose"])
 async def test_capacity_recovery_rebuilds_task_or_ends_without_replaying_completed_work(
     tmp_path: Path,
-    maintenance: bool,
+    reflection: bool,
     reclaimable: bool,
 ) -> None:
     context = (
@@ -122,9 +133,9 @@ async def test_capacity_recovery_rebuilds_task_or_ends_without_replaying_complet
         )
     ).build()
     trap = (
-        build_maintenance_turn_trap(context, home=home, workspace=workspace)
-        if maintenance
-        else build_user_turn_trap(context=context, home=home, workspace=workspace)
+        build_reflection_turn_trap(context, home=home)
+        if reflection
+        else build_user_turn_trap(context=context, home=home)
     )
     modules = RuntimeModuleRunner(trap=trap, bus=bus)
     writes: list[str] = []
@@ -136,43 +147,55 @@ async def test_capacity_recovery_rebuilds_task_or_ends_without_replaying_complet
     (await modules.run(scope=scope, name="workspace.write", callback=write_resource))
     provider = _CapacityProvider()
     runner = LLMTaskRunner(
-        models=ModelRegistry([
-            ModelSpec(
-                id="model",
-                providers=(ModelProviderBinding(provider.provider_id, "model"),),
-                context_window_tokens=262144,
-                adapter=provider.adapter_kind,
-                capabilities=frozenset({
-                    ModelCapability.TEXT_INPUT, ModelCapability.JSON_OBJECT_OUTPUT,
-                }),
-            ),
-        ]),
-        providers=ProviderRegistry([provider]),
-        tasks=TaskSpecTable([
-            TaskSpec(
-                profile="test",
-                chain=ModelChain(profile="test", model_ids=("model",)),
-                settings=CallSettings(
-                    answer_format=AnswerFormat.JSON_OBJECT, tool_use=ToolUse.DISABLED,
+        models=ModelRegistry(
+            [
+                ModelSpec(
+                    id="model",
+                    providers=(ModelProviderBinding(provider.provider_id, "model"),),
+                    context_window_tokens=262144,
+                    adapter=provider.adapter_kind,
+                    capabilities=frozenset(
+                        {
+                            ModelCapability.TEXT_INPUT,
+                            ModelCapability.JSON_OBJECT_OUTPUT,
+                        }
+                    ),
                 ),
-            ),
-        ]),
+            ]
+        ),
+        providers=ProviderRegistry([provider]),
+        tasks=TaskSpecTable(
+            [
+                TaskSpec(
+                    profile="test",
+                    chain=ModelChain(profile="test", model_ids=("model",)),
+                    settings=CallSettings(
+                        answer_format=AnswerFormat.JSON_OBJECT,
+                        tool_use=ToolUse.DISABLED,
+                    ),
+                ),
+            ]
+        ),
     )
 
     async def invoke(module_scope: RunScope) -> TaskResult:
-        return (await runner.run(
+        return await runner.run(
             TaskCall(
                 profile="test",
                 messages=context.compose(
-                    TaskPrompt(guide_blocks=(PromptBlock.from_text("task", "Reply with JSON."),))
+                    TaskPrompt(
+                        guide_blocks=(
+                            PromptBlock.from_text("task", "Reply with JSON."),
+                        )
+                    )
                 ),
                 scope=module_scope,
                 context_overflow_policy=ModelContextOverflowPolicy.REQUEST_RECOVERY,
             )
-        ))
+        )
 
     if reclaimable:
-        result = (await modules.run(scope=scope, name="llm.task", callback=invoke))
+        result = await modules.run(scope=scope, name="llm.task", callback=invoke)
         assert result.status is TaskResultStatus.SUCCESS
         assert len(provider.requests) == 2
         assert provider.requests[0].messages != provider.requests[1].messages
@@ -183,51 +206,10 @@ async def test_capacity_recovery_rebuilds_task_or_ends_without_replaying_complet
         assert raised.value.transfer.target == scope.nearest(RunLevel.TURN)
         assert len(provider.requests) == 1
     assert writes == ["committed"]
-    assert (tmp_path / "workspace" / "committed.txt").read_text(encoding="utf-8") == "committed"
+    assert (tmp_path / "workspace" / "committed.txt").read_text(
+        encoding="utf-8"
+    ) == "committed"
     assert context.seal_trace() == canonical
-
-
-async def test_pressure_recovery_trashes_workspace_resource_and_syncs_context(
-    tmp_path: Path,
-) -> None:
-    workspace = _workspace(tmp_path)
-    workspace.write_text(
-        "workspace:temporary.txt",
-        "temporary",
-        retention=WorkspaceRetention.EPHEMERAL,
-        owner_turn_id="turn_owner",
-    )
-    context = ContextEngineBuilder(system_text="system").build()
-    context.register_segment(workspace_segment_registration())
-    turn_id = context.begin_turn("continue")
-    await context.open_segments(date(2026, 7, 12))
-    scope = _scope(turn_id)
-    initial = workspace_snapshot_signal(
-        workspace.snapshot(),
-        call_id="workspace_initial",
-        scope=scope,
-        source="test",
-    )
-    assert await context.consume_signal_batch(
-        ContextSignalBatch(turn_id=turn_id, signals=(initial,))
-    ) == ()
-
-    result = UserContextPressureRecovery(
-        context=context,
-        workspace=workspace,
-        target_ratio=0.8,
-    ).recover(
-        payload={"estimated_chars": 101, "max_chars": 100},
-        scope=scope,
-    )
-
-    assert result.status is PressureRecoveryStatus.RECOVERED
-    assert result.trashed_refs
-    assert workspace.snapshot().resources == ()
-    assert await context.consume_signal_batch(
-        ContextSignalBatch(turn_id=turn_id, signals=result.signals)
-    ) == ()
-    assert context.segment_snapshot("workspace")["resources"] == []
 
 
 def test_model_pressure_converts_target_token_gap_to_char_reclaim() -> None:
@@ -245,12 +227,13 @@ def test_model_pressure_converts_target_token_gap_to_char_reclaim() -> None:
     assert required == 400
 
 
-async def test_image_only_pressure_does_not_delete_workspace_files(tmp_path: Path) -> None:
+async def test_image_only_pressure_does_not_delete_workspace_files(
+    tmp_path: Path,
+) -> None:
     workspace = _workspace(tmp_path)
     workspace.write_text(
         "workspace:temporary.txt",
         "temporary",
-        retention=WorkspaceRetention.EPHEMERAL,
     )
     context = ContextEngineBuilder(system_text="system").build()
     turn_id = context.begin_turn("continue")
@@ -259,7 +242,6 @@ async def test_image_only_pressure_does_not_delete_workspace_files(tmp_path: Pat
 
     result = UserContextPressureRecovery(
         context=context,
-        workspace=workspace,
         target_ratio=0.8,
     ).recover(
         payload={
@@ -274,56 +256,13 @@ async def test_image_only_pressure_does_not_delete_workspace_files(tmp_path: Pat
     assert (tmp_path / "temporary.txt").is_file()
 
 
-async def test_pressure_recovery_preserves_active_action_resource_links(
+async def test_reflection_pressure_never_reclaims_active_workspace(
     tmp_path: Path,
 ) -> None:
-    workspace = _workspace(tmp_path)
-    for name in ("protected.txt", "reclaimable.txt"):
-        workspace.write_text(
-            f"workspace:{name}",
-            name,
-            retention=WorkspaceRetention.EPHEMERAL,
-        )
-    context = ContextEngineBuilder(system_text="system").build()
-    context.register_segment(workspace_segment_registration())
-    turn_id = context.begin_turn("continue")
-    await context.open_segments(date(2026, 7, 12))
-    scope = _scope(turn_id)
-    initial = workspace_snapshot_signal(
-        workspace.snapshot(),
-        call_id="workspace_initial",
-        scope=scope,
-        source="test",
-    )
-    assert await context.consume_signal_batch(
-        ContextSignalBatch(turn_id=turn_id, signals=(initial,))
-    ) == ()
-
-    result = UserContextPressureRecovery(
-        context=context,
-        workspace=workspace,
-        target_ratio=0.8,
-    ).recover(
-        payload={
-            "estimated_chars": 1000,
-            "max_chars": 100,
-            "protected_resource_links": ["workspace:protected.txt"],
-        },
-        scope=scope,
-    )
-
-    assert result.status is PressureRecoveryStatus.RECOVERED
-    assert {record.link for record in workspace.snapshot().resources} == {
-        "workspace:protected.txt"
-    }
-
-
-async def test_maintenance_pressure_never_reclaims_active_workspace(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path)
     workspace.write_text(
         "workspace:active.txt",
         "active work",
-        retention=WorkspaceRetention.EPHEMERAL,
     )
     context = ContextEngineBuilder(system_text="system").build()
     turn_id = context.begin_turn("maintain memory")

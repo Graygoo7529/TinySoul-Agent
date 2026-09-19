@@ -21,7 +21,7 @@ class WorkspaceLink:
 
     @classmethod
     def parse(cls, value: str) -> "WorkspaceLink":
-        if not value.startswith(WORKSPACE_LINK_PREFIX):
+        if not isinstance(value, str) or not value.startswith(WORKSPACE_LINK_PREFIX):
             raise WorkspaceContractError("Workspace link must start with workspace:")
         try:
             return cls(value[len(WORKSPACE_LINK_PREFIX) :])
@@ -45,11 +45,15 @@ def _validate_relative_path(value: str) -> None:
         raise WorkspaceInvariantError("Workspace link path must be non-empty")
     if "\\" in value:
         raise WorkspaceInvariantError("Workspace link path must use POSIX separators")
+    if "\x00" in value:
+        raise WorkspaceInvariantError("Workspace link path contains a null character")
     if value.startswith("/") or PurePosixPath(value).is_absolute():
         raise WorkspaceInvariantError("Workspace link path must be relative")
-    parts = PurePosixPath(value).parts
+    parts = value.split("/")
     for part in parts:
         if part in {"", ".", ".."}:
-            raise WorkspaceInvariantError("Workspace link path contains an invalid segment")
+            raise WorkspaceInvariantError(
+                "Workspace link path contains an invalid segment"
+            )
         if ":" in part:
             raise WorkspaceInvariantError("Workspace link path cannot contain ':'")

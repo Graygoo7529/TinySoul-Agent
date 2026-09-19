@@ -6,14 +6,14 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Protocol
 
-from tinysoul.llm.cache import PromptCache
-from tinysoul.llm.adapter_types import AdapterKind, ProviderApiStyle
+from tinysoul.llm.protocol.cache import PromptCache
+from tinysoul.llm.protocol.adapter_types import AdapterKind, ProviderApiStyle
 from tinysoul.llm.errors import LLMContractError
-from tinysoul.llm.messages import MessageStack
-from tinysoul.llm.models import ModelSpec
-from tinysoul.llm.models import ModelProviderBinding
-from tinysoul.llm.responses import AnswerFormat, RawResponse
-from tinysoul.llm.tools import ToolScope, ToolUse
+from tinysoul.llm.protocol.messages import MessageStack
+from tinysoul.llm.protocol.models import ModelSpec
+from tinysoul.llm.protocol.models import ModelProviderBinding
+from tinysoul.llm.protocol.responses import AnswerFormat, RawResponse
+from tinysoul.llm.protocol.tools import ToolScope, ToolUse
 
 
 class ProviderErrorKind(StrEnum):
@@ -119,6 +119,8 @@ class ProviderRequest:
             raise LLMContractError(
                 "ProviderRequest.timeout_seconds must be a positive number or None"
             )
+
+
 class ProviderAdapter(Protocol):
     """Provider adapter protocol."""
 

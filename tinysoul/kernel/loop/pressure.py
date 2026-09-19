@@ -23,14 +23,17 @@ class PressureRecoveryResult:
     status: PressureRecoveryStatus
     reclaimed_chars: int
     evicted_background_links: tuple[str, ...] = field(default_factory=tuple)
-    trashed_refs: tuple[str, ...] = field(default_factory=tuple)
     error: str = ""
     signals: tuple[Signal, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.status, PressureRecoveryStatus):
             raise LoopContractError("Pressure recovery requires a typed status")
-        if isinstance(self.reclaimed_chars, bool) or not isinstance(self.reclaimed_chars, int) or self.reclaimed_chars < 0:
+        if (
+            isinstance(self.reclaimed_chars, bool)
+            or not isinstance(self.reclaimed_chars, int)
+            or self.reclaimed_chars < 0
+        ):
             raise LoopContractError("Pressure recovery reclaimed size is invalid")
         signals = tuple(self.signals)
         if any(not isinstance(signal, Signal) for signal in signals):
@@ -90,9 +93,7 @@ def _model_required_chars(
 ) -> int | None:
     window = _non_negative_int(payload.get("context_window_tokens"), positive=True)
     message_tokens = _non_negative_int(payload.get("estimated_message_tokens"))
-    non_message_tokens = _non_negative_int(
-        payload.get("estimated_non_message_tokens")
-    )
+    non_message_tokens = _non_negative_int(payload.get("estimated_non_message_tokens"))
     output_tokens = _non_negative_int(payload.get("reserved_output_tokens"))
     message_chars = _non_negative_int(payload.get("estimated_message_chars"))
     if None in (

@@ -63,8 +63,10 @@ class TurnFailure:
 
     def to_json(self) -> JsonObject:
         return {
-            "reason": self.reason, "message": self.message,
-            "module": self.module, "kind": self.kind,
+            "reason": self.reason,
+            "message": self.message,
+            "module": self.module,
+            "kind": self.kind,
             "feedback": list(self.feedback),
         }
 
@@ -121,9 +123,8 @@ def failure_from_runtime(exc: RuntimeException) -> TurnFailure | None:
     if exc.reason in {
         RUNTIME_CYCLE_END,
         RUNTIME_AGENT_END,
-    }:
-        return None
-    if exc.reason == RUNTIME_TURN_END and not (
+        RUNTIME_TURN_END,
+    } and not (
         isinstance(exc.payload.get("module"), str)
         and exc.payload.get("module")
         and isinstance(exc.payload.get("kind"), str)

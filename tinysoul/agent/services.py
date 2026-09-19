@@ -18,16 +18,25 @@ from tinysoul.plugins.reflection.errors import ReflectionError
 from tinysoul.plugins.reflection.failures import ReflectionFailureKind
 from tinysoul.runtime import RuntimeHandle, RuntimeGenerationError, RuntimeException
 
-from .errors import AgentClosedError, AgentServiceStaleError, AgentServiceUnavailableError
-from .generation import AgentRuntimeGeneration
-from .scheduler import RootScheduler
+from .errors import (
+    AgentClosedError,
+    AgentContractError,
+    AgentServiceStaleError,
+    AgentServiceUnavailableError,
+)
+from .lifecycle.generation import AgentRuntimeGeneration
+from .dispatch.scheduler import RootScheduler
 
 
 class AgentRuntimeServices:
     """Bind each acquired service to one generation and, when applicable, day."""
 
-    def __init__(self, handle: RuntimeHandle[AgentRuntimeGeneration], scheduler: RootScheduler,
-                 accepting: Callable[[], bool]) -> None:
+    def __init__(
+        self,
+        handle: RuntimeHandle[AgentRuntimeGeneration],
+        scheduler: RootScheduler,
+        accepting: Callable[[], bool],
+    ) -> None:
         self._handle = handle
         self._scheduler = scheduler
         self._accepting = accepting
@@ -44,12 +53,20 @@ class AgentRuntimeServices:
             profile = snapshot.generation.user_turn.profile.services
             generation_scope = self._scope(snapshot.generation_id)
             day_scope = self._scope(snapshot.generation_id, day=day, day_bound=True)
-            self._services = ServiceRegistry((
-                Service(HomeService, profile.get(HomeService)._bind(generation_scope)),
-                Service(MemoryService, profile.get(MemoryService)._bind(day_scope)),
-                Service(SessionService, profile.get(SessionService)._bind(day_scope)),
-                Service(WorkspaceService, profile.get(WorkspaceService)._bind(day_scope)),
-            ))
+            self._services = ServiceRegistry(
+                (
+                    Service(
+                        HomeService, profile.get(HomeService)._bind(generation_scope)
+                    ),
+                    Service(MemoryService, profile.get(MemoryService)._bind(day_scope)),
+                    Service(
+                        SessionService, profile.get(SessionService)._bind(day_scope)
+                    ),
+                    Service(
+                        WorkspaceService, profile.get(WorkspaceService)._bind(day_scope)
+                    ),
+                )
+            )
             self._key = key
         assert self._services is not None
         return self._services
@@ -58,8 +75,13 @@ class AgentRuntimeServices:
         if not self._accepting() or self._handle.closed:
             raise AgentClosedError("Agent services are closed")
 
-    def _scope(self, generation_id: str, *, day: CalendarDay | None = None,
-               day_bound: bool = False) -> ServiceScope:
+    def _scope(
+        self,
+        generation_id: str,
+        *,
+        day: CalendarDay | None = None,
+        day_bound: bool = False,
+    ) -> ServiceScope:
         @asynccontextmanager
         async def lease() -> AsyncIterator[None]:
             self._require_open()
@@ -67,18 +89,31 @@ class AgentRuntimeServices:
                 async with self._handle.read() as generation:
                     self._require_open()
                     if self._handle.generation_id != generation_id:
-                        raise AgentServiceStaleError("Service generation has changed; acquire it again")
+                        raise AgentServiceStaleError(
+                            "Service generation has changed; acquire it again"
+                        )
                     if not day_bound:
                         yield
                         return
-                    if self._scheduler.active_turn is None and generation.day.current_day() != generation.day.active_day:
-                        transition = await generation.day.preflight(scope=self._scheduler.scope)
+                    if (
+                        self._scheduler.active_turn is None
+                        and generation.day.current_day() != generation.day.active_day
+                    ):
+                        transition = await generation.day.preflight(
+                            scope=self._scheduler.scope
+                        )
                         operations = JoinedOperations()
-                        await operations.run(lambda: generation.maintenance.refresh_availability(transition, scope=self._scheduler.scope))
+                        await operations.run(
+                            lambda: generation.reflection.refresh_availability(
+                                transition, scope=self._scheduler.scope
+                            )
+                        )
                         operations.check_cancelled()
                     async with generation.day.active_day_lease() as current:
                         if current != day:
-                            raise AgentServiceStaleError("Service CalendarDay has changed; acquire it again")
+                            raise AgentServiceStaleError(
+                                "Service CalendarDay has changed; acquire it again"
+                            )
                         yield
             except RuntimeGenerationError as exc:
                 raise AgentClosedError("Agent services are closed") from exc
@@ -90,41 +125,58 @@ class AgentRuntimeServices:
                 ) from exc
             except ReflectionError as exc:
                 raise AgentServiceUnavailableError(
-                    module="maintenance", kind=ReflectionFailureKind.INVARIANT_VIOLATION.value,
+                    module="reflection",
+                    kind=ReflectionFailureKind.INVARIANT_VIOLATION.value,
                 ) from exc
+
         return ServiceScope(lease)
 
     def runtime_status(self, *, credentials: bool = False) -> JsonObject:
         self._require_open()
         snapshot = self._handle.snapshot()
         result: JsonObject = {
-            "generation_id": snapshot.generation_id, "activity": snapshot.activity.value,
+            "generation_id": snapshot.generation_id,
+            "activity": snapshot.activity.value,
             "activation": snapshot.activation.value,
             "active_day": str(snapshot.generation.day.active_day or ""),
         }
         if credentials:
-            result["llm"] = {"providers": [
-                {"id": item.provider_id, "credential_state": item.state.value, "api_key_envs": list(item.api_key_envs)}
-                for item in snapshot.generation.llm_provider_credentials
-            ]}
+            result["llm"] = {
+                "providers": [
+                    {
+                        "id": item.provider_id,
+                        "credential_state": item.state.value,
+                        "api_key_envs": list(item.api_key_envs),
+                    }
+                    for item in snapshot.generation.llm_provider_credentials
+                ]
+            }
         return result
 
-    async def action_catalog(self) -> JsonObject:
+    async def action_catalog(self, *, scenario: str = "user") -> JsonObject:
         self._require_open()
         async with self._handle.read() as generation:
             self._require_open()
-            return generation.user_turn.action_catalog()
+            for profile in generation.profiles:
+                if profile.id == scenario:
+                    return profile.action.catalog_json()
+            raise AgentContractError("Unknown Action scenario")
 
-    async def reflection_status(self) -> JsonObject:
+    async def reflection_status(
+        self, *, before: CalendarDay | None = None
+    ) -> JsonObject:
         self._require_open()
         async with self._handle.read() as generation:
             self._require_open()
             operations = JoinedOperations()
             try:
-                result = await operations.run(generation.maintenance.availability)
+                result = await operations.run(
+                    lambda: generation.reflection.availability(before=before)
+                )
             except ReflectionError as exc:
                 raise AgentServiceUnavailableError(
-                    module="maintenance", kind=ReflectionFailureKind.INVARIANT_VIOLATION.value,
+                    module="reflection",
+                    kind=ReflectionFailureKind.INVARIANT_VIOLATION.value,
                 ) from exc
             operations.check_cancelled()
             return result.to_json()

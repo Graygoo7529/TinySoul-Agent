@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from ..errors import RuntimeContractError
-from ..transfer import RuntimeTransfer
+from ..control.transfer import RuntimeTransfer
 from ..signals.base import Signal
 from .snap import TrapSnap
 

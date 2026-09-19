@@ -14,7 +14,10 @@ from tinysoul.kernel.context import ContextEngine, ContextEngineBuilder
 from tinysoul.kernel.context.errors import ContextContractError
 from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
 from tinysoul.kernel.context.segments import TurnInfo
-from tinysoul.plugins.workspace.projection import WorkspaceSegment, workspace_segment_registration
+from tinysoul.plugins.workspace.projection import (
+    WorkspaceSegment,
+    workspace_segment_registration,
+)
 from tinysoul.kernel.loop import (
     TurnCompletion,
     TurnCompletionPipeline,
@@ -26,16 +29,24 @@ from tinysoul.kernel.loop import (
     TurnSettings,
 )
 from tinysoul.kernel.loop.cycle import CycleOutcome, CycleRunner
-from tinysoul.kernel.loop.trap_handlers import BudgetSuspendTrapHandler, EndFrameTrapHandler
+from tinysoul.kernel.loop.trap_handlers import (
+    BudgetSuspendTrapHandler,
+    EndFrameTrapHandler,
+)
 from tinysoul.kernel.loop.failures import LOOP_BUDGET_REQUIRED
-from tinysoul.kernel.loop.inbox import InboxKind, InboxRecord, TurnInbox, WaitReason
-from tinysoul.kernel.loop.inbox import QuestionRequest
+from tinysoul.kernel.loop.interaction.inbox import (
+    InboxKind,
+    InboxRecord,
+    TurnInbox,
+    WaitReason,
+)
+from tinysoul.kernel.loop.interaction.inbox import QuestionRequest
 from tinysoul.kernel.loop.turn import TurnRunner
 from tinysoul.infra.time import CalendarDay
 from tinysoul.plugins.session import SessionEngine, SessionSettings
 from tinysoul.plugins.session.projection import SessionTurnCompletionHandler
-from tinysoul.plugins.session.store import SessionStore
-from tinysoul.plugins.session.models import SessionTurnRecord
+from tinysoul.plugins.session.records.store import SessionStore
+from tinysoul.plugins.session.records.models import SessionTurnRecord
 from tinysoul.plugins.session.errors import SessionIOError
 from tinysoul.runtime import (
     CyclePhase,
@@ -54,11 +65,12 @@ from tinysoul.runtime import (
     TrapHandlerRegistry,
 )
 
-
 DAY = CalendarDay.parse("2026-07-12")
 
 
-async def test_task_cancellation_seals_context_and_runs_completion_before_propagating() -> None:
+async def test_task_cancellation_seals_context_and_runs_completion_before_propagating() -> (
+    None
+):
     context = ContextEngineBuilder(system_text="test").build()
     entered = asyncio.Event()
     records: list[TurnCompletion] = []
@@ -74,11 +86,16 @@ async def test_task_cancellation_seals_context_and_runs_completion_before_propag
             records.append(completion)
 
     runner = TurnRunner(
-        context=context, bus=SignalBus(), trap=_trap(),
-        cycle_runner=cast(CycleRunner, WaitingCycle()), settings=TurnSettings(),
+        context=context,
+        bus=SignalBus(),
+        trap=_trap(),
+        cycle_runner=cast(CycleRunner, WaitingCycle()),
+        settings=TurnSettings(),
         completion_pipeline=TurnCompletionPipeline((Recorder(),)),
     )
-    running = asyncio.create_task(runner.run("question", business_day=DAY, scope=_agent_scope()))
+    running = asyncio.create_task(
+        runner.run("question", business_day=DAY, scope=_agent_scope())
+    )
     async with asyncio.timeout(2.0):
         await entered.wait()
         running.cancel()
@@ -90,7 +107,9 @@ async def test_task_cancellation_seals_context_and_runs_completion_before_propag
 
 
 @pytest.mark.parametrize("resolved_transfer", [False, True])
-async def test_unwinding_turn_boundary_still_seals_and_records(resolved_transfer: bool) -> None:
+async def test_unwinding_turn_boundary_still_seals_and_records(
+    resolved_transfer: bool,
+) -> None:
     context = ContextEngineBuilder(system_text="test").build()
     recorder = _CompletionRecorder([])
     scope = _agent_scope()
@@ -105,8 +124,11 @@ async def test_unwinding_turn_boundary_still_seals_and_records(resolved_transfer
             raise RuntimeError("private implementation details")
 
     runner = TurnRunner(
-        context=context, bus=SignalBus(), trap=_trap(),
-        cycle_runner=cast(CycleRunner, BrokenCycle()), settings=TurnSettings(),
+        context=context,
+        bus=SignalBus(),
+        trap=_trap(),
+        cycle_runner=cast(CycleRunner, BrokenCycle()),
+        settings=TurnSettings(),
         completion_pipeline=TurnCompletionPipeline(recorder=recorder),
     )
     result = await runner.run("question", business_day=DAY, scope=scope)
@@ -317,8 +339,8 @@ class _CompletionCycleRunner:
         return CycleOutcome(
             cycle_id=f"cycle_{cycle_index}",
             completion={
-                "kind": "maintenance",
-                "result_id": "maintenance_1",
+                "kind": "reflection",
+                "result_id": "reflection_1",
                 "task": "home",
             },
         )
@@ -363,7 +385,7 @@ class _TurnActivity:
 class _FailingTurnActivity(_TurnActivity):
     async def cleanup_turn(self, turn_id: str) -> tuple[CleanupDiagnostic, ...]:
         await super().cleanup_turn(turn_id)
-        raise RuntimeError("cleanup failed")
+        return (CleanupDiagnostic("turn.activity", "OSError"),)
 
 
 class _FailingCompletion:
@@ -385,7 +407,7 @@ async def test_turn_runner_captures_end_turn_failure_and_aborts_context() -> Non
         settings=TurnSettings(max_cycles=1),
     )
 
-    outcome = (await runner.run("hello", business_day=DAY, scope=_agent_scope()))
+    outcome = await runner.run("hello", business_day=DAY, scope=_agent_scope())
 
     assert outcome.context_completion is None
     assert context.turn_active is False
@@ -398,7 +420,9 @@ async def test_turn_runner_captures_end_turn_failure_and_aborts_context() -> Non
     assert outcome.failure.module == "context"
 
 
-async def test_turn_runner_keeps_existing_program_transfer_when_end_turn_fails() -> None:
+async def test_turn_runner_keeps_existing_program_transfer_when_end_turn_fails() -> (
+    None
+):
     context = _EndFailingContext()
     runner = TurnRunner(
         context=cast(ContextEngine, context),
@@ -408,7 +432,7 @@ async def test_turn_runner_keeps_existing_program_transfer_when_end_turn_fails()
         settings=TurnSettings(max_cycles=1),
     )
 
-    outcome = (await runner.run("hello", business_day=DAY, scope=_agent_scope()))
+    outcome = await runner.run("hello", business_day=DAY, scope=_agent_scope())
 
     assert context.turn_active is False
     assert outcome.transfer is not None
@@ -436,7 +460,7 @@ async def test_turn_completion_pipeline_receives_summary_and_output() -> None:
         observations=observations,
     )
 
-    outcome = (await runner.run("hello", business_day=DAY, scope=_agent_scope()))
+    outcome = await runner.run("hello", business_day=DAY, scope=_agent_scope())
 
     assert outcome.answered is True
     assert outcome.transfer is None
@@ -467,16 +491,21 @@ async def test_segment_close_diagnostics_do_not_replace_recorded_answer() -> Non
             return ClosingSegment()
 
     context = ContextEngineBuilder(system_text="sys").build()
-    context.register_segment(replace(workspace_segment_registration(), provider=Provider()))
+    context.register_segment(
+        replace(workspace_segment_registration(), provider=Provider())
+    )
     recorder = _CompletionRecorder([], timeline)
     observations = _RecordingObservations([], timeline)
     runner = TurnRunner(
-        context=context, bus=SignalBus(), trap=_trap(),
+        context=context,
+        bus=SignalBus(),
+        trap=_trap(),
         cycle_runner=cast(CycleRunner, _OutputCycleRunner()),
         settings=TurnSettings(max_cycles=1),
-        preparation_pipeline=TurnPreparationPipeline((
-        )),
-        completion_to_output=lambda _completion: TurnOutput(text="done", result_id="answer"),
+        preparation_pipeline=TurnPreparationPipeline(()),
+        completion_to_output=lambda _completion: TurnOutput(
+            text="done", result_id="answer"
+        ),
         completion_pipeline=TurnCompletionPipeline((recorder,)),
         observations=observations,
     )
@@ -484,14 +513,22 @@ async def test_segment_close_diagnostics_do_not_replace_recorded_answer() -> Non
     assert outcome.answered
     assert len(recorder.completions) == 1
     assert recorder.completions[0].context_completion.segments["workspace"] == {
-        "revision": -1, "resources": [],
+        "resources": [],
     }
-    assert outcome.cleanup_diagnostics == (CleanupDiagnostic("workspace", "ContextContractError"),)
-    assert timeline.index("completion") < timeline.index("close") < timeline.index("turn.output")
+    assert outcome.cleanup_diagnostics == (
+        CleanupDiagnostic("workspace", "ContextContractError"),
+    )
+    assert (
+        timeline.index("completion")
+        < timeline.index("close")
+        < timeline.index("turn.output")
+    )
     assert await context.close_segments() == ()
 
 
-async def test_task_cancellation_joins_segment_close_before_releasing_the_turn() -> None:
+async def test_task_cancellation_joins_segment_close_before_releasing_the_turn() -> (
+    None
+):
     entered, release = asyncio.Event(), asyncio.Event()
     closed: list[str] = []
 
@@ -506,18 +543,25 @@ async def test_task_cancellation_joins_segment_close_before_releasing_the_turn()
             return ClosingSegment()
 
     context = ContextEngineBuilder(system_text="sys").build()
-    context.register_segment(replace(workspace_segment_registration(), provider=Provider()))
+    context.register_segment(
+        replace(workspace_segment_registration(), provider=Provider())
+    )
     recorder = _CompletionRecorder([], [])
     runner = TurnRunner(
-        context=context, bus=SignalBus(), trap=_trap(),
+        context=context,
+        bus=SignalBus(),
+        trap=_trap(),
         cycle_runner=cast(CycleRunner, _OutputCycleRunner()),
         settings=TurnSettings(max_cycles=1),
-        preparation_pipeline=TurnPreparationPipeline((
-        )),
-        completion_to_output=lambda _completion: TurnOutput(text="done", result_id="answer"),
+        preparation_pipeline=TurnPreparationPipeline(()),
+        completion_to_output=lambda _completion: TurnOutput(
+            text="done", result_id="answer"
+        ),
         completion_pipeline=TurnCompletionPipeline((recorder,)),
     )
-    task = asyncio.create_task(runner.run("hello", business_day=DAY, scope=_agent_scope()))
+    task = asyncio.create_task(
+        runner.run("hello", business_day=DAY, scope=_agent_scope())
+    )
     try:
         await asyncio.wait_for(entered.wait(), timeout=2)
         task.cancel()
@@ -550,7 +594,7 @@ async def test_turn_preparation_retry_replays_only_preparation() -> None:
         preparation_pipeline=TurnPreparationPipeline((preparation,)),
     )
 
-    outcome = (await runner.run("hello", business_day=DAY, scope=_agent_scope()))
+    outcome = await runner.run("hello", business_day=DAY, scope=_agent_scope())
 
     assert preparation.calls == 2
     assert cycles.calls == 1
@@ -559,7 +603,9 @@ async def test_turn_preparation_retry_replays_only_preparation() -> None:
     assert outcome.transfer.target.level is RunLevel.TURN
 
 
-async def test_turn_completion_failure_reports_actual_failure_not_output_control() -> None:
+async def test_turn_completion_failure_reports_actual_failure_not_output_control() -> (
+    None
+):
     context = ContextEngineBuilder(system_text="sys").build()
     bus = SignalBus()
     observations = _RecordingObservations([], [])
@@ -577,7 +623,7 @@ async def test_turn_completion_failure_reports_actual_failure_not_output_control
         observations=observations,
     )
 
-    outcome = (await runner.run("hello", business_day=DAY, scope=_agent_scope()))
+    outcome = await runner.run("hello", business_day=DAY, scope=_agent_scope())
 
     assert outcome.status is TurnOutcomeStatus.FAILED
     assert outcome.failure is not None
@@ -597,7 +643,8 @@ async def test_failed_finish_is_recorded_before_cleanup_diagnostics_are_reported
     observations = _RecordingObservations([], [])
     runner = TurnRunner(
         context=ContextEngineBuilder(system_text="sys").build(),
-        bus=SignalBus(), trap=_trap(),
+        bus=SignalBus(),
+        trap=_trap(),
         cycle_runner=cast(CycleRunner, _OutputCycleRunner()),
         settings=TurnSettings(max_cycles=1),
         completion_to_output=lambda _: TurnOutput(text="candidate", result_id="answer"),
@@ -619,11 +666,15 @@ async def test_failed_finish_is_recorded_before_cleanup_diagnostics_are_reported
     assert stored.failure is None  # Execution succeeded; required finish failed.
     assert result.cleanup_diagnostics[0].resource == "turn.activity"
     assert "turn.output" not in {event.name for event in observations.events}
-    assert session.background_snapshot(DAY).items[0].content["status"] == "failed"
+    assert any(
+        item.content.get("status") == "failed"
+        for item in session.background_snapshot(DAY).items
+    )
 
 
 async def test_repeated_cancellation_joins_session_commit_once(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = SessionEngine(SessionSettings(root=tmp_path / "session"))
     session.initialize_day(DAY)
@@ -642,13 +693,18 @@ async def test_repeated_cancellation_joins_session_commit_once(
     monkeypatch.setattr(session, "record_turn", record)
     runner = TurnRunner(
         context=ContextEngineBuilder(system_text="sys").build(),
-        bus=SignalBus(), trap=_trap(),
+        bus=SignalBus(),
+        trap=_trap(),
         cycle_runner=cast(CycleRunner, _OutputCycleRunner()),
         settings=TurnSettings(max_cycles=1),
         completion_to_output=lambda _: TurnOutput(text="done", result_id="answer"),
-        completion_pipeline=TurnCompletionPipeline(recorder=SessionTurnCompletionHandler(session)),
+        completion_pipeline=TurnCompletionPipeline(
+            recorder=SessionTurnCompletionHandler(session)
+        ),
     )
-    running = asyncio.create_task(runner.run("question", business_day=DAY, scope=_agent_scope()))
+    running = asyncio.create_task(
+        runner.run("question", business_day=DAY, scope=_agent_scope())
+    )
     try:
         await asyncio.wait_for(entered.wait(), timeout=2)
         running.cancel()
@@ -661,12 +717,16 @@ async def test_repeated_cancellation_joins_session_commit_once(
     with pytest.raises(asyncio.CancelledError):
         await running
     assert committed == ["session"]
-    assert session.background_snapshot(DAY).items[0].content["answer"] == "done"
+    assert any(
+        item.content.get("answer") == "done"
+        for item in session.background_snapshot(DAY).items
+    )
     assert runner.active_scope is None
 
 
 async def test_session_write_failure_is_reported_without_replaying_finish(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = SessionEngine(SessionSettings(root=tmp_path / "session"))
     session.initialize_day(DAY)
@@ -680,12 +740,14 @@ async def test_session_write_failure_is_reported_without_replaying_finish(
     previous = _CompletionRecorder([])
     runner = TurnRunner(
         context=ContextEngineBuilder(system_text="sys").build(),
-        bus=SignalBus(), trap=_trap(),
+        bus=SignalBus(),
+        trap=_trap(),
         cycle_runner=cast(CycleRunner, _OutputCycleRunner()),
         settings=TurnSettings(max_cycles=1),
         completion_to_output=lambda _: TurnOutput(text="candidate", result_id="answer"),
         completion_pipeline=TurnCompletionPipeline(
-            handlers=(previous,), recorder=SessionTurnCompletionHandler(session),
+            handlers=(previous,),
+            recorder=SessionTurnCompletionHandler(session),
         ),
     )
     result = await runner.run("question", business_day=DAY, scope=_agent_scope())
@@ -694,7 +756,7 @@ async def test_session_write_failure_is_reported_without_replaying_finish(
     assert attempted == ["record"]
     assert result.finish_failures[0].kind == "session.io_failed"
     assert "private storage details" not in result.finish_failures[0].message
-    assert session.background_snapshot(DAY).items == ()
+    assert session.background_snapshot(DAY).refs == ()
 
 
 async def test_turn_cycle_limit_reports_exhausted_at_normal_level() -> None:
@@ -708,7 +770,7 @@ async def test_turn_cycle_limit_reports_exhausted_at_normal_level() -> None:
         observations=observations,
     )
 
-    outcome = (await runner.run("hello", business_day=DAY, scope=_agent_scope()))
+    outcome = await runner.run("hello", business_day=DAY, scope=_agent_scope())
 
     assert outcome.status is TurnOutcomeStatus.EXHAUSTED
     exhausted = next(
@@ -717,7 +779,9 @@ async def test_turn_cycle_limit_reports_exhausted_at_normal_level() -> None:
     assert exhausted.level is ObservationLevel.NORMAL
 
 
-async def test_repeated_phase_failure_carries_accumulated_feedback_until_cycle_limit() -> None:
+async def test_repeated_phase_failure_carries_accumulated_feedback_until_cycle_limit() -> (
+    None
+):
     observations = _RecordingObservations([], [])
     cycle_runner = _Phase1FailureCycleRunner()
     runner = TurnRunner(
@@ -729,7 +793,7 @@ async def test_repeated_phase_failure_carries_accumulated_feedback_until_cycle_l
         observations=observations,
     )
 
-    outcome = (await runner.run("hello", business_day=DAY, scope=_agent_scope()))
+    outcome = await runner.run("hello", business_day=DAY, scope=_agent_scope())
 
     assert outcome.status is TurnOutcomeStatus.EXHAUSTED
     assert outcome.failure is None
@@ -773,7 +837,7 @@ async def test_turn_completion_uses_one_lifecycle_event_without_output_event() -
         observations=observations,
     )
 
-    outcome = (await runner.run("maintain home", business_day=DAY, scope=_agent_scope()))
+    outcome = await runner.run("maintain home", business_day=DAY, scope=_agent_scope())
 
     assert outcome.status is TurnOutcomeStatus.COMPLETED
     completed = [
@@ -797,7 +861,7 @@ async def test_turn_activity_cannot_extend_cycle_budget_and_is_cleaned() -> None
         activity_controller=activity,
     )
 
-    outcome = (await runner.run("hello", business_day=DAY, scope=_agent_scope()))
+    outcome = await runner.run("hello", business_day=DAY, scope=_agent_scope())
 
     assert outcome.status is TurnOutcomeStatus.EXHAUSTED
     assert cycles.calls == 1
@@ -817,19 +881,63 @@ async def test_turn_activity_cleanup_failure_does_not_replace_turn_outcome() -> 
         observations=observations,
     )
 
-    outcome = (await runner.run("hello", business_day=DAY, scope=_agent_scope()))
+    outcome = await runner.run("hello", business_day=DAY, scope=_agent_scope())
 
     assert outcome.status is TurnOutcomeStatus.EXHAUSTED
     assert activity.cleanup_calls == 1
-    cleanup = next(
-        event
-        for event in observations.events
-        if event.name == "turn.activity_cleanup_failed"
+    assert outcome.cleanup_diagnostics == (
+        CleanupDiagnostic("turn.activity", "OSError"),
     )
-    assert cleanup.payload["error_type"] == "RuntimeError"
 
 
-async def test_turn_preparation_propagates_program_transfer_without_running_cycle() -> None:
+async def test_required_activity_failure_retains_agent_end_and_original_failure() -> (
+    None
+):
+    from tinysoul.kernel.jobs.failures import JobError, JobFailureKind
+    from tinysoul.kernel.jobs.runtime_bridge import RuntimeJobsBridge
+    from tinysoul.runtime.control.exception import RUNTIME_AGENT_END
+
+    class Activity(_TurnActivity):
+        async def cleanup_turn(self, turn_id: str) -> tuple[CleanupDiagnostic, ...]:
+            raise RuntimeJobsBridge().from_error(
+                JobError(
+                    "private process details",
+                    kind=JobFailureKind.EXECUTION_CLOSE_FAILED,
+                )
+            )
+
+    class FailedCycle:
+        async def run(self, **kwargs: object) -> CycleOutcome:
+            raise RuntimeException(
+                reason=RUNTIME_TURN_END,
+                message="Execution failed.",
+                payload={"module": "test", "kind": "test.failed"},
+            )
+
+    handlers = TrapHandlerRegistry()
+    handlers.register(RUNTIME_TURN_END, EndFrameTrapHandler(RunLevel.TURN))
+    handlers.register(RUNTIME_AGENT_END, EndFrameTrapHandler(RunLevel.AGENT))
+    runner = TurnRunner(
+        context=ContextEngineBuilder(system_text="sys").build(),
+        bus=SignalBus(),
+        trap=RuntimeTrap(registry=handlers),
+        cycle_runner=cast(CycleRunner, FailedCycle()),
+        settings=TurnSettings(max_cycles=1),
+        activity_controller=Activity(remaining=1),
+    )
+    outcome = await runner.run("hello", business_day=DAY, scope=_agent_scope())
+    assert outcome.status is TurnOutcomeStatus.FAILED
+    assert outcome.failure is not None and outcome.failure.kind == "test.failed"
+    assert (
+        outcome.transfer is not None and outcome.transfer.target.level is RunLevel.AGENT
+    )
+    assert outcome.finish_failures[0].kind == "jobs.execution_close_failed"
+    assert "private" not in repr(outcome.finish_failures)
+
+
+async def test_turn_preparation_propagates_program_transfer_without_running_cycle() -> (
+    None
+):
     context = ContextEngineBuilder(system_text="sys").build()
     cycles = _CountingCycleRunner()
     runner = TurnRunner(
@@ -841,7 +949,7 @@ async def test_turn_preparation_propagates_program_transfer_without_running_cycl
         preparation_pipeline=TurnPreparationPipeline((_EndProgramPreparation(),)),
     )
 
-    outcome = (await runner.run("hello", business_day=DAY, scope=_agent_scope()))
+    outcome = await runner.run("hello", business_day=DAY, scope=_agent_scope())
 
     assert cycles.calls == 0
     assert outcome.context_completion is not None
@@ -857,7 +965,9 @@ def _trap() -> RuntimeTrap:
     return RuntimeTrap(registry=registry)
 
 
-async def test_budget_suspend_preserves_next_cycle_and_ignores_progress_as_grant() -> None:
+async def test_budget_suspend_preserves_next_cycle_and_ignores_progress_as_grant() -> (
+    None
+):
     inbox = TurnInbox()
     context = ContextEngineBuilder(system_text="sys").build()
     seen: list[int] = []
@@ -865,19 +975,29 @@ async def test_budget_suspend_preserves_next_cycle_and_ignores_progress_as_grant
     class Cycles:
         async def run(self, *, cycle_index: int, **kwargs: object) -> CycleOutcome:
             seen.append(cycle_index)
-            return CycleOutcome(cycle_id=str(cycle_index),
-                                completion={"kind": "complete"} if cycle_index == 2 else None)
+            return CycleOutcome(
+                cycle_id=str(cycle_index),
+                completion={"kind": "complete"} if cycle_index == 2 else None,
+            )
 
-    runner = TurnRunner(context=context, bus=SignalBus(), trap=_trap(),
-                        cycle_runner=cast(CycleRunner, Cycles()), settings=TurnSettings(max_cycles=1))
-    task = asyncio.create_task(runner.run("question", business_day=DAY,
-                                          scope=_agent_scope(), inbox=inbox))
+    runner = TurnRunner(
+        context=context,
+        bus=SignalBus(),
+        trap=_trap(),
+        cycle_runner=cast(CycleRunner, Cycles()),
+        settings=TurnSettings(max_cycles=1),
+    )
+    task = asyncio.create_task(
+        runner.run("question", business_day=DAY, scope=_agent_scope(), inbox=inbox)
+    )
     async with asyncio.timeout(3):
         while inbox.wait_reason is not WaitReason.BUDGET:
             await asyncio.sleep(0)
         request = inbox.budget_request
         assert request is not None and request.next_cycle_index == 2
-        await inbox.accept(InboxRecord(InboxKind.INPUT, {"text": "additional"}, "input"))
+        await inbox.accept(
+            InboxRecord(InboxKind.INPUT, {"text": "additional"}, "input")
+        )
         await asyncio.sleep(0)
         assert seen == [1] and not task.done() and context.turn_active
         assert await inbox.grant_cycles(request.request_id, 1)
@@ -886,7 +1006,10 @@ async def test_budget_suspend_preserves_next_cycle_and_ignores_progress_as_grant
     assert seen == [1, 2]
     assert result.status is TurnOutcomeStatus.COMPLETED
     assert result.context_completion is not None
-    assert [item.text for item in result.context_completion.inputs] == ["question", "additional"]
+    assert [item.text for item in result.context_completion.inputs] == [
+        "question",
+        "additional",
+    ]
 
 
 async def test_question_timeout_records_waiting_terminal_without_user_answer() -> None:
@@ -895,11 +1018,21 @@ async def test_question_timeout_records_waiting_terminal_without_user_answer() -
 
     class Cycles:
         async def run(self, **kwargs: object) -> CycleOutcome:
-            return CycleOutcome(cycle_id="1", question=QuestionRequest("q", "choose", timeout_seconds=0.001))
+            return CycleOutcome(
+                cycle_id="1",
+                question=QuestionRequest("q", "choose", timeout_seconds=0.001),
+            )
 
-    runner = TurnRunner(context=context, bus=SignalBus(), trap=_trap(),
-                        cycle_runner=cast(CycleRunner, Cycles()), settings=TurnSettings(max_cycles=1))
-    result = await runner.run("question", business_day=DAY, scope=_agent_scope(), inbox=inbox)
+    runner = TurnRunner(
+        context=context,
+        bus=SignalBus(),
+        trap=_trap(),
+        cycle_runner=cast(CycleRunner, Cycles()),
+        settings=TurnSettings(max_cycles=1),
+    )
+    result = await runner.run(
+        "question", business_day=DAY, scope=_agent_scope(), inbox=inbox
+    )
     assert result.status is TurnOutcomeStatus.AWAITING_USER
     assert result.output is None and not context.turn_active
 

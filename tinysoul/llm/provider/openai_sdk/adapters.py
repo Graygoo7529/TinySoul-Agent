@@ -7,14 +7,19 @@ from typing import cast
 from openai import AsyncOpenAI
 
 from tinysoul.infra.json import to_json_object
-from tinysoul.llm.adapter import adapter_spec
-from tinysoul.llm.adapter_types import AdapterKind, ProviderApiStyle
-from tinysoul.llm.config import ProviderSpec
-from tinysoul.llm.message_rendering import MessageContentRenderer
-from tinysoul.llm.responses import RawResponse
-from tinysoul.llm.tools import DefaultToolCallIdMapper, ToolCallIdMapper
+from tinysoul.llm.protocol.adapter import adapter_spec
+from tinysoul.llm.protocol.adapter_types import AdapterKind, ProviderApiStyle
+from tinysoul.llm.config.loader import ProviderSpec
+from tinysoul.llm.execution.message_rendering import MessageContentRenderer
+from tinysoul.llm.protocol.responses import RawResponse
+from tinysoul.llm.protocol.tools import DefaultToolCallIdMapper, ToolCallIdMapper
 
-from ..base import ProviderError, ProviderErrorKind, ProviderFailureScope, ProviderRequest
+from ..base import (
+    ProviderError,
+    ProviderErrorKind,
+    ProviderFailureScope,
+    ProviderRequest,
+)
 from .behavior import OpenAIAdapterBehavior
 from .clients import OpenAIChatCompletionsClient, OpenAIResponsesClient
 from .common import (
@@ -60,7 +65,8 @@ class OpenAIResponsesAdapter:
         self._owned_client: AsyncOpenAI | None = None
         if responses is None:
             self._owned_client = AsyncOpenAI(
-                api_key=api_key, base_url=provider.base_url,
+                api_key=api_key,
+                base_url=provider.base_url,
             )
             self._client: OpenAIResponsesClient = cast(
                 OpenAIResponsesClient,
@@ -146,7 +152,8 @@ class OpenAICompatibleChatAdapter:
         self._owned_client: AsyncOpenAI | None = None
         if completions is None:
             self._owned_client = AsyncOpenAI(
-                api_key=api_key, base_url=provider.base_url,
+                api_key=api_key,
+                base_url=provider.base_url,
             )
             self._client: OpenAIChatCompletionsClient = cast(
                 OpenAIChatCompletionsClient,

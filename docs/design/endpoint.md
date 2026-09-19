@@ -8,7 +8,7 @@ Endpoint 的稳定外观是 `EndpointEngine`。它只装配各领域 engine：
 
 ```text
 endpoint.engine.runtime
-endpoint.engine.maintenance
+endpoint.engine.reflection
 endpoint.engine.events
 endpoint.engine.configuration
 endpoint.engine.workspace
@@ -22,14 +22,14 @@ endpoint.engine.workspace
 tinysoul/gateway/endpoint/
   config.py, errors.py, failures.py, host.py
   engine/
-    contracts.py, context.py, runtime.py, maintenance.py
+    contracts.py, context.py, runtime.py, reflection.py
     events.py, configuration.py, workspace.py
   events/
     models.py, buffer.py, journal.py
   http/
     app.py, auth.py, errors.py, server.py
-    schemas/{runtime,maintenance,configuration,workspace}.py
-    routes/{health,runtime,maintenance,events,configuration,workspace}.py
+    schemas/{runtime,reflection,configuration,workspace}.py
+    routes/{health,runtime,reflection,events,configuration,workspace}.py
 ```
 
 HTTP route 只做路径参数/schema 转换和 engine 调用，不直接访问业务私有状态。`http/app.py` 集中注册 middleware、认证、统一错误处理和 routes；`http/server.py` 在 Agent 的事件循环上运行 uvicorn task，异步等待启动与停止，不创建独立服务器线程，也不接管宿主信号处理。
@@ -50,8 +50,8 @@ WebSocket 在首帧完成 token、cursor 和 mode 认证；断线续传由前端
 
 ## Workspace
 
-`EndpointWorkspaceEngine` 通过 WorkspaceService 的 async operation 作用域调用唯一 Workspace owner，统一处理 manifest、text/blob read/write、revision/digest CAS、Trash/Restore 和 context sync。Endpoint 不提供任意文件 API；`PUT /v1/workspace/blob` 是完整 Workspace binary write 能力的一部分。
+`EndpointWorkspaceEngine` 通过 WorkspaceService 的 async operation 作用域调用唯一 Workspace owner，统一处理 manifest、text/blob read/write、显式创建/覆盖、有序编辑、目录/标签与 Trash/Restore 和 context sync。Endpoint 不提供任意文件 API；`PUT /v1/workspace/blob` 是完整 Workspace binary write 能力的一部分。
 
 ## 失败边界
 
-请求 schema、鉴权、配置冲突和 Workspace CAS 失败映射为稳定的 `EndpointRequestError` HTTP envelope。模块 I/O 错误只在所属 engine 归类；HTTP 最外层将未知异常收敛为 `endpoint.internal`，不暴露 traceback、绝对路径或敏感值。只有 EndpointHost/Runtime bridge 生命周期错误才进入 Runtime failure 语义。
+请求 schema、鉴权、配置冲突和 Workspace 请求冲突映射为稳定的 `EndpointRequestError` HTTP envelope。模块 I/O 错误只在所属 engine 归类；HTTP 最外层将未知异常收敛为 `endpoint.internal`，不暴露 traceback、绝对路径或敏感值。只有 EndpointHost/Runtime bridge 生命周期错误才进入 Runtime failure 语义。

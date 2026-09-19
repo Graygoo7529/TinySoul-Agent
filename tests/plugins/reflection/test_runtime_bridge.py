@@ -25,20 +25,20 @@ from tinysoul.runtime import RUNTIME_AGENT_END, RUNTIME_STARTUP_FAILED
         ),
     ),
 )
-def test_maintenance_bridge_maps_control_failures(
+def test_reflection_bridge_maps_control_failures(
     error: Exception,
     kind: ReflectionFailureKind,
 ) -> None:
-    failure = ReflectionRuntimeBridge().from_maintenance_error(error)
+    failure = ReflectionRuntimeBridge().from_reflection_error(error)
 
     assert failure.reason == RUNTIME_AGENT_END
-    assert failure.payload["module"] == "maintenance"
+    assert failure.payload["module"] == "reflection"
     assert failure.payload["kind"] == kind.value
 
 
-def test_maintenance_bridge_maps_config_error_to_startup() -> None:
+def test_reflection_bridge_maps_config_error_to_startup() -> None:
     failure = ReflectionRuntimeBridge().from_config_error(
-        ConfigError("bad config", key="maintenance.enabled")
+        ConfigError("bad config", key="reflection.enabled")
     )
 
     assert failure.reason == RUNTIME_STARTUP_FAILED

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .cache import PromptCache
-from .adapter_types import AdapterKind
+from .protocol.cache import PromptCache
+from .protocol.adapter_types import AdapterKind
 from .errors import LLMContractError, LLMError, LLMInvariantError, TaskCancelled
-from .messages import (
+from .protocol.messages import (
     AssistantMessage,
     ImagePart,
     ImageUrlPart,
@@ -20,23 +20,23 @@ from .messages import (
     ToolResultMessage,
     UserMessage,
 )
-from .models import (
+from .protocol.models import (
     AdapterOptions,
     ModelCapability,
-    ModelRegistry,
     ModelProviderBinding,
     ModelSpec,
     RequestOverrides,
 )
-from .reasoning import Reasoning, ReasoningKeep
-from .requests import (
+from .execution.registry import ModelRegistry
+from .protocol.reasoning import Reasoning, ReasoningKeep
+from .protocol.requests import (
     CallSettings,
     ModelContextOverflowPolicy,
     TaskCall,
     TaskCancellation,
     TaskProfile,
 )
-from .responses import (
+from .protocol.responses import (
     Answer,
     AnswerFormat,
     JsonAnswer,
@@ -49,7 +49,7 @@ from .responses import (
     TaskResultStatus,
     TextAnswer,
 )
-from .tools import (
+from .protocol.tools import (
     DefaultToolCallIdMapper,
     ToolCallIdMapper,
     ToolCallRecord,
@@ -62,7 +62,7 @@ from .tools import (
 )
 
 if TYPE_CHECKING:
-    from .task import (
+    from .execution.task import (
         CapabilityPolicy,
         CurrentModelCapabilities,
         LLMTaskError,
@@ -141,7 +141,7 @@ __all__ = [
 
 def __getattr__(name: str) -> object:
     if name in _TASK_EXPORTS:
-        from . import task
+        from .execution import task
 
         return getattr(task, name)
     raise AttributeError(f"module 'tinysoul.llm' has no attribute {name!r}")

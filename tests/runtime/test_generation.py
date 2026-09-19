@@ -44,8 +44,8 @@ def test_runtime_handle_failed_activation_is_visible() -> None:
 async def test_runtime_activity_lease_reports_and_releases_activity() -> None:
     handle = RuntimeHandle("generation")
 
-    async with handle.activity_lease(RuntimeActivity.MAINTENANCE_TURN):
-        assert handle.activity is RuntimeActivity.MAINTENANCE_TURN
+    async with handle.activity_lease(RuntimeActivity.REFLECTION_TURN):
+        assert handle.activity is RuntimeActivity.REFLECTION_TURN
         with pytest.raises(RuntimeGenerationError, match="idle"):
             handle.begin_activation()
 

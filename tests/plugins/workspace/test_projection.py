@@ -1,27 +1,24 @@
-"""Workspace owns its Turn projection and revision interpretation."""
+"""Workspace projects owner snapshots in arrival order."""
 
-import pytest
+from tinysoul.llm.protocol.messages import JsonPart
+from tinysoul.plugins.workspace.projection import (
+    WorkspaceResource,
+    WorkspaceSegment,
+    WorkspaceSnapshot,
+)
 
-from tinysoul.llm.messages import JsonPart
-from tinysoul.runtime import RuntimeException
-from tinysoul.plugins.workspace.projection import WorkspaceResource, WorkspaceSegment, WorkspaceSnapshot
 
-
-async def test_projection_prepares_without_mutation_and_hides_consistency_metadata() -> None:
+async def test_projection_prepares_without_mutation_and_installs_latest_snapshot() -> (
+    None
+):
     segment = WorkspaceSegment()
-    first = WorkspaceSnapshot(2, (WorkspaceResource("workspace:a.md", "a"),))
-    stale = WorkspaceSnapshot(1, (WorkspaceResource("workspace:b.md", "b"),))
-    prepared = await segment.prepare((first, stale))
+    first = WorkspaceSnapshot((WorkspaceResource("workspace:a.md", "a"),))
+    latest = WorkspaceSnapshot((WorkspaceResource("workspace:b.md", "b"),))
+    prepared = await segment.prepare((first, latest))
     assert segment.seal()["resources"] == []
     segment.install(prepared)
-    assert segment.seal()["revision"] == 2
     part = segment.render()[0].parts[0]
     assert isinstance(part, JsonPart)
-    assert part.value == {"resources": [{"link": "workspace:a.md", "summary": "a"}]}
-
-    conflicting = WorkspaceSnapshot(2, (WorkspaceResource("workspace:c.md", "c"),))
-    with pytest.raises(RuntimeException) as raised:
-        await segment.prepare((conflicting,))
-    assert raised.value.payload["module"] == "workspace"
-    assert segment.seal()["resources"] == [{"link": "workspace:a.md", "summary": "a"}]
+    assert part.value == {"resources": [{"link": "workspace:b.md", "summary": "b"}]}
+    assert segment.seal() == part.value
     await segment.close()

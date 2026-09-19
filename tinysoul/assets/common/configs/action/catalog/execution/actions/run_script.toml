@@ -1,0 +1,25 @@
+name = "execution.run_script"
+domain = "execution"
+[tool]
+description = "Run one existing Home or Workspace script and wait for its bounded process to finish."
+[tool.schema]
+type = "object"
+required = ["interpreter", "source_link"]
+additionalProperties = false
+[tool.schema.properties.interpreter]
+type = "string"
+[tool.schema.properties.source_link]
+type = "string"
+[tool.schema.properties.args]
+type = "array"
+items = { type = "string" }
+[tool.schema.properties.cwd_link]
+type = "string"
+[semantic]
+use_when = ["A known script should run against the daily Workspace"]
+effects = ["modifying"]
+[runtime]
+parallel_policy = "serial"
+[backend]
+kind = "native"
+handler = "execution.run_script"

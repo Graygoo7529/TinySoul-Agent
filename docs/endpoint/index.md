@@ -10,7 +10,7 @@ Endpoint 是 loopback 本地协议。除 `GET /v1/health` 外，HTTP 请求都�
 | Runtime | `GET /v1/status` | 当前进程与 Runtime snapshot |
 | Runtime | `POST /v1/input` | 提交 User input |
 | Runtime | `POST /v1/control` | 提交 stop/exit control |
-| Reflection | `GET/POST /v1/maintenance` | 读取 availability、提交维护请求 |
+| Reflection | `GET/POST /v1/reflection` | 读取 availability、提交维护请求 |
 | Events | `GET /v1/events` | Observation replay |
 | Events | `WS /v1/events/ws` | Observation stream |
 | Configuration | `GET /v1/config` | 配置源/effective fields/runtime 状态 |
@@ -25,11 +25,11 @@ Endpoint 是 loopback 本地协议。除 `GET /v1/health` 外，HTTP 请求都�
 ## 错误
 
 ```json
-{"error":{"code":"workspace.conflict","message":"Workspace revision mismatch.","details":{}}}
+{"error":{"code":"workspace.conflict","message":"Workspace request conflicts with the current resource or is invalid.","details":{}}}
 ```
 
-`401` 表示鉴权失败，`409` 表示未 ready、运行中或 CAS 冲突，`413` 表示大小超限，`422` 表示 schema/配置值无效，`500` 表示收敛后的模块或服务失败。
+`401` 表示鉴权失败，`409` 表示未 ready、运行中、目标冲突或 owner 拒绝的资源操作，`413` 表示大小超限，`422` 表示 schema/配置值无效，`500` 表示收敛后的模块或服务失败。
 
 服务调用在世代或日期切换后失效时返回 `409 service.stale`；Agent 停止受理或服务暂不可用时返回 `409 agent.not_ready`。客户端重新读取当前状态后决定后续操作，后端不自动重放写入。
 
-详细协议见 [runtime](runtime.md)、[maintenance](maintenance.md)、[events](events.md)、[configuration](configuration.md)、[workspace](workspace.md) 和 [frontend integration](frontend-integration.md)。
+详细协议见 [runtime](runtime.md)、[reflection](reflection.md)、[events](events.md)、[configuration](configuration.md)、[workspace](workspace.md) 和 [frontend integration](frontend-integration.md)。

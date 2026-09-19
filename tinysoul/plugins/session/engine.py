@@ -2,55 +2,34 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
 
 from tinysoul.kernel.context import (
     ContextTurnCompletion,
 )
-from tinysoul.infra.continuation import (
-    ContinuationError,
-    ContinuationFailureReason,
-    OpaqueContinuationCodec,
-    continue_json_sequence,
-)
-from tinysoul.infra.json import JsonObject, dumps_json
+from tinysoul.infra.json import JsonObject
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.loop.outcomes import TurnFailure, TurnOutcomeStatus
 
-from .background import (
-    SessionBackgroundItem,
-    SessionBackgroundSnapshot,
-    project_overflow_background,
-    project_turn_background,
-)
+from .views.background import SessionBackgroundSnapshot
 from .completion import project_turn_record
 from .config import SessionSettings
 from .errors import (
     SessionContractError,
-    SessionInspectFailureReason,
-    SessionInspectRequestError,
     SessionInvariantError,
 )
-from .memory import SessionMemoryFactsProjection, project_session_memory_facts
-from .models import (
+from .views.memory import SessionMemoryFactsProjection, project_session_memory_facts
+from .records.models import (
     SessionManifest,
     SessionOutputRecord,
     SessionTurnRecord,
 )
-from .navigation import (
-    action_collection_ref,
-    action_leaf_ref,
-    parse_action_ref,
-    project_action,
-    project_action_header,
-    project_map,
-    project_turn,
-)
-from .reconcile import SessionReconcileResult, SessionReconciler
-from .store import SessionStore
-from .validation import validate_turn_record
+from .views import SessionView
+from .records.reconcile import SessionReconcileResult, SessionReconciler
+from .records.store import SessionStore
+from .records.validation import validate_turn_record
 
 
 @dataclass(frozen=True)
@@ -108,10 +87,6 @@ class SessionEngine:
                 "Session store root must match Session settings root"
             )
         self._reconciler = SessionReconciler(self._store)
-        self._continuations = OpaqueContinuationCodec(
-            owner="session",
-            operation="inspect",
-        )
         self._manifest = self._store.load_active_manifest()
         self._last_reconcile_result = SessionReconcileResult(revision=0)
         if self._manifest is not None:
@@ -221,32 +196,38 @@ class SessionEngine:
             refs=snapshot.refs,
         )
 
-    def archive_view(self, day: CalendarDay, *, root: Path) -> "SessionArchiveView":
-        """Open a validated read-only semantic view over a finalized archive."""
+    def archive_view(self, day: CalendarDay, *, root: Path) -> SessionView:
+        """Open a fixed, read-only source without a writable archive Engine."""
 
-        self.archive_snapshot(day, root=root)
-        engine = SessionEngine(replace(self._settings, root=root))
-        engine._require_day(day)
-        return SessionArchiveView(day=day, engine=engine)
+        snapshot = self.archive_snapshot(day, root=root)
+        return SessionView(
+            SessionManifest(
+                day=str(day), revision=snapshot.revision, refs=snapshot.refs
+            ),
+            self._settings,
+            SessionStore(root=root),
+        )
 
-    def background_snapshot(self, day: CalendarDay) -> SessionBackgroundSnapshot:
+    def snapshot_view(self, day: CalendarDay) -> SessionView:
+        """Freeze the current committed source set for a Turn."""
+
         with self._lock:
             self._require_day(day)
             self._last_reconcile_result = self._reconcile_current()
-            manifest = self._require_manifest()
-            projected = tuple(
-                SessionBackgroundItem(
-                    item_id=ref,
-                    content=self._background_for_ref(ref),
-                )
-                for ref in manifest.refs
-            )
-            items = self._fit_background(projected)
-            return SessionBackgroundSnapshot(
-                revision=manifest.revision,
-                items=items,
-                refs=manifest.refs,
-            )
+            return SessionView(self._require_manifest(), self._settings, self._store)
+
+    def empty_view(self, day: CalendarDay) -> SessionView:
+        """Represent an explicitly absent historical Session source."""
+
+        _require_business_day(day)
+        return SessionView(
+            SessionManifest(day=str(day), revision=0, refs=()),
+            self._settings,
+            self._store,
+        )
+
+    def background_snapshot(self, day: CalendarDay) -> SessionBackgroundSnapshot:
+        return self.snapshot_view(day).background_snapshot(day)
 
     def record_turn(
         self,
@@ -296,123 +277,14 @@ class SessionEngine:
         continuation: str | None = None,
         expected_revision: int | None = None,
     ) -> JsonObject:
-        """Inspect the factual Map, one Turn, or its Action occurrences."""
-
         with self._lock:
-            manifest = self._require_manifest()
-            if expected_revision is not None and expected_revision != manifest.revision:
-                raise SessionContractError("Session view source changed during its Turn")
-            if action is not None and (not isinstance(action, str) or not action):
-                raise SessionInspectRequestError(
-                    SessionInspectFailureReason.INVALID_REF,
-                    "Session Action filter must be non-empty text",
-                    scope="session.inspect",
-                )
-            try:
-                action_ref = parse_action_ref(ref) if ref is not None else None
-            except SessionContractError as exc:
-                raise _request_error(
-                    SessionInspectFailureReason.INVALID_REF,
-                    str(exc),
-                    ref=ref,
-                ) from exc
-            if action_ref is not None:
-                record = self._load_turn(action_ref.turn_ref)
-                if action_ref.is_collection:
-                    collection_ref = action_collection_ref(record.ref)
-                    actions = tuple(
-                        project_action_header(record.ref, index, item)
-                        for index, item in enumerate(record.actions)
-                        if action is None or item.action == action
-                    )
-                    return self._page(
-                        actions,
-                        base={"kind": "session_actions", "ref": collection_ref},
-                        item_field="actions",
-                        continuation=continuation,
-                        ref=collection_ref,
-                        binding=({"action": action} if action is not None else None),
-                    )
-                if action is not None:
-                    raise _request_error(
-                        SessionInspectFailureReason.WRONG_RECORD_KIND,
-                        "Session Action filter only applies to an Action collection",
-                        ref=ref,
-                    )
-                assert action_ref.occurrence is not None
-                if action_ref.occurrence >= len(record.actions):
-                    raise _request_error(
-                        SessionInspectFailureReason.UNKNOWN_REF,
-                        "Unknown Session Action ref",
-                        ref=ref,
-                    )
-                detail = project_action(
-                    record.ref,
-                    action_ref.occurrence,
-                    record.actions[action_ref.occurrence],
-                )
-                leaf_ref = action_leaf_ref(record.ref, action_ref.occurrence)
-                return self._page(
-                    (detail,),
-                    base={"kind": "session_action", "ref": leaf_ref},
-                    item_field="content",
-                    continuation=continuation,
-                    ref=leaf_ref,
-                )
-            if action is not None:
-                raise _request_error(
-                    SessionInspectFailureReason.WRONG_RECORD_KIND,
-                    "Session Action filter requires an Action collection ref",
-                    ref=ref,
-                )
-            if ref is None or ref == "session:map":
-                nodes = project_map(tuple(self._record(item) for item in manifest.refs))
-                return self._page(
-                    nodes,
-                    base={"kind": "session_map", "ref": "session:map"},
-                    item_field="nodes",
-                    continuation=continuation,
-                    ref="session:map",
-                    binding={"revision": manifest.revision},
-                )
-            record = self._requested_record(ref)
-            detail = project_turn(record)
-            return self._page(
-                (detail,),
-                base={"kind": "session_turn", "ref": ref},
-                item_field="content",
-                continuation=continuation,
-                ref=ref,
-            )
-
-    def _page(
-        self,
-        values: tuple[JsonObject, ...],
-        *,
-        base: JsonObject,
-        item_field: str,
-        continuation: str | None,
-        ref: str,
-        binding: JsonObject | None = None,
-    ) -> JsonObject:
-        try:
-            return continue_json_sequence(
-                values,
-                base=base,
-                item_field=item_field,
-                continuation=continuation,
-                codec=self._continuations,
-                ref=ref,
-                binding=binding,
-                max_chars=self._settings.inspect_max_chars,
-            )
-        except ContinuationError as exc:
-            reason = (
-                SessionInspectFailureReason.PAGE_BUDGET_TOO_SMALL
-                if exc.reason is ContinuationFailureReason.BUDGET_TOO_SMALL
-                else SessionInspectFailureReason.INVALID_CONTINUATION
-            )
-            raise _request_error(reason, str(exc), ref=ref) from exc
+            view = SessionView(self._require_manifest(), self._settings, self._store)
+        return view.inspect(
+            ref,
+            action=action,
+            continuation=continuation,
+            expected_revision=expected_revision,
+        )
 
     def _reconcile_current(self) -> SessionReconcileResult:
         manifest = self._require_manifest()
@@ -431,65 +303,8 @@ class SessionEngine:
         self._manifest = committed
         return SessionReconcileResult(
             revision=committed.revision,
-            adopted_turn_refs=tuple(
-                record.ref for record in scan.orphan_turn_records
-            ),
+            adopted_turn_refs=tuple(record.ref for record in scan.orphan_turn_records),
         )
-
-    def _background_for_ref(self, ref: str) -> JsonObject:
-        return project_turn_background(self._record(ref))
-
-    def _fit_background(
-        self,
-        items: tuple[SessionBackgroundItem, ...],
-    ) -> tuple[SessionBackgroundItem, ...]:
-        if (
-            sum(len(dumps_json(item.content)) for item in items)
-            <= self._settings.background_max_chars
-        ):
-            return items
-        overflow = SessionBackgroundItem(
-            item_id="session_overflow_head",
-            content=project_overflow_background(),
-        )
-        used = len(dumps_json(overflow.content))
-        selected: list[SessionBackgroundItem] = []
-        for item in reversed(items):
-            size = len(dumps_json(item.content))
-            if used + size > self._settings.background_max_chars:
-                break
-            selected.append(item)
-            used += size
-        selected.reverse()
-        return (overflow, *selected)
-
-    def _record(self, ref: str) -> SessionTurnRecord:
-        try:
-            return validate_turn_record(self._store.load_record(ref))
-        except SessionContractError as exc:
-            raise SessionInvariantError(
-                f"Session graph references a missing record: {ref}"
-            ) from exc
-
-    def _requested_record(self, ref: str) -> SessionTurnRecord:
-        try:
-            record = validate_turn_record(self._store.load_record(ref))
-        except SessionContractError as exc:
-            raise _request_error(
-                SessionInspectFailureReason.UNKNOWN_REF,
-                "Unknown Session ref",
-                ref=ref,
-            ) from exc
-        if ref not in self._require_manifest().refs:
-            raise _request_error(
-                SessionInspectFailureReason.UNKNOWN_REF,
-                "Unknown Session ref",
-                ref=ref,
-            )
-        return record
-
-    def _load_turn(self, ref: str) -> SessionTurnRecord:
-        return self._requested_record(ref)
 
     def _require_manifest(self) -> SessionManifest:
         if self._manifest is None:
@@ -504,43 +319,6 @@ class SessionEngine:
                 f"Session active day mismatch: {manifest.day} != {day}"
             )
         return manifest
-
-
-@dataclass(frozen=True)
-class SessionArchiveView:
-    """Read-only Session Background and inspect surface for archived consumers."""
-
-    day: CalendarDay
-    engine: SessionEngine
-
-    def background_snapshot(self) -> SessionBackgroundSnapshot:
-        return self.engine.background_snapshot(self.day)
-
-    def inspect(
-        self,
-        ref: str | None = None,
-        *,
-        action: str | None = None,
-        continuation: str | None = None,
-        expected_revision: int | None = None,
-    ) -> JsonObject:
-        return self.engine.inspect(
-            ref, action=action, continuation=continuation, expected_revision=expected_revision,
-        )
-
-
-def _request_error(
-    reason: SessionInspectFailureReason,
-    message: str,
-    *,
-    ref: str | None,
-) -> SessionInspectRequestError:
-    return SessionInspectRequestError(
-        reason,
-        message,
-        constraint=({"ref": ref} if ref is not None else {}),
-        scope="session.inspect",
-    )
 
 
 def _require_business_day(day: CalendarDay) -> None:

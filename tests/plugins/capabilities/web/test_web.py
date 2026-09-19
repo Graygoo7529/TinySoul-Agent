@@ -8,15 +8,24 @@ from typing import cast
 
 import pytest
 
-from tinysoul.kernel.action import (ActionCall, ActionEngineBuilder, ActionExecution, ActionExecutionContext, ActionExecutionControl, ActionFramework, ActionResultStatus, ActionFailureDisposition)
-from tinysoul.agent.catalog import builtin_action_catalog_root
+from tinysoul.kernel.action import (
+    ActionCall,
+    ActionEngineBuilder,
+    ActionExecution,
+    ActionExecutionContext,
+    ActionExecutionControl,
+    ActionFramework,
+    ActionResultStatus,
+    ActionFailureDisposition,
+)
+from tests.support.catalog import builtin_action_catalog_root
 from tinysoul.kernel.action.backends import (
     ControlledProcessRunner,
     ProcessOutcome,
     ProcessRequest,
     ProcessStatus,
 )
-from tinysoul.kernel.action.core.loader import ActionCatalogLoader
+from tinysoul.kernel.action.catalog.loader import ActionCatalogLoader
 from tinysoul.plugins.capabilities import parse_capabilities_settings
 from tinysoul.plugins.capabilities.web.actions import (
     WEB_FETCH_TRAFILATURA_ACTION,
@@ -37,12 +46,15 @@ from tinysoul.plugins.capabilities.web.errors import (
     web_failure_disposition,
 )
 from tinysoul.plugins.capabilities.web.models import WebExtractor
-from tinysoul.plugins.capabilities.web.network import FetchedPage, validate_public_https_url
+from tinysoul.plugins.capabilities.web.backends.network import (
+    FetchedPage,
+    validate_public_https_url,
+)
 from tinysoul.plugins.capabilities.web.service import (
     WebCapabilityService,
     _worker_failure_facts,
 )
-from tinysoul.plugins.capabilities.web.worker import (
+from tinysoul.plugins.capabilities.web.backends.worker import (
     _extract_with_defuddle,
     _kimi_search_request_options,
     _normalize_search_result,
@@ -87,9 +99,7 @@ def test_web_config_parses_independent_kimi_search_and_fetch_actions() -> None:
 
 def test_web_config_rejects_obsolete_search_mode() -> None:
     with pytest.raises(ConfigError) as error:
-        parse_capabilities_settings(
-            {"web": {"search_by_kimi": {"mode": "answer"}}}
-        )
+        parse_capabilities_settings({"web": {"search_by_kimi": {"mode": "answer"}}})
 
     assert error.value.key == "capabilities.web.search_by_kimi.mode"
 
@@ -107,9 +117,7 @@ def test_web_config_rejects_kimi_model_without_no_thinking_protocol(
     model: str,
 ) -> None:
     with pytest.raises(ConfigError) as error:
-        parse_capabilities_settings(
-            {"web": {"search_by_kimi": {"model": model}}}
-        )
+        parse_capabilities_settings({"web": {"search_by_kimi": {"model": model}}})
 
     assert error.value.key == "capabilities.web.search_by_kimi.model"
 
@@ -291,9 +299,7 @@ def test_kimi_tool_round_rejects_missing_required_fields(
     tool_call: dict[str, object],
     message: str,
 ) -> None:
-    assistant = to_json_object(
-        {"role": "assistant", "tool_calls": [tool_call]}
-    )
+    assistant = to_json_object({"role": "assistant", "tool_calls": [tool_call]})
 
     with pytest.raises(WebProcessingError, match=message):
         _parse_kimi_tool_round(assistant)
@@ -461,7 +467,6 @@ async def test_kimi_worker_failure_preserves_only_safe_shape_facts(
             query="current topic",
             invoke_id="invoke/1",
             call_id="call/1",
-            owner_turn_id="turn_1",
             control=ActionExecutionControl(deadline=monotonic() + 30),
         )
 
@@ -555,7 +560,6 @@ async def test_oversized_kimi_search_spills_complete_answer_and_results(
         query="current topic",
         invoke_id="invoke/1",
         call_id="call/1",
-        owner_turn_id="turn_1",
         control=ActionExecutionControl(deadline=monotonic() + 30),
     )
 
@@ -629,18 +633,19 @@ async def test_trafilatura_fetch_commits_only_workspace_markdown_and_metadata(
         url="https://example.com/article",
         target_link="workspace:web/pages/article.md",
         overwrite=False,
-        expected_target_digest="",
-        owner_turn_id="turn_1",
         control=ActionExecutionControl(deadline=monotonic() + 30),
     )
 
     assert result.markdown_link == "workspace:web/pages/article.md"
     assert result.extractor is WebExtractor.TRAFILATURA
     assert result.excerpt == "Readable page excerpt"
-    assert "Readable page" in workspace.read_text(
-        result.markdown_link,
-        max_chars=1000,
-    ).text
+    assert (
+        "Readable page"
+        in workspace.read_text(
+            result.markdown_link,
+            max_chars=1000,
+        ).text
+    )
 
 
 async def test_fetch_action_result_omits_source_url_and_emits_workspace_signal(
@@ -694,8 +699,6 @@ async def test_fetch_cancellation_after_worker_prevents_workspace_commit(
             url="https://example.com/article",
             target_link="workspace:web/pages/article.md",
             overwrite=False,
-            expected_target_digest="",
-            owner_turn_id="turn_1",
             control=ActionExecutionControl(deadline=monotonic() + 30),
         )
 
@@ -737,7 +740,7 @@ def test_action_policy_does_not_skip_capability_credential_validation(
     action_path.write_text(
         action_path.read_text(encoding="utf-8").replace(
             "[runtime]\ntimeout_seconds",
-            "[runtime]\nenabled = false\ntimeout_seconds",
+            "[visibility]\ndefault = false\n\n[runtime]\ntimeout_seconds",
         ),
         encoding="utf-8",
     )
@@ -927,8 +930,8 @@ def _search_execution() -> ActionExecution:
 
 def _fetch_execution() -> ActionExecution:
     with builtin_action_catalog_root() as root:
-        action = ActionCatalogLoader().load(root).get_action(
-            WEB_FETCH_TRAFILATURA_ACTION
+        action = (
+            ActionCatalogLoader().load(root).get_action(WEB_FETCH_TRAFILATURA_ACTION)
         )
     return ActionExecution(
         action=action,

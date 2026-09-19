@@ -9,7 +9,7 @@ from tinysoul.infra.time import CalendarDay
 from tinysoul.runtime import RunScope
 
 from tinysoul.kernel.loop.signals import LoopControlKind
-from tinysoul.kernel.loop.inbox import TurnInbox
+from tinysoul.kernel.loop.interaction.inbox import TurnInbox
 from tinysoul.kernel.loop.turn import TurnOutcome, TurnRunner
 
 
@@ -47,11 +47,11 @@ class UserTurnEntry:
         input_source: str = "",
         inbox: TurnInbox | None = None,
     ) -> TurnOutcome:
-        return (await self._runner.run(
+        return await self._runner.run(
             turn_input,
             business_day=business_day,
             scope=scope,
             request_id=request_id,
             input_source=input_source,
             inbox=inbox,
-        ))
+        )

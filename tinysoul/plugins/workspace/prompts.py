@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Protocol
 
 from tinysoul.kernel.context import (
     PromptBlock,
@@ -11,30 +9,22 @@ from tinysoul.kernel.context import (
     PromptReferenceResolver,
     TaskPrompt,
 )
-from tinysoul.llm.messages import ImagePart, TextPart, UserMessage
-from tinysoul.runtime import RuntimeException
+from tinysoul.llm.protocol.messages import ImagePart, TextPart, UserMessage
 
-from .engine import (
+from .inspection.models import (
     WorkspaceAnalysisInput,
-    WorkspaceEditReadSet,
-    WorkspaceEditSources,
     WorkspacePromptInput,
-    WorkspacePromptSource,
     WorkspaceTextSlice,
 )
 from .services import WorkspaceService
+from .runtime_bridge import RuntimeWorkspaceBridge
 from .errors import (
     WorkspaceError,
     WorkspaceImageValidationError,
-    WorkspaceTrashRestoreRequired,
+    WorkspaceContractError,
 )
 from .links import WORKSPACE_LINK_PREFIX
-from .manifest import WorkspaceResourceKind
-
-
-class WorkspaceTrashRuntimeBridge(Protocol):
-    def trash_restore_required(self, *, link: str, trash_ref: str) -> RuntimeException:
-        ...
+from .storage.manifest import WorkspaceResourceKind
 
 
 class WorkspaceAnalysisPromptBuilder:
@@ -55,7 +45,6 @@ class WorkspaceAnalysisPromptBuilder:
                         "# Workspace Analysis Reference",
                         f"source_id: {reference.source_id}",
                         f"link: {reference.link}",
-                        f"digest: {reference.digest}",
                         f"size: {reference.size} bytes",
                         f"range: lines:1-{reference.end_line}",
                         "complete: true",
@@ -110,7 +99,7 @@ class WorkspacePromptReferenceResolver(PromptReferenceResolver):
         self,
         workspace: WorkspaceService,
         *,
-        runtime_bridge: WorkspaceTrashRuntimeBridge | None = None,
+        runtime_bridge: RuntimeWorkspaceBridge | None = None,
     ) -> None:
         self._workspace = workspace
         self._runtime_bridge = runtime_bridge
@@ -160,7 +149,6 @@ class WorkspacePromptReferenceResolver(PromptReferenceResolver):
                         f"link: {image.link}",
                         f"media_type: {image.media_type}",
                         f"size: {image.size} bytes",
-                        f"digest: {image.digest}",
                     )
                 )
                 return (
@@ -200,289 +188,16 @@ class WorkspacePromptReferenceResolver(PromptReferenceResolver):
                 reason="invalid_image_resource",
                 payload={"error_type": type(exc).__name__, "link": link},
             ) from exc
-        except WorkspaceTrashRestoreRequired as exc:
-            if self._runtime_bridge is None:
-                raise
-            raise self._runtime_bridge.trash_restore_required(
-                link=exc.link,
-                trash_ref=exc.trash_ref,
-            ) from exc
-        except WorkspaceError as exc:
+        except WorkspaceContractError as exc:
             raise PromptReferenceError(
-                f"Workspace prompt reference failed: {exc}",
+                "Workspace prompt reference is unavailable or invalid.",
                 reason="workspace_reference_failed",
                 payload={"error_type": type(exc).__name__, "link": link},
             ) from exc
-
-
-@dataclass(frozen=True)
-class WorkspaceEditPrompt:
-    """One workspace edit task prompt and every source version it used."""
-
-    prompt: TaskPrompt
-    read_set: WorkspaceEditReadSet
-
-    @property
-    def target_digest(self) -> str:
-        return self.read_set.target.digest
-
-
-class WorkspaceEditPromptBuilder:
-    """Build create and rewrite prompts from workspace resource links."""
-
-    def __init__(
-        self,
-        workspace: WorkspaceService,
-        *,
-        runtime_bridge: WorkspaceTrashRuntimeBridge | None = None,
-    ) -> None:
-        self._workspace = workspace
-        self._runtime_bridge = runtime_bridge
-
-    async def build_describe(
-        self,
-        *,
-        target_link: str,
-        instruction: str,
-    ) -> WorkspaceEditPrompt:
-        sources = await self._prepare_sources(target_link, (), require_target=True)
-        if sources.target is None:
-            raise WorkspaceError("Workspace describe target is absent")
-        target_blocks = _prompt_blocks_from_source(
-            sources.target,
-            role="reference",
-        )
-        guidance = (
-            "Describe the resource's purpose and important contents concisely. "
-            "Do not repeat file size, MIME type, digest, or link metadata."
-        )
-        if instruction:
-            guidance += " Additional instruction: " + instruction
-        return WorkspaceEditPrompt(
-            prompt=TaskPrompt(
-                guide_blocks=(
-                    PromptBlock.from_text(
-                        "task_prompt:guide:workspace_describe",
-                        "# Task Guide\n" + guidance,
-                    ),
-                ),
-                input_blocks=target_blocks,
-                output_blocks=(
-                    PromptBlock.from_text(
-                        "task_prompt:output:workspace_describe",
-                        (
-                            "# Expected Output\nReturn a JSON object with a concise "
-                            "string field 'description'."
-                        ),
-                    ),
-                ),
-            ),
-            read_set=sources.read_set,
-        )
-
-    async def build_create(
-        self,
-        *,
-        target_link: str,
-        instruction: str,
-        reference_links: tuple[str, ...],
-    ) -> WorkspaceEditPrompt:
-        sources = await self._prepare_sources(
-            target_link,
-            reference_links,
-            require_target=False,
-        )
-        target_blocks = (
-            _prompt_blocks_from_source(sources.target, role="target")
-            if sources.target is not None
-            else ()
-        )
-        write_limit = self._workspace.max_write_chars
-        return WorkspaceEditPrompt(
-            prompt=TaskPrompt(
-                guide_blocks=(
-                    PromptBlock.from_text(
-                        "task_prompt:guide:workspace_create",
-                        (
-                            "# Task Guide\n"
-                            "Generate the complete UTF-8 text for the new workspace target. "
-                            "Return only the full text that should be written. "
-                            f"The artifact must be no longer than {write_limit} "
-                            "characters. If the requested result is larger, choose a "
-                            "natural bounded fragment for this create action and let "
-                            "the outer agent continue with workspace.append or "
-                            "workspace.patch as appropriate. Do not assume that every "
-                            "action must produce one fixed-size chapter. "
-                            "Use exact Workspace reference links for every existing "
-                            "source that informed the artifact; summaries alone are "
-                            "not source content."
-                        ),
-                    ),
-                ),
-                input_blocks=(
-                    PromptBlock.from_text(
-                        "task_prompt:input:workspace_create_instruction",
-                        "# Create Instruction\n" + instruction,
-                    ),
-                    PromptBlock.from_text(
-                        "task_prompt:input:workspace_create_target",
-                        (
-                            "# Workspace Create Target\n"
-                            f"link: {target_link}\n"
-                            "mode: create"
-                        ),
-                    ),
-                    *target_blocks,
-                    *(
-                        block
-                        for source in sources.references
-                        for block in _prompt_blocks_from_source(
-                            source,
-                            role="reference",
-                        )
-                    ),
-                ),
-                output_blocks=(
-                    PromptBlock.from_text(
-                        "task_prompt:output:workspace_create",
-                        "# Expected Output\nReturn only the complete UTF-8 text artifact "
-                        f"(at most {write_limit} characters), without commentary or "
-                        "code fences.",
-                    ),
-                ),
-            ),
-            read_set=sources.read_set,
-        )
-
-    async def build_rewrite(
-        self,
-        *,
-        target_link: str,
-        instruction: str,
-        reference_links: tuple[str, ...],
-    ) -> WorkspaceEditPrompt:
-        sources = await self._prepare_sources(
-            target_link,
-            reference_links,
-            require_target=True,
-        )
-        if sources.target is None:
-            raise WorkspaceError("Workspace rewrite target is absent")
-        target_slice = sources.target.text_slice
-        if target_slice is not None and target_slice.truncated:
-            raise PromptReferenceError(
-                "Workspace rewrite target is truncated; read the needed ranges "
-                "and use workspace.patch for a bounded edit.",
-                reason="target_truncated",
-                payload={
-                    "link": sources.target.version.link,
-                    "size": sources.target.version.size,
-                    "read_limit": self._workspace.max_read_chars,
-                    "hint": (
-                        "Use workspace.read/search_text to obtain exact ranges, "
-                        "then apply digest-guarded workspace.patch calls."
-                    ),
-                },
-            )
-        write_limit = self._workspace.max_write_chars
-        target_blocks = _prompt_blocks_from_source(sources.target, role="target")
-        return WorkspaceEditPrompt(
-            prompt=TaskPrompt(
-                guide_blocks=(
-                    PromptBlock.from_text(
-                        "task_prompt:guide:workspace_rewrite",
-                        (
-                            "# Task Guide\n"
-                            "Rewrite the workspace target according to the instruction. "
-                            "Return the complete replacement text for the target resource. "
-                            f"The replacement must be no longer than {write_limit} "
-                            "characters; use workspace.patch for a larger document "
-                            "or a precise local change. Include exact reference links "
-                            "for every Workspace source used."
-                        ),
-                    ),
-                ),
-                input_blocks=(
-                    PromptBlock.from_text(
-                        "task_prompt:input:workspace_rewrite_instruction",
-                        "# Rewrite Instruction\n" + instruction,
-                    ),
-                    *target_blocks,
-                    *(
-                        block
-                        for source in sources.references
-                        for block in _prompt_blocks_from_source(
-                            source,
-                            role="reference",
-                        )
-                    ),
-                ),
-                output_blocks=(
-                    PromptBlock.from_text(
-                        "task_prompt:output:workspace_rewrite",
-                        "# Expected Output\nReturn only the complete UTF-8 text artifact "
-                        f"(at most {write_limit} characters), without commentary or "
-                        "code fences.",
-                    ),
-                ),
-            ),
-            read_set=sources.read_set,
-        )
-
-    async def _prepare_sources(
-        self,
-        target_link: str,
-        reference_links: tuple[str, ...],
-        *,
-        require_target: bool,
-    ) -> WorkspaceEditSources:
-        try:
-            return await self._workspace.prepare_edit_sources(
-                target_link,
-                reference_links,
-                require_target=require_target,
-            )
-        except WorkspaceTrashRestoreRequired as exc:
-            if self._runtime_bridge is None:
-                raise
-            raise self._runtime_bridge.trash_restore_required(
-                link=exc.link,
-                trash_ref=exc.trash_ref,
-            ) from exc
-
-
-def _prompt_blocks_from_source(
-    source: WorkspacePromptSource,
-    *,
-    role: str,
-) -> tuple[PromptBlock, ...]:
-    if source.text_slice is not None:
-        return (_block_from_slice(source.text_slice, role=role),)
-    image = source.image
-    if image is None:
-        raise WorkspaceError("Workspace prompt source has no renderable body")
-    label_role = "target" if role == "target" else "reference"
-    heading = "# Workspace Target" if label_role == "target" else "# Workspace Reference"
-    label = f"task_prompt:input:workspace:{label_role}:{image.link}:image"
-    metadata = "\n".join(
-        (
-            heading,
-            f"link: {image.link}",
-            f"media_type: {image.media_type}",
-            f"size: {image.size} bytes",
-            f"digest: {image.digest}",
-        )
-    )
-    return (
-        PromptBlock(
-            label=label,
-            message=UserMessage.from_parts(
-                TextPart(metadata),
-                ImagePart(data=image.data, mime_type=image.media_type),
-                label=label,
-            ),
-        ),
-    )
+        except WorkspaceError as exc:
+            raise (
+                self._runtime_bridge or RuntimeWorkspaceBridge()
+            ).from_workspace_error(exc) from exc
 
 
 def prompt_blocks_from_workspace_input(
@@ -493,8 +208,7 @@ def prompt_blocks_from_workspace_input(
     """Convert prepared workspace prompt input into prompt blocks."""
 
     return tuple(
-        _block_from_slice(text_slice, role=role)
-        for text_slice in prompt_input.slices
+        _block_from_slice(text_slice, role=role) for text_slice in prompt_input.slices
     )
 
 
@@ -514,7 +228,6 @@ def _render_slice(text_slice: WorkspaceTextSlice, *, role: str) -> str:
         f"link: {text_slice.link}",
         f"range: {text_slice.range_label}",
         f"size: {text_slice.size} bytes",
-        f"digest: {text_slice.digest}",
         f"truncated: {truncated}",
         "",
         text_slice.text,

@@ -1,0 +1,25 @@
+[execution]
+enabled = true
+max_runtime_seconds = 1800
+max_output_bytes = 2097152
+max_collect_chars = 4000
+max_source_chars = 100000
+max_command_chars = 20000
+max_args = 64
+max_arg_chars = 4000
+
+[execution.interpreters.python]
+enabled = true
+executable = "python"
+
+[execution.interpreters.bash]
+enabled = false
+executable = "bash"
+
+[execution.interpreters.powershell]
+enabled = true
+executable = "powershell"
+
+[execution.interpreters.cmd]
+enabled = true
+executable = "cmd"

@@ -10,14 +10,6 @@ from .llm_action import (
     LLMActionTaskRunner,
     parse_llm_action_options,
 )
-from .process import (
-    ManagedProcess,
-    ManagedProcessOptions,
-    ManagedProcessRequest,
-    ManagedProcessRunner,
-    ManagedProcessStartError,
-    ProcessTextSlice,
-)
 from .subprocess import (
     ControlledProcessRunner,
     ProcessOutcome,
@@ -34,12 +26,6 @@ __all__ = [
     "LLMActionBackendOptionsValidator",
     "LLMActionTaskRunner",
     "parse_llm_action_options",
-    "ManagedProcess",
-    "ManagedProcessOptions",
-    "ManagedProcessRequest",
-    "ManagedProcessRunner",
-    "ManagedProcessStartError",
-    "ProcessTextSlice",
     "ControlledProcessRunner",
     "ProcessOutcome",
     "ProcessRequest",

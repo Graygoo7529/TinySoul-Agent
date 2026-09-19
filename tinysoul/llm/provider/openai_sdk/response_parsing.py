@@ -6,8 +6,8 @@ from collections.abc import Mapping
 import json
 
 from tinysoul.infra.json import JsonObject, to_json_object
-from tinysoul.llm.tools import ToolCallIdMapper, ToolCallRecord
-from tinysoul.llm.responses import ResponseStopReason
+from tinysoul.llm.protocol.tools import ToolCallIdMapper, ToolCallRecord
+from tinysoul.llm.protocol.responses import ResponseStopReason
 
 from ..base import ProviderError, ProviderErrorKind
 from .common import get_attr, model_dump_mapping
@@ -141,7 +141,9 @@ def append_text_parts(texts: list[str], value: object) -> None:
 def first_choice_message(response: object) -> object:
     choices = get_attr(response, "choices")
     if not isinstance(choices, list) or not choices:
-        raise ProviderError("Provider response has no choices", kind=ProviderErrorKind.PARSE)
+        raise ProviderError(
+            "Provider response has no choices", kind=ProviderErrorKind.PARSE
+        )
     return get_attr(choices[0], "message")
 
 

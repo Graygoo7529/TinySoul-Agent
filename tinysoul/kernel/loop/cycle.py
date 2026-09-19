@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
-from tinysoul.kernel.action.core.executor import ActionExecutionCancelled
+from tinysoul.kernel.action.execution.executor import ActionExecutionCancelled
 from tinysoul.kernel.context import ContextEngine
 from tinysoul.kernel.context.errors import ContextError
 from tinysoul.infra.json import JsonObject
@@ -33,7 +33,7 @@ from tinysoul.runtime import (
 from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
 from tinysoul.kernel.loop.runtime_bridge import RuntimeLoopBridge
 
-from .cancellation import TurnCancellation
+from .interaction.cancellation import TurnCancellation
 from .context_signals import ContextSignalConsumer
 from .errors import LoopContractError, LoopInvariantError
 from .outcomes import TurnFailure, failure_from_runtime
@@ -47,8 +47,8 @@ from .phases import (
     PhaseFailure,
 )
 from .signals import LoopControlKind, consume_control_signal_requests
-from .inbox import QuestionRequest
-from .completion import WaitRequest
+from .interaction.inbox import QuestionRequest
+from .lifecycle.completion import WaitRequest
 
 T = TypeVar("T")
 
@@ -126,7 +126,7 @@ class CycleRunner:
             )
         cycle_id = f"cycle_{cycle_index}"
         cycle_scope = scope.push(RunLevel.CYCLE, cycle_id)
-        boundary = (await self._boundary(cycle_scope))
+        boundary = await self._boundary(cycle_scope)
         if boundary is not None:
             return CycleOutcome(
                 cycle_id=cycle_id,
@@ -137,7 +137,7 @@ class CycleRunner:
 
         phase1_scope = cycle_scope.push(RunLevel.PHASE, CyclePhase.PHASE1.value)
         self._emit_phase(phase1_scope, CyclePhase.PHASE1, started=True)
-        phase1 = (await self._run_phase(
+        phase1 = await self._run_phase(
             phase1_scope,
             lambda: self._phase1.run(
                 scope=phase1_scope,
@@ -145,10 +145,10 @@ class CycleRunner:
                 cancellation=cancellation,
                 initial_feedback=phase_feedback,
             ),
-        ))
+        )
         self._emit_phase_result(phase1_scope, CyclePhase.PHASE1, phase1)
         if phase1.cancelled:
-            return (await self._cancelled_outcome(cycle_id, phase1_scope, cancellation))
+            return await self._cancelled_outcome(cycle_id, phase1_scope, cancellation)
         if phase1.transfer is not None:
             return CycleOutcome(
                 cycle_id=cycle_id,
@@ -168,7 +168,7 @@ class CycleRunner:
                 phase_failure=phase1_outcome.failure,
             )
 
-        boundary = (await self._boundary(phase1_scope))
+        boundary = await self._boundary(phase1_scope)
         if boundary is not None:
             return CycleOutcome(
                 cycle_id=cycle_id,
@@ -179,7 +179,7 @@ class CycleRunner:
 
         phase2_scope = cycle_scope.push(RunLevel.PHASE, CyclePhase.PHASE2.value)
         self._emit_phase(phase2_scope, CyclePhase.PHASE2, started=True)
-        phase2 = (await self._run_phase(
+        phase2 = await self._run_phase(
             phase2_scope,
             lambda: self._phase2.run(
                 selected_domains=phase1_outcome.selected_domains,
@@ -188,10 +188,10 @@ class CycleRunner:
                 turn_id=turn_id,
                 cancellation=cancellation,
             ),
-        ))
+        )
         self._emit_phase_result(phase2_scope, CyclePhase.PHASE2, phase2)
         if phase2.cancelled:
-            return (await self._cancelled_outcome(cycle_id, phase2_scope, cancellation))
+            return await self._cancelled_outcome(cycle_id, phase2_scope, cancellation)
         if phase2.transfer is not None:
             return CycleOutcome(
                 cycle_id=cycle_id,
@@ -211,7 +211,7 @@ class CycleRunner:
                 phase_failure=phase2_outcome.failure,
             )
 
-        boundary = (await self._boundary(phase2_scope))
+        boundary = await self._boundary(phase2_scope)
         if boundary is not None:
             return CycleOutcome(
                 cycle_id=cycle_id,
@@ -222,7 +222,7 @@ class CycleRunner:
 
         phase3_scope = cycle_scope.push(RunLevel.PHASE, CyclePhase.PHASE3.value)
         self._emit_phase(phase3_scope, CyclePhase.PHASE3, started=True)
-        phase3 = (await self._run_phase(
+        phase3 = await self._run_phase(
             phase3_scope,
             lambda: self._phase3.run(
                 normalization=phase2_outcome.normalization,
@@ -231,10 +231,10 @@ class CycleRunner:
                 turn_id=turn_id,
                 cancellation=cancellation,
             ),
-        ))
+        )
         self._emit_phase_result(phase3_scope, CyclePhase.PHASE3, phase3)
         if phase3.cancelled:
-            return (await self._cancelled_outcome(cycle_id, phase3_scope, cancellation))
+            return await self._cancelled_outcome(cycle_id, phase3_scope, cancellation)
         if phase3.transfer is not None:
             return CycleOutcome(
                 cycle_id=cycle_id,
@@ -249,7 +249,7 @@ class CycleRunner:
                 LoopInvariantError("Phase3 returned an invalid outcome")
             )
 
-        boundary = (await self._boundary(phase3_scope))
+        boundary = await self._boundary(phase3_scope)
         if boundary is not None:
             return CycleOutcome(
                 cycle_id=cycle_id,
@@ -369,7 +369,7 @@ class CycleRunner:
     ) -> CycleOutcome:
         """Converge an in-flight cancel through the boundary control signals."""
 
-        boundary = (await self._boundary(scope))
+        boundary = await self._boundary(scope)
         if boundary is None:
             # Defensive: the token fired but no control signal is pending
             # (it may have been consumed by an earlier boundary). Fall back
@@ -418,7 +418,9 @@ class CycleRunner:
         except LoopContractError as exc:
             return self._capture(self._loop_bridge.from_loop_error(exc), scope)
         if requests:
-            if any(request.kind is LoopControlKind.EXIT_PROGRAM for request in requests):
+            if any(
+                request.kind is LoopControlKind.EXIT_PROGRAM for request in requests
+            ):
                 return self._capture(
                     RuntimeException(
                         reason=RUNTIME_AGENT_END,
@@ -475,8 +477,6 @@ class CycleRunner:
     def _from_interrupt(interrupt: RuntimeTransferInterrupt) -> _CycleBoundary:
         cause = interrupt.__cause__
         failure = (
-            failure_from_runtime(cause)
-            if isinstance(cause, RuntimeException)
-            else None
+            failure_from_runtime(cause) if isinstance(cause, RuntimeException) else None
         )
         return _CycleBoundary(transfer=interrupt.transfer, failure=failure)

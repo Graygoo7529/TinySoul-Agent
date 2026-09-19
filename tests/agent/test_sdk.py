@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from collections import deque
@@ -8,18 +9,36 @@ from pathlib import Path
 
 import pytest
 
-from tinysoul.agent import Agent, AgentClosedError, AgentQueueFullError, AgentState, TurnState, UserTurnRequest
-from tinysoul.agent import InboxLimits, InboxCapacityError, ObservationFilter, ObservationRecord
+from tinysoul.agent import (
+    Agent,
+    AgentClosedError,
+    AgentQueueFullError,
+    AgentState,
+    TurnState,
+    UserTurnRequest,
+)
+from tinysoul.agent import (
+    InboxLimits,
+    InboxCapacityError,
+    ObservationFilter,
+    ObservationRecord,
+)
 from tinysoul.agent.config import AgentSettings
-from tinysoul.agent.assembly import AgentAssembly
-from tinysoul.agent.builder import AgentBuilder
+from tinysoul.agent.composition.assembly import AgentAssembly
+from tinysoul.agent.composition.builder import AgentBuilder
 from tinysoul.infra.config import ConfigEnvironment, ConfigMutation, ConfigError
 from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.home import AgentHomeEngineBuilder, AgentHomeSettings
-from tinysoul.plugins.reflection import (ReflectionRequest, ReflectionScope, ReflectionTrigger, ReflectionOutcome, ReflectionStatus)
-from tinysoul.llm.requests import TaskCall
-from tinysoul.llm.responses import JsonAnswer, RawResponse, TaskResult
-from tinysoul.llm.tools import ToolCallRecord, ToolKind
+from tinysoul.plugins.reflection import (
+    ReflectionRequest,
+    ReflectionScope,
+    ReflectionTrigger,
+    ReflectionOutcome,
+    ReflectionStatus,
+)
+from tinysoul.llm.protocol.requests import TaskCall
+from tinysoul.llm.protocol.responses import JsonAnswer, RawResponse, TaskResult
+from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind
 from tinysoul.kernel.loop.turn import TurnOutcome
 from tinysoul.kernel.loop.outcomes import TurnOutcomeStatus
 from tinysoul.agent import RequestFailure
@@ -28,11 +47,16 @@ from tinysoul.kernel.registration import RegistrationError
 from tinysoul.plugins.home.services import HomeReviewService
 from tinysoul.plugins.memory.services import MemoryKnowledgeService
 from tinysoul.plugins.memory import MemoryEngine
-from tinysoul.kernel.loop.inbox import InboxClosedError, WaitReason
+from tinysoul.kernel.loop.interaction.inbox import InboxClosedError, WaitReason
 from tinysoul.runtime.events import EnvironmentEvent, EventKind
 from tests.support.project import copy_initialized_project
 from tinysoul.infra.time import CalendarDay
 from tinysoul.infra.json import JsonObject
+from tinysoul.infra.process import (
+    ManagedProcess,
+    ManagedProcessRequest,
+    ManagedProcessRunner,
+)
 from tinysoul.infra.clock import BusinessClock
 from tinysoul.plugins.memory import MemoryLink
 
@@ -43,15 +67,38 @@ class _LLM:
         self.release = asyncio.Event()
         self.calls: list[TaskCall] = []
         calls = (
-            ToolCallRecord("select", "select_action_domains", {"domains": ["core"]}, ToolKind.CONTROL),
-            ToolCallRecord("answer", "core.answer", {"guide_blocks": [{"text": "answer"}]}, ToolKind.ACTION),
+            ToolCallRecord(
+                "select",
+                "select_action_domains",
+                {"domains": ["core"]},
+                ToolKind.CONTROL,
+            ),
+            ToolCallRecord(
+                "answer",
+                "core.answer",
+                {"guide_blocks": [{"text": "answer"}]},
+                ToolKind.ACTION,
+            ),
         )
-        self.results = deque([
-            *(TaskResult.success(raw_response=RawResponse("", "fake", "fake", tool_calls=(call,)),
-                                 answer=None, tool_calls=(call,)) for call in calls),
-            TaskResult.success(raw_response=RawResponse("{}", "fake", "fake"),
-                               answer=JsonAnswer({"text": "done"}), tool_calls=()),
-        ])
+        self.results = deque(
+            [
+                *(
+                    TaskResult.success(
+                        raw_response=RawResponse(
+                            "", "fake", "fake", tool_calls=(call,)
+                        ),
+                        answer=None,
+                        tool_calls=(call,),
+                    )
+                    for call in calls
+                ),
+                TaskResult.success(
+                    raw_response=RawResponse("{}", "fake", "fake"),
+                    answer=JsonAnswer({"text": "done"}),
+                    tool_calls=(),
+                ),
+            ]
+        )
 
     async def run(self, call: TaskCall) -> TaskResult:
         self.calls.append(call)
@@ -70,24 +117,36 @@ class _Clock:
         return CalendarDay(self.value.date())
 
 
-async def _create(root: Path, llm: _LLM, *, capacity: int = 1,
-                  inbox_limits: InboxLimits = InboxLimits(), clock: BusinessClock | None = None) -> Agent:
+async def _create(
+    root: Path,
+    llm: _LLM,
+    *,
+    capacity: int = 1,
+    inbox_limits: InboxLimits = InboxLimits(),
+    clock: BusinessClock | None = None,
+) -> Agent:
     root = root / "project"
     copy_initialized_project(root)
 
     async def factory() -> AgentAssembly:
-        builder = (AgentBuilder(root)
-                   .with_config_environment(ConfigEnvironment.from_project_root(root, env={}))
-                   .with_agent_settings(AgentSettings(interactive=False))
-                   .with_llm_runner(llm))
+        builder = (
+            AgentBuilder(root)
+            .with_config_environment(ConfigEnvironment.from_project_root(root, env={}))
+            .with_agent_settings(AgentSettings(interactive=False))
+            .with_llm_runner(llm)
+        )
         if clock is not None:
             builder.with_business_clock(clock)
         return await builder.build()
 
-    return await Agent.assemble(factory, queue_capacity=capacity, inbox_limits=inbox_limits)
+    return await Agent.assemble(
+        factory, queue_capacity=capacity, inbox_limits=inbox_limits
+    )
 
 
-async def test_create_is_inactive_and_waiter_cancellation_preserves_real_turn(tmp_path: Path) -> None:
+async def test_create_is_inactive_and_waiter_cancellation_preserves_real_turn(
+    tmp_path: Path,
+) -> None:
     llm = _LLM()
     agent = await _create(tmp_path, llm, inbox_limits=InboxLimits(capacity=1))
     assert agent.state is AgentState.CREATED and not llm.started.is_set()
@@ -116,13 +175,20 @@ async def test_create_is_inactive_and_waiter_cancellation_preserves_real_turn(tm
         observed = await asyncio.wait_for(anext(output), 1)
         assert isinstance(observed, ObservationRecord)
         assert observed.event.payload["text"] == "done"
-        assert [item.text for item in result.outcome.context_completion.inputs] == ["hello", "queued input"]
-        assert tuple((tmp_path / "project" / "runtime" / "session").rglob("turns/*.json"))
+        assert [item.text for item in result.outcome.context_completion.inputs] == [
+            "hello",
+            "queued input",
+        ]
+        assert tuple(
+            (tmp_path / "project" / "runtime" / "session").rglob("turns/*.json")
+        )
     finally:
         assert await agent.shutdown() == ()
 
 
-async def test_shutdown_joins_inflight_start_and_rejects_cached_commands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_shutdown_joins_inflight_start_and_rejects_cached_commands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     agent = await _create(tmp_path, _LLM())
     entered = asyncio.Event()
     cleaned = asyncio.Event()
@@ -138,7 +204,9 @@ async def test_shutdown_joins_inflight_start_and_rejects_cached_commands(tmp_pat
     monkeypatch.setattr(AgentAssembly, "activate", activate)
     starting = asyncio.create_task(agent.start())
     await asyncio.wait_for(entered.wait(), 3)
-    first, second = await asyncio.wait_for(asyncio.gather(agent.shutdown(), agent.shutdown()), 5)
+    first, second = await asyncio.wait_for(
+        asyncio.gather(agent.shutdown(), agent.shutdown()), 5
+    )
     assert first == second == ()
     with pytest.raises(asyncio.CancelledError):
         await starting
@@ -146,7 +214,9 @@ async def test_shutdown_joins_inflight_start_and_rejects_cached_commands(tmp_pat
     assert await agent.shutdown() == ()
 
 
-async def test_restart_stopped_agent_and_old_commands_do_not_reopen(tmp_path: Path) -> None:
+async def test_restart_stopped_agent_and_old_commands_do_not_reopen(
+    tmp_path: Path,
+) -> None:
     agent = await _create(tmp_path, _LLM())
     await agent.start()
     commands = agent.commands
@@ -160,7 +230,9 @@ async def test_restart_stopped_agent_and_old_commands_do_not_reopen(tmp_path: Pa
         await agent.shutdown()
 
 
-async def test_cancel_active_turn_keeps_dispatcher_and_queued_work_alive(tmp_path: Path) -> None:
+async def test_cancel_active_turn_keeps_dispatcher_and_queued_work_alive(
+    tmp_path: Path,
+) -> None:
     llm = _LLM()
     agent = await _create(tmp_path, llm)
     await agent.start()
@@ -171,7 +243,9 @@ async def test_cancel_active_turn_keeps_dispatcher_and_queued_work_alive(tmp_pat
         with pytest.raises(AgentQueueFullError):
             await agent.submit_turn(UserTurnRequest("three"))
         assert await agent.cancel_turn(active.turn_id)
-        assert (await asyncio.wait_for(active.wait(), 5)).status is TurnOutcomeStatus.CANCELLED
+        assert (
+            await asyncio.wait_for(active.wait(), 5)
+        ).status is TurnOutcomeStatus.CANCELLED
         assert active.state is TurnState.FINISHED
         assert agent.state is AgentState.RUNNING
         llm.release.set()
@@ -181,16 +255,24 @@ async def test_cancel_active_turn_keeps_dispatcher_and_queued_work_alive(tmp_pat
         await agent.shutdown()
 
 
-async def test_config_save_keeps_live_services_until_explicit_reload(tmp_path: Path) -> None:
+async def test_config_save_keeps_live_services_until_explicit_reload(
+    tmp_path: Path,
+) -> None:
     agent = await _create(tmp_path, _LLM())
     await agent.start()
     try:
         previous = agent.services.get(WorkspaceService)
         await previous.write_text("workspace:same.txt", "before reload")
-        saved = await agent.patch_config((ConfigMutation(
-            source_id="project:configs/action/routing.toml",
-            path="action.llm_action.timeout_seconds", op="set", value=30.0,
-        ),))
+        saved = await agent.patch_config(
+            (
+                ConfigMutation(
+                    source_id="project:configs/action/routing.toml",
+                    path="action.llm_action.timeout_seconds",
+                    op="set",
+                    value=30.0,
+                ),
+            )
+        )
         assert saved["state"] == "saved" and saved["pending_reload"] is True
         assert agent.services.get(WorkspaceService) is previous
         activated = await agent.reload_config()
@@ -207,7 +289,9 @@ async def test_config_save_keeps_live_services_until_explicit_reload(tmp_path: P
         await agent.shutdown()
 
 
-async def test_failed_reload_preserves_acquired_service(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_failed_reload_preserves_acquired_service(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     agent = await _create(tmp_path, _LLM())
     await agent.start()
     previous = agent.services.get(WorkspaceService)
@@ -227,7 +311,8 @@ async def test_failed_reload_preserves_acquired_service(tmp_path: Path, monkeypa
 
 
 async def test_root_arriving_during_failed_activation_waits_without_blocking_event_loop(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     llm = _LLM()
     llm.release.set()
@@ -250,14 +335,17 @@ async def test_root_arriving_during_failed_activation_waits_without_blocking_eve
         release.set()
         with pytest.raises(ConfigError):
             await asyncio.wait_for(reloading, 3)
-        assert (await asyncio.wait_for(handle.wait(), 5)).status is TurnOutcomeStatus.ANSWERED
+        assert (
+            await asyncio.wait_for(handle.wait(), 5)
+        ).status is TurnOutcomeStatus.ANSWERED
     finally:
         release.set()
         await agent.shutdown()
 
 
 async def test_sdk_local_write_is_joined_before_shutdown_releases_owner(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from threading import Event
     from tinysoul.plugins.workspace import WorkspaceEngine
@@ -289,14 +377,17 @@ async def test_sdk_local_write_is_joined_before_shutdown_releases_owner(
         with pytest.raises(asyncio.CancelledError):
             await asyncio.wait_for(writing, 4)
         await asyncio.wait_for(stopping, 4)
-        assert (tmp_path / "project" / "runtime" / "workspace" / "committed.txt").read_text(encoding="utf-8") == "persist"
+        assert (
+            tmp_path / "project" / "runtime" / "workspace" / "committed.txt"
+        ).read_text(encoding="utf-8") == "persist"
     finally:
         release.set()
         await agent.shutdown()
 
 
 async def test_shutdown_joins_reload_candidate_before_closing_generation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     agent = await _create(tmp_path, _LLM())
     await agent.start()
@@ -322,13 +413,17 @@ async def test_shutdown_joins_reload_candidate_before_closing_generation(
         assert (await asyncio.wait_for(reloading, 5))["state"] == "active"
         assert await asyncio.wait_for(stopping, 5) == ()
         assert agent.state is AgentState.STOPPED
-        assert not (tmp_path / "project" / "runtime" / "workspace" / "closed.txt").exists()
+        assert not (
+            tmp_path / "project" / "runtime" / "workspace" / "closed.txt"
+        ).exists()
     finally:
         release.set()
         await agent.shutdown()
 
 
-async def test_day_bound_service_rejects_stale_write_and_restart_closes_old_services(tmp_path: Path) -> None:
+async def test_day_bound_service_rejects_stale_write_and_restart_closes_old_services(
+    tmp_path: Path,
+) -> None:
     clock = _Clock()
     agent = await _create(tmp_path, _LLM(), clock=clock)
     await agent.start()
@@ -354,12 +449,16 @@ async def test_day_bound_service_rejects_stale_write_and_restart_closes_old_serv
             await current.snapshot()
         with pytest.raises(AgentClosedError):
             await home.default_background_links()
-        assert (await agent.services.get(WorkspaceService).read_text("workspace:same.txt")).text == "new day"
+        assert (
+            await agent.services.get(WorkspaceService).read_text("workspace:same.txt")
+        ).text == "new day"
     finally:
         await agent.shutdown()
 
 
-async def test_shutdown_settles_active_and_queued_handles_before_restart(tmp_path: Path) -> None:
+async def test_shutdown_settles_active_and_queued_handles_before_restart(
+    tmp_path: Path,
+) -> None:
     llm = _LLM()
     agent = await _create(tmp_path, llm)
     await agent.start()
@@ -378,61 +477,159 @@ async def test_shutdown_settles_active_and_queued_handles_before_restart(tmp_pat
         await agent.shutdown()
 
 
-async def test_memory_reflection_uses_current_workbench_and_dated_read_only_sources(tmp_path: Path) -> None:
+@pytest.mark.parametrize("source", ("current", "archive", "daily_only"))
+async def test_memory_reflection_revises_daily_from_fixed_target_sources(
+    tmp_path: Path, source: str
+) -> None:
+    from tinysoul.plugins.memory import DailyMemoryDocument, MemorySettings
+
     clock = _Clock()
     root = tmp_path / "project"
     copy_initialized_project(root)
+    target = CalendarDay.parse("2026-09-14" if source == "daily_only" else "2026-09-15")
+    if source == "daily_only":
+        seed = MemoryEngine(settings=MemorySettings(root=root / "memory"))
+        seed.write_document(
+            DailyMemoryDocument(
+                day=target.value,
+                created_on=target.value,
+                updated_on=target.value,
+                content="Morning notes.",
+            )
+        )
     llm = _LLM()
     llm.release.set()
-    builder = (AgentBuilder(root)
-               .with_config_environment(ConfigEnvironment.from_project_root(root, env={}))
-               .with_agent_settings(AgentSettings(interactive=False))
-               .with_business_clock(clock).with_llm_runner(llm))
+    builder = (
+        AgentBuilder(root)
+        .with_config_environment(ConfigEnvironment.from_project_root(root, env={}))
+        .with_agent_settings(AgentSettings(interactive=False))
+        .with_business_clock(clock)
+        .with_llm_runner(llm)
+    )
     agent = await Agent.assemble(builder.build)
     await agent.start()
     try:
         user = await agent.submit_turn(UserTurnRequest("Remember this discussion"))
         assert (await user.wait()).status is TurnOutcomeStatus.ANSWERED
-        clock.value = datetime(2026, 9, 16, 12, tzinfo=ZoneInfo("Asia/Shanghai"))
-        for call in (
-            ToolCallRecord("select_memory", "select_action_domains", {"domains": ["memory_reflection"]}, ToolKind.CONTROL),
-            ToolCallRecord("write_daily", "memory_reflection.write_daily", {"markdown": "A discussion was completed."}, ToolKind.ACTION),
+        if source == "archive":
+            clock.value = datetime(2026, 9, 16, 12, tzinfo=ZoneInfo("Asia/Shanghai"))
+        for index, trigger in enumerate(
+            (ReflectionTrigger.MANUAL, ReflectionTrigger.SCHEDULED)
         ):
-            llm.results.append(TaskResult.success(
-                raw_response=RawResponse("", "fake", "fake", tool_calls=(call,)),
-                answer=None, tool_calls=(call,),
-            ))
-        llm.results.extend(_LLM().results)
-        handle = await agent.submit_turn(ReflectionRequest(
-            scope=ReflectionScope.MEMORY, trigger=ReflectionTrigger.MANUAL,
-            target_day=CalendarDay.parse("2026-09-15"),
-        ))
-        result = await asyncio.wait_for(handle.wait(), 10)
-        assert isinstance(result.outcome, ReflectionOutcome)
-        turn = next(task.turn_outcome for task in result.outcome.tasks if task.turn_outcome is not None)
-        assert turn.status.value == "completed", turn.failure
-        assert str(turn.business_day) == "2026-09-16"
-        assert turn.context_completion is not None
-        assert turn.context_completion.turn_id == handle.turn_id
-        segments = turn.context_completion.segments
-        session, archived = segments["session"], segments["workspace_archive"]
-        assert isinstance(session, dict) and session["day"] == "2026-09-15"
-        assert isinstance(archived, dict) and archived["source_day"] == "2026-09-15"
-        assert (root / "memory" / MemoryLink.daily(CalendarDay.parse("2026-09-15").value).relative_path).is_file()
-        assert not tuple((root / "runtime" / "session").rglob("turns/*.json"))
+            content = (
+                "Morning and afternoon, reorganized."
+                if index == 0
+                else "Morning revised, afternoon and evening."
+            )
+            calls = [
+                ToolCallRecord(
+                    "select_memory",
+                    "select_action_domains",
+                    {"domains": ["memory"]},
+                    ToolKind.CONTROL,
+                )
+            ]
+            if index or source == "daily_only":
+                calls.extend(
+                    (
+                        ToolCallRecord(
+                            "recall_daily",
+                            "memory.recall",
+                            {"memory_link": str(MemoryLink.daily(target.value))},
+                            ToolKind.ACTION,
+                        ),
+                        ToolCallRecord(
+                            "select_write",
+                            "select_action_domains",
+                            {"domains": ["memory"]},
+                            ToolKind.CONTROL,
+                        ),
+                    )
+                )
+            calls.append(
+                ToolCallRecord(
+                    "write_daily",
+                    "memory.write_daily",
+                    {"markdown": content},
+                    ToolKind.ACTION,
+                )
+            )
+            for call in calls:
+                llm.results.append(
+                    TaskResult.success(
+                        raw_response=RawResponse(
+                            "", "fake", "fake", tool_calls=(call,)
+                        ),
+                        answer=None,
+                        tool_calls=(call,),
+                    )
+                )
+            llm.results.extend(_LLM().results)
+            handle = await agent.submit_turn(
+                ReflectionRequest(
+                    scope=ReflectionScope.MEMORY,
+                    trigger=trigger,
+                    target_day=target,
+                )
+            )
+            result = await asyncio.wait_for(handle.wait(), 10)
+            assert isinstance(result.outcome, ReflectionOutcome)
+            turn = next(
+                task.turn_outcome
+                for task in result.outcome.tasks
+                if task.turn_outcome is not None
+            )
+            assert turn.status is TurnOutcomeStatus.COMPLETED, turn.failure
+            assert turn.business_day == clock.today()
+            assert turn.context_completion is not None
+            segments = turn.context_completion.segments
+            session = segments["session"]
+            assert isinstance(session, dict) and session["day"] == str(target)
+            if source == "archive":
+                archived = segments["workspace_archive"]
+                assert isinstance(archived, dict) and archived["source_day"] == str(
+                    target
+                )
+            else:
+                archived = segments["workspace_archive"]
+                assert isinstance(archived, dict) and archived["source_day"] is None
+            persisted = (
+                root / "memory" / MemoryLink.daily(target.value).relative_path
+            ).read_text(encoding="utf-8")
+            assert content in persisted
+        records = tuple((root / "runtime" / "session").rglob("turns/*.json"))
+        assert len(records) == (0 if source == "archive" else 1)
     finally:
         await agent.shutdown()
 
 
-async def test_question_reply_resumes_same_turn_and_keeps_new_root_queued(tmp_path: Path) -> None:
+async def test_question_reply_resumes_same_turn_and_keeps_new_root_queued(
+    tmp_path: Path,
+) -> None:
     llm = _LLM()
-    for call in reversed((
-        ToolCallRecord("select_question", "select_action_domains", {"domains": ["core"]}, ToolKind.CONTROL),
-        ToolCallRecord("ask", "core.ask", {"text": "Choose a direction", "options": ["A", "B"]}, ToolKind.ACTION),
-    )):
-        llm.results.appendleft(TaskResult.success(
-            raw_response=RawResponse("", "fake", "fake", tool_calls=(call,)), answer=None, tool_calls=(call,),
-        ))
+    for call in reversed(
+        (
+            ToolCallRecord(
+                "select_question",
+                "select_action_domains",
+                {"domains": ["core"]},
+                ToolKind.CONTROL,
+            ),
+            ToolCallRecord(
+                "ask",
+                "core.ask",
+                {"text": "Choose a direction", "options": ["A", "B"]},
+                ToolKind.ACTION,
+            ),
+        )
+    ):
+        llm.results.appendleft(
+            TaskResult.success(
+                raw_response=RawResponse("", "fake", "fake", tool_calls=(call,)),
+                answer=None,
+                tool_calls=(call,),
+            )
+        )
     llm.release.set()
     clock = _Clock()
     agent = await _create(tmp_path, llm, clock=clock)
@@ -446,8 +643,16 @@ async def test_question_reply_resumes_same_turn_and_keeps_new_root_queued(tmp_pa
         assert question is not None and not active.done
         clock.value = datetime(2026, 9, 16, 12, tzinfo=ZoneInfo("Asia/Shanghai"))
         queued = await agent.submit_turn(UserTurnRequest("later"))
-        assert (await agent.publish(EnvironmentEvent(EventKind.EVENT, {"changed": True}, "e"))).delivered
-        assert not (await agent.publish(EnvironmentEvent(EventKind.EVENT, {}, "stale", "previous_turn"))).delivered
+        assert (
+            await agent.publish(
+                EnvironmentEvent(EventKind.EVENT, {"changed": True}, "e")
+            )
+        ).delivered
+        assert not (
+            await agent.publish(
+                EnvironmentEvent(EventKind.EVENT, {}, "stale", "previous_turn")
+            )
+        ).delivered
         with pytest.raises(InboxClosedError):
             await agent.reply(active.turn_id, "old_question", "no")
         assert len(llm.calls) == 2 and queued.state is TurnState.QUEUED
@@ -474,28 +679,171 @@ async def test_question_reply_resumes_same_turn_and_keeps_new_root_queued(tmp_pa
         await agent.shutdown()
 
 
-async def test_home_reflection_waits_and_retains_full_turn_without_user_session(tmp_path: Path) -> None:
+async def test_execution_is_stopped_before_queued_next_day_work_can_archive(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    processes: list[ManagedProcess] = []
+    start = ManagedProcessRunner.start
+
+    def capture(
+        self: ManagedProcessRunner,
+        request: ManagedProcessRequest,
+        *,
+        capture_root: Path | None = None,
+    ) -> ManagedProcess:
+        process = start(self, request, capture_root=capture_root)
+        processes.append(process)
+        return process
+
+    monkeypatch.setattr(ManagedProcessRunner, "start", capture)
     llm = _LLM()
-    for call in reversed((
-        ToolCallRecord("select_question", "select_action_domains", {"domains": ["core"]}, ToolKind.CONTROL),
-        ToolCallRecord("ask", "core.ask", {"text": "Keep this preference?"}, ToolKind.ACTION),
-    )):
-        llm.results.appendleft(TaskResult.success(
-            raw_response=RawResponse("", "fake", "fake", tool_calls=(call,)), answer=None, tool_calls=(call,),
-        ))
+    for call in reversed(
+        (
+            ToolCallRecord(
+                "select_execution",
+                "select_action_domains",
+                {"domains": ["execution"]},
+                ToolKind.CONTROL,
+            ),
+            ToolCallRecord(
+                "start",
+                "execution.start",
+                {
+                    "interpreter": "python",
+                    "source_link": "workspace:long.py",
+                    "interactive": True,
+                },
+                ToolKind.ACTION,
+            ),
+            ToolCallRecord(
+                "select_question",
+                "select_action_domains",
+                {"domains": ["core"]},
+                ToolKind.CONTROL,
+            ),
+            ToolCallRecord(
+                "ask", "core.ask", {"text": "Continue this job?"}, ToolKind.ACTION
+            ),
+        )
+    ):
+        llm.results.appendleft(
+            TaskResult.success(
+                raw_response=RawResponse("", "fake", "fake", tool_calls=(call,)),
+                answer=None,
+                tool_calls=(call,),
+            )
+        )
+    llm.release.set()
+    clock = _Clock()
+    agent = await _create(tmp_path, llm, clock=clock)
+    await agent.start()
+    try:
+        await agent.patch_config(
+            (
+                ConfigMutation(
+                    source_id="project:configs/execution.toml",
+                    path="execution.enabled",
+                    op="set",
+                    value=True,
+                ),
+                ConfigMutation(
+                    source_id="project:configs/execution.toml",
+                    path="execution.interpreters.python.executable",
+                    op="set",
+                    value=sys.executable,
+                ),
+            )
+        )
+        await agent.reload_config()
+        workspace = agent.services.get(WorkspaceService)
+        await workspace.write_text(
+            "workspace:long.py",
+            (
+                "from pathlib import Path\nimport sys\n"
+                "Path('old-day.txt').write_text('preserved', encoding='utf-8')\n"
+                "sys.stdin.read()\n"
+            ),
+        )
+        active = await agent.submit_turn(UserTurnRequest("run and wait"))
+        root = tmp_path / "project"
+        async with asyncio.timeout(8):
+            while active.wait_reason is not WaitReason.INPUT or not tuple(
+                (root / "runtime" / "workspace").rglob("old-day.txt")
+            ):
+                assert not active.done
+                await asyncio.sleep(0.01)
+        assert len(processes) == 1 and processes[0].running()
+        clock.value = datetime(2026, 9, 16, 1, tzinfo=ZoneInfo("Asia/Shanghai"))
+        queued = await agent.submit_turn(UserTurnRequest("next day"))
+        assert queued.state is TurnState.QUEUED
+        assert (await workspace.read_text("workspace:long.py")).text
+        await agent.cancel_turn(active.turn_id)
+        cancelled = await asyncio.wait_for(active.wait(), 8)
+        assert isinstance(cancelled.outcome, TurnOutcome)
+        assert cancelled.outcome.status is TurnOutcomeStatus.CANCELLED
+        next_result = await asyncio.wait_for(queued.wait(), 8)
+        assert (
+            isinstance(next_result.outcome, TurnOutcome)
+            and next_result.outcome.answered
+        )
+        assert next_result.outcome.business_day == CalendarDay.parse("2026-09-16")
+        assert not processes[0].running()
+        assert not tuple((root / "runtime" / "workspace").rglob("old-day.txt"))
+        artifacts = tuple((root / "archive").rglob("old-day.txt"))
+        assert (
+            len(artifacts) == 1
+            and artifacts[0].read_text(encoding="utf-8") == "preserved"
+        )
+        with pytest.raises(AgentServiceStaleError):
+            await workspace.snapshot()
+    finally:
+        await agent.shutdown()
+
+
+async def test_home_reflection_waits_and_retains_full_turn_without_user_session(
+    tmp_path: Path,
+) -> None:
+    llm = _LLM()
+    for call in reversed(
+        (
+            ToolCallRecord(
+                "select_question",
+                "select_action_domains",
+                {"domains": ["core"]},
+                ToolKind.CONTROL,
+            ),
+            ToolCallRecord(
+                "ask", "core.ask", {"text": "Keep this preference?"}, ToolKind.ACTION
+            ),
+        )
+    ):
+        llm.results.appendleft(
+            TaskResult.success(
+                raw_response=RawResponse("", "fake", "fake", tool_calls=(call,)),
+                answer=None,
+                tool_calls=(call,),
+            )
+        )
     llm.release.set()
     agent = await _create(tmp_path, llm)
     root = tmp_path / "project"
-    home = AgentHomeEngineBuilder(AgentHomeSettings(
-        original_root=root / "home", runtime_root=root / "runtime" / "home",
-    )).build()
+    home = AgentHomeEngineBuilder(
+        AgentHomeSettings(
+            original_root=root / "home",
+            runtime_root=root / "runtime" / "home",
+        )
+    ).build()
     home.write_top("home:agent@preference", "Use concise explanations.")
     await agent.start()
     try:
-        handle = await agent.submit_turn(ReflectionRequest(
-            scope=ReflectionScope.HOME, trigger=ReflectionTrigger.MANUAL,
-            instructions="Only review the requested communication preference.",
-        ))
+        handle = await agent.submit_turn(
+            ReflectionRequest(
+                scope=ReflectionScope.HOME,
+                trigger=ReflectionTrigger.MANUAL,
+                instructions="Only review the requested communication preference.",
+            )
+        )
         assert await agent.submit_turn(handle.request) is handle
         async with asyncio.timeout(4):
             while handle.wait_reason is not WaitReason.INPUT:
@@ -503,7 +851,10 @@ async def test_home_reflection_waits_and_retains_full_turn_without_user_session(
                 await asyncio.sleep(0.01)
         question = handle.question
         assert question is not None
-        assert any("Only review the requested communication preference." in str(call) for call in llm.calls)
+        assert any(
+            "Only review the requested communication preference." in str(call)
+            for call in llm.calls
+        )
         with pytest.raises(ConfigError) as busy:
             await agent.reload_config()
         assert busy.value.key == "config.activation_unavailable"
@@ -521,20 +872,38 @@ async def test_home_reflection_waits_and_retains_full_turn_without_user_session(
 
 
 @pytest.mark.parametrize("wait_kind", ["event", "timer", "question"])
-async def test_append_resumes_unified_wait_on_same_turn(tmp_path: Path, wait_kind: str) -> None:
+async def test_append_resumes_unified_wait_on_same_turn(
+    tmp_path: Path, wait_kind: str
+) -> None:
     llm = _LLM()
     action = "core.ask" if wait_kind == "question" else "core.wait"
-    params: JsonObject = ({"text": "Choose"} if wait_kind == "question" else
-              {"event_kind": "event", "event_id": "matching"} if wait_kind == "event" else
-              {"timeout_seconds": 60})
-    for call in reversed((
-        ToolCallRecord("select_wait", "select_action_domains", {"domains": ["core"]}, ToolKind.CONTROL),
-        ToolCallRecord("wait", action, params, ToolKind.ACTION),
-    )):
-        llm.results.appendleft(TaskResult.success(
-            raw_response=RawResponse("", "fake", "fake", tool_calls=(call,)),
-            answer=None, tool_calls=(call,),
-        ))
+    params: JsonObject = (
+        {"text": "Choose"}
+        if wait_kind == "question"
+        else (
+            {"event_kind": "event", "event_id": "matching"}
+            if wait_kind == "event"
+            else {"timeout_seconds": 60}
+        )
+    )
+    for call in reversed(
+        (
+            ToolCallRecord(
+                "select_wait",
+                "select_action_domains",
+                {"domains": ["core"]},
+                ToolKind.CONTROL,
+            ),
+            ToolCallRecord("wait", action, params, ToolKind.ACTION),
+        )
+    ):
+        llm.results.appendleft(
+            TaskResult.success(
+                raw_response=RawResponse("", "fake", "fake", tool_calls=(call,)),
+                answer=None,
+                tool_calls=(call,),
+            )
+        )
     llm.release.set()
     agent = await _create(tmp_path, llm)
     await agent.start()
@@ -550,7 +919,9 @@ async def test_append_resumes_unified_wait_on_same_turn(tmp_path: Path, wait_kin
         await asyncio.sleep(0)
         assert len(llm.calls) == 2 and queued.state is TurnState.QUEUED
         await agent.cancel_turn(queued.turn_id)
-        receipt = await agent.append_input(handle.turn_id, "Change direction", input_id="new")
+        receipt = await agent.append_input(
+            handle.turn_id, "Change direction", input_id="new"
+        )
         result = await asyncio.wait_for(handle.wait(), 5)
         assert isinstance(result.outcome, TurnOutcome) and result.outcome.answered
         completion = result.outcome.context_completion
@@ -565,7 +936,8 @@ async def test_append_resumes_unified_wait_on_same_turn(tmp_path: Path, wait_kin
 
 
 async def test_sdk_finalizing_rejects_late_cancel_and_preserves_session_result(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from threading import Event
     from tinysoul.plugins.session import SessionEngine
@@ -596,7 +968,14 @@ async def test_sdk_finalizing_rejects_late_cancel_and_preserves_session_result(
         await asyncio.wait_for(stopping, 5)
         result = await handle.wait()
         assert result.status is TurnOutcomeStatus.ANSWERED
-        assert len(tuple((tmp_path / "project" / "runtime" / "session").rglob("turns/*.json"))) == 1
+        assert (
+            len(
+                tuple(
+                    (tmp_path / "project" / "runtime" / "session").rglob("turns/*.json")
+                )
+            )
+            == 1
+        )
     finally:
         release.set()
         await agent.shutdown()

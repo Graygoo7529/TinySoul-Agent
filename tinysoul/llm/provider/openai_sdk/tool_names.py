@@ -6,11 +6,10 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from types import MappingProxyType
 
-from tinysoul.llm.messages import AssistantMessage, ToolResultMessage
-from tinysoul.llm.tools import ToolSpec
+from tinysoul.llm.protocol.messages import AssistantMessage, ToolResultMessage
+from tinysoul.llm.protocol.tools import ToolSpec
 
 from ..base import ProviderError, ProviderErrorKind, ProviderRequest
-
 
 _MAX_PROVIDER_TOOL_NAME_LENGTH = 64
 
@@ -49,8 +48,7 @@ class ProviderToolNameMap:
             used_provider_names.add(provider_name)
 
         tinysoul_by_provider = {
-            provider_name: name
-            for name, provider_name in provider_by_tinysoul.items()
+            provider_name: name for name, provider_name in provider_by_tinysoul.items()
         }
         return cls(
             _provider_by_tinysoul=MappingProxyType(provider_by_tinysoul),

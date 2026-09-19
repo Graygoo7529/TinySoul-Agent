@@ -8,6 +8,7 @@ import pytest
 from tinysoul.runtime import ObservationEvent, ObservationLevel
 from tinysoul.plugins.workspace import (
     WorkspaceBundleWrite,
+    WorkspaceTextEdit,
     WorkspaceContractError,
     WorkspaceEngineBuilder,
     WorkspaceSettings,
@@ -35,31 +36,29 @@ def test_workspace_engine_emits_committed_mutations_from_one_owner(
     ).build()
 
     written = engine.write_text("workspace:note.md", "old")
-    patched = engine.patch_text(
+    patched = engine.edit_text(
         written.link,
-        old_text="old",
-        new_text="new",
-        expected_digest=written.digest,
+        (WorkspaceTextEdit("old", "new"),),
     )
     engine.set_description(
         patched.link,
         "A note.",
-        expected_digest=patched.digest,
     )
-    item = engine.trash_resource("workspace:note.md", reason="test")
+    item = engine.trash_resource("workspace:note.md")
     engine.restore_resource(item.ref)
 
     assert [event.payload["operation"] for event in observations.events] == [
         "write",
-        "patch",
+        "edit",
         "describe",
         "trash",
         "restore",
     ]
     assert all(event.name == "workspace.changed" for event in observations.events)
     assert all(event.source == "workspace.engine" for event in observations.events)
-    assert all(event.payload["links"] == ["workspace:note.md"] for event in observations.events)
-    assert observations.events[-1].payload["revision"] == engine.load_manifest().revision
+    assert all(
+        event.payload["links"] == ["workspace:note.md"] for event in observations.events
+    )
 
 
 def test_workspace_bundle_emits_only_one_final_change(tmp_path: Path) -> None:
@@ -81,7 +80,6 @@ def test_workspace_bundle_emits_only_one_final_change(tmp_path: Path) -> None:
     assert event.payload["operation"] == "bundle"
     assert event.payload["created_links"] == ["workspace:a.md", "workspace:b.md"]
     assert event.payload["links"] == ["workspace:a.md", "workspace:b.md"]
-    assert event.payload["revision"] == result.manifest.revision
 
 
 def test_workspace_reconcile_emits_external_disk_change(tmp_path: Path) -> None:
@@ -97,9 +95,7 @@ def test_workspace_reconcile_emits_external_disk_change(tmp_path: Path) -> None:
     assert result.complete is True
     assert len(observations.events) == 1
     assert observations.events[0].payload["operation"] == "reconcile"
-    assert observations.events[0].payload["created_links"] == [
-        "workspace:external.md"
-    ]
+    assert observations.events[0].payload["created_links"] == ["workspace:external.md"]
 
 
 def test_workspace_failed_mutation_does_not_emit_change(tmp_path: Path) -> None:

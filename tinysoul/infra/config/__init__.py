@@ -1,18 +1,27 @@
 """Configuration loading facilities."""
 
-from .dotenv import DotenvDocument, DotenvSource, parse_dotenv
+from .sources.dotenv import DotenvDocument, DotenvSource, parse_dotenv
 from .environment import ConfigEnvironment
-from .catalog import ConfigCatalog, ConfigDocumentFieldDescriptor, load_config_catalog
+from tinysoul.infra.config.descriptors import (
+    ConfigCatalog,
+    ConfigDocumentFieldDescriptor,
+    load_config_catalog,
+)
 from .errors import ConfigCatalogError, ConfigError
-from .project import ProjectConfig
-from .source import ConfigSource, ConfigSourceKind
-from .toml_file import ConfigFileToml
-from .transaction import (
+from .sources.project import ProjectConfig
+from .sources.source import ConfigSource, ConfigSourceKind
+from .sources.toml_file import ConfigFileToml
+from .editing.transaction import (
     ConfigDocumentWrite,
     ConfigFileTransaction,
     ConfigTransactionReceipt,
 )
-from .controller import ConfigController, ConfigMutation, ConfigValue, PreparedConfigActivation
+from .editing.controller import (
+    ConfigController,
+    ConfigMutation,
+    ConfigValue,
+    PreparedConfigActivation,
+)
 from .documents import ConfigDocument, ConfigDocumentSet, ConfigDocumentSetSpec
 from .validation import reject_unknown_keys
 

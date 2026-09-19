@@ -11,8 +11,9 @@ from typing import TYPE_CHECKING, Protocol
 
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.config import ConfigController, ConfigMutation
+from tinysoul.infra.time import CalendarDay
 from tinysoul.infra.json import JsonObject
-from tinysoul.kernel.loop.inbox import InboxLimits, InboxReceipt
+from tinysoul.kernel.loop.interaction.inbox import InboxLimits, InboxReceipt
 from tinysoul.plugins.reflection.models import ReflectionRequest
 from tinysoul.runtime.events import EnvironmentEvent, EventReceipt
 
@@ -20,12 +21,12 @@ from .errors import AgentClosedError, AgentSDKError
 from .handles import TurnHandle
 from .requests import UserTurnRequest
 from .commands import AgentCommands
-from .observations import ObservationFilter, ObservationSubscription
+from .observation.observations import ObservationFilter, ObservationSubscription
 from tinysoul.kernel.registration import ServiceRegistry
 
 if TYPE_CHECKING:
-    from tinysoul.agent.scheduler import AgentRunResult
-    from tinysoul.agent.assembly import AgentAssembly
+    from tinysoul.agent.dispatch.scheduler import AgentRunResult
+    from tinysoul.agent.composition.assembly import AgentAssembly
 
 
 class AgentState(StrEnum):
@@ -51,8 +52,13 @@ class AgentSnapshot:
 class Agent:
     """Own one assembled generation and one root scheduling task."""
 
-    def __init__(self, assembly_factory: _AssemblyFactory, *, queue_capacity: int = 32,
-                 inbox_limits: InboxLimits = InboxLimits()) -> None:
+    def __init__(
+        self,
+        assembly_factory: _AssemblyFactory,
+        *,
+        queue_capacity: int = 32,
+        inbox_limits: InboxLimits = InboxLimits(),
+    ) -> None:
         if type(queue_capacity) is not int or queue_capacity <= 0:
             raise AgentSDKError("queue_capacity must be a positive integer")
         self._factory = assembly_factory
@@ -69,28 +75,44 @@ class Agent:
 
     @classmethod
     async def create(
-        cls, root: Path | str, *, overrides: Mapping[str, object] | None = None,
+        cls,
+        root: Path | str,
+        *,
+        overrides: Mapping[str, object] | None = None,
         queue_capacity: int = 32,
         inbox_limits: InboxLimits = InboxLimits(),
     ) -> Agent:
         """Build an embedded Agent from project configuration without listening."""
-        from tinysoul.agent.builder import AgentBuilder
+        from tinysoul.agent.composition.builder import AgentBuilder
         from tinysoul.infra.config import ConfigEnvironment
 
         project_root = Path(root).resolve()
-        config_overrides = {"app.interactive": False, **dict(overrides or {})}
+        config_overrides = {"agent.interactive": False, **dict(overrides or {})}
 
         async def factory() -> AgentAssembly:
-            config = ConfigEnvironment.from_project_root(project_root, overrides=config_overrides)
-            return await AgentBuilder(project_root).with_config_environment(config).build()
+            config = ConfigEnvironment.from_project_root(
+                project_root, overrides=config_overrides
+            )
+            return (
+                await AgentBuilder(project_root).with_config_environment(config).build()
+            )
 
-        return await cls.assemble(factory, queue_capacity=queue_capacity, inbox_limits=inbox_limits)
+        return await cls.assemble(
+            factory, queue_capacity=queue_capacity, inbox_limits=inbox_limits
+        )
 
     @classmethod
-    async def assemble(cls, assembly_factory: _AssemblyFactory, *, queue_capacity: int = 32,
-                       inbox_limits: InboxLimits = InboxLimits()) -> Agent:
+    async def assemble(
+        cls,
+        assembly_factory: _AssemblyFactory,
+        *,
+        queue_capacity: int = 32,
+        inbox_limits: InboxLimits = InboxLimits(),
+    ) -> Agent:
         """Assemble resources without starting sources or accepting work."""
-        agent = cls(assembly_factory, queue_capacity=queue_capacity, inbox_limits=inbox_limits)
+        agent = cls(
+            assembly_factory, queue_capacity=queue_capacity, inbox_limits=inbox_limits
+        )
         agent._assembly = await assembly_factory()
         return agent
 
@@ -102,13 +124,18 @@ class Agent:
         app = self._assembly
         active = app.agent_runner.active_turn if app is not None else None
         return AgentSnapshot(
-            self._state, active.turn_id if active is not None else None,
+            self._state,
+            active.turn_id if active is not None else None,
             app.agent_runner.queued_turn_ids if app is not None else (),
             app.observations.failures if app is not None else (),
         )
 
     async def start(self) -> None:
-        if self._restart_task is not None and not self._restart_task.done() and asyncio.current_task() is not self._restart_task:
+        if (
+            self._restart_task is not None
+            and not self._restart_task.done()
+            and asyncio.current_task() is not self._restart_task
+        ):
             raise AgentClosedError("Agent is restarting")
         if self._state is AgentState.RUNNING:
             return
@@ -124,7 +151,10 @@ class Agent:
 
     async def _start(self) -> None:
         try:
-            if self._state in {AgentState.STOPPED, AgentState.FAULTED} and self._assembly is not None:
+            if (
+                self._state in {AgentState.STOPPED, AgentState.FAULTED}
+                and self._assembly is not None
+            ):
                 await self._assembly.close()
                 self._assembly = None
             if self._assembly is None:
@@ -133,7 +163,9 @@ class Agent:
             await self._assembly.activate()
             if self._state is AgentState.STOPPING:
                 raise asyncio.CancelledError
-            self._worker = asyncio.create_task(self._serve(self._assembly), name="tinysoul-agent")
+            self._worker = asyncio.create_task(
+                self._serve(self._assembly), name="tinysoul-agent"
+            )
             self._worker.add_done_callback(self._stopped)
             self._state = AgentState.RUNNING
         except BaseException:
@@ -155,19 +187,25 @@ class Agent:
         """Current User profile's typed services for embedded integrations."""
         return self._running_assembly().profile_services
 
-    async def submit_turn(self, request: UserTurnRequest | ReflectionRequest) -> TurnHandle:
+    async def submit_turn(
+        self, request: UserTurnRequest | ReflectionRequest
+    ) -> TurnHandle:
         return await self.commands.submit_turn(request)
 
     async def cancel_turn(self, turn_id: str) -> bool:
         return await self.commands.cancel_turn(turn_id)
 
-    async def append_input(self, turn_id: str, text: str, *, input_id: str = "") -> InboxReceipt:
+    async def append_input(
+        self, turn_id: str, text: str, *, input_id: str = ""
+    ) -> InboxReceipt:
         return await self.commands.append_input(turn_id, text, input_id=input_id)
 
     async def grant_cycles(self, turn_id: str, request_id: str, count: int) -> bool:
         return await self.commands.grant_cycles(turn_id, request_id, count)
 
-    async def reply(self, turn_id: str, question_id: str, response: str) -> InboxReceipt:
+    async def reply(
+        self, turn_id: str, question_id: str, response: str
+    ) -> InboxReceipt:
         return await self.commands.reply(turn_id, question_id, response)
 
     async def publish(self, event: EnvironmentEvent) -> EventReceipt:
@@ -180,6 +218,20 @@ class Agent:
         operations.check_cancelled()
         return result
 
+    async def action_catalog(self, *, scenario: str = "user") -> JsonObject:
+        """Inspect the configured and available actions of one execution scenario."""
+        return await self._running_assembly().service_access.action_catalog(
+            scenario=scenario
+        )
+
+    async def reflection_status(
+        self, *, before: CalendarDay | None = None
+    ) -> JsonObject:
+        """Read a bounded page of owner-derived Reflection candidates."""
+        return await self._running_assembly().service_access.reflection_status(
+            before=before
+        )
+
     async def patch_config(self, mutations: tuple[ConfigMutation, ...]) -> JsonObject:
         return await self._configuration().patch(mutations)
 
@@ -190,12 +242,20 @@ class Agent:
         return self._running_assembly().configuration
 
     def subscribe(
-        self, selection: ObservationFilter = ObservationFilter(), *,
-        capacity: int = 256, max_bytes: int = 1024 * 1024,
+        self,
+        selection: ObservationFilter = ObservationFilter(),
+        *,
+        capacity: int = 256,
+        max_bytes: int = 1024 * 1024,
     ) -> ObservationSubscription:
-        if self._assembly is None or self._state not in {AgentState.CREATED, AgentState.RUNNING}:
+        if self._assembly is None or self._state not in {
+            AgentState.CREATED,
+            AgentState.RUNNING,
+        }:
             raise AgentClosedError("Agent observation source is closed")
-        return self._assembly.observations.subscriptions.subscribe(selection, capacity=capacity, max_bytes=max_bytes)
+        return self._assembly.observations.subscriptions.subscribe(
+            selection, capacity=capacity, max_bytes=max_bytes
+        )
 
     async def wait(self) -> AgentRunResult:
         if self._worker is None:
@@ -204,7 +264,11 @@ class Agent:
 
     async def shutdown(self) -> tuple[CleanupDiagnostic, ...]:
         restarting = self._restart_task
-        if restarting is not None and not restarting.done() and asyncio.current_task() is not restarting:
+        if (
+            restarting is not None
+            and not restarting.done()
+            and asyncio.current_task() is not restarting
+        ):
             restarting.cancel()
         if self._shutdown_task is None:
             self._state = AgentState.STOPPING
@@ -212,7 +276,9 @@ class Agent:
                 self._assembly.stop_accepting()
             if self._start_task is not None and not self._start_task.done():
                 self._start_task.cancel()
-            self._shutdown_task = asyncio.create_task(self._shutdown(), name="tinysoul-shutdown")
+            self._shutdown_task = asyncio.create_task(
+                self._shutdown(), name="tinysoul-shutdown"
+            )
         task = self._shutdown_task
         operation = JoinedOperations()
         diagnostics = await operation.run_async(lambda: task)
@@ -235,7 +301,9 @@ class Agent:
                 except asyncio.CancelledError:
                     pass
                 except Exception as exc:
-                    diagnostics += (CleanupDiagnostic("agent.dispatch", type(exc).__name__),)
+                    diagnostics += (
+                        CleanupDiagnostic("agent.dispatch", type(exc).__name__),
+                    )
             if self._assembly is not None:
                 await self._assembly.agent_runner.close_requests()
                 diagnostics += await self._assembly.close()
@@ -252,7 +320,9 @@ class Agent:
             self._state = AgentState.STOPPING
             if self._assembly is not None:
                 self._assembly.stop_accepting()
-            self._restart_task = asyncio.create_task(self._restart(), name="tinysoul-restart")
+            self._restart_task = asyncio.create_task(
+                self._restart(), name="tinysoul-restart"
+            )
         task = self._restart_task
         operation = JoinedOperations()
         diagnostics = await operation.run_async(lambda: task)
@@ -280,4 +350,8 @@ class Agent:
     def _stopped(self, task: asyncio.Task[AgentRunResult]) -> None:
         if task is not self._worker or self._state is AgentState.STOPPING:
             return
-        self._state = AgentState.FAULTED if task.cancelled() or task.exception() else AgentState.STOPPED
+        self._state = (
+            AgentState.FAULTED
+            if task.cancelled() or task.exception()
+            else AgentState.STOPPED
+        )

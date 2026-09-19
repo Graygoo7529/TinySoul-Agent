@@ -67,11 +67,11 @@ value_kind = "string"
 [[document_field]]
 document_set = "action.catalog"
 document_kind = "domain"
-path = "runtime.enabled"
+path = "visibility.default"
 surface = "action_catalog"
 group = "action_catalog.runtime"
-title = "Default Action Enabled"
-description = "Default Agent exposure policy inherited by Actions without a local enabled override."
+title = "Default Action Visibility"
+description = "Default Agent exposure policy inherited by Actions without a local visibility override."
 value_kind = "boolean"
 
 [[document_field]]
@@ -200,10 +200,10 @@ importance = "advanced"
 [[document_field]]
 document_set = "action.catalog"
 document_kind = "action"
-path = "runtime.enabled"
+path = "visibility.default"
 surface = "action_catalog"
 group = "action_catalog.availability"
-title = "Action Enabled"
+title = "Action Visibility"
 description = "Controls whether this configured Action is exposed to the Agent when its runtime owner is supported."
 value_kind = "boolean"
 
@@ -272,3 +272,24 @@ title = "Backend"
 description = "Framework backend kind, registered handler, and backend-specific options."
 value_kind = "object"
 importance = "advanced"
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "domain"
+path = "visibility.scenarios"
+surface = "action_catalog"
+group = "action_catalog.availability"
+title = "Scenario Visibility"
+description = "Named scenario choices; action scenario overrides domain scenario, then action and domain defaults."
+value_kind = "object"
+
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "action"
+path = "visibility.scenarios"
+surface = "action_catalog"
+group = "action_catalog.availability"
+title = "Scenario Visibility"
+description = "Named scenario choices; action scenario overrides domain scenario, then action and domain defaults."
+value_kind = "object"

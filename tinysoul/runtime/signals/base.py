@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from tinysoul.infra.json import JsonObject, JsonTypeError, to_json_object
 
 from ..errors import RuntimeContractError
-from ..scope import RunScope
+from ..control.scope import RunScope
 
 
 @dataclass(frozen=True)

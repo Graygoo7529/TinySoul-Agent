@@ -11,9 +11,17 @@ from pypdf import PdfWriter
 from PIL import Image
 import pytest
 
-from tinysoul.kernel.action import (ActionCall, ActionEngineBuilder, ActionExecution, ActionExecutionContext, ActionExecutionControl, ActionFramework, ActionResultStatus)
-from tinysoul.agent.catalog import builtin_action_catalog_root
-from tinysoul.kernel.action.core.loader import ActionCatalogLoader
+from tinysoul.kernel.action import (
+    ActionCall,
+    ActionEngineBuilder,
+    ActionExecution,
+    ActionExecutionContext,
+    ActionExecutionControl,
+    ActionFramework,
+    ActionResultStatus,
+)
+from tests.support.catalog import builtin_action_catalog_root
+from tinysoul.kernel.action.catalog.loader import ActionCatalogLoader
 from tinysoul.kernel.action.backends import (
     ControlledProcessRunner,
     ProcessOutcome,
@@ -32,7 +40,9 @@ from tinysoul.plugins.capabilities.resource.config import (
     PdfPageRenderMode,
     ResourceSettings,
 )
-from tinysoul.plugins.capabilities.resource.dependencies import require_resource_dependencies
+from tinysoul.plugins.capabilities.resource.dependencies import (
+    require_resource_dependencies,
+)
 from tinysoul.plugins.capabilities.resource.errors import (
     ResourceContractError,
     ResourceProcessingError,
@@ -52,7 +62,6 @@ from tinysoul.infra.config import ConfigError
 from tinysoul.runtime import RunScope, SignalBus
 from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
-
 
 _PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nWQAAAAASUVORK5CYII="
@@ -90,10 +99,7 @@ def test_resource_config_reports_exact_nested_key() -> None:
             }
         )
 
-    assert (
-        error.value.key
-        == "capabilities.resource.convert_with_pypdf.extract_images"
-    )
+    assert error.value.key == "capabilities.resource.convert_with_pypdf.extract_images"
 
 
 def test_resource_config_rejects_nested_unknown_key() -> None:
@@ -106,10 +112,7 @@ def test_resource_config_rejects_nested_unknown_key() -> None:
             }
         )
 
-    assert (
-        error.value.key
-        == "capabilities.resource.convert_with_markitdown.fallback"
-    )
+    assert error.value.key == "capabilities.resource.convert_with_markitdown.fallback"
 
 
 async def test_markitdown_conversion_commits_markdown_and_docx_image(
@@ -130,9 +133,6 @@ async def test_markitdown_conversion_commits_markdown_and_docx_image(
         source_link="workspace:incoming/report.docx",
         target_link="workspace:converted/report.md",
         overwrite=False,
-        expected_source_digest="",
-        expected_target_digest="",
-        owner_turn_id="turn_1",
         control=ActionExecutionControl(deadline=monotonic() + 30),
     )
 
@@ -142,11 +142,11 @@ async def test_markitdown_conversion_commits_markdown_and_docx_image(
     ).text
     assert "Hello TinySoul" in markdown
     assert "workspace:converted/report.assets/image-001.png" in markdown
-    assert workspace.inspect(
-        "workspace:converted/report.assets/image-001.png"
-    ).media_type == "image/png"
+    assert (
+        workspace.inspect("workspace:converted/report.assets/image-001.png").media_type
+        == "image/png"
+    )
     assert result.content_status is ResourceContentStatus.PARTIAL
-    assert result.manifest.revision == 2
 
 
 async def test_pypdf_conversion_renders_blank_page_as_workspace_image(
@@ -171,9 +171,6 @@ async def test_pypdf_conversion_renders_blank_page_as_workspace_image(
         source_link="workspace:incoming/blank.pdf",
         target_link="workspace:converted/blank.md",
         overwrite=False,
-        expected_source_digest="",
-        expected_target_digest="",
-        owner_turn_id="turn_1",
         control=ActionExecutionControl(deadline=monotonic() + 30),
     )
 
@@ -212,9 +209,6 @@ async def test_blank_pdf_without_page_rendering_does_not_commit_placeholder_only
             source_link="workspace:incoming/blank.pdf",
             target_link="workspace:converted/blank.md",
             overwrite=False,
-            expected_source_digest="",
-            expected_target_digest="",
-            owner_turn_id="turn_1",
             control=ActionExecutionControl(deadline=monotonic() + 30),
         )
 
@@ -245,9 +239,6 @@ async def test_conversion_target_cannot_claim_its_source_as_a_stale_asset(
             source_link="workspace:converted/report.assets/source.pdf",
             target_link="workspace:converted/report.md",
             overwrite=True,
-            expected_source_digest="",
-            expected_target_digest="",
-            owner_turn_id="turn_1",
             control=ActionExecutionControl(deadline=monotonic() + 30),
         )
 
@@ -294,9 +285,6 @@ async def test_pypdf_asset_limits_fail_without_committing_partial_output(
             source_link="workspace:incoming/images.pdf",
             target_link="workspace:converted/images.md",
             overwrite=False,
-            expected_source_digest="",
-            expected_target_digest="",
-            owner_turn_id="turn_1",
             control=ActionExecutionControl(deadline=monotonic() + 30),
         )
 

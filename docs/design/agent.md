@@ -4,6 +4,8 @@
 
 `tinysoul.agent` 是嵌入式 SDK 与进程装配层，拥有唯一根队列、环境事件路由、运行世代和日协调。它通过显式 Plugin 声明装配真实 owner，通过 TurnProfile 调用同一套异步 Turn/Cycle/Phase 内核，不实现另一套推理或 Action 状态机。
 
+内部 composition 负责跨 owner 装配，dispatch 负责根队列、输入与事件路由，lifecycle 负责世代/日边界与运行策略，observation 负责输出旁路。SDK、请求和受约束服务保持公开入口；内部子包不各自创建 Agent 生命周期或 Job 表。
+
 依赖方向为 `infra → runtime/llm → kernel → plugins/environment → agent → gateway`。Environment 只通过注入的输入端口提交请求；CLI、HTTP、终端输出和项目命令位于 gateway。Agent 不导入 gateway，也不自动开启终端或 HTTP 监听。
 
 ## 装配、服务与生命周期
@@ -34,7 +36,7 @@ AgentDayCoordinator 使用注入时钟，协调 Memory catalog 与 Archive owner
 
 每项根 work 前完成日切与 availability 刷新，再持 active-day lease 执行；跨午夜等待仍属于开始日。Archive 的可恢复 journal、Session/Memory/Workspace 的初始化与归档由各自 owner 实施。Reflection 只取得只读 ArchiveReader，不拥有推进日期的权限。
 
-daily 触发在 Agent 边界拆为 Home 与触发日前一日 Memory 两个独立请求，整批容量受理；执行前的日切使新关闭日资料可见。scheduled 请求按日期/profile 稳定身份去重，已有 daily 跳过自动 Memory；明确日期的手动请求允许复查。更早 backlog 由 availability 保留并由明确日期请求处理。定时来源遇到满载保留请求并重试；启动晚于当日计划时刻不追补模型任务。
+daily 触发在 Agent 边界拆为 Home 与触发日前一日 Memory 两个独立请求，整批容量受理；执行前的日切使新关闭日资料可见。scheduled 请求按日期/profile 稳定身份去重，已有 daily 仍可继续修订；手动和自动请求使用相同的整理语义。availability 从 owner 目录重算可整理日期与缺失 daily 的子集，不持久化 backlog；更早日期由明确请求处理。定时来源遇到满载保留请求并重试；启动晚于当日计划时刻不追补模型任务。
 
 ## 配置候选与世代激活
 
@@ -56,9 +58,9 @@ normal 输出正式回答与重要运行边界；verbose 增加执行过程；mo
 
 ## 项目资源与发布
 
-gateway 的 ProjectInitializer/ProjectResetter 使用 package-owned 模板。通用模板和唯一默认 Home 位于 assets/project；standard/development 是完整配置快照，只表达初始取值差异，不进入运行时配置来源。
+gateway 的 ProjectInitializer/ProjectResetter 使用 package-owned 模板。共享配置、统一 Action catalog 与默认 Home 位于 assets/common；assets/standard 与 assets/development 提供互斥初始化取值。common 与选中预设共同生成项目，重复目标拒绝，不参与运行时模板叠加。
 
-Action catalog 文档随所属 owner 发布：Kernel 提供通用 core，Home/Memory/Workspace/Capabilities 提供自己的 fragments。Agent 的显式 catalog 合成拒绝重复文档，initializer/resetter 物化成项目 configs/action/catalog；运行实例使用项目 catalog。Reflection 专属 fragment 只由相应 profile 装配，不进入 User Action 设置页。
+所有 domain/action 在公共 assets 中各有独立 TOML，初始化按普通资源复制到 configs/action/catalog。运行期三情景共用同一 ConfigDocumentSet、候选校验与显式 reload；没有 owner fragments 拼接或 Reflection 包资源装载旁路。Action owner 按 visibility 编译情景视图，grants 与受约束 Service 决定真实权限；SDK/Endpoint 可按情景查询有效集合。配置命名使用 agent/reflection，进程能力使用 execution，公共容量使用 jobs。
 
 init 只安装到不存在或空目录；reset 是显式开发命令，持项目排他 lease，在同级 staging 生成并只保留普通 .env，再以可回滚替换安装。reset 不由 SDK 启动或重构自动执行。start 在创建业务 Engine 前持有 ProjectInstanceLease；HTTP 就绪后发布本机连接描述，退出时清理。
 

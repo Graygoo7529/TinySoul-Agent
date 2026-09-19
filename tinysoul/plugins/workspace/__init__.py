@@ -10,49 +10,40 @@ from .config import (
     WorkspaceSettings,
     parse_workspace_settings,
 )
-from .engine import (
+from .engine import WorkspaceArchiveView, WorkspaceEngine, WorkspaceEngineBuilder
+from .inspection.models import (
     WorkspaceAnalysisBudgetFailure,
     WorkspaceAnalysisBudgetReason,
     WorkspaceAnalysisInput,
     WorkspaceAnalysisPreparation,
     WorkspaceAnalysisReference,
-    WorkspaceArchiveView,
     WorkspaceBundleResult,
     WorkspaceBundleWrite,
     WorkspaceByteRead,
     WorkspaceDocumentRead,
-    WorkspaceEditReadSet,
-    WorkspaceEditSources,
-    WorkspaceEngine,
-    WorkspaceEngineBuilder,
     WorkspaceImageRead,
     WorkspacePromptInput,
-    WorkspacePromptSource,
-    WorkspaceResourceState,
-    WorkspaceResourceVersion,
     WorkspaceTextRead,
     WorkspaceTextRangeResult,
     WorkspaceTextSlice,
 )
+from .storage.mutations import WorkspaceTextEdit
 from .errors import (
     WorkspaceContractError,
     WorkspaceError,
     WorkspaceImageValidationError,
     WorkspaceIOError,
     WorkspaceInvariantError,
-    WorkspaceMirrorConflict,
     WorkspaceReconciliationError,
-    WorkspaceSourceChanged,
-    WorkspaceTrashRestoreRequired,
 )
 from .links import WorkspaceLink
-from .manifest import (
+from .storage.manifest import (
+    WorkspaceTag,
     WorkspaceManifest,
-    WorkspaceRetention,
     WorkspaceResourceKind,
     WorkspaceResourceRecord,
 )
-from .reconcile import (
+from .storage.reconcile import (
     WorkspaceDiscoverySkip,
     WorkspaceDiscoverySkipKind,
     WorkspaceReconcileResult,
@@ -62,15 +53,8 @@ from .projection import (
     WorkspaceTurnPreparationHandler,
     workspace_snapshot_signal,
 )
-from .mirror import (
-    WorkspaceMirror,
-    WorkspaceMirrorCandidate,
-    WorkspaceMirrorCommit,
-    WorkspaceMirrorDiff,
-    WorkspaceMirrorService,
-)
 from .prompts import WorkspacePromptReferenceResolver
-from .search import (
+from .inspection.search import (
     WorkspaceSearchCoverage,
     WorkspaceSearchFragment,
     WorkspaceSearchLineHint,
@@ -78,10 +62,12 @@ from .search import (
     WorkspaceSearchScopeKind,
     WorkspaceTextSearchResult,
 )
-from .trash import WorkspaceTrashItem
-from .text import WorkspaceTextPosition, WorkspaceTextRangeRead
+from .storage.trash import WorkspaceTrashItem
+from .inspection.text import WorkspaceTextPosition, WorkspaceTextRangeRead
 
 __all__ = [
+    "WorkspaceTag",
+    "WorkspaceTextEdit",
     "WorkspaceContractError",
     "WorkspaceAnalysisSettings",
     "WorkspaceAnalysisBudgetFailure",
@@ -94,8 +80,6 @@ __all__ = [
     "WorkspaceBundleWrite",
     "WorkspaceByteRead",
     "WorkspaceDocumentRead",
-    "WorkspaceEditReadSet",
-    "WorkspaceEditSources",
     "WorkspaceEngine",
     "WorkspaceEngineBuilder",
     "WorkspaceError",
@@ -105,28 +89,16 @@ __all__ = [
     "WorkspaceImageRead",
     "WorkspaceImageValidationError",
     "WorkspaceInvariantError",
-    "WorkspaceMirror",
-    "WorkspaceMirrorCandidate",
-    "WorkspaceMirrorCommit",
-    "WorkspaceMirrorConflict",
-    "WorkspaceMirrorDiff",
-    "WorkspaceMirrorService",
     "WorkspaceReconciliationError",
-    "WorkspaceTrashRestoreRequired",
     "WorkspaceLink",
     "WorkspaceManifest",
     "WorkspacePromptInput",
-    "WorkspacePromptSource",
     "WorkspacePromptReferenceResolver",
     "WorkspaceReconcileResult",
     "WorkspaceReconcileStatus",
     "WorkspaceResourceKind",
-    "WorkspaceResourceState",
-    "WorkspaceResourceVersion",
-    "WorkspaceRetention",
     "WorkspaceResourceRecord",
     "WorkspaceSettings",
-    "WorkspaceSourceChanged",
     "WorkspaceSearchSettings",
     "WorkspaceSearchCoverage",
     "WorkspaceSearchFragment",

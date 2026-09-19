@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Protocol, cast
+from typing import cast
 
 from tinysoul.kernel.action import (
     ActionEngineBuilder,
@@ -21,14 +21,15 @@ from tinysoul.infra import (
     StagingDirectoryManager,
     StagingError,
 )
-from tinysoul.runtime import RuntimeException, SignalBus
+from tinysoul.runtime import SignalBus
 from tinysoul.plugins.workspace import (
     WorkspaceError,
-    WorkspaceTrashRestoreRequired,
+    WorkspaceContractError,
     workspace_snapshot_signal,
 )
 
 from tinysoul.plugins.workspace.services import WorkspaceService
+from tinysoul.plugins.workspace.runtime_bridge import RuntimeWorkspaceBridge
 from .config import WebSettings
 from .dependencies import kimi_search_api_key, require_web_dependencies
 from .errors import (
@@ -46,7 +47,6 @@ from .models import (
 )
 from .service import WebCapabilityService
 
-
 WEB_SEARCH_KIMI_ACTION = "web.search_by_kimi"
 WEB_DISCOVER_PAGES_ACTION = "web.discover_pages"
 WEB_FETCH_DEFUDDLE_ACTION = "web.fetch_with_defuddle"
@@ -58,7 +58,6 @@ class _FetchParams:
     url: str
     target_link: str
     overwrite: bool
-    expected_target_digest: str
 
 
 @dataclass(frozen=True)
@@ -67,11 +66,6 @@ class _DiscoveryParams:
     max_visit_depth: int
     include_globs: tuple[str, ...]
     exclude_globs: tuple[str, ...]
-
-
-class WebActionRuntimeBridge(Protocol):
-    def trash_restore_required(self, *, link: str, trash_ref: str) -> RuntimeException:
-        ...
 
 
 class KimiSearchExecutor(ActionExecutor):
@@ -103,14 +97,15 @@ class KimiSearchExecutor(ActionExecutor):
                 query=query,
                 invoke_id=execution.framework.invoke_id,
                 call_id=execution.call.call_id,
-                owner_turn_id=execution.framework.turn_id,
                 control=context.control,
                 operations=context.owner_operations,
             )
         except WebProcessTimeout as exc:
             return _timeout(execution, str(exc), reason=exc.reason)
         except WebProcessingError as exc:
-            return _failed(execution, str(exc), reason=exc.reason, frame_data=exc.payload)
+            return _failed(
+                execution, str(exc), reason=exc.reason, frame_data=exc.payload
+            )
         except WebWorkerProtocolError:
             return _failed(
                 execution,
@@ -123,13 +118,15 @@ class KimiSearchExecutor(ActionExecutor):
                 "Kimi Web Search staging could not be completed.",
                 reason="staging_failed",
             )
-        except (WebContractError, WorkspaceError) as exc:
+        except (WebContractError, WorkspaceContractError) as exc:
             return _failed(
                 execution,
                 "Kimi Web Search could not be completed.",
                 reason="web_search_failed",
                 frame_data={"error_type": type(exc).__name__},
             )
+        except WorkspaceError as exc:
+            raise RuntimeWorkspaceBridge().from_workspace_error(exc) from exc
         _emit_search_snapshot(execution, context, self._bus, result)
         return _success(execution, result.payload)
 
@@ -143,7 +140,7 @@ class WebFetchExecutor(ActionExecutor):
         extractor: WebExtractor,
         service: WebCapabilityService,
         bus: SignalBus,
-        runtime_bridge: WebActionRuntimeBridge | None = None,
+        runtime_bridge: RuntimeWorkspaceBridge | None = None,
     ) -> None:
         self._extractor = extractor
         self._service = service
@@ -164,22 +161,15 @@ class WebFetchExecutor(ActionExecutor):
                 url=params.url,
                 target_link=params.target_link,
                 overwrite=params.overwrite,
-                expected_target_digest=params.expected_target_digest,
-                owner_turn_id=execution.framework.turn_id,
                 control=context.control,
                 operations=context.owner_operations,
             )
-        except WorkspaceTrashRestoreRequired as exc:
-            if self._runtime_bridge is None:
-                raise
-            raise self._runtime_bridge.trash_restore_required(
-                link=exc.link,
-                trash_ref=exc.trash_ref,
-            ) from exc
         except WebProcessTimeout as exc:
             return _timeout(execution, str(exc), reason=exc.reason)
         except WebProcessingError as exc:
-            return _failed(execution, str(exc), reason=exc.reason, frame_data=exc.payload)
+            return _failed(
+                execution, str(exc), reason=exc.reason, frame_data=exc.payload
+            )
         except WebWorkerProtocolError:
             return _failed(
                 execution,
@@ -192,13 +182,15 @@ class WebFetchExecutor(ActionExecutor):
                 "Web fetch staging could not be completed.",
                 reason="staging_failed",
             )
-        except (WebContractError, WorkspaceError) as exc:
+        except (WebContractError, WorkspaceContractError) as exc:
             return _failed(
                 execution,
                 "Web fetch could not be completed.",
                 reason="web_fetch_failed",
                 frame_data={"error_type": type(exc).__name__},
             )
+        except WorkspaceError as exc:
+            raise RuntimeWorkspaceBridge().from_workspace_error(exc) from exc
         _emit_fetch_snapshot(execution, context, self._bus, result)
         return _success(execution, _fetch_payload(result))
 
@@ -231,14 +223,15 @@ class WebDiscoveryExecutor(ActionExecutor):
                 exclude_globs=params.exclude_globs,
                 invoke_id=execution.framework.invoke_id,
                 call_id=execution.call.call_id,
-                owner_turn_id=execution.framework.turn_id,
                 control=context.control,
                 operations=context.owner_operations,
             )
         except WebProcessTimeout as exc:
             return _timeout(execution, str(exc), reason=exc.reason)
         except WebProcessingError as exc:
-            return _failed(execution, str(exc), reason=exc.reason, frame_data=exc.payload)
+            return _failed(
+                execution, str(exc), reason=exc.reason, frame_data=exc.payload
+            )
         except WebWorkerProtocolError:
             return _failed(
                 execution,
@@ -251,13 +244,15 @@ class WebDiscoveryExecutor(ActionExecutor):
                 "Web page discovery staging could not be completed.",
                 reason="staging_failed",
             )
-        except (WebContractError, WorkspaceError) as exc:
+        except (WebContractError, WorkspaceContractError) as exc:
             return _failed(
                 execution,
                 "Web page discovery could not be completed.",
                 reason="web_discovery_failed",
                 frame_data={"error_type": type(exc).__name__},
             )
+        except WorkspaceError as exc:
+            raise RuntimeWorkspaceBridge().from_workspace_error(exc) from exc
         _emit_discovery_snapshot(execution, context, self._bus, result)
         return _success(execution, result.payload)
 
@@ -270,7 +265,7 @@ def register_web_actions(
     workspace: WorkspaceService,
     bus: SignalBus,
     staging: StagingDirectoryManager,
-    runtime_bridge: WebActionRuntimeBridge | None = None,
+    runtime_bridge: RuntimeWorkspaceBridge | None = None,
     dependency_checker: DependencyChecker | None = None,
 ) -> ActionEngineBuilder:
     """Register enabled Web executors and declare runtime support."""
@@ -357,18 +352,10 @@ def _fetch_params(execution: ActionExecution) -> _FetchParams | ActionResult:
             "Web fetch overwrite must be boolean.",
             reason="invalid_overwrite",
         )
-    expected = execution.call.params.get("expected_target_digest", "")
-    if not isinstance(expected, str):
-        return _failed(
-            execution,
-            "Web fetch expected_target_digest must be a string.",
-            reason="invalid_expected_target_digest",
-        )
     return _FetchParams(
         url=url,
         target_link=target_link,
         overwrite=overwrite,
-        expected_target_digest=expected,
     )
 
 

@@ -8,8 +8,8 @@ import traceback
 from tinysoul.infra.json import JsonObject, JsonTypeError, to_json_object
 
 from ..errors import RuntimeContractError
-from ..exception import RuntimeException
-from ..scope import RunScope
+from ..control.exception import RuntimeException
+from ..control.scope import RunScope
 
 
 @dataclass(frozen=True)
@@ -28,7 +28,9 @@ class TrapSnap:
         try:
             payload = to_json_object(self.payload)
         except JsonTypeError as exc:
-            raise RuntimeContractError("TrapSnap.payload must be a JSON object") from exc
+            raise RuntimeContractError(
+                "TrapSnap.payload must be a JSON object"
+            ) from exc
         object.__setattr__(self, "payload", payload)
         if not isinstance(self.scope, RunScope):
             raise RuntimeContractError("TrapSnap.scope must be a RunScope")

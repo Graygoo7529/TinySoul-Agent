@@ -1,0 +1,41 @@
+name = "workspace.edit"
+domain = "workspace"
+
+[tool]
+description = "Apply ordered exact replacements. Every old_text must occur exactly once; commit all edits together."
+
+[tool.schema]
+type = "object"
+required = ["target_link","edits"]
+additionalProperties = false
+
+[tool.schema.properties]
+
+[tool.schema.properties.target_link]
+type = "string"
+
+[tool.schema.properties.edits]
+type = "array"
+
+[tool.schema.properties.edits.items]
+type = "object"
+required = ["old_text","new_text"]
+additionalProperties = false
+
+[tool.schema.properties.edits.items.properties]
+
+[tool.schema.properties.edits.items.properties.old_text]
+type = "string"
+
+[tool.schema.properties.edits.items.properties.new_text]
+type = "string"
+
+[semantic]
+effects = ["modifying"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "native"
+handler = "workspace.edit"

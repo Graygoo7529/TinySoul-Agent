@@ -1,0 +1,1332 @@
+from __future__ import annotations
+
+from tests.action_helpers import builtin_catalog
+
+from datetime import date as CalendarDate
+
+from tinysoul.kernel.context.background import heap_segment_registration
+from tinysoul.kernel.context.segments import (
+    SegmentCapability,
+    SegmentDescriptor,
+    SegmentShape,
+    SegmentSlot,
+)
+
+from tinysoul.plugins.workspace.services import WorkspaceService
+from tinysoul.plugins.workspace.projection import (
+    WorkspaceSnapshot,
+    build_workspace_sync_signal,
+)
+
+from collections import deque
+from dataclasses import dataclass, field
+from datetime import date
+from pathlib import Path
+from typing import cast
+
+import pytest
+
+from tinysoul.kernel.action import (
+    ActionEngine,
+    ActionEngineBuilder,
+    ActionNormalization,
+)
+from tinysoul.kernel.action.backends import LLMActionTaskRunner
+from tinysoul.plugins.execution.actions import EXECUTION_ACTIONS
+from tinysoul.kernel.context import (
+    BackgroundCatalog,
+    BackgroundCatalogItem,
+    ContextEngine,
+    ContextEngineBuilder,
+)
+from tinysoul.kernel.context.builtin.trace import TraceKind
+from tinysoul.infra.json import JsonObject
+from tinysoul.llm.protocol.messages import JsonPart, MessageStack, TextPart, UserMessage
+from tinysoul.llm.protocol.requests import TaskCall
+from tinysoul.llm.protocol.responses import (
+    JsonAnswer,
+    RawResponse,
+    TaskFailure,
+    TaskResult,
+)
+from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind, ToolUse
+from tinysoul.kernel.loop import (
+    CycleRunner,
+    LoopTraceNoteKind,
+    Phase1Outcome,
+    Phase1Unit,
+    Phase2Outcome,
+    Phase2Unit,
+    Phase3Outcome,
+    Phase3Unit,
+    PhaseFailure,
+)
+from tinysoul.kernel.loop.lifecycle.completion import AnswerCompletionDetector
+from tinysoul.plugins.memory.services import MemoryService
+from tinysoul.plugins.memory import (
+    DailyMemoryDocument,
+    MemoryEngine,
+    MemorySettings,
+    register_memory_actions,
+)
+from tinysoul.runtime import (
+    RUNTIME_TURN_END,
+    CyclePhase,
+    RunLevel,
+    RunScope,
+    RuntimeException,
+    SignalBus,
+    ObservationEvent,
+    ObservationLevel,
+    RuntimeTrap,
+    TrapHandlerRegistry,
+)
+from tinysoul.plugins.memory.runtime_bridge import RuntimeMemoryBridge
+from tinysoul.plugins.workspace import (
+    WorkspaceEngine,
+    WorkspaceEngineBuilder,
+    WorkspaceSettings,
+    register_workspace_actions,
+)
+from tests.action_helpers import FunctionActionEngineBuilder, load_action_catalog
+
+
+class FakeLLM:
+    def __init__(self, results: tuple[TaskResult, ...]) -> None:
+        self.results = deque(results)
+        self.calls: list[TaskCall] = []
+
+    async def run(self, call: TaskCall) -> TaskResult:
+        self.calls.append(call)
+        return self.results.popleft()
+
+
+@dataclass
+class RecordingObservations:
+    events: list[ObservationEvent] = field(default_factory=list)
+
+    def enabled(self, level: ObservationLevel) -> bool:
+        return True
+
+    def emit(self, event: ObservationEvent) -> None:
+        self.events.append(event)
+
+
+async def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("answer now")
+    await context.open_segments(CalendarDate(2026, 7, 12))
+    action = _action_engine()
+    bus = SignalBus()
+    llm = FakeLLM(
+        (
+            _tool_result(
+                ToolCallRecord(
+                    id="select_1",
+                    name="select_action_domains",
+                    arguments={"domains": ["core"]},
+                    kind=ToolKind.CONTROL,
+                )
+            ),
+            _tool_result(
+                ToolCallRecord(
+                    id="answer_1",
+                    name="core.answer",
+                    arguments={"guide_blocks": [{"text": "answer"}]},
+                    kind=ToolKind.ACTION,
+                )
+            ),
+        )
+    )
+    observations = RecordingObservations()
+    base_scope = (
+        RunScope()
+        .push(RunLevel.AGENT, "program")
+        .push(RunLevel.TURN, turn_id)
+        .push(RunLevel.CYCLE, "cycle_1")
+    )
+    phase1_scope = base_scope.push(RunLevel.PHASE, CyclePhase.PHASE1.value)
+    phase2_scope = base_scope.push(RunLevel.PHASE, CyclePhase.PHASE2.value)
+    phase3_scope = base_scope.push(RunLevel.PHASE, CyclePhase.PHASE3.value)
+
+    phase1 = await Phase1Unit(
+        context=context,
+        action=action,
+        llm=llm,
+        bus=bus,
+        task_profile="framework",
+    ).run(scope=phase1_scope, cycle_id="cycle_1")
+    phase2 = await Phase2Unit(
+        context=context,
+        action=action,
+        llm=llm,
+        bus=bus,
+        task_profile="framework",
+        observations=observations,
+    ).run(
+        selected_domains=phase1.selected_domains,
+        scope=phase2_scope,
+        cycle_id="cycle_1",
+        turn_id=turn_id,
+    )
+    phase3 = await Phase3Unit(
+        context=context,
+        action=action,
+        bus=bus,
+        observations=observations,
+        completion_detector=AnswerCompletionDetector(),
+    ).run(
+        normalization=phase2.normalization,
+        scope=phase3_scope,
+        cycle_id="cycle_1",
+        turn_id=turn_id,
+    )
+
+    assert phase1.selected_domains == ("core",)
+    assert phase2.normalization.calls[0].action_name == "core.answer"
+    assert phase3.completion is not None
+    assert phase3.completion["kind"] == "answer"
+    assert phase3.completion["text"] == "done"
+    assert str(phase3.completion["result_id"]).startswith("action_result_")
+    assert context.trace_kinds() == (
+        TraceKind.DECISION,
+        TraceKind.ACTION_RESULT,
+    )
+    assert all(call.settings.tool_use is ToolUse.REQUIRED for call in llm.calls)
+    action_events = [
+        event for event in observations.events if event.name.startswith("action.")
+    ]
+    assert [event.name for event in action_events] == [
+        "action.call",
+        "action.result",
+    ]
+    assert [call.profile for call in llm.calls] == ["framework", "framework"]
+    assert action_events[0].payload["call_id"] == "answer_1"
+    assert action_events[1].payload["call_id"] == "answer_1"
+
+
+async def test_phase_units_use_independent_task_profiles() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("answer now")
+    await context.open_segments(CalendarDate(2026, 7, 12))
+    action = _action_engine()
+    bus = SignalBus()
+    llm = FakeLLM(
+        (
+            _tool_result(
+                ToolCallRecord(
+                    id="select_1",
+                    name="select_action_domains",
+                    arguments={"domains": ["core"]},
+                    kind=ToolKind.CONTROL,
+                )
+            ),
+            _tool_result(
+                ToolCallRecord(
+                    id="answer_1",
+                    name="core.answer",
+                    arguments={"guide_blocks": [{"text": "answer"}]},
+                    kind=ToolKind.ACTION,
+                )
+            ),
+        )
+    )
+    scope = (
+        RunScope()
+        .push(RunLevel.AGENT, "program")
+        .push(RunLevel.TURN, turn_id)
+        .push(RunLevel.CYCLE, "cycle_1")
+    )
+
+    phase1 = await Phase1Unit(
+        context=context,
+        action=action,
+        llm=llm,
+        bus=bus,
+        task_profile="cycle_planner",
+    ).run(
+        scope=scope.push(RunLevel.PHASE, CyclePhase.PHASE1.value),
+        cycle_id="cycle_1",
+    )
+    (
+        await Phase2Unit(
+            context=context,
+            action=action,
+            llm=llm,
+            bus=bus,
+            task_profile="cycle_executor",
+        ).run(
+            selected_domains=phase1.selected_domains,
+            scope=scope.push(RunLevel.PHASE, CyclePhase.PHASE2.value),
+            cycle_id="cycle_1",
+            turn_id=turn_id,
+        )
+    )
+
+    assert [call.profile for call in llm.calls] == [
+        "cycle_planner",
+        "cycle_executor",
+    ]
+
+
+async def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the_turn() -> (
+    None
+):
+    class _SkillProvider:
+        async def catalog(self, business_day: date) -> BackgroundCatalog:
+            return BackgroundCatalog(
+                owner="home",
+                loadable_links=("home:skills@review",),
+                items=(
+                    BackgroundCatalogItem(
+                        link="home:skills@review",
+                        title="Review Home",
+                        description="Review effective Home changes.",
+                    ),
+                ),
+            )
+
+        async def load(self, link: str, business_day: date) -> str:
+            assert link == "home:skills@review"
+            return "SKILL BODY: compare runtime and actual Home."
+
+    context = (
+        ContextEngineBuilder(system_text="sys")
+        .with_segment(
+            heap_segment_registration(
+                SegmentDescriptor(
+                    "home",
+                    "home",
+                    SegmentSlot.BACKGROUND,
+                    40,
+                    shape=SegmentShape.HEAP,
+                    capabilities=frozenset(
+                        {SegmentCapability.SELECT, SegmentCapability.RECLAIM}
+                    ),
+                ),
+                _SkillProvider(),
+                signal_name="context.home.update",
+            )
+        )
+        .build()
+    )
+    turn_id = context.begin_turn("review Home")
+    await context.open_segments(date(2026, 7, 14))
+    action = _action_engine()
+    llm = FakeLLM(
+        (
+            _tool_result(
+                ToolCallRecord(
+                    id="select_core",
+                    name="select_action_domains",
+                    arguments={"domains": ["core"]},
+                    kind=ToolKind.CONTROL,
+                ),
+                ToolCallRecord(
+                    id="load_review",
+                    name="load_background",
+                    arguments={"links": ["home:skills@review"]},
+                    kind=ToolKind.CONTROL,
+                ),
+            ),
+            _tool_result(
+                ToolCallRecord(
+                    id="reason",
+                    name="core.reason",
+                    arguments={
+                        "guide_blocks": [{"text": "Review the change."}],
+                        "output_blocks": [{"text": "Return JSON."}],
+                    },
+                    kind=ToolKind.ACTION,
+                )
+            ),
+        )
+    )
+    bus = SignalBus()
+    base_scope = (
+        RunScope()
+        .push(RunLevel.AGENT, "program")
+        .push(RunLevel.TURN, turn_id)
+        .push(RunLevel.CYCLE, "cycle_1")
+    )
+
+    phase1 = await Phase1Unit(
+        context=context,
+        action=action,
+        llm=llm,
+        bus=bus,
+        task_profile="framework",
+    ).run(
+        scope=base_scope.push(RunLevel.PHASE, CyclePhase.PHASE1.value),
+        cycle_id="cycle_1",
+    )
+    (
+        await Phase2Unit(
+            context=context,
+            action=action,
+            llm=llm,
+            bus=bus,
+            task_profile="framework",
+        ).run(
+            selected_domains=phase1.selected_domains,
+            scope=base_scope.push(RunLevel.PHASE, CyclePhase.PHASE2.value),
+            cycle_id="cycle_1",
+            turn_id=turn_id,
+        )
+    )
+
+    phase1_stack = llm.calls[0].messages
+    catalog = next(
+        message
+        for message in phase1_stack.messages
+        if message.label == "background:catalog:home"
+    )
+    assert isinstance(catalog.parts[0], JsonPart)
+    assert catalog.parts[0].value["items"] == [
+        {
+            "link": "home:skills@review",
+            "title": "Review Home",
+            "description": "Review effective Home changes.",
+        }
+    ]
+    assert "SKILL BODY" not in _message_stack_text(phase1_stack)
+
+    phase2_stack = llm.calls[1].messages
+    loaded = next(
+        message
+        for message in phase2_stack.messages
+        if message.label == "background:home:skills@review"
+    )
+    assert isinstance(loaded.parts[0], TextPart)
+    assert loaded.parts[0].text == "SKILL BODY: compare runtime and actual Home."
+
+    context.end_turn()
+    await context.close_segments()
+    await context.close_segments()
+    context.begin_turn("next turn")
+    await context.open_segments(date(2026, 7, 14))
+    assert "home:skills@review" not in context.background_links()
+
+
+async def test_real_memory_actions_record_turn_trace_without_background_mutation(
+    tmp_path: Path,
+) -> None:
+    memory_root = tmp_path / "memory"
+    memory = MemoryEngine(
+        settings=MemorySettings(root=memory_root),
+    )
+    memory.write_document(
+        DailyMemoryDocument(
+            day=date(2026, 7, 13),
+            created_on=date(2026, 7, 13),
+            updated_on=date(2026, 7, 13),
+            content="free-form remembered fact",
+        ),
+    )
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("recall yesterday")
+    await context.open_segments(CalendarDate(2026, 7, 12))
+    action = _action_engine(memory=memory)
+    normalization = action.normalize(
+        (
+            ToolCallRecord(
+                id="recall_1",
+                name="memory.recall",
+                arguments={"memory_link": "memory:daily/2026-07-13"},
+                kind=ToolKind.ACTION,
+            ),
+            ToolCallRecord(
+                id="search_1",
+                name="memory.inspect",
+                arguments={"query": "remembered"},
+                kind=ToolKind.ACTION,
+            ),
+        )
+    )
+    scope = (
+        RunScope()
+        .push(RunLevel.AGENT, "program")
+        .push(RunLevel.TURN, turn_id)
+        .push(RunLevel.CYCLE, "cycle_1")
+        .push(RunLevel.PHASE, CyclePhase.PHASE3.value)
+    )
+
+    outcome = await Phase3Unit(
+        context=context,
+        action=action,
+        bus=SignalBus(),
+    ).run(
+        normalization=normalization,
+        scope=scope,
+        cycle_id="cycle_1",
+        turn_id=turn_id,
+    )
+
+    results = {result.action_name: result for result in outcome.results}
+    assert all(result.failure is None for result in results.values()), repr(results)
+    markdown = results["memory.recall"].payload["markdown"]
+    assert isinstance(markdown, str)
+    assert "free-form remembered fact" in markdown
+    items = results["memory.inspect"].payload["items"]
+    assert isinstance(items, list)
+    first_item = items[0]
+    assert isinstance(first_item, dict)
+    assert first_item["link"] == "memory:daily/2026-07-13"
+    assert "period" not in first_item
+    assert context.trace_kinds() == (
+        TraceKind.ACTION_RESULT,
+        TraceKind.ACTION_RESULT,
+    )
+    assert context.background_links() == ()
+
+
+async def test_real_workspace_inspection_actions_preserve_trace_lifecycle(
+    tmp_path: Path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "a.md").write_text("alpha needle\n", encoding="utf-8")
+    (workspace_root / "b.md").write_text("beta\n", encoding="utf-8")
+    workspace = WorkspaceEngineBuilder(WorkspaceSettings(root=workspace_root)).build()
+    workspace.reconcile()
+
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("inspect workspace")
+    await context.open_segments(CalendarDate(2026, 7, 12))
+    bus = SignalBus()
+    llm = FakeLLM(
+        (
+            _json_result(
+                {
+                    "answer": "Alpha and beta are present.",
+                    "source_ids": ["source_1", "source_2"],
+                }
+            ),
+        )
+    )
+    action = _action_engine(
+        workspace=workspace,
+        workspace_context=context,
+        workspace_bus=bus,
+        workspace_llm=llm,
+    )
+    normalization = action.normalize(
+        (
+            ToolCallRecord(
+                id="read_1",
+                name="workspace.read",
+                arguments={
+                    "link": "workspace:a.md",
+                    "start_line": 1,
+                    "end_line": 1,
+                },
+                kind=ToolKind.ACTION,
+            ),
+            ToolCallRecord(
+                id="search_1",
+                name="workspace.search",
+                arguments={
+                    "query": "needle",
+                    "scope": {"kind": "workspace", "locator": ""},
+                },
+                kind=ToolKind.ACTION,
+            ),
+            ToolCallRecord(
+                id="analyze_1",
+                name="workspace.analyze",
+                arguments={
+                    "intent": "Compare the selected files.",
+                    "reference_links": ["workspace:a.md", "workspace:b.md"],
+                },
+                kind=ToolKind.ACTION,
+            ),
+        )
+    )
+    scope = (
+        RunScope()
+        .push(RunLevel.AGENT, "program")
+        .push(RunLevel.TURN, turn_id)
+        .push(RunLevel.CYCLE, "cycle_1")
+        .push(RunLevel.PHASE, CyclePhase.PHASE3.value)
+    )
+
+    outcome = await Phase3Unit(context=context, action=action, bus=bus).run(
+        normalization=normalization,
+        scope=scope,
+        cycle_id="cycle_1",
+        turn_id=turn_id,
+    )
+
+    assert [result.status.value for result in outcome.results] == [
+        "success",
+        "success",
+        "success",
+    ]
+    assert len(llm.calls) == 1
+    entries = context.seal_trace().entries
+    assert len(entries) == 3
+    for entry in entries[:2]:
+        assert entry.visible_overlay is not None
+        assert isinstance(entry.visible_overlay.parts[0], JsonPart)
+        assert isinstance(entry.message.parts[0], JsonPart)
+        assert "alpha needle" in str(entry.visible_overlay.parts[0].value)
+        assert "alpha needle" not in str(entry.message.parts[0].value)
+    assert entries[2].visible_overlay is None
+    assert isinstance(entries[2].message.parts[0], JsonPart)
+    analyze_payload = entries[2].message.parts[0].value["payload"]
+    assert isinstance(analyze_payload, dict)
+    assert analyze_payload["answer"] == ("Alpha and beta are present.")
+    assert context.compress(required_chars=0).folded_overlay_count == 2
+    assert all(entry.visible_overlay is None for entry in context.seal_trace().entries)
+
+    summary = context.end_turn()
+    assert "alpha needle" not in str(summary.trace)
+    assert "Alpha and beta are present." in str(summary.trace)
+
+
+async def test_phase1_returns_invalid_domain_selection_for_next_cycle() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("answer now")
+    await context.open_segments(CalendarDate(2026, 7, 12))
+    action = _action_engine()
+    bus = SignalBus()
+    llm = FakeLLM(
+        (
+            _tool_result(
+                ToolCallRecord(
+                    id="select_bad",
+                    name="select_action_domains",
+                    arguments={"domains": ["missing"]},
+                    kind=ToolKind.CONTROL,
+                )
+            ),
+            _tool_result(
+                ToolCallRecord(
+                    id="select_ok",
+                    name="select_action_domains",
+                    arguments={"domains": ["core"]},
+                    kind=ToolKind.CONTROL,
+                )
+            ),
+        )
+    )
+    scope = (
+        RunScope()
+        .push(RunLevel.TURN, turn_id)
+        .push(RunLevel.PHASE, CyclePhase.PHASE1.value)
+    )
+
+    outcome = await Phase1Unit(
+        context=context,
+        action=action,
+        llm=llm,
+        bus=bus,
+        task_profile="framework",
+    ).run(scope=scope, cycle_id="cycle_1")
+
+    assert outcome.selected_domains == ()
+    assert outcome.attempts == 1
+    assert outcome.failure is not None
+    assert outcome.failure.reason == "invalid_domain_selection"
+    assert len(llm.calls) == 1
+
+
+async def test_phase1_returns_provider_failure_for_next_cycle() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("answer now")
+    await context.open_segments(CalendarDate(2026, 7, 12))
+    action = _action_engine()
+    llm = FakeLLM(
+        (
+            _task_failure("Expected forced tool call: select_action_domains"),
+            _tool_result(
+                ToolCallRecord(
+                    id="select_core",
+                    name="select_action_domains",
+                    arguments={"domains": ["core"]},
+                    kind=ToolKind.CONTROL,
+                )
+            ),
+        )
+    )
+
+    outcome = await Phase1Unit(
+        context=context,
+        action=action,
+        llm=llm,
+        bus=SignalBus(),
+        task_profile="framework",
+    ).run(
+        scope=RunScope()
+        .push(RunLevel.TURN, turn_id)
+        .push(RunLevel.PHASE, CyclePhase.PHASE1.value),
+        cycle_id="cycle_1",
+    )
+
+    assert outcome.selected_domains == ()
+    assert outcome.failure is not None
+    assert outcome.failure.reason == "framework_task_failure"
+    assert len(llm.calls) == 1
+
+
+async def test_phase1_invalid_selection_returns_local_failure() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("answer now")
+    await context.open_segments(CalendarDate(2026, 7, 12))
+    action = _action_engine()
+    bus = SignalBus()
+    llm = FakeLLM(
+        (
+            _tool_result(
+                ToolCallRecord(
+                    id="select_bad",
+                    name="select_action_domains",
+                    arguments={"domains": ["missing"]},
+                    kind=ToolKind.CONTROL,
+                )
+            ),
+            _tool_result(
+                ToolCallRecord(
+                    id="select_bad_2",
+                    name="select_action_domains",
+                    arguments={"domains": ["also_missing"]},
+                    kind=ToolKind.CONTROL,
+                )
+            ),
+        )
+    )
+    scope = (
+        RunScope()
+        .push(RunLevel.AGENT, "program")
+        .push(RunLevel.TURN, turn_id)
+        .push(RunLevel.CYCLE, "cycle_1")
+        .push(RunLevel.PHASE, CyclePhase.PHASE1.value)
+    )
+
+    outcome = await Phase1Unit(
+        context=context,
+        action=action,
+        llm=llm,
+        bus=bus,
+        task_profile="framework",
+    ).run(scope=scope, cycle_id="cycle_1")
+
+    assert outcome.selected_domains == ()
+    assert outcome.failure is not None
+    assert outcome.failure.reason == "invalid_domain_selection"
+    assert outcome.attempts == 1
+    assert outcome.failure.feedback
+    assert len(llm.calls) == 1
+    assert context.trace_kinds() == (TraceKind.PHASE_NOTE,)
+
+
+async def test_phase1_applies_working_reconciliation_before_returning() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("finish current work")
+    await context.open_segments(CalendarDate(2026, 7, 12))
+    action = _action_engine()
+    bus = SignalBus()
+    llm = FakeLLM(
+        (
+            _tool_result(
+                ToolCallRecord(
+                    id="select_workspace",
+                    name="select_action_domains",
+                    arguments={"domains": ["workspace"]},
+                    kind=ToolKind.CONTROL,
+                ),
+                ToolCallRecord(
+                    id="start_report",
+                    name="set_todo",
+                    arguments={
+                        "key": "report",
+                        "content": "Write the report",
+                        "status": "in_progress",
+                    },
+                    kind=ToolKind.CONTROL,
+                ),
+            ),
+            _tool_result(
+                ToolCallRecord(
+                    id="select_core",
+                    name="select_action_domains",
+                    arguments={"domains": ["core"]},
+                    kind=ToolKind.CONTROL,
+                ),
+                ToolCallRecord(
+                    id="finish_report",
+                    name="set_todo",
+                    arguments={
+                        "key": "report",
+                        "content": "Write the report",
+                        "status": "done",
+                    },
+                    kind=ToolKind.CONTROL,
+                ),
+            ),
+        )
+    )
+    turn_scope = RunScope().push(RunLevel.AGENT, "program").push(RunLevel.TURN, turn_id)
+    unit = Phase1Unit(
+        context=context,
+        action=action,
+        llm=llm,
+        bus=bus,
+        task_profile="framework",
+    )
+
+    outcome_1 = await unit.run(
+        scope=turn_scope.push(RunLevel.CYCLE, "cycle_1").push(
+            RunLevel.PHASE, CyclePhase.PHASE1.value
+        ),
+        cycle_id="cycle_1",
+    )
+    outcome = await unit.run(
+        scope=turn_scope.push(RunLevel.CYCLE, "cycle_2").push(
+            RunLevel.PHASE, CyclePhase.PHASE1.value
+        ),
+        cycle_id="cycle_2",
+    )
+
+    assert outcome_1.selected_domains == ("workspace",)
+    assert outcome.selected_domains == ("core",)
+    assert context.working_snapshot()["todos"] == [
+        {"key": "report", "content": "Write the report", "status": "done"}
+    ]
+
+
+async def test_phase1_maps_loop_scope_failure_to_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    context.begin_turn("answer now")
+    await context.open_segments(CalendarDate(2026, 7, 12))
+    action = _action_engine()
+    duplicate_scope = context.control_scope()
+    monkeypatch.setattr(
+        ActionEngine,
+        "phase1_scope",
+        lambda _self: duplicate_scope,
+    )
+
+    with pytest.raises(RuntimeException) as raised:
+        (
+            await Phase1Unit(
+                context=context,
+                action=action,
+                llm=FakeLLM(()),
+                bus=SignalBus(),
+                task_profile="framework",
+            ).run(
+                scope=RunScope().push(RunLevel.PHASE, CyclePhase.PHASE1.value),
+                cycle_id="cycle_1",
+            )
+        )
+
+    assert raised.value.reason == RUNTIME_TURN_END
+    assert raised.value.payload["kind"] == "loop.contract_violation"
+
+
+async def test_phase2_returns_framework_failure_for_next_cycle() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("answer now")
+    await context.open_segments(CalendarDate(2026, 7, 12))
+    action = _action_engine()
+    bus = SignalBus()
+    llm = FakeLLM(
+        (
+            _task_failure("missing tool call"),
+            _task_failure("still missing tool call"),
+        )
+    )
+    scope = (
+        RunScope()
+        .push(RunLevel.AGENT, "program")
+        .push(RunLevel.TURN, turn_id)
+        .push(RunLevel.CYCLE, "cycle_1")
+        .push(RunLevel.PHASE, CyclePhase.PHASE2.value)
+    )
+
+    outcome = await Phase2Unit(
+        context=context,
+        action=action,
+        llm=llm,
+        bus=bus,
+        task_profile="framework",
+    ).run(
+        selected_domains=("core",),
+        scope=scope,
+        cycle_id="cycle_1",
+        turn_id=turn_id,
+    )
+
+    assert outcome.normalization.calls == ()
+    assert outcome.attempts == 1
+    assert outcome.failure is not None
+    assert outcome.failure.reason == "framework_task_failure"
+    assert len(llm.calls) == 1
+    assert context.trace_kinds() == (TraceKind.PHASE_NOTE,)
+
+
+async def test_cycle_stops_after_phase2_failure_without_running_phase3() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("write a report")
+    await context.open_segments(CalendarDate(2026, 7, 12))
+    action = _action_engine()
+    bus = SignalBus()
+
+    class _Phase1:
+        async def run(self, **_kwargs: object) -> Phase1Outcome:
+            return Phase1Outcome(selected_domains=("core",))
+
+    class _Phase2:
+        async def run(self, **_kwargs: object) -> Phase2Outcome:
+            return Phase2Outcome(
+                normalization=ActionNormalization(),
+                failure=PhaseFailure(
+                    phase=CyclePhase.PHASE2,
+                    reason="framework_task_failure",
+                    feedback=("Phase2 did not produce an action call.",),
+                ),
+            )
+
+    class _Phase3:
+        calls = 0
+
+        async def run(self, **_kwargs: object) -> Phase3Outcome:
+            self.calls += 1
+            return Phase3Outcome()
+
+    phase3 = _Phase3()
+    runner = CycleRunner(
+        context=context,
+        bus=bus,
+        trap=RuntimeTrap(registry=TrapHandlerRegistry()),
+        phase1=cast(Phase1Unit, _Phase1()),
+        phase2=cast(Phase2Unit, _Phase2()),
+        phase3=cast(Phase3Unit, phase3),
+    )
+    scope = RunScope().push(RunLevel.AGENT, "program").push(RunLevel.TURN, turn_id)
+
+    outcome = await runner.run(
+        turn_id=turn_id,
+        cycle_index=1,
+        scope=scope,
+    )
+
+    assert outcome.phase_failure is not None
+    assert outcome.phase_failure.phase is CyclePhase.PHASE2
+    assert phase3.calls == 0
+
+
+async def test_phase3_returns_conflicting_answer_intents_as_local_failure() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("answer now")
+    await context.open_segments(CalendarDate(2026, 7, 12))
+    action = _action_engine()
+    bus = SignalBus()
+    scope = (
+        RunScope()
+        .push(RunLevel.AGENT, "program")
+        .push(RunLevel.TURN, turn_id)
+        .push(RunLevel.CYCLE, "cycle_1")
+        .push(RunLevel.PHASE, CyclePhase.PHASE3.value)
+    )
+    normalization = action.normalize(
+        (
+            ToolCallRecord(
+                id="answer_1",
+                name="core.answer",
+                arguments={"guide_blocks": [{"text": "answer"}]},
+                kind=ToolKind.ACTION,
+            ),
+            ToolCallRecord(
+                id="answer_2",
+                name="core.answer",
+                arguments={"guide_blocks": [{"text": "answer"}]},
+                kind=ToolKind.ACTION,
+            ),
+        )
+    )
+
+    outcome = await Phase3Unit(
+        context=context,
+        action=action,
+        bus=bus,
+        completion_detector=AnswerCompletionDetector(),
+    ).run(normalization=normalization, scope=scope, cycle_id="cycle_1", turn_id=turn_id)
+    assert outcome.failure is not None
+    assert outcome.failure.reason == "conflicting_turn_intents"
+    assert outcome.completion is None
+    assert context.turn_active is True
+
+
+async def test_phase3_rejects_misdirected_internal_update_even_from_another_call() -> (
+    None
+):
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("reason now")
+    await context.open_segments(CalendarDate(2026, 7, 12))
+    action = _action_engine()
+    bus = SignalBus()
+    scope = (
+        RunScope()
+        .push(RunLevel.AGENT, "program")
+        .push(RunLevel.TURN, turn_id)
+        .push(RunLevel.CYCLE, "cycle_1")
+        .push(RunLevel.PHASE, CyclePhase.PHASE3.value)
+    )
+    old_scope = (
+        RunScope().push(RunLevel.AGENT, "program").push(RunLevel.TURN, "old_turn")
+    )
+    bus.emit(
+        build_workspace_sync_signal(
+            WorkspaceSnapshot(),
+            call_id="stale_workspace_call",
+            scope=old_scope,
+            source="test.stale",
+        )
+    )
+    normalization = action.normalize(
+        (
+            ToolCallRecord(
+                id="reason_1",
+                name="core.reason",
+                arguments={
+                    "guide_blocks": [{"text": "reason"}],
+                    "output_blocks": [{"text": "return json"}],
+                },
+                kind=ToolKind.ACTION,
+            ),
+        )
+    )
+
+    with pytest.raises(RuntimeException) as raised:
+        await Phase3Unit(context=context, action=action, bus=bus).run(
+            normalization=normalization,
+            scope=scope,
+            cycle_id="cycle_1",
+            turn_id=turn_id,
+        )
+    assert raised.value.payload["kind"] == "loop.internal_failure"
+
+
+async def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("scan now")
+    await context.open_segments(CalendarDate(2026, 7, 12))
+    bus = SignalBus()
+    old_scope = (
+        RunScope().push(RunLevel.AGENT, "program").push(RunLevel.TURN, "old_turn")
+    )
+
+    def emit_invalid_sync(execution, execution_context):
+        signal_bus = execution_context.signal_bus
+        assert signal_bus is not None
+        signal_bus.emit(
+            build_workspace_sync_signal(
+                WorkspaceSnapshot(),
+                call_id=execution.call.call_id,
+                scope=old_scope,
+                source="test.current",
+            )
+        )
+        return {"scanned": True}
+
+    action = (
+        FunctionActionEngineBuilder(builtin_catalog())
+        .register_function("core.answer", lambda execution, context: {"text": "done"})
+        .register_function("core.reason", lambda execution, context: {"ok": True})
+        .register_function(
+            "home.resource.delete", lambda execution, context: {"deleted": True}
+        )
+        .register_function(
+            "home.resource.patch", lambda execution, context: {"patched": True}
+        )
+        .register_function(
+            "home.resource.read", lambda execution, context: {"read": True}
+        )
+        .register_function(
+            "home.resource.write", lambda execution, context: {"written": True}
+        )
+        .register_function(
+            "home.top.delete", lambda execution, context: {"deleted": True}
+        )
+        .register_function(
+            "home.top.patch", lambda execution, context: {"patched": True}
+        )
+        .register_function(
+            "home.top.write", lambda execution, context: {"written": True}
+        )
+        .register_function("home.top.search", lambda execution, context: {"items": []})
+        .register_function("memory.inspect", lambda execution, context: {"items": []})
+        .register_function("memory.memorize", lambda execution, context: {"digest": ""})
+        .register_function("memory.recall", lambda execution, context: {"text": ""})
+        .register_function(
+            "home.prompt_mount.patch", lambda execution, context: {"patched": True}
+        )
+        .register_function(
+            "home.prompt_mount.write", lambda execution, context: {"written": True}
+        )
+        .register_function(
+            "core.context.inspect",
+            lambda execution, context: {},
+            handler="context.inspect",
+        )
+        .register_function(
+            "workspace.delete", lambda execution, context: {"deleted": True}
+        )
+        .register_function(
+            "workspace.describe", lambda execution, context: {"described": True}
+        )
+        .register_function(
+            "workspace.edit", lambda execution, context: {"patched": True}
+        )
+        .register_function(
+            "workspace.restore", lambda execution, context: {"restored": True}
+        )
+        .register_function(
+            "workspace.trash_list", lambda execution, context: {"items": []}
+        )
+        .register_function("workspace.list", emit_invalid_sync)
+        .register_function(
+            "workspace.append", lambda execution, context: {"appended": True}
+        )
+        .register_function(
+            "workspace.compose", lambda execution, context: {"created": True}
+        )
+        .mark_actions_unsupported(
+            "core.wait",
+            "core.job.status",
+            "core.job.stop",
+            "core.job.wait",
+            "core.ask",
+            *EXECUTION_ACTIONS,
+            "workspace.convert_with_markitdown",
+            "workspace.convert_with_pypdf",
+            "web.discover_pages",
+            "web.fetch_with_defuddle",
+            "web.fetch_with_trafilatura",
+            "web.search_by_kimi",
+            "workspace.analyze",
+            "workspace.write",
+            "workspace.move",
+            "workspace.mkdir",
+            "workspace.tag",
+            "workspace.read",
+            "workspace.search",
+        )
+        .build()
+    )
+    scope = (
+        RunScope()
+        .push(RunLevel.AGENT, "program")
+        .push(RunLevel.TURN, turn_id)
+        .push(RunLevel.CYCLE, "cycle_1")
+        .push(RunLevel.PHASE, CyclePhase.PHASE3.value)
+    )
+    normalization = action.normalize(
+        (
+            ToolCallRecord(
+                id="scan_1",
+                name="workspace.list",
+                arguments={},
+                kind=ToolKind.ACTION,
+            ),
+        )
+    )
+
+    with pytest.raises(RuntimeException) as raised:
+        (
+            await Phase3Unit(context=context, action=action, bus=bus).run(
+                normalization=normalization,
+                scope=scope,
+                cycle_id="cycle_1",
+                turn_id=turn_id,
+            )
+        )
+
+    assert raised.value.payload["kind"] == "loop.internal_failure"
+
+
+def _action_engine(
+    *,
+    memory: MemoryEngine | None = None,
+    workspace: WorkspaceEngine | None = None,
+    workspace_context: ContextEngine | None = None,
+    workspace_bus: SignalBus | None = None,
+    workspace_llm: FakeLLM | None = None,
+) -> ActionEngine:
+    builder = (
+        FunctionActionEngineBuilder(builtin_catalog())
+        .register_function("core.answer", lambda execution, context: {"text": "done"})
+        .register_function("core.reason", lambda execution, context: {"ok": True})
+        .register_function(
+            "home.resource.delete", lambda execution, context: {"deleted": True}
+        )
+        .register_function(
+            "home.resource.patch", lambda execution, context: {"patched": True}
+        )
+        .register_function(
+            "home.resource.read", lambda execution, context: {"read": True}
+        )
+        .register_function(
+            "home.resource.write", lambda execution, context: {"written": True}
+        )
+        .register_function(
+            "home.top.delete", lambda execution, context: {"deleted": True}
+        )
+        .register_function(
+            "home.top.patch", lambda execution, context: {"patched": True}
+        )
+        .register_function(
+            "home.top.write", lambda execution, context: {"written": True}
+        )
+        .register_function("home.top.search", lambda execution, context: {"items": []})
+        .register_function(
+            "home.prompt_mount.patch", lambda execution, context: {"patched": True}
+        )
+        .register_function(
+            "home.prompt_mount.write", lambda execution, context: {"written": True}
+        )
+        .register_function(
+            "core.context.inspect",
+            lambda execution, context: {},
+            handler="context.inspect",
+        )
+        .mark_actions_unsupported(
+            "core.wait",
+            "core.job.status",
+            "core.job.stop",
+            "core.job.wait",
+            "core.ask",
+            *EXECUTION_ACTIONS,
+            "workspace.convert_with_markitdown",
+            "workspace.convert_with_pypdf",
+            "web.discover_pages",
+            "web.fetch_with_defuddle",
+            "web.fetch_with_trafilatura",
+            "web.search_by_kimi",
+        )
+    )
+    if workspace is None:
+        builder = (
+            builder.register_function(
+                "workspace.delete", lambda execution, context: {"deleted": True}
+            )
+            .register_function(
+                "workspace.describe", lambda execution, context: {"described": True}
+            )
+            .register_function(
+                "workspace.edit", lambda execution, context: {"patched": True}
+            )
+            .register_function(
+                "workspace.restore", lambda execution, context: {"restored": True}
+            )
+            .register_function(
+                "workspace.trash_list", lambda execution, context: {"items": []}
+            )
+            .register_function(
+                "workspace.list", lambda execution, context: {"scanned": True}
+            )
+            .register_function(
+                "workspace.append", lambda execution, context: {"appended": True}
+            )
+            .register_function(
+                "workspace.compose", lambda execution, context: {"created": True}
+            )
+            .mark_actions_unsupported(
+                "core.wait",
+                "core.job.status",
+                "core.job.stop",
+                "core.job.wait",
+                "workspace.analyze",
+                "workspace.write",
+                "workspace.move",
+                "workspace.mkdir",
+                "workspace.tag",
+                "workspace.read",
+                "workspace.search",
+            )
+        )
+    else:
+        if workspace_context is None or workspace_bus is None or workspace_llm is None:
+            raise AssertionError(
+                "Real Workspace actions require Context, SignalBus, and LLM"
+            )
+        register_workspace_actions(
+            builder,
+            workspace=WorkspaceService(workspace),
+            bus=workspace_bus,
+            llm_action=LLMActionTaskRunner(
+                llm_runner=workspace_llm,
+                context=workspace_context,
+            ),
+        )
+    if memory is None:
+        builder.register_function(
+            "memory.inspect",
+            lambda execution, context: {"items": []},
+        ).register_function(
+            "memory.memorize",
+            lambda execution, context: {"digest": ""},
+        ).register_function(
+            "memory.recall",
+            lambda execution, context: {"text": ""},
+        )
+    else:
+        register_memory_actions(
+            builder,
+            memory=MemoryService(memory),
+            runtime_bridge=RuntimeMemoryBridge(),
+        )
+    return builder.build()
+
+
+def _tool_result(*tool_calls: ToolCallRecord) -> TaskResult:
+    return TaskResult.success(
+        raw_response=RawResponse(
+            answer_text="",
+            model_id="fake",
+            provider_id="fake",
+            tool_calls=tool_calls,
+        ),
+        answer=None,
+        tool_calls=tool_calls,
+    )
+
+
+def _json_result(value: JsonObject) -> TaskResult:
+    return TaskResult.success(
+        raw_response=RawResponse(
+            answer_text="{}",
+            model_id="fake",
+            provider_id="fake",
+        ),
+        answer=JsonAnswer(value),
+        tool_calls=(),
+    )
+
+
+def _task_failure(feedback: str) -> TaskResult:
+    return TaskResult.failure_result(
+        raw_response=RawResponse(
+            answer_text="",
+            model_id="fake",
+            provider_id="fake",
+        ),
+        failure=TaskFailure(model_feedback=feedback),
+    )
+
+
+def _message_stack_text(stack: MessageStack) -> str:
+    return "\n".join(
+        part.text
+        for message in stack.messages
+        for part in message.parts
+        if isinstance(part, TextPart)
+    )
+
+
+def _stack() -> MessageStack:
+    return MessageStack()

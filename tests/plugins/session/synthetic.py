@@ -18,11 +18,16 @@ from tinysoul.kernel.context import (
     ContextTurnCompletion,
     ContextTurnInput,
 )
-from tinysoul.kernel.action.core.call import ExecutionState
-from tinysoul.kernel.context.trace import SealedTurnTrace, TraceAction, TraceEntry, TraceKind
+from tinysoul.kernel.action.call import ExecutionState
+from tinysoul.kernel.context.builtin.trace import (
+    SealedTurnTrace,
+    TraceAction,
+    TraceEntry,
+    TraceKind,
+)
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm import AssistantMessage, ToolResultMessage
-from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolResultStatus
+from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind, ToolResultStatus
 from tinysoul.runtime import CyclePhase
 
 
@@ -88,21 +93,36 @@ def completion(
                 payload=action.result,
                 failure=failure,
             )
-            facts.append(TraceAction(
-                cycle_id="cycle_1",
-                call=ActionCall(call_id=f"call_{index}", action_name=action.name,
-                                params=action.request, sequence=index + 1),
-                state=ExecutionState.SETTLED,
-                result=ActionResult(
-                    result_id=f"result_{index}",
-                    call_id=f"call_{index}", action_name=action.name,
-                    sequence=index + 1, status=action.status,
-                    stage=envelope.stage, payload=action.result, failure=failure,
-                    trace_projection=ActionTraceProjection(
-                        origin_refs=action.references, canonical_payload=action.result,
-                    ) if action.references else None,
-                ),
-            ))
+            facts.append(
+                TraceAction(
+                    cycle_id="cycle_1",
+                    call=ActionCall(
+                        call_id=f"call_{index}",
+                        action_name=action.name,
+                        params=action.request,
+                        sequence=index + 1,
+                    ),
+                    state=ExecutionState.SETTLED,
+                    result=ActionResult(
+                        result_id=f"result_{index}",
+                        call_id=f"call_{index}",
+                        action_name=action.name,
+                        sequence=index + 1,
+                        status=action.status,
+                        stage=envelope.stage,
+                        payload=action.result,
+                        failure=failure,
+                        trace_projection=(
+                            ActionTraceProjection(
+                                origin_refs=action.references,
+                                canonical_payload=action.result,
+                            )
+                            if action.references
+                            else None
+                        ),
+                    ),
+                )
+            )
             entries.append(
                 TraceEntry(
                     entry_id=f"result_{index}",
@@ -123,5 +143,7 @@ def completion(
         inputs=(ContextTurnInput(text=ask, received_at=received_at),),
         working=working or {},
         background_links=background_links,
-        trace=SealedTurnTrace(turn_id=turn_id, entries=tuple(entries), actions=tuple(facts)),
+        trace=SealedTurnTrace(
+            turn_id=turn_id, entries=tuple(entries), actions=tuple(facts)
+        ),
     )

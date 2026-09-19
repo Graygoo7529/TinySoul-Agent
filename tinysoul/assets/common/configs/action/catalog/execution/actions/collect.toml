@@ -1,0 +1,24 @@
+name = "execution.collect"
+domain = "execution"
+[tool]
+description = "Read bounded incremental output and exit facts from a Turn-owned execution Job."
+[tool.schema]
+type = "object"
+required = ["job_id"]
+additionalProperties = false
+[tool.schema.properties.job_id]
+type = "string"
+[tool.schema.properties.stdout_cursor]
+type = "integer"
+[tool.schema.properties.stderr_cursor]
+type = "integer"
+[tool.schema.properties.max_chars]
+type = "integer"
+[semantic]
+use_when = ["A process output page or terminal fact is needed"]
+effects = ["read_only"]
+[runtime]
+parallel_policy = "serial"
+[backend]
+kind = "native"
+handler = "execution.collect"

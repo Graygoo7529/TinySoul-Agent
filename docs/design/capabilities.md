@@ -4,7 +4,7 @@
 
 Capabilities 承载不拥有独立持久化、Link namespace 或 Runtime/Trap 生命周期的轻量业务能力。它把真实用户能力接入 Action，而不建立与 Workspace、Home、Memory、Session 平行的状态模块。
 
-一个 capability 负责自身的业务配置、依赖需求、service/client/converter 和 Action executor 适配。Action 继续拥有 Catalog、Phase2 工具协议、Phase3 调度、超时和结果回放；Infra 只提供配置和依赖检查等通用机制；App 只完成装配。
+一个 capability 负责自身的业务配置、依赖需求、service/client/converter 和 Action executor 适配。Action 继续拥有 Catalog、Phase2 工具协议、Phase3 调度、超时和结果回放；Infra 只提供配置和依赖检查等通用机制；Agent 只完成装配。
 
 ## 组织原则
 
@@ -30,20 +30,12 @@ Capabilities 共用 `[capabilities]` 顶层命名空间，但项目文件按能�
 ```text
 configs/capabilities/
   resource.toml
-  script.toml
-  shell.toml
-  supervised_process.toml
   web.toml
 ```
 
 文件拆分只影响维护位置，不改变 TOML section identity。每个 capability parser 只解释自己的子树并拒绝未知键。Infra 的 ConfigEnvironment 负责 include、合并、来源诊断和环境覆盖，不拥有 capability 业务字段。
 
-项目 Action Catalog 拥有 Action runtime activation，`[runtime].enabled` 只决定是否向 Agent 暴露；
-Capability 配置拥有环境能力是否启用、adapter、格式范围、依赖、凭据和资源上限。Capability registrar
-不读取 Action activation，也不会因为 Action 配置关闭而跳过依赖、凭据、service 或 executor 装配。
-当 Capability 自身关闭或 adapter 不支持某个 Action 时，registrar 将其明确标记为
-`unsupported`。ActionEngine 最终只暴露同时 enabled 与 supported 的 Action，没有有效 Action 的
-Domain 同时从 effective Catalog 移除；configured Catalog 仍保留用于设置展示。
+项目 Action Catalog 的 visibility 负责情景选择，capability 配置负责后端、adapter、依赖、凭据与资源上限。registrar 显式注册获授动作，缺少支持的动作标为 unsupported；最终有效集合为 grants、情景选择和 backend 支持的交集。关闭动作可见性不跳过已启用后端的依赖检查。
 
 ## 依赖需求与可用性
 
@@ -69,8 +61,7 @@ capability enabled=true + dependencies unavailable
   -> App 启动失败，报告 action、requirement、distribution/module/executable 和原因
 ```
 
-这套 support 规则不读取 Action `[runtime].enabled`。Action disabled 只在 Builder 形成 effective
-Catalog 时生效；若 Capability 仍 enabled，其依赖与凭据错误仍必须使候选 Generation 失败。
+后端 support 与 Action visibility 分别计算。若 capability 仍启用，其依赖与凭据错误必须使候选 Generation 失败。
 
 启动检查不能替代执行期防御。环境在启动后被修改、worker 导入失败或外部二进制不可运行时，单次 action 仍返回局部失败；配置形态错误和 capability 装配不变量失败保留模块边界语义。
 
@@ -80,26 +71,18 @@ Action 名称由用户可区分的行为决定。通常不应只因实现库不�
 
 Capability 不重复实现 Action backend。需要硬停止的第三方解析、外部程序或不受信任输入处理必须复用 Action 的受控 process 原语；业务 executor 只负责运行前 staging 和完成后业务提交。
 
-## 共用监督执行层
+## 执行与临时资源
 
-Script 与 Shell 都需要让进程在启动 Action 返回后继续运行，并在同一 Turn 的后续 Cycle 中观察、等待、停止或收尾。`tinysoul/plugins/capabilities/supervised_process/` 提供共用进程 backend 和候选资源操作；它不是模型可见 domain，不建立 Skill、Link namespace 或独立持久状态。通用监督操作由 Kernel JobRegistry 及 `core.job.status/stop/wait` 提供，实际等待由 Loop 负责。
+独立进程能力位于 `plugins/execution`，由 `kernel/jobs` 统一监督，不属于 capabilities。详见 [execution](execution.md)。Web/resource 的有界 worker 继续通过 Action 子进程适配器执行，与 execution 共用 `infra/process` 的进程原语。
 
-共用层拥有 Turn-scoped 单 job manager、日志/候选观察、apply/discard 协调、候选 executor 和 cleanup，并复用注入的 Workspace transaction mirror service。同一 Turn 跨 Script/Shell 最多一个 unresolved job；启动 action 返回 job_id，通用监督使用 job_id，候选操作使用同值 execution_id，在当前 Turn 内解析实际 owner。`tinysoul.plugins.workspace` 继续拥有 mirror、diff、baseline CAS 和 bundle mutation；共享层不能复制这些规则。Script/Shell 仍各自拥有启动 action schema、source/command policy、依赖、handler 和结果解释；共享层不能退化为接受任意 params 的通用 run executor。
-
-配置使用 `[capabilities.supervised_process]` 承载共用的 runtime/log/mirror/candidate 上限；等待条件与 deadline 由 Loop 统一解释。Script 只保留 source、Python/Bash 和 authoring 相关设置，Shell 只保留 interpreter/command 相关设置。原 `[capabilities.script]` 共用键已一次性迁移，不保留 alias；未知旧键显式失败。
-
-Action backend 已从 `script` 迁移为 `supervised_process`。同步 `subprocess` 必须在当前 Action batch 内结束；`supervised_process` 可以保留 Turn-scoped job，但 run/wait/stop/read/apply/discard 每个 Action 仍在自己的 batch 内收敛。模型侧 Script/Shell Action 合并进宽泛的 `execution` Domain，但两个 Capability 包及配置保持独立；Resource conversion 同理并入 `workspace` Domain。Domain 用于 Stage1 大致方向选择，不要求与 Capability 或 handler owner 一一对应。受控进程与同步子进程都复用 `tinysoul/kernel/action/backends/process.py`，而不是复制进程启动和终止代码。
-
-需要产生中间文件的 capability 共用 App 按项目根装配的 `runtime/.staging/`，由 Infra 的 staging manager 提供启动清理、唯一 action 子目录和作用域结束清理。该目录是无业务身份的短期执行设施，不属于 Workspace、Session、Home、Memory 或 archive；capability 不自行创建平行 temp root。原子写同目录临时文件、subprocess 输出捕获和项目 initializer staging 具有不同语义，不纳入此 capability staging 根。
+需要产生中间文件的 capability 共用 Agent 按项目根装配的 `runtime/.staging/`，由 Infra 的 staging manager 提供启动清理、唯一 action 子目录和作用域结束清理。该目录是无业务身份的短期执行设施，不属于 Workspace、Session、Home、Memory 或 archive；capability 不自行创建平行 temp root。原子写同目录临时文件、subprocess 输出捕获和项目 initializer staging 具有不同语义，不纳入此 capability staging 根。
 
 ActionResult 是否包含正文由 action 的交互语义和明确上限决定，而不是 capability 全局固定为 metadata-only。生成长期或可继续处理 artifact 的 action 只返回 Link、状态和有界摘要；本来就属于当前交互的短搜索结果可以直接进入 TurnTrace，但必须先规范化并受 action 专属上限约束，超限正文写入 Workspace 后只返回保持稳定 shape 的预览和 Link。图片字节、base64、原始供应商响应、未规范化网页正文和无界诊断始终不能进入 ActionResult。
 
 当前具体能力设计：
 
 - Resource conversion：`docs/design/capabilities/resource.md`；
-- Web search/fetch：`docs/design/capabilities/web.md`；
-- Script authoring/execution：`docs/design/capabilities/script.md`；
-- Shell immediate command execution：`docs/design/capabilities/shell.md`。
+- Web search/fetch：`docs/design/capabilities/web.md`。
 
 ## 失败语义
 

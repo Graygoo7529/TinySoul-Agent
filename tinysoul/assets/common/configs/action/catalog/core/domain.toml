@@ -1,0 +1,10 @@
+name = "core"
+description = "Turn-level reasoning, conversation completion, and progressive inspection of current context, prior sessions, and memory."
+selection_hint = "Use when the next step is to inspect internal state, preserve useful current memory, reason, or answer."
+
+[visibility]
+default = true
+
+[runtime]
+timeout_seconds = 60
+parallel_policy = "allowed"

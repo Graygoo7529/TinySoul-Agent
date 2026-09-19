@@ -1,0 +1,32 @@
+name = "workspace.tag"
+domain = "workspace"
+
+[tool]
+description = "Replace owner-maintained resource tags. Tags do not extend the daily lifecycle."
+
+[tool.schema]
+type = "object"
+required = ["target_link","tags"]
+additionalProperties = false
+
+[tool.schema.properties]
+
+[tool.schema.properties.target_link]
+type = "string"
+
+[tool.schema.properties.tags]
+type = "array"
+
+[tool.schema.properties.tags.items]
+type = "string"
+enum = ["pinned","tmp","library"]
+
+[semantic]
+effects = ["modifying"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "native"
+handler = "workspace.tag"

@@ -1,275 +1,65 @@
 # Workspace 设计
 
-## 状态
+## 所有权与内部边界
 
-本文描述 Workspace 模块的当前设计。代码已包含独立 Workspace 模块，并完成 `workspace:` 链接解析、workspace 根目录配置、manifest reconciliation、类型化资源访问、WorkspaceSnapshot 全量同步、文件变更 action 和 Runtime bridge 接入。
+Workspace 是当前 CalendarDay 的文件、目录、索引与 Trash owner。磁盘是内容事实；manifest 保存可重建的分类、大小和时间信息，以及不可因扫描而丢弃的标签与说明。Working 段只接收 Link/summary 投影，不保存文件正文。
 
-当前实现覆盖 Workspace 的完整磁盘 reconciliation、显式 business day、Turn 启动语境投影、类型化资源发现、语义描述、扫描诊断、显式有界文本读取、确定性字面量搜索、明确多 Link 分析、内部临时 task prompt 输入、bounded document read、可回滚 bundle mutation、文件变更、可恢复 Trash 和日终归档。`workspace.delete` 是活动日内逻辑删除；Trash 在日切时与 Workspace 分别进入统一时间戳归档，新日 active API 不追踪旧日 Trash。
+对外装配入口是 WorkspaceEngineBuilder/WorkspaceEngine；Action、SDK 与 Endpoint 通过 WorkspaceService 调用同一个 owner。服务由 Agent 注入世代与日级准入作用域，切换后旧对象失效。归档访问使用 WorkspaceArchiveView，只读目标日快照，旧日 Link 不解析到新日同名文件。
 
-## 定位
+内部 storage 封装 manifest、reconcile、文件变更与 Trash，inspection 提供有界文本/图像/文档读取和搜索。Engine 组合这些职责并拥有同一进程内锁、日期与变更发布。actions 按显式操作、LLM 生成/分析和结果投影划分，不建立第二份文件或索引状态。
 
-Workspace 模块负责 TinySoul 当日工作区的资源管理，是 `workspace:` 链接的唯一语义归属方。
+## 文件与轻量索引
 
-WorkspaceEngine 拥有文件与 manifest，WorkspaceSegment 只维护一个 Turn 的资源投影；Workspace 不拥有整个 Context，不解释外部输入命令，也不读取 Agent Home。`WorkspaceEngine` 不直接执行模型调用；需要 LLM 的 workspace action executor 在 ActionExecutor 语义内构造 `TaskPrompt`，并通过 action 层共享 `LLMActionTaskRunner` 调用模型。Workspace 通过注册的 context 更新路由同步资源摘要，并通过自身门面处理 workspace 链接解析、路径边界、资源扫描、manifest 更新和文件读写。
+资源身份使用 `workspace:<relative-path>`。owner 拒绝绝对路径、越界、内部元数据目录以及 symlink/junction 跳转。目录也是可列举、标记、移动和删除的资源。pinned/tmp/library 标签只表达使用意图，不影响日生命周期，也不授予自动删除或跨日保留权。
 
-WorkspaceSnapshot、更新 codec 和 revision 冲突判断均属于 Workspace。provider 每 Turn 新建空视图，准备 handler 完成 reconcile 后发送初始全量快照，Action 后续发送已提交快照。段在 prepare 中计算候选、install 中替换引用；旧 revision 不回退视图，同 revision 冲突经 Workspace bridge 结束当前流程，不成为普通模型反馈。render 只投影 Link/summary，seal 保留 owner 快照；Context 不再持有 Workspace 私有字段或解析 Workspace 更新。关闭段释放本轮视图，不关闭 Engine。
+Manifest schema v4 严格校验字段与版本，不接受旧 CAS 格式。reconcile 根据磁盘更新派生字段，保留同一 Link 的说明与标签；外部程序改写内容不会抹去人工元数据。扫描受数量上限约束并返回覆盖情况；未完整扫描时保留原 manifest，不能把未访问资源当作删除。不能解释的存储数据作为 owner 不变量失败报告，不自动清空或迁移。
 
-Action 通过 WorkspaceService 调用有界本地读取和写入，ServiceScope 复用 Action 的 JoinedOperations；混合动作在读取后异步调用 LLM，再进入独立的 owner 提交。提交和 Workspace snapshot 通知一同完成后返回真实结果，已提交的成功不会因调用方随后取消而丢失；取消传播仍由 Action runner 在记录执行事实后负责。
+同一 Engine 的短操作由可重入锁串行化，单文件内容使用原子替换。没有 digest/revision、read-set、mtime CAS 或提交前来源复验。外部进程共写时可能覆盖内容，owner 锁不构成跨进程锁或文件系统快照。调用方须明确创建/覆盖意图。
 
-## 设计目标
+## 行动与提交
 
-1. `workspace:` 链接有唯一解析和校验入口，避免路径规则散落在 app、action 或具体工具函数中。
-2. Working 槽位中的 workspace 段只保存资源句柄和摘要，不保存文件正文、图片字节或长内容；plan 段只维护 todos 与 milestones。
-3. workspace 文件内容只在具体 action 执行期读取；隐式或无界整文件读取禁止，显式有界 inspection 可以把片段作为当前 Turn 的 foldable ActionResult overlay，action-internal LLM 仍只使用临时 task prompt。
-4. `workspace.scan` 保持现有外部行为，但扫描规则、摘要格式和 WorkingContext patch 构造迁入 Workspace 模块。
-5. workspace 根目录、忽略规则、manifest 损坏、路径越界和读写失败有清楚的失败语义。
-6. App 只负责装配 Workspace 门面，不再直接扫描目录或解释 `workspace:` 链接。
+| 行动 | 行为 |
+|---|---|
+| list/search/read | 有界列举、literal/regex 搜索和显式正文读取 |
+| write | 写入明确 UTF-8 文本，默认拒绝覆盖已有目标 |
+| edit/append | 有序精确替换或追加，验证完整结果后一次写入 |
+| move/mkdir | 移动文件/目录或创建目录，已有目标冲突不覆盖 |
+| delete/restore/trash_list | 可恢复删除、按原位置恢复、查询仍持有内容的 Trash |
+| tag/describe | 维护标签与说明；describe 的模型输入只在当前 Action 中存在 |
+| compose/analyze | 局部模型生成完整文本工件，或基于显式来源返回结构化分析 |
 
-## 边界
+edit 对每一项在前项结果中检查匹配，零匹配或歧义均失败；后项失败不留下前项修改。append 和生成覆盖也受 owner 的完整写入上限约束。move 更新资源及子项的元数据身份，不重写已保存的 Session 引用。
 
-Workspace 的核心职责：
+Resource/Web 通过 write_bundle 预检全部目标、覆盖策略及待删旧资产，在同一锁内依次提交并刷新索引。每个文件原子替换，多个文件不构成断电事务。后续文件或索引失败时，WorkspaceIOError 保留 committed_links；已发生的副作用不回滚，也不伪称整个操作未执行。
 
-- 管理当日 workspace 根目录；
-- 解析和规范化 `workspace:` 链接；
-- 校验文件路径是否位于 workspace 根目录内；
-- 扫描资源并维护 manifest；
-- 生成 WorkingContext 可消费的资源摘要；
-- 为 action 模块提供 workspace action 的 native handler 或 executor；
-- 在需要时读取、写入或删除 workspace 文件；
-- 在日级生命周期中归档 workspace。
+Trash 条目保存原身份、说明、标签、子项元数据和内容。内容存在是可恢复事实，没有多阶段 marker 或恢复 Trap。移动未发生或恢复已完成的仅元数据条目不列为可恢复内容；损坏或丢失元数据作为边界失败，原内容保留。恢复目标存在时返回局部冲突。Archive 的日切 journal 是不同的确定性存储协议，继续由 Archive owner 维护。
 
-当前实现已经承担扫描、manifest、链接解析、单资源摘要刷新、扫描跳过诊断、有界读取、PromptBlock 解析、workspace actions、active day 初始化/校验，以及完整 reconcile 后把 workspace/trash 移入跨模块 pending archive；调度仍不属于 Workspace。
+## 有界读取与模型输入
 
-Workspace 不负责：
+小文本可以完整读取，大文本按显式行范围和 continuation 渐进读取，结果标明覆盖与截断。continuation 表达同一读取请求的下一位置，不锁定文件版本；外部改写后分页可能看到新内容。编码、图像真实格式、字节大小和模型图像能力均在各自入口校验；二进制资源不自动注入语境。
 
-- 把文件正文写入 BackgroundContext、WorkingContext 或 Session record；
-- 决定 Phase1/Phase2 的行动策略；
-- 维护 Agent Home 的 skills 或 Memory 模块的 MEMORY；
-- 解析终端、HTTP、WebSocket 等外部输入；
-- 直接修改 Context 内存状态。
+search 明确区分文件、目录前缀和整个 Workspace。字符扫描、候选、片段与结果总大小各有预算，返回覆盖原因和紧凑行定位。正则使用 regex 的超时执行能力，每次搜索共享 0.2 秒匹配预算；超时报告不完整覆盖，不能当作零命中。搜索经 joined owner 边界执行，不阻塞事件循环。
 
-跨模块协作只通过四类边界完成：workspace link、action 调用、context signal、builder 注入。
+read/search 的有界正文可在当前交互暂时展开，后续 Trace 折叠为紧凑定位事实。正文不进入 Working 或持久 Session 的资源摘要。LLM 内部任务通过 target_link/reference_links 局部读取，Phase2 只生成 Link 和意图。
 
-## 链接语义
+compose 合并新建与替换生成。已有目标必须完整读入允许的写入预算；目标截断时在调用模型前失败，引导改用 edit/append。模型输出不完整、超限或取消时不提交。完整文本在 Action 内存中交给 owner，成功只返回元数据。生成期间不持文件锁，最终也不比较来源版本。analyze 消费明确有界来源，结论通过所属结果协议校验。
 
-`workspace:` 链接表示工作区内资源句柄，格式为：
+## Turn、进程与日切
 
-```text
-workspace:<relative-posix-path>
-```
+Turn preparation、必要查询以及受控进程结束后进行 reconcile。execution 经窄内部接口取得真实当天 cwd 和输出位置，默认每个 Job 独立目录；文件即时存在，collect 只读取输出。停止或取消不回滚已写文件，详见 [Execution 与 Job](execution.md)。
 
-链接规则：
+活动 Turn 从准备到全部收尾持有同一日 lease；跨午夜 Job 仍使用旧日根。下一根请求前，Archive 协调各 owner 归档 Session、Workspace 和 active Trash，再建立新日。Home overlay 与持久 Memory 不随 Workspace 归档。
 
-- 路径必须是相对路径；
-- 路径分隔符使用 `/`；
-- 不允许空路径、绝对路径、盘符、反斜杠、`.` 段或 `..` 段；
-- 解析后的真实路径必须位于 workspace 根目录内；
-- 符号链接若指向根目录外，应按越界处理；
-- 链接只表达资源位置，不承诺资源当前一定存在。
+WorkspaceSignal 携带 owner 资源快照，Workspace 段在正常边界整体替换投影，没有版本序号或第二份索引。Context 压力只收缩模型投影，不移动或删除文件。真实文件监控来源属于后续环境能力，现有同步接点不等于已部署 watcher。
 
-Workspace 模块应提供 `WorkspaceLink` 或等价值对象，在 `__post_init__` 中完成格式校验。模块内部不应使用裸字符串拼接构造路径。
+## 失败与观察
 
-## 资源模型
+链接不存在、范围无效、编辑歧义、覆盖冲突或模型输出无效属于可修正局部结果。根不可用、索引/Trash 损坏和持久提交失败停在 Workspace 边界，经所属 runtime_bridge 转换，不伪装成参数反馈。Runtime payload 只保留 module/kind、错误类型和已提交 Link 等有限事实，不包含原始异常、绝对路径、traceback 或正文。
 
-Workspace manifest 记录资源摘要，而不是资源内容。一个资源记录至少表达：
+短 owner 操作开始后必须 join，再传播取消；长模型/进程工作使用各自执行生命周期。已提交文件与后续索引失败、取消或观察失败分别表达。
 
-- `link`：`workspace:` 资源链接；
-- `path`：workspace 内相对路径；
-- `kind`：`text`、`image`、`document` 或 `binary`；
-- `summary`：给 WorkingContext 和模型看的短摘要；
-- `size`：字节大小；
-- `mtime_ns`：纳秒精度修改时间，用于扫描缓存与提交复核；
-- `digest`：内容摘要，用于变更检测和 description 绑定；
-- `description` / `described_digest`：可选语义描述及其绑定的内容摘要。
-- `retention`：`ephemeral`、`turn`、`day` 或 `persistent`；
-- `owner_turn_id`：产生该资源的 Turn，可用于生命周期回收和审计。
+Engine 在成功提交后发布 workspace.changed，包含 created/updated/removed/affected Links。Action、SDK、Endpoint、转换能力共用该入口。Observation 是旁路，sink 失败不改变资源事实；Context 更新由类型化 Signal 消费。
 
-投影到 Context 时只提交轻量信息。Workspace owner 的 `WorkspaceResource` 表达 Link/summary；新增资源语义也由 Workspace 定义，不把完整 manifest 塞进 trace。模型 MessageStack 先渲染 TurnTrace、再渲染 Working 槽位，因此 workspace 段表达交互历史之后的当前状态；模型投影不带 `as_of_trace` 或 revision。
+## 验证
 
-## Manifest
-
-Manifest 是 workspace 的当前资源索引和轻量语义描述层。磁盘是内容事实源；Manifest 只在完整 reconciliation 后原子提交；WorkingContext workspace 段是相同 revision 的 Turn 内投影，并在模型输入中位于可能引用旧 Workspace revision 的 TurnTrace 之后。它用于：
-
-- 避免每次 Phase 都扫描全目录；
-- 识别资源新增、修改、删除；
-- 为 WorkingContext 提供稳定摘要；
-- 支持日终归档和调试。
-
-Manifest 读写属于 Workspace 模块。Manifest 文件应放在 workspace 根目录的框架子目录中，或放在 runtime 元数据目录中；无论采用哪种位置，都不应暴露为普通 `workspace:` 资源，避免模型误把框架索引当作用户资源。
-
-Manifest 损坏属于 Workspace 模块边界失败。启动或装配阶段会主动加载并校验 manifest，损坏时映射为 Workspace 启动失败；运行期损坏同样显式失败，不静默重建。Manifest revision 只在资源事实或有效语义描述发生变化时递增，无变化 reconciliation 保持 revision。
-
-Manifest schema 当前为 v3，新增 ISO business day；读取 v1/v2 时迁移为未标记 legacy state，由 Reflection Archive coordinator 按 active Session day 认领。磁盘、Manifest 与 WorkingContext 的一致性通过“磁盘事实 -> 完整 reconciliation -> Manifest 原子提交 -> 版本化全量 Context snapshot”建立。任何需要缩减 Workspace 语境的行为必须先改变 active Workspace/Manifest，不能只在 Context 中隐藏仍然 active 的资源。
-
-## Trash 与压力回收
-
-Trash 固定位于 active Workspace root 内部的 `.tinysoul/trash`，由 module-owned ignore 规则排除在资源 Manifest 和 `workspace:` 链接之外。删除采用 prepare-record、原子移动 content、reconciliation、COMMITTED marker 的顺序；启动时发现未提交移动会恢复到原路径。Restore 在目标不存在时反向移动，重新 reconciliation，并恢复原 retention 与 owner 元数据。活动日 Trash 保留记录、原因、day、来源 Turn 和原资源摘要，因而是可恢复删除而不是物理销毁。
-
-语境压力恢复只选择 `ephemeral` 和 `turn` 资源，按 retention、mtime、link 确定性排序；`day`、`persistent` 以及当前 action payload 标记的 target/reference links 不会被自动清理。批量移动中途失败必须反向 restore 已移动项。资源移入 Trash 后必须把新 Manifest 全量同步给 Context；Context 拒绝同步时协调器尝试逐项 restore。Workspace 不自行决定何时触发压力恢复，Loop 只负责跨模块编排，实际资源规则仍归 Workspace 所有。
-
-Trash 是 active Workspace 的内部暂存区，不是第二份资源 Manifest。Trash record 必须基于移动瞬间实际磁盘内容；只有当前 digest 与 Manifest digest 一致时才能继承 description 和 lifecycle 元数据。active miss 只对 `context_pressure` 等框架暂存原因抛出 `workspace.trash_restore_required`。用户显式执行 delete 不触发自动恢复。日切时 Trash 先移到 pending archive 的独立 `trash/`，随后再移动剩余 Workspace root；崩溃发生在两次移动之间时，重复 `archive_day` 根据 source/target 存在性继续。归档后旧 Trash 不再由 list/restore 暴露。
-
-资源分类使用 Workspace 自有的显式扩展名/MIME 映射，稳定分为 `text`、`image`、`document`、`binary`。text 以有界 UTF-8 文本进入 Prompt；image 在 Workspace 单文件限制与 Context 总图片字节预算内以 `ImagePart` 进入 Prompt，并在构造 ImagePart 前校验 PNG/JPEG/GIF/WebP 内容签名，扩展名与内容不符时显式失败；document 必须先由显式转换 action 生成 Markdown 等可读资源；binary 当前只提供元数据。确定性 summary 始终存在，可选 description 由 `workspace.describe` 生成并通过 `described_digest` 绑定当前内容，digest 变化时 reconciliation 自动清除旧 description。
-
-## 目录与生命周期
-
-Workspace 具有当日属性。当前运行结构为：
-
-```text
-runtime/
-  session/
-  workspace/
-  home/
-archive/
-  <timezone-timestamp>/
-    transition.json
-    session/
-    workspace/
-    trash/
-```
-
-Workspace 模块只管理 `runtime/workspace` 或配置传入的 workspace root。日切时旧 Workspace 与 active Trash 被移出 runtime，分别进入统一时间戳归档的 `workspace/`、`trash/`；新日 runtime Workspace 从空 Manifest 开始。日终归档由 workspace 门面提供归档能力，但跨模块调度不属于 Workspace 自身。Home/Memory Reflection 都不通过 active Trash API 追踪或恢复旧日 Trash，Home runtime 也不参与 Workspace 的日切事务。
-
-当前实现默认使用 `runtime/workspace` 作为 workspace root。Manifest 与 Trash 路径固定为 module-owned `.tinysoul/workspace_manifest.json`、`.tinysoul/trash`，不再允许配置到 active root 外；`configs/workspace.toml` 配置 root、通用读取/扫描上限、写入工件上限、忽略规则，以及嵌套的确定性搜索和分析预算。Workspace 模块解析配置并拒绝嵌套未知键；Action Catalog 不复制这些业务预算。AgentBuilder 只传递 section tree并构建门面。
-
-## Action 接入
-
-Workspace action 继续走 action 模块的既有机制：TOML 描述模型可见工具和框架配置，Workspace 模块提供后端 handler。
-
-当前已实现的 `workspace.scan` 行为：
-
-1. 扫描 workspace 根目录；
-2. 应用忽略规则和数量限制；
-3. 更新 manifest；
-4. 发出带 Manifest revision 的 `context.workspace.sync` 全量快照（空快照也发出）；
-5. 返回 compact JSON payload，包含资源数量、链接摘要、跳过数量、跳过原因计数和是否达到扫描上限。
-
-当前 inspection action 具有三种不同职责：
-
-- `workspace.read` 接受一个明确 UTF-8 text Link、1-based 闭区间、可选 cursor/字符上限/expected digest。Engine 以固定字符块扫描指定行范围，调用方上限只能收紧 Workspace 的 `max_read_chars`；结果包含请求和实际位置、正文、截断原因、续读 cursor/position 与 EOF 事实。显式范围偶然覆盖很短的完整文件是允许的，禁止的是隐式或无界整文件读取。
-- `workspace.search_text` 接受单行字面量 query 和显式 file/directory/workspace scope，不接受 regex。Tool scope 统一使用 `{kind, locator}`：file 的 locator 是完整 Workspace Link，directory 的 locator 是 prefix，workspace 的 locator 为空；目录 prefix 是选择器而不是新的 Link 类型。候选按 Link、命中按行号稳定排序，重叠上下文合并为片段。scan budget 决定 `coverage.complete`，result budget 决定 fragments、额外 line hints 与 `truncated`，二者不能混为一个标记；不区分大小写匹配使用 Unicode casefold，但长行裁剪和列位置始终映射回原文字符坐标，片段必须保留实际来源 match span。
-- `workspace.analyze` 只接受 Phase2 已选择的非空、去重 text `reference_links` 和有界 intent，不接受目录或 Workspace scope，也不在 Phase3 重新选择资源。每个 reference 必须完整进入一次 action-internal LLM task；任一单文件、Link 数量或合计 source 超出 analysis budget 时，不调用 LLM，而是返回带 Link/digest/size 诊断的局部失败。成功输出只含有界 answer、经过 executor 验证的 source ids 映射和 coverage，不携带原始正文，不修改 Workspace 或发布 snapshot。
-
-`workspace.read` 与 `workspace.search_text` 的成功结果使用 Catalog 声明的 foldable trace mode：正文只存在于当前 Turn visible overlay；canonical payload 删除正文但保留 Link、digest、范围/hints 和 coverage，Context pressure 可移除 overlay，Session completion 只投影 compact locator 业务结果。Workspace 资源可变且按日归档，compact locator 不承诺跨日恢复原片段。`workspace.analyze` 返回的是有界整理结论，使用 standard trace；原始 references 只存在于 action-internal prompt。
-
-当前已实现的 `workspace.describe` 行为：
-
-1. 解析并校验一个可直接读取的 text/image `target_link`；
-2. 在 action 内部把资源局部挂载为 TextPart/ImagePart，并调用 LLM 生成简短 description；
-3. 提交前重新执行 reconciliation 和 digest 校验，把 description 绑定当前 digest；
-4. 原子更新 Manifest revision，并发出完全一致的 `context.workspace.sync`；
-5. 返回 compact 元数据，不返回文件正文或图片字节。
-
-reconciliation 达到文件数量上限或出现非内部资源读取失败时状态为 incomplete：保留旧 Manifest，不发布全量 Context snapshot。变更 action 在这种情况下回滚磁盘修改；显式 `workspace.scan` 返回局部失败和诊断。
-
-普通正文临时输入由 `WorkspaceEngine.prepare_task_input` 提供。create/rewrite 使用更强的 `prepare_edit_sources`：Engine 在一次锁内读取 target 与全部显式 references，生成正文块及 `WorkspaceEditReadSet`，其中每个 `WorkspaceResourceVersion` 明确记录 Link、present/absent state、digest、size 和 kind。target 不得与 reference 重复，references 必须唯一；prompt builder 只消费这次实际读取的 `WorkspaceEditSources`，不再二次 inspect/read 或另行构造 provenance。`WorkspaceEngine.read_text_slice` 继续服务模块内部前缀/行读取；公开 inspection 使用具有 digest、闭区间和 cursor 结果语义的 `read_text_range`。`WorkspacePromptReferenceResolver` 负责普通 `workspace:` reference 到 Context `PromptBlock` 的转换；`WorkspaceAnalysisPromptBuilder` 组合 intent、完整 references 和 grounded JSON 输出协议。Phase2/Phase3 边界只传递 Link、明确 inspection scope/range 和 intent，不传递正文。除 foldable read/search 的有界 visible overlay 外，调用方不得把正文作为普通 ActionResult payload 或 WorkingContext 资源摘要保存。
-
-本地 Resource conversion 使用两个更窄的 Workspace 门面：`read_document` 只完整读取已登记的 document resource，并同时校验配置字节上限、实际大小和 digest；`write_bundle` 在同一 Engine 锁内预检全部 write/delete Link、覆盖和 digest 条件，再写入文件并只做一次完整 reconciliation。bundle 中任一写入、删除、reconciliation 或最终 Manifest 保存失败时恢复操作前字节与 Manifest；成功返回的所有 record 属于同一个 revision。该语义仍服从单进程单写者边界，不宣称断电事务或跨进程 CAS。
-
-当前已实现的变更类 action：
-
-- `workspace.create`：接收新 `target_link`、`instruction` 和可选 `reference_links`，在 action 内部生成 bounded 完整文本并创建资源；目标存在时失败；
-- `workspace.append`：接收已有 text `target_link`、精确 `text` 和可选 `expected_digest`，在 Engine 锁内追加一个受 Workspace owner 限制的 UTF-8 片段；
-- `workspace.patch`：基于 `old_text` 到 `new_text` 的精确单点替换修改资源，可用 `expected_digest` 防止陈旧编辑；
-- `workspace.delete`：把资源移入可恢复 Trash；
-- `workspace.restore`：按 Trash ref 恢复原资源及生命周期元数据；
-- `workspace.trash.list`：列出 Trash ref、原链接、摘要、原因和来源 Turn，不返回文件正文；
-- `workspace.rewrite`：接收已有 `target_link`、`instruction` 和可选 `reference_links`，在 action 内部加载目标与参考正文，调用 LLM 生成完整替换文本并写回目标资源；
-
-这些 action 使用 `target_link` 参数表达实际变更对象。追加内容由 `workspace.append` 执行，精确局部修改由 `workspace.patch` 执行，完整文本生成由 create/rewrite 的 action-internal LLM task 完成。`workspace.create`、`workspace.rewrite` 和 `workspace.analyze` 显式使用 600 秒 action deadline，使 prompt 构造、模型请求、模型链内有界重试/切换、结果解释和 Workspace 提交共享各自 action 的取消边界；普通 Workspace action 继续继承 domain 的 30 秒默认值。这些 action 级 deadline 只扩大嵌套 LLM 工作的正常运行窗口，不增加 LLM 重试次数，也不改变失败分层：deadline 到期仍收敛为局部 ActionResult，且 cancellation contract 阻止 action-internal LLM 在超时后继续重试或提交。
-
-`workspace.create/rewrite` 的 action-internal task 使用纯文本回答作为完整 UTF-8 工件，不再要求 `{"text": ...}` JSON wrapper。两者使用 WorkspaceSettings 的 `max_write_chars` 作为完整工件硬上限（默认 12000，可按项目配置调整），并把同一上限传给内部 task 的字符校验、generation guard 和最终 commit。Workspace Catalog 不重复声明 `backend.options.max_output_chars/max_output_tokens`，避免形成第二套写入配置。provider 明确报告输出上限、其它未完成状态，或完整文本超过上限时，executor 返回带 scope/disposition 的局部失败且不写入文件、不发布 Workspace snapshot。`workspace.rewrite` 需要完整目标正文才能保证未修改内容不丢失；目标读取被截断时在 LLM 调用前返回 `target_truncated`，引导先读取必要范围并改用 `workspace.patch` 或 `workspace.append`，而不是生成一个基于前缀的完整替换。append/patch 片段都受相同单次写入上限约束。LLM 在锁外执行，完成后 `commit_edit_text` 在一次锁内验证完整 read set：target 必须仍是相同 digest 或仍不存在，每个 reference 必须仍 present 且 digest 相同；任一变化返回稳定 `source_changed` failure，不提交生成文本。全部通过后才写入、完整 reconcile 并发布一次同 revision snapshot。成功 ActionResult 只返回资源版本/provenance 元数据，不返回正文。
-
-每个成功 action 最终执行完整 reconciliation，以原子 Manifest 作为磁盘投影，再发布同 revision、同资源全集的 `context.workspace.sync`；成功结果只返回元数据，不返回正文。执行失败优先收敛为 ActionResult，且不发布同步信号；RuntimeException 由 Action runner 原样传播到 Module/Trap。
-
-## Context 接入
-
-WorkspaceEngine 不依赖 Context 类型。`workspace/projection.py` 是 Workspace 拥有的 Context 集成边界，统一把 Manifest records 转成 WorkspaceSnapshot，并供 action executor 与 Turn preparation 共用。Turn 开始时先完整 reconcile 并提交 snapshot，使首个 Phase1 已能看到资源摘要；Context 以 revision 检查顺序和冲突后整体替换 Workspace 段。
-
-`WorkspaceReconciler` 专门负责磁盘发现、旧 digest/description/lifecycle 复用、完整性判定、候选状态复核和 Manifest 原子提交。`WorkspaceEngine` 负责资源操作、Trash/restore 与变更回滚，并以进程内可重入锁串行化同一 Engine 实例上的 inspect/read/task-input、write、patch、trash、restore、description 和 reconciliation。
-
-`WorkspaceEngine` 同时是 committed Manifest transition 的 Observation owner。initialize、公开 reconcile、write、bundle、patch、description、trash 和 restore 只在最终成功提交后各发布一次 normal `workspace.changed`；内部 reconciliation、回滚和中间 Manifest 不发布。事件包含 previous/current revision，以及 created/updated/removed/all affected links，可同时覆盖 Endpoint/UI mutation、Agent Workspace action、Capability bundle 和外部磁盘变更。发布经注入的 `ObservationEmitter` 进入 App `ObservationRouter`，sink 失败不能改变已经提交的 Workspace 结果。
-
-Workspace 的明确一致性等级是“单进程单写者、Engine 实例内线性化”。没有外部文件写入者时，同一 Engine 的公开读写按锁获取顺序观察完整操作；数据文件原子替换和 Manifest 原子替换各自不会暴露半写文件。二者不是一个跨文件系统事务：内容提交后 Manifest 提交失败时，Engine 尝试用操作前字节回滚；Trash/restore 使用 prepare、原子移动、reconcile、commit marker，并由启动 reconciliation 修复未完成移动。
-
-Workspace 不提供跨进程锁、文件系统快照或外部 writer 的强一致性。`expected_digest` 是基于操作前实际字节计算的乐观前置条件，而不是锁住外部写入者的 CAS；create/append/patch/rewrite/description 会读取真实字节校验，因而即使外部修改刻意保持 size/mtime，也不会仅依赖缓存摘要接受旧 expected digest，但外部进程仍可能在校验后再次写入。普通 read 也不保证在外部并发写入下正文与返回元数据来自同一快照。普通 Reconciler scan 使用 size/mtime 复用既有 digest，并在提交前复核候选状态；Workspace-owned single/bundle mutation 明确把已写 Link 交给 Reconciler 强制重算 digest，因此即使原子替换后的 size 与 `mtime_ns` 恰好都未变化，成功结果和 Manifest 仍绑定新字节。外部写入若同时伪造相同 size/mtime，可能到后续强制读取或元数据变化时才被发现。因此支持的强语义要求 active Workspace 只有 TinySoul 一个 writer；无法约束外部写入时，一致性是 best-effort 并应由调用环境额外协调。
-
-桌面 Endpoint 也复用同一 Engine 实例，不把 active Workspace 暴露给前端文件 API。UI mutation 额外提交 Manifest `expected_revision`，Engine 在同一可重入锁内先校验 revision，再执行原有 resource digest guard 和 mutation；trash 同样要求 digest，restore 要求 revision。Endpoint 在 Daily active-day lease 内调用这些门面，避免请求落入归档与新日初始化之间。Endpoint 不重复发布 Workspace event，只在自身 mutation 成功后通过 Gateway 协调活跃 Turn 的 Context snapshot。
-
-WorkingContext 与 BackgroundContext 不保存文件正文。Action 结果也不应默认把正文渲染为 tool result message；需要给模型继续处理的正文，优先在 action 内部进行分析、转化为临时 task prompt，或通过显式有界 read/search 返回。read/search 完整 payload 只作为当前 Turn visible overlay，compact payload 才进入可恢复 Context trace 并由 Session completion 投影；analyze 的 references 只进入内部 prompt，ActionResult 只保存结论与来源。
-
-## Infra 依赖
-
-Workspace 可以复用 infra 的基础文件能力，但 infra 不应了解 `workspace:` 业务语义。适合放入 infra 的能力包括：
-
-- 安全相对路径解析；
-- 根目录边界检查；
-- 文本和二进制读写；
-- JSON/TOML 稳定序列化；
-- 原子写入；
-- 文件摘要计算。
-
-忽略规则、manifest 字段、resource summary 和 `workspace:` 链接仍属于 Workspace。
-
-## 失败与 Runtime 桥接
-
-Workspace 失败分三层：
-
-1. 局部 action result：链接不存在、文件过大、编码失败、写入失败、参数不符合 workspace 规则；
-2. 模块边界异常：workspace root 不可用、manifest 无法解释、路径沙箱不变量破坏、模块调用契约错误；
-3. Runtime 语义异常：启动阶段配置失败映射为 `runtime.startup_failed`，运行期不可继续失败默认映射为 `runtime.turn_end`。
-
-Workspace 通过自身 `runtime_bridge.py` 将 `WorkspaceFailureKind` 转换为运行原因；Trash 恢复原因由 Workspace failures.py 声明。Runtime payload 只携带模块名、失败类型、资源 Link、Trash 引用、必要度量和错误类型，不携带绝对路径、文件正文或 traceback。Workspace 配置错误由自身 bridge 映射为 `runtime.startup_failed`。
-
-## 组装入口
-
-当前目录：
-
-```text
-tinysoul/plugins/workspace/
-  __init__.py
-  engine.py
-  config.py
-  links.py
-  manifest.py
-  reconcile.py
-  resources.py
-  projection.py
-  actions.py
-  prompts.py
-  search.py
-  text.py
-  errors.py
-  failures.py
-```
-
-`WorkspaceEngine` 是资源管理门面，除资源操作外提供 active day 初始化/校验、`archive_day(workspace_target, trash_target)` 和归档只读 manifest projection。`WorkspaceReconciler` 维护磁盘发现与 Manifest 提交事务；`projection.py` 只接受与 Turn 相同 business day 的 Manifest；`WorkspaceEngineBuilder` 负责接收已解析设置、校验 module-owned 路径、主动验证 manifest 并装配 store。Reflection Archive/Memory task 只调用这些门面，不理解 Workspace 内部资源路径。
-
-AgentBuilder 的目标职责是：
-
-1. 构建 `WorkspaceEngine`；
-2. 调用 Workspace 提供的 registrar 把 workspace handler/executor 注册到 `ActionEngineBuilder`；
-3. 不直接调用 `os.walk`，不构造 `WorkspaceResource`，不解释 `workspace:`。
-
-## 测试与验收
-
-验收点：
-
-- `workspace.scan`、`workspace.read`、`workspace.search_text`、`workspace.analyze`、`workspace.describe`、`workspace.create`、`workspace.append`、`workspace.patch`、`workspace.delete` 和 `workspace.rewrite` 行为测试位于 `tests/plugins/workspace/`；
-- AgentBuilder 不包含 workspace 扫描闭包；
-- `workspace:` 链接解析和越界防护有单元测试；
-- manifest 完整 reconciliation、incomplete 不提交、无变化 revision 稳定和 description digest 失效有单元测试；
-- Turn preparation 在首个 Phase 前投影完整 Manifest；
-- text/image/document/binary 分类、ImagePart 内容签名校验、图片预算和 document conversion_required 有单元测试；
-- Engine 内部有界文本前缀读取、公开 range/cursor 读取、确定性 file/directory/workspace 字面量搜索、`WorkspacePromptInput` 和 workspace link 到 PromptBlock 的局部解析都有边界测试；read/search 正文只进入 foldable visible overlay，Session 只保存投影后的 compact locator 业务结果；
-- `workspace.analyze` 覆盖完整 reference budget、超限不调用 LLM、虚构 source id 拒绝、standard result 不携带 reference 正文和无 Workspace mutation；
-- Workspace 配置错误经 workspace bridge 映射，并保留 `module = workspace`；
-- create/append/patch/delete/rewrite action 使用 `target_link` 表达变更目标；create/rewrite 在 action 内部调用 LLM 生成完整文本，append 追加精确片段，patch 确定性应用 Phase2 生成的小幅替换参数；执行失败应收敛为 `ActionResult`，成功结果不携带文件正文；
-- workspace 配置错误和 manifest 不变量错误经 Runtime bridge 映射；
-- Workspace 段测试保护资源摘要与 revision 判断，Context 测试保护跨段批次、组合顺序及生命周期。
-
-Document conversion action 已由 Resource capability 提供；日终 workspace/trash 归档与 partial resume 已有故障测试。
-
-## 公共异步服务
-
-WorkspaceService 是 Action、prompt 构造与 SDK/Endpoint 使用的资源门面，提供 Link 操作和有限读写约束，不暴露日切、归档、根目录或完整 Engine。真实磁盘事实仍由 WorkspaceEngine 维护；Service 不复制 manifest。SDK 取得的对象绑定世代和业务日，跨边界后在副作用前失效；需要连续读取、写入与 snapshot 的调用使用同一 operation 作用域。取消后的已提交修改先形成结果与 Workspace signal，再结束 Action。
+owner 测试覆盖创建/覆盖、编辑全或无、目录移动/恢复冲突、标签保留、损坏存储、扫描覆盖、正则超时、分页和局部生成。跨模块测试验证 Endpoint 共用服务、Context 压力不删除文件、真实进程跨午夜取消后才归档，以及旧日服务失效。旧 CAS、mirror、压力删除和 Trash 恢复状态机不作为保留契约。

@@ -1,0 +1,13 @@
+[reflection]
+timezone = "Asia/Shanghai"
+archive_root = "archive"
+
+[reflection.home]
+max_cycles = 20
+
+[reflection.memory]
+max_cycles = 20
+
+[reflection.schedule]
+enabled = true
+daily_time = "00:15"

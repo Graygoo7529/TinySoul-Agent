@@ -5,27 +5,27 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from tinysoul.kernel.action.core.call import ActionExecution
-from tinysoul.kernel.action.core.executor import ActionExecutionControl
-from tinysoul.kernel.action.core.result import (
+from tinysoul.kernel.action.call import ActionExecution
+from tinysoul.kernel.action.execution.executor import ActionExecutionControl
+from tinysoul.kernel.action.result import (
     ActionFailureDisposition,
     ActionLocalFailure,
     ActionResult,
     ActionResultStage,
 )
-from tinysoul.kernel.action.core.specs import ActionBackendSpec
+from tinysoul.kernel.action.catalog.specs import ActionBackendSpec
 from tinysoul.kernel.context import ContextEngine, PromptBlock, TaskPrompt
 from tinysoul.kernel.context.errors import ContextError
 from tinysoul.infra.config import ConfigError
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.errors import TaskCancelled
-from tinysoul.llm.requests import (
+from tinysoul.llm.protocol.requests import (
     CallSettings,
     ModelContextOverflowPolicy,
     TaskCall,
     TaskCancellation,
 )
-from tinysoul.llm.responses import (
+from tinysoul.llm.protocol.responses import (
     AnswerFormat,
     JsonAnswer,
     TaskResult,
@@ -33,12 +33,7 @@ from tinysoul.llm.responses import (
     TaskFailureReason,
     TextAnswer,
 )
-from tinysoul.llm.tools import ToolUse
-from tinysoul.kernel.context.failures import CONTEXT_COMPRESSION_REQUIRED
-from tinysoul.llm.failures import LLM_CONTEXT_CAPACITY_EXCEEDED
-from tinysoul.runtime import (
-    RuntimeException,
-)
+from tinysoul.llm.protocol.tools import ToolUse
 from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
 
 from tinysoul.kernel.action.config import LLMActionProfileResolver
@@ -63,7 +58,9 @@ class ActionSkillGuidance:
 class ActionSkillProvider(Protocol):
     """Provide domain and action skill text for nested LLM tasks."""
 
-    async def guidance_for(self, *, domain: str, action_name: str) -> ActionSkillGuidance:
+    async def guidance_for(
+        self, *, domain: str, action_name: str
+    ) -> ActionSkillGuidance:
         """Return skill snippets for one action execution."""
         ...
 
@@ -71,7 +68,9 @@ class ActionSkillProvider(Protocol):
 class EmptyActionSkillProvider:
     """Empty action skill provider used before Agent Home is connected."""
 
-    async def guidance_for(self, *, domain: str, action_name: str) -> ActionSkillGuidance:
+    async def guidance_for(
+        self, *, domain: str, action_name: str
+    ) -> ActionSkillGuidance:
         return ActionSkillGuidance()
 
 
@@ -137,13 +136,13 @@ class LLMActionTaskRunner:
     ) -> JsonObject | ActionResult:
         """Run one JSON-object LLM action task and normalize local failures."""
 
-        result = (await self._run(
+        result = await self._run(
             execution=execution,
             prompt=prompt,
             answer_format=AnswerFormat.JSON_OBJECT,
             subject=subject,
             control=control,
-        ))
+        )
         if isinstance(result, ActionResult):
             return result
         if not isinstance(result.answer, JsonAnswer):
@@ -167,14 +166,14 @@ class LLMActionTaskRunner:
     ) -> str | ActionResult:
         """Run one complete text-artifact task without returning it to Context."""
 
-        result = (await self._run(
+        result = await self._run(
             execution=execution,
             prompt=prompt,
             answer_format=AnswerFormat.TEXT,
             subject=subject,
             control=control,
             max_output_chars=max_output_chars,
-        ))
+        )
         if isinstance(result, ActionResult):
             return result
         if not isinstance(result.answer, TextAnswer):
@@ -242,7 +241,7 @@ class LLMActionTaskRunner:
         try:
             if cancellation is not None:
                 cancellation.check()
-            result = (await self._llm_runner.run(
+            result = await self._llm_runner.run(
                 TaskCall(
                     profile=self._profile_resolver.profile_for(
                         execution.call.action_name
@@ -262,11 +261,8 @@ class LLMActionTaskRunner:
                     ),
                     cancellation=cancellation,
                 )
-            ))
-            if (
-                cancellation is not None
-                and result.status is TaskResultStatus.SUCCESS
-            ):
+            )
+            if cancellation is not None and result.status is TaskResultStatus.SUCCESS:
                 cancellation.check()
         except TaskCancelled as exc:
             cancel_reason = str(exc)
@@ -307,29 +303,8 @@ class LLMActionTaskRunner:
                     "late_success": False,
                 },
             )
-        except RuntimeException as exc:
-            if exc.reason not in {
-                CONTEXT_COMPRESSION_REQUIRED,
-                LLM_CONTEXT_CAPACITY_EXCEEDED,
-            }:
-                raise
-            protected_links = _protected_resource_links(execution)
-            if not protected_links:
-                raise
-            raise RuntimeException(
-                reason=exc.reason,
-                message=exc.message,
-                payload={
-                    **exc.payload,
-                    "protected_resource_links": list(protected_links),
-                },
-            ) from exc
         except ContextError as exc:
-            protected_links = _protected_resource_links(execution)
-            payload: JsonObject | None = None
-            if protected_links:
-                payload = {"protected_resource_links": list(protected_links)}
-            raise self._context_bridge.from_context_error(exc, payload=payload) from exc
+            raise self._context_bridge.from_context_error(exc) from exc
         if result.status is TaskResultStatus.FAILURE:
             feedback = f"{subject} output did not satisfy its protocol."
             if result.failure is not None and result.failure.model_feedback:
@@ -462,19 +437,6 @@ def _failure_disposition(reason: str) -> ActionFailureDisposition:
     if reason in {"output_limit_reached", "content_filtered"}:
         return ActionFailureDisposition.CHANGE_REQUEST
     return ActionFailureDisposition.USE_FALLBACK
-
-
-def _protected_resource_links(execution: ActionExecution) -> tuple[str, ...]:
-    links: list[str] = []
-    target = execution.call.params.get("target_link")
-    if isinstance(target, str) and target:
-        links.append(target)
-    references = execution.call.params.get("reference_links", [])
-    if isinstance(references, list):
-        for link in references:
-            if isinstance(link, str) and link and link not in links:
-                links.append(link)
-    return tuple(links)
 
 
 def with_action_skills(prompt: TaskPrompt, skills: ActionSkillGuidance) -> TaskPrompt:

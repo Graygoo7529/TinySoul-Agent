@@ -1,5 +1,7 @@
 # Visualization 对接
 
+R3 后端使用 `/v1/reflection` 和 `reflection.*` 生命周期事件，配置 section 为 `agent/reflection`；Workspace 接口见 [Workspace](workspace.md)。以下前端目录与 client 名称描述现有组织，本轮未修改 visualization；对接时需迁移路由、事件筛选与旧 CAS 请求字段，后端不保留旧协议别名。
+
 Visualization 只通过 `TinySoulClient` 访问 Endpoint。客户端按领域分层：
 
 ```text

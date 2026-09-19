@@ -5,10 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from tinysoul.infra.json import JsonObject
-from tinysoul.llm.adapter_types import ProviderApiStyle
-from tinysoul.llm.messages import Message
-from tinysoul.llm.reasoning import Reasoning, ReasoningKeep
-from tinysoul.llm.tools import ToolSpec, ToolUse
+from tinysoul.llm.protocol.adapter_types import ProviderApiStyle
+from tinysoul.llm.protocol.messages import Message
+from tinysoul.llm.protocol.reasoning import Reasoning, ReasoningKeep
+from tinysoul.llm.protocol.tools import ToolSpec, ToolUse
 
 from ..base import ProviderError, ProviderErrorKind, ProviderRequest
 from .payloads import to_chat_tool, to_responses_tool

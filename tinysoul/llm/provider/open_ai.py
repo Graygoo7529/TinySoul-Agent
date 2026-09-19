@@ -5,13 +5,18 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from tinysoul.infra.json import JsonObject
-from tinysoul.llm.config import ProviderSpec
-from tinysoul.llm.adapter_types import AdapterKind
-from tinysoul.llm.messages import AssistantMessage, Message
-from tinysoul.llm.models import ModelCapability
-from tinysoul.llm.reasoning import ReasoningKeep
+from tinysoul.llm.config.loader import ProviderSpec
+from tinysoul.llm.protocol.adapter_types import AdapterKind
+from tinysoul.llm.protocol.messages import AssistantMessage, Message
+from tinysoul.llm.protocol.models import ModelCapability
+from tinysoul.llm.protocol.reasoning import ReasoningKeep
 
-from .base import ProviderError, ProviderErrorKind, ProviderFailureScope, ProviderRequest
+from .base import (
+    ProviderError,
+    ProviderErrorKind,
+    ProviderFailureScope,
+    ProviderRequest,
+)
 from .openai_sdk import (
     OpenAIAdapterBehavior,
     OpenAIResponsesAdapter,

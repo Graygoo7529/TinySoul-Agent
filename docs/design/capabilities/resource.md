@@ -29,8 +29,6 @@ workspace.convert_with_pypdf
 source_link: required Workspace document Link
 target_link: required Workspace .md Link
 overwrite: optional boolean, default false
-expected_source_digest: optional stale-source guard
-expected_target_digest: optional overwrite guard
 ```
 
 模型不能传入绝对路径、Workspace root、临时目录、解析器 argv、任意 Python 代码或 source format override。格式由 Workspace record 的 suffix/media type 与 action 支持范围确定。
@@ -52,11 +50,11 @@ workspace:converted/report.assets/page-003.png
 
 Resource 不能直接通过 `WorkspaceEngine.path_for()` 绕过资源边界。Workspace 提供：
 
-- bounded document read/stage，校验 kind、大小、digest 和并发变化；
-- bytes/text bundle write，预检全部 Link、覆盖和 digest guard；
-- 单锁内 staging、原子单文件替换、完整 reconciliation 和失败整体回滚；
-- 新目标继承 source retention；覆盖目标保留原 target retention；
-- bundle 提交后返回同一 revision 的 records/manifest。
+- bounded document read/stage，校验种类、编码与大小；
+- bytes/text bundle write，预检全部 Link、显式覆盖与旧资产范围；
+- 同一 owner 锁内逐文件原子替换并刷新索引，后续失败保留已提交 Link；
+- 标签与说明归 Workspace，无 retention 或内容 CAS；
+- 完成后返回当前 records/manifest，多文件不承诺整体回滚。
 
 转换 executor 在成功提交 bundle 后发送一次 `context.workspace.sync`。WorkingContext 因而在同一 Phase3 信号消费边界获得 Markdown、图片和附件摘要；ActionResult 仍只返回执行摘要。
 
@@ -128,6 +126,6 @@ extract_attachments = true
 
 以下为局部 ActionResult：不支持的 suffix、source/target Link 无效、source 过大、加密或损坏文档、输出/资源数量超限、目标冲突、worker 失败、无文本且无可提交图片、bundle 写入冲突。
 
-如果部分页面或嵌入资源无法提取，但仍有安全、可用输出，则提交完整 bundle，状态为 `partial` 并返回稳定 warning。只有完整输出通过 UTF-8、非空、字符上限、asset count/bytes、Link 范围和 digest 校验后才允许提交。
+如果部分页面或嵌入资源无法提取，但仍有安全、可用输出，则提交完整 bundle，状态为 `partial` 并返回稳定 warning。只有完整输出通过 UTF-8、非空、字符上限、asset count/bytes 与 Link 范围校验后才允许提交。
 
 配置非法、启用 action 缺少依赖以及 Catalog/registrar 装配矛盾属于启动或模块边界失败。worker 非零结果和 staged output/manifest 协议错误属于当前调用的局部 ActionResult，后者使用稳定 `worker_protocol_invalid` reason，不能泄露绝对路径或原始 traceback。Runtime transfer 原样传播；subprocess 超时或 commit point 前的取消收敛为 Action timeout 并清理临时目录，不留下半成品 Workspace 资源。

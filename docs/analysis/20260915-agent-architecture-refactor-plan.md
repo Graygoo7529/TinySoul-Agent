@@ -1,9 +1,9 @@
 # Agent 架构重构：设计语义、契约与执行计划
 
-状态：`in_progress`（R1 与 R2 收口均已完成并归档，2026-09-16 复审发现的生命周期、统一等待与服务边界缺口已关闭。S1、S2 为 done；S3–S7 未整体完成，保持原定范围）。
-修订日期：2026-09-17。初始复审代码：`e930c9c444deb0073ab3d7f016057245bad66ca6`（当次查询远端 HEAD 相同）；R2 分析基线为本地 `6821983`，本次未查询远端。
+状态：`in_progress`（R1、R2 收口与 R3 均已完成并归档。S1、S2 为 done；S3 的本轮领域重构已完成，organize/模型推导注释保留后续细化；S4–S7 未整体完成，保持原定范围）。
+修订日期：2026-09-19。初始复审代码：`e930c9c444deb0073ab3d7f016057245bad66ca6`（当次查询远端 HEAD 相同）；R2 分析基线为本地 `6821983`，本次未查询远端。
 
-本文件描述目标设计，不代表全部已实现。初始复审仅授权分析、修订计划与讨论；后续 R1/R2 已获明确实施授权，实际完成范围见第 13 节。确认状态见第 14 节。用户已确认架构方向，特别是受限 SUSPEND 与 Inbox 保障边界，并补充 Reflection 通用动作叠加、ACP 显式连接及 Working 呈现；未实施的具体签名与连接寿命仍标明建议。原“正文 + 替换预览”合并为单一方案，旧版由 Git 保存，不并行保留互相冲突的接口。API 为契约草图，具体名称与类型在子计划落定。
+本文件描述目标设计，不代表全部已实现。初始复审仅授权分析、修订计划与讨论；后续 R1/R2/R3 已获明确实施授权，实际完成范围见第 13 节。确认状态见第 14 节。用户已确认架构方向，特别是受限 SUSPEND 与 Inbox 保障边界，并补充 Reflection 通用动作叠加、ACP 显式连接及 Working 呈现；未实施的具体签名与连接寿命仍标明建议。原“正文 + 替换预览”合并为单一方案，旧版由 Git 保存，不并行保留互相冲突的接口。API 为契约草图，具体名称与类型在子计划落定。
 
 ## 1. 项目理解与重构意图
 
@@ -382,16 +382,16 @@ User 根 Turn 进入用户 Session，Reflection 不进入。当前 ACP 委派通
 
 User 的实际 Action surface 不含 Reflection 专属动作，注入的服务也限制写权限，不只靠提示词。子 profile 不继承超出父 profile 的长期写能力。
 
-执行情景由 TurnProfile 统一承载；domain 是规划分组，action 是具体操作，情景策略可在同一 domain 内细化可用动作，并与执行校验、Service 权限保持一致。R2 收口复用现有目录视图落实该边界；将 Reflection 动作归入通用 Home/Memory 分组保留为 S3 评估项，当前不改变动作身份与专属 domain，也不为“情景”新增运行状态机。具体依据与实施范围见 R2 收口子计划 6.4。
+执行情景由 TurnProfile 统一承载；domain 是规划分组，action 是具体操作，情景策略可在同一 domain 内细化可用动作，并与执行校验、Service 权限保持一致。R2 收口复用目录视图落实该边界；R3 已将 Reflection 动作归回 Home/Memory domain 并同步改名，通用记忆动作统一归 memory domain，不为“情景”新增运行状态机。具体依据与实施范围见 R3 子计划。
 
 精简专属动作草图（本轮新增签名建议）：
 
 | 动作 | 参数与语义 |
 |---|---|
-| memory_reflection.write_daily | target_day + markdown；目标日默认来自 profile，一次写一份 daily |
-| memory_reflection.write | kind + cite + markdown；kind 为 entity/concept/fact/note，一次写一个文档 |
-| home_reflection.diff | 可选 paths + detail + cursor；无路径列差异，指定路径查看有界详情 |
-| home_reflection.review | paths + decision(accept/reject)；处理明确选择的待审项，返回逐项结果 |
+| memory.write_daily | target_day + markdown；目标日默认来自 profile，一次写一份 daily |
+| memory.write | kind + cite + markdown；kind 为 entity/concept/fact/note，一次写一个文档 |
+| home.diff | 可选 paths + detail + cursor；无路径列差异，指定路径查看有界详情 |
+| home.review | paths + decision(accept/reject)；处理明确选择的待审项，返回逐项结果 |
 
 Home 副本读取与改写复用常规 home 域，不另加 reflection.rewrite；Memory 的合并/退休状态通过 write 的文档状态与 codec 校验表达，不为每种知识和状态增加动作。write 返回 link 与精简结果，供进一步 inspect；review 批量执行不宣称多文件原子事务。
 
@@ -409,7 +409,7 @@ Reflection 插件编排触发/去重/完成，Home/Memory 管存储，日切归 
 
 已确认触发语义：Reflection 是 Agent 在日切/每日策略触发，或用户明确允许本次整理时使用的插件能力；手动授权只安排本次指定目标的独立 Reflection Turn，不形成持续许可。普通 User Turn 不挂载 Reflection 专属提示、请求/整理动作或持久写服务；相应提示与能力在 Reflection profile 内提供，调度仍服从单根队列。
 
-CalendarDay 取代 CalendarDay；面向用户说“今天、总结、整理”。根开始锁定 day/世代，跨午夜继续原日；根及子工作完全收尾后归档再开新根。Reflection target/source_day 与运行 active_day 分开，历史 Workspace 只读参考，当日 Workspace 仍可操作。
+CalendarDay 取代 BusinessDay；面向用户说“今天、总结、整理”。根开始锁定 day/世代，跨午夜继续原日；根及子工作完全收尾后归档再开新根。Reflection target/source_day 与运行 active_day 分开，历史 Workspace 只读参考，当日 Workspace 仍可操作。
 
 保留 home/memory/runtime/archive 布局、确定性日切恢复 journal；删除 Memory 事务不等于删除归档恢复。TOML 原则稳定，仅已确认 app→agent、maintenance→reflection 及新增能力配置。新 Session schema 不隐式兼容 v4，不自动 reset 用户数据。
 
@@ -552,7 +552,7 @@ WS 断开不取消 Turn；问题可由状态查询恢复，Observation gap 不�
 
 子计划进度：[R1 底层依赖与失败协议](done/20260915-done-Agent重构第一轮子计划-底层依赖与失败协议.md) 为 `done`；[R2 异步内核与 SDK 运行闭环](done/20260915-done-Agent重构第二轮子计划-异步内核与SDK运行闭环.md) 保留历史实施与门禁记录。2026-09-16 复审发现的剩余事项已由 [R2 收口子计划](done/20260916-done-Agent重构R2收口子计划.md) 于 2026-09-17 完成（`done`，C1/C2/C3 已落实，C4 保留 S3 评估）；原已纳入的 S2/S3 必要契约范围不变。
 
-第三轮方案见 [R3 领域语义与能力组织子计划](20260917%20Agent重构第三轮子计划-领域语义与能力组织.md)，状态 `pending`。截至 2026-09-18 已确认：R3 的 Session 自动地图先限于事实与确定性关系，模型主动 organize 留待后续 core Action 细化；Reflection 动作归回 Home/Memory，普通 Memory 一并归独立 memory domain；execution 直接操作真实当天 Workspace；daily 无则完整整理、有则在原文上修订补充，无冻结标记。capabilities 保留 web/resource 等工具，execution/Job/通用进程设施分别归 `plugins/execution`、`kernel/jobs`、`infra/process`；domain 提供可由单动作覆盖的默认选择。第 8 节推导注释仍为后续目标，第 9 节动作归并按子计划推进；逐 domain/action 独立 TOML 与统一配置生命周期、assets/common/standard/development、清理失败分类及各后端模块内部职责封装见子计划预览，独立文档与合并配置的数据模型区别已单列，S3 尚未完成。
+第三轮 [R3 领域语义与能力组织子计划](done/20260917-done-Agent重构第三轮子计划-领域语义与能力组织.md) 于 2026-09-19 完成（`done`）。已落实 Session 确定性事实地图与跨日追溯、Reflection 动作归 Home/Memory 与今天/历史 daily 可修订、Workspace 去 CAS/压力 Trash、execution + Job + infra/process 统一生命周期、逐 domain/action 文档及情景可见性、assets/common/standard/development 和后端内部职责封装。Full 1066 passed、23 deselected，typecheck 通过，含生成、wheel 安装和 worker 启动验证；未运行真实 provider/network。第 8 节 organize/模型推导注释按已确认范围延后，S3 保持 in_progress；S4–S7 未扩大勾选。配置/动作/存储格式变化与部署边界见子计划 §13。
 
 S1、S2 已完成；S3–S7 尚未整体完成。历史 S0 定稿不代表后续协议细化关闭。子计划只有实现/文档/必要验证全部通过才 done 并归档；docs/design 只写已落地部分。
 
@@ -561,7 +561,7 @@ S1、S2 已完成；S3–S7 尚未整体完成。历史 S0 定稿不代表后续
 | S0 | 已记录架构/SUSPEND/Inbox 确认；同步 AGENTS，细化动作组合与连接契约 | 无冲突目标、待决有状态 |
 | S1 `done` | bridge 归 owner、失败协议、LLM 容量恢复、import/重放检查；async LLM、事件/取消原语 | R1/R2 的 Fast/Full/typecheck 与依赖审计通过 |
 | S2 `done` | 新内核/SDK/CLI/段/Job/等待；同步迁移所有旧内核消费者至新公共入口、插件接入与打包 | R2 收口 Full 1091 passed、2 skipped、23 deselected，typecheck 通过；生命周期、等待、服务权限与终态/保留缺口关闭，含导入边界、生成与 wheel 验收 |
-| S3 | 在 S2 可运行架构上深化 Session Map、Workspace 去 CAS、精简 Reflection、execution 合并等领域语义 | 各 owner 正反路径、完整日切；无旧业务契约残余 |
+| S3 `in_progress` | R3 已完成 Session 事实 Map、Workspace 去 CAS、精简 Reflection、execution 合并及能力组织；organize/模型推导注释待后续细化 | R3 Full/typecheck、owner 正反路径与真实进程跨午夜通过；延后项未伪报完成 |
 | S4 | fswatch/scheduler、ask/reply、容量、reload/restart、完整监督 | 暂停收事件、午夜、短操作取消与进程回收 |
 | S5 | Gateway v2、项目命令、HTTP/WS/replay、协议文档 | SDK 映射、重连、wheel/init |
 | S6 | 锁 ACP/MCP adapter/协议/SDK，connect/delegate、连接段；内部子调用留后续 | 建连→多次委派→收尾，fake 故障矩阵，真实 smoke 单独声明 |
@@ -604,7 +604,7 @@ S3 是领域语义变更，不负责补齐 S2 留下的损坏依赖。S2 子计�
 - D6/D14/D19/D20/D21/D22/D26：plan 内核段、独立领域段、三分区、统一 inspect、Session Map、MCP 结果进 Trace；Engine/Segment/Context 及 prepare/install、finish/close 分离。D11 旧拆分撤销。
 - D8/D9：配置 section 例外改名范围、Session 新 schema，不隐式迁移 v4。
 - D15/D16/D17/D18：subagent、expand、execution 合并，adapter/权限需真实协议核验。
-- D23/D24：两个 Reflection 域、User 持久写边界、CalendarDay、Memory 轻量化、Workspace 去 CAS。
+- D23/D24：两个 Reflection 情景及其专属动作、User 持久写边界、CalendarDay、Memory 轻量化、Workspace 去 CAS。
 - D25：单根 Turn，等待不并发独立 User/Reflection。
 - D27：Job 跨 Cycle 不跨 Turn，撤销 AGENT scope。
 - D28：EVENT/TIMER，预算确定性检查，由用户决定，模型不见额度。

@@ -9,7 +9,7 @@ from tinysoul.infra.json import JsonObject
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.loop import LoopControlKind
 from tinysoul.kernel.registration import ServiceRegistry
-from tinysoul.plugins.reflection import (ReflectionScope)
+from tinysoul.plugins.reflection import ReflectionScope
 from tinysoul.runtime import RunScope
 from tinysoul.plugins.workspace import WorkspaceManifest
 
@@ -24,9 +24,11 @@ class EndpointServices(Protocol):
 
     def runtime_status(self, *, credentials: bool = False) -> JsonObject: ...
 
-    async def action_catalog(self) -> JsonObject: ...
+    async def action_catalog(self, *, scenario: str = "user") -> JsonObject: ...
 
-    async def reflection_status(self) -> JsonObject: ...
+    async def reflection_status(
+        self, *, before: CalendarDay | None = None
+    ) -> JsonObject: ...
 
 
 class EndpointAgentIngress(Protocol):
@@ -51,7 +53,7 @@ class EndpointAgentIngress(Protocol):
         metadata: JsonObject,
     ) -> EndpointCommandReceipt: ...
 
-    async def request_maintenance(
+    async def request_reflection(
         self,
         scope: ReflectionScope | str,
         *,

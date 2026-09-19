@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from collections.abc import Mapping
 from typing import Self
 
 from tinysoul.infra.json import JsonObject, to_json_object
-from tinysoul.llm.tools import ToolCallRecord, ToolScope
+from tinysoul.llm.protocol.tools import ToolCallRecord, ToolScope
 from tinysoul.runtime import (
     CyclePhase,
     NullObservationEmitter,
@@ -14,35 +15,30 @@ from tinysoul.runtime import (
     RunScope,
 )
 
-from .core.call import (
-    ActionBatch,
-    ActionBatchPreparation,
-    ActionCall,
-    ActionCallNormalizer,
-    ActionExecutionBuilder,
-    ActionNormalization,
-)
-from .core.catalog import ActionCatalog
+from .call import ActionBatch, ActionBatchPreparation, ActionCall, ActionNormalization
+from tinysoul.kernel.action.planning.normalization import ActionCallNormalizer
+from tinysoul.kernel.action.execution.preparation import ActionExecutionBuilder
+from .catalog.catalog import ActionCatalog
 from .config import ActionPolicy
-from .core.errors import ActionContractError
-from .core.executor import ActionExecutionContext, ActionExecutor, ExecutorRegistry
-from .core.rendering import ActionResultRenderer, RenderedActionResult
-from .core.hooks import (
+from .errors import ActionContractError
+from .execution.executor import ActionExecutionContext, ActionExecutor, ExecutorRegistry
+from .planning.rendering import ActionResultRenderer, RenderedActionResult
+from .execution.hooks import (
     ActionExecutionHook,
     ActionExecutionHookPipeline,
     ActionHookRegistry,
     ActionNormalizeHook,
     ActionNormalizeHookPipeline,
 )
-from .core.loader import (
+from .catalog.loader import (
     ActionCatalogDocumentIndex,
     ActionCatalogDocumentRef,
     LoadedActionCatalog,
 )
-from .core.result import ActionPhaseResult, ActionResult
-from .core.specs import ActionBackendKind
-from .core.runner import ActionBatchRunner
-from .core.scope import (
+from .result import ActionPhaseResult, ActionResult
+from .catalog.specs import ActionBackendKind, ActionSemanticSpec, ActionVisibilitySpec
+from .execution.runner import ActionBatchRunner
+from .planning.scope import (
     DOMAIN_SELECTION_TOOL,
     ActionDomainSelection,
     ActionDomainPromptRenderer,
@@ -79,6 +75,10 @@ class ActionEngine:
         catalog: ActionCatalog,
         configured_catalog: ActionCatalog,
         supported_actions: frozenset[str],
+        granted_actions: frozenset[str],
+        bindings: Mapping[str, str],
+        scenario: str,
+        scenarios: frozenset[str],
         catalog_documents: ActionCatalogDocumentIndex | None,
         normalizer: ActionCallNormalizer,
         builder: ActionExecutionBuilder,
@@ -91,6 +91,10 @@ class ActionEngine:
         self._catalog = catalog
         self._configured_catalog = configured_catalog
         self._supported_actions = supported_actions
+        self._granted_actions = granted_actions
+        self._bindings = dict(bindings)
+        self._scenario = scenario
+        self._scenarios = scenarios
         self._catalog_documents = catalog_documents
         self._normalizer = normalizer
         self._builder = builder
@@ -104,6 +108,31 @@ class ActionEngine:
         """Expose stable catalog domain identities for framework integration."""
 
         return tuple(domain.name for domain in self._catalog.domains())
+
+    def declared_actions(self) -> frozenset[str]:
+        """Package-owned identities granted to this scenario, including disabled backends."""
+        return self._granted_actions
+
+    def validate_candidate(self, catalog: ActionCatalog) -> None:
+        """Validate editable definitions against the same code-owned grants."""
+        from tinysoul.infra.config import ConfigError
+
+        if self._granted_actions - {action.name for action in catalog.actions()}:
+            raise ConfigError(
+                "Catalog is missing registered actions", key="action.catalog"
+            )
+        for name, handler in self._bindings.items():
+            if catalog.get_action(name).backend.handler != handler:
+                raise ConfigError(
+                    "Catalog changed a registered execution binding",
+                    key=f"{name}.backend.handler",
+                )
+        ActionPolicy.validate(
+            catalog,
+            granted=self._granted_actions,
+            scenario=self._scenario,
+            scenarios=self._scenarios,
+        )
 
     def action_identifiers(self) -> tuple[tuple[str, str], ...]:
         """Expose catalog action identities without leaking mutable catalog state."""
@@ -124,7 +153,7 @@ class ActionEngine:
         )
 
     def catalog_json(self) -> JsonObject:
-        """Expose configured User Actions with availability and source bindings."""
+        """Expose one scenario, its visibility sources, grants and availability."""
 
         available_actions = {action.name for action in self._catalog.actions()}
         available_domains = {action.domain for action in self._catalog.actions()}
@@ -136,29 +165,22 @@ class ActionEngine:
                 if documents is not None
                 else None
             )
-            source = documents.domains.get(domain.name) if documents is not None else None
+            source = (
+                documents.domains.get(domain.name) if documents is not None else None
+            )
             domains.append(
                 {
                     "id": domain.name,
                     "description": domain.description,
                     "selection_hint": domain.selection_hint,
                     "runtime": {
-                        "enabled": (
-                            runtime.enabled if runtime is not None else True
-                        ),
-                        "enabled_source": (
-                            documents.domain_enabled_sources.get(
-                                domain.name,
-                                "default",
-                            )
-                            if documents is not None
-                            else "default"
-                        ),
                         "timeout_seconds": (
                             runtime.timeout_seconds if runtime is not None else None
                         ),
                         "parallel_policy": (
-                            runtime.parallel_policy.value if runtime is not None else "allowed"
+                            runtime.parallel_policy.value
+                            if runtime is not None
+                            else "allowed"
                         ),
                         "hooks": {
                             "normalize": (
@@ -178,6 +200,7 @@ class ActionEngine:
                             else "standard"
                         ),
                     },
+                    "visibility": _visibility_json(domain.visibility),
                     "available": domain.name in available_domains,
                     "action_count": len(
                         self._configured_catalog.actions_in_domain(domain.name)
@@ -188,7 +211,8 @@ class ActionEngine:
                             editable_paths=(
                                 "description",
                                 "selection_hint",
-                                "runtime.enabled",
+                                "visibility.default",
+                                "visibility.scenarios",
                                 "runtime.timeout_seconds",
                             ),
                         )
@@ -199,7 +223,23 @@ class ActionEngine:
             )
         actions = []
         for action in self._configured_catalog.actions():
-            source = documents.actions.get(action.name) if documents is not None else None
+            source = (
+                documents.actions.get(action.name) if documents is not None else None
+            )
+            selection = ActionPolicy.selection(
+                self._configured_catalog, action, self._scenario
+            )
+            granted = action.name in self._granted_actions
+            supported = action.name in self._supported_actions
+            reason = (
+                "not_granted"
+                if not granted
+                else (
+                    "backend_unavailable"
+                    if not supported
+                    else "hidden" if not selection.enabled else None
+                )
+            )
             actions.append(
                 {
                     "id": action.name,
@@ -215,12 +255,6 @@ class ActionEngine:
                         "examples": list(action.semantic.examples),
                     },
                     "runtime": {
-                        "enabled": action.runtime.enabled,
-                        "enabled_source": (
-                            documents.enabled_sources.get(action.name, "default")
-                            if documents is not None
-                            else "default"
-                        ),
                         "timeout_seconds": action.runtime.timeout_seconds,
                         "timeout_source": (
                             documents.timeout_sources.get(action.name, "none")
@@ -239,19 +273,28 @@ class ActionEngine:
                         "handler": action.backend.handler,
                         "options": action.backend.options,
                     },
-                    "supported": action.name in self._supported_actions,
+                    "visibility": _visibility_json(action.visibility),
+                    "selection": {
+                        "enabled": selection.enabled,
+                        "source": selection.source,
+                    },
+                    "granted": granted,
+                    "unavailable_reason": reason,
+                    "supported": supported,
                     "available": action.name in available_actions,
                     "source": (
                         _source_json(
                             source,
-                            editable_paths=_action_editable_paths(action.name),
+                            editable_paths=_action_editable_paths(),
                         )
                         if source is not None
                         else None
                     ),
                 }
             )
-        return to_json_object({"domains": domains, "actions": actions})
+        return to_json_object(
+            {"scenario": self._scenario, "domains": domains, "actions": actions}
+        )
 
     def view(self, action_names: tuple[str, ...]) -> "ActionEngine":
         """Return an immutable catalog view sharing the assembled runtime."""
@@ -275,6 +318,14 @@ class ActionEngine:
                 self._supported_actions.intersection(action_names)
             ),
             catalog_documents=self._catalog_documents,
+            granted_actions=self._granted_actions.intersection(action_names),
+            bindings={
+                name: handler
+                for name, handler in self._bindings.items()
+                if name in action_names
+            },
+            scenario=self._scenario,
+            scenarios=self._scenarios,
             normalizer=self._normalizer,
             builder=self._builder,
             runner=self._runner,
@@ -354,10 +405,15 @@ class ActionEngine:
         context: ActionExecutionContext | None = None,
     ) -> tuple[ActionResult, ...]:
         for execution in batch.executions:
-            if (not self._catalog.has_action(execution.call.action_name)
-                    or execution.action != self._catalog.get_action(execution.call.action_name)):
-                raise ActionContractError("Batch contains an action outside the effective profile")
-        return (await self._runner.run(batch, context or ActionExecutionContext()))
+            if not self._catalog.has_action(
+                execution.call.action_name
+            ) or execution.action != self._catalog.get_action(
+                execution.call.action_name
+            ):
+                raise ActionContractError(
+                    "Batch contains an action outside the effective profile"
+                )
+        return await self._runner.run(batch, context or ActionExecutionContext())
 
     def render_result_model_payload(self, result: ActionResult) -> JsonObject:
         """Render one action result for model feedback."""
@@ -411,10 +467,17 @@ class ActionEngine:
 class ActionEngineBuilder:
     """Assemble an ActionEngine from one already validated typed catalog."""
 
-    def __init__(self, catalog: ActionCatalog | LoadedActionCatalog) -> None:
+    def __init__(
+        self,
+        catalog: ActionCatalog | LoadedActionCatalog,
+        *,
+        scenarios: frozenset[str] = frozenset({"user"}),
+    ) -> None:
         if isinstance(catalog, LoadedActionCatalog):
             self._catalog = catalog.catalog
-            self._catalog_documents: ActionCatalogDocumentIndex | None = catalog.documents
+            self._catalog_documents: ActionCatalogDocumentIndex | None = (
+                catalog.documents
+            )
         elif isinstance(catalog, ActionCatalog):
             self._catalog = catalog
             self._catalog_documents = None
@@ -428,18 +491,52 @@ class ActionEngineBuilder:
         self._observations: ObservationEmitter = NullObservationEmitter()
         self._unsupported_actions: set[str] = set()
         self._included_actions: set[str] | None = None
-        self._policy = ActionPolicy()
+        self._bindings: dict[str, str] = {}
+        self._semantics: dict[str, tuple[str, ActionSemanticSpec]] = {}
+        if not scenarios or any(
+            not isinstance(item, str) or not item.strip() for item in scenarios
+        ):
+            raise ActionContractError(
+                "Action assembly requires declared scenario identities"
+            )
+        self._scenarios = frozenset(scenarios)
+        self._scenario = "user"
 
-    def with_policy(self, policy: ActionPolicy) -> Self:
-        self._policy = policy
+    def with_scenario(self, scenario: str) -> Self:
+        if not isinstance(scenario, str) or not scenario.strip():
+            raise ActionContractError("Action scenario must be non-empty")
+        self._scenario = scenario
         return self
 
     def register_executor(
         self,
-        handler: str,
+        action_name: str,
         executor: ActionExecutor,
+        *,
+        handler: str | None = None,
     ) -> Self:
-        self._executors.register(handler, executor)
+        """Declare an authorized identity and its immutable execution binding."""
+
+        bound_handler = handler or action_name
+        if action_name in self._bindings:
+            raise ActionContractError("Action identity is already registered")
+        self._executors.register(bound_handler, executor)
+        self._bindings[action_name] = bound_handler
+        return self
+
+    def with_action_semantics(
+        self, action_name: str, *, description: str, semantic: ActionSemanticSpec
+    ) -> Self:
+        """Adapt model guidance for a profile without changing its execution grant."""
+        if (
+            not isinstance(description, str)
+            or not description.strip()
+            or not isinstance(semantic, ActionSemanticSpec)
+        ):
+            raise ActionContractError(
+                "Profile Action guidance must be typed and non-empty"
+            )
+        self._semantics[action_name] = (description, semantic)
         return self
 
     def mark_actions_unsupported(self, *action_names: str) -> Self:
@@ -506,33 +603,59 @@ class ActionEngineBuilder:
     def build(self) -> ActionEngine:
         complete_catalog = self._catalog
         complete_action_names = {action.name for action in complete_catalog.actions()}
-        granted = frozenset(complete_action_names if self._included_actions is None else self._included_actions)
-        configured_catalog = self._policy.apply(complete_catalog, granted=granted)
-        if self._included_actions is not None:
-            unknown_included = self._included_actions - complete_action_names
-            if unknown_included:
-                raise ActionContractError(
-                    "Included actions are absent from the package catalog: "
-                    + ", ".join(sorted(unknown_included))
-                )
-            configured_catalog = configured_catalog.with_actions(
-                tuple(sorted(self._included_actions))
-            )
-        unknown_unsupported = self._unsupported_actions - complete_action_names
-        if unknown_unsupported:
+        declared = set(self._bindings) | self._unsupported_actions
+        unknown = declared - complete_action_names
+        if unknown:
             raise ActionContractError(
-                "Unsupported actions are absent from the package catalog: "
-                + ", ".join(sorted(unknown_unsupported))
+                "Registered actions are absent from the catalog: "
+                + ", ".join(sorted(unknown))
             )
-        supported_actions = frozenset(
-            action.name
-            for action in configured_catalog.actions()
-            if action.name not in self._unsupported_actions
+        for name, handler in self._bindings.items():
+            if complete_catalog.get_action(name).backend.handler != handler:
+                raise ActionContractError(
+                    "Action catalog changed a registered execution binding: " + name
+                )
+        granted = frozenset(declared)
+        if self._included_actions is not None:
+            if self._included_actions - complete_action_names:
+                raise ActionContractError(
+                    "Included actions are absent from the catalog"
+                )
+            granted = granted.intersection(self._included_actions)
+        ActionPolicy.validate(
+            complete_catalog,
+            granted=granted,
+            scenario=self._scenario,
+            scenarios=self._scenarios,
         )
+        configured_catalog = complete_catalog
+        supported_actions = frozenset(granted - self._unsupported_actions)
         catalog = configured_catalog.with_actions(
             action.name
             for action in configured_catalog.actions()
-            if action.runtime.enabled and action.name in supported_actions
+            if action.name in supported_actions
+            and ActionPolicy.selection(
+                configured_catalog, action, self._scenario
+            ).enabled
+        )
+        if self._semantics.keys() - complete_action_names:
+            raise ActionContractError("Profile guidance names an unknown Action")
+        catalog = ActionCatalog(
+            domains=catalog.domains(),
+            actions=tuple(
+                (
+                    replace(
+                        action,
+                        tool=replace(
+                            action.tool, description=self._semantics[action.name][0]
+                        ),
+                        semantic=self._semantics[action.name][1],
+                    )
+                    if action.name in self._semantics
+                    else action
+                )
+                for action in catalog.actions()
+            ),
         )
         self._executors.validate_catalog(catalog)
         normalize_pipeline = ActionNormalizeHookPipeline(self._hooks)
@@ -541,6 +664,10 @@ class ActionEngineBuilder:
             catalog=catalog,
             configured_catalog=configured_catalog,
             supported_actions=supported_actions,
+            granted_actions=granted,
+            bindings=self._bindings,
+            scenario=self._scenario,
+            scenarios=self._scenarios,
             catalog_documents=self._catalog_documents,
             normalizer=ActionCallNormalizer(normalize_pipeline),
             builder=ActionExecutionBuilder(),
@@ -570,14 +697,19 @@ def _source_json(
     }
 
 
-def _action_editable_paths(action_name: str) -> tuple[str, ...]:
+def _action_editable_paths() -> tuple[str, ...]:
     paths = (
         "tool.description",
         "semantic.use_when",
         "semantic.avoid_when",
         "semantic.effects",
         "semantic.examples",
-        "runtime.enabled",
+        "visibility.default",
+        "visibility.scenarios",
         "runtime.timeout_seconds",
     )
     return paths
+
+
+def _visibility_json(visibility: ActionVisibilitySpec) -> JsonObject:
+    return {"default": visibility.default, "scenarios": dict(visibility.scenarios)}

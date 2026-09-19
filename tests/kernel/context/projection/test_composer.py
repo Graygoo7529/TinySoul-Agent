@@ -1,0 +1,207 @@
+"""Tests for message stack composition and budget."""
+
+from __future__ import annotations
+
+import pytest
+
+from tinysoul.kernel.context.background import BackgroundContext, BackgroundEntry
+from tinysoul.kernel.context.projection.composer import (
+    ContextBudget,
+    MessageStackComposer,
+    estimate_chars,
+)
+from tinysoul.kernel.context.errors import ContextBudgetError
+from tinysoul.kernel.context.prompts import PromptBlock, TaskPrompt
+from tinysoul.kernel.context.builtin.trace import PendingInputs, TurnTraceHeap
+from tinysoul.kernel.context.builtin.working import WorkingContext
+from tinysoul.kernel.context.segments import (
+    SegmentDescriptor,
+    SegmentProjection,
+    SegmentSlot,
+)
+from tinysoul.llm.protocol.messages import (
+    AssistantMessage,
+    ImagePart,
+    JsonPart,
+    SystemMessage,
+    TextPart,
+    ToolResultMessage,
+    UserMessage,
+)
+from tinysoul.llm.protocol.reasoning import Reasoning
+from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind
+
+
+def _sections() -> tuple[SegmentProjection, ...]:
+    inputs = PendingInputs()
+    inputs.add("hello there", merged=True)
+    background = BackgroundContext(journal="journal text")
+    background.load(BackgroundEntry(link="home:skills@x", content="entry text"))
+    working = WorkingContext()
+    trace = TurnTraceHeap()
+    trace.append_phase_note("trace note")
+    return (
+        SegmentProjection(
+            SegmentDescriptor("plan", "context", SegmentSlot.WORKING, 10),
+            working.render_messages(),
+        ),
+        SegmentProjection(
+            SegmentDescriptor("trace", "context", SegmentSlot.TRACE, 10),
+            trace.render_messages(),
+        ),
+        SegmentProjection(
+            SegmentDescriptor("identity", "context", SegmentSlot.BACKGROUND, 10),
+            (SystemMessage.from_text("identity text", label="identity"),),
+        ),
+        SegmentProjection(
+            SegmentDescriptor("inputs", "context", SegmentSlot.BACKGROUND, 30),
+            inputs.render_messages(),
+        ),
+        SegmentProjection(
+            SegmentDescriptor("background", "context", SegmentSlot.BACKGROUND, 40),
+            background.render_messages(),
+        ),
+    )
+
+
+def test_compose_section_order_and_labels() -> None:
+    composer = MessageStackComposer()
+    stack = composer.compose(
+        segments=_sections(),
+        task_prompt=TaskPrompt(
+            guide_blocks=(
+                PromptBlock.from_text(
+                    "task_prompt:guide:phase",
+                    "# Task Guide\nDo phase one.",
+                ),
+                PromptBlock.from_text(
+                    "task_prompt:guide:domain_skill:1",
+                    "# Domain Skill\nUse the workspace domain for file edits.",
+                ),
+            ),
+            input_blocks=(
+                PromptBlock.from_text(
+                    "task_prompt:input:details",
+                    "# Task Input\ninput details",
+                ),
+                PromptBlock.from_text(
+                    "task_prompt:input:workspace:docs/a.md",
+                    "workspace slice",
+                ),
+            ),
+            output_blocks=(
+                PromptBlock.from_text(
+                    "task_prompt:output:phase",
+                    "# Expected Output\ntool calls",
+                ),
+            ),
+        ),
+    )
+    labels = [message.label for message in stack.messages]
+    assert labels == [
+        "identity",
+        "user_input",
+        "background:journal",
+        "background:home:skills@x",
+        "phase_note",
+        "plan",
+        "task_prompt:guide:phase",
+        "task_prompt:guide:domain_skill:1",
+        "task_prompt:input:details",
+        "task_prompt:input:workspace:docs/a.md",
+        "task_prompt:output:phase",
+    ]
+    assert isinstance(stack.messages[0], SystemMessage)
+    assert all(isinstance(message, UserMessage) for message in stack.messages[1:])
+    working_part = stack.messages[5].parts[0]
+    assert isinstance(working_part, JsonPart)
+    assert "as_of_trace" not in working_part.value
+    assert "workspace_revision" not in working_part.value
+    task_message = stack.messages[-5]
+    assert isinstance(task_message, UserMessage)
+    part = task_message.parts[0]
+    assert isinstance(part, TextPart)
+    assert "# Task Guide" in part.text
+    guidance = stack.messages[-4].parts[0]
+    assert isinstance(guidance, TextPart)
+    assert "# Domain Skill" in guidance.text
+
+
+def test_compose_image_budget_exceeded_raises() -> None:
+    composer = MessageStackComposer(
+        budget=ContextBudget(max_image_bytes=2),
+    )
+    image_block = PromptBlock(
+        label="task_prompt:input:image",
+        message=UserMessage.from_parts(
+            ImagePart(data=b"abc", mime_type="image/png"),
+            label="task_prompt:input:image",
+        ),
+    )
+
+    with pytest.raises(ContextBudgetError) as exc_info:
+        composer.compose(
+            segments=_sections(),
+            task_prompt=TaskPrompt(
+                guide_blocks=(PromptBlock.from_text("guide", "guide"),),
+                input_blocks=(image_block,),
+            ),
+        )
+
+    assert exc_info.value.estimated_image_bytes == 3
+    assert exc_info.value.max_image_bytes == 2
+
+
+def test_estimate_counts_text_and_json_parts() -> None:
+    messages = (
+        SystemMessage.from_text("abcd"),
+        UserMessage.from_json({"k": "v"}),
+    )
+    estimated = estimate_chars(messages)
+    assert estimated >= 4 + len('{"k": "v"}') - 2
+
+
+def test_estimate_counts_assistant_reasoning() -> None:
+    messages = (
+        AssistantMessage.from_text(
+            "answer",
+            reasoning=Reasoning(
+                content="thinking content",
+                summary="thinking summary",
+                encrypted_items=({"type": "reasoning", "encrypted_content": "state"},),
+            ),
+        ),
+    )
+
+    estimated = estimate_chars(messages)
+
+    assert estimated > len("answer") + len("thinking content") + len("thinking summary")
+
+
+def test_estimate_counts_tool_calls_and_result_metadata() -> None:
+    call = ToolCallRecord(
+        id="call_1",
+        name="workspace.write_text",
+        arguments={"path": "notes.txt", "content": "x" * 40},
+        kind=ToolKind.ACTION,
+    )
+    messages = (
+        AssistantMessage.from_tool_calls(call),
+        ToolResultMessage.from_text(
+            call_id=call.id,
+            tool_name=call.name,
+            text="written",
+        ),
+    )
+
+    estimated = estimate_chars(messages)
+
+    assert estimated > len("x" * 40) + len("written")
+
+
+def _prompt(text: str) -> TaskPrompt:
+    return TaskPrompt(
+        guide_blocks=(
+            PromptBlock.from_text("task_prompt:guide:test", "# Task Guide\n" + text),
+        )
+    )

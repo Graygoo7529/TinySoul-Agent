@@ -1,0 +1,11 @@
+name = "home"
+description = "Agent Home identity, knowledge, and skill resource actions."
+selection_hint = "Use to discover top knowledge, read progressive resources, or edit the active Agent Home overlay."
+
+[visibility]
+default = true
+
+[runtime]
+timeout_seconds = 30
+parallel_policy = "serial"
+

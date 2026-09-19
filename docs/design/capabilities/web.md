@@ -51,7 +51,7 @@ Crawlee 是 `web-crawl` wheel extra 和开发测试依赖，项目模板默认�
 
 ## Fetch 与提取
 
-Fetch action 接收 `url`、显式 `.md` `target_link`、overwrite 和可选 digest guard。宿主通过固定 worker 完成“网络读取 -> 本地提取 -> staged Markdown”，校验结果后在单次 `WorkspaceEngine.write_bundle()` 中提交。Web 与 Resource 共用 App 装配的项目级 `runtime/.staging/` 根；每次 action 使用唯一子目录，完成、失败或取消后清理，进程中断遗留内容在下次 App 启动时清理。staging 不进入 Workspace Manifest、Daily archive 或 capability 持久状态：
+Fetch action 接收 `url`、显式 `.md` `target_link`、显式 overwrite。宿主通过固定 worker 完成“网络读取 -> 本地提取 -> staged Markdown”，校验结果后在单次 `WorkspaceEngine.write_bundle()` 中提交。Web 与 Resource 共用 App 装配的项目级 `runtime/.staging/` 根；每次 action 使用唯一子目录，完成、失败或取消后清理，进程中断遗留内容在下次 App 启动时清理。staging 不进入 Workspace Manifest、Daily archive 或 capability 持久状态：
 
 - 只接受公开 HTTPS URL，拒绝 userinfo、localhost 以及解析到非 public IP 的目标；
 - 每次跳转重新解析和校验，跳转次数、请求时长、响应 bytes、输出 chars 都有硬上限；
@@ -73,3 +73,7 @@ worker 超时或 Runtime transfer 通过 `ControlledProcessRunner` 终止进程�
 ## 后续边界
 
 Playwright/browser rendering、跨域 discovery、sitemap loader、持久 RequestQueue、缓存、跨重启 resume、WARC 和自动整站正文提交不属于首版 Page Discovery。它们不能通过扩大 `web.discover_pages` 参数隐式加入，也不要求新增 backend kind；出现真实场景时应增加清晰 action 或独立设计长期状态边界。
+
+## 内部组织
+
+Service 协调有界 worker、输出投影与 Workspace 提交；operations 内聚 search/discover 的结果规范化，backends 提供网络、发现算法和受控 worker。worker 使用固定模块入口，隔离安装后同样运行，不访问 Agent 私有状态。Workspace bundle 在单文件原子边界提交，后续失败保留已产生的文件事实，没有提交前来源 CAS 或 mirror。

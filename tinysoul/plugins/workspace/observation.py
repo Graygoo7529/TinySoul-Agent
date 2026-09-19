@@ -14,7 +14,7 @@ from tinysoul.runtime import (
     observation_enabled,
 )
 
-from .manifest import WorkspaceManifest
+from .storage.manifest import WorkspaceManifest
 
 
 class WorkspaceChangeOperation(StrEnum):
@@ -26,7 +26,10 @@ class WorkspaceChangeOperation(StrEnum):
     WRITE = "write"
     APPEND = "append"
     BUNDLE = "bundle"
-    PATCH = "patch"
+    EDIT = "edit"
+    MOVE = "move"
+    MKDIR = "mkdir"
+    TAG = "tag"
     TRASH = "trash"
     RESTORE = "restore"
 
@@ -105,8 +108,6 @@ def emit_workspace_changed(
                 "created_links": list(change.created_links),
                 "updated_links": list(change.updated_links),
                 "removed_links": list(change.removed_links),
-                "previous_revision": change.before.revision,
-                "revision": change.after.revision,
             },
         ),
     )

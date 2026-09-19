@@ -99,7 +99,7 @@ description = "Selects the default task chain and explicit per-Action overrides.
 id = "cycle_routing.phases"
 surface = "cycle_routing"
 title = "Cycle Phases"
-description = "Selects the task chain used by each shared Cycle phase for User and Maintenance Turns."
+description = "Selects the task chain used by each shared Cycle phase for User and Reflection Turns."
 
 [[collection]]
 id = "llm.providers"

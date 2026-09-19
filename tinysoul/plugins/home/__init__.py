@@ -33,7 +33,7 @@ from .errors import (
     AgentHomeRuntimeCopyRequired,
 )
 from .failures import AgentHomeFailureKind
-from .guidance import HomeActionSkillProvider, HomeDomainSkillProvider
+from .skills.guidance import HomeActionSkillProvider, HomeDomainSkillProvider
 from .links import (
     HomeLink,
     HomePromptMountLink,
@@ -41,9 +41,7 @@ from .links import (
     HomeTopLink,
     parse_home_link,
 )
-from .runtime_copy import (
-    AgentHomeRuntimeCopyTrapHandler,
-)
+from .content.runtime_copy import AgentHomeRuntimeCopyTrapHandler
 from .review import (
     HomeReviewChange,
     HomeReviewPending,
@@ -55,8 +53,8 @@ from .review import (
     HomeSkillMemoryContext,
 )
 from .overlay import HomeOverlayRecord, HomeOverlayState
-from .metadata import HomeSkillMetadata, parse_home_skill_metadata
-from .search import (
+from .skills.metadata import HomeSkillMetadata, parse_home_skill_metadata
+from .content.search import (
     HomeSearchCandidate,
     HomeSearchDocument,
     HomeSearchEntry,

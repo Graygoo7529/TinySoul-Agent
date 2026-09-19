@@ -1,0 +1,118 @@
+from __future__ import annotations
+
+from tests.action_helpers import builtin_catalog
+
+from collections.abc import Mapping
+from pathlib import Path
+from typing import cast
+
+import pytest
+
+from tinysoul.kernel.action.errors import ActionContractError
+from tinysoul.kernel.action.catalog.catalog import ActionCatalog
+from tinysoul.kernel.action.catalog.loader import ActionCatalogLoader
+from tinysoul.kernel.action.planning.scope import (
+    ActionDomainPromptRenderer,
+    Phase1DomainScopeBuilder,
+    Phase2ActionScopeBuilder,
+)
+from tinysoul.kernel.action.catalog.specs import ActionDomainSpec
+from tinysoul.infra.json import JsonValue
+from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind
+
+
+def test_phase1_scope_exposes_domain_control_tool() -> None:
+    catalog = builtin_catalog()
+
+    scope = Phase1DomainScopeBuilder().build(catalog)
+
+    tools = scope.visible_tools()
+    assert len(tools) == 1
+    assert tools[0].kind is ToolKind.CONTROL
+    assert tools[0].name == "select_action_domains"
+    properties = cast(Mapping[str, JsonValue], tools[0].parameters["properties"])
+    domains = cast(Mapping[str, JsonValue], properties["domains"])
+    items = cast(Mapping[str, JsonValue], domains["items"])
+    enum = cast(list[JsonValue], items["enum"])
+    assert "home" in enum
+    assert "workspace" in enum
+    assert "execution" in enum
+    assert "script" not in enum
+    assert "shell" not in enum
+    assert "x-tinysoul-domains" not in tools[0].parameters
+
+
+def test_phase1_domain_selection_normalizer_belongs_to_action() -> None:
+    catalog = builtin_catalog()
+
+    selection = Phase1DomainScopeBuilder().normalize_selection(
+        catalog,
+        (
+            ToolCallRecord(
+                id="call_1",
+                name="select_action_domains",
+                arguments={"domains": ["workspace", "missing", "workspace"]},
+                kind=ToolKind.CONTROL,
+            ),
+        ),
+    )
+
+    assert selection.selected_domains == ("workspace",)
+    assert selection.feedback == ("Unknown action domain: missing",)
+
+
+def test_phase2_scope_exposes_selected_domain_actions_only() -> None:
+    catalog = builtin_catalog()
+
+    scope = Phase2ActionScopeBuilder().build(
+        catalog,
+        selected_domains=("core",),
+    )
+
+    tools = scope.visible_tools()
+    assert {tool.name for tool in tools} == {
+        action.name for action in catalog.actions_in_domain("core")
+    }
+    assert all(tool.kind is ToolKind.ACTION for tool in tools)
+    assert all(tool.description for tool in tools)
+
+
+def test_phase2_scope_rejects_domain_without_actions() -> None:
+    catalog = _empty_domain_catalog()
+
+    with pytest.raises(ActionContractError, match="at least one action"):
+        Phase2ActionScopeBuilder().build(
+            catalog,
+            selected_domains=("script",),
+        )
+
+
+def test_phase2_scope_prepare_returns_phase_result_for_domain_without_actions() -> None:
+    catalog = _empty_domain_catalog()
+
+    preparation = Phase2ActionScopeBuilder().prepare(
+        catalog,
+        selected_domains=("script",),
+    )
+
+    assert preparation.tool_scope is None
+    assert preparation.phase_results[0].stage.value == "scope"
+    assert preparation.phase_results[0].frame_data["selected_domains"] == ["script"]
+
+
+def test_domain_prompt_renderer_lists_actionable_domains() -> None:
+    catalog = builtin_catalog()
+
+    text = ActionDomainPromptRenderer().render(catalog)
+
+    for domain in catalog.domains():
+        assert domain.name in text
+        assert domain.description in text
+        assert domain.selection_hint in text
+
+
+def _empty_domain_catalog() -> ActionCatalog:
+    return ActionCatalog(
+        domains=(ActionDomainSpec(name="script", description="No actions."),),
+        actions=(),
+    )

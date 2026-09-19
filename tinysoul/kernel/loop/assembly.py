@@ -23,7 +23,7 @@ from tinysoul.runtime import (
     SignalBus,
 )
 
-from .completion import TurnCompletionPipeline
+from .lifecycle.completion import TurnCompletionPipeline
 from .config import CycleSettings, TurnSettings
 from .context_signals import ContextSignalConsumer
 from .cycle import CycleRunner
@@ -35,7 +35,7 @@ from .phases import (
     Phase3Unit,
     TurnCompletionDetector,
 )
-from .preparation import TurnPreparationPipeline
+from .lifecycle.preparation import TurnPreparationPipeline
 from .prompts import DomainSkillProvider, EmptyDomainSkillProvider
 from .turn import TurnActivityController, TurnRunner
 
@@ -60,22 +60,37 @@ class TurnProfile:
     activity_controller: TurnActivityController | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.id, str) or re.fullmatch(r"[a-z][a-z0-9_]*", self.id) is None:
+        if (
+            not isinstance(self.id, str)
+            or re.fullmatch(r"[a-z][a-z0-9_]*", self.id) is None
+        ):
             raise LoopContractError("Turn profile identity must use lower_snake_case")
-        if not isinstance(self.context, ContextEngine) or not isinstance(self.action, ActionEngine):
-            raise LoopContractError("Turn profile requires assembled Context and Action facades")
-        if not isinstance(self.settings, TurnSettings) or not isinstance(self.cycle_settings, CycleSettings):
+        if not isinstance(self.context, ContextEngine) or not isinstance(
+            self.action, ActionEngine
+        ):
+            raise LoopContractError(
+                "Turn profile requires assembled Context and Action facades"
+            )
+        if not isinstance(self.settings, TurnSettings) or not isinstance(
+            self.cycle_settings, CycleSettings
+        ):
             raise LoopContractError("Turn profile settings must be typed")
         if any(not isinstance(line, str) or not line for line in self.turn_guidance):
             raise LoopContractError("Turn guidance must contain non-empty text")
         object.__setattr__(self, "turn_guidance", tuple(self.turn_guidance))
 
 
-def build_turn_context(settings: ContextSettings, observations: ObservationEmitter) -> ContextEngine:
+def build_turn_context(
+    settings: ContextSettings, observations: ObservationEmitter
+) -> ContextEngine:
     """Build core views before domain declarations are resolved."""
     bridge = RuntimeContextBridge()
     try:
-        return ContextEngineBuilder.from_settings(settings).with_observations(observations).build()
+        return (
+            ContextEngineBuilder.from_settings(settings)
+            .with_observations(observations)
+            .build()
+        )
     except ConfigError as exc:
         raise bridge.from_config_error(exc) from exc
     except ContextError as exc:
@@ -86,7 +101,10 @@ def build_turn_context(settings: ContextSettings, observations: ObservationEmitt
 
 
 def build_turn_kernel(
-    *, profile: TurnProfile, llm: LLMRunner, bus: SignalBus,
+    *,
+    profile: TurnProfile,
+    llm: LLMRunner,
+    bus: SignalBus,
     observations: ObservationEmitter | None = None,
 ) -> TurnRunner:
     """Compose the declared profile using the only Turn/Cycle/Phase engine."""

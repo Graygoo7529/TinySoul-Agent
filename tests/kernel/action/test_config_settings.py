@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from tinysoul.kernel.action import (ActionCatalogLoader)
-from tinysoul.agent.catalog import builtin_action_catalog_root
+from tinysoul.kernel.action import ActionCatalogLoader
+from tests.support.catalog import builtin_action_catalog_root
 from tinysoul.kernel.action.config import (
     LLMActionProfileResolver,
     parse_action_settings,
@@ -89,9 +89,7 @@ def test_llm_action_route_validation_rejects_invalid_cross_module_reference(
         {
             "llm_action": {
                 "default_task_profile": "llm_action",
-                "overrides": [
-                    {"action_id": action_id, "task_profile": task_profile}
-                ],
+                "overrides": [{"action_id": action_id, "task_profile": task_profile}],
             }
         }
     )

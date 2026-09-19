@@ -5,10 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.context.errors import ContextContractError
-from tinysoul.kernel.context.segments import SegmentDescriptor, SegmentRegistration, SegmentSlot, TurnInfo
-from tinysoul.llm.messages import Message, UserMessage
+from tinysoul.kernel.context.segments import (
+    SegmentDescriptor,
+    SegmentRegistration,
+    SegmentSlot,
+    TurnInfo,
+)
+from tinysoul.llm.protocol.messages import Message, UserMessage
 from tinysoul.runtime import Signal
-from .registry import JobSnapshot, JobState
+from .models import JobSnapshot, JobState
 
 
 @dataclass(frozen=True)
@@ -30,7 +35,11 @@ class JobsSegment:
         self._snapshot = prepared
 
     def render(self) -> tuple[Message, ...]:
-        return (UserMessage.from_json(self._snapshot.to_json(), label="jobs"),) if self._snapshot.jobs else ()
+        return (
+            (UserMessage.from_json(self._snapshot.to_json(), label="jobs"),)
+            if self._snapshot.jobs
+            else ()
+        )
 
     def seal(self) -> JsonObject:
         return self._snapshot.to_json()
@@ -50,19 +59,40 @@ def _decode(signal: Signal) -> JobsUpdate:
         raise ContextContractError("Job snapshot requires a list")
     parsed: list[JobSnapshot] = []
     for job in jobs:
-        if not isinstance(job, dict) or any(not isinstance(job.get(key), str) for key in ("job_id", "kind", "state", "summary")):
+        if not isinstance(job, dict) or any(
+            not isinstance(job.get(key), str)
+            for key in ("job_id", "kind", "state", "summary")
+        ):
             raise ContextContractError("Job snapshot contains invalid summary fields")
-        job_id, kind, state, summary = job["job_id"], job["kind"], job["state"], job["summary"]
-        assert isinstance(job_id, str) and isinstance(kind, str) and isinstance(state, str) and isinstance(summary, str)
+        job_id, kind, state, summary = (
+            job["job_id"],
+            job["kind"],
+            job["state"],
+            job["summary"],
+        )
+        assert (
+            isinstance(job_id, str)
+            and isinstance(kind, str)
+            and isinstance(state, str)
+            and isinstance(summary, str)
+        )
         try:
-            parsed.append(JobSnapshot(job_id, kind, JobState(state), summary))
+            reason = job.get("reason", "")
+            if not isinstance(reason, str):
+                raise ContextContractError("Job reason must be text")
+            parsed.append(JobSnapshot(job_id, kind, JobState(state), summary, reason))
         except ValueError as exc:
-            raise ContextContractError("Job snapshot contains an invalid state") from exc
+            raise ContextContractError(
+                "Job snapshot contains an invalid state"
+            ) from exc
     return JobsUpdate(tuple(parsed))
 
 
 def jobs_segment_registration() -> SegmentRegistration[JobsUpdate, JobsUpdate]:
     return SegmentRegistration(
         descriptor=SegmentDescriptor("jobs", "jobs", SegmentSlot.WORKING, 30),
-        provider=JobsProvider(), signal_name="context.jobs", update_type=JobsUpdate, decode=_decode,
+        provider=JobsProvider(),
+        signal_name="context.jobs",
+        update_type=JobsUpdate,
+        decode=_decode,
     )

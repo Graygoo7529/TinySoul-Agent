@@ -8,11 +8,21 @@ import json
 from typing import Protocol
 
 from tinysoul.kernel.context import BackgroundCatalog, BackgroundCatalogItem
-from tinysoul.kernel.context.background import HeapCandidate, HeapUpdate, heap_segment_registration
-from tinysoul.kernel.context.segments import SegmentCapability, SegmentDescriptor, SegmentRegistration, SegmentShape, SegmentSlot
+from tinysoul.kernel.context.background import (
+    HeapCandidate,
+    HeapUpdate,
+    heap_segment_registration,
+)
+from tinysoul.kernel.context.segments import (
+    SegmentCapability,
+    SegmentDescriptor,
+    SegmentRegistration,
+    SegmentShape,
+    SegmentSlot,
+)
 from tinysoul.plugins.memory.runtime_bridge import RuntimeMemoryBridge
 
-from .active import ActiveMemoryDocument
+from .storage.active import ActiveMemoryDocument
 from .services import MemoryReadService
 from .errors import MemoryContractError, MemoryError, MemoryInvariantError
 from .links import MemoryBackgroundRef
@@ -20,8 +30,7 @@ from .documents import DailyMemoryDocument, StoredMemoryDocument
 
 
 class TargetMemoryBinding(Protocol):
-    def memory_target(self) -> tuple[date, ActiveMemoryDocument]:
-        ...
+    def memory_target(self) -> tuple[date, ActiveMemoryDocument]: ...
 
 
 @dataclass(frozen=True)
@@ -75,9 +84,13 @@ class ActiveMemoryBackgroundEntryProvider:
                 if latest is None:
                     raise MemoryInvariantError("Prepared latest Memory disappeared")
                 return _latest_projection(latest)
-            raise MemoryContractError("Active Memory Background exposes current/latest only")
+            raise MemoryContractError(
+                "Active Memory Background exposes current/latest only"
+            )
         except MemoryError as exc:
-            raise self.runtime_bridge.from_memory_error(exc, payload={"link": link}) from exc
+            raise self.runtime_bridge.from_memory_error(
+                exc, payload={"link": link}
+            ) from exc
 
 
 @dataclass(frozen=True)
@@ -102,7 +115,7 @@ class TargetMemoryBackgroundEntryProvider:
             BackgroundCatalogItem(
                 link=MemoryBackgroundRef.TARGET.value,
                 title="Target memory",
-                description=f"Archived explicit Memory for {target_day.isoformat()}.",
+                description=f"Fixed target-day Memory for {target_day.isoformat()}.",
             )
         ]
         if latest is not None:
@@ -139,9 +152,13 @@ class TargetMemoryBackgroundEntryProvider:
                 if latest is None:
                     raise MemoryInvariantError("Prepared latest Memory disappeared")
                 return _latest_projection(latest)
-            raise MemoryContractError("Target Memory Background exposes target/latest only")
+            raise MemoryContractError(
+                "Target Memory Background exposes target/latest only"
+            )
         except MemoryError as exc:
-            raise self.runtime_bridge.from_memory_error(exc, payload={"link": link}) from exc
+            raise self.runtime_bridge.from_memory_error(
+                exc, payload={"link": link}
+            ) from exc
 
 
 def _active_projection(
@@ -168,16 +185,27 @@ def _latest_projection(stored: StoredMemoryDocument) -> str:
     return f"{json.dumps(metadata, ensure_ascii=False, separators=(',', ':'))}\n\n{stored.text}"
 
 
-
-MEMORY_SEGMENT = SegmentDescriptor("memory", "memory", SegmentSlot.BACKGROUND, 50, shape=SegmentShape.HEAP, capabilities=frozenset({SegmentCapability.SELECT, SegmentCapability.RECLAIM}))
+MEMORY_SEGMENT = SegmentDescriptor(
+    "memory",
+    "memory",
+    SegmentSlot.BACKGROUND,
+    50,
+    shape=SegmentShape.HEAP,
+    capabilities=frozenset({SegmentCapability.SELECT, SegmentCapability.RECLAIM}),
+)
 MEMORY_CONTEXT_UPDATE = "context.memory.update"
 
 
 def memory_segment_registration(
-    memory: MemoryReadService, *, target: TargetMemoryBinding | None = None,
+    memory: MemoryReadService,
+    *,
+    target: TargetMemoryBinding | None = None,
 ) -> SegmentRegistration[HeapUpdate, HeapCandidate]:
     source = (
         TargetMemoryBackgroundEntryProvider(memory=memory, binding=target)
-        if target is not None else ActiveMemoryBackgroundEntryProvider(memory=memory)
+        if target is not None
+        else ActiveMemoryBackgroundEntryProvider(memory=memory)
     )
-    return heap_segment_registration(MEMORY_SEGMENT, source, signal_name=MEMORY_CONTEXT_UPDATE)
+    return heap_segment_registration(
+        MEMORY_SEGMENT, source, signal_name=MEMORY_CONTEXT_UPDATE
+    )

@@ -6,16 +6,12 @@ from .actions import (
     MemoryRecallExecutor,
     register_memory_actions,
 )
-from .active import (
-    ActiveMemoryDocument,
-    MemoryPatchKind,
-    MemoryPatchOperation,
-)
+from .storage.active import ActiveMemoryDocument, MemoryPatchKind, MemoryPatchOperation
 from .background import (
     ActiveMemoryBackgroundEntryProvider,
     TargetMemoryBackgroundEntryProvider,
 )
-from .catalog import (
+from .retrieval.catalog import (
     MemoryCatalogEntry,
     MemoryCatalogSnapshot,
     MemoryInspectItem,
@@ -44,7 +40,12 @@ from .documents import (
     inline_memory_links,
 )
 from .engine import MemoryEngine, MemoryRecallResult
-from .errors import MemoryContractError, MemoryError, MemoryIOError, MemoryInvariantError
+from .errors import (
+    MemoryContractError,
+    MemoryError,
+    MemoryIOError,
+    MemoryInvariantError,
+)
 from .failures import MemoryFailureKind
 from .links import MemoryBackgroundRef, MemoryKind, MemoryLink
 

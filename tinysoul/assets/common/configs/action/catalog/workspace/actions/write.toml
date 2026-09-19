@@ -1,0 +1,31 @@
+name = "workspace.write"
+domain = "workspace"
+
+[tool]
+description = "Write exact UTF-8 content. Create by default; overwrite explicitly replaces an existing file."
+
+[tool.schema]
+type = "object"
+required = ["target_link","text"]
+additionalProperties = false
+
+[tool.schema.properties]
+
+[tool.schema.properties.target_link]
+type = "string"
+
+[tool.schema.properties.text]
+type = "string"
+
+[tool.schema.properties.overwrite]
+type = "boolean"
+
+[semantic]
+effects = ["modifying"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "native"
+handler = "workspace.write"

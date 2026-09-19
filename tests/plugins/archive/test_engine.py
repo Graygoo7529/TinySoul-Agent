@@ -10,9 +10,13 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-import tinysoul.plugins.archive.engine as daily_module
+import tinysoul.plugins.archive.transition.coordinator as daily_module
 import tinysoul.plugins.workspace.engine as workspace_engine_module
-from tinysoul.plugins.home import AgentHomeEngine, AgentHomeEngineBuilder, AgentHomeSettings
+from tinysoul.plugins.home import (
+    AgentHomeEngine,
+    AgentHomeEngineBuilder,
+    AgentHomeSettings,
+)
 from tinysoul.infra.time import CalendarDay
 from tinysoul.plugins.archive import DailyLifecycleCoordinator
 from tinysoul.plugins.memory import MemoryEngine, MemorySettings
@@ -29,9 +33,12 @@ from tinysoul.runtime import (
 )
 from tinysoul.plugins.session import SessionEngine, SessionOutputRecord, SessionSettings
 from tests.plugins.session.synthetic import completion
-from tinysoul.plugins.workspace import WorkspaceEngine, WorkspaceEngineBuilder, WorkspaceSettings
+from tinysoul.plugins.workspace import (
+    WorkspaceEngine,
+    WorkspaceEngineBuilder,
+    WorkspaceSettings,
+)
 from tinysoul.plugins.workspace.errors import WorkspaceIOError
-
 
 OLD_DAY = CalendarDay.parse("2026-07-11")
 NEW_DAY = CalendarDay.parse("2026-07-12")
@@ -91,8 +98,6 @@ def test_daily_rollover_archives_session_workspace_and_trash_but_preserves_home(
     workspace.write_text("workspace:discard.md", "discard")
     workspace.trash_resource(
         "workspace:discard.md",
-        reason="explicit_delete",
-        source_turn_id="turn_old",
     )
     home.write_resource(
         "home:skills/refactor/references/new.md",
@@ -112,9 +117,7 @@ def test_daily_rollover_archives_session_workspace_and_trash_but_preserves_home(
     )
     assert any((archive / "trash").rglob("*.json"))
     assert not (archive / "home").exists()
-    transition = json.loads(
-        (archive / "transition.json").read_text(encoding="utf-8")
-    )
+    transition = json.loads((archive / "transition.json").read_text(encoding="utf-8"))
     assert transition["from_day"] == str(OLD_DAY)
     assert transition["to_day"] == str(NEW_DAY)
     assert "settlement_status" not in transition
@@ -287,8 +290,6 @@ def test_daily_resumes_after_trash_move_before_workspace_move(
     workspace.write_text("workspace:trash-window.md", "trash me")
     workspace.trash_resource(
         "workspace:trash-window.md",
-        reason="explicit_delete",
-        source_turn_id="turn_trash_window",
     )
     workspace.write_text("workspace:keep-window.md", "keep me")
     marker, protected_before = _protected_state(tmp_path, home)
@@ -614,9 +615,7 @@ def _daily_system(
 
 
 def _home_manifest_bytes(home: AgentHomeEngine) -> bytes:
-    return (
-        home.runtime_root / ".tinysoul" / "home_overlay.json"
-    ).read_bytes()
+    return (home.runtime_root / ".tinysoul" / "home_overlay.json").read_bytes()
 
 
 def _memory(root: Path, session: SessionEngine) -> MemoryEngine:

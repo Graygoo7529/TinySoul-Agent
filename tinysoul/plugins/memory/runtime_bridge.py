@@ -13,13 +13,12 @@ from tinysoul.plugins.memory.errors import (
     MemoryInvariantError,
 )
 from tinysoul.plugins.memory.failures import MemoryFailureKind
-from tinysoul.runtime.exception import (
+from tinysoul.runtime.control.exception import (
     RUNTIME_STARTUP_FAILED,
     RUNTIME_TURN_END,
     RuntimeException,
 )
 from tinysoul.runtime.failures import exception_payload, runtime_exception
-
 
 MEMORY_RUNTIME_REASON_MAP: dict[MemoryFailureKind, str] = {
     MemoryFailureKind.CONFIGURATION_FAILED: RUNTIME_STARTUP_FAILED,

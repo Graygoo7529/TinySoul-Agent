@@ -16,7 +16,6 @@ from tinysoul.infra.config import ConfigEnvironment
 from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
 
-
 pytestmark = [
     pytest.mark.external,
     pytest.mark.skipif(
@@ -37,9 +36,7 @@ async def test_real_kimi_search_returns_answer_and_structured_results(
     environment = ConfigEnvironment.from_project_root(
         Path(configured_root).expanduser().resolve()
     )
-    settings = parse_capabilities_settings(
-        environment.section_tree("capabilities")
-    ).web
+    settings = parse_capabilities_settings(environment.section_tree("capabilities")).web
     assert settings.search_by_kimi.enabled is True
     assert settings.search_by_kimi.model == "kimi-k2.6"
     staging = StagingDirectoryManager(local_tmp.resolve())
@@ -62,7 +59,6 @@ async def test_real_kimi_search_returns_answer_and_structured_results(
         ),
         invoke_id="real_kimi_search",
         call_id="real_kimi_search_call",
-        owner_turn_id="real_web_turn",
         control=ActionExecutionControl(deadline=monotonic() + 120),
     )
 

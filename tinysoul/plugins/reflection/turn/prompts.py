@@ -5,7 +5,7 @@ from __future__ import annotations
 from ..errors import ReflectionContractError
 
 
-def maintenance_turn_guidance(kind: str) -> tuple[str, ...]:
+def reflection_turn_guidance(kind: str) -> tuple[str, ...]:
     common = (
         "This is an autonomous Reflection Turn.",
         "Use the supplied Background, Session, Workspace, and TurnTrace as context.",
@@ -17,14 +17,14 @@ def maintenance_turn_guidance(kind: str) -> tuple[str, ...]:
         return (
             *common,
             "Review every runtime Home difference against actual Home and the actual core rules.",
-            "Use home_reflection.diff; edit effective copies through home actions as needed.",
-            "Use home_reflection.review to accept or reject selected changes.",
+            "Use home.diff; edit effective copies through home actions as needed.",
+            "Use home.review to accept or reject selected changes.",
         )
     if kind == "memory":
         return (
             *common,
             "Distinguish the target day from the current execution day.",
-            "Reflect on the closed day's archived Session facts and Workspace projection.",
+            "Use the fixed target-day Session and active Memory sources. Archived Workspace is read-only; current Workspace is the execution workbench.",
             "Inspect/recall before writing. Write one document at a time and inspect the result.",
             "Create redirect targets before retiring source documents; committed writes remain if later work fails.",
         )

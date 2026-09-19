@@ -6,6 +6,6 @@ from enum import StrEnum
 
 
 class ReflectionFailureKind(StrEnum):
-    CONFIGURATION_FAILED = "maintenance.configuration_failed"
-    CONTRACT_VIOLATION = "maintenance.contract_violation"
-    INVARIANT_VIOLATION = "maintenance.invariant_violation"
+    CONFIGURATION_FAILED = "reflection.configuration_failed"
+    CONTRACT_VIOLATION = "reflection.contract_violation"
+    INVARIANT_VIOLATION = "reflection.invariant_violation"

@@ -39,16 +39,23 @@ from tinysoul.runtime import (
 from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
 from tinysoul.kernel.loop.runtime_bridge import RuntimeLoopBridge
 
-from .cancellation import TurnCancellation
+from .interaction.cancellation import TurnCancellation
 from .config import TurnSettings
-from .completion import TurnCompletion, TurnCompletionPipeline
+from .lifecycle.completion import TurnCompletion, TurnCompletionPipeline
 from .context_signals import ContextSignalConsumer
 from .cycle import CycleOutcome, CycleRunner
 from .errors import LoopInvariantError
-from .inbox import InboxKind, TurnInbox, TurnState, WaitCondition, WaitReason, WakeReason
+from .interaction.inbox import (
+    InboxKind,
+    TurnInbox,
+    TurnState,
+    WaitCondition,
+    WaitReason,
+    WakeReason,
+)
 from .failures import LOOP_BUDGET_REQUIRED, LoopFailureKind
 from .outcomes import TurnFailure, TurnOutcomeStatus, TurnOutput, failure_from_runtime
-from .preparation import TurnPreparationPipeline, TurnPreparationRequest
+from .lifecycle.preparation import TurnPreparationPipeline, TurnPreparationRequest
 from .signals import LoopControlKind, LoopTraceNoteKind
 
 
@@ -74,14 +81,19 @@ class TurnOutcome:
             raise LoopInvariantError("TurnOutcome requires a TurnOutcomeStatus")
         if any(not isinstance(item, TurnFailure) for item in self.finish_failures):
             raise LoopInvariantError("TurnOutcome requires typed finish failures")
-        if any(not isinstance(item, CleanupDiagnostic) for item in self.cleanup_diagnostics):
+        if any(
+            not isinstance(item, CleanupDiagnostic) for item in self.cleanup_diagnostics
+        ):
             raise LoopInvariantError("TurnOutcome requires typed cleanup diagnostics")
         if self.finish_failures and self.status is not TurnOutcomeStatus.FAILED:
             raise LoopInvariantError("Required finish failure prevents Turn success")
         if self.status is TurnOutcomeStatus.ANSWERED:
             if self.output is None or self.failure is not None or self.exhausted:
                 raise LoopInvariantError("Answered TurnOutcome is inconsistent")
-        elif self.status in {TurnOutcomeStatus.COMPLETED, TurnOutcomeStatus.AWAITING_USER}:
+        elif self.status in {
+            TurnOutcomeStatus.COMPLETED,
+            TurnOutcomeStatus.AWAITING_USER,
+        }:
             if (
                 self.completion is None
                 or self.output is not None
@@ -90,7 +102,11 @@ class TurnOutcome:
             ):
                 raise LoopInvariantError("Completed TurnOutcome is inconsistent")
         elif self.status is TurnOutcomeStatus.EXHAUSTED:
-            if self.output is not None or self.failure is not None or not self.exhausted:
+            if (
+                self.output is not None
+                or self.failure is not None
+                or not self.exhausted
+            ):
                 raise LoopInvariantError("Exhausted TurnOutcome is inconsistent")
         elif self.status is TurnOutcomeStatus.FAILED:
             if self.failure is None:
@@ -141,7 +157,9 @@ class TurnRunner:
         trap: RuntimeTrap,
         cycle_runner: CycleRunner,
         settings: TurnSettings,
-        completion_to_output: Callable[[JsonObject | None], TurnOutput | None] | None = None,
+        completion_to_output: (
+            Callable[[JsonObject | None], TurnOutput | None] | None
+        ) = None,
         context_bridge: RuntimeContextBridge | None = None,
         loop_bridge: RuntimeLoopBridge | None = None,
         signal_consumer: ContextSignalConsumer | None = None,
@@ -180,19 +198,41 @@ class TurnRunner:
                 reply_to = record.payload.get("reply_to", "")
                 if not isinstance(reply_to, str):
                     raise LoopInvariantError("Accepted reply has no question identity")
-                signals.append(build_input_append_signal(text, scope=scope, source="loop.inbox",
-                                                         input_id=record.record_id, reply_to=reply_to))
-                note = to_json_object({"kind": "input_received", "input_id": record.record_id, "sequence": sequence})
+                signals.append(
+                    build_input_append_signal(
+                        text,
+                        scope=scope,
+                        source="loop.inbox",
+                        input_id=record.record_id,
+                        reply_to=reply_to,
+                    )
+                )
+                note = to_json_object(
+                    {
+                        "kind": "input_received",
+                        "input_id": record.record_id,
+                        "sequence": sequence,
+                    }
+                )
             else:
-                note = to_json_object({"kind": "environment_event", "event_id": record.record_id,
-                                       "sequence": sequence, "payload": record.payload})
-            signals.append(build_trace_phase_note_signal(note, scope=scope, source="loop.inbox"))
+                note = to_json_object(
+                    {
+                        "kind": "environment_event",
+                        "event_id": record.record_id,
+                        "sequence": sequence,
+                        "payload": record.payload,
+                    }
+                )
+            signals.append(
+                build_trace_phase_note_signal(note, scope=scope, source="loop.inbox")
+            )
         if signals:
             frame = scope.nearest(RunLevel.TURN)
             if frame is None:
                 raise LoopInvariantError("Inbox consumption requires a Turn frame")
             results = await self._signal_consumer.consume_batch(
-                ContextSignalBatch(turn_id=frame.name, signals=tuple(signals)), scope=scope,
+                ContextSignalBatch(turn_id=frame.name, signals=tuple(signals)),
+                scope=scope,
             )
             if results:
                 raise LoopInvariantError("Context rejected an accepted Inbox batch")
@@ -243,8 +283,11 @@ class TurnRunner:
         finish_failures: tuple[TurnFailure, ...] = ()
         try:
             try:
-                turn_id = (self._context.begin_turn(turn_input, turn_id=request_id)
-                           if request_id else self._context.begin_turn(turn_input))
+                turn_id = (
+                    self._context.begin_turn(turn_input, turn_id=request_id)
+                    if request_id
+                    else self._context.begin_turn(turn_input)
+                )
             except ContextError as exc:
                 raise self._context_bridge.from_context_error(exc) from exc
             turn_scope = scope.push(RunLevel.TURN, turn_id)
@@ -264,12 +307,12 @@ class TurnRunner:
                     "business_day": str(business_day),
                 },
             )
-            preparation = (await self._run_preparation(
+            preparation = await self._run_preparation(
                 turn_id=turn_id,
                 turn_input=turn_input,
                 business_day=business_day,
                 scope=turn_scope,
-            ))
+            )
             if preparation is not None:
                 transfer = preparation.transfer
                 failure = preparation.failure
@@ -290,45 +333,97 @@ class TurnRunner:
                             (await self._record_cycle_limit(turn_scope))
                             break
                         request = await inbox.request_budget(cycle_index)
-                        suspension = self._trap.capture(RuntimeException(
-                            reason=LOOP_BUDGET_REQUIRED,
-                            message="Turn requires a Cycle budget decision.",
-                            payload={"module": "loop", "request_id": request.request_id},
-                        ), turn_scope)
-                        if (suspension.transfer.action is not RuntimeTransferAction.SUSPEND
-                                or suspension.transfer.target != turn_scope.current()):
-                            raise LoopInvariantError("Budget Trap must suspend the current Turn")
-                        await self._signal_consumer.consume_recovery(suspension.signals, turn_scope)
-                        self._emit(turn_scope, "turn.budget_requested", ObservationLevel.NORMAL,
-                                   "Turn is waiting for a Cycle budget decision.",
-                                   {"request_id": request.request_id, "next_cycle_index": cycle_index})
-                    if inbox is not None and (pending_wait is not None or request is not None):
-                        readiness = await inbox.wait_for_cycle(pending_wait, budget=request, job_ready=job_ready)
+                        suspension = self._trap.capture(
+                            RuntimeException(
+                                reason=LOOP_BUDGET_REQUIRED,
+                                message="Turn requires a Cycle budget decision.",
+                                payload={
+                                    "module": "loop",
+                                    "request_id": request.request_id,
+                                },
+                            ),
+                            turn_scope,
+                        )
+                        if (
+                            suspension.transfer.action
+                            is not RuntimeTransferAction.SUSPEND
+                            or suspension.transfer.target != turn_scope.current()
+                        ):
+                            raise LoopInvariantError(
+                                "Budget Trap must suspend the current Turn"
+                            )
+                        await self._signal_consumer.consume_recovery(
+                            suspension.signals, turn_scope
+                        )
+                        self._emit(
+                            turn_scope,
+                            "turn.budget_requested",
+                            ObservationLevel.NORMAL,
+                            "Turn is waiting for a Cycle budget decision.",
+                            {
+                                "request_id": request.request_id,
+                                "next_cycle_index": cycle_index,
+                            },
+                        )
+                    if inbox is not None and (
+                        pending_wait is not None or request is not None
+                    ):
+                        readiness = await inbox.wait_for_cycle(
+                            pending_wait, budget=request, job_ready=job_ready
+                        )
                         cycle_limit += readiness.granted_cycles
                         if pending_wait is not None:
                             question = pending_wait.question
-                            if question is not None and readiness.reason is WakeReason.TIMER:
-                                completion = {"kind": "awaiting_user", "question_id": question.question_id}
+                            if (
+                                question is not None
+                                and readiness.reason is WakeReason.TIMER
+                            ):
+                                completion = {
+                                    "kind": "awaiting_user",
+                                    "question_id": question.question_id,
+                                }
                                 break
-                            await self._signal_consumer.emit_and_consume((build_trace_phase_note_signal(
-                                {"kind": "wait_resumed", "reason": readiness.reason.value if readiness.reason else None,
-                                 "sequence": readiness.sequence,
-                                 "unanswered_question_id": question.question_id if question is not None and readiness.reason is WakeReason.INPUT else None},
-                                scope=turn_scope, source="loop.wait",
-                            ),), scope=turn_scope)
+                            await self._signal_consumer.emit_and_consume(
+                                (
+                                    build_trace_phase_note_signal(
+                                        {
+                                            "kind": "wait_resumed",
+                                            "reason": (
+                                                readiness.reason.value
+                                                if readiness.reason
+                                                else None
+                                            ),
+                                            "sequence": readiness.sequence,
+                                            "unanswered_question_id": (
+                                                question.question_id
+                                                if question is not None
+                                                and readiness.reason is WakeReason.INPUT
+                                                else None
+                                            ),
+                                        },
+                                        scope=turn_scope,
+                                        source="loop.wait",
+                                    ),
+                                ),
+                                scope=turn_scope,
+                            )
                         pending_wait = None
                         job_ready = False
                     await self._consume_inbox(inbox, turn_scope)
                     if self._activity_controller is not None:
-                        self._activity_controller.sync(turn_id, bus=self._bus, scope=turn_scope)
-                    cycle_cursor = inbox.acknowledged_sequence if inbox is not None else 0
-                    cycle = (await self._cycle_runner.run(
+                        self._activity_controller.sync(
+                            turn_id, bus=self._bus, scope=turn_scope
+                        )
+                    cycle_cursor = (
+                        inbox.acknowledged_sequence if inbox is not None else 0
+                    )
+                    cycle = await self._cycle_runner.run(
                         turn_id=turn_id,
                         cycle_index=cycle_index,
                         scope=turn_scope,
                         cancellation=cancellation,
                         phase_feedback=tuple(phase_feedback),
-                    ))
+                    )
                     if failure is None:
                         failure = cycle.failure
                     stopped = stopped or cycle.stopped
@@ -348,29 +443,52 @@ class TurnRunner:
                         question = cycle.question
                         if inbox is not None:
                             await inbox.open_question(question)
-                        self._emit(turn_scope, "turn.question", ObservationLevel.NORMAL,
-                                   question.text, {"question_id": question.question_id,
-                                                   "options": list(question.options)})
+                        self._emit(
+                            turn_scope,
+                            "turn.question",
+                            ObservationLevel.NORMAL,
+                            question.text,
+                            {
+                                "question_id": question.question_id,
+                                "options": list(question.options),
+                            },
+                        )
                         if inbox is None:
-                            completion = {"kind": "awaiting_user", "question_id": question.question_id}
+                            completion = {
+                                "kind": "awaiting_user",
+                                "question_id": question.question_id,
+                            }
                             break
                         pending_wait = WaitCondition(
-                            WaitReason.INPUT, cycle_cursor,
-                            asyncio.get_running_loop().time() + question.timeout_seconds if question.timeout_seconds is not None else None,
+                            WaitReason.INPUT,
+                            cycle_cursor,
+                            (
+                                asyncio.get_running_loop().time()
+                                + question.timeout_seconds
+                                if question.timeout_seconds is not None
+                                else None
+                            ),
                             question=question,
                         )
                         cycle_index += 1
                         continue
                     if cycle.wait is not None:
                         if inbox is None:
-                            raise LoopInvariantError("Wait action requires a Turn Inbox")
+                            raise LoopInvariantError(
+                                "Wait action requires a Turn Inbox"
+                            )
                         pending_wait = cycle.wait.condition(cycle_cursor)
                         job_ready = cycle.wait.ready
                         cycle_index += 1
                         continue
                     if cycle.completion is not None:
-                        if self._activity_controller is not None and self._activity_controller.has_unresolved(turn_id):
-                            phase_feedback.append("Resolve the active Jobs before completing this Turn.")
+                        if (
+                            self._activity_controller is not None
+                            and self._activity_controller.has_unresolved(turn_id)
+                        ):
+                            phase_feedback.append(
+                                "Resolve the active Jobs before completing this Turn."
+                            )
                             cycle_index += 1
                             continue
                         if await self._consume_inbox(inbox, turn_scope):
@@ -404,14 +522,19 @@ class TurnRunner:
             transfer = captured.transfer
             failure = failure or captured.failure
         except Exception as exc:
-            captured = self._capture(self._loop_bridge.from_exception(
-                LoopFailureKind.INTERNAL_FAILURE, exc,
-            ), turn_scope)
+            captured = self._capture(
+                self._loop_bridge.from_exception(
+                    LoopFailureKind.INTERNAL_FAILURE,
+                    exc,
+                ),
+                turn_scope,
+            )
             transfer = captured.transfer
             failure = failure or captured.failure
         finally:
             if inbox is not None:
                 inbox.set_activity(TurnState.FINALIZING)
+
                 async def close_ingress() -> None:
                     await inbox.close()
 
@@ -434,36 +557,57 @@ class TurnRunner:
                     transfer = transfer or captured.transfer
                     failure = failure or captured.failure
                 except Exception as exc:
-                    captured = self._capture(self._loop_bridge.from_exception(
-                        LoopFailureKind.INTERNAL_FAILURE, exc,
-                    ), turn_scope)
+                    captured = self._capture(
+                        self._loop_bridge.from_exception(
+                            LoopFailureKind.INTERNAL_FAILURE,
+                            exc,
+                        ),
+                        turn_scope,
+                    )
                     transfer = transfer or captured.transfer
                     failure = failure or captured.failure
             controller = self._activity_controller
             if controller is not None and turn_id:
                 try:
-                    activity_closer = asyncio.create_task(controller.cleanup_turn(turn_id))
+                    activity_closer = asyncio.create_task(
+                        controller.cleanup_turn(turn_id)
+                    )
                     while not activity_closer.done():
                         try:
                             await asyncio.shield(activity_closer)
                         except asyncio.CancelledError as exc:
                             task_cancellation = task_cancellation or exc
+                        except Exception:
+                            break
                     cleanup_diagnostics.extend(activity_closer.result())
+                except (RuntimeException, RuntimeTransferInterrupt) as exc:
+                    captured = (
+                        self._from_interrupt(exc)
+                        if isinstance(exc, RuntimeTransferInterrupt)
+                        else self._capture(exc, turn_scope)
+                    )
+                    if transfer is None or (
+                        captured.transfer is not None
+                        and captured.transfer.target.level is RunLevel.AGENT
+                    ):
+                        transfer = captured.transfer
+                    if captured.failure is not None:
+                        finish_failures = (*finish_failures, captured.failure)
                 except Exception as exc:
-                    cleanup_diagnostics.append(
-                        CleanupDiagnostic("turn.activity", type(exc).__name__)
-                    )
-                    self._emit(
+                    captured = self._capture(
+                        self._loop_bridge.from_exception(
+                            LoopFailureKind.CONTRACT_VIOLATION,
+                            exc,
+                        ),
                         turn_scope,
-                        "turn.activity_cleanup_failed",
-                        ObservationLevel.NORMAL,
-                        "Turn activity cleanup failed.",
-                        {
-                            "turn_id": turn_id,
-                            "error_type": type(exc).__name__,
-                        },
                     )
-            if (inbox is not None or controller is not None) and self._context.turn_active:
+                    transfer = transfer or captured.transfer
+                    if captured.failure is not None:
+                        finish_failures = (*finish_failures, captured.failure)
+            if (
+                inbox is not None or controller is not None
+            ) and self._context.turn_active:
+
                 async def drain_final_records() -> None:
                     if controller is not None:
                         controller.sync(turn_id, bus=self._bus, scope=turn_scope)
@@ -491,7 +635,12 @@ class TurnRunner:
                     failure = failure or captured.failure
                     transfer = transfer or captured.transfer
                 except Exception as exc:
-                    captured = self._capture(self._loop_bridge.from_exception(LoopFailureKind.INTERNAL_FAILURE, exc), turn_scope)
+                    captured = self._capture(
+                        self._loop_bridge.from_exception(
+                            LoopFailureKind.INTERNAL_FAILURE, exc
+                        ),
+                        turn_scope,
+                    )
                     failure = failure or captured.failure
                     transfer = transfer or captured.transfer
         try:
@@ -509,9 +658,13 @@ class TurnRunner:
                 transfer = captured.transfer
             failure = failure or captured.failure
         except Exception as exc:
-            captured = self._capture(self._loop_bridge.from_exception(
-                LoopFailureKind.INTERNAL_FAILURE, exc,
-            ), turn_scope)
+            captured = self._capture(
+                self._loop_bridge.from_exception(
+                    LoopFailureKind.INTERNAL_FAILURE,
+                    exc,
+                ),
+                turn_scope,
+            )
             transfer = transfer or captured.transfer
             failure = failure or captured.failure
         if output is not None and self._is_turn_end(transfer, turn_scope):
@@ -536,7 +689,10 @@ class TurnRunner:
                     transfer=transfer,
                     failure=failure,
                 )
-                if task_cancellation is not None and execution_status is TurnOutcomeStatus.STOPPED:
+                if (
+                    task_cancellation is not None
+                    and execution_status is TurnOutcomeStatus.STOPPED
+                ):
                     execution_status = TurnOutcomeStatus.CANCELLED
 
                 def capture_finish_failure(
@@ -557,18 +713,21 @@ class TurnRunner:
                         kind=LoopFailureKind.CONTRACT_VIOLATION.value,
                     )
 
-                finalizer = asyncio.create_task(self._completion_pipeline.run(
-                    TurnCompletion(
-                        context_completion=context_completion,
-                        business_day=business_day,
-                        status=execution_status,
-                        output=output,
-                        exhausted=exhausted,
-                        completion=completion,
-                        failure=failure,
-                    ),
-                    capture_failure=capture_finish_failure,
-                ))
+                finalizer = asyncio.create_task(
+                    self._completion_pipeline.run(
+                        TurnCompletion(
+                            context_completion=context_completion,
+                            business_day=business_day,
+                            status=execution_status,
+                            output=output,
+                            exhausted=exhausted,
+                            completion=completion,
+                            failure=failure,
+                            finish_failures=finish_failures,
+                        ),
+                        capture_failure=capture_finish_failure,
+                    )
+                )
                 while not finalizer.done():
                     try:
                         await asyncio.shield(finalizer)
@@ -628,7 +787,9 @@ class TurnRunner:
                 "status": status.value,
                 "completion_committed": completion_committed,
                 "exhausted": exhausted,
-                "transfer_action": transfer.action.value if transfer is not None else None,
+                "transfer_action": (
+                    transfer.action.value if transfer is not None else None
+                ),
             },
         )
         outcome = TurnOutcome(
@@ -690,9 +851,7 @@ class TurnRunner:
             if transfer.action is RuntimeTransferAction.END:
                 return boundary
             raise self._loop_bridge.from_loop_error(
-                LoopInvariantError(
-                    f"Unsupported Turn preparation transfer: {transfer}"
-                )
+                LoopInvariantError(f"Unsupported Turn preparation transfer: {transfer}")
             )
 
     async def _commit_preparation_signals(
@@ -703,10 +862,10 @@ class TurnRunner:
     ) -> None:
         if not signals:
             return
-        preparation_results = (await self._signal_consumer.emit_and_consume(
+        preparation_results = await self._signal_consumer.emit_and_consume(
             signals,
             scope=scope,
-        ))
+        )
         preparation_call_ids = {
             call_id
             for signal in signals
@@ -757,19 +916,21 @@ class TurnRunner:
         return transfer
 
     async def _record_cycle_limit(self, scope: RunScope) -> None:
-        (await self._signal_consumer.emit_and_consume(
-            (
-                build_trace_phase_note_signal(
-                    {
-                        "kind": LoopTraceNoteKind.TURN_CYCLE_LIMIT_REACHED.value,
-                        "max_cycles": self._settings.max_cycles,
-                    },
-                    scope=scope,
-                    source="loop.turn",
+        (
+            await self._signal_consumer.emit_and_consume(
+                (
+                    build_trace_phase_note_signal(
+                        {
+                            "kind": LoopTraceNoteKind.TURN_CYCLE_LIMIT_REACHED.value,
+                            "max_cycles": self._settings.max_cycles,
+                        },
+                        scope=scope,
+                        source="loop.turn",
+                    ),
                 ),
-            ),
-            scope=scope,
-        ))
+                scope=scope,
+            )
+        )
 
     def _end_turn(self) -> ContextTurnCompletion | None:
         if not self._context.turn_active:
@@ -813,9 +974,7 @@ class TurnRunner:
     def _from_interrupt(interrupt: RuntimeTransferInterrupt) -> _TurnBoundary:
         cause = interrupt.__cause__
         failure = (
-            failure_from_runtime(cause)
-            if isinstance(cause, RuntimeException)
-            else None
+            failure_from_runtime(cause) if isinstance(cause, RuntimeException) else None
         )
         return _TurnBoundary(transfer=interrupt.transfer, failure=failure)
 
@@ -866,7 +1025,9 @@ class TurnRunner:
                     "reason": failure.reason,
                     "module": failure.module,
                     "kind": failure.kind,
-                    **({"feedback": list(failure.feedback)} if failure.feedback else {}),
+                    **(
+                        {"feedback": list(failure.feedback)} if failure.feedback else {}
+                    ),
                 }
             )
         messages = {
@@ -912,6 +1073,7 @@ class TurnRunner:
                 payload=to_json_object(payload),
             ),
         )
+
     def _set_active_scope(
         self,
         scope: RunScope | None,

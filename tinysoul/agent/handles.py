@@ -7,11 +7,24 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 
-from tinysoul.kernel.loop.inbox import BudgetRequest, InboxKind, InboxLimits, InboxRecord, QuestionRequest, TurnInbox, TurnState, WaitReason
+from tinysoul.kernel.loop.interaction.inbox import (
+    BudgetRequest,
+    InboxKind,
+    InboxLimits,
+    InboxRecord,
+    QuestionRequest,
+    TurnInbox,
+    TurnState,
+    WaitReason,
+)
 from tinysoul.kernel.loop.outcomes import TurnOutcomeStatus
 from tinysoul.runtime.events import EnvironmentEvent
 from tinysoul.kernel.loop.turn import TurnOutcome
-from tinysoul.plugins.reflection.models import ReflectionOutcome, ReflectionRequest, ReflectionStatus
+from tinysoul.plugins.reflection.models import (
+    ReflectionOutcome,
+    ReflectionRequest,
+    ReflectionStatus,
+)
 
 from .errors import AgentClosedError, AgentSDKError
 from .requests import UserTurnRequest
@@ -33,12 +46,21 @@ class TurnResult:
 
     def __post_init__(self) -> None:
         if not self.turn_id or (self.outcome is None) == (self.request_failure is None):
-            raise AgentSDKError("Result requires exactly one owner outcome or request failure")
-        if self.outcome is not None and not isinstance(self.outcome, (TurnOutcome, ReflectionOutcome)):
+            raise AgentSDKError(
+                "Result requires exactly one owner outcome or request failure"
+            )
+        if self.outcome is not None and not isinstance(
+            self.outcome, (TurnOutcome, ReflectionOutcome)
+        ):
             raise AgentSDKError("Result requires a typed owner outcome")
-        if self.request_failure is not None and not isinstance(self.request_failure, RequestFailure):
+        if self.request_failure is not None and not isinstance(
+            self.request_failure, RequestFailure
+        ):
             raise AgentSDKError("Request failure must be typed")
-        if self.error_type is not None and self.request_failure is not RequestFailure.FAILED:
+        if (
+            self.error_type is not None
+            and self.request_failure is not RequestFailure.FAILED
+        ):
             raise AgentSDKError("Only request failure may carry an error summary")
 
     @property
@@ -52,11 +74,18 @@ class TurnResult:
 class TurnHandle:
     """Waiting never takes ownership of the scheduler's execution task."""
 
-    def __init__(self, request: UserTurnRequest | ReflectionRequest, *, inbox_limits: InboxLimits = InboxLimits()) -> None:
+    def __init__(
+        self,
+        request: UserTurnRequest | ReflectionRequest,
+        *,
+        inbox_limits: InboxLimits = InboxLimits(),
+    ) -> None:
         self.turn_id = request.request_id
         self.request = request
         self.inbox = TurnInbox(inbox_limits)
-        self._future: asyncio.Future[TurnResult] = asyncio.get_running_loop().create_future()
+        self._future: asyncio.Future[TurnResult] = (
+            asyncio.get_running_loop().create_future()
+        )
         self._task: asyncio.Task[TurnOutcome | ReflectionOutcome] | None = None
         self._cancel_requested = False
 
@@ -96,14 +125,21 @@ class TurnHandle:
     async def deliver(self, event: EnvironmentEvent) -> bool:
         if self.done or self._cancel_requested:
             raise AgentClosedError("Turn is no longer accepting events")
-        await self.inbox.accept(InboxRecord(
-            InboxKind(event.kind.value), event.payload, event.event_id,
-        ))
+        await self.inbox.accept(
+            InboxRecord(
+                InboxKind(event.kind.value),
+                event.payload,
+                event.event_id,
+            )
+        )
         return True
 
     def request_cancel(self) -> bool:
-        if (self.done or self.state is TurnState.FINALIZING
-                or (self._task is not None and self._task.done())):
+        if (
+            self.done
+            or self.state is TurnState.FINALIZING
+            or (self._task is not None and self._task.done())
+        ):
             return False
         if not self._cancel_requested:
             self._cancel_requested = True

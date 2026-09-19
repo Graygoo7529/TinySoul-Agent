@@ -1,5 +1,7 @@
 # LLM 设计
 
+内部 protocol 只保存消息/工具/模型/静态路由及 adapter 描述，config 只解释配置，execution 维护 ModelRegistry、任务运行与模型链现态。provider 保留供应商适配边界；协议不依赖运行器或实例化客户端，LLMTaskRunner 仍统一协调每次调用。
+
 ## 定位
 
 LLM 模块负责把 TinySoul 内部的模型调用请求转换为具体供应商 API 调用，并把模型输出转换为可解释的统一结果。

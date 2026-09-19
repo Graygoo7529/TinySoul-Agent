@@ -1,9 +1,0 @@
-[app]
-interactive = true
-exit_commands = ["exit", "quit"]
-stop_turn_commands = ["stop", "cancel"]
-retained_outcomes = 32
-
-[app.output]
-mode = "normal"
-model_max_chars = 20000

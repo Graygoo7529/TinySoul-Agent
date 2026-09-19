@@ -6,9 +6,20 @@ from dataclasses import dataclass, field
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Protocol
 
-from tinysoul.kernel.context.segments import ReadOnlySegmentRegistration, SegmentCapability, SegmentDescriptor, SegmentRegistration, SegmentShape, SegmentSlot, TurnInfo
-from tinysoul.kernel.context.errors import ContextInspectFailureReason, ContextInspectRequestError
-from tinysoul.llm.messages import Message, UserMessage
+from tinysoul.kernel.context.segments import (
+    ReadOnlySegmentRegistration,
+    SegmentCapability,
+    SegmentDescriptor,
+    SegmentRegistration,
+    SegmentShape,
+    SegmentSlot,
+    TurnInfo,
+)
+from tinysoul.kernel.context.errors import (
+    ContextInspectFailureReason,
+    ContextInspectRequestError,
+)
+from tinysoul.llm.protocol.messages import Message, UserMessage
 from tinysoul.infra.json import JsonObject, JsonValue, to_json_object
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.runtime import RunScope, RuntimeException, Signal
@@ -17,11 +28,10 @@ from .engine import WorkspaceArchiveView, WorkspaceEngine
 from .errors import WorkspaceContractError, WorkspaceError
 from .runtime_bridge import RuntimeWorkspaceBridge
 from .failures import WorkspaceFailureKind
-from .manifest import WorkspaceManifest
+from .storage.manifest import WorkspaceManifest
 
 if TYPE_CHECKING:
-    from tinysoul.kernel.loop.preparation import TurnPreparationRequest
-
+    from tinysoul.kernel.loop.lifecycle.preparation import TurnPreparationRequest
 
 
 SIGNAL_WORKSPACE_SYNC = "context.workspace.sync"
@@ -43,23 +53,16 @@ class WorkspaceResource:
 
 @dataclass(frozen=True)
 class WorkspaceSnapshot:
-    """A complete, versioned Workspace manifest projection."""
+    """A complete current Workspace manifest projection."""
 
-    revision: int
     resources: tuple[WorkspaceResource, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
-        if (
-            isinstance(self.revision, bool)
-            or not isinstance(self.revision, int)
-            or self.revision < 0
-        ):
-            raise WorkspaceContractError(
-                "WorkspaceSnapshot.revision must be a non-negative integer"
-            )
         resources = tuple(self.resources)
         if any(not isinstance(resource, WorkspaceResource) for resource in resources):
-            raise WorkspaceContractError("Workspace projection requires typed resources")
+            raise WorkspaceContractError(
+                "Workspace projection requires typed resources"
+            )
         object.__setattr__(self, "resources", resources)
         links = tuple(resource.link for resource in resources)
         if len(set(links)) != len(links):
@@ -68,17 +71,22 @@ class WorkspaceSnapshot:
             )
 
 
-
 def build_workspace_sync_signal(
-    snapshot: WorkspaceSnapshot, *, call_id: str, scope: RunScope, source: str,
+    snapshot: WorkspaceSnapshot,
+    *,
+    call_id: str,
+    scope: RunScope,
+    source: str,
 ) -> Signal:
     return Signal(
-        name=SIGNAL_WORKSPACE_SYNC, source=source, scope=scope,
+        name=SIGNAL_WORKSPACE_SYNC,
+        source=source,
+        scope=scope,
         payload={
             "call_id": call_id,
-            "revision": snapshot.revision,
             "resources": [
-                {"link": item.link, "summary": item.summary} for item in snapshot.resources
+                {"link": item.link, "summary": item.summary}
+                for item in snapshot.resources
             ],
         },
     )
@@ -86,21 +94,24 @@ def build_workspace_sync_signal(
 
 def parse_workspace_sync_signal(signal: Signal) -> WorkspaceSnapshot:
     try:
-        revision = signal.payload.get("revision")
-        if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
-            raise WorkspaceContractError("Workspace projection requires a non-negative revision")
         values = signal.payload.get("resources")
         if not isinstance(values, list):
-            raise WorkspaceContractError("Workspace projection requires a resource list")
+            raise WorkspaceContractError(
+                "Workspace projection requires a resource list"
+            )
         resources: list[WorkspaceResource] = []
         for value in values:
             if not isinstance(value, dict):
-                raise WorkspaceContractError("Workspace projection resource must be an object")
+                raise WorkspaceContractError(
+                    "Workspace projection resource must be an object"
+                )
             link, summary = value.get("link"), value.get("summary")
             if not isinstance(link, str) or not isinstance(summary, str):
-                raise WorkspaceContractError("Workspace projection resource requires text fields")
+                raise WorkspaceContractError(
+                    "Workspace projection resource requires text fields"
+                )
             resources.append(WorkspaceResource(link, summary))
-        return WorkspaceSnapshot(revision, tuple(resources))
+        return WorkspaceSnapshot(tuple(resources))
     except WorkspaceError as exc:
         raise RuntimeWorkspaceBridge().from_workspace_error(exc) from exc
 
@@ -111,29 +122,23 @@ class WorkspaceSegment:
     def __init__(self) -> None:
         self._snapshot: WorkspaceSnapshot | None = None
 
-    async def prepare(self, updates: tuple[WorkspaceSnapshot, ...]) -> WorkspaceSnapshot | None:
-        candidate = self._snapshot
-        for update in updates:
-            if candidate is not None:
-                if update.revision < candidate.revision:
-                    continue
-                if update.revision == candidate.revision and update != candidate:
-                    exc = WorkspaceContractError("Workspace projection conflicts at the same revision")
-                    raise RuntimeWorkspaceBridge().from_workspace_error(exc) from exc
-            candidate = update
-        return candidate
+    async def prepare(
+        self, updates: tuple[WorkspaceSnapshot, ...]
+    ) -> WorkspaceSnapshot | None:
+        return updates[-1] if updates else self._snapshot
 
     def install(self, prepared: WorkspaceSnapshot | None) -> None:
         self._snapshot = prepared
 
     def seal(self) -> JsonObject:
         return {
-            "revision": self._snapshot.revision if self._snapshot is not None else -1,
             "resources": self._resources(),
         }
 
     def render(self) -> tuple[Message, ...]:
-        return (UserMessage.from_json({"resources": self._resources()}, label="workspace"),)
+        return (
+            UserMessage.from_json({"resources": self._resources()}, label="workspace"),
+        )
 
     def _resources(self) -> list[JsonValue]:
         return [
@@ -150,7 +155,9 @@ class WorkspaceSegmentProvider:
         return WorkspaceSegment()
 
 
-def workspace_segment_registration() -> SegmentRegistration[WorkspaceSnapshot, WorkspaceSnapshot | None]:
+def workspace_segment_registration() -> (
+    SegmentRegistration[WorkspaceSnapshot, WorkspaceSnapshot | None]
+):
     return SegmentRegistration(
         descriptor=SegmentDescriptor("workspace", "workspace", SegmentSlot.WORKING, 20),
         provider=WorkspaceSegmentProvider(),
@@ -178,39 +185,77 @@ class ArchivedWorkspaceSegment:
         if self._view is None:
             return {"resources": []}
         resources = self._view.manifest.resources
-        selected = resources[offset:offset + 32]
+        selected = resources[offset : offset + 32]
         return {
             "ref": f"workspace_archive:{self._view.day}",
-            "source_day": self._view.day, "read_only": True,
-            "resources": [{"ref": f"workspace_archive:{self._view.day}/{item.relative_path}",
-                           "summary": item.context_summary[:500]} for item in selected],
-            "continuation": str(offset + len(selected)) if offset + len(selected) < len(resources) else None,
+            "source_day": self._view.day,
+            "read_only": True,
+            "resources": [
+                {
+                    "ref": f"workspace_archive:{self._view.day}/{item.relative_path}",
+                    "summary": item.context_summary[:500],
+                }
+                for item in selected
+            ],
+            "continuation": (
+                str(offset + len(selected))
+                if offset + len(selected) < len(resources)
+                else None
+            ),
         }
 
     async def inspect(self, ref: str, *, continuation: str | None = None) -> JsonObject:
         view = self._view
         if view is None:
-            raise ContextInspectRequestError(ContextInspectFailureReason.UNKNOWN_REF, "No archived Workspace is bound")
+            raise ContextInspectRequestError(
+                ContextInspectFailureReason.UNKNOWN_REF,
+                "No archived Workspace is bound",
+            )
         root = f"workspace_archive:{view.day}"
         if ref == root:
             offset = 0
             if continuation is not None:
-                if not continuation.isascii() or not continuation.isdigit() or len(continuation) > 9:
-                    raise ContextInspectRequestError(ContextInspectFailureReason.UNKNOWN_REF, "Invalid archive continuation")
+                if (
+                    not continuation.isascii()
+                    or not continuation.isdigit()
+                    or len(continuation) > 9
+                ):
+                    raise ContextInspectRequestError(
+                        ContextInspectFailureReason.UNKNOWN_REF,
+                        "Invalid archive continuation",
+                    )
                 offset = int(continuation)
             return self._page(offset)
-        record = next((item for item in view.manifest.resources if ref == f"{root}/{item.relative_path}"), None)
+        record = next(
+            (
+                item
+                for item in view.manifest.resources
+                if ref == f"{root}/{item.relative_path}"
+            ),
+            None,
+        )
         if record is None or continuation is not None:
-            raise ContextInspectRequestError(ContextInspectFailureReason.UNKNOWN_REF, "Unknown archived Workspace reference")
+            raise ContextInspectRequestError(
+                ContextInspectFailureReason.UNKNOWN_REF,
+                "Unknown archived Workspace reference",
+            )
         try:
             operations = JoinedOperations()
-            read = await operations.run(lambda: view.read_text(record.link, expected_digest=record.digest))
+            read = await operations.run(lambda: view.read_text(record.link))
             operations.check_cancelled()
         except WorkspaceContractError as exc:
-            raise ContextInspectRequestError(ContextInspectFailureReason.UNKNOWN_REF, "Archived resource cannot be read as text") from exc
+            raise ContextInspectRequestError(
+                ContextInspectFailureReason.UNKNOWN_REF,
+                "Archived resource cannot be read as text",
+            ) from exc
         except WorkspaceError as exc:
             raise RuntimeWorkspaceBridge().from_workspace_error(exc) from exc
-        return {"ref": ref, "source_day": view.day, "text": read.text, "truncated": read.truncated}
+        return {
+            "ref": ref,
+            "source_day": view.day,
+            "text": read.text,
+            "truncated": read.truncated,
+        }
 
     async def close(self) -> None:
         self._view = None
@@ -228,8 +273,15 @@ def archived_workspace_segment_registration(
     source: Callable[[], WorkspaceArchiveView | None],
 ) -> ReadOnlySegmentRegistration:
     return ReadOnlySegmentRegistration(
-        SegmentDescriptor("workspace_archive", "workspace", SegmentSlot.BACKGROUND, 60,
-                          ("workspace_archive:",), SegmentShape.STATE, frozenset({SegmentCapability.INSPECT})),
+        SegmentDescriptor(
+            "workspace_archive",
+            "workspace",
+            SegmentSlot.BACKGROUND,
+            60,
+            ("workspace_archive:",),
+            SegmentShape.STATE,
+            frozenset({SegmentCapability.INSPECT}),
+        ),
         ArchivedWorkspaceSegmentProvider(source),
     )
 
@@ -237,8 +289,7 @@ def archived_workspace_segment_registration(
 class WorkspaceRuntimeBridge(Protocol):
     """Runtime mapping surface needed by Turn preparation."""
 
-    def from_workspace_error(self, error: Exception) -> RuntimeException:
-        ...
+    def from_workspace_error(self, error: Exception) -> RuntimeException: ...
 
     def from_failure(
         self,
@@ -246,15 +297,13 @@ class WorkspaceRuntimeBridge(Protocol):
         *,
         message: str,
         payload: JsonObject | None = None,
-    ) -> RuntimeException:
-        ...
+    ) -> RuntimeException: ...
 
 
 def workspace_snapshot(manifest: WorkspaceManifest) -> WorkspaceSnapshot:
     """Project a committed Workspace manifest into Context's read model."""
 
     return WorkspaceSnapshot(
-        revision=manifest.revision,
         resources=tuple(
             WorkspaceResource(link=record.link, summary=record.context_summary)
             for record in manifest.resources

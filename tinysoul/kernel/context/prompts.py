@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from tinysoul.llm.messages import Message, UserMessage
+from tinysoul.llm.protocol.messages import Message, UserMessage
 
 from .errors import ContextInvariantError
 

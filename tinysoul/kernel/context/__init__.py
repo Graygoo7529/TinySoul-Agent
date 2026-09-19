@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .actions import register_context_actions
 
-from .controls import (
+from .control.tools import (
     CONTROL_EVICT_BACKGROUND,
     CONTROL_LOAD_BACKGROUND,
     CONTROL_REMOVE_MILESTONE,
@@ -39,7 +39,7 @@ from .providers import (
     BackgroundCatalogItem,
     BackgroundEntryProvider,
 )
-from .references import PromptReferenceError, PromptReferenceResolver
+from .projection.references import PromptReferenceError, PromptReferenceResolver
 from .signals import (
     SIGNAL_BACKGROUND_PATCH,
     SIGNAL_INPUT_APPEND,
@@ -52,7 +52,7 @@ from .signals import (
     build_trace_phase_note_signal,
     parse_input_append_signal,
 )
-from .composer import ContextBudgetReport, ContextSectionUsage
+from .projection.composer import ContextBudgetReport, ContextSectionUsage
 from .compress import ContextPressureReport
 from .segments import ContextSegment, SegmentRegistry
 

@@ -7,9 +7,9 @@ from dataclasses import dataclass, field
 from math import isfinite
 
 from tinysoul.kernel.action.backends.llm_action import LLMActionTaskRunner
-from tinysoul.kernel.action.core.call import ActionExecution
-from tinysoul.kernel.action.core.executor import ActionExecutionContext
-from tinysoul.kernel.action.core.result import (
+from tinysoul.kernel.action.call import ActionExecution
+from tinysoul.kernel.action.execution.executor import ActionExecutionContext
+from tinysoul.kernel.action.result import (
     ActionFailureDisposition,
     ActionLocalFailure,
     ActionResult,
@@ -74,12 +74,12 @@ class CoreReasonActionExecutor:
                 reason=parse.failure_reason,
                 frame_data=parse.frame_data,
             )
-        payload = (await self._llm_action.run_json(
+        payload = await self._llm_action.run_json(
             execution=execution,
             prompt=parse.prompt,
             subject="Core reason LLM task",
             control=context.control,
-        ))
+        )
         if isinstance(payload, ActionResult):
             return payload
         return _success(execution, payload)
@@ -112,12 +112,12 @@ class CoreAnswerActionExecutor:
                 reason=parse.failure_reason,
                 frame_data=parse.frame_data,
             )
-        payload = (await self._llm_action.run_json(
+        payload = await self._llm_action.run_json(
             execution=execution,
             prompt=parse.prompt,
             subject="Answer LLM task",
             control=context.control,
-        ))
+        )
         if isinstance(payload, ActionResult):
             return payload
         payload_failure = _answer_payload_failure(payload)
@@ -139,36 +139,82 @@ class CoreAnswerActionExecutor:
 class CoreAskActionExecutor:
     """Produce a question intent; the Turn owns publication and waiting."""
 
-    async def execute(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
+    async def execute(
+        self, execution: ActionExecution, context: ActionExecutionContext
+    ) -> ActionResult:
         params = execution.call.params
         text = params.get("text")
         options = params.get("options", [])
         timeout = params.get("timeout_seconds")
-        if (not isinstance(text, str) or not text.strip() or len(text) > 4000
-                or not isinstance(options, list)
-                or len(options) > 8
-                or any(not isinstance(item, str) or not item or len(item) > 400 for item in options)
-                or (timeout is not None and (isinstance(timeout, bool)
-                    or not isinstance(timeout, (int, float)) or not isfinite(timeout) or timeout <= 0))):
-            return _failed(execution, "Provide a question, optional choices and a positive timeout.",
-                           reason="invalid_question")
-        return _success(execution, {"text": text.strip(), "options": options,
-                                    "timeout_seconds": timeout})
+        if (
+            not isinstance(text, str)
+            or not text.strip()
+            or len(text) > 4000
+            or not isinstance(options, list)
+            or len(options) > 8
+            or any(
+                not isinstance(item, str) or not item or len(item) > 400
+                for item in options
+            )
+            or (
+                timeout is not None
+                and (
+                    isinstance(timeout, bool)
+                    or not isinstance(timeout, (int, float))
+                    or not isfinite(timeout)
+                    or timeout <= 0
+                )
+            )
+        ):
+            return _failed(
+                execution,
+                "Provide a question, optional choices and a positive timeout.",
+                reason="invalid_question",
+            )
+        return _success(
+            execution,
+            {"text": text.strip(), "options": options, "timeout_seconds": timeout},
+        )
 
 
 class CoreWaitActionExecutor:
     """Accept a bounded wait intent; execution never waits inside Phase3."""
 
-    async def execute(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
+    async def execute(
+        self, execution: ActionExecution, context: ActionExecutionContext
+    ) -> ActionResult:
         params = execution.call.params
-        timeout, kind, event_id = params.get("timeout_seconds"), params.get("event_kind"), params.get("event_id")
-        if ((timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not isfinite(timeout) or timeout <= 0))
-                or kind not in {None, "event", "timer", "job"}
-                or (event_id is not None and (not isinstance(event_id, str) or not event_id or kind is None))
-                or (timeout is None and kind is None)):
-            return _failed(execution, "Choose a positive timeout or an explicit event kind and optional identity.",
-                           reason="invalid_wait")
-        return _success(execution, {"timeout_seconds": timeout, "event_kind": kind, "event_id": event_id})
+        timeout, kind, event_id = (
+            params.get("timeout_seconds"),
+            params.get("event_kind"),
+            params.get("event_id"),
+        )
+        if (
+            (
+                timeout is not None
+                and (
+                    isinstance(timeout, bool)
+                    or not isinstance(timeout, (int, float))
+                    or not isfinite(timeout)
+                    or timeout <= 0
+                )
+            )
+            or kind not in {None, "event", "timer", "job"}
+            or (
+                event_id is not None
+                and (not isinstance(event_id, str) or not event_id or kind is None)
+            )
+            or (timeout is None and kind is None)
+        ):
+            return _failed(
+                execution,
+                "Choose a positive timeout or an explicit event kind and optional identity.",
+                reason="invalid_wait",
+            )
+        return _success(
+            execution,
+            {"timeout_seconds": timeout, "event_kind": kind, "event_id": event_id},
+        )
 
 
 class _PromptArgumentBuilder:
@@ -455,22 +501,29 @@ def register_core_actions(
 ) -> ActionEngineBuilder:
     """Register built-in core actions on an action builder."""
 
-    return builder.register_executor(
-        "core.ask", CoreAskActionExecutor(),
-    ).register_executor(
-        "core.wait", CoreWaitActionExecutor(),
-    ).register_executor(
-        "core.reason",
-        CoreReasonActionExecutor(
-            llm_action=llm_action,
-            reference_resolvers=reference_resolvers,
-        ),
-    ).register_executor(
-        "core.answer",
-        CoreAnswerActionExecutor(
-            llm_action=llm_action,
-            reference_resolvers=reference_resolvers,
-        ),
+    return (
+        builder.register_executor(
+            "core.ask",
+            CoreAskActionExecutor(),
+        )
+        .register_executor(
+            "core.wait",
+            CoreWaitActionExecutor(),
+        )
+        .register_executor(
+            "core.reason",
+            CoreReasonActionExecutor(
+                llm_action=llm_action,
+                reference_resolvers=reference_resolvers,
+            ),
+        )
+        .register_executor(
+            "core.answer",
+            CoreAnswerActionExecutor(
+                llm_action=llm_action,
+                reference_resolvers=reference_resolvers,
+            ),
+        )
     )
 
 

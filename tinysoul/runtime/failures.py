@@ -7,7 +7,7 @@ from enum import StrEnum
 from tinysoul.infra.json import JsonObject
 
 from .errors import RuntimeContractError
-from .exception import RuntimeException
+from .control.exception import RuntimeException
 
 
 def runtime_exception(

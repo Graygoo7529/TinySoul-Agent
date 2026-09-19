@@ -1,0 +1,22 @@
+name = "execution.run_shell"
+domain = "execution"
+[tool]
+description = "Run one bounded shell command against the actual daily Workspace and wait for completion."
+[tool.schema]
+type = "object"
+required = ["interpreter", "command"]
+additionalProperties = false
+[tool.schema.properties.interpreter]
+type = "string"
+[tool.schema.properties.command]
+type = "string"
+[tool.schema.properties.cwd_link]
+type = "string"
+[semantic]
+use_when = ["A deterministic local shell command is needed"]
+effects = ["modifying"]
+[runtime]
+parallel_policy = "serial"
+[backend]
+kind = "native"
+handler = "execution.run_shell"

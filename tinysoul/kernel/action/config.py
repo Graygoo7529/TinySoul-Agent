@@ -3,70 +3,75 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import cast
 
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
 
-from .core.catalog import ActionCatalog
-from .core.specs import ActionBackendKind
+from .catalog.catalog import ActionCatalog
+from .catalog.specs import ActionBackendKind, ActionSpec
 
 
 @dataclass(frozen=True)
+class ActionSelection:
+    """Resolved visibility and the exact configuration level that selected it."""
+
+    enabled: bool
+    source: str
+
+
 class ActionPolicy:
-    """Scenario selection within the operations granted by composition."""
+    """Resolve catalog visibility without granting executable capabilities."""
 
-    domains: tuple[tuple[str, bool], ...] = ()
-    actions: tuple[tuple[str, bool], ...] = ()
-
-    def __post_init__(self) -> None:
-        for name in ("domains", "actions"):
-            entries = getattr(self, name)
-            if not isinstance(entries, (tuple, list)) or any(
-                not isinstance(entry, (tuple, list)) or len(entry) != 2
-                or not isinstance(entry[0], str) or not entry[0].strip()
-                or type(entry[1]) is not bool for entry in entries
-            ):
-                raise ConfigError("Action policy requires named boolean selections", key=name)
-            entries = tuple((key, enabled) for key, enabled in entries)
-            if len({key for key, _ in entries}) != len(entries):
-                raise ConfigError("Action policy identities must be unique", key=name)
-            object.__setattr__(self, name, entries)
-
-    def apply(self, catalog: ActionCatalog, *, granted: frozenset[str]) -> ActionCatalog:
-        domains, actions = dict(self.domains), dict(self.actions)
-        known_domains = {domain.name for domain in catalog.domains()}
-        known_actions = {action.name for action in catalog.actions()}
-        if domains.keys() - known_domains or actions.keys() - known_actions:
-            raise ConfigError("Action policy references an unknown identity", key="actions")
-        if any(enabled and name not in granted for name, enabled in self.actions):
-            raise ConfigError("Action policy cannot grant an operation", key="actions")
-        return ActionCatalog(
-            domains=catalog.domains(),
-            actions=tuple(replace(action, runtime=replace(
-                action.runtime,
-                enabled=action.name in granted and actions.get(
-                    action.name, domains.get(action.domain, action.runtime.enabled)),
-            )) for action in catalog.actions()),
+    @staticmethod
+    def selection(
+        catalog: ActionCatalog, action: ActionSpec, scenario: str
+    ) -> ActionSelection:
+        domain = catalog.get_domain(action.domain)
+        choices = (
+            (
+                action.visibility.for_scenario(scenario),
+                f"action.visibility.scenarios.{scenario}",
+            ),
+            (
+                domain.visibility.for_scenario(scenario),
+                f"domain.visibility.scenarios.{scenario}",
+            ),
+            (action.visibility.default, "action.visibility.default"),
+            (domain.visibility.default, "domain.visibility.default"),
         )
+        for value, source in choices:
+            if value is not None:
+                return ActionSelection(value, source)
+        return ActionSelection(True, "default")
 
-
-def parse_action_policy(value: object, *, key: str) -> ActionPolicy:
-    if value is None:
-        return ActionPolicy()
-    if not isinstance(value, Mapping):
-        raise ConfigError("Action policy must be a table", key=key)
-    reject_unknown_keys(cast(Mapping[str, object], value), {"domains", "actions"}, key=key)
-    selections: dict[str, tuple[tuple[str, bool], ...]] = {}
-    for name in ("domains", "actions"):
-        entries = value.get(name, {})
-        if not isinstance(entries, Mapping) or any(
-            not isinstance(identity, str) or type(enabled) is not bool
-            for identity, enabled in entries.items()
-        ):
-            raise ConfigError("Action selections must be named booleans", key=f"{key}.{name}")
-        selections[name] = tuple(cast(Mapping[str, bool], entries).items())
-    return ActionPolicy(**selections)
+    @staticmethod
+    def validate(
+        catalog: ActionCatalog,
+        *,
+        granted: frozenset[str],
+        scenario: str,
+        scenarios: frozenset[str],
+    ) -> None:
+        if scenario not in scenarios:
+            raise ConfigError(
+                "Unknown Action scenario", key="action.scenario", value=scenario
+            )
+        for spec in (*catalog.domains(), *catalog.actions()):
+            if any(name not in scenarios for name, _ in spec.visibility.scenarios):
+                raise ConfigError(
+                    "Unknown Action visibility scenario",
+                    key=f"{spec.name}.visibility.scenarios",
+                )
+        for action in catalog.actions():
+            if (
+                action.visibility.for_scenario(scenario) is True
+                and action.name not in granted
+            ):
+                raise ConfigError(
+                    "Action scenario selection cannot grant an operation",
+                    key=f"{action.name}.visibility.scenarios.{scenario}",
+                )
 
 
 @dataclass(frozen=True)

@@ -12,10 +12,17 @@ from tinysoul.plugins.home import (
     AgentHomeEngine,
     HomeDomainSkillProvider,
 )
-from tinysoul.kernel.loop.assembly import TurnProfile, build_turn_context, build_turn_kernel
-from tinysoul.kernel.loop.completion import TurnCompletionHandler, TurnCompletionPipeline
+from tinysoul.kernel.loop.assembly import (
+    TurnProfile,
+    build_turn_context,
+    build_turn_kernel,
+)
+from tinysoul.kernel.loop.lifecycle.completion import (
+    TurnCompletionHandler,
+    TurnCompletionPipeline,
+)
 from tinysoul.kernel.loop.config import LoopSettings
-from tinysoul.kernel.loop.preparation import TurnPreparationPipeline
+from tinysoul.kernel.loop.lifecycle.preparation import TurnPreparationPipeline
 from tinysoul.kernel.loop.prompts import DomainSkillProvider
 from tinysoul.plugins.memory import MemoryEngine
 from tinysoul.runtime import ObservationEmitter, SignalBus
@@ -32,8 +39,8 @@ from tinysoul.plugins.workspace import (
 )
 
 from tinysoul.kernel.loop.phases import LLMRunner
-from tinysoul.plugins.capabilities.assembly import CommonActionAssembly
-from tinysoul.kernel.loop.completion import AnswerCompletionDetector
+from ..composition.actions import CommonActionAssembly
+from tinysoul.kernel.loop.lifecycle.completion import AnswerCompletionDetector
 from .completion import user_output_from_completion
 from tinysoul.plugins.home.plugin import declare_home
 from tinysoul.plugins.home.services import HomeService
@@ -64,6 +71,7 @@ class UserTurnBuilder:
         observations: ObservationEmitter,
         action_settings: ActionSettings | None = None,
         action_catalog: LoadedActionCatalog,
+        action_assembly: CommonActionAssembly | None = None,
     ) -> None:
         self._root = root
         self._context_settings = context_settings
@@ -72,6 +80,7 @@ class UserTurnBuilder:
         self._runtime_env = dict(runtime_env)
         self._action_settings = action_settings or ActionSettings()
         self._action_catalog = action_catalog
+        self._action_assembly = action_assembly
         self._llm = llm
         self._home = home
         self._memory = memory
@@ -82,7 +91,9 @@ class UserTurnBuilder:
         self._domain_skills: DomainSkillProvider | None = None
         self._completion_handlers: list[TurnCompletionHandler] = []
 
-    def with_domain_skills(self, domain_skills: DomainSkillProvider) -> "UserTurnBuilder":
+    def with_domain_skills(
+        self, domain_skills: DomainSkillProvider
+    ) -> "UserTurnBuilder":
         self._domain_skills = domain_skills
         return self
 
@@ -95,29 +106,37 @@ class UserTurnBuilder:
 
     def build(self) -> UserTurnEntry:
         context = build_turn_context(self._context_settings, self._observations)
-        builder, process_jobs, services = CommonActionAssembly(
-            root=self._root, home=self._home,
-            workspace=self._workspace, bus=self._bus, llm=self._llm,
-            observations=self._observations, action_settings=self._action_settings,
+        assembly = self._action_assembly or CommonActionAssembly(
+            root=self._root,
+            home=self._home,
+            workspace=self._workspace,
+            bus=self._bus,
+            llm=self._llm,
+            observations=self._observations,
+            action_settings=self._action_settings,
             capabilities_settings=self._capabilities_settings,
             runtime_env=self._runtime_env,
-        ).prepare(
-            context, self._action_catalog,
-            plugins=(declare_home(self._home, self._llm),
-                     declare_memory(self._memory), declare_session(self._session)),
+        )
+        builder, process_jobs, services = assembly.prepare(
+            context,
+            self._action_catalog,
+            plugins=(
+                declare_home(self._home, self._llm),
+                declare_memory(self._memory),
+                declare_session(self._session),
+            ),
         )
         domain_skills = self._domain_skills or HomeDomainSkillProvider(
             services.get(HomeService),
             runtime_bridge=RuntimeAgentHomeBridge(),
         )
-        action = builder.with_policy(self._loop_settings.user.actions).build()
+        action = builder.with_scenario("user").build()
 
         session_bridge = RuntimeSessionBridge()
         workspace_bridge = RuntimeWorkspaceBridge()
         trap = build_user_turn_trap(
             context=context,
             home=self._home,
-            workspace=self._workspace,
         )
         profile = TurnProfile(
             id="user",
@@ -148,5 +167,10 @@ class UserTurnBuilder:
             ),
             activity_controller=process_jobs,
         )
-        runner = build_turn_kernel(profile=profile, llm=self._llm, bus=self._bus, observations=self._observations)
+        runner = build_turn_kernel(
+            profile=profile,
+            llm=self._llm,
+            bus=self._bus,
+            observations=self._observations,
+        )
         return UserTurnEntry(runner, profile=profile)

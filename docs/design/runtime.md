@@ -10,11 +10,13 @@ Runtime 不负责执行业务动作，不构造模型消息栈，不修改语境
 
 Runtime 采用 OS 风格的陷入设计：模块内部正常执行时不依赖全局控制器；当模块局部处理失败、运行环境需要全局恢复、用户请求中断或程序需要退出时，执行流程陷入 Runtime，由 Runtime 根据当前运行位置和异常语义给出恢复或中断决策。内部信号作为可消费的软事件，用于在模块之间表达状态变更请求、动作结果和用户追加输入；只供外部观察、没有业务消费者的事件使用独立 Observation 协议。
 
+内部 control 聚合 frame/scope/transfer/exception 与执行 frame 的机制，trap、signals、generation 保持各自语义。基础运行位置和转移不反向依赖 runner，通用事件、业务 Signal 与 Observation 没有合并为万能总线。
+
 ## 运行层级
 
 TinySoul 的运行层级从外到内分为 Agent、Turn、Cycle、Phase 和 Module。
 
-Agent 是程序顶层，由 App 拥有 typed request queue 和 Agent frame。它把 `UserTurnRequest` 分派给 User Turn，把 `ReflectionRequest` 分派给 ReflectionEngine，把 `ExitRequest` 交给 Agent trap。每项新日 work 前的确定性 Archive preflight 是 Agent 边界前置条件，日期决策归 AgentDayCoordinator，目录事实归 Archive 与各 owner 所有；它只恢复 journal、归档旧日 Session/Workspace/Trash 并打开新日 Session/Workspace，不触发 LLM、不移动跨日 Home overlay，也不读写顶层 Memory。Agent 不直接介入 Phase 或具体模块细节。
+Agent 是程序顶层，由 Agent SDK 拥有 typed request queue 和 Agent frame。它把 `UserTurnRequest` 分派给 User Turn，把 `ReflectionRequest` 分派给 ReflectionEngine，把 `ExitRequest` 交给 Agent trap。每项新日 work 前的确定性 Archive preflight 是 Agent 边界前置条件，日期决策归 AgentDayCoordinator，目录事实归 Archive 与各 owner 所有；它只恢复 journal、归档旧日 Session/Workspace/Trash 并打开新日 Session/Workspace，不触发 LLM、不移动跨日 Home overlay，也不读写顶层 Memory。Agent 不直接介入 Phase 或具体模块细节。
 
 Turn 是 Agent work 中需要 3-stage 推理的一次顶层任务。User Turn 由用户输入形成；Home/Memory task 由 ReflectionEngine 在 eligible 时启动独立 Reflection Turn。二者使用相同 Turn/Cycle/Phase 层级，但 preparation、Context 实例、Action view、completion 和输出语义不同。User Turn 可以接收用户追加输入；明确的新根请求在 Agent queue 排队；定向追加和回复可进入当前 Reflection Inbox。Runtime 不保存 Reflection 业务状态：Home 重试重新读取 runtime overlay 与 actual Home，Memory 重试重新读取指定日期 Archive projection 与同日期 MEMORY。
 

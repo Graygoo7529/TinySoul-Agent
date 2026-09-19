@@ -1,18 +1,24 @@
-"""Endpoint Workspace resource and CAS operation engine."""
+"""Endpoint Workspace resource operations through the owner service."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
 
 from tinysoul.infra.json import JsonObject, to_json_object
-from tinysoul.agent.errors import AgentSDKError
 from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.workspace import (
     WorkspaceBundleWrite,
     WorkspaceManifest,
-    WorkspaceRetention,
+    WorkspaceResourceRecord,
+    WorkspaceTag,
+    WorkspaceTextEdit,
 )
-from tinysoul.plugins.workspace.errors import WorkspaceContractError, WorkspaceError
+from tinysoul.plugins.workspace.errors import (
+    WorkspaceContractError,
+    WorkspaceError,
+    WorkspaceIOError,
+)
 
 from ..errors import EndpointRequestError
 from .context import EndpointEngineContext
@@ -24,18 +30,19 @@ class EndpointResourceBlob:
     data: bytes
     media_type: str
     size: int
-    digest: str
 
 
 class EndpointWorkspaceEngine:
-    """Keep Workspace leases, CAS and context synchronization in one boundary."""
+    """Keep Workspace leases and context synchronization in one boundary."""
 
     def __init__(self, context: EndpointEngineContext) -> None:
         self._context = context
 
     async def manifest(self) -> JsonObject:
         try:
-            async with self._context.services.registry.get(WorkspaceService).operation() as workspace:
+            async with self._context.services.registry.get(
+                WorkspaceService
+            ).operation() as workspace:
                 result = await workspace.reconcile()
                 if not result.complete:
                     raise EndpointRequestError(
@@ -47,14 +54,14 @@ class EndpointWorkspaceEngine:
                 return result.manifest.to_json()
         except EndpointRequestError:
             raise
-        except AgentSDKError as exc:
-            raise _not_ready(exc) from exc
         except WorkspaceError as exc:
             raise _workspace_error(exc) from exc
 
     async def read_text(self, link: str) -> JsonObject:
         try:
-            async with self._context.services.registry.get(WorkspaceService).operation() as workspace:
+            async with self._context.services.registry.get(
+                WorkspaceService
+            ).operation() as workspace:
                 read = await workspace.read_text(
                     link,
                     max_chars=self._context.settings.max_resource_chars,
@@ -64,16 +71,15 @@ class EndpointWorkspaceEngine:
                     "text": read.text,
                     "truncated": read.truncated,
                     "size": read.size,
-                    "digest": read.digest,
                 }
-        except AgentSDKError as exc:
-            raise _not_ready(exc) from exc
         except WorkspaceError as exc:
             raise _workspace_error(exc) from exc
 
     async def read_blob(self, link: str) -> EndpointResourceBlob:
         try:
-            async with self._context.services.registry.get(WorkspaceService).operation() as workspace:
+            async with self._context.services.registry.get(
+                WorkspaceService
+            ).operation() as workspace:
                 read = await workspace.read_bytes(
                     link,
                     max_bytes=self._context.settings.max_resource_bytes,
@@ -83,10 +89,7 @@ class EndpointWorkspaceEngine:
                     data=read.data,
                     media_type=read.media_type,
                     size=read.size,
-                    digest=read.digest,
                 )
-        except AgentSDKError as exc:
-            raise _not_ready(exc) from exc
         except WorkspaceError as exc:
             raise _workspace_error(exc) from exc
 
@@ -96,25 +99,19 @@ class EndpointWorkspaceEngine:
         link: str,
         text: str,
         overwrite: bool,
-        expected_digest: str,
-        expected_revision: int,
-        retention: WorkspaceRetention | None,
     ) -> JsonObject:
         try:
-            async with self._context.services.registry.get(WorkspaceService).operation() as workspace:
+            async with self._context.services.registry.get(
+                WorkspaceService
+            ).operation() as workspace:
                 record = await workspace.write_text(
                     link,
                     text,
                     overwrite=overwrite,
-                    expected_digest=expected_digest,
-                    expected_revision=expected_revision,
-                    retention=retention,
                 )
                 manifest = await workspace.load_manifest()
                 self._sync_workspace_change(manifest)
                 return {"record": record.to_json(), "manifest": manifest.to_json()}
-        except AgentSDKError as exc:
-            raise _not_ready(exc) from exc
         except WorkspaceError as exc:
             raise _workspace_error(exc) from exc
 
@@ -124,9 +121,6 @@ class EndpointWorkspaceEngine:
         link: str,
         data: bytes,
         overwrite: bool,
-        expected_digest: str,
-        expected_revision: int,
-        retention: WorkspaceRetention | None,
     ) -> JsonObject:
         if len(data) > self._context.settings.max_request_bytes:
             raise EndpointRequestError(
@@ -135,18 +129,17 @@ class EndpointWorkspaceEngine:
                 message="Workspace blob is too large.",
             )
         try:
-            async with self._context.services.registry.get(WorkspaceService).operation() as workspace:
+            async with self._context.services.registry.get(
+                WorkspaceService
+            ).operation() as workspace:
                 result = await workspace.write_bundle(
                     (
                         WorkspaceBundleWrite(
                             link=link,
                             data=data,
                             overwrite=overwrite,
-                            expected_digest=expected_digest,
-                            retention=retention,
                         ),
                     ),
-                    expected_revision=expected_revision,
                 )
                 record = result.records[0]
                 self._sync_workspace_change(result.manifest)
@@ -154,22 +147,20 @@ class EndpointWorkspaceEngine:
                     "record": record.to_json(),
                     "manifest": result.manifest.to_json(),
                 }
-        except AgentSDKError as exc:
-            raise _not_ready(exc) from exc
         except WorkspaceError as exc:
             raise _workspace_error(exc) from exc
 
     async def trash(self) -> JsonObject:
         try:
-            async with self._context.services.registry.get(WorkspaceService).operation() as workspace:
+            async with self._context.services.registry.get(
+                WorkspaceService
+            ).operation() as workspace:
                 return {
                     "items": [
                         {"ref": item.ref, **item.to_json()}
                         for item in await workspace.trash_items()
                     ]
                 }
-        except AgentSDKError as exc:
-            raise _not_ready(exc) from exc
         except WorkspaceError as exc:
             raise _workspace_error(exc) from exc
 
@@ -177,16 +168,13 @@ class EndpointWorkspaceEngine:
         self,
         *,
         link: str,
-        expected_digest: str,
-        expected_revision: int,
     ) -> JsonObject:
         try:
-            async with self._context.services.registry.get(WorkspaceService).operation() as workspace:
+            async with self._context.services.registry.get(
+                WorkspaceService
+            ).operation() as workspace:
                 item = await workspace.trash_resource(
                     link,
-                    reason="endpoint.delete",
-                    expected_digest=expected_digest,
-                    expected_revision=expected_revision,
                 )
                 manifest = await workspace.load_manifest()
                 self._sync_workspace_change(manifest)
@@ -194,8 +182,6 @@ class EndpointWorkspaceEngine:
                     "trash": {"ref": item.ref, **item.to_json()},
                     "manifest": manifest.to_json(),
                 }
-        except AgentSDKError as exc:
-            raise _not_ready(exc) from exc
         except WorkspaceError as exc:
             raise _workspace_error(exc) from exc
 
@@ -203,19 +189,53 @@ class EndpointWorkspaceEngine:
         self,
         *,
         trash_ref: str,
-        expected_revision: int,
     ) -> JsonObject:
         try:
-            async with self._context.services.registry.get(WorkspaceService).operation() as workspace:
+            async with self._context.services.registry.get(
+                WorkspaceService
+            ).operation() as workspace:
                 record = await workspace.restore_resource(
                     trash_ref,
-                    expected_revision=expected_revision,
                 )
                 manifest = await workspace.load_manifest()
                 self._sync_workspace_change(manifest)
                 return {"record": record.to_json(), "manifest": manifest.to_json()}
-        except AgentSDKError as exc:
-            raise _not_ready(exc) from exc
+        except WorkspaceError as exc:
+            raise _workspace_error(exc) from exc
+
+    async def mkdir(self, link: str) -> JsonObject:
+        return await self._resource_change(lambda workspace: workspace.mkdir(link))
+
+    async def move(self, link: str, target_link: str) -> JsonObject:
+        return await self._resource_change(
+            lambda workspace: workspace.move(link, target_link)
+        )
+
+    async def tag(self, link: str, tags: tuple[WorkspaceTag, ...]) -> JsonObject:
+        return await self._resource_change(lambda workspace: workspace.tag(link, tags))
+
+    async def edit(self, link: str, edits: tuple[WorkspaceTextEdit, ...]) -> JsonObject:
+        return await self._resource_change(
+            lambda workspace: workspace.edit_text(link, edits)
+        )
+
+    async def append(self, link: str, text: str) -> JsonObject:
+        return await self._resource_change(
+            lambda workspace: workspace.append_text(link, text)
+        )
+
+    async def _resource_change(
+        self,
+        change: Callable[[WorkspaceService], Awaitable[WorkspaceResourceRecord]],
+    ) -> JsonObject:
+        try:
+            async with self._context.services.registry.get(
+                WorkspaceService
+            ).operation() as workspace:
+                record = await change(workspace)
+                manifest = await workspace.load_manifest()
+                self._sync_workspace_change(manifest)
+                return {"record": record.to_json(), "manifest": manifest.to_json()}
         except WorkspaceError as exc:
             raise _workspace_error(exc) from exc
 
@@ -226,25 +246,23 @@ class EndpointWorkspaceEngine:
         )
 
 
-def _not_ready(error: Exception) -> EndpointRequestError:
-    return EndpointRequestError(
-        status_code=409,
-        code="program.not_ready",
-        message="TinySoul active day is not ready.",
-        details={"error_type": type(error).__name__},
-    )
-
-
 def _workspace_error(error: WorkspaceError) -> EndpointRequestError:
     if isinstance(error, WorkspaceContractError):
         return EndpointRequestError(
             status_code=409,
             code="workspace.conflict",
-            message=str(error),
+            message="Workspace request conflicts with the current resource or is invalid.",
         )
     return EndpointRequestError(
         status_code=500,
         code="workspace.failed",
         message="Workspace operation failed.",
-        details={"error_type": type(error).__name__},
+        details={
+            "error_type": type(error).__name__,
+            "committed_links": (
+                list(error.committed_links)
+                if isinstance(error, WorkspaceIOError)
+                else []
+            ),
+        },
     )

@@ -7,18 +7,21 @@ from typing import cast
 
 import pytest
 
-from tinysoul.kernel.action.core.call import (
+from tinysoul.kernel.action.call import (
     ActionBatch,
     ActionCall,
-    ActionCallNormalizer,
     ActionExecution,
-    ActionExecutionBuilder,
     ActionFramework,
 )
-from tinysoul.kernel.action.core.errors import ActionInvariantError
-from tinysoul.kernel.action.core.hooks import ActionNormalizeHookPipeline, HookOutcome
-from tinysoul.kernel.action.core.loader import ActionCatalogLoader
-from tinysoul.kernel.action.core.result import (
+from tinysoul.kernel.action.planning.normalization import ActionCallNormalizer
+from tinysoul.kernel.action.execution.preparation import ActionExecutionBuilder
+from tinysoul.kernel.action.errors import ActionInvariantError
+from tinysoul.kernel.action.execution.hooks import (
+    ActionNormalizeHookPipeline,
+    HookOutcome,
+)
+from tinysoul.kernel.action.catalog.loader import ActionCatalogLoader
+from tinysoul.kernel.action.result import (
     ActionFailureDisposition,
     ActionLocalFailure,
     ActionResult,
@@ -26,7 +29,7 @@ from tinysoul.kernel.action.core.result import (
     ActionResultStatus,
 )
 from tinysoul.infra.json import JsonObject
-from tinysoul.llm.tools import ToolCallRecord, ToolKind
+from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind
 from tinysoul.runtime import RunScope
 
 
@@ -114,7 +117,9 @@ def test_normalizer_returns_result_for_invalid_action_arguments() -> None:
     assert normalization.results[0].status is ActionResultStatus.FAILED
     assert normalization.results[0].stage is ActionResultStage.NORMALIZE
     assert normalization.results[0].failure is not None
-    assert "Missing required action parameter" in normalization.results[0].failure.feedback
+    assert (
+        "Missing required action parameter" in normalization.results[0].failure.feedback
+    )
 
 
 def test_normalizer_returns_result_for_duplicate_call_id() -> None:
@@ -130,7 +135,7 @@ def test_normalizer_returns_result_for_duplicate_call_id() -> None:
             ),
             ToolCallRecord(
                 id="call_1",
-                name="workspace.scan",
+                name="workspace.list",
                 arguments={},
                 kind=ToolKind.ACTION,
             ),
@@ -167,9 +172,7 @@ def test_normalizer_runs_configured_normalize_hook() -> None:
     assert normalization.results[0].stage is ActionResultStage.NORMALIZE
     assert normalization.results[0].failure is not None
     assert normalization.results[0].failure.feedback == "Rejected during normalize"
-    assert normalization.results[0].payload == {
-        "invalid_fields": ["guide_blocks"]
-    }
+    assert normalization.results[0].payload == {"invalid_fields": ["guide_blocks"]}
     assert normalization.results[0].frame_data == {
         "hook": "reject",
         "rule_revision": 2,
@@ -210,7 +213,7 @@ def test_normalizer_returns_result_for_unexpected_action_arguments() -> None:
         (
             ToolCallRecord(
                 id="call_1",
-                name="workspace.scan",
+                name="workspace.list",
                 arguments={"path": "."},
                 kind=ToolKind.ACTION,
             ),
@@ -238,7 +241,7 @@ def test_normalization_merges_results_by_original_sequence() -> None:
             ),
             ToolCallRecord(
                 id="call_2",
-                name="workspace.scan",
+                name="workspace.list",
                 arguments={},
                 kind=ToolKind.ACTION,
             ),
@@ -249,7 +252,7 @@ def test_normalization_merges_results_by_original_sequence() -> None:
         call_id="call_2",
         invoke_id="invoke_2",
         batch_id="batch_1",
-        action_name="workspace.scan",
+        action_name="workspace.list",
         sequence=2,
     )
 
@@ -268,7 +271,7 @@ def test_build_execution_batch_from_calls() -> None:
         (
             ToolCallRecord(
                 id="call_1",
-                name="workspace.scan",
+                name="workspace.list",
                 arguments={},
                 kind=ToolKind.ACTION,
             ),
@@ -291,7 +294,7 @@ def test_build_execution_batch_from_calls() -> None:
     assert batch.executions[0].framework.timeout_seconds == 30.0
 
 
-@pytest.mark.parametrize("action_name", ["workspace.create", "workspace.rewrite"])
+@pytest.mark.parametrize("action_name", ["workspace.compose"])
 def test_workspace_llm_edit_batch_uses_action_timeout(action_name: str) -> None:
     catalog = builtin_catalog()
     preparation = ActionExecutionBuilder().prepare_batch(
@@ -322,7 +325,7 @@ def test_prepare_batch_returns_result_for_duplicate_call_id() -> None:
     preparation = ActionExecutionBuilder().prepare_batch(
         (
             ActionCall("call_1", "core.answer", {}, 1),
-            ActionCall("call_1", "workspace.scan", {}, 2),
+            ActionCall("call_1", "workspace.list", {}, 2),
         ),
         catalog=builtin_catalog(),
         scope=RunScope(),
@@ -339,9 +342,7 @@ def test_prepare_batch_returns_result_for_duplicate_call_id() -> None:
 
 def test_prepare_batch_returns_result_for_unknown_action() -> None:
     preparation = ActionExecutionBuilder().prepare_batch(
-        (
-            ActionCall("call_1", "missing.action", {}, 1),
-        ),
+        (ActionCall("call_1", "missing.action", {}, 1),),
         catalog=builtin_catalog(),
         scope=RunScope(),
         batch_id="batch_1",
@@ -370,8 +371,8 @@ def test_action_batch_rejects_duplicate_call_id() -> None:
                     ),
                 ),
                 ActionExecution(
-                    action=catalog.get_action("workspace.scan"),
-                    call=ActionCall("call_1", "workspace.scan", {}, 2),
+                    action=catalog.get_action("workspace.list"),
+                    call=ActionCall("call_1", "workspace.list", {}, 2),
                     framework=ActionFramework(
                         invoke_id="invoke_2",
                         batch_id="batch_1",
@@ -400,8 +401,8 @@ def test_action_batch_rejects_duplicate_sequence() -> None:
                     ),
                 ),
                 ActionExecution(
-                    action=catalog.get_action("workspace.scan"),
-                    call=ActionCall("call_2", "workspace.scan", {}, 1),
+                    action=catalog.get_action("workspace.list"),
+                    call=ActionCall("call_2", "workspace.list", {}, 1),
                     framework=ActionFramework(
                         invoke_id="invoke_2",
                         batch_id="batch_1",

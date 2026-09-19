@@ -9,7 +9,7 @@ from tinysoul.agent.failures import AgentFailureKind
 from tinysoul.infra.config import ConfigError
 from tinysoul.infra.config.errors import config_error_payload
 from tinysoul.infra.json import JsonObject
-from tinysoul.runtime.exception import (
+from tinysoul.runtime.control.exception import (
     RUNTIME_STARTUP_FAILED,
     RUNTIME_TURN_END,
     RuntimeException,
@@ -42,7 +42,7 @@ class RuntimeAgentBridge:
         payload: JsonObject | None = None,
     ) -> RuntimeException:
         return runtime_exception(
-            module="app",
+            module="agent",
             kind=kind,
             reason=APP_RUNTIME_REASON_MAP[kind],
             message=message,

@@ -1,0 +1,38 @@
+name = "workspace.compose"
+domain = "workspace"
+
+[tool]
+description = "Generate a complete bounded text artifact from task-local resources. Use overwrite to replace an existing complete target."
+
+[tool.schema]
+type = "object"
+required = ["target_link","instruction"]
+additionalProperties = false
+
+[tool.schema.properties]
+
+[tool.schema.properties.target_link]
+type = "string"
+
+[tool.schema.properties.instruction]
+type = "string"
+
+[tool.schema.properties.overwrite]
+type = "boolean"
+
+[tool.schema.properties.reference_links]
+type = "array"
+
+[tool.schema.properties.reference_links.items]
+type = "string"
+
+[semantic]
+effects = ["modifying"]
+
+[runtime]
+parallel_policy = "serial"
+timeout_seconds = 600
+
+[backend]
+kind = "llm_action"
+handler = "workspace.compose"

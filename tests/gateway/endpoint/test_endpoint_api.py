@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -10,8 +12,13 @@ import httpx
 import pytest
 
 from tinysoul.environment.inputs import CommandReceipt
-from tinysoul.agent.outputs import ObservationRoute
-from tinysoul.agent.outputs import ObservationRouter
+from tinysoul.agent.errors import (
+    AgentSDKError,
+    AgentServiceStaleError,
+    AgentServiceUnavailableError,
+)
+from tinysoul.agent.observation.outputs import ObservationRoute
+from tinysoul.agent.observation.outputs import ObservationRouter
 from tinysoul.gateway.endpoint import (
     EndpointContractError,
     EndpointEngine,
@@ -25,7 +32,7 @@ from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.loop import LoopControlKind
 from tinysoul.plugins.memory import MemoryEngine, MemorySettings
 from tinysoul.plugins.archive import DailyLifecycleCoordinator
-from tinysoul.plugins.reflection import (ReflectionAvailability, ReflectionScope)
+from tinysoul.plugins.reflection import ReflectionAvailability, ReflectionScope
 from tinysoul.runtime import (
     ObservationEvent,
     ObservationLevel,
@@ -36,8 +43,11 @@ from tinysoul.runtime import (
 from tinysoul.plugins.session import SessionEngine, SessionSettings
 from tinysoul.kernel.registration import Service, ServiceRegistry
 from tinysoul.plugins.workspace.services import WorkspaceService
-from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceManifest, WorkspaceSettings
-
+from tinysoul.plugins.workspace import (
+    WorkspaceEngineBuilder,
+    WorkspaceManifest,
+    WorkspaceSettings,
+)
 
 DAY = CalendarDay.parse("2026-07-19")
 TOKEN = "endpoint-test-token-0000000000000000"
@@ -84,7 +94,7 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
     assert "/v1/config/sections/{section_id}" not in openapi["paths"]
     assert "/v1/workspace/blob" in openapi["paths"]
     assert "put" in openapi["paths"]["/v1/workspace/blob"]
-    assert "/v1/maintenance/decision" not in openapi["paths"]
+    assert "/v1/reflection/decision" not in openapi["paths"]
     assert all(not path.startswith("/v1/session/") for path in openapi["paths"])
 
     response = client.post(
@@ -113,17 +123,17 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
     assert response.status_code == 202
     assert gateway.controls[0][0] is LoopControlKind.EXIT_PROGRAM
 
-    maintenance = client.get("/v1/maintenance", headers=_auth()).json()
-    assert maintenance["availability"]["checked_day"] == str(DAY)
-    assert maintenance["availability"]["home_pending"] is False
+    reflection = client.get("/v1/reflection", headers=_auth()).json()
+    assert reflection["availability"]["checked_day"] == str(DAY)
+    assert reflection["availability"]["home_pending"] is False
     response = client.post(
-        "/v1/maintenance",
+        "/v1/reflection",
         headers=_auth(),
         json={"kind": "memory", "target_day": "2026-07-18", "command_id": "work_ui"},
     )
     assert response.status_code == 202
     assert response.json()["command_id"] == "work_ui"
-    assert gateway.maintenance_requests == [
+    assert gateway.reflection_requests == [
         (
             ReflectionScope.MEMORY,
             CalendarDay.parse("2026-07-18"),
@@ -132,12 +142,12 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
     ]
 
     missing_target = client.post(
-        "/v1/maintenance",
+        "/v1/reflection",
         headers=_auth(),
         json={"kind": "memory"},
     )
     assert missing_target.status_code == 422
-    assert missing_target.json()["error"]["code"] == "maintenance.target_day_required"
+    assert missing_target.json()["error"]["code"] == "reflection.target_day_required"
 
 
 def test_endpoint_hides_unexpected_exception_details(
@@ -168,26 +178,63 @@ def test_endpoint_hides_unexpected_exception_details(
     assert "private" not in response.text
 
 
-def test_endpoint_workspace_cas_trash_and_restore(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("failure", "code"),
+    (
+        (AgentServiceStaleError("private details"), "service.stale"),
+        (
+            AgentServiceUnavailableError(
+                module="workspace", kind="workspace.io_failed"
+            ),
+            "agent.not_ready",
+        ),
+    ),
+)
+def test_endpoint_workspace_preserves_sdk_service_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: AgentSDKError,
+    code: str,
+) -> None:
+    engine, _gateway, _events = _engine(tmp_path)
+    client = TestClient(create_endpoint_app(engine, engine.settings))
+
+    @asynccontextmanager
+    async def unavailable(self: WorkspaceService) -> AsyncIterator[WorkspaceService]:
+        raise failure
+        yield self
+
+    monkeypatch.setattr(WorkspaceService, "operation", unavailable)
+    for response in (
+        client.get("/v1/workspace/manifest", headers=_auth()),
+        client.put(
+            "/v1/workspace/resource",
+            headers=_auth(),
+            json={"link": "workspace:note.txt", "text": "content"},
+        ),
+    ):
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == code
+        assert "private" not in response.text
+    assert not (tmp_path / "workspace" / "note.txt").exists()
+
+
+def test_endpoint_workspace_overwrite_trash_and_restore(tmp_path: Path) -> None:
     engine, gateway, _events = _engine(tmp_path)
     client = TestClient(create_endpoint_app(engine, engine.settings))
 
     manifest = client.get("/v1/workspace/manifest", headers=_auth()).json()
-    revision = manifest["revision"]
     created = client.put(
         "/v1/workspace/resource",
         headers=_auth(),
         json={
             "link": "workspace:notes/demo.md",
             "text": "first",
-            "expected_revision": revision,
         },
     )
     assert created.status_code == 200
     body = created.json()
-    digest = body["record"]["digest"]
-    revision = body["manifest"]["revision"]
-    assert gateway.synced[-1].revision == revision
+    assert gateway.synced[-1].to_json() == body["manifest"]
     assert gateway.observed[-1].name == "workspace.changed"
     replayed = engine.events.replay(
         after=0,
@@ -202,7 +249,7 @@ def test_endpoint_workspace_cas_trash_and_restore(tmp_path: Path) -> None:
         params={"link": "workspace:notes/demo.md"},
     ).json()
     assert read["text"] == "first"
-    assert read["digest"] == digest
+    assert "digest" not in read
 
     stale = client.put(
         "/v1/workspace/resource",
@@ -210,9 +257,7 @@ def test_endpoint_workspace_cas_trash_and_restore(tmp_path: Path) -> None:
         json={
             "link": "workspace:notes/demo.md",
             "text": "stale",
-            "overwrite": True,
-            "expected_digest": digest,
-            "expected_revision": revision - 1,
+            "overwrite": False,
         },
     )
     assert stale.status_code == 409
@@ -223,31 +268,88 @@ def test_endpoint_workspace_cas_trash_and_restore(tmp_path: Path) -> None:
         headers=_auth(),
         json={
             "link": "workspace:notes/demo.md",
-            "expected_digest": digest,
-            "expected_revision": revision,
         },
     )
     assert trashed.status_code == 200
     trash = trashed.json()["trash"]
-    revision = trashed.json()["manifest"]["revision"]
     assert trash["ref"].startswith("trash:workspace/")
 
     restored = client.post(
         "/v1/workspace/restore",
         headers=_auth(),
-        json={"trash_ref": trash["ref"], "expected_revision": revision},
+        json={"trash_ref": trash["ref"]},
     )
     assert restored.status_code == 200
     assert restored.json()["record"]["link"] == "workspace:notes/demo.md"
 
 
+def test_endpoint_workspace_directory_edit_move_tags_and_rejects_old_guards(
+    tmp_path: Path,
+) -> None:
+    engine, gateway, _events = _engine(tmp_path)
+    client = TestClient(create_endpoint_app(engine, engine.settings))
+    assert (
+        client.post(
+            "/v1/workspace/directory", headers=_auth(), json={"link": "workspace:notes"}
+        ).status_code
+        == 200
+    )
+    created = client.put(
+        "/v1/workspace/resource",
+        headers=_auth(),
+        json={"link": "workspace:notes/a.md", "text": "old"},
+    )
+    assert created.status_code == 200
+    tagged = client.put(
+        "/v1/workspace/tags",
+        headers=_auth(),
+        json={"link": "workspace:notes/a.md", "tags": ["pinned", "library"]},
+    )
+    assert tagged.status_code == 200
+    edited = client.post(
+        "/v1/workspace/edit",
+        headers=_auth(),
+        json={
+            "link": "workspace:notes/a.md",
+            "edits": [{"old_text": "old", "new_text": "new"}],
+        },
+    )
+    assert edited.status_code == 200
+    moved = client.post(
+        "/v1/workspace/move",
+        headers=_auth(),
+        json={"link": "workspace:notes", "target_link": "workspace:renamed"},
+    )
+    assert moved.status_code == 200
+    assert any(
+        item.link == "workspace:renamed/a.md" for item in gateway.synced[-1].resources
+    )
+    assert (
+        client.get(
+            "/v1/workspace/resource",
+            headers=_auth(),
+            params={"link": "workspace:renamed/a.md"},
+        ).json()["text"]
+        == "new"
+    )
+    assert (
+        client.put(
+            "/v1/workspace/resource",
+            headers=_auth(),
+            json={
+                "link": "workspace:renamed/a.md",
+                "text": "unsafe",
+                "overwrite": True,
+                "expected_digest": "old",
+            },
+        ).status_code
+        == 422
+    )
+
+
 def test_endpoint_workspace_blob_round_trip(tmp_path: Path) -> None:
     engine, _gateway, _events = _engine(tmp_path)
     client = TestClient(create_endpoint_app(engine, engine.settings))
-    revision = client.get(
-        "/v1/workspace/manifest",
-        headers=_auth(),
-    ).json()["revision"]
     data = b"\x00\x01\x02tiny-soul"
 
     written = client.put(
@@ -255,7 +357,6 @@ def test_endpoint_workspace_blob_round_trip(tmp_path: Path) -> None:
         headers={**_auth(), "Content-Type": "application/octet-stream"},
         params={
             "link": "workspace:assets/data.bin",
-            "expected_revision": revision,
         },
         content=data,
     )
@@ -270,7 +371,7 @@ def test_endpoint_workspace_blob_round_trip(tmp_path: Path) -> None:
     )
     assert response.status_code == 200
     assert response.content == data
-    assert response.headers["x-tinysoul-digest"] == record["digest"]
+    assert response.headers["x-tinysoul-size"] == str(len(data))
 
 
 def test_workspace_observation_failure_does_not_change_mutation_result(
@@ -278,10 +379,6 @@ def test_workspace_observation_failure_does_not_change_mutation_result(
 ) -> None:
     engine, gateway, events = _engine(tmp_path, event_max_bytes=1)
     client = TestClient(create_endpoint_app(engine, engine.settings))
-    revision = client.get(
-        "/v1/workspace/manifest",
-        headers=_auth(),
-    ).json()["revision"]
 
     response = client.put(
         "/v1/workspace/resource",
@@ -289,12 +386,11 @@ def test_workspace_observation_failure_does_not_change_mutation_result(
         json={
             "link": "workspace:committed.md",
             "text": "committed",
-            "expected_revision": revision,
         },
     )
 
     assert response.status_code == 200
-    assert gateway.synced[-1].revision == response.json()["manifest"]["revision"]
+    assert gateway.synced[-1].to_json() == response.json()["manifest"]
     assert gateway.observed[-1].name == "workspace.changed"
     assert events.latest_sequence == 0
 
@@ -386,7 +482,9 @@ def test_config_routes_read_and_patch_project_source(tmp_path: Path) -> None:
 
     status = client.get("/v1/config", headers=_auth())
     assert status.status_code == 200
-    assert status.json()["fields"]["action.llm_action.timeout_seconds"]["writable"] is True
+    assert (
+        status.json()["fields"]["action.llm_action.timeout_seconds"]["writable"] is True
+    )
 
     catalog = client.get("/v1/config/catalog", headers=_auth())
     assert catalog.status_code == 200
@@ -397,34 +495,42 @@ def test_config_routes_read_and_patch_project_source(tmp_path: Path) -> None:
 
     invalid_requests = (
         {
-            "operations": [{
-                "source_id": "project:configs/action.toml",
-                "path": "action.llm_action.timeout_seconds",
-                "op": "set",
-            }]
+            "operations": [
+                {
+                    "source_id": "project:configs/action.toml",
+                    "path": "action.llm_action.timeout_seconds",
+                    "op": "set",
+                }
+            ]
         },
         {
-            "operations": [{
-                "source_id": "project:configs/action.toml",
-                "path": "action.llm_action.timeout_seconds",
-                "op": "set",
-                "value": None,
-            }]
+            "operations": [
+                {
+                    "source_id": "project:configs/action.toml",
+                    "path": "action.llm_action.timeout_seconds",
+                    "op": "set",
+                    "value": None,
+                }
+            ]
         },
         {
-            "operations": [{
-                "source_id": "project:configs/action.toml",
-                "path": "action.llm_action.timeout_seconds",
-                "op": "delete",
-                "value": 1,
-            }]
+            "operations": [
+                {
+                    "source_id": "project:configs/action.toml",
+                    "path": "action.llm_action.timeout_seconds",
+                    "op": "delete",
+                    "value": 1,
+                }
+            ]
         },
         {
-            "operations": [{
-                "source_id": "project:configs/action.toml",
-                "path": "action.llm_action.timeout_seconds",
-                "op": "other",
-            }]
+            "operations": [
+                {
+                    "source_id": "project:configs/action.toml",
+                    "path": "action.llm_action.timeout_seconds",
+                    "op": "other",
+                }
+            ]
         },
     )
     for invalid in invalid_requests:
@@ -433,15 +539,18 @@ def test_config_routes_read_and_patch_project_source(tmp_path: Path) -> None:
         assert response.json()["error"]["code"] == "request.invalid"
 
     assert client.get("/v1/config/validate", headers=_auth()).status_code == 404
-    assert client.get(
-        "/v1/config/sections/action",
-        headers=_auth(),
-    ).status_code == 404
+    assert (
+        client.get(
+            "/v1/config/sections/action",
+            headers=_auth(),
+        ).status_code
+        == 404
+    )
 
     patched = client.patch("/v1/config", headers=_auth(), json=body)
     assert patched.status_code == 200
     assert patched.json()["state"] == "saved"
-    assert 'timeout_seconds = 30.0' in target.read_text(encoding="utf-8")
+    assert "timeout_seconds = 30.0" in target.read_text(encoding="utf-8")
 
 
 def test_config_activation_failure_uses_config_error_and_keeps_file(
@@ -540,7 +649,11 @@ def _engine(
         events=events,
         gateway=gateway,
         services=_EndpointServices(WorkspaceService(workspace)),
-        config=config or ConfigController(root=tmp_path, environment=ConfigEnvironment.from_project_root(tmp_path, env={})),
+        config=config
+        or ConfigController(
+            root=tmp_path,
+            environment=ConfigEnvironment.from_project_root(tmp_path, env={}),
+        ),
     )
     return engine, gateway, events
 
@@ -550,12 +663,19 @@ class _EndpointServices:
         self.registry = ServiceRegistry((Service(WorkspaceService, workspace),))
 
     def runtime_status(self, *, credentials: bool = False) -> JsonObject:
-        return {"generation_id": "test", "activity": "idle", "activation": "active", "active_day": str(DAY)}
+        return {
+            "generation_id": "test",
+            "activity": "idle",
+            "activation": "active",
+            "active_day": str(DAY),
+        }
 
-    async def action_catalog(self) -> JsonObject:
+    async def action_catalog(self, *, scenario: str = "user") -> JsonObject:
         return {"domains": [], "actions": []}
 
-    async def reflection_status(self) -> JsonObject:
+    async def reflection_status(
+        self, *, before: CalendarDay | None = None
+    ) -> JsonObject:
         return ReflectionAvailability(checked_day=DAY).to_json()
 
 
@@ -567,7 +687,7 @@ class _EndpointGateway:
     )
     synced: list[WorkspaceManifest] = field(default_factory=list)
     observed: list[ObservationEvent] = field(default_factory=list)
-    maintenance_requests: list[tuple[ReflectionScope, CalendarDay | None, str]] = field(
+    reflection_requests: list[tuple[ReflectionScope, CalendarDay | None, str]] = field(
         default_factory=list
     )
 
@@ -606,7 +726,7 @@ class _EndpointGateway:
             "queued",
         )
 
-    async def request_maintenance(
+    async def request_reflection(
         self,
         scope: ReflectionScope | str,
         *,
@@ -619,11 +739,11 @@ class _EndpointGateway:
         typed_scope = (
             scope if isinstance(scope, ReflectionScope) else ReflectionScope(scope)
         )
-        self.maintenance_requests.append((typed_scope, target_day, source))
+        self.reflection_requests.append((typed_scope, target_day, source))
         return CommandReceipt(
             True,
-            command_id or "command_maintenance",
-            "maintenance",
+            command_id or "command_reflection",
+            "reflection",
             "queued",
         )
 

@@ -4,9 +4,9 @@ title = "Behavior"
 description = "User Turn limits, application input behavior, output projection, and Action defaults."
 
 [[surface]]
-id = "maintenance"
-title = "Maintenance"
-description = "Business timezone, scheduled maintenance, archive, and Maintenance Turn behavior."
+id = "reflection"
+title = "Reflection"
+description = "Business timezone, scheduled reflection, archive, and Reflection Turn behavior."
 
 [[surface]]
 id = "infrastructure"
@@ -37,22 +37,22 @@ title = "User Turn"
 description = "Defines the maximum complete Agent Cycles in one User Turn."
 
 [[field_group]]
-id = "maintenance.business_day"
-surface = "maintenance"
+id = "reflection.business_day"
+surface = "reflection"
 title = "Business Day"
 description = "Defines business time and the project roots used by daily lifecycle management."
 
 [[field_group]]
-id = "maintenance.scenarios"
-surface = "maintenance"
-title = "Maintenance Turn"
-description = "Defines the execution boundary for Home and Memory maintenance work."
+id = "reflection.scenarios"
+surface = "reflection"
+title = "Reflection Turn"
+description = "Defines the execution boundary for Home and Memory reflection work."
 
 [[field_group]]
-id = "maintenance.schedule"
-surface = "maintenance"
+id = "reflection.schedule"
+surface = "reflection"
 title = "Schedule"
-description = "Controls whether and when daily maintenance work is enqueued."
+description = "Controls whether and when daily reflection work is enqueued."
 
 [[field_group]]
 id = "infrastructure.sources"
@@ -73,7 +73,7 @@ title = "Request Limits"
 description = "Controls embedding batch size and request timeout."
 
 [[field]]
-path = "app.interactive"
+path = "agent.interactive"
 surface = "behavior"
 group = "behavior.application"
 title = "Interactive Terminal"
@@ -81,7 +81,7 @@ description = "Starts the terminal input source when no Endpoint input source is
 value_kind = "boolean"
 
 [[field]]
-path = "app.exit_commands"
+path = "agent.exit_commands"
 surface = "behavior"
 group = "behavior.application"
 title = "Exit Commands"
@@ -90,7 +90,7 @@ value_kind = "string_list"
 importance = "advanced"
 
 [[field]]
-path = "app.stop_turn_commands"
+path = "agent.stop_turn_commands"
 surface = "behavior"
 group = "behavior.application"
 title = "Stop Turn Commands"
@@ -99,7 +99,7 @@ value_kind = "string_list"
 importance = "advanced"
 
 [[field]]
-path = "app.retained_outcomes"
+path = "agent.retained_outcomes"
 surface = "behavior"
 group = "behavior.application"
 title = "Retained Outcomes"
@@ -108,7 +108,7 @@ value_kind = "integer"
 importance = "advanced"
 
 [[field]]
-path = "app.output.mode"
+path = "agent.output.mode"
 surface = "behavior"
 group = "behavior.output"
 title = "Output Detail"
@@ -121,7 +121,7 @@ choices = [
 ]
 
 [[field]]
-path = "app.output.model_max_chars"
+path = "agent.output.model_max_chars"
 surface = "behavior"
 group = "behavior.output"
 title = "Model Output Display Length"
@@ -138,61 +138,52 @@ description = "Maximum complete Agent Cycles allowed in one User Turn."
 value_kind = "integer"
 
 [[field]]
-path = "maintenance.timezone"
-surface = "maintenance"
-group = "maintenance.business_day"
+path = "reflection.timezone"
+surface = "reflection"
+group = "reflection.business_day"
 title = "Business Timezone"
-description = "IANA timezone used to determine business days and maintenance schedule time."
+description = "IANA timezone used to determine business days and reflection schedule time."
 value_kind = "string"
 
 [[field]]
-path = "maintenance.archive_root"
-surface = "maintenance"
-group = "maintenance.business_day"
+path = "reflection.archive_root"
+surface = "reflection"
+group = "reflection.business_day"
 title = "Archive Root"
 description = "Project-relative directory containing frozen business-day archives."
 value_kind = "string"
 importance = "advanced"
 
 [[field]]
-path = "maintenance.runtime_root"
-surface = "maintenance"
-group = "maintenance.business_day"
-title = "Maintenance Runtime Root"
-description = "Project-relative directory containing maintenance availability and runtime state."
-value_kind = "string"
-importance = "advanced"
-
-[[field]]
-path = "maintenance.home.max_cycles"
-surface = "maintenance"
-group = "maintenance.scenarios"
+path = "reflection.home.max_cycles"
+surface = "reflection"
+group = "reflection.scenarios"
 title = "Home Reflection Cycles"
-description = "Maximum complete Agent Cycles allowed in one Home or Memory Maintenance Turn."
+description = "Maximum complete Agent Cycles allowed in one Home or Memory Reflection Turn."
 value_kind = "integer"
 
 [[field]]
-path = "maintenance.memory.max_cycles"
-surface = "maintenance"
-group = "maintenance.scenarios"
+path = "reflection.memory.max_cycles"
+surface = "reflection"
+group = "reflection.scenarios"
 title = "Memory Reflection Cycles"
-description = "Maximum complete Agent Cycles allowed in one Home or Memory Maintenance Turn."
+description = "Maximum complete Agent Cycles allowed in one Home or Memory Reflection Turn."
 value_kind = "integer"
 
 [[field]]
-path = "maintenance.schedule.enabled"
-surface = "maintenance"
-group = "maintenance.schedule"
-title = "Daily Maintenance"
-description = "Allows the stable scheduler to enqueue daily maintenance work."
+path = "reflection.schedule.enabled"
+surface = "reflection"
+group = "reflection.schedule"
+title = "Daily Reflection"
+description = "Allows the stable scheduler to enqueue daily reflection work."
 value_kind = "boolean"
 
 [[field]]
-path = "maintenance.schedule.daily_time"
-surface = "maintenance"
-group = "maintenance.schedule"
-title = "Daily Maintenance Time"
-description = "Local business-time clock value used for scheduled daily maintenance."
+path = "reflection.schedule.daily_time"
+surface = "reflection"
+group = "reflection.schedule"
+title = "Daily Reflection Time"
+description = "Local business-time clock value used for scheduled daily reflection."
 value_kind = "string"
 
 [[field]]
@@ -279,32 +270,4 @@ group = "infrastructure.sources"
 title = "Managed Document Sets"
 description = "Process-owned declarations for independent project TOML documents managed by configuration transactions."
 value_kind = "object_list"
-importance = "advanced"
-[[field]]
-path = "loop.user.actions"
-surface = "behavior"
-group = "behavior.user_turn"
-title = "user Action Selection"
-description = "Domain defaults and explicit action overrides within the operations granted to this scenario."
-value_kind = "object"
-importance = "advanced"
-
-
-[[field]]
-path = "maintenance.home.actions"
-surface = "maintenance"
-group = "maintenance.scenarios"
-title = "home Action Selection"
-description = "Domain defaults and explicit action overrides within the operations granted to this scenario."
-value_kind = "object"
-importance = "advanced"
-
-
-[[field]]
-path = "maintenance.memory.actions"
-surface = "maintenance"
-group = "maintenance.scenarios"
-title = "memory Action Selection"
-description = "Domain defaults and explicit action overrides within the operations granted to this scenario."
-value_kind = "object"
 importance = "advanced"

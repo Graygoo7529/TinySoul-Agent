@@ -13,12 +13,12 @@ from tinysoul.infra import EmbeddingClient
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.json import JsonObject, to_json_object
 
-from .active import (
+from .storage.active import (
     ActiveMemoryDocument,
     ActiveMemoryStore,
     MemoryPatchOperation,
 )
-from .catalog import (
+from .retrieval import (
     MemoryCatalog,
     MemoryCatalogSnapshot,
     MemoryInspectRequest,
@@ -34,9 +34,9 @@ from .documents import (
     StoredMemoryDocument,
 )
 from .errors import MemoryContractError, MemoryInvariantError
-from .embeddings import MemoryEmbeddingIndex
+from .retrieval.embeddings import MemoryEmbeddingIndex
 from .links import MemoryKind, MemoryLink
-from .store import MemoryStore
+from .storage.persistent import MemoryStore
 
 
 @dataclass(frozen=True)
@@ -48,6 +48,7 @@ class MemoryRecallResult:
     digest: str
     metadata: JsonObject
     resolution_chain: tuple[str, ...] = ()
+
 
 class MemoryEngine:
     """Single assembly facade for Memory reads, writes, retrieval, and lifecycle."""
@@ -64,7 +65,9 @@ class MemoryEngine:
             raise MemoryContractError("Memory settings are invalid")
         self._settings = settings
         self._codec = MemoryDocumentCodec()
-        self._store = MemoryStore(root=settings.root, settings=settings.documents, codec=self._codec)
+        self._store = MemoryStore(
+            root=settings.root, settings=settings.documents, codec=self._codec
+        )
         self._embeddings = (
             MemoryEmbeddingIndex(
                 path=self._store.internal_root / "embedding-cache.json",
@@ -121,8 +124,12 @@ class MemoryEngine:
     def active_day(self) -> CalendarDay:
         return CalendarDay(self._require_active().read().day)
 
-    def read_active(self, day: date | CalendarDay | None = None) -> ActiveMemoryDocument:
-        return self._require_active().read(expected_day=_date(day) if day is not None else None)
+    def read_active(
+        self, day: date | CalendarDay | None = None
+    ) -> ActiveMemoryDocument:
+        return self._require_active().read(
+            expected_day=_date(day) if day is not None else None
+        )
 
     def validate_active_day(self, day: date | CalendarDay) -> ActiveMemoryDocument:
         return self.read_active(day)
@@ -138,7 +145,9 @@ class MemoryEngine:
             operations=operations,
         )
 
-    def read_archived_active(self, day: date | CalendarDay, session_archive_root: Path) -> ActiveMemoryDocument:
+    def read_archived_active(
+        self, day: date | CalendarDay, session_archive_root: Path
+    ) -> ActiveMemoryDocument:
         return ActiveMemoryStore(
             session_root=session_archive_root,
             max_chars=self._settings.max_active_chars,
@@ -159,7 +168,9 @@ class MemoryEngine:
         self.read_archived_active(day, session_archive_root)
         return True
 
-    def validate_archived_active(self, day: date | CalendarDay, session_archive_root: Path) -> ActiveMemoryDocument:
+    def validate_archived_active(
+        self, day: date | CalendarDay, session_archive_root: Path
+    ) -> ActiveMemoryDocument:
         return self.read_archived_active(day, session_archive_root)
 
     def links(
@@ -194,7 +205,11 @@ class MemoryEngine:
         self,
         memory_link: MemoryLink | str,
     ) -> MemoryRecallResult:
-        link = MemoryLink.parse(memory_link) if isinstance(memory_link, str) else memory_link
+        link = (
+            MemoryLink.parse(memory_link)
+            if isinstance(memory_link, str)
+            else memory_link
+        )
         if not isinstance(link, MemoryLink):
             raise MemoryContractError("Memory recall requires a persistent MemoryLink")
         stored = self._store.read(link)
@@ -240,7 +255,9 @@ class MemoryEngine:
             raise MemoryInvariantError("Daily Memory path contains another kind")
         return document
 
-    def latest_daily_before(self, day: date | CalendarDay) -> StoredMemoryDocument | None:
+    def latest_daily_before(
+        self, day: date | CalendarDay
+    ) -> StoredMemoryDocument | None:
         target = _date(day)
         links = [
             link
@@ -258,7 +275,8 @@ class MemoryEngine:
         return self._codec.render(document)
 
     def write_document(
-        self, document: PersistentMemoryDocument,
+        self,
+        document: PersistentMemoryDocument,
     ) -> StoredMemoryDocument:
         """Validate the new graph before atomically replacing exactly one document."""
         with self._lock:
@@ -268,7 +286,9 @@ class MemoryEngine:
             try:
                 candidate = self._catalog.snapshot_for((document,))
             except MemoryInvariantError as exc:
-                raise MemoryContractError("Memory write has invalid references or redirects") from exc
+                raise MemoryContractError(
+                    "Memory write has invalid references or redirects"
+                ) from exc
             result = self._store.write(document)
             self._catalog.install(candidate)
             return result
@@ -277,7 +297,9 @@ class MemoryEngine:
         try:
             document = self._codec.parse(link, markdown)
         except MemoryInvariantError as exc:
-            raise MemoryContractError("Memory Markdown does not satisfy its document schema") from exc
+            raise MemoryContractError(
+                "Memory Markdown does not satisfy its document schema"
+            ) from exc
         return self.write_document(document)
 
     def new_link(self, kind: MemoryKind) -> MemoryLink:

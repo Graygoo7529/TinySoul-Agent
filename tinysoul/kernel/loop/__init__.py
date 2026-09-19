@@ -14,7 +14,19 @@ from .config import (
 from .errors import LoopContractError, LoopError, LoopInvariantError
 from .failures import LoopFailureKind
 from .outcomes import TurnFailure, TurnOutcomeStatus, TurnOutput
-from .inbox import BudgetRequest, InboxBatch, InboxCapacityError, InboxClosedError, InboxError, InboxKind, InboxReceipt, InboxRecord, QuestionRequest, TurnInbox, WaitReason
+from .interaction.inbox import (
+    BudgetRequest,
+    InboxBatch,
+    InboxCapacityError,
+    InboxClosedError,
+    InboxError,
+    InboxKind,
+    InboxReceipt,
+    InboxRecord,
+    QuestionRequest,
+    TurnInbox,
+    WaitReason,
+)
 from .signals import (
     SIGNAL_CONTROL_REQUEST,
     SIGNAL_NAMESPACE,
@@ -26,12 +38,12 @@ from .signals import (
     consume_control_signal_requests,
     parse_control_request_signal,
 )
-from .completion import (
+from .lifecycle.completion import (
     TurnCompletion,
     TurnCompletionHandler,
     TurnCompletionPipeline,
 )
-from .preparation import (
+from .lifecycle.preparation import (
     TurnPreparationHandler,
     TurnPreparationPipeline,
     TurnPreparationRequest,

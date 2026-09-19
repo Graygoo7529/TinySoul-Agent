@@ -8,7 +8,7 @@ Action 不负责构造基础语境，不负责模型供应商适配，不负责�
 
 Action 的核心职责是把“可选择的域”和“可执行的动作”组织成稳定的 catalog，并把 Phase1 / Phase2 / Phase3 的行为切成清晰的边界。
 
-Core domain 通过 `register_memory_actions` 接入 `core.memory.memorize`、`core.memory.inspect`、`core.memory.recall`：活动记忆 patch、持久 Link 发现/探索和精确完整召回是三个不同 Action 边界。它们仍由 Memory owner 的 executor 实现；catalog domain 只决定 Phase1/Phase2 的规划可见范围。
+Memory domain 通过 `register_memory_actions` 接入 `memory.memorize`、`memory.inspect`、`memory.recall`：活动记忆 patch、持久 Link 发现/探索和精确完整召回是三个不同 Action 边界。持久写使用同域内的 `memory.write_daily`、`memory.write`，只向 Memory Reflection 授权。domain 决定规划分组，不赋予服务权限。
 
 ## 设计目标
 
@@ -83,7 +83,7 @@ Home、Memory 与 Workspace Action 通过注入的 async Service 调用 owner；
 
 1. 模型侧工具协议，用于构造 Phase2 可见工具。
 2. 模型侧补充语义，用于帮助模型判断何时使用或避免某个 action。
-3. 框架内运行配置，用于控制 Agent 暴露、超时、并发、hook 和结果 trace 生命周期。
+3. 可见性与框架内运行配置，分别控制情景选择和超时、并发、hook、结果 trace 生命周期。
 4. 后端执行配置，用于描述真实执行落点。
 
 模型侧补充语义不参与执行控制。环境影响语义只描述只读、新增或修改。
@@ -92,24 +92,20 @@ Home、Memory 与 Workspace Action 通过注入的 async Service 调用 owner；
 
 ### Activation 与 Runtime Support
 
-Action Catalog 的 `[runtime].enabled` 是 Action-owned Agent exposure policy。Domain runtime 提供
-默认值，Action runtime 可以局部覆盖；Action 未声明本地值时继承 Domain，Domain 也未声明时使用
-内建 `true`。删除 Action-local 值恢复 Domain 继承，删除 Domain 值恢复内建默认。`core.answer`
-与其它 Action 使用相同规则，不建立保护名单或 fallback completion。
+一份 catalog 由 `assets/common/configs/action/catalog` 提供项目模板，按 domain/action 独立 TOML 维护。运行时通过 ConfigDocumentSet 加载项目定义；三个情景共用同一候选文档，不额外读取 Reflection 包资源。`visibility` 按动作当前情景、域当前情景、动作 default、域 default、true 的顺序选择首个配置值。domain 是可覆盖默认值。`runtime.enabled` 和 loop/reflection 中的平行开关表已删除。
 
 配置 activation 与当前 Generation 的 runtime support 是两个独立事实：Capability 或其它业务
 owner 负责依赖、凭据、服务和 executor，并在不支持 Action 时通过
-`mark_actions_unsupported()` 明确声明；Action runtime 关闭不能跳过 owner 的装配校验。最终关系为：
+`mark_actions_unsupported()` 明确声明；隐藏 Action 不能跳过 owner 的装配校验。最终关系为：
 
 ```text
-available = runtime.enabled && supported
+available = granted && visibility && supported
 ```
 
 Builder 因此保留 configured catalog、exact include view、supported identities 和 effective catalog。
 Phase1/Phase2、执行 identity、executor 完整性校验与 Home prompt mount reconciliation 只消费
 effective catalog；设置与 Endpoint 投影遍历 configured catalog，使关闭或暂不支持的 Action 仍可读。
-Reflection 精确视图在 configured catalog 上选择 Turn 所需 Action，再与 activation/support 求交；
-复用的项目 Action 遵守同一 policy，Reflection package Action 使用自己的 package 默认值。
+授权来自代码中的动作身份与执行绑定注册。可编辑 handler 不能借用其它动作的执行能力，catalog 成员身份不会自动成为授权。显式启用未授权的情景动作、未知情景或未声明动作均在候选边界拒绝。配置查询按情景返回选择来源、granted、supported、available 和不可用原因，候选校验覆盖三个情景。
 
 ## 执行语义
 
@@ -207,7 +203,7 @@ Renderer 不是失败事实源，不从业务 payload 或 frame data 推断失�
 
 Context 模块决定渲染结果如何进入 TurnTraceHeap；Action 模块不直接维护 MessageStack。Catalog 的 `[runtime.result] trace_mode` 只支持 `standard` 和 `foldable`：standard 的 visible/canonical message 相同；foldable 只允许成功结果提供非空 `canonical_payload` 和有界、去重的 `origin_refs`。Renderer 构造的 canonical message 保留完整 Action envelope，只替换 envelope 内的业务 payload；完整 payload 作为当前 Turn visible overlay。Context 压缩统一移除 visible overlay，不修改 canonical message。Turn 结束时 Session 从已验证 call/result 投影不可变业务事实，不保存 ToolResultMessage 或完整 Context trace。standard action 返回 projection、foldable action 缺少 projection或 failed/timeout 携带 projection，均由 runner 收敛为局部 trace-policy mismatch。
 
-Catalog 只声明生命周期策略，不能从任意 JSON 自动推断 canonical 字段。业务 payload 的投影选择属于 executor；Loop 只把已验证的完整 visible/canonical message 转成 Context signal。`core.context.inspect`、`workspace.read` 和 `workspace.search_text` 共用该框架生命周期；各 owner 只在 executor 边界形成自己的紧凑 canonical payload。
+Catalog 只声明生命周期策略，不能从任意 JSON 自动推断 canonical 字段。业务 payload 的投影选择属于 executor；Loop 只把已验证的完整 visible/canonical message 转成 Context signal。`core.context.inspect`、`workspace.read` 和 `workspace.search` 共用该框架生命周期；各 owner 只在 executor 边界形成自己的紧凑 canonical payload。
 
 Phase-level result 没有模型侧 tool call id，因此不渲染为 ToolResultMessage，只渲染为普通模型反馈 payload 或 trace payload，由 Context 写入对应 phase 的执行记录。
 
@@ -225,7 +221,7 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 ### native
 
-`native` 后端表示 owner-specific executor 在宿主 Python 进程内执行。`backend.handler` 精确指向由业务 owner 注册的 `ActionExecutor`；executor 负责执行业务逻辑并构造完整 `ActionResult`，框架不提供 callable adapter 或 default native executor。native executor 应在长循环、阻塞前后或分块处理边界调用 `context.control.check_cancelled()`，从而响应 runner 的超时取消请求；该异常由 runner 统一收敛为 timeout。未协作退出的 native action 会被标记为泄漏风险，后续执行组会被 schedule failed 结果阻断。
+`native` 后端表示 owner-specific executor 在宿主中执行，handler 精确绑定显式注册的 ActionExecutor。执行统一 async；网络/模型等待原生取消，短本地 owner 操作通过 JoinedOperations 完整 join 后交付真实结果。长工作必须使用受控进程，不能用不可停止线程越过 Action/Turn 生命周期。Runtime 控制异常原样传播，普通请求失败由 owner 返回结构化 ActionResult。
 
 ### subprocess
 
@@ -233,13 +229,9 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 进程启动、stdin、stdout/stderr 字符投影上限、deadline 和取消回调由内部 `ControlledProcessRunner` 统一实现；真正的进程树终止、fallback kill 和短暂回收等待属于 `ManagedProcess`，由 `ManagedProcessOptions.termination_wait_seconds` 集中配置，默认 1 秒。stdout/stderr 直接捕获到临时文件，进程结束后只读取有界 UTF-8 前缀与 truncated 标记，避免宿主内存聚合完整输出；这不是子进程硬输出配额。Windows 使用 `taskkill /T /F`，POSIX 使用新 session/process group。Resource 与 Web 等需要在进程前后执行协议校验、staging 或 commit 的 executor 复用同一 runner，并各自把 outcome 映射为所属业务的 ActionResult。
 
-### supervised_process
+### Turn Job
 
-`supervised_process` 是需要进程终止并跨 Action 返回保留 Turn job 的执行分类，不提供通用 inline-code 或任意命令 executor。旧 `ActionBackendKind.SCRIPT` 和 Catalog 字符串 `script` 已删除，不保留兼容 alias。
-
-`subprocess` 与 `supervised_process` 的边界不是使用哪一个解释器，而是进程生命周期：`subprocess` 必须在当前 Action batch 内完成并收敛；`supervised_process` 可以在启动 Action 返回后保留一个 Turn-scoped job，由后续 Cycle 的 wait/stop/read/apply/discard Action 继续监督。每个监督 action 自身仍在所属 batch 内收敛，不引入 ongoing Action。
-
-`supervised_process` 不提供通用命令 executor，也不允许 Catalog 仅凭 backend kind 执行参数。Script 与 Shell 使用不同 handler、参数协议和业务 policy，但共用 capability-internal job manager、Workspace transaction 协调、日志/候选观察和 cleanup；实际 mirror/diff/CAS/bundle mutation 仍由 `tinysoul.plugins.workspace` 拥有。同一 Turn 跨两者最多一个 unresolved job。等待与下一 Cycle 属于 Loop，JobRegistry 拥有监督终态。`tinysoul/kernel/action/backends/process.py` 继续作为不注册到 ActionEngine 的低层 lifecycle primitive；`subprocess.py` 在其上提供同步受控进程 adapter，共享监督层则直接复用 managed process。业务 capability 不得复制 `Popen`/终止逻辑，也不得假设 backend kind 存在同名通用 handler。
+execution 的 native Action 调用同一 ProcessJobBackend：run 等待当前 Job 收敛，start 返回身份供后续 Cycle 监督。JobRegistry 拥有受理、终态、容量与 Turn 回收；kernel/action 不另设 supervised_process backend kind，也不保存 capability manager、mirror 或候选提交状态。等待、状态和停止复用 core.wait/core.job.*，collect 只读结果。Action worker 与 Job backend 都使用 infra/process 的受控进程原语，进程行为的业务解释仍在各自 owner 边界。
 
 ### llm_action
 
@@ -253,13 +245,13 @@ Memory 的三个 native action 都只调用 `MemoryEngine`：memorize 在 Memory
 
 Phase3 action-internal LLM task 会自动追加 domain skill 与 action skill guide blocks。Action 层只依赖 `ActionSkillProvider` 协议；Agent Home 可提供 `HomeActionSkillProvider`，但 action executor 不感知 Home 目录结构。`skills_domain` 与 `skills_action` 属于局部自动 prompt 挂载机制，不进入普通渐进式加载，也不由 `home.resource.read` 按需读取。
 
-嵌套 LLM task 禁用模型侧工具调用，但回答协议由 action 语义决定。`run_json` 服务结构化业务结果，例如 `core.reason`、`core.answer` 和 `workspace.analyze`；`run_text` 服务将完整模型文本作为暂态工件交给 owner 的 write/commit 边界。文本工件只在 Phase3 executor 内存中存在，不能先包装成 ActionResult 再从 Context 取回；owner 成功提交后仍只返回 Link、digest、size、revision 等元数据。LLM task failure 或回答形态不匹配收敛为 execute 阶段局部 `ActionResult`；Context 模块边界错误通过 Context bridge 转换，Runtime 控制异常继续传播，未完成文本不会提交。内部 Task 使用 `REQUEST_RECOVERY`；Context 预算与 LLM 容量原因均附带目标/参考资源保护 Link，恢复只重放当前未提交调用，不重复之前已经完成的 Action。
+嵌套 LLM task 禁用模型侧工具调用，但回答协议由 action 语义决定。`run_json` 服务结构化业务结果，例如 `core.reason`、`core.answer` 和 `workspace.analyze`；`run_text` 服务将完整模型文本作为暂态工件交给 owner 的 write/commit 边界。文本工件只在 Phase3 executor 内存中存在，不能先包装成 ActionResult 再从 Context 取回；owner 成功提交后只返回资源 Link、大小、摘要等元数据，具体完整性字段由有消费者的 owner 协议决定。LLM task failure 或回答形态不匹配收敛为 execute 阶段局部 `ActionResult`；Context 模块边界错误通过 Context bridge 转换，Runtime 控制异常继续传播，未完成文本不会提交。内部 Task 使用 `REQUEST_RECOVERY`；Context 预算与 LLM 容量原因原样交给恢复协议，恢复只重放当前未提交调用，不重复之前已完成的 Action。没有 Workspace 压力删除或无消费者的资源保护字段。
 
 `llm_action` backend options 由 backend kind validator 在 Catalog 构建边界统一校验：`max_output_tokens` 覆盖 `LLM_ACTION` profile 的 provider 生成上限，`max_output_chars` 限制 `run_text` 接受的完整工件字符数。前者属于 LLM 调用与上下文窗口预留，后者属于 action 工件边界；两者都不控制 ActionResult 进入 Context 的大小。结构化业务输出仍由 executor 校验自己的字段和结果预算，ActionResult trace 继续服从 Catalog 的 standard/foldable 生命周期。
 
-LLM task failure 由共享服务映射为 `ActionLocalFailure`，再由 renderer 作为 envelope 顶层 `failure` 投影。`retry_same` 可以在 disposition 允许的瞬态或可恢复条件下重复同一参数；运行时不把重复参数判为错误。`change_request` 要求改变 `scope` 指出的限制条件；`use_fallback` 要求改变真实生成/执行路径；`stop` 表示当前配置不可继续。该协议不自动调度重试，也不把 provider 或诊断异常暴露给模型。内置 `core.reason` 由 `tinysoul/kernel/action/builtins/core/actions.py` 提供，作为通用推理动作，只接受 `reference_links`；内置 `core.answer` 同样由 Action builtins core actions 提供，作为 User Turn 正常完成动作，要求内部 LLM task 返回包含字符串 `text` 的 JSON object，并可把使用过的 `reference_links` 一并返回为来源链接。它既可以交付当前成果，也可以在后续工作依赖用户时提出问题、请求确认、申请进一步指示或请求路线选择；成功只表示当前 User Turn 已产生正式响应，不表示整体多轮目标或 WorkingContext todos 已完成。Workspace 内置 `workspace.create`、`workspace.append`、`workspace.patch` 与 `workspace.rewrite` 分别表达创建、精确追加、精确替换和完整覆盖；`workspace.analyze` 仍返回经过 executor 验证的结构化结论。Phase3 在外层 ActionResult 产生前就可能启动嵌套 task，因此 LLM provider 适配器不能把当前未完成的 Phase2 tool call 当作完整 provider-native history 回放；当嵌套 task 禁用工具时，已完成的 ToolResultMessage 也只作为普通上下文文本传入。
+LLM task failure 由共享服务映射为 `ActionLocalFailure`，再由 renderer 作为 envelope 顶层 `failure` 投影。`retry_same` 可以在 disposition 允许的瞬态或可恢复条件下重复同一参数；运行时不把重复参数判为错误。`change_request` 要求改变 `scope` 指出的限制条件；`use_fallback` 要求改变真实生成/执行路径；`stop` 表示当前配置不可继续。该协议不自动调度重试，也不把 provider 或诊断异常暴露给模型。内置 `core.reason` 由 `tinysoul/kernel/action/builtins/core/actions.py` 提供，作为通用推理动作，只接受 `reference_links`；内置 `core.answer` 同样由 Action builtins core actions 提供，作为 User Turn 正常完成动作，要求内部 LLM task 返回包含字符串 `text` 的 JSON object，并可把使用过的 `reference_links` 一并返回为来源链接。它既可以交付当前成果，也可以在后续工作依赖用户时提出问题、请求确认、申请进一步指示或请求路线选择；成功只表示当前 User Turn 已产生正式响应，不表示整体多轮目标或 WorkingContext todos 已完成。Workspace 的 write/edit/append 表达明确内容写入、精确编辑和追加，compose 负责模型生成新建或替换；`workspace.analyze` 仍返回经过 executor 验证的结构化结论。Phase3 在外层 ActionResult 产生前就可能启动嵌套 task，因此 LLM provider 适配器不能把当前未完成的 Phase2 tool call 当作完整 provider-native history 回放；当嵌套 task 禁用工具时，已完成的 ToolResultMessage 也只作为普通上下文文本传入。
 
-`llm_action` 后端只表达“动作内部需要一次模型推理”，不拥有独立语境，也不绕开 Context/LLM 模块的调用协议。外层 Action control 通过 LLM task cancellation contract 传入；`LLMActionTaskRunner` 从 owner 剩余时间中固定预留 5 秒，让内部 Task 在 owner deadline 前完成取消、失败归一化和 executor 返回，再把扣除后的剩余时间交给 LLM runner/provider request timeout。Task 成功返回后，runner 在把结果交给领域 executor 前重新检查同一 cancellation，从而阻止迟返工件进入 Workspace/Script mutation；迟返失败仍保留原 Task failure。预留窗口到期映射为普通 `execution_timeout/action.timeout`，不向模型暴露 backend、provider 或线程事实。
+`llm_action` 后端只表达“动作内部需要一次模型推理”，不拥有独立语境，也不绕开 Context/LLM 模块的调用协议。外层 Action control 通过 LLM task cancellation contract 传入；`LLMActionTaskRunner` 从 owner 剩余时间中固定预留 5 秒，让内部 Task 在 owner deadline 前完成取消、失败归一化和 executor 返回，再把扣除后的剩余时间交给 LLM runner/provider request timeout。Task 成功返回后，runner 在把结果交给领域 executor 前重新检查同一 cancellation，从而阻止迟返工件进入 Workspace mutation；迟返失败仍保留原 Task failure。预留窗口到期映射为普通 `execution_timeout/action.timeout`，不向模型暴露 backend、provider 或线程事实。
 
 项目配置 `[action.llm_action]` 包含 `timeout_seconds`、`default_task_profile` 和 inline-table
 `overrides`。timeout（默认 600）只填充未声明专用超时的 `llm_action`；具体 Action 的 runtime
@@ -269,7 +261,7 @@ profile，并把字符串 profile 交给现有 LLM task runner。候选 AgentCon
 LLM `TaskSpecTable.profiles()` 协调 profile 引用。unknown Action、非 LLM Action、unknown
 profile 和重复 override 都在文件提交前形成 Action-owned `ConfigError`，不会推迟到执行期。
 
-`max_output_tokens` 是具体 action 或 owner 选择的 provider generation budget；最终 artifact boundary 由拥有提交语义的 owner 决定。Workspace create/rewrite 不在 Catalog backend options 中重复声明字符或 token 上限，而是统一使用 `workspace.max_write_chars=12000`，并在 task 与 commit 两侧共同校验。超过上限应按任务状态选择自然片段、`workspace.append` 或 digest-guarded `workspace.patch`，而不是重复同一路径的无界重试。其它 Action 继续使用所属 Catalog runtime 边界；该机制不是对供应商不可中断网络请求的硬停止保证——Turn 取消令牌可放弃本地等待并丢弃迟到结果。
+`max_output_tokens` 是具体 action 或 owner 选择的 provider generation budget；最终 artifact boundary 由拥有提交语义的 owner 决定。Workspace compose 不在 Catalog backend options 中重复声明字符或 token 上限，而是统一使用 `workspace.max_write_chars=12000`，并在 task 与 commit 两侧共同校验。超过上限应按任务状态选择自然片段、`workspace.append` 或 精确 `workspace.edit`，而不是重复同一路径的无界重试。其它 Action 继续使用所属 Catalog runtime 边界；该机制不是对供应商不可中断网络请求的硬停止保证——Turn 取消令牌可放弃本地等待并丢弃迟到结果。
 
 ## 组装入口
 
@@ -277,7 +269,7 @@ profile 和重复 override 都在文件提交前形成 Action-owned `ConfigError
 
 上层模块应通过 `ActionEngine` 获取 action scope、执行批次和结果渲染，不直接调用 action 内部 builder、runner 或 renderer。`ActionEngine` 提供 action result、phase result 与 tool result replay 的渲染门面；renderer 仍是模块内部组件，用于保持结果模型和模型回放格式集中。
 
-Action 顶层包同时暴露业务模块实现 executor 所需的公共 SPI：`ActionExecution`、`ActionExecutionContext`、`ActionExecutor`、Action 结果类型和模块错误基类。Workspace、Home、Memory 与 Loop 只从顶层包引用这些协作类型；`action.core` 散件继续只服务于 Action 内部实现与底层单元测试。公共 SPI 不取代 `ActionEngine` 的调用门面，上层仍不直接调用 runner、hook pipeline 或 execution builder。
+Action 顶层包同时暴露业务模块实现 executor 所需的公共 SPI：`ActionExecution`、`ActionExecutionContext`、`ActionExecutor`、Action 结果类型和模块错误基类。Workspace、Home、Memory 与 Loop 只从顶层包引用这些协作类型；catalog 负责定义与 schema，planning 负责作用域/参数归一化/渲染，execution 负责批次准备、hook 与调度；call/result 保持跨子系统公共协议，内部散件只服务 Action 与对应测试。公共 SPI 不取代 `ActionEngine` 的调用门面，上层仍不直接调用 runner、hook pipeline 或 execution builder。
 
 `ActionEngine.domain_names()` 与 `action_identifiers()` 提供只读 catalog identity snapshot，供 App 在装配期把 domain/action 逻辑 prompt mount 交给 Agent Home reconciliation。该接口不暴露可变 `ActionCatalog`、tool schema 或 executor registry；Action 不解释 Home 路径，Home 不读取 catalog TOML。
 
@@ -298,7 +290,7 @@ schema，项目 Action TOML 是模型参数 contract 的唯一事实。
 
 ## 情景动作策略
 
-TurnProfile 的 ActionPolicy 在已授予集合中应用 domain 默认与 action 显式覆盖，未指定项沿用 catalog 默认；未知身份与显式越权开启属于配置失败。backend support 独立于情景可见性，配置不能让不可用 backend 可用。每个情景生成独立 immutable catalog 视图；Phase1 域、Phase2 tools、normalize、prepare_batch 与 run_batch 使用同一有效集合。执行入口复验每条 ActionSpec，伪造或借自其他情景的范围外批次在任何副作用前拒绝。
+ActionPolicy 从同一 domain/action TOML 的 visibility 读取选择，按动作情景→域情景→动作 default→域 default→true 取首个已配置值。domain 是可覆盖默认值；TurnProfile 不维护平行选择表。最终集合为 grants、visibility 与 backend support 的交集；显式越权启用在候选配置阶段拒绝。每个情景生成独立 immutable catalog 视图；Phase1、Phase2、normalize、prepare_batch 与 run_batch 使用同一有效集合。执行入口复验 ActionSpec，伪造 handler 或借自其他情景的批次在副作用前拒绝。
 
 ## Action Schema
 
@@ -346,9 +338,9 @@ Phase1 和 Phase2 只是在这个基础上选择不同的工具作用域和不�
 
 ## 目录组织
 
-`tinysoul/kernel/action` 只保存通用执行机制、Action 契约、通用 core executor 与 core catalog。Workspace、Home、Memory 和 Capabilities 的 catalog fragment 与 executor 均随 owner 发布，具体业务逻辑仍属于 Engine/service。
+`tinysoul/kernel/action` 保存通用执行机制、契约与 core executor。catalog/planning/execution 分别负责声明编译、意图准备与批次执行；共有 call/result 协议不归某一个执行实现私有。领域 executor 仍随 owner 发布。
 
-Agent 的显式 catalog 合成把这些 package fragments 物化为项目 configs/action/catalog，重复文档被拒绝。运行实例从项目配置加载，没有 package fallback 或并行 overlay。Reflection 将同一通用 catalog 与 plugins/reflection/catalog 的相应专属域合并，User 不获得专属写 Action；专属 fragment 不进入项目 User Action 设置页。
+所有 domain/action 文档集中于 assets/common/configs/action/catalog，初始化按普通模板复制。运行实例从项目 ConfigDocumentSet 加载，重复身份、域不匹配和未知配置拒绝。三情景共用定义、候选编辑与 reload，没有 Reflection loader 或专属 domain；home.diff/review 与 memory.write_daily/write 通过情景 grants 和受约束服务开放。配置查询显式选择情景。
 
 ### TOML catalog
 
@@ -361,7 +353,7 @@ Agent 的显式 catalog 合成把这些 package fragments 物化为项目 config
 
 `actions/*.toml` 放具体 action 定义。
 
-TOML 只描述模型侧工具协议、补充语义、运行配置和后端落点，不放 Python 业务实现。`backend.kind` 是通用执行方式，例如 `native`、`subprocess`、`supervised_process`、`llm_action`；`backend.handler` 是具体 executor 注册键，例如 `core.answer`、`workspace.scan`。
+TOML 描述模型侧工具协议、补充语义、visibility、执行配置和后端绑定，不放 Python 业务实现。backend.kind 为 native/subprocess/llm_action；handler 是显式 executor 注册键，例如 core.answer 或 workspace.list。
 
 ### Python executor 与业务归属
 

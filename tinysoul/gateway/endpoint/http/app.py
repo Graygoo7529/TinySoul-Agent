@@ -20,7 +20,7 @@ from .errors import error_response
 from .routes.configuration import register_configuration_routes
 from .routes.events import register_event_routes
 from .routes.health import register_health_routes
-from .routes.maintenance import register_maintenance_routes
+from .routes.reflection import register_reflection_routes
 from .routes.runtime import register_runtime_routes
 from .routes.workspace import register_workspace_routes
 
@@ -42,7 +42,6 @@ def create_endpoint_app(
         allow_headers=["Authorization", "Content-Type"],
         expose_headers=[
             "X-TinySoul-Link",
-            "X-TinySoul-Digest",
             "X-TinySoul-Size",
         ],
     )
@@ -86,9 +85,16 @@ def create_endpoint_app(
         return JSONResponse(status_code=error.status_code, content=error.to_json())
 
     @app.exception_handler(AgentSDKError)
-    async def agent_service_error(request: Request, error: AgentSDKError) -> JSONResponse:
+    async def agent_service_error(
+        request: Request, error: AgentSDKError
+    ) -> JSONResponse:
         return error_response(
-            409, "service.stale" if isinstance(error, AgentServiceStaleError) else "agent.not_ready",
+            409,
+            (
+                "service.stale"
+                if isinstance(error, AgentServiceStaleError)
+                else "agent.not_ready"
+            ),
             "Agent service is unavailable; reacquire current state.",
             {"error_type": type(error).__name__},
         )
@@ -118,7 +124,7 @@ def create_endpoint_app(
 
     register_health_routes(app)
     register_runtime_routes(app, engine)
-    register_maintenance_routes(app, engine)
+    register_reflection_routes(app, engine)
     register_event_routes(app, engine, settings)
     register_configuration_routes(app, engine)
     register_workspace_routes(app, engine)

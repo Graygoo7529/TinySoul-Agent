@@ -12,26 +12,21 @@ from enum import StrEnum
 from uuid import uuid4
 
 from tinysoul.infra.json import JsonObject, JsonValue, to_json_object
-from tinysoul.llm.messages import (
+from tinysoul.llm.protocol.messages import (
     AssistantMessage,
     JsonPart,
     TextPart,
     ToolResultMessage,
 )
-from tinysoul.llm.reasoning import Reasoning
-from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolResultStatus
+from tinysoul.llm.protocol.reasoning import Reasoning
+from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind, ToolResultStatus
 from tinysoul.runtime import CyclePhase, RunScope, Signal
 
 from .errors import ContextContractError
 from .background import (
     BackgroundPatch,
 )
-from .working import (
-    Milestone,
-    TodoItem,
-    TodoStatus,
-    WorkingPatch,
-)
+from .builtin.working import Milestone, TodoItem, TodoStatus, WorkingPatch
 
 SIGNAL_NAMESPACE = "context"
 SIGNAL_WORKING_PATCH = "context.working.patch"
@@ -63,7 +58,9 @@ def parse_working_patch_signal(signal: Signal) -> tuple[str, WorkingPatch]:
     call_id = _required_str(signal.payload, "call_id")
     patch_value = signal.payload.get("patch")
     if not isinstance(patch_value, dict):
-        raise ContextContractError("Working patch signal payload must contain a patch object")
+        raise ContextContractError(
+            "Working patch signal payload must contain a patch object"
+        )
     return call_id, working_patch_from_json(patch_value)
 
 
@@ -278,7 +275,9 @@ def parse_trace_append_signal(signal: Signal) -> TraceAppend:
         )
         reasoning = _optional_reasoning(signal.payload)
         if not parts and not tool_calls and reasoning is None:
-            raise ContextContractError("Trace decision signal has neither text nor tool calls")
+            raise ContextContractError(
+                "Trace decision signal has neither text nor tool calls"
+            )
         message = AssistantMessage.from_parts(
             *parts,
             reasoning=reasoning,
@@ -334,9 +333,7 @@ def parse_trace_append_signal(signal: Signal) -> TraceAppend:
             raise ContextContractError(
                 "Trace action result origin_refs must be a list of non-empty strings"
             )
-        origin_refs = tuple(
-            ref for ref in origin_refs_value if isinstance(ref, str)
-        )
+        origin_refs = tuple(ref for ref in origin_refs_value if isinstance(ref, str))
         if len(set(origin_refs)) != len(origin_refs):
             raise ContextContractError("Trace action result origin_refs must be unique")
         canonical_action_result = None
@@ -369,7 +366,9 @@ def parse_trace_append_signal(signal: Signal) -> TraceAppend:
     if kind is TraceAppendKind.PHASE_NOTE:
         note = signal.payload.get("note")
         if not isinstance(note, dict) or not note:
-            raise ContextContractError("Trace phase note signal requires a non-empty note object")
+            raise ContextContractError(
+                "Trace phase note signal requires a non-empty note object"
+            )
         return TraceAppend(kind=kind, cycle_id=cycle_id, phase=phase, note=note)
     raise ContextContractError(f"Unknown trace append kind: {kind.value}")
 
@@ -403,14 +402,20 @@ def build_input_append_signal(
         name=SIGNAL_INPUT_APPEND,
         source=source,
         scope=scope,
-        payload={"text": text, "input_id": input_id or f"input_{uuid4().hex}", "reply_to": reply_to},
+        payload={
+            "text": text,
+            "input_id": input_id or f"input_{uuid4().hex}",
+            "reply_to": reply_to,
+        },
     )
 
 
 def parse_input_append_signal(signal: Signal) -> InputAppend:
-    return InputAppend(_required_str(signal.payload, "text"),
-                       _required_str(signal.payload, "input_id"),
-                       _optional_str(signal.payload, "reply_to"))
+    return InputAppend(
+        _required_str(signal.payload, "text"),
+        _required_str(signal.payload, "input_id"),
+        _optional_str(signal.payload, "reply_to"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -482,7 +487,9 @@ def _optional_reasoning(value: JsonObject) -> Reasoning | None:
 def _required_str(value: JsonObject, name: str) -> str:
     item = value.get(name)
     if not isinstance(item, str) or not item:
-        raise ContextContractError(f"Signal payload field must be a non-empty string: {name}")
+        raise ContextContractError(
+            f"Signal payload field must be a non-empty string: {name}"
+        )
     return item
 
 
@@ -507,7 +514,9 @@ def _str_tuple(value: JsonObject, name: str) -> tuple[str, ...]:
     if item is None:
         return ()
     if not isinstance(item, list):
-        raise ContextContractError(f"Signal payload field must be a string list: {name}")
+        raise ContextContractError(
+            f"Signal payload field must be a string list: {name}"
+        )
     result: list[str] = []
     for element in item:
         if not isinstance(element, str) or not element:
@@ -523,7 +532,9 @@ def _object_list(value: JsonObject, name: str) -> tuple[JsonObject, ...]:
     if item is None:
         return ()
     if not isinstance(item, list):
-        raise ContextContractError(f"Signal payload field must be an object list: {name}")
+        raise ContextContractError(
+            f"Signal payload field must be an object list: {name}"
+        )
     result: list[JsonObject] = []
     for element in item:
         if not isinstance(element, dict):
