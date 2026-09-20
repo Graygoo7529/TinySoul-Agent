@@ -215,7 +215,7 @@ wait 只观察就绪，不与边界消费者竞争删除事件。登记和入队
 
 截至 `be61886`，三插槽与 State/Heap/Stack/Map 描述、段注册、typed 更新解码、全批 prepare/install、inspect/select/reclaim、seal/close 已有真实消费者。Session/Home/Memory/Workspace 的语义由插件维护，ContextEngine 不再持有 Session Engine。TurnTraceHeap 是 Stack 语义的内部折叠实现，不能仅因类名含 Heap 判定形状冲突。
 
-当前能力枚举为 INSPECT/SELECT/RECLAIM；SELECT 承载 load/evict。Session 段是只读 Map，已按自身容量提供有界投影和完整 inspect，尚无 organize 或运行中注释刷新。完成提交仍由 TurnCompletionPipeline 编排，未成为段 finish 协议；事件订阅也尚未成为完整插件贡献。以下生命周期和注册面中未落地的部分仍是目标，后续应按最新复审收敛到同一现有运行管线，不新增平行调度。
+当前能力枚举为 INSPECT/SELECT/RECLAIM/QUERY；SELECT 承载 load/evict，QUERY 已由 Before 4 的 Trace/Session 消费。Session 段是只读 Map，已按自身容量提供有界投影和完整 inspect，尚无 organize 或运行中注释刷新。完成提交仍由 TurnCompletionPipeline 编排，未成为段 finish 协议；事件订阅也尚未成为完整插件贡献。以下生命周期和注册面中未落地的部分仍是目标，后续应按最新复审收敛到同一现有运行管线，不新增平行调度。
 
 四个正交概念：
 
@@ -741,6 +741,8 @@ WS 断开不取消 Turn；问题可由状态查询恢复，Observation gap 不�
 [Before 4 子计划](done/20260920-done-Agent重构Before4子计划-数据基础与渐进披露.md) 于 2026-09-20 完成（`done`）。BF1–BF5 已核对：Trace 类型化时间线、Session v10 唯一事实与当日分层导航、共用披露/分页/query、inspect 可见结果消费保护、Session 自身水位回收、CalendarClock/active_day 及可复现本地测试边界。Windows Full 1087 passed、23 deselected，含 generation/wheel；Windows 与 Linux 目标 typecheck 通过。本轮未执行 Linux 实机或真实 provider/network，旧部署数据未迁移/reset。Organize Action/注释层、fswatch、Gateway v2 和 ACP/MCP 未提前实现。
 
 S1、S2 已完成；S3–S7 尚未整体完成。历史 S0 定稿不代表后续协议细化关闭。子计划只有实现/文档/必要验证全部通过才 done 并归档；docs/design 只写已落地部分。
+
+2026-09-20 已建立 [R4：环境事件与插件运行闭环子计划](20260920-Agent重构第四轮子计划-环境事件与插件运行闭环.md)，状态 `pending`。草案覆盖插件订阅/适配、Workspace 文件变化、来源生命周期、等待及 Reflection Trigger；外部监听范围和监听故障语义待确认，尚未实施，不改变 S4 完成状态。
 
 2026-09-20 推进修订：S4 的 ask/reply、统一等待、有界 Inbox、reload/restart 已由 R2 及收口实现，后续应验收其环境协作闭环，不能再造一套机制。R4 前先按配套 Review 补齐现有事实记录/导航、平台门禁和命名一致性；R4 再补“插件声明 → 环境事件 → owner 刷新 → Context 批次”的真实切片，继续 Gateway v2 与 ACP/MCP，尾期接入模型 Organize。用户已确认：Organize 所需事实/导航数据先补强，模型整理 Action 在主计划尾期、最终 S7 验收前实施，不作为 R4 环境接入前置；原 S 编号保留作为验收范围，不强迫每个范围严格串行。具体切片与验证证据见配套 Review。
 
