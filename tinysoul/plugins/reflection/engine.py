@@ -65,7 +65,7 @@ class HomeReflectionRunner(Protocol):
     async def run(
         self,
         *,
-        business_day: CalendarDay,
+        active_day: CalendarDay,
         scope: RunScope,
         request_id: str,
         inbox: TurnInbox | None = None,
@@ -92,7 +92,7 @@ class MemoryReflectionRunner(Protocol):
     async def run(
         self,
         *,
-        business_day: CalendarDay,
+        active_day: CalendarDay,
         target_day: CalendarDay,
         archive: ArchiveProjection | None,
         scope: RunScope,
@@ -141,7 +141,7 @@ class ReflectionEngine:
         self,
         request: ReflectionRequest,
         *,
-        business_day: CalendarDay,
+        active_day: CalendarDay,
         scope: RunScope | None = None,
         inbox: TurnInbox | None = None,
     ) -> ReflectionOutcome:
@@ -152,7 +152,7 @@ class ReflectionEngine:
             operations = JoinedOperations()
             await operations.run(
                 lambda: self.refresh_availability(
-                    DailyTransitionOutcome(business_day),
+                    DailyTransitionOutcome(active_day),
                     scope=run_scope,
                 )
             )
@@ -161,7 +161,7 @@ class ReflectionEngine:
                 "reflection.started",
                 "Reflection started.",
                 {
-                    "business_day": str(business_day),
+                    "active_day": str(active_day),
                     "request": request.to_json(),
                 },
                 scope=run_scope,
@@ -171,7 +171,7 @@ class ReflectionEngine:
             def completed() -> ReflectionOutcome:
                 return ReflectionOutcome(
                     request_id=request.request_id,
-                    business_day=business_day,
+                    active_day=active_day,
                     status=_aggregate_status(tuple(outcomes)),
                     tasks=tuple(outcomes),
                 )
@@ -209,7 +209,7 @@ class ReflectionEngine:
                         await run_task(
                             ReflectionTaskKind.HOME,
                             lambda: self._home.run(
-                                business_day=business_day,
+                                active_day=active_day,
                                 scope=run_scope,
                                 request_id=request.request_id,
                                 inbox=inbox,
@@ -223,13 +223,13 @@ class ReflectionEngine:
                 targets = await operations.run(
                     lambda: self._memory_targets(
                         request,
-                        business_day=business_day,
+                        active_day=active_day,
                     )
                 )
                 operations.check_cancelled()
                 if not targets:
                     target_day = (
-                        _previous_day(business_day)
+                        _previous_day(active_day)
                         if request.scope is ReflectionScope.DAILY
                         else request.target_day
                     )
@@ -253,7 +253,7 @@ class ReflectionEngine:
                             await run_task(
                                 ReflectionTaskKind.MEMORY,
                                 lambda target=target: self._memory.run(
-                                    business_day=business_day,
+                                    active_day=active_day,
                                     target_day=target,
                                     archive=archive,
                                     scope=run_scope,
@@ -268,7 +268,7 @@ class ReflectionEngine:
 
             await operations.run(
                 lambda: self.refresh_availability(
-                    DailyTransitionOutcome(active_day=business_day),
+                    DailyTransitionOutcome(active_day=active_day),
                     scope=run_scope,
                 )
             )
@@ -366,10 +366,10 @@ class ReflectionEngine:
         self,
         request: ReflectionRequest,
         *,
-        business_day: CalendarDay,
+        active_day: CalendarDay,
     ) -> tuple[CalendarDay, ...]:
         target_day = (
-            _previous_day(business_day)
+            _previous_day(active_day)
             if request.scope is ReflectionScope.DAILY
             else request.target_day
         )

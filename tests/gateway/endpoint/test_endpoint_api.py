@@ -440,7 +440,7 @@ async def test_endpoint_asgi_server_uses_prebound_random_port(tmp_path: Path) ->
     server = EndpointASGIServer(engine=engine, settings=engine.settings)
     await server.start()
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(trust_env=False) as client:
             response = await client.get(
                 f"http://{engine.settings.host}:{server.port}/v1/health",
                 timeout=5.0,

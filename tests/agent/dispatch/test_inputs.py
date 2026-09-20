@@ -69,7 +69,7 @@ class _Work:
         self.inbox: TurnInbox | None = None
 
     async def run(
-        self, turn_input, *, business_day, scope, request_id, input_source, inbox=None
+        self, turn_input, *, active_day, scope, request_id, input_source, inbox=None
     ):
         self.inbox = inbox
         self.started.set()
@@ -98,7 +98,7 @@ class _Reflection:
     async def active_day_lease(self):
         yield CalendarDay.parse("2026-09-16")
 
-    async def run(self, request, *, business_day, scope=None, inbox=None):
+    async def run(self, request, *, active_day, scope=None, inbox=None):
         raise AssertionError("Queued reflection must not start in this test")
 
 

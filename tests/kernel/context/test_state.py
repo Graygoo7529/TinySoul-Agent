@@ -365,6 +365,8 @@ def test_trace_inspect_overlay_folds_back_to_origin_pointer() -> None:
     )
 
     assert trace.render_messages()[0] == full
+    assert trace.compact(required_chars=0).folded_overlay_count == 0
+    trace.mark_consumed(trace.render_messages())
     report = trace.compact(required_chars=0)
     assert report.folded_overlay_count == 1
     assert trace.render_messages()[0] == compact

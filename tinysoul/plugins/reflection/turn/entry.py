@@ -17,7 +17,7 @@ class ReflectionTurnRunner(Protocol):
         self,
         turn_input: str,
         *,
-        business_day: CalendarDay,
+        active_day: CalendarDay,
         scope: RunScope,
         request_id: str,
         input_source: str,
@@ -38,7 +38,7 @@ class ReflectionTurnEntry:
         self,
         turn_input: str,
         *,
-        business_day: CalendarDay,
+        active_day: CalendarDay,
         scope: RunScope,
         request_id: str,
         input_source: str,
@@ -46,7 +46,7 @@ class ReflectionTurnEntry:
     ) -> TurnOutcome:
         outcome = await self._runner.run(
             turn_input,
-            business_day=business_day,
+            active_day=active_day,
             scope=scope,
             request_id=request_id,
             input_source=input_source,

@@ -23,6 +23,7 @@ class SessionInspectFailureReason(StrEnum):
     WRONG_RECORD_KIND = "wrong_record_kind"
     INVALID_CONTINUATION = "invalid_continuation"
     PAGE_BUDGET_TOO_SMALL = "page_budget_too_small"
+    INVALID_QUERY = "invalid_query"
 
 
 class SessionInspectRequestError(SessionContractError):

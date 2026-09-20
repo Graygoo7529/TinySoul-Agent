@@ -7,8 +7,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 import re
 
-from tinysoul.kernel.action import ActionLocalFailure
-from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
+from tinysoul.infra.json import JsonObject, to_json_object
 
 from ..errors import SessionContractError
 from ..records.models import (
@@ -19,8 +18,6 @@ from ..records.models import (
 
 _ACTION_COLLECTION = re.compile(r"^(session:turn/[a-z0-9_-]+)#actions$")
 _ACTION_LEAF = re.compile(r"^(session:turn/[a-z0-9_-]+)#action/([0-9]+)$")
-_FAILED_RESULT_PREVIEW_CHARS = 1200
-_FAILURE_FEEDBACK_PREVIEW_CHARS = 800
 _TURN_TEXT_PREVIEW_CHARS = 600
 
 
@@ -31,92 +28,56 @@ class SessionRelationKind(StrEnum):
     REPLIES_TO = "replies_to"
 
 
-def project_map(records: tuple[SessionTurnRecord, ...]) -> tuple[JsonObject, ...]:
-    """Derive nodes and explicit factual edges; never infer semantic relationships."""
-
+def project_relations(record: SessionTurnRecord) -> tuple[JsonObject, ...]:
+    """Project only explicit edges; node content stays in its owning record."""
     values: list[JsonObject] = []
-    resources: dict[tuple[str, str], str] = {}
-    previous: str | None = None
 
     def edge(source: str, target: str, relation: SessionRelationKind) -> None:
-        values.append(
-            {
-                "kind": "relation",
-                "source": source,
-                "target": target,
-                "relation": relation.value,
-                "basis": "fact",
-            }
-        )
+        values.append({
+            "kind": "relation",
+            "source": source,
+            "target": target,
+            "relation": relation.value,
+            "basis": "fact",
+        })
 
-    def references(
-        source: str, refs: tuple[str, ...], record: SessionTurnRecord
-    ) -> None:
-        for ref in dict.fromkeys(refs):
-            key = (record.day if ref.startswith("workspace:") else "", ref)
-            if key not in resources:
-                locator = resource_locator(record, ref)
-                resources[key] = str(locator["ref"])
-                values.append(locator)
-            edge(source, resources[key], SessionRelationKind.REFERENCES)
+    def references(source: str, refs: tuple[str, ...]) -> None:
+        for link in dict.fromkeys(refs):
+            target = resource_locator(record, link)["ref"]
+            assert isinstance(target, str)
+            edge(source, target, SessionRelationKind.REFERENCES)
 
-    for record in records:
-        values.append(project_navigation_header(record))
+    questions = {
+        action.result_id: action_leaf_ref(record.ref, index)
+        for index, action in enumerate(record.actions)
+        if action.action == "core.ask" and action.outcome is SessionActionOutcome.SUCCESS
+    }
+    previous = None
+    for index, item in enumerate(record.inputs):
+        ref = input_ref(record.ref, index)
+        edge(record.ref, ref, SessionRelationKind.CONTAINS)
         if previous is not None:
-            edge(previous, record.ref, SessionRelationKind.PRECEDES)
-        previous = record.ref
-        questions = {
-            action.result_id: action_leaf_ref(record.ref, index)
-            for index, action in enumerate(record.actions)
-            if action.action == "core.ask"
-            and action.outcome is SessionActionOutcome.SUCCESS
-        }
-        previous_input: str | None = None
-        for index, item in enumerate(record.inputs):
-            ref = input_ref(record.ref, index)
-            values.append(
-                {
-                    "kind": "input",
-                    "ref": ref,
-                    "input_kind": (
-                        "reply"
-                        if item.reply_to
-                        else "initial" if index == 0 else "append"
-                    ),
-                }
-            )
-            edge(record.ref, ref, SessionRelationKind.CONTAINS)
-            if previous_input is not None:
-                edge(previous_input, ref, SessionRelationKind.PRECEDES)
-            previous_input = ref
-            if item.reply_to:
-                edge(ref, questions[item.reply_to], SessionRelationKind.REPLIES_TO)
-        if record.output is not None:
-            ref = f"{record.ref}#output"
-            values.append({"kind": "output", "ref": ref})
-            edge(record.ref, ref, SessionRelationKind.CONTAINS)
-            references(ref, record.output.references, record)
-        if record.working:
-            ref = f"{record.ref}#working"
-            values.append({"kind": "working", "ref": ref})
-            edge(record.ref, ref, SessionRelationKind.CONTAINS)
-        references(record.ref, record.background_links, record)
-        previous_action: str | None = None
-        for index, action in enumerate(record.actions):
-            ref = action_leaf_ref(record.ref, index)
-            values.append(
-                {
-                    "kind": "action",
-                    "ref": ref,
-                    "action": action.action,
-                    "outcome": action.outcome.value,
-                }
-            )
-            edge(record.ref, ref, SessionRelationKind.CONTAINS)
-            if previous_action is not None:
-                edge(previous_action, ref, SessionRelationKind.PRECEDES)
-            previous_action = ref
-            references(ref, action.references, record)
+            edge(previous, ref, SessionRelationKind.PRECEDES)
+        previous = ref
+        if item.reply_to:
+            edge(ref, questions[item.reply_to], SessionRelationKind.REPLIES_TO)
+    for index in range(len(record.notes)):
+        edge(record.ref, f"{record.ref}#note/{index}", SessionRelationKind.CONTAINS)
+    if record.output is not None:
+        ref = f"{record.ref}#output"
+        edge(record.ref, ref, SessionRelationKind.CONTAINS)
+        references(ref, record.output.references)
+    if record.working:
+        edge(record.ref, f"{record.ref}#working", SessionRelationKind.CONTAINS)
+    references(record.ref, record.background_links)
+    previous = None
+    for index, action in enumerate(record.actions):
+        ref = action_leaf_ref(record.ref, index)
+        edge(record.ref, ref, SessionRelationKind.CONTAINS)
+        if previous is not None:
+            edge(previous, ref, SessionRelationKind.PRECEDES)
+        previous = ref
+        references(ref, action.references)
     return tuple(values)
 
 
@@ -163,14 +124,16 @@ def project_occurrence(record: SessionTurnRecord, suffix: str) -> JsonObject:
             "ref": f"{record.ref}#working",
             "working": record.working,
         }
-    match = re.fullmatch(r"(input|resource)/([0-9]+)", suffix)
+    match = re.fullmatch(r"(input|resource|note)/([0-9]+)", suffix)
     if match is not None:
         index = int(match.group(2))
+        if match.group(1) == "note" and index < len(record.notes):
+            return {"ref": f"{record.ref}#{suffix}", **record.notes[index]}
         if match.group(1) == "input" and index < len(record.inputs):
             return {
                 "kind": "session_input",
                 "ref": input_ref(record.ref, index),
-                **record.inputs[index].to_json(),
+                "text": record.inputs[index].text,
             }
         links = resource_links(record)
         if match.group(1) == "resource" and index < len(links):
@@ -253,64 +216,6 @@ def action_outcomes(record: SessionTurnRecord) -> tuple[JsonObject, ...]:
     return tuple(to_json_object(value) for value in values)
 
 
-def project_turn(record: SessionTurnRecord) -> JsonObject:
-    value: JsonObject = {
-        "kind": "session_turn",
-        "ref": record.ref,
-        "status": record.status.value,
-        "day": record.day,
-        "ask": [item.text for item in record.inputs],
-        "inputs": [
-            {
-                "ref": input_ref(record.ref, index),
-                "input_id": item.input_id,
-                "reply_to": item.reply_to,
-            }
-            for index, item in enumerate(record.inputs)
-        ],
-    }
-    if record.output is not None:
-        value["answer"] = record.output.text
-        value["output_ref"] = f"{record.ref}#output"
-        if record.output.references:
-            value["references"] = list(record.output.references)
-    if record.exhausted:
-        value["exhausted"] = True
-    if record.working:
-        value["working_ref"] = f"{record.ref}#working"
-    if record.failure is not None:
-        value["failure"] = record.failure.to_json()
-    if record.finish_failures:
-        value["finish_failures"] = [item.to_json() for item in record.finish_failures]
-    outcomes = action_outcomes(record)
-    if outcomes:
-        value["actions"] = {
-            "ref": action_collection_ref(record.ref),
-            "count": len(record.actions),
-            "outcomes": list(outcomes),
-        }
-    return to_json_object(value)
-
-
-def project_action_header(
-    turn_ref: str,
-    occurrence: int,
-    action: SessionActionRecord,
-) -> JsonObject:
-    value: JsonObject = {
-        "ref": action_leaf_ref(turn_ref, occurrence),
-        "action": action.action,
-        "outcome": action.outcome.value,
-        "result_id": action.result_id,
-    }
-    if action.failure is not None:
-        value["failure"] = _failure_preview(action.failure)
-    if action.outcome.value != "success" and action.result:
-        if len(dumps_json(action.result)) <= _FAILED_RESULT_PREVIEW_CHARS:
-            value["result"] = action.result
-        else:
-            value["result_available"] = True
-    return to_json_object(value)
 
 
 def project_action(
@@ -335,21 +240,6 @@ def project_action(
     return to_json_object(value)
 
 
-def _failure_preview(failure: ActionLocalFailure) -> JsonObject:
-    value: JsonObject = {
-        "reason": failure.reason,
-        "disposition": failure.disposition.value,
-        "feedback": (
-            failure.feedback
-            if len(failure.feedback) <= _FAILURE_FEEDBACK_PREVIEW_CHARS
-            else failure.feedback[: _FAILURE_FEEDBACK_PREVIEW_CHARS - 3] + "..."
-        ),
-    }
-    if failure.constraint:
-        projected = to_json_object(failure.constraint)
-        if len(dumps_json(projected)) <= _FAILURE_FEEDBACK_PREVIEW_CHARS:
-            value["constraint"] = projected
-    return value
 
 
 def _require_turn_ref(ref: str) -> None:

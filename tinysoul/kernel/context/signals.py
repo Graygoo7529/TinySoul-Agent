@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from math import isfinite
 from uuid import uuid4
 
 from tinysoul.infra.json import JsonObject, JsonValue, to_json_object
@@ -150,6 +151,7 @@ class TraceAppend:
     canonical_action_result: ToolResultMessage | None = None
     origin_refs: tuple[str, ...] = ()
     note: JsonObject | None = None
+    admission_sequence: int | None = None
 
 
 class TraceAppendKind(StrEnum):
@@ -240,12 +242,14 @@ def build_trace_phase_note_signal(
     source: str,
     cycle_id: str = "",
     phase: CyclePhase | None = None,
+    admission_sequence: int | None = None,
 ) -> Signal:
     payload: JsonObject = {
         "kind": TRACE_APPEND_PHASE_NOTE,
         "cycle_id": cycle_id,
         "phase": phase.value if phase is not None else "",
         "note": to_json_object(note),
+        "admission_sequence": admission_sequence,
     }
     return Signal(name=SIGNAL_TRACE_APPEND, source=source, scope=scope, payload=payload)
 
@@ -369,7 +373,13 @@ def parse_trace_append_signal(signal: Signal) -> TraceAppend:
             raise ContextContractError(
                 "Trace phase note signal requires a non-empty note object"
             )
-        return TraceAppend(kind=kind, cycle_id=cycle_id, phase=phase, note=note)
+        sequence = signal.payload.get("admission_sequence")
+        if sequence is not None and (type(sequence) is not int or sequence <= 0):
+            raise ContextContractError("Trace admission sequence must be positive")
+        return TraceAppend(
+            kind=kind, cycle_id=cycle_id, phase=phase, note=note,
+            admission_sequence=sequence,
+        )
     raise ContextContractError(f"Unknown trace append kind: {kind.value}")
 
 
@@ -382,6 +392,8 @@ class InputAppend:
     text: str
     input_id: str
     reply_to: str = ""
+    admission_sequence: int | None = None
+    received_at: float | None = None
 
     def __post_init__(self) -> None:
         if not self.text or not self.input_id or not isinstance(self.reply_to, str):
@@ -395,6 +407,8 @@ def build_input_append_signal(
     source: str,
     input_id: str = "",
     reply_to: str = "",
+    admission_sequence: int | None = None,
+    received_at: float | None = None,
 ) -> Signal:
     if not text:
         raise ContextContractError("Input append signal requires non-empty text")
@@ -406,15 +420,30 @@ def build_input_append_signal(
             "text": text,
             "input_id": input_id or f"input_{uuid4().hex}",
             "reply_to": reply_to,
+            "admission_sequence": admission_sequence,
+            "received_at": received_at,
         },
     )
 
 
 def parse_input_append_signal(signal: Signal) -> InputAppend:
+    sequence = signal.payload.get("admission_sequence")
+    if sequence is not None and (type(sequence) is not int or sequence <= 0):
+        raise ContextContractError("Input admission sequence must be positive")
+    received_at = signal.payload.get("received_at")
+    if received_at is not None and (
+        isinstance(received_at, bool)
+        or not isinstance(received_at, (int, float))
+        or not isfinite(received_at)
+        or received_at < 0
+    ):
+        raise ContextContractError("Input receipt time must be finite and non-negative")
     return InputAppend(
         _required_str(signal.payload, "text"),
         _required_str(signal.payload, "input_id"),
         _optional_str(signal.payload, "reply_to"),
+        sequence,
+        received_at,
     )
 
 

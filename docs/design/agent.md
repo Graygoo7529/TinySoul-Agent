@@ -34,6 +34,8 @@ TurnInbox 从受理到收尾持续存在，由 Kernel 独占待消费正文。�
 
 AgentDayCoordinator 使用注入时钟，协调 Memory catalog 与 Archive owner。短日切操作在 JoinedOperations 内完成，取消等待已开始操作结束才释放世代活动边界。日切不调用 LLM，也不依赖 Reflection 成功。
 
+时钟使用 infra 的 CalendarClock；AgentBuilder 通过 with_calendar_clock 注入，默认使用 IanaCalendarClock。Turn 与公开完成/观察结果统一使用 active_day，Reflection 的 source_day/target_day 不与活动日期混用。插件声明负责显式服务、动作和段贡献；完成贡献进入唯一 TurnCompletionPipeline，异步资源仍由各自的组合根与 owner 关闭，不通过空 Segment 或第二条完成事件总线协调。
+
 每项根 work 前完成日切与 availability 刷新，再持 active-day lease 执行；跨午夜等待仍属于开始日。Archive 的可恢复 journal、Session/Memory/Workspace 的初始化与归档由各自 owner 实施。Reflection 只取得只读 ArchiveReader，不拥有推进日期的权限。
 
 daily 触发在 Agent 边界拆为 Home 与触发日前一日 Memory 两个独立请求，整批容量受理；执行前的日切使新关闭日资料可见。scheduled 请求按日期/profile 稳定身份去重，已有 daily 仍可继续修订；手动和自动请求使用相同的整理语义。availability 从 owner 目录重算可整理日期与缺失 daily 的子集，不持久化 backlog；更早日期由明确请求处理。定时来源遇到满载保留请求并重试；启动晚于当日计划时刻不追补模型任务。

@@ -32,6 +32,7 @@ class SegmentCapability(StrEnum):
     INSPECT = "inspect"
     SELECT = "select"
     RECLAIM = "reclaim"
+    QUERY = "query"
 
 
 @dataclass(frozen=True)
@@ -71,6 +72,8 @@ class SegmentDescriptor:
             raise ContextContractError(
                 "Inspection capability requires explicit reference routes"
             )
+        if SegmentCapability.QUERY in capabilities and SegmentCapability.INSPECT not in capabilities:
+            raise ContextContractError("Query capability requires inspection")
         object.__setattr__(self, "capabilities", capabilities)
 
     @property
@@ -119,7 +122,7 @@ class SegmentProvider[S: ContextSegment](Protocol):
 @runtime_checkable
 class InspectableSegment(Protocol):
     async def inspect(
-        self, ref: str, *, continuation: str | None = None
+        self, ref: str, *, query: str | None = None, continuation: str | None = None
     ) -> JsonObject: ...
 
 

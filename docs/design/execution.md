@@ -6,6 +6,8 @@
 
 进程直接操作当天 Workspace。默认 cwd 是该 Job 独立的 `workspace:jobs/<job_id>`；显式 `cwd_link` 可以选择已有 Workspace 目录，`workspace:` 在此参数中表示当天根目录。Workspace owner 校验并解析物理位置，脚本源码读取为一次有界快照，随后放入 Job 目录运行。这个目录不是操作系统沙箱。文件写入即时生效；失败、停止或取消不回滚已写文件，也没有 apply/discard 提交路径。
 
+执行假设是受信独立主机。正式 Action 仍服从 owner 与 profile 的能力分工，但 cwd、Action visibility 和 Service grant 不承诺阻止脚本直接访问宿主文件。Workspace 的实际副作用在既有 reconcile 边界反映；其它 owner 的外部变更事件适配属于后续环境集成，不声称当前已有通用 fswatch。不会为此新增逐操作审批或额外隔离框架。
+
 `execution.collect` 读取 stdout/stderr 分页、退出事实与资源 Link，重复读取相同 cursor 不会再次执行进程。日志保存在 Job 的 Workspace 目录中，随日生命周期归档。`execution.stdin` 只向仍可写的交互管道提交最多 4096 UTF-8 字节，返回实际接收字节数；未接收部分仍由调用者负责。没有输出不能证明进程正在等待输入。
 
 Job 终态为 succeeded、failed 或 cancelled，超时与输出上限作为失败原因。监视器观察输出大小并停止超限进程，采样之间可能有额外输出；有界 collect 不承诺所有超限字节都能进入模型。进程终止后关闭执行句柄，结果在当前 Turn 内保留，不占活任务额度。结果容量耗尽时拒绝新任务，不悄悄逐出仍承诺可读的结果。

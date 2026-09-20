@@ -191,15 +191,15 @@ class ReflectionTaskOutcome:
 @dataclass(frozen=True)
 class ReflectionOutcome:
     request_id: str
-    business_day: CalendarDay
+    active_day: CalendarDay
     status: ReflectionStatus
     tasks: tuple[ReflectionTaskOutcome, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         if not isinstance(self.request_id, str) or not self.request_id:
             raise ReflectionContractError("Reflection outcome request_id is invalid")
-        if not isinstance(self.business_day, CalendarDay):
-            raise ReflectionContractError("Reflection outcome business_day is invalid")
+        if not isinstance(self.active_day, CalendarDay):
+            raise ReflectionContractError("Reflection outcome active_day is invalid")
         if not isinstance(self.status, ReflectionStatus):
             raise ReflectionContractError("Reflection outcome status is invalid")
         if any(not isinstance(item, ReflectionTaskOutcome) for item in self.tasks):
@@ -209,7 +209,7 @@ class ReflectionOutcome:
     def to_json(self) -> JsonObject:
         return {
             "request_id": self.request_id,
-            "business_day": str(self.business_day),
+            "active_day": str(self.active_day),
             "status": self.status.value,
             "tasks": [task.to_json() for task in self.tasks],
         }

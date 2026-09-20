@@ -46,7 +46,10 @@ class _FakeProviderHandler(BaseHTTPRequestHandler):
 def test_initialized_project_runs_cli_through_fake_openai_provider(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost,::1")
+    monkeypatch.setenv("no_proxy", "127.0.0.1,localhost,::1")
     root = tmp_path / "agent"
     copy_initialized_project(root)
 

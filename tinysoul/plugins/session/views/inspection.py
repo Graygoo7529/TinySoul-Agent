@@ -8,10 +8,10 @@ from tinysoul.infra.continuation import (
     ContinuationError,
     ContinuationFailureReason,
     OpaqueContinuationCodec,
-    continue_json_sequence,
 )
 from tinysoul.infra.json import JsonObject, dumps_json
 from tinysoul.infra.time import CalendarDay
+from tinysoul.kernel.context.disclosure import DisclosureHint, DisclosurePage, query_hint
 
 from .background import (
     SessionBackgroundItem,
@@ -28,14 +28,13 @@ from ..errors import (
 )
 from ..records.models import SessionManifest, SessionTurnRecord
 from .navigation import (
-    action_collection_ref,
     action_leaf_ref,
     parse_action_ref,
     project_action,
-    project_action_header,
-    project_map,
-    project_turn,
+    project_relations,
     project_occurrence,
+    project_navigation_header,
+    resource_links,
 )
 from ..records.store import SessionStore
 from ..records.validation import validate_turn_record
@@ -83,6 +82,7 @@ class SessionView:
             revision=self.manifest.revision,
             items=self._fit_background(projected),
             refs=self.manifest.refs,
+            max_chars=self.settings.background_max_chars,
         )
 
     def inspect(
@@ -90,143 +90,41 @@ class SessionView:
         ref: str | None = None,
         *,
         action: str | None = None,
+        query: str | None = None,
         continuation: str | None = None,
         expected_revision: int | None = None,
     ) -> JsonObject:
-        """Inspect the factual Map, one Turn, or its Action occurrences."""
-
-        manifest = self.manifest
-        if expected_revision is not None and expected_revision != manifest.revision:
+        if expected_revision is not None and expected_revision != self.manifest.revision:
             raise SessionContractError("Session view source changed during its Turn")
-        if action is not None and (not isinstance(action, str) or not action):
-            raise SessionInspectRequestError(
-                SessionInspectFailureReason.INVALID_REF,
-                "Session Action filter must be non-empty text",
-                scope="session.inspect",
-            )
-        try:
-            action_ref = parse_action_ref(ref) if ref is not None else None
-        except SessionContractError as exc:
+        ref = ref or "session:map"
+        if query is not None and (not isinstance(query, str) or not query.strip()):
             raise _request_error(
-                SessionInspectFailureReason.INVALID_REF,
-                str(exc),
-                ref=ref,
-            ) from exc
-        if action_ref is not None:
-            record = self._load_turn(action_ref.turn_ref)
-            if action_ref.is_collection:
-                collection_ref = action_collection_ref(record.ref)
-                actions = tuple(
-                    project_action_header(record.ref, index, item)
-                    for index, item in enumerate(record.actions)
-                    if action is None or item.action == action
-                )
-                return self._page(
-                    actions,
-                    base={"kind": "session_actions", "ref": collection_ref},
-                    item_field="actions",
-                    continuation=continuation,
-                    ref=collection_ref,
-                    binding=({"action": action} if action is not None else None),
-                )
-            if action is not None:
-                raise _request_error(
-                    SessionInspectFailureReason.WRONG_RECORD_KIND,
-                    "Session Action filter only applies to an Action collection",
-                    ref=ref,
-                )
-            assert action_ref.occurrence is not None
-            if action_ref.occurrence >= len(record.actions):
-                raise _request_error(
-                    SessionInspectFailureReason.UNKNOWN_REF,
-                    "Unknown Session Action ref",
-                    ref=ref,
-                )
-            detail = project_action(
-                record.ref,
-                action_ref.occurrence,
-                record.actions[action_ref.occurrence],
+                SessionInspectFailureReason.INVALID_QUERY,
+                "Query must be non-empty text", ref=ref,
             )
-            leaf_ref = action_leaf_ref(record.ref, action_ref.occurrence)
-            return self._page(
-                (detail,),
-                base={"kind": "session_action", "ref": leaf_ref},
-                item_field="content",
-                continuation=continuation,
-                ref=leaf_ref,
-            )
-        if action is not None:
+        if action is not None and not ref.endswith("#actions"):
             raise _request_error(
                 SessionInspectFailureReason.WRONG_RECORD_KIND,
-                "Session Action filter requires an Action collection ref",
-                ref=ref,
+                "Action filter requires an Action collection", ref=ref,
             )
-        if ref is None or ref == "session:map":
-            nodes = project_map(tuple(self._record(item) for item in manifest.refs))
-            return self._page(
-                nodes,
-                base={
-                    "kind": "session_map",
-                    "ref": "session:map",
-                    "total_turns": len(manifest.refs),
-                },
-                item_field="nodes",
-                continuation=continuation,
-                ref="session:map",
-                binding={"revision": manifest.revision},
+        page = self._disclose(ref, action=action)
+        if query is not None:
+            hints = tuple(
+                hint for target, title, content in self._search_scope(ref, action=action)
+                if (hint := query_hint(target, title, content, query)) is not None
             )
-        if "#" in ref:
-            turn_ref, suffix = ref.split("#", 1)
-            record = self._requested_record(turn_ref)
-            try:
-                detail = project_occurrence(record, suffix)
-            except SessionContractError as exc:
-                raise _request_error(
-                    SessionInspectFailureReason.UNKNOWN_REF,
-                    "Unknown Session occurrence",
-                    ref=ref,
-                ) from exc
-            return self._page(
-                (detail,),
-                base={"kind": detail["kind"], "ref": ref},
-                item_field="content",
-                continuation=continuation,
-                ref=ref,
-            )
-        record = self._requested_record(ref)
-        detail = project_turn(record)
-        return self._page(
-            (detail,),
-            base={"kind": "session_turn", "ref": ref},
-            item_field="content",
-            continuation=continuation,
-            ref=ref,
-        )
-
-    def _page(
-        self,
-        values: tuple[JsonObject, ...],
-        *,
-        base: JsonObject,
-        item_field: str,
-        continuation: str | None,
-        ref: str,
-        binding: JsonObject | None = None,
-    ) -> JsonObject:
+            page = DisclosurePage(ref, "session_query", children=hints)
         try:
-            return continue_json_sequence(
-                values,
-                base={**base, "day": self.manifest.day},
-                item_field=item_field,
-                continuation=continuation,
+            return page.render(
                 codec=self._continuations,
-                ref=ref,
+                max_chars=self.settings.inspect_max_chars,
+                continuation=continuation,
                 binding={
-                    **(binding or {}),
                     "day": self.manifest.day,
                     "revision": self.manifest.revision,
+                    "query": query,
+                    "action": action,
                 },
-                max_chars=self.settings.inspect_max_chars,
             )
         except ContinuationError as exc:
             reason = (
@@ -235,6 +133,165 @@ class SessionView:
                 else SessionInspectFailureReason.INVALID_CONTINUATION
             )
             raise _request_error(reason, str(exc), ref=ref) from exc
+
+    def _map_refs(self, ref: str) -> tuple[str, ...]:
+        if ref == "session:map":
+            return self.manifest.refs
+        prefix = "session:map/"
+        if ref.startswith(prefix):
+            index = ref[len(prefix):]
+            if index.isascii() and index.isdigit():
+                start = int(index)
+                if start % 16 == 0 and start < len(self.manifest.refs):
+                    return self.manifest.refs[start:start + 16]
+        raise _request_error(
+            SessionInspectFailureReason.UNKNOWN_REF,
+            "Unknown Session group", ref=ref,
+        )
+
+    def _disclose(self, ref: str, *, action: str | None) -> DisclosurePage:
+        if ref.startswith("session:map"):
+            refs = self._map_refs(ref)
+            if ref == "session:map" and len(refs) > 16:
+                children = tuple(
+                    DisclosureHint(
+                        f"session:map/{index}", "Turn group",
+                        f"Turns {index + 1}–{min(index + 16, len(refs))}",
+                    )
+                    for index in range(0, len(refs), 16)
+                )
+            else:
+                children = tuple(self._turn_hint(self._record(item)) for item in refs)
+            successors = refs[1:]
+            if ref != "session:map" and refs:
+                following = self.manifest.refs.index(refs[-1]) + 1
+                successors += self.manifest.refs[following:following + 1]
+            related: tuple[JsonObject, ...] = tuple(
+                {
+                    "kind": "relation", "source": left, "target": right,
+                    "relation": "precedes", "basis": "fact",
+                }
+                for left, right in zip(refs, successors)
+            ) if len(refs) <= 16 else ()
+            return DisclosurePage(ref, "session_map", children=children, related=related)
+        turn_ref, _, suffix = ref.partition("#")
+        record = self._requested_record(turn_ref)
+        if not suffix:
+            children = [
+                DisclosureHint(
+                    f"{turn_ref}#input/{index}",
+                    "User reply" if item.reply_to else "User input",
+                    item.text[:240],
+                )
+                for index, item in enumerate(record.inputs)
+            ]
+            if record.actions:
+                children.append(DisclosureHint(
+                    f"{turn_ref}#actions", "Actions", str(len(record.actions)),
+                ))
+            if record.timeline:
+                children.append(DisclosureHint(
+                    f"{turn_ref}#timeline", "Observed order",
+                    "Input visibility, actions and events",
+                ))
+            children.extend(
+                DisclosureHint(
+                    f"{turn_ref}#note/{index}", "Event or decision",
+                    dumps_json(note)[:240],
+                )
+                for index, note in enumerate(record.notes)
+            )
+            if record.output is not None:
+                children.append(DisclosureHint(
+                    f"{turn_ref}#output", "Answer", record.output.text[:240],
+                ))
+            if record.working:
+                children.append(DisclosureHint(f"{turn_ref}#working", "Final working state"))
+            children.extend(
+                DisclosureHint(f"{turn_ref}#resource/{index}", link)
+                for index, link in enumerate(resource_links(record))
+            )
+            relations = project_relations(record)
+            return DisclosurePage(
+                ref, "session_turn",
+                content=(project_navigation_header(record),),
+                children=tuple(children), related=relations,
+            )
+        if suffix == "timeline":
+            return DisclosurePage(ref, "session_timeline", content=tuple(
+                {"kind": item.kind.value, "ref": item.ref} for item in record.timeline
+            ))
+        parsed = parse_action_ref(ref)
+        if parsed is not None and parsed.is_collection:
+            return DisclosurePage(ref, "session_actions", children=tuple(
+                DisclosureHint(action_leaf_ref(turn_ref, index), item.action, item.outcome.value)
+                for index, item in enumerate(record.actions)
+                if action is None or item.action == action
+            ))
+        return DisclosurePage(ref, "session_detail", content=(self._detail(record, ref),))
+
+    def _detail(self, record: SessionTurnRecord, ref: str) -> JsonObject:
+        parsed = parse_action_ref(ref)
+        if parsed is not None and parsed.occurrence is not None:
+            if parsed.occurrence < len(record.actions):
+                return project_action(
+                    record.ref, parsed.occurrence, record.actions[parsed.occurrence],
+                )
+        else:
+            try:
+                return project_occurrence(record, ref.partition("#")[2])
+            except SessionContractError:
+                pass
+        raise _request_error(
+            SessionInspectFailureReason.UNKNOWN_REF,
+            "Unknown Session fact", ref=ref,
+        )
+
+    def _turn_hint(self, record: SessionTurnRecord) -> DisclosureHint:
+        return DisclosureHint(
+            record.ref, f"{record.day} · {record.status.value}",
+            " / ".join(item.text[:120] for item in record.inputs[:2]),
+        )
+
+    def _search_scope(
+        self, ref: str, *, action: str | None,
+    ) -> tuple[tuple[str, str, JsonObject], ...]:
+        if ref.startswith("session:map"):
+            records = tuple(self._record(item) for item in self._map_refs(ref))
+        else:
+            records = (self._requested_record(ref.partition("#")[0]),)
+        values: list[tuple[str, str, JsonObject]] = []
+        for record in records:
+            targets = [
+                *(f"{record.ref}#input/{i}" for i in range(len(record.inputs))),
+                *(f"{record.ref}#note/{i}" for i in range(len(record.notes))),
+                *(
+                    f"{record.ref}#action/{i}"
+                    for i, item in enumerate(record.actions)
+                    if item.action != "core.context.inspect"
+                    and (action is None or action == item.action)
+                ),
+                *(f"{record.ref}#resource/{i}" for i in range(len(resource_links(record)))),
+                f"{record.ref}#working",
+            ]
+            if record.output is not None:
+                targets.append(f"{record.ref}#output")
+            suffix = ref.partition("#")[2]
+            if suffix == "actions":
+                targets = [item for item in targets if "#action/" in item]
+            elif suffix == "timeline":
+                timeline_refs = {item.ref for item in record.timeline}
+                targets = [item for item in targets if item in timeline_refs]
+            elif suffix:
+                targets = [ref]
+            ordered = dict.fromkeys(item.ref for item in record.timeline)
+            targets = [
+                *(target for target in ordered if target in targets),
+                *(target for target in targets if target not in ordered),
+            ]
+            for target in targets:
+                values.append((target, "Session fact", self._detail(record, target)))
+        return tuple(values)
 
     def _background_for_ref(self, ref: str) -> JsonObject:
         return project_turn_background(self._record(ref))
@@ -288,11 +345,6 @@ class SessionView:
                 ref=ref,
             )
         return self._record(ref)
-
-    def _load_turn(self, ref: str) -> SessionTurnRecord:
-        return self._requested_record(ref)
-
-
 def _request_error(
     reason: SessionInspectFailureReason,
     message: str,

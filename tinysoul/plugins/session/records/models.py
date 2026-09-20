@@ -9,6 +9,7 @@ from time import time_ns
 from uuid import uuid4
 
 from tinysoul.kernel.action import ActionInvariantError, ActionLocalFailure
+from tinysoul.kernel.context.builtin.trace import TraceFactKind
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.infra.time import CalendarDay, CalendarDayError
 from tinysoul.kernel.loop.errors import LoopContractError
@@ -16,7 +17,7 @@ from tinysoul.kernel.loop.outcomes import TurnFailure, TurnOutcomeStatus
 
 from ..errors import SessionContractError
 
-SESSION_RECORD_SCHEMA_VERSION = 9
+SESSION_RECORD_SCHEMA_VERSION = 10
 SESSION_MANIFEST_SCHEMA_VERSION = 3
 _TURN_REF = re.compile(r"^session:turn/([a-z0-9_-]+)$")
 
@@ -32,6 +33,39 @@ class SessionActionOutcome(StrEnum):
     CANCELLED = "cancelled"
     NOT_EXECUTED = "not_executed"
     UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class SessionFact:
+    """An ordered reference into one immutable record, without duplicate bodies."""
+
+    kind: TraceFactKind
+    ref: str
+    admission_sequence: int | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.kind, TraceFactKind) or not self.ref:
+            raise SessionContractError("Session fact requires a typed kind and ref")
+        if self.admission_sequence is not None and (
+            type(self.admission_sequence) is not int or self.admission_sequence <= 0
+        ):
+            raise SessionContractError("Session admission sequence must be positive")
+
+    def to_json(self) -> JsonObject:
+        return {"kind": self.kind.value, "ref": self.ref,
+                "admission_sequence": self.admission_sequence}
+
+    @classmethod
+    def from_json(cls, value: object) -> SessionFact:
+        item = _exact_object(value, {"kind", "ref", "admission_sequence"}, "Session fact")
+        try:
+            kind = TraceFactKind(_required_text(item, "kind"))
+        except ValueError as exc:
+            raise SessionContractError("Invalid Session fact kind") from exc
+        sequence = item["admission_sequence"]
+        if sequence is not None and (type(sequence) is not int or sequence <= 0):
+            raise SessionContractError("Session admission sequence must be positive")
+        return cls(kind, _required_text(item, "ref"), sequence)
 
 
 @dataclass(frozen=True)
@@ -216,6 +250,8 @@ class SessionTurnRecord:
     exhausted: bool
     actions: tuple[SessionActionRecord, ...]
     status: TurnOutcomeStatus
+    timeline: tuple[SessionFact, ...] = ()
+    notes: tuple[JsonObject, ...] = ()
     segments: JsonObject = field(default_factory=dict)
     failure: TurnFailure | None = None
     finish_failures: tuple[TurnFailure, ...] = ()
@@ -264,6 +300,19 @@ class SessionTurnRecord:
         if any(not isinstance(item, SessionActionRecord) for item in actions):
             raise SessionContractError("Session Turn actions must be typed records")
         object.__setattr__(self, "actions", actions)
+        notes = tuple(to_json_object(item) for item in self.notes)
+        object.__setattr__(self, "notes", notes)
+        object.__setattr__(self, "timeline", tuple(self.timeline))
+        targets = {
+            *(f"{self.ref}#input/{index}" for index in range(len(inputs))),
+            *(f"{self.ref}#action/{index}" for index in range(len(actions))),
+            *(f"{self.ref}#note/{index}" for index in range(len(notes))),
+        }
+        if any(
+            not isinstance(item, SessionFact) or item.ref not in targets
+            for item in self.timeline
+        ):
+            raise SessionContractError("Session timeline must reference its own facts")
         input_ids = tuple(item.input_id for item in inputs)
         result_ids = tuple(item.result_id for item in actions if item.result_id)
         if len(set(input_ids)) != len(input_ids) or len(set(result_ids)) != len(
@@ -305,6 +354,8 @@ class SessionTurnRecord:
             "failure": self.failure.to_json() if self.failure is not None else None,
             "finish_failures": [item.to_json() for item in self.finish_failures],
             "actions": [item.to_json() for item in self.actions],
+            "timeline": [item.to_json() for item in self.timeline],
+            "notes": list(self.notes),
         }
 
     @classmethod
@@ -328,6 +379,8 @@ class SessionTurnRecord:
                 "failure",
                 "finish_failures",
                 "actions",
+                "timeline",
+                "notes",
             },
             "Session Turn record",
         )
@@ -360,7 +413,18 @@ class SessionTurnRecord:
                 _turn_failure(item) for item in _required_list(value, "finish_failures")
             ),
             actions=tuple(SessionActionRecord.from_json(item) for item in raw_actions),
+            timeline=tuple(
+                SessionFact.from_json(item)
+                for item in _required_list(value, "timeline")
+            ),
+            notes=tuple(_required_note(item) for item in _required_list(value, "notes")),
         )
+
+
+def _required_note(value: object) -> JsonObject:
+    if not isinstance(value, dict):
+        raise SessionContractError("Session note must be an object")
+    return to_json_object(value)
 
 
 def _turn_status(value: JsonObject) -> TurnOutcomeStatus:

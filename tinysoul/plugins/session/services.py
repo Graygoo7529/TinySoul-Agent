@@ -18,6 +18,7 @@ class SessionViewSource(Protocol):
         ref: str | None = None,
         *,
         action: str | None = None,
+        query: str | None = None,
         continuation: str | None = None,
         expected_revision: int | None = None,
     ) -> JsonObject: ...

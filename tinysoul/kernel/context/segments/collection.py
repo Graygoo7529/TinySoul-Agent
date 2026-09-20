@@ -252,14 +252,20 @@ class TurnSegments:
                 "Context segment installation failed; batch cannot be replayed"
             ) from exc
 
-    async def inspect(self, ref: str, *, continuation: str | None = None) -> JsonObject:
+    async def inspect(self, ref: str, *, query: str | None = None, continuation: str | None = None) -> JsonObject:
         self._require_ready()
         for item in self._opened:
             if any(ref.startswith(prefix) for prefix in item.descriptor.ref_prefixes):
                 assert isinstance(item.segment, InspectableSegment)
+                if query is not None and SegmentCapability.QUERY not in item.descriptor.capabilities:
+                    raise ContextInspectRequestError(
+                        ContextInspectFailureReason.QUERY_UNSUPPORTED,
+                        "This owner supports navigation but not query; inspect without query",
+                        constraint={"ref": ref},
+                    )
                 try:
                     return to_json_object(
-                        await item.segment.inspect(ref, continuation=continuation)
+                        await item.segment.inspect(ref, query=query, continuation=continuation)
                     )
                 except (ContextError, RuntimeException, RuntimeTransferInterrupt):
                     raise

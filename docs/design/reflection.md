@@ -53,4 +53,4 @@ memory.write_daily 写目标日完整 daily；memory.write 写一份 entity/conc
 
 可修正参数和 review/write 拒绝是局部 ActionResult；损坏存储、契约或配置错误在所属 owner 边界归类并由 owner bridge 映射。Reflection task 的已知 I/O 失败形成有限 task outcome；Runtime transfer 与取消保留原身份。取消后的 ReflectionOutcome 保留 task kind、target_day、底层 TurnOutcome 与已提交事实；不会返回裸 User outcome。准备、可用性和清理文件操作均通过 joined owner 边界完成。
 
-必要 Turn finish 失败阻止成功发布，close 失败保留诊断。Observation 只提供请求身份、执行/目标日期、状态、计数和有限错误类型；不替代业务事实。reflection.started/completed 中 business_day 与内层 turn.started 都是当前执行日，target_day 单独表达历史来源。
+必要 Turn finish 失败阻止成功发布，close 失败保留诊断。Observation 只提供请求身份、执行/目标日期、状态、计数和有限错误类型；不替代业务事实。reflection.started/completed 中 active_day 与内层 turn.started 都是当前执行日，target_day 单独表达历史来源。

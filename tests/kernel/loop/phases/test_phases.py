@@ -101,6 +101,40 @@ class FakeLLM:
         return self.results.popleft()
 
 
+async def test_capacity_rejection_does_not_consume_inspect_overlay() -> None:
+    from tinysoul.kernel.context import build_trace_action_result_signal
+    from tinysoul.llm.protocol.messages import ToolResultMessage
+    from tinysoul.llm.failures import LLM_CONTEXT_CAPACITY_EXCEEDED
+
+    class CapacityLLM:
+        async def run(self, call: TaskCall) -> TaskResult:
+            raise RuntimeException(LLM_CONTEXT_CAPACITY_EXCEEDED, "capacity")
+
+    context = ContextEngineBuilder(system_text="test").build()
+    turn_id = context.begin_turn("inspect")
+    await context.open_segments(CalendarDate(2026, 9, 20))
+    scope = RunScope().push(RunLevel.TURN, turn_id)
+    full = ToolResultMessage.from_json(
+        call_id="inspect", tool_name="core.context.inspect", value={"detail": "evidence"}
+    )
+    folded = ToolResultMessage.from_json(
+        call_id="inspect", tool_name="core.context.inspect", value={"ref": "session:map"}
+    )
+    bus = SignalBus()
+    bus.emit(build_trace_action_result_signal(
+        full, canonical_message=folded, origin_refs=("session:map",),
+        scope=scope, source="test",
+    ))
+    await context.consume_signals(bus)
+    phase = Phase1Unit(context=context, action=_action_engine(), llm=CapacityLLM(),
+                       bus=bus, task_profile="phase1")
+    with pytest.raises(RuntimeException) as failure:
+        await phase.run(scope=scope, cycle_id="cycle_1")
+    assert failure.value.reason == LLM_CONTEXT_CAPACITY_EXCEEDED
+    assert context.compress(required_chars=100000).changed is False
+    await context.close_segments()
+
+
 @dataclass
 class RecordingObservations:
     events: list[ObservationEvent] = field(default_factory=list)
@@ -273,7 +307,7 @@ async def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the
     None
 ):
     class _SkillProvider:
-        async def catalog(self, business_day: date) -> BackgroundCatalog:
+        async def catalog(self, active_day: date) -> BackgroundCatalog:
             return BackgroundCatalog(
                 owner="home",
                 loadable_links=("home:skills@review",),
@@ -286,7 +320,7 @@ async def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the
                 ),
             )
 
-        async def load(self, link: str, business_day: date) -> str:
+        async def load(self, link: str, active_day: date) -> str:
             assert link == "home:skills@review"
             return "SKILL BODY: compare runtime and actual Home."
 
@@ -576,6 +610,9 @@ async def test_real_workspace_inspection_actions_preserve_trace_lifecycle(
     analyze_payload = entries[2].message.parts[0].value["payload"]
     assert isinstance(analyze_payload, dict)
     assert analyze_payload["answer"] == ("Alpha and beta are present.")
+    assert context.compress(required_chars=0).folded_overlay_count == 0
+    from tinysoul.llm.protocol.messages import MessageStack
+    context.mark_model_consumed(MessageStack(tuple(entry.visible_message for entry in entries)))
     assert context.compress(required_chars=0).folded_overlay_count == 2
     assert all(entry.visible_overlay is None for entry in context.seal_trace().entries)
 

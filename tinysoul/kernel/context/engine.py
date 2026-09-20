@@ -43,6 +43,8 @@ from .control.tools import (
 from .errors import (
     ContextContractError,
     ContextInvariantError,
+    ContextInspectFailureReason,
+    ContextInspectRequestError,
 )
 from .prompts import TaskPrompt
 from .providers import SegmentSelectionView
@@ -54,12 +56,15 @@ from .signals import (
     SIGNAL_WORKING_PATCH,
     parse_background_patch_signal,
     parse_working_patch_signal,
+    parse_input_append_signal,
+    build_trace_phase_note_signal,
 )
 from .builtin.trace import (
     PendingInputs,
     SealedTurnTrace,
     TraceCompactionReport,
     TraceKind,
+    TraceFactKind,
     TurnTraceHeap,
 )
 from .builtin.working import WorkingContext, WorkingPatch
@@ -138,6 +143,14 @@ class ContextTurnCompletion:
             raise ContextContractError(
                 "ContextTurnCompletion trace must belong to the same Turn"
             )
+        root = f"turn:trace@{self.turn_id}"
+        refs = {
+            *(f"{root}#input/{item.input_id}" for item in inputs),
+            *(f"{root}#entry/{item.entry_id}" for item in self.trace.entries),
+            *(f"{root}#action/{index}" for index in range(len(self.trace.actions))),
+        }
+        if any(item.ref not in refs for item in self.trace.timeline):
+            raise ContextInvariantError("Turn timeline references an unknown fact")
 
 
 @dataclass(frozen=True)
@@ -320,6 +333,13 @@ class ContextEngine:
             inspect_max_chars=self._trace_inspect_max_chars,
         )
         self._inputs_segment = InputsSegment(user_input)
+        initial = self._inputs.all()[0]
+        self._trace.record_fact(
+            TraceFactKind.INPUT_INSTALLED, self._trace.input_ref(initial.input_id)
+        )
+        self._trace.record_fact(
+            TraceFactKind.INPUT_VISIBLE, self._trace.input_ref(initial.input_id)
+        )
         self._turn_registry = SegmentRegistry(
             (
                 *core_registrations(
@@ -334,14 +354,14 @@ class ContextEngine:
         )
         return self._turn_id
 
-    async def open_segments(self, business_day: date) -> None:
+    async def open_segments(self, active_day: date) -> None:
         """Open every owner view before the first model task."""
         self._require_turn()
-        if not isinstance(business_day, date):
+        if not isinstance(active_day, date):
             raise ContextContractError("Segment preparation requires a date")
         if self._segments is not None:
             return
-        views = self._turn_registry.for_turn(TurnInfo(self._turn_id, business_day))
+        views = self._turn_registry.for_turn(TurnInfo(self._turn_id, active_day))
         await views.open()
         try:
             views.selection_view()  # Reject overlapping dynamic catalogs before publishing views.
@@ -380,6 +400,10 @@ class ContextEngine:
             ),
             loaded_links=tuple(ref for ref in view.loaded if ref not in view.protected),
         )
+
+    def mark_model_consumed(self, messages: MessageStack) -> None:
+        self._require_turn()
+        self._trace.mark_consumed(messages.messages)
 
     def normalize_controls(
         self,
@@ -483,6 +507,14 @@ class ContextEngine:
                 results.append(_consume_failure(signal, call_id, sequence, problem))
             else:
                 segment_signals.append((sequence, signal))
+                segment_signals.append((
+                    sequence,
+                    build_trace_phase_note_signal(
+                        {"kind": "plan_changed", "patch": signal.payload["patch"]},
+                        scope=signal.scope,
+                        source="context.plan",
+                    ),
+                ))
         problems = check_background_patches(
             self._selection_view(),
             tuple(patch for _, _, _, patch in background_candidates),
@@ -499,15 +531,31 @@ class ContextEngine:
                 )
 
         if self._segments is not None:
-            prepared_segments = await self._segments.prepare(
-                tuple(
-                    signal
-                    for _, signal in sorted(segment_signals, key=lambda item: item[0])
-                )
+            ordered = tuple(
+                signal for _, signal in sorted(segment_signals, key=lambda item: item[0])
             )
+            entry_count = len(self._trace.entries())
+            prepared_segments = await self._segments.prepare(ordered)
             if self._turn_id != batch.turn_id:
                 raise ContextContractError("Segment preparation outlived its Turn")
             self._segments.install(prepared_segments)
+            entries = iter(self._trace.entries()[entry_count:])
+            for signal in ordered:
+                if signal.name == SIGNAL_INPUT_APPEND:
+                    update = parse_input_append_signal(signal)
+                    self._trace.record_fact(
+                        TraceFactKind.INPUT_INSTALLED,
+                        self._trace.input_ref(update.input_id),
+                        admission_sequence=update.admission_sequence,
+                    )
+                elif signal.name == SIGNAL_TRACE_APPEND:
+                    entry = next(entries)
+                    self._trace.record_fact(
+                        TraceFactKind.ENTRY,
+                        self._trace.entry_ref(entry.entry_id),
+                        cycle_id=entry.cycle_id,
+                        admission_sequence=entry.admission_sequence,
+                    )
 
         background_after = self.background_links()
         if background_after != background_before:
@@ -529,6 +577,10 @@ class ContextEngine:
         self._require_turn()
         unmerged = self._inputs.unmerged()
         self._inputs.mark_merged(tuple(item.input_id for item in unmerged))
+        for item in unmerged:
+            self._trace.record_fact(
+                TraceFactKind.INPUT_VISIBLE, self._trace.input_ref(item.input_id)
+            )
         return len(unmerged)
 
     def compress(self, *, required_chars: int = 1) -> TraceCompactionReport:
@@ -587,13 +639,19 @@ class ContextEngine:
             ),
         )
 
-    async def inspect(self, ref: str, *, continuation: str | None = None) -> JsonObject:
+    async def inspect(
+        self, ref: str, *, query: str | None = None, continuation: str | None = None,
+    ) -> JsonObject:
         self._require_turn()
         if self._segments is None:
             raise ContextContractError(
                 "Context segments must be opened before inspection"
             )
-        return await self._segments.inspect(ref, continuation=continuation)
+        if query is not None and (not isinstance(query, str) or not query.strip()):
+            raise ContextInspectRequestError(
+                ContextInspectFailureReason.INVALID_QUERY, "Query must be non-empty text"
+            )
+        return await self._segments.inspect(ref, query=query, continuation=continuation)
 
     def record_execution(self, fact: ExecutionFact) -> None:
         self._require_turn()

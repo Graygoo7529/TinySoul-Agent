@@ -31,7 +31,7 @@ class TurnCompletion:
     """Stable data passed to ordered post-Turn services such as Session."""
 
     context_completion: ContextTurnCompletion
-    business_day: CalendarDay
+    active_day: CalendarDay
     status: TurnOutcomeStatus
     output: TurnOutput | None = None
     exhausted: bool = False
@@ -40,8 +40,8 @@ class TurnCompletion:
     finish_failures: tuple[TurnFailure, ...] = ()
 
     def __post_init__(self) -> None:
-        if not isinstance(self.business_day, CalendarDay):
-            raise LoopContractError("TurnCompletion.business_day must be a CalendarDay")
+        if not isinstance(self.active_day, CalendarDay):
+            raise LoopContractError("TurnCompletion.active_day must be a CalendarDay")
         if not isinstance(self.exhausted, bool):
             raise LoopContractError("TurnCompletion.exhausted must be a boolean")
         if not isinstance(self.status, TurnOutcomeStatus):

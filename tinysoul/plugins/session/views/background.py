@@ -39,6 +39,7 @@ class SessionBackgroundSnapshot:
     revision: int
     items: tuple[SessionBackgroundItem, ...] = field(default_factory=tuple)
     refs: tuple[str, ...] = ()
+    max_chars: int = 24000
 
     def __post_init__(self) -> None:
         if (

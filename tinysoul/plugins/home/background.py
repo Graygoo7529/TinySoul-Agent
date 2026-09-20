@@ -48,7 +48,7 @@ class HomeBackgroundEntryProvider:
     home: HomeService
     runtime_bridge: RuntimeAgentHomeBridge = RuntimeAgentHomeBridge()
 
-    async def catalog(self, business_day: date) -> BackgroundCatalog:
+    async def catalog(self, active_day: date) -> BackgroundCatalog:
         try:
             links = await self.home.loadable_background_links()
             defaults = await self.home.default_background_links()
@@ -75,7 +75,7 @@ class HomeBackgroundEntryProvider:
             ),
         )
 
-    async def load(self, link: str, business_day: date) -> str:
+    async def load(self, link: str, active_day: date) -> str:
         return await HomeBackgroundContentLoader(
             home=self.home,
             link=link,
@@ -91,8 +91,8 @@ class ActualHomeBackgroundEntryProvider:
     home: HomeService
     runtime_bridge: RuntimeAgentHomeBridge = RuntimeAgentHomeBridge()
 
-    async def catalog(self, business_day: date) -> BackgroundCatalog:
-        del business_day
+    async def catalog(self, active_day: date) -> BackgroundCatalog:
+        del active_day
         try:
             links = await self.home.actual_top_links()
             defaults = await self.home.actual_default_background_links()
@@ -113,8 +113,8 @@ class ActualHomeBackgroundEntryProvider:
             ),
         )
 
-    async def load(self, link: str, business_day: date) -> str:
-        del business_day
+    async def load(self, link: str, active_day: date) -> str:
+        del active_day
         try:
             return await self.home.read_actual_top(link)
         except AgentHomeError as exc:

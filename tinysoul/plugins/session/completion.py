@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from tinysoul.kernel.action.call import ExecutionState
 from tinysoul.kernel.context import ContextTurnCompletion
+from tinysoul.kernel.context.builtin.trace import TraceKind
+from tinysoul.infra.json import JsonObject
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.loop.outcomes import TurnFailure, TurnOutcomeStatus
 
@@ -13,6 +15,7 @@ from .records.models import (
     SessionInputRecord,
     SessionOutputRecord,
     SessionTurnRecord,
+    SessionFact,
 )
 
 
@@ -61,6 +64,31 @@ def project_turn_record(
                 references=projection.origin_refs if projection is not None else (),
             )
         )
+    turn_ref = f"session:turn/{completion.turn_id}"
+    trace_root = f"turn:trace@{completion.turn_id}"
+    refs = {
+        f"{trace_root}#input/{item.input_id}": f"{turn_ref}#input/{index}"
+        for index, item in enumerate(completion.inputs)
+    }
+    refs.update({
+        f"{trace_root}#action/{index}": f"{turn_ref}#action/{index}"
+        for index in range(len(actions))
+    })
+    notes: list[JsonObject] = []
+    for entry in completion.trace.entries:
+        if entry.kind is TraceKind.ACTION_RESULT:
+            continue  # Action canonical results already have their own records.
+        value = entry.to_semantic()
+        value.pop("actions", None)  # Requests belong to typed Action records.
+        if value == {"kind": "decision"}:
+            continue
+        refs[f"{trace_root}#entry/{entry.entry_id}"] = f"{turn_ref}#note/{len(notes)}"
+        notes.append(value)
+    timeline = tuple(
+        SessionFact(item.kind, refs[item.ref], item.admission_sequence)
+        for item in completion.trace.timeline
+        if item.ref in refs
+    )
     return SessionTurnRecord(
         ref=f"session:turn/{completion.turn_id}",
         day=str(day),
@@ -82,4 +110,6 @@ def project_turn_record(
         failure=failure,
         finish_failures=finish_failures,
         actions=tuple(actions),
+        timeline=timeline,
+        notes=tuple(notes),
     )

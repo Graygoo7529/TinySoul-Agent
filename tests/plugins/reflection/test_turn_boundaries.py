@@ -51,7 +51,7 @@ async def test_outer_turn_transfer_is_unwound_without_downgrade() -> None:
     transfer = RuntimeTransfer.end(agent_frame)
     outcome = TurnOutcome(
         context_completion=None,
-        business_day=DAY,
+        active_day=DAY,
         status=TurnOutcomeStatus.STOPPED,
         transfer=transfer,
     )
@@ -60,7 +60,7 @@ async def test_outer_turn_transfer_is_unwound_without_downgrade() -> None:
     with pytest.raises(RuntimeTransferInterrupt) as captured:
         await entry.run(
             "review home",
-            business_day=DAY,
+            active_day=DAY,
             scope=scope,
             request_id="request",
             input_source="test",
@@ -109,7 +109,7 @@ async def test_reflection_engine_does_not_add_fake_module_frames(
             trigger=ReflectionTrigger.MANUAL,
         ),
         scope=scope,
-        business_day=DAY,
+        active_day=DAY,
     )
 
     assert archive.scopes == []
@@ -171,12 +171,12 @@ def test_archived_memory_context_retains_source_day_independently_of_turn_day(
 
 class _UserTurn:
     async def run(
-        self, turn_input, *, business_day, scope, request_id, input_source, inbox=None
+        self, turn_input, *, active_day, scope, request_id, input_source, inbox=None
     ):
         del turn_input, scope, request_id, input_source
         return TurnOutcome(
             context_completion=None,
-            business_day=business_day,
+            active_day=active_day,
             status=TurnOutcomeStatus.STOPPED,
         )
 
@@ -186,9 +186,9 @@ class _TurnRunner:
         self._outcome = outcome
 
     async def run(
-        self, turn_input, *, business_day, scope, request_id, input_source, inbox=None
+        self, turn_input, *, active_day, scope, request_id, input_source, inbox=None
     ):
-        del turn_input, business_day, scope, request_id, input_source
+        del turn_input, active_day, scope, request_id, input_source
         return self._outcome
 
 
@@ -214,7 +214,7 @@ class _FailingReflection:
     def refresh_availability(self, transition, *, scope):
         return self.availability()
 
-    async def run(self, request, *, business_day, scope=None, inbox=None):
+    async def run(self, request, *, active_day, scope=None, inbox=None):
         del request, scope
         raise ReflectionInvariantError("reflection invariant")
 
@@ -259,9 +259,9 @@ class _ScopeHome:
         return (0, 0)
 
     async def run(
-        self, *, business_day, scope, request_id, inbox=None, instructions=""
+        self, *, active_day, scope, request_id, inbox=None, instructions=""
     ):
-        del business_day, request_id
+        del active_day, request_id
         self.scopes.append(scope)
         return ReflectionTaskOutcome(
             kind=ReflectionTaskKind.HOME,

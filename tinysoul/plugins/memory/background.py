@@ -40,10 +40,10 @@ class ActiveMemoryBackgroundEntryProvider:
     memory: MemoryReadService
     runtime_bridge: RuntimeMemoryBridge = RuntimeMemoryBridge()
 
-    async def catalog(self, business_day: date) -> BackgroundCatalog:
+    async def catalog(self, active_day: date) -> BackgroundCatalog:
         try:
-            await self.memory.read_active(business_day)
-            latest = await self.memory.latest_daily_before(business_day)
+            await self.memory.read_active(active_day)
+            latest = await self.memory.latest_daily_before(active_day)
         except MemoryError as exc:
             raise self.runtime_bridge.from_memory_error(exc) from exc
         links = [MemoryBackgroundRef.CURRENT.value]
@@ -72,15 +72,15 @@ class ActiveMemoryBackgroundEntryProvider:
             items=tuple(items),
         )
 
-    async def load(self, link: str, business_day: date) -> str:
+    async def load(self, link: str, active_day: date) -> str:
         try:
             if link == MemoryBackgroundRef.CURRENT.value:
                 return _active_projection(
                     MemoryBackgroundRef.CURRENT,
-                    await self.memory.read_active(business_day),
+                    await self.memory.read_active(active_day),
                 )
             if link == MemoryBackgroundRef.LATEST.value:
-                latest = await self.memory.latest_daily_before(business_day)
+                latest = await self.memory.latest_daily_before(active_day)
                 if latest is None:
                     raise MemoryInvariantError("Prepared latest Memory disappeared")
                 return _latest_projection(latest)
@@ -101,8 +101,8 @@ class TargetMemoryBackgroundEntryProvider:
     binding: TargetMemoryBinding
     runtime_bridge: RuntimeMemoryBridge = RuntimeMemoryBridge()
 
-    async def catalog(self, business_day: date) -> BackgroundCatalog:
-        del business_day
+    async def catalog(self, active_day: date) -> BackgroundCatalog:
+        del active_day
         try:
             target_day, snapshot = self.binding.memory_target()
             if snapshot.day != target_day:
@@ -136,8 +136,8 @@ class TargetMemoryBackgroundEntryProvider:
             items=tuple(items),
         )
 
-    async def load(self, link: str, business_day: date) -> str:
-        del business_day
+    async def load(self, link: str, active_day: date) -> str:
+        del active_day
         try:
             target_day, snapshot = self.binding.memory_target()
             if link == MemoryBackgroundRef.TARGET.value:

@@ -40,11 +40,15 @@ async def test_context_inspect_continuation_is_visible_only() -> None:
     )
     await context.consume_signals(bus)
     context.compress()
-    nodes = (await context.inspect(f"turn:trace@{turn_id}"))["nodes"]
+    nodes = (await context.inspect(f"turn:trace@{turn_id}"))["items"]
     assert isinstance(nodes, list)
     root = nodes[0]
     assert isinstance(root, dict)
     ref = root["ref"]
+    assert isinstance(ref, str)
+    children = (await context.inspect(ref))["items"]
+    assert isinstance(children, list) and isinstance(children[0], dict)
+    ref = children[0]["ref"]
     assert isinstance(ref, str)
 
     action = builtin_catalog().get_action("core.context.inspect")

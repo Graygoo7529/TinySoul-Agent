@@ -117,7 +117,7 @@ class SessionEngine:
 
     def initialize_day(self, day: CalendarDay) -> None:
         with self._lock:
-            _require_business_day(day)
+            _require_active_day(day)
             if self._manifest is not None:
                 self._require_day(day)
                 self._last_reconcile_result = self._reconcile_current()
@@ -145,7 +145,7 @@ class SessionEngine:
         *,
         root: Path,
     ) -> SessionArchiveSnapshot:
-        _require_business_day(day)
+        _require_active_day(day)
         if not isinstance(root, Path) or not root.is_absolute():
             raise SessionContractError("Session archive root must be absolute")
         store = SessionStore(root=root)
@@ -169,7 +169,7 @@ class SessionEngine:
     def archive_available(self, day: CalendarDay, *, root: Path) -> bool:
         """Return false for an absent archive and validate one that exists."""
 
-        _require_business_day(day)
+        _require_active_day(day)
         if not isinstance(root, Path) or not root.is_absolute():
             raise SessionContractError("Session archive root must be absolute")
         manifest = root / "manifest.json"
@@ -219,7 +219,7 @@ class SessionEngine:
     def empty_view(self, day: CalendarDay) -> SessionView:
         """Represent an explicitly absent historical Session source."""
 
-        _require_business_day(day)
+        _require_active_day(day)
         return SessionView(
             SessionManifest(day=str(day), revision=0, refs=()),
             self._settings,
@@ -274,6 +274,7 @@ class SessionEngine:
         ref: str | None = None,
         *,
         action: str | None = None,
+        query: str | None = None,
         continuation: str | None = None,
         expected_revision: int | None = None,
     ) -> JsonObject:
@@ -282,6 +283,7 @@ class SessionEngine:
         return view.inspect(
             ref,
             action=action,
+            query=query,
             continuation=continuation,
             expected_revision=expected_revision,
         )
@@ -312,7 +314,7 @@ class SessionEngine:
         return self._manifest
 
     def _require_day(self, day: CalendarDay) -> SessionManifest:
-        _require_business_day(day)
+        _require_active_day(day)
         manifest = self._require_manifest()
         if manifest.day != str(day):
             raise SessionContractError(
@@ -321,6 +323,6 @@ class SessionEngine:
         return manifest
 
 
-def _require_business_day(day: CalendarDay) -> None:
+def _require_active_day(day: CalendarDay) -> None:
     if not isinstance(day, CalendarDay):
         raise SessionContractError("Session day must be a CalendarDay")

@@ -1,10 +1,10 @@
 # Agent 重构 Before 4 子计划：数据基础与渐进披露
 
-状态：`pending`（方案已确认，尚未实施）。
+状态：`done`（BF1–BF5 已逐项核对实现、文档与必要验证）。
 日期：2026-09-20。
-主计划：[Agent 架构重构](20260915-agent-architecture-refactor-plan.md)。
-方案依据：[前三轮 Review 与 R4 前基础补强方案](../chat/20260920-r1-r3-review-and-pre-r4-foundation-plan-latest.md)。
-代码基线：`be61886`，含 R3 收口。本计划不重新打开 R1、R2、R3 已完成的内核、SDK、owner 和失败协议迁移。
+主计划：[Agent 架构重构](../20260915-agent-architecture-refactor-plan.md)。
+方案依据：[前三轮 Review 与 R4 前基础补强方案](../../chat/20260920-r1-r3-review-and-pre-r4-foundation-plan-latest.md)。
+代码审查基线：`be61886`，含 R3 收口；实施起点：`cacb098`（已提交最新计划）。本计划不重新打开 R1、R2、R3 已完成的内核、SDK、owner 和失败协议迁移。
 
 ## 1. 目标与已确认边界
 
@@ -18,14 +18,14 @@
 - Organize 是同一 Agent 的 `core.session.organize` Action，动作内部不再启动隐藏 LLM；模型在正常 Turn 中推理，Session owner 只负责校验和原子应用修改。
 - Trace 与 Session 共享渐进披露构件，但保持各自事实 owner、顺序语义、分组规则和消息映射；不建立持久上下文数据库或平行历史库。
 
-## 2. 当前 Review 发现的分级问题
+## 2. 实施前 Review 发现的分级问题
 
 | 编号 | 判断 | 处理 |
 |---|---|---|
-| BF1 | `SealedTurnTrace` 有 entries/actions，但 Session 主要投影 inputs/actions/最终 State，缺少统一交错事实顺序 | Before 4 实施 |
-| BF2 | 当日 Map/inspect 尚未消费稳定事实和逐层披露构件 | Before 4 实施 |
-| BF3 | BusinessClock/IanaBusinessClock/business_day、组合根与插件声明的旧表述仍可误导后续实现 | Before 4 成套清理 |
-| BF4 | Linux 类型检查和本地 Web discovery 仍有环境耦合 | Before 4 修正测试/平台边界 |
+| BF1 | `SealedTurnTrace` 有 entries/actions，但 Session 主要投影 inputs/actions/最终 State，缺少统一交错事实顺序 | `done`：类型化时间线与 Session v10，见 §9 |
+| BF2 | 当日 Map/inspect 尚未消费稳定事实和逐层披露构件 | `done`：统一披露、导航、保护与 query，见 §9 |
+| BF3 | BusinessClock/IanaBusinessClock/business_day、组合根与插件声明的旧表述仍可误导后续实现 | `done`：名称与 owner 边界成套对齐 |
+| BF4 | Linux 类型检查和本地 Web discovery 仍有环境耦合 | `done`：平台条件和测试注入，平台验证范围见 §9 |
 | F8 | fswatch 与 owner 事件适配尚未实现 | 保留给 R4，不伪报缺陷关闭 |
 | F9 | Organize 运行 Action、注释持久化和运行中 Map 刷新尚未实现 | 保留主计划尾期 |
 | F10 | Gateway v2、ACP/MCP 完整适配尚未实现 | 按 S5/S6 推进 |
@@ -66,21 +66,21 @@ Stack 表达交互顺序，Map 表达事实/话题关系，State 表达现态；
 
 Trace 的旧区间按 Cycle/行动组逐层展开；Session 按当日概览、确定性 Turn 分组、事件/行动和事实详情逐层展开；Home/Memory 保留 owner 自己的目录和渐进读取。一个事实可以被多个节点引用，不复制正文；没有 Organize 时不预先生成未经模型判断的话题和意图。
 
-建议复用已有 JSON/分页边界，形成小型 typed 描述：
+复用已有 JSON/分页边界，形成小型 typed 描述：
 
 ```python
 DisclosureHint(ref, title, clue)
 DisclosurePage(
     ref,
+    kind,
     content,
     children,
     related,
     sources,
-    continuation,
 )
 ```
 
-实际字段随代码落定。公共层只负责节点/线索、分页、ref 路由、容量和无进展判断；owner 负责事实、合法分组、线索、保护项、来源和读取内容。render 纯读；压力下的纯内存折叠不调用隐藏 LLM，也不持久改写事实。
+DisclosurePage 在 render 时接收 continuation 和 owner 容量；有序 items 交付详情、child 线索、关系或来源。公共层复用节点/线索与分页，ref 路由和无进展处理仍在既有 Context 层；owner 负责事实、合法分组、线索、保护项、来源和读取内容。render 纯读；压力下的纯内存折叠不调用隐藏 LLM，也不持久改写事实。
 
 ### 4.2 渐进披露约束
 
@@ -92,7 +92,7 @@ DisclosurePage(
 
 ### 4.3 `core.context.inspect`
 
-统一使用同一 Action 进行导航、详情读取和范围内定位。当前实现只有 ref/continuation；query 和 QUERY 能力属于本计划待实施方案。
+统一使用同一 Action 进行导航、详情读取和范围内定位。query 和 QUERY 能力已由 Trace、Session 两个真实 owner 消费；现有 inspector 的 ref/query/continuation 类型化参数沿用原入口，不另加只作转发的请求包装。
 
 ```python
 core.context.inspect(
@@ -145,7 +145,7 @@ Before 4 的代表路径：fake provider SDK 提问 → Action → 追加输入 
 验收还必须证明：
 
 - typed 完成事实不依赖 Observation 成功，必要写失败不宣称成功。
-- inspect → 下一 Cycle 新 Map → 下一 Turn 继续追溯，不启动额外 LLM。
+- inspect 结果进入下一 Cycle 决策模型 → 同日下一 Turn 继续追溯，不启动额外 LLM；只读 inspect 不刷新本轮固定 Map 来源，Organize 引起的 Map 刷新保留尾期。
 - 同一事实的 ref、顺序、关联在折叠、分页、重开和日切归档后保持可解释。
 - 更新受影响 `docs/design`、协议说明和主计划；Organize Action/注释写存储仍保持尾期未实施。
 - 只在代码、文档、必要验证全部通过后将本文件移动为 `docs/analysis/done/` 并更新主计划；不改写前三轮历史验收数字。
@@ -157,3 +157,35 @@ R4 前补强只交付事实顺序、当日导航/渐进披露、命名和可复�
 R4/S4 承接“外部文件变化 → owner reconcile → Segment 批次更新 → 后续模型看到”，复用现有 SDK、Inbox、prepare/install、等待和资源关闭。S5 实施 Gateway v2，S6 锁定 ACP/MCP adapter。主计划尾期实现 `core.session.organize`、语义节点/边和 map.json 的持久注释；S7 完成全仓一致性收口。
 
 本子计划已纳入用户确认的当日 Session 范围和受信独立主机假设，当前没有额外待确认产品语义；具体类型、字段、容量和外部协议方法必须在实施中以真实消费者和测试落定。
+
+## 9. 实施核对与验收（2026-09-20）
+
+### 9.1 条目、实现与验证
+
+| 条目 | 状态 | 实现与验收依据 |
+|---|---|---|
+| BF1 | `done` | `kernel/context/builtin/trace.py` 的 TraceFact 与 Input/Action/entry 稳定引用；`engine.py` 在批次安装后按原信号顺序记录，Action 开始/结算按真实回调记录；Inbox 保留输入原始接收时间及受理序号。`plugins/session/completion.py` 投影到同一 v10 TurnRecord，正文不在时间线重复保存。`tests/plugins/session/test_completion.py` 验证反序完成、输入可见位置、事件、取消/未知/未执行及重开；SDK 取消测试验证已接受输入仍进入完成事实。 |
+| BF2.1 | `done` | `plugins/session/views/inspection.py` 提供 map → Turn group → Turn → input/action/note/timeline/working/resource 导航；`navigation.py` 只投影明确关系，分组之间保留 Turn 顺序边。既有 ask/reply、损坏记录、旧日归档与新日隔离测试通过。 |
+| BF2.2 | `done` | `kernel/context/disclosure.py` 的 DisclosureHint/Page 由 Trace 与 Session 共用，分页沿用 infra continuation；根、分支、关系和长详情均有界。`tests/kernel/context/test_disclosure.py` 从根逐层遍历，不依赖 query，验证压缩前后事实 ref 不变和变化视图拒绝旧分页 token。 |
+| BF2.3 | `done` | 可见 overlay 的保护属于现有 Trace 生命周期；Phase1/Phase2 在真实模型请求返回后解除对应保护，compose、Action 内部模型任务与容量拒绝均不解除。Phase 测试覆盖容量拒绝；SDK 验证取回证据实际出现在下一次 Phase1 输入。Session 仅自身超过 80% 水位时缩到 50% 或最低入口，来源集合与旧 ref 不变；owner 测试覆盖无回收资格、高水位回收及重复请求无进展。 |
+| BF2.4 | `done` | `core.context.inspect` catalog、Context 路由和两个 inspector 使用同一 query 参数；QUERY 由 owner 显式声明，未声明者反馈局部不支持。搜索原始语义内容并给出有界摘录/精确 ref；范围涵盖根、组、Turn、行动集合、时间线和事实。分页绑定 ref/query/读取视图；测试覆盖作用域、分页、命中后精读、压缩后定位与时间线不越界查询最终输出。 |
+| BF3 | `done` | `infra/clock.py`、AgentBuilder、日切、scheduler、Turn 与 Reflection 消费者统一 CalendarClock/IanaCalendarClock、calendar_clock、active_day，无旧别名。Session recorder 保留唯一完成管线；`docs/design/agent.md` 区分段显示顺序、服务依赖与资源生命周期，`execution.md` 明确受信宿主和正式业务 API 的职责。 |
+| BF4 | `done` | Terminal 的 Windows 方法有平台条件；Discovery 注入 resolver，fake 服务测试独立于宿主代理。生产 DNS 校验和代理策略不变。Windows 全量本地门禁及 Windows/Linux 目标类型检查通过，本轮不声称 Linux 实机运行。 |
+| BF5 | `done` | `tests/agent/test_sdk.py::test_sdk_completed_facts_are_inspectable_until_daily_archive` 验证等待、环境事件/追加输入、完成、同日下一轮 inspect、后续模型实际消费及日切归档。复用现有必要 finish 失败、Session 提交失败、观察旁路、ask/reply 与跨午夜进程收尾测试；主计划、AGENTS、设计及 endpoint 协议同步。 |
+
+### 9.2 门禁与环境
+
+- 环境：Windows，Conda `TinySoul` 的 Python。激活命令受用户配置目录读取限制，改用同一环境解释器，并通过 `TINYSOUL_PYTHON` 交给标准脚本；没有切换到另一套运行依赖。
+- 聚焦：Context/Session/Loop、SDK、Web discovery、Terminal、CLI fake provider 等受影响路径通过；最终补充的查询范围、分组顺序和取消前输入测试通过。
+- Fast：1080 passed、28 deselected；这是补齐最后两项 SDK/容量回归前的阶段检查，最终集合以 Full 为准。
+- 最终 `scripts/test.ps1 -Suite Full`：1087 passed、23 deselected、1 warning。包含 generation 与 wheel 隔离安装/worker 验收，未另行重复 Generation suite。warning 为现有 Starlette/httpx 测试客户端弃用提示。
+- `scripts/typecheck.ps1` 通过；同一环境额外执行 `ty check --python-platform linux` 通过。无全局忽略或新平台 skip；Windows 真实进程、后代与 SDK 跨午夜验证由 Full 覆盖，Linux 真实运行沿用历史记录，本轮未执行。
+- `git diff --check` 通过。真实 provider/network、ACP/MCP 外部验证未运行，不以本地 fake 结果替代。
+
+### 9.3 公开变化与部署边界
+
+- Session TurnRecord v9 → v10，增加必要 notes 和有序事实引用；manifest 仍为 v3。旧记录在 owner 边界明确拒绝，不提供隐式迁移或 reset，本轮没有操作实际部署数据。
+- SDK 时钟注入改为 `with_calendar_clock`；Turn/Reflection 结果与 Observation 的执行日统一 `active_day`，保留 `source_day/target_day` 的独立含义。`docs/endpoint/reflection.md` 已同步，调用者需采用新名称。
+- inspect 结果统一为有界 items（详情、child、关系、来源）及 opaque continuation；query 为可选范围文本定位，不承诺语义检索。此前页格式不保留兼容路径。
+- AGENTS 过渡条款已同步；`docs/design/context.md`、`session.md`、`agent.md`、`infra.md`、`execution.md`、`reflection.md`、`capabilities/web.md` 描述当前实现，不将目标能力写成已实现。
+- 主计划 S1/S2 仍为 done，S3 数据基础已补齐但 Organize Action/持久注释层未完成；S4–S7 不扩大勾选。下一轮按独立方案推进环境事件与 owner 刷新，本轮未提前新增 fswatch、隐藏 LLM、平行完成管线或第二份历史库。

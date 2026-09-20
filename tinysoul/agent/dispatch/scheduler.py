@@ -60,7 +60,7 @@ class UserTurnExecutor(Protocol):
         self,
         turn_input: str,
         *,
-        business_day: CalendarDay,
+        active_day: CalendarDay,
         scope: RunScope,
         request_id: str,
         input_source: str,
@@ -81,7 +81,7 @@ class ReflectionService(Protocol):
         self,
         request: ReflectionRequest,
         *,
-        business_day: CalendarDay,
+        active_day: CalendarDay,
         scope: RunScope | None = None,
         inbox: TurnInbox | None = None,
     ) -> ReflectionOutcome: ...
@@ -522,7 +522,7 @@ class RootScheduler(Generic[AgentGenerationT]):
                 if handle is not None:
                     return await generation.user_turn.run(
                         request.text,
-                        business_day=leased_day,
+                        active_day=leased_day,
                         scope=self._scope,
                         request_id=request.request_id,
                         input_source=request.source,
@@ -530,7 +530,7 @@ class RootScheduler(Generic[AgentGenerationT]):
                     )
                 return await generation.user_turn.run(
                     request.text,
-                    business_day=leased_day,
+                    active_day=leased_day,
                     scope=self._scope,
                     request_id=request.request_id,
                     input_source=request.source,
@@ -547,7 +547,7 @@ class RootScheduler(Generic[AgentGenerationT]):
                     raise AgentSDKError("Active day changed before Reflection")
                 return await generation.reflection.run(
                     request,
-                    business_day=day,
+                    active_day=day,
                     scope=self._scope,
                     inbox=handle.inbox if handle is not None else None,
                 )

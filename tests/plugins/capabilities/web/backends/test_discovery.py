@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import socket
 from pathlib import Path
 from time import monotonic
 from typing import cast
@@ -39,6 +40,10 @@ from tinysoul.infra import JsonValue, StagingDirectoryManager, dumps_json
 from tinysoul.runtime import RunScope, SignalBus
 from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
+
+
+def _public_resolver(*args: object, **kwargs: object) -> object:
+    return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
 
 
 def test_discovery_config_and_dependency_are_independent() -> None:
@@ -110,11 +115,13 @@ async def test_crawlee_discovery_returns_direct_candidates_and_recursive_metadat
             _discovery_request(depth=0),
             page_fetcher=fetch_page,
             robots_fetcher=fetch_robots,
+            resolver=_public_resolver,
         )
         recursive = await discover_pages(
             _discovery_request(depth=1),
             page_fetcher=fetch_page,
             robots_fetcher=fetch_robots,
+            resolver=_public_resolver,
         )
         return direct, recursive
 
@@ -208,6 +215,7 @@ def test_discovery_page_budget_is_hard_and_any_followable_reference_can_visit() 
             request,
             page_fetcher=fetch_page,
             robots_fetcher=fetch_robots,
+            resolver=_public_resolver,
         )
     )
 

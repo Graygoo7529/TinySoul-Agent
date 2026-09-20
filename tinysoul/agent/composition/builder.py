@@ -61,7 +61,7 @@ from tinysoul.kernel.loop.phases import LLMRunner
 from tinysoul.kernel.loop.prompts import DomainSkillProvider
 from tinysoul.agent.user import UserTurnBuilder
 from .actions import CommonActionAssembly
-from tinysoul.infra.clock import BusinessClock
+from tinysoul.infra.clock import CalendarClock
 from tinysoul.plugins.reflection import (
     ReflectionBuilder,
     ReflectionEngine,
@@ -108,7 +108,7 @@ from .assembly import AgentAssembly
 from ..lifecycle.generation import AgentConfigPlan, AgentRuntimeGeneration
 from ..lifecycle.day import AgentDayCoordinator
 from tinysoul.plugins.archive import DailyLifecycleCoordinator
-from tinysoul.infra.clock import IanaBusinessClock
+from tinysoul.infra.clock import IanaCalendarClock
 from ..lifecycle.runtime_policy import build_agent_trap
 from tinysoul.environment.sources.scheduler import ReflectionScheduler
 
@@ -125,7 +125,7 @@ class AgentBuilder:
         self._llm: LLMRunner | None = None
         self._session: SessionEngine | None = None
         self._memory: MemoryEngine | None = None
-        self._business_clock: BusinessClock | None = None
+        self._calendar_clock: CalendarClock | None = None
         self._bus: SignalBus | None = None
         self._user_domain_skills: DomainSkillProvider | None = None
         self._input_parser: InputCommandParser | None = None
@@ -167,11 +167,11 @@ class AgentBuilder:
         self._memory = memory
         return self
 
-    def with_business_clock(
+    def with_calendar_clock(
         self,
-        clock: BusinessClock,
+        clock: CalendarClock,
     ) -> "AgentBuilder":
-        self._business_clock = clock
+        self._calendar_clock = clock
         return self
 
     def with_signal_bus(self, bus: SignalBus) -> "AgentBuilder":
@@ -546,7 +546,7 @@ class AgentBuilder:
             day = AgentDayCoordinator(
                 archive,
                 memory,
-                self._business_clock or IanaBusinessClock(reflection_settings.timezone),
+                self._calendar_clock or IanaCalendarClock(reflection_settings.timezone),
                 active_day=session.active_day,
             )
             reflection = ReflectionBuilder(

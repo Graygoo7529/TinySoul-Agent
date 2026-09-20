@@ -7,8 +7,8 @@ from threading import Event, RLock, Thread, current_thread
 from typing import Protocol
 from ..errors import EnvironmentError
 
-from tinysoul.infra.clock import BusinessClock
-from tinysoul.infra.clock import IanaBusinessClock
+from tinysoul.infra.clock import CalendarClock
+from tinysoul.infra.clock import IanaCalendarClock
 from tinysoul.plugins.reflection import (
     ReflectionSchedule,
     ReflectionScheduleSettings,
@@ -33,14 +33,14 @@ class ReflectionScheduler:
         self,
         settings: ReflectionScheduleSettings,
         *,
-        clock: BusinessClock | None = None,
+        clock: CalendarClock | None = None,
         timezone: str = "Asia/Shanghai",
         settings_provider: (
             Callable[[], tuple[ReflectionScheduleSettings, str]] | None
         ) = None,
     ) -> None:
         self._settings = settings
-        self._clock = clock or IanaBusinessClock(timezone)
+        self._clock = clock or IanaCalendarClock(timezone)
         self._stop_event = Event()
         self._refresh_event = Event()
         self._thread: Thread | None = None
@@ -100,7 +100,7 @@ class ReflectionScheduler:
         clock = (
             self._clock
             if self._settings_provider is None
-            else IanaBusinessClock(timezone)
+            else IanaCalendarClock(timezone)
         )
         schedule = ReflectionSchedule(settings, now=clock.now())
         pending: tuple[ReflectionRequest, ...] = ()
@@ -112,7 +112,7 @@ class ReflectionScheduler:
                 clock = (
                     self._clock
                     if self._settings_provider is None
-                    else IanaBusinessClock(timezone)
+                    else IanaCalendarClock(timezone)
                 )
                 schedule = ReflectionSchedule(settings, now=clock.now())
             now = clock.now()

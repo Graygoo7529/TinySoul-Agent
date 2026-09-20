@@ -23,7 +23,7 @@ class TurnPreparationHandler(Protocol):
 class TurnPreparationRequest:
     turn_id: str
     turn_input: str
-    business_day: CalendarDay
+    active_day: CalendarDay
     scope: RunScope
 
     def __post_init__(self) -> None:
@@ -31,9 +31,9 @@ class TurnPreparationRequest:
             raise LoopContractError(
                 "TurnPreparationRequest requires turn_id and turn_input"
             )
-        if not isinstance(self.business_day, CalendarDay):
+        if not isinstance(self.active_day, CalendarDay):
             raise LoopContractError(
-                "TurnPreparationRequest.business_day must be a CalendarDay"
+                "TurnPreparationRequest.active_day must be a CalendarDay"
             )
 
 

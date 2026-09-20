@@ -1,11 +1,11 @@
 # Agent 架构重构：设计语义、契约与执行计划
 
-状态：`in_progress`（R1、R2 收口、R3 及其收口均已完成并归档。S1、S2 为 done；S3 的本轮领域重构已完成，Organize 数据基础列为 R4 前补强，模型整理动作安排主计划尾期；S4–S7 未整体完成，保持原定范围）。
+状态：`in_progress`（R1、R2 收口、R3 及其收口、Before 4 均已完成并归档。S1、S2 为 done；S3 的领域重构及 Organize 事实/导航数据基础已完成，模型整理动作与注释层安排主计划尾期；S4–S7 未整体完成，保持原定范围）。
 修订日期：2026-09-20。历史初始复审代码：`e930c9c444deb0073ab3d7f016057245bad66ca6`；R2 分析基线为本地 `6821983`。2026-09-19 重新克隆远端，复审基线为 `be61886`（R3 收口之后）。历史验证与本次复审证据分别记录，不互相替代。
 
-配套文档：[前三轮 Review 与 R4 前基础补强方案](../chat/20260920-r1-r3-review-and-pre-r4-foundation-plan-latest.md)；当前子计划为 [Before 4：数据基础与渐进披露](20260920-Agent重构Before4子计划-数据基础与渐进披露.md)。2026-09-20 用户已确认持续整理多历史 Turn/已有地图的方向，以及受信独立主机的执行假设；本次进一步细化数据与接口方案，未执行代码补强。两份文档分别负责整体目标和 R4 前可实施切片，不将待实施内容标为完成。
+配套讨论来源：[前三轮 Review 与 R4 前基础补强方案](../chat/20260920-r1-r3-review-and-pre-r4-foundation-plan-latest.md)；[Before 4：数据基础与渐进披露](done/20260920-done-Agent重构Before4子计划-数据基础与渐进披露.md) 已于 2026-09-20 实施完成。用户确认的多历史 Turn/已有地图整理方向与受信独立主机假设保持不变；事实/导航基础先交付，Organize 写能力仍属尾期。讨论来源保留当时状态，实现证据以已归档子计划及本计划 §13 为准。
 
-本文件描述目标设计，不代表全部已实现。初始复审仅授权分析、修订计划与讨论；后续 R1/R2/R3 已获明确实施授权，实际完成范围见第 13 节。确认状态见第 14 节。用户已确认架构方向，特别是受限 SUSPEND 与 Inbox 保障边界，并补充 Reflection 通用动作叠加、ACP 显式连接及 Working 呈现；未实施的具体签名与连接寿命仍标明建议。原“正文 + 替换预览”合并为单一方案，旧版由 Git 保存，不并行保留互相冲突的接口。API 为契约草图，具体名称与类型在子计划落定。
+本文件描述目标设计，不代表全部已实现。初始复审仅授权分析、修订计划与讨论；后续 R1/R2/R3 与 Before 4 已获明确实施授权，实际完成范围见第 13 节。确认状态见第 14 节。用户已确认架构方向，特别是受限 SUSPEND 与 Inbox 保障边界，并补充 Reflection 通用动作叠加、ACP 显式连接及 Working 呈现；未实施的具体签名与连接寿命仍标明建议。原“正文 + 替换预览”合并为单一方案，旧版由 Git 保存，不并行保留互相冲突的接口。API 为契约草图，具体名称与类型在子计划落定。
 
 ## 1. 项目理解与重构意图
 
@@ -394,7 +394,7 @@ Connections 示例：open 读取连接服务现态；连接变化在边界刷新
 
 默认 State 收缩 → Heap 逐出 → Stack 折叠 → Map 有限折叠。保护 identity/inputs 必需语义、待处理问题、活 Job、关键 milestone；每段声明最低可用投影。
 
-session 仅自身超水位时有限折叠旧已整理节点；其它段过大不优先牺牲历史。完整图无限增长不能保证永久整图入模：推荐完整持久图 + 稳定 thread 聚合节点和有界详情（Q4）。仍超容量则明确失败，不静默截断问答事实。
+session 仅自身超水位时有限折叠旧节点或事实摘录；其它段过大不优先牺牲历史。完整图无限增长不能保证永久整图入模：推荐完整持久图 + 稳定 thread 聚合节点和有界详情（Q4）。仍超容量则明确失败，不静默截断问答事实。
 
 容量结合当前模型估计，字符数只是近似，不当硬 token 保证。无回收进展即结束恢复，不无限 RETRY。LLM 声明容量失败，Context handler 回收并重建当前任务消息，已执行 Action 不重放。
 
@@ -404,7 +404,7 @@ core.context.inspect(ref, continuation=...) 统一追溯；load/evict 仅有 Hea
 
 默认追溯路径是按线索逐层 inspect：根线索 → 子节点 → 更细引用 → 事实。query 是缺少明确方向时的辅助定位，不能替代可用的披露结构；已有 ref 导航不依赖检索索引。检索/导航与详情读取是不同语义，但不必是不同模型动作。统一使用 `core.context.inspect` 重新获取 turn-trace 和当日 session-map 内容；Background 的持续加载仍由 load/evict 管理。inspect 是只读观察入口，不执行 Organize，也不自动把旧帧恢复为热区或永久展开 Background。
 
-当前代码只有按 ref 查看及 continuation 分页；下列 query 和结果约定为本轮进一步设计，尚未实现。
+Before 4 已落实按 ref 导航、详情分页及范围 query；Trace 和 Session 共用披露页与线索，保留各自事实 owner。Organize 注释写入仍按 §8 在尾期实施。
 
 ```python
 core.context.inspect(
@@ -421,7 +421,7 @@ core.context.inspect(
 
 每个可压缩段必须始终给出稳定的根入口和有信息量的顶层线索；inspect 每层返回 §7.2.2 所述内容与下级/关联引用，并在段描述中说明是否支持 query；不能把所有线索删掉后要求模型猜 ref。需要同时查 Trace 和 Session 时对两个根分别调用同一动作，不建立混合排名、跨 owner 搜索服务。
 
-**内部依赖与能力：**沿用 Action → ContextEngine → 注册 ref 路由 → owner inspector。动态参数在入口转为 typed InspectRequest，公共框架只检查形状/分页/能力，不解析 Session 图或 Trace 内容。INSPECT 表示导航/详情，增加有实际消费者的可选 QUERY 能力（Trace、Session）；同一 inspector 接收请求，不建设另一套 tool runner。不支持 query 的 owner 返回明确局部不支持结果，而非忽略参数或强制实现空搜索方法。Home/Memory SELECT/RECLAIM 无需因此改为 INSPECT；workspace_archive 等现有只读 inspector 仍按原能力工作。
+**内部依赖与能力：**沿用 Action → ContextEngine → 注册 ref 路由 → owner inspector。动态参数在入口校验为明确类型的 ref/query/continuation，沿同一类型化 inspector 协议传递；公共框架只检查形状/分页/能力，不解析 Session 图或 Trace 内容。INSPECT 表示导航/详情，QUERY 是有实际消费者的可选能力（Trace、Session）；不建设另一套 tool runner 或只有转发用途的请求包装。不支持 query 的 owner 返回明确局部不支持结果，而非忽略参数或强制实现空搜索方法。Home/Memory SELECT/RECLAIM 无需因此改为 INSPECT；workspace_archive 等现有只读 inspector 仍按原能力工作。
 
 **Trace 的定位：**压缩树继续负责有序分组，事实保存在规范交互/typed Action/Event 数据中。query 应搜索原始可追溯语义内容，而不是只查压缩节点标题；命中给出对应帧/事实 ref，按事实顺序呈现。若旧 Trace 叶子包含多个交互，复用 BF1 的稳定身份提供定位，避免模型只能反复读整个分组。inspect 自身的查询请求和大篇重复返回默认不作为递归命中的主体；原始被引用事实仍可查。
 
@@ -738,6 +738,8 @@ WS 断开不取消 Turn；问题可由状态查询恢复，Observation gap 不�
 
 [R3 收口子计划](done/20260919-done-Agent重构R3收口子计划.md) 于 2026-09-19 完成。关闭 `160781e` 复审发现的进程后代逃逸、Workspace 迁移元数据丢失、路径大小写别名及嵌套提交事实遗漏；复用既有 Process/Job 与 Workspace owner，没有新增模型协议或 CAS。Full 1081 passed、23 deselected，typecheck 通过；真实进程验证在 Windows 完成，POSIX 另做目标类型检查，未宣称 Linux 实机验证。原 S3 延后项与 S4–S7 范围不变。
 
+[Before 4 子计划](done/20260920-done-Agent重构Before4子计划-数据基础与渐进披露.md) 于 2026-09-20 完成（`done`）。BF1–BF5 已核对：Trace 类型化时间线、Session v10 唯一事实与当日分层导航、共用披露/分页/query、inspect 可见结果消费保护、Session 自身水位回收、CalendarClock/active_day 及可复现本地测试边界。Windows Full 1087 passed、23 deselected，含 generation/wheel；Windows 与 Linux 目标 typecheck 通过。本轮未执行 Linux 实机或真实 provider/network，旧部署数据未迁移/reset。Organize Action/注释层、fswatch、Gateway v2 和 ACP/MCP 未提前实现。
+
 S1、S2 已完成；S3–S7 尚未整体完成。历史 S0 定稿不代表后续协议细化关闭。子计划只有实现/文档/必要验证全部通过才 done 并归档；docs/design 只写已落地部分。
 
 2026-09-20 推进修订：S4 的 ask/reply、统一等待、有界 Inbox、reload/restart 已由 R2 及收口实现，后续应验收其环境协作闭环，不能再造一套机制。R4 前先按配套 Review 补齐现有事实记录/导航、平台门禁和命名一致性；R4 再补“插件声明 → 环境事件 → owner 刷新 → Context 批次”的真实切片，继续 Gateway v2 与 ACP/MCP，尾期接入模型 Organize。用户已确认：Organize 所需事实/导航数据先补强，模型整理 Action 在主计划尾期、最终 S7 验收前实施，不作为 R4 环境接入前置；原 S 编号保留作为验收范围，不强迫每个范围严格串行。具体切片与验证证据见配套 Review。
@@ -747,7 +749,7 @@ S1、S2 已完成；S3–S7 尚未整体完成。历史 S0 定稿不代表后续
 | S0 | 已记录架构/SUSPEND/Inbox 确认；同步 AGENTS，细化动作组合与连接契约 | 无冲突目标、待决有状态 |
 | S1 `done` | bridge 归 owner、失败协议、LLM 容量恢复、import/重放检查；async LLM、事件/取消原语 | R1/R2 的 Fast/Full/typecheck 与依赖审计通过 |
 | S2 `done` | 新内核/SDK/CLI/段/Job/等待；同步迁移所有旧内核消费者至新公共入口、插件接入与打包 | R2 收口 Full 1091 passed、2 skipped、23 deselected，typecheck 通过；生命周期、等待、服务权限与终态/保留缺口关闭，含导入边界、生成与 wheel 验收 |
-| S3 `in_progress` | R3 与收口已完成 Session 事实 Map、Workspace 去 CAS、精简 Reflection、execution 合并及能力组织；Organize 数据支持先补、动作与注释层按 §8 尾期实施 | R3 收口 Full/typecheck、owner 正反路径与含后代的真实进程跨午夜通过；延后项未伪报完成 |
+| S3 `in_progress` | R3 与收口已完成领域重构；Before 4 已补齐事实顺序、当日导航、渐进披露与 query；Organize 动作与注释层按 §8 尾期实施 | R3 收口及 Before 4 Full/typecheck、事实重开/归档、真实进程跨午夜与 SDK 取回消费闭环通过；延后项未伪报完成 |
 | S4 | 补 fswatch、插件事件订阅/触发及生命周期声明；复用已实现的 scheduler、ask/reply、容量、reload/restart、Job 监督 | 暂停期间外部文件变化经 owner 刷新段；去重/背压/收尾/午夜闭环；不重写已有等待机制 |
 | S5 | Gateway v2、项目命令、HTTP/WS/replay、协议文档 | SDK 映射、重连、wheel/init |
 | S6 | 锁 ACP/MCP adapter/协议/SDK，connect/delegate、连接段；内部子调用留后续 | 建连→多次委派→收尾，fake 故障矩阵，真实 smoke 单独声明 |
@@ -879,17 +881,25 @@ D31/D32 确认用户提出的语义；具体动作签名与统一完成动作映
 ### 14.6 inspect 统一取回入口的设计深化
 
 - 在同一 core.context.inspect 中以 ref 导航/读取，以可选 query 在 ref 范围内定位证据；保持同一 ref 路由、执行与分页管线。
-- 当前实现仍只有 ref/continuation；query、QUERY 能力和更细事实定位为待实施方案，见 §7.7。
+- 本次设计复审时只有 ref/continuation；query、QUERY 能力和更细事实定位当时为待实施方案，后由 Before 4 落实，见 §7.7/§14.9。
 - Background load/evict 与 Session organize 保持各自状态修改职责，inspect 结果经 Trace 重新对模型可见。
 
 ### 14.7 渐进披露与压缩统一
 
 - 用户确认的方向：Stack/Map 等可通过压缩折叠呈现堆式线索和逐层 ref，inspect 使内容重新进入模型视野。
 - §7.2 补充内容形状与访问方式分离、公共披露页/线索、可见层级折叠与 owner 分工；§7.7 以逐层 ref 导航为主，query 为辅助。
-- R4 前 BF2 由 Trace 与当日 Session 两个真实消费者提取复用构件，事实图/调用顺序不改变；具体协议仍属待实施设计。
+- R4 前 BF2 由 Trace 与当日 Session 两个真实消费者提取复用构件，事实图/调用顺序不改变；具体协议在该次设计复审时尚未实施，后由 Before 4 落实。
 
 ### 14.8 两份计划的整体一致性复查
 
 结论：既有分层、失败归属、单根执行和段协议可继续复用；渐进披露已同时落实为公共契约、owner 实现范围和 BF2/主计划验收，不只是理念描述。代码仍以 be61886 为审查基线，文档补强不等于实现完成。
 
 本次收敛：修正已实施目录/Clock owner 的旧草图及 home.diff 参数；补披露 ref 稳定、全层分页、inspect 可见保护、Session 回收资格与事实唯一来源；BF2 分成事实导航/共用披露/inspect 取回/query 四个顺序切片。当前无需新增产品语义确认，实际类型签名和容量在实施验证中落定。
+
+### 14.9 Before 4 实施与一致性核对
+
+BF1–BF5 已完成，详细实现/测试/文档映射见已归档子计划 §9。新增公共构件只封装披露与分页；Trace、Session、输入受理、Job 和完成管线的所有权未合并为另一套状态系统。时间线保留 owner 观察顺序，Session 同一事实只保存一处正文，query 只读当前范围；inspect 不改变本轮 Session 来源，也不启动隐藏模型调用。
+
+具体实现沿现有类型化 inspector 传递 ref/query/continuation，不增加只转发参数的 InspectRequest 包装；分页字段在 DisclosurePage.render 生成。Session 在自身高水位回收旧摘录，Organize 产生语义节点后的进一步聚合仍属尾期。此处为已确认边界内的接口落定，未改变主计划的职责、功能范围或阶段顺序。
+
+已同步 AGENTS 过渡条款、Context/Session/Agent/Infra/Execution/Reflection/Web 设计及 Reflection endpoint 日期字段。主计划保留目标设计与未完成范围，不把本轮完成外推为全部重构结束。

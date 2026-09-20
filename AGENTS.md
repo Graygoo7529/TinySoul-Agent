@@ -247,6 +247,8 @@ R3 的实现、失败归属、内部组织和部署边界已逐项核对，见 `
 
 R3 提交后的四项复审缺口已由 `docs/analysis/done/20260919-done-Agent重构R3收口子计划.md` 关闭：进程所有权涵盖受控后代，Workspace 移动/恢复共用保留人工元数据的提交边界，批次目标按 owner 解析路径判定，嵌套失败完整保留已提交事实。Full 1081 passed、23 deselected，typecheck 通过；Windows 真实进程与日切验证通过，POSIX 仅完成源码与目标类型核对。没有新增 CAS、模型侧实现字段、平行监督器或恢复状态机；主计划 S3 延后项与 S4–S7 保持原范围。
 
+Before 4 基础补强已完成，见 `docs/analysis/done/20260920-done-Agent重构Before4子计划-数据基础与渐进披露.md`：类型化事实顺序、当日 Session 导航、共用渐进披露/query、取回结果消费保护、日期命名和测试环境边界均已核对。2026-09-20 Windows Full 1087 passed、23 deselected，Windows/Linux 目标 typecheck 通过；本轮未运行 Linux 实机和真实 provider/network。Session 记录升为 v10，没有迁移/reset 部署数据。S3 的 Organize 动作/持久注释层与 S4–S7 仍未整体完成。
+
 过渡期文档约定：本文件"核心定义""项目规约""代码风格""运行环境与验证"中的模块名（`app`、`loop`、`context`、`action`、`endpoint` 等）、按 owner 名固定的 MessageStack 顺序、Context 由 `context` 模块直接拥有四类语义段、`tests/<module>/` 布局等表述描述的是重构前的实现事实；与执行计划冲突处以执行计划为准，并在计划 S7 阶段整体重写本文件。已被执行计划明确替代的条款：
 
 - Program/App → Agent；`runtime.program_end → runtime.agent_end`；`app`、`endpoint` → `agent`、`environment`、`gateway`。
@@ -255,11 +257,13 @@ R3 提交后的四项复审缺口已由 `docs/analysis/done/20260919-done-Agent�
 - Job 可跨 Cycle，不跨所属 Turn；Turn 结束时回收。受限 `SUSPEND` 表达预算暂停，模型不见 Cycle 余额，用户决定补充或中断；`core.ask` 可暂停等待回复。
 - TurnInbox 在暂停期间持续接收；有界内存保存关键元数据，大输出由 owner 落盘，已接受关键事件在存活进程中不静默丢弃；不承诺崩溃续跑 Turn。
 - 所有模块 bridge 随其 owner 放置，包括 kernel 与 llm；runtime 不 import 上层业务模块。Trap 原因由 owner 声明，通用构造帮助由 runtime 公开。
-- `BusinessDay` → `CalendarDay`；Maintenance → Reflection。情景保持 `user`、`home_reflection`、`memory_reflection`；专属动作归回 `home.diff/review` 与 `memory.write_daily/write`，通用 Memory 动作为 `memory.memorize/inspect/recall`。domain/action TOML 的 visibility 统一表达情景选择，不能授予服务权限。模型自主少量多步，User Turn 仍不写持久 Memory、不提交 actual Home。
+- `BusinessDay` → `CalendarDay`；`BusinessClock/IanaBusinessClock` → `CalendarClock/IanaCalendarClock`，Turn 活动日期为 `active_day`。时钟归 infra，日切协调归 agent/lifecycle，Reflection 保留独立 source_day/target_day。Maintenance → Reflection。情景保持 `user`、`home_reflection`、`memory_reflection`；专属动作归回 `home.diff/review` 与 `memory.write_daily/write`，通用 Memory 动作为 `memory.memorize/inspect/recall`。domain/action TOML 的 visibility 统一表达情景选择，不能授予服务权限。模型自主少量多步，User Turn 仍不写持久 Memory、不提交 actual Home。
 - Reflection 是同一 Agent 的专门执行情景，由 TurnProfile 承载 domain/action 策略与受约束服务；每日策略或用户明确允许本次整理后，安排独立 Reflection Turn。普通对话不挂载 Reflection 专属能力，单次授权不形成持续许可。SDK 服务绑定世代，日级服务同时绑定 CalendarDay；切换后旧对象失效，由调用者重新获取。
 - ACP 先显式建立连接再委派 Job，连接由插件 Working State 段呈现；允许简单跨 Turn 复用空闲连接，若需要复杂迁移/恢复则 Turn 收尾关闭。Job 仍不跨 Turn，具体 adapter 与释放条件按计划核验。
 - 干净性以架构语义、依赖与内聚为主。取消复用执行生命周期：短 owner 操作完成后退出边界，长执行使用受控进程；不增加线程隔离及自动恢复的平行机制。
 - `session` 段为 Map 形状，不维护平行线性 Summary。R3 自动地图只承载对话/行动事实和确定性关系，来源为唯一的不可变完成记录；有来源的模型推导线索及主动 organize 保留后续设计，不能声称当前已实现。追溯动作为单一 `core.context.inspect`。
+- Trace 时间线记录输入安装/可见、Action 请求/开始/结算与已交付事件的 owner 观察顺序，独立保留 Inbox 受理顺序，不据此推断外部因果关系。Session 通过唯一完成管线保存同一组事实；时间线只引用输入、行动和必要语义 note，不复制正文或另建日志。
+- Trace 与 Session 共用有界披露页、线索和分页，逐层 ref 导航为主，范围 query 为辅助；inspect 不调用额外模型或永久展开背景。取回的可见结果进入实际返回的决策模型请求后才允许折叠，容量拒绝不能解除保护。Session 固定本轮来源集合，只在自身超过水位时缩减投影，保留地图入口和可解析事实 ref。
 - 当前子智能体以 ACP 外部 agent 为主，不建设内部子额度协调；未来 TinySoul 子 Turn 使用独立配额，由调用 agent 决定。用户根 Turn 的预算暂停及用户补额语义不变。
 - Workspace 取消 digest/revision CAS、提交前复验与压力 trash；提供文件/目录操作、说明和 pinned/tmp/library 标签，标签不改变日生命周期。execution 直接操作真实当日 Workspace，取消不回滚文件；plugins/execution、kernel/jobs、infra/process 分别拥有能力、监督和受控进程，必要收尾与附属清理诊断明确分开。
 

@@ -85,7 +85,7 @@ class MemoryReflectionTask:
     async def run(
         self,
         *,
-        business_day: CalendarDay,
+        active_day: CalendarDay,
         target_day: CalendarDay,
         archive: ArchiveProjection | None,
         scope: RunScope,
@@ -93,14 +93,14 @@ class MemoryReflectionTask:
         inbox: TurnInbox | None = None,
         instructions: str = "",
     ) -> ReflectionTaskOutcome:
-        if target_day > business_day:
+        if target_day > active_day:
             return _skipped(target_day, "target_day_is_future")
         operations = JoinedOperations()
         completed = False
         try:
             skipped = await operations.run(
                 lambda: self._prepare_source(
-                    target_day, archive, business_day=business_day
+                    target_day, archive, active_day=active_day
                 )
             )
             operations.check_cancelled()
@@ -121,7 +121,7 @@ class MemoryReflectionTask:
                         else ""
                     )
                 ),
-                business_day=business_day,
+                active_day=active_day,
                 scope=scope,
                 request_id=request_id,
                 input_source="reflection.memory",
@@ -155,12 +155,12 @@ class MemoryReflectionTask:
         target_day: CalendarDay,
         archive: ArchiveProjection | None,
         *,
-        business_day: CalendarDay,
+        active_day: CalendarDay,
     ) -> ReflectionTaskOutcome | None:
         if not self.eligible(target_day, archive=archive):
             return _skipped(target_day, "target_sources_empty")
         workspace = None
-        if target_day == business_day:
+        if target_day == active_day:
             session_view = self._session.snapshot_view(target_day)
             active = self._memory.read_active(target_day)
         else:

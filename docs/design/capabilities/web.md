@@ -49,6 +49,8 @@ Crawlee 只拥有 action-scoped `BasicCrawler`、Memory RequestQueue、URL 去�
 
 Crawlee 是 `web-crawl` wheel extra 和开发测试依赖，项目模板默认禁用 Discovery；启用前应安装 `tinysoul[web-crawl]`。当前支持并约束 `crawlee>=1.8,<2`，避免主版本动态协议变化直接进入 worker。启用 action 但当前解释器缺少 Crawlee 时，App 在 effective Catalog 装配期显式失败。
 
+Discovery 的网络解析边界允许显式注入 resolver。生产默认仍使用真实 DNS 与公开地址校验；本地测试共同注入 resolver、页面和 robots 响应，不依赖宿主网络或代理，也不修改生产代理策略。
+
 ## Fetch 与提取
 
 Fetch action 接收 `url`、显式 `.md` `target_link`、显式 overwrite。宿主通过固定 worker 完成“网络读取 -> 本地提取 -> staged Markdown”，校验结果后在单次 `WorkspaceEngine.write_bundle()` 中提交。Web 与 Resource 共用 App 装配的项目级 `runtime/.staging/` 根；每次 action 使用唯一子目录，完成、失败或取消后清理，进程中断遗留内容在下次 App 启动时清理。staging 不进入 Workspace Manifest、Daily archive 或 capability 持久状态：

@@ -152,6 +152,10 @@ adapter 校验非空批次、批量上限、响应 index、向量数量、维度
 
 ServiceScope 封装完整的 async 准入作用域；ScopedService 只将 owner 显式选择的方法暴露为 async 操作，不提供通用 getattr 或 owner 访问口。准入策略由 Agent 注入，Infra 不解释世代、业务日或 Runtime。短本地调用复用 JoinedOperations，取消先 join 并交付结果；operation 在复合调用中保持同一次准入，退出后临时视图失效。AsyncReadWriteLock 用协程等待处理跨 await 的日协调；同步锁只留在同一次短 owner 调用内部。Staging 的 async allocation 在取消后仍完成 cleanup。
 
+## 日历时间
+
+`CalendarClock` 与 `IanaCalendarClock` 提供显式时区的当前时间和 CalendarDay，不负责日切或根请求编排。Agent 的 day coordinator 持有活动日期；Turn 使用 `active_day`，Reflection 另外保留来源日和目标日。时钟可由测试或宿主显式注入，没有旧 BusinessClock 别名。
+
 ## 受控进程
 
 ManagedProcessRunner 显式接收请求，拥有进程组、标准流捕获和有界硬停止。执行关闭与附属资源清理分开：已停止后日志/临时文件失败形成有限 CleanupDiagnostic；有界复查后仍无法停止则保留可再次关闭的句柄并抛出 Process 层错误。Action 与 Jobs 的适配器分别解释其失败，Infra 不产生 Runtime 转移，也不复制业务终态。输出读取有界，完整输出由调用方选择的捕获目录承载。

@@ -39,7 +39,7 @@ class HomeReflectionTask:
     async def run(
         self,
         *,
-        business_day: CalendarDay,
+        active_day: CalendarDay,
         scope: RunScope,
         request_id: str,
         inbox: TurnInbox | None = None,
@@ -58,7 +58,7 @@ class HomeReflectionTask:
                     if instructions
                     else ""
                 ),
-                business_day=business_day,
+                active_day=active_day,
                 scope=scope,
                 request_id=request_id,
                 input_source="reflection.home",

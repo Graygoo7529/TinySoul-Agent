@@ -204,7 +204,10 @@ class ArchivedWorkspaceSegment:
             ),
         }
 
-    async def inspect(self, ref: str, *, continuation: str | None = None) -> JsonObject:
+    async def inspect(self, ref: str, *, query: str | None = None, continuation: str | None = None) -> JsonObject:
+        if query is not None:
+            raise ContextInspectRequestError(ContextInspectFailureReason.QUERY_UNSUPPORTED,
+                                             "Archived Workspace supports navigation only")
         view = self._view
         if view is None:
             raise ContextInspectRequestError(
@@ -335,7 +338,7 @@ class WorkspaceTurnPreparationHandler:
 
     async def prepare(self, request: "TurnPreparationRequest") -> tuple[Signal, ...]:
         try:
-            self.workspace.require_day(request.business_day)
+            self.workspace.require_day(request.active_day)
             operations = JoinedOperations()
             result = await operations.run(self.workspace.reconcile)
             operations.check_cancelled()

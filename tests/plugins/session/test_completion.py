@@ -21,6 +21,80 @@ from .synthetic import SyntheticAction, completion
 DAY = CalendarDay.parse("2026-07-25")
 
 
+async def test_ordered_facts_survive_parallel_completion_and_session_reopen(tmp_path) -> None:
+    from tinysoul.kernel.action.call import ActionCall, ActionFramework, ExecutionFact
+    from tinysoul.kernel.action.result import ActionResult
+    from tinysoul.kernel.context import ContextEngineBuilder, build_input_append_signal, build_trace_phase_note_signal
+    from tinysoul.kernel.context.builtin.trace import TraceFactKind
+    from tinysoul.plugins.session import SessionEngine, SessionSettings
+    from tinysoul.plugins.session.records.store import SessionStore
+    from tinysoul.runtime import RunLevel, RunScope, SignalBus
+
+    context = ContextEngineBuilder(system_text="test").build()
+    turn_id = context.begin_turn("start", turn_id="ordered")
+    await context.open_segments(DAY.value)
+    scope = RunScope().push(RunLevel.TURN, turn_id)
+    calls = tuple(ActionCall(f"call_{i}", "test.run", {"task": i}, sequence=i + 1)
+                  for i in range(5))
+    context.register_action_calls(calls, cycle_id="cycle_1")
+    frames = tuple(ActionFramework(invoke_id=f"invoke_{i}", batch_id="batch", scope=scope,
+                                   domain="test", turn_id=turn_id, cycle_id="cycle_1")
+                   for i in range(5))
+    for call, frame in zip(calls[:4], frames[:4]):
+        context.record_execution(ExecutionFact(call, frame, ExecutionState.STARTED))
+
+    def settle(index: int) -> None:
+        call, frame = calls[index], frames[index]
+        result = ActionResult.success(call_id=call.call_id, action_name=call.action_name,
+                                      invoke_id=frame.invoke_id, batch_id="batch", domain="test",
+                                      sequence=call.sequence, payload={"done": index})
+        context.record_execution(ExecutionFact(call, frame, ExecutionState.SETTLED, result))
+
+    settle(1)
+    bus = SignalBus()
+    bus.emit(build_input_append_signal("changed request", input_id="append", admission_sequence=4,
+                                      received_at=42, scope=scope, source="test"))
+    bus.emit(build_trace_phase_note_signal(
+        {"kind": "environment_event", "payload": {"job_id": "job-1", "state": "completed"}},
+        scope=scope, source="test"))
+    await context.consume_signals(bus)
+    context.merge_pending_inputs()
+    settle(0)
+    for index, state in ((2, ExecutionState.CANCELLED), (3, ExecutionState.UNKNOWN)):
+        context.record_execution(ExecutionFact(calls[index], frames[index], state))
+    context.compress(required_chars=100000)
+    source = context.end_turn()
+    await context.close_segments()
+
+    session = SessionEngine(SessionSettings(root=tmp_path / "session"))
+    session.initialize_day(DAY)
+    session.record_turn(
+        source, day=DAY, output=SessionOutputRecord(text="final-answer-marker"),
+        exhausted=False, status=TurnOutcomeStatus.ANSWERED,
+    )
+    stored = SessionStore(root=session.root).load_record("session:turn/ordered")
+    settled = [item.ref for item in stored.timeline if item.kind is TraceFactKind.ACTION_SETTLED]
+    assert settled == ["session:turn/ordered#action/1", "session:turn/ordered#action/0"]
+    visible = next(index for index, item in enumerate(stored.timeline)
+                   if item.kind is TraceFactKind.INPUT_VISIBLE and item.ref.endswith("#input/1"))
+    settlements = [index for index, item in enumerate(stored.timeline)
+                   if item.kind is TraceFactKind.ACTION_SETTLED]
+    assert settlements[0] < visible < settlements[1]
+    admitted = next(item for item in stored.timeline if item.admission_sequence == 4)
+    assert admitted.ref.endswith("#input/1")
+    assert stored.inputs[1].received_at == 42
+    assert [item.outcome.value for item in stored.actions[2:]] == ["cancelled", "unknown", "not_executed"]
+    assert all(not item.result for item in stored.actions[2:])
+    assert len(stored.notes) == 1 and "job-1" in str(stored.notes[0])
+    assert "done" not in str(stored.notes)  # No second copy of Action results.
+    assert session.inspect("session:turn/ordered#timeline")["items"]
+    assert session.inspect("session:turn/ordered#timeline", query="job-1")["items"]
+    assert session.inspect("session:turn/ordered", query="final-answer-marker")["items"]
+    assert not session.inspect(
+        "session:turn/ordered#timeline", query="final-answer-marker"
+    )["items"]
+
+
 def test_completion_projects_typed_action_business_facts() -> None:
     source = completion(
         "turn_projection",

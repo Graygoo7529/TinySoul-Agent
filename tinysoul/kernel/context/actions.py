@@ -71,7 +71,10 @@ class ContextInspectExecutor(ActionExecutor):
                 reason=ContextInspectFailureReason.INVALID_CONTINUATION.value,
             )
         try:
-            payload = await self._context.inspect(ref, continuation=continuation)
+            query = execution.call.params.get("query")
+            if query is not None and (not isinstance(query, str) or not query.strip()):
+                return _failed(execution, "Query must be non-empty text", reason="invalid_query")
+            payload = await self._context.inspect(ref, query=query, continuation=continuation)
         except ContextInspectRequestError as exc:
             return _failed_request(execution, exc)
         except ContextError as exc:

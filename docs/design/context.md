@@ -22,7 +22,7 @@ Composer 只接收带段描述的消息投影，按 Background → Trace → Wor
 
 ## Background 与 Working
 
-Session provider 在段 open 时读取历史视图，在该 Turn 内固定且不可逐出。通用 Background 每 Turn 重建；默认 Home 条目、按需加载的 Top Link 和 Memory 动态投影都属于当前 Turn。User/Home Reflection 装配不可逐出的 `memory:current + optional memory:latest`，Memory Reflection 装配不可逐出的 `memory:target + optional memory:latest`；latest 是严格早于 Context Business Day 的最近 daily，缺失时省略。Background catalog 只提供有界 Link、title 和 description，不等同于已加载正文。
+Session provider 在段 open 时读取固定的历史事实集合；模型投影只在 Session 自身超过水位时折叠，保留地图入口与全部事实引用，Context 不能任意削减它。通用 Background 每 Turn 重建；默认 Home 条目、按需加载的 Top Link 和 Memory 动态投影都属于当前 Turn。User/Home Reflection 装配不可逐出的 `memory:current + optional memory:latest`，Memory Reflection 装配不可逐出的 `memory:target + optional memory:latest`；latest 是严格早于 Context 活动日期的最近 daily，缺失时省略。Background catalog 只提供有界 Link、title 和 description，不等同于已加载正文。
 
 WorkingContext 维护 plan，只向模型呈现 milestones 与 todos，不持有 Workspace 快照。Milestone 是少量、可复用的事实寄存器：可以记录有价值的完成、尝试、失败、阻塞、测量值、决定、来源 Link、版本/digest 或局部成果，供后续 Cycle 防止遗忘；它不是 todo 的镜像、进度徽章或对模型的自我确认。失败或仅尝试过的工作必须明确记录其状态，不能登记为完成事实。Workspace 段只呈现 resource Link/summary；Workspace 不保存 revision 或内容 CAS；Session 的 continuation 等有消费者的独立协议仍由各自 owner 解释。
 
@@ -50,24 +50,21 @@ TurnTraceHeap 是当前 Turn 的 append-only 运行事实：
 
 ### 渐进检查
 
-模型通过 `core.context.inspect` 检查段声明的 ref。Trace 段负责当前 Turn 冷轨迹：
+模型通过 `core.context.inspect` 检查段声明的 ref。Stack、Map、State 表达不同内容语义；渐进披露是访问方式，不把它们强行改成同一种数据形状。Trace 与 Session 共用 `DisclosureHint`、`DisclosurePage` 和既有 continuation 基础设施；owner 决定分组、关系和事实内容，公共构件只负责有界投影与分页。
 
-- head ref 返回直接 root headers；
-- branch ref 返回直接 child headers；
-- leaf ref 返回按原顺序投影的语义 interactions；
-- leaf 内容超出 owner 字符上限时，响应携带 `next_continuation`。
+Trace 的根同时提供冷节点与热记录线索，分支给出直接子节点，叶组给出稳定 entry ref，再沿 entry ref 读取语义详情。折叠和父节点合并不改变已返回引用。根、分支、关系和长叶子均分页；正文不会被静默裁掉。公开内容只表达决策、行动、结果、必要反馈和来源，不要求模型理解内部序号、存储版本或完整性校验。
 
-公开 header 只保留 ref、kind、直接 child/interaction count、interaction kinds 与 Action names。leaf 只呈现 decision、Action request、Action outcome/result/failure、references 和必要 phase note，不呈现 entry/call id、cycle、phase、trace index、digest、revision 或 pager 实现字段。
+可选 query 只搜索给定 ref 下的原始语义内容，按 owner 事实顺序返回有界摘录与精确 ref。Trace 排除 inspect 自身的重复请求和返回；查询不展开整段、不隐式加载正文，也不调用 LLM。QUERY 是独立声明的能力；只读归档 Workspace 等未声明该能力的 owner 返回局部不支持结果。
 
-`ref` 选择节点；`continuation` 只继续同一节点尚未交付完的直接内容。continuation 是 owner/action/ref-bound 的 opaque token，模型只能原样回传。无效或过期 token 反馈重新检查当前 ref，不解释其内部位置、digest 或 revision。
+统一披露页以有序 items 交付详情、child 线索、关系或来源。continuation 绑定 owner、ref、query 和当前读取视图；视图变化使旧 token 明确失效，不静默混页。内部绑定信息只在 opaque token 中由基础设施解释。
 
-`core.context.inspect` 是 foldable Action：完整结果和 continuation 只在当前 Interaction 可见，后续压力回收只保留已检查的 origin ref。需要继续时从该 ref 重新检查。Context 不提供独立 recall 或显式 fold Action。
+inspect 的完整可见结果必须先进入一次实际返回的 Phase1/Phase2 模型请求，之后才允许压力回收其 overlay。compose 纯渲染、Action 内部模型调用以及容量拒绝都不能解除保护；受保护结果所在区间也不能被折入冷节点。折叠后保留 origin ref，可重新读取，不提供独立 recall 或 fold Action。
 
 ## Turn Completion
 
-`end_turn()` 产生 typed immutable `ContextTurnCompletion`，包含 Turn identity、有序输入文本与接收时间、plan 终态、Background links、按 id 标识的段快照和 `SealedTurnTrace`。Sealed trace 保存 turn id、有序 canonical entries 及类型化 Action 执行事实，不携带 heap topology。
+`end_turn()` 产生 typed immutable `ContextTurnCompletion`，包含 Turn identity、有序输入文本与原始接收时间、plan 终态、Background links、按 id 标识的段快照和 `SealedTurnTrace`。Sealed trace 保存 canonical entries、类型化 Action 执行事实和只存引用的时间线，不携带 heap topology。输入保留 Inbox 的受理顺序，时间线另记安装和合并可见位置；Action 请求、开始和结算按实际回调记录，不能从批次结果排序反推。环境/Job 交付、必要 phase note 与已安装 plan patch 通过现有 Signal 批次记录。
 
-该对象只在 Loop completion pipeline 中传递。Session 在自己的提交边界直接投影类型化 Action 事实及 Turn 终态为 v9 业务记录，保留段快照，不从模型消息猜测 call/result 配对；Context 不生成持久 `TurnSummary`、trace digest 或 JSON canonical trace。Session 提交后也不保留当前 Turn trace。
+该对象只在唯一 Loop completion pipeline 中传递。Session 在自身边界投影为 v10 业务记录：输入与行动正文各存一处，时间线引用它们，必要语义 note 单独保存；不从消息布局猜测 call/result 配对。时间线表达 owner 观察与提交顺序，不声称外部因果时间。Context 不生成持久 Summary、平行日志或崩溃续跑协议。
 
 ## 失败边界
 

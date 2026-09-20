@@ -129,6 +129,8 @@ class TerminalInputSource:
                 os.set_blocking(descriptor, original_blocking)
 
     def _console_chunks(self) -> Iterator[str]:
+        if sys.platform != "win32":
+            raise EnvironmentError("Windows console input requires Windows")
         import msvcrt
 
         pending = ""

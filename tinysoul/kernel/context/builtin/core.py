@@ -9,15 +9,12 @@ from tinysoul.infra.continuation import (
     ContinuationError,
     ContinuationFailureReason,
     OpaqueContinuationCodec,
-    continue_json_sequence,
 )
-from tinysoul.infra.json import JsonObject, JsonValue, dumps_json, to_json_object
+from tinysoul.infra.json import JsonObject, dumps_json
 from tinysoul.llm.protocol.messages import (
     AssistantMessage,
-    JsonPart,
     Message,
     SystemMessage,
-    TextPart,
     ToolResultMessage,
     UserMessage,
 )
@@ -29,6 +26,7 @@ from ..errors import (
     ContextInspectFailureReason,
     ContextInspectRequestError,
 )
+from ..disclosure import DisclosureHint, DisclosurePage, query_hint
 from ..segments import (
     ContextSegment,
     ReadOnlySegmentRegistration,
@@ -63,7 +61,7 @@ TRACE = SegmentDescriptor(
     10,
     ref_prefixes=("turn:trace",),
     shape=SegmentShape.STACK,
-    capabilities=frozenset({SegmentCapability.INSPECT, SegmentCapability.RECLAIM}),
+    capabilities=frozenset({SegmentCapability.INSPECT, SegmentCapability.QUERY, SegmentCapability.RECLAIM}),
 )
 PLAN = SegmentDescriptor("plan", "context", SegmentSlot.WORKING, 10)
 JOURNAL = SegmentDescriptor("journal", "context", SegmentSlot.BACKGROUND, 39)
@@ -110,7 +108,8 @@ class InputsSegment:
         candidate = deepcopy(self.state)
         for update in updates:
             candidate.add(
-                update.text, input_id=update.input_id, reply_to=update.reply_to
+                update.text, input_id=update.input_id, reply_to=update.reply_to,
+                received_at=update.received_at,
             )
         return candidate
 
@@ -176,7 +175,8 @@ class TraceSegment:
                 )
             elif update.note is not None:
                 candidate.append_phase_note(
-                    update.note, cycle_id=update.cycle_id, phase=update.phase
+                    update.note, cycle_id=update.cycle_id, phase=update.phase,
+                    admission_sequence=update.admission_sequence,
                 )
         return candidate
 
@@ -196,37 +196,65 @@ class TraceSegment:
             self.state.compact(required_chars=required_chars).reclaimed_chars
         )
 
-    async def inspect(self, ref: str, *, continuation: str | None = None) -> JsonObject:
-        return self.inspect_view(ref, continuation=continuation)
-
-    def inspect_view(self, ref: str, *, continuation: str | None = None) -> JsonObject:
-        structure = self.state.inspect(ref)
-        if structure.get("kind") != "context_trace_leaf":
-            if continuation is not None:
-                raise ContextInspectRequestError(
-                    ContextInspectFailureReason.INVALID_CONTINUATION,
-                    "This Context node has no continuation; inspect its child ref",
-                    constraint={"ref": ref},
+    async def inspect(
+        self,
+        ref: str,
+        *,
+        query: str | None = None,
+        continuation: str | None = None,
+    ) -> JsonObject:
+        entries = self.state.entries_for_ref(ref)
+        if query is not None:
+            matches = []
+            for entry in entries:
+                if _inspect_interaction(entry):
+                    continue
+                hint = query_hint(
+                    self.state.entry_ref(entry.entry_id),
+                    entry.kind.value,
+                    entry.to_semantic(),
+                    query,
                 )
-            if len(dumps_json(structure)) > self._trace_inspect_max_chars:
-                raise ContextInspectRequestError(
-                    ContextInspectFailureReason.PAGE_BUDGET_TOO_SMALL,
-                    "Context heap header exceeds the inspect character limit",
-                    constraint={"ref": ref},
+                if hint is not None:
+                    matches.append(hint)
+            page = DisclosurePage(ref, "context_query", children=tuple(matches))
+        elif "#entry/" in ref:
+            page = DisclosurePage(
+                ref,
+                "context_trace_entry",
+                content=tuple(item.to_semantic() for item in entries),
+                sources=tuple(dict.fromkeys(
+                    source for item in entries for source in item.origin_refs
+                )),
+            )
+        else:
+            children = []
+            structure = self.state.inspect(ref)
+            nodes = structure.get("nodes", [])
+            assert isinstance(nodes, list)
+            for node in nodes:
+                assert isinstance(node, dict)
+                children.append(DisclosureHint(
+                    str(node["ref"]), str(node["kind"]), dumps_json(node)
+                ))
+            if ref == self.state.head_ref():
+                entries = self.state.hot_entries()
+            elif structure.get("kind") == "context_trace_branch":
+                entries = ()
+            children.extend(
+                DisclosureHint(
+                    self.state.entry_ref(item.entry_id), item.kind.value,
+                    dumps_json(item.to_semantic())[:240],
                 )
-            return structure
-        interactions = tuple(
-            _semantic_trace_entry(entry) for entry in self.state.leaf_entries(ref)
-        )
+                for item in entries
+            )
+            page = DisclosurePage(ref, "context_trace", children=tuple(children))
         try:
-            return continue_json_sequence(
-                interactions,
-                base={"kind": "context_trace_leaf", "ref": ref},
-                item_field="interactions",
-                continuation=continuation,
+            return page.render(
                 codec=self._trace_continuations,
-                ref=ref,
                 max_chars=self._trace_inspect_max_chars,
+                continuation=continuation,
+                binding={"query": query},
             )
         except ContinuationError as exc:
             raise _context_continuation_error(exc, ref=ref) from exc
@@ -312,67 +340,10 @@ def _context_continuation_error(
     )
 
 
-def _semantic_trace_entry(entry: TraceEntry) -> JsonObject:
+def _inspect_interaction(entry: TraceEntry) -> bool:
     message = entry.message
-    content = _semantic_parts(message)
-    if isinstance(message, AssistantMessage):
-        value: JsonObject = {"kind": "decision"}
-        if content:
-            value["content"] = content[0] if len(content) == 1 else content
-        actions: list[JsonValue] = [
-            to_json_object({"action": call.name, "request": call.arguments})
-            for call in message.tool_calls
-            if call.kind is ToolKind.ACTION
-        ]
-        controls: list[JsonValue] = [
-            to_json_object({"control": call.name, "request": call.arguments})
-            for call in message.tool_calls
-            if call.kind is ToolKind.CONTROL
-        ]
-        if actions:
-            value["actions"] = actions
-        if controls:
-            value["controls"] = controls
-        return to_json_object(value)
     if isinstance(message, ToolResultMessage):
-        value = {
-            "kind": "action_result",
-            "action": message.tool_name,
-            "outcome": message.status.value,
-        }
-        envelope = (
-            content[0] if len(content) == 1 and isinstance(content[0], dict) else None
-        )
-        if envelope is not None:
-            status = envelope.get("status")
-            if isinstance(status, str) and status:
-                value["outcome"] = status
-            payload = envelope.get("payload")
-            if isinstance(payload, dict) and payload:
-                value["result"] = payload
-            failure = envelope.get("failure")
-            if isinstance(failure, dict) and failure:
-                value["failure"] = {
-                    key: failure[key]
-                    for key in ("reason", "disposition", "feedback", "constraint")
-                    if key in failure
-                }
-        elif content:
-            value["result"] = content[0] if len(content) == 1 else content
-        if entry.origin_refs:
-            value["references"] = list(entry.origin_refs)
-        return to_json_object(value)
-    value = {"kind": "phase_note"}
-    if content:
-        value["content"] = content[0] if len(content) == 1 else content
-    return to_json_object(value)
-
-
-def _semantic_parts(message: Message) -> list[JsonValue]:
-    values: list[JsonValue] = []
-    for part in message.parts:
-        if isinstance(part, TextPart):
-            values.append(part.text)
-        elif isinstance(part, JsonPart):
-            values.append(part.value)
-    return values
+        return message.tool_name == "core.context.inspect"
+    return isinstance(message, AssistantMessage) and bool(message.tool_calls) and all(
+        call.name == "core.context.inspect" for call in message.tool_calls
+    )

@@ -203,13 +203,13 @@ class _UserTurn:
         self.inputs: list[str] = []
 
     async def run(
-        self, turn_input, *, business_day, scope, request_id, input_source, inbox=None
+        self, turn_input, *, active_day, scope, request_id, input_source, inbox=None
     ):
         del scope, request_id, input_source
         self.inputs.append(turn_input)
         return TurnOutcome(
             context_completion=None,
-            business_day=business_day,
+            active_day=active_day,
             status=TurnOutcomeStatus.STOPPED,
         )
 
@@ -240,12 +240,12 @@ class _Reflection:
     async def active_day_lease(self):
         yield DAY
 
-    async def run(self, request, *, business_day, scope=None, inbox=None):
+    async def run(self, request, *, active_day, scope=None, inbox=None):
         del scope
         self.requests.append(request)
         return ReflectionOutcome(
             request_id=request.request_id,
-            business_day=DAY,
+            active_day=DAY,
             status=ReflectionStatus.SKIPPED,
         )
 

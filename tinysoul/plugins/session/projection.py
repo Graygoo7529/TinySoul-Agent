@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 
 from tinysoul.kernel.context.segments import (
     ReadOnlySegmentRegistration,
@@ -11,12 +12,13 @@ from tinysoul.kernel.context.segments import (
     SegmentShape,
     SegmentSlot,
     TurnInfo,
+    SegmentReclaim,
 )
 from tinysoul.kernel.context.errors import (
     ContextInspectFailureReason,
     ContextInspectRequestError,
 )
-from tinysoul.infra.json import JsonObject
+from tinysoul.infra.json import JsonObject, dumps_json
 from tinysoul.infra.time import CalendarDay
 from tinysoul.llm.protocol.messages import Message, UserMessage
 from tinysoul.infra.concurrency import JoinedOperations
@@ -28,7 +30,11 @@ from .engine import SessionEngine
 from .services import SessionService, SessionViewSource
 from .errors import SessionError, SessionInspectRequestError
 from .records.models import SessionOutputRecord
-from .views.background import SessionBackgroundSnapshot
+from .views.background import (
+    SessionBackgroundItem,
+    SessionBackgroundSnapshot,
+    project_map_entry,
+)
 
 
 class SessionSegment:
@@ -58,8 +64,43 @@ class SessionSegment:
             "refs": list(self._snapshot.refs),
         }
 
-    async def inspect(self, ref: str, *, continuation: str | None = None) -> JsonObject:
-        if ref != "session:map" and ref.split("#", 1)[0] not in self._snapshot.refs:
+    def reclaim(self, required_chars: int) -> SegmentReclaim:
+        before = sum(len(dumps_json(item.content)) for item in self._snapshot.items)
+        if required_chars <= 0 or before <= self._snapshot.max_chars * 0.8:
+            return SegmentReclaim()
+        selected = list(self._snapshot.items[1:])
+
+        def projected() -> tuple[SessionBackgroundItem, ...]:
+            head = SessionBackgroundItem(
+                "session_map",
+                project_map_entry(
+                    day=str(self._day),
+                    total=len(self._snapshot.refs),
+                    projected=len(selected),
+                ),
+            )
+            return (head, *selected)
+
+        items = projected()
+        after = before
+        while selected and after > self._snapshot.max_chars * 0.5:
+            selected.pop(0)
+            items = projected()
+            after = sum(len(dumps_json(item.content)) for item in items)
+        self._snapshot = replace(self._snapshot, items=items)
+        return SegmentReclaim(max(0, before - after))
+
+    async def inspect(
+        self,
+        ref: str,
+        *,
+        query: str | None = None,
+        continuation: str | None = None,
+    ) -> JsonObject:
+        if (
+            not ref.startswith("session:map")
+            and ref.split("#", 1)[0] not in self._snapshot.refs
+        ):
             raise ContextInspectRequestError(
                 ContextInspectFailureReason.UNKNOWN_REF,
                 "Unknown reference in this Session view",
@@ -68,6 +109,7 @@ class SessionSegment:
         try:
             value = await self._source.inspect(
                 ref,
+                query=query,
                 continuation=continuation,
                 expected_revision=self._snapshot.revision,
             )
@@ -121,7 +163,11 @@ def session_segment_registration(
             20,
             ("session:",),
             SegmentShape.MAP,
-            frozenset({SegmentCapability.INSPECT}),
+            frozenset({
+                SegmentCapability.INSPECT,
+                SegmentCapability.QUERY,
+                SegmentCapability.RECLAIM,
+            }),
         ),
         provider=SessionSegmentProvider(source, source_day),
     )
@@ -152,7 +198,7 @@ class SessionTurnCompletionHandler:
             await operations.run(
                 lambda: self._session.record_turn(
                     completion.context_completion,
-                    day=completion.business_day,
+                    day=completion.active_day,
                     status=completion.final_status,
                     failure=completion.failure,
                     finish_failures=completion.finish_failures,

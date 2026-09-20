@@ -2,7 +2,7 @@ name = "core.context.inspect"
 domain = "core"
 
 [tool]
-description = "Inspect a visible Context segment reference, including current Turn trace and prior-Turn Session Map."
+description = "Follow Context clues to bounded detail and child references, or locate evidence within a reference using query. Supports current Turn trace and the current day's prior-Turn Session Map."
 
 [tool.schema]
 type = "object"
@@ -15,7 +15,11 @@ description = "A visible turn:trace ref, session:map entry point, Session Turn o
 
 [tool.schema.properties.continuation]
 type = "string"
-description = "Opaque continuation returned for unfinished content from this same ref."
+description = "Opaque continuation returned for unfinished content with this same ref and query."
+
+[tool.schema.properties.query]
+type = "string"
+description = "Optional text to find within this reference's facts. Omit to navigate clues and child references."
 
 [semantic]
 use_when = ["A needed decision, Action result or prior-Turn fact is behind a visible Context reference"]

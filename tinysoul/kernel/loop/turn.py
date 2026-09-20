@@ -64,7 +64,7 @@ class TurnOutcome:
     """Outcome of one reusable Turn execution."""
 
     context_completion: ContextTurnCompletion | None
-    business_day: CalendarDay
+    active_day: CalendarDay
     status: TurnOutcomeStatus
     output: TurnOutput | None = None
     exhausted: bool = False
@@ -75,7 +75,7 @@ class TurnOutcome:
     cleanup_diagnostics: tuple[CleanupDiagnostic, ...] = ()
 
     def __post_init__(self) -> None:
-        if not isinstance(self.business_day, CalendarDay):
+        if not isinstance(self.active_day, CalendarDay):
             raise LoopInvariantError("TurnOutcome requires a CalendarDay")
         if not isinstance(self.status, TurnOutcomeStatus):
             raise LoopInvariantError("TurnOutcome requires a TurnOutcomeStatus")
@@ -205,26 +205,24 @@ class TurnRunner:
                         source="loop.inbox",
                         input_id=record.record_id,
                         reply_to=reply_to,
+                        admission_sequence=sequence,
+                        received_at=record.received_at,
                     )
                 )
-                note = to_json_object(
-                    {
-                        "kind": "input_received",
-                        "input_id": record.record_id,
-                        "sequence": sequence,
-                    }
-                )
+                continue
             else:
                 note = to_json_object(
                     {
                         "kind": "environment_event",
                         "event_id": record.record_id,
-                        "sequence": sequence,
+                        "event_kind": record.kind.value,
                         "payload": record.payload,
                     }
                 )
             signals.append(
-                build_trace_phase_note_signal(note, scope=scope, source="loop.inbox")
+                build_trace_phase_note_signal(
+                    note, scope=scope, source="loop.inbox", admission_sequence=sequence,
+                )
             )
         if signals:
             frame = scope.nearest(RunLevel.TURN)
@@ -260,13 +258,13 @@ class TurnRunner:
         self,
         turn_input: str,
         *,
-        business_day: CalendarDay,
+        active_day: CalendarDay,
         scope: RunScope,
         request_id: str = "",
         input_source: str = "",
         inbox: TurnInbox | None = None,
     ) -> TurnOutcome:
-        if not isinstance(business_day, CalendarDay):
+        if not isinstance(active_day, CalendarDay):
             raise self._loop_bridge.from_loop_error(
                 LoopInvariantError("TurnRunner requires a CalendarDay")
             )
@@ -304,13 +302,13 @@ class TurnRunner:
                     "turn_id": turn_id,
                     "request_id": request_id,
                     "input_source": input_source,
-                    "business_day": str(business_day),
+                    "active_day": str(active_day),
                 },
             )
             preparation = await self._run_preparation(
                 turn_id=turn_id,
                 turn_input=turn_input,
-                business_day=business_day,
+                active_day=active_day,
                 scope=turn_scope,
             )
             if preparation is not None:
@@ -717,7 +715,7 @@ class TurnRunner:
                     self._completion_pipeline.run(
                         TurnCompletion(
                             context_completion=context_completion,
-                            business_day=business_day,
+                            active_day=active_day,
                             status=execution_status,
                             output=output,
                             exhausted=exhausted,
@@ -794,7 +792,7 @@ class TurnRunner:
         )
         outcome = TurnOutcome(
             context_completion=context_completion,
-            business_day=business_day,
+            active_day=active_day,
             status=status,
             output=output,
             exhausted=exhausted,
@@ -813,7 +811,7 @@ class TurnRunner:
         *,
         turn_id: str,
         turn_input: str,
-        business_day: CalendarDay,
+        active_day: CalendarDay,
         scope: RunScope,
     ) -> _TurnBoundary | None:
         turn_frame = scope.nearest(RunLevel.TURN)
@@ -824,14 +822,14 @@ class TurnRunner:
         while True:
             try:
                 try:
-                    await self._context.open_segments(business_day.value)
+                    await self._context.open_segments(active_day.value)
                 except ContextError as exc:
                     raise self._context_bridge.from_context_error(exc) from exc
                 signals = await self._preparation_pipeline.prepare(
                     TurnPreparationRequest(
                         turn_id=turn_id,
                         turn_input=turn_input,
-                        business_day=business_day,
+                        active_day=active_day,
                         scope=scope,
                     )
                 )

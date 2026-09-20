@@ -57,7 +57,7 @@ from tinysoul.infra.process import (
     ManagedProcessRequest,
     ManagedProcessRunner,
 )
-from tinysoul.infra.clock import BusinessClock
+from tinysoul.infra.clock import CalendarClock
 from tinysoul.plugins.memory import MemoryLink
 
 
@@ -123,7 +123,7 @@ async def _create(
     *,
     capacity: int = 1,
     inbox_limits: InboxLimits = InboxLimits(),
-    clock: BusinessClock | None = None,
+    clock: CalendarClock | None = None,
 ) -> Agent:
     root = root / "project"
     copy_initialized_project(root)
@@ -136,7 +136,7 @@ async def _create(
             .with_llm_runner(llm)
         )
         if clock is not None:
-            builder.with_business_clock(clock)
+            builder.with_calendar_clock(clock)
         return await builder.build()
 
     return await Agent.assemble(
@@ -214,6 +214,65 @@ async def test_shutdown_joins_inflight_start_and_rejects_cached_commands(
     assert await agent.shutdown() == ()
 
 
+async def test_sdk_completed_facts_are_inspectable_until_daily_archive(tmp_path: Path) -> None:
+    llm = _LLM()
+    llm.release.set()
+    def result(call: ToolCallRecord) -> TaskResult:
+        return TaskResult.success(raw_response=RawResponse("", "fake", "fake", tool_calls=(call,)),
+                                  answer=None, tool_calls=(call,))
+    select = ToolCallRecord("select", "select_action_domains", {"domains": ["core"]}, ToolKind.CONTROL)
+    llm.results.extendleft(reversed((result(select), result(ToolCallRecord(
+        "wait", "core.wait", {"event_kind": "event", "event_id": "wake"}, ToolKind.ACTION
+    )))))
+    clock = _Clock()
+    agent = await _create(tmp_path, llm, clock=clock)
+    await agent.start()
+    try:
+        first = await agent.submit_turn(UserTurnRequest("first request"))
+        async with asyncio.timeout(5):
+            while first.wait_reason is None:
+                assert not first.done
+                await asyncio.sleep(0.01)
+        await agent.publish(EnvironmentEvent(EventKind.EVENT, {"notice": "event-marker"}, "wake"))
+        await agent.append_input(first.turn_id, "additional evidence", input_id="extra")
+        completed = await asyncio.wait_for(first.wait(), 5)
+        assert isinstance(completed.outcome, TurnOutcome) and completed.outcome.answered
+        llm.results.extend((result(select), result(ToolCallRecord(
+            "inspect", "core.context.inspect", {"ref": f"session:turn/{first.turn_id}"}, ToolKind.ACTION
+        )), *_LLM().results))
+        second = await agent.submit_turn(UserTurnRequest("review the preceding work"))
+        review = await asyncio.wait_for(second.wait(), 5)
+        assert isinstance(review.outcome, TurnOutcome) and review.outcome.answered
+        completion = review.outcome.context_completion
+        assert completion is not None
+        inspection = next(item for item in completion.trace.actions if item.call.action_name == "core.context.inspect")
+        assert inspection.result is not None
+        assert "additional evidence" in str(inspection.result.payload)
+        assert "event-marker" in str(inspection.result.payload)
+        # The next decision task receives the full result before pressure may fold it.
+        from tinysoul.runtime import CyclePhase, RunLevel
+        assert any(
+            "event-marker" in str(call.messages)
+            for call in llm.calls
+            if (phase := call.scope.nearest(RunLevel.PHASE)) is not None
+            and phase.name == CyclePhase.PHASE1.value
+        )
+        clock.value = datetime(2026, 9, 16, 12, tzinfo=ZoneInfo("Asia/Shanghai"))
+        llm.results.extend(_LLM().results)
+        following = await agent.submit_turn(UserTurnRequest("new day"))
+        new = await asyncio.wait_for(following.wait(), 5)
+        assert isinstance(new.outcome, TurnOutcome)
+        assert new.outcome.active_day == clock.today()
+        assert f"session:turn/{first.turn_id}" not in str(llm.calls[-3].messages)
+        from tinysoul.plugins.session.records.store import SessionStore
+        archive = next((tmp_path / "project" / "archive").glob("*/session"))
+        archived = SessionStore(root=archive).load_record(f"session:turn/{first.turn_id}")
+        assert any(item.ref.endswith("#input/1") for item in archived.timeline)
+        assert "event-marker" in str(archived.notes)
+    finally:
+        await agent.shutdown()
+
+
 async def test_restart_stopped_agent_and_old_commands_do_not_reopen(
     tmp_path: Path,
 ) -> None:
@@ -242,10 +301,14 @@ async def test_cancel_active_turn_keeps_dispatcher_and_queued_work_alive(
         queued = await agent.submit_turn(UserTurnRequest("two"))
         with pytest.raises(AgentQueueFullError):
             await agent.submit_turn(UserTurnRequest("three"))
+        await agent.append_input(active.turn_id, "accepted before cancellation", input_id="accepted")
         assert await agent.cancel_turn(active.turn_id)
-        assert (
-            await asyncio.wait_for(active.wait(), 5)
-        ).status is TurnOutcomeStatus.CANCELLED
+        cancelled = await asyncio.wait_for(active.wait(), 5)
+        assert cancelled.status is TurnOutcomeStatus.CANCELLED
+        assert isinstance(cancelled.outcome, TurnOutcome)
+        facts = cancelled.outcome.context_completion
+        assert facts is not None and facts.inputs[-1].input_id == "accepted"
+        assert any(item.ref.endswith("#input/accepted") for item in facts.trace.timeline)
         assert active.state is TurnState.FINISHED
         assert agent.state is AgentState.RUNNING
         llm.release.set()
@@ -503,7 +566,7 @@ async def test_memory_reflection_revises_daily_from_fixed_target_sources(
         AgentBuilder(root)
         .with_config_environment(ConfigEnvironment.from_project_root(root, env={}))
         .with_agent_settings(AgentSettings(interactive=False))
-        .with_business_clock(clock)
+        .with_calendar_clock(clock)
         .with_llm_runner(llm)
     )
     agent = await Agent.assemble(builder.build)
@@ -580,7 +643,7 @@ async def test_memory_reflection_revises_daily_from_fixed_target_sources(
                 if task.turn_outcome is not None
             )
             assert turn.status is TurnOutcomeStatus.COMPLETED, turn.failure
-            assert turn.business_day == clock.today()
+            assert turn.active_day == clock.today()
             assert turn.context_completion is not None
             segments = turn.context_completion.segments
             session = segments["session"]
@@ -662,7 +725,7 @@ async def test_question_reply_resumes_same_turn_and_keeps_new_root_queued(
         assert receipt.accepted and not duplicate.accepted
         result = await asyncio.wait_for(active.wait(), 5)
         assert isinstance(result.outcome, TurnOutcome) and result.outcome.answered
-        assert result.outcome.business_day == CalendarDay.parse("2026-09-15")
+        assert result.outcome.active_day == CalendarDay.parse("2026-09-15")
         completion = result.outcome.context_completion
         assert completion is not None
         reply = completion.inputs[-1]
@@ -673,7 +736,7 @@ async def test_question_reply_resumes_same_turn_and_keeps_new_root_queued(
         following = await agent.submit_turn(UserTurnRequest("new day"))
         new_result = await asyncio.wait_for(following.wait(), 5)
         assert isinstance(new_result.outcome, TurnOutcome)
-        assert new_result.outcome.business_day == CalendarDay.parse("2026-09-16")
+        assert new_result.outcome.active_day == CalendarDay.parse("2026-09-16")
         assert tuple((tmp_path / "project" / "archive").glob("*/session/turns/*.json"))
     finally:
         await agent.shutdown()
@@ -791,7 +854,7 @@ async def test_execution_is_stopped_before_queued_next_day_work_can_archive(
             isinstance(next_result.outcome, TurnOutcome)
             and next_result.outcome.answered
         )
-        assert next_result.outcome.business_day == CalendarDay.parse("2026-09-16")
+        assert next_result.outcome.active_day == CalendarDay.parse("2026-09-16")
         assert not processes[0].running()
         assert not tuple((root / "runtime" / "workspace").rglob("old-day.txt"))
         artifacts = tuple((root / "archive").rglob("old-day.txt"))

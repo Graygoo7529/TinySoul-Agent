@@ -98,6 +98,7 @@ class MemoryReflectionContext:
         ref: str | None = None,
         *,
         action: str | None = None,
+        query: str | None = None,
         continuation: str | None = None,
         expected_revision: int | None = None,
     ) -> JsonObject:
@@ -106,6 +107,7 @@ class MemoryReflectionContext:
         return session.inspect(
             ref,
             action=action,
+            query=query,
             continuation=continuation,
             expected_revision=expected_revision,
         )

@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import asyncio
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from hashlib import sha256
 import json
 from math import isfinite
+from time import time
 from uuid import uuid4
 
 from tinysoul.infra.json import JsonObject, to_json_object
@@ -161,10 +162,13 @@ class InboxRecord:
     kind: InboxKind
     payload: JsonObject
     record_id: str = ""
+    received_at: float = field(default_factory=time)
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, InboxKind):
             raise InboxError("Inbox record kind is invalid")
+        if type(self.received_at) not in (int, float) or not isfinite(self.received_at) or self.received_at < 0:
+            raise InboxError("Inbox receipt time must be finite and non-negative")
         try:
             payload = to_json_object(self.payload)
         except (TypeError, ValueError) as exc:

@@ -12,8 +12,8 @@ from tinysoul.infra.time import CalendarDay
 from .time import CalendarDayError
 
 
-class BusinessClock(Protocol):
-    """Provide aware wall time and its configured business day."""
+class CalendarClock(Protocol):
+    """Provide aware wall time and its configured calendar day."""
 
     def now(self) -> datetime:
         ...
@@ -23,8 +23,8 @@ class BusinessClock(Protocol):
 
 
 @dataclass(frozen=True)
-class IanaBusinessClock:
-    """Business clock backed by one explicit IANA timezone."""
+class IanaCalendarClock:
+    """Calendar clock backed by one explicit IANA timezone."""
 
     timezone: str = "Asia/Shanghai"
 
@@ -35,7 +35,7 @@ class IanaBusinessClock:
             ZoneInfo(self.timezone)
         except ZoneInfoNotFoundError as exc:
             raise CalendarDayError(
-                f"Unknown IANA business timezone: {self.timezone}"
+                f"Unknown IANA calendar timezone: {self.timezone}"
             ) from exc
 
     def now(self) -> datetime:

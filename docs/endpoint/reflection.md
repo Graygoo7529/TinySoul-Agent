@@ -13,7 +13,7 @@ Endpoint 的 `/v1/events` 和 WebSocket 会转发 Reflection owner 的生命周�
 
 ```json
 {
-  "business_day": "2026-08-18",
+  "active_day": "2026-08-18",
   "request": {
     "scope": "memory",
     "trigger": "manual",
@@ -26,8 +26,8 @@ Endpoint 的 `/v1/events` 和 WebSocket 会转发 Reflection owner 的生命周�
 }
 ```
 
-顶层 `business_day` 是维护请求的当前执行日；`request.target_day` 是 Memory 目标日。维护任务
-启动的 `turn.started.business_day` 同样是执行日，历史 Session、Memory 与归档 Workspace 独立绑定目标日。
+顶层 `active_day` 是维护请求的当前执行日；`request.target_day` 是 Memory 目标日。维护任务
+启动的 `turn.started.active_day` 同样是执行日，历史 Session、Memory 与归档 Workspace 独立绑定目标日。
 Reflection 不写入 User Session。`reflection.completed` 使用 `request_id` 和同一
-`business_day`，允许历史恢复在缺少新版 started 字段时补全执行日。`request_id` 是两类事件与
+`active_day`，允许历史恢复在缺少新版 started 字段时补全执行日。`request_id` 是两类事件与
 `turn.started.request_id` 的关联键。

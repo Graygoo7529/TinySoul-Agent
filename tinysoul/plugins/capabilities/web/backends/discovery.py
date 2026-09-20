@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import socket
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -21,6 +22,7 @@ from tinysoul.infra import JsonObject, to_json_object
 
 from ..errors import WebProcessingError
 from .network import (
+    AddressResolver,
     FetchedPage,
     fetch_public_page,
     fetch_public_robots,
@@ -142,10 +144,11 @@ async def discover_pages(
     *,
     page_fetcher: PageFetcher = fetch_public_page,
     robots_fetcher: RobotsFetcher = fetch_public_robots,
+    resolver: AddressResolver = socket.getaddrinfo,
 ) -> JsonObject:
     """Return one bounded discovery graph without preserving page bodies."""
 
-    start_url = validate_public_https_url(request.start_url)
+    start_url = validate_public_https_url(request.start_url, resolver=resolver)
     origin = _origin(start_url)
     robots_text = await asyncio.to_thread(
         robots_fetcher,

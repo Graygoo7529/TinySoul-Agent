@@ -316,7 +316,7 @@ async def test_workspace_turn_preparation_projects_manifest_into_context(
         TurnPreparationRequest(
             turn_id=turn_id,
             turn_input="hello",
-            business_day=DAY,
+            active_day=DAY,
             scope=scope,
         )
     ):

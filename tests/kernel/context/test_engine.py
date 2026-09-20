@@ -93,7 +93,7 @@ class TextSource:
         }
     )
 
-    async def catalog(self, business_day: date) -> BackgroundCatalog:
+    async def catalog(self, active_day: date) -> BackgroundCatalog:
         return BackgroundCatalog(
             owner="home",
             default_links=("home:agent@AGENT",),
@@ -101,7 +101,7 @@ class TextSource:
             evictable_default_links=("home:agent@AGENT",),
         )
 
-    async def load(self, link: str, business_day: date) -> str:
+    async def load(self, link: str, active_day: date) -> str:
         return self.texts[link]
 
 
@@ -143,7 +143,7 @@ async def test_background_prepare_failure_installs_neither_catalog_nor_entries()
     None
 ):
     class Provider:
-        async def catalog(self, business_day: date) -> BackgroundCatalog:
+        async def catalog(self, active_day: date) -> BackgroundCatalog:
             return BackgroundCatalog(
                 owner="home",
                 loadable_links=("home:agent@AGENT",),
@@ -155,7 +155,7 @@ async def test_background_prepare_failure_installs_neither_catalog_nor_entries()
                 ),
             )
 
-        async def load(self, link: str, business_day: date) -> str:
+        async def load(self, link: str, active_day: date) -> str:
             return ""  # A broken owner response after the catalog was prepared.
 
     engine = (
@@ -179,14 +179,14 @@ async def test_cancelled_background_prepare_joins_read_without_installing_view()
     loop = asyncio.get_running_loop()
 
     class Provider:
-        async def catalog(self, business_day: date) -> BackgroundCatalog:
+        async def catalog(self, active_day: date) -> BackgroundCatalog:
             return BackgroundCatalog(
                 owner="home",
                 loadable_links=("home:agent@AGENT",),
                 default_links=("home:agent@AGENT",),
             )
 
-        async def load(self, link: str, business_day: date) -> str:
+        async def load(self, link: str, active_day: date) -> str:
             loop.call_soon_threadsafe(entered.set)
             operations = JoinedOperations()
             assert await operations.run(lambda: release.wait(timeout=5))
@@ -221,12 +221,12 @@ async def test_background_batch_retry_keeps_new_input_outside_prepared_batch() -
     class Loader:
         calls = 0
 
-        async def catalog(self, business_day: date) -> BackgroundCatalog:
+        async def catalog(self, active_day: date) -> BackgroundCatalog:
             return BackgroundCatalog(
                 owner="home", loadable_links=("home:skills@guide",)
             )
 
-        async def load(self, link: str, business_day: date) -> str:
+        async def load(self, link: str, active_day: date) -> str:
             self.calls += 1
             if self.calls == 1:
                 loop.call_soon_threadsafe(entered.set)
@@ -833,21 +833,23 @@ async def test_compress_via_engine() -> None:
     assert report.changed is True
     assert report.compacted_count == 3
     assert engine.trace_kinds() == (TraceKind.PHASE_NOTE,) * 3
-    nodes = (await engine.inspect(f"turn:trace@{turn_id}"))["nodes"]
+    nodes = (await engine.inspect(f"turn:trace@{turn_id}"))["items"]
     assert isinstance(nodes, list) and nodes
     root = nodes[0]
     assert isinstance(root, dict)
     ref = root["ref"]
     assert isinstance(ref, str)
     page = await engine.inspect(ref)
-    assert page["kind"] == "context_trace_leaf"
+    assert page["kind"] == "context_trace"
     assert page["ref"] == ref
-    interactions = page["interactions"]
+    interactions = page["items"]
     assert isinstance(interactions, list)
     assert len(interactions) == 3
     for item in interactions:
         assert isinstance(item, dict)
-        assert item["kind"] == "phase_note"
+        assert item["kind"] == "child"
+        detail = await engine.inspect(str(item["ref"]))
+        assert "phase_note" in str(detail)
     assert "source" not in page
     assert "cursor" not in page
 
@@ -872,7 +874,7 @@ async def test_abort_turn_discards_active_state() -> None:
 
 async def test_provider_catalog_metadata_is_automatic_background() -> None:
     class _Provider:
-        async def catalog(self, business_day: date) -> BackgroundCatalog:
+        async def catalog(self, active_day: date) -> BackgroundCatalog:
             return BackgroundCatalog(
                 owner="home",
                 loadable_links=("home:skills@review",),
@@ -885,7 +887,7 @@ async def test_provider_catalog_metadata_is_automatic_background() -> None:
                 ),
             )
 
-        async def load(self, link: str, business_day: date) -> str:
+        async def load(self, link: str, active_day: date) -> str:
             return "skill body"
 
     engine = (

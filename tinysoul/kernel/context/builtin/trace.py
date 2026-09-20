@@ -10,7 +10,8 @@ from uuid import uuid4
 from tinysoul.kernel.action.call import ActionCall, ExecutionFact, ExecutionState
 from tinysoul.kernel.action.result import ActionResult
 
-from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
+from tinysoul.infra.json import JsonObject, JsonValue, dumps_json, to_json_object
+from tinysoul.llm.protocol.tools import ToolKind
 from tinysoul.llm.protocol.messages import (
     AssistantMessage,
     JsonPart,
@@ -37,6 +38,39 @@ class TraceKind(StrEnum):
     PHASE_NOTE = "phase_note"
 
 
+class TraceFactKind(StrEnum):
+    """Owner-observed order, never a claim about external causal time."""
+
+    INPUT_INSTALLED = "input_installed"
+    INPUT_VISIBLE = "input_visible"
+    ACTION_REQUESTED = "action_requested"
+    ACTION_STARTED = "action_started"
+    ACTION_SETTLED = "action_settled"
+    ACTION_CANCELLED = "action_cancelled"
+    ACTION_NOT_EXECUTED = "action_not_executed"
+    ACTION_UNKNOWN = "action_unknown"
+    ENTRY = "entry"
+
+
+@dataclass(frozen=True)
+class TraceFact:
+    sequence: int
+    kind: TraceFactKind
+    ref: str
+    cycle_id: str = ""
+    admission_sequence: int | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.sequence) is not int or self.sequence <= 0:
+            raise ContextInvariantError("Trace fact sequence must be positive")
+        if not isinstance(self.kind, TraceFactKind) or not self.ref:
+            raise ContextInvariantError("Trace fact requires a kind and reference")
+        if self.admission_sequence is not None and (
+            type(self.admission_sequence) is not int or self.admission_sequence <= 0
+        ):
+            raise ContextInvariantError("Admission sequence must be positive")
+
+
 class TraceHeapNodeKind(StrEnum):
     """Kinds of immutable nodes in the compressed trace hierarchy."""
 
@@ -55,6 +89,7 @@ class TraceEntry:
     phase: CyclePhase | None = None
     visible_overlay: Message | None = None
     origin_refs: tuple[str, ...] = field(default_factory=tuple)
+    admission_sequence: int | None = None
 
     def __post_init__(self) -> None:
         if not self.entry_id:
@@ -73,6 +108,9 @@ class TraceEntry:
     @property
     def visible_message(self) -> Message:
         return self.visible_overlay or self.message
+
+    def to_semantic(self) -> JsonObject:
+        return _semantic_trace_entry(self)
 
 
 @dataclass(frozen=True)
@@ -173,10 +211,16 @@ class SealedTurnTrace:
     turn_id: str
     entries: tuple[TraceEntry, ...]
     actions: tuple[TraceAction, ...] = field(default=(), repr=False)
+    timeline: tuple[TraceFact, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.turn_id:
             raise ContextInvariantError("SealedTurnTrace.turn_id must be non-empty")
+        if any(
+            not isinstance(item, TraceFact) or item.sequence != index
+            for index, item in enumerate(self.timeline, start=1)
+        ):
+            raise ContextInvariantError("Sealed Trace requires ordered fact references")
         if any(not isinstance(item, TraceAction) for item in self.actions):
             raise ContextInvariantError("Sealed Trace requires typed Action facts")
         identities = {(item.cycle_id, item.call.sequence) for item in self.actions}
@@ -221,6 +265,39 @@ class TurnTraceHeap:
         self._nodes: dict[str, TraceHeapNode] = {}
         self._root_ids: list[str] = []
         self._actions: dict[tuple[str, int], TraceAction] = {}
+        self._timeline: list[TraceFact] = []
+        self._protected_overlays: set[str] = set()
+
+    def record_fact(
+        self,
+        kind: TraceFactKind,
+        ref: str,
+        *,
+        cycle_id: str = "",
+        admission_sequence: int | None = None,
+    ) -> None:
+        self._timeline.append(TraceFact(
+            len(self._timeline) + 1, kind, ref, cycle_id, admission_sequence
+        ))
+
+    def timeline(self) -> tuple[TraceFact, ...]:
+        return tuple(self._timeline)
+
+    def action_ref(self, cycle_id: str, sequence: int) -> str:
+        occurrence = tuple(self._actions).index((cycle_id, sequence))
+        return f"{self.head_ref()}#action/{occurrence}"
+
+    def entry_ref(self, entry_id: str) -> str:
+        return f"{self.head_ref()}#entry/{entry_id}"
+
+    def input_ref(self, input_id: str) -> str:
+        return f"{self.head_ref()}#input/{input_id}"
+
+    def mark_consumed(self, messages: tuple[Message, ...]) -> None:
+        """Release only overlays present in a completed decision-model request."""
+        for entry in self.hot_entries():
+            if entry.visible_overlay is not None and entry.visible_overlay in messages:
+                self._protected_overlays.discard(entry.entry_id)
 
     def register_action_calls(
         self, calls: tuple[ActionCall, ...], *, cycle_id: str
@@ -233,6 +310,9 @@ class TurnTraceHeap:
                     raise ContextInvariantError("Trace Action call identity changed")
                 continue
             self._actions[key] = TraceAction(cycle_id=cycle_id, call=call)
+            self.record_fact(
+                TraceFactKind.ACTION_REQUESTED, self.action_ref(*key), cycle_id=cycle_id
+            )
 
     def record_action_result(self, result: ActionResult, *, cycle_id: str) -> None:
         key = (cycle_id, result.sequence)
@@ -252,6 +332,9 @@ class TurnTraceHeap:
         if previous.state not in {ExecutionState.REQUESTED, ExecutionState.STARTED}:
             raise ContextInvariantError("Settled Action facts cannot change")
         self._actions[key] = candidate
+        self.record_fact(
+            TraceFactKind.ACTION_SETTLED, self.action_ref(*key), cycle_id=cycle_id
+        )
 
     def record_execution(self, fact: ExecutionFact) -> None:
         """Accept execution facts independently of model-view preparation."""
@@ -286,6 +369,11 @@ class TurnTraceHeap:
         if fact.state not in transitions.get(previous.state, set()):
             raise ContextInvariantError("Settled execution facts cannot be changed")
         self._actions[key] = candidate
+        if fact.state is not ExecutionState.REQUESTED:
+            self.record_fact(
+                TraceFactKind(f"action_{fact.state.value}"),
+                self.action_ref(*key), cycle_id=key[0],
+            )
 
     @property
     def turn_id(self) -> str:
@@ -338,6 +426,7 @@ class TurnTraceHeap:
         *,
         cycle_id: str = "",
         phase: CyclePhase | None = None,
+        admission_sequence: int | None = None,
     ) -> TraceEntry:
         message = (
             UserMessage.from_text(note, label="phase_note")
@@ -345,7 +434,8 @@ class TurnTraceHeap:
             else UserMessage.from_json(note, label="phase_note")
         )
         return self._append(
-            TraceKind.PHASE_NOTE, message, cycle_id=cycle_id, phase=phase
+            TraceKind.PHASE_NOTE, message, cycle_id=cycle_id, phase=phase,
+            admission_sequence=admission_sequence,
         )
 
     def compact(self, *, required_chars: int) -> TraceCompactionReport:
@@ -380,7 +470,7 @@ class TurnTraceHeap:
         folded = 0
         updated: list[TraceEntry] = []
         for entry in self._entries:
-            if entry.visible_overlay is None:
+            if entry.visible_overlay is None or entry.entry_id in self._protected_overlays:
                 updated.append(entry)
                 continue
             updated.append(replace(entry, visible_overlay=None))
@@ -416,6 +506,27 @@ class TurnTraceHeap:
         by_id = {entry.entry_id: entry for entry in self._entries}
         return tuple(by_id[entry_id] for entry_id in node.entry_ids)
 
+    def entries_for_ref(self, ref: str) -> tuple[TraceEntry, ...]:
+        if ref == self.head_ref():
+            return self.entries()
+        prefix = f"{self.head_ref()}#entry/"
+        if ref.startswith(prefix):
+            entries = tuple(item for item in self._entries if item.entry_id == ref[len(prefix):])
+            if entries:
+                return entries
+            raise ContextInspectRequestError(ContextInspectFailureReason.UNKNOWN_REF,
+                                             "Unknown trace entry", constraint={"ref": ref})
+        node = self._node_for_ref(ref)
+        if node.kind is TraceHeapNodeKind.LEAF:
+            return self.leaf_entries(ref)
+        pending = list(node.child_ids)
+        ids: set[str] = set()
+        while pending:
+            child = self._nodes[pending.pop()]
+            ids.update(child.entry_ids)
+            pending.extend(child.child_ids)
+        return tuple(entry for entry in self._entries if entry.entry_id in ids)
+
     def render_messages(self) -> tuple[Message, ...]:
         messages: list[Message] = []
         if self._root_ids:
@@ -432,17 +543,18 @@ class TurnTraceHeap:
         return sum(_message_chars(message) for message in self.render_messages())
 
     def seal(self) -> SealedTurnTrace:
+        for key, item in tuple(self._actions.items()):
+            if item.state is ExecutionState.REQUESTED:
+                self._actions[key] = replace(item, state=ExecutionState.NOT_EXECUTED)
+                self.record_fact(
+                    TraceFactKind.ACTION_NOT_EXECUTED,
+                    self.action_ref(*key), cycle_id=key[0],
+                )
         return SealedTurnTrace(
             turn_id=self._turn_id,
             entries=self.entries(),
-            actions=tuple(
-                (
-                    replace(item, state=ExecutionState.NOT_EXECUTED)
-                    if item.state is ExecutionState.REQUESTED
-                    else item
-                )
-                for item in self._actions.values()
-            ),
+            actions=tuple(self._actions.values()),
+            timeline=self.timeline(),
         )
 
     def _append(
@@ -454,6 +566,7 @@ class TurnTraceHeap:
         phase: CyclePhase | None = None,
         visible_overlay: Message | None = None,
         origin_refs: tuple[str, ...] = (),
+        admission_sequence: int | None = None,
     ) -> TraceEntry:
         entry = TraceEntry(
             entry_id=_entry_id(),
@@ -463,9 +576,12 @@ class TurnTraceHeap:
             phase=phase,
             visible_overlay=visible_overlay,
             origin_refs=origin_refs,
+            admission_sequence=admission_sequence,
         )
         self._entries.append(entry)
         self._hot_entry_ids.append(entry.entry_id)
+        if visible_overlay is not None:
+            self._protected_overlays.add(entry.entry_id)
         return entry
 
     def _take_compaction_entries(
@@ -492,7 +608,7 @@ class TurnTraceHeap:
                 group_end += 1
                 if not cycle_id:
                     break
-            if group_end > limit:
+            if group_end > limit or any(item in self._protected_overlays for item in group):
                 break
             index = group_end
             selected_ids.extend(group)
@@ -596,14 +712,15 @@ class PendingInputs:
         self._inputs: list[PendingInput] = []
 
     def add(
-        self, text: str, *, merged: bool = False, input_id: str = "", reply_to: str = ""
+        self, text: str, *, merged: bool = False, input_id: str = "", reply_to: str = "",
+        received_at: float | None = None,
     ) -> "PendingInput":
         if not text:
             raise ContextContractError("Pending input text must be non-empty")
         item = PendingInput(
             input_id=input_id or f"input_{uuid4().hex}",
             text=text,
-            received_at=time(),
+            received_at=time() if received_at is None else received_at,
             merged=merged,
             reply_to=reply_to,
         )
@@ -655,6 +772,72 @@ class PendingInput:
 
 def _entry_id() -> str:
     return f"trace_{uuid4().hex[:8]}"
+
+
+def _semantic_trace_entry(entry: TraceEntry) -> JsonObject:
+    message = entry.message
+    content = _semantic_parts(message)
+    if isinstance(message, AssistantMessage):
+        value: JsonObject = {"kind": "decision"}
+        if content:
+            value["content"] = content[0] if len(content) == 1 else content
+        actions: list[JsonValue] = [
+            to_json_object({"action": call.name, "request": call.arguments})
+            for call in message.tool_calls
+            if call.kind is ToolKind.ACTION
+        ]
+        controls: list[JsonValue] = [
+            to_json_object({"control": call.name, "request": call.arguments})
+            for call in message.tool_calls
+            if call.kind is ToolKind.CONTROL
+        ]
+        if actions:
+            value["actions"] = actions
+        if controls:
+            value["controls"] = controls
+        return to_json_object(value)
+    if isinstance(message, ToolResultMessage):
+        value = {
+            "kind": "action_result",
+            "action": message.tool_name,
+            "outcome": message.status.value,
+        }
+        envelope = (
+            content[0] if len(content) == 1 and isinstance(content[0], dict) else None
+        )
+        if envelope is not None:
+            status = envelope.get("status")
+            if isinstance(status, str) and status:
+                value["outcome"] = status
+            payload = envelope.get("payload")
+            if isinstance(payload, dict) and payload:
+                value["result"] = payload
+            failure = envelope.get("failure")
+            if isinstance(failure, dict) and failure:
+                value["failure"] = {
+                    key: failure[key]
+                    for key in ("reason", "disposition", "feedback", "constraint")
+                    if key in failure
+                }
+        elif content:
+            value["result"] = content[0] if len(content) == 1 else content
+        if entry.origin_refs:
+            value["references"] = list(entry.origin_refs)
+        return to_json_object(value)
+    value = {"kind": "phase_note"}
+    if content:
+        value["content"] = content[0] if len(content) == 1 else content
+    return to_json_object(value)
+
+
+def _semantic_parts(message: Message) -> list[JsonValue]:
+    values: list[JsonValue] = []
+    for part in message.parts:
+        if isinstance(part, TextPart):
+            values.append(part.text)
+        elif isinstance(part, JsonPart):
+            values.append(part.value)
+    return values
 
 
 def _node_id() -> str:

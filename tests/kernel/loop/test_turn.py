@@ -94,7 +94,7 @@ async def test_task_cancellation_seals_context_and_runs_completion_before_propag
         completion_pipeline=TurnCompletionPipeline((Recorder(),)),
     )
     running = asyncio.create_task(
-        runner.run("question", business_day=DAY, scope=_agent_scope())
+        runner.run("question", active_day=DAY, scope=_agent_scope())
     )
     async with asyncio.timeout(2.0):
         await entered.wait()
@@ -131,7 +131,7 @@ async def test_unwinding_turn_boundary_still_seals_and_records(
         settings=TurnSettings(),
         completion_pipeline=TurnCompletionPipeline(recorder=recorder),
     )
-    result = await runner.run("question", business_day=DAY, scope=scope)
+    result = await runner.run("question", active_day=DAY, scope=scope)
     assert not context.turn_active
     assert runner.active_scope is None
     assert len(recorder.completions) == 1
@@ -407,7 +407,7 @@ async def test_turn_runner_captures_end_turn_failure_and_aborts_context() -> Non
         settings=TurnSettings(max_cycles=1),
     )
 
-    outcome = await runner.run("hello", business_day=DAY, scope=_agent_scope())
+    outcome = await runner.run("hello", active_day=DAY, scope=_agent_scope())
 
     assert outcome.context_completion is None
     assert context.turn_active is False
@@ -432,7 +432,7 @@ async def test_turn_runner_keeps_existing_program_transfer_when_end_turn_fails()
         settings=TurnSettings(max_cycles=1),
     )
 
-    outcome = await runner.run("hello", business_day=DAY, scope=_agent_scope())
+    outcome = await runner.run("hello", active_day=DAY, scope=_agent_scope())
 
     assert context.turn_active is False
     assert outcome.transfer is not None
@@ -460,7 +460,7 @@ async def test_turn_completion_pipeline_receives_summary_and_output() -> None:
         observations=observations,
     )
 
-    outcome = await runner.run("hello", business_day=DAY, scope=_agent_scope())
+    outcome = await runner.run("hello", active_day=DAY, scope=_agent_scope())
 
     assert outcome.answered is True
     assert outcome.transfer is None
@@ -470,7 +470,7 @@ async def test_turn_completion_pipeline_receives_summary_and_output() -> None:
     assert completion.context_completion.trace.entries == ()
     assert completion.output is not None
     assert completion.output.text == "done"
-    assert completion.business_day == DAY
+    assert completion.active_day == DAY
     output_event = next(
         event for event in observations.events if event.name == "turn.output"
     )
@@ -509,7 +509,7 @@ async def test_segment_close_diagnostics_do_not_replace_recorded_answer() -> Non
         completion_pipeline=TurnCompletionPipeline((recorder,)),
         observations=observations,
     )
-    outcome = await runner.run("hello", business_day=DAY, scope=_agent_scope())
+    outcome = await runner.run("hello", active_day=DAY, scope=_agent_scope())
     assert outcome.answered
     assert len(recorder.completions) == 1
     assert recorder.completions[0].context_completion.segments["workspace"] == {
@@ -560,7 +560,7 @@ async def test_task_cancellation_joins_segment_close_before_releasing_the_turn()
         completion_pipeline=TurnCompletionPipeline((recorder,)),
     )
     task = asyncio.create_task(
-        runner.run("hello", business_day=DAY, scope=_agent_scope())
+        runner.run("hello", active_day=DAY, scope=_agent_scope())
     )
     try:
         await asyncio.wait_for(entered.wait(), timeout=2)
@@ -594,7 +594,7 @@ async def test_turn_preparation_retry_replays_only_preparation() -> None:
         preparation_pipeline=TurnPreparationPipeline((preparation,)),
     )
 
-    outcome = await runner.run("hello", business_day=DAY, scope=_agent_scope())
+    outcome = await runner.run("hello", active_day=DAY, scope=_agent_scope())
 
     assert preparation.calls == 2
     assert cycles.calls == 1
@@ -623,7 +623,7 @@ async def test_turn_completion_failure_reports_actual_failure_not_output_control
         observations=observations,
     )
 
-    outcome = await runner.run("hello", business_day=DAY, scope=_agent_scope())
+    outcome = await runner.run("hello", active_day=DAY, scope=_agent_scope())
 
     assert outcome.status is TurnOutcomeStatus.FAILED
     assert outcome.failure is not None
@@ -655,7 +655,7 @@ async def test_failed_finish_is_recorded_before_cleanup_diagnostics_are_reported
         activity_controller=_FailingTurnActivity(remaining=0),
         observations=observations,
     )
-    result = await runner.run("question", business_day=DAY, scope=_agent_scope())
+    result = await runner.run("question", active_day=DAY, scope=_agent_scope())
     assert result.context_completion is not None
     ref = f"session:turn/{result.context_completion.turn_id}"
     stored = SessionStore(root=session.root).load_record(ref)
@@ -703,7 +703,7 @@ async def test_repeated_cancellation_joins_session_commit_once(
         ),
     )
     running = asyncio.create_task(
-        runner.run("question", business_day=DAY, scope=_agent_scope())
+        runner.run("question", active_day=DAY, scope=_agent_scope())
     )
     try:
         await asyncio.wait_for(entered.wait(), timeout=2)
@@ -750,7 +750,7 @@ async def test_session_write_failure_is_reported_without_replaying_finish(
             recorder=SessionTurnCompletionHandler(session),
         ),
     )
-    result = await runner.run("question", business_day=DAY, scope=_agent_scope())
+    result = await runner.run("question", active_day=DAY, scope=_agent_scope())
     assert result.status is TurnOutcomeStatus.FAILED
     assert len(previous.completions) == 1
     assert attempted == ["record"]
@@ -770,7 +770,7 @@ async def test_turn_cycle_limit_reports_exhausted_at_normal_level() -> None:
         observations=observations,
     )
 
-    outcome = await runner.run("hello", business_day=DAY, scope=_agent_scope())
+    outcome = await runner.run("hello", active_day=DAY, scope=_agent_scope())
 
     assert outcome.status is TurnOutcomeStatus.EXHAUSTED
     exhausted = next(
@@ -793,7 +793,7 @@ async def test_repeated_phase_failure_carries_accumulated_feedback_until_cycle_l
         observations=observations,
     )
 
-    outcome = await runner.run("hello", business_day=DAY, scope=_agent_scope())
+    outcome = await runner.run("hello", active_day=DAY, scope=_agent_scope())
 
     assert outcome.status is TurnOutcomeStatus.EXHAUSTED
     assert outcome.failure is None
@@ -837,7 +837,7 @@ async def test_turn_completion_uses_one_lifecycle_event_without_output_event() -
         observations=observations,
     )
 
-    outcome = await runner.run("maintain home", business_day=DAY, scope=_agent_scope())
+    outcome = await runner.run("maintain home", active_day=DAY, scope=_agent_scope())
 
     assert outcome.status is TurnOutcomeStatus.COMPLETED
     completed = [
@@ -861,7 +861,7 @@ async def test_turn_activity_cannot_extend_cycle_budget_and_is_cleaned() -> None
         activity_controller=activity,
     )
 
-    outcome = await runner.run("hello", business_day=DAY, scope=_agent_scope())
+    outcome = await runner.run("hello", active_day=DAY, scope=_agent_scope())
 
     assert outcome.status is TurnOutcomeStatus.EXHAUSTED
     assert cycles.calls == 1
@@ -881,7 +881,7 @@ async def test_turn_activity_cleanup_failure_does_not_replace_turn_outcome() -> 
         observations=observations,
     )
 
-    outcome = await runner.run("hello", business_day=DAY, scope=_agent_scope())
+    outcome = await runner.run("hello", active_day=DAY, scope=_agent_scope())
 
     assert outcome.status is TurnOutcomeStatus.EXHAUSTED
     assert activity.cleanup_calls == 1
@@ -925,7 +925,7 @@ async def test_required_activity_failure_retains_agent_end_and_original_failure(
         settings=TurnSettings(max_cycles=1),
         activity_controller=Activity(remaining=1),
     )
-    outcome = await runner.run("hello", business_day=DAY, scope=_agent_scope())
+    outcome = await runner.run("hello", active_day=DAY, scope=_agent_scope())
     assert outcome.status is TurnOutcomeStatus.FAILED
     assert outcome.failure is not None and outcome.failure.kind == "test.failed"
     assert (
@@ -949,7 +949,7 @@ async def test_turn_preparation_propagates_program_transfer_without_running_cycl
         preparation_pipeline=TurnPreparationPipeline((_EndProgramPreparation(),)),
     )
 
-    outcome = await runner.run("hello", business_day=DAY, scope=_agent_scope())
+    outcome = await runner.run("hello", active_day=DAY, scope=_agent_scope())
 
     assert cycles.calls == 0
     assert outcome.context_completion is not None
@@ -988,7 +988,7 @@ async def test_budget_suspend_preserves_next_cycle_and_ignores_progress_as_grant
         settings=TurnSettings(max_cycles=1),
     )
     task = asyncio.create_task(
-        runner.run("question", business_day=DAY, scope=_agent_scope(), inbox=inbox)
+        runner.run("question", active_day=DAY, scope=_agent_scope(), inbox=inbox)
     )
     async with asyncio.timeout(3):
         while inbox.wait_reason is not WaitReason.BUDGET:
@@ -1031,7 +1031,7 @@ async def test_question_timeout_records_waiting_terminal_without_user_answer() -
         settings=TurnSettings(max_cycles=1),
     )
     result = await runner.run(
-        "question", business_day=DAY, scope=_agent_scope(), inbox=inbox
+        "question", active_day=DAY, scope=_agent_scope(), inbox=inbox
     )
     assert result.status is TurnOutcomeStatus.AWAITING_USER
     assert result.output is None and not context.turn_active

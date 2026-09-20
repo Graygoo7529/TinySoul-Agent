@@ -6,7 +6,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from collections.abc import AsyncIterator
 from typing import Protocol
 
-from tinysoul.infra.clock import BusinessClock
+from tinysoul.infra.clock import CalendarClock
 from tinysoul.infra.concurrency import AsyncReadWriteLock, JoinedOperations
 from tinysoul.infra.time import CalendarDay
 from tinysoul.plugins.archive import DailyLifecycleCoordinator, DailyTransitionOutcome
@@ -37,7 +37,7 @@ class AgentDayCoordinator:
         self,
         archive: DailyLifecycleCoordinator,
         memory: MemoryEngine,
-        clock: BusinessClock,
+        clock: CalendarClock,
         *,
         active_day: CalendarDay | None = None,
     ) -> None:

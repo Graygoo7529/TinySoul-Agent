@@ -42,7 +42,7 @@ async def test_reflection_cancel_retains_target_and_owner_completion(
 ) -> None:
     turn = TurnOutcome(
         context_completion=None,
-        business_day=TODAY,
+        active_day=TODAY,
         status=status,
         completion=(
             {"summary": "persisted before cancellation"}
@@ -64,9 +64,9 @@ async def test_reflection_cancel_retains_target_and_owner_completion(
         target_day=DAY_TWO,
     )
     with pytest.raises(ReflectionExecutionCancelled) as cancelled:
-        await engine.run(request, business_day=TODAY)
+        await engine.run(request, active_day=TODAY)
     outcome = cancelled.value.outcome
-    assert outcome.request_id == request.request_id and outcome.business_day == TODAY
+    assert outcome.request_id == request.request_id and outcome.active_day == TODAY
     task = outcome.tasks[0]
     assert task.kind is ReflectionTaskKind.MEMORY and task.target_day == DAY_TWO
     assert task.turn_outcome is turn and task.status.value == status.value
@@ -153,7 +153,7 @@ async def test_daily_reflection_processes_only_previous_day_and_retains_backlog(
             scope=ReflectionScope.DAILY,
             trigger=trigger,
         ),
-        business_day=TODAY,
+        active_day=TODAY,
     )
 
     assert [task.kind for task in outcome.tasks] == [
@@ -179,7 +179,7 @@ async def test_daily_reflection_skips_absent_previous_day_and_retains_backlog(
             scope=ReflectionScope.DAILY,
             trigger=ReflectionTrigger.SCHEDULED,
         ),
-        business_day=TODAY,
+        active_day=TODAY,
     )
 
     memory_outcome = outcome.tasks[-1]
@@ -204,7 +204,7 @@ async def test_failed_memory_day_remains_available_across_restart(
             trigger=ReflectionTrigger.MANUAL,
             target_day=DAY_ONE,
         ),
-        business_day=TODAY,
+        active_day=TODAY,
     )
 
     assert outcome.tasks[0].status is ReflectionTaskStatus.FAILED
@@ -245,7 +245,7 @@ async def test_manual_and_scheduled_home_requests_use_the_same_task_path(
                     scope=ReflectionScope.HOME,
                     trigger=trigger,
                 ),
-                business_day=TODAY,
+                active_day=TODAY,
             )
         )
 
@@ -272,7 +272,7 @@ async def test_explicit_memory_reflection_does_not_require_pending_entry(
             trigger=ReflectionTrigger.MANUAL,
             target_day=DAY_ONE,
         ),
-        business_day=TODAY,
+        active_day=TODAY,
     )
 
     assert memory.ran == [DAY_ONE]
@@ -298,14 +298,14 @@ async def test_started_observation_distinguishes_execution_day_from_memory_targe
             source="endpoint",
             request_id="reflection_request",
         ),
-        business_day=TODAY,
+        active_day=TODAY,
     )
 
     started = next(
         event for event in observations.events if event.name == "reflection.started"
     )
     assert started.payload == {
-        "business_day": str(TODAY),
+        "active_day": str(TODAY),
         "request": {
             "scope": "memory",
             "trigger": "manual",
@@ -344,7 +344,7 @@ async def test_unknown_task_exception_is_not_downgraded(tmp_path: Path) -> None:
                 scope=ReflectionScope.HOME,
                 trigger=ReflectionTrigger.MANUAL,
             ),
-            business_day=TODAY,
+            active_day=TODAY,
         )
 
 
@@ -458,9 +458,9 @@ class _Home:
         return (1, 0) if self.pending else (0, 0)
 
     async def run(
-        self, *, business_day, scope, request_id, inbox=None, instructions=""
+        self, *, active_day, scope, request_id, inbox=None, instructions=""
     ):
-        del business_day, scope, request_id
+        del active_day, scope, request_id
         if self.unexpected_failure:
             raise AttributeError("unexpected task bug")
         self.runs += 1
@@ -496,7 +496,7 @@ class _Memory:
     async def run(
         self,
         *,
-        business_day,
+        active_day,
         target_day,
         archive,
         scope,
@@ -504,7 +504,7 @@ class _Memory:
         inbox=None,
         instructions="",
     ):
-        del business_day, archive, scope, request_id
+        del active_day, archive, scope, request_id
         self.ran.append(target_day)
         if target_day in self.fail_days:
             raise MemoryIOError("known owner failure")
