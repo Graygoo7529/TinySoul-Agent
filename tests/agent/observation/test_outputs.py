@@ -102,6 +102,19 @@ def test_observation_router_filters_each_sink_independently() -> None:
     ]
 
 
+def test_removing_route_keeps_failure_isolation_on_the_same_sink() -> None:
+    first, failing, last = _RecordingSink(), _FailingSink(), _RecordingSink()
+    routes = tuple(ObservationRoute(sink, ObservationLevel.NORMAL) for sink in (first, failing, last))
+    router = ObservationRouter(routes=routes)
+    event = ObservationEvent(name="test", source="test", level=ObservationLevel.NORMAL)
+    router.emit(event)
+    router.remove_route(routes[0])
+    router.emit(event)
+    assert failing.calls == 1
+    assert first.events == [event]
+    assert last.events == [event, event]
+
+
 def test_observation_router_broadcasts_command_and_reflection_feedback() -> None:
     terminal = _RecordingSink()
     endpoint = _RecordingSink()

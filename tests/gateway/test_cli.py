@@ -185,12 +185,24 @@ def test_cli_start_attaches_terminal_and_model_endpoint(
     monkeypatch.setattr(cli, "AgentBuilder", lambda root: builder)
     monkeypatch.setattr(cli, "ProjectInstanceLease", _FakeLease)
 
-    def mount(assembly, settings, *, ready):
-        assert assembly is app
-        builder.endpoint_settings = settings
-        builder.endpoint_ready = ready
+    class FakeEndpointHost:
+        def __init__(self, *, settings, ready):
+            builder.endpoint_settings = settings
+            builder.endpoint_ready = ready
 
-    monkeypatch.setattr(cli, "mount_endpoint", mount)
+        def bind(self, assembly):
+            assert assembly is app
+
+        def set_lifecycle(self, lifecycle):
+            pass
+
+        async def start(self):
+            pass
+
+        async def stop(self):
+            pass
+
+    monkeypatch.setattr(cli, "EndpointHost", FakeEndpointHost)
 
     result = cli.main(
         [

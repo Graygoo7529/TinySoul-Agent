@@ -20,6 +20,8 @@ Agent.services 按 Facade 类型提供当前 User profile 的 HomeService、Memo
 
 start/shutdown/restart 由各自拥有的任务串行衔接，并发等待者加入同一操作；启动中关闭立即停止受理并等待部分资源回收，旧 worker 回调不会修改新实例。shutdown 停止受理和外部来源，再取消根 work，等待 Action/Job、必要记录、段和来源回收，最后关闭世代。restart 重新装配，旧句柄保留旧结果。自建 LLM/embedding 客户端归世代关闭，注入对象保持借用。部分激活失败逆序关闭已创建资源；重复取消不抛弃清理任务，有限 cleanup diagnostics 不覆盖主失败。
 
+Agent.wait 等待 Agent 最终退出，跨越 generation restart；单个等待者取消只解除自身等待，显式 shutdown 才取消所有退出等待。restart 失败由发起方接收，宿主等待保持有效，允许显式重新启动。CLI 的信号处理每次获取当前 commands，重建时重新加载配置与输入来源；Endpoint server 与事件缓冲保持进程级稳定。
+
 ## 输入、事件与容量
 
 Environment 提供输入适配、文件监听和定时等待；Reflection 到期规则由插件解释，经注入的类型化提交端口进入根队列。AgentIngress 解释可信终端命令和普通用户文本；InputCommandParser 纯解析，InputDispatcher 调用 AgentCommands。终端普通文本在空闲时提交 UserTurnRequest，活跃时追加到该 TurnInbox。Reflection 始终排入根队列。

@@ -68,6 +68,10 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
     client = TestClient(create_endpoint_app(engine, engine.settings))
 
     assert client.get("/v2/status").status_code == 401
+    assert client.post("/v2/restart").status_code == 401
+    unavailable = client.post("/v2/restart", headers=_auth())
+    assert unavailable.status_code == 409
+    assert unavailable.json()["error"]["code"] == "endpoint.lifecycle_unavailable"
     preflight = client.options(
         "/v2/status",
         headers={

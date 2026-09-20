@@ -72,6 +72,12 @@ class ObservationRouter:
         with self._lock:
             self._routes = (*self._routes, route)
 
+    def remove_route(self, route: ObservationRoute) -> None:
+        """Remove one owner route when a stable sink changes generation."""
+        with self._lock:
+            self._routes = tuple(item for item in self._routes if item is not route)
+            self._disabled.discard(id(route))
+
     @property
     def failures(self) -> tuple[CleanupDiagnostic, ...]:
         with self._lock:
@@ -99,14 +105,14 @@ class ObservationRouter:
                     )
                     self.subscriptions.close()
             for index, route in enumerate(self._routes):
-                if index in self._disabled:
+                if id(route) in self._disabled:
                     continue
                 if _level_rank(event.level) > _level_rank(route.mode):
                     continue
                 try:
                     route.sink.write(event)
                 except Exception as exc:
-                    self._disabled.add(index)
+                    self._disabled.add(id(route))
                     self._failures.append(
                         CleanupDiagnostic(f"observation.{index}", type(exc).__name__)
                     )

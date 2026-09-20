@@ -10,6 +10,7 @@ Endpoint 是 loopback 本地协议。除 `GET /v2/health` 外，HTTP 请求都�
 | Runtime | `GET /v2/status` | 当前进程与 Runtime snapshot |
 | Runtime | `POST /v2/input` | 提交 User input |
 | Runtime | `POST /v2/control` | 提交 stop/exit control |
+| Runtime | `POST /v2/restart` | 请求宿主重建 Agent generation，保持 Endpoint instance |
 | Turn | `POST /v2/turns`、`GET /v2/turns/{id}` | 结构化受理和 owner 状态/结果 |
 | Turn | `POST /v2/turns/{id}/input`、`reply`、`grant`、`cancel` | 指定 Turn 的输入与控制 |
 | Job | `GET /v2/turns/{id}/jobs`、`POST /v2/turns/{id}/jobs/{job_id}/stop` | Turn-owned 查询与停止 |
@@ -37,6 +38,8 @@ Endpoint 是 loopback 本地协议。除 `GET /v2/health` 外，HTTP 请求都�
 
 结构化受理满载为 `409 agent.queue_full`，请求身份冲突为 `409 agent.command_rejected`；Inbox 容量与等待关联错误分别为 `409 turn.inbox_full`、`409 turn.command_rejected`。未知/淘汰 Turn 为 `404 turn.not_found`，已回收或不属于该 Turn 的 Job 为 `404 turn.resource_not_found`。所有错误采用同一 envelope，不暴露原始异常文本。
 
-v1 路由不再存在；HTTP 不提供项目 reset 或 Agent restart，初始化与进程重建由 CLI/SDK 宿主负责。
+未挂载宿主重启能力返回 `409 endpoint.lifecycle_unavailable`；重启中的 Runtime 失败返回 `503 agent.restart_failed`，details 只包含稳定 reason。Endpoint 保持可用，客户端可查询状态并显式重试。
+
+v1 路由不再存在；HTTP 不提供项目 reset，初始化仍由 CLI 提供。`POST /v2/restart` 只请求宿主重建 Agent generation，不迁移 Turn/Job；失败和重启期间通过 status 读取当前服务状态。ACP Job 应答不属于通用 Gateway 协议。
 
 详细协议见 [runtime](runtime.md)、[reflection](reflection.md)、[events](events.md)、[configuration](configuration.md)、[workspace](workspace.md) 和 [frontend integration](frontend-integration.md)。

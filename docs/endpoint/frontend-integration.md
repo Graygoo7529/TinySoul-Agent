@@ -1,6 +1,6 @@
 # Visualization 对接
 
-后端现行协议为 v2，v1 路由已删除。本文描述对接要求；本轮未修改 visualization 源码，其客户端需要同步迁移后才能连接当前后端。
+后端现行协议为 v2，v1 路由已删除。本文描述对接要求；本轮未修改 visualization 源码，其客户端需要同步迁移后才能连接当前后端。`POST /v2/restart` 返回新的 runtime projection，Endpoint instance 与事件游标保持不变；重启窗口内 `ready=false` 是可观察状态。
 
 客户端继续按 Runtime/Turn、Reflection、Events、Configuration 和 Workspace 分域。传输、Bearer、JSON/error 和 binary headers 集中处理。OpenAPI（需鉴权）提供请求 schema；运行语义分别见 [Runtime](runtime.md)、[Reflection](reflection.md) 和 [Events](events.md)。
 
@@ -10,6 +10,6 @@
 
 配置 PATCH 保存候选，POST /v2/config/reload 显式激活；活动或等待 Turn 时返回 busy，保留已保存候选。激活后重取 status/actions。Action catalog 使用 GET /v2/config/actions?scenario=...，配置 mutation 使用 set/delete union，不增加旧 CAS 字段。
 
-Workspace 只通过 /v2/workspace/* 访问 Link 资源，保留 text/blob、目录、标签、编辑和 Trash；不拼接宿主物理路径。项目 init/reset/start 由本地 CLI 负责，HTTP 不提供 reset。宿主 SDK 的 restart 与 HTTP config/reload 不是同一种操作；当前没有 HTTP restart。
+Workspace 只通过 /v2/workspace/* 访问 Link 资源，保留 text/blob、目录、标签、编辑和 Trash；不拼接宿主物理路径。项目 init/reset/start 由本地 CLI 负责，HTTP 不提供 reset。`POST /v2/restart` 只请求宿主重建 Agent generation，Endpoint instance 与事件游标保持稳定；它与 HTTP config/reload 不是同一种操作。
 
 详细错误码见 [Endpoint](index.md)。业务失败按 code/details 显示，不解释 message 字符串，不自动重放可能有副作用的操作。

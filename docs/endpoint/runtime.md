@@ -4,7 +4,11 @@
 
 `GET /v2/status` 返回 `protocol_version=2`、instance/project identity、ready、active day、Turn 活动状态和 Observation cursor/journal 摘要。`runtime` 与 SDK `Agent.runtime_status()` 使用同一内存投影：generation、activity/activation、active day、active_turn_id、queued_turn_ids 和来源状态。状态查询不触发日切或加载文件；工作受理后的确定性准备仍由 Agent 负责。
 
-`runtime.sources` 为来源 owner 投影，包含 source、state、topics 和有界 error_type。监听故障不表示正式 Workspace 操作不可用。进程初始化、reset、start 由 CLI 提供；SDK 的 restart/shutdown 由宿主控制。当前 HTTP 不提供 restart/reset；配置世代切换使用显式 config/reload。
+`runtime.sources` 为来源 owner 投影，包含 source、state、topics 和有界 error_type。监听故障不表示正式 Workspace 操作不可用。进程初始化、reset、start 由 CLI 提供；SDK 的 restart/shutdown 由宿主控制。HTTP 通过独立 `POST /v2/restart` 请求宿主重建当前 Agent generation，不提供项目 reset；配置世代切换使用显式 config/reload。
+
+`POST /v2/restart` 等待旧 generation 收尾并由宿主装配、激活新 generation 后返回 `accepted`、新的 runtime projection 和 cleanup diagnostics。Endpoint server、`instance_id`、Observation journal 与游标空间保持稳定，`generation_id` 改变；旧 commands、services 和 Turn/Job lease 失效，调用者重新读取状态并获取当前 facade。重启期间 generation 暂不可用时，status 仍可访问并返回 `ready=false`。
+
+宿主未挂载重启能力时返回 `409 endpoint.lifecycle_unavailable`。重建的 Runtime 失败返回 `503 agent.restart_failed`，只附带稳定 reason；Endpoint 保持可访问，可读取 status 并显式再次请求 restart。未绑定 generation 时，业务操作返回 `409 service.unavailable`，健康检查、状态与 Observation replay 仍可使用；不自动重试重启请求。
 
 ## 结构化 Turn
 
@@ -35,7 +39,7 @@ result 尚未完成时为 null；完成后与 SDK TurnResult.to_json() 一致。
 
 重复 input/reply 的 accepted=false 表示该记录已受理，不代表执行失败。过期等待或关闭的 Inbox 返回 409。cancel 的 accepted 仅表示取消意图可受理；最终结果需继续查询，收尾已经完成时不会改写它。
 
-Job 查询和停止经 Agent 服务进入 Job owner；返回 job_id、kind、state、summary、reason。停止等待受控执行收敛，不等于取消 Turn；Job 在所属 Turn 收尾后被回收，列表为空，不另建历史表。停止与收尾由同一 owner 串行处理；错误只暴露有限分类。跨 Turn 或已回收 Job 返回 404 turn.resource_not_found。Job 应答接口随 ACP 协议接入另行细化。
+Job 查询和停止经 Agent 服务进入 Job owner；返回 job_id、kind、state、summary、reason。停止等待受控执行收敛，不等于取消 Turn；Job 在所属 Turn 收尾后被回收，列表为空，不另建历史表。停止与收尾由同一 owner 串行处理；错误只暴露有限分类。跨 Turn 或已回收 Job 返回 404 turn.resource_not_found。Job 应答不提供通用 Gateway 路由，随 S6 ACP adapter 的真实权限请求协议另行细化。
 
 ## 终端式输入与控制
 

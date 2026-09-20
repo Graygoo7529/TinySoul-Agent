@@ -266,6 +266,33 @@ async def _create(
     )
 
 
+async def test_agent_wait_survives_restart_and_detaches_cancelled_waiter(
+    tmp_path: Path,
+) -> None:
+    llm = _LLM()
+    llm.release.set()
+    agent = await _create(tmp_path, llm)
+    await agent.start()
+    old_commands = agent.commands
+    waiting = asyncio.create_task(agent.wait())
+    detached = asyncio.create_task(agent.wait())
+    try:
+        await agent.restart()
+        assert not waiting.done()
+        detached.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await detached
+        with pytest.raises(AgentClosedError):
+            await old_commands.submit_turn(UserTurnRequest("old facade"))
+        current = await agent.submit_turn(UserTurnRequest("new facade"))
+        assert (await asyncio.wait_for(current.wait(), 5)).outcome is not None
+        assert not waiting.done()
+    finally:
+        await agent.shutdown()
+        await asyncio.gather(waiting, detached, return_exceptions=True)
+    assert waiting.cancelled()
+
+
 @pytest.mark.parametrize("max_cycles", (1, 20))
 async def test_v2_turn_admission_question_budget_and_result_share_sdk_owner(
     tmp_path: Path, max_cycles: int,

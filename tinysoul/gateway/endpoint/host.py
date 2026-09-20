@@ -13,7 +13,7 @@ from tinysoul.infra.json import JsonObject
 from tinysoul.gateway.endpoint.runtime_bridge import RuntimeEndpointBridge
 
 from .config import EndpointSettings
-from .engine import EndpointEngine
+from .engine import EndpointEngine, EndpointLifecycle
 from .errors import EndpointServerError
 from .events import EndpointEventBuffer, EndpointEventJournal
 
@@ -26,31 +26,9 @@ def mount_endpoint(
 ) -> EndpointEngine:
     """Attach HTTP hosting and observation replay to an unstarted Agent."""
 
-    journal = None
-    if settings.journal_enabled:
-        journal = EndpointEventJournal(
-            settings.journal_root
-            or (assembly.project_root / "runtime" / "endpoint" / "events"),
-            max_segment_bytes=settings.journal_segment_bytes,
-            max_total_bytes=settings.journal_total_bytes,
-        )
-    events = EndpointEventBuffer(
-        capacity=settings.event_capacity,
-        max_bytes=settings.event_bytes,
-        page_bytes=settings.event_page_bytes,
-        journal=journal,
-    )
-    engine = EndpointEngine(
-        settings=settings,
-        events=events,
-        gateway=assembly.gateway,
-        services=assembly.service_access,
-        config=assembly.configuration,
-    )
-    assembly.mount_service(EndpointHost(engine=engine, settings=settings, ready=ready))
-    assembly.observations.add_route(
-        ObservationRoute(sink=events, mode=ObservationLevel.MODEL)
-    )
+    host = EndpointHost(settings=settings, ready=ready)
+    engine = host.bind(assembly)
+    assembly.mount_service(host)
     return engine
 
 
@@ -85,21 +63,80 @@ class EndpointReady:
 
 
 class EndpointHost:
-    """Start and stop the optional ASGI transport with delayed imports."""
+    """Own the Endpoint transport while allowing generation rebinding."""
 
     def __init__(
         self,
         *,
-        engine: EndpointEngine,
         settings: EndpointSettings,
         ready: Callable[[EndpointReady], None] | None = None,
         runtime_bridge: RuntimeEndpointBridge | None = None,
     ) -> None:
-        self._engine = engine
+        self._engine: EndpointEngine | None = None
         self._settings = settings
         self._ready = ready
         self._runtime_bridge = runtime_bridge or RuntimeEndpointBridge()
         self._server: EndpointServer | None = None
+        self._assembly: AgentAssembly | None = None
+        self._route: ObservationRoute | None = None
+
+    @property
+    def engine(self) -> EndpointEngine:
+        if self._engine is None:
+            raise EndpointServerError("Endpoint is not bound to an Agent generation")
+        return self._engine
+
+    def bind(self, assembly: AgentAssembly) -> EndpointEngine:
+        """Bind the stable Endpoint facade to the current Agent generation."""
+        if self._assembly is assembly:
+            return self.engine
+        if self._assembly is not None and self._route is not None:
+            self._assembly.observations.remove_route(self._route)
+        if self._engine is None:
+            journal = None
+            if self._settings.journal_enabled:
+                journal = EndpointEventJournal(
+                    self._settings.journal_root
+                    or (assembly.project_root / "runtime" / "endpoint" / "events"),
+                    max_segment_bytes=self._settings.journal_segment_bytes,
+                    max_total_bytes=self._settings.journal_total_bytes,
+                )
+            events = EndpointEventBuffer(
+                capacity=self._settings.event_capacity,
+                max_bytes=self._settings.event_bytes,
+                page_bytes=self._settings.event_page_bytes,
+                journal=journal,
+            )
+            self._engine = EndpointEngine(
+                settings=self._settings,
+                events=events,
+                gateway=assembly.gateway,
+                services=assembly.service_access,
+                config=assembly.configuration,
+            )
+            self._route = ObservationRoute(
+                sink=events, mode=ObservationLevel.MODEL
+            )
+        else:
+            self._engine.bind(
+                gateway=assembly.gateway,
+                services=assembly.service_access,
+                config=assembly.configuration,
+            )
+        assert self._route is not None
+        assembly.observations.add_route(self._route)
+        self._assembly = assembly
+        return self.engine
+
+    def unbind(self) -> None:
+        if self._assembly is not None and self._route is not None:
+            self._assembly.observations.remove_route(self._route)
+        self._assembly = None
+        if self._engine is not None:
+            self._engine.unbind()
+
+    def set_lifecycle(self, lifecycle: EndpointLifecycle | None) -> None:
+        self.engine.set_lifecycle(lifecycle)
 
     async def start(self) -> None:
         if self._server is not None:
@@ -108,7 +145,7 @@ class EndpointHost:
             from .http.server import EndpointASGIServer
 
             server = EndpointASGIServer(
-                engine=self._engine,
+                engine=self.engine,
                 settings=self._settings,
             )
             await server.start()
@@ -142,7 +179,14 @@ class EndpointHost:
 
     async def stop(self) -> None:
         server = self._server
-        if server is None:
-            return
-        self._server = None
-        await server.stop()
+        try:
+            if server is not None:
+                self._server = None
+                await server.stop()
+        finally:
+            # A stopped host must not retain a callable lifecycle bridge.  The
+            # bridge is intentionally preserved by ``unbind`` during a live
+            # Agent restart, but final host shutdown closes that boundary.
+            if self._engine is not None:
+                self._engine.set_lifecycle(None)
+            self.unbind()

@@ -2,9 +2,9 @@
 
 状态：`done`（2026-09-20 实施、文档同步与门禁完成；主计划 S5 保持 `in_progress`，等待其余协议范围）。
 日期：2026-09-20。
-主计划：[Agent 架构重构](20260915-agent-architecture-refactor-plan.md)。
-前置：[R4 环境事件与插件运行闭环](done/20260920-done-Agent重构第四轮子计划-环境事件与插件运行闭环.md)。
-参考：[整体功能想法](../chat/00%20doing%20something.md)，其中旧 Gateway、状态和兼容表述以主计划与 AGENTS.md 为准。
+主计划：[Agent 架构重构](../20260915-agent-architecture-refactor-plan.md)。
+前置：[R4 环境事件与插件运行闭环](20260920-done-Agent重构第四轮子计划-环境事件与插件运行闭环.md)。
+参考：[整体功能想法](../../chat/00%20doing%20something.md)，其中旧 Gateway、状态和兼容表述以主计划与 AGENTS.md 为准。
 
 ## 1. 本轮目标
 
@@ -119,5 +119,7 @@ POST /v2/turns 明确创建独立 work，满载返回 409，返回 turn_id 与�
 测试覆盖主线：问题与预算同时待决；字面斜杠文本按新建请求受理；追加去重；容量拒绝；排队取消；完成结果与 SDK 一致；真实 Python Job 停止和回收；旧实例/超前 cursor 的 HTTP 与 WebSocket replay。
 
 ## 9. 主计划核对边界
+
+以下记录基础 R5 批次完成时的边界；后续 HTTP restart 与稳定宿主的实施记录见 [R5 收口子计划](20260920-done-Agent重构第五轮收口子计划-Endpoint生命周期与重启.md)，ACP Job 应答仍归 S6 adapter。
 
 本轮已确认路由表没有 HTTP restart 或 Job 应答。主计划 §12.2 的这两项保持 pending，不因 SDK 已有 restart 就宣称 HTTP 已完成；Job 应答需要 S6 的 ACP 反向请求协议，当前不预建空入口。S5 因这些未落地项保持 in_progress。本轮 R5 按已确认查询/停止和 Gateway v2 范围独立验收，不削去主计划目标。CLI init/reset/start 的边界不变。

@@ -1,7 +1,7 @@
 # Agent 架构重构：设计语义、契约与执行计划
 
-状态：`in_progress`（R1、R2 收口、R3 及其收口、Before 4、R4 均已完成并归档。S1、S2、S4 为 done；S3 的领域重构及 Organize 事实/导航数据基础已完成，模型整理动作与注释层安排主计划尾期；S5–S7 未整体完成，保持原定范围）。
-修订日期：2026-09-20。历史初始复审代码：`e930c9c444deb0073ab3d7f016057245bad66ca6`；R2 分析基线为本地 `6821983`。2026-09-19 重新克隆远端，复审基线为 `be61886`（R3 收口之后）。历史验证与本次复审证据分别记录，不互相替代。
+状态：`in_progress`（R1、R2 收口、R3 及其收口、Before 4、R4、R5 及 R5 收口均已完成并归档。S1、S2、S4、S5 为 done；S3 的领域重构及 Organize 事实/导航数据基础已完成，模型整理动作与注释层安排主计划尾期；S6–S7 未整体完成，保持原定范围）。
+修订日期：2026-09-21。历史初始复审代码：`e930c9c444deb0073ab3d7f016057245bad66ca6`；R2 分析基线为本地 `6821983`。2026-09-19 重新克隆远端，复审基线为 `be61886`（R3 收口之后）。历史验证与本次复审证据分别记录，不互相替代。
 
 配套讨论来源：[前三轮 Review 与 R4 前基础补强方案](../chat/20260920-r1-r3-review-and-pre-r4-foundation-plan-latest.md)；[Before 4：数据基础与渐进披露](done/20260920-done-Agent重构Before4子计划-数据基础与渐进披露.md) 已于 2026-09-20 实施完成。用户确认的多历史 Turn/已有地图整理方向与受信独立主机假设保持不变；事实/导航基础先交付，Organize 写能力仍属尾期。讨论来源保留当时状态，实现证据以已归档子计划及本计划 §13 为准。
 
@@ -696,7 +696,7 @@ Action runner 仅做一次统一分类：已知业务问题由 executor 返回 A
 
 ### 12.2 Gateway
 
-Endpoint v2 经 SDK 提供 agent 状态/restart/reload、turn submit/status/inputs/reply/cancel/budget、Job 查询/停止/回应、Reflection、配置候选、Workspace、replay/WS。精确路由/schema/错误码在 S5 固定，避免本计划维护另一套易漂移协议表。
+Endpoint v2 经 SDK 提供 agent 状态/restart/reload、turn submit/status/inputs/reply/cancel/budget、Job 查询/停止、Reflection、配置候选、Workspace、replay/WS。HTTP restart 由稳定 EndpointHost 请求宿主替换 generation；ACP Job 回应属于 S6 adapter 的真实权限请求协议，不建立通用 Gateway 路由。精确路由/schema/错误码在 S5 固定，避免本计划维护另一套易漂移协议表。
 
 WS 断开不取消 Turn；问题可由状态查询恢复，Observation gap 不等于业务丢失。配置保存成功不等于激活成功。gateway/project 复用 init/reset/lease；删 app 时同步 pyproject console script/package data。后端仅更新前端对接文档，不擅改 visualization。
 
@@ -740,11 +740,13 @@ WS 断开不取消 Turn；问题可由状态查询恢复，Observation gap 不�
 
 [Before 4 子计划](done/20260920-done-Agent重构Before4子计划-数据基础与渐进披露.md) 于 2026-09-20 完成（`done`）。BF1–BF5 已核对：Trace 类型化时间线、Session v10 唯一事实与当日分层导航、共用披露/分页/query、inspect 可见结果消费保护、Session 自身水位回收、CalendarClock/active_day 及可复现本地测试边界。Windows Full 1087 passed、23 deselected，含 generation/wheel；Windows 与 Linux 目标 typecheck 通过。本轮未执行 Linux 实机或真实 provider/network，旧部署数据未迁移/reset。Organize Action/注释层、fswatch、Gateway v2 和 ACP/MCP 未提前实现。
 
-S1、S2、S4 已完成；S3 延后项与 S5–S7 尚未完成。历史 S0 定稿不代表后续协议细化关闭。子计划只有实现/文档/必要验证全部通过才 done 并归档；docs/design 只写已落地部分。
+S1、S2、S4、S5 已完成；S3 延后项与 S6–S7 尚未完成。历史 S0 定稿不代表后续协议细化关闭。子计划只有实现/文档/必要验证全部通过才 done 并归档；docs/design 只写已落地部分。
 
-2026-09-20 [R4：环境事件与插件运行闭环子计划](done/20260920-done-Agent重构第四轮子计划-环境事件与插件运行闭环.md) 已完成并归档，S4 标记 `done`。落实显式插件事件/运行贡献、topic/source 路由与等待、可合并状态通知、Workspace 正式写入和外部文件监听的统一 owner 刷新、世代/日切/关闭及 Reflection 定时策略分离。只监听当前 Workspace；原生监听失败停止来源并有界反馈，正式操作继续，无自动恢复状态机。Windows Full 1100 passed、23 deselected，含生成/wheel、真实文件监听与进程跨午夜；Windows/Linux 目标 typecheck 通过，未运行 Linux 实机与真实 provider/network。具体核对见子计划 §10，S3 Organize 与 S5–S7 范围不变。
+2026-09-20 [R4：环境事件与插件运行闭环子计划](done/20260920-done-Agent重构第四轮子计划-环境事件与插件运行闭环.md) 已完成并归档，S4 标记 `done`。落实显式插件事件/运行贡献、topic/source 路由与等待、可合并状态通知、Workspace 正式写入和外部文件监听的统一 owner 刷新、世代/日切/关闭及 Reflection 定时策略分离。只监听当前 Workspace；原生监听失败停止来源并有界反馈，正式操作继续，无自动恢复状态机。Windows Full 1100 passed、23 deselected，含生成/wheel、真实文件监听与进程跨午夜；Windows/Linux 目标 typecheck 通过，未运行 Linux 实机与真实 provider/network。具体核对见子计划 §10，S3 Organize 与 S6–S7 范围不变。
 
-2026-09-20 [R5：Gateway v2 与 SDK 协议闭环](done/20260920-done-Agent重构第五轮子计划-Gateway v2与SDK协议闭环.md) 已完成本轮确认的 Gateway 子范围并归档：SDK/HTTP 共用 AgentCommands 与 TurnSnapshot/TurnResult/JobSnapshot 投影，`/v1` 直接迁移并删除为 `/v2`，结构化 Turn 与 Turn-owned Job 查询/停止、Observation instance/cursor/gap replay、Reflection/config/Action/Workspace 协议和 CLI 边界已同步。Full 1106 passed、23 deselected，Generation/wheel 5 passed、1124 deselected，typecheck 通过；未运行 Linux 实机与真实 provider/network。主计划 S5 仍为 `in_progress`：HTTP restart 的宿主协调语义和 ACP Job 应答保留后续范围，不在本轮预建兼容入口。
+2026-09-20 [R5：Gateway v2 与 SDK 协议闭环](done/20260920-done-Agent重构第五轮子计划-Gateway v2与SDK协议闭环.md) 已完成基础 Gateway 子范围并归档：SDK/HTTP 共用 AgentCommands 与 TurnSnapshot/TurnResult/JobSnapshot 投影，`/v1` 直接迁移并删除为 `/v2`，结构化 Turn 与 Turn-owned Job 查询/停止、Observation instance/cursor/gap replay、Reflection/config/Action/Workspace 协议和 CLI 边界已同步。Full 1106 passed、23 deselected，Generation/wheel 5 passed、1124 deselected，typecheck 通过；未运行 Linux 实机和真实 provider/network。
+
+2026-09-21 [R5 收口：Endpoint 生命周期与 HTTP Restart](done/20260920-done-Agent重构第五轮收口子计划-Endpoint生命周期与重启.md) 已完成并归档：EndpointHost/Engine/Observation buffer 进入进程级稳定边界，generation 只重绑 typed facade；独立 `POST /v2/restart` 请求宿主重建，旧 facade 失效后由调用者重新获取，ACP Job 回应移交 S6。Agent.wait 跨 restart，CLI 重新获取配置/commands；真实 HTTP server 连续重启、失败重试和 Ctrl-C 已验证。Windows Fast 1104 passed、28 deselected，Full 1109 passed、23 deselected（含全部 5 项 Generation/wheel），typecheck 与 diff-check 通过；S5 标记 `done`。
 
 2026-09-20 推进修订：S4 的 ask/reply、统一等待、有界 Inbox、reload/restart 已由 R2 及收口实现，后续应验收其环境协作闭环，不能再造一套机制。R4 前先按配套 Review 补齐现有事实记录/导航、平台门禁和命名一致性；R4 再补“插件声明 → 环境事件 → owner 刷新 → Context 批次”的真实切片，继续 Gateway v2 与 ACP/MCP，尾期接入模型 Organize。用户已确认：Organize 所需事实/导航数据先补强，模型整理 Action 在主计划尾期、最终 S7 验收前实施，不作为 R4 环境接入前置；原 S 编号保留作为验收范围，不强迫每个范围严格串行。具体切片与验证证据见配套 Review。
 
@@ -755,8 +757,8 @@ S1、S2、S4 已完成；S3 延后项与 S5–S7 尚未完成。历史 S0 定稿
 | S2 `done` | 新内核/SDK/CLI/段/Job/等待；同步迁移所有旧内核消费者至新公共入口、插件接入与打包 | R2 收口 Full 1091 passed、2 skipped、23 deselected，typecheck 通过；生命周期、等待、服务权限与终态/保留缺口关闭，含导入边界、生成与 wheel 验收 |
 | S3 `in_progress` | R3 与收口已完成领域重构；Before 4 已补齐事实顺序、当日导航、渐进披露与 query；Organize 动作与注释层按 §8 尾期实施 | R3 收口及 Before 4 Full/typecheck、事实重开/归档、真实进程跨午夜与 SDK 取回消费闭环通过；延后项未伪报完成 |
 | S4 `done` | R4 已落实 fswatch、插件事件订阅/触发及生命周期声明；复用 scheduler、ask/reply、容量、reload/restart、Job 监督 | R4 Full/typecheck 通过；外部与 SDK 写入恢复同一 Turn 并刷新实际 MessageStack，固定批次/预算/来源失败/重载恢复/收尾/午夜闭环已验证 |
-| S5 `in_progress` | Gateway v2、项目命令、HTTP/WS/replay、协议文档（R5 已完成 Gateway 子范围） | SDK 映射、重连、wheel/init 已通过；HTTP restart 与 ACP Job 应答仍待后续协议核定 |
-| S6 | 锁 ACP/MCP adapter/协议/SDK，connect/delegate、连接段；内部子调用留后续 | 建连→多次委派→收尾，fake 故障矩阵，真实 smoke 单独声明 |
+| S5 `done` | Gateway v2、项目命令、HTTP/WS/replay、稳定 Endpoint 生命周期与协议文档（R5 基础范围及收口已完成） | SDK 映射、重连、wheel/init、HTTP restart 与稳定 host 已通过；ACP Job 应答移交 S6 |
+| S6 | 锁 ACP/MCP adapter/协议/SDK，connect/delegate/respond、连接段；内部子调用留后续 | 建连→多次委派/权限回应→收尾，fake 故障矩阵，真实 smoke 单独声明 |
 | S7 | 全仓文档/AGENTS/测试/打包一致，删旧入口/死抽象 | Full/typecheck/import 图/完整 E2E |
 
 S1–S2 为相邻基础迁移单元，不宣称中间提交可部署。S2 工作量包含全部消费者的接口迁移：迁移基线中的 maintenance/builder.py、session/engine.py、workspace/projection.py 和能力 actions 等依赖旧 loop/context/action，不能删除旧内核后留到 S3 修 imports。现已采用一套新运行路径、注册真实 owner 段与动作，保留可复用领域算法；无兼容 alias、旧管线转发器或临时伪插件。

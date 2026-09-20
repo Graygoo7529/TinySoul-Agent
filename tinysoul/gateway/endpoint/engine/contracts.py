@@ -22,6 +22,12 @@ class EndpointCommandReceipt(Protocol):
     def to_json(self) -> JsonObject: ...
 
 
+class EndpointLifecycle(Protocol):
+    """Host lifecycle operations exposed to the HTTP adapter."""
+
+    async def restart(self) -> JsonObject: ...
+
+
 class EndpointServices(Protocol):
     @property
     def registry(self) -> ServiceRegistry: ...

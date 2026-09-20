@@ -14,8 +14,9 @@ from tinysoul.agent.requests import ExitRequest
 from collections.abc import Awaitable, Callable, Sequence
 from types import FrameType
 
-from tinysoul.gateway.endpoint import EndpointError, EndpointSettings
+from tinysoul.gateway.endpoint import EndpointError, EndpointHost, EndpointSettings
 from tinysoul.infra import ConfigEnvironment, ConfigError
+from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.loop import LoopControlKind
 from tinysoul.runtime import ObservationLevel, RuntimeException, RuntimeGatewayError
 
@@ -32,7 +33,6 @@ from .project.initializer import (
 from .project.instance import ProjectInstanceLease
 from .console import ConsoleOutputSink
 from tinysoul.environment.sources.terminal import TerminalInputSource
-from .endpoint.host import mount_endpoint
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -163,40 +163,45 @@ def _start(argv: Sequence[str]) -> int:
 
     try:
         with ProjectInstanceLease(root) as lease:
-            config = ConfigEnvironment.from_project_root(root, overrides=overrides)
-            agent_settings = config.parse_section("agent", parse_agent_settings)
-            builder = (
-                AgentBuilder(root)
-                .with_config_environment(config)
-                .with_agent_settings(agent_settings)
-                .with_output_sink(
-                    ConsoleOutputSink(max_chars=agent_settings.output.model_max_chars)
-                )
-            )
-            endpoint_settings: EndpointSettings | None = None
+            endpoint_host: EndpointHost | None = None
             if args.once is None:
                 endpoint_settings = EndpointSettings(
                     token=token_urlsafe(32),
                     instance_id=lease.identity.instance_id,
                     project_identity=lease.identity.project_identity,
                 )
-                builder = builder.with_input_source(
-                    TerminalInputSource(
-                        eof_command=agent_settings.input_commands.exit_commands[0]
-                    )
+                endpoint_host = EndpointHost(
+                    settings=endpoint_settings,
+                    ready=lease.publish,
                 )
 
             async def factory() -> AgentAssembly:
+                config = ConfigEnvironment.from_project_root(root, overrides=overrides)
+                agent_settings = config.parse_section("agent", parse_agent_settings)
+                builder = (
+                    AgentBuilder(root)
+                    .with_config_environment(config)
+                    .with_agent_settings(agent_settings)
+                    .with_output_sink(
+                        ConsoleOutputSink(max_chars=agent_settings.output.model_max_chars)
+                    )
+                )
+                if args.once is None:
+                    builder = builder.with_input_source(
+                        TerminalInputSource(
+                            eof_command=agent_settings.input_commands.exit_commands[0]
+                        )
+                    )
                 assembly = await builder.build()
                 try:
-                    if endpoint_settings is not None:
-                        mount_endpoint(assembly, endpoint_settings, ready=lease.publish)
+                    if endpoint_host is not None:
+                        endpoint_host.bind(assembly)
                     return assembly
                 except BaseException:
                     await assembly.close()
                     raise
 
-            return asyncio.run(_run_application(factory, args.once))
+            return asyncio.run(_run_application(factory, args.once, endpoint_host))
     except KeyboardInterrupt:
         return 130
     except (
@@ -211,11 +216,16 @@ def _start(argv: Sequence[str]) -> int:
 
 
 async def _run_application(
-    factory: Callable[[], Awaitable[AgentAssembly]], once: str | None
+    factory: Callable[[], Awaitable[AgentAssembly]],
+    once: str | None,
+    endpoint_host: EndpointHost | None = None,
 ) -> int:
     agent = await Agent.assemble(factory)
     try:
         await agent.start()
+        if endpoint_host is not None:
+            endpoint_host.set_lifecycle(_EndpointLifecycle(agent, endpoint_host))
+            await endpoint_host.start()
         if once is not None:
             handle = await agent.submit_turn(UserTurnRequest(once, source="cli"))
             result = await handle.wait()
@@ -226,7 +236,7 @@ async def _run_application(
                 else 1
             )
         else:
-            escalation = _SigintEscalation(agent.commands)
+            escalation = _SigintEscalation(lambda: agent.commands)
             previous_handler = signal_module.signal(
                 signal_module.SIGINT, escalation.handle
             )
@@ -236,13 +246,45 @@ async def _run_application(
             finally:
                 signal_module.signal(signal_module.SIGINT, previous_handler)
     finally:
-        diagnostics = await agent.shutdown()
+        try:
+            if endpoint_host is not None:
+                await endpoint_host.stop()
+        finally:
+            # Agent shutdown remains mandatory even if the transport reports
+            # a stop failure; the transport error is allowed to propagate
+            # after the Agent has released its generation resources.
+            diagnostics = await agent.shutdown()
         for item in diagnostics:
             print(
                 f"tinysoul: cleanup failed: {item.resource} ({item.error_type})",
                 file=sys.stderr,
             )
     return 1 if diagnostics else code
+
+
+class _EndpointLifecycle:
+    """Bridge the stable Endpoint host to the Agent SDK lifecycle."""
+
+    def __init__(self, agent: Agent, host: EndpointHost) -> None:
+        self._agent = agent
+        self._host = host
+
+    async def restart(self) -> JsonObject:
+        self._host.unbind()
+        try:
+            diagnostics = await self._agent.restart()
+        except BaseException:
+            self._host.unbind()
+            raise
+        return {
+            "accepted": True,
+            "state": self._agent.state.value,
+            "runtime": self._agent.runtime_status(),
+            "cleanup": [
+                {"resource": item.resource, "error_type": item.error_type}
+                for item in diagnostics
+            ],
+        }
 
 
 class _SigintEscalation:
@@ -254,7 +296,7 @@ class _SigintEscalation:
     command gateway as Terminal and Endpoint input.
     """
 
-    def __init__(self, commands: AgentCommands) -> None:
+    def __init__(self, commands: Callable[[], AgentCommands]) -> None:
         self._commands = commands
         self._stop_requested = False
         self._exit_requested = False
@@ -263,7 +305,7 @@ class _SigintEscalation:
         if self._exit_requested:
             raise KeyboardInterrupt
         try:
-            if not self._stop_requested and self._commands.active_turn is not None:
+            if not self._stop_requested and self._commands().active_turn is not None:
                 if self._request(LoopControlKind.STOP_TURN):
                     self._stop_requested = True
                     print(
@@ -287,9 +329,9 @@ class _SigintEscalation:
 
     def _request(self, kind: LoopControlKind) -> bool:
         if kind is LoopControlKind.STOP_TURN:
-            active = self._commands.active_turn
+            active = self._commands().active_turn
             return active is not None and active.request_cancel()
-        self._commands.request_exit(
+        self._commands().request_exit(
             ExitRequest(source="terminal.sigint", text=kind.value)
         )
         return True

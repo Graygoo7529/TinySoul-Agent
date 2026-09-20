@@ -72,6 +72,7 @@ class Agent:
         self._state = AgentState.CREATED
         self._assembly: AgentAssembly | None = None
         self._worker: asyncio.Task[AgentRunResult] | None = None
+        self._completion: asyncio.Future[AgentRunResult] | None = None
         self._shutdown_task: asyncio.Task[tuple[CleanupDiagnostic, ...]] | None = None
         self._start_task: asyncio.Task[None] | None = None
         self._restart_task: asyncio.Task[tuple[CleanupDiagnostic, ...]] | None = None
@@ -167,6 +168,8 @@ class Agent:
             await self._assembly.activate()
             if self._state is AgentState.STOPPING:
                 raise asyncio.CancelledError
+            if self._completion is None or self._completion.done():
+                self._completion = asyncio.get_running_loop().create_future()
             self._worker = asyncio.create_task(
                 self._serve(self._assembly), name="tinysoul-agent"
             )
@@ -274,9 +277,10 @@ class Agent:
         )
 
     async def wait(self) -> AgentRunResult:
-        if self._worker is None:
+        """Wait for Agent exit across generation restarts; cancelling only detaches the waiter."""
+        if self._completion is None:
             raise AgentClosedError("Agent has not started")
-        return await asyncio.shield(self._worker)
+        return await asyncio.shield(self._completion)
 
     async def shutdown(self) -> tuple[CleanupDiagnostic, ...]:
         restarting = self._restart_task
@@ -298,6 +302,8 @@ class Agent:
         task = self._shutdown_task
         operation = JoinedOperations()
         diagnostics = await operation.run_async(lambda: task)
+        if asyncio.current_task() is not restarting and self._completion is not None:
+            self._completion.cancel()
         operation.check_cancelled()
         return diagnostics
 
@@ -373,3 +379,13 @@ class Agent:
             if task.cancelled() or task.exception()
             else AgentState.STOPPED
         )
+        completion = self._completion
+        if completion is None or completion.done():
+            return
+        if task.cancelled():
+            completion.cancel()
+        elif (error := task.exception()) is not None:
+            completion.set_exception(error)
+            completion.exception()  # Status-only clients need not install a waiter.
+        else:
+            completion.set_result(task.result())

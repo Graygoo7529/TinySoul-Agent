@@ -10,6 +10,7 @@ from .context import EndpointEngineContext
 from .contracts import (
     EndpointAgentIngress,
     EndpointConfigController,
+    EndpointLifecycle,
     EndpointServices,
 )
 from .events import EndpointEventsEngine
@@ -29,20 +30,39 @@ class EndpointEngine:
         gateway: EndpointAgentIngress,
         services: EndpointServices,
         config: EndpointConfigController,
+        lifecycle: EndpointLifecycle | None = None,
     ) -> None:
         context = EndpointEngineContext(
             settings=settings,
             events=events,
-            gateway=gateway,
-            services=services,
-            config=config,
+            _gateway=gateway,
+            _services=services,
+            _config=config,
+            _lifecycle=lifecycle,
         )
         self._settings = settings
+        self._context = context
         self.runtime = EndpointRuntimeEngine(context)
         self.reflection = EndpointReflectionEngine(context)
         self.events = EndpointEventsEngine(context)
         self.configuration = EndpointConfigurationEngine(context)
         self.workspace = EndpointWorkspaceEngine(context)
+
+    def bind(
+        self,
+        *,
+        gateway: EndpointAgentIngress,
+        services: EndpointServices,
+        config: EndpointConfigController,
+    ) -> None:
+        """Switch the stable Endpoint facade to a new Agent generation."""
+        self._context.bind(gateway=gateway, services=services, config=config)
+
+    def set_lifecycle(self, lifecycle: EndpointLifecycle | None) -> None:
+        self._context.set_lifecycle(lifecycle)
+
+    def unbind(self) -> None:
+        self._context.unbind()
 
     @property
     def settings(self) -> EndpointSettings:
@@ -53,6 +73,7 @@ __all__ = [
     "EndpointConfigController",
     "EndpointControlKind",
     "EndpointEngine",
+    "EndpointLifecycle",
     "EndpointResourceBlob",
     "EndpointServices",
 ]

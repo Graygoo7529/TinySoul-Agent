@@ -1,17 +1,127 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import signal
 from pathlib import Path
 from threading import Thread
 from typing import cast
 
 import pytest
+import httpx
 
 from tinysoul.gateway import cli
+from tinysoul.agent import AgentClosedError, UserTurnRequest
+from tinysoul.agent.composition.assembly import AgentAssembly
+from tinysoul.agent.composition.builder import AgentBuilder
+from tinysoul.gateway.endpoint import EndpointHost, EndpointReady, EndpointSettings
+from tinysoul.infra import ConfigEnvironment
+from tinysoul.runtime import ObservationEvent, ObservationLevel, RuntimeException
 from tests.support.project import copy_initialized_project
+
+
+async def test_cli_host_survives_http_restart_failure_and_uses_current_commands(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "agent"
+    copy_initialized_project(root)
+    ready = asyncio.get_running_loop().create_future()
+    handshakes: list[EndpointReady] = []
+
+    def on_ready(value: EndpointReady) -> None:
+        handshakes.append(value)
+        ready.set_result(value)
+
+    host = EndpointHost(settings=EndpointSettings(token="x" * 32), ready=on_ready)
+    assemblies: list[AgentAssembly] = []
+    rebuilding = asyncio.Event()
+    release = asyncio.Event()
+    fail_build = False
+
+    async def factory() -> AgentAssembly:
+        if assemblies:
+            rebuilding.set()
+            await release.wait()
+        if fail_build:
+            raise RuntimeException("runtime.startup_failed", "private startup detail")
+        assembly = await (
+            AgentBuilder(root).with_config_environment(
+                ConfigEnvironment.from_project_root(root, env={}, overrides={
+                    "agent.interactive": False,
+                    "reflection.schedule.enabled": False,
+                    "workspace.watch.enabled": False,
+                })
+            ).build()
+        )
+        host.bind(assembly)
+        assemblies.append(assembly)
+        return assembly
+
+    application = asyncio.create_task(cli._run_application(factory, None, host))
+    try:
+        connection = await asyncio.wait_for(ready, 5)
+        async with httpx.AsyncClient(
+            base_url=f"http://{connection.host}:{connection.port}",
+            headers={"Authorization": f"Bearer {connection.token}"},
+            trust_env=False,
+            timeout=10,
+        ) as client:
+            before = (await client.get("/v2/status")).json()
+            engine = host.engine
+            old_commands = assemblies[0].commands
+            restarting = asyncio.create_task(client.post("/v2/restart"))
+            try:
+                await asyncio.wait_for(rebuilding.wait(), 5)
+                assert (await client.get("/v2/status")).json()["ready"] is False
+                refused = await client.post("/v2/turns", json={"kind": "user", "text": "during restart"})
+                assert refused.status_code == 409
+                assert refused.json()["error"]["code"] == "service.unavailable"
+            finally:
+                release.set()
+            response = await restarting
+            assert response.status_code == 202
+            after = (await client.get("/v2/status")).json()
+            assert after["runtime"]["generation_id"] != before["runtime"]["generation_id"]
+            assert after["instance_id"] == before["instance_id"]
+            assert host.engine is engine and len(handshakes) == 1
+            assert not application.done()
+            with pytest.raises(AgentClosedError):
+                await old_commands.submit_turn(UserTurnRequest("old facade"))
+
+            cursor = before["latest_event_sequence"]
+            for assembly in assemblies:
+                assembly.observations.emit(ObservationEvent(
+                    name="test.bound", source="test", level=ObservationLevel.NORMAL,
+                ))
+            replay = (await client.get("/v2/events", params={"after": cursor})).json()
+            assert replay["gap"] is False
+            assert sum(event["name"] == "test.bound" for event in replay["events"]) == 1
+
+            fail_build = True
+            failed = await client.post("/v2/restart")
+            assert failed.status_code == 503
+            assert failed.json()["error"]["code"] == "agent.restart_failed"
+            assert "private startup detail" not in failed.text
+            assert (await client.get("/v2/status")).json()["ready"] is False
+            assert not application.done()
+            fail_build = False
+            assert (await client.post("/v2/restart")).status_code == 202
+            assert (await client.get("/v2/status")).json()["ready"] is True
+            assert len(handshakes) == 1
+
+            # Exercise the installed CLI handler after two generation replacements.
+            handler = signal.getsignal(signal.SIGINT)
+            assert handler is not None and not isinstance(handler, int)
+            handler(signal.SIGINT, None)
+            assert await asyncio.wait_for(application, 5) == 0
+    finally:
+        release.set()
+        if not application.done():
+            application.cancel()
+        await asyncio.gather(application, return_exceptions=True)
 
 
 class _FakeProviderServer(ThreadingHTTPServer):

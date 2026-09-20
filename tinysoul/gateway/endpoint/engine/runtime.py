@@ -11,7 +11,7 @@ from tinysoul.plugins.reflection import ReflectionScope, ReflectionRequest, Refl
 from tinysoul.agent.requests import UserTurnRequest
 from uuid import uuid4
 from tinysoul.infra.time import CalendarDay, CalendarDayError
-from tinysoul.runtime import RuntimeGatewayError
+from tinysoul.runtime import RuntimeException, RuntimeGatewayError
 
 from ..errors import EndpointRequestError
 from .context import EndpointEngineContext
@@ -29,6 +29,18 @@ class EndpointRuntimeEngine:
         self._context = context
 
     async def status(self) -> JsonObject:
+        if not self._context.bound:
+            return {
+                "protocol_version": 2,
+                "instance_id": self._context.settings.instance_id,
+                "project_identity": self._context.settings.project_identity,
+                "ready": False,
+                "active_day": "",
+                "turn_active": False,
+                "runtime": {"state": "unavailable"},
+                "latest_event_sequence": self._context.events.latest_sequence,
+                "event_journal": self._context.events.journal_status(),
+            }
         turn_scope = self._context.gateway.active_turn_scope
         runtime = self._context.services.runtime_status()
         active_day = runtime["active_day"]
@@ -43,6 +55,18 @@ class EndpointRuntimeEngine:
             "latest_event_sequence": self._context.events.latest_sequence,
             "event_journal": self._context.events.journal_status(),
         }
+
+    async def restart(self) -> JsonObject:
+        """Request host controlled Agent generation replacement."""
+        try:
+            return await self._context.lifecycle.restart()
+        except RuntimeException as exc:
+            raise EndpointRequestError(
+                status_code=503,
+                code="agent.restart_failed",
+                message="Agent generation could not be restarted.",
+                details={"reason": exc.reason},
+            ) from exc
 
     async def submit_user_input(
         self,

@@ -4,6 +4,7 @@ from .config import EndpointSettings
 from .engine import (
     EndpointControlKind,
     EndpointEngine,
+    EndpointLifecycle,
     EndpointResourceBlob,
 )
 from .host import EndpointHost, EndpointReady
@@ -34,6 +35,7 @@ __all__ = [
     "EndpointEventPage",
     "EndpointFailureKind",
     "EndpointHost",
+    "EndpointLifecycle",
     "EndpointASGIServer",
     "EndpointInvariantError",
     "EndpointReady",

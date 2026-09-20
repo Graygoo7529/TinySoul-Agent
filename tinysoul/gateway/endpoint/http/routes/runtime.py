@@ -28,3 +28,7 @@ def register_runtime_routes(app: FastAPI, engine: EndpointEngine) -> None:
             to_json_object(body.metadata),
             command_id=body.command_id,
         )
+
+    @app.post("/v2/restart", status_code=202)
+    async def restart() -> JsonObject:
+        return await engine.runtime.restart()
