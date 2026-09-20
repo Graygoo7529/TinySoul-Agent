@@ -241,7 +241,9 @@ conda activate TinySoul
 
 ## 当前任务
 
-当前任务是按 `docs/analysis/20260915-agent-architecture-refactor-plan.md` 分阶段落实分层 Agent 架构重构；R1 与 R2 收口已完成，原 R2 实施批次保留历史归档记录，2026-09-16 复审缺口已由 `docs/analysis/done/20260916-done-Agent重构R2收口子计划.md` 关闭（2026-09-17 Full/typecheck 通过，C1/C2/C3 已落实，C4 保留后续评估）。主计划 S1、S2、S4、S5 已完成；R3 已完成领域重构，R4 已完成环境事件闭环，R5 Gateway 与 Endpoint 生命周期收口已完成，S3 的 organize/模型推导注释与 S6–S7 保留后续范围。后续仍围绕以下目标推进：以 `Agent` 门面统一输入、输出与状态；以 asyncio 事件总线与 `EnvironmentEvent` 协议把 Agent 置于环境之中；以段协议把 Context 语境段的内容与维护反转给外围插件，内核只知槽位、形状与 ref scheme；以 Job 框架统一后台进程与后续 ACP 外部 sub-agent，内部嵌套 Turn 留待实际需求扩展；包布局已按 `infra → runtime/llm → kernel → plugins/environment → agent → gateway` 重排。该主执行计划及其已确认子计划在重构期间是设计来源，不向后兼容，不保留兼容层、重复状态或跨模块捷径。重构的长期目标不变：构造功能强、可用性高、具有智能性的泛用智能体，并通过记忆和 Home 维护构造持续长期稳定运行的个性化助手。
+当前任务是按 `docs/analysis/20260915-agent-architecture-refactor-plan.md` 分阶段落实分层 Agent 架构重构；R1 与 R2 收口已完成，原 R2 实施批次保留历史归档记录，2026-09-16 复审缺口已由 `docs/analysis/done/20260916-done-Agent重构R2收口子计划.md` 关闭（2026-09-17 Full/typecheck 通过，C1/C2/C3 已落实，C4 保留后续评估）。主计划 S1、S2、S4 已完成；R3 已完成领域重构，R4 已完成环境事件闭环，R5 原执行批次已归档，S5 因提交后复审缺口回到 in_progress；S3 的 organize/模型推导注释与 S6–S7 保留后续范围。后续仍围绕以下目标推进：以 `Agent` 门面统一输入、输出与状态；以 asyncio 事件总线与 `EnvironmentEvent` 协议把 Agent 置于环境之中；以段协议把 Context 语境段的内容与维护反转给外围插件，内核只知槽位、形状与 ref scheme；以 Job 框架统一后台进程与后续 ACP 外部 sub-agent，内部嵌套 Turn 留待实际需求扩展；包布局已按 `infra → runtime/llm → kernel → plugins/environment → agent → gateway` 重排。该主执行计划及其已确认子计划在重构期间是设计来源，不向后兼容，不保留兼容层、重复状态或跨模块捷径。重构的长期目标不变：构造功能强、可用性高、具有智能性的泛用智能体，并通过记忆和 Home 维护构造持续长期稳定运行的个性化助手。
+
+2026-09-21 R5 提交后复审修正见 `docs/analysis/20260921 Agent重构R5复审修正子计划-运行可用性与退出等待.md`，当前为 pending 设计预览：修正 activation 前业务受理、并发/取消重启等待者引起的解绑，并拟将 Agent.wait 重命名为 wait_for_exit。退出等待的关闭契约待确认；尚未实施，不将以下历史门禁作为此次修正的完成证据。
 
 R3 的实现、失败归属、内部组织和部署边界已逐项核对，见 `docs/analysis/done/20260917-done-Agent重构第三轮子计划-领域语义与能力组织.md`。2026-09-19 Full 1066 passed、23 deselected，typecheck 通过，含生成/wheel 和 worker 启动；真实 provider/network 未运行。配置、动作和存储格式不提供旧别名或隐式迁移，没有 reset 实际部署数据。
 
