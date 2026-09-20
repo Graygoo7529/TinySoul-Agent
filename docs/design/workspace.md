@@ -54,7 +54,11 @@ Turn preparation、必要查询以及受控进程结束后进行 reconcile。exe
 
 活动 Turn 从准备到全部收尾持有同一日 lease；跨午夜 Job 仍使用旧日根。下一根请求前，Archive 协调各 owner 归档 Session、Workspace 和 active Trash，再建立新日。Home overlay 与持久 Memory 不随 Workspace 归档。
 
-WorkspaceSignal 携带 owner 资源快照，Workspace 段在正常边界整体替换投影，没有版本序号或第二份索引。Context 压力只收缩模型投影，不移动或删除文件。真实文件监控来源属于后续环境能力，现有同步接点不等于已部署 watcher。
+Workspace 段接收刷新意图，在 prepare 中读取 owner 已提交的最新快照，在 install 中替换本轮投影。Action、SDK、Endpoint 和 execution 不再各自传递整份快照；事件适配进入同一 Context 批次。Context 压力只收缩模型投影，不移动或删除文件。
+
+WorkspaceRuntime 绑定当前世代的 owner 发布端和可选文件监听。environment 的单一 watchfiles 后端只交付变化线索；owner 按现有规则过滤内部索引、Trash、原子写临时文件和 ignore_dirs，完成 reconcile 后发布领域变化。监听建立后先执行基线扫描，自身写入的原生回声若没有新 manifest 事实就不重复发布。外部重命名按旧路径消失与新路径出现处理，不猜测身份或迁移人工元数据。
+
+`workspace.watch` 配置默认启用，支持关闭与合并窗口，沿普通配置候选/reload 路径生效。只监听当前 Workspace；Home、Memory、Session、Archive 和配置文件没有热监听。日切前停止并等待旧监听回调，归档及新根准备完成后再绑定。暂停监听不撤销正式操作的 owner 发布端；世代关闭才释放它。
 
 ## 失败与观察
 
@@ -62,7 +66,9 @@ WorkspaceSignal 携带 owner 资源快照，Workspace 段在正常边界整体�
 
 短 owner 操作开始后必须 join，再传播取消；长模型/进程工作使用各自执行生命周期。已提交文件与后续索引失败、取消或观察失败分别表达。
 
-Engine 在成功提交后发布 workspace.changed，包含 created/updated/removed/affected Links。Action、SDK、Endpoint、转换能力共用该入口。Observation 是旁路，sink 失败不改变资源事实；Context 更新由类型化 Signal 消费。
+Engine 在同一提交锁内形成 WorkspaceChange，锁外分别投影为业务事件和 Observation。业务事件 topic 为 `workspace.changed`，source 区分 `workspace.owner` 与 `workspace.fswatch`，只携带日期、操作、数量和有界 Link/摘要；每个来源的未发布变化合并为一个待刷新状态。Service 在返回正式写入结果前等待发布受理。无活动订阅时只更新 owner，下一 Turn 从现态开始。
+
+普通文件通知可在 Inbox 合并，不占用输入、回复或 Job 终态预留；被捕获的批次不变。它刷新状态但不强迫已完成回答再运行一轮模型。原生监听失败停止该来源，SDK/Observation 报告有限诊断，相关 EVENT 等待收到来源不可用反馈；正式操作和显式扫描继续。重新激活使用 reload/restart，不设置自动恢复循环。owner 扫描/存储失败保留 owner 归属，通过插件事件适配进入合法 Turn bridge，不伪称成功刷新或普通监听降级。
 
 ## 验证
 

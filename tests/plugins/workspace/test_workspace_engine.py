@@ -302,7 +302,7 @@ async def test_workspace_turn_preparation_projects_manifest_into_context(
     ).build()
     workspace.initialize_day(DAY)
     context = ContextEngineBuilder(system_text="system").build()
-    context.register_segment(workspace_segment_registration())
+    context.register_segment(workspace_segment_registration(workspace))
     turn_id = context.begin_turn("hello")
     await context.open_segments(DAY.value)
     scope = RunScope().push(RunLevel.AGENT, "program").push(RunLevel.TURN, turn_id)
@@ -1000,13 +1000,6 @@ def _message_text(message: UserMessage) -> str:
     return "\n".join(part.text for part in message.parts if isinstance(part, TextPart))
 
 
-def _workspace_snapshot_payload(bus: SignalBus) -> JsonObject:
-    signals = bus.consume_namespace("context")
-    assert len(signals) == 1
-    assert signals[0].name == SIGNAL_WORKSPACE_SYNC
-    return signals[0].payload
-
-
 def _task_call_text_for_label(call: TaskCall, label: str) -> str:
     for message in call.messages.messages:
         if message.label != label:
@@ -1055,7 +1048,6 @@ def _execution(action_name: str, params: JsonObject) -> ActionExecution:
 def _executor(engine: WorkspaceEngine) -> WorkspaceExecutor:
     return WorkspaceExecutor(
         WorkspaceService(engine),
-        SignalBus(),
         LLMActionTaskRunner(
             llm_runner=FakeLLMRunner(),
             context=ContextEngineBuilder(system_text="sys").build(),
@@ -1079,7 +1071,6 @@ async def test_compose_uses_local_sources_and_commits_only_complete_text(
     bus = SignalBus()
     executor = WorkspaceExecutor(
         WorkspaceService(engine),
-        bus,
         LLMActionTaskRunner(llm_runner=llm, context=context),
         RuntimeWorkspaceBridge(),
     )
@@ -1099,7 +1090,7 @@ async def test_compose_uses_local_sources_and_commits_only_complete_text(
     assert engine.read_text("workspace:target.md").text == "complete result"
     assert len(llm.calls) == 1
     assert "text" not in result.payload
-    assert _workspace_snapshot_payload(bus)["resources"]
+    assert any(item.link == "workspace:target.md" for item in engine.snapshot().resources)
 
 
 async def test_compose_rejects_truncated_target_before_generating(
@@ -1115,7 +1106,6 @@ async def test_compose_rejects_truncated_target_before_generating(
     llm = FakeLLMRunner({"text": "new"})
     executor = WorkspaceExecutor(
         WorkspaceService(engine),
-        SignalBus(),
         LLMActionTaskRunner(llm_runner=llm, context=context),
         RuntimeWorkspaceBridge(),
     )

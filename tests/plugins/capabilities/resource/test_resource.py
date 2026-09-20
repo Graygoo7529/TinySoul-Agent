@@ -344,7 +344,6 @@ def test_disabled_resource_actions_are_absent_from_effective_catalog(
         ActionEngineBuilder(ActionCatalogLoader().load(catalog_root)),
         settings=settings,
         workspace=WorkspaceService(_workspace(local_tmp)),
-        bus=SignalBus(),
         staging=_staging(local_tmp),
     ).build()
 
@@ -363,7 +362,6 @@ async def test_resource_executor_returns_metadata_and_emits_one_workspace_signal
     with source.open("wb") as handle:
         writer.write(handle)
     workspace.reconcile()
-    bus = SignalBus()
     service = ResourceConversionService(
         workspace=WorkspaceService(workspace),
         settings=ResourceSettings(),
@@ -372,7 +370,6 @@ async def test_resource_executor_returns_metadata_and_emits_one_workspace_signal
     executor = ResourceConversionExecutor(
         converter=ResourceConverter.PYPDF,
         service=service,
-        bus=bus,
     )
     with builtin_action_catalog_root() as root:
         action = ActionCatalogLoader().load(root).get_action(RESOURCE_PYPDF_ACTION)
@@ -407,10 +404,7 @@ async def test_resource_executor_returns_metadata_and_emits_one_workspace_signal
     assert result.payload["markdown_link"] == "workspace:converted/blank.md"
     assert result.payload["content_status"] == "visual_only"
     assert "markdown" not in result.payload
-    signals = bus.consume()
-    assert len(signals) == 1
-    assert signals[0].name == "context.workspace.sync"
-    assert signals[0].source == RESOURCE_PYPDF_ACTION
+    assert workspace.inspect("workspace:converted/blank.md").link == result.payload["markdown_link"]
 
 
 async def test_resource_executor_cancellation_after_worker_prevents_commit_and_signal(
@@ -431,11 +425,9 @@ async def test_resource_executor_cancellation_after_worker_prevents_commit_and_s
         staging=_staging(local_tmp),
         process_runner=_CompletedCancellingRunner(),
     )
-    bus = SignalBus()
     executor = ResourceConversionExecutor(
         converter=ResourceConverter.PYPDF,
         service=service,
-        bus=bus,
     )
 
     result = await executor.execute(
@@ -448,7 +440,6 @@ async def test_resource_executor_cancellation_after_worker_prevents_commit_and_s
     assert result.failure.reason == "runtime_transfer"
     assert workspace.snapshot() == before
     assert not (workspace.root / "converted" / "blank.md").exists()
-    assert bus.consume() == ()
 
 
 async def test_resource_executor_maps_invalid_worker_manifest_to_local_failure(
@@ -462,7 +453,6 @@ async def test_resource_executor_maps_invalid_worker_manifest_to_local_failure(
     with source.open("wb") as handle:
         writer.write(handle)
     before = workspace.reconcile().manifest
-    bus = SignalBus()
     executor = ResourceConversionExecutor(
         converter=ResourceConverter.PYPDF,
         service=ResourceConversionService(
@@ -471,7 +461,6 @@ async def test_resource_executor_maps_invalid_worker_manifest_to_local_failure(
             staging=_staging(local_tmp),
             process_runner=_InvalidManifestRunner(),
         ),
-        bus=bus,
     )
 
     result = await executor.execute(
@@ -485,7 +474,6 @@ async def test_resource_executor_maps_invalid_worker_manifest_to_local_failure(
     assert result.failure is not None
     assert result.failure.reason == "worker_protocol_invalid"
     assert workspace.snapshot() == before
-    assert bus.consume() == ()
 
 
 class _CompletedCancellingRunner(ControlledProcessRunner):

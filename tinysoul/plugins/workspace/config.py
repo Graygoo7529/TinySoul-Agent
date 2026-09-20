@@ -131,6 +131,17 @@ class WorkspaceAnalysisSettings:
 
 
 @dataclass(frozen=True)
+class WorkspaceWatchSettings:
+    enabled: bool = True
+    debounce_ms: int = 200
+
+    def __post_init__(self) -> None:
+        if type(self.enabled) is not bool:
+            raise ConfigError("Workspace watch enabled must be boolean", key="workspace.watch.enabled")
+        _require_positive(self.debounce_ms, key="workspace.watch.debounce_ms")
+
+
+@dataclass(frozen=True)
 class WorkspaceSettings:
     """Workspace module settings."""
 
@@ -142,6 +153,7 @@ class WorkspaceSettings:
     max_write_chars: int = DEFAULT_MAX_WRITE_CHARS
     max_image_bytes: int = DEFAULT_MAX_IMAGE_BYTES
     ignore_dirs: tuple[str, ...] = DEFAULT_IGNORE_DIRS
+    watch: WorkspaceWatchSettings = field(default_factory=WorkspaceWatchSettings)
     search: WorkspaceSearchSettings = field(default_factory=WorkspaceSearchSettings)
     analysis: WorkspaceAnalysisSettings = field(
         default_factory=WorkspaceAnalysisSettings
@@ -257,6 +269,8 @@ class WorkspaceSettings:
                     value=list(self.ignore_dirs),
                     expected="list[str]",
                 )
+        if not isinstance(self.watch, WorkspaceWatchSettings):
+            raise ConfigError("Workspace watch settings are invalid", key="workspace.watch")
         if not isinstance(self.search, WorkspaceSearchSettings):
             raise ConfigError(
                 "Workspace search settings are invalid",
@@ -289,6 +303,7 @@ def parse_workspace_settings(
             "ignore_dirs",
             "search",
             "analysis",
+            "watch",
         },
         key="workspace",
     )
@@ -323,7 +338,16 @@ def parse_workspace_settings(
         ),
         search=_parse_search(_optional_table(tree, "search", key="workspace")),
         analysis=_parse_analysis(_optional_table(tree, "analysis", key="workspace")),
+        watch=_parse_watch(_optional_table(tree, "watch", key="workspace")),
     )
+
+
+def _parse_watch(tree: Mapping[str, object]) -> WorkspaceWatchSettings:
+    reject_unknown_keys(tree, {"enabled", "debounce_ms"}, key="workspace.watch")
+    enabled = tree.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise ConfigError("Workspace watch enabled must be boolean", key="workspace.watch.enabled")
+    return WorkspaceWatchSettings(enabled, _optional_int(tree, "debounce_ms", default=200, key="workspace.watch"))
 
 
 def _parse_search(tree: Mapping[str, object]) -> WorkspaceSearchSettings:

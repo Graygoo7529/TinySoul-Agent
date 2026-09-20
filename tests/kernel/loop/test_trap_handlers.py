@@ -32,7 +32,6 @@ from tinysoul.runtime import (
     TrapSnap,
 )
 from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
-from tinysoul.plugins.workspace.projection import workspace_snapshot_signal
 
 
 async def test_context_pressure_trap_retries_current_phase_when_trace_changes(

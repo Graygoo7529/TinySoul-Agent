@@ -21,11 +21,9 @@ from tinysoul.infra import (
     StagingDirectoryManager,
     StagingError,
 )
-from tinysoul.runtime import SignalBus
 from tinysoul.plugins.workspace import (
     WorkspaceError,
     WorkspaceContractError,
-    workspace_snapshot_signal,
 )
 
 from tinysoul.plugins.workspace.services import WorkspaceService
@@ -75,10 +73,8 @@ class KimiSearchExecutor(ActionExecutor):
         self,
         *,
         service: WebCapabilityService,
-        bus: SignalBus,
     ) -> None:
         self._service = service
-        self._bus = bus
 
     async def execute(
         self,
@@ -127,7 +123,6 @@ class KimiSearchExecutor(ActionExecutor):
             )
         except WorkspaceError as exc:
             raise RuntimeWorkspaceBridge().from_workspace_error(exc) from exc
-        _emit_search_snapshot(execution, context, self._bus, result)
         return _success(execution, result.payload)
 
 
@@ -139,12 +134,10 @@ class WebFetchExecutor(ActionExecutor):
         *,
         extractor: WebExtractor,
         service: WebCapabilityService,
-        bus: SignalBus,
         runtime_bridge: RuntimeWorkspaceBridge | None = None,
     ) -> None:
         self._extractor = extractor
         self._service = service
-        self._bus = bus
         self._runtime_bridge = runtime_bridge
 
     async def execute(
@@ -191,7 +184,6 @@ class WebFetchExecutor(ActionExecutor):
             )
         except WorkspaceError as exc:
             raise RuntimeWorkspaceBridge().from_workspace_error(exc) from exc
-        _emit_fetch_snapshot(execution, context, self._bus, result)
         return _success(execution, _fetch_payload(result))
 
 
@@ -202,10 +194,8 @@ class WebDiscoveryExecutor(ActionExecutor):
         self,
         *,
         service: WebCapabilityService,
-        bus: SignalBus,
     ) -> None:
         self._service = service
-        self._bus = bus
 
     async def execute(
         self,
@@ -253,7 +243,6 @@ class WebDiscoveryExecutor(ActionExecutor):
             )
         except WorkspaceError as exc:
             raise RuntimeWorkspaceBridge().from_workspace_error(exc) from exc
-        _emit_discovery_snapshot(execution, context, self._bus, result)
         return _success(execution, result.payload)
 
 
@@ -263,7 +252,6 @@ def register_web_actions(
     settings: WebSettings,
     runtime_env: Mapping[str, str],
     workspace: WorkspaceService,
-    bus: SignalBus,
     staging: StagingDirectoryManager,
     runtime_bridge: RuntimeWorkspaceBridge | None = None,
     dependency_checker: DependencyChecker | None = None,
@@ -300,12 +288,12 @@ def register_web_actions(
     if search_enabled:
         builder.register_executor(
             WEB_SEARCH_KIMI_ACTION,
-            KimiSearchExecutor(service=service, bus=bus),
+            KimiSearchExecutor(service=service),
         )
     if discovery_enabled:
         builder.register_executor(
             WEB_DISCOVER_PAGES_ACTION,
-            WebDiscoveryExecutor(service=service, bus=bus),
+            WebDiscoveryExecutor(service=service),
         )
     if defuddle_enabled:
         builder.register_executor(
@@ -313,7 +301,6 @@ def register_web_actions(
             WebFetchExecutor(
                 extractor=WebExtractor.DEFUDDLE,
                 service=service,
-                bus=bus,
                 runtime_bridge=runtime_bridge,
             ),
         )
@@ -323,7 +310,6 @@ def register_web_actions(
             WebFetchExecutor(
                 extractor=WebExtractor.TRAFILATURA,
                 service=service,
-                bus=bus,
                 runtime_bridge=runtime_bridge,
             ),
         )
@@ -421,58 +407,6 @@ def _fetch_payload(result: WebFetchResult) -> JsonObject:
         "untrusted_external_content": True,
         "warning_codes": list(result.warning_codes),
     }
-
-
-def _emit_search_snapshot(
-    execution: ActionExecution,
-    context: ActionExecutionContext,
-    bus: SignalBus,
-    result: WebSearchResult,
-) -> None:
-    if result.manifest is None:
-        return
-    (context.signal_bus or bus).emit(
-        workspace_snapshot_signal(
-            result.manifest,
-            call_id=execution.call.call_id,
-            scope=execution.framework.scope,
-            source=execution.call.action_name,
-        )
-    )
-
-
-def _emit_discovery_snapshot(
-    execution: ActionExecution,
-    context: ActionExecutionContext,
-    bus: SignalBus,
-    result: WebDiscoveryResult,
-) -> None:
-    if result.manifest is None:
-        return
-    (context.signal_bus or bus).emit(
-        workspace_snapshot_signal(
-            result.manifest,
-            call_id=execution.call.call_id,
-            scope=execution.framework.scope,
-            source=execution.call.action_name,
-        )
-    )
-
-
-def _emit_fetch_snapshot(
-    execution: ActionExecution,
-    context: ActionExecutionContext,
-    bus: SignalBus,
-    result: WebFetchResult,
-) -> None:
-    (context.signal_bus or bus).emit(
-        workspace_snapshot_signal(
-            result.manifest,
-            call_id=execution.call.call_id,
-            scope=execution.framework.scope,
-            source=execution.call.action_name,
-        )
-    )
 
 
 def _success(execution: ActionExecution, payload: JsonObject) -> ActionResult:

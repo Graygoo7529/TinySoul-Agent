@@ -229,7 +229,6 @@ async def test_oversized_discovery_spills_complete_json_and_emits_signal(
     local_tmp: Path,
 ) -> None:
     workspace = _workspace(local_tmp)
-    bus = SignalBus()
     service = WebCapabilityService(
         workspace=WorkspaceService(workspace),
         settings=WebSettings(
@@ -243,7 +242,7 @@ async def test_oversized_discovery_spills_complete_json_and_emits_signal(
         staging=_staging(local_tmp),
         process_runner=_DiscoveryRunner(page_count=20, anchor_chars=400),
     )
-    executor = WebDiscoveryExecutor(service=service, bus=bus)
+    executor = WebDiscoveryExecutor(service=service)
 
     result = await executor.execute(
         _discovery_execution(),
@@ -263,9 +262,7 @@ async def test_oversized_discovery_spills_complete_json_and_emits_signal(
     assert stored["truncated"] is False
     assert len(stored["pages"]) == 20
     assert stored["pages"][-1]["anchor_text"] == "A" * 400
-    signals = bus.consume()
-    assert len(signals) == 1
-    assert signals[0].name == "context.workspace.sync"
+    assert workspace.inspect(str(link)).link == link
 
 
 class _DiscoveryRunner(ControlledProcessRunner):

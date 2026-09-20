@@ -49,12 +49,15 @@ class ServiceScope:
             if self._operations is None:
                 operations.check_cancelled()
 
-    def local[**P, R](self, operation: Callable[P, R]) -> Callable[P, Awaitable[R]]:
+    def local[**P, R](self, operation: Callable[P, R], *,
+                     after: Callable[[], Awaitable[None]] | None = None) -> Callable[P, Awaitable[R]]:
         @wraps(operation)
         async def run(*args: P.args, **kwargs: P.kwargs) -> R:
             async with self._lease():
                 joined = self._operations or JoinedOperations()
                 result = await joined.run(partial(operation, *args, **kwargs))
+                if after is not None:
+                    await joined.finish(after)
                 if self._operations is None:
                     joined.check_cancelled()
                 return result

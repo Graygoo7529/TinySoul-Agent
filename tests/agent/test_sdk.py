@@ -37,6 +37,7 @@ from tinysoul.plugins.reflection import (
     ReflectionStatus,
 )
 from tinysoul.llm.protocol.requests import TaskCall
+from tinysoul.llm.protocol.messages import JsonPart
 from tinysoul.llm.protocol.responses import JsonAnswer, RawResponse, TaskResult
 from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind
 from tinysoul.kernel.loop.turn import TurnOutcome
@@ -49,6 +50,7 @@ from tinysoul.plugins.memory.services import MemoryKnowledgeService
 from tinysoul.plugins.memory import MemoryEngine
 from tinysoul.kernel.loop.interaction.inbox import InboxClosedError, WaitReason
 from tinysoul.runtime.events import EnvironmentEvent, EventKind
+from tinysoul.runtime.sources import SourceState
 from tests.support.project import copy_initialized_project
 from tinysoul.infra.time import CalendarDay
 from tinysoul.infra.json import JsonObject
@@ -117,6 +119,111 @@ class _Clock:
         return CalendarDay(self.value.date())
 
 
+@pytest.mark.parametrize("origin", ("external", "sdk"))
+async def test_workspace_change_resumes_same_turn_with_current_model_state(tmp_path: Path, origin: str) -> None:
+    llm = _LLM()
+    for call in reversed((
+        ToolCallRecord("select_wait", "select_action_domains", {"domains": ["core"]}, ToolKind.CONTROL),
+        ToolCallRecord("wait", "core.wait", {"topic": "workspace.changed"}, ToolKind.ACTION),
+    )):
+        llm.results.appendleft(TaskResult.success(
+            raw_response=RawResponse("", "fake", "fake", tool_calls=(call,)), answer=None,
+            tool_calls=(call,),
+        ))
+    llm.release.set()
+    agent = await _create(tmp_path, llm)
+    await agent.start()
+    try:
+        active = await agent.submit_turn(UserTurnRequest("Wait for a resource"))
+        async with asyncio.timeout(5):
+            while active.wait_reason is not WaitReason.EVENT:
+                assert not active.done
+                await asyncio.sleep(0.01)
+        if origin == "external":
+            (tmp_path / "project/runtime/workspace/new.md").write_text("private resource body", encoding="utf-8")
+        else:
+            await agent.services.get(WorkspaceService).write_text("workspace:new.md", "private resource body")
+        result = await asyncio.wait_for(active.wait(), 5)
+        assert result.status is TurnOutcomeStatus.ANSWERED
+        assert len(llm.calls) == 5
+        state = next(message for message in llm.calls[2].messages.messages if message.label == "workspace")
+        part = state.parts[0]
+        assert isinstance(part, JsonPart)
+        assert "workspace:new.md" in str(part.value)
+        assert "private resource body" not in str(part.value)
+    finally:
+        await agent.shutdown()
+
+
+async def test_watcher_binding_survives_rejected_reload_and_changes_on_success(tmp_path: Path) -> None:
+    llm = _LLM()
+    agent = await _create(tmp_path, llm)
+    assert all(item.state is SourceState.STOPPED for item in agent.status().sources)
+    await agent.start()
+    try:
+        original = agent.services.get(WorkspaceService)
+        active = await agent.submit_turn(UserTurnRequest("work"))
+        await asyncio.wait_for(llm.started.wait(), 3)
+        with pytest.raises(ConfigError):
+            await agent.reload_config()
+        assert next(item for item in agent.status().sources if item.source == "workspace.fswatch").state is SourceState.RUNNING
+        llm.release.set()
+        assert (await active.wait()).status is TurnOutcomeStatus.ANSWERED
+        await agent.patch_config((ConfigMutation(
+            source_id="project:configs/workspace.toml", path="workspace.watch.enabled",
+            op="set", value=False,
+        ),))
+        await agent.reload_config()
+        assert next(item for item in agent.status().sources if item.source == "workspace.fswatch").state is SourceState.DISABLED
+        with pytest.raises(AgentServiceStaleError):
+            await original.snapshot()
+        await agent.services.get(WorkspaceService).write_text("workspace:after.md", "still writable")
+    finally:
+        await agent.shutdown()
+
+
+async def test_source_start_failure_keeps_previous_generation_and_listener(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tinysoul.environment.errors import EnvironmentError
+    from tinysoul.plugins.workspace.events import WorkspaceRuntime
+    from tinysoul.runtime import RuntimeException
+    from tinysoul.runtime.sources import EventSink
+
+    agent = await _create(tmp_path, _LLM())
+    await agent.start()
+    original_start = WorkspaceRuntime.start
+    reject_candidate = True
+
+    async def start(source: WorkspaceRuntime, publish: EventSink) -> None:
+        nonlocal reject_candidate
+        if reject_candidate:
+            reject_candidate = False
+            raise EnvironmentError("Test candidate source could not start")
+        await original_start(source, publish)
+
+    monkeypatch.setattr(WorkspaceRuntime, "start", start)
+    try:
+        service = agent.services.get(WorkspaceService)
+        with pytest.raises(RuntimeException) as failed:
+            await agent.reload_config()
+        assert failed.value.payload["source"] == "workspace.fswatch"
+        assert failed.value.payload["error_type"] == "EnvironmentError"
+        assert next(
+            item for item in agent.status().sources
+            if item.source == "workspace.fswatch"
+        ).state is SourceState.RUNNING
+        (tmp_path / "project/runtime/workspace/recovered.md").write_text(
+            "observed by the original owner", encoding="utf-8"
+        )
+        async with asyncio.timeout(5):
+            while not (await service.snapshot()).resources:
+                await asyncio.sleep(0.01)
+        assert (await service.inspect("workspace:recovered.md")).size > 0
+    finally:
+        await agent.shutdown()
+
+
 async def _create(
     root: Path,
     llm: _LLM,
@@ -131,7 +238,7 @@ async def _create(
     async def factory() -> AgentAssembly:
         builder = (
             AgentBuilder(root)
-            .with_config_environment(ConfigEnvironment.from_project_root(root, env={}))
+            .with_config_environment(ConfigEnvironment.from_project_root(root, env={}, overrides={"reflection.schedule.enabled": False}))
             .with_agent_settings(AgentSettings(interactive=False))
             .with_llm_runner(llm)
         )
@@ -564,7 +671,7 @@ async def test_memory_reflection_revises_daily_from_fixed_target_sources(
     llm.release.set()
     builder = (
         AgentBuilder(root)
-        .with_config_environment(ConfigEnvironment.from_project_root(root, env={}))
+        .with_config_environment(ConfigEnvironment.from_project_root(root, env={}, overrides={"reflection.schedule.enabled": False}))
         .with_agent_settings(AgentSettings(interactive=False))
         .with_calendar_clock(clock)
         .with_llm_runner(llm)
@@ -708,7 +815,7 @@ async def test_question_reply_resumes_same_turn_and_keeps_new_root_queued(
         queued = await agent.submit_turn(UserTurnRequest("later"))
         assert (
             await agent.publish(
-                EnvironmentEvent(EventKind.EVENT, {"changed": True}, "e")
+                EnvironmentEvent(EventKind.EVENT, {"changed": True}, "e", active.turn_id)
             )
         ).delivered
         assert not (

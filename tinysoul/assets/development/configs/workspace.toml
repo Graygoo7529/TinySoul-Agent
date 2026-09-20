@@ -15,6 +15,10 @@ ignore_dirs = [
   "__pycache__",
 ]
 
+[workspace.watch]
+enabled = true
+debounce_ms = 200
+
 [workspace.search]
 max_query_chars = 256
 max_scan_chars = 1000000

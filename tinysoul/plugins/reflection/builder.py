@@ -14,20 +14,18 @@ from tinysoul.kernel.loop.assembly import (
     build_turn_context,
     build_turn_kernel,
 )
-from tinysoul.kernel.registration import ServiceRegistry, Service, PluginDeclaration
+from tinysoul.kernel.registration import ResolvedPlugins, Service, PluginDeclaration
 from tinysoul.plugins.home.services import HomeReviewService, HomeService
 from tinysoul.plugins.memory.services import MemoryKnowledgeService
 from tinysoul.kernel.loop.lifecycle.completion import AnswerCompletionDetector
 from tinysoul.kernel.loop.turn import TurnActivityController
 from tinysoul.plugins.home import HomeDomainSkillProvider
 from tinysoul.kernel.loop.config import LoopSettings
-from tinysoul.kernel.loop.lifecycle.preparation import TurnPreparationPipeline
 from tinysoul.kernel.loop.phases import LLMRunner
 from tinysoul.plugins.memory import MemoryEngine
 from tinysoul.runtime import ObservationEmitter, SignalBus
-from tinysoul.plugins.workspace.runtime_bridge import RuntimeWorkspaceBridge
 from tinysoul.plugins.session import SessionEngine
-from tinysoul.plugins.workspace import WorkspaceEngine, WorkspaceTurnPreparationHandler
+from tinysoul.plugins.workspace import WorkspaceEngine
 
 from .actions import ReflectionActionAssembly, build_reflection_action
 from .config import ReflectionSettings
@@ -142,29 +140,14 @@ class ReflectionBuilder:
             context=home_context,
             action=home_action,
             jobs=home_jobs,
-            preparation=TurnPreparationPipeline(
-                (
-                    WorkspaceTurnPreparationHandler(
-                        self._workspace,
-                        runtime_bridge=RuntimeWorkspaceBridge(),
-                    ),
-                )
-            ),
-            services=home_services,
+            plugins=home_services,
         )
         memory_turn, memory_profile = self._build_turn(
             kind="memory",
             context=memory_context,
             action=memory_action,
             jobs=memory_jobs,
-            preparation=TurnPreparationPipeline(
-                (
-                    WorkspaceTurnPreparationHandler(
-                        self._workspace, runtime_bridge=RuntimeWorkspaceBridge()
-                    ),
-                )
-            ),
-            services=memory_services,
+            plugins=memory_services,
         )
         engine = ReflectionEngine(
             archive=self._archive,
@@ -191,21 +174,23 @@ class ReflectionBuilder:
         context: ContextEngine,
         action: ActionEngine,
         jobs: TurnActivityController,
-        preparation: TurnPreparationPipeline,
-        services: ServiceRegistry,
+        plugins: ResolvedPlugins,
     ) -> tuple[ReflectionTurnEntry, TurnProfile]:
         profile = TurnProfile(
             id=f"{kind}_reflection",
             context=context,
             action=action,
-            services=services,
+            services=plugins.services,
             trap=build_reflection_turn_trap(context, home=self._home),
             settings=self._settings.home if kind == "home" else self._settings.memory,
             cycle_settings=self._loop_settings.cycle,
             turn_guidance=reflection_turn_guidance(kind),
             completion_detector=AnswerCompletionDetector(),
-            preparation_pipeline=preparation,
-            domain_skills=HomeDomainSkillProvider(services.get(HomeService)),
+            preparation_pipeline=plugins.preparation,
+            completion_pipeline=plugins.completion,
+            events=plugins.events,
+            sources=plugins.sources,
+            domain_skills=HomeDomainSkillProvider(plugins.services.get(HomeService)),
             activity_controller=jobs,
         )
         runner = build_turn_kernel(

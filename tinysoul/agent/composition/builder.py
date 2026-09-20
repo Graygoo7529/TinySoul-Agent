@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.runtime import RunLevel, RunScope
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 
 from tinysoul.kernel.action import ActionCatalogLoader, ActionEngine
@@ -67,6 +67,7 @@ from tinysoul.plugins.reflection import (
     ReflectionEngine,
     ReflectionRuntimeBridge,
     ReflectionSettings,
+    ReflectionRequest,
     parse_reflection_settings,
 )
 from tinysoul.runtime import (
@@ -99,7 +100,7 @@ from tinysoul.plugins.workspace import (
 from tinysoul.plugins.workspace.errors import WorkspaceError
 
 from ..config import AgentSettings, parse_agent_settings
-from ..errors import AgentError, AgentInvariantError
+from ..errors import AgentError, AgentInvariantError, AgentClosedError, AgentQueueFullError
 from ..dispatch.ingress import AgentIngress
 from ..dispatch.inputs import InputCommandParser, InputDispatcher, InputSource
 from ..observation.outputs import ObservationRoute, ObservationRouter, OutputSink
@@ -110,7 +111,12 @@ from ..lifecycle.day import AgentDayCoordinator
 from tinysoul.plugins.archive import DailyLifecycleCoordinator
 from tinysoul.infra.clock import IanaCalendarClock
 from ..lifecycle.runtime_policy import build_agent_trap
-from tinysoul.environment.sources.scheduler import ReflectionScheduler
+from tinysoul.environment.sources.scheduler import DeadlineTimer
+from tinysoul.plugins.reflection.schedule import ReflectionScheduler
+from tinysoul.kernel.registration import PluginDeclaration
+from tinysoul.environment.sources.fswatch import FileWatcher
+from tinysoul.plugins.workspace.events import WorkspaceRuntime
+from ..lifecycle.sources import GenerationSources
 
 
 class AgentBuilder:
@@ -262,8 +268,17 @@ class AgentBuilder:
                 ),
             )
             bus = self._bus if self._bus is not None else SignalBus()
+
+            async def submit_reflection(request: ReflectionRequest) -> bool:
+                try:
+                    await commands.request_reflection(request)
+                except (AgentClosedError, AgentQueueFullError):
+                    return False
+                return True
+
             generation = await self._build_generation(
                 config,
+                submit_reflection=submit_reflection,
                 observations=observations,
                 bus=bus,
                 map_config_errors=True,
@@ -290,7 +305,8 @@ class AgentBuilder:
             )
             from tinysoul.agent.commands import AgentCommands
 
-            commands = AgentCommands(agent_runner)
+            commands = AgentCommands(agent_runner,
+                source_statuses=lambda: generation_handle.snapshot().generation.sources.statuses)
             dispatcher = InputDispatcher(
                 parser=parser,
                 commands=commands,
@@ -300,24 +316,11 @@ class AgentBuilder:
             )
             gateway = AgentIngress(
                 dispatcher=dispatcher,
-                bus=bus,
                 active_turn_scope=lambda: dispatcher.active_turn_scope,
                 agent_scope=agent_runner.scope,
             )
             input_sources = tuple(self._input_sources)
 
-            def current_reflection_schedule():
-                current = generation_handle.snapshot().generation
-                return (
-                    current.reflection_settings.schedule,
-                    current.reflection_settings.timezone,
-                )
-
-            scheduler = ReflectionScheduler(
-                reflection_settings.schedule,
-                timezone=reflection_settings.timezone,
-                settings_provider=current_reflection_schedule,
-            )
             config_controller = ConfigController(
                 root=self._root,
                 environment=config,
@@ -330,7 +333,7 @@ class AgentBuilder:
                     candidate,
                     observations=observations,
                     bus=bus,
-                    after_commit=scheduler.refresh,
+                    submit_reflection=submit_reflection,
                 ),
                 activity=lambda: (
                     "queued"
@@ -351,7 +354,6 @@ class AgentBuilder:
                     {"llm": {"adapters": adapter_specs_json()}}
                 ),
             )
-            agent_request_sources = (scheduler,)
             return AgentAssembly(
                 configuration=config_controller,
                 generation_handle=generation_handle,
@@ -360,7 +362,6 @@ class AgentBuilder:
                 input_dispatcher=dispatcher,
                 gateway=gateway,
                 input_sources=input_sources,
-                agent_request_sources=agent_request_sources,
                 observations=observations,
                 resources=resources,
             )
@@ -388,7 +389,7 @@ class AgentBuilder:
         *,
         observations: ObservationEmitter,
         bus: SignalBus,
-        after_commit: Callable[[], None] | None = None,
+        submit_reflection: Callable[[ReflectionRequest], Awaitable[bool]],
     ) -> PreparedConfigActivation:
         try:
             handle.begin_activation()
@@ -400,6 +401,7 @@ class AgentBuilder:
         try:
             generation = await self._build_generation(
                 candidate,
+                submit_reflection=submit_reflection,
                 observations=observations,
                 bus=bus,
             )
@@ -410,6 +412,7 @@ class AgentBuilder:
         previous = handle.snapshot().generation
 
         async def commit() -> None:
+            await previous.sources.pause()
             async with handle.write():
                 scope = RunScope().push(RunLevel.AGENT, "config_activation")
                 transition = await generation.day.preflight(scope=scope)
@@ -420,6 +423,9 @@ class AgentBuilder:
                     )
                 )
                 operations.check_cancelled()
+                publisher = previous.sources.publisher
+                if publisher is not None:
+                    await generation.sources.start(publisher)
                 handle.activate(generation)
 
         async def abort() -> tuple[CleanupDiagnostic, ...]:
@@ -427,17 +433,10 @@ class AgentBuilder:
                 return await generation.close()
             finally:
                 handle.fail_activation()
+                await previous.sources.resume()
 
         async def retire() -> tuple[CleanupDiagnostic, ...]:
-            diagnostics: tuple[CleanupDiagnostic, ...] = ()
-            if after_commit is not None:
-                try:
-                    after_commit()
-                except Exception as exc:
-                    diagnostics = (
-                        CleanupDiagnostic("scheduler.refresh", type(exc).__name__),
-                    )
-            return (*diagnostics, *await previous.close())
+            return await previous.close()
 
         return PreparedConfigActivation(commit=commit, abort=abort, retire=retire)
 
@@ -445,6 +444,7 @@ class AgentBuilder:
         self,
         config: ConfigEnvironment,
         *,
+        submit_reflection: Callable[[ReflectionRequest], Awaitable[bool]],
         observations: ObservationEmitter,
         bus: SignalBus,
         map_config_errors: bool = False,
@@ -501,11 +501,11 @@ class AgentBuilder:
                 RuntimeWorkspaceBridge(),
                 observations,
             )
+            workspace_runtime = WorkspaceRuntime(workspace, FileWatcher(), observations=observations)
+            resources.register("workspace_events", workspace_runtime.close)
             action_assembly = CommonActionAssembly(
                 root=self._root,
-                home=home,
                 workspace=workspace,
-                bus=bus,
                 llm=llm,
                 observations=observations,
                 action_settings=action_settings,
@@ -513,6 +513,14 @@ class AgentBuilder:
                 runtime_env=config.runtime_env,
                 execution_settings=plan.execution,
                 job_settings=plan.jobs,
+                workspace_source=workspace_runtime,
+                runtime_plugins=(PluginDeclaration("reflection_schedule", sources=(
+                    ReflectionScheduler(
+                        reflection_settings.schedule,
+                        clock=self._calendar_clock or IanaCalendarClock(reflection_settings.timezone),
+                        timer=DeadlineTimer(), submit=submit_reflection,
+                    ),
+                )),),
             )
             user_builder = UserTurnBuilder(
                 root=self._root,
@@ -605,7 +613,11 @@ class AgentBuilder:
                     message="Profile action guidance could not be validated.",
                     payload={"error_type": type(exc).__name__},
                 ) from exc
+            sources = GenerationSources(tuple(source for profile in (user_turn.profile, *reflection.profiles)
+                                               for source in profile.sources))
+            day.bind_sources(sources)
             return AgentRuntimeGeneration(
+                sources=sources,
                 config=config,
                 plan=plan,
                 llm_provider_credentials=plan.llm.provider_credential_statuses(

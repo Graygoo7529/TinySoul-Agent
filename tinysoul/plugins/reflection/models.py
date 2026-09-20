@@ -62,12 +62,18 @@ class ReflectionRequest:
     instructions: str = ""
     request_id: str = field(default_factory=lambda: f"request_{uuid4().hex}")
     metadata: JsonObject = field(default_factory=dict)
+    scheduled_day: CalendarDay | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.scope, ReflectionScope):
             raise ReflectionContractError("Reflection request scope is invalid")
         if not isinstance(self.trigger, ReflectionTrigger):
             raise ReflectionContractError("Reflection request trigger is invalid")
+        if self.scheduled_day is not None and (
+            not isinstance(self.scheduled_day, CalendarDay)
+            or self.trigger is not ReflectionTrigger.SCHEDULED
+        ):
+            raise ReflectionContractError("Only scheduled Reflection has a due day")
         if self.target_day is not None and not isinstance(self.target_day, CalendarDay):
             raise ReflectionContractError("Reflection request target_day is invalid")
         if self.scope is not ReflectionScope.MEMORY and self.target_day is not None:
@@ -107,6 +113,8 @@ class ReflectionRequest:
         }
         if self.target_day is not None:
             value["target_day"] = str(self.target_day)
+        if self.scheduled_day is not None:
+            value["scheduled_day"] = str(self.scheduled_day)
         return value
 
 

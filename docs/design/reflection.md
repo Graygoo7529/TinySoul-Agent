@@ -11,6 +11,8 @@ home、memory 子包分别准备情景与来源，turn 子包封装共享 Reflec
 
 Terminal、Endpoint 和定时来源只能提交 typed request。Agent 将 daily 触发拆成独立 Home 与前一日 Memory work；Memory 请求必须有明确 target_day。执行日始终是 Agent 持有的当前 CalendarDay，历史目标不修改执行日或当前工作区。
 
+ReflectionScheduler 属于 Reflection 插件，使用注入的通用 DeadlineTimer 进行异步等待；environment 不导入 Reflection 请求或调度规则。到期请求保存 scheduled_day 与稳定身份，满载时保留同一请求，重试跨午夜也不改变原目标日。Trigger 经类型化提交端口安排根 work，`reflection.due` 事件仅供独立订阅观察，不因重复投递再生成请求。启动晚于当日计划时刻不补跑。来源随世代启动和关闭，日切暂停/恢复不重建其到期游标。
+
 ## 日切与归档
 
 DailyLifecycleCoordinator 的 read/write lease 协调活动访问和排他日切。初始化顺序为 Session root、空活动 Memory.md、Workspace；归档前由 Memory owner 校验活动记忆，Session 连同 Memory.md 归档，然后归档 Workspace/Trash 并初始化新日。Home overlay 与持久 memory 跨日保留。

@@ -18,6 +18,8 @@
 
 运行控制事件的 `reason` 与业务失败分类是两层协议：`runtime.trap` 报告 reason 和 transfer；`turn.failed` 等结果事件按自身投影报告 module、kind 等摘要，不保证每个观察事件都携带完整 Runtime payload。客户端按结构化字段识别失败，不解析 message 文本。
 
+`runtime.source_status` 报告原生 Workspace 监听故障，source 为 `workspace.fswatch`，payload 包含 `state=failed`、受影响 topics 和有限 `error_type`。客户端以 status 中的 `runtime.sources` 查询当前状态；不将其解释为文件修改失败或 Agent 已停止。恢复监听使用显式 reload/restart。
+
 LLM 容量恢复使用 `llm.context_capacity_exceeded`，对应模块失败 kind 为 `llm.model_context_pressure`；Context 自身预算原因仍为 `context.compression_required`。共享配置源/Infra 配置的装配失败归 Agent（`agent.configuration_failed`），各业务配置失败归各自 owner；User Turn 的执行资源准备失败归 `loop.resource_preparation_failed`。
 
 message 是 owner 提供的有限说明，不再透传原始 Python 异常文本。配置诊断仅包含有界 key/expected，不包含原始值和 source；Home 副本恢复不提供 source_path/runtime_path。恢复使用的资源 Link 和容量度量仍保留在内部协议中。前端不能依赖被删除的诊断字段获得文件访问能力，也不能用 Observation 是否到达判断业务是否提交。

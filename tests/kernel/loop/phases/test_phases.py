@@ -14,8 +14,7 @@ from tinysoul.kernel.context.segments import (
 
 from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.workspace.projection import (
-    WorkspaceSnapshot,
-    build_workspace_sync_signal,
+    workspace_refresh_signal,
 )
 
 from collections import deque
@@ -1017,8 +1016,7 @@ async def test_phase3_rejects_misdirected_internal_update_even_from_another_call
         RunScope().push(RunLevel.AGENT, "program").push(RunLevel.TURN, "old_turn")
     )
     bus.emit(
-        build_workspace_sync_signal(
-            WorkspaceSnapshot(),
+        workspace_refresh_signal(
             call_id="stale_workspace_call",
             scope=old_scope,
             source="test.stale",
@@ -1061,8 +1059,7 @@ async def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None
         signal_bus = execution_context.signal_bus
         assert signal_bus is not None
         signal_bus.emit(
-            build_workspace_sync_signal(
-                WorkspaceSnapshot(),
+            workspace_refresh_signal(
                 call_id=execution.call.call_id,
                 scope=old_scope,
                 source="test.current",
@@ -1294,7 +1291,6 @@ def _action_engine(
         register_workspace_actions(
             builder,
             workspace=WorkspaceService(workspace),
-            bus=workspace_bus,
             llm_action=LLMActionTaskRunner(
                 llm_runner=workspace_llm,
                 context=workspace_context,

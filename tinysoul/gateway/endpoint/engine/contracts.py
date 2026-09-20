@@ -64,12 +64,6 @@ class EndpointAgentIngress(Protocol):
         instructions: str = "",
     ) -> EndpointCommandReceipt: ...
 
-    def sync_workspace_context(
-        self,
-        manifest: WorkspaceManifest,
-        *,
-        source: str,
-    ) -> None: ...
 
 
 class EndpointConfigController(Protocol):

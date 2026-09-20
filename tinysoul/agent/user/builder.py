@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from dataclasses import replace
 
 from tinysoul.kernel.action import LoadedActionCatalog
 from tinysoul.kernel.action.config import ActionSettings
@@ -19,23 +20,15 @@ from tinysoul.kernel.loop.assembly import (
 )
 from tinysoul.kernel.loop.lifecycle.completion import (
     TurnCompletionHandler,
-    TurnCompletionPipeline,
 )
 from tinysoul.kernel.loop.config import LoopSettings
-from tinysoul.kernel.loop.lifecycle.preparation import TurnPreparationPipeline
 from tinysoul.kernel.loop.prompts import DomainSkillProvider
 from tinysoul.plugins.memory import MemoryEngine
 from tinysoul.runtime import ObservationEmitter, SignalBus
 from tinysoul.plugins.home.runtime_bridge import RuntimeAgentHomeBridge
-from tinysoul.plugins.session.runtime_bridge import RuntimeSessionBridge
-from tinysoul.plugins.workspace.runtime_bridge import RuntimeWorkspaceBridge
 from tinysoul.plugins.session import SessionEngine
-from tinysoul.plugins.session.projection import (
-    SessionTurnCompletionHandler,
-)
 from tinysoul.plugins.workspace import (
     WorkspaceEngine,
-    WorkspaceTurnPreparationHandler,
 )
 
 from tinysoul.kernel.loop.phases import LLMRunner
@@ -108,32 +101,28 @@ class UserTurnBuilder:
         context = build_turn_context(self._context_settings, self._observations)
         assembly = self._action_assembly or CommonActionAssembly(
             root=self._root,
-            home=self._home,
             workspace=self._workspace,
-            bus=self._bus,
             llm=self._llm,
             observations=self._observations,
             action_settings=self._action_settings,
             capabilities_settings=self._capabilities_settings,
             runtime_env=self._runtime_env,
         )
-        builder, process_jobs, services = assembly.prepare(
+        builder, process_jobs, plugins = assembly.prepare(
             context,
             self._action_catalog,
             plugins=(
                 declare_home(self._home, self._llm),
                 declare_memory(self._memory),
-                declare_session(self._session),
+                declare_session(self._session, record_completed=True),
             ),
         )
         domain_skills = self._domain_skills or HomeDomainSkillProvider(
-            services.get(HomeService),
+            plugins.services.get(HomeService),
             runtime_bridge=RuntimeAgentHomeBridge(),
         )
         action = builder.with_scenario("user").build()
 
-        session_bridge = RuntimeSessionBridge()
-        workspace_bridge = RuntimeWorkspaceBridge()
         trap = build_user_turn_trap(
             context=context,
             home=self._home,
@@ -142,7 +131,7 @@ class UserTurnBuilder:
             id="user",
             context=context,
             action=action,
-            services=services,
+            services=plugins.services,
             trap=trap,
             settings=self._loop_settings.user,
             cycle_settings=self._loop_settings.cycle,
@@ -150,21 +139,10 @@ class UserTurnBuilder:
             completion_detector=AnswerCompletionDetector(),
             completion_to_output=user_output_from_completion,
             domain_skills=domain_skills,
-            preparation_pipeline=TurnPreparationPipeline(
-                (
-                    WorkspaceTurnPreparationHandler(
-                        self._workspace,
-                        runtime_bridge=workspace_bridge,
-                    ),
-                )
-            ),
-            completion_pipeline=TurnCompletionPipeline(
-                handlers=tuple(self._completion_handlers),
-                recorder=SessionTurnCompletionHandler(
-                    self._session,
-                    runtime_bridge=session_bridge,
-                ),
-            ),
+            preparation_pipeline=plugins.preparation,
+            completion_pipeline=replace(plugins.completion, handlers=(*plugins.completion.handlers, *self._completion_handlers)),
+            events=plugins.events,
+            sources=plugins.sources,
             activity_controller=process_jobs,
         )
         runner = build_turn_kernel(

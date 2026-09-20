@@ -189,6 +189,9 @@ class CoreWaitActionExecutor:
             params.get("event_kind"),
             params.get("event_id"),
         )
+        topic, source = params.get("topic"), params.get("source")
+        if kind is None and (topic is not None or source is not None):
+            kind = "event"
         if (
             (
                 timeout is not None
@@ -205,6 +208,8 @@ class CoreWaitActionExecutor:
                 and (not isinstance(event_id, str) or not event_id or kind is None)
             )
             or (timeout is None and kind is None)
+            or any(value is not None and (not isinstance(value, str) or not value)
+                   for value in (topic, source))
         ):
             return _failed(
                 execution,
@@ -213,7 +218,8 @@ class CoreWaitActionExecutor:
             )
         return _success(
             execution,
-            {"timeout_seconds": timeout, "event_kind": kind, "event_id": event_id},
+            {"timeout_seconds": timeout, "event_kind": kind, "event_id": event_id,
+             "topic": topic, "source": source},
         )
 
 

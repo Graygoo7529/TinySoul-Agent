@@ -18,6 +18,7 @@ from tinysoul.plugins.workspace.projection import (
     WorkspaceSegment,
     workspace_segment_registration,
 )
+from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
 from tinysoul.kernel.loop import (
     TurnCompletion,
     TurnCompletionPipeline,
@@ -478,7 +479,8 @@ async def test_turn_completion_pipeline_receives_summary_and_output() -> None:
     assert timeline.index("completion") < timeline.index("turn.output")
 
 
-async def test_segment_close_diagnostics_do_not_replace_recorded_answer() -> None:
+async def test_segment_close_diagnostics_do_not_replace_recorded_answer(tmp_path: Path) -> None:
+    workspace = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
     timeline: list[str] = []
 
     class ClosingSegment(WorkspaceSegment):
@@ -488,11 +490,11 @@ async def test_segment_close_diagnostics_do_not_replace_recorded_answer() -> Non
 
     class Provider:
         async def open(self, info: TurnInfo) -> ClosingSegment:
-            return ClosingSegment()
+            return ClosingSegment(workspace)
 
     context = ContextEngineBuilder(system_text="sys").build()
     context.register_segment(
-        replace(workspace_segment_registration(), provider=Provider())
+        replace(workspace_segment_registration(workspace), provider=Provider())
     )
     recorder = _CompletionRecorder([], timeline)
     observations = _RecordingObservations([], timeline)
@@ -526,9 +528,10 @@ async def test_segment_close_diagnostics_do_not_replace_recorded_answer() -> Non
     assert await context.close_segments() == ()
 
 
-async def test_task_cancellation_joins_segment_close_before_releasing_the_turn() -> (
+async def test_task_cancellation_joins_segment_close_before_releasing_the_turn(tmp_path: Path) -> (
     None
 ):
+    workspace = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
     entered, release = asyncio.Event(), asyncio.Event()
     closed: list[str] = []
 
@@ -540,11 +543,11 @@ async def test_task_cancellation_joins_segment_close_before_releasing_the_turn()
 
     class Provider:
         async def open(self, info: TurnInfo) -> ClosingSegment:
-            return ClosingSegment()
+            return ClosingSegment(workspace)
 
     context = ContextEngineBuilder(system_text="sys").build()
     context.register_segment(
-        replace(workspace_segment_registration(), provider=Provider())
+        replace(workspace_segment_registration(workspace), provider=Provider())
     )
     recorder = _CompletionRecorder([], [])
     runner = TurnRunner(

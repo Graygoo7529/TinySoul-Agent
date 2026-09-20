@@ -21,6 +21,14 @@ enum = ["event", "timer", "job"]
 type = "string"
 description = "Optional exact event identity within the chosen kind."
 
+[tool.schema.properties.topic]
+type = "string"
+description = "Event topic. workspace.changed reports committed current Workspace changes; topic alone implies event_kind=event."
+
+[tool.schema.properties.source]
+type = "string"
+description = "Optional source within the topic. workspace.fswatch senses external file edits; workspace.owner reports formal owner writes. Source unavailability resumes this wait with explicit feedback."
+
 [semantic]
 use_when = ["Further work needs an environment event or an explicit delay"]
 avoid_when = ["Useful independent work remains"]

@@ -12,6 +12,10 @@ from .action import ActionEngineBuilder
 from .context import ContextEngine
 from .context.errors import ContextError
 from .context.segments import RegisteredSegment, SegmentRegistry
+from .loop.interaction.events import TurnEventSubscription
+from .loop.lifecycle.preparation import TurnPreparationHandler, TurnPreparationPipeline
+from .loop.lifecycle.completion import TurnCompletionHandler, TurnCompletionPipeline
+from tinysoul.runtime.sources import RuntimeSource
 
 
 class RegistrationError(Exception):
@@ -63,6 +67,11 @@ class PluginDeclaration:
     requires: tuple[type[object], ...] = ()
     segments: tuple[RegisteredSegment, ...] = ()
     actions: Callable[[ActionEngineBuilder], ActionEngineBuilder] | None = None
+    events: tuple[TurnEventSubscription, ...] = ()
+    sources: tuple[RuntimeSource, ...] = ()
+    preparation: tuple[TurnPreparationHandler, ...] = ()
+    completion: tuple[TurnCompletionHandler, ...] = ()
+    recorder: TurnCompletionHandler | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, str) or re.fullmatch(r"[a-z][a-z0-9_]*", self.id) is None:
@@ -70,6 +79,8 @@ class PluginDeclaration:
         object.__setattr__(self, "services", tuple(self.services))
         object.__setattr__(self, "requires", tuple(self.requires))
         object.__setattr__(self, "segments", tuple(self.segments))
+        for name in ("events", "sources", "preparation", "completion"):
+            object.__setattr__(self, name, tuple(getattr(self, name)))
 
 
 class ResolvedPlugins:
@@ -80,6 +91,18 @@ class ResolvedPlugins:
         self.services = services
         self._context = context
         self._activated = False
+        self.events = tuple(item for declaration in declarations for item in declaration.events)
+        self.sources = tuple(item for declaration in declarations for item in declaration.sources)
+        self.preparation = TurnPreparationPipeline(tuple(
+            item for declaration in declarations for item in declaration.preparation
+        ))
+        recorders = tuple(item.recorder for item in declarations if item.recorder is not None)
+        if len(recorders) > 1:
+            raise RegistrationError("A profile can declare only one completion recorder")
+        self.completion = TurnCompletionPipeline(
+            tuple(item for declaration in declarations for item in declaration.completion),
+            recorders[0] if recorders else None,
+        )
 
     def activate(self, action: ActionEngineBuilder) -> None:
         if self._activated:

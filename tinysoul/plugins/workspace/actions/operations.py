@@ -13,7 +13,6 @@ from tinysoul.kernel.action import (
 from tinysoul.kernel.context import PromptBlock, PromptReferenceError, TaskPrompt
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.json import JsonObject, to_json_object
-from tinysoul.runtime import SignalBus
 from ..services import WorkspaceService
 from ..errors import WorkspaceContractError, WorkspaceError
 from ..runtime_bridge import RuntimeWorkspaceBridge
@@ -23,7 +22,6 @@ from ..inspection.text import WorkspaceTextPosition
 from ..storage.manifest import WorkspaceResourceRecord, WorkspaceTag
 from ..storage.mutations import WorkspaceTextEdit
 from ..prompts import WorkspacePromptReferenceResolver
-from ..projection import workspace_snapshot_signal
 
 from .results import _success, _failed
 
@@ -34,11 +32,10 @@ class WorkspaceExecutor(ActionExecutor):
     def __init__(
         self,
         workspace: WorkspaceService,
-        bus: SignalBus,
         llm_action: LLMActionTaskRunner,
         bridge: RuntimeWorkspaceBridge,
     ) -> None:
-        self._workspace, self._bus = workspace, bus
+        self._workspace = workspace
         self._llm_action, self._bridge = llm_action, bridge
 
     async def execute(
@@ -94,13 +91,6 @@ class WorkspaceExecutor(ActionExecutor):
             if offset < 0 or not 1 <= limit <= 64 or offset > len(records):
                 raise WorkspaceContractError("Workspace listing page is invalid")
             selected = records[offset : offset + limit]
-            await _emit_workspace_snapshot(
-                workspace,
-                execution=execution,
-                context=context,
-                bus=self._bus,
-                source=action,
-            )
             return _success(
                 execution,
                 to_json_object(
@@ -237,25 +227,11 @@ class WorkspaceExecutor(ActionExecutor):
             record = await workspace.restore_resource(_text(params, "trash_ref"))
         elif action == "workspace.delete":
             item = await workspace.trash_resource(target)
-            await _emit_workspace_snapshot(
-                workspace,
-                execution=execution,
-                context=context,
-                bus=self._bus,
-                source=action,
-            )
             return _success(
                 execution, {"trash_ref": item.ref, "link": item.original.link}
             )
         else:
             raise WorkspaceContractError("Unknown Workspace action")
-        await _emit_workspace_snapshot(
-            workspace,
-            execution=execution,
-            context=context,
-            bus=self._bus,
-            source=action,
-        )
         return _success(execution, _record_payload(record))
 
     async def _generate(
@@ -384,13 +360,6 @@ class WorkspaceExecutor(ActionExecutor):
                 return value
             context.control.check_cancelled()
             record = await workspace.write_text(target, value, overwrite=overwrite)
-        await _emit_workspace_snapshot(
-            workspace,
-            execution=execution,
-            context=context,
-            bus=self._bus,
-            source=action,
-        )
         return _success(execution, _record_payload(record))
 
 
@@ -425,28 +394,6 @@ def _flag(params: JsonObject, name: str) -> bool:
     if not isinstance(value, bool):
         raise WorkspaceContractError("Workspace flag is invalid")
     return value
-
-
-async def _emit_workspace_snapshot(
-    workspace: WorkspaceService,
-    *,
-    execution: ActionExecution,
-    context: ActionExecutionContext,
-    bus: SignalBus,
-    source: str,
-) -> None:
-    signal_bus = context.signal_bus or bus
-    manifest = await context.owner_operations.finish(
-        workspace.using(JoinedOperations()).snapshot
-    )
-    signal_bus.emit(
-        workspace_snapshot_signal(
-            manifest,
-            call_id=execution.call.call_id,
-            scope=execution.framework.scope,
-            source=source,
-        )
-    )
 
 
 def _record_payload(record: WorkspaceResourceRecord) -> JsonObject:

@@ -47,11 +47,8 @@ from .inspection.search import (
     WorkspaceSearchScopeKind,
     WorkspaceTextSearchResult,
 )
-from .observation import (
-    WorkspaceChange,
-    WorkspaceChangeOperation,
-    emit_workspace_changed,
-)
+from .observation import emit_workspace_changed
+from .events import WorkspaceChange, WorkspaceChangeOperation, WorkspaceEvents, WORKSPACE_OWNER, WORKSPACE_WATCH
 
 
 @dataclass(frozen=True)
@@ -117,6 +114,7 @@ class WorkspaceEngine:
         self._trash_store = trash_store or WorkspaceTrashStore(settings.trash_root)
         self._observations = observations or NullObservationEmitter()
         self._lock = RLock()
+        self.events = WorkspaceEvents()
         self._reconciler = WorkspaceReconciler(
             settings=settings, manifest_store=manifest_store
         )
@@ -361,6 +359,21 @@ class WorkspaceEngine:
             WorkspaceChangeOperation.RECONCILE, self._reconciler.reconcile
         )
 
+    def reconcile_external(self) -> WorkspaceReconcileResult:
+        return self._change(WorkspaceChangeOperation.RECONCILE, self._reconciler.reconcile,
+                            source=WORKSPACE_WATCH)
+
+    def watches_path(self, path: Path) -> bool:
+        try:
+            relative = path.relative_to(self.root)
+            return bool(relative.parts) and not any(
+                part in self.settings.ignore_dirs or part == ".tinysoul" for part in relative.parts
+            ) and not self._reconciler.is_internal_path(path) and not (
+                path.name.startswith(".") and path.name.endswith(".tmp")
+            )
+        except ValueError:
+            return False
+
     def read_text(
         self, link: str, *, max_chars: int | None = None
     ) -> WorkspaceTextRead:
@@ -522,15 +535,16 @@ class WorkspaceEngine:
             return self._trash_store.list()
 
     def _change[T](
-        self, operation: WorkspaceChangeOperation, mutation: Callable[[], T]
+        self, operation: WorkspaceChangeOperation, mutation: Callable[[], T], *,
+        source: str = WORKSPACE_OWNER,
     ) -> T:
         with self._lock:
             before = self._manifest_store.load()
             result = mutation()
-            self._emit_change(
-                operation=operation, before=before, after=self._manifest_store.load()
-            )
-            return result
+            after = self._manifest_store.load()
+            self.events.stage(WorkspaceChange(operation, before, after), source)
+        emit_workspace_changed(self._observations, change=WorkspaceChange(operation, before, after))
+        return result
 
     def _emit_change(
         self,
@@ -539,9 +553,9 @@ class WorkspaceEngine:
         before: WorkspaceManifest,
         after: WorkspaceManifest,
     ) -> None:
-        emit_workspace_changed(
-            self._observations, change=WorkspaceChange(operation, before, after)
-        )
+        change = WorkspaceChange(operation, before, after)
+        self.events.stage(change)
+        emit_workspace_changed(self._observations, change=change)
 
 
 class WorkspaceEngineBuilder:

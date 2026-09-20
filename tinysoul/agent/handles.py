@@ -10,6 +10,7 @@ from enum import StrEnum
 from tinysoul.kernel.loop.interaction.inbox import (
     BudgetRequest,
     InboxKind,
+    InboxClosedError,
     InboxLimits,
     InboxRecord,
     QuestionRequest,
@@ -124,15 +125,12 @@ class TurnHandle:
 
     async def deliver(self, event: EnvironmentEvent) -> bool:
         if self.done or self._cancel_requested:
-            raise AgentClosedError("Turn is no longer accepting events")
-        await self.inbox.accept(
-            InboxRecord(
-                InboxKind(event.kind.value),
-                event.payload,
-                event.event_id,
-            )
-        )
-        return True
+            return False
+        try:
+            receipt = await self.inbox.accept_event(event)
+        except InboxClosedError:
+            return False
+        return receipt.accepted
 
     def request_cancel(self) -> bool:
         if (

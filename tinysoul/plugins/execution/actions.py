@@ -21,10 +21,8 @@ from tinysoul.plugins.home.runtime_bridge import RuntimeAgentHomeBridge
 from tinysoul.plugins.home.services import HomeService
 from tinysoul.plugins.workspace import WorkspaceContractError, WorkspaceError
 from tinysoul.plugins.workspace.errors import WorkspaceReconciliationError
-from tinysoul.plugins.workspace.projection import workspace_snapshot_signal
 from tinysoul.plugins.workspace.runtime_bridge import RuntimeWorkspaceBridge
 from tinysoul.plugins.workspace.services import WorkspaceService
-from tinysoul.runtime import SignalBus
 
 from .engine import ExecutionEngine
 from .failures import ExecutionRequestError, ExecutionStartError
@@ -49,10 +47,9 @@ class ExecutionActionExecutor:
         *,
         home: HomeService,
         workspace: WorkspaceService,
-        bus: SignalBus,
     ) -> None:
         self._engine, self._operation = engine, operation
-        self._home, self._workspace, self._bus = home, workspace, bus
+        self._home, self._workspace = home, workspace
 
     async def execute(
         self, execution: ActionExecution, context: ActionExecutionContext
@@ -190,14 +187,6 @@ class ExecutionActionExecutor:
                 raise WorkspaceReconciliationError(
                     "Execution Workspace reconciliation is incomplete"
                 )
-            (context.signal_bus or self._bus).emit(
-                workspace_snapshot_signal(
-                    result.manifest,
-                    call_id=execution.call.call_id,
-                    scope=execution.framework.scope,
-                    source=execution.call.action_name,
-                )
-            )
 
         await context.owner_operations.finish(sync)
         if (
@@ -227,7 +216,6 @@ def register_execution_actions(
     engine: ExecutionEngine,
     home: HomeService,
     workspace: WorkspaceService,
-    bus: SignalBus,
 ) -> ActionEngineBuilder:
     for operation in ExecutionOperation:
         supported = engine.script_available or engine.shell_available
@@ -242,7 +230,7 @@ def register_execution_actions(
             builder.register_executor(
                 identity,
                 ExecutionActionExecutor(
-                    engine, operation, home=home, workspace=workspace, bus=bus
+                    engine, operation, home=home, workspace=workspace
                 ),
             )
     return builder

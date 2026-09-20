@@ -146,6 +146,10 @@ class TurnActivityController(Protocol):
     async def cleanup_turn(self, turn_id: str) -> tuple[CleanupDiagnostic, ...]: ...
 
 
+from .interaction.events import TurnEventSubscription
+from tinysoul.runtime.events import EnvironmentEvent, EventKind
+
+
 class TurnRunner:
     """Reusable Turn kernel that drives Cycles until profile completion."""
 
@@ -167,6 +171,7 @@ class TurnRunner:
         preparation_pipeline: TurnPreparationPipeline | None = None,
         activity_controller: TurnActivityController | None = None,
         observations: ObservationEmitter | None = None,
+        events: tuple[TurnEventSubscription, ...] = (),
     ) -> None:
         self._context = context
         self._bus = bus
@@ -180,12 +185,14 @@ class TurnRunner:
         self._completion_pipeline = completion_pipeline or TurnCompletionPipeline()
         self._preparation_pipeline = preparation_pipeline or TurnPreparationPipeline()
         self._activity_controller = activity_controller
+        self._events = tuple(events)
         self._observations = observations or NullObservationEmitter()
         self._active_scope: RunScope | None = None
         self._active_cancellation: TurnCancellation | None = None
         self._active_scope_lock = Lock()
 
-    async def _consume_inbox(self, inbox: TurnInbox | None, scope: RunScope) -> bool:
+    async def _consume_inbox(self, inbox: TurnInbox | None, scope: RunScope,
+                             *, decisions_only: bool = False) -> bool:
         if inbox is None:
             return False
         batch = await inbox.capture()
@@ -211,12 +218,19 @@ class TurnRunner:
                 )
                 continue
             else:
+                if record.topic and record.kind in {InboxKind.EVENT, InboxKind.TIMER}:
+                    event = EnvironmentEvent(EventKind(record.kind.value), record.payload,
+                                             record.record_id, topic=record.topic, source=record.source)
+                    for subscription in self._events:
+                        if subscription.filter.matches(event):
+                            signals.extend(subscription.adapt(event, scope))
                 note = to_json_object(
                     {
                         "kind": "environment_event",
                         "event_id": record.record_id,
                         "event_kind": record.kind.value,
                         "payload": record.payload,
+                        **({"topic": record.topic, "source": record.source} if record.topic else {}),
                     }
                 )
             signals.append(
@@ -235,7 +249,7 @@ class TurnRunner:
             if results:
                 raise LoopInvariantError("Context rejected an accepted Inbox batch")
         await inbox.ack(batch)
-        return bool(batch.records)
+        return any(record.requires_decision for _, record in batch.records) if decisions_only else bool(batch.records)
 
     @property
     def active_scope(self) -> RunScope | None:
@@ -289,6 +303,8 @@ class TurnRunner:
             except ContextError as exc:
                 raise self._context_bridge.from_context_error(exc) from exc
             turn_scope = scope.push(RunLevel.TURN, turn_id)
+            if inbox is not None:
+                inbox.subscribe_events(self._events)
             if self._activity_controller is not None:
                 self._activity_controller.bind_inbox(turn_id, inbox)
             cancellation = TurnCancellation()
@@ -392,6 +408,10 @@ class TurnRunner:
                                                 else None
                                             ),
                                             "sequence": readiness.sequence,
+                                            "topic": pending_wait.topic,
+                                            "source": pending_wait.source,
+                                            **({"feedback": "The selected environment source is unavailable; choose another action or ask the user."}
+                                               if readiness.reason is WakeReason.SOURCE_UNAVAILABLE else {}),
                                             "unanswered_question_id": (
                                                 question.question_id
                                                 if question is not None
@@ -489,7 +509,7 @@ class TurnRunner:
                             )
                             cycle_index += 1
                             continue
-                        if await self._consume_inbox(inbox, turn_scope):
+                        if await self._consume_inbox(inbox, turn_scope, decisions_only=True):
                             cycle_index += 1
                             continue
                         if inbox is not None:

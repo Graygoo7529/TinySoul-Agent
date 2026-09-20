@@ -1,4 +1,7 @@
 from __future__ import annotations
+import asyncio
+from tinysoul.agent.composition.assembly import AgentAssembly
+from tinysoul.kernel.loop.turn import TurnOutcome
 
 from collections import deque
 from dataclasses import dataclass, field
@@ -892,7 +895,7 @@ async def test_agent_workspace_mutation_reaches_endpoint_event_stream(
     )
     endpoint = mount_endpoint(app, EndpointSettings(token="x" * 32))
 
-    outcome = await app.run_once("update the note")
+    outcome = await _run_once(app, "update the note")
 
     assert outcome.answered is True
     assert note.read_text(encoding="utf-8") == "new text"
@@ -947,7 +950,7 @@ async def test_agent_builder_run_once_answers_with_real_action_and_context(
         .build()
     )
 
-    outcome = await app.run_once("please answer")
+    outcome = await _run_once(app, "please answer")
 
     assert outcome.answered is True
     assert outcome.context_completion is not None
@@ -1018,7 +1021,7 @@ async def test_agent_builder_runs_resource_conversion_through_real_action_chain(
         .build()
     )
 
-    outcome = await app.run_once("convert the PDF")
+    outcome = await _run_once(app, "convert the PDF")
 
     assert outcome.answered is True
     markdown = workspace_root / "converted" / "blank.md"
@@ -1030,7 +1033,7 @@ async def test_agent_builder_runs_resource_conversion_through_real_action_chain(
     assert page.is_file()
 
 
-async def test_agent_builder_cycle_limit_returns_exhausted_turn(tmp_path: Path) -> None:
+async def test_agent_builder_cycle_limit_suspends_until_explicit_decision(tmp_path: Path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     (workspace_root / "doc.md").write_text("hello", encoding="utf-8")
@@ -1068,11 +1071,28 @@ async def test_agent_builder_cycle_limit_returns_exhausted_turn(tmp_path: Path) 
         .build()
     )
 
-    outcome = await app.run_once("scan only")
+    from tinysoul.agent import UserTurnRequest
+    from tinysoul.kernel.loop.interaction.inbox import WaitReason
 
-    assert outcome.answered is False
-    assert outcome.exhausted is True
-    assert outcome.context_completion is not None
+    await app.agent_runner.prepare()
+    handle = await app.commands.submit_turn(UserTurnRequest("scan only"))
+    running = asyncio.create_task(app.agent_runner.run())
+    try:
+        async with asyncio.timeout(3):
+            while handle.wait_reason is not WaitReason.BUDGET:
+                assert not handle.done
+                await asyncio.sleep(0.01)
+        assert handle.budget_request is not None
+        assert handle.budget_request.next_cycle_index == 2
+        await app.commands.cancel_turn(handle.turn_id)
+        assert (await handle.wait()).outcome is not None
+    finally:
+        running.cancel()
+        try:
+            await running
+        except asyncio.CancelledError:
+            pass
+        await app.close()
 
 
 async def test_agent_runner_idle_exit_ends_program(tmp_path: Path) -> None:
@@ -1135,7 +1155,7 @@ async def test_turn_runner_ignores_stop_control_without_turn_scope(
         )
     )
 
-    outcome = await app.run_once("please stop")
+    outcome = await _run_once(app, "please stop")
 
     assert outcome.answered is True
     assert outcome.transfer is None
@@ -1446,3 +1466,23 @@ def _test_config(
     if overrides is not None:
         values.update(overrides)
     return ConfigEnvironment.from_project_root(root=project_root, overrides=values)
+
+async def _run_once(app: AgentAssembly, text: str) -> TurnOutcome:
+    """Exercise the real queue/Inbox path without starting mounted HTTP hosts."""
+    from tinysoul.agent import UserTurnRequest
+    await app.agent_runner.prepare()
+    await app.generation_handle.snapshot().generation.sources.start(app.commands.publish_internal)
+    handle = await app.commands.submit_turn(UserTurnRequest(text))
+    running = asyncio.create_task(app.agent_runner.run())
+    try:
+        result = await asyncio.wait_for(handle.wait(), 10)
+        assert isinstance(result.outcome, TurnOutcome)
+        return result.outcome
+    finally:
+        running.cancel()
+        try:
+            await running
+        except asyncio.CancelledError:
+            pass
+        await app.agent_runner.close_requests()
+        await app.close()

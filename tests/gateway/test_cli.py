@@ -146,6 +146,7 @@ def test_cli_once_uses_config_overrides_and_console_sink(
         "agent.interactive": False,
         "agent.output.mode": "model",
         "reflection.schedule.enabled": False,
+        "workspace.watch.enabled": False,
     }
     assert builder.sink_max_chars == 321
     assert app.once_inputs == ["hello"]

@@ -45,7 +45,6 @@ from tinysoul.kernel.registration import Service, ServiceRegistry
 from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.workspace import (
     WorkspaceEngineBuilder,
-    WorkspaceManifest,
     WorkspaceSettings,
 )
 
@@ -234,7 +233,7 @@ def test_endpoint_workspace_overwrite_trash_and_restore(tmp_path: Path) -> None:
     )
     assert created.status_code == 200
     body = created.json()
-    assert gateway.synced[-1].to_json() == body["manifest"]
+    assert client.get("/v1/workspace/manifest", headers=_auth()).json() == body["manifest"]
     assert gateway.observed[-1].name == "workspace.changed"
     replayed = engine.events.replay(
         after=0,
@@ -322,7 +321,7 @@ def test_endpoint_workspace_directory_edit_move_tags_and_rejects_old_guards(
     )
     assert moved.status_code == 200
     assert any(
-        item.link == "workspace:renamed/a.md" for item in gateway.synced[-1].resources
+        item["link"] == "workspace:renamed/a.md" for item in moved.json()["manifest"]["resources"]
     )
     assert (
         client.get(
@@ -390,7 +389,7 @@ def test_workspace_observation_failure_does_not_change_mutation_result(
     )
 
     assert response.status_code == 200
-    assert gateway.synced[-1].to_json() == response.json()["manifest"]
+    assert client.get("/v1/workspace/manifest", headers=_auth()).json() == response.json()["manifest"]
     assert gateway.observed[-1].name == "workspace.changed"
     assert events.latest_sequence == 0
 
@@ -685,7 +684,6 @@ class _EndpointGateway:
     controls: list[tuple[LoopControlKind, str, str, JsonObject]] = field(
         default_factory=list
     )
-    synced: list[WorkspaceManifest] = field(default_factory=list)
     observed: list[ObservationEvent] = field(default_factory=list)
     reflection_requests: list[tuple[ReflectionScope, CalendarDay | None, str]] = field(
         default_factory=list
@@ -746,14 +744,6 @@ class _EndpointGateway:
             "reflection",
             "queued",
         )
-
-    def sync_workspace_context(
-        self,
-        manifest: WorkspaceManifest,
-        *,
-        source: str,
-    ) -> None:
-        self.synced.append(manifest)
 
     def write(self, event: ObservationEvent) -> None:
         self.observed.append(event)

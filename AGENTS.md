@@ -241,7 +241,7 @@ conda activate TinySoul
 
 ## 当前任务
 
-当前任务是按 `docs/analysis/20260915-agent-architecture-refactor-plan.md` 分阶段落实分层 Agent 架构重构；R1 与 R2 收口已完成，原 R2 实施批次保留历史归档记录，2026-09-16 复审缺口已由 `docs/analysis/done/20260916-done-Agent重构R2收口子计划.md` 关闭（2026-09-17 Full/typecheck 通过，C1/C2/C3 已落实，C4 保留后续评估）。主计划 S1、S2 已完成；R3 已完成领域重构，S3 的 organize/模型推导注释与 S4–S7 保留后续范围。后续仍围绕以下目标推进：以 `Agent` 门面统一输入、输出与状态；以 asyncio 事件总线与 `EnvironmentEvent` 协议把 Agent 置于环境之中；以段协议把 Context 语境段的内容与维护反转给外围插件，内核只知槽位、形状与 ref scheme；以 Job 框架统一后台进程与后续 ACP 外部 sub-agent，内部嵌套 Turn 留待实际需求扩展；包布局已按 `infra → runtime/llm → kernel → plugins/environment → agent → gateway` 重排。该主执行计划及其已确认子计划在重构期间是设计来源，不向后兼容，不保留兼容层、重复状态或跨模块捷径。重构的长期目标不变：构造功能强、可用性高、具有智能性的泛用智能体，并通过记忆和 Home 维护构造持续长期稳定运行的个性化助手。
+当前任务是按 `docs/analysis/20260915-agent-architecture-refactor-plan.md` 分阶段落实分层 Agent 架构重构；R1 与 R2 收口已完成，原 R2 实施批次保留历史归档记录，2026-09-16 复审缺口已由 `docs/analysis/done/20260916-done-Agent重构R2收口子计划.md` 关闭（2026-09-17 Full/typecheck 通过，C1/C2/C3 已落实，C4 保留后续评估）。主计划 S1、S2、S4 已完成；R3 已完成领域重构，R4 已完成环境事件闭环，S3 的 organize/模型推导注释与 S5–S7 保留后续范围。后续仍围绕以下目标推进：以 `Agent` 门面统一输入、输出与状态；以 asyncio 事件总线与 `EnvironmentEvent` 协议把 Agent 置于环境之中；以段协议把 Context 语境段的内容与维护反转给外围插件，内核只知槽位、形状与 ref scheme；以 Job 框架统一后台进程与后续 ACP 外部 sub-agent，内部嵌套 Turn 留待实际需求扩展；包布局已按 `infra → runtime/llm → kernel → plugins/environment → agent → gateway` 重排。该主执行计划及其已确认子计划在重构期间是设计来源，不向后兼容，不保留兼容层、重复状态或跨模块捷径。重构的长期目标不变：构造功能强、可用性高、具有智能性的泛用智能体，并通过记忆和 Home 维护构造持续长期稳定运行的个性化助手。
 
 R3 的实现、失败归属、内部组织和部署边界已逐项核对，见 `docs/analysis/done/20260917-done-Agent重构第三轮子计划-领域语义与能力组织.md`。2026-09-19 Full 1066 passed、23 deselected，typecheck 通过，含生成/wheel 和 worker 启动；真实 provider/network 未运行。配置、动作和存储格式不提供旧别名或隐式迁移，没有 reset 实际部署数据。
 
@@ -249,11 +249,14 @@ R3 提交后的四项复审缺口已由 `docs/analysis/done/20260919-done-Agent�
 
 Before 4 基础补强已完成，见 `docs/analysis/done/20260920-done-Agent重构Before4子计划-数据基础与渐进披露.md`：类型化事实顺序、当日 Session 导航、共用渐进披露/query、取回结果消费保护、日期命名和测试环境边界均已核对。2026-09-20 Windows Full 1087 passed、23 deselected，Windows/Linux 目标 typecheck 通过；本轮未运行 Linux 实机和真实 provider/network。Session 记录升为 v10，没有迁移/reset 部署数据。S3 的 Organize 动作/持久注释层与 S4–S7 仍未整体完成。
 
+R4 环境事件与插件运行闭环已完成，见 `docs/analysis/done/20260920-done-Agent重构第四轮子计划-环境事件与插件运行闭环.md`：来源/订阅/lifecycle 显式声明，Workspace owner 统一正式操作与外部监听通知，固定 Inbox 批次刷新 Context，Reflection 定时 I/O 与业务触发分离。2026-09-20 Windows Full 1100 passed、23 deselected，Windows/Linux 目标 typecheck 通过，包含真实文件监听、进程跨午夜和 wheel；未运行 Linux 实机和真实 provider/network。仅监听当前 Workspace；监听故障停止并报告，正式操作继续，不增加后台自动修复状态机。S4 标记 done，S3 延后项及 S5–S7 保留。
+
 过渡期文档约定：本文件"核心定义""项目规约""代码风格""运行环境与验证"中的模块名（`app`、`loop`、`context`、`action`、`endpoint` 等）、按 owner 名固定的 MessageStack 顺序、Context 由 `context` 模块直接拥有四类语义段、`tests/<module>/` 布局等表述描述的是重构前的实现事实；与执行计划冲突处以执行计划为准，并在计划 S7 阶段整体重写本文件。已被执行计划明确替代的条款：
 
 - Program/App → Agent；`runtime.program_end → runtime.agent_end`；`app`、`endpoint` → `agent`、`environment`、`gateway`。
 - MessageStack 按三分区 Background → Trace → Working 渲染，Background 内顺序为 identity → session → inputs → home → memory；Home、Memory、Session、Workspace 各以独立段提供内容。
 - 环境事件由 `EventRouter` 定向或按订阅进入 TurnInbox；独立 Trigger 可排入新根请求，Job 事件不触发新根 Turn。单根 Turn 等待时仍占执行位置。
+- Plugin 声明事件订阅、适配、运行来源与必要 preparation/completion，分别进入既有世代生命周期和 Turn 管线。文件监听只提供线索，Workspace owner 提交事实后发布事件；段在固定 Inbox 批次 prepare/install，不在回调中改 Context。纯状态通知可合并且不强迫额外决策，topic/source 等待仍服从预算。日切/重载先停止并 join 来源，再切换绑定；来源状态与 Observation 不形成第二套业务事实。
 - Job 可跨 Cycle，不跨所属 Turn；Turn 结束时回收。受限 `SUSPEND` 表达预算暂停，模型不见 Cycle 余额，用户决定补充或中断；`core.ask` 可暂停等待回复。
 - TurnInbox 在暂停期间持续接收；有界内存保存关键元数据，大输出由 owner 落盘，已接受关键事件在存活进程中不静默丢弃；不承诺崩溃续跑 Turn。
 - 所有模块 bridge 随其 owner 放置，包括 kernel 与 llm；runtime 不 import 上层业务模块。Trap 原因由 owner 声明，通用构造帮助由 runtime 公开。

@@ -4,6 +4,8 @@
 
 `GET /v1/status` 返回 protocol version、instance identity、ready、active day、turn activity、latest event sequence 和 event journal 摘要。它不暴露 Session REST snapshot，也不替代业务 owner 的状态。
 
+`runtime.sources` 返回当前世代的来源状态列表，各项包含 `source`、`state`（`stopped/running/failed/disabled`）、`topics` 和可空的 `error_type`。当前来源为 `workspace.fswatch` 与 `reflection.schedule`。这是运行资源的内存投影；文件监听关闭或失败不表示正式 Workspace 操作不可用。
+
 ## Input
 
 `POST /v1/input` 接受：

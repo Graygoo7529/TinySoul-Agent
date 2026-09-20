@@ -19,6 +19,55 @@ from tinysoul.kernel.loop.interaction.inbox import (
     QuestionRequest,
     TurnInbox,
 )
+from tinysoul.kernel.loop.interaction.events import TurnEventSubscription
+from tinysoul.runtime.events import EnvironmentEvent, EventFilter, EventKind
+from tinysoul.runtime.sources import SourceStatus, SourceState
+
+
+async def test_state_notifications_preserve_capture_input_order_and_receipt_time() -> None:
+    inbox = TurnInbox(InboxLimits(capacity=1))
+    inbox.subscribe_events((TurnEventSubscription(
+        EventFilter(topic="files.changed", source="files"), lambda event, scope: (),
+        coalesce=True, requires_decision=False,
+    ),))
+    first = InboxRecord(InboxKind.INPUT, {"text": "first"}, received_at=123.5)
+    await inbox.accept(first)
+    for index in range(20):
+        await inbox.accept_event(EnvironmentEvent(EventKind.EVENT, {"value": index},
+            topic="files.changed", source="files"))
+    batch = await inbox.capture()
+    assert len(batch.records) == 2
+    assert batch.records[0][1].received_at == 123.5
+    assert batch.records[1][1].payload == {"value": 19}
+    await inbox.accept_event(EnvironmentEvent(EventKind.EVENT, {"value": 20},
+        topic="files.changed", source="files"))
+    assert await inbox.capture() is batch
+    await inbox.ack(batch)
+    latest = await inbox.capture()
+    assert [item.payload for _, item in latest.records] == [{"value": 20}]
+    # State refresh alone does not revoke a completed answer.
+    assert await inbox.close_if_empty()
+
+
+async def test_topic_source_wait_and_source_failure_still_require_budget() -> None:
+    inbox = TurnInbox()
+    statuses = [SourceStatus("files", SourceState.RUNNING, topics=("files.changed",))]
+    inbox.bind_source_status(lambda: tuple(statuses))
+    budget = await inbox.request_budget(2)
+    condition = WaitCondition(WaitReason.EVENT, 0, event_kind=InboxKind.EVENT,
+                              topic="files.changed", source="files")
+    waiter = asyncio.create_task(inbox.wait_for_cycle(condition, budget=budget))
+    await asyncio.sleep(0)
+    assert not inbox.accepts_event(EnvironmentEvent(EventKind.EVENT, {}, topic="unrelated", source="files"))
+    statuses[0] = SourceStatus("files", SourceState.FAILED, "OSError", ("files.changed",))
+    status = EnvironmentEvent(EventKind.EVENT, {"state": "failed"},
+                              topic="runtime.source_status", source="files")
+    assert inbox.accepts_event(status)
+    await inbox.accept_event(status)
+    await asyncio.sleep(0)
+    assert not waiter.done()
+    await inbox.grant_cycles(budget.request_id, 2)
+    assert (await asyncio.wait_for(waiter, 1)).reason is WakeReason.SOURCE_UNAVAILABLE
 
 
 async def test_fixed_batch_retries_exclude_new_arrivals_and_ack_preserves_identity() -> (

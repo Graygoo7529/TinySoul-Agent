@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import timedelta
+from collections.abc import Callable
+from tinysoul.runtime.sources import SourceStatus
 
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.loop.interaction.inbox import InboxKind, InboxRecord, InboxReceipt
@@ -12,7 +14,7 @@ from tinysoul.plugins.reflection import (
     ReflectionScope,
     ReflectionTrigger,
 )
-from tinysoul.runtime.events import EnvironmentEvent, EventBus, EventKind, EventReceipt
+from tinysoul.runtime.events import EnvironmentEvent, EventBus, EventReceipt
 
 from .errors import AgentClosedError, AgentSDKError
 from .handles import TurnHandle
@@ -24,18 +26,12 @@ from .dispatch.scheduler import RootScheduler
 class AgentCommands:
     """Accept commands once; the scheduler and Inbox own all mutable work state."""
 
-    def __init__(self, scheduler: RootScheduler) -> None:
+    def __init__(self, scheduler: RootScheduler, *,
+                 source_statuses: Callable[[], tuple[SourceStatus, ...]] = lambda: ()) -> None:
         self._scheduler = scheduler
         self._router = EventRouter()
         self._events = EventBus()
-        for kind in EventKind:
-            self._router.subscribe(f"active.{kind.value}", kind, self._deliver_active)
-
-    async def _deliver_active(self, event: EnvironmentEvent) -> bool:
-        active = self.active_turn
-        if active is None or active.done or active.cancel_requested:
-            return False
-        return await active.deliver(event)
+        self._source_statuses = source_statuses
 
     @property
     def active_turn(self) -> TurnHandle | None:
@@ -64,7 +60,7 @@ class AgentCommands:
             return (await self.submit_turn(request),)
         # A daily trigger expands into independent profile requests. It never
         # shares an Inbox or execution result across multiple model Turns.
-        day = self._scheduler.current_day()
+        day = request.scheduled_day or self._scheduler.current_day()
         target = CalendarDay(day.value - timedelta(days=1))
         identity = (
             f"scheduled:{day}"
@@ -92,7 +88,9 @@ class AgentCommands:
         )
 
     def _register(self, handle: TurnHandle) -> TurnHandle:
+        handle.inbox.bind_source_status(self._source_statuses)
         self._router.register_target(handle.turn_id, handle.deliver)
+        self._router.subscribe(handle.turn_id, handle.turn_id, handle.inbox.accepts_event)
         handle.on_complete(
             lambda completed: self._router.unregister_target(completed.turn_id)
         )
@@ -126,6 +124,11 @@ class AgentCommands:
         return await self._open_turn(turn_id).inbox.reply(question_id, response)
 
     async def publish(self, event: EnvironmentEvent) -> EventReceipt:
+        if event.source != "host":
+            raise AgentSDKError("Host events must use the host source")
+        return await self.publish_internal(event)
+
+    async def publish_internal(self, event: EnvironmentEvent) -> EventReceipt:
         return await self._events.publish(event, deliver=self._router.route)
 
     def _open_turn(self, turn_id: str) -> TurnHandle:

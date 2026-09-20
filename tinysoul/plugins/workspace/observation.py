@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from enum import StrEnum
 
 from tinysoul.runtime import (
     ObservationEmitter,
@@ -14,68 +12,7 @@ from tinysoul.runtime import (
     observation_enabled,
 )
 
-from .storage.manifest import WorkspaceManifest
-
-
-class WorkspaceChangeOperation(StrEnum):
-    """Stable kinds of committed Workspace change."""
-
-    INITIALIZE = "initialize"
-    RECONCILE = "reconcile"
-    DESCRIBE = "describe"
-    WRITE = "write"
-    APPEND = "append"
-    BUNDLE = "bundle"
-    EDIT = "edit"
-    MOVE = "move"
-    MKDIR = "mkdir"
-    TAG = "tag"
-    TRASH = "trash"
-    RESTORE = "restore"
-
-
-@dataclass(frozen=True)
-class WorkspaceChange:
-    """One final committed Manifest transition."""
-
-    operation: WorkspaceChangeOperation
-    before: WorkspaceManifest
-    after: WorkspaceManifest
-
-    @property
-    def created_links(self) -> tuple[str, ...]:
-        before = {record.link for record in self.before.resources}
-        return tuple(
-            record.link for record in self.after.resources if record.link not in before
-        )
-
-    @property
-    def removed_links(self) -> tuple[str, ...]:
-        after = {record.link for record in self.after.resources}
-        return tuple(
-            record.link for record in self.before.resources if record.link not in after
-        )
-
-    @property
-    def updated_links(self) -> tuple[str, ...]:
-        before = {record.link: record for record in self.before.resources}
-        return tuple(
-            record.link
-            for record in self.after.resources
-            if record.link in before and record != before[record.link]
-        )
-
-    @property
-    def links(self) -> tuple[str, ...]:
-        return tuple(
-            sorted(
-                {
-                    *self.created_links,
-                    *self.updated_links,
-                    *self.removed_links,
-                }
-            )
-        )
+from .events import WorkspaceChange
 
 
 def emit_workspace_changed(
@@ -85,7 +22,7 @@ def emit_workspace_changed(
     scope: RunScope | None = None,
     source: str = "workspace.engine",
 ) -> None:
-    """Publish a compact committed-resource invalidation through the Router."""
+    """Project the same committed change to observation sinks only."""
 
     if change.before == change.after:
         return

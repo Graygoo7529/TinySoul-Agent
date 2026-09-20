@@ -159,6 +159,7 @@ def _start(argv: Sequence[str]) -> int:
         overrides["agent.output.mode"] = args.mode
     if args.once is not None:
         overrides["reflection.schedule.enabled"] = False
+        overrides["workspace.watch.enabled"] = False
 
     try:
         with ProjectInstanceLease(root) as lease:

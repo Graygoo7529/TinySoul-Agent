@@ -9,6 +9,11 @@ from tinysoul.plugins.reflection import (
     ReflectionScope,
     ReflectionTrigger,
 )
+from tinysoul.plugins.reflection.schedule import ReflectionScheduler
+from tinysoul.infra.time import CalendarDay
+from tinysoul.runtime.events import EnvironmentEvent, EventReceipt
+from tinysoul.environment.sources.scheduler import DeadlineTimer
+from collections.abc import Awaitable, Callable
 
 ZONE = ZoneInfo("Asia/Shanghai")
 
@@ -44,3 +49,59 @@ def test_schedule_collapses_multi_day_sleep_to_one_request() -> None:
 
     assert len(requests) == 1
     assert requests[0].scope is ReflectionScope.DAILY
+
+
+async def test_trigger_retries_the_same_due_day_after_midnight() -> None:
+    class Clock:
+        value = datetime(2026, 9, 20, 0, 0, tzinfo=ZONE)
+
+        def now(self) -> datetime:
+            return self.value
+
+        def today(self) -> CalendarDay:
+            return CalendarDay(self.value.date())
+
+    class Timer:
+        async def start(self, tick: Callable[[], Awaitable[float]]) -> None:
+            pass
+
+        async def stop(self) -> None:
+            pass
+
+    clock = Clock()
+    requests = []
+    events: list[EnvironmentEvent] = []
+
+    async def submit(request) -> bool:
+        requests.append(request)
+        return len(requests) > 1
+
+    async def publish(event: EnvironmentEvent) -> EventReceipt:
+        events.append(event)
+        return EventReceipt(1, event.event_id, False)
+
+    source = ReflectionScheduler(ReflectionScheduleSettings(daily_time=time(0, 15)),
+                                 clock=clock, timer=Timer(), submit=submit)
+    await source.start(publish)
+    clock.value = datetime(2026, 9, 20, 0, 15, tzinfo=ZONE)
+    assert await source.tick() <= 1
+    clock.value = datetime(2026, 9, 21, 0, 10, tzinfo=ZONE)
+    await source.tick()
+    assert requests[0] is requests[1]
+    assert requests[1].scheduled_day == CalendarDay.parse("2026-09-20")
+    assert len(events) == 1 and events[0].topic == "reflection.due"
+    await source.stop()
+
+
+async def test_deadline_timer_stops_without_waiting_for_next_due_time() -> None:
+    import asyncio
+    called = asyncio.Event()
+
+    async def tick() -> float:
+        called.set()
+        return 86400
+
+    timer = DeadlineTimer()
+    await timer.start(tick)
+    await asyncio.wait_for(called.wait(), 1)
+    await asyncio.wait_for(timer.stop(), 1)

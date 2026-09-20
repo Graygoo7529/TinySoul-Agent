@@ -20,11 +20,9 @@ from tinysoul.infra import (
     StagingDirectoryManager,
     StagingError,
 )
-from tinysoul.runtime import SignalBus
 from tinysoul.plugins.workspace import (
     WorkspaceError,
     WorkspaceContractError,
-    workspace_snapshot_signal,
 )
 
 from tinysoul.plugins.workspace.services import WorkspaceService
@@ -61,12 +59,10 @@ class ResourceConversionExecutor(ActionExecutor):
         *,
         converter: ResourceConverter,
         service: ResourceConversionService,
-        bus: SignalBus,
         runtime_bridge: RuntimeWorkspaceBridge | None = None,
     ) -> None:
         self._converter = converter
         self._service = service
-        self._bus = bus
         self._runtime_bridge = runtime_bridge
 
     async def execute(
@@ -132,15 +128,6 @@ class ResourceConversionExecutor(ActionExecutor):
             )
         except WorkspaceError as exc:
             raise RuntimeWorkspaceBridge().from_workspace_error(exc) from exc
-        signal_bus = context.signal_bus or self._bus
-        signal_bus.emit(
-            workspace_snapshot_signal(
-                result.manifest,
-                call_id=execution.call.call_id,
-                scope=execution.framework.scope,
-                source=execution.call.action_name,
-            )
-        )
         return _success(execution, _result_payload(result))
 
 
@@ -149,7 +136,6 @@ def register_resource_actions(
     *,
     settings: ResourceSettings,
     workspace: WorkspaceService,
-    bus: SignalBus,
     staging: StagingDirectoryManager,
     runtime_bridge: RuntimeWorkspaceBridge | None = None,
     dependency_checker: DependencyChecker | None = None,
@@ -176,7 +162,6 @@ def register_resource_actions(
             ResourceConversionExecutor(
                 converter=ResourceConverter.MARKITDOWN,
                 service=service,
-                bus=bus,
                 runtime_bridge=runtime_bridge,
             ),
             handler=_RESOURCE_MARKITDOWN_HANDLER,
@@ -187,7 +172,6 @@ def register_resource_actions(
             ResourceConversionExecutor(
                 converter=ResourceConverter.PYPDF,
                 service=service,
-                bus=bus,
                 runtime_bridge=runtime_bridge,
             ),
             handler=_RESOURCE_PYPDF_HANDLER,

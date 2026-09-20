@@ -40,6 +40,10 @@ core.ask、core.wait、core.job.wait 都先以 ActionResult 收敛，再由 Loop
 
 INPUT、EVENT、TIMER 和 BUDGET 共用 TurnInbox.wait_for_cycle。事件使用类型、显式身份与当前 Cycle 已消费 cursor 过滤，Job 使用权威终态；定时器使用单次 monotonic deadline。普通条件满足但预算不足时保留有限就绪凭据，先 grant 则继续等条件；计时不重启，事件与输入不自动补额。等待只观察，不删除 Inbox 正文；Job 在登记前或登记期间结束均能恢复。问题超时直接结束 Turn，不需要为不存在的下一 Cycle 补预算。恢复原因进入现有 Trace，不补造工具结果。
 
+EVENT 还可按 topic/source 等待。文件状态通知只唤醒匹配的 EVENT，不伪造 INPUT 回复、不提前满足 TIMER、不越过 BUDGET。相关来源不可用时保留独立恢复原因并给出有限反馈，不伪造文件变化。插件订阅将规范事件适配为更新 Signal，同批 prepare/install 成功后才 ack；接收时间在受理和捕获副本间保持不变。
+
+声明了固定 topic/source 的状态订阅可合并尚未捕获的通知，替换记录位于新的受理位置；已捕获批次、输入、回复和 Job 终态不受合并影响。每个声明只保留当前捕获和下一批两个状态槽，正文受单条大小限制，普通队列容量独立。requires_decision 区分新指示与纯状态刷新，使持续文件变化不会无限撤回答案。
+
 正常完成前复查 Inbox 与活 Job。已接受输入使候选失效并继续推理；活 Job 由模型等待或停止。取消独立于队列容量，停止普通受理后仍接收内部清理终态，消费并 seal 后才注销目标。
 
 ## Job 与完成策略

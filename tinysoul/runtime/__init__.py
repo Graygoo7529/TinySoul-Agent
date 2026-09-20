@@ -33,7 +33,9 @@ from .events import (
     EventKind,
     EventProtocolError,
     EventReceipt,
+    EventFilter,
 )
+from .sources import EventSink, RuntimeSource, SourceState, SourceStatus
 from .generation import (
     RuntimeActivationState,
     RuntimeActivity,
@@ -78,6 +80,11 @@ __all__ = [
     "EventKind",
     "EventProtocolError",
     "EventReceipt",
+    "EventFilter",
+    "EventSink",
+    "RuntimeSource",
+    "SourceState",
+    "SourceStatus",
     "TrapHandler",
     "TrapHandlerRegistry",
     "TrapResult",

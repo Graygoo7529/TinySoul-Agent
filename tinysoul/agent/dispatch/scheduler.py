@@ -330,23 +330,6 @@ class RootScheduler(Generic[AgentGenerationT]):
             self._prepared_transition = transition
             return transition
 
-    async def run_once(
-        self,
-        user_input: str,
-        *,
-        request_id: str = "",
-        source: str = "",
-    ) -> TurnOutcome:
-        request = UserTurnRequest(
-            user_input,
-            source=source,
-            request_id=request_id or f"request_{uuid4().hex}",
-        )
-        async with self._request_lock:
-            async with self._generation_activity(RuntimeActivity.USER_TURN):
-                transition = await self._prepare_day()
-                return await self._run_user_request(request, transition=transition)
-
     async def run(self) -> AgentRunResult:
         turns: deque[TurnOutcome] = deque(maxlen=self._retained_outcomes)
         reflection: deque[ReflectionOutcome] = deque(maxlen=self._retained_outcomes)

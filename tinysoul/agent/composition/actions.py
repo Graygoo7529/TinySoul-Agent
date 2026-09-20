@@ -28,6 +28,7 @@ from tinysoul.kernel.registration import (
     PluginRegistry,
     RegistrationError,
     ServiceRegistry,
+    ResolvedPlugins,
 )
 from tinysoul.plugins.capabilities import CapabilitiesSettings
 from tinysoul.plugins.capabilities.resource import register_resource_actions
@@ -36,7 +37,7 @@ from tinysoul.plugins.execution import ExecutionSettings, ProcessJobBackend
 from tinysoul.plugins.execution.engine import ExecutionEngine
 from tinysoul.plugins.execution.actions import register_execution_actions
 from tinysoul.plugins.execution.runtime_bridge import RuntimeExecutionBridge
-from tinysoul.plugins.home import AgentHomeEngine, HomeActionSkillProvider
+from tinysoul.plugins.home import HomeActionSkillProvider
 from tinysoul.plugins.home.runtime_bridge import RuntimeAgentHomeBridge
 from tinysoul.plugins.home.services import HomeService
 from tinysoul.plugins.workspace import WorkspaceEngine, WorkspacePromptReferenceResolver
@@ -44,7 +45,8 @@ from tinysoul.plugins.workspace.engine import WorkspaceArchiveView
 from tinysoul.plugins.workspace.plugin import declare_workspace
 from tinysoul.plugins.workspace.runtime_bridge import RuntimeWorkspaceBridge
 from tinysoul.plugins.workspace.services import WorkspaceService
-from tinysoul.runtime import ObservationEmitter, SignalBus
+from tinysoul.runtime import ObservationEmitter
+from tinysoul.runtime.sources import RuntimeSource
 
 from .activity import AgentTurnActivity
 
@@ -54,7 +56,6 @@ AGENT_SCENARIOS = frozenset({"user", "home_reflection", "memory_reflection"})
 def prepare_common_actions(
     builder: ActionEngineBuilder,
     *,
-    bus: SignalBus,
     workspace: WorkspaceService,
     context: ContextEngine,
     llm_action: LLMActionTaskRunner,
@@ -71,7 +72,6 @@ def prepare_common_actions(
             builder,
             settings=capabilities_settings.resource,
             workspace=workspace,
-            bus=bus,
             runtime_bridge=workspace_bridge,
             staging=staging,
         )
@@ -80,7 +80,6 @@ def prepare_common_actions(
             settings=capabilities_settings.web,
             runtime_env=runtime_env,
             workspace=workspace,
-            bus=bus,
             runtime_bridge=workspace_bridge,
             staging=staging,
         )
@@ -110,9 +109,7 @@ class CommonActionAssembly:
         self,
         *,
         root: Path,
-        home: AgentHomeEngine,
         workspace: WorkspaceEngine,
-        bus: SignalBus,
         llm: LLMRunner,
         observations: ObservationEmitter,
         action_settings: ActionSettings,
@@ -120,9 +117,13 @@ class CommonActionAssembly:
         runtime_env: dict[str, str],
         execution_settings: ExecutionSettings | None = None,
         job_settings: JobSettings | None = None,
+        workspace_source: RuntimeSource | None = None,
+        runtime_plugins: tuple[PluginDeclaration, ...] = (),
     ) -> None:
         self._root, self._workspace = root, workspace
-        self._bus, self._llm, self._observations = bus, llm, observations
+        self._workspace_source = workspace_source
+        self._runtime_plugins = runtime_plugins
+        self._llm, self._observations = llm, observations
         self._action_settings, self._capabilities_settings = (
             action_settings,
             capabilities_settings,
@@ -151,7 +152,7 @@ class CommonActionAssembly:
         plugins: tuple[PluginDeclaration, ...],
         archive_source: Callable[[], WorkspaceArchiveView | None] | None = None,
     ) -> tuple[
-        ActionEngineBuilder, AgentTurnActivity[ProcessJobBackend], ServiceRegistry
+        ActionEngineBuilder, AgentTurnActivity[ProcessJobBackend], ResolvedPlugins
     ]:
         staging = StagingDirectoryManager(self._root)
         try:
@@ -174,9 +175,11 @@ class CommonActionAssembly:
         )
         declarations = (
             *plugins,
+            *self._runtime_plugins,
             declare_workspace(
                 workspace,
-                bus=self._bus,
+                owner=self._workspace,
+                source=self._workspace_source,
                 llm_action=llm_action,
                 archive_source=archive_source,
             ),
@@ -185,7 +188,6 @@ class CommonActionAssembly:
                 requires=(WorkspaceService,),
                 actions=partial(
                     prepare_common_actions,
-                    bus=self._bus,
                     workspace=workspace,
                     context=context,
                     llm_action=llm_action,
@@ -207,7 +209,6 @@ class CommonActionAssembly:
                     engine=self._execution,
                     home=home,
                     workspace=workspace,
-                    bus=self._bus,
                 ),
             ),
         )
@@ -229,4 +230,4 @@ class CommonActionAssembly:
                 message="Profile actions could not be initialized.",
                 payload={"error_type": type(exc).__name__},
             ) from exc
-        return builder, self._activity, resolved.services
+        return builder, self._activity, resolved

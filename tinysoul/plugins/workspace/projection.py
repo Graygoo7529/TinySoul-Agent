@@ -38,6 +38,11 @@ SIGNAL_WORKSPACE_SYNC = "context.workspace.sync"
 
 
 @dataclass(frozen=True)
+class WorkspaceRefresh:
+    """Read the committed owner projection at the Context boundary."""
+
+
+@dataclass(frozen=True)
 class WorkspaceResource:
     """A workspace resource handle with a short summary."""
 
@@ -71,8 +76,7 @@ class WorkspaceSnapshot:
             )
 
 
-def build_workspace_sync_signal(
-    snapshot: WorkspaceSnapshot,
+def workspace_refresh_signal(
     *,
     call_id: str,
     scope: RunScope,
@@ -82,50 +86,33 @@ def build_workspace_sync_signal(
         name=SIGNAL_WORKSPACE_SYNC,
         source=source,
         scope=scope,
-        payload={
-            "call_id": call_id,
-            "resources": [
-                {"link": item.link, "summary": item.summary}
-                for item in snapshot.resources
-            ],
-        },
+        payload={"call_id": call_id},
     )
 
 
-def parse_workspace_sync_signal(signal: Signal) -> WorkspaceSnapshot:
-    try:
-        values = signal.payload.get("resources")
-        if not isinstance(values, list):
-            raise WorkspaceContractError(
-                "Workspace projection requires a resource list"
-            )
-        resources: list[WorkspaceResource] = []
-        for value in values:
-            if not isinstance(value, dict):
-                raise WorkspaceContractError(
-                    "Workspace projection resource must be an object"
-                )
-            link, summary = value.get("link"), value.get("summary")
-            if not isinstance(link, str) or not isinstance(summary, str):
-                raise WorkspaceContractError(
-                    "Workspace projection resource requires text fields"
-                )
-            resources.append(WorkspaceResource(link, summary))
-        return WorkspaceSnapshot(tuple(resources))
-    except WorkspaceError as exc:
-        raise RuntimeWorkspaceBridge().from_workspace_error(exc) from exc
+def parse_workspace_refresh(signal: Signal) -> WorkspaceRefresh:
+    return WorkspaceRefresh()
 
 
 class WorkspaceSegment:
     """Turn-local manifest projection, separate from the kernel's plan state."""
 
-    def __init__(self) -> None:
+    def __init__(self, workspace: WorkspaceEngine) -> None:
+        self._workspace = workspace
         self._snapshot: WorkspaceSnapshot | None = None
 
     async def prepare(
-        self, updates: tuple[WorkspaceSnapshot, ...]
+        self, updates: tuple[WorkspaceRefresh, ...]
     ) -> WorkspaceSnapshot | None:
-        return updates[-1] if updates else self._snapshot
+        if not updates:
+            return self._snapshot
+        operations = JoinedOperations()
+        try:
+            manifest = await operations.run(self._workspace.snapshot)
+            operations.check_cancelled()
+            return workspace_snapshot(manifest)
+        except WorkspaceError as exc:
+            raise RuntimeWorkspaceBridge().from_workspace_error(exc) from exc
 
     def install(self, prepared: WorkspaceSnapshot | None) -> None:
         self._snapshot = prepared
@@ -151,19 +138,22 @@ class WorkspaceSegment:
 
 
 class WorkspaceSegmentProvider:
+    def __init__(self, workspace: WorkspaceEngine) -> None:
+        self._workspace = workspace
+
     async def open(self, info: TurnInfo) -> WorkspaceSegment:
-        return WorkspaceSegment()
+        return WorkspaceSegment(self._workspace)
 
 
-def workspace_segment_registration() -> (
-    SegmentRegistration[WorkspaceSnapshot, WorkspaceSnapshot | None]
+def workspace_segment_registration(workspace: WorkspaceEngine) -> (
+    SegmentRegistration[WorkspaceRefresh, WorkspaceSnapshot | None]
 ):
     return SegmentRegistration(
         descriptor=SegmentDescriptor("workspace", "workspace", SegmentSlot.WORKING, 20),
-        provider=WorkspaceSegmentProvider(),
+        provider=WorkspaceSegmentProvider(workspace),
         signal_name=SIGNAL_WORKSPACE_SYNC,
-        update_type=WorkspaceSnapshot,
-        decode=parse_workspace_sync_signal,
+        update_type=WorkspaceRefresh,
+        decode=parse_workspace_refresh,
     )
 
 
@@ -314,21 +304,6 @@ def workspace_snapshot(manifest: WorkspaceManifest) -> WorkspaceSnapshot:
     )
 
 
-def workspace_snapshot_signal(
-    manifest: WorkspaceManifest,
-    *,
-    call_id: str,
-    scope: RunScope,
-    source: str,
-) -> Signal:
-    return build_workspace_sync_signal(
-        workspace_snapshot(manifest),
-        call_id=call_id,
-        scope=scope,
-        source=source,
-    )
-
-
 @dataclass(frozen=True)
 class WorkspaceTurnPreparationHandler:
     """Reconcile disk and publish its Manifest before a Turn starts work."""
@@ -341,7 +316,6 @@ class WorkspaceTurnPreparationHandler:
             self.workspace.require_day(request.active_day)
             operations = JoinedOperations()
             result = await operations.run(self.workspace.reconcile)
-            operations.check_cancelled()
         except WorkspaceError as exc:
             raise self.runtime_bridge.from_workspace_error(exc) from exc
         if not result.complete:
@@ -357,9 +331,10 @@ class WorkspaceTurnPreparationHandler:
                 message="Workspace reconciliation was incomplete at Turn start.",
                 payload=payload,
             )
+        await operations.finish(self.workspace.events.flush)
+        operations.check_cancelled()
         return (
-            workspace_snapshot_signal(
-                result.manifest,
+            workspace_refresh_signal(
                 call_id=f"{request.turn_id}:workspace",
                 scope=request.scope,
                 source="workspace.turn_prepare",

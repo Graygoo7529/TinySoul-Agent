@@ -70,6 +70,8 @@ Runtime 的陷入结果是运行转移。运行转移应指向运行位置栈中
 
 `runtime.events` 提供 EnvironmentEvent 与异步 EventBus。EventBus 校验有界 JSON envelope、序列化投递并保留有界幂等回执，不持久化事件正文。目标路由属于 Agent，受理/批次/等待属于 Loop；INPUT/reply/预算决定走相应受理门面，外部事件不能伪造这些控制授权。Signal 和 Observation 的职责不变。
 
+Envelope 分开事件身份、kind、topic、source、可选 target 和语义 payload；EventFilter 对 kind/topic/source 做精确可选匹配，Runtime 不枚举业务领域。RuntimeSource 只声明异步启动、停止和内存 SourceStatus；具体 I/O 归 environment，领域解释归插件，激活与日/世代绑定归 Agent。没有持久事件日志或平行健康状态库。
+
 重试目标 frame 必须具备可重放语义。模块级重试只有在模块边界保存了可重放调用时才成立，例如资源操作、Action Invoke 或明确的 LLM Task 调用。否则处理器应选择重试 Phase、Cycle，或结束 Turn。Runtime 不提供从异常抛出点下一行继续执行的语义；若某个问题可以在模块内部继续调度，它不应进入 Trap，而应由模块内部流程或信号系统处理。
 
 运行器负责消费运行转移。Agent、Turn、Cycle 和 Phase 运行器只消费指向自身 frame 的转移；`RuntimeModuleRunner` 为 action invoke、Context signal batch 等可重放调用建立 Module frame，捕获一次 RuntimeException、发出 Trap 信号并在 RETRY 指向自身时重放同一调用。指向上层 frame 的转移通过 `RuntimeTransferInterrupt` 展开传播，不会在每层重复进入 Trap；Reflection task 在判断 task outcome 前必须展开非 Turn transfer，不能吞掉 Agent transfer。Runtime 本身不直接提交业务状态。

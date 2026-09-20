@@ -17,6 +17,8 @@ Workspace endpoint 使用 `workspace:` link 和受约束 async WorkspaceService�
 
 成功 mutation 返回 record 和完整 manifest，并发布 `workspace.changed`。公开请求不携带 digest/revision CAS，也不存在 mirror/apply/discard。取消不会回滚已提交文件；若索引提交失败，错误包含有界的已提交 link，不能伪称副作用未发生。
 
+正式写入和外部文件监听均由 Workspace owner 更新当前状态，后端自动通知活动 Turn 刷新工作台；前端无需再提交同步命令。`workspace.watch.enabled/debounce_ms` 沿配置接口保存并显式 reload。这里只监听当前 Workspace，观察事件仍是 UI 旁路，不能用 replay 代替 manifest 查询。
+
 文本写入请求为 `{link, text, overwrite?}`，overwrite 默认 false。Trash 请求为 `{link}`，恢复请求为 `{trash_ref}`。JSON 请求拒绝未知字段，旧 `expected_digest/expected_revision/retention` 返回 422。Manifest 使用 schema v4，资源包含类型、大小、说明与标签，不含版本字段；标签不产生跨日保留语义。
 
 参数、目标冲突返回稳定的 Workspace 请求错误；存储损坏或 IO 失败与参数错误分开。客户端看到已提交 Links 时应重新查询资源状态，不能假定整次操作已回滚。本文描述后端契约，前端字段与路由须相应迁移。

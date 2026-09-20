@@ -18,15 +18,17 @@ Agent.services 按 Facade 类型提供当前 User profile 的 HomeService、Memo
 
 只运行一个根 Turn。等待用户、Job、定时器或预算期间仍占根位置，新 User/Reflection 请求排队。队列和已完成句柄保留有界；重复 request identity 必须内容相同。queued 阶段取消不伪造 Session Turn，开始后的取消先收尾再完成句柄。所有路径共用一次收敛出口；取消立即移除队列占位，完成按次序进入保留窗口。去重只保证活动请求和保留窗口内的身份一致；淘汰后外部已持 Handle 仍可 wait。
 
-start/shutdown/restart 由各自拥有的任务串行衔接，并发等待者加入同一操作；启动中关闭立即停止受理并等待部分资源回收，旧 worker 回调不会修改新实例。shutdown 停止受理、取消根 work，等待 Action/Job、必要记录、段和来源回收，最后关闭世代。restart 重新装配，旧句柄保留旧结果。自建 LLM/embedding 客户端归世代关闭，注入对象保持借用。部分激活失败逆序关闭已创建资源；重复取消不抛弃清理任务，有限 cleanup diagnostics 不覆盖主失败。
+start/shutdown/restart 由各自拥有的任务串行衔接，并发等待者加入同一操作；启动中关闭立即停止受理并等待部分资源回收，旧 worker 回调不会修改新实例。shutdown 停止受理和外部来源，再取消根 work，等待 Action/Job、必要记录、段和来源回收，最后关闭世代。restart 重新装配，旧句柄保留旧结果。自建 LLM/embedding 客户端归世代关闭，注入对象保持借用。部分激活失败逆序关闭已创建资源；重复取消不抛弃清理任务，有限 cleanup diagnostics 不覆盖主失败。
 
 ## 输入、事件与容量
 
-Environment 的 InputEvent、InputSource、AgentRequestSource 只描述输入与来源生命周期。AgentIngress 解释可信终端命令和普通用户文本；InputCommandParser 纯解析，InputDispatcher 调用 AgentCommands。终端普通文本在空闲时提交 UserTurnRequest，活跃时追加到该 TurnInbox。Reflection 始终排入根队列。
+Environment 提供输入适配、文件监听和定时等待；Reflection 到期规则由插件解释，经注入的类型化提交端口进入根队列。AgentIngress 解释可信终端命令和普通用户文本；InputCommandParser 纯解析，InputDispatcher 调用 AgentCommands。终端普通文本在空闲时提交 UserTurnRequest，活跃时追加到该 TurnInbox。Reflection 始终排入根队列。
 
 `/reply <question_id> <text>` 与 `/grant <request_id> <count>` 明确关联当前等待；普通追加作为新指示中断 INPUT/EVENT/TIMER 等待，保留原问题未答事实；它不伪造 reply，也不增加预算。取消、退出不排在普通输入后；退出停止后续根 work，取消当前 Turn 则保留后续请求。
 
-Runtime EventBus 只校验 envelope、保存有界幂等回执并投递。Agent EventRouter 将定向事件送到指定身份，过期目标不会回退给其他 Turn；无目标事件经订阅进入当前活动 Turn。事件不隐式创建根 work，外部事件不能伪造 reply、预算决定或 Job 终态。
+Runtime EventBus 只校验 envelope、保存有界幂等回执并投递。Agent EventRouter 将定向事件送到指定身份，过期目标不会回退给其他 Turn；无目标事件仅送声明订阅或当前等待匹配的 Turn，按 Turn 身份去重。topic/source 参与过滤，SDK publish 只使用 host 来源，不能冒充 owner 提交、reply、预算决定或 Job 终态。普通事件不隐式创建根 work。
+
+PluginDeclaration 收集事件适配、preparation/completion 与运行来源；ResolvedPlugins 将它们交给既有 TurnProfile 和完成管线，Session recorder 仍最后执行且只在 User 情景声明。三个情景引用同一 Workspace 来源实例，GenerationSources 在激活前拒绝冲突身份，启动一次并在日切/世代切换前停止且 join。来源等待不持日锁；停止与独占切换的顺序保证回调不跨日。Workspace 视图更新由插件适配，不在 Agent/Kernel 中按 owner 名称分支。
 
 TurnInbox 从受理到收尾持续存在，由 Kernel 独占待消费正文。固定 capture → Context prepare/install → ack；新到记录留到后批，等待只观察就绪。SDK 可通过 InboxLimits 设置普通记录数、字节数、单条大小、回执保留与 Job 终态预留数/字节。默认普通队列为 64 条/256000 字节、单条 64000 字节，另预留一个同大小问题回复和 16 个 8192 字节 Job 终态槽；JobRegistry 在启动 backend 前核对其终态预算，容量不足先拒绝。取消和预算决定独立于进度容量，大输出留在 owner 资源。默认值是本地有界策略，不是生产吞吐承诺。
 
@@ -44,7 +46,7 @@ daily 触发在 Agent 边界拆为 Home 与触发日前一日 Memory 两个独�
 
 SDK patch_config 与 HTTP PATCH 统一只校验并原子保存候选，返回 saved/pending_reload。当前运行世代继续服务；reload 在 idle 边界读取候选、校验并构造新世代后切换 RuntimeHandle。活动/等待 Turn、已排队根请求、日切或既有激活会拒绝 reload。已获激活权后新到根可排队，但异步等待激活结束，候选失败后从旧世代继续分派。
 
-候选失败关闭候选并保留活动世代；已经保存的磁盘候选仍明确报告。切换成功后的退休只回收旧资源，失败返回诊断，不伪回滚可见新世代。EndpointHost、来源、实例锁与事件缓冲独立于业务世代，保持稳定。
+候选构建不启动来源；提交时先暂停旧来源，完成新日准备和新来源启动后切换世代。候选失败关闭候选并恢复旧来源；已经保存的磁盘候选仍明确报告。来源激活失败在 Agent 边界转换为有限启动失败，保留 source 和 error_type；既有 Runtime 语义失败保持归属，不把来源实现异常直接传给 Gateway。切换成功后的退休只回收旧资源，失败返回诊断，不伪回滚可见新世代。插件运行来源随世代配置替换；EndpointHost、终端、实例锁与观察缓冲保持稳定。
 
 ## 完成结果
 
@@ -54,7 +56,7 @@ Handle 活动状态为 queued/preparing/running/waiting/finalizing/finished；Tu
 
 ObservationRouter 按 normal/verbose/model 扇出到显式 sink，并提供有界 SDK 订阅。慢订阅得到 gap，不阻塞业务；单一 sink 或订阅编码失败关闭对应观察路径，记录有限错误类型。Observation 不参与提交、Trap 或控制流。
 
-CLI 在 gateway 显式挂载 Console、Terminal 与 EndpointHost。终端读取支持停止与线程回收；来源等待实际受理回执，不维持平行业务队列。HTTP 与 Agent 共用事件循环，宿主保留信号处理权。start --once 关闭定时来源、交互输入和 HTTP，执行一个 User Turn；只有正式回答返回成功退出码。
+CLI 在 gateway 显式挂载 Console、Terminal 与 EndpointHost。终端读取支持停止与线程回收；来源等待实际受理回执，不维持平行业务队列。HTTP 与 Agent 共用事件循环，宿主保留信号处理权。start --once 关闭定时来源、文件监听、交互输入和 HTTP，通过同一 SDK 队列执行一个 User Turn；只有正式回答返回成功退出码。
 
 normal 输出正式回答与重要运行边界；verbose 增加执行过程；model 展示真实模型输入和归一化输出。Console 有字符上限，Endpoint MODEL replay 面向可信客户端；图片字节和供应商私有推理不作为原始诊断输出。
 

@@ -64,6 +64,8 @@ project TOML 执行 source-aware mutation。Custom Model 因此不增加重复�
 
 通用并发设施提供 JoinedOperations、AsyncResourceScope 与 AsyncMailbox。JoinedOperations 只承载有界本地工作：调用开始后，即使调用方取消也等待真实结果，由业务 owner 记录后再传播取消。AsyncResourceScope 按注册逆序回收资源，嵌套作用域保留有限清理诊断，并发或重复关闭共用同一任务。AsyncMailbox 接受线程来源的投递，在一个事件循环上异步取出；它只提供唤醒与队列基础，不解释业务输入、事件路由、预算或 Turn 受理。
 
+ServiceScope 的短操作可显式附带异步提交后回调，并在同一 lease 与 joined 边界内完成；Workspace 用它在正式写入返回前发布 owner 变化。Infra 不解释该回调的事件、领域状态或 Context 内容。
+
 配置应支持多种来源，并保持明确优先级：
 
 1. 代码默认值

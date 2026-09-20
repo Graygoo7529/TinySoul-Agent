@@ -1,11 +1,11 @@
 # Agent 重构第四轮子计划：环境事件与插件运行闭环
 
-状态：`pending`（设计草案，等待本轮范围与建议语义确认；尚未实施）。
+状态：`done`（2026-09-20，R4.1–R4.6 实现、文档、门禁与主计划 S4 已逐项核对，证据见 §10）。
 日期：2026-09-20。
 审查基线：`a20ec5e`，Before 4 已提交，开始本次分析时工作区干净。
-主计划：[Agent 架构重构](20260915-agent-architecture-refactor-plan.md)。
-前置：[Before 4 验收](done/20260920-done-Agent重构Before4子计划-数据基础与渐进披露.md)。
-参考：[整体功能想法](../chat/00%20doing%20something.md)，其中旧 domain、CAS、Session 整理范围等表述以已确认主计划为准。
+主计划：[Agent 架构重构](../20260915-agent-architecture-refactor-plan.md)。
+前置：[Before 4 验收](20260920-done-Agent重构Before4子计划-数据基础与渐进披露.md)。
+参考：[整体功能想法](../../chat/00%20doing%20something.md)，其中旧 domain、CAS、Session 整理范围等表述以已确认主计划为准。
 
 ## 1. 本轮目标与范围
 
@@ -29,7 +29,7 @@ R4 落实主计划 S4 的环境协作：Agent 在运行或等待期间持续接�
 
 独立的触发路径为“到期事实 → 已声明 Trigger → 类型化根请求 → 现有根队列”，以每日 Reflection 为真实消费者。订阅更新当前工作，Trigger 安排新工作，两者不互相替代。
 
-建议纳入：
+本轮纳入：
 
 - 当前 Workspace 的真实文件监听、owner 变化发布，以及 User/Home Reflection/Memory Reflection 中的当前工作台刷新。
 - 事件 topic、来源与作用域，插件订阅、范围等待、去重及可合并通知。
@@ -39,7 +39,7 @@ R4 落实主计划 S4 的环境协作：Agent 在运行或等待期间持续接�
 
 范围外：Home/Memory 的外部文件热监听（见 Q1）、Session Organize/注释持久层、Gateway v2、ACP/MCP、内部子 Turn 并发、新 DDS 中间件、动态插件发现、OS 沙箱与持久事件日志。SDK 与协议文档同步必要字段，但不扩大为 S5 的接口重建。
 
-## 2. 代码现状与实际缺口
+## 2. 实施前的代码基线与缺口
 
 | 证据 | 已有能力 | 本轮处理 |
 |---|---|---|
@@ -85,7 +85,7 @@ R4 落实主计划 S4 的环境协作：Agent 在运行或等待期间持续接�
 
 | 贡献寿命 | 内容 | 真实消费者 |
 |---|---|---|
-| 世代/Agent 运行期 | 来源工厂、owner 事件适配、Trigger、资源 start/stop | Workspace 文件来源；Reflection 定时触发；Agent 装配与资源作用域 |
+| 世代/Agent 运行期 | 显式来源实例、owner 事件适配、Trigger、资源 start/stop | Workspace 文件来源；Reflection 定时触发；Agent 装配与资源作用域 |
 | 当前 Turn/profile | 段订阅与 typed 更新适配、preparation、completion | Workspace 当前 State；Session recorder；TurnProfile 与现有管线 |
 
 Workspace 运行贡献由 owner 组合根构造一次，各 profile 只引用同一实例；三种情景的受约束 Service/Action surface 仍各自 resolve。不能按相同字符串 id 随意选取三份 watcher 中的一份：同一运行贡献必须是同一实例，冲突声明在激活前拒绝。
@@ -100,7 +100,7 @@ preparation/completion 收集后进入现有 TurnPreparationPipeline/TurnComplet
 
 ### 4.1 文件来源与刷新
 
-建议使用单一 `watchfiles` 后端，由 `environment/sources/fswatch.py` 封装异步监听、批次及停止。官方 API 提供变化批次、合并窗口和停止事件；它内部使用线程等待通知，必须显式停止并等待退出，不能取消 await 后遗弃工作。见 [watchfiles watch/awatch](https://watchfiles.helpmanual.io/api/watch/)。引入依赖只承载文件通知，不接管 owner、任务执行或恢复。
+使用单一 `watchfiles` 后端，由 `environment/sources/fswatch.py` 封装异步监听、批次及停止。官方 API 提供变化批次、合并窗口和停止事件；它内部使用线程等待通知，必须显式停止并等待退出，不能取消 await 后遗弃工作。见 [watchfiles watch/awatch](https://watchfiles.helpmanual.io/api/watch/)。引入依赖只承载文件通知，不接管 owner、任务执行或恢复。
 
 过滤规则来自 Workspace owner：包含实际工作区资源，排除其内部 manifest/Trash/临时原子写路径及既有 ignore_dirs；不直接采用库默认过滤器替代业务规则。库允许注入过滤器，见 [watchfiles filters](https://watchfiles.helpmanual.io/api/filters/)。具体依赖范围、合并窗口与平台停止时间在实现时以 wheel 和实机测试落定，不新建 native/polling 双实现。
 
@@ -161,7 +161,7 @@ Before 4 的事实顺序和取回保护保持有效。文件变化摘要进入 T
 
 创建/resolve 不启动监听。Agent.start 完成确定性日准备后才启动来源；候选构建或失败 reload 不提前让候选来源向活动 Turn 发布。来源是运行资源，不是 Turn-owned Job，也不靠空 Segment 持有生命周期。
 
-共享原有资源作用域、世代与日 lease。来源等待通知期间不一直持读 lease；一次实际 owner 操作取得短 lease。日切或切换前先暂停新回调并等待已进入 owner 的操作，随后进入独占边界，避免“持独占锁等待一个正等待读锁的 watcher”死锁。
+共享原有资源作用域、世代与日边界。来源等待不持日锁；日切或切换前先停止来源并 join 已进入的 owner 操作，随后进入独占边界。实际文件操作继续在 owner 锁内提交，不额外给 watcher 增加一层日读 lease，避免“持独占锁等待一个正等待读锁的 watcher”死锁。SDK 服务仍使用原有世代/日 lease。
 
 - 活动 Turn 跨午夜仍绑定旧 active_day；其 watcher 继续服务旧工作区。Turn/Job 收尾后才切日。
 - 日切前停止旧绑定；完成归档和新根初始化后，再绑定新根并建立基线。归档搬移和新根创建不伪装为用户批量删除/创建。
@@ -196,7 +196,7 @@ Trigger 不依赖当前是否有活动 Turn，也不因事件同时投到订阅�
 
 ## 8. 顺序执行切片与验收
 
-所有切片当前均为 `pending`。每片合入时迁移真实调用者和测试，不依靠旧接口兼容层维持两条路径。
+所有切片均为 `done`。真实调用者、测试和文档已同步迁移；逐项证据见 §10，不保留旧接口兼容路径。
 
 | 切片 | 交付 | 验收 |
 |---|---|---|
@@ -222,7 +222,7 @@ Trigger 不依赖当前是否有活动 Turn，也不因事件同时投到订阅�
 
 受影响设计文档为 agent/context/runtime/loop/workspace/reflection/infra；根据新增环境职责考虑独立 `docs/design/environment.md`，仅在代码落地时写当前事实。Action catalog 仍在 assets/common；配置走既有 ConfigDocumentSet/reload，不另造配置目录或热加载旁路。必要 SDK/Observation 变化同步 endpoint 文档，前端代码不在本轮范围。
 
-## 9. 待确认的产品语义
+## 9. 已确认的产品语义
 
 ### Q1：外部文件监听的范围
 
@@ -234,10 +234,48 @@ Trigger 不依赖当前是否有活动 Turn，也不因事件同时投到订阅�
 
 来源不可用是类型化运行事实，由相同订阅/等待路径消费。正在等待该来源的 Turn 得到有界反馈，明确这次等待未因文件变化满足，再由后续决策选择其它动作；不伪造 `workspace.changed`、Action 结果或 Runtime 全局失败。仅按 topic 等待时，外部监听失效也应提示该感知能力已中断，但不能声称 Action/SDK 的同 topic 发布入口一并失效。此反馈不唤醒 INPUT/TIMER，不绕过 BUDGET；已关闭来源的新等待在登记时得到相同不可用语义，避免永久挂起。关闭监听不回滚已写文件。
 
-以上两点待确认。单根 Turn、普通文件变化不新建根请求、事件不绕预算、日切后旧对象失效、Reflection 一次授权语义、受信宿主执行以及 Organize 尾期实施均沿用已确认主计划，不重新申请确认。
+2026-09-20 用户确认以上两点，并要求主要关注正常路径，避免因极端故障引入复杂架构或编码逻辑。实现只保留明确停止、有限诊断和等待反馈，不建设自动修复状态机。单根 Turn、普通文件变化不新建根请求、事件不绕预算、日切后旧对象失效、Reflection 一次授权语义、受信宿主执行以及 Organize 尾期实施均沿用已确认主计划。
 
-## 10. 本次设计交付记录
+## 10. 实施与验收记录
 
-本次只建立 R4 草案并在主计划添加入口/修正一处已过时的能力枚举说明。未修改运行代码、测试、AGENTS 当前事实或 docs/design；没有新增测试通过声明。已检查的代码路径、历史门禁与本轮待验收范围分别记录，不将草案标为已实施。
+### 10.1 切片核对
 
-确认后按 §8 实施；实现、设计同步和必要门禁逐项核对完成后才标 done 并移动到 `docs/analysis/done/`。主计划 S4 是否可标 done 以其验收全部闭合为准，不能用 Workspace 一条 happy path 代替其它订阅/触发/生命周期证据。
+| 切片 | 状态 | 实现与验证位置 |
+|---|---|---|
+| R4.1 | `done` | `runtime/events.py` 的 topic/source/EventFilter，`agent/dispatch/router.py` 按目标身份去重，`kernel/loop/interaction/inbox.py` 保留 received_at、固定 capture/ack、按声明状态来源合并；router/Inbox 测试覆盖定向、过滤、容量与固定批次 |
+| R4.2 | `done` | `kernel/registration.py` 收集 events/sources/preparation/completion/recorder，`TurnProfile` 传入既有 TurnRunner；Workspace 与 Session 声明自身贡献。`tests/kernel/test_registration.py` 用两种无领域假设的插件验证共同管线和 recorder 最后执行 |
+| R4.3 | `done` | `plugins/workspace/events.py` 从 owner 提交事实发布；ServiceScope 的 after 回调在既有 joined/lease 边界 flush；Workspace、Web、Resource、Execution 和 Endpoint 删除直接同步快照路径。`tests/plugins/workspace/test_events.py` 验证正式写入、说明、外部修改/删除、自身回声、关闭监听后正式操作仍可用；既有移动/标签/恢复测试全部通过 |
+| R4.4 | `done` | `environment/sources/fswatch.py` 实际监听、过滤及 join；`agent/lifecycle/sources.py` 统一世代来源，day/reload/shutdown 先停止再切换。真实临时目录验证外部文件感知；SDK 验证失败 reload、来源启动失败后旧绑定恢复、成功关闭监听与旧服务失效 |
+| R4.5 | `done` | `core.wait` 支持 topic/source，Inbox 在同一等待判定内处理来源不可用及预算；ReflectionScheduler 持有固定到期日，通过注入端口提交请求，DeadlineTimer 仅处理定时 I/O。测试覆盖跨午夜满载重试、及时停止及既有 INPUT/TIMER/BUDGET、ask/reply 行为 |
+| R4.6 | `done` | `tests/agent/test_sdk.py` 的 external/sdk 两条路径均让原 Turn 恢复，并在真实交给 fake LLM 的下一 MessageStack 中看到新 Link、不内联正文；Full 包含 restart、真实进程跨午夜、Reflection、Session、生成及 wheel；设计和 Endpoint 文档已同步 |
+
+### 10.2 保持简洁的实现选择
+
+- 一个 WorkspaceRuntime 同时供三种情景引用；GenerationSources 只按同一实例合并，冲突身份在激活前拒绝。运行来源不借用 Job、空 Segment 或平行监督器。
+- Watcher 将通知批次立即收敛为一次 owner 扫描，不额外保存路径队列。owner 待发布状态按两个声明来源有界合并；Inbox 为每个精确 topic/source 保留捕获中与下一批状态槽，独立于输入、reply、Job 终态额度。合并通知表示现态刷新，不承诺枚举全部中间文件操作。
+- Segment 只接收刷新意图，在 prepare 读取 owner。普通状态更新不撤销已完成回答；用户输入、Job、显式等待仍遵循现有决策语义。
+- 日切通过“停止并 join → 独占切换 → 重新绑定”保证回调边界，未增加 watcher 读锁、世代 token 校验链或自动恢复状态机。
+- 原生监听故障报告 source status；owner 扫描失败保留 owner bridge。来源激活失败在 Agent 边界转为有限启动失败，候选关闭后恢复旧世代。成功提交后的附属清理只产生诊断。
+- Reflection Trigger 由真实插件策略和类型化提交端口实现，没有新增无消费者的通用 Trigger 注册平台。满载请求保持原 request identity、scheduled_day 和 Memory target。
+- 删除仅供旧测试使用的同步式 `run_once` 旁路；CLI 与组合测试经现有请求队列执行，预算不足等待明确决定。`--once` 显式关闭文件监听与每日定时来源。
+
+### 10.3 文档、配置与验证
+
+同步 `docs/design/agent.md`、`context.md`、`runtime.md`、`loop.md`、`workspace.md`、`reflection.md`、`infra.md`，新增 `environment.md`；Endpoint runtime/events/workspace 文档同步来源状态与自动刷新。`AGENTS.md` 当前任务与过渡语义、主计划 §13 同步实际完成范围。
+
+`workspace.watch` 进入 standard/development 配置与配置 catalog，默认开启、合并窗口 200 ms；沿现有候选和 reload 生效。依赖范围为 `watchfiles>=1.1,<2`，本机使用 1.2.0；职责仅为文件通知。Session/Workspace 持久格式未变，没有迁移、reset 或清理部署数据。
+
+2026-09-20 验证：
+
+- 聚焦测试与 Fast 已通过；最终 `scripts/test.ps1 -Suite Full`：**1100 passed、23 deselected**，含 generation/wheel、fake-provider CLI、真实 Windows 文件监听与进程/日切路径。
+- `scripts/typecheck.ps1` 通过；额外 `ty check --python-platform linux` 通过。
+- `git diff --check` 通过；旧同步快照入口与旧线程 RequestScheduler 已无调用，runtime/kernel 无新增上层领域依赖。
+- 未运行 Linux 实机、真实 provider/network、ACP/MCP；类型检查不代替实机验证。Full 中一条 Starlette/httpx 弃用警告来自现有依赖，与本轮结果无关。
+
+### 10.4 与 AGENTS 和主计划的结论
+
+- [x] 事实 owner、来源 I/O、事件传输、段视图与 Observation 各自保持边界；没有第二份 Workspace 状态或模型必须理解的 CAS/schema/reconcile 操作协议。
+- [x] User/Reflection 复用同一 Kernel、Inbox、等待与完成管线；Session 只记录 User Turn，历史目标日视图不订阅今日 Workspace。
+- [x] 正常提交、等待、停止、日切和重载已闭合，必要失败只在所属边界处理；没有为假设极端情况增加恢复编排。
+- [x] 主计划 S4 标记 `done`；S3 Organize 动作/注释层与 S5–S7 保留，未提前宣称完成。
+- [x] 本子计划标记 `done` 并归档；原设计基线与 Q1/Q2 确认保留为审阅依据。

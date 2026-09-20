@@ -433,7 +433,7 @@ async def test_kimi_search_returns_answer_and_results_without_mode(
         kimi_api_key="search-secret",
         process_runner=_SearchRunner(answer="Current answer", result_count=2),
     )
-    executor = KimiSearchExecutor(service=service, bus=SignalBus())
+    executor = KimiSearchExecutor(service=service)
 
     result = await executor.execute(
         _search_execution(),
@@ -482,7 +482,6 @@ async def test_kimi_worker_failure_preserves_only_safe_shape_facts(
 
     action_result = await KimiSearchExecutor(
         service=service,
-        bus=SignalBus(),
     ).execute(
         _search_execution(),
         ActionExecutionContext(
@@ -517,7 +516,7 @@ async def test_kimi_timeout_returns_model_visible_fallback_disposition(
         process_runner=_SearchTimeoutRunner(),
     )
 
-    result = await KimiSearchExecutor(service=service, bus=SignalBus()).execute(
+    result = await KimiSearchExecutor(service=service).execute(
         _search_execution(),
         ActionExecutionContext(
             control=ActionExecutionControl(deadline=monotonic() + 30),
@@ -652,7 +651,6 @@ async def test_fetch_action_result_omits_source_url_and_emits_workspace_signal(
     local_tmp: Path,
 ) -> None:
     workspace = _workspace(local_tmp)
-    bus = SignalBus()
     executor = WebFetchExecutor(
         extractor=WebExtractor.TRAFILATURA,
         service=WebCapabilityService(
@@ -662,7 +660,6 @@ async def test_fetch_action_result_omits_source_url_and_emits_workspace_signal(
             staging=_staging(local_tmp),
             process_runner=_FetchRunner(),
         ),
-        bus=bus,
     )
 
     result = await executor.execute(
@@ -676,9 +673,7 @@ async def test_fetch_action_result_omits_source_url_and_emits_workspace_signal(
     assert result.payload["markdown_link"] == "workspace:web/pages/article.md"
     assert result.payload["excerpt"] == "Readable page excerpt"
     assert "url" not in result.payload
-    signals = bus.consume()
-    assert len(signals) == 1
-    assert signals[0].name == "context.workspace.sync"
+    assert workspace.inspect("workspace:web/pages/article.md").link == result.payload["markdown_link"]
 
 
 async def test_fetch_cancellation_after_worker_prevents_workspace_commit(
@@ -722,7 +717,6 @@ def test_disabled_web_actions_are_absent_from_effective_catalog(
         settings=settings,
         runtime_env={},
         workspace=WorkspaceService(_workspace(local_tmp)),
-        bus=SignalBus(),
         staging=_staging(local_tmp),
     ).build()
 
@@ -756,7 +750,6 @@ def test_action_policy_does_not_skip_capability_credential_validation(
             settings=settings,
             runtime_env={},
             workspace=WorkspaceService(_workspace(local_tmp)),
-            bus=SignalBus(),
             staging=_staging(local_tmp),
             dependency_checker=_AvailableDependencyChecker(),
         )

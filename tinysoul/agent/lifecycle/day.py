@@ -17,6 +17,7 @@ from tinysoul.plugins.memory.errors import MemoryError
 from tinysoul.plugins.memory.runtime_bridge import RuntimeMemoryBridge
 from tinysoul.runtime import RunScope
 from ..errors import AgentInvariantError
+from .sources import GenerationSources
 
 
 class DayLifecycle(Protocol):
@@ -46,6 +47,10 @@ class AgentDayCoordinator:
         self._clock = clock
         self._lock = AsyncReadWriteLock()
         self._active_day = active_day
+        self._sources: GenerationSources | None = None
+
+    def bind_sources(self, sources: GenerationSources) -> None:
+        self._sources = sources
 
     @asynccontextmanager
     async def active_day_lease(self) -> AsyncIterator[CalendarDay]:
@@ -64,6 +69,16 @@ class AgentDayCoordinator:
         return CalendarDay(self._clock.now().date())
 
     async def preflight(self, *, scope: RunScope) -> DailyTransitionOutcome:
+        changing = self._active_day != self.current_day()
+        if changing and self._sources is not None:
+            await self._sources.pause()
+        try:
+            return await self._preflight(scope=scope)
+        finally:
+            if changing and self._sources is not None:
+                await self._sources.resume()
+
+    async def _preflight(self, *, scope: RunScope) -> DailyTransitionOutcome:
         async with self._lock.write_locked():
             operation = JoinedOperations()
             transition = await operation.run(lambda: self._prepare(scope))

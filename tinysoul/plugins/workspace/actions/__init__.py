@@ -17,7 +17,6 @@ from tinysoul.kernel.action import (
 from tinysoul.kernel.context import PromptBlock, PromptReferenceError, TaskPrompt
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.json import JsonObject, to_json_object
-from tinysoul.runtime import SignalBus
 from ..services import WorkspaceService
 from ..errors import WorkspaceContractError, WorkspaceError
 from ..runtime_bridge import RuntimeWorkspaceBridge
@@ -31,7 +30,6 @@ from ..storage.manifest import (
 )
 from ..storage.mutations import WorkspaceTextEdit
 from ..prompts import WorkspaceAnalysisPromptBuilder, WorkspacePromptReferenceResolver
-from ..projection import workspace_snapshot_signal
 
 from .operations import WorkspaceExecutor
 from .analysis import WorkspaceAnalyzeExecutor
@@ -59,12 +57,11 @@ def register_workspace_actions(
     builder: ActionEngineBuilder,
     *,
     workspace: WorkspaceService,
-    bus: SignalBus,
     llm_action: LLMActionTaskRunner,
     runtime_bridge: RuntimeWorkspaceBridge | None = None,
 ) -> ActionEngineBuilder:
     bridge = runtime_bridge or RuntimeWorkspaceBridge()
-    executor = WorkspaceExecutor(workspace, bus, llm_action, bridge)
+    executor = WorkspaceExecutor(workspace, llm_action, bridge)
     for name in WORKSPACE_ACTIONS:
         builder.register_executor(
             name,

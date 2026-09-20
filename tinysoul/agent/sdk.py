@@ -16,6 +16,7 @@ from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.loop.interaction.inbox import InboxLimits, InboxReceipt
 from tinysoul.plugins.reflection.models import ReflectionRequest
 from tinysoul.runtime.events import EnvironmentEvent, EventReceipt
+from tinysoul.runtime.sources import SourceStatus
 
 from .errors import AgentClosedError, AgentSDKError
 from .handles import TurnHandle
@@ -47,6 +48,7 @@ class AgentSnapshot:
     active_turn_id: str | None
     queued_turn_ids: tuple[str, ...]
     observation_failures: tuple[CleanupDiagnostic, ...] = ()
+    sources: tuple[SourceStatus, ...] = ()
 
 
 class Agent:
@@ -128,6 +130,7 @@ class Agent:
             active.turn_id if active is not None else None,
             app.agent_runner.queued_turn_ids if app is not None else (),
             app.observations.failures if app is not None else (),
+            app.generation_handle.snapshot().generation.sources.statuses if app is not None else (),
         )
 
     async def start(self) -> None:
@@ -294,6 +297,8 @@ class Agent:
                 except (Exception, asyncio.CancelledError):
                     # Startup owns its primary failure and partial resources.
                     pass
+            if self._assembly is not None:
+                diagnostics += await self._assembly.generation_handle.snapshot().generation.sources.pause()
             if self._worker is not None:
                 self._worker.cancel()
                 try:

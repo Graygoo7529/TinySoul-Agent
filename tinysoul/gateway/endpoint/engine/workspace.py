@@ -110,7 +110,6 @@ class EndpointWorkspaceEngine:
                     overwrite=overwrite,
                 )
                 manifest = await workspace.load_manifest()
-                self._sync_workspace_change(manifest)
                 return {"record": record.to_json(), "manifest": manifest.to_json()}
         except WorkspaceError as exc:
             raise _workspace_error(exc) from exc
@@ -142,7 +141,6 @@ class EndpointWorkspaceEngine:
                     ),
                 )
                 record = result.records[0]
-                self._sync_workspace_change(result.manifest)
                 return {
                     "record": record.to_json(),
                     "manifest": result.manifest.to_json(),
@@ -177,7 +175,6 @@ class EndpointWorkspaceEngine:
                     link,
                 )
                 manifest = await workspace.load_manifest()
-                self._sync_workspace_change(manifest)
                 return {
                     "trash": {"ref": item.ref, **item.to_json()},
                     "manifest": manifest.to_json(),
@@ -198,7 +195,6 @@ class EndpointWorkspaceEngine:
                     trash_ref,
                 )
                 manifest = await workspace.load_manifest()
-                self._sync_workspace_change(manifest)
                 return {"record": record.to_json(), "manifest": manifest.to_json()}
         except WorkspaceError as exc:
             raise _workspace_error(exc) from exc
@@ -234,16 +230,9 @@ class EndpointWorkspaceEngine:
             ).operation() as workspace:
                 record = await change(workspace)
                 manifest = await workspace.load_manifest()
-                self._sync_workspace_change(manifest)
                 return {"record": record.to_json(), "manifest": manifest.to_json()}
         except WorkspaceError as exc:
             raise _workspace_error(exc) from exc
-
-    def _sync_workspace_change(self, manifest: WorkspaceManifest) -> None:
-        self._context.gateway.sync_workspace_context(
-            manifest,
-            source="endpoint.workspace",
-        )
 
 
 def _workspace_error(error: WorkspaceError) -> EndpointRequestError:

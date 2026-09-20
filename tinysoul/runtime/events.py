@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from hashlib import sha256
 import json
@@ -33,6 +33,8 @@ class EnvironmentEvent:
     payload: JsonObject
     event_id: str = ""
     target_id: str | None = None
+    topic: str = "host.notification"
+    source: str = "host"
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, EventKind):
@@ -45,8 +47,33 @@ class EnvironmentEvent:
             raise EventProtocolError("EnvironmentEvent.event_id must be text")
         if self.target_id is not None and (not isinstance(self.target_id, str) or not self.target_id):
             raise EventProtocolError("EnvironmentEvent.target_id must be non-empty")
+        if any(not isinstance(value, str) or not value for value in (self.topic, self.source)):
+            raise EventProtocolError("EnvironmentEvent requires a topic and source")
         object.__setattr__(self, "payload", payload)
         object.__setattr__(self, "event_id", self.event_id or f"event_{uuid4().hex}")
+
+
+@dataclass(frozen=True)
+class EventFilter:
+    """Exact optional constraints, shared by routing and plugin declarations."""
+
+    kind: EventKind | None = None
+    topic: str | None = None
+    source: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind is not None and not isinstance(self.kind, EventKind):
+            raise EventProtocolError("Event filter kind must be typed")
+        if any(value is not None and (not isinstance(value, str) or not value)
+               for value in (self.topic, self.source)):
+            raise EventProtocolError("Event filter identities must be non-empty")
+
+    def matches(self, event: EnvironmentEvent) -> bool:
+        return (
+            (self.kind is None or self.kind is event.kind)
+            and (self.topic is None or self.topic == event.topic)
+            and (self.source is None or self.source == event.source)
+        )
 
 
 @dataclass(frozen=True)
@@ -74,11 +101,12 @@ class EventBus:
     ) -> EventReceipt:
         if not isinstance(event, EnvironmentEvent):
             raise EventProtocolError("EventBus requires an EnvironmentEvent")
-        event = EnvironmentEvent(event.kind, event.payload, event.event_id, event.target_id)
+        event = replace(event)
         try:
             encoded = json.dumps(
                 {"kind": event.kind.value, "payload": event.payload,
-                 "id": event.event_id, "target": event.target_id},
+                 "id": event.event_id, "target": event.target_id,
+                 "topic": event.topic, "source": event.source},
                 ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False,
             ).encode("utf-8")
         except (ValueError, UnicodeError) as exc:

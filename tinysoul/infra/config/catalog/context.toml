@@ -375,6 +375,23 @@ description = "Maximum resources tracked by the active Workspace manifest."
 value_kind = "integer"
 
 [[field]]
+path = "workspace.watch.enabled"
+surface = "workspace"
+group = "workspace.storage"
+title = "Watch Workspace"
+description = "Observe external changes to the active Workspace. Formal operations still publish changes when disabled."
+value_kind = "boolean"
+
+[[field]]
+path = "workspace.watch.debounce_ms"
+surface = "workspace"
+group = "workspace.storage"
+title = "File Notification Window"
+description = "Milliseconds used to combine file notifications before owner reconciliation."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
 path = "workspace.max_read_chars"
 surface = "workspace"
 group = "workspace.storage"

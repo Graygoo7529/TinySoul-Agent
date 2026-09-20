@@ -27,6 +27,7 @@ from tinysoul.kernel.jobs.config import JobSettings
 from ..config import AgentSettings
 from ..dispatch.inputs import InputCommandParser
 from .day import DayLifecycle
+from .sources import GenerationSources
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,7 @@ class AgentRuntimeGeneration:
     reflection_settings: ReflectionSettings
     resources: AsyncResourceScope = field(default_factory=AsyncResourceScope)
     reflection_profiles: tuple[TurnProfile, ...] = ()
+    sources: GenerationSources = field(default_factory=GenerationSources)
 
     @property
     def profiles(self) -> tuple[TurnProfile, ...]:
@@ -75,4 +77,5 @@ class AgentRuntimeGeneration:
     async def close(self) -> tuple[CleanupDiagnostic, ...]:
         """Release explicitly registered generation-owned resources once retired."""
 
-        return await self.resources.close()
+        diagnostics = await self.sources.close()
+        return (*diagnostics, *await self.resources.close())

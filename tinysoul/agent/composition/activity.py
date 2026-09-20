@@ -5,7 +5,6 @@ from tinysoul.kernel.jobs import JobBackend, JobRegistry
 from tinysoul.kernel.loop.interaction.inbox import TurnInbox
 from tinysoul.plugins.workspace import WorkspaceEngine, WorkspaceError
 from tinysoul.plugins.workspace.errors import WorkspaceReconciliationError
-from tinysoul.plugins.workspace.projection import workspace_snapshot_signal
 from tinysoul.plugins.workspace.runtime_bridge import RuntimeWorkspaceBridge
 from tinysoul.runtime import RunScope, SignalBus
 
@@ -25,17 +24,6 @@ class AgentTurnActivity[B: JobBackend]:
 
     def sync(self, turn_id: str, *, bus: SignalBus, scope: RunScope) -> None:
         self._jobs.sync(turn_id, bus=bus, scope=scope)
-        try:
-            bus.emit(
-                workspace_snapshot_signal(
-                    self._workspace.snapshot(),
-                    call_id="",
-                    scope=scope,
-                    source="agent.activity",
-                )
-            )
-        except WorkspaceError as exc:
-            raise RuntimeWorkspaceBridge().from_workspace_error(exc) from exc
 
     async def cleanup_turn(self, turn_id: str) -> tuple[CleanupDiagnostic, ...]:
         # A required process stop failure must retain the day lease; do not cross
@@ -50,5 +38,6 @@ class AgentTurnActivity[B: JobBackend]:
                 )
         except WorkspaceError as exc:
             raise RuntimeWorkspaceBridge().from_workspace_error(exc) from exc
+        await joined.finish(self._workspace.events.flush)
         joined.check_cancelled()
         return diagnostics

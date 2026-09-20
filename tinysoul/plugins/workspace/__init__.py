@@ -51,7 +51,7 @@ from .storage.reconcile import (
 )
 from .projection import (
     WorkspaceTurnPreparationHandler,
-    workspace_snapshot_signal,
+    workspace_refresh_signal,
 )
 from .prompts import WorkspacePromptReferenceResolver
 from .inspection.search import (
@@ -112,7 +112,7 @@ __all__ = [
     "WorkspaceTextSlice",
     "WorkspaceTextSearchResult",
     "WorkspaceTurnPreparationHandler",
-    "workspace_snapshot_signal",
+    "workspace_refresh_signal",
     "WorkspaceTrashItem",
     "parse_workspace_settings",
     "register_workspace_actions",

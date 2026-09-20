@@ -62,7 +62,6 @@ from tinysoul.plugins.workspace import (
     WorkspaceEngineBuilder,
     WorkspaceSettings,
 )
-from tinysoul.plugins.workspace.projection import workspace_snapshot_signal
 
 
 @dataclass

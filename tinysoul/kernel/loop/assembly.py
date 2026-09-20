@@ -38,6 +38,8 @@ from .phases import (
 from .lifecycle.preparation import TurnPreparationPipeline
 from .prompts import DomainSkillProvider, EmptyDomainSkillProvider
 from .turn import TurnActivityController, TurnRunner
+from .interaction.events import TurnEventSubscription
+from tinysoul.runtime.sources import RuntimeSource
 
 
 @dataclass(frozen=True)
@@ -58,6 +60,8 @@ class TurnProfile:
     completion_to_output: Callable[[JsonObject | None], TurnOutput | None] | None = None
     domain_skills: DomainSkillProvider | None = None
     activity_controller: TurnActivityController | None = None
+    events: tuple[TurnEventSubscription, ...] = ()
+    sources: tuple[RuntimeSource, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -172,5 +176,6 @@ def build_turn_kernel(
         completion_pipeline=profile.completion_pipeline,
         preparation_pipeline=profile.preparation_pipeline,
         activity_controller=profile.activity_controller,
+        events=profile.events,
         observations=emitter,
     )

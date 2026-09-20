@@ -139,6 +139,8 @@ class AgentRuntimeServices:
             "activity": snapshot.activity.value,
             "activation": snapshot.activation.value,
             "active_day": str(snapshot.generation.day.active_day or ""),
+            "sources": [{"source": item.source, "state": item.state.value,
+                         "topics": list(item.topics), "error_type": item.error_type} for item in snapshot.generation.sources.statuses],
         }
         if credentials:
             result["llm"] = {

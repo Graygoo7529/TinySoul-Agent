@@ -127,6 +127,8 @@ class WaitRequest:
     event_id: str | None = None
     job_id: str | None = None
     ready: bool = False
+    topic: str | None = None
+    source: str | None = None
 
     def __post_init__(self) -> None:
         if self.timeout_seconds is not None and (
@@ -163,6 +165,8 @@ class WaitRequest:
             self.event_kind,
             self.event_id,
             self.job_id,
+            topic=self.topic,
+            source=self.source,
         )
 
 
@@ -184,11 +188,12 @@ def wait_from_results(results: tuple[ActionResult, ...]) -> WaitRequest | None:
         payload.get("job_id"),
         payload.get("ready", False),
     )
+    topic, source = payload.get("topic"), payload.get("source")
     if (
         (timeout is not None and type(timeout) not in (int, float))
         or any(
             value is not None and not isinstance(value, str)
-            for value in (kind, event_id, job_id)
+            for value in (kind, event_id, job_id, topic, source)
         )
         or not isinstance(ready, bool)
     ):
@@ -200,6 +205,8 @@ def wait_from_results(results: tuple[ActionResult, ...]) -> WaitRequest | None:
             event_id if isinstance(event_id, str) else None,
             job_id if isinstance(job_id, str) else None,
             ready,
+            topic if isinstance(topic, str) else None,
+            source if isinstance(source, str) else None,
         )
         request.condition(0)
         return request

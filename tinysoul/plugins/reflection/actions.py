@@ -12,7 +12,7 @@ from tinysoul.kernel.action import (
 )
 from tinysoul.kernel.action.catalog.specs import ActionSemanticSpec
 from tinysoul.kernel.context import ContextEngine
-from tinysoul.kernel.registration import PluginDeclaration, ServiceRegistry
+from tinysoul.kernel.registration import PluginDeclaration, ResolvedPlugins
 from tinysoul.plugins.workspace.engine import WorkspaceArchiveView
 from tinysoul.kernel.loop.turn import TurnActivityController
 
@@ -37,7 +37,7 @@ class ReflectionActionAssembly(Protocol):
         *,
         plugins: tuple[PluginDeclaration, ...],
         archive_source: Callable[[], WorkspaceArchiveView | None] | None = None,
-    ) -> tuple[ActionEngineBuilder, TurnActivityController, ServiceRegistry]: ...
+    ) -> tuple[ActionEngineBuilder, TurnActivityController, ResolvedPlugins]: ...
 
 
 def build_reflection_action(
@@ -50,7 +50,7 @@ def build_reflection_action(
     assembly: ReflectionActionAssembly,
     plugins: tuple[PluginDeclaration, ...],
     archive_source: Callable[[], WorkspaceArchiveView | None] | None = None,
-) -> tuple[ActionEngine, TurnActivityController, ServiceRegistry]:
+) -> tuple[ActionEngine, TurnActivityController, ResolvedPlugins]:
     if kind not in {"home", "memory"}:
         raise ReflectionContractError("Unknown Reflection kind")
     builder, jobs, services = assembly.prepare(
