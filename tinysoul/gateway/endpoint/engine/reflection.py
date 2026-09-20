@@ -6,15 +6,13 @@ from __future__ import annotations
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.infra.time import CalendarDay, CalendarDayError
 from tinysoul.plugins.reflection import (
-    ReflectionContractError,
     ReflectionError,
-    ReflectionScope,
 )
-from tinysoul.runtime import RuntimeGatewayError
 from tinysoul.kernel.loop.errors import LoopError
 
 from ..errors import EndpointRequestError
 from .context import EndpointEngineContext
+from .runtime import EndpointRuntimeEngine
 
 
 class EndpointReflectionEngine:
@@ -52,47 +50,7 @@ class EndpointReflectionEngine:
         command_id: str = "",
         instructions: str = "",
     ) -> JsonObject:
-        if kind not in {"home", "memory"}:
-            raise EndpointRequestError(
-                status_code=422,
-                code="reflection.kind_invalid",
-                message="Reflection kind must be home or memory.",
-            )
-        if kind == "memory" and not target_day:
-            raise EndpointRequestError(
-                status_code=422,
-                code="reflection.target_day_required",
-                message="Memory Reflection requires target_day.",
-            )
-        day = None
-        if target_day:
-            if kind != "memory":
-                raise EndpointRequestError(
-                    status_code=422,
-                    code="reflection.target_day_invalid",
-                    message="Only Memory Reflection accepts target_day.",
-                )
-            try:
-                day = CalendarDay.parse(target_day)
-            except (CalendarDayError, ReflectionContractError) as exc:
-                raise EndpointRequestError(
-                    status_code=422,
-                    code="reflection.target_day_invalid",
-                    message="Reflection target_day must use YYYY-MM-DD.",
-                ) from exc
-        try:
-            receipt = await self._context.gateway.request_reflection(
-                ReflectionScope(kind),
-                target_day=day,
-                instructions=instructions,
-                source="endpoint",
-                metadata=to_json_object(metadata),
-                command_id=command_id or None,
-            )
-        except RuntimeGatewayError as exc:
-            raise EndpointRequestError(
-                status_code=409,
-                code="reflection.rejected",
-                message=str(exc),
-            ) from exc
-        return receipt.to_json()
+        return await EndpointRuntimeEngine(self._context).create_turn(
+            kind=kind, text="", target_day=target_day, instructions=instructions,
+            metadata=to_json_object(metadata), command_id=command_id,
+        )

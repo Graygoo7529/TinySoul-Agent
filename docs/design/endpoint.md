@@ -16,6 +16,14 @@ endpoint.engine.workspace
 
 各领域 engine 通过 EndpointEngineContext 使用 Agent ingress、ConfigController、受约束服务和 Observation source。Context 不持有 raw generation、完整 owner 或底层 lease 工厂；服务调用自行完成世代/日准入。Generation 重建时，EndpointHost、进程外壳、事件 buffer、实例锁和连接信息保持稳定。
 
+现行外部协议为 v2，旧 v1 路由已删除。结构化 Turn 请求直接使用 ingress 提供的 AgentCommands；终端式文本入口保留 parser 语义。两者使用同一根队列与 Inbox，但新建、追加和等待决定的输入意图明确区分。项目 init/reset/start 继续属于 CLI；当前 HTTP 不提供 restart，宿主重建仍使用 SDK 生命周期。
+
+## Turn 与 Job 投影
+
+TurnSnapshot 由 Agent 从保留的 TurnHandle 构造；完成结果通过 TurnResult 投影 owner outcome，包含正式输出、必要提交失败与独立清理诊断，不包含运行时 trace 或 transfer。排队、等待和完成没有 Endpoint 状态副本；句柄淘汰后返回明确的未找到。Reflection 请求进入同一结构化受理与查询路径。
+
+问题与预算请求可同时待决，reply 与 grant 分别传入同一个 Inbox；断开连接不改变等待或取消状态。Job 查询/停止经 Agent 服务和 JobControl 进入唯一 JobRegistry，不暴露 backend。Job owner 串行处理外部停止与 Turn 收尾，停止失败保留可由 Turn sync/Trap 消费的事实；Job 在 Turn 清理后不被 Endpoint 另行保留。
+
 ## 目录边界
 
 ```text
@@ -28,8 +36,8 @@ tinysoul/gateway/endpoint/
     models.py, buffer.py, journal.py
   http/
     app.py, auth.py, errors.py, server.py
-    schemas/{runtime,reflection,configuration,workspace}.py
-    routes/{health,runtime,reflection,events,configuration,workspace}.py
+    schemas/{runtime,turns,reflection,configuration,workspace}.py
+    routes/{health,runtime,turns,reflection,events,configuration,workspace}.py
 ```
 
 HTTP route 只做路径参数/schema 转换和 engine 调用，不直接访问业务私有状态。`http/app.py` 集中注册 middleware、认证、统一错误处理和 routes；`http/server.py` 在 Agent 的事件循环上运行 uvicorn task，异步等待启动与停止，不创建独立服务器线程，也不接管宿主信号处理。
@@ -38,19 +46,19 @@ HTTP route 只做路径参数/schema 转换和 engine 调用，不直接访问�
 
 `events.buffer` 是 Observation sink，维护有界 sequence replay；`events.journal` 是可选的 best-effort 分段 NDJSON 持久索引。Journal 失败只降级为 memory-only，并由 status 暴露摘要，不改变业务结果。`EndpointEventsEngine` 只提供 `replay`、`wait_after`、`latest_sequence` 和 journal status，事件写入仍属于 ObservationRouter。
 
-WebSocket 在首帧完成 token、cursor 和 mode 认证；断线续传由前端按 cursor 处理。Observation 不参与业务提交和 Runtime 控制流。
+WebSocket 在首帧完成 token、cursor 和 mode 认证；HTTP replay 与 WebSocket 都使用实例身份和序号续传。实例变化、超前游标或已淘汰区间通过 gap 明确呈现；客户端重新获取 owner 状态，不能把事件丢失当作业务丢失。Observation 不参与业务提交和 Runtime 控制流。
 
 ## 配置与 Action projection
 
-`EndpointConfigurationEngine` 读取 ConfigController 的 status/catalog，并 await Agent 服务的 action_catalog 投影。Action catalog 的数据所有权仍属于 ActionEngine；Endpoint 不扫描 TOML、不缓存副本。它通过 `GET /v1/config/actions` 暴露给 Settings 配置工作流，不将其定义为聊天运行时 Action API。
+`EndpointConfigurationEngine` 读取 ConfigController 的 status/catalog，并 await Agent 服务的 action_catalog 投影。Action catalog 的数据所有权仍属于 ActionEngine；Endpoint 不扫描 TOML、不缓存副本。它通过 `GET /v2/config/actions` 暴露给 Settings 配置工作流，不将其定义为聊天运行时 Action API。
 
-`PATCH /v1/config` 把 typed `set`/`delete` mutation 交给 ConfigController。ConfigController 负责候选环境、owner validator、持久化事务和 Runtime activation；Endpoint 不自行重建 Generation。PATCH 只校验并保存候选，返回 saved/pending_reload；POST /v1/config/reload 在 idle 时显式构造并激活新 Generation。活跃或等待 work 不阻止保存候选，但会阻止激活。进程外壳配置保持只读。
+`PATCH /v2/config` 把 typed `set`/`delete` mutation 交给 ConfigController。ConfigController 负责候选环境、owner validator、持久化事务和 Runtime activation；Endpoint 不自行重建 Generation。PATCH 只校验并保存候选，返回 saved/pending_reload；POST /v2/config/reload 在 idle 时显式构造并激活新 Generation。活跃或等待 work 不阻止保存候选，但会阻止激活。进程外壳配置保持只读。
 
 配置 reload 全链异步等待候选构造、失败候选关闭与旧资源退休。退休失败返回有限 cleanup diagnostics，响应仍明确表示新世代已经 active；它不进入“原世代仍生效”的激活失败路径。
 
 ## Workspace
 
-`EndpointWorkspaceEngine` 通过 WorkspaceService 的 async operation 作用域调用唯一 Workspace owner，统一处理 manifest、text/blob read/write、显式创建/覆盖、有序编辑、目录/标签与 Trash/Restore 和 context sync。Endpoint 不提供任意文件 API；`PUT /v1/workspace/blob` 是完整 Workspace binary write 能力的一部分。
+`EndpointWorkspaceEngine` 通过 WorkspaceService 的 async operation 作用域调用唯一 Workspace owner，统一处理 manifest、text/blob read/write、显式创建/覆盖、有序编辑、目录/标签与 Trash/Restore 和 context sync。Endpoint 不提供任意文件 API；`PUT /v2/workspace/blob` 是完整 Workspace binary write 能力的一部分。
 
 ## 失败边界
 

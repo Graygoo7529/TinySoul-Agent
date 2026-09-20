@@ -1,23 +1,44 @@
-# Runtime
+# Runtime 与 Turn
 
-## Status
+## 状态与生命周期
 
-`GET /v1/status` 返回 protocol version、instance identity、ready、active day、turn activity、latest event sequence 和 event journal 摘要。它不暴露 Session REST snapshot，也不替代业务 owner 的状态。
+`GET /v2/status` 返回 `protocol_version=2`、instance/project identity、ready、active day、Turn 活动状态和 Observation cursor/journal 摘要。`runtime` 与 SDK `Agent.runtime_status()` 使用同一内存投影：generation、activity/activation、active day、active_turn_id、queued_turn_ids 和来源状态。状态查询不触发日切或加载文件；工作受理后的确定性准备仍由 Agent 负责。
 
-`runtime.sources` 返回当前世代的来源状态列表，各项包含 `source`、`state`（`stopped/running/failed/disabled`）、`topics` 和可空的 `error_type`。当前来源为 `workspace.fswatch` 与 `reflection.schedule`。这是运行资源的内存投影；文件监听关闭或失败不表示正式 Workspace 操作不可用。
+`runtime.sources` 为来源 owner 投影，包含 source、state、topics 和有界 error_type。监听故障不表示正式 Workspace 操作不可用。进程初始化、reset、start 由 CLI 提供；SDK 的 restart/shutdown 由宿主控制。当前 HTTP 不提供 restart/reset；配置世代切换使用显式 config/reload。
 
-## Input
+## 结构化 Turn
 
-`POST /v1/input` 接受：
+`POST /v2/turns` 创建独立根请求，已有活动或等待 Turn 时排队；text 中的斜杠命令保持普通文本，不进入终端解析器。
 
 ```json
-{"text":"analyze the workspace","command_id":"command_123","metadata":{"client_message_id":"msg_123"}}
+{"kind":"user","text":"analyze the workspace","command_id":"command_123","metadata":{"client_message_id":"msg_123"}}
 ```
 
-返回 `202` admission receipt。文本和 Terminal 经过同一 InputCommandParser，并调用 AgentCommands：空闲时排入有界根队列；活动 Turn（包括 Reflection）运行或等待时追加到同一个 TurnInbox。容量不足返回 `accepted=false, state=full`，不再默认所有请求均已排队。明确控件应优先使用 control 或 reflection endpoint。
+kind 默认 user；home/memory 表示同一 Agent 的独立 Reflection 情景，使用 instructions，memory 还必须指定 target_day。User 不接受 Reflection 字段，Reflection 不接受 text。`POST /v2/reflection` 是限定维护情景的领域入口，复用同一受理实现。
 
-当前文本入口支持 `/reply QUESTION_ID TEXT` 与 `/grant REQUEST_ID COUNT`，分别关联正在等待的问题和预算请求；普通追加文本不冒充问题回复或补额。独立结构化等待/回复路由仍属于主计划 S5。
+成功返回 202 和 `accepted / command_id / turn_id / kind / state`。这是受理事实，不是执行结果；相同 command_id 与内容在活动及结果保留窗口内复用同一 Turn，内容不同返回 409。容量不足返回 409 agent.queue_full。未提供 command_id 时由服务端生成；需要安全重试的客户端应主动指定。
 
-## Control
+`GET /v2/turns/{turn_id}` 返回与 SDK TurnSnapshot 相同的投影：kind、state、cancel_requested、wait_reason、question、budget_request、result、jobs。state 为 queued/preparing/running/waiting/finalizing/finished。问题与预算请求可同时存在；reply 不补预算，grant 不冒充回复。
 
-`POST /v1/control` 接受 `stop_turn` 或 `exit_program`，经异步适配进入共享 Agent 命令门面。前者取消当前根 Turn，保留排队请求；后者关闭受理、取消当前与排队工作并退出。Endpoint 不自行终止进程；关闭前端窗口不得自动发送 `exit_program`。独立 Gateway v2 的命名统一留在主计划 S5。
+result 尚未完成时为 null；完成后与 SDK TurnResult.to_json() 一致。User 结果包含正式 output 或 completion、有限 failure、finish_failures 和独立 cleanup；Reflection 结果保留各任务及其目标日期；执行前取消/失败使用 request_failure，不伪造执行事实。结果不包含 Context trace、Runtime transfer 或私有对象。
+
+句柄保留有界。未知或已淘汰身份返回 404 turn.not_found；Endpoint 不从 Observation 或 Session 重新构造运行结果。reload 后已完成的句柄仍保留原结果；SDK restart 重新装配后，旧服务拒绝操作，旧持有句柄只能读取原结果。
+
+| 操作 | 请求体 | 回执 |
+|---|---|---|
+| POST /v2/turns/{id}/input | text、可选 input_id | Inbox sequence、record_id、accepted |
+| POST /v2/turns/{id}/reply | question_id、response | Inbox sequence、record_id、accepted |
+| POST /v2/turns/{id}/grant | request_id、正整数 count | turn_id、request_id、accepted |
+| POST /v2/turns/{id}/cancel | 无 | turn_id、accepted |
+| GET /v2/turns/{id}/jobs | 无 | turn_id、jobs |
+| POST /v2/turns/{id}/jobs/{job_id}/stop | 无 | owner 的 JobSnapshot |
+
+重复 input/reply 的 accepted=false 表示该记录已受理，不代表执行失败。过期等待或关闭的 Inbox 返回 409。cancel 的 accepted 仅表示取消意图可受理；最终结果需继续查询，收尾已经完成时不会改写它。
+
+Job 查询和停止经 Agent 服务进入 Job owner；返回 job_id、kind、state、summary、reason。停止等待受控执行收敛，不等于取消 Turn；Job 在所属 Turn 收尾后被回收，列表为空，不另建历史表。停止与收尾由同一 owner 串行处理；错误只暴露有限分类。跨 Turn 或已回收 Job 返回 404 turn.resource_not_found。Job 应答接口随 ACP 协议接入另行细化。
+
+## 终端式输入与控制
+
+`POST /v2/input` 接受 text、command_id、metadata，保留明确的终端式输入语义：空闲时新建 User Turn，活动时追加，且支持本地命令语法。需要固定身份/排队语义的客户端使用上述结构化 Turn 接口。该入口返回原有 CommandReceipt；满载为 accepted=false、state=full。
+
+`POST /v2/control` 接受 stop_turn 或 exit_program，经共享 Agent 命令门面执行。前者取消活动根 Turn，保留排队请求；后者停止受理、取消当前与排队工作。Endpoint 不自行终止进程；关闭 WebSocket 或前端窗口不提交退出控制。

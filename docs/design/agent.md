@@ -52,6 +52,8 @@ SDK patch_config 与 HTTP PATCH 统一只校验并原子保存候选，返回 sa
 
 Handle 活动状态为 queued/preparing/running/waiting/finalizing/finished；TurnResult.status 从 owner outcome 投影，执行前失败或取消单独使用 RequestFailure，不构造虚假 Turn。finalizing 关闭普通受理，拒绝承诺迟到取消能改变已固定完成意图。必要 finish 失败影响主结果；Session 已提交后取消或 close 失败保留真实回答和独立诊断。Reflection 取消保留任务种类、目标日和底层 TurnOutcome。
 
+SDK 的 TurnSnapshot 与 HTTP 使用同一投影，直接读取保留句柄及当前 Job owner。结果序列化保留正式输出、完成意图、失败和清理分类，剔除 Context 和 Runtime 私有对象；不通过第二张状态表复建结果。运行状态同样由世代与 scheduler 投影；查询不触发日切。JobControl 是供宿主查询/停止的窄 owner 接口，世代装配显式注入它，不把 Gateway 操作扩充进 Loop 的活动控制契约。停止与 Turn 清理在 JobRegistry 内串行；SDK 调用等待已开始的停止完成后才释放世代作用域，失败映射为有界 SDK 错误并保留 Turn 所需监督事实。
+
 ## Observation 与 Gateway
 
 ObservationRouter 按 normal/verbose/model 扇出到显式 sink，并提供有界 SDK 订阅。慢订阅得到 gap，不阻塞业务；单一 sink 或订阅编码失败关闭对应观察路径，记录有限错误类型。Observation 不参与提交、Trap 或控制流。

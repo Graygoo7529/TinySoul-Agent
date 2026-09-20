@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from uuid import uuid4
 
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
@@ -26,6 +26,7 @@ class _Job[B: JobBackend]:
     terminal_delivered: bool = False
     execution_closed: bool = False
     failure: JobError | None = None
+    control_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 class JobRegistry[B: JobBackend]:
@@ -130,27 +131,36 @@ class JobRegistry[B: JobBackend]:
         self, turn_id: str, job_id: str, *, operations: JoinedOperations
     ) -> JobSnapshot:
         job = self._owned(turn_id, job_id)
-        await self._join_monitor(job)
-        if not job.execution_closed:
-            assert job.backend is not None
-            job.snapshot = JobSnapshot(job_id, job.snapshot.kind, JobState.STOPPING)
-            await self._call(
-                job.backend.request_stop,
-                operations=operations,
-                kind=JobFailureKind.EXECUTION_CLOSE_FAILED,
-            )
-            await self._close_execution(job)
-            snapshot = await self._poll(job)
-            if not snapshot.state.terminal:
-                raise JobError(
-                    "Backend reported a live Job after closing execution",
-                    kind=JobFailureKind.EXECUTION_CLOSE_FAILED,
-                )
-            job.snapshot = snapshot
-            await self._terminal(job)
-        if job.failure is not None:
-            raise job.failure
-        return job.snapshot
+        async with job.control_lock:
+            self._owned(turn_id, job_id)
+            try:
+                await self._join_monitor(job)
+                if not job.execution_closed:
+                    assert job.backend is not None
+                    job.snapshot = JobSnapshot(job_id, job.snapshot.kind, JobState.STOPPING)
+                    await self._call(
+                        job.backend.request_stop,
+                        operations=operations,
+                        kind=JobFailureKind.EXECUTION_CLOSE_FAILED,
+                    )
+                    await self._close_execution(job)
+                    snapshot = await self._poll(job)
+                    if not snapshot.state.terminal:
+                        raise JobError(
+                            "Backend reported a live Job after closing execution",
+                            kind=JobFailureKind.EXECUTION_CLOSE_FAILED,
+                        )
+                    job.snapshot = snapshot
+                    await self._terminal(job)
+                if job.failure is not None:
+                    raise job.failure
+                return job.snapshot
+            except JobError as exc:
+                # External controls must leave a failure fact for the Turn's
+                # existing sync/Trap path after retiring the monitor.
+                job.failure = exc
+                await self._terminal(job)
+                raise
 
     async def _call[T](
         self,
@@ -266,34 +276,37 @@ class JobRegistry[B: JobBackend]:
             raise JobRequestError("Cannot release another Turn's Job")
 
         async def close() -> None:
-            await self._join_monitor(job)
-            if job.backend is not None:
-                if not job.execution_closed:
-                    await self._close_execution(job)
-                    try:
-                        job.snapshot = await self._poll(job)
-                    except JobError as exc:
-                        job.failure = job.failure or exc
-                        job.snapshot = JobSnapshot(
-                            job_id,
-                            job.snapshot.kind,
-                            JobState.FAILED,
-                            "Execution closed; final result is unavailable.",
-                        )
-                    if not job.snapshot.state.terminal:
-                        job.execution_closed = False
-                        raise JobError(
-                            "Backend reported a live Job after closing execution",
-                            kind=JobFailureKind.EXECUTION_CLOSE_FAILED,
-                        )
-                self._record_diagnostics(turn_id, await self._call(job.backend.cleanup))
-                await self._terminal(job)
-            inbox = self._inboxes.get(turn_id)
-            if inbox is not None:
-                await inbox.release_terminal(job_id)
-            self._jobs.pop(job_id, None)
-            if job.failure is not None:
-                raise job.failure
+            async with job.control_lock:
+                if job_id not in self._jobs:
+                    return
+                await self._join_monitor(job)
+                if job.backend is not None:
+                    if not job.execution_closed:
+                        await self._close_execution(job)
+                        try:
+                            job.snapshot = await self._poll(job)
+                        except JobError as exc:
+                            job.failure = job.failure or exc
+                            job.snapshot = JobSnapshot(
+                                job_id,
+                                job.snapshot.kind,
+                                JobState.FAILED,
+                                "Execution closed; final result is unavailable.",
+                            )
+                        if not job.snapshot.state.terminal:
+                            job.execution_closed = False
+                            raise JobError(
+                                "Backend reported a live Job after closing execution",
+                                kind=JobFailureKind.EXECUTION_CLOSE_FAILED,
+                            )
+                    self._record_diagnostics(turn_id, await self._call(job.backend.cleanup))
+                    await self._terminal(job)
+                inbox = self._inboxes.get(turn_id)
+                if inbox is not None:
+                    await inbox.release_terminal(job_id)
+                self._jobs.pop(job_id, None)
+                if job.failure is not None:
+                    raise job.failure
 
         operation = JoinedOperations()
         try:

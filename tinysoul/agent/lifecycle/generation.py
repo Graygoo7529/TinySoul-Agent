@@ -23,6 +23,7 @@ from tinysoul.plugins.session import SessionSettings
 from tinysoul.plugins.workspace import WorkspaceEngine, WorkspaceSettings
 from tinysoul.plugins.execution import ExecutionSettings
 from tinysoul.kernel.jobs.config import JobSettings
+from tinysoul.kernel.jobs.models import JobControl
 
 from ..config import AgentSettings
 from ..dispatch.inputs import InputCommandParser
@@ -63,6 +64,7 @@ class AgentRuntimeGeneration:
     reflection: ReflectionEngine
     day: DayLifecycle
     workspace: WorkspaceEngine
+    jobs: JobControl
     input_parser: InputCommandParser
     agent_settings: AgentSettings
     reflection_settings: ReflectionSettings

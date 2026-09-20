@@ -7,12 +7,16 @@ from .errors import (
     AgentSDKError,
     AgentServiceStaleError,
     AgentServiceUnavailableError,
+    AgentTurnUnavailableError,
 )
 from tinysoul.plugins.home.services import HomeService
 from tinysoul.plugins.memory.services import MemoryService
 from tinysoul.plugins.session.services import SessionService
 from tinysoul.plugins.workspace.services import WorkspaceService
-from .handles import RequestFailure, TurnHandle, TurnState, TurnResult
+from .handles import (
+    RequestFailure, TurnHandle, TurnState, TurnResult, TurnSnapshot, TurnKind,
+)
+from tinysoul.kernel.jobs import JobSnapshot
 from .requests import UserTurnRequest
 from tinysoul.plugins.reflection.models import (
     ReflectionRequest,
@@ -65,6 +69,10 @@ __all__ = [
     "AgentClosedError",
     "AgentQueueFullError",
     "TurnHandle",
+    "TurnSnapshot",
+    "TurnKind",
+    "JobSnapshot",
+    "AgentTurnUnavailableError",
     "UserTurnRequest",
     "ReflectionRequest",
     "ReflectionScope",

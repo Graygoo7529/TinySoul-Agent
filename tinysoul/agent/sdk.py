@@ -19,7 +19,8 @@ from tinysoul.runtime.events import EnvironmentEvent, EventReceipt
 from tinysoul.runtime.sources import SourceStatus
 
 from .errors import AgentClosedError, AgentSDKError
-from .handles import TurnHandle
+from .handles import TurnHandle, TurnSnapshot
+from tinysoul.kernel.jobs import JobSnapshot
 from .requests import UserTurnRequest
 from .commands import AgentCommands
 from .observation.observations import ObservationFilter, ObservationSubscription
@@ -234,6 +235,18 @@ class Agent:
         return await self._running_assembly().service_access.reflection_status(
             before=before
         )
+
+    def turn_snapshot(self, turn_id: str) -> TurnSnapshot | None:
+        return self._running_assembly().service_access.turn_snapshot(turn_id)
+
+    def runtime_status(self) -> JsonObject:
+        return self._running_assembly().service_access.runtime_status()
+
+    def turn_jobs(self, turn_id: str) -> tuple[JobSnapshot, ...] | None:
+        return self._running_assembly().service_access.turn_jobs(turn_id)
+
+    async def stop_job(self, turn_id: str, job_id: str) -> JobSnapshot:
+        return await self._running_assembly().service_access.stop_job(turn_id, job_id)
 
     async def patch_config(self, mutations: tuple[ConfigMutation, ...]) -> JsonObject:
         return await self._configuration().patch(mutations)

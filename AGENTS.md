@@ -251,6 +251,8 @@ Before 4 基础补强已完成，见 `docs/analysis/done/20260920-done-Agent重�
 
 R4 环境事件与插件运行闭环已完成，见 `docs/analysis/done/20260920-done-Agent重构第四轮子计划-环境事件与插件运行闭环.md`：来源/订阅/lifecycle 显式声明，Workspace owner 统一正式操作与外部监听通知，固定 Inbox 批次刷新 Context，Reflection 定时 I/O 与业务触发分离。2026-09-20 Windows Full 1100 passed、23 deselected，Windows/Linux 目标 typecheck 通过，包含真实文件监听、进程跨午夜和 wheel；未运行 Linux 实机和真实 provider/network。仅监听当前 Workspace；监听故障停止并报告，正式操作继续，不增加后台自动修复状态机。S4 标记 done，S3 延后项及 S5–S7 保留。
 
+R5 Gateway v2 与 SDK 协议闭环已完成，见 `docs/analysis/done/20260920-done-Agent重构第五轮子计划-Gateway v2与SDK协议闭环.md`：HTTP、CLI 与 SDK 共用 AgentCommands 和 owner facade，Turn/Job/Runtime 只通过类型化投影，旧 `/v1` 路径删除，Observation replay 使用 instance/cursor/gap。HTTP 不提供项目 reset，Job 停止不越过 Turn owner；HTTP restart 与 ACP Job 应答仍按主计划保留到后续范围。2026-09-20 Windows Full 1106 passed、23 deselected，Generation/wheel 5 passed、1124 deselected，typecheck 通过；未运行 Linux 实机和真实 provider/network。S5 的 R5 范围完成，主计划 S5 保持 in_progress。
+
 过渡期文档约定：本文件"核心定义""项目规约""代码风格""运行环境与验证"中的模块名（`app`、`loop`、`context`、`action`、`endpoint` 等）、按 owner 名固定的 MessageStack 顺序、Context 由 `context` 模块直接拥有四类语义段、`tests/<module>/` 布局等表述描述的是重构前的实现事实；与执行计划冲突处以执行计划为准，并在计划 S7 阶段整体重写本文件。已被执行计划明确替代的条款：
 
 - Program/App → Agent；`runtime.program_end → runtime.agent_end`；`app`、`endpoint` → `agent`、`environment`、`gateway`。

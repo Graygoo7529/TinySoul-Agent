@@ -207,7 +207,7 @@ async def test_standard_project_starts_without_credentials_and_rejects_provider_
     headers = {"Authorization": f"Bearer {'x' * 32}"}
 
     runtime_before = _json_object(
-        client.get("/v1/config", headers=headers).json()["runtime"]
+        client.get("/v2/config", headers=headers).json()["runtime"]
     )
     llm_status = _json_object(runtime_before["llm"])
     providers = llm_status["providers"]
@@ -224,7 +224,7 @@ async def test_standard_project_starts_without_credentials_and_rejects_provider_
     }
 
     response = client.patch(
-        "/v1/config",
+        "/v2/config",
         headers=headers,
         json={
             "operations": [
@@ -243,13 +243,13 @@ async def test_standard_project_starts_without_credentials_and_rejects_provider_
     assert error["code"] == "config.invalid"
     assert "DEEPSEEK_API_KEY" in error["message"]
     assert error["details"]["key"] == "llm.providers.deepseek.api_key_envs"
-    runtime_after = client.get("/v1/config", headers=headers).json()["runtime"]
+    runtime_after = client.get("/v2/config", headers=headers).json()["runtime"]
     assert runtime_after["generation_id"] == runtime_before["generation_id"]
     providers_path = project_root / "configs" / "llm" / "providers.toml"
     assert "enabled = true" not in providers_path.read_text(encoding="utf-8")
 
     credential_response = client.patch(
-        "/v1/config",
+        "/v2/config",
         headers=headers,
         json={
             "operations": [
@@ -263,8 +263,8 @@ async def test_standard_project_starts_without_credentials_and_rejects_provider_
         },
     )
     assert credential_response.status_code == 200
-    assert client.post("/v1/config/reload", headers=headers).status_code == 200
-    configured_runtime = client.get("/v1/config", headers=headers).json()["runtime"]
+    assert client.post("/v2/config/reload", headers=headers).status_code == 200
+    configured_runtime = client.get("/v2/config", headers=headers).json()["runtime"]
     configured_llm = _json_object(configured_runtime["llm"])
     configured_providers = configured_llm["providers"]
     assert isinstance(configured_providers, list)
@@ -278,7 +278,7 @@ async def test_standard_project_starts_without_credentials_and_rejects_provider_
     )
 
     enabled_response = client.patch(
-        "/v1/config",
+        "/v2/config",
         headers=headers,
         json={
             "operations": [
@@ -342,7 +342,7 @@ async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer
     after_sequence = events.latest_sequence
 
     client = TestClient(create_endpoint_app(endpoint, endpoint.settings))
-    with client.websocket_connect("/v1/events/ws") as websocket:
+    with client.websocket_connect("/v2/events/ws") as websocket:
 
         def receive_event_names() -> tuple[str, ...]:
             for _ in range(20):
@@ -368,7 +368,7 @@ async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer
         )
         assert websocket.receive_json()["type"] == "authenticated"
         response = client.patch(
-            "/v1/config",
+            "/v2/config",
             headers={"Authorization": f"Bearer {'x' * 32}"},
             json={
                 "operations": [
@@ -405,7 +405,7 @@ async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer
         assert response.json()["state"] == "saved"
         assert (await endpoint.configuration.status())["runtime"] == before
         reloaded = client.post(
-            "/v1/config/reload",
+            "/v2/config/reload",
             headers={"Authorization": f"Bearer {'x' * 32}"},
         )
         assert reloaded.status_code == 200
@@ -420,7 +420,7 @@ async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer
 
     after = (await endpoint.configuration.status())["runtime"]
     action_catalog = client.get(
-        "/v1/config/actions",
+        "/v2/config/actions",
         headers={"Authorization": f"Bearer {'x' * 32}"},
     )
     assert isinstance(before, dict)
@@ -480,7 +480,7 @@ async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer
         / "read.toml"
     ).read_text(encoding="utf-8")
     invalid = client.patch(
-        "/v1/config",
+        "/v2/config",
         headers={"Authorization": f"Bearer {'x' * 32}"},
         json={
             "operations": [
@@ -502,7 +502,7 @@ async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer
         "project-document:action.catalog:"
     )
     invalid_timeout = client.patch(
-        "/v1/config",
+        "/v2/config",
         headers={"Authorization": f"Bearer {'x' * 32}"},
         json={
             "operations": [
@@ -581,7 +581,7 @@ async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
     runtime_before = _json_object((await endpoint.configuration.status())["runtime"])
     generation_before = runtime_before["generation_id"]
     invalid = client.patch(
-        "/v1/config",
+        "/v2/config",
         headers=headers,
         json={
             "operations": [
@@ -602,7 +602,7 @@ async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
     assert "default = true" in domain_path.read_text(encoding="utf-8")
 
     routed = client.patch(
-        "/v1/config",
+        "/v2/config",
         headers=headers,
         json={
             "operations": [
@@ -623,7 +623,7 @@ async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
     assert routed.status_code == 200
 
     domain_disabled = client.patch(
-        "/v1/config",
+        "/v2/config",
         headers=headers,
         json={
             "operations": [
@@ -637,7 +637,7 @@ async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
         },
     )
     assert domain_disabled.status_code == 200
-    assert client.post("/v1/config/reload", headers=headers).status_code == 200
+    assert client.post("/v2/config/reload", headers=headers).status_code == 200
     disabled_read = _action_catalog_item(client, headers, "workspace.read")
     disabled_analysis = _action_catalog_item(client, headers, "workspace.analyze")
     disabled_runtime = _json_object(disabled_read["selection"])
@@ -651,7 +651,7 @@ async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
     ).read_text(encoding="utf-8")
 
     action_enabled = client.patch(
-        "/v1/config",
+        "/v2/config",
         headers=headers,
         json={
             "operations": [
@@ -665,7 +665,7 @@ async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
         },
     )
     assert action_enabled.status_code == 200
-    assert client.post("/v1/config/reload", headers=headers).status_code == 200
+    assert client.post("/v2/config/reload", headers=headers).status_code == 200
     enabled_read = _action_catalog_item(client, headers, "workspace.read")
     enabled_runtime = _json_object(enabled_read["selection"])
     assert enabled_runtime["enabled"] is True
@@ -673,7 +673,7 @@ async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
     assert enabled_read["available"] is True
 
     action_inherited = client.patch(
-        "/v1/config",
+        "/v2/config",
         headers=headers,
         json={
             "operations": [
@@ -686,7 +686,7 @@ async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
         },
     )
     assert action_inherited.status_code == 200
-    assert client.post("/v1/config/reload", headers=headers).status_code == 200
+    assert client.post("/v2/config/reload", headers=headers).status_code == 200
     inherited_read = _action_catalog_item(client, headers, "workspace.read")
     inherited_runtime = _json_object(inherited_read["selection"])
     assert inherited_runtime["enabled"] is False
@@ -694,7 +694,7 @@ async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
     assert inherited_read["available"] is False
 
     domain_default = client.patch(
-        "/v1/config",
+        "/v2/config",
         headers=headers,
         json={
             "operations": [
@@ -707,7 +707,7 @@ async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
         },
     )
     assert domain_default.status_code == 200
-    assert client.post("/v1/config/reload", headers=headers).status_code == 200
+    assert client.post("/v2/config/reload", headers=headers).status_code == 200
     restored_read = _action_catalog_item(client, headers, "workspace.read")
     restored_analysis = _action_catalog_item(client, headers, "workspace.analyze")
     restored_runtime = _json_object(restored_read["selection"])
@@ -718,7 +718,7 @@ async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
     assert "default =" not in domain_path.read_text(encoding="utf-8")
 
     answer_disabled = client.patch(
-        "/v1/config",
+        "/v2/config",
         headers=headers,
         json={
             "operations": [
@@ -735,7 +735,7 @@ async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
         },
     )
     assert answer_disabled.status_code == 200
-    assert client.post("/v1/config/reload", headers=headers).status_code == 200
+    assert client.post("/v2/config/reload", headers=headers).status_code == 200
     disabled_answer = _action_catalog_item(client, headers, "core.answer")
     disabled_answer_runtime = _json_object(disabled_answer["selection"])
     assert disabled_answer_runtime["enabled"] is False
@@ -771,7 +771,7 @@ async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_i
     model_path = project_root / "configs" / "llm" / "models" / "openai.toml"
 
     overrides = client.patch(
-        "/v1/config",
+        "/v2/config",
         headers=headers,
         json={
             "operations": [
@@ -787,7 +787,7 @@ async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_i
     assert overrides.status_code == 200
 
     switched = client.patch(
-        "/v1/config",
+        "/v2/config",
         headers=headers,
         json={
             "operations": [
@@ -803,7 +803,7 @@ async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_i
         },
     )
     assert switched.status_code == 200
-    reloaded = client.post("/v1/config/reload", headers=headers)
+    reloaded = client.post("/v2/config/reload", headers=headers)
     assert reloaded.status_code == 200
     switched_generation = reloaded.json()["generation_id"]
     switched_source = model_path.read_text(encoding="utf-8")
@@ -814,7 +814,7 @@ async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_i
     assert "temperature = 0.4" in switched_source
 
     incompatible = client.patch(
-        "/v1/config",
+        "/v2/config",
         headers=headers,
         json={
             "operations": [
@@ -1362,7 +1362,7 @@ def _action_catalog_item(
     headers: dict[str, str],
     action_id: str,
 ) -> JsonObject:
-    response = client.get("/v1/config/actions", headers=headers)
+    response = client.get("/v2/config/actions", headers=headers)
     assert response.status_code == 200
     payload = response.json()
     assert isinstance(payload, dict)

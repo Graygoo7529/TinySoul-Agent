@@ -318,6 +318,7 @@ class AgentBuilder:
                 dispatcher=dispatcher,
                 active_turn_scope=lambda: dispatcher.active_turn_scope,
                 agent_scope=agent_runner.scope,
+                commands=commands,
             )
             input_sources = tuple(self._input_sources)
 
@@ -617,6 +618,7 @@ class AgentBuilder:
                                                for source in profile.sources))
             day.bind_sources(sources)
             return AgentRuntimeGeneration(
+                jobs=action_assembly.jobs,
                 sources=sources,
                 config=config,
                 plan=plan,

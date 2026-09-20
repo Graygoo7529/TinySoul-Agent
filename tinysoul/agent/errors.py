@@ -36,3 +36,7 @@ class AgentServiceUnavailableError(AgentSDKError):
         super().__init__("Agent service preparation failed")
         self.module = module
         self.kind = kind
+
+
+class AgentTurnUnavailableError(AgentSDKError):
+    """A requested Turn or Turn-owned resource is no longer available."""

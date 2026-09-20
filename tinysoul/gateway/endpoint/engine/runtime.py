@@ -6,8 +6,11 @@ from enum import StrEnum
 
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.kernel.loop import LoopControlKind
-from tinysoul.agent.errors import AgentSDKError
-from tinysoul.plugins.workspace.services import WorkspaceService
+from tinysoul.kernel.loop.interaction.inbox import InboxReceipt
+from tinysoul.plugins.reflection import ReflectionScope, ReflectionRequest, ReflectionTrigger
+from tinysoul.agent.requests import UserTurnRequest
+from uuid import uuid4
+from tinysoul.infra.time import CalendarDay, CalendarDayError
 from tinysoul.runtime import RuntimeGatewayError
 
 from ..errors import EndpointRequestError
@@ -28,15 +31,9 @@ class EndpointRuntimeEngine:
     async def status(self) -> JsonObject:
         turn_scope = self._context.gateway.active_turn_scope
         runtime = self._context.services.runtime_status()
-        try:
-            manifest = await self._context.services.registry.get(
-                WorkspaceService
-            ).load_manifest()
-            active_day = manifest.day
-        except AgentSDKError:
-            active_day = ""
+        active_day = runtime["active_day"]
         return {
-            "protocol_version": 1,
+            "protocol_version": 2,
             "instance_id": self._context.settings.instance_id,
             "project_identity": self._context.settings.project_identity,
             "ready": bool(active_day),
@@ -75,6 +72,86 @@ class EndpointRuntimeEngine:
             ) from exc
         return receipt.to_json()
 
+    async def create_turn(
+        self,
+        *,
+        kind: str,
+        text: str,
+        target_day: str,
+        instructions: str,
+        metadata: JsonObject,
+        command_id: str = "",
+    ) -> JsonObject:
+        identity = command_id or f"command_{uuid4().hex}"
+        request: UserTurnRequest | ReflectionRequest
+        if kind == "user":
+            if not text.strip():
+                raise EndpointRequestError(
+                    status_code=422, code="turn.text_required", message="User Turn requires text."
+                )
+            if target_day or instructions:
+                raise EndpointRequestError(
+                    status_code=422, code="turn.fields_invalid",
+                    message="User Turn accepts text, not Reflection fields.",
+                )
+            request = UserTurnRequest(
+                text, source="endpoint", metadata=metadata, request_id=identity
+            )
+        else:
+            if kind not in {"home", "memory"} or text:
+                raise EndpointRequestError(
+                    status_code=422, code="turn.fields_invalid",
+                    message="Reflection Turn requires home/memory and instructions.",
+                )
+            request = ReflectionRequest(
+                scope=ReflectionScope(kind), trigger=ReflectionTrigger.MANUAL,
+                target_day=_parse_target_day(kind, target_day), instructions=instructions,
+                source="endpoint", metadata=metadata, request_id=identity,
+            )
+        handle = await self._context.gateway.commands.submit_turn(request)
+        return {"accepted": True, "command_id": identity, "turn_id": handle.turn_id,
+                "kind": kind, "state": handle.state.value}
+
+    async def get_turn(self, turn_id: str) -> JsonObject:
+        snapshot = self._context.services.turn_snapshot(turn_id)
+        if snapshot is None:
+            raise EndpointRequestError(
+                status_code=404, code="turn.not_found", message="Turn was not found."
+            )
+        return snapshot.to_json()
+
+    async def append_input(self, turn_id: str, text: str, input_id: str) -> JsonObject:
+        receipt = await self._context.gateway.commands.append_input(turn_id, text, input_id=input_id)
+        return _receipt_json(receipt)
+
+    async def reply(self, turn_id: str, question_id: str, response: str) -> JsonObject:
+        receipt = await self._context.gateway.commands.reply(turn_id, question_id, response)
+        return _receipt_json(receipt)
+
+    async def grant(self, turn_id: str, request_id: str, count: int) -> JsonObject:
+        accepted = await self._context.gateway.commands.grant_cycles(turn_id, request_id, count)
+        return {"turn_id": turn_id, "request_id": request_id, "accepted": accepted}
+
+    async def cancel(self, turn_id: str) -> JsonObject:
+        accepted = await self._context.gateway.commands.cancel_turn(turn_id)
+        return {"turn_id": turn_id, "accepted": accepted}
+
+    async def jobs(self, turn_id: str) -> JsonObject:
+        jobs = self._context.services.turn_jobs(turn_id)
+        if jobs is None:
+            raise EndpointRequestError(
+                status_code=404, code="turn.not_found", message="Turn was not found."
+            )
+        return {"turn_id": turn_id, "jobs": [item.to_json() for item in jobs]}
+
+    async def stop_job(self, turn_id: str, job_id: str) -> JsonObject:
+        if self._context.services.turn_jobs(turn_id) is None:
+            raise EndpointRequestError(
+                status_code=404, code="turn.not_found", message="Turn was not found."
+            )
+        snapshot = await self._context.services.stop_job(turn_id, job_id)
+        return snapshot.to_json()
+
     async def submit_control(
         self,
         kind: EndpointControlKind,
@@ -103,3 +180,36 @@ class EndpointRuntimeEngine:
                 message=str(exc),
             ) from exc
         return receipt.to_json()
+
+
+def _parse_target_day(kind: str, target_day: str) -> CalendarDay | None:
+    if kind == "home" and target_day:
+        raise EndpointRequestError(
+            status_code=422,
+            code="turn.target_day_invalid",
+            message="Home Turn does not accept target_day.",
+        )
+    if kind == "memory" and not target_day:
+        raise EndpointRequestError(
+            status_code=422,
+            code="turn.target_day_required",
+            message="Memory Turn requires target_day.",
+        )
+    if not target_day:
+        return None
+    try:
+        return CalendarDay.parse(target_day)
+    except CalendarDayError as exc:
+        raise EndpointRequestError(
+            status_code=422,
+            code="turn.target_day_invalid",
+            message="target_day must use YYYY-MM-DD.",
+        ) from exc
+
+
+def _receipt_json(receipt: InboxReceipt) -> JsonObject:
+    return {
+        "sequence": receipt.sequence,
+        "record_id": receipt.record_id,
+        "accepted": receipt.accepted,
+    }

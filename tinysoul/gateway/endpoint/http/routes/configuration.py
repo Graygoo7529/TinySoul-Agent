@@ -18,23 +18,23 @@ from ..schemas import (
 
 
 def register_configuration_routes(app: FastAPI, engine: EndpointEngine) -> None:
-    @app.get("/v1/config")
+    @app.get("/v2/config")
     async def config_status() -> JsonObject:
         return await engine.configuration.status()
 
-    @app.get("/v1/config/catalog")
+    @app.get("/v2/config/catalog")
     def config_catalog() -> JsonObject:
         return engine.configuration.catalog()
 
-    @app.get("/v1/config/actions")
+    @app.get("/v2/config/actions")
     async def action_catalog(scenario: str = "user") -> JsonObject:
         return await engine.configuration.actions(scenario=scenario)
 
-    @app.patch("/v1/config")
+    @app.patch("/v2/config")
     async def patch_config(body: ConfigPatchRequest) -> JsonObject:
         return await engine.configuration.patch(_config_mutations(body.operations))
 
-    @app.post("/v1/config/reload")
+    @app.post("/v2/config/reload")
     async def reload_config() -> JsonObject:
         return await engine.configuration.reload()
 

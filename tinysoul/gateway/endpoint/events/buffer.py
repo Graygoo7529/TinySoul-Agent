@@ -126,7 +126,9 @@ class EndpointEventBuffer:
             journal_oldest = journal.oldest_sequence
             if journal_oldest is not None:
                 retained_oldest = journal_oldest
-        gap = after < retained_oldest - 1
+        gap = after < retained_oldest - 1 or after > sequence
+        if after > sequence:
+            after = 0
 
         selected: list[EndpointEventEnvelope] = []
         used_bytes = 0

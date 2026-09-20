@@ -9,11 +9,11 @@ from ..schemas import ReflectionRequest
 
 
 def register_reflection_routes(app: FastAPI, engine: EndpointEngine) -> None:
-    @app.get("/v1/reflection")
+    @app.get("/v2/reflection")
     async def reflection_status(before: str | None = None) -> JsonObject:
         return await engine.reflection.status(before=before)
 
-    @app.post("/v1/reflection", status_code=202)
+    @app.post("/v2/reflection", status_code=202)
     async def request_reflection(body: ReflectionRequest) -> JsonObject:
         return await engine.reflection.request(
             kind=body.kind,

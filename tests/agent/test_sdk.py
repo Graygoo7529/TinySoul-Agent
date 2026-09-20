@@ -8,6 +8,9 @@ from collections import deque
 from pathlib import Path
 
 import pytest
+import httpx
+from tinysoul.gateway.endpoint import EndpointEngine, EndpointEventBuffer, EndpointSettings
+from tinysoul.gateway.endpoint.http import create_endpoint_app
 
 from tinysoul.agent import (
     Agent,
@@ -231,6 +234,8 @@ async def _create(
     capacity: int = 1,
     inbox_limits: InboxLimits = InboxLimits(),
     clock: CalendarClock | None = None,
+    endpoints: list[EndpointEngine] | None = None,
+    max_cycles: int = 20,
 ) -> Agent:
     root = root / "project"
     copy_initialized_project(root)
@@ -238,17 +243,171 @@ async def _create(
     async def factory() -> AgentAssembly:
         builder = (
             AgentBuilder(root)
-            .with_config_environment(ConfigEnvironment.from_project_root(root, env={}, overrides={"reflection.schedule.enabled": False}))
+            .with_config_environment(ConfigEnvironment.from_project_root(root, env={}, overrides={
+                "reflection.schedule.enabled": False, "loop.user.max_cycles": max_cycles,
+            }))
             .with_agent_settings(AgentSettings(interactive=False))
             .with_llm_runner(llm)
         )
         if clock is not None:
             builder.with_calendar_clock(clock)
-        return await builder.build()
+        assembly = await builder.build()
+        if endpoints is not None:
+            endpoints.append(EndpointEngine(
+                settings=EndpointSettings(token="x" * 32),
+                events=EndpointEventBuffer(capacity=32, max_bytes=100000),
+                gateway=assembly.gateway, services=assembly.service_access,
+                config=assembly.configuration,
+            ))
+        return assembly
 
     return await Agent.assemble(
         factory, queue_capacity=capacity, inbox_limits=inbox_limits
     )
+
+
+@pytest.mark.parametrize("max_cycles", (1, 20))
+async def test_v2_turn_admission_question_budget_and_result_share_sdk_owner(
+    tmp_path: Path, max_cycles: int,
+) -> None:
+    llm = _LLM()
+    for call in reversed((
+        ToolCallRecord("select_question", "select_action_domains", {"domains": ["core"]}, ToolKind.CONTROL),
+        ToolCallRecord("ask", "core.ask", {"text": "Choose a direction"}, ToolKind.ACTION),
+    )):
+        llm.results.appendleft(TaskResult.success(
+            raw_response=RawResponse("", "fake", "fake", tool_calls=(call,)),
+            answer=None, tool_calls=(call,),
+        ))
+    endpoints: list[EndpointEngine] = []
+    agent = await _create(tmp_path, llm, endpoints=endpoints, max_cycles=max_cycles)
+    await agent.start()
+    app = create_endpoint_app(endpoints[0], endpoints[0].settings)
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test",
+            headers={"Authorization": f"Bearer {'x' * 32}"},
+        ) as client:
+            response = await client.post("/v2/turns", json={"text": "/reply literal user task", "command_id": "main"})
+            assert response.status_code == 202
+            assert response.json()["turn_id"] == "main"
+            await asyncio.wait_for(llm.started.wait(), 3)
+            duplicate = await client.post("/v2/turns", json={"text": "/reply literal user task", "command_id": "main"})
+            assert duplicate.json()["turn_id"] == "main"
+            assert (await client.post("/v2/turns", json={"text": "different", "command_id": "main"})).status_code == 409
+            queued = await client.post("/v2/turns", json={"text": "later", "command_id": "queued"})
+            assert queued.json()["turn_id"] == "queued"
+            appended = await client.post("/v2/turns/queued/input", json={"text": "More context", "input_id": "extra"})
+            assert appended.status_code == 200 and appended.json()["accepted"]
+            repeat = await client.post("/v2/turns/queued/input", json={"text": "More context", "input_id": "extra"})
+            assert not repeat.json()["accepted"]
+            full = await client.post("/v2/turns", json={"text": "overflow"})
+            assert full.status_code == 409 and full.json()["error"]["code"] == "agent.queue_full"
+            runtime = (await client.get("/v2/status")).json()
+            assert runtime["protocol_version"] == 2
+            assert runtime["runtime"]["active_turn_id"] == "main"
+            assert runtime["runtime"]["queued_turn_ids"] == ["queued"]
+            assert runtime["runtime"] == agent.runtime_status()
+            assert (await client.post("/v2/turns/queued/cancel")).json()["accepted"]
+            assert (await client.get("/v2/turns/queued")).json()["result"]["request_failure"] == "cancelled"
+            llm.release.set()
+            async with asyncio.timeout(4):
+                while True:
+                    snapshot = agent.turn_snapshot("main")
+                    assert snapshot is not None and snapshot.result is None
+                    if snapshot.question is not None:
+                        break
+                    await asyncio.sleep(0.01)
+            restored = (await client.get("/v2/turns/main")).json()
+            assert snapshot is not None and restored == snapshot.to_json()
+            assert restored["wait_reason"] == ("budget" if max_cycles == 1 else "input")
+            assert (await client.post("/v2/turns/main/reply", json={"question_id": "stale", "response": "A"})).status_code == 409
+            assert (await client.post("/v2/turns/main/reply", json={
+                "question_id": restored["question"]["question_id"], "response": "A",
+            })).json()["accepted"]
+            if max_cycles == 1:
+                async with asyncio.timeout(4):
+                    while True:
+                        budget = agent.turn_snapshot("main")
+                        assert budget is not None and budget.result is None
+                        if budget.budget_request is not None:
+                            break
+                        await asyncio.sleep(0.01)
+                assert budget is not None and budget.budget_request is not None
+                grant = {"request_id": budget.budget_request.request_id, "count": 1}
+                assert (await client.post("/v2/turns/main/grant", json={**grant, "count": True})).status_code == 422
+                assert (await client.post("/v2/turns/main/grant", json=grant)).json()["accepted"]
+            handle = agent.commands.turn("main")
+            assert handle is not None
+            result = await asyncio.wait_for(handle.wait(), 5)
+            current = (await client.get("/v2/turns/main")).json()
+            assert current["state"] == "finished"
+            assert current["result"] == result.to_json()
+            assert current["result"]["output"]["text"] == "done"
+            assert "context_completion" not in current["result"]
+            assert (await client.post("/v2/turns/main/input", json={"text": "too late"})).status_code == 409
+            assert (await client.get("/v2/turns/missing")).status_code == 404
+            assert (await client.get("/v1/status")).status_code == 404
+            assert all(path.startswith("/v2/") for path in (await client.get("/openapi.json")).json()["paths"])
+            assert (await client.post("/v2/reset")).status_code == 404
+    finally:
+        llm.release.set()
+        await agent.shutdown()
+
+
+async def test_v2_job_stop_uses_turn_owner_and_sdk_projection(tmp_path: Path) -> None:
+    llm = _LLM()
+    for call in reversed((
+        ToolCallRecord("select_execution", "select_action_domains", {"domains": ["execution"]}, ToolKind.CONTROL),
+        ToolCallRecord("start", "execution.start", {
+            "interpreter": "python", "source_link": "workspace:long.py", "interactive": True,
+        }, ToolKind.ACTION),
+        ToolCallRecord("select_ask", "select_action_domains", {"domains": ["core"]}, ToolKind.CONTROL),
+        ToolCallRecord("ask", "core.ask", {"text": "Continue?"}, ToolKind.ACTION),
+    )):
+        llm.results.appendleft(TaskResult.success(
+            raw_response=RawResponse("", "fake", "fake", tool_calls=(call,)),
+            answer=None, tool_calls=(call,),
+        ))
+    endpoints: list[EndpointEngine] = []
+    agent = await _create(tmp_path, llm, endpoints=endpoints)
+    await agent.start()
+    try:
+        await agent.patch_config((
+            ConfigMutation(source_id="project:configs/execution.toml", path="execution.enabled", op="set", value=True),
+            ConfigMutation(source_id="project:configs/execution.toml",
+                           path="execution.interpreters.python.executable", op="set", value=sys.executable),
+        ))
+        await agent.reload_config()
+        await agent.services.get(WorkspaceService).write_text("workspace:long.py", "import sys; sys.stdin.read()")
+        llm.release.set()
+        active = await agent.submit_turn(UserTurnRequest("Run", request_id="owner"))
+        async with asyncio.timeout(5):
+            while active.question is None:
+                assert not active.done
+                await asyncio.sleep(0.01)
+        snapshots = agent.turn_jobs(active.turn_id)
+        assert snapshots and not snapshots[0].state.terminal
+        endpoint = endpoints[0]
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=create_endpoint_app(endpoint, endpoint.settings)),
+            base_url="http://test", headers={"Authorization": f"Bearer {'x' * 32}"},
+        ) as client:
+            jobs = (await client.get("/v2/turns/owner/jobs")).json()["jobs"]
+            assert jobs == [item.to_json() for item in snapshots]
+            job_id = snapshots[0].job_id
+            assert (await client.post(f"/v2/turns/wrong/jobs/{job_id}/stop")).status_code == 404
+            stopped = await client.post(f"/v2/turns/owner/jobs/{job_id}/stop")
+            assert stopped.status_code == 200 and stopped.json()["state"] in {"cancelled", "succeeded"}
+            current = agent.turn_jobs("owner")
+            assert current and stopped.json() == current[0].to_json()
+            assert not active.cancel_requested
+            await client.post("/v2/turns/owner/cancel")
+            await asyncio.wait_for(active.wait(), 5)
+            assert (await client.get("/v2/turns/owner/jobs")).json()["jobs"] == []
+            assert (await client.post(f"/v2/turns/owner/jobs/{job_id}/stop")).status_code == 404
+    finally:
+        await agent.shutdown()
 
 
 async def test_create_is_inactive_and_waiter_cancellation_preserves_real_turn(

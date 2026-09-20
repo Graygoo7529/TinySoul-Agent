@@ -8,6 +8,12 @@ from .configuration import (
 )
 from .reflection import ReflectionRequest
 from .runtime import ControlRequest, InputRequest
+from .turns import (
+    TurnCreateRequest,
+    TurnGrantRequest,
+    TurnInputRequest,
+    TurnReplyRequest,
+)
 from .workspace import (
     WorkspaceRestoreRequest,
     WorkspaceTrashRequest,
@@ -21,6 +27,10 @@ __all__ = [
     "ConfigSetMutationRequest",
     "ControlRequest",
     "InputRequest",
+    "TurnCreateRequest",
+    "TurnGrantRequest",
+    "TurnInputRequest",
+    "TurnReplyRequest",
     "ReflectionRequest",
     "WorkspaceRestoreRequest",
     "WorkspaceTrashRequest",

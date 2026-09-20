@@ -14,6 +14,7 @@ from tinysoul.runtime import RunLevel, RunScope, RuntimeGatewayError
 from ..errors import AgentError
 from tinysoul.agent.errors import AgentSDKError
 from .inputs import CommandReceipt, InputDispatcher, InputEvent
+from ..commands import AgentCommands
 
 
 class AgentIngress:
@@ -25,10 +26,12 @@ class AgentIngress:
         dispatcher: InputDispatcher,
         active_turn_scope: Callable[[], RunScope | None],
         agent_scope: RunScope | None = None,
+        commands: AgentCommands,
     ) -> None:
         self._dispatcher = dispatcher
         self._active_turn_scope = active_turn_scope
         self._agent_scope = agent_scope or RunScope().push(RunLevel.AGENT, "program")
+        self.commands = commands
 
     @property
     def active_turn_scope(self) -> RunScope | None:

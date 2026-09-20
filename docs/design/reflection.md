@@ -3,7 +3,7 @@
 
 ## 内部组织与配置
 
-home、memory 子包分别准备情景与来源，turn 子包封装共享 Reflection 内核接入；根 Engine 只编排请求和候选投影。实际审核/写入执行器归 Home/Memory。配置使用 reflection section，终端 `/reflection` 与 Endpoint `/v1/reflection` 提交同一种请求；情景可见性统一在 domain/action TOML 中声明，没有 Reflection 专属 catalog。
+home、memory 子包分别准备情景与来源，turn 子包封装共享 Reflection 内核接入；根 Engine 只编排请求和候选投影。实际审核/写入执行器归 Home/Memory。配置使用 reflection section，终端 `/reflection` 与 Endpoint `/v2/reflection` 提交同一种请求；情景可见性统一在 domain/action TOML 中声明，没有 Reflection 专属 catalog。
 
 ## 所有权
 

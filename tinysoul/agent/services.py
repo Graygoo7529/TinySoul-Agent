@@ -10,6 +10,9 @@ from tinysoul.infra.json import JsonObject
 from tinysoul.infra.services import ServiceScope
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.registration import Service, ServiceRegistry
+from tinysoul.kernel.jobs import JobSnapshot
+from tinysoul.kernel.jobs.failures import JobError, JobRequestError
+from .handles import TurnSnapshot
 from tinysoul.plugins.home.services import HomeService
 from tinysoul.plugins.memory.services import MemoryService
 from tinysoul.plugins.session.services import SessionService
@@ -20,6 +23,7 @@ from tinysoul.runtime import RuntimeHandle, RuntimeGenerationError, RuntimeExcep
 
 from .errors import (
     AgentClosedError,
+    AgentTurnUnavailableError,
     AgentContractError,
     AgentServiceStaleError,
     AgentServiceUnavailableError,
@@ -139,8 +143,19 @@ class AgentRuntimeServices:
             "activity": snapshot.activity.value,
             "activation": snapshot.activation.value,
             "active_day": str(snapshot.generation.day.active_day or ""),
-            "sources": [{"source": item.source, "state": item.state.value,
-                         "topics": list(item.topics), "error_type": item.error_type} for item in snapshot.generation.sources.statuses],
+            "active_turn_id": self._scheduler.active_turn.turn_id
+            if self._scheduler.active_turn is not None
+            else None,
+            "queued_turn_ids": list(self._scheduler.queued_turn_ids),
+            "sources": [
+                {
+                    "source": item.source,
+                    "state": item.state.value,
+                    "topics": list(item.topics),
+                    "error_type": item.error_type,
+                }
+                for item in snapshot.generation.sources.statuses
+            ],
         }
         if credentials:
             result["llm"] = {
@@ -154,6 +169,39 @@ class AgentRuntimeServices:
                 ]
             }
         return result
+
+    def turn_snapshot(self, turn_id: str) -> TurnSnapshot | None:
+        """Project the retained handle and current Job owner in one loop turn."""
+        self._require_open()
+        handle = self._scheduler.turn_handle(turn_id)
+        return handle.snapshot(jobs=self._turn_jobs(turn_id)) if handle else None
+
+    def turn_jobs(self, turn_id: str) -> tuple[JobSnapshot, ...] | None:
+        self._require_open()
+        if self._scheduler.turn_handle(turn_id) is None:
+            return None
+        return self._turn_jobs(turn_id)
+
+    def _turn_jobs(self, turn_id: str) -> tuple[JobSnapshot, ...]:
+        return self._handle.snapshot().generation.jobs.snapshots(turn_id)
+
+    async def stop_job(self, turn_id: str, job_id: str) -> JobSnapshot:
+        self._require_open()
+        if self._scheduler.turn_handle(turn_id) is None:
+            raise AgentTurnUnavailableError("Turn is not available")
+        try:
+            async with self._handle.read() as generation:
+                self._require_open()
+                operations = JoinedOperations()
+                result = await operations.run_async(
+                    lambda: generation.jobs.stop(turn_id, job_id, operations=operations)
+                )
+                operations.check_cancelled()
+                return result
+        except JobRequestError as exc:
+            raise AgentTurnUnavailableError("Job is not available in this Turn") from exc
+        except JobError as exc:
+            raise AgentServiceUnavailableError(module="jobs", kind=exc.kind.value) from exc
 
     async def action_catalog(self, *, scenario: str = "user") -> JsonObject:
         self._require_open()

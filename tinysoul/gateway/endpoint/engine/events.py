@@ -1,6 +1,7 @@
 """Endpoint Observation replay engine."""
 
 from __future__ import annotations
+from dataclasses import replace
 
 
 from tinysoul.infra.json import JsonObject
@@ -29,8 +30,11 @@ class EndpointEventsEngine:
         after: int,
         mode: ObservationLevel,
         limit: int,
+        instance_id: str | None = None,
     ) -> EndpointEventPage:
-        return self._context.events.replay(after=after, mode=mode, limit=limit)
+        reset = instance_id is not None and instance_id != self._context.settings.instance_id
+        page = self._context.events.replay(after=0 if reset else after, mode=mode, limit=limit)
+        return replace(page, gap=True) if reset else page
 
     def wait_after(
         self,

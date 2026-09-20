@@ -12,6 +12,9 @@ import httpx
 import pytest
 
 from tinysoul.environment.inputs import CommandReceipt
+from tinysoul.agent import TurnHandle, TurnSnapshot, UserTurnRequest, ReflectionRequest
+from tinysoul.kernel.jobs import JobSnapshot
+from tinysoul.kernel.loop.interaction.inbox import InboxReceipt
 from tinysoul.agent.errors import (
     AgentSDKError,
     AgentServiceStaleError,
@@ -64,9 +67,9 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
     engine, gateway, _events = _engine(tmp_path)
     client = TestClient(create_endpoint_app(engine, engine.settings))
 
-    assert client.get("/v1/status").status_code == 401
+    assert client.get("/v2/status").status_code == 401
     preflight = client.options(
-        "/v1/status",
+        "/v2/status",
         headers={
             "Origin": "http://localhost:5173",
             "Access-Control-Request-Method": "GET",
@@ -74,7 +77,7 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
         },
     )
     assert preflight.status_code == 200
-    status = client.get("/v1/status", headers=_auth()).json()
+    status = client.get("/v2/status", headers=_auth()).json()
     assert status["ready"] is True
     assert status["active_day"] == str(DAY)
     assert status["event_journal"]["enabled"] is False
@@ -86,18 +89,18 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
         "latest_sequence": 0,
     }
     openapi = client.get("/openapi.json", headers=_auth()).json()
-    assert "/v1/events" in openapi["paths"]
-    assert "/v1/config/actions" in openapi["paths"]
-    assert "/v1/actions/catalog" not in openapi["paths"]
-    assert "/v1/config/validate" not in openapi["paths"]
-    assert "/v1/config/sections/{section_id}" not in openapi["paths"]
-    assert "/v1/workspace/blob" in openapi["paths"]
-    assert "put" in openapi["paths"]["/v1/workspace/blob"]
-    assert "/v1/reflection/decision" not in openapi["paths"]
-    assert all(not path.startswith("/v1/session/") for path in openapi["paths"])
+    assert "/v2/events" in openapi["paths"]
+    assert "/v2/config/actions" in openapi["paths"]
+    assert "/v2/actions/catalog" not in openapi["paths"]
+    assert "/v2/config/validate" not in openapi["paths"]
+    assert "/v2/config/sections/{section_id}" not in openapi["paths"]
+    assert "/v2/workspace/blob" in openapi["paths"]
+    assert "put" in openapi["paths"]["/v2/workspace/blob"]
+    assert "/v2/reflection/decision" not in openapi["paths"]
+    assert all(not path.startswith("/v2/session/") for path in openapi["paths"])
 
     response = client.post(
-        "/v1/input",
+        "/v2/input",
         headers=_auth(),
         json={
             "text": "hello",
@@ -115,18 +118,18 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
     assert gateway.inputs == [("hello", "endpoint", {"client_id": "ui"})]
 
     response = client.post(
-        "/v1/control",
+        "/v2/control",
         headers=_auth(),
         json={"kind": "exit_program"},
     )
     assert response.status_code == 202
     assert gateway.controls[0][0] is LoopControlKind.EXIT_PROGRAM
 
-    reflection = client.get("/v1/reflection", headers=_auth()).json()
+    reflection = client.get("/v2/reflection", headers=_auth()).json()
     assert reflection["availability"]["checked_day"] == str(DAY)
     assert reflection["availability"]["home_pending"] is False
     response = client.post(
-        "/v1/reflection",
+        "/v2/reflection",
         headers=_auth(),
         json={"kind": "memory", "target_day": "2026-07-18", "command_id": "work_ui"},
     )
@@ -141,12 +144,12 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
     ]
 
     missing_target = client.post(
-        "/v1/reflection",
+        "/v2/reflection",
         headers=_auth(),
         json={"kind": "memory"},
     )
     assert missing_target.status_code == 422
-    assert missing_target.json()["error"]["code"] == "reflection.target_day_required"
+    assert missing_target.json()["error"]["code"] == "turn.target_day_required"
 
 
 def test_endpoint_hides_unexpected_exception_details(
@@ -164,7 +167,7 @@ def test_endpoint_hides_unexpected_exception_details(
         raise_server_exceptions=False,
     )
 
-    response = client.get("/v1/status", headers=_auth())
+    response = client.get("/v2/status", headers=_auth())
 
     assert response.status_code == 500
     assert response.json() == {
@@ -185,7 +188,7 @@ def test_endpoint_hides_unexpected_exception_details(
             AgentServiceUnavailableError(
                 module="workspace", kind="workspace.io_failed"
             ),
-            "agent.not_ready",
+            "service.unavailable",
         ),
     ),
 )
@@ -205,9 +208,9 @@ def test_endpoint_workspace_preserves_sdk_service_failure(
 
     monkeypatch.setattr(WorkspaceService, "operation", unavailable)
     for response in (
-        client.get("/v1/workspace/manifest", headers=_auth()),
+        client.get("/v2/workspace/manifest", headers=_auth()),
         client.put(
-            "/v1/workspace/resource",
+            "/v2/workspace/resource",
             headers=_auth(),
             json={"link": "workspace:note.txt", "text": "content"},
         ),
@@ -222,9 +225,9 @@ def test_endpoint_workspace_overwrite_trash_and_restore(tmp_path: Path) -> None:
     engine, gateway, _events = _engine(tmp_path)
     client = TestClient(create_endpoint_app(engine, engine.settings))
 
-    manifest = client.get("/v1/workspace/manifest", headers=_auth()).json()
+    manifest = client.get("/v2/workspace/manifest", headers=_auth()).json()
     created = client.put(
-        "/v1/workspace/resource",
+        "/v2/workspace/resource",
         headers=_auth(),
         json={
             "link": "workspace:notes/demo.md",
@@ -233,7 +236,7 @@ def test_endpoint_workspace_overwrite_trash_and_restore(tmp_path: Path) -> None:
     )
     assert created.status_code == 200
     body = created.json()
-    assert client.get("/v1/workspace/manifest", headers=_auth()).json() == body["manifest"]
+    assert client.get("/v2/workspace/manifest", headers=_auth()).json() == body["manifest"]
     assert gateway.observed[-1].name == "workspace.changed"
     replayed = engine.events.replay(
         after=0,
@@ -243,7 +246,7 @@ def test_endpoint_workspace_overwrite_trash_and_restore(tmp_path: Path) -> None:
     assert replayed.events[-1].name == "workspace.changed"
 
     read = client.get(
-        "/v1/workspace/resource",
+        "/v2/workspace/resource",
         headers=_auth(),
         params={"link": "workspace:notes/demo.md"},
     ).json()
@@ -251,7 +254,7 @@ def test_endpoint_workspace_overwrite_trash_and_restore(tmp_path: Path) -> None:
     assert "digest" not in read
 
     stale = client.put(
-        "/v1/workspace/resource",
+        "/v2/workspace/resource",
         headers=_auth(),
         json={
             "link": "workspace:notes/demo.md",
@@ -263,7 +266,7 @@ def test_endpoint_workspace_overwrite_trash_and_restore(tmp_path: Path) -> None:
     assert stale.json()["error"]["code"] == "workspace.conflict"
 
     trashed = client.post(
-        "/v1/workspace/trash",
+        "/v2/workspace/trash",
         headers=_auth(),
         json={
             "link": "workspace:notes/demo.md",
@@ -274,7 +277,7 @@ def test_endpoint_workspace_overwrite_trash_and_restore(tmp_path: Path) -> None:
     assert trash["ref"].startswith("trash:workspace/")
 
     restored = client.post(
-        "/v1/workspace/restore",
+        "/v2/workspace/restore",
         headers=_auth(),
         json={"trash_ref": trash["ref"]},
     )
@@ -289,24 +292,24 @@ def test_endpoint_workspace_directory_edit_move_tags_and_rejects_old_guards(
     client = TestClient(create_endpoint_app(engine, engine.settings))
     assert (
         client.post(
-            "/v1/workspace/directory", headers=_auth(), json={"link": "workspace:notes"}
+            "/v2/workspace/directory", headers=_auth(), json={"link": "workspace:notes"}
         ).status_code
         == 200
     )
     created = client.put(
-        "/v1/workspace/resource",
+        "/v2/workspace/resource",
         headers=_auth(),
         json={"link": "workspace:notes/a.md", "text": "old"},
     )
     assert created.status_code == 200
     tagged = client.put(
-        "/v1/workspace/tags",
+        "/v2/workspace/tags",
         headers=_auth(),
         json={"link": "workspace:notes/a.md", "tags": ["pinned", "library"]},
     )
     assert tagged.status_code == 200
     edited = client.post(
-        "/v1/workspace/edit",
+        "/v2/workspace/edit",
         headers=_auth(),
         json={
             "link": "workspace:notes/a.md",
@@ -315,7 +318,7 @@ def test_endpoint_workspace_directory_edit_move_tags_and_rejects_old_guards(
     )
     assert edited.status_code == 200
     moved = client.post(
-        "/v1/workspace/move",
+        "/v2/workspace/move",
         headers=_auth(),
         json={"link": "workspace:notes", "target_link": "workspace:renamed"},
     )
@@ -325,7 +328,7 @@ def test_endpoint_workspace_directory_edit_move_tags_and_rejects_old_guards(
     )
     assert (
         client.get(
-            "/v1/workspace/resource",
+            "/v2/workspace/resource",
             headers=_auth(),
             params={"link": "workspace:renamed/a.md"},
         ).json()["text"]
@@ -333,7 +336,7 @@ def test_endpoint_workspace_directory_edit_move_tags_and_rejects_old_guards(
     )
     assert (
         client.put(
-            "/v1/workspace/resource",
+            "/v2/workspace/resource",
             headers=_auth(),
             json={
                 "link": "workspace:renamed/a.md",
@@ -352,7 +355,7 @@ def test_endpoint_workspace_blob_round_trip(tmp_path: Path) -> None:
     data = b"\x00\x01\x02tiny-soul"
 
     written = client.put(
-        "/v1/workspace/blob",
+        "/v2/workspace/blob",
         headers={**_auth(), "Content-Type": "application/octet-stream"},
         params={
             "link": "workspace:assets/data.bin",
@@ -364,7 +367,7 @@ def test_endpoint_workspace_blob_round_trip(tmp_path: Path) -> None:
     record = written.json()["record"]
     assert record["kind"] == "binary"
     response = client.get(
-        "/v1/workspace/blob",
+        "/v2/workspace/blob",
         headers=_auth(),
         params={"link": record["link"]},
     )
@@ -380,7 +383,7 @@ def test_workspace_observation_failure_does_not_change_mutation_result(
     client = TestClient(create_endpoint_app(engine, engine.settings))
 
     response = client.put(
-        "/v1/workspace/resource",
+        "/v2/workspace/resource",
         headers=_auth(),
         json={
             "link": "workspace:committed.md",
@@ -389,7 +392,7 @@ def test_workspace_observation_failure_does_not_change_mutation_result(
     )
 
     assert response.status_code == 200
-    assert client.get("/v1/workspace/manifest", headers=_auth()).json() == response.json()["manifest"]
+    assert client.get("/v2/workspace/manifest", headers=_auth()).json() == response.json()["manifest"]
     assert gateway.observed[-1].name == "workspace.changed"
     assert events.latest_sequence == 0
 
@@ -415,13 +418,13 @@ def test_endpoint_event_replay_filter_and_websocket_auth(tmp_path: Path) -> None
     client = TestClient(create_endpoint_app(engine, engine.settings))
 
     normal = client.get(
-        "/v1/events",
+        "/v2/events",
         headers=_auth(),
         params={"after": after, "mode": "normal"},
     ).json()
     assert [event["name"] for event in normal["events"]] == ["turn.started"]
 
-    with client.websocket_connect("/v1/events/ws") as websocket:
+    with client.websocket_connect("/v2/events/ws") as websocket:
         websocket.send_json({"token": TOKEN, "after": after, "mode": "model"})
         authenticated = websocket.receive_json()
         assert authenticated["type"] == "authenticated"
@@ -434,6 +437,24 @@ def test_endpoint_event_replay_filter_and_websocket_auth(tmp_path: Path) -> None
         ]
 
 
+@pytest.mark.parametrize("cursor", ({"instance_id": "previous", "after": 100}, {"after": 100}))
+def test_v2_replay_resets_old_instance_or_future_cursor(tmp_path: Path, cursor: dict[str, str | int]) -> None:
+    engine, _, events = _engine(tmp_path, websocket_heartbeat_seconds=0.05)
+    events.write(ObservationEvent(name="turn.started", source="test", level=ObservationLevel.NORMAL))
+    client = TestClient(create_endpoint_app(engine, engine.settings))
+    page = client.get("/v2/events", headers=_auth(), params=cursor).json()
+    assert page["gap"] and page["instance_id"] == engine.settings.instance_id
+    assert page["events"][-1]["name"] == "turn.started"
+    with client.websocket_connect("/v2/events/ws") as websocket:
+        websocket.send_json({"token": TOKEN, **cursor})
+        assert websocket.receive_json()["protocol_version"] == 2
+        replay = websocket.receive_json()
+        assert replay["gap"] and replay["events"] == page["events"]
+        heartbeat = websocket.receive_json()
+        assert heartbeat["type"] == "heartbeat"
+        assert heartbeat["next_sequence"] == page["next_sequence"]
+
+
 async def test_endpoint_asgi_server_uses_prebound_random_port(tmp_path: Path) -> None:
     engine, _gateway, _events = _engine(tmp_path)
     server = EndpointASGIServer(engine=engine, settings=engine.settings)
@@ -441,7 +462,7 @@ async def test_endpoint_asgi_server_uses_prebound_random_port(tmp_path: Path) ->
     try:
         async with httpx.AsyncClient(trust_env=False) as client:
             response = await client.get(
-                f"http://{engine.settings.host}:{server.port}/v1/health",
+                f"http://{engine.settings.host}:{server.port}/v2/health",
                 timeout=5.0,
             )
         assert response.status_code == 200
@@ -479,13 +500,13 @@ def test_config_routes_read_and_patch_project_source(tmp_path: Path) -> None:
         ]
     }
 
-    status = client.get("/v1/config", headers=_auth())
+    status = client.get("/v2/config", headers=_auth())
     assert status.status_code == 200
     assert (
         status.json()["fields"]["action.llm_action.timeout_seconds"]["writable"] is True
     )
 
-    catalog = client.get("/v1/config/catalog", headers=_auth())
+    catalog = client.get("/v2/config/catalog", headers=_auth())
     assert catalog.status_code == 200
     assert any(
         field["path"] == "action.llm_action.timeout_seconds"
@@ -533,20 +554,20 @@ def test_config_routes_read_and_patch_project_source(tmp_path: Path) -> None:
         },
     )
     for invalid in invalid_requests:
-        response = client.patch("/v1/config", headers=_auth(), json=invalid)
+        response = client.patch("/v2/config", headers=_auth(), json=invalid)
         assert response.status_code == 422
         assert response.json()["error"]["code"] == "request.invalid"
 
-    assert client.get("/v1/config/validate", headers=_auth()).status_code == 404
+    assert client.get("/v2/config/validate", headers=_auth()).status_code == 404
     assert (
         client.get(
-            "/v1/config/sections/action",
+            "/v2/config/sections/action",
             headers=_auth(),
         ).status_code
         == 404
     )
 
-    patched = client.patch("/v1/config", headers=_auth(), json=body)
+    patched = client.patch("/v2/config", headers=_auth(), json=body)
     assert patched.status_code == 200
     assert patched.json()["state"] == "saved"
     assert "timeout_seconds = 30.0" in target.read_text(encoding="utf-8")
@@ -580,7 +601,7 @@ def test_config_activation_failure_uses_config_error_and_keeps_file(
     client = TestClient(create_endpoint_app(engine, engine.settings))
 
     response = client.patch(
-        "/v1/config",
+        "/v2/config",
         headers=_auth(),
         json={
             "operations": [
@@ -597,7 +618,7 @@ def test_config_activation_failure_uses_config_error_and_keeps_file(
     assert response.status_code == 200
     assert response.json()["state"] == "saved"
     assert target.read_text(encoding="utf-8") != original
-    reload_response = client.post("/v1/config/reload", headers=_auth())
+    reload_response = client.post("/v2/config/reload", headers=_auth())
     assert reload_response.status_code == 500
     assert reload_response.json()["error"]["code"] == "config.activation_failed"
 
@@ -661,6 +682,15 @@ class _EndpointServices:
     def __init__(self, workspace: WorkspaceService) -> None:
         self.registry = ServiceRegistry((Service(WorkspaceService, workspace),))
 
+    def turn_snapshot(self, turn_id: str) -> TurnSnapshot | None:
+        return None
+
+    def turn_jobs(self, turn_id: str) -> tuple[JobSnapshot, ...] | None:
+        return None
+
+    async def stop_job(self, turn_id: str, job_id: str) -> JobSnapshot:
+        raise AgentSDKError("Test service has no Jobs")
+
     def runtime_status(self, *, credentials: bool = False) -> JsonObject:
         return {
             "generation_id": "test",
@@ -680,6 +710,29 @@ class _EndpointServices:
 
 @dataclass
 class _EndpointGateway:
+    @property
+    def commands(self) -> _EndpointGateway:
+        return self
+
+    async def submit_turn(self, request: UserTurnRequest | ReflectionRequest) -> TurnHandle:
+        if isinstance(request, ReflectionRequest):
+            self.reflection_requests.append((request.scope, request.target_day, request.source))
+        else:
+            self.inputs.append((request.text, request.source, request.metadata))
+        return TurnHandle(request)
+
+    async def append_input(self, turn_id: str, text: str, *, input_id: str = "") -> InboxReceipt:
+        raise AgentSDKError("No active Turn")
+
+    async def reply(self, turn_id: str, question_id: str, response: str) -> InboxReceipt:
+        raise AgentSDKError("No active Turn")
+
+    async def grant_cycles(self, turn_id: str, request_id: str, count: int) -> bool:
+        raise AgentSDKError("No active Turn")
+
+    async def cancel_turn(self, turn_id: str) -> bool:
+        return False
+
     inputs: list[tuple[str, str, JsonObject]] = field(default_factory=list)
     controls: list[tuple[LoopControlKind, str, str, JsonObject]] = field(
         default_factory=list

@@ -49,6 +49,7 @@ from tinysoul.runtime import ObservationEmitter
 from tinysoul.runtime.sources import RuntimeSource
 
 from .activity import AgentTurnActivity
+from tinysoul.kernel.jobs.models import JobControl
 
 AGENT_SCENARIOS = frozenset({"user", "home_reflection", "memory_reflection"})
 
@@ -104,6 +105,10 @@ def prepare_common_actions(
 
 class CommonActionAssembly:
     """One generation's shared services, with separately granted profile surfaces."""
+
+    @property
+    def jobs(self) -> JobControl:
+        return self._jobs
 
     def __init__(
         self,

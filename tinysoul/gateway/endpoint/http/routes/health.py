@@ -6,6 +6,6 @@ from tinysoul.infra.json import JsonObject
 
 
 def register_health_routes(app: FastAPI) -> None:
-    @app.get("/v1/health")
+    @app.get("/v2/health")
     async def health() -> JsonObject:
         return {"ok": True}

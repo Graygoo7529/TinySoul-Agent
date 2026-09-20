@@ -24,19 +24,19 @@ from ..schemas import (
 
 
 def register_workspace_routes(app: FastAPI, engine: EndpointEngine) -> None:
-    @app.post("/v1/workspace/directory")
+    @app.post("/v2/workspace/directory")
     async def workspace_directory(body: WorkspaceDirectoryRequest) -> JsonObject:
         return await engine.workspace.mkdir(body.link)
 
-    @app.post("/v1/workspace/move")
+    @app.post("/v2/workspace/move")
     async def workspace_move(body: WorkspaceMoveRequest) -> JsonObject:
         return await engine.workspace.move(body.link, body.target_link)
 
-    @app.put("/v1/workspace/tags")
+    @app.put("/v2/workspace/tags")
     async def workspace_tags(body: WorkspaceTagRequest) -> JsonObject:
         return await engine.workspace.tag(body.link, tuple(body.tags))
 
-    @app.post("/v1/workspace/edit")
+    @app.post("/v2/workspace/edit")
     async def workspace_edit(body: WorkspaceEditRequest) -> JsonObject:
         return await engine.workspace.edit(
             body.link,
@@ -45,19 +45,19 @@ def register_workspace_routes(app: FastAPI, engine: EndpointEngine) -> None:
             ),
         )
 
-    @app.post("/v1/workspace/append")
+    @app.post("/v2/workspace/append")
     async def workspace_append(body: WorkspaceAppendRequest) -> JsonObject:
         return await engine.workspace.append(body.link, body.text)
 
-    @app.get("/v1/workspace/manifest")
+    @app.get("/v2/workspace/manifest")
     async def workspace_manifest() -> JsonObject:
         return await engine.workspace.manifest()
 
-    @app.get("/v1/workspace/resource")
+    @app.get("/v2/workspace/resource")
     async def workspace_resource(link: str = Query(min_length=1)) -> JsonObject:
         return await engine.workspace.read_text(link)
 
-    @app.get("/v1/workspace/blob")
+    @app.get("/v2/workspace/blob")
     async def workspace_blob(link: str = Query(min_length=1)) -> Response:
         blob = await engine.workspace.read_blob(link)
         return Response(
@@ -69,7 +69,7 @@ def register_workspace_routes(app: FastAPI, engine: EndpointEngine) -> None:
             },
         )
 
-    @app.put("/v1/workspace/resource")
+    @app.put("/v2/workspace/resource")
     async def write_workspace_resource(body: WorkspaceWriteRequest) -> JsonObject:
         return await engine.workspace.write_text(
             link=body.link,
@@ -77,7 +77,7 @@ def register_workspace_routes(app: FastAPI, engine: EndpointEngine) -> None:
             overwrite=body.overwrite,
         )
 
-    @app.put("/v1/workspace/blob")
+    @app.put("/v2/workspace/blob")
     async def write_workspace_blob(
         body: bytes = Body(media_type="application/octet-stream"),
         link: str = Query(min_length=1),
@@ -89,17 +89,17 @@ def register_workspace_routes(app: FastAPI, engine: EndpointEngine) -> None:
             overwrite=overwrite,
         )
 
-    @app.get("/v1/workspace/trash")
+    @app.get("/v2/workspace/trash")
     async def workspace_trash() -> JsonObject:
         return await engine.workspace.trash()
 
-    @app.post("/v1/workspace/trash")
+    @app.post("/v2/workspace/trash")
     async def trash_workspace_resource(body: WorkspaceTrashRequest) -> JsonObject:
         return await engine.workspace.trash_resource(
             link=body.link,
         )
 
-    @app.post("/v1/workspace/restore")
+    @app.post("/v2/workspace/restore")
     async def restore_workspace_resource(body: WorkspaceRestoreRequest) -> JsonObject:
         return await engine.workspace.restore(
             trash_ref=body.trash_ref,

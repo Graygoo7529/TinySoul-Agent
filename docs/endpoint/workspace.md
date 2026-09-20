@@ -2,18 +2,18 @@
 
 Workspace endpoint 使用 `workspace:` link 和受约束 async WorkspaceService，不提供任意物理文件路径。服务调用自行持有世代/day lease；每次 HTTP 操作重新获取服务。跨日准备导致已取得服务失效时返回 409，客户端重新取得状态后再决定是否重试；不自动重放写入。
 
-- `GET /v1/workspace/manifest`
-- `GET /v1/workspace/resource?link=...`
-- `GET /v1/workspace/blob?link=...`
-- `PUT /v1/workspace/resource`：通过 owner 校验 link、大小和覆盖语义后原子写入 JSON/text 资源
-- `PUT /v1/workspace/blob`：通过 owner 写入有界二进制资源，文件内容是唯一事实
-- `POST /v1/workspace/directory`：`{link}`，创建目录
-- `POST /v1/workspace/move`：`{link, target_link}`，移动文件或目录，目标存在时拒绝
-- `PUT /v1/workspace/tags`：`{link, tags}`，替换标签集合；标签为 `pinned/tmp/library`，空列表清空
-- `POST /v1/workspace/edit`：`{link, edits: [{old_text, new_text}]}`，顺序验证 1–64 项唯一匹配后一次提交
-- `POST /v1/workspace/append`：`{link, text}`，追加明确文本
-- `GET/POST /v1/workspace/trash`
-- `POST /v1/workspace/restore`
+- `GET /v2/workspace/manifest`
+- `GET /v2/workspace/resource?link=...`
+- `GET /v2/workspace/blob?link=...`
+- `PUT /v2/workspace/resource`：通过 owner 校验 link、大小和覆盖语义后原子写入 JSON/text 资源
+- `PUT /v2/workspace/blob`：通过 owner 写入有界二进制资源，文件内容是唯一事实
+- `POST /v2/workspace/directory`：`{link}`，创建目录
+- `POST /v2/workspace/move`：`{link, target_link}`，移动文件或目录，目标存在时拒绝
+- `PUT /v2/workspace/tags`：`{link, tags}`，替换标签集合；标签为 `pinned/tmp/library`，空列表清空
+- `POST /v2/workspace/edit`：`{link, edits: [{old_text, new_text}]}`，顺序验证 1–64 项唯一匹配后一次提交
+- `POST /v2/workspace/append`：`{link, text}`，追加明确文本
+- `GET/POST /v2/workspace/trash`
+- `POST /v2/workspace/restore`
 
 成功 mutation 返回 record 和完整 manifest，并发布 `workspace.changed`。公开请求不携带 digest/revision CAS，也不存在 mirror/apply/discard。取消不会回滚已提交文件；若索引提交失败，错误包含有界的已提交 link，不能伪称副作用未发生。
 

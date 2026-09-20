@@ -58,6 +58,45 @@ class _Backend:
         return ()
 
 
+async def test_external_stop_and_turn_cleanup_join_one_owner_operation() -> None:
+    entered, release = Event(), Event()
+
+    class Backend(_Backend):
+        stops = 0
+        cleanups = 0
+
+        def request_stop(self) -> None:
+            self.stops += 1
+            entered.set()
+            assert release.wait(3)
+            self.finished.set()
+
+        def close_execution(self) -> tuple[CleanupDiagnostic, ...]:
+            self.closed.set()
+            return ()
+
+        def cleanup(self) -> tuple[CleanupDiagnostic, ...]:
+            self.cleanups += 1
+            self.cleaned.set()
+            return ()
+
+    registry = JobRegistry[Backend]()
+    backend = await registry.start("owner", "test", Backend)
+    stopping = asyncio.create_task(registry.stop("owner", backend.job_id, operations=JoinedOperations()))
+    async with asyncio.timeout(3):
+        while not entered.is_set():
+            await asyncio.sleep(0.01)
+    cleanup = asyncio.create_task(registry.cleanup_turn("owner"))
+    await asyncio.sleep(0)
+    assert not cleanup.done()
+    release.set()
+    result = await asyncio.wait_for(stopping, 3)
+    await asyncio.wait_for(cleanup, 3)
+    assert result.state.terminal
+    assert backend.stops == 1 and backend.cleanups == 1
+    assert not registry.snapshots("owner")
+
+
 async def test_terminal_reservation_survives_full_and_closed_ordinary_ingress() -> None:
     inbox = TurnInbox(InboxLimits(capacity=1, max_bytes=500, max_record_bytes=400))
     registry = JobRegistry[_Backend]()

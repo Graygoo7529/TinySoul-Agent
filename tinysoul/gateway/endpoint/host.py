@@ -70,7 +70,7 @@ class EndpointReady:
     token: str
     instance_id: str
     project_identity: str
-    protocol_version: int = 1
+    protocol_version: int = 2
 
     def to_json(self) -> JsonObject:
         return {

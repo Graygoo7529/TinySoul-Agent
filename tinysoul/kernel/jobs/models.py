@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
-from tinysoul.infra.concurrency import CleanupDiagnostic
+from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.json import JsonObject
 from .failures import JobError
 
@@ -73,3 +73,13 @@ class JobBackend(Protocol):
     def request_stop(self) -> None: ...
 
     def describe(self) -> JsonObject: ...
+
+
+class JobControl(Protocol):
+    """Owner supervision surface for hosts; no execution backend access."""
+
+    def snapshots(self, turn_id: str) -> tuple[JobSnapshot, ...]: ...
+
+    async def stop(
+        self, turn_id: str, job_id: str, *, operations: JoinedOperations
+    ) -> JobSnapshot: ...

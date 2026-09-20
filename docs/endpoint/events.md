@@ -2,17 +2,17 @@
 
 ## Replay
 
-`GET /v1/events?after=0&mode=model&limit=200` 返回 `events`、`next_sequence` 和 `gap`。mode 为 `normal`、`verbose` 或 `model`。前端先从 status 捕获 `latest_event_sequence`，再按 cursor 分页到该目标；`gap=true` 时清理事件派生视图并重新读取权威 status、Reflection 和 Workspace projection。
+`GET /v2/events?after=0&mode=model&limit=200` 返回 `instance_id`、`events`、`next_sequence` 和 `gap`。mode 为 `normal`、`verbose` 或 `model`。重连附带上次 `instance_id`；实例不同或 after 超出当前序号时，从当前保留窗口重新 replay 并置 gap。前端先从 status 捕获 `latest_event_sequence`，再按 cursor 分页到该目标；`gap=true` 时清理事件派生视图并重新读取权威 status、活动 Turn、Reflection 和 Workspace projection。
 
 ## WebSocket
 
-连接地址为 `/v1/events/ws`，首帧为：
+连接地址为 `/v2/events/ws`，首帧为：
 
 ```json
-{"token":"...","after":0,"mode":"model"}
+{"token":"...","after":0,"mode":"model","instance_id":"previous-instance"}
 ```
 
-服务端先返回 authenticated，之后发送 events 或 heartbeat。heartbeat 不增加 sequence。前端按 `(instance_id, sequence)` 去重和续传，事件流不写入业务持久事实。
+首次连接可省略 instance_id。服务端先返回 authenticated（protocol_version=2），立即 replay，再发送 events 或 heartbeat；两者均携带当前 instance_id。heartbeat 不增加 sequence。前端按 `(instance_id, sequence)` 去重和续传，事件流不写入业务持久事实。无效认证首帧关闭连接，断线不取消 Turn。
 
 ## 运行失败诊断
 
