@@ -1,0 +1,28 @@
+name = "expand.call"
+domain = "expand"
+
+[tool]
+description = "Call one explicitly named MCP tool. Results may refer to Workspace artifacts. Unknown results must be inspected before retrying."
+
+[tool.schema]
+type = "object"
+required = ["server_id", "tool_name", "arguments"]
+additionalProperties = false
+
+[tool.schema.properties.server_id]
+type = "string"
+
+[tool.schema.properties.tool_name]
+type = "string"
+
+[tool.schema.properties.arguments]
+type = "object"
+additionalProperties = true
+
+[semantic]
+use_when = ["Call one explicitly named MCP tool. Results may refer to Workspace artifacts. Unknown results must be inspected before retrying."]
+effects = ["modifying"]
+
+[backend]
+kind = "native"
+handler = "expand.call"

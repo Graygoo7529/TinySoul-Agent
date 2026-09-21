@@ -21,6 +21,8 @@ Memory domain 通过 `register_memory_actions` 接入 `memory.memorize`、`memor
 7. 内置 Action Catalog 随 TinySoul 包版本发布为 init/reset 模板；运行实例只使用项目中物化的 catalog。
 8. ActionResult 的 trace 生命周期由 Catalog 声明，业务 executor 只提供结果内容及必要的 compact projection 数据。
 
+当前外部能力也沿用这套 Action 边界：`subagent.agents/connect/delegate/respond/collect/disconnect` 使用共享 JobControl 监督 ACP 外部 Agent，`expand.describe_servers/describe_tools/search/call` 使用单一 MCP 目录 owner。远端协议对象不会成为内核 Action；它们的结果先归一化为有限 ActionResult，长内容通过 Workspace Link 继续读取。
+
 ## 分层模型
 
 ### Phase1: 域选择

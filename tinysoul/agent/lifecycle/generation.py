@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from tinysoul.infra.concurrency import AsyncResourceScope, CleanupDiagnostic
+from tinysoul.infra.concurrency import (
+    AsyncResourceScope,
+    CleanupDiagnostic,
+    AsyncCloser,
+)
 
 from tinysoul.infra.config import ConfigEnvironment
 from tinysoul.infra import InfraSettings
@@ -71,6 +75,7 @@ class AgentRuntimeGeneration:
     resources: AsyncResourceScope = field(default_factory=AsyncResourceScope)
     reflection_profiles: tuple[TurnProfile, ...] = ()
     sources: GenerationSources = field(default_factory=GenerationSources)
+    close_execution_resources: AsyncCloser | None = None
 
     @property
     def profiles(self) -> tuple[TurnProfile, ...]:
@@ -80,4 +85,9 @@ class AgentRuntimeGeneration:
         """Release explicitly registered generation-owned resources once retired."""
 
         diagnostics = await self.sources.close()
+        if self.close_execution_resources is not None:
+            diagnostics = (
+                *diagnostics,
+                *(await self.close_execution_resources() or ()),
+            )
         return (*diagnostics, *await self.resources.close())

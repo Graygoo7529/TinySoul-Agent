@@ -1,0 +1,29 @@
+name = "expand.describe_tools"
+domain = "expand"
+
+[tool]
+description = "Read complete definitions for tools or server_ids (exactly one selector), with bounded pages."
+
+[tool.schema]
+type = "object"
+required = []
+additionalProperties = false
+
+[tool.schema.properties.tools]
+type = "array"
+items = { type = "object", required = ["server_id", "tool_name"], additionalProperties = false, properties = { server_id = { type = "string" }, tool_name = { type = "string" } } }
+
+[tool.schema.properties.server_ids]
+type = "array"
+items = { type = "string" }
+
+[tool.schema.properties.page]
+type = "string"
+
+[semantic]
+use_when = ["Read complete definitions for tools or server_ids (exactly one selector), with bounded pages."]
+effects = ["read_only"]
+
+[backend]
+kind = "native"
+handler = "expand.describe_tools"

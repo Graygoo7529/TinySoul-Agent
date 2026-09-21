@@ -1,11 +1,11 @@
 # Agent 重构第六轮子计划：外部 Agent 与 MCP 能力接入
 
-状态：`pending`（Q1–Q6 已于 2026-09-21 确认；方案已进入实施准备，尚未开始本轮实施）。
+状态：`done`（2026-09-21 完成实现、设计同步、逐项核对与本地门禁；外部验证边界见 §12）。
 日期：2026-09-21。
 代码基线：`9f42976`（R5 运行可用性、重启边界与退出等待修正已提交）；开始分析时工作区干净。
-设计复核基线：`2b03a61`（四动作 MCP 方案已确认并提交）；当前工作区的计划同步仅代表实施前文档准备，不代表运行代码已实现。
-主计划：[Agent 架构重构主执行计划](20260915-agent-architecture-refactor-plan.md)，主要对应 §11 与 S6。
-参考：[功能规划讨论](../chat/00%20doing%20something.md)。其中的 coding、外部工具和后台协作作为能力场景参考，不据此恢复旧 Reflection domain、CAS 或扩大本轮范围。
+设计复核基线：`2b03a61`（四动作 MCP 方案已确认）；实施基线：`f5c4a90`（四动作与实施边界已提交）。第 2 节保留实施前缺口，第 9、11、12 节记录本轮证据。
+主计划：[Agent 架构重构主执行计划](../20260915-agent-architecture-refactor-plan.md)，主要对应 §11 与 S6。
+参考：[功能规划讨论](../../chat/00%20doing%20something.md)。其中的 coding、外部工具和后台协作作为能力场景参考，不据此恢复旧 Reflection domain、CAS 或扩大本轮范围。
 
 ## 1. 本轮目标与推进位置
 
@@ -15,7 +15,7 @@ R6 不是重新建立 Agent 调度器。ACP connection 是可通信的服务资�
 
 本轮完成后 S6 才能逐项验收；S3 的 Organize Action 与模型注释层仍在主计划尾期、S7 前完成。R5 的 `Agent.wait_for_exit` 是实例退出等待，本轮继续使用 `core.job.wait` 表达当前 Turn 对 Job 的等待，二者不合并或再次改名。
 
-## 2. 当前实现核对
+## 2. 实施前基线核对
 
 | 当前事实 | 实现位置 | R6 处理 |
 |---|---|---|
@@ -29,7 +29,7 @@ R6 不是重新建立 Agent 调度器。ACP connection 是可通信的服务资�
 | Action 自有 schema 是明确的受限子集 | `kernel/action/catalog/schema.py` | 保留外壳校验；远端完整 JSON Schema 另交标准 validator，不能削弱远端约束 |
 | 配置、catalog、情景可见性和 SDK/Endpoint 门面均已集中 | `infra/config/`、`assets/`、`agent/services.py`、`gateway/endpoint/` | 复用既有入口，不建立第二套配置或外部工具调用网关 |
 
-以上是设计所需路径核查，不是再次宣布全仓复审完成。本轮没有重跑或引用旧门禁作为新实现证据。
+以上是实施前的路径核查，不代表完成后的状态；本轮新增实现与门禁单独记录，不引用旧门禁作为新实现证据。
 
 ### 2.1 主计划要求与本轮细化的区别
 
@@ -45,7 +45,7 @@ R6 不是重新建立 Agent 调度器。ACP connection 是可通信的服务资�
 
 ## 3. 协议与 SDK 核验
 
-以下为 2026-09-21 阅读官方文档、发布信息和源码得到的设计依据；尚未安装或联调这些 SDK/adapter。发布版、主分支和协议版本分别记录，不能把主分支功能当成选定发布版已经可用。
+以下为 2026-09-21 阅读官方文档、发布信息和源码得到的设计依据。实施使用 MCP 2.2.0、ACP 0.12.1 和 jsonschema 4.26.0；独立临时目录安装已发布的 Codex ACP 1.12.0 与 Codex 0.154.0，真实握手、session close 与新 session 探针通过。发布包的 Codex 依赖为 `^0.154.0`，实施验证使用锁定版本。连续 prompt、权限、后台任务停止与取消通过真实 SDK 的本地协议 fixture 验证，未运行真实模型委派。发布包、协议测试与真实模型端到端证据分别记录。
 
 | 对象 | 已查证依据 | 本轮建议 |
 |---|---|---|
@@ -110,7 +110,7 @@ Job 公共投影增加有界待答请求摘要与结果 Link。待答摘要表�
 
 ### 5.1 动作面
 
-以下为待确认的 TinySoul 动作语义，不是 ACP 协议方法清单。
+以下为已确认并落实的 TinySoul 动作语义，不是 ACP 协议方法清单。
 
 | Action | 输入与行为 | 收敛输出 |
 |---|---|---|
@@ -234,7 +234,7 @@ JSON Schema 的共用封装放在 infra 的动态数据边界，MCP owner 解释
 
 HTTP 可以访问 localhost，也可以访问远程服务；“本地/远程”不是两套工具目录或调用语义。连接关闭表示释放本地资源，不承诺撤销远端副作用或停掉远端服务器。旧 HTTP+SSE 不额外作为本轮传输选项，避免把它与 Streamable HTTP 的流式响应混同。[官方 Python SDK 传输](https://py.sdk.modelcontextprotocol.io/client/transports/)
 
-配置放在既有合并配置树 `configs/capabilities/expand.toml`，服务为具名集合 `capabilities.expand.servers.<server_id>`，无需独立文档集或新注册中心。以下是拟定字段的配置预览，尚不是当前程序已支持的配置；路径和 URL 仅为示例：
+配置放在既有合并配置树 `configs/capabilities/expand.toml`，服务为具名集合 `capabilities.expand.servers.<server_id>`，无需独立文档集或新注册中心。以下字段已实现；路径和 URL 仅为示例：
 
 ```toml
 [capabilities.expand.servers.local_notes]
@@ -273,7 +273,7 @@ tools = { search_documents = true, read_document = true }
 3. 使用现有配置候选保存和空闲时 reload。补充 MCP 服务 collection/field descriptors，使 SDK 和 `/v2/config` 可编辑这些条目；不新增 `/mcp/register`。候选校验只检查本地配置、必要依赖和引用就绪，不联网枚举工具或启动服务。服务启用后连接失败是该服务的局部 unavailable，不阻断其它正常工具。
 4. 首次 `describe_servers`、`describe_tools`、`search(query)` 或 `call` 按需连接/列举。服务通过 tools/list 暴露的新工具自动进入 owner 目录，再应用配置选择；无需为每个远端工具写 Action TOML、Python executor 或修改 TinySoul PluginDeclaration。服务增加/删改工具由同一刷新规则处理。
 
-当前代码尚无 expand 配置解析和 MCP Engine。上述用户流程是 R6 实施后的目标，现有配置门面可复用不代表这些字段现已生效。
+上述流程已通过具名配置、候选校验、重载解析和本地协议测试核对。外部工具依赖由 `.[external-tools]` 安装，开发 extra 包含它；默认模板不启用目标或服务。
 
 ### 6.6 支持范围
 
@@ -302,7 +302,7 @@ plugins/capabilities/subagent/
 plugins/capabilities/expand/
   engine.py / config.py / actions.py / failures.py / runtime_bridge.py
   mcp/          # SDK client、传输接入与类型归一
-  tools/        # 目录、schema、调用结果处理
+  # 目录与结果归一内聚于 engine；共用 JSON Schema validator 位于 infra/json
 ```
 
 配置继续是 `configs/capabilities/subagent.toml`、`expand.toml` 中的对应 `[capabilities.*]` 子树；每个 owner 自己解析。Action 定义放在 `assets/common/configs/action/catalog/{subagent,expand}/`，领域 Skill 放在既有 skills_domain 目录。standard/development 提供环境预设，不复制一份 catalog。
@@ -329,12 +329,12 @@ SDK Job 投影与现有 `/v2` Job 查询同步增加有界待答/结果字段；
 
 | 编号 | 状态 | 实施范围 | 验收证据 |
 |---|---|---|---|
-| R6-0 | pending | 锁发布包与首个 adapter；验证 stdio 公共入口、权限、prompt 终态、取消、session 释放、后台资源关闭和新 session 隔离 | 官方版本记录、离线探针；真实 adapter 握手/委派是否执行单列。无法保留会话时先确定其影响，不带未知语义进入主实现 |
-| R6-1 | pending | 统一异步 JobBackend、混合 Registry、待答投影与 Inbox/Job wait 唤醒 | 进程与异步 fake backend 同 Registry，容量/停止/终态/待答测试；无第二套监督器 |
-| R6-2 | pending | stdio 受控传输与必要插件资源关闭接点 | Windows 实进程后代回收；取消、Turn 收尾、日切/重载关闭顺序；不需要模型和网络 |
-| R6-3 | pending | subagent 全链路、connections 段、权限与结果材料 | discover→connect→delegate→待答/collect→新 delegate→收尾；两个 Job id、同 Turn session；新根新 session或明确断连 |
-| R6-4 | pending | expand 两种传输、统一目录、发现/批量描述/调用、schema 与结果；采用 Q4 与 Q6 已确认策略和四动作入口 | 真实 SDK 对本地 fake server 的 stdio/HTTP 协议测试；目录投影与按需读取边界、候选选择、批量与整服务描述、过期/通知刷新、结果与未知写结果 |
-| R6-5 | pending | 三种情景、配置/资源生成、SDK/Endpoint 投影、文档与门禁 | Full、typecheck、generation/wheel、文档链接与主/子计划逐项核对 |
+| R6-0 | done | 锁发布包与首个 adapter；验证 stdio 公共入口、权限、prompt 终态、取消、session 释放、后台资源关闭和新 session 隔离 | ACP 0.12.1、Codex ACP 1.12.0/Codex 0.154.0；真实握手/session 探针；发布源码与 SDK fixture 验证后台执行扩展；实际模型委派单列未运行 |
+| R6-1 | done | 统一异步 JobBackend、混合 Registry、待答投影与 Inbox/Job wait 唤醒 | Process 与 ACP backend 共用 Registry；待答、停止、终态、容量及类型边界测试通过 |
+| R6-2 | done | stdio 受控传输与必要插件资源关闭接点 | Windows 实进程后代回收、双向管道及根退出后后代停止；ACP Turn 收尾；既有进程日切/重载回归；组合根核对必要关闭先于归档 |
+| R6-3 | done | subagent 全链路、connections 段、权限与结果材料 | 本地 ACP SDK fixture 完成 connect→delegate→待答/respond→collect→同 session 新 delegate→新 Turn 新 session→停止；包含后台任务扩展、无响应取消和段 prepare/install |
+| R6-4 | done | expand 两种传输、统一目录、发现/批量描述/调用、schema 与结果；采用 Q4 与 Q6 已确认策略和四动作入口 | MCP SDK 2.2.0 stdio/Streamable HTTP fixture；schema、长文本/图片 Workspace、isError、工具选择、上游分页/TTL/通知失效、写后断流不重放及一次 LLM 选择/容量返回 |
+| R6-5 | done | 三种情景、配置/资源生成、SDK/Endpoint 投影、文档与门禁 | 配置映射/凭据脱敏、候选拒绝不落盘、三情景可见性、公共 Job 投影、设计与 Endpoint 文档已核对；Full 1130 passed、23 deselected，Windows/Linux 目标类型检查与生成/wheel 通过 |
 
 R6-1 的必要公共接口先完成，再分别接入 ACP 与 MCP。单项已通过即记录，不以重复全矩阵验证代替实现推进；只有新的代码或证据才扩展测试。
 
@@ -374,7 +374,7 @@ R6-1 的必要公共接口先完成，再分别接入 ACP 与 MCP。单项已通
 | Q5 | decided（2026-09-21） | 已确认 servers 的职责需要独立、清晰的目录入口；不保留旧 `servers` 名称作为兼容别名 |
 | Q6 | decided（2026-09-21） | 四动作定稿：`describe_servers/describe_tools/search/call`。服务目录与定义按需读取，工具身份结构化且可跨服务批量，search 只接受语义 query；不保留三动作旧接口，搜索算法不变 |
 
-MCP 的 tools-only、stdio + Streamable HTTP、具名服务配置与工具选择、显式凭据而无 OAuth 工作流是本轮建议范围，随本子计划整体确认；若实际首个 MCP 服务依赖本轮范围之外的功能，应在实施前明确调整范围。配置字段示例不要求逐字段额外审批，实现时保持上述所有权与调用语义即可。
+MCP 的 tools-only、stdio + Streamable HTTP、具名服务配置与工具选择、显式凭据而无 OAuth 工作流是本轮已确认并实现的范围；后续服务需要其它能力时另行明确范围。配置字段不增加逐字段审批，继续服从上述所有权与调用语义。
 
 以下不再作为待确认点：单根 Turn；Job 不跨 Turn；同日/同世代轻量复用与不可复用即关闭的 Q8 原则；新根新 ACP session；实际 Workspace 与受信主机；Reflection 通用能力叠加；配置/domain/action 的现有归属与覆盖选择；无内部子 Turn 预算树。
 
@@ -389,6 +389,29 @@ MCP 的 tools-only、stdio + Streamable HTTP、具名服务配置与工具选择
 - `done`：配置预览经 TinySoul 环境的 TOML parser 检查，两种传输与工具选择示例可解析；本次仅作计划文档验证，不作为新能力的运行证据。
 - `done`：Q4/Q5 已确认并同步主计划；进一步说明服务目录按需读取、工具身份与语义搜索的关系。
 - `done`：Q6 四动作接口已确认并同步主计划；旧三动作和无 query search 表述已清理。
-- `pending`：R6-0–R6-5 实施、设计文档同步、必要验证与主计划验收。
+- `done`：R6-0–R6-5 实施、设计文档同步、必要验证与主计划验收。最终标准 Full 1130 passed、23 deselected（含 5 项 Generation/wheel），Windows/Linux 目标 typecheck、diff-check 通过；命令使用 TinySoul Python。早期 Fast 1118 passed、28 deselected，之后新增测试由最终 Full 覆盖。MCP stdio/HTTP、JSON Schema、Windows stdio 后代、ACP SDK fixture 和 Codex ACP 1.12.0 handshake/session 探针分别记录；真实模型 provider/network 与 Linux 实机未运行。
 
-本次只更新执行计划，记录已确认的搜索策略、四动作入口和目录所有权；没有安装依赖、启动真实 adapter、修改运行代码或将 S6 标为完成。文档检查不代替 R6 实施后的 Full/typecheck 和实际 SDK 验证。
+本轮实现已接入：异步 Job、ACP/MCP owner、配置与 catalog、Workspace 结果投影、Action/Segment/Endpoint 文档均已同步；没有建立第二套调度器、远端工具 Action 集合或模型可见的内部 schema/revision 协议。真实 Codex 只完成握手/session 生命周期探针，未运行真实模型委派；未宣称 provider/network/Linux 实机已验证。本轮归档，主计划 S6 标 done，S3 的 Organize/注释层与 S7 保留原范围。
+
+## 12. 实施核对与边界
+
+| 稳定契约 | 实现与核对位置 |
+|---|---|
+| 同一 Job 生命周期与容量，前台命令仍等待结果 | `kernel/jobs/{models,registry,actions}.py`、`plugins/execution/{engine,backend}.py`；`tests/kernel/jobs/test_registry.py` 与真实 execution 回归 |
+| 待答元数据可靠保留，父等待可唤醒 | `kernel/loop/interaction/inbox.py`、JobInputRequest/JobSnapshot；普通 Inbox 满载下的待答与终态测试、ACP permission fixture |
+| Connection/session/Job 分工；段只投影 | `plugins/capabilities/subagent/{engine,acp/connection,jobs/backend,segments/connections}.py`；真实 SDK fixture 验证连续委派、session 释放/隔离、后台停止、无响应取消与段刷新 |
+| stdio 只有一个平台进程 owner | `infra/process/stdio.py` 共用 Windows Job Object/POSIX process group；`tests/infra/process/test_stdio.py` 在 Windows 验证双向协议、活根及根退出后后代回收 |
+| 四动作同一目录、完整定义与标准 schema | `plugins/capabilities/expand/{engine,actions,mcp/client}.py`、`infra/json/schema.py`；stdio/HTTP 本地 SDK server、目录分页/TTL/通知、非法 schema、工具选择与结果归一测试 |
+| 一次有界搜索，由父 Agent 缩小范围 | `LLMActionTaskRunner` 与 `ModelContextOverflowPolicy.RETURN_FAILURE`；Action 数据流/候选身份/反馈大小及真实 LLMTaskRunner 输入容量预检测试，未用 fake 排序宣称真实检索质量 |
+| 配置统一加载、候选不触发服务、凭据不投影 | `infra/config` 的 object 字段边界及 credential reference；capability owner 的依赖/引用校验；`tests/plugins/capabilities/test_external_config.py` 验证含点/数字工具名与失败候选不落盘 |
+| 三情景通用能力与专属权限分开 | `agent/composition/actions.py` 的显式 PluginDeclaration；`tests/agent/composition/test_builder.py` 覆盖三种情景，不增加 Reflection domain 或动态远端 Action 注册 |
+| Turn/日/世代关闭顺序 | `AgentTurnActivity`、`AgentDayCoordinator`、`RuntimeGeneration`；必要执行关闭先于 Workspace 最终同步/归档/旧世代释放，附属诊断不冒充执行未结束 |
+| SDK/Endpoint 无平行执行入口 | JobSnapshot 的 pending_inputs/result_links 直接进入原有 Turn 查询；父通过 respond，人的参与复用 ask/reply；无 ACP/MCP 任意执行路由 |
+
+设计文档：`docs/design/capabilities/{subagent,expand}.md` 说明实际 owner、数据流、配置与结束边界；execution、agent、action、infra、llm 与 Endpoint configuration/runtime 同步实际协作。AGENTS 只追加 R6 落地事实，S7 的整体术语整理不提前扩大。
+
+实现细化：不创建没有真实消费者的 expand/tools 空包，目录与投影目前由 Engine 内聚；Codex 扩展只在 ACP adapter 内解析，未扩展 kernel Job 树；MCP 本地分页保存有限临时引用，不引入模型侧 revision/CAS。配置目录每次项目加载只读取一次并显式传给各 TOML source，没有导入期全局缓存。
+
+回归收口：修复无响应 ACP 取消时 prompt 错误收尾被打断后残留 running 状态；WebSocket 验收按时间等待事件，不以心跳帧数量限制合法重载时长。首轮 Full 出现过 execution 启动后的 Workspace 同步失败，保留工件，13 次独立复测和随后 Full 未复现其具体 IO 原因；检查同时发现活动 Job 期间强制完整扫描的过强约束，已按既有 owner 的“不完整扫描保留索引”语义处理，并在跨日真实进程测试中确定性注入不完整扫描保护这一正常路径。最终 Turn 同步仍要求执行已停止且扫描完整，不吞真实 IO 异常。
+
+外部验证边界：选定 Codex 发布包真实启动、初始化、close_session/new_session 探针通过；实际 prompt 行为通过公开 ACP SDK 的本地 fixture 验证。未运行真实模型委派、远程 MCP 服务或中英文语义检索质量评估，未运行 Linux 实机。Windows/Linux 目标 typecheck 与 Linux 实机能力分开记录。

@@ -41,7 +41,9 @@ result 尚未完成时为 null；完成后与 SDK TurnResult.to_json() 一致。
 
 重复 input/reply 的 accepted=false 表示该记录已受理，不代表执行失败。过期等待或关闭的 Inbox 返回 409。cancel 的 accepted 仅表示取消意图可受理；最终结果需继续查询，收尾已经完成时不会改写它。
 
-Job 查询和停止经 Agent 服务进入 Job owner；返回 job_id、kind、state、summary、reason。停止等待受控执行收敛，不等于取消 Turn；Job 在所属 Turn 收尾后被回收，列表为空，不另建历史表。停止与收尾由同一 owner 串行处理；错误只暴露有限分类。跨 Turn 或已回收 Job 返回 404 turn.resource_not_found。Job 应答不提供通用 Gateway 路由，随 S6 ACP adapter 的真实权限请求协议另行细化。
+Job 查询和停止经 Agent 服务进入 Job owner；返回 job_id、kind、state、summary、reason，以及有界 `pending_inputs` 和 `result_links`。待答项包含 request_id、question 和 option_id/label 选项；`waiting_input` 表示父 Agent 有待处理请求，`core.job.wait` 会在该状态唤醒。`result_links` 指向 owner 已写入的 Workspace 材料。停止等待受控执行收敛，不等于取消 Turn；Job 在所属 Turn 收尾后被回收，列表为空，不另建历史表。停止与收尾由同一 owner 串行处理；错误只暴露有限分类。跨 Turn 或已回收 Job 返回 404 turn.resource_not_found。Job 应答不提供通用 Gateway 路由；父 Agent 经 `subagent.respond` 回应 ACP 原生请求，需要人判断时复用 ask/reply。
+
+待答项的 `kind` 当前为 `permission`。客户端应使用 `request_id` 和选项身份解释请求，不从问题文本推断权限种类；协议 session/RPC id 不进入此投影。
 
 ## 终端式输入与控制
 

@@ -14,7 +14,7 @@ from time import time
 from uuid import uuid4
 
 from tinysoul.infra.json import JsonObject, to_json_object
-from tinysoul.runtime.events import EnvironmentEvent, EventFilter
+from tinysoul.runtime.events import EnvironmentEvent
 from .events import TurnEventSubscription
 from tinysoul.runtime.sources import SourceStatus, SourceState
 
@@ -178,11 +178,18 @@ class InboxRecord:
     def __post_init__(self) -> None:
         if not isinstance(self.kind, InboxKind):
             raise InboxError("Inbox record kind is invalid")
-        if any(not isinstance(value, str) for value in (self.topic, self.source, self.coalesce_key)):
+        if any(
+            not isinstance(value, str)
+            for value in (self.topic, self.source, self.coalesce_key)
+        ):
             raise InboxError("Event metadata must be text")
         if type(self.requires_decision) is not bool:
             raise InboxError("Record decision policy must be boolean")
-        if type(self.received_at) not in (int, float) or not isfinite(self.received_at) or self.received_at < 0:
+        if (
+            type(self.received_at) not in (int, float)
+            or not isfinite(self.received_at)
+            or self.received_at < 0
+        ):
             raise InboxError("Inbox receipt time must be finite and non-negative")
         try:
             payload = to_json_object(self.payload)
@@ -265,28 +272,43 @@ class TurnInbox:
         self._question: QuestionRequest | None = None
         self._reply: tuple[int, InboxRecord, int] | None = None
         self._terminals: dict[str, tuple[int, InboxRecord, int] | None] = {}
+        self._job_inputs: dict[
+            tuple[str, str], tuple[int, InboxRecord, int] | None
+        ] = {}
         self._activity = TurnState.QUEUED
         self._acknowledged_sequence = 0
         self._subscriptions: tuple[TurnEventSubscription, ...] = ()
         self._waiting: WaitCondition | None = None
         self._source_statuses: Callable[[], tuple[SourceStatus, ...]] = lambda: ()
 
-    def bind_source_status(self, statuses: Callable[[], tuple[SourceStatus, ...]]) -> None:
+    def bind_source_status(
+        self, statuses: Callable[[], tuple[SourceStatus, ...]]
+    ) -> None:
         self._source_statuses = statuses
 
-    def subscribe_events(self, subscriptions: tuple[TurnEventSubscription, ...]) -> None:
+    def subscribe_events(
+        self, subscriptions: tuple[TurnEventSubscription, ...]
+    ) -> None:
         """Install the active profile's declared subscriptions."""
         self._subscriptions = subscriptions
 
     async def accept_event(self, event: EnvironmentEvent) -> InboxReceipt:
-        matches = tuple(item for item in self._subscriptions if item.filter.matches(event))
+        matches = tuple(
+            item for item in self._subscriptions if item.filter.matches(event)
+        )
         coalesce = bool(matches) and all(item.coalesce for item in matches)
-        return await self.accept(InboxRecord(
-            InboxKind(event.kind.value), event.payload, event.event_id,
-            topic=event.topic, source=event.source,
-            coalesce_key=f"{event.source}:{event.topic}" if coalesce else "",
-            requires_decision=not matches or any(item.requires_decision for item in matches),
-        ))
+        return await self.accept(
+            InboxRecord(
+                InboxKind(event.kind.value),
+                event.payload,
+                event.event_id,
+                topic=event.topic,
+                source=event.source,
+                coalesce_key=f"{event.source}:{event.topic}" if coalesce else "",
+                requires_decision=not matches
+                or any(item.requires_decision for item in matches),
+            )
+        )
 
     def accepts_event(self, event: EnvironmentEvent) -> bool:
         if self._closed:
@@ -295,9 +317,16 @@ class TurnInbox:
             return True
         condition = self._waiting
         if event.topic == "runtime.source_status":
-            return condition is not None and self._unavailable_source(condition) is not None
+            return (
+                condition is not None
+                and self._unavailable_source(condition) is not None
+            )
         return condition is not None and self._matches_event(
-            condition, InboxKind(event.kind.value), event.event_id, event.topic, event.source
+            condition,
+            InboxKind(event.kind.value),
+            event.event_id,
+            event.topic,
+            event.source,
         )
 
     @property
@@ -343,11 +372,53 @@ class TurnInbox:
             self._terminals[job_id] = (self._sequence, record, size)
             self._condition.notify_all()
 
+    async def deliver_job_inputs(
+        self, job_id: str, requests: tuple[JsonObject, ...]
+    ) -> None:
+        """Keep each accepted request until consumed, independently of ordinary ingress."""
+        async with self._condition:
+            if job_id not in self._terminals:
+                raise InboxError("Job input delivery requires a reserved Job")
+            current = {item.get("request_id") for item in requests}
+            if len(requests) > 4 or any(
+                not isinstance(identity, str) or not identity for identity in current
+            ):
+                raise InboxError("Job input identities must be bounded and typed")
+            self._job_inputs = {
+                key: item
+                for key, item in self._job_inputs.items()
+                if key[0] != job_id or key[1] in current or item is not None
+            }
+            for payload in requests:
+                identity = payload["request_id"]
+                assert isinstance(identity, str)
+                key = (job_id, identity)
+                if key in self._job_inputs:
+                    continue
+                if sum(owner == job_id for owner, _ in self._job_inputs) >= 4:
+                    raise InboxCapacityError("Job input reservations are full")
+                record = InboxRecord(
+                    InboxKind.JOB,
+                    {"job_id": job_id, "state": "waiting_input", "request": payload},
+                    f"job_input:{job_id}:{identity}",
+                )
+                size = len(_encode(record))
+                if size > self._max_terminal_bytes:
+                    raise InboxCapacityError("Job input exceeds its reserved size")
+                self._sequence += 1
+                self._job_inputs[key] = (self._sequence, record, size)
+            self._condition.notify_all()
+
     async def release_terminal(self, job_id: str) -> None:
         async with self._condition:
             # Accepted terminal facts remain until their captured batch is acked.
             if job_id in self._terminals and self._terminals[job_id] is None:
                 del self._terminals[job_id]
+            self._job_inputs = {
+                key: item
+                for key, item in self._job_inputs.items()
+                if key[0] != job_id or item is not None
+            }
 
     @property
     def question(self) -> QuestionRequest | None:
@@ -437,7 +508,8 @@ class TurnInbox:
         if record.coalesce_key and (
             record.coalesce_key != f"{record.source}:{record.topic}"
             or not any(
-                item.coalesce and item.filter.topic == record.topic
+                item.coalesce
+                and item.filter.topic == record.topic
                 and item.filter.source == record.source
                 for item in self._subscriptions
             )
@@ -459,20 +531,28 @@ class TurnInbox:
                 raise InboxClosedError("Turn inbox is closed")
             # State invalidations describe the latest projection, not each disk
             # operation. Move the replacement to its new admission position.
-            previous = next((
-                item for item in reversed(self._records)
-                if record.coalesce_key and item[1].coalesce_key == record.coalesce_key
-                and item[1].source == record.source and item[1].topic == record.topic
-                and (self._captured is None or item[0] > self._captured.next_sequence)
-            ), None)
+            previous = next(
+                (
+                    item
+                    for item in reversed(self._records)
+                    if record.coalesce_key
+                    and item[1].coalesce_key == record.coalesce_key
+                    and item[1].source == record.source
+                    and item[1].topic == record.topic
+                    and (
+                        self._captured is None or item[0] > self._captured.next_sequence
+                    )
+                ),
+                None,
+            )
             ordinary = tuple(item for item in self._records if not item[1].coalesce_key)
             if (
-                (not record.coalesce_key and (
+                not record.coalesce_key
+                and (
                     len(ordinary) >= self._capacity
                     or sum(size for _, _, size in ordinary) + size > self._max_bytes
-                ))
-                or size > self._max_record_bytes
-            ):
+                )
+            ) or size > self._max_record_bytes:
                 raise InboxCapacityError("Turn inbox capacity is full")
             self._sequence += 1
             if previous is not None:
@@ -495,6 +575,7 @@ class TurnInbox:
                     *self._records,
                     *([self._reply] if self._reply is not None else []),
                     *(item for item in self._terminals.values() if item is not None),
+                    *(item for item in self._job_inputs.values() if item is not None),
                 ]
                 self._captured = InboxBatch(
                     tuple(
@@ -520,6 +601,16 @@ class TurnInbox:
                 key: item
                 for key, item in self._terminals.items()
                 if item is None or item[0] > batch.next_sequence
+            }
+            self._job_inputs = {
+                key: (
+                    None
+                    if item is not None and item[0] <= batch.next_sequence
+                    else item
+                )
+                for key, item in self._job_inputs.items()
+                if key[0] in self._terminals
+                or (item is not None and item[0] > batch.next_sequence)
             }
             self._acknowledged_sequence = max(
                 self._acknowledged_sequence, batch.next_sequence
@@ -587,7 +678,9 @@ class TurnInbox:
                     self._wait_reason = (
                         WaitReason.BUDGET
                         if not budget_ready
-                        else condition.reason if condition else None
+                        else condition.reason
+                        if condition
+                        else None
                     )
                     timeout = (
                         max(0.0, condition.deadline - loop.time())
@@ -613,6 +706,7 @@ class TurnInbox:
             *self._records,
             *([self._reply] if self._reply is not None else []),
             *(item for item in self._terminals.values() if item is not None),
+            *(item for item in self._job_inputs.values() if item is not None),
         ]
         for seq, record, _ in sorted(pending, key=lambda item: item[0]):
             if seq <= condition.after_sequence:
@@ -627,7 +721,9 @@ class TurnInbox:
                 and record.payload.get("job_id") == condition.job_id
             ):
                 return WakeReason.JOB, seq
-            if self._matches_event(condition, record.kind, record.record_id, record.topic, record.source):
+            if self._matches_event(
+                condition, record.kind, record.record_id, record.topic, record.source
+            ):
                 return WakeReason.EVENT, seq
         if condition.job_id is not None and job_ready:
             return WakeReason.JOB, None
@@ -638,8 +734,13 @@ class TurnInbox:
         return None
 
     @staticmethod
-    def _matches_event(condition: WaitCondition, kind: InboxKind, identity: str,
-                       topic: str, source: str) -> bool:
+    def _matches_event(
+        condition: WaitCondition,
+        kind: InboxKind,
+        identity: str,
+        topic: str,
+        source: str,
+    ) -> bool:
         return (
             condition.reason is WaitReason.EVENT
             and condition.event_kind is kind
@@ -649,16 +750,38 @@ class TurnInbox:
         )
 
     def _unavailable_source(self, condition: WaitCondition) -> SourceStatus | None:
-        if condition.reason is not WaitReason.EVENT or condition.event_kind is not InboxKind.EVENT:
+        if (
+            condition.reason is not WaitReason.EVENT
+            or condition.event_kind is not InboxKind.EVENT
+        ):
             return None
-        return next((item for item in self._source_statuses()
-                     if item.state in {SourceState.FAILED, SourceState.DISABLED}
-                     and (condition.source == item.source or condition.source is None and item.state is SourceState.FAILED)
-                     and (condition.topic in item.topics or condition.topic is None and condition.source == item.source)), None)
+        return next(
+            (
+                item
+                for item in self._source_statuses()
+                if item.state in {SourceState.FAILED, SourceState.DISABLED}
+                and (
+                    condition.source == item.source
+                    or condition.source is None
+                    and item.state is SourceState.FAILED
+                )
+                and (
+                    condition.topic in item.topics
+                    or condition.topic is None
+                    and condition.source == item.source
+                )
+            ),
+            None,
+        )
 
     async def close_if_empty(self) -> bool:
         async with self._condition:
-            if any(record.requires_decision for _, record, _ in self._records) or self._reply is not None or self._terminals:
+            if (
+                any(record.requires_decision for _, record, _ in self._records)
+                or self._reply is not None
+                or self._terminals
+                or self._job_inputs
+            ):
                 return False
             self._closed = True
             self._condition.notify_all()
@@ -677,7 +800,11 @@ def _encode(record: InboxRecord) -> bytes:
                 "id": record.record_id,
                 "kind": record.kind.value,
                 "payload": record.payload,
-                **({"topic": record.topic, "source": record.source} if record.topic else {}),
+                **(
+                    {"topic": record.topic, "source": record.source}
+                    if record.topic
+                    else {}
+                ),
                 **({"coalesce": record.coalesce_key} if record.coalesce_key else {}),
             },
             ensure_ascii=False,

@@ -12,6 +12,10 @@ selection 的 enabled/source 表示按“动作情景→域情景→动作 defau
 
 `runtime.llm.providers` 是当前 Runtime Generation 的只读、无 secret 投影。每项包含 Provider `id`、`credential_state`（`configured` 或 `missing`）以及声明的 `api_key_envs`；它不复制 `enabled`，后者继续由 effective fields 表达，也不返回任何凭据值。
 
+`GET /v2/config/catalog` 也描述 `capabilities.expand.servers.*` 与 `capabilities.subagent.agents.*` 的集合、传输/命令、环境引用和有界运行限制。`env`/`headers` 保存可见的非敏感固定值；凭据使用 `env_refs`/`header_refs`，其 value 为环境变量名称，由 owner 装配时解析并覆盖同名固定值。引用名称可见，对应 dotenv/environment 的值在 sources/effective fields 中脱敏。候选 PATCH 只检查配置形态、本地依赖、可执行文件和引用是否就绪，不启动外部服务或枚举远端工具；首次 Action 才建立连接。
+
+MCP `tools` 是完整对象值，`tools_default` 提供默认选择、单项覆盖。编辑含点或数字的远端工具名称时，PATCH 路径止于 `capabilities.expand.servers.<id>.tools`，把工具选择映射整体作为 value；这些名称不被展开为配置路径。所有 catalog 标记为 object 的字段均保留这种对象边界。
+
 ## Mutation
 
 `PATCH /v2/config` 接受 `operations` 数组。每项是：

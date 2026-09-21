@@ -8,7 +8,7 @@ from tinysoul.runtime import RunLevel, RunScope
 from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 
-from tinysoul.kernel.action import ActionCatalogLoader, ActionEngine
+from tinysoul.kernel.action import ActionCatalogLoader
 from tinysoul.kernel.action.backends.llm_action import LLMActionBackendOptionsValidator
 from tinysoul.kernel.action.catalog.specs import ActionBackendKind
 from tinysoul.kernel.action.config import (
@@ -17,13 +17,11 @@ from tinysoul.kernel.action.config import (
     validate_llm_action_routes,
 )
 from tinysoul.plugins.capabilities import (
-    CapabilitiesSettings,
     parse_capabilities_settings,
 )
 from tinysoul.plugins.execution import parse_execution_settings
 from tinysoul.kernel.jobs.config import parse_job_settings
 from tinysoul.kernel.context import (
-    ContextEngine,
     ContextSettings,
     parse_context_settings,
 )
@@ -64,7 +62,6 @@ from .actions import CommonActionAssembly
 from tinysoul.infra.clock import CalendarClock
 from tinysoul.plugins.reflection import (
     ReflectionBuilder,
-    ReflectionEngine,
     ReflectionRuntimeBridge,
     ReflectionSettings,
     ReflectionRequest,
@@ -100,7 +97,11 @@ from tinysoul.plugins.workspace import (
 from tinysoul.plugins.workspace.errors import WorkspaceError
 
 from ..config import AgentSettings, parse_agent_settings
-from ..errors import AgentError, AgentInvariantError, AgentClosedError, AgentQueueFullError
+from ..errors import (
+    AgentError,
+    AgentClosedError,
+    AgentQueueFullError,
+)
 from ..dispatch.ingress import AgentIngress
 from ..dispatch.inputs import InputCommandParser, InputDispatcher, InputSource
 from ..observation.outputs import ObservationRoute, ObservationRouter, OutputSink
@@ -305,14 +306,20 @@ class AgentBuilder:
             )
             from tinysoul.agent.commands import AgentCommands
 
-            commands = AgentCommands(agent_runner,
-                source_statuses=lambda: generation_handle.snapshot().generation.sources.statuses)
+            commands = AgentCommands(
+                agent_runner,
+                source_statuses=lambda: (
+                    generation_handle.snapshot().generation.sources.statuses
+                ),
+            )
             dispatcher = InputDispatcher(
                 parser=parser,
                 commands=commands,
                 observations=observations,
                 agent_scope=agent_runner.scope,
-                parser_provider=lambda: generation_handle.snapshot().generation.input_parser,
+                parser_provider=lambda: (
+                    generation_handle.snapshot().generation.input_parser
+                ),
             )
             gateway = AgentIngress(
                 dispatcher=dispatcher,
@@ -502,7 +509,9 @@ class AgentBuilder:
                 RuntimeWorkspaceBridge(),
                 observations,
             )
-            workspace_runtime = WorkspaceRuntime(workspace, FileWatcher(), observations=observations)
+            workspace_runtime = WorkspaceRuntime(
+                workspace, FileWatcher(), observations=observations
+            )
             resources.register("workspace_events", workspace_runtime.close)
             action_assembly = CommonActionAssembly(
                 root=self._root,
@@ -515,13 +524,20 @@ class AgentBuilder:
                 execution_settings=plan.execution,
                 job_settings=plan.jobs,
                 workspace_source=workspace_runtime,
-                runtime_plugins=(PluginDeclaration("reflection_schedule", sources=(
-                    ReflectionScheduler(
-                        reflection_settings.schedule,
-                        clock=self._calendar_clock or IanaCalendarClock(reflection_settings.timezone),
-                        timer=DeadlineTimer(), submit=submit_reflection,
+                runtime_plugins=(
+                    PluginDeclaration(
+                        "reflection_schedule",
+                        sources=(
+                            ReflectionScheduler(
+                                reflection_settings.schedule,
+                                clock=self._calendar_clock
+                                or IanaCalendarClock(reflection_settings.timezone),
+                                timer=DeadlineTimer(),
+                                submit=submit_reflection,
+                            ),
+                        ),
                     ),
-                )),),
+                ),
             )
             user_builder = UserTurnBuilder(
                 root=self._root,
@@ -557,6 +573,7 @@ class AgentBuilder:
                 memory,
                 self._calendar_clock or IanaCalendarClock(reflection_settings.timezone),
                 active_day=session.active_day,
+                close_execution_resources=action_assembly.close,
             )
             reflection = ReflectionBuilder(
                 action_assembly=action_assembly,
@@ -614,8 +631,13 @@ class AgentBuilder:
                     message="Profile action guidance could not be validated.",
                     payload={"error_type": type(exc).__name__},
                 ) from exc
-            sources = GenerationSources(tuple(source for profile in (user_turn.profile, *reflection.profiles)
-                                               for source in profile.sources))
+            sources = GenerationSources(
+                tuple(
+                    source
+                    for profile in (user_turn.profile, *reflection.profiles)
+                    for source in profile.sources
+                )
+            )
             day.bind_sources(sources)
             return AgentRuntimeGeneration(
                 jobs=action_assembly.jobs,
@@ -638,6 +660,7 @@ class AgentBuilder:
                 reflection_settings=reflection_settings,
                 resources=resources,
                 reflection_profiles=reflection.profiles,
+                close_execution_resources=action_assembly.close,
             )
         except BaseException:
             try:
@@ -650,6 +673,13 @@ class AgentBuilder:
         self, config: ConfigEnvironment, generation: AgentRuntimeGeneration
     ) -> None:
         plan = self._compile_config_plan(config)
+        from tinysoul.plugins.capabilities.expand.config import validate_expand_bindings
+        from tinysoul.plugins.capabilities.subagent.config import (
+            validate_subagent_bindings,
+        )
+
+        validate_expand_bindings(plan.capabilities.expand, config.runtime_env)
+        validate_subagent_bindings(plan.capabilities.subagent, config.runtime_env)
         declared: set[str] = set()
         for profile in generation.profiles:
             profile.action.validate_candidate(plan.action_catalog.catalog)
@@ -785,6 +815,18 @@ class AgentBuilder:
 
     @staticmethod
     def _map_owned_config_error(error: ConfigError) -> RuntimeException:
+        if error.key.startswith("capabilities.expand"):
+            from tinysoul.plugins.capabilities.expand.runtime_bridge import (
+                RuntimeExpandBridge,
+            )
+
+            return RuntimeExpandBridge().from_config_error(error)
+        if error.key.startswith("capabilities.subagent"):
+            from tinysoul.plugins.capabilities.subagent.runtime_bridge import (
+                RuntimeSubagentBridge,
+            )
+
+            return RuntimeSubagentBridge().from_config_error(error)
         key = error.key.split(".", 1)[0] if error.key else "infra"
         if error.source.startswith("project-document:action.catalog:"):
             return RuntimeActionBridge().from_config_error(error)

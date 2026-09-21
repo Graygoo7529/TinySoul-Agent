@@ -48,7 +48,13 @@ from .inspection.search import (
     WorkspaceTextSearchResult,
 )
 from .observation import emit_workspace_changed
-from .events import WorkspaceChange, WorkspaceChangeOperation, WorkspaceEvents, WORKSPACE_OWNER, WORKSPACE_WATCH
+from .events import (
+    WorkspaceChange,
+    WorkspaceChangeOperation,
+    WorkspaceEvents,
+    WORKSPACE_OWNER,
+    WORKSPACE_WATCH,
+)
 
 
 @dataclass(frozen=True)
@@ -241,6 +247,26 @@ class WorkspaceEngine:
         with self._lock:
             return self.path_for(link).exists()
 
+    def prepare_external_cwd(
+        self, connection_id: str, *, cwd_link: str = ""
+    ) -> tuple[Path, str]:
+        """Resolve an existing explicit cwd, or create an isolated Agent directory."""
+        if re.fullmatch(r"connection_[0-9a-f]{32}", connection_id) is None:
+            raise WorkspaceContractError("External connection identity is invalid")
+        link = cwd_link or f"workspace:connections/{connection_id}"
+        with self._lock:
+            if link == "workspace:":
+                return self._settings.root, link
+            path = self.path_for(link)
+            if cwd_link:
+                if not path.is_dir():
+                    raise WorkspaceContractError(
+                        "External Agent cwd must be an existing directory"
+                    )
+            else:
+                self.mkdir(link)
+            return path, link
+
     def prepare_execution(
         self,
         job_id: str,
@@ -360,16 +386,23 @@ class WorkspaceEngine:
         )
 
     def reconcile_external(self) -> WorkspaceReconcileResult:
-        return self._change(WorkspaceChangeOperation.RECONCILE, self._reconciler.reconcile,
-                            source=WORKSPACE_WATCH)
+        return self._change(
+            WorkspaceChangeOperation.RECONCILE,
+            self._reconciler.reconcile,
+            source=WORKSPACE_WATCH,
+        )
 
     def watches_path(self, path: Path) -> bool:
         try:
             relative = path.relative_to(self.root)
-            return bool(relative.parts) and not any(
-                part in self.settings.ignore_dirs or part == ".tinysoul" for part in relative.parts
-            ) and not self._reconciler.is_internal_path(path) and not (
-                path.name.startswith(".") and path.name.endswith(".tmp")
+            return (
+                bool(relative.parts)
+                and not any(
+                    part in self.settings.ignore_dirs or part == ".tinysoul"
+                    for part in relative.parts
+                )
+                and not self._reconciler.is_internal_path(path)
+                and not (path.name.startswith(".") and path.name.endswith(".tmp"))
             )
         except ValueError:
             return False
@@ -535,7 +568,10 @@ class WorkspaceEngine:
             return self._trash_store.list()
 
     def _change[T](
-        self, operation: WorkspaceChangeOperation, mutation: Callable[[], T], *,
+        self,
+        operation: WorkspaceChangeOperation,
+        mutation: Callable[[], T],
+        *,
         source: str = WORKSPACE_OWNER,
     ) -> T:
         with self._lock:
@@ -543,7 +579,9 @@ class WorkspaceEngine:
             result = mutation()
             after = self._manifest_store.load()
             self.events.stage(WorkspaceChange(operation, before, after), source)
-        emit_workspace_changed(self._observations, change=WorkspaceChange(operation, before, after))
+        emit_workspace_changed(
+            self._observations, change=WorkspaceChange(operation, before, after)
+        )
         return result
 
     def _emit_change(

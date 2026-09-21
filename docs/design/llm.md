@@ -152,7 +152,9 @@ Reasoning 的三个字段语义不同：`content` 是可传给支持 Chat 历史
 
 每次候选模型尝试在 provider 调用前执行上下文硬水位预检，但一个 LLM Task 内所有候选始终共享上层已经构造的同一个 MessageStack。预检不会为不同模型维护平行 MessageStack，也不修改 ModelChainRunner 的位置状态；若当前 Task 允许 Context 重建，则容量压力立即中止整个 LLM Task，经 Runtime Trap 压缩 Context 后由上层重新构造一个新的 LLM Task。重放仍从既有 preferred model 开始，可能再次调用先前失败的大窗口模型，这是无容量 checkpoint 设计的明确成本。
 
-`ModelContextOverflowPolicy` 区分两类调用恢复契约：Framework 和 `llm_action` 使用 `REQUEST_RECOVERY`，由 LLM-owned runtime bridge 把 `llm.model_context_pressure` 映射为 `llm.context_capacity_exceeded`。上层 User/Reflection 装配决定回收并重建 Task；LLM 不导入 Context，也不选择回收算法。User policy 可以清理 active Workspace，Reflection policy 只回收自己的 Context。Home Search 与 Memory daily composition 使用 `FAIL`（默认值），容量失败以 `llm.model_context_limit_reached` 结束当前 Turn，不重复固定输入或清理 active User Context。Memory inspect 是确定性目录检索，不创建独立 LLM task。
+`ModelContextOverflowPolicy` 表达调用方的容量处理契约。Framework 和通常的 `llm_action` 使用 `REQUEST_RECOVERY`，由 LLM-owned runtime bridge 把 `llm.model_context_pressure` 映射为 `llm.context_capacity_exceeded`。上层 User/Reflection 装配决定回收并重建 Task；LLM 不导入 Context，也不选择回收算法。User policy 可以清理 active Workspace，Reflection policy 只回收自己的 Context。Home Search 与 Memory daily composition 使用 `FAIL`（默认值），容量失败以 `llm.model_context_limit_reached` 结束当前 Turn，不重复固定输入或清理 active User Context。Memory inspect 是确定性目录检索，不创建独立 LLM task。
+
+MCP 语义搜索使用 `RETURN_FAILURE`：完整任务超容量时返回有限的 `input_capacity` Task failure，由 expand 请求父 Agent 缩小服务范围，不启动隐藏的压缩或再次选择。失败可能发生在 provider 调用前，因此 TaskResult 允许失败且无 RawResponse，不伪造供应商响应；已调用 provider 的失败仍保留其原有结果事实。
 
 个人项目场景下，模型链默认进行有限但较充分的循环尝试，以容忍暂时网络故障，同时避免错误配置导致调用永久卡住。需要持续等待暂时性故障时，可以显式把 `max_cycles` 配置为无限；永久错误仍只尝试每个 Provider 和 Model 一次。`RetryPolicy` 在 LLM 领域边界保证 Provider 重试次数是非负整数、`max_cycles` 是正整数或无限，并保证等待与成功偏好时长都是有限非负数；配置解析失败统一收敛为 `ConfigError`，不作为一次调用失败进入 fallback。每次 Provider 重试、Provider/Model 切换和失败通过 ObservationEvent 暴露，并遵守配置的等待间隔。
 

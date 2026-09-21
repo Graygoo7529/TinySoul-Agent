@@ -1,0 +1,13 @@
+name = "expand"
+description = "Discover and call configured MCP tools on demand."
+selection_hint = "Discover and call configured MCP tools on demand."
+
+[visibility]
+default = true
+
+[runtime]
+timeout_seconds = 90
+parallel_policy = "serial"
+
+[runtime.result]
+trace_mode = "foldable"

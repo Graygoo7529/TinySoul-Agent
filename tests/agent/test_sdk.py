@@ -3,13 +3,18 @@ from __future__ import annotations
 import asyncio
 import sys
 from datetime import datetime
+from dataclasses import replace
 from zoneinfo import ZoneInfo
 from collections import deque
 from pathlib import Path
 
 import pytest
 import httpx
-from tinysoul.gateway.endpoint import EndpointEngine, EndpointEventBuffer, EndpointSettings
+from tinysoul.gateway.endpoint import (
+    EndpointEngine,
+    EndpointEventBuffer,
+    EndpointSettings,
+)
 from tinysoul.gateway.endpoint.http import create_endpoint_app
 
 from tinysoul.agent import (
@@ -31,6 +36,11 @@ from tinysoul.agent.composition.assembly import AgentAssembly
 from tinysoul.agent.composition.builder import AgentBuilder
 from tinysoul.infra.config import ConfigEnvironment, ConfigMutation, ConfigError
 from tinysoul.plugins.workspace.services import WorkspaceService
+from tinysoul.plugins.workspace import WorkspaceEngine
+from tinysoul.plugins.workspace.storage.reconcile import (
+    WorkspaceReconcileResult,
+    WorkspaceReconcileStatus,
+)
 from tinysoul.plugins.home import AgentHomeEngineBuilder, AgentHomeSettings
 from tinysoul.plugins.reflection import (
     ReflectionRequest,
@@ -123,16 +133,30 @@ class _Clock:
 
 
 @pytest.mark.parametrize("origin", ("external", "sdk"))
-async def test_workspace_change_resumes_same_turn_with_current_model_state(tmp_path: Path, origin: str) -> None:
+async def test_workspace_change_resumes_same_turn_with_current_model_state(
+    tmp_path: Path, origin: str
+) -> None:
     llm = _LLM()
-    for call in reversed((
-        ToolCallRecord("select_wait", "select_action_domains", {"domains": ["core"]}, ToolKind.CONTROL),
-        ToolCallRecord("wait", "core.wait", {"topic": "workspace.changed"}, ToolKind.ACTION),
-    )):
-        llm.results.appendleft(TaskResult.success(
-            raw_response=RawResponse("", "fake", "fake", tool_calls=(call,)), answer=None,
-            tool_calls=(call,),
-        ))
+    for call in reversed(
+        (
+            ToolCallRecord(
+                "select_wait",
+                "select_action_domains",
+                {"domains": ["core"]},
+                ToolKind.CONTROL,
+            ),
+            ToolCallRecord(
+                "wait", "core.wait", {"topic": "workspace.changed"}, ToolKind.ACTION
+            ),
+        )
+    ):
+        llm.results.appendleft(
+            TaskResult.success(
+                raw_response=RawResponse("", "fake", "fake", tool_calls=(call,)),
+                answer=None,
+                tool_calls=(call,),
+            )
+        )
     llm.release.set()
     agent = await _create(tmp_path, llm)
     await agent.start()
@@ -143,13 +167,21 @@ async def test_workspace_change_resumes_same_turn_with_current_model_state(tmp_p
                 assert not active.done
                 await asyncio.sleep(0.01)
         if origin == "external":
-            (tmp_path / "project/runtime/workspace/new.md").write_text("private resource body", encoding="utf-8")
+            (tmp_path / "project/runtime/workspace/new.md").write_text(
+                "private resource body", encoding="utf-8"
+            )
         else:
-            await agent.services.get(WorkspaceService).write_text("workspace:new.md", "private resource body")
+            await agent.services.get(WorkspaceService).write_text(
+                "workspace:new.md", "private resource body"
+            )
         result = await asyncio.wait_for(active.wait(), 5)
         assert result.status is TurnOutcomeStatus.ANSWERED
         assert len(llm.calls) == 5
-        state = next(message for message in llm.calls[2].messages.messages if message.label == "workspace")
+        state = next(
+            message
+            for message in llm.calls[2].messages.messages
+            if message.label == "workspace"
+        )
         part = state.parts[0]
         assert isinstance(part, JsonPart)
         assert "workspace:new.md" in str(part.value)
@@ -158,7 +190,9 @@ async def test_workspace_change_resumes_same_turn_with_current_model_state(tmp_p
         await agent.shutdown()
 
 
-async def test_watcher_binding_survives_rejected_reload_and_changes_on_success(tmp_path: Path) -> None:
+async def test_watcher_binding_survives_rejected_reload_and_changes_on_success(
+    tmp_path: Path,
+) -> None:
     llm = _LLM()
     agent = await _create(tmp_path, llm)
     assert all(item.state is SourceState.STOPPED for item in agent.status().sources)
@@ -169,24 +203,47 @@ async def test_watcher_binding_survives_rejected_reload_and_changes_on_success(t
         await asyncio.wait_for(llm.started.wait(), 3)
         with pytest.raises(ConfigError):
             await agent.reload_config()
-        assert next(item for item in agent.status().sources if item.source == "workspace.fswatch").state is SourceState.RUNNING
+        assert (
+            next(
+                item
+                for item in agent.status().sources
+                if item.source == "workspace.fswatch"
+            ).state
+            is SourceState.RUNNING
+        )
         llm.release.set()
         assert (await active.wait()).status is TurnOutcomeStatus.ANSWERED
-        await agent.patch_config((ConfigMutation(
-            source_id="project:configs/workspace.toml", path="workspace.watch.enabled",
-            op="set", value=False,
-        ),))
+        await agent.patch_config(
+            (
+                ConfigMutation(
+                    source_id="project:configs/workspace.toml",
+                    path="workspace.watch.enabled",
+                    op="set",
+                    value=False,
+                ),
+            )
+        )
         await agent.reload_config()
-        assert next(item for item in agent.status().sources if item.source == "workspace.fswatch").state is SourceState.DISABLED
+        assert (
+            next(
+                item
+                for item in agent.status().sources
+                if item.source == "workspace.fswatch"
+            ).state
+            is SourceState.DISABLED
+        )
         with pytest.raises(AgentServiceStaleError):
             await original.snapshot()
-        await agent.services.get(WorkspaceService).write_text("workspace:after.md", "still writable")
+        await agent.services.get(WorkspaceService).write_text(
+            "workspace:after.md", "still writable"
+        )
     finally:
         await agent.shutdown()
 
 
 async def test_source_start_failure_keeps_previous_generation_and_listener(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from tinysoul.environment.errors import EnvironmentError
     from tinysoul.plugins.workspace.events import WorkspaceRuntime
@@ -212,10 +269,14 @@ async def test_source_start_failure_keeps_previous_generation_and_listener(
             await agent.reload_config()
         assert failed.value.payload["source"] == "workspace.fswatch"
         assert failed.value.payload["error_type"] == "EnvironmentError"
-        assert next(
-            item for item in agent.status().sources
-            if item.source == "workspace.fswatch"
-        ).state is SourceState.RUNNING
+        assert (
+            next(
+                item
+                for item in agent.status().sources
+                if item.source == "workspace.fswatch"
+            ).state
+            is SourceState.RUNNING
+        )
         (tmp_path / "project/runtime/workspace/recovered.md").write_text(
             "observed by the original owner", encoding="utf-8"
         )
@@ -243,9 +304,16 @@ async def _create(
     async def factory() -> AgentAssembly:
         builder = (
             AgentBuilder(root)
-            .with_config_environment(ConfigEnvironment.from_project_root(root, env={}, overrides={
-                "reflection.schedule.enabled": False, "loop.user.max_cycles": max_cycles,
-            }))
+            .with_config_environment(
+                ConfigEnvironment.from_project_root(
+                    root,
+                    env={},
+                    overrides={
+                        "reflection.schedule.enabled": False,
+                        "loop.user.max_cycles": max_cycles,
+                    },
+                )
+            )
             .with_agent_settings(AgentSettings(interactive=False))
             .with_llm_runner(llm)
         )
@@ -253,13 +321,16 @@ async def _create(
             builder.with_calendar_clock(clock)
         assembly = await builder.build()
         if endpoints is not None:
-            endpoints.append(EndpointEngine(
-                settings=EndpointSettings(token="x" * 32),
-                events=EndpointEventBuffer(capacity=32, max_bytes=100000),
-                gateway=assembly.gateway, services=assembly.service_access,
-                config=assembly.configuration,
-                available=lambda: assembly.is_available,
-            ))
+            endpoints.append(
+                EndpointEngine(
+                    settings=EndpointSettings(token="x" * 32),
+                    events=EndpointEventBuffer(capacity=32, max_bytes=100000),
+                    gateway=assembly.gateway,
+                    services=assembly.service_access,
+                    config=assembly.configuration,
+                    available=lambda: assembly.is_available,
+                )
+            )
         return assembly
 
     return await Agent.assemble(
@@ -294,7 +365,9 @@ async def test_agent_wait_for_exit_survives_restart_and_detaches_cancelled_waite
     assert waiting.cancelled()
 
 
-async def test_wait_for_exit_requires_start_and_retains_normal_exit(tmp_path: Path) -> None:
+async def test_wait_for_exit_requires_start_and_retains_normal_exit(
+    tmp_path: Path,
+) -> None:
     from tinysoul.agent.requests import ExitRequest
 
     agent = await _create(tmp_path, _LLM())
@@ -314,26 +387,39 @@ async def test_wait_for_exit_requires_start_and_retains_normal_exit(tmp_path: Pa
 
 @pytest.mark.parametrize("cancel_start", (False, True))
 async def test_failed_start_settles_requests_accepted_by_sources(
-    tmp_path: Path, cancel_start: bool,
+    tmp_path: Path,
+    cancel_start: bool,
 ) -> None:
     from tinysoul.runtime import RuntimeException
 
     root = tmp_path / "project"
     copy_initialized_project(root)
     llm = _LLM()
-    assembly = await AgentBuilder(root).with_config_environment(
-        ConfigEnvironment.from_project_root(root, env={}, overrides={
-            "agent.interactive": False, "reflection.schedule.enabled": False,
-            "workspace.watch.enabled": False,
-        })
-    ).with_llm_runner(llm).build()
+    assembly = (
+        await AgentBuilder(root)
+        .with_config_environment(
+            ConfigEnvironment.from_project_root(
+                root,
+                env={},
+                overrides={
+                    "agent.interactive": False,
+                    "reflection.schedule.enabled": False,
+                    "workspace.watch.enabled": False,
+                },
+            )
+        )
+        .with_llm_runner(llm)
+        .build()
+    )
     entered, release = asyncio.Event(), asyncio.Event()
     source_stopped = False
     handles = []
 
     class SubmittingService:
         async def start(self) -> None:
-            handles.append(await assembly.commands.submit_turn(UserTurnRequest("during startup")))
+            handles.append(
+                await assembly.commands.submit_turn(UserTurnRequest("during startup"))
+            )
 
         async def stop(self) -> None:
             nonlocal source_stopped
@@ -362,7 +448,9 @@ async def test_failed_start_settles_requests_accepted_by_sources(
             await agent.shutdown()
         else:
             release.set()
-        with pytest.raises(asyncio.CancelledError if cancel_start else RuntimeException):
+        with pytest.raises(
+            asyncio.CancelledError if cancel_start else RuntimeException
+        ):
             await starting
         result = await asyncio.wait_for(handles[0].wait(), 5)
         assert result.request_failure is (
@@ -381,48 +469,85 @@ async def test_failed_start_settles_requests_accepted_by_sources(
 
 @pytest.mark.parametrize("max_cycles", (1, 20))
 async def test_v2_turn_admission_question_budget_and_result_share_sdk_owner(
-    tmp_path: Path, max_cycles: int,
+    tmp_path: Path,
+    max_cycles: int,
 ) -> None:
     llm = _LLM()
-    for call in reversed((
-        ToolCallRecord("select_question", "select_action_domains", {"domains": ["core"]}, ToolKind.CONTROL),
-        ToolCallRecord("ask", "core.ask", {"text": "Choose a direction"}, ToolKind.ACTION),
-    )):
-        llm.results.appendleft(TaskResult.success(
-            raw_response=RawResponse("", "fake", "fake", tool_calls=(call,)),
-            answer=None, tool_calls=(call,),
-        ))
+    for call in reversed(
+        (
+            ToolCallRecord(
+                "select_question",
+                "select_action_domains",
+                {"domains": ["core"]},
+                ToolKind.CONTROL,
+            ),
+            ToolCallRecord(
+                "ask", "core.ask", {"text": "Choose a direction"}, ToolKind.ACTION
+            ),
+        )
+    ):
+        llm.results.appendleft(
+            TaskResult.success(
+                raw_response=RawResponse("", "fake", "fake", tool_calls=(call,)),
+                answer=None,
+                tool_calls=(call,),
+            )
+        )
     endpoints: list[EndpointEngine] = []
     agent = await _create(tmp_path, llm, endpoints=endpoints, max_cycles=max_cycles)
     await agent.start()
     app = create_endpoint_app(endpoints[0], endpoints[0].settings)
     try:
         async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test",
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
             headers={"Authorization": f"Bearer {'x' * 32}"},
         ) as client:
-            response = await client.post("/v2/turns", json={"text": "/reply literal user task", "command_id": "main"})
+            response = await client.post(
+                "/v2/turns",
+                json={"text": "/reply literal user task", "command_id": "main"},
+            )
             assert response.status_code == 202
             assert response.json()["turn_id"] == "main"
             await asyncio.wait_for(llm.started.wait(), 3)
-            duplicate = await client.post("/v2/turns", json={"text": "/reply literal user task", "command_id": "main"})
+            duplicate = await client.post(
+                "/v2/turns",
+                json={"text": "/reply literal user task", "command_id": "main"},
+            )
             assert duplicate.json()["turn_id"] == "main"
-            assert (await client.post("/v2/turns", json={"text": "different", "command_id": "main"})).status_code == 409
-            queued = await client.post("/v2/turns", json={"text": "later", "command_id": "queued"})
+            assert (
+                await client.post(
+                    "/v2/turns", json={"text": "different", "command_id": "main"}
+                )
+            ).status_code == 409
+            queued = await client.post(
+                "/v2/turns", json={"text": "later", "command_id": "queued"}
+            )
             assert queued.json()["turn_id"] == "queued"
-            appended = await client.post("/v2/turns/queued/input", json={"text": "More context", "input_id": "extra"})
+            appended = await client.post(
+                "/v2/turns/queued/input",
+                json={"text": "More context", "input_id": "extra"},
+            )
             assert appended.status_code == 200 and appended.json()["accepted"]
-            repeat = await client.post("/v2/turns/queued/input", json={"text": "More context", "input_id": "extra"})
+            repeat = await client.post(
+                "/v2/turns/queued/input",
+                json={"text": "More context", "input_id": "extra"},
+            )
             assert not repeat.json()["accepted"]
             full = await client.post("/v2/turns", json={"text": "overflow"})
-            assert full.status_code == 409 and full.json()["error"]["code"] == "agent.queue_full"
+            assert (
+                full.status_code == 409
+                and full.json()["error"]["code"] == "agent.queue_full"
+            )
             runtime = (await client.get("/v2/status")).json()
             assert runtime["protocol_version"] == 2
             assert runtime["runtime"]["active_turn_id"] == "main"
             assert runtime["runtime"]["queued_turn_ids"] == ["queued"]
             assert runtime["runtime"] == agent.runtime_status()
             assert (await client.post("/v2/turns/queued/cancel")).json()["accepted"]
-            assert (await client.get("/v2/turns/queued")).json()["result"]["request_failure"] == "cancelled"
+            assert (await client.get("/v2/turns/queued")).json()["result"][
+                "request_failure"
+            ] == "cancelled"
             llm.release.set()
             async with asyncio.timeout(4):
                 while True:
@@ -434,10 +559,21 @@ async def test_v2_turn_admission_question_budget_and_result_share_sdk_owner(
             restored = (await client.get("/v2/turns/main")).json()
             assert snapshot is not None and restored == snapshot.to_json()
             assert restored["wait_reason"] == ("budget" if max_cycles == 1 else "input")
-            assert (await client.post("/v2/turns/main/reply", json={"question_id": "stale", "response": "A"})).status_code == 409
-            assert (await client.post("/v2/turns/main/reply", json={
-                "question_id": restored["question"]["question_id"], "response": "A",
-            })).json()["accepted"]
+            assert (
+                await client.post(
+                    "/v2/turns/main/reply",
+                    json={"question_id": "stale", "response": "A"},
+                )
+            ).status_code == 409
+            assert (
+                await client.post(
+                    "/v2/turns/main/reply",
+                    json={
+                        "question_id": restored["question"]["question_id"],
+                        "response": "A",
+                    },
+                )
+            ).json()["accepted"]
             if max_cycles == 1:
                 async with asyncio.timeout(4):
                     while True:
@@ -448,8 +584,14 @@ async def test_v2_turn_admission_question_budget_and_result_share_sdk_owner(
                         await asyncio.sleep(0.01)
                 assert budget is not None and budget.budget_request is not None
                 grant = {"request_id": budget.budget_request.request_id, "count": 1}
-                assert (await client.post("/v2/turns/main/grant", json={**grant, "count": True})).status_code == 422
-                assert (await client.post("/v2/turns/main/grant", json=grant)).json()["accepted"]
+                assert (
+                    await client.post(
+                        "/v2/turns/main/grant", json={**grant, "count": True}
+                    )
+                ).status_code == 422
+                assert (await client.post("/v2/turns/main/grant", json=grant)).json()[
+                    "accepted"
+                ]
             handle = agent.commands.turn("main")
             assert handle is not None
             result = await asyncio.wait_for(handle.wait(), 5)
@@ -458,10 +600,15 @@ async def test_v2_turn_admission_question_budget_and_result_share_sdk_owner(
             assert current["result"] == result.to_json()
             assert current["result"]["output"]["text"] == "done"
             assert "context_completion" not in current["result"]
-            assert (await client.post("/v2/turns/main/input", json={"text": "too late"})).status_code == 409
+            assert (
+                await client.post("/v2/turns/main/input", json={"text": "too late"})
+            ).status_code == 409
             assert (await client.get("/v2/turns/missing")).status_code == 404
             assert (await client.get("/v1/status")).status_code == 404
-            assert all(path.startswith("/v2/") for path in (await client.get("/openapi.json")).json()["paths"])
+            assert all(
+                path.startswith("/v2/")
+                for path in (await client.get("/openapi.json")).json()["paths"]
+            )
             assert (await client.post("/v2/reset")).status_code == 404
     finally:
         llm.release.set()
@@ -470,29 +617,64 @@ async def test_v2_turn_admission_question_budget_and_result_share_sdk_owner(
 
 async def test_v2_job_stop_uses_turn_owner_and_sdk_projection(tmp_path: Path) -> None:
     llm = _LLM()
-    for call in reversed((
-        ToolCallRecord("select_execution", "select_action_domains", {"domains": ["execution"]}, ToolKind.CONTROL),
-        ToolCallRecord("start", "execution.start", {
-            "interpreter": "python", "source_link": "workspace:long.py", "interactive": True,
-        }, ToolKind.ACTION),
-        ToolCallRecord("select_ask", "select_action_domains", {"domains": ["core"]}, ToolKind.CONTROL),
-        ToolCallRecord("ask", "core.ask", {"text": "Continue?"}, ToolKind.ACTION),
-    )):
-        llm.results.appendleft(TaskResult.success(
-            raw_response=RawResponse("", "fake", "fake", tool_calls=(call,)),
-            answer=None, tool_calls=(call,),
-        ))
+    for call in reversed(
+        (
+            ToolCallRecord(
+                "select_execution",
+                "select_action_domains",
+                {"domains": ["execution"]},
+                ToolKind.CONTROL,
+            ),
+            ToolCallRecord(
+                "start",
+                "execution.start",
+                {
+                    "interpreter": "python",
+                    "source_link": "workspace:long.py",
+                    "interactive": True,
+                },
+                ToolKind.ACTION,
+            ),
+            ToolCallRecord(
+                "select_ask",
+                "select_action_domains",
+                {"domains": ["core"]},
+                ToolKind.CONTROL,
+            ),
+            ToolCallRecord("ask", "core.ask", {"text": "Continue?"}, ToolKind.ACTION),
+        )
+    ):
+        llm.results.appendleft(
+            TaskResult.success(
+                raw_response=RawResponse("", "fake", "fake", tool_calls=(call,)),
+                answer=None,
+                tool_calls=(call,),
+            )
+        )
     endpoints: list[EndpointEngine] = []
     agent = await _create(tmp_path, llm, endpoints=endpoints)
     await agent.start()
     try:
-        await agent.patch_config((
-            ConfigMutation(source_id="project:configs/execution.toml", path="execution.enabled", op="set", value=True),
-            ConfigMutation(source_id="project:configs/execution.toml",
-                           path="execution.interpreters.python.executable", op="set", value=sys.executable),
-        ))
+        await agent.patch_config(
+            (
+                ConfigMutation(
+                    source_id="project:configs/execution.toml",
+                    path="execution.enabled",
+                    op="set",
+                    value=True,
+                ),
+                ConfigMutation(
+                    source_id="project:configs/execution.toml",
+                    path="execution.interpreters.python.executable",
+                    op="set",
+                    value=sys.executable,
+                ),
+            )
+        )
         await agent.reload_config()
-        await agent.services.get(WorkspaceService).write_text("workspace:long.py", "import sys; sys.stdin.read()")
+        await agent.services.get(WorkspaceService).write_text(
+            "workspace:long.py", "import sys; sys.stdin.read()"
+        )
         llm.release.set()
         active = await agent.submit_turn(UserTurnRequest("Run", request_id="owner"))
         async with asyncio.timeout(5):
@@ -503,22 +685,32 @@ async def test_v2_job_stop_uses_turn_owner_and_sdk_projection(tmp_path: Path) ->
         assert snapshots and not snapshots[0].state.terminal
         endpoint = endpoints[0]
         async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=create_endpoint_app(endpoint, endpoint.settings)),
-            base_url="http://test", headers={"Authorization": f"Bearer {'x' * 32}"},
+            transport=httpx.ASGITransport(
+                app=create_endpoint_app(endpoint, endpoint.settings)
+            ),
+            base_url="http://test",
+            headers={"Authorization": f"Bearer {'x' * 32}"},
         ) as client:
             jobs = (await client.get("/v2/turns/owner/jobs")).json()["jobs"]
             assert jobs == [item.to_json() for item in snapshots]
             job_id = snapshots[0].job_id
-            assert (await client.post(f"/v2/turns/wrong/jobs/{job_id}/stop")).status_code == 404
+            assert (
+                await client.post(f"/v2/turns/wrong/jobs/{job_id}/stop")
+            ).status_code == 404
             stopped = await client.post(f"/v2/turns/owner/jobs/{job_id}/stop")
-            assert stopped.status_code == 200 and stopped.json()["state"] in {"cancelled", "succeeded"}
+            assert stopped.status_code == 200 and stopped.json()["state"] in {
+                "cancelled",
+                "succeeded",
+            }
             current = agent.turn_jobs("owner")
             assert current and stopped.json() == current[0].to_json()
             assert not active.cancel_requested
             await client.post("/v2/turns/owner/cancel")
             await asyncio.wait_for(active.wait(), 5)
             assert (await client.get("/v2/turns/owner/jobs")).json()["jobs"] == []
-            assert (await client.post(f"/v2/turns/owner/jobs/{job_id}/stop")).status_code == 404
+            assert (
+                await client.post(f"/v2/turns/owner/jobs/{job_id}/stop")
+            ).status_code == 404
     finally:
         await agent.shutdown()
 
@@ -593,16 +785,37 @@ async def test_shutdown_joins_inflight_start_and_rejects_cached_commands(
     assert await agent.shutdown() == ()
 
 
-async def test_sdk_completed_facts_are_inspectable_until_daily_archive(tmp_path: Path) -> None:
+async def test_sdk_completed_facts_are_inspectable_until_daily_archive(
+    tmp_path: Path,
+) -> None:
     llm = _LLM()
     llm.release.set()
+
     def result(call: ToolCallRecord) -> TaskResult:
-        return TaskResult.success(raw_response=RawResponse("", "fake", "fake", tool_calls=(call,)),
-                                  answer=None, tool_calls=(call,))
-    select = ToolCallRecord("select", "select_action_domains", {"domains": ["core"]}, ToolKind.CONTROL)
-    llm.results.extendleft(reversed((result(select), result(ToolCallRecord(
-        "wait", "core.wait", {"event_kind": "event", "event_id": "wake"}, ToolKind.ACTION
-    )))))
+        return TaskResult.success(
+            raw_response=RawResponse("", "fake", "fake", tool_calls=(call,)),
+            answer=None,
+            tool_calls=(call,),
+        )
+
+    select = ToolCallRecord(
+        "select", "select_action_domains", {"domains": ["core"]}, ToolKind.CONTROL
+    )
+    llm.results.extendleft(
+        reversed(
+            (
+                result(select),
+                result(
+                    ToolCallRecord(
+                        "wait",
+                        "core.wait",
+                        {"event_kind": "event", "event_id": "wake"},
+                        ToolKind.ACTION,
+                    )
+                ),
+            )
+        )
+    )
     clock = _Clock()
     agent = await _create(tmp_path, llm, clock=clock)
     await agent.start()
@@ -612,24 +825,42 @@ async def test_sdk_completed_facts_are_inspectable_until_daily_archive(tmp_path:
             while first.wait_reason is None:
                 assert not first.done
                 await asyncio.sleep(0.01)
-        await agent.publish(EnvironmentEvent(EventKind.EVENT, {"notice": "event-marker"}, "wake"))
+        await agent.publish(
+            EnvironmentEvent(EventKind.EVENT, {"notice": "event-marker"}, "wake")
+        )
         await agent.append_input(first.turn_id, "additional evidence", input_id="extra")
         completed = await asyncio.wait_for(first.wait(), 5)
         assert isinstance(completed.outcome, TurnOutcome) and completed.outcome.answered
-        llm.results.extend((result(select), result(ToolCallRecord(
-            "inspect", "core.context.inspect", {"ref": f"session:turn/{first.turn_id}"}, ToolKind.ACTION
-        )), *_LLM().results))
+        llm.results.extend(
+            (
+                result(select),
+                result(
+                    ToolCallRecord(
+                        "inspect",
+                        "core.context.inspect",
+                        {"ref": f"session:turn/{first.turn_id}"},
+                        ToolKind.ACTION,
+                    )
+                ),
+                *_LLM().results,
+            )
+        )
         second = await agent.submit_turn(UserTurnRequest("review the preceding work"))
         review = await asyncio.wait_for(second.wait(), 5)
         assert isinstance(review.outcome, TurnOutcome) and review.outcome.answered
         completion = review.outcome.context_completion
         assert completion is not None
-        inspection = next(item for item in completion.trace.actions if item.call.action_name == "core.context.inspect")
+        inspection = next(
+            item
+            for item in completion.trace.actions
+            if item.call.action_name == "core.context.inspect"
+        )
         assert inspection.result is not None
         assert "additional evidence" in str(inspection.result.payload)
         assert "event-marker" in str(inspection.result.payload)
         # The next decision task receives the full result before pressure may fold it.
         from tinysoul.runtime import CyclePhase, RunLevel
+
         assert any(
             "event-marker" in str(call.messages)
             for call in llm.calls
@@ -644,8 +875,11 @@ async def test_sdk_completed_facts_are_inspectable_until_daily_archive(tmp_path:
         assert new.outcome.active_day == clock.today()
         assert f"session:turn/{first.turn_id}" not in str(llm.calls[-3].messages)
         from tinysoul.plugins.session.records.store import SessionStore
+
         archive = next((tmp_path / "project" / "archive").glob("*/session"))
-        archived = SessionStore(root=archive).load_record(f"session:turn/{first.turn_id}")
+        archived = SessionStore(root=archive).load_record(
+            f"session:turn/{first.turn_id}"
+        )
         assert any(item.ref.endswith("#input/1") for item in archived.timeline)
         assert "event-marker" in str(archived.notes)
     finally:
@@ -680,14 +914,18 @@ async def test_cancel_active_turn_keeps_dispatcher_and_queued_work_alive(
         queued = await agent.submit_turn(UserTurnRequest("two"))
         with pytest.raises(AgentQueueFullError):
             await agent.submit_turn(UserTurnRequest("three"))
-        await agent.append_input(active.turn_id, "accepted before cancellation", input_id="accepted")
+        await agent.append_input(
+            active.turn_id, "accepted before cancellation", input_id="accepted"
+        )
         assert await agent.cancel_turn(active.turn_id)
         cancelled = await asyncio.wait_for(active.wait(), 5)
         assert cancelled.status is TurnOutcomeStatus.CANCELLED
         assert isinstance(cancelled.outcome, TurnOutcome)
         facts = cancelled.outcome.context_completion
         assert facts is not None and facts.inputs[-1].input_id == "accepted"
-        assert any(item.ref.endswith("#input/accepted") for item in facts.trace.timeline)
+        assert any(
+            item.ref.endswith("#input/accepted") for item in facts.trace.timeline
+        )
         assert active.state is TurnState.FINISHED
         assert agent.state is AgentState.RUNNING
         llm.release.set()
@@ -943,7 +1181,11 @@ async def test_memory_reflection_revises_daily_from_fixed_target_sources(
     llm.release.set()
     builder = (
         AgentBuilder(root)
-        .with_config_environment(ConfigEnvironment.from_project_root(root, env={}, overrides={"reflection.schedule.enabled": False}))
+        .with_config_environment(
+            ConfigEnvironment.from_project_root(
+                root, env={}, overrides={"reflection.schedule.enabled": False}
+            )
+        )
         .with_agent_settings(AgentSettings(interactive=False))
         .with_calendar_clock(clock)
         .with_llm_runner(llm)
@@ -1087,7 +1329,9 @@ async def test_question_reply_resumes_same_turn_and_keeps_new_root_queued(
         queued = await agent.submit_turn(UserTurnRequest("later"))
         assert (
             await agent.publish(
-                EnvironmentEvent(EventKind.EVENT, {"changed": True}, "e", active.turn_id)
+                EnvironmentEvent(
+                    EventKind.EVENT, {"changed": True}, "e", active.turn_id
+                )
             )
         ).delivered
         assert not (
@@ -1127,6 +1371,16 @@ async def test_execution_is_stopped_before_queued_next_day_work_can_archive(
 ) -> None:
     processes: list[ManagedProcess] = []
     start = ManagedProcessRunner.start
+    reconcile = WorkspaceEngine.reconcile
+    incomplete_delivered = False
+
+    def discover(self: WorkspaceEngine) -> WorkspaceReconcileResult:
+        nonlocal incomplete_delivered
+        result = reconcile(self)
+        if not incomplete_delivered and processes and processes[0].running():
+            incomplete_delivered = True
+            return replace(result, status=WorkspaceReconcileStatus.INCOMPLETE)
+        return result
 
     def capture(
         self: ManagedProcessRunner,
@@ -1139,6 +1393,7 @@ async def test_execution_is_stopped_before_queued_next_day_work_can_archive(
         return process
 
     monkeypatch.setattr(ManagedProcessRunner, "start", capture)
+    monkeypatch.setattr(WorkspaceEngine, "reconcile", discover)
     llm = _LLM()
     for call in reversed(
         (
@@ -1204,7 +1459,7 @@ async def test_execution_is_stopped_before_queued_next_day_work_can_archive(
             (
                 "import subprocess,sys\n"
                 "subprocess.Popen([sys.executable, '-c', "
-                "\"import threading; from pathlib import Path; "
+                '"import threading; from pathlib import Path; '
                 "f = Path('old-day.txt').open('w', encoding='utf-8'); "
                 "f.write('preserved'); f.flush(); threading.Event().wait(15)\"], "
                 "stdin=subprocess.DEVNULL)\n"
@@ -1219,7 +1474,7 @@ async def test_execution_is_stopped_before_queued_next_day_work_can_archive(
             ):
                 assert not active.done
                 await asyncio.sleep(0.01)
-        assert len(processes) == 1 and processes[0].running()
+        assert incomplete_delivered and len(processes) == 1 and processes[0].running()
         clock.value = datetime(2026, 9, 16, 1, tzinfo=ZoneInfo("Asia/Shanghai"))
         queued = await agent.submit_turn(UserTurnRequest("next day"))
         assert queued.state is TurnState.QUEUED

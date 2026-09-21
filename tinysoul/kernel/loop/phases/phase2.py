@@ -202,11 +202,13 @@ class Phase2Unit:
         cycle_id: str,
     ) -> None:
         parts = ()
-        if result.raw_response.answer_text:
+        if result.raw_response is not None and result.raw_response.answer_text:
             parts = (TextPart(result.raw_response.answer_text),)
         message = AssistantMessage.from_parts(
             *parts,
-            reasoning=result.raw_response.reasoning,
+            reasoning=result.raw_response.reasoning
+            if result.raw_response is not None
+            else None,
             tool_calls=result.tool_calls,
             label="decision",
         )

@@ -1,0 +1,25 @@
+name = "expand.describe_servers"
+domain = "expand"
+
+[tool]
+description = "Browse configured MCP services and bounded tool summaries; use page to continue."
+
+[tool.schema]
+type = "object"
+required = []
+additionalProperties = false
+
+[tool.schema.properties.server_ids]
+type = "array"
+items = { type = "string" }
+
+[tool.schema.properties.page]
+type = "string"
+
+[semantic]
+use_when = ["Browse configured MCP services and bounded tool summaries; use page to continue."]
+effects = ["read_only"]
+
+[backend]
+kind = "native"
+handler = "expand.describe_servers"

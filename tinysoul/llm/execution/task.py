@@ -26,7 +26,7 @@ from .context_window import (
     ModelContextPressureError,
     RequestTokenEstimator,
 )
-from ..protocol.messages import ImagePart, ImageUrlPart, MessageStack
+from ..protocol.messages import ImagePart, ImageUrlPart
 from tinysoul.llm.protocol.routing import ChainErrorDisposition, ModelChain, TaskSpec
 from .model_chain import (
     Clock,
@@ -64,6 +64,7 @@ from ..protocol.responses import (
     TaskFailureReason,
     TaskFailureScope,
     TaskResult,
+    TaskResultStatus,
 )
 from ..protocol.tools import ToolUse
 
@@ -303,6 +304,20 @@ class LLMTaskRunner:
                 classify_error=self._classify_chain_error,
             )
         except ModelContextPressureError as exc:
+            if (
+                call.context_overflow_policy
+                is ModelContextOverflowPolicy.RETURN_FAILURE
+            ):
+                return TaskResult(
+                    status=TaskResultStatus.FAILURE,
+                    raw_response=None,
+                    answer=None,
+                    failure=TaskFailure(
+                        reason=TaskFailureReason.INPUT_CAPACITY,
+                        model_feedback="The complete task exceeds model input capacity; reduce the task input scope.",
+                        constraint={"capacity_exceeded": True},
+                    ),
+                )
             kind = LLMFailureKind.MODEL_CONTEXT_LIMIT_REACHED
             if (
                 call.context_overflow_policy

@@ -6,7 +6,7 @@ from enum import StrEnum
 from threading import RLock
 from time import monotonic
 
-from tinysoul.infra.concurrency import CleanupDiagnostic
+from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.process import (
     ManagedProcess,
@@ -46,7 +46,13 @@ class ProcessJobBackend:
         self._stop_reason: _StopReason | None = None
         self._lock = RLock()
 
-    def poll(self) -> JobSnapshot:
+    async def poll(self) -> JobSnapshot:
+        operations = JoinedOperations()
+        result = await operations.run(self._poll)
+        operations.check_cancelled()
+        return result
+
+    def _poll(self) -> JobSnapshot:
         with self._lock:
             if self._process.running():
                 try:
@@ -61,7 +67,12 @@ class ProcessJobBackend:
                 elif monotonic() >= self._deadline:
                     self._stop(_StopReason.TIMEOUT)
                 else:
-                    return JobSnapshot(self.job_id, self.kind, JobState.RUNNING)
+                    return JobSnapshot(
+                        self.job_id,
+                        self.kind,
+                        JobState.RUNNING,
+                        result_links=self._workspace_links,
+                    )
             if self._stop_reason is _StopReason.CANCELLED:
                 state, reason, summary = (
                     JobState.CANCELLED,
@@ -86,7 +97,14 @@ class ProcessJobBackend:
                     "nonzero_exit",
                     "Process returned a non-zero exit status.",
                 )
-            return JobSnapshot(self.job_id, self.kind, state, summary, reason)
+            return JobSnapshot(
+                self.job_id,
+                self.kind,
+                state,
+                summary,
+                reason,
+                result_links=self._workspace_links,
+            )
 
     def _stop(self, reason: _StopReason) -> None:
         # Once natural completion is observed, a later stop preserves that fact.
@@ -100,11 +118,22 @@ class ProcessJobBackend:
                     kind=JobFailureKind.EXECUTION_CLOSE_FAILED,
                 ) from exc
 
-    def request_stop(self) -> None:
+    async def request_stop(self) -> None:
+        operations = JoinedOperations()
+        await operations.run(self._request_stop)
+        operations.check_cancelled()
+
+    def _request_stop(self) -> None:
         with self._lock:
             self._stop(_StopReason.CANCELLED)
 
-    def close_execution(self) -> tuple[CleanupDiagnostic, ...]:
+    async def close_execution(self) -> tuple[CleanupDiagnostic, ...]:
+        operations = JoinedOperations()
+        result = await operations.run(self._close_execution)
+        operations.check_cancelled()
+        return result
+
+    def _close_execution(self) -> tuple[CleanupDiagnostic, ...]:
         with self._lock:
             self._stop(_StopReason.CANCELLED)
             try:
@@ -115,11 +144,17 @@ class ProcessJobBackend:
                     kind=JobFailureKind.EXECUTION_CLOSE_FAILED,
                 ) from exc
 
-    def cleanup(self) -> tuple[CleanupDiagnostic, ...]:
+    async def cleanup(self) -> tuple[CleanupDiagnostic, ...]:
         # Logs and generated files belong to Workspace and follow its daily lifecycle.
         return ()
 
-    def describe(self) -> JsonObject:
+    async def describe(self) -> JsonObject:
+        operations = JoinedOperations()
+        result = await operations.run(self._describe)
+        operations.check_cancelled()
+        return result
+
+    def _describe(self) -> JsonObject:
         with self._lock:
             try:
                 stdout_size, stderr_size = self._process.output_sizes()
@@ -188,7 +223,7 @@ class ProcessJobBackend:
                     kind=JobFailureKind.SUPERVISION_FAILED,
                 ) from exc
             return {
-                **self.describe(),
+                **self._describe(),
                 "stdout": stdout.text,
                 "stderr": stderr.text,
                 "stdout_cursor": stdout.next_cursor,

@@ -10,8 +10,10 @@ from .managed import (
     ProcessContractError,
     ProcessTextSlice,
 )
+from .stdio import StdioProcess
 
 __all__ = [
+    "StdioProcess",
     "ManagedProcess",
     "ManagedProcessCloseError",
     "ManagedProcessOptions",

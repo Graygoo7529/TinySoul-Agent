@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from uuid import uuid4
 
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.kernel.loop.interaction.inbox import InboxError, TurnInbox
-from tinysoul.runtime import RunScope, Signal, SignalBus
+from tinysoul.runtime import RunScope, Signal, SignalBus, RuntimeException
 from tinysoul.runtime.control.exception import RUNTIME_AGENT_END
 from .failures import JobError, JobRequestError, JobFailureKind
 from .runtime_bridge import RuntimeJobsBridge
@@ -18,18 +18,18 @@ from .models import JobState, JobSnapshot, JobBackend
 
 
 @dataclass
-class _Job[B: JobBackend]:
+class _Job:
     turn_id: str
     snapshot: JobSnapshot
-    backend: B | None = None
+    backend: JobBackend | None = None
     monitor: asyncio.Task[None] | None = None
     terminal_delivered: bool = False
     execution_closed: bool = False
-    failure: JobError | None = None
+    failure: JobError | RuntimeException | None = None
     control_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
-class JobRegistry[B: JobBackend]:
+class JobRegistry:
     """Supervise execution once; retain a bounded set of terminal results."""
 
     def __init__(self, *, capacity: int = 16, per_turn_capacity: int = 1) -> None:
@@ -40,7 +40,7 @@ class JobRegistry[B: JobBackend]:
             raise JobError("Job limits must be positive integers")
         self._capacity = capacity
         self._per_turn_capacity = per_turn_capacity
-        self._jobs: dict[str, _Job[B]] = {}
+        self._jobs: dict[str, _Job] = {}
         self._inboxes: dict[str, TurnInbox] = {}
         self._diagnostics: dict[str, list[CleanupDiagnostic]] = {}
 
@@ -52,7 +52,9 @@ class JobRegistry[B: JobBackend]:
         if inbox is not None:
             self._inboxes[turn_id] = inbox
 
-    async def start(self, turn_id: str, kind: str, factory: Callable[[str], B]) -> B:
+    async def start[B: JobBackend](
+        self, turn_id: str, kind: str, factory: Callable[[str], Awaitable[B]]
+    ) -> B:
         if not isinstance(turn_id, str) or not turn_id:
             raise JobRequestError("Job requires an owner Turn")
         active = tuple(job for job in self._jobs.values() if not job.execution_closed)
@@ -63,7 +65,7 @@ class JobRegistry[B: JobBackend]:
                 "Retained Job result capacity is full; finish this Turn before starting more work"
             )
         job_id = f"job_{uuid4().hex}"
-        job = _Job[B](turn_id, JobSnapshot(job_id, kind, JobState.STARTING))
+        job = _Job(turn_id, JobSnapshot(job_id, kind, JobState.STARTING))
         self._jobs[job_id] = job
         inbox = self._inboxes.get(turn_id)
         try:
@@ -75,28 +77,35 @@ class JobRegistry[B: JobBackend]:
                         "Job terminal capacity is unavailable"
                     ) from exc
             operations = JoinedOperations()
-            job.backend = await operations.run(lambda: factory(job_id))
+            backend = await operations.run_async(lambda: factory(job_id))
+            job.backend = backend
             operations.check_cancelled()
             job.monitor = asyncio.create_task(
                 self._monitor(job), name=f"tinysoul-job:{job_id}"
             )
-            return job.backend
+            return backend
         except BaseException:
             await self.release(turn_id, job_id)
             raise
 
-    def _owned(self, turn_id: str, job_id: str) -> _Job[B]:
+    def _owned(self, turn_id: str, job_id: str) -> _Job:
         job = self._jobs.get(job_id)
         if job is None or job.turn_id != turn_id or job.backend is None:
             raise JobRequestError("Job is not available in this Turn")
         return job
 
-    def get(self, turn_id: str, job_id: str) -> B:
+    def get(self, turn_id: str, job_id: str) -> JobBackend:
         job = self._owned(turn_id, job_id)
         if job.failure is not None:
             raise job.failure
         assert job.backend is not None
         return job.backend
+
+    def backend[B: JobBackend](self, turn_id: str, job_id: str, kind: type[B]) -> B:
+        backend = self.get(turn_id, job_id)
+        if not isinstance(backend, kind):
+            raise JobRequestError("Job belongs to a different capability")
+        return backend
 
     def ids(self, turn_id: str) -> tuple[str, ...]:
         return tuple(key for key, job in self._jobs.items() if job.turn_id == turn_id)
@@ -137,7 +146,9 @@ class JobRegistry[B: JobBackend]:
                 await self._join_monitor(job)
                 if not job.execution_closed:
                     assert job.backend is not None
-                    job.snapshot = JobSnapshot(job_id, job.snapshot.kind, JobState.STOPPING)
+                    job.snapshot = JobSnapshot(
+                        job_id, job.snapshot.kind, JobState.STOPPING
+                    )
                     await self._call(
                         job.backend.request_stop,
                         operations=operations,
@@ -155,7 +166,7 @@ class JobRegistry[B: JobBackend]:
                 if job.failure is not None:
                     raise job.failure
                 return job.snapshot
-            except JobError as exc:
+            except (JobError, RuntimeException) as exc:
                 # External controls must leave a failure fact for the Turn's
                 # existing sync/Trap path after retiring the monitor.
                 job.failure = exc
@@ -164,25 +175,23 @@ class JobRegistry[B: JobBackend]:
 
     async def _call[T](
         self,
-        operation: Callable[[], T],
+        operation: Callable[[], Awaitable[T]],
         *,
         operations: JoinedOperations | None = None,
         kind: JobFailureKind = JobFailureKind.SUPERVISION_FAILED,
     ) -> T:
         try:
-            joined = operations or JoinedOperations()
-            value = await joined.run(operation)
-            if operations is None:
-                joined.check_cancelled()
-            return value
-        except JobError:
+            if operations is not None:
+                return await operations.run_async(operation)
+            return await operation()
+        except (JobError, RuntimeException):
             raise
         except Exception as exc:
             raise JobError(
                 "Job backend could not complete its operation", kind=kind
             ) from exc
 
-    async def _poll(self, job: _Job[B]) -> JobSnapshot:
+    async def _poll(self, job: _Job) -> JobSnapshot:
         assert job.backend is not None
         snapshot = await self._call(job.backend.poll)
         if (
@@ -193,7 +202,7 @@ class JobRegistry[B: JobBackend]:
             raise JobError("Backend changed Job identity")
         return snapshot
 
-    async def _close_execution(self, job: _Job[B]) -> None:
+    async def _close_execution(self, job: _Job) -> None:
         if job.execution_closed or job.backend is None:
             return
         diagnostics = await self._call(
@@ -211,7 +220,7 @@ class JobRegistry[B: JobBackend]:
             raise JobError("Backend cleanup must return typed diagnostics")
         self._diagnostics.setdefault(turn_id, []).extend(diagnostics)
 
-    async def _monitor(self, job: _Job[B]) -> None:
+    async def _monitor(self, job: _Job) -> None:
         try:
             while True:
                 snapshot = await self._poll(job)
@@ -221,15 +230,27 @@ class JobRegistry[B: JobBackend]:
                     await self._terminal(job)
                     return
                 job.snapshot = snapshot
+                inbox = self._inboxes.get(job.turn_id)
+                if inbox is not None:
+                    try:
+                        await inbox.deliver_job_inputs(
+                            snapshot.job_id,
+                            tuple(item.to_json() for item in snapshot.pending_inputs),
+                        )
+                    except InboxError as exc:
+                        raise JobError("Reserved Job input delivery failed") from exc
                 await asyncio.sleep(0.05)
         except asyncio.CancelledError:
             raise
-        except JobError as exc:
+        except (JobError, RuntimeException) as exc:
             job.failure = exc
             try:
-                if exc.kind is not JobFailureKind.EXECUTION_CLOSE_FAILED:
+                if (
+                    not isinstance(exc, JobError)
+                    or exc.kind is not JobFailureKind.EXECUTION_CLOSE_FAILED
+                ):
                     await self._close_execution(job)
-            except JobError as close_error:
+            except (JobError, RuntimeException) as close_error:
                 job.failure = close_error
             if job.execution_closed and not job.snapshot.state.terminal:
                 job.snapshot = JobSnapshot(
@@ -242,7 +263,7 @@ class JobRegistry[B: JobBackend]:
             # when execution could not close; no invented STOPPED terminal.
             await self._terminal(job)
 
-    async def _terminal(self, job: _Job[B]) -> None:
+    async def _terminal(self, job: _Job) -> None:
         if job.terminal_delivered:
             return
         inbox = self._inboxes.get(job.turn_id)
@@ -255,13 +276,15 @@ class JobRegistry[B: JobBackend]:
                 raise JobError("Reserved Job delivery failed") from exc
         job.terminal_delivered = True
 
-    async def _join_monitor(self, job: _Job[B]) -> None:
+    async def _join_monitor(self, job: _Job) -> None:
         if job.monitor is not None:
             job.monitor.cancel()
             try:
                 await job.monitor
             except asyncio.CancelledError:
                 pass
+            except RuntimeException:
+                raise
             except Exception as exc:
                 raise JobError(
                     "Job monitor failed", kind=JobFailureKind.SUPERVISION_FAILED
@@ -299,7 +322,9 @@ class JobRegistry[B: JobBackend]:
                                 "Backend reported a live Job after closing execution",
                                 kind=JobFailureKind.EXECUTION_CLOSE_FAILED,
                             )
-                    self._record_diagnostics(turn_id, await self._call(job.backend.cleanup))
+                    self._record_diagnostics(
+                        turn_id, await self._call(job.backend.cleanup)
+                    )
                     await self._terminal(job)
                 inbox = self._inboxes.get(turn_id)
                 if inbox is not None:
@@ -342,4 +367,6 @@ class JobRegistry[B: JobBackend]:
         )
         for job in self._jobs.values():
             if job.turn_id == turn_id and job.failure is not None:
+                if isinstance(job.failure, RuntimeException):
+                    raise job.failure
                 raise RuntimeJobsBridge().from_error(job.failure)

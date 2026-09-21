@@ -118,6 +118,7 @@ class TaskFailureReason(StrEnum):
     OUTPUT_LIMIT_REACHED = "output_limit_reached"
     CONTENT_FILTERED = "content_filtered"
     INCOMPLETE_RESPONSE = "incomplete_response"
+    INPUT_CAPACITY = "input_capacity"
 
 
 class TaskFailureScope(StrEnum):
@@ -160,7 +161,7 @@ class TaskResult:
     """Interpreted task result."""
 
     status: TaskResultStatus
-    raw_response: RawResponse
+    raw_response: RawResponse | None
     answer: Answer | None
     tool_calls: tuple[ToolCallRecord, ...] = field(default_factory=tuple)
     failure: TaskFailure | None = None
@@ -172,8 +173,20 @@ class TaskResult:
             raise LLMContractError("Successful task results cannot carry failure data")
         if self.status is TaskResultStatus.FAILURE and self.failure is None:
             raise LLMContractError("Failed task results must carry failure data")
-        if not isinstance(self.raw_response, RawResponse):
-            raise LLMContractError("TaskResult.raw_response must be a RawResponse")
+        if self.raw_response is not None and not isinstance(
+            self.raw_response, RawResponse
+        ):
+            raise LLMContractError(
+                "TaskResult.raw_response must be a RawResponse or absent"
+            )
+        if self.raw_response is None and (
+            self.status is not TaskResultStatus.FAILURE
+            or self.answer is not None
+            or self.tool_calls
+        ):
+            raise LLMContractError(
+                "A task without a provider response must be an empty local failure"
+            )
         if self.answer is not None and not isinstance(
             self.answer,
             (TextAnswer, JsonAnswer),

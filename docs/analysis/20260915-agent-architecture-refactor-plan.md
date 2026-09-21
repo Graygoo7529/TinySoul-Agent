@@ -1,11 +1,11 @@
 # Agent 架构重构：设计语义、契约与执行计划
 
-状态：`in_progress`（R1、R2 收口、R3 及其收口、Before 4、R4、R5 及其收口与复审修正均已完成并归档。S1、S2、S4、S5 为 done；S3 的领域重构及 Organize 事实/导航数据基础已完成，模型整理动作与注释层安排主计划尾期；S6–S7 未整体完成，保持原定范围）。
+状态：`in_progress`（R1、R2 收口、R3 及其收口、Before 4、R4、R5 及其收口与复审修正、R6 均已完成并归档。S1、S2、S4、S5、S6 为 done；S3 的领域重构及 Organize 事实/导航数据基础已完成，模型整理动作与注释层安排主计划尾期；S7 保留原定范围）。
 修订日期：2026-09-21。历史初始复审代码：`e930c9c444deb0073ab3d7f016057245bad66ca6`；R2 分析基线为本地 `6821983`。2026-09-19 重新克隆远端，复审基线为 `be61886`（R3 收口之后）。历史验证与本次复审证据分别记录，不互相替代。
 
 配套讨论来源：[前三轮 Review 与 R4 前基础补强方案](../chat/20260920-r1-r3-review-and-pre-r4-foundation-plan-latest.md)；[Before 4：数据基础与渐进披露](done/20260920-done-Agent重构Before4子计划-数据基础与渐进披露.md) 已于 2026-09-20 实施完成。用户确认的多历史 Turn/已有地图整理方向与受信独立主机假设保持不变；事实/导航基础先交付，Organize 写能力仍属尾期。讨论来源保留当时状态，实现证据以已归档子计划及本计划 §13 为准。
 
-2026-09-21 [R6：外部 Agent 与 MCP 能力接入子计划](20260921%20Agent重构第六轮子计划-外部Agent与MCP能力接入.md) 已建立设计预览（`pending`）。首个 adapter、R6 不开放运行中 send、权限默认由父 Agent 决定已确认；Job 接口细化获认可。有界一次 LLM 搜索、超预算由父 Agent 缩小服务范围及 MCP 四动作 `describe_servers/describe_tools/search/call` 已确认。S6 尚未实施验收，整体范围和完成状态不变。
+2026-09-21 [R6：外部 Agent 与 MCP 能力接入子计划](done/20260921-done-Agent重构第六轮子计划-外部Agent与MCP能力接入.md) 已完成并归档：共享异步 JobBackend/Inbox 待答投影、受控 stdio、ACP session/权限/多次委派、MCP stdio/Streamable HTTP 四动作、标准 JSON Schema、统一配置与三情景接入均已核对。最终 Full 1130 passed、23 deselected（含生成/wheel），Windows/Linux 目标 typecheck 与 diff-check 通过。真实 Codex ACP 1.12.0/Codex 0.154.0 握手、session 释放/隔离探针与 SDK fixture 分别记录；未运行真实模型委派、远程 MCP、搜索质量测评或 Linux 实机。回归收口与一次未复现 Workspace IO 失败的诊断记录见子计划 §12。S3 Organize/注释层与 S7 范围不变。
 
 本文件描述目标设计，不代表全部已实现。初始复审仅授权分析、修订计划与讨论；后续 R1/R2/R3 与 Before 4 已获明确实施授权，实际完成范围见第 13 节。确认状态见第 14 节。用户已确认架构方向，特别是受限 SUSPEND 与 Inbox 保障边界，并补充 Reflection 通用动作叠加、ACP 显式连接及 Working 呈现；未实施的具体签名与连接寿命仍标明建议。原“正文 + 替换预览”合并为单一方案，旧版由 Git 保存，不并行保留互相冲突的接口。API 为契约草图，具体名称与类型在子计划落定。
 
@@ -633,14 +633,14 @@ Job 属启动 Turn，可跨 Cycle，不跨 Turn；Registry 在 Agent 索引不�
 
 ACP 客户端归 subagent 插件；TinySoul ACP server 不在本次范围。先锁真实 agent adapter、SDK 和协议版本，再映射初始化/session/prompt/流更新/权限/取消/退出。
 
-旧草图“ACP v2”“prompt 立即返回”“idle 就是完成”“session/close 必存在”未验证，本版删除这些实现假设。本轮未完成目标 adapter 连通验证，S6 先以官方文档和 fake adapter 核验。
+旧草图“ACP v2”“prompt 立即返回”“idle 就是完成”“session/close 必存在”已删除。R6 以 ACP 0.12.1、Codex ACP 1.12.0/Codex 0.154.0 核验发布协议；真实握手、session 释放/隔离探针与本地 SDK fixture 分开记录，未用它们替代真实模型委派验收。
 
 已确认先建立 ACP 连接，再委派 Job，连接现态进入 Working。Connection 是可通信端点，协议 session 是适配器维护的对话上下文，Job 是一次有终点的委派。Job 完成不等于断连，后续委派也不复活旧 Job。
 
 动作草图：
 
 - subagent.connect(agent, cwd?) → connection_id：启动/握手，准备可用端点，限时返回；未准备完成不宣称 ready。
-- subagent.delegate(connection_id, brief, references) → job_id：创建一次 acp_agent 委派。
+- subagent.delegate(connection_id, brief, references) → job_id：创建一次 subagent.acp 委派。
 - subagent.disconnect(connection_id)：关闭空闲连接；有活 Job 返回 busy，先经 core.job.stop 收敛。
 - respond/collect 针对 job_id；ACP 不再保留绕过显式连接的第二套 start 入口。2026-09-21 已确认 R6 不开放运行中 send/steering；后续支持必须能只追加当前 Job，不能隐式开始新委派。
 
@@ -677,7 +677,7 @@ TinySoul schema 只校验外壳；远端 inputSchema 由选定 JSON Schema valid
 
 MCP 连接可常驻 Agent，不代表调用 Job 跨 Turn；首批 call 有界执行。取消不保证远端系统撤销副作用。长任务、resource/prompts 按后续明确范围扩展。
 
-S6 核验入口：[ACP 官方文档](https://agentclientprotocol.com/)、[MCP 规范](https://modelcontextprotocol.io/specification)、[MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)。它们是后续入口，不是本轮已验证版本证据。
+协议参考：[ACP 官方文档](https://agentclientprotocol.com/)、[MCP 规范](https://modelcontextprotocol.io/specification)、[MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)。锁定版本、实际支持范围与验证证据见 R6 子计划，不以网站最新内容替代已验证发布包事实。
 
 ## 12. 失败语义与 Gateway
 
@@ -744,7 +744,7 @@ WS 断开不取消 Turn；问题可由状态查询恢复，Observation gap 不�
 
 [Before 4 子计划](done/20260920-done-Agent重构Before4子计划-数据基础与渐进披露.md) 于 2026-09-20 完成（`done`）。BF1–BF5 已核对：Trace 类型化时间线、Session v10 唯一事实与当日分层导航、共用披露/分页/query、inspect 可见结果消费保护、Session 自身水位回收、CalendarClock/active_day 及可复现本地测试边界。Windows Full 1087 passed、23 deselected，含 generation/wheel；Windows 与 Linux 目标 typecheck 通过。本轮未执行 Linux 实机或真实 provider/network，旧部署数据未迁移/reset。Organize Action/注释层、fswatch、Gateway v2 和 ACP/MCP 未提前实现。
 
-S1、S2、S4、S5 已完成；R5 提交后复审修正已核对并归档，S3 延后项与 S6–S7 尚未完成。历史 S0 定稿不代表后续协议细化关闭。子计划只有实现/文档/必要验证全部通过才 done 并归档；docs/design 只写已落地部分。
+S1、S2、S4、S5、S6 已完成；R5 复审修正与 R6 已核对并归档，S3 延后项与 S7 尚未完成。历史 S0 定稿不代表后续协议细化关闭。子计划只有实现/文档/必要验证全部通过才 done 并归档；docs/design 只写已落地部分。
 
 2026-09-20 [R4：环境事件与插件运行闭环子计划](done/20260920-done-Agent重构第四轮子计划-环境事件与插件运行闭环.md) 已完成并归档，S4 标记 `done`。落实显式插件事件/运行贡献、topic/source 路由与等待、可合并状态通知、Workspace 正式写入和外部文件监听的统一 owner 刷新、世代/日切/关闭及 Reflection 定时策略分离。只监听当前 Workspace；原生监听失败停止来源并有界反馈，正式操作继续，无自动恢复状态机。Windows Full 1100 passed、23 deselected，含生成/wheel、真实文件监听与进程跨午夜；Windows/Linux 目标 typecheck 通过，未运行 Linux 实机与真实 provider/network。具体核对见子计划 §10，S3 Organize 与 S6–S7 范围不变。
 
@@ -764,7 +764,7 @@ S1、S2、S4、S5 已完成；R5 提交后复审修正已核对并归档，S3 �
 | S3 `in_progress` | R3 与收口已完成领域重构；Before 4 已补齐事实顺序、当日导航、渐进披露与 query；Organize 动作与注释层按 §8 尾期实施 | R3 收口及 Before 4 Full/typecheck、事实重开/归档、真实进程跨午夜与 SDK 取回消费闭环通过；延后项未伪报完成 |
 | S4 `done` | R4 已落实 fswatch、插件事件订阅/触发及生命周期声明；复用 scheduler、ask/reply、容量、reload/restart、Job 监督 | R4 Full/typecheck 通过；外部与 SDK 写入恢复同一 Turn 并刷新实际 MessageStack，固定批次/预算/来源失败/重载恢复/收尾/午夜闭环已验证 |
 | S5 `done` | Gateway v2、项目命令、HTTP/WS/replay、稳定 Endpoint 生命周期与协议文档；原 R5 及运行可用性/重启复审修正均已归档 | 激活受理、启动失败句柄结算、并发/取消重启及 wait_for_exit 契约通过 Full/typecheck；ACP Job 应答仍归 S6 |
-| S6 | 锁 ACP/MCP adapter/协议/SDK，connect/delegate/respond、连接段；内部子调用留后续 | 建连→多次委派/权限回应→收尾，fake 故障矩阵，真实 smoke 单独声明 |
+| S6 `done` | ACP 六动作/连接段、MCP 四动作、共享异步 Job、配置与标准 schema；内部子调用留后续 | R6 Full 1130 passed、23 deselected，Windows/Linux 目标类型检查通过；真实协议 fixture 与 Codex 握手/session smoke 分开记录，外部模型与 Linux 实机未验证 |
 | S7 | 全仓文档/AGENTS/测试/打包一致，删旧入口/死抽象 | Full/typecheck/import 图/完整 E2E |
 
 S1–S2 为相邻基础迁移单元，不宣称中间提交可部署。S2 工作量包含全部消费者的接口迁移：迁移基线中的 maintenance/builder.py、session/engine.py、workspace/projection.py 和能力 actions 等依赖旧 loop/context/action，不能删除旧内核后留到 S3 修 imports。现已采用一套新运行路径、注册真实 owner 段与动作，保留可复用领域算法；无兼容 alias、旧管线转发器或临时伪插件。

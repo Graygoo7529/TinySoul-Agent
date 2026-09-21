@@ -9,6 +9,8 @@ import tomllib
 import re
 
 from ..errors import ConfigError
+from ..descriptors import load_config_catalog
+from ..descriptors.models import ConfigCatalog, ConfigValueKind
 from .source import ConfigSource, ConfigSourceKind
 from ...filesystem import atomic_write_text
 
@@ -28,10 +30,10 @@ class ConfigFileToml:
     def data(self) -> dict[str, object]:
         return deep_copy_mapping(self._data)
 
-    def to_source(self) -> ConfigSource:
+    def to_source(self, *, catalog: ConfigCatalog | None = None) -> ConfigSource:
         return ConfigSource(
             name=str(self.path),
-            values=flatten_mapping(self._data, source=str(self.path)),
+            values=flatten_mapping(self._data, source=str(self.path), catalog=catalog),
             kind=ConfigSourceKind.PROJECT_TOML,
             path=self.path,
         )
@@ -97,17 +99,27 @@ def flatten_mapping(
     prefix: str = "",
     *,
     source: str = "",
+    catalog: ConfigCatalog | None = None,
 ) -> dict[str, object]:
+    catalog = catalog or load_config_catalog()
     result: dict[str, object] = {}
     for key, value in data.items():
         dotted = f"{prefix}.{key}" if prefix else str(key)
         _validate_mapping_segment(str(key), dotted_key=dotted, source=source)
         if isinstance(value, Mapping):
+            descriptor = catalog.match(dotted)
+            if (
+                descriptor is not None
+                and descriptor.value_kind is ConfigValueKind.OBJECT
+            ):
+                result[dotted] = deep_copy_mapping(cast(Mapping[str, object], value))
+                continue
             result.update(
                 flatten_mapping(
                     _string_key_mapping(cast(Mapping[str, object], value)),
                     dotted,
                     source=source,
+                    catalog=catalog,
                 )
             )
         else:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 import asyncio
+import sys
+from time import monotonic
 from tinysoul.agent.composition.assembly import AgentAssembly
 from tinysoul.kernel.loop.turn import TurnOutcome
 
@@ -18,7 +20,7 @@ from tinysoul.agent.composition.builder import AgentBuilder
 from tinysoul.gateway.endpoint.host import mount_endpoint
 from tinysoul.gateway.endpoint import EndpointSettings
 from tinysoul.gateway.endpoint.http import create_endpoint_app
-from tinysoul.infra.config import ConfigEnvironment, ConfigMutation
+from tinysoul.infra.config import ConfigEnvironment
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.llm.protocol.requests import TaskCall
 from tinysoul.llm.failures import LLMFailureKind
@@ -86,7 +88,16 @@ async def test_three_scenarios_have_independent_policies_and_owner_services(
         return result
 
     monkeypatch.setattr(ReflectionBuilder, "build", capture)
-    config = ConfigEnvironment.from_project_root(root, env={})
+    config = ConfigEnvironment.from_project_root(
+        root,
+        env={},
+        overrides={
+            "capabilities.expand.servers.local.enabled": True,
+            "capabilities.expand.servers.local.command": sys.executable,
+            "capabilities.subagent.agents.local.enabled": True,
+            "capabilities.subagent.agents.local.command": sys.executable,
+        },
+    )
     app = await (
         AgentBuilder(root)
         .with_config_environment(config)
@@ -110,6 +121,14 @@ async def test_three_scenarios_have_independent_policies_and_owner_services(
             {"home.diff", "home.review", "memory.write", "memory.write_daily"}
         )
         assert "memory.memorize" not in identifiers[2]
+        for actions in identifiers:
+            assert {
+                "expand.search",
+                "expand.call",
+                "subagent.connect",
+                "subagent.delegate",
+                "subagent.respond",
+            } <= actions
         assert home.services.get(HomeReviewService)
         assert home.services.get(MemoryService)
         assert memory.services.get(MemoryKnowledgeService)
@@ -390,7 +409,8 @@ async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer
     with client.websocket_connect("/v2/events/ws") as websocket:
 
         def receive_event_names() -> tuple[str, ...]:
-            for _ in range(20):
+            deadline = monotonic() + 5
+            while monotonic() < deadline:
                 message = to_json_object(websocket.receive_json())
                 if message.get("type") == "events":
                     raw_events = message.get("events")
@@ -615,8 +635,7 @@ async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
     client = TestClient(create_endpoint_app(endpoint, endpoint.settings))
     headers = {"Authorization": f"Bearer {'x' * 32}"}
     domain_source = (
-        "project-document:action.catalog:"
-        "configs/action/catalog/workspace/domain.toml"
+        "project-document:action.catalog:configs/action/catalog/workspace/domain.toml"
     )
     action_source = (
         "project-document:action.catalog:"
@@ -1084,7 +1103,9 @@ async def test_agent_builder_runs_resource_conversion_through_real_action_chain(
     assert page.is_file()
 
 
-async def test_agent_builder_cycle_limit_suspends_until_explicit_decision(tmp_path: Path) -> None:
+async def test_agent_builder_cycle_limit_suspends_until_explicit_decision(
+    tmp_path: Path,
+) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     (workspace_root / "doc.md").write_text("hello", encoding="utf-8")
@@ -1518,11 +1539,15 @@ def _test_config(
         values.update(overrides)
     return ConfigEnvironment.from_project_root(root=project_root, overrides=values)
 
+
 async def _run_once(app: AgentAssembly, text: str) -> TurnOutcome:
     """Exercise the real queue/Inbox path without starting mounted HTTP hosts."""
     from tinysoul.agent import UserTurnRequest
+
     await app.agent_runner.prepare()
-    await app.generation_handle.snapshot().generation.sources.start(app.commands.publish_internal)
+    await app.generation_handle.snapshot().generation.sources.start(
+        app.commands.publish_internal
+    )
     handle = await app.commands.submit_turn(UserTurnRequest(text))
     running = asyncio.create_task(app.agent_runner.run())
     try:

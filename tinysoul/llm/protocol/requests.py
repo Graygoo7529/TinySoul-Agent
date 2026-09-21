@@ -32,6 +32,7 @@ class ModelContextOverflowPolicy(StrEnum):
 
     FAIL = "fail"
     REQUEST_RECOVERY = "request_recovery"
+    RETURN_FAILURE = "return_failure"
 
 
 @dataclass(frozen=True)
@@ -170,7 +171,7 @@ class TaskCall:
             ModelContextOverflowPolicy,
         ):
             raise LLMContractError(
-                "TaskCall.context_overflow_policy must be " "ModelContextOverflowPolicy"
+                "TaskCall.context_overflow_policy must be ModelContextOverflowPolicy"
             )
         if self.cancellation is not None and not isinstance(
             self.cancellation,

@@ -4,7 +4,7 @@
 
 Infra 提供项目底层运行设施。它不表达具体业务语义，也不拥有上层模块的领域配置。
 
-Infra 当前负责配置环境、JSON 动态边界、受控文件系统读写、Python 依赖可用性检查、owner-neutral 的 `CalendarDay` 值对象，以及 provider-neutral 的文本 embedding 配置和窄客户端协议。每项基础能力都保持小而明确的边界，避免反向了解 Loop、Action、LLM、Memory、Workspace 或具体 capability 的业务细节；业务时区、日切策略、检索融合与业务日志不属于 Infra。通用受控进程位于 infra/process，由 Action worker 适配器和 execution Job 后端共同消费，不携带 Job/Turn 身份。
+Infra 当前负责配置环境、JSON 动态边界、受控文件系统读写、Python 依赖可用性检查、owner-neutral 的 `CalendarDay` 值对象，以及 provider-neutral 的文本 embedding 配置和窄客户端协议。`infra/json/schema.py` 提供限定 dialect、无网络引用解析的标准 JSON Schema 校验；`infra/process/stdio.py` 在同一平台进程所有权内提供有界异步双向管道，供协议能力使用。每项基础能力都保持小而明确的边界，避免反向了解 Loop、Action、LLM、Memory、Workspace 或具体 capability 的业务细节；业务时区、日切策略、检索融合与业务日志不属于 Infra。通用受控进程位于 infra/process，由 Action worker 适配器和 execution Job 后端共同消费，不携带 Job/Turn 身份。
 
 配置内部按 sources、editing、descriptors 分开来源读取、候选文件事务与展示描述；ConfigEnvironment/ConfigController 保持公开门面。描述符模型和加载器不创建业务对象，业务 owner 显式解释自己的 section。
 
@@ -30,6 +30,8 @@ component 或 secret value。Provider、Model、Task Chain 等对象仍只是 `C
 source/effective 配置事实的 collection view；Infra 不缓存对象投影，也不 import LLM、Action、
 Capabilities 等业务模块。Catalog 资源错误是 Infra package contract failure，项目 TOML 的结构
 与引用错误仍由各业务 parser 形成 `ConfigError`。
+
+TOML 展开在 catalog 声明的 object 字段处停止，以整个映射作为配置值；对象内的点号、数字等 key 不解释为新的 dotted path。候选编辑和 source/effective 投影复用同一边界，工具选择、环境引用等映射按整体值覆盖。credential reference 可声明单个名称、名称数组或映射值；ConfigController 从有效引用派生需脱敏的环境变量集合，不把解析出的凭据带回配置投影。
 
 Collection 的 `delete_policy` 只表达设置页是否提供删除命令：`all` 允许删除任意对象，
 `create_source_only` 只允许删除全部 project TOML 定义都来自 collection `create_source` 的对象，

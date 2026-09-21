@@ -1,0 +1,25 @@
+name = "subagent.collect"
+domain = "subagent"
+
+[tool]
+description = "Read bounded delegation output without executing the task again."
+
+[tool.schema]
+type = "object"
+required = ["job_id"]
+additionalProperties = false
+
+[tool.schema.properties.job_id]
+type = "string"
+
+[tool.schema.properties.cursor]
+type = "integer"
+minimum = 0
+
+[semantic]
+use_when = ["Read bounded delegation output without executing the task again."]
+effects = ["read_only"]
+
+[backend]
+kind = "native"
+handler = "subagent.collect"

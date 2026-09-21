@@ -10,6 +10,7 @@ from typing import cast
 from ...filesystem import FilesystemBoundaryError, resolve_under_root
 from ..documents import ConfigDocument, ConfigDocumentSet, ConfigDocumentSetSpec
 from ..errors import ConfigError
+from ..descriptors import load_config_catalog
 from .source import ConfigSource, ConfigSourceKind
 from .toml_file import ConfigFileToml, deep_copy_mapping, flatten_mapping, merge_trees
 from ..validation import reject_unknown_keys
@@ -21,6 +22,7 @@ class ProjectConfig:
     def __init__(self, root: Path, main_file_name: str = "tinysoul.toml") -> None:
         self.root = root
         self.main_path = root / main_file_name
+        self._catalog = load_config_catalog()
         self._data, self._sources, self._document_sets = self._load()
 
     @property
@@ -44,7 +46,9 @@ class ProjectConfig:
     def to_source(self) -> ConfigSource:
         return ConfigSource(
             name=str(self.main_path),
-            values=flatten_mapping(self._data, source=str(self.main_path)),
+            values=flatten_mapping(
+                self._data, source=str(self.main_path), catalog=self._catalog
+            ),
             kind=ConfigSourceKind.PROJECT_TOML,
             path=self.main_path,
             source_id="project:merged",
@@ -71,7 +75,11 @@ class ProjectConfig:
         main = main_file.data
         _validate_config_table(main, source=str(self.main_path))
         result = deep_copy_mapping(main)
-        sources = [_with_project_identity(self.root, main_file.to_source())]
+        sources = [
+            _with_project_identity(
+                self.root, main_file.to_source(catalog=self._catalog)
+            )
+        ]
         include_paths = _expand_include_paths(
             self.root,
             _get_config_string_list(main, "include"),
@@ -97,7 +105,11 @@ class ProjectConfig:
                     value=str(include_path),
                 )
             result = merge_trees(result, include_data)
-            sources.append(_with_project_identity(self.root, include_file.to_source()))
+            sources.append(
+                _with_project_identity(
+                    self.root, include_file.to_source(catalog=self._catalog)
+                )
+            )
         document_sets = _load_document_sets(
             self.root,
             _get_config_document_set_specs(main, source=str(self.main_path)),

@@ -36,6 +36,7 @@ class ReflectionActionAssembly(Protocol):
         catalog: LoadedActionCatalog,
         *,
         plugins: tuple[PluginDeclaration, ...],
+        scenario: str = "user",
         archive_source: Callable[[], WorkspaceArchiveView | None] | None = None,
     ) -> tuple[ActionEngineBuilder, TurnActivityController, ResolvedPlugins]: ...
 
@@ -54,7 +55,11 @@ def build_reflection_action(
     if kind not in {"home", "memory"}:
         raise ReflectionContractError("Unknown Reflection kind")
     builder, jobs, services = assembly.prepare(
-        context, action_catalog, plugins=plugins, archive_source=archive_source
+        context,
+        action_catalog,
+        plugins=plugins,
+        archive_source=archive_source,
+        scenario=f"{kind}_reflection",
     )
     if kind == "home":
         register_home_review_actions(builder, controller=home_controller)

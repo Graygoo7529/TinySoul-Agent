@@ -30,7 +30,7 @@ class ExecutionEngine:
         self,
         *,
         settings: ExecutionSettings,
-        jobs: JobRegistry[ProcessJobBackend],
+        jobs: JobRegistry,
         workspace: WorkspaceEngine,
         runner: ManagedProcessRunner | None = None,
     ) -> None:
@@ -143,7 +143,11 @@ class ExecutionEngine:
                 job_id, process, settings=self.settings, workspace_links=location.links
             )
 
-        return await self.jobs.start(turn_id, ProcessJobBackend.kind, factory)
+        async def launch(job_id: str) -> ProcessJobBackend:
+            # The Registry records the returned resource before cancellation.
+            return await JoinedOperations().run(lambda: factory(job_id))
+
+        return await self.jobs.start(turn_id, ProcessJobBackend.kind, launch)
 
     @staticmethod
     def _argv(

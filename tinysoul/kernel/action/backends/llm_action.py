@@ -133,6 +133,7 @@ class LLMActionTaskRunner:
         prompt: TaskPrompt,
         subject: str,
         control: ActionExecutionControl | None = None,
+        context_overflow_policy: ModelContextOverflowPolicy = ModelContextOverflowPolicy.REQUEST_RECOVERY,
     ) -> JsonObject | ActionResult:
         """Run one JSON-object LLM action task and normalize local failures."""
 
@@ -142,6 +143,7 @@ class LLMActionTaskRunner:
             answer_format=AnswerFormat.JSON_OBJECT,
             subject=subject,
             control=control,
+            context_overflow_policy=context_overflow_policy,
         )
         if isinstance(result, ActionResult):
             return result
@@ -224,6 +226,7 @@ class LLMActionTaskRunner:
         subject: str,
         control: ActionExecutionControl | None,
         max_output_chars: int | None = None,
+        context_overflow_policy: ModelContextOverflowPolicy = ModelContextOverflowPolicy.REQUEST_RECOVERY,
     ) -> TaskResult | ActionResult:
         prompt = await self.prompt_with_skills(prompt, execution=execution)
         options = _execution_options(execution)
@@ -256,9 +259,7 @@ class LLMActionTaskRunner:
                         ),
                     ),
                     scope=execution.framework.scope,
-                    context_overflow_policy=(
-                        ModelContextOverflowPolicy.REQUEST_RECOVERY
-                    ),
+                    context_overflow_policy=context_overflow_policy,
                     cancellation=cancellation,
                 )
             )

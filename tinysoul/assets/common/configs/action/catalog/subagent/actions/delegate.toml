@@ -1,0 +1,28 @@
+name = "subagent.delegate"
+domain = "subagent"
+
+[tool]
+description = "Delegate a bounded task on a ready connection and return a Turn-owned Job. Use core.job controls and collect the result."
+
+[tool.schema]
+type = "object"
+required = ["connection_id", "brief"]
+additionalProperties = false
+
+[tool.schema.properties.connection_id]
+type = "string"
+
+[tool.schema.properties.brief]
+type = "string"
+
+[tool.schema.properties.reference_links]
+type = "array"
+items = { type = "string" }
+
+[semantic]
+use_when = ["Delegate a bounded task on a ready connection and return a Turn-owned Job. Use core.job controls and collect the result."]
+effects = ["modifying"]
+
+[backend]
+kind = "native"
+handler = "subagent.delegate"

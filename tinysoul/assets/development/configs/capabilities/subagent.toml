@@ -1,0 +1,11 @@
+# Install a pinned ACP adapter before enabling a target.
+[capabilities.subagent]
+max_connections = 4
+connect_timeout_seconds = 30
+max_runtime_seconds = 3600
+stop_timeout_seconds = 10
+max_output_chars = 1000000
+max_collect_chars = 12000
+max_brief_chars = 24000
+
+[capabilities.subagent.agents]

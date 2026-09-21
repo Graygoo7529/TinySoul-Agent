@@ -1,0 +1,25 @@
+name = "expand.search"
+domain = "expand"
+
+[tool]
+description = "Select relevant MCP tools for a non-empty request using one bounded model task. Narrow server_ids when requested."
+
+[tool.schema]
+type = "object"
+required = ["query"]
+additionalProperties = false
+
+[tool.schema.properties.query]
+type = "string"
+
+[tool.schema.properties.server_ids]
+type = "array"
+items = { type = "string" }
+
+[semantic]
+use_when = ["Select relevant MCP tools for a non-empty request using one bounded model task. Narrow server_ids when requested."]
+effects = ["read_only"]
+
+[backend]
+kind = "llm_action"
+handler = "expand.search"

@@ -2,9 +2,9 @@
 
 ## 定位
 
-Capabilities 承载不拥有独立持久化、Link namespace 或 Runtime/Trap 生命周期的轻量业务能力。它把真实用户能力接入 Action，而不建立与 Workspace、Home、Memory、Session 平行的状态模块。
+Capabilities 承载通过 Action 使用的外围业务能力，不拥有独立持久化或 Link namespace。能力可以持有连接、协议会话和派生目录，由 Agent 的 Turn、日与世代生命周期管理；它不建立独立调度器，也不复制 Workspace、Home、Memory、Session 的业务事实。
 
-一个 capability 负责自身的业务配置、依赖需求、service/client/converter 和 Action executor 适配。Action 继续拥有 Catalog、Phase2 工具协议、Phase3 调度、超时和结果回放；Infra 只提供配置和依赖检查等通用机制；Agent 只完成装配。
+一个 capability 负责自身的业务配置、依赖需求、service/client/converter 和 Action executor 适配。Action 继续拥有 Catalog、Phase2 工具协议、Phase3 调度、超时和结果回放；Infra 提供配置、依赖检查、标准 schema 校验和受控传输；Agent 组合 owner 的装配和关闭顺序。
 
 ## 组织原则
 
@@ -31,6 +31,8 @@ Capabilities 共用 `[capabilities]` 顶层命名空间，但项目文件按能�
 configs/capabilities/
   resource.toml
   web.toml
+  expand.toml
+  subagent.toml
 ```
 
 文件拆分只影响维护位置，不改变 TOML section identity。每个 capability parser 只解释自己的子树并拒绝未知键。Infra 的 ConfigEnvironment 负责 include、合并、来源诊断和环境覆盖，不拥有 capability 业务字段。
@@ -83,6 +85,8 @@ ActionResult 是否包含正文由 action 的交互语义和明确上限决定�
 
 - Resource conversion：`docs/design/capabilities/resource.md`；
 - Web search/fetch：`docs/design/capabilities/web.md`。
+- [MCP expand](capabilities/expand.md)：四个有界 Action 共用一个目录 owner，长结果进入 Workspace。
+- [ACP subagent](capabilities/subagent.md)：连接/session 与共享 JobRegistry 分工，权限请求经父 Agent 回应，Turn 收尾释放执行与 session。
 
 ## 失败语义
 

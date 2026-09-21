@@ -25,6 +25,7 @@ from tinysoul.plugins.workspace.runtime_bridge import RuntimeWorkspaceBridge
 from tinysoul.plugins.workspace.services import WorkspaceService
 
 from .engine import ExecutionEngine
+from .backend import ProcessJobBackend
 from .failures import ExecutionRequestError, ExecutionStartError
 
 
@@ -94,7 +95,7 @@ class ExecutionActionExecutor:
             job_id = params.get("job_id")
             if not isinstance(job_id, str) or not job_id:
                 raise ExecutionRequestError("Job identity is required")
-            backend = jobs.get(turn_id, job_id)
+            backend = jobs.backend(turn_id, job_id, ProcessJobBackend)
             if operation is ExecutionOperation.STDIN:
                 text, close = params.get("text", ""), params.get("close", False)
                 if not isinstance(text, str) or not isinstance(close, bool):
@@ -183,7 +184,10 @@ class ExecutionActionExecutor:
         # metadata; cancellation never rolls those filesystem effects back.
         async def sync() -> None:
             result = await self._workspace.using(JoinedOperations()).reconcile()
-            if not result.complete:
+            # Live Jobs may be changing the directory during discovery. The
+            # owner retains its previous index; final Turn cleanup requires a
+            # complete scan after all execution has stopped.
+            if not result.complete and not jobs.has_unresolved(turn_id):
                 raise WorkspaceReconciliationError(
                     "Execution Workspace reconciliation is incomplete"
                 )

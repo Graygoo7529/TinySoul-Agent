@@ -24,9 +24,7 @@ from ..sources.source import ConfigSource, ConfigSourceKind
 from ..sources.toml_file import ConfigFileToml, flatten_mapping
 from .transaction import ConfigDocumentWrite, ConfigFileTransaction
 
-type ConfigValue = (
-    str | int | float | bool | list[ConfigValue] | dict[str, ConfigValue]
-)
+type ConfigValue = str | int | float | bool | list[ConfigValue] | dict[str, ConfigValue]
 
 
 @dataclass(frozen=True)
@@ -365,7 +363,9 @@ class ConfigController:
                 candidate_sources.append(
                     ConfigSource(
                         name=source.name,
-                        values=flatten_mapping(document.data, source=source.name),
+                        values=flatten_mapping(
+                            document.data, source=source.name, catalog=self._catalog
+                        ),
                         kind=source.kind,
                         path=source.path,
                         source_id=source.source_id,
@@ -477,13 +477,32 @@ class ConfigController:
 
     def _effective_fields(self) -> dict[str, JsonValue]:
         result: dict[str, JsonValue] = {}
+        credentials = self._credential_names()
         for key, value in self._environment.effective_values().items():
             result[key] = {
-                "value": to_json_value(value),
+                "value": "<redacted>" if key in credentials else to_json_value(value),
                 "source": self._environment.source_id_for(key),
                 "writable": self._is_writable_key(key),
+                **({"redacted": True} if key in credentials else {}),
             }
         return result
+
+    def _credential_names(self) -> frozenset[str]:
+        names: set[str] = set()
+        for path, value in self._environment.effective_values().items():
+            descriptor = self._catalog.match(path)
+            if descriptor is None or not descriptor.credential_reference:
+                continue
+            values = (
+                value.values()
+                if isinstance(value, dict)
+                else value
+                if isinstance(value, list)
+                else (value,)
+            )
+            names.update(item for item in values if isinstance(item, str))
+        # Config sources normalize environment names, while dotenv keeps spelling.
+        return frozenset(names | {name.lower().replace("__", ".") for name in names})
 
     def _candidate_fields(self, candidate: ConfigEnvironment) -> JsonObject:
         return {
@@ -529,7 +548,11 @@ class ConfigController:
         values: Mapping[str, object] = source.values
         if source.kind is ConfigSourceKind.DOTENV and source.path is not None:
             values = DotenvDocument(source.path).values
-        return {key: to_json_value(value) for key, value in values.items()}
+        credentials = self._credential_names()
+        return {
+            key: "<redacted>" if key in credentials else to_json_value(value)
+            for key, value in values.items()
+        }
 
     def _document_json(self, document: ConfigDocument) -> JsonObject:
         try:

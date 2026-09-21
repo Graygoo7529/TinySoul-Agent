@@ -14,7 +14,6 @@ from tinysoul.plugins.execution import (
     ExecutionSettings,
     Interpreter,
     InterpreterSpec,
-    ProcessJobBackend,
 )
 from tinysoul.plugins.execution.engine import ExecutionEngine
 from tinysoul.plugins.execution.failures import ExecutionRequestError
@@ -43,7 +42,7 @@ def _owners(
         enabled=True,
         interpreters=(InterpreterSpec(Interpreter.PYTHON, sys.executable),),
     )
-    jobs = JobRegistry[ProcessJobBackend](capacity=capacity)
+    jobs = JobRegistry(capacity=capacity)
     engine = ExecutionEngine(settings=settings, jobs=jobs, workspace=workspace)
     return engine, jobs, workspace, home
 
@@ -196,7 +195,7 @@ async def test_interactive_input_reports_accepted_utf8_bytes_and_no_silence_infe
     )
     try:
         # A silent process is RUNNING; no invented waiting_input state.
-        assert backend.poll().state is JobState.RUNNING
+        assert (await backend.poll()).state is JobState.RUNNING
         assert backend.write_stdin("中文", close=True) == 6
         async with asyncio.timeout(10):
             await engine.wait("turn", backend.job_id)

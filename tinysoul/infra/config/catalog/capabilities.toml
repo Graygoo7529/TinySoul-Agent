@@ -428,3 +428,343 @@ group = "capabilities.resource.pypdf"
 title = "Extract PDF Attachments"
 description = "Keeps embedded PDF attachments as related workspace assets."
 value_kind = "boolean"
+
+[[surface]]
+id = "capabilities.subagent"
+title = "External Agents"
+description = "Explicit external capability bindings and bounded execution."
+
+[[field_group]]
+id = "capabilities.subagent.limits"
+surface = "capabilities.subagent"
+title = "Limits"
+description = "Shared local capacity and execution bounds."
+
+[[field_group]]
+id = "capabilities.subagent.bindings"
+surface = "capabilities.subagent"
+title = "Connections"
+description = "Explicit connection settings; credentials use environment references."
+
+[[collection]]
+id = "capabilities.subagent.agents"
+surface = "capabilities.subagent"
+root = "capabilities.subagent.agents"
+title = "ACP Agent"
+description = "A named configured target. New entries are disabled until configured."
+identity = { title = "Identity", description = "Stable configuration identity without dots or outer whitespace." }
+create_source = "project:configs/capabilities/subagent.toml"
+create_template = { enabled = false, description = "", command = "", args = [], auto_approve = false, env = {  }, env_refs = {  } }
+delete_policy = "all"
+
+[[field]]
+path = "capabilities.subagent.max_connections"
+surface = "capabilities.subagent"
+group = "capabilities.subagent.limits"
+title = "Maximum Connections"
+description = "Maximum Connections applied by the capability owner."
+value_kind = "integer"
+
+[[field]]
+path = "capabilities.subagent.connect_timeout_seconds"
+surface = "capabilities.subagent"
+group = "capabilities.subagent.limits"
+title = "Connect Timeout"
+description = "Connect Timeout applied by the capability owner."
+value_kind = "number"
+
+[[field]]
+path = "capabilities.subagent.max_runtime_seconds"
+surface = "capabilities.subagent"
+group = "capabilities.subagent.limits"
+title = "Delegation Runtime"
+description = "Delegation Runtime applied by the capability owner."
+value_kind = "number"
+
+[[field]]
+path = "capabilities.subagent.stop_timeout_seconds"
+surface = "capabilities.subagent"
+group = "capabilities.subagent.limits"
+title = "Stop Timeout"
+description = "Stop Timeout applied by the capability owner."
+value_kind = "number"
+
+[[field]]
+path = "capabilities.subagent.max_output_chars"
+surface = "capabilities.subagent"
+group = "capabilities.subagent.limits"
+title = "Maximum Output Characters"
+description = "Maximum Output Characters applied by the capability owner."
+value_kind = "integer"
+
+[[field]]
+path = "capabilities.subagent.max_collect_chars"
+surface = "capabilities.subagent"
+group = "capabilities.subagent.limits"
+title = "Collected Page Characters"
+description = "Collected Page Characters applied by the capability owner."
+value_kind = "integer"
+
+[[field]]
+path = "capabilities.subagent.max_brief_chars"
+surface = "capabilities.subagent"
+group = "capabilities.subagent.limits"
+title = "Maximum Brief Characters"
+description = "Maximum Brief Characters applied by the capability owner."
+value_kind = "integer"
+
+[[field]]
+path = "capabilities.subagent.agents.*.enabled"
+surface = "capabilities.subagent"
+group = "capabilities.subagent.bindings"
+title = "enabled"
+description = "Configured enabled; interpreted by its capability owner."
+value_kind = "boolean"
+
+[[field]]
+path = "capabilities.subagent.agents.*.description"
+surface = "capabilities.subagent"
+group = "capabilities.subagent.bindings"
+title = "description"
+description = "Configured description; interpreted by its capability owner."
+value_kind = "string"
+
+[[field]]
+path = "capabilities.subagent.agents.*.command"
+surface = "capabilities.subagent"
+group = "capabilities.subagent.bindings"
+title = "command"
+description = "Configured command; interpreted by its capability owner."
+value_kind = "string"
+
+[[field]]
+path = "capabilities.subagent.agents.*.args"
+surface = "capabilities.subagent"
+group = "capabilities.subagent.bindings"
+title = "args"
+description = "Configured args; interpreted by its capability owner."
+value_kind = "string_list"
+
+[[field]]
+path = "capabilities.subagent.agents.*.env"
+surface = "capabilities.subagent"
+group = "capabilities.subagent.bindings"
+title = "env"
+description = "Configured env; interpreted by its capability owner."
+value_kind = "object"
+
+[[field]]
+path = "capabilities.subagent.agents.*.env_refs"
+surface = "capabilities.subagent"
+group = "capabilities.subagent.bindings"
+title = "env refs"
+description = "Map protocol names to ConfigEnvironment variable names; values are resolved only at assembly."
+value_kind = "object"
+credential_reference = true
+
+[[field]]
+path = "capabilities.subagent.agents.*.auto_approve"
+surface = "capabilities.subagent"
+group = "capabilities.subagent.bindings"
+title = "auto approve"
+description = "Explicitly use the adapter auto-approval mode; otherwise requests go to the parent Agent."
+value_kind = "boolean"
+
+[[surface]]
+id = "capabilities.expand"
+title = "MCP Tools"
+description = "Explicit external capability bindings and bounded execution."
+
+[[field_group]]
+id = "capabilities.expand.limits"
+surface = "capabilities.expand"
+title = "Limits"
+description = "Shared local capacity and execution bounds."
+
+[[field_group]]
+id = "capabilities.expand.bindings"
+surface = "capabilities.expand"
+title = "Connections"
+description = "Explicit connection settings; credentials use environment references."
+
+[[collection]]
+id = "capabilities.expand.servers"
+surface = "capabilities.expand"
+root = "capabilities.expand.servers"
+title = "MCP Server"
+description = "A named configured target. New entries are disabled until configured."
+identity = { title = "Identity", description = "Stable configuration identity without dots or outer whitespace." }
+create_source = "project:configs/capabilities/expand.toml"
+create_template = { enabled = false, description = "", transport = "stdio", command = "", args = [], cwd = "", env = {  }, env_refs = {  }, url = "", headers = {  }, header_refs = {  }, tools_default = true, tools = {  } }
+delete_policy = "all"
+
+[[field]]
+path = "capabilities.expand.timeout_seconds"
+surface = "capabilities.expand"
+group = "capabilities.expand.limits"
+title = "Request Timeout"
+description = "Request Timeout applied by the capability owner."
+value_kind = "number"
+
+[[field]]
+path = "capabilities.expand.max_tools"
+surface = "capabilities.expand"
+group = "capabilities.expand.limits"
+title = "Maximum Tools Per Server"
+description = "Maximum Tools Per Server applied by the capability owner."
+value_kind = "integer"
+
+[[field]]
+path = "capabilities.expand.max_catalog_bytes"
+surface = "capabilities.expand"
+group = "capabilities.expand.limits"
+title = "Maximum Catalog Bytes"
+description = "Maximum Catalog Bytes applied by the capability owner."
+value_kind = "integer"
+
+[[field]]
+path = "capabilities.expand.max_result_bytes"
+surface = "capabilities.expand"
+group = "capabilities.expand.limits"
+title = "Maximum Result Bytes"
+description = "Maximum Result Bytes applied by the capability owner."
+value_kind = "integer"
+
+[[field]]
+path = "capabilities.expand.max_inline_chars"
+surface = "capabilities.expand"
+group = "capabilities.expand.limits"
+title = "Inline Response Characters"
+description = "Inline Response Characters applied by the capability owner."
+value_kind = "integer"
+
+[[field]]
+path = "capabilities.expand.search_max_chars"
+surface = "capabilities.expand"
+group = "capabilities.expand.limits"
+title = "Search Candidate Characters"
+description = "Search Candidate Characters applied by the capability owner."
+value_kind = "integer"
+
+[[field]]
+path = "capabilities.expand.search_max_results"
+surface = "capabilities.expand"
+group = "capabilities.expand.limits"
+title = "Maximum Selected Tools"
+description = "Maximum Selected Tools applied by the capability owner."
+value_kind = "integer"
+
+[[field]]
+path = "capabilities.expand.page_size"
+surface = "capabilities.expand"
+group = "capabilities.expand.limits"
+title = "Describe Page Size"
+description = "Describe Page Size applied by the capability owner."
+value_kind = "integer"
+
+[[field]]
+path = "capabilities.expand.servers.*.enabled"
+surface = "capabilities.expand"
+group = "capabilities.expand.bindings"
+title = "enabled"
+description = "Configured enabled; interpreted by its capability owner."
+value_kind = "boolean"
+
+[[field]]
+path = "capabilities.expand.servers.*.description"
+surface = "capabilities.expand"
+group = "capabilities.expand.bindings"
+title = "description"
+description = "Configured description; interpreted by its capability owner."
+value_kind = "string"
+
+[[field]]
+path = "capabilities.expand.servers.*.transport"
+surface = "capabilities.expand"
+group = "capabilities.expand.bindings"
+title = "transport"
+description = "Configured transport; interpreted by its capability owner."
+value_kind = "enum"
+choices = [{ value = "stdio", label = "Local stdio" }, { value = "streamable_http", label = "Streamable HTTP" }]
+
+[[field]]
+path = "capabilities.expand.servers.*.command"
+surface = "capabilities.expand"
+group = "capabilities.expand.bindings"
+title = "command"
+description = "Configured command; interpreted by its capability owner."
+value_kind = "string"
+
+[[field]]
+path = "capabilities.expand.servers.*.args"
+surface = "capabilities.expand"
+group = "capabilities.expand.bindings"
+title = "args"
+description = "Configured args; interpreted by its capability owner."
+value_kind = "string_list"
+
+[[field]]
+path = "capabilities.expand.servers.*.cwd"
+surface = "capabilities.expand"
+group = "capabilities.expand.bindings"
+title = "cwd"
+description = "Configured cwd; interpreted by its capability owner."
+value_kind = "string"
+
+[[field]]
+path = "capabilities.expand.servers.*.env"
+surface = "capabilities.expand"
+group = "capabilities.expand.bindings"
+title = "env"
+description = "Configured env; interpreted by its capability owner."
+value_kind = "object"
+
+[[field]]
+path = "capabilities.expand.servers.*.env_refs"
+surface = "capabilities.expand"
+group = "capabilities.expand.bindings"
+title = "env refs"
+description = "Map protocol names to ConfigEnvironment variable names; values are resolved only at assembly."
+value_kind = "object"
+credential_reference = true
+
+[[field]]
+path = "capabilities.expand.servers.*.url"
+surface = "capabilities.expand"
+group = "capabilities.expand.bindings"
+title = "url"
+description = "Configured url; interpreted by its capability owner."
+value_kind = "string"
+
+[[field]]
+path = "capabilities.expand.servers.*.headers"
+surface = "capabilities.expand"
+group = "capabilities.expand.bindings"
+title = "headers"
+description = "Configured headers; interpreted by its capability owner."
+value_kind = "object"
+
+[[field]]
+path = "capabilities.expand.servers.*.header_refs"
+surface = "capabilities.expand"
+group = "capabilities.expand.bindings"
+title = "header refs"
+description = "Map protocol names to ConfigEnvironment variable names; values are resolved only at assembly."
+value_kind = "object"
+credential_reference = true
+
+[[field]]
+path = "capabilities.expand.servers.*.tools_default"
+surface = "capabilities.expand"
+group = "capabilities.expand.bindings"
+title = "tools default"
+description = "Configured tools default; interpreted by its capability owner."
+value_kind = "boolean"
+
+[[field]]
+path = "capabilities.expand.servers.*.tools"
+surface = "capabilities.expand"
+group = "capabilities.expand.bindings"
+title = "tools"
+description = "Whole map of exact remote tool names to booleans; per-tool choices override tools_default."
+value_kind = "object"

@@ -13,7 +13,8 @@ from tinysoul.kernel.context.segments import (
 )
 from tinysoul.llm.protocol.messages import Message, UserMessage
 from tinysoul.runtime import Signal
-from .models import JobSnapshot, JobState
+from .models import JobSnapshot, JobState, JobInputRequest
+from .failures import JobError
 
 
 @dataclass(frozen=True)
@@ -80,8 +81,26 @@ def _decode(signal: Signal) -> JobsUpdate:
             reason = job.get("reason", "")
             if not isinstance(reason, str):
                 raise ContextContractError("Job reason must be text")
-            parsed.append(JobSnapshot(job_id, kind, JobState(state), summary, reason))
-        except ValueError as exc:
+            pending = job.get("pending_inputs", [])
+            if not isinstance(pending, list):
+                raise ContextContractError("Job inputs must be a list")
+            links = job.get("result_links", [])
+            if not isinstance(links, list) or any(
+                not isinstance(link, str) for link in links
+            ):
+                raise ContextContractError("Job result links must be a list of strings")
+            parsed.append(
+                JobSnapshot(
+                    job_id,
+                    kind,
+                    JobState(state),
+                    summary,
+                    reason,
+                    tuple(JobInputRequest.from_json(item) for item in pending),
+                    tuple(link for link in links if isinstance(link, str)),
+                )
+            )
+        except (ValueError, JobError) as exc:
             raise ContextContractError(
                 "Job snapshot contains an invalid state"
             ) from exc

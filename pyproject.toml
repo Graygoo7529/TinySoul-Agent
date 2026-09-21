@@ -31,6 +31,7 @@ tinysoul = "tinysoul.gateway.cli:main"
 
 [project.optional-dependencies]
 dev = [
+    "tinysoul[external-tools]",
     "crawlee>=1.8,<2",
     "pytest",
     "pytest-asyncio>=1.0,<2",
@@ -39,6 +40,11 @@ dev = [
 ]
 web-crawl = [
     "crawlee>=1.8,<2",
+]
+external-tools = [
+    "agent-client-protocol==0.12.1",
+    "mcp==2.2.0",
+    "jsonschema>=4.26,<5",
 ]
 
 [tool.setuptools.packages.find]

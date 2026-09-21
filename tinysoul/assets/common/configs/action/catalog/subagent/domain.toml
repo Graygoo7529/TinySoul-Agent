@@ -1,0 +1,13 @@
+name = "subagent"
+description = "Delegate work to configured external Agents and supervise their requests and results."
+selection_hint = "Delegate work to configured external Agents and supervise their requests and results."
+
+[visibility]
+default = true
+
+[runtime]
+timeout_seconds = 90
+parallel_policy = "serial"
+
+[runtime.result]
+trace_mode = "foldable"

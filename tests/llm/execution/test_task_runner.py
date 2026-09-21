@@ -561,6 +561,32 @@ async def test_smaller_fallback_requests_recomposition_without_chain_checkpoint(
     assert provider.calls == ["large", "large", "small"]
 
 
+async def test_bounded_task_returns_capacity_failure_without_provider_response() -> (
+    None
+):
+    provider = FakeProvider(provider_id="fake")
+    runner = LLMTaskRunner(
+        models=_window_models(("small", 100)),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(
+            ModelChain(profile="framework", model_ids=("small",)), max_output_tokens=10
+        ),
+        context_trigger_ratio=0.8,
+        token_estimator=FixedTokenEstimator(message_tokens=71),
+    )
+    result = await runner.run(
+        TaskCall(
+            profile="framework",
+            messages=MessageStack.of(UserMessage.from_text("complete input")),
+            context_overflow_policy=ModelContextOverflowPolicy.RETURN_FAILURE,
+        )
+    )
+    assert (
+        result.failure is not None and result.failure.reason.value == "input_capacity"
+    )
+    assert result.raw_response is None and not provider.calls
+
+
 async def test_provider_context_limit_uses_same_recomposition_path() -> None:
     @dataclass
     class ContextRejectingProvider(FakeProvider):

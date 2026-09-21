@@ -12,7 +12,7 @@
 
 AgentBuilder 读取明确传入的配置、构造领域 Engine 与资源作用域；AgentAssembly 保存根调度器、命令门面、配置控制器、当前世代和显式挂载的来源/服务。User、Home Reflection、Memory Reflection 分别解析真实 PluginDeclaration，先校验服务身份、依赖和段路由，再激活段与 Action 贡献。TurnProfile 绑定独立 Context、Action surface、准备/完成管线和类型化服务表。
 
-Agent.create 从项目根装配；Agent.assemble 接受显式装配工厂，供嵌入方注入 provider、时钟或来源。create 不启动来源，start 等待确定性日切与服务激活后才返回。SDK 的 submit、append、reply、cancel、grant 与 publish 经 AgentCommands 进入唯一调度器或指定 Inbox。状态查询为内存快照，TurnHandle 等待 owner 的 TurnOutcome/ReflectionOutcome；等待者取消不取消已受理 work。
+Agent.create 从项目根装配；Agent.assemble 接受显式装配工厂，供嵌入方注入 provider、时钟或来源。create 不启动来源，start 等待确定性日切与服务激活后才返回。SDK 的 submit、append、reply、cancel、grant 与 publish 经 AgentCommands 进入唯一调度器或指定 Inbox。状态查询为内存快照，TurnHandle 等待 owner 的 TurnOutcome/ReflectionOutcome；等待者取消不取消已受理 work。外部 ACP/MCP 能力同样由当前世代装配，旧 facade 失效后由调用者重新获取。
 
 Agent.services 按 Facade 类型提供当前 User profile 的 HomeService、MemoryService、SessionService 与 WorkspaceService，查找不触发 I/O。服务公开 I/O 为 async，短文件操作由 JoinedOperations 完整 join，模型和网络使用原生 async。每次调用按世代→日→owner 的顺序获取并复验 lease；闲置对象不占用运行边界。成功 reload、restart 或关闭使旧世代服务失效，日级服务还会在日切后失效；调用者重新获取，框架不重绑或重试写入。失败 reload 保留仍有效的旧对象。空闲后的新日调用先完成确定性准备，旧日服务随后在副作用前返回 AgentServiceStaleError；Home 服务只绑定世代。宿主无需创建 RunScope/Trap，日准备失败返回有界 AgentServiceUnavailableError。
 

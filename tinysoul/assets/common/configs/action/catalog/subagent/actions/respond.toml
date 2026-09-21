@@ -1,0 +1,27 @@
+name = "subagent.respond"
+domain = "subagent"
+
+[tool]
+description = "Answer one current external Agent permission request using its exact option_id. Use core.ask if the decision requires the user."
+
+[tool.schema]
+type = "object"
+required = ["job_id", "request_id", "option_id"]
+additionalProperties = false
+
+[tool.schema.properties.job_id]
+type = "string"
+
+[tool.schema.properties.request_id]
+type = "string"
+
+[tool.schema.properties.option_id]
+type = "string"
+
+[semantic]
+use_when = ["Answer one current external Agent permission request using its exact option_id. Use core.ask if the decision requires the user."]
+effects = ["modifying"]
+
+[backend]
+kind = "native"
+handler = "subagent.respond"

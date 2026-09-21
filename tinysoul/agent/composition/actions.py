@@ -33,7 +33,21 @@ from tinysoul.kernel.registration import (
 from tinysoul.plugins.capabilities import CapabilitiesSettings
 from tinysoul.plugins.capabilities.resource import register_resource_actions
 from tinysoul.plugins.capabilities.web import register_web_actions
-from tinysoul.plugins.execution import ExecutionSettings, ProcessJobBackend
+from tinysoul.plugins.capabilities.expand.engine import ExpandEngine
+from tinysoul.plugins.capabilities.expand.actions import register_expand_actions
+from tinysoul.plugins.capabilities.expand.runtime_bridge import RuntimeExpandBridge
+from tinysoul.plugins.capabilities.subagent.engine import SubagentEngine
+from tinysoul.plugins.capabilities.subagent.actions import register_subagent_actions
+from tinysoul.plugins.capabilities.subagent.runtime_bridge import RuntimeSubagentBridge
+from tinysoul.plugins.capabilities.subagent.segments.connections import (
+    connections_registration,
+    connection_refresh,
+)
+from tinysoul.kernel.loop.interaction.events import TurnEventSubscription
+from tinysoul.runtime.events import EventFilter
+from tinysoul.infra.concurrency import CleanupDiagnostic
+from tinysoul.infra.process import ManagedProcessCloseError
+from tinysoul.plugins.execution import ExecutionSettings
 from tinysoul.plugins.execution.engine import ExecutionEngine
 from tinysoul.plugins.execution.actions import register_execution_actions
 from tinysoul.plugins.execution.runtime_bridge import RuntimeExecutionBridge
@@ -135,11 +149,29 @@ class CommonActionAssembly:
         )
         self._runtime_env = dict(runtime_env)
         settings = job_settings or JobSettings()
-        self._jobs = JobRegistry[ProcessJobBackend](
+        self._jobs = JobRegistry(
             capacity=settings.retained_capacity,
             per_turn_capacity=settings.per_turn_live_capacity,
         )
-        self._activity = AgentTurnActivity(self._jobs, workspace)
+        try:
+            self._subagent = SubagentEngine(
+                capabilities_settings.subagent,
+                jobs=self._jobs,
+                workspace=workspace,
+                environment=runtime_env,
+            )
+        except ConfigError as exc:
+            raise RuntimeSubagentBridge().from_config_error(exc) from exc
+        try:
+            self._expand = ExpandEngine(
+                capabilities_settings.expand,
+                root=root,
+                workspace=workspace,
+                environment=runtime_env,
+            )
+        except ConfigError as exc:
+            raise RuntimeExpandBridge().from_config_error(exc) from exc
+        self._activity = AgentTurnActivity(self._jobs, workspace, (self,))
         try:
             self._execution = ExecutionEngine(
                 settings=execution_settings or ExecutionSettings(),
@@ -155,10 +187,9 @@ class CommonActionAssembly:
         catalog: LoadedActionCatalog,
         *,
         plugins: tuple[PluginDeclaration, ...],
+        scenario: str = "user",
         archive_source: Callable[[], WorkspaceArchiveView | None] | None = None,
-    ) -> tuple[
-        ActionEngineBuilder, AgentTurnActivity[ProcessJobBackend], ResolvedPlugins
-    ]:
+    ) -> tuple[ActionEngineBuilder, AgentTurnActivity, ResolvedPlugins]:
         staging = StagingDirectoryManager(self._root)
         try:
             staging.prepare()
@@ -216,6 +247,28 @@ class CommonActionAssembly:
                     workspace=workspace,
                 ),
             ),
+            PluginDeclaration(
+                "expand",
+                actions=partial(
+                    register_expand_actions, engine=self._expand, llm=llm_action
+                ),
+            ),
+            PluginDeclaration(
+                "subagent",
+                actions=partial(
+                    register_subagent_actions, engine=self._subagent, scenario=scenario
+                ),
+                segments=(connections_registration(self._subagent),),
+                sources=(self._subagent,),
+                events=(
+                    TurnEventSubscription(
+                        EventFilter(topic="subagent.connections", source="subagent"),
+                        connection_refresh,
+                        coalesce=True,
+                        requires_decision=False,
+                    ),
+                ),
+            ),
         )
         try:
             resolved = PluginRegistry(declarations).resolve(context)
@@ -236,3 +289,20 @@ class CommonActionAssembly:
                 payload={"error_type": type(exc).__name__},
             ) from exc
         return builder, self._activity, resolved
+
+    async def close_turn(self, turn_id: str) -> tuple[CleanupDiagnostic, ...]:
+        try:
+            return await self._subagent.close_turn(turn_id)
+        except ManagedProcessCloseError as exc:
+            raise RuntimeSubagentBridge().close_failed(exc) from exc
+
+    async def close(self) -> tuple[CleanupDiagnostic, ...]:
+        try:
+            subagent = await self._subagent.close()
+        except ManagedProcessCloseError as exc:
+            raise RuntimeSubagentBridge().close_failed(exc) from exc
+        try:
+            expand = await self._expand.close()
+        except ManagedProcessCloseError as exc:
+            raise RuntimeExpandBridge().close_failed(exc) from exc
+        return (*subagent, *expand)

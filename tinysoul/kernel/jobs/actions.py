@@ -16,7 +16,6 @@ from tinysoul.kernel.action import (
     ActionResult,
 )
 from tinysoul.kernel.action import HookOutcome
-from .models import JobBackend, JobState
 from .registry import JobRegistry
 from .failures import JobError, JobRequestError
 from .runtime_bridge import RuntimeJobsBridge
@@ -28,8 +27,8 @@ class JobOperation(StrEnum):
     WAIT = "wait"
 
 
-class JobActionExecutor[B: JobBackend]:
-    def __init__(self, registry: JobRegistry[B], operation: JobOperation) -> None:
+class JobActionExecutor:
+    def __init__(self, registry: JobRegistry, operation: JobOperation) -> None:
         self._registry = registry
         self._operation = operation
 
@@ -62,7 +61,7 @@ class JobActionExecutor[B: JobBackend]:
                     {
                         "job_id": job_id,
                         "timeout_seconds": timeout,
-                        "ready": snapshot.state.terminal,
+                        "ready": snapshot.ready,
                     },
                 )
             if self._operation is JobOperation.STOP:
@@ -84,8 +83,8 @@ class JobActionExecutor[B: JobBackend]:
             raise RuntimeJobsBridge().from_error(exc) from exc
 
 
-def register_job_actions[B: JobBackend](
-    builder: ActionEngineBuilder, registry: JobRegistry[B]
+def register_job_actions(
+    builder: ActionEngineBuilder, registry: JobRegistry
 ) -> ActionEngineBuilder:
     for operation in JobOperation:
         builder.register_executor(
@@ -96,8 +95,8 @@ def register_job_actions[B: JobBackend](
     return builder
 
 
-class JobAnswerGuard[B: JobBackend]:
-    def __init__(self, registry: JobRegistry[B]) -> None:
+class JobAnswerGuard:
+    def __init__(self, registry: JobRegistry) -> None:
         self._registry = registry
 
     def check(
