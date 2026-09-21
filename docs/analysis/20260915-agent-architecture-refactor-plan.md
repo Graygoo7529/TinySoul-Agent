@@ -5,7 +5,7 @@
 
 配套讨论来源：[前三轮 Review 与 R4 前基础补强方案](../chat/20260920-r1-r3-review-and-pre-r4-foundation-plan-latest.md)；[Before 4：数据基础与渐进披露](done/20260920-done-Agent重构Before4子计划-数据基础与渐进披露.md) 已于 2026-09-20 实施完成。用户确认的多历史 Turn/已有地图整理方向与受信独立主机假设保持不变；事实/导航基础先交付，Organize 写能力仍属尾期。讨论来源保留当时状态，实现证据以已归档子计划及本计划 §13 为准。
 
-2026-09-21 [R6：外部 Agent 与 MCP 能力接入子计划](20260921%20Agent重构第六轮子计划-外部Agent与MCP能力接入.md) 已建立设计预览（`pending`）。首个 adapter、R6 不开放运行中 send、权限默认由父 Agent 决定已确认；Job 接口细化获认可。有界一次 LLM 搜索、超预算由父 Agent 缩小服务范围及 servers 合入 search 已确认；用户随后提出显式 describe_servers/describe_tools，作为 R6 Q6 新提案继续讨论。S6 尚未实施验收，整体范围和完成状态不变。
+2026-09-21 [R6：外部 Agent 与 MCP 能力接入子计划](20260921%20Agent重构第六轮子计划-外部Agent与MCP能力接入.md) 已建立设计预览（`pending`）。首个 adapter、R6 不开放运行中 send、权限默认由父 Agent 决定已确认；Job 接口细化获认可。有界一次 LLM 搜索、超预算由父 Agent 缩小服务范围及 MCP 四动作 `describe_servers/describe_tools/search/call` 已确认。S6 尚未实施验收，整体范围和完成状态不变。
 
 本文件描述目标设计，不代表全部已实现。初始复审仅授权分析、修订计划与讨论；后续 R1/R2/R3 与 Before 4 已获明确实施授权，实际完成范围见第 13 节。确认状态见第 14 节。用户已确认架构方向，特别是受限 SUSPEND 与 Inbox 保障边界，并补充 Reflection 通用动作叠加、ACP 显式连接及 Working 呈现；未实施的具体签名与连接寿命仍标明建议。原“正文 + 替换预览”合并为单一方案，旧版由 Git 保存，不并行保留互相冲突的接口。API 为契约草图，具体名称与类型在子计划落定。
 
@@ -667,9 +667,9 @@ Q8 已获条件授权：能简单复用就跨 Turn 保留，复杂则 Turn 收�
 
 ### 11.4 MCP expand
 
-expand 持连接、工具索引、能力协商；已确认入口为 search/describe/call，servers 浏览合入无 query 的 search。自然语言搜索采用有界的一次 Action 内 LLM 选择，owner 返回原始定义，超预算由父 Agent 缩小服务范围。搜索和完整 schema 描述进 foldable Trace，无 expand.tools 段，服务列表不自动常驻挂载。
+expand 持连接、工具索引、能力协商；已确认入口为 `describe_servers/describe_tools/search/call`。`describe_servers` 按需浏览允许服务及工具摘要，`describe_tools` 精确取得一组工具或完整服务定义，`search` 只接受自然语言 query 并采用有界的一次 Action 内 LLM 选择，`call` 只执行指定工具。超预算由父 Agent 缩小服务范围。四个动作共用目录 owner，搜索和完整 schema 描述进 foldable Trace，无 expand.tools 段，服务列表不自动常驻挂载。
 
-用户进一步提出 describe_servers/describe_tools 显式拆分，作为 R6 §6.1.2/Q6 待确认提案；若采纳则替换上述动作入口，不保留别名。有界搜索、目录 owner、stdio/Streamable HTTP 和具名配置接入仍按 R6 §6 细化。
+目录 owner、stdio/Streamable HTTP 和具名配置接入仍按 R6 §6 细化；四个动作不是强制串行流程，search 已返回完整定义时可直接 call。
 
 TinySoul schema 只校验外壳；远端 inputSchema 由选定 JSON Schema validator/SDK 校验，不能忽略未知约束后宣称通过。支持 tools 分页/列表变更/能力声明、错误和结构化结果归一化；旧工具失效返回明确局部说明。
 

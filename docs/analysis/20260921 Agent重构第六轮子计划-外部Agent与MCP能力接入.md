@@ -1,9 +1,9 @@
 # Agent 重构第六轮子计划：外部 Agent 与 MCP 能力接入
 
-状态：`pending`（Q1–Q5 已确认；在已确认搜索策略上继续讨论 Q6 服务目录/工具定义的显式接口拆分，尚未开始本轮实施）。
+状态：`pending`（Q1–Q6 已于 2026-09-21 确认；方案已进入实施准备，尚未开始本轮实施）。
 日期：2026-09-21。
 代码基线：`9f42976`（R5 运行可用性、重启边界与退出等待修正已提交）；开始分析时工作区干净。
-设计复核基线：`4501546`（前次 Job/MCP 细化方案已提交）；首次 MCP 细化时工作区干净，本次继续维护尚未提交的两份计划。已确认设计与新增讨论点分别记录，均不代表运行代码已实现。
+设计复核基线：`2b03a61`（四动作 MCP 方案已确认并提交）；当前工作区的计划同步仅代表实施前文档准备，不代表运行代码已实现。
 主计划：[Agent 架构重构主执行计划](20260915-agent-architecture-refactor-plan.md)，主要对应 §11 与 S6。
 参考：[功能规划讨论](../chat/00%20doing%20something.md)。其中的 coding、外部工具和后台协作作为能力场景参考，不据此恢复旧 Reflection domain、CAS 或扩大本轮范围。
 
@@ -38,7 +38,7 @@ R6 不是重新建立 Agent 调度器。ACP connection 是可通信的服务资�
 | 进程与 ACP 共用 Job，Turn 所有权、公共 status/stop/wait、终态与资源关闭分离 | 主计划 §11.1、S6；§6.3 已要求前台 Action 与后台 Job 共用受控 backend | 既定架构目标，R6 补齐第二个真实 backend |
 | 可取消 I/O 使用 async，短同步 owner 操作经明确边界调用 | 主计划 §6.3；现有 ActionExecutor、ExecutionEngine.start/wait 已为 async | 既定执行原则，不意味着所有工作都后台化 |
 | JobBackend 的具体异步方法、混合 Registry 的类型边界、待答唤醒如何接入 | 本轮 §4 | 根据现有进程专属实现作必要细化；主计划未规定所有 backend 方法必须 async |
-| MCP 归 expand，提供发现、描述与调用，结果进 foldable Trace，无工具专属 Context 段 | 主计划 §11.4 | Q5 已确认 servers 浏览合入 search；用户随后提出显式 describe_servers/describe_tools，作为 Q6 讨论，不改 owner 与渐进披露 |
+| MCP 归 expand，提供发现、描述与调用，结果进 foldable Trace，无工具专属 Context 段 | 主计划 §11.4 | Q6 已确认四动作 `describe_servers/describe_tools/search/call`；owner 与渐进披露不变 |
 | MCP schema 校验、分页/列表变化、大输出、未知写结果不重放 | 主计划 §11.4 与 S6 验收 | 既定约束，R6 落到真实 SDK |
 | search 的筛选算法、是否调用 LLM、返回线索或完整工具定义 | 本轮细化，用户已确认 Q4 | 有界的一次 Action 内局部 LLM 选择，owner 补齐原始定义；超预算由父 Agent 缩小服务范围，见 §6.2 |
 | SDK 版本、首个真实 adapter、stdio/HTTP 范围和目录细节 | 本轮细化 | 版本与接口仍需 R6-0 验证，不是主计划已经实现的能力 |
@@ -149,36 +149,9 @@ Turn 收尾先清理全部 Job，再释放本轮 session/连接引用，最后�
 
 ## 6. MCP 工具接入
 
-### 6.1 三个动作与服务浏览合并
+### 6.1 四个动作与单一目录
 
-已确认基线为 `expand.search/describe/call`（Q5 `decided`）。servers 的职责保留为 search 的无查询浏览，不保留同义 Action。三者只面对当前已配置、启用且情景允许的 MCP 服务/工具，不搜索内置 Action、Home Skill 或互联网 MCP 市场；core 继续拥有通用运行控制与 Job 监督。用户随后提出的显式目录接口见 §6.1.2，尚未替换本基线。
-
-| 调用意图 | 建议入口 | 结果与执行方式 |
-|---|---|---|
-| 不知道接入了哪些服务 | `search()` | 返回服务身份、配置用途和已知连接状态；无 LLM，无强制连接探测 |
-| 已知服务，想查看其目录入口 | `search(server_ids=[...])` | 同一服务目录投影，按身份过滤；无 query 时仍只浏览服务 |
-| 根据需求找工具 | `search(query=..., server_ids=...)` | 可省略 server_ids 搜索当前允许的服务；返回匹配工具的真实调用定义、简短理由和实际检索范围 |
-| 精确查阅一组工具 | `describe(server_id=..., tool_names=[...])` | 同一服务内批量取得定义；不调用 LLM |
-| 直接取得某服务的全部工具定义 | `describe(server_id=...)` | 省略 tool_names 表示该服务当前允许的全部工具，按完整定义分页；不调用 LLM |
-| 执行某个工具 | `call(server_id=..., tool_name=..., arguments={...})` | 校验后执行一次指定工具；不暗中搜索、替换目标或自动执行下一步 |
-
-这是参数语义预览，准确机器 schema 随实现固化。空白 query 归为无查询；显式空 tool_names 是可修正参数错误，不能悄悄扩大为全部工具。跨多个服务批量 describe 时，Phase2 可以生成多个 ActionCall，交给已有 ActionBatch；无需在 describe 内再建跨服务批次编排。
-
-search 的反馈使用一套有界目录投影：服务摘要、匹配工具和范围/未完成原因；浏览时工具集合为空，不意味着服务没有工具。未连接应明确表示未探测，工具数未知不记为零，已知状态不承诺服务此刻必然在线。目录浏览不安装、注册或修改配置。
-
-MCP 的 `tools/list` 已返回完整工具定义，`tools/call` 负责执行。search/describe 是 TinySoul 的目录门面，不要求服务器实现同名 RPC；标准 tools/list 也没有按名称批量筛选定义的通用参数，所以按名称 describe 仍由 owner 从列举结果精确取回。[MCP 工具协议](https://modelcontextprotocol.io/specification/2026-07-28/server/tools)
-
-常用路径为 search(query) → call；已知 server 可直接 describe → call；已有仍可用定义时可直接 call。三者不是必须依次调用的固定流程。search 和 describe 共用定义投影，完整保留输入/输出 schema 及必要调用语义，不让 LLM 改写定义，也不把 icons、缓存字段或协议 envelope 自动塞入模型语境。
-
-#### 6.1.1 Agent 如何获知服务与工具
-
-已确认基线中的 describe 是以 server_id 限定精确读取范围；search 按需求直接选择工具，server_ids 仅是可选范围。以 server_id 标识工具归属不要求模型每次先浏览服务，search 可以直接提供工具身份与完整定义。
-
-服务列表不自动挂载为常驻 Background/Working。Phase1 的 expand 域语义让 Agent 知道可以发现外部工具，Phase2 提供本地发现/描述/调用 Action 的用法；Agent 按需调用 search() 获得允许服务目录，或直接 search(query) 找工具。动态目录进入有界 ActionResult/Trace，沿用已有消费保护与折叠。
-
-#### 6.1.2 显式服务目录与工具定义接口提案（Q6 pending）
-
-用户提出 `describe_servers` 获取服务及功能目录、`describe_tools(tools[])` 批量取得工具定义。建议按下表细化，是否替换已确认三动作入口仍待讨论；有界一次 LLM 搜索策略不变：
+Q6 已确认 expand 的四个动作：`describe_servers/describe_tools/search/call`。它们只面对当前已配置、启用且情景允许的 MCP 服务/工具，不搜索内置 Action、Home Skill 或互联网 MCP 市场；core 继续拥有通用运行控制与 Job 监督。四个动作是同一目录 owner 的不同投影，不构成强制串行工作流。
 
 | Action | 单一职责 | 模型调用 |
 |---|---|---|
@@ -187,15 +160,13 @@ MCP 的 `tools/list` 已返回完整工具定义，`tools/call` 负责执行。s
 | `expand.search(query, server_ids?)` | 根据需求选择工具并返回原始定义；query 必填，server_ids 可选 | 有候选且预算允许时一次 |
 | `expand.call(server_id, tool_name, arguments)` | 执行一次指定工具调用 | 不额外调用 TinySoul 搜索模型 |
 
-tools 数组中的每项为结构化身份，例如 `{"server_id":"docs","tool_name":"read"}`，不只传一个可能重名的裸工具名。describe_servers 和 search 返回同一身份结构，可直接用于 describe_tools/call。跨服务批量描述仍是 expand owner 的一次目录读取；内部按服务取得目录并取回条目，不新增批次状态机。此前要求跨服务 describe 必须拆为 ActionBatch 并非架构必要约束，在本提案中取消；多个真正工具执行仍复用 ActionBatch。
+tools 数组中的每项为结构化身份，例如 `{"server_id":"docs","tool_name":"read"}`，不只传一个可能重名的裸工具名。describe_servers 和 search 返回同一身份结构，可直接用于 describe_tools/call。跨服务批量描述仍是 expand owner 的一次目录读取；内部按服务取得目录并取回条目，不新增批次状态机；多个真正工具执行仍复用 ActionBatch。
 
 保留直接取得整服务定义的需求：`describe_tools(server_ids=[...])` 作为完整服务范围选择，与 tools 二选一；两种输入都只做精确读取，沿用同一有界分页与原始定义投影。批量读取不要求先 search；search 已返回所需完整定义时也不要求再 describe_tools。
 
 describe_servers 若要报告可用工具名称，必须按需取得允许服务的工具目录；仅靠本地服务配置无法得知这些名称。因此它不再承诺“完全无 I/O 的本地服务列表”：命中有效目录时直接投影，否则按需连接/列举，可选 server_ids 限定范围。结果使用有界目录页，不能因为浏览就一次向模型填入所有工具描述；某个服务未能读取时仍可返回其配置用途与有限状态，明确目录未取得，不把它说成没有工具。它报告本次目录可见的工具，不承诺后续调用必然成功。
 
-新提案继续不自动挂载服务器列表。Agent 可以走 describe_servers → describe_tools → call 的目录浏览路径，也可以直接 search → call；这些是同一目录的浏览入口与语义入口，并非两套能力发现系统。更明确的命名增加一个本地 Action，收益是 search 不再因 query 缺省切换为另一类操作。
-
-若确认 Q6，应一次性替换本节三动作基线、§6.2 的无 query 分支、§6.3 的描述选择、主计划动作列表及对应验收项；删除旧 search() 浏览与 describe 名称，不并行保留两套接口。验收相应调整为服务目录按需 I/O、跨服务工具批量读取、整服务范围分页和 search 必填 query；底层 owner、配置、生命周期、搜索模型与结果处理均复用。
+服务列表不自动挂载为常驻 Background/Working。Agent 可以走 `describe_servers → describe_tools → call` 的目录浏览路径，也可以直接 `search → call`；这两条路径共用同一目录，不形成两套能力发现系统。search 必须携带非空 query，空查询由 describe_servers 表达；search 已返回完整定义时不要求再次 describe_tools。
 
 ### 6.2 搜索策略权衡与选择
 
@@ -209,15 +180,15 @@ describe_servers 若要报告可用工具名称，必须按需取得允许服务
 | lexical 召回 + LLM 重排 | 大目录时减少模型输入 | 初筛漏掉的工具无法由重排找回；有真实规模证据后再替换候选选择内部实现 |
 | embedding/混合检索 | 可支持大规模语义召回 | 增加嵌入生成、缓存更新和质量评估；本轮不建立向量索引 |
 
-Q4 已确认一条明确实现路径；下述无 query 浏览属于 Q5 的三动作基线，若采纳 Q6 则迁至 describe_servers：
+Q4 已确认一条明确实现路径；服务目录浏览由已确认的 `describe_servers` 负责，search 始终只接受语义 query：
 
 1. 有 query 才取得所选服务目录。owner 先应用服务/工具配置与 profile 约束，剔除不可调用项；正常规模下，全部允许候选参与选择。候选为空时直接返回目录事实，不调用 LLM。输入保留 server_id、tool_name、服务用途、工具描述和有用参数摘要；这是检索投影，完整 schema 保存在同一 owner 中。
-2. query 与候选投影仅挂载到本 Action 的 TaskPrompt，经既有 `LLMActionTaskRunner.run_json` 进行一次相关性选择。模型返回候选身份和简短理由；使用该 Action 已配置的模型链、Skill、超时和失败处理。无 query 的浏览走同一 executor 的直接目录分支，不为读取目录强行调用模型。
+2. query 与候选投影仅挂载到本 Action 的 TaskPrompt，经既有 `LLMActionTaskRunner.run_json` 进行一次相关性选择。模型返回候选身份和简短理由；使用该 Action 已配置的模型链、Skill、超时和失败处理。describe_servers/describe_tools 的目录读取不调用模型。
 3. owner 校验选择来自本次候选，再附加原始调用定义。模型不生成 schema、不生成替代工具名，也不在 search 中生成并执行远端 arguments。父 Agent 根据真实定义决定后续 call。
-4. 按匹配上限和反馈容量返回少量完整定义。超过反馈容量的已选项只返回身份/摘要并标明定义需 describe，不把半个 schema 标为完整。全部候选只存在于局部任务输入，返回项进入 foldable Trace，不写 Background/Working 或另一套动态 Action Catalog。
+4. 按匹配上限和反馈容量返回少量完整定义。超过反馈容量的已选项只返回身份/摘要并标明需要 describe_tools，不把半个 schema 标为完整。全部候选只存在于局部任务输入，返回项进入 foldable Trace，不写 Background/Working 或另一套动态 Action Catalog。
 5. 无匹配是正常空结果；目录不可用、未覆盖服务、容量限制与 LLM 协议失败分别说明。不能把不可用服务等同于已搜索且无匹配，也不在 LLM 失败后静默换算法。
 
-完整候选投影超过当前任务可用输入预算时，返回可浏览的服务摘要及缩小 server_ids 范围的提示，由父 Agent 选择范围后继续；单服务仍过大时，可先分页 describe 了解其定义。本轮不藏入递归 LLM 搜索或无声明的前 N 项截断。该选择意味着 R6 的全域语义检索有明确规模上限，不宣称支持任意规模；后续若真实目录需要召回层，可在同一目录与选择边界内引入，不改变三个 Action 或新增持久业务事实。
+完整候选投影超过当前任务可用输入预算时，返回可浏览的服务摘要及缩小 server_ids 范围的提示，由父 Agent 选择范围后继续；单服务仍过大时，可先通过 describe_servers 分页了解工具，再用 describe_tools 读取定义。本轮不藏入递归 LLM 搜索或无声明的前 N 项截断。该选择意味着 R6 的全域语义检索有明确规模上限，不宣称支持任意规模；后续若真实目录需要召回层，可在同一目录与选择边界内引入，不改变四个 Action 或新增持久业务事实。
 
 预算按完整 Task 的可用输入和反馈大小计算，不只按工具个数猜测容量。测试覆盖选择协议和数据流；检索质量用中英文需求、相似工具和无匹配的少量人工标注样例另行评估，不用 fake LLM 的固定排序证明真实搜索质量。
 
@@ -225,7 +196,7 @@ Q4 已确认一条明确实现路径；下述无 query 浏览属于 Q5 的三动
 
 expand Engine 拥有服务绑定、SDK 连接与一份运行期目录；工具身份为配置的 `(server_id, tool_name)`。远端自报 server name 只作说明，不能替代本地稳定身份。目录中保存原始定义及校验结论，候选摘要、精确描述与调用校验均从这里派生。它不是新的持久知识库、Job Registry 或 Context 段。
 
-describe 的批量选择按工具名精确解析并去重；返回成功定义与未找到/不可用项的有限说明，个别无效项不遮蔽其它定义。省略 tool_names 时读取当前允许集合，不越过配置限制。响应按完整工具定义分组分页，同时有数量与总大小上限，单个 schema 不跨页拆开。需要续页时使用 owner 的有界分页入口；分页事实允许投影，模型无需维护 revision/digest。工具列表变化后过期续页可要求重新 describe，不建设历史目录版本库。
+describe_tools 的批量选择按结构化 `(server_id, tool_name)` 精确解析并去重；返回成功定义与未找到/不可用项的有限说明，个别无效项不遮蔽其它定义。也可以用 `server_ids` 指定一个或多个完整服务范围；`tools` 与 `server_ids` 二选一，不越过配置限制。响应按完整工具定义分组分页，同时有数量与总大小上限，单个 schema 不跨页拆开。需要续页时使用 owner 的有界分页入口；分页事实允许投影，模型无需维护 revision/digest。工具列表变化后过期续页可要求重新 describe_tools，不建设历史目录版本库。
 
 上游 MCP 分页与面向模型的 describe 分页职责不同：owner 完成一次 tools/list 遍历后发布本地目录，模型再按需读取定义页。完整遍历表示没有把中途失败的半份列表提交为完成；协议不保证遍历期间远端目录不变，TinySoul 不宣称跨页事务一致性，也不为此增加 CAS。目录容量不足时明确反馈；不能静默丢掉尾部后声称整服务工具均已载入。
 
@@ -238,7 +209,7 @@ describe 的批量选择按工具名精确解析并去重；返回成功定义�
 
 这些是轻量派生缓存规则，既不回写历史 Trace，也不自动扩展 Context。缓存新鲜度、授权范围和无跨页一致性保证来自当前协议；实现按锁定 SDK 的公共能力适配。[MCP 缓存协议](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching)
 
-Phase1 只见 expand 域，Phase2 只见三个本地 Action。远端工具不转换成上千个本地 Action/domain。search/describe/call 反馈继续使用现有 Trace 消费保护和折叠，不新建 expand.tools 或连接状态常驻段。
+Phase1 只见 expand 域，Phase2 只见四个本地 Action。远端工具不转换成上千个本地 Action/domain。四个 Action 的反馈继续使用现有 Trace 消费保护和折叠，不新建 expand.tools 或连接状态常驻段。
 
 ### 6.4 Schema、结果与副作用
 
@@ -300,7 +271,7 @@ tools = { search_documents = true, read_document = true }
 1. 准备服务：安装本地 MCP 服务及其运行环境，或取得远程 MCP URL；自定义工具通过用户自己的 MCP 服务发布。TinySoul 的 expand Action 不负责安装包、启动网页登录或从互联网注册中心自动接入服务。
 2. 在 expand.toml 新增 server_id、传输、用途与选择；按需在既有 `.env`/进程环境中提供凭据。生成模板纳入正常 config.include，不另读一份私有 JSON 配置；用户拆分多个 TOML 时仍使用项目原有 include 机制。
 3. 使用现有配置候选保存和空闲时 reload。补充 MCP 服务 collection/field descriptors，使 SDK 和 `/v2/config` 可编辑这些条目；不新增 `/mcp/register`。候选校验只检查本地配置、必要依赖和引用就绪，不联网枚举工具或启动服务。服务启用后连接失败是该服务的局部 unavailable，不阻断其它正常工具。
-4. 首次 search(query)、describe 或 call 按需连接/列举。服务通过 tools/list 暴露的新工具自动进入 owner 目录，再应用配置选择；无需为每个远端工具写 Action TOML、Python executor 或修改 TinySoul PluginDeclaration。服务增加/删改工具由同一刷新规则处理。
+4. 首次 `describe_servers`、`describe_tools`、`search(query)` 或 `call` 按需连接/列举。服务通过 tools/list 暴露的新工具自动进入 owner 目录，再应用配置选择；无需为每个远端工具写 Action TOML、Python executor 或修改 TinySoul PluginDeclaration。服务增加/删改工具由同一刷新规则处理。
 
 当前代码尚无 expand 配置解析和 MCP Engine。上述用户流程是 R6 实施后的目标，现有配置门面可复用不代表这些字段现已生效。
 
@@ -362,7 +333,7 @@ SDK Job 投影与现有 `/v2` Job 查询同步增加有界待答/结果字段；
 | R6-1 | pending | 统一异步 JobBackend、混合 Registry、待答投影与 Inbox/Job wait 唤醒 | 进程与异步 fake backend 同 Registry，容量/停止/终态/待答测试；无第二套监督器 |
 | R6-2 | pending | stdio 受控传输与必要插件资源关闭接点 | Windows 实进程后代回收；取消、Turn 收尾、日切/重载关闭顺序；不需要模型和网络 |
 | R6-3 | pending | subagent 全链路、connections 段、权限与结果材料 | discover→connect→delegate→待答/collect→新 delegate→收尾；两个 Job id、同 Turn session；新根新 session或明确断连 |
-| R6-4 | pending | expand 两种传输、统一目录、发现/批量描述/调用、schema 与结果；采用 Q4 已确认搜索策略，按 Q6 结论固化目录入口 | 真实 SDK 对本地 fake server 的 stdio/HTTP 协议测试；目录投影与按需读取边界、候选选择、批量与整服务描述、过期/通知刷新、结果与未知写结果 |
+| R6-4 | pending | expand 两种传输、统一目录、发现/批量描述/调用、schema 与结果；采用 Q4 与 Q6 已确认策略和四动作入口 | 真实 SDK 对本地 fake server 的 stdio/HTTP 协议测试；目录投影与按需读取边界、候选选择、批量与整服务描述、过期/通知刷新、结果与未知写结果 |
 | R6-5 | pending | 三种情景、配置/资源生成、SDK/Endpoint 投影、文档与门禁 | Full、typecheck、generation/wheel、文档链接与主/子计划逐项核对 |
 
 R6-1 的必要公共接口先完成，再分别接入 ACP 与 MCP。单项已通过即记录，不以重复全矩阵验证代替实现推进；只有新的代码或证据才扩展测试。
@@ -374,8 +345,9 @@ R6-1 的必要公共接口先完成，再分别接入 ACP 与 MCP。单项已通
 - 同连接连续两个 Job、空闲连接不阻挡 answer、新根不继承旧协议上下文；跨午夜活 Job 仍用旧日，清理后才能切日。
 - 真正的 ACP prompt 响应决定执行结果；流中的 idle/文本不能构成替代终态；后台资源与不响应取消分别验证有界收尾。
 - MCP 工具同名不同 server 不冲突；多页目录、TTL/通知失效刷新、撤销工具和有限 schema 组合/ref 校验，不能把远端复杂 schema 当本地子集通过；不把完整本地遍历误报为远端跨页事务快照。
-- Q5 基线中，无 query 的 search 只读服务目录且不调用 LLM/探测服务；有 query 使用现有 LLM Action 路径，候选身份校验、完整定义由 owner 返回、目录只在局部 TaskPrompt 挂载。search→call 无强制 describe 中间步骤，输入容量不足时给出真实范围与缩小提示；测试不固化模型排序措辞。若采纳 Q6，目录入口测试按 §6.1.2 替换，不保留旧 Action 契约测试。
-- describe 覆盖单工具、同服务多工具与整服务分页，部分名称无效时其余定义仍可用；跨服务使用已有 ActionBatch；定义不截断，过期续页有明确反馈。
+- describe_servers 覆盖服务筛选、目录按需读取、部分服务不可用和工具摘要分页；不调用 LLM，未取得的目录不伪装成空集合。
+- describe_tools 覆盖单工具、跨服务工具列表与整服务范围分页，部分身份无效时其余定义仍可用；定义不截断，过期续页有明确反馈。
+- search 使用现有 LLM Action 路径，query 与候选目录只在局部 TaskPrompt 挂载；候选身份校验、完整定义由 owner 返回，search→call 无强制 describe_tools 中间步骤，输入容量不足时给出真实范围与缩小提示；测试不固化模型排序措辞。
 - 服务具名集合通过原配置候选/reload 生效，凭据引用只在装配解析；tools 默认选择与单项覆盖在发现/描述/调用上一致，含点原始名称通过完整映射编辑，不绕过约束。
 - MCP 正常结果、isError、结构化输出、图片/长内容落 Workspace；超时或断流不重放写调用；传输诊断不污染模型语境。
 - 现有 User/Home Reflection/Memory Reflection 主线及 R5 restart/readiness/wait_for_exit 回归；测试针对协作边界，不复制各 owner 的全部用例。
@@ -399,8 +371,8 @@ R6-1 的必要公共接口先完成，再分别接入 ACP 与 MCP。单项已通
 | Q2 | decided（2026-09-21） | R6 暂不开放运行中 send/steering；原生权限通过 respond，普通追加工作在当前 Job 结束后使用同 session 新 delegate。候选 steering 可隐式 startedNewTurn，不满足当前 Job 追加契约；已同步主计划动作草图 |
 | Q3 | decided（2026-09-21） | 原生权限请求默认交父 Agent 决定，需要人时复用 core.ask；显式配置可使用 adapter 自动许可，不自动批准持久规则修改 |
 | Q4 | decided（2026-09-21） | 自然语言搜索采用有界的一次 Action 内 LLM 选择，owner 返回原始定义；超预算由父 Agent 缩小服务范围。不静默初筛或新增向量索引，见 §6.2 |
-| Q5 | decided（2026-09-21） | 已确认 servers 合入 search 的三动作入口；用户随后提出更明确的目录/定义拆分，作为 Q6 新提案讨论，不把新提问视为自动撤销原确认 |
-| Q6 | pending | 建议显式 describe_servers/describe_tools/search/call：目录按需取得服务与工具名称，定义可跨服务批量读取，search 只接受语义查询。若确认则替换 Q5 三动作入口，不保留同义别名；搜索算法不变，见 §6.1.2 |
+| Q5 | decided（2026-09-21） | 已确认 servers 的职责需要独立、清晰的目录入口；不保留旧 `servers` 名称作为兼容别名 |
+| Q6 | decided（2026-09-21） | 四动作定稿：`describe_servers/describe_tools/search/call`。服务目录与定义按需读取，工具身份结构化且可跨服务批量，search 只接受语义 query；不保留三动作旧接口，搜索算法不变 |
 
 MCP 的 tools-only、stdio + Streamable HTTP、具名服务配置与工具选择、显式凭据而无 OAuth 工作流是本轮建议范围，随本子计划整体确认；若实际首个 MCP 服务依赖本轮范围之外的功能，应在实施前明确调整范围。配置字段示例不要求逐字段额外审批，实现时保持上述所有权与调用语义即可。
 
@@ -413,10 +385,10 @@ MCP 的 tools-only、stdio + Streamable HTTP、具名服务配置与工具选择
 - `done`：查验上述官方协议/SDK/adapter 文档；发现 steering 隐式新工作和后台执行的具体语义，写入资格验证及讨论点。
 - `done`：Q1–Q3 已确认；同步主计划的 send 范围，记录首个目标与权限默认语义。
 - `done`：区分主计划要求与本轮实现细化；明确前台结果返回、异步等待和同步快照的不同语义。
-- `done`：基于已提交 `4501546` 再次核对目录、LLM Action、配置集合/候选/reload；补充官方工具发现实践、传输与缓存协议的研究，写入三动作、批量描述和用户扩展预览。
+- `done`：基于已提交 `4501546` 再次核对目录、LLM Action、配置集合/候选/reload；补充官方工具发现实践、传输与缓存协议的研究，写入四动作、批量描述和用户扩展预览。
 - `done`：配置预览经 TinySoul 环境的 TOML parser 检查，两种传输与工具选择示例可解析；本次仅作计划文档验证，不作为新能力的运行证据。
 - `done`：Q4/Q5 已确认并同步主计划；进一步说明服务目录按需读取、工具身份与语义搜索的关系。
-- `pending`：Q6 显式目录/定义接口提案与整体 R6 实施确认。
+- `done`：Q6 四动作接口已确认并同步主计划；旧三动作和无 query search 表述已清理。
 - `pending`：R6-0–R6-5 实施、设计文档同步、必要验证与主计划验收。
 
-本次只更新执行计划，区分已确认搜索/合并方案与新的目录接口提案；没有安装依赖、启动真实 adapter、修改运行代码或将 S6 标为完成。文档检查不代替 R6 实施后的 Full/typecheck 和实际 SDK 验证。
+本次只更新执行计划，记录已确认的搜索策略、四动作入口和目录所有权；没有安装依赖、启动真实 adapter、修改运行代码或将 S6 标为完成。文档检查不代替 R6 实施后的 Full/typecheck 和实际 SDK 验证。
