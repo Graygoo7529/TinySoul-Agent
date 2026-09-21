@@ -5,6 +5,8 @@
 
 配套讨论来源：[前三轮 Review 与 R4 前基础补强方案](../chat/20260920-r1-r3-review-and-pre-r4-foundation-plan-latest.md)；[Before 4：数据基础与渐进披露](done/20260920-done-Agent重构Before4子计划-数据基础与渐进披露.md) 已于 2026-09-20 实施完成。用户确认的多历史 Turn/已有地图整理方向与受信独立主机假设保持不变；事实/导航基础先交付，Organize 写能力仍属尾期。讨论来源保留当时状态，实现证据以已归档子计划及本计划 §13 为准。
 
+2026-09-21 [R6：外部 Agent 与 MCP 能力接入子计划](20260921%20Agent重构第六轮子计划-外部Agent与MCP能力接入.md) 已建立设计预览（`pending`）。它细化 S6 的异步 Job 接口、ACP 待答与会话边界、MCP 协议/SDK 核验和工具调用；首个 adapter、R6 不开放运行中 send、权限默认由父 Agent 决定已确认，Job 接口与 MCP 搜索细化继续讨论。S6 尚未实施验收，整体范围和完成状态不变。
+
 本文件描述目标设计，不代表全部已实现。初始复审仅授权分析、修订计划与讨论；后续 R1/R2/R3 与 Before 4 已获明确实施授权，实际完成范围见第 13 节。确认状态见第 14 节。用户已确认架构方向，特别是受限 SUSPEND 与 Inbox 保障边界，并补充 Reflection 通用动作叠加、ACP 显式连接及 Working 呈现；未实施的具体签名与连接寿命仍标明建议。原“正文 + 替换预览”合并为单一方案，旧版由 Git 保存，不并行保留互相冲突的接口。API 为契约草图，具体名称与类型在子计划落定。
 
 ## 1. 项目理解与重构意图
@@ -640,7 +642,7 @@ ACP 客户端归 subagent 插件；TinySoul ACP server 不在本次范围。先�
 - subagent.connect(agent, cwd?) → connection_id：启动/握手，准备可用端点，限时返回；未准备完成不宣称 ready。
 - subagent.delegate(connection_id, brief, references) → job_id：创建一次 acp_agent 委派。
 - subagent.disconnect(connection_id)：关闭空闲连接；有活 Job 返回 busy，先经 core.job.stop 收敛。
-- send/respond/collect 仍针对 job_id；ACP 不再保留绕过显式连接的第二套 start 入口。
+- respond/collect 针对 job_id；ACP 不再保留绕过显式连接的第二套 start 入口。2026-09-21 已确认 R6 不开放运行中 send/steering；后续支持必须能只追加当前 Job，不能隐式开始新委派。
 
 这些是 TinySoul 动作，不声称 ACP 有同名协议方法。逻辑 session 默认同时一个 prompt Job，忙时返回 busy；并行任务使用独立 session/连接，按实际 adapter 能力落实。同连接后续 Job 可沿用 session 上下文，但具有新 job_id。活 Job 追加只使用 adapter 支持的机制，无能力则局部失败，不强发并行 prompt。
 
