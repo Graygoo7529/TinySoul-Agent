@@ -32,6 +32,8 @@ Context 提供只读 ContextTurnFacts，Action 在事件循环取得快照后交
 
 当前证据只可解释已有历史，不进入 prior-Turn 目录、话题成员或线性交互正文。段更新时绑定本轮证据快照，精确读取标注 active_turn；完成后相同 ref 读取不可变 record。未接受输入、未来结果和未结算 Action 被局部拒绝；若完成记录未能保存，来源报告不可用，不伪造证据或回滚已提交 map。
 
+活动 Action 的披露复用完成记录的同一投影，只增加活动来源标记；失败原因、反馈、结果和资源引用在 Turn 完成前后保持一致。活动 Turn 仍不进入 Session manifest、历史目录或线性交互正文。
+
 ## 同一 Session 段的两个投影
 
 Background 先展示语义地图，再展示按历史顺序排列的线性交互。地图只包含解释、关系和 refs；正文从同一 Turn records 投影，每个 Turn 只出现一次，未归类 Turn 也在候选中。
@@ -58,6 +60,8 @@ Session 仅在自身超过 80% 水位时回收到半预算，最低保留目录�
 - 行动集合按请求顺序列 occurrence，事实叶子返回原始请求、已知结果或中断事实。资源引用保留来源日，不读取今日同名文件。
 
 所有层级复用 DisclosureHint/Page 和 opaque continuation。query 在地图范围搜索事实与解释，在 Turn 范围搜索其事实，在语义节点范围搜索自身与直接事实来源；不沿任意横向关系递归检索。精确 ref 读取不依赖 query。
+
+语义节点声明的直接 Turn 来源覆盖该 Turn 的完整事实范围；声明的输入、Action、note、resource、output 或 working 叶子只覆盖对应叶子。Turn inspect 返回的子 ref 可以继续逐级 inspect，分页只展开当前页面的直接内容，不切断渐进读取链。
 
 分页绑定日、固定来源集合、过滤条件和实际读取内容。解释正文、关系或该范围查询结果变化使旧 token 局部失效；无关注释变化和背景折叠不使未变页面失效。事实正文页不混入可变话题标签。inspect 不修改 Background，不常驻展开集合；完整反馈先进入一次实际决策模型请求，之后才按 Trace 规则折叠。
 

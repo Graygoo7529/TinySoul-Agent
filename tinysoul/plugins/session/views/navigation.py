@@ -7,7 +7,10 @@ from enum import StrEnum
 import re
 
 from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.kernel.action.call import ExecutionState
+from tinysoul.kernel.context import ContextTurnFacts
 
+from ..completion import project_action_record, project_fact_refs
 from ..errors import SessionContractError
 from ..annotations.models import (
     AnnotationStatus,
@@ -216,6 +219,7 @@ def project_action(
     occurrence: int,
     action: SessionActionRecord,
 ) -> JsonObject:
+    """Canonical Action detail shared by active evidence and completed history."""
     value: JsonObject = {
         "kind": "session_action",
         "ref": action_leaf_ref(turn_ref, occurrence),
@@ -231,6 +235,39 @@ def project_action(
     if action.references:
         value["references"] = list(action.references)
     return to_json_object(value)
+
+
+@dataclass(frozen=True)
+class SessionEvidence:
+    """Disclose accepted inputs and settled Actions without completing a Turn."""
+
+    facts: ContextTurnFacts
+
+    def resolve(self, ref: str) -> tuple[str, JsonObject] | None:
+        refs = project_fact_refs(
+            self.facts.turn_id, self.facts.inputs, len(self.facts.actions)
+        )
+        target = refs.get(ref, ref)
+        root = f"session:turn/{self.facts.turn_id}"
+        for index, item in enumerate(self.facts.inputs):
+            if target == f"{root}#input/{index}":
+                return target, {
+                    "kind": "session_input",
+                    "ref": target,
+                    "text": item.text,
+                    "reply_to": item.reply_to,
+                    "source_state": "active_turn",
+                }
+        for index, item in enumerate(self.facts.actions):
+            if (
+                target == action_leaf_ref(root, index)
+                and item.state is ExecutionState.SETTLED
+            ):
+                return target, {
+                    **project_action(root, index, project_action_record(item)),
+                    "source_state": "active_turn",
+                }
+        return None
 
 
 def _require_turn_ref(ref: str) -> None:

@@ -502,9 +502,9 @@ R7 按本计划完成意味着补齐 S3 并验收 S7；结合已完成的 S1/S2/
 | 同一预算与披露 | SessionSettings 已有 background/inspect 两个容量；SessionSegment 具有同步 reclaim | 地图和线性区域合计预算，prepare 生成可收缩候选，render/reclaim 无 I/O；最低目录入口覆盖未展示事实和解释 |
 | 失败与权限 | Session 模块异常/RuntimeSessionBridge、Context inspect 局部失败、profile 注册和 SDK scoped service 已存在 | 无效整理返回 typed 局部结果，存储/不变量由 bridge 收束；User 写、Reflection/SDK 读，不新增 HTTP 写入口 |
 
-本次只收紧容量、引用与来源修订的实施表述并补充验收，没有改变已确认的 Q1–Q8、主计划范围或 S3/S7 状态。AGENTS 正文中的旧顺序、旧 Job/Memory 等表述依过渡条款解释，整体统一仍属于 R7-4；不能把旧正文当作保留重复实现的依据。后续按 R7-0 → R7-1 → R7-2 → R7-3 → R7-4 → R7-5 推进；准确签名与容量选择规则在 R7-0 固定并由必要测试保护。
+本段是实施前的历史准备记录，曾只收紧容量、引用与来源修订的计划表述；实际实施、验收和当前状态以第 13 节为准。AGENTS 正文中的旧顺序、旧 Job/Memory 等表述依过渡条款解释，不能把旧正文当作保留重复实现的依据。
 
-本轮仅修订执行计划，未修改代码、未运行 Full/typecheck；R6 历史门禁不作为本轮验证证据。
+本段是实施前的历史记录；本轮实际代码、文档和门禁结果见第 13 节与 §13.4。R6 历史门禁不作为本轮验证证据。
 
 ## 13. 实施结果与最终核对
 
@@ -551,7 +551,7 @@ R7 按本计划完成意味着补齐 S3 并验收 S7；结合已完成的 S1/S2/
 
 ### 13.3 验证与部署边界
 
-最终本地门禁：Fast `1139 passed, 28 deselected`；Full `1144 passed, 23 deselected`，包含全部 5 项项目生成/wheel 发布验收、独立进程导入图、SDK/CLI/v2 协作与本地 ACP/MCP fixture。`scripts/typecheck.ps1` 和 Linux 目标 `ty check` 均通过；变更 Python 的未使用导入检查通过。Fast/Full 隔离运行标识分别为 `9f7e4ca179354446b918383472ce7d26` / `cdf570d2580b4cea8a553b0a623deb0d`。连续追问/追加/回复的补充验证也已进入最终 Full。
+初始 R7 本地门禁：Fast `1139 passed, 28 deselected`、Full `1144 passed, 23 deselected`，包含全部 5 项项目生成/wheel 发布验收、独立进程导入图、SDK/CLI/v2 协作与本地 ACP/MCP fixture。`scripts/typecheck.ps1` 和 Linux 目标 `ty check` 均通过；变更 Python 的未使用导入检查通过。Fast/Full 隔离运行标识分别为 `9f7e4ca179354446b918383472ce7d26` / `cdf570d2580b4cea8a553b0a623deb0d`。连续追问/追加/回复的补充验证也已进入该次 Full。提交后复核发现的披露与查询遗漏及其收口证据单独记录于 §13.4。
 
 主/子计划已按规约加入 `-done-` 并移至同一归档目录，历轮上位计划链接同步修正；README、AGENTS 与 design/endpoint/analysis 共 99 份 Markdown 的本地链接目标检查无缺失，`git diff --check` 通过。
 
@@ -562,3 +562,19 @@ R7 按本计划完成意味着补齐 S3 并验收 S7；结合已完成的 S1/S2/
 真实模型委派、远程 MCP、搜索质量与 Linux 实机未在本轮执行；本地协议 fixture 与 Linux 目标类型检查不冒充上述验证。R6 曾记录但未复现的 Workspace IO 失败仍保留其原始诊断边界，本轮未据此建立重试系统或宣称根因已解决。跨日语义地图、内部子 Turn 和功能规划中的新产品能力继续属于计划外演进。
 
 最终核对：本轮遵循 AGENTS 的单一 owner、分层失败、显式配置、真实 SPI 消费者和先事实后投影规则；没有新增需要维护者决定的业务语义。S3 与 S7 验收完成，主计划 S0–S7 所定义的本次重构范围完成；完整功能规划仍作为后续演进材料，不将其全部设想等同于本次已实现能力。
+
+### 13.4 R7 披露与查询一致性收口
+
+状态：`done`（维护者已确认修正方案；基于 `3889cce` 实施，代码、设计文档、下列验收及主计划 S3/S7 核对完成）。
+
+后续复核发现两处局部投影遗漏：活动 Action 来源遗漏失败详情和资源引用；语义节点的 Turn 来源查询只查展示正文，漏掉行动请求、结果等事实。两项在同一 Session owner 内补齐，不改变当前 Turn 与历史 Session 的边界：
+
+- 活动 `SessionEvidence` 归入 `views/navigation.py`，与已完成记录共用 `project_action`，仅增加 `source_state=active_turn`。`completion.py` 只转换 typed facts 和稳定 occurrence，不反向依赖视图。失败原因、反馈、规范结果和资源引用在活动读取与完成后读取中保持一致；活动 Turn 不进入 manifest、历史目录、话题成员或线性交互正文。当前 User Inputs/Trace 仍是活动事实 owner。
+- `views/inspection.py` 共用事实范围遍历：Turn 来源覆盖该 Turn 的事实，叶子来源只覆盖对应叶子；命中给出可精确读取的原始叶子 ref。Turn 与叶子来源重叠时去重，保持既有确定性次序；不沿横向语义关系或资源 Link 读取其它内容。范围检索继续避免重复检索历史 inspect 的取回正文，显式叶子读取不受影响。
+- 沿用 `DisclosurePage` 和内容绑定的 continuation：地图、Turn、Action 集合给下级入口，叶子返回内容；分页继续读取同一范围，inspect 子 ref 才下探。Background 压缩和 Organize 不代替该读取链，不新增 Action 或查询 LLM。
+
+验收对应：`test_organize.py::test_active_action_evidence_matches_completed_inspect_and_query` 覆盖成功资源引用、失败和超时，从真实 Context facts 经 Organize、段 prepare/install 到 inspect/query，再与完成记录对照；确认活动根不可作为历史 Turn 读取且事实读取不封存 Trace。`test_annotation_query_uses_turn_scope_and_leaf_scope` 覆盖请求、结果、失败、Working、输入、重叠来源去重和叶子边界。`test_session_engine.py::test_paginated_turn_retains_readable_children_and_action_leaves` 沿 Turn 分页返回的 Action 集合继续分页并读取叶子，同时检查输入、输出、Working、资源入口可读；既有 timeline、连续问答、背景压缩与 SDK 整理 E2E 继续复用。
+
+已同步 `docs/design/session.md`。按 AGENTS 核对，原事实与完成管线、User 写/SDK 与 Reflection 只读、分层失败、日生命周期保持一致；主计划只补 S3/S7 验收记录，不扩张本次重构范围。
+
+收口验证：开发期间全量 Fast `1142 passed, 28 deselected`；补齐成功引用/超时和分页回归后，Session 聚焦 Fast `43 passed`，最终 Full `1149 passed, 23 deselected`（包含全部非 external 测试、生成/wheel 和独立进程导入检查）。最终 `scripts/typecheck.ps1`、Linux 目标 `ty check` 与 `git diff --check` 通过。最终 Full 隔离运行标识为 `103aa79f694f4be1a704ca10a8e90c1e`，聚焦 Fast 为 `5560efc5f8294c3cbd575f8fca590485`；本节证据不扩大 §13.3 的真实外部服务与部署验证范围。

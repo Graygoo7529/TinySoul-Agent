@@ -7,7 +7,7 @@
 
 2026-09-21 [R6：外部 Agent 与 MCP 能力接入子计划](20260921-done-Agent重构第六轮子计划-外部Agent与MCP能力接入.md) 已完成并归档：共享异步 JobBackend/Inbox 待答投影、受控 stdio、ACP session/权限/多次委派、MCP stdio/Streamable HTTP 四动作、标准 JSON Schema、统一配置与三情景接入均已核对。最终 Full 1130 passed、23 deselected（含生成/wheel），Windows/Linux 目标 typecheck 与 diff-check 通过。真实 Codex ACP 1.12.0/Codex 0.154.0 握手、session 释放/隔离探针与 SDK fixture 分别记录；未运行真实模型委派、远程 MCP、搜索质量测评或 Linux 实机。回归收口与一次未复现 Workspace IO 失败的诊断记录见子计划 §12。S3 Organize/注释层与 S7 范围不变。
 
-2026-09-21 [R7：会话整理与架构收口子计划](20260921-done-Agent重构第七轮子计划-会话整理与架构收口.md) 已完成并归档：§8 的单一 Organize Action、Session-owned 注释、当前证据映射、地图引用与线性交互正文已实现；User 写、SDK/Reflection 只读，无新增 HTTP 编辑接口。S7 已统一 AGENTS/设计/资源预设并核对 §13 全部 19 项，证据见子计划 §13。最终 Fast `1139 passed, 28 deselected`、Full `1144 passed, 23 deselected`（含生成/wheel）、Windows/Linux 目标 typecheck 通过；真实外部模型/远程 MCP/Linux 实机不在本轮验证结论内。
+2026-09-21 [R7：会话整理与架构收口子计划](20260921-done-Agent重构第七轮子计划-会话整理与架构收口.md) 已完成并归档：§8 的单一 Organize Action、Session-owned 注释、当前证据映射、地图引用与线性交互正文已实现；User 写、SDK/Reflection 只读，无新增 HTTP 编辑接口。后续收口统一了活动/完成 Action 披露和 Turn 来源查询范围，并验证分页后继续下探叶子，详见子计划 §13.4。S7 已统一 AGENTS/设计/资源预设并核对 §13 全部 19 项，证据见子计划 §13。收口最终 Full `1149 passed, 23 deselected`（含生成/wheel）、Windows/Linux 目标 typecheck 通过；真实外部模型/远程 MCP/Linux 实机不在本轮验证结论内。
 
 本文件保留已确认的目标设计、历史基线与决策记录；本次执行范围已完成，逐轮授权、实施及验收见第 13 节和已归档子计划。第 14 节保留当时的确认过程；API 草图的具体名称与类型以代码和 docs/design 为准。明确延后的内部子 Turn 等能力未计入完成范围。原“正文 + 替换预览”已合并为单一方案，旧版由 Git 保存，不并行保留冲突接口。
 
@@ -769,7 +769,7 @@ S0–S7 已完成：R7 关闭 S3 延后项并完成 S7，§13 的 19 条核心�
 | S4 `done` | R4 已落实 fswatch、插件事件订阅/触发及生命周期声明；复用 scheduler、ask/reply、容量、reload/restart、Job 监督 | R4 Full/typecheck 通过；外部与 SDK 写入恢复同一 Turn 并刷新实际 MessageStack，固定批次/预算/来源失败/重载恢复/收尾/午夜闭环已验证 |
 | S5 `done` | Gateway v2、项目命令、HTTP/WS/replay、稳定 Endpoint 生命周期与协议文档；原 R5 及运行可用性/重启复审修正均已归档 | 激活受理、启动失败句柄结算、并发/取消重启及 wait_for_exit 契约通过 Full/typecheck；ACP Job 应答仍归 S6 |
 | S6 `done` | ACP 六动作/连接段、MCP 四动作、共享异步 Job、配置与标准 schema；内部子调用留后续 | R6 Full 1130 passed、23 deselected，Windows/Linux 目标类型检查通过；真实协议 fixture 与 Codex 握手/session smoke 分开记录，外部模型与 Linux 实机未验证 |
-| S7 `done` | AGENTS 当前语义统一，设计/配置/模型投影/部署说明对齐；清理重复历史展示与无消费者的模型 digest | R7 Full 1144 passed、23 deselected，含生成/wheel、导入图与代表性 E2E；Windows/Linux 目标 typecheck 通过，19 条验收映射完成 |
+| S7 `done` | AGENTS 当前语义统一，设计/配置/模型投影/部署说明对齐；清理重复历史展示与无消费者的模型 digest | R7 披露与查询收口后 Full 1149 passed、23 deselected，含生成/wheel、导入图与代表性 E2E；Windows/Linux 目标 typecheck 通过，19 条验收映射完成 |
 
 S1–S2 为相邻基础迁移单元，不宣称中间提交可部署。S2 工作量包含全部消费者的接口迁移：迁移基线中的 maintenance/builder.py、session/engine.py、workspace/projection.py 和能力 actions 等依赖旧 loop/context/action，不能删除旧内核后留到 S3 修 imports。现已采用一套新运行路径、注册真实 owner 段与动作，保留可复用领域算法；无兼容 alias、旧管线转发器或临时伪插件。
 

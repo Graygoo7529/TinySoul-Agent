@@ -15,7 +15,8 @@ from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.loop.outcomes import TurnFailure, TurnOutcomeStatus
 
 from .views.background import SessionBackgroundSnapshot
-from .completion import project_turn_record, SessionEvidence
+from .completion import project_turn_record
+from .views.navigation import SessionEvidence
 from .annotations.models import (
     SessionMap,
     OrganizeChange,

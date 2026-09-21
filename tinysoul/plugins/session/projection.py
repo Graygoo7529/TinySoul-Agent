@@ -33,7 +33,7 @@ from tinysoul.plugins.session.runtime_bridge import RuntimeSessionBridge
 from .engine import SessionEngine
 from .services import SessionService, SessionOrganizeService
 from .views import SessionView
-from .completion import SessionEvidence
+from .views.navigation import SessionEvidence
 from .errors import SessionError, SessionInspectRequestError
 from .records.models import SessionOutputRecord
 from .views.background import (

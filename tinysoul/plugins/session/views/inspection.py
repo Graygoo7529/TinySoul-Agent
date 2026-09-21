@@ -31,7 +31,6 @@ from ..annotations.models import (
     OrganizeRequestError,
     OrganizeFailureReason,
 )
-from ..completion import SessionEvidence
 from ..config import SessionSettings
 from ..errors import (
     SessionContractError,
@@ -41,6 +40,7 @@ from ..errors import (
 )
 from ..records.models import SessionManifest, SessionTurnRecord
 from .navigation import (
+    SessionEvidence,
     annotation_content,
     annotation_relations,
     annotation_navigation,
@@ -463,10 +463,7 @@ class SessionView:
             ref in self._source_refs()
             and ref.partition("#")[0] not in self.manifest.refs
         ):
-            return tuple(
-                (ref, "Session evidence", item)
-                for item in self._disclose(ref, action=None).content
-            )
+            return self._source_fact_scope(ref)
         if ref in {"session:topics", "session:annotations"} or ref.startswith(
             ("session:node/", "session:edge/")
         ):
@@ -484,9 +481,9 @@ class SessionView:
                             )
                         )
             for source in page.sources:
-                detail = self._disclose(source, action=None)
-                values.extend((source, "Session fact", item) for item in detail.content)
-            return tuple(values)
+                values.extend(self._source_fact_scope(source))
+            # A Turn and one of its leaves may both be declared as sources.
+            return tuple({item[0]: item for item in values}.values())
         if ref.startswith("session:history") or ref in {
             "session:map",
             "session:unclassified",
@@ -495,45 +492,72 @@ class SessionView:
         else:
             records = (self._requested_record(ref.partition("#")[0]),)
         values: list[tuple[str, str, JsonObject]] = []
+        suffix = ref.partition("#")[2]
         for record in records:
-            targets = [
-                *(f"{record.ref}#input/{i}" for i in range(len(record.inputs))),
-                *(f"{record.ref}#note/{i}" for i in range(len(record.notes))),
-                *(
-                    f"{record.ref}#action/{i}"
-                    for i, item in enumerate(record.actions)
-                    if item.action != "core.context.inspect"
-                    and (action is None or action == item.action)
-                ),
-                *(
-                    f"{record.ref}#resource/{i}"
-                    for i in range(len(resource_links(record)))
-                ),
-                f"{record.ref}#working",
-            ]
-            if record.output is not None:
-                targets.append(f"{record.ref}#output")
-            suffix = ref.partition("#")[2]
-            if suffix == "actions":
-                targets = [item for item in targets if "#action/" in item]
-            elif suffix == "timeline":
-                timeline_refs = {item.ref for item in record.timeline}
-                targets = [item for item in targets if item in timeline_refs]
-            elif suffix:
-                targets = [ref]
-            ordered = dict.fromkeys(item.ref for item in record.timeline)
-            targets = [
-                *(target for target in ordered if target in targets),
-                *(target for target in targets if target not in ordered),
-            ]
-            for target in targets:
-                values.append((target, "Session fact", self._detail(record, target)))
+            values.extend(
+                self._record_fact_scope(record, suffix=suffix, action=action)
+            )
         if ref == "session:map":
             for item in (*self.annotations.nodes, *self.annotations.edges):
                 values.append(
                     (item.ref, "Session interpretation", annotation_content(item))
                 )
         return tuple(values)
+
+    def _source_fact_scope(
+        self,
+        ref: str,
+    ) -> tuple[tuple[str, str, JsonObject], ...]:
+        """Search a declared source without widening its factual boundary."""
+        root, _, suffix = ref.partition("#")
+        if root in self.manifest.refs:
+            return self._record_fact_scope(
+                self._record(root), suffix=suffix, action=None
+            )
+        detail = self._disclose(ref, action=None)
+        return tuple((ref, "Session evidence", item) for item in detail.content)
+
+    def _record_fact_scope(
+        self,
+        record: SessionTurnRecord,
+        *,
+        suffix: str,
+        action: str | None,
+    ) -> tuple[tuple[str, str, JsonObject], ...]:
+        """Return the deterministic factual scope for one Turn or leaf ref."""
+        targets = [
+            *(f"{record.ref}#input/{i}" for i in range(len(record.inputs))),
+            *(f"{record.ref}#note/{i}" for i in range(len(record.notes))),
+            *(
+                f"{record.ref}#action/{i}"
+                for i, item in enumerate(record.actions)
+                if item.action != "core.context.inspect"
+                and (action is None or action == item.action)
+            ),
+            *(
+                f"{record.ref}#resource/{i}"
+                for i in range(len(resource_links(record)))
+            ),
+            f"{record.ref}#working",
+        ]
+        if record.output is not None:
+            targets.append(f"{record.ref}#output")
+        if suffix == "actions":
+            targets = [item for item in targets if "#action/" in item]
+        elif suffix == "timeline":
+            timeline_refs = {item.ref for item in record.timeline}
+            targets = [item for item in targets if item in timeline_refs]
+        elif suffix:
+            targets = [f"{record.ref}#{suffix}"]
+        ordered = dict.fromkeys(item.ref for item in record.timeline)
+        targets = [
+            *(target for target in ordered if target in targets),
+            *(target for target in targets if target not in ordered),
+        ]
+        return tuple(
+            (target, "Session fact", self._detail(record, target))
+            for target in targets
+        )
 
     def _unclassified(self) -> tuple[str, ...]:
         covered = {

@@ -7,7 +7,12 @@ import pytest
 
 from tinysoul.infra.json import JsonObject, dumps_json
 from tinysoul.infra.time import CalendarDay
-from tinysoul.kernel.action import ActionCall, ActionResult, ActionFramework
+from tinysoul.kernel.action import (
+    ActionCall,
+    ActionFramework,
+    ActionResult,
+    ActionResultStatus,
+)
 from tinysoul.kernel.action.call import ExecutionFact, ExecutionState
 from tinysoul.kernel.context import (
     ContextEngineBuilder,
@@ -30,7 +35,7 @@ from tinysoul.plugins.session.annotations.models import (
     SemanticNode,
     SemanticRelation,
 )
-from tinysoul.plugins.session.completion import SessionEvidence
+from tinysoul.plugins.session.views.navigation import SessionEvidence
 from tinysoul.plugins.session.errors import (
     SessionInspectRequestError,
     SessionIOError,
@@ -45,7 +50,7 @@ from tinysoul.plugins.session.records.models import SessionOutputRecord
 from tinysoul.plugins.session.services import SessionService, SessionOrganizeService
 from tinysoul.runtime import RunScope, RunLevel, SignalBus
 
-from .synthetic import completion
+from .synthetic import SyntheticAction, completion
 
 DAY = CalendarDay.parse("2026-09-21")
 PRIOR = "session:turn/prior"
@@ -345,6 +350,157 @@ async def test_update_is_prepared_then_installed_without_expanding_history(
     assert segment.seal()["refs"] == [PRIOR]
     assert "session:turn/later" not in str(await segment.inspect("session:history"))
     assert not hasattr(SessionService(session), "organize")
+
+
+def test_annotation_query_uses_turn_scope_and_leaf_scope(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+    session.record_turn(
+        completion(
+            "prior",
+            ask="user-only-marker",
+            working={
+                "milestones": [{"state": "blocked", "text": "working-marker"}]
+            },
+            actions=(
+                SyntheticAction(
+                    "execution.shell",
+                    request={"command": "specific-command-marker"},
+                    result={"stdout": "action-result-marker"},
+                ),
+                SyntheticAction(
+                    "workspace.read",
+                    status=ActionResultStatus.FAILED,
+                    failure_reason="source_unavailable",
+                ),
+            ),
+        ),
+        day=DAY,
+        output=SessionOutputRecord(text="answer"),
+        status=TurnOutcomeStatus.ANSWERED,
+        exhausted=False,
+    )
+    result = session.organize(
+        OrganizeChange(
+            (PRIOR,),
+            nodes=(
+                replace(
+                    _node("local:turn-topic", source=PRIOR, body="turn topic"),
+                    source_refs=(PRIOR, f"{PRIOR}#action/0"),
+                ),
+                _node(
+                    "local:action-topic",
+                    source=f"{PRIOR}#action/0",
+                    body="action topic",
+                ),
+            ),
+        ),
+        _facts(),
+    )
+    assert result.failure is None
+    refs = dict(result.created)
+
+    for query, suffix in (
+        ("specific-command-marker", "action/0"),
+        ("action-result-marker", "action/0"),
+        ("source_unavailable", "action/1"),
+        ("working-marker", "working"),
+        ("user-only-marker", "input/0"),
+    ):
+        turn_hits = _items(session.inspect(refs["local:turn-topic"], query=query))
+        assert [item["ref"] for item in turn_hits] == [f"{PRIOR}#{suffix}"]
+        assert turn_hits == _items(session.inspect(PRIOR, query=query))
+        assert _items(session.inspect(str(turn_hits[0]["ref"])))
+
+    leaf_hits = _items(
+        session.inspect(refs["local:action-topic"], query="action-result-marker")
+    )
+    assert [item["ref"] for item in leaf_hits] == [f"{PRIOR}#action/0"]
+    for query in ("user-only-marker", "source_unavailable", "working-marker"):
+        assert _items(session.inspect(refs["local:action-topic"], query=query)) == []
+
+
+@pytest.mark.parametrize("status", list(ActionResultStatus))
+async def test_active_action_evidence_matches_completed_inspect_and_query(
+    tmp_path: Path,
+    status: ActionResultStatus,
+) -> None:
+    session = _session(tmp_path)
+    _record(session)
+    context = ContextEngineBuilder(system_text="identity").build()
+    context.begin_turn("active input", turn_id="active")
+    await context.open_segments(DAY.value)
+    success = status is ActionResultStatus.SUCCESS
+    source = completion(
+        "active",
+        actions=(
+            SyntheticAction(
+                "workspace.read",
+                request={"link": "workspace:request.md"},
+                result={"read": True} if success else {},
+                status=status,
+                failure_reason="source_unavailable",
+                references=("workspace:report.md",) if success else (),
+            ),
+        ),
+    )
+    action = source.trace.actions[0]
+    context.register_action_calls((action.call,), cycle_id="cycle")
+    assert action.result is not None
+    context.record_action_result(action.result, cycle_id="cycle")
+    provider = UpdatingSessionProvider(
+        SessionService(session), SessionOrganizeService(session), context.current_facts
+    )
+    segment = await provider.open(TurnInfo("active", DAY.value))
+    facts = context.current_facts()
+    result = session.organize(
+        OrganizeChange(
+            (PRIOR,),
+            nodes=(
+                _node(
+                    "local:evidence",
+                    source="turn:trace@active#action/0",
+                ),
+            ),
+        ),
+        facts,
+    )
+    assert result.failure is None
+    ref = dict(result.created)["local:evidence"]
+    segment.install(await segment.prepare((SessionRefresh(),)))
+    leaf_ref = "session:turn/active#action/0"
+    active = _items(await segment.inspect(leaf_ref))[0]
+    assert active["source_state"] == "active_turn"
+    assert active["outcome"] == status.value
+    if success:
+        assert active["result"] == {"read": True}
+        assert active["references"] == ["workspace:report.md"]
+    else:
+        assert action.result.failure is not None
+        assert active["failure"] == action.result.failure.to_json()
+    query = "workspace:report.md" if success else "source_unavailable"
+    for target in (ref, leaf_ref):
+        hits = _items(await segment.inspect(target, query=query))
+        assert [item["ref"] for item in hits] == [leaf_ref]
+    assert segment.seal()["refs"] == [PRIOR]
+    assert "session:turn/active" not in str(await segment.inspect("session:history"))
+    with pytest.raises(ContextInspectRequestError):
+        await segment.inspect("session:turn/active")
+    assert context.current_facts() == facts
+    completed = context.end_turn()
+    await segment.close()
+    await context.close_segments()
+    session.record_turn(
+        completed,
+        day=DAY,
+        output=None,
+        status=TurnOutcomeStatus.STOPPED,
+        exhausted=False,
+    )
+    historical = _items(session.inspect(leaf_ref))[0]
+    assert active.pop("source_state") == "active_turn"
+    assert active == historical
+    hits = _items(session.inspect(ref, query=query))
+    assert [item["ref"] for item in hits] == [leaf_ref]
 
 
 async def test_multiple_complete_dialogues_share_background_and_inspection(

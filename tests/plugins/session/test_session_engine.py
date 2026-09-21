@@ -141,6 +141,66 @@ def test_inspect_uses_opaque_continuation_for_oversized_content(
     assert mismatch.value.reason is SessionInspectFailureReason.INVALID_CONTINUATION
 
 
+def test_paginated_turn_retains_readable_children_and_action_leaves(
+    tmp_path: Path,
+) -> None:
+    session = _session(tmp_path, inspect_max_chars=1024)
+    session.record_turn(
+        completion(
+            "paged",
+            ask="long input " * 300,
+            working={
+                "milestones": [{"state": "done", "text": "report created"}]
+            },
+            actions=tuple(
+                SyntheticAction(
+                    "workspace.read",
+                    request={"part": index},
+                    result={"read": True},
+                    references=("workspace:report.md",),
+                )
+                for index in range(6)
+            ),
+        ),
+        day=DAY,
+        output=SessionOutputRecord(text="done"),
+        status=TurnOutcomeStatus.ANSWERED,
+        exhausted=False,
+    )
+
+    def children(ref: str) -> list[str]:
+        page = session.inspect(ref)
+        assert "next_continuation" in page
+        result: list[str] = []
+        while True:
+            result.extend(
+                str(item["ref"])
+                for item in _json_object_list(page["items"])
+                if item.get("kind") == "child"
+            )
+            token = page.get("next_continuation")
+            if token is None:
+                return result
+            assert isinstance(token, str)
+            page = session.inspect(ref, continuation=token)
+
+    turn_children = children("session:turn/paged")
+    assert {ref.partition("#")[2] for ref in turn_children} == {
+        "input/0", "actions", "output", "working", "resource/0"
+    }
+    action_collection = next(ref for ref in turn_children if ref.endswith("#actions"))
+    actions = children(action_collection)
+    assert len(actions) == 6
+    for ref in (*turn_children, *actions):
+        page = session.inspect(ref)
+        assert page["items"] or "content_fragment" in page
+    for index, ref in enumerate(actions):
+        detail = _json_object_list(session.inspect(ref)["items"])[0]
+        assert detail["request"] == {"part": index}
+        assert detail["result"] == {"read": True}
+        assert detail["references"] == ["workspace:report.md"]
+
+
 def test_map_preserves_all_facts_when_background_is_bounded(
     tmp_path: Path,
 ) -> None:

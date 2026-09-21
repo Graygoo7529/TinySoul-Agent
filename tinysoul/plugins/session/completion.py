@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from tinysoul.kernel.action.call import ExecutionState
 from tinysoul.kernel.context import (
     ContextTurnCompletion,
-    ContextTurnFacts,
     ContextTurnInput,
 )
 from tinysoul.kernel.context.builtin.trace import TraceKind, TraceAction
@@ -67,45 +65,6 @@ def project_fact_refs(
             for index in range(action_count)
         },
     }
-
-
-@dataclass(frozen=True)
-class SessionEvidence:
-    """Only accepted inputs and settled Actions, retaining original occurrences."""
-
-    facts: ContextTurnFacts
-
-    def resolve(self, ref: str) -> tuple[str, JsonObject] | None:
-        refs = project_fact_refs(
-            self.facts.turn_id, self.facts.inputs, len(self.facts.actions)
-        )
-        target = refs.get(ref, ref)
-        root = f"session:turn/{self.facts.turn_id}"
-        for index, item in enumerate(self.facts.inputs):
-            if target == f"{root}#input/{index}":
-                return target, {
-                    "kind": "session_input",
-                    "ref": target,
-                    "text": item.text,
-                    "reply_to": item.reply_to,
-                    "source_state": "active_turn",
-                }
-        for index, item in enumerate(self.facts.actions):
-            if (
-                target == f"{root}#action/{index}"
-                and item.state is ExecutionState.SETTLED
-            ):
-                action = project_action_record(item)
-                return target, {
-                    "kind": "session_action",
-                    "ref": target,
-                    "action": action.action,
-                    "request": action.request,
-                    "result": action.result,
-                    "outcome": action.outcome.value,
-                    "source_state": "active_turn",
-                }
-        return None
 
 
 def project_turn_record(
