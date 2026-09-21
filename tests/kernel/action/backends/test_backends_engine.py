@@ -3,12 +3,10 @@ from __future__ import annotations
 from tests.action_helpers import builtin_catalog
 
 import asyncio
-import subprocess
 import sys
 from dataclasses import replace
 from pathlib import Path
 from time import monotonic, sleep
-from typing import cast
 
 import pytest
 
@@ -22,7 +20,6 @@ from tinysoul.kernel.action.engine import ActionEngineBuilder
 from tinysoul.kernel.action.planning.normalization import ActionCallNormalizer
 from tinysoul.kernel.action.execution.preparation import ActionExecutionBuilder
 from tinysoul.kernel.action.catalog.catalog import ActionCatalog
-from tinysoul.kernel.action.errors import ActionContractError
 from tinysoul.kernel.action.execution.executor import (
     ActionExecutionCancelled,
     ActionExecutionContext,
@@ -376,6 +373,7 @@ async def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
             "workspace.list", lambda execution, context: {"scanned": True}
         )
         .mark_actions_unsupported(
+            "core.session.organize",
             "core.wait",
             "core.job.status",
             "core.job.stop",

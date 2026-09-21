@@ -20,6 +20,7 @@ from .control.tools import (
 from .engine import (
     ContextTurnCompletion,
     ContextTurnInput,
+    ContextTurnFacts,
     ContextEngine,
     ContextEngineBuilder,
     ContextSignalBatch,
@@ -77,6 +78,7 @@ __all__ = [
     "ContextInspectRequestError",
     "ContextTurnCompletion",
     "ContextTurnInput",
+    "ContextTurnFacts",
     "ContextSignalBatch",
     "ContextSettings",
     "ContextSectionUsage",

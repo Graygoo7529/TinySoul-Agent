@@ -32,7 +32,7 @@ Memory provider 每 Turn 打开 Heap 段，维护本轮加载视图、目录与�
 
 memory.inspect 提供有界发现：query 综合 exact identity、lexical、grep、中文 bigram 与可选 semantic；Link 模式检查正向引用、backlinks 和相关候选。query 只返回 active 候选，精确旧 Link 仍可 inspect。continuation 绑定 catalog generation 和请求身份，结果受条数、摘要与整页字符预算约束。
 
-memory.recall 接受精确持久 Link，返回完整 Markdown、类型、metadata、内容 digest 与 redirect chain；不会自动内联目标正文。模型根据检索结果渐进读取，Trace 保留有限投影和来源 Link，检索本身不改变 Background 或知识文档。
+memory.recall 接受精确持久 Link，Action 返回完整 Markdown、类型、metadata 与 redirect chain；不会自动内联目标正文。内部检索与 SDK 读取保留内容摘要，Action 不向模型重复暴露没有行动消费者的 digest。模型根据检索结果渐进读取，Trace 保留有限投影和来源 Link，检索本身不改变 Background 或知识文档。
 
 Embedding 使用 infra 的异步 provider-neutral 客户端。inspect 捕获固定 catalog，按需计算候选/query 向量；完整候选准备后原子替换 schema v2 cache。缓存身份包含模型设置与实际输入摘要。缺失、损坏或供应商失败降级到 lexical/relations/backlinks；取消保持取消语义，不安装半批缓存。Markdown 写入不调用网络，凭据不进入缓存。
 

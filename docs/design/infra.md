@@ -114,7 +114,7 @@ ServiceScope 的短操作可显式附带异步提交后回调，并在同一 lea
 
 配置错误应尽早暴露，错误信息应包含配置键、来源、原始值、期望类型和失败原因。AgentBuilder 先拒绝未知顶层 section，各模块 parser 再拒绝自身 table 中的未知键；嵌套未知键也不允许静默穿过。`ConfigEnvironment.parse_section` 根据最终获胜的 main/include/dotenv/environment/override source 为模块 parser 产生的 `ConfigError` 补充来源，因此拼写错误和语义错误使用同一套 key/source 诊断。
 
-Infra 自身只抛出配置和基础设施语义的错误，不导入 Runtime，不维护 Runtime bridge 或 failure 枚举。配置源加载由 App 组合根解释；模块配置解释由对应 owner bridge 处理；UserTurnBuilder 的 staging 失败由 Loop 以资源准备失败报告启动失败。JSON 和受控文件系统错误同样由实际调用 owner 处理。
+Infra 自身只抛出配置和基础设施语义的错误，不导入 Runtime，不维护 Runtime bridge 或 failure 枚举。配置源加载由 Agent 组合根解释；模块配置解释由对应 owner bridge 处理；UserTurnBuilder 的 staging 失败由 Loop 以资源准备失败报告启动失败。JSON 和受控文件系统错误同样由实际调用 owner 处理。
 
 ConfigError 本地保留完整诊断供调试；`config_error_payload` 只提供有界 key 和 expected，不复制 source、value 或原始异常文本。业务 bridge 使用这份纯 JSON 投影并自行确定 module、kind 和运行原因，避免把本地调试数据直接变成 Runtime/Observation 协议。
 
@@ -122,7 +122,7 @@ JSON 值类型、JSON 对象校验和稳定序列化属于 Infra 的公共基础
 
 ## 依赖检查
 
-`DependencyChecker` 只检查当前 Python 解释器中 distribution metadata 和 import module 是否存在，不导入目标模块、不执行安装，也不了解 action enabled 或 adapter 选择。业务模块根据自身 effective settings 构造 `DependencyRequirement`，并解释 `DependencyCheck`；因此 Resource 等 capability 可以在 App 装配期拒绝“已启用但依赖缺失”，而禁用能力无需检查。依赖需求、可选 feature 和失败归属仍由 capability 自己拥有。
+`DependencyChecker` 只检查当前 Python 解释器中 distribution metadata 和 import module 是否存在，不导入目标模块、不执行安装，也不了解 action enabled 或 adapter 选择。业务模块根据自身 effective settings 构造 `DependencyRequirement`，并解释 `DependencyCheck`；因此 Resource 等 capability 可以在 Agent 装配期拒绝“已启用但依赖缺失”，而禁用能力无需检查。依赖需求、可选 feature 和失败归属仍由 capability 自己拥有。
 
 ## Text Embedding
 

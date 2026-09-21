@@ -14,12 +14,12 @@ from tinysoul.kernel.action.catalog.schema import (
 )
 from tinysoul.kernel.action.result import ActionTraceMode
 from tinysoul.kernel.action.catalog.specs import (
-    ActionBackendKind,
     ActionParallelPolicy,
     ActionToolSpec,
 )
 from tinysoul.kernel.action.errors import ActionInvariantError
 from tinysoul.infra import JsonObject
+from tinysoul.infra.json import to_json_object
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
 from tests.support.project import copy_initialized_project
 
@@ -413,3 +413,44 @@ def test_action_schema_rejects_inconsistent_numeric_default() -> None:
     assert error.value.key == (
         "ActionToolSpec(x.wait).schema.properties.wait_seconds.default"
     )
+
+
+def test_action_schema_enforces_collection_and_text_bounds() -> None:
+    schema: JsonObject = {
+        "type": "object",
+        "properties": {
+            "refs": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 2,
+                "items": {"type": "string", "minLength": 2, "maxLength": 4},
+            },
+        },
+    }
+    ActionToolSpec(name="x.edit", description="Edit.", schema=schema)
+    validate_action_params({"refs": ["ab", "abcd"]}, schema=schema)
+    for refs in ([], ["ab"] * 3, ["a"], ["abcde"]):
+        with pytest.raises(ActionSchemaValidationError):
+            validate_action_params(to_json_object({"refs": refs}), schema=schema)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        {"type": "string", "maxItems": 2},
+        {"type": "array", "maxItems": -1},
+        {"type": "string", "minLength": True},
+        {"type": "string", "minLength": 3, "maxLength": 2},
+        {"type": "array", "minItems": 1, "default": []},
+    ],
+)
+def test_action_schema_rejects_invalid_size_bounds(field: JsonObject) -> None:
+    with pytest.raises(ActionSchemaDefinitionError):
+        ActionToolSpec(
+            name="x.edit",
+            description="Edit.",
+            schema={
+                "type": "object",
+                "properties": {"value": field},
+            },
+        )

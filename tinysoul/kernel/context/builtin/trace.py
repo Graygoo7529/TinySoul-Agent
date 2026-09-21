@@ -276,12 +276,16 @@ class TurnTraceHeap:
         cycle_id: str = "",
         admission_sequence: int | None = None,
     ) -> None:
-        self._timeline.append(TraceFact(
-            len(self._timeline) + 1, kind, ref, cycle_id, admission_sequence
-        ))
+        self._timeline.append(
+            TraceFact(len(self._timeline) + 1, kind, ref, cycle_id, admission_sequence)
+        )
 
     def timeline(self) -> tuple[TraceFact, ...]:
         return tuple(self._timeline)
+
+    def actions(self) -> tuple[TraceAction, ...]:
+        """Read canonical request order without settling or sealing any call."""
+        return tuple(self._actions.values())
 
     def action_ref(self, cycle_id: str, sequence: int) -> str:
         occurrence = tuple(self._actions).index((cycle_id, sequence))
@@ -372,7 +376,8 @@ class TurnTraceHeap:
         if fact.state is not ExecutionState.REQUESTED:
             self.record_fact(
                 TraceFactKind(f"action_{fact.state.value}"),
-                self.action_ref(*key), cycle_id=key[0],
+                self.action_ref(*key),
+                cycle_id=key[0],
             )
 
     @property
@@ -434,7 +439,10 @@ class TurnTraceHeap:
             else UserMessage.from_json(note, label="phase_note")
         )
         return self._append(
-            TraceKind.PHASE_NOTE, message, cycle_id=cycle_id, phase=phase,
+            TraceKind.PHASE_NOTE,
+            message,
+            cycle_id=cycle_id,
+            phase=phase,
             admission_sequence=admission_sequence,
         )
 
@@ -470,7 +478,10 @@ class TurnTraceHeap:
         folded = 0
         updated: list[TraceEntry] = []
         for entry in self._entries:
-            if entry.visible_overlay is None or entry.entry_id in self._protected_overlays:
+            if (
+                entry.visible_overlay is None
+                or entry.entry_id in self._protected_overlays
+            ):
                 updated.append(entry)
                 continue
             updated.append(replace(entry, visible_overlay=None))
@@ -511,11 +522,16 @@ class TurnTraceHeap:
             return self.entries()
         prefix = f"{self.head_ref()}#entry/"
         if ref.startswith(prefix):
-            entries = tuple(item for item in self._entries if item.entry_id == ref[len(prefix):])
+            entries = tuple(
+                item for item in self._entries if item.entry_id == ref[len(prefix) :]
+            )
             if entries:
                 return entries
-            raise ContextInspectRequestError(ContextInspectFailureReason.UNKNOWN_REF,
-                                             "Unknown trace entry", constraint={"ref": ref})
+            raise ContextInspectRequestError(
+                ContextInspectFailureReason.UNKNOWN_REF,
+                "Unknown trace entry",
+                constraint={"ref": ref},
+            )
         node = self._node_for_ref(ref)
         if node.kind is TraceHeapNodeKind.LEAF:
             return self.leaf_entries(ref)
@@ -548,7 +564,8 @@ class TurnTraceHeap:
                 self._actions[key] = replace(item, state=ExecutionState.NOT_EXECUTED)
                 self.record_fact(
                     TraceFactKind.ACTION_NOT_EXECUTED,
-                    self.action_ref(*key), cycle_id=key[0],
+                    self.action_ref(*key),
+                    cycle_id=key[0],
                 )
         return SealedTurnTrace(
             turn_id=self._turn_id,
@@ -608,7 +625,9 @@ class TurnTraceHeap:
                 group_end += 1
                 if not cycle_id:
                     break
-            if group_end > limit or any(item in self._protected_overlays for item in group):
+            if group_end > limit or any(
+                item in self._protected_overlays for item in group
+            ):
                 break
             index = group_end
             selected_ids.extend(group)
@@ -712,7 +731,12 @@ class PendingInputs:
         self._inputs: list[PendingInput] = []
 
     def add(
-        self, text: str, *, merged: bool = False, input_id: str = "", reply_to: str = "",
+        self,
+        text: str,
+        *,
+        merged: bool = False,
+        input_id: str = "",
+        reply_to: str = "",
         received_at: float | None = None,
     ) -> "PendingInput":
         if not text:

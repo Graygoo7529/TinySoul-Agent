@@ -8,13 +8,22 @@ from threading import RLock
 
 from tinysoul.kernel.context import (
     ContextTurnCompletion,
+    ContextTurnFacts,
 )
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.loop.outcomes import TurnFailure, TurnOutcomeStatus
 
 from .views.background import SessionBackgroundSnapshot
-from .completion import project_turn_record
+from .completion import project_turn_record, SessionEvidence
+from .annotations.models import (
+    SessionMap,
+    OrganizeChange,
+    OrganizeResult,
+    OrganizeRequestError,
+    OrganizeFailureReason,
+)
+from .annotations.store import AnnotationStore
 from .config import SessionSettings
 from .errors import (
     SessionContractError,
@@ -24,7 +33,6 @@ from .views.memory import SessionMemoryFactsProjection, project_session_memory_f
 from .records.models import (
     SessionManifest,
     SessionOutputRecord,
-    SessionTurnRecord,
 )
 from .views import SessionView
 from .records.reconcile import SessionReconcileResult, SessionReconciler
@@ -34,7 +42,7 @@ from .records.validation import validate_turn_record
 
 @dataclass(frozen=True)
 class SessionArchiveSnapshot:
-    """Validated, read-only roots for one archived Business Day."""
+    """Validated, read-only roots for one archived CalendarDay."""
 
     day: CalendarDay
     root: Path
@@ -88,6 +96,8 @@ class SessionEngine:
             )
         self._reconciler = SessionReconciler(self._store)
         self._manifest = self._store.load_active_manifest()
+        self._annotations = AnnotationStore(self._store.root)
+        self._map = self._annotations.load()
         self._last_reconcile_result = SessionReconcileResult(revision=0)
         if self._manifest is not None:
             self._last_reconcile_result = self._reconcile_current()
@@ -131,6 +141,7 @@ class SessionEngine:
             self._last_reconcile_result = self._reconcile_current()
             self._store.archive_to(target)
             self._manifest = None
+            self._map = SessionMap()
             self._last_reconcile_result = SessionReconcileResult(revision=0)
 
     def reconcile_active(self) -> SessionReconcileResult:
@@ -206,6 +217,7 @@ class SessionEngine:
             ),
             self._settings,
             SessionStore(root=root),
+            annotations=AnnotationStore(root).load(),
         )
 
     def snapshot_view(self, day: CalendarDay) -> SessionView:
@@ -214,7 +226,42 @@ class SessionEngine:
         with self._lock:
             self._require_day(day)
             self._last_reconcile_result = self._reconcile_current()
-            return SessionView(self._require_manifest(), self._settings, self._store)
+            return SessionView(
+                self._require_manifest(),
+                self._settings,
+                self._store,
+                annotations=self._map,
+            )
+
+    def annotation_snapshot(self) -> SessionMap:
+        with self._lock:
+            self._require_manifest()
+            return self._map
+
+    def organize(
+        self, change: OrganizeChange, facts: ContextTurnFacts
+    ) -> OrganizeResult:
+        with self._lock:
+            manifest = self._require_manifest()
+            if not manifest.refs:
+                return OrganizeResult(
+                    failure=OrganizeFailureReason.NO_HISTORY,
+                    feedback="There are no completed Turns to organize yet",
+                )
+            view = SessionView(
+                manifest,
+                self._settings,
+                self._store,
+                annotations=self._map,
+                evidence=SessionEvidence(facts),
+            )
+            try:
+                candidate, result = self._map.apply(change, fact=view.fact_ref)
+            except OrganizeRequestError as exc:
+                return OrganizeResult(failure=exc.reason, feedback=str(exc))
+            self._annotations.save(candidate)
+            self._map = candidate
+            return result
 
     def empty_view(self, day: CalendarDay) -> SessionView:
         """Represent an explicitly absent historical Session source."""
@@ -279,7 +326,12 @@ class SessionEngine:
         expected_revision: int | None = None,
     ) -> JsonObject:
         with self._lock:
-            view = SessionView(self._require_manifest(), self._settings, self._store)
+            view = SessionView(
+                self._require_manifest(),
+                self._settings,
+                self._store,
+                annotations=self._map,
+            )
         return view.inspect(
             ref,
             action=action,

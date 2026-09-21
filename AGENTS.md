@@ -4,138 +4,139 @@
 
 ## 核心定义
 
-本节定义 TinySoul 的稳定概念和设计语义。具体类型、字段、方法、配置与存储协议由代码和 `docs/design/` 说明，不在此重复展开。
+本节定义稳定概念、所有权与协作语义。具体类型、字段、配置和存储协议由代码及 `docs/design/` 说明；历轮迁移过程与验证记录保留在 `docs/analysis/done/`，不以过渡条款覆盖当前规约。
 
 ### 执行模型
 
-用户轮/User Turn：从用户发起一轮输入开始，到该输入对应的 Agent 执行结束。一个 User Turn 可以包含多次 Agent Cycle、LLM Task 和 Action，也可以合并期间追加的用户输入；它最终收敛为回答、停止、耗尽或失败。
+Agent 是嵌入式运行门面与根 work 的唯一调度者，拥有类型化请求队列、运行世代、环境事件路由和日期协调。SDK、Terminal、HTTP 与定时来源共用该入口，不各自维护执行状态机。
 
-维护轮/Maintenance Turn：与 User Turn 同级的 Program work，用于 Home 与 Memory 等需要模型推理的维护任务。它复用同一套 Turn/Cycle/Phase 内核，但拥有独立语境、可用 Action 和完成条件，不产生用户回答，也不写入 User Session。
+用户轮/User Turn：从用户输入开始，到对应执行收敛为回答、等待用户、停止、耗尽、取消或失败。一个 Turn 可以包含多次 Cycle、LLM Task 和 Action，接受期间追加输入或明确回复；结束一轮不宣告整体多轮目标完成。
 
-执行轮/Agent Cycle：Turn 内的一次完整“理解、决策、行动”循环，由三个顺序 Phase 组成：
+Reflection Turn：同一个 Agent 的专门执行情景，与 User Turn 同级。Home/Memory Reflection 复用同一 Turn/Cycle/Phase 内核，通过 TurnProfile 取得独立 Context、Action 策略、来源和受约束服务；不发布用户回答，不写入 User Session。每日策略或用户明确允许本次整理后，安排独立根 work；单次授权不形成持续许可。
 
-1. Phase1 更新语境并选择一个或多个行动域；模型只看到 Control Tools 和域级语义，不看到全部 Action。
-2. Phase2 在已选域内生成并归一化一个或多个 ActionCall；模型只看到这些域内的 Action Tools。
-3. Phase3 将 ActionCall 组装为 ActionBatch 并执行，把结构化结果反馈到当前 Turn。
+执行轮/Agent Cycle：Turn 内的一次完整“理解、决策、行动”循环：
 
-模型轮/LLM Call/LLM Task：一次独立模型调用。其输入是上层已经构造好的 MessageStack、当前 TaskPrompt、模型侧工具作用域和输出约束；LLM 模块负责模型选择、供应商适配、重试与结果解释，不负责业务状态变更或实际工具执行。
+1. Phase1 更新语境并选择一个或多个行动域；模型只看到 Control Tools 和域级语义。
+2. Phase2 在已选域内生成并归一化 ActionCall；模型只看到这些域内的 Action Tools。
+3. Phase3 组装并执行 ActionBatch，把结构化结果反馈到当前 Turn。
 
-任务提示/TaskPrompt：只服务当前 LLM Task 的临时提示层，由任务引导、任务输入和期望输出三类 PromptBlock 组成。Phase2 可自动挂载领域 Skill；Action 内部的 LLM Task 可同时挂载领域 Skill 与动作 Skill。目标资源和参考资源只在所属 Action 内局部解析为任务输入，不进入通用 Context。
+LLM Task：一次独立模型调用。上层提供已经构造好的 MessageStack、TaskPrompt、模型工具作用域和输出约束；LLM 负责模型选择、供应商适配、重试与解释，不选择或执行业务 Action、不修改 Context。
 
-行动执行/Action：一次模型可选择的智能体行动。Action 定义同时包含模型可见的调用语义与框架执行语义；每个调用必须在所属批次内收敛；正常执行以成功、失败或超时结果反馈，取消、未执行和结果未知通过类型化执行事实保留，不伪造工具结果。需要跨 Cycle 监督的外部任务以 Job 形式由 Agent 监督（Turn 级随 Turn 结束回收，Agent 级可跨 Turn 存续），但每次启动、等待、检查、提交或停止仍是独立且已收敛的 Action。
+TaskPrompt：只服务当前 LLM Task 的临时提示层，包含引导、输入和期望输出。Phase2 可挂载 domain Skill；Action 内部任务可同时挂载 domain/action Skill。目标与参考资源在所属 Action 内局部解析，不自动进入通用 Context。
 
-模型侧工具/Tool Message：用于约束模型生成结构化调用意图，不等于工具已执行。Control Tools 在 Phase1 表达语境和流程控制意图，结果经校验后由对应模块消费；Action Tools 在 Phase2 表达行动参数，结果归一化为 ActionCall 后交给 Phase3。供应商原生 tool calling 只是 LLM 适配层映射，不进入 TinySoul 的核心身份和业务协议。
+Action：一次模型可选择、具有模型语义和执行策略的行动。每次调用在所属批次内收敛；成功、失败、超时返回局部结果，取消、未执行和结果未知保留类型化执行事实，不伪造工具结果。需要跨 Cycle 监督的执行由 Job 承载；启动、检查、回应、等待或停止仍是独立 Action。
+
+Job：属于唯一 Turn 的后台工作，可跨 Cycle，不能跨所属 Turn。kernel/jobs 监督状态、结果与待答，backend 持有实际执行资源；异步协议不等于所有行动都在后台。即时 shell/script 仍可等待结果后返回，长执行可启动 Job。Turn 收尾先停止并收集 Job，再提交必要事实和释放 session；执行终态与资源释放分开。
+
+模型侧 Tool Message：约束模型生成结构化意图，不表示工具已执行。Control Tools 的意图经校验交给对应 owner，Action Tools 归一化为 ActionCall 后交给 Phase3。供应商原生 tool calling 只存在于 LLM 适配边界。
+
+domain 是能力分组，TurnProfile 是同一 Agent 的执行情景。domain 提供可覆盖的默认选择，单动作可覆盖域选择；visibility 只筛选已经授予且可用的能力，不能授予缺失的写服务或 backend。
 
 ### 语境模型
 
-语境/Context：Agent 对当前语言游戏状态与规则的整体认识，只属于一个活动 Turn。它由以下语义段组成：
+Context 只属于一个活动 Turn。Kernel 按 Background、Trace、Working 三个槽位组合 Segment；段描述声明 owner、顺序、形状、引用路由及能力，领域内容由外围 owner 维护。State/Heap/Stack/Map 表达内容形状，渐进披露是访问方式，不是另一套持久化模型。
 
-- User Inputs：当前 Turn 的初始输入与已合并追加输入。
-- Session Background：同一 Business Day 内已完成 prior Turns 的固定投影，在 Turn preparation 时注入，本轮内固定且不可逐出。
-- BackgroundContext：由 Home、Memory 等 owner 提供的通用背景与目录；每个 Turn 重建，可按规则渐进加载或逐出。
-- TurnTrace/TurnTraceContext：当前 Turn 按发生顺序积累的决策、Action 请求、结果和必要反馈；它可以压缩为可渐进检查的语义结构，但不因此复制第二份历史事实。
-- WorkingContext：当前任务工作台，只表达 milestones、todos 与 Workspace 资源链接/摘要等现态，不保存文件正文。
+当前装配顺序为 system identity → Session → User Inputs → Home/Memory → TurnTrace → plan/Workspace/连接状态 → TaskPrompt。identity 使用 system role；用户态语境和任务提示使用 user role；TinySoul 工具结果保留内部语义，由 provider adapter 映射。
 
-构造式 MessageStack：Context 在每次 LLM Task 前根据当前状态重新构造输入，稳定顺序为 system identity、User Inputs、Session Background、通用 Background、TurnTrace、WorkingContext、TaskPrompt overlay。identity 使用 system role；用户态语境和任务提示使用 user role；TinySoul Tool Result 保留内部工具结果语义，再由供应商适配层映射。revision、digest、cursor 等完整性事实只在确有消费者时由 owner 协议维护，不因内部存在就自动暴露给模型。
+- Inputs 保存当前 Turn 初始输入、已接受追加与回复；排队但未接受的文本不是事实。
+- Session 段组合语义地图引用与下方按历史顺序一次呈现的交互正文。本轮 prior-Turn 来源集合固定，已安装解释可以经 Organize 更新；多话题不复制正文，未归类 Turn 仍可见。
+- Home/Memory 等 Heap 段维护本轮目录、默认内容、按需加载与逐出，不反向拥有整个 Context。
+- TurnTrace 是当前 Turn 按 owner 观察顺序积累的输入可见位置、决策、执行事实与必要反馈。Stack 压缩保留原始引用和可读取的事实，不复制平行历史。
+- Working 表达 plan 的 milestones/todos 及各插件的现态投影。Workspace 只提供 Link/说明等资源状态，不常驻文件正文。
 
-持久化、内存与模型反馈：持久化是 owner 写入本地目录的长期或跨 Turn 事实；内存是模块在运行期维护的状态；模型反馈是从这些状态投影并构造出的 MessageStack 或 ActionResult。三者必须可相互解释，但不能混为同一份数据或互相替代。
+构造式 MessageStack 在每个 LLM Task 前根据已安装段重新生成；render 纯读取，无文件操作。Signal 固定批次先解析、校验和 prepare，全部候选成功后同步 install；安装不重放已提交业务操作。prepare 不提交持久事实，completion 承担必要提交，close 只回收本轮视图。
 
-语块与渐进式加载：语块把细节归纳为可识别的稳定表达；渐进式加载则让 Agent 先看到 Link、摘要或语义节点，再在确有需要时显式展开细节。Context 默认承载决策所需的有界语义，不自动内联完整知识、历史或资源正文。
+持久化是 owner 保存的长期或跨 Turn 事实，内存是运行状态，模型反馈是两者的有界投影。三者须可相互解释，不能互相替代。revision、digest、cursor 等仅在确有消费者的 owner 协议中使用，不因内部存在就自动暴露给模型。
+
+渐进披露以稳定 ref、标题、线索和直接入口引导按需读取。Trace 与 Session 共用 DisclosurePage/continuation；`core.context.inspect` 只读，query 在指定范围做确定性定位，不调用额外模型或永久展开 Background。完整 inspect 结果进入一次实际返回的决策模型请求后才允许折叠；容量拒绝不能解除保护。分页绑定实际读取内容，单纯背景折叠及无关注释变化不使未变页面失效。
+
+Session 的地图和交互正文共用一个背景预算，只在自身高水位响应回收。先保留完整多轮交互，超限才明确摘录/折叠；问题、完整选项和关联回复不能被拆成孤立选择。最低投影保留事实与解释目录，同一轮刷新沿用已缩减预算。
 
 ### 资源与持久化
 
-链接/Link：跨模块传递的稳定资源身份，不是可由任意模块拼接的物理路径。Link 由所属 owner 解析、校验和映射，主要分为五类：
+Link 是跨模块稳定资源身份，不是任意模块拼接的物理路径。所属 owner 负责解析、校验和映射：
 
-- `home:<space>@<logical-path>` 表示可进入 Background 的 Home 顶层内容；`agent` 存放身份规约与用户偏好，`skills` 存放通用技能。
-- `home:<space>/<resource-path>` 表示只能由 Action 渐进读取或使用的 Home 资源，保留真实扩展名。
-- `memory:daily/YYYY-MM-DD`、`memory:entity/<name>`、`memory:concept/<name>`、`memory:fact/<cite>` 与 `memory:note/<cite>` 表示五类持久 Memory Markdown；`memory:current`、`memory:latest`、`memory:target` 只是在特定 Context 中解析的动态背景引用，不是持久 Link。
-- `workspace:<relative-path>` 表示当日工作区资源句柄。
-- `home:skills_domain:<domain>` 与 `home:skills_action:<domain>/<action>` 表示局部自动 prompt mount，只进入对应 Phase 或 Action 内部任务，不作为普通 Background 或资源读取入口。
+- `home:<space>@<logical-path>`：可进入 Background 的顶层内容。
+- `home:<space>/<resource-path>`：只能由 Action 渐进读取的 Home 资源，保留真实扩展名。
+- `home:skills_domain:<domain>`、`home:skills_action:<domain>/<action>`：仅用于对应任务的局部 Skill mount。
+- `memory:daily/YYYY-MM-DD`、`memory:entity/<name>`、`memory:concept/<name>`、`memory:fact/<cite>`、`memory:note/<cite>`：五类持久 Markdown。`memory:current/latest/target` 是 Context 内动态引用。
+- `workspace:<relative-path>`：当日工作区资源。Session/Trace ref 定位原始交互或语义解释，不是文件 Link；归档资源保持原日身份。
 
-工作区/Workspace：当前 Business Day 的可操作资源空间。磁盘文件是内容事实，manifest 是资源索引和摘要，WorkingContext 只接收同一状态的 Link/summary 投影。文件正文通常不进入 Context；显式有界读取可作为当前交互结果，LLM 辅助的资源操作则在 Action 内部按 `target_link` 和 `reference_links` 局部读取，并在提交前复验来源版本。
+Workspace 是当日可操作资源空间。磁盘是内容事实，manifest 是索引、说明和标签；pinned/tmp/library 标签不改变日生命周期。短 owner 操作串行、单文件原子提交；不维护内容 CAS、来源 read-set 或提交前复验。execution 直接操作真实当天 Workspace，取消不回滚已写文件，外部共写可能覆盖内容。Trash 由显式操作维护，不因 Context 压力删除文件。
 
-Agent Home：Agent 的持久身份规约、用户偏好、通用 Skill 和行动指导，不包含日期 Memory。actual Home 是已由 Maintenance 接受的基线；普通 User Turn 通过跨日 runtime overlay 形成 effective Home，只有 Home Maintenance 可以把变更提交回 actual Home。顶层内容可进入 Background，渐进资源只通过 Action 使用，领域/动作 Skill 只在对应任务局部挂载。
+Home 持有身份规约、用户偏好、通用 Skill 和行动指导。actual Home 是已接受基线；普通 Turn 的修改写入跨日 runtime overlay，形成 effective Home，只有 Home Reflection 的受约束 review 服务能接受回 actual Home。审核来源 token 保护真正的 review 语义，与 Workspace 不使用 CAS 不冲突。
 
-记忆/Memory：与 Home 平级，分为活动记忆、daily 情景证据和 entity/concept/fact/note 持久知识。活动 `Memory.md` 位于当日 Session root，User Turn 只通过 core domain 的 `core.memory.memorize` 由 Memory owner 在锁内执行轻量原子 patch；模型不需要提供 CAS digest。五类持久 Markdown 只由 Memory Maintenance 维护。User Turn 通过 `core.memory.inspect` 结合 lexical、grep、正向引用、backlinks 和可选语义检索发现 Link，再由 `core.memory.recall` 精确召回完整文档。Action 的规划域归属 core 不改变 Memory owner；Markdown 是唯一业务事实，catalog 与 embedding cache 均是可删除重建的派生数据。
+Memory 持有活动 Memory.md、五类持久 Markdown、Link/codec、catalog、backlinks 与可重建 embedding cache。普通 Turn 在 memory 域通过 memorize 原子 patch 活动记忆、inspect 发现来源、recall 读取完整文档；只有 Memory Reflection 的写服务可提交持久文档。每次 write_daily/write 原子替换单个完整文档，引用目标须先存在，不建立多文档 draft/commit/journal。已有 daily 可重组和补充，无严格冻结语义；既有持久 Link 不 hard delete，迁移说明与 redirect 由 Memory 校验。
 
-会话/Session：同一 Business Day 内已经完成的 User Turns 所形成的不可变业务事实。Session 从同一事实图派生 prior-turn Background、渐进检查和 Memory facts，不保存当前 Turn 的运行时 trace，不承担通用日志或前端审计数据库职责。
+Session 持有当日已完成 User Turn 的不可变事实，以及单独的有来源语义注释。事实的 contains/precedes/replies_to/references 确定性派生；解释的 thread/note、成员和推导关系只由 User Turn 内 `core.session.organize` 原子修改。语义图允许共享与回路，森林只是导航投影，不另存树。修订/撤回保留稳定身份，不改写事实；合流创建新解释入口，保留旧分支。当前已接受输入或已结算 Action 可作补充证据，不能提前成为历史成员。Session 不承担通用日志、前端审计或跨日语义图职责。
 
-主要持久目录：
+主要目录：
 
-- `home/`：Maintenance 已接受的 actual Home。
-- `memory/`：daily/entity/concept/fact/note 五类持久 Markdown，以及可删除的 `.tinysoul/` 派生缓存和事务 journal。
-- `runtime/`：活动状态，主要包括带 `Memory.md` 的当日 Session、Workspace、active Trash、跨日 Home overlay 和进程服务状态。
-- `archive/<timestamp>/`：已冻结 Business Day 的 Session（包含当日 `Memory.md`）、Workspace 与 Trash；不包含 Home，持久 `memory/` 也不随日切移入归档。
+- `home/`：actual Home；`memory/`：持久 Markdown 与可删除重建的派生缓存。
+- `runtime/`：带活动 Memory.md 和 map.json 的当日 Session、Workspace、Trash、跨日 Home overlay 及进程服务状态。
+- `archive/<timestamp>/`：冻结日的 Session（含 Memory.md、map）、Workspace 与 Trash；不包含 Home 或持久 memory。
 
 ### 运行控制
 
-运行层级：从外到内为 Agent（重构前实现中称 Program）、Turn、Cycle、Phase、Module。Agent 拥有类型化请求队列、环境事件路由与进程生命周期；Turn 表达一项完整的 User 或 Maintenance work；Cycle 和 Phase 组织推理与行动；Module 是 LLM、Action、Context 或持久化 owner 的具体执行边界。
+运行层级由外到内是 Agent、Turn、Cycle、Phase、Module。asyncio 承载唯一根调度；User 和 Reflection 共用内核，等待用户、Job、事件、定时器或预算仍占根执行位置，后续根 work 排队。
 
-Business Day 与每日生命周期：业务日由统一时区规则确定，并在一个 Turn 内保持不变。Session、Session root 内的活动 `Memory.md`、Workspace 和 active Trash 具有强制日生命周期；进入新日工作前必须先完成不依赖 LLM 的确定性日切、恢复、归档和新根初始化。新日 `Memory.md` 初始正文为空。Home 与持久 Memory 跨日保留且不进入归档；关闭日 daily 与知识由独立 Memory Maintenance 维护。
+CalendarDay 由 infra 的统一时区时钟确定，Turn 的 active_day lease 持续到必要收尾完成。进入新日 work 前，agent/lifecycle 协调 owner 完成确定性日切、归档和新根初始化，不依赖 LLM 或 Reflection 成功。新日活动 Memory.md 为空，Session/map 为空；Home、overlay 和持久 Memory 跨日保留。Reflection 的 source_day/target_day 与执行日分开。
 
-Trap/Runtime 语义异常：只用于需要改变运行位置的控制流，例如全局恢复、重试某一 frame、结束 Turn/Cycle/Program 或启动失败。模块应先完成自身局部恢复和失败归类，只有局部流程无法继续或需要全局协调时才进入 Trap；Trap 产生的运行转移必须指向当前捕获作用域内的合法 frame。
+Trap/Runtime 语义异常只表达运行转移，例如容量恢复、重试 frame、结束 Cycle/Turn/Agent 或启动失败。模块先完成局部恢复和失败归类；只有局部流程不能继续或需要协调时进入 Trap，转移目标须是当前捕获作用域内的合法且可重放 frame。
 
-内部信号/Signal：用于需要业务模块消费的状态变更和跨模块数据传递，例如提交 Context patch、追加 TurnTrace、同步 Workspace 或合并用户追加输入。Signal 不决定全局恢复位置，消费与提交仍由拥有该协议的模块负责。
+Signal 表达需要业务 owner 消费的状态变更与跨模块数据，不决定全局恢复位置。EnvironmentEvent 由 Agent EventRouter 定向或按订阅进入 TurnInbox；独立 Trigger 可以排新根请求，Job 事件不能创建新根 Turn。观察事件 Observation 是面向终端、前端、日志和宿主的 JSON 安全旁路，normal/verbose/model 分级，sink 失败不影响业务。
 
-观察事件/Observation：只面向终端、前端、日志或嵌入方的 JSON 安全旁路事实，不参与业务提交和控制流。可观测性分为 normal、verbose、model 三个层级，其中 model 用于展示真实交给模型的上下文；Observation sink 失败不能反向影响业务结果。
+TurnInbox 在等待期间持续受理，有界保存关键元数据，大输出由 owner 落盘；capture → prepare/install → ack 保持固定批次，新到输入留给后批。取消与预算决定不排在普通进度后。已接受关键事件在存活进程中不静默丢弃，不承诺崩溃续跑 Turn。预算耗尽进入受限 SUSPEND，由用户补额或中断；模型不依赖内部 Cycle 余额。
 
-行为模式：TinySoul-Agent 是一个面向个人的、允许超长时间后台多步运行的智能体，整体行为先充分探索和思考再进行产出：一步一步落实、把每一步工作都耐心仔细做好。智能体不急于回答和交付，而是精细于每一步工作；总体上秉持先探索思考，再设计规划，再产出执行，最后检查迭代的行动思路；细节上会合理拆分多步任务，不急于一次完成，少量多次地尝试和产出，每次做好局部细节的打磨和提交，最后检查交付完整成果。
+SDK 服务绑定运行世代，日级服务同时绑定 CalendarDay；切换后旧对象失效，调用者重新获取。Agent.wait_for_exit 等待宿主最终退出并跨 restart，不消费 Signal；等待者取消不取消运行，显式 shutdown 使未完成退出等待收到 CancelledError。
 
-人机协作：TinySoul-Agent 是主动的思考与执行伙伴，会提出有依据的观点、假设、替代路线和能够推进理解的问题。可自行调查或有界恢复的问题应先在当前 Turn 内处理；当继续推进依赖人的重大判断、仅由用户掌握的信息、进一步授权或指示、可行路线选择，或者当前证据不足以负责任地继续时，可以通过 `core.answer` 提问、请求确认或申请进一步指示，此类回答正常结束当前 User Turn；也可以通过 `core.ask` 提问并暂停当前 Turn 等待回复，回复到达则在本 Turn 内继续，超时则本 Turn 以等待用户状态结束。两者都不宣告整体多轮目标已经完成，也不要求 WorkingContext todos 全部完成。
-
+行为模式：TinySoul 是主动、耐心的思考与执行伙伴，允许超长时间后台多步运行。先探索理解，再设计规划，逐步落实、检查迭代，少量多次完成细节。可自行调查或有界恢复的问题先在当前 Turn 处理；依赖用户重大判断、信息或授权时，core.answer 可请求进一步指示并正常结束本轮，core.ask 可暂停同一轮等待明确回复。两者均不要求所有 todos 完成，也不宣告长期目标完成。
 
 ## 项目规约
 
-本节描述当前实现中各模块的长期职责与协作边界；具体实现以 `docs/design/` 和代码为准。设计或实现变更必须先判断所有权、数据流和失败归属，再同步更新相应设计文档与测试。
-
 ### 总体边界
 
-- TinySoul 由 Program、Turn、Cycle、Phase 和 Module 组成的分层运行结构承载。外层负责装配、请求分派和生命周期，内层负责单一领域语义；上层不得绕过下层门面直接操作其私有状态。
-- 每项持久事实只有一个 owner。跨模块协作使用稳定的类型化门面、provider、snapshot 或 signal；不复制状态、不建立平行日志、不保留语义不清的兼容别名。
-- 运行时状态、模型反馈和持久化内容必须分层管理。模块维护自己的内存状态，Context 在调用模型前构造 MessageStack，持久化模块只在其提交边界写入事实。
+- 依赖方向为 `infra → runtime/llm → kernel → plugins/environment → agent → gateway`。上层通过稳定门面、服务、provider、snapshot 或 signal 协作，不绕过 owner 操作私有状态。
+- 每项持久事实只有一个 owner；运行状态、模型投影和持久内容分层，不复制状态、不建立平行日志、不保留语义不清的兼容别名。
+- 显式 PluginDeclaration 贡献服务、段、动作、preparation/completion、事件适配和来源；只有具有仓库内真实消费者的 SPI 才加入协议，不构建动态发现平台。
 
 ### 模块职责
 
-- `infra` 只提供配置来源、动态数据校验、JSON、文件和其他无业务基础设施；各业务模块自行解释自己的配置和失败。
-- `runtime` 只负责运行位置、Trap、运行转移、信号和观察事件。它不执行 Action、不构造 Context、不访问业务存储。
-- `app` 负责进程装配、Program 请求队列、外部输入解析和输出路由；Terminal、Endpoint、scheduler 等输入源只能提交类型化请求或控制意图。
-- `loop` 提供可复用的 Turn/Cycle/Phase 内核。User Turn 与 Maintenance Turn 共用执行骨架，但各自拥有独立的 Context、Action 视图、准备流程和完成语义。
-- `llm` 负责统一消息、模型侧工具协议、供应商适配、模型选择、重试和输出解释；它不选择或执行业务 Action，也不修改 Context。
-- `action` 负责域与动作 catalog、Phase2 参数生成、Phase3 批次执行、超时/并发/hook 和结构化结果。供应商原生 tool calling 只存在于 LLM 适配边界。
-- `context` 只拥有当前 Turn 的 User Inputs、Background、TurnTrace 和 Working，并按固定顺序构造 MessageStack。Home、Memory、Session、Workspace 通过明确投影提供内容，不能反向拥有整个 Context。
-- `session` 只保存当日已完成 Turn 的不可变业务事实，并从同一事实图派生历史 Background、渐进检查和 Memory facts；它不是通用日志或前端审计库。
-- `workspace` 是 `workspace:` 资源链接和当日工作区的唯一 owner，负责磁盘事实、manifest、版本一致性、文件变更、Trash 和归档投影。Context 只接收链接和摘要，文件正文只能在明确、有界的 Action 执行期读取。
-- `home` 是 `home:` 内容和 Skill 的唯一 owner。actual Home 在普通运行中只读，User Turn 的改动写入跨日 runtime overlay；Home Maintenance 才能把审核后的变更提交回 actual Home。长期日期记忆不属于 Home。
-- `memory` 是活动 `Memory.md`、五类持久 `memory:` Link、Markdown codec、检索 catalog、backlinks、派生 embedding cache 和多文档事务的唯一 owner。User Turn 只能 patch 活动记忆并 inspect/recall 持久记忆；Memory Maintenance 才能联合维护目标 daily 与 entity/concept/fact/note。
-- `maintenance` 拥有业务时钟、确定性日切、归档以及 Home/Memory 维护任务的编排。Archive、Home、Memory 的私有存储仍由各自 owner 解释，维护任务之间不互读私有实现。
-- `capabilities` 只承载无独立持久化和生命周期的具体能力，通过 Action 注册自身服务和执行器；不得另建与 Workspace、Home、Memory 或 Session 平行的状态模块。
-- `endpoint` 是本地客户端协议适配层，与 Terminal 共用同一 App 和业务 Engine。它负责鉴权、请求映射和 Observation replay，不拥有业务状态、退出权或任意文件 API。
+- `infra`：配置来源、JSON、文件、动态校验、时钟、HTTP 和受控进程等无业务设施；不拥有业务失败恢复。
+- `runtime`：运行位置、Trap/transfer、Signal、环境 envelope 和 Observation；不导入上层业务、不执行 Action 或访问业务存储。
+- `llm`：统一消息/工具、模型选择、供应商适配、重试和输出解释。
+- `kernel`：唯一 Turn/Cycle/Phase 骨架；action 负责 catalog、参数归一化、批次/timeout/hook；context 负责段组合、控制意图和本轮事实；jobs 负责 Turn-owned 监督。
+- `plugins`：Session、Workspace、Home、Memory 等事实 owner 及 Reflection/Archive 协作。每个插件暴露单一组装门面，实际服务权限由情景授予。
+- `plugins/execution`：真实 Workspace 上的 shell/script/process 能力；监督复用 kernel/jobs，进程控制复用 infra/process。
+- `plugins/capabilities`：Web、资源、ACP subagent、MCP expand 等外围能力。可以持有 Agent 生命周期管理的 I/O 资源与派生目录，不另建调度器或与核心 owner 平行的持久事实。
+- `environment`：输入适配、Workspace 文件监听和通用定时等待，通过注入端口协作；不解释 Reflection 业务策略。
+- `agent`：SDK、根队列、世代装配、事件路由、服务 lease 和日协调；不复制内核。
+- `gateway`：CLI、Terminal、Endpoint 和项目命令。Endpoint 负责鉴权、协议映射及 Observation replay，不拥有业务状态、退出权或任意文件 API。
 
 ### 关键协作语义
 
-- Phase1 只确定行动域并处理语境控制意图，Phase2 在已选域内生成 ActionCall，Phase3 执行 ActionBatch；每个调用都应归一化为可记录、可反馈的结果。
-- Phase1/Phase2 framework Task 的可修正协议失败属于当前 Cycle 的局部 `PhaseFailure`：当前 Cycle 在失败 Phase 边界结束，反馈进入下一个完整 Cycle；Phase 不自行重复协议调用，Runtime 仍以 cycle budget、取消和 bridge 负责全局生命周期。Phase2 失败不得以空 ActionBatch 继续 Phase3。
-- Context 的 Background、TurnTrace、Working 和 task prompt 是不同语义层：Background 提供可复用背景，Trace 记录本轮行为，Working 表达当前工作状态，task prompt 只服务当前 LLM Task。资源正文不因存在链接而自动进入 Context。
-- Link 是跨模块资源身份，不是物理路径拼接约定。`home:`、`memory:`、`workspace:` 各自由 owner 解析；顶层内容、渐进资源、工作区资源和局部 Skill mount 不得混用。
-- User 与 Home Maintenance Context 加载不可逐出的 `memory:current + optional memory:latest`；Memory Maintenance Context 加载不可逐出的 `memory:target + optional memory:latest`，其中 latest 始终是严格早于 Context 日的最近 daily，缺失时静默省略。
-- Memory Maintenance 必须先 inspect/recall 已有内容再复用、修正或新增。既有持久 Link 不 hard delete；合并、替代或撤回保留非空迁移说明和有效非 daily redirect。`relations` 只表达 entity/concept 关系，daily/fact/note 来源由 `evidence` 表达。
-- Session、Workspace、Home overlay 和 Memory 文档的写入都必须在 owner 的一致性边界完成，使用校验、reconcile、CAS 或原子替换保证不会产生半提交状态。LLM 生成期间读取的资源集合必须在提交时复验。
-- User Turn 与 Maintenance Turn 都在完整情景中运行；Maintenance 是自治的 Program work，不等待人工审批，不把维护状态塞入 User Session，也不让维护请求绕过 Program 队列。
+- Phase1/Phase2 可修正协议失败是局部 PhaseFailure：在失败 Phase 结束当前 Cycle，反馈给下一完整 Cycle；不在 Phase 内重试协议，不以空 ActionBatch 继续 Phase3。
+- owner 先提交事实，再发刷新 Signal；段 prepare/install 更新本轮投影。Session 记录走唯一必要 completion，close 不再次提交。
+- 当前证据快照纯读取，不调用 seal_trace 或 end_turn，不对已结算 Action 子集重新编号。Session 解释引用映射，Kernel 不解释语义图。
+- User/Home Reflection 默认加载受保护的 memory:current/latest；Memory Reflection 加载目标来源的 target/latest，latest 严格早于来源日，缺失时省略。
+- 普通对话不取得持久 Memory、actual Home 或 Reflection 专属写权限。SessionOrganizeService 只注入 User；SDK SessionService 与 Reflection 保持只读，无外部 Session 编辑 HTTP 接口。
+- MCP expand 的 describe_servers/describe_tools/search/call 共用目录。自然语言检索是一次有界 LLM 选择，超容量由父 Agent 缩小服务范围；MCP 配置支持 stdio 与 Streamable HTTP。ACP 显式连接后委派，空闲连接可跨 Turn 复用；Job 不跨 Turn，结束先停止 Job 再释放协议 session。
+- 原生 watcher 只提供线索，Workspace owner 统一正式写入与外部变化，提交后发布事件；Context 在固定批次刷新。只监听活动 Workspace，来源故障停止并有限反馈，正式操作继续；不构建自动恢复状态机。日切/重载先停止并 join 来源，再切换绑定。
 
 ### 失败与控制流
 
-- 失败按三层处理：可由模型或上层继续处理的局部事实返回结构化结果；模块契约、配置、依赖或持久化不满足时停在模块边界；只有需要改变全局运行位置时才转换为 Runtime 语义异常。
-- 局部 Action、LLM 或 phase 失败必须带有稳定、有限、可反馈的原因和摘要，不携带原始异常、traceback、绝对路径、敏感值或大块资源正文。
-- Milestone 是少量、持久、可复用的事实寄存器；除完成事实外，也可以记录有价值的尝试、失败、阻塞、计算值、决定、来源 Link、版本和 digest，但必须明确状态，不能伪装成 todo 完成。
-- Runtime 异常只表达全局恢复、重试、中断或结束；signal 用于业务模块消费的状态变更和跨模块数据传递；Observation 只面向外部观察，不能反向改变控制流。
-- 超时、取消、并发和受控进程必须服从所属 Action/Turn 的生命周期。需要硬停止的工作使用受控进程，不能让无法取消的本地任务阻塞 Runtime 转移。
+- 三层失败严格区分：可修正局部结果、无法继续的模块边界异常、需要 Trap 改变运行位置的 Runtime 语义异常。
+- 局部 Action/LLM/Phase 失败保留稳定有限原因和短反馈，不携带原始异常、traceback、敏感路径或大块正文。
+- 取消复用所属生命周期。短 owner 操作完整 join 后才传播取消，长执行使用受控进程；必要 finish 失败影响结果，附属 close 诊断不能覆盖已提交主结果。
+- Milestone 是少量可复用事实寄存器，可记录尝试、失败、阻塞、计算值、决定与来源，须明确状态，不能伪装成 todo 完成。
 
 ### 实现约束
 
-- 所有动态边界（配置、模型输出、外部协议、文件内容）在入口处校验并转换为明确类型；配置显式加载、显式传递，禁止导入时读取配置或创建隐式全局状态。
-- 优先复用既有模块和门面；不建设动态发现式的通用插件平台、万能 Gateway、任意文件 API、第二套 Loop/Action 状态机或没有真实消费者的抽象。显式注册、每个 SPI 方法在仓库内都有真实消费者的 Plugin 契约不属于此禁令。
-- 文档、代码和测试共同描述当前实现事实。历史设计和旧测试只能帮助理解意图，不能成为保留模糊边界、重复状态或兼容层的理由。
-- “干净性”的设计，不要因为临时的干净而摈弃合理的抽象设计、架构统一性、一致性和可维护性，在整体设计逻辑上应该是具有统一设计语义和合理抽象的、结构清晰的；在空间上，能够将现有设计和功能纳入尽量统一设计语义，在时间上，能够让这套语义面向长期的迭代维护和扩展。
+- 动态边界尽早转换为明确类型；配置显式加载与传递，禁止导入时读取配置或创建隐式全局状态。
+- 公共设施不私有化在业务模块；不建设万能 Gateway、任意文件 API、第二套 Loop/Action 状态机或无消费者抽象。
+- 文档、代码与测试共同描述当前事实；旧设计和测试不作为保留重复实现、含糊边界或兼容层的理由。
+- 架构语义应统一、接口简约、owner 清晰，支持插件替换与长期演进。先保证正常主线与结束边界，不为假设极端情况堆叠逐层防御、恢复链路或平行实现。
+- 运行环境为个人使用的长期独立主机与远端前端；按受信主机假设设计，不为没有真实需求的企业级安全治理增加负担。
 
 ## 工作方式
 
@@ -144,7 +145,7 @@ Trap/Runtime 语义异常：只用于需要改变运行位置的控制流，例�
 - 不应在未讨论清楚目标和边界时直接大规模实现。
 - 如果发现当前设想与既有目标冲突，应先提出冲突点、可选方案和影响，再继续修改。
 - 在继续设计或实现时，如果发现实际代码、外部接口或新需求与之前讨论规划产生冲突，应立即澄清问题并重新讨论清楚。不要用敷衍的临时性补丁绕过冲突。
-- 基于 AGENT.md 整体设计思路与规约，先明确整体设计意图、现有代码思路，充分理解和分析后再进行进一步设计，避免重复冗余、边界模糊；要真实地分析问题所在，从上至下、从设计、架构到细节实现地考虑问题。在设计上不要被旧代码、工作量和测试兼容所约束；要关注架构合理、边界清晰、干净一致的设计与业务实现，不做临时补丁式最小实现。
+- 基于 AGENTS.md 整体设计思路与规约，先明确整体设计意图、现有代码思路，充分理解和分析后再进行进一步设计，避免重复冗余、边界模糊；要真实地分析问题所在，从上至下、从设计、架构到细节实现地考虑问题。在设计上不要被旧代码、工作量和测试兼容所约束；要关注架构合理、边界清晰、干净一致的设计与业务实现，不做临时补丁式最小实现。
 
 ## 设计原则
 
@@ -177,8 +178,8 @@ Trap/Runtime 语义异常：只用于需要改变运行位置的控制流，例�
 - 模块稳定失败语义应由模块内部维护；需要交给 Runtime 的失败由专门 bridge 映射为少量通用 Runtime 原因。bridge 应显式构造 message 和 JSON payload；原始异常链用于调试，不作为 payload 协议。
 - 新模块接入 Runtime 时，应优先遵循 LLM 和 Action 的模式；Infra 保持纯基础设施，不设置 Runtime bridge，由实际调用 owner 解释其失败：模块内用 `failures.py` 维护服务于 Runtime bridge 的稳定失败枚举；需要 Runtime 协调控制流的失败由模块自带的 runtime bridge（统一位于所属 owner 包内 `runtime_bridge.py`）通过映射表转换为 Runtime 语义异常；Trap 原因常量由定义该原因的 owner 声明并登记处理器，`runtime` 只声明自身的启动失败与结束 Turn/Cycle/Agent 原因；模块内部可自行处理或结构化返回的失败不进入 Runtime，也不必强行纳入 bridge failure 枚举。
 - 模块 failure payload 应保持稳定、精简和 JSON 安全。跨 Runtime 边界时 payload 至少应能表达模块名和模块失败类型，其中 `kind` 使用 `<module>.<failure_name>` 格式的全局稳定标识，`module` 字段继续保留用于筛选和展示；并可按需携带 `error_type`、配置 key、profile、资源句柄等摘要字段；不要放原始异常对象、traceback、大块文件内容、完整消息栈或业务模块内部对象。
-- Runtime 语义异常应通过稳定原因标识进入 Trap，由 Trap 处理器返回运行转移；Runtime 原因应收敛为启动失败、结束 Turn、结束 Cycle、结束 Program 和少量全局恢复原因，不要为恢复、中断、退出和无法处理的错误过早扩展庞大的异常继承树。
-- Runtime 运行转移应以运行位置栈中的 frame 为目标，并收敛为重试 frame 或结束 frame；重试目标必须具备可重放语义，结束 Program frame 表示退出程序。
+- Runtime 语义异常应通过稳定原因标识进入 Trap，由 Trap 处理器返回运行转移；Runtime 原因应收敛为启动失败、结束 Turn、结束 Cycle、结束 Agent 和少量全局恢复原因，不要为恢复、中断、退出和无法处理的错误过早扩展庞大的异常继承树。
+- Runtime 运行转移应以运行位置栈中的 frame 为目标，并收敛为重试 frame 或结束 frame；重试目标必须具备可重放语义，结束 Agent frame 表示退出程序。
 - 控制流变化应统一通过 Runtime 语义异常进入 Trap；信号只表达需要业务模块消费的事件和状态变更请求，Trap 处理过程中需要业务状态变更时也应发出信号交由对应模块消费；不参与业务提交、只面向外部输出的事件使用 ObservationEvent，不能反向改变控制流。
 - 允许引入轻量、灵活、基础性的外部依赖，用于配置、数据校验、HTTP/API 客户端、序列化等通用基础能力。引入依赖时应说明其职责边界，避免为很小的问题引入沉重框架。
 - 测试应保护当前稳定契约、可观察行为和真实风险，不固化可编辑内容、实现细节、历史残影或重复快照。
@@ -239,54 +240,11 @@ conda activate TinySoul
 - 前后端协作：后端 agent 仅修改后端项目代码，不过多考虑 visualization；前端 agent 工作仅限于在 visualization 目录下修改，不改动后端项目代码；后端项目代码接口应全部通过 endpoint 向前端提供能力支持，在修改后端实现时，若发生 endpoint 改动，需即时在 docs\endpoint 中建立和调整文档，供前端对接；前端在进行前端设计和实现时，若发生缺失能力，不要阻塞设计和实现工作，允许暂时假定可行接口，并通过 visualization\docs\demand 向后端 agent 提出进一步能力需求。
 
 
-## 当前任务
+## 推进与交付
 
-当前任务是按 `docs/analysis/20260915-agent-architecture-refactor-plan.md` 分阶段落实分层 Agent 架构重构；R1 与 R2 收口已完成，原 R2 实施批次保留历史归档记录，2026-09-16 复审缺口已由 `docs/analysis/done/20260916-done-Agent重构R2收口子计划.md` 关闭（2026-09-17 Full/typecheck 通过，C1/C2/C3 已落实，C4 保留后续评估）。主计划 S1、S2、S4、S5、S6 已完成；R3 已完成领域重构，R4 已完成环境事件闭环，R5 原执行批次与运行可用性/重启复审修正、R6 外部能力接入均已完成归档；S3 的 organize/模型推导注释与 S7 保留后续范围。后续仍围绕以下目标推进：以 `Agent` 门面统一输入、输出与状态；以 asyncio 事件总线与 `EnvironmentEvent` 协议把 Agent 置于环境之中；以段协议把 Context 语境段的内容与维护反转给外围插件，内核只知槽位、形状与 ref scheme；以 Job 框架统一后台进程与 ACP 外部 sub-agent，内部嵌套 Turn 留待实际需求扩展；包布局已按 `infra → runtime/llm → kernel → plugins/environment → agent → gateway` 重排。该主执行计划及其已确认子计划在重构期间是设计来源，不向后兼容，不保留兼容层、重复状态或跨模块捷径。重构的长期目标不变：构造功能强、可用性高、具有智能性的泛用智能体，并通过记忆和 Home 维护构造持续长期稳定运行的个性化助手。
+执行计划记录范围、确认点、实际进展及证据；有含糊语义或与已确认目标的冲突时立即讨论。只在实现、设计文档和必要验证逐项核对后完成并归档，不能以轮次或测试数量推定功能完成。
 
-2026-09-21 R5 提交后复审修正已完成，见 `docs/analysis/done/20260921-done-Agent重构R5复审修正子计划-运行可用性与退出等待.md`：Endpoint 可用性由 owner 状态投影，重启复用唯一 SDK 操作，启动失败经 scheduler 结清已受理请求；Agent.wait_for_exit 保留跨重启等待、原返回结果和显式 shutdown 对未完成等待的 CancelledError 契约，无旧别名。Windows Fast 1107 passed、28 deselected，Full 1112 passed、23 deselected（含 5 项 Generation/wheel），typecheck、diff-check 与归档链接通过；未运行真实 provider/network 或 Linux 实机。S5 重新验收为 done。
-
-R3 的实现、失败归属、内部组织和部署边界已逐项核对，见 `docs/analysis/done/20260917-done-Agent重构第三轮子计划-领域语义与能力组织.md`。2026-09-19 Full 1066 passed、23 deselected，typecheck 通过，含生成/wheel 和 worker 启动；真实 provider/network 未运行。配置、动作和存储格式不提供旧别名或隐式迁移，没有 reset 实际部署数据。
-
-R3 提交后的四项复审缺口已由 `docs/analysis/done/20260919-done-Agent重构R3收口子计划.md` 关闭：进程所有权涵盖受控后代，Workspace 移动/恢复共用保留人工元数据的提交边界，批次目标按 owner 解析路径判定，嵌套失败完整保留已提交事实。Full 1081 passed、23 deselected，typecheck 通过；Windows 真实进程与日切验证通过，POSIX 仅完成源码与目标类型核对。没有新增 CAS、模型侧实现字段、平行监督器或恢复状态机；主计划 S3 延后项与 S4–S7 保持原范围。
-
-Before 4 基础补强已完成，见 `docs/analysis/done/20260920-done-Agent重构Before4子计划-数据基础与渐进披露.md`：类型化事实顺序、当日 Session 导航、共用渐进披露/query、取回结果消费保护、日期命名和测试环境边界均已核对。2026-09-20 Windows Full 1087 passed、23 deselected，Windows/Linux 目标 typecheck 通过；本轮未运行 Linux 实机和真实 provider/network。Session 记录升为 v10，没有迁移/reset 部署数据。S3 的 Organize 动作/持久注释层与 S4–S7 仍未整体完成。
-
-R4 环境事件与插件运行闭环已完成，见 `docs/analysis/done/20260920-done-Agent重构第四轮子计划-环境事件与插件运行闭环.md`：来源/订阅/lifecycle 显式声明，Workspace owner 统一正式操作与外部监听通知，固定 Inbox 批次刷新 Context，Reflection 定时 I/O 与业务触发分离。2026-09-20 Windows Full 1100 passed、23 deselected，Windows/Linux 目标 typecheck 通过，包含真实文件监听、进程跨午夜和 wheel；未运行 Linux 实机和真实 provider/network。仅监听当前 Workspace；监听故障停止并报告，正式操作继续，不增加后台自动修复状态机。S4 标记 done，S3 延后项及 S6–S7 保留。
-
-R5 Gateway v2 与 Endpoint 生命周期收口已完成，见 `docs/analysis/done/20260920-done-Agent重构第五轮子计划-Gateway v2与SDK协议闭环.md`、`docs/analysis/done/20260920-done-Agent重构第五轮收口子计划-Endpoint生命周期与重启.md`，复审修正见 `docs/analysis/done/20260921-done-Agent重构R5复审修正子计划-运行可用性与退出等待.md`：HTTP、CLI 与 SDK 共用 AgentCommands 和 owner facade，Turn/Job/Runtime 只通过类型化投影，旧 `/v1` 路径删除，Observation replay 使用 instance/cursor/gap。HTTP 不提供项目 reset，Job 停止不越过 Turn owner；稳定 EndpointHost 保持 instance/journal/cursor，在 HTTP restart 中只重绑 Agent generation，旧 facade 失效后由调用者重新获取，ACP Job 应答移交 S6。Agent.wait_for_exit 跨 restart，CLI 重新获取配置与 commands；Endpoint 只在 Agent running 后报告可用，启动失败会结算已受理句柄，重启等待者取消不会解除新绑定。修正完成后的门禁见子计划实施记录；主计划 S5 已重新验收为 done，S3 延后项和 S6–S7 保留。
-
-2026-09-21 R6 已完成，见 `docs/analysis/done/20260921-done-Agent重构第六轮子计划-外部Agent与MCP能力接入.md`：ACP 与进程共用异步 Job/Inbox，待答与终态均可唤醒父 Turn；连接/session 由 subagent owner 管理，connections 段只投影，本轮结束先停止 Job 再释放 session。expand 的 describe_servers/describe_tools/search/call 共用 MCP 目录，语义搜索只做一次有界 LLM 选择，超容量由父 Agent 缩小范围；stdio、Streamable HTTP、标准 schema 与 Workspace 结果材料均已接入。配置仍走原有 include/descriptor/candidate/reload，object 映射保留原始工具名，凭据引用值不进入投影。Capabilities 可持有 Agent 生命周期管理的 I/O 资源与派生目录，不拥有平行调度器或持久事实。活动 Job 期间不完整 Workspace 扫描保留旧索引，最终同步仍在所有执行停止后完成。最终 Windows Full 1130 passed、23 deselected（含生成/wheel），Windows/Linux 目标 typecheck 通过；真实 Codex 发布包握手/session 探针与本地 ACP/MCP 协议 fixture 分列验证，真实模型委派、远程 MCP、检索质量及 Linux 实机未运行。一次未复现 IO 失败与回归收口记录保留在子计划，不宣称已定位全部外部失败原因。S6 标 done，S3 延后项及 S7 不变。
-
-过渡期文档约定：本文件"核心定义""项目规约""代码风格""运行环境与验证"中的模块名（`app`、`loop`、`context`、`action`、`endpoint` 等）、按 owner 名固定的 MessageStack 顺序、Context 由 `context` 模块直接拥有四类语义段、`tests/<module>/` 布局等表述描述的是重构前的实现事实；与执行计划冲突处以执行计划为准，并在计划 S7 阶段整体重写本文件。已被执行计划明确替代的条款：
-
-- Program/App → Agent；`runtime.program_end → runtime.agent_end`；`app`、`endpoint` → `agent`、`environment`、`gateway`。
-- MessageStack 按三分区 Background → Trace → Working 渲染，Background 内顺序为 identity → session → inputs → home → memory；Home、Memory、Session、Workspace 各以独立段提供内容。
-- 环境事件由 `EventRouter` 定向或按订阅进入 TurnInbox；独立 Trigger 可排入新根请求，Job 事件不触发新根 Turn。单根 Turn 等待时仍占执行位置。
-- Plugin 声明事件订阅、适配、运行来源与必要 preparation/completion，分别进入既有世代生命周期和 Turn 管线。文件监听只提供线索，Workspace owner 提交事实后发布事件；段在固定 Inbox 批次 prepare/install，不在回调中改 Context。纯状态通知可合并且不强迫额外决策，topic/source 等待仍服从预算。日切/重载先停止并 join 来源，再切换绑定；来源状态与 Observation 不形成第二套业务事实。
-- Job 可跨 Cycle，不跨所属 Turn；Turn 结束时回收。受限 `SUSPEND` 表达预算暂停，模型不见 Cycle 余额，用户决定补充或中断；`core.ask` 可暂停等待回复。
-- TurnInbox 在暂停期间持续接收；有界内存保存关键元数据，大输出由 owner 落盘，已接受关键事件在存活进程中不静默丢弃；不承诺崩溃续跑 Turn。
-- 所有模块 bridge 随其 owner 放置，包括 kernel 与 llm；runtime 不 import 上层业务模块。Trap 原因由 owner 声明，通用构造帮助由 runtime 公开。
-- `BusinessDay` → `CalendarDay`；`BusinessClock/IanaBusinessClock` → `CalendarClock/IanaCalendarClock`，Turn 活动日期为 `active_day`。时钟归 infra，日切协调归 agent/lifecycle，Reflection 保留独立 source_day/target_day。Maintenance → Reflection。情景保持 `user`、`home_reflection`、`memory_reflection`；专属动作归回 `home.diff/review` 与 `memory.write_daily/write`，通用 Memory 动作为 `memory.memorize/inspect/recall`。domain/action TOML 的 visibility 统一表达情景选择，不能授予服务权限。模型自主少量多步，User Turn 仍不写持久 Memory、不提交 actual Home。
-- Reflection 是同一 Agent 的专门执行情景，由 TurnProfile 承载 domain/action 策略与受约束服务；每日策略或用户明确允许本次整理后，安排独立 Reflection Turn。普通对话不挂载 Reflection 专属能力，单次授权不形成持续许可。SDK 服务绑定世代，日级服务同时绑定 CalendarDay；切换后旧对象失效，由调用者重新获取。
-- ACP 先显式建立连接再委派 Job，连接由插件 Working State 段呈现；允许简单跨 Turn 复用空闲连接，若需要复杂迁移/恢复则 Turn 收尾关闭。Job 仍不跨 Turn，具体 adapter 与释放条件按计划核验。
-- 干净性以架构语义、依赖与内聚为主。取消复用执行生命周期：短 owner 操作完成后退出边界，长执行使用受控进程；不增加线程隔离及自动恢复的平行机制。
-- `session` 段为 Map 形状，不维护平行线性 Summary。R3 自动地图只承载对话/行动事实和确定性关系，来源为唯一的不可变完成记录；有来源的模型推导线索及主动 organize 保留后续设计，不能声称当前已实现。追溯动作为单一 `core.context.inspect`。
-- Trace 时间线记录输入安装/可见、Action 请求/开始/结算与已交付事件的 owner 观察顺序，独立保留 Inbox 受理顺序，不据此推断外部因果关系。Session 通过唯一完成管线保存同一组事实；时间线只引用输入、行动和必要语义 note，不复制正文或另建日志。
-- Trace 与 Session 共用有界披露页、线索和分页，逐层 ref 导航为主，范围 query 为辅助；inspect 不调用额外模型或永久展开背景。取回的可见结果进入实际返回的决策模型请求后才允许折叠，容量拒绝不能解除保护。Session 固定本轮来源集合，只在自身超过水位时缩减投影，保留地图入口和可解析事实 ref。
-- 当前子智能体以 ACP 外部 agent 为主，不建设内部子额度协调；未来 TinySoul 子 Turn 使用独立配额，由调用 agent 决定。用户根 Turn 的预算暂停及用户补额语义不变。
-- Workspace 取消 digest/revision CAS、提交前复验与压力 trash；提供文件/目录操作、说明和 pinned/tmp/library 标签，标签不改变日生命周期。execution 直接操作真实当日 Workspace，取消不回滚文件；plugins/execution、kernel/jobs、infra/process 分别拥有能力、监督和受控进程，必要收尾与附属清理诊断明确分开。
-
-运行环境假设：后端运行于一台 24h 开启的独立主机，前端连接主机；支持后端运行的主机具有硬隔离性，因此不需要考虑太多的安全性问题。
-
-### 推进顺序
-
-当前实施进度可参照 `docs/analysis/` 中的执行计划；已完成计划按文档规则标记为 `done`、在文件名中加入 `-done-` 并移动至 `docs/analysis/done/`；有含糊不明确的决策点/待确认的设计语义即时与用户讨论确认；即时将确认的设计语义、实施前明确的执行事项写入执行计划；即时维护执行计划，保持有限活跃的执行计划与计划更新；即时向用户说明设计实施的实际情况和拟定的改动方案。
-
-### 实现纪律
-
-- 保持模块所有权和三层失败语义。新增失败必须先归类为局部结果、模块边界异常或 Runtime 语义异常，不得用裸 `ValueError`、`RuntimeError` 或宽泛异常掩盖归属。
-- 不建设动态发现式的通用插件平台、万能 Gateway、任意文件 API 或第二套 Loop/Action 状态机；显式注册的 Plugin SPI 以仓库内真实消费者为界。
-- 每完成一个重构阶段，同步更新 `docs/design/`、`docs/endpoint/`、前端协议文档、对应阶段子计划的 `-done-` 记录和主执行计划的阶段勾选；`docs/design/` 只描述已落地部分。
+每个阶段同步受影响的设计与 Endpoint 协议；历史迁移记录保留在归档计划，不再添加覆盖正文的过渡条款。长期目标是构建可用、可维护的泛用智能体，并通过 Home 与 Memory 支持持续稳定运行的个性化助手。
 
 ## 工作经验
 

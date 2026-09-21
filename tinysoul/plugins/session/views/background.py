@@ -1,150 +1,126 @@
-"""Session Background projections derived from immutable records."""
+"""Two bounded projections of the same Session, under one display budget."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, replace
 
-from ..errors import SessionContractError
-
-from tinysoul.infra.json import JsonObject, to_json_object, to_json_value
-
-from ..records.models import SessionTurnRecord
-from .navigation import (
-    action_collection_ref,
-    action_outcomes,
-    input_ref,
-    resource_locator,
-)
+from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
+from ..errors import SessionContractError, SessionInvariantError
 
 
 @dataclass(frozen=True)
 class SessionBackgroundItem:
-    """One Session-owned message projected into BackgroundContext."""
-
     item_id: str
     content: JsonObject
 
     def __post_init__(self) -> None:
         if not self.item_id:
-            raise SessionContractError(
-                "SessionBackgroundItem.item_id must be non-empty"
-            )
+            raise SessionContractError("Background item requires an identity")
         object.__setattr__(self, "content", to_json_object(self.content))
 
 
 @dataclass(frozen=True)
 class SessionBackgroundSnapshot:
-    """Immutable Session history projection for one Turn."""
-
     revision: int
-    items: tuple[SessionBackgroundItem, ...] = field(default_factory=tuple)
+    items: tuple[SessionBackgroundItem, ...] = ()
     refs: tuple[str, ...] = ()
     max_chars: int = 24000
+    day: str = ""
+    navigation: tuple[JsonObject, ...] = ()
+    candidates: tuple[SessionBackgroundItem, ...] = ()
+    priority: tuple[str, ...] = ()
+    budget_chars: int = 24000
 
     def __post_init__(self) -> None:
-        if (
-            isinstance(self.revision, bool)
-            or not isinstance(self.revision, int)
-            or self.revision < 0
-        ):
-            raise SessionContractError(
-                "SessionBackgroundSnapshot.revision cannot be negative"
-            )
-        object.__setattr__(self, "items", tuple(self.items))
-        if any(not isinstance(item, SessionBackgroundItem) for item in self.items):
-            raise SessionContractError("Session view requires typed background items")
-        ids = tuple(item.item_id for item in self.items)
-        if len(ids) != len(set(ids)):
-            raise SessionContractError(
-                "SessionBackgroundSnapshot.items must have unique ids"
-            )
-        refs = tuple(self.refs)
-        if len(set(refs)) != len(refs) or any(
-            not isinstance(ref, str) or not ref for ref in refs
-        ):
-            raise SessionContractError(
-                "Session view references must be unique non-empty strings"
-            )
-        object.__setattr__(self, "refs", refs)
+        if type(self.revision) is not int or self.revision < 0 or self.max_chars <= 0:
+            raise SessionContractError("Invalid Session projection capacity or source")
+        if len(set(self.refs)) != len(self.refs):
+            raise SessionContractError("Session projection has repeated history")
 
-
-_TURN_ASK_ITEM_MAX_CHARS = 1200
-_TURN_ASK_TOTAL_MAX_CHARS = 2400
-_TURN_ANSWER_MAX_CHARS = 1800
-
-
-def project_turn_background(record: SessionTurnRecord) -> JsonObject:
-    """Project one completed Turn into the fixed next-Turn Background."""
-
-    value: JsonObject = {
-        "kind": "session_turn",
-        "ref": record.ref,
-        "status": record.status.value,
-        "day": record.day,
-        "user_ask": to_json_value(
-            _bounded_asks(tuple(item.text for item in record.inputs))
-        ),
-    }
-    selected_asks = _bounded_asks(tuple(item.text for item in record.inputs))
-    value["excerpted"] = len(selected_asks) != len(record.inputs) or selected_asks != [
-        item.text for item in record.inputs
-    ]
-    value["inputs"] = {
-        "count": len(record.inputs),
-        "first_ref": input_ref(record.ref, 0),
-    }
-    if record.output is not None:
-        value["answer"] = _clip(record.output.text, _TURN_ANSWER_MAX_CHARS)
-        value["excerpted"] = (
-            bool(value["excerpted"]) or len(record.output.text) > _TURN_ANSWER_MAX_CHARS
-        )
-        if record.output.references:
-            value["references"] = [
-                resource_locator(record, link) for link in record.output.references
-            ]
-    if record.exhausted:
-        value["exhausted"] = True
-    failures = (record.failure,) if record.failure is not None else ()
-    failures += record.finish_failures
-    if failures:
-        value["failures"] = [
-            {"kind": item.kind, "message": item.message[:240]} for item in failures
-        ]
-    outcomes = action_outcomes(record)
-    if outcomes:
-        value["actions"] = {
-            "ref": action_collection_ref(record.ref),
-            "count": len(record.actions),
-            "outcomes": list(outcomes),
+    def fit(self, budget: int) -> SessionBackgroundSnapshot:
+        """Pure display selection; directories retain all omitted objects."""
+        budget = min(budget, self.max_chars)
+        head: JsonObject = {
+            "kind": "session_map",
+            "ref": "session:map",
+            "day": self.day,
+            "total_turns": len(self.refs),
+            "history": "session:history",
+            "topics": "session:topics",
+            "annotations": "session:annotations",
+            "unclassified": "session:unclassified",
         }
-    return to_json_object(value)
+        if len(dumps_json(head)) > budget:
+            raise SessionInvariantError("Session minimum Map exceeds its capacity")
+        details: list[JsonObject] = []
+        for item in self.navigation:
+            candidate = to_json_object({**head, "navigation": [*details, item]})
+            if len(dumps_json(candidate)) > budget // 3:
+                item = {
+                    key: value
+                    for key, value in item.items()
+                    if key
+                    in {"ref", "kind", "title", "basis", "source", "target", "relation"}
+                }
+                item["folded"] = True
+                candidate = to_json_object({**head, "navigation": [*details, item]})
+                if len(dumps_json(candidate)) > budget // 3:
+                    continue
+            details.append(item)
+        if details:
+            head["navigation"] = [item for item in details]
+        used = len(dumps_json(head))
+        by_ref = {item.item_id: item for item in self.candidates}
+        selected: dict[str, SessionBackgroundItem] = {}
+        for ref in self.priority:
+            item = by_ref[ref]
+            size = len(dumps_json(item.content))
+            if used + size > budget:
+                compact = _compact_turn(item.content)
+                size = len(dumps_json(compact))
+                if used + size > budget:
+                    continue
+                item = SessionBackgroundItem(ref, compact)
+            selected[ref] = item
+            used += size
+        for ref in self.priority:
+            if ref in selected:
+                continue
+            content: JsonObject = {"kind": "session_turn", "ref": ref, "folded": True}
+            interactions = by_ref[ref].content.get("interactions", [])
+            if isinstance(interactions, list) and interactions:
+                first = interactions[0]
+                if isinstance(first, dict) and isinstance(first.get("text"), str):
+                    content["clue"] = str(first["text"])[:120]
+            item = SessionBackgroundItem(ref, content)
+            size = len(dumps_json(item.content))
+            if used + size <= budget:
+                selected[ref] = item
+                used += size
+        items = (
+            SessionBackgroundItem("session_map", head),
+            *(selected[ref] for ref in self.refs if ref in selected),
+        )
+        return replace(self, items=items, budget_chars=budget)
 
 
-def project_map_entry(*, day: str, total: int, projected: int) -> JsonObject:
-    return {
-        "kind": "session_map",
-        "ref": "session:map",
-        "day": day,
-        "total_turns": total,
-        "projected_turns": projected,
-        "omitted_turns": total - projected,
-        "coverage": "all" if total == projected else "recent",
-        "inspect_action": "core.context.inspect",
-    }
-
-
-def _clip(text: str, limit: int) -> str:
-    return text if len(text) <= limit else text[: limit - 3] + "..."
-
-
-def _bounded_asks(asks: tuple[str, ...]) -> list[str]:
-    selected: list[str] = []
-    used = 0
-    for text in reversed(asks):
-        clipped = _clip(text, _TURN_ASK_ITEM_MAX_CHARS)
-        if selected and used + len(clipped) > _TURN_ASK_TOTAL_MAX_CHARS:
-            break
-        selected.append(clipped)
-        used += len(clipped)
-    selected.reverse()
-    return selected
+def _compact_turn(content: JsonObject) -> JsonObject:
+    """Keep dialogue units together; never shorten a question's option list."""
+    interactions = content.get("interactions")
+    if not isinstance(interactions, list):
+        return content
+    values: list[JsonObject] = []
+    for item in interactions:
+        if not isinstance(item, dict) or item.get("role") == "agent.action":
+            continue
+        value = dict(item)
+        text = value.get("text")
+        if (
+            isinstance(text, str)
+            and len(text) > 240
+            and value.get("role") != "agent.question"
+        ):
+            value["text"] = text[:240]
+            value["excerpted"] = True
+        values.append(value)
+    return to_json_object({**content, "interactions": values, "folded": True})

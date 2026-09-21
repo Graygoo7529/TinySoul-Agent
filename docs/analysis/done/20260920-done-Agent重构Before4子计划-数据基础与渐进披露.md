@@ -2,7 +2,7 @@
 
 状态：`done`（BF1–BF5 已逐项核对实现、文档与必要验证）。
 日期：2026-09-20。
-主计划：[Agent 架构重构](../20260915-agent-architecture-refactor-plan.md)。
+主计划：[Agent 架构重构](20260915-done-agent-architecture-refactor-plan.md)。
 方案依据：[前三轮 Review 与 R4 前基础补强方案](../../chat/20260920-r1-r3-review-and-pre-r4-foundation-plan-latest.md)。
 代码审查基线：`be61886`，含 R3 收口；实施起点：`cacb098`（已提交最新计划）。本计划不重新打开 R1、R2、R3 已完成的内核、SDK、owner 和失败协议迁移。
 

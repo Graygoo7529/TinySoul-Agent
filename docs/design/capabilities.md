@@ -60,7 +60,7 @@ capability enabled=true + dependencies available
   -> 注册 executor，Action 获得 runtime support
 
 capability enabled=true + dependencies unavailable
-  -> App 启动失败，报告 action、requirement、distribution/module/executable 和原因
+  -> Agent 启动失败，报告 action、requirement、distribution/module/executable 和原因
 ```
 
 后端 support 与 Action visibility 分别计算。若 capability 仍启用，其依赖与凭据错误必须使候选 Generation 失败。
@@ -93,7 +93,7 @@ ActionResult 是否包含正文由 action 的交互语义和明确上限决定�
 Capability 失败分为三层：
 
 1. 参数不满足 action schema、输入格式不支持、目标冲突、内容损坏、资源超限和 worker 非零结果属于局部 ActionResult；
-2. capability 配置非法、启用能力缺少依赖和 registrar/Catalog 装配矛盾属于模块/App 启动边界失败；
+2. capability 配置非法、启用能力缺少依赖和 registrar/Catalog 装配矛盾属于模块/Agent 启动边界失败；
 3. Runtime transfer、Agent/Turn/Cycle 控制和全局恢复继续由 RuntimeException 表达，capability 不吞掉或降级。
 
 worker 的非零退出、格式错误或无效输出属于当前 action 的局部失败；它不能破坏宿主 Workspace，也不能把 worker traceback、绝对路径或原始输出带入模型反馈。宿主内部对象关系被破坏时仍按 Action 模块的公共失败边界处理。
@@ -108,5 +108,5 @@ worker 的非零退出、格式错误或无效输出属于当前 action 的局�
 - enabled/disabled/effective Catalog 行为；
 - service/converter 的正常、部分成功、限制和损坏输入；
 - executor 的 Link 边界、ActionResult 和 Runtime transfer；
-- App 装配与隔离项目工作流；
+- Agent 装配与隔离项目工作流；
 - package template、wheel package data 和无仓库路径依赖。

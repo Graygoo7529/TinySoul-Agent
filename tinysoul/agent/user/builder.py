@@ -114,7 +114,9 @@ class UserTurnBuilder:
             plugins=(
                 declare_home(self._home, self._llm),
                 declare_memory(self._memory),
-                declare_session(self._session, record_completed=True),
+                declare_session(
+                    self._session, record_completed=True, facts=context.current_facts
+                ),
             ),
         )
         domain_skills = self._domain_skills or HomeDomainSkillProvider(
@@ -140,7 +142,10 @@ class UserTurnBuilder:
             completion_to_output=user_output_from_completion,
             domain_skills=domain_skills,
             preparation_pipeline=plugins.preparation,
-            completion_pipeline=replace(plugins.completion, handlers=(*plugins.completion.handlers, *self._completion_handlers)),
+            completion_pipeline=replace(
+                plugins.completion,
+                handlers=(*plugins.completion.handlers, *self._completion_handlers),
+            ),
             events=plugins.events,
             sources=plugins.sources,
             activity_controller=process_jobs,

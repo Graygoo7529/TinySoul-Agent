@@ -15,12 +15,10 @@ from tinysoul.kernel.action import (
     ActionFramework,
     ActionResultStatus,
 )
-from tinysoul.kernel.action.catalog.loader import ActionCatalogLoader
 from tinysoul.infra import JsonObject, JsonValue
 from tinysoul.infra.time import CalendarDay
 from tinysoul.runtime import RunScope
 from tinysoul.plugins.session.services import SessionService
-from tinysoul.plugins.session.runtime_bridge import RuntimeSessionBridge
 from tinysoul.plugins.session import SessionEngine, SessionSettings
 from tinysoul.kernel.context import ContextEngineBuilder
 from tinysoul.kernel.context.actions import ContextInspectExecutor
@@ -75,13 +73,19 @@ def test_background_is_clean_and_inspect_expands_turn_actions(tmp_path: Path) ->
     item = background.items[1].content
     assert item["ref"] == "session:turn/turn_actions"
     assert item["status"] == "answered"
-    assert item["user_ask"] == ["create a report"]
-    assert item["answer"] == "report created"
-    locator = _json_object_list(item["references"])[0]
+    interactions = _json_object_list(item["interactions"])
+    assert interactions[0]["role"] == "user.input"
+    assert interactions[0]["text"] == "create a report"
+    assert interactions[-1]["role"] == "agent.output"
+    assert interactions[-1]["text"] == "report created"
+    locator = _json_object_list(interactions[-1]["references"])[0]
     assert locator["link"] == "workspace:report.md" and locator["source_day"] == str(
         DAY
     )
-    assert _json_object(item["actions"])["count"] == 2
+    assert [
+        value["outcome"] for value in interactions if value["role"] == "agent.action"
+    ] == ["success", "failed"]
+    assert all("result" not in value for value in interactions)
     assert "trace" not in item
     assert "revision" not in item
 
@@ -150,7 +154,7 @@ def test_map_preserves_all_facts_when_background_is_bounded(
             exhausted=False,
         )
 
-    root = session.inspect()
+    root = session.inspect("session:history")
     nodes = _json_object_list(root["items"])
     turns = [node for node in nodes if node["kind"] == "child"]
     assert [node["ref"] for node in turns] == [
@@ -164,7 +168,7 @@ def test_map_preserves_all_facts_when_background_is_bounded(
     background = session.background_snapshot(DAY)
     head = background.items[0].content
     assert head["ref"] == "session:map"
-    assert head["total_turns"] == 3 and head["omitted_turns"] == 3
+    assert head["total_turns"] == 3 and head["history"] == "session:history"
     from tinysoul.infra.json import dumps_json
 
     assert sum(len(dumps_json(item.content)) for item in background.items) <= 512
@@ -188,7 +192,7 @@ def test_reconcile_adopts_an_uncommitted_turn_record(tmp_path: Path) -> None:
 
     result = session.reconcile_active()
     assert result.adopted_turn_refs == ("session:turn/turn_orphan",)
-    nodes = _json_object_list(session.inspect()["items"])
+    nodes = _json_object_list(session.inspect("session:history")["items"])
     assert nodes[0]["ref"] == "session:turn/turn_orphan"
 
 
@@ -296,7 +300,7 @@ async def test_session_segment_is_fixed_and_seals_references_not_history(
         exhausted=False,
     )
     assert context.segment_snapshot("session") == sealed
-    fixed_map = await context.inspect("session:map")
+    fixed_map = await context.inspect("session:history")
     assert "session:turn/prior" in str(fixed_map)
     assert "session:turn/later" not in str(fixed_map)
     with pytest.raises(ContextInspectRequestError):
@@ -328,7 +332,11 @@ def test_session_map_relates_occurrences_and_shared_resources(tmp_path: Path) ->
         exhausted=False,
     )
     nodes = _json_object_list(session.inspect("session:turn/mapped")["items"])
-    resources = [node for node in nodes if node["kind"] == "child" and "#resource/" in str(node["ref"])]
+    resources = [
+        node
+        for node in nodes
+        if node["kind"] == "child" and "#resource/" in str(node["ref"])
+    ]
     actions = _json_object_list(session.inspect("session:turn/mapped#actions")["items"])
     edges = [node for node in nodes if node["kind"] == "relation"]
     assert len(resources) == 1
@@ -389,7 +397,11 @@ def test_map_rebuilds_replies_and_preserves_historical_resource_binding(
         rebuilt.inspect("session:turn/dialogue#working")["items"]
     )[0]
     assert working["working"] == source.working
-    locator = next(node for node in nodes if node["kind"] == "child" and "#resource/" in str(node["ref"]))
+    locator = next(
+        node
+        for node in nodes
+        if node["kind"] == "child" and "#resource/" in str(node["ref"])
+    )
     resource = _json_object_list(rebuilt.inspect(str(locator["ref"]))["items"])[0]
     assert resource["source_day"] == str(DAY)
     archive = (tmp_path / "archive" / "session").resolve()
@@ -421,22 +433,32 @@ def test_archive_snapshot_contains_only_validated_roots(tmp_path: Path) -> None:
     assert snapshot.has_facts
 
 
-def test_hierarchical_map_query_is_scoped_and_continuation_bound(tmp_path: Path) -> None:
+def test_hierarchical_map_query_is_scoped_and_continuation_bound(
+    tmp_path: Path,
+) -> None:
     session = _session(tmp_path, inspect_max_chars=2048)
     for index in range(35):
-        session.record_turn(completion(f"t_{index}", ask=f"needle {index}: " + "body " * 80),
-                            day=DAY, output=None, status=TurnOutcomeStatus.STOPPED, exhausted=False)
-    root = _json_object_list(session.inspect()["items"])
+        session.record_turn(
+            completion(f"t_{index}", ask=f"needle {index}: " + "body " * 80),
+            day=DAY,
+            output=None,
+            status=TurnOutcomeStatus.STOPPED,
+            exhausted=False,
+        )
+    root = _json_object_list(session.inspect("session:history")["items"])
     groups = [str(item["ref"]) for item in root if item["kind"] == "child"]
-    assert groups == ["session:map/0", "session:map/16", "session:map/32"]
+    assert groups == ["session:history/0", "session:history/16", "session:history/32"]
     refs: list[str] = []
     edges: list[tuple[str, str]] = []
     for group in groups:
         token = None
         while True:
             page = session.inspect(group, continuation=token)
-            refs.extend(str(item["ref"]) for item in _json_object_list(page["items"])
-                        if item.get("kind") == "child")
+            refs.extend(
+                str(item["ref"])
+                for item in _json_object_list(page["items"])
+                if item.get("kind") == "child"
+            )
             edges.extend(
                 (str(item["source"]), str(item["target"]))
                 for item in _json_object_list(page["items"])
@@ -448,9 +470,11 @@ def test_hierarchical_map_query_is_scoped_and_continuation_bound(tmp_path: Path)
             assert isinstance(token, str)
     assert refs == [f"session:turn/t_{index}" for index in range(35)]
     assert edges == list(zip(refs, refs[1:]))
-    found = _json_object_list(session.inspect("session:map/16", query="needle 22:")["items"])
+    found = _json_object_list(
+        session.inspect("session:history/16", query="needle 22:")["items"]
+    )
     assert [item["ref"] for item in found] == ["session:turn/t_22#input/0"]
-    assert session.inspect("session:map/0", query="needle 22:")["items"] == []
+    assert session.inspect("session:history/0", query="needle 22:")["items"] == []
     result = session.inspect("session:map", query="needle")
     token = result["next_continuation"]
     assert isinstance(token, str)
@@ -467,8 +491,13 @@ async def test_session_reclaim_is_governed_by_its_own_watermark(tmp_path: Path) 
     minimal = await provider.open(TurnInfo("empty", DAY.value))
     assert minimal.reclaim(100000).reclaimed_chars == 0
     for index in range(8):
-        session.record_turn(completion(f"t_{index}", ask="question " * 120), day=DAY,
-                            output=None, status=TurnOutcomeStatus.STOPPED, exhausted=False)
+        session.record_turn(
+            completion(f"t_{index}", ask="question " * 120),
+            day=DAY,
+            output=None,
+            status=TurnOutcomeStatus.STOPPED,
+            exhausted=False,
+        )
     view = await provider.open(TurnInfo("next", DAY.value))
     before = view.seal()
     assert view.reclaim(100000).reclaimed_chars > 0

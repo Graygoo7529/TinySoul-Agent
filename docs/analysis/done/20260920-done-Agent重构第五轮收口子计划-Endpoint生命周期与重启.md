@@ -2,7 +2,7 @@
 
 状态：`done`。
 日期：2026-09-20；完成核对：2026-09-21。
-主计划：[Agent 架构重构](../20260915-agent-architecture-refactor-plan.md)。
+主计划：[Agent 架构重构](20260915-done-agent-architecture-refactor-plan.md)。
 前置：[R5 Gateway v2 与 SDK 协议闭环](20260920-done-Agent重构第五轮子计划-Gateway v2与SDK协议闭环.md)。
 
 ## 1. 收口目标

@@ -1,5 +1,5 @@
 name = "core"
-description = "Turn-level reasoning, conversation completion, and progressive inspection of current context, prior sessions, and memory."
+description = "Turn-level reasoning, conversation completion, progressive inspection of context and session history, and source-backed conversation organization."
 selection_hint = "Use when the next step is to inspect internal state, preserve useful current memory, reason, or answer."
 
 [visibility]

@@ -1,11 +1,12 @@
 # Agent 重构第七轮子计划：会话整理与架构收口
 
-状态：`pending`（R7 完整收口范围及 Q1–Q8 已确认，实施准备复核通过；准备实施，尚未开始代码实施）。
+状态：`done`（R7-0–R7-5 已逐项完成，S3 Organize 尾项与 S7 已核对；实施、文档和本地门禁证据见 §13）。
 日期：2026-09-21。
 分析基线：`55030b6`，R6 实现已提交；本次分析开始时工作区干净。
 实施准备复核：`b5ba2cb`，已提交地图引用与线性交互正文方案；复核开始时工作区干净，结论见 §12.1。
-主计划：[Agent 架构重构执行计划](20260915-agent-architecture-refactor-plan.md)。
-前置记录：[Before 4](done/20260920-done-Agent重构Before4子计划-数据基础与渐进披露.md)、[R6](done/20260921-done-Agent重构第六轮子计划-外部Agent与MCP能力接入.md)。
+实施基线：`bb496be`；2026-09-21 完成实施核对，未修改实际部署数据。
+主计划：[Agent 架构重构执行计划](20260915-done-agent-architecture-refactor-plan.md)。
+前置记录：[Before 4](20260920-done-Agent重构Before4子计划-数据基础与渐进披露.md)、[R6](20260921-done-Agent重构第六轮子计划-外部Agent与MCP能力接入.md)。
 
 ## 1. 本轮定位与推进判断
 
@@ -21,9 +22,9 @@ R1–R6 已经建立唯一的 Agent/Turn 生命周期、插件贡献、Context �
 - 当前已接受输入或已结算行动可以为修订旧理解提供新证据，但不把活动 Turn 提前写成已完成历史。
 - map 与 turns 同日归档，新日不继承旧图；Reflection 继续独立情景，共用原有内核。
 
-本轮取舍与确认状态集中于 §11。本计划记录已确认的统一地图设计，以及按维护者要求补充的历史交互正文呈现方案；设计文档不提前描述为已实现。本次细化只更新子计划，不改主计划的范围或完成状态。
+本轮取舍与确认状态集中于 §11。§2 和 §12.1 保留实施前分析基线；实际实施、验证和主计划核对见 §13。设计文档按已经落地的能力同步，主计划范围保持不变。
 
-## 2. 当前实现与实际接点
+## 2. 实施前基线与实际接点
 
 | 已核对位置 | 当前实现 | R7 工作 |
 |---|---|---|
@@ -420,12 +421,12 @@ Background 在线性区域展示正文与 inspect 取回正文并不矛盾。前
 
 | 切片 | 状态 | 交付与验证 |
 |---|---|---|
-| R7-0 方案定稿 | `pending` | 核对 §11，落实 Action schema、读写门面、共用交互投影与容量选择规则；不改变已确认方向 |
-| R7-1 注释 owner 与证据 | `pending` | 单文档地图、来源校验、同一引用投影、原子提交/重开/撤回；事实原文和状态不变 |
-| R7-2 Action 与统一地图视图 | `pending` | core 注册、User 服务、Signal/prepare/install；语义地图引用、线性交互正文、未归类入口、稳定排序、共用交互投影、inspect/query/分页与水位 |
-| R7-3 跨 Turn/日/情景闭环 | `pending` | 后续 Turn 继续修订；当前输入/已结算行动证据；重启恢复；日切归档/新日空图；Reflection 只读 |
-| R7-4 S7 一致性清理 | `pending` | AGENTS 正文统一、实际死代码/边界问题清理、SDK/配置/文档/打包对齐 |
-| R7-5 最终核验与归档 | `pending` | 主计划逐项证据、Full/typecheck/import/代表性 E2E、限制记录、计划归档 |
+| R7-0 方案定稿 | `done` | schema 小批边界、User 读写授权与共用投影已落定，Q1–Q8 无方向变更 |
+| R7-1 注释 owner 与证据 | `done` | annotations 单文档原子替换，current_facts 纯读取与共享 occurrence 转换；重开/撤回/失败验证见 §13.1 |
+| R7-2 Action 与统一地图视图 | `done` | core 注册、Signal/prepare/install、共享交互正文、导航/query/分页与同一预算均已实现并聚焦验证 |
+| R7-3 跨 Turn/日/情景闭环 | `done` | 真实 Agent 主线覆盖下一 Cycle、restart、归档/空新日、User 写与 SDK/Reflection 只读 |
+| R7-4 S7 一致性清理 | `done` | AGENTS/设计/预设/README 已同步；主计划 19 项证据映射、导入与发布门禁通过 |
+| R7-5 最终核验与归档 | `done` | Fast/Full、Windows/Linux 目标 typecheck 通过；限制和部署说明已记录，主/子计划完成归档 |
 
 必要验收集中于真实契约：
 
@@ -474,7 +475,7 @@ R7-1–R7-3 与文档/验证一致后才将 S3 标 done；R7-4–R7-5 和主计�
 | Q5 `confirmed` | 关系整理与结构重塑共用 `core.session.organize`，由同一批 upsert/retract 原子提交；不另造 `link`、`topic` 或自动摘要 Action | 维护者已确认；保持 Action 面向模型的单一入口，结构变化只更新解释和导航 |
 | Q6 `confirmed` | 分支汇合创建新的解释入口，引用多个旧 thread/Turn；旧分支保留，避免移动历史 ref 或强行选择唯一父节点 | 维护者已确认；森林是导航投影，不承诺底层图永远是严格树 |
 | Q7 `confirmed` | 两类持久内容与同一披露视图；话题组织属于语义解释，Background/Organize/压缩/inspect 共用节点、引用与投影语义 | 维护者已确认上一轮分析；§4.3、§5.1、§6.6 已落实，不引入独立森林 owner |
-| Q8 `confirmed` | 同一 Session 段采用“语义地图导航 + 线性交互正文”：地图只保留话题/关系/Turn refs，正文按稳定历史顺序一次呈现；未归类 Turn 不遗漏，超容量按 Turn/问答关联单元折叠 | 维护者已确认采用该方案；具体候选收集、去重、排序、正文投影和容量策略见 §4.5–4.6、§6.1–6.6，尚未实施 |
+| Q8 `confirmed` | 同一 Session 段采用“语义地图导航 + 线性交互正文”：地图只保留话题/关系/Turn refs，正文按稳定历史顺序一次呈现；未归类 Turn 不遗漏，超容量按 Turn/问答关联单元折叠 | 维护者已确认采用该方案；设计见 §4.5–4.6、§6.1–6.6，实际落点及验证见 §13 |
 
 Q1–Q8 均已确认。Q8 不表示任意长度历史永久全部入模，也不引入平行线性 Summary；线性交互区域只是从同一事实图派生的稳定时序投影。R7-0 继续落实具体类型、Action schema、来源校验、候选选择/去重/排序规则和文件职责；不额外扩张业务协议。当前轮证据转换、视图刷新和读写服务隔离须用协作测试证明，不能以第二套历史存储绕过。
 
@@ -488,7 +489,7 @@ R7 方案与主计划、AGENTS.md 和已有实现保持同一套抽象：Session
 
 R7 按本计划完成意味着补齐 S3 并验收 S7；结合已完成的 S1/S2/S4/S5/S6，主执行计划所定义的本次架构重构即可完成。最终依据是主计划 §13 的全部验收点、实际实现、文档与必要门禁，不能只根据子任务勾选推定。`00 doing something.md` 的开放能力设想，以及主计划明确延后的内部子 Turn 等能力，保留为后续产品演进；真实外部模型/远端服务/Linux 实机的验证边界单独记录，不把本地架构验收扩大为所有部署条件均已验证。
 
-### 12.1 实施准备复核
+### 12.1 实施准备复核（历史记录）
 
 状态：`pending`，准备实施；本次是设计与代码接点的静态核对，不是 R7 实施验收。已重读 AGENTS 正文及过渡条款、主计划、功能规划和本子计划；没有新增需维护者决定的产品语义，也不把具体类型命名、schema 限额或文件拆分重复列为审批项。
 
@@ -504,3 +505,60 @@ R7 按本计划完成意味着补齐 S3 并验收 S7；结合已完成的 S1/S2/
 本次只收紧容量、引用与来源修订的实施表述并补充验收，没有改变已确认的 Q1–Q8、主计划范围或 S3/S7 状态。AGENTS 正文中的旧顺序、旧 Job/Memory 等表述依过渡条款解释，整体统一仍属于 R7-4；不能把旧正文当作保留重复实现的依据。后续按 R7-0 → R7-1 → R7-2 → R7-3 → R7-4 → R7-5 推进；准确签名与容量选择规则在 R7-0 固定并由必要测试保护。
 
 本轮仅修订执行计划，未修改代码、未运行 Full/typecheck；R6 历史门禁不作为本轮验证证据。
+
+## 13. 实施结果与最终核对
+
+### 13.1 实际落点
+
+| 契约 | 实现与验证 |
+|---|---|
+| 事实与解释分开、整批原子修改 | `plugins/session/annotations/{models,store}.py`、`SessionEngine.organize`；`test_organize.py` 覆盖多话题、分支/合流、撤回、重开、非法引用和写失败不产生半图。record v10/manifest v3 不变，新增可选 map.json |
+| 活动证据身份与无副作用读取 | `ContextEngine.current_facts` / `TurnTraceHeap.actions`，`completion.py` 共享 input/action occurrence 转换；并行请求中只允许已结算来源，不 seal、不重排；取消后完成记录仍解析同一 ref |
+| 唯一模型写入口与投影更新 | `session/actions.py`、`services.py`、`plugin.py`、`agent/user/builder.py`；User 专属窄写服务在 owner 提交后发 Signal，段 prepare/install 只刷新注释，固定 prior-Turn 集合不扩张；SDK 和 Reflection 不取得写权限 |
+| 地图引用与时序正文一次呈现 | `views/interaction.py` 共用 typed 交互流，`navigation.py` 提供解释与关系，`inspection.py`/`background.py` 分别消费；移除旧尾部问答摘要/导航提取。三轮实际 MessageStack 验证原话、reason 标记、多次问题/选项/追加/回复和正式输出；多话题不复制正文，未归类可见 |
+| 有界导航、压缩与读取 | Session 总预算内组合地图与正文，近期三轮→解释来源→未归类→其余历史的确定性优先级；按历史次序输出。超限才摘录/折叠，问题选项不截断成孤立回复；自身 80% 水位回收到半预算，刷新沿用缩减预算，render/reclaim 无 I/O |
+| query/分页统一 | 共用 DisclosurePage/continuation，语义目录与稳定事实页分开；查询单个解释只涵盖其正文和直接事实来源。测试确认背景折叠、无关注释修订不使未变页面失效，自身读取内容变化使旧页明确失效 |
+| 主运行与日生命周期 | `tests/agent/test_sdk.py::test_session_organize_updates_next_cycle_and_survives_restart_until_day_switch` 经真实 Agent/Phase/Action/Context/Session、可控 LLM 验证下一 Cycle 更新与 inspect、无额外 LLM、重启保留、归档旧图和新日空图；已有 active_day/旧服务失效/必要收尾契约复用 |
+| 规约与模型信息 | AGENTS 过渡条款融入当前正文；同步 session/context/agent/action/reflection/memory 等设计、README 与 Home 预设。Memory recall 移除无模型消费者的 digest，内部读取/检索摘要保持；新增 schema 长度约束由通用 Action 校验消费 |
+
+没有新增第三方依赖、隐藏模型任务、平行历史、图数据库、跨 Turn Job 或 HTTP 编辑接口。没有改变 Endpoint 协议；现有 `/v2` 与 SDK 的会话读取边界继续成立，故未机械改动 Endpoint 文档和前端代码。
+
+### 13.2 主计划 §13 的逐项验收映射
+
+下表沿用同一运行实现及既有行为测试；R7 只为新契约补测试。测试路径均相对于仓库根，主计划序号保持不变。
+
+| 序号 | 所有权与实现落点 | 验证依据 |
+|---|---|---|
+| 1 | Agent EventRouter、Environment 来源、TurnInbox | `tests/agent/lifecycle/test_sources.py`、`tests/agent/test_sdk.py` 文件变更恢复/世代切换 |
+| 2 | kernel/jobs 监督和 Loop 统一等待 | `tests/kernel/jobs/test_registry.py` 等待前后终态与待答唤醒 |
+| 3 | Inbox 受理、关键容量和独立控制 | `tests/kernel/loop/interaction/test_inbox.py` 进度、reply、终态预留与固定批次 |
+| 4 | Loop 预算与 suspend/wait | 同一 Inbox 测试及 SDK budget/reply 路径：事件就绪与预算共同满足 |
+| 5 | Context 段批次 prepare/install | `tests/kernel/context/segments/test_segments.py` 全批准备、取消、不可重放安装缺陷；R7 Session 候选未安装前不可见 |
+| 6 | Context/TurnCompletionPipeline/Session | 同一段测试、`tests/kernel/loop/test_turn.py`、Session 幂等/reconcile 测试；注释损坏为边界失败，不当作可重建事实索引 |
+| 7 | Trace 事实时间线与 Session 共用交互流 | `tests/kernel/context/test_engine.py`、`tests/plugins/session/test_organize.py`、SDK ask/reply；压缩保留原 ref/配对 |
+| 8 | 情景服务 grants 与 Home/Memory owner | `tests/plugins/reflection/test_action_views.py`、Home/Memory owner 测试与 SDK Reflection；User 无持久专属写权，Organize 不写 Home/Memory |
+| 9 | agent/lifecycle active_day、Archive 和 owner 投影 | SDK 进程跨午夜/必要收尾/旧服务失效，Session 历史资源来源；R7 map 随同一根归档 |
+| 10 | JoinedOperations、infra/process 与 backend | `tests/infra/test_concurrency.py`、SDK 本地写取消/关闭、execution/backend 测试；不把取消解释为回滚副作用 |
+| 11 | Turn-owned Job 与受控 execution/ACP | Job registry、`tests/plugins/execution/test_engine.py`、`tests/plugins/capabilities/subagent/test_engine.py` |
+| 12 | ACP/MCP SDK 适配及插件结果边界 | 本地 ACP fixture、`tests/plugins/capabilities/expand/{test_engine,test_actions,test_directory}.py`；涵盖 stdio/HTTP、权限/结果、schema/分页和未知写结果 |
+| 13 | runtime/kernel/插件单向依赖和显式 SPI | `tests/test_architecture.py` 分层 AST 检查、全包独立进程 import 与 Kernel/Reflection 边界；新 Context facts/写门面均有真实消费者 |
+| 14 | Agent 类型化结果、Endpoint 观察旁路 | SDK/v2 共用测试、`tests/gateway/endpoint/test_endpoint_api.py` 与 event journal/replay |
+| 15 | Reflection 使用同一 TurnProfile/完成意图 | SDK Memory daily 修订、Home 跨 Cycle review，`tests/plugins/reflection/test_turn_boundaries.py` 与 action views |
+| 16 | ACP 连接现态、独立 Job、Turn/日 session 边界 | subagent 本地协议测试与 SDK 跨日/取消；保留 R6 真正外部 smoke 的独立历史记录 |
+| 17 | PluginDeclaration、SegmentDescriptor/registry/composer | 段契约测试与架构测试；R7 只注册 Session 更新类型和 handler，无 composer owner 分支 |
+| 18 | Trace/Session 共用披露协议、可见结果消费保护 | `tests/kernel/context/{test_disclosure,test_engine}.py` 与 Session 根目录/事实/语义分页测试；无 query 亦可达全部事实 |
+| 19 | Session 水位、统一预算、Organize、日归档 | Session 自身水位与新 `test_organize.py`、SDK 整理/重启/日切 E2E；新日空图 |
+
+### 13.3 验证与部署边界
+
+最终本地门禁：Fast `1139 passed, 28 deselected`；Full `1144 passed, 23 deselected`，包含全部 5 项项目生成/wheel 发布验收、独立进程导入图、SDK/CLI/v2 协作与本地 ACP/MCP fixture。`scripts/typecheck.ps1` 和 Linux 目标 `ty check` 均通过；变更 Python 的未使用导入检查通过。Fast/Full 隔离运行标识分别为 `9f7e4ca179354446b918383472ce7d26` / `cdf570d2580b4cea8a553b0a623deb0d`。连续追问/追加/回复的补充验证也已进入最终 Full。
+
+主/子计划已按规约加入 `-done-` 并移至同一归档目录，历轮上位计划链接同步修正；README、AGENTS 与 design/endpoint/analysis 共 99 份 Markdown 的本地链接目标检查无缺失，`git diff --check` 通过。
+
+测试使用 TinySoul 环境的 `C:\Anaconda3\envs\TinySoul\python.exe` 与仓库脚本（`TINYSOUL_PYTHON`），因当前宿主 `conda activate` 访问用户配置受限而显式选取已安装环境。聚焦验证覆盖 Session/Action schema/Loop/SDK；早期 Fast 的失败来自旧测试装配未声明新动作支持边界及旧问答字段断言，已按新稳定契约修正，未添加兼容别名或跳过测试。
+
+既有 R6 部署数据无需 reset 或格式迁移；无 map.json 表示无解释，损坏 map 不静默覆盖。既有项目需要显式加入新 `core/actions/session_organize.toml` catalog 文档，路径和初始化来源见 README；不自动覆盖用户配置/Home，也不操作实际部署数据。
+
+真实模型委派、远程 MCP、搜索质量与 Linux 实机未在本轮执行；本地协议 fixture 与 Linux 目标类型检查不冒充上述验证。R6 曾记录但未复现的 Workspace IO 失败仍保留其原始诊断边界，本轮未据此建立重试系统或宣称根因已解决。跨日语义地图、内部子 Turn 和功能规划中的新产品能力继续属于计划外演进。
+
+最终核对：本轮遵循 AGENTS 的单一 owner、分层失败、显式配置、真实 SPI 消费者和先事实后投影规则；没有新增需要维护者决定的业务语义。S3 与 S7 验收完成，主计划 S0–S7 所定义的本次重构范围完成；完整功能规划仍作为后续演进材料，不将其全部设想等同于本次已实现能力。

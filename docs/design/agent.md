@@ -26,6 +26,8 @@ Agent.wait_for_exit 等待根调度运行最终退出，跨越 generation restar
 
 ## 输入、事件与容量
 
+User Session 插件同时取得只读服务和窄 SessionOrganizeService，后者仅供 core.session.organize 及段刷新；SDK SessionService 和 Reflection 继续只读。整理提交不增加根 work、隐藏模型任务或另一条完成管线，当前 Turn 仍由唯一 recorder 在收尾保存。
+
 Environment 提供输入适配、文件监听和定时等待；Reflection 到期规则由插件解释，经注入的类型化提交端口进入根队列。AgentIngress 解释可信终端命令和普通用户文本；InputCommandParser 纯解析，InputDispatcher 调用 AgentCommands。终端普通文本在空闲时提交 UserTurnRequest，活跃时追加到该 TurnInbox。Reflection 始终排入根队列。
 
 `/reply <question_id> <text>` 与 `/grant <request_id> <count>` 明确关联当前等待；普通追加作为新指示中断 INPUT/EVENT/TIMER 等待，保留原问题未答事实；它不伪造 reply，也不增加预算。取消、退出不排在普通输入后；退出停止后续根 work，取消当前 Turn 则保留后续请求。

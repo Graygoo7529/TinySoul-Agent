@@ -118,7 +118,7 @@ extract_images = true
 extract_attachments = true
 ```
 
-配置只表达期望能力。Resource 根据 effective settings 推导 MarkItDown/pypdf/pypdfium2/Pillow requirement；Infra DependencyChecker 对照当前解释器检测 distribution 与 module。启用 action 缺少依赖时 App 启动失败，禁用 action 不检测依赖并从 effective Catalog 移除。
+配置只表达期望能力。Resource 根据 effective settings 推导 MarkItDown/pypdf/pypdfium2/Pillow requirement；Infra DependencyChecker 对照当前解释器检测 distribution 与 module。启用 action 缺少依赖时 Agent 启动失败，禁用 action 不检测依赖并从 effective Catalog 移除。
 
 基础依赖随 TinySoul wheel 安装，dependency check 仍用于检测损坏环境、错误解释器和后续 optional capability。运行时不自动 pip install。
 

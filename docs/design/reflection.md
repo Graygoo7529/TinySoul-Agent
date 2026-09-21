@@ -29,6 +29,8 @@ availability 是运行内存投影，不再写 availability.json。候选来自 
 
 ## 三种 TurnProfile
 
+Session 来源包含不可变历史与已提交解释，Reflection 通过同一只读视图 inspect；不获得 core.session.organize 的写服务。会话解释由 User Turn 自主整理，与 Home/Memory 持久维护属于不同提交边界。
+
 三 profile 使用独立 Context/Action 视图、相同执行骨架和 core.answer 完成意图。User 使用 effective Home，只能改 runtime overlay 和活动 Memory。Home/Memory Reflection 使用 actual Home 作为判断基线，同时保留通用域和当前 Workspace 工作台，专属写动作分别归 Home/Memory domain；不会相互取得另一种持久写 Action。
 
 Home 使用当前 Session、Workspace、memory:current 与可选 latest。Memory 使用目标日 Session、目标活动 Memory 和严格早于目标日的 latest；来源可属于当前日或历史归档，也允许仅凭已有 daily 继续整理，当前 Workspace 仍可操作。历史 Workspace 以只读 workspace_archive 段提供日期引用，经 core.context.inspect 分页检查；不会冒充今日 workspace: 资源。

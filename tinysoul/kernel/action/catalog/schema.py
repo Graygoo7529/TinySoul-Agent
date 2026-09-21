@@ -15,6 +15,10 @@ SUPPORTED_SCHEMA_KEYS = {
     "items",
     "maximum",
     "minimum",
+    "minItems",
+    "maxItems",
+    "minLength",
+    "maxLength",
     "properties",
     "required",
     "type",
@@ -134,6 +138,7 @@ def _check_schema_node(schema: JsonObject, *, key: str, root: bool = False) -> N
         )
 
     _check_numeric_boundaries(schema, key=key)
+    _check_size_boundaries(schema, key=key)
 
     if schema_type == "object" or root:
         _check_object_schema(schema, key=key)
@@ -194,6 +199,38 @@ def _check_numeric_boundaries(schema: JsonObject, *, key: str) -> None:
             value=minimum,
             expected=f"<= {maximum}",
         )
+
+
+def _check_size_boundaries(schema: JsonObject, *, key: str) -> None:
+    for expected_type, lower, upper in (
+        ("array", "minItems", "maxItems"),
+        ("string", "minLength", "maxLength"),
+    ):
+        for name in (lower, upper):
+            if name not in schema:
+                continue
+            value = schema[name]
+            if schema.get("type") != expected_type:
+                raise ActionSchemaDefinitionError(
+                    "Action tool schema size boundary requires its matching type",
+                    key=f"{key}.{name}",
+                    expected=expected_type,
+                )
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ActionSchemaDefinitionError(
+                    "Action tool schema size boundary must be a non-negative integer",
+                    key=f"{key}.{name}",
+                    value=value,
+                    expected="non-negative int",
+                )
+        minimum, maximum = schema.get(lower), schema.get(upper)
+        if isinstance(minimum, int) and isinstance(maximum, int) and minimum > maximum:
+            raise ActionSchemaDefinitionError(
+                "Action tool schema size boundaries are inconsistent",
+                key=f"{key}.{lower}",
+                value=minimum,
+                expected=f"<= {maximum}",
+            )
 
 
 def _check_object_schema(schema: JsonObject, *, key: str) -> None:
@@ -304,6 +341,22 @@ def _validate_value(value: JsonValue, *, schema: JsonObject, path: str) -> None:
         if isinstance(maximum, int | float) and value > maximum:
             raise ActionSchemaValidationError(
                 f"Action parameter {path} must be <= {maximum}"
+            )
+
+    if isinstance(value, str | list):
+        lower, upper = (
+            ("minLength", "maxLength")
+            if isinstance(value, str)
+            else ("minItems", "maxItems")
+        )
+        minimum, maximum = schema.get(lower), schema.get(upper)
+        if isinstance(minimum, int) and len(value) < minimum:
+            raise ActionSchemaValidationError(
+                f"Action parameter {path} size must be >= {minimum}"
+            )
+        if isinstance(maximum, int) and len(value) > maximum:
+            raise ActionSchemaValidationError(
+                f"Action parameter {path} size must be <= {maximum}"
             )
 
     if expected_type == "object":

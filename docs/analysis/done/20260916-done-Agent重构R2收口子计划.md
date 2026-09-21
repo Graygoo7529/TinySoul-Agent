@@ -2,7 +2,7 @@
 
 状态：`done`（2026-09-17 完成 R2 收口；C1–C3 已落实，C4 domain 归并保留后续评估；实现、文档与完整门禁已逐项核对）。
 日期：2026-09-16。
-主执行计划：[Agent 架构重构](../20260915-agent-architecture-refactor-plan.md)。
+主执行计划：[Agent 架构重构](20260915-done-agent-architecture-refactor-plan.md)。
 前置记录：[R2 异步内核与 SDK 运行闭环](20260915-done-Agent重构第二轮子计划-异步内核与SDK运行闭环.md)。
 分析基线：本地 `8c0bd6c`，开始分析时工作区干净；未查询远端。
 实施基线：本地 `ed51b5c`，2026-09-17 开始时工作区干净；不修改或重置用户运行数据。

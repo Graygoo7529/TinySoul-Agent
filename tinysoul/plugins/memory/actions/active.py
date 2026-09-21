@@ -169,7 +169,6 @@ class MemoryRecallExecutor(ActionExecutor):
                 "cite": result.cite,
                 "metadata": result.metadata,
                 "markdown": result.content,
-                "digest": result.digest,
                 "resolution_chain": list(result.resolution_chain),
             }
         )
@@ -181,7 +180,6 @@ class MemoryRecallExecutor(ActionExecutor):
                 canonical_payload={
                     "link": result.link,
                     "kind": result.kind,
-                    "digest": result.digest,
                     "resolution_chain": list(result.resolution_chain),
                 },
             ),

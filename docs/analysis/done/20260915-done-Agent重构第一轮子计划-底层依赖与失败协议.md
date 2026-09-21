@@ -2,7 +2,7 @@
 
 状态：`done`（R1.1–R1.5 已实施、文档同步并通过门禁）。
 日期：2026-09-15。
-主执行计划：[Agent 架构重构](../20260915-agent-architecture-refactor-plan.md)。
+主执行计划：[Agent 架构重构](20260915-done-agent-architecture-refactor-plan.md)。
 对应范围：S1 的依赖与 bridge 子项，本文记为 R1；不等于整个 S1，不调整主计划阶段顺序。
 审阅 checkout：`685b065`。相对主计划记录的 `e930c9c`，变更只有 AGENTS.md 与主计划文档，代码基线没有变化。未重新查询远端。
 

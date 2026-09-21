@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 from dataclasses import dataclass
 from enum import StrEnum
 import re
@@ -10,6 +9,12 @@ import re
 from tinysoul.infra.json import JsonObject, to_json_object
 
 from ..errors import SessionContractError
+from ..annotations.models import (
+    AnnotationStatus,
+    SemanticNode,
+    SemanticEdge,
+    SessionMap,
+)
 from ..records.models import (
     SessionActionOutcome,
     SessionActionRecord,
@@ -18,7 +23,6 @@ from ..records.models import (
 
 _ACTION_COLLECTION = re.compile(r"^(session:turn/[a-z0-9_-]+)#actions$")
 _ACTION_LEAF = re.compile(r"^(session:turn/[a-z0-9_-]+)#action/([0-9]+)$")
-_TURN_TEXT_PREVIEW_CHARS = 600
 
 
 class SessionRelationKind(StrEnum):
@@ -28,18 +32,44 @@ class SessionRelationKind(StrEnum):
     REPLIES_TO = "replies_to"
 
 
+def annotation_content(item: SemanticNode | SemanticEdge) -> JsonObject:
+    return {"basis": "interpretation", **item.to_json()}
+
+
+def annotation_relations(annotations: SessionMap, ref: str) -> tuple[SemanticEdge, ...]:
+    return tuple(
+        edge for edge in annotations.edges if ref in (edge.source, edge.target)
+    )
+
+
+def annotation_navigation(
+    annotations: SessionMap, item: SemanticNode | SemanticEdge
+) -> JsonObject:
+    """One non-recursive forest entry; shared branches retain their own refs."""
+    value = annotation_content(item)
+    if isinstance(item, SemanticNode):
+        value["relations"] = [
+            annotation_content(edge)
+            for edge in annotation_relations(annotations, item.ref)
+            if edge.status is AnnotationStatus.ACTIVE
+        ]
+    return value
+
+
 def project_relations(record: SessionTurnRecord) -> tuple[JsonObject, ...]:
     """Project only explicit edges; node content stays in its owning record."""
     values: list[JsonObject] = []
 
     def edge(source: str, target: str, relation: SessionRelationKind) -> None:
-        values.append({
-            "kind": "relation",
-            "source": source,
-            "target": target,
-            "relation": relation.value,
-            "basis": "fact",
-        })
+        values.append(
+            {
+                "kind": "relation",
+                "source": source,
+                "target": target,
+                "relation": relation.value,
+                "basis": "fact",
+            }
+        )
 
     def references(source: str, refs: tuple[str, ...]) -> None:
         for link in dict.fromkeys(refs):
@@ -50,7 +80,8 @@ def project_relations(record: SessionTurnRecord) -> tuple[JsonObject, ...]:
     questions = {
         action.result_id: action_leaf_ref(record.ref, index)
         for index, action in enumerate(record.actions)
-        if action.action == "core.ask" and action.outcome is SessionActionOutcome.SUCCESS
+        if action.action == "core.ask"
+        and action.outcome is SessionActionOutcome.SUCCESS
     }
     previous = None
     for index, item in enumerate(record.inputs):
@@ -180,44 +211,6 @@ def parse_action_ref(ref: str) -> SessionActionRef | None:
     return None
 
 
-def project_navigation_header(record: SessionTurnRecord) -> JsonObject:
-    value: JsonObject = {
-        "kind": "turn",
-        "ref": record.ref,
-        "day": record.day,
-        "status": record.status.value,
-        "input_count": len(record.inputs),
-        "ask": [_text_preview(item.text) for item in record.inputs[-3:]],
-        "excerpted": len(record.inputs) > 3
-        or any(len(item.text) > _TURN_TEXT_PREVIEW_CHARS for item in record.inputs),
-    }
-    if record.output is not None:
-        value["answer"] = _text_preview(record.output.text)
-        value["excerpted"] = (
-            bool(value["excerpted"])
-            or len(record.output.text) > _TURN_TEXT_PREVIEW_CHARS
-        )
-    outcomes = action_outcomes(record)
-    if outcomes:
-        value["action_outcomes"] = list(outcomes)
-    return to_json_object(value)
-
-
-def action_outcomes(record: SessionTurnRecord) -> tuple[JsonObject, ...]:
-    counters: dict[str, dict[str, int]] = defaultdict(
-        lambda: {outcome.value: 0 for outcome in SessionActionOutcome}
-    )
-    for action in record.actions:
-        counters[action.action][action.outcome.value] += 1
-    values: list[JsonObject] = []
-    for action_name in sorted(counters):
-        counts = {name: count for name, count in counters[action_name].items() if count}
-        values.append(to_json_object({"action": action_name, "counts": counts}))
-    return tuple(to_json_object(value) for value in values)
-
-
-
-
 def project_action(
     turn_ref: str,
     occurrence: int,
@@ -240,17 +233,9 @@ def project_action(
     return to_json_object(value)
 
 
-
-
 def _require_turn_ref(ref: str) -> None:
     if (
         not isinstance(ref, str)
         or re.fullmatch(r"session:turn/[a-z0-9_-]+", ref) is None
     ):
         raise SessionContractError("Invalid Session Turn ref")
-
-
-def _text_preview(value: str) -> str:
-    if len(value) <= _TURN_TEXT_PREVIEW_CHARS:
-        return value
-    return value[: _TURN_TEXT_PREVIEW_CHARS - 3] + "..."

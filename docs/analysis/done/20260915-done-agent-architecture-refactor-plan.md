@@ -1,15 +1,15 @@
 # Agent 架构重构：设计语义、契约与执行计划
 
-状态：`in_progress`（R1、R2 收口、R3 及其收口、Before 4、R4、R5 及其收口与复审修正、R6 均已完成并归档。S1、S2、S4、S5、S6 为 done；S3 的领域重构及 Organize 事实/导航数据基础已完成，模型整理动作与注释层安排主计划尾期；S7 保留原定范围）。
+状态：`done`（S0–S7 已完成；R7 补齐 S3 Organize 尾项并完成 S7，历轮子计划均已归档。最终逐项核对和验证边界见 R7 子计划 §13）。
 修订日期：2026-09-21。历史初始复审代码：`e930c9c444deb0073ab3d7f016057245bad66ca6`；R2 分析基线为本地 `6821983`。2026-09-19 重新克隆远端，复审基线为 `be61886`（R3 收口之后）。历史验证与本次复审证据分别记录，不互相替代。
 
-配套讨论来源：[前三轮 Review 与 R4 前基础补强方案](../chat/20260920-r1-r3-review-and-pre-r4-foundation-plan-latest.md)；[Before 4：数据基础与渐进披露](done/20260920-done-Agent重构Before4子计划-数据基础与渐进披露.md) 已于 2026-09-20 实施完成。用户确认的多历史 Turn/已有地图整理方向与受信独立主机假设保持不变；事实/导航基础先交付，Organize 写能力仍属尾期。讨论来源保留当时状态，实现证据以已归档子计划及本计划 §13 为准。
+配套讨论来源：[前三轮 Review 与 R4 前基础补强方案](../../chat/20260920-r1-r3-review-and-pre-r4-foundation-plan-latest.md)；[Before 4：数据基础与渐进披露](20260920-done-Agent重构Before4子计划-数据基础与渐进披露.md) 已于 2026-09-20 实施完成。用户确认的多历史 Turn/已有地图整理方向与受信独立主机假设保持不变；事实/导航基础先交付，Organize 写能力仍属尾期。讨论来源保留当时状态，实现证据以已归档子计划及本计划 §13 为准。
 
-2026-09-21 [R6：外部 Agent 与 MCP 能力接入子计划](done/20260921-done-Agent重构第六轮子计划-外部Agent与MCP能力接入.md) 已完成并归档：共享异步 JobBackend/Inbox 待答投影、受控 stdio、ACP session/权限/多次委派、MCP stdio/Streamable HTTP 四动作、标准 JSON Schema、统一配置与三情景接入均已核对。最终 Full 1130 passed、23 deselected（含生成/wheel），Windows/Linux 目标 typecheck 与 diff-check 通过。真实 Codex ACP 1.12.0/Codex 0.154.0 握手、session 释放/隔离探针与 SDK fixture 分别记录；未运行真实模型委派、远程 MCP、搜索质量测评或 Linux 实机。回归收口与一次未复现 Workspace IO 失败的诊断记录见子计划 §12。S3 Organize/注释层与 S7 范围不变。
+2026-09-21 [R6：外部 Agent 与 MCP 能力接入子计划](20260921-done-Agent重构第六轮子计划-外部Agent与MCP能力接入.md) 已完成并归档：共享异步 JobBackend/Inbox 待答投影、受控 stdio、ACP session/权限/多次委派、MCP stdio/Streamable HTTP 四动作、标准 JSON Schema、统一配置与三情景接入均已核对。最终 Full 1130 passed、23 deselected（含生成/wheel），Windows/Linux 目标 typecheck 与 diff-check 通过。真实 Codex ACP 1.12.0/Codex 0.154.0 握手、session 释放/隔离探针与 SDK fixture 分别记录；未运行真实模型委派、远程 MCP、搜索质量测评或 Linux 实机。回归收口与一次未复现 Workspace IO 失败的诊断记录见子计划 §12。S3 Organize/注释层与 S7 范围不变。
 
-2026-09-21 [R7：会话整理与架构收口子计划](20260921%20Agent重构第七轮子计划-会话整理与架构收口.md) 为 `pending`：已确认承接 §8 Organize/注释层与 S7，整理由 User Turn 内 Action 执行，无新增外部 HTTP 整理写入口；已确认“事实历史列表 + 有来源语义解释 + 话题森林导航投影”、多话题 Turn、关系/结构共用 Organize、合流保留旧分支等地图语义。尚未开始 R7 代码实施，S3/S7 当前状态与原定验收范围不变。
+2026-09-21 [R7：会话整理与架构收口子计划](20260921-done-Agent重构第七轮子计划-会话整理与架构收口.md) 已完成并归档：§8 的单一 Organize Action、Session-owned 注释、当前证据映射、地图引用与线性交互正文已实现；User 写、SDK/Reflection 只读，无新增 HTTP 编辑接口。S7 已统一 AGENTS/设计/资源预设并核对 §13 全部 19 项，证据见子计划 §13。最终 Fast `1139 passed, 28 deselected`、Full `1144 passed, 23 deselected`（含生成/wheel）、Windows/Linux 目标 typecheck 通过；真实外部模型/远程 MCP/Linux 实机不在本轮验证结论内。
 
-本文件描述目标设计，不代表全部已实现。初始复审仅授权分析、修订计划与讨论；后续 R1/R2/R3 与 Before 4 已获明确实施授权，实际完成范围见第 13 节。确认状态见第 14 节。用户已确认架构方向，特别是受限 SUSPEND 与 Inbox 保障边界，并补充 Reflection 通用动作叠加、ACP 显式连接及 Working 呈现；未实施的具体签名与连接寿命仍标明建议。原“正文 + 替换预览”合并为单一方案，旧版由 Git 保存，不并行保留互相冲突的接口。API 为契约草图，具体名称与类型在子计划落定。
+本文件保留已确认的目标设计、历史基线与决策记录；本次执行范围已完成，逐轮授权、实施及验收见第 13 节和已归档子计划。第 14 节保留当时的确认过程；API 草图的具体名称与类型以代码和 docs/design 为准。明确延后的内部子 Turn 等能力未计入完成范围。原“正文 + 替换预览”已合并为单一方案，旧版由 Git 保存，不并行保留冲突接口。
 
 ## 1. 项目理解与重构意图
 
@@ -219,7 +219,7 @@ wait 只观察就绪，不与边界消费者竞争删除事件。登记和入队
 
 截至 `be61886`，三插槽与 State/Heap/Stack/Map 描述、段注册、typed 更新解码、全批 prepare/install、inspect/select/reclaim、seal/close 已有真实消费者。Session/Home/Memory/Workspace 的语义由插件维护，ContextEngine 不再持有 Session Engine。TurnTraceHeap 是 Stack 语义的内部折叠实现，不能仅因类名含 Heap 判定形状冲突。
 
-当前能力枚举为 INSPECT/SELECT/RECLAIM/QUERY；SELECT 承载 load/evict，QUERY 已由 Before 4 的 Trace/Session 消费。Session 段是只读 Map，已按自身容量提供有界投影和完整 inspect，尚无 organize 或运行中注释刷新。完成提交仍由 TurnCompletionPipeline 编排，未成为段 finish 协议；事件订阅也尚未成为完整插件贡献。以下生命周期和注册面中未落地的部分仍是目标，后续应按最新复审收敛到同一现有运行管线，不新增平行调度。
+当前能力枚举为 INSPECT/SELECT/RECLAIM/QUERY；SELECT 承载 load/evict，QUERY 由 Trace/Session 消费。R7 的 User Session Map 通过 Organize 更新注释，Reflection/SDK 仍只读；投影、分页与自身水位由 Session owner 负责。完成提交统一由 TurnCompletionPipeline 编排，事件订阅与来源已经成为 PluginDeclaration 的真实贡献；不另设段 finish 或平行调度。
 
 四个正交概念：
 
@@ -258,10 +258,10 @@ Stack 表达交互顺序，Map 表达事实/话题的关系，State 表达现态
 | 内容 owner | 领域结构保持不变 | 渐进披露组织 |
 |---|---|---|
 | Trace | 有序交互和 typed 行动事实 | 顶层保留近期交互与旧区间线索；旧区间按 Cycle/行动组逐层展开到交互/事实 |
-| Session | 当日事实图及未来 Organize 语义关系 | 当日概览 → 话题/分支或确定性 Turn 分组 → Turn/事件/行动 → 事实详情；跨组关系以 ref 保留 |
+| Session | 当日事实图及 Organize 语义关系 | 当日概览 → 话题/分支或确定性 Turn 分组 → Turn/事件/行动 → 事实详情；跨组关系以 ref 保留 |
 | Home/Memory | owner 目录、条目和知识内容 | 目录线索 → 条目/内容；是否持续进入 Background 仍由 SELECT 决定 |
 
-Session 的披露目录可以形成分层树或共享子节点的结构，但它只是图的导航投影。一个事实可以被两个话题引用，不复制事实正文；横向关系不会因为显示折叠而从 Map 中删除。当前没有 Organize 时按 Turn 次序/明确关系分组，不能预先生成未经模型判断的话题和意图。
+Session 的披露目录可以形成分层树或共享子节点的结构，但它只是图的导航投影。一个事实可以被两个话题引用，不复制事实正文；横向关系不会因为显示折叠而从 Map 中删除。尚未执行 Organize 的历史按 Turn 次序/明确关系分组，不能预先生成未经模型判断的话题和意图。
 
 ### 7.2.2 可复用的披露契约与压缩机制
 
@@ -467,7 +467,7 @@ Session 是对话历史及其持续理解，不是每轮生成一个孤立摘要
 
 确定性关系包括 contains、precedes、replies_to、references，以及有明确框架身份的请求/结果关联。“对方真正想要什么”“这个失败促成了另一种方案”通常是推导，不因时间相邻自动写成事实。模型声明已完成也只是声明；执行结果与持久提交状态仍由各 owner 给出。
 
-SessionTurnRecord 继续是不可变事实权威，时间线随同一份 record 原子写入；派生 Map 可以重建。保存失败沿必要完成失败处理，不能默默降为空历史。仅在模型视图中折叠 Trace，不从折叠文本重新解析事实。
+SessionTurnRecord 继续是不可变事实权威，时间线随同一份 record 原子写入；确定性事实索引和导航可以重建，Organize 注释是独立的持久解释，损坏不能静默重建为空。保存失败沿必要完成失败处理，不能默默降为空历史。仅在模型视图中折叠 Trace，不从折叠文本重新解析事实。
 
 ### 8.3 数据结构：同一地图的事实层与解释层
 
@@ -485,15 +485,17 @@ SemanticNode/Edge 的推导性质由所属类型固定，模型不通过 `verifi
 
 示意：用户 T1 提出目标，T2 否定某个假设，T3 改换方法。自动层只记录原话、时序、行动与明确 reply 关系；模型层可以创建“目标 A”话题，将 T2 标为对既有假设的澄清，把两个方案关联成不同尝试分支，并撤回旧的意图判断。T1/T2/T3 原文始终不变。
 
-前期在既有 records/views 下补齐事实与导航；尾期增加 Session owner 内的 annotations/organize 子模块。建议注释用一个独立、原子替换的当前地图文档，节点/边按稳定 id 索引，逻辑上提交局部变更、存储上原子替换单文档，进程内维护已加载索引；首版不建 SQL/图数据库、版本链或多文档事务。
+前期在既有 records/views 下补齐事实与导航；R7 在 Session owner 内增加 annotations 与整理 Action。注释使用独立、原子替换的当前地图文档，节点/边按稳定 id 定位，逻辑上提交局部变更、存储上原子替换单文档，进程内维护已加载快照；不建 SQL/图数据库、版本链或多文档事务。
 
-注释属于当日 Session，建议以 `map.json` 放在既有活动 Session 目录中，与 manifest/turns 共用日生命周期。日切时 Turn 记录与当日 map 一起按既有 Session 目录归档；新日初始化新的记录集合和空地图，不复制或合并昨日语义图。单根 Turn 与既有 owner 串行写足够，不新增活动日目录外的长期地图文件或独立日切参与者。归档保留旧图供需要时只读查看，不要求新日默认加载或继续整理。
+注释属于当日 Session，以 `map.json` 放在既有活动 Session 目录中，与 manifest/turns 共用日生命周期。日切时 Turn 记录与当日 map 一起按既有 Session 目录归档；新日初始化新的记录集合和空地图，不复制或合并昨日语义图。单根 Turn 与既有 owner 串行写足够，不新增活动日目录外的长期地图文件或独立日切参与者。归档保留旧图供需要时只读查看，不要求新日默认加载或继续整理。
 
 这份文档只保存不能从事实重建的语义内容；不是另一套线性历史。完整事实图可按需派生，启动可缓存索引，模型调用从已准备视图读取，不每 Cycle 扫描全部历史。
 
 ### 8.4 模型可见结构与读取
 
 Background 中仍只有一个 `session` 段，shape=Map。模型看到的是语义化投影，不是磁盘 schema、manifest/revision、数据库字段或全图 JSON 转储。
+
+R7 按确认方案将同一段分为地图导航和下方线性交互正文：地图保留话题/关系/Turn refs，正文按事实顺序去重呈现多轮输入、追加、reason 标记、问题/完整选项/回复与正式回答。未归类 Turn 同样可见；二者共用 Session 背景预算，超限才摘录/折叠。Background、压缩和 inspect 使用同一交互投影，正文不嵌套复制到每个话题。
 
 ```text
 会话地图（详情入口 session:map）
@@ -738,23 +740,23 @@ WS 断开不取消 Turn；问题可由状态查询恢复，Observation gap 不�
 
 ## 13. 执行计划与验收
 
-子计划进度：[R1 底层依赖与失败协议](done/20260915-done-Agent重构第一轮子计划-底层依赖与失败协议.md) 为 `done`；[R2 异步内核与 SDK 运行闭环](done/20260915-done-Agent重构第二轮子计划-异步内核与SDK运行闭环.md) 保留历史实施与门禁记录。2026-09-16 复审发现的剩余事项已由 [R2 收口子计划](done/20260916-done-Agent重构R2收口子计划.md) 于 2026-09-17 完成（`done`，C1/C2/C3 已落实，C4 保留 S3 评估）；原已纳入的 S2/S3 必要契约范围不变。
+子计划进度：[R1 底层依赖与失败协议](20260915-done-Agent重构第一轮子计划-底层依赖与失败协议.md) 为 `done`；[R2 异步内核与 SDK 运行闭环](20260915-done-Agent重构第二轮子计划-异步内核与SDK运行闭环.md) 保留历史实施与门禁记录。2026-09-16 复审发现的剩余事项已由 [R2 收口子计划](20260916-done-Agent重构R2收口子计划.md) 于 2026-09-17 完成（`done`，C1/C2/C3 已落实，C4 保留 S3 评估）；原已纳入的 S2/S3 必要契约范围不变。
 
-第三轮 [R3 领域语义与能力组织子计划](done/20260917-done-Agent重构第三轮子计划-领域语义与能力组织.md) 于 2026-09-19 完成（`done`）。已落实 Session 确定性事实地图与跨日追溯、Reflection 动作归 Home/Memory 与今天/历史 daily 可修订、Workspace 去 CAS/压力 Trash、execution + Job + infra/process 统一生命周期、逐 domain/action 文档及情景可见性、assets/common/standard/development 和后端内部职责封装。Full 1066 passed、23 deselected，typecheck 通过，含生成、wheel 安装和 worker 启动验证；未运行真实 provider/network。第 8 节 organize/模型推导注释按已确认范围延后，S3 保持 in_progress；S4–S7 未扩大勾选。配置/动作/存储格式变化与部署边界见子计划 §13。
+第三轮 [R3 领域语义与能力组织子计划](20260917-done-Agent重构第三轮子计划-领域语义与能力组织.md) 于 2026-09-19 完成（`done`）。已落实 Session 确定性事实地图与跨日追溯、Reflection 动作归 Home/Memory 与今天/历史 daily 可修订、Workspace 去 CAS/压力 Trash、execution + Job + infra/process 统一生命周期、逐 domain/action 文档及情景可见性、assets/common/standard/development 和后端内部职责封装。Full 1066 passed、23 deselected，typecheck 通过，含生成、wheel 安装和 worker 启动验证；未运行真实 provider/network。第 8 节 organize/模型推导注释按已确认范围延后，S3 保持 in_progress；S4–S7 未扩大勾选。配置/动作/存储格式变化与部署边界见子计划 §13。
 
-[R3 收口子计划](done/20260919-done-Agent重构R3收口子计划.md) 于 2026-09-19 完成。关闭 `160781e` 复审发现的进程后代逃逸、Workspace 迁移元数据丢失、路径大小写别名及嵌套提交事实遗漏；复用既有 Process/Job 与 Workspace owner，没有新增模型协议或 CAS。Full 1081 passed、23 deselected，typecheck 通过；真实进程验证在 Windows 完成，POSIX 另做目标类型检查，未宣称 Linux 实机验证。原 S3 延后项与 S4–S7 范围不变。
+[R3 收口子计划](20260919-done-Agent重构R3收口子计划.md) 于 2026-09-19 完成。关闭 `160781e` 复审发现的进程后代逃逸、Workspace 迁移元数据丢失、路径大小写别名及嵌套提交事实遗漏；复用既有 Process/Job 与 Workspace owner，没有新增模型协议或 CAS。Full 1081 passed、23 deselected，typecheck 通过；真实进程验证在 Windows 完成，POSIX 另做目标类型检查，未宣称 Linux 实机验证。原 S3 延后项与 S4–S7 范围不变。
 
-[Before 4 子计划](done/20260920-done-Agent重构Before4子计划-数据基础与渐进披露.md) 于 2026-09-20 完成（`done`）。BF1–BF5 已核对：Trace 类型化时间线、Session v10 唯一事实与当日分层导航、共用披露/分页/query、inspect 可见结果消费保护、Session 自身水位回收、CalendarClock/active_day 及可复现本地测试边界。Windows Full 1087 passed、23 deselected，含 generation/wheel；Windows 与 Linux 目标 typecheck 通过。本轮未执行 Linux 实机或真实 provider/network，旧部署数据未迁移/reset。Organize Action/注释层、fswatch、Gateway v2 和 ACP/MCP 未提前实现。
+[Before 4 子计划](20260920-done-Agent重构Before4子计划-数据基础与渐进披露.md) 于 2026-09-20 完成（`done`）。BF1–BF5 已核对：Trace 类型化时间线、Session v10 唯一事实与当日分层导航、共用披露/分页/query、inspect 可见结果消费保护、Session 自身水位回收、CalendarClock/active_day 及可复现本地测试边界。Windows Full 1087 passed、23 deselected，含 generation/wheel；Windows 与 Linux 目标 typecheck 通过。本轮未执行 Linux 实机或真实 provider/network，旧部署数据未迁移/reset。Organize Action/注释层、fswatch、Gateway v2 和 ACP/MCP 未提前实现。
 
-S1、S2、S4、S5、S6 已完成；R5 复审修正与 R6 已核对并归档，S3 延后项与 S7 尚未完成。历史 S0 定稿不代表后续协议细化关闭。子计划只有实现/文档/必要验证全部通过才 done 并归档；docs/design 只写已落地部分。
+S0–S7 已完成：R7 关闭 S3 延后项并完成 S7，§13 的 19 条核心验收均有实现和行为测试依据，映射见 R7 子计划 §13.2。历史记录中的“待做”保留当时上下文，不覆盖当前完成状态；docs/design 只描述已落地部分。
 
-2026-09-20 [R4：环境事件与插件运行闭环子计划](done/20260920-done-Agent重构第四轮子计划-环境事件与插件运行闭环.md) 已完成并归档，S4 标记 `done`。落实显式插件事件/运行贡献、topic/source 路由与等待、可合并状态通知、Workspace 正式写入和外部文件监听的统一 owner 刷新、世代/日切/关闭及 Reflection 定时策略分离。只监听当前 Workspace；原生监听失败停止来源并有界反馈，正式操作继续，无自动恢复状态机。Windows Full 1100 passed、23 deselected，含生成/wheel、真实文件监听与进程跨午夜；Windows/Linux 目标 typecheck 通过，未运行 Linux 实机与真实 provider/network。具体核对见子计划 §10，S3 Organize 与 S6–S7 范围不变。
+2026-09-20 [R4：环境事件与插件运行闭环子计划](20260920-done-Agent重构第四轮子计划-环境事件与插件运行闭环.md) 已完成并归档，S4 标记 `done`。落实显式插件事件/运行贡献、topic/source 路由与等待、可合并状态通知、Workspace 正式写入和外部文件监听的统一 owner 刷新、世代/日切/关闭及 Reflection 定时策略分离。只监听当前 Workspace；原生监听失败停止来源并有界反馈，正式操作继续，无自动恢复状态机。Windows Full 1100 passed、23 deselected，含生成/wheel、真实文件监听与进程跨午夜；Windows/Linux 目标 typecheck 通过，未运行 Linux 实机与真实 provider/network。具体核对见子计划 §10，S3 Organize 与 S6–S7 范围不变。
 
-2026-09-20 [R5：Gateway v2 与 SDK 协议闭环](done/20260920-done-Agent重构第五轮子计划-Gateway v2与SDK协议闭环.md) 已完成基础 Gateway 子范围并归档：SDK/HTTP 共用 AgentCommands 与 TurnSnapshot/TurnResult/JobSnapshot 投影，`/v1` 直接迁移并删除为 `/v2`，结构化 Turn 与 Turn-owned Job 查询/停止、Observation instance/cursor/gap replay、Reflection/config/Action/Workspace 协议和 CLI 边界已同步。Full 1106 passed、23 deselected，Generation/wheel 5 passed、1124 deselected，typecheck 通过；未运行 Linux 实机和真实 provider/network。
+2026-09-20 [R5：Gateway v2 与 SDK 协议闭环](20260920-done-Agent重构第五轮子计划-Gateway v2与SDK协议闭环.md) 已完成基础 Gateway 子范围并归档：SDK/HTTP 共用 AgentCommands 与 TurnSnapshot/TurnResult/JobSnapshot 投影，`/v1` 直接迁移并删除为 `/v2`，结构化 Turn 与 Turn-owned Job 查询/停止、Observation instance/cursor/gap replay、Reflection/config/Action/Workspace 协议和 CLI 边界已同步。Full 1106 passed、23 deselected，Generation/wheel 5 passed、1124 deselected，typecheck 通过；未运行 Linux 实机和真实 provider/network。
 
-2026-09-21 [R5 收口：Endpoint 生命周期与 HTTP Restart](done/20260920-done-Agent重构第五轮收口子计划-Endpoint生命周期与重启.md) 已完成并归档：EndpointHost/Engine/Observation buffer 进入进程级稳定边界，generation 只重绑 typed facade；独立 `POST /v2/restart` 请求宿主重建，旧 facade 失效后由调用者重新获取，ACP Job 回应移交 S6。Agent.wait 跨 restart，CLI 重新获取配置/commands；真实 HTTP server 连续重启、失败重试和 Ctrl-C 已验证。Windows Fast 1104 passed、28 deselected，Full 1109 passed、23 deselected（含全部 5 项 Generation/wheel），typecheck 与 diff-check 通过；S5 标记 `done`。
+2026-09-21 [R5 收口：Endpoint 生命周期与 HTTP Restart](20260920-done-Agent重构第五轮收口子计划-Endpoint生命周期与重启.md) 已完成并归档：EndpointHost/Engine/Observation buffer 进入进程级稳定边界，generation 只重绑 typed facade；独立 `POST /v2/restart` 请求宿主重建，旧 facade 失效后由调用者重新获取，ACP Job 回应移交 S6。Agent.wait 跨 restart，CLI 重新获取配置/commands；真实 HTTP server 连续重启、失败重试和 Ctrl-C 已验证。Windows Fast 1104 passed、28 deselected，Full 1109 passed、23 deselected（含全部 5 项 Generation/wheel），typecheck 与 diff-check 通过；S5 标记 `done`。
 
-2026-09-21 [R5 复审修正：运行可用性与退出等待](done/20260921-done-Agent重构R5复审修正子计划-运行可用性与退出等待.md) 已完成并归档：关闭 `7d97f23` 复审发现的提前受理和并发/取消重启错误解绑。Endpoint 从 owner 状态统一派生可用性，HTTP restart 只调用共享 SDK 操作，scheduler 结清启动失败的已受理请求；Agent.wait 已重命名为 wait_for_exit，保留用户确认的返回和 shutdown 取消契约，无旧别名。Windows Fast `1107 passed, 28 deselected`、Full `1112 passed, 23 deselected`（含 5 项 Generation/wheel）、typecheck 与 diff-check 通过。S5 重新验收为 done；历史记录保留，未运行真实 provider/network 或 Linux 实机。
+2026-09-21 [R5 复审修正：运行可用性与退出等待](20260921-done-Agent重构R5复审修正子计划-运行可用性与退出等待.md) 已完成并归档：关闭 `7d97f23` 复审发现的提前受理和并发/取消重启错误解绑。Endpoint 从 owner 状态统一派生可用性，HTTP restart 只调用共享 SDK 操作，scheduler 结清启动失败的已受理请求；Agent.wait 已重命名为 wait_for_exit，保留用户确认的返回和 shutdown 取消契约，无旧别名。Windows Fast `1107 passed, 28 deselected`、Full `1112 passed, 23 deselected`（含 5 项 Generation/wheel）、typecheck 与 diff-check 通过。S5 重新验收为 done；历史记录保留，未运行真实 provider/network 或 Linux 实机。
 
 2026-09-20 推进修订：S4 的 ask/reply、统一等待、有界 Inbox、reload/restart 已由 R2 及收口实现，后续应验收其环境协作闭环，不能再造一套机制。R4 前先按配套 Review 补齐现有事实记录/导航、平台门禁和命名一致性；R4 再补“插件声明 → 环境事件 → owner 刷新 → Context 批次”的真实切片，继续 Gateway v2 与 ACP/MCP，尾期接入模型 Organize。用户已确认：Organize 所需事实/导航数据先补强，模型整理 Action 在主计划尾期、最终 S7 验收前实施，不作为 R4 环境接入前置；原 S 编号保留作为验收范围，不强迫每个范围严格串行。具体切片与验证证据见配套 Review。
 
@@ -763,11 +765,11 @@ S1、S2、S4、S5、S6 已完成；R5 复审修正与 R6 已核对并归档，S3
 | S0 | 已记录架构/SUSPEND/Inbox 确认；同步 AGENTS，细化动作组合与连接契约 | 无冲突目标、待决有状态 |
 | S1 `done` | bridge 归 owner、失败协议、LLM 容量恢复、import/重放检查；async LLM、事件/取消原语 | R1/R2 的 Fast/Full/typecheck 与依赖审计通过 |
 | S2 `done` | 新内核/SDK/CLI/段/Job/等待；同步迁移所有旧内核消费者至新公共入口、插件接入与打包 | R2 收口 Full 1091 passed、2 skipped、23 deselected，typecheck 通过；生命周期、等待、服务权限与终态/保留缺口关闭，含导入边界、生成与 wheel 验收 |
-| S3 `in_progress` | R3 与收口已完成领域重构；Before 4 已补齐事实顺序、当日导航、渐进披露与 query；Organize 动作与注释层按 §8 尾期实施 | R3 收口及 Before 4 Full/typecheck、事实重开/归档、真实进程跨午夜与 SDK 取回消费闭环通过；延后项未伪报完成 |
+| S3 `done` | R3/Before 4 领域与事实基础已完成；R7 补齐 Organize 注释、当前来源与统一地图/时序正文 | R7 Session 原子写/撤回/来源/分页/水位与 Agent 更新/restart/归档 E2E 通过，完整门禁及读写情景边界已核对 |
 | S4 `done` | R4 已落实 fswatch、插件事件订阅/触发及生命周期声明；复用 scheduler、ask/reply、容量、reload/restart、Job 监督 | R4 Full/typecheck 通过；外部与 SDK 写入恢复同一 Turn 并刷新实际 MessageStack，固定批次/预算/来源失败/重载恢复/收尾/午夜闭环已验证 |
 | S5 `done` | Gateway v2、项目命令、HTTP/WS/replay、稳定 Endpoint 生命周期与协议文档；原 R5 及运行可用性/重启复审修正均已归档 | 激活受理、启动失败句柄结算、并发/取消重启及 wait_for_exit 契约通过 Full/typecheck；ACP Job 应答仍归 S6 |
 | S6 `done` | ACP 六动作/连接段、MCP 四动作、共享异步 Job、配置与标准 schema；内部子调用留后续 | R6 Full 1130 passed、23 deselected，Windows/Linux 目标类型检查通过；真实协议 fixture 与 Codex 握手/session smoke 分开记录，外部模型与 Linux 实机未验证 |
-| S7 | 全仓文档/AGENTS/测试/打包一致，删旧入口/死抽象 | Full/typecheck/import 图/完整 E2E |
+| S7 `done` | AGENTS 当前语义统一，设计/配置/模型投影/部署说明对齐；清理重复历史展示与无消费者的模型 digest | R7 Full 1144 passed、23 deselected，含生成/wheel、导入图与代表性 E2E；Windows/Linux 目标 typecheck 通过，19 条验收映射完成 |
 
 S1–S2 为相邻基础迁移单元，不宣称中间提交可部署。S2 工作量包含全部消费者的接口迁移：迁移基线中的 maintenance/builder.py、session/engine.py、workspace/projection.py 和能力 actions 等依赖旧 loop/context/action，不能删除旧内核后留到 S3 修 imports。现已采用一套新运行路径、注册真实 owner 段与动作，保留可复用领域算法；无兼容 alias、旧管线转发器或临时伪插件。
 
@@ -780,7 +782,7 @@ S3 是领域语义变更，不负责补齐 S2 留下的损坏依赖。S2 子计�
 3. 高频进度不阻塞 cancel/reply；容量不足接受前明确拒绝，已接受输入保留。
 4. 等待不耗 Cycle，事件不绕预算，重复 grant 不重复加额。
 5. 后段 prepare 失败不部分安装；重试不做 Action；install 缺陷不虚假回滚。
-6. 部分 open/finish/close 失败清理，主失败保留，Session 幂等、Map 可补。
+6. 部分 open/finish/close 失败清理，主失败保留，Session 幂等、事实索引可补；语义注释损坏不静默重建。
 7. ask/reply/追加/reason/answer 可追溯，Trace 折叠不破坏事实配对。
 8. User profile 无专属持久写入口，Reflection 准确保留单文档已提交事实；外部工具权限不冒充领域完成提交。
 9. 跨午夜同 Turn 保持旧日，收尾前不归档，旧资源不指向今日同名文件。

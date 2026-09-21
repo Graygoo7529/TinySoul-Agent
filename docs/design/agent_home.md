@@ -101,7 +101,7 @@ runtime/
     skills_action/
 ```
 
-`runtime/home` 只包含自上次 Home Reflection 以来实际物化、创建或删除的 Home 内容，不预建完整目录树，也不因 Business Day 变化而清空；上图中的内容目录均为按需出现。`SKILL_MEMORY.md` 只允许位于 `runtime/home/skills/<skill>/`，`skills_domain`/`skills_action` 不创建平行 memory 文件。长期 MEMORY 位于与 `home/` 平级的 `memory/`，不是 Home runtime 副本的例外分支。
+`runtime/home` 只包含自上次 Home Reflection 以来实际物化、创建或删除的 Home 内容，不预建完整目录树，也不因 CalendarDay 变化而清空；上图中的内容目录均为按需出现。`SKILL_MEMORY.md` 只允许位于 `runtime/home/skills/<skill>/`，`skills_domain`/`skills_action` 不创建平行 memory 文件。长期 MEMORY 位于与 `home/` 平级的 `memory/`，不是 Home runtime 副本的例外分支。
 
 顶层内容映射：
 
@@ -139,7 +139,7 @@ package template 与已初始化项目之间没有双向同步。项目运行中
 Agent Home 分为 actual Home 和跨日 runtime Home：
 
 - actual Home 是已经通过 Reflection 提交的长期资料库，普通 User Turn 中只读；
-- runtime Home 是跨 Turn、跨 Business Day、跨重启保留的懒加载可写 overlay；
+- runtime Home 是跨 Turn、跨 CalendarDay、跨重启保留的懒加载可写 overlay；
 - Home Reflection 直接比较 active runtime Home 与 actual Home，再决定 apply 或 discard。Memory Reflection 操作独立 `memory/` root，不是 actual/runtime Home 规则的例外。
 
 当 Home 顶层内容、渐进式资源或 prompt mount 被加载到运行期时，Agent Home 确保 runtime Home 中存在对应副本，并从统一 effective view 读取：runtime override 优先，runtime tombstone 隐藏 actual 内容，未物化内容回退 actual Home。语义检索可以只读取 effective metadata；一旦 Home 正文进入 BackgroundContext、skill 或 action result，就按链接建立 runtime record。所有普通可写操作只能落在 runtime Home。
@@ -161,7 +161,7 @@ runtime mutation 按链接类别拆分：
 
 后一种入口用于保持与 Runtime 的 OS 风格陷入设计一致，尤其适合在 Phase 或 action 执行边界处理缺页式副本准备。
 
-当前实现由 `HomeOverlayManager` 统一承担 copy、write、patch、delete 和 reconciliation。Manifest schema v2 不含 Business Day；每条记录包含 relative path、`copied/created/modified/deleted` state、actual baseline digest、runtime digest、size 与 mtime。Builder 在构建 Home 时恢复 operation、迁移 schema v1 并初始化或收养现有 runtime 文件。修改先写入 `.tinysoul/operations/<operation-id>` intent 和 staged bytes，再替换目标、提交 Manifest、清理 operation；若在替换后、Manifest 前退出，下次 initialization/reconciliation 按 digest 前滚。
+当前实现由 `HomeOverlayManager` 统一承担 copy、write、patch、delete 和 reconciliation。Manifest schema v2 不含 CalendarDay；每条记录包含 relative path、`copied/created/modified/deleted` state、actual baseline digest、runtime digest、size 与 mtime。Builder 在构建 Home 时恢复 operation、迁移 schema v1 并初始化或收养现有 runtime 文件。修改先写入 `.tinysoul/operations/<operation-id>` intent 和 staged bytes，再替换目标、提交 Manifest、清理 operation；若在替换后、Manifest 前退出，下次 initialization/reconciliation 按 digest 前滚。
 
 Home overlay 的存在本身就是尚未提交的事实，不建立第二份 pending/workset/store。每日 Session/Workspace rollover 已保证不移动、清空或重新初始化 `runtime/home`。
 
@@ -298,7 +298,7 @@ tinysoul/plugins/home/
   failures.py
 ```
 
-`AgentHomeEngine` 是普通 User Turn 与 Reflection 的 Home 门面，提供链接解析、effective/actual 顶层目录、effective read、runtime mutation、overlay reconciliation、top search、domain/action skill、Reflection snapshot/resolution 和 finalize。`HomeOverlayManager` 只管理跨日 active overlay record 与 operation recovery，不提供 Business Day/archive 或 LLM policy。`HomeTopSearchService` 只消费 Engine 交付的 bounded effective documents，不重复解释 overlay；`AgentHomeEngineBuilder` 负责接收已解析设置、校验目录并装配这些服务。不建立 Settlement store，也不把 Reflection Turn 编排放进 Home。
+`AgentHomeEngine` 是普通 User Turn 与 Reflection 的 Home 门面，提供链接解析、effective/actual 顶层目录、effective read、runtime mutation、overlay reconciliation、top search、domain/action skill、Reflection snapshot/resolution 和 finalize。`HomeOverlayManager` 只管理跨日 active overlay record 与 operation recovery，不提供 CalendarDay/archive 或 LLM policy。`HomeTopSearchService` 只消费 Engine 交付的 bounded effective documents，不重复解释 overlay；`AgentHomeEngineBuilder` 负责接收已解析设置、校验目录并装配这些服务。不建立 Settlement store，也不把 Reflection Turn 编排放进 Home。
 
 AgentBuilder 的目标职责是：
 

@@ -140,7 +140,7 @@ Runtime 只定义信号信封和分发机制，不定义所有业务载荷字段
 
 lease 等待使用 asyncio 协调，不在事件循环中等待线程 Condition；snapshot 只读内存，不隐式访问存储。关闭等待已受理 reader/激活收敛，候选失败恢复原世代准入。
 
-句柄只表达 activity、generation id 和激活状态，不导入 App、LLM、Memory 或 Workspace。
+句柄只表达 activity、generation id 和激活状态，不导入 Agent、LLM、Memory 或 Workspace。
 业务 `AgentRuntimeGeneration` 由 AgentBuilder 构造并聚合 User Turn、Reflection、Workspace、
 LLM、Embedding、Action、Context 及各 owner 门面；切换完成后旧 Generation 执行自身登记的
 close callbacks。自建 LLM 和 embedding 客户端由世代资源作用域逆序关闭，借用对象不关闭；关闭失败保留有限诊断并继续其余清理。EndpointHost、事件
@@ -148,13 +148,13 @@ close callbacks。自建 LLM 和 embedding 客户端由世代资源作用域逆�
 
 ## 观察事件
 
-`ObservationEvent` 是不可用于控制流的结构化旁路事件。它包含稳定事件名、`normal` / `verbose` / `model` 详细度、来源、RunScope、可读消息、JSON payload 和产生时间。Runtime 只定义事件与 `ObservationEmitter` 协议；Loop、LLM、Action 和 RuntimeModuleRunner 在各自拥有事实的边界发布，App 负责过滤和连接 `OutputSink`。
+`ObservationEvent` 是不可用于控制流的结构化旁路事件。它包含稳定事件名、`normal` / `verbose` / `model` 详细度、来源、RunScope、可读消息、JSON payload 和产生时间。Runtime 只定义事件与 `ObservationEmitter` 协议；Loop、LLM、Action 和 RuntimeModuleRunner 在各自拥有事实的边界发布，Agent 负责过滤和连接 `OutputSink`。
 
 Runtime transfer 本身只表达恢复位置，不等于业务失败。Loop 在消费 transfer 时可从原始 `RuntimeException` 异常链提取 bridge 已提供的 reason/module/kind，形成有界 Turn failure；用户 stop/exit 和无模块失败字段的控制 END 不得被归类为失败。该分类属于 Loop 的 Turn outcome 语义，不扩展 RuntimeTransfer 字段，也不把 traceback 或大 payload 带入 Observation。
 
 Observation 与 Signal 的区别由消费语义决定：SignalBus 中的事件等待业务模块消费并可能形成状态提交；Observation 只面向人机界面、日志适配或嵌入方，不排队等待业务确认。Observation 与 Trap 的区别由控制语义决定：emitter/sink 失败不能触发恢复、重试或结束 frame。发布 helper 吞掉 emitter 异常，Agent router 隔离失败 sink，状态查询报告有限诊断，不补抛业务失败。
 
-详细 observation payload 必须 provider-neutral、JSON 安全且有界表达二进制和敏感结构。MODEL 级可以表达文本消息、工具协议和归一化回答以支持诊断，但图片只携带摘要，推理原文、加密项原文与 provider 原始响应不进入事件。是否渲染及文本裁剪属于 App/OutputSink 责任，不属于 Runtime 控制协议。
+详细 observation payload 必须 provider-neutral、JSON 安全且有界表达二进制和敏感结构。MODEL 级可以表达文本消息、工具协议和归一化回答以支持诊断，但图片只携带摘要，推理原文、加密项原文与 provider 原始响应不进入事件。是否渲染及文本裁剪属于 Agent/OutputSink 责任，不属于 Runtime 控制协议。
 
 ## Trap
 
@@ -182,9 +182,9 @@ LLM 是模块接入 Runtime 的参考实现之一。供应商错误先由 LLM �
 
 Infra 继续提供配置、JSON 边界和受控文件系统能力。Runtime 可以使用 Infra 的 JSON 基础能力约束信号载荷和异常详情，但 Runtime 不属于 Infra。
 
-配置加载错误由 App 装配边界转换为启动失败，各业务模块的配置解释错误仍归各自 bridge。观察事件由 Runtime 或业务运行器通过 ObservationEmitter 发布，并由 App 输出边界渲染；Infra 不拥有终端输出语义。资源读写、Workspace 边界检查和 Agent Home 运行时副本机制应由对应资源模块实现；当这些机制需要全局恢复流程时，再通过 Runtime 语义异常或 Runtime 保留信号进入 Trap。
+配置加载错误由 Agent 装配边界转换为启动失败，各业务模块的配置解释错误仍归各自 bridge。观察事件由 Runtime 或业务运行器通过 ObservationEmitter 发布，并由 Agent 输出边界渲染；Infra 不拥有终端输出语义。资源读写、Workspace 边界检查和 Agent Home 运行时副本机制应由对应资源模块实现；当这些机制需要全局恢复流程时，再通过 Runtime 语义异常或 Runtime 保留信号进入 Trap。
 
-Infra 自身不表达 Runtime 控制流，不保留 InfraFailureKind 或 RuntimeInfraBridge。JSON、配置与文件系统异常由实际调用 owner 局部处理或归入自身 bridge；共享配置源失败归 App，UserTurnBuilder 的 staging 失败归 Loop 的资源准备失败。
+Infra 自身不表达 Runtime 控制流，不保留 InfraFailureKind 或 RuntimeInfraBridge。JSON、配置与文件系统异常由实际调用 owner 局部处理或归入自身 bridge；共享配置源失败归 Agent，UserTurnBuilder 的 staging 失败归 Loop 的资源准备失败。
 
 ## 设计范围
 

@@ -3,7 +3,7 @@
 状态：`done`（2026-09-21 实现、文档同步、逐项核对与完整门禁通过）。
 日期：2026-09-21。
 复审基线：`7d97f23`。
-主计划：[Agent 架构重构](../20260915-agent-architecture-refactor-plan.md)。
+主计划：[Agent 架构重构](20260915-done-agent-architecture-refactor-plan.md)。
 前置：[R5 Gateway v2](20260920-done-Agent重构第五轮子计划-Gateway%20v2与SDK协议闭环.md)、[R5 Endpoint 生命周期收口](20260920-done-Agent重构第五轮收口子计划-Endpoint生命周期与重启.md)。
 
 ## 1. 目标与范围

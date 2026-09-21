@@ -11,7 +11,7 @@ additionalProperties = false
 
 [tool.schema.properties.ref]
 type = "string"
-description = "A visible turn:trace ref, session:map entry point, Session Turn or Action occurrence ref."
+description = "A visible turn:trace ref, session:map entry point, Session topic/annotation/history directory, Turn or factual occurrence ref."
 
 [tool.schema.properties.continuation]
 type = "string"

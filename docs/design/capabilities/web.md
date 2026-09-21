@@ -47,13 +47,13 @@ Crawlee 只拥有 action-scoped `BasicCrawler`、Memory RequestQueue、URL 去�
 
 完整 discovery canonical result 先受 candidate/page/字段长度与 `max_result_chars` 硬上限约束；不在形成 canonical result 前静默裁剪 candidate。未超过 `max_inline_chars` 时完整进入 ActionResult；超过时完整 JSON 写入 `workspace:web/discovery/<invoke-id>-<call-id>.json`，ActionResult 返回同一 shape 的有界 preview、完整计数、`truncated=true`、`see_more_at`。除 overflow JSON 外，Discovery 不写 Workspace，也不保存访问页面正文。结果 URL 和 metadata 都是不可信 interaction data，后续 fetch 必须重新执行完整 URL/network 校验。
 
-Crawlee 是 `web-crawl` wheel extra 和开发测试依赖，项目模板默认禁用 Discovery；启用前应安装 `tinysoul[web-crawl]`。当前支持并约束 `crawlee>=1.8,<2`，避免主版本动态协议变化直接进入 worker。启用 action 但当前解释器缺少 Crawlee 时，App 在 effective Catalog 装配期显式失败。
+Crawlee 是 `web-crawl` wheel extra 和开发测试依赖，项目模板默认禁用 Discovery；启用前应安装 `tinysoul[web-crawl]`。当前支持并约束 `crawlee>=1.8,<2`，避免主版本动态协议变化直接进入 worker。启用 action 但当前解释器缺少 Crawlee 时，Agent 在 effective Catalog 装配期显式失败。
 
 Discovery 的网络解析边界允许显式注入 resolver。生产默认仍使用真实 DNS 与公开地址校验；本地测试共同注入 resolver、页面和 robots 响应，不依赖宿主网络或代理，也不修改生产代理策略。
 
 ## Fetch 与提取
 
-Fetch action 接收 `url`、显式 `.md` `target_link`、显式 overwrite。宿主通过固定 worker 完成“网络读取 -> 本地提取 -> staged Markdown”，校验结果后在单次 `WorkspaceEngine.write_bundle()` 中提交。Web 与 Resource 共用 App 装配的项目级 `runtime/.staging/` 根；每次 action 使用唯一子目录，完成、失败或取消后清理，进程中断遗留内容在下次 App 启动时清理。staging 不进入 Workspace Manifest、Daily archive 或 capability 持久状态：
+Fetch action 接收 `url`、显式 `.md` `target_link`、显式 overwrite。宿主通过固定 worker 完成“网络读取 -> 本地提取 -> staged Markdown”，校验结果后在单次 `WorkspaceEngine.write_bundle()` 中提交。Web 与 Resource 共用 Agent 装配的项目级 `runtime/.staging/` 根；每次 action 使用唯一子目录，完成、失败或取消后清理，进程中断遗留内容在下次 Agent 启动时清理。staging 不进入 Workspace Manifest、Daily archive 或 capability 持久状态：
 
 - 只接受公开 HTTPS URL，拒绝 userinfo、localhost 以及解析到非 public IP 的目标；
 - 每次跳转重新解析和校验，跳转次数、请求时长、响应 bytes、输出 chars 都有硬上限；
@@ -64,7 +64,7 @@ Fetch action 接收 `url`、显式 `.md` `target_link`、显式 overwrite。宿�
 - 图片暂不下载为本地 asset，Markdown 保留远程图片 URL；后续需要查看图片时才由已有加载能力处理；
 - 完整正文始终只写 Workspace，ActionResult 返回 Markdown Link、extractor、title、有限 excerpt、字符数、远程图片计数和 warning code，不返回原始 URL 或完整正文。
 
-Defuddle 是可选 executable，默认关闭；启用时 `DependencyChecker` 必须在 App 启动期找到 `defuddle`。Trafilatura 是 wheel 基础 Python 依赖并默认启用。启用但缺依赖属于 App 装配失败；启动后 executable 被移除、网络失败、HTTP 状态、内容类型、资源超限或 extractor 失败属于单次局部 ActionResult。
+Defuddle 是可选 executable，默认关闭；启用时 `DependencyChecker` 必须在 Agent 启动期找到 `defuddle`。Trafilatura 是 wheel 基础 Python 依赖并默认启用。启用但缺依赖属于 Agent 装配失败；启动后 executable 被移除、网络失败、HTTP 状态、内容类型、资源超限或 extractor 失败属于单次局部 ActionResult。
 
 ## 不可信内容和失败
 

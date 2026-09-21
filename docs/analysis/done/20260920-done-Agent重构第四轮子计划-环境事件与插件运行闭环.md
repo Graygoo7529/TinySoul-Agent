@@ -3,7 +3,7 @@
 状态：`done`（2026-09-20，R4.1–R4.6 实现、文档、门禁与主计划 S4 已逐项核对，证据见 §10）。
 日期：2026-09-20。
 审查基线：`a20ec5e`，Before 4 已提交，开始本次分析时工作区干净。
-主计划：[Agent 架构重构](../20260915-agent-architecture-refactor-plan.md)。
+主计划：[Agent 架构重构](20260915-done-agent-architecture-refactor-plan.md)。
 前置：[Before 4 验收](20260920-done-Agent重构Before4子计划-数据基础与渐进披露.md)。
 参考：[整体功能想法](../../chat/00%20doing%20something.md)，其中旧 domain、CAS、Session 整理范围等表述以已确认主计划为准。
 

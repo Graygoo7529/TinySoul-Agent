@@ -4,7 +4,7 @@
 
 ## 定位
 
-Context 拥有一个活动 Turn 的模型语境。内核维护 User Inputs、plan 与 TurnTraceHeap；Workspace 与 Session 通过独立注册段维护本轮资源投影和固定历史视图。Home/Memory 的目录、加载视图和刷新也属于各自的 Heap 段。Context 不拥有跨 Turn 历史、Workspace 文件、Home 内容或 Memory 文件。
+Context 拥有一个活动 Turn 的模型语境。内核维护 User Inputs、plan 与 TurnTraceHeap；Workspace 与 Session 通过独立注册段维护本轮资源投影和历史视图。Session 固定 prior-Turn 来源集合，解释快照可经 owner 更新；地图引用与线性交互正文共用同一段和预算。Home/Memory 的目录、加载视图和刷新也属于各自的 Heap 段。Context 不拥有跨 Turn 历史、语义注释、Workspace 文件、Home 内容或 Memory 文件。
 
 ## MessageStack
 
@@ -61,6 +61,8 @@ Trace 的根同时提供冷节点与热记录线索，分支给出直接子节�
 inspect 的完整可见结果必须先进入一次实际返回的 Phase1/Phase2 模型请求，之后才允许压力回收其 overlay。compose 纯渲染、Action 内部模型调用以及容量拒绝都不能解除保护；受保护结果所在区间也不能被折入冷节点。折叠后保留 origin ref，可重新读取，不提供独立 recall 或 fold Action。
 
 ## Turn Completion
+
+运行中需要引用事实的 owner 可读取 ContextTurnFacts：在事件循环取得当前已接受输入与按请求登记的 Action 快照，不 seal、不结算行动、不安装 Context 更新。Session 用它解释当前证据和完成后的同一来源身份；Kernel 不解析 Session 图或持久引用。seal_trace/end_turn 保留为收尾入口，不能代替运行中读取。
 
 `end_turn()` 产生 typed immutable `ContextTurnCompletion`，包含 Turn identity、有序输入文本与原始接收时间、plan 终态、Background links、按 id 标识的段快照和 `SealedTurnTrace`。Sealed trace 保存 canonical entries、类型化 Action 执行事实和只存引用的时间线，不携带 heap topology。输入保留 Inbox 的受理顺序，时间线另记安装和合并可见位置；Action 请求、开始和结算按实际回调记录，不能从批次结果排序反推。环境/Job 交付、必要 phase note 与已安装 plan patch 通过现有 Signal 批次记录。
 

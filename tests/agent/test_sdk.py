@@ -66,7 +66,7 @@ from tinysoul.runtime.events import EnvironmentEvent, EventKind
 from tinysoul.runtime.sources import SourceState
 from tests.support.project import copy_initialized_project
 from tinysoul.infra.time import CalendarDay
-from tinysoul.infra.json import JsonObject
+from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.infra.process import (
     ManagedProcess,
     ManagedProcessRequest,
@@ -898,6 +898,148 @@ async def test_restart_stopped_agent_and_old_commands_do_not_reopen(
         assert agent.state is AgentState.RUNNING
         with pytest.raises(AgentClosedError):
             await commands.submit_turn(UserTurnRequest("old instance"))
+    finally:
+        await agent.shutdown()
+
+
+async def test_session_organize_updates_next_cycle_and_survives_restart_until_day_switch(
+    tmp_path: Path,
+) -> None:
+    from tinysoul.agent import SessionService
+    from tinysoul.plugins.session.services import SessionOrganizeService
+    from tinysoul.runtime import CyclePhase, RunLevel
+
+    llm = _LLM()
+    llm.release.set()
+    clock = _Clock()
+    agent = await _create(tmp_path, llm, clock=clock)
+    await agent.start()
+    try:
+        prior: list[str] = []
+        for index in range(3):
+            if index:
+                llm.results.extend(_LLM().results)
+            handle = await agent.submit_turn(UserTurnRequest(f"prior question {index}"))
+            assert (
+                await asyncio.wait_for(handle.wait(), 5)
+            ).status is TurnOutcomeStatus.ANSWERED
+            prior.append(f"session:turn/{handle.turn_id}")
+        for name, params, kind in (
+            ("select_action_domains", {"domains": ["core"]}, ToolKind.CONTROL),
+            (
+                "core.session.organize",
+                {
+                    "scope_refs": prior,
+                    "upsert_nodes": [
+                        {
+                            "ref": "local:topic",
+                            "kind": "thread",
+                            "title": "Shared topic",
+                            "body": "The three requests advance the same investigation",
+                            "source_refs": prior,
+                        }
+                    ],
+                    "upsert_edges": [
+                        {
+                            "ref": f"local:member_{index}",
+                            "source": "local:topic",
+                            "target": ref,
+                            "relation": "covers",
+                            "body": "Part of the investigation",
+                            "source_refs": [ref],
+                        }
+                        for index, ref in enumerate(prior)
+                    ],
+                },
+                ToolKind.ACTION,
+            ),
+            ("select_action_domains", {"domains": ["core"]}, ToolKind.CONTROL),
+            ("core.context.inspect", {"ref": "session:topics"}, ToolKind.ACTION),
+        ):
+            call = ToolCallRecord(name, name, to_json_object(params), kind)
+            llm.results.append(
+                TaskResult.success(
+                    raw_response=RawResponse("", "fake", "fake", tool_calls=(call,)),
+                    answer=None,
+                    tool_calls=(call,),
+                )
+            )
+        llm.results.extend(_LLM().results)
+        review = await agent.submit_turn(UserTurnRequest("organize our conversation"))
+        finished = await asyncio.wait_for(review.wait(), 8)
+        assert finished.status is TurnOutcomeStatus.ANSWERED
+        assert isinstance(finished.outcome, TurnOutcome)
+        facts = finished.outcome.context_completion
+        assert facts is not None
+        organized = next(
+            item
+            for item in facts.trace.actions
+            if item.call.action_name == "core.session.organize"
+        )
+        assert (
+            organized.result is not None and organized.result.status.value == "success"
+        )
+        decisions = [
+            call
+            for call in llm.calls
+            if (turn := call.scope.nearest(RunLevel.TURN)) is not None
+            and turn.name == review.turn_id
+            and (phase := call.scope.nearest(RunLevel.PHASE)) is not None
+            and phase.name == CyclePhase.PHASE1.value
+        ]
+        assert len(decisions) == 3
+        assert (
+            len(
+                [
+                    call
+                    for call in llm.calls
+                    if (turn := call.scope.nearest(RunLevel.TURN)) is not None
+                    and turn.name == review.turn_id
+                ]
+            )
+            == 7
+        )  # Three phase pairs + the answer task.
+        assert "Shared topic" not in str(decisions[0].messages)
+        assert "Shared topic" in str(decisions[1].messages)
+        for index in range(3):
+            session_messages = tuple(
+                message
+                for message in decisions[1].messages.messages
+                if message.label.startswith("session:")
+            )
+            assert str(session_messages).count(f"prior question {index}") == 1
+        service = agent.services.get(SessionService)
+        assert not hasattr(service, "organize")
+        with pytest.raises(RegistrationError):
+            agent.services.get(SessionOrganizeService)
+        for scenario in ("user", "home_reflection", "memory_reflection"):
+            actions = (await agent.action_catalog(scenario=scenario))["actions"]
+            assert isinstance(actions, list)
+            organize = next(
+                item
+                for item in actions
+                if isinstance(item, dict) and item.get("id") == "core.session.organize"
+            )
+            assert isinstance(organize, dict)
+            assert organize["granted"] is (scenario == "user")
+            assert organize["available"] is (scenario == "user")
+        assert "Shared topic" in str(await service.inspect("session:topics"))
+        await agent.restart()
+        service = agent.services.get(SessionService)
+        assert "Shared topic" in str(await service.inspect("session:topics"))
+        clock.value = datetime(2026, 9, 16, 12, tzinfo=ZoneInfo("Asia/Shanghai"))
+        llm.results.extend(_LLM().results)
+        next_day = await agent.submit_turn(UserTurnRequest("new day"))
+        assert (
+            await asyncio.wait_for(next_day.wait(), 5)
+        ).status is TurnOutcomeStatus.ANSWERED
+        assert "Shared topic" not in str(
+            await agent.services.get(SessionService).inspect("session:topics")
+        )
+        from tinysoul.plugins.session.annotations.store import AnnotationStore
+
+        archive = next((tmp_path / "project" / "archive").glob("*/session"))
+        assert AnnotationStore(archive).load().nodes[0].title == "Shared topic"
     finally:
         await agent.shutdown()
 

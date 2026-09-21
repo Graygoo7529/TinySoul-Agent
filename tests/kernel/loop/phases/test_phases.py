@@ -27,7 +27,6 @@ import pytest
 
 from tinysoul.kernel.action import (
     ActionEngine,
-    ActionEngineBuilder,
     ActionNormalization,
 )
 from tinysoul.kernel.action.backends import LLMActionTaskRunner
@@ -40,7 +39,7 @@ from tinysoul.kernel.context import (
 )
 from tinysoul.kernel.context.builtin.trace import TraceKind
 from tinysoul.infra.json import JsonObject
-from tinysoul.llm.protocol.messages import JsonPart, MessageStack, TextPart, UserMessage
+from tinysoul.llm.protocol.messages import JsonPart, MessageStack, TextPart
 from tinysoul.llm.protocol.requests import TaskCall
 from tinysoul.llm.protocol.responses import (
     JsonAnswer,
@@ -51,7 +50,6 @@ from tinysoul.llm.protocol.responses import (
 from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind, ToolUse
 from tinysoul.kernel.loop import (
     CycleRunner,
-    LoopTraceNoteKind,
     Phase1Outcome,
     Phase1Unit,
     Phase2Outcome,
@@ -87,7 +85,7 @@ from tinysoul.plugins.workspace import (
     WorkspaceSettings,
     register_workspace_actions,
 )
-from tests.action_helpers import FunctionActionEngineBuilder, load_action_catalog
+from tests.action_helpers import FunctionActionEngineBuilder
 
 
 class FakeLLM:
@@ -114,19 +112,33 @@ async def test_capacity_rejection_does_not_consume_inspect_overlay() -> None:
     await context.open_segments(CalendarDate(2026, 9, 20))
     scope = RunScope().push(RunLevel.TURN, turn_id)
     full = ToolResultMessage.from_json(
-        call_id="inspect", tool_name="core.context.inspect", value={"detail": "evidence"}
+        call_id="inspect",
+        tool_name="core.context.inspect",
+        value={"detail": "evidence"},
     )
     folded = ToolResultMessage.from_json(
-        call_id="inspect", tool_name="core.context.inspect", value={"ref": "session:map"}
+        call_id="inspect",
+        tool_name="core.context.inspect",
+        value={"ref": "session:map"},
     )
     bus = SignalBus()
-    bus.emit(build_trace_action_result_signal(
-        full, canonical_message=folded, origin_refs=("session:map",),
-        scope=scope, source="test",
-    ))
+    bus.emit(
+        build_trace_action_result_signal(
+            full,
+            canonical_message=folded,
+            origin_refs=("session:map",),
+            scope=scope,
+            source="test",
+        )
+    )
     await context.consume_signals(bus)
-    phase = Phase1Unit(context=context, action=_action_engine(), llm=CapacityLLM(),
-                       bus=bus, task_profile="phase1")
+    phase = Phase1Unit(
+        context=context,
+        action=_action_engine(),
+        llm=CapacityLLM(),
+        bus=bus,
+        task_profile="phase1",
+    )
     with pytest.raises(RuntimeException) as failure:
         await phase.run(scope=scope, cycle_id="cycle_1")
     assert failure.value.reason == LLM_CONTEXT_CAPACITY_EXCEEDED
@@ -498,6 +510,7 @@ async def test_real_memory_actions_record_turn_trace_without_background_mutation
     results = {result.action_name: result for result in outcome.results}
     assert all(result.failure is None for result in results.values()), repr(results)
     markdown = results["memory.recall"].payload["markdown"]
+    assert "digest" not in results["memory.recall"].payload
     assert isinstance(markdown, str)
     assert "free-form remembered fact" in markdown
     items = results["memory.inspect"].payload["items"]
@@ -611,7 +624,10 @@ async def test_real_workspace_inspection_actions_preserve_trace_lifecycle(
     assert analyze_payload["answer"] == ("Alpha and beta are present.")
     assert context.compress(required_chars=0).folded_overlay_count == 0
     from tinysoul.llm.protocol.messages import MessageStack
-    context.mark_model_consumed(MessageStack(tuple(entry.visible_message for entry in entries)))
+
+    context.mark_model_consumed(
+        MessageStack(tuple(entry.visible_message for entry in entries))
+    )
     assert context.compress(required_chars=0).folded_overlay_count == 2
     assert all(entry.visible_overlay is None for entry in context.seal_trace().entries)
 
@@ -1069,6 +1085,7 @@ async def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None
 
     action = (
         FunctionActionEngineBuilder(builtin_catalog())
+        .mark_actions_unsupported("core.session.organize")
         .register_function("core.answer", lambda execution, context: {"text": "done"})
         .register_function("core.reason", lambda execution, context: {"ok": True})
         .register_function(
@@ -1193,6 +1210,7 @@ def _action_engine(
 ) -> ActionEngine:
     builder = (
         FunctionActionEngineBuilder(builtin_catalog())
+        .mark_actions_unsupported("core.session.organize")
         .register_function("core.answer", lambda execution, context: {"text": "done"})
         .register_function("core.reason", lambda execution, context: {"ok": True})
         .register_function(

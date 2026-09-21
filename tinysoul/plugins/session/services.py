@@ -6,6 +6,18 @@ from tinysoul.infra.time import CalendarDay
 from tinysoul.infra.json import JsonObject
 from .views.background import SessionBackgroundSnapshot
 from .views import SessionView
+from .engine import SessionEngine
+
+
+class SessionOrganizeService(ScopedService[SessionEngine]):
+    """User profile's narrow write capability; not exported through the SDK."""
+
+    def __init__(
+        self, owner: SessionEngine, scope: ServiceScope = ServiceScope()
+    ) -> None:
+        super().__init__(owner, scope)
+        self.organize = scope.local(owner.organize)
+        self.annotation_snapshot = scope.local(owner.annotation_snapshot)
 
 
 class SessionViewSource(Protocol):

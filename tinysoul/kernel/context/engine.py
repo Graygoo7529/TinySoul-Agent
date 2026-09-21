@@ -65,6 +65,7 @@ from .builtin.trace import (
     TraceCompactionReport,
     TraceKind,
     TraceFactKind,
+    TraceAction,
     TurnTraceHeap,
 )
 from .builtin.working import WorkingContext, WorkingPatch
@@ -99,6 +100,23 @@ class ContextTurnInput:
             raise ContextContractError(
                 "ContextTurnInput.received_at must be non-negative"
             )
+
+
+@dataclass(frozen=True)
+class ContextTurnFacts:
+    """Read-only input/Action facts while a Turn is still executing."""
+
+    turn_id: str
+    inputs: tuple[ContextTurnInput, ...]
+    actions: tuple[TraceAction, ...]
+
+    def __post_init__(self) -> None:
+        if not self.turn_id or not self.inputs:
+            raise ContextContractError("Current facts require a Turn and its input")
+        if any(not isinstance(item, ContextTurnInput) for item in self.inputs):
+            raise ContextContractError("Current facts require typed inputs")
+        if any(not isinstance(item, TraceAction) for item in self.actions):
+            raise ContextContractError("Current facts require typed Actions")
 
 
 @dataclass(frozen=True)
@@ -507,14 +525,16 @@ class ContextEngine:
                 results.append(_consume_failure(signal, call_id, sequence, problem))
             else:
                 segment_signals.append((sequence, signal))
-                segment_signals.append((
-                    sequence,
-                    build_trace_phase_note_signal(
-                        {"kind": "plan_changed", "patch": signal.payload["patch"]},
-                        scope=signal.scope,
-                        source="context.plan",
-                    ),
-                ))
+                segment_signals.append(
+                    (
+                        sequence,
+                        build_trace_phase_note_signal(
+                            {"kind": "plan_changed", "patch": signal.payload["patch"]},
+                            scope=signal.scope,
+                            source="context.plan",
+                        ),
+                    )
+                )
         problems = check_background_patches(
             self._selection_view(),
             tuple(patch for _, _, _, patch in background_candidates),
@@ -532,7 +552,8 @@ class ContextEngine:
 
         if self._segments is not None:
             ordered = tuple(
-                signal for _, signal in sorted(segment_signals, key=lambda item: item[0])
+                signal
+                for _, signal in sorted(segment_signals, key=lambda item: item[0])
             )
             entry_count = len(self._trace.entries())
             prepared_segments = await self._segments.prepare(ordered)
@@ -640,7 +661,11 @@ class ContextEngine:
         )
 
     async def inspect(
-        self, ref: str, *, query: str | None = None, continuation: str | None = None,
+        self,
+        ref: str,
+        *,
+        query: str | None = None,
+        continuation: str | None = None,
     ) -> JsonObject:
         self._require_turn()
         if self._segments is None:
@@ -649,7 +674,8 @@ class ContextEngine:
             )
         if query is not None and (not isinstance(query, str) or not query.strip()):
             raise ContextInspectRequestError(
-                ContextInspectFailureReason.INVALID_QUERY, "Query must be non-empty text"
+                ContextInspectFailureReason.INVALID_QUERY,
+                "Query must be non-empty text",
             )
         return await self._segments.inspect(ref, query=query, continuation=continuation)
 
@@ -670,6 +696,23 @@ class ContextEngine:
     def seal_trace(self) -> SealedTurnTrace:
         self._require_turn()
         return self._trace.seal()
+
+    def current_facts(self) -> ContextTurnFacts:
+        """Capture on the event loop; owners may then read this value off-loop."""
+        self._require_turn()
+        return ContextTurnFacts(
+            self._turn_id,
+            tuple(
+                ContextTurnInput(
+                    text=item.text,
+                    received_at=item.received_at,
+                    input_id=item.input_id,
+                    reply_to=item.reply_to,
+                )
+                for item in self._inputs.all()
+            ),
+            self._trace.actions(),
+        )
 
     def end_turn(self) -> ContextTurnCompletion:
         self._require_turn()

@@ -172,7 +172,7 @@ Loop 通过 `loop.cycle.phase1_task_profile` 和
 `loop.cycle.phase2_task_profile` 选择可复用 Cycle 各阶段使用的 task profile。
 被引用的 profile 仍由 LLM 模块定义，提供模型顺序、重试策略和通用调用默认值；
 Loop 覆盖阶段协议，要求工具调用且不产生 answer payload。Runtime Generation
-激活前由 App 校验这些跨模块引用。
+激活前由 Agent 校验这些跨模块引用。
 
 LLM 配置属于 LLM 模块。Infra 只负责读取和合并配置文件，LLM 模块负责解释供应商、模型和任务配置的语义。
 
@@ -212,7 +212,7 @@ Model 以四项边界清晰的事实参与调用：`providers` 按顺序保存 P
 
 任务配置描述不同任务用途对应的调用设置、候选模型顺序和重试策略。调用设置包含回答格式、工具使用策略、通用调用参数和必备模型能力。配置文件中的键名应使用适合 TOML 的安全写法，并与运行时使用的任务用途名称一致。
 
-`TaskSpecTable` 提供稳定的 profile 查询门面，供装配边界校验其它模块声明的 task profile 引用；它不解释 Action ID，也不拥有 Action routing。Action-owned `[action.llm_action]` 可以声明默认 profile 和按完整 Action ID 的 override，最终由 App 装配边界把 Action catalog、Action route 与 LLM task profiles 交叉校验。LLM 模块仍只拥有 provider、model、task 的解析与运行语义，不提供设置页标题、说明或展示 descriptor；这些展示元数据统一属于 `infra.config` 的 package catalog。
+`TaskSpecTable` 提供稳定的 profile 查询门面，供装配边界校验其它模块声明的 task profile 引用；它不解释 Action ID，也不拥有 Action routing。Action-owned `[action.llm_action]` 可以声明默认 profile 和按完整 Action ID 的 override，最终由 Agent 装配边界把 Action catalog、Action route 与 LLM task profiles 交叉校验。LLM 模块仍只拥有 provider、model、task 的解析与运行语义，不提供设置页标题、说明或展示 descriptor；这些展示元数据统一属于 `infra.config` 的 package catalog。
 
 内置 `home_search` profile 服务于 Home-owned top candidate reranker：禁用工具、要求 JSON object、使用低 temperature 和有界输出。模型只看到确定性候选 metadata，只能返回候选内唯一 Link；Task failure 或任何结构/业务校验失败都由 Home search service 回退到稳定的确定性顺序，不影响只读搜索可用性。
 

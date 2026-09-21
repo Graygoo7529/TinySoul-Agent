@@ -12,6 +12,8 @@ Memory domain 通过 `register_memory_actions` 接入 `memory.memorize`、`memor
 
 ## 设计目标
 
+core.session.organize 是 Session-owned native Action：只在 User 情景获得写服务，接收有界节点/关系 upsert 和撤回，在 owner 原子提交后发段刷新 Signal。它不调用额外 LLM，不修改原始事实；core.context.inspect 继续负责统一只读导航。普通 schema 校验与 Session 的来源/关系校验分属各自边界。
+
 1. Phase1 只选择域，不暴露全部 action 细节。
 2. Phase2 只在已选域内选择动作并生成参数。
 3. Phase3 统一执行一批动作，支持并发、超时、hook 校验和结构化结果。
@@ -229,7 +231,7 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 `subprocess` 后端表示 Action 内必须同步收敛的受控进程生命周期，不提供从 Catalog options 直接执行命令的通用 executor。Capability-owned executor 或 service 只能为固定 worker 构造显式 `ProcessRequest`，禁止 `shell=True`，也不能把模型参数直接拼为 argv。结构化请求可以由 owner 编码为 stdin，worker 的响应协议、失败映射和后续业务提交仍由 owner 校验。
 
-进程启动、stdin、stdout/stderr 字符投影上限、deadline 和取消回调由内部 `ControlledProcessRunner` 统一实现；真正的进程树终止、fallback kill 和短暂回收等待属于 `ManagedProcess`，由 `ManagedProcessOptions.termination_wait_seconds` 集中配置，默认 1 秒。stdout/stderr 直接捕获到临时文件，进程结束后只读取有界 UTF-8 前缀与 truncated 标记，避免宿主内存聚合完整输出；这不是子进程硬输出配额。Windows 使用 `taskkill /T /F`，POSIX 使用新 session/process group。Resource 与 Web 等需要在进程前后执行协议校验、staging 或 commit 的 executor 复用同一 runner，并各自把 outcome 映射为所属业务的 ActionResult。
+进程启动、stdin、stdout/stderr 字符投影上限、deadline 和取消回调由内部 `ControlledProcessRunner` 统一实现；真正的进程树终止、fallback kill 和短暂回收等待属于 `ManagedProcess`，由 `ManagedProcessOptions.termination_wait_seconds` 集中配置，默认 1 秒。stdout/stderr 直接捕获到临时文件，进程结束后只读取有界 UTF-8 前缀与 truncated 标记，避免宿主内存聚合完整输出；这不是子进程硬输出配额。Windows 使用在子进程运行前绑定的 Job Object，POSIX 使用新 session/process group，父进程结束后仍回收受控后代。Resource 与 Web 等需要在进程前后执行协议校验、staging 或 commit 的 executor 复用同一 runner，并各自把 outcome 映射为所属业务的 ActionResult。
 
 ### Turn Job
 
@@ -243,7 +245,7 @@ execution 的 native Action 调用同一 ProcessJobBackend：run 等待当前 Jo
 
 `home.top.search` 是 Home-owned native action，其 executor 调用 Home search service，并使用注入的专用 `LLMHomeSearchReranker` 完成候选重排；它不使用通用 `llm_action` backend，因为确定性候选、candidate-only validator 和 fallback 都属于 Home 搜索业务语义。Action 层仍只负责执行 catalog 中的 handler 和承载结构化结果。
 
-Memory 的三个 native action 都只调用 `MemoryEngine`：memorize 在 Memory owner 边界 patch Session root 内的活动 `Memory.md`；inspect 以 query 或已知五类持久 Link 执行 lexical/grep/正向引用/backlinks/可选 semantic 的有界发现；recall 只按精确 `memory:daily|entity|concept|fact|note/<cite>` 返回完整 Markdown 和 redirect chain。inspect/recall 使用 foldable trace projection 记录 origin Link 与有界 canonical facts，不修改 Background；memorize 提交后发 Signal，在下一 Context 边界刷新本轮 current 视图。Action 模块不解释 Memory 物理路径、文档关系或 Reflection mutation。
+Memory 的三个普通 native action 只调用注入的受约束 MemoryService：memorize 在 Memory owner 边界 patch Session root 内的活动 `Memory.md`；inspect 以 query 或已知五类持久 Link 执行 lexical/grep/正向引用/backlinks/可选 semantic 的有界发现；recall 只按精确 `memory:daily|entity|concept|fact|note/<cite>` 返回完整 Markdown 和 redirect chain。inspect/recall 使用 foldable trace projection 记录 origin Link 与有界 canonical facts，不修改 Background；memorize 提交后发 Signal，在下一 Context 边界刷新本轮 current 视图。Action 模块不解释 Memory 物理路径、文档关系或 Reflection mutation。
 
 Phase3 action-internal LLM task 会自动追加 domain skill 与 action skill guide blocks。Action 层只依赖 `ActionSkillProvider` 协议；Agent Home 可提供 `HomeActionSkillProvider`，但 action executor 不感知 Home 目录结构。`skills_domain` 与 `skills_action` 属于局部自动 prompt 挂载机制，不进入普通渐进式加载，也不由 `home.resource.read` 按需读取。
 
@@ -259,7 +261,7 @@ LLM task failure 由共享服务映射为 `ActionLocalFailure`，再由 renderer
 `overrides`。timeout（默认 600）只填充未声明专用超时的 `llm_action`；具体 Action 的 runtime
 值仍可覆盖通用默认。`LLMActionProfileResolver` 先按完整 Action ID 查 override，再回退 default
 profile，并把字符串 profile 交给现有 LLM task runner。候选 AgentConfigPlan 构建时，Action
-模块会把 override Action ID 对照当前候选 project catalog，要求 backend kind 为 `llm_action`；App 再用
+模块会把 override Action ID 对照当前候选 project catalog，要求 backend kind 为 `llm_action`；Agent 再用
 LLM `TaskSpecTable.profiles()` 协调 profile 引用。unknown Action、非 LLM Action、unknown
 profile 和重复 override 都在文件提交前形成 Action-owned `ConfigError`，不会推迟到执行期。
 
@@ -273,22 +275,11 @@ profile 和重复 override 都在文件提交前形成 Action-owned `ConfigError
 
 Action 顶层包同时暴露业务模块实现 executor 所需的公共 SPI：`ActionExecution`、`ActionExecutionContext`、`ActionExecutor`、Action 结果类型和模块错误基类。Workspace、Home、Memory 与 Loop 只从顶层包引用这些协作类型；catalog 负责定义与 schema，planning 负责作用域/参数归一化/渲染，execution 负责批次准备、hook 与调度；call/result 保持跨子系统公共协议，内部散件只服务 Action 与对应测试。公共 SPI 不取代 `ActionEngine` 的调用门面，上层仍不直接调用 runner、hook pipeline 或 execution builder。
 
-`ActionEngine.domain_names()` 与 `action_identifiers()` 提供只读 catalog identity snapshot，供 App 在装配期把 domain/action 逻辑 prompt mount 交给 Agent Home reconciliation。该接口不暴露可变 `ActionCatalog`、tool schema 或 executor registry；Action 不解释 Home 路径，Home 不读取 catalog TOML。
+`ActionEngine.domain_names()` 与 `action_identifiers()` 提供只读 catalog identity snapshot，供 Agent 在装配期把 domain/action 逻辑 prompt mount 交给 Agent Home reconciliation。该接口不暴露可变 `ActionCatalog`、tool schema 或 executor registry；Action 不解释 Home 路径，Home 不读取 catalog TOML。
 
-`ActionEngine.catalog_json()` 提供当前 Generation 的完整配置展示投影：Domain/Action 模型可见
-语义、effective runtime、backend contract、availability，以及指向项目 document source/local path
-的编辑绑定。投影以 configured catalog 为基准，分别返回 effective `runtime.enabled`、
-`enabled_source`、owner `supported` 和最终 `available`；配置关闭或 owner 暂不支持的 Action 仍可读。
-Domain 同样返回默认 enabled 及其 provenance，`available` 仍表示至少存在一个 effective 子 Action。
-投影不暴露 executor 或 prompt，也不重新读取文件。
+`ActionEngine.catalog_json()` 提供当前 Generation 所选情景的配置投影：domain/action 语义、visibility 与 selection 来源、runtime policy、backend support、granted/available 和编辑文档绑定。配置关闭或未授予的动作仍可查询，投影不暴露 executor、不重新读取文件。模型侧 tool scope 只接收可用动作，配置展示与模型语义不混用。
 
-`ActionCatalogLoader.load_documents()` 负责从 Infra 提供的候选 `ConfigDocumentSet` 解析
-`LoadedActionCatalog`，并复用 package template 测试所用的同一个 `ActionTomlParser`。加载结果同时
-保留 Domain 默认 runtime、Domain/Action enabled 来源、Action timeout 来源与稳定 document binding。backend kind validator 在
-加载边界校验 options。`ActionEngineBuilder` 只接收已经校验的 `ActionCatalog` 或
-`LoadedActionCatalog`，负责注册 executor/hook、support 与 activation 求交，并在 build 阶段校验
-effective catalog 中所有 handler 都有 executor；它不再隐式打开 package 或项目路径。registrar 不修改 tool
-schema，项目 Action TOML 是模型参数 contract 的唯一事实。
+`ActionCatalogLoader.load_documents()` 从 Infra 的候选 ConfigDocumentSet 解析并校验统一 catalog，保留 domain/action 文档绑定、运行默认值和 timeout 来源。ActionEngineBuilder 接收已验证 catalog、显式注册 executor/hook，按 grants、情景选择与 backend support 构造有效视图；不隐式打开配置路径，不由 registrar 动态改写 schema。
 
 ## 情景动作策略
 
@@ -309,9 +300,13 @@ Action tool schema 使用 TinySoul 支持的 JSON Schema 子集。加载 TOML �
 - `enum`
 - `minimum`
 - `maximum`
+- `minItems` / `maxItems`
+- `minLength` / `maxLength`
 - `default`
 
 `minimum` 与 `maximum` 只用于 `integer`/`number`，schema 定义边界和运行时参数都必须满足数值关系。`default` 是模型可见的 JSON Schema 注解，其值必须通过所在 schema；通用参数校验器不负责向缺失参数注入值，需要默认行为的 Action owner 从同一有效 `ActionSpec` 编译 typed policy 并由 executor 消费。等待 Action 校验正数时限并返回意图，实际计时与恢复由 Loop 负责，不在 executor 内阻塞。
+
+数组与文本的长度边界必须是非负整数，且上下限一致；定义校验与运行时参数校验使用同一 schema。它们控制一次实际小批调用，不增加独立配额治理层。
 
 当前支持的 type：
 
@@ -363,7 +358,7 @@ TOML 描述模型侧工具协议、补充语义、visibility、执行配置和�
 
 `actions.py` 是模块与 ActionEngine 的集成边界，不等同于业务逻辑容器。它可以包含 `ActionExecutor` 实现类、模型参数解析、局部失败到 `ActionResult` 的映射、信号发送和 `register_<domain>_actions` registrar。executor 类名仍使用 `*ActionExecutor` 后缀，以明确它们实现 `ActionExecutor` 协议；registrar 使用 `register_<domain>_actions` 命名，例如 `register_core_actions`、`register_workspace_actions`、`register_home_actions`、`register_memory_actions`。真实业务规则应继续下沉到 engine/service/client/evaluator 等文件，避免 `actions.py` 变成业务大杂烩。
 
-轻量业务能力不应全部堆入 Action executor 目录，也不必升级为 Workspace 级顶层模块。数学计算、网页搜索等能力在真实 action、边界和测试都明确后放入 `tinysoul/plugins/capabilities/<capability>`：业务逻辑放在该能力包的 service/evaluator/client 中，action-facing 代码位于该能力包的 `actions.py`，只负责参数解析、调用业务服务和映射 `ActionResult`，再由 registrar 接入 ActionBuilder。没有真实 capability 时不保留空包或空 action。Action Domain 服务于 Stage1 的大致方向选择，可以覆盖多个 Capability，也不要求与 handler owner 正交或一一对应；Resource conversion 因操作对象并入 Workspace，Script/Shell 因任务方向合并为 Execution。进程 backend 作为执行机制存在，不意味着向模型提供未受限的任意 shell 或 inline script action。
+轻量业务能力不应全部堆入 Action executor 目录，也不必升级为 Workspace 级顶层模块。数学计算、网页搜索等能力在真实 action、边界和测试都明确后放入 `tinysoul/plugins/capabilities/<capability>`：业务逻辑放在该能力包的 service/evaluator/client 中，action-facing 代码位于该能力包的 `actions.py`，只负责参数解析、调用业务服务和映射 `ActionResult`，再由 registrar 接入 ActionBuilder。没有真实 capability 时不保留空包或空 action。Action Domain 服务于 Phase1 的大致方向选择，可以覆盖多个 Capability，也不要求与 handler owner 正交或一一对应；Resource conversion 因操作对象并入 Workspace，Script/Shell 因任务方向合并为 Execution。进程 backend 作为执行机制存在，不意味着向模型提供未受限的任意 shell 或 inline script action。
 
 ### 继承规则
 

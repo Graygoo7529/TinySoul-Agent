@@ -12,7 +12,6 @@ from typing import cast
 
 from tinysoul.kernel.context import ContextEngine, ContextEngineBuilder
 from tinysoul.kernel.context.errors import ContextContractError
-from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
 from tinysoul.kernel.context.segments import TurnInfo
 from tinysoul.plugins.workspace.projection import (
     WorkspaceSegment,
@@ -479,7 +478,9 @@ async def test_turn_completion_pipeline_receives_summary_and_output() -> None:
     assert timeline.index("completion") < timeline.index("turn.output")
 
 
-async def test_segment_close_diagnostics_do_not_replace_recorded_answer(tmp_path: Path) -> None:
+async def test_segment_close_diagnostics_do_not_replace_recorded_answer(
+    tmp_path: Path,
+) -> None:
     workspace = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
     timeline: list[str] = []
 
@@ -528,9 +529,9 @@ async def test_segment_close_diagnostics_do_not_replace_recorded_answer(tmp_path
     assert await context.close_segments() == ()
 
 
-async def test_task_cancellation_joins_segment_close_before_releasing_the_turn(tmp_path: Path) -> (
-    None
-):
+async def test_task_cancellation_joins_segment_close_before_releasing_the_turn(
+    tmp_path: Path,
+) -> None:
     workspace = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
     entered, release = asyncio.Event(), asyncio.Event()
     closed: list[str] = []
@@ -720,10 +721,10 @@ async def test_repeated_cancellation_joins_session_commit_once(
     with pytest.raises(asyncio.CancelledError):
         await running
     assert committed == ["session"]
-    assert any(
-        item.content.get("answer") == "done"
-        for item in session.background_snapshot(DAY).items
-    )
+    ref = session.background_snapshot(DAY).refs[0]
+    output = session.inspect(f"{ref}#output")["items"]
+    assert isinstance(output, list)
+    assert any(isinstance(item, dict) and item.get("text") == "done" for item in output)
     assert runner.active_scope is None
 
 

@@ -2,7 +2,7 @@
 
 状态：`done`（2026-09-20 实施、文档同步与门禁完成；主计划 S5 保持 `in_progress`，等待其余协议范围）。
 日期：2026-09-20。
-主计划：[Agent 架构重构](../20260915-agent-architecture-refactor-plan.md)。
+主计划：[Agent 架构重构](20260915-done-agent-architecture-refactor-plan.md)。
 前置：[R4 环境事件与插件运行闭环](20260920-done-Agent重构第四轮子计划-环境事件与插件运行闭环.md)。
 参考：[整体功能想法](../../chat/00%20doing%20something.md)，其中旧 Gateway、状态和兼容表述以主计划与 AGENTS.md 为准。
 
