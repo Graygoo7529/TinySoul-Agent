@@ -7,6 +7,8 @@
 
 2026-09-21 [R6：外部 Agent 与 MCP 能力接入子计划](done/20260921-done-Agent重构第六轮子计划-外部Agent与MCP能力接入.md) 已完成并归档：共享异步 JobBackend/Inbox 待答投影、受控 stdio、ACP session/权限/多次委派、MCP stdio/Streamable HTTP 四动作、标准 JSON Schema、统一配置与三情景接入均已核对。最终 Full 1130 passed、23 deselected（含生成/wheel），Windows/Linux 目标 typecheck 与 diff-check 通过。真实 Codex ACP 1.12.0/Codex 0.154.0 握手、session 释放/隔离探针与 SDK fixture 分别记录；未运行真实模型委派、远程 MCP、搜索质量测评或 Linux 实机。回归收口与一次未复现 Workspace IO 失败的诊断记录见子计划 §12。S3 Organize/注释层与 S7 范围不变。
 
+2026-09-21 [R7：会话整理与架构收口子计划](20260921%20Agent重构第七轮子计划-会话整理与架构收口.md) 为 `pending`：已确认承接 §8 Organize/注释层与 S7，整理由 User Turn 内 Action 执行，无新增外部 HTTP 整理写入口；地图呈现、压缩与分页细化仍在讨论，尚未开始 R7 代码实施。S3/S7 当前状态与原定验收范围不变。
+
 本文件描述目标设计，不代表全部已实现。初始复审仅授权分析、修订计划与讨论；后续 R1/R2/R3 与 Before 4 已获明确实施授权，实际完成范围见第 13 节。确认状态见第 14 节。用户已确认架构方向，特别是受限 SUSPEND 与 Inbox 保障边界，并补充 Reflection 通用动作叠加、ACP 显式连接及 Working 呈现；未实施的具体签名与连接寿命仍标明建议。原“正文 + 替换预览”合并为单一方案，旧版由 Git 保存，不并行保留互相冲突的接口。API 为契约草图，具体名称与类型在子计划落定。
 
 ## 1. 项目理解与重构意图
