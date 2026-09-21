@@ -258,6 +258,7 @@ async def _create(
                 events=EndpointEventBuffer(capacity=32, max_bytes=100000),
                 gateway=assembly.gateway, services=assembly.service_access,
                 config=assembly.configuration,
+                available=lambda: assembly.is_available,
             ))
         return assembly
 
@@ -266,7 +267,7 @@ async def _create(
     )
 
 
-async def test_agent_wait_survives_restart_and_detaches_cancelled_waiter(
+async def test_agent_wait_for_exit_survives_restart_and_detaches_cancelled_waiter(
     tmp_path: Path,
 ) -> None:
     llm = _LLM()
@@ -274,8 +275,8 @@ async def test_agent_wait_survives_restart_and_detaches_cancelled_waiter(
     agent = await _create(tmp_path, llm)
     await agent.start()
     old_commands = agent.commands
-    waiting = asyncio.create_task(agent.wait())
-    detached = asyncio.create_task(agent.wait())
+    waiting = asyncio.create_task(agent.wait_for_exit())
+    detached = asyncio.create_task(agent.wait_for_exit())
     try:
         await agent.restart()
         assert not waiting.done()
@@ -291,6 +292,91 @@ async def test_agent_wait_survives_restart_and_detaches_cancelled_waiter(
         await agent.shutdown()
         await asyncio.gather(waiting, detached, return_exceptions=True)
     assert waiting.cancelled()
+
+
+async def test_wait_for_exit_requires_start_and_retains_normal_exit(tmp_path: Path) -> None:
+    from tinysoul.agent.requests import ExitRequest
+
+    agent = await _create(tmp_path, _LLM())
+    try:
+        with pytest.raises(AgentClosedError):
+            await agent.wait_for_exit()
+        await agent.start()
+        agent.commands.request_exit(ExitRequest(source="test", text="done"))
+        result = await asyncio.wait_for(agent.wait_for_exit(), 5)
+        assert agent.state is AgentState.STOPPED
+        assert result.turn_count == 0 and result.transfer is not None
+        await agent.shutdown()
+        assert await agent.wait_for_exit() is result
+    finally:
+        await agent.shutdown()
+
+
+@pytest.mark.parametrize("cancel_start", (False, True))
+async def test_failed_start_settles_requests_accepted_by_sources(
+    tmp_path: Path, cancel_start: bool,
+) -> None:
+    from tinysoul.runtime import RuntimeException
+
+    root = tmp_path / "project"
+    copy_initialized_project(root)
+    llm = _LLM()
+    assembly = await AgentBuilder(root).with_config_environment(
+        ConfigEnvironment.from_project_root(root, env={}, overrides={
+            "agent.interactive": False, "reflection.schedule.enabled": False,
+            "workspace.watch.enabled": False,
+        })
+    ).with_llm_runner(llm).build()
+    entered, release = asyncio.Event(), asyncio.Event()
+    source_stopped = False
+    handles = []
+
+    class SubmittingService:
+        async def start(self) -> None:
+            handles.append(await assembly.commands.submit_turn(UserTurnRequest("during startup")))
+
+        async def stop(self) -> None:
+            nonlocal source_stopped
+            source_stopped = True
+
+    class FailingService:
+        async def start(self) -> None:
+            entered.set()
+            await release.wait()
+            raise RuntimeException("runtime.startup_failed", "private startup detail")
+
+        async def stop(self) -> None:
+            pass
+
+    assembly.mount_service(SubmittingService())
+    assembly.mount_service(FailingService())
+
+    async def factory() -> AgentAssembly:
+        return assembly
+
+    agent = await Agent.assemble(factory)
+    starting = asyncio.create_task(agent.start())
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        if cancel_start:
+            await agent.shutdown()
+        else:
+            release.set()
+        with pytest.raises(asyncio.CancelledError if cancel_start else RuntimeException):
+            await starting
+        result = await asyncio.wait_for(handles[0].wait(), 5)
+        assert result.request_failure is (
+            RequestFailure.CANCELLED if cancel_start else RequestFailure.FAILED
+        )
+        assert result.error_type == (None if cancel_start else "RuntimeException")
+        assert handles[0].cancel_requested is cancel_start
+        assert result.outcome is None and not llm.calls
+        assert source_stopped and assembly.generation_handle.closed
+        assert not assembly.is_available
+    finally:
+        release.set()
+        await agent.shutdown()
+        await asyncio.gather(starting, return_exceptions=True)
 
 
 @pytest.mark.parametrize("max_cycles", (1, 20))

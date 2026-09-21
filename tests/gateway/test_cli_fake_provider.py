@@ -24,7 +24,7 @@ from tests.support.project import copy_initialized_project
 
 
 async def test_cli_host_survives_http_restart_failure_and_uses_current_commands(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     root = tmp_path / "agent"
     copy_initialized_project(root)
@@ -41,10 +41,28 @@ async def test_cli_host_survives_http_restart_failure_and_uses_current_commands(
     release = asyncio.Event()
     fail_build = False
 
-    async def factory() -> AgentAssembly:
-        if assemblies:
+    class ActivationGate:
+        async def start(self) -> None:
             rebuilding.set()
             await release.wait()
+
+        async def stop(self) -> None:
+            pass
+
+    second_entered = asyncio.Event()
+    restart_count = 0
+    original_restart = cli._EndpointLifecycle.restart
+
+    async def restart(lifecycle: cli._EndpointLifecycle):
+        nonlocal restart_count
+        restart_count += 1
+        if restart_count == 2:
+            second_entered.set()
+        return await original_restart(lifecycle)
+
+    monkeypatch.setattr(cli._EndpointLifecycle, "restart", restart)
+
+    async def factory() -> AgentAssembly:
         if fail_build:
             raise RuntimeException("runtime.startup_failed", "private startup detail")
         assembly = await (
@@ -56,6 +74,8 @@ async def test_cli_host_survives_http_restart_failure_and_uses_current_commands(
                 })
             ).build()
         )
+        if assemblies:
+            assembly.mount_service(ActivationGate())
         host.bind(assembly)
         assemblies.append(assembly)
         return assembly
@@ -79,11 +99,20 @@ async def test_cli_host_survives_http_restart_failure_and_uses_current_commands(
                 refused = await client.post("/v2/turns", json={"kind": "user", "text": "during restart"})
                 assert refused.status_code == 409
                 assert refused.json()["error"]["code"] == "service.unavailable"
+                assert (await client.get("/v2/config")).status_code == 409
+                assert (await client.get("/v2/health")).status_code == 200
+                second = asyncio.create_task(client.post("/v2/restart"))
+                await asyncio.wait_for(second_entered.wait(), 5)
             finally:
                 release.set()
             response = await restarting
+            second_response = await second
             assert response.status_code == 202
+            assert second_response.status_code == 202
+            assert len(assemblies) == 2
+            assert response.json()["runtime"]["generation_id"] == second_response.json()["runtime"]["generation_id"]
             after = (await client.get("/v2/status")).json()
+            assert after["ready"] is True
             assert after["runtime"]["generation_id"] != before["runtime"]["generation_id"]
             assert after["instance_id"] == before["instance_id"]
             assert host.engine is engine and len(handshakes) == 1
@@ -112,7 +141,27 @@ async def test_cli_host_survives_http_restart_failure_and_uses_current_commands(
             assert (await client.get("/v2/status")).json()["ready"] is True
             assert len(handshakes) == 1
 
-            # Exercise the installed CLI handler after two generation replacements.
+            # Cancel the lifecycle caller itself; a disconnected HTTP client
+            # does not necessarily cancel the ASGI request task.
+            rebuilding.clear()
+            release.clear()
+            cancelled = asyncio.create_task(engine.runtime.restart())
+            try:
+                await asyncio.wait_for(rebuilding.wait(), 5)
+                cancelled.cancel()
+            finally:
+                release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await cancelled
+            assert (await client.get("/v2/status")).json()["ready"] is True
+            assert (await client.get("/v2/config")).status_code == 200
+            admitted = await client.post("/v2/turns", json={"kind": "user", "text": "after restart"})
+            assert admitted.status_code == 202
+            handle = assemblies[-1].commands.turn(admitted.json()["turn_id"])
+            assert handle is not None
+            await asyncio.wait_for(handle.wait(), 5)
+
+            # Exercise the installed CLI handler against the current generation.
             handler = signal.getsignal(signal.SIGINT)
             assert handler is not None and not isinstance(handler, int)
             handler(signal.SIGINT, None)

@@ -34,7 +34,7 @@ Endpoint 是 loopback 本地协议。除 `GET /v2/health` 外，HTTP 请求都�
 
 `401` 表示鉴权失败，`409` 表示未 ready、运行中、目标冲突或 owner 拒绝的资源操作，`413` 表示大小超限，`422` 表示 schema/配置值无效，`500` 表示收敛后的模块或服务失败。
 
-服务在世代或日期切换后失效返回 `409 service.stale`；Agent 停止受理返回 `409 agent.not_ready`；owner 准备失败返回 `409 service.unavailable`，details 中包含 module/kind。客户端重新读取当前状态后决定后续操作，后端不自动重放写入。
+服务在世代或日期切换后失效返回 `409 service.stale`；Endpoint 无可用绑定或 Agent 尚未完成激活时返回 `409 service.unavailable`；已进入 SDK 但 Agent 停止受理的请求返回 `409 agent.not_ready`；owner 准备失败也返回 `409 service.unavailable`，details 中包含 module/kind。客户端重新读取当前状态后决定后续操作，后端不自动重放写入。
 
 结构化受理满载为 `409 agent.queue_full`，请求身份冲突为 `409 agent.command_rejected`；Inbox 容量与等待关联错误分别为 `409 turn.inbox_full`、`409 turn.command_rejected`。未知/淘汰 Turn 为 `404 turn.not_found`，已回收或不属于该 Turn 的 Job 为 `404 turn.resource_not_found`。所有错误采用同一 envelope，不暴露原始异常文本。
 

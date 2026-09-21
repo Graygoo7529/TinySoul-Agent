@@ -1,5 +1,6 @@
 """Endpoint dependencies over the Agent's public admission and services."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from ..config import EndpointSettings
@@ -20,11 +21,12 @@ class EndpointEngineContext:
     _gateway: EndpointAgentIngress | None
     _services: EndpointServices | None
     _config: EndpointConfigController | None
+    _available: Callable[[], bool]
     _lifecycle: EndpointLifecycle | None = None
 
     @property
     def gateway(self) -> EndpointAgentIngress:
-        if self._gateway is None:
+        if self._gateway is None or not self.available:
             raise self._unavailable()
         return self._gateway
 
@@ -37,14 +39,18 @@ class EndpointEngineContext:
         )
 
     @property
+    def available(self) -> bool:
+        return self.bound and self._available()
+
+    @property
     def services(self) -> EndpointServices:
-        if self._services is None:
+        if self._services is None or not self.available:
             raise self._unavailable()
         return self._services
 
     @property
     def config(self) -> EndpointConfigController:
-        if self._config is None:
+        if self._config is None or not self.available:
             raise self._unavailable()
         return self._config
 

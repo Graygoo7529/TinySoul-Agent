@@ -4,6 +4,7 @@ from tinysoul.agent.composition.assembly import AgentAssembly
 from tinysoul.kernel.loop.turn import TurnOutcome
 
 from collections import deque
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -58,6 +59,16 @@ class FakeLLM:
     async def run(self, call: TaskCall) -> TaskResult:
         self.calls.append(call)
         return self.results.popleft()
+
+
+@pytest.fixture
+async def endpoint_assemblies() -> AsyncIterator[list[AgentAssembly]]:
+    assemblies: list[AgentAssembly] = []
+    try:
+        yield assemblies
+    finally:
+        for assembly in reversed(assemblies):
+            await assembly.close()
 
 
 async def test_three_scenarios_have_independent_policies_and_owner_services(
@@ -183,14 +194,43 @@ async def test_agent_builder_mounts_endpoint_as_service_and_model_output_source(
         .build()
     )
     endpoint = mount_endpoint(app, EndpointSettings(token="x" * 32))
+    entered, release = asyncio.Event(), asyncio.Event()
 
-    assert app.input_sources == ()
-    assert len(app.services) == 1
+    class ActivationGate:
+        async def start(self) -> None:
+            entered.set()
+            await release.wait()
+
+        async def stop(self) -> None:
+            pass
+
+    assert app.input_sources == () and len(app.services) == 1
     assert app.observations.mode.value == "model"
+    app.mount_service(ActivationGate())
+    activating = asyncio.create_task(app.activate())
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        assert (await endpoint.runtime.status())["ready"] is False
+        from tinysoul.gateway.endpoint.errors import EndpointRequestError
+
+        with pytest.raises(EndpointRequestError) as rejected:
+            await endpoint.configuration.status()
+        assert rejected.value.code == "service.unavailable"
+        release.set()
+        await activating
+        assert (await endpoint.runtime.status())["ready"] is True
+        assert "runtime" in await endpoint.configuration.status()
+        app.stop_accepting()
+        assert (await endpoint.runtime.status())["ready"] is False
+    finally:
+        release.set()
+        await asyncio.gather(activating, return_exceptions=True)
+        await app.close()
 
 
 async def test_standard_project_starts_without_credentials_and_rejects_provider_enable(
     tmp_path: Path,
+    endpoint_assemblies: list[AgentAssembly],
 ) -> None:
     project_root = tmp_path / "project"
     copy_initialized_project(project_root)
@@ -203,6 +243,8 @@ async def test_standard_project_starts_without_credentials_and_rejects_provider_
         .build()
     )
     endpoint = mount_endpoint(app, EndpointSettings(token="x" * 32))
+    endpoint_assemblies.append(app)
+    await app.activate()
     client = TestClient(create_endpoint_app(endpoint, endpoint.settings))
     headers = {"Authorization": f"Bearer {'x' * 32}"}
 
@@ -320,6 +362,7 @@ async def test_development_project_requires_credentials_for_enabled_providers(
 
 async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer(
     tmp_path: Path,
+    endpoint_assemblies: list[AgentAssembly],
 ) -> None:
     project_root = tmp_path / "project"
     copy_initialized_project(project_root)
@@ -337,6 +380,8 @@ async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer
             websocket_heartbeat_seconds=0.05,
         ),
     )
+    endpoint_assemblies.append(app)
+    await app.activate()
     events = endpoint.events
     before = (await endpoint.configuration.status())["runtime"]
     after_sequence = events.latest_sequence
@@ -553,6 +598,7 @@ async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer
 
 async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
     tmp_path: Path,
+    endpoint_assemblies: list[AgentAssembly],
 ) -> None:
     project_root = tmp_path / "project"
     copy_initialized_project(project_root)
@@ -564,6 +610,8 @@ async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
         .build()
     )
     endpoint = mount_endpoint(app, EndpointSettings(token="x" * 32))
+    endpoint_assemblies.append(app)
+    await app.activate()
     client = TestClient(create_endpoint_app(endpoint, endpoint.settings))
     headers = {"Authorization": f"Bearer {'x' * 32}"}
     domain_source = (
@@ -745,6 +793,7 @@ async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
 
 async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_incompatible_adapter(
     tmp_path: Path,
+    endpoint_assemblies: list[AgentAssembly],
 ) -> None:
     project_root = tmp_path / "project"
     copy_initialized_project(project_root)
@@ -765,6 +814,8 @@ async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_i
         .build()
     )
     endpoint = mount_endpoint(app, EndpointSettings(token="x" * 32))
+    endpoint_assemblies.append(app)
+    await app.activate()
     client = TestClient(create_endpoint_app(endpoint, endpoint.settings))
     headers = {"Authorization": f"Bearer {'x' * 32}"}
     source_id = "project:configs/llm/models/openai.toml"

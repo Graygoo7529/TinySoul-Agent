@@ -20,7 +20,9 @@ Agent.services 按 Facade 类型提供当前 User profile 的 HomeService、Memo
 
 start/shutdown/restart 由各自拥有的任务串行衔接，并发等待者加入同一操作；启动中关闭立即停止受理并等待部分资源回收，旧 worker 回调不会修改新实例。shutdown 停止受理和外部来源，再取消根 work，等待 Action/Job、必要记录、段和来源回收，最后关闭世代。restart 重新装配，旧句柄保留旧结果。自建 LLM/embedding 客户端归世代关闭，注入对象保持借用。部分激活失败逆序关闭已创建资源；重复取消不抛弃清理任务，有限 cleanup diagnostics 不覆盖主失败。
 
-Agent.wait 等待 Agent 最终退出，跨越 generation restart；单个等待者取消只解除自身等待，显式 shutdown 才取消所有退出等待。restart 失败由发起方接收，宿主等待保持有效，允许显式重新启动。CLI 的信号处理每次获取当前 commands，重建时重新加载配置与输入来源；Endpoint server 与事件缓冲保持进程级稳定。
+部分激活失败先停止受理和来源，再经 RootScheduler 的同一完成入口结清启动期间已接受的请求，最后释放 Assembly。启动失败保留 FAILED 与有界错误类型，启动被取消使用 CANCELLED；未执行请求不伪造 TurnOutcome、Session 或取消意图。单 Assembly 的可用性由激活完成和受理状态派生；稳定宿主的业务访问由 Agent 运行状态决定，依赖已装配不表示可以接受外部工作。
+
+Agent.wait_for_exit 等待根调度运行最终退出，跨越 generation restart；正常退出返回现有 AgentRunResult，运行失败传播原有异常。单个等待者取消只解除自身等待，显式 shutdown 使尚未完成的退出等待收到 CancelledError，已完成结果仍保留。此接口不消费 Signal，也不代替释放世代资源的 shutdown；返回结果属于最终结束的根调度运行，不累计各次重启。restart 失败由发起方接收，宿主等待保持有效，允许显式重新启动。CLI 的信号处理每次获取当前 commands，重建时重新加载配置与输入来源；Endpoint server 与事件缓冲保持进程级稳定。
 
 ## 输入、事件与容量
 

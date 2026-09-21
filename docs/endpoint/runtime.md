@@ -8,7 +8,9 @@
 
 `POST /v2/restart` 等待旧 generation 收尾并由宿主装配、激活新 generation 后返回 `accepted`、新的 runtime projection 和 cleanup diagnostics。Endpoint server、`instance_id`、Observation journal 与游标空间保持稳定，`generation_id` 改变；旧 commands、services 和 Turn/Job lease 失效，调用者重新读取状态并获取当前 facade。重启期间 generation 暂不可用时，status 仍可访问并返回 `ready=false`。
 
-宿主未挂载重启能力时返回 `409 endpoint.lifecycle_unavailable`。重建的 Runtime 失败返回 `503 agent.restart_failed`，只附带稳定 reason；Endpoint 保持可访问，可读取 status 并显式再次请求 restart。未绑定 generation 时，业务操作返回 `409 service.unavailable`，健康检查、状态与 Observation replay 仍可使用；不自动重试重启请求。
+宿主未挂载重启能力时返回 `409 endpoint.lifecycle_unavailable`。重建的 Runtime 失败返回 `503 agent.restart_failed`，只附带稳定 reason；Endpoint 保持可访问，可读取 status 并显式再次请求 restart。未绑定 generation 或 Agent 尚未完成激活时，业务查询和写入返回 `409 service.unavailable`，健康检查、状态与 Observation replay 仍可使用；即使候选已有 active_day，也不表示 ready。只有 owner 可运行时才报告 `ready=true`。
+
+重叠的 restart 请求加入同一次 SDK 重启，完成后返回当前 runtime；操作已结束后再次请求可以发起新重启。取消一个请求等待者不撤销底层已开始的重启，也不解除成功的新绑定。客户端断开是否取消服务端请求由传输决定，不据此推断 Agent 已停止；客户端可重连后查询状态，不自动重试重启请求。
 
 ## 结构化 Turn
 

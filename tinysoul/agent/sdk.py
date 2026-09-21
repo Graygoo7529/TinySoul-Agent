@@ -19,7 +19,7 @@ from tinysoul.runtime.events import EnvironmentEvent, EventReceipt
 from tinysoul.runtime.sources import SourceStatus
 
 from .errors import AgentClosedError, AgentSDKError
-from .handles import TurnHandle, TurnSnapshot
+from .handles import RequestFailure, TurnHandle, TurnSnapshot
 from tinysoul.kernel.jobs import JobSnapshot
 from .requests import UserTurnRequest
 from .commands import AgentCommands
@@ -175,10 +175,28 @@ class Agent:
             )
             self._worker.add_done_callback(self._stopped)
             self._state = AgentState.RUNNING
-        except BaseException:
+        except BaseException as exc:
             if self._assembly is not None:
+                assembly = self._assembly
+                assembly.stop_accepting()
+                cancelled = isinstance(exc, asyncio.CancelledError)
+
+                async def close_failed_start() -> None:
+                    try:
+                        await assembly.agent_runner.close_requests(
+                            request_failure=(
+                                RequestFailure.CANCELLED if cancelled
+                                else RequestFailure.FAILED
+                            ),
+                            error_type=None if cancelled else type(exc).__name__,
+                        )
+                    finally:
+                        await assembly.close()
+
                 try:
-                    await self._assembly.close()
+                    # Join partial-start cleanup before propagating its original
+                    # failure, even when shutdown cancels startup again.
+                    await JoinedOperations().finish(close_failed_start)
                 finally:
                     self._assembly = None
             if self._state is not AgentState.STOPPING:
@@ -276,8 +294,12 @@ class Agent:
             selection, capacity=capacity, max_bytes=max_bytes
         )
 
-    async def wait(self) -> AgentRunResult:
-        """Wait for Agent exit across generation restarts; cancelling only detaches the waiter."""
+    async def wait_for_exit(self) -> AgentRunResult:
+        """Wait across restarts for the root dispatcher to exit.
+
+        Cancelling a waiter only detaches it. Explicit shutdown cancels pending
+        exit waiters; callers must still call shutdown to release resources.
+        """
         if self._completion is None:
             raise AgentClosedError("Agent has not started")
         return await asyncio.shield(self._completion)

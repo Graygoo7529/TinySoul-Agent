@@ -26,7 +26,11 @@ def mount_endpoint(
 ) -> EndpointEngine:
     """Attach HTTP hosting and observation replay to an unstarted Agent."""
 
-    host = EndpointHost(settings=settings, ready=ready)
+    host = EndpointHost(
+        settings=settings,
+        ready=ready,
+        available=lambda: assembly.is_available,
+    )
     engine = host.bind(assembly)
     assembly.mount_service(host)
     return engine
@@ -70,11 +74,13 @@ class EndpointHost:
         *,
         settings: EndpointSettings,
         ready: Callable[[EndpointReady], None] | None = None,
+        available: Callable[[], bool] | None = None,
         runtime_bridge: RuntimeEndpointBridge | None = None,
     ) -> None:
         self._engine: EndpointEngine | None = None
         self._settings = settings
         self._ready = ready
+        self._available = available
         self._runtime_bridge = runtime_bridge or RuntimeEndpointBridge()
         self._server: EndpointServer | None = None
         self._assembly: AgentAssembly | None = None
@@ -113,6 +119,7 @@ class EndpointHost:
                 gateway=assembly.gateway,
                 services=assembly.service_access,
                 config=assembly.configuration,
+                available=self._is_available,
             )
             self._route = ObservationRoute(
                 sink=events, mode=ObservationLevel.MODEL
@@ -137,6 +144,13 @@ class EndpointHost:
 
     def set_lifecycle(self, lifecycle: EndpointLifecycle | None) -> None:
         self.engine.set_lifecycle(lifecycle)
+
+    def set_availability(self, available: Callable[[], bool]) -> None:
+        """Read availability from the lifecycle owner, never from a binding."""
+        self._available = available
+
+    def _is_available(self) -> bool:
+        return self._available is not None and self._available()
 
     async def start(self) -> None:
         if self._server is not None:

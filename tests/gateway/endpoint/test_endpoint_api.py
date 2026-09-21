@@ -672,6 +672,7 @@ def _engine(
         settings=settings,
         events=events,
         gateway=gateway,
+        available=lambda: True,
         services=_EndpointServices(WorkspaceService(workspace)),
         config=config
         or ConfigController(

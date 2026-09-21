@@ -1,6 +1,6 @@
 # Agent 架构重构：设计语义、契约与执行计划
 
-状态：`in_progress`（R1、R2 收口、R3 及其收口、Before 4、R4、R5 及 R5 收口原执行批次均已完成并归档。S1、S2、S4 为 done；S5 因提交后复审的运行可用性与重启缺口回到 in_progress，修正子计划待实施；S3 的领域重构及 Organize 事实/导航数据基础已完成，模型整理动作与注释层安排主计划尾期；S6–S7 未整体完成，保持原定范围）。
+状态：`in_progress`（R1、R2 收口、R3 及其收口、Before 4、R4、R5 及其收口与复审修正均已完成并归档。S1、S2、S4、S5 为 done；S3 的领域重构及 Organize 事实/导航数据基础已完成，模型整理动作与注释层安排主计划尾期；S6–S7 未整体完成，保持原定范围）。
 修订日期：2026-09-21。历史初始复审代码：`e930c9c444deb0073ab3d7f016057245bad66ca6`；R2 分析基线为本地 `6821983`。2026-09-19 重新克隆远端，复审基线为 `be61886`（R3 收口之后）。历史验证与本次复审证据分别记录，不互相替代。
 
 配套讨论来源：[前三轮 Review 与 R4 前基础补强方案](../chat/20260920-r1-r3-review-and-pre-r4-foundation-plan-latest.md)；[Before 4：数据基础与渐进披露](done/20260920-done-Agent重构Before4子计划-数据基础与渐进披露.md) 已于 2026-09-20 实施完成。用户确认的多历史 Turn/已有地图整理方向与受信独立主机假设保持不变；事实/导航基础先交付，Organize 写能力仍属尾期。讨论来源保留当时状态，实现证据以已归档子计划及本计划 §13 为准。
@@ -740,7 +740,7 @@ WS 断开不取消 Turn；问题可由状态查询恢复，Observation gap 不�
 
 [Before 4 子计划](done/20260920-done-Agent重构Before4子计划-数据基础与渐进披露.md) 于 2026-09-20 完成（`done`）。BF1–BF5 已核对：Trace 类型化时间线、Session v10 唯一事实与当日分层导航、共用披露/分页/query、inspect 可见结果消费保护、Session 自身水位回收、CalendarClock/active_day 及可复现本地测试边界。Windows Full 1087 passed、23 deselected，含 generation/wheel；Windows 与 Linux 目标 typecheck 通过。本轮未执行 Linux 实机或真实 provider/network，旧部署数据未迁移/reset。Organize Action/注释层、fswatch、Gateway v2 和 ACP/MCP 未提前实现。
 
-S1、S2、S4 已完成；S5 原批次已归档，提交后复审修正待实施；S3 延后项与 S6–S7 尚未完成。历史 S0 定稿不代表后续协议细化关闭。子计划只有实现/文档/必要验证全部通过才 done 并归档；docs/design 只写已落地部分。
+S1、S2、S4、S5 已完成；R5 提交后复审修正已核对并归档，S3 延后项与 S6–S7 尚未完成。历史 S0 定稿不代表后续协议细化关闭。子计划只有实现/文档/必要验证全部通过才 done 并归档；docs/design 只写已落地部分。
 
 2026-09-20 [R4：环境事件与插件运行闭环子计划](done/20260920-done-Agent重构第四轮子计划-环境事件与插件运行闭环.md) 已完成并归档，S4 标记 `done`。落实显式插件事件/运行贡献、topic/source 路由与等待、可合并状态通知、Workspace 正式写入和外部文件监听的统一 owner 刷新、世代/日切/关闭及 Reflection 定时策略分离。只监听当前 Workspace；原生监听失败停止来源并有界反馈，正式操作继续，无自动恢复状态机。Windows Full 1100 passed、23 deselected，含生成/wheel、真实文件监听与进程跨午夜；Windows/Linux 目标 typecheck 通过，未运行 Linux 实机与真实 provider/network。具体核对见子计划 §10，S3 Organize 与 S6–S7 范围不变。
 
@@ -748,7 +748,7 @@ S1、S2、S4 已完成；S5 原批次已归档，提交后复审修正待实施�
 
 2026-09-21 [R5 收口：Endpoint 生命周期与 HTTP Restart](done/20260920-done-Agent重构第五轮收口子计划-Endpoint生命周期与重启.md) 已完成并归档：EndpointHost/Engine/Observation buffer 进入进程级稳定边界，generation 只重绑 typed facade；独立 `POST /v2/restart` 请求宿主重建，旧 facade 失效后由调用者重新获取，ACP Job 回应移交 S6。Agent.wait 跨 restart，CLI 重新获取配置/commands；真实 HTTP server 连续重启、失败重试和 Ctrl-C 已验证。Windows Fast 1104 passed、28 deselected，Full 1109 passed、23 deselected（含全部 5 项 Generation/wheel），typecheck 与 diff-check 通过；S5 标记 `done`。
 
-2026-09-21 提交后复审：基线 `7d97f23` 复现候选激活前受理导致请求未结清，以及并发/取消重启等待者导致错误解绑两项缺口。新增 [R5 复审修正：运行可用性与退出等待](20260921%20Agent重构R5复审修正子计划-运行可用性与退出等待.md)，状态 `pending`；建议由 owner 状态统一决定 Endpoint 可用性、删除逐请求解绑、复用 scheduler 结清启动失败请求，并将 Agent.wait 重命名为 wait_for_exit。退出等待的关闭契约待确认，尚未实施。S5 回到 `in_progress`；上述归档与历史门禁记录保留，完成本修正后重新验收。
+2026-09-21 [R5 复审修正：运行可用性与退出等待](done/20260921-done-Agent重构R5复审修正子计划-运行可用性与退出等待.md) 已完成并归档：关闭 `7d97f23` 复审发现的提前受理和并发/取消重启错误解绑。Endpoint 从 owner 状态统一派生可用性，HTTP restart 只调用共享 SDK 操作，scheduler 结清启动失败的已受理请求；Agent.wait 已重命名为 wait_for_exit，保留用户确认的返回和 shutdown 取消契约，无旧别名。Windows Fast `1107 passed, 28 deselected`、Full `1112 passed, 23 deselected`（含 5 项 Generation/wheel）、typecheck 与 diff-check 通过。S5 重新验收为 done；历史记录保留，未运行真实 provider/network 或 Linux 实机。
 
 2026-09-20 推进修订：S4 的 ask/reply、统一等待、有界 Inbox、reload/restart 已由 R2 及收口实现，后续应验收其环境协作闭环，不能再造一套机制。R4 前先按配套 Review 补齐现有事实记录/导航、平台门禁和命名一致性；R4 再补“插件声明 → 环境事件 → owner 刷新 → Context 批次”的真实切片，继续 Gateway v2 与 ACP/MCP，尾期接入模型 Organize。用户已确认：Organize 所需事实/导航数据先补强，模型整理 Action 在主计划尾期、最终 S7 验收前实施，不作为 R4 环境接入前置；原 S 编号保留作为验收范围，不强迫每个范围严格串行。具体切片与验证证据见配套 Review。
 
@@ -759,7 +759,7 @@ S1、S2、S4 已完成；S5 原批次已归档，提交后复审修正待实施�
 | S2 `done` | 新内核/SDK/CLI/段/Job/等待；同步迁移所有旧内核消费者至新公共入口、插件接入与打包 | R2 收口 Full 1091 passed、2 skipped、23 deselected，typecheck 通过；生命周期、等待、服务权限与终态/保留缺口关闭，含导入边界、生成与 wheel 验收 |
 | S3 `in_progress` | R3 与收口已完成领域重构；Before 4 已补齐事实顺序、当日导航、渐进披露与 query；Organize 动作与注释层按 §8 尾期实施 | R3 收口及 Before 4 Full/typecheck、事实重开/归档、真实进程跨午夜与 SDK 取回消费闭环通过；延后项未伪报完成 |
 | S4 `done` | R4 已落实 fswatch、插件事件订阅/触发及生命周期声明；复用 scheduler、ask/reply、容量、reload/restart、Job 监督 | R4 Full/typecheck 通过；外部与 SDK 写入恢复同一 Turn 并刷新实际 MessageStack，固定批次/预算/来源失败/重载恢复/收尾/午夜闭环已验证 |
-| S5 `in_progress` | Gateway v2、项目命令、HTTP/WS/replay、稳定 Endpoint 生命周期与协议文档；原 R5 批次已归档，运行可用性/重启复审修正待实施 | 历史 SDK/HTTP/wheel 验证保留；新增激活受理、并发/取消重启及退出等待命名验收；ACP Job 应答仍归 S6 |
+| S5 `done` | Gateway v2、项目命令、HTTP/WS/replay、稳定 Endpoint 生命周期与协议文档；原 R5 及运行可用性/重启复审修正均已归档 | 激活受理、启动失败句柄结算、并发/取消重启及 wait_for_exit 契约通过 Full/typecheck；ACP Job 应答仍归 S6 |
 | S6 | 锁 ACP/MCP adapter/协议/SDK，connect/delegate/respond、连接段；内部子调用留后续 | 建连→多次委派/权限回应→收尾，fake 故障矩阵，真实 smoke 单独声明 |
 | S7 | 全仓文档/AGENTS/测试/打包一致，删旧入口/死抽象 | Full/typecheck/import 图/完整 E2E |
 

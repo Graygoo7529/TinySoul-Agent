@@ -2,6 +2,8 @@
 
 后端现行协议为 v2，v1 路由已删除。本文描述对接要求；本轮未修改 visualization 源码，其客户端需要同步迁移后才能连接当前后端。`POST /v2/restart` 返回新的 runtime projection，Endpoint instance 与事件游标保持不变；重启窗口内 `ready=false` 是可观察状态。
 
+`ready` 表示生命周期 owner 已可运行；候选依赖和 active day 已存在时仍可能处于激活中，此时业务操作返回 `409 service.unavailable`，status、health 与 replay 仍可读取。重叠重启共用一次 SDK 操作；取消请求等待者不表示底层重启被撤销，重新连接后应读取状态。
+
 客户端继续按 Runtime/Turn、Reflection、Events、Configuration 和 Workspace 分域。传输、Bearer、JSON/error 和 binary headers 集中处理。OpenAPI（需鉴权）提供请求 schema；运行语义分别见 [Runtime](runtime.md)、[Reflection](reflection.md) 和 [Events](events.md)。
 
 连接发现先检查连接描述的 protocol_version=2、instance_id 和 project_identity。发起新对话使用 POST /v2/turns，保存回执中的 turn_id；追加指示、reply、grant 和 cancel 均使用明确身份。回复只绑定 question_id，补额只绑定 budget request_id；两个请求可以同时待决，不能由 UI 自行合并为单一“恢复”命令。需要终端语法时才使用 /v2/input。

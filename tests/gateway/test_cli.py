@@ -51,7 +51,7 @@ class _FakeApp:
 
         return SimpleNamespace(wait=wait)
 
-    async def wait(self):
+    async def wait_for_exit(self):
         self.run_count += 1
         return SimpleNamespace()
 
@@ -194,6 +194,9 @@ def test_cli_start_attaches_terminal_and_model_endpoint(
             assert assembly is app
 
         def set_lifecycle(self, lifecycle):
+            pass
+
+        def set_availability(self, available):
             pass
 
         async def start(self):

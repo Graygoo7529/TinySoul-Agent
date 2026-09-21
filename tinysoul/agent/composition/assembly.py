@@ -55,6 +55,11 @@ class AgentAssembly:
     def profile_services(self) -> ServiceRegistry:
         return self.service_access.registry
 
+    @property
+    def is_available(self) -> bool:
+        """Whether this generation has finished activation and accepts work."""
+        return self._activated and self._accepting
+
     def mount_service(self, service: EnvironmentService) -> None:
         """Attach a gateway host before source activation."""
         if self._activated:
@@ -88,6 +93,7 @@ class AgentAssembly:
                 operations.check_cancelled()
             self._activated = True
         except BaseException:
+            self.stop_accepting()
             try:
                 await started.close()
             except asyncio.CancelledError:
@@ -99,6 +105,7 @@ class AgentAssembly:
         try:
             return await self.agent_runner.run()
         finally:
+            self.stop_accepting()
             await self._sources.close()
 
     async def submit_input(self, text: str, *, source: str = "api") -> None:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 
 from ..config import EndpointSettings
 from ..events import EndpointEventBuffer
@@ -30,6 +32,7 @@ class EndpointEngine:
         gateway: EndpointAgentIngress,
         services: EndpointServices,
         config: EndpointConfigController,
+        available: Callable[[], bool],
         lifecycle: EndpointLifecycle | None = None,
     ) -> None:
         context = EndpointEngineContext(
@@ -38,6 +41,7 @@ class EndpointEngine:
             _gateway=gateway,
             _services=services,
             _config=config,
+            _available=available,
             _lifecycle=lifecycle,
         )
         self._settings = settings

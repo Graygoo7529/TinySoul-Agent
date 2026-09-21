@@ -29,7 +29,7 @@ class EndpointRuntimeEngine:
         self._context = context
 
     async def status(self) -> JsonObject:
-        if not self._context.bound:
+        if not self._context.available:
             return {
                 "protocol_version": 2,
                 "instance_id": self._context.settings.instance_id,
@@ -48,7 +48,7 @@ class EndpointRuntimeEngine:
             "protocol_version": 2,
             "instance_id": self._context.settings.instance_id,
             "project_identity": self._context.settings.project_identity,
-            "ready": bool(active_day),
+            "ready": True,
             "active_day": active_day,
             "turn_active": turn_scope is not None,
             "runtime": runtime,

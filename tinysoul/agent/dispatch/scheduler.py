@@ -274,16 +274,24 @@ class RootScheduler(Generic[AgentGenerationT]):
     def stop_accepting(self) -> None:
         self._accepting = False
 
-    async def close_requests(self) -> None:
+    async def close_requests(
+        self,
+        *,
+        request_failure: RequestFailure = RequestFailure.CANCELLED,
+        error_type: str | None = None,
+    ) -> None:
         self._accepting = False
         for handle in tuple(self._handles.values()):
             if not handle.done:
-                handle.request_cancel()
+                if request_failure is RequestFailure.CANCELLED:
+                    handle.request_cancel()
                 self._input_queue.discard(handle.request)
                 await self._finish_handle(
                     handle,
                     TurnResult(
-                        handle.turn_id, request_failure=RequestFailure.CANCELLED
+                        handle.turn_id,
+                        request_failure=request_failure,
+                        error_type=error_type,
                     ),
                 )
 

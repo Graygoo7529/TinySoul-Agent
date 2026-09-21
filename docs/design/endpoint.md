@@ -18,7 +18,11 @@ endpoint.engine.workspace
 
 现行外部协议为 v2，旧 v1 路由已删除。结构化 Turn 请求直接使用 ingress 提供的 AgentCommands；终端式文本入口保留 parser 语义。两者使用同一根队列与 Inbox，但新建、追加和等待决定的输入意图明确区分。项目 init/reset/start 继续属于 CLI；HTTP 通过独立 restart 路由请求宿主重建 generation，EndpointHost、事件 buffer、journal 和 instance identity 保持进程级稳定。
 
-CLI 在 Agent factory 中绑定稳定 host，外部单独启动/停止 HTTP server；Agent.wait 跨越重启，重建失败不会关闭 Endpoint。单 generation 的嵌入式装配可使用 mount_endpoint 随 Assembly 启停；需要跨 restart 的嵌入方应显式持有 EndpointHost 并按 CLI 的宿主生命周期装配。
+CLI 在 Agent factory 中绑定稳定 host，外部单独启动/停止 HTTP server；Agent.wait_for_exit 跨越重启，重建失败不会关闭 Endpoint。单 generation 的嵌入式装配可使用 mount_endpoint 随 Assembly 启停；需要跨 restart 的嵌入方应显式持有 EndpointHost 并按 CLI 的宿主生命周期装配。
+
+依赖绑定与业务可用性分开表达：bind 只替换候选 facade 和 Observation route，EndpointEngineContext 通过显式注入的同步只读函数获取 owner 可用性。CLI 使用 Agent 的 running 状态；单 Assembly 挂载使用其激活完成且仍受理工作的投影。Host 尚未接入可用性来源时不放行业务访问，status、health、replay 和宿主 restart 仍可使用。业务入口集中检查同一可用性，不保存平行 ready 状态；active_day 不作为 activation 完成的替代条件。
+
+HTTP restart 只等待 SDK 已有的共享重启任务并投影结果，不逐请求解绑。重叠请求加入同一操作，等待者取消不改变成功绑定；操作结束之后的新请求可再次重启。观察 route 可记录启动与收尾，故障隔离仍由 Observation owner 负责。
 
 ## Turn 与 Job 投影
 

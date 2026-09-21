@@ -8,7 +8,7 @@ from pathlib import Path
 from secrets import token_urlsafe
 import signal as signal_module
 import sys
-from tinysoul.agent import Agent, UserTurnRequest
+from tinysoul.agent import Agent, AgentState, UserTurnRequest
 from tinysoul.agent.commands import AgentCommands
 from tinysoul.agent.requests import ExitRequest
 from collections.abc import Awaitable, Callable, Sequence
@@ -221,10 +221,12 @@ async def _run_application(
     endpoint_host: EndpointHost | None = None,
 ) -> int:
     agent = await Agent.assemble(factory)
+    if endpoint_host is not None:
+        endpoint_host.set_availability(lambda: agent.state is AgentState.RUNNING)
     try:
         await agent.start()
         if endpoint_host is not None:
-            endpoint_host.set_lifecycle(_EndpointLifecycle(agent, endpoint_host))
+            endpoint_host.set_lifecycle(_EndpointLifecycle(agent))
             await endpoint_host.start()
         if once is not None:
             handle = await agent.submit_turn(UserTurnRequest(once, source="cli"))
@@ -241,7 +243,7 @@ async def _run_application(
                 signal_module.SIGINT, escalation.handle
             )
             try:
-                await agent.wait()
+                await agent.wait_for_exit()
                 code = 0
             finally:
                 signal_module.signal(signal_module.SIGINT, previous_handler)
@@ -265,17 +267,11 @@ async def _run_application(
 class _EndpointLifecycle:
     """Bridge the stable Endpoint host to the Agent SDK lifecycle."""
 
-    def __init__(self, agent: Agent, host: EndpointHost) -> None:
+    def __init__(self, agent: Agent) -> None:
         self._agent = agent
-        self._host = host
 
     async def restart(self) -> JsonObject:
-        self._host.unbind()
-        try:
-            diagnostics = await self._agent.restart()
-        except BaseException:
-            self._host.unbind()
-            raise
+        diagnostics = await self._agent.restart()
         return {
             "accepted": True,
             "state": self._agent.state.value,

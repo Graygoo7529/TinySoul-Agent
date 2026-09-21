@@ -1,10 +1,10 @@
 # Agent 重构 R5 复审修正子计划：运行可用性与退出等待
 
-状态：`pending`（设计预览；尚未实施。§8 的退出等待契约待确认）。
+状态：`done`（2026-09-21 实现、文档同步、逐项核对与完整门禁通过）。
 日期：2026-09-21。
 复审基线：`7d97f23`。
-主计划：[Agent 架构重构](20260915-agent-architecture-refactor-plan.md)。
-前置：[R5 Gateway v2](done/20260920-done-Agent重构第五轮子计划-Gateway%20v2与SDK协议闭环.md)、[R5 Endpoint 生命周期收口](done/20260920-done-Agent重构第五轮收口子计划-Endpoint生命周期与重启.md)。
+主计划：[Agent 架构重构](../20260915-agent-architecture-refactor-plan.md)。
+前置：[R5 Gateway v2](20260920-done-Agent重构第五轮子计划-Gateway%20v2与SDK协议闭环.md)、[R5 Endpoint 生命周期收口](20260920-done-Agent重构第五轮收口子计划-Endpoint生命周期与重启.md)。
 
 ## 1. 目标与范围
 
@@ -18,8 +18,8 @@
 
 | 编号 | 触发与证据 | 原因与影响 |
 |---|---|---|
-| P1 `pending` | 在新 Assembly 的服务激活期间提交 Turn，再令激活失败：Endpoint 曾返回 ready=true 并接受请求；Agent shutdown 后该句柄仍为 queued、未完成 | 工厂在 SDK activation 之前执行 host.bind；Endpoint 把持有依赖及 active_day 当作可用性。启动失败只关闭资源，遗漏激活期间已受理的根请求 |
-| P2 `pending` | 两个重叠重启调用都成功，但 Agent running、Endpoint ready=false；取消重启等待者也能产生同样结果 | SDK 合并重启任务，HTTP lifecycle 却逐请求 unbind，并把调用者取消当作需要撤销绑定的失败 |
+| P1 `done` | 在新 Assembly 的服务激活期间提交 Turn，再令激活失败：Endpoint 曾返回 ready=true 并接受请求；Agent shutdown 后该句柄仍为 queued、未完成 | 已由统一 owner 可用性和启动失败句柄结算修正；实现与回归见 §9 R5R.1/R5R.3 |
+| P2 `done` | 两个重叠重启调用都成功，但 Agent running、Endpoint ready=false；取消重启等待者也能产生同样结果 | 已删除逐请求解绑，复用唯一 SDK 重启任务；实现与回归见 §9 R5R.2 |
 
 相关实现：`tinysoul/gateway/cli.py` 的工厂与 `_EndpointLifecycle`、`gateway/endpoint/host.py`、`engine/context.py`、`agent/sdk.py` 的启动/重启边界、`agent/dispatch/scheduler.py` 的请求结清。
 
@@ -94,11 +94,11 @@ SDK 启动失败路径应停止受理和已启动来源，通过 RootScheduler �
 
 ## 5. 退出等待接口
 
-拟将 `Agent.wait()` 直接重命名为 `Agent.wait_for_exit()`，删除旧名称，不保留兼容转发。这个方法等待调用方所观察的 Agent 运行最终退出，跨越 generation restart；不是让 Agent 暂停，也不是 Signal/EventBus 的消费接口。
+`Agent.wait()` 已直接重命名为 `Agent.wait_for_exit()`，删除旧名称，不保留兼容转发。这个方法等待调用方所观察的 Agent 运行最终退出，跨越 generation restart；不是让 Agent 暂停，也不是 Signal/EventBus 的消费接口。
 
 `TurnHandle.wait()` 保持原名，其对象已经明确表示一个 Turn 的完成结果；Kernel 的 INPUT/EVENT/TIMER/BUDGET 等待仍由 Loop 唯一维护。此次命名不涉及内核等待动作、进程 wait、Condition 或 Future 的通用等待方法。
 
-推荐本轮仅重命名、同步调用者和明确已有契约；返回与 shutdown 语义见 §8 Q1。按推荐方案，接口行为如下：
+本轮按 §8 Q1 确认，仅重命名、同步调用者和明确已有契约。接口行为如下：
 
 | 情况 | wait_for_exit 行为 |
 |---|---|
@@ -117,11 +117,11 @@ wait_for_exit 不替代 shutdown，也不承诺世代和全部宿主资源已经
 
 | 切片 | 状态 | 改动与验收 |
 |---|---|---|
-| R5R.1 可用性边界 | pending | EngineContext 的统一可用性读取；CLI/Host/单 Assembly 挂载显式装配；activation 完成前业务拒绝，完成后正常受理，status 与业务一致 |
-| R5R.2 重启适配收敛 | pending | 删除逐请求解绑，复用唯一 SDK 重启任务；并发调用共享结果，取消一个等待者不破坏新绑定；失败后查询和显式重试保持可用 |
-| R5R.3 部分启动收尾 | pending | 复用 scheduler 完成入口结清来源已受理请求；失败/取消身份准确，句柄完成，无虚构 Turn/Session |
-| R5R.4 退出等待命名 | pending | Q1 确认后重命名为 wait_for_exit，同步 CLI、SDK 测试与当前文档；不留旧别名 |
-| R5R.5 文档与门禁 | pending | 同步 AGENTS、design/agent、design/endpoint、endpoint/runtime 及相关协议说明；Full/typecheck、文档链接与 diff-check；主计划 S5 重新验收 |
+| R5R.1 可用性边界 | done | EngineContext 的统一可用性读取；CLI/Host/单 Assembly 挂载显式装配；activation 完成前业务拒绝，完成后正常受理，status 与业务一致 |
+| R5R.2 重启适配收敛 | done | 删除逐请求解绑，复用唯一 SDK 重启任务；并发调用共享结果，取消一个等待者不破坏新绑定；失败后查询和显式重试保持可用 |
+| R5R.3 部分启动收尾 | done | 复用 scheduler 完成入口结清来源已受理请求；失败/取消身份准确，句柄完成，无虚构 Turn/Session |
+| R5R.4 退出等待命名 | done | 已确认重命名为 wait_for_exit，同步 CLI、SDK 测试与当前文档；不留旧别名 |
+| R5R.5 文档与门禁 | done | 同步 AGENTS、design/agent、design/endpoint、endpoint/runtime 及相关协议说明；Full/typecheck、文档链接与 diff-check；主计划 S5 重新验收 |
 
 最小回归集合按 owner 分工：
 
@@ -139,15 +139,25 @@ wait_for_exit 不替代 shutdown，也不承诺世代和全部宿主资源已经
 - Candidate facade 与 Observation route 的绑定没有被误用为业务激活；Context、领域 owner、请求队列和 Job 不复制状态。
 - 本轮只给既有关闭入口补齐未启动请求的结算，保持局部拒绝、模块失败、Runtime 控制和取消的区别。
 - 可用性检查集中在协议依赖入口，底层继续使用已有 lease，不添加逐层状态重验、发布序号、CAS 或自动恢复。
-- 原 R5 两批次的归档与验证记录保留。本计划覆盖提交后复审修正；主计划 S5 暂回 in_progress，S1/S2/S4 完成状态与 S3、S6–S7 范围不变。
+- 原 R5 两批次的归档与验证记录保留。本计划覆盖提交后复审修正；S5 在修正完成后重新核对为 done，S1/S2/S4 完成状态与 S3、S6–S7 范围不变。
 - 当前 design 文档在实施时更新，不提前描述本计划为已实现。完成后逐项写入实现与验证位置，将本文件加入 `-done-` 并移至 `docs/analysis/done/`，更新主计划链接及 S5 状态。
 
 ## 8. 待确认点
 
-Q1 `pending`：是否仅重命名并保留现有退出等待契约？推荐本轮保持 `AgentRunResult` 返回类型和显式 shutdown 的取消语义，把含义准确写入 SDK 文档。若希望显式 shutdown 也正常返回，应先明确退出结果如何区分正常结束与外部关闭，再修订 §5；不能伪造空 AgentRunResult，也不在本轮未经确认增加通用 AgentExitResult 状态体系。
+Q1 `decided`（2026-09-21 用户确认）：本轮仅重命名，保持 `AgentRunResult` 返回类型和显式 shutdown 对未完成退出等待的取消语义，把含义准确写入 SDK 文档。不新增退出结果类型或跨重启累计结果。
 
-P1/P2 的事实与生命周期所有权已明确，推荐的可用性投影、共享重启和请求收尾方案不依赖 Q1。当前仅完成方案编写，所有实施切片保持 pending，待方案讨论确认后实施。
+P1/P2 的可用性投影、共享重启与请求收尾方案及 Q1 均已确认并落实，没有遗留待确认语义。
 
 ## 9. 实施记录
 
-2026-09-21：完成提交后复审与修正设计；本文件为待实施方案。尚未修改运行代码、测试或当前设计契约，也未执行本计划的完成门禁。
+2026-09-21：用户确认 Q1 并授权实施，代码实施起点为计划提交 `996b35d`。以下实现、文档与必要验证均已逐项核对完成：
+
+- R5R.1：`gateway/endpoint/engine/context.py` 集中读取显式可用性函数；`host.py` 在未接入来源时关闭业务访问，CLI 从 Agent.state 派生，mount_endpoint 从 Assembly.is_available 派生；status 复用同一判定。四项既有配置协作测试改为真实 activate/close，不保留未激活即可服务的假设。
+- R5R.2：`gateway/cli.py` 的 `_EndpointLifecycle` 删除 host 依赖和逐请求解绑，只调用 Agent.restart。既有真实 CLI/HTTP 回归加入候选已绑定的 activation 同步点，验证两个请求只建立一个新 Assembly；单独取消 lifecycle 调用者后继续从真实 HTTP 查询并受理 Turn。
+- R5R.3：Assembly 激活失败先停止受理并回收来源；SDK 通过 JoinedOperations 完整 join 失败启动的请求结算和资源关闭；scheduler.close_requests 使用已有 RequestFailure 区分失败与取消。两项参数化 owner 回归验证句柄终态、cancel_requested、错误摘要、未调用模型与资源回收。
+- R5R.4：SDK 与 CLI、测试替身均已迁移 wait_for_exit；保留原返回/取消协议。回归覆盖跨 restart、单等待者取消、首次启动前拒绝、正常退出结果及 shutdown 后保留已完成结果。
+- R5R.5：已同步 design/agent、design/endpoint 和 endpoint/runtime、index、frontend-integration；AGENTS 与主计划 S5 完成状态同步。历史执行记录保留旧名，当前代码无 Agent.wait 兼容别名。
+
+验证：Windows Fast `1107 passed, 28 deselected`；Full `1112 passed, 23 deselected`，含全部 5 项 Generation/wheel；`typecheck.ps1` 与 diff-check 通过，归档链接已核对。本轮真实 HTTP server 验证并发 restart、ready/受理边界、失败后重试和 Ctrl-C；等待者取消直接在 lifecycle 适配层验证，不把 HTTP 断开等同于任务取消。未运行真实 provider/network 或 Linux 实机。
+
+依据 AGENTS 最终核对：Endpoint 只有候选依赖和 owner 状态投影，未增加平行生命周期/重启任务；请求结算复用 RootScheduler 完成管线，失败与取消分类没有混用；wait_for_exit 沿用已确认的结果与取消契约。代码、当前设计和 Endpoint 协议一致，P1/P2 已关闭。本计划标记 done 并归档，主计划只更新 S5 状态与本轮完成记录。
