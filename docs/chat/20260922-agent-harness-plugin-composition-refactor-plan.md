@@ -1,4 +1,4 @@
-# Agent Harness 与 Plugin 组装重构方案
+# Agent Harness 与 Plugin 组装重构执行计划
 
 状态：`pending`（设计方向与本文列出的关键取舍已确认；生产代码尚未按本计划实施）
 
@@ -46,9 +46,7 @@ TinySoul 的主要宿主是自己的 Agent 与上层应用。SDK 与 Plugin 的�
 | `agent/composition/builder.py::_build_generation` | 集中创建 Home、Session、Memory、Workspace、执行能力、三情景和来源 | 分离组成定义、配置编译、插件实例化及情景解析 |
 | `agent/composition/assembly.py::AgentAssembly` | 实际是根调度、命令、配置、来源和 generation handle 的运行容器 | 改名内部 AgentRuntime，原名用于静态定义 |
 | `agent/sdk.py::Agent.assemble` | 接收异步运行装配工厂 | 改为接收静态 AgentAssembly |
-| `agent/dispatch/scheduler.py::AgentGeneration` | 当前是只暴露 `user_turn`、`reflection`、`day` 的窄 Protocol | 改名为 `GenerationDispatchPort`，把 `AgentGeneration` 留给实际世代聚合对象 |
 | `kernel/registration.py` | PluginDeclaration 混合 profile 贡献与 generation sources | 收口为 PluginProfileExtension；sources 上移 |
-| `kernel/loop/assembly.py::TurnProfile` | 当前同时保存 Profile 执行面和 `sources` 字段 | 保留 Profile 的执行能力与事件/完成管线；移除 generation 级来源字段，身份收口为 `ProfileKind` |
 | `agent/composition/actions.py` | 创建共享 Jobs 和 execution/expand/subagent，集中贡献动作与连接段 | 保留共享设施；领域创建与贡献移入各插件 |
 | `agent/user/runtime.py` | 手工绑定 Home runtime-copy Trap handler | Home 声明 owner 处理器，情景装配器统一安装 |
 | `agent/composition/activity.py` | Jobs 收敛 → ACP close_turn → Workspace reconcile/flush | 保留执行顺序，改为消费明确的 owner 贡献 |
@@ -74,7 +72,7 @@ TinySoul 的主要宿主是自己的 Agent 与上层应用。SDK 与 Plugin 的�
 | AgentPlugin | 能力定义、构建依赖和配置契约 | 随 Assembly 保存，无活动 Engine |
 | PluginGeneration | 单插件在某代中的 owner、资源和扩展生产者 | 每个插件每 generation 一个 |
 | PluginProfileExtension | 单插件面向一个情景的局部贡献声明 | profile 装配期间形成 |
-| TurnProfile | 策略与多插件扩展汇集后的可执行情景，身份使用 `ProfileKind` | generation 内串行复用 |
+| TurnProfile | 策略与多插件扩展汇集后的可执行情景 | generation 内串行复用 |
 | Turn | 使用一个 profile 的一次执行 | 初始输入至必要收尾完成 |
 
 PluginGeneration 不拥有独立世代编号或重启器；AgentGeneration 不复制领域事实。静态定义可复用，不等于活动 Engine 或连接可以跨 generation 复用。
@@ -108,8 +106,6 @@ TurnProfile 持有的 ContextEngine/ActionEngine 是可串行复用执行设施�
 
 本次不新增“每 Turn 重建整个 Profile/ContextEngine”流程，也不支持同一个 profile 上的并发根 Turn。未来如有并发需求，应单独设计执行状态隔离。
 
-现有 `RootScheduler` 中名为 `AgentGeneration` 的窄 Protocol 不是世代 owner。迁移时必须将其收口为 `GenerationDispatchPort`（或同等明确的窄名称），并让 `RuntimeHandle` 的实际泛型对象使用 `AgentGeneration`。不得保留两个同名类型或用兼容别名掩盖两种职责。
-
 ## 4. 契约归属与依赖方向
 
 保持 `infra → runtime/llm → kernel → plugins/environment → agent → gateway` 的依赖方向。
@@ -123,7 +119,7 @@ TurnProfile 持有的 ContextEngine/ActionEngine 是可串行复用执行设施�
 - AgentBuilder、AgentAssembly、AgentRuntime、generation 构建器和具体 build-context 实现属于 agent。
 - Plugin 实现、领域配置解析、owner facade、声明门面属于 plugins 的各 owner 包。
 - 日历、配置来源、资源 scope、ServiceScope 等继续属于原有基础设施，不私有化到新插件。
-- 通用 SPI 传递中性的 `ProfileKind`；它在 kernel 可依赖的中性位置使用 `StrEnum` 声明稳定的 `USER`、`HOME_REFLECTION` 和 `MEMORY_REFLECTION` 身份。固定身份的策略和领域语义由上层组合与插件共享约定维护，Kernel 不按情景名称分支，不形成 plugins→agent 导入。
+- 通用 SPI 传递中性的 profile 身份；固定 User/Home Reflection/Memory Reflection 身份和策略由上层组合与插件共享约定维护，Kernel 不按情景名称分支。若集中身份常量，应放在双方可依赖的位置，不形成 plugins→agent 导入。
 
 第一批架构测试必须覆盖这些新协议的导入方向，而不仅检查旧包。
 
@@ -141,7 +137,7 @@ Plugin 定义声明稳定身份、所提供的构建期服务类型和所需的�
 
 创建完 owner 后，情景策略准备必要的来源接口，再让各 PluginGeneration 生成该情景的扩展。扩展中的 `requires` 检查情景最终是否获得必要服务。
 
-`extend_profile` 不应依赖“另一个插件已先安装扩展”。跨插件的构建依赖已在 generation 阶段解决；profile 内部绑定若需要最终服务表，则通过声明的窄绑定入口在解析后取得，不提前访问未完成 registry。`ProfileBuildContext` 可以提供 Reflection 的请求来源绑定端口，但不直接承载或启动 `RuntimeSource`；来源实例和来源生命周期只属于 `PluginGeneration` 与 `GenerationSources`。
+`extend_profile` 不应依赖“另一个插件已先安装扩展”。跨插件的构建依赖已在 generation 阶段解决；profile 内部绑定若需要最终服务表，则通过声明的窄绑定入口在解析后取得，不提前访问未完成 registry。
 
 先收集声明，再完成服务、段路由、动作与 Trap 原因等校验，最后统一安装。注册回调只修改本次局部构建器，不能执行文件提交、启动来源或调用模型。若回调契约失败，丢弃该次候选装配，不建立复杂回滚系统。
 
@@ -156,17 +152,15 @@ class AgentPlugin(Protocol):
 
 class PluginGeneration(Protocol):
     def extend_profile(
-        self, profile: ProfileKind, context: ProfileBuildContext
+        self, profile_id: str, context: ProfileBuildContext
     ) -> PluginProfileExtension | None: ...
 
     async def close(self) -> tuple[CleanupDiagnostic, ...]: ...
 ```
 
-GenerationBuildContext 只提供已解析配置、已声明依赖及实际所需宿主端口。ProfileBuildContext 只提供由 `ProfileKind` 标识的情景允许的来源、策略和组装读取端口，不暴露完整 Agent，也不让插件自行向其它 profile 写入。
+GenerationBuildContext 只提供已解析配置、已声明依赖及实际所需宿主端口。ProfileBuildContext 只提供情景允许的来源、策略和组装读取端口，不暴露完整 Agent，也不让插件自行向其它 profile 写入。
 
-`PluginGeneration` 的来源、日边界资源、SDK export 和永久 close 必须通过明确的代级资源端口归属给它；Profile 的事件、Trap handler、Turn 收尾和其他局部能力通过 `PluginProfileExtension` 归属。实现可以复用 `GenerationSources`、现有 day coordinator 和 `ServiceScope`，但不能只保留一个 `close()` 方法而把这些资源重新散落回 Builder。具体 SPI 仅加入当前有真实消费者的资源端口。
-
-返回 `None` 仅表示某能力不参与某个情景，不表示标准 Agent 可以缺少核心 owner。`ProfileKind` 的转换在请求入口完成，插件 SPI 内不传播未经校验的场景字符串。无 I/O 的能力仍可产生轻量 PluginGeneration，但不为其制造空来源、空段或日切对象。
+返回 `None` 仅表示某能力不参与某个情景，不表示标准 Agent 可以缺少核心 owner。无 I/O 的能力仍可产生轻量 PluginGeneration，但不为其制造空来源、空段或日切对象。
 
 ## 6. 配置、Action catalog 与宿主依赖
 
@@ -322,10 +316,8 @@ shutdown 不重建，完成既有必要收尾后关闭运行资源。reload 与 
 | `agent/composition/builder.py` | 公开 Builder 收集定义；内部 generation 构建消费插件与配置契约 |
 | `agent/composition/assembly.py` | 静态 AgentAssembly；现运行容器改为内部 AgentRuntime 并放入职责相符位置 |
 | `agent/sdk.py` | assemble 接静态定义，create 仅委托；保留生命周期可观察行为 |
-| `agent/lifecycle/generation.py` | AgentGeneration 管理插件实例、profiles、来源及资源作用域；与 `GenerationDispatchPort` 分离 |
-| `agent/dispatch/scheduler.py` | 将窄的 AgentGeneration Protocol 改名为 `GenerationDispatchPort`，保持 RootScheduler 只依赖 user/reflection/day |
+| `agent/lifecycle/generation.py` | AgentGeneration 管理插件实例、profiles、来源及资源作用域 |
 | `kernel/registration.py` | 复用声明校验，收口 PluginProfileExtension／ResolvedProfileExtensions；提供必要下层 SPI |
-| `kernel/loop/assembly.py` | 从 TurnProfile 移除 generation 级 `sources`，保留 Profile 的执行 surface 与 `ProfileKind` 身份 |
 | `plugins/*/plugin.py` 或已有 owner 门面 | 配置、实例创建、依赖、情景贡献、资源释放与 SDK export 的单一入口 |
 | `agent/composition/actions.py` | 剥离领域特例，只保留必要共享内核装配；没有剩余职责时删除 |
 | `agent/user/builder.py`、`plugins/reflection/builder.py` | 保留各情景策略和必要业务来源协作，消费统一扩展；不手工重复追加 owner 能力 |
@@ -358,7 +350,7 @@ shutdown 不重建，完成既有必要收尾后关闭运行资源。reload 与 
 
 同步迁移 AgentAssembly／AgentRuntime、AgentBuilder.build 和 Agent.assemble 的调用方；建立显式标准配方及下层共享 SPI。配置来源和有效快照分离，宿主 owned/borrowed 边界明确。保持 create 为薄入口。
 
-校验依赖与身份；建立 generation 构建与 profile 解析两个阶段。迁移必要 SDK/Gateway 消费者，不能留下同名两义的 Assembly 或 `AgentGeneration`。现有能力迁移期间只保留唯一有效注册路径，包装旧 Builder 的 suite 不作为本阶段验收产物。与此同时确定标准核心 owner 的基线校验位置，并将 `TurnProfile` 的字符串身份收口为 `ProfileKind`，字符串只在 Gateway/Observation 等边界转换；User/Reflection builder 不再从 Profile declaration 汇总 `sources`。
+校验依赖与身份；建立 generation 构建与 profile 解析两个阶段。迁移必要 SDK/Gateway 消费者，不能留下同名两义的 Assembly。现有能力迁移期间只保留唯一有效注册路径，包装旧 Builder 的 suite 不作为本阶段验收产物。
 
 ### P3：Workspace 完整纵向接入
 
@@ -408,8 +400,8 @@ shutdown 不重建，完成既有必要收尾后关闭运行资源。reload 与 
 |---|---|
 | A1 | 标准核心组成唯一、显式；无核心插件裁剪与缺省空 owner 路径 |
 | A2 | Builder.build 不创建 Engine/来源/客户端；assemble 准备、start 激活 |
-| A3 | 通用插件契约不导致 plugins→agent 或 kernel→plugins 导入；RootScheduler 依赖 `GenerationDispatchPort`，实际 `AgentGeneration` 只有一个 owner |
-| A4 | generation 构建依赖与 profile 使用依赖分别校验；扩展安装无提前执行，ProfileBuildContext 不拥有 RuntimeSource 生命周期 |
+| A3 | 通用插件契约不导致 plugins→agent 或 kernel→plugins 导入 |
+| A4 | generation 构建依赖与 profile 使用依赖分别校验；扩展安装无提前执行 |
 | A5 | 每个插件每代一个 owner；三个 profile 不重复创建资源或来源 |
 | A6 | 新配置通过统一解析／候选路径，reload 重新读取；Action 仍经唯一 catalog |
 | A7 | Home 恢复 handler 经声明接入；预算/容量/结束仍由公共策略控制 |
@@ -427,11 +419,11 @@ shutdown 不重建，完成既有必要收尾后关闭运行资源。reload 与 
 
 ## 15. 本次修订与后续记录
 
-2026-09-22 已确认：Plugin 用于内部清晰与迭代，不考虑移除核心能力；保留现有运行设施复用方式和 Reflection 专门策略。本文据此整体修订目标、协议、配置、生命周期、代码归属、执行顺序和验收，未保留相互冲突的旧建议。同步到当前分析计划时补充了 `ProfileKind` 的稳定类型约束，以及标准核心组成不得绕过基线校验的实现要求。
+2026-09-22 已确认：Plugin 用于内部清晰与迭代，不考虑移除核心能力；保留现有运行设施复用方式和 Reflection 专门策略。本文据此整体修订目标、协议、配置、生命周期、代码归属、执行顺序和验收，未保留相互冲突的旧建议。
 
 本次只交付方案文档；未实施 Python/API/配置/Endpoint 变更，未运行新的代码门禁，不将此前 review 的测试结果充作本计划实施验收。P0 完成，P1–P7 与 A1–A16 均待实施。
 
-基础设计方向没有新的阻塞确认项。P2 需要在实现前落实标准核心组成的基线校验位置，方法具体拼写、文件拆分和小型参数结构由实施按本文职责落定；如实际协议迫使改变所有权、可观察生命周期或业务写边界，应提出具体冲突再讨论，不用兼容旁路掩盖。
+当前没有需要重复确认的基础设计决定。方法具体拼写、文件拆分和小型参数结构由实施按本文职责落定；如实际协议迫使改变所有权、可观察生命周期或业务写边界，应提出具体冲突再讨论，不用兼容旁路掩盖。
 
 建议本次文档提交说明：
 
