@@ -7,8 +7,9 @@ from collections.abc import AsyncIterator
 from typing import Protocol
 
 from tinysoul.infra.clock import CalendarClock
-from tinysoul.infra.concurrency import AsyncReadWriteLock, JoinedOperations, AsyncCloser
+from tinysoul.infra.concurrency import AsyncReadWriteLock, JoinedOperations
 from tinysoul.infra.time import CalendarDay
+from tinysoul.infra.concurrency import AsyncCloser
 from tinysoul.plugins.archive import DailyLifecycleCoordinator, DailyTransitionOutcome
 from tinysoul.plugins.archive.errors import ArchiveError
 from tinysoul.plugins.archive.runtime_bridge import RuntimeArchiveBridge
@@ -41,14 +42,14 @@ class AgentDayCoordinator:
         clock: CalendarClock,
         *,
         active_day: CalendarDay | None = None,
-        close_execution_resources: AsyncCloser | None = None,
+        release_day: tuple[AsyncCloser, ...] = (),
     ) -> None:
         self._archive = archive
         self._memory = memory
         self._clock = clock
         self._lock = AsyncReadWriteLock()
         self._active_day = active_day
-        self._close_execution_resources = close_execution_resources
+        self._release_day = release_day
         self._sources: GenerationSources | None = None
 
     def bind_sources(self, sources: GenerationSources) -> None:
@@ -75,6 +76,11 @@ class AgentDayCoordinator:
         if changing and self._sources is not None:
             await self._sources.pause()
         try:
+            if changing and self._active_day is not None:
+                operations = JoinedOperations()
+                for release in self._release_day:
+                    await operations.run_async(release)
+                operations.check_cancelled()
             return await self._preflight(scope=scope)
         finally:
             if changing and self._sources is not None:
@@ -82,11 +88,6 @@ class AgentDayCoordinator:
 
     async def _preflight(self, *, scope: RunScope) -> DailyTransitionOutcome:
         async with self._lock.write_locked():
-            if (
-                self._active_day != self.current_day()
-                and self._close_execution_resources is not None
-            ):
-                await self._close_execution_resources()
             operation = JoinedOperations()
             transition = await operation.run(lambda: self._prepare(scope))
             self._active_day = transition.active_day

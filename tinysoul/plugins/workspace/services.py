@@ -1,7 +1,50 @@
 """Current-day Workspace capabilities, excluding lifecycle and physical paths."""
 
 from tinysoul.infra.services import ScopedService, ServiceScope
-from .engine import WorkspaceEngine
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Protocol
+from .engine import WorkspaceEngine, WorkspaceExecutionLocation
+from .inspection.models import WorkspaceTextRead, WorkspaceBundleWrite, WorkspaceBundleResult
+
+
+class WorkspaceExecutionPort(Protocol):
+    def prepare_execution(
+        self, job_id: str, *, cwd_link: str = "", source_text: str | None = None,
+        source_suffix: str = "",
+    ) -> WorkspaceExecutionLocation: ...
+
+    def prepare_external_cwd(self, connection_id: str, *, cwd_link: str = "") -> tuple[Path, str]: ...
+
+    def read_text(self, link: str, *, max_chars: int | None = None) -> WorkspaceTextRead: ...
+
+    def write_bundle(
+        self, writes: Sequence[WorkspaceBundleWrite], *, delete_links: Sequence[str] = (),
+    ) -> WorkspaceBundleResult: ...
+
+
+class WorkspaceExecutionService:
+    """Synchronous owner operations needed by controlled execution backends."""
+
+    def __init__(self, owner: WorkspaceEngine) -> None:
+        self._owner = owner
+
+    def prepare_execution(
+        self, job_id: str, *, cwd_link: str = "", source_text: str | None = None,
+        source_suffix: str = "",
+    ) -> WorkspaceExecutionLocation:
+        return self._owner.prepare_execution(job_id, cwd_link=cwd_link, source_text=source_text, source_suffix=source_suffix)
+
+    def prepare_external_cwd(self, connection_id: str, *, cwd_link: str = "") -> tuple[Path, str]:
+        return self._owner.prepare_external_cwd(connection_id, cwd_link=cwd_link)
+
+    def read_text(self, link: str, *, max_chars: int | None = None) -> WorkspaceTextRead:
+        return self._owner.read_text(link, max_chars=max_chars)
+
+    def write_bundle(
+        self, writes: Sequence[WorkspaceBundleWrite], *, delete_links: Sequence[str] = (),
+    ) -> WorkspaceBundleResult:
+        return self._owner.write_bundle(writes, delete_links=delete_links)
 
 
 class WorkspaceService(ScopedService[WorkspaceEngine]):

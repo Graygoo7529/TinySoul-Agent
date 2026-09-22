@@ -87,7 +87,7 @@ class ReflectionService(Protocol):
     ) -> ReflectionOutcome: ...
 
 
-class AgentGeneration(Protocol):
+class GenerationDispatchPort(Protocol):
     @property
     def user_turn(self) -> UserTurnExecutor: ...
 
@@ -98,7 +98,7 @@ class AgentGeneration(Protocol):
     def day(self) -> DayLifecycle: ...
 
 
-AgentGenerationT = TypeVar("AgentGenerationT", bound=AgentGeneration)
+AgentGenerationT = TypeVar("AgentGenerationT", bound=GenerationDispatchPort)
 
 
 @dataclass(frozen=True)

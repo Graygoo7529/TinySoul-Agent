@@ -131,10 +131,12 @@ async def test_capacity_recovery_rebuilds_task_or_ends_without_replaying_complet
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
+    from tinysoul.kernel.registration import PluginRegistry
+    plugins = PluginRegistry(()).resolve(context)
     trap = (
-        build_reflection_turn_trap(context, home=home)
+        build_reflection_turn_trap(context, plugins=plugins)
         if reflection
-        else build_user_turn_trap(context=context, home=home)
+        else build_user_turn_trap(context=context, plugins=plugins)
     )
     modules = RuntimeModuleRunner(trap=trap, bus=bus)
     writes: list[str] = []

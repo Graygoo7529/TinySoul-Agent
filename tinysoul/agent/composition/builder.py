@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import copy
+from types import MappingProxyType
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.runtime import RunLevel, RunScope
 from collections.abc import Awaitable, Callable, Mapping
@@ -58,7 +60,7 @@ from tinysoul.kernel.loop.lifecycle.completion import TurnCompletionHandler
 from tinysoul.kernel.loop.phases import LLMRunner
 from tinysoul.kernel.loop.prompts import DomainSkillProvider
 from tinysoul.agent.user import UserTurnBuilder
-from .actions import CommonActionAssembly
+from .actions import CorePlugin, ProfileAssembly
 from tinysoul.infra.clock import CalendarClock
 from tinysoul.plugins.reflection import (
     ReflectionBuilder,
@@ -99,6 +101,7 @@ from tinysoul.plugins.workspace.errors import WorkspaceError
 from ..config import AgentSettings, parse_agent_settings
 from ..errors import (
     AgentError,
+    AgentInvariantError,
     AgentClosedError,
     AgentQueueFullError,
 )
@@ -106,18 +109,41 @@ from ..dispatch.ingress import AgentIngress
 from ..dispatch.inputs import InputCommandParser, InputDispatcher, InputSource
 from ..observation.outputs import ObservationRoute, ObservationRouter, OutputSink
 from tinysoul.agent.dispatch.scheduler import RootScheduler
-from .assembly import AgentAssembly
-from ..lifecycle.generation import AgentConfigPlan, AgentRuntimeGeneration
+from .assembly import AgentAssembly, AgentRuntime
+from ..lifecycle.generation import AgentConfigPlan, AgentGeneration
 from ..lifecycle.day import AgentDayCoordinator
 from tinysoul.plugins.archive import DailyLifecycleCoordinator
 from tinysoul.infra.clock import IanaCalendarClock
 from ..lifecycle.runtime_policy import build_agent_trap
 from tinysoul.environment.sources.scheduler import DeadlineTimer
-from tinysoul.plugins.reflection.schedule import ReflectionScheduler
-from tinysoul.kernel.registration import PluginDeclaration
+from tinysoul.plugins.reflection.schedule import ReflectionSchedulePlugin, ReflectionSubmission
+from tinysoul.kernel.registration import (
+    AgentPlugin,
+    GenerationBuildContext,
+    PluginGeneration,
+    PluginProfileExtension,
+    ProfileKind,
+    RegistrationError,
+    PluginDefinitions, Service, ServiceRegistry,
+)
 from tinysoul.environment.sources.fswatch import FileWatcher
+from tinysoul.runtime.sources import RuntimeTimer, RuntimeWatcher
 from tinysoul.plugins.workspace.events import WorkspaceRuntime
 from ..lifecycle.sources import GenerationSources
+
+from tinysoul.plugins.home.plugin import HomePlugin
+from tinysoul.plugins.home.services import HomeService
+from tinysoul.plugins.session.plugin import SessionPlugin
+from tinysoul.plugins.memory.plugin import MemoryPlugin
+from tinysoul.plugins.memory.actions import MemoryWriteSession
+from tinysoul.plugins.workspace.plugin import WorkspacePlugin
+from tinysoul.plugins.execution.plugin import ExecutionPlugin
+from tinysoul.plugins.capabilities.expand.plugin import ExpandPlugin
+from tinysoul.plugins.capabilities.subagent.plugin import SubagentPlugin
+from tinysoul.plugins.capabilities.web.plugin import WebPlugin
+from tinysoul.plugins.capabilities.resource.plugin import ResourcePlugin
+from tinysoul.kernel.jobs import JobRegistry
+from tinysoul.infra import InfraSettings
 
 
 class AgentBuilder:
@@ -130,8 +156,6 @@ class AgentBuilder:
         self._agent_settings: AgentSettings | None = None
         self._config_env: ConfigEnvironment | None = None
         self._llm: LLMRunner | None = None
-        self._session: SessionEngine | None = None
-        self._memory: MemoryEngine | None = None
         self._calendar_clock: CalendarClock | None = None
         self._bus: SignalBus | None = None
         self._user_domain_skills: DomainSkillProvider | None = None
@@ -139,6 +163,7 @@ class AgentBuilder:
         self._input_sources: list[InputSource] = []
         self._user_turn_completion_handlers: list[TurnCompletionHandler] = []
         self._output_sinks: list[OutputSink] = []
+        self._plugins: list[AgentPlugin] = []
 
     def with_loop_settings(self, settings: LoopSettings) -> "AgentBuilder":
         self._loop_settings = settings
@@ -164,14 +189,6 @@ class AgentBuilder:
 
     def with_llm_runner(self, llm: LLMRunner) -> "AgentBuilder":
         self._llm = llm
-        return self
-
-    def with_session_engine(self, session: SessionEngine) -> "AgentBuilder":
-        self._session = session
-        return self
-
-    def with_memory_engine(self, memory: MemoryEngine) -> "AgentBuilder":
-        self._memory = memory
         return self
 
     def with_calendar_clock(
@@ -211,18 +228,58 @@ class AgentBuilder:
         self._output_sinks.append(sink)
         return self
 
-    async def build(self) -> AgentAssembly:
-        resources = AsyncResourceScope()
-        try:
-            return await self._build(resources)
-        except BaseException:
-            try:
-                await resources.close()
-            except asyncio.CancelledError:
-                pass
-            raise
+    def use(self, plugin: AgentPlugin) -> "AgentBuilder":
+        """Select one statically owned plugin for each materialized generation."""
+        plugin_id = getattr(plugin, "id", None)
+        if not isinstance(plugin_id, str) or not plugin_id:
+            raise AgentInvariantError("Agent plugin identity must be non-empty")
+        if any(existing.id == plugin_id for existing in self._plugins):
+            raise AgentInvariantError(f"Agent plugin is already selected: {plugin_id}")
+        self._plugins.append(plugin)
+        return self
 
-    async def _build(self, resources: AsyncResourceScope) -> AgentAssembly:
+    @property
+    def _definitions(self) -> PluginDefinitions:
+        return PluginDefinitions(tuple(self._plugins), host_services=(ReflectionSubmission, RuntimeTimer, RuntimeWatcher))
+
+    def build(self) -> AgentAssembly:
+        """Validate and freeze composition without creating owners or I/O resources."""
+        definitions = self._definitions
+        if {plugin.id for plugin in _standard_plugins()} - {plugin.id for plugin in definitions.plugins}:
+            raise RegistrationError("TinySoul requires the complete standard plugin recipe")
+        required = {AgentHomeEngine, HomeService, SessionEngine, MemoryEngine, MemoryWriteSession, WorkspaceEngine, JobRegistry}
+        if required - {service for plugin in definitions.plugins for service in plugin.provides}:
+            raise RegistrationError("The standard recipe is missing required owner services")
+        builder = copy.copy(self)
+        builder._input_sources = list(self._input_sources)
+        builder._user_turn_completion_handlers = list(self._user_turn_completion_handlers)
+        builder._output_sinks = list(self._output_sinks)
+        builder._plugins = list(definitions.plugins)
+        config = self._config_env or ConfigEnvironment.from_project_root(self._root)
+        builder._compile_config_plan(config, map_runtime_errors=True)
+
+        async def materialize() -> AgentRuntime:
+            runtime_builder = copy.copy(builder)
+            runtime_builder._config_env = config.reload()
+            resources = AsyncResourceScope()
+            try:
+                return await runtime_builder._build_runtime(resources)
+            except BaseException:
+                try:
+                    await resources.close()
+                except asyncio.CancelledError:
+                    pass
+                raise
+
+        return AgentAssembly(
+            root=self._root, runtime_factory=materialize,
+            plugin_ids=tuple(plugin.id for plugin in definitions.plugins),
+        )
+
+    async def _build_runtime(self, resources: AsyncResourceScope) -> AgentRuntime:
+        return await self._build(resources)
+
+    async def _build(self, resources: AsyncResourceScope) -> AgentRuntime:
         agent_bridge = RuntimeAgentBridge()
         llm_bridge = RuntimeLLMBridge()
         reflection_bridge = ReflectionRuntimeBridge()
@@ -231,25 +288,6 @@ class AgentBuilder:
                 self._config_env
                 if self._config_env is not None
                 else ConfigEnvironment.from_project_root(self._root)
-            )
-            config.validate_sections(
-                {
-                    "config",
-                    "agent",
-                    "action",
-                    "loop",
-                    "llm",
-                    "context",
-                    "home",
-                    "memory",
-                    "infra",
-                    "reflection",
-                    "session",
-                    "workspace",
-                    "capabilities",
-                    "execution",
-                    "jobs",
-                }
             )
             reflection_settings = (
                 self._reflection_settings
@@ -362,7 +400,7 @@ class AgentBuilder:
                     {"llm": {"adapters": adapter_specs_json()}}
                 ),
             )
-            return AgentAssembly(
+            return AgentRuntime(
                 configuration=config_controller,
                 generation_handle=generation_handle,
                 commands=commands,
@@ -392,7 +430,7 @@ class AgentBuilder:
 
     async def _prepare_generation_activation(
         self,
-        handle: RuntimeHandle[AgentRuntimeGeneration],
+        handle: RuntimeHandle[AgentGeneration],
         candidate: ConfigEnvironment,
         *,
         observations: ObservationEmitter,
@@ -456,21 +494,20 @@ class AgentBuilder:
         observations: ObservationEmitter,
         bus: SignalBus,
         map_config_errors: bool = False,
-    ) -> AgentRuntimeGeneration:
+    ) -> AgentGeneration:
         """Compile module settings and construct one complete business generation."""
 
         plan = self._compile_config_plan(
             config,
             map_runtime_errors=map_config_errors,
         )
-        infra_settings = plan.infra
         loop_settings = plan.loop
         reflection_settings = plan.reflection
         context_settings = plan.context
         action_settings = plan.action
-        capabilities_settings = plan.capabilities
         agent_settings = plan.agent
         resources = AsyncResourceScope()
+        plugin_generations: tuple[PluginGeneration, ...] = ()
         try:
             llm = self._llm
             if llm is None:
@@ -483,78 +520,36 @@ class AgentBuilder:
                 )
                 resources.register("llm", owned_llm.close)
                 llm = owned_llm
-            home = self._build_home(config, RuntimeAgentHomeBridge())
-            session = (
-                self._session
-                if self._session is not None
-                else self._build_session(config, RuntimeSessionBridge())
-            )
-            memory = self._memory
-            if memory is None:
-                embedding = build_embedding_client(
-                    infra_settings.embedding, env=config.runtime_env
-                )
-                if embedding is not None:
-                    resources.register("embedding", embedding.close)
-                memory = self._build_memory(
-                    config,
-                    RuntimeMemoryBridge(),
-                    session_root=session.root,
-                    embedding_client=embedding,
-                )
-            if memory.active_session_root is None:
-                memory.bind_active_session_root(session.root)
-            workspace = self._build_workspace(
-                config,
-                RuntimeWorkspaceBridge(),
-                observations,
-            )
-            workspace_runtime = WorkspaceRuntime(
-                workspace, FileWatcher(), observations=observations
-            )
-            resources.register("workspace_events", workspace_runtime.close)
-            action_assembly = CommonActionAssembly(
-                root=self._root,
-                workspace=workspace,
-                llm=llm,
-                observations=observations,
-                action_settings=action_settings,
-                capabilities_settings=capabilities_settings,
-                runtime_env=config.runtime_env,
-                execution_settings=plan.execution,
-                job_settings=plan.jobs,
-                workspace_source=workspace_runtime,
-                runtime_plugins=(
-                    PluginDeclaration(
-                        "reflection_schedule",
-                        sources=(
-                            ReflectionScheduler(
-                                reflection_settings.schedule,
-                                clock=self._calendar_clock
-                                or IanaCalendarClock(reflection_settings.timezone),
-                                timer=DeadlineTimer(),
-                                submit=submit_reflection,
-                            ),
-                        ),
-                    ),
+            clock = self._calendar_clock or IanaCalendarClock(reflection_settings.timezone)
+            plugin_generations = await self._definitions.build(
+                GenerationBuildContext(
+                    root=self._root, runtime_env=MappingProxyType(dict(config.runtime_env)),
+                    settings=ServiceRegistry((
+                        Service(InfraSettings, plan.infra),
+                        Service(ReflectionSettings, reflection_settings),
+                        *plan.plugin_settings,
+                    )),
+                    services=ServiceRegistry(()), llm=llm, observations=observations, clock=clock,
+                ),
+                resources,
+                host_services=(
+                    Service(ReflectionSubmission, ReflectionSubmission(submit_reflection)),
+                    Service(RuntimeTimer, DeadlineTimer()), Service(RuntimeWatcher, FileWatcher()),
                 ),
             )
+            services = ServiceRegistry(tuple(item for plugin in plugin_generations for item in plugin.services))
+            home, memory = services.get(AgentHomeEngine), services.get(MemoryEngine)
+            session, workspace = services.get(SessionEngine), services.get(WorkspaceEngine)
+            jobs = services.get(JobRegistry)
+            sources = GenerationSources(tuple(source for plugin in plugin_generations for source in plugin.sources))
+            action_assembly = ProfileAssembly(
+                plugins=plugin_generations, llm=llm, home=services.get(HomeService), jobs=jobs,
+                observations=observations, action_settings=action_settings,
+            )
             user_builder = UserTurnBuilder(
-                root=self._root,
-                context_settings=context_settings,
-                loop_settings=loop_settings,
-                capabilities_settings=capabilities_settings,
-                runtime_env=config.runtime_env,
-                llm=llm,
-                home=home,
-                memory=memory,
-                session=session,
-                workspace=workspace,
-                bus=bus,
-                observations=observations,
-                action_settings=action_settings,
-                action_catalog=plan.action_catalog,
-                action_assembly=action_assembly,
+                context_settings=context_settings, loop_settings=loop_settings,
+                llm=llm, bus=bus, observations=observations,
+                action_catalog=plan.action_catalog, action_assembly=action_assembly,
             )
             if self._user_domain_skills is not None:
                 user_builder.with_domain_skills(self._user_domain_skills)
@@ -573,7 +568,7 @@ class AgentBuilder:
                 memory,
                 self._calendar_clock or IanaCalendarClock(reflection_settings.timezone),
                 active_day=session.active_day,
-                close_execution_resources=action_assembly.close,
+                release_day=tuple(plugin.release_day for plugin in plugin_generations if plugin.release_day is not None),
             )
             reflection = ReflectionBuilder(
                 action_assembly=action_assembly,
@@ -589,6 +584,7 @@ class AgentBuilder:
                 observations=observations,
                 archive=archive,
                 action_catalog=plan.action_catalog,
+                memory_controller=services.get(MemoryWriteSession),
             ).build()
             surfaces = tuple(
                 profile.action for profile in (user_turn.profile, *reflection.profiles)
@@ -631,16 +627,9 @@ class AgentBuilder:
                     message="Profile action guidance could not be validated.",
                     payload={"error_type": type(exc).__name__},
                 ) from exc
-            sources = GenerationSources(
-                tuple(
-                    source
-                    for profile in (user_turn.profile, *reflection.profiles)
-                    for source in profile.sources
-                )
-            )
             day.bind_sources(sources)
-            return AgentRuntimeGeneration(
-                jobs=action_assembly.jobs,
+            return AgentGeneration(
+                jobs=jobs,
                 sources=sources,
                 config=config,
                 plan=plan,
@@ -660,7 +649,7 @@ class AgentBuilder:
                 reflection_settings=reflection_settings,
                 resources=resources,
                 reflection_profiles=reflection.profiles,
-                close_execution_resources=action_assembly.close,
+                plugin_generations=plugin_generations,
             )
         except BaseException:
             try:
@@ -670,16 +659,9 @@ class AgentBuilder:
             raise
 
     def _validate_config_candidate(
-        self, config: ConfigEnvironment, generation: AgentRuntimeGeneration
+        self, config: ConfigEnvironment, generation: AgentGeneration
     ) -> None:
         plan = self._compile_config_plan(config)
-        from tinysoul.plugins.capabilities.expand.config import validate_expand_bindings
-        from tinysoul.plugins.capabilities.subagent.config import (
-            validate_subagent_bindings,
-        )
-
-        validate_expand_bindings(plan.capabilities.expand, config.runtime_env)
-        validate_subagent_bindings(plan.capabilities.subagent, config.runtime_env)
         declared: set[str] = set()
         for profile in generation.profiles:
             profile.action.validate_candidate(plan.action_catalog.catalog)
@@ -706,25 +688,12 @@ class AgentBuilder:
         self,
         config: ConfigEnvironment,
     ) -> AgentConfigPlan:
-        config.validate_sections(
-            {
-                "config",
-                "agent",
-                "action",
-                "loop",
-                "llm",
-                "context",
-                "home",
-                "memory",
-                "infra",
-                "reflection",
-                "session",
-                "workspace",
-                "capabilities",
-                "execution",
-                "jobs",
-            }
-        )
+        definitions = self._definitions
+        config.validate_sections({
+            "config", "agent", "action", "loop", "llm", "context", "infra", "reflection",
+            *(item.section.split(".", 1)[0] for item in definitions.configuration),
+        })
+        plugin_settings = definitions.configure(config, self._root)
         action_settings = config.parse_section("action", parse_action_settings)
         action_catalog = ActionCatalogLoader(
             backend_kind_options_validators={
@@ -742,11 +711,7 @@ class AgentBuilder:
             ),
             action=action_settings,
             action_catalog=action_catalog,
-            capabilities=config.parse_section(
-                "capabilities", parse_capabilities_settings
-            ),
-            execution=config.parse_section("execution", parse_execution_settings),
-            jobs=config.parse_section("jobs", parse_job_settings),
+            plugin_settings=plugin_settings,
             context=config.parse_section("context", parse_context_settings),
             llm=config.parse_section("llm", LLMConfigParser().parse),
             loop=(
@@ -764,34 +729,6 @@ class AgentBuilder:
                         project_root=self._root,
                     ),
                 )
-            ),
-            home=config.parse_section(
-                "home",
-                lambda tree: parse_agent_home_settings(
-                    tree,
-                    project_root=self._root,
-                ),
-            ),
-            memory=config.parse_section(
-                "memory",
-                lambda tree: parse_memory_settings(
-                    tree,
-                    project_root=self._root,
-                ),
-            ),
-            session=config.parse_section(
-                "session",
-                lambda tree: parse_session_settings(
-                    tree,
-                    project_root=self._root,
-                ),
-            ),
-            workspace=config.parse_section(
-                "workspace",
-                lambda tree: parse_workspace_settings(
-                    tree,
-                    project_root=self._root,
-                ),
             ),
         )
         try:
@@ -813,35 +750,19 @@ class AgentBuilder:
             raise enriched from exc
         return plan
 
-    @staticmethod
-    def _map_owned_config_error(error: ConfigError) -> RuntimeException:
-        if error.key.startswith("capabilities.expand"):
-            from tinysoul.plugins.capabilities.expand.runtime_bridge import (
-                RuntimeExpandBridge,
-            )
-
-            return RuntimeExpandBridge().from_config_error(error)
-        if error.key.startswith("capabilities.subagent"):
-            from tinysoul.plugins.capabilities.subagent.runtime_bridge import (
-                RuntimeSubagentBridge,
-            )
-
-            return RuntimeSubagentBridge().from_config_error(error)
+    def _map_owned_config_error(self, error: ConfigError) -> RuntimeException:
+        for item in self._definitions.configuration:
+            if error.key == item.section or error.key.startswith(item.section + "."):
+                return item.failure(error)
         key = error.key.split(".", 1)[0] if error.key else "infra"
         if error.source.startswith("project-document:action.catalog:"):
             return RuntimeActionBridge().from_config_error(error)
         bridges = {
             "agent": RuntimeAgentBridge(),
-            "execution": RuntimeExecutionBridge(),
-            "jobs": RuntimeJobsBridge(),
             "action": RuntimeActionBridge(),
             "context": RuntimeContextBridge(),
-            "home": RuntimeAgentHomeBridge(),
             "llm": RuntimeLLMBridge(),
             "loop": RuntimeLoopBridge(),
-            "memory": RuntimeMemoryBridge(),
-            "session": RuntimeSessionBridge(),
-            "workspace": RuntimeWorkspaceBridge(),
             "reflection": ReflectionRuntimeBridge(),
         }
         bridge = bridges.get(key, RuntimeAgentBridge())
@@ -870,29 +791,6 @@ class AgentBuilder:
             await providers.close()
             raise
 
-    def _build_loop_settings(
-        self,
-        config: ConfigEnvironment,
-        bridge: RuntimeLoopBridge,
-    ) -> LoopSettings:
-        try:
-            return config.parse_section(
-                "loop",
-                parse_loop_settings,
-            )
-        except ConfigError as exc:
-            raise bridge.from_config_error(exc) from exc
-
-    def _build_action_settings(
-        self,
-        config: ConfigEnvironment,
-        bridge: RuntimeActionBridge,
-    ) -> ActionSettings:
-        try:
-            return config.parse_section("action", parse_action_settings)
-        except ConfigError as exc:
-            raise bridge.from_config_error(exc) from exc
-
     def _build_reflection_settings(
         self,
         config: ConfigEnvironment,
@@ -919,110 +817,18 @@ class AgentBuilder:
         except ConfigError as exc:
             raise bridge.from_config_error(exc) from exc
 
-    def _build_home(
-        self,
-        config: ConfigEnvironment,
-        bridge: RuntimeAgentHomeBridge,
-    ) -> AgentHomeEngine:
-        try:
-            settings = config.parse_section(
-                "home",
-                lambda tree: parse_agent_home_settings(
-                    tree,
-                    project_root=self._root,
-                ),
-            )
-            home = AgentHomeEngineBuilder(settings).build()
-            return home
-        except ConfigError as exc:
-            raise bridge.from_config_error(exc) from exc
-        except AgentHomeError as exc:
-            raise bridge.startup_failure(
-                message="Home could not be initialized.",
-                payload={"error_type": type(exc).__name__},
-            ) from exc
 
-    def _build_workspace(
-        self,
-        config: ConfigEnvironment,
-        bridge: RuntimeWorkspaceBridge,
-        observations: ObservationEmitter,
-    ) -> WorkspaceEngine:
-        try:
-            settings = config.parse_section(
-                "workspace",
-                lambda tree: parse_workspace_settings(
-                    tree,
-                    project_root=self._root,
-                ),
-            )
-            return WorkspaceEngineBuilder(
-                settings,
-                observations=observations,
-            ).build()
-        except ConfigError as exc:
-            raise bridge.from_config_error(exc) from exc
-        except WorkspaceError as exc:
-            raise bridge.startup_failure(
-                message="Workspace could not be initialized.",
-                payload={"error_type": type(exc).__name__},
-            ) from exc
+def _standard_plugins() -> tuple[AgentPlugin, ...]:
+    return (
+        HomePlugin(), SessionPlugin(), MemoryPlugin(), WorkspacePlugin(), CorePlugin(),
+        ExecutionPlugin(), ExpandPlugin(), SubagentPlugin(), WebPlugin(), ResourcePlugin(),
+        ReflectionSchedulePlugin(),
+    )
 
-    def _build_memory(
-        self,
-        config: ConfigEnvironment,
-        bridge: RuntimeMemoryBridge,
-        *,
-        session_root: Path,
-        embedding_client: EmbeddingClient | None,
-    ) -> MemoryEngine:
-        try:
-            settings = config.parse_section(
-                "memory",
-                lambda tree: parse_memory_settings(tree, project_root=self._root),
-            )
-            return MemoryEngine(
-                settings=settings,
-                active_session_root=session_root,
-                embedding_client=embedding_client,
-            )
-        except ConfigError as exc:
-            raise bridge.from_config_error(exc) from exc
-        except MemoryError as exc:
-            raise bridge.startup_failure(
-                message="Memory could not be initialized.",
-                payload={"error_type": type(exc).__name__},
-            ) from exc
 
-    def _build_context_settings(
-        self,
-        config: ConfigEnvironment,
-        bridge: RuntimeContextBridge,
-    ) -> ContextSettings:
-        try:
-            return config.parse_section("context", parse_context_settings)
-        except ConfigError as exc:
-            enriched = config.enrich_error(exc)
-            raise bridge.from_config_error(enriched) from exc
-
-    def _build_session(
-        self,
-        config: ConfigEnvironment,
-        bridge: RuntimeSessionBridge,
-    ) -> SessionEngine:
-        try:
-            settings = config.parse_section(
-                "session",
-                lambda tree: parse_session_settings(
-                    tree,
-                    project_root=self._root,
-                ),
-            )
-            return SessionEngine(settings)
-        except ConfigError as exc:
-            raise bridge.from_config_error(exc) from exc
-        except SessionError as exc:
-            raise bridge.startup_failure(
-                message="Session could not be initialized.",
-                payload={"error_type": type(exc).__name__},
-            ) from exc
+def standard_agent(root: Path | None = None) -> AgentBuilder:
+    """The complete TinySoul owner recipe, extensible by explicit host plugins."""
+    builder = AgentBuilder(root)
+    for plugin in _standard_plugins():
+        builder.use(plugin)
+    return builder

@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from collections.abc import Awaitable, Callable
 from typing import Protocol
+from dataclasses import dataclass
 
 from tinysoul.infra.clock import CalendarClock
 from tinysoul.infra.time import CalendarDay
@@ -12,8 +13,32 @@ from tinysoul.runtime.events import EnvironmentEvent, EventKind
 from tinysoul.runtime.sources import EventSink, SourceState, SourceStatus
 
 from .config import ReflectionScheduleSettings
+from .config import ReflectionSettings
+from .runtime_bridge import ReflectionRuntimeBridge
+from tinysoul.kernel.registration import GenerationBuildContext, PluginGeneration
+from tinysoul.runtime.sources import RuntimeTimer
 from .errors import ReflectionContractError
 from .models import ReflectionRequest, ReflectionScope, ReflectionTrigger
+
+
+@dataclass(frozen=True)
+class ReflectionSubmission:
+    submit: Callable[[ReflectionRequest], Awaitable[bool]]
+
+
+@dataclass(frozen=True)
+class ReflectionSchedulePlugin:
+    id = "reflection_schedule"
+    provides = ()
+    requires = (ReflectionSubmission, RuntimeTimer)
+    configuration = ()
+
+    async def build_generation(self, context: GenerationBuildContext) -> PluginGeneration:
+        source = ReflectionScheduler(
+            context.settings.get(ReflectionSettings).schedule, clock=context.clock,
+            timer=context.services.get(RuntimeTimer), submit=context.services.get(ReflectionSubmission).submit,
+        )
+        return PluginGeneration(self.id, sources=(source,))
 
 
 class ReflectionSchedule:

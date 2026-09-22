@@ -11,7 +11,7 @@ import sys
 from tinysoul.agent import Agent, AgentState, UserTurnRequest
 from tinysoul.agent.commands import AgentCommands
 from tinysoul.agent.requests import ExitRequest
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Callable, Sequence
 from types import FrameType
 
 from tinysoul.gateway.endpoint import EndpointError, EndpointHost, EndpointSettings
@@ -20,7 +20,7 @@ from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.loop import LoopControlKind
 from tinysoul.runtime import ObservationLevel, RuntimeException, RuntimeGatewayError
 
-from tinysoul.agent.composition.builder import AgentBuilder
+from tinysoul.agent.composition.builder import AgentBuilder, standard_agent
 from tinysoul.agent.composition.assembly import AgentAssembly
 from tinysoul.agent.config import parse_agent_settings
 from tinysoul.agent.errors import AgentError
@@ -175,33 +175,25 @@ def _start(argv: Sequence[str]) -> int:
                     ready=lease.publish,
                 )
 
-            async def factory() -> AgentAssembly:
-                config = ConfigEnvironment.from_project_root(root, overrides=overrides)
-                agent_settings = config.parse_section("agent", parse_agent_settings)
-                builder = (
-                    AgentBuilder(root)
+            config = ConfigEnvironment.from_project_root(root, overrides=overrides)
+            agent_settings = config.parse_section("agent", parse_agent_settings)
+            builder = (
+                    standard_agent(root)
                     .with_config_environment(config)
                     .with_agent_settings(agent_settings)
                     .with_output_sink(
                         ConsoleOutputSink(max_chars=agent_settings.output.model_max_chars)
                     )
-                )
-                if args.once is None:
-                    builder = builder.with_input_source(
-                        TerminalInputSource(
-                            eof_command=agent_settings.input_commands.exit_commands[0]
-                        )
+            )
+            if args.once is None:
+                builder = builder.with_input_source(
+                    TerminalInputSource(
+                        eof_command=agent_settings.input_commands.exit_commands[0]
                     )
-                assembly = await builder.build()
-                try:
-                    if endpoint_host is not None:
-                        endpoint_host.bind(assembly)
-                    return assembly
-                except BaseException:
-                    await assembly.close()
-                    raise
+                )
+            assembly = builder.build()
 
-            return asyncio.run(_run_application(factory, args.once, endpoint_host))
+            return asyncio.run(_run_application(assembly, args.once, endpoint_host))
     except KeyboardInterrupt:
         return 130
     except (
@@ -216,17 +208,19 @@ def _start(argv: Sequence[str]) -> int:
 
 
 async def _run_application(
-    factory: Callable[[], Awaitable[AgentAssembly]],
+    assembly: AgentAssembly,
     once: str | None,
     endpoint_host: EndpointHost | None = None,
 ) -> int:
-    agent = await Agent.assemble(factory)
+    agent = await Agent.assemble(assembly)
+    if endpoint_host is not None:
+        endpoint_host.bind(agent.runtime)
     if endpoint_host is not None:
         endpoint_host.set_availability(lambda: agent.state is AgentState.RUNNING)
     try:
         await agent.start()
         if endpoint_host is not None:
-            endpoint_host.set_lifecycle(_EndpointLifecycle(agent))
+            endpoint_host.set_lifecycle(_EndpointLifecycle(agent, endpoint_host))
             await endpoint_host.start()
         if once is not None:
             handle = await agent.submit_turn(UserTurnRequest(once, source="cli"))
@@ -267,11 +261,14 @@ async def _run_application(
 class _EndpointLifecycle:
     """Bridge the stable Endpoint host to the Agent SDK lifecycle."""
 
-    def __init__(self, agent: Agent) -> None:
+    def __init__(self, agent: Agent, endpoint_host: EndpointHost | None = None) -> None:
         self._agent = agent
+        self._endpoint_host = endpoint_host
 
     async def restart(self) -> JsonObject:
         diagnostics = await self._agent.restart()
+        if self._endpoint_host is not None:
+            self._endpoint_host.bind(self._agent.runtime)
         return {
             "accepted": True,
             "state": self._agent.state.value,

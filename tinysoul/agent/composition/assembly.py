@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
@@ -24,19 +26,19 @@ from ..dispatch.ingress import AgentIngress
 from ..observation.outputs import ObservationRouter
 from tinysoul.environment.services import EnvironmentService
 from tinysoul.runtime import RuntimeHandle
-from ..lifecycle.generation import AgentRuntimeGeneration
+from ..lifecycle.generation import AgentGeneration
 from ..services import AgentRuntimeServices
 
 
 @dataclass
-class AgentAssembly:
-    """Process-level TinySoul application."""
+class AgentRuntime:
+    """One active process runtime produced from an :class:`AgentAssembly`."""
 
     agent_runner: RootScheduler
     input_dispatcher: InputDispatcher
     gateway: AgentIngress
     commands: AgentCommands
-    generation_handle: RuntimeHandle[AgentRuntimeGeneration]
+    generation_handle: RuntimeHandle[AgentGeneration]
     configuration: ConfigController
     input_sources: tuple[InputSource, ...] = field(default_factory=tuple)
     services: tuple[EnvironmentService, ...] = field(default_factory=tuple)
@@ -155,3 +157,32 @@ class _ThreadInputSink:
         return asyncio.run_coroutine_threadsafe(
             self._gateway.submit(event), self._loop
         ).result()
+
+
+@dataclass(frozen=True)
+class AgentAssembly:
+    """Static agent composition definition.
+
+    The definition owns no active source, scheduler, or generation.  A fresh
+    :class:`AgentRuntime` is materialized for each start/restart boundary.
+    """
+
+    root: Path
+    runtime_factory: Callable[[], Awaitable[AgentRuntime]]
+    plugin_ids: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.root, Path):
+            raise AgentInvariantError("Agent assembly root must be a Path")
+        if not callable(self.runtime_factory):
+            raise AgentInvariantError("Agent assembly requires a runtime factory")
+        plugin_ids = tuple(self.plugin_ids)
+        if any(re.fullmatch(r"[a-z][a-z0-9_]*", item) is None for item in plugin_ids):
+            raise AgentInvariantError("Agent plugin identities must use lower_snake_case")
+        if len(plugin_ids) != len(set(plugin_ids)):
+            raise AgentInvariantError("Agent plugin identities must be unique")
+        object.__setattr__(self, "plugin_ids", plugin_ids)
+
+    async def build_runtime(self) -> AgentRuntime:
+        """Materialize one runtime without activating its sources."""
+        return await self.runtime_factory()

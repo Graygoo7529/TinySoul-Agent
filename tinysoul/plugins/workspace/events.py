@@ -283,4 +283,8 @@ class WorkspaceRuntime:
         try:
             await self.stop()
         finally:
-            self._workspace.events.bind(None)
+            self.unbind()
+
+    def unbind(self) -> None:
+        """Detach the owner from the event sink after source shutdown."""
+        self._workspace.events.bind(None)

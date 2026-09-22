@@ -12,7 +12,7 @@ Agent 是嵌入式运行门面与根 work 的唯一调度者，拥有类型化�
 
 用户轮/User Turn：从用户输入开始，到对应执行收敛为回答、等待用户、停止、耗尽、取消或失败。一个 Turn 可以包含多次 Cycle、LLM Task 和 Action，接受期间追加输入或明确回复；结束一轮不宣告整体多轮目标完成。
 
-Reflection Turn：同一个 Agent 的专门执行情景，与 User Turn 同级。Home/Memory Reflection 复用同一 Turn/Cycle/Phase 内核，通过 TurnProfile 取得独立 Context、Action 策略、来源和受约束服务；不发布用户回答，不写入 User Session。每日策略或用户明确允许本次整理后，安排独立根 work；单次授权不形成持续许可。
+Reflection Turn：同一个 Agent 的专门执行情景，与 User Turn 同级。Home/Memory Reflection 复用同一 Turn/Cycle/Phase 内核，通过 TurnProfile 取得独立 Context、Action 策略、来源视图和受约束服务；来源实例及生命周期属于 generation 的 PluginGeneration，profile 不拥有来源；不发布用户回答，不写入 User Session。每日策略或用户明确允许本次整理后，安排独立根 work；单次授权不形成持续许可。
 
 执行轮/Agent Cycle：Turn 内的一次完整“理解、决策、行动”循环：
 
@@ -98,7 +98,7 @@ SDK 服务绑定运行世代，日级服务同时绑定 CalendarDay；切换后�
 
 - 依赖方向为 `infra → runtime/llm → kernel → plugins/environment → agent → gateway`。上层通过稳定门面、服务、provider、snapshot 或 signal 协作，不绕过 owner 操作私有状态。
 - 每项持久事实只有一个 owner；运行状态、模型投影和持久内容分层，不复制状态、不建立平行日志、不保留语义不清的兼容别名。
-- 显式 PluginDeclaration 贡献服务、段、动作、preparation/completion、事件适配和来源；只有具有仓库内真实消费者的 SPI 才加入协议，不构建动态发现平台。
+- 显式 PluginProfileExtension 贡献服务、段、动作、preparation/completion 和事件适配；PluginGeneration 持有代级 owner、来源与永久 close。只有具有仓库内真实消费者的 SPI 才加入协议，不构建动态发现平台。
 
 ### 模块职责
 

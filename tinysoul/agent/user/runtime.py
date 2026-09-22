@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from tinysoul.kernel.context import ContextEngine
 from tinysoul.llm.failures import LLM_CONTEXT_CAPACITY_EXCEEDED
-from tinysoul.plugins.home import AgentHomeEngine, AgentHomeRuntimeCopyTrapHandler
+from tinysoul.kernel.registration import ResolvedProfileExtensions
 from tinysoul.kernel.context.failures import CONTEXT_COMPRESSION_REQUIRED
-from tinysoul.plugins.home.failures import HOME_RUNTIME_COPY_REQUIRED
 from tinysoul.runtime import (
     RUNTIME_CYCLE_END,
     RUNTIME_AGENT_END,
@@ -30,7 +29,7 @@ from tinysoul.kernel.loop.failures import LOOP_BUDGET_REQUIRED
 def build_user_turn_trap(
     *,
     context: ContextEngine,
-    home: AgentHomeEngine,
+    plugins: ResolvedProfileExtensions,
 ) -> RuntimeTrap:
     registry = TrapHandlerRegistry()
     registry.register(LOOP_BUDGET_REQUIRED, BudgetSuspendTrapHandler())
@@ -46,6 +45,6 @@ def build_user_turn_trap(
     )
     registry.register(CONTEXT_COMPRESSION_REQUIRED, pressure_handler)
     registry.register(LLM_CONTEXT_CAPACITY_EXCEEDED, pressure_handler)
-    registry.register(HOME_RUNTIME_COPY_REQUIRED, AgentHomeRuntimeCopyTrapHandler(home))
+    plugins.install_traps(registry)
     registry.register_fallback(EndTurnOrAgentTrapHandler())
     return RuntimeTrap(registry=registry)

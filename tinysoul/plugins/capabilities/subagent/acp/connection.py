@@ -8,12 +8,21 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
-from acp import Client, connect_to_agent
+from acp import Agent as AcpAgent, Client, connect_to_agent
+from acp.exceptions import RequestError
 from acp.schema import (
     ClientCapabilities,
+    CreateElicitationResponse,
+    CreateTerminalResponse,
     Implementation,
+    KillTerminalResponse,
+    ReadTextFileResponse,
+    ReleaseTerminalResponse,
     RequestPermissionResponse,
+    TerminalOutputResponse,
     TextContentBlock,
+    WaitForTerminalExitResponse,
+    WriteTextFileResponse,
 )
 
 from tinysoul.infra.concurrency import CleanupDiagnostic
@@ -60,6 +69,75 @@ class _Client(Client):
             content = update.content
             if isinstance(content, TextContentBlock):
                 await self._owner.receiver.text(content.text)
+
+    async def write_text_file(
+        self, session_id: str, path: str, content: str, **kwargs: Any
+    ) -> WriteTextFileResponse | None:
+        raise self._unsupported("file write")
+
+    async def read_text_file(
+        self,
+        session_id: str,
+        path: str,
+        line: int | None = None,
+        limit: int | None = None,
+        **kwargs: Any,
+    ) -> ReadTextFileResponse:
+        raise self._unsupported("file read")
+
+    async def create_terminal(
+        self,
+        session_id: str,
+        command: str,
+        args: list[str] | None = None,
+        env: list[Any] | None = None,
+        cwd: str | None = None,
+        output_byte_limit: int | None = None,
+        **kwargs: Any,
+    ) -> CreateTerminalResponse:
+        raise self._unsupported("terminal creation")
+
+    async def terminal_output(
+        self, session_id: str, terminal_id: str, **kwargs: Any
+    ) -> TerminalOutputResponse:
+        raise self._unsupported("terminal output")
+
+    async def release_terminal(
+        self, session_id: str, terminal_id: str, **kwargs: Any
+    ) -> ReleaseTerminalResponse | None:
+        raise self._unsupported("terminal release")
+
+    async def wait_for_terminal_exit(
+        self, session_id: str, terminal_id: str, **kwargs: Any
+    ) -> WaitForTerminalExitResponse:
+        raise self._unsupported("terminal wait")
+
+    async def kill_terminal(
+        self, session_id: str, terminal_id: str, **kwargs: Any
+    ) -> KillTerminalResponse | None:
+        raise self._unsupported("terminal kill")
+
+    async def create_elicitation(
+        self, message: str, mode: Any, **kwargs: Any
+    ) -> CreateElicitationResponse:
+        raise self._unsupported("elicitation")
+
+    async def complete_elicitation(self, elicitation_id: str, **kwargs: Any) -> None:
+        # Notifications have no response; this client never opens elicitation.
+        return None
+
+    async def ext_method(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        raise self._unsupported("extension method")
+
+    async def ext_notification(self, method: str, params: dict[str, Any]) -> None:
+        return None
+
+    def on_connect(self, conn: AcpAgent) -> None:
+        return None
+
+    @staticmethod
+    def _unsupported(capability: str) -> RequestError:
+        return RequestError.method_not_found(capability)
 
 
 class _Transport:

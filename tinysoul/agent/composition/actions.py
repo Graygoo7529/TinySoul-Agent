@@ -1,10 +1,6 @@
-"""Agent composition of owner contributions for each Turn profile."""
+"""Compose profile extensions from the generation's selected plugins."""
 
-from __future__ import annotations
-
-from collections.abc import Callable
-from functools import partial
-from pathlib import Path
+from dataclasses import dataclass
 
 from tinysoul.infra import StagingDirectoryManager, StagingError
 from tinysoul.infra.config import ConfigError
@@ -19,290 +15,107 @@ from tinysoul.kernel.context.errors import ContextError
 from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
 from tinysoul.kernel.jobs import JobRegistry, jobs_segment_registration
 from tinysoul.kernel.jobs.actions import register_job_actions
-from tinysoul.kernel.jobs.config import JobSettings
+from tinysoul.kernel.jobs.config import JobSettings, parse_job_settings
+from tinysoul.kernel.jobs.runtime_bridge import RuntimeJobsBridge
 from tinysoul.kernel.loop.failures import LoopFailureKind
 from tinysoul.kernel.loop.phases import LLMRunner
 from tinysoul.kernel.loop.runtime_bridge import RuntimeLoopBridge
 from tinysoul.kernel.registration import (
-    PluginDeclaration,
-    PluginRegistry,
-    RegistrationError,
-    ServiceRegistry,
-    ResolvedPlugins,
+    GenerationBuildContext, PluginConfig, PluginGeneration, PluginProfileExtension,
+    PluginRegistry, ProfileBuildContext, ProfileKind, RegistrationError,
+    ResolvedProfileExtensions, Service, ServiceRegistry,
 )
-from tinysoul.plugins.capabilities import CapabilitiesSettings
-from tinysoul.plugins.capabilities.resource import register_resource_actions
-from tinysoul.plugins.capabilities.web import register_web_actions
-from tinysoul.plugins.capabilities.expand.engine import ExpandEngine
-from tinysoul.plugins.capabilities.expand.actions import register_expand_actions
-from tinysoul.plugins.capabilities.expand.runtime_bridge import RuntimeExpandBridge
-from tinysoul.plugins.capabilities.subagent.engine import SubagentEngine
-from tinysoul.plugins.capabilities.subagent.actions import register_subagent_actions
-from tinysoul.plugins.capabilities.subagent.runtime_bridge import RuntimeSubagentBridge
-from tinysoul.plugins.capabilities.subagent.segments.connections import (
-    connections_registration,
-    connection_refresh,
-)
-from tinysoul.kernel.loop.interaction.events import TurnEventSubscription
-from tinysoul.runtime.events import EventFilter
-from tinysoul.infra.concurrency import CleanupDiagnostic
-from tinysoul.infra.process import ManagedProcessCloseError
-from tinysoul.plugins.execution import ExecutionSettings
-from tinysoul.plugins.execution.engine import ExecutionEngine
-from tinysoul.plugins.execution.actions import register_execution_actions
-from tinysoul.plugins.execution.runtime_bridge import RuntimeExecutionBridge
 from tinysoul.plugins.home import HomeActionSkillProvider
 from tinysoul.plugins.home.runtime_bridge import RuntimeAgentHomeBridge
 from tinysoul.plugins.home.services import HomeService
-from tinysoul.plugins.workspace import WorkspaceEngine, WorkspacePromptReferenceResolver
-from tinysoul.plugins.workspace.engine import WorkspaceArchiveView
-from tinysoul.plugins.workspace.plugin import declare_workspace
+from tinysoul.plugins.workspace import WorkspacePromptReferenceResolver
 from tinysoul.plugins.workspace.runtime_bridge import RuntimeWorkspaceBridge
 from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.runtime import ObservationEmitter
-from tinysoul.runtime.sources import RuntimeSource
 
 from .activity import AgentTurnActivity
-from tinysoul.kernel.jobs.models import JobControl
-
-AGENT_SCENARIOS = frozenset({"user", "home_reflection", "memory_reflection"})
 
 
-def prepare_common_actions(
-    builder: ActionEngineBuilder,
-    *,
-    workspace: WorkspaceService,
-    context: ContextEngine,
-    llm_action: LLMActionTaskRunner,
-    capabilities_settings: CapabilitiesSettings,
-    runtime_env: dict[str, str],
-    staging: StagingDirectoryManager,
-) -> ActionEngineBuilder:
-    workspace_bridge = RuntimeWorkspaceBridge()
-    try:
-        register_context_actions(
-            builder, context=context, runtime_bridge=RuntimeContextBridge()
-        )
-        register_resource_actions(
-            builder,
-            settings=capabilities_settings.resource,
-            workspace=workspace,
-            runtime_bridge=workspace_bridge,
-            staging=staging,
-        )
-        register_web_actions(
-            builder,
-            settings=capabilities_settings.web,
-            runtime_env=runtime_env,
-            workspace=workspace,
-            runtime_bridge=workspace_bridge,
-            staging=staging,
-        )
-        register_core_actions(
-            builder,
-            reference_resolvers=(
-                WorkspacePromptReferenceResolver(
-                    workspace, runtime_bridge=workspace_bridge
-                ),
-            ),
-            llm_action=llm_action,
-        )
-        return builder
-    except ConfigError as exc:
-        raise RuntimeActionBridge().from_config_error(exc) from exc
-    except ActionError as exc:
-        raise RuntimeActionBridge().startup_failure(
-            message="Common actions could not be initialized.",
-            payload={"error_type": type(exc).__name__},
-        ) from exc
+@dataclass(frozen=True)
+class CorePlugin:
+    """Kernel capabilities and the shared staging service in the standard recipe."""
 
+    id = "core"
+    provides = (JobRegistry, StagingDirectoryManager)
+    requires = (WorkspaceService,)
+    configuration = (PluginConfig(
+        "jobs", JobSettings, lambda tree, root: parse_job_settings(tree),
+        RuntimeJobsBridge().from_config_error,
+    ),)
 
-class CommonActionAssembly:
-    """One generation's shared services, with separately granted profile surfaces."""
-
-    @property
-    def jobs(self) -> JobControl:
-        return self._jobs
-
-    def __init__(
-        self,
-        *,
-        root: Path,
-        workspace: WorkspaceEngine,
-        llm: LLMRunner,
-        observations: ObservationEmitter,
-        action_settings: ActionSettings,
-        capabilities_settings: CapabilitiesSettings,
-        runtime_env: dict[str, str],
-        execution_settings: ExecutionSettings | None = None,
-        job_settings: JobSettings | None = None,
-        workspace_source: RuntimeSource | None = None,
-        runtime_plugins: tuple[PluginDeclaration, ...] = (),
-    ) -> None:
-        self._root, self._workspace = root, workspace
-        self._workspace_source = workspace_source
-        self._runtime_plugins = runtime_plugins
-        self._llm, self._observations = llm, observations
-        self._action_settings, self._capabilities_settings = (
-            action_settings,
-            capabilities_settings,
-        )
-        self._runtime_env = dict(runtime_env)
-        settings = job_settings or JobSettings()
-        self._jobs = JobRegistry(
-            capacity=settings.retained_capacity,
-            per_turn_capacity=settings.per_turn_live_capacity,
-        )
-        try:
-            self._subagent = SubagentEngine(
-                capabilities_settings.subagent,
-                jobs=self._jobs,
-                workspace=workspace,
-                environment=runtime_env,
-            )
-        except ConfigError as exc:
-            raise RuntimeSubagentBridge().from_config_error(exc) from exc
-        try:
-            self._expand = ExpandEngine(
-                capabilities_settings.expand,
-                root=root,
-                workspace=workspace,
-                environment=runtime_env,
-            )
-        except ConfigError as exc:
-            raise RuntimeExpandBridge().from_config_error(exc) from exc
-        self._activity = AgentTurnActivity(self._jobs, workspace, (self,))
-        try:
-            self._execution = ExecutionEngine(
-                settings=execution_settings or ExecutionSettings(),
-                jobs=self._jobs,
-                workspace=workspace,
-            )
-        except ConfigError as exc:
-            raise RuntimeExecutionBridge().from_config_error(exc) from exc
-
-    def prepare(
-        self,
-        context: ContextEngine,
-        catalog: LoadedActionCatalog,
-        *,
-        plugins: tuple[PluginDeclaration, ...],
-        scenario: str = "user",
-        archive_source: Callable[[], WorkspaceArchiveView | None] | None = None,
-    ) -> tuple[ActionEngineBuilder, AgentTurnActivity, ResolvedPlugins]:
-        staging = StagingDirectoryManager(self._root)
+    async def build_generation(self, context: GenerationBuildContext) -> PluginGeneration:
+        settings = context.settings.get(JobSettings)
+        jobs = JobRegistry(capacity=settings.retained_capacity, per_turn_capacity=settings.per_turn_live_capacity)
+        staging = StagingDirectoryManager(context.root)
         try:
             staging.prepare()
         except StagingError as exc:
-            raise RuntimeLoopBridge().from_exception(
-                LoopFailureKind.RESOURCE_PREPARATION_FAILED, exc
-            ) from exc
-        workspace = WorkspaceService(self._workspace)
-        home = ServiceRegistry(
-            tuple(service for plugin in plugins for service in plugin.services)
-        ).get(HomeService)
-        llm_action = LLMActionTaskRunner(
-            llm_runner=self._llm,
-            context=context,
-            action_skills=HomeActionSkillProvider(
-                home, runtime_bridge=RuntimeAgentHomeBridge()
-            ),
-            profile_resolver=LLMActionProfileResolver(self._action_settings.llm_action),
-        )
-        declarations = (
-            *plugins,
-            *self._runtime_plugins,
-            declare_workspace(
-                workspace,
-                owner=self._workspace,
-                source=self._workspace_source,
-                llm_action=llm_action,
-                archive_source=archive_source,
-            ),
-            PluginDeclaration(
-                "common_actions",
-                requires=(WorkspaceService,),
-                actions=partial(
-                    prepare_common_actions,
-                    workspace=workspace,
-                    context=context,
-                    llm_action=llm_action,
-                    capabilities_settings=self._capabilities_settings,
-                    runtime_env=self._runtime_env,
-                    staging=staging,
-                ),
-            ),
-            PluginDeclaration(
-                "jobs",
+            raise RuntimeLoopBridge().from_exception(LoopFailureKind.RESOURCE_PREPARATION_FAILED, exc) from exc
+        workspace = context.services.get(WorkspaceService)
+
+        def extend(kind: ProfileKind, profile: ProfileBuildContext) -> PluginProfileExtension:
+            def register(builder: ActionEngineBuilder) -> ActionEngineBuilder:
+                register_context_actions(builder, context=profile.context, runtime_bridge=RuntimeContextBridge())
+                register_job_actions(builder, jobs)
+                return register_core_actions(
+                    builder, llm_action=profile.llm_action,
+                    reference_resolvers=(WorkspacePromptReferenceResolver(workspace, runtime_bridge=RuntimeWorkspaceBridge()),),
+                )
+            return PluginProfileExtension(
+                self.id, requires=(WorkspaceService,), actions=register,
                 segments=(jobs_segment_registration(),),
-                actions=lambda builder: register_job_actions(builder, self._jobs),
-            ),
-            PluginDeclaration(
-                "execution",
-                requires=(HomeService, WorkspaceService),
-                actions=partial(
-                    register_execution_actions,
-                    engine=self._execution,
-                    home=home,
-                    workspace=workspace,
-                ),
-            ),
-            PluginDeclaration(
-                "expand",
-                actions=partial(
-                    register_expand_actions, engine=self._expand, llm=llm_action
-                ),
-            ),
-            PluginDeclaration(
-                "subagent",
-                actions=partial(
-                    register_subagent_actions, engine=self._subagent, scenario=scenario
-                ),
-                segments=(connections_registration(self._subagent),),
-                sources=(self._subagent,),
-                events=(
-                    TurnEventSubscription(
-                        EventFilter(topic="subagent.connections", source="subagent"),
-                        connection_refresh,
-                        coalesce=True,
-                        requires_decision=False,
-                    ),
-                ),
-            ),
+            )
+
+        return PluginGeneration(
+            self.id, services=(Service(JobRegistry, jobs), Service(StagingDirectoryManager, staging)),
+            profile_extension_factory=extend,
         )
+
+
+class ProfileAssembly:
+    """Apply the same contribution path to every execution scenario."""
+
+    def __init__(
+        self, *, plugins: tuple[PluginGeneration, ...], llm: LLMRunner,
+        home: HomeService, jobs: JobRegistry, observations: ObservationEmitter,
+        action_settings: ActionSettings,
+    ) -> None:
+        self._plugins, self._llm, self._home = plugins, llm, home
+        self._jobs, self._observations, self._settings = jobs, observations, action_settings
+
+    def prepare(
+        self, context: ContextEngine, catalog: LoadedActionCatalog, *,
+        kind: ProfileKind, bindings: ServiceRegistry | None = None,
+    ) -> tuple[ActionEngineBuilder, AgentTurnActivity, ResolvedProfileExtensions]:
+        llm_action = LLMActionTaskRunner(
+            llm_runner=self._llm, context=context,
+            action_skills=HomeActionSkillProvider(self._home, runtime_bridge=RuntimeAgentHomeBridge()),
+            profile_resolver=LLMActionProfileResolver(self._settings.llm_action),
+        )
+        profile = ProfileBuildContext(context, llm_action, bindings or ServiceRegistry(()))
         try:
+            declarations = tuple(
+                extension for plugin in self._plugins
+                if (extension := plugin.extend_profile(kind, profile)) is not None
+            )
             resolved = PluginRegistry(declarations).resolve(context)
             builder = ActionEngineBuilder(
-                catalog, scenarios=AGENT_SCENARIOS
+                catalog, scenarios=frozenset(kind.value for kind in ProfileKind)
             ).with_observations(self._observations)
             resolved.activate(builder)
         except (RegistrationError, ContextError) as exc:
             raise RuntimeLoopBridge().startup_failure(
-                message="Profile contributions could not be resolved.",
-                payload={"error_type": type(exc).__name__},
+                message="Profile contributions could not be resolved.", payload={"error_type": type(exc).__name__}
             ) from exc
         except ConfigError as exc:
             raise RuntimeActionBridge().from_config_error(exc) from exc
         except ActionError as exc:
             raise RuntimeActionBridge().startup_failure(
-                message="Profile actions could not be initialized.",
-                payload={"error_type": type(exc).__name__},
+                message="Profile actions could not be initialized.", payload={"error_type": type(exc).__name__}
             ) from exc
-        return builder, self._activity, resolved
-
-    async def close_turn(self, turn_id: str) -> tuple[CleanupDiagnostic, ...]:
-        try:
-            return await self._subagent.close_turn(turn_id)
-        except ManagedProcessCloseError as exc:
-            raise RuntimeSubagentBridge().close_failed(exc) from exc
-
-    async def close(self) -> tuple[CleanupDiagnostic, ...]:
-        try:
-            subagent = await self._subagent.close()
-        except ManagedProcessCloseError as exc:
-            raise RuntimeSubagentBridge().close_failed(exc) from exc
-        try:
-            expand = await self._expand.close()
-        except ManagedProcessCloseError as exc:
-            raise RuntimeExpandBridge().close_failed(exc) from exc
-        return (*subagent, *expand)
+        return builder, AgentTurnActivity(self._jobs, resolved.turn_resources), resolved

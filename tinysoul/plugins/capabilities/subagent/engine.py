@@ -14,7 +14,7 @@ from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.process import ManagedProcessCloseError
 from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.jobs import JobRegistry
-from tinysoul.plugins.workspace import WorkspaceEngine
+from tinysoul.plugins.workspace.services import WorkspaceExecutionPort
 from tinysoul.runtime.events import EnvironmentEvent, EventKind
 from tinysoul.runtime.sources import EventSink, SourceState, SourceStatus
 from .config import AgentTarget, SubagentSettings, validate_subagent_bindings
@@ -49,7 +49,7 @@ class SubagentEngine:
         settings: SubagentSettings,
         *,
         jobs: JobRegistry,
-        workspace: WorkspaceEngine,
+        workspace: WorkspaceExecutionPort,
         environment: Mapping[str, str],
     ) -> None:
         self.settings, self.jobs, self._workspace = settings, jobs, workspace
@@ -295,6 +295,10 @@ class SubagentEngine:
         return ()
 
     async def close(self) -> tuple[CleanupDiagnostic, ...]:
+        return await self.release_day()
+
+    async def release_day(self) -> tuple[CleanupDiagnostic, ...]:
+        """Drop idle connections bound to the old Workspace before its archive."""
         diagnostics: list[CleanupDiagnostic] = []
         async with self._lock:
             for item in self._connections.values():

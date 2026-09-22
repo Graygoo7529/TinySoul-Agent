@@ -10,11 +10,11 @@
 
 ## 装配、服务与生命周期
 
-AgentBuilder 读取明确传入的配置、构造领域 Engine 与资源作用域；AgentAssembly 保存根调度器、命令门面、配置控制器、当前世代和显式挂载的来源/服务。User、Home Reflection、Memory Reflection 分别解析真实 PluginDeclaration，先校验服务身份、依赖和段路由，再激活段与 Action 贡献。TurnProfile 绑定独立 Context、Action surface、准备/完成管线和类型化服务表。
+AgentBuilder 收集静态组成定义；同步 `build()` 返回不可变 AgentAssembly，不创建 Engine、来源或根调度器。Agent.assemble 将定义物化为 AgentRuntime，AgentRuntime 保存根调度器、命令门面、配置控制器和当前 AgentGeneration。User、Home Reflection、Memory Reflection 分别解析 PluginProfileExtension，先校验服务身份、依赖和段路由，再激活段与 Action 贡献；PluginGeneration 持有代级 owner、来源和永久 close。TurnProfile 绑定独立 Context、Action surface、准备/完成管线和类型化服务表。
 
-Agent.create 从项目根装配；Agent.assemble 接受显式装配工厂，供嵌入方注入 provider、时钟或来源。create 不启动来源，start 等待确定性日切与服务激活后才返回。SDK 的 submit、append、reply、cancel、grant 与 publish 经 AgentCommands 进入唯一调度器或指定 Inbox。状态查询为内存快照，TurnHandle 等待 owner 的 TurnOutcome/ReflectionOutcome；等待者取消不取消已受理 work。外部 ACP/MCP 能力同样由当前世代装配，旧 facade 失效后由调用者重新获取。
+Agent.create 从项目根装配并委托 Agent.assemble；Agent.assemble 接受静态 AgentAssembly，供嵌入方通过 Builder 注入 provider、时钟、来源或显式 AgentPlugin。create 不启动来源，start 等待确定性日切与服务激活后才返回。SDK 的 submit、append、reply、cancel、grant 与 publish 经 AgentCommands 进入唯一调度器或指定 Inbox。状态查询为内存快照，TurnHandle 等待 owner 的 TurnOutcome/ReflectionOutcome；等待者取消不取消已受理 work。外部 ACP/MCP 能力同样由当前世代装配，旧 facade 失效后由调用者重新获取。
 
-Agent.services 按 Facade 类型提供当前 User profile 的 HomeService、MemoryService、SessionService 与 WorkspaceService，查找不触发 I/O。服务公开 I/O 为 async，短文件操作由 JoinedOperations 完整 join，模型和网络使用原生 async。每次调用按世代→日→owner 的顺序获取并复验 lease；闲置对象不占用运行边界。成功 reload、restart 或关闭使旧世代服务失效，日级服务还会在日切后失效；调用者重新获取，框架不重绑或重试写入。失败 reload 保留仍有效的旧对象。空闲后的新日调用先完成确定性准备，旧日服务随后在副作用前返回 AgentServiceStaleError；Home 服务只绑定世代。宿主无需创建 RunScope/Trap，日准备失败返回有界 AgentServiceUnavailableError。
+Agent.services 按 Facade 类型提供当前 User profile 的 HomeService、MemoryService、SessionService 与 WorkspaceService，并追加插件显式声明的 PluginServiceExport；查找不触发 I/O。服务公开 I/O 为 async，短文件操作由 JoinedOperations 完整 join，模型和网络使用原生 async。每次调用按世代→日→owner 的顺序获取并复验 lease；闲置对象不占用运行边界。成功 reload、restart 或关闭使旧世代服务失效，日级服务还会在日切后失效；调用者重新获取，框架不重绑或重试写入。失败 reload 保留仍有效的旧对象。空闲后的新日调用先完成确定性准备，旧日服务随后在副作用前返回 AgentServiceStaleError；Home 服务只绑定世代。宿主无需创建 RunScope/Trap，日准备失败返回有界 AgentServiceUnavailableError。
 
 只运行一个根 Turn。等待用户、Job、定时器或预算期间仍占根位置，新 User/Reflection 请求排队。队列和已完成句柄保留有界；重复 request identity 必须内容相同。queued 阶段取消不伪造 Session Turn，开始后的取消先收尾再完成句柄。所有路径共用一次收敛出口；取消立即移除队列占位，完成按次序进入保留窗口。去重只保证活动请求和保留窗口内的身份一致；淘汰后外部已持 Handle 仍可 wait。
 
@@ -34,7 +34,7 @@ Environment 提供输入适配、文件监听和定时等待；Reflection 到期
 
 Runtime EventBus 只校验 envelope、保存有界幂等回执并投递。Agent EventRouter 将定向事件送到指定身份，过期目标不会回退给其他 Turn；无目标事件仅送声明订阅或当前等待匹配的 Turn，按 Turn 身份去重。topic/source 参与过滤，SDK publish 只使用 host 来源，不能冒充 owner 提交、reply、预算决定或 Job 终态。普通事件不隐式创建根 work。
 
-PluginDeclaration 收集事件适配、preparation/completion 与运行来源；ResolvedPlugins 将它们交给既有 TurnProfile 和完成管线，Session recorder 仍最后执行且只在 User 情景声明。三个情景引用同一 Workspace 来源实例，GenerationSources 在激活前拒绝冲突身份，启动一次并在日切/世代切换前停止且 join。来源等待不持日锁；停止与独占切换的顺序保证回调不跨日。Workspace 视图更新由插件适配，不在 Agent/Kernel 中按 owner 名称分支。
+PluginProfileExtension 收集事件适配、preparation/completion 和情景内服务、段、动作；ResolvedProfileExtensions 将它们交给既有 TurnProfile 和完成管线，Session recorder 仍最后执行且只在 User 情景声明。PluginGeneration 在代级持有来源，GenerationSources 在激活前拒绝冲突身份，启动一次并在日切/世代切换前停止且 join；profile 不拥有来源生命周期。来源等待不持日锁；停止与独占切换的顺序保证回调不跨日。Workspace 视图更新由插件适配，不在 Agent/Kernel 中按 owner 名称分支。
 
 TurnInbox 从受理到收尾持续存在，由 Kernel 独占待消费正文。固定 capture → Context prepare/install → ack；新到记录留到后批，等待只观察就绪。SDK 可通过 InboxLimits 设置普通记录数、字节数、单条大小、回执保留与 Job 终态预留数/字节。默认普通队列为 64 条/256000 字节、单条 64000 字节，另预留一个同大小问题回复和 16 个 8192 字节 Job 终态槽；JobRegistry 在启动 backend 前核对其终态预算，容量不足先拒绝。取消和预算决定独立于进度容量，大输出留在 owner 资源。默认值是本地有界策略，不是生产吞吐承诺。
 

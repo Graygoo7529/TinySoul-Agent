@@ -11,7 +11,7 @@ from tinysoul.agent.errors import AgentInvariantError
 from tinysoul.agent.config import AgentSettings
 from tinysoul.environment.inputs import InputEvent
 from tinysoul.environment.inputs import InputSink
-from tinysoul.agent.composition.builder import AgentBuilder
+from tinysoul.agent.composition.builder import AgentBuilder, standard_agent
 from tinysoul.infra.config import ConfigEnvironment
 from tinysoul.llm.protocol.requests import TaskCall
 from tinysoul.llm.protocol.responses import TaskResult
@@ -95,13 +95,13 @@ class _AvailabilityAwareService(_RecordingService):
 async def test_tinysoul_agent_starts_and_stops_input_sources(tmp_path: Path) -> None:
     source = _SubmittingSource((InputEvent("exit", source="unit"),))
     app = (
-        await AgentBuilder(root=tmp_path)
+        await standard_agent(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_agent_settings(AgentSettings(interactive=False))
         .with_loop_settings(LoopSettings(user=TurnSettings(max_cycles=1)))
         .with_llm_runner(FakeLLM(()))
         .with_input_source(source)
-        .build()
+        .build().build_runtime()
     )
 
     outcome = await app.run()
@@ -120,12 +120,12 @@ async def test_tinysoul_agent_starts_services_before_inputs_and_stops_them(
     service = _RecordingService()
     source = _SubmittingSource((InputEvent("exit", source="unit"),))
     built = (
-        await AgentBuilder(root=tmp_path)
+        await standard_agent(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_agent_settings(AgentSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
         .with_input_source(source)
-        .build()
+        .build().build_runtime()
     )
     app = replace(built, services=(service,))
 
@@ -143,12 +143,12 @@ async def test_tinysoul_agent_prepares_availability_before_starting_services(
     service = _AvailabilityAwareService()
     source = _SubmittingSource((InputEvent("exit", source="unit"),))
     built = (
-        await AgentBuilder(root=tmp_path)
+        await standard_agent(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_agent_settings(AgentSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
         .with_input_source(source)
-        .build()
+        .build().build_runtime()
     )
     service.availability = (
         built.generation_handle.snapshot().generation.reflection.availability
@@ -166,13 +166,13 @@ async def test_tinysoul_agent_stops_started_sources_when_later_start_fails(
     first = _SubmittingSource(())
     failing = _FailingStartSource()
     app = (
-        await AgentBuilder(root=tmp_path)
+        await standard_agent(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_agent_settings(AgentSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
         .with_input_source(first)
         .with_input_source(failing)
-        .build()
+        .build().build_runtime()
     )
 
     with pytest.raises(RuntimeError, match="start failed"):
@@ -189,13 +189,13 @@ async def test_tinysoul_agent_attempts_all_source_stops_and_reports_failure(
     failing = _FailingStopSource((InputEvent("exit", source="unit"),))
     second = _SubmittingSource(())
     app = (
-        await AgentBuilder(root=tmp_path)
+        await standard_agent(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_agent_settings(AgentSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
         .with_input_source(failing)
         .with_input_source(second)
-        .build()
+        .build().build_runtime()
     )
 
     await app.run()
@@ -208,11 +208,11 @@ async def test_tinysoul_agent_attempts_all_source_stops_and_reports_failure(
 
 async def test_tinysoul_agent_submit_event_uses_dispatcher(tmp_path: Path) -> None:
     app = (
-        await AgentBuilder(root=tmp_path)
+        await standard_agent(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_agent_settings(AgentSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
-        .build()
+        .build().build_runtime()
     )
 
     await app.submit_event(InputEvent("exit", source="unit"))

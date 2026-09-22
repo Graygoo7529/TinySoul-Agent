@@ -2,7 +2,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from time import monotonic
-from tinysoul.agent.composition.assembly import AgentAssembly
+from tinysoul.agent.composition.assembly import AgentRuntime
 from tinysoul.kernel.loop.turn import TurnOutcome
 
 from collections import deque
@@ -16,7 +16,7 @@ from pypdf import PdfWriter
 
 from tinysoul.agent.config import AgentSettings
 from tinysoul.gateway.project.initializer import ProjectConfigProfile
-from tinysoul.agent.composition.builder import AgentBuilder
+from tinysoul.agent.composition.builder import AgentBuilder, standard_agent
 from tinysoul.gateway.endpoint.host import mount_endpoint
 from tinysoul.gateway.endpoint import EndpointSettings
 from tinysoul.gateway.endpoint.http import create_endpoint_app
@@ -51,6 +51,15 @@ from tinysoul.plugins.memory.services import (
     MemoryReadService,
 )
 from tinysoul.kernel.registration import RegistrationError
+from tinysoul.kernel.registration import (
+    GenerationBuildContext,
+    ProfileBuildContext,
+    PluginGeneration,
+    PluginProfileExtension,
+    PluginServiceExport,
+    ProfileKind,
+    Service,
+)
 
 
 class FakeLLM:
@@ -63,9 +72,49 @@ class FakeLLM:
         return self.results.popleft()
 
 
+class _HostPluginService:
+    pass
+
+
+class _HostPlugin:
+    id = "host_plugin"
+    requires = ()
+    provides = ()
+    configuration = ()
+
+    def __init__(self) -> None:
+        self.service = _HostPluginService()
+        self.closed = 0
+
+    async def build_generation(self, context: GenerationBuildContext) -> PluginGeneration:
+        async def close():
+            self.closed += 1
+            return ()
+
+        def extend(kind: ProfileKind, profile: ProfileBuildContext):
+            if kind is not ProfileKind.USER:
+                return None
+            return PluginProfileExtension(
+                "host_plugin_profile",
+                services=(Service(_HostPluginService, self.service),),
+            )
+
+        return PluginGeneration(
+            self.id,
+            profile_extension_factory=extend,
+            sdk_exports=(
+                PluginServiceExport(
+                    _HostPluginService,
+                    lambda scope: self.service,
+                ),
+            ),
+            close=close,
+        )
+
+
 @pytest.fixture
-async def endpoint_assemblies() -> AsyncIterator[list[AgentAssembly]]:
-    assemblies: list[AgentAssembly] = []
+async def endpoint_assemblies() -> AsyncIterator[list[AgentRuntime]]:
+    assemblies: list[AgentRuntime] = []
     try:
         yield assemblies
     finally:
@@ -99,11 +148,11 @@ async def test_three_scenarios_have_independent_policies_and_owner_services(
         },
     )
     app = await (
-        AgentBuilder(root)
+        standard_agent(root)
         .with_config_environment(config)
         .with_agent_settings(AgentSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
-        .build()
+        .build().build_runtime()
     )
     try:
         user = app.generation_handle.snapshot().generation.user_turn.profile
@@ -144,6 +193,28 @@ async def test_three_scenarios_have_independent_policies_and_owner_services(
                 profile.services.get(denied)
     finally:
         await app.close()
+
+
+async def test_host_plugin_is_built_per_generation_and_extends_user_profile(
+    tmp_path: Path,
+) -> None:
+    plugin = _HostPlugin()
+    assembly = (
+        standard_agent(root=tmp_path)
+        .with_config_environment(_test_config(tmp_path))
+        .with_agent_settings(AgentSettings(interactive=False))
+        .with_llm_runner(FakeLLM(()))
+        .use(plugin)
+        .build()
+    )
+    runtime = await assembly.build_runtime()
+    try:
+        profile = runtime.generation_handle.snapshot().generation.user_turn.profile
+        assert profile.services.get(_HostPluginService) is plugin.service
+        assert runtime.service_access.registry.get(_HostPluginService) is plugin.service
+    finally:
+        await runtime.close()
+    assert plugin.closed == 1
 
 
 @dataclass
@@ -190,11 +261,11 @@ async def test_agent_builder_cleans_project_capability_staging_on_startup(
     )
 
     (
-        await AgentBuilder(root=tmp_path)
+        await standard_agent(root=tmp_path)
         .with_config_environment(config)
         .with_agent_settings(AgentSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
-        .build()
+        .build().build_runtime()
     )
 
     staging = tmp_path / "runtime" / ".staging"
@@ -206,11 +277,11 @@ async def test_agent_builder_mounts_endpoint_as_service_and_model_output_source(
     tmp_path: Path,
 ) -> None:
     app = (
-        await AgentBuilder(root=tmp_path)
+        await standard_agent(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_agent_settings(AgentSettings(interactive=True))
         .with_llm_runner(FakeLLM(()))
-        .build()
+        .build().build_runtime()
     )
     endpoint = mount_endpoint(app, EndpointSettings(token="x" * 32))
     entered, release = asyncio.Event(), asyncio.Event()
@@ -249,17 +320,17 @@ async def test_agent_builder_mounts_endpoint_as_service_and_model_output_source(
 
 async def test_standard_project_starts_without_credentials_and_rejects_provider_enable(
     tmp_path: Path,
-    endpoint_assemblies: list[AgentAssembly],
+    endpoint_assemblies: list[AgentRuntime],
 ) -> None:
     project_root = tmp_path / "project"
     copy_initialized_project(project_root)
     app = (
-        await AgentBuilder(root=project_root)
+        await standard_agent(root=project_root)
         .with_config_environment(
             ConfigEnvironment.from_project_root(project_root, env={})
         )
         .with_agent_settings(AgentSettings(interactive=False))
-        .build()
+        .build().build_runtime()
     )
     endpoint = mount_endpoint(app, EndpointSettings(token="x" * 32))
     endpoint_assemblies.append(app)
@@ -367,12 +438,12 @@ async def test_development_project_requires_credentials_for_enabled_providers(
 
     with pytest.raises(RuntimeException) as error:
         (
-            await AgentBuilder(root=project_root)
+            await standard_agent(root=project_root)
             .with_config_environment(
                 ConfigEnvironment.from_project_root(project_root, env={})
             )
             .with_agent_settings(AgentSettings(interactive=False))
-            .build()
+            .build().build_runtime()
         )
 
     assert error.value.reason == RUNTIME_STARTUP_FAILED
@@ -381,16 +452,16 @@ async def test_development_project_requires_credentials_for_enabled_providers(
 
 async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer(
     tmp_path: Path,
-    endpoint_assemblies: list[AgentAssembly],
+    endpoint_assemblies: list[AgentRuntime],
 ) -> None:
     project_root = tmp_path / "project"
     copy_initialized_project(project_root)
     app = (
-        await AgentBuilder(root=project_root)
+        await standard_agent(root=project_root)
         .with_config_environment(ConfigEnvironment.from_project_root(project_root))
         .with_agent_settings(AgentSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
-        .build()
+        .build().build_runtime()
     )
     endpoint = mount_endpoint(
         app,
@@ -618,16 +689,16 @@ async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer
 
 async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
     tmp_path: Path,
-    endpoint_assemblies: list[AgentAssembly],
+    endpoint_assemblies: list[AgentRuntime],
 ) -> None:
     project_root = tmp_path / "project"
     copy_initialized_project(project_root)
     app = (
-        await AgentBuilder(root=project_root)
+        await standard_agent(root=project_root)
         .with_config_environment(ConfigEnvironment.from_project_root(project_root))
         .with_agent_settings(AgentSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
-        .build()
+        .build().build_runtime()
     )
     endpoint = mount_endpoint(app, EndpointSettings(token="x" * 32))
     endpoint_assemblies.append(app)
@@ -812,7 +883,7 @@ async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
 
 async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_incompatible_adapter(
     tmp_path: Path,
-    endpoint_assemblies: list[AgentAssembly],
+    endpoint_assemblies: list[AgentRuntime],
 ) -> None:
     project_root = tmp_path / "project"
     copy_initialized_project(project_root)
@@ -826,11 +897,11 @@ async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_i
             'api_key_envs = ["OPENAI_PROXY_API_KEY"]\n'
         )
     app = (
-        await AgentBuilder(root=project_root)
+        await standard_agent(root=project_root)
         .with_config_environment(ConfigEnvironment.from_project_root(project_root))
         .with_agent_settings(AgentSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
-        .build()
+        .build().build_runtime()
     )
     endpoint = mount_endpoint(app, EndpointSettings(token="x" * 32))
     endpoint_assemblies.append(app)
@@ -913,7 +984,7 @@ async def test_agent_workspace_mutation_reaches_endpoint_event_stream(
     note.parent.mkdir(parents=True)
     note.write_text("old text", encoding="utf-8")
     app = (
-        await AgentBuilder(root=tmp_path)
+        await standard_agent(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_agent_settings(AgentSettings(interactive=False))
         .with_loop_settings(LoopSettings(user=TurnSettings(max_cycles=2)))
@@ -961,7 +1032,7 @@ async def test_agent_workspace_mutation_reaches_endpoint_event_stream(
                 )
             )
         )
-        .build()
+        .build().build_runtime()
     )
     endpoint = mount_endpoint(app, EndpointSettings(token="x" * 32))
 
@@ -989,7 +1060,7 @@ async def test_agent_builder_run_once_answers_with_real_action_and_context(
 ) -> None:
     recorder = _CompletionRecorder()
     app = (
-        await AgentBuilder(root=tmp_path)
+        await standard_agent(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_agent_settings(AgentSettings(interactive=False))
         .with_loop_settings(LoopSettings(user=TurnSettings(max_cycles=2)))
@@ -1017,7 +1088,7 @@ async def test_agent_builder_run_once_answers_with_real_action_and_context(
                 )
             )
         )
-        .build()
+        .build().build_runtime()
     )
 
     outcome = await _run_once(app, "please answer")
@@ -1042,7 +1113,7 @@ async def test_agent_builder_runs_resource_conversion_through_real_action_chain(
     with source.open("wb") as handle:
         writer.write(handle)
     app = (
-        await AgentBuilder(root=tmp_path)
+        await standard_agent(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_agent_settings(AgentSettings(interactive=False))
         .with_loop_settings(LoopSettings(user=TurnSettings(max_cycles=2)))
@@ -1088,7 +1159,7 @@ async def test_agent_builder_runs_resource_conversion_through_real_action_chain(
                 )
             )
         )
-        .build()
+        .build().build_runtime()
     )
 
     outcome = await _run_once(app, "convert the PDF")
@@ -1114,7 +1185,7 @@ async def test_agent_builder_cycle_limit_suspends_until_explicit_decision(
         {"workspace.root": str(workspace_root)},
     )
     app = (
-        await AgentBuilder(root=tmp_path)
+        await standard_agent(root=tmp_path)
         .with_config_environment(config)
         .with_agent_settings(AgentSettings(interactive=False))
         .with_loop_settings(LoopSettings(user=TurnSettings(max_cycles=1)))
@@ -1140,7 +1211,7 @@ async def test_agent_builder_cycle_limit_suspends_until_explicit_decision(
                 )
             )
         )
-        .build()
+        .build().build_runtime()
     )
 
     from tinysoul.agent import UserTurnRequest
@@ -1169,11 +1240,11 @@ async def test_agent_builder_cycle_limit_suspends_until_explicit_decision(
 
 async def test_agent_runner_idle_exit_ends_program(tmp_path: Path) -> None:
     app = (
-        await AgentBuilder(root=tmp_path)
+        await standard_agent(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_agent_settings(AgentSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
-        .build()
+        .build().build_runtime()
     )
 
     await app.submit_input("exit")
@@ -1211,12 +1282,12 @@ async def test_turn_runner_ignores_stop_control_without_turn_scope(
         )
     )
     app = (
-        await AgentBuilder(root=tmp_path)
+        await standard_agent(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_agent_settings(AgentSettings(interactive=False))
         .with_signal_bus(bus)
         .with_llm_runner(llm)
-        .build()
+        .build().build_runtime()
     )
     bus.emit(
         build_control_request_signal(
@@ -1245,11 +1316,11 @@ async def test_agent_builder_missing_agent_is_context_startup_failure(
 
     with pytest.raises(RuntimeException) as raised:
         (
-            await AgentBuilder(root=tmp_path)
+            await standard_agent(root=tmp_path)
             .with_config_environment(config)
             .with_agent_settings(AgentSettings(interactive=False))
             .with_llm_runner(FakeLLM(()))
-            .build()
+            .build().build_runtime()
         )
 
     exc = raised.value
@@ -1329,11 +1400,11 @@ async def test_agent_builder_maps_owned_startup_failure(
 
     with pytest.raises(RuntimeException) as raised:
         (
-            await AgentBuilder(root=tmp_path)
+            await standard_agent(root=tmp_path)
             .with_config_environment(config)
             .with_agent_settings(AgentSettings(interactive=False))
             .with_llm_runner(FakeLLM(()))
-            .build()
+            .build().build_runtime()
         )
 
     exc = raised.value
@@ -1358,11 +1429,11 @@ async def test_agent_builder_corrupt_manifest_is_workspace_startup_failure(
 
     with pytest.raises(RuntimeException) as raised:
         (
-            await AgentBuilder(root=tmp_path)
+            await standard_agent(root=tmp_path)
             .with_config_environment(config)
             .with_agent_settings(AgentSettings(interactive=False))
             .with_llm_runner(FakeLLM(()))
-            .build()
+            .build().build_runtime()
         )
 
     assert raised.value.reason == RUNTIME_STARTUP_FAILED
@@ -1374,7 +1445,7 @@ async def test_agent_builder_does_not_map_programming_errors_to_startup_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     builder = (
-        AgentBuilder(root=tmp_path)
+        standard_agent(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_agent_settings(AgentSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
@@ -1383,10 +1454,11 @@ async def test_agent_builder_does_not_map_programming_errors_to_startup_failure(
     def explode(*args, **kwargs):
         raise RuntimeError("programming error")
 
-    monkeypatch.setattr(builder, "_build_workspace", explode)
+    from tinysoul.plugins.workspace.engine import WorkspaceEngineBuilder
+    monkeypatch.setattr(WorkspaceEngineBuilder, "build", explode)
 
     with pytest.raises(RuntimeError, match="programming error"):
-        await builder.build()
+        await builder.build().build_runtime()
 
 
 async def test_agent_builder_agent_config_error_is_agent_startup_failure(
@@ -1396,11 +1468,11 @@ async def test_agent_builder_agent_config_error_is_agent_startup_failure(
 
     with pytest.raises(RuntimeException) as raised:
         (
-            await AgentBuilder(root=tmp_path)
+            await standard_agent(root=tmp_path)
             .with_config_environment(config)
             .with_loop_settings(LoopSettings())
             .with_llm_runner(FakeLLM(()))
-            .build()
+            .build().build_runtime()
         )
 
     exc = raised.value
@@ -1416,11 +1488,11 @@ async def test_agent_builder_llm_config_error_is_llm_startup_failure(
 
     with pytest.raises(RuntimeException) as raised:
         (
-            await AgentBuilder(root=tmp_path)
+            await standard_agent(root=tmp_path)
             .with_config_environment(config)
             .with_agent_settings(AgentSettings(interactive=False))
             .with_loop_settings(LoopSettings())
-            .build()
+            .build().build_runtime()
         )
 
     exc = raised.value
@@ -1467,20 +1539,25 @@ async def test_generation_closes_owned_llm_on_build_failure_and_never_closes_bor
         raise failure
 
     config = _test_config(tmp_path)
-    builder = AgentBuilder(tmp_path).with_config_environment(config)
+    builder = standard_agent(tmp_path).with_config_environment(config)
     monkeypatch.setattr(builder, "_build_llm", build_llm)
-    monkeypatch.setattr(builder, "_build_home", build_home)
+    from tinysoul.plugins.home.plugin import HomePlugin
+    async def fail_home(*args, **kwargs):
+        raise failure
+    original = HomePlugin.build_generation
+    monkeypatch.setattr(HomePlugin, "build_generation", fail_home)
     with pytest.raises(RuntimeError) as caught:
-        await builder.build()
+        await builder.build().build_runtime()
     assert caught.value is failure
     assert closed == ["owned"]
 
+    monkeypatch.setattr(HomePlugin, "build_generation", original)
     borrowed = OwnedLLM(())
     app = (
-        await AgentBuilder(tmp_path)
+        await standard_agent(tmp_path)
         .with_config_environment(config)
         .with_llm_runner(borrowed)
-        .build()
+        .build().build_runtime()
     )
     assert await app.close() == ()
     assert closed == ["owned"]
@@ -1540,7 +1617,7 @@ def _test_config(
     return ConfigEnvironment.from_project_root(root=project_root, overrides=values)
 
 
-async def _run_once(app: AgentAssembly, text: str) -> TurnOutcome:
+async def _run_once(app: AgentRuntime, text: str) -> TurnOutcome:
     """Exercise the real queue/Inbox path without starting mounted HTTP hosts."""
     from tinysoul.agent import UserTurnRequest
 

@@ -6,8 +6,7 @@ from collections.abc import Mapping
 
 from tinysoul.kernel.context import ContextEngine
 from tinysoul.kernel.context.errors import ContextError
-from tinysoul.plugins.home import AgentHomeEngine, AgentHomeRuntimeCopyTrapHandler
-from tinysoul.plugins.home.failures import HOME_RUNTIME_COPY_REQUIRED
+from tinysoul.kernel.registration import ResolvedProfileExtensions
 from tinysoul.llm.failures import LLM_CONTEXT_CAPACITY_EXCEEDED
 from tinysoul.infra.json import JsonValue
 from tinysoul.kernel.loop.pressure import (
@@ -74,7 +73,7 @@ class ReflectionContextPressureRecovery:
 def build_reflection_turn_trap(
     context: ContextEngine,
     *,
-    home: AgentHomeEngine,
+    plugins: ResolvedProfileExtensions,
 ) -> RuntimeTrap:
     registry = TrapHandlerRegistry()
     registry.register(LOOP_BUDGET_REQUIRED, BudgetSuspendTrapHandler())
@@ -87,6 +86,6 @@ def build_reflection_turn_trap(
     )
     registry.register(CONTEXT_COMPRESSION_REQUIRED, pressure_handler)
     registry.register(LLM_CONTEXT_CAPACITY_EXCEEDED, pressure_handler)
-    registry.register(HOME_RUNTIME_COPY_REQUIRED, AgentHomeRuntimeCopyTrapHandler(home))
+    plugins.install_traps(registry)
     registry.register_fallback(EndTurnOrAgentTrapHandler())
     return RuntimeTrap(registry=registry)

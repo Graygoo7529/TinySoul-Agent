@@ -5,6 +5,7 @@ import json
 from typing import Any
 
 from acp import Agent, Client, run_agent
+from acp.exceptions import RequestError
 from acp.schema import (
     InitializeResponse,
     NewSessionResponse,
@@ -65,6 +66,21 @@ class LocalAgent(Agent):
         self.cancelled[identity] = asyncio.Event()
         return NewSessionResponse(session_id=identity)
 
+    async def load_session(self, *args: Any, **kwargs: Any) -> Any:
+        raise RequestError.method_not_found("session loading")
+
+    async def list_sessions(self, *args: Any, **kwargs: Any) -> Any:
+        raise RequestError.method_not_found("session listing")
+
+    async def set_session_mode(self, *args: Any, **kwargs: Any) -> Any:
+        raise RequestError.method_not_found("session modes")
+
+    async def set_config_option(self, *args: Any, **kwargs: Any) -> Any:
+        raise RequestError.method_not_found("session configuration")
+
+    async def authenticate(self, *args: Any, **kwargs: Any) -> Any:
+        raise RequestError.method_not_found("authentication")
+
     async def prompt(
         self, session_id: str, prompt: Any, **kwargs: Any
     ) -> PromptResponse:
@@ -124,6 +140,12 @@ class LocalAgent(Agent):
         )
         return PromptResponse(stop_reason="end_turn")
 
+    async def fork_session(self, *args: Any, **kwargs: Any) -> Any:
+        raise RequestError.method_not_found("session forking")
+
+    async def resume_session(self, *args: Any, **kwargs: Any) -> Any:
+        raise RequestError.method_not_found("session resuming")
+
     async def cancel(self, session_id: str, **kwargs: Any) -> None:
         self.cancelled[session_id].set()
 
@@ -151,7 +173,11 @@ class LocalAgent(Agent):
                 ),
                 flush=True,
             )
-        return {"stopped": True}
+            return {"stopped": True}
+        raise RequestError.method_not_found(method)
+
+    async def ext_notification(self, method: str, params: dict[str, Any]) -> None:
+        return None
 
 
 if __name__ == "__main__":

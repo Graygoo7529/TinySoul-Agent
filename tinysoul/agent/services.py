@@ -9,14 +9,10 @@ from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.services import ServiceScope
 from tinysoul.infra.time import CalendarDay
-from tinysoul.kernel.registration import Service, ServiceRegistry
+from tinysoul.kernel.registration import ServiceLifetime, ServiceRegistry
 from tinysoul.kernel.jobs import JobSnapshot
 from tinysoul.kernel.jobs.failures import JobError, JobRequestError
 from .handles import TurnSnapshot
-from tinysoul.plugins.home.services import HomeService
-from tinysoul.plugins.memory.services import MemoryService
-from tinysoul.plugins.session.services import SessionService
-from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.reflection.errors import ReflectionError
 from tinysoul.plugins.reflection.failures import ReflectionFailureKind
 from tinysoul.runtime import RuntimeHandle, RuntimeGenerationError, RuntimeException
@@ -28,7 +24,7 @@ from .errors import (
     AgentServiceStaleError,
     AgentServiceUnavailableError,
 )
-from .lifecycle.generation import AgentRuntimeGeneration
+from .lifecycle.generation import AgentGeneration
 from .dispatch.scheduler import RootScheduler
 
 
@@ -37,7 +33,7 @@ class AgentRuntimeServices:
 
     def __init__(
         self,
-        handle: RuntimeHandle[AgentRuntimeGeneration],
+        handle: RuntimeHandle[AgentGeneration],
         scheduler: RootScheduler,
         accepting: Callable[[], bool],
     ) -> None:
@@ -54,23 +50,13 @@ class AgentRuntimeServices:
         day = snapshot.generation.day.active_day
         key = snapshot.generation_id, day
         if self._key != key:
-            profile = snapshot.generation.user_turn.profile.services
             generation_scope = self._scope(snapshot.generation_id)
             day_scope = self._scope(snapshot.generation_id, day=day, day_bound=True)
-            self._services = ServiceRegistry(
-                (
-                    Service(
-                        HomeService, profile.get(HomeService)._bind(generation_scope)
-                    ),
-                    Service(MemoryService, profile.get(MemoryService)._bind(day_scope)),
-                    Service(
-                        SessionService, profile.get(SessionService)._bind(day_scope)
-                    ),
-                    Service(
-                        WorkspaceService, profile.get(WorkspaceService)._bind(day_scope)
-                    ),
-                )
+            plugin_services = tuple(
+                export.bind(day_scope if export.lifetime is ServiceLifetime.DAY else generation_scope)
+                for export in snapshot.generation.sdk_exports
             )
+            self._services = ServiceRegistry(plugin_services)
             self._key = key
         assert self._services is not None
         return self._services
@@ -208,7 +194,7 @@ class AgentRuntimeServices:
         async with self._handle.read() as generation:
             self._require_open()
             for profile in generation.profiles:
-                if profile.id == scenario:
+                if profile.kind.value == scenario:
                     return profile.action.catalog_json()
             raise AgentContractError("Unknown Action scenario")
 

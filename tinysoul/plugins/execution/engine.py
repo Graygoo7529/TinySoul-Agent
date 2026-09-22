@@ -16,7 +16,7 @@ from tinysoul.infra.process import (
 )
 from tinysoul.kernel.jobs import JobRegistry
 from tinysoul.plugins.home.services import HomeService
-from tinysoul.plugins.workspace import WorkspaceEngine
+from tinysoul.plugins.workspace.services import WorkspaceExecutionPort
 
 from .backend import ProcessJobBackend
 from .config import ExecutionSettings, Interpreter
@@ -31,7 +31,7 @@ class ExecutionEngine:
         *,
         settings: ExecutionSettings,
         jobs: JobRegistry,
-        workspace: WorkspaceEngine,
+        workspace: WorkspaceExecutionPort,
         runner: ManagedProcessRunner | None = None,
     ) -> None:
         self.settings = settings

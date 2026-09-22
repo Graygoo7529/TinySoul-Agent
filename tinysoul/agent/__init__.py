@@ -1,6 +1,8 @@
 """Public asynchronous Agent SDK facade."""
 
 from .sdk import Agent, AgentState, AgentSnapshot
+from .composition.assembly import AgentAssembly, AgentRuntime
+from .composition.builder import AgentBuilder, standard_agent
 from .errors import (
     AgentClosedError,
     AgentQueueFullError,
@@ -54,6 +56,10 @@ __all__ = [
     "Agent",
     "AgentState",
     "AgentSnapshot",
+    "AgentAssembly",
+    "AgentRuntime",
+    "AgentBuilder",
+    "standard_agent",
     "ObservationFilter",
     "ObservationGap",
     "ObservationRecord",

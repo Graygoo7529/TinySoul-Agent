@@ -7,6 +7,7 @@ import pytest
 from tinysoul.agent.config import AgentSettings
 from tinysoul.agent.config import OutputSettings
 from tinysoul.gateway import cli
+from tinysoul.agent import AgentState
 from tinysoul.kernel.loop import TurnOutcomeStatus
 from tinysoul.runtime import ObservationLevel
 
@@ -39,6 +40,11 @@ class _FakeApp:
         self.status = status
         self.run_count = 0
         self.commands = SimpleNamespace(active_turn=None)
+        self.state = AgentState.RUNNING
+
+    @property
+    def runtime(self):
+        return self
 
     async def start(self):
         pass
@@ -57,6 +63,9 @@ class _FakeApp:
 
     async def shutdown(self):
         return ()
+
+    def runtime_status(self):
+        return {"generation_id": "fake"}
 
 
 class _FakeLease:
@@ -78,10 +87,10 @@ class _FakeLease:
 
 @pytest.fixture(autouse=True)
 def fake_agent(monkeypatch):
-    async def create(factory):
-        return await factory()
+    async def assemble(assembly):
+        return assembly
 
-    monkeypatch.setattr(cli.Agent, "assemble", create)
+    monkeypatch.setattr(cli.Agent, "assemble", assemble)
 
 
 class _FakeBuilder:
@@ -107,7 +116,7 @@ class _FakeBuilder:
         self.input_sources.append(source)
         return self
 
-    async def build(self) -> _FakeApp:
+    def build(self) -> _FakeApp:
         return self.app
 
 
@@ -125,7 +134,7 @@ def test_cli_once_uses_config_overrides_and_console_sink(
         return _FakeConfig()
 
     monkeypatch.setattr(cli.ConfigEnvironment, "from_project_root", from_project_root)
-    monkeypatch.setattr(cli, "AgentBuilder", lambda root: builder)
+    monkeypatch.setattr(cli, "standard_agent", lambda root: builder)
     monkeypatch.setattr(cli, "ProjectInstanceLease", _FakeLease)
 
     result = cli.main(
@@ -163,7 +172,7 @@ def test_cli_once_returns_nonzero_without_final_answer(
         "from_project_root",
         lambda root, *, overrides: _FakeConfig(),
     )
-    monkeypatch.setattr(cli, "AgentBuilder", lambda root: builder)
+    monkeypatch.setattr(cli, "standard_agent", lambda root: builder)
 
     monkeypatch.setattr(cli, "ProjectInstanceLease", _FakeLease)
     assert cli.main(["start", "--root", str(tmp_path), "--once", "hello"]) == 1
@@ -182,7 +191,7 @@ def test_cli_start_attaches_terminal_and_model_endpoint(
         return _FakeConfig()
 
     monkeypatch.setattr(cli.ConfigEnvironment, "from_project_root", from_project_root)
-    monkeypatch.setattr(cli, "AgentBuilder", lambda root: builder)
+    monkeypatch.setattr(cli, "standard_agent", lambda root: builder)
     monkeypatch.setattr(cli, "ProjectInstanceLease", _FakeLease)
 
     class FakeEndpointHost:

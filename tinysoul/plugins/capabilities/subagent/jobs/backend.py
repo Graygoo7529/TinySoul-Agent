@@ -16,7 +16,8 @@ from tinysoul.kernel.jobs import (
     JobState,
     JobError,
 )
-from tinysoul.plugins.workspace import WorkspaceEngine, WorkspaceError
+from tinysoul.plugins.workspace import WorkspaceError
+from tinysoul.plugins.workspace.services import WorkspaceExecutionPort
 from tinysoul.plugins.workspace.inspection.models import WorkspaceBundleWrite
 from tinysoul.plugins.workspace.runtime_bridge import RuntimeWorkspaceBridge
 from ..acp.connection import ACPConnection
@@ -40,7 +41,7 @@ class ACPJobBackend:
         brief: str,
         *,
         settings: SubagentSettings,
-        workspace: WorkspaceEngine,
+        workspace: WorkspaceExecutionPort,
         closed: Callable[[], Awaitable[None]],
     ) -> None:
         self.job_id = job_id

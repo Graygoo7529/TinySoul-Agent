@@ -13,7 +13,7 @@ from uuid import uuid4
 
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.json import JsonObject, JsonValue, dumps_json
-from tinysoul.plugins.workspace import WorkspaceEngine
+from tinysoul.plugins.workspace.services import WorkspaceExecutionPort
 from tinysoul.plugins.workspace.inspection.models import WorkspaceBundleWrite
 from .config import ExpandSettings, validate_expand_bindings
 from .failures import ExpandFailure, ExpandRequestError
@@ -73,7 +73,7 @@ class ExpandEngine:
         settings: ExpandSettings,
         *,
         root: Path,
-        workspace: WorkspaceEngine,
+        workspace: WorkspaceExecutionPort,
         environment: Mapping[str, str],
     ) -> None:
         self.settings, self._workspace = settings, workspace
@@ -394,9 +394,16 @@ class ExpandEngine:
         return payload
 
     async def close(self) -> tuple[CleanupDiagnostic, ...]:
+        return await self.release_day()
+
+    async def release_day(self) -> tuple[CleanupDiagnostic, ...]:
+        """Release connections and derived directory state before changing day."""
         diagnostics: list[CleanupDiagnostic] = []
         for connection in self._connections.values():
             diagnostics.extend(await connection.close())
+            connection.invalidate()
+        # Keep the configured server identities.  MCP connections are lazy and
+        # recreate their transport after the new day is active.
         self._pages.clear()
         self._definitions.clear()
         return tuple(diagnostics)

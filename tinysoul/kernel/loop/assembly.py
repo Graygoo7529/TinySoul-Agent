@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-import re
 
 from .errors import LoopContractError
 
@@ -13,7 +12,7 @@ from tinysoul.kernel.context import ContextEngine, ContextEngineBuilder, Context
 from tinysoul.kernel.context.errors import ContextError
 from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
 from tinysoul.infra.config import ConfigError
-from tinysoul.kernel.registration import ServiceRegistry
+from tinysoul.kernel.registration import ProfileKind, ServiceRegistry
 from tinysoul.infra.json import JsonObject
 from tinysoul.runtime import (
     NullObservationEmitter,
@@ -39,14 +38,13 @@ from .lifecycle.preparation import TurnPreparationPipeline
 from .prompts import DomainSkillProvider, EmptyDomainSkillProvider
 from .turn import TurnActivityController, TurnRunner
 from .interaction.events import TurnEventSubscription
-from tinysoul.runtime.sources import RuntimeSource
 
 
 @dataclass(frozen=True)
 class TurnProfile:
     """One declared policy and capability surface for the shared Turn kernel."""
 
-    id: str
+    kind: ProfileKind
     context: ContextEngine
     action: ActionEngine
     services: ServiceRegistry
@@ -61,14 +59,10 @@ class TurnProfile:
     domain_skills: DomainSkillProvider | None = None
     activity_controller: TurnActivityController | None = None
     events: tuple[TurnEventSubscription, ...] = ()
-    sources: tuple[RuntimeSource, ...] = ()
 
     def __post_init__(self) -> None:
-        if (
-            not isinstance(self.id, str)
-            or re.fullmatch(r"[a-z][a-z0-9_]*", self.id) is None
-        ):
-            raise LoopContractError("Turn profile identity must use lower_snake_case")
+        if not isinstance(self.kind, ProfileKind):
+            raise LoopContractError("Turn profile kind must be a ProfileKind")
         if not isinstance(self.context, ContextEngine) or not isinstance(
             self.action, ActionEngine
         ):

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -28,7 +28,7 @@ from tinysoul.kernel.registration import ServiceRegistry
 
 if TYPE_CHECKING:
     from tinysoul.agent.dispatch.scheduler import AgentRunResult
-    from tinysoul.agent.composition.assembly import AgentAssembly
+    from tinysoul.agent.composition.assembly import AgentAssembly, AgentRuntime
 
 
 class AgentState(StrEnum):
@@ -37,10 +37,6 @@ class AgentState(StrEnum):
     STOPPING = "stopping"
     STOPPED = "stopped"
     FAULTED = "faulted"
-
-
-class _AssemblyFactory(Protocol):
-    def __call__(self) -> Awaitable[AgentAssembly]: ...
 
 
 @dataclass(frozen=True)
@@ -57,20 +53,20 @@ class Agent:
 
     def __init__(
         self,
-        assembly_factory: _AssemblyFactory,
+        assembly: AgentAssembly,
         *,
         queue_capacity: int = 32,
         inbox_limits: InboxLimits = InboxLimits(),
     ) -> None:
         if type(queue_capacity) is not int or queue_capacity <= 0:
             raise AgentSDKError("queue_capacity must be a positive integer")
-        self._factory = assembly_factory
+        self._assembly_definition = assembly
         self._capacity = queue_capacity
         if not isinstance(inbox_limits, InboxLimits):
             raise AgentSDKError("Agent requires typed Inbox limits")
         self._inbox_limits = inbox_limits
         self._state = AgentState.CREATED
-        self._assembly: AgentAssembly | None = None
+        self._assembly: AgentRuntime | None = None
         self._worker: asyncio.Task[AgentRunResult] | None = None
         self._completion: asyncio.Future[AgentRunResult] | None = None
         self._shutdown_task: asyncio.Task[tuple[CleanupDiagnostic, ...]] | None = None
@@ -87,42 +83,43 @@ class Agent:
         inbox_limits: InboxLimits = InboxLimits(),
     ) -> Agent:
         """Build an embedded Agent from project configuration without listening."""
-        from tinysoul.agent.composition.builder import AgentBuilder
+        from tinysoul.agent.composition.builder import AgentBuilder, standard_agent
         from tinysoul.infra.config import ConfigEnvironment
 
         project_root = Path(root).resolve()
         config_overrides = {"agent.interactive": False, **dict(overrides or {})}
 
-        async def factory() -> AgentAssembly:
-            config = ConfigEnvironment.from_project_root(
-                project_root, overrides=config_overrides
-            )
-            return (
-                await AgentBuilder(project_root).with_config_environment(config).build()
-            )
-
+        config = ConfigEnvironment.from_project_root(
+            project_root, overrides=config_overrides
+        )
+        assembly = standard_agent(project_root).with_config_environment(config).build()
         return await cls.assemble(
-            factory, queue_capacity=queue_capacity, inbox_limits=inbox_limits
+            assembly, queue_capacity=queue_capacity, inbox_limits=inbox_limits
         )
 
     @classmethod
     async def assemble(
         cls,
-        assembly_factory: _AssemblyFactory,
+        assembly: AgentAssembly,
         *,
         queue_capacity: int = 32,
         inbox_limits: InboxLimits = InboxLimits(),
     ) -> Agent:
         """Assemble resources without starting sources or accepting work."""
-        agent = cls(
-            assembly_factory, queue_capacity=queue_capacity, inbox_limits=inbox_limits
-        )
-        agent._assembly = await assembly_factory()
+        agent = cls(assembly, queue_capacity=queue_capacity, inbox_limits=inbox_limits)
+        agent._assembly = await assembly.build_runtime()
         return agent
 
     @property
     def state(self) -> AgentState:
         return self._state
+
+    @property
+    def runtime(self) -> AgentRuntime:
+        """Current prepared runtime for host integrations before start."""
+        if self._assembly is None:
+            raise AgentClosedError("Agent runtime is not prepared")
+        return self._assembly
 
     def status(self) -> AgentSnapshot:
         app = self._assembly
@@ -163,7 +160,7 @@ class Agent:
                 await self._assembly.close()
                 self._assembly = None
             if self._assembly is None:
-                self._assembly = await self._factory()
+                self._assembly = await self._assembly_definition.build_runtime()
             self._assembly.agent_runner.set_capacity(self._capacity, self._inbox_limits)
             await self._assembly.activate()
             if self._state is AgentState.STOPPING:
@@ -380,12 +377,12 @@ class Agent:
         await self.start()
         return diagnostics
 
-    def _running_assembly(self) -> AgentAssembly:
+    def _running_assembly(self) -> AgentRuntime:
         if self._state is not AgentState.RUNNING or self._assembly is None:
             raise AgentClosedError("Agent is not accepting work")
         return self._assembly
 
-    async def _serve(self, app: AgentAssembly) -> AgentRunResult:
+    async def _serve(self, app: AgentRuntime) -> AgentRunResult:
         try:
             return await app.run()
         finally:

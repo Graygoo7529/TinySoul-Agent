@@ -3,7 +3,8 @@
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol
+from typing import Protocol, runtime_checkable
+from pathlib import Path
 
 from .events import EnvironmentEvent, EventReceipt, EventProtocolError
 
@@ -42,4 +43,16 @@ class RuntimeSource(Protocol):
 
     async def start(self, publish: EventSink) -> None: ...
 
+    async def stop(self) -> None: ...
+
+
+@runtime_checkable
+class RuntimeTimer(Protocol):
+    async def start(self, tick: Callable[[], Awaitable[float]]) -> None: ...
+    async def stop(self) -> None: ...
+
+
+@runtime_checkable
+class RuntimeWatcher(Protocol):
+    async def start(self, root: Path, *, include: Callable[[Path], bool], changed: Callable[[], Awaitable[None]], failed: Callable[[str], Awaitable[None]], debounce_ms: int) -> None: ...
     async def stop(self) -> None: ...

@@ -15,8 +15,8 @@ import httpx
 
 from tinysoul.gateway import cli
 from tinysoul.agent import AgentClosedError, UserTurnRequest
-from tinysoul.agent.composition.assembly import AgentAssembly
-from tinysoul.agent.composition.builder import AgentBuilder
+from tinysoul.agent.composition.assembly import AgentAssembly, AgentRuntime
+from tinysoul.agent.composition.builder import AgentBuilder, standard_agent
 from tinysoul.gateway.endpoint import EndpointHost, EndpointReady, EndpointSettings
 from tinysoul.infra import ConfigEnvironment
 from tinysoul.runtime import ObservationEvent, ObservationLevel, RuntimeException
@@ -36,7 +36,7 @@ async def test_cli_host_survives_http_restart_failure_and_uses_current_commands(
         ready.set_result(value)
 
     host = EndpointHost(settings=EndpointSettings(token="x" * 32), ready=on_ready)
-    assemblies: list[AgentAssembly] = []
+    assemblies: list[AgentRuntime] = []
     rebuilding = asyncio.Event()
     release = asyncio.Event()
     fail_build = False
@@ -62,17 +62,17 @@ async def test_cli_host_survives_http_restart_failure_and_uses_current_commands(
 
     monkeypatch.setattr(cli._EndpointLifecycle, "restart", restart)
 
-    async def factory() -> AgentAssembly:
+    async def factory() -> AgentRuntime:
         if fail_build:
             raise RuntimeException("runtime.startup_failed", "private startup detail")
         assembly = await (
-            AgentBuilder(root).with_config_environment(
+            standard_agent(root).with_config_environment(
                 ConfigEnvironment.from_project_root(root, env={}, overrides={
                     "agent.interactive": False,
                     "reflection.schedule.enabled": False,
                     "workspace.watch.enabled": False,
                 })
-            ).build()
+            ).build().build_runtime()
         )
         if assemblies:
             assembly.mount_service(ActivationGate())
@@ -80,7 +80,8 @@ async def test_cli_host_survives_http_restart_failure_and_uses_current_commands(
         assemblies.append(assembly)
         return assembly
 
-    application = asyncio.create_task(cli._run_application(factory, None, host))
+    definition = AgentAssembly(root, runtime_factory=factory)
+    application = asyncio.create_task(cli._run_application(definition, None, host))
     try:
         connection = await asyncio.wait_for(ready, 5)
         async with httpx.AsyncClient(

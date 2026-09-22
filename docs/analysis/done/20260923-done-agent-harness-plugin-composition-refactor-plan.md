@@ -1,12 +1,12 @@
 # Agent Harness 与 Plugin 组装重构方案
 
-状态：`pending`（设计方向与本文列出的关键取舍已确认；生产代码尚未按本计划实施）
+状态：`done`（2026-09-23；实现、设计同步与完整本地门禁已逐项核对）
 
 提出／修订日期：2026-09-22
 
 修订标识：**自宿主显式组合确认稿，含配置、恢复处理、Turn 收尾与 Reflection 装配契约**。
 
-代码分析基线：`e2625da8c02309c60cd79ada3d34fad973ab089d`。本文描述目标设计；代码证据描述该基线，不将目标类型或方法写成已实现能力。
+代码分析基线：`e2625da8c02309c60cd79ada3d34fad973ab089d`。本文保留基线问题说明；实施状态和验证证据以本文件末尾为准。
 
 关联审查：`docs/analysis/20260922-agent-refactor-completion-review-e2625da.md`。
 
@@ -346,7 +346,7 @@ shutdown 不重建，完成既有必要收尾后关闭运行资源。reload 与 
 
 ### P1：ACP 独立类型门禁
 
-状态：`pending`。
+状态：`done`。
 
 核对 `_Client` 和测试 LocalAgent 对锁定 ACP Protocol 的实现。沿依赖实际方法契约为未支持能力提供最小明确处理；不能将所有通知和请求统一抛错，也不能假返回成功。保持已声明能力与实际支持一致，不实现第二套文件／终端系统，不以宽泛 cast/type ignore 遮蔽类型问题。
 
@@ -354,7 +354,7 @@ shutdown 不重建，完成既有必要收尾后关闭运行资源。reload 与 
 
 ### P2：静态组成、配置与运行入口
 
-状态：`pending`。
+状态：`done`。
 
 同步迁移 AgentAssembly／AgentRuntime、AgentBuilder.build 和 Agent.assemble 的调用方；建立显式标准配方及下层共享 SPI。配置来源和有效快照分离，宿主 owned/borrowed 边界明确。保持 create 为薄入口。
 
@@ -362,13 +362,13 @@ shutdown 不重建，完成既有必要收尾后关闭运行资源。reload 与 
 
 ### P3：Workspace 完整纵向接入
 
-状态：`pending`。
+状态：`done`。
 
 以 Workspace 验证真实配置、owner 创建、SDK facade、段、动作、preparation、事件源、日绑定及关闭。来源从代级直接汇集；profile 不再声明 sources。验证标准 Agent 通过新入口运行，SDK 写入和 watcher 变化能刷新同一 Turn 的实际模型视图。
 
 ### P4：Home／Memory／Session 与 Reflection
 
-状态：`pending`。
+状态：`done`。
 
 迁移现有声明门面，落实 generation 依赖、Home Trap handler、Session recorder 和 Organize。Home/Memory 专属写动作归各自扩展；按第 8 节先来源接口、再 profile、后执行入口完成 Reflection 装配。
 
@@ -376,7 +376,7 @@ shutdown 不重建，完成既有必要收尾后关闭运行资源。reload 与 
 
 ### P5：execution／ACP／MCP 与统一资源边界
 
-状态：`pending`。
+状态：`done`。
 
 迁移能力实例、动作、连接段和配置校验，共用 JobRegistry。将 ACP close_turn 接入原活动控制器；区分日资源释放和永久 close。Reflection scheduler 作为代级来源，只通过请求提交端口工作，不持有第二根调度器。
 
@@ -384,7 +384,7 @@ shutdown 不重建，完成既有必要收尾后关闭运行资源。reload 与 
 
 ### P6：宿主组合、SDK 导出及剩余旁路清理
 
-状态：`pending`。
+状态：`done`。
 
 以小型宿主集成测试证明额外贡献能经公开 Builder 接入段、动作和事件；不为验收新增完整知识库产品。迁移四类正式 SDK facade 到 export 绑定，证明旧对象失效且内部写服务未泄露。
 
@@ -392,7 +392,7 @@ shutdown 不重建，完成既有必要收尾后关闭运行资源。reload 与 
 
 ### P7：文档、门禁与归档
 
-状态：`pending`。
+状态：`done`（AGENTS、agent/context/runtime 设计文档已同步；Full 与 typecheck 已通过；本文件随后归档）。
 
 同步 AGENTS、README 及 agent/context/loop/capabilities/reflection 等受影响设计，提供标准构建和一个额外贡献示例。设计文档只描述实际落地能力；HTTP 协议有实际变化才更新 Endpoint 契约。
 
@@ -402,26 +402,26 @@ shutdown 不重建，完成既有必要收尾后关闭运行资源。reload 与 
 
 ## 14. 验收清单
 
-以下条目均为 `pending`，实施阶段逐项附代码与测试证据：
+以下条目按最终实现逐项核验；旧切片验证不作为完整计划的完成证据：
 
 | 编号 | 完成条件 |
 |---|---|
-| A1 | 标准核心组成唯一、显式；无核心插件裁剪与缺省空 owner 路径 |
-| A2 | Builder.build 不创建 Engine/来源/客户端；assemble 准备、start 激活 |
-| A3 | 通用插件契约不导致 plugins→agent 或 kernel→plugins 导入；RootScheduler 依赖 `GenerationDispatchPort`，实际 `AgentGeneration` 只有一个 owner |
-| A4 | generation 构建依赖与 profile 使用依赖分别校验；扩展安装无提前执行，ProfileBuildContext 不拥有 RuntimeSource 生命周期 |
-| A5 | 每个插件每代一个 owner；三个 profile 不重复创建资源或来源 |
-| A6 | 新配置通过统一解析／候选路径，reload 重新读取；Action 仍经唯一 catalog |
-| A7 | Home 恢复 handler 经声明接入；预算/容量/结束仍由公共策略控制 |
-| A8 | Jobs→插件 Turn 收尾→Workspace 同步→事实封存/completion 的顺序保持 |
-| A9 | 日资源释放与永久 close 分义；确定性归档仍由原协调者执行 |
-| A10 | Reflection 来源准备保留业务语义，装配无环，连续目标无状态残留 |
-| A11 | User 与 Reflection 权限正确；SessionOrganize 和持久写服务不自动暴露 SDK |
-| A12 | ContextEngine 串行复用且视图每 Turn 独立；统一 inspect/Session 语义不回退 |
-| A13 | reload 候选失败旧服务有效；restart 重建、旧句柄结果和 wait_for_exit 契约保持 |
-| A14 | 来源统一启动/停止一次；底层资源只有一个关闭 owner；借用宿主对象不误关 |
-| A15 | 一个额外贡献经公开组合入口运行，不改 Kernel、不复制默认 Builder |
-| A16 | 无旧声明/超级 Plugin/特殊追加能力与新装配双轨；文档、Full、类型门禁完成 |
+| A1 | `done`：标准核心组成唯一、显式；无核心插件裁剪与缺省空 owner 路径 |
+| A2 | `done`：Builder.build 不创建 Engine/来源/客户端；assemble 准备、start 激活 |
+| A3 | `done`：通用插件契约不导致 plugins→agent 或 kernel→plugins 导入；RootScheduler 依赖 `GenerationDispatchPort`，实际 `AgentGeneration` 只有一个 owner |
+| A4 | `done`：generation 插件按 requires 拓扑构建并校验 identity/dependency；Profile 扩展仍在解析后统一安装且不拥有 RuntimeSource 生命周期 |
+| A5 | `done`：每个插件每代一个 owner；三个 profile 不重复创建资源或来源 |
+| A6 | `done`：配置通过统一解析／候选路径，reload 重新读取；宿主插件拥有独立配置贡献 SPI |
+| A7 | `done`：Home 恢复 handler 经声明接入；预算/容量/结束仍由公共策略控制 |
+| A8 | `done`：Jobs→插件 Turn 收尾→Workspace 同步→事实封存/completion 的顺序保持 |
+| A9 | `done`：日资源释放与永久 close 分义；确定性归档仍由原协调者执行 |
+| A10 | `done`：Reflection 来源准备保留业务语义，装配无环，连续目标无状态残留 |
+| A11 | `done`：User 与 Reflection 权限正确；SessionOrganize 和持久写服务不自动暴露 SDK |
+| A12 | `done`：ContextEngine 串行复用且视图每 Turn 独立；统一 inspect/Session 语义不回退 |
+| A13 | `done`：reload 候选失败旧服务有效；restart 重建、旧句柄结果和 wait_for_exit 契约保持 |
+| A14 | `done`：来源统一启动/停止一次；底层资源只有一个关闭 owner；借用宿主对象不误关 |
+| A15 | `done`：宿主通过 `AgentBuilder.use()` 贡献一个 generation owner 和 User profile extension，不改 Kernel、不复制默认 Builder |
+| A16 | `done`：代码无旧声明和兼容 alias，文档与最终 Full 门禁已收口 |
 
 测试围绕真实数据流和可观察行为，不固定文件数、完整提示词文本或内部类数量。复用现有 SDK、Session、Reflection、ACP/MCP 与架构测试，只补新装配边界和已证明的缺口。
 
@@ -429,7 +429,9 @@ shutdown 不重建，完成既有必要收尾后关闭运行资源。reload 与 
 
 2026-09-22 已确认：Plugin 用于内部清晰与迭代，不考虑移除核心能力；保留现有运行设施复用方式和 Reflection 专门策略。本文据此整体修订目标、协议、配置、生命周期、代码归属、执行顺序和验收，未保留相互冲突的旧建议。同步到当前分析计划时补充了 `ProfileKind` 的稳定类型约束，以及标准核心组成不得绕过基线校验的实现要求。
 
-本次只交付方案文档；未实施 Python/API/配置/Endpoint 变更，未运行新的代码门禁，不将此前 review 的测试结果充作本计划实施验收。P0 完成，P1–P7 与 A1–A16 均待实施。
+2026-09-23 复核与实施完成：此前 P1–P4 与部分验收项的完成标记偏早，旧切片仍保留中央能力装配、四类 SDK 服务特判及缺失的日资源释放。本轮已将内置 owner、配置贡献、SDK 导出、Reflection 专属能力、Trap/Turn 收尾与资源生命周期接入同一插件路径；`CommonActionAssembly` 已移除。宿主可通过 `standard_agent(...).use(plugin)` 接入 generation/profile/config/SDK export。ACP 未支持 request 以明确协议错误返回，通知不伪造响应。Expand 日切保留配置身份并清除旧日连接与派生目录，下一日按需重连。
+
+最终验证（Conda `TinySoul` Python 3.13）：标准 `scripts/test.ps1 -Suite Full` 通过，`1150 passed, 23 deselected`；`scripts/typecheck.ps1` 通过；额外架构、注册、压力和插件聚焦测试通过。未运行真实 provider/network，因此不对外部服务可用性作结论。
 
 基础设计方向没有新的阻塞确认项。P2 需要在实现前落实标准核心组成的基线校验位置，方法具体拼写、文件拆分和小型参数结构由实施按本文职责落定；如实际协议迫使改变所有权、可观察生命周期或业务写边界，应提出具体冲突再讨论，不用兼容旁路掩盖。
 

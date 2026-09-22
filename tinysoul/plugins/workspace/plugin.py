@@ -2,13 +2,17 @@
 
 from collections.abc import Callable
 from functools import partial
+from dataclasses import dataclass
 
 from tinysoul.kernel.action.backends.llm_action import LLMActionTaskRunner
 from tinysoul.kernel.loop.interaction.events import TurnEventSubscription
-from tinysoul.kernel.registration import PluginDeclaration, Service
+from tinysoul.kernel.registration import (
+    PluginProfileExtension, Service, PluginGeneration, PluginConfig, PluginServiceExport,
+    ServiceLifetime, GenerationBuildContext, ProfileBuildContext, ProfileKind,
+    PluginTurnResource, TurnResourceStage,
+)
 from tinysoul.runtime import RunScope, Signal
 from tinysoul.runtime.events import EnvironmentEvent, EventFilter
-from tinysoul.runtime.sources import RuntimeSource
 
 from .actions import register_workspace_actions
 from .engine import WorkspaceArchiveView, WorkspaceEngine
@@ -21,7 +25,80 @@ from .projection import (
     workspace_segment_registration,
 )
 from .runtime_bridge import RuntimeWorkspaceBridge
-from .services import WorkspaceService
+from .services import WorkspaceService, WorkspaceExecutionService
+from .config import WorkspaceSettings, parse_workspace_settings
+from .engine import WorkspaceEngineBuilder
+from .errors import WorkspaceError, WorkspaceReconciliationError
+from .events import WorkspaceRuntime
+from tinysoul.runtime.sources import RuntimeWatcher
+from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
+
+
+@dataclass(frozen=True)
+class WorkspaceProfileSource:
+    archive: Callable[[], WorkspaceArchiveView | None]
+
+
+class WorkspaceTurnResources:
+    def __init__(self, owner: WorkspaceEngine) -> None:
+        self._owner = owner
+
+    async def close_turn(self, turn_id: str) -> tuple[CleanupDiagnostic, ...]:
+        joined = JoinedOperations()
+        try:
+            result = await joined.run(self._owner.reconcile)
+            if not result.complete:
+                raise WorkspaceReconciliationError("Final Workspace reconciliation is incomplete")
+        except WorkspaceError as exc:
+            raise RuntimeWorkspaceBridge().from_workspace_error(exc) from exc
+        await joined.finish(self._owner.events.flush)
+        joined.check_cancelled()
+        return ()
+
+
+@dataclass(frozen=True)
+class WorkspacePlugin:
+    id = "workspace"
+    provides = (WorkspaceEngine, WorkspaceService, WorkspaceExecutionService)
+    requires = (RuntimeWatcher,)
+    configuration = (PluginConfig(
+        "workspace", WorkspaceSettings,
+        lambda tree, root: parse_workspace_settings(tree, project_root=root),
+        RuntimeWorkspaceBridge().from_config_error,
+    ),)
+
+    async def build_generation(self, context: GenerationBuildContext) -> PluginGeneration:
+        try:
+            owner = WorkspaceEngineBuilder(
+                context.settings.get(WorkspaceSettings), observations=context.observations
+            ).build()
+        except WorkspaceError as exc:
+            raise RuntimeWorkspaceBridge().startup_failure(
+                message="Workspace could not be initialized.", payload={"error_type": type(exc).__name__}
+            ) from exc
+        service = WorkspaceService(owner)
+        runtime = WorkspaceRuntime(owner, context.services.get(RuntimeWatcher), observations=context.observations)
+
+        def extend(kind: ProfileKind, profile: ProfileBuildContext) -> PluginProfileExtension:
+            archive = profile.bindings.get(WorkspaceProfileSource).archive if kind is ProfileKind.MEMORY_REFLECTION else None
+            return declare_workspace(
+                service, owner=owner, llm_action=profile.llm_action, archive_source=archive
+            )
+
+        return PluginGeneration(
+            self.id, services=(
+                Service(WorkspaceEngine, owner), Service(WorkspaceService, service),
+                Service(WorkspaceExecutionService, WorkspaceExecutionService(owner)),
+            ),
+            profile_extension_factory=extend, sources=(runtime,), close=lambda: _unbind_runtime(runtime),
+            sdk_exports=(PluginServiceExport(
+                WorkspaceService, lambda scope: WorkspaceService(owner, scope), ServiceLifetime.DAY
+            ),),
+        )
+
+
+async def _unbind_runtime(runtime: WorkspaceRuntime) -> None:
+    runtime.unbind()
 
 
 def _refresh(event: EnvironmentEvent, scope: RunScope) -> tuple[Signal, ...]:
@@ -43,10 +120,9 @@ def declare_workspace(
     *,
     llm_action: LLMActionTaskRunner,
     owner: WorkspaceEngine,
-    source: RuntimeSource | None = None,
     archive_source: Callable[[], WorkspaceArchiveView | None] | None = None,
-) -> PluginDeclaration:
-    return PluginDeclaration(
+) -> PluginProfileExtension:
+    return PluginProfileExtension(
         "workspace",
         services=(Service(WorkspaceService, workspace),),
         segments=(
@@ -61,6 +137,7 @@ def declare_workspace(
             runtime_bridge=RuntimeWorkspaceBridge(),
         ),
         preparation=(WorkspaceTurnPreparationHandler(owner, RuntimeWorkspaceBridge()),),
+        turn_resources=(PluginTurnResource(WorkspaceTurnResources(owner), TurnResourceStage.SYNCHRONIZE),),
         events=tuple(
             TurnEventSubscription(
                 EventFilter(topic=WORKSPACE_CHANGED, source=name),
@@ -75,5 +152,4 @@ def declare_workspace(
                 _unavailable,
             ),
         ),
-        sources=(source,) if source is not None else (),
     )

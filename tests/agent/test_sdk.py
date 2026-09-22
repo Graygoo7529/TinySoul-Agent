@@ -32,8 +32,8 @@ from tinysoul.agent import (
     ObservationRecord,
 )
 from tinysoul.agent.config import AgentSettings
-from tinysoul.agent.composition.assembly import AgentAssembly
-from tinysoul.agent.composition.builder import AgentBuilder
+from tinysoul.agent.composition.assembly import AgentRuntime
+from tinysoul.agent.composition.builder import AgentBuilder, standard_agent
 from tinysoul.infra.config import ConfigEnvironment, ConfigMutation, ConfigError
 from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.workspace import WorkspaceEngine
@@ -301,41 +301,39 @@ async def _create(
     root = root / "project"
     copy_initialized_project(root)
 
-    async def factory() -> AgentAssembly:
-        builder = (
-            AgentBuilder(root)
-            .with_config_environment(
-                ConfigEnvironment.from_project_root(
-                    root,
-                    env={},
-                    overrides={
-                        "reflection.schedule.enabled": False,
-                        "loop.user.max_cycles": max_cycles,
-                    },
-                )
+    builder = (
+        standard_agent(root)
+        .with_config_environment(
+            ConfigEnvironment.from_project_root(
+                root,
+                env={},
+                overrides={
+                    "reflection.schedule.enabled": False,
+                    "loop.user.max_cycles": max_cycles,
+                },
             )
-            .with_agent_settings(AgentSettings(interactive=False))
-            .with_llm_runner(llm)
         )
-        if clock is not None:
-            builder.with_calendar_clock(clock)
-        assembly = await builder.build()
-        if endpoints is not None:
-            endpoints.append(
-                EndpointEngine(
-                    settings=EndpointSettings(token="x" * 32),
-                    events=EndpointEventBuffer(capacity=32, max_bytes=100000),
-                    gateway=assembly.gateway,
-                    services=assembly.service_access,
-                    config=assembly.configuration,
-                    available=lambda: assembly.is_available,
-                )
-            )
-        return assembly
-
-    return await Agent.assemble(
-        factory, queue_capacity=capacity, inbox_limits=inbox_limits
+        .with_agent_settings(AgentSettings(interactive=False))
+        .with_llm_runner(llm)
     )
+    if clock is not None:
+        builder.with_calendar_clock(clock)
+    agent = await Agent.assemble(
+        builder.build(), queue_capacity=capacity, inbox_limits=inbox_limits
+    )
+    if endpoints is not None:
+        runtime = agent.runtime
+        endpoints.append(
+            EndpointEngine(
+                settings=EndpointSettings(token="x" * 32),
+                events=EndpointEventBuffer(capacity=32, max_bytes=100000),
+                gateway=runtime.gateway,
+                services=runtime.service_access,
+                config=runtime.configuration,
+                available=lambda: runtime.is_available,
+            )
+        )
+    return agent
 
 
 async def test_agent_wait_for_exit_survives_restart_and_detaches_cancelled_waiter(
@@ -395,8 +393,8 @@ async def test_failed_start_settles_requests_accepted_by_sources(
     root = tmp_path / "project"
     copy_initialized_project(root)
     llm = _LLM()
-    assembly = (
-        await AgentBuilder(root)
+    definition = (
+        standard_agent(root)
         .with_config_environment(
             ConfigEnvironment.from_project_root(
                 root,
@@ -411,6 +409,8 @@ async def test_failed_start_settles_requests_accepted_by_sources(
         .with_llm_runner(llm)
         .build()
     )
+    agent = await Agent.assemble(definition)
+    assembly = agent.runtime
     entered, release = asyncio.Event(), asyncio.Event()
     source_stopped = False
     handles = []
@@ -437,10 +437,6 @@ async def test_failed_start_settles_requests_accepted_by_sources(
     assembly.mount_service(SubmittingService())
     assembly.mount_service(FailingService())
 
-    async def factory() -> AgentAssembly:
-        return assembly
-
-    agent = await Agent.assemble(factory)
     starting = asyncio.create_task(agent.start())
     try:
         await asyncio.wait_for(entered.wait(), 5)
@@ -764,7 +760,7 @@ async def test_shutdown_joins_inflight_start_and_rejects_cached_commands(
     entered = asyncio.Event()
     cleaned = asyncio.Event()
 
-    async def activate(assembly: AgentAssembly) -> None:
+    async def activate(assembly: AgentRuntime) -> None:
         entered.set()
         try:
             await asyncio.Event().wait()
@@ -772,7 +768,7 @@ async def test_shutdown_joins_inflight_start_and_rejects_cached_commands(
             await asyncio.sleep(0)
             cleaned.set()
 
-    monkeypatch.setattr(AgentAssembly, "activate", activate)
+    monkeypatch.setattr(AgentRuntime, "activate", activate)
     starting = asyncio.create_task(agent.start())
     await asyncio.wait_for(entered.wait(), 3)
     first, second = await asyncio.wait_for(
@@ -1322,7 +1318,7 @@ async def test_memory_reflection_revises_daily_from_fixed_target_sources(
     llm = _LLM()
     llm.release.set()
     builder = (
-        AgentBuilder(root)
+        standard_agent(root)
         .with_config_environment(
             ConfigEnvironment.from_project_root(
                 root, env={}, overrides={"reflection.schedule.enabled": False}
@@ -1332,7 +1328,7 @@ async def test_memory_reflection_revises_daily_from_fixed_target_sources(
         .with_calendar_clock(clock)
         .with_llm_runner(llm)
     )
-    agent = await Agent.assemble(builder.build)
+    agent = await Agent.assemble(builder.build())
     await agent.start()
     try:
         user = await agent.submit_turn(UserTurnRequest("Remember this discussion"))

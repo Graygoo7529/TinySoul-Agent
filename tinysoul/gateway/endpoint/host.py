@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
-from tinysoul.agent.composition.assembly import AgentAssembly
+from tinysoul.agent.composition.assembly import AgentRuntime
 from tinysoul.agent.observation.outputs import ObservationRoute
 from tinysoul.runtime import ObservationLevel
 
@@ -19,7 +19,7 @@ from .events import EndpointEventBuffer, EndpointEventJournal
 
 
 def mount_endpoint(
-    assembly: AgentAssembly,
+    assembly: AgentRuntime,
     settings: EndpointSettings,
     *,
     ready: Callable[[EndpointReady], None] | None = None,
@@ -83,7 +83,7 @@ class EndpointHost:
         self._available = available
         self._runtime_bridge = runtime_bridge or RuntimeEndpointBridge()
         self._server: EndpointServer | None = None
-        self._assembly: AgentAssembly | None = None
+        self._assembly: AgentRuntime | None = None
         self._route: ObservationRoute | None = None
 
     @property
@@ -92,7 +92,7 @@ class EndpointHost:
             raise EndpointServerError("Endpoint is not bound to an Agent generation")
         return self._engine
 
-    def bind(self, assembly: AgentAssembly) -> EndpointEngine:
+    def bind(self, assembly: AgentRuntime) -> EndpointEngine:
         """Bind the stable Endpoint facade to the current Agent generation."""
         if self._assembly is assembly:
             return self.engine
