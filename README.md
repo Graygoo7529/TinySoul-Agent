@@ -113,11 +113,3 @@ $env:TINYSOUL_PYTHON=(Get-Command python).Source
 `test.ps1` runs the Fast local business-logic suite by default and creates a unique isolated run root under `.local-test/runs/`. Use `-TestPath` for focused feedback, `-Suite Generation` for the small set of package-owned project/resource generation contracts, and `-Suite Full` for the completion gate, which includes both local suites plus wheel build and isolated-install checks. Real-provider and opt-in network tests are excluded from Fast and Full and can only be selected with `-Suite External` plus their existing environment switches. If PowerShell blocks local script execution, invoke the same script with `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1`. `typecheck.ps1` runs `ty` with the selected Python environment.
 
 Architecture and module contracts are under `docs/design/`; the desktop frontend is documented in `visualization/README.md`.
-
-
-## Provider popularization
-
-https://www.orcarouter.ai/ is now supported as built-in provider.
-
-orcarouter new user link：
-https://www.orcarouter.ai/ref/ref_5fac47f4440f623d372b
