@@ -5,7 +5,7 @@
 代码基线：`e2625da8c02309c60cd79ada3d34fad973ab089d`（独立拉取的远端 HEAD）
 
 范围：架构、正常功能链路、扩展接口、代表性失败处理、本地验证。
-状态：审查记录；下文改进项分别标为 `pending` 或 `proposed`，不代表已经实施。
+状态：`done`（2026-09-23 收口复核完成；原始审查结论与后续实施证据见第 11 节）。
 
 本文件是本次最新交付，不是前三轮 Review 或主计划的旧副本。主计划当前实际路径为 `docs/analysis/done/20260915-done-agent-architecture-refactor-plan.md`，R7 及其披露收口也已归档。本轮不修改实现、不修改历史提交、不覆盖历史验收记录。
 
@@ -121,7 +121,9 @@ infra 提供文件、进程、配置、并发和时钟；runtime 提供运行转
 
 ### F1：标准 SDK 缺少完整、明确的宿主插件接入路径
 
-状态：`proposed`；优先级：P2（扩展性收口，不是现有正常业务故障）。
+历史状态：`proposed`；优先级：P2（扩展性收口，不是现有正常业务故障）。
+
+收口状态：`done`（2026-09-23）。
 
 证据：
 
@@ -147,7 +149,9 @@ infra 提供文件、进程、配置、并发和时钟；runtime 提供运行转
 
 ### F2：全新合法依赖环境下 ACP 类型契约未通过门禁
 
-状态：`pending`；优先级：P2（验证与适配器类型契约）。
+历史状态：`pending`；优先级：P2（验证与适配器类型契约）。
+
+收口状态：`done`（2026-09-23）。
 
 复现环境：Python 3.13.15，ACP 0.12.1，MCP 2.2.0，ty 0.0.83，按仓库 `.[dev]` 安装。Linux 和 win32 类型检查目标都报告两处 `call-non-callable`：
 
@@ -209,7 +213,9 @@ Full 首次运行因本次 uv 创建的 venv 缺少 pip，在调用 `python -m p
 
 历史 R7 记录的 `1149 passed, 23 deselected` 属于此前 Windows 环境。本次 Linux 跳过项与工具版本应单独记录，不直接复写该历史数字。
 
-## 9. 推进顺序与需要讨论的唯一产品取舍
+## 9. 原始审查时的推进顺序与产品取舍（历史记录）
+
+以下编号保留原始审查时的判断；F1/F2 的当前收口状态以第 11 节为准，真实外部环境验收仍按实际授权和环境另行进行。
 
 1. `pending`：先修 F2，使干净安装下类型门禁成立；不牵连 Session/Context 重设计。
 2. `proposed`：确认 SDK 扩展面定位。推荐选择“宿主可通过薄插件工厂扩展现有 Agent”，然后用一个真实功能插件完成 F1 和文档示例；不建插件平台。
@@ -218,10 +224,36 @@ Full 首次运行因本次 uv 创建的 venv 缺少 pip，在调用 `python -m p
 
 已有 Session 当日范围、Organize 命名及职责、Reflection 写边界、受信主机假设、ACP 条件复用和统一 inspect 均不需要重新确认。新讨论只涉及 F1 的对外扩展面，且不阻塞已有功能继续使用。
 
-## 10. 文档与提交建议
+## 10. 文档与提交建议（原始审查时记录）
 
 本轮只新增本文件；没有修改 Python、配置、前端、历史主计划或实际部署数据，也没有提交或推送。
 
 建议提交说明：`docs: review completed agent refactor at e2625da and identify SDK integration gaps`
 
-该说明只适用于本次审查文档，不代表 F1/F2 已修复。
+该说明只适用于原始审查记录；F1/F2 的后续收口状态记录在第 11 节。
+
+## 11. 2026-09-23 收口复核
+
+本节记录原始审查之后的实施与复核结果，保留前文作为 2026-09-22 的独立审查历史。
+
+### F1：宿主插件接入
+
+已满足原建议的薄组合契约：
+
+- `AgentBuilder.use(plugin)` 是公开的宿主接入入口；插件按 generation 构建，并通过 `PluginGeneration` 提供 profile extension、来源、配置、Turn 资源、生命周期和 SDK export。
+- `GenerationBuildContext`、`ProfileBuildContext` 和 `PluginServiceExport` 保持窄依赖；服务导出由插件声明，`AgentRuntimeServices` 不再按 Home/Memory/Session/Workspace 硬编码分支。
+- `tests/agent/composition/test_builder.py::test_host_plugin_is_built_per_generation_and_extends_user_profile` 验证宿主插件可以经 `standard_agent(...).use(plugin)` 接入，扩展 User profile、绑定 SDK 服务，并在 generation 关闭时释放。
+- 内置能力已经迁移到同一插件路径；没有新增第二套 kernel、Loop、Action 或调度器。
+
+### F2：ACP 类型契约
+
+已满足原建议：`_Client` 和 ACP 测试 `LocalAgent` 实现锁定依赖要求的协议方法；未支持的 request 明确返回 `RequestError.method_not_found`，通知不伪造成功响应。未引入第二套文件／终端系统，也没有使用宽泛类型忽略遮蔽协议错误。
+
+### 最终验证与边界
+
+- `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\test.ps1 -Suite Full`：`1150 passed, 23 deselected`。
+- `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\typecheck.ps1`：通过，`All checks passed!`。
+- 额外架构、注册、压力、Agent、Gateway、插件能力与 ACP 聚焦测试均通过。
+- `AGENTS.md`、`docs/design/agent.md`、`docs/design/context.md`、`docs/design/runtime.md` 和对应执行计划已同步；执行计划已归档为 `docs/analysis/done/20260923-done-agent-harness-plugin-composition-refactor-plan.md`。
+
+本地门禁未包含真实 provider、远程 MCP、真实 ACP 委派、Windows 实机或 Defuddle CLI；这些仍属于需要实际环境和授权的独立验收，不影响本 review 对 F1/F2 的收口结论。原始 review 现已满足归档条件。
