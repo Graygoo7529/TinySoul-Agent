@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import IntEnum, StrEnum
 import re
 from types import MappingProxyType
@@ -162,6 +162,9 @@ class PluginConfiguration(Protocol):
     @property
     def section(self) -> str: ...
 
+    @property
+    def settings(self) -> type[object]: ...
+
     def load(self, config: ConfigEnvironment, root: Path) -> ServiceRegistration: ...
 
     def failure(self, error: ConfigError, /) -> RuntimeException: ...
@@ -184,7 +187,7 @@ class PluginConfig[T]:
 
 @dataclass(frozen=True)
 class GenerationBuildContext:
-    """Only the selected plugin's declared build services and parsed settings."""
+    """Parsed settings plus only the selected plugin's declared build services."""
 
     root: Path
     runtime_env: Mapping[str, str]
@@ -238,15 +241,49 @@ class PluginGeneration:
         return factory(kind, context) if factory is not None else None
 
 
+def _configuration_scopes_overlap(left: str, right: str) -> bool:
+    return (
+        left == right
+        or left.startswith(right + ".")
+        or right.startswith(left + ".")
+    )
+
+
+def _validate_configuration_sections(
+    sections: tuple[str, ...], *, conflict_message: str
+) -> None:
+    for index, section in enumerate(sections):
+        if re.fullmatch(
+            r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*", section
+        ) is None:
+            raise RegistrationError(
+                "Configuration sections must use dotted lower_snake_case"
+            )
+        if any(
+            _configuration_scopes_overlap(section, other)
+            for other in sections[:index]
+        ):
+            raise RegistrationError(conflict_message)
+
+
 class PluginDefinitions:
     """Validate the complete recipe before creating any runtime resource."""
 
     def __init__(
-        self, plugins: tuple[AgentPlugin, ...], *, host_services: tuple[type[object], ...] = ()
+        self,
+        plugins: tuple[AgentPlugin, ...],
+        *,
+        host_services: tuple[type[object], ...] = (),
+        reserved_configuration_sections: tuple[str, ...] = (),
     ) -> None:
         by_id: dict[str, AgentPlugin] = {}
         owners: dict[type[object], AgentPlugin | None] = {key: None for key in host_services}
         configurations: list[PluginConfiguration] = []
+        reserved_sections = tuple(reserved_configuration_sections)
+        _validate_configuration_sections(
+            reserved_sections,
+            conflict_message="Reserved configuration scopes overlap",
+        )
         for plugin in plugins:
             if re.fullmatch(r"[a-z][a-z0-9_]*", plugin.id) is None or plugin.id in by_id:
                 raise RegistrationError("Agent plugin identities must be unique lower_snake_case")
@@ -257,10 +294,25 @@ class PluginDefinitions:
                 owners[service] = plugin
             configurations.extend(plugin.configuration)
         sections = tuple(item.section for item in configurations)
-        for i, section in enumerate(sections):
-            if any(section == other or section.startswith(other + ".") or other.startswith(section + ".")
-                   for other in sections[:i]):
-                raise RegistrationError("Plugin configuration scopes overlap")
+        _validate_configuration_sections(
+            sections,
+            conflict_message="Plugin configuration scopes overlap",
+        )
+        if any(
+            _configuration_scopes_overlap(section, reserved)
+            for section in sections
+            for reserved in reserved_sections
+        ):
+            raise RegistrationError(
+                "Plugin configuration scopes overlap reserved host configuration"
+            )
+        settings_facades: set[type[object]] = set()
+        for configuration in configurations:
+            if configuration.settings in settings_facades:
+                raise RegistrationError(
+                    "A plugin settings facade has more than one owner"
+                )
+            settings_facades.add(configuration.settings)
         ordered: list[AgentPlugin] = []
         visiting: set[str] = set()
         complete: set[str] = set()

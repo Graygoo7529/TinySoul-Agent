@@ -130,6 +130,8 @@ Runtime 只定义信号信封和分发机制，不定义所有业务载荷字段
 
 ## Runtime Generation
 
+Agent 层的 AgentRuntime 是宿主运行容器，与本模块提供的运行控制协议分属不同职责。它持有泛型 RuntimeHandle 所指向的 AgentGeneration；reload 替换业务世代，restart 重建宿主运行容器。SDK 导出服务按 generation/day 绑定，宿主挂载的 EnvironmentService 则由该 runtime 管理；内部宿主集成在 restart 后重新绑定当前容器。
+
 `tinysoul.runtime.generation` 提供不携带业务依赖的泛型运行时句柄。当前子包由
 `activity.py`、`handle.py` 和 `__init__.py` 组成；lease 类型与句柄实现集中在 `handle.py`，
 不额外拆分没有独立职责的 lifecycle 或 receipt 模块。`RuntimeHandle[T]`

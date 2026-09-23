@@ -3,11 +3,13 @@ import asyncio
 import sys
 from time import monotonic
 from tinysoul.agent.composition.assembly import AgentRuntime
+from tinysoul.agent import Agent, UserTurnRequest
 from tinysoul.kernel.loop.turn import TurnOutcome
 
 from collections import deque
-from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
+from collections.abc import AsyncIterator, Mapping
+from dataclasses import dataclass, field, replace
+from enum import StrEnum
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -20,7 +22,7 @@ from tinysoul.agent.composition.builder import AgentBuilder, standard_agent
 from tinysoul.gateway.endpoint.host import mount_endpoint
 from tinysoul.gateway.endpoint import EndpointSettings
 from tinysoul.gateway.endpoint.http import create_endpoint_app
-from tinysoul.infra.config import ConfigEnvironment
+from tinysoul.infra.config import ConfigEnvironment, ConfigMutation
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.llm.protocol.requests import TaskCall
 from tinysoul.llm.failures import LLMFailureKind
@@ -33,13 +35,33 @@ from tinysoul.kernel.loop import (
     TurnCompletion,
     build_control_request_signal,
 )
+from tinysoul.kernel.action import (
+    ActionEngineBuilder,
+    ActionExecution,
+    ActionExecutionContext,
+    HookOutcome,
+)
+from tinysoul.kernel.context.segments import (
+    SegmentDescriptor,
+    SegmentRegistration,
+    SegmentSlot,
+    TurnInfo,
+)
+from tinysoul.kernel.registration import PluginConfig
+from tinysoul.infra.config import ConfigError, reject_unknown_keys
+from tinysoul.infra.services import ServiceScope
+from tinysoul.infra.concurrency import CleanupDiagnostic
+from tinysoul.llm.protocol.messages import JsonPart, Message, UserMessage
+from tinysoul.kernel.loop.lifecycle.preparation import TurnPreparationRequest
 from tinysoul.runtime import (
     ObservationLevel,
     RUNTIME_STARTUP_FAILED,
     RunLevel,
+    RunScope,
     RuntimeException,
     RuntimeTransferAction,
     SignalBus,
+    Signal,
 )
 from tests.support.project import copy_initialized_project
 from tinysoul.kernel.loop.assembly import TurnProfile
@@ -57,9 +79,17 @@ from tinysoul.kernel.registration import (
     PluginGeneration,
     PluginProfileExtension,
     PluginServiceExport,
+    PluginTurnResource,
     ProfileKind,
     Service,
+    TurnResourceStage,
 )
+from tinysoul.runtime.events import EnvironmentEvent, EventKind, EventFilter
+from tinysoul.kernel.loop.interaction.inbox import WaitReason
+from tinysoul.kernel.loop.interaction.events import TurnEventSubscription
+from tinysoul.plugins.workspace.services import WorkspaceService
+from tinysoul.agent.errors import AgentClosedError, AgentServiceStaleError
+from tinysoul.runtime.failures import runtime_exception
 
 
 class FakeLLM:
@@ -72,54 +102,192 @@ class FakeLLM:
         return self.results.popleft()
 
 
-class _HostPluginService:
+@dataclass(frozen=True)
+class _ProbeSettings:
+    value: int = 1
+
+
+class _ProbeFailure(StrEnum):
+    CONFIGURATION = "probe.configuration_failed"
+
+
+def _probe_config_failure(error: ConfigError) -> RuntimeException:
+    return runtime_exception(
+        module="probe", kind=_ProbeFailure.CONFIGURATION,
+        reason=RUNTIME_STARTUP_FAILED, message="Probe configuration is invalid.",
+        payload={"key": error.key, "error_type": type(error).__name__},
+    )
+
+
+def _parse_probe_settings(tree: Mapping[str, object], root: Path) -> _ProbeSettings:
+    del root
+    reject_unknown_keys(tree, {"value"}, key="capabilities.probe")
+    value = tree.get("value", 1)
+    if type(value) is not int:
+        raise ConfigError("Probe value must be an integer", key="capabilities.probe.value")
+    return _ProbeSettings(value)
+
+
+class _ProbeService:
+    def __init__(self, owner: "_ProbeOwner", scope: ServiceScope = ServiceScope()) -> None:
+        self.read = scope.local(owner.read)
+
+
+class _ProbeOwner:
+    def __init__(self, value: int) -> None:
+        self.value = value
+        self.actions: list[str] = []
+        self.events: list[int] = []
+        self.lifecycle: list[str] = []
+        self.closed = 0
+
+    def read(self) -> int:
+        return self.value
+
+    async def prepare(self, request: TurnPreparationRequest) -> tuple[Signal, ...]:
+        self.lifecycle.append("prepare")
+        return ()
+
+    async def handle(self, completion: TurnCompletion) -> None:
+        self.lifecycle.append("complete")
+
+
+class _ProbeResource:
+    def __init__(self, owner: _ProbeOwner, stage: TurnResourceStage) -> None:
+        self._owner, self._stage = owner, stage
+
+    async def close_turn(self, turn_id: str) -> tuple[CleanupDiagnostic, ...]:
+        self._owner.lifecycle.append(self._stage.name.lower())
+        return ()
+
+
+class _ProbeUpdate:
     pass
 
 
-class _HostPlugin:
-    id = "host_plugin"
-    requires = ()
+class _ProbeSegment:
+    def __init__(self, owner: _ProbeOwner) -> None:
+        self._owner = owner
+        self._value = owner.value
+
+    async def prepare(self, updates: tuple[_ProbeUpdate, ...]) -> int:
+        return self._owner.value if updates else self._value
+
+    def install(self, prepared: int) -> None:
+        self._value = prepared
+
+    def seal(self) -> JsonObject:
+        return {"value": self._value}
+
+    def render(self) -> tuple[Message, ...]:
+        return (UserMessage.from_json(self.seal(), label="probe"),)
+
+    async def close(self) -> None:
+        self._value = 0
+
+
+class _ProbeProvider:
+    def __init__(self, owner: _ProbeOwner) -> None:
+        self._owner = owner
+
+    async def open(self, info: TurnInfo) -> _ProbeSegment:
+        return _ProbeSegment(self._owner)
+
+
+class _ProbeHook:
+    def __init__(self, owner: _ProbeOwner) -> None:
+        self._owner = owner
+
+    def check(self, execution: ActionExecution, context: ActionExecutionContext) -> HookOutcome:
+        del context
+        self._owner.actions.append(execution.call.action_name)
+        return HookOutcome.success()
+
+
+class _ProbePlugin:
+    id = "probe"
     provides = ()
-    configuration = ()
+    requires = (WorkspaceService,)
+    configuration = (
+        PluginConfig(
+            "capabilities.probe",
+            _ProbeSettings,
+            _parse_probe_settings,
+            _probe_config_failure,
+        ),
+    )
 
     def __init__(self) -> None:
-        self.service = _HostPluginService()
-        self.closed = 0
+        self.owners: list[_ProbeOwner] = []
 
     async def build_generation(self, context: GenerationBuildContext) -> PluginGeneration:
-        async def close():
-            self.closed += 1
-            return ()
+        context.services.get(WorkspaceService)
+        owner = _ProbeOwner(context.settings.get(_ProbeSettings).value)
+        self.owners.append(owner)
 
-        def extend(kind: ProfileKind, profile: ProfileBuildContext):
+        def adapt(event: EnvironmentEvent, scope: RunScope) -> tuple[Signal, ...]:
+            value = event.payload.get("value")
+            if type(value) is not int:
+                return ()
+            owner.value = value
+            owner.events.append(value)
+            return (Signal("context.probe", source="probe", scope=scope, payload={}),)
+
+        def actions(builder: ActionEngineBuilder) -> ActionEngineBuilder:
+            builder.register_execution_hook("probe.answer", _ProbeHook(owner))
+            builder.use_action_execution_hooks("core.answer", "probe.answer")
+            return builder
+
+        def extend(kind: ProfileKind, profile: ProfileBuildContext) -> PluginProfileExtension | None:
             if kind is not ProfileKind.USER:
                 return None
             return PluginProfileExtension(
-                "host_plugin_profile",
-                services=(Service(_HostPluginService, self.service),),
+                "probe",
+                services=(Service(_ProbeService, _ProbeService(owner)),),
+                segments=(SegmentRegistration(
+                    descriptor=SegmentDescriptor(
+                        "probe_state", "probe", SegmentSlot.WORKING, 90
+                    ),
+                    provider=_ProbeProvider(owner),
+                    signal_name="context.probe",
+                    update_type=_ProbeUpdate,
+                    decode=lambda signal: _ProbeUpdate(),
+                ),),
+                actions=actions,
+                preparation=(owner,),
+                completion=(owner,),
+                turn_resources=tuple(
+                    PluginTurnResource(_ProbeResource(owner, stage), stage)
+                    for stage in (TurnResourceStage.SYNCHRONIZE, TurnResourceStage.RELEASE)
+                ),
+                events=(TurnEventSubscription(
+                    EventFilter(topic="probe.changed", source="host"), adapt,
+                    coalesce=True,
+                ),),
             )
+
+        async def close() -> None:
+            owner.closed += 1
 
         return PluginGeneration(
             self.id,
             profile_extension_factory=extend,
-            sdk_exports=(
-                PluginServiceExport(
-                    _HostPluginService,
-                    lambda scope: self.service,
-                ),
-            ),
+            sdk_exports=(PluginServiceExport(
+                _ProbeService,
+                lambda scope: _ProbeService(owner, scope),
+            ),),
             close=close,
         )
 
 
 @pytest.fixture
-async def endpoint_assemblies() -> AsyncIterator[list[AgentRuntime]]:
-    assemblies: list[AgentRuntime] = []
+async def endpoint_runtimes() -> AsyncIterator[list[AgentRuntime]]:
+    runtimes: list[AgentRuntime] = []
     try:
-        yield assemblies
+        yield runtimes
     finally:
-        for assembly in reversed(assemblies):
-            await assembly.close()
+        for runtime in reversed(runtimes):
+            await runtime.close()
 
 
 async def test_three_scenarios_have_independent_policies_and_owner_services(
@@ -195,26 +363,145 @@ async def test_three_scenarios_have_independent_policies_and_owner_services(
         await app.close()
 
 
-async def test_host_plugin_is_built_per_generation_and_extends_user_profile(
+async def test_probe_plugin_composes_config_segment_action_event_sdk_and_restart(
     tmp_path: Path,
 ) -> None:
-    plugin = _HostPlugin()
+    root = copy_initialized_project(tmp_path / "project")
+    config_path = root / "configs" / "capabilities" / "probe.toml"
+    config_path.write_text("[capabilities.probe]\nvalue = 3\n", encoding="utf-8")
+    plugin = _ProbePlugin()
+    llm = FakeLLM((
+        _tool_result(ToolCallRecord(
+            id="select_1", name="select_action_domains",
+            arguments={"domains": ["core"]}, kind=ToolKind.CONTROL,
+        )),
+        _tool_result(ToolCallRecord(
+            id="wait_1", name="core.wait",
+            arguments={"event_kind": "event", "topic": "probe.changed", "source": "host"},
+            kind=ToolKind.ACTION,
+        )),
+        _tool_result(ToolCallRecord(
+            id="select_2", name="select_action_domains",
+            arguments={"domains": ["core"]}, kind=ToolKind.CONTROL,
+        )),
+        _tool_result(ToolCallRecord(
+            id="answer_1", name="core.answer",
+            arguments={"guide_blocks": [{"text": "answer"}]}, kind=ToolKind.ACTION,
+        )),
+        _json_result({"text": "done"}),
+    ))
     assembly = (
-        standard_agent(root=tmp_path)
-        .with_config_environment(_test_config(tmp_path))
+        standard_agent(root)
+        .with_config_environment(ConfigEnvironment.from_project_root(root, env={}))
         .with_agent_settings(AgentSettings(interactive=False))
-        .with_llm_runner(FakeLLM(()))
+        .with_loop_settings(LoopSettings(user=TurnSettings(max_cycles=3)))
+        .with_llm_runner(llm)
         .use(plugin)
         .build()
     )
-    runtime = await assembly.build_runtime()
+    assert plugin.owners == []
+    agent = await Agent.assemble(assembly)
+    assert len(plugin.owners) == 1
     try:
-        profile = runtime.generation_handle.snapshot().generation.user_turn.profile
-        assert profile.services.get(_HostPluginService) is plugin.service
-        assert runtime.service_access.registry.get(_HostPluginService) is plugin.service
+        await agent.start()
+        original_runtime = agent.runtime
+        generation = original_runtime.generation_handle.snapshot().generation
+        original_profile = generation.user_turn.profile
+        for profile in generation.reflection_profiles:
+            with pytest.raises(RegistrationError):
+                profile.services.get(_ProbeService)
+            assert not any(item.filter.topic == "probe.changed" for item in profile.events)
+        old_service = agent.services.get(_ProbeService)
+        assert await old_service.read() == 3
+        handle = await agent.submit_turn(UserTurnRequest("wait"))
+        async with asyncio.timeout(5):
+            while handle.wait_reason is not WaitReason.EVENT:
+                assert not handle.done
+                await asyncio.sleep(0.01)
+        receipt = await agent.publish(EnvironmentEvent(
+            EventKind.EVENT, {"value": 8}, topic="probe.changed", source="host"
+        ))
+        assert receipt.delivered
+        result = await asyncio.wait_for(handle.wait(), 5)
+        assert isinstance(result.outcome, TurnOutcome) and result.outcome.answered
+        owner = plugin.owners[0]
+        assert owner.events == [8]
+        assert owner.actions == ["core.answer"]
+        from tinysoul.runtime import CyclePhase
+
+        assert [
+            part.value
+            for call in llm.calls
+            if (phase := call.scope.nearest(RunLevel.PHASE)) is not None
+            and phase.name == CyclePhase.PHASE1.value
+            for message in call.messages.messages
+            if isinstance(message, UserMessage) and message.label == "probe"
+            for part in message.parts
+            if isinstance(part, JsonPart)
+        ] == [{"value": 3}, {"value": 8}]
+        completion = result.outcome.context_completion
+        assert completion is not None
+        assert completion.segments["probe_state"] == {"value": 8}
+        answer = next(item for item in completion.trace.actions if item.call.action_name == "core.answer")
+        assert answer.result is not None and answer.result.payload["text"] == "done"
+        assert owner.lifecycle == ["prepare", "release", "synchronize", "complete"]
+
+        with pytest.raises(ConfigError) as invalid:
+            await agent.patch_config((ConfigMutation(
+                "project:configs/capabilities/probe.toml", "capabilities.probe.value", "set", "invalid",
+            ),))
+        assert invalid.value.key == "capabilities.probe.value"
+        await agent.patch_config((ConfigMutation(
+            "project:configs/capabilities/probe.toml", "capabilities.probe.value", "set", 5,
+        ),))
+        assert await old_service.read() == 8
+        await agent.reload_config()
+        assert agent.runtime is original_runtime
+        assert owner.closed == 1 and len(plugin.owners) == 2
+        with pytest.raises(AgentServiceStaleError):
+            await old_service.read()
+        reloaded_service = agent.services.get(_ProbeService)
+        assert await reloaded_service.read() == 5
+        assert original_profile.services.get(_ProbeService) is not reloaded_service
+        old_commands = agent.commands
+        await agent.restart()
+        assert agent.runtime is not original_runtime and not original_runtime.is_available
+        assert len(plugin.owners) == 3
+        with pytest.raises(AgentClosedError):
+            await reloaded_service.read()
+        with pytest.raises(AgentClosedError):
+            await old_commands.submit_turn(UserTurnRequest("retired runtime"))
+        assert await agent.services.get(_ProbeService).read() == 5
     finally:
-        await runtime.close()
-    assert plugin.closed == 1
+        await agent.shutdown()
+    assert all(owner.closed == 1 for owner in plugin.owners)
+
+
+@pytest.mark.parametrize("section", ["loop", "loop.extra", "reflection.extra", "capabilities"])
+def test_builder_rejects_configuration_owner_collision_before_materializing(
+    tmp_path: Path, section: str,
+) -> None:
+    plugin = _ProbePlugin()
+    plugin.configuration = (replace(plugin.configuration[0], section=section),)
+    with pytest.raises(RegistrationError, match="overlap"):
+        standard_agent(tmp_path).use(plugin).build()
+    assert plugin.owners == []
+
+
+def test_probe_configuration_failure_uses_its_owner_bridge(tmp_path: Path) -> None:
+    plugin = _ProbePlugin()
+    with pytest.raises(RuntimeException) as caught:
+        (
+            standard_agent(tmp_path)
+            .with_config_environment(_test_config(tmp_path, {"capabilities.probe.value": "invalid"}))
+            .with_llm_runner(FakeLLM(()))
+            .use(plugin).build()
+        )
+    assert caught.value.reason == RUNTIME_STARTUP_FAILED
+    assert caught.value.payload["module"] == "probe"
+    assert caught.value.payload["kind"] == "probe.configuration_failed"
+    assert caught.value.payload["key"] == "capabilities.probe.value"
+    assert plugin.owners == []
 
 
 @dataclass
@@ -294,7 +581,7 @@ async def test_agent_builder_mounts_endpoint_as_service_and_model_output_source(
         async def stop(self) -> None:
             pass
 
-    assert app.input_sources == () and len(app.services) == 1
+    assert app.input_sources == () and len(app.host_services) == 1
     assert app.observations.mode.value == "model"
     app.mount_service(ActivationGate())
     activating = asyncio.create_task(app.activate())
@@ -320,7 +607,7 @@ async def test_agent_builder_mounts_endpoint_as_service_and_model_output_source(
 
 async def test_standard_project_starts_without_credentials_and_rejects_provider_enable(
     tmp_path: Path,
-    endpoint_assemblies: list[AgentRuntime],
+    endpoint_runtimes: list[AgentRuntime],
 ) -> None:
     project_root = tmp_path / "project"
     copy_initialized_project(project_root)
@@ -333,7 +620,7 @@ async def test_standard_project_starts_without_credentials_and_rejects_provider_
         .build().build_runtime()
     )
     endpoint = mount_endpoint(app, EndpointSettings(token="x" * 32))
-    endpoint_assemblies.append(app)
+    endpoint_runtimes.append(app)
     await app.activate()
     client = TestClient(create_endpoint_app(endpoint, endpoint.settings))
     headers = {"Authorization": f"Bearer {'x' * 32}"}
@@ -452,7 +739,7 @@ async def test_development_project_requires_credentials_for_enabled_providers(
 
 async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer(
     tmp_path: Path,
-    endpoint_assemblies: list[AgentRuntime],
+    endpoint_runtimes: list[AgentRuntime],
 ) -> None:
     project_root = tmp_path / "project"
     copy_initialized_project(project_root)
@@ -470,7 +757,7 @@ async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer
             websocket_heartbeat_seconds=0.05,
         ),
     )
-    endpoint_assemblies.append(app)
+    endpoint_runtimes.append(app)
     await app.activate()
     events = endpoint.events
     before = (await endpoint.configuration.status())["runtime"]
@@ -689,7 +976,7 @@ async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer
 
 async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
     tmp_path: Path,
-    endpoint_assemblies: list[AgentRuntime],
+    endpoint_runtimes: list[AgentRuntime],
 ) -> None:
     project_root = tmp_path / "project"
     copy_initialized_project(project_root)
@@ -701,7 +988,7 @@ async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
         .build().build_runtime()
     )
     endpoint = mount_endpoint(app, EndpointSettings(token="x" * 32))
-    endpoint_assemblies.append(app)
+    endpoint_runtimes.append(app)
     await app.activate()
     client = TestClient(create_endpoint_app(endpoint, endpoint.settings))
     headers = {"Authorization": f"Bearer {'x' * 32}"}
@@ -883,7 +1170,7 @@ async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
 
 async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_incompatible_adapter(
     tmp_path: Path,
-    endpoint_assemblies: list[AgentRuntime],
+    endpoint_runtimes: list[AgentRuntime],
 ) -> None:
     project_root = tmp_path / "project"
     copy_initialized_project(project_root)
@@ -904,7 +1191,7 @@ async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_i
         .build().build_runtime()
     )
     endpoint = mount_endpoint(app, EndpointSettings(token="x" * 32))
-    endpoint_assemblies.append(app)
+    endpoint_runtimes.append(app)
     await app.activate()
     client = TestClient(create_endpoint_app(endpoint, endpoint.settings))
     headers = {"Authorization": f"Bearer {'x' * 32}"}

@@ -6,11 +6,11 @@
 
 主要对照：`AGENTS.md`、`docs/analysis/done/20260923-done-agent-harness-plugin-composition-refactor-plan.md`；同时核对原架构主计划及当前 Context、Session 设计的关键延续边界。
 
-本文状态：审查 `done`；以下补强项仍为 `pending`。仅新增审查文档，没有修改实现、测试或原计划的完成标记，没有提交或推送。
+本文状态：审查 `done`；文中补强项已由后续收口计划完成，并随本文一并归档。本文保留审查时的事实、测量和建议，当前完成证据记录在 `docs/analysis/done/20260923-done-agent-sdk-plugin-followup-hardening-plan.md`。
 
 ## 1. 判断
 
-**架构主线已经落地，设计方向合理，可以作为后续能力扩展的基础；但“所有执行与验收条目均已完成”仍应保留条件。**
+**架构主线已经落地，设计方向合理，可以作为后续能力扩展的基础；本审查提出的收口问题已完成实施和验证。**
 
 这次不是只开放 `.use()` 或把旧 Builder 包装成巨型 Plugin。Home、Memory、Session、Workspace、execution、ACP、MCP 等能力的 owner 创建、配置和 profile 贡献确实进入统一路径；SDK 服务导出、Home Trap 和 Turn 收尾也有真实消费者。未发现需要再次推翻整体架构的问题。
 
@@ -35,9 +35,9 @@
 
 保留固定的 User/Home Reflection/Memory Reflection 情景、日协调者和 Reflection 专门策略是合理的。它们是宿主业务编排，不要求为了“插件化”全部拆成可拔除模块。当前 `ProfileKind` 也不构成第二套调度逻辑。
 
-## 3. R1：配置范围校验尚未覆盖 Harness 自有配置
+## 3. R1：Harness 配置范围校验（已解决）
 
-状态：`pending`。优先级：中；属于组合契约的清晰性问题，未发现标准配方因此出现运行故障。
+状态：`resolved`。优先级：中；属于组合契约的清晰性问题，已由静态组成校验收口。
 
 位置：
 
@@ -53,9 +53,9 @@
 
 不需要增加权限系统、配置治理框架或运行时恢复链；这是一次静态组成检查。验收应证明：`loop` 和 `loop.*` 冲突在插件构建前拒绝；独立扩展 section 正常加载，保存候选与 reload 仍使用同一解析器。
 
-## 4. R2：新增插件契约的验收证据不足
+## 4. R2：新增插件契约的验收证据（已解决）
 
-状态：`pending`。优先级：中；这是验证缺口，不等于已证明存在生命周期运行错误。
+状态：`resolved`。优先级：中；Probe Plugin 已补齐公开宿主纵向路径和资源生命周期证据。
 
 `tests/agent/composition/test_builder.py:198–217` 的新增宿主插件测试只创建一次 runtime，读取 profile/SDK 中的同一个服务对象，然后关闭。虽然测试名包含 `built_per_generation`，但没有第二代；测试插件也没有贡献段、动作、事件、配置或真实的 scoped SDK 操作。
 
@@ -71,9 +71,9 @@
 
 这是验证正常功能主线与结束边界，不是增加罕见故障矩阵。完成后再逐项把 P5/P6/A15 的证据写回计划，避免仅用全量测试数字代替新契约验收。
 
-## 5. R3：SDK 主体一致，命名和宿主公开边界需收口
+## 5. R3：SDK 主体、命名和宿主公开边界（已解决）
 
-状态：`pending`。优先级：中低。不是运行故障，也不需要重新设计 SDK。
+状态：`resolved`。优先级：中低。运行模型未改变，名称和宿主边界已同步实现与设计文档。
 
 ### 5.1 名称与架构逐项核对
 
@@ -118,7 +118,7 @@ SDK 功能已经包括：start/restart/shutdown/wait_for_exit；User/Reflection 
 
 ## 6. 其他非阻塞清理
 
-状态：`pending`，可与上述补强一起完成。
+状态：`resolved`，已随本轮补强完成。
 
 - `GenerationBuildContext` 的注释称只包含选中插件的配置，实际所有插件拿到完整 settings registry；构建服务则确实按 requires 筛选。建议先准确描述为“generation 的已解析 settings、插件声明的构建服务”，不为内部可信插件另造配置访问控制。
 - Builder 和若干插件迁移后仍有不再使用的导入及较密集的长行，适当清理即可；不因文件较长机械拆分职责。
@@ -135,9 +135,9 @@ SDK 功能已经包括：start/restart/shutdown/wait_for_exit；User/Reflection 
 
 以上为上一轮独立验证；本轮为定位用户反馈的耗时问题，重新运行一次带 durations/JUnit 的 Full，数据见第 8 节。未因文档修改再重复类型检查。所有测试通过证明当前已覆盖行为没有回归，不消除 R2 指出的缺少直接验收证据。
 
-## 8. R4：测试耗时分析与改进方案
+## 8. R4：测试耗时分析与改进方案（已解决）
 
-状态：`pending`。本轮已完成测量和热点定位，尚未实施优化。优先处理正常配置查询的重复计算，再调整测试覆盖层次。
+状态：`resolved`。本轮定位的配置查询重复扫描已按请求内复用方案实施，并完成行为与门禁验证。
 
 ### 8.1 本次实测
 
@@ -249,9 +249,9 @@ wheel 发布验收继续留在 Full/Generation，保留真实打包、隔离导�
 
 先在同机同配置下记录原慢用例与 status 微基准，再优化、复测；报告中位数、实际选择集和功能断言，而非未经验证的全量加速预估。Full/typecheck 应继续通过，R2 的新契约验证不能为了数字好看移出门禁。优化后的持续耗时目标应由实测结果确定，本 review 不规定任意毫秒阈值。
 
-## 9. 后续推进与验收顺序
+## 9. 后续推进与验收顺序（历史建议，已完成）
 
-认可本次架构成果，不重新启动“大重构”。建议按以下顺序推进：
+认可本次架构成果，不重新启动“大重构”。以下顺序已由后续收口计划执行完成：
 
 1. R1：补齐配置范围单一归属，保持静态校验简单。
 2. R3：清理 SDK/runtime 命名，明确 SDK 服务与内部宿主访问说明。
@@ -265,3 +265,14 @@ R4 是本次新增性能改进，不应反过来扩张原重构计划的架构�
 
 建议本审查文档的提交说明：`docs: consolidate SDK plugin review and test performance findings`。
 
+## 10. 当前归档核对
+
+2026-09-23 根据当前工作树重新核对：
+
+- R1 的 `reserved_configuration_sections`、配置父子冲突、settings facade 唯一性和失败回收已由 `kernel/registration.py`、`agent/composition/builder.py` 及对应测试覆盖。
+- R2 的 Probe Plugin 已通过公开 Agent 组装、真实 User Turn、事件、Segment、Action、SDK facade、reload/restart 和资源顺序测试；MCP/ACP 日释放后的重建也有直接测试。
+- R3 的 `_runtime`、`sdk_services`、`host_services` 命名和宿主边界说明已同步到实现与设计文档，未保留旧运行对象私有命名兼容 alias。
+- R4 的 `ConfigController.status()` 请求内复用已保持脱敏和 patch/reload 语义；同机实验由约 1.05 秒降至约 0.045 秒。
+- 完整本地门禁通过：`scripts/test.ps1 -Suite Full -Durations 30` 为 `1170 passed, 23 deselected`；在 TinySoul Python 环境下 `scripts/typecheck.ps1` 通过。真实 provider/network 仍未运行。
+
+因此本文的待处理建议已经解决，按 `AGENTS.md` 归档为历史 review；后续问题应建立新的分析项。

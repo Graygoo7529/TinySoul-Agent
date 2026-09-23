@@ -123,12 +123,15 @@ class ConfigController:
     def status(self) -> JsonObject:
         activity = self._activity()
         can_reload = activity == "idle"
+        effective_values = self._environment.effective_values()
+        credentials = self._credential_names(effective_values)
         source_items: list[JsonObject] = []
         for source in self._environment.sources:
             source_items.append(
                 self._source_json(
                     source,
                     exists=source.path is None or source.path.exists(),
+                    credentials=credentials,
                 )
             )
         for document in self._environment.documents:
@@ -141,6 +144,7 @@ class ConfigController:
                 self._source_json(
                     DotenvSource(dotenv_path).load(),
                     exists=dotenv_path.exists(),
+                    credentials=credentials,
                 )
             )
         return to_json_object(
@@ -153,7 +157,7 @@ class ConfigController:
                 },
                 "pending_reload": self._pending_reload,
                 "sources": source_items,
-                "fields": self._effective_fields(),
+                "fields": self._effective_fields(effective_values, credentials),
             }
         )
 
@@ -475,10 +479,13 @@ class ConfigController:
         ]
         return candidate, writes
 
-    def _effective_fields(self) -> dict[str, JsonValue]:
+    def _effective_fields(
+        self,
+        effective_values: Mapping[str, object],
+        credentials: frozenset[str],
+    ) -> dict[str, JsonValue]:
         result: dict[str, JsonValue] = {}
-        credentials = self._credential_names()
-        for key, value in self._environment.effective_values().items():
+        for key, value in effective_values.items():
             result[key] = {
                 "value": "<redacted>" if key in credentials else to_json_value(value),
                 "source": self._environment.source_id_for(key),
@@ -487,9 +494,11 @@ class ConfigController:
             }
         return result
 
-    def _credential_names(self) -> frozenset[str]:
+    def _credential_names(
+        self, effective_values: Mapping[str, object]
+    ) -> frozenset[str]:
         names: set[str] = set()
-        for path, value in self._environment.effective_values().items():
+        for path, value in effective_values.items():
             descriptor = self._catalog.match(path)
             if descriptor is None or not descriptor.credential_reference:
                 continue
@@ -526,7 +535,13 @@ class ConfigController:
             ConfigSourceKind.DOTENV,
         }
 
-    def _source_json(self, source: ConfigSource, *, exists: bool = True) -> JsonObject:
+    def _source_json(
+        self,
+        source: ConfigSource,
+        *,
+        exists: bool = True,
+        credentials: frozenset[str],
+    ) -> JsonObject:
         path = source.path
         relative = ""
         if path is not None:
@@ -541,14 +556,15 @@ class ConfigController:
             "exists": exists,
             "writable": source.kind
             in {ConfigSourceKind.PROJECT_TOML, ConfigSourceKind.DOTENV},
-            "values": self._source_values(source),
+            "values": self._source_values(source, credentials),
         }
 
-    def _source_values(self, source: ConfigSource) -> JsonObject:
+    def _source_values(
+        self, source: ConfigSource, credentials: frozenset[str]
+    ) -> JsonObject:
         values: Mapping[str, object] = source.values
         if source.kind is ConfigSourceKind.DOTENV and source.path is not None:
             values = DotenvDocument(source.path).values
-        credentials = self._credential_names()
         return {
             key: "<redacted>" if key in credentials else to_json_value(value)
             for key, value in values.items()

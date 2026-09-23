@@ -760,7 +760,7 @@ async def test_shutdown_joins_inflight_start_and_rejects_cached_commands(
     entered = asyncio.Event()
     cleaned = asyncio.Event()
 
-    async def activate(assembly: AgentRuntime) -> None:
+    async def activate(runtime: AgentRuntime) -> None:
         entered.set()
         try:
             await asyncio.Event().wait()

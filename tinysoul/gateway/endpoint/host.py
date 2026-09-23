@@ -19,7 +19,7 @@ from .events import EndpointEventBuffer, EndpointEventJournal
 
 
 def mount_endpoint(
-    assembly: AgentRuntime,
+    runtime: AgentRuntime,
     settings: EndpointSettings,
     *,
     ready: Callable[[EndpointReady], None] | None = None,
@@ -29,10 +29,10 @@ def mount_endpoint(
     host = EndpointHost(
         settings=settings,
         ready=ready,
-        available=lambda: assembly.is_available,
+        available=lambda: runtime.is_available,
     )
-    engine = host.bind(assembly)
-    assembly.mount_service(host)
+    engine = host.bind(runtime)
+    runtime.mount_service(host)
     return engine
 
 
@@ -83,7 +83,7 @@ class EndpointHost:
         self._available = available
         self._runtime_bridge = runtime_bridge or RuntimeEndpointBridge()
         self._server: EndpointServer | None = None
-        self._assembly: AgentRuntime | None = None
+        self._runtime: AgentRuntime | None = None
         self._route: ObservationRoute | None = None
 
     @property
@@ -92,18 +92,18 @@ class EndpointHost:
             raise EndpointServerError("Endpoint is not bound to an Agent generation")
         return self._engine
 
-    def bind(self, assembly: AgentRuntime) -> EndpointEngine:
+    def bind(self, runtime: AgentRuntime) -> EndpointEngine:
         """Bind the stable Endpoint facade to the current Agent generation."""
-        if self._assembly is assembly:
+        if self._runtime is runtime:
             return self.engine
-        if self._assembly is not None and self._route is not None:
-            self._assembly.observations.remove_route(self._route)
+        if self._runtime is not None and self._route is not None:
+            self._runtime.observations.remove_route(self._route)
         if self._engine is None:
             journal = None
             if self._settings.journal_enabled:
                 journal = EndpointEventJournal(
                     self._settings.journal_root
-                    or (assembly.project_root / "runtime" / "endpoint" / "events"),
+                    or (runtime.project_root / "runtime" / "endpoint" / "events"),
                     max_segment_bytes=self._settings.journal_segment_bytes,
                     max_total_bytes=self._settings.journal_total_bytes,
                 )
@@ -116,9 +116,9 @@ class EndpointHost:
             self._engine = EndpointEngine(
                 settings=self._settings,
                 events=events,
-                gateway=assembly.gateway,
-                services=assembly.service_access,
-                config=assembly.configuration,
+                gateway=runtime.gateway,
+                services=runtime.service_access,
+                config=runtime.configuration,
                 available=self._is_available,
             )
             self._route = ObservationRoute(
@@ -126,19 +126,19 @@ class EndpointHost:
             )
         else:
             self._engine.bind(
-                gateway=assembly.gateway,
-                services=assembly.service_access,
-                config=assembly.configuration,
+                gateway=runtime.gateway,
+                services=runtime.service_access,
+                config=runtime.configuration,
             )
         assert self._route is not None
-        assembly.observations.add_route(self._route)
-        self._assembly = assembly
+        runtime.observations.add_route(self._route)
+        self._runtime = runtime
         return self.engine
 
     def unbind(self) -> None:
-        if self._assembly is not None and self._route is not None:
-            self._assembly.observations.remove_route(self._route)
-        self._assembly = None
+        if self._runtime is not None and self._route is not None:
+            self._runtime.observations.remove_route(self._route)
+        self._runtime = None
         if self._engine is not None:
             self._engine.unbind()
 

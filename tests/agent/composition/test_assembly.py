@@ -8,6 +8,13 @@ from pathlib import Path
 import pytest
 
 from tinysoul.agent.errors import AgentInvariantError
+from tinysoul.agent.composition.activity import AgentTurnActivity
+from tinysoul.infra.concurrency import CleanupDiagnostic
+from tinysoul.kernel.context import ContextEngineBuilder
+from tinysoul.kernel.jobs import JobRegistry
+from tinysoul.kernel.registration import (
+    PluginProfileExtension, PluginRegistry, PluginTurnResource, TurnResourceStage,
+)
 from tinysoul.agent.config import AgentSettings
 from tinysoul.environment.inputs import InputEvent
 from tinysoul.environment.inputs import InputSink
@@ -29,6 +36,33 @@ class FakeLLM:
     async def run(self, call: TaskCall) -> TaskResult:
         self.calls.append(call)
         return self.results.popleft()
+
+
+async def test_turn_resources_release_jobs_before_sessions_and_synchronization() -> None:
+    order: list[str] = []
+
+    class Jobs(JobRegistry):
+        async def cleanup_turn(self, turn_id: str) -> tuple[CleanupDiagnostic, ...]:
+            order.append("jobs")
+            return await super().cleanup_turn(turn_id)
+
+    class Resource:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        async def close_turn(self, turn_id: str) -> tuple[CleanupDiagnostic, ...]:
+            order.append(self.name)
+            return ()
+
+    resolved = PluginRegistry((PluginProfileExtension(
+        "probe", turn_resources=(
+            PluginTurnResource(Resource("workspace"), TurnResourceStage.SYNCHRONIZE),
+            PluginTurnResource(Resource("session"), TurnResourceStage.RELEASE),
+        ),
+    ),)).resolve(ContextEngineBuilder(system_text="identity").build())
+    activity = AgentTurnActivity(Jobs(), resolved.turn_resources)
+    assert await activity.cleanup_turn("turn") == ()
+    assert order == ["jobs", "session", "workspace"]
 
 
 @dataclass
@@ -127,7 +161,7 @@ async def test_tinysoul_agent_starts_services_before_inputs_and_stops_them(
         .with_input_source(source)
         .build().build_runtime()
     )
-    app = replace(built, services=(service,))
+    app = replace(built, host_services=(service,))
 
     await app.run()
 
@@ -153,7 +187,7 @@ async def test_tinysoul_agent_prepares_availability_before_starting_services(
     service.availability = (
         built.generation_handle.snapshot().generation.reflection.availability
     )
-    app = replace(built, services=(service,))
+    app = replace(built, host_services=(service,))
 
     await app.run()
 

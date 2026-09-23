@@ -33,6 +33,8 @@ Capabilities 等业务模块。Catalog 资源错误是 Infra package contract fa
 
 TOML 展开在 catalog 声明的 object 字段处停止，以整个映射作为配置值；对象内的点号、数字等 key 不解释为新的 dotted path。候选编辑和 source/effective 投影复用同一边界，工具选择、环境引用等映射按整体值覆盖。credential reference 可声明单个名称、名称数组或映射值；ConfigController 从有效引用派生需脱敏的环境变量集合，不把解析出的凭据带回配置投影。
 
+一次配置状态查询共用同一份 effective values 和由其派生的凭据名称集合，统一用于各 source 与有效字段的脱敏。中间结果仅在本次请求内使用，后续查询重新计算，因而 patch/reload 后的配置引用无需缓存失效协议即可生效。catalog 仍拒绝同一路径匹配多个 descriptor。
+
 Collection 的 `delete_policy` 只表达设置页是否提供删除命令：`all` 允许删除任意对象，
 `create_source_only` 只允许删除全部 project TOML 定义都来自 collection `create_source` 的对象，
 `none` 不提供删除命令。该策略不进入 `ConfigController` 的写入权限判断；Endpoint 仍可对任意可写

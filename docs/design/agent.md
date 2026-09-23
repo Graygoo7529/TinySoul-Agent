@@ -14,13 +14,15 @@ AgentBuilder 收集静态组成定义；同步 `build()` 返回不可变 AgentAs
 
 Agent.create 从项目根装配并委托 Agent.assemble；Agent.assemble 接受静态 AgentAssembly，供嵌入方通过 Builder 注入 provider、时钟、来源或显式 AgentPlugin。create 不启动来源，start 等待确定性日切与服务激活后才返回。SDK 的 submit、append、reply、cancel、grant 与 publish 经 AgentCommands 进入唯一调度器或指定 Inbox。状态查询为内存快照，TurnHandle 等待 owner 的 TurnOutcome/ReflectionOutcome；等待者取消不取消已受理 work。外部 ACP/MCP 能力同样由当前世代装配，旧 facade 失效后由调用者重新获取。
 
-Agent.services 按 Facade 类型提供当前 User profile 的 HomeService、MemoryService、SessionService 与 WorkspaceService，并追加插件显式声明的 PluginServiceExport；查找不触发 I/O。服务公开 I/O 为 async，短文件操作由 JoinedOperations 完整 join，模型和网络使用原生 async。每次调用按世代→日→owner 的顺序获取并复验 lease；闲置对象不占用运行边界。成功 reload、restart 或关闭使旧世代服务失效，日级服务还会在日切后失效；调用者重新获取，框架不重绑或重试写入。失败 reload 保留仍有效的旧对象。空闲后的新日调用先完成确定性准备，旧日服务随后在副作用前返回 AgentServiceStaleError；Home 服务只绑定世代。宿主无需创建 RunScope/Trap，日准备失败返回有界 AgentServiceUnavailableError。
+Agent.services 按 Facade 类型提供插件通过 PluginServiceExport 显式导出的 SDK 服务，包括 HomeService、MemoryService、SessionService 与 WorkspaceService；查找不触发 I/O。AgentRuntime.sdk_services 是同一导出集合，TurnProfile.services 则只属于对应执行情景，内部服务不会自动进入 SDK。服务公开 I/O 为 async，短文件操作由 JoinedOperations 完整 join，模型和网络使用原生 async。每次调用按世代→日→owner 的顺序获取并复验 lease；闲置对象不占用运行边界。成功 reload、restart 或关闭使旧世代服务失效，日级服务还会在日切后失效；调用者重新获取，框架不重绑或重试写入。失败 reload 保留仍有效的旧对象。空闲后的新日调用先完成确定性准备，旧日服务随后在副作用前返回 AgentServiceStaleError；Home 服务只绑定世代。宿主无需创建 RunScope/Trap，日准备失败返回有界 AgentServiceUnavailableError。
+
+Agent.runtime 与 AgentRuntime 类型供内部宿主集成使用：准备阶段可通过 mount_service 挂载 Endpoint 等 EnvironmentService，挂载集合称为 host_services。常规业务使用 Agent、TurnHandle、SDK 服务与 Observation。reload 在同一 runtime 内替换 AgentGeneration；restart 重建 runtime，宿主须重新获取并绑定，旧对象不会自动指向新运行实例。CLI 的稳定 EndpointHost 在每次 restart 后重新 bind 当前 Agent.runtime。
 
 只运行一个根 Turn。等待用户、Job、定时器或预算期间仍占根位置，新 User/Reflection 请求排队。队列和已完成句柄保留有界；重复 request identity 必须内容相同。queued 阶段取消不伪造 Session Turn，开始后的取消先收尾再完成句柄。所有路径共用一次收敛出口；取消立即移除队列占位，完成按次序进入保留窗口。去重只保证活动请求和保留窗口内的身份一致；淘汰后外部已持 Handle 仍可 wait。
 
 start/shutdown/restart 由各自拥有的任务串行衔接，并发等待者加入同一操作；启动中关闭立即停止受理并等待部分资源回收，旧 worker 回调不会修改新实例。shutdown 停止受理和外部来源，再取消根 work，等待 Action/Job、必要记录、段和来源回收，最后关闭世代。restart 重新装配，旧句柄保留旧结果。自建 LLM/embedding 客户端归世代关闭，注入对象保持借用。部分激活失败逆序关闭已创建资源；重复取消不抛弃清理任务，有限 cleanup diagnostics 不覆盖主失败。
 
-部分激活失败先停止受理和来源，再经 RootScheduler 的同一完成入口结清启动期间已接受的请求，最后释放 Assembly。启动失败保留 FAILED 与有界错误类型，启动被取消使用 CANCELLED；未执行请求不伪造 TurnOutcome、Session 或取消意图。单 Assembly 的可用性由激活完成和受理状态派生；稳定宿主的业务访问由 Agent 运行状态决定，依赖已装配不表示可以接受外部工作。
+部分激活失败先停止受理和来源，再经 RootScheduler 的同一完成入口结清启动期间已接受的请求，最后释放 runtime。启动失败保留 FAILED 与有界错误类型，启动被取消使用 CANCELLED；未执行请求不伪造 TurnOutcome、Session 或取消意图。单 runtime 的可用性由激活完成和受理状态派生；稳定宿主的业务访问由 Agent 运行状态决定，依赖已装配不表示可以接受外部工作。
 
 Agent.wait_for_exit 等待根调度运行最终退出，跨越 generation restart；正常退出返回现有 AgentRunResult，运行失败传播原有异常。单个等待者取消只解除自身等待，显式 shutdown 使尚未完成的退出等待收到 CancelledError，已完成结果仍保留。此接口不消费 Signal，也不代替释放世代资源的 shutdown；返回结果属于最终结束的根调度运行，不累计各次重启。restart 失败由发起方接收，宿主等待保持有效，允许显式重新启动。CLI 的信号处理每次获取当前 commands，重建时重新加载配置与输入来源；Endpoint server 与事件缓冲保持进程级稳定。
 
@@ -49,6 +51,8 @@ AgentDayCoordinator 使用注入时钟，协调 Memory catalog 与 Archive owner
 daily 触发在 Agent 边界拆为 Home 与触发日前一日 Memory 两个独立请求，整批容量受理；执行前的日切使新关闭日资料可见。scheduled 请求按日期/profile 稳定身份去重，已有 daily 仍可继续修订；手动和自动请求使用相同的整理语义。availability 从 owner 目录重算可整理日期与缺失 daily 的子集，不持久化 backlog；更早日期由明确请求处理。定时来源遇到满载保留请求并重试；启动晚于当日计划时刻不追补模型任务。
 
 ## 配置候选与世代激活
+
+组成定义在配置解析与 owner 创建前校验配置所有权。AgentBuilder 将 Harness 自有的 config、agent、action、loop、llm、context、infra、reflection 范围传给 PluginDefinitions；插件范围与保留范围之间、插件彼此之间均不得相等或形成 dotted 父子重叠。capabilities 是公共容器，各 capabilities 子范围仍由插件拥有。配置范围使用 dotted lower_snake_case，配置 settings 类型在插件之间也只有一个 owner。Kernel 只做通用声明校验，不硬编码 Harness 的业务配置名称。generation 获得已解析的 settings 集合，构建服务则严格按插件 requires 筛选。
 
 SDK patch_config 与 HTTP PATCH 统一只校验并原子保存候选，返回 saved/pending_reload。当前运行世代继续服务；reload 在 idle 边界读取候选、校验并构造新世代后切换 RuntimeHandle。活动/等待 Turn、已排队根请求、日切或既有激活会拒绝 reload。已获激活权后新到根可排队，但异步等待激活结束，候选失败后从旧世代继续分派。
 

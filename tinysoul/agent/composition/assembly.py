@@ -41,7 +41,7 @@ class AgentRuntime:
     generation_handle: RuntimeHandle[AgentGeneration]
     configuration: ConfigController
     input_sources: tuple[InputSource, ...] = field(default_factory=tuple)
-    services: tuple[EnvironmentService, ...] = field(default_factory=tuple)
+    host_services: tuple[EnvironmentService, ...] = field(default_factory=tuple)
     observations: ObservationRouter = field(default_factory=ObservationRouter)
     resources: AsyncResourceScope = field(default_factory=AsyncResourceScope)
     _sources: AsyncResourceScope = field(default_factory=AsyncResourceScope, init=False)
@@ -54,7 +54,8 @@ class AgentRuntime:
         return self.configuration.root
 
     @property
-    def profile_services(self) -> ServiceRegistry:
+    def sdk_services(self) -> ServiceRegistry:
+        """SDK facades exported by plugins for the active generation and day."""
         return self.service_access.registry
 
     @property
@@ -66,14 +67,14 @@ class AgentRuntime:
         """Attach a gateway host before source activation."""
         if self._activated:
             raise AgentInvariantError("Services must be mounted before activation")
-        self.services = (*self.services, service)
+        self.host_services = (*self.host_services, service)
 
     def __post_init__(self) -> None:
         self.service_access = AgentRuntimeServices(
             self.generation_handle, self.agent_runner, lambda: self._accepting
         )
         object.__setattr__(self, "input_sources", tuple(self.input_sources))
-        object.__setattr__(self, "services", tuple(self.services))
+        object.__setattr__(self, "host_services", tuple(self.host_services))
 
     async def activate(self) -> None:
         if self._activated:
@@ -86,7 +87,7 @@ class AgentRuntime:
             await self.agent_runner.prepare()
             await self.generation_handle.snapshot().generation.sources.start(self.commands.publish_internal)
             started.register("plugin_sources", lambda: self.generation_handle.snapshot().generation.sources.close())
-            for index, service in enumerate(self.services):
+            for index, service in enumerate(self.host_services):
                 await service.start()
                 started.register(f"service.{index}", service.stop)
             for index, source in enumerate(self.input_sources):

@@ -22,12 +22,25 @@ from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
 
 async def test_real_sdk_stdio_discovery_validation_and_resource_output(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    processes: list[StdioProcess] = []
+    start = StdioProcess.start
+
+    async def capture_start(
+        request: ManagedProcessRequest, *, max_message_bytes: int = 8_000_000,
+    ) -> StdioProcess:
+        process = await start(request, max_message_bytes=max_message_bytes)
+        processes.append(process)
+        return process
+
+    monkeypatch.setattr(StdioProcess, "start", capture_start)
     workspace = WorkspaceEngineBuilder(
         WorkspaceSettings(root=tmp_path / "workspace")
     ).build()
     engine = ExpandEngine(
         ExpandSettings(
+            page_size=1,
             servers=(
                 MCPServerSettings(
                     "local",
@@ -60,6 +73,26 @@ async def test_real_sdk_stdio_discovery_validation_and_resource_output(
         )
         assert "workspace:mcp/" in str(output)
         assert workspace.snapshot().resources
+        page = engine.page(
+            tuple(item.summary() for item in directory.tools),
+            servers=directory.servers, kind="tools",
+        )
+        cursor = page["next_page"]
+        assert isinstance(cursor, str)
+        assert not processes[0].stdin.is_closing()
+        await engine.release_day()
+        assert processes[0].stdin.is_closing()
+        with pytest.raises(ExpandRequestError) as stale:
+            engine.page(cursor=cursor, kind="tools")
+        assert stale.value.reason is ExpandFailure.INVALID_REQUEST
+        rebuilt = await engine.discover()
+        assert rebuilt.servers[0]["status"] == "available"
+        assert {item.name for item in rebuilt.tools} == {item.name for item in directory.tools}
+        assert len(processes) == 2
+        result = await engine.call(
+            "local", "add", {"a": 4, "b": 5}, operations=JoinedOperations()
+        )
+        assert result["structured"] == {"value": 9}
     finally:
         await engine.close()
 

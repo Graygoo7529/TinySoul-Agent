@@ -8,6 +8,7 @@ import pytest
 
 from tinysoul.infra.config import ConfigController, ConfigEnvironment, ConfigMutation
 from tinysoul.infra.config import ConfigError, PreparedConfigActivation
+from tinysoul.infra.json import JsonObject
 
 
 def _project(root: Path) -> ConfigEnvironment:
@@ -49,6 +50,87 @@ def _project_with_document(root: Path) -> ConfigEnvironment:
     )
     (root / ".env").write_text("TOKEN=old\n", encoding="utf-8")
     return ConfigEnvironment.from_project_root(root, env={})
+
+
+def test_config_status_uses_one_effective_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    environment = _project(tmp_path)
+    original = environment.effective_values
+    calls = 0
+
+    def effective_values() -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        return original()
+
+    monkeypatch.setattr(environment, "effective_values", effective_values)
+    status = ConfigController(root=tmp_path, environment=environment).status()
+
+    assert calls == 1
+    assert isinstance(status["sources"], list)
+    assert isinstance(status["fields"], dict)
+
+
+async def test_status_redaction_and_source_precedence_refresh_after_patch_and_reload(
+    tmp_path: Path,
+) -> None:
+    _project(tmp_path)
+    config_path = tmp_path / "configs" / "infra.toml"
+    config_path.write_text(
+        '[infra.embedding]\nenabled = false\napi_key_env = "API__TOKEN"\n'
+        '[llm.providers.local]\napi_key_envs = ["LIST_TOKEN"]\n'
+        '[capabilities.expand.servers.local]\nheader_refs = {Auth = "HEADER_TOKEN"}\n',
+        encoding="utf-8",
+    )
+    (tmp_path / ".env").write_text(
+        "API__TOKEN=dotenv-value\nLIST_TOKEN=list-value\nHEADER_TOKEN=header-value\n"
+        "NEXT_TOKEN=next-value\nFINAL_TOKEN=final-value\n",
+        encoding="utf-8",
+    )
+    environment = ConfigEnvironment.from_project_root(
+        tmp_path, env={"TINYSOUL_API__TOKEN": "environment-value"},
+        overrides={"api.token": "override-value"},
+    )
+
+    async def prepare(candidate: ConfigEnvironment) -> PreparedConfigActivation:
+        async def commit() -> None:
+            pass
+
+        return PreparedConfigActivation(commit=commit)
+
+    controller = ConfigController(root=tmp_path, environment=environment, activator=prepare)
+
+    def source_values(status: JsonObject, identity: str) -> JsonObject:
+        sources = status["sources"]
+        assert isinstance(sources, list)
+        source = next(item for item in sources if isinstance(item, dict) and item["id"] == identity)
+        assert isinstance(source, dict) and isinstance(source["values"], dict)
+        return source["values"]
+
+    status = controller.status()
+    dotenv = source_values(status, "dotenv")
+    assert all(dotenv[key] == "<redacted>" for key in ("API__TOKEN", "LIST_TOKEN", "HEADER_TOKEN"))
+    for source in ("environment", "overrides"):
+        assert source_values(status, source)["api.token"] == "<redacted>"
+    fields = status["fields"]
+    assert isinstance(fields, dict)
+    assert fields["api.token"] == {
+        "value": "<redacted>", "source": "overrides", "writable": False, "redacted": True,
+    }
+    assert fields["infra.embedding.enabled"] == {
+        "value": False, "source": "project:configs/infra.toml", "writable": True,
+    }
+    await controller.patch((ConfigMutation(
+        "project:configs/infra.toml", "infra.embedding.api_key_env", "set", "NEXT_TOKEN",
+    ),))
+    assert source_values(controller.status(), "dotenv")["NEXT_TOKEN"] == "<redacted>"
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8").replace("NEXT_TOKEN", "FINAL_TOKEN"),
+        encoding="utf-8",
+    )
+    await controller.reload()
+    assert source_values(controller.status(), "dotenv")["FINAL_TOKEN"] == "<redacted>"
 
 
 async def test_config_controller_reads_sources_and_patches_toml_and_dotenv(

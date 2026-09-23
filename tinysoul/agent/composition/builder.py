@@ -14,27 +14,13 @@ from tinysoul.kernel.action import ActionCatalogLoader
 from tinysoul.kernel.action.backends.llm_action import LLMActionBackendOptionsValidator
 from tinysoul.kernel.action.catalog.specs import ActionBackendKind
 from tinysoul.kernel.action.config import (
-    ActionSettings,
     parse_action_settings,
     validate_llm_action_routes,
 )
-from tinysoul.plugins.capabilities import (
-    parse_capabilities_settings,
-)
-from tinysoul.plugins.execution import parse_execution_settings
-from tinysoul.kernel.jobs.config import parse_job_settings
-from tinysoul.kernel.context import (
-    ContextSettings,
-    parse_context_settings,
-)
-from tinysoul.plugins.home import (
-    AgentHomeEngine,
-    AgentHomeEngineBuilder,
-    parse_agent_home_settings,
-)
+from tinysoul.kernel.context import parse_context_settings
+from tinysoul.plugins.home import AgentHomeEngine
 from tinysoul.plugins.home.errors import AgentHomeError
-from tinysoul.plugins.memory import MemoryEngine, parse_memory_settings
-from tinysoul.plugins.memory.errors import MemoryError
+from tinysoul.plugins.memory import MemoryEngine
 from tinysoul.infra.config import (
     ConfigController,
     ConfigCatalogError,
@@ -43,7 +29,7 @@ from tinysoul.infra.config import (
     load_config_catalog,
     PreparedConfigActivation,
 )
-from tinysoul.infra import EmbeddingClient, build_embedding_client, parse_infra_settings
+from tinysoul.infra import parse_infra_settings
 from tinysoul.infra.concurrency import AsyncResourceScope, CleanupDiagnostic
 from tinysoul.llm.config.loader import LLMConfigParser
 from tinysoul.llm.config.types import LLMConfig
@@ -84,19 +70,8 @@ from tinysoul.agent.runtime_bridge import RuntimeAgentBridge
 from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
 from tinysoul.llm.runtime_bridge import RuntimeLLMBridge
 from tinysoul.kernel.loop.runtime_bridge import RuntimeLoopBridge
-from tinysoul.plugins.memory.runtime_bridge import RuntimeMemoryBridge
-from tinysoul.plugins.session.runtime_bridge import RuntimeSessionBridge
-from tinysoul.plugins.execution.runtime_bridge import RuntimeExecutionBridge
-from tinysoul.kernel.jobs.runtime_bridge import RuntimeJobsBridge
-from tinysoul.plugins.workspace.runtime_bridge import RuntimeWorkspaceBridge
-from tinysoul.plugins.session import SessionEngine, parse_session_settings
-from tinysoul.plugins.session.errors import SessionError
-from tinysoul.plugins.workspace import (
-    WorkspaceEngine,
-    WorkspaceEngineBuilder,
-    parse_workspace_settings,
-)
-from tinysoul.plugins.workspace.errors import WorkspaceError
+from tinysoul.plugins.session import SessionEngine
+from tinysoul.plugins.workspace import WorkspaceEngine
 
 from ..config import AgentSettings, parse_agent_settings
 from ..errors import (
@@ -121,14 +96,11 @@ from tinysoul.kernel.registration import (
     AgentPlugin,
     GenerationBuildContext,
     PluginGeneration,
-    PluginProfileExtension,
-    ProfileKind,
     RegistrationError,
     PluginDefinitions, Service, ServiceRegistry,
 )
 from tinysoul.environment.sources.fswatch import FileWatcher
 from tinysoul.runtime.sources import RuntimeTimer, RuntimeWatcher
-from tinysoul.plugins.workspace.events import WorkspaceRuntime
 from ..lifecycle.sources import GenerationSources
 
 from tinysoul.plugins.home.plugin import HomePlugin
@@ -144,6 +116,18 @@ from tinysoul.plugins.capabilities.web.plugin import WebPlugin
 from tinysoul.plugins.capabilities.resource.plugin import ResourcePlugin
 from tinysoul.kernel.jobs import JobRegistry
 from tinysoul.infra import InfraSettings
+
+
+_HARNESS_CONFIGURATION_SECTIONS = (
+    "config",
+    "agent",
+    "action",
+    "loop",
+    "llm",
+    "context",
+    "infra",
+    "reflection",
+)
 
 
 class AgentBuilder:
@@ -240,7 +224,11 @@ class AgentBuilder:
 
     @property
     def _definitions(self) -> PluginDefinitions:
-        return PluginDefinitions(tuple(self._plugins), host_services=(ReflectionSubmission, RuntimeTimer, RuntimeWatcher))
+        return PluginDefinitions(
+            tuple(self._plugins),
+            host_services=(ReflectionSubmission, RuntimeTimer, RuntimeWatcher),
+            reserved_configuration_sections=_HARNESS_CONFIGURATION_SECTIONS,
+        )
 
     def build(self) -> AgentAssembly:
         """Validate and freeze composition without creating owners or I/O resources."""
@@ -690,7 +678,7 @@ class AgentBuilder:
     ) -> AgentConfigPlan:
         definitions = self._definitions
         config.validate_sections({
-            "config", "agent", "action", "loop", "llm", "context", "infra", "reflection",
+            *_HARNESS_CONFIGURATION_SECTIONS,
             *(item.section.split(".", 1)[0] for item in definitions.configuration),
         })
         plugin_settings = definitions.configure(config, self._root)

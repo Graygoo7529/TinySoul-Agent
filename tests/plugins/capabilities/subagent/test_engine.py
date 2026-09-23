@@ -1,12 +1,14 @@
 import asyncio
 from pathlib import Path
 import sys
+import pytest
 
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.kernel.jobs import JobRegistry, JobState
 from tinysoul.kernel.loop.interaction.inbox import TurnInbox, WaitCondition, WaitReason
 from tinysoul.plugins.capabilities.subagent.config import AgentTarget, SubagentSettings
 from tinysoul.plugins.capabilities.subagent.engine import SubagentEngine
+from tinysoul.plugins.capabilities.subagent.failures import SubagentFailure, SubagentRequestError
 from tinysoul.plugins.capabilities.subagent.segments.connections import (
     ConnectionsSegment,
     ConnectionsRefresh,
@@ -91,18 +93,34 @@ async def test_real_acp_permission_same_turn_reuse_and_new_turn_isolation(
         assert "session_2; invocation 1" in str(
             await engine.backend("next-turn", third).collect()
         )
-        fourth = await engine.delegate("next-turn", connection, "wait_forever")
-        await asyncio.sleep(0.1)
-        stopped = await jobs.stop("next-turn", fourth, operations=JoinedOperations())
-        assert stopped.state is JobState.CANCELLED
-        fifth = await engine.delegate("next-turn", connection, "ignore_cancel")
-        await asyncio.sleep(0.1)
-        await jobs.stop("next-turn", fifth, operations=JoinedOperations())
-        assert not jobs.has_unresolved("next-turn")
-        assert "unavailable" in str(engine.connections("next-turn"))
         await jobs.cleanup_turn("next-turn")
         await engine.close_turn("next-turn")
+        await engine.release_day()
+        assert engine.connections("next-turn")["connections"] == []
+        with pytest.raises(SubagentRequestError) as stale:
+            await engine.delegate("day-turn", connection, "retired connection")
+        assert stale.value.reason is SubagentFailure.INVALID_REQUEST
+        connected = await engine.connect("day-turn", "user", "local")
+        assert connected["connection_id"] != connection
+        connection = str(connected["connection_id"])
+        fresh = await engine.delegate("day-turn", connection, "fresh day")
+        await _settled(jobs, "day-turn", fresh)
+        assert "session_1; invocation 1" in str(
+            await engine.backend("day-turn", fresh).collect()
+        )
+        fourth = await engine.delegate("day-turn", connection, "wait_forever")
+        await asyncio.sleep(0.1)
+        stopped = await jobs.stop("day-turn", fourth, operations=JoinedOperations())
+        assert stopped.state is JobState.CANCELLED
+        fifth = await engine.delegate("day-turn", connection, "ignore_cancel")
+        await asyncio.sleep(0.1)
+        await jobs.stop("day-turn", fifth, operations=JoinedOperations())
+        assert not jobs.has_unresolved("day-turn")
+        assert "unavailable" in str(engine.connections("day-turn"))
+        await jobs.cleanup_turn("day-turn")
+        await engine.close_turn("day-turn")
     finally:
         await jobs.cleanup_turn("turn")
         await jobs.cleanup_turn("next-turn")
+        await jobs.cleanup_turn("day-turn")
         await engine.close()
