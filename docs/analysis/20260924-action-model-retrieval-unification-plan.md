@@ -151,7 +151,7 @@ Search Strategy 是 Action 对检索意图的业务表达，不把 lexical、Emb
 
 1. `query_discovery`：没有已知候选 Link，依据 query 在 owner scope 中发现候选；
 2. `seed_refinement`：Stage2 已经给出 `seed_refs`，query 的 scope 是这些 ref 所张成的有限内容/目录空间，必须由互斥的 LLM 或 Jev selector 在候选集合内筛选和排序；
-3. `backlink_search`：以已知 `anchor_ref` 查询引用它的资源，再对反链候选做过滤和排序。
+3. `backlink_search`：以已知 `anchor_ref` 查询 owner 的 incoming reference index；候选空间就是该 anchor 的反链集合，可再叠加 query、scope/filter 和语义选择或排序。没有附加约束时，它可以退化为反链枚举，但仍使用 Search 的候选结果协议。
 
 Stage2 ActionCall 的 Search 参数只表达 mode 和业务参数：
 
@@ -295,11 +295,11 @@ Memory 的上述候选顺序只描述 `query_discovery` 的内部实现；完整
 
 目标实现中，`query_discovery` 可按 policy 使用 Embedding candidate generation 和模型重排；`seed_refinement` 在已给 refs 上必须由 LLM/Jev selector 判断相关性；`backlink_search` 从 Memory forward/backlink index 产生候选，再按 policy 重排。
 
-`memory.inspect` 仍然返回已知文档的 bounded `direct_refs` 和 `backlinks`。这是局部关系披露和下一步导航，不等于 Search：Inspect 只展开当前 Link 的直接邻域，不做 query、语义判断或全局排序；`memory.search(mode=backlink_search)` 才负责从 anchor 发现更大范围的反链候选、应用 scope/filter 并进行模型重排。两者可以返回部分相同的 Link，但消费者意图不同，不能用其中一个删除另一个。
+`memory.inspect` 返回已知文档的内容、分页信息和 bounded `direct_refs`。这是局部内容披露和沿文档显式链接继续导航：Inspect 不接受 query，不查询反向索引，不做语义判断或排序。反链统一通过 `memory.search(mode=backlink_search, anchor_ref=...)` 读取；该 Search 复用同一份 Memory backlink index，把 anchor 的 incoming refs 作为候选空间，再按 query、scope/filter 和 SearchPolicy 做候选选择或重排，并以 SearchPage 返回候选摘要。这样 Memory Inspect 与反链 Search 的职责不重叠：前者读取文档及其直接出口，后者检索指向该文档的入口。
 
 下行是当前实现中尚未迁移的 query 候选路径，实施阶段会删除其与 `memory.inspect` 的混合语义：
 
-删除 `memory.recall`，将“已知 Link 的完整读取”统一纳入 `memory.inspect`；新增 `memory.search` 承载 query 驱动发现。`memory.inspect` 只接受已知 Memory Link 或 relation continuation，返回文档、direct refs/backlinks 和有界 related page；当前 `memory.inspect(query=...)` 的 query 行为迁移为 `memory.search`。
+删除 `memory.recall`，将“已知 Link 的完整读取”统一纳入 `memory.inspect`；新增 `memory.search` 承载 query 驱动发现。`memory.inspect` 只接受已知 Memory Link 或其内容分页 continuation，返回文档、direct refs 和有界 related page；反链统一通过 `memory.search(mode=backlink_search)` 获取；当前 `memory.inspect(query=...)` 的 query 行为迁移为 `memory.search`。
 
 `memory.search` 的候选顺序为 owner lexical/identity/reference candidate → 可选 Embedding candidate generation → 结构化过滤 → 可选 Jev/LLM semantic rank。`related_to`、backlinks、active-only 和文档类型是 Memory 负责验证的 scope/filter。所有持久 Link、redirect 和引用存在性仍由 Memory owner 校验。Embedding cache 继续由 Memory 管理，不进入 kernel。
 
@@ -429,7 +429,7 @@ Observation 的 Action 事件增加 model use 摘要，并将每次 LLM/Embeddin
 1. Action 层采用本计划的层次：catalog 只保留 `execution.executor`；`in_process` 是 ActionBatchRunner 的固定运行边界，`controlled_process` 只作为 executor 内部的进程能力，不增加 `execution.host`。这是对“native/subprocess/handler”改名要求的进一步净化。
 2. Search Strategy 只暴露 `query_discovery`、`seed_refinement`、`backlink_search` 三种 mode；lexical/Embedding/LLM/Jev 只在用户配置的 SearchPolicy 中表达，Stage2 只选择 mode 和 policy 允许的参数。
 3. 默认策略为：query discovery 可配置 lexical/Embedding candidate generation 和可选重排；seed refinement 必须使用互斥的 LLM/Jev selector，不使用确定性相关性筛选；backlink search 使用 owner reference index 后再可选重排；重排默认无完整 Context，seed refinement 默认有，MCP 默认无。
-4. 通用反链只统一协议和 Markdown link 解析语义，索引继续由 Memory/Home/Workspace 等 owner 分别拥有，不建立第二份全局持久语义图；Memory Inspect 仍披露已知文档的 direct refs/backlinks，Memory Search backlink mode 负责更大范围的发现、筛选和重排。
+4. 通用反链只统一协议和 Markdown link 解析语义，索引继续由 Memory/Home/Workspace 等 owner 分别拥有，不建立第二份全局持久语义图；Memory Inspect 只披露已知文档内容和 direct refs，Memory Search backlink mode 复用同一 anchor 和 index，把 incoming refs 作为候选空间进行可选的 query/filter/重排。
 5. Stage1/Stage2 保持 LLM-only 控制协议。Jev 的 finite choice/score 可以用于候选 Action 之后的判断，但不替代 Phase1 的多域选择和 Context 更新。
 
 下一步从阶段 0 和阶段 1 开始，先提交新的设计契约与 Action/model-use 基础类型，再按依赖顺序进入实现。
