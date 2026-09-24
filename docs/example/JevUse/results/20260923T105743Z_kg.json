@@ -1,0 +1,77 @@
+{
+  "payload": {
+    "model": "jev-latest",
+    "state": {
+      "candidate_triple": {
+        "head": "TypeSafe AI",
+        "relation": "发布",
+        "tail": "Jev"
+      },
+      "evidence": "TypeSafe AI announced Jev as its first System One model.",
+      "source_date": "2026-09-15"
+    },
+    "questions": {
+      "accept_edge": {
+        "type": "noul",
+        "instructions": "证据是否明确支持该候选关系？"
+      },
+      "decision": {
+        "type": "choice",
+        "instructions": "该候选边应如何处理？",
+        "criteria": {
+          "accept": "直接写入",
+          "review": "证据不足，人工复核",
+          "reject": "证据不支持"
+        }
+      },
+      "evidence_strength": {
+        "type": "score",
+        "instructions": "证据对该关系的支持程度如何？",
+        "criteria": [
+          "弱",
+          "中",
+          "强"
+        ]
+      }
+    }
+  },
+  "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "accept_edge": {
+        "type": "noul",
+        "noul": 0.85
+      },
+      "decision": {
+        "type": "choice",
+        "choice": "accept",
+        "confidence": 0.84,
+        "probabilities": {
+          "reject": 0.06,
+          "accept": 0.89,
+          "review": 0.05
+        }
+      },
+      "evidence_strength": {
+        "type": "score",
+        "score": 1.94,
+        "confidence": 0.91,
+        "legend": {
+          "0": "弱",
+          "1": "中",
+          "2": "强"
+        },
+        "probabilities": {
+          "0": 0.01,
+          "1": 0.03,
+          "2": 0.96
+        }
+      }
+    },
+    "usage": {
+      "input_tokens": 479,
+      "output_tokens": 72
+    }
+  },
+  "elapsed_ms": 1556.2
+}
