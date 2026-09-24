@@ -33,3 +33,6 @@
 关于 Jev 是什么，可见 docs\example\JevUse，如有需要，你可试用 key（允许该 key 出现在当前会话中）
 
 请进一步深入分析以上方案是否合理可行？请根据以上思路分析和设计完整的后端重构方案，然后撰写完整的执行计划；根据你撰写的执行计划向我呈现重构方案预览，与我进一步讨论确认，深入修订执行计划。
+
+
+search strategy 可以这样考虑和设计吗：Stage2 Search 所用的 strategy 应和 strategy 中本身所用的模型、如何用模型区分，strategy 语义有三种模式：（a) query discovery，此时适合先使用[可选地] lexical+embedding 产生 generation，并支持输入 scope/filter （约束检索空间的范围/检索结果的属性和标签），然后还[可选地] 通过 embedding/llm/jev 来重排序；注意这里的 [可选地] 指用户配置，stage2 agent 可选性应当为 strategy 模式和参数；（b）seed_refs 上的候选精炼，这里 query 的 scope 可以是 seed_refs 所张成的内容空间，可能需要通过互斥的 llm/jev 来实现；例如，MCP search 以全局/server 下的 tools 名称和描述为 scope，由 llm/jev 决策与 query 关联的工具；（c）反链检索，如果可以，我们最好还能支持通用意义上的反链，即我在 markdown-A 中用标准 md 链接链接了 markdown-B，那么 markdown-B 的反链会包含 markdown-A；反链检索可考虑进一步结合 embedding/llm/jev 重排序；此外，局部步骤 embedding/llm/jev 虽然都是重排序，但实际上输入形式可能是不同的，但最终又是可以配置、使用和替换的环节；此外，可以考虑使用 llm/jev 时是否（agent stage2 可选）带有完整 context 语境，我觉得重排序可以默认没有，候选精炼默认有，但 MCP 候选精炼默认没有；
