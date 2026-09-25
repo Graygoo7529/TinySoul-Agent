@@ -1,14 +1,14 @@
 # Action 模型使用与信息检索统一重构执行计划
 
-版本：`2026-09-25 / r2 / reviewed`。
+版本：`2026-09-25 / r2 / confirmed`。
 
-实施状态：`pending`。本次只完成计划复核与同步；设计具备进入实施的条件，不表示代码已经完成或通过验收。
+实施状态：`pending`。设计已具备实施条件；此状态不表示代码已经完成或通过验收。
 
-代码核对基线：`5a6842ad64ea5596e1054333919643f833a983aa`（2026-09-25 核对，等于当时 HEAD）。本文在原执行计划路径内同步 [r2 讨论稿](../chat/20260925-action-model-retrieval-unification-plan-r2.md)，取代本文件此前正文，保持唯一执行计划。讨论稿提到的 `20260925-action-model-retrieval-unification-review.md` 未在当前仓库找到，不能把其 F1–F12 视为已独立核验；本次直接核查代码、规约与协议，变更评估和证据记录在第 15 节。
+代码基线：`5a6842ad64ea5596e1054333919643f833a983aa`。本计划完整取代 [20260924 计划](20260924-action-model-retrieval-unification-plan.md)，并吸收 [实施前 review](20260925-action-model-retrieval-unification-review.md) 的 F1–F12。实施时以本文为唯一主计划，不需要把 review 当作另一份并行规格。
 
-依据：重新加载的 `AGENTS.md`、当前实现与模块设计文档、`docs/chat/04 context-inspect-and-search-design.md`、`docs/example/JevUse/`、此前已确认的讨论，以及维护者本次“检查 r2，可行则同步”的授权。Visualization r4 和旧 Action model-use proposal 仅解释本轮起因，不覆盖本文。
+依据：AGENTS.md、当前实现与模块设计文档、`docs/chat/04 context-inspect-and-search-design.md`、`docs/example/JevUse/`，以及维护者 2026-09-25 的确认。Visualization r4 和旧 Action model-use proposal 仅解释本轮起因，不覆盖本文。
 
-## 1. 目标、范围与设计决策
+## 1. 目标、范围与已确认决策
 
 本轮在实施 Visualization 重构之前完成后端基础重构，解决两个相互关联的问题：
 
@@ -17,7 +17,7 @@
 
 不做向后兼容，不保留旧 Action 别名、旧配置双读或第二套调用管线。阶段表示实施依赖顺序，所有本轮能力在本轮完成。
 
-本计划采用的边界：
+已确认的边界：
 
 - Action catalog 只使用 `execution.executor` 绑定实现，不保留 native/subprocess/llm_action 并列类型，不增加 execution.host。
 - 同一个 Action 可以使用多个命名模型用途；LLM/JEV 的切换由 Action 所属操作层完成，输入/输出语义由该层管理。
@@ -131,15 +131,13 @@ LLM 的 CallSettings、TaskPrompt 与输出校验继续明确分工：模型输�
 | 情况 | discovery/backlink 可选阶段 | seed refinement 必需 selector |
 | --- | --- | --- |
 | 没有候选 | 成功空页，不调用模型 | 成功空页，不调用模型 |
-| 合法空选择（select） | 成功空页；纯 rank 对非空输入不能返回空排列 | 成功空页 |
+| 合法空选择 | 成功空页 | 成功空页 |
 | 输出无效、可恢复的模型调用不可用 | 原候选有效时返回原候选，披露跳过/失败阶段 | 局部 selection failure，不把未经筛选的候选当结果 |
 | 配置/内部不变量失败 | 模块边界失败 | 模块边界失败 |
 | Action 超时 | 现有 runner 的 timeout 语义 | 同左 |
 | 取消 | 传播取消 | 同左 |
 
-候选来源失败与可选精排失败必须分开。至少一个配置内的候选来源成功，才允许返回其已产生的候选并披露其他来源缺失；全部来源失败时返回来源不可用的局部结果或传播未被消费的模块失败，不能把失败解释成成功空页。只启用 Embedding 时，不暗中增补未配置的 lexical；至少一个来源确已执行并产生空集合，才有空结果的依据，coverage 仍说明缺失来源。
-
-可恢复种类由操作显式列举，例如临时连接失败、超时或限流耗尽；认证、请求契约、配置和内部不变量错误不作为普通降级吞掉。模型调用的 timeout 不能吞掉外层 Action deadline。Runtime 异常不能被检索代码捕获后伪装成功；Infra 异常不直接增加 Runtime bridge。必要的调用失败由实际上层 owner 解释。
+Runtime 异常不能被检索代码捕获后伪装成功；Infra 异常不直接增加 Runtime bridge。必要的调用失败由实际上层 owner 解释。
 
 ## 5. 用途声明、配置绑定与装配
 
@@ -216,10 +214,6 @@ allowed_context = ["none", "current"]
 
 默认值必须属于允许值，不使用 policy_default 等未定义别名。Stage2 的 schema 只呈现该 Action/profile 真正支持的有限 mode/semantic/context 参数。selector 固定为必需的 Action，可以省略不提供选择价值的 semantic 字段。
 
-semantic 的操作含义固定：`none` 跳过模型相关性阶段，`rank` 只排序，`select` 返回相关的有序子集；discovery/backlink 可按声明和 policy 开放后两者，seed refinement 只允许 select。不增加可编程步骤链。绑定实现变化时，policy 与真实输入能力一并校验，例如 `embedding_similarity` 只使用 query/候选文本，不支持 `context=current`；不接受后默默忽略 Context。
-
-允许的模式、semantic、context、来源和 filters 的投影与 Action 参数归一化必须使用同一份解析结果；修改 binding 后不保留过期 schema。默认值可由 Action 补齐，但进入内部 typed 请求前必须已明确。模型只见业务选择，provider/implementation 仍只在配置和运行观察中出现。
-
 模板默认 discovery/backlink 可使用确定性候选、不启用精排；seed refinement 默认 LLM。Home/Memory 的 Embedding 来源在存在明确可用 owner binding 后才允许配置启用。迁移现有已启用 Embedding 的项目时，应同时配置 owner binding 和对应候选来源，不能静默关闭已有能力。
 
 ### 5.4 装配和生命周期
@@ -231,8 +225,6 @@ semantic 的操作含义固定：`none` 跳过模型相关性阶段，`rank` 只
 5. SDK 服务仍绑定 generation/day lease，过期对象按原协议失效。
 
 复用现有 ServiceRegistry 与 PluginProfileExtension/PluginGeneration，不为用途、模型、检索各增加一个插件生命周期平台。未选择的专用模型条目可以保存且不连接；选中的绑定必须具备有效配置和至少一个可路由 provider，启动验证不进行付费试调用。
-
-“选中”包括已启用 consumer 和 policy 允许调用的语义阶段，不能因为默认 semantic=none 就跳过一个仍允许 Stage2 选择的 rank 依赖。未接入可用操作的目录条目仍校验自身结构，但不要求连接或运行凭据。visibility 不能授予 owner 服务或绕过既有支持性校验。
 
 ## 6. 专用模型服务
 
@@ -305,9 +297,9 @@ embedding_use = "embedding_main"
 本轮必须实现候选选择操作的 LLM 与 JEV 两个真实 implementation：
 
 - owner 提供候选身份、证据、query、可选的一次固定 Context 投影和预算。
-- LLM select 返回已知身份上的有序子集，可附有界理由；LLM rank 返回送入排名阶段的全部候选身份的排列。漏项、重复项和未知身份属于该操作的局部输出协议失败。
+- LLM 返回已知身份上的有序子集，可附有界理由。
 - JEV 对每个候选构造 Score 问题；候选信息和 query 放入 state/instructions，问题 key 只作响应关联，不能依赖 key 名向模型传递语义。
-- 项目默认相关性等级为“无关、仅背景、能支持请求、直接解决请求”，对应 0–3；Score 是可取小数的概率加权值。selector 保留 score ≥ 2 的候选并降序排列，稳定原序作为并列规则；这是项目规则，不是正确率保证。rank 保留送入该阶段的全部候选并排序，不套 selector 的排除阈值；返回页的 limit/预算与模型相关性排除分开统计。
+- 项目默认相关性等级为“无关、仅背景、能支持请求、直接解决请求”。selector 保留 score ≥ 2 的候选并降序排列，稳定原序作为并列规则；这是项目规则，不是正确率保证。rank 操作若声明仅排序，则保留合格候选并排序，不偷偷套 selector 的排除阈值。
 - 合法空选择是成功结果。JEV choice 不用于伪造多选；noul 仅用于实际需要二值判断的 typed 操作，不为它人为增加 Action。
 - adapter 校验问题身份、响应类型、数值范围和已知候选映射；业务相关性由操作层解释。
 - 不因 confidence 较低自动跨 implementation 调 LLM；同一次操作只执行配置选定实现，其 provider 链仍可有限切换。
@@ -337,7 +329,7 @@ owner 把本地 Link/Ref、metadata、可读证据和来源定位转换为候选
 | --- | --- | --- | --- |
 | query_discovery | 明确 scope；文本 query 或 owner 支持的文档 query | filters、允许的 semantic/context、limit | 合格来源上的 lexical/regex/embedding 等 |
 | seed_refinement | 筛选意图；已知 seed 集合或 owner 声明的目录入口 | 资格过滤、允许的 Context、limit | 种子所张成的有界内容/目录空间 |
-| backlink_search | anchor_ref、来源 scope | query、filters、允许的 semantic/context、limit | 来源 owner 保存的 incoming reference 候选 |
+| backlink_search | anchor_ref、来源 scope | query、filters、可选 rank/context、limit | 来源 owner 保存的 incoming reference 候选 |
 
 query_discovery 不接受同时改变意义的 seed/anchor；backlink_search 不能缺少 anchor；seed_refinement 不能没有种子或目录范围。
 
@@ -345,13 +337,13 @@ query_discovery 不接受同时改变意义的 seed/anchor；backlink_search 不
 
 ### 7.3 资格与相关性
 
-确定性资格过滤包括显式范围、类型、日期、标签、工具可用性等，可以用于全部 mode；它只定义请求中哪些对象有资格进入候选集合。这里延续已确认的“seed refinement 不做确定性相关性筛选”：不根据 query 的词面匹配、相似分数或隐藏规则先排除候选。seed refinement 没有显式资格条件时不另加过滤。种子范围本身、去重和输入预算也由程序处理，预算截断必须披露未评估范围。
+确定性资格过滤包括范围、类型、日期、标签、工具可用性等，可以用于全部 mode。种子范围本身、去重和输入预算也由程序处理。
 
 seed refinement 中的相关性必须由 LLM/JEV selector 判断，不能先用隐藏 lexical top-k 把候选删掉再说模型已评估全部范围。selector 是必需步骤，但空候选无需调用。
 
 discovery 的 lexical 与 Embedding 在同一合格来源范围独立产生候选，先合并去重再限定精排输入；不能先 lexical 截断后声称提供了无词面重合的语义召回。融合采用基于排名的明确规则，避免直接相加不同尺度分数。默认采用倒数排名融合，常量和来源预算由公共实现集中定义，owner 只提供真实需要的来源权重；不要求 Stage2 设置算法参数。
 
-backlink 的候选必须先有真实入边。可选语义步骤只能筛选/排序这些来源，不能把相似文档补进反链集合。只提供 anchor、没有 query 且 context=none 时，合法操作是按 owner 稳定原序枚举反链；不能把 anchor 字符串冒充相关性 query 后调用模型。显式请求 rank/select 时必须具备该实现所需的判断输入（query，或实现明确支持且实际存在的 current Context），不足时返回参数反馈。
+backlink 的候选必须先有真实入边。可选语义步骤只能筛选/排序这些来源，不能把相似文档补进反链集合。
 
 ### 7.4 上下文规则
 
@@ -379,8 +371,6 @@ Trace/Session 继续共享 DisclosurePage。Home/Memory 等复用公共引用/co
 
 coverage 明确候选范围、扫描/候选/已评估数量、截断/省略原因及阶段降级。结果为空不等价于整个资源空间不存在相关内容。
 
-请求 limit 限制本次最终结果视图保留的候选数，候选输入预算与单页字符预算分别管理。先完成声明范围内的选择/排序，再应用结果 limit；continuation 只遍历已保留结果，不扩展候选空间或重新精排。coverage 区分扫描未覆盖、候选未评估、结果 limit 舍弃和本页尚未展示；无法获知全空间总数时不伪造精确计数。
-
 ### 8.3 Continuation 与生命周期
 
 Inspect 复用 infra.continuation 的 owner/内容绑定。Search 排序后形成一次有界不可变结果视图，后续页面只在这份结果中前进，不重新调用 LLM/JEV。
@@ -389,13 +379,9 @@ Inspect 复用 infra.continuation 的 owner/内容绑定。Search 排序后形�
 
 来源变化不改写已生成的页面顺序；Inspect 打开资源时仍读取 owner 当前允许的内容，若资源不可读则返回正常的局部反馈，不承诺磁盘历史快照。页容量、owner、查询/视图身份通过 opaque continuation 绑定，不向模型暴露内部版本协议。
 
-Action 的视图还绑定发起 Turn/profile；SDK 视图绑定服务查询范围以及适用的 generation/day lease，不能跨日继续使用仅绑定 generation 的旧 Workspace/Session 视图。续页入口只使用既有 view/continuation，不重新接受会改变 query、scope、semantic 或 context 的参数；参数冲突要求新建搜索。coverage 的阶段与评估数量属于该次视图，翻页不累计成新的模型评估。
-
 ## 9. 反链与引用解析
 
-反链是实际引用边 `source_ref → target_ref` 的入边，边归 source owner。公共 Markdown 提取负责语法；source owner 负责相对路径基准和引用发生的位置/日期，目标的规范身份、top/resource 映射与 redirect 规则仍由目标 owner 解释。跨 owner 只注入所需的窄只读身份解析能力，不让来源模块复制另一 owner 的 codec 或访问其私有存储，也不为此建立全局检索协调器。
-
-目标资源与其片段分别保存：无 fragment 的 anchor 查询该资源及其局部片段的入边；带 fragment 的 anchor 查询目标 owner 能规范化匹配的该片段入边，不把无法解析的片段猜成其他位置。结果保留实际 source_ref 和目标定位证据。Workspace 等日级身份必须带上所属来源所绑定的日期，不能在日切后按新一天重新解释旧边。redirect 解析保留原始引用证据，不把跳转推导写成新的源文档引用。
+反链是实际引用边 `source_ref → target_ref` 的入边，边归 source owner。公共 Markdown 提取负责语法，source owner 负责相对路径基准、规范资源身份、片段、跨日身份和已知 redirect 语义。
 
 实现应识别标准 inline/reference-style Markdown link，避免把代码块内示例或任意字符串包含误作链接。普通网页链接不进入本轮本地资源反链检索。
 
@@ -409,8 +395,6 @@ Action 的视图还绑定发起 Turn/profile；SDK 视图绑定服务查询范�
 跨空间目标引用作为派生导航边，不要求在源 owner 复制目标资源或建立跨文档事务。Memory 自身持久 MemoryLink 的存在性/redirect 校验仍保留原语义；不能把外部资源导航强行纳入同一个写入事务。
 
 查询多个来源使用多个明确 owner Action；同一个批次可以复用已有并行执行机制。`scope=all` 的含义始终由当前 Action 的来源 owner 定义，不表示跨全项目的隐式搜索。
-
-例如 Home 资源 A 引用 Memory 文档 B，`home.search(mode=backlink_search, anchor_ref=B)` 返回 A；`memory.search` 对同一 anchor 只返回 Memory 来源。查所有已支持空间时，由 Stage2 显式安排这些 owner 搜索，再沿返回的 source_ref Inspect；不能因目标属于 Memory 就只查询 Memory 的来源索引。
 
 ## 10. 各插件目标设计
 
@@ -433,7 +417,7 @@ Action 的视图还绑定发起 Turn/profile；SDK 视图绑定服务查询范�
 
 搜索覆盖 agent/skills 中可读的 top/resource 内容；domain/action 局部 prompt mount 不自动加入全局搜索或 Background 目录。文本资源建立有定位的证据单元；非文本资源仅纳入已有 metadata，不暗中运行转码或模型解析。
 
-结果身份采用 r2 的细化规则：
+**结果身份按维护者确认执行：**
 
 - 普通 Skill：有明确所属 Skill top 的内容按 top 聚合，返回 top Link、摘要和 evidence_refs/片段；多个片段不重复生成同一 top 候选。
 - 其他 Home 内容：返回实际目标 resource Link，即使其对应文件同时存在 Background top 身份，也不强行作为 Skill top 聚合。
@@ -471,7 +455,7 @@ describe_servers、describe_tools 保留为目录披露。expand.search 是 serv
 
 workspace.read 保持 Link/范围的渐进读取。workspace.search 保留 literal/regex、目录/文件范围、支持的 metadata filters、行位置和片段；这些属于 query_discovery 的 owner 具体参数。
 
-本轮增加标准 Markdown 的来源反链查询能力，以落实跨空间 anchor 语义。它复用 Workspace 来源清单和有界扫描，可保存可重建派生边，不增加持久知识图。
+本轮增加标准 Markdown 的来源反链查询能力，以落实已确认的跨空间 anchor 语义。它复用 Workspace 来源清单和有界扫描，可保存可重建派生边，不增加持久知识图。
 
 Workspace 不提供没有实现的 seed refinement 选项，不建立默认 Embedding/JEV 检索。需要模型分析已有资源时使用已有 analyze 等真实 Action，按 model use 迁移。
 
@@ -499,9 +483,9 @@ rank 的相似度实现引用 owner 已绑定的 Embedding 用途，不另配一
 
 ### 11.2 SDK 与 HTTP 范围
 
-SDK 的 Home/Memory/Session/Expand/Workspace owner 服务按本计划更新实际支持的读取与 Search/Inspect 协议，仍遵守 generation/day lease。当前没有独立的 SDK ContextService；不据此新建一个拥有或读取任意活动 Context 的门面。core.context.search 的 trace/session/all 组合属于所属 Turn；SDK Session 查询只使用显式取得的 Session 来源视图，不读取活动 TurnTrace。Action 调用和 SDK 调用复用各自 owner 的候选、选择与披露操作，不各建检索实现。
+SDK 的 Home/Memory/Context/Expand/Workspace 服务按本计划更新读取与 Search/Inspect 协议，仍遵守 generation/day lease。Action 调用和 SDK 调用复用 owner 操作，不各建检索实现。
 
-SDK 直接查询没有活动 Turn Context，模型上下文参数只能为 `none`，局部 query/候选属于普通任务输入；`local` 不作为未定义的新 context 枚举。省略 context 时按 SDK 入口的 none 默认归一化，并校验 policy 允许 none；要求 `current` 的查询通过所属 Turn 的 Action 完成。SDK 模型查询可以是有取消/查询视图生命周期的只读服务调用，不创建第二根 Turn 或隐藏循环。其模型 Observation 没有父 Action 时保留独立 operation 身份，不伪造 invoke_id。调用失败在 SDK 服务边界返回局部结果或明确的服务异常，不把没有活动 Runtime frame 的 SDK 调用转换成 Turn Trap。
+SDK 直接查询默认没有活动 Turn Context，仅支持 local/none 输入；要求 `current` 的查询通过所属 Turn 的 Action 完成。SDK 模型查询可以是有取消/查询视图生命周期的只读服务调用，不创建第二根 Turn 或隐藏循环。其模型 Observation 没有父 Action 时保留独立 operation 身份，不伪造 invoke_id。
 
 本轮 HTTP 的交付清单：
 
@@ -547,7 +531,7 @@ Observation 是旁路，sink 失败不改变业务；它不成为索引更新、
 | memory.recall / memory.inspect(query) | memory.inspect / memory.search |
 | 没有入口的跨 owner 协调器提议 | 多个 owner 搜索的显式组合 |
 
-包内 catalog、配置模板、Action/domain Skill 中的调用名称、项目生成器、配置编辑元数据与测试一起迁移。现有项目配置提供明确转换说明或重建步骤，运行时不双读旧键。历史聊天、review 与归档文档允许保留旧名称作为事实记录。普通用户 task_profile 的字符串名称（例如 llm_action）不等于被删除的 backend/config 类型；清理验证检查实际代码引用和旧协议，不能以名称全库零命中为目标删除合法任务配置。
+包内 catalog、配置模板、Action/domain Skill 中的调用名称、项目生成器、配置编辑元数据与测试一起迁移。现有项目配置提供明确转换说明或重建步骤，运行时不双读旧键。历史聊天、review 与归档文档允许保留旧名称作为事实记录。
 
 ## 13. 实施阶段与验收门槛
 
@@ -585,9 +569,9 @@ Observation 是旁路，sink 失败不改变业务；它不成为索引更新、
 
 ### 阶段 5：接口、资源、文档与清理
 
-工作：更新 SDK、现有 HTTP 配置/目录/事件、包内配置/Skill/生成器；同步 AGENTS、design、endpoint；删除旧生产路径和旧测试假设。AGENTS 同步至少覆盖 Memory search/inspect、MCP 可配置 LLM/JEV selector、专用模型职责和可组合模型失败边界；保留 Context 的 Turn 所有权、inspect 无模型与决策请求消费保护。
+工作：更新 SDK、现有 HTTP 配置/目录/事件、包内配置/Skill/生成器；同步 AGENTS、design、endpoint；删除旧生产路径和旧测试假设。
 
-验收：配置/catalog/runtime 不存在两个语义来源；公开接口真实反映新 mode 与 model uses；旧协议只存在于历史记录，合法用户 task 名称按第 12 节处理；前端支持工作可直接基于新目录和协议继续规划。
+验收：配置/catalog/runtime 不存在两个语义来源；公开接口真实反映 new mode 与 model uses；旧名字只存在于历史记录；前端支持工作可直接基于新目录和协议继续规划。
 
 ### 阶段 6：代表性路径与完成核对
 
@@ -597,18 +581,16 @@ Observation 是旁路，sink 失败不改变业务；它不成为索引更新、
 | --- | --- |
 | A1 | Action 切换 LLM/JEV 绑定不改变 executor/runner；未知 consumer/target/option 明确拒绝 |
 | A2 | core/Workspace 非 Search 用途配置完整；旧 timeout 与输出约束没有无意丢失 |
-| A3 | 可选 rank 失败有说明地保留原候选，必需 select 失败不伪装成功；全部来源失败不返回成功空页；取消传播 |
+| A3 | 可选 rank 失败有说明地保留原候选，必需 select 失败不伪装成功，取消传播 |
 | A4 | Home nested 证据可命中 Skill top；非 Skill 返回 resource；反链保留实际 source |
 | A5 | 没有词面重合但语义相关的候选可由 Embedding 独立召回 |
 | A6 | 折叠 Trace 与 Session 原文/解释可搜索并 Inspect；辅助模型不解除展示保护 |
-| A7 | Search 分页稳定且不重新调用模型，Turn/profile/day 失效隔离，合法空选择与 scope 收紧反馈正确 |
+| A7 | Search 分页稳定且不重新调用模型，合法空选择与 scope 收紧反馈正确 |
 | A8 | Markdown inline/reference-style、Memory 结构化边与跨空间 anchor 结果一致；相似文档不冒充反链 |
 | A9 | provider 切换不混合向量；Home/Memory 各自缓存可重建；资源只关闭一次 |
 | A10 | MCP 只返回已知工具；schema 容量不足有 describe 入口，Workspace 没有隐式向量库 |
 | A11 | User/Reflection 来源、写权限和 Session 日切事实保持；模型用途协议共用 |
 | A12 | SDK、配置 Endpoint、Action catalog 与 Observation 使用同一声明/绑定，无旧协议双轨 |
-| A13 | rank 保留候选集合，select 可排除；seed 只允许显式资格过滤，不能用词法或向量预筛代替 selector |
-| A14 | binding/policy/Stage2 schema 能力一致；相似度 rank 不虚称消费 Context，纯反链枚举不需要模型 |
 
 使用小型、人工可判断的 Home/Memory/MCP 数据验证 JEV 命中、无关项排除、空结果及输入预算；HTTP 调通不等于检索质量已通过。评分等级和阈值可根据这些代表性样本调整并记录，属于本轮实现验证，不需要开启另一轮架构设计。
 
@@ -616,54 +598,6 @@ Observation 是旁路，sink 失败不改变业务；它不成为索引更新、
 
 ## 14. 开始实施的判断
 
-经本次复核并补齐第 15 节所列边界，本文已具备正常主线所需的所有权、输入输出、装配、失败和生命周期定义。没有已知的架构可行性阻塞；检索效果与真实 provider 的运行质量仍需实施验收证明。本轮交付只包含分析与计划同步，不表示已经开始后端重构。
+本文已具备正常主线所需的所有权、输入输出、装配、失败和生命周期定义；两项影响产品语义的选择已经确认。没有需要阻塞实施的新增设计决策。
 
 实施者可以决定局部文件拆分、类型名称、现有 helper 的复用方式及代表性测试组织；这些选择应遵循本文和 AGENTS.md，不需要逐一重新确认。若实际供应商协议或来源能力与本文有事实冲突，应停止受影响部分并说明具体冲突，不能用兼容别名、隐藏降级或第二套实现绕过。
-
-## 15. 2026-09-25 同步复核记录
-
-复核状态：`done`（仅指本节的比较与分析）。重构实施和各阶段验收仍为 `pending`。
-
-### 15.1 相比旧执行计划的变化与判断
-
-| 变化 | 旧计划的缺口或问题 | r2 及本次同步结论 |
-| --- | --- | --- |
-| Action 调度和超时 | executor/runner 职责及 execution/runtime 时限仍有混写 | 采纳：runner 唯一调度，runtime 唯一总时限，迁移旧有效值 |
-| 唯一 LLM 管线 | 提议 LLMTaskInvoker，但已有 LLMTaskRunner 覆盖相同职责 | 采纳：原 runner 内拆 invoke/run 边界，不建平行调用器 |
-| 用途、绑定、观察 | descriptor 混入 builder、当前绑定和实际调用结果；非 Search 配置不完整 | 采纳：代码声明、配置绑定、Observation 三者分离，覆盖 core/Workspace |
-| Search 请求与配置 | 全可选请求易产生非法组合，policy_default 未定义 | 采纳：三个 typed 变体，有限 semantic/context，默认值与能力校验 |
-| seed refinement | “不做确定性筛选”与显式范围/属性条件的边界不够清楚 | 采纳并澄清：显式资格条件定义候选范围，相关性只由必需 LLM/JEV selector 判断 |
-| 混合召回 | 没有明确不同来源独立召回和分数融合 | 采纳：lexical/Embedding 独立召回后融合，不以词法 top-k 限制语义发现 |
-| Home 搜索身份 | 所有搜索结果笼统返回 top | 采纳：普通 Skill 聚合 top，其他内容返回 resource；反链保留实际 source |
-| Memory Inspect | 去除 backlinks 后仍残留 related page，语义未完全清除 | 采纳：只读内容/direct_refs；相似内容用 document query，反链用 backlink mode |
-| 跨空间反链 | kernel 协调多个 owner，Workspace 能力仍属条件性提议 | 采纳：边归来源 owner，anchor 可跨空间；删除总协调器，本轮落实 Workspace Markdown 反链 |
-| Embedding/JEV 接入 | Home Embedding 依赖和 JEV 多选实现不够具体 | 采纳：owner 独立缓存/共享服务，provider 固定向量尝试，JEV Score 实现有序子集 |
-| Context 和分页 | 折叠事实来源、辅助模型消费保护、结果分页生命周期不完整 | 采纳：固定来源视图、仅决策请求解除保护、Turn/服务范围内稳定结果视图 |
-| SDK/Endpoint 与执行阶段 | 接口交付范围、资源生成和旧协议清理描述宽泛 | 采纳并校正现有 SDK 事实：更新 Action/SDK 与现有 HTTP 配置/事件；浏览页面 API 不混入本次任务 |
-
-以上细化保留原始目标：模型请求只处理已准备输入；Action/owner 决定上下文、业务语义和实现选择；Inspect 确定性读取；Search 三种模式；Stage1/2 LLM-only；Memory Inspect 无反链；无 memory.compose、兼容双轨或 Workspace 向量库。
-
-### 15.2 同步时补齐的边界
-
-以下澄清已直接进入本文相应章节，不构成另一份并行规格：
-
-- rank 是全部输入候选的排列，select 才能返回子集；合法空选择只属于 select 或原候选为空。
-- 候选来源失败不能冒充成功空结果；可选阶段降级必须有可用来源和有限的可恢复失败种类。
-- policy、绑定实现与 Stage2 schema 使用同一能力判断；Embedding 相似度不虚称消费完整 Context，anchor 本身不伪装成相关性 query。
-- Search 视图区分输入预算、最终 limit 与单页预算；绑定 Turn/profile 或 SDK 的 generation/day，翻页不重新评估。
-- 引用边归 source owner，目标身份规则归 target owner；明确 fragment 和日级身份，不复制跨 owner codec。
-- SDK 不获得任意活动 Context；现有 Session 服务和 Turn 内 Context 操作分清，缺少 Runtime frame 的 SDK 调用不触发 Turn Trap。
-- 移除不可验证的 review 引用和外部确认措辞；普通 task_profile 名称不与待删除的 backend/config 协议混为一谈。
-
-### 15.3 代码和协议证据
-
-- [Action 执行器查找与批次运行](../../tinysoul/kernel/action/execution/runner.py)、[当前超时配置合并](../../tinysoul/kernel/action/catalog/loader.py)、[混合 LLM Action runner](../../tinysoul/kernel/action/backends/llm_action.py)：支持删除 backend 分类，同时保留唯一运行控制与真实时限。
-- [现有 LLM 管线](../../tinysoul/llm/execution/task.py)、[Runtime bridge](../../tinysoul/llm/runtime_bridge.py)：当前模型链/容量失败直接桥接 Runtime；invoke/run 需要实际重构，并非已有公共接口的简单改名。
-- [Home 搜索](../../tinysoul/plugins/home/content/search.py)、[Home Link](../../tinysoul/plugins/home/links.py)：当前只搜 skills top，agent/resource 身份已存在；全空间证据与聚合是新增工作。
-- [Memory 检索](../../tinysoul/plugins/memory/retrieval/catalog.py)、[向量缓存](../../tinysoul/plugins/memory/retrieval/embeddings.py)：当前已对合格 Memory 全集计算语义相似度，再与 lexical 分数相加；不能把它误写成只对 lexical top-k 重排。新工作是统一语义、排名融合、provider 隔离与可观察失败。
-- [Phase1](../../tinysoul/kernel/loop/phases/phase1.py)、[Phase2](../../tinysoul/kernel/loop/phases/phase2.py)、[Session 视图](../../tinysoul/plugins/session/views/inspection.py)：已有决策请求消费保护与固定视图，搜索应复用其边界。
-- [Workspace 搜索](../../tinysoul/plugins/workspace/inspection/search.py)、[continuation](../../tinysoul/infra/continuation.py)：已有有界扫描和分页基础；标准 Markdown 反链与 Search 结果视图仍需实现。
-- [Session SDK 服务](../../tinysoul/plugins/session/services.py)、[配置路由](../../tinysoul/gateway/endpoint/http/routes/configuration.py)、[公开 Endpoint 清单](../endpoint/index.md)：核对实际服务和现有 HTTP 范围，不把提议中的浏览接口记为已存在。
-- Jev 已核对官方 [API](https://docs.typesafe.ai/api)、[Score](https://docs.typesafe.ai/primitives/score) 和 [Choice](https://docs.typesafe.ai/primitives/choice)：typed 判断、问题身份关联与逐候选 Score 的协议可行；没有在本次复核发起真实模型请求，未验证项目检索质量。
-
-本次验证仅覆盖文档内容、引用和差异一致性，不运行代码门禁。实施时仍必须完成第 13 节的行为验收、必要 External 验证及 Full/typecheck；本计划不得因设计复核完成而提前归档。
