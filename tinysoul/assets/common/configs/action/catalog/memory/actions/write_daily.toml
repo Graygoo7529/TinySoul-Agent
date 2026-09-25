@@ -21,8 +21,7 @@ parallel_policy = "serial"
 normalize = []
 execute = []
 
-[backend]
-kind = "native"
-handler = "memory.write_daily"
+[execution]
+executor = "memory.write_daily"
 
 

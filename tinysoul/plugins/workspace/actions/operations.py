@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from tinysoul.kernel.action.backends.llm_action import LLMActionTaskRunner
+from tinysoul.kernel.action.tasks import ActionTaskFactory, ActionTaskOutput
+from tinysoul.kernel.loop.phases import LLMRunner
+from tinysoul.llm.protocol.responses import AnswerFormat
 from tinysoul.kernel.action import (
     ActionExecution,
     ActionExecutionContext,
@@ -13,6 +15,8 @@ from tinysoul.kernel.action import (
 from tinysoul.kernel.context import PromptBlock, PromptReferenceError, TaskPrompt
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.kernel.retrieval.requests import parse_search_request
+from tinysoul.kernel.retrieval.contracts import BacklinkSearch, SearchFailure
 from ..services import WorkspaceService
 from ..errors import WorkspaceContractError, WorkspaceError
 from ..runtime_bridge import RuntimeWorkspaceBridge
@@ -32,11 +36,12 @@ class WorkspaceExecutor(ActionExecutor):
     def __init__(
         self,
         workspace: WorkspaceService,
-        llm_action: LLMActionTaskRunner,
+        tasks: ActionTaskFactory,
+        llm: LLMRunner,
         bridge: RuntimeWorkspaceBridge,
     ) -> None:
         self._workspace = workspace
-        self._llm_action, self._bridge = llm_action, bridge
+        self._tasks, self._llm, self._bridge = tasks, llm, bridge
 
     async def execute(
         self, execution: ActionExecution, context: ActionExecutionContext
@@ -44,6 +49,8 @@ class WorkspaceExecutor(ActionExecutor):
         workspace = self._workspace.using(context.owner_operations)
         try:
             return await self._execute(workspace, execution, context)
+        except SearchFailure as exc:
+            return _failed(execution, str(exc), {"reason": exc.kind.value})
         except PromptReferenceError as exc:
             return _failed(
                 execution,
@@ -126,6 +133,27 @@ class WorkspaceExecutor(ActionExecutor):
                 ),
             )
         if action == "workspace.search":
+            mode = params.get("mode", "query_discovery")
+            if mode == "backlink_search" or "continuation" in params:
+                request = parse_search_request(params, workspace.search_policies)
+                if not isinstance(request, (str, BacklinkSearch)):
+                    raise WorkspaceContractError(
+                        "Workspace link search requires backlink_search"
+                    )
+                page = await workspace.search_backlinks(request)
+                return _success(
+                    execution,
+                    page.to_json(),
+                    trace_projection=ActionTraceProjection(
+                        origin_refs=tuple(item.ref for item in page.items),
+                        canonical_payload={
+                            "mode": page.mode.value,
+                            "selected": [item.ref for item in page.items],
+                        },
+                    ),
+                )
+            if mode != "query_discovery":
+                raise WorkspaceContractError("Unsupported Workspace search mode")
             result = await workspace.search(
                 query=_text(params, "query"),
                 scope=_search_scope(params.get("scope")),
@@ -326,11 +354,17 @@ class WorkspaceExecutor(ActionExecutor):
         context.owner_operations.check_cancelled()
         context.control.check_cancelled()
         if action == "workspace.describe":
-            value = await self._llm_action.run_json(
-                execution=execution,
-                prompt=prompt,
-                subject="Workspace description",
-                control=context.control,
+            _task_result = await self._llm.run(
+                await self._tasks.create(
+                    execution=execution,
+                    prompt=prompt,
+                    control=context.control,
+                    consumer=f"{execution.call.action_name}.generate",
+                    answer_format=AnswerFormat.JSON_OBJECT,
+                )
+            )
+            value = ActionTaskOutput.json(
+                _task_result, execution, subject="Workspace description"
             )
             if isinstance(value, ActionResult):
                 return value
@@ -349,12 +383,21 @@ class WorkspaceExecutor(ActionExecutor):
             context.control.check_cancelled()
             record = await workspace.set_description(target, description)
         else:
-            value = await self._llm_action.run_text(
-                execution=execution,
-                prompt=prompt,
+            _task_result = await self._llm.run(
+                await self._tasks.create(
+                    execution=execution,
+                    prompt=prompt,
+                    control=context.control,
+                    max_output_chars=workspace.max_write_chars,
+                    consumer=f"{execution.call.action_name}.generate",
+                    answer_format=AnswerFormat.TEXT,
+                )
+            )
+            value = ActionTaskOutput.text(
+                _task_result,
+                execution,
                 subject="Workspace composition",
-                control=context.control,
-                max_output_chars=workspace.max_write_chars,
+                max_chars=workspace.max_write_chars,
             )
             if isinstance(value, ActionResult):
                 return value
@@ -454,7 +497,7 @@ def _search_scope(value: object) -> WorkspaceSearchScope:
     expected_keys = {"kind", "locator"}
     if set(value) != expected_keys:
         raise WorkspaceContractError(
-            f"Workspace search scope must contain exactly " f"{sorted(expected_keys)}"
+            f"Workspace search scope must contain exactly {sorted(expected_keys)}"
         )
     locator = value.get("locator")
     if not isinstance(locator, str):

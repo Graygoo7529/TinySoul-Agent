@@ -4,11 +4,30 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
+from datetime import date
 from threading import RLock
 import os
 import re
 
-from tinysoul.infra.filesystem import atomic_write_text
+from tinysoul.infra.filesystem import atomic_write_text, read_text_prefix
+from tinysoul.infra.references import (
+    ReferenceResolver,
+    ReferenceError,
+    ResourceTarget,
+    markdown_references,
+    relative_reference,
+)
+from tinysoul.infra.json import JsonObject
+from tinysoul.kernel.retrieval.contracts import (
+    BacklinkSearch,
+    SearchRequest,
+    SearchFailure,
+    SearchFailureKind,
+    SearchCandidate,
+    SearchEvidence,
+)
+from tinysoul.kernel.retrieval.operations import SearchCorpus
+from tinysoul.kernel.retrieval.requests import eligible
 from tinysoul.infra.time import CalendarDay
 from tinysoul.runtime import NullObservationEmitter, ObservationEmitter
 from .config import WorkspaceSettings
@@ -458,6 +477,114 @@ class WorkspaceEngine:
     ) -> WorkspaceAnalysisPreparation:
         with self._lock:
             return self._reader.prepare_analysis_references(links)
+
+    def canonical_reference(
+        self, resource: str, fragment: str = "", source_day: date | None = None
+    ) -> ResourceTarget:
+        try:
+            link = WorkspaceLink.parse(resource)
+        except WorkspaceContractError as exc:
+            raise ReferenceError("Invalid Workspace reference") from exc
+        day = self.active_day
+        return ResourceTarget(
+            str(link), fragment, source_day or (day.value if day else None)
+        )
+
+    def backlink_corpus(
+        self, request: SearchRequest, *, references: ReferenceResolver
+    ) -> SearchCorpus:
+        if not isinstance(request, BacklinkSearch):
+            raise SearchFailure(
+                SearchFailureKind.INVALID_REQUEST,
+                "Workspace link search supports backlink_search only",
+            )
+        scope = request.options.scope
+        if scope != "all":
+            WorkspaceLink.parse(scope.rstrip("/"))
+        supported = frozenset({"tags", "file_type"})
+        eligible({}, request.options.filters, supported=supported)
+        try:
+            anchor = references.resolve(request.anchor_ref)
+        except ReferenceError as exc:
+            raise SearchFailure(SearchFailureKind.INVALID_REQUEST, str(exc)) from exc
+        with self._lock:
+            snapshot = self.reconcile()
+            if not snapshot.complete:
+                raise WorkspaceReconciliationError(
+                    "Workspace backlink search requires complete discovery"
+                )
+            remaining = self.settings.search.max_scan_chars
+            scanned, complete = 0, True
+            candidates = []
+            day = self.active_day
+            for record in snapshot.manifest.resources:
+                if (
+                    record.suffix.lower() not in {".md", ".markdown"}
+                    or record.kind is not WorkspaceResourceKind.TEXT
+                ):
+                    continue
+                if scope != "all" and not (
+                    record.link.startswith(scope)
+                    if scope.endswith("/")
+                    else record.link == scope
+                ):
+                    continue
+                attributes: JsonObject = {
+                    "tags": [tag.value for tag in record.tags],
+                    "file_type": record.suffix,
+                    "day": str(day) if day else None,
+                }
+                if not eligible(
+                    attributes, request.options.filters, supported=supported
+                ):
+                    continue
+                if remaining <= 0:
+                    complete = False
+                    break
+                path = self.path_for(record.link)
+                try:
+                    read = read_text_prefix(path, max_chars=remaining)
+                except (OSError, UnicodeError) as exc:
+                    raise WorkspaceIOError(
+                        "Workspace backlink source cannot be read"
+                    ) from exc
+                remaining -= len(read.text)
+                scanned += 1
+                complete = complete and not read.truncated
+                evidence = []
+                lines = read.text.splitlines()
+                for reference in markdown_references(read.text):
+                    try:
+                        target = references.resolve(
+                            relative_reference(
+                                reference.target,
+                                source_path=record.relative_path,
+                                prefix="workspace:",
+                            ),
+                            source_day=day.value if day else None,
+                        )
+                    except ReferenceError:
+                        continue
+                    if target.matches(anchor):
+                        evidence.append(
+                            SearchEvidence(
+                                f"{record.link}#L{reference.line}",
+                                lines[reference.line - 1]
+                                if reference.line <= len(lines)
+                                else reference.label,
+                                "markdown_link",
+                            )
+                        )
+                if evidence:
+                    candidates.append(
+                        SearchCandidate(
+                            record.link,
+                            record.relative_path,
+                            tuple(evidence),
+                            attributes,
+                        )
+                    )
+            return SearchCorpus(tuple(candidates), request.query, scanned, complete)
 
     def search(
         self,

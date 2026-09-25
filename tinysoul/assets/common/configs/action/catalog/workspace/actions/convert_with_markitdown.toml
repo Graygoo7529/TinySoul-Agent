@@ -31,6 +31,5 @@ examples = ["Convert workspace:incoming/report.docx to workspace:converted/repor
 timeout_seconds = 90
 parallel_policy = "serial"
 
-[backend]
-kind = "subprocess"
-handler = "resource.convert_with_markitdown"
+[execution]
+executor = "resource.convert_with_markitdown"

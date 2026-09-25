@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from tinysoul.kernel.action.backends.llm_action import LLMActionTaskRunner
+from tinysoul.kernel.action.tasks import ActionTaskFactory, ActionTaskOutput
+from tinysoul.kernel.loop.phases import LLMRunner
+from tinysoul.llm.protocol.responses import AnswerFormat
 from tinysoul.kernel.action import (
     ActionExecution,
     ActionExecutionContext,
@@ -26,11 +28,12 @@ class WorkspaceAnalyzeExecutor(ActionExecutor):
         self,
         *,
         workspace: WorkspaceService,
-        llm_action: LLMActionTaskRunner,
+        tasks: ActionTaskFactory,
+        llm: LLMRunner,
         runtime_bridge: RuntimeWorkspaceBridge | None = None,
     ) -> None:
         self._workspace = workspace
-        self._llm_action = llm_action
+        self._tasks, self._llm = tasks, llm
         self._runtime_bridge = runtime_bridge
         self._prompt_builder = WorkspaceAnalysisPromptBuilder()
 
@@ -107,11 +110,17 @@ class WorkspaceAnalyzeExecutor(ActionExecutor):
         )
         context.owner_operations.check_cancelled()
         context.control.check_cancelled()
-        value = await self._llm_action.run_json(
-            execution=execution,
-            prompt=prompt,
-            subject="Workspace analyze LLM task",
-            control=context.control,
+        _task_result = await self._llm.run(
+            await self._tasks.create(
+                execution=execution,
+                prompt=prompt,
+                control=context.control,
+                consumer=f"{execution.call.action_name}.generate",
+                answer_format=AnswerFormat.JSON_OBJECT,
+            )
+        )
+        value = ActionTaskOutput.json(
+            _task_result, execution, subject="Workspace analyze LLM task"
         )
         if isinstance(value, ActionResult):
             return value

@@ -54,6 +54,5 @@ trace_mode = "foldable"
 normalize = []
 execute = []
 
-[backend]
-kind = "native"
-handler = "workspace.search"
+[execution]
+executor = "workspace.search"

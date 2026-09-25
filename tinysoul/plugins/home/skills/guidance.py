@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tinysoul.kernel.action.backends.llm_action import ActionSkillGuidance
+from tinysoul.kernel.action.tasks import ActionSkillGuidance
 from tinysoul.plugins.home.runtime_bridge import RuntimeAgentHomeBridge
 
 from ..services import HomeService

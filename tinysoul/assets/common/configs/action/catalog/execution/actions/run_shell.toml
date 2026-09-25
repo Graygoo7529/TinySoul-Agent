@@ -17,6 +17,5 @@ use_when = ["A deterministic local shell command is needed"]
 effects = ["modifying"]
 [runtime]
 parallel_policy = "serial"
-[backend]
-kind = "native"
-handler = "execution.run_shell"
+[execution]
+executor = "execution.run_shell"

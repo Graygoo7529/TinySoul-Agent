@@ -145,7 +145,7 @@ lease 等待使用 asyncio 协调，不在事件循环中等待线程 Condition�
 句柄只表达 activity、generation id 和激活状态，不导入 Agent、LLM、Memory 或 Workspace。
 业务 `AgentGeneration` 由 AgentBuilder 构造并聚合 User Turn、Reflection、Workspace、
 LLM、Embedding、Action、Context 及各 owner 门面；切换完成后旧 Generation 执行自身登记的
-close callbacks。自建 LLM 和 embedding 客户端由世代资源作用域逆序关闭，借用对象不关闭；关闭失败保留有限诊断并继续其余清理。EndpointHost、事件
+close callbacks。自建 LLM 和专用 ModelServices 客户端由世代资源作用域逆序关闭，借用对象不关闭；关闭失败保留有限诊断并继续其余清理。EndpointHost、事件
 缓冲、连接信息、程序请求队列和实例锁属于稳定进程外壳，不进入 Generation。
 
 ## 观察事件

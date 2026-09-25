@@ -1,5 +1,7 @@
 # Runtime 与 Turn
 
+Turn 内的 Search/Inspect 继续通过 Agent 的 Action 执行与事件返回，不提供任意 `/v2/actions/run` 或读取任意活动 Context 的接口。Search 结果包含稳定 ref、有界 evidence、coverage 和 continuation；续页绑定原 Turn/profile 查询视图，不重新调用模型。配置与用途能力由 [Configuration](configuration.md) 提供。
+
 ## 状态与生命周期
 
 `GET /v2/status` 返回 `protocol_version=2`、instance/project identity、ready、active day、Turn 活动状态和 Observation cursor/journal 摘要。`runtime` 与 SDK `Agent.runtime_status()` 使用同一内存投影：generation、activity/activation、active day、active_turn_id、queued_turn_ids 和来源状态。状态查询不触发日切或加载文件；工作受理后的确定性准备仍由 Agent 负责。

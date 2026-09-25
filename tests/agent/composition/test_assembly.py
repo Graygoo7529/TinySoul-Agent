@@ -13,7 +13,10 @@ from tinysoul.infra.concurrency import CleanupDiagnostic
 from tinysoul.kernel.context import ContextEngineBuilder
 from tinysoul.kernel.jobs import JobRegistry
 from tinysoul.kernel.registration import (
-    PluginProfileExtension, PluginRegistry, PluginTurnResource, TurnResourceStage,
+    PluginProfileExtension,
+    PluginRegistry,
+    PluginTurnResource,
+    TurnResourceStage,
 )
 from tinysoul.agent.config import AgentSettings
 from tinysoul.environment.inputs import InputEvent
@@ -33,12 +36,17 @@ class FakeLLM:
         self.results = deque(results)
         self.calls: list[TaskCall] = []
 
+    async def invoke(self, call: TaskCall) -> TaskResult:
+        return await self.run(call)
+
     async def run(self, call: TaskCall) -> TaskResult:
         self.calls.append(call)
         return self.results.popleft()
 
 
-async def test_turn_resources_release_jobs_before_sessions_and_synchronization() -> None:
+async def test_turn_resources_release_jobs_before_sessions_and_synchronization() -> (
+    None
+):
     order: list[str] = []
 
     class Jobs(JobRegistry):
@@ -54,12 +62,19 @@ async def test_turn_resources_release_jobs_before_sessions_and_synchronization()
             order.append(self.name)
             return ()
 
-    resolved = PluginRegistry((PluginProfileExtension(
-        "probe", turn_resources=(
-            PluginTurnResource(Resource("workspace"), TurnResourceStage.SYNCHRONIZE),
-            PluginTurnResource(Resource("session"), TurnResourceStage.RELEASE),
-        ),
-    ),)).resolve(ContextEngineBuilder(system_text="identity").build())
+    resolved = PluginRegistry(
+        (
+            PluginProfileExtension(
+                "probe",
+                turn_resources=(
+                    PluginTurnResource(
+                        Resource("workspace"), TurnResourceStage.SYNCHRONIZE
+                    ),
+                    PluginTurnResource(Resource("session"), TurnResourceStage.RELEASE),
+                ),
+            ),
+        )
+    ).resolve(ContextEngineBuilder(system_text="identity").build())
     activity = AgentTurnActivity(Jobs(), resolved.turn_resources)
     assert await activity.cleanup_turn("turn") == ()
     assert order == ["jobs", "session", "workspace"]
@@ -135,7 +150,8 @@ async def test_tinysoul_agent_starts_and_stops_input_sources(tmp_path: Path) -> 
         .with_loop_settings(LoopSettings(user=TurnSettings(max_cycles=1)))
         .with_llm_runner(FakeLLM(()))
         .with_input_source(source)
-        .build().build_runtime()
+        .build()
+        .build_runtime()
     )
 
     outcome = await app.run()
@@ -159,7 +175,8 @@ async def test_tinysoul_agent_starts_services_before_inputs_and_stops_them(
         .with_agent_settings(AgentSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
         .with_input_source(source)
-        .build().build_runtime()
+        .build()
+        .build_runtime()
     )
     app = replace(built, host_services=(service,))
 
@@ -182,7 +199,8 @@ async def test_tinysoul_agent_prepares_availability_before_starting_services(
         .with_agent_settings(AgentSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
         .with_input_source(source)
-        .build().build_runtime()
+        .build()
+        .build_runtime()
     )
     service.availability = (
         built.generation_handle.snapshot().generation.reflection.availability
@@ -206,7 +224,8 @@ async def test_tinysoul_agent_stops_started_sources_when_later_start_fails(
         .with_llm_runner(FakeLLM(()))
         .with_input_source(first)
         .with_input_source(failing)
-        .build().build_runtime()
+        .build()
+        .build_runtime()
     )
 
     with pytest.raises(RuntimeError, match="start failed"):
@@ -229,7 +248,8 @@ async def test_tinysoul_agent_attempts_all_source_stops_and_reports_failure(
         .with_llm_runner(FakeLLM(()))
         .with_input_source(failing)
         .with_input_source(second)
-        .build().build_runtime()
+        .build()
+        .build_runtime()
     )
 
     await app.run()
@@ -246,7 +266,8 @@ async def test_tinysoul_agent_submit_event_uses_dispatcher(tmp_path: Path) -> No
         .with_config_environment(_test_config(tmp_path))
         .with_agent_settings(AgentSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
-        .build().build_runtime()
+        .build()
+        .build_runtime()
     )
 
     await app.submit_event(InputEvent("exit", source="unit"))

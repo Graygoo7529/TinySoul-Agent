@@ -32,10 +32,12 @@ from .protocol import (
     SegmentProjection,
     SegmentReclaim,
     InspectableSegment,
+    SearchableSegment,
     SelectableSegment,
     ReclaimableSegment,
 )
 from .registration import RegisteredSegment, _OpenedSegment, _Installation
+from ..disclosure import DisclosureSearchEntry
 
 
 @dataclass(frozen=True)
@@ -108,6 +110,12 @@ class TurnSegments:
                 self._resources.register(opened.descriptor.id, opened.segment.close)
                 self._opened.append(opened)
                 declared = opened.descriptor.capabilities
+                if SegmentCapability.SEARCH in declared and not isinstance(
+                    opened.segment, SearchableSegment
+                ):
+                    raise ContextContractError(
+                        "Search capability requires an owned raw-source projection"
+                    )
                 if SegmentCapability.INSPECT in declared and not isinstance(
                     opened.segment, InspectableSegment
                 ):
@@ -197,9 +205,8 @@ class TurnSegments:
         ):
             if reclaimed >= required_chars:
                 break
-            if (
-                SegmentCapability.RECLAIM in item.descriptor.capabilities
-                and isinstance(item.segment, ReclaimableSegment)
+            if SegmentCapability.RECLAIM in item.descriptor.capabilities and isinstance(
+                item.segment, ReclaimableSegment
             ):
                 result = item.segment.reclaim(required_chars - reclaimed)
                 reclaimed += result.reclaimed_chars
@@ -252,12 +259,47 @@ class TurnSegments:
                 "Context segment installation failed; batch cannot be replayed"
             ) from exc
 
-    async def inspect(self, ref: str, *, query: str | None = None, continuation: str | None = None) -> JsonObject:
+    async def search_entries(
+        self, scope: str, seed_refs: tuple[str, ...] = ()
+    ) -> tuple[DisclosureSearchEntry, ...]:
+        self._require_ready()
+        result = []
+        unmatched = set(seed_refs)
+        for item in self._opened:
+            if SegmentCapability.SEARCH not in item.descriptor.capabilities or (
+                scope != "all" and item.descriptor.id != scope
+            ):
+                continue
+            assert isinstance(item.segment, SearchableSegment)
+            seeds = tuple(
+                ref
+                for ref in seed_refs
+                if any(
+                    ref.startswith(prefix) for prefix in item.descriptor.ref_prefixes
+                )
+            )
+            unmatched.difference_update(seeds)
+            if seed_refs and not seeds:
+                continue
+            result.extend(await item.segment.search_entries(seeds))
+        if unmatched:
+            raise ContextInspectRequestError(
+                ContextInspectFailureReason.UNKNOWN_REF,
+                "Seed refs are outside the requested Context source scope",
+            )
+        return tuple(result)
+
+    async def inspect(
+        self, ref: str, *, query: str | None = None, continuation: str | None = None
+    ) -> JsonObject:
         self._require_ready()
         for item in self._opened:
             if any(ref.startswith(prefix) for prefix in item.descriptor.ref_prefixes):
                 assert isinstance(item.segment, InspectableSegment)
-                if query is not None and SegmentCapability.QUERY not in item.descriptor.capabilities:
+                if (
+                    query is not None
+                    and SegmentCapability.QUERY not in item.descriptor.capabilities
+                ):
                     raise ContextInspectRequestError(
                         ContextInspectFailureReason.QUERY_UNSUPPORTED,
                         "This owner supports navigation but not query; inspect without query",
@@ -265,7 +307,9 @@ class TurnSegments:
                     )
                 try:
                     return to_json_object(
-                        await item.segment.inspect(ref, query=query, continuation=continuation)
+                        await item.segment.inspect(
+                            ref, query=query, continuation=continuation
+                        )
                     )
                 except (ContextError, RuntimeException, RuntimeTransferInterrupt):
                     raise

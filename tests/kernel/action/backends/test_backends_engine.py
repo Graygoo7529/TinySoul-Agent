@@ -29,8 +29,7 @@ from tinysoul.kernel.action.execution.executor import (
 from tinysoul.kernel.action.result import ActionResult, ActionResultStatus
 from tinysoul.kernel.action.execution.runner import ActionBatchRunner
 from tinysoul.kernel.action.catalog.specs import (
-    ActionBackendKind,
-    ActionBackendSpec,
+    ActionExecutionSpec,
     ActionDomainSpec,
     ActionParallelPolicy,
     ActionRuntimeSpec,
@@ -63,17 +62,15 @@ async def test_native_cooperative_timeout_does_not_block_later_group() -> None:
                     timeout_seconds=0.01,
                     parallel_policy=ActionParallelPolicy.SERIAL,
                 ),
-                backend=ActionBackendSpec(
-                    kind=ActionBackendKind.NATIVE,
-                    handler="test.cooperative",
+                execution=ActionExecutionSpec(
+                    executor="test.cooperative",
                 ),
             ),
             _action(
                 "test.next",
                 runtime=ActionRuntimeSpec(parallel_policy=ActionParallelPolicy.SERIAL),
-                backend=ActionBackendSpec(
-                    kind=ActionBackendKind.NATIVE,
-                    handler="test.next",
+                execution=ActionExecutionSpec(
+                    executor="test.next",
                 ),
             ),
         ),
@@ -118,9 +115,7 @@ async def test_runner_preserves_cooperative_cancellation_identity() -> None:
         actions=(
             _action(
                 "test.cancelled",
-                backend=ActionBackendSpec(
-                    kind=ActionBackendKind.NATIVE, handler="test.cancelled"
-                ),
+                execution=ActionExecutionSpec(executor="test.cancelled"),
             ),
         ),
     )
@@ -148,9 +143,7 @@ async def test_action_deadline_cancels_async_io_and_joins_cleanup() -> None:
             _action(
                 "test.expired",
                 runtime=ActionRuntimeSpec(timeout_seconds=0.01),
-                backend=ActionBackendSpec(
-                    kind=ActionBackendKind.NATIVE, handler="test.expired"
-                ),
+                execution=ActionExecutionSpec(executor="test.expired"),
             ),
         ),
     )
@@ -243,16 +236,14 @@ async def test_runtime_transfer_terminates_parallel_subprocess_without_deadline(
         actions=(
             _action(
                 "test.interrupt",
-                backend=ActionBackendSpec(
-                    kind=ActionBackendKind.NATIVE,
-                    handler="test.interrupt",
+                execution=ActionExecutionSpec(
+                    executor="test.interrupt",
                 ),
             ),
             _action(
                 "test.process",
-                backend=ActionBackendSpec(
-                    kind=ActionBackendKind.SUBPROCESS,
-                    handler="test.process",
+                execution=ActionExecutionSpec(
+                    executor="test.process",
                 ),
             ),
         ),
@@ -313,9 +304,7 @@ async def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
         .register_function(
             "home.resource.patch", lambda execution, context: {"patched": True}
         )
-        .register_function(
-            "home.resource.read", lambda execution, context: {"read": True}
-        )
+        .register_function("home.inspect", lambda execution, context: {"read": True})
         .register_function(
             "home.resource.write", lambda execution, context: {"written": True}
         )
@@ -325,13 +314,13 @@ async def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
         .register_function(
             "home.top.patch", lambda execution, context: {"patched": True}
         )
-        .register_function("home.top.search", lambda execution, context: {"items": []})
+        .register_function("home.search", lambda execution, context: {"items": []})
         .register_function(
             "home.top.write", lambda execution, context: {"written": True}
         )
-        .register_function("memory.inspect", lambda execution, context: {"items": []})
+        .register_function("memory.search", lambda execution, context: {"items": []})
         .register_function("memory.memorize", lambda execution, context: {"digest": ""})
-        .register_function("memory.recall", lambda execution, context: {"text": ""})
+        .register_function("memory.inspect", lambda execution, context: {"text": ""})
         .register_function(
             "home.prompt_mount.patch", lambda execution, context: {"patched": True}
         )
@@ -341,7 +330,7 @@ async def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
         .register_function(
             "core.context.inspect",
             lambda execution, context: {},
-            handler="context.inspect",
+            executor_id="context.inspect",
         )
         .register_function(
             "workspace.delete", lambda execution, context: {"deleted": True}
@@ -430,8 +419,7 @@ def test_catalog_subprocess_does_not_implicitly_register_execution(
 ) -> None:
     _write_catalog_action(
         tmp_path,
-        backend_kind="subprocess",
-        handler="test.process",
+        executor_id="test.process",
         options="",
     )
 
@@ -445,8 +433,7 @@ def test_catalog_subprocess_does_not_implicitly_register_execution(
 def test_unsupported_action_is_removed_with_its_empty_domain(tmp_path: Path) -> None:
     _write_catalog_action(
         tmp_path,
-        backend_kind="native",
-        handler="test.action",
+        executor_id="test.action",
         options="",
     )
 
@@ -480,9 +467,8 @@ def test_action_availability_combines_policy_and_runtime_support(
             replace(
                 _action(
                     "test.action",
-                    backend=ActionBackendSpec(
-                        kind=ActionBackendKind.NATIVE,
-                        handler="test.action",
+                    execution=ActionExecutionSpec(
+                        executor="test.action",
                     ),
                 ),
                 visibility=ActionVisibilitySpec(default=enabled),
@@ -549,7 +535,7 @@ def _action(
     *,
     schema=None,
     runtime: ActionRuntimeSpec | None = None,
-    backend: ActionBackendSpec,
+    execution: ActionExecutionSpec,
 ) -> ActionSpec:
     return ActionSpec(
         name=name,
@@ -567,7 +553,7 @@ def _action(
         ),
         semantic=ActionSemanticSpec(),
         runtime=runtime or ActionRuntimeSpec(),
-        backend=backend,
+        execution=execution,
     )
 
 
@@ -584,8 +570,7 @@ def _batch(catalog: ActionCatalog, tool_calls: tuple[ToolCallRecord, ...]):
 def _write_catalog_action(
     root: Path,
     *,
-    backend_kind: str,
-    handler: str,
+    executor_id: str,
     options: str,
 ) -> None:
     domain_dir = root / "test"
@@ -608,11 +593,10 @@ def _write_catalog_action(
         'schema = { type = "object", properties = {}, required = [], '
         "additionalProperties = false }\n"
         "\n"
-        "[backend]\n"
-        f'kind = "{backend_kind}"\n'
-        f'handler = "{handler}"\n'
+        "[execution]\n"
+        f'executor = "{executor_id}"\n'
         "\n"
-        "[backend.options]\n"
+        "[execution.options]\n"
         f"{options}\n",
         encoding="utf-8",
     )

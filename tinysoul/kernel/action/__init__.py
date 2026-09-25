@@ -41,8 +41,7 @@ from .planning.scope import (
     ActionScopePreparation,
 )
 from .catalog.specs import (
-    ActionBackendKind,
-    ActionBackendSpec,
+    ActionExecutionSpec,
     ActionDomainSpec,
     ActionEnvironmentEffect,
     ActionHookSpec,
@@ -57,8 +56,7 @@ from .catalog.specs import (
 from .engine import ActionCatalogEntry, ActionEngine, ActionEngineBuilder
 
 __all__ = [
-    "ActionBackendKind",
-    "ActionBackendSpec",
+    "ActionExecutionSpec",
     "ActionBatch",
     "ActionBatchPreparation",
     "ActionCall",

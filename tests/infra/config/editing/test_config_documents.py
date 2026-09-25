@@ -18,17 +18,19 @@ def test_toml_document_sets_deletes_and_saves_atomically(tmp_path: Path) -> None
     path = tmp_path / "configs" / "infra.toml"
     path.parent.mkdir()
     path.write_text(
-        '[infra.embedding]\nenabled = false\nmodel = "old"\n',
+        '[capabilities.web.search_by_kimi]\nenabled = false\nmodel = "old"\n',
         encoding="utf-8",
     )
 
     document = ConfigFileToml(path)
-    document.set_value("infra.embedding.enabled", True)
-    document.delete_value("infra.embedding.model")
+    document.set_value("capabilities.web.search_by_kimi.enabled", True)
+    document.delete_value("capabilities.web.search_by_kimi.model")
     document.save()
 
     loaded = ConfigFileToml(path)
-    assert loaded.data == {"infra": {"embedding": {"enabled": True}}}
+    assert loaded.data == {
+        "capabilities": {"web": {"search_by_kimi": {"enabled": True}}}
+    }
     source = loaded.to_source()
     assert source.kind is ConfigSourceKind.PROJECT_TOML
     assert source.path == path

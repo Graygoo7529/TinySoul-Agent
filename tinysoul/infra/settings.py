@@ -7,40 +7,40 @@ from dataclasses import dataclass, field
 from typing import cast
 
 from .config import ConfigError, reject_unknown_keys
-from .embedding import EmbeddingSettings, parse_embedding_settings
+from .model_services.config import ModelServicesSettings, parse_model_services
 
 
 @dataclass(frozen=True)
 class InfraSettings:
     """Configured owner-neutral infrastructure services."""
 
-    embedding: EmbeddingSettings = field(default_factory=EmbeddingSettings)
+    model_services: ModelServicesSettings = field(default_factory=ModelServicesSettings)
 
     def __post_init__(self) -> None:
-        if not isinstance(self.embedding, EmbeddingSettings):
+        if not isinstance(self.model_services, ModelServicesSettings):
             raise ConfigError(
-                "Embedding infrastructure settings are invalid",
-                key="infra.embedding",
-                expected="EmbeddingSettings",
+                "Model service settings are invalid",
+                key="infra.model_services",
+                expected="ModelServicesSettings",
             )
 
 
 def parse_infra_settings(tree: Mapping[str, object]) -> InfraSettings:
     """Parse the complete Infra-owned project configuration tree."""
 
-    reject_unknown_keys(tree, {"embedding"}, key="infra")
-    value = tree.get("embedding")
+    reject_unknown_keys(tree, {"model_services"}, key="infra")
+    value = tree.get("model_services")
     if value is None:
-        embedding_tree: Mapping[str, object] = {}
+        services_tree: Mapping[str, object] = {}
     elif isinstance(value, Mapping):
-        embedding_tree = cast(Mapping[str, object], value)
+        services_tree = cast(Mapping[str, object], value)
     else:
         raise ConfigError(
-            "Embedding infrastructure configuration must be a table",
-            key="infra.embedding",
+            "Model service configuration must be a table",
+            key="infra.model_services",
             value=value,
             expected="table",
         )
     return InfraSettings(
-        embedding=parse_embedding_settings(embedding_tree),
+        model_services=parse_model_services(services_tree),
     )

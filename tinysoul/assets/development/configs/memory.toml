@@ -11,10 +11,6 @@ note_max_chars = 24000
 redirect_max_hops = 8
 
 [memory.inspect]
-candidate_limit = 40
-default_top_k = 8
-max_top_k = 20
-summary_max_chars = 480
 page_max_chars = 8000
 
 [memory.semantic_search]

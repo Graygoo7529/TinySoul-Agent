@@ -21,7 +21,6 @@ parallel_policy = "serial"
 normalize = []
 execute = []
 
-[backend]
-kind = "native"
-handler = "home.diff"
+[execution]
+executor = "home.diff"
 

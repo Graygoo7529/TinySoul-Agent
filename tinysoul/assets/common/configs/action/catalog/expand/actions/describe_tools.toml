@@ -24,6 +24,5 @@ type = "string"
 use_when = ["Read complete definitions for tools or server_ids (exactly one selector), with bounded pages."]
 effects = ["read_only"]
 
-[backend]
-kind = "native"
-handler = "expand.describe_tools"
+[execution]
+executor = "expand.describe_tools"

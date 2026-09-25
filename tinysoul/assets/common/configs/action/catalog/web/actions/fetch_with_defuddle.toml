@@ -30,6 +30,5 @@ examples = ["Fetch an official guide to workspace:web/pages/official-guide.md"]
 [runtime]
 parallel_policy = "serial"
 
-[backend]
-kind = "subprocess"
-handler = "web.fetch_with_defuddle"
+[execution]
+executor = "web.fetch_with_defuddle"

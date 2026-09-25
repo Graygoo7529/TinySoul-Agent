@@ -15,8 +15,7 @@ from tinysoul.kernel.action.catalog.catalog import ActionCatalog
 from tinysoul.kernel.action.execution.executor import ActionExecutionContext
 from tinysoul.kernel.action.result import ActionResultStatus
 from tinysoul.kernel.action.catalog.specs import (
-    ActionBackendKind,
-    ActionBackendSpec,
+    ActionExecutionSpec,
     ActionDomainSpec,
     ActionRuntimeSpec,
     ActionSemanticSpec,
@@ -36,7 +35,7 @@ from tinysoul.plugins.home import (
     HomeBackgroundContentLoader,
     HomeBackgroundEntryProvider,
     HomeDomainSkillProvider,
-    HomeResourceReadExecutor,
+    HomeInspectExecutor,
     HomePromptMountWriteExecutor,
     HomeTopWriteExecutor,
     HomeTopLink,
@@ -467,19 +466,20 @@ async def test_home_resource_read_executor_returns_bounded_text(tmp_path: Path) 
         )
     ).build()
     execution = _execution(
-        "home.resource.read",
-        {"link": "home:skills/refactor/references/checklist.md", "max_chars": 3},
+        "home.inspect",
+        {"ref": "home:skills/refactor/references/checklist.md", "max_chars": 512},
     )
 
-    executor = HomeResourceReadExecutor(HomeService(home))
+    executor = HomeInspectExecutor(HomeService(home))
     home.ensure_runtime_copy(
         parse_home_link("home:skills/refactor/references/checklist.md")
     )
     with_runtime_copy = await executor.execute(execution, ActionExecutionContext())
 
     assert with_runtime_copy.status is ActionResultStatus.SUCCESS
-    assert with_runtime_copy.payload["text"] == "abc"
-    assert with_runtime_copy.payload["truncated"] is True
+    assert with_runtime_copy.payload["items"] == [
+        {"ref": "home:skills/refactor/references/checklist.md#L1-L1", "text": "abcdef"}
+    ]
 
 
 async def test_home_resource_read_rejects_prompt_mount_spaces(tmp_path: Path) -> None:
@@ -502,14 +502,14 @@ async def test_home_resource_read_rejects_prompt_mount_spaces(tmp_path: Path) ->
         "home:skills_domain/workspace/DOMAIN.md",
         "home:skills_action/workspace/compose.md",
     ):
-        result = await HomeResourceReadExecutor(HomeService(home)).execute(
-            _execution("home.resource.read", {"link": link}),
+        result = await HomeInspectExecutor(HomeService(home)).execute(
+            _execution("home.inspect", {"ref": link}),
             ActionExecutionContext(),
         )
 
         assert result.status is ActionResultStatus.FAILED
         assert result.failure is not None
-        assert result.failure.reason == "resource_read_failed"
+        assert result.failure.reason == "invalid_inspect"
 
 
 async def test_home_resource_read_rejects_non_positive_limit(tmp_path: Path) -> None:
@@ -523,17 +523,17 @@ async def test_home_resource_read_rejects_non_positive_limit(tmp_path: Path) -> 
         )
     ).build()
 
-    result = await HomeResourceReadExecutor(HomeService(home)).execute(
+    result = await HomeInspectExecutor(HomeService(home)).execute(
         _execution(
-            "home.resource.read",
-            {"link": "home:skills/refactor/references/checklist.md", "max_chars": 0},
+            "home.inspect",
+            {"ref": "home:skills/refactor/references/checklist.md", "max_chars": 0},
         ),
         ActionExecutionContext(),
     )
 
     assert result.status is ActionResultStatus.FAILED
     assert result.failure is not None
-    assert result.failure.reason == "invalid_max_chars"
+    assert result.failure.reason == "invalid_inspect"
 
 
 async def test_home_top_and_prompt_mount_write_executors_use_home_mutation_boundary(
@@ -785,37 +785,22 @@ def test_home_runtime_copy_failure_ends_nearest_turn(tmp_path: Path) -> None:
     assert result.transfer.target == scope.nearest(RunLevel.TURN)
 
 
-async def test_home_runtime_copy_required_payload_contains_only_recovery_identity(
-    tmp_path: Path,
-) -> None:
+async def test_home_inspect_reads_source_without_runtime_copy(tmp_path: Path) -> None:
     ref = tmp_path / "home" / "skills" / "refactor" / "references"
     ref.mkdir(parents=True)
     (ref / "checklist.md").write_text("abcdef", encoding="utf-8")
     home = AgentHomeEngineBuilder(
         AgentHomeSettings(
-            original_root=tmp_path / "home",
-            runtime_root=tmp_path / "runtime" / "home",
+            original_root=tmp_path / "home", runtime_root=tmp_path / "runtime" / "home"
         )
     ).build()
-    executor = HomeResourceReadExecutor(HomeService(home))
-
-    try:
-        await executor.execute(
-            _execution(
-                "home.resource.read",
-                {"link": "home:skills/refactor/references/checklist.md"},
-            ),
-            ActionExecutionContext(),
-        )
-    except RuntimeException as exc:
-        assert exc.reason == HOME_RUNTIME_COPY_REQUIRED
-        assert exc.payload["link"] == "home:skills/refactor/references/checklist.md"
-        assert exc.payload["error_type"] == "AgentHomeRuntimeCopyRequired"
-        assert "source_path" not in exc.payload
-        assert "runtime_path" not in exc.payload
-        assert str(tmp_path) not in str(exc)
-    else:
-        raise AssertionError("home.resource.read should require runtime copy")
+    result = await HomeInspectExecutor(HomeService(home)).execute(
+        _execution(
+            "home.inspect", {"ref": "home:skills/refactor/references/checklist.md"}
+        ),
+        ActionExecutionContext(),
+    )
+    assert result.status is ActionResultStatus.SUCCESS
 
 
 def _execution(action_name: str, params: JsonObject) -> ActionExecution:
@@ -831,18 +816,17 @@ def _execution(action_name: str, params: JsonObject) -> ActionExecution:
                     schema={
                         "type": "object",
                         "properties": {
-                            "link": {"type": "string"},
+                            "ref": {"type": "string"},
                             "max_chars": {"type": "integer"},
                         },
-                        "required": ["link"],
+                        "required": ["ref"],
                         "additionalProperties": False,
                     },
                 ),
                 semantic=ActionSemanticSpec(),
                 runtime=ActionRuntimeSpec(),
-                backend=ActionBackendSpec(
-                    kind=ActionBackendKind.NATIVE,
-                    handler=action_name,
+                execution=ActionExecutionSpec(
+                    executor=action_name,
                 ),
             ),
         ),

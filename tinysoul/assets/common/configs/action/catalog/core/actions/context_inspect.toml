@@ -34,6 +34,5 @@ parallel_policy = "serial"
 [runtime.result]
 trace_mode = "foldable"
 
-[backend]
-kind = "native"
-handler = "context.inspect"
+[execution]
+executor = "context.inspect"

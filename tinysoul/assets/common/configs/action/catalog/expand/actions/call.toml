@@ -23,6 +23,5 @@ additionalProperties = true
 use_when = ["Call one explicitly named MCP tool. Results may refer to Workspace artifacts. Unknown results must be inspected before retrying."]
 effects = ["modifying"]
 
-[backend]
-kind = "native"
-handler = "expand.call"
+[execution]
+executor = "expand.call"

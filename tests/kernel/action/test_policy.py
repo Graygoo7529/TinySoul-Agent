@@ -10,8 +10,7 @@ from tinysoul.kernel.action.config import ActionPolicy
 from tinysoul.kernel.action.catalog.catalog import ActionCatalog
 from tinysoul.kernel.action.errors import ActionContractError
 from tinysoul.kernel.action.catalog.specs import (
-    ActionBackendKind,
-    ActionBackendSpec,
+    ActionExecutionSpec,
     ActionDomainSpec,
     ActionRuntimeSpec,
     ActionSemanticSpec,
@@ -43,7 +42,7 @@ def _catalog() -> ActionCatalog:
                 ),
                 semantic=ActionSemanticSpec(),
                 runtime=ActionRuntimeSpec(),
-                backend=ActionBackendSpec(kind=ActionBackendKind.NATIVE, handler=name),
+                execution=ActionExecutionSpec(executor=name),
             )
             for name in ("notes.read", "notes.organize")
         ),
@@ -112,9 +111,7 @@ async def test_action_override_isolated_from_other_views_and_enforced_before_eff
                 execution,
                 action=replace(
                     execution.action,
-                    backend=ActionBackendSpec(
-                        kind=ActionBackendKind.NATIVE, handler="notes.organize"
-                    ),
+                    execution=ActionExecutionSpec(executor="notes.organize"),
                 ),
             ),
         ),
@@ -195,7 +192,7 @@ def test_backend_availability_is_independent_of_visibility() -> None:
     )
     assert isinstance(row, dict)
     assert row["granted"] is True and row["available"] is False
-    assert row["unavailable_reason"] == "backend_unavailable"
+    assert row["unavailable_reason"] == "executor_unavailable"
 
 
 def test_editable_handler_cannot_borrow_another_registered_capability() -> None:
@@ -205,7 +202,8 @@ def test_editable_handler_cannot_borrow_another_registered_capability() -> None:
         actions=tuple(
             (
                 replace(
-                    action, backend=replace(action.backend, handler="notes.organize")
+                    action,
+                    execution=replace(action.execution, executor="notes.organize"),
                 )
                 if action.name == "notes.read"
                 else action

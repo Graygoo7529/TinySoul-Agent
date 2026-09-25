@@ -11,7 +11,7 @@ description = "Completed User Turn history projection and progressive inspection
 [[surface]]
 id = "memory"
 title = "Memory"
-description = "Active memory, persistent knowledge documents, search, and daily composition limits."
+description = "Active memory, persistent knowledge documents, search, and document disclosure limits."
 
 [[surface]]
 id = "workspace"
@@ -75,13 +75,13 @@ description = "Defines size and redirect limits for persistent Memory document k
 id = "memory.inspection"
 surface = "memory"
 title = "Inspection"
-description = "Controls Memory candidate discovery, ranking, summaries, and paging."
+description = "Controls deterministic document disclosure and paging."
 
 [[field_group]]
 id = "memory.semantic_search"
 surface = "memory"
 title = "Semantic Search"
-description = "Controls the rebuildable embedding cache used by Memory inspection."
+description = "Controls the rebuildable embedding cache used by Memory search."
 
 [[field_group]]
 id = "workspace.storage"
@@ -165,50 +165,6 @@ surface = "home"
 group = "home.resources"
 title = "Skill Catalog Length"
 description = "Maximum characters used to present the available skill catalog in Context."
-value_kind = "integer"
-importance = "advanced"
-
-[[field]]
-path = "home.search.candidate_limit"
-surface = "home"
-group = "home.search"
-title = "Search Candidates"
-description = "Maximum Home entries considered before semantic reranking."
-value_kind = "integer"
-importance = "advanced"
-
-[[field]]
-path = "home.search.default_top_k"
-surface = "home"
-group = "home.search"
-title = "Default Search Results"
-description = "Default number of Home search results returned to the Agent."
-value_kind = "integer"
-
-[[field]]
-path = "home.search.max_top_k"
-surface = "home"
-group = "home.search"
-title = "Maximum Search Results"
-description = "Largest result count accepted by a Home search request."
-value_kind = "integer"
-importance = "advanced"
-
-[[field]]
-path = "home.search.prefix_max_chars"
-surface = "home"
-group = "home.search"
-title = "Search Prefix Length"
-description = "Maximum source prefix used when reranking a Home search candidate."
-value_kind = "integer"
-importance = "advanced"
-
-[[field]]
-path = "home.search.summary_max_chars"
-surface = "home"
-group = "home.search"
-title = "Search Summary Length"
-description = "Maximum characters retained in one Home search result summary."
 value_kind = "integer"
 importance = "advanced"
 
@@ -301,41 +257,6 @@ surface = "memory"
 group = "memory.documents"
 title = "Redirect Hops"
 description = "Maximum redirect chain followed when resolving superseded persistent Memory links."
-value_kind = "integer"
-importance = "advanced"
-
-[[field]]
-path = "memory.inspect.candidate_limit"
-surface = "memory"
-group = "memory.inspection"
-title = "Inspection Candidates"
-description = "Maximum persistent Memory candidates gathered before ranking."
-value_kind = "integer"
-importance = "advanced"
-
-[[field]]
-path = "memory.inspect.default_top_k"
-surface = "memory"
-group = "memory.inspection"
-title = "Default Inspection Results"
-description = "Default number of Memory candidates returned by inspect."
-value_kind = "integer"
-
-[[field]]
-path = "memory.inspect.max_top_k"
-surface = "memory"
-group = "memory.inspection"
-title = "Maximum Inspection Results"
-description = "Largest result count accepted by a Memory inspection request."
-value_kind = "integer"
-importance = "advanced"
-
-[[field]]
-path = "memory.inspect.summary_max_chars"
-surface = "memory"
-group = "memory.inspection"
-title = "Candidate Summary Length"
-description = "Maximum characters retained in each Memory inspection candidate summary."
 value_kind = "integer"
 importance = "advanced"
 
@@ -612,3 +533,43 @@ title = "Trace Inspection Length"
 description = "Maximum characters returned by one progressive TurnTrace inspection."
 value_kind = "integer"
 importance = "advanced"
+
+[[field]]
+path = "home.search.scan_limit"
+surface = "home"
+group = "home.search"
+title = "Home Scan Limit"
+description = "Maximum readable Home resources in one source scan."
+value_kind = "integer"
+
+[[field]]
+path = "home.search.resource_max_chars"
+surface = "home"
+group = "home.search"
+title = "Home Resource Length"
+description = "Maximum text read from each Home source resource."
+value_kind = "integer"
+
+[[field]]
+path = "home.search.embedding_cache_max_chars"
+surface = "home"
+group = "home.search"
+title = "Home Embedding Cache"
+description = "Maximum characters retained in the rebuildable Home vector cache."
+value_kind = "integer"
+
+[[field]]
+path = "home.search.embedding_use"
+surface = "home"
+group = "home.search"
+title = "Home Embedding Use"
+description = "Logical embedding use shared by Home discovery and similarity ranking."
+value_kind = "string"
+
+[[field]]
+path = "memory.semantic_search.embedding_use"
+surface = "memory"
+group = "memory.semantic_search"
+title = "Memory Embedding Use"
+description = "Logical embedding use shared by Memory discovery and similarity ranking."
+value_kind = "string"

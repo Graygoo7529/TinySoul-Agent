@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from enum import StrEnum
 import math
 from pathlib import Path
@@ -22,8 +22,7 @@ from tinysoul.infra.json import JsonObject, to_json_object
 from .catalog import ActionCatalog
 from .schema import check_action_schema
 from .specs import (
-    ActionBackendKind,
-    ActionBackendSpec,
+    ActionExecutionSpec,
     ActionDomainSpec,
     ActionEnvironmentEffect,
     ActionHookSpec,
@@ -81,11 +80,11 @@ class LoadedActionCatalog:
     documents: ActionCatalogDocumentIndex
 
 
-class ActionBackendOptionsValidator(Protocol):
-    """Validate backend-specific options at catalog loading time."""
+class ActionExecutionOptionsValidator(Protocol):
+    """Validate execution-specific options at catalog loading time."""
 
-    def validate(self, backend: ActionBackendSpec, *, key: str) -> None:
-        """Raise ConfigError if backend options are not valid for this backend."""
+    def validate(self, execution: ActionExecutionSpec, *, key: str) -> None:
+        """Raise ConfigError if execution options are not valid for this execution."""
         ...
 
 
@@ -96,32 +95,12 @@ class ActionCatalogLoader:
         self,
         parser: "ActionTomlParser | None" = None,
         *,
-        backend_kind_options_validators: (
-            Mapping[ActionBackendKind, ActionBackendOptionsValidator] | None
+        executor_options_validators: (
+            Mapping[str, ActionExecutionOptionsValidator] | None
         ) = None,
-        llm_action_timeout_seconds: float | None = None,
     ) -> None:
-        if llm_action_timeout_seconds is not None and (
-            isinstance(llm_action_timeout_seconds, bool)
-            or not isinstance(llm_action_timeout_seconds, (int, float))
-            or not math.isfinite(llm_action_timeout_seconds)
-            or llm_action_timeout_seconds <= 0
-        ):
-            raise ConfigError(
-                "llm_action_timeout_seconds must be positive and finite",
-                key="action.llm_action.timeout_seconds",
-                value=llm_action_timeout_seconds,
-                expected="positive finite number",
-            )
         self._parser = parser or ActionTomlParser()
-        self._backend_kind_options_validators = dict(
-            backend_kind_options_validators or {}
-        )
-        self._llm_action_timeout_seconds = (
-            float(llm_action_timeout_seconds)
-            if llm_action_timeout_seconds is not None
-            else None
-        )
+        self._executor_options_validators = dict(executor_options_validators or {})
 
     def load(self, root_path: Path) -> ActionCatalog:
         return self.load_many((root_path,))
@@ -260,9 +239,9 @@ class ActionCatalogLoader:
                         default_runtime=default_runtime,
                         source=action_source,
                     )
-                    self._validate_backend_options(
-                        action.backend,
-                        key=f"{action_source}.backend.options",
+                    self._validate_execution_options(
+                        action.execution,
+                        key=f"{action_source}.execution.options",
                     )
                 except ConfigError as exc:
                     raise _with_document_source(exc, action_document) from exc
@@ -350,9 +329,9 @@ class ActionCatalogLoader:
                     default_runtime=default_runtime,
                     source=str(action_path),
                 )
-                self._validate_backend_options(
-                    action.backend,
-                    key=f"{action_path}.backend.options",
+                self._validate_execution_options(
+                    action.execution,
+                    key=f"{action_path}.execution.options",
                 )
                 actions.append(action)
         return domains, actions
@@ -368,30 +347,16 @@ class ActionCatalogLoader:
         runtime_table = _optional_table(action_table, "runtime", key=source)
         if "timeout_seconds" in runtime_table:
             return action, "action"
-        if (
-            self._llm_action_timeout_seconds is not None
-            and action.backend.kind is ActionBackendKind.LLM_ACTION
-        ):
-            return (
-                replace(
-                    action,
-                    runtime=replace(
-                        action.runtime,
-                        timeout_seconds=self._llm_action_timeout_seconds,
-                    ),
-                ),
-                "llm_action",
-            )
         if default_runtime.timeout_seconds is not None:
             return action, "domain"
         return action, "none"
 
-    def _validate_backend_options(
-        self, backend: ActionBackendSpec, *, key: str
+    def _validate_execution_options(
+        self, execution: ActionExecutionSpec, *, key: str
     ) -> None:
-        validator = self._backend_kind_options_validators.get(backend.kind)
+        validator = self._executor_options_validators.get(execution.executor)
         if validator is not None:
-            validator.validate(backend, key=key)
+            validator.validate(execution, key=key)
 
 
 def _document_display_path(document: ConfigDocument) -> str:
@@ -455,6 +420,19 @@ class ActionTomlParser:
         source: str,
         default_runtime: ActionRuntimeSpec | None = None,
     ) -> ActionSpec:
+        reject_unknown_keys(
+            table,
+            {
+                "name",
+                "domain",
+                "tool",
+                "semantic",
+                "runtime",
+                "execution",
+                "visibility",
+            },
+            key=source,
+        )
         name = _required_str(table, "name", key=source)
         domain = _required_str(table, "domain", key=source)
         tool = self.parse_tool(
@@ -471,9 +449,9 @@ class ActionTomlParser:
             key=f"{source}.runtime",
             base=default_runtime,
         )
-        backend = self.parse_backend(
-            _required_table(table, "backend", key=source),
-            key=f"{source}.backend",
+        execution = self.parse_execution(
+            _required_table(table, "execution", key=source),
+            key=f"{source}.execution",
         )
         return ActionSpec(
             name=name,
@@ -481,7 +459,7 @@ class ActionTomlParser:
             tool=tool,
             semantic=semantic,
             runtime=runtime,
-            backend=backend,
+            execution=execution,
             visibility=self.parse_visibility(
                 _optional_table(table, "visibility", key=source),
                 key=f"{source}.visibility",
@@ -611,19 +589,15 @@ class ActionTomlParser:
             ),
         )
 
-    def parse_backend(
+    def parse_execution(
         self,
         table: Mapping[str, object],
         *,
         key: str,
-    ) -> ActionBackendSpec:
-        return ActionBackendSpec(
-            kind=_enum_value(
-                ActionBackendKind,
-                _required_str(table, "kind", key=key),
-                key=f"{key}.kind",
-            ),
-            handler=_required_str(table, "handler", key=key),
+    ) -> ActionExecutionSpec:
+        reject_unknown_keys(table, {"executor", "options"}, key=key)
+        return ActionExecutionSpec(
+            executor=_required_str(table, "executor", key=key),
             options=_optional_json_object(table, "options", key=key),
         )
 

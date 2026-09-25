@@ -20,6 +20,5 @@ type = "string"
 use_when = ["Browse configured MCP services and bounded tool summaries; use page to continue."]
 effects = ["read_only"]
 
-[backend]
-kind = "native"
-handler = "expand.describe_servers"
+[execution]
+executor = "expand.describe_servers"

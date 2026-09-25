@@ -6,7 +6,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from math import isfinite
 
-from tinysoul.kernel.action.backends.llm_action import LLMActionTaskRunner
+from tinysoul.kernel.action.tasks import ActionTaskFactory, ActionTaskOutput
+from tinysoul.kernel.loop.phases import LLMRunner
+from tinysoul.llm.protocol.responses import AnswerFormat
 from tinysoul.kernel.action.call import ActionExecution
 from tinysoul.kernel.action.execution.executor import ActionExecutionContext
 from tinysoul.kernel.action.result import (
@@ -53,10 +55,11 @@ class CoreReasonActionExecutor:
     def __init__(
         self,
         *,
-        llm_action: LLMActionTaskRunner,
+        tasks: ActionTaskFactory,
+        llm: LLMRunner,
         reference_resolvers: Sequence[PromptReferenceResolver] = (),
     ) -> None:
-        self._llm_action = llm_action
+        self._tasks, self._llm = tasks, llm
         self._prompt_builder = _PromptArgumentBuilder(
             reference_resolvers=reference_resolvers,
         )
@@ -74,11 +77,17 @@ class CoreReasonActionExecutor:
                 reason=parse.failure_reason,
                 frame_data=parse.frame_data,
             )
-        payload = await self._llm_action.run_json(
-            execution=execution,
-            prompt=parse.prompt,
-            subject="Core reason LLM task",
-            control=context.control,
+        _task_result = await self._llm.run(
+            await self._tasks.create(
+                execution=execution,
+                prompt=parse.prompt,
+                control=context.control,
+                consumer=f"{execution.call.action_name}.generate",
+                answer_format=AnswerFormat.JSON_OBJECT,
+            )
+        )
+        payload = ActionTaskOutput.json(
+            _task_result, execution, subject="Core reason LLM task"
         )
         if isinstance(payload, ActionResult):
             return payload
@@ -91,10 +100,11 @@ class CoreAnswerActionExecutor:
     def __init__(
         self,
         *,
-        llm_action: LLMActionTaskRunner,
+        tasks: ActionTaskFactory,
+        llm: LLMRunner,
         reference_resolvers: Sequence[PromptReferenceResolver] = (),
     ) -> None:
-        self._llm_action = llm_action
+        self._tasks, self._llm = tasks, llm
         self._prompt_builder = _PromptArgumentBuilder(
             reference_resolvers=reference_resolvers,
         )
@@ -112,11 +122,17 @@ class CoreAnswerActionExecutor:
                 reason=parse.failure_reason,
                 frame_data=parse.frame_data,
             )
-        payload = await self._llm_action.run_json(
-            execution=execution,
-            prompt=parse.prompt,
-            subject="Answer LLM task",
-            control=context.control,
+        _task_result = await self._llm.run(
+            await self._tasks.create(
+                execution=execution,
+                prompt=parse.prompt,
+                control=context.control,
+                consumer=f"{execution.call.action_name}.generate",
+                answer_format=AnswerFormat.JSON_OBJECT,
+            )
+        )
+        payload = ActionTaskOutput.json(
+            _task_result, execution, subject="Answer LLM task"
         )
         if isinstance(payload, ActionResult):
             return payload
@@ -208,8 +224,10 @@ class CoreWaitActionExecutor:
                 and (not isinstance(event_id, str) or not event_id or kind is None)
             )
             or (timeout is None and kind is None)
-            or any(value is not None and (not isinstance(value, str) or not value)
-                   for value in (topic, source))
+            or any(
+                value is not None and (not isinstance(value, str) or not value)
+                for value in (topic, source)
+            )
         ):
             return _failed(
                 execution,
@@ -218,8 +236,13 @@ class CoreWaitActionExecutor:
             )
         return _success(
             execution,
-            {"timeout_seconds": timeout, "event_kind": kind, "event_id": event_id,
-             "topic": topic, "source": source},
+            {
+                "timeout_seconds": timeout,
+                "event_kind": kind,
+                "event_id": event_id,
+                "topic": topic,
+                "source": source,
+            },
         )
 
 
@@ -335,13 +358,13 @@ class _PromptArgumentBuilder:
         if value is None:
             if required:
                 raise _PromptParameterError(
-                    f"llm_action requires non-empty '{key}'.",
+                    f"Model task requires non-empty '{key}'.",
                     reason=f"missing_{key}",
                 )
             return ()
         if not isinstance(value, list):
             raise _PromptParameterError(
-                f"llm_action '{key}' must be a list.",
+                f"Model task '{key}' must be a list.",
                 reason=f"invalid_{key}",
             )
         blocks: list[PromptBlock] = []
@@ -357,7 +380,7 @@ class _PromptArgumentBuilder:
             )
         if required and not blocks:
             raise _PromptParameterError(
-                f"llm_action requires non-empty '{key}'.",
+                f"Model task requires non-empty '{key}'.",
                 reason=f"missing_{key}",
             )
         return tuple(blocks)
@@ -375,14 +398,14 @@ class _PromptArgumentBuilder:
             item = to_json_object(value)
         except JsonTypeError as exc:
             raise _PromptParameterError(
-                f"llm_action '{key}' items must be objects.",
+                f"Model task '{key}' items must be objects.",
                 reason=f"invalid_{key}_item",
                 payload={"index": index},
             ) from exc
         text = item.get("text")
         if not isinstance(text, str) or not text:
             raise _PromptParameterError(
-                f"llm_action '{key}' items require non-empty text.",
+                f"Model task '{key}' items require non-empty text.",
                 reason=f"invalid_{key}_text",
                 payload={"index": index},
             )
@@ -391,7 +414,7 @@ class _PromptArgumentBuilder:
             not isinstance(label_value, str) or not label_value
         ):
             raise _PromptParameterError(
-                f"llm_action '{key}' label must be non-empty when provided.",
+                f"Model task '{key}' label must be non-empty when provided.",
                 reason=f"invalid_{key}_label",
                 payload={"index": index},
             )
@@ -406,14 +429,14 @@ class _PromptArgumentBuilder:
             return ()
         if not isinstance(value, list):
             raise PromptReferenceError(
-                "llm_action 'reference_links' must be a list when provided.",
+                "Model task 'reference_links' must be a list when provided.",
                 reason="invalid_reference_links",
             )
         blocks: list[PromptBlock] = []
         for index, item in enumerate(value, start=1):
             if not isinstance(item, str) or not item:
                 raise PromptReferenceError(
-                    "llm_action 'reference_links' items must be non-empty strings.",
+                    "Model task 'reference_links' items must be non-empty strings.",
                     reason="invalid_reference_link",
                     payload={"index": index},
                 )
@@ -502,7 +525,8 @@ def _normalized_answer_payload(
 def register_core_actions(
     builder: ActionEngineBuilder,
     *,
-    llm_action: LLMActionTaskRunner,
+    tasks: ActionTaskFactory,
+    llm: LLMRunner,
     reference_resolvers: Sequence[PromptReferenceResolver] = (),
 ) -> ActionEngineBuilder:
     """Register built-in core actions on an action builder."""
@@ -519,14 +543,16 @@ def register_core_actions(
         .register_executor(
             "core.reason",
             CoreReasonActionExecutor(
-                llm_action=llm_action,
+                tasks=tasks,
+                llm=llm,
                 reference_resolvers=reference_resolvers,
             ),
         )
         .register_executor(
             "core.answer",
             CoreAnswerActionExecutor(
-                llm_action=llm_action,
+                tasks=tasks,
+                llm=llm,
                 reference_resolvers=reference_resolvers,
             ),
         )

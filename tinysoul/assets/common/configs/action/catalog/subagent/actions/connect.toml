@@ -19,6 +19,5 @@ type = "string"
 use_when = ["Prepare an ACP session for this Turn; optional cwd_link names an existing daily Workspace directory."]
 effects = ["modifying"]
 
-[backend]
-kind = "native"
-handler = "subagent.connect"
+[execution]
+executor = "subagent.connect"

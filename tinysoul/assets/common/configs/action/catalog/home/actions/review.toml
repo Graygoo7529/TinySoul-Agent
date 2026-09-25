@@ -21,7 +21,6 @@ parallel_policy = "serial"
 normalize = []
 execute = []
 
-[backend]
-kind = "native"
-handler = "home.review"
+[execution]
+executor = "home.review"
 

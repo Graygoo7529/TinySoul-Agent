@@ -45,6 +45,5 @@ trace_mode = "foldable"
 normalize = []
 execute = []
 
-[backend]
-kind = "native"
-handler = "workspace.read"
+[execution]
+executor = "workspace.read"

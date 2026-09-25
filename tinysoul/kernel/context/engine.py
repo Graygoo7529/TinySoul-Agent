@@ -5,13 +5,19 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 from uuid import uuid4
-from tinysoul.kernel.action.call import ActionCall, ExecutionFact
+from tinysoul.kernel.action.call import ActionCall, ExecutionFact, ExecutionState
 from tinysoul.kernel.action.result import ActionResult
 
 from tinysoul.infra.concurrency import CleanupDiagnostic
 from tinysoul.infra.continuation import MIN_CONTINUATION_PAGE_CHARS
 from tinysoul.infra.json import JsonObject, to_json_object
-from tinysoul.llm.protocol.messages import MessageStack
+from tinysoul.llm.protocol.messages import MessageStack, ToolResultMessage
+from tinysoul.infra.references import ReferenceResolver
+from tinysoul.infra.continuation import OpaqueContinuationCodec
+from tinysoul.kernel.retrieval.contracts import SearchRequest, SeedRefinement
+from tinysoul.kernel.retrieval.operations import SearchCorpus
+from .disclosure import DisclosureSearchEntry, DisclosureReference, DisclosurePage
+from .search import disclosure_corpus
 from tinysoul.llm.protocol.tools import ToolCallRecord, ToolScope
 from tinysoul.runtime import (
     NullObservationEmitter,
@@ -379,6 +385,7 @@ class ContextEngine:
             raise ContextContractError("Segment preparation requires a date")
         if self._segments is not None:
             return
+        self._search_day = active_day
         views = self._turn_registry.for_turn(TurnInfo(self._turn_id, active_day))
         await views.open()
         try:
@@ -677,7 +684,90 @@ class ContextEngine:
                 ContextInspectFailureReason.INVALID_QUERY,
                 "Query must be non-empty text",
             )
+        fact = next(
+            (item for item in self._current_search_facts() if item.ref == ref), None
+        )
+        if fact is not None:
+            return DisclosurePage(ref, "context_fact", content=(fact.content,)).render(
+                codec=OpaqueContinuationCodec(
+                    owner="context", operation="inspect_fact"
+                ),
+                max_chars=self._trace_inspect_max_chars,
+                continuation=continuation,
+            )
         return await self._segments.inspect(ref, query=query, continuation=continuation)
+
+    async def search_corpus(
+        self, request: SearchRequest, *, references: ReferenceResolver
+    ) -> SearchCorpus:
+        self._require_turn()
+        if self._segments is None:
+            raise ContextContractError("Context segments must be opened before search")
+        seeds = request.seed_refs if isinstance(request, SeedRefinement) else ()
+        current = (
+            self._current_search_facts()
+            if request.options.scope in {"all", "trace"}
+            else ()
+        )
+        current_ids = {item.ref for item in current}
+        remaining_seeds = tuple(ref for ref in seeds if ref not in current_ids)
+        entries = (
+            await self._segments.search_entries(request.options.scope, remaining_seeds)
+            if not seeds or remaining_seeds
+            else ()
+        )
+        selected = tuple(
+            item
+            for item in current
+            if not seeds or item.ref in seeds or self._trace.head_ref() in seeds
+        )
+        return disclosure_corpus((*entries, *selected), request, references)
+
+    def _current_search_facts(self) -> tuple[DisclosureSearchEntry, ...]:
+        # This is a pure current-fact read. It never seals, settles or renumbers
+        # actions, including requested actions preceding a terminal subset.
+        result = []
+        day = self._search_day
+        for item in self._inputs.all():
+            ref = self._trace.input_ref(item.input_id)
+            result.append(
+                DisclosureSearchEntry(
+                    ref,
+                    "User input",
+                    {"kind": "input", "text": item.text, "reply_to": item.reply_to},
+                    "trace",
+                    day=day,
+                )
+            )
+        for action in self._trace.actions():
+            if action.state in {ExecutionState.REQUESTED, ExecutionState.STARTED}:
+                continue
+            ref = self._trace.action_ref(action.cycle_id, action.call.sequence)
+            content: JsonObject = {
+                "kind": "action_fact",
+                "action": action.call.action_name,
+                "state": action.state.value,
+                "request": action.call.params,
+            }
+            refs = ()
+            if action.result is not None:
+                content["result"] = action.result.envelope().to_json()
+                if action.result.trace_projection:
+                    refs = tuple(
+                        DisclosureReference(target, source_day=day)
+                        for target in action.result.trace_projection.origin_refs
+                    )
+            result.append(
+                DisclosureSearchEntry(
+                    ref,
+                    action.call.action_name,
+                    content,
+                    "trace",
+                    references=refs,
+                    day=day,
+                )
+            )
+        return tuple(result)
 
     def record_execution(self, fact: ExecutionFact) -> None:
         self._require_turn()

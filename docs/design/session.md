@@ -65,6 +65,8 @@ Session 仅在自身超过 80% 水位时回收到半预算，最低保留目录�
 
 分页绑定日、固定来源集合、过滤条件和实际读取内容。解释正文、关系或该范围查询结果变化使旧 token 局部失效；无关注释变化和背景折叠不使未变页面失效。事实正文页不混入可变话题标签。inspect 不修改 Background，不常驻展开集合；完整反馈先进入一次实际决策模型请求，之后才按 Trace 规则折叠。
 
+`core.context.search` 通过段的来源入口查询固定 prior-Turn 事实和已安装解释，支持 query discovery、seed refinement 与来源反链；不以已压缩 Background 作为搜索语料。查询命中保留可 Inspect 的原始 ref，解释及其来源关系与原始事实分开。SDK SessionService.search 使用独立的日级 SearchSession 和只读快照，没有活动 Context。辅助选择调用不 seal Trace、不提前记录 Turn，也不解除 Inspect 展示保护。
+
 ## 日生命周期与服务
 
 Session root 包含 Memory owner 维护的活动 Memory.md；map 与 turns 一起归档，新日为空图。同日重启保留注释，归档与 Reflection 共用只读 SessionView，不创建可写归档 Engine。Memory facts 从原有记录派生，不把模型解释升级为 Memory 的原始证据。

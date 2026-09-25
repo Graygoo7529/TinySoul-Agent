@@ -1,6 +1,6 @@
 name = "memory"
 description = "Persistent daily and knowledge Memory actions."
-selection_hint = "Use to inspect, recall, memorize, and maintain Memory owned documents."
+selection_hint = "Use to search, inspect, memorize, and maintain Memory owned documents."
 
 [visibility]
 default = true

@@ -9,8 +9,6 @@ import secrets
 from threading import RLock
 
 from tinysoul.infra.time import CalendarDay
-from tinysoul.infra import EmbeddingClient
-from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.json import JsonObject, to_json_object
 
 from .storage.active import (
@@ -21,9 +19,6 @@ from .storage.active import (
 from .retrieval import (
     MemoryCatalog,
     MemoryCatalogSnapshot,
-    MemoryInspectRequest,
-    MemoryInspectResult,
-    MemorySemanticSearch,
     resolve_redirect,
 )
 from .config import MemorySettings
@@ -34,20 +29,35 @@ from .documents import (
     StoredMemoryDocument,
 )
 from .errors import MemoryContractError, MemoryInvariantError
-from .retrieval.embeddings import MemoryEmbeddingIndex
 from .links import MemoryKind, MemoryLink
 from .storage.persistent import MemoryStore
-
-
-@dataclass(frozen=True)
-class MemoryRecallResult:
-    link: str
-    kind: str
-    cite: str
-    content: str
-    digest: str
-    metadata: JsonObject
-    resolution_chain: tuple[str, ...] = ()
+from .retrieval.models import MemoryCatalogEntry
+from tinysoul.infra.references import (
+    ReferenceResolver,
+    ReferenceError,
+    ResourceTarget,
+    markdown_references,
+    relative_reference,
+)
+from tinysoul.kernel.retrieval.contracts import (
+    SearchRequest,
+    QueryDiscovery,
+    DocumentQuery,
+    SeedRefinement,
+    BacklinkSearch,
+    SearchCandidate,
+    SearchEvidence,
+    SearchFailure,
+    SearchFailureKind,
+)
+from tinysoul.kernel.retrieval.disclosure import (
+    evidence_units,
+    fragment_content,
+    inspect_document,
+)
+from tinysoul.kernel.retrieval.engine import VectorSource
+from tinysoul.kernel.retrieval.operations import SearchCorpus
+from tinysoul.kernel.retrieval.requests import eligible
 
 
 class MemoryEngine:
@@ -58,8 +68,7 @@ class MemoryEngine:
         *,
         settings: MemorySettings,
         active_session_root: Path | None = None,
-        semantic_search: MemorySemanticSearch | None = None,
-        embedding_client: EmbeddingClient | None = None,
+        embedding: VectorSource | None = None,
     ) -> None:
         if not isinstance(settings, MemorySettings):
             raise MemoryContractError("Memory settings are invalid")
@@ -68,22 +77,10 @@ class MemoryEngine:
         self._store = MemoryStore(
             root=settings.root, settings=settings.documents, codec=self._codec
         )
-        self._embeddings = (
-            MemoryEmbeddingIndex(
-                path=self._store.internal_root / "embedding-cache.json",
-                client=embedding_client,
-                cache_max_chars=settings.semantic_search.embedding_cache_max_chars,
-            )
-            if embedding_client is not None
-            else None
-        )
-        if semantic_search is not None and self._embeddings is not None:
-            raise MemoryContractError("Memory semantic search has multiple providers")
+        self.embedding = embedding
         self._catalog = MemoryCatalog(
             store=self._store,
-            settings=settings.inspect,
             redirect_max_hops=settings.documents.redirect_max_hops,
-            semantic=semantic_search or self._embeddings,
         )
         self._active = (
             ActiveMemoryStore(
@@ -190,61 +187,178 @@ class MemoryEngine:
             )
         return tuple(sorted(result, key=str))
 
-    async def inspect(
-        self,
-        request: MemoryInspectRequest,
-    ) -> MemoryInspectResult:
-        operations = JoinedOperations()
-        operations.check_cancelled()
-        return await self._catalog.inspect(
-            request,
-            snapshot=self._catalog.snapshot,
-        )
+    def canonical_reference(
+        self, resource: str, fragment: str = "", source_day: date | None = None
+    ) -> ResourceTarget:
+        try:
+            body = resource.removeprefix("memory:")
+            link = (
+                MemoryLink.from_relative(body)
+                if body.endswith(".md")
+                else MemoryLink.parse(resource)
+            )
+            chain = resolve_redirect(
+                self._catalog.snapshot,
+                link,
+                max_hops=self._settings.documents.redirect_max_hops,
+            )
+            return ResourceTarget(str(chain[-1]), fragment)
+        except MemoryContractError as exc:
+            raise ReferenceError(
+                "Memory reference is not a readable persistent identity"
+            ) from exc
 
-    def recall(
+    def inspect(
         self,
-        memory_link: MemoryLink | str,
-    ) -> MemoryRecallResult:
-        link = (
-            MemoryLink.parse(memory_link)
-            if isinstance(memory_link, str)
-            else memory_link
-        )
-        if not isinstance(link, MemoryLink):
-            raise MemoryContractError("Memory recall requires a persistent MemoryLink")
+        memory_link: str,
+        *,
+        view: str = "content",
+        continuation: str | None = None,
+        max_chars: int | None = None,
+    ) -> JsonObject:
+        resource, _, fragment = memory_link.partition("#")
+        link = MemoryLink.parse(resource)
         stored = self._store.read(link)
-        document = stored.document
-        raw_metadata: dict[str, object] = {
-            "schema_version": 2,
-            "kind": link.kind.value,
-            "cite": link.cite,
-            "status": document.status.value,
-            "created_on": _metadata_date(document, "created_on"),
-            "updated_on": _metadata_date(document, "updated_on"),
-        }
-        for name in ("summary", "title", "relations", "evidence", "redirect_to"):
-            if hasattr(document, name):
-                value = getattr(document, name)
-                if isinstance(value, tuple):
-                    value = [str(item) for item in value]
-                elif isinstance(value, MemoryLink):
-                    value = str(value)
-                raw_metadata[name] = value
-        snapshot = self._catalog.snapshot
         chain = resolve_redirect(
-            snapshot,
+            self._catalog.snapshot,
             link,
             max_hops=self._settings.documents.redirect_max_hops,
         )
-        return MemoryRecallResult(
-            link=str(link),
-            kind=link.kind.value,
-            cite=link.cite,
-            content=stored.text,
-            digest=stored.digest,
-            metadata=to_json_object(raw_metadata),
-            resolution_chain=tuple(str(item) for item in chain),
+        if max_chars is not None and (type(max_chars) is not int or max_chars < 512):
+            raise MemoryContractError("Inspect max_chars must be at least 512")
+        direct_refs = tuple(
+            dict.fromkeys(
+                target
+                for target, _, _ in self._navigation_refs(
+                    self._catalog.snapshot.require(link)
+                )
+            )
         )
+        return inspect_document(
+            owner="memory",
+            ref=memory_link,
+            text=stored.text,
+            direct_refs=direct_refs,
+            view=view,
+            continuation=continuation,
+            max_chars=min(
+                max_chars or self._settings.inspect.page_max_chars,
+                self._settings.inspect.page_max_chars,
+            ),
+            metadata={
+                "kind": link.kind.value,
+                "status": stored.document.status.value,
+                "display": stored.document.display,
+                "resolution_chain": [str(item) for item in chain],
+            },
+        )
+
+    def search_corpus(
+        self, request: SearchRequest, *, references: ReferenceResolver
+    ) -> SearchCorpus:
+        snapshot = self._catalog.snapshot
+        scope = request.options.scope
+        if scope not in {"all", *(kind.value for kind in MemoryKind)}:
+            raise SearchFailure(
+                SearchFailureKind.INVALID_REQUEST,
+                "Memory scope must be all or one persistent document kind",
+            )
+        supported = frozenset({"kind", "status", "updated_on", "confidence"})
+        # Validate filters even when no source documents exist.
+        eligible({}, request.options.filters, supported=supported)
+        seeds = set()
+        excluded = None
+        if isinstance(request, SeedRefinement):
+            seeds = {
+                self.canonical_reference(ref.partition("#")[0]).resource
+                for ref in request.seed_refs
+            }
+        if isinstance(request, QueryDiscovery):
+            if isinstance(request.query, DocumentQuery):
+                target = self.canonical_reference(request.query.document_ref).resource
+                excluded = target
+                query = self._store.read(MemoryLink.parse(target)).text
+            else:
+                query = request.query.text
+        else:
+            query = request.query
+        try:
+            anchor = (
+                references.resolve(request.anchor_ref)
+                if isinstance(request, BacklinkSearch)
+                else None
+            )
+        except ReferenceError as exc:
+            raise SearchFailure(SearchFailureKind.INVALID_REQUEST, str(exc)) from exc
+        candidates = []
+        for link, entry in snapshot.entries.items():
+            ref = str(link)
+            attributes: JsonObject = {
+                "kind": link.kind.value,
+                "status": entry.status,
+                "updated_on": entry.updated_on.isoformat(),
+                "confidence": entry.confidence,
+            }
+            if (scope != "all" and scope != link.kind.value) or not eligible(
+                attributes, request.options.filters, supported=supported
+            ):
+                continue
+            if ref == excluded or (
+                isinstance(request, SeedRefinement)
+                and self.canonical_reference(ref).resource not in seeds
+            ):
+                continue
+            if anchor is not None:
+                evidence = []
+                for target, relation, text in self._navigation_refs(entry):
+                    try:
+                        actual = references.resolve(target, source_day=entry.updated_on)
+                    except ReferenceError:
+                        continue
+                    if actual.matches(anchor):
+                        evidence.append(SearchEvidence(ref, text, relation))
+                if not evidence:
+                    continue
+                units = tuple(evidence)
+            else:
+                units = evidence_units(ref, self._store.read(link).text)
+            candidates.append(SearchCandidate(ref, entry.display, units, attributes))
+        return SearchCorpus(tuple(candidates), query, len(snapshot.entries))
+
+    def _navigation_refs(
+        self, entry: MemoryCatalogEntry
+    ) -> tuple[tuple[str, str, str], ...]:
+        from .retrieval.query import _structured_links
+
+        result = [
+            (str(target), "memory_reference", f"{entry.link} references {target}")
+            for target in _structured_links(self._store.read(entry.link).document)
+        ]
+        lines = entry.content.splitlines()
+        for reference in markdown_references(entry.content):
+            try:
+                target = relative_reference(
+                    reference.target,
+                    source_path=entry.link.relative_path,
+                    prefix="memory:",
+                )
+                resource, marker, fragment = target.partition("#")
+                if resource.startswith("memory:") and resource.endswith(".md"):
+                    target = str(
+                        MemoryLink.from_relative(resource.removeprefix("memory:"))
+                    ) + ("#" + fragment if marker else "")
+            except (ReferenceError, MemoryContractError):
+                continue
+            result.append(
+                (
+                    target,
+                    "markdown_link",
+                    lines[reference.line - 1]
+                    if reference.line <= len(lines)
+                    else reference.label,
+                )
+            )
+        return tuple(dict.fromkeys(result))
 
     def read_daily(self, day: date | CalendarDay) -> DailyMemoryDocument | None:
         link = MemoryLink.daily(_date(day))

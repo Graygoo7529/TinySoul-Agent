@@ -6,6 +6,16 @@ from pathlib import Path
 import pytest
 
 from tinysoul.infra.json import JsonObject, dumps_json
+from tinysoul.infra.references import ReferenceResolver
+from tinysoul.kernel.retrieval.contracts import (
+    QueryDiscovery,
+    TextQuery,
+    SearchOptions,
+    SearchMode,
+    CandidateSource,
+)
+from tinysoul.kernel.retrieval.engine import SearchEngine, SearchViews
+from tinysoul.kernel.retrieval.policy import SearchPolicy
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.action import (
     ActionCall,
@@ -108,6 +118,44 @@ def _items(page: JsonObject) -> list[JsonObject]:
     assert isinstance(values, list)
     assert all(isinstance(item, dict) for item in values)
     return [item for item in values if isinstance(item, dict)]
+
+
+async def test_context_search_uses_session_originals_and_interpretations_after_folding(
+    tmp_path: Path,
+) -> None:
+    session = _session(tmp_path)
+    _record(session, text="specific-source-evidence " + "long body " * 400)
+    result = session.organize(
+        OrganizeChange((PRIOR,), nodes=(_node(body="special-interpretation"),)),
+        _facts(),
+    )
+    assert result.failure is None
+    context = ContextEngineBuilder(system_text="identity").build()
+    context.register_segment(session_segment_registration(SessionService(session)))
+    context.begin_turn("search previous facts")
+    await context.open_segments(DAY.value)
+    context.compress(required_chars=100000)
+    engine = SearchEngine(views=SearchViews())
+    for query, expected in (
+        ("specific-source-evidence", f"{PRIOR}#input/0"),
+        ("special-interpretation", dict(result.created)["local:topic"]),
+    ):
+        request = QueryDiscovery(TextQuery(query), SearchOptions("session"))
+        corpus = await context.search_corpus(request, references=ReferenceResolver())
+        page = await engine.search(
+            request,
+            policy=SearchPolicy(
+                "core.context.search",
+                SearchMode.QUERY_DISCOVERY,
+                (CandidateSource.LEXICAL,),
+            ),
+            candidates=corpus.candidates,
+            query=corpus.query,
+        )
+        assert expected in {item.ref for item in page.items}
+        assert query in str(await context.inspect(expected))
+    assert session.background_snapshot(DAY).refs == (PRIOR,)
+    await context.close_segments()
 
 
 def test_atomic_annotations_preserve_facts_and_stable_refs(tmp_path: Path) -> None:
@@ -358,9 +406,7 @@ def test_annotation_query_uses_turn_scope_and_leaf_scope(tmp_path: Path) -> None
         completion(
             "prior",
             ask="user-only-marker",
-            working={
-                "milestones": [{"state": "blocked", "text": "working-marker"}]
-            },
+            working={"milestones": [{"state": "blocked", "text": "working-marker"}]},
             actions=(
                 SyntheticAction(
                     "execution.shell",

@@ -15,6 +15,8 @@ from tinysoul.kernel.context.disclosure import (
     DisclosureHint,
     DisclosurePage,
     query_hint,
+    DisclosureSearchEntry,
+    DisclosureReference,
 )
 
 from .background import (
@@ -186,6 +188,57 @@ class SessionView:
             OrganizeFailureReason.INVALID_SOURCE,
             "Reference must identify an available history fact or accepted current evidence",
         )
+
+    def search_entries(
+        self, seed_refs: tuple[str, ...] = ()
+    ) -> tuple[DisclosureSearchEntry, ...]:
+        values = tuple(
+            {
+                ref: (title, content)
+                for seed in (seed_refs or ("session:map",))
+                for ref, title, content in self._search_scope(seed, action=None)
+            }.items()
+        )
+        result = []
+        for ref, (title, content) in values:
+            annotation = self.annotations.get(ref)
+            refs = []
+            if annotation is not None:
+                refs.extend(
+                    DisclosureReference(source, "source_evidence", self.day.value)
+                    for source in annotation.source_refs
+                )
+            elif ref.partition("#")[0] in self.manifest.refs:
+                record = self._record(ref.partition("#")[0])
+                action_ref = parse_action_ref(ref)
+                if action_ref is not None and action_ref.occurrence is not None:
+                    refs.extend(
+                        DisclosureReference(target, source_day=self.day.value)
+                        for target in record.actions[action_ref.occurrence].references
+                    )
+                elif ref.endswith("#output") and record.output is not None:
+                    refs.extend(
+                        DisclosureReference(target, source_day=self.day.value)
+                        for target in record.output.references
+                    )
+                elif "#resource/" in ref and isinstance(content.get("link"), str):
+                    refs.append(
+                        DisclosureReference(
+                            str(content["link"]), source_day=self.day.value
+                        )
+                    )
+            result.append(
+                DisclosureSearchEntry(
+                    ref,
+                    title,
+                    content,
+                    "session",
+                    "interpretation" if annotation else "fact",
+                    tuple(refs),
+                    self.day.value,
+                )
+            )
+        return tuple(result)
 
     def inspect(
         self,
@@ -494,9 +547,7 @@ class SessionView:
         values: list[tuple[str, str, JsonObject]] = []
         suffix = ref.partition("#")[2]
         for record in records:
-            values.extend(
-                self._record_fact_scope(record, suffix=suffix, action=action)
-            )
+            values.extend(self._record_fact_scope(record, suffix=suffix, action=action))
         if ref == "session:map":
             for item in (*self.annotations.nodes, *self.annotations.edges):
                 values.append(
@@ -534,11 +585,8 @@ class SessionView:
                 if item.action != "core.context.inspect"
                 and (action is None or action == item.action)
             ),
-            *(
-                f"{record.ref}#resource/{i}"
-                for i in range(len(resource_links(record)))
-            ),
-            f"{record.ref}#working",
+            *(f"{record.ref}#resource/{i}" for i in range(len(resource_links(record)))),
+            *((f"{record.ref}#working",) if record.working else ()),
         ]
         if record.output is not None:
             targets.append(f"{record.ref}#output")
@@ -555,8 +603,7 @@ class SessionView:
             *(target for target in targets if target not in ordered),
         ]
         return tuple(
-            (target, "Session fact", self._detail(record, target))
-            for target in targets
+            (target, "Session fact", self._detail(record, target)) for target in targets
         )
 
     def _unclassified(self) -> tuple[str, ...]:

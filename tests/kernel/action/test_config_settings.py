@@ -2,125 +2,141 @@ from __future__ import annotations
 
 import pytest
 
-from tinysoul.kernel.action import ActionCatalogLoader
-from tests.support.catalog import builtin_action_catalog_root
-from tinysoul.kernel.action.config import (
-    LLMActionProfileResolver,
-    parse_action_settings,
-    validate_llm_action_routes,
-)
 from tinysoul.infra.config import ConfigError
+from tinysoul.kernel.action.config import parse_action_settings
+from tinysoul.kernel.action.models import (
+    ModelUseRegistry,
+    ModelUseDescriptor,
+    ModelOperation,
+    ModelImplementation,
+)
+from tinysoul.infra.model_services.config import ModelServicesSettings
+from tinysoul.kernel.retrieval.policy import SearchPolicy
+from tinysoul.kernel.retrieval.contracts import SearchMode, SearchSemantic
 
 
-def _package_catalog():
-    with builtin_action_catalog_root() as root:
-        return ActionCatalogLoader().load(root)
-
-
-def test_llm_action_profile_resolver_uses_override_then_default() -> None:
-    settings = parse_action_settings(
+def _settings(**overrides):
+    return parse_action_settings(
         {
-            "llm_action": {
-                "timeout_seconds": 30,
-                "default_task_profile": "llm_action",
-                "overrides": [
+            "models": {
+                "bindings": [
                     {
-                        "action_id": "workspace.analyze",
-                        "task_profile": "workspace_analysis",
+                        "consumer": "core.answer.generate",
+                        "implementation": "llm_task",
+                        "target": {"task_profile": "answer"},
+                        **overrides,
                     }
-                ],
+                ]
             }
         }
     )
-    resolver = LLMActionProfileResolver(settings.llm_action)
-
-    assert resolver.profile_for("workspace.analyze") == "workspace_analysis"
-    assert resolver.profile_for("workspace.describe") == "llm_action"
 
 
-def test_action_settings_reject_duplicate_override_actions() -> None:
-    with pytest.raises(ConfigError) as raised:
-        parse_action_settings(
-            {
-                "llm_action": {
-                    "overrides": [
-                        {
-                            "action_id": "workspace.analyze",
-                            "task_profile": "llm_action",
-                        },
-                        {
-                            "action_id": "workspace.analyze",
-                            "task_profile": "alternate",
-                        },
-                    ]
-                }
-            }
-        )
-
-    assert raised.value.key == "action.llm_action.overrides"
+def test_binding_resolves_only_declared_consumer_and_task() -> None:
+    settings = _settings()
+    registry = ModelUseRegistry(
+        (
+            ModelUseDescriptor(
+                "core.answer.generate", "core.answer", ModelOperation.GENERATE
+            ),
+        ),
+        settings.bindings,
+    )
+    registry.validate_targets(("answer",), ModelServicesSettings())
+    assert registry.binding("core.answer.generate").task_profile == "answer"
+    assert registry.projection("core.answer")[0]["operation"] == "generate"
+    with pytest.raises(ConfigError):
+        registry.validate_targets(("missing",), ModelServicesSettings())
 
 
 @pytest.mark.parametrize(
-    ("action_id", "task_profile", "expected_key"),
-    (
-        (
-            "workspace.missing",
-            "llm_action",
-            "action.llm_action.overrides.0.action_id",
-        ),
-        (
-            "workspace.read",
-            "llm_action",
-            "action.llm_action.overrides.0.action_id",
-        ),
-        (
-            "workspace.analyze",
-            "missing_profile",
-            "action.llm_action.overrides.0.task_profile",
-        ),
-    ),
+    "override",
+    [
+        {"consumer": "unknown"},
+        {"implementation": "structured_decision", "target": {"use": "jev"}},
+    ],
 )
-def test_llm_action_route_validation_rejects_invalid_cross_module_reference(
-    action_id: str,
-    task_profile: str,
-    expected_key: str,
-) -> None:
-    settings = parse_action_settings(
-        {
-            "llm_action": {
-                "default_task_profile": "llm_action",
-                "overrides": [{"action_id": action_id, "task_profile": task_profile}],
-            }
-        }
-    )
-
-    with pytest.raises(ConfigError) as raised:
-        validate_llm_action_routes(
-            settings.llm_action,
-            catalog=_package_catalog(),
-            task_profiles=("llm_action", "workspace_analysis"),
+def test_registry_rejects_unknown_consumer_or_implementation(override) -> None:
+    with pytest.raises(ConfigError):
+        ModelUseRegistry(
+            (
+                ModelUseDescriptor(
+                    "core.answer.generate", "core.answer", ModelOperation.GENERATE
+                ),
+            ),
+            _settings(**override).bindings,
         )
 
-    assert raised.value.key == expected_key
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"target": {"use": "invalid"}},
+        {"options": {"unknown": True}},
+        {"options": {"max_output_tokens": 0}},
+        {"implementation": "unknown"},
+    ],
+)
+def test_binding_rejects_wrong_target_and_options(override) -> None:
+    with pytest.raises(ConfigError):
+        _settings(**override)
 
 
-def test_llm_action_route_validation_accepts_current_catalog_llm_action() -> None:
+def test_old_routing_and_duplicate_bindings_are_rejected() -> None:
+    with pytest.raises(ConfigError):
+        parse_action_settings({"llm_action": {}})
+    value = {
+        "consumer": "core.answer.generate",
+        "implementation": "llm_task",
+        "target": {"task_profile": "answer"},
+    }
+    with pytest.raises(ConfigError):
+        parse_action_settings({"models": {"bindings": [value, value]}})
+
+
+def test_same_consumer_can_bind_decision_without_changing_action_identity() -> None:
+    descriptor = ModelUseDescriptor(
+        "home.search.select",
+        "home.search",
+        ModelOperation.SELECT,
+        (ModelImplementation.LLM_TASK, ModelImplementation.STRUCTURED_DECISION),
+    )
     settings = parse_action_settings(
         {
-            "llm_action": {
-                "default_task_profile": "llm_action",
-                "overrides": [
+            "models": {
+                "bindings": [
                     {
-                        "action_id": "workspace.analyze",
-                        "task_profile": "workspace_analysis",
+                        "consumer": descriptor.consumer,
+                        "implementation": "structured_decision",
+                        "target": {"use": "decision"},
                     }
-                ],
+                ]
             }
         }
     )
-
-    validate_llm_action_routes(
-        settings.llm_action,
-        catalog=_package_catalog(),
-        task_profiles=("llm_action", "workspace_analysis"),
+    registry = ModelUseRegistry((descriptor,), settings.bindings)
+    assert registry.descriptor(descriptor.consumer).action_id == "home.search"
+    assert registry.binding(descriptor.consumer).use == "decision"
+    with pytest.raises(ConfigError):
+        registry.validate_targets((), ModelServicesSettings())
+    policy = SearchPolicy(
+        "home.search",
+        SearchMode.SEED_REFINEMENT,
+        default_semantic=SearchSemantic.SELECT,
+        allowed_semantic=(SearchSemantic.SELECT,),
     )
+    registry.validate_selected(
+        actions=frozenset(),
+        policies=(policy,),
+        services=ModelServicesSettings(),
+        env={},
+        embedding_uses={},
+    )
+    with pytest.raises(ConfigError):
+        registry.validate_selected(
+            actions=frozenset({"home.search"}),
+            policies=(policy,),
+            services=ModelServicesSettings(),
+            env={},
+            embedding_uses={},
+        )

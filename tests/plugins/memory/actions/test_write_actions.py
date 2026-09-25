@@ -105,10 +105,12 @@ async def test_reflection_writes_target_before_redirect_and_rejects_redirect_cyc
         content="Merged into memory:entity/source.",
     )
     assert (await write(cycle)).status is ActionResultStatus.FAILED
-    assert memory.recall(source.link).resolution_chain == (
+    metadata = memory.inspect(str(source.link))["metadata"]
+    assert isinstance(metadata, dict)
+    assert metadata["resolution_chain"] == [
         str(source.link),
         str(target.link),
-    )
+    ]
 
 
 def _execution(action: str, params: JsonObject) -> ActionExecution:

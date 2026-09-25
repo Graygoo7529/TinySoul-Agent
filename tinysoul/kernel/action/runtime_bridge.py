@@ -20,6 +20,7 @@ ACTION_RUNTIME_REASON_MAP: dict[ActionFailureKind, str] = {
     ActionFailureKind.CONFIGURATION_FAILED: RUNTIME_STARTUP_FAILED,
     ActionFailureKind.CONTRACT_VIOLATION: RUNTIME_TURN_END,
     ActionFailureKind.INTERNAL_FAILURE: RUNTIME_TURN_END,
+    ActionFailureKind.MODEL_INVOCATION_FAILED: RUNTIME_TURN_END,
 }
 
 
@@ -27,6 +28,7 @@ ACTION_FAILURE_MESSAGES: dict[ActionFailureKind, str] = {
     ActionFailureKind.CONFIGURATION_FAILED: "Action configuration is invalid.",
     ActionFailureKind.CONTRACT_VIOLATION: "Action call violated its contract.",
     ActionFailureKind.INTERNAL_FAILURE: "Action operation failed internally.",
+    ActionFailureKind.MODEL_INVOCATION_FAILED: "Action model dependency failed.",
 }
 
 

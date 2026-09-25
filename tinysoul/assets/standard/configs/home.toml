@@ -6,8 +6,6 @@ max_write_chars = 16000
 skill_catalog_max_chars = 8000
 
 [home.search]
-candidate_limit = 20
-default_top_k = 5
-max_top_k = 10
-prefix_max_chars = 1200
-summary_max_chars = 320
+scan_limit = 1000
+resource_max_chars = 128000
+embedding_cache_max_chars = 16000000

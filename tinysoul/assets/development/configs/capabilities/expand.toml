@@ -6,7 +6,6 @@ max_catalog_bytes = 4000000
 max_result_bytes = 8000000
 max_inline_chars = 16000
 search_max_chars = 60000
-search_max_results = 8
 page_size = 30
 
 [capabilities.expand.servers]

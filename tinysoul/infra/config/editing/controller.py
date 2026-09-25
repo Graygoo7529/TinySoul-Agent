@@ -498,18 +498,27 @@ class ConfigController:
         self, effective_values: Mapping[str, object]
     ) -> frozenset[str]:
         names: set[str] = set()
-        for path, value in effective_values.items():
+
+        def collect(path: str, value: object) -> None:
             descriptor = self._catalog.match(path)
-            if descriptor is None or not descriptor.credential_reference:
-                continue
-            values = (
-                value.values()
-                if isinstance(value, dict)
-                else value
-                if isinstance(value, list)
-                else (value,)
-            )
-            names.update(item for item in values if isinstance(item, str))
+            if descriptor is not None and descriptor.credential_reference:
+                values = (
+                    value.values()
+                    if isinstance(value, dict)
+                    else value
+                    if isinstance(value, list)
+                    else (value,)
+                )
+                names.update(item for item in values if isinstance(item, str))
+            elif isinstance(value, dict):
+                for key, item in value.items():
+                    collect(f"{path}.{key}", item)
+            elif isinstance(value, list):
+                for index, item in enumerate(value):
+                    collect(f"{path}.{index}", item)
+
+        for path, value in effective_values.items():
+            collect(path, value)
         # Config sources normalize environment names, while dotenv keeps spelling.
         return frozenset(names | {name.lower().replace("__", ".") for name in names})
 

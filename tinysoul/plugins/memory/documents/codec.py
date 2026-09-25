@@ -7,6 +7,12 @@ from datetime import date
 from enum import StrEnum
 from hashlib import sha256
 import re
+
+from tinysoul.infra.references import (
+    markdown_references,
+    relative_reference,
+    ReferenceError,
+)
 from typing import TypeVar, TypedDict, cast
 
 import yaml
@@ -42,18 +48,28 @@ class _KnowledgeFields(TypedDict):
     confidence: MemoryConfidence | None
 
 
-_INLINE_LINK = re.compile(
-    r"(?<![A-Za-z0-9])memory:(?:daily|entity|concept|fact|note)/[^\s<>\]\[(){}]+"
-)
-
-
-def inline_memory_links(text: str) -> tuple[MemoryLink, ...]:
+def inline_memory_links(
+    text: str, *, source: MemoryLink | None = None
+) -> tuple[MemoryLink, ...]:
     links: list[MemoryLink] = []
-    for raw in _INLINE_LINK.findall(text):
-        value = raw.rstrip(".,;:!?，。；：！？'\"")
+    for reference in markdown_references(text):
         try:
-            link = MemoryLink.parse(value)
-        except MemoryContractError:
+            target = (
+                relative_reference(
+                    reference.target, source_path=source.relative_path, prefix="memory:"
+                )
+                if source
+                else reference.target
+            )
+            value = target.partition("#")[0]
+            if not value.startswith("memory:"):
+                continue
+            link = (
+                MemoryLink.from_relative(value.removeprefix("memory:"))
+                if value.endswith(".md")
+                else MemoryLink.parse(value)
+            )
+        except (MemoryContractError, ReferenceError):
             continue
         if link not in links:
             links.append(link)

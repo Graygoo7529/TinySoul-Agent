@@ -23,6 +23,5 @@ items = { type = "string" }
 use_when = ["Delegate a bounded task on a ready connection and return a Turn-owned Job. Use core.job controls and collect the result."]
 effects = ["modifying"]
 
-[backend]
-kind = "native"
-handler = "subagent.delegate"
+[execution]
+executor = "subagent.delegate"

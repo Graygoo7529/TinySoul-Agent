@@ -19,7 +19,13 @@ from tinysoul.runtime import (
 )
 from tinysoul.llm.runtime_bridge import RuntimeLLMBridge
 
-from ..errors import LLMContractError, LLMError, LLMInvariantError, TaskCancelled
+from ..errors import (
+    LLMContractError,
+    LLMError,
+    LLMInvariantError,
+    LLMInvocationFailure,
+    TaskCancelled,
+)
 from ..failures import LLMFailureKind
 from .context_window import (
     ModelContextPolicy,
@@ -222,6 +228,16 @@ class LLMTaskRunner:
         self._route_state = self._chain_runner.state
 
     async def run(self, call: TaskCall) -> TaskResult:
+        """Runtime-facing bridge over the same composable invocation."""
+        try:
+            return await self.invoke(call)
+        except LLMInvocationFailure as exc:
+            raise self._runtime_bridge.from_exception(
+                exc.kind, exc, payload=exc.payload
+            ) from exc
+
+    async def invoke(self, call: TaskCall) -> TaskResult:
+        """Invoke the unique model pipeline without requesting Runtime transfer."""
         self._emit(
             call,
             "llm.task.started",
@@ -324,39 +340,34 @@ class LLMTaskRunner:
                 is ModelContextOverflowPolicy.REQUEST_RECOVERY
             ):
                 kind = LLMFailureKind.MODEL_CONTEXT_PRESSURE
-            raise self._runtime_bridge.from_exception(
+            raise LLMInvocationFailure(
                 kind,
-                exc,
                 payload=to_json_object(
                     {"profile": call.profile, **exc.usage.to_payload()}
                 ),
             ) from exc
         except ModelChainExhaustedError as exc:
-            raise self._runtime_bridge.from_exception(
+            raise LLMInvocationFailure(
                 LLMFailureKind.MODEL_CHAIN_EXHAUSTED,
-                exc,
                 payload=self._model_chain_exhausted_payload(call, exc),
             ) from exc
         except TaskCancelled:
             raise
         except LLMContractError as exc:
-            raise self._runtime_bridge.from_exception(
+            raise LLMInvocationFailure(
                 LLMFailureKind.CONTRACT_VIOLATION,
-                exc,
                 payload={"profile": call.profile},
             ) from exc
         except LLMError as exc:
-            raise self._runtime_bridge.from_exception(
+            raise LLMInvocationFailure(
                 LLMFailureKind.INTERNAL_FAILURE,
-                exc,
                 payload={"profile": call.profile},
             ) from exc
         except (RuntimeException, RuntimeTransferInterrupt):
             raise
         except Exception as exc:
-            raise self._runtime_bridge.from_exception(
+            raise LLMInvocationFailure(
                 LLMFailureKind.INTERNAL_FAILURE,
-                exc,
                 payload={"profile": call.profile},
             ) from exc
 
@@ -741,7 +752,13 @@ class LLMTaskRunner:
                 source="llm.task",
                 scope=call.scope,
                 message=message,
-                payload={"task_id": call.task_id, **payload},
+                payload={
+                    "task_id": call.task_id,
+                    "consumer": call.consumer,
+                    "implementation": "llm_task",
+                    "target": str(call.profile),
+                    **payload,
+                },
             ),
         )
 

@@ -17,6 +17,5 @@ use_when = ["An interactive process is waiting for input"]
 effects = ["modifying"]
 [runtime]
 parallel_policy = "serial"
-[backend]
-kind = "native"
-handler = "execution.stdin"
+[execution]
+executor = "execution.stdin"

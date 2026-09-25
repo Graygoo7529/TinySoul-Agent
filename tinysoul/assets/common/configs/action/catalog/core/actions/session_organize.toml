@@ -46,6 +46,5 @@ user = true
 [runtime]
 parallel_policy = "serial"
 
-[backend]
-kind = "native"
-handler = "core.session.organize"
+[execution]
+executor = "core.session.organize"

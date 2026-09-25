@@ -18,6 +18,5 @@ parallel_policy = "serial"
 normalize = []
 execute = []
 
-[backend]
-kind = "native"
-handler = "home.top.delete"
+[execution]
+executor = "home.top.delete"

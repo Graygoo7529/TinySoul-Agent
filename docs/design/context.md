@@ -58,7 +58,7 @@ Trace 的根同时提供冷节点与热记录线索，分支给出直接子节�
 
 统一披露页以有序 items 交付详情、child 线索、关系或来源。continuation 绑定 owner、ref、query 和当前读取视图；视图变化使旧 token 明确失效，不静默混页。内部绑定信息只在 opaque token 中由基础设施解释。
 
-inspect 的完整可见结果必须先进入一次实际返回的 Phase1/Phase2 模型请求，之后才允许压力回收其 overlay。compose 纯渲染、Action 内部模型调用以及容量拒绝都不能解除保护；受保护结果所在区间也不能被折入冷节点。折叠后保留 origin ref，可重新读取，不提供独立 recall 或 fold Action。
+inspect 的完整可见结果必须先进入一次实际返回的 Phase1/Phase2 模型请求，之后才允许压力回收其 overlay。compose 纯渲染、Action 内部模型调用以及容量拒绝都不能解除保护；受保护结果所在区间也不能被折入冷节点。折叠后保留 origin ref，可由 inspect 重新读取；context search 从固定原始事实/解释来源发现内容，不提前 seal 或 completion。
 
 ## Turn Completion
 

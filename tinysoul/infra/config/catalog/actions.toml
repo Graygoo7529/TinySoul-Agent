@@ -31,7 +31,7 @@ description = "Controls effective execution limits and framework behavior."
 id = "action_catalog.contract"
 surface = "action_catalog"
 title = "Read-only Contract"
-description = "Shows stable identity, schema, hooks, trace policy, and backend wiring."
+description = "Shows stable identity, schema, hooks, trace policy, executor and model uses."
 
 [[document_field]]
 document_set = "action.catalog"
@@ -265,11 +265,11 @@ importance = "advanced"
 [[document_field]]
 document_set = "action.catalog"
 document_kind = "action"
-path = "backend"
+path = "execution"
 surface = "action_catalog"
 group = "action_catalog.contract"
-title = "Backend"
-description = "Framework backend kind, registered handler, and backend-specific options."
+title = "Executor"
+description = "Registered Action executor and its implementation options."
 value_kind = "object"
 importance = "advanced"
 

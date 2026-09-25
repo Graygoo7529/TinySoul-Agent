@@ -37,8 +37,7 @@ from tinysoul.kernel.action.result import (
 )
 from tinysoul.kernel.action.execution.runner import ActionBatchRunner
 from tinysoul.kernel.action.catalog.specs import (
-    ActionBackendKind,
-    ActionBackendSpec,
+    ActionExecutionSpec,
     ActionDomainSpec,
     ActionParallelPolicy,
     ActionResultRuntimeSpec,
@@ -502,7 +501,7 @@ def test_runner_rejects_invalid_max_workers() -> None:
         )
 
 
-def test_executor_registry_validates_catalog_handlers() -> None:
+def test_executor_registry_validates_catalog_executors() -> None:
     catalog = builtin_catalog()
     executors = ExecutorRegistry()
     executors.register(
@@ -510,11 +509,11 @@ def test_executor_registry_validates_catalog_handlers() -> None:
         FunctionActionExecutor(lambda execution, context: {"ok": True}),
     )
 
-    missing = executors.missing_handlers_for(catalog)
+    missing = executors.missing_executors_for(catalog)
     assert "core.answer" not in missing
-    assert "home.resource.read" in missing
+    assert "home.inspect" in missing
     assert len(missing) == len(set(missing))
-    with pytest.raises(ActionContractError, match="home.resource.read"):
+    with pytest.raises(ActionContractError, match="home.inspect"):
         executors.validate_catalog(catalog)
 
 
@@ -774,9 +773,8 @@ async def test_runner_retains_committed_owner_result_after_deadline() -> None:
                     timeout_seconds=0.01,
                     parallel_policy=ActionParallelPolicy.ALLOWED,
                 ),
-                backend=ActionBackendSpec(
-                    kind=ActionBackendKind.NATIVE,
-                    handler="test.slow",
+                execution=ActionExecutionSpec(
+                    executor="test.slow",
                 ),
             ),
         ),
@@ -839,9 +837,8 @@ async def test_runner_joins_late_owner_before_starting_next_group() -> None:
                     timeout_seconds=0.01,
                     parallel_policy=ActionParallelPolicy.SERIAL,
                 ),
-                backend=ActionBackendSpec(
-                    kind=ActionBackendKind.NATIVE,
-                    handler="test.slow",
+                execution=ActionExecutionSpec(
+                    executor="test.slow",
                 ),
             ),
             ActionSpec(
@@ -861,9 +858,8 @@ async def test_runner_joins_late_owner_before_starting_next_group() -> None:
                 runtime=ActionRuntimeSpec(
                     parallel_policy=ActionParallelPolicy.SERIAL,
                 ),
-                backend=ActionBackendSpec(
-                    kind=ActionBackendKind.NATIVE,
-                    handler="test.next",
+                execution=ActionExecutionSpec(
+                    executor="test.next",
                 ),
             ),
         ),
@@ -965,9 +961,8 @@ def _test_action(
             parallel_policy=ActionParallelPolicy.ALLOWED,
             result=ActionResultRuntimeSpec(trace_mode=trace_mode),
         ),
-        backend=ActionBackendSpec(
-            kind=ActionBackendKind.NATIVE,
-            handler=name,
+        execution=ActionExecutionSpec(
+            executor=name,
         ),
     )
 

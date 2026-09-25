@@ -19,7 +19,7 @@ def _project(root: Path) -> ConfigEnvironment:
         encoding="utf-8",
     )
     (config_dir / "infra.toml").write_text(
-        "[infra.embedding]\nenabled = false\n",
+        "[capabilities.web.search_by_kimi]\nenabled = false\n",
         encoding="utf-8",
     )
     return ConfigEnvironment.from_project_root(root, env={})
@@ -41,7 +41,7 @@ def _project_with_document(root: Path) -> ConfigEnvironment:
         encoding="utf-8",
     )
     (config_dir / "infra.toml").write_text(
-        "[infra.embedding]\nenabled = false\n",
+        "[capabilities.web.search_by_kimi]\nenabled = false\n",
         encoding="utf-8",
     )
     (document_dir / "item.toml").write_text(
@@ -72,13 +72,26 @@ def test_config_status_uses_one_effective_snapshot(
     assert isinstance(status["fields"], dict)
 
 
+def test_specialized_provider_array_credentials_are_redacted(tmp_path: Path) -> None:
+    environment = _project(tmp_path)
+    (tmp_path / "configs" / "infra.toml").write_text(
+        '[[infra.model_services.providers]]\nid = "decision"\napi_key_env = "DECISION_TOKEN"\n',
+        encoding="utf-8",
+    )
+    (tmp_path / ".env").write_text("DECISION_TOKEN=private-value\n", encoding="utf-8")
+    environment = ConfigEnvironment.from_project_root(tmp_path, env={})
+    status = ConfigController(root=tmp_path, environment=environment).status()
+    assert "private-value" not in str(status)
+    assert "DECISION_TOKEN" in str(status)
+
+
 async def test_status_redaction_and_source_precedence_refresh_after_patch_and_reload(
     tmp_path: Path,
 ) -> None:
     _project(tmp_path)
     config_path = tmp_path / "configs" / "infra.toml"
     config_path.write_text(
-        '[infra.embedding]\nenabled = false\napi_key_env = "API__TOKEN"\n'
+        '[capabilities.web.search_by_kimi]\nenabled = false\napi_key_env = "API__TOKEN"\n'
         '[llm.providers.local]\napi_key_envs = ["LIST_TOKEN"]\n'
         '[capabilities.expand.servers.local]\nheader_refs = {Auth = "HEADER_TOKEN"}\n',
         encoding="utf-8",
@@ -89,7 +102,8 @@ async def test_status_redaction_and_source_precedence_refresh_after_patch_and_re
         encoding="utf-8",
     )
     environment = ConfigEnvironment.from_project_root(
-        tmp_path, env={"TINYSOUL_API__TOKEN": "environment-value"},
+        tmp_path,
+        env={"TINYSOUL_API__TOKEN": "environment-value"},
         overrides={"api.token": "override-value"},
     )
 
@@ -99,31 +113,52 @@ async def test_status_redaction_and_source_precedence_refresh_after_patch_and_re
 
         return PreparedConfigActivation(commit=commit)
 
-    controller = ConfigController(root=tmp_path, environment=environment, activator=prepare)
+    controller = ConfigController(
+        root=tmp_path, environment=environment, activator=prepare
+    )
 
     def source_values(status: JsonObject, identity: str) -> JsonObject:
         sources = status["sources"]
         assert isinstance(sources, list)
-        source = next(item for item in sources if isinstance(item, dict) and item["id"] == identity)
+        source = next(
+            item
+            for item in sources
+            if isinstance(item, dict) and item["id"] == identity
+        )
         assert isinstance(source, dict) and isinstance(source["values"], dict)
         return source["values"]
 
     status = controller.status()
     dotenv = source_values(status, "dotenv")
-    assert all(dotenv[key] == "<redacted>" for key in ("API__TOKEN", "LIST_TOKEN", "HEADER_TOKEN"))
+    assert all(
+        dotenv[key] == "<redacted>"
+        for key in ("API__TOKEN", "LIST_TOKEN", "HEADER_TOKEN")
+    )
     for source in ("environment", "overrides"):
         assert source_values(status, source)["api.token"] == "<redacted>"
     fields = status["fields"]
     assert isinstance(fields, dict)
     assert fields["api.token"] == {
-        "value": "<redacted>", "source": "overrides", "writable": False, "redacted": True,
+        "value": "<redacted>",
+        "source": "overrides",
+        "writable": False,
+        "redacted": True,
     }
-    assert fields["infra.embedding.enabled"] == {
-        "value": False, "source": "project:configs/infra.toml", "writable": True,
+    assert fields["capabilities.web.search_by_kimi.enabled"] == {
+        "value": False,
+        "source": "project:configs/infra.toml",
+        "writable": True,
     }
-    await controller.patch((ConfigMutation(
-        "project:configs/infra.toml", "infra.embedding.api_key_env", "set", "NEXT_TOKEN",
-    ),))
+    await controller.patch(
+        (
+            ConfigMutation(
+                "project:configs/infra.toml",
+                "capabilities.web.search_by_kimi.api_key_env",
+                "set",
+                "NEXT_TOKEN",
+            ),
+        )
+    )
     assert source_values(controller.status(), "dotenv")["NEXT_TOKEN"] == "<redacted>"
     config_path.write_text(
         config_path.read_text(encoding="utf-8").replace("NEXT_TOKEN", "FINAL_TOKEN"),
@@ -155,7 +190,7 @@ async def test_config_controller_reads_sources_and_patches_toml_and_dotenv(
         (
             ConfigMutation(
                 source_id="project:configs/infra.toml",
-                path="infra.embedding.enabled",
+                path="capabilities.web.search_by_kimi.enabled",
                 op="set",
                 value=True,
             ),
@@ -174,9 +209,9 @@ async def test_config_controller_reads_sources_and_patches_toml_and_dotenv(
     )
     assert "API_KEY=new" in (tmp_path / ".env").read_text(encoding="utf-8")
     assert controller.environment.runtime_env["API_KEY"] == "new"
-    assert controller.environment.source_id_for("infra.embedding.enabled") == (
-        "project:configs/infra.toml"
-    )
+    assert controller.environment.source_id_for(
+        "capabilities.web.search_by_kimi.enabled"
+    ) == ("project:configs/infra.toml")
 
 
 async def test_document_mutation_is_candidate_local_until_commit(
@@ -248,7 +283,10 @@ async def test_saved_sources_remain_saved_when_reload_fails(tmp_path: Path) -> N
     source_id = environment.document_set("test.documents").documents[0].source_id
     mutations = (
         ConfigMutation(
-            "project:configs/infra.toml", "infra.embedding.enabled", "set", True
+            "project:configs/infra.toml",
+            "capabilities.web.search_by_kimi.enabled",
+            "set",
+            True,
         ),
         ConfigMutation(source_id, "settings.enabled", "set", True),
         ConfigMutation("dotenv", "TOKEN", "set", "new"),
@@ -290,7 +328,7 @@ async def test_retirement_failure_does_not_roll_back_committed_activation(
         (
             ConfigMutation(
                 source_id="project:configs/infra.toml",
-                path="infra.embedding.enabled",
+                path="capabilities.web.search_by_kimi.enabled",
                 op="set",
                 value=True,
             ),
@@ -333,7 +371,10 @@ async def test_abort_failure_preserves_primary_failure_and_saved_candidate(
     await controller.patch(
         (
             ConfigMutation(
-                "project:configs/infra.toml", "infra.embedding.enabled", "set", True
+                "project:configs/infra.toml",
+                "capabilities.web.search_by_kimi.enabled",
+                "set",
+                True,
             ),
         )
     )
@@ -369,7 +410,10 @@ async def test_save_allowed_while_active_but_reload_requires_idle(
     await controller.patch(
         (
             ConfigMutation(
-                "project:configs/infra.toml", "infra.embedding.enabled", "set", True
+                "project:configs/infra.toml",
+                "capabilities.web.search_by_kimi.enabled",
+                "set",
+                True,
             ),
         )
     )
@@ -403,7 +447,10 @@ async def test_activation_observer_receives_only_explicit_reload_events(
     await controller.patch(
         (
             ConfigMutation(
-                "project:configs/infra.toml", "infra.embedding.enabled", "set", True
+                "project:configs/infra.toml",
+                "capabilities.web.search_by_kimi.enabled",
+                "set",
+                True,
             ),
         )
     )

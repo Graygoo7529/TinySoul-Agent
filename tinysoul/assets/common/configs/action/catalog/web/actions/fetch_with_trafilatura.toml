@@ -30,6 +30,5 @@ examples = ["Fetch an article to workspace:web/pages/article.md with the fallbac
 [runtime]
 parallel_policy = "serial"
 
-[backend]
-kind = "subprocess"
-handler = "web.fetch_with_trafilatura"
+[execution]
+executor = "web.fetch_with_trafilatura"

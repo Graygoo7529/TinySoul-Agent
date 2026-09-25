@@ -1,0 +1,39 @@
+[[infra.model_services.providers]]
+id = "bigmodel"
+adapter = "openai_embedding"
+base_url = "https://open.bigmodel.cn/api/paas/v4"
+api_key_env = "GLM_EMBEDDING_API_KEY"
+enabled = false
+timeout_seconds = 30
+max_retries = 2
+
+[[infra.model_services.providers]]
+id = "typesafe"
+adapter = "typesafe_system_one"
+base_url = "https://api.typesafe.ai/v1"
+api_key_env = "TYPESAFE_API_KEY"
+enabled = false
+timeout_seconds = 30
+max_retries = 2
+
+[[infra.model_services.models]]
+id = "embedding_main"
+kind = "embedding"
+dimensions = 1024
+batch_size = 64
+provider_bindings = [{ provider_id = "bigmodel", model = "embedding-3" }]
+
+[[infra.model_services.models]]
+id = "decision_main"
+kind = "structured_decision"
+provider_bindings = [{ provider_id = "typesafe", model = "jev-latest" }]
+
+[[infra.model_services.uses]]
+id = "embedding_main"
+kind = "embedding"
+model_id = "embedding_main"
+
+[[infra.model_services.uses]]
+id = "decision_main"
+kind = "structured_decision"
+model_id = "decision_main"

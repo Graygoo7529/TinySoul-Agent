@@ -33,40 +33,15 @@ class MemoryDocumentSettings:
 
 @dataclass(frozen=True)
 class MemoryInspectSettings:
-    candidate_limit: int = 40
-    default_top_k: int = 8
-    max_top_k: int = 20
-    summary_max_chars: int = 480
     page_max_chars: int = 8_000
 
     def __post_init__(self) -> None:
-        for name in (
-            "candidate_limit",
-            "default_top_k",
-            "max_top_k",
-            "summary_max_chars",
-            "page_max_chars",
-        ):
-            _positive(getattr(self, name), f"memory.inspect.{name}")
-        if self.default_top_k > self.max_top_k:
-            raise ConfigError(
-                "Memory inspect default_top_k cannot exceed max_top_k",
-                key="memory.inspect.default_top_k",
-            )
-        if self.max_top_k > self.candidate_limit:
-            raise ConfigError(
-                "Memory inspect max_top_k cannot exceed candidate_limit",
-                key="memory.inspect.max_top_k",
-            )
-        if self.page_max_chars < self.summary_max_chars + 512:
-            raise ConfigError(
-                "Memory inspect page_max_chars must fit one result",
-                key="memory.inspect.page_max_chars",
-            )
+        _positive(self.page_max_chars, "memory.inspect.page_max_chars")
 
 
 @dataclass(frozen=True)
 class MemorySemanticSearchSettings:
+    embedding_use: str | None = None
     embedding_cache_max_chars: int = 16_000_000
 
     def __post_init__(self) -> None:
@@ -91,9 +66,13 @@ class MemorySettings:
             raise ConfigError("Memory root must be a path", key="memory.root")
         _positive(self.max_active_chars, "memory.max_active_chars")
         if not isinstance(self.documents, MemoryDocumentSettings):
-            raise ConfigError("Memory documents settings are invalid", key="memory.documents")
+            raise ConfigError(
+                "Memory documents settings are invalid", key="memory.documents"
+            )
         if not isinstance(self.inspect, MemoryInspectSettings):
-            raise ConfigError("Memory inspect settings are invalid", key="memory.inspect")
+            raise ConfigError(
+                "Memory inspect settings are invalid", key="memory.inspect"
+            )
         if not isinstance(self.semantic_search, MemorySemanticSearchSettings):
             raise ConfigError(
                 "Memory semantic search settings are invalid",
@@ -148,40 +127,33 @@ def _parse_documents(value: object) -> MemoryDocumentSettings:
 
 def _parse_inspect(value: object) -> MemoryInspectSettings:
     tree = _table(value, "memory.inspect")
-    names = {
-        "candidate_limit",
-        "default_top_k",
-        "max_top_k",
-        "summary_max_chars",
-        "page_max_chars",
-    }
-    reject_unknown_keys(tree, names, key="memory.inspect")
-    defaults = MemoryInspectSettings()
-    return MemoryInspectSettings(
-        **{
-            name: _int(tree, name, getattr(defaults, name), "memory.inspect")
-            for name in names
-        }
-    )
+    reject_unknown_keys(tree, {"page_max_chars"}, key="memory.inspect")
+    return MemoryInspectSettings(_int(tree, "page_max_chars", 8_000, "memory.inspect"))
 
 
 def _parse_semantic_search(value: object) -> MemorySemanticSearchSettings:
     tree = _table(value, "memory.semantic_search")
     reject_unknown_keys(
         tree,
-        {"embedding_cache_max_chars"},
+        {"embedding_cache_max_chars", "embedding_use"},
         key="memory.semantic_search",
     )
     defaults = MemorySemanticSearchSettings()
+    use = tree.get("embedding_use")
+    if use is not None and (not isinstance(use, str) or not use.strip()):
+        raise ConfigError(
+            "Memory embedding_use must name a logical use",
+            key="memory.semantic_search.embedding_use",
+        )
     return MemorySemanticSearchSettings(
+        embedding_use=use,
         embedding_cache_max_chars=_int(
             tree,
             "embedding_cache_max_chars",
             defaults.embedding_cache_max_chars,
             "memory.semantic_search",
-        )
+        ),
     )
-
 
 
 def _table(value: object, key: str) -> Mapping[str, object]:

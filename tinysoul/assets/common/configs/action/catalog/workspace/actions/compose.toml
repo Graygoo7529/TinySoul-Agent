@@ -33,6 +33,5 @@ effects = ["modifying"]
 parallel_policy = "serial"
 timeout_seconds = 600
 
-[backend]
-kind = "llm_action"
-handler = "workspace.compose"
+[execution]
+executor = "workspace.compose"

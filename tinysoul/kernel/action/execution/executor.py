@@ -117,37 +117,41 @@ class ActionExecutor(Protocol):
 
 
 class ExecutorRegistry:
-    """Resolve action executors by backend handler name."""
+    """Resolve action executors by their explicit executor identity."""
 
     def __init__(self) -> None:
         self._executors: dict[str, ActionExecutor] = {}
 
-    def register(self, handler: str, executor: ActionExecutor) -> None:
-        if not handler:
-            raise ActionContractError("handler must be non-empty")
-        if handler in self._executors:
-            raise ActionContractError(f"Action executor already registered: {handler}")
-        self._executors[handler] = executor
+    def register(self, executor_id: str, executor: ActionExecutor) -> None:
+        if not executor_id:
+            raise ActionContractError("executor_id must be non-empty")
+        if executor_id in self._executors:
+            raise ActionContractError(
+                f"Action executor already registered: {executor_id}"
+            )
+        self._executors[executor_id] = executor
 
-    def get(self, handler: str) -> ActionExecutor:
+    def get(self, executor_id: str) -> ActionExecutor:
         try:
-            return self._executors[handler]
+            return self._executors[executor_id]
         except KeyError as exc:
-            raise ActionContractError(f"Unknown action executor: {handler}") from exc
+            raise ActionContractError(
+                f"Unknown action executor: {executor_id}"
+            ) from exc
 
-    def has(self, handler: str) -> bool:
-        return handler in self._executors
+    def has(self, executor_id: str) -> bool:
+        return executor_id in self._executors
 
-    def missing_handlers_for(self, catalog: ActionCatalog) -> tuple[str, ...]:
+    def missing_executors_for(self, catalog: ActionCatalog) -> tuple[str, ...]:
         missing = {
-            action.backend.handler
+            action.execution.executor
             for action in catalog.actions()
-            if not self.has(action.backend.handler)
+            if not self.has(action.execution.executor)
         }
         return tuple(sorted(missing))
 
     def validate_catalog(self, catalog: ActionCatalog) -> None:
-        missing = self.missing_handlers_for(catalog)
+        missing = self.missing_executors_for(catalog)
         if missing:
             raise ActionContractError(
                 "Action catalog references unregistered executors: "

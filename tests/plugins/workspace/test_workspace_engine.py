@@ -19,10 +19,9 @@ from tinysoul.kernel.action.call import ActionCall, ActionExecution
 from tinysoul.kernel.action.execution.preparation import ActionExecutionBuilder
 from tinysoul.kernel.action.catalog.catalog import ActionCatalog
 from tinysoul.kernel.action.execution.executor import ActionExecutionContext
-from tinysoul.kernel.action.backends.llm_action import LLMActionTaskRunner
+from tests.support.model_uses import action_tasks
 from tinysoul.kernel.action.catalog.specs import (
-    ActionBackendKind,
-    ActionBackendSpec,
+    ActionExecutionSpec,
     ActionDomainSpec,
     ActionRuntimeSpec,
     ActionSemanticSpec,
@@ -96,6 +95,9 @@ class FakeLLMRunner:
         self.answer = answer or {"text": "new text"}
         self.on_run = on_run
         self.failure = failure
+
+    async def invoke(self, call: TaskCall) -> TaskResult:
+        return await self.run(call)
 
     async def run(self, call: TaskCall) -> TaskResult:
         self.calls.append(call)
@@ -809,7 +811,8 @@ async def test_workspace_analyze_returns_grounded_standard_result(
     )
     executor = WorkspaceAnalyzeExecutor(
         workspace=WorkspaceService(engine),
-        llm_action=LLMActionTaskRunner(llm_runner=llm, context=context_engine),
+        tasks=action_tasks(context_engine),
+        llm=llm,
     )
     before = engine.reconcile().manifest
 
@@ -862,7 +865,8 @@ async def test_workspace_analyze_budget_failure_does_not_call_llm(
 
     result = await WorkspaceAnalyzeExecutor(
         workspace=WorkspaceService(engine),
-        llm_action=LLMActionTaskRunner(llm_runner=llm, context=context_engine),
+        tasks=action_tasks(context_engine),
+        llm=llm,
     ).execute(
         _execution(
             "workspace.analyze",
@@ -887,7 +891,8 @@ async def test_workspace_analyze_rejects_invented_source_id(tmp_path: Path) -> N
 
     result = await WorkspaceAnalyzeExecutor(
         workspace=WorkspaceService(engine),
-        llm_action=LLMActionTaskRunner(llm_runner=llm, context=context_engine),
+        tasks=action_tasks(context_engine),
+        llm=llm,
     ).execute(
         _execution(
             "workspace.analyze",
@@ -913,7 +918,8 @@ async def test_workspace_analyze_requires_at_least_one_grounding_source(
 
     result = await WorkspaceAnalyzeExecutor(
         workspace=WorkspaceService(engine),
-        llm_action=LLMActionTaskRunner(llm_runner=llm, context=context_engine),
+        tasks=action_tasks(context_engine),
+        llm=llm,
     ).execute(
         _execution(
             "workspace.analyze",
@@ -1029,9 +1035,8 @@ def _execution(action_name: str, params: JsonObject) -> ActionExecution:
                 ),
                 semantic=ActionSemanticSpec(),
                 runtime=ActionRuntimeSpec(),
-                backend=ActionBackendSpec(
-                    kind=ActionBackendKind.NATIVE,
-                    handler=action_name,
+                execution=ActionExecutionSpec(
+                    executor=action_name,
                 ),
             ),
         ),
@@ -1048,10 +1053,8 @@ def _execution(action_name: str, params: JsonObject) -> ActionExecution:
 def _executor(engine: WorkspaceEngine) -> WorkspaceExecutor:
     return WorkspaceExecutor(
         WorkspaceService(engine),
-        LLMActionTaskRunner(
-            llm_runner=FakeLLMRunner(),
-            context=ContextEngineBuilder(system_text="sys").build(),
-        ),
+        action_tasks(ContextEngineBuilder(system_text="sys").build()),
+        FakeLLMRunner(),
         RuntimeWorkspaceBridge(),
     )
 
@@ -1071,7 +1074,8 @@ async def test_compose_uses_local_sources_and_commits_only_complete_text(
     bus = SignalBus()
     executor = WorkspaceExecutor(
         WorkspaceService(engine),
-        LLMActionTaskRunner(llm_runner=llm, context=context),
+        action_tasks(context),
+        llm,
         RuntimeWorkspaceBridge(),
     )
     result = await executor.execute(
@@ -1090,7 +1094,9 @@ async def test_compose_uses_local_sources_and_commits_only_complete_text(
     assert engine.read_text("workspace:target.md").text == "complete result"
     assert len(llm.calls) == 1
     assert "text" not in result.payload
-    assert any(item.link == "workspace:target.md" for item in engine.snapshot().resources)
+    assert any(
+        item.link == "workspace:target.md" for item in engine.snapshot().resources
+    )
 
 
 async def test_compose_rejects_truncated_target_before_generating(
@@ -1106,7 +1112,8 @@ async def test_compose_rejects_truncated_target_before_generating(
     llm = FakeLLMRunner({"text": "new"})
     executor = WorkspaceExecutor(
         WorkspaceService(engine),
-        LLMActionTaskRunner(llm_runner=llm, context=context),
+        action_tasks(context),
+        llm,
         RuntimeWorkspaceBridge(),
     )
     result = await executor.execute(
@@ -1150,3 +1157,38 @@ async def test_workspace_owner_io_failure_crosses_bridge_without_raw_detail(
         )
     assert raised.value.payload["module"] == "workspace"
     assert "private" not in str(raised.value.payload)
+
+
+def test_workspace_backlinks_read_markdown_edges_without_similarity(
+    tmp_path: Path,
+) -> None:
+    from tinysoul.infra.references import ReferenceResolver, ResourceTarget
+    from tinysoul.kernel.retrieval.contracts import BacklinkSearch, SearchOptions
+
+    workspace = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    workspace.initialize_day(DAY)
+    workspace.write_text("workspace:target.md", "# Storage\nDurability")
+    workspace.write_text(
+        "workspace:sub/source.md",
+        "[local](../target.md#storage)\n[memory][m]\n\n[m]: <memory:concept/storage>",
+    )
+    workspace.write_text("workspace:similar.md", "Storage durability target, no link.")
+    refs = ReferenceResolver()
+    refs.bind(
+        {
+            "workspace": workspace.canonical_reference,
+            "memory": lambda resource, fragment, day: ResourceTarget(
+                resource, fragment
+            ),
+        }
+    )
+    for target in (
+        "workspace:target.md",
+        "workspace:target.md#storage",
+        "memory:concept/storage",
+    ):
+        corpus = workspace.backlink_corpus(
+            BacklinkSearch(target, SearchOptions("all")), references=refs
+        )
+        assert [item.ref for item in corpus.candidates] == ["workspace:sub/source.md"]
+        assert corpus.candidates[0].attributes["day"] == str(DAY)

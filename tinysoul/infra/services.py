@@ -22,8 +22,11 @@ async def _local_scope() -> AsyncIterator[None]:
 class ServiceScope:
     """Admission surrounds the entire owner call, including deferred cleanup."""
 
-    def __init__(self, lease: Callable[[], AbstractAsyncContextManager[None]] = _local_scope,
-                 operations: JoinedOperations | None = None) -> None:
+    def __init__(
+        self,
+        lease: Callable[[], AbstractAsyncContextManager[None]] = _local_scope,
+        operations: JoinedOperations | None = None,
+    ) -> None:
         self._lease = lease
         self._operations = operations
 
@@ -49,8 +52,12 @@ class ServiceScope:
             if self._operations is None:
                 operations.check_cancelled()
 
-    def local[**P, R](self, operation: Callable[P, R], *,
-                     after: Callable[[], Awaitable[None]] | None = None) -> Callable[P, Awaitable[R]]:
+    def local[**P, R](
+        self,
+        operation: Callable[P, R],
+        *,
+        after: Callable[[], Awaitable[None]] | None = None,
+    ) -> Callable[P, Awaitable[R]]:
         @wraps(operation)
         async def run(*args: P.args, **kwargs: P.kwargs) -> R:
             async with self._lease():
@@ -61,13 +68,17 @@ class ServiceScope:
                 if self._operations is None:
                     joined.check_cancelled()
                 return result
+
         return run
 
-    def remote[**P, R](self, operation: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
+    def remote[**P, R](
+        self, operation: Callable[P, Awaitable[R]]
+    ) -> Callable[P, Awaitable[R]]:
         @wraps(operation)
         async def run(*args: P.args, **kwargs: P.kwargs) -> R:
             async with self._lease():
                 return await operation(*args, **kwargs)
+
         return run
 
 
@@ -80,7 +91,7 @@ class ScopedService[T]:
 
     def using(self, operations: JoinedOperations) -> Self:
         """Let an Action record completed facts before honoring cancellation."""
-        return type(self)(self._owner, self._scope.using(operations))
+        return self._bind(self._scope.using(operations))
 
     def _bind(self, scope: ServiceScope) -> Self:
         return type(self)(self._owner, scope)

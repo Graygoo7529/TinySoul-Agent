@@ -164,7 +164,7 @@ def register_resource_actions(
                 service=service,
                 runtime_bridge=runtime_bridge,
             ),
-            handler=_RESOURCE_MARKITDOWN_HANDLER,
+            executor_id=_RESOURCE_MARKITDOWN_HANDLER,
         )
     if pypdf:
         builder.register_executor(
@@ -174,7 +174,7 @@ def register_resource_actions(
                 service=service,
                 runtime_bridge=runtime_bridge,
             ),
-            handler=_RESOURCE_PYPDF_HANDLER,
+            executor_id=_RESOURCE_PYPDF_HANDLER,
         )
     return builder
 

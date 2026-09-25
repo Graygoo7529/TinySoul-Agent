@@ -33,6 +33,5 @@ examples = ["Ask the user to choose a project direction, then continue in this T
 timeout_seconds = 5
 parallel_policy = "serial"
 
-[backend]
-kind = "native"
-handler = "core.ask"
+[execution]
+executor = "core.ask"

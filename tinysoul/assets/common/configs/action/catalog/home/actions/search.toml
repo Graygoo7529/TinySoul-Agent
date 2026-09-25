@@ -1,0 +1,21 @@
+name = "home.search"
+domain = "home"
+
+[tool]
+description = "Discover Home content, refine known seeds, or find actual incoming links within Home sources. Skill contents aggregate to their owning top; other resources retain their own identity."
+schema = { type = "object", properties = { query = { type = "string", minLength = 1 }, scope = { type = "string", enum = ["all", "agent", "skills"] }, filters = { type = "object", description = "Explicit equality or membership filters: space (agent/skills), file_type (.md etc). Values may be a scalar or a nonempty scalar array; these qualify sources before relevance selection." } }, additionalProperties = false }
+
+[semantic]
+use_when = ["Relevant Home agent or Skill resources should be discovered"]
+avoid_when = ["Changing resource content"]
+effects = ["read_only"]
+
+[runtime]
+timeout_seconds = 600
+parallel_policy = "allowed"
+
+[runtime.result]
+trace_mode = "foldable"
+
+[execution]
+executor = "home.search"

@@ -1,12 +1,41 @@
 """Bounded navigation shared by Trace and Session, without owning their facts."""
 
 from dataclasses import dataclass
+from datetime import date
 from hashlib import sha256
 
 from tinysoul.infra.continuation import OpaqueContinuationCodec, continue_json_sequence
 from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
 
 from .errors import ContextContractError
+
+
+@dataclass(frozen=True)
+class DisclosureReference:
+    target: str
+    relation: str = "references"
+    source_day: date | None = None
+
+
+@dataclass(frozen=True)
+class DisclosureSearchEntry:
+    ref: str
+    title: str
+    content: JsonObject
+    source: str
+    basis: str = "fact"
+    references: tuple[DisclosureReference, ...] = ()
+    day: date | None = None
+
+    def __post_init__(self) -> None:
+        if (
+            not self.ref
+            or self.source not in {"trace", "session"}
+            or self.basis not in {"fact", "interpretation"}
+        ):
+            raise ContextContractError(
+                "Search entry requires an owned source identity and basis"
+            )
 
 
 @dataclass(frozen=True)
@@ -48,7 +77,10 @@ class DisclosurePage:
     ) -> JsonObject:
         items = (
             *self.content,
-            *(to_json_object({"kind": "child", **item.to_json()}) for item in self.children),
+            *(
+                to_json_object({"kind": "child", **item.to_json()})
+                for item in self.children
+            ),
             *self.related,
             *({"kind": "source", "ref": ref} for ref in self.sources),
         )
@@ -70,16 +102,24 @@ class DisclosurePage:
 
 
 def query_hint(
-    ref: str, title: str, content: JsonObject, query: str,
+    ref: str,
+    title: str,
+    content: JsonObject,
+    query: str,
 ) -> DisclosureHint | None:
     """Deterministic local lookup over owner-supplied semantic content."""
-    text = " ".join(dumps_json({
-        key: value for key, value in content.items()
-        if key not in {"ref", "kind", "turn_ref"}
-    }).split())
+    text = " ".join(
+        dumps_json(
+            {
+                key: value
+                for key, value in content.items()
+                if key not in {"ref", "kind", "turn_ref"}
+            }
+        ).split()
+    )
     query = " ".join(query.split())
     position = text.casefold().find(query.casefold())
     if position < 0:
         return None
     start = max(0, position - 80)
-    return DisclosureHint(ref, title, text[start:position + len(query) + 160])
+    return DisclosureHint(ref, title, text[start : position + len(query) + 160])

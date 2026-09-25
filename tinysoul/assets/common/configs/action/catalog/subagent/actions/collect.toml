@@ -20,6 +20,5 @@ minimum = 0
 use_when = ["Read bounded delegation output without executing the task again."]
 effects = ["read_only"]
 
-[backend]
-kind = "native"
-handler = "subagent.collect"
+[execution]
+executor = "subagent.collect"

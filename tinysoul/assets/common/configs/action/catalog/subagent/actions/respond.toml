@@ -22,6 +22,5 @@ type = "string"
 use_when = ["Answer one current external Agent permission request using its exact option_id. Use core.ask if the decision requires the user."]
 effects = ["modifying"]
 
-[backend]
-kind = "native"
-handler = "subagent.respond"
+[execution]
+executor = "subagent.respond"

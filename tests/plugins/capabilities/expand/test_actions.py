@@ -1,10 +1,30 @@
 from datetime import date
+from dataclasses import replace
 from pathlib import Path
 import sys
 import pytest
 
 from tinysoul.infra.json import JsonObject, dumps_json
-from tinysoul.kernel.action.backends.llm_action import LLMActionTaskRunner
+from tinysoul.infra.model_services import ModelServices
+from tinysoul.infra.model_services.config import ModelServicesSettings
+from tinysoul.kernel.action.models import (
+    ModelUseRegistry,
+    ModelUseDescriptor,
+    ModelUseBinding,
+    ModelImplementation,
+    ModelOperation,
+)
+from tinysoul.kernel.retrieval.contracts import (
+    SearchMode,
+    SearchSemantic,
+    SeedRefinement,
+    SearchOptions,
+)
+from tinysoul.kernel.retrieval.policy import SearchPolicy
+from tinysoul.kernel.retrieval.operations import SearchSession
+from tinysoul.kernel.retrieval.selection import CandidateSelector
+from functools import partial
+from tests.support.model_uses import action_tasks
 from tinysoul.kernel.action.call import ActionCall
 from tinysoul.kernel.action.catalog.catalog import ActionCatalog
 from tinysoul.kernel.action.catalog.specs import (
@@ -13,8 +33,7 @@ from tinysoul.kernel.action.catalog.specs import (
     ActionToolSpec,
     ActionSemanticSpec,
     ActionRuntimeSpec,
-    ActionBackendSpec,
-    ActionBackendKind,
+    ActionExecutionSpec,
 )
 from tinysoul.kernel.action.execution.preparation import ActionExecutionBuilder
 from tinysoul.kernel.action.execution.executor import ActionExecutionContext
@@ -42,9 +61,7 @@ from tinysoul.runtime import RunScope, RunLevel
 class Selector:
     def __init__(self) -> None:
         self.calls: list[TaskCall] = []
-        self.answer: JsonObject = {
-            "tools": [{"server_id": "local", "tool_name": "add"}]
-        }
+        self.answer: JsonObject = {"ids": ["c0"]}
         self.overflow = False
 
     async def run(self, call: TaskCall) -> TaskResult:
@@ -92,7 +109,40 @@ async def test_four_actions_share_exact_definitions_scope_and_bounded_selection(
     context.begin_turn("Find arithmetic tools")
     await context.open_segments(date(2026, 9, 21))
     selector = Selector()
-    runner = LLMActionTaskRunner(llm_runner=selector, context=context)
+    runner = action_tasks(context)
+    services = ModelServices(ModelServicesSettings(), env={})
+    models = ModelUseRegistry(
+        (
+            ModelUseDescriptor(
+                "expand.search.select", "expand.search", ModelOperation.SELECT
+            ),
+        ),
+        (
+            ModelUseBinding(
+                "expand.search.select",
+                ModelImplementation.LLM_TASK,
+                task_profile="llm_action",
+            ),
+        ),
+    )
+    page_budget = max(2048, inline_limit)
+    queries = SearchSession(
+        action_id="expand.search",
+        policies=(
+            SearchPolicy(
+                "expand.search",
+                SearchMode.SEED_REFINEMENT,
+                default_semantic=SearchSemantic.SELECT,
+                allowed_semantic=(SearchSemantic.SELECT,),
+                page_max_chars=page_budget,
+                evidence_max_chars=500,
+            ),
+        ),
+        source=partial(engine.search_corpus, page_budget=page_budget),
+        selector=CandidateSelector(
+            models=models, invoke=selector.run, services=services
+        ),
+    )
 
     async def invoke(operation: ExpandOperation, params: JsonObject):
         name = "expand." + operation.value
@@ -110,7 +160,7 @@ async def test_four_actions_share_exact_definitions_scope_and_bounded_selection(
             ),
             semantic=ActionSemanticSpec(),
             runtime=ActionRuntimeSpec(),
-            backend=ActionBackendSpec(kind=ActionBackendKind.LLM_ACTION, handler=name),
+            execution=ActionExecutionSpec(executor=name),
         )
         execution = (
             ActionExecutionBuilder()
@@ -124,7 +174,15 @@ async def test_four_actions_share_exact_definitions_scope_and_bounded_selection(
             )
             .batch.executions[0]
         )
-        return await ExpandAction(engine, operation, runner).execute(
+        if operation is ExpandOperation.SEARCH and "continuation" not in params:
+            execution = replace(
+                execution,
+                call=replace(
+                    execution.call,
+                    params={"mode": "seed_refinement", "scope": "all", **params},
+                ),
+            )
+        return await ExpandAction(engine, operation, runner, queries).execute(
             execution, ActionExecutionContext()
         )
 
@@ -147,6 +205,19 @@ async def test_four_actions_share_exact_definitions_scope_and_bounded_selection(
             {"tools": [{"server_id": "local", "tool_name": "add"}]},
         )
         assert "inputSchema" in str(described.payload)
+        bounded = await engine.search_corpus(
+            SeedRefinement(
+                "add",
+                SearchOptions("all", semantic=SearchSemantic.SELECT),
+                directory=True,
+            ),
+            page_budget=256,
+        )
+        assert all(item.attributes.get("describe") for item in bounded.candidates)
+        assert {item.ref for item in bounded.candidates} == {
+            "mcp:local/add",
+            "mcp:local/long_text",
+        }
         found = await invoke(
             ExpandOperation.SEARCH, {"query": "加法 / add two integers"}
         )
@@ -159,7 +230,7 @@ async def test_four_actions_share_exact_definitions_scope_and_bounded_selection(
             is ModelContextOverflowPolicy.RETURN_FAILURE
         )
         assert any(
-            message.label.startswith("task_prompt:input:")
+            message.label == "retrieval:selection"
             for message in selector.calls[0].messages.messages
         )
         result = await invoke(
@@ -167,20 +238,23 @@ async def test_four_actions_share_exact_definitions_scope_and_bounded_selection(
             {"server_id": "local", "tool_name": "add", "arguments": {"a": 2, "b": 6}},
         )
         assert result.payload and result.payload["structured"] == {"value": 8}
-        selector.answer = {
-            "tools": [
-                {"server_id": "local", "tool_name": name}
-                for name in ("add", "long_text")
-            ]
-        }
+        selector.answer = {"ids": ["c0", "c1"]}
         multiple = await invoke(ExpandOperation.SEARCH, {"query": "both tools"})
         assert multiple.status is ActionResultStatus.SUCCESS and multiple.payload
-        assert len(dumps_json(multiple.payload)) <= inline_limit
-        assert (
-            isinstance(multiple.payload["tools"], list)
-            and len(multiple.payload["tools"]) == 2
-        )
-        selector.answer = {"tools": [{"server_id": "invented", "tool_name": "add"}]}
+        assert len(dumps_json(multiple.payload)) <= page_budget
+        items = multiple.payload["items"]
+        assert isinstance(items, list)
+        continuation = multiple.payload["continuation"]
+        if continuation:
+            assert isinstance(continuation, str)
+            before = len(selector.calls)
+            page = await invoke(ExpandOperation.SEARCH, {"continuation": continuation})
+            more = page.payload["items"]
+            assert isinstance(more, list)
+            items += more
+            assert len(selector.calls) == before
+        assert len(items) == 2
+        selector.answer = {"ids": ["invented"]}
         assert (
             await invoke(ExpandOperation.SEARCH, {"query": "sum"})
         ).status is ActionResultStatus.FAILED
@@ -194,3 +268,4 @@ async def test_four_actions_share_exact_definitions_scope_and_bounded_selection(
         assert "unavailable" in str(filtered.payload)
     finally:
         await engine.close()
+        await services.close()

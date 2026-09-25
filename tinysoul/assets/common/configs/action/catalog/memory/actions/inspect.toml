@@ -2,27 +2,21 @@ name = "memory.inspect"
 domain = "memory"
 
 [tool]
-description = "Discover Memory links by lexical/grep/semantic query, or inspect one known link's references, backlinks, and semantic related candidates. Returns bounded summaries, relation counts, and a continuation token, not full documents. Continue step by step for multi-hop exploration."
-schema = { type = "object", properties = { query = { type = "string" }, memory_link = { type = "string" }, kinds = { type = "array", items = { type = "string", enum = ["daily", "entity", "concept", "fact", "note"] } }, limit = { type = "integer", minimum = 1 }, continuation = { type = "string" } }, additionalProperties = false }
+description = "Read a known persistent Memory document in pages, or enumerate its direct references. Does not search backlinks or call a model."
+schema = { type = "object", properties = { ref = { type = "string", minLength = 1 }, view = { type = "string", enum = ["content", "direct_refs"] }, continuation = { type = "string" }, max_chars = { type = "integer", minimum = 1024 } }, required = ["ref"], additionalProperties = false }
 
 [semantic]
-use_when = ["The relevant exact Memory Link is unknown", "A known Memory Link should be explored through references or backlinks", "Several related memories should be compared before exact recall"]
-avoid_when = ["The exact link is known and its full Markdown is immediately needed", "Changing persistent Memory documents during a User Turn"]
+use_when = ["An exact Memory reference should be opened"]
+avoid_when = ["Changing resource content"]
 effects = ["read_only"]
-examples = ["Query agent memory for a past design decision, then inspect the best concept Link", "Inspect memory:entity/apple and follow a returned fact or note Link"]
 
 [runtime]
-timeout_seconds = 60
+timeout_seconds = 600
 parallel_policy = "allowed"
 
 [runtime.result]
 trace_mode = "foldable"
 
-[runtime.hooks]
-normalize = []
-execute = []
-
-[backend]
-kind = "native"
-handler = "memory.inspect"
+[execution]
+executor = "memory.inspect"
 

@@ -23,7 +23,6 @@ class TaskProfile(StrEnum):
     FRAME_STAGE1 = "frame_stage1"
     FRAME_STAGE2 = "frame_stage2"
     LLM_ACTION = "llm_action"
-    HOME_SEARCH = "home_search"
     MEMORY_DAILY = "memory_daily"
 
 
@@ -148,10 +147,15 @@ class TaskCall:
         ModelContextOverflowPolicy.FAIL
     )
     cancellation: TaskCancellation | None = None
+    consumer: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.profile, (TaskProfile, str)) or not self.profile:
             raise LLMContractError("TaskCall.profile must be non-empty")
+        if self.consumer is not None and (
+            not isinstance(self.consumer, str) or not self.consumer
+        ):
+            raise LLMContractError("TaskCall.consumer must be a nonempty identity")
         if not isinstance(self.messages, MessageStack):
             raise LLMContractError("TaskCall.messages must be a MessageStack")
         if not isinstance(self.task_id, str) or not self.task_id:

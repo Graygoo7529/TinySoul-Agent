@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+from dataclasses import replace
 from types import MappingProxyType
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.runtime import RunLevel, RunScope
@@ -11,11 +12,12 @@ from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 
 from tinysoul.kernel.action import ActionCatalogLoader
-from tinysoul.kernel.action.backends.llm_action import LLMActionBackendOptionsValidator
-from tinysoul.kernel.action.catalog.specs import ActionBackendKind
+from tinysoul.kernel.action.models import ModelUseRegistry
+from tinysoul.kernel.action.config import ActionSettings
+from tinysoul.kernel.action.catalog.catalog import ActionCatalog
+from tinysoul.kernel.retrieval.policy import search_schema, validate_search_policies
 from tinysoul.kernel.action.config import (
     parse_action_settings,
-    validate_llm_action_routes,
 )
 from tinysoul.kernel.context import parse_context_settings
 from tinysoul.plugins.home import AgentHomeEngine
@@ -91,13 +93,18 @@ from tinysoul.plugins.archive import DailyLifecycleCoordinator
 from tinysoul.infra.clock import IanaCalendarClock
 from ..lifecycle.runtime_policy import build_agent_trap
 from tinysoul.environment.sources.scheduler import DeadlineTimer
-from tinysoul.plugins.reflection.schedule import ReflectionSchedulePlugin, ReflectionSubmission
+from tinysoul.plugins.reflection.schedule import (
+    ReflectionSchedulePlugin,
+    ReflectionSubmission,
+)
 from tinysoul.kernel.registration import (
     AgentPlugin,
     GenerationBuildContext,
     PluginGeneration,
     RegistrationError,
-    PluginDefinitions, Service, ServiceRegistry,
+    PluginDefinitions,
+    Service,
+    ServiceRegistry,
 )
 from tinysoul.environment.sources.fswatch import FileWatcher
 from tinysoul.runtime.sources import RuntimeTimer, RuntimeWatcher
@@ -116,6 +123,8 @@ from tinysoul.plugins.capabilities.web.plugin import WebPlugin
 from tinysoul.plugins.capabilities.resource.plugin import ResourcePlugin
 from tinysoul.kernel.jobs import JobRegistry
 from tinysoul.infra import InfraSettings
+from tinysoul.infra.model_services import ModelServices
+from tinysoul.infra.references import ReferenceResolver
 
 
 _HARNESS_CONFIGURATION_SECTIONS = (
@@ -226,21 +235,45 @@ class AgentBuilder:
     def _definitions(self) -> PluginDefinitions:
         return PluginDefinitions(
             tuple(self._plugins),
-            host_services=(ReflectionSubmission, RuntimeTimer, RuntimeWatcher),
+            host_services=(
+                ReflectionSubmission,
+                RuntimeTimer,
+                RuntimeWatcher,
+                ModelServices,
+                ReferenceResolver,
+            ),
             reserved_configuration_sections=_HARNESS_CONFIGURATION_SECTIONS,
         )
 
     def build(self) -> AgentAssembly:
         """Validate and freeze composition without creating owners or I/O resources."""
         definitions = self._definitions
-        if {plugin.id for plugin in _standard_plugins()} - {plugin.id for plugin in definitions.plugins}:
-            raise RegistrationError("TinySoul requires the complete standard plugin recipe")
-        required = {AgentHomeEngine, HomeService, SessionEngine, MemoryEngine, MemoryWriteSession, WorkspaceEngine, JobRegistry}
-        if required - {service for plugin in definitions.plugins for service in plugin.provides}:
-            raise RegistrationError("The standard recipe is missing required owner services")
+        if {plugin.id for plugin in _standard_plugins()} - {
+            plugin.id for plugin in definitions.plugins
+        }:
+            raise RegistrationError(
+                "TinySoul requires the complete standard plugin recipe"
+            )
+        required = {
+            AgentHomeEngine,
+            HomeService,
+            SessionEngine,
+            MemoryEngine,
+            MemoryWriteSession,
+            WorkspaceEngine,
+            JobRegistry,
+        }
+        if required - {
+            service for plugin in definitions.plugins for service in plugin.provides
+        }:
+            raise RegistrationError(
+                "The standard recipe is missing required owner services"
+            )
         builder = copy.copy(self)
         builder._input_sources = list(self._input_sources)
-        builder._user_turn_completion_handlers = list(self._user_turn_completion_handlers)
+        builder._user_turn_completion_handlers = list(
+            self._user_turn_completion_handlers
+        )
         builder._output_sinks = list(self._output_sinks)
         builder._plugins = list(definitions.plugins)
         config = self._config_env or ConfigEnvironment.from_project_root(self._root)
@@ -260,7 +293,8 @@ class AgentBuilder:
                 raise
 
         return AgentAssembly(
-            root=self._root, runtime_factory=materialize,
+            root=self._root,
+            runtime_factory=materialize,
             plugin_ids=tuple(plugin.id for plugin in definitions.plugins),
         )
 
@@ -508,36 +542,81 @@ class AgentBuilder:
                 )
                 resources.register("llm", owned_llm.close)
                 llm = owned_llm
-            clock = self._calendar_clock or IanaCalendarClock(reflection_settings.timezone)
+            model_services = ModelServices(
+                plan.infra.model_services, env=config.runtime_env
+            )
+            references = ReferenceResolver()
+            resources.register("model_services", model_services.close)
+            clock = self._calendar_clock or IanaCalendarClock(
+                reflection_settings.timezone
+            )
             plugin_generations = await self._definitions.build(
                 GenerationBuildContext(
-                    root=self._root, runtime_env=MappingProxyType(dict(config.runtime_env)),
-                    settings=ServiceRegistry((
-                        Service(InfraSettings, plan.infra),
-                        Service(ReflectionSettings, reflection_settings),
-                        *plan.plugin_settings,
-                    )),
-                    services=ServiceRegistry(()), llm=llm, observations=observations, clock=clock,
+                    root=self._root,
+                    runtime_env=MappingProxyType(dict(config.runtime_env)),
+                    settings=ServiceRegistry(
+                        (
+                            Service(InfraSettings, plan.infra),
+                            Service(ActionSettings, plan.action),
+                            Service(ModelUseRegistry, plan.model_uses),
+                            Service(ReflectionSettings, reflection_settings),
+                            *plan.plugin_settings,
+                        )
+                    ),
+                    services=ServiceRegistry(()),
+                    llm=llm,
+                    observations=observations,
+                    clock=clock,
                 ),
                 resources,
                 host_services=(
-                    Service(ReflectionSubmission, ReflectionSubmission(submit_reflection)),
-                    Service(RuntimeTimer, DeadlineTimer()), Service(RuntimeWatcher, FileWatcher()),
+                    Service(ModelServices, model_services),
+                    Service(ReferenceResolver, references),
+                    Service(
+                        ReflectionSubmission, ReflectionSubmission(submit_reflection)
+                    ),
+                    Service(RuntimeTimer, DeadlineTimer()),
+                    Service(RuntimeWatcher, FileWatcher()),
                 ),
             )
-            services = ServiceRegistry(tuple(item for plugin in plugin_generations for item in plugin.services))
+            services = ServiceRegistry(
+                tuple(item for plugin in plugin_generations for item in plugin.services)
+            )
             home, memory = services.get(AgentHomeEngine), services.get(MemoryEngine)
-            session, workspace = services.get(SessionEngine), services.get(WorkspaceEngine)
+            session, workspace = (
+                services.get(SessionEngine),
+                services.get(WorkspaceEngine),
+            )
+            references.bind(
+                {
+                    "home": home.canonical_reference,
+                    "memory": memory.canonical_reference,
+                    "workspace": workspace.canonical_reference,
+                }
+            )
             jobs = services.get(JobRegistry)
-            sources = GenerationSources(tuple(source for plugin in plugin_generations for source in plugin.sources))
+            sources = GenerationSources(
+                tuple(
+                    source for plugin in plugin_generations for source in plugin.sources
+                )
+            )
             action_assembly = ProfileAssembly(
-                plugins=plugin_generations, llm=llm, home=services.get(HomeService), jobs=jobs,
-                observations=observations, action_settings=action_settings,
+                plugins=plugin_generations,
+                llm=llm,
+                home=services.get(HomeService),
+                jobs=jobs,
+                observations=observations,
+                action_settings=action_settings,
+                models=plan.model_uses,
             )
             user_builder = UserTurnBuilder(
-                context_settings=context_settings, loop_settings=loop_settings,
-                llm=llm, bus=bus, observations=observations,
-                action_catalog=plan.action_catalog, action_assembly=action_assembly,
+                context_settings=context_settings,
+                loop_settings=loop_settings,
+                llm=llm,
+                bus=bus,
+                observations=observations,
+                action_catalog=plan.action_catalog,
+                action_assembly=action_assembly,
             )
             if self._user_domain_skills is not None:
                 user_builder.with_domain_skills(self._user_domain_skills)
@@ -556,7 +635,11 @@ class AgentBuilder:
                 memory,
                 self._calendar_clock or IanaCalendarClock(reflection_settings.timezone),
                 active_day=session.active_day,
-                release_day=tuple(plugin.release_day for plugin in plugin_generations if plugin.release_day is not None),
+                release_day=tuple(
+                    plugin.release_day
+                    for plugin in plugin_generations
+                    if plugin.release_day is not None
+                ),
             )
             reflection = ReflectionBuilder(
                 action_assembly=action_assembly,
@@ -576,6 +659,14 @@ class AgentBuilder:
             ).build()
             surfaces = tuple(
                 profile.action for profile in (user_turn.profile, *reflection.profiles)
+            )
+            self._validate_selected_models(
+                plan,
+                frozenset(
+                    name
+                    for surface in surfaces
+                    for _, name in surface.action_identifiers()
+                ),
             )
             declared = frozenset(
                 name for surface in surfaces for name in surface.declared_actions()
@@ -651,9 +742,13 @@ class AgentBuilder:
     ) -> None:
         plan = self._compile_config_plan(config)
         declared: set[str] = set()
+        selected: set[str] = set()
         for profile in generation.profiles:
-            profile.action.validate_candidate(plan.action_catalog.catalog)
+            selected.update(
+                profile.action.validate_candidate(plan.action_catalog.catalog)
+            )
             declared.update(profile.action.declared_actions())
+        self._validate_selected_models(plan, frozenset(selected))
         if {action.name for action in plan.action_catalog.catalog.actions()} - declared:
             raise ConfigError(
                 "Catalog contains undeclared actions", key="action.catalog"
@@ -677,18 +772,46 @@ class AgentBuilder:
         config: ConfigEnvironment,
     ) -> AgentConfigPlan:
         definitions = self._definitions
-        config.validate_sections({
-            *_HARNESS_CONFIGURATION_SECTIONS,
-            *(item.section.split(".", 1)[0] for item in definitions.configuration),
-        })
+        config.validate_sections(
+            {
+                *_HARNESS_CONFIGURATION_SECTIONS,
+                *(item.section.split(".", 1)[0] for item in definitions.configuration),
+            }
+        )
         plugin_settings = definitions.configure(config, self._root)
         action_settings = config.parse_section("action", parse_action_settings)
-        action_catalog = ActionCatalogLoader(
-            backend_kind_options_validators={
-                ActionBackendKind.LLM_ACTION: LLMActionBackendOptionsValidator(),
-            },
-            llm_action_timeout_seconds=action_settings.llm_action.timeout_seconds,
-        ).load_documents(config.document_set("action.catalog"))
+        action_catalog = ActionCatalogLoader().load_documents(
+            config.document_set("action.catalog")
+        )
+        model_uses = ModelUseRegistry(definitions.model_uses, action_settings.bindings)
+        policies = action_settings.search_policies
+        validate_search_policies(definitions.search_capabilities, policies)
+        action_ids = {action.name for action in action_catalog.catalog.actions()}
+        if any(policy.action_id not in action_ids for policy in policies):
+            raise ConfigError(
+                "Search policy names an unknown action",
+                key="action.models.search_policies",
+            )
+        action_catalog = replace(
+            action_catalog,
+            catalog=ActionCatalog(
+                domains=action_catalog.catalog.domains(),
+                actions=tuple(
+                    replace(
+                        action,
+                        tool=replace(
+                            action.tool,
+                            schema=search_schema(
+                                action.tool.schema, policies, action_id=action.name
+                            ),
+                        ),
+                    )
+                    if any(policy.action_id == action.name for policy in policies)
+                    else action
+                    for action in action_catalog.catalog.actions()
+                ),
+            ),
+        )
         plan = AgentConfigPlan(
             environment=config,
             infra=config.parse_section("infra", parse_infra_settings),
@@ -698,6 +821,7 @@ class AgentBuilder:
                 else config.parse_section("agent", parse_agent_settings)
             ),
             action=action_settings,
+            model_uses=model_uses,
             action_catalog=action_catalog,
             plugin_settings=plugin_settings,
             context=config.parse_section("context", parse_context_settings),
@@ -726,10 +850,8 @@ class AgentBuilder:
                 plan.loop.cycle,
                 task_profiles=plan.llm.tasks.profiles(),
             )
-            validate_llm_action_routes(
-                plan.action.llm_action,
-                catalog=plan.action_catalog.catalog,
-                task_profiles=plan.llm.tasks.profiles(),
+            plan.model_uses.validate_targets(
+                plan.llm.tasks.profiles(), plan.infra.model_services
             )
         except ConfigError as exc:
             enriched = config.enrich_error(exc)
@@ -737,6 +859,26 @@ class AgentBuilder:
                 raise
             raise enriched from exc
         return plan
+
+    def _validate_selected_models(
+        self, plan: AgentConfigPlan, actions: frozenset[str]
+    ) -> None:
+        from tinysoul.plugins.home.config import AgentHomeSettings
+        from tinysoul.plugins.memory.config import MemorySettings
+
+        embedding_uses = {}
+        for setting in plan.plugin_settings:
+            if isinstance(setting.value, AgentHomeSettings):
+                embedding_uses["home"] = setting.value.search.embedding_use
+            elif isinstance(setting.value, MemorySettings):
+                embedding_uses["memory"] = setting.value.semantic_search.embedding_use
+        plan.model_uses.validate_selected(
+            actions=actions,
+            policies=plan.action.search_policies,
+            services=plan.infra.model_services,
+            env=plan.environment.runtime_env,
+            embedding_uses=embedding_uses,
+        )
 
     def _map_owned_config_error(self, error: ConfigError) -> RuntimeException:
         for item in self._definitions.configuration:
@@ -808,8 +950,16 @@ class AgentBuilder:
 
 def _standard_plugins() -> tuple[AgentPlugin, ...]:
     return (
-        HomePlugin(), SessionPlugin(), MemoryPlugin(), WorkspacePlugin(), CorePlugin(),
-        ExecutionPlugin(), ExpandPlugin(), SubagentPlugin(), WebPlugin(), ResourcePlugin(),
+        HomePlugin(),
+        SessionPlugin(),
+        MemoryPlugin(),
+        WorkspacePlugin(),
+        CorePlugin(),
+        ExecutionPlugin(),
+        ExpandPlugin(),
+        SubagentPlugin(),
+        WebPlugin(),
+        ResourcePlugin(),
         ReflectionSchedulePlugin(),
     )
 

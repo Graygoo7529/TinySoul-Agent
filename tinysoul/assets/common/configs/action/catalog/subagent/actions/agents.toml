@@ -13,6 +13,5 @@ additionalProperties = false
 use_when = ["List configured external Agent targets."]
 effects = ["read_only"]
 
-[backend]
-kind = "native"
-handler = "subagent.agents"
+[execution]
+executor = "subagent.agents"

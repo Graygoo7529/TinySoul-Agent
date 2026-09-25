@@ -23,6 +23,5 @@ effects = ["modifying"]
 [runtime]
 parallel_policy = "serial"
 
-[backend]
-kind = "native"
-handler = "workspace.move"
+[execution]
+executor = "workspace.move"

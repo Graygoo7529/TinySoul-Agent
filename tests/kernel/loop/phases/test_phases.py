@@ -29,7 +29,7 @@ from tinysoul.kernel.action import (
     ActionEngine,
     ActionNormalization,
 )
-from tinysoul.kernel.action.backends import LLMActionTaskRunner
+from tests.support.model_uses import action_tasks
 from tinysoul.plugins.execution.actions import EXECUTION_ACTIONS
 from tinysoul.kernel.context import (
     BackgroundCatalog,
@@ -93,6 +93,9 @@ class FakeLLM:
         self.results = deque(results)
         self.calls: list[TaskCall] = []
 
+    async def invoke(self, call: TaskCall) -> TaskResult:
+        return await self.run(call)
+
     async def run(self, call: TaskCall) -> TaskResult:
         self.calls.append(call)
         return self.results.popleft()
@@ -104,6 +107,9 @@ async def test_capacity_rejection_does_not_consume_inspect_overlay() -> None:
     from tinysoul.llm.failures import LLM_CONTEXT_CAPACITY_EXCEEDED
 
     class CapacityLLM:
+        async def invoke(self, call: TaskCall) -> TaskResult:
+            return await self.run(call)
+
         async def run(self, call: TaskCall) -> TaskResult:
             raise RuntimeException(LLM_CONTEXT_CAPACITY_EXCEEDED, "capacity")
 
@@ -476,14 +482,18 @@ async def test_real_memory_actions_record_turn_trace_without_background_mutation
         (
             ToolCallRecord(
                 id="recall_1",
-                name="memory.recall",
-                arguments={"memory_link": "memory:daily/2026-07-13"},
+                name="memory.inspect",
+                arguments={"ref": "memory:daily/2026-07-13"},
                 kind=ToolKind.ACTION,
             ),
             ToolCallRecord(
                 id="search_1",
-                name="memory.inspect",
-                arguments={"query": "remembered"},
+                name="memory.search",
+                arguments={
+                    "mode": "query_discovery",
+                    "scope": "all",
+                    "query": "remembered",
+                },
                 kind=ToolKind.ACTION,
             ),
         )
@@ -509,15 +519,19 @@ async def test_real_memory_actions_record_turn_trace_without_background_mutation
 
     results = {result.action_name: result for result in outcome.results}
     assert all(result.failure is None for result in results.values()), repr(results)
-    markdown = results["memory.recall"].payload["markdown"]
-    assert "digest" not in results["memory.recall"].payload
+    disclosed = results["memory.inspect"].payload["items"]
+    assert isinstance(disclosed, list)
+    markdown = "".join(
+        str(item["text"]) for item in disclosed if isinstance(item, dict)
+    )
+    assert "digest" not in results["memory.inspect"].payload
     assert isinstance(markdown, str)
     assert "free-form remembered fact" in markdown
-    items = results["memory.inspect"].payload["items"]
+    items = results["memory.search"].payload["items"]
     assert isinstance(items, list)
     first_item = items[0]
     assert isinstance(first_item, dict)
-    assert first_item["link"] == "memory:daily/2026-07-13"
+    assert first_item["ref"] == "memory:daily/2026-07-13"
     assert "period" not in first_item
     assert context.trace_kinds() == (
         TraceKind.ACTION_RESULT,
@@ -1094,9 +1108,7 @@ async def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None
         .register_function(
             "home.resource.patch", lambda execution, context: {"patched": True}
         )
-        .register_function(
-            "home.resource.read", lambda execution, context: {"read": True}
-        )
+        .register_function("home.inspect", lambda execution, context: {"read": True})
         .register_function(
             "home.resource.write", lambda execution, context: {"written": True}
         )
@@ -1109,10 +1121,10 @@ async def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None
         .register_function(
             "home.top.write", lambda execution, context: {"written": True}
         )
-        .register_function("home.top.search", lambda execution, context: {"items": []})
-        .register_function("memory.inspect", lambda execution, context: {"items": []})
+        .register_function("home.search", lambda execution, context: {"items": []})
+        .register_function("memory.search", lambda execution, context: {"items": []})
         .register_function("memory.memorize", lambda execution, context: {"digest": ""})
-        .register_function("memory.recall", lambda execution, context: {"text": ""})
+        .register_function("memory.inspect", lambda execution, context: {"text": ""})
         .register_function(
             "home.prompt_mount.patch", lambda execution, context: {"patched": True}
         )
@@ -1122,7 +1134,7 @@ async def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None
         .register_function(
             "core.context.inspect",
             lambda execution, context: {},
-            handler="context.inspect",
+            executor_id="context.inspect",
         )
         .register_function(
             "workspace.delete", lambda execution, context: {"deleted": True}
@@ -1219,9 +1231,7 @@ def _action_engine(
         .register_function(
             "home.resource.patch", lambda execution, context: {"patched": True}
         )
-        .register_function(
-            "home.resource.read", lambda execution, context: {"read": True}
-        )
+        .register_function("home.inspect", lambda execution, context: {"read": True})
         .register_function(
             "home.resource.write", lambda execution, context: {"written": True}
         )
@@ -1234,7 +1244,7 @@ def _action_engine(
         .register_function(
             "home.top.write", lambda execution, context: {"written": True}
         )
-        .register_function("home.top.search", lambda execution, context: {"items": []})
+        .register_function("home.search", lambda execution, context: {"items": []})
         .register_function(
             "home.prompt_mount.patch", lambda execution, context: {"patched": True}
         )
@@ -1244,7 +1254,7 @@ def _action_engine(
         .register_function(
             "core.context.inspect",
             lambda execution, context: {},
-            handler="context.inspect",
+            executor_id="context.inspect",
         )
         .mark_actions_unsupported(
             "core.wait",
@@ -1309,26 +1319,43 @@ def _action_engine(
         register_workspace_actions(
             builder,
             workspace=WorkspaceService(workspace),
-            llm_action=LLMActionTaskRunner(
-                llm_runner=workspace_llm,
-                context=workspace_context,
-            ),
+            tasks=action_tasks(workspace_context),
+            llm=workspace_llm,
         )
     if memory is None:
         builder.register_function(
-            "memory.inspect",
+            "memory.search",
             lambda execution, context: {"items": []},
         ).register_function(
             "memory.memorize",
             lambda execution, context: {"digest": ""},
         ).register_function(
-            "memory.recall",
+            "memory.inspect",
             lambda execution, context: {"text": ""},
         )
     else:
+        from tinysoul.infra.references import ReferenceResolver
+        from tinysoul.kernel.retrieval.operations import SearchSession
+        from tinysoul.kernel.retrieval.policy import SearchPolicy
+        from tinysoul.kernel.retrieval.contracts import CandidateSource, SearchMode
+
+        async def source(request):
+            return memory.search_corpus(request, references=ReferenceResolver())
+
+        queries = SearchSession(
+            action_id="memory.search",
+            policies=(
+                SearchPolicy(
+                    "memory.search",
+                    SearchMode.QUERY_DISCOVERY,
+                    (CandidateSource.LEXICAL,),
+                ),
+            ),
+            source=source,
+        )
         register_memory_actions(
             builder,
-            memory=MemoryService(memory),
+            memory=MemoryService(memory, queries=queries),
             runtime_bridge=RuntimeMemoryBridge(),
         )
     return builder.build()

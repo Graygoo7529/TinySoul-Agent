@@ -6,6 +6,10 @@ import asyncio
 from dataclasses import replace
 from time import monotonic
 from tinysoul.infra.concurrency import JoinedOperations
+from tinysoul.llm.errors import TaskCancelled, LLMInvocationFailure
+from tinysoul.llm.runtime_bridge import RuntimeLLMBridge, LLM_FAILURE_MESSAGES
+from tinysoul.infra.model_services.protocol import ModelServiceError
+from ..failures import ActionFailureKind
 
 from tinysoul.runtime import (
     RunScope,
@@ -214,7 +218,18 @@ class ActionBatchRunner:
                             raise
                 try:
                     result = work.result()
-                except (asyncio.CancelledError, ActionExecutionCancelled):
+                except (
+                    asyncio.CancelledError,
+                    ActionExecutionCancelled,
+                    TaskCancelled,
+                ):
+                    remaining = context.control.remaining_seconds()
+                    if (
+                        context.control.cancel_reason is None
+                        and remaining is not None
+                        and remaining <= 0
+                    ):
+                        context.control.request_cancel("timeout")
                     if context.control.cancel_reason != "timeout":
                         raise
                     result = self._timeout_result(execution)
@@ -225,7 +240,7 @@ class ActionBatchRunner:
                 if context.control.cancel_reason != "timeout":
                     context.owner_operations.check_cancelled()
                 return result
-        except (asyncio.CancelledError, ActionExecutionCancelled):
+        except (asyncio.CancelledError, ActionExecutionCancelled, TaskCancelled):
             context.control.request_cancel("cancelled")
             if not settled:
                 self._record(
@@ -238,6 +253,20 @@ class ActionBatchRunner:
                     ),
                 )
             raise
+        except LLMInvocationFailure as exc:
+            if not settled:
+                self._record(context, execution, ExecutionState.UNKNOWN)
+            raise RuntimeLLMBridge().from_failure(
+                exc.kind, message=LLM_FAILURE_MESSAGES[exc.kind], payload=exc.payload
+            ) from exc
+        except ModelServiceError as exc:
+            if not settled:
+                self._record(context, execution, ExecutionState.UNKNOWN)
+            raise self._bridge.from_failure(
+                ActionFailureKind.MODEL_INVOCATION_FAILED,
+                message="Action model dependency failed.",
+                payload={"model_failure": exc.kind.value},
+            ) from exc
         except (RuntimeException, RuntimeTransferInterrupt):
             if not settled:
                 self._record(context, execution, ExecutionState.UNKNOWN)
@@ -254,7 +283,7 @@ class ActionBatchRunner:
     ) -> ActionResult:
         hook_result = self._hooks.run(execution, context=context)
         if hook_result is None:
-            executor = self._executors.get(execution.action.backend.handler)
+            executor = self._executors.get(execution.action.execution.executor)
             result = await self._execute(executor, execution, context)
         else:
             result = hook_result

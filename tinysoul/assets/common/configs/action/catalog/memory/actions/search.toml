@@ -1,0 +1,21 @@
+name = "memory.search"
+domain = "memory"
+
+[tool]
+description = "Discover persistent Memory documents, refine known refs, or search Memory sources for incoming references to an anchor. Does not implicitly open all results."
+schema = { type = "object", properties = { query = { oneOf = [{ type = "string", minLength = 1 }, { type = "object", properties = { document_ref = { type = "string" } }, required = ["document_ref"], additionalProperties = false }] }, scope = { type = "string", enum = ["all", "daily", "entity", "concept", "fact", "note"] }, filters = { type = "object", description = "Explicit equality/membership filters: kind, status (active/merged/superseded/retracted), updated_on (YYYY-MM-DD), confidence (low/medium/high). A scalar or a nonempty scalar array is accepted." } }, additionalProperties = false }
+
+[semantic]
+use_when = ["Persistent Memory evidence or relevant document links should be discovered"]
+avoid_when = ["Changing resource content"]
+effects = ["read_only"]
+
+[runtime]
+timeout_seconds = 600
+parallel_policy = "allowed"
+
+[runtime.result]
+trace_mode = "foldable"
+
+[execution]
+executor = "memory.search"

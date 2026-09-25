@@ -46,7 +46,11 @@ search 明确区分文件、目录前缀和整个 Workspace。字符扫描、候
 
 read/search 的有界正文可在当前交互暂时展开，后续 Trace 折叠为紧凑定位事实。正文不进入 Working 或持久 Session 的资源摘要。LLM 内部任务通过 target_link/reference_links 局部读取，Phase2 只生成 Link 和意图。
 
+`workspace.search` 的 query discovery 保留 literal/regex 与文件/目录范围；backlink_search 扫描当前 Workspace Markdown 的真实链接，可接收跨 owner anchor，返回源文件和行证据。文件资格由标签/类型筛选，扫描超预算明确报告不完整覆盖；没有隐式 Embedding 索引。共享 SearchSession 只保存反链结果页，按 Turn 或 SDK 日 lease 隔离。
+
 compose 合并新建与替换生成。已有目标必须完整读入允许的写入预算；目标截断时在调用模型前失败，引导改用 edit/append。模型输出不完整、超限或取消时不提交。完整文本在 Action 内存中交给 owner，成功只返回元数据。生成期间不持文件锁，最终也不比较来源版本。analyze 消费明确有界来源，结论通过所属结果协议校验。
+
+compose、describe、analyze 以各自的 generate consumer 绑定普通 LLM task profile。ActionTaskFactory 只准备本次 Context、局部来源和 Skill；唯一 LLMTaskRunner 调用模型，Workspace executor 验证结果并提交。模型用途切换不改变 executor 或 Action 总 deadline。
 
 ## Turn、进程与日切
 

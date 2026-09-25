@@ -31,6 +31,5 @@ examples = ["Convert workspace:incoming/scanned.pdf to workspace:converted/scann
 timeout_seconds = 90
 parallel_policy = "serial"
 
-[backend]
-kind = "subprocess"
-handler = "resource.convert_with_pypdf"
+[execution]
+executor = "resource.convert_with_pypdf"

@@ -647,14 +647,6 @@ description = "Search Candidate Characters applied by the capability owner."
 value_kind = "integer"
 
 [[field]]
-path = "capabilities.expand.search_max_results"
-surface = "capabilities.expand"
-group = "capabilities.expand.limits"
-title = "Maximum Selected Tools"
-description = "Maximum Selected Tools applied by the capability owner."
-value_kind = "integer"
-
-[[field]]
 path = "capabilities.expand.page_size"
 surface = "capabilities.expand"
 group = "capabilities.expand.limits"

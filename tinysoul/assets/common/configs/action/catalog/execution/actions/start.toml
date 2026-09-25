@@ -24,6 +24,5 @@ use_when = ["A process must be supervised across Cycles"]
 effects = ["modifying"]
 [runtime]
 parallel_policy = "serial"
-[backend]
-kind = "native"
-handler = "execution.start"
+[execution]
+executor = "execution.start"

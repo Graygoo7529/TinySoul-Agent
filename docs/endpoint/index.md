@@ -26,6 +26,8 @@ Endpoint 是 loopback 本地协议。除 `GET /v2/health` 外，HTTP 请求都�
 
 不存在 `/v2/actions/catalog`、`/v2/config/sections/{section_id}`、`/v2/config/validate` 或 `/v2/session/*`。`GET /openapi.json`（需鉴权）是路径和 schema 的机器可读权威描述。
 
+Action 目录以 execution.executor、model_uses、search_modes 和有效工具 schema 呈现能力；模型配置和调用观察见 configuration/events。检索通过 Agent Action 与 SDK 查询服务提供，本协议不增加通用 `/v2/actions/run`。
+
 ## 错误
 
 ```json

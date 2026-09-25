@@ -16,6 +16,5 @@ type = "string"
 use_when = ["Disconnect an idle connection; stop its live Job before disconnecting."]
 effects = ["modifying"]
 
-[backend]
-kind = "native"
-handler = "subagent.disconnect"
+[execution]
+executor = "subagent.disconnect"

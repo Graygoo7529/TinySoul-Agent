@@ -38,15 +38,6 @@ from .dependencies import (
     DependencyError,
     DependencyRequirement,
 )
-from .embedding import (
-    EmbeddingBatch,
-    EmbeddingClient,
-    EmbeddingError,
-    EmbeddingSettings,
-    OpenAICompatibleEmbeddingClient,
-    build_embedding_client,
-    parse_embedding_settings,
-)
 from .json import (
     JsonObject,
     JsonScalar,
@@ -71,6 +62,7 @@ from .continuation import (
     OpaqueContinuationCodec,
     continue_json_sequence,
 )
+
 __all__ = [
     "ConcurrencyContractError",
     "ConfigEnvironment",
@@ -96,10 +88,6 @@ __all__ = [
     "DependencyExecutable",
     "DependencyError",
     "DependencyRequirement",
-    "EmbeddingBatch",
-    "EmbeddingClient",
-    "EmbeddingError",
-    "EmbeddingSettings",
     "DEFAULT_STAGING_ROOT",
     "FilesystemBoundaryError",
     "JsonObject",
@@ -109,7 +97,6 @@ __all__ = [
     "InfraSettings",
     "MIN_CONTINUATION_PAGE_CHARS",
     "OpaqueContinuationCodec",
-    "OpenAICompatibleEmbeddingClient",
     "ProjectConfig",
     "ReadWriteLock",
     "StagingDirectoryManager",
@@ -121,13 +108,11 @@ __all__ = [
     "atomic_copy_file",
     "atomic_write_bytes",
     "atomic_write_text",
-    "build_embedding_client",
     "continue_json_sequence",
     "dumps_json",
     "file_digest",
     "read_text_line_slice",
     "read_text_prefix",
-    "parse_embedding_settings",
     "parse_infra_settings",
     "resolve_under_root",
     "to_json_object",

@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+import tomllib
 import asyncio
 import sys
 from time import monotonic
@@ -66,7 +68,8 @@ from tinysoul.runtime import (
 from tests.support.project import copy_initialized_project
 from tinysoul.kernel.loop.assembly import TurnProfile
 from tinysoul.plugins.reflection.builder import ReflectionBuilder
-from tinysoul.plugins.home.services import HomeReviewService
+from tinysoul.plugins.home.services import HomeReviewService, HomeService
+from tinysoul.kernel.retrieval.contracts import QueryDiscovery, TextQuery, SearchOptions
 from tinysoul.plugins.memory.services import (
     MemoryKnowledgeService,
     MemoryService,
@@ -97,6 +100,9 @@ class FakeLLM:
         self.results = deque(results)
         self.calls: list[TaskCall] = []
 
+    async def invoke(self, call: TaskCall) -> TaskResult:
+        return await self.run(call)
+
     async def run(self, call: TaskCall) -> TaskResult:
         self.calls.append(call)
         return self.results.popleft()
@@ -113,8 +119,10 @@ class _ProbeFailure(StrEnum):
 
 def _probe_config_failure(error: ConfigError) -> RuntimeException:
     return runtime_exception(
-        module="probe", kind=_ProbeFailure.CONFIGURATION,
-        reason=RUNTIME_STARTUP_FAILED, message="Probe configuration is invalid.",
+        module="probe",
+        kind=_ProbeFailure.CONFIGURATION,
+        reason=RUNTIME_STARTUP_FAILED,
+        message="Probe configuration is invalid.",
         payload={"key": error.key, "error_type": type(error).__name__},
     )
 
@@ -124,12 +132,16 @@ def _parse_probe_settings(tree: Mapping[str, object], root: Path) -> _ProbeSetti
     reject_unknown_keys(tree, {"value"}, key="capabilities.probe")
     value = tree.get("value", 1)
     if type(value) is not int:
-        raise ConfigError("Probe value must be an integer", key="capabilities.probe.value")
+        raise ConfigError(
+            "Probe value must be an integer", key="capabilities.probe.value"
+        )
     return _ProbeSettings(value)
 
 
 class _ProbeService:
-    def __init__(self, owner: "_ProbeOwner", scope: ServiceScope = ServiceScope()) -> None:
+    def __init__(
+        self, owner: "_ProbeOwner", scope: ServiceScope = ServiceScope()
+    ) -> None:
         self.read = scope.local(owner.read)
 
 
@@ -198,13 +210,17 @@ class _ProbeHook:
     def __init__(self, owner: _ProbeOwner) -> None:
         self._owner = owner
 
-    def check(self, execution: ActionExecution, context: ActionExecutionContext) -> HookOutcome:
+    def check(
+        self, execution: ActionExecution, context: ActionExecutionContext
+    ) -> HookOutcome:
         del context
         self._owner.actions.append(execution.call.action_name)
         return HookOutcome.success()
 
 
 class _ProbePlugin:
+    model_uses = ()
+    search_capabilities = ()
     id = "probe"
     provides = ()
     requires = (WorkspaceService,)
@@ -220,7 +236,9 @@ class _ProbePlugin:
     def __init__(self) -> None:
         self.owners: list[_ProbeOwner] = []
 
-    async def build_generation(self, context: GenerationBuildContext) -> PluginGeneration:
+    async def build_generation(
+        self, context: GenerationBuildContext
+    ) -> PluginGeneration:
         context.services.get(WorkspaceService)
         owner = _ProbeOwner(context.settings.get(_ProbeSettings).value)
         self.owners.append(owner)
@@ -238,32 +256,42 @@ class _ProbePlugin:
             builder.use_action_execution_hooks("core.answer", "probe.answer")
             return builder
 
-        def extend(kind: ProfileKind, profile: ProfileBuildContext) -> PluginProfileExtension | None:
+        def extend(
+            kind: ProfileKind, profile: ProfileBuildContext
+        ) -> PluginProfileExtension | None:
             if kind is not ProfileKind.USER:
                 return None
             return PluginProfileExtension(
                 "probe",
                 services=(Service(_ProbeService, _ProbeService(owner)),),
-                segments=(SegmentRegistration(
-                    descriptor=SegmentDescriptor(
-                        "probe_state", "probe", SegmentSlot.WORKING, 90
+                segments=(
+                    SegmentRegistration(
+                        descriptor=SegmentDescriptor(
+                            "probe_state", "probe", SegmentSlot.WORKING, 90
+                        ),
+                        provider=_ProbeProvider(owner),
+                        signal_name="context.probe",
+                        update_type=_ProbeUpdate,
+                        decode=lambda signal: _ProbeUpdate(),
                     ),
-                    provider=_ProbeProvider(owner),
-                    signal_name="context.probe",
-                    update_type=_ProbeUpdate,
-                    decode=lambda signal: _ProbeUpdate(),
-                ),),
+                ),
                 actions=actions,
                 preparation=(owner,),
                 completion=(owner,),
                 turn_resources=tuple(
                     PluginTurnResource(_ProbeResource(owner, stage), stage)
-                    for stage in (TurnResourceStage.SYNCHRONIZE, TurnResourceStage.RELEASE)
+                    for stage in (
+                        TurnResourceStage.SYNCHRONIZE,
+                        TurnResourceStage.RELEASE,
+                    )
                 ),
-                events=(TurnEventSubscription(
-                    EventFilter(topic="probe.changed", source="host"), adapt,
-                    coalesce=True,
-                ),),
+                events=(
+                    TurnEventSubscription(
+                        EventFilter(topic="probe.changed", source="host"),
+                        adapt,
+                        coalesce=True,
+                    ),
+                ),
             )
 
         async def close() -> None:
@@ -272,10 +300,12 @@ class _ProbePlugin:
         return PluginGeneration(
             self.id,
             profile_extension_factory=extend,
-            sdk_exports=(PluginServiceExport(
-                _ProbeService,
-                lambda scope: _ProbeService(owner, scope),
-            ),),
+            sdk_exports=(
+                PluginServiceExport(
+                    _ProbeService,
+                    lambda scope: _ProbeService(owner, scope),
+                ),
+            ),
             close=close,
         )
 
@@ -320,7 +350,8 @@ async def test_three_scenarios_have_independent_policies_and_owner_services(
         .with_config_environment(config)
         .with_agent_settings(AgentSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
-        .build().build_runtime()
+        .build()
+        .build_runtime()
     )
     try:
         user = app.generation_handle.snapshot().generation.user_turn.profile
@@ -329,7 +360,7 @@ async def test_three_scenarios_have_independent_policies_and_owner_services(
             {name for _, name in profile.action.action_identifiers()}
             for profile in (user, home, memory)
         ]
-        assert "home.resource.read" in identifiers[0]
+        assert "home.inspect" in identifiers[0]
         assert "home.diff" in identifiers[1] and "home.review" in identifiers[1]
         assert (
             "memory.write_daily" in identifiers[2] and "memory.write" in identifiers[2]
@@ -350,6 +381,21 @@ async def test_three_scenarios_have_independent_policies_and_owner_services(
         assert home.services.get(MemoryService)
         assert memory.services.get(MemoryKnowledgeService)
         assert memory.services.get(MemoryReadService)
+        await user.services.get(HomeService).write_top(
+            "home:agent@search-proof", "uniqueoverlayevidence"
+        )
+        assert not (root / "home/agent/search-proof.md").exists()
+        for profile in (user, home, memory):
+            service = profile.services.get(HomeService)
+            page = await service.search(
+                QueryDiscovery(
+                    TextQuery("uniqueoverlayevidence"), SearchOptions("agent")
+                )
+            )
+            assert page.items[0].ref == "home:agent/search-proof.md"
+            assert "uniqueoverlayevidence" in str(
+                await service.inspect(page.items[0].ref)
+            )
         for profile, denied in (
             (user, HomeReviewService),
             (user, MemoryKnowledgeService),
@@ -370,26 +416,47 @@ async def test_probe_plugin_composes_config_segment_action_event_sdk_and_restart
     config_path = root / "configs" / "capabilities" / "probe.toml"
     config_path.write_text("[capabilities.probe]\nvalue = 3\n", encoding="utf-8")
     plugin = _ProbePlugin()
-    llm = FakeLLM((
-        _tool_result(ToolCallRecord(
-            id="select_1", name="select_action_domains",
-            arguments={"domains": ["core"]}, kind=ToolKind.CONTROL,
-        )),
-        _tool_result(ToolCallRecord(
-            id="wait_1", name="core.wait",
-            arguments={"event_kind": "event", "topic": "probe.changed", "source": "host"},
-            kind=ToolKind.ACTION,
-        )),
-        _tool_result(ToolCallRecord(
-            id="select_2", name="select_action_domains",
-            arguments={"domains": ["core"]}, kind=ToolKind.CONTROL,
-        )),
-        _tool_result(ToolCallRecord(
-            id="answer_1", name="core.answer",
-            arguments={"guide_blocks": [{"text": "answer"}]}, kind=ToolKind.ACTION,
-        )),
-        _json_result({"text": "done"}),
-    ))
+    llm = FakeLLM(
+        (
+            _tool_result(
+                ToolCallRecord(
+                    id="select_1",
+                    name="select_action_domains",
+                    arguments={"domains": ["core"]},
+                    kind=ToolKind.CONTROL,
+                )
+            ),
+            _tool_result(
+                ToolCallRecord(
+                    id="wait_1",
+                    name="core.wait",
+                    arguments={
+                        "event_kind": "event",
+                        "topic": "probe.changed",
+                        "source": "host",
+                    },
+                    kind=ToolKind.ACTION,
+                )
+            ),
+            _tool_result(
+                ToolCallRecord(
+                    id="select_2",
+                    name="select_action_domains",
+                    arguments={"domains": ["core"]},
+                    kind=ToolKind.CONTROL,
+                )
+            ),
+            _tool_result(
+                ToolCallRecord(
+                    id="answer_1",
+                    name="core.answer",
+                    arguments={"guide_blocks": [{"text": "answer"}]},
+                    kind=ToolKind.ACTION,
+                )
+            ),
+            _json_result({"text": "done"}),
+        )
+    )
     assembly = (
         standard_agent(root)
         .with_config_environment(ConfigEnvironment.from_project_root(root, env={}))
@@ -410,7 +477,9 @@ async def test_probe_plugin_composes_config_segment_action_event_sdk_and_restart
         for profile in generation.reflection_profiles:
             with pytest.raises(RegistrationError):
                 profile.services.get(_ProbeService)
-            assert not any(item.filter.topic == "probe.changed" for item in profile.events)
+            assert not any(
+                item.filter.topic == "probe.changed" for item in profile.events
+            )
         old_service = agent.services.get(_ProbeService)
         assert await old_service.read() == 3
         handle = await agent.submit_turn(UserTurnRequest("wait"))
@@ -418,9 +487,11 @@ async def test_probe_plugin_composes_config_segment_action_event_sdk_and_restart
             while handle.wait_reason is not WaitReason.EVENT:
                 assert not handle.done
                 await asyncio.sleep(0.01)
-        receipt = await agent.publish(EnvironmentEvent(
-            EventKind.EVENT, {"value": 8}, topic="probe.changed", source="host"
-        ))
+        receipt = await agent.publish(
+            EnvironmentEvent(
+                EventKind.EVENT, {"value": 8}, topic="probe.changed", source="host"
+            )
+        )
         assert receipt.delivered
         result = await asyncio.wait_for(handle.wait(), 5)
         assert isinstance(result.outcome, TurnOutcome) and result.outcome.answered
@@ -442,18 +513,36 @@ async def test_probe_plugin_composes_config_segment_action_event_sdk_and_restart
         completion = result.outcome.context_completion
         assert completion is not None
         assert completion.segments["probe_state"] == {"value": 8}
-        answer = next(item for item in completion.trace.actions if item.call.action_name == "core.answer")
+        answer = next(
+            item
+            for item in completion.trace.actions
+            if item.call.action_name == "core.answer"
+        )
         assert answer.result is not None and answer.result.payload["text"] == "done"
         assert owner.lifecycle == ["prepare", "release", "synchronize", "complete"]
 
         with pytest.raises(ConfigError) as invalid:
-            await agent.patch_config((ConfigMutation(
-                "project:configs/capabilities/probe.toml", "capabilities.probe.value", "set", "invalid",
-            ),))
+            await agent.patch_config(
+                (
+                    ConfigMutation(
+                        "project:configs/capabilities/probe.toml",
+                        "capabilities.probe.value",
+                        "set",
+                        "invalid",
+                    ),
+                )
+            )
         assert invalid.value.key == "capabilities.probe.value"
-        await agent.patch_config((ConfigMutation(
-            "project:configs/capabilities/probe.toml", "capabilities.probe.value", "set", 5,
-        ),))
+        await agent.patch_config(
+            (
+                ConfigMutation(
+                    "project:configs/capabilities/probe.toml",
+                    "capabilities.probe.value",
+                    "set",
+                    5,
+                ),
+            )
+        )
         assert await old_service.read() == 8
         await agent.reload_config()
         assert agent.runtime is original_runtime
@@ -465,7 +554,9 @@ async def test_probe_plugin_composes_config_segment_action_event_sdk_and_restart
         assert original_profile.services.get(_ProbeService) is not reloaded_service
         old_commands = agent.commands
         await agent.restart()
-        assert agent.runtime is not original_runtime and not original_runtime.is_available
+        assert (
+            agent.runtime is not original_runtime and not original_runtime.is_available
+        )
         assert len(plugin.owners) == 3
         with pytest.raises(AgentClosedError):
             await reloaded_service.read()
@@ -477,9 +568,12 @@ async def test_probe_plugin_composes_config_segment_action_event_sdk_and_restart
     assert all(owner.closed == 1 for owner in plugin.owners)
 
 
-@pytest.mark.parametrize("section", ["loop", "loop.extra", "reflection.extra", "capabilities"])
+@pytest.mark.parametrize(
+    "section", ["loop", "loop.extra", "reflection.extra", "capabilities"]
+)
 def test_builder_rejects_configuration_owner_collision_before_materializing(
-    tmp_path: Path, section: str,
+    tmp_path: Path,
+    section: str,
 ) -> None:
     plugin = _ProbePlugin()
     plugin.configuration = (replace(plugin.configuration[0], section=section),)
@@ -493,9 +587,12 @@ def test_probe_configuration_failure_uses_its_owner_bridge(tmp_path: Path) -> No
     with pytest.raises(RuntimeException) as caught:
         (
             standard_agent(tmp_path)
-            .with_config_environment(_test_config(tmp_path, {"capabilities.probe.value": "invalid"}))
+            .with_config_environment(
+                _test_config(tmp_path, {"capabilities.probe.value": "invalid"})
+            )
             .with_llm_runner(FakeLLM(()))
-            .use(plugin).build()
+            .use(plugin)
+            .build()
         )
     assert caught.value.reason == RUNTIME_STARTUP_FAILED
     assert caught.value.payload["module"] == "probe"
@@ -552,7 +649,8 @@ async def test_agent_builder_cleans_project_capability_staging_on_startup(
         .with_config_environment(config)
         .with_agent_settings(AgentSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
-        .build().build_runtime()
+        .build()
+        .build_runtime()
     )
 
     staging = tmp_path / "runtime" / ".staging"
@@ -568,7 +666,8 @@ async def test_agent_builder_mounts_endpoint_as_service_and_model_output_source(
         .with_config_environment(_test_config(tmp_path))
         .with_agent_settings(AgentSettings(interactive=True))
         .with_llm_runner(FakeLLM(()))
-        .build().build_runtime()
+        .build()
+        .build_runtime()
     )
     endpoint = mount_endpoint(app, EndpointSettings(token="x" * 32))
     entered, release = asyncio.Event(), asyncio.Event()
@@ -617,7 +716,8 @@ async def test_standard_project_starts_without_credentials_and_rejects_provider_
             ConfigEnvironment.from_project_root(project_root, env={})
         )
         .with_agent_settings(AgentSettings(interactive=False))
-        .build().build_runtime()
+        .build()
+        .build_runtime()
     )
     endpoint = mount_endpoint(app, EndpointSettings(token="x" * 32))
     endpoint_runtimes.append(app)
@@ -730,7 +830,8 @@ async def test_development_project_requires_credentials_for_enabled_providers(
                 ConfigEnvironment.from_project_root(project_root, env={})
             )
             .with_agent_settings(AgentSettings(interactive=False))
-            .build().build_runtime()
+            .build()
+            .build_runtime()
         )
 
     assert error.value.reason == RUNTIME_STARTUP_FAILED
@@ -748,7 +849,8 @@ async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer
         .with_config_environment(ConfigEnvironment.from_project_root(project_root))
         .with_agent_settings(AgentSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
-        .build().build_runtime()
+        .build()
+        .build_runtime()
     )
     endpoint = mount_endpoint(
         app,
@@ -796,8 +898,8 @@ async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer
             json={
                 "operations": [
                     {
-                        "source_id": "project:configs/action/routing.toml",
-                        "path": "action.llm_action.timeout_seconds",
+                        "source_id": "project-document:action.catalog:configs/action/catalog/workspace/actions/analyze.toml",
+                        "path": "runtime.timeout_seconds",
                         "op": "set",
                         "value": 30.0,
                     },
@@ -856,7 +958,8 @@ async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer
     assert action_catalog.status_code == 200
     assert any(
         item["id"] == "workspace.analyze"
-        and item["backend"]["kind"] == "llm_action"
+        and item["execution"]["executor"] == "workspace.analyze"
+        and item["model_uses"]
         and item["available"] is True
         for item in action_catalog.json()["actions"]
     )
@@ -882,7 +985,13 @@ async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer
         for item in action_catalog.json()["domains"]
     )
     assert "timeout_seconds = 30.0" in (
-        project_root / "configs" / "action" / "routing.toml"
+        project_root
+        / "configs"
+        / "action"
+        / "catalog"
+        / "workspace"
+        / "actions"
+        / "analyze.toml"
     ).read_text(encoding="utf-8")
     assert "Read one project workspace resource for the current task." in (
         project_root
@@ -985,7 +1094,8 @@ async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
         .with_config_environment(ConfigEnvironment.from_project_root(project_root))
         .with_agent_settings(AgentSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
-        .build().build_runtime()
+        .build()
+        .build_runtime()
     )
     endpoint = mount_endpoint(app, EndpointSettings(token="x" * 32))
     endpoint_runtimes.append(app)
@@ -1033,14 +1143,13 @@ async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
             "operations": [
                 {
                     "source_id": "project:configs/action/routing.toml",
-                    "path": "action.llm_action.overrides",
+                    "path": "action.models.bindings",
                     "op": "set",
-                    "value": [
-                        {
-                            "action_id": "workspace.analyze",
-                            "task_profile": "llm_action",
-                        }
-                    ],
+                    "value": tomllib.loads(
+                        (project_root / "configs/action/routing.toml").read_text(
+                            encoding="utf-8"
+                        )
+                    )["action"]["models"]["bindings"],
                 }
             ]
         },
@@ -1188,7 +1297,8 @@ async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_i
         .with_config_environment(ConfigEnvironment.from_project_root(project_root))
         .with_agent_settings(AgentSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
-        .build().build_runtime()
+        .build()
+        .build_runtime()
     )
     endpoint = mount_endpoint(app, EndpointSettings(token="x" * 32))
     endpoint_runtimes.append(app)
@@ -1319,7 +1429,8 @@ async def test_agent_workspace_mutation_reaches_endpoint_event_stream(
                 )
             )
         )
-        .build().build_runtime()
+        .build()
+        .build_runtime()
     )
     endpoint = mount_endpoint(app, EndpointSettings(token="x" * 32))
 
@@ -1375,7 +1486,8 @@ async def test_agent_builder_run_once_answers_with_real_action_and_context(
                 )
             )
         )
-        .build().build_runtime()
+        .build()
+        .build_runtime()
     )
 
     outcome = await _run_once(app, "please answer")
@@ -1446,7 +1558,8 @@ async def test_agent_builder_runs_resource_conversion_through_real_action_chain(
                 )
             )
         )
-        .build().build_runtime()
+        .build()
+        .build_runtime()
     )
 
     outcome = await _run_once(app, "convert the PDF")
@@ -1498,7 +1611,8 @@ async def test_agent_builder_cycle_limit_suspends_until_explicit_decision(
                 )
             )
         )
-        .build().build_runtime()
+        .build()
+        .build_runtime()
     )
 
     from tinysoul.agent import UserTurnRequest
@@ -1531,7 +1645,8 @@ async def test_agent_runner_idle_exit_ends_program(tmp_path: Path) -> None:
         .with_config_environment(_test_config(tmp_path))
         .with_agent_settings(AgentSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
-        .build().build_runtime()
+        .build()
+        .build_runtime()
     )
 
     await app.submit_input("exit")
@@ -1574,7 +1689,8 @@ async def test_turn_runner_ignores_stop_control_without_turn_scope(
         .with_agent_settings(AgentSettings(interactive=False))
         .with_signal_bus(bus)
         .with_llm_runner(llm)
-        .build().build_runtime()
+        .build()
+        .build_runtime()
     )
     bus.emit(
         build_control_request_signal(
@@ -1607,7 +1723,8 @@ async def test_agent_builder_missing_agent_is_context_startup_failure(
             .with_config_environment(config)
             .with_agent_settings(AgentSettings(interactive=False))
             .with_llm_runner(FakeLLM(()))
-            .build().build_runtime()
+            .build()
+            .build_runtime()
         )
 
     exc = raised.value
@@ -1620,9 +1737,9 @@ async def test_agent_builder_missing_agent_is_context_startup_failure(
     (
         ({"home.max_read_chars": 0}, "home", "home.max_read_chars", None),
         (
-            {"infra.embedding.batch_size": 0},
+            {"infra.model_services.providers": 0},
             "agent",
-            "infra.embedding.batch_size",
+            "providers",
             "agent.configuration_failed",
         ),
         (
@@ -1691,7 +1808,8 @@ async def test_agent_builder_maps_owned_startup_failure(
             .with_config_environment(config)
             .with_agent_settings(AgentSettings(interactive=False))
             .with_llm_runner(FakeLLM(()))
-            .build().build_runtime()
+            .build()
+            .build_runtime()
         )
 
     exc = raised.value
@@ -1720,7 +1838,8 @@ async def test_agent_builder_corrupt_manifest_is_workspace_startup_failure(
             .with_config_environment(config)
             .with_agent_settings(AgentSettings(interactive=False))
             .with_llm_runner(FakeLLM(()))
-            .build().build_runtime()
+            .build()
+            .build_runtime()
         )
 
     assert raised.value.reason == RUNTIME_STARTUP_FAILED
@@ -1742,6 +1861,7 @@ async def test_agent_builder_does_not_map_programming_errors_to_startup_failure(
         raise RuntimeError("programming error")
 
     from tinysoul.plugins.workspace.engine import WorkspaceEngineBuilder
+
     monkeypatch.setattr(WorkspaceEngineBuilder, "build", explode)
 
     with pytest.raises(RuntimeError, match="programming error"):
@@ -1759,7 +1879,8 @@ async def test_agent_builder_agent_config_error_is_agent_startup_failure(
             .with_config_environment(config)
             .with_loop_settings(LoopSettings())
             .with_llm_runner(FakeLLM(()))
-            .build().build_runtime()
+            .build()
+            .build_runtime()
         )
 
     exc = raised.value
@@ -1779,7 +1900,8 @@ async def test_agent_builder_llm_config_error_is_llm_startup_failure(
             .with_config_environment(config)
             .with_agent_settings(AgentSettings(interactive=False))
             .with_loop_settings(LoopSettings())
-            .build().build_runtime()
+            .build()
+            .build_runtime()
         )
 
     exc = raised.value
@@ -1829,8 +1951,10 @@ async def test_generation_closes_owned_llm_on_build_failure_and_never_closes_bor
     builder = standard_agent(tmp_path).with_config_environment(config)
     monkeypatch.setattr(builder, "_build_llm", build_llm)
     from tinysoul.plugins.home.plugin import HomePlugin
+
     async def fail_home(*args, **kwargs):
         raise failure
+
     original = HomePlugin.build_generation
     monkeypatch.setattr(HomePlugin, "build_generation", fail_home)
     with pytest.raises(RuntimeError) as caught:
@@ -1844,7 +1968,8 @@ async def test_generation_closes_owned_llm_on_build_failure_and_never_closes_bor
         await standard_agent(tmp_path)
         .with_config_environment(config)
         .with_llm_runner(borrowed)
-        .build().build_runtime()
+        .build()
+        .build_runtime()
     )
     assert await app.close() == ()
     assert closed == ["owned"]

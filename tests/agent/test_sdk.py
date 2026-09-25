@@ -115,6 +115,9 @@ class _LLM:
             ]
         )
 
+    async def invoke(self, call: TaskCall) -> TaskResult:
+        return await self.run(call)
+
     async def run(self, call: TaskCall) -> TaskResult:
         self.calls.append(call)
         self.started.set()
@@ -1084,8 +1087,8 @@ async def test_config_save_keeps_live_services_until_explicit_reload(
         saved = await agent.patch_config(
             (
                 ConfigMutation(
-                    source_id="project:configs/action/routing.toml",
-                    path="action.llm_action.timeout_seconds",
+                    source_id="project-document:action.catalog:configs/action/catalog/core/actions/answer.toml",
+                    path="runtime.timeout_seconds",
                     op="set",
                     value=30.0,
                 ),
@@ -1356,8 +1359,8 @@ async def test_memory_reflection_revises_daily_from_fixed_target_sources(
                     (
                         ToolCallRecord(
                             "recall_daily",
-                            "memory.recall",
-                            {"memory_link": str(MemoryLink.daily(target.value))},
+                            "memory.inspect",
+                            {"ref": str(MemoryLink.daily(target.value))},
                             ToolKind.ACTION,
                         ),
                         ToolCallRecord(

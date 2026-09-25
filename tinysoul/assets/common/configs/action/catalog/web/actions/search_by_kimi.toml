@@ -23,6 +23,5 @@ examples = ["Search for the current official release notes and return the answer
 timeout_seconds = 600
 parallel_policy = "serial"
 
-[backend]
-kind = "subprocess"
-handler = "web.search_by_kimi"
+[execution]
+executor = "web.search_by_kimi"

@@ -99,9 +99,7 @@ class MemoryReflectionTask:
         completed = False
         try:
             skipped = await operations.run(
-                lambda: self._prepare_source(
-                    target_day, archive, active_day=active_day
-                )
+                lambda: self._prepare_source(target_day, archive, active_day=active_day)
             )
             operations.check_cancelled()
             if skipped is not None:
@@ -109,7 +107,7 @@ class MemoryReflectionTask:
             outcome = await self._turn.run(
                 (
                     "Maintain daily, entity, concept, fact, and note Memory for the "
-                    f"target day {target_day}. Inspect and recall existing Memory "
+                    f"target day {target_day}. Search and inspect existing Memory "
                     "before writing. If the target daily exists, read it first, then "
                     "revise, reorganize and supplement it with available evidence. "
                     "If it does not exist, create a complete daily. "

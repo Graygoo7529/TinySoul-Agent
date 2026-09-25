@@ -16,7 +16,7 @@ description = "Ordered model fallback chains and generation behavior for each LL
 [[surface]]
 id = "action_routing"
 title = "Action Routing"
-description = "Default and per-action task-chain selection for actions backed by an LLM task."
+description = "Code-declared model consumers, implementation bindings, and Search policies."
 
 [[surface]]
 id = "cycle_routing"
@@ -93,7 +93,7 @@ description = "Controls the common execution boundary for LLM-backed Actions."
 id = "action_routing.routes"
 surface = "action_routing"
 title = "Routes"
-description = "Selects the default task chain and explicit per-Action overrides."
+description = "Binds declared consumers to typed model uses and configures finite Search choices."
 
 [[field_group]]
 id = "cycle_routing.phases"
@@ -522,30 +522,19 @@ value_kind = "number"
 importance = "advanced"
 
 [[field]]
-path = "action.llm_action.timeout_seconds"
-surface = "action_routing"
-group = "action_routing.execution"
-title = "Action Task Timeout"
-description = "Default execution timeout for LLM-backed actions without a dedicated action timeout."
-value_kind = "number"
-importance = "advanced"
-
-[[field]]
-path = "action.llm_action.default_task_profile"
+path = "action.models.bindings"
 surface = "action_routing"
 group = "action_routing.routes"
-title = "Default Task Chain"
-description = "Task profile used by every LLM-backed action without an explicit override."
-value_kind = "reference"
-importance = "advanced"
-reference = { collection = "llm.tasks" }
+title = "Model Use Bindings"
+description = "Bind code-declared consumers to typed LLM task or specialized model uses."
+value_kind = "object_list"
 
 [[field]]
-path = "action.llm_action.overrides"
+path = "action.models.search_policies"
 surface = "action_routing"
 group = "action_routing.routes"
-title = "Action Overrides"
-description = "Explicit Action ID to task-profile bindings that replace the default chain."
+title = "Search Policies"
+description = "Candidate sources, semantic and Context choices, and bounded Search budgets."
 value_kind = "object_list"
 
 [[field]]

@@ -29,14 +29,20 @@ class ReflectionSubmission:
 @dataclass(frozen=True)
 class ReflectionSchedulePlugin:
     id = "reflection_schedule"
+    model_uses = ()
+    search_capabilities = ()
     provides = ()
     requires = (ReflectionSubmission, RuntimeTimer)
     configuration = ()
 
-    async def build_generation(self, context: GenerationBuildContext) -> PluginGeneration:
+    async def build_generation(
+        self, context: GenerationBuildContext
+    ) -> PluginGeneration:
         source = ReflectionScheduler(
-            context.settings.get(ReflectionSettings).schedule, clock=context.clock,
-            timer=context.services.get(RuntimeTimer), submit=context.services.get(ReflectionSubmission).submit,
+            context.settings.get(ReflectionSettings).schedule,
+            clock=context.clock,
+            timer=context.services.get(RuntimeTimer),
+            submit=context.services.get(ReflectionSubmission).submit,
         )
         return PluginGeneration(self.id, sources=(source,))
 
@@ -107,9 +113,14 @@ class ReflectionTimer(Protocol):
 class ReflectionScheduler:
     """Plugin-owned due policy and typed trigger over an injected timer."""
 
-    def __init__(self, settings: ReflectionScheduleSettings, *, clock: CalendarClock,
-                 timer: ReflectionTimer,
-                 submit: Callable[[ReflectionRequest], Awaitable[bool]]) -> None:
+    def __init__(
+        self,
+        settings: ReflectionScheduleSettings,
+        *,
+        clock: CalendarClock,
+        timer: ReflectionTimer,
+        submit: Callable[[ReflectionRequest], Awaitable[bool]],
+    ) -> None:
         self._settings = settings
         self._clock = clock
         self._timer = timer
@@ -117,8 +128,9 @@ class ReflectionScheduler:
         self._schedule: ReflectionSchedule | None = None
         self._pending: tuple[ReflectionRequest, ...] = ()
         self._publish: EventSink | None = None
-        self._status = SourceStatus("reflection.schedule", SourceState.STOPPED,
-                                    topics=("reflection.due",))
+        self._status = SourceStatus(
+            "reflection.schedule", SourceState.STOPPED, topics=("reflection.due",)
+        )
 
     @property
     def status(self) -> SourceStatus:
@@ -128,9 +140,11 @@ class ReflectionScheduler:
         self._publish = publish
         if self._schedule is None:
             self._schedule = ReflectionSchedule(self._settings, now=self._clock.now())
-        self._status = SourceStatus("reflection.schedule",
+        self._status = SourceStatus(
+            "reflection.schedule",
             SourceState.RUNNING if self._settings.enabled else SourceState.DISABLED,
-            topics=("reflection.due",))
+            topics=("reflection.due",),
+        )
         if self._settings.enabled:
             await self._timer.start(self.tick)
 
@@ -147,10 +161,15 @@ class ReflectionScheduler:
             if not await self._submit(request):
                 remaining.append(request)
                 continue
-            await self._publish(EnvironmentEvent(
-                EventKind.TIMER, {"scheduled_day": str(request.scheduled_day)},
-                event_id=request.request_id, topic="reflection.due", source="reflection.schedule",
-            ))
+            await self._publish(
+                EnvironmentEvent(
+                    EventKind.TIMER,
+                    {"scheduled_day": str(request.scheduled_day)},
+                    event_id=request.request_id,
+                    topic="reflection.due",
+                    source="reflection.schedule",
+                )
+            )
         self._pending = tuple(remaining)
         delay = schedule.seconds_until_next(now)
         return min(1.0, delay) if self._pending else delay
@@ -158,5 +177,6 @@ class ReflectionScheduler:
     async def stop(self) -> None:
         await self._timer.stop()
         self._publish = None
-        self._status = SourceStatus("reflection.schedule", SourceState.STOPPED,
-                                    topics=("reflection.due",))
+        self._status = SourceStatus(
+            "reflection.schedule", SourceState.STOPPED, topics=("reflection.due",)
+        )

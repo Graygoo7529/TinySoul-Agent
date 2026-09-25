@@ -175,10 +175,19 @@ async def test_home_search_uses_skill_frontmatter_instead_of_body_heading(
     )
     home = _home(tmp_path)
 
-    result = await home.search_top("pending home changes", top_k=1)
+    from tinysoul.infra.references import ReferenceResolver
+    from tinysoul.kernel.retrieval.contracts import (
+        QueryDiscovery,
+        TextQuery,
+        SearchOptions,
+    )
 
-    assert result.items[0].title == "Daily Home Review"
-    assert result.items[0].summary == "Review pending Home changes."
+    corpus = home.search_corpus(
+        QueryDiscovery(TextQuery("pending home changes"), SearchOptions("skills")),
+        references=ReferenceResolver(),
+    )
+    assert corpus.candidates[0].title == "Daily Home Review"
+    assert "Review pending Home changes." in corpus.candidates[0].text
 
 
 def _home(root: Path) -> AgentHomeEngine:
@@ -193,10 +202,4 @@ def _home(root: Path) -> AgentHomeEngine:
 
 
 def _skill(title: str, description: str, *, heading: str = "Review") -> str:
-    return (
-        "---\n"
-        f"title: {title}\n"
-        f"description: {description}\n"
-        "---\n\n"
-        f"# {heading}\n"
-    )
+    return f"---\ntitle: {title}\ndescription: {description}\n---\n\n# {heading}\n"

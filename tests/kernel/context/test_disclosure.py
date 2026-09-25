@@ -5,23 +5,40 @@ import pytest
 from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.context import ContextEngineBuilder, build_trace_phase_note_signal
 from tinysoul.kernel.context.errors import ContextInspectRequestError
+from tinysoul.infra.references import ReferenceResolver
+from tinysoul.kernel.retrieval.contracts import (
+    QueryDiscovery,
+    TextQuery,
+    SearchOptions,
+    SearchMode,
+    CandidateSource,
+)
+from tinysoul.kernel.retrieval.engine import SearchEngine, SearchViews
+from tinysoul.kernel.retrieval.policy import SearchPolicy
 from tinysoul.runtime import RunLevel, RunScope, SignalBus
 
 
 async def test_trace_navigation_query_and_stable_refs_across_folding() -> None:
-    context = (ContextEngineBuilder(system_text="test")
-               .with_trace_heap(chunk_max_chars=150, branch_factor=2, min_hot_entries=0)
-               .with_trace_inspect_max_chars(2048).build())
+    context = (
+        ContextEngineBuilder(system_text="test")
+        .with_trace_heap(chunk_max_chars=150, branch_factor=2, min_hot_entries=0)
+        .with_trace_inspect_max_chars(2048)
+        .build()
+    )
     turn_id = context.begin_turn("follow clues")
     await context.open_segments(date(2026, 9, 20))
     scope = RunScope().push(RunLevel.TURN, turn_id)
     root = f"turn:trace@{turn_id}"
     bus = SignalBus()
     for index in range(12):
-        bus.emit(build_trace_phase_note_signal(
-            {"text": f"evidence-{index}: " + "body " * 100}, scope=scope, source="test",
-            cycle_id=f"cycle_{index}",
-        ))
+        bus.emit(
+            build_trace_phase_note_signal(
+                {"text": f"evidence-{index}: " + "body " * 100},
+                scope=scope,
+                source="test",
+                cycle_id=f"cycle_{index}",
+            )
+        )
     await context.consume_signals(bus)
     found = await context.inspect(root, query="evidence-7:")
     hit = found["items"]
@@ -37,6 +54,21 @@ async def test_trace_navigation_query_and_stable_refs_across_folding() -> None:
     assert await context.inspect(fact_ref) == before
     assert await context.inspect(root, query="evidence-7:") == found
     assert (await context.inspect(fact_ref, query="evidence-8:"))["items"] == []
+
+    request = QueryDiscovery(TextQuery("evidence-7:"), SearchOptions("trace"))
+    corpus = await context.search_corpus(request, references=ReferenceResolver())
+    page = await SearchEngine(views=SearchViews()).search(
+        request,
+        policy=SearchPolicy(
+            "core.context.search",
+            SearchMode.QUERY_DISCOVERY,
+            (CandidateSource.LEXICAL,),
+        ),
+        candidates=corpus.candidates,
+        query=corpus.query,
+    )
+    assert page.items[0].ref == fact_ref
+    assert await context.inspect(page.items[0].ref) == before
 
     # Walk only public child refs, including paginated roots and branches.
     pending = [root]

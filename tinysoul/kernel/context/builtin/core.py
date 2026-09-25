@@ -26,7 +26,13 @@ from ..errors import (
     ContextInspectFailureReason,
     ContextInspectRequestError,
 )
-from ..disclosure import DisclosureHint, DisclosurePage, query_hint
+from ..disclosure import (
+    DisclosureHint,
+    DisclosurePage,
+    DisclosureSearchEntry,
+    DisclosureReference,
+    query_hint,
+)
 from ..segments import (
     ContextSegment,
     ReadOnlySegmentRegistration,
@@ -61,7 +67,14 @@ TRACE = SegmentDescriptor(
     10,
     ref_prefixes=("turn:trace",),
     shape=SegmentShape.STACK,
-    capabilities=frozenset({SegmentCapability.INSPECT, SegmentCapability.QUERY, SegmentCapability.RECLAIM}),
+    capabilities=frozenset(
+        {
+            SegmentCapability.INSPECT,
+            SegmentCapability.QUERY,
+            SegmentCapability.SEARCH,
+            SegmentCapability.RECLAIM,
+        }
+    ),
 )
 PLAN = SegmentDescriptor("plan", "context", SegmentSlot.WORKING, 10)
 JOURNAL = SegmentDescriptor("journal", "context", SegmentSlot.BACKGROUND, 39)
@@ -108,7 +121,9 @@ class InputsSegment:
         candidate = deepcopy(self.state)
         for update in updates:
             candidate.add(
-                update.text, input_id=update.input_id, reply_to=update.reply_to,
+                update.text,
+                input_id=update.input_id,
+                reply_to=update.reply_to,
                 received_at=update.received_at,
             )
         return candidate
@@ -175,7 +190,9 @@ class TraceSegment:
                 )
             elif update.note is not None:
                 candidate.append_phase_note(
-                    update.note, cycle_id=update.cycle_id, phase=update.phase,
+                    update.note,
+                    cycle_id=update.cycle_id,
+                    phase=update.phase,
                     admission_sequence=update.admission_sequence,
                 )
         return candidate
@@ -194,6 +211,44 @@ class TraceSegment:
     def reclaim(self, required_chars: int) -> SegmentReclaim:
         return SegmentReclaim(
             self.state.compact(required_chars=required_chars).reclaimed_chars
+        )
+
+    async def search_entries(
+        self, seed_refs: tuple[str, ...] = ()
+    ) -> tuple[DisclosureSearchEntry, ...]:
+        entries = (
+            self.state.entries()
+            if not seed_refs
+            else tuple(
+                {
+                    entry.entry_id: entry
+                    for ref in seed_refs
+                    for entry in self.state.entries_for_ref(ref)
+                }.values()
+            )
+        )
+        if not seed_refs:
+            canonical = {
+                (action.cycle_id, action.call.call_id)
+                for action in self.state.actions()
+                if action.result is not None
+            }
+            entries = tuple(
+                entry
+                for entry in entries
+                if not isinstance(entry.message, ToolResultMessage)
+                or (entry.cycle_id, entry.message.call_id) not in canonical
+            )
+        return tuple(
+            DisclosureSearchEntry(
+                self.state.entry_ref(entry.entry_id),
+                entry.kind.value,
+                entry.to_semantic(),
+                "trace",
+                references=tuple(DisclosureReference(ref) for ref in entry.origin_refs),
+            )
+            for entry in entries
+            if not _inspect_interaction(entry)
         )
 
     async def inspect(
@@ -223,9 +278,11 @@ class TraceSegment:
                 ref,
                 "context_trace_entry",
                 content=tuple(item.to_semantic() for item in entries),
-                sources=tuple(dict.fromkeys(
-                    source for item in entries for source in item.origin_refs
-                )),
+                sources=tuple(
+                    dict.fromkeys(
+                        source for item in entries for source in item.origin_refs
+                    )
+                ),
             )
         else:
             children = []
@@ -234,16 +291,19 @@ class TraceSegment:
             assert isinstance(nodes, list)
             for node in nodes:
                 assert isinstance(node, dict)
-                children.append(DisclosureHint(
-                    str(node["ref"]), str(node["kind"]), dumps_json(node)
-                ))
+                children.append(
+                    DisclosureHint(
+                        str(node["ref"]), str(node["kind"]), dumps_json(node)
+                    )
+                )
             if ref == self.state.head_ref():
                 entries = self.state.hot_entries()
             elif structure.get("kind") == "context_trace_branch":
                 entries = ()
             children.extend(
                 DisclosureHint(
-                    self.state.entry_ref(item.entry_id), item.kind.value,
+                    self.state.entry_ref(item.entry_id),
+                    item.kind.value,
                     dumps_json(item.to_semantic())[:240],
                 )
                 for item in entries
@@ -344,6 +404,8 @@ def _inspect_interaction(entry: TraceEntry) -> bool:
     message = entry.message
     if isinstance(message, ToolResultMessage):
         return message.tool_name == "core.context.inspect"
-    return isinstance(message, AssistantMessage) and bool(message.tool_calls) and all(
-        call.name == "core.context.inspect" for call in message.tool_calls
+    return (
+        isinstance(message, AssistantMessage)
+        and bool(message.tool_calls)
+        and all(call.name == "core.context.inspect" for call in message.tool_calls)
     )

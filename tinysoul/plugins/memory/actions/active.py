@@ -22,7 +22,11 @@ from tinysoul.runtime import Signal
 
 from ..storage.active import MemoryPatchOperation
 from ..background import MEMORY_CONTEXT_UPDATE
-from ..retrieval.catalog import MemoryInspectRequest
+from tinysoul.infra.continuation import ContinuationError
+from tinysoul.kernel.action.tasks import ActionTaskFactory
+from tinysoul.kernel.retrieval.contracts import SearchContext, SearchFailure
+from tinysoul.kernel.retrieval.operations import SelectionInput
+from tinysoul.kernel.retrieval.requests import parse_search_request
 from ..services import MemoryReadService, MemoryService
 from ..errors import MemoryContractError, MemoryError, MemoryInvariantError
 from ..links import MemoryKind, MemoryLink
@@ -33,6 +37,7 @@ def register_memory_actions(
     *,
     memory: MemoryReadService,
     runtime_bridge: RuntimeMemoryBridge,
+    tasks: ActionTaskFactory | None = None,
 ) -> ActionEngineBuilder:
     if isinstance(memory, MemoryService):
         builder.register_executor(
@@ -42,7 +47,7 @@ def register_memory_actions(
         "memory.inspect", MemoryInspectExecutor(memory, runtime_bridge)
     )
     builder.register_executor(
-        "memory.recall", MemoryRecallExecutor(memory, runtime_bridge)
+        "memory.search", MemorySearchExecutor(memory, runtime_bridge, tasks)
     )
     return builder
 
@@ -101,119 +106,92 @@ class MemoryMemorizeExecutor(ActionExecutor):
         return _success(execution, payload)
 
 
+class MemorySearchExecutor(ActionExecutor):
+    def __init__(
+        self,
+        memory: MemoryReadService,
+        runtime_bridge: RuntimeMemoryBridge,
+        tasks: ActionTaskFactory | None = None,
+    ) -> None:
+        self._memory, self._runtime_bridge, self._tasks = memory, runtime_bridge, tasks
+
+    async def execute(
+        self, execution: ActionExecution, context: ActionExecutionContext
+    ) -> ActionResult:
+        memory = self._memory.using(context.owner_operations)
+        try:
+            request = parse_search_request(
+                execution.call.params, memory.search_policies
+            )
+            inputs = SelectionInput()
+            if not isinstance(request, str) and self._tasks is not None:
+                inputs = await self._tasks.selection_input(
+                    execution,
+                    include_context=request.options.context is SearchContext.CURRENT,
+                    control=context.control,
+                )
+            result = await memory.search(request, inputs=inputs)
+        except SearchFailure as exc:
+            return _failed(execution, str(exc), exc.kind.value)
+        except MemoryContractError as exc:
+            return _failed(execution, str(exc), "invalid_search")
+        except MemoryError as exc:
+            raise self._runtime_bridge.from_memory_error(exc) from exc
+        return _success(
+            execution,
+            result.to_json(),
+            trace_projection=ActionTraceProjection(
+                origin_refs=tuple(item.ref for item in result.items),
+                canonical_payload={
+                    "mode": result.mode.value,
+                    "selected": [item.ref for item in result.items],
+                },
+            ),
+        )
+
+
 class MemoryInspectExecutor(ActionExecutor):
     def __init__(
         self, memory: MemoryReadService, runtime_bridge: RuntimeMemoryBridge
     ) -> None:
-        self._memory = memory
-        self._runtime_bridge = runtime_bridge
+        self._memory, self._runtime_bridge = memory, runtime_bridge
 
     async def execute(
         self, execution: ActionExecution, context: ActionExecutionContext
     ) -> ActionResult:
         memory = self._memory.using(context.owner_operations)
         params = execution.call.params
+        ref, view = params.get("ref"), params.get("view", "content")
+        continuation, max_chars = params.get("continuation"), params.get("max_chars")
+        if (
+            not isinstance(ref, str)
+            or not isinstance(view, str)
+            or (continuation is not None and not isinstance(continuation, str))
+            or (
+                max_chars is not None and (type(max_chars) is not int or max_chars <= 0)
+            )
+        ):
+            return _failed(
+                execution,
+                "Inspect requires a known ref and valid content page options",
+                "invalid_inspect",
+            )
         try:
-            request = _inspect_request(params)
-            result = await memory.inspect(request)
-        except MemoryContractError as exc:
+            result = await memory.inspect(
+                ref, view=view, continuation=continuation, max_chars=max_chars
+            )
+        except (MemoryContractError, SearchFailure, ContinuationError) as exc:
             return _failed(execution, str(exc), "invalid_inspect")
         except MemoryError as exc:
             raise self._runtime_bridge.from_memory_error(exc) from exc
-        payload = result.to_json()
-        refs: tuple[str, ...] = ()
-        if request.memory_link is not None:
-            refs = (str(request.memory_link),)
         return _success(
             execution,
-            payload,
+            result,
             trace_projection=ActionTraceProjection(
-                origin_refs=refs,
-                canonical_payload={
-                    "mode": result.mode,
-                    "candidate_count": result.candidate_count,
-                    "selected": [item.link for item in result.items],
-                },
+                origin_refs=(ref,),
+                canonical_payload={"ref": ref, "view": view},
             ),
         )
-
-
-class MemoryRecallExecutor(ActionExecutor):
-    def __init__(
-        self, memory: MemoryReadService, runtime_bridge: RuntimeMemoryBridge
-    ) -> None:
-        self._memory = memory
-        self._runtime_bridge = runtime_bridge
-
-    async def execute(
-        self, execution: ActionExecution, context: ActionExecutionContext
-    ) -> ActionResult:
-        memory = self._memory.using(context.owner_operations)
-        link = execution.call.params.get("memory_link")
-        if not isinstance(link, str) or not link:
-            return _failed(
-                execution, "memory.recall requires memory_link", "invalid_link"
-            )
-        try:
-            result = await memory.recall(link)
-        except MemoryContractError as exc:
-            return _failed(execution, str(exc), "invalid_or_missing_memory")
-        except MemoryInvariantError as exc:
-            raise self._runtime_bridge.from_memory_error(exc) from exc
-        except MemoryError as exc:
-            raise self._runtime_bridge.from_memory_error(exc) from exc
-        payload = to_json_object(
-            {
-                "link": result.link,
-                "kind": result.kind,
-                "cite": result.cite,
-                "metadata": result.metadata,
-                "markdown": result.content,
-                "resolution_chain": list(result.resolution_chain),
-            }
-        )
-        return _success(
-            execution,
-            payload,
-            trace_projection=ActionTraceProjection(
-                origin_refs=(result.link,),
-                canonical_payload={
-                    "link": result.link,
-                    "kind": result.kind,
-                    "resolution_chain": list(result.resolution_chain),
-                },
-            ),
-        )
-
-
-def _inspect_request(params: JsonObject) -> MemoryInspectRequest:
-    query = params.get("query")
-    raw_link = params.get("memory_link")
-    link = MemoryLink.parse(raw_link) if isinstance(raw_link, str) else None
-    raw_kinds = params.get("kinds", [])
-    if not isinstance(raw_kinds, list) or any(
-        not isinstance(item, str) for item in raw_kinds
-    ):
-        raise MemoryContractError("memory.inspect kinds must be a list of strings")
-    try:
-        kinds = tuple(MemoryKind(item) for item in raw_kinds)
-    except ValueError as exc:
-        raise MemoryContractError("memory.inspect contains an invalid kind") from exc
-    limit = params.get("limit")
-    continuation = params.get("continuation")
-    if continuation is not None and not isinstance(continuation, str):
-        raise MemoryContractError("memory.inspect continuation must be text")
-    if query is not None and not isinstance(query, str):
-        raise MemoryContractError("memory.inspect query must be text")
-    if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int)):
-        raise MemoryContractError("memory.inspect limit must be an integer")
-    return MemoryInspectRequest(
-        query=query,
-        memory_link=link,
-        kinds=kinds,
-        limit=limit,
-        continuation=continuation,
-    )
 
 
 def _success(

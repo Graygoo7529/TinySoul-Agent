@@ -39,7 +39,7 @@ def test_load_builtin_catalog() -> None:
     ):
         action = catalog.get_action(identity)
         assert catalog.has_domain(action.domain)
-        assert action.backend.handler == identity
+        assert action.execution.executor == identity
         assert action.tool.schema["type"] == "object"
     assert catalog.get_action("execution.run_script").tool.schema["required"] == [
         "interpreter",
@@ -56,9 +56,9 @@ def test_load_project_documents_preserves_sources_and_timeout_provenance(
     copy_initialized_project(root)
     environment = ConfigEnvironment.from_project_root(root, env={})
 
-    loaded = ActionCatalogLoader(
-        llm_action_timeout_seconds=300.0,
-    ).load_documents(environment.document_set("action.catalog"))
+    loaded = ActionCatalogLoader().load_documents(
+        environment.document_set("action.catalog")
+    )
 
     assert loaded.catalog.has_action("workspace.read")
     assert loaded.documents.domains["workspace"].source_id == (
@@ -123,11 +123,9 @@ def test_action_runtime_rejects_retired_enabled_field(value: object) -> None:
     assert raised.value.key == "action.runtime.enabled"
 
 
-def test_llm_action_timeout_default_applies_only_without_dedicated_timeout() -> None:
+def test_explicit_action_timeouts_override_domain_timeout() -> None:
     with builtin_action_catalog_root() as root:
-        catalog = ActionCatalogLoader(
-            llm_action_timeout_seconds=300.0,
-        ).load(root)
+        catalog = ActionCatalogLoader().load(root)
 
     assert catalog.get_action("core.answer").runtime.timeout_seconds == 600.0
     assert catalog.get_action("core.reason").runtime.timeout_seconds == 600.0
@@ -135,15 +133,6 @@ def test_llm_action_timeout_default_applies_only_without_dedicated_timeout() -> 
     assert catalog.get_action("workspace.compose").runtime.timeout_seconds == 600.0
     assert catalog.get_action("workspace.analyze").runtime.timeout_seconds == 600.0
     assert catalog.get_action("workspace.read").runtime.timeout_seconds == 30.0
-
-
-@pytest.mark.parametrize("value", (0, -1, float("inf"), float("nan")))
-def test_catalog_loader_rejects_invalid_llm_action_timeout(value: float) -> None:
-    with pytest.raises(ConfigError) as raised:
-        ActionCatalogLoader(llm_action_timeout_seconds=value)
-
-    assert raised.value.key == "action.llm_action.timeout_seconds"
-    assert raised.value.expected == "positive finite number"
 
 
 @pytest.mark.parametrize("value", (0, -1, float("inf"), float("nan")))
@@ -225,9 +214,8 @@ type = "object"
 required = []
 additionalProperties = false
 
-[backend]
-kind = "native"
-handler = "{action_name}"
+[execution]
+executor = "{action_name}"
 """,
         encoding="utf-8",
     )
@@ -269,7 +257,7 @@ def test_action_runtime_inherits_domain_parallel_policy_when_omitted() -> None:
                     "execute": ["action_execute"],
                 }
             },
-            "backend": {"kind": "native", "handler": "x.action"},
+            "execution": {"executor": "x.action"},
         },
         source="x/action.toml",
         default_runtime=default_runtime,
@@ -340,7 +328,7 @@ def test_unsupported_action_schema_keyword_raises_config_error() -> None:
                         "additionalProperties": False,
                     },
                 },
-                "backend": {"kind": "native", "handler": "x.action"},
+                "execution": {"executor": "x.action"},
             },
             source="x/action.toml",
         )

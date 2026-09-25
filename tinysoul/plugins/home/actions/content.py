@@ -24,7 +24,13 @@ from ..errors import (
     AgentHomeInvariantError,
     AgentHomeRuntimeCopyRequired,
 )
-from ..content.search import HomeSearchReranker
+from tinysoul.kernel.action.tasks import ActionTaskFactory
+from tinysoul.kernel.action import ActionTraceProjection
+from tinysoul.kernel.retrieval.requests import parse_search_request
+from tinysoul.kernel.retrieval.operations import SelectionInput
+from tinysoul.kernel.retrieval.contracts import SearchFailure, SearchContext
+from tinysoul.infra.continuation import ContinuationError
+from tinysoul.infra.references import ReferenceError
 
 
 def register_home_actions(
@@ -32,21 +38,21 @@ def register_home_actions(
     *,
     home: HomeService,
     runtime_bridge: RuntimeAgentHomeBridge,
-    search_reranker: HomeSearchReranker | None = None,
+    tasks: ActionTaskFactory | None = None,
 ) -> ActionEngineBuilder:
     """Register Agent Home action executors on an action builder."""
 
     builder.register_executor(
-        "home.top.search",
-        HomeTopSearchExecutor(
+        "home.search",
+        HomeSearchExecutor(
             home,
-            reranker=search_reranker,
+            tasks=tasks,
             runtime_bridge=runtime_bridge,
         ),
     )
     builder.register_executor(
-        "home.resource.read",
-        HomeResourceReadExecutor(home, runtime_bridge=runtime_bridge),
+        "home.inspect",
+        HomeInspectExecutor(home, runtime_bridge=runtime_bridge),
     )
     builder.register_executor(
         "home.resource.write",
@@ -83,55 +89,35 @@ def register_home_actions(
     return builder
 
 
-class HomeTopSearchExecutor(ActionExecutor):
-    """Search bounded effective Home top metadata."""
-
+class HomeSearchExecutor(ActionExecutor):
     def __init__(
         self,
         home: HomeService,
         *,
-        reranker: HomeSearchReranker | None = None,
+        tasks: ActionTaskFactory | None = None,
         runtime_bridge: RuntimeAgentHomeBridge | None = None,
     ) -> None:
-        self._home = home
-        self._reranker = reranker
+        self._home, self._tasks = home, tasks
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
     async def execute(
-        self,
-        execution: ActionExecution,
-        context: ActionExecutionContext,
+        self, execution: ActionExecution, context: ActionExecutionContext
     ) -> ActionResult:
         home = self._home.using(context.owner_operations)
-        query = execution.call.params.get("query")
-        top_k = execution.call.params.get("top_k")
-        if not isinstance(query, str) or not query.strip():
-            return _failed(
-                execution,
-                "home.top.search requires a non-empty 'query' parameter.",
-                reason="invalid_query",
-            )
-        if top_k is not None and (
-            isinstance(top_k, bool) or not isinstance(top_k, int)
-        ):
-            return _failed(
-                execution,
-                "home.top.search top_k must be an integer.",
-                reason="invalid_top_k",
-            )
         try:
-            result = await home.search_top(
-                query,
-                top_k=top_k if isinstance(top_k, int) else None,
-                reranker=self._reranker,
-                scope=execution.framework.scope,
-            )
-        except AgentHomeContractError:
-            return _failed(
-                execution,
-                "Home top search request rejected; check the Link and current content.",
-                reason="top_search_failed",
-            )
+            request = parse_search_request(execution.call.params, home.search_policies)
+            inputs = SelectionInput()
+            if not isinstance(request, str) and self._tasks:
+                inputs = await self._tasks.selection_input(
+                    execution,
+                    include_context=request.options.context is SearchContext.CURRENT,
+                    control=context.control,
+                )
+            page = await home.search(request, inputs=inputs)
+        except SearchFailure as exc:
+            return _failed(execution, str(exc), reason=exc.kind.value)
+        except AgentHomeContractError as exc:
+            return _failed(execution, str(exc), reason="invalid_search")
         except AgentHomeError as exc:
             raise self._runtime_bridge.from_home_error(exc) from exc
         return ActionResult.success(
@@ -141,107 +127,68 @@ class HomeTopSearchExecutor(ActionExecutor):
             action_name=execution.call.action_name,
             sequence=execution.call.sequence,
             domain=execution.framework.domain,
-            payload={
-                "query": result.query,
-                "top_k": result.top_k,
-                "candidate_count": result.candidate_count,
-                "reranked": result.reranked,
-                "items": [item.to_json() for item in result.items],
-            },
-        )
-
-
-class HomeResourceReadExecutor(ActionExecutor):
-    """Read a bounded Agent Home progressive resource."""
-
-    def __init__(
-        self,
-        home: HomeService,
-        runtime_bridge: RuntimeAgentHomeBridge | None = None,
-    ) -> None:
-        self._home = home
-        self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
-
-    async def execute(
-        self,
-        execution: ActionExecution,
-        context: ActionExecutionContext,
-    ) -> ActionResult:
-        home = self._home.using(context.owner_operations)
-        link = execution.call.params.get("link")
-        if not isinstance(link, str) or not link:
-            return self._failed(
-                execution,
-                "home.resource.read requires a non-empty 'link' parameter.",
-                reason="missing_link",
-            )
-        max_chars = execution.call.params.get("max_chars")
-        if max_chars is not None and (
-            isinstance(max_chars, bool)
-            or not isinstance(max_chars, int)
-            or max_chars <= 0
-        ):
-            return self._failed(
-                execution,
-                "home.resource.read max_chars must be a positive integer.",
-                reason="invalid_max_chars",
-            )
-        try:
-            result = await home.read_resource(
-                link,
-                max_chars=max_chars if isinstance(max_chars, int) else None,
-            )
-        except AgentHomeRuntimeCopyRequired as exc:
-            raise self._runtime_bridge.runtime_copy_required(
-                link=exc.link,
-                payload=exc.to_payload(),
-            ) from exc
-        except AgentHomeContractError:
-            return self._failed(
-                execution,
-                "Home resource read request rejected; check the Link and current content.",
-                reason="resource_read_failed",
-            )
-        except AgentHomeError as exc:
-            raise self._runtime_bridge.from_home_error(exc) from exc
-        return ActionResult.success(
-            call_id=execution.call.call_id,
-            invoke_id=execution.framework.invoke_id,
-            batch_id=execution.framework.batch_id,
-            action_name=execution.call.action_name,
-            sequence=execution.call.sequence,
-            domain=execution.framework.domain,
-            payload={
-                "link": result.link,
-                "text": result.text,
-                "truncated": result.truncated,
-                "digest": result.digest,
-            },
-        )
-
-    def _failed(
-        self,
-        execution: ActionExecution,
-        model_feedback: str,
-        *,
-        reason: str,
-        frame_data: JsonObject | None = None,
-    ) -> ActionResult:
-        return ActionResult.failed(
-            call_id=execution.call.call_id,
-            invoke_id=execution.framework.invoke_id,
-            batch_id=execution.framework.batch_id,
-            action_name=execution.call.action_name,
-            stage=ActionResultStage.EXECUTE,
-            sequence=execution.call.sequence,
-            domain=execution.framework.domain,
-            failure=ActionLocalFailure(
-                reason=reason,
-                scope="home.action",
-                disposition=ActionFailureDisposition.CHANGE_REQUEST,
-                feedback=model_feedback,
+            payload=page.to_json(),
+            trace_projection=ActionTraceProjection(
+                origin_refs=tuple(item.ref for item in page.items),
+                canonical_payload={
+                    "mode": page.mode.value,
+                    "selected": [item.ref for item in page.items],
+                },
             ),
-            frame_data=frame_data,
+        )
+
+
+class HomeInspectExecutor(ActionExecutor):
+    def __init__(
+        self, home: HomeService, *, runtime_bridge: RuntimeAgentHomeBridge | None = None
+    ) -> None:
+        self._home = home
+        self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
+
+    async def execute(
+        self, execution: ActionExecution, context: ActionExecutionContext
+    ) -> ActionResult:
+        home = self._home.using(context.owner_operations)
+        params = execution.call.params
+        ref, view = params.get("ref"), params.get("view", "content")
+        continuation, max_chars = params.get("continuation"), params.get("max_chars")
+        if (
+            not isinstance(ref, str)
+            or not isinstance(view, str)
+            or (continuation is not None and not isinstance(continuation, str))
+            or (
+                max_chars is not None and (type(max_chars) is not int or max_chars <= 0)
+            )
+        ):
+            return _failed(
+                execution,
+                "Inspect requires a known ref and valid page options",
+                reason="invalid_inspect",
+            )
+        try:
+            page = await home.inspect(
+                ref, view=view, continuation=continuation, max_chars=max_chars
+            )
+        except (
+            SearchFailure,
+            ContinuationError,
+            AgentHomeContractError,
+            ReferenceError,
+        ) as exc:
+            return _failed(execution, str(exc), reason="invalid_inspect")
+        except AgentHomeError as exc:
+            raise self._runtime_bridge.from_home_error(exc) from exc
+        return ActionResult.success(
+            call_id=execution.call.call_id,
+            invoke_id=execution.framework.invoke_id,
+            batch_id=execution.framework.batch_id,
+            action_name=execution.call.action_name,
+            sequence=execution.call.sequence,
+            domain=execution.framework.domain,
+            payload=page,
+            trace_projection=ActionTraceProjection(
+                origin_refs=(ref,), canonical_payload={"ref": ref, "view": view}
+            ),
         )
 
 

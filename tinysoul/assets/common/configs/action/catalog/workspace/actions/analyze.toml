@@ -35,6 +35,5 @@ parallel_policy = "serial"
 normalize = []
 execute = []
 
-[backend]
-kind = "llm_action"
-handler = "workspace.analyze"
+[execution]
+executor = "workspace.analyze"

@@ -2,24 +2,27 @@ name = "expand.search"
 domain = "expand"
 
 [tool]
-description = "Select relevant MCP tools for a non-empty request using one bounded model task. Narrow server_ids when requested."
+description = "Select relevant MCP tools from the declared server/tool directory using one bounded model task. Narrow scope when requested."
 
 [tool.schema]
 type = "object"
-required = ["query"]
+required = ["query", "scope"]
 additionalProperties = false
 
 [tool.schema.properties.query]
 type = "string"
 
-[tool.schema.properties.server_ids]
-type = "array"
-items = { type = "string" }
+[tool.schema.properties.scope]
+type = "string"
+description = "all, or server:<server_id> to restrict the candidate directory."
+
+[tool.schema.properties.filters]
+type = "object"
+description = "Explicit equality/membership filters: server_id and tool_name. A scalar or a nonempty scalar array is accepted."
 
 [semantic]
-use_when = ["Select relevant MCP tools for a non-empty request using one bounded model task. Narrow server_ids when requested."]
+use_when = ["Select relevant MCP tools for a non-empty request using one bounded model task. Narrow server scope when requested."]
 effects = ["read_only"]
 
-[backend]
-kind = "llm_action"
-handler = "expand.search"
+[execution]
+executor = "expand.search"

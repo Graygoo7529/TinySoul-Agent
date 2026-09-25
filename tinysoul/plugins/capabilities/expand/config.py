@@ -76,7 +76,6 @@ class ExpandSettings:
     max_result_bytes: int = 8_000_000
     max_inline_chars: int = 16000
     search_max_chars: int = 60000
-    search_max_results: int = 8
     page_size: int = 30
 
     def __post_init__(self) -> None:
@@ -95,7 +94,6 @@ class ExpandSettings:
             "max_result_bytes",
             "max_inline_chars",
             "search_max_chars",
-            "search_max_results",
             "page_size",
         ):
             if type(getattr(self, name)) is not int or getattr(self, name) <= 0:
@@ -118,7 +116,6 @@ def parse_expand_settings(tree: Mapping[str, object]) -> ExpandSettings:
         "max_result_bytes",
         "max_inline_chars",
         "search_max_chars",
-        "search_max_results",
         "page_size",
     )
     reject_unknown_keys(

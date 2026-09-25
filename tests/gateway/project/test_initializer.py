@@ -34,7 +34,7 @@ def test_cli_init_copies_editable_project_without_provider_selection(
         assert _tree_snapshot(root / "configs" / "action" / "catalog") == (
             _tree_snapshot(package_catalog)
         )
-    assert (root / "configs" / "infra" / "embedding.toml").is_file()
+    assert (root / "configs" / "infra" / "model_services.toml").is_file()
     assert not (root / "tinysoul" / "action" / "catalog").exists()
     assert (root / ".env.example").is_file()
     assert (root / "README.md").is_file()

@@ -3,7 +3,7 @@
 from .active import (
     MemoryInspectExecutor,
     MemoryMemorizeExecutor,
-    MemoryRecallExecutor,
+    MemorySearchExecutor,
     register_memory_actions,
 )
 from .write import (

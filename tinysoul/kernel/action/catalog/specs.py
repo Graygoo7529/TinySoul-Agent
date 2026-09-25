@@ -27,14 +27,6 @@ class ActionParallelPolicy(StrEnum):
     SERIAL = "serial"
 
 
-class ActionBackendKind(StrEnum):
-    """Supported action execution backends."""
-
-    NATIVE = "native"
-    SUBPROCESS = "subprocess"
-    LLM_ACTION = "llm_action"
-
-
 @dataclass(frozen=True)
 class ActionVisibilitySpec:
     """Scenario visibility defaults declared by an Action owner."""
@@ -202,19 +194,14 @@ class ActionRuntimeSpec:
 
 
 @dataclass(frozen=True)
-class ActionBackendSpec:
-    """Framework-only action execution backend configuration."""
+class ActionExecutionSpec:
+    """Framework-only binding to a registered Action executor."""
 
-    kind: ActionBackendKind
-    handler: str
+    executor: str
     options: JsonObject = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if not isinstance(self.kind, ActionBackendKind):
-            raise ActionInvariantError(
-                "ActionBackendSpec.kind must be an ActionBackendKind"
-            )
-        _require_name(self.handler, field="ActionBackendSpec.handler")
+        _require_name(self.executor, field="ActionExecutionSpec.executor")
         object.__setattr__(self, "options", to_json_object(self.options))
 
 
@@ -227,7 +214,7 @@ class ActionSpec:
     tool: ActionToolSpec
     semantic: ActionSemanticSpec
     runtime: ActionRuntimeSpec
-    backend: ActionBackendSpec
+    execution: ActionExecutionSpec
     visibility: ActionVisibilitySpec = field(default_factory=ActionVisibilitySpec)
 
     def __post_init__(self) -> None:

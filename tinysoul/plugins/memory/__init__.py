@@ -3,7 +3,7 @@
 from .actions import (
     MemoryInspectExecutor,
     MemoryMemorizeExecutor,
-    MemoryRecallExecutor,
+    MemorySearchExecutor,
     register_memory_actions,
 )
 from .storage.active import ActiveMemoryDocument, MemoryPatchKind, MemoryPatchOperation
@@ -14,10 +14,6 @@ from .background import (
 from .retrieval.catalog import (
     MemoryCatalogEntry,
     MemoryCatalogSnapshot,
-    MemoryInspectItem,
-    MemoryInspectRequest,
-    MemoryInspectResult,
-    MemorySemanticSearch,
 )
 from .config import (
     MemoryDocumentSettings,
@@ -39,7 +35,7 @@ from .documents import (
     StoredMemoryDocument,
     inline_memory_links,
 )
-from .engine import MemoryEngine, MemoryRecallResult
+from .engine import MemoryEngine
 from .errors import (
     MemoryContractError,
     MemoryError,
@@ -68,9 +64,6 @@ __all__ = [
     "MemoryFailureKind",
     "MemoryIOError",
     "MemoryInspectExecutor",
-    "MemoryInspectItem",
-    "MemoryInspectRequest",
-    "MemoryInspectResult",
     "MemoryInspectSettings",
     "MemorySemanticSearchSettings",
     "MemoryInvariantError",
@@ -79,9 +72,7 @@ __all__ = [
     "MemoryMemorizeExecutor",
     "MemoryPatchKind",
     "MemoryPatchOperation",
-    "MemoryRecallExecutor",
-    "MemoryRecallResult",
-    "MemorySemanticSearch",
+    "MemorySearchExecutor",
     "MemorySettings",
     "MemoryStatus",
     "NoteMemoryDocument",

@@ -20,11 +20,11 @@ Reflection Turn：同一个 Agent 的专门执行情景，与 User Turn 同级�
 2. Phase2 在已选域内生成并归一化 ActionCall；模型只看到这些域内的 Action Tools。
 3. Phase3 组装并执行 ActionBatch，把结构化结果反馈到当前 Turn。
 
-LLM Task：一次独立模型调用。上层提供已经构造好的 MessageStack、TaskPrompt、模型工具作用域和输出约束；LLM 负责模型选择、供应商适配、重试与解释，不选择或执行业务 Action、不修改 Context。
+LLM Task：一次独立生成模型调用。上层提供已经构造好的 MessageStack、TaskPrompt、模型工具作用域和输出约束；LLM 负责模型选择、供应商适配、重试与解释，不选择或执行业务 Action、不修改 Context。LLMTaskRunner.invoke 提供可组合结果与模块失败，run 复用相同调用并增加 Runtime bridge。Embedding/JEV 使用 infra.model_services 的 typed 输入输出；业务 owner 决定模型用途、Context 和候选语义。
 
 TaskPrompt：只服务当前 LLM Task 的临时提示层，包含引导、输入和期望输出。Phase2 可挂载 domain Skill；Action 内部任务可同时挂载 domain/action Skill。目标与参考资源在所属 Action 内局部解析，不自动进入通用 Context。
 
-Action：一次模型可选择、具有模型语义和执行策略的行动。每次调用在所属批次内收敛；成功、失败、超时返回局部结果，取消、未执行和结果未知保留类型化执行事实，不伪造工具结果。需要跨 Cycle 监督的执行由 Job 承载；启动、检查、回应、等待或停止仍是独立 Action。
+Action：一次模型可选择、具有模型语义和执行策略的行动。execution.executor 绑定业务实现，runtime 管理唯一总时限和批次策略；宿主内执行、受控进程和模型依赖由实现组合。代码声明 model-use，配置选择实现与 target，ActionCall 不指定任意 provider/model。每次调用在所属批次内收敛；成功、失败、超时返回局部结果，取消、未执行和结果未知保留类型化执行事实，不伪造工具结果。需要跨 Cycle 监督的执行由 Job 承载；启动、检查、回应、等待或停止仍是独立 Action。
 
 Job：属于唯一 Turn 的后台工作，可跨 Cycle，不能跨所属 Turn。kernel/jobs 监督状态、结果与待答，backend 持有实际执行资源；异步协议不等于所有行动都在后台。即时 shell/script 仍可等待结果后返回，长执行可启动 Job。Turn 收尾先停止并收集 Job，再提交必要事实和释放 session；执行终态与资源释放分开。
 
@@ -50,6 +50,8 @@ Context 只属于一个活动 Turn。Kernel 按 Background、Trace、Working 三
 
 渐进披露以稳定 ref、标题、线索和直接入口引导按需读取。Trace 与 Session 共用 DisclosurePage/continuation；`core.context.inspect` 只读，query 在指定范围做确定性定位，不调用额外模型或永久展开 Background。完整 inspect 结果进入一次实际返回的决策模型请求后才允许折叠；容量拒绝不能解除保护。分页绑定实际读取内容，单纯背景折叠及无关注释变化不使未变页面失效。
 
+Search 按 query discovery、seed refinement、backlink search 区分候选来源；Stage2 只选择已登记模式和业务参数，模型实现及 provider 由用途配置决定。seed 的显式 scope/filter 只定义资格，相关性由必需的 LLM/JEV selector 判断，不做隐藏词法或向量预筛；rank 保留候选，select 可以排除并返回空集。反链必须来自真实引用边，边归来源 owner，目标身份归目标 owner。Search 结果分页绑定 Turn/profile 或 SDK 服务 lease，辅助模型调用不解除 Inspect 展示保护。
+
 Session 的地图和交互正文共用一个背景预算，只在自身高水位响应回收。先保留完整多轮交互，超限才明确摘录/折叠；问题、完整选项和关联回复不能被拆成孤立选择。最低投影保留事实与解释目录，同一轮刷新沿用已缩减预算。
 
 ### 资源与持久化
@@ -66,7 +68,7 @@ Workspace 是当日可操作资源空间。磁盘是内容事实，manifest 是�
 
 Home 持有身份规约、用户偏好、通用 Skill 和行动指导。actual Home 是已接受基线；普通 Turn 的修改写入跨日 runtime overlay，形成 effective Home，只有 Home Reflection 的受约束 review 服务能接受回 actual Home。审核来源 token 保护真正的 review 语义，与 Workspace 不使用 CAS 不冲突。
 
-Memory 持有活动 Memory.md、五类持久 Markdown、Link/codec、catalog、backlinks 与可重建 embedding cache。普通 Turn 在 memory 域通过 memorize 原子 patch 活动记忆、inspect 发现来源、recall 读取完整文档；只有 Memory Reflection 的写服务可提交持久文档。每次 write_daily/write 原子替换单个完整文档，引用目标须先存在，不建立多文档 draft/commit/journal。已有 daily 可重组和补充，无严格冻结语义；既有持久 Link 不 hard delete，迁移说明与 redirect 由 Memory 校验。
+ Memory 持有活动 Memory.md、五类持久 Markdown、Link/codec、catalog、backlinks 与可重建 embedding cache。普通 Turn 在 memory 域通过 memorize 原子 patch 活动记忆、search 发现候选、inspect 读取已知文档内容和 direct refs；search 的 backlink 模式查询真实入边，inspect 不包含 backlinks。只有 Memory Reflection 的写服务可提交持久文档。每次 write_daily/write 原子替换单个完整文档，引用目标须先存在，不建立多文档 draft/commit/journal。已有 daily 可重组和补充，无严格冻结语义；既有持久 Link 不 hard delete，迁移说明与 redirect 由 Memory 校验。
 
 Session 持有当日已完成 User Turn 的不可变事实，以及单独的有来源语义注释。事实的 contains/precedes/replies_to/references 确定性派生；解释的 thread/note、成员和推导关系只由 User Turn 内 `core.session.organize` 原子修改。语义图允许共享与回路，森林只是导航投影，不另存树。修订/撤回保留稳定身份，不改写事实；合流创建新解释入口，保留旧分支。当前已接受输入或已结算 Action 可作补充证据，不能提前成为历史成员。Session 不承担通用日志、前端审计或跨日语义图职责。
 
@@ -102,10 +104,10 @@ SDK 服务绑定运行世代，日级服务同时绑定 CalendarDay；切换后�
 
 ### 模块职责
 
-- `infra`：配置来源、JSON、文件、动态校验、时钟、HTTP 和受控进程等无业务设施；不拥有业务失败恢复。
+- `infra`：配置来源、JSON、文件、动态校验、时钟、HTTP、受控进程、标准 Markdown 引用语法及专用模型 typed 协议等无业务设施。ModelServices 持 generation 共享客户端，Home/Memory 各自拥有可重建向量索引；不拥有业务失败恢复或 Runtime bridge。
 - `runtime`：运行位置、Trap/transfer、Signal、环境 envelope 和 Observation；不导入上层业务、不执行 Action 或访问业务存储。
 - `llm`：统一消息/工具、模型选择、供应商适配、重试和输出解释。
-- `kernel`：唯一 Turn/Cycle/Phase 骨架；action 负责 catalog、参数归一化、批次/timeout/hook；context 负责段组合、控制意图和本轮事实；jobs 负责 Turn-owned 监督。
+- `kernel`：唯一 Turn/Cycle/Phase 骨架；action 负责 catalog、参数归一化、批次/timeout/hook 与模型用途绑定；context 负责段组合、控制意图和本轮事实；retrieval 组合有界候选、选择/排序与生命周期内分页，不拥有来源存储；jobs 负责 Turn-owned 监督。
 - `plugins`：Session、Workspace、Home、Memory 等事实 owner 及 Reflection/Archive 协作。每个插件暴露单一组装门面，实际服务权限由情景授予。
 - `plugins/execution`：真实 Workspace 上的 shell/script/process 能力；监督复用 kernel/jobs，进程控制复用 infra/process。
 - `plugins/capabilities`：Web、资源、ACP subagent、MCP expand 等外围能力。可以持有 Agent 生命周期管理的 I/O 资源与派生目录，不另建调度器或与核心 owner 平行的持久事实。
@@ -120,7 +122,7 @@ SDK 服务绑定运行世代，日级服务同时绑定 CalendarDay；切换后�
 - 当前证据快照纯读取，不调用 seal_trace 或 end_turn，不对已结算 Action 子集重新编号。Session 解释引用映射，Kernel 不解释语义图。
 - User/Home Reflection 默认加载受保护的 memory:current/latest；Memory Reflection 加载目标来源的 target/latest，latest 严格早于来源日，缺失时省略。
 - 普通对话不取得持久 Memory、actual Home 或 Reflection 专属写权限。SessionOrganizeService 只注入 User；SDK SessionService 与 Reflection 保持只读，无外部 Session 编辑 HTTP 接口。
-- MCP expand 的 describe_servers/describe_tools/search/call 共用目录。自然语言检索是一次有界 LLM 选择，超容量由父 Agent 缩小服务范围；MCP 配置支持 stdio 与 Streamable HTTP。ACP 显式连接后委派，空闲连接可跨 Turn 复用；Job 不跨 Turn，结束先停止 Job 再释放协议 session。
+- MCP expand 的 describe_servers/describe_tools/search/call 共用目录。自然语言检索是已登记 SearchPolicy 约束下的一次有界 LLM/JEV 候选精炼，Stage2 只能选择有限 scope、mode 和参数，超容量由父 Agent 缩小服务范围；MCP 配置支持 stdio 与 Streamable HTTP。ACP 显式连接后委派，空闲连接可跨 Turn 复用；Job 不跨 Turn，结束先停止 Job 再释放协议 session。
 - 原生 watcher 只提供线索，Workspace owner 统一正式写入与外部变化，提交后发布事件；Context 在固定批次刷新。只监听活动 Workspace，来源故障停止并有限反馈，正式操作继续；不构建自动恢复状态机。日切/重载先停止并 join 来源，再切换绑定。
 
 ### 失败与控制流

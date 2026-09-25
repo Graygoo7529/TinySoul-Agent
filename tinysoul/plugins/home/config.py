@@ -12,66 +12,30 @@ from tinysoul.infra.config import ConfigError, reject_unknown_keys
 DEFAULT_MAX_READ_CHARS = 4000
 DEFAULT_MAX_WRITE_CHARS = 16000
 DEFAULT_SKILL_CATALOG_MAX_CHARS = 8000
-DEFAULT_SEARCH_CANDIDATE_LIMIT = 20
-DEFAULT_SEARCH_TOP_K = 5
-DEFAULT_SEARCH_MAX_TOP_K = 10
-DEFAULT_SEARCH_PREFIX_MAX_CHARS = 1200
-DEFAULT_SEARCH_SUMMARY_MAX_CHARS = 320
 
 
 @dataclass(frozen=True)
 class HomeSearchSettings:
-    """Bounded effective Home top search settings."""
+    """Owner source budgets and its optional shared vector dependency."""
 
-    candidate_limit: int = DEFAULT_SEARCH_CANDIDATE_LIMIT
-    default_top_k: int = DEFAULT_SEARCH_TOP_K
-    max_top_k: int = DEFAULT_SEARCH_MAX_TOP_K
-    prefix_max_chars: int = DEFAULT_SEARCH_PREFIX_MAX_CHARS
-    summary_max_chars: int = DEFAULT_SEARCH_SUMMARY_MAX_CHARS
+    scan_limit: int = 1_000
+    resource_max_chars: int = 128_000
+    embedding_use: str | None = None
+    embedding_cache_max_chars: int = 16_000_000
 
     def __post_init__(self) -> None:
-        for name in (
-            "candidate_limit",
-            "default_top_k",
-            "max_top_k",
-            "prefix_max_chars",
-            "summary_max_chars",
-        ):
+        for name in ("scan_limit", "resource_max_chars", "embedding_cache_max_chars"):
             value = getattr(self, name)
-            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            if type(value) is not int or value < 1:
                 raise ConfigError(
-                    "Agent Home search setting must be positive",
-                    key=f"home.search.{name}",
-                    value=value,
-                    expected="positive int",
+                    "Home source budget must be positive", key=f"home.search.{name}"
                 )
-        if self.default_top_k > self.max_top_k:
+        if self.embedding_use is not None and (
+            not isinstance(self.embedding_use, str) or not self.embedding_use.strip()
+        ):
             raise ConfigError(
-                "Agent Home search default_top_k cannot exceed max_top_k",
-                key="home.search.default_top_k",
-                value=self.default_top_k,
-                expected="int <= max_top_k",
-            )
-        if self.max_top_k > self.candidate_limit:
-            raise ConfigError(
-                "Agent Home search max_top_k cannot exceed candidate_limit",
-                key="home.search.max_top_k",
-                value=self.max_top_k,
-                expected="int <= candidate_limit",
-            )
-        if self.prefix_max_chars < 128:
-            raise ConfigError(
-                "Agent Home search prefix budget is too small",
-                key="home.search.prefix_max_chars",
-                value=self.prefix_max_chars,
-                expected="int >= 128",
-            )
-        if self.summary_max_chars > self.prefix_max_chars:
-            raise ConfigError(
-                "Agent Home search summary budget cannot exceed prefix budget",
-                key="home.search.summary_max_chars",
-                value=self.summary_max_chars,
-                expected="int <= prefix_max_chars",
+                "Home embedding_use must name a logical use",
+                key="home.search.embedding_use",
             )
 
 
@@ -210,41 +174,29 @@ def _parse_search_settings(value: object) -> HomeSearchSettings:
     if value is None:
         return HomeSearchSettings()
     if not isinstance(value, Mapping):
-        raise ConfigError(
-            "Agent Home search configuration must be a table",
-            key="home.search",
-            value=value,
-            expected="table",
-        )
+        raise ConfigError("Home search settings must be a table", key="home.search")
     tree = cast(Mapping[str, object], value)
     reject_unknown_keys(
         tree,
         {
-            "candidate_limit",
-            "default_top_k",
-            "max_top_k",
-            "prefix_max_chars",
-            "summary_max_chars",
+            "scan_limit",
+            "resource_max_chars",
+            "embedding_use",
+            "embedding_cache_max_chars",
         },
         key="home.search",
     )
+    use = tree.get("embedding_use")
+    if use is not None and not isinstance(use, str):
+        raise ConfigError(
+            "Home embedding_use must be text", key="home.search.embedding_use"
+        )
     return HomeSearchSettings(
-        candidate_limit=_search_int(
-            tree,
-            "candidate_limit",
-            DEFAULT_SEARCH_CANDIDATE_LIMIT,
-        ),
-        default_top_k=_search_int(tree, "default_top_k", DEFAULT_SEARCH_TOP_K),
-        max_top_k=_search_int(tree, "max_top_k", DEFAULT_SEARCH_MAX_TOP_K),
-        prefix_max_chars=_search_int(
-            tree,
-            "prefix_max_chars",
-            DEFAULT_SEARCH_PREFIX_MAX_CHARS,
-        ),
-        summary_max_chars=_search_int(
-            tree,
-            "summary_max_chars",
-            DEFAULT_SEARCH_SUMMARY_MAX_CHARS,
+        scan_limit=_optional_int(tree, "scan_limit", default=1_000),
+        resource_max_chars=_optional_int(tree, "resource_max_chars", default=128_000),
+        embedding_use=use,
+        embedding_cache_max_chars=_optional_int(
+            tree, "embedding_cache_max_chars", default=16_000_000
         ),
     )
 

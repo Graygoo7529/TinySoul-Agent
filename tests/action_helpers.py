@@ -5,6 +5,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 from functools import cache
+from dataclasses import replace
+from importlib.resources import files
+import tomllib
 from typing import Self
 
 from tinysoul.kernel.action import (
@@ -17,6 +20,8 @@ from tinysoul.kernel.action import (
 )
 from tinysoul.infra.json import JsonObject, to_json_object
 from tests.support.catalog import builtin_action_catalog_root
+from tinysoul.kernel.action.config import parse_action_settings
+from tinysoul.kernel.retrieval.policy import search_schema
 
 TEST_SCENARIOS = frozenset({"user", "home_reflection", "memory_reflection"})
 
@@ -31,7 +36,30 @@ def load_action_catalog(root: Path) -> ActionCatalog:
 def builtin_catalog() -> ActionCatalog:
     """One immutable assembled catalog per suite, shared by execution tests."""
     with builtin_action_catalog_root() as root:
-        return ActionCatalogLoader().load(root)
+        catalog = ActionCatalogLoader().load(root)
+    routing = (
+        files("tinysoul.assets.standard")
+        .joinpath("configs/action/routing.toml")
+        .read_text(encoding="utf-8")
+    )
+    policies = parse_action_settings(tomllib.loads(routing)["action"]).search_policies
+    return ActionCatalog(
+        domains=catalog.domains(),
+        actions=tuple(
+            replace(
+                action,
+                tool=replace(
+                    action.tool,
+                    schema=search_schema(
+                        action.tool.schema, policies, action_id=action.name
+                    ),
+                ),
+            )
+            if any(policy.action_id == action.name for policy in policies)
+            else action
+            for action in catalog.actions()
+        ),
+    )
 
 
 class FunctionActionExecutor:
@@ -68,9 +96,13 @@ class FunctionActionEngineBuilder(ActionEngineBuilder):
         super().__init__(catalog, scenarios=TEST_SCENARIOS)
 
     def register_function(
-        self, action_name: str, function: ActionFunction, *, handler: str | None = None
+        self,
+        action_name: str,
+        function: ActionFunction,
+        *,
+        executor_id: str | None = None,
     ) -> Self:
         self.register_executor(
-            action_name, FunctionActionExecutor(function), handler=handler
+            action_name, FunctionActionExecutor(function), executor_id=executor_id
         )
         return self

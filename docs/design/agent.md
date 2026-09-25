@@ -20,7 +20,7 @@ Agent.runtime 与 AgentRuntime 类型供内部宿主集成使用：准备阶段�
 
 只运行一个根 Turn。等待用户、Job、定时器或预算期间仍占根位置，新 User/Reflection 请求排队。队列和已完成句柄保留有界；重复 request identity 必须内容相同。queued 阶段取消不伪造 Session Turn，开始后的取消先收尾再完成句柄。所有路径共用一次收敛出口；取消立即移除队列占位，完成按次序进入保留窗口。去重只保证活动请求和保留窗口内的身份一致；淘汰后外部已持 Handle 仍可 wait。
 
-start/shutdown/restart 由各自拥有的任务串行衔接，并发等待者加入同一操作；启动中关闭立即停止受理并等待部分资源回收，旧 worker 回调不会修改新实例。shutdown 停止受理和外部来源，再取消根 work，等待 Action/Job、必要记录、段和来源回收，最后关闭世代。restart 重新装配，旧句柄保留旧结果。自建 LLM/embedding 客户端归世代关闭，注入对象保持借用。部分激活失败逆序关闭已创建资源；重复取消不抛弃清理任务，有限 cleanup diagnostics 不覆盖主失败。
+start/shutdown/restart 由各自拥有的任务串行衔接，并发等待者加入同一操作；启动中关闭立即停止受理并等待部分资源回收，旧 worker 回调不会修改新实例。shutdown 停止受理和外部来源，再取消根 work，等待 Action/Job、必要记录、段和来源回收，最后关闭世代。restart 重新装配，旧句柄保留旧结果。自建 LLM 与专用 ModelServices 客户端归世代关闭，注入对象保持借用。Action 用途和来源能力由 PluginDefinitions 收集，generation 在激活前校验有效动作的模型依赖。Search 结果视图经 Turn preparation/cleanup 更新生命周期，SDK 则沿服务 lease 隔离。部分激活失败逆序关闭已创建资源；重复取消不抛弃清理任务，有限 cleanup diagnostics 不覆盖主失败。
 
 部分激活失败先停止受理和来源，再经 RootScheduler 的同一完成入口结清启动期间已接受的请求，最后释放 runtime。启动失败保留 FAILED 与有界错误类型，启动被取消使用 CANCELLED；未执行请求不伪造 TurnOutcome、Session 或取消意图。单 runtime 的可用性由激活完成和受理状态派生；稳定宿主的业务访问由 Agent 运行状态决定，依赖已装配不表示可以接受外部工作。
 

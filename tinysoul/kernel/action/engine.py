@@ -20,6 +20,8 @@ from tinysoul.kernel.action.planning.normalization import ActionCallNormalizer
 from tinysoul.kernel.action.execution.preparation import ActionExecutionBuilder
 from .catalog.catalog import ActionCatalog
 from .config import ActionPolicy
+from .models import ModelUseRegistry
+from tinysoul.kernel.retrieval.policy import SearchPolicy
 from .errors import ActionContractError
 from .execution.executor import ActionExecutionContext, ActionExecutor, ExecutorRegistry
 from .planning.rendering import ActionResultRenderer, RenderedActionResult
@@ -36,7 +38,7 @@ from .catalog.loader import (
     LoadedActionCatalog,
 )
 from .result import ActionPhaseResult, ActionResult
-from .catalog.specs import ActionBackendKind, ActionSemanticSpec, ActionVisibilitySpec
+from .catalog.specs import ActionSemanticSpec, ActionVisibilitySpec
 from .execution.runner import ActionBatchRunner
 from .planning.scope import (
     DOMAIN_SELECTION_TOOL,
@@ -55,14 +57,14 @@ class ActionCatalogEntry:
     action_id: str
     domain: str
     description: str
-    backend_kind: ActionBackendKind
+    executor: str
 
     def to_json(self) -> JsonObject:
         return {
             "id": self.action_id,
             "domain": self.domain,
             "description": self.description,
-            "backend_kind": self.backend_kind.value,
+            "executor": self.executor,
         }
 
 
@@ -87,6 +89,8 @@ class ActionEngine:
         phase1_scope_builder: Phase1DomainScopeBuilder,
         phase2_scope_builder: Phase2ActionScopeBuilder,
         domain_prompt_renderer: ActionDomainPromptRenderer,
+        model_uses: ModelUseRegistry | None = None,
+        search_policies: tuple[SearchPolicy, ...] = (),
     ) -> None:
         self._catalog = catalog
         self._configured_catalog = configured_catalog
@@ -103,6 +107,7 @@ class ActionEngine:
         self._phase1_scope_builder = phase1_scope_builder
         self._phase2_scope_builder = phase2_scope_builder
         self._domain_prompt_renderer = domain_prompt_renderer
+        self._model_uses, self._search_policies = model_uses, search_policies
 
     def domain_names(self) -> tuple[str, ...]:
         """Expose stable catalog domain identities for framework integration."""
@@ -113,7 +118,7 @@ class ActionEngine:
         """Package-owned identities granted to this scenario, including disabled backends."""
         return self._granted_actions
 
-    def validate_candidate(self, catalog: ActionCatalog) -> None:
+    def validate_candidate(self, catalog: ActionCatalog) -> frozenset[str]:
         """Validate editable definitions against the same code-owned grants."""
         from tinysoul.infra.config import ConfigError
 
@@ -122,16 +127,23 @@ class ActionEngine:
                 "Catalog is missing registered actions", key="action.catalog"
             )
         for name, handler in self._bindings.items():
-            if catalog.get_action(name).backend.handler != handler:
+            if catalog.get_action(name).execution.executor != handler:
                 raise ConfigError(
                     "Catalog changed a registered execution binding",
-                    key=f"{name}.backend.handler",
+                    key=f"{name}.execution.executor",
                 )
         ActionPolicy.validate(
             catalog,
             granted=self._granted_actions,
             scenario=self._scenario,
             scenarios=self._scenarios,
+        )
+        return frozenset(
+            action.name
+            for action in catalog.actions()
+            if action.name in self._supported_actions
+            and action.name in self._granted_actions
+            and ActionPolicy.selection(catalog, action, self._scenario).enabled
         )
 
     def action_identifiers(self) -> tuple[tuple[str, str], ...]:
@@ -147,7 +159,7 @@ class ActionEngine:
                 action_id=action.name,
                 domain=action.domain,
                 description=action.tool.description,
-                backend_kind=action.backend.kind,
+                executor=action.execution.executor,
             )
             for action in self._catalog.actions()
         )
@@ -235,9 +247,11 @@ class ActionEngine:
                 "not_granted"
                 if not granted
                 else (
-                    "backend_unavailable"
+                    "executor_unavailable"
                     if not supported
-                    else "hidden" if not selection.enabled else None
+                    else "hidden"
+                    if not selection.enabled
+                    else None
                 )
             )
             actions.append(
@@ -268,11 +282,18 @@ class ActionEngine:
                         },
                         "trace_mode": action.runtime.result.trace_mode.value,
                     },
-                    "backend": {
-                        "kind": action.backend.kind.value,
-                        "handler": action.backend.handler,
-                        "options": action.backend.options,
+                    "execution": {
+                        "executor": action.execution.executor,
+                        "options": action.execution.options,
                     },
+                    "model_uses": self._model_uses.projection(action.name)
+                    if self._model_uses
+                    else [],
+                    "search_modes": [
+                        policy.projection()
+                        for policy in self._search_policies
+                        if policy.action_id == action.name
+                    ],
                     "visibility": _visibility_json(action.visibility),
                     "selection": {
                         "enabled": selection.enabled,
@@ -333,6 +354,8 @@ class ActionEngine:
             phase1_scope_builder=self._phase1_scope_builder,
             phase2_scope_builder=self._phase2_scope_builder,
             domain_prompt_renderer=self._domain_prompt_renderer,
+            model_uses=self._model_uses,
+            search_policies=self._search_policies,
         )
 
     def phase1_scope(self) -> ToolScope:
@@ -472,6 +495,8 @@ class ActionEngineBuilder:
         catalog: ActionCatalog | LoadedActionCatalog,
         *,
         scenarios: frozenset[str] = frozenset({"user"}),
+        model_uses: ModelUseRegistry | None = None,
+        search_policies: tuple[SearchPolicy, ...] = (),
     ) -> None:
         if isinstance(catalog, LoadedActionCatalog):
             self._catalog = catalog.catalog
@@ -486,6 +511,7 @@ class ActionEngineBuilder:
                 "ActionEngineBuilder requires an ActionCatalog or LoadedActionCatalog"
             )
         self._executors = ExecutorRegistry()
+        self._model_uses, self._search_policies = model_uses, search_policies
         self._hooks = ActionHookRegistry()
         self._max_workers = 8
         self._observations: ObservationEmitter = NullObservationEmitter()
@@ -513,15 +539,15 @@ class ActionEngineBuilder:
         action_name: str,
         executor: ActionExecutor,
         *,
-        handler: str | None = None,
+        executor_id: str | None = None,
     ) -> Self:
         """Declare an authorized identity and its immutable execution binding."""
 
-        bound_handler = handler or action_name
+        bound_executor = executor_id or action_name
         if action_name in self._bindings:
             raise ActionContractError("Action identity is already registered")
-        self._executors.register(bound_handler, executor)
-        self._bindings[action_name] = bound_handler
+        self._executors.register(bound_executor, executor)
+        self._bindings[action_name] = bound_executor
         return self
 
     def with_action_semantics(
@@ -611,7 +637,7 @@ class ActionEngineBuilder:
                 + ", ".join(sorted(unknown))
             )
         for name, handler in self._bindings.items():
-            if complete_catalog.get_action(name).backend.handler != handler:
+            if complete_catalog.get_action(name).execution.executor != handler:
                 raise ActionContractError(
                     "Action catalog changed a registered execution binding: " + name
                 )
@@ -681,6 +707,8 @@ class ActionEngineBuilder:
             phase1_scope_builder=Phase1DomainScopeBuilder(),
             phase2_scope_builder=Phase2ActionScopeBuilder(),
             domain_prompt_renderer=ActionDomainPromptRenderer(),
+            model_uses=self._model_uses,
+            search_policies=self._search_policies,
         )
 
 

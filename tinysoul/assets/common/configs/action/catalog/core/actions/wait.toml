@@ -38,6 +38,5 @@ effects = ["read_only"]
 timeout_seconds = 5
 parallel_policy = "serial"
 
-[backend]
-kind = "native"
-handler = "core.wait"
+[execution]
+executor = "core.wait"

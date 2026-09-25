@@ -19,6 +19,5 @@ parallel_policy = "serial"
 normalize = []
 execute = []
 
-[backend]
-kind = "llm_action"
-handler = "workspace.describe"
+[execution]
+executor = "workspace.describe"

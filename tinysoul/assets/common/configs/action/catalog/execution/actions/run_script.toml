@@ -20,6 +20,5 @@ use_when = ["A known script should run against the daily Workspace"]
 effects = ["modifying"]
 [runtime]
 parallel_policy = "serial"
-[backend]
-kind = "native"
-handler = "execution.run_script"
+[execution]
+executor = "execution.run_script"

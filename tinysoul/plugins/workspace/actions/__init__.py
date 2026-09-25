@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from tinysoul.kernel.action.backends.llm_action import LLMActionTaskRunner
+from tinysoul.kernel.action.tasks import ActionTaskFactory, ActionTaskOutput
+from tinysoul.kernel.loop.phases import LLMRunner
+from tinysoul.llm.protocol.responses import AnswerFormat
 from tinysoul.kernel.action import (
     ActionEngineBuilder,
     ActionExecution,
@@ -57,11 +59,12 @@ def register_workspace_actions(
     builder: ActionEngineBuilder,
     *,
     workspace: WorkspaceService,
-    llm_action: LLMActionTaskRunner,
+    tasks: ActionTaskFactory,
+    llm: LLMRunner,
     runtime_bridge: RuntimeWorkspaceBridge | None = None,
 ) -> ActionEngineBuilder:
     bridge = runtime_bridge or RuntimeWorkspaceBridge()
-    executor = WorkspaceExecutor(workspace, llm_action, bridge)
+    executor = WorkspaceExecutor(workspace, tasks, llm, bridge)
     for name in WORKSPACE_ACTIONS:
         builder.register_executor(
             name,
@@ -69,7 +72,7 @@ def register_workspace_actions(
                 executor
                 if name != "workspace.analyze"
                 else WorkspaceAnalyzeExecutor(
-                    workspace=workspace, llm_action=llm_action, runtime_bridge=bridge
+                    workspace=workspace, tasks=tasks, llm=llm, runtime_bridge=bridge
                 )
             ),
         )

@@ -240,7 +240,9 @@ def test_endpoint_workspace_overwrite_trash_and_restore(tmp_path: Path) -> None:
     )
     assert created.status_code == 200
     body = created.json()
-    assert client.get("/v2/workspace/manifest", headers=_auth()).json() == body["manifest"]
+    assert (
+        client.get("/v2/workspace/manifest", headers=_auth()).json() == body["manifest"]
+    )
     assert gateway.observed[-1].name == "workspace.changed"
     replayed = engine.events.replay(
         after=0,
@@ -328,7 +330,8 @@ def test_endpoint_workspace_directory_edit_move_tags_and_rejects_old_guards(
     )
     assert moved.status_code == 200
     assert any(
-        item["link"] == "workspace:renamed/a.md" for item in moved.json()["manifest"]["resources"]
+        item["link"] == "workspace:renamed/a.md"
+        for item in moved.json()["manifest"]["resources"]
     )
     assert (
         client.get(
@@ -396,7 +399,10 @@ def test_workspace_observation_failure_does_not_change_mutation_result(
     )
 
     assert response.status_code == 200
-    assert client.get("/v2/workspace/manifest", headers=_auth()).json() == response.json()["manifest"]
+    assert (
+        client.get("/v2/workspace/manifest", headers=_auth()).json()
+        == response.json()["manifest"]
+    )
     assert gateway.observed[-1].name == "workspace.changed"
     assert events.latest_sequence == 0
 
@@ -441,10 +447,18 @@ def test_endpoint_event_replay_filter_and_websocket_auth(tmp_path: Path) -> None
         ]
 
 
-@pytest.mark.parametrize("cursor", ({"instance_id": "previous", "after": 100}, {"after": 100}))
-def test_v2_replay_resets_old_instance_or_future_cursor(tmp_path: Path, cursor: dict[str, str | int]) -> None:
+@pytest.mark.parametrize(
+    "cursor", ({"instance_id": "previous", "after": 100}, {"after": 100})
+)
+def test_v2_replay_resets_old_instance_or_future_cursor(
+    tmp_path: Path, cursor: dict[str, str | int]
+) -> None:
     engine, _, events = _engine(tmp_path, websocket_heartbeat_seconds=0.05)
-    events.write(ObservationEvent(name="turn.started", source="test", level=ObservationLevel.NORMAL))
+    events.write(
+        ObservationEvent(
+            name="turn.started", source="test", level=ObservationLevel.NORMAL
+        )
+    )
     client = TestClient(create_endpoint_app(engine, engine.settings))
     page = client.get("/v2/events", headers=_auth(), params=cursor).json()
     assert page["gap"] and page["instance_id"] == engine.settings.instance_id
@@ -484,7 +498,7 @@ def test_config_routes_read_and_patch_project_source(tmp_path: Path) -> None:
     )
     target = config_dir / "action.toml"
     target.write_text(
-        "[action.llm_action]\ntimeout_seconds = 10.0\n",
+        "[capabilities.expand]\ntimeout_seconds = 10.0\n",
         encoding="utf-8",
     )
     controller = ConfigController(
@@ -497,7 +511,7 @@ def test_config_routes_read_and_patch_project_source(tmp_path: Path) -> None:
         "operations": [
             {
                 "source_id": "project:configs/action.toml",
-                "path": "action.llm_action.timeout_seconds",
+                "path": "capabilities.expand.timeout_seconds",
                 "op": "set",
                 "value": 30.0,
             }
@@ -507,13 +521,14 @@ def test_config_routes_read_and_patch_project_source(tmp_path: Path) -> None:
     status = client.get("/v2/config", headers=_auth())
     assert status.status_code == 200
     assert (
-        status.json()["fields"]["action.llm_action.timeout_seconds"]["writable"] is True
+        status.json()["fields"]["capabilities.expand.timeout_seconds"]["writable"]
+        is True
     )
 
     catalog = client.get("/v2/config/catalog", headers=_auth())
     assert catalog.status_code == 200
     assert any(
-        field["path"] == "action.llm_action.timeout_seconds"
+        field["path"] == "capabilities.expand.timeout_seconds"
         for field in catalog.json()["fields"]
     )
 
@@ -522,7 +537,7 @@ def test_config_routes_read_and_patch_project_source(tmp_path: Path) -> None:
             "operations": [
                 {
                     "source_id": "project:configs/action.toml",
-                    "path": "action.llm_action.timeout_seconds",
+                    "path": "capabilities.expand.timeout_seconds",
                     "op": "set",
                 }
             ]
@@ -531,7 +546,7 @@ def test_config_routes_read_and_patch_project_source(tmp_path: Path) -> None:
             "operations": [
                 {
                     "source_id": "project:configs/action.toml",
-                    "path": "action.llm_action.timeout_seconds",
+                    "path": "capabilities.expand.timeout_seconds",
                     "op": "set",
                     "value": None,
                 }
@@ -541,7 +556,7 @@ def test_config_routes_read_and_patch_project_source(tmp_path: Path) -> None:
             "operations": [
                 {
                     "source_id": "project:configs/action.toml",
-                    "path": "action.llm_action.timeout_seconds",
+                    "path": "capabilities.expand.timeout_seconds",
                     "op": "delete",
                     "value": 1,
                 }
@@ -551,7 +566,7 @@ def test_config_routes_read_and_patch_project_source(tmp_path: Path) -> None:
             "operations": [
                 {
                     "source_id": "project:configs/action.toml",
-                    "path": "action.llm_action.timeout_seconds",
+                    "path": "capabilities.expand.timeout_seconds",
                     "op": "other",
                 }
             ]
@@ -587,7 +602,7 @@ def test_config_activation_failure_uses_config_error_and_keeps_file(
         encoding="utf-8",
     )
     target = config_dir / "action.toml"
-    original = "[action.llm_action]\ntimeout_seconds = 10.0\n"
+    original = "[capabilities.expand]\ntimeout_seconds = 10.0\n"
     target.write_text(original, encoding="utf-8")
 
     def fail_activation(_candidate: ConfigEnvironment):
@@ -611,7 +626,7 @@ def test_config_activation_failure_uses_config_error_and_keeps_file(
             "operations": [
                 {
                     "source_id": "project:configs/action.toml",
-                    "path": "action.llm_action.timeout_seconds",
+                    "path": "capabilities.expand.timeout_seconds",
                     "op": "set",
                     "value": 30.0,
                 }
@@ -719,17 +734,25 @@ class _EndpointGateway:
     def commands(self) -> _EndpointGateway:
         return self
 
-    async def submit_turn(self, request: UserTurnRequest | ReflectionRequest) -> TurnHandle:
+    async def submit_turn(
+        self, request: UserTurnRequest | ReflectionRequest
+    ) -> TurnHandle:
         if isinstance(request, ReflectionRequest):
-            self.reflection_requests.append((request.scope, request.target_day, request.source))
+            self.reflection_requests.append(
+                (request.scope, request.target_day, request.source)
+            )
         else:
             self.inputs.append((request.text, request.source, request.metadata))
         return TurnHandle(request)
 
-    async def append_input(self, turn_id: str, text: str, *, input_id: str = "") -> InboxReceipt:
+    async def append_input(
+        self, turn_id: str, text: str, *, input_id: str = ""
+    ) -> InboxReceipt:
         raise AgentSDKError("No active Turn")
 
-    async def reply(self, turn_id: str, question_id: str, response: str) -> InboxReceipt:
+    async def reply(
+        self, turn_id: str, question_id: str, response: str
+    ) -> InboxReceipt:
         raise AgentSDKError("No active Turn")
 
     async def grant_cycles(self, turn_id: str, request_id: str, count: int) -> bool:

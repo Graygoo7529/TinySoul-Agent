@@ -1,0 +1,21 @@
+name = "home.inspect"
+domain = "home"
+
+[tool]
+description = "Read a known Home top or resource with content-bound pagination, or enumerate its direct references. Does not perform selection or backlink search."
+schema = { type = "object", properties = { ref = { type = "string", minLength = 1 }, view = { type = "string", enum = ["content", "direct_refs"] }, continuation = { type = "string" }, max_chars = { type = "integer", minimum = 1024 } }, required = ["ref"], additionalProperties = false }
+
+[semantic]
+use_when = ["A known Home reference needs deterministic disclosure"]
+avoid_when = ["Changing resource content"]
+effects = ["read_only"]
+
+[runtime]
+timeout_seconds = 600
+parallel_policy = "allowed"
+
+[runtime.result]
+trace_mode = "foldable"
+
+[execution]
+executor = "home.inspect"

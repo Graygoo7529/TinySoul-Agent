@@ -2,7 +2,7 @@ name = "memory.memorize"
 domain = "memory"
 
 [tool]
-description = "Patch today's explicit memory:current. Preserve useful canonical memory:daily/entity/concept/fact/note links that already appear in context so later turns can inspect or recall them."
+description = "Patch today's explicit memory:current. Preserve useful canonical memory:daily/entity/concept/fact/note links that already appear in context so later turns can inspect them."
 schema = { type = "object", properties = { operations = { type = "array", items = { type = "object", properties = { kind = { type = "string", enum = ["append", "replace", "remove", "clear"] }, text = { type = "string" }, old_text = { type = "string" }, new_text = { type = "string" } }, required = ["kind"], additionalProperties = false } } }, required = ["operations"], additionalProperties = false }
 
 [semantic]
@@ -18,7 +18,6 @@ parallel_policy = "serial"
 normalize = []
 execute = []
 
-[backend]
-kind = "native"
-handler = "memory.memorize"
+[execution]
+executor = "memory.memorize"
 

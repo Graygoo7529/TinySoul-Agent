@@ -65,6 +65,5 @@ parallel_policy = "serial"
 normalize = []
 execute = []
 
-[backend]
-kind = "llm_action"
-handler = "core.answer"
+[execution]
+executor = "core.answer"

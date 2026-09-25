@@ -8,7 +8,7 @@ ExpandEngine 是 MCP 服务绑定、运行期目录、原始工具定义和结�
 |---|---|
 | `expand.describe_servers` | 按需取得允许服务及工具摘要，支持服务范围和有界分页 |
 | `expand.describe_tools` | 按结构化工具身份列表或完整服务范围取得原始定义，二选一，支持分页 |
-| `expand.search` | 以非空自然语言 query 在可选服务范围内进行一次有界 LLM 选择 |
+| `expand.search` | 以 query 在全局或指定服务目录上执行 seed refinement，使用已配置 LLM/JEV |
 | `expand.call` | 对指定 server_id、tool_name 和 arguments 校验并调用一次 |
 
 工具身份固定为配置 server_id 与远端原始 tool_name，不把不同服务的同名工具混同。服务目录不常驻挂载。已知身份可直接 describe_tools；search 已返回完整定义时可直接 call，不要求走完四个动作。单个服务不可用时返回其有限状态，其它服务结果继续可用。
@@ -21,9 +21,9 @@ owner 完成一次上游目录分页遍历后才发布本地目录。超过容�
 
 先应用服务启用与工具选择，再把全部允许、可调用候选的身份、用途、描述和参数摘要放入本 Action 的 TaskPrompt。空候选直接返回事实；候选超过字符上限或完整 LLM Task 超过上下文预算时返回 scope_required 与服务范围提示，由父 Agent 缩小范围。没有隐藏初筛、递归搜索或新向量索引。
 
-搜索复用 LLMActionTaskRunner、该动作模型链和局部 Skill。模型只选择候选身份，owner 校验无新增或重复身份后补上真实定义。返回容量先保留所有已选身份，再尽量填充完整定义；其余项明确 needs_describe_tools，不能把截断 schema 当可调用定义。若身份集合本身仍超限，则要求缩小范围。完整定义留在 owner，选择结果进入可折叠 Trace。
+来源由 ExpandEngine 的目录操作提供，公共 SearchSession 使用 expand.search.select 绑定的 LLM/JEV selector。ActionTaskFactory 提供局部 Skill 和可选 Context；MCP 默认 context=none。模型只选择候选 ID，结果映射回真实 mcp:server/tool 身份。完整定义装不下时返回 describe_tools 入口，不提供残缺 schema。Search 的有限结果视图按页返回，后续页不重做选择；服务目录仍归 MCP owner。
 
-输入容量不足是此 Action 可修正的局部失败，不压缩父语境后隐藏重搜；其它模型协议失败仍走既有 LLM Action 结果。协议测试验证一次选择、范围和原始定义的数据流，不把固定 selector 输出当成真实检索质量评估。本轮没有真实模型的中英文检索质量测评。
+输入容量不足反馈 scope_required；必需选择失败不冒充空结果，全部服务器不可用返回来源失败。单服务器失败保留可用候选并说明 coverage 不完整。协议测试验证一次选择、范围、分页和真实定义；真实 JEV 小样本验证了相关工具命中、无关工具排除和空选择，不代表开放规模检索质量。
 
 ## Schema、结果与失败
 

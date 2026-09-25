@@ -29,6 +29,5 @@ effects = ["read_only"]
 [runtime]
 parallel_policy = "serial"
 
-[backend]
-kind = "native"
-handler = "workspace.list"
+[execution]
+executor = "workspace.list"

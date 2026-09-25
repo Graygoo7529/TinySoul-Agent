@@ -8,6 +8,7 @@ from tinysoul.infra.config import ConfigError
 from tinysoul.infra.json import JsonObject, JsonValue
 
 SUPPORTED_SCHEMA_KEYS = {
+    "oneOf",
     "additionalProperties",
     "default",
     "description",
@@ -102,6 +103,18 @@ def _check_schema_node(schema: JsonObject, *, key: str, root: bool = False) -> N
                 expected=", ".join(sorted(SUPPORTED_SCHEMA_KEYS)),
             )
 
+    alternatives = schema.get("oneOf")
+    if alternatives is not None:
+        if not isinstance(alternatives, list) or not alternatives:
+            raise ActionSchemaDefinitionError(
+                "oneOf requires nonempty schema alternatives", key=f"{key}.oneOf"
+            )
+        for index, alternative in enumerate(alternatives):
+            if not isinstance(alternative, dict):
+                raise ActionSchemaDefinitionError(
+                    "oneOf alternatives must be objects", key=f"{key}.oneOf.{index}"
+                )
+            _check_schema_node(alternative, key=f"{key}.oneOf.{index}")
     schema_type = schema.get("type")
     if root and schema_type != "object":
         raise ActionSchemaDefinitionError(
@@ -314,6 +327,21 @@ def _reject_keys(schema: Mapping[str, JsonValue], names: set[str], *, key: str) 
 
 
 def _validate_value(value: JsonValue, *, schema: JsonObject, path: str) -> None:
+    alternatives = schema.get("oneOf")
+    if isinstance(alternatives, list):
+        matches = 0
+        for alternative in alternatives:
+            if not isinstance(alternative, dict):
+                raise ActionSchemaValidationError("Invalid oneOf definition")
+            try:
+                _validate_value(value, schema=alternative, path=path)
+            except ActionSchemaValidationError:
+                continue
+            matches += 1
+        if matches != 1:
+            raise ActionSchemaValidationError(
+                f"Action parameter {path} must match exactly one declared variant"
+            )
     expected_type = schema.get("type")
     if expected_type is not None:
         if not isinstance(expected_type, str):

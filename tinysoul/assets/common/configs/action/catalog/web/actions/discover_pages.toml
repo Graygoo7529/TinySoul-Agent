@@ -37,6 +37,5 @@ examples = ["Discover direct documentation pages linked from https://example.com
 timeout_seconds = 180
 parallel_policy = "serial"
 
-[backend]
-kind = "subprocess"
-handler = "web.discover_pages"
+[execution]
+executor = "web.discover_pages"

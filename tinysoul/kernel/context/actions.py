@@ -15,6 +15,10 @@ from tinysoul.kernel.action import (
 )
 from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
+from tinysoul.kernel.action.tasks import ActionTaskFactory
+from tinysoul.kernel.retrieval.operations import SearchSession
+from tinysoul.kernel.retrieval.requests import parse_search_request
+from tinysoul.kernel.retrieval.contracts import SearchFailure, SearchContext
 
 from .engine import ContextEngine
 from .errors import (
@@ -29,14 +33,67 @@ def register_context_actions(
     *,
     context: ContextEngine,
     runtime_bridge: RuntimeContextBridge,
+    queries: SearchSession | None = None,
+    tasks: ActionTaskFactory | None = None,
 ) -> ActionEngineBuilder:
     """Register the current-Turn semantic heap inspector."""
 
-    return builder.register_executor(
+    builder.register_executor(
         "core.context.inspect",
         ContextInspectExecutor(context, runtime_bridge=runtime_bridge),
-        handler="context.inspect",
+        executor_id="context.inspect",
     )
+    if queries is not None and tasks is not None:
+        builder.register_executor(
+            "core.context.search", ContextSearchExecutor(queries, tasks, runtime_bridge)
+        )
+    return builder
+
+
+class ContextSearchExecutor(ActionExecutor):
+    def __init__(
+        self,
+        queries: SearchSession,
+        tasks: ActionTaskFactory,
+        bridge: RuntimeContextBridge,
+    ) -> None:
+        self._queries, self._tasks, self._bridge = queries, tasks, bridge
+
+    async def execute(
+        self, execution: ActionExecution, context: ActionExecutionContext
+    ) -> ActionResult:
+        try:
+            request = parse_search_request(
+                execution.call.params, self._queries.policies
+            )
+            if isinstance(request, str):
+                page = await self._queries.search(request)
+            else:
+                inputs = await self._tasks.selection_input(
+                    execution,
+                    include_context=request.options.context is SearchContext.CURRENT,
+                    control=context.control,
+                )
+                page = await self._queries.search(request, inputs=inputs)
+        except SearchFailure as exc:
+            return _failed(
+                execution, str(exc), reason=exc.kind.value, scope="context.search"
+            )
+        except ContextInspectRequestError as exc:
+            return _failed_request(execution, exc)
+        except ContextError as exc:
+            raise self._bridge.from_context_error(exc) from exc
+        return _success(
+            execution,
+            page.to_json(),
+            trace_projection=ActionTraceProjection(
+                origin_refs=tuple(item.ref for item in page.items),
+                canonical_payload={
+                    "mode": page.mode.value,
+                    "selected": [item.ref for item in page.items],
+                },
+            ),
+        )
 
 
 class ContextInspectExecutor(ActionExecutor):
@@ -73,8 +130,12 @@ class ContextInspectExecutor(ActionExecutor):
         try:
             query = execution.call.params.get("query")
             if query is not None and (not isinstance(query, str) or not query.strip()):
-                return _failed(execution, "Query must be non-empty text", reason="invalid_query")
-            payload = await self._context.inspect(ref, query=query, continuation=continuation)
+                return _failed(
+                    execution, "Query must be non-empty text", reason="invalid_query"
+                )
+            payload = await self._context.inspect(
+                ref, query=query, continuation=continuation
+            )
         except ContextInspectRequestError as exc:
             return _failed_request(execution, exc)
         except ContextError as exc:

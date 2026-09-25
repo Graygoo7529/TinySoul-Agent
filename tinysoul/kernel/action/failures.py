@@ -11,3 +11,4 @@ class ActionFailureKind(StrEnum):
     CONFIGURATION_FAILED = "action.configuration_failed"
     CONTRACT_VIOLATION = "action.contract_violation"
     INTERNAL_FAILURE = "action.internal_failure"
+    MODEL_INVOCATION_FAILED = "action.model_invocation_failed"

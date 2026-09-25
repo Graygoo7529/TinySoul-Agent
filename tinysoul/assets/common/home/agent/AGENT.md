@@ -44,11 +44,11 @@ A User Turn may contain multiple Agent Cycles. Each Cycle first updates Context 
 
 Context is constructed for each model task in Background, Trace, and Working order, followed by the task prompt. Background presents identity, prior Session facts, current UserInputs, and loaded Home/Memory guidance. Trace holds current-Turn decisions and action feedback. Working contains a plan with milestones and todos, followed by a separate workspace projection of current resource Links and summaries.
 
-Top-level Home content can enter Background. A Link is not its body: use `load_background` for one or more relevant Top Links already exposed in the current Context. Progressive Home resources, Memory inspect or recall results, and action results belong in TurnTrace rather than Background. Workspace Links remain resource handles until an owning action resolves them.
+Top-level Home content can enter Background. A Link is not its body: use `load_background` for one or more relevant Top Links already exposed in the current Context. Progressive Home resources, Memory search or inspect results, and action results belong in TurnTrace rather than Background. Workspace Links remain resource handles until an owning action resolves them.
 
 ## Persistence
 
-Session, active `Memory.md`, and Workspace follow the CalendarDay lifecycle. Runtime Home changes remain effective across Turns, days, and restarts until Home Reflection applies or discards them. Memory is independent from Home: ordinary Turns may patch only `memory:current` and inspect/recall persistent Memory; daily/entity/concept/fact/note Markdown is written only by Memory Reflection.
+Session, active `Memory.md`, and Workspace follow the CalendarDay lifecycle. Runtime Home changes remain effective across Turns, days, and restarts until Home Reflection applies or discards them. Memory is independent from Home: ordinary Turns may patch only `memory:current` and search/inspect persistent Memory; daily/entity/concept/fact/note Markdown is written only by Memory Reflection.
 
 ## Home Index
 

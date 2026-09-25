@@ -36,6 +36,5 @@ effects = ["modifying"]
 [runtime]
 parallel_policy = "serial"
 
-[backend]
-kind = "native"
-handler = "workspace.edit"
+[execution]
+executor = "workspace.edit"

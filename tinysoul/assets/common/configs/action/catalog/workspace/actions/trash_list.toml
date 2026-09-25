@@ -27,6 +27,5 @@ examples = ["List Trash, select the matching link, then call workspace.restore"]
 [runtime]
 parallel_policy = "serial"
 
-[backend]
-kind = "native"
-handler = "workspace.trash_list"
+[execution]
+executor = "workspace.trash_list"

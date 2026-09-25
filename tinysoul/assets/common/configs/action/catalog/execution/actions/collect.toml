@@ -19,6 +19,5 @@ use_when = ["A process output page or terminal fact is needed"]
 effects = ["read_only"]
 [runtime]
 parallel_policy = "serial"
-[backend]
-kind = "native"
-handler = "execution.collect"
+[execution]
+executor = "execution.collect"

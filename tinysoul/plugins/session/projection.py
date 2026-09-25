@@ -21,6 +21,7 @@ from tinysoul.kernel.context.errors import (
     ContextContractError,
 )
 from tinysoul.kernel.context import ContextTurnFacts
+from tinysoul.kernel.context.disclosure import DisclosureSearchEntry
 from tinysoul.runtime import Signal
 from tinysoul.infra.json import JsonObject, dumps_json
 from tinysoul.infra.time import CalendarDay
@@ -109,6 +110,14 @@ class SessionSegment:
         self._snapshot = prepared.fit(max(512, self._snapshot.max_chars // 2))
         after = sum(len(dumps_json(item.content)) for item in self._snapshot.items)
         return SegmentReclaim(max(0, before - after))
+
+    async def search_entries(
+        self, seed_refs: tuple[str, ...] = ()
+    ) -> tuple[DisclosureSearchEntry, ...]:
+        operations = JoinedOperations()
+        result = await operations.run(lambda: self._view.search_entries(seed_refs))
+        operations.check_cancelled()
+        return result
 
     async def inspect(
         self,
@@ -235,6 +244,7 @@ def session_segment_registration(
             {
                 SegmentCapability.INSPECT,
                 SegmentCapability.QUERY,
+                SegmentCapability.SEARCH,
                 SegmentCapability.RECLAIM,
             }
         ),

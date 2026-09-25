@@ -13,6 +13,7 @@ from tinysoul.llm.protocol.messages import Message
 
 from ..errors import ContextContractError, ContextInvariantError
 from ..providers import SegmentSelectionView
+from ..disclosure import DisclosureSearchEntry
 
 
 class SegmentSlot(StrEnum):
@@ -33,6 +34,7 @@ class SegmentCapability(StrEnum):
     SELECT = "select"
     RECLAIM = "reclaim"
     QUERY = "query"
+    SEARCH = "search"
 
 
 @dataclass(frozen=True)
@@ -72,7 +74,10 @@ class SegmentDescriptor:
             raise ContextContractError(
                 "Inspection capability requires explicit reference routes"
             )
-        if SegmentCapability.QUERY in capabilities and SegmentCapability.INSPECT not in capabilities:
+        if (
+            SegmentCapability.QUERY in capabilities
+            and SegmentCapability.INSPECT not in capabilities
+        ):
             raise ContextContractError("Query capability requires inspection")
         object.__setattr__(self, "capabilities", capabilities)
 
@@ -124,6 +129,13 @@ class InspectableSegment(Protocol):
     async def inspect(
         self, ref: str, *, query: str | None = None, continuation: str | None = None
     ) -> JsonObject: ...
+
+
+@runtime_checkable
+class SearchableSegment(Protocol):
+    async def search_entries(
+        self, seed_refs: tuple[str, ...] = ()
+    ) -> tuple[DisclosureSearchEntry, ...]: ...
 
 
 @runtime_checkable

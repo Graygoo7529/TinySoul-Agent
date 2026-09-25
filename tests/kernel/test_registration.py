@@ -68,9 +68,7 @@ class _Configuration:
         self.section = section
         self.settings = settings
 
-    def load(
-        self, config: ConfigEnvironment, root: Path
-    ) -> ServiceRegistration:
+    def load(self, config: ConfigEnvironment, root: Path) -> ServiceRegistration:
         raise AssertionError("configuration loading is outside this declaration test")
 
     def failure(self, error: ConfigError, /) -> RuntimeException:
@@ -78,11 +76,15 @@ class _Configuration:
 
 
 class _DefinitionPlugin:
+    model_uses = ()
+    search_capabilities = ()
     provides: tuple[type[object], ...] = ()
     requires: tuple[type[object], ...] = ()
 
     def __init__(
-        self, plugin_id: str, *configuration: PluginConfiguration,
+        self,
+        plugin_id: str,
+        *configuration: PluginConfiguration,
         requires: tuple[type[object], ...] = (),
         provides: tuple[type[object], ...] = (),
     ) -> None:
@@ -102,16 +104,13 @@ class _DefinitionPlugin:
     [("loop", "loop"), ("loop.extra", "loop"), ("loop", "loop.extra")],
 )
 def test_plugin_configuration_cannot_claim_host_reserved_scope(
-    section: str, reserved: str,
+    section: str,
+    reserved: str,
 ) -> None:
-    plugin = _DefinitionPlugin(
-        "probe", _Configuration(section, _SettingsA)
-    )
+    plugin = _DefinitionPlugin("probe", _Configuration(section, _SettingsA))
 
     with pytest.raises(RegistrationError, match="reserved host"):
-        PluginDefinitions(
-            (plugin,), reserved_configuration_sections=(reserved,)
-        )
+        PluginDefinitions((plugin,), reserved_configuration_sections=(reserved,))
 
 
 def test_plugin_configuration_allows_sibling_capability_scopes() -> None:
@@ -120,9 +119,7 @@ def test_plugin_configuration_allows_sibling_capability_scopes() -> None:
             _DefinitionPlugin(
                 "probe", _Configuration("capabilities.probe", _SettingsA)
             ),
-            _DefinitionPlugin(
-                "web", _Configuration("capabilities.web", _SettingsB)
-            ),
+            _DefinitionPlugin("web", _Configuration("capabilities.web", _SettingsB)),
         ),
         reserved_configuration_sections=("loop", "reflection"),
     )
@@ -133,7 +130,9 @@ def test_plugin_configuration_allows_sibling_capability_scopes() -> None:
     )
 
 
-@pytest.mark.parametrize("section", ["Capabilities.probe", "capabilities..probe", "probe-"])
+@pytest.mark.parametrize(
+    "section", ["Capabilities.probe", "capabilities..probe", "probe-"]
+)
 def test_plugin_configuration_requires_dotted_lower_snake_case(section: str) -> None:
     with pytest.raises(RegistrationError, match="dotted lower_snake_case"):
         PluginDefinitions(
@@ -145,12 +144,8 @@ def test_plugin_configuration_settings_facade_has_one_owner() -> None:
     with pytest.raises(RegistrationError, match="settings facade"):
         PluginDefinitions(
             (
-                _DefinitionPlugin(
-                    "first", _Configuration("first", _SettingsA)
-                ),
-                _DefinitionPlugin(
-                    "second", _Configuration("second", _SettingsA)
-                ),
+                _DefinitionPlugin("first", _Configuration("first", _SettingsA)),
+                _DefinitionPlugin("second", _Configuration("second", _SettingsA)),
             )
         )
 
@@ -167,12 +162,18 @@ def test_plugin_definitions_reject_duplicate_ids_missing_services_and_cycles() -
         PluginDefinitions((first, second))
 
 
-@pytest.mark.parametrize("wrong_id", [True, False], ids=["identity", "provided-services"])
-async def test_plugin_generation_declaration_failure_closes_candidate(wrong_id: bool) -> None:
+@pytest.mark.parametrize(
+    "wrong_id", [True, False], ids=["identity", "provided-services"]
+)
+async def test_plugin_generation_declaration_failure_closes_candidate(
+    wrong_id: bool,
+) -> None:
     closed = 0
 
     class Mismatch(_DefinitionPlugin):
-        async def build_generation(self, context: GenerationBuildContext) -> PluginGeneration:
+        async def build_generation(
+            self, context: GenerationBuildContext
+        ) -> PluginGeneration:
             del context
 
             async def close() -> None:
@@ -181,12 +182,13 @@ async def test_plugin_generation_declaration_failure_closes_candidate(wrong_id: 
 
             return PluginGeneration("wrong" if wrong_id else self.id, close=close)
 
-    definitions = PluginDefinitions(
-        (Mismatch("declared", provides=(Storage,)),)
-    )
+    definitions = PluginDefinitions((Mismatch("declared", provides=(Storage,)),))
     context = GenerationBuildContext(
-        root=Path("."), runtime_env={}, settings=ServiceRegistry(()),
-        services=ServiceRegistry(()), llm=cast(LLMRunner, object()),
+        root=Path("."),
+        runtime_env={},
+        settings=ServiceRegistry(()),
+        services=ServiceRegistry(()),
+        llm=cast(LLMRunner, object()),
         observations=cast(ObservationEmitter, object()),
         clock=cast(CalendarClock, object()),
     )
@@ -197,7 +199,9 @@ async def test_plugin_generation_declaration_failure_closes_candidate(wrong_id: 
     assert closed == 1
 
 
-def test_profile_rejects_duplicate_traps_and_completion_recorders_before_activation() -> None:
+def test_profile_rejects_duplicate_traps_and_completion_recorders_before_activation() -> (
+    None
+):
     class Handler:
         def handle(self, snap: TrapSnap) -> TrapResult:
             raise AssertionError("invalid contributions must not run")
@@ -209,15 +213,19 @@ def test_profile_rejects_duplicate_traps_and_completion_recorders_before_activat
     context = ContextEngineBuilder(system_text="identity").build()
     trap = PluginTrapHandler("probe.failed", Handler())
     with pytest.raises(RegistrationError, match="Trap reasons"):
-        PluginRegistry(tuple(
-            PluginProfileExtension(name, trap_handlers=(trap,))
-            for name in ("first", "second")
-        )).resolve(context)
+        PluginRegistry(
+            tuple(
+                PluginProfileExtension(name, trap_handlers=(trap,))
+                for name in ("first", "second")
+            )
+        ).resolve(context)
     with pytest.raises(RegistrationError, match="completion recorder"):
-        PluginRegistry(tuple(
-            PluginProfileExtension(name, recorder=Recorder())
-            for name in ("first", "second")
-        )).resolve(context)
+        PluginRegistry(
+            tuple(
+                PluginProfileExtension(name, recorder=Recorder())
+                for name in ("first", "second")
+            )
+        ).resolve(context)
 
 
 def test_plugins_resolve_typed_services_and_activate_in_dependency_order() -> None:
@@ -233,10 +241,21 @@ def test_plugins_resolve_typed_services_and_activate_in_dependency_order() -> No
         return builder
 
     context = ContextEngineBuilder(system_text="identity").build()
-    resolved = PluginRegistry((
-        PluginProfileExtension("consumer", requires=(Storage,), services=(Service(Consumer, consumer),), actions=activate_consumer),
-        PluginProfileExtension("storage", services=(Service(Storage, storage),), actions=activate_storage),
-    )).resolve(context)
+    resolved = PluginRegistry(
+        (
+            PluginProfileExtension(
+                "consumer",
+                requires=(Storage,),
+                services=(Service(Consumer, consumer),),
+                actions=activate_consumer,
+            ),
+            PluginProfileExtension(
+                "storage",
+                services=(Service(Storage, storage),),
+                actions=activate_storage,
+            ),
+        )
+    ).resolve(context)
     assert activated == []
     assert resolved.services.get(Storage) is storage
     assert resolved.services.get(Consumer) is consumer
@@ -247,17 +266,32 @@ def test_plugins_resolve_typed_services_and_activate_in_dependency_order() -> No
         resolved.activate(builder)
 
 
-@pytest.mark.parametrize("declarations", [
-    (PluginProfileExtension("same"), PluginProfileExtension("same")),
-    (PluginProfileExtension("missing", requires=(Storage,)),),
-    (PluginProfileExtension("a", services=(Service(Storage, Storage()),)),
-     PluginProfileExtension("b", services=(Service(Storage, Storage()),))),
-    (PluginProfileExtension("a", requires=(Consumer,), services=(Service(Storage, Storage()),)),
-     PluginProfileExtension("b", requires=(Storage,), services=(Service(Consumer, Consumer()),))),
-])
-def test_invalid_dependencies_or_identities_reject_before_activation(declarations: tuple[PluginProfileExtension, ...]) -> None:
+@pytest.mark.parametrize(
+    "declarations",
+    [
+        (PluginProfileExtension("same"), PluginProfileExtension("same")),
+        (PluginProfileExtension("missing", requires=(Storage,)),),
+        (
+            PluginProfileExtension("a", services=(Service(Storage, Storage()),)),
+            PluginProfileExtension("b", services=(Service(Storage, Storage()),)),
+        ),
+        (
+            PluginProfileExtension(
+                "a", requires=(Consumer,), services=(Service(Storage, Storage()),)
+            ),
+            PluginProfileExtension(
+                "b", requires=(Storage,), services=(Service(Consumer, Consumer()),)
+            ),
+        ),
+    ],
+)
+def test_invalid_dependencies_or_identities_reject_before_activation(
+    declarations: tuple[PluginProfileExtension, ...],
+) -> None:
     with pytest.raises(RegistrationError):
-        PluginRegistry(declarations).resolve(ContextEngineBuilder(system_text="identity").build())
+        PluginRegistry(declarations).resolve(
+            ContextEngineBuilder(system_text="identity").build()
+        )
 
 
 def test_reserved_segment_rejection_does_not_partially_install_other_segments() -> None:
@@ -265,7 +299,9 @@ def test_reserved_segment_rejection_does_not_partially_install_other_segments() 
     jobs = jobs_segment_registration()
     invalid = replace(jobs, descriptor=replace(jobs.descriptor, id="plan"))
     with pytest.raises(RegistrationError):
-        PluginRegistry((PluginProfileExtension("jobs", segments=(jobs, invalid)),)).resolve(context)
+        PluginRegistry(
+            (PluginProfileExtension("jobs", segments=(jobs, invalid)),)
+        ).resolve(context)
     # The failed batch left no jobs identity behind.
     context.register_segment(jobs)
 
@@ -291,25 +327,53 @@ async def test_two_plugins_use_the_same_event_and_completion_pipeline() -> None:
 
     first, second, recorder = Hooks("first"), Hooks("second"), Hooks("recorder")
     context = ContextEngineBuilder(system_text="identity").build()
-    plugins = PluginRegistry(tuple(PluginProfileExtension(
-        item.name, preparation=(item,), completion=(item,),
-        events=(TurnEventSubscription(EventFilter(topic=item.name), item.adapt),),
-        recorder=recorder if item is first else None,
-    ) for item in (first, second))).resolve(context)
+    plugins = PluginRegistry(
+        tuple(
+            PluginProfileExtension(
+                item.name,
+                preparation=(item,),
+                completion=(item,),
+                events=(
+                    TurnEventSubscription(EventFilter(topic=item.name), item.adapt),
+                ),
+                recorder=recorder if item is first else None,
+            )
+            for item in (first, second)
+        )
+    ).resolve(context)
 
     class Cycles:
         async def run(self, *, cycle_index: int, **kwargs: object) -> CycleOutcome:
             if cycle_index == 1:
                 for item in (first, second):
-                    await inbox.accept_event(EnvironmentEvent(EventKind.EVENT, {}, topic=item.name))
+                    await inbox.accept_event(
+                        EnvironmentEvent(EventKind.EVENT, {}, topic=item.name)
+                    )
                 return CycleOutcome(cycle_id="1")
             return CycleOutcome(cycle_id="2", completion={"kind": "complete"})
 
-    runner = TurnRunner(context=context, bus=SignalBus(), trap=RuntimeTrap(registry=TrapHandlerRegistry()),
-        cycle_runner=cast(CycleRunner, Cycles()), settings=TurnSettings(),
-        events=plugins.events, preparation_pipeline=plugins.preparation,
-        completion_pipeline=plugins.completion)
-    await runner.run("work", active_day=CalendarDay.parse("2026-09-20"),
-                     scope=RunScope().push(RunLevel.AGENT, "test"), inbox=inbox)
-    assert order == ["prepare:first", "prepare:second", "event:first", "event:second",
-                     "complete:first", "complete:second", "complete:recorder"]
+    runner = TurnRunner(
+        context=context,
+        bus=SignalBus(),
+        trap=RuntimeTrap(registry=TrapHandlerRegistry()),
+        cycle_runner=cast(CycleRunner, Cycles()),
+        settings=TurnSettings(),
+        events=plugins.events,
+        preparation_pipeline=plugins.preparation,
+        completion_pipeline=plugins.completion,
+    )
+    await runner.run(
+        "work",
+        active_day=CalendarDay.parse("2026-09-20"),
+        scope=RunScope().push(RunLevel.AGENT, "test"),
+        inbox=inbox,
+    )
+    assert order == [
+        "prepare:first",
+        "prepare:second",
+        "event:first",
+        "event:second",
+        "complete:first",
+        "complete:second",
+        "complete:recorder",
+    ]

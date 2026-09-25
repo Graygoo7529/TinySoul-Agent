@@ -15,6 +15,16 @@ from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.json import JsonObject, JsonValue, dumps_json
 from tinysoul.plugins.workspace.services import WorkspaceExecutionPort
 from tinysoul.plugins.workspace.inspection.models import WorkspaceBundleWrite
+from tinysoul.kernel.retrieval.operations import SearchCorpus
+from tinysoul.kernel.retrieval.contracts import (
+    SearchRequest,
+    SeedRefinement,
+    SearchCandidate,
+    SearchEvidence,
+    SearchFailure,
+    SearchFailureKind,
+)
+from tinysoul.kernel.retrieval.requests import eligible
 from .config import ExpandSettings, validate_expand_bindings
 from .failures import ExpandFailure, ExpandRequestError
 
@@ -169,6 +179,79 @@ class ExpandEngine:
             servers.append({**status, "status": "available", "tool_count": count})
             self._definitions[identity] = (directory, tuple(tools[start:]))
         return Discovery(tuple(tools), tuple(servers))
+
+    async def search_corpus(
+        self, request: SearchRequest, *, page_budget: int
+    ) -> SearchCorpus:
+        if not isinstance(request, SeedRefinement) or request.seed_refs:
+            raise SearchFailure(
+                SearchFailureKind.INVALID_REQUEST,
+                "MCP search uses a declared server/tool directory",
+            )
+        scope = request.options.scope
+        if scope != "all" and not scope.startswith("server:"):
+            raise SearchFailure(
+                SearchFailureKind.INVALID_REQUEST,
+                "MCP scope must be all or server:<id>",
+            )
+        supported = frozenset({"server_id", "tool_name"})
+        eligible({}, request.options.filters, supported=supported)
+        discovered = await self.discover(
+            None if scope == "all" else (scope.removeprefix("server:"),)
+        )
+        available = [s for s in discovered.servers if s.get("status") == "available"]
+        if discovered.servers and not available:
+            raise SearchFailure(
+                SearchFailureKind.SOURCE_UNAVAILABLE,
+                "Every selected MCP server is unavailable",
+            )
+        candidates = []
+        total_input = len(request.query)
+        for tool in discovered.tools:
+            attributes: JsonObject = {
+                "server_id": tool.server_id,
+                "tool_name": tool.name,
+            }
+            if tool.problem or not eligible(
+                attributes, request.options.filters, supported=supported
+            ):
+                continue
+            definition = tool.describe()
+            schema = tool.definition.get("inputSchema")
+            evidence = dumps_json(
+                {
+                    **tool.summary(),
+                    "parameters": schema if isinstance(schema, dict) else {},
+                }
+            )
+            total_input += len(evidence)
+            if len(dumps_json(definition)) < page_budget // 2:
+                attributes["definition"] = definition
+            else:
+                attributes["describe"] = {
+                    "action": "expand.describe_tools",
+                    "tools": [tool.identity],
+                }
+            ref = "mcp:" + tool.server_id + "/" + tool.name
+            candidates.append(
+                SearchCandidate(
+                    ref,
+                    tool.name,
+                    (SearchEvidence(ref, evidence, "tool_directory"),),
+                    attributes,
+                )
+            )
+        if total_input > self.settings.search_max_chars:
+            raise SearchFailure(
+                SearchFailureKind.SCOPE_REQUIRED,
+                "MCP candidate directory exceeds input capacity; narrow server scope or browse describe_servers",
+            )
+        return SearchCorpus(
+            tuple(candidates),
+            request.query,
+            len(discovered.tools),
+            len(available) == len(discovered.servers),
+        )
 
     def page(
         self,

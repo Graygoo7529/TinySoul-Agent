@@ -11,7 +11,9 @@ from typing import Protocol, cast
 from pathlib import Path
 
 from .action import ActionEngineBuilder
-from .action.backends.llm_action import LLMActionTaskRunner
+from .action.tasks import ActionTaskFactory
+from .action.models import ModelUseDescriptor
+from .retrieval.policy import SearchCapability
 from .context import ContextEngine
 from .context.errors import ContextError
 from .context.segments import RegisteredSegment, SegmentRegistry
@@ -67,7 +69,9 @@ class ServiceRegistry:
             if registration.facade in services:
                 raise RegistrationError("A service facade has more than one owner")
             if not isinstance(registration.value, registration.facade):
-                raise RegistrationError("Registered service does not implement its facade")
+                raise RegistrationError(
+                    "Registered service does not implement its facade"
+                )
             services[registration.facade] = registration.value
         self._services: Mapping[type[object], object] = MappingProxyType(services)
 
@@ -78,13 +82,16 @@ class ServiceRegistry:
         return cast(T, self._services[facade])
 
     def select(self, facades: tuple[type[object], ...]) -> ServiceRegistry:
-        return ServiceRegistry(tuple(Service(facade, self.get(facade)) for facade in facades))
+        return ServiceRegistry(
+            tuple(Service(facade, self.get(facade)) for facade in facades)
+        )
 
 
 @dataclass(frozen=True)
 class ProfileBuildContext:
     context: ContextEngine
-    llm_action: LLMActionTaskRunner
+    tasks: ActionTaskFactory
+    llm: LLMRunner
     bindings: ServiceRegistry
 
 
@@ -124,12 +131,21 @@ class PluginProfileExtension:
     turn_resources: tuple[PluginTurnResource, ...] = ()
 
     def __post_init__(self) -> None:
-        if not isinstance(self.id, str) or re.fullmatch(r"[a-z][a-z0-9_]*", self.id) is None:
+        if (
+            not isinstance(self.id, str)
+            or re.fullmatch(r"[a-z][a-z0-9_]*", self.id) is None
+        ):
             raise RegistrationError("Plugin identity must use lower_snake_case")
         object.__setattr__(self, "services", tuple(self.services))
         object.__setattr__(self, "requires", tuple(self.requires))
         object.__setattr__(self, "segments", tuple(self.segments))
-        for name in ("events", "preparation", "completion", "trap_handlers", "turn_resources"):
+        for name in (
+            "events",
+            "preparation",
+            "completion",
+            "trap_handlers",
+            "turn_resources",
+        ):
             object.__setattr__(self, name, tuple(getattr(self, name)))
 
 
@@ -211,7 +227,15 @@ class AgentPlugin(Protocol):
     @property
     def configuration(self) -> tuple[PluginConfiguration, ...]: ...
 
-    async def build_generation(self, context: GenerationBuildContext) -> PluginGeneration: ...
+    @property
+    def model_uses(self) -> tuple[ModelUseDescriptor, ...]: ...
+
+    @property
+    def search_capabilities(self) -> tuple[SearchCapability, ...]: ...
+
+    async def build_generation(
+        self, context: GenerationBuildContext
+    ) -> PluginGeneration: ...
 
 
 @dataclass(frozen=True)
@@ -220,17 +244,23 @@ class PluginGeneration:
 
     id: str
     services: tuple[ServiceRegistration, ...] = ()
-    profile_extension_factory: Callable[
-        [ProfileKind, ProfileBuildContext], PluginProfileExtension | None
-    ] | None = None
+    profile_extension_factory: (
+        Callable[[ProfileKind, ProfileBuildContext], PluginProfileExtension | None]
+        | None
+    ) = None
     sources: tuple[RuntimeSource, ...] = ()
     sdk_exports: tuple[ServiceExport, ...] = ()
     release_day: AsyncCloser | None = None
     close: AsyncCloser | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.id, str) or re.fullmatch(r"[a-z][a-z0-9_]*", self.id) is None:
-            raise RegistrationError("Plugin generation identity must use lower_snake_case")
+        if (
+            not isinstance(self.id, str)
+            or re.fullmatch(r"[a-z][a-z0-9_]*", self.id) is None
+        ):
+            raise RegistrationError(
+                "Plugin generation identity must use lower_snake_case"
+            )
         for name in ("services", "sources", "sdk_exports"):
             object.__setattr__(self, name, tuple(getattr(self, name)))
 
@@ -242,26 +272,19 @@ class PluginGeneration:
 
 
 def _configuration_scopes_overlap(left: str, right: str) -> bool:
-    return (
-        left == right
-        or left.startswith(right + ".")
-        or right.startswith(left + ".")
-    )
+    return left == right or left.startswith(right + ".") or right.startswith(left + ".")
 
 
 def _validate_configuration_sections(
     sections: tuple[str, ...], *, conflict_message: str
 ) -> None:
     for index, section in enumerate(sections):
-        if re.fullmatch(
-            r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*", section
-        ) is None:
+        if re.fullmatch(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*", section) is None:
             raise RegistrationError(
                 "Configuration sections must use dotted lower_snake_case"
             )
         if any(
-            _configuration_scopes_overlap(section, other)
-            for other in sections[:index]
+            _configuration_scopes_overlap(section, other) for other in sections[:index]
         ):
             raise RegistrationError(conflict_message)
 
@@ -277,7 +300,9 @@ class PluginDefinitions:
         reserved_configuration_sections: tuple[str, ...] = (),
     ) -> None:
         by_id: dict[str, AgentPlugin] = {}
-        owners: dict[type[object], AgentPlugin | None] = {key: None for key in host_services}
+        owners: dict[type[object], AgentPlugin | None] = {
+            key: None for key in host_services
+        }
         configurations: list[PluginConfiguration] = []
         reserved_sections = tuple(reserved_configuration_sections)
         _validate_configuration_sections(
@@ -285,8 +310,13 @@ class PluginDefinitions:
             conflict_message="Reserved configuration scopes overlap",
         )
         for plugin in plugins:
-            if re.fullmatch(r"[a-z][a-z0-9_]*", plugin.id) is None or plugin.id in by_id:
-                raise RegistrationError("Agent plugin identities must be unique lower_snake_case")
+            if (
+                re.fullmatch(r"[a-z][a-z0-9_]*", plugin.id) is None
+                or plugin.id in by_id
+            ):
+                raise RegistrationError(
+                    "Agent plugin identities must be unique lower_snake_case"
+                )
             by_id[plugin.id] = plugin
             for service in plugin.provides:
                 if service in owners:
@@ -321,11 +351,15 @@ class PluginDefinitions:
             if plugin.id in complete:
                 return
             if plugin.id in visiting:
-                raise RegistrationError("Agent plugin build dependencies contain a cycle")
+                raise RegistrationError(
+                    "Agent plugin build dependencies contain a cycle"
+                )
             visiting.add(plugin.id)
             for service in plugin.requires:
                 if service not in owners:
-                    raise RegistrationError("Agent plugin requires an undeclared build service")
+                    raise RegistrationError(
+                        "Agent plugin requires an undeclared build service"
+                    )
                 owner = owners[service]
                 if owner is not None:
                     visit(owner)
@@ -337,6 +371,12 @@ class PluginDefinitions:
             visit(plugin)
         self.plugins = tuple(ordered)
         self.configuration = tuple(configurations)
+        self.model_uses = tuple(
+            item for plugin in ordered for item in plugin.model_uses
+        )
+        self.search_capabilities = tuple(
+            item for plugin in ordered for item in plugin.search_capabilities
+        )
 
     def configure(
         self, config: ConfigEnvironment, root: Path, *, map_errors: bool = False
@@ -359,8 +399,11 @@ class PluginDefinitions:
         return tuple(parsed)
 
     async def build(
-        self, context: GenerationBuildContext, resources: AsyncResourceScope,
-        *, host_services: tuple[ServiceRegistration, ...] = ()
+        self,
+        context: GenerationBuildContext,
+        resources: AsyncResourceScope,
+        *,
+        host_services: tuple[ServiceRegistration, ...] = (),
     ) -> tuple[PluginGeneration, ...]:
         services = list(host_services)
         generations: list[PluginGeneration] = []
@@ -368,15 +411,26 @@ class PluginDefinitions:
         for plugin in self.plugins:
             dependencies = ServiceRegistry(tuple(services)).select(plugin.requires)
             generation = await plugin.build_generation(
-                GenerationBuildContext(context.root, context.runtime_env, context.settings,
-                                       dependencies, context.llm, context.observations, context.clock)
+                GenerationBuildContext(
+                    context.root,
+                    context.runtime_env,
+                    context.settings,
+                    dependencies,
+                    context.llm,
+                    context.observations,
+                    context.clock,
+                )
             )
             # The factory transfers ownership on return, including candidates
             # whose declarations are rejected below.
             if generation.close is not None:
                 resources.register(plugin.id, generation.close)
-            if generation.id != plugin.id or {item.facade for item in generation.services} != set(plugin.provides):
-                raise RegistrationError("Plugin generation does not match its declared build services")
+            if generation.id != plugin.id or {
+                item.facade for item in generation.services
+            } != set(plugin.provides):
+                raise RegistrationError(
+                    "Plugin generation does not match its declared build services"
+                )
             ServiceRegistry(generation.services)
             for export in generation.sdk_exports:
                 if export.facade in exports:
@@ -390,28 +444,51 @@ class PluginDefinitions:
 class ResolvedProfileExtensions:
     """Only validated contributions can be installed into a profile."""
 
-    def __init__(self, declarations: tuple[PluginProfileExtension, ...], services: ServiceRegistry, context: ContextEngine) -> None:
+    def __init__(
+        self,
+        declarations: tuple[PluginProfileExtension, ...],
+        services: ServiceRegistry,
+        context: ContextEngine,
+    ) -> None:
         self._declarations = declarations
         self.services = services
         self._context = context
         self._activated = False
-        self.trap_handlers = tuple(item for declaration in declarations for item in declaration.trap_handlers)
+        self.trap_handlers = tuple(
+            item for declaration in declarations for item in declaration.trap_handlers
+        )
         reasons = tuple(item.reason for item in self.trap_handlers)
         if len(set(reasons)) != len(reasons):
             raise RegistrationError("Profile Trap reasons must be unique")
-        self.turn_resources = tuple(sorted(
-            (item for declaration in declarations for item in declaration.turn_resources),
-            key=lambda item: item.stage,
-        ))
-        self.events = tuple(item for declaration in declarations for item in declaration.events)
-        self.preparation = TurnPreparationPipeline(tuple(
-            item for declaration in declarations for item in declaration.preparation
-        ))
-        recorders = tuple(item.recorder for item in declarations if item.recorder is not None)
+        self.turn_resources = tuple(
+            sorted(
+                (
+                    item
+                    for declaration in declarations
+                    for item in declaration.turn_resources
+                ),
+                key=lambda item: item.stage,
+            )
+        )
+        self.events = tuple(
+            item for declaration in declarations for item in declaration.events
+        )
+        self.preparation = TurnPreparationPipeline(
+            tuple(
+                item for declaration in declarations for item in declaration.preparation
+            )
+        )
+        recorders = tuple(
+            item.recorder for item in declarations if item.recorder is not None
+        )
         if len(recorders) > 1:
-            raise RegistrationError("A profile can declare only one completion recorder")
+            raise RegistrationError(
+                "A profile can declare only one completion recorder"
+            )
         self.completion = TurnCompletionPipeline(
-            tuple(item for declaration in declarations for item in declaration.completion),
+            tuple(
+                item for declaration in declarations for item in declaration.completion
+            ),
             recorders[0] if recorders else None,
         )
 
@@ -421,9 +498,17 @@ class ResolvedProfileExtensions:
 
     def activate(self, action: ActionEngineBuilder) -> None:
         if self._activated:
-            raise RegistrationError("Resolved profile plugins can only be activated once")
+            raise RegistrationError(
+                "Resolved profile plugins can only be activated once"
+            )
         self._activated = True
-        self._context.register_segments(tuple(segment for declaration in self._declarations for segment in declaration.segments))
+        self._context.register_segments(
+            tuple(
+                segment
+                for declaration in self._declarations
+                for segment in declaration.segments
+            )
+        )
         for declaration in self._declarations:
             if declaration.actions is not None:
                 declaration.actions(action)
@@ -438,15 +523,29 @@ class PluginRegistry:
         by_id = {declaration.id: declaration for declaration in declarations}
         if len(by_id) != len(declarations):
             raise RegistrationError("Plugin identities must be unique")
-        services = ServiceRegistry(tuple(service for declaration in declarations for service in declaration.services))
-        providers = {service.facade: declaration.id for declaration in declarations for service in declaration.services}
-        segments = tuple(segment for declaration in declarations for segment in declaration.segments)
+        services = ServiceRegistry(
+            tuple(
+                service
+                for declaration in declarations
+                for service in declaration.services
+            )
+        )
+        providers = {
+            service.facade: declaration.id
+            for declaration in declarations
+            for service in declaration.services
+        }
+        segments = tuple(
+            segment for declaration in declarations for segment in declaration.segments
+        )
         try:
             SegmentRegistry(segments)
             if segments:
                 context.validate_segments(segments)
         except ContextError as exc:
-            raise RegistrationError("Plugin segment identities or routes conflict") from exc
+            raise RegistrationError(
+                "Plugin segment identities or routes conflict"
+            ) from exc
         ordered: list[PluginProfileExtension] = []
         active: set[str] = set()
         complete: set[str] = set()
@@ -460,7 +559,9 @@ class PluginRegistry:
             for facade in declaration.requires:
                 owner = providers.get(facade)
                 if owner is None:
-                    raise RegistrationError("Plugin requires an undeclared service facade")
+                    raise RegistrationError(
+                        "Plugin requires an undeclared service facade"
+                    )
                 if owner != declaration.id:
                     visit(by_id[owner])
             active.remove(declaration.id)

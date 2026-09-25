@@ -47,7 +47,7 @@ Home owner 提供 diff snapshot 与基于 token/version 的接受/拒绝，其 a
 
 ## Memory Reflection
 
-目标日期在受理时固定，来源在实际准备 Turn 时绑定；未来日期在 Agent 受理边界拒绝。当前日绑定已完成 Session 的固定视图与活动 Memory 快照，后续追加事实不改变本次来源。历史日读取 owner 验证的归档；仅有既有 daily 也可整理。历史 Workspace 只读，当前 Workspace 保持可操作。模型通过通用 inspect/recall 查已有知识、通过 Context inspect 查来源；提示要求少量多步地复用、修正与沉淀。
+目标日期在受理时固定，来源在实际准备 Turn 时绑定；未来日期在 Agent 受理边界拒绝。当前日绑定已完成 Session 的固定视图与活动 Memory 快照，后续追加事实不改变本次来源。历史日读取 owner 验证的归档；仅有既有 daily 也可整理。历史 Workspace 只读，当前 Workspace 保持可操作。模型通过 memory.search/inspect 查已有知识、通过 Context inspect/search 查来源；提示要求少量多步地复用、修正与沉淀。
 
 memory.write_daily 写目标日完整 daily；memory.write 写一份 entity/concept/fact/note Markdown，两者执行器属于 Memory owner。无 daily 时整理完整文档，有 daily 时先读取，再修订、重组和补充，不要求冻结来源。Memory owner 校验完整候选 catalog 后原子替换单文档。引用或 redirect 目标须先存在，因此模型先建立目标再迁移来源；此前成功文档不会因后续写入失败而回滚。
 

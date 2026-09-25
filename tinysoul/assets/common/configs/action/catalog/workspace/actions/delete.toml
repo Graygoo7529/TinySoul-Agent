@@ -26,6 +26,5 @@ parallel_policy = "serial"
 normalize = []
 execute = []
 
-[backend]
-kind = "native"
-handler = "workspace.delete"
+[execution]
+executor = "workspace.delete"

@@ -22,6 +22,5 @@ examples = ["Restore trash:workspace/trash_abcd after discovering the draft is n
 [runtime]
 parallel_policy = "serial"
 
-[backend]
-kind = "native"
-handler = "workspace.restore"
+[execution]
+executor = "workspace.restore"

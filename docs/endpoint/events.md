@@ -24,6 +24,12 @@ LLM 容量恢复使用 `llm.context_capacity_exceeded`，对应模块失败 kind
 
 message 是 owner 提供的有限说明，不再透传原始 Python 异常文本。配置诊断仅包含有界 key/expected，不包含原始值和 source；Home 副本恢复不提供 source_path/runtime_path。恢复使用的资源 Link 和容量度量仍保留在内部协议中。前端不能依赖被删除的诊断字段获得文件访问能力，也不能用 Observation 是否到达判断业务是否提交。
 
+## 模型用途观察
+
+LLM 继续使用现有 task_id 关联一次调用，Action 内部任务增加 consumer、implementation 和 target，实际 provider/model 与尝试沿现有 LLM 事件报告，不增加重复调用身份。Embedding/JEV 使用 `model.call.started/retry/completed/failed/cancelled`，verbose payload 包括 call_id、consumer、implementation、target、provider、model、attempt/retry、elapsed_seconds、usage 和有限 failure；Embedding 另外报告 input_count/dimensions，不返回向量。
+
+显式 model 分级可收到 `model.call.detail` 的已准备输入/结果。父 Turn/Cycle/Action 关联沿 Observation scope；SDK 查询无父 Action 时使用独立 call_id，不伪造 invoke_id。事件是旁路，sink 失败不改变模型调用或业务提交；catalog 不保存最近调用结果。
+
 ## Journal
 
 可选 Journal 位于 runtime Endpoint 目录，失败时降级到有界内存 buffer。Journal 是可重建的观察索引，不是 Session 或审计数据库；status 只暴露 enabled、degraded 和保留 sequence 范围。

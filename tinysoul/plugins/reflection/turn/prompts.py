@@ -25,7 +25,7 @@ def reflection_turn_guidance(kind: str) -> tuple[str, ...]:
             *common,
             "Distinguish the target day from the current execution day.",
             "Use the fixed target-day Session and active Memory sources. Archived Workspace is read-only; current Workspace is the execution workbench.",
-            "Inspect/recall before writing. Write one document at a time and inspect the result.",
+            "Search/inspect before writing. Write one document at a time and inspect the result.",
             "Create redirect targets before retiring source documents; committed writes remain if later work fails.",
         )
     raise ReflectionContractError(f"Unknown Reflection Turn kind: {kind}")

@@ -8,7 +8,33 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from tinysoul.infra.filesystem import TextPrefixRead, file_digest, read_text_prefix
-from tinysoul.runtime import RunScope
+from datetime import date
+from tinysoul.infra.json import JsonObject
+from tinysoul.infra.references import (
+    ReferenceResolver,
+    ReferenceError,
+    ResourceTarget,
+    markdown_references,
+    relative_reference,
+)
+from tinysoul.kernel.retrieval.contracts import (
+    SearchRequest,
+    QueryDiscovery,
+    DocumentQuery,
+    SeedRefinement,
+    BacklinkSearch,
+    SearchCandidate,
+    SearchEvidence,
+    SearchFailure,
+    SearchFailureKind,
+)
+from tinysoul.kernel.retrieval.disclosure import (
+    inspect_document,
+    evidence_units,
+    fragment_content,
+)
+from tinysoul.kernel.retrieval.operations import SearchCorpus
+from tinysoul.kernel.retrieval.requests import eligible
 
 from .config import AgentHomeSettings, HomeSearchSettings
 from .errors import (
@@ -38,13 +64,6 @@ from .skills.metadata import (
     parse_home_skill_metadata,
 )
 from .overlay import HomeOverlayManager, HomeOverlayRecord, HomeOverlayState
-from .content.search import (
-    SEARCHABLE_HOME_SPACES,
-    HomeSearchDocument,
-    HomeSearchReranker,
-    HomeSearchResult,
-    HomeTopSearchService,
-)
 
 _DEFAULT_BACKGROUND_TOP_LINKS = (
     HomeTopLink("agent", "AGENT"),
@@ -111,7 +130,7 @@ class AgentHomeEngine:
             max_preview_chars=max_read_chars,
             max_write_chars=max_write_chars,
         )
-        self._search = HomeTopSearchService(search_settings)
+        self._search_settings = search_settings
 
     @property
     def layout(self) -> AgentHomeLayout:
@@ -270,35 +289,6 @@ class AgentHomeEngine:
         self._validate_skill_catalog_budget(result)
         return result
 
-    async def search_top(
-        self,
-        query: str,
-        *,
-        top_k: int | None = None,
-        reranker: HomeSearchReranker | None = None,
-        scope: RunScope | None = None,
-    ) -> HomeSearchResult:
-        """Search effective general skill metadata without runtime copying."""
-
-        operations = JoinedOperations()
-        documents = await operations.run(self._search_documents)
-        operations.check_cancelled()
-        return await self._search.search(
-            query=query,
-            documents=tuple(documents),
-            top_k=top_k,
-            reranker=reranker,
-            scope=scope,
-        )
-
-    def _search_documents(self) -> tuple[HomeSearchDocument, ...]:
-        self._validate_overlay_semantics()
-        return tuple(
-            self._search_document(link)
-            for link in self._effective_top_links()
-            if link.space in SEARCHABLE_HOME_SPACES
-        )
-
     def read_top(self, link: HomeTopLink | str) -> str:
         parsed = HomeTopLink.parse(link) if isinstance(link, str) else link
         relative = self._resolve_top_relative(parsed)
@@ -309,31 +299,232 @@ class AgentHomeEngine:
         source = self._layout.source_for_relative(relative)
         return _read_text(self._runtime_read_path(str(parsed), relative))
 
-    def _search_document(self, link: HomeTopLink) -> HomeSearchDocument:
-        relative = self._require_top_relative(link)
-        record = self._overlay.record_for(relative)
-        if record is None:
-            path = self._layout.source_for_relative(relative)
-            digest = _file_digest(path)
-        else:
-            if record.state is HomeOverlayState.DELETED:
-                raise AgentHomeInvariantError(
-                    f"Deleted Home top entry entered search catalog: {link}"
+    def canonical_reference(
+        self, resource: str, fragment: str = "", source_day: date | None = None
+    ) -> ResourceTarget:
+        try:
+            parsed = parse_home_link(resource)
+            if isinstance(parsed, HomePromptMountLink):
+                raise AgentHomeContractError(
+                    "Prompt mounts are not public resource identities"
                 )
-            path = self._layout.runtime_for_relative(relative)
-            digest = record.runtime_digest
-        prefix = _read_text_prefix(path, self._search.prefix_max_chars)
-        metadata = (
-            self._skill_metadata_for_link(link) if link.space == "skills" else None
+            relative = (
+                self._layout.relative_for_top(parsed)
+                if isinstance(parsed, HomeTopLink)
+                else self._layout.relative_for_resource(parsed)
+            )
+            return ResourceTarget("home:" + relative, fragment)
+        except AgentHomeContractError as exc:
+            raise ReferenceError("Invalid Home reference") from exc
+
+    def _search_paths(self, *, actual: bool) -> tuple[tuple[str, Path], ...]:
+        relatives = {
+            path.relative_to(self.original_root).as_posix()
+            for space in ("agent", "skills")
+            for path in (self.original_root / space).rglob("*")
+            if path.is_file() and not path.is_symlink()
+        }
+        records = (
+            {}
+            if actual
+            else {record.relative_path: record for record in self._overlay.records()}
         )
-        return HomeSearchDocument(
-            link=link,
-            text_prefix=prefix.text,
-            truncated=prefix.truncated,
-            digest=digest,
-            title=metadata.title if metadata is not None else "",
-            summary=metadata.description if metadata is not None else "",
+        relatives.update(
+            relative
+            for relative in records
+            if relative.split("/")[0] in {"agent", "skills"}
         )
+        result = []
+        for relative in sorted(relatives):
+            record = records.get(relative)
+            if record and record.state is HomeOverlayState.DELETED:
+                continue
+            path = (
+                self._layout.runtime_for_relative(relative)
+                if record
+                else self._layout.source_for_relative(relative)
+            )
+            if path.is_file() and not path.is_symlink():
+                result.append((relative, path))
+        return tuple(result)
+
+    def inspect(
+        self,
+        ref: str,
+        *,
+        view: str = "content",
+        continuation: str | None = None,
+        max_chars: int | None = None,
+        actual: bool = False,
+    ) -> JsonObject:
+        resource, _, fragment = ref.partition("#")
+        identity = self.canonical_reference(resource)
+        relative = identity.resource.removeprefix("home:")
+        available = dict(self._search_paths(actual=actual))
+        path = available.get(relative)
+        if path is None:
+            raise AgentHomeContractError("Home resource is not available in this view")
+        text = _read_text(path)
+        direct_refs = []
+        for link in markdown_references(text):
+            try:
+                direct_refs.append(
+                    relative_reference(
+                        link.target, source_path=relative, prefix="home:"
+                    )
+                )
+            except ReferenceError:
+                continue
+        if max_chars is not None and (type(max_chars) is not int or max_chars < 512):
+            raise AgentHomeContractError("Inspect max_chars must be at least 512")
+        return inspect_document(
+            owner="home.actual" if actual else "home.effective",
+            ref=ref,
+            text=text,
+            direct_refs=tuple(dict.fromkeys(direct_refs)),
+            view=view,
+            continuation=continuation,
+            max_chars=min(
+                max_chars if max_chars is not None else self._max_read_chars,
+                self._max_read_chars,
+            ),
+        )
+
+    def search_corpus(
+        self,
+        request: SearchRequest,
+        *,
+        references: ReferenceResolver,
+        actual: bool = False,
+    ) -> SearchCorpus:
+        scope = request.options.scope
+        if scope not in {"all", "agent", "skills"}:
+            raise SearchFailure(
+                SearchFailureKind.INVALID_REQUEST,
+                "Home scope must be all, agent or skills",
+            )
+        supported = frozenset({"space", "file_type"})
+        eligible({}, request.options.filters, supported=supported)
+        paths = self._search_paths(actual=actual)
+        available = {relative for relative, _ in paths}
+        metadata = {
+            item.link.name: item
+            for item in (
+                self.actual_skill_metadata() if actual else self.skill_metadata()
+            )
+        }
+        selected_seeds: set[str] = set()
+        skill_seeds: set[str] = set()
+        if isinstance(request, SeedRefinement):
+            for ref in request.seed_refs:
+                resource = ref.partition("#")[0]
+                parsed = parse_home_link(resource)
+                selected_seeds.add(self.canonical_reference(resource).resource)
+                if isinstance(parsed, HomeTopLink) and parsed.space == "skills":
+                    skill_seeds.add(parsed.name)
+        if isinstance(request, QueryDiscovery):
+            if isinstance(request.query, DocumentQuery):
+                raise SearchFailure(
+                    SearchFailureKind.INVALID_REQUEST,
+                    "Home discovery accepts text query only",
+                )
+            query = request.query.text
+        else:
+            query = request.query
+        try:
+            anchor = (
+                references.resolve(request.anchor_ref)
+                if isinstance(request, BacklinkSearch)
+                else None
+            )
+        except ReferenceError as exc:
+            raise SearchFailure(SearchFailureKind.INVALID_REQUEST, str(exc)) from exc
+        candidates = []
+        complete = True
+        scanned = 0
+        for relative, path in paths:
+            parts = PurePosixPath(relative).parts
+            if scope != "all" and parts[0] != scope:
+                continue
+            attributes: JsonObject = {
+                "space": parts[0],
+                "file_type": path.suffix.lower(),
+            }
+            if not eligible(attributes, request.options.filters, supported=supported):
+                continue
+            resource = "home:" + relative
+            skill = (
+                parts[1]
+                if parts[0] == "skills"
+                and len(parts) >= 3
+                and f"skills/{parts[1]}/SKILL.md" in available
+                else None
+            )
+            if (
+                isinstance(request, SeedRefinement)
+                and resource not in selected_seeds
+                and skill not in skill_seeds
+            ):
+                continue
+            if scanned >= self._search_settings.scan_limit:
+                complete = False
+                break
+            scanned += 1
+            try:
+                read = read_text_prefix(
+                    path, max_chars=self._search_settings.resource_max_chars
+                )
+                text = read.text
+                if "\x00" in text:
+                    raise UnicodeError("Binary resource")
+                complete = complete and not read.truncated
+            except UnicodeError:
+                text = path.name
+                attributes["content_kind"] = "binary_metadata"
+            except OSError as exc:
+                raise AgentHomeIOError("Home search source cannot be read") from exc
+            if anchor is not None:
+                evidence = []
+                lines = text.splitlines()
+                for link in markdown_references(text):
+                    try:
+                        target_ref = relative_reference(
+                            link.target, source_path=relative, prefix="home:"
+                        )
+                        target = references.resolve(target_ref)
+                    except ReferenceError:
+                        continue
+                    if target.matches(anchor):
+                        evidence.append(
+                            SearchEvidence(
+                                f"{resource}#L{link.line}",
+                                lines[link.line - 1]
+                                if link.line <= len(lines)
+                                else link.label,
+                                "markdown_link",
+                            )
+                        )
+                if not evidence:
+                    continue
+                if skill:
+                    attributes["top_ref"] = f"home:skills@{skill}"
+                candidates.append(
+                    SearchCandidate(resource, path.name, tuple(evidence), attributes)
+                )
+            else:
+                result_ref = f"home:skills@{skill}" if skill else resource
+                title = metadata[skill].title if skill in metadata else path.name
+                candidates.append(
+                    SearchCandidate(
+                        result_ref, title, evidence_units(resource, text), attributes
+                    )
+                )
+        if isinstance(request, SeedRefinement) and not complete:
+            raise SearchFailure(
+                SearchFailureKind.SCOPE_REQUIRED,
+                "Seed resources exceed the source budget; narrow scope",
+            )
+        return SearchCorpus(tuple(candidates), query, scanned, complete)
 
     def read_prompt_mount(self, link: HomePromptMountLink | str) -> str:
         parsed = HomePromptMountLink.parse(link) if isinstance(link, str) else link

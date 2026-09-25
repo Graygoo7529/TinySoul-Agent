@@ -2,7 +2,7 @@
 
 版本：`2026-09-25 / r2 / consolidated`。
 
-当前状态：**准备实施**。阶段 0 的契约复核与影响清单已完成；后端实施及行为验收仍为 `pending`，阶段 1 是下一实施入口。设计就绪不表示代码已经实现或测试通过。
+当前状态：`in_progress`。阶段 0–5 已落实，A1–A14 及完整本地门禁已通过；阶段 6 仅保留 A15 的真实 LLM 样本验收待授权。实现、文档和逐项证据见第 13、16 节，未将尚未通过的外部验收计为完成。
 
 本文是唯一维护的执行计划。已合并 [补充 review](20260925-action-model-retrieval-unification-review.md)、[analysis r2 输入稿](20260925-action-model-retrieval-unification-plan-r2.md) 与本文件上一轮代码复核结论；输入稿和 review 保留历史依据，不再独立维护实施规格或进度。F1–F12 的逐项处置见第 15.4 节。
 
@@ -32,7 +32,7 @@
 - Embedding 和 JEV 完成真实接入及真实消费者迁移。图像生成、外部 Web Search、Visualization 页面重构不在本轮范围。
 - 个人受信主机语义保持不变；不增加通用权限治理、事务日志、CAS 或自动恢复状态机。
 
-## 2. 当前事实与重构原因
+## 2. 重构前事实与重构原因（历史基线）
 
 ### 2.1 Action 与模型
 
@@ -168,7 +168,7 @@ ModelUseRegistry 是 generation 显式贡献后的不可变查找表，不是动
 - `embedding_similarity`：仅限声明支持相似度排名的操作，不在 binding 配置 target；从代码声明解析 owner 共享 Embedding 依赖，不接受第二个 use override。
 - 索引的 Embedding 是 owner 共享依赖，在 owner 配置绑定，不提供相同用途的 Action override。
 
-示例为本轮目标配置结构，不代表当前解析器已支持：
+实施后的配置结构如下：
 
 ```toml
 [[action.models.bindings]]
@@ -281,7 +281,7 @@ Embedding 使用同一目录结构，自己的 adapter 与 typed 参数声明 di
 [memory.semantic_search]
 embedding_use = "embedding_main"
 
-[home.semantic_search]
+[home.search]
 embedding_use = "embedding_main"
 ```
 
@@ -555,7 +555,7 @@ Observation 是旁路，sink 失败不改变业务；它不成为索引更新、
 
 ## 13. 实施阶段与验收门槛
 
-阶段 0 为 `done`（仅准备工作）；阶段 1–6 为 `pending`。以下阶段是同一轮完整重构的依赖顺序，不是分批冻结的能力范围。阶段内同步已落地的 design/endpoint；AGENTS.md 只在相应实现完成时更新当前事实，不提前改成未实现架构。
+阶段 0–5 为 `done`，阶段 6 为 `in_progress`。以下阶段是同一轮完整重构的依赖顺序，不是分批冻结的能力范围。AGENTS.md、design/endpoint 已按实际实现同步；最终归档以本节验收和第 16 节门禁记录为准。
 
 ### 阶段 0：契约与影响清单
 
@@ -614,25 +614,25 @@ Observation 是旁路，sink 失败不改变业务；它不成为索引更新、
 
 ### 阶段 6：代表性路径与完成核对
 
-先聚焦测试，再 Fast，最后 Full 与 typecheck。真实 provider 仅 External；不为了文档或小型投影变化重复大范围测试。验收表逐项记录代码位置、测试证据与状态。当前所有 A 项均为 `pending`，证据待对应实现后填写，阶段 0 的静态分析不能替代行为验收：
+先聚焦测试，再 Fast，最后 Full 与 typecheck。真实 provider 仅 External；不为了文档或小型投影变化重复大范围测试。验收表逐项记录代码位置、测试证据与状态。逐项状态和实际实现/验证如下；准备阶段的静态分析不替代行为验收：
 
 | 编号 | 必须验证的行为 | 状态 / 实现与测试证据 |
 | --- | --- | --- |
-| A1 | Action 切换 LLM/JEV 绑定不改变 executor/runner；未知 consumer/target/option 明确拒绝 | pending；待实施 |
-| A2 | core/Workspace 非 Search 用途配置完整；旧 timeout 与输出约束没有无意丢失 | pending；待实施 |
-| A3 | 可选 rank 失败有说明地保留原候选，必需 select 失败不伪装成功；全部来源失败不返回成功空页；取消传播 | pending；待实施 |
-| A4 | Home nested 证据可命中 Skill top；非 Skill 返回 resource；反链保留实际 source | pending；待实施 |
-| A5 | 没有词面重合但语义相关的候选可由 Embedding 独立召回 | pending；待实施 |
-| A6 | 折叠 Trace 与 Session 原文/解释可搜索并 Inspect；辅助模型不解除展示保护 | pending；待实施 |
-| A7 | Search 分页稳定且不重新调用模型，Turn/profile/day 失效隔离，合法空选择与 scope 收紧反馈正确 | pending；待实施 |
-| A8 | Markdown inline/reference-style、Memory 结构化边与跨空间 anchor 结果一致；相似文档不冒充反链 | pending；待实施 |
-| A9 | provider 切换不混合向量；Home/Memory 各自缓存可重建；资源只关闭一次 | pending；待实施 |
-| A10 | MCP 只返回已知工具；schema 容量不足有 describe 入口，Workspace 没有隐式向量库 | pending；待实施 |
-| A11 | User/Reflection 来源、写权限和 Session 日切事实保持；模型用途协议共用 | pending；待实施 |
-| A12 | SDK、配置 Endpoint、Action catalog 与 Observation 使用同一声明/绑定，无旧协议双轨 | pending；待实施 |
-| A13 | rank 保留候选集合，select 可排除；seed 只允许显式资格过滤，不能用词法或向量预筛代替 selector | pending；待实施 |
-| A14 | binding/policy/Stage2 schema 能力一致；相似度 rank 不虚称消费 Context，纯反链枚举不需要模型 | pending；待实施 |
-| A15 | JEV/LLM selector、ranker 在人工可判断的 Home/Memory/MCP 样本上验证命中、排除、空结果与预算；记录实际评分规则和限制 | pending；待实施 |
+| A1 | Action 切换 LLM/JEV 绑定不改变 executor/runner；未知 consumer/target/option 明确拒绝 | done；`kernel/action/models.py`、`catalog/specs.py`、`execution/runner.py`；`tests/kernel/action/test_config_settings.py` 覆盖用途/目标/options 与切换，同一个 executor/runner 不变。 |
+| A2 | core/Workspace 非 Search 用途配置完整；旧 timeout 与输出约束没有无意丢失 | done；`kernel/action/tasks.py`、core/Workspace executors、标准 routing/catalog；`test_model_tasks.py`、Workspace compose/analyze 与 catalog timeout 测试保护局部来源、Skill、输出约束和默认时限。 |
+| A3 | 可选 rank 失败有说明地保留原候选，必需 select 失败不伪装成功；全部来源失败不返回成功空页；取消传播 | done；`kernel/retrieval/engine.py`、`selection.py`、`llm/execution/task.py`；`tests/kernel/retrieval/test_search.py` 覆盖部分/全部来源失败、必需 select、可选 rank 与取消；专用服务测试覆盖认证/契约不可降级。 |
+| A4 | Home nested 证据可命中 Skill top；非 Skill 返回 resource；反链保留实际 source | done；Home `engine.search_corpus` 与公共 evidence 聚合；`tests/plugins/home/content/test_home_search.py` 覆盖 nested Skill、无 top resource、actual source 反链及 inspect。 |
+| A5 | 没有词面重合但语义相关的候选可由 Embedding 独立召回 | done；`SearchEngine.embedding_scores` 在全部合格证据单元上独立召回后融合；`test_search.py` 验证没有词面重合的语义候选不会被 lexical top-k 排除。 |
+| A6 | 折叠 Trace 与 Session 原文/解释可搜索并 Inspect；辅助模型不解除展示保护 | done；`kernel/context/search.py`、Context/Trace 原始入口、Session `views/inspection.py`；`test_disclosure.py`、`test_organize.py` 验证折叠前后原文与解释可搜可读，`test_model_tasks.py` 验证辅助输入不消费保护。 |
+| A7 | Search 分页稳定且不重新调用模型，Turn/profile/day 失效隔离，合法空选择与 scope 收紧反馈正确 | done；SearchViews、SearchSession.prepare/close_turn 与各 profile preparation/resource；`test_search.py` 验证快照、不重复选择、旧 scope token、下一 Turn 重开、空选择和超预算；SDK/日切测试验证服务 lease。 |
+| A8 | Markdown inline/reference-style、Memory 结构化边与跨空间 anchor 结果一致；相似文档不冒充反链 | done；`infra/references.py` 与 Home/Memory/Workspace/Context owner 解析；Home search、Memory read、Workspace engine 测试覆盖 inline/reference-style、结构化边、跨空间 fragment、来源日和相似内容不成为反链。 |
+| A9 | provider 切换不混合向量；Home/Memory 各自缓存可重建；资源只关闭一次 | done；`infra/model_services/{service,vectors}.py` 与 Home/Memory plugin 独立 cache；`tests/infra/model_services/test_models.py` 覆盖 provider 固定空间、完整重试、损坏缓存重建、共享关闭一次。缓存由 owner 装配；Home 通用检索保持 effective view，actual 仅在 Background/baseline/diff 中读取，不混入检索缓存。 |
+| A10 | MCP 只返回已知工具；schema 容量不足有 describe 入口，Workspace 没有隐式向量库 | done；ExpandEngine.search_corpus、共享 selector 与已有 describe；`tests/plugins/capabilities/expand/test_actions.py` 覆盖已知 ID、错误 ID、容量反馈、完整 schema/describe 入口。Workspace 只声明文本/反链能力，没有 Embedding binding/index。 |
+| A11 | User/Reflection 来源、写权限和 Session 日切事实保持；模型用途协议共用 | done；PluginDefinitions、ProfileAssembly、Home/Memory/Session services、generation owner；`tests/agent/composition/`、`tests/agent/test_sdk.py` 与 Reflection 测试覆盖三情景权限、固定来源、日切和资源清理。 |
+| A12 | SDK、配置 Endpoint、Action catalog 与 Observation 使用同一声明/绑定，无旧协议双轨 | done；SDK/配置 catalog/Observation 共用声明与绑定；配置编辑、Endpoint、LLM/model observation、生成与 wheel 验收已通过最终 Full，旧生成文件名断言已迁移。 |
+| A13 | rank 保留候选集合，select 可排除；seed 只允许显式资格过滤，不能用词法或向量预筛代替 selector | done；CandidateSelector 与 SeedRefinement 契约；`test_selection.py`、`test_search.py` 覆盖 rank 全排列、select 空子集、显式资格过滤、无隐蔽预筛和 scope 收紧。 |
+| A14 | binding/policy/Stage2 schema 能力一致；相似度 rank 不虚称消费 Context，纯反链枚举不需要模型 | done；SearchCapability + SearchPolicy + ModelUseRegistry 与 `search_schema`；`test_search.py`、`test_config_settings.py`、配置编辑/装配测试覆盖非法模式、未知目标、未选凭据、有效动作依赖及 Context 约束。 |
+| A15 | JEV/LLM selector、ranker 在人工可判断的 Home/Memory/MCP 样本上验证命中、排除、空结果与预算；记录实际评分规则和限制 | in_progress；本地 LLM/JEV 协议、空选择与预算验证通过。JEV Home/Memory/MCP 真实 select/rank/无关查询共 9 次已通过，评分 0–3、阈值 2。真实 LLM 同类样本测试已准备，自动审批要求单独确认外部 LLM 请求。 |
 
 使用小型、人工可判断的 Home/Memory/MCP 数据验证 JEV 命中、无关项排除、空结果及输入预算；HTTP 调通不等于检索质量已通过。评分等级和阈值可根据这些代表性样本调整并记录，属于本轮实现验证，不需要开启另一轮架构设计。
 
@@ -649,17 +649,19 @@ Observation 是旁路，sink 失败不改变业务；它不成为索引更新、
 - [x] 明确 seed 必需模型、Memory Inspect 无反链、共享资源归属、跨空间 anchor 与各 owner 来源边界。
 - [x] 明确本轮全部消费者、资源生成、SDK/Endpoint 和文档的迁移责任，无后续补做的核心能力。
 - [x] 确认本地 Python、pytest、ty 可调用；未把工具可用性当作测试通过。
-- [ ] 阶段 1–6 实现、文档同步及 A1–A15 行为验收。
+- [x] 阶段 1–5 实现与文档同步。
+- [x] 阶段 6：最终 Full、typecheck、格式/差异检查与 A1–A14 核对。
+- [ ] 阶段 6：A15 真实 LLM 补充验收及最终归档。
 
-下一实施入口为阶段 1：先贯通 ExecutionSpec/catalog/runner、model-use 声明与绑定、唯一 LLM 的 invoke/run 边界，再迁移 core/Workspace 既有消费者。该组改动同步默认 catalog/配置和相关契约测试，避免产生必须靠旧键双读才能运行的中间提交；第 5 阶段负责全仓交付核对，不推迟前面阶段必需的资源和文档同步。实现时先运行对应聚焦测试，再运行 Fast。
+实施已贯通 ExecutionSpec/catalog/runner、用途绑定、invoke/run 与全部既有模型消费者；生成资源、SDK 和现有 Endpoint 协议同步完成。剩余状态以第 16 节为准。
 
-本轮交付止于准备实施，不开始修改后端代码，也不提前把 AGENTS.md 或 docs/design 的目标能力写成当前事实。
+维护者已在准备复核后授权本轮完整实施。AGENTS.md 与 docs/design 随真实实现同步，不提前把目标能力写成当前事实。
 
 实施者可以决定局部文件拆分、类型名称、现有 helper 的复用方式及代表性测试组织；这些选择应遵循本文和 AGENTS.md，不需要逐一重新确认。若实际供应商协议或来源能力与本文有事实冲突，应停止受影响部分并说明具体冲突，不能用兼容别名、隐藏降级或第二套实现绕过。
 
 ## 15. 2026-09-25 同步复核记录
 
-复核状态：`done`（仅指比较、合并与准备分析）。阶段 0 准备已完成；重构实施及行为验收仍为 `pending`。
+以下保留合并时的历史复核记录；本轮实施和门禁结果见第 16 节，不以这些准备记录表示实现完成。
 
 ### 15.1 相比旧执行计划的变化与判断
 
@@ -694,10 +696,10 @@ Observation 是旁路，sink 失败不改变业务；它不成为索引更新、
 
 ### 15.3 代码和协议证据
 
-- [Action 执行器查找与批次运行](../../tinysoul/kernel/action/execution/runner.py)、[当前超时配置合并](../../tinysoul/kernel/action/catalog/loader.py)、[混合 LLM Action runner](../../tinysoul/kernel/action/backends/llm_action.py)：支持删除 backend 分类，同时保留唯一运行控制与真实时限。
+- [Action 执行器查找与批次运行](../../tinysoul/kernel/action/execution/runner.py)、[当前超时配置合并](../../tinysoul/kernel/action/catalog/loader.py)、原 `kernel/action/backends/llm_action.py`（本轮删除）：支持删除 backend 分类，同时保留唯一运行控制与真实时限。
 - [现有 LLM 管线](../../tinysoul/llm/execution/task.py)、[Runtime bridge](../../tinysoul/llm/runtime_bridge.py)：当前模型链/容量失败直接桥接 Runtime；invoke/run 需要实际重构，并非已有公共接口的简单改名。
-- [Home 搜索](../../tinysoul/plugins/home/content/search.py)、[Home Link](../../tinysoul/plugins/home/links.py)：当前只搜 skills top，agent/resource 身份已存在；全空间证据与聚合是新增工作。
-- [Memory 检索](../../tinysoul/plugins/memory/retrieval/catalog.py)、[向量缓存](../../tinysoul/plugins/memory/retrieval/embeddings.py)：当前已对合格 Memory 全集计算语义相似度，再与 lexical 分数相加；不能把它误写成只对 lexical top-k 重排。新工作是统一语义、排名融合、provider 隔离与可观察失败。
+- 原 `plugins/home/content/search.py`（本轮删除）、[Home Link](../../tinysoul/plugins/home/links.py)：当前只搜 skills top，agent/resource 身份已存在；全空间证据与聚合是新增工作。
+- [Memory 检索](../../tinysoul/plugins/memory/retrieval/catalog.py)、原 `plugins/memory/retrieval/embeddings.py`（本轮删除）：当前已对合格 Memory 全集计算语义相似度，再与 lexical 分数相加；不能把它误写成只对 lexical top-k 重排。新工作是统一语义、排名融合、provider 隔离与可观察失败。
 - [Phase1](../../tinysoul/kernel/loop/phases/phase1.py)、[Phase2](../../tinysoul/kernel/loop/phases/phase2.py)、[Session 视图](../../tinysoul/plugins/session/views/inspection.py)：已有决策请求消费保护与固定视图，搜索应复用其边界。
 - [Workspace 搜索](../../tinysoul/plugins/workspace/inspection/search.py)、[continuation](../../tinysoul/infra/continuation.py)：已有有界扫描和分页基础；标准 Markdown 反链与 Search 结果视图仍需实现。
 - [Session SDK 服务](../../tinysoul/plugins/session/services.py)、[配置路由](../../tinysoul/gateway/endpoint/http/routes/configuration.py)、[公开 Endpoint 清单](../endpoint/index.md)：核对实际服务和现有 HTTP 范围，不把提议中的浏览接口记为已存在。
@@ -732,3 +734,27 @@ Home 返回身份与反链来源范围沿用 review 第 7 节的确认结果；�
 - 本次只修改计划及输入文档的归属说明，未运行业务测试、Full 或 typecheck，也未调用付费模型。工具版本检查不等于实现门禁已通过。
 
 实施时仍必须完成第 13 节的行为验收、必要 External 验证及 Full/typecheck；本计划不得因设计复核完成而提前归档。
+
+
+## 16. 实施与验收记录
+
+### 旧项目配置切换
+
+项目配置需要同步转换：用包内 standard/development 模板生成独立新项目作为参照，比较并替换 configs/action/catalog、action/routing.toml、infra/model_services.toml 与 Home/Memory 检索设置；保留已有 Home、Memory、Session 和 Workspace 内容。将旧 backend handler 映射到 execution.executor，把有效超时显式写入 runtime；将生成参数迁入对应 consumer binding。旧 embedding 配置转换成 provider/model/use 后，由 Home/Memory 引用 use。删除旧配置文件以免 include 再次加载，更新本地 Skill 中的 Action 名称。运行时直接拒绝旧键，不自动改写用户数据或维护兼容别名。
+
+### 实际结果
+
+状态：`in_progress`。本节记录实际交付，前文准备阶段记录不表示本次结果。
+
+- Action 只保留 execution.executor，runtime 是唯一总 deadline；删除旧 backend/handler、专用 LLM Action runner、Memory 独占 embedding 客户端和旧 Action 名称。core/Workspace 生成任务和所有检索操作共用模型用途协议。
+- Infra 专用模型目录完成 provider/model/use、有序切换、typed JEV 与 Embedding 会话；取消不触发 provider 切换，向量比较固定 provider 空间。Home effective 与 Memory 独立缓存复用同一索引设施，派生内容可删除重建。
+- Search 三种模式、真实边、候选/coverage 与稳定分页已经接入全部 owner。Home 的 Embedding 用途设在既有 `home.search` 段，未另建重复的 semantic_search 段；Memory 延用自己的 semantic_search 组。
+- 修复核对中发现的边界：未选 JEV 用途不要求凭据、所有 binding 目标仍严格校验；可编辑 policy 不能超出代码声明的来源能力；context=current 使用合法 TaskPrompt；复用 profile 时每轮重新打开查询作用域并使旧 token 失效；Home 不用文件 mtime 伪造来源日；Reflection 通用 Home Action 检索/Inspect effective overlay，actual 只作为独立 Background/review 基线；Memory 的相对 Markdown direct refs 转换成可继续 Inspect 的逻辑 Link。
+- AGENTS.md 同步 Memory search/inspect、MCP LLM/JEV、模型/检索职责及辅助模型不消费保护。设计文档与现有配置/目录/事件 Endpoint 同步；未修改 visualization，未新增任意 Action HTTP 执行器。
+- 聚焦验证按变更 owner 运行；Fast 完成 1153 passed。首次 Full 的一处旧生成文件名断言已修正。Memory 相对链接与三情景 effective Home 的最终修正分别通过 owner/装配聚焦验证，再运行完整门禁：`scripts/test.ps1 -Suite Full` 为 **1168 passed、25 deselected，163.76 秒**；`scripts/typecheck.ps1` 为 **All checks passed**。`ruff format --check` 检查 120 个变更 Python 文件通过，`git diff --check` 与修改文档的相对链接检查通过。最终 Full 隔离运行目录为 `.local-test/runs/5e8b1bcfd8db4dd594dd447dbe055af8`。
+- JEV External：1 passed（内部执行三类来源各 select/rank/无关 query，共 9 次请求），真实结果满足人工样本。LLM 本地契约测试通过；额外真实 LLM 验收请求被自动审批拒绝，理由为原授权没有明确覆盖从 .env 取用凭据并向该外部 LLM 发送测试。已向维护者明确请求对 DeepSeek 官方端点和 9 次人工样本的许可，未绕过拒绝。
+- 质量边界：这些样本保护已知候选映射、命中/排除和空结果，不表示大规模语料相关性基准。未把未运行的真实 LLM 测试计为通过。
+
+当前代码实现、设计/Endpoint/AGENTS 同步和本地验证均已核对，唯一未结项为 A15 的真实 LLM 样本验收授权。按 AGENTS.md，本计划保持 in_progress 并留在 docs/analysis；取得授权并通过该验收，或维护者明确确认不要求该外部验收后，才能记录最终处置并归档。无新增设计决策待确认。
+
+建议 commit 文本：`refactor: unify action model uses and retrieval semantics`。尚未创建 commit；删除的旧实现和模板均可从 Git 历史恢复，未迁移或删除用户业务资料。

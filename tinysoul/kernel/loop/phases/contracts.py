@@ -24,6 +24,10 @@ class LLMRunner(Protocol):
         """Run one LLM task call."""
         ...
 
+    async def invoke(self, call: TaskCall) -> TaskResult:
+        """Run the same task pipeline with typed module failures for composition."""
+        ...
+
 
 @dataclass(frozen=True)
 class PhaseFailure:
