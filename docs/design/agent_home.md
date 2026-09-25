@@ -2,7 +2,7 @@
 
 ## 状态
 
-本文描述 Agent Home 的已确认目标边界与当前实施状态。代码已完成 `home:` 链接解析、仅含 `agent`/`skills` 的 effective 顶层目录、`home:agent@AGENT`、严格 skill frontmatter 与自动 metadata 目录、领域/动作 skill、带 operation recovery 的跨日 overlay、渐进资源与 top/prompt mount mutation、effective top search、Action Catalog mount reconciliation、`SKILL_MEMORY.md` 路径约束和 Runtime copy Trap。旧 `what`、`why`、`how` 命名空间已删除，不提供兼容 Link、双读或迁移 API。Home 已从 DailyLifecycleCoordinator 解耦，不再提供 active day/archive 业务 API。
+本文描述 Agent Home 的已确认目标边界与当前实施状态。代码已完成 `home:` 链接解析、仅含 `agent`/`skills` 的 effective 顶层目录、`home:agent@AGENT`、严格 skill frontmatter 与自动 metadata 目录、领域/动作 skill、带 operation recovery 的跨日 overlay、渐进资源与 top/prompt mount mutation、覆盖完整 effective Home 的 `home.search`、Action Catalog mount reconciliation、`SKILL_MEMORY.md` 路径约束和 Runtime copy Trap。旧 `what`、`why`、`how` 命名空间已删除，不提供兼容 Link、双读或迁移 API。Home 已从 DailyLifecycleCoordinator 解耦，不再提供 active day/archive 业务 API。
 
 Home 顶层内容、skill 和渐进资源在真正使用前透明物化到 `runtime/home`。Context 在每个 User Turn 开始时清空通用 Background，再由 Home provider 从 effective Home 提供自动 skill metadata 目录、不可逐出的默认 core、effective 存在时同样不可逐出的 allowlisted Context/user Agent Top 正文，以及内部可加载顶层目录；Phase1 临时加载项不跨 Turn 保留。普通 Turn 的编辑只落到跨日保留的 active overlay；skill 的 runtime 包额外维护自上次 Home Reflection 以来有效的 `SKILL_MEMORY.md`。Home search 覆盖 effective agent/skills 内容，按已配置来源独立召回并执行有限的 rank/select；Home Reflection service 提供有界 diff snapshot 和 accept/reject/rewrite mutation，推理与任务编排属于 `tinysoul.plugins.reflection.home`。
 
@@ -12,7 +12,7 @@ Home 顶层内容、skill 和渐进资源在真正使用前透明物化到 `runt
 
 Agent Home 模块负责 TinySoul 的持久化身份规约、用户偏好、通用技能和领域/动作技能。它是 `home:` 链接的唯一语义归属方，不是 `memory:` 链接或长期日期记忆的归属方。
 
-Home Action 通过 HomeService 调用有界 owner 操作，ServiceScope 复用 Action 的 JoinedOperations；取消不丢弃已启动的修改，真实结果先交给 runner 记录。Home 搜索在 JoinedOperations 中读取固定候选文档，之后才异步执行 rerank；不在线程中执行模型调用，也不在读取已取消后继续调用模型。
+Home Action 通过 HomeService 调用有界 owner 操作，ServiceScope 复用 Action 的 JoinedOperations；取消不丢弃已启动的修改，真实结果先交给 runner 记录。Home 搜索由 owner 交付 effective 来源和证据，再按已登记 SearchPolicy 执行可选模型排序或选择；模型调用属于检索操作边界，不绕过 Action/owner，也不在读取已取消后继续调用模型。
 
 Agent Home 不维护 Turn 内 Context 状态，不驱动 Loop，也不管理 workspace 或 Memory 文件。它向 User Context 提供 effective Home，向 Loop 提供领域 skill，向 Action 内部 LLM task 提供领域/动作 skill，并向 Action 提供普通 runtime mutation；Reflection-owned actual Home provider 不属于 Home 主线。Home owner 只公开中性的 `HomeReviewService` 与 review/resolve/remove overlay 门面，不拥有 Reflection task、reviewer、时钟、scheduler 或 Reflection Turn。
 
@@ -188,7 +188,7 @@ Loop 只依赖 `DomainSkillProvider` 协议，不读取 skill 文件。Agent Hom
 
 Action 内部 LLM task 只依赖 `ActionSkillProvider` 协议，不读取 Home 文件。Agent Home 提供 `HomeActionSkillProvider`，接收 `domain` 与 `action_name`，分别映射为 `home:skills_domain:<domain>` 与 `home:skills_action:<domain>/<action>`。这两类内容只注入 Phase3 action 内部嵌套 LLM task，用于延续 domain 约束，并约束具体 action 的文本风格、生成策略或领域动作细节。
 
-运行规约按稳定职责分层维护。`home:agent@AGENT` 只承载跨能力通用原则，例如每个 Cycle 应推进用户目标、先探索验证再规划执行并检查迭代、结构化失败必须按 scope/disposition 有界恢复、权威 mutation 结果与必要验证的边界、Phase1 即时对账 WorkingContext，以及在交付成果或需要用户输入时及时执行唯一 `core.answer`。提问、确认请求、申请进一步指示或请求用户从可行路线中选择，都可以构成当前 User Turn 的有效 answer；这不宣告整体多轮目标已经完成，也不要求 WorkingContext todos 全部完成。WorkingContext milestone 是少量已验证事实或 checkpoint 的寄存器，不是 todo 镜像或完成徽章；应记录后续 Cycle 必须保留的值、决定、来源 Link、版本/digest 和局部成果，并仅在事实变化时更新。`retry_same` 是否可以重复由 failure disposition 和当前事实决定，不以相同参数作为运行时错误；所谓 fallback 必须改变真实 backend、输出协议或限制条件，不能只换 action 名称/domain。domain skill 只解释同一 action domain 内的选择、恢复和收束方式，例如 Workspace 工件失败、Web failure disposition 或 execution 的监督与结果收集。action skill 只约束一个带内部 LLM task 的具体 action，例如 `workspace.compose` 对完整文本工件、截断输入、证据、结构保留和用户可见引用的要求。具体 capability/action 规则不得反向堆入 core，通用原则也不应在每个 action skill 中重复维护。
+运行规约按稳定职责分层维护。`home:agent@AGENT` 只承载跨能力通用原则，例如每个 Cycle 应推进用户目标、先探索验证再规划执行并检查迭代、结构化失败必须按 scope/disposition 有界恢复、权威 mutation 结果与必要验证的边界、Phase1 即时对账 WorkingContext，以及在交付成果或需要用户输入时及时执行唯一 `core.answer`。提问、确认请求、申请进一步指示或请求用户从可行路线中选择，都可以构成当前 User Turn 的有效 answer；这不宣告整体多轮目标已经完成，也不要求 WorkingContext todos 全部完成。WorkingContext milestone 是少量已验证事实或 checkpoint 的寄存器，不是 todo 镜像或完成徽章；应记录后续 Cycle 必须保留的值、决定、来源 Link、版本/digest 和局部成果，并仅在事实变化时更新。`retry_same` 是否可以重复由 failure disposition 和当前事实决定，不以相同参数作为运行时错误；所谓 fallback 必须改变真实 provider、输出协议或执行路径，不能只换 action 名称/domain。domain skill 只解释同一 action domain 内的选择、恢复和收束方式，例如 Workspace 工件失败、Web failure disposition 或 execution 的监督与结果收集。action skill 只约束一个带内部 LLM task 的具体 action，例如 `workspace.compose` 对完整文本工件、截断输入、证据、结构保留和用户可见引用的要求。具体 capability/action 规则不得反向堆入 core，通用原则也不应在每个 action skill 中重复维护。
 
 默认 Agent 人格与表达同样按职责分层：`agent/identity/identity.md` 描述名称、Nature、Vibe 和 Expression 等稳定身份特征；`agent/identity/soul.md` 描述主动协作、独立判断、创造性探索及事实边界；`home:agent@AGENT` 决定跨能力行动和人机交接原则；`home:skills_action:core/answer` 只约束 `core.answer` 内部 LLM task 的用户可见表达。方括号意图提示是可按对话语言选择的开放风格，不是固定枚举或输出协议，也不得污染代码、引文、生成工件、结构化输出或用户明确要求的格式。
 
@@ -298,7 +298,7 @@ tinysoul/plugins/home/
   failures.py
 ```
 
-`AgentHomeEngine` 是普通 User Turn 与 Reflection 的 Home 门面，提供链接解析、effective/actual 顶层目录、effective read、runtime mutation、overlay reconciliation、top search、domain/action skill、Reflection snapshot/resolution 和 finalize。`HomeOverlayManager` 只管理跨日 active overlay record 与 operation recovery，不提供 CalendarDay/archive 或 LLM policy。`HomeTopSearchService` 只消费 Engine 交付的 bounded effective documents，不重复解释 overlay；`AgentHomeEngineBuilder` 负责接收已解析设置、校验目录并装配这些服务。不建立 Settlement store，也不把 Reflection Turn 编排放进 Home。
+`AgentHomeEngine` 是普通 User Turn 与 Reflection 的 Home 门面，提供链接解析、effective/actual 顶层目录、effective read、runtime mutation、overlay reconciliation、`home.search`、domain/action skill、Reflection snapshot/resolution 和 finalize。`HomeOverlayManager` 只管理跨日 active overlay record 与 operation recovery，不提供 CalendarDay/archive 或 LLM policy；检索索引由 generation 的模型服务和 Home owner 装配。不建立 Settlement store，也不把 Reflection Turn 编排放进 Home。
 
 AgentBuilder 的目标职责是：
 

@@ -30,7 +30,7 @@ Job：属于唯一 Turn 的后台工作，可跨 Cycle，不能跨所属 Turn。
 
 模型侧 Tool Message：约束模型生成结构化意图，不表示工具已执行。Control Tools 的意图经校验交给对应 owner，Action Tools 归一化为 ActionCall 后交给 Phase3。供应商原生 tool calling 只存在于 LLM 适配边界。
 
-domain 是能力分组，TurnProfile 是同一 Agent 的执行情景。domain 提供可覆盖的默认选择，单动作可覆盖域选择；visibility 只筛选已经授予且可用的能力，不能授予缺失的写服务或 backend。
+domain 是能力分组，TurnProfile 是同一 Agent 的执行情景。domain 提供可覆盖的默认选择，单动作可覆盖域选择；visibility 只筛选已经授予且可用的能力，不能授予缺失的写服务或 executor/runtime support。
 
 ### 语境模型
 

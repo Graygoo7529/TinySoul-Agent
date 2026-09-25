@@ -75,7 +75,7 @@ Phase3 不保留长期运行或 ongoing Action。正常完成以成功、失败�
 
 ActionExecutor 统一提供异步执行入口。runner 拥有已启动任务直到其收敛：Action deadline 取消异步 I/O 并生成 timeout；Turn 取消保持取消身份。短本地 owner 调用通过 JoinedOperations 保留并等待 worker 结果，结果先交付 Trace，再传播取消；迟到的真实成功不改写为超时。
 
-Home、Memory 与 Workspace Action 通过注入的 async Service 调用 owner；短文件操作由 ServiceScope 复用 Action 的 JoinedOperations，结果和通知先交付执行事实，再由 runner 传播取消。Workspace 的混合动作分为有界读取、异步 LLM、owner 提交；提交包含 Workspace snapshot 通知。Home 搜索只把文档读取放入短操作，rerank 仍为原生异步 LLM。Reflection 使用按用途授权的写服务，长进程使用受控 backend；不把含网络或长期进程工作的整个 executor 投入线程适配。
+Home、Memory 与 Workspace Action 通过注入的 async Service 调用 owner；短文件操作由 ServiceScope 复用 Action 的 JoinedOperations，结果和通知先交付执行事实，再由 runner 传播取消。Workspace 的混合动作分为有界读取、异步模型任务、owner 提交；提交包含 Workspace snapshot 通知。Home 搜索由 owner 提供 effective 候选，再按登记的 SearchPolicy 执行模型排序或选择。Reflection 使用按用途授权的写服务，长进程使用受控进程机制；不把含网络或长期进程工作的整个 executor 投入线程适配。
 
 并行组按完成就绪处理任务；同一批同时失败按提交顺序选择主失败。未知 executor 异常、非法结果身份和 trace policy 错配由 Action bridge 转为模块失败；已知业务拒绝保持局部结果。RuntimeException 与 RuntimeTransferInterrupt 保持原身份，同批工作回收后传播。执行事实独立于模型视图提交，因此部分批次失败不抹去已提交结果。runner 不保留失联线程 grace 或“泄漏后继续”策略；受控进程的停止仍由进程 owner 负责。
 
@@ -109,7 +109,7 @@ available = granted && visibility && supported
 Builder 因此保留 configured catalog、exact include view、supported identities 和 effective catalog。
 Phase1/Phase2、执行 identity、executor 完整性校验与 Home prompt mount reconciliation 只消费
 effective catalog；设置与 Endpoint 投影遍历 configured catalog，使关闭或暂不支持的 Action 仍可读。
-授权来自代码中的动作身份与执行绑定注册。可编辑 handler 不能借用其它动作的执行能力，catalog 成员身份不会自动成为授权。显式启用未授权的情景动作、未知情景或未声明动作均在候选边界拒绝。配置查询按情景返回选择来源、granted、supported、available 和不可用原因，候选校验覆盖三个情景。
+授权来自代码中的动作身份与执行绑定注册。可编辑 executor 绑定不能借用其它动作的执行能力，catalog 成员身份不会自动成为授权。显式启用未授权的情景动作、未知情景或未声明动作均在候选边界拒绝。配置查询按情景返回选择来源、granted、supported、available 和不可用原因，候选校验覆盖三个情景。
 
 ## 执行语义
 
@@ -122,7 +122,7 @@ effective catalog；设置与 Endpoint 投影遍历 configured catalog，使关�
 
 框架内信息描述调用关联、批次关联、运行位置、超时边界和所属域。模型生成参数只保留 action schema 对应的业务参数。
 
-`ActionExecution` 是 Phase3 的自包含执行输入：它同时携带已解析的 `ActionSpec`、规范化后的 `ActionCall` 和 `ActionFramework`。runner、hook 和 backend executor 不再在执行时重新查询 catalog；catalog 一致性在 builder/engine 准备阶段完成。
+`ActionExecution` 是 Phase3 的自包含执行输入：它同时携带已解析的 `ActionSpec`、规范化后的 `ActionCall` 和 `ActionFramework`。runner、hook 和 executor 不再在执行时重新查询 catalog；catalog 一致性在 builder/engine 准备阶段完成。
 
 行动调用使用 TinySoul 归一化后的模型侧 tool call id 作为后续工具结果回放的相关性字段；执行期另有框架内部观测标识，用于 trace 和调度。
 
@@ -330,15 +330,15 @@ Phase1 和 Phase2 只是在这个基础上选择不同的工具作用域和不�
 
 `actions/*.toml` 放具体 action 定义。
 
-TOML 描述模型侧工具协议、补充语义、visibility、执行配置和后端绑定，不放 Python 业务实现。execution.executor 是显式注册键，例如 core.answer 或 workspace.list；进程和模型依赖由实现组合。
+TOML 描述模型侧工具协议、补充语义、visibility、执行配置和模型用途绑定，不放 Python 业务实现。execution.executor 是显式注册键，例如 core.answer 或 workspace.list；进程和模型依赖由实现组合。
 
 ### Python executor 与业务归属
 
-`tinysoul/kernel/action/backends` 只放通用执行机制，不放具体业务动作。`tinysoul/kernel/action/builtins` 只放 Action 模块自己拥有的内置动作实现，例如 `core.reason` 与 `core.answer`。Workspace、Agent Home、Memory 等有独立业务模型、链接语义、持久化或 runtime/trap 生命周期的模块，Action 集成保留在所属模块的 `actions.py` 中，并通过 registrar 注册到 `ActionEngineBuilder`。
+`tinysoul/kernel/action/backends` 只放受控进程等通用执行机制，不放具体业务动作；Action catalog 的执行绑定统一使用 `execution.executor`。`tinysoul/kernel/action/builtins` 只放 Action 模块自己拥有的内置动作实现，例如 `core.reason` 与 `core.answer`。Workspace、Agent Home、Memory 等有独立业务模型、链接语义、持久化或 runtime/trap 生命周期的模块，Action 集成保留在所属模块的 `actions.py` 中，并通过 registrar 注册到 `ActionEngineBuilder`。
 
 `actions.py` 是模块与 ActionEngine 的集成边界，不等同于业务逻辑容器。它可以包含 `ActionExecutor` 实现类、模型参数解析、局部失败到 `ActionResult` 的映射、信号发送和 `register_<domain>_actions` registrar。executor 类名仍使用 `*ActionExecutor` 后缀，以明确它们实现 `ActionExecutor` 协议；registrar 使用 `register_<domain>_actions` 命名，例如 `register_core_actions`、`register_workspace_actions`、`register_home_actions`、`register_memory_actions`。真实业务规则应继续下沉到 engine/service/client/evaluator 等文件，避免 `actions.py` 变成业务大杂烩。
 
-轻量业务能力不应全部堆入 Action executor 目录，也不必升级为 Workspace 级顶层模块。数学计算、网页搜索等能力在真实 action、边界和测试都明确后放入 `tinysoul/plugins/capabilities/<capability>`：业务逻辑放在该能力包的 service/evaluator/client 中，action-facing 代码位于该能力包的 `actions.py`，只负责参数解析、调用业务服务和映射 `ActionResult`，再由 registrar 接入 ActionBuilder。没有真实 capability 时不保留空包或空 action。Action Domain 服务于 Phase1 的大致方向选择，可以覆盖多个 Capability，也不要求与 executor owner 正交或一一对应；Resource conversion 因操作对象并入 Workspace，Script/Shell 因任务方向合并为 Execution。进程 backend 作为执行机制存在，不意味着向模型提供未受限的任意 shell 或 inline script action。
+轻量业务能力不应全部堆入 Action executor 目录，也不必升级为 Workspace 级顶层模块。数学计算、网页搜索等能力在真实 action、边界和测试都明确后放入 `tinysoul/plugins/capabilities/<capability>`：业务逻辑放在该能力包的 service/evaluator/client 中，action-facing 代码位于该能力包的 `actions.py`，只负责参数解析、调用业务服务和映射 `ActionResult`，再由 registrar 接入 ActionBuilder。没有真实 capability 时不保留空包或空 action。Action Domain 服务于 Phase1 的大致方向选择，可以覆盖多个 Capability，也不要求与 executor owner 正交或一一对应；Resource conversion 因操作对象并入 Workspace，Script/Shell 因任务方向合并为 Execution。受控进程只是 executor 可组合的执行机制，不意味着向模型提供未受限的任意 shell 或 inline script action。
 
 ### 继承规则
 

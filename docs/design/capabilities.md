@@ -37,7 +37,7 @@ configs/capabilities/
 
 文件拆分只影响维护位置，不改变 TOML section identity。每个 capability parser 只解释自己的子树并拒绝未知键。Infra 的 ConfigEnvironment 负责 include、合并、来源诊断和环境覆盖，不拥有 capability 业务字段。
 
-项目 Action Catalog 的 visibility 负责情景选择，capability 配置负责后端、adapter、依赖、凭据与资源上限。registrar 显式注册获授动作，缺少支持的动作标为 unsupported；最终有效集合为 grants、情景选择和 backend 支持的交集。关闭动作可见性不跳过已启用后端的依赖检查。
+项目 Action Catalog 的 visibility 负责情景选择，capability 配置负责执行适配器、依赖、凭据与资源上限。registrar 显式注册获授动作，缺少支持的动作标为 unsupported；最终有效集合为 grants、情景选择和执行支持的交集。关闭动作可见性不跳过已启用能力的依赖检查。
 
 ## 依赖需求与可用性
 
@@ -71,7 +71,7 @@ capability enabled=true + dependencies unavailable
 
 Action 名称由用户可区分的行为决定。通常不应只因实现库不同而复制同义 action；但当不同 adapter 具有明确的格式范围、输出结构、失败模式和选择倾向时，可以在同一 domain 暴露多个具名 action，并通过 Catalog semantic 与 domain skill 说明选择规则。
 
-Capability 不重复实现 Action backend。需要硬停止的第三方解析、外部程序或不受信任输入处理必须复用 Action 的受控 process 原语；业务 executor 只负责运行前 staging 和完成后业务提交。
+Capability 不重复实现 Action executor。需要硬停止的第三方解析、外部程序或不受信任输入处理必须复用 Action 的受控进程原语；业务 executor 只负责运行前 staging 和完成后业务提交。
 
 ## 执行与临时资源
 

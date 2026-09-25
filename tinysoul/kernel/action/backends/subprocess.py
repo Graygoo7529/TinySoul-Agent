@@ -1,4 +1,4 @@
-"""Subprocess-backed action execution."""
+"""Controlled-process execution support for Action owners."""
 
 from __future__ import annotations
 

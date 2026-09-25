@@ -1,4 +1,4 @@
-"""Built-in action backend executors."""
+"""Controlled-process utilities composed by Action executors."""
 
 from .subprocess import (
     ControlledProcessRunner,

@@ -115,7 +115,7 @@ class ActionEngine:
         return tuple(domain.name for domain in self._catalog.domains())
 
     def declared_actions(self) -> frozenset[str]:
-        """Package-owned identities granted to this scenario, including disabled backends."""
+        """Package-owned identities granted to this scenario, including unsupported actions."""
         return self._granted_actions
 
     def validate_candidate(self, catalog: ActionCatalog) -> frozenset[str]:
@@ -126,8 +126,8 @@ class ActionEngine:
             raise ConfigError(
                 "Catalog is missing registered actions", key="action.catalog"
             )
-        for name, handler in self._bindings.items():
-            if catalog.get_action(name).execution.executor != handler:
+        for name, executor in self._bindings.items():
+            if catalog.get_action(name).execution.executor != executor:
                 raise ConfigError(
                     "Catalog changed a registered execution binding",
                     key=f"{name}.execution.executor",
@@ -341,8 +341,8 @@ class ActionEngine:
             catalog_documents=self._catalog_documents,
             granted_actions=self._granted_actions.intersection(action_names),
             bindings={
-                name: handler
-                for name, handler in self._bindings.items()
+                name: executor
+                for name, executor in self._bindings.items()
                 if name in action_names
             },
             scenario=self._scenario,
@@ -636,8 +636,8 @@ class ActionEngineBuilder:
                 "Registered actions are absent from the catalog: "
                 + ", ".join(sorted(unknown))
             )
-        for name, handler in self._bindings.items():
-            if complete_catalog.get_action(name).execution.executor != handler:
+        for name, executor in self._bindings.items():
+            if complete_catalog.get_action(name).execution.executor != executor:
                 raise ActionContractError(
                     "Action catalog changed a registered execution binding: " + name
                 )

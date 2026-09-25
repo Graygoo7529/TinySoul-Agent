@@ -2,11 +2,11 @@
 
 版本：`2026-09-25 / r2 / consolidated`。
 
-当前状态：`in_progress`。阶段 0–5 已落实，A1–A14 及完整本地门禁已通过；阶段 6 仅保留 A15 的真实 LLM 样本验收待授权。实现、文档和逐项证据见第 13、16 节，未将尚未通过的外部验收计为完成。
+当前状态：`done`。阶段 0–6 已落实，A1–A15、完整本地门禁及代表性真实模型验收均已通过。实现、文档和逐项证据见第 13、16 节。
 
-本文是唯一维护的执行计划。已合并 [补充 review](20260925-action-model-retrieval-unification-review.md)、[analysis r2 输入稿](20260925-action-model-retrieval-unification-plan-r2.md) 与本文件上一轮代码复核结论；输入稿和 review 保留历史依据，不再独立维护实施规格或进度。F1–F12 的逐项处置见第 15.4 节。
+本文是本轮已归档的唯一执行计划。已合并 [补充 review](../20260925-action-model-retrieval-unification-review.md)、[analysis r2 输入稿](../20260925-action-model-retrieval-unification-plan-r2.md) 与本文件上一轮代码复核结论；输入稿和 review 保留历史依据，不再独立维护实施规格或进度。F1–F12 的逐项处置见第 15.4 节。
 
-代码核对基线：`3591f4cff9a11cf3fe9dfef6f4ed243d7b5f1164`（2026-09-25 合并时 HEAD）。相对 review 的 `5a6842ad64ea5596e1054333919643f833a983aa`，`tinysoul/`、`tests/` 和 `AGENTS.md` 没有变更；原代码证据仍适用。analysis r2 与 [chat r2](../chat/20260925-action-model-retrieval-unification-plan-r2.md) 内容相同，本次补充 review 已完整核对，不再存在缺失依据。
+代码核对基线：`3591f4cff9a11cf3fe9dfef6f4ed243d7b5f1164`（2026-09-25 合并时 HEAD）。相对 review 的 `5a6842ad64ea5596e1054333919643f833a983aa`，`tinysoul/`、`tests/` 和 `AGENTS.md` 没有变更；原代码证据仍适用。analysis r2 与 [chat r2](../../chat/20260925-action-model-retrieval-unification-plan-r2.md) 内容相同，本次补充 review 已完整核对，不再存在缺失依据。
 
 依据：重新加载的 `AGENTS.md`、当前实现与模块设计文档、`docs/chat/04 context-inspect-and-search-design.md`、`docs/example/JevUse/`、此前已确认的讨论，以及补充 review 第 7 节记录的 Home 结果身份与反链范围确认。Visualization r4 和旧 Action model-use proposal 仅解释本轮起因，不覆盖本文。
 
@@ -555,7 +555,7 @@ Observation 是旁路，sink 失败不改变业务；它不成为索引更新、
 
 ## 13. 实施阶段与验收门槛
 
-阶段 0–5 为 `done`，阶段 6 为 `in_progress`。以下阶段是同一轮完整重构的依赖顺序，不是分批冻结的能力范围。AGENTS.md、design/endpoint 已按实际实现同步；最终归档以本节验收和第 16 节门禁记录为准。
+阶段 0–6 均为 `done`。以下阶段是同一轮完整重构的依赖顺序，不是分批冻结的能力范围。AGENTS.md、design/endpoint 已按实际实现同步；归档前已完成本节验收和第 16 节门禁记录。
 
 ### 阶段 0：契约与影响清单
 
@@ -632,7 +632,7 @@ Observation 是旁路，sink 失败不改变业务；它不成为索引更新、
 | A12 | SDK、配置 Endpoint、Action catalog 与 Observation 使用同一声明/绑定，无旧协议双轨 | done；SDK/配置 catalog/Observation 共用声明与绑定；配置编辑、Endpoint、LLM/model observation、生成与 wheel 验收已通过最终 Full，旧生成文件名断言已迁移。 |
 | A13 | rank 保留候选集合，select 可排除；seed 只允许显式资格过滤，不能用词法或向量预筛代替 selector | done；CandidateSelector 与 SeedRefinement 契约；`test_selection.py`、`test_search.py` 覆盖 rank 全排列、select 空子集、显式资格过滤、无隐蔽预筛和 scope 收紧。 |
 | A14 | binding/policy/Stage2 schema 能力一致；相似度 rank 不虚称消费 Context，纯反链枚举不需要模型 | done；SearchCapability + SearchPolicy + ModelUseRegistry 与 `search_schema`；`test_search.py`、`test_config_settings.py`、配置编辑/装配测试覆盖非法模式、未知目标、未选凭据、有效动作依赖及 Context 约束。 |
-| A15 | JEV/LLM selector、ranker 在人工可判断的 Home/Memory/MCP 样本上验证命中、排除、空结果与预算；记录实际评分规则和限制 | in_progress；本地 LLM/JEV 协议、空选择与预算验证通过。JEV Home/Memory/MCP 真实 select/rank/无关查询共 9 次已通过，评分 0–3、阈值 2。真实 LLM 同类样本测试已准备，自动审批要求单独确认外部 LLM 请求。 |
+| A15 | JEV/LLM selector、ranker 在人工可判断的 Home/Memory/MCP 样本上验证命中、排除、空结果与预算；记录实际评分规则和限制 | done；本地 LLM/JEV 协议、空选择与预算验证通过。JEV Home/Memory/MCP 真实 select/rank/无关查询共 9 次已通过，真实 LLM 同类样本共 9 次已通过；选择评分为 0–3，JEV 选择阈值为 2，代表性样本验证不替代大规模相关性基准。 |
 
 使用小型、人工可判断的 Home/Memory/MCP 数据验证 JEV 命中、无关项排除、空结果及输入预算；HTTP 调通不等于检索质量已通过。评分等级和阈值可根据这些代表性样本调整并记录，属于本轮实现验证，不需要开启另一轮架构设计。
 
@@ -651,7 +651,7 @@ Observation 是旁路，sink 失败不改变业务；它不成为索引更新、
 - [x] 确认本地 Python、pytest、ty 可调用；未把工具可用性当作测试通过。
 - [x] 阶段 1–5 实现与文档同步。
 - [x] 阶段 6：最终 Full、typecheck、格式/差异检查与 A1–A14 核对。
-- [ ] 阶段 6：A15 真实 LLM 补充验收及最终归档。
+- [x] 阶段 6：A15 真实 LLM 补充验收及最终归档。
 
 实施已贯通 ExecutionSpec/catalog/runner、用途绑定、invoke/run 与全部既有模型消费者；生成资源、SDK 和现有 Endpoint 协议同步完成。剩余状态以第 16 节为准。
 
@@ -696,13 +696,13 @@ Observation 是旁路，sink 失败不改变业务；它不成为索引更新、
 
 ### 15.3 代码和协议证据
 
-- [Action 执行器查找与批次运行](../../tinysoul/kernel/action/execution/runner.py)、[当前超时配置合并](../../tinysoul/kernel/action/catalog/loader.py)、原 `kernel/action/backends/llm_action.py`（本轮删除）：支持删除 backend 分类，同时保留唯一运行控制与真实时限。
-- [现有 LLM 管线](../../tinysoul/llm/execution/task.py)、[Runtime bridge](../../tinysoul/llm/runtime_bridge.py)：当前模型链/容量失败直接桥接 Runtime；invoke/run 需要实际重构，并非已有公共接口的简单改名。
-- 原 `plugins/home/content/search.py`（本轮删除）、[Home Link](../../tinysoul/plugins/home/links.py)：当前只搜 skills top，agent/resource 身份已存在；全空间证据与聚合是新增工作。
-- [Memory 检索](../../tinysoul/plugins/memory/retrieval/catalog.py)、原 `plugins/memory/retrieval/embeddings.py`（本轮删除）：当前已对合格 Memory 全集计算语义相似度，再与 lexical 分数相加；不能把它误写成只对 lexical top-k 重排。新工作是统一语义、排名融合、provider 隔离与可观察失败。
-- [Phase1](../../tinysoul/kernel/loop/phases/phase1.py)、[Phase2](../../tinysoul/kernel/loop/phases/phase2.py)、[Session 视图](../../tinysoul/plugins/session/views/inspection.py)：已有决策请求消费保护与固定视图，搜索应复用其边界。
-- [Workspace 搜索](../../tinysoul/plugins/workspace/inspection/search.py)、[continuation](../../tinysoul/infra/continuation.py)：已有有界扫描和分页基础；标准 Markdown 反链与 Search 结果视图仍需实现。
-- [Session SDK 服务](../../tinysoul/plugins/session/services.py)、[配置路由](../../tinysoul/gateway/endpoint/http/routes/configuration.py)、[公开 Endpoint 清单](../endpoint/index.md)：核对实际服务和现有 HTTP 范围，不把提议中的浏览接口记为已存在。
+- [Action 执行器查找与批次运行](../../../tinysoul/kernel/action/execution/runner.py)、[当前超时配置合并](../../../tinysoul/kernel/action/catalog/loader.py)、原 `kernel/action/backends/llm_action.py`（本轮删除）：支持删除 backend 分类，同时保留唯一运行控制与真实时限。
+- [现有 LLM 管线](../../../tinysoul/llm/execution/task.py)、[Runtime bridge](../../../tinysoul/llm/runtime_bridge.py)：当前模型链/容量失败直接桥接 Runtime；invoke/run 需要实际重构，并非已有公共接口的简单改名。
+- 原 `plugins/home/content/search.py`（本轮删除）、[Home Link](../../../tinysoul/plugins/home/links.py)：当前只搜 skills top，agent/resource 身份已存在；全空间证据与聚合是新增工作。
+- [Memory 检索](../../../tinysoul/plugins/memory/retrieval/catalog.py)、原 `plugins/memory/retrieval/embeddings.py`（本轮删除）：当前已对合格 Memory 全集计算语义相似度，再与 lexical 分数相加；不能把它误写成只对 lexical top-k 重排。新工作是统一语义、排名融合、provider 隔离与可观察失败。
+- [Phase1](../../../tinysoul/kernel/loop/phases/phase1.py)、[Phase2](../../../tinysoul/kernel/loop/phases/phase2.py)、[Session 视图](../../../tinysoul/plugins/session/views/inspection.py)：已有决策请求消费保护与固定视图，搜索应复用其边界。
+- [Workspace 搜索](../../../tinysoul/plugins/workspace/inspection/search.py)、[continuation](../../../tinysoul/infra/continuation.py)：已有有界扫描和分页基础；标准 Markdown 反链与 Search 结果视图仍需实现。
+- [Session SDK 服务](../../../tinysoul/plugins/session/services.py)、[配置路由](../../../tinysoul/gateway/endpoint/http/routes/configuration.py)、[公开 Endpoint 清单](../../endpoint/index.md)：核对实际服务和现有 HTTP 范围，不把提议中的浏览接口记为已存在。
 - Jev 已核对官方 [API](https://docs.typesafe.ai/api)、[Score](https://docs.typesafe.ai/primitives/score) 和 [Choice](https://docs.typesafe.ai/primitives/choice)：typed 判断、问题身份关联与逐候选 Score 的协议可行；没有在本次复核发起真实模型请求，未验证项目检索质量。
 
 ### 15.4 补充 review 的逐项合并结果
@@ -744,17 +744,17 @@ Home 返回身份与反链来源范围沿用 review 第 7 节的确认结果；�
 
 ### 实际结果
 
-状态：`in_progress`。本节记录实际交付，前文准备阶段记录不表示本次结果。
+状态：`done`。本节记录实际交付，前文准备阶段记录不表示本次结果。
 
 - Action 只保留 execution.executor，runtime 是唯一总 deadline；删除旧 backend/handler、专用 LLM Action runner、Memory 独占 embedding 客户端和旧 Action 名称。core/Workspace 生成任务和所有检索操作共用模型用途协议。
 - Infra 专用模型目录完成 provider/model/use、有序切换、typed JEV 与 Embedding 会话；取消不触发 provider 切换，向量比较固定 provider 空间。Home effective 与 Memory 独立缓存复用同一索引设施，派生内容可删除重建。
-- Search 三种模式、真实边、候选/coverage 与稳定分页已经接入全部 owner。Home 的 Embedding 用途设在既有 `home.search` 段，未另建重复的 semantic_search 段；Memory 延用自己的 semantic_search 组。
+- Search 三种模式、真实边、候选/coverage 与稳定分页已经接入全部 owner。Home 的可选 Embedding 用途挂在既有 `home.search` 段，未另建重复的 semantic_search 段；Memory 延用自己的 semantic_search 组。
 - 修复核对中发现的边界：未选 JEV 用途不要求凭据、所有 binding 目标仍严格校验；可编辑 policy 不能超出代码声明的来源能力；context=current 使用合法 TaskPrompt；复用 profile 时每轮重新打开查询作用域并使旧 token 失效；Home 不用文件 mtime 伪造来源日；Reflection 通用 Home Action 检索/Inspect effective overlay，actual 只作为独立 Background/review 基线；Memory 的相对 Markdown direct refs 转换成可继续 Inspect 的逻辑 Link。
 - AGENTS.md 同步 Memory search/inspect、MCP LLM/JEV、模型/检索职责及辅助模型不消费保护。设计文档与现有配置/目录/事件 Endpoint 同步；未修改 visualization，未新增任意 Action HTTP 执行器。
-- 聚焦验证按变更 owner 运行；Fast 完成 1153 passed。首次 Full 的一处旧生成文件名断言已修正。Memory 相对链接与三情景 effective Home 的最终修正分别通过 owner/装配聚焦验证，再运行完整门禁：`scripts/test.ps1 -Suite Full` 为 **1168 passed、25 deselected，163.76 秒**；`scripts/typecheck.ps1` 为 **All checks passed**。`ruff format --check` 检查 120 个变更 Python 文件通过，`git diff --check` 与修改文档的相对链接检查通过。最终 Full 隔离运行目录为 `.local-test/runs/5e8b1bcfd8db4dd594dd447dbe055af8`。
-- JEV External：1 passed（内部执行三类来源各 select/rank/无关 query，共 9 次请求），真实结果满足人工样本。LLM 本地契约测试通过；额外真实 LLM 验收请求被自动审批拒绝，理由为原授权没有明确覆盖从 .env 取用凭据并向该外部 LLM 发送测试。已向维护者明确请求对 DeepSeek 官方端点和 9 次人工样本的许可，未绕过拒绝。
-- 质量边界：这些样本保护已知候选映射、命中/排除和空结果，不表示大规模语料相关性基准。未把未运行的真实 LLM 测试计为通过。
+- 聚焦验证按变更 owner 运行；Fast 完成 1153 passed。首次 Full 的一处旧生成文件名断言已修正。Memory 相对链接、三情景 effective Home 与 Action executor 命名清理分别通过 owner/装配聚焦验证，最终门禁 `scripts/test.ps1 -Suite Full` 为 **1168 passed、25 deselected，161.27 秒**；`scripts/typecheck.ps1` 为 **All checks passed**。`ruff format --check` 检查变更 Python 文件通过，`git diff --check` 与归档计划的相对链接检查通过。最终 Full 隔离运行目录为 `.local-test/runs/017d9cc702f54b3195cc60a9cffe9ca0`。
+- JEV External：1 passed（内部执行三类来源各 select/rank/无关 query，共 9 次请求），真实结果满足人工样本。LLM External：1 passed（同样执行三类来源各 select/rank/无关 query，共 9 次请求），使用项目 `.env` 的 DeepSeek 凭据并通过独立 External suite；LLM 与 JEV 均未进入默认本地门禁。
+- 质量边界：这些样本保护已知候选映射、命中/排除和空结果，不表示大规模语料相关性基准；评分等级和阈值记录在 A15，后续语料质量仍需通过实际使用观察。
 
-当前代码实现、设计/Endpoint/AGENTS 同步和本地验证均已核对，唯一未结项为 A15 的真实 LLM 样本验收授权。按 AGENTS.md，本计划保持 in_progress 并留在 docs/analysis；取得授权并通过该验收，或维护者明确确认不要求该外部验收后，才能记录最终处置并归档。无新增设计决策待确认。
+当前代码实现、设计/Endpoint/AGENTS 同步和必要验证均已核对，A1–A15 全部完成，无新增设计决策待确认。本计划按 AGENTS.md 改为 done 并移入 `docs/analysis/done/`；后续历史依据保留在归档计划及 docs/chat 输入稿中。
 
 建议 commit 文本：`refactor: unify action model uses and retrieval semantics`。尚未创建 commit；删除的旧实现和模板均可从 Git 历史恢复，未迁移或删除用户业务资料。

@@ -195,7 +195,7 @@ def test_backend_availability_is_independent_of_visibility() -> None:
     assert row["unavailable_reason"] == "executor_unavailable"
 
 
-def test_editable_handler_cannot_borrow_another_registered_capability() -> None:
+def test_editable_executor_cannot_borrow_another_registered_capability() -> None:
     catalog = _catalog()
     forged = ActionCatalog(
         domains=catalog.domains(),

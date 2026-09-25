@@ -85,9 +85,9 @@ Resource 不能直接通过 `WorkspaceEngine.path_for()` 绕过资源边界。Wo
 
 ## Subprocess
 
-第三方文档解析位于固定 package worker 中。Action backend 抽取 `ControlledProcessRunner`、`ProcessRequest` 与 `ProcessOutcome`，统一负责进程启动、deadline、取消回调、进程树终止和 stdout/stderr 的有界结果投影。子进程输出直接进入临时文件，进程结束后只按 UTF-8 字符上限读取前缀并设置 truncated 标记，避免 `communicate()` 在宿主内存聚合完整输出；该限制不是子进程硬输出配额，真正的超限终止策略需在出现相应外部 action 时独立定义。
+第三方文档解析位于固定 package worker 中。Action 的受控进程机制提供 `ControlledProcessRunner`、`ProcessRequest` 与 `ProcessOutcome`，统一负责进程启动、deadline、取消回调、进程树终止和 stdout/stderr 的有界结果投影。子进程输出直接进入临时文件，进程结束后只按 UTF-8 字符上限读取前缀并设置 truncated 标记，避免 `communicate()` 在宿主内存聚合完整输出；该限制不是子进程硬输出配额，真正的超限终止策略需在出现相应外部 action 时独立定义。
 
-Action 层不提供通用或 default subprocess executor。两个 Resource executor 使用同一个 `ControlledProcessRunner`，由 Resource service 构造固定 worker 的 `ProcessRequest`，并负责 Workspace staging、worker manifest 校验、业务失败映射和 bundle 提交。业务模块不复制 `Popen`、`taskkill` 或 timeout 逻辑，也不能仅通过 Catalog options 获得任意进程执行能力。
+Action 层不提供通用或 default controlled-process executor。两个 Resource executor 使用同一个 `ControlledProcessRunner`，由 Resource service 构造固定 worker 的 `ProcessRequest`，并负责 Workspace staging、worker manifest 校验、业务失败映射和 bundle 提交。业务模块不复制 `Popen`、`taskkill` 或 timeout 逻辑，也不能仅通过 Catalog options 获得任意进程执行能力。
 
 worker 只接收 host 生成的临时输入/输出路径和有界结构化请求。模型参数不能直接成为 argv。worker 不读取项目配置、不修改 Workspace、不构造 ActionResult，只生成临时 Markdown、资源与 JSON manifest。
 
@@ -128,4 +128,4 @@ extract_attachments = true
 
 如果部分页面或嵌入资源无法提取，但仍有安全、可用输出，则提交完整 bundle，状态为 `partial` 并返回稳定 warning。只有完整输出通过 UTF-8、非空、字符上限、asset count/bytes 与 Link 范围校验后才允许提交。
 
-配置非法、启用 action 缺少依赖以及 Catalog/registrar 装配矛盾属于启动或模块边界失败。worker 非零结果和 staged output/manifest 协议错误属于当前调用的局部 ActionResult，后者使用稳定 `worker_protocol_invalid` reason，不能泄露绝对路径或原始 traceback。Runtime transfer 原样传播；subprocess 超时或 commit point 前的取消收敛为 Action timeout 并清理临时目录，不留下半成品 Workspace 资源。
+配置非法、启用 action 缺少依赖以及 Catalog/registrar 装配矛盾属于启动或模块边界失败。worker 非零结果和 staged output/manifest 协议错误属于当前调用的局部 ActionResult，后者使用稳定 `worker_protocol_invalid` reason，不能泄露绝对路径或原始 traceback。Runtime transfer 原样传播；受控进程超时或 commit point 前的取消收敛为 Action timeout 并清理临时目录，不留下半成品 Workspace 资源。
