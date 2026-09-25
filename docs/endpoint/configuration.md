@@ -14,7 +14,7 @@ selection 的 enabled/source 表示按“动作情景→域情景→动作 defau
 
 `GET /v2/config/catalog` 描述 `action.models.bindings`、`action.models.search_policies` 和 `infra.model_services.providers/models/uses` 表数组。PATCH 以完整数组替换值；provider 的 api_key_env 是环境变量名称，对应凭据值脱敏。专用 model 的 provider_bindings 按数组顺序切换；Embedding 的 dimensions/batch_size 属于 model；use 通过 model_id 绑定一对一能力。Home 的 home.search.embedding_use 与 Memory 的 memory.semantic_search.embedding_use 引用同一模型目录中的逻辑用途，各自维护索引。
 
-配置形态、consumer、实现/target/options 和来源支持的 mode 在候选编译时校验；已选模型依赖在有效动作装配和激活前校验。未选专用目录可以保留未就绪凭据。当前结构见 [模型使用与检索设计](../design/action-model-retrieval.md)，现有项目切换步骤见 [执行计划](../analysis/20260924-action-model-retrieval-unification-plan.md)。
+配置形态、consumer、实现/target/options 和来源支持的 mode 在候选编译时校验；已选模型依赖在有效动作装配和激活前校验。未选专用目录可以保留未就绪凭据。当前结构见 [模型使用与检索设计](../design/action-model-retrieval.md)，现有项目切换步骤见 [执行计划](../analysis/done/20260924-done-action-model-retrieval-unification-plan.md)。
 
 `runtime.llm.providers` 是当前 Runtime Generation 的只读、无 secret 投影。每项包含 Provider `id`、`credential_state`（`configured` 或 `missing`）以及声明的 `api_key_envs`；它不复制 `enabled`，后者继续由 effective fields 表达，也不返回任何凭据值。
 

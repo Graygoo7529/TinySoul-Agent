@@ -2,11 +2,11 @@
 
 原始版本：`2026-09-25 / r2 / confirmed`。
 
-维护状态：`merged`。本文已合并至 [唯一执行计划](20260924-action-model-retrieval-unification-plan.md)，不再独立维护实施规格、待办或验收进度。重构当前为准备实施，后续状态以主计划为准。
+维护状态：`done`（历史合并输入，已归档）。本文已合并至 [已归档的唯一执行计划](20260924-done-action-model-retrieval-unification-plan.md)，不再独立维护实施规格、待办或验收进度。实现、文档同步和验收结果以主计划第 16 节为准。
 
-合并依据包括 [补充 review](20260925-action-model-retrieval-unification-review.md) 的 F1–F12 和主计划的代码复核修订；逐项处置见主计划第 15.4 节。下方正文保留输入时的完整设计，章节中的状态描述属于合并前记录；有细化差异时以主计划为准，不要求实现者同时执行两份计划。
+合并依据包括 [补充 review](20260925-done-action-model-retrieval-unification-review.md) 的 F1–F12 和主计划的代码复核修订；逐项处置见主计划第 15.4 节。下方正文保留输入时的完整设计，章节中的状态描述属于合并前记录；有细化差异时以主计划为准，不要求实现者同时执行两份计划。
 
-原始代码基线：`5a6842ad64ea5596e1054333919643f833a983aa`。原始依据为 AGENTS.md、当时实现与设计文档、`docs/chat/04 context-inspect-and-search-design.md`、`docs/example/JevUse/` 及维护者确认。本文原始内容与 [chat r2](../chat/20260925-action-model-retrieval-unification-plan-r2.md) 相同。
+原始代码基线：`5a6842ad64ea5596e1054333919643f833a983aa`。原始依据为 AGENTS.md、当时实现与设计文档、`docs/chat/04 context-inspect-and-search-design.md`、`docs/example/JevUse/` 及维护者确认。本文原始内容与 [chat r2](../../chat/20260925-action-model-retrieval-unification-plan-r2.md) 相同。
 
 ## 1. 目标、范围与已确认决策
 

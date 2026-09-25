@@ -2,11 +2,11 @@
 
 日期：2026-09-25。
 
-状态：静态 review 已完成；F1–F12 已与 r2 一并核对并合入 [唯一执行计划](20260924-action-model-retrieval-unification-plan.md)，逐项处置见主计划第 15.4 节。重构已进入准备实施状态，代码实施及验收仍为 `pending`。本文保留原始问题发现、代码证据及第 7 节的维护者确认，不作为第二份实施规格；以下“需要补齐”等措辞记录的是修订前缺口。
+状态：`done`（历史实施前 review，已归档）。F1–F12 已与 r2 一并核对并合入 [已归档的唯一执行计划](20260924-done-action-model-retrieval-unification-plan.md)，逐项处置见主计划第 15.4 节；实现、文档同步和验收结果见主计划第 16 节。本文保留原始问题发现、代码证据及第 7 节的维护者确认，不作为第二份实施规格；以下“需要补齐”等措辞记录的是修订前缺口。
 
 代码基线：`5a6842ad64ea5596e1054333919643f833a983aa`（`docs: refine memory inspect and backlink search boundaries`）。已从 origin/main 快进更新并重新阅读 AGENTS.md。该提交相对前次检查增加的是计划、讨论与 JEV 示例；`tinysoul/`、`tests/` 和 AGENTS.md 相对 `f496508` 没有变更。
 
-原始审阅对象：[20260924-action-model-retrieval-unification-plan.md](20260924-action-model-retrieval-unification-plan.md) 的修订前版本；该路径现已承载合并后的主计划。此前 Visualization r4 与 Action model-use proposal 仅作背景，本轮范围以新计划及本次用户要求为准，特别是：不增加 memory.compose、不接入图像生成、不实施 Visualization、不保留旧配置和 Action 别名。
+原始审阅对象：[20260924-action-model-retrieval-unification-plan.md](20260924-done-action-model-retrieval-unification-plan.md) 的修订前版本；该计划现已归档为唯一主计划。此前 Visualization r4 与 Action model-use proposal 仅作背景，本轮范围以新计划及本次用户要求为准，特别是：不增加 memory.compose、不接入图像生成、不实施 Visualization、不保留旧配置和 Action 别名。
 
 ## 1. 结论
 
@@ -367,7 +367,7 @@ Phase1/Phase2 沿用 LLM task 配置；它们不伪装成 Action model uses。Me
 
 ## 7. 维护者确认结果（2026-09-25）
 
-两项影响对外行为的选择均已确认，最终规则已合入 [唯一执行计划](20260924-action-model-retrieval-unification-plan.md)：
+两项影响对外行为的选择均已确认，最终规则已合入 [已归档的唯一执行计划](20260924-done-action-model-retrieval-unification-plan.md)：
 
 1. **Home 全资源搜索的结果身份。** 普通 Skill 按 top 聚合并附 evidence_refs；其他 Home 内容直接返回目标 resource Link。反链返回真实 source_ref，并可附 top 导航提示。
 2. **通用反链的调用范围。** anchor 可以指向其他空间，每个 owner 搜索自己的引用来源；跨来源查询通过多个 owner Action 明确组合，不新增全局检索入口或持久全局图。

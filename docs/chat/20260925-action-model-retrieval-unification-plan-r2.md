@@ -4,7 +4,7 @@
 
 实施状态：`pending`。设计已具备实施条件；此状态不表示代码已经完成或通过验收。
 
-代码基线：`5a6842ad64ea5596e1054333919643f833a983aa`。本计划完整取代 [20260924 计划](20260924-action-model-retrieval-unification-plan.md)，并吸收 [实施前 review](20260925-action-model-retrieval-unification-review.md) 的 F1–F12。实施时以本文为唯一主计划，不需要把 review 当作另一份并行规格。
+代码基线：`5a6842ad64ea5596e1054333919643f833a983aa`。本计划完整取代 [20260924 计划](../analysis/done/20260924-done-action-model-retrieval-unification-plan.md)，并吸收 [实施前 review](../analysis/done/20260925-done-action-model-retrieval-unification-review.md) 的 F1–F12。实施时以本文为唯一主计划，不需要把 review 当作另一份并行规格。
 
 依据：AGENTS.md、当前实现与模块设计文档、`docs/chat/04 context-inspect-and-search-design.md`、`docs/example/JevUse/`，以及维护者 2026-09-25 的确认。Visualization r4 和旧 Action model-use proposal 仅解释本轮起因，不覆盖本文。
 

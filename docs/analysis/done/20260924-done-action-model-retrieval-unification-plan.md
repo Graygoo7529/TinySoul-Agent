@@ -4,7 +4,7 @@
 
 当前状态：`done`。阶段 0–6 已落实，A1–A15、完整本地门禁及代表性真实模型验收均已通过。实现、文档和逐项证据见第 13、16 节。
 
-本文是本轮已归档的唯一执行计划。已合并 [补充 review](../20260925-action-model-retrieval-unification-review.md)、[analysis r2 输入稿](../20260925-action-model-retrieval-unification-plan-r2.md) 与本文件上一轮代码复核结论；输入稿和 review 保留历史依据，不再独立维护实施规格或进度。F1–F12 的逐项处置见第 15.4 节。
+本文是本轮已归档的唯一执行计划。已合并 [补充 review](20260925-done-action-model-retrieval-unification-review.md)、[analysis r2 输入稿](20260925-done-action-model-retrieval-unification-plan-r2.md) 与本文件上一轮代码复核结论；输入稿和 review 保留历史依据，不再独立维护实施规格或进度。F1–F12 的逐项处置见第 15.4 节。
 
 代码核对基线：`3591f4cff9a11cf3fe9dfef6f4ed243d7b5f1164`（2026-09-25 合并时 HEAD）。相对 review 的 `5a6842ad64ea5596e1054333919643f833a983aa`，`tinysoul/`、`tests/` 和 `AGENTS.md` 没有变更；原代码证据仍适用。analysis r2 与 [chat r2](../../chat/20260925-action-model-retrieval-unification-plan-r2.md) 内容相同，本次补充 review 已完整核对，不再存在缺失依据。
 
