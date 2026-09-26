@@ -21,4 +21,6 @@ Search 是一个有限的函数式管道。Stage2 选择已登记的六个高层
 
 Inspect 是已知入口的确定性渐进读取：返回有界正文、位置和 direct refs，不调用模型、不递归展开，也不查询 backlinks。Memory 的 `memory.search` 提供 query、directory、refs、backlinks 和组合步骤；`memory.inspect` 只读取已知文档和 direct refs。Home 的 `home.search` 覆盖 actual Home 加 runtime overlay 组成的 effective Home，即使资源尚未通过 Context trap 加载也可发现；Skill 的证据按 top 聚合并保留深层 ref。Context search 读取当前 Turn Trace、Session 原始事实和解释投影，不 seal trace、不提前 completion。MCP search 作用于真实 server/tool directory；Workspace 复用 manifest、正文读取、literal/regex 和 Markdown 反链能力，不建立隐式向量库。
 
+Reflection 的通用 Home Search 与 Inspect 同样读取 effective Home，可探查尚未接受的 overlay 内容。Background 的基线选择和 review/diff 的 actual 语义由各自服务负责；通用检索的读取视图不改变接受 overlay 的写权限，也不表示检索到的内容已经进入 actual Home。
+
 来源 owner 负责身份、范围、内容读取、属性和真实引用边；kernel retrieval 只负责候选组合、六函数管道、模型用途调用、快照和分页。没有全局图或跨 owner 持久复制。实际来源故障、模型协议失败、视图过期和容量不足分别转换为稳定的局部 Search failure；不会静默截断候选或伪造成功覆盖。
