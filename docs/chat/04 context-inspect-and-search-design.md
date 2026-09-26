@@ -55,3 +55,6 @@ search strategy 可以这样考虑和设计吗：Stage2 Search 所用的 strateg
 
 
 在设计和实施上，我们之前为 search 总体设计为 query、（seed）select 和 backlink 三种模式；现在请进一步权衡和设计：我们当前实施实际上还有 rerank 操作和过滤 filter 操作，是嵌入在 query、backlink 的给出的候选 refs 步骤之后的，但是现在看来它们和 select 又是同一层次的函数，你觉得是否可以扩展 search 模式，使 agent 能够决策的函数操作粒度更细、更灵活，例如纯 query、backlink、directory、select、rerank、filter（前三者是发掘候选，后三者是约束候选）？即允许单步操作，也允许在 search 以函数式管道的方式直接组合操作例如 query->rerank->select？每一个操作函数都有比较清晰的输入（例如 select 输入候选 refs 以及候选链接所展开真实内容预览）和输出定义（例如 refs 和语义命中的部分实际内容预览，输出返回给 agent），同时有比较明确的边界和续接机制。请结合当前 review 里的几个问题和现有实施情况，进一步分析和设计可行的方案，如果有必要可以进一步重构当前设计和实现。
+
+
+本轮重构是对 Search 这一语义和与之相关的系列基础设施的进一步设计和改进，使 agent 能够决策的函数操作粒度更细、更灵活，能够以函数式组合操作定义明确、高层抽象统一的 query、backlink、directory、select、rerank、filter 函数，从而能够通过发掘发掘候选、约束候选，以及最终 Search 的输出返回中都能够给 agent 提供 links/refs 以及实际内容的展开（而不是泛泛的链接），从而支持 agent 后续 Inspect 等相关操作；类似的，select/rerank 等局部操作在模型输入候选 links/refs 也需要真实内容展开以呈现实际信息，query 也需要能够输出语义的命中项且不被 lexical 所覆盖；整体这一套设计应当在高层语义抽象中统一起来，便于人和 agent 有一致直观的理解；在事实上可以尽量复用一套基础设置，例如 候选 links/refs 的内容展开、预览和续接等。

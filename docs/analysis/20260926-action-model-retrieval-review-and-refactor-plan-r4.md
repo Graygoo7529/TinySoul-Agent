@@ -565,7 +565,7 @@ target = { task_profile = "llm_action" }
 | query 的 lexical 通道 | query.channels 包含 lexical | owner 内容/范围 → 确定性匹配，不需要模型用途 |
 | query 的 Embedding 通道 | query.channels 包含 embedding；owner search.embedding_use | use → 专用 model → 有序 provider_bindings → 同一向量空间的内容/查询向量 |
 | select / rerank 的 LLM | implementation=llm_task；target.task_profile | 既有 LLM task profile → 模型链/调用分配 → provider 链；输入由检索操作准备 |
-| select / rerank 的 JEV | implementation=structured_decision；target.use | 专用 use → JEV model → provider 链；操作准备 Score/Choice 请求 |
+| select / rerank 的 JEV | implementation=structured_decision；target.use | 专用 use → JEV model → provider 链；操作准备 Score 及按 descriptor 启用的 Choice 请求 |
 | rerank 的 Embedding | implementation=embedding_similarity；target={} | descriptor 声明 embedding_owner，读取该 owner 的 embedding_use 与索引 |
 | filter / backlinks / directory / refs / result | 不声明模型用途 | 各自确定性逻辑；只有显式后续模型步骤才调用模型 |
 
@@ -633,11 +633,11 @@ query 在显式 scope/where/exclude_refs 确定的范围内召回。lexical 与 
 单有模型解释 reason 不能替代原文预览。为每个 ContentUnit 提供本次输入内的 unit id，操作输出关联实际依据：
 
 - LLM select/rerank：输出候选 ids，以及所评估候选的已知 basis unit ids；操作层校验身份、成员与数量，正文由原单元取回，不接受模型改写为“原文”。
-- JEV select：复用原生 Score 判定；保留达到明确阈值者，按输入顺序输出。多个内容单元时，可在同次请求附 Choice 选择最有判断依据的已知单元；单单元不增加问题。
-- JEV rerank：同样取得 Score 和必要的依据 Choice；按分数降序、原序稳定打破并列，保留所有成员。
+- JEV select：复用原生 Score 判定；保留达到明确阈值者，按输入顺序输出。多个内容单元时，只有 operation descriptor 明确启用依据选择，才在同次请求附 Choice 选择已知单元；Choice 不是集合选择的必要条件。
+- JEV rerank：同样取得 Score；依据 Choice 只在 descriptor 明确启用且候选单元数符合协议时使用。按分数降序、原序稳定打破并列，保留所有成员。
 - Embedding rerank：criterion 与实际内容单元比较，记录贡献分数的单元；复用 owner 内容向量，不再用裁剪后标题+片段生成一套互相覆盖的缓存键。
 
-JEV 的实现方案基于仓库当前 `infra/model_services/protocol.py` 中 Score / Choice 及 DecisionRequest 结构，不要求 JEV 生成自由 JSON 或文本。真实多问题组合的效果与成本须在实施验收做代表性调用；当前 review 没有验证新的 Score+依据 Choice 请求。候选过多或 Choice 超出协议选项上限，属于输入容量问题，不拆成隐式全局排序流程。
+JEV 的实现方案基于仓库当前 `infra/model_services/protocol.py` 中 Score / Choice 及 DecisionRequest 结构，不要求 JEV 生成自由 JSON 或文本。真实多问题组合的效果与成本须在实施验收做代表性调用；当前 review 没有验证新的 Score+依据 Choice 请求。Choice 未启用或不能安全表达依据时，操作仍必须把实际输入 ContentUnit 作为覆盖事实，不能伪造一个 basis；候选过多或 Choice 超出协议选项上限，属于输入容量问题，不拆成隐式全局排序流程。
 
 basis 表示本次判断采用的实际内容；低分或纯反证片段不应标成“正向语义命中”。页面按最后一个语义操作的依据优先呈现，同时保留 query 命中/关系出处供展开；filter 不改写证据，rerank/select 不抹除来源依据。步骤级记录有界保留，不创建另一份事实历史。
 
@@ -832,7 +832,7 @@ source adapter 负责资源身份、范围、内容读取和实际边；公共 q
 8. result 再操作使用整个旧集合的内容快照，不只上一页；新的 current 可改变判断；原结果和 continuation 不变。
 9. 当前请求超模型/来源/视图容量时明确 scope_required，不静默截候选，也不伪称全局完成。
 10. 用户 binding 切换 select JEV/LLM、rerank 三种实现及 query Embedding；Agent 请求无 provider/model 参数；不支持 Context 的实现不开放 current。
-11. LLM basis ids 与 JEV Score/Choice 对应真实输入单元；错误协议沿局部反馈处理；依据预览不引用模型臆造原文。
+11. LLM basis ids 与 JEV Score 及（若启用）Choice 对应真实输入单元；错误协议沿局部反馈处理；依据预览不引用模型臆造原文。
 12. discovery → similarity rerank → 相同 discovery、不同 scope 往返复用未变内容向量，provider 空间仍隔离。
 13. Memory 不存在的 refs / document query 得到局部失败；实际存储故障没有被错误转换成空结果。
 14. exclude_refs 不持久化；seen/unselected 不自动入黑名单；同内容在不同 Context 中可以重新考虑。
@@ -915,13 +915,56 @@ r4 将 directory 的 owner 枚举能力、配置准确性、预算/身份/请求
 
 ### 14.3 实施中需要验证而非重新选择架构的事项
 
-输入/快照/页面预算的实际默认数值、JEV Score+Choice 的代表性效果及成本、Workspace 长文本和 Home 多资源 Skill 的内容投影质量，需要通过实际样例与性能反馈确定。它们属于本轮验收，不以“后续演进”代替。
+输入/快照/页面预算的实际默认数值、JEV Score 以及（若 operation descriptor 启用）依据 Choice 的代表性效果及成本、Workspace 长文本和 Home 多资源 Skill 的内容投影质量，需要通过实际样例与性能反馈确定。它们属于本轮验收，不以“后续演进”代替。
 
 若真实模型协议无法承接已确定的输入/输出，或性能证据要求改变“全体成员评估、单次模型步骤”的承诺，应明确记录冲突再讨论。不要在实现中偷偷加入分批多轮排序、跨实现 fallback 或静默截断来让测试通过。
 
-## 15. 本次交付与提交说明
+## 15. 本轮复核补充与设计封口
 
-本次新增 `docs/analysis/20260926-action-model-retrieval-review-and-refactor-plan-r4.md`，作为已确认方案的完整执行稿。保留 r3 及旧 review 供核对历史；未修改生产代码、AGENTS.md、归档主计划或测试，尚未实施本稿方案。
+本节是对 r4 目标的最后一次一致性核对。它不改变已经确认的 source + steps + page 主线，而是把当前代码中最容易继续沿用旧语义的边界写成实施契约。当前生产代码仍停留在旧 `SearchMode`、单个 `SearchSemantic` 和 `candidate_limit` 路径；下列内容必须在 C1–C9 中一次性替换，不能以兼容分支并存。
+
+### 15.1 结果视图、结果句柄与续接
+
+- `SearchPage` 必须同时返回 `result_ref` 和 `continuation`。`result_ref` 标识本次完整最终候选集合，`continuation` 只标识该集合中的一个页位置；二者不是同一种 token，也不能相互替代。
+- 首页、后续页以及由 `result` 来源建立的新视图都返回新的 `result_ref`。翻页只沿用原 `result_ref` 的冻结顺序和内容，不重新调用来源或模型；由 `result` 派生的视图使用旧视图完整集合并创建新的不可变视图，原视图与原 continuation 不变。
+- 结果句柄绑定当前 Turn/profile 或 SDK generation/day lease、owner/action 和来源视图。跨 Turn、跨 profile、跨 owner 或已关闭 lease 的句柄统一转换为稳定的 `VIEW_EXPIRED` 局部失败；不复用含义不完整的 `CONTINUATION_EXPIRED` 表达结果视图失效。
+- 视图注册前必须已经形成完整最终集合。页面字符预算只能减少当页展示，不能影响 `final_count`、后续页或 `result` 的输入集合；容量无法保存完整集合时返回 `SCOPE_REQUIRED`，不得注册一个尾部已丢失的伪完整视图。
+
+### 15.2 source.where、filter 与 seed 语义
+
+- `source.where` 是来源资格条件，只能使用 owner capability 声明的有限、类型化比较器；`filter` 是对当前 CandidateSet 的显式操作。二者可以复用比较器实现，但不自动换序、下推或把一次操作改写成另一种操作。
+- 比较器至少覆盖等值和集合包含；对于 owner 声明的有序标量可以提供明确的范围比较（例如日期的 `before/after`），仍不接受 Python、正则表达式或任意表达式。属性类型和可用操作必须进入 catalog/schema，而不是由字符串猜测。
+- `refs` 是已知集合入口。它不自动用词法或向量筛掉 seed，也不把 `filter` 冒充语义相关性判断；显式 `filter` 只能表达用户给出的结构化资格，要求“哪些内容与 criterion 相关”仍必须显式使用 `select`。若某个 profile 的 capability 声明该入口必须完成语义精炼，parser 应要求至少一个 `select`，不能通过只写 filter 绕过。
+- `exclude_refs` 是一次请求的明确排除，发生在来源或步骤输入建立前；它不形成跨请求负面索引，不把已看过、未选中或低分候选永久标记为无关。
+
+### 15.3 select 与 rerank 的可观察不变量
+
+- `select` 的模型输入是当前 CandidateSet、每个候选的真实 ContentUnit 预览、criterion 以及可选的一次 current Context 快照。模型返回的 ID、成员判断和（若该 operation descriptor 启用）basis ID 必须通过 schema 校验；无效、重复或不存在的 ID 是操作局部失败。未启用 basis 选择时仍保留实际输入覆盖，不以模型理由替代正文。
+- `select` 只解释成员资格。无论 LLM/JEV 返回什么顺序，操作层都按输入 CandidateSet 的相对顺序输出保留成员；空集是正常结果，不能因为模型返回顺序而隐式变成排序。
+- `rerank` 必须为所有输入成员产生完整排列或完整分数，不能删除成员；并列按输入顺序稳定打破。LLM 缺少成员、JEV 缺少分数或 Embedding 未能为全部成员得到分数，均是操作失败或明确的模型不可用反馈，不返回部分成功的重排。
+- `filter` 不调用模型，只依据当前快照属性稳定保序。`criterion` 是 select/rerank 的独立判断目标；source.query 只作为来源事实，不暗中成为每个后续步骤的 criterion。
+- Embedding rerank 可以使用显式 criterion 生成查询向量，但不把完整 Context 拼入向量请求；`context=current` 只有在具体 binding 和实现声明支持时才进入 schema。JEV/LLM 的 current Context 在本请求开始时捕获一次，后续步骤不修改父 Context。
+
+### 15.4 来源完整性、内容预览与 Home 视图
+
+- query 的 lexical 与 Embedding 通道在同一显式 scope/where/exclude 资格范围内独立处理；任一通道产生的有效候选不会被另一通道的无命中或低分否决。通道缺失只进入 coverage，不能伪装成完整混合召回；所有候选在页面和语义步骤前已经带有真实命中 ContentUnit。
+- directory 的 `source_complete` 只表示资格范围已完整枚举；长正文可以是带真实范围和覆盖标记的有界摘录。query/backlinks 如果声明读取范围完整，则不能只扫前缀后标记 complete；无法满足范围时返回 `SCOPE_REQUIRED`。
+- Home 普通 User Turn 的 `home.search` 使用 effective Home 路径集：actual 文件与 runtime overlay 的有效记录共同构成检索范围；资源不需要先被 Background/Trap 加载到当前 Context 或物化成独立运行副本，search 即可直接解析并检索其 effective 内容。Home/Memory Reflection 按 profile 的 actual/受限来源视图运行；review/diff 的 actual 语义不被普通 search 混用。
+- Skill top 的候选身份、深层命中资源的 ContentUnit 和真实反链来源必须同时保留。聚合属性必须基于整个候选的声明元数据求值，不能因为第一段正文不匹配就把整个 Skill 隐式排除。
+
+### 15.5 JEV/LLM 的检索用途边界
+
+JEV 的 typed DecisionRequest 可以作为 select/rerank 的内部实现，但 generic Search 的 `select` 是集合语义：通常使用逐候选 Score 与明确阈值，保留输入顺序。Choice 只有在 operation descriptor 明确声明“至多一个候选”的场景才可使用；不能把一次 Choice 的单个答案偷换成通用多选结果，也不能让 basis Choice 变成缺少正文预览的替代品。需要多个候选的 select、完整 rerank 和真实证据覆盖仍按各自不变量校验。Stage1/Stage2 继续 LLM-only；Stage3 Action 内的 select/rerank binding 才可以按用途配置 JEV、LLM 或 owner Embedding。
+
+### 15.6 失败分类与实施可行性结论
+
+新的 retrieval failure 集合应至少区分 `INVALID_REQUEST`、`SCOPE_REQUIRED`、`SOURCE_UNAVAILABLE`、`OPERATION_FAILED` 和 `VIEW_EXPIRED`。显式 steps 失败不能静默返回上一阶段结果；query 内部某个可恢复通道缺失可以保留其它完整通道，但必须在 coverage 中标明缺失。来源存储故障、不可恢复模型链耗尽和 Runtime 取消仍沿各 owner/Action bridge 处理，不由 Search 伪造空结果。
+
+经本节封口后，函数组合方案与现有依赖方向、Action executor、LLMTaskRunner、ModelServices、owner 来源和 lease 生命周期相容，不需要新的调度器、全局向量库、动态脚本执行器或跨 owner 持久状态。r4 的 C1–C9 足以覆盖实施；当前没有需要维护者再次选择的架构分歧。实施前仍不能把当前旧代码或历史测试数字当作新协议已完成的证据。
+
+## 16. 本次交付与提交说明
+
+本次新增 `docs/analysis/20260926-action-model-retrieval-review-and-refactor-plan-r4.md`，并在第 15 节补充本轮复核后的封口契约，作为已确认方案的完整执行稿。保留 r3 及旧 review 供核对历史；未修改生产代码、AGENTS.md、归档主计划或测试，尚未实施本稿方案。
 
 本次检查范围为设计完整性、现有代码对接可行性、协议/配置示例和文档一致性；未重复运行生产测试或付费模型。当前代码事实与新目标契约在文中分别标明。
 
