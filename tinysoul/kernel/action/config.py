@@ -11,8 +11,10 @@ from tinysoul.infra.config import ConfigError, reject_unknown_keys
 from .catalog.catalog import ActionCatalog
 from .catalog.specs import ActionSpec
 from .models import ModelImplementation, ModelUseBinding
-from tinysoul.kernel.retrieval.policy import SearchPolicy, parse_search_policies
-from tinysoul.kernel.retrieval.contracts import SearchMode
+from tinysoul.kernel.retrieval.policy import (
+    RetrievalPolicy,
+    parse_retrieval_policies,
+)
 
 
 @dataclass(frozen=True)
@@ -82,28 +84,15 @@ class ActionSettings:
     """Explicit per-consumer bindings; no implicit default model route."""
 
     bindings: tuple[ModelUseBinding, ...] = ()
-    search_policies: tuple[SearchPolicy, ...] = ()
+    retrieval_policies: tuple[RetrievalPolicy, ...] = ()
 
-    def search_policy(self, action_id: str, mode: SearchMode) -> SearchPolicy:
-        policy = next(
-            (
-                item
-                for item in self.search_policies
-                if item.action_id == action_id and item.mode is mode
-            ),
-            None,
-        )
-        if policy is None:
-            raise ConfigError(
-                "Search mode has no configured policy", key=f"{action_id}.{mode.value}"
-            )
-        return policy
 
 
 def parse_action_settings(tree: Mapping[str, object]) -> ActionSettings:
-    reject_unknown_keys(tree, {"models"}, key="action")
+    reject_unknown_keys(tree, {"models", "retrieval"}, key="action")
     models = _table(tree.get("models", {}), key="action.models")
-    reject_unknown_keys(models, {"bindings", "search_policies"}, key="action.models")
+    reject_unknown_keys(models, {"bindings"}, key="action.models")
+    retrieval = tree.get("retrieval", {})
     values = models.get("bindings", [])
     if not isinstance(values, list):
         raise ConfigError("Model bindings must be tables", key="action.models.bindings")
@@ -159,7 +148,8 @@ def parse_action_settings(tree: Mapping[str, object]) -> ActionSettings:
     if len({binding.consumer for binding in bindings}) != len(bindings):
         raise ConfigError("Duplicate model binding", key="action.models.bindings")
     return ActionSettings(
-        tuple(bindings), parse_search_policies(models.get("search_policies", []))
+        tuple(bindings),
+        parse_retrieval_policies(retrieval),
     )
 
 

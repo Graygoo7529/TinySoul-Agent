@@ -13,5 +13,5 @@ redirect_max_hops = 8
 [memory.inspect]
 page_max_chars = 8000
 
-[memory.semantic_search]
+[memory.search]
 embedding_cache_max_chars = 16000000

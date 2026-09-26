@@ -4,7 +4,7 @@ from tinysoul.infra.services import ScopedService, ServiceScope
 from typing import Self
 from tinysoul.kernel.retrieval.operations import SearchSession, SelectionInput
 from tinysoul.kernel.retrieval.contracts import (
-    SearchRequest,
+    RetrievalRequest,
     SearchPage,
     SearchFailure,
     SearchFailureKind,
@@ -25,7 +25,7 @@ class HomeService(ScopedService[AgentHomeEngine]):
         self.loadable_background_links = scope.local(owner.loadable_background_links)
         self.skill_metadata = scope.local(owner.skill_metadata)
         self._queries = queries
-        self.search_policies = queries.policies if queries else ()
+        self.retrieval_policies = queries.retrieval_policies if queries else ()
         self.search = scope.remote(self._search)
         self.inspect = scope.local(owner.inspect)
         self.read_top = scope.local(owner.read_top)
@@ -52,7 +52,7 @@ class HomeService(ScopedService[AgentHomeEngine]):
         return type(self)(self._owner, scope, queries=self._queries)
 
     async def _search(
-        self, request: SearchRequest | str, *, inputs: SelectionInput = SelectionInput()
+        self, request: RetrievalRequest | str, *, inputs: SelectionInput = SelectionInput()
     ) -> SearchPage:
         if self._queries is None:
             raise SearchFailure(

@@ -7,18 +7,11 @@ import pytest
 
 from tinysoul.infra.references import ReferenceResolver, ResourceTarget
 from tinysoul.kernel.retrieval.contracts import (
-    QueryDiscovery,
-    SeedRefinement,
-    BacklinkSearch,
-    SearchOptions,
-    SearchMode,
-    SearchSemantic,
-    TextQuery,
-    CandidateSource,
-    SearchFailure,
+    RetrievalRequest, QuerySource, BacklinksSource, RefsSource, TextQuery,
+    SourceKind, OperationKind, ModelStep, SearchFailure,
 )
-from tinysoul.kernel.retrieval.engine import SearchEngine, SearchViews
-from tinysoul.kernel.retrieval.policy import SearchPolicy
+from tinysoul.kernel.retrieval.operations import SearchSession
+from tinysoul.kernel.retrieval.policy import RetrievalPolicy
 from tinysoul.plugins.home import AgentHomeEngineBuilder, AgentHomeSettings
 
 
@@ -58,16 +51,11 @@ async def test_full_home_discovery_aggregates_skill_evidence_and_keeps_resources
     tmp_path: Path,
 ):
     owner, refs = _home(tmp_path)
-    request = QueryDiscovery(TextQuery("zephyr"), SearchOptions("all"))
+    request = RetrievalRequest(QuerySource("all", TextQuery("zephyr")))
     corpus = owner.search_corpus(request, references=refs)
-    page = await SearchEngine(views=SearchViews()).search(
-        request,
-        policy=SearchPolicy(
-            "home.search", SearchMode.QUERY_DISCOVERY, (CandidateSource.LEXICAL,)
-        ),
-        candidates=corpus.candidates,
-        query=corpus.query,
-    )
+    async def source(_request):
+        return corpus
+    page = await SearchSession(action_id="home.search", retrieval_policies=(RetrievalPolicy("home.search", tuple(SourceKind), tuple(OperationKind)),), source=source).search(request)
     assert {item.ref for item in page.items} == {
         "home:skills@design",
         "home:skills/shared/notes.md",
@@ -78,11 +66,7 @@ async def test_full_home_discovery_aggregates_skill_evidence_and_keeps_resources
         for e in skill.evidence
     )
     assert "skills_action" not in repr(corpus)
-    seeds = SeedRefinement(
-        "storage",
-        SearchOptions("skills", semantic=SearchSemantic.SELECT),
-        ("home:skills@other",),
-    )
+    seeds = RetrievalRequest(RefsSource(("home:skills@other",)))
     seeded = owner.search_corpus(seeds, references=refs)
     assert {item.ref for item in seeded.candidates} == {"home:skills@other"}
 
@@ -91,18 +75,18 @@ def test_backlinks_preserve_actual_source_cross_space_and_fragment(tmp_path: Pat
     owner, refs = _home(tmp_path)
     for anchor in ("memory:concept/storage", "memory:concept/storage#durability"):
         corpus = owner.search_corpus(
-            BacklinkSearch(anchor, SearchOptions("all")), references=refs
+            RetrievalRequest(BacklinksSource("all", anchor)), references=refs
         )
         assert [item.ref for item in corpus.candidates] == [
             "home:skills/design/ref/deep.md"
         ]
         assert corpus.candidates[0].attributes["top_ref"] == "home:skills@design"
     assert not owner.search_corpus(
-        BacklinkSearch("memory:concept/storage#other", SearchOptions("all")),
+        RetrievalRequest(BacklinksSource("all", "memory:concept/storage#other")),
         references=refs,
     ).candidates
     corpus = owner.search_corpus(
-        BacklinkSearch("home:skills/design/ref/deep.md", SearchOptions("all")),
+        RetrievalRequest(BacklinksSource("all", "home:skills/design/ref/deep.md")),
         references=refs,
     )
     assert {item.ref for item in corpus.candidates} == {
@@ -142,7 +126,7 @@ def test_timeless_home_links_use_workspace_owner_day(tmp_path: Path):
 
     refs.bind({"workspace": resolve})
     corpus = owner.search_corpus(
-        BacklinkSearch("workspace:report.md", SearchOptions("all")), references=refs
+        RetrievalRequest(BacklinksSource("all", "workspace:report.md")), references=refs
     )
     assert [item.ref for item in corpus.candidates] == ["home:agent/AGENT.md"]
     assert days == [None, None]

@@ -52,11 +52,13 @@ from tinysoul.infra.references import ReferenceResolver
 from tinysoul.kernel.action.config import ActionSettings
 from tinysoul.kernel.retrieval.policy import SearchCapability
 from tinysoul.kernel.retrieval.contracts import (
-    SearchMode,
-    CandidateSource,
-    SearchSemantic,
+    SourceKind,
+    OperationKind,
 )
 from tinysoul.kernel.retrieval.operations import SearchSession
+from tinysoul.kernel.retrieval.selection import CandidateSelector
+from tinysoul.kernel.action.models import ModelUseRegistry
+from tinysoul.infra.model_services import ModelServices
 
 
 @dataclass(frozen=True)
@@ -89,12 +91,25 @@ class WorkspacePlugin:
     search_capabilities = (
         SearchCapability(
             "workspace.search",
-            (SearchMode.BACKLINK_SEARCH,),
-            (),
-            (SearchSemantic.NONE,),
+            (SourceKind.QUERY, SourceKind.BACKLINKS, SourceKind.DIRECTORY, SourceKind.REFS, SourceKind.RESULT),
+            tuple(OperationKind),
+            filters=("tags", "file_type", "day", "kind"),
+            ordered_filters=("day",), resource_scope=True, lexical_syntax=True,
         ),
     )
     model_uses = (
+        ModelUseDescriptor(
+            "workspace.search.select",
+            "workspace.search",
+            ModelOperation.SELECT,
+            (ModelImplementation.LLM_TASK, ModelImplementation.STRUCTURED_DECISION),
+        ),
+        ModelUseDescriptor(
+            "workspace.search.rerank",
+            "workspace.search",
+            ModelOperation.RERANK,
+            (ModelImplementation.LLM_TASK, ModelImplementation.STRUCTURED_DECISION),
+        ),
         ModelUseDescriptor(
             "workspace.compose.generate", "workspace.compose", ModelOperation.GENERATE
         ),
@@ -106,7 +121,7 @@ class WorkspacePlugin:
         ),
     )
     provides = (WorkspaceEngine, WorkspaceService, WorkspaceExecutionService)
-    requires = (RuntimeWatcher, ReferenceResolver)
+    requires = (RuntimeWatcher, ReferenceResolver, ModelServices)
     configuration = (
         PluginConfig(
             "workspace",
@@ -134,18 +149,27 @@ class WorkspacePlugin:
         async def source(request):
             operations = JoinedOperations()
             result = await operations.run(
-                lambda: owner.backlink_corpus(request, references=references)
+                lambda: owner.retrieval_corpus(request, references=references)
             )
             await operations.finish(owner.events.flush)
             operations.check_cancelled()
             return result
 
+        selector = CandidateSelector(
+            models=context.settings.get(ModelUseRegistry),
+            invoke=context.llm.invoke,
+            services=context.services.get(ModelServices),
+        )
+
         def queries():
             return SearchSession(
                 observations=context.observations,
                 action_id="workspace.search",
-                policies=context.settings.get(ActionSettings).search_policies,
+
+                retrieval_policies=context.settings.get(ActionSettings).retrieval_policies,
                 source=source,
+                selector=selector,
+                supported_filters=frozenset({"tags", "file_type", "day", "kind"}),
             )
 
         service = WorkspaceService(owner, queries=queries())

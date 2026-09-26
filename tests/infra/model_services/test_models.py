@@ -307,3 +307,28 @@ async def test_cancellation_never_switches_provider_and_shared_client_closes_onc
     assert transport.closes == 1
     with pytest.raises(ModelServiceError):
         services.embedding_sessions("use")
+
+async def test_vector_cache_merges_disjoint_scopes_and_reuses_text_across_candidate_ids(tmp_path: Path):
+    calls = []
+    def respond(request):
+        texts = json.loads(request.content)["input"]
+        calls.append(tuple(texts))
+        return httpx.Response(200, json={"data": [
+            {"index": index, "embedding": [1, 0]} for index, _ in enumerate(texts)
+        ]})
+    services = ModelServices(settings(routes=1), env={"TEST_KEY": "secret"},
+                             transport=httpx.MockTransport(respond))
+    try:
+        index = EmbeddingIndex(path=tmp_path / "cache", services=services, use="use")
+        await index.similarities("q", {"a": "first content"})
+        await index.similarities("q", {"b": "second content"})
+        calls.clear()
+        await index.similarities("q", {"new-id": "first content", "b": "second content"})
+        assert calls == [("q",)]
+        # A different extraction scheme is a different content representation.
+        other = EmbeddingIndex(path=tmp_path / "cache", services=services, use="use", extraction="other")
+        calls.clear()
+        await other.similarities("q", {"a": "first content"})
+        assert calls == [("first content",), ("q",)]
+    finally:
+        await services.close()

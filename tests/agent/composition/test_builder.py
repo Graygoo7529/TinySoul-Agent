@@ -69,7 +69,7 @@ from tests.support.project import copy_initialized_project
 from tinysoul.kernel.loop.assembly import TurnProfile
 from tinysoul.plugins.reflection.builder import ReflectionBuilder
 from tinysoul.plugins.home.services import HomeReviewService, HomeService
-from tinysoul.kernel.retrieval.contracts import QueryDiscovery, TextQuery, SearchOptions
+from tinysoul.kernel.retrieval.contracts import RetrievalRequest, QuerySource, TextQuery
 from tinysoul.plugins.memory.services import (
     MemoryKnowledgeService,
     MemoryService,
@@ -388,9 +388,7 @@ async def test_three_scenarios_have_independent_policies_and_owner_services(
         for profile in (user, home, memory):
             service = profile.services.get(HomeService)
             page = await service.search(
-                QueryDiscovery(
-                    TextQuery("uniqueoverlayevidence"), SearchOptions("agent")
-                )
+                RetrievalRequest(QuerySource("agent", TextQuery("uniqueoverlayevidence")))
             )
             assert page.items[0].ref == "home:agent/search-proof.md"
             assert "uniqueoverlayevidence" in str(

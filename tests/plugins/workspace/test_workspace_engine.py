@@ -19,6 +19,10 @@ from tinysoul.kernel.action.call import ActionCall, ActionExecution
 from tinysoul.kernel.action.execution.preparation import ActionExecutionBuilder
 from tinysoul.kernel.action.catalog.catalog import ActionCatalog
 from tinysoul.kernel.action.execution.executor import ActionExecutionContext
+from tinysoul.kernel.retrieval.contracts import SourceKind, OperationKind
+from tinysoul.kernel.retrieval.operations import SearchSession
+from tinysoul.kernel.retrieval.policy import RetrievalPolicy
+from tinysoul.infra.references import ReferenceResolver
 from tests.support.model_uses import action_tasks
 from tinysoul.kernel.action.catalog.specs import (
     ActionExecutionSpec,
@@ -749,8 +753,11 @@ async def test_workspace_search_action_returns_foldable_fragments(
         _execution(
             "workspace.search",
             {
-                "query": "needle",
-                "scope": {"kind": "file", "locator": "workspace:a.md"},
+                "source": {
+                    "kind": "query",
+                    "scope": {"kind": "file", "locator": "workspace:a.md"},
+                    "query": "needle",
+                },
             },
         ),
         ActionExecutionContext(),
@@ -759,19 +766,20 @@ async def test_workspace_search_action_returns_foldable_fragments(
     assert result.status.value == "success"
     expected_scope = {"kind": "file", "locator": "workspace:a.md"}
     assert result.payload["scope"] == expected_scope
-    fragments = result.payload["fragments"]
-    assert isinstance(fragments, list)
-    fragment = fragments[0]
-    assert isinstance(fragment, dict)
-    assert fragment["text"] == "needle\n"
+    items = result.payload["items"]
+    assert isinstance(items, list)
+    item = items[0]
+    assert isinstance(item, dict)
+    assert item["ref"] == "workspace:a.md"
+    evidence = item.get("evidence")
+    assert isinstance(evidence, list) and evidence
+    first_evidence = evidence[0]
+    assert isinstance(first_evidence, dict)
+    assert first_evidence.get("text") == "needle\n"
     assert result.trace_projection is not None
     compact = result.trace_projection.canonical_payload
-    assert compact["scope"] == expected_scope
-    compact_fragments = compact["fragments"]
-    assert isinstance(compact_fragments, list)
-    compact_fragment = compact_fragments[0]
-    assert isinstance(compact_fragment, dict)
-    assert "text" not in compact_fragment
+    assert compact["source"] == "query"
+    assert compact["selected"] == ["workspace:a.md"]
 
 
 async def test_workspace_search_action_rejects_legacy_scope_shape(
@@ -794,7 +802,7 @@ async def test_workspace_search_action_rejects_legacy_scope_shape(
 
     assert result.status.value == "failed"
     assert result.failure is not None
-    assert result.failure.reason == "request_conflict"
+    assert result.failure.reason == "invalid_request"
 
 
 async def test_workspace_analyze_returns_grounded_standard_result(
@@ -1051,8 +1059,22 @@ def _execution(action_name: str, params: JsonObject) -> ActionExecution:
 
 
 def _executor(engine: WorkspaceEngine) -> WorkspaceExecutor:
+    async def source(request):
+        return engine.retrieval_corpus(request, references=ReferenceResolver())
+
+    queries = SearchSession(
+        action_id="workspace.search",
+        retrieval_policies=(
+            RetrievalPolicy(
+                "workspace.search",
+                tuple(SourceKind),
+                tuple(OperationKind),
+            ),
+        ),
+        source=source,
+    )
     return WorkspaceExecutor(
-        WorkspaceService(engine),
+        WorkspaceService(engine, queries=queries),
         action_tasks(ContextEngineBuilder(system_text="sys").build()),
         FakeLLMRunner(),
         RuntimeWorkspaceBridge(),
@@ -1163,7 +1185,7 @@ def test_workspace_backlinks_read_markdown_edges_without_similarity(
     tmp_path: Path,
 ) -> None:
     from tinysoul.infra.references import ReferenceResolver, ResourceTarget
-    from tinysoul.kernel.retrieval.contracts import BacklinkSearch, SearchOptions
+    from tinysoul.kernel.retrieval.contracts import RetrievalRequest, BacklinksSource
 
     workspace = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
     workspace.initialize_day(DAY)
@@ -1188,7 +1210,7 @@ def test_workspace_backlinks_read_markdown_edges_without_similarity(
         "memory:concept/storage",
     ):
         corpus = workspace.backlink_corpus(
-            BacklinkSearch(target, SearchOptions("all")), references=refs
+            RetrievalRequest(BacklinksSource("all", target)), references=refs
         )
         assert [item.ref for item in corpus.candidates] == ["workspace:sub/source.md"]
         assert corpus.candidates[0].attributes["day"] == str(DAY)

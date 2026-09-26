@@ -78,7 +78,7 @@ title = "Inspection"
 description = "Controls deterministic document disclosure and paging."
 
 [[field_group]]
-id = "memory.semantic_search"
+id = "memory.search"
 surface = "memory"
 title = "Semantic Search"
 description = "Controls the rebuildable embedding cache used by Memory search."
@@ -270,9 +270,9 @@ value_kind = "integer"
 importance = "advanced"
 
 [[field]]
-path = "memory.semantic_search.embedding_cache_max_chars"
+path = "memory.search.embedding_cache_max_chars"
 surface = "memory"
-group = "memory.semantic_search"
+group = "memory.search"
 title = "Embedding Cache Text"
 description = "Maximum source text characters retained in the rebuildable semantic-search embedding cache."
 value_kind = "integer"
@@ -567,9 +567,9 @@ description = "Logical embedding use shared by Home discovery and similarity ran
 value_kind = "string"
 
 [[field]]
-path = "memory.semantic_search.embedding_use"
+path = "memory.search.embedding_use"
 surface = "memory"
-group = "memory.semantic_search"
+group = "memory.search"
 title = "Memory Embedding Use"
 description = "Logical embedding use shared by Memory discovery and similarity ranking."
 value_kind = "string"

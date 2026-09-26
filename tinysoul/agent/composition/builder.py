@@ -15,7 +15,10 @@ from tinysoul.kernel.action import ActionCatalogLoader
 from tinysoul.kernel.action.models import ModelUseRegistry
 from tinysoul.kernel.action.config import ActionSettings
 from tinysoul.kernel.action.catalog.catalog import ActionCatalog
-from tinysoul.kernel.retrieval.policy import search_schema, validate_search_policies
+from tinysoul.kernel.retrieval.policy import (
+    retrieval_schema,
+    resolve_retrieval_policies,
+)
 from tinysoul.kernel.action.config import (
     parse_action_settings,
 )
@@ -784,13 +787,19 @@ class AgentBuilder:
             config.document_set("action.catalog")
         )
         model_uses = ModelUseRegistry(definitions.model_uses, action_settings.bindings)
-        policies = action_settings.search_policies
-        validate_search_policies(definitions.search_capabilities, policies)
+        retrieval_policies = action_settings.retrieval_policies
+        retrieval_policies = resolve_retrieval_policies(
+            definitions.search_capabilities, retrieval_policies,
+            {binding.consumer: binding.implementation.value for binding in action_settings.bindings},
+        )
+        action_settings = replace(action_settings, retrieval_policies=retrieval_policies)
         action_ids = {action.name for action in action_catalog.catalog.actions()}
-        if any(policy.action_id not in action_ids for policy in policies):
+        if any(
+            policy.action_id not in action_ids for policy in retrieval_policies
+        ):
             raise ConfigError(
                 "Search policy names an unknown action",
-                key="action.models.search_policies",
+                key="action.retrieval",
             )
         action_catalog = replace(
             action_catalog,
@@ -801,12 +810,15 @@ class AgentBuilder:
                         action,
                         tool=replace(
                             action.tool,
-                            schema=search_schema(
-                                action.tool.schema, policies, action_id=action.name
+                            schema=(
+                                retrieval_schema(
+                                    action.tool.schema,
+                                    next(item for item in retrieval_policies if item.action_id == action.name),
+                                )
                             ),
                         ),
                     )
-                    if any(policy.action_id == action.name for policy in policies)
+                    if any(policy.action_id == action.name for policy in retrieval_policies)
                     else action
                     for action in action_catalog.catalog.actions()
                 ),
@@ -871,10 +883,10 @@ class AgentBuilder:
             if isinstance(setting.value, AgentHomeSettings):
                 embedding_uses["home"] = setting.value.search.embedding_use
             elif isinstance(setting.value, MemorySettings):
-                embedding_uses["memory"] = setting.value.semantic_search.embedding_use
+                embedding_uses["memory"] = setting.value.search.embedding_use
         plan.model_uses.validate_selected(
             actions=actions,
-            policies=plan.action.search_policies,
+            retrieval_policies=plan.action.retrieval_policies,
             services=plan.infra.model_services,
             env=plan.environment.runtime_env,
             embedding_uses=embedding_uses,

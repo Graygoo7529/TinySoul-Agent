@@ -2,23 +2,21 @@ name = "expand.search"
 domain = "expand"
 
 [tool]
-description = "Select relevant MCP tools from the declared server/tool directory using one bounded model task. Narrow scope when requested."
+description = "Compose query, directory, refs, result, filter, select and rerank over the declared MCP server/tool directory. Models receive real tool descriptions; provider/model choices remain internal bindings."
 
 [tool.schema]
 type = "object"
-required = ["query", "scope"]
+required = ["source"]
 additionalProperties = false
 
-[tool.schema.properties.query]
-type = "string"
-
-[tool.schema.properties.scope]
-type = "string"
-description = "all, or server:<server_id> to restrict the candidate directory."
-
-[tool.schema.properties.filters]
+[tool.schema.properties.source]
 type = "object"
-description = "Explicit equality/membership filters: server_id and tool_name. A scalar or a nonempty scalar array is accepted."
+
+[tool.schema.properties.steps]
+type = "array"
+
+[tool.schema.properties.page]
+type = "object"
 
 [semantic]
 use_when = ["Select relevant MCP tools for a non-empty request using one bounded model task. Narrow server scope when requested."]

@@ -17,8 +17,8 @@ from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
 from tinysoul.kernel.action.tasks import ActionTaskFactory
 from tinysoul.kernel.retrieval.operations import SearchSession
-from tinysoul.kernel.retrieval.requests import parse_search_request
-from tinysoul.kernel.retrieval.contracts import SearchFailure, SearchContext
+from tinysoul.kernel.retrieval.requests import parse_retrieval_request
+from tinysoul.kernel.retrieval.contracts import SearchFailure, SearchContext, RetrievalRequest, ModelStep
 
 from .engine import ContextEngine
 from .errors import (
@@ -63,15 +63,17 @@ class ContextSearchExecutor(ActionExecutor):
         self, execution: ActionExecution, context: ActionExecutionContext
     ) -> ActionResult:
         try:
-            request = parse_search_request(
-                execution.call.params, self._queries.policies
-            )
+            request = parse_retrieval_request(execution.call.params, self._queries.retrieval_policies[0])
             if isinstance(request, str):
                 page = await self._queries.search(request)
             else:
+                use_context = (
+                    any(isinstance(step, ModelStep) and step.context is SearchContext.CURRENT for step in request.steps)
+
+                )
                 inputs = await self._tasks.selection_input(
                     execution,
-                    include_context=request.options.context is SearchContext.CURRENT,
+                    include_context=use_context,
                     control=context.control,
                 )
                 page = await self._queries.search(request, inputs=inputs)
@@ -89,7 +91,7 @@ class ContextSearchExecutor(ActionExecutor):
             trace_projection=ActionTraceProjection(
                 origin_refs=tuple(item.ref for item in page.items),
                 canonical_payload={
-                    "mode": page.mode.value,
+                    "source": page.source.value,
                     "selected": [item.ref for item in page.items],
                 },
             ),

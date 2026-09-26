@@ -7,14 +7,11 @@ from tinysoul.kernel.context import ContextEngineBuilder, build_trace_phase_note
 from tinysoul.kernel.context.errors import ContextInspectRequestError
 from tinysoul.infra.references import ReferenceResolver
 from tinysoul.kernel.retrieval.contracts import (
-    QueryDiscovery,
-    TextQuery,
-    SearchOptions,
-    SearchMode,
-    CandidateSource,
+    RetrievalRequest, QuerySource, BacklinksSource, RefsSource, TextQuery,
+    SourceKind, OperationKind, ModelStep, SearchFailure,
 )
-from tinysoul.kernel.retrieval.engine import SearchEngine, SearchViews
-from tinysoul.kernel.retrieval.policy import SearchPolicy
+from tinysoul.kernel.retrieval.operations import SearchSession
+from tinysoul.kernel.retrieval.policy import RetrievalPolicy
 from tinysoul.runtime import RunLevel, RunScope, SignalBus
 
 
@@ -55,18 +52,11 @@ async def test_trace_navigation_query_and_stable_refs_across_folding() -> None:
     assert await context.inspect(root, query="evidence-7:") == found
     assert (await context.inspect(fact_ref, query="evidence-8:"))["items"] == []
 
-    request = QueryDiscovery(TextQuery("evidence-7:"), SearchOptions("trace"))
+    request = RetrievalRequest(QuerySource("trace", TextQuery("evidence-7:")))
     corpus = await context.search_corpus(request, references=ReferenceResolver())
-    page = await SearchEngine(views=SearchViews()).search(
-        request,
-        policy=SearchPolicy(
-            "core.context.search",
-            SearchMode.QUERY_DISCOVERY,
-            (CandidateSource.LEXICAL,),
-        ),
-        candidates=corpus.candidates,
-        query=corpus.query,
-    )
+    async def source(_request):
+        return corpus
+    page = await SearchSession(action_id="core.context.search", retrieval_policies=(RetrievalPolicy("core.context.search", tuple(SourceKind), tuple(OperationKind)),), source=source).search(request)
     assert page.items[0].ref == fact_ref
     assert await context.inspect(page.items[0].ref) == before
 

@@ -29,7 +29,7 @@ implementation = "llm_task"
 target = { task_profile = "llm_action" }
 
 [[action.models.bindings]]
-consumer = "home.search.rank"
+consumer = "home.search.rerank"
 implementation = "llm_task"
 target = { task_profile = "llm_action" }
 
@@ -39,7 +39,7 @@ implementation = "llm_task"
 target = { task_profile = "llm_action" }
 
 [[action.models.bindings]]
-consumer = "memory.search.rank"
+consumer = "memory.search.rerank"
 implementation = "llm_task"
 target = { task_profile = "llm_action" }
 
@@ -49,7 +49,7 @@ implementation = "llm_task"
 target = { task_profile = "llm_action" }
 
 [[action.models.bindings]]
-consumer = "core.context.search.rank"
+consumer = "core.context.search.rerank"
 implementation = "llm_task"
 target = { task_profile = "llm_action" }
 
@@ -58,143 +58,17 @@ consumer = "expand.search.select"
 implementation = "llm_task"
 target = { task_profile = "llm_action" }
 
-[[action.models.search_policies]]
-action_id = "home.search"
-mode = "query_discovery"
-candidate_sources = ["lexical"]
-default_semantic = "none"
-allowed_semantic = ["none", "rank", "select"]
-default_context = "none"
-allowed_context = ["none", "current"]
-candidate_limit = 100
-input_max_chars = 64000
-result_limit = 50
-page_max_chars = 8000
-evidence_max_chars = 1200
+[[action.models.bindings]]
+consumer = "expand.search.rerank"
+implementation = "llm_task"
+target = { task_profile = "llm_action" }
 
-[[action.models.search_policies]]
-action_id = "home.search"
-mode = "seed_refinement"
-default_semantic = "select"
-allowed_semantic = ["select"]
-default_context = "current"
-allowed_context = ["none", "current"]
-candidate_limit = 100
-input_max_chars = 64000
-result_limit = 50
-page_max_chars = 8000
-evidence_max_chars = 1200
+[[action.models.bindings]]
+consumer = "workspace.search.select"
+implementation = "llm_task"
+target = { task_profile = "llm_action" }
 
-[[action.models.search_policies]]
-action_id = "home.search"
-mode = "backlink_search"
-default_semantic = "none"
-allowed_semantic = ["none", "rank", "select"]
-default_context = "none"
-allowed_context = ["none", "current"]
-candidate_limit = 100
-input_max_chars = 64000
-result_limit = 50
-page_max_chars = 8000
-evidence_max_chars = 1200
-
-[[action.models.search_policies]]
-action_id = "memory.search"
-mode = "query_discovery"
-candidate_sources = ["lexical"]
-default_semantic = "none"
-allowed_semantic = ["none", "rank", "select"]
-default_context = "none"
-allowed_context = ["none", "current"]
-candidate_limit = 100
-input_max_chars = 64000
-result_limit = 50
-page_max_chars = 8000
-evidence_max_chars = 1200
-
-[[action.models.search_policies]]
-action_id = "memory.search"
-mode = "seed_refinement"
-default_semantic = "select"
-allowed_semantic = ["select"]
-default_context = "current"
-allowed_context = ["none", "current"]
-candidate_limit = 100
-input_max_chars = 64000
-result_limit = 50
-page_max_chars = 8000
-evidence_max_chars = 1200
-
-[[action.models.search_policies]]
-action_id = "memory.search"
-mode = "backlink_search"
-default_semantic = "none"
-allowed_semantic = ["none", "rank", "select"]
-default_context = "none"
-allowed_context = ["none", "current"]
-candidate_limit = 100
-input_max_chars = 64000
-result_limit = 50
-page_max_chars = 8000
-evidence_max_chars = 1200
-
-[[action.models.search_policies]]
-action_id = "core.context.search"
-mode = "query_discovery"
-candidate_sources = ["lexical"]
-default_semantic = "none"
-allowed_semantic = ["none", "rank", "select"]
-default_context = "none"
-allowed_context = ["none", "current"]
-candidate_limit = 100
-input_max_chars = 64000
-result_limit = 50
-page_max_chars = 8000
-evidence_max_chars = 1200
-
-[[action.models.search_policies]]
-action_id = "core.context.search"
-mode = "seed_refinement"
-default_semantic = "select"
-allowed_semantic = ["select"]
-default_context = "current"
-allowed_context = ["none", "current"]
-candidate_limit = 100
-input_max_chars = 64000
-result_limit = 50
-page_max_chars = 8000
-evidence_max_chars = 1200
-
-[[action.models.search_policies]]
-action_id = "core.context.search"
-mode = "backlink_search"
-default_semantic = "none"
-allowed_semantic = ["none", "rank", "select"]
-default_context = "none"
-allowed_context = ["none", "current"]
-candidate_limit = 100
-input_max_chars = 64000
-result_limit = 50
-page_max_chars = 8000
-evidence_max_chars = 1200
-
-[[action.models.search_policies]]
-action_id = "expand.search"
-mode = "seed_refinement"
-default_semantic = "select"
-allowed_semantic = ["select"]
-default_context = "none"
-allowed_context = ["none", "current"]
-candidate_limit = 100
-input_max_chars = 64000
-result_limit = 50
-page_max_chars = 8000
-evidence_max_chars = 1200
-
-[[action.models.search_policies]]
-action_id = "workspace.search"
-mode = "backlink_search"
-default_semantic = "none"
-allowed_semantic = ["none"]
-default_context = "none"
-allowed_context = ["none"]
+[[action.models.bindings]]
+consumer = "workspace.search.rerank"
+implementation = "llm_task"
+target = { task_profile = "llm_action" }

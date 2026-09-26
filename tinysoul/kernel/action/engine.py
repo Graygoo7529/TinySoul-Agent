@@ -21,7 +21,7 @@ from tinysoul.kernel.action.execution.preparation import ActionExecutionBuilder
 from .catalog.catalog import ActionCatalog
 from .config import ActionPolicy
 from .models import ModelUseRegistry
-from tinysoul.kernel.retrieval.policy import SearchPolicy
+from tinysoul.kernel.retrieval.policy import RetrievalPolicy
 from .errors import ActionContractError
 from .execution.executor import ActionExecutionContext, ActionExecutor, ExecutorRegistry
 from .planning.rendering import ActionResultRenderer, RenderedActionResult
@@ -90,7 +90,7 @@ class ActionEngine:
         phase2_scope_builder: Phase2ActionScopeBuilder,
         domain_prompt_renderer: ActionDomainPromptRenderer,
         model_uses: ModelUseRegistry | None = None,
-        search_policies: tuple[SearchPolicy, ...] = (),
+        retrieval_policies: tuple[RetrievalPolicy, ...] = (),
     ) -> None:
         self._catalog = catalog
         self._configured_catalog = configured_catalog
@@ -107,7 +107,8 @@ class ActionEngine:
         self._phase1_scope_builder = phase1_scope_builder
         self._phase2_scope_builder = phase2_scope_builder
         self._domain_prompt_renderer = domain_prompt_renderer
-        self._model_uses, self._search_policies = model_uses, search_policies
+        self._model_uses = model_uses
+        self._retrieval_policies = retrieval_policies
 
     def domain_names(self) -> tuple[str, ...]:
         """Expose stable catalog domain identities for framework integration."""
@@ -289,11 +290,14 @@ class ActionEngine:
                     "model_uses": self._model_uses.projection(action.name)
                     if self._model_uses
                     else [],
-                    "search_modes": [
-                        policy.projection()
-                        for policy in self._search_policies
-                        if policy.action_id == action.name
-                    ],
+                    "retrieval": next(
+                        (
+                            policy.projection()
+                            for policy in self._retrieval_policies
+                            if policy.action_id == action.name
+                        ),
+                        None,
+                    ),
                     "visibility": _visibility_json(action.visibility),
                     "selection": {
                         "enabled": selection.enabled,
@@ -355,7 +359,7 @@ class ActionEngine:
             phase2_scope_builder=self._phase2_scope_builder,
             domain_prompt_renderer=self._domain_prompt_renderer,
             model_uses=self._model_uses,
-            search_policies=self._search_policies,
+            retrieval_policies=self._retrieval_policies,
         )
 
     def phase1_scope(self) -> ToolScope:
@@ -496,7 +500,7 @@ class ActionEngineBuilder:
         *,
         scenarios: frozenset[str] = frozenset({"user"}),
         model_uses: ModelUseRegistry | None = None,
-        search_policies: tuple[SearchPolicy, ...] = (),
+        retrieval_policies: tuple[RetrievalPolicy, ...] = (),
     ) -> None:
         if isinstance(catalog, LoadedActionCatalog):
             self._catalog = catalog.catalog
@@ -511,7 +515,8 @@ class ActionEngineBuilder:
                 "ActionEngineBuilder requires an ActionCatalog or LoadedActionCatalog"
             )
         self._executors = ExecutorRegistry()
-        self._model_uses, self._search_policies = model_uses, search_policies
+        self._model_uses = model_uses
+        self._retrieval_policies = retrieval_policies
         self._hooks = ActionHookRegistry()
         self._max_workers = 8
         self._observations: ObservationEmitter = NullObservationEmitter()
@@ -708,7 +713,7 @@ class ActionEngineBuilder:
             phase2_scope_builder=Phase2ActionScopeBuilder(),
             domain_prompt_renderer=ActionDomainPromptRenderer(),
             model_uses=self._model_uses,
-            search_policies=self._search_policies,
+            retrieval_policies=self._retrieval_policies,
         )
 
 

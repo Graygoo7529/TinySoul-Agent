@@ -26,9 +26,9 @@ from ..errors import (
 )
 from tinysoul.kernel.action.tasks import ActionTaskFactory
 from tinysoul.kernel.action import ActionTraceProjection
-from tinysoul.kernel.retrieval.requests import parse_search_request
+from tinysoul.kernel.retrieval.requests import parse_retrieval_request
 from tinysoul.kernel.retrieval.operations import SelectionInput
-from tinysoul.kernel.retrieval.contracts import SearchFailure, SearchContext
+from tinysoul.kernel.retrieval.contracts import SearchFailure, SearchContext, RetrievalRequest, ModelStep
 from tinysoul.infra.continuation import ContinuationError
 from tinysoul.infra.references import ReferenceError
 
@@ -105,12 +105,16 @@ class HomeSearchExecutor(ActionExecutor):
     ) -> ActionResult:
         home = self._home.using(context.owner_operations)
         try:
-            request = parse_search_request(execution.call.params, home.search_policies)
+            request = parse_retrieval_request(execution.call.params, home.retrieval_policies[0])
             inputs = SelectionInput()
             if not isinstance(request, str) and self._tasks:
+                use_context = (
+                    any(isinstance(step, ModelStep) and step.context is SearchContext.CURRENT for step in request.steps)
+
+                )
                 inputs = await self._tasks.selection_input(
                     execution,
-                    include_context=request.options.context is SearchContext.CURRENT,
+                    include_context=use_context,
                     control=context.control,
                 )
             page = await home.search(request, inputs=inputs)
@@ -131,7 +135,7 @@ class HomeSearchExecutor(ActionExecutor):
             trace_projection=ActionTraceProjection(
                 origin_refs=tuple(item.ref for item in page.items),
                 canonical_payload={
-                    "mode": page.mode.value,
+                    "source": page.source.value,
                     "selected": [item.ref for item in page.items],
                 },
             ),

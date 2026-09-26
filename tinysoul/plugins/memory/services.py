@@ -3,7 +3,7 @@
 from tinysoul.infra.services import ScopedService, ServiceScope
 from tinysoul.kernel.retrieval.operations import SearchSession, SelectionInput
 from tinysoul.kernel.retrieval.contracts import (
-    SearchRequest,
+    RetrievalRequest,
     SearchPage,
     SearchFailure,
     SearchFailureKind,
@@ -27,7 +27,7 @@ class MemoryReadService(ScopedService[MemoryEngine]):
         self.read_active = scope.local(owner.read_active)
         self.inspect = scope.local(owner.inspect)
         self._queries = queries
-        self.search_policies = queries.policies if queries else ()
+        self.retrieval_policies = queries.retrieval_policies if queries else ()
         self.search = scope.remote(self._search)
         self.latest_daily_before = scope.local(owner.latest_daily_before)
 
@@ -35,7 +35,7 @@ class MemoryReadService(ScopedService[MemoryEngine]):
         return type(self)(self._owner, scope, queries=self._queries)
 
     async def _search(
-        self, request: SearchRequest | str, *, inputs: SelectionInput = SelectionInput()
+        self, request: RetrievalRequest | str, *, inputs: SelectionInput = SelectionInput()
     ) -> SearchPage:
         if self._queries is None:
             raise SearchFailure(

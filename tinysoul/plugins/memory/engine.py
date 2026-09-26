@@ -7,6 +7,7 @@ from datetime import date
 from pathlib import Path
 import secrets
 from threading import RLock
+from typing import cast
 
 from tinysoul.infra.time import CalendarDay
 from tinysoul.infra.json import JsonObject, to_json_object
@@ -40,18 +41,19 @@ from tinysoul.infra.references import (
     relative_reference,
 )
 from tinysoul.kernel.retrieval.contracts import (
-    SearchRequest,
-    QueryDiscovery,
     DocumentQuery,
-    SeedRefinement,
-    BacklinkSearch,
     SearchCandidate,
     SearchEvidence,
     SearchFailure,
     SearchFailureKind,
+    RetrievalRequest,
+    QuerySource,
+    RefsSource,
+    BacklinksSource,
 )
 from tinysoul.kernel.retrieval.disclosure import (
     evidence_units,
+    fragment_range,
     fragment_content,
     inspect_document,
 )
@@ -254,10 +256,11 @@ class MemoryEngine:
         )
 
     def search_corpus(
-        self, request: SearchRequest, *, references: ReferenceResolver
+        self, request: RetrievalRequest, *, references: ReferenceResolver
     ) -> SearchCorpus:
+        source = request.source
         snapshot = self._catalog.snapshot
-        scope = request.options.scope
+        scope = getattr(source, "scope", "all")
         if scope not in {"all", *(kind.value for kind in MemoryKind)}:
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
@@ -265,27 +268,27 @@ class MemoryEngine:
             )
         supported = frozenset({"kind", "status", "updated_on", "confidence"})
         # Validate filters even when no source documents exist.
-        eligible({}, request.options.filters, supported=supported)
-        seeds = set()
+        eligible({}, getattr(source, "where", {}), supported=supported, ordered=frozenset({"updated_on"}))
+        seeds: dict[str, list[tuple[str, str]]] = {}
         excluded = None
-        if isinstance(request, SeedRefinement):
-            seeds = {
-                self.canonical_reference(ref.partition("#")[0]).resource
-                for ref in request.seed_refs
-            }
-        if isinstance(request, QueryDiscovery):
-            if isinstance(request.query, DocumentQuery):
-                target = self.canonical_reference(request.query.document_ref).resource
+        if isinstance(source, RefsSource):
+            for ref in source.refs:
+                resource, _, fragment = ref.partition("#")
+                canonical = self.canonical_reference(resource).resource
+                seeds.setdefault(canonical, []).append((ref, fragment))
+        if isinstance(source, QuerySource):
+            if isinstance(source.query, DocumentQuery):
+                target = self.canonical_reference(source.query.document_ref).resource
                 excluded = target
                 query = self._store.read(MemoryLink.parse(target)).text
             else:
-                query = request.query.text
+                query = source.query.text
         else:
-            query = request.query
+            query = ""
         try:
             anchor = (
-                references.resolve(request.anchor_ref)
-                if isinstance(request, BacklinkSearch)
+                references.resolve(source.anchor_ref)
+                if isinstance(source, BacklinksSource)
                 else None
             )
         except ReferenceError as exc:
@@ -300,13 +303,20 @@ class MemoryEngine:
                 "confidence": entry.confidence,
             }
             if (scope != "all" and scope != link.kind.value) or not eligible(
-                attributes, request.options.filters, supported=supported
+                attributes, getattr(source, "where", {}), supported=supported
             ):
                 continue
             if ref == excluded or (
-                isinstance(request, SeedRefinement)
+                isinstance(source, RefsSource)
                 and self.canonical_reference(ref).resource not in seeds
             ):
+                continue
+            if isinstance(source, RefsSource):
+                text = self._store.read(link).text
+                for selected_ref, fragment in seeds[ref]:
+                    first, last = fragment_range(text, fragment)
+                    selected_text = "".join(text.splitlines(keepends=True)[first - 1:last])
+                    candidates.append(SearchCandidate(selected_ref, entry.display, evidence_units(ref, selected_text, first_line=first), attributes))
                 continue
             if anchor is not None:
                 evidence = []
@@ -319,7 +329,7 @@ class MemoryEngine:
                         evidence.append(SearchEvidence(ref, text, relation))
                 if not evidence:
                     continue
-                units = tuple(evidence)
+                units = (*evidence, *evidence_units(ref, self._store.read(link).text))
             else:
                 units = evidence_units(ref, self._store.read(link).text)
             candidates.append(SearchCandidate(ref, entry.display, units, attributes))

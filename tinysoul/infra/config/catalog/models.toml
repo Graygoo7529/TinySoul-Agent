@@ -96,6 +96,18 @@ title = "Routes"
 description = "Binds declared consumers to typed model uses and configures finite Search choices."
 
 [[field_group]]
+id = "action_routing.models"
+surface = "action_routing"
+title = "Operation Models"
+description = "Selects the configured internal model use for retrieval operations without exposing providers to Action calls."
+
+[[field_group]]
+id = "action_routing.budgets"
+surface = "action_routing"
+title = "Retrieval Budgets"
+description = "Bounds composed candidate operations, snapshots, model inputs and result pages."
+
+[[field_group]]
 id = "cycle_routing.phases"
 surface = "cycle_routing"
 title = "Cycle Phases"
@@ -530,12 +542,128 @@ description = "Bind code-declared consumers to typed LLM task or specialized mod
 value_kind = "object_list"
 
 [[field]]
-path = "action.models.search_policies"
+path = "action.retrieval"
 surface = "action_routing"
 group = "action_routing.routes"
-title = "Search Policies"
-description = "Candidate sources, semantic and Context choices, and bounded Search budgets."
+title = "Retrieval Policies"
+description = "Registered sources and filter/select/rerank operations; operation implementations are configured through model-use bindings."
 value_kind = "object_list"
+
+[[field]]
+path = "action.retrieval.*.sources"
+surface = "action_routing"
+group = "action_routing.routes"
+title = "Retrieval Sources"
+description = "Candidate discovery sources an action may compose."
+value_kind = "string_list"
+
+[[field]]
+path = "action.retrieval.*.operations"
+surface = "action_routing"
+group = "action_routing.routes"
+title = "Retrieval Operations"
+description = "Registered candidate discovery and constraint operations available to the action."
+value_kind = "string_list"
+
+[[field]]
+path = "action.retrieval.*.max_steps"
+surface = "action_routing"
+group = "action_routing.budgets"
+title = "Maximum Retrieval Steps"
+description = "Maximum number of composed retrieval functions in one request."
+value_kind = "integer"
+
+[[field]]
+path = "action.retrieval.*.snapshot_max_chars"
+surface = "action_routing"
+group = "action_routing.budgets"
+title = "Candidate Snapshot Budget"
+description = "Maximum serialized candidate content retained for continuation."
+value_kind = "integer"
+
+[[field]]
+path = "action.retrieval.*.query.channels"
+surface = "action_routing"
+group = "action_routing.models"
+title = "Query Channels"
+description = "Configured lexical and embedding channels used internally by query discovery."
+value_kind = "string_list"
+
+[[field]]
+path = "action.retrieval.*.select.allowed_context"
+surface = "action_routing"
+group = "action_routing.models"
+title = "Selector Context"
+description = "Whether the configured selector receives the current context."
+value_kind = "string"
+
+[[field]]
+path = "action.retrieval.*.select.input_max_chars"
+surface = "action_routing"
+group = "action_routing.budgets"
+title = "Selector Input Budget"
+description = "Maximum expanded candidate content supplied to the selector."
+value_kind = "integer"
+
+[[field]]
+path = "action.retrieval.*.rerank.allowed_context"
+surface = "action_routing"
+group = "action_routing.models"
+title = "Reranker Context"
+description = "Whether the configured reranker receives the current context."
+value_kind = "string"
+
+[[field]]
+path = "action.retrieval.*.rerank.input_max_chars"
+surface = "action_routing"
+group = "action_routing.budgets"
+title = "Reranker Input Budget"
+description = "Maximum expanded candidate content supplied to the reranker."
+value_kind = "integer"
+
+[[field]]
+path = "action.retrieval.*.page.max_items"
+surface = "action_routing"
+group = "action_routing.budgets"
+title = "Page Item Limit"
+description = "Maximum candidate entries returned in one page."
+value_kind = "integer"
+
+[[field]]
+path = "action.retrieval.*.page.max_chars"
+surface = "action_routing"
+group = "action_routing.budgets"
+title = "Page Content Budget"
+description = "Maximum expanded candidate content returned in one page."
+value_kind = "integer"
+
+# Action IDs contain dots, so the catalog matcher needs one explicit pattern
+# for each supported identifier depth.  These leaf fallbacks keep every
+# configured retrieval value discoverable while the named fields above retain
+# the detailed UI metadata for the common shape.
+[[field]]
+path = "action.retrieval.*.*.*"
+surface = "action_routing"
+group = "action_routing.routes"
+title = "Retrieval Action Setting"
+description = "A declared retrieval source, operation, or budget setting."
+value_kind = "object"
+
+[[field]]
+path = "action.retrieval.*.*.*.*"
+surface = "action_routing"
+group = "action_routing.routes"
+title = "Retrieval Action Setting"
+description = "A declared retrieval source, operation, model, or budget setting."
+value_kind = "object"
+
+[[field]]
+path = "action.retrieval.*.*.*.*.*"
+surface = "action_routing"
+group = "action_routing.routes"
+title = "Retrieval Action Setting"
+description = "A declared retrieval operation model or budget setting."
+value_kind = "object"
 
 [[field]]
 path = "loop.cycle.phase1_task_profile"

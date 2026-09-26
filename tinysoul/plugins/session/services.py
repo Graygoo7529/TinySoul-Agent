@@ -10,7 +10,7 @@ from .engine import SessionEngine
 from typing import Self
 from tinysoul.kernel.retrieval.operations import SearchSession
 from tinysoul.kernel.retrieval.contracts import (
-    SearchRequest,
+    RetrievalRequest,
     SearchPage,
     SearchFailure,
     SearchFailureKind,
@@ -57,13 +57,12 @@ class SessionService(ScopedService[SessionViewSource]):
         self.background_snapshot = scope.local(owner.background_snapshot)
         self.inspect = scope.local(owner.inspect)
         self._queries = queries
-        self.search_policies = queries.policies if queries else ()
         self.search = scope.remote(self._search)
 
     def _bind(self, scope: ServiceScope) -> Self:
         return type(self)(self._owner, scope, queries=self._queries)
 
-    async def _search(self, request: SearchRequest | str) -> SearchPage:
+    async def _search(self, request: RetrievalRequest | str) -> SearchPage:
         if self._queries is None:
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,

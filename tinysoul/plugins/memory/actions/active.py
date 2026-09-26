@@ -24,9 +24,9 @@ from ..storage.active import MemoryPatchOperation
 from ..background import MEMORY_CONTEXT_UPDATE
 from tinysoul.infra.continuation import ContinuationError
 from tinysoul.kernel.action.tasks import ActionTaskFactory
-from tinysoul.kernel.retrieval.contracts import SearchContext, SearchFailure
+from tinysoul.kernel.retrieval.contracts import SearchContext, SearchFailure, RetrievalRequest, ModelStep
 from tinysoul.kernel.retrieval.operations import SelectionInput
-from tinysoul.kernel.retrieval.requests import parse_search_request
+from tinysoul.kernel.retrieval.requests import parse_retrieval_request
 from ..services import MemoryReadService, MemoryService
 from ..errors import MemoryContractError, MemoryError, MemoryInvariantError
 from ..links import MemoryKind, MemoryLink
@@ -120,14 +120,16 @@ class MemorySearchExecutor(ActionExecutor):
     ) -> ActionResult:
         memory = self._memory.using(context.owner_operations)
         try:
-            request = parse_search_request(
-                execution.call.params, memory.search_policies
-            )
+            request = parse_retrieval_request(execution.call.params, memory.retrieval_policies[0])
             inputs = SelectionInput()
             if not isinstance(request, str) and self._tasks is not None:
+                use_context = (
+                    any(isinstance(step, ModelStep) and step.context is SearchContext.CURRENT for step in request.steps)
+
+                )
                 inputs = await self._tasks.selection_input(
                     execution,
-                    include_context=request.options.context is SearchContext.CURRENT,
+                    include_context=use_context,
                     control=context.control,
                 )
             result = await memory.search(request, inputs=inputs)
@@ -143,7 +145,7 @@ class MemorySearchExecutor(ActionExecutor):
             trace_projection=ActionTraceProjection(
                 origin_refs=tuple(item.ref for item in result.items),
                 canonical_payload={
-                    "mode": result.mode.value,
+                    "source": result.source.value,
                     "selected": [item.ref for item in result.items],
                 },
             ),

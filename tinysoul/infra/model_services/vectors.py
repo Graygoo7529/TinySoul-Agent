@@ -25,7 +25,7 @@ class EmbeddingIndex:
         services: ModelServices,
         use: str,
         max_chars: int = 16_000_000,
-        extraction: str = "evidence-v1",
+        extraction: str = "content-units-v2",
     ) -> None:
         self._path, self._services, self._use = path, services, use
         self._max_chars, self._extraction = max_chars, extraction
@@ -64,26 +64,25 @@ class EmbeddingIndex:
         consumer: str,
         observer: ModelObserver | None,
     ) -> Mapping[str, float]:
-        identity = sha256(f"{session.identity}|{self._extraction}".encode()).hexdigest()
+        identity = sha256(f"{session.identity}|{self._use}|{self._extraction}".encode()).hexdigest()
         cache_path = self._path / f"{identity}.json"
         operations = JoinedOperations()
         loaded = await operations.run(lambda: self._load(cache_path))
-        vectors = {
-            ref: vector
-            for ref, (digest, vector) in loaded.items()
-            if ref in documents
-            and digest == _digest(documents[ref])
-            and len(vector) == session.dimensions
-        }
-        pending = [(ref, text) for ref, text in documents.items() if ref not in vectors]
+        # Cache text identities, independently of the candidate set of a call.
+        # Discovery and reranking therefore share vectors without evicting each
+        # other's scopes or introducing vectors from another provider space.
+        cached = {digest: vector for digest, (stored_digest, vector) in loaded.items()
+                  if digest == stored_digest and len(vector) == session.dimensions}
+        texts = {_digest(text): text for text in documents.values()}
+        pending = [(digest, text) for digest, text in texts.items() if digest not in cached]
         for start in range(0, len(pending), session.max_batch_size):
             chunk = pending[start : start + session.max_batch_size]
             batch = await session.embed(
                 [text for _, text in chunk], consumer=consumer, observer=observer
             )
-            vectors.update(
-                (ref, vector)
-                for (ref, _), vector in zip(chunk, batch.vectors, strict=True)
+            cached.update(
+                (digest, vector)
+                for (digest, _), vector in zip(chunk, batch.vectors, strict=True)
             )
         # The query is always embedded in this same pinned session. A route
         # failure restarts the whole attempt with that route's independent cache.
@@ -91,6 +90,7 @@ class EmbeddingIndex:
             (query,), consumer=consumer, observer=observer
         )
         dimension = query_batch.dimensions
+        vectors = {ref: cached[_digest(text)] for ref, text in documents.items()}
         if any(len(vector) != dimension for vector in vectors.values()):
             raise ModelServiceError(
                 ModelFailureKind.CONTRACT,
@@ -100,17 +100,19 @@ class EmbeddingIndex:
             ref: cosine(query_batch.vectors[0], vector)
             for ref, vector in vectors.items()
         }
-        if pending:
-            encoded = json.dumps(
-                {
-                    ref: {"digest": _digest(documents[ref]), "vector": vector}
-                    for ref, vector in vectors.items()
-                },
-                ensure_ascii=False,
-                separators=(",", ":"),
-            )
-            if len(encoded) <= self._max_chars:
-                await operations.run(lambda: self._write(cache_path, encoded))
+        for digest in texts:
+            cached[digest] = cached.pop(digest)
+        entries: dict[str, object] = {}
+        used = 2
+        for digest, vector in reversed(tuple(cached.items())):
+            entry = {"digest": digest, "vector": vector}
+            size = len(json.dumps({digest: entry}, separators=(",", ":")))
+            if used + size > self._max_chars:
+                continue
+            entries[digest] = entry
+            used += size
+        encoded = json.dumps(dict(reversed(tuple(entries.items()))), separators=(",", ":"))
+        await operations.run(lambda: self._write(cache_path, encoded))
         operations.check_cancelled()
         return scores
 

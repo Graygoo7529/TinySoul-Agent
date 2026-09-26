@@ -8,14 +8,11 @@ import pytest
 from tinysoul.infra.json import JsonObject, dumps_json
 from tinysoul.infra.references import ReferenceResolver
 from tinysoul.kernel.retrieval.contracts import (
-    QueryDiscovery,
-    TextQuery,
-    SearchOptions,
-    SearchMode,
-    CandidateSource,
+    RetrievalRequest, QuerySource, BacklinksSource, RefsSource, TextQuery,
+    SourceKind, OperationKind, ModelStep, SearchFailure,
 )
-from tinysoul.kernel.retrieval.engine import SearchEngine, SearchViews
-from tinysoul.kernel.retrieval.policy import SearchPolicy
+from tinysoul.kernel.retrieval.operations import SearchSession
+from tinysoul.kernel.retrieval.policy import RetrievalPolicy
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.action import (
     ActionCall,
@@ -135,23 +132,15 @@ async def test_context_search_uses_session_originals_and_interpretations_after_f
     context.begin_turn("search previous facts")
     await context.open_segments(DAY.value)
     context.compress(required_chars=100000)
-    engine = SearchEngine(views=SearchViews())
     for query, expected in (
         ("specific-source-evidence", f"{PRIOR}#input/0"),
         ("special-interpretation", dict(result.created)["local:topic"]),
     ):
-        request = QueryDiscovery(TextQuery(query), SearchOptions("session"))
+        request = RetrievalRequest(QuerySource("session", TextQuery(query)))
         corpus = await context.search_corpus(request, references=ReferenceResolver())
-        page = await engine.search(
-            request,
-            policy=SearchPolicy(
-                "core.context.search",
-                SearchMode.QUERY_DISCOVERY,
-                (CandidateSource.LEXICAL,),
-            ),
-            candidates=corpus.candidates,
-            query=corpus.query,
-        )
+        async def source(_request):
+            return corpus
+        page = await SearchSession(action_id="core.context.search", retrieval_policies=(RetrievalPolicy("core.context.search", tuple(SourceKind), tuple(OperationKind)),), source=source).search(request)
         assert expected in {item.ref for item in page.items}
         assert query in str(await context.inspect(expected))
     assert session.background_snapshot(DAY).refs == (PRIOR,)

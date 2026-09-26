@@ -29,9 +29,8 @@ from tinysoul.kernel.action.models import ModelUseRegistry
 from tinysoul.kernel.action.tasks import ActionTaskFactory
 from tinysoul.kernel.retrieval.policy import SearchCapability
 from tinysoul.kernel.retrieval.contracts import (
-    SearchMode,
-    CandidateSource,
-    SearchSemantic,
+    SourceKind,
+    OperationKind,
 )
 from tinysoul.kernel.retrieval.operations import SearchSession
 from tinysoul.kernel.retrieval.selection import CandidateSelector
@@ -58,7 +57,7 @@ class MemoryProfileSource:
 class MemoryPlugin:
     id = "memory"
     search_capabilities = (
-        SearchCapability("memory.search", tuple(SearchMode), tuple(CandidateSource)),
+        SearchCapability("memory.search", tuple(SourceKind), tuple(OperationKind), scopes=("all", "daily", "entity", "concept", "fact", "note"), filters=("kind", "status", "updated_on", "confidence"), ordered_filters=("updated_on",), document_query=True),
     )
     model_uses = (
         ModelUseDescriptor(
@@ -68,9 +67,9 @@ class MemoryPlugin:
             (ModelImplementation.LLM_TASK, ModelImplementation.STRUCTURED_DECISION),
         ),
         ModelUseDescriptor(
-            "memory.search.rank",
+            "memory.search.rerank",
             "memory.search",
-            ModelOperation.RANK,
+            ModelOperation.RERANK,
             (
                 *(
                     ModelImplementation.LLM_TASK,
@@ -98,7 +97,7 @@ class MemoryPlugin:
         settings = context.settings.get(MemorySettings)
         models = context.services.get(ModelServices)
         references = context.services.get(ReferenceResolver)
-        use = settings.semantic_search.embedding_use
+        use = settings.search.embedding_use
         if use is not None:
             models.embedding_sessions(use)
         embedding = (
@@ -106,7 +105,7 @@ class MemoryPlugin:
                 path=settings.root / ".tinysoul" / "embeddings",
                 services=models,
                 use=use,
-                max_chars=settings.semantic_search.embedding_cache_max_chars,
+                max_chars=settings.search.embedding_cache_max_chars,
             )
             if use
             else None
@@ -144,10 +143,12 @@ class MemoryPlugin:
             return SearchSession(
                 observations=context.observations,
                 action_id="memory.search",
-                policies=context.settings.get(ActionSettings).search_policies,
+
+                retrieval_policies=context.settings.get(ActionSettings).retrieval_policies,
                 source=source,
                 selector=selector,
                 embedding=embedding,
+                supported_filters=frozenset({"kind", "status", "updated_on", "confidence"}),
             )
 
         knowledge = MemoryKnowledgeService(owner)

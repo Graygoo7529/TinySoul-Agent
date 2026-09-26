@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from typing import cast
 from uuid import uuid4
 from tinysoul.kernel.action.call import ActionCall, ExecutionFact, ExecutionState
 from tinysoul.kernel.action.result import ActionResult
@@ -14,7 +15,7 @@ from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.llm.protocol.messages import MessageStack, ToolResultMessage
 from tinysoul.infra.references import ReferenceResolver
 from tinysoul.infra.continuation import OpaqueContinuationCodec
-from tinysoul.kernel.retrieval.contracts import SearchRequest, SeedRefinement
+from tinysoul.kernel.retrieval.contracts import RetrievalRequest, RefsSource
 from tinysoul.kernel.retrieval.operations import SearchCorpus
 from .disclosure import DisclosureSearchEntry, DisclosureReference, DisclosurePage
 from .search import disclosure_corpus
@@ -698,21 +699,21 @@ class ContextEngine:
         return await self._segments.inspect(ref, query=query, continuation=continuation)
 
     async def search_corpus(
-        self, request: SearchRequest, *, references: ReferenceResolver
+        self, request: RetrievalRequest, *, references: ReferenceResolver
     ) -> SearchCorpus:
         self._require_turn()
         if self._segments is None:
             raise ContextContractError("Context segments must be opened before search")
-        seeds = request.seed_refs if isinstance(request, SeedRefinement) else ()
+        seeds = request.source.refs if isinstance(request.source, RefsSource) else ()
         current = (
             self._current_search_facts()
-            if request.options.scope in {"all", "trace"}
+            if getattr(request.source, "scope", "all") in {"all", "trace"}
             else ()
         )
         current_ids = {item.ref for item in current}
         remaining_seeds = tuple(ref for ref in seeds if ref not in current_ids)
         entries = (
-            await self._segments.search_entries(request.options.scope, remaining_seeds)
+            await self._segments.search_entries(getattr(request.source, "scope", "all"), remaining_seeds)
             if not seeds or remaining_seeds
             else ()
         )

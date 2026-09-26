@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from tinysoul.infra.json import JsonValue, JsonObject, dumps_json
 from tinysoul.infra.references import (
     ReferenceResolver,
@@ -10,14 +12,15 @@ from tinysoul.infra.references import (
     markdown_references,
 )
 from tinysoul.kernel.retrieval.contracts import (
-    SearchRequest,
-    QueryDiscovery,
     DocumentQuery,
-    BacklinkSearch,
     SearchCandidate,
     SearchEvidence,
     SearchFailure,
     SearchFailureKind,
+    RetrievalRequest,
+    QuerySource,
+    RefsSource,
+    BacklinksSource,
 )
 from tinysoul.kernel.retrieval.operations import SearchCorpus
 from tinysoul.kernel.retrieval.requests import eligible
@@ -26,25 +29,26 @@ from .disclosure import DisclosureSearchEntry, DisclosureReference
 
 def disclosure_corpus(
     entries: tuple[DisclosureSearchEntry, ...],
-    request: SearchRequest,
+    request: RetrievalRequest,
     references: ReferenceResolver,
 ) -> SearchCorpus:
-    if request.options.scope not in {"all", "trace", "session"}:
+    candidate_source = request.source
+    if getattr(candidate_source, "scope", "all") not in {"all", "trace", "session"}:
         raise SearchFailure(
             SearchFailureKind.INVALID_REQUEST,
             "Context scope must be trace, session or all",
         )
-    if isinstance(request, QueryDiscovery):
-        if isinstance(request.query, DocumentQuery):
+    if isinstance(candidate_source, QuerySource):
+        if isinstance(candidate_source.query, DocumentQuery):
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
                 "Context discovery requires a text query",
             )
-        query = request.query.text
+        query = candidate_source.query.text
     else:
-        query = request.query
+        query = ""
     supported = frozenset({"source", "basis", "kind", "day"})
-    eligible({}, request.options.filters, supported=supported)
+    eligible({}, getattr(candidate_source, "where", {}), supported=supported, ordered=frozenset({"day"}))
 
     def resolve(ref: str, source: DisclosureReference | None = None) -> ResourceTarget:
         if ref.startswith(("session:", "turn:")):
@@ -54,7 +58,7 @@ def disclosure_corpus(
 
     try:
         anchor = (
-            resolve(request.anchor_ref) if isinstance(request, BacklinkSearch) else None
+            resolve(candidate_source.anchor_ref) if isinstance(candidate_source, BacklinksSource) else None
         )
     except ReferenceError as exc:
         raise SearchFailure(SearchFailureKind.INVALID_REQUEST, str(exc)) from exc
@@ -66,8 +70,8 @@ def disclosure_corpus(
             "kind": entry.content.get("kind", entry.title),
             "day": entry.day.isoformat() if entry.day else None,
         }
-        if request.options.scope not in {"all", entry.source} or not eligible(
-            attributes, request.options.filters, supported=supported
+        if getattr(candidate_source, "scope", "all") not in {"all", entry.source} or not eligible(
+            attributes, getattr(candidate_source, "where", {}), supported=supported
         ):
             continue
         evidence = (SearchEvidence(entry.ref, dumps_json(entry.content)),)

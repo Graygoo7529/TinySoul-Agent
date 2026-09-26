@@ -177,13 +177,12 @@ async def test_home_search_uses_skill_frontmatter_instead_of_body_heading(
 
     from tinysoul.infra.references import ReferenceResolver
     from tinysoul.kernel.retrieval.contracts import (
-        QueryDiscovery,
-        TextQuery,
-        SearchOptions,
+        RetrievalRequest, QuerySource, BacklinksSource, RefsSource, TextQuery,
+        SourceKind, OperationKind, ModelStep, SearchFailure,
     )
 
     corpus = home.search_corpus(
-        QueryDiscovery(TextQuery("pending home changes"), SearchOptions("skills")),
+        RetrievalRequest(QuerySource("skills", TextQuery("pending home changes"))),
         references=ReferenceResolver(),
     )
     assert corpus.candidates[0].title == "Daily Home Review"

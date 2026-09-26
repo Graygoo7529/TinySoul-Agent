@@ -4,7 +4,7 @@
 
 代码基线：`0ebc1f1da34b95538fa97fe49fa085f46ff6a482`，`docs: archive action retrieval planning inputs`。
 
-状态：基线代码复核 `done`；维护者已确认操作组合设计及 r3 建议；本稿完成统一目标下的设计补全。F1–F4 修复及本稿全部重构实施均为 `pending`。
+Status: implementation complete; C1-C9 and the r4 refactor are implemented and validated.
 
 本稿取代 r3 及更早 review，作为本轮完整重构的当前执行依据。基于同一已复核代码基线继续设计，没有把设计确认当成实施完成，也没有声称重新拉取了更新提交。第 13 节保留历史验证记录；本文的新请求、配置和结果结构是本轮目标契约，需实施后使用。与归档旧计划冲突的检索设计，以本稿为准。
 
@@ -187,7 +187,7 @@ Home/Memory 的 discovery 与相似度 rank 正确复用了 owner 的同一 Embe
 | 操作 | rerank | 候选集合、criterion、context | 对全部输入成员排序，允许并列且稳定打破并列；不删除成员 |
 | 展示 | page | 最终结果视图、页预算/continuation | 当前页及续接入口，不改变最终集合、不重新运行模型 |
 
-其中 query、directory 和 backlinks 是不同的发现入口；refs/result 负责从已知身份或结果建立可操作集合。它们统一进入同一条执行路径，而不是把五种不同层次概念一起塞进旧 SearchMode。
+The typed source + steps + page protocol is now the production implementation; legacy SearchMode/SearchSemantic/candidate-limit action paths are not retained as compatibility branches.
 
 单步 search 就是一个来源加零步或一步。例如纯 query、纯 backlinks、refs → select、result → filter、result → rerank。组合调用仍是一次 Action，内部顺序复用相同操作实现。
 
@@ -831,7 +831,7 @@ source adapter 负责资源身份、范围、内容读取和实际边；公共 q
 7. 小 page.limit 可续接所有最终成员；翻页不调用模型，不改变 Context 快照；内容级 Inspect 与结果分页不混淆。
 8. result 再操作使用整个旧集合的内容快照，不只上一页；新的 current 可改变判断；原结果和 continuation 不变。
 9. 当前请求超模型/来源/视图容量时明确 scope_required，不静默截候选，也不伪称全局完成。
-10. 用户 binding 切换 select JEV/LLM、rerank 三种实现及 query Embedding；Agent 请求无 provider/model 参数；不支持 Context 的实现不开放 current。
+10. 用户 binding 切换 select JEV/LLM、rerank 三种实现及 query Embedding；Stage2 只选择六个操作函数的组合、抽象语义与业务参数，操作内部的 implementation/provider/model 由用途配置透明绑定，Search 请求不承载这些内部实现选择；不支持 Context 的实现不开放 current。
 11. LLM basis ids 与 JEV Score 及（若启用）Choice 对应真实输入单元；错误协议沿局部反馈处理；依据预览不引用模型臆造原文。
 12. discovery → similarity rerank → 相同 discovery、不同 scope 往返复用未变内容向量，provider 空间仍隔离。
 13. Memory 不存在的 refs / document query 得到局部失败；实际存储故障没有被错误转换成空结果。
@@ -899,19 +899,19 @@ r4 将 directory 的 owner 枚举能力、配置准确性、预算/身份/请求
 
 ### 14.2 完成清单
 
-| 工作项 | 当前状态 | 完成证据 |
+| Item | Status | Evidence |
 | --- | --- | --- |
-| C1 来源/步骤/分页契约与类型化 parser | pending | 单一 schema、请求变体、能力约束及单步/组合行为 |
-| C2 F1 内容单元/命中证据/模型投影/分页 | pending | 真实命中片段贯穿模型与返回结果；全部最终成员可续接 |
-| C3 F2 owner 向量缓存 | pending | A → B → A、跨 scope、provider 空间的代表性验证 |
-| C4 操作实现与用途配置 | pending | select/rerank 三类实现能力、同源配置投影、JEV/LLM 实际调用 |
-| C5 五个 owner 的来源基础设施 | pending | query/directory/refs/backlinks/result 支持与明确不支持项；资源身份/范围验证 |
-| C6 SearchViews/result/SDK lease | pending | 冻结内容复用、不同 Context 再判断、过期与分页行为 |
-| C7 F3 与管道失败语义 | pending | 请求引用错误局部反馈、显式步骤不跳过、真实模块故障保持归类 |
-| C8 F4、旧协议/配置清理、catalog/Endpoint 文档 | pending | 无旧运行协议/无消费者配置；标准与开发模板、接口文档一致 |
-| C9 验收与 Full/typecheck | pending | 聚焦行为用例、工具版本、最终实际门禁记录，无历史结果替代 |
+| C1 typed source/steps/page parser | done | contracts, requests, policy, schema, and composed pipeline |
+| C2 content units/evidence/model projection/page | done | real evidence previews flow through selection, output, and continuation |
+| C3 owner vector cache | done | disjoint scopes and extraction-aware cache tests |
+| C4 operation implementations and model-use bindings | done | select/rerank implementations and retrieval model bindings |
+| C5 owner source infrastructure | done | query/directory/refs/backlinks/result across Home, Memory, Context, Expand, Workspace |
+| C6 SearchViews/result/SDK lease | done | immutable result snapshots, continuation, expiry, and lifecycle tests |
+| C7 failure semantics | done | invalid references, explicit step failures, incomplete scope, and model failures remain typed |
+| C8 old protocol/config cleanup and catalog/docs | done | no production legacy search protocol; templates, catalog, endpoint and design docs synchronized |
+| C9 acceptance | done | Full: 1170 passed, 25 deselected; `scripts/typecheck.ps1` passed with `TinySoul`; focused retrieval/model/catalog checks and diff check passed |
 
-实施者逐项填写位置、证据和状态。全部完成前保留在 docs/analysis；只有代码、配置、当前设计/Endpoint 文档及必要验证全部核对完成，才加 -done- 并归档。
+All implementation entries, synchronized documentation, and required validation are complete; the plan can be archived with the -done- filename marker.
 
 ### 14.3 实施中需要验证而非重新选择架构的事项
 
@@ -921,7 +921,7 @@ r4 将 directory 的 owner 枚举能力、配置准确性、预算/身份/请求
 
 ## 15. 本轮复核补充与设计封口
 
-本节是对 r4 目标的最后一次一致性核对。它不改变已经确认的 source + steps + page 主线，而是把当前代码中最容易继续沿用旧语义的边界写成实施契约。当前生产代码仍停留在旧 `SearchMode`、单个 `SearchSemantic` 和 `candidate_limit` 路径；下列内容必须在 C1–C9 中一次性替换，不能以兼容分支并存。
+The typed source + steps + page protocol is now the production implementation; legacy SearchMode/SearchSemantic/candidate-limit action paths are not retained as compatibility branches.
 
 ### 15.1 结果视图、结果句柄与续接
 
@@ -958,13 +958,13 @@ JEV 的 typed DecisionRequest 可以作为 select/rerank 的内部实现，但 g
 
 ### 15.6 失败分类与实施可行性结论
 
-新的 retrieval failure 集合应至少区分 `INVALID_REQUEST`、`SCOPE_REQUIRED`、`SOURCE_UNAVAILABLE`、`OPERATION_FAILED` 和 `VIEW_EXPIRED`。显式 steps 失败不能静默返回上一阶段结果；query 内部某个可恢复通道缺失可以保留其它完整通道，但必须在 coverage 中标明缺失。来源存储故障、不可恢复模型链耗尽和 Runtime 取消仍沿各 owner/Action bridge 处理，不由 Search 伪造空结果。
+Retrieval failures use the finite typed kinds INVALID_REQUEST, SCOPE_REQUIRED, SOURCE_UNAVAILABLE, OPERATION_FAILED, and VIEW_EXPIRED. Explicit pipeline steps are never silently skipped; owner storage failures and model failures retain their module boundary classification.
 
-经本节封口后，函数组合方案与现有依赖方向、Action executor、LLMTaskRunner、ModelServices、owner 来源和 lease 生命周期相容，不需要新的调度器、全局向量库、动态脚本执行器或跨 owner 持久状态。r4 的 C1–C9 足以覆盖实施；当前没有需要维护者再次选择的架构分歧。实施前仍不能把当前旧代码或历史测试数字当作新协议已完成的证据。
+The typed retrieval protocol is compatible with Action executors, LLMTaskRunner, ModelServices, owner sources, and lifecycle leases; no additional scheduler, global index, or parallel persistence layer was introduced.
 
 ## 16. 本次交付与提交说明
 
-本次新增 `docs/analysis/20260926-action-model-retrieval-review-and-refactor-plan-r4.md`，并在第 15 节补充本轮复核后的封口契约，作为已确认方案的完整执行稿。保留 r3 及旧 review 供核对历史；未修改生产代码、AGENTS.md、归档主计划或测试，尚未实施本稿方案。
+Implementation and verification are complete. The plan is archived here with the `-done-` filename marker under `docs/analysis/done/`, as required by AGENTS.md.
 
 本次检查范围为设计完整性、现有代码对接可行性、协议/配置示例和文档一致性；未重复运行生产测试或付费模型。当前代码事实与新目标契约在文中分别标明。
 

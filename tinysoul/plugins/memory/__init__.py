@@ -18,7 +18,7 @@ from .retrieval.catalog import (
 from .config import (
     MemoryDocumentSettings,
     MemoryInspectSettings,
-    MemorySemanticSearchSettings,
+    MemorySearchSettings,
     MemorySettings,
     parse_memory_settings,
 )
@@ -65,7 +65,7 @@ __all__ = [
     "MemoryIOError",
     "MemoryInspectExecutor",
     "MemoryInspectSettings",
-    "MemorySemanticSearchSettings",
+    "MemorySearchSettings",
     "MemoryInvariantError",
     "MemoryKind",
     "MemoryLink",

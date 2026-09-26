@@ -21,7 +21,7 @@ owner 完成一次上游目录分页遍历后才发布本地目录。超过容�
 
 先应用服务启用与工具选择，再把全部允许、可调用候选的身份、用途、描述和参数摘要放入本 Action 的 TaskPrompt。空候选直接返回事实；候选超过字符上限或完整 LLM Task 超过上下文预算时返回 scope_required 与服务范围提示，由父 Agent 缩小范围。没有隐藏初筛、递归搜索或新向量索引。
 
-来源由 ExpandEngine 的目录操作提供，公共 SearchSession 使用 expand.search.select 绑定的 LLM/JEV selector。ActionTaskFactory 提供局部 Skill 和可选 Context；MCP 默认 context=none。模型只选择候选 ID，结果映射回真实 mcp:server/tool 身份。完整定义装不下时返回 describe_tools 入口，不提供残缺 schema。Search 的有限结果视图按页返回，后续页不重做选择；服务目录仍归 MCP owner。
+来源由 ExpandEngine 的真实 server/tool directory 提供，公共 SearchSession 使用 expand.search 的 `directory`、`refs`、`result` 与 filter/select/rerank 管道。ActionTaskFactory 提供局部 Skill 和可选 Context；MCP 默认 context=none。模型输入包含工具描述与参数预览，结果映射回真实 mcp:server/tool 身份。完整定义装不下时返回 describe_tools 入口，不提供残缺 schema。Search 的有限结果视图保存完整候选并按页返回，后续页不重做选择；服务目录仍归 MCP owner。
 
 输入容量不足反馈 scope_required；必需选择失败不冒充空结果，全部服务器不可用返回来源失败。单服务器失败保留可用候选并说明 coverage 不完整。协议测试验证一次选择、范围、分页和真实定义；真实 JEV 小样本验证了相关工具命中、无关工具排除和空选择，不代表开放规模检索质量。
 

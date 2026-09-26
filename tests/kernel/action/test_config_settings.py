@@ -11,8 +11,8 @@ from tinysoul.kernel.action.models import (
     ModelImplementation,
 )
 from tinysoul.infra.model_services.config import ModelServicesSettings
-from tinysoul.kernel.retrieval.policy import SearchPolicy
-from tinysoul.kernel.retrieval.contracts import SearchMode, SearchSemantic
+from tinysoul.kernel.retrieval.policy import RetrievalPolicy
+from tinysoul.kernel.retrieval.contracts import SourceKind, OperationKind
 
 
 def _settings(**overrides):
@@ -119,15 +119,10 @@ def test_same_consumer_can_bind_decision_without_changing_action_identity() -> N
     assert registry.binding(descriptor.consumer).use == "decision"
     with pytest.raises(ConfigError):
         registry.validate_targets((), ModelServicesSettings())
-    policy = SearchPolicy(
-        "home.search",
-        SearchMode.SEED_REFINEMENT,
-        default_semantic=SearchSemantic.SELECT,
-        allowed_semantic=(SearchSemantic.SELECT,),
-    )
+    policy = RetrievalPolicy("home.search", (SourceKind.REFS,), (OperationKind.SELECT,))
     registry.validate_selected(
         actions=frozenset(),
-        policies=(policy,),
+        retrieval_policies=(policy,),
         services=ModelServicesSettings(),
         env={},
         embedding_uses={},
@@ -135,7 +130,7 @@ def test_same_consumer_can_bind_decision_without_changing_action_identity() -> N
     with pytest.raises(ConfigError):
         registry.validate_selected(
             actions=frozenset({"home.search"}),
-            policies=(policy,),
+            retrieval_policies=(policy,),
             services=ModelServicesSettings(),
             env={},
             embedding_uses={},

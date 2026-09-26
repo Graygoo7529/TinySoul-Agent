@@ -40,14 +40,14 @@ class MemoryInspectSettings:
 
 
 @dataclass(frozen=True)
-class MemorySemanticSearchSettings:
+class MemorySearchSettings:
     embedding_use: str | None = None
     embedding_cache_max_chars: int = 16_000_000
 
     def __post_init__(self) -> None:
         _positive(
             self.embedding_cache_max_chars,
-            "memory.semantic_search.embedding_cache_max_chars",
+            "memory.search.embedding_cache_max_chars",
         )
 
 
@@ -57,8 +57,8 @@ class MemorySettings:
     max_active_chars: int = 12_000
     documents: MemoryDocumentSettings = field(default_factory=MemoryDocumentSettings)
     inspect: MemoryInspectSettings = field(default_factory=MemoryInspectSettings)
-    semantic_search: MemorySemanticSearchSettings = field(
-        default_factory=MemorySemanticSearchSettings
+    search: MemorySearchSettings = field(
+        default_factory=MemorySearchSettings
     )
 
     def __post_init__(self) -> None:
@@ -73,10 +73,10 @@ class MemorySettings:
             raise ConfigError(
                 "Memory inspect settings are invalid", key="memory.inspect"
             )
-        if not isinstance(self.semantic_search, MemorySemanticSearchSettings):
+        if not isinstance(self.search, MemorySearchSettings):
             raise ConfigError(
-                "Memory semantic search settings are invalid",
-                key="memory.semantic_search",
+                "Memory search settings are invalid",
+                key="memory.search",
             )
 
 
@@ -92,7 +92,7 @@ def parse_memory_settings(
             "max_active_chars",
             "documents",
             "inspect",
-            "semantic_search",
+            "search",
         },
         key="memory",
     )
@@ -101,7 +101,7 @@ def parse_memory_settings(
         max_active_chars=_int(tree, "max_active_chars", 12_000, "memory"),
         documents=_parse_documents(tree.get("documents")),
         inspect=_parse_inspect(tree.get("inspect")),
-        semantic_search=_parse_semantic_search(tree.get("semantic_search")),
+        search=_parse_search(tree.get("search")),
     )
 
 
@@ -131,27 +131,27 @@ def _parse_inspect(value: object) -> MemoryInspectSettings:
     return MemoryInspectSettings(_int(tree, "page_max_chars", 8_000, "memory.inspect"))
 
 
-def _parse_semantic_search(value: object) -> MemorySemanticSearchSettings:
-    tree = _table(value, "memory.semantic_search")
+def _parse_search(value: object) -> MemorySearchSettings:
+    tree = _table(value, "memory.search")
     reject_unknown_keys(
         tree,
         {"embedding_cache_max_chars", "embedding_use"},
-        key="memory.semantic_search",
+        key="memory.search",
     )
-    defaults = MemorySemanticSearchSettings()
+    defaults = MemorySearchSettings()
     use = tree.get("embedding_use")
     if use is not None and (not isinstance(use, str) or not use.strip()):
         raise ConfigError(
             "Memory embedding_use must name a logical use",
-            key="memory.semantic_search.embedding_use",
+            key="memory.search.embedding_use",
         )
-    return MemorySemanticSearchSettings(
+    return MemorySearchSettings(
         embedding_use=use,
         embedding_cache_max_chars=_int(
             tree,
             "embedding_cache_max_chars",
             defaults.embedding_cache_max_chars,
-            "memory.semantic_search",
+            "memory.search",
         ),
     )
 

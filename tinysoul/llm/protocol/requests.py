@@ -23,7 +23,6 @@ class TaskProfile(StrEnum):
     FRAME_STAGE1 = "frame_stage1"
     FRAME_STAGE2 = "frame_stage2"
     LLM_ACTION = "llm_action"
-    MEMORY_DAILY = "memory_daily"
 
 
 class ModelContextOverflowPolicy(StrEnum):

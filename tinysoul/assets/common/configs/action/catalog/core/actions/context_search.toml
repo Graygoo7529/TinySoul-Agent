@@ -2,8 +2,8 @@ name = "core.context.search"
 domain = "core"
 
 [tool]
-description = "Search the current Turn raw Trace and installed fixed Session history, including folded facts and interpretations. Discover by query, refine seed refs, or find actual incoming references. Does not load Background."
-schema = { type = "object", properties = { query = { type = "string", minLength = 1 }, scope = { type = "string", enum = ["all", "trace", "session"] }, filters = { type = "object", description = "Explicit equality/membership filters: source (trace/session), basis (fact/interpretation), kind, day (YYYY-MM-DD). A scalar or a nonempty scalar array is accepted." } }, additionalProperties = false }
+description = "Compose query, backlinks, directory, refs, result, filter, select and rerank over current Turn and Session facts without loading Background. Results include links and real content previews."
+schema = { type = "object", properties = { source = { type = "object" }, steps = { type = "array" }, exclude_refs = { type = "array", items = { type = "string" } }, page = { type = "object" } }, required = ["source"], additionalProperties = false }
 
 [semantic]
 use_when = ["Useful raw Turn or Session evidence is not yet in the visible Context"]

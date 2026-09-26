@@ -4,9 +4,9 @@ from tinysoul.infra.services import ScopedService, ServiceScope
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Protocol, Self
-from tinysoul.kernel.retrieval.operations import SearchSession
+from tinysoul.kernel.retrieval.operations import SearchSession, SelectionInput
 from tinysoul.kernel.retrieval.contracts import (
-    BacklinkSearch,
+    RetrievalRequest,
     SearchPage,
     SearchFailure,
     SearchFailureKind,
@@ -95,8 +95,8 @@ class WorkspaceService(ScopedService[WorkspaceEngine]):
     ) -> None:
         super().__init__(owner, scope)
         self._queries = queries
-        self.search_policies = queries.policies if queries else ()
-        self.search_backlinks = scope.remote(self._search_backlinks)
+        self.retrieval_policies = queries.retrieval_policies if queries else ()
+        self.search_retrieval = scope.remote(self._search_retrieval)
         self.max_read_chars = owner.settings.max_read_chars
         self.max_write_chars = owner.settings.max_write_chars
         self.analysis_settings = owner.settings.analysis
@@ -136,10 +136,12 @@ class WorkspaceService(ScopedService[WorkspaceEngine]):
     def _bind(self, scope: ServiceScope) -> Self:
         return type(self)(self._owner, scope, queries=self._queries)
 
-    async def _search_backlinks(self, request: BacklinkSearch | str) -> SearchPage:
+    async def _search_retrieval(
+        self, request: RetrievalRequest | str, *, inputs: SelectionInput = SelectionInput()
+    ) -> SearchPage:
         if self._queries is None:
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
-                "Workspace backlink search is not configured in this service",
+                "Workspace retrieval search is not configured in this service",
             )
-        return await self._queries.search(request)
+        return await self._queries.search(request, inputs=inputs)

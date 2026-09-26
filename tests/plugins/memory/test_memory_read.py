@@ -14,9 +14,8 @@ from tinysoul.infra.time import CalendarDay
 from tinysoul.plugins.memory.services import MemoryService
 from tinysoul.infra.references import ReferenceResolver, ResourceTarget
 from tinysoul.kernel.retrieval.contracts import (
-    BacklinkSearch,
-    SearchOptions,
-    SearchFailure,
+    RetrievalRequest, QuerySource, BacklinksSource, RefsSource, TextQuery,
+    SourceKind, OperationKind, ModelStep, SearchFailure,
 )
 from tinysoul.plugins.memory import (
     ActiveMemoryBackgroundEntryProvider,
@@ -148,15 +147,15 @@ def test_memory_config_uses_current_sections_and_rejects_old_names(
             "root": "memory",
             "max_active_chars": 1000,
             "inspect": {"page_max_chars": 4096},
-            "semantic_search": {"embedding_cache_max_chars": 123456},
+            "search": {"embedding_cache_max_chars": 123456},
         },
         project_root=tmp_path,
     )
     assert settings.root == (tmp_path / "memory").resolve()
     assert settings.inspect.page_max_chars == 4096
-    assert settings.semantic_search.embedding_cache_max_chars == 123456
+    assert settings.search.embedding_cache_max_chars == 123456
     with pytest.raises(Exception):
-        parse_memory_settings({"search": {}}, project_root=tmp_path)
+        parse_memory_settings({"semantic_search": {}}, project_root=tmp_path)
 
 
 def test_all_active_relation_targets_resolve_to_active_entity_or_concept(
@@ -210,17 +209,18 @@ def test_memory_backlinks_combine_real_edges_and_preserve_workspace_source_day(
         }
     )
     corpus = memory.search_corpus(
-        BacklinkSearch(str(target.link), SearchOptions("all")), references=refs
+        RetrievalRequest(BacklinksSource("all", str(target.link))), references=refs
     )
     assert [item.ref for item in corpus.candidates] == [str(source.link)]
     assert {e.relation for e in corpus.candidates[0].evidence} == {
         "memory_reference",
         "markdown_link",
+        "content",
     }
     # Historical Memory never points to today's resource merely because its name matches.
     assert (
         memory.search_corpus(
-            BacklinkSearch("workspace:report.md", SearchOptions("all")), references=refs
+            RetrievalRequest(BacklinksSource("all", "workspace:report.md")), references=refs
         ).candidates
         == ()
     )

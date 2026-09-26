@@ -10,9 +10,8 @@ from tinysoul.kernel.action.config import ActionSettings
 from tinysoul.infra.model_services import ModelServices
 from tinysoul.kernel.retrieval.policy import SearchCapability
 from tinysoul.kernel.retrieval.contracts import (
-    SearchMode,
-    CandidateSource,
-    SearchSemantic,
+    SourceKind,
+    OperationKind,
 )
 from tinysoul.kernel.retrieval.operations import SearchSession
 from tinysoul.kernel.retrieval.selection import CandidateSelector
@@ -42,13 +41,19 @@ from .runtime_bridge import RuntimeExpandBridge
 class ExpandPlugin:
     id = "expand"
     search_capabilities = (
-        SearchCapability("expand.search", (SearchMode.SEED_REFINEMENT,), ()),
+        SearchCapability("expand.search", (SourceKind.QUERY, SourceKind.DIRECTORY, SourceKind.REFS, SourceKind.RESULT), tuple(OperationKind), filters=("server_id", "tool_name"), server_scope=True, lexical_syntax=True),
     )
     model_uses = (
         ModelUseDescriptor(
             "expand.search.select",
             "expand.search",
             ModelOperation.SELECT,
+            (ModelImplementation.LLM_TASK, ModelImplementation.STRUCTURED_DECISION),
+        ),
+        ModelUseDescriptor(
+            "expand.search.rerank",
+            "expand.search",
+            ModelOperation.RERANK,
             (ModelImplementation.LLM_TASK, ModelImplementation.STRUCTURED_DECISION),
         ),
     )
@@ -82,11 +87,6 @@ class ExpandPlugin:
             invoke=invoke,
             services=context.services.get(ModelServices),
         )
-        policies = tuple(
-            p
-            for p in context.settings.get(ActionSettings).search_policies
-            if p.action_id == "expand.search"
-        )
 
         def extend(
             kind: ProfileKind, profile: ProfileBuildContext
@@ -94,14 +94,13 @@ class ExpandPlugin:
             queries = SearchSession(
                 observations=context.observations,
                 action_id="expand.search",
-                policies=policies,
+                retrieval_policies=context.settings.get(ActionSettings).retrieval_policies,
                 source=partial(
                     engine.search_corpus,
-                    page_budget=policies[0].page_max_chars
-                    if policies
-                    else engine.settings.max_inline_chars,
+                    page_budget=engine.settings.max_inline_chars,
                 ),
                 selector=selector,
+                supported_filters=frozenset({"server_id", "tool_name"}),
             )
             return PluginProfileExtension(
                 self.id,

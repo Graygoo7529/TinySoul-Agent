@@ -6,6 +6,7 @@ from tinysoul.infra.concurrency import JoinedOperations
 
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from typing import cast
 
 from tinysoul.infra.filesystem import TextPrefixRead, file_digest, read_text_prefix
 from datetime import date
@@ -18,20 +19,22 @@ from tinysoul.infra.references import (
     relative_reference,
 )
 from tinysoul.kernel.retrieval.contracts import (
-    SearchRequest,
-    QueryDiscovery,
     DocumentQuery,
-    SeedRefinement,
-    BacklinkSearch,
     SearchCandidate,
     SearchEvidence,
     SearchFailure,
     SearchFailureKind,
+    RetrievalRequest,
+    QuerySource,
+    RefsSource,
+    DirectorySource,
+    BacklinksSource,
 )
 from tinysoul.kernel.retrieval.disclosure import (
     inspect_document,
     evidence_units,
     fragment_content,
+    fragment_range,
 )
 from tinysoul.kernel.retrieval.operations import SearchCorpus
 from tinysoul.kernel.retrieval.requests import eligible
@@ -392,19 +395,20 @@ class AgentHomeEngine:
 
     def search_corpus(
         self,
-        request: SearchRequest,
+        request: RetrievalRequest,
         *,
         references: ReferenceResolver,
         actual: bool = False,
     ) -> SearchCorpus:
-        scope = request.options.scope
+        source = request.source
+        scope = getattr(source, "scope", "all")
         if scope not in {"all", "agent", "skills"}:
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
                 "Home scope must be all, agent or skills",
             )
         supported = frozenset({"space", "file_type"})
-        eligible({}, request.options.filters, supported=supported)
+        eligible({}, getattr(source, "where", {}), supported=supported)
         paths = self._search_paths(actual=actual)
         available = {relative for relative, _ in paths}
         metadata = {
@@ -415,26 +419,31 @@ class AgentHomeEngine:
         }
         selected_seeds: set[str] = set()
         skill_seeds: set[str] = set()
-        if isinstance(request, SeedRefinement):
-            for ref in request.seed_refs:
+        seed_locations: dict[str, list[tuple[str, str]]] = {}
+        if isinstance(source, RefsSource):
+            for ref in source.refs:
                 resource = ref.partition("#")[0]
                 parsed = parse_home_link(resource)
-                selected_seeds.add(self.canonical_reference(resource).resource)
+                canonical = self.canonical_reference(resource).resource
+                if canonical.removeprefix("home:") not in available:
+                    raise SearchFailure(SearchFailureKind.INVALID_REQUEST, "Home ref is unavailable in this view")
+                selected_seeds.add(canonical)
+                seed_locations.setdefault(canonical, []).append((ref, ref.partition("#")[2]))
                 if isinstance(parsed, HomeTopLink) and parsed.space == "skills":
                     skill_seeds.add(parsed.name)
-        if isinstance(request, QueryDiscovery):
-            if isinstance(request.query, DocumentQuery):
+        if isinstance(source, QuerySource):
+            if isinstance(source.query, DocumentQuery):
                 raise SearchFailure(
                     SearchFailureKind.INVALID_REQUEST,
                     "Home discovery accepts text query only",
                 )
-            query = request.query.text
+            query = source.query.text
         else:
-            query = request.query
+            query = ""
         try:
             anchor = (
-                references.resolve(request.anchor_ref)
-                if isinstance(request, BacklinkSearch)
+                references.resolve(source.anchor_ref)
+                if isinstance(source, BacklinksSource)
                 else None
             )
         except ReferenceError as exc:
@@ -450,7 +459,7 @@ class AgentHomeEngine:
                 "space": parts[0],
                 "file_type": path.suffix.lower(),
             }
-            if not eligible(attributes, request.options.filters, supported=supported):
+            if not eligible(attributes, getattr(source, "where", {}), supported=supported):
                 continue
             resource = "home:" + relative
             skill = (
@@ -461,7 +470,7 @@ class AgentHomeEngine:
                 else None
             )
             if (
-                isinstance(request, SeedRefinement)
+                isinstance(source, RefsSource)
                 and resource not in selected_seeds
                 and skill not in skill_seeds
             ):
@@ -475,11 +484,13 @@ class AgentHomeEngine:
                     path, max_chars=self._search_settings.resource_max_chars
                 )
                 text = read.text
+                content_complete = not read.truncated
                 if "\x00" in text:
                     raise UnicodeError("Binary resource")
-                complete = complete and not read.truncated
+                complete = complete and (not read.truncated or isinstance(source, DirectorySource))
             except UnicodeError:
                 text = path.name
+                content_complete = True
                 attributes["content_kind"] = "binary_metadata"
             except OSError as exc:
                 raise AgentHomeIOError("Home search source cannot be read") from exc
@@ -509,17 +520,24 @@ class AgentHomeEngine:
                 if skill:
                     attributes["top_ref"] = f"home:skills@{skill}"
                 candidates.append(
-                    SearchCandidate(resource, path.name, tuple(evidence), attributes)
+                    SearchCandidate(resource, path.name, (*evidence, *evidence_units(resource, text)), attributes, evidence_complete=content_complete)
                 )
             else:
+                if isinstance(source, RefsSource) and resource in seed_locations and skill not in skill_seeds:
+                    for ref, fragment in seed_locations[resource]:
+                        first, last = fragment_range(text, fragment)
+                        selected_text = "".join(text.splitlines(keepends=True)[first - 1:last])
+                        candidates.append(SearchCandidate(ref, path.name, evidence_units(resource, selected_text, first_line=first), attributes, evidence_complete=content_complete))
+                    continue
                 result_ref = f"home:skills@{skill}" if skill else resource
                 title = metadata[skill].title if skill in metadata else path.name
                 candidates.append(
                     SearchCandidate(
-                        result_ref, title, evidence_units(resource, text), attributes
+                        result_ref, title, evidence_units(resource, text), attributes,
+                        evidence_complete=content_complete,
                     )
                 )
-        if isinstance(request, SeedRefinement) and not complete:
+        if isinstance(source, RefsSource) and not complete:
             raise SearchFailure(
                 SearchFailureKind.SCOPE_REQUIRED,
                 "Seed resources exceed the source budget; narrow scope",

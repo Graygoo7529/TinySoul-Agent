@@ -21,7 +21,9 @@ from tinysoul.kernel.action import (
 from tinysoul.infra.json import JsonObject, to_json_object
 from tests.support.catalog import builtin_action_catalog_root
 from tinysoul.kernel.action.config import parse_action_settings
-from tinysoul.kernel.retrieval.policy import search_schema
+from tinysoul.kernel.retrieval.policy import retrieval_schema
+from tinysoul.kernel.retrieval.policy import SearchCapability
+from tinysoul.kernel.retrieval.contracts import SourceKind, OperationKind
 
 TEST_SCENARIOS = frozenset({"user", "home_reflection", "memory_reflection"})
 
@@ -39,10 +41,39 @@ def builtin_catalog() -> ActionCatalog:
         catalog = ActionCatalogLoader().load(root)
     routing = (
         files("tinysoul.assets.standard")
-        .joinpath("configs/action/routing.toml")
+        .joinpath("configs/action/retrieval.toml")
         .read_text(encoding="utf-8")
     )
-    policies = parse_action_settings(tomllib.loads(routing)["action"]).search_policies
+    policies = parse_action_settings(tomllib.loads(routing)["action"]).retrieval_policies
+    capabilities = {
+        "core.context.search": SearchCapability(
+            "core.context.search", tuple(SourceKind), tuple(OperationKind),
+            scopes=("all", "trace", "session"),
+            filters=("source", "basis", "kind", "day"),
+            ordered_filters=("day",),
+        ),
+        "home.search": SearchCapability(
+            "home.search", tuple(SourceKind), tuple(OperationKind),
+            scopes=("all", "agent", "skills"), filters=("space", "file_type"),
+        ),
+        "memory.search": SearchCapability(
+            "memory.search", tuple(SourceKind), tuple(OperationKind),
+            scopes=("all", "daily", "entity", "concept", "fact", "note"),
+            filters=("kind", "status", "updated_on", "confidence"),
+            ordered_filters=("updated_on",), document_query=True,
+        ),
+        "expand.search": SearchCapability(
+            "expand.search",
+            (SourceKind.QUERY, SourceKind.DIRECTORY, SourceKind.REFS, SourceKind.RESULT),
+            tuple(OperationKind), filters=("server_id", "tool_name"),
+            server_scope=True, lexical_syntax=True,
+        ),
+        "workspace.search": SearchCapability(
+            "workspace.search", tuple(SourceKind), tuple(OperationKind),
+            filters=("tags", "file_type", "day", "kind"),
+            ordered_filters=("day",), resource_scope=True, lexical_syntax=True,
+        ),
+    }
     return ActionCatalog(
         domains=catalog.domains(),
         actions=tuple(
@@ -50,8 +81,12 @@ def builtin_catalog() -> ActionCatalog:
                 action,
                 tool=replace(
                     action.tool,
-                    schema=search_schema(
-                        action.tool.schema, policies, action_id=action.name
+                    schema=retrieval_schema(
+                        action.tool.schema,
+                        replace(
+                            next(p for p in policies if p.action_id == action.name),
+                            capability=capabilities.get(action.name),
+                        ),
                     ),
                 ),
             )

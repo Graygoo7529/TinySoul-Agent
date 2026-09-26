@@ -4,15 +4,15 @@
 
 - `GET /v2/config`：activity、sources、effective fields、Runtime generation/activation、LLM Provider 凭据就绪状态和 process shell projection。
 - `GET /v2/config/catalog`：Infra 维护的 surfaces、field groups、collections、field/document descriptors、choices 和 references。
-- `GET /v2/config/actions?scenario=user`：当前 Runtime Generation 指定情景的 domain/action 定义、visibility、selection、granted/supported/available、runtime policy、tool schema、execution、model_uses、search_modes、source binding。scenario 支持 user、home_reflection、memory_reflection，默认 user；未知情景返回 422 config.invalid_scenario。
+- `GET /v2/config/actions?scenario=user`：当前 Runtime Generation 指定情景的 domain/action 定义、visibility、selection、granted/supported/available、runtime policy、tool schema、execution、model_uses、retrieval、source binding。scenario 支持 user、home_reflection、memory_reflection，默认 user；未知情景返回 422 config.invalid_scenario。
 
 Action catalog 是配置页面的运行时投影，不是聊天 Action API；它由当前 Generation 的 ActionEngine 生成，Endpoint 不缓存。
 
 selection 的 enabled/source 表示按“动作情景→域情景→动作 default→域 default→true”解析出的值与来源。unavailable_reason 为 not_granted、executor_unavailable、hidden 或 null。用户通过同一 PATCH 文档事务编辑 visibility.default 或 visibility.scenarios 对象；runtime.enabled 和 loop/reflection 的旧动作开关表不再接受。三个情景共用候选校验，显式启用未授权动作时拒绝保存，单纯域默认选择不增加授权。
 
-`execution` 只含 executor 身份与 options，不再包含 backend kind/handler。`model_uses` 按 consumer 返回 operation、implementations、各实现的 options 约束、embedding_owner 和当前 binding；binding 含 consumer、implementation、target、options。`search_modes` 按模式返回 semantic/context 的 default/allowed 和 max_limit；tool.schema 已由同一 SearchPolicy 编译。模型侧 ActionCall 只能选择这些语义参数，不能指定 provider/model。
+`execution` 只含 executor 身份与 options，不再包含 backend kind/handler。`model_uses` 按 consumer 返回 operation、implementations、各实现的 options 约束、embedding_owner 和当前 binding；binding 含 consumer、implementation、target、options。`retrieval` 返回已登记的 source、operation、属性范围、Context 选项和分页/输入预算；tool.schema 由同一 retrieval policy 编译。模型侧 ActionCall 选择六个操作函数的组合、抽象语义和业务参数；操作内部的 implementation/provider/model 由用途配置透明绑定，Search 请求不携带这些内部实现选择。
 
-`GET /v2/config/catalog` 描述 `action.models.bindings`、`action.models.search_policies` 和 `infra.model_services.providers/models/uses` 表数组。PATCH 以完整数组替换值；provider 的 api_key_env 是环境变量名称，对应凭据值脱敏。专用 model 的 provider_bindings 按数组顺序切换；Embedding 的 dimensions/batch_size 属于 model；use 通过 model_id 绑定一对一能力。Home 的 home.search.embedding_use 与 Memory 的 memory.semantic_search.embedding_use 引用同一模型目录中的逻辑用途，各自维护索引。
+`GET /v2/config/catalog` 描述 `action.models.bindings`、`action.retrieval` 和 `infra.model_services.providers/models/uses`。Action retrieval policy 只声明六个高层操作的来源、步骤、范围和预算；各操作内部的 implementation/provider/model 由对应 model-use binding 配置，Search 请求不携带这些选择。PATCH 以完整对象替换值；provider 的 api_key_env 是环境变量名称，对应凭据值脱敏。专用 model 的 provider_bindings 按数组顺序切换；Embedding 的 dimensions/batch_size 属于 model；use 通过 model_id 绑定一对一能力。Home 的 `home.search.embedding_use` 与 Memory 的 `memory.search.embedding_use` 引用同一模型目录中的逻辑用途，各自维护索引。
 
 配置形态、consumer、实现/target/options 和来源支持的 mode 在候选编译时校验；已选模型依赖在有效动作装配和激活前校验。未选专用目录可以保留未就绪凭据。当前结构见 [模型使用与检索设计](../design/action-model-retrieval.md)，现有项目切换步骤见 [执行计划](../analysis/done/20260924-done-action-model-retrieval-unification-plan.md)。
 

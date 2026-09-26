@@ -43,8 +43,8 @@ from tinysoul.llm.protocol.responses import (
 )
 from tinysoul.llm.protocol.tools import ToolUse
 from tinysoul.runtime import RunScope
-from .contracts import SearchCandidate, SearchSemantic, SearchFailure, SearchFailureKind
-from .engine import VectorSource
+from .contracts import SearchCandidate, SearchFailure, SearchFailureKind, ModelStep, OperationKind
+from .engine import VectorSource, bound_evidence, embedding_rank
 
 
 class CandidateSelector:
@@ -59,13 +59,12 @@ class CandidateSelector:
     ) -> None:
         self.models, self._invoke, self._services = models, invoke, services
 
-    async def apply(
+    async def apply_step(
         self,
         *,
         consumer: str,
-        query: str,
+        step: ModelStep,
         candidates: tuple[SearchCandidate, ...],
-        operation: SearchSemantic,
         context: MessageStack | None = None,
         guidance: tuple[str, ...] = (),
         scope: RunScope | None = None,
@@ -74,12 +73,60 @@ class CandidateSelector:
         input_max_chars: int = 64_000,
         observer: Callable[[ModelCallEvent], None] | None = None,
     ) -> tuple[SearchCandidate, ...]:
-        if operation not in {SearchSemantic.RANK, SearchSemantic.SELECT}:
+        """Apply a registered model operation to real candidate content.
+
+        Selection is a stable membership operation: any model order is
+        discarded and input order is preserved.  Rerank requires a complete
+        permutation and keeps the model order.
+        """
+        operation = step.op
+        prepared = tuple(bound_evidence(item, "", 4_000) for item in candidates)
+        result = await self.apply(
+            consumer=consumer,
+            query=step.criterion,
+            candidates=candidates if self.models.binding(consumer).implementation is ModelImplementation.EMBEDDING_SIMILARITY else prepared,
+            operation=operation,
+            context=context,
+            guidance=guidance,
+            scope=scope,
+            cancellation=cancellation,
+            embedding=embedding,
+            input_max_chars=input_max_chars,
+            observer=observer,
+        )
+        original = {item.ref: item for item in candidates}
+        coverage = {item.ref: item.evidence_complete for item in prepared}
+        result = tuple(replace(original[item.ref], score=item.score, score_kind=item.score_kind,
+                               basis=tuple(dict.fromkeys((*original[item.ref].basis, step.op.value))),
+                               evaluation={"input_coverage": "full" if coverage[item.ref] else "excerpt"})
+                       for item in result)
+        if step.op is OperationKind.SELECT:
+            selected = {item.ref: item for item in result}
+            return tuple(selected[item.ref] for item in candidates if item.ref in selected)
+        return result
+
+    async def apply(
+        self,
+        *,
+        consumer: str,
+        query: str,
+        candidates: tuple[SearchCandidate, ...],
+        operation: OperationKind,
+        context: MessageStack | None = None,
+        guidance: tuple[str, ...] = (),
+        scope: RunScope | None = None,
+        cancellation: TaskCancellation | None = None,
+        embedding: VectorSource | None = None,
+        input_max_chars: int = 64_000,
+        observer: Callable[[ModelCallEvent], None] | None = None,
+    ) -> tuple[SearchCandidate, ...]:
+        if operation not in {OperationKind.RERANK, OperationKind.SELECT}:
             raise ConfigError(
                 "Candidate selector requires rank or select", key=consumer
             )
         binding = self.models.binding(consumer)
-        if self.models.descriptor(consumer).operation.value != operation.value:
+        expected_operation = operation.value
+        if self.models.descriptor(consumer).operation.value != expected_operation:
             raise ConfigError(
                 "Consumer does not implement the requested operation", key=consumer
             )
@@ -94,23 +141,14 @@ class CandidateSelector:
                     "Similarity ranking requires query, owner embedding and context=none",
                 )
             try:
-                scores = await embedding.similarities(
-                    query,
-                    {item.ref: item.text for item in candidates},
-                    consumer=consumer,
-                    observer=observer,
-                )
+                return await embedding_rank(embedding, query, candidates, consumer=consumer, observer=observer)
             except ModelServiceError as exc:
                 if not exc.recoverable:
                     raise
                 raise SearchFailure(
-                    SearchFailureKind.SELECTION_FAILED,
+                    SearchFailureKind.OPERATION_FAILED,
                     "Similarity ranking is temporarily unavailable",
                 ) from exc
-            return tuple(
-                replace(item, score_kind="cosine", score=scores[item.ref])
-                for item in sorted(candidates, key=lambda item: -scores[item.ref])
-            )
         state: JsonObject = {
             "query": query,
             "candidates": [
@@ -118,8 +156,9 @@ class CandidateSelector:
                     "id": f"c{index}",
                     "ref": item.ref,
                     "title": item.title,
-                    "evidence": [e.to_json() for e in item.evidence],
+                    "content_units": [unit.to_json() for unit in item.content_units],
                     "attributes": item.attributes,
+                    "content_coverage": "full" if item.evidence_complete else "excerpt",
                 }
                 for index, item in enumerate(candidates)
             ],
@@ -164,13 +203,13 @@ class CandidateSelector:
                     ) from exc
                 if exc.kind is ModelFailureKind.OUTPUT:
                     raise SearchFailure(
-                        SearchFailureKind.SELECTION_FAILED,
+                        SearchFailureKind.OPERATION_FAILED,
                         "Decision model did not satisfy its output protocol",
                     ) from exc
                 if not exc.recoverable:
                     raise
                 raise SearchFailure(
-                    SearchFailureKind.SELECTION_FAILED,
+                    SearchFailureKind.OPERATION_FAILED,
                     "Decision model is temporarily unavailable",
                 ) from exc
             if cancellation:
@@ -184,13 +223,13 @@ class CandidateSelector:
                     candidate, score_kind="jev_relevance", score=scores[f"c{index}"]
                 )
                 for index, candidate in ordered
-                if operation is SearchSemantic.RANK
+                if operation is OperationKind.RERANK
                 or scores[f"c{index}"] >= binding.relevance_threshold
             )
         assert binding.task_profile is not None
         instruction = (
             "Return all candidate IDs exactly once, ordered by relevance. Do not omit any candidate."
-            if operation is SearchSemantic.RANK
+            if operation is OperationKind.RERANK
             else "Return the relevant candidate IDs as an ordered subset. An empty list is valid."
         )
         prompt = UserMessage.from_json(
@@ -238,7 +277,7 @@ class CandidateSelector:
             if not exc.recoverable:
                 raise
             raise SearchFailure(
-                SearchFailureKind.SELECTION_FAILED,
+                SearchFailureKind.OPERATION_FAILED,
                 "Selection model is temporarily unavailable",
             ) from exc
         if cancellation:
@@ -253,7 +292,7 @@ class CandidateSelector:
                     "Selection input exceeds model capacity; narrow the scope",
                 )
             raise SearchFailure(
-                SearchFailureKind.SELECTION_FAILED,
+                SearchFailureKind.OPERATION_FAILED,
                 "Selection model did not satisfy its output protocol",
             )
         ids = (
@@ -266,15 +305,15 @@ class CandidateSelector:
             not isinstance(key, str) or key not in known for key in ids
         ):
             raise SearchFailure(
-                SearchFailureKind.SELECTION_FAILED,
+                SearchFailureKind.OPERATION_FAILED,
                 "Selection returned unknown candidate identities",
             )
         parsed = tuple(key for key in ids if isinstance(key, str))
         if len(set(parsed)) != len(parsed) or (
-            operation is SearchSemantic.RANK and set(parsed) != set(known)
+            operation is OperationKind.RERANK and set(parsed) != set(known)
         ):
             raise SearchFailure(
-                SearchFailureKind.SELECTION_FAILED,
+                SearchFailureKind.OPERATION_FAILED,
                 "Selection returned duplicate identities or an incomplete ranking",
             )
         return tuple(replace(known[key], score=None, score_kind=None) for key in parsed)

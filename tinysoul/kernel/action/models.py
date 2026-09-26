@@ -10,11 +10,10 @@ from collections.abc import Mapping
 from tinysoul.infra.config import ConfigError
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.model_services.config import ModelServicesSettings, ModelCapability
-from tinysoul.kernel.retrieval.policy import SearchPolicy
+from tinysoul.kernel.retrieval.policy import RetrievalPolicy
 from tinysoul.kernel.retrieval.contracts import (
     SearchContext,
-    SearchSemantic,
-    CandidateSource,
+    QueryChannel,
 )
 
 
@@ -26,7 +25,7 @@ class ModelImplementation(StrEnum):
 
 class ModelOperation(StrEnum):
     GENERATE = "generate"
-    RANK = "rank"
+    RERANK = "rerank"
     SELECT = "select"
 
 
@@ -44,7 +43,7 @@ class ModelUseDescriptor:
                 "Model use requires identity and implementations", key="action.models"
             )
         if ModelImplementation.EMBEDDING_SIMILARITY in self.implementations and (
-            self.operation is not ModelOperation.RANK or not self.embedding_owner
+            self.operation is not ModelOperation.RERANK or not self.embedding_owner
         ):
             raise ConfigError(
                 "Similarity ranking requires its owner's embedding dependency",
@@ -187,12 +186,14 @@ class ModelUseRegistry:
         self,
         *,
         actions: frozenset[str],
-        policies: tuple[SearchPolicy, ...],
+        retrieval_policies: tuple[RetrievalPolicy, ...] = (),
         services: ModelServicesSettings,
         env: Mapping[str, str],
         embedding_uses: Mapping[str, str | None],
     ) -> None:
-        configured = {policy.action_id for policy in policies}
+        configured = {
+            policy.action_id for policy in retrieval_policies
+        }
         for item in self._descriptors.values():
             if (
                 item.action_id in actions
@@ -207,30 +208,34 @@ class ModelUseRegistry:
             for item in self._descriptors.values()
             if item.action_id in actions and item.operation is ModelOperation.GENERATE
         }
-        for policy in policies:
+        for policy in retrieval_policies:
             if policy.action_id not in actions:
                 continue
-            for semantic in policy.allowed_semantic:
-                if semantic is SearchSemantic.NONE:
+            for operation in policy.operations:
+                if operation.value == "filter":
                     continue
-                consumer = f"{policy.action_id}.{semantic.value}"
+                consumer = f"{policy.action_id}.{operation.value}"
                 binding = self.binding(consumer)
                 selected.add(consumer)
-                if (
-                    binding.implementation is ModelImplementation.EMBEDDING_SIMILARITY
-                    and SearchContext.CURRENT in policy.allowed_context
-                ):
-                    raise ConfigError(
-                        "Similarity ranking cannot accept current Context", key=consumer
-                    )
-            if CandidateSource.EMBEDDING in policy.candidate_sources:
+                if binding.implementation is ModelImplementation.EMBEDDING_SIMILARITY:
+                    if SearchContext.CURRENT in policy.operation(operation).allowed_context:
+                        raise ConfigError(
+                            "Similarity operation cannot accept current Context",
+                            key=consumer,
+                        )
+                    owner = self.descriptor(consumer).embedding_owner
+                    use = embedding_uses.get(owner or "")
+                    if not use:
+                        raise ConfigError(
+                            "Similarity operation requires the owner's shared embedding use",
+                            key=consumer,
+                        )
+                    services.resolve(use, ModelCapability.EMBEDDING, env)
+            if QueryChannel.EMBEDDING in policy.query_channels:
                 owner = policy.action_id.split(".")[0]
                 use = embedding_uses.get(owner)
                 if not use:
-                    raise ConfigError(
-                        "Embedding recall requires the source owner's shared use",
-                        key=policy.action_id,
-                    )
+                    raise ConfigError("Embedding query requires the owner's shared embedding use", key=policy.action_id)
                 services.resolve(use, ModelCapability.EMBEDDING, env)
         for consumer in selected:
             binding = self.binding(consumer)

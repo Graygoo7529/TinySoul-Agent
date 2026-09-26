@@ -15,8 +15,8 @@ from tinysoul.kernel.action import (
 from tinysoul.kernel.context import PromptBlock, PromptReferenceError, TaskPrompt
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.json import JsonObject, to_json_object
-from tinysoul.kernel.retrieval.requests import parse_search_request
-from tinysoul.kernel.retrieval.contracts import BacklinkSearch, SearchFailure
+from tinysoul.kernel.retrieval.requests import parse_retrieval_request
+from tinysoul.kernel.retrieval.contracts import SearchFailure, RetrievalRequest, SearchContext, ModelStep
 from ..services import WorkspaceService
 from ..errors import WorkspaceContractError, WorkspaceError
 from ..runtime_bridge import RuntimeWorkspaceBridge
@@ -133,49 +133,32 @@ class WorkspaceExecutor(ActionExecutor):
                 ),
             )
         if action == "workspace.search":
-            mode = params.get("mode", "query_discovery")
-            if mode == "backlink_search" or "continuation" in params:
-                request = parse_search_request(params, workspace.search_policies)
-                if not isinstance(request, (str, BacklinkSearch)):
-                    raise WorkspaceContractError(
-                        "Workspace link search requires backlink_search"
-                    )
-                page = await workspace.search_backlinks(request)
-                return _success(
+            if not workspace.retrieval_policies:
+                raise WorkspaceContractError("Workspace Search is not configured")
+            request = parse_retrieval_request(
+                params, workspace.retrieval_policies[0]
+            )
+            if isinstance(request, str):
+                page = await workspace.search_retrieval(request)
+            else:
+                use_context = any(
+                    isinstance(step, ModelStep) and step.context is SearchContext.CURRENT for step in request.steps
+                )
+                inputs = await self._tasks.selection_input(
                     execution,
-                    page.to_json(),
-                    trace_projection=ActionTraceProjection(
-                        origin_refs=tuple(item.ref for item in page.items),
-                        canonical_payload={
-                            "mode": page.mode.value,
-                            "selected": [item.ref for item in page.items],
-                        },
-                    ),
+                    include_context=use_context,
+                    control=context.control,
                 )
-            if mode != "query_discovery":
-                raise WorkspaceContractError("Unsupported Workspace search mode")
-            result = await workspace.search(
-                query=_text(params, "query"),
-                scope=_search_scope(params.get("scope")),
-                case_sensitive=_flag(params, "case_sensitive"),
-                top_k=_optional_integer(params, "top_k"),
-                use_regex=_flag(params, "regex"),
-            )
-            canonical = result.to_json(include_text=False)
-            canonical["folded"] = True
-            refs = tuple(
-                dict.fromkeys(
-                    (
-                        *[item.link for item in result.fragments],
-                        *[item.link for item in result.line_hints],
-                    )
-                )
-            )
+                page = await workspace.search_retrieval(request, inputs=inputs)
             return _success(
                 execution,
-                result.to_json(),
+                page.to_json(),
                 trace_projection=ActionTraceProjection(
-                    origin_refs=refs, canonical_payload=canonical
+                    origin_refs=tuple(item.ref for item in page.items),
+                    canonical_payload={
+                        "source": page.source.value,
+                        "selected": [item.ref for item in page.items],
+                    },
                 ),
             )
         if action == "workspace.trash_list":

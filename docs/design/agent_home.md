@@ -226,7 +226,7 @@ prompt mount create/delete action。文件存在但编码损坏、不可读或�
 
 Home owner 构造有界来源和原始行定位，Skill 标题复用 frontmatter metadata。query discovery 的 lexical 与 Embedding 独立覆盖来源后融合，nested resource 的命中证据保留实际 resource ref，再按所属 Skill top 聚合。通用 search/inspect 在 User 和两个 Reflection 情景中都读取 effective view，复用同一可重建向量缓存；Reflection 的 actual Background 与 baseline/diff 保持独立，客户端由 generation ModelServices 共享。
 
-seed refinement 使用必需的 LLM/JEV select，不做隐藏相关性预筛选；rank 保留全部候选，select 可以返回空集合。consumer binding 选择具体实现和模型用途，Action 选择是否准备当前 Context。可选 rank 的可恢复失败保留候选并标明 coverage；select 失败不能变成成功空页。Search 返回有界证据和稳定分页，不自动加载 Background。
+`directory`/`refs` 来源不会隐藏预筛；需要内容相关性时由 Stage2 显式组合 `select` 或 `rerank`。consumer binding 选择具体实现和模型用途，Action 选择是否准备当前 Context。rerank 保留全部候选，select 可以返回空集合。Search 返回 links、真实内容预览、有界 evidence 和稳定分页，不自动加载 Background。
 
 Home Link、effective overlay 和来源归属由 Home owner 解释，Infra 不解释这些业务概念。Home 没有日归属，不以文件修改时间推断引用日期；Workspace 目标由该 owner 解析当前日身份。Memory 的 search/inspect 与持久文档写入属于 Memory owner。
 
@@ -323,7 +323,7 @@ AgentBuilder 的目标职责是：
 - `home:agent@AGENT` 的 runtime 副本位置稳定为 `agent/AGENT.md`；
 - `home.inspect` 不写入 BackgroundContext，并返回有界内容/direct refs；write/patch/delete 只修改 active overlay，actual Home 保持零写入；
 - `home.top.write/patch/delete` 只修改 runtime；skill create 要求严格 frontmatter，core delete 被拒绝；
-- `home.search` 返回全 Home 资源的有界候选与证据；actual 搜索不物化，runtime-only 可见，tombstone 不可见，策略由 SearchPolicy 绑定；
+- `home.search` 返回 effective Home 全部资源的有界候选、真实内容预览与证据；actual 搜索不物化，尚未通过 trap 加载的 runtime-only 资源也可见，tombstone 不可见，来源/操作策略由 retrieval policy 绑定；
 - prompt mount 由 Action Catalog 自动维护逻辑生命周期，模型只通过 write/patch 修改 runtime；
 - `HOME_RUNTIME_COPY_REQUIRED` trap handler 能准备副本并重试当前 frame；
 - Agent Home 的配置错误、索引损坏和 runtime copy 失败经专门 bridge 映射；

@@ -14,13 +14,8 @@ from tinysoul.kernel.action.models import (
     ModelImplementation,
     ModelOperation,
 )
-from tinysoul.kernel.retrieval.contracts import (
-    SearchMode,
-    SearchSemantic,
-    SeedRefinement,
-    SearchOptions,
-)
-from tinysoul.kernel.retrieval.policy import SearchPolicy
+from tinysoul.kernel.retrieval.contracts import RetrievalRequest, DirectorySource, SourceKind, OperationKind
+from tinysoul.kernel.retrieval.policy import RetrievalPolicy
 from tinysoul.kernel.retrieval.operations import SearchSession
 from tinysoul.kernel.retrieval.selection import CandidateSelector
 from functools import partial
@@ -128,16 +123,7 @@ async def test_four_actions_share_exact_definitions_scope_and_bounded_selection(
     page_budget = max(2048, inline_limit)
     queries = SearchSession(
         action_id="expand.search",
-        policies=(
-            SearchPolicy(
-                "expand.search",
-                SearchMode.SEED_REFINEMENT,
-                default_semantic=SearchSemantic.SELECT,
-                allowed_semantic=(SearchSemantic.SELECT,),
-                page_max_chars=page_budget,
-                evidence_max_chars=500,
-            ),
-        ),
+        retrieval_policies=(RetrievalPolicy("expand.search", tuple(SourceKind), tuple(OperationKind), page_max_chars=page_budget),),
         source=partial(engine.search_corpus, page_budget=page_budget),
         selector=CandidateSelector(
             models=models, invoke=selector.run, services=services
@@ -179,7 +165,26 @@ async def test_four_actions_share_exact_definitions_scope_and_bounded_selection(
                 execution,
                 call=replace(
                     execution.call,
-                    params={"mode": "seed_refinement", "scope": "all", **params},
+                            params={
+                                "source": (
+                                    {
+                                        "kind": "directory",
+                                        "scope": "all",
+                                    }
+                                        if params.get("query") in {"both tools", "sum"}
+                                    else {
+                                        "kind": "query",
+                                        "scope": "all",
+                                        "query": params.get("query", ""),
+                                    }
+                                ),
+                            "steps": [
+                                {
+                                    "op": "select",
+                                    "criterion": "add two integers",
+                                }
+                            ],
+                        },
                 ),
             )
         return await ExpandAction(engine, operation, runner, queries).execute(
@@ -206,11 +211,7 @@ async def test_four_actions_share_exact_definitions_scope_and_bounded_selection(
         )
         assert "inputSchema" in str(described.payload)
         bounded = await engine.search_corpus(
-            SeedRefinement(
-                "add",
-                SearchOptions("all", semantic=SearchSemantic.SELECT),
-                directory=True,
-            ),
+            RetrievalRequest(DirectorySource("all")),
             page_budget=256,
         )
         assert all(item.attributes.get("describe") for item in bounded.candidates)

@@ -35,9 +35,8 @@ from tinysoul.kernel.action.models import ModelUseRegistry
 from tinysoul.kernel.action.tasks import ActionTaskFactory
 from tinysoul.kernel.retrieval.policy import SearchCapability
 from tinysoul.kernel.retrieval.contracts import (
-    SearchMode,
-    CandidateSource,
-    SearchSemantic,
+    SourceKind,
+    OperationKind,
 )
 from tinysoul.kernel.retrieval.operations import SearchSession
 from tinysoul.kernel.retrieval.selection import CandidateSelector
@@ -55,7 +54,7 @@ from .services import HomeReviewService
 class HomePlugin:
     id = "home"
     search_capabilities = (
-        SearchCapability("home.search", tuple(SearchMode), tuple(CandidateSource)),
+        SearchCapability("home.search", tuple(SourceKind), tuple(OperationKind), scopes=("all", "agent", "skills"), filters=("space", "file_type")),
     )
     model_uses = (
         ModelUseDescriptor(
@@ -65,9 +64,9 @@ class HomePlugin:
             (ModelImplementation.LLM_TASK, ModelImplementation.STRUCTURED_DECISION),
         ),
         ModelUseDescriptor(
-            "home.search.rank",
+            "home.search.rerank",
             "home.search",
-            ModelOperation.RANK,
+            ModelOperation.RERANK,
             (
                 *(
                     ModelImplementation.LLM_TASK,
@@ -143,10 +142,12 @@ class HomePlugin:
             return SearchSession(
                 observations=context.observations,
                 action_id="home.search",
-                policies=context.settings.get(ActionSettings).search_policies,
+
+                retrieval_policies=context.settings.get(ActionSettings).retrieval_policies,
                 source=source,
                 selector=selector,
                 embedding=index,
+                supported_filters=frozenset({"space", "file_type"}),
             )
 
         service = HomeService(owner, queries=queries())

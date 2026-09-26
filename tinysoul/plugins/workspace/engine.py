@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from collections.abc import Callable, Sequence
+from typing import cast
 from dataclasses import dataclass, replace
 from pathlib import Path
 from datetime import date
@@ -19,8 +20,14 @@ from tinysoul.infra.references import (
 )
 from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.retrieval.contracts import (
-    BacklinkSearch,
-    SearchRequest,
+    TextQuery,
+    RetrievalRequest,
+    QuerySource,
+    ResourceScope,
+    DirectorySource,
+    RefsSource,
+    BacklinksSource,
+    DocumentQuery,
     SearchFailure,
     SearchFailureKind,
     SearchCandidate,
@@ -28,6 +35,7 @@ from tinysoul.kernel.retrieval.contracts import (
 )
 from tinysoul.kernel.retrieval.operations import SearchCorpus
 from tinysoul.kernel.retrieval.requests import eligible
+from tinysoul.kernel.retrieval.disclosure import evidence_units, fragment_range
 from tinysoul.infra.time import CalendarDay
 from tinysoul.runtime import NullObservationEmitter, ObservationEmitter
 from .config import WorkspaceSettings
@@ -491,20 +499,24 @@ class WorkspaceEngine:
         )
 
     def backlink_corpus(
-        self, request: SearchRequest, *, references: ReferenceResolver
+        self, request: RetrievalRequest, *, references: ReferenceResolver
     ) -> SearchCorpus:
-        if not isinstance(request, BacklinkSearch):
+        source = request.source
+        if not isinstance(source, BacklinksSource):
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
-                "Workspace link search supports backlink_search only",
+                "Workspace backlinks require an anchor source",
             )
-        scope = request.options.scope
+        scope_value = getattr(source, "scope", "all")
+        scope = scope_value.locator or "all" if isinstance(scope_value, ResourceScope) else scope_value
+        if isinstance(scope_value, ResourceScope) and scope_value.kind.value == "directory":
+            scope = scope.rstrip("/") + "/"
         if scope != "all":
             WorkspaceLink.parse(scope.rstrip("/"))
-        supported = frozenset({"tags", "file_type"})
-        eligible({}, request.options.filters, supported=supported)
+        supported = frozenset({"tags", "file_type", "day", "kind"})
+        eligible({}, getattr(source, "where", {}), supported=supported, ordered=frozenset({"day"}))
         try:
-            anchor = references.resolve(request.anchor_ref)
+            anchor = references.resolve(source.anchor_ref)
         except ReferenceError as exc:
             raise SearchFailure(SearchFailureKind.INVALID_REQUEST, str(exc)) from exc
         with self._lock:
@@ -535,7 +547,7 @@ class WorkspaceEngine:
                     "day": str(day) if day else None,
                 }
                 if not eligible(
-                    attributes, request.options.filters, supported=supported
+                    attributes, getattr(source, "where", {}), supported=supported
                 ):
                     continue
                 if remaining <= 0:
@@ -580,11 +592,96 @@ class WorkspaceEngine:
                         SearchCandidate(
                             record.link,
                             record.relative_path,
-                            tuple(evidence),
+                            (*evidence, *evidence_units(record.link, read.text)),
                             attributes,
                         )
                     )
-            return SearchCorpus(tuple(candidates), request.query, scanned, complete)
+            return SearchCorpus(tuple(candidates), "", scanned, complete)
+
+    def retrieval_corpus(
+        self,
+        request: RetrievalRequest,
+        *,
+        references: ReferenceResolver,
+    ) -> SearchCorpus:
+        """Build a complete metadata/content snapshot for the six-function search API."""
+        source = request.source
+        if isinstance(source, BacklinksSource):
+            return self.backlink_corpus(request, references=references)
+        if not isinstance(source, (QuerySource, DirectorySource, RefsSource)):
+            raise SearchFailure(SearchFailureKind.INVALID_REQUEST, "Unsupported Workspace retrieval source")
+        scope_value = getattr(source, "scope", "all")
+        scope = scope_value.locator or "all" if isinstance(scope_value, ResourceScope) else scope_value
+        if isinstance(scope_value, ResourceScope) and scope_value.kind.value == "directory":
+            scope = scope.rstrip("/") + "/"
+        if scope != "all":
+            WorkspaceLink.parse(scope.rstrip("/"))
+        selected_refs: dict[str, list[tuple[str, str]]] | None = None
+        query: str = ""
+        if isinstance(source, QuerySource):
+            query = source.query.text if isinstance(source.query, TextQuery) else source.query.document_ref
+        elif isinstance(source, RefsSource):
+            selected_refs = {}
+            for ref in source.refs:
+                resource, _, fragment = ref.partition("#")
+                WorkspaceLink.parse(resource)
+                selected_refs.setdefault(resource, []).append((ref, fragment))
+        supported = frozenset({"tags", "file_type", "day", "kind"})
+        eligible({}, getattr(source, "where", {}), supported=supported, ordered=frozenset({"day"}))
+        with self._lock:
+            snapshot = self.reconcile()
+            if not snapshot.complete:
+                raise WorkspaceReconciliationError("Workspace retrieval requires complete discovery")
+            remaining = self.settings.search.max_scan_chars
+            scanned, complete = 0, True
+            candidates: list[SearchCandidate] = []
+            day = self.active_day
+            for record in snapshot.manifest.resources:
+                if selected_refs is not None and record.link not in selected_refs:
+                    continue
+                if scope != "all" and not (
+                    record.link.startswith(scope) if scope.endswith("/") else record.link == scope
+                ):
+                    continue
+                attributes: JsonObject = {
+                    "tags": [tag.value for tag in record.tags],
+                    "file_type": record.suffix,
+                    "day": str(day) if day else None,
+                    "kind": record.kind.value,
+                }
+                if not eligible(attributes, getattr(source, "where", {}), supported=supported, ordered=frozenset({"day"})):
+                    continue
+                if remaining <= 0:
+                    complete = False
+                    break
+                text = record.description or record.relative_path
+                content_complete = True
+                if record.kind is WorkspaceResourceKind.TEXT:
+                    try:
+                        read = read_text_prefix(self.path_for(record.link), max_chars=remaining)
+                    except (OSError, UnicodeError):
+                        continue
+                    text = read.text
+                    content_complete = not read.truncated
+                    remaining -= len(read.text)
+                    complete = complete and not read.truncated
+                scanned += 1
+                if selected_refs is not None:
+                    for ref, fragment in selected_refs[record.link]:
+                        first, last = fragment_range(text, fragment)
+                        selected = "".join(text.splitlines(keepends=True)[first - 1:last])
+                        candidates.append(SearchCandidate(ref, record.relative_path, evidence_units(record.link, selected, first_line=first), attributes, evidence_complete=content_complete))
+                    continue
+                candidates.append(
+                    SearchCandidate(
+                        record.link,
+                        record.relative_path,
+                        evidence_units(record.link, text),
+                        attributes,
+                        evidence_complete=content_complete,
+                    )
+                )
+            return SearchCorpus(tuple(candidates), query, scanned, complete)
 
     def search(
         self,

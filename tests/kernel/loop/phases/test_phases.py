@@ -486,16 +486,18 @@ async def test_real_memory_actions_record_turn_trace_without_background_mutation
                 arguments={"ref": "memory:daily/2026-07-13"},
                 kind=ToolKind.ACTION,
             ),
-            ToolCallRecord(
-                id="search_1",
-                name="memory.search",
-                arguments={
-                    "mode": "query_discovery",
-                    "scope": "all",
-                    "query": "remembered",
-                },
-                kind=ToolKind.ACTION,
-            ),
+                ToolCallRecord(
+                    id="search_1",
+                    name="memory.search",
+                    arguments={
+                        "source": {
+                            "kind": "query",
+                            "scope": "all",
+                            "query": "remembered",
+                        },
+                    },
+                    kind=ToolKind.ACTION,
+                ),
         )
     )
     scope = (
@@ -582,15 +584,18 @@ async def test_real_workspace_inspection_actions_preserve_trace_lifecycle(
                 },
                 kind=ToolKind.ACTION,
             ),
-            ToolCallRecord(
-                id="search_1",
-                name="workspace.search",
-                arguments={
-                    "query": "needle",
-                    "scope": {"kind": "workspace", "locator": ""},
-                },
-                kind=ToolKind.ACTION,
-            ),
+                ToolCallRecord(
+                    id="search_1",
+                    name="workspace.search",
+                    arguments={
+                        "source": {
+                            "kind": "query",
+                            "scope": {"kind": "workspace", "locator": ""},
+                            "query": "needle",
+                        },
+                    },
+                    kind=ToolKind.ACTION,
+                ),
             ToolCallRecord(
                 id="analyze_1",
                 name="workspace.analyze",
@@ -1316,9 +1321,28 @@ def _action_engine(
             raise AssertionError(
                 "Real Workspace actions require Context, SignalBus, and LLM"
             )
+        from tinysoul.infra.references import ReferenceResolver
+        from tinysoul.kernel.retrieval.operations import SearchSession
+        from tinysoul.kernel.retrieval.policy import RetrievalPolicy
+        from tinysoul.kernel.retrieval.contracts import OperationKind, SourceKind
+
+        async def workspace_source(request):
+            return workspace.retrieval_corpus(
+                request, references=ReferenceResolver()
+            )
+
+        workspace_queries = SearchSession(
+            action_id="workspace.search",
+            retrieval_policies=(
+                RetrievalPolicy(
+                    "workspace.search", tuple(SourceKind), tuple(OperationKind)
+                ),
+            ),
+            source=workspace_source,
+        )
         register_workspace_actions(
             builder,
-            workspace=WorkspaceService(workspace),
+            workspace=WorkspaceService(workspace, queries=workspace_queries),
             tasks=action_tasks(workspace_context),
             llm=workspace_llm,
         )
@@ -1336,21 +1360,15 @@ def _action_engine(
     else:
         from tinysoul.infra.references import ReferenceResolver
         from tinysoul.kernel.retrieval.operations import SearchSession
-        from tinysoul.kernel.retrieval.policy import SearchPolicy
-        from tinysoul.kernel.retrieval.contracts import CandidateSource, SearchMode
+        from tinysoul.kernel.retrieval.policy import RetrievalPolicy
+        from tinysoul.kernel.retrieval.contracts import SourceKind
 
         async def source(request):
             return memory.search_corpus(request, references=ReferenceResolver())
 
         queries = SearchSession(
             action_id="memory.search",
-            policies=(
-                SearchPolicy(
-                    "memory.search",
-                    SearchMode.QUERY_DISCOVERY,
-                    (CandidateSource.LEXICAL,),
-                ),
-            ),
+            retrieval_policies=(RetrievalPolicy("memory.search", (SourceKind.QUERY,), ()),),
             source=source,
         )
         register_memory_actions(

@@ -8,9 +8,8 @@ from tinysoul.infra.model_services import ModelServices
 from tinysoul.infra.references import ReferenceResolver
 from tinysoul.kernel.retrieval.policy import SearchCapability
 from tinysoul.kernel.retrieval.contracts import (
-    SearchMode,
-    CandidateSource,
-    SearchSemantic,
+    SourceKind,
+    OperationKind,
 )
 from tinysoul.kernel.retrieval.operations import SearchSession
 from tinysoul.kernel.retrieval.selection import CandidateSelector
@@ -68,7 +67,7 @@ class CorePlugin:
     id = "core"
     search_capabilities = (
         SearchCapability(
-            "core.context.search", tuple(SearchMode), (CandidateSource.LEXICAL,)
+            "core.context.search", tuple(SourceKind), tuple(OperationKind), scopes=("all", "trace", "session"), filters=("source", "basis", "kind", "day"), ordered_filters=("day",)
         ),
     )
     model_uses = (
@@ -85,9 +84,9 @@ class CorePlugin:
             (ModelImplementation.LLM_TASK, ModelImplementation.STRUCTURED_DECISION),
         ),
         ModelUseDescriptor(
-            "core.context.search.rank",
+            "core.context.search.rerank",
             "core.context.search",
-            ModelOperation.RANK,
+            ModelOperation.RERANK,
             (ModelImplementation.LLM_TASK, ModelImplementation.STRUCTURED_DECISION),
         ),
     )
@@ -139,9 +138,11 @@ class CorePlugin:
             queries = SearchSession(
                 observations=context.observations,
                 action_id="core.context.search",
-                policies=context.settings.get(ActionSettings).search_policies,
+
+                retrieval_policies=context.settings.get(ActionSettings).retrieval_policies,
                 source=source,
                 selector=selector,
+                supported_filters=frozenset({"source", "basis", "kind", "day"}),
             )
 
             def register(builder: ActionEngineBuilder) -> ActionEngineBuilder:
@@ -234,7 +235,8 @@ class ProfileAssembly:
                 catalog,
                 scenarios=frozenset(kind.value for kind in ProfileKind),
                 model_uses=self._models,
-                search_policies=self._settings.search_policies,
+
+                retrieval_policies=self._settings.retrieval_policies,
             ).with_observations(self._observations)
             resolved.activate(builder)
         except (RegistrationError, ContextError) as exc:

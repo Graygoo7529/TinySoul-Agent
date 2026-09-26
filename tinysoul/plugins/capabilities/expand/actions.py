@@ -19,8 +19,9 @@ from tinysoul.kernel.retrieval.contracts import (
     SearchFailure,
     SearchContext,
     SearchFailureKind,
+    RetrievalRequest, ModelStep,
 )
-from tinysoul.kernel.retrieval.requests import parse_search_request
+from tinysoul.kernel.retrieval.requests import parse_retrieval_request
 from tinysoul.plugins.workspace import WorkspaceError
 from tinysoul.plugins.workspace.runtime_bridge import RuntimeWorkspaceBridge
 from .engine import ExpandEngine
@@ -58,7 +59,7 @@ class ExpandAction:
                 execution,
                 ExpandRequestError(
                     ExpandFailure.SELECTION
-                    if exc.kind is SearchFailureKind.SELECTION_FAILED
+                    if exc.kind is SearchFailureKind.OPERATION_FAILED
                     else ExpandFailure.INVALID_REQUEST,
                     str(exc),
                 ),
@@ -118,14 +119,13 @@ class ExpandAction:
                 raise ExpandRequestError(
                     ExpandFailure.INVALID_REQUEST, "Tool search is not configured"
                 )
-            request = parse_search_request(
-                params, self._queries.policies, directory_seed=True
-            )
+            request = parse_retrieval_request(params, self._queries.retrieval_policies[0])
             if isinstance(request, str):
                 return (await self._queries.search(request)).to_json()
+            use_context = any(isinstance(step, ModelStep) and step.context is SearchContext.CURRENT for step in request.steps)
             inputs = await self._tasks.selection_input(
                 execution,
-                include_context=request.options.context is SearchContext.CURRENT,
+                include_context=use_context,
                 control=context.control,
             )
             return (await self._queries.search(request, inputs=inputs)).to_json()

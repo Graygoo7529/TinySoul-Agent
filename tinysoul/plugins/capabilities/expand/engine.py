@@ -17,12 +17,15 @@ from tinysoul.plugins.workspace.services import WorkspaceExecutionPort
 from tinysoul.plugins.workspace.inspection.models import WorkspaceBundleWrite
 from tinysoul.kernel.retrieval.operations import SearchCorpus
 from tinysoul.kernel.retrieval.contracts import (
-    SearchRequest,
-    SeedRefinement,
     SearchCandidate,
     SearchEvidence,
     SearchFailure,
     SearchFailureKind,
+    RetrievalRequest,
+    DirectorySource,
+    QuerySource,
+    TextQuery,
+    RefsSource,
 )
 from tinysoul.kernel.retrieval.requests import eligible
 from .config import ExpandSettings, validate_expand_bindings
@@ -181,39 +184,44 @@ class ExpandEngine:
         return Discovery(tuple(tools), tuple(servers))
 
     async def search_corpus(
-        self, request: SearchRequest, *, page_budget: int
+        self, request: RetrievalRequest, *, page_budget: int
     ) -> SearchCorpus:
-        if not isinstance(request, SeedRefinement) or request.seed_refs:
+        source = request.source
+        if not isinstance(source, (QuerySource, DirectorySource, RefsSource)):
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
                 "MCP search uses a declared server/tool directory",
             )
-        scope = request.options.scope
+        scope = getattr(source, "scope", "all")
         if scope != "all" and not scope.startswith("server:"):
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
                 "MCP scope must be all or server:<id>",
             )
         supported = frozenset({"server_id", "tool_name"})
-        eligible({}, request.options.filters, supported=supported)
+        eligible({}, getattr(source, "where", {}), supported=supported)
         discovered = await self.discover(
             None if scope == "all" else (scope.removeprefix("server:"),)
         )
+        selected_refs = set(source.refs) if isinstance(source, RefsSource) else set()
         available = [s for s in discovered.servers if s.get("status") == "available"]
-        if discovered.servers and not available:
+        if len(available) != len(discovered.servers):
             raise SearchFailure(
                 SearchFailureKind.SOURCE_UNAVAILABLE,
-                "Every selected MCP server is unavailable",
+                "A selected MCP server is unavailable; choose an available server scope",
             )
         candidates = []
-        total_input = len(request.query)
+        query = source.query.text if isinstance(source, QuerySource) and isinstance(source.query, TextQuery) else ""
+        total_input = len(query)
         for tool in discovered.tools:
+            if selected_refs and tool.identity not in selected_refs and ("mcp:" + tool.server_id + "/" + tool.name) not in selected_refs:
+                continue
             attributes: JsonObject = {
                 "server_id": tool.server_id,
                 "tool_name": tool.name,
             }
             if tool.problem or not eligible(
-                attributes, request.options.filters, supported=supported
+                attributes, getattr(source, "where", {}), supported=supported
             ):
                 continue
             definition = tool.describe()
@@ -248,7 +256,7 @@ class ExpandEngine:
             )
         return SearchCorpus(
             tuple(candidates),
-            request.query,
+            "",
             len(discovered.tools),
             len(available) == len(discovered.servers),
         )

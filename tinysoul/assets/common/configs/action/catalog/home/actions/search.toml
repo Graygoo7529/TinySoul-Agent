@@ -2,8 +2,8 @@ name = "home.search"
 domain = "home"
 
 [tool]
-description = "Discover Home content, refine known seeds, or find actual incoming links within Home sources. Skill contents aggregate to their owning top; other resources retain their own identity."
-schema = { type = "object", properties = { query = { type = "string", minLength = 1 }, scope = { type = "string", enum = ["all", "agent", "skills"] }, filters = { type = "object", description = "Explicit equality or membership filters: space (agent/skills), file_type (.md etc). Values may be a scalar or a nonempty scalar array; these qualify sources before relevance selection." } }, additionalProperties = false }
+description = "Compose registered query, backlinks, directory, refs, result, filter, select and rerank operations over effective Home. Results include links and real content previews; operation models are configured internally."
+schema = { type = "object", properties = { source = { type = "object" }, steps = { type = "array" }, exclude_refs = { type = "array", items = { type = "string" } }, page = { type = "object" } }, required = ["source"], additionalProperties = false }
 
 [semantic]
 use_when = ["Relevant Home agent or Skill resources should be discovered"]

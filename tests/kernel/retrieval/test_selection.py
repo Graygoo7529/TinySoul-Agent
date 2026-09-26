@@ -32,7 +32,7 @@ from tinysoul.kernel.retrieval.contracts import (
     SearchEvidence,
     SearchFailure,
     SearchFailureKind,
-    SearchSemantic,
+    OperationKind,
 )
 from tinysoul.kernel.retrieval.selection import CandidateSelector
 from tinysoul.llm.protocol.responses import TaskResult, RawResponse, JsonAnswer
@@ -95,7 +95,7 @@ def registry(action, implementation):
             ModelUseDescriptor(
                 f"{action}.{operation.value}", action, operation, (implementation,)
             )
-            for operation in (ModelOperation.SELECT, ModelOperation.RANK)
+            for operation in (ModelOperation.SELECT, ModelOperation.RERANK)
         ),
         tuple(
             ModelUseBinding(
@@ -108,7 +108,7 @@ def registry(action, implementation):
                 if implementation is ModelImplementation.STRUCTURED_DECISION
                 else None,
             )
-            for operation in (ModelOperation.SELECT, ModelOperation.RANK)
+            for operation in (ModelOperation.SELECT, ModelOperation.RERANK)
         ),
     )
 
@@ -159,21 +159,21 @@ async def test_llm_selection_accepts_only_known_unique_subset_and_rank_requires_
         services=services,
     )
     ranked = await selector.apply(
-        consumer=f"{action}.rank",
+        consumer=f"{action}.rerank",
         query=query,
         candidates=candidates(rows),
-        operation=SearchSemantic.RANK,
+        operation=OperationKind.RERANK,
     )
     assert [item.ref for item in ranked] == [rows[1][0], rows[0][0]]
-    assert calls[0].consumer == f"{action}.rank"
+    assert calls[0].consumer == f"{action}.rerank"
     for invalid in (["c0"], ["c0", "c0"], ["unknown"]):
         answer["ids"] = to_json_value(invalid)
         with pytest.raises(SearchFailure):
             await selector.apply(
-                consumer=f"{action}.rank",
+                consumer=f"{action}.rerank",
                 query=query,
                 candidates=candidates(rows),
-                operation=SearchSemantic.RANK,
+                operation=OperationKind.RERANK,
             )
     answer["ids"] = []
     assert (
@@ -181,7 +181,7 @@ async def test_llm_selection_accepts_only_known_unique_subset_and_rank_requires_
             consumer=f"{action}.select",
             query=query,
             candidates=candidates(rows),
-            operation=SearchSemantic.SELECT,
+            operation=OperationKind.SELECT,
         )
         == ()
     )
@@ -190,7 +190,7 @@ async def test_llm_selection_accepts_only_known_unique_subset_and_rank_requires_
             consumer=f"{action}.select",
             query=query,
             candidates=candidates(rows),
-            operation=SearchSemantic.SELECT,
+            operation=OperationKind.SELECT,
             input_max_chars=1,
         )
     assert failure.value.kind is SearchFailureKind.SCOPE_REQUIRED
@@ -235,14 +235,14 @@ async def test_jev_uses_candidate_specific_questions_and_preserves_rank_membersh
         consumer=f"{action}.select",
         query=query,
         candidates=candidates(rows),
-        operation=SearchSemantic.SELECT,
+        operation=OperationKind.SELECT,
     )
     assert [item.ref for item in selected] == [rows[0][0]]
     ranked = await selector.apply(
-        consumer=f"{action}.rank",
+        consumer=f"{action}.rerank",
         query=query,
         candidates=candidates(rows),
-        operation=SearchSemantic.RANK,
+        operation=OperationKind.RERANK,
     )
     assert {item.ref for item in ranked} == {row[0] for row in rows}
     await services.close()
@@ -267,21 +267,21 @@ async def test_real_jev_representative_retrieval_quality():
                 consumer=f"{action}.select",
                 query=query,
                 candidates=candidates(rows),
-                operation=SearchSemantic.SELECT,
+                operation=OperationKind.SELECT,
             )
             assert [item.ref for item in selected] == [rows[0][0]]
             ranked = await selector.apply(
-                consumer=f"{action}.rank",
+                consumer=f"{action}.rerank",
                 query=query,
                 candidates=candidates(rows),
-                operation=SearchSemantic.RANK,
+                operation=OperationKind.RERANK,
             )
             assert [item.ref for item in ranked] == [row[0] for row in rows]
             unrelated = await selector.apply(
                 consumer=f"{action}.select",
                 query="Explain the spectrum of a distant pulsar.",
                 candidates=candidates(rows),
-                operation=SearchSemantic.SELECT,
+                operation=OperationKind.SELECT,
             )
             assert unrelated == ()
     finally:
@@ -350,19 +350,19 @@ async def test_real_llm_representative_retrieval_quality(tmp_path: Path):
                     consumer=f"{action}.select",
                     query=query,
                     candidates=candidates(rows),
-                    operation=SearchSemantic.SELECT,
+                    operation=OperationKind.SELECT,
                 ),
                 selector.apply(
-                    consumer=f"{action}.rank",
+                    consumer=f"{action}.rerank",
                     query=query,
                     candidates=candidates(rows),
-                    operation=SearchSemantic.RANK,
+                    operation=OperationKind.RERANK,
                 ),
                 selector.apply(
                     consumer=f"{action}.select",
                     query="Quantum neutrino oscillation measurement",
                     candidates=candidates(rows),
-                    operation=SearchSemantic.SELECT,
+                    operation=OperationKind.SELECT,
                 ),
             )
             assert [item.ref for item in selected] == [rows[0][0]]

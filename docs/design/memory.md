@@ -8,7 +8,7 @@ Engine 组合 documents 的类型/Markdown codec、storage 的活动与持久存
 
 `plugins/memory` 是活动 Memory.md、五类持久 Markdown、Link、codec、检索 catalog、backlinks 与 embedding cache 的唯一 owner。`plugins/reflection/memory` 绑定目标日来源并运行维护 Turn，不直接操作 Memory 私有路径。普通动作与持久写分别在 Memory actions 内部封装，持久写会话只持有本次被授予的目标日。
 
-User Turn 通过 memory.memorize 修改当日 Session root 中的活动 Memory.md，通过 memory.search 发现候选、memory.inspect 读取已知持久知识。Inspect 只返回内容和 direct refs；反链通过 memory.search 的 backlink_search 模式查询。只有 Memory Reflection profile 注册持久写 Action。Home 负责身份与技能，Session 负责已完成 User Turn，Memory 不复制二者的历史日志。
+User Turn 通过 memory.memorize 修改当日 Session root 中的活动 Memory.md，通过 memory.search 发现候选、memory.inspect 读取已知持久知识。Inspect 只返回内容和 direct refs；反链通过 memory.search 的 `backlinks` source 查询。只有 Memory Reflection profile 注册持久写 Action。Home 负责身份与技能，Session 负责已完成 User Turn，Memory 不复制二者的历史日志。
 
 Markdown 是业务事实；catalog、lexical 单元、正向引用、backlinks 与 embedding cache 可删除并重建。schema v2 使用严格 YAML frontmatter，拒绝未知字段和旧文档 schema；部署数据转换不隐含在启动中。
 
@@ -30,7 +30,7 @@ Memory provider 每 Turn 打开 Heap 段，维护本轮加载视图、目录与�
 
 ## 检索与召回
 
-memory.search 提供 query discovery、seed refinement 和 backlink search。lexical 与 Embedding 独立召回后融合，seed 的相关性只由必需的 LLM/JEV selector 判断；backlink 只返回真实入边。memory.inspect 只检查已知文档内容和 direct refs，不查询 backlinks 或相似文档。continuation 绑定有限 Search view 与请求身份，结果受条数、证据与整页字符预算约束。
+memory.search 使用 `query`、`directory`、`refs`、`backlinks` 四种来源，并以 `filter`、`select`、`rerank` 组成有限管道。lexical 与 Embedding 独立召回后融合；refs 不做隐藏相关性裁剪，需显式 select/rerank。backlinks 只返回真实入边。memory.inspect 只检查已知文档内容和 direct refs，不查询 backlinks 或相似文档。result_ref 保存完整候选快照，continuation 只分页该快照。
 
 memory.inspect 接受精确持久 Link，返回有界 Markdown 内容、direct refs、类型 metadata 与 redirect chain；不会自动内联目标正文。模型根据搜索结果渐进读取，Trace 保留有限投影和来源 Link，检索本身不改变 Background 或知识文档。
 

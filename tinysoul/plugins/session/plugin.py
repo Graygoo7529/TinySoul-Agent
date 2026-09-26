@@ -35,7 +35,7 @@ from tinysoul.kernel.action.models import ModelUseRegistry
 from tinysoul.kernel.retrieval.operations import SearchSession
 from tinysoul.kernel.retrieval.selection import CandidateSelector
 from tinysoul.kernel.retrieval.contracts import (
-    SeedRefinement,
+    RefsSource,
     SearchFailure,
     SearchFailureKind,
 )
@@ -124,7 +124,7 @@ class SessionPlugin:
                         )
                     view = owner.snapshot_view(day)
                     entries = view.search_entries(
-                        request.seed_refs if isinstance(request, SeedRefinement) else ()
+                        request.source.refs if isinstance(request.source, RefsSource) else ()
                     )
                     return disclosure_corpus(
                         entries, request, context.services.get(ReferenceResolver)
@@ -138,9 +138,11 @@ class SessionPlugin:
             queries = SearchSession(
                 observations=context.observations,
                 action_id="core.context.search",
-                policies=context.settings.get(ActionSettings).search_policies,
+
+                retrieval_policies=context.settings.get(ActionSettings).retrieval_policies,
                 source=source,
                 selector=selector,
+                supported_filters=frozenset({"source", "basis", "kind", "day"}),
             )
             return SessionService(owner, scope, queries=queries)
 

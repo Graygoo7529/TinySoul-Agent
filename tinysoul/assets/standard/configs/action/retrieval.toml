@@ -1,0 +1,90 @@
+[action.retrieval."home.search"]
+sources = ["query", "backlinks", "directory", "refs", "result"]
+operations = ["filter", "select", "rerank"]
+max_steps = 8
+
+[action.retrieval."home.search".query]
+channels = ["lexical"]
+
+[action.retrieval."home.search".select]
+allowed_context = ["none", "current"]
+input_max_chars = 64000
+
+[action.retrieval."home.search".rerank]
+allowed_context = ["none", "current"]
+input_max_chars = 64000
+
+[action.retrieval."home.search".page]
+max_items = 50
+max_chars = 8000
+
+[action.retrieval."memory.search"]
+sources = ["query", "backlinks", "directory", "refs", "result"]
+operations = ["filter", "select", "rerank"]
+max_steps = 8
+
+[action.retrieval."memory.search".query]
+channels = ["lexical"]
+
+[action.retrieval."memory.search".select]
+allowed_context = ["none", "current"]
+input_max_chars = 64000
+
+[action.retrieval."memory.search".rerank]
+allowed_context = ["none", "current"]
+input_max_chars = 64000
+
+[action.retrieval."memory.search".page]
+max_items = 50
+max_chars = 8000
+
+[action.retrieval."core.context.search"]
+sources = ["query", "backlinks", "directory", "refs", "result"]
+operations = ["filter", "select", "rerank"]
+max_steps = 8
+
+[action.retrieval."core.context.search".select]
+allowed_context = ["none", "current"]
+input_max_chars = 64000
+
+[action.retrieval."core.context.search".rerank]
+allowed_context = ["none", "current"]
+input_max_chars = 64000
+
+[action.retrieval."core.context.search".page]
+max_items = 50
+max_chars = 8000
+
+[action.retrieval."expand.search"]
+sources = ["query", "directory", "refs", "result"]
+operations = ["filter", "select", "rerank"]
+max_steps = 8
+
+[action.retrieval."expand.search".select]
+allowed_context = ["none"]
+input_max_chars = 64000
+
+[action.retrieval."expand.search".rerank]
+allowed_context = ["none"]
+input_max_chars = 64000
+
+[action.retrieval."expand.search".page]
+max_items = 50
+max_chars = 8000
+
+[action.retrieval."workspace.search"]
+sources = ["query", "backlinks", "directory", "refs", "result"]
+operations = ["filter", "select", "rerank"]
+max_steps = 8
+
+[action.retrieval."workspace.search".select]
+allowed_context = ["none", "current"]
+input_max_chars = 64000
+
+[action.retrieval."workspace.search".rerank]
+allowed_context = ["none", "current"]
+input_max_chars = 64000
+
+[action.retrieval."workspace.search".page]
+max_items = 50
+max_chars = 8000

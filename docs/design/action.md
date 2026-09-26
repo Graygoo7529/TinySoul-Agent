@@ -241,9 +241,9 @@ core.reason/core.answer 与 Workspace compose/describe/analyze 各自拥有 gene
 
 ### 检索与披露
 
-Home、Memory、Context、MCP 和 Workspace 的 Search executor 调用公共 SearchSession，来源读取仍归各 owner。SearchPolicy 编译有限 mode/semantic/context schema，并由同一策略校验请求。候选输入、语义操作和分页使用有界协议；详情见 [模型使用与检索](action-model-retrieval.md)。
+Home、Memory、Context、MCP 和 Workspace 的 Search executor 调用公共 SearchSession，来源读取仍归各 owner。每个 Action 的 retrieval policy 编译六个来源/操作函数及其 Context、属性和预算 schema，并由同一策略校验请求。候选输入、模型操作和分页使用有界协议；详情见 [模型使用与检索](action-model-retrieval.md)。
 
-`home.search` 覆盖 Home agent/skills，`home.inspect` 读取已知 Home ref；局部 prompt mounts 不进入这些来源。`memory.search` 负责发现、seed 精炼和入边检索；`memory.inspect` 只读取内容/direct refs。`core.context.search` 使用 Trace/Session 原始可读事实，`core.context.inspect` 继续确定性披露。辅助模型不会解除决策请求的 Inspect 展示保护。
+`home.search` 覆盖 effective Home 的 agent/skills，`home.inspect` 读取已知 Home ref；局部 prompt mounts 不进入这些来源。`memory.search` 负责 query/directory/refs/backlinks 及候选管道；`memory.inspect` 只读取内容/direct refs。`core.context.search` 使用 Trace/Session 原始可读事实，`core.context.inspect` 继续确定性披露。辅助模型不会解除决策请求的 Inspect 展示保护。
 
 可选 rank 的有限瞬态或输出失败保留原候选并明确 coverage 缺失；必需 selector 失败返回局部失败，来源全部不可用不能伪装成功空页。配置、认证或内部契约异常经所属模块 bridge 进入 Runtime；取消原样传播。SDK 使用同一服务和模型协议，但无活动 Turn 的 Trap 权限。
 
