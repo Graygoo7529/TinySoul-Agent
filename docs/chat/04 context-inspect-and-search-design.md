@@ -1,4 +1,6 @@
 
+## 20260924 初始设计思路
+
 请重新加载 AGENTS.md，结合当前实施情况进一步理解整体设计语义；之前，我们讨论了 docs\chat\20260924-visualization-backend-support-plan-r4.md 和 docs\chat\20260924-action-model-usage-architecture-proposal.md（这两份文档是本轮重构的触发点，仅作为参考，还需要进一步根据下面的最新思路要求深入分析和设计，结合对当前后端的思考：哪些模块有“检索”行为的特征？都是如何进行的？）
 
 因此，在前端重构和后端功能支持计划之前，我觉得有必要先进行一轮新的、彻底的后端重构，本轮重构无需向后兼容、允许重新设计整体架构和细节，以达成最佳效果的后端重构，重构主要面向项目中 actions 中多类模型的配置和使用，和信息披露和检索语义的统一设计和基础设施；这不是对现有实现的调整，而是要在下述思路下具有想象力、创造力和清晰、统一设计思路下，完整地重新设计。本轮重构也不要考虑后续先做部分，再后续继续演进（需全部设计清楚并在本轮重构中落实，以实现最佳、最干净一致的架构效果）。本次重构分为两方面，如下：
@@ -35,4 +37,21 @@
 请进一步深入分析以上方案是否合理可行？请根据以上思路分析和设计完整的后端重构方案，然后撰写完整的执行计划；根据你撰写的执行计划向我呈现重构方案预览，与我进一步讨论确认，深入修订执行计划。
 
 
+## 20260925 search strategy
+
 search strategy 可以这样考虑和设计吗：Stage2 Search 所用的 strategy 应和 strategy 中本身所用的模型、如何用模型区分，strategy 语义有三种模式：（a) query discovery，此时适合先使用[可选地] lexical+embedding 产生 generation，并支持输入 scope/filter （约束检索空间的范围/检索结果的属性和标签），然后还[可选地] 通过 embedding/llm/jev 来重排序；注意这里的 [可选地] 指用户配置，stage2 agent 可选性应当为 strategy 模式和参数；（b）seed_refs 上的候选精炼，这里 query 的 scope 可以是 seed_refs 所张成的内容空间，可能需要通过互斥的 llm/jev 来实现；例如，MCP search 以全局/server 下的 tools 名称和描述为 scope，由 llm/jev 决策与 query 关联的工具；（c）反链检索，如果可以，我们最好还能支持通用意义上的反链，即我在 markdown-A 中用标准 md 链接链接了 markdown-B，那么 markdown-B 的反链会包含 markdown-A；反链检索可考虑进一步结合 embedding/llm/jev 重排序；此外，局部步骤 embedding/llm/jev 虽然都是重排序，但实际上输入形式可能是不同的，但最终又是可以配置、使用和替换的环节；此外，可以考虑使用 llm/jev 时是否（agent stage2 可选）带有完整 context 语境，我觉得重排序可以默认没有，候选精炼默认有，但 MCP 候选精炼默认没有；
+
+
+
+## 20260926 函数组合支持重构
+
+目是把 search 做出能够让 agent 主动构建不同查询方式并得到“从无到有” links 结果的统一工具，查询方式能支持候选来源（以及查询语句）和候选操作的灵活组合，并为每一种函数操作实现好更底层的模型配置使用和具体插件中使用的检索基础设施。
+
+考虑一下几个方面：
+（1）search：query、select、backlinks 当前输出结果是否给出返回 refs 指向资源的实际内容预览，特别是 query （语义）匹配的部分实际内容预览
+（2）lexical、Embedding 应当是相互补充的，至少不应该用 lexical 来否定 Embedding；query search 结果也不应当被 lexical 裁剪，裁剪只能是因为基于显示 query 的“属性或标签” 而执行的“过滤”操作，或者是返回数量过多而有界展示（可续接）
+（3）在原始的设计思路里，基于 llm/jev select 的输入，模型不应该仅仅看到 ref 和零碎的信息，而应该看到 refs 实际内容的展开，至少也应该是真实片段内容预览
+（4）此外，让我们考虑一下：“语境下的检索排除性/顺序性”，避免总是检索已经证实无用的内容，即能够在不同的语境/state下给出的重排/select结果是不同的，也许用 llm/jev 来重排序或 select 已经相当于这个能力？
+
+
+在设计和实施上，我们之前为 search 总体设计为 query、（seed）select 和 backlink 三种模式；现在请进一步权衡和设计：我们当前实施实际上还有 rerank 操作和过滤 filter 操作，是嵌入在 query、backlink 的给出的候选 refs 步骤之后的，但是现在看来它们和 select 又是同一层次的函数，你觉得是否可以扩展 search 模式，使 agent 能够决策的函数操作粒度更细、更灵活，例如纯 query、backlink、directory、select、rerank、filter（前三者是发掘候选，后三者是约束候选）？即允许单步操作，也允许在 search 以函数式管道的方式直接组合操作例如 query->rerank->select？每一个操作函数都有比较清晰的输入（例如 select 输入候选 refs 以及候选链接所展开真实内容预览）和输出定义（例如 refs 和语义命中的部分实际内容预览，输出返回给 agent），同时有比较明确的边界和续接机制。请结合当前 review 里的几个问题和现有实施情况，进一步分析和设计可行的方案，如果有必要可以进一步重构当前设计和实现。
