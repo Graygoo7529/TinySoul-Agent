@@ -1,51 +1,53 @@
 """Memory services and one profile's protected background binding."""
 
-from functools import partial
-from tinysoul.kernel.registration import PluginTurnResource
-from tinysoul.kernel.action.models import (
-    ModelUseDescriptor,
-    ModelOperation,
-    ModelImplementation,
-)
 from dataclasses import dataclass, replace
+from functools import partial
 
-from tinysoul.kernel.registration import (
-    PluginProfileExtension,
-    Service,
-    PluginGeneration,
-    PluginConfig,
-    PluginServiceExport,
-    ServiceLifetime,
-    GenerationBuildContext,
-    ProfileBuildContext,
-    ProfileKind,
-)
+from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.model_services import ModelServices
 from tinysoul.infra.model_services.vectors import EmbeddingIndex
 from tinysoul.infra.references import ReferenceResolver
-from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.kernel.action.config import ActionSettings
-from tinysoul.kernel.action.models import ModelUseRegistry
+from tinysoul.kernel.action.models import (
+    ModelImplementation,
+    ModelOperation,
+    ModelUseDescriptor,
+    ModelUseRegistry,
+)
 from tinysoul.kernel.action.tasks import ActionTaskFactory
-from tinysoul.kernel.retrieval.policy import SearchCapability
+from tinysoul.kernel.registration import (
+    GenerationBuildContext,
+    PluginConfig,
+    PluginGeneration,
+    PluginProfileExtension,
+    PluginServiceExport,
+    PluginTurnResource,
+    ProfileBuildContext,
+    ProfileKind,
+    Service,
+    ServiceLifetime,
+)
 from tinysoul.kernel.retrieval.contracts import (
-    SourceKind,
     OperationKind,
+    SourceKind,
 )
 from tinysoul.kernel.retrieval.operations import SearchSession
+from tinysoul.kernel.retrieval.policy import SearchCapability
 from tinysoul.kernel.retrieval.selection import CandidateSelector
 from tinysoul.plugins.session.plugin import SessionStorage
 from tinysoul.plugins.session.services import SessionService
 
-from .actions import register_memory_actions
+from .actions import (
+    MemoryWriteSession,
+    register_memory_actions,
+    register_memory_write_actions,
+)
 from .background import TargetMemoryBinding, memory_segment_registration
-from .engine import MemoryEngine
-from .services import MemoryReadService, MemoryService
-from .runtime_bridge import RuntimeMemoryBridge
 from .config import MemorySettings, parse_memory_settings
+from .engine import MEMORY_SEARCH_FILTERS, MemoryEngine
 from .errors import MemoryError
-from .actions import MemoryWriteSession, register_memory_write_actions
-from .services import MemoryKnowledgeService
+from .runtime_bridge import RuntimeMemoryBridge
+from .services import MemoryKnowledgeService, MemoryReadService, MemoryService
 
 
 @dataclass(frozen=True)
@@ -57,7 +59,14 @@ class MemoryProfileSource:
 class MemoryPlugin:
     id = "memory"
     search_capabilities = (
-        SearchCapability("memory.search", tuple(SourceKind), tuple(OperationKind), scopes=("all", "daily", "entity", "concept", "fact", "note"), filters=("kind", "status", "updated_on", "confidence"), ordered_filters=("updated_on",), document_query=True),
+        SearchCapability(
+            "memory.search",
+            tuple(SourceKind),
+            tuple(OperationKind),
+            scopes=("all", "daily", "entity", "concept", "fact", "note"),
+            filters=MEMORY_SEARCH_FILTERS,
+            document_query=True,
+        ),
     )
     model_uses = (
         ModelUseDescriptor(
@@ -143,12 +152,13 @@ class MemoryPlugin:
             return SearchSession(
                 observations=context.observations,
                 action_id="memory.search",
-
-                retrieval_policies=context.settings.get(ActionSettings).retrieval_policies,
+                retrieval_policies=context.settings.get(
+                    ActionSettings
+                ).retrieval_policies,
                 source=source,
                 selector=selector,
                 embedding=embedding,
-                supported_filters=frozenset({"kind", "status", "updated_on", "confidence"}),
+                filters=MEMORY_SEARCH_FILTERS,
             )
 
         knowledge = MemoryKnowledgeService(owner)

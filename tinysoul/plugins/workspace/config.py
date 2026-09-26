@@ -24,12 +24,6 @@ DEFAULT_MAX_WRITE_CHARS = 12000
 DEFAULT_MAX_IMAGE_BYTES = 5 * 1024 * 1024
 DEFAULT_SEARCH_MAX_QUERY_CHARS = 256
 DEFAULT_SEARCH_MAX_SCAN_CHARS = 1_000_000
-DEFAULT_SEARCH_CANDIDATE_LIMIT = 100
-DEFAULT_SEARCH_TOP_K = 8
-DEFAULT_SEARCH_MAX_TOP_K = 16
-DEFAULT_SEARCH_CONTEXT_LINES = 2
-DEFAULT_SEARCH_MAX_EXCERPT_CHARS = 600
-DEFAULT_SEARCH_MAX_RESULT_CHARS = 8000
 DEFAULT_ANALYSIS_MAX_INTENT_CHARS = 2000
 DEFAULT_ANALYSIS_MAX_REFERENCE_LINKS = 8
 DEFAULT_ANALYSIS_MAX_SOURCE_CHARS = 24_000
@@ -43,63 +37,10 @@ class WorkspaceSearchSettings:
 
     max_query_chars: int = DEFAULT_SEARCH_MAX_QUERY_CHARS
     max_scan_chars: int = DEFAULT_SEARCH_MAX_SCAN_CHARS
-    candidate_limit: int = DEFAULT_SEARCH_CANDIDATE_LIMIT
-    default_top_k: int = DEFAULT_SEARCH_TOP_K
-    max_top_k: int = DEFAULT_SEARCH_MAX_TOP_K
-    context_lines: int = DEFAULT_SEARCH_CONTEXT_LINES
-    max_excerpt_chars: int = DEFAULT_SEARCH_MAX_EXCERPT_CHARS
-    max_result_chars: int = DEFAULT_SEARCH_MAX_RESULT_CHARS
 
     def __post_init__(self) -> None:
-        for name in (
-            "max_query_chars",
-            "max_scan_chars",
-            "candidate_limit",
-            "default_top_k",
-            "max_top_k",
-            "max_excerpt_chars",
-            "max_result_chars",
-        ):
+        for name in ("max_query_chars", "max_scan_chars"):
             _require_positive(getattr(self, name), key=f"workspace.search.{name}")
-        if (
-            isinstance(self.context_lines, bool)
-            or not isinstance(self.context_lines, int)
-            or self.context_lines < 0
-        ):
-            raise ConfigError(
-                "Workspace search context_lines must be non-negative",
-                key="workspace.search.context_lines",
-                value=self.context_lines,
-                expected="non-negative int",
-            )
-        if self.default_top_k > self.max_top_k:
-            raise ConfigError(
-                "Workspace search default_top_k cannot exceed max_top_k",
-                key="workspace.search.default_top_k",
-                value=self.default_top_k,
-                expected="int <= max_top_k",
-            )
-        if self.max_top_k > self.candidate_limit:
-            raise ConfigError(
-                "Workspace search max_top_k cannot exceed candidate_limit",
-                key="workspace.search.max_top_k",
-                value=self.max_top_k,
-                expected="int <= candidate_limit",
-            )
-        if self.max_excerpt_chars > self.max_result_chars:
-            raise ConfigError(
-                "Workspace search excerpt budget cannot exceed result budget",
-                key="workspace.search.max_excerpt_chars",
-                value=self.max_excerpt_chars,
-                expected="int <= max_result_chars",
-            )
-        if self.max_excerpt_chars < self.max_query_chars:
-            raise ConfigError(
-                "Workspace search excerpt budget must contain the largest query",
-                key="workspace.search.max_excerpt_chars",
-                value=self.max_excerpt_chars,
-                expected="int >= max_query_chars",
-            )
 
 
 @dataclass(frozen=True)
@@ -137,7 +78,9 @@ class WorkspaceWatchSettings:
 
     def __post_init__(self) -> None:
         if type(self.enabled) is not bool:
-            raise ConfigError("Workspace watch enabled must be boolean", key="workspace.watch.enabled")
+            raise ConfigError(
+                "Workspace watch enabled must be boolean", key="workspace.watch.enabled"
+            )
         _require_positive(self.debounce_ms, key="workspace.watch.debounce_ms")
 
 
@@ -270,7 +213,9 @@ class WorkspaceSettings:
                     expected="list[str]",
                 )
         if not isinstance(self.watch, WorkspaceWatchSettings):
-            raise ConfigError("Workspace watch settings are invalid", key="workspace.watch")
+            raise ConfigError(
+                "Workspace watch settings are invalid", key="workspace.watch"
+            )
         if not isinstance(self.search, WorkspaceSearchSettings):
             raise ConfigError(
                 "Workspace search settings are invalid",
@@ -346,53 +291,31 @@ def _parse_watch(tree: Mapping[str, object]) -> WorkspaceWatchSettings:
     reject_unknown_keys(tree, {"enabled", "debounce_ms"}, key="workspace.watch")
     enabled = tree.get("enabled", True)
     if not isinstance(enabled, bool):
-        raise ConfigError("Workspace watch enabled must be boolean", key="workspace.watch.enabled")
-    return WorkspaceWatchSettings(enabled, _optional_int(tree, "debounce_ms", default=200, key="workspace.watch"))
+        raise ConfigError(
+            "Workspace watch enabled must be boolean", key="workspace.watch.enabled"
+        )
+    return WorkspaceWatchSettings(
+        enabled, _optional_int(tree, "debounce_ms", default=200, key="workspace.watch")
+    )
 
 
 def _parse_search(tree: Mapping[str, object]) -> WorkspaceSearchSettings:
     reject_unknown_keys(
-        tree,
-        {
-            "max_query_chars",
-            "max_scan_chars",
-            "candidate_limit",
-            "default_top_k",
-            "max_top_k",
-            "context_lines",
-            "max_excerpt_chars",
-            "max_result_chars",
-        },
-        key="workspace.search",
+        tree, {"max_query_chars", "max_scan_chars"}, key="workspace.search"
     )
     defaults = WorkspaceSearchSettings()
     return WorkspaceSearchSettings(
         max_query_chars=_optional_int(
-            tree, "max_query_chars", default=defaults.max_query_chars, key="workspace.search"
-        ),
-        max_scan_chars=_optional_int(
-            tree, "max_scan_chars", default=defaults.max_scan_chars, key="workspace.search"
-        ),
-        candidate_limit=_optional_int(
-            tree, "candidate_limit", default=defaults.candidate_limit, key="workspace.search"
-        ),
-        default_top_k=_optional_int(
-            tree, "default_top_k", default=defaults.default_top_k, key="workspace.search"
-        ),
-        max_top_k=_optional_int(
-            tree, "max_top_k", default=defaults.max_top_k, key="workspace.search"
-        ),
-        context_lines=_optional_int(
-            tree, "context_lines", default=defaults.context_lines, key="workspace.search"
-        ),
-        max_excerpt_chars=_optional_int(
             tree,
-            "max_excerpt_chars",
-            default=defaults.max_excerpt_chars,
+            "max_query_chars",
+            default=defaults.max_query_chars,
             key="workspace.search",
         ),
-        max_result_chars=_optional_int(
-            tree, "max_result_chars", default=defaults.max_result_chars, key="workspace.search"
+        max_scan_chars=_optional_int(
+            tree,
+            "max_scan_chars",
+            default=defaults.max_scan_chars,
+            key="workspace.search",
         ),
     )
 

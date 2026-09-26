@@ -52,6 +52,8 @@ Context 只属于一个活动 Turn。Kernel 按 Background、Trace、Working 三
 
 Search 以 query、backlinks、directory 三种候选来源和 select、rerank、filter 三种约束操作组成有限函数管道；Stage2 选择这些已登记操作的组合、业务参数和 page 选项，操作内部的模型实现与 provider 由用途配置决定。source.where 只定义来源资格，filter 只处理当前候选集合；refs 不做隐藏 lexical/Embedding 预筛，select 可以排除并返回空集，rerank 保留全部候选。反链必须来自真实引用边，边归来源 owner，目标身份归目标 owner。Search 结果分页绑定 Turn/profile 或 SDK 服务 lease，辅助模型调用不解除 Inspect 展示保护。
 
+Search 的真实内容快照、命中依据、模型判断和页面摘录各有单一职责：依据引用实际内容范围，模型输入与页面复用投影但分别表达覆盖。LLM 同次指认可为空的已给出片段，JEV 只承诺实际 Score，Embedding 保留真实贡献单元；不编造通用理由。refs 精确读取并保序，Home top 不隐式扩成全部深层资源；result 复用完整快照与来源覆盖，重新建立本请求评估。资格与显式排除先于正文读取，属性比较由 owner 的有限声明统一生成与解释。
+
 Session 的地图和交互正文共用一个背景预算，只在自身高水位响应回收。先保留完整多轮交互，超限才明确摘录/折叠；问题、完整选项和关联回复不能被拆成孤立选择。最低投影保留事实与解释目录，同一轮刷新沿用已缩减预算。
 
 ### 资源与持久化
@@ -122,7 +124,7 @@ SDK 服务绑定运行世代，日级服务同时绑定 CalendarDay；切换后�
 - 当前证据快照纯读取，不调用 seal_trace 或 end_turn，不对已结算 Action 子集重新编号。Session 解释引用映射，Kernel 不解释语义图。
 - User/Home Reflection 默认加载受保护的 memory:current/latest；Memory Reflection 加载目标来源的 target/latest，latest 严格早于来源日，缺失时省略。
 - 普通对话不取得持久 Memory、actual Home 或 Reflection 专属写权限。SessionOrganizeService 只注入 User；SDK SessionService 与 Reflection 保持只读，无外部 Session 编辑 HTTP 接口。
-- MCP expand 的 describe_servers/describe_tools/search/call 共用目录。自然语言检索是已登记 retrieval policy 约束下的真实工具 directory 与 select/rerank/filter 管道，Stage2 只能选择有限 scope、操作和业务参数，超容量由父 Agent 缩小服务范围；MCP 配置支持 stdio 与 Streamable HTTP。ACP 显式连接后委派，空闲连接可跨 Turn 复用；Job 不跨 Turn，结束先停止 Job 再释放协议 session。
+- MCP expand 的 describe_servers/describe_tools/search/call 共用目录。词法 query 在真实工具定义上匹配；自然语言检索是已登记 retrieval policy 约束下的真实工具 directory 与 select/rerank/filter 管道，Stage2 只能选择有限 scope、操作和业务参数，超容量由父 Agent 缩小服务范围；MCP 配置支持 stdio 与 Streamable HTTP。ACP 显式连接后委派，空闲连接可跨 Turn 复用；Job 不跨 Turn，结束先停止 Job 再释放协议 session。
 - 原生 watcher 只提供线索，Workspace owner 统一正式写入与外部变化，提交后发布事件；Context 在固定批次刷新。只监听活动 Workspace，来源故障停止并有限反馈，正式操作继续；不构建自动恢复状态机。日切/重载先停止并 join 来源，再切换绑定。
 
 ### 失败与控制流

@@ -2,51 +2,62 @@
 
 from __future__ import annotations
 
-from tinysoul.infra.concurrency import JoinedOperations
-
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path, PurePosixPath
-from typing import cast
 
 from tinysoul.infra.filesystem import TextPrefixRead, file_digest, read_text_prefix
-from datetime import date
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.references import (
-    ReferenceResolver,
     ReferenceError,
+    ReferenceResolver,
     ResourceTarget,
     markdown_references,
     relative_reference,
 )
 from tinysoul.kernel.retrieval.contracts import (
+    AttributeField,
+    AttributeFilters,
+    AttributeKind,
+    BacklinksSource,
+    ContentCoverage,
+    ContentUnit,
+    DirectorySource,
     DocumentQuery,
+    EvidenceKind,
+    QuerySource,
+    RefsSource,
+    RetrievalRequest,
     SearchCandidate,
     SearchEvidence,
     SearchFailure,
     SearchFailureKind,
-    RetrievalRequest,
-    QuerySource,
-    RefsSource,
-    DirectorySource,
-    BacklinksSource,
+    TextQuery,
 )
 from tinysoul.kernel.retrieval.disclosure import (
-    inspect_document,
-    evidence_units,
-    fragment_content,
+    content_units,
     fragment_range,
+    inspect_document,
+    range_evidence,
 )
 from tinysoul.kernel.retrieval.operations import SearchCorpus
-from tinysoul.kernel.retrieval.requests import eligible
+
+HOME_SEARCH_FILTERS = AttributeFilters(
+    (
+        AttributeField("space"),
+        AttributeField("file_type"),
+        AttributeField("resource_types", AttributeKind.TEXT_SET),
+    )
+)
 
 from .config import AgentHomeSettings, HomeSearchSettings
+from .content.layout import AgentHomeLayout
 from .errors import (
     AgentHomeContractError,
-    AgentHomeIOError,
     AgentHomeInvariantError,
+    AgentHomeIOError,
     AgentHomeRuntimeCopyRequired,
 )
-from .content.layout import AgentHomeLayout
 from .links import (
     HomeLink,
     HomePromptMountLink,
@@ -54,19 +65,19 @@ from .links import (
     HomeTopLink,
     parse_home_link,
 )
+from .overlay import HomeOverlayManager, HomeOverlayRecord, HomeOverlayState
 from .review import (
-    HomeReviewResolveOutcome,
-    HomeReviewResolution,
-    HomeReviewSnapshot,
     HomeReviewPending,
+    HomeReviewResolution,
+    HomeReviewResolveOutcome,
     HomeReviewService,
+    HomeReviewSnapshot,
 )
 from .skills.metadata import (
     SKILL_FRONTMATTER_MAX_CHARS,
     HomeSkillMetadata,
     parse_home_skill_metadata,
 )
-from .overlay import HomeOverlayManager, HomeOverlayRecord, HomeOverlayState
 
 _DEFAULT_BACKGROUND_TOP_LINKS = (
     HomeTopLink("agent", "AGENT"),
@@ -407,140 +418,170 @@ class AgentHomeEngine:
                 SearchFailureKind.INVALID_REQUEST,
                 "Home scope must be all, agent or skills",
             )
-        supported = frozenset({"space", "file_type"})
-        eligible({}, getattr(source, "where", {}), supported=supported)
-        paths = self._search_paths(actual=actual)
-        available = {relative for relative, _ in paths}
-        metadata = {
-            item.link.name: item
-            for item in (
-                self.actual_skill_metadata() if actual else self.skill_metadata()
-            )
-        }
-        selected_seeds: set[str] = set()
-        skill_seeds: set[str] = set()
-        seed_locations: dict[str, list[tuple[str, str]]] = {}
+        predicates = HOME_SEARCH_FILTERS.parse(getattr(source, "where", {}))
+        paths = dict(self._search_paths(actual=actual))
+        available = set(paths)
+
+        def identity(ref: str) -> tuple[str, str]:
+            resource, _, fragment = ref.partition("#")
+            return self.canonical_reference(resource).resource, fragment
+
+        excluded = {identity(ref) for ref in request.exclude_refs}
+        # A source group establishes the candidate's identity before reading any body.
+        groups: list[tuple[str, tuple[str, ...], str]] = []
         if isinstance(source, RefsSource):
+            seen: set[tuple[str, str]] = set()
             for ref in source.refs:
-                resource = ref.partition("#")[0]
-                parsed = parse_home_link(resource)
-                canonical = self.canonical_reference(resource).resource
-                if canonical.removeprefix("home:") not in available:
-                    raise SearchFailure(SearchFailureKind.INVALID_REQUEST, "Home ref is unavailable in this view")
-                selected_seeds.add(canonical)
-                seed_locations.setdefault(canonical, []).append((ref, ref.partition("#")[2]))
-                if isinstance(parsed, HomeTopLink) and parsed.space == "skills":
-                    skill_seeds.add(parsed.name)
-        if isinstance(source, QuerySource):
-            if isinstance(source.query, DocumentQuery):
-                raise SearchFailure(
-                    SearchFailureKind.INVALID_REQUEST,
-                    "Home discovery accepts text query only",
-                )
-            query = source.query.text
-        else:
-            query = ""
-        try:
-            anchor = (
-                references.resolve(source.anchor_ref)
-                if isinstance(source, BacklinksSource)
-                else None
-            )
-        except ReferenceError as exc:
-            raise SearchFailure(SearchFailureKind.INVALID_REQUEST, str(exc)) from exc
-        candidates = []
-        complete = True
-        scanned = 0
-        for relative, path in paths:
-            parts = PurePosixPath(relative).parts
-            if scope != "all" and parts[0] != scope:
-                continue
-            attributes: JsonObject = {
-                "space": parts[0],
-                "file_type": path.suffix.lower(),
-            }
-            if not eligible(attributes, getattr(source, "where", {}), supported=supported):
-                continue
-            resource = "home:" + relative
-            skill = (
-                parts[1]
-                if parts[0] == "skills"
-                and len(parts) >= 3
-                and f"skills/{parts[1]}/SKILL.md" in available
-                else None
-            )
-            if (
-                isinstance(source, RefsSource)
-                and resource not in selected_seeds
-                and skill not in skill_seeds
-            ):
-                continue
-            if scanned >= self._search_settings.scan_limit:
-                complete = False
-                break
-            scanned += 1
-            try:
-                read = read_text_prefix(
-                    path, max_chars=self._search_settings.resource_max_chars
-                )
-                text = read.text
-                content_complete = not read.truncated
-                if "\x00" in text:
-                    raise UnicodeError("Binary resource")
-                complete = complete and (not read.truncated or isinstance(source, DirectorySource))
-            except UnicodeError:
-                text = path.name
-                content_complete = True
-                attributes["content_kind"] = "binary_metadata"
-            except OSError as exc:
-                raise AgentHomeIOError("Home search source cannot be read") from exc
-            if anchor is not None:
-                evidence = []
-                lines = text.splitlines()
-                for link in markdown_references(text):
-                    try:
-                        target_ref = relative_reference(
-                            link.target, source_path=relative, prefix="home:"
-                        )
-                        target = references.resolve(target_ref)
-                    except ReferenceError:
-                        continue
-                    if target.matches(anchor):
-                        evidence.append(
-                            SearchEvidence(
-                                f"{resource}#L{link.line}",
-                                lines[link.line - 1]
-                                if link.line <= len(lines)
-                                else link.label,
-                                "markdown_link",
-                            )
-                        )
-                if not evidence:
+                key = identity(ref)
+                if key in seen or key in excluded:
                     continue
-                if skill:
-                    attributes["top_ref"] = f"home:skills@{skill}"
-                candidates.append(
-                    SearchCandidate(resource, path.name, (*evidence, *evidence_units(resource, text)), attributes, evidence_complete=content_complete)
-                )
-            else:
-                if isinstance(source, RefsSource) and resource in seed_locations and skill not in skill_seeds:
-                    for ref, fragment in seed_locations[resource]:
-                        first, last = fragment_range(text, fragment)
-                        selected_text = "".join(text.splitlines(keepends=True)[first - 1:last])
-                        candidates.append(SearchCandidate(ref, path.name, evidence_units(resource, selected_text, first_line=first), attributes, evidence_complete=content_complete))
-                    continue
-                result_ref = f"home:skills@{skill}" if skill else resource
-                title = metadata[skill].title if skill in metadata else path.name
-                candidates.append(
-                    SearchCandidate(
-                        result_ref, title, evidence_units(resource, text), attributes,
-                        evidence_complete=content_complete,
+                seen.add(key)
+                resource, fragment = key
+                relative = resource.removeprefix("home:")
+                if relative not in paths:
+                    raise SearchFailure(
+                        SearchFailureKind.INVALID_REQUEST,
+                        "Home ref is unavailable in this view",
                     )
+                groups.append((ref, (relative,), fragment))
+        else:
+            grouped: dict[str, list[str]] = {}
+            for relative in paths:
+                parts = PurePosixPath(relative).parts
+                if scope != "all" and parts[0] != scope:
+                    continue
+                skill = (
+                    parts[1]
+                    if parts[0] == "skills"
+                    and len(parts) >= 3
+                    and f"skills/{parts[1]}/SKILL.md" in available
+                    else None
                 )
-        if isinstance(source, RefsSource) and not complete:
+                result_ref = (
+                    f"home:skills@{skill}"
+                    if skill and not isinstance(source, BacklinksSource)
+                    else "home:" + relative
+                )
+                grouped.setdefault(result_ref, []).append(relative)
+            groups = [
+                (ref, tuple(resources), "")
+                for ref, resources in grouped.items()
+                if identity(ref) not in excluded
+            ]
+        if isinstance(source, QuerySource) and isinstance(source.query, DocumentQuery):
             raise SearchFailure(
-                SearchFailureKind.SCOPE_REQUIRED,
-                "Seed resources exceed the source budget; narrow scope",
+                SearchFailureKind.INVALID_REQUEST,
+                "Home discovery accepts text query only",
+            )
+        query = (
+            source.query.text
+            if isinstance(source, QuerySource) and isinstance(source.query, TextQuery)
+            else ""
+        )
+        anchor = (
+            references.resolve(source.anchor_ref)
+            if isinstance(source, BacklinksSource)
+            else None
+        )
+        candidates: list[SearchCandidate] = []
+        scanned, complete = 0, True
+        for ref, resources, fragment in groups:
+            types = sorted({paths[relative].suffix.lower() for relative in resources})
+            attributes: JsonObject = {
+                "space": resources[0].split("/")[0],
+                "resource_types": [value for value in types],
+            }
+            if len(resources) == 1:
+                attributes["file_type"] = types[0]
+                parts = PurePosixPath(resources[0]).parts
+                if (
+                    parts[0] == "skills"
+                    and len(parts) >= 3
+                    and f"skills/{parts[1]}/SKILL.md" in available
+                ):
+                    attributes["top_ref"] = f"home:skills@{parts[1]}"
+            if not all(predicate.matches(attributes) for predicate in predicates):
+                continue
+            units: list[ContentUnit] = []
+            hits: list[SearchEvidence] = []
+            coverage = ContentCoverage.FULL
+            title = (
+                ref.partition("@")[2]
+                if "@" in ref
+                else PurePosixPath(resources[0]).name
+            )
+            for relative in resources:
+                if scanned >= self._search_settings.scan_limit:
+                    complete = False
+                    break
+                scanned += 1
+                path, resource = paths[relative], "home:" + relative
+                try:
+                    read = read_text_prefix(
+                        path, max_chars=self._search_settings.resource_max_chars
+                    )
+                    text = read.text
+                    if "@" in ref and relative.endswith("/SKILL.md"):
+                        title = parse_home_skill_metadata(
+                            text[: SKILL_FRONTMATTER_MAX_CHARS + 1],
+                            link=HomeTopLink.parse(ref.partition("#")[0]),
+                        ).title
+                    if "\x00" in text:
+                        raise UnicodeError("Binary resource")
+                    if read.truncated:
+                        coverage = ContentCoverage.EXCERPT
+                        complete = complete and isinstance(source, DirectorySource)
+                    first, last = fragment_range(text, fragment)
+                    selected = "".join(text.splitlines(keepends=True)[first - 1 : last])
+                    resource_units = content_units(resource, selected, first_line=first)
+                except UnicodeError:
+                    if fragment:
+                        raise SearchFailure(
+                            SearchFailureKind.INVALID_REQUEST,
+                            "Non-text Home resource has no text fragment",
+                        )
+                    resource_units = (
+                        ContentUnit(resource, resource, path.name, "metadata"),
+                    )
+                    coverage = (
+                        ContentCoverage.METADATA
+                        if len(resources) == 1
+                        else ContentCoverage.EXCERPT
+                    )
+                    text = ""
+                except OSError as exc:
+                    raise AgentHomeIOError("Home search source cannot be read") from exc
+                units.extend(resource_units)
+                if anchor is not None:
+                    lines = text.splitlines(keepends=True)
+                    for link in markdown_references(text):
+                        try:
+                            target = references.resolve(
+                                relative_reference(
+                                    link.target, source_path=relative, prefix="home:"
+                                )
+                            )
+                        except ReferenceError:
+                            continue
+                        if target.matches(anchor):
+                            start = sum(len(line) for line in lines[: link.line - 1])
+                            hits.extend(
+                                range_evidence(
+                                    resource_units,
+                                    start,
+                                    start + len(lines[link.line - 1]),
+                                    kind=EvidenceKind.REFERENCE,
+                                    relation="markdown_link",
+                                )
+                            )
+            if not complete:
+                break
+            if anchor is not None and not hits:
+                continue
+            candidates.append(
+                SearchCandidate(
+                    ref, title, tuple(units), attributes, tuple(hits), coverage
+                )
             )
         return SearchCorpus(tuple(candidates), query, scanned, complete)
 

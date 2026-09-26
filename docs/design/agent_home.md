@@ -12,7 +12,7 @@ Home 顶层内容、skill 和渐进资源在真正使用前透明物化到 `runt
 
 Agent Home 模块负责 TinySoul 的持久化身份规约、用户偏好、通用技能和领域/动作技能。它是 `home:` 链接的唯一语义归属方，不是 `memory:` 链接或长期日期记忆的归属方。
 
-Home Action 通过 HomeService 调用有界 owner 操作，ServiceScope 复用 Action 的 JoinedOperations；取消不丢弃已启动的修改，真实结果先交给 runner 记录。Home 搜索由 owner 交付 effective 来源和证据，再按已登记 SearchPolicy 执行可选模型排序或选择；模型调用属于检索操作边界，不绕过 Action/owner，也不在读取已取消后继续调用模型。
+Home Action 通过 HomeService 调用有界 owner 操作，ServiceScope 复用 Action 的 JoinedOperations；取消不丢弃已启动的修改，真实结果先交给 runner 记录。Home 搜索由 owner 交付 effective 来源和证据，再按已登记 RetrievalPolicy 执行可选模型排序或选择；模型调用属于检索操作边界，不绕过 Action/owner，也不在读取已取消后继续调用模型。
 
 Agent Home 不维护 Turn 内 Context 状态，不驱动 Loop，也不管理 workspace 或 Memory 文件。它向 User Context 提供 effective Home，向 Loop 提供领域 skill，向 Action 内部 LLM task 提供领域/动作 skill，并向 Action 提供普通 runtime mutation；Reflection-owned actual Home provider 不属于 Home 主线。Home owner 只公开中性的 `HomeReviewService` 与 review/resolve/remove overlay 门面，不拥有 Reflection task、reviewer、时钟、scheduler 或 Reflection Turn。
 
@@ -224,9 +224,9 @@ prompt mount create/delete action。文件存在但编码损坏、不可读或�
 
 `home.search` 覆盖 effective Home 的 agent/skills 全部可读资源，不检索局部自动挂载的 `skills_domain`/`skills_action`。普通 Skill 证据按实际所属 top 聚合，其他资源保留 resource 身份；反链返回实际 source resource。Engine 先按统一 effective view 解析来源，tombstone 不进入目录；这个过程不创建 runtime copy、overlay record 或 Background entry。
 
-Home owner 构造有界来源和原始行定位，Skill 标题复用 frontmatter metadata。query discovery 的 lexical 与 Embedding 独立覆盖来源后融合，nested resource 的命中证据保留实际 resource ref，再按所属 Skill top 聚合。通用 search/inspect 在 User 和两个 Reflection 情景中都读取 effective view，复用同一可重建向量缓存；Reflection 的 actual Background 与 baseline/diff 保持独立，客户端由 generation ModelServices 共享。
+Home owner 构造有界来源和原始行定位，Skill 标题复用 frontmatter metadata。query/directory 先按 Skill top 聚合资源及 resource_types，再判定资格；lexical 与 Embedding 独立处理合格候选后融合，nested resource 的命中仍保留实际 resource ref。通用 search/inspect 在 User 和两个 Reflection 情景中都读取 effective view，复用同一可重建向量缓存；Reflection 的 actual Background 与 baseline/diff 保持独立，客户端由 generation ModelServices 共享。
 
-`directory`/`refs` 来源不会隐藏预筛；需要内容相关性时由 Stage2 显式组合 `select` 或 `rerank`。consumer binding 选择具体实现和模型用途，Action 选择是否准备当前 Context。rerank 保留全部候选，select 可以返回空集合。Search 返回 links、真实内容预览、有界 evidence 和稳定分页，不自动加载 Background。
+`refs` 精确读取指定入口与 fragment，Skill top 只读 SKILL.md；要继续处理此前发现的深层聚合，使用 result。`directory`/`refs` 来源不会隐藏预筛；需要内容相关性时由 Stage2 显式组合 `select` 或 `rerank`。consumer binding 选择具体实现和模型用途，Action 选择是否准备当前 Context。rerank 保留全部候选，select 可以返回空集合。Search 返回 links、真实内容预览、有界 evidence 和稳定分页，不自动加载 Background。
 
 Home Link、effective overlay 和来源归属由 Home owner 解释，Infra 不解释这些业务概念。Home 没有日归属，不以文件修改时间推断引用日期；Workspace 目标由该 owner 解析当前日身份。Memory 的 search/inspect 与持久文档写入属于 Memory owner。
 

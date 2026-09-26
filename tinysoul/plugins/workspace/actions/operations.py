@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from tinysoul.kernel.action.tasks import ActionTaskFactory, ActionTaskOutput
-from tinysoul.kernel.loop.phases import LLMRunner
-from tinysoul.llm.protocol.responses import AnswerFormat
+from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.kernel.action import (
     ActionExecution,
     ActionExecutionContext,
@@ -12,22 +10,26 @@ from tinysoul.kernel.action import (
     ActionResult,
     ActionTraceProjection,
 )
+from tinysoul.kernel.action.tasks import ActionTaskFactory, ActionTaskOutput
 from tinysoul.kernel.context import PromptBlock, PromptReferenceError, TaskPrompt
-from tinysoul.infra.concurrency import JoinedOperations
-from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.kernel.loop.phases import LLMRunner
+from tinysoul.kernel.retrieval.contracts import (
+    ModelStep,
+    SearchContext,
+    SearchFailure,
+)
 from tinysoul.kernel.retrieval.requests import parse_retrieval_request
-from tinysoul.kernel.retrieval.contracts import SearchFailure, RetrievalRequest, SearchContext, ModelStep
-from ..services import WorkspaceService
+from tinysoul.llm.protocol.responses import AnswerFormat
+
 from ..errors import WorkspaceContractError, WorkspaceError
-from ..runtime_bridge import RuntimeWorkspaceBridge
 from ..inspection.models import WorkspaceTextRangeResult
-from ..inspection.search import WorkspaceSearchScope, WorkspaceSearchScopeKind
 from ..inspection.text import WorkspaceTextPosition
+from ..prompts import WorkspacePromptReferenceResolver
+from ..runtime_bridge import RuntimeWorkspaceBridge
+from ..services import WorkspaceService
 from ..storage.manifest import WorkspaceResourceRecord, WorkspaceTag
 from ..storage.mutations import WorkspaceTextEdit
-from ..prompts import WorkspacePromptReferenceResolver
-
-from .results import _success, _failed
+from .results import _failed, _success
 
 
 class WorkspaceExecutor(ActionExecutor):
@@ -135,21 +137,21 @@ class WorkspaceExecutor(ActionExecutor):
         if action == "workspace.search":
             if not workspace.retrieval_policies:
                 raise WorkspaceContractError("Workspace Search is not configured")
-            request = parse_retrieval_request(
-                params, workspace.retrieval_policies[0]
-            )
+            request = parse_retrieval_request(params, workspace.retrieval_policies[0])
             if isinstance(request, str):
-                page = await workspace.search_retrieval(request)
+                page = await workspace.search(request)
             else:
                 use_context = any(
-                    isinstance(step, ModelStep) and step.context is SearchContext.CURRENT for step in request.steps
+                    isinstance(step, ModelStep)
+                    and step.context is SearchContext.CURRENT
+                    for step in request.steps
                 )
                 inputs = await self._tasks.selection_input(
                     execution,
                     include_context=use_context,
                     control=context.control,
                 )
-                page = await workspace.search_retrieval(request, inputs=inputs)
+                page = await workspace.search(request, inputs=inputs)
             return _success(
                 execution,
                 page.to_json(),
@@ -463,34 +465,3 @@ def _position_payload(position: WorkspaceTextPosition | None) -> JsonObject | No
     if position is None:
         return None
     return {"line": position.line, "column": position.column}
-
-
-def _search_scope(value: object) -> WorkspaceSearchScope:
-    if not isinstance(value, dict):
-        raise WorkspaceContractError("Workspace search scope must be an object")
-    kind_value = value.get("kind")
-    if not isinstance(kind_value, str):
-        raise WorkspaceContractError("Workspace search scope requires a kind")
-    try:
-        kind = WorkspaceSearchScopeKind(kind_value)
-    except ValueError as exc:
-        raise WorkspaceContractError(
-            f"Unknown Workspace search scope kind: {kind_value}"
-        ) from exc
-    expected_keys = {"kind", "locator"}
-    if set(value) != expected_keys:
-        raise WorkspaceContractError(
-            f"Workspace search scope must contain exactly {sorted(expected_keys)}"
-        )
-    locator = value.get("locator")
-    if not isinstance(locator, str):
-        raise WorkspaceContractError("Workspace search scope locator must be a string")
-    if kind is WorkspaceSearchScopeKind.WORKSPACE and locator:
-        raise WorkspaceContractError(
-            "Workspace-wide search scope locator must be empty"
-        )
-    if kind is not WorkspaceSearchScopeKind.WORKSPACE and not locator:
-        raise WorkspaceContractError(
-            f"Workspace {kind.value} search scope locator must be non-empty"
-        )
-    return WorkspaceSearchScope(kind=kind, locator=locator)

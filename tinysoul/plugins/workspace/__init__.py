@@ -11,6 +11,14 @@ from .config import (
     parse_workspace_settings,
 )
 from .engine import WorkspaceArchiveView, WorkspaceEngine, WorkspaceEngineBuilder
+from .errors import (
+    WorkspaceContractError,
+    WorkspaceError,
+    WorkspaceImageValidationError,
+    WorkspaceInvariantError,
+    WorkspaceIOError,
+    WorkspaceReconciliationError,
+)
 from .inspection.models import (
     WorkspaceAnalysisBudgetFailure,
     WorkspaceAnalysisBudgetReason,
@@ -23,47 +31,31 @@ from .inspection.models import (
     WorkspaceDocumentRead,
     WorkspaceImageRead,
     WorkspacePromptInput,
-    WorkspaceTextRead,
     WorkspaceTextRangeResult,
+    WorkspaceTextRead,
     WorkspaceTextSlice,
 )
-from .storage.mutations import WorkspaceTextEdit
-from .errors import (
-    WorkspaceContractError,
-    WorkspaceError,
-    WorkspaceImageValidationError,
-    WorkspaceIOError,
-    WorkspaceInvariantError,
-    WorkspaceReconciliationError,
-)
+from .inspection.text import WorkspaceTextPosition, WorkspaceTextRangeRead
 from .links import WorkspaceLink
+from .projection import (
+    WorkspaceTurnPreparationHandler,
+    workspace_refresh_signal,
+)
+from .prompts import WorkspacePromptReferenceResolver
 from .storage.manifest import (
-    WorkspaceTag,
     WorkspaceManifest,
     WorkspaceResourceKind,
     WorkspaceResourceRecord,
+    WorkspaceTag,
 )
+from .storage.mutations import WorkspaceTextEdit
 from .storage.reconcile import (
     WorkspaceDiscoverySkip,
     WorkspaceDiscoverySkipKind,
     WorkspaceReconcileResult,
     WorkspaceReconcileStatus,
 )
-from .projection import (
-    WorkspaceTurnPreparationHandler,
-    workspace_refresh_signal,
-)
-from .prompts import WorkspacePromptReferenceResolver
-from .inspection.search import (
-    WorkspaceSearchCoverage,
-    WorkspaceSearchFragment,
-    WorkspaceSearchLineHint,
-    WorkspaceSearchScope,
-    WorkspaceSearchScopeKind,
-    WorkspaceTextSearchResult,
-)
 from .storage.trash import WorkspaceTrashItem
-from .inspection.text import WorkspaceTextPosition, WorkspaceTextRangeRead
 
 __all__ = [
     "WorkspaceTag",
@@ -100,17 +92,11 @@ __all__ = [
     "WorkspaceResourceRecord",
     "WorkspaceSettings",
     "WorkspaceSearchSettings",
-    "WorkspaceSearchCoverage",
-    "WorkspaceSearchFragment",
-    "WorkspaceSearchLineHint",
-    "WorkspaceSearchScope",
-    "WorkspaceSearchScopeKind",
     "WorkspaceTextRead",
     "WorkspaceTextPosition",
     "WorkspaceTextRangeRead",
     "WorkspaceTextRangeResult",
     "WorkspaceTextSlice",
-    "WorkspaceTextSearchResult",
     "WorkspaceTurnPreparationHandler",
     "workspace_refresh_signal",
     "WorkspaceTrashItem",

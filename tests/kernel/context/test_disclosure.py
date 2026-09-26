@@ -2,17 +2,47 @@ from datetime import date
 
 import pytest
 
-from tinysoul.infra.json import JsonObject
+from tinysoul.infra.references import ReferenceResolver
 from tinysoul.kernel.context import ContextEngineBuilder, build_trace_phase_note_signal
 from tinysoul.kernel.context.errors import ContextInspectRequestError
-from tinysoul.infra.references import ReferenceResolver
 from tinysoul.kernel.retrieval.contracts import (
-    RetrievalRequest, QuerySource, BacklinksSource, RefsSource, TextQuery,
-    SourceKind, OperationKind, ModelStep, SearchFailure,
+    OperationKind,
+    QuerySource,
+    RetrievalRequest,
+    SourceKind,
+    TextQuery,
 )
 from tinysoul.kernel.retrieval.operations import SearchSession
 from tinysoul.kernel.retrieval.policy import RetrievalPolicy
 from tinysoul.runtime import RunLevel, RunScope, SignalBus
+
+
+def test_context_date_filter_uses_installed_fact_dates():
+    from tinysoul.kernel.context.disclosure import DisclosureSearchEntry
+    from tinysoul.kernel.context.search import disclosure_corpus
+    from tinysoul.kernel.retrieval.contracts import DirectorySource
+
+    entries = tuple(
+        DisclosureSearchEntry(
+            f"session:day-{day}",
+            "turn",
+            {"text": "original interaction"},
+            "session",
+            day=date(2026, 9, day),
+        )
+        for day in (20, 21)
+    )
+    corpus = disclosure_corpus(
+        entries,
+        RetrievalRequest(
+            DirectorySource(
+                "session", {"day": {"after": "2026-09-20", "before": "2026-09-22"}}
+            ),
+        ),
+        ReferenceResolver(),
+    )
+    assert [item.ref for item in corpus.candidates] == ["session:day-21"]
+    assert "original interaction" in corpus.candidates[0].content_units[0].text
 
 
 async def test_trace_navigation_query_and_stable_refs_across_folding() -> None:
@@ -54,9 +84,19 @@ async def test_trace_navigation_query_and_stable_refs_across_folding() -> None:
 
     request = RetrievalRequest(QuerySource("trace", TextQuery("evidence-7:")))
     corpus = await context.search_corpus(request, references=ReferenceResolver())
+
     async def source(_request):
         return corpus
-    page = await SearchSession(action_id="core.context.search", retrieval_policies=(RetrievalPolicy("core.context.search", tuple(SourceKind), tuple(OperationKind)),), source=source).search(request)
+
+    page = await SearchSession(
+        action_id="core.context.search",
+        retrieval_policies=(
+            RetrievalPolicy(
+                "core.context.search", tuple(SourceKind), tuple(OperationKind)
+            ),
+        ),
+        source=source,
+    ).search(request)
     assert page.items[0].ref == fact_ref
     assert await context.inspect(page.items[0].ref) == before
 

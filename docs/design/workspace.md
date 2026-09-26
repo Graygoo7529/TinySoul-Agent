@@ -42,11 +42,11 @@ Trash 条目保存原身份、说明、标签、子项元数据和内容。内�
 
 小文本可以完整读取，大文本按显式行范围和 continuation 渐进读取，结果标明覆盖与截断。continuation 表达同一读取请求的下一位置，不锁定文件版本；外部改写后分页可能看到新内容。编码、图像真实格式、字节大小和模型图像能力均在各自入口校验；二进制资源不自动注入语境。
 
-search 明确区分文件、目录前缀和整个 Workspace。字符扫描、候选、片段与结果总大小各有预算，返回覆盖原因和紧凑行定位。正则使用 regex 的超时执行能力，每次搜索共享 0.2 秒匹配预算；超时报告不完整覆盖，不能当作零命中。搜索经 joined owner 边界执行，不阻塞事件循环。
+search 明确区分文件、目录前缀和整个 Workspace。来源字符预算、共享候选快照预算、模型输入及页面预算各自归其 owner；实际文件读取经 joined owner 边界执行。原生 matcher 在原始正文逐行做 literal/regex 匹配，跨内容单元的文本不丢失，casefold 后的命中仍映射回原文行列。正则共享一次 0.2 秒匹配预算；超时或来源超预算返回 scope_required，不能当作零命中。SDK 与 Action 只使用同一 search 服务，不在 matcher 内按展示数量提前截掉候选。
 
 read/search 的有界正文可在当前交互暂时展开，后续 Trace 折叠为紧凑定位事实。正文不进入 Working 或持久 Session 的资源摘要。LLM 内部任务通过 target_link/reference_links 局部读取，Phase2 只生成 Link 和意图。
 
-`workspace.search` 使用 `query`、`directory`、`refs`、`backlinks`、`result` 来源，并可组合 `filter`、LLM/JEV `select` 与 `rerank`。query 保留 literal/regex 与文件/目录范围；backlinks 扫描当前 Workspace Markdown 的真实链接，可接收跨 owner anchor，返回源文件和行证据。文件资格由标签/类型筛选，扫描超预算明确报告不完整覆盖；Workspace 不建立隐式 Embedding 索引。共享 SearchSession 保存完整结果快照，按 Turn 或 SDK 日 lease 隔离。
+`workspace.search` 使用 `query`、`directory`、`refs`、`backlinks`、`result` 来源，并可组合 `filter`、LLM/JEV `select` 与 `rerank`。query 保留 literal/regex 与文件/目录范围；backlinks 扫描当前 Workspace Markdown 的真实链接，可接收跨 owner anchor，返回源文件和行证据。文件资格由标签/类型/日期筛选，与 exclude_refs 一起在正文读取前处理；Workspace 不建立隐式 Embedding 索引。共享 SearchSession 保存完整结果快照，按 Turn 或 SDK 日 lease 隔离。
 
 compose 合并新建与替换生成。已有目标必须完整读入允许的写入预算；目标截断时在调用模型前失败，引导改用 edit/append。模型输出不完整、超限或取消时不提交。完整文本在 Action 内存中交给 owner，成功只返回元数据。生成期间不持文件锁，最终也不比较来源版本。analyze 消费明确有界来源，结论通过所属结果协议校验。
 

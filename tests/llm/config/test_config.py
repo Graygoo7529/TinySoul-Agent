@@ -5,14 +5,14 @@ from typing import cast
 
 import pytest
 
+from tests.support.project import copy_initialized_project
 from tinysoul.gateway.project.initializer import ProjectConfigProfile
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
-from tinysoul.llm.protocol.adapter_types import AdapterKind
 from tinysoul.llm.config.loader import LLMConfigParser, ProviderCredentialState
+from tinysoul.llm.protocol.adapter_types import AdapterKind
 from tinysoul.llm.protocol.models import ModelCapability
-from tinysoul.llm.provider.factory import build_provider_registry
 from tinysoul.llm.protocol.reasoning import ReasoningKeep
-from tests.support.project import copy_initialized_project
+from tinysoul.llm.provider.factory import build_provider_registry
 
 
 def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
@@ -56,7 +56,7 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
 
     frame_stage1 = config.tasks.get("frame_stage1").chain
     config.tasks.get("frame_stage2")
-    config.tasks.get("memory_daily")
+    assert not config.tasks.has("memory_daily")
     policy = frame_stage1.retry_policy
     assert policy.max_retries_per_provider == 1
     assert policy.provider_switch_wait_seconds == pytest.approx(0.0)
@@ -167,9 +167,9 @@ def test_task_rejects_invalid_answer_format() -> None:
             "providers": [{"provider": "fake", "provider_model": "model"}],
         },
     )
-    cast(dict[str, dict[str, object]], tree["tasks"])["framework"][
-        "answer_format"
-    ] = "yaml"
+    cast(dict[str, dict[str, object]], tree["tasks"])["framework"]["answer_format"] = (
+        "yaml"
+    )
     with pytest.raises(ConfigError) as error:
         LLMConfigParser().parse(tree)
     assert error.value.key == "llm.tasks.framework.answer_format"

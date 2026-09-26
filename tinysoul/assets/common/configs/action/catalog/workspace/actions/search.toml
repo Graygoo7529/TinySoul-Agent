@@ -22,8 +22,8 @@ type = "object"
 type = "string"
 
 [semantic]
-use_when = ["A term, identifier, or regex pattern should be located in a known file, directory, or the current Workspace", "Source line hints and nearby fragments are useful"]
-avoid_when = ["The exact line range is already known", "A semantic interpretation rather than literal matching is required"]
+use_when = ["Discover Workspace resources with literal/regex query, directory, or real backlinks", "Select or rerank real candidate content using a criterion and optional Context"]
+avoid_when = ["Read a known exact text range without candidate operations; use workspace.read"]
 effects = ["read_only"]
 examples = ["Search the workspace:tinysoul/workspace/ directory for WorkspaceContractError"]
 

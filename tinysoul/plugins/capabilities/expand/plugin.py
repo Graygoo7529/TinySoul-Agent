@@ -1,39 +1,39 @@
 """MCP generation ownership and profile action contribution."""
 
-from tinysoul.kernel.action.models import (
-    ModelUseDescriptor,
-    ModelOperation,
-    ModelImplementation,
-    ModelUseRegistry,
-)
-from tinysoul.kernel.action.config import ActionSettings
-from tinysoul.infra.model_services import ModelServices
-from tinysoul.kernel.retrieval.policy import SearchCapability
-from tinysoul.kernel.retrieval.contracts import (
-    SourceKind,
-    OperationKind,
-)
-from tinysoul.kernel.retrieval.operations import SearchSession
-from tinysoul.kernel.retrieval.selection import CandidateSelector
 from dataclasses import dataclass
 from functools import partial
-from tinysoul.kernel.registration import PluginTurnResource
 
 from tinysoul.infra.concurrency import CleanupDiagnostic
+from tinysoul.infra.model_services import ModelServices
 from tinysoul.infra.process import ManagedProcessCloseError
+from tinysoul.kernel.action.config import ActionSettings
+from tinysoul.kernel.action.models import (
+    ModelImplementation,
+    ModelOperation,
+    ModelUseDescriptor,
+    ModelUseRegistry,
+)
 from tinysoul.kernel.registration import (
     GenerationBuildContext,
     PluginConfig,
     PluginGeneration,
     PluginProfileExtension,
+    PluginTurnResource,
     ProfileBuildContext,
     ProfileKind,
 )
+from tinysoul.kernel.retrieval.contracts import (
+    OperationKind,
+    SourceKind,
+)
+from tinysoul.kernel.retrieval.operations import SearchSession
+from tinysoul.kernel.retrieval.policy import SearchCapability
+from tinysoul.kernel.retrieval.selection import CandidateSelector
 from tinysoul.plugins.workspace.services import WorkspaceExecutionService
 
-from .config import ExpandSettings, parse_expand_settings, validate_expand_bindings
-from .engine import ExpandEngine
 from .actions import register_expand_actions
+from .config import ExpandSettings, parse_expand_settings, validate_expand_bindings
+from .engine import MCP_SEARCH_FILTERS, ExpandEngine
 from .runtime_bridge import RuntimeExpandBridge
 
 
@@ -41,7 +41,19 @@ from .runtime_bridge import RuntimeExpandBridge
 class ExpandPlugin:
     id = "expand"
     search_capabilities = (
-        SearchCapability("expand.search", (SourceKind.QUERY, SourceKind.DIRECTORY, SourceKind.REFS, SourceKind.RESULT), tuple(OperationKind), filters=("server_id", "tool_name"), server_scope=True, lexical_syntax=True),
+        SearchCapability(
+            "expand.search",
+            (
+                SourceKind.QUERY,
+                SourceKind.DIRECTORY,
+                SourceKind.REFS,
+                SourceKind.RESULT,
+            ),
+            tuple(OperationKind),
+            filters=MCP_SEARCH_FILTERS,
+            server_scope=True,
+            lexical_syntax=True,
+        ),
     )
     model_uses = (
         ModelUseDescriptor(
@@ -94,13 +106,12 @@ class ExpandPlugin:
             queries = SearchSession(
                 observations=context.observations,
                 action_id="expand.search",
-                retrieval_policies=context.settings.get(ActionSettings).retrieval_policies,
-                source=partial(
-                    engine.search_corpus,
-                    page_budget=engine.settings.max_inline_chars,
-                ),
+                retrieval_policies=context.settings.get(
+                    ActionSettings
+                ).retrieval_policies,
+                source=engine.search_corpus,
                 selector=selector,
-                supported_filters=frozenset({"server_id", "tool_name"}),
+                filters=MCP_SEARCH_FILTERS,
             )
             return PluginProfileExtension(
                 self.id,

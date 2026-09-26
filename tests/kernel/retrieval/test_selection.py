@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
-import asyncio
 from dataclasses import replace
 from pathlib import Path
 
@@ -28,15 +28,16 @@ from tinysoul.kernel.action.models import (
     ModelUseRegistry,
 )
 from tinysoul.kernel.retrieval.contracts import (
+    ContentCoverage,
+    ContentUnit,
+    EvidenceKind,
+    OperationKind,
     SearchCandidate,
-    SearchEvidence,
     SearchFailure,
     SearchFailureKind,
-    OperationKind,
 )
 from tinysoul.kernel.retrieval.selection import CandidateSelector
-from tinysoul.llm.protocol.responses import TaskResult, RawResponse, JsonAnswer
-
+from tinysoul.llm.protocol.responses import JsonAnswer, RawResponse, TaskResult
 
 SAMPLES = (
     (
@@ -84,7 +85,7 @@ SAMPLES = (
 
 def candidates(rows):
     return tuple(
-        SearchCandidate(ref, title, (SearchEvidence(ref, text),))
+        SearchCandidate(ref, title, (ContentUnit(ref, ref, text),))
         for ref, title, text in rows
     )
 
@@ -139,9 +140,89 @@ async def unused_invoke(call):
     raise AssertionError("A structured decision binding must not invoke LLM")
 
 
+async def test_repeated_model_steps_link_search_observations_to_distinct_tasks():
+    from tinysoul.kernel.retrieval.contracts import (
+        DirectorySource,
+        ModelStep,
+        RetrievalRequest,
+        SourceKind,
+    )
+    from tinysoul.kernel.retrieval.operations import SearchCorpus, SearchSession
+    from tinysoul.kernel.retrieval.policy import RetrievalPolicy
+    from tinysoul.runtime import ObservationEvent, ObservationLevel
+
+    class Observations:
+        def __init__(self):
+            self.events: list[ObservationEvent] = []
+
+        def enabled(self, level: ObservationLevel) -> bool:
+            return True
+
+        def emit(self, event: ObservationEvent) -> None:
+            self.events.append(event)
+
+    calls = []
+
+    async def invoke(call):
+        calls.append(call)
+        return TaskResult.success(
+            raw_response=RawResponse("{}", "model", "provider"),
+            answer=JsonAnswer({"items": [{"id": "c0", "basis_ids": ["u0"]}]}),
+            tool_calls=(),
+        )
+
+    async def source(request):
+        return SearchCorpus(candidates(SAMPLES[0][2][:1]), "", 1)
+
+    observations = Observations()
+    services = ModelServices(ModelServicesSettings(), env={})
+    session = SearchSession(
+        action_id="home.search",
+        retrieval_policies=(
+            RetrievalPolicy("home.search", tuple(SourceKind), tuple(OperationKind)),
+        ),
+        source=source,
+        selector=CandidateSelector(
+            models=registry("home.search", ModelImplementation.LLM_TASK),
+            invoke=invoke,
+            services=services,
+        ),
+        observations=observations,
+    )
+    page = await session.search(
+        RetrievalRequest(
+            DirectorySource("all"),
+            (
+                ModelStep(OperationKind.RERANK, "first criterion"),
+                ModelStep(OperationKind.RERANK, "new criterion"),
+            ),
+        )
+    )
+    invoked = [
+        event.payload
+        for event in observations.events
+        if event.name == "retrieval.model.invoked"
+    ]
+    completed = [
+        event.payload
+        for event in observations.events
+        if event.name == "retrieval.step.completed"
+    ]
+    assert [item["step_index"] for item in invoked] == [0, 1]
+    assert [item["task_id"] for item in invoked] == [call.task_id for call in calls]
+    assert len({item["task_id"] for item in invoked}) == 2
+    assert len({item["search_id"] for item in (*invoked, *completed)}) == 1
+    assert [item["step_index"] for item in completed] == [0, 1]
+    evaluation = page.items[0].candidate.evaluation
+    assert evaluation is not None and evaluation.step_index == 1
+    await services.close()
+
+
 async def test_llm_selection_accepts_only_known_unique_subset_and_rank_requires_permutation():
     action, query, rows = SAMPLES[0]
-    answer: JsonObject = {"ids": ["c1", "c0"]}
+    answer: JsonObject = {
+        "items": [{"id": "c1", "basis_ids": []}, {"id": "c0", "basis_ids": ["u0"]}]
+    }
     calls = []
 
     async def invoke(call):
@@ -167,7 +248,9 @@ async def test_llm_selection_accepts_only_known_unique_subset_and_rank_requires_
     assert [item.ref for item in ranked] == [rows[1][0], rows[0][0]]
     assert calls[0].consumer == f"{action}.rerank"
     for invalid in (["c0"], ["c0", "c0"], ["unknown"]):
-        answer["ids"] = to_json_value(invalid)
+        answer["items"] = to_json_value(
+            [{"id": key, "basis_ids": []} for key in invalid]
+        )
         with pytest.raises(SearchFailure):
             await selector.apply(
                 consumer=f"{action}.rerank",
@@ -175,7 +258,7 @@ async def test_llm_selection_accepts_only_known_unique_subset_and_rank_requires_
                 candidates=candidates(rows),
                 operation=OperationKind.RERANK,
             )
-    answer["ids"] = []
+    answer["items"] = []
     assert (
         await selector.apply(
             consumer=f"{action}.select",
@@ -194,6 +277,101 @@ async def test_llm_selection_accepts_only_known_unique_subset_and_rank_requires_
             input_max_chars=1,
         )
     assert failure.value.kind is SearchFailureKind.SCOPE_REQUIRED
+    await services.close()
+
+
+async def test_llm_basis_can_only_reference_actual_input_and_preserves_snapshot():
+    item = SearchCandidate(
+        "home:skills@test",
+        "Test",
+        (ContentUnit("body", "home:skills/test/deep.md", "visible " * 1000),),
+    )
+    answer: JsonObject = {"items": [{"id": "c0", "basis_ids": ["u0"]}]}
+    calls = []
+
+    async def invoke(call):
+        calls.append(call)
+        return TaskResult.success(
+            raw_response=RawResponse("{}", "model", "provider"),
+            answer=JsonAnswer(answer),
+            tool_calls=(),
+        )
+
+    services = ModelServices(ModelServicesSettings(), env={})
+    selector = CandidateSelector(
+        models=registry("home.search", ModelImplementation.LLM_TASK),
+        invoke=invoke,
+        services=services,
+    )
+
+    async def select():
+        return await selector.apply(
+            consumer="home.search.select",
+            operation=OperationKind.SELECT,
+            query="find relevant material",
+            candidates=(item,),
+        )
+
+    selected = await select()
+    assert len(calls) == 1 and selected[0].content_units == item.content_units
+    evaluation = selected[0].evaluation
+    assert evaluation and evaluation.input_coverage is ContentCoverage.EXCERPT
+    assert (
+        evaluation.basis[0].kind is EvidenceKind.MODEL
+        and evaluation.basis[0].end == 4000
+    )
+    answer["items"] = [{"id": "c0", "basis_ids": ["body"]}]
+    with pytest.raises(SearchFailure) as failure:
+        await select()
+    assert failure.value.kind is SearchFailureKind.OPERATION_FAILED
+    answer["items"] = [{"id": "c0", "basis_ids": []}]
+    selected = await select()
+    assert selected[0].evaluation and not selected[0].evaluation.basis
+    await services.close()
+
+
+async def test_embedding_step_retains_its_contribution_and_actual_full_input():
+    from tests.kernel.retrieval.test_search import Vectors
+
+    models = ModelUseRegistry(
+        (
+            ModelUseDescriptor(
+                "home.search.rerank",
+                "home.search",
+                ModelOperation.RERANK,
+                (ModelImplementation.EMBEDDING_SIMILARITY,),
+                embedding_owner="home",
+            ),
+        ),
+        (
+            ModelUseBinding(
+                "home.search.rerank", ModelImplementation.EMBEDDING_SIMILARITY
+            ),
+        ),
+    )
+    services = ModelServices(ModelServicesSettings(), env={})
+    item = SearchCandidate(
+        "home:skills@test",
+        "Test",
+        (
+            ContentUnit("intro", "intro", "introduction " * 400),
+            ContentUnit("hit", "deep", "automobile instructions"),
+        ),
+    )
+    selector = CandidateSelector(models=models, invoke=unused_invoke, services=services)
+    result = await selector.apply(
+        consumer="home.search.rerank",
+        operation=OperationKind.RERANK,
+        query="car",
+        candidates=(item,),
+        embedding=Vectors(),
+    )
+    evaluation = result[0].evaluation
+    assert evaluation and evaluation.input_coverage is ContentCoverage.FULL
+    assert evaluation.basis[0].unit_id == "hit" and evaluation.score == 0.9
+    from tinysoul.kernel.retrieval.disclosure import project_candidate
+
+    assert "automobile" in project_candidate(result[0], 1000).fragments[0].text
     await services.close()
 
 
@@ -298,10 +476,10 @@ async def test_real_llm_representative_retrieval_quality(tmp_path: Path):
     from tinysoul.infra.config import ConfigEnvironment
     from tinysoul.infra.config.sources.dotenv import DotenvSource
     from tinysoul.llm.config.loader import LLMConfigParser
-    from tinysoul.llm.execution.registry import ModelRegistry
     from tinysoul.llm.execution.model_chain import TaskSpecTable
+    from tinysoul.llm.execution.registry import ModelRegistry
     from tinysoul.llm.execution.task import LLMTaskRunner
-    from tinysoul.llm.protocol.routing import TaskSpec, ModelChain, RetryPolicy
+    from tinysoul.llm.protocol.routing import ModelChain, RetryPolicy, TaskSpec
     from tinysoul.llm.provider.factory import build_provider_registry
 
     root = tmp_path / "project"

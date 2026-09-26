@@ -75,7 +75,7 @@ Phase3 不保留长期运行或 ongoing Action。正常完成以成功、失败�
 
 ActionExecutor 统一提供异步执行入口。runner 拥有已启动任务直到其收敛：Action deadline 取消异步 I/O 并生成 timeout；Turn 取消保持取消身份。短本地 owner 调用通过 JoinedOperations 保留并等待 worker 结果，结果先交付 Trace，再传播取消；迟到的真实成功不改写为超时。
 
-Home、Memory 与 Workspace Action 通过注入的 async Service 调用 owner；短文件操作由 ServiceScope 复用 Action 的 JoinedOperations，结果和通知先交付执行事实，再由 runner 传播取消。Workspace 的混合动作分为有界读取、异步模型任务、owner 提交；提交包含 Workspace snapshot 通知。Home 搜索由 owner 提供 effective 候选，再按登记的 SearchPolicy 执行模型排序或选择。Reflection 使用按用途授权的写服务，长进程使用受控进程机制；不把含网络或长期进程工作的整个 executor 投入线程适配。
+Home、Memory 与 Workspace Action 通过注入的 async Service 调用 owner；短文件操作由 ServiceScope 复用 Action 的 JoinedOperations，结果和通知先交付执行事实，再由 runner 传播取消。Workspace 的混合动作分为有界读取、异步模型任务、owner 提交；提交包含 Workspace snapshot 通知。Home 搜索由 owner 提供 effective 候选，再按登记的 RetrievalPolicy 执行模型排序或选择。Reflection 使用按用途授权的写服务，长进程使用受控进程机制；不把含网络或长期进程工作的整个 executor 投入线程适配。
 
 并行组按完成就绪处理任务；同一批同时失败按提交顺序选择主失败。未知 executor 异常、非法结果身份和 trace policy 错配由 Action bridge 转为模块失败；已知业务拒绝保持局部结果。RuntimeException 与 RuntimeTransferInterrupt 保持原身份，同批工作回收后传播。执行事实独立于模型视图提交，因此部分批次失败不抹去已提交结果。runner 不保留失联线程 grace 或“泄漏后继续”策略；受控进程的停止仍由进程 owner 负责。
 

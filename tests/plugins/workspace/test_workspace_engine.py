@@ -1,43 +1,46 @@
 from __future__ import annotations
 
-from datetime import date as CalendarDate
-from tinysoul.plugins.workspace.services import WorkspaceService
-from tinysoul.plugins.workspace.projection import (
-    SIGNAL_WORKSPACE_SYNC,
-    workspace_segment_registration,
-)
-import asyncio
-
 from collections.abc import Callable
-import os
+from datetime import date as CalendarDate
 from pathlib import Path
-from typing import cast
 
 import pytest
 
-from tinysoul.kernel.action.call import ActionCall, ActionExecution
-from tinysoul.kernel.action.execution.preparation import ActionExecutionBuilder
-from tinysoul.kernel.action.catalog.catalog import ActionCatalog
-from tinysoul.kernel.action.execution.executor import ActionExecutionContext
-from tinysoul.kernel.retrieval.contracts import SourceKind, OperationKind
-from tinysoul.kernel.retrieval.operations import SearchSession
-from tinysoul.kernel.retrieval.policy import RetrievalPolicy
-from tinysoul.infra.references import ReferenceResolver
 from tests.support.model_uses import action_tasks
+from tinysoul.infra.config import ConfigError
+from tinysoul.infra.json import JsonObject
+from tinysoul.infra.references import ReferenceResolver
+from tinysoul.infra.time import CalendarDay
+from tinysoul.kernel.action.call import ActionCall, ActionExecution
+from tinysoul.kernel.action.catalog.catalog import ActionCatalog
 from tinysoul.kernel.action.catalog.specs import (
-    ActionExecutionSpec,
     ActionDomainSpec,
+    ActionExecutionSpec,
     ActionRuntimeSpec,
     ActionSemanticSpec,
     ActionSpec,
     ActionToolSpec,
 )
+from tinysoul.kernel.action.execution.executor import ActionExecutionContext
+from tinysoul.kernel.action.execution.preparation import ActionExecutionBuilder
 from tinysoul.kernel.context import (
     ContextEngineBuilder,
     PromptReferenceError,
 )
-from tinysoul.infra.config import ConfigError
-from tinysoul.infra.json import JsonObject
+from tinysoul.kernel.loop import TurnPreparationRequest
+from tinysoul.kernel.retrieval.contracts import (
+    OperationKind,
+    QuerySource,
+    ResourceScope,
+    ResourceScopeKind,
+    RetrievalRequest,
+    SearchFailure,
+    SearchFailureKind,
+    SourceKind,
+    TextQuery,
+)
+from tinysoul.kernel.retrieval.operations import SearchSession
+from tinysoul.kernel.retrieval.policy import RetrievalPolicy
 from tinysoul.llm.protocol.messages import ImagePart, TextPart, UserMessage
 from tinysoul.llm.protocol.requests import TaskCall
 from tinysoul.llm.protocol.responses import (
@@ -45,45 +48,38 @@ from tinysoul.llm.protocol.responses import (
     JsonAnswer,
     RawResponse,
     TaskFailure,
-    TaskFailureReason,
-    TaskFailureScope,
     TaskResult,
     TextAnswer,
 )
-from tinysoul.kernel.loop import TurnPreparationRequest
-from tinysoul.infra.time import CalendarDay
-from tinysoul.runtime import RunLevel, RunScope, SignalBus
-from tinysoul.plugins.workspace.runtime_bridge import RuntimeWorkspaceBridge
-import tinysoul.plugins.workspace.engine as workspace_engine_module
 from tinysoul.plugins.workspace import (
-    WorkspaceContractError,
     WorkspaceAnalysisSettings,
-    WorkspaceBundleWrite,
-    WorkspaceDiscoverySkipKind,
+    WorkspaceContractError,
     WorkspaceEngineBuilder,
     WorkspaceLink,
     WorkspaceManifest,
     WorkspacePromptInput,
     WorkspacePromptReferenceResolver,
-    WorkspaceReconciliationError,
     WorkspaceReconcileStatus,
     WorkspaceResourceKind,
-    WorkspaceSearchScope,
-    WorkspaceSearchScopeKind,
     WorkspaceSearchSettings,
     WorkspaceSettings,
+    WorkspaceTextSlice,
     parse_workspace_settings,
 )
-
-
-from tinysoul.plugins.workspace.projection import WorkspaceTurnPreparationHandler
-from tinysoul.plugins.workspace import WorkspaceTextSlice
-from tinysoul.plugins.workspace.engine import WorkspaceEngine
-from tinysoul.plugins.workspace.storage.manifest import WorkspaceManifestStore
 from tinysoul.plugins.workspace.actions import (
     WorkspaceAnalyzeExecutor,
     WorkspaceExecutor,
 )
+from tinysoul.plugins.workspace.engine import WORKSPACE_SEARCH_FILTERS, WorkspaceEngine
+from tinysoul.plugins.workspace.inspection.search import WorkspaceTextMatcher
+from tinysoul.plugins.workspace.projection import (
+    WorkspaceTurnPreparationHandler,
+    workspace_segment_registration,
+)
+from tinysoul.plugins.workspace.runtime_bridge import RuntimeWorkspaceBridge
+from tinysoul.plugins.workspace.services import WorkspaceService
+from tinysoul.plugins.workspace.storage.manifest import WorkspaceManifestStore
+from tinysoul.runtime import RunLevel, RunScope, SignalBus
 
 DAY = CalendarDay.parse("2026-07-12")
 
@@ -135,8 +131,7 @@ def test_workspace_settings_parse_search_and_analysis_tables(tmp_path: Path) -> 
         {
             "search": {
                 "max_scan_chars": 1234,
-                "max_excerpt_chars": 321,
-                "max_result_chars": 4321,
+                "max_query_chars": 321,
             },
             "analysis": {
                 "max_reference_links": 3,
@@ -148,8 +143,7 @@ def test_workspace_settings_parse_search_and_analysis_tables(tmp_path: Path) -> 
     )
 
     assert settings.search.max_scan_chars == 1234
-    assert settings.search.max_excerpt_chars == 321
-    assert settings.search.max_result_chars == 4321
+    assert settings.search.max_query_chars == 321
     assert settings.analysis.max_reference_links == 3
     assert settings.analysis.max_source_chars == 6000
     assert settings.analysis.max_chars_per_reference == 2000
@@ -163,16 +157,6 @@ def test_workspace_settings_reject_unknown_nested_key(tmp_path: Path) -> None:
         )
 
     assert exc_info.value.key == "workspace.search.semantic_provider"
-
-
-def test_workspace_search_excerpt_budget_must_contain_query() -> None:
-    with pytest.raises(ConfigError) as exc_info:
-        WorkspaceSearchSettings(
-            max_query_chars=20,
-            max_excerpt_chars=10,
-        )
-
-    assert exc_info.value.key == "workspace.search.max_excerpt_chars"
 
 
 def test_workspace_document_read_is_bounded(local_tmp: Path) -> None:
@@ -521,225 +505,120 @@ async def test_workspace_read_action_returns_foldable_text_range(
     assert "text" not in result.trace_projection.canonical_payload
 
 
-def test_workspace_search_text_scopes_directory_and_returns_fragments(
+def _search_service(engine: WorkspaceEngine) -> WorkspaceService:
+    async def source(request):
+        return engine.retrieval_corpus(request, references=ReferenceResolver())
+
+    queries = SearchSession(
+        action_id="workspace.search",
+        retrieval_policies=(
+            RetrievalPolicy(
+                "workspace.search", tuple(SourceKind), tuple(OperationKind)
+            ),
+        ),
+        source=source,
+        filters=WORKSPACE_SEARCH_FILTERS,
+        lexical=WorkspaceTextMatcher(engine.settings.search).match,
+    )
+    return WorkspaceService(engine, queries=queries)
+
+
+async def test_workspace_search_scopes_and_preserves_all_members_for_paging(
     tmp_path: Path,
-) -> None:
+):
     (tmp_path / "src").mkdir()
     (tmp_path / "src2").mkdir()
-    (tmp_path / "src" / "a.py").write_text(
-        "before\nWorkspaceContractError here\nafter\n",
-        encoding="utf-8",
-    )
-    (tmp_path / "src2" / "b.py").write_text(
-        "WorkspaceContractError elsewhere\n",
-        encoding="utf-8",
-    )
+    (tmp_path / "src/a.py").write_text("before\nneedle\nafter\n", encoding="utf-8")
+    (tmp_path / "src/b.py").write_text("needle\n", encoding="utf-8")
+    (tmp_path / "src2/c.py").write_text("needle\n", encoding="utf-8")
     engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
-    engine.reconcile()
-
-    result = engine.search(
-        query="WorkspaceContractError",
-        scope=WorkspaceSearchScope(
-            WorkspaceSearchScopeKind.DIRECTORY,
-            "workspace:src/",
-        ),
-        case_sensitive=True,
+    service = _search_service(engine)
+    page = await service.search(
+        RetrievalRequest(
+            QuerySource(
+                ResourceScope(ResourceScopeKind.DIRECTORY, "workspace:src/"),
+                TextQuery("^needle$"),
+                regex=True,
+            ),
+            page_limit=1,
+        )
     )
-
-    assert result.coverage.complete is True
-    assert result.match_line_count == 1
-    assert len(result.fragments) == 1
-    assert result.fragments[0].link == "workspace:src/a.py"
-    assert (result.fragments[0].start_line, result.fragments[0].end_line) == (1, 3)
-    assert "WorkspaceContractError here" in result.fragments[0].text
+    assert page.coverage.source_complete and page.coverage.final_count == 2
+    assert page.items[0].ref == "workspace:src/a.py"
+    assert "needle" in page.items[0].fragments[0].text
+    assert page.continuation
+    next_page = await service.search(page.continuation)
+    assert [item.ref for item in next_page.items] == ["workspace:src/b.py"]
 
 
 @pytest.mark.parametrize(
-    ("kind", "locator"),
-    (
-        (WorkspaceSearchScopeKind.FILE, "workspace:a.md"),
-        (WorkspaceSearchScopeKind.DIRECTORY, "workspace:src/"),
-        (WorkspaceSearchScopeKind.WORKSPACE, ""),
-    ),
+    ("prefix", "word", "query"),
+    [
+        ("x" * 1998, "needle", "needle"),
+        ("ß" * 700, "Needle", "needle"),
+        ("x" * 700, "Straße", "STRASSE"),
+    ],
 )
-def test_workspace_search_scope_serializes_tool_contract(
-    kind: WorkspaceSearchScopeKind,
-    locator: str,
-) -> None:
-    scope = WorkspaceSearchScope(kind, locator)
-
-    assert scope.to_json() == {"kind": kind.value, "locator": locator}
-
-
-def test_workspace_search_text_returns_line_hints_after_fragment_limit(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "a.md").write_text(
-        "needle one\nmiddle\nneedle two\n",
-        encoding="utf-8",
-    )
-    (tmp_path / "b.md").write_text("needle three\n", encoding="utf-8")
-    engine = WorkspaceEngineBuilder(
-        WorkspaceSettings(
-            root=tmp_path,
-            search=WorkspaceSearchSettings(context_lines=0, default_top_k=1),
-        )
-    ).build()
-    engine.reconcile()
-
-    result = engine.search(
-        query="needle",
-        scope=WorkspaceSearchScope(WorkspaceSearchScopeKind.WORKSPACE),
-        top_k=1,
-    )
-
-    assert len(result.fragments) == 1
-    assert [(item.link, item.line) for item in result.line_hints] == [
-        ("workspace:a.md", 3),
-        ("workspace:b.md", 1),
-    ]
-    assert result.truncated is True
-
-
-def test_workspace_search_text_reports_incomplete_scan_budget(tmp_path: Path) -> None:
-    (tmp_path / "a.md").write_text("x" * 20 + "needle", encoding="utf-8")
-    engine = WorkspaceEngineBuilder(
-        WorkspaceSettings(
-            root=tmp_path,
-            search=WorkspaceSearchSettings(max_scan_chars=10),
-        )
-    ).build()
-    engine.reconcile()
-
-    result = engine.search(
-        query="needle",
-        scope=WorkspaceSearchScope(
-            WorkspaceSearchScopeKind.FILE,
-            "workspace:a.md",
-        ),
-    )
-
-    assert result.fragments == ()
-    assert result.coverage.complete is False
-    assert result.coverage.reason == "scan_limit"
-    assert result.coverage.characters_scanned == 10
-
-
-def test_workspace_search_text_workspace_scope_centers_long_match(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "b.txt").write_text("no match", encoding="utf-8")
-    (tmp_path / "a.txt").write_text(
-        "x" * 700 + "Needle" + "z" * 700,
-        encoding="utf-8",
-    )
-    engine = WorkspaceEngineBuilder(
-        WorkspaceSettings(
-            root=tmp_path,
-            search=WorkspaceSearchSettings(
-                max_query_chars=20,
-                max_excerpt_chars=80,
-                max_result_chars=4000,
-            ),
-        )
-    ).build()
-    engine.reconcile()
-
-    result = engine.search(
-        query="needle",
-        scope=WorkspaceSearchScope(WorkspaceSearchScopeKind.WORKSPACE),
-    )
-
-    assert len(result.fragments) == 1
-    fragment = result.fragments[0]
-    assert fragment.link == "workspace:a.txt"
-    assert "Needle" in fragment.text
-    assert fragment.excerpt_truncated is True
-    assert fragment.start_column is not None
-    assert fragment.start_column > 1
-
-
-def test_workspace_search_text_casefold_excerpt_uses_original_columns(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "a.txt").write_text(
-        "ß" * 700 + "Needle" + "z" * 700,
-        encoding="utf-8",
-    )
-    engine = WorkspaceEngineBuilder(
-        WorkspaceSettings(
-            root=tmp_path,
-            search=WorkspaceSearchSettings(
-                max_query_chars=20,
-                max_excerpt_chars=80,
-                max_result_chars=4000,
-            ),
-        )
-    ).build()
-    engine.reconcile()
-
-    result = engine.search(
-        query="needle",
-        scope=WorkspaceSearchScope(WorkspaceSearchScopeKind.WORKSPACE),
-    )
-
-    fragment = result.fragments[0]
-    assert "Needle" in fragment.text
-    assert fragment.start_column is not None
-    assert fragment.start_column <= 701
-    assert fragment.end_column is not None
-    assert fragment.end_column >= 706
-
-
-def test_workspace_search_text_casefold_match_can_expand_source_character(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "a.txt").write_text(
-        "x" * 700 + "Straße" + "z" * 700,
-        encoding="utf-8",
-    )
-    engine = WorkspaceEngineBuilder(
-        WorkspaceSettings(
-            root=tmp_path,
-            search=WorkspaceSearchSettings(
-                max_query_chars=20,
-                max_excerpt_chars=80,
-                max_result_chars=4000,
-            ),
-        )
-    ).build()
-    engine.reconcile()
-
-    result = engine.search(
-        query="STRASSE",
-        scope=WorkspaceSearchScope(WorkspaceSearchScopeKind.WORKSPACE),
-    )
-
-    fragment = result.fragments[0]
-    assert "Straße" in fragment.text
-    assert fragment.start_column is not None
-    assert fragment.start_column <= 701
-    assert fragment.end_column is not None
-    assert fragment.end_column >= 706
-
-
-def test_workspace_search_text_skips_invalid_utf8_with_partial_coverage(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "a.txt").write_bytes(b"\xff\xfe")
-    (tmp_path / "b.txt").write_text("needle", encoding="utf-8")
+async def test_workspace_original_match_offsets_survive_content_partition(
+    tmp_path: Path, prefix: str, word: str, query: str
+):
+    text = prefix + word + "z" * 700
+    (tmp_path / "a.txt").write_text(text, encoding="utf-8")
     engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
-    engine.reconcile()
-
-    result = engine.search(
-        query="needle",
-        scope=WorkspaceSearchScope(WorkspaceSearchScopeKind.WORKSPACE),
+    page = await _search_service(engine).search(
+        RetrievalRequest(
+            QuerySource(
+                ResourceScope(ResourceScopeKind.FILE, "workspace:a.txt"),
+                TextQuery(query),
+            )
+        )
     )
+    candidate = page.items[0].candidate
+    units = {unit.id: unit for unit in candidate.content_units}
+    hits = candidate.evidence
+    assert "".join(units[hit.unit_id].text[hit.start : hit.end] for hit in hits) == word
+    first = hits[0]
+    offset = units[first.unit_id].location["offset"]
+    assert isinstance(offset, int) and offset + first.start == len(prefix)
+    assert page.to_json()["items"]
 
-    assert [fragment.link for fragment in result.fragments] == ["workspace:b.txt"]
-    assert result.coverage.complete is False
-    assert result.coverage.reason == "unreadable_text"
-    assert result.coverage.skipped_count == 1
+
+async def test_workspace_query_reports_read_budget_and_honors_exclusions_first(
+    tmp_path: Path,
+):
+    (tmp_path / "a.md").write_text("x" * 20 + "needle", encoding="utf-8")
+    (tmp_path / "b.md").write_text("needle", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path, search=WorkspaceSearchSettings(max_scan_chars=10)
+        )
+    ).build()
+    service = _search_service(engine)
+    source = QuerySource(
+        ResourceScope(ResourceScopeKind.WORKSPACE, ""), TextQuery("needle")
+    )
+    with pytest.raises(SearchFailure) as failure:
+        await service.search(RetrievalRequest(source))
+    assert failure.value.kind is SearchFailureKind.SCOPE_REQUIRED
+    page = await service.search(
+        RetrievalRequest(source, exclude_refs=("workspace:a.md",))
+    )
+    assert [item.ref for item in page.items] == ["workspace:b.md"]
+
+
+async def test_workspace_unreadable_text_is_not_a_complete_empty_result(tmp_path: Path):
+    from tinysoul.plugins.workspace.errors import WorkspaceIOError
+
+    (tmp_path / "a.txt").write_bytes(bytes([255, 254]))
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    with pytest.raises(WorkspaceIOError):
+        await _search_service(engine).search(
+            RetrievalRequest(
+                QuerySource(
+                    ResourceScope(ResourceScopeKind.WORKSPACE, ""), TextQuery("needle")
+                )
+            )
+        )
 
 
 async def test_workspace_search_action_returns_foldable_fragments(
@@ -1059,22 +938,8 @@ def _execution(action_name: str, params: JsonObject) -> ActionExecution:
 
 
 def _executor(engine: WorkspaceEngine) -> WorkspaceExecutor:
-    async def source(request):
-        return engine.retrieval_corpus(request, references=ReferenceResolver())
-
-    queries = SearchSession(
-        action_id="workspace.search",
-        retrieval_policies=(
-            RetrievalPolicy(
-                "workspace.search",
-                tuple(SourceKind),
-                tuple(OperationKind),
-            ),
-        ),
-        source=source,
-    )
     return WorkspaceExecutor(
-        WorkspaceService(engine, queries=queries),
+        _search_service(engine),
         action_tasks(ContextEngineBuilder(system_text="sys").build()),
         FakeLLMRunner(),
         RuntimeWorkspaceBridge(),
@@ -1185,7 +1050,7 @@ def test_workspace_backlinks_read_markdown_edges_without_similarity(
     tmp_path: Path,
 ) -> None:
     from tinysoul.infra.references import ReferenceResolver, ResourceTarget
-    from tinysoul.kernel.retrieval.contracts import RetrievalRequest, BacklinksSource
+    from tinysoul.kernel.retrieval.contracts import BacklinksSource, RetrievalRequest
 
     workspace = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
     workspace.initialize_day(DAY)
@@ -1209,8 +1074,11 @@ def test_workspace_backlinks_read_markdown_edges_without_similarity(
         "workspace:target.md#storage",
         "memory:concept/storage",
     ):
-        corpus = workspace.backlink_corpus(
-            RetrievalRequest(BacklinksSource("all", target)), references=refs
+        corpus = workspace.retrieval_corpus(
+            RetrievalRequest(
+                BacklinksSource(ResourceScope(ResourceScopeKind.WORKSPACE, ""), target)
+            ),
+            references=refs,
         )
         assert [item.ref for item in corpus.candidates] == ["workspace:sub/source.md"]
         assert corpus.candidates[0].attributes["day"] == str(DAY)

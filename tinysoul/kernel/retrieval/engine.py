@@ -2,33 +2,41 @@
 
 from __future__ import annotations
 
-from collections import OrderedDict
-from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass, replace
 import json
 import re
+from collections import OrderedDict
+from collections.abc import Awaitable, Callable, Mapping
+from copy import deepcopy
+from dataclasses import dataclass, replace
+from time import monotonic
 from typing import Protocol
 from uuid import uuid4
-from copy import deepcopy
-from time import monotonic
 
-from tinysoul.infra.model_services.protocol import ModelServiceError
-from tinysoul.infra.model_services.service import ModelObserver
+import regex
+
 from tinysoul.infra.json import JsonObject
+from tinysoul.infra.model_services.service import ModelObserver
+
 from .contracts import (
-    SearchCandidate,
-    SourceKind,
+    AttributeFilters,
+    CandidatePreview,
+    CandidateSet,
+    ContentUnit,
+    EvidenceKind,
+    FilterStep,
+    ModelStep,
+    QuerySource,
     ResourceScope,
+    RetrievalRequest,
+    SearchCandidate,
     SearchCoverage,
     SearchEvidence,
     SearchFailure,
     SearchFailureKind,
     SearchPage,
-    CandidateSet,
-    RetrievalRequest,
-    FilterStep,
-    ModelStep,
+    SourceKind,
 )
+from .disclosure import project_candidate, range_evidence
 
 
 class VectorSource(Protocol):
@@ -76,7 +84,10 @@ class SearchViews:
     ) -> SearchPage:
         size = snapshot_size(candidates)
         if size > self._max_chars:
-            raise SearchFailure(SearchFailureKind.SCOPE_REQUIRED, "Result exceeds the search view capacity")
+            raise SearchFailure(
+                SearchFailureKind.SCOPE_REQUIRED,
+                "Result exceeds the search view capacity",
+            )
         identity = uuid4().hex
         scope = getattr(request.source, "scope", request.source_kind.value)
         self._views[identity] = _SearchView(
@@ -88,7 +99,10 @@ class SearchViews:
             page_max_items,
             size,
         )
-        while len(self._views) > self._max_views or sum(view.size_chars for view in self._views.values()) > self._max_chars:
+        while (
+            len(self._views) > self._max_views
+            or sum(view.size_chars for view in self._views.values()) > self._max_chars
+        ):
             stale, _ = self._views.popitem(last=False)
             self._positions = {
                 token: value
@@ -97,12 +111,28 @@ class SearchViews:
             }
         return self._page(identity, 0)
 
-    def result(self, result_ref: str) -> tuple[SearchCandidate, ...]:
+    def result(self, result_ref: str) -> CandidateSet:
         identity = result_ref.removeprefix("search-result:")
         view = self._views.get(identity)
         if view is None:
-            raise SearchFailure(SearchFailureKind.VIEW_EXPIRED, "Search result view expired; start a new search")
-        return deepcopy(view.candidates)
+            raise SearchFailure(
+                SearchFailureKind.VIEW_EXPIRED,
+                "Search result view expired; start a new search",
+            )
+        return CandidateSet(
+            tuple(
+                replace(item, evaluation=None, score=None, score_kind=None)
+                for item in deepcopy(view.candidates)
+            ),
+            view.coverage.scanned,
+            view.coverage.source_complete,
+            tuple(
+                stage
+                for stage in view.coverage.stages
+                if stage not in {"filter", "select", "rerank"}
+            ),
+            view.coverage.missing_stages,
+        )
 
     def resume(self, continuation: str) -> SearchPage:
         position = self._positions.get(continuation)
@@ -115,9 +145,11 @@ class SearchViews:
 
     def _page(self, identity: str, offset: int) -> SearchPage:
         view = self._views[identity]
-        items: list[SearchCandidate] = []
+        items: list[CandidatePreview] = []
         for original in view.candidates[offset:]:
-            candidate = bound_evidence(original, "", min(2_000, view.page_max_chars // 3))
+            candidate = project_candidate(
+                original, min(2_000, view.page_max_chars // 3)
+            )
             if view.page_max_items is not None and len(items) >= view.page_max_items:
                 break
             proposed = SearchPage(
@@ -181,21 +213,15 @@ class SearchEngine:
         corpus: CandidateSet,
         page_max_chars: int,
         snapshot_max_chars: int = 4_000_000,
-        apply_operation: Callable[[ModelStep, tuple[SearchCandidate, ...]], Awaitable[tuple[SearchCandidate, ...]]],
-        supported_filters: frozenset[str] = frozenset(),
-        ordered_filters: frozenset[str] = frozenset(),
+        apply_operation: Callable[
+            [int, ModelStep, tuple[SearchCandidate, ...]],
+            Awaitable[tuple[SearchCandidate, ...]],
+        ],
+        filters: AttributeFilters = AttributeFilters(),
         observe_step: Callable[[JsonObject], None] | None = None,
     ) -> SearchPage:
         """Run one source snapshot through the finite registered operation list."""
-        from .requests import eligible
-
-        for step in request.steps:
-            if isinstance(step, FilterStep):
-                eligible({}, step.where, supported=supported_filters, ordered=ordered_filters)
         candidates = deduplicate(corpus.candidates)
-        if request.exclude_refs:
-            excluded = set(request.exclude_refs)
-            candidates = tuple(item for item in candidates if item.ref not in excluded)
         initial = len(candidates)
         stats: list[JsonObject] = []
         evaluated = 0
@@ -206,28 +232,67 @@ class SearchEngine:
             started = monotonic()
             before = len(candidates)
             if isinstance(step, FilterStep):
+                predicates = filters.parse(step.where)
                 candidates = tuple(
-                    item for item in candidates
-                    if eligible(item.attributes, step.where, supported=supported_filters, ordered=ordered_filters)
+                    item
+                    for item in candidates
+                    if all(
+                        predicate.matches(item.attributes) for predicate in predicates
+                    )
                 )
-                stats.append({"step_index": index, "op": step.op.value, "input": before, "output": len(candidates)})
+                stats.append(
+                    {
+                        "step_index": index,
+                        "op": step.op.value,
+                        "input": before,
+                        "output": len(candidates),
+                    }
+                )
                 stages.append(step.op.value)
                 if observe_step:
-                    observe_step({**stats[-1], "elapsed_seconds": monotonic() - started})
+                    observe_step(
+                        {**stats[-1], "elapsed_seconds": monotonic() - started}
+                    )
                 continue
             if not candidates:
-                stats.append({"step_index": index, "op": step.op.value, "input": 0, "evaluated": 0, "output": 0})
+                stats.append(
+                    {
+                        "step_index": index,
+                        "op": step.op.value,
+                        "input": 0,
+                        "evaluated": 0,
+                        "output": 0,
+                    }
+                )
+                stages.append(step.op.value)
+                if observe_step:
+                    observe_step(
+                        {**stats[-1], "elapsed_seconds": monotonic() - started}
+                    )
                 continue
             try:
-                candidates = await apply_operation(step, candidates)
+                candidates = await apply_operation(index, step, candidates)
             except SearchFailure as exc:
                 if exc.step:
                     raise
                 raise SearchFailure(exc.kind, str(exc), step=step.op.value) from exc
-            candidates = tuple(replace(item, evaluation={**item.evaluation, "step_index": index, "op": step.op.value}) for item in candidates)
+            candidates = tuple(
+                replace(item, evaluation=replace(item.evaluation, step_index=index))
+                if item.evaluation
+                else item
+                for item in candidates
+            )
             evaluated += before
             selected = len(candidates)
-            stats.append({"step_index": index, "op": step.op.value, "input": before, "evaluated": before, "output": len(candidates)})
+            stats.append(
+                {
+                    "step_index": index,
+                    "op": step.op.value,
+                    "input": before,
+                    "evaluated": before,
+                    "output": len(candidates),
+                }
+            )
             stages.append(step.op.value)
             if observe_step:
                 observe_step({**stats[-1], "elapsed_seconds": monotonic() - started})
@@ -263,15 +328,70 @@ class SearchEngine:
         )
 
 
-def lexical_score(query: str, text: str) -> float:
-    normalized = text.casefold()
-    tokens = re.findall(r"[\w]+", query.casefold())
-    # Overlapping CJK pairs preserve useful matching without a language-specific index.
-    terms = set(tokens)
-    for token in tokens:
-        if any("\u3400" <= char <= "\u9fff" for char in token):
-            terms.update(token[i : i + 2] for i in range(len(token) - 1))
-    return float(sum(min(normalized.count(term), 8) for term in terms))
+def lexical_rank(
+    source: QuerySource, query: str, candidates: tuple[SearchCandidate, ...]
+) -> tuple[SearchCandidate, ...]:
+    """Match original resource text, not a concatenation of display snippets."""
+    if source.regex:
+        expression = query
+    elif source.literal or source.case_sensitive:
+        expression = regex.escape(query)
+    else:
+        terms = set(re.findall(r"[\w]+", query))
+        for token in tuple(terms):
+            if any("\u3400" <= char <= "\u9fff" for char in token):
+                terms.update(
+                    token[index : index + 2] for index in range(len(token) - 1)
+                )
+        expression = "|".join(
+            regex.escape(term)
+            for term in sorted(terms, key=lambda term: (-len(term), term))
+        )
+    if not expression:
+        return ()
+    try:
+        pattern = regex.compile(
+            expression, flags=0 if source.case_sensitive else regex.IGNORECASE
+        )
+    except regex.error as exc:
+        raise SearchFailure(
+            SearchFailureKind.INVALID_REQUEST, "Query regex is invalid"
+        ) from exc
+    ranked = []
+    for candidate in candidates:
+        resources: dict[str, list[ContentUnit]] = {}
+        for unit in candidate.content_units:
+            resources.setdefault(unit.ref.partition("#")[0], []).append(unit)
+        hits: list[SearchEvidence] = []
+        score = 0
+        try:
+            for resource_units in resources.values():
+                text = "".join(unit.text for unit in resource_units)
+                for match in pattern.finditer(text, timeout=0.2):
+                    hits.extend(
+                        range_evidence(
+                            tuple(resource_units),
+                            match.start(),
+                            max(match.end(), match.start() + 1),
+                            kind=EvidenceKind.LEXICAL,
+                        )
+                    )
+                    score += 1
+        except TimeoutError as exc:
+            raise SearchFailure(
+                SearchFailureKind.SCOPE_REQUIRED,
+                "Query matching exceeded its budget; simplify the pattern",
+            ) from exc
+        if score:
+            ranked.append(
+                replace(
+                    candidate,
+                    evidence=(*candidate.evidence, *hits),
+                    score_kind="lexical",
+                    score=float(score),
+                )
+            )
+    return tuple(sorted(ranked, key=lambda item: -(item.score or 0)))
 
 
 def deduplicate(candidates: tuple[SearchCandidate, ...]) -> tuple[SearchCandidate, ...]:
@@ -284,8 +404,12 @@ def deduplicate(candidates: tuple[SearchCandidate, ...]) -> tuple[SearchCandidat
             else replace(
                 previous,
                 evidence=tuple(dict.fromkeys((*previous.evidence, *item.evidence))),
-                content_units=tuple({unit.id: unit for unit in (*previous.content_units, *item.content_units)}.values()),
-                evidence_complete=previous.evidence_complete and item.evidence_complete,
+                content_units=tuple(
+                    {
+                        unit.id: unit
+                        for unit in (*previous.content_units, *item.content_units)
+                    }.values()
+                ),
             )
         )
     return tuple(by_ref.values())
@@ -302,63 +426,18 @@ def fuse(rankings: list[tuple[SearchCandidate, ...]]) -> tuple[SearchCandidate, 
             if previous is None:
                 candidates[candidate.ref] = candidate
             else:
-                evidence = (*previous.evidence[:1], *candidate.evidence[:1], *previous.evidence[1:], *candidate.evidence[1:])
-                merged: dict[str, SearchEvidence] = {}
-                for unit in evidence:
-                    key = unit.unit_id or unit.ref
-                    known = merged.get(key)
-                    merged[key] = unit if known is None else replace(known, basis=tuple(dict.fromkeys((*known.basis, *unit.basis))))
-                candidates[candidate.ref] = replace(previous, evidence=tuple(merged.values()), basis=tuple(dict.fromkeys((*previous.basis, *candidate.basis))))
+                candidates[candidate.ref] = replace(
+                    previous,
+                    evidence=tuple(
+                        dict.fromkeys((*previous.evidence, *candidate.evidence))
+                    ),
+                )
             scores[candidate.ref] = scores.get(candidate.ref, 0) + 1 / (60 + rank)
     return tuple(
         replace(candidates[ref], score_kind="rrf", score=scores[ref])
         for ref in sorted(candidates, key=lambda ref: -scores[ref])
     )
 
-
-def bound_evidence(
-    candidate: SearchCandidate, query: str, budget: int
-) -> SearchCandidate:
-    ordered = (
-        sorted(
-            candidate.evidence,
-            key=lambda evidence: -lexical_score(query, evidence.text),
-        )
-        if query
-        else candidate.evidence
-    )
-    evidence = []
-    remaining = budget
-    for item in ordered:
-        if remaining <= 0:
-            break
-        text = item.text
-        if len(text) > remaining:
-            terms = re.findall(r"\w+", query.casefold())
-            positions = [
-                text.casefold().find(term) for term in terms if term in text.casefold()
-            ]
-            start = max(0, min(positions) - remaining // 3) if positions else 0
-            text = (
-                ("..." if start else "")
-                + text[start : start + max(1, remaining - 2)]
-                + "..."
-            )
-        evidence.append(SearchEvidence(item.ref, text, item.relation, item.unit_id, item.basis))
-        remaining -= len(text)
-    originals = {unit.id: unit for unit in candidate.content_units}
-    units = tuple(
-        replace(originals[item.unit_id], text=item.text,
-                complete=originals[item.unit_id].complete and item.text == originals[item.unit_id].text)
-        for item in evidence if item.unit_id in originals
-    )
-    return replace(
-        candidate,
-        evidence=tuple(evidence),
-        content_units=units,
-        evidence_complete=candidate.evidence_complete
-        and sum(len(item.text) for item in candidate.evidence) <= budget,
-    )
 
 async def embedding_rank(
     embedding: VectorSource,
@@ -369,19 +448,57 @@ async def embedding_rank(
     observer: ModelObserver | None = None,
 ) -> tuple[SearchCandidate, ...]:
     """Use the same content units for retrieval, reranking, and hit previews."""
-    documents = {unit.id: unit.text for item in candidates for unit in item.content_units}
-    scores = await embedding.similarities(query, documents, consumer=consumer, observer=observer) if documents else {}
+    documents = {
+        unit.id: unit.text for item in candidates for unit in item.content_units
+    }
+    scores = (
+        await embedding.similarities(
+            query, documents, consumer=consumer, observer=observer
+        )
+        if documents
+        else {}
+    )
     if set(scores) != set(documents):
-        raise SearchFailure(SearchFailureKind.OPERATION_FAILED, "Embedding response does not cover all content units")
+        raise SearchFailure(
+            SearchFailureKind.OPERATION_FAILED,
+            "Embedding response does not cover all content units",
+        )
     ranked = []
     for item in candidates:
         units = tuple(sorted(item.content_units, key=lambda unit: -scores[unit.id]))
-        evidence = tuple(SearchEvidence(unit.ref, unit.text, unit.kind, unit.id, ("embedding",)) for unit in units)
-        ranked.append(replace(item, evidence=evidence, score_kind="cosine", score=max(scores[unit.id] for unit in units), basis=tuple(dict.fromkeys((*item.basis, "embedding")))))
+        evidence = tuple(
+            SearchEvidence(unit.id, EvidenceKind.EMBEDDING) for unit in units
+        )
+        ranked.append(
+            replace(
+                item,
+                evidence=(*item.evidence, *evidence),
+                score_kind="cosine",
+                score=max(scores[unit.id] for unit in units),
+            )
+        )
     return tuple(sorted(ranked, key=lambda item: -(item.score or 0.0)))
 
+
 def snapshot_size(candidates: tuple[SearchCandidate, ...]) -> int:
-    return len(json.dumps(
-        [{"candidate": item.to_json(rank=index + 1), "content": [unit.to_json() for unit in item.content_units]} for index, item in enumerate(candidates)],
-        ensure_ascii=False,
-    ))
+    return len(
+        json.dumps(
+            [
+                {
+                    "ref": item.ref,
+                    "title": item.title,
+                    "attributes": item.attributes,
+                    "evidence": [hit.to_json() for hit in item.evidence],
+                    "evaluation": item.evaluation.to_json()
+                    if item.evaluation
+                    else None,
+                    "basis": [hit.to_json() for hit in item.evaluation.basis]
+                    if item.evaluation
+                    else [],
+                    "content": [unit.to_json() for unit in item.content_units],
+                }
+                for item in candidates
+            ],
+            ensure_ascii=False,
+        )
+    )

@@ -1,42 +1,38 @@
 from __future__ import annotations
 
-import tomllib
 import asyncio
 import sys
-from time import monotonic
-from tinysoul.agent.composition.assembly import AgentRuntime
-from tinysoul.agent import Agent, UserTurnRequest
-from tinysoul.kernel.loop.turn import TurnOutcome
-
+import tomllib
 from collections import deque
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
+from time import monotonic
 
-from fastapi.testclient import TestClient
 import pytest
+from fastapi.testclient import TestClient
 from pypdf import PdfWriter
 
+from tests.support.project import copy_initialized_project
+from tinysoul.agent import Agent, UserTurnRequest
+from tinysoul.agent.composition.assembly import AgentRuntime
+from tinysoul.agent.composition.builder import standard_agent
 from tinysoul.agent.config import AgentSettings
-from tinysoul.gateway.project.initializer import ProjectConfigProfile
-from tinysoul.agent.composition.builder import AgentBuilder, standard_agent
-from tinysoul.gateway.endpoint.host import mount_endpoint
+from tinysoul.agent.errors import AgentClosedError, AgentServiceStaleError
 from tinysoul.gateway.endpoint import EndpointSettings
+from tinysoul.gateway.endpoint.host import mount_endpoint
 from tinysoul.gateway.endpoint.http import create_endpoint_app
-from tinysoul.infra.config import ConfigEnvironment, ConfigMutation
-from tinysoul.infra.json import JsonObject, to_json_object
-from tinysoul.llm.protocol.requests import TaskCall
-from tinysoul.llm.failures import LLMFailureKind
-from tinysoul.llm.protocol.responses import JsonAnswer, RawResponse, TaskResult
-from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind
-from tinysoul.kernel.loop import (
-    LoopControlKind,
-    LoopSettings,
-    TurnSettings,
-    TurnCompletion,
-    build_control_request_signal,
+from tinysoul.gateway.project.initializer import ProjectConfigProfile
+from tinysoul.infra.concurrency import CleanupDiagnostic
+from tinysoul.infra.config import (
+    ConfigEnvironment,
+    ConfigError,
+    ConfigMutation,
+    reject_unknown_keys,
 )
+from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.services import ServiceScope
 from tinysoul.kernel.action import (
     ActionEngineBuilder,
     ActionExecution,
@@ -49,49 +45,56 @@ from tinysoul.kernel.context.segments import (
     SegmentSlot,
     TurnInfo,
 )
-from tinysoul.kernel.registration import PluginConfig
-from tinysoul.infra.config import ConfigError, reject_unknown_keys
-from tinysoul.infra.services import ServiceScope
-from tinysoul.infra.concurrency import CleanupDiagnostic
-from tinysoul.llm.protocol.messages import JsonPart, Message, UserMessage
-from tinysoul.kernel.loop.lifecycle.preparation import TurnPreparationRequest
-from tinysoul.runtime import (
-    ObservationLevel,
-    RUNTIME_STARTUP_FAILED,
-    RunLevel,
-    RunScope,
-    RuntimeException,
-    RuntimeTransferAction,
-    SignalBus,
-    Signal,
+from tinysoul.kernel.loop import (
+    LoopControlKind,
+    LoopSettings,
+    TurnCompletion,
+    TurnSettings,
+    build_control_request_signal,
 )
-from tests.support.project import copy_initialized_project
 from tinysoul.kernel.loop.assembly import TurnProfile
-from tinysoul.plugins.reflection.builder import ReflectionBuilder
-from tinysoul.plugins.home.services import HomeReviewService, HomeService
-from tinysoul.kernel.retrieval.contracts import RetrievalRequest, QuerySource, TextQuery
-from tinysoul.plugins.memory.services import (
-    MemoryKnowledgeService,
-    MemoryService,
-    MemoryReadService,
-)
-from tinysoul.kernel.registration import RegistrationError
+from tinysoul.kernel.loop.interaction.events import TurnEventSubscription
+from tinysoul.kernel.loop.interaction.inbox import WaitReason
+from tinysoul.kernel.loop.lifecycle.preparation import TurnPreparationRequest
+from tinysoul.kernel.loop.turn import TurnOutcome
 from tinysoul.kernel.registration import (
     GenerationBuildContext,
-    ProfileBuildContext,
+    PluginConfig,
     PluginGeneration,
     PluginProfileExtension,
     PluginServiceExport,
     PluginTurnResource,
+    ProfileBuildContext,
     ProfileKind,
+    RegistrationError,
     Service,
     TurnResourceStage,
 )
-from tinysoul.runtime.events import EnvironmentEvent, EventKind, EventFilter
-from tinysoul.kernel.loop.interaction.inbox import WaitReason
-from tinysoul.kernel.loop.interaction.events import TurnEventSubscription
+from tinysoul.kernel.retrieval.contracts import QuerySource, RetrievalRequest, TextQuery
+from tinysoul.llm.failures import LLMFailureKind
+from tinysoul.llm.protocol.messages import JsonPart, Message, UserMessage
+from tinysoul.llm.protocol.requests import TaskCall
+from tinysoul.llm.protocol.responses import JsonAnswer, RawResponse, TaskResult
+from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind
+from tinysoul.plugins.home.services import HomeReviewService, HomeService
+from tinysoul.plugins.memory.services import (
+    MemoryKnowledgeService,
+    MemoryReadService,
+    MemoryService,
+)
+from tinysoul.plugins.reflection.builder import ReflectionBuilder
 from tinysoul.plugins.workspace.services import WorkspaceService
-from tinysoul.agent.errors import AgentClosedError, AgentServiceStaleError
+from tinysoul.runtime import (
+    RUNTIME_STARTUP_FAILED,
+    ObservationLevel,
+    RunLevel,
+    RunScope,
+    RuntimeException,
+    RuntimeTransferAction,
+    Signal,
+    SignalBus,
+)
+from tinysoul.runtime.events import EnvironmentEvent, EventFilter, EventKind
 from tinysoul.runtime.failures import runtime_exception
 
 
@@ -388,7 +391,9 @@ async def test_three_scenarios_have_independent_policies_and_owner_services(
         for profile in (user, home, memory):
             service = profile.services.get(HomeService)
             page = await service.search(
-                RetrievalRequest(QuerySource("agent", TextQuery("uniqueoverlayevidence")))
+                RetrievalRequest(
+                    QuerySource("agent", TextQuery("uniqueoverlayevidence"))
+                )
             )
             assert page.items[0].ref == "home:agent/search-proof.md"
             assert "uniqueoverlayevidence" in str(
@@ -1154,6 +1159,32 @@ async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
     )
     assert routed.status_code == 200
 
+    retrieval_path = project_root / "configs/action/retrieval.toml"
+    retrieval = tomllib.loads(retrieval_path.read_text(encoding="utf-8"))["action"][
+        "retrieval"
+    ]
+    retrieval["home.search"]["page"]["max_items"] = 7
+    retrieval["core.context.search"]["page"]["max_items"] = 9
+    saved_retrieval = client.patch(
+        "/v2/config",
+        headers=headers,
+        json={
+            "operations": [
+                {
+                    "source_id": "project:configs/action/retrieval.toml",
+                    "path": "action.retrieval",
+                    "op": "set",
+                    "value": retrieval,
+                }
+            ],
+        },
+    )
+    assert saved_retrieval.status_code == 200
+    assert (
+        tomllib.loads(retrieval_path.read_text(encoding="utf-8"))["action"]["retrieval"]
+        == retrieval
+    )
+
     domain_disabled = client.patch(
         "/v2/config",
         headers=headers,
@@ -1170,6 +1201,11 @@ async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
     )
     assert domain_disabled.status_code == 200
     assert client.post("/v2/config/reload", headers=headers).status_code == 200
+    for action_id, limit in (("home.search", 7), ("core.context.search", 9)):
+        projection = _json_object(
+            _action_catalog_item(client, headers, action_id)["retrieval"]
+        )
+        assert _json_object(projection["page"])["max_items"] == limit
     disabled_read = _action_catalog_item(client, headers, "workspace.read")
     disabled_analysis = _action_catalog_item(client, headers, "workspace.analyze")
     disabled_runtime = _json_object(disabled_read["selection"])

@@ -2,7 +2,7 @@ name = "memory.search"
 domain = "memory"
 
 [tool]
-description = "Compose registered query, backlinks, directory, refs, result, filter, select and rerank operations over persistent Memory. Results include links and real content previews; operation models are configured internally."
+description = "Compose registered query, backlinks, directory, refs, result, filter, select and rerank operations over persistent Memory. Query accepts text or an explicit document_ref. Results include links and real content previews; operation models are configured internally."
 schema = { type = "object", properties = { source = { type = "object" }, steps = { type = "array" }, exclude_refs = { type = "array", items = { type = "string" } }, page = { type = "object" } }, required = ["source"], additionalProperties = false }
 
 [semantic]

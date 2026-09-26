@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
 from pathlib import PurePosixPath
-import re
 
 from .errors import MemoryContractError
 
@@ -29,9 +29,7 @@ _LINK = re.compile(r"memory:(daily|entity|concept|fact|note)/([^/]+)\Z")
 _NAME_CITE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 _FACT_CITE = re.compile(r"f-[0-9a-f]{12,64}\Z")
 _NOTE_CITE = re.compile(r"n-[0-9a-f]{12,64}\Z")
-_DAILY_PATH = re.compile(
-    r"daily/(\d{4})/(\d{2})/(\d{4}-\d{2}-\d{2})\.md\Z"
-)
+_DAILY_PATH = re.compile(r"daily/(\d{4})/(\d{2})/(\d{4}-\d{2}-\d{2})\.md\Z")
 _OTHER_PATH = re.compile(r"(entity|concept|fact|note)/([^/]+)\.md\Z")
 _WINDOWS_RESERVED = {
     "con",
@@ -70,6 +68,12 @@ class MemoryLink:
         return link
 
     @classmethod
+    def from_resource(cls, resource: str) -> "MemoryLink":
+        """Normalize a persistent Link or Markdown resource path without reading."""
+        body = resource.removeprefix("memory:")
+        return cls.from_relative(body) if body.endswith(".md") else cls.parse(resource)
+
+    @classmethod
     def daily(cls, day: date) -> "MemoryLink":
         if not isinstance(day, date):
             raise MemoryContractError("Daily Memory day must be a date")
@@ -87,7 +91,10 @@ class MemoryLink:
         if daily is not None:
             link = cls.parse(f"memory:daily/{daily.group(3)}")
             day = link.day
-            if daily.group(1) != f"{day.year:04d}" or daily.group(2) != f"{day.month:02d}":
+            if (
+                daily.group(1) != f"{day.year:04d}"
+                or daily.group(2) != f"{day.month:02d}"
+            ):
                 raise MemoryContractError(
                     "Daily Memory path date does not match its directories"
                 )

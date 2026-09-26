@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
+from datetime import date
 from enum import StrEnum
 from typing import TypeAlias
 
-from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.json import JsonObject, JsonValue, to_json_object
 
 
 class SourceKind(StrEnum):
@@ -33,6 +34,136 @@ class QueryChannel(StrEnum):
     EMBEDDING = "embedding"
 
 
+class AttributeKind(StrEnum):
+    TEXT = "text"
+    TEXT_SET = "text_set"
+    DATE = "date"
+
+
+@dataclass(frozen=True)
+class AttributeField:
+    name: str
+    kind: AttributeKind = AttributeKind.TEXT
+
+    def schema(self) -> JsonObject:
+        scalar: JsonObject = {"type": "string"}
+        if self.kind is AttributeKind.DATE:
+            scalar.update(
+                {
+                    "description": "Calendar date in YYYY-MM-DD form",
+                    "minLength": 10,
+                    "maxLength": 10,
+                }
+            )
+        variants: list[JsonValue] = [
+            scalar,
+            {"type": "array", "items": scalar, "minItems": 1},
+        ]
+        if self.kind is AttributeKind.DATE:
+            variants.extend(
+                [
+                    {
+                        "type": "object",
+                        "properties": {"before": scalar, "after": scalar},
+                        "required": ["before"],
+                        "additionalProperties": False,
+                    },
+                    {
+                        "type": "object",
+                        "properties": {"after": scalar},
+                        "required": ["after"],
+                        "additionalProperties": False,
+                    },
+                ]
+            )
+        return {"oneOf": variants}
+
+
+@dataclass(frozen=True)
+class AttributePredicate:
+    field: AttributeField
+    values: tuple[str, ...] = ()
+    before: str | None = None
+    after: str | None = None
+
+    def matches(self, attributes: JsonObject) -> bool:
+        actual = attributes.get(self.field.name)
+        if self.field.kind is AttributeKind.TEXT_SET:
+            return isinstance(actual, list) and all(
+                value in actual for value in self.values
+            )
+        if not isinstance(actual, str):
+            return False
+        return (
+            (not self.values or actual in self.values)
+            and (self.before is None or actual < self.before)
+            and (self.after is None or actual > self.after)
+        )
+
+
+@dataclass(frozen=True)
+class AttributeFilters:
+    fields: tuple[AttributeField, ...] = ()
+
+    def schema(self) -> JsonObject:
+        return {
+            "type": "object",
+            "properties": {field.name: field.schema() for field in self.fields},
+            "additionalProperties": False,
+        }
+
+    def parse(self, where: JsonObject) -> tuple[AttributePredicate, ...]:
+        fields = {field.name: field for field in self.fields}
+        result = []
+        for name, value in where.items():
+            field = fields.get(name)
+            if field is None:
+                raise SearchFailure(
+                    SearchFailureKind.INVALID_REQUEST,
+                    "This source does not support the requested filter",
+                )
+            if isinstance(value, dict):
+                if (
+                    field.kind is not AttributeKind.DATE
+                    or not value
+                    or set(value) - {"before", "after"}
+                ):
+                    raise SearchFailure(
+                        SearchFailureKind.INVALID_REQUEST, "Invalid ordered filter"
+                    )
+                values = list(value.values())
+            else:
+                values = value if isinstance(value, list) else [value]
+            if not values or any(not isinstance(item, str) for item in values):
+                raise SearchFailure(
+                    SearchFailureKind.INVALID_REQUEST, "Filter requires text values"
+                )
+            checked = tuple(item for item in values if isinstance(item, str))
+            if field.kind is AttributeKind.DATE:
+                try:
+                    if any(
+                        date.fromisoformat(item).isoformat() != item for item in checked
+                    ):
+                        raise ValueError("Noncanonical date")
+                except ValueError as exc:
+                    raise SearchFailure(
+                        SearchFailureKind.INVALID_REQUEST,
+                        "Date filter requires YYYY-MM-DD",
+                    ) from exc
+            if isinstance(value, dict):
+                before, after = value.get("before"), value.get("after")
+                result.append(
+                    AttributePredicate(
+                        field,
+                        before=before if isinstance(before, str) else None,
+                        after=after if isinstance(after, str) else None,
+                    )
+                )
+            else:
+                result.append(AttributePredicate(field, checked))
+        return tuple(result)
+
+
 class SearchFailureKind(StrEnum):
     INVALID_REQUEST = "invalid_request"
     SCOPE_REQUIRED = "scope_required"
@@ -44,7 +175,9 @@ class SearchFailureKind(StrEnum):
 class SearchFailure(Exception):
     """A finite retrieval failure mapped by an Action or SDK boundary."""
 
-    def __init__(self, kind: SearchFailureKind, message: str, *, step: str = "") -> None:
+    def __init__(
+        self, kind: SearchFailureKind, message: str, *, step: str = ""
+    ) -> None:
         super().__init__(message)
         self.kind = kind
         self.step = step
@@ -56,7 +189,9 @@ class TextQuery:
 
     def __post_init__(self) -> None:
         if not self.text.strip():
-            raise SearchFailure(SearchFailureKind.INVALID_REQUEST, "Query must not be empty")
+            raise SearchFailure(
+                SearchFailureKind.INVALID_REQUEST, "Query must not be empty"
+            )
 
 
 @dataclass(frozen=True)
@@ -65,7 +200,9 @@ class DocumentQuery:
 
     def __post_init__(self) -> None:
         if not self.document_ref:
-            raise SearchFailure(SearchFailureKind.INVALID_REQUEST, "Document query requires an identity")
+            raise SearchFailure(
+                SearchFailureKind.INVALID_REQUEST, "Document query requires an identity"
+            )
 
 
 class ResourceScopeKind(StrEnum):
@@ -80,9 +217,15 @@ class ResourceScope:
     locator: str
 
     def __post_init__(self) -> None:
-        valid = self.locator == "" if self.kind is ResourceScopeKind.WORKSPACE else self.locator.startswith("workspace:") and self.locator != "workspace:"
+        valid = (
+            self.locator == ""
+            if self.kind is ResourceScopeKind.WORKSPACE
+            else self.locator.startswith("workspace:") and self.locator != "workspace:"
+        )
         if not valid:
-            raise SearchFailure(SearchFailureKind.INVALID_REQUEST, "Invalid resource scope")
+            raise SearchFailure(
+                SearchFailureKind.INVALID_REQUEST, "Invalid resource scope"
+            )
 
     def to_json(self) -> JsonObject:
         return {"kind": self.kind.value, "locator": self.locator}
@@ -99,7 +242,9 @@ class QuerySource:
 
     def __post_init__(self) -> None:
         if not self.scope:
-            raise SearchFailure(SearchFailureKind.INVALID_REQUEST, "Query source requires a scope")
+            raise SearchFailure(
+                SearchFailureKind.INVALID_REQUEST, "Query source requires a scope"
+            )
         object.__setattr__(self, "where", to_json_object(self.where))
 
 
@@ -111,7 +256,10 @@ class BacklinksSource:
 
     def __post_init__(self) -> None:
         if not self.scope or not self.anchor_ref:
-            raise SearchFailure(SearchFailureKind.INVALID_REQUEST, "Backlinks source requires scope and anchor_ref")
+            raise SearchFailure(
+                SearchFailureKind.INVALID_REQUEST,
+                "Backlinks source requires scope and anchor_ref",
+            )
         object.__setattr__(self, "where", to_json_object(self.where))
 
 
@@ -122,7 +270,9 @@ class DirectorySource:
 
     def __post_init__(self) -> None:
         if not self.scope:
-            raise SearchFailure(SearchFailureKind.INVALID_REQUEST, "Directory source requires a scope")
+            raise SearchFailure(
+                SearchFailureKind.INVALID_REQUEST, "Directory source requires a scope"
+            )
         object.__setattr__(self, "where", to_json_object(self.where))
 
 
@@ -132,7 +282,9 @@ class RefsSource:
 
     def __post_init__(self) -> None:
         if not self.refs or any(not ref for ref in self.refs):
-            raise SearchFailure(SearchFailureKind.INVALID_REQUEST, "Refs source requires non-empty refs")
+            raise SearchFailure(
+                SearchFailureKind.INVALID_REQUEST, "Refs source requires non-empty refs"
+            )
 
 
 @dataclass(frozen=True)
@@ -141,10 +293,14 @@ class ResultSource:
 
     def __post_init__(self) -> None:
         if not self.result_ref:
-            raise SearchFailure(SearchFailureKind.INVALID_REQUEST, "Result source requires result_ref")
+            raise SearchFailure(
+                SearchFailureKind.INVALID_REQUEST, "Result source requires result_ref"
+            )
 
 
-SearchSource: TypeAlias = QuerySource | BacklinksSource | DirectorySource | RefsSource | ResultSource
+SearchSource: TypeAlias = (
+    QuerySource | BacklinksSource | DirectorySource | RefsSource | ResultSource
+)
 
 
 @dataclass(frozen=True)
@@ -154,7 +310,9 @@ class FilterStep:
 
     def __post_init__(self) -> None:
         if not self.where:
-            raise SearchFailure(SearchFailureKind.INVALID_REQUEST, "Filter requires a non-empty where")
+            raise SearchFailure(
+                SearchFailureKind.INVALID_REQUEST, "Filter requires a non-empty where"
+            )
         object.__setattr__(self, "where", to_json_object(self.where))
 
 
@@ -165,8 +323,14 @@ class ModelStep:
     context: SearchContext = SearchContext.NONE
 
     def __post_init__(self) -> None:
-        if self.op not in {OperationKind.SELECT, OperationKind.RERANK} or not self.criterion.strip():
-            raise SearchFailure(SearchFailureKind.INVALID_REQUEST, "Select and rerank require a criterion")
+        if (
+            self.op not in {OperationKind.SELECT, OperationKind.RERANK}
+            or not self.criterion.strip()
+        ):
+            raise SearchFailure(
+                SearchFailureKind.INVALID_REQUEST,
+                "Select and rerank require a criterion",
+            )
 
 
 SearchStep: TypeAlias = FilterStep | ModelStep
@@ -182,9 +346,16 @@ class RetrievalRequest:
 
     def __post_init__(self) -> None:
         if type(self.page_limit) is not int or self.page_limit < 1:
-            raise SearchFailure(SearchFailureKind.INVALID_REQUEST, "Page limit must be positive")
-        if len(set(self.exclude_refs)) != len(self.exclude_refs) or any(not ref for ref in self.exclude_refs):
-            raise SearchFailure(SearchFailureKind.INVALID_REQUEST, "exclude_refs must contain unique non-empty refs")
+            raise SearchFailure(
+                SearchFailureKind.INVALID_REQUEST, "Page limit must be positive"
+            )
+        if len(set(self.exclude_refs)) != len(self.exclude_refs) or any(
+            not ref for ref in self.exclude_refs
+        ):
+            raise SearchFailure(
+                SearchFailureKind.INVALID_REQUEST,
+                "exclude_refs must contain unique non-empty refs",
+            )
 
     @property
     def source_kind(self) -> SourceKind:
@@ -206,35 +377,84 @@ class ContentUnit:
     text: str
     kind: str = "content"
     location: JsonObject = field(default_factory=dict)
-    complete: bool = True
 
     def __post_init__(self) -> None:
         if not self.id or not self.ref or not isinstance(self.text, str):
-            raise SearchFailure(SearchFailureKind.INVALID_REQUEST, "ContentUnit requires id, ref and text")
+            raise SearchFailure(
+                SearchFailureKind.INVALID_REQUEST,
+                "ContentUnit requires id, ref and text",
+            )
         object.__setattr__(self, "location", to_json_object(self.location))
 
     def to_json(self) -> JsonObject:
-        return {"id": self.id, "ref": self.ref, "text": self.text, "kind": self.kind, "location": self.location, "complete": self.complete}
+        return {
+            "id": self.id,
+            "ref": self.ref,
+            "text": self.text,
+            "kind": self.kind,
+            "location": self.location,
+        }
+
+
+class ContentCoverage(StrEnum):
+    FULL = "full"
+    EXCERPT = "excerpt"
+    METADATA = "metadata"
+
+
+class EvidenceKind(StrEnum):
+    LEXICAL = "lexical"
+    EMBEDDING = "embedding"
+    REFERENCE = "reference"
+    MODEL = "model"
 
 
 @dataclass(frozen=True)
 class SearchEvidence:
-    ref: str
-    text: str
-    relation: str = "content"
-    unit_id: str | None = None
-    basis: tuple[str, ...] = ()
+    unit_id: str
+    kind: EvidenceKind
+    start: int = 0
+    end: int | None = None
+    relation: str | None = None
 
     def __post_init__(self) -> None:
-        if not self.ref or not self.relation:
-            raise SearchFailure(SearchFailureKind.INVALID_REQUEST, "Evidence requires a readable identity and relation")
+        if (
+            not self.unit_id
+            or self.start < 0
+            or (self.end is not None and self.end < self.start)
+        ):
+            raise SearchFailure(
+                SearchFailureKind.INVALID_REQUEST,
+                "Evidence requires a content identity and valid range",
+            )
 
     def to_json(self) -> JsonObject:
-        value: JsonObject = {"ref": self.ref, "text": self.text, "relation": self.relation}
-        if self.unit_id:
-            value["unit_id"] = self.unit_id
-        if self.basis:
-            value["basis"] = list(self.basis)
+        return {
+            "unit_id": self.unit_id,
+            "kind": self.kind.value,
+            "start": self.start,
+            "end": self.end,
+            "relation": self.relation,
+        }
+
+
+@dataclass(frozen=True)
+class ModelEvaluation:
+    op: OperationKind
+    input_coverage: ContentCoverage
+    basis: tuple[SearchEvidence, ...] = ()
+    score: float | None = None
+    score_kind: str | None = None
+    step_index: int = 0
+
+    def to_json(self) -> JsonObject:
+        value: JsonObject = {
+            "op": self.op.value,
+            "step_index": self.step_index,
+            "input_coverage": self.input_coverage.value,
+        }
+        if self.score is not None:
+            value["score"] = {"kind": self.score_kind, "value": self.score}
         return value
 
 
@@ -242,46 +462,121 @@ class SearchEvidence:
 class SearchCandidate:
     ref: str
     title: str
-    evidence: tuple[SearchEvidence, ...]
+    content_units: tuple[ContentUnit, ...]
     attributes: JsonObject = field(default_factory=dict)
+    evidence: tuple[SearchEvidence, ...] = ()
+    content_coverage: ContentCoverage = ContentCoverage.FULL
     score_kind: str | None = None
     score: float | None = None
-    reason: str | None = None
-    evidence_complete: bool = True
-    content_units: tuple[ContentUnit, ...] = ()
-    basis: tuple[str, ...] = ()
-    evaluation: JsonObject = field(default_factory=dict)
+    evaluation: ModelEvaluation | None = None
 
     def __post_init__(self) -> None:
-        if not self.ref or not self.evidence:
-            raise SearchFailure(SearchFailureKind.INVALID_REQUEST, "Candidate requires identity and source evidence")
-        object.__setattr__(self, "attributes", to_json_object(self.attributes))
-        if not self.content_units:
-            object.__setattr__(
-                self,
-                "content_units",
-                tuple(ContentUnit(item.unit_id or f"{item.ref}:unit{index}", item.ref, item.text, item.relation, complete=self.evidence_complete) for index, item in enumerate(self.evidence)),
+        if not self.ref or not self.content_units:
+            raise SearchFailure(
+                SearchFailureKind.INVALID_REQUEST,
+                "Candidate requires identity and source content",
             )
+        object.__setattr__(self, "attributes", to_json_object(self.attributes))
+        units = {unit.id: unit for unit in self.content_units}
+        if len(units) != len(self.content_units):
+            raise SearchFailure(
+                SearchFailureKind.INVALID_REQUEST,
+                "Candidate content identities must be unique",
+            )
+        for evidence in (
+            *self.evidence,
+            *(self.evaluation.basis if self.evaluation else ()),
+        ):
+            unit = units.get(evidence.unit_id)
+            if (
+                unit is None
+                or evidence.start > len(unit.text)
+                or (evidence.end is not None and evidence.end > len(unit.text))
+            ):
+                raise SearchFailure(
+                    SearchFailureKind.INVALID_REQUEST,
+                    "Evidence is outside candidate content",
+                )
 
-        object.__setattr__(self, "evidence", tuple(
-            replace(item, unit_id=item.unit_id or f"{item.ref}:unit{index}")
-            for index, item in enumerate(self.evidence)
-        ))
+
+@dataclass(frozen=True)
+class ContentSlice:
+    """A projection points into immutable content; it never owns another text copy."""
+
+    unit: ContentUnit
+    start: int
+    end: int
+    evidence: tuple[SearchEvidence, ...] = ()
+
+    @property
+    def basis(self) -> tuple[EvidenceKind, ...]:
+        return tuple(dict.fromkeys(hit.kind for hit in self.evidence))
 
     @property
     def text(self) -> str:
-        return self.title + "\n" + "\n".join(item.text for item in self.evidence)
+        return self.unit.text[self.start : self.end]
+
+    def to_json(self) -> JsonObject:
+        location = dict(self.unit.location)
+        line = location.get("line")
+        if type(line) is int:
+            prefix = self.unit.text[: self.start]
+            first_line = line + prefix.count("\n")
+            location["line"] = first_line
+            location["end_line"] = first_line + self.text.rstrip("\r\n").count("\n")
+            column = location.get("column", 1)
+            location["column"] = len(prefix.rsplit("\n", 1)[-1]) + (
+                1 if "\n" in prefix else int(column) if type(column) is int else 1
+            )
+        location["unit_start"] = self.start
+        location["unit_end"] = self.end
+        return {
+            "ref": self.unit.ref,
+            "text": self.text,
+            "kind": self.unit.kind,
+            "location": location,
+            "basis": [kind.value for kind in self.basis],
+            "matches": [
+                {
+                    "kind": hit.kind.value,
+                    "start": max(self.start, hit.start) - self.start,
+                    "end": min(
+                        self.end,
+                        hit.end if hit.end is not None else len(self.unit.text),
+                    )
+                    - self.start,
+                    "relation": hit.relation,
+                }
+                for hit in self.evidence
+            ],
+        }
+
+
+@dataclass(frozen=True)
+class CandidatePreview:
+    candidate: SearchCandidate
+    fragments: tuple[ContentSlice, ...]
+    coverage: ContentCoverage
+
+    @property
+    def ref(self) -> str:
+        return self.candidate.ref
 
     def to_json(self, *, rank: int) -> JsonObject:
-        value: JsonObject = {"ref": self.ref, "title": self.title, "rank": rank, "evidence": [item.to_json() for item in self.evidence], "content_coverage": "full" if self.evidence_complete else "excerpt", "attributes": self.attributes}
-        if self.evaluation:
-            value["evaluation"] = self.evaluation
-        if self.score is not None:
-            value["score"] = {"kind": self.score_kind, "value": self.score}
-        if self.reason:
-            value["reason"] = self.reason
-        if self.basis:
-            value["basis"] = list(self.basis)
+        item = self.candidate
+        value: JsonObject = {
+            "ref": item.ref,
+            "title": item.title,
+            "rank": rank,
+            "evidence": [part.to_json() for part in self.fragments],
+            "content_coverage": item.content_coverage.value,
+            "preview_coverage": self.coverage.value,
+            "attributes": item.attributes,
+        }
+        if item.evaluation is not None:
+            value["evaluation"] = item.evaluation.to_json()
+        if item.score is not None:
+            value["source_score"] = {"kind": item.score_kind, "value": item.score}
         return value
 
 
@@ -310,19 +605,60 @@ class SearchCoverage:
     final_count: int | None = None
 
     def to_json(self) -> JsonObject:
-        return {"scanned": self.scanned, "eligible": self.eligible, "candidates": self.candidates, "evaluated": self.evaluated, "selected": self.selected, "retained": self.retained, "omitted_candidates": self.omitted_candidates, "source_complete": self.source_complete, "stages": list(self.stages), "missing_stages": list(self.missing_stages), "steps": list(self.step_stats), "final_count": self.final_count if self.final_count is not None else self.retained}
+        return {
+            "scanned": self.scanned,
+            "eligible": self.eligible,
+            "candidates": self.candidates,
+            "evaluated": self.evaluated,
+            "selected": self.selected,
+            "retained": self.retained,
+            "omitted_candidates": self.omitted_candidates,
+            "source_complete": self.source_complete,
+            "stages": list(self.stages),
+            "missing_stages": list(self.missing_stages),
+            "steps": list(self.step_stats),
+            "final_count": self.final_count
+            if self.final_count is not None
+            else self.retained,
+        }
 
 
 @dataclass(frozen=True)
 class SearchPage:
     scope: str | ResourceScope
     source: SourceKind
-    items: tuple[SearchCandidate, ...]
+    items: tuple[CandidatePreview, ...]
     coverage: SearchCoverage
     offset: int = 0
     continuation: str | None = None
     result_ref: str | None = None
 
     def to_json(self) -> JsonObject:
-        total = self.coverage.final_count if self.coverage.final_count is not None else self.coverage.retained
-        return {"result_ref": self.result_ref, "scope": self.scope.to_json() if isinstance(self.scope, ResourceScope) else self.scope, "source": self.source.value, "items": [item.to_json(rank=self.offset + index + 1) for index, item in enumerate(self.items)], "coverage": {**self.coverage.to_json(), "shown": self.offset + len(self.items), "remaining": max(0, total - self.offset - len(self.items))}, "page": {"offset": self.offset, "count": len(self.items), "total": total, "continuation": self.continuation}, "continuation": self.continuation}
+        total = (
+            self.coverage.final_count
+            if self.coverage.final_count is not None
+            else self.coverage.retained
+        )
+        return {
+            "result_ref": self.result_ref,
+            "scope": self.scope.to_json()
+            if isinstance(self.scope, ResourceScope)
+            else self.scope,
+            "source": self.source.value,
+            "items": [
+                item.to_json(rank=self.offset + index + 1)
+                for index, item in enumerate(self.items)
+            ],
+            "coverage": {
+                **self.coverage.to_json(),
+                "shown": self.offset + len(self.items),
+                "remaining": max(0, total - self.offset - len(self.items)),
+            },
+            "page": {
+                "offset": self.offset,
+                "count": len(self.items),
+                "total": total,
+                "continuation": self.continuation,
+            },
+            "continuation": self.continuation,
+        }

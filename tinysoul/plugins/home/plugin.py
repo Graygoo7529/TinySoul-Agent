@@ -1,60 +1,66 @@
 """Home's explicit service, Context and Action contributions."""
 
-from functools import partial
-from tinysoul.kernel.registration import PluginTurnResource
-from tinysoul.kernel.action.models import (
-    ModelUseDescriptor,
-    ModelOperation,
-    ModelImplementation,
-)
 from dataclasses import dataclass, replace
+from functools import partial
 
-from tinysoul.kernel.loop.phases import LLMRunner
-from tinysoul.kernel.registration import (
-    PluginProfileExtension,
-    Service,
-    PluginGeneration,
-    PluginConfig,
-    PluginServiceExport,
-    PluginTrapHandler,
-    GenerationBuildContext,
-    ProfileBuildContext,
-    ProfileKind,
-)
-
-from .actions import register_home_actions
-from .background import home_segment_registration
-from .engine import AgentHomeEngine
-from .services import HomeService
+from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.model_services import ModelServices
 from tinysoul.infra.model_services.vectors import EmbeddingIndex
 from tinysoul.infra.references import ReferenceResolver
-from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.kernel.action.config import ActionSettings
-from tinysoul.kernel.action.models import ModelUseRegistry
+from tinysoul.kernel.action.models import (
+    ModelImplementation,
+    ModelOperation,
+    ModelUseDescriptor,
+    ModelUseRegistry,
+)
 from tinysoul.kernel.action.tasks import ActionTaskFactory
-from tinysoul.kernel.retrieval.policy import SearchCapability
+from tinysoul.kernel.registration import (
+    GenerationBuildContext,
+    PluginConfig,
+    PluginGeneration,
+    PluginProfileExtension,
+    PluginServiceExport,
+    PluginTrapHandler,
+    PluginTurnResource,
+    ProfileBuildContext,
+    ProfileKind,
+    Service,
+)
 from tinysoul.kernel.retrieval.contracts import (
-    SourceKind,
     OperationKind,
+    SourceKind,
 )
 from tinysoul.kernel.retrieval.operations import SearchSession
+from tinysoul.kernel.retrieval.policy import SearchCapability
 from tinysoul.kernel.retrieval.selection import CandidateSelector
-from .runtime_bridge import RuntimeAgentHomeBridge
+
+from . import AgentHomeRuntimeCopyTrapHandler
+from .actions import (
+    HomeReviewExecutor,
+    register_home_actions,
+    register_home_review_actions,
+)
+from .background import home_segment_registration
 from .config import AgentHomeSettings, parse_agent_home_settings
-from .engine import AgentHomeEngineBuilder
+from .engine import HOME_SEARCH_FILTERS, AgentHomeEngine, AgentHomeEngineBuilder
 from .errors import AgentHomeError
 from .failures import HOME_RUNTIME_COPY_REQUIRED
-from . import AgentHomeRuntimeCopyTrapHandler
-from .actions import HomeReviewExecutor, register_home_review_actions
-from .services import HomeReviewService
+from .runtime_bridge import RuntimeAgentHomeBridge
+from .services import HomeReviewService, HomeService
 
 
 @dataclass(frozen=True)
 class HomePlugin:
     id = "home"
     search_capabilities = (
-        SearchCapability("home.search", tuple(SourceKind), tuple(OperationKind), scopes=("all", "agent", "skills"), filters=("space", "file_type")),
+        SearchCapability(
+            "home.search",
+            tuple(SourceKind),
+            tuple(OperationKind),
+            scopes=("all", "agent", "skills"),
+            filters=HOME_SEARCH_FILTERS,
+        ),
     )
     model_uses = (
         ModelUseDescriptor(
@@ -142,12 +148,13 @@ class HomePlugin:
             return SearchSession(
                 observations=context.observations,
                 action_id="home.search",
-
-                retrieval_policies=context.settings.get(ActionSettings).retrieval_policies,
+                retrieval_policies=context.settings.get(
+                    ActionSettings
+                ).retrieval_policies,
                 source=source,
                 selector=selector,
                 embedding=index,
-                supported_filters=frozenset({"space", "file_type"}),
+                filters=HOME_SEARCH_FILTERS,
             )
 
         service = HomeService(owner, queries=queries())

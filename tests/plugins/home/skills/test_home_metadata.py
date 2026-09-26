@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from tinysoul.plugins.home.services import HomeService
 from tinysoul.plugins.home import (
     AgentHomeContractError,
     AgentHomeEngine,
@@ -15,6 +14,7 @@ from tinysoul.plugins.home import (
     HomeTopLink,
     parse_home_skill_metadata,
 )
+from tinysoul.plugins.home.services import HomeService
 from tinysoul.plugins.home.skills.metadata import SKILL_FRONTMATTER_MAX_CHARS
 
 
@@ -177,8 +177,9 @@ async def test_home_search_uses_skill_frontmatter_instead_of_body_heading(
 
     from tinysoul.infra.references import ReferenceResolver
     from tinysoul.kernel.retrieval.contracts import (
-        RetrievalRequest, QuerySource, BacklinksSource, RefsSource, TextQuery,
-        SourceKind, OperationKind, ModelStep, SearchFailure,
+        QuerySource,
+        RetrievalRequest,
+        TextQuery,
     )
 
     corpus = home.search_corpus(
@@ -186,7 +187,9 @@ async def test_home_search_uses_skill_frontmatter_instead_of_body_heading(
         references=ReferenceResolver(),
     )
     assert corpus.candidates[0].title == "Daily Home Review"
-    assert "Review pending Home changes." in corpus.candidates[0].text
+    assert "Review pending Home changes." in "".join(
+        unit.text for unit in corpus.candidates[0].content_units
+    )
 
 
 def _home(root: Path) -> AgentHomeEngine:

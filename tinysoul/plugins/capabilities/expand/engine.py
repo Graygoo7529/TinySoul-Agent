@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from base64 import b64decode
 import json
+from base64 import b64decode
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,27 +13,33 @@ from uuid import uuid4
 
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.json import JsonObject, JsonValue, dumps_json
-from tinysoul.plugins.workspace.services import WorkspaceExecutionPort
-from tinysoul.plugins.workspace.inspection.models import WorkspaceBundleWrite
-from tinysoul.kernel.retrieval.operations import SearchCorpus
 from tinysoul.kernel.retrieval.contracts import (
-    SearchCandidate,
-    SearchEvidence,
-    SearchFailure,
-    SearchFailureKind,
-    RetrievalRequest,
+    AttributeField,
+    AttributeFilters,
+    ContentUnit,
     DirectorySource,
     QuerySource,
-    TextQuery,
     RefsSource,
+    RetrievalRequest,
+    SearchCandidate,
+    SearchFailure,
+    SearchFailureKind,
+    TextQuery,
 )
-from tinysoul.kernel.retrieval.requests import eligible
+from tinysoul.kernel.retrieval.operations import SearchCorpus
+from tinysoul.plugins.workspace.inspection.models import WorkspaceBundleWrite
+from tinysoul.plugins.workspace.services import WorkspaceExecutionPort
+
+MCP_SEARCH_FILTERS = AttributeFilters(
+    (AttributeField("server_id"), AttributeField("tool_name"))
+)
 from .config import ExpandSettings, validate_expand_bindings
 from .failures import ExpandFailure, ExpandRequestError
 
 if TYPE_CHECKING:
-    from .mcp.client import MCPConnection, ToolDirectory
     from tinysoul.infra.json.schema import JSONSchema
+
+    from .mcp.client import MCPConnection, ToolDirectory
 
 
 @dataclass(frozen=True)
@@ -183,9 +189,7 @@ class ExpandEngine:
             self._definitions[identity] = (directory, tuple(tools[start:]))
         return Discovery(tuple(tools), tuple(servers))
 
-    async def search_corpus(
-        self, request: RetrievalRequest, *, page_budget: int
-    ) -> SearchCorpus:
+    async def search_corpus(self, request: RetrievalRequest) -> SearchCorpus:
         source = request.source
         if not isinstance(source, (QuerySource, DirectorySource, RefsSource)):
             raise SearchFailure(
@@ -198,8 +202,7 @@ class ExpandEngine:
                 SearchFailureKind.INVALID_REQUEST,
                 "MCP scope must be all or server:<id>",
             )
-        supported = frozenset({"server_id", "tool_name"})
-        eligible({}, getattr(source, "where", {}), supported=supported)
+        predicates = MCP_SEARCH_FILTERS.parse(getattr(source, "where", {}))
         discovered = await self.discover(
             None if scope == "all" else (scope.removeprefix("server:"),)
         )
@@ -211,44 +214,49 @@ class ExpandEngine:
                 "A selected MCP server is unavailable; choose an available server scope",
             )
         candidates = []
-        query = source.query.text if isinstance(source, QuerySource) and isinstance(source.query, TextQuery) else ""
+        query = (
+            source.query.text
+            if isinstance(source, QuerySource) and isinstance(source.query, TextQuery)
+            else ""
+        )
         total_input = len(query)
         for tool in discovered.tools:
-            if selected_refs and tool.identity not in selected_refs and ("mcp:" + tool.server_id + "/" + tool.name) not in selected_refs:
+            ref = "mcp:" + tool.server_id + "/" + tool.name
+            if ref in request.exclude_refs or (
+                selected_refs and ref not in selected_refs
+            ):
                 continue
             attributes: JsonObject = {
                 "server_id": tool.server_id,
                 "tool_name": tool.name,
             }
-            if tool.problem or not eligible(
-                attributes, getattr(source, "where", {}), supported=supported
+            if tool.problem or not all(
+                predicate.matches(attributes) for predicate in predicates
             ):
                 continue
-            definition = tool.describe()
-            schema = tool.definition.get("inputSchema")
-            evidence = dumps_json(
-                {
-                    **tool.summary(),
-                    "parameters": schema if isinstance(schema, dict) else {},
-                }
-            )
+            evidence = dumps_json(tool.definition)
             total_input += len(evidence)
-            if len(dumps_json(definition)) < page_budget // 2:
-                attributes["definition"] = definition
-            else:
-                attributes["describe"] = {
-                    "action": "expand.describe_tools",
-                    "tools": [tool.identity],
-                }
-            ref = "mcp:" + tool.server_id + "/" + tool.name
             candidates.append(
                 SearchCandidate(
                     ref,
                     tool.name,
-                    (SearchEvidence(ref, evidence, "tool_directory"),),
+                    (ContentUnit(ref, ref, evidence, "tool_directory"),),
                     attributes,
                 )
             )
+        if isinstance(source, RefsSource):
+            order = {ref: index for index, ref in enumerate(dict.fromkeys(source.refs))}
+            missing = (
+                selected_refs
+                - {item.ref for item in candidates}
+                - set(request.exclude_refs)
+            )
+            if missing:
+                raise SearchFailure(
+                    SearchFailureKind.INVALID_REQUEST,
+                    "MCP ref is not available in the tool directory",
+                )
+            candidates.sort(key=lambda item: order[item.ref])
         if total_input > self.settings.search_max_chars:
             raise SearchFailure(
                 SearchFailureKind.SCOPE_REQUIRED,

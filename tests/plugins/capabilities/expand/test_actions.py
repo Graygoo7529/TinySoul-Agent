@@ -1,46 +1,51 @@
-from datetime import date
-from dataclasses import replace
-from pathlib import Path
 import sys
+from dataclasses import replace
+from datetime import date
+from pathlib import Path
+
 import pytest
 
+from tests.support.model_uses import action_tasks
 from tinysoul.infra.json import JsonObject, dumps_json
 from tinysoul.infra.model_services import ModelServices
 from tinysoul.infra.model_services.config import ModelServicesSettings
-from tinysoul.kernel.action.models import (
-    ModelUseRegistry,
-    ModelUseDescriptor,
-    ModelUseBinding,
-    ModelImplementation,
-    ModelOperation,
-)
-from tinysoul.kernel.retrieval.contracts import RetrievalRequest, DirectorySource, SourceKind, OperationKind
-from tinysoul.kernel.retrieval.policy import RetrievalPolicy
-from tinysoul.kernel.retrieval.operations import SearchSession
-from tinysoul.kernel.retrieval.selection import CandidateSelector
-from functools import partial
-from tests.support.model_uses import action_tasks
 from tinysoul.kernel.action.call import ActionCall
 from tinysoul.kernel.action.catalog.catalog import ActionCatalog
 from tinysoul.kernel.action.catalog.specs import (
     ActionDomainSpec,
+    ActionExecutionSpec,
+    ActionRuntimeSpec,
+    ActionSemanticSpec,
     ActionSpec,
     ActionToolSpec,
-    ActionSemanticSpec,
-    ActionRuntimeSpec,
-    ActionExecutionSpec,
 )
-from tinysoul.kernel.action.execution.preparation import ActionExecutionBuilder
 from tinysoul.kernel.action.execution.executor import ActionExecutionContext
+from tinysoul.kernel.action.execution.preparation import ActionExecutionBuilder
+from tinysoul.kernel.action.models import (
+    ModelImplementation,
+    ModelOperation,
+    ModelUseBinding,
+    ModelUseDescriptor,
+    ModelUseRegistry,
+)
 from tinysoul.kernel.action.result import ActionResultStatus
 from tinysoul.kernel.context import ContextEngineBuilder
-from tinysoul.llm.protocol.requests import TaskCall, ModelContextOverflowPolicy
+from tinysoul.kernel.retrieval.contracts import (
+    DirectorySource,
+    OperationKind,
+    RetrievalRequest,
+    SourceKind,
+)
+from tinysoul.kernel.retrieval.operations import SearchSession
+from tinysoul.kernel.retrieval.policy import RetrievalPolicy
+from tinysoul.kernel.retrieval.selection import CandidateSelector
+from tinysoul.llm.protocol.requests import ModelContextOverflowPolicy, TaskCall
 from tinysoul.llm.protocol.responses import (
-    TaskResult,
-    RawResponse,
     JsonAnswer,
+    RawResponse,
     TaskFailure,
     TaskFailureReason,
+    TaskResult,
     TaskResultStatus,
 )
 from tinysoul.plugins.capabilities.expand.actions import ExpandAction, ExpandOperation
@@ -50,13 +55,13 @@ from tinysoul.plugins.capabilities.expand.config import (
 )
 from tinysoul.plugins.capabilities.expand.engine import ExpandEngine
 from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
-from tinysoul.runtime import RunScope, RunLevel
+from tinysoul.runtime import RunLevel, RunScope
 
 
 class Selector:
     def __init__(self) -> None:
         self.calls: list[TaskCall] = []
-        self.answer: JsonObject = {"ids": ["c0"]}
+        self.answer: JsonObject = {"items": [{"id": "c0", "basis_ids": ["u0"]}]}
         self.overflow = False
 
     async def run(self, call: TaskCall) -> TaskResult:
@@ -123,8 +128,15 @@ async def test_four_actions_share_exact_definitions_scope_and_bounded_selection(
     page_budget = max(2048, inline_limit)
     queries = SearchSession(
         action_id="expand.search",
-        retrieval_policies=(RetrievalPolicy("expand.search", tuple(SourceKind), tuple(OperationKind), page_max_chars=page_budget),),
-        source=partial(engine.search_corpus, page_budget=page_budget),
+        retrieval_policies=(
+            RetrievalPolicy(
+                "expand.search",
+                tuple(SourceKind),
+                tuple(OperationKind),
+                page_max_chars=page_budget,
+            ),
+        ),
+        source=engine.search_corpus,
         selector=CandidateSelector(
             models=models, invoke=selector.run, services=services
         ),
@@ -165,26 +177,26 @@ async def test_four_actions_share_exact_definitions_scope_and_bounded_selection(
                 execution,
                 call=replace(
                     execution.call,
-                            params={
-                                "source": (
-                                    {
-                                        "kind": "directory",
-                                        "scope": "all",
-                                    }
-                                        if params.get("query") in {"both tools", "sum"}
-                                    else {
-                                        "kind": "query",
-                                        "scope": "all",
-                                        "query": params.get("query", ""),
-                                    }
-                                ),
-                            "steps": [
-                                {
-                                    "op": "select",
-                                    "criterion": "add two integers",
-                                }
-                            ],
-                        },
+                    params={
+                        "source": (
+                            {
+                                "kind": "directory",
+                                "scope": "all",
+                            }
+                            if params.get("query") in {"both tools", "sum"}
+                            else {
+                                "kind": "query",
+                                "scope": "all",
+                                "query": params.get("query", ""),
+                            }
+                        ),
+                        "steps": [
+                            {
+                                "op": "select",
+                                "criterion": "add two integers",
+                            }
+                        ],
+                    },
                 ),
             )
         return await ExpandAction(engine, operation, runner, queries).execute(
@@ -212,9 +224,10 @@ async def test_four_actions_share_exact_definitions_scope_and_bounded_selection(
         assert "inputSchema" in str(described.payload)
         bounded = await engine.search_corpus(
             RetrievalRequest(DirectorySource("all")),
-            page_budget=256,
         )
-        assert all(item.attributes.get("describe") for item in bounded.candidates)
+        assert all(
+            "inputSchema" in item.content_units[0].text for item in bounded.candidates
+        )
         assert {item.ref for item in bounded.candidates} == {
             "mcp:local/add",
             "mcp:local/long_text",
@@ -239,7 +252,9 @@ async def test_four_actions_share_exact_definitions_scope_and_bounded_selection(
             {"server_id": "local", "tool_name": "add", "arguments": {"a": 2, "b": 6}},
         )
         assert result.payload and result.payload["structured"] == {"value": 8}
-        selector.answer = {"ids": ["c0", "c1"]}
+        selector.answer = {
+            "items": [{"id": "c0", "basis_ids": []}, {"id": "c1", "basis_ids": []}]
+        }
         multiple = await invoke(ExpandOperation.SEARCH, {"query": "both tools"})
         assert multiple.status is ActionResultStatus.SUCCESS and multiple.payload
         assert len(dumps_json(multiple.payload)) <= page_budget
@@ -255,7 +270,7 @@ async def test_four_actions_share_exact_definitions_scope_and_bounded_selection(
             items += more
             assert len(selector.calls) == before
         assert len(items) == 2
-        selector.answer = {"ids": ["invented"]}
+        selector.answer = {"items": [{"id": "invented", "basis_ids": []}]}
         assert (
             await invoke(ExpandOperation.SEARCH, {"query": "sum"})
         ).status is ActionResultStatus.FAILED

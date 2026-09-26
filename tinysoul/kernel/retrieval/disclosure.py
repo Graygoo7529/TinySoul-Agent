@@ -2,13 +2,26 @@
 
 from __future__ import annotations
 
-from hashlib import sha256
 import re
+from dataclasses import replace
+from hashlib import sha256
+
 from markdown_it import MarkdownIt
 
 from tinysoul.infra.continuation import OpaqueContinuationCodec, continue_json_sequence
 from tinysoul.infra.json import JsonObject, JsonValue, to_json_object
-from .contracts import SearchFailure, SearchFailureKind, SearchEvidence
+
+from .contracts import (
+    CandidatePreview,
+    ContentCoverage,
+    ContentSlice,
+    ContentUnit,
+    EvidenceKind,
+    SearchCandidate,
+    SearchEvidence,
+    SearchFailure,
+    SearchFailureKind,
+)
 
 
 def inspect_document(
@@ -38,7 +51,7 @@ def inspect_document(
         selected = "".join(text.splitlines(keepends=True)[first - 1 : last])
         values: tuple[JsonValue, ...] = tuple(
             {"ref": item.ref, "text": item.text}
-            for item in evidence_units(resource, selected, first_line=first)
+            for item in content_units(resource, selected, first_line=first)
         )
     else:
         values = tuple(to_json_object({"ref": target}) for target in direct_refs)
@@ -61,35 +74,138 @@ def inspect_document(
     )
 
 
-def evidence_units(
+def content_units(
     ref: str, text: str, *, max_chars: int = 2_000, first_line: int = 1
-) -> tuple[SearchEvidence, ...]:
-    """Bounded text units retain exact source lines, including long-line slices."""
-    lines = text.splitlines(keepends=True)
-    if not lines:
-        return (SearchEvidence(ref, ""),)
-    result = []
-    start, chunk = first_line, ""
-    for number, line in enumerate(lines, first_line):
-        if chunk and len(chunk) + len(line) > max_chars:
-            result.append(SearchEvidence(f"{ref}#L{start}-L{number - 1}", chunk))
-            start, chunk = number, ""
-        chunk += line
-        while len(chunk) > max_chars:
-            result.append(
-                SearchEvidence(f"{ref}#L{start}-L{number}", chunk[:max_chars])
-            )
-            start, chunk = number, chunk[max_chars:]
-    if chunk:
-        result.append(
-            SearchEvidence(f"{ref}#L{start}-L{first_line + len(lines) - 1}", chunk)
+) -> tuple[ContentUnit, ...]:
+    """Partition exact text without inserting separators, retaining line and column."""
+    result: list[ContentUnit] = []
+    line, column = first_line, 1
+    for offset in range(0, max(1, len(text)), max_chars):
+        chunk = text[offset : offset + max_chars]
+        last = line + chunk.rstrip("\r\n").count("\n")
+        location: JsonObject = {
+            "line": line,
+            "column": column,
+            "end_line": last,
+            "offset": offset,
+        }
+        identity = (
+            f"{ref}:L{first_line}:{offset}:{sha256(chunk.encode()).hexdigest()[:16]}"
         )
+        result.append(
+            ContentUnit(identity, f"{ref}#L{line}-L{last}", chunk, location=location)
+        )
+        if "\n" in chunk:
+            line += chunk.count("\n")
+            column = len(chunk.rsplit("\n", 1)[-1]) + 1
+        else:
+            column += len(chunk)
     return tuple(result)
 
 
-def fragment_content(text: str, fragment: str) -> str:
-    first, last = fragment_range(text, fragment)
-    return "".join(text.splitlines(keepends=True)[first - 1 : last])
+def range_evidence(
+    units: tuple[ContentUnit, ...],
+    start: int,
+    end: int,
+    *,
+    kind: EvidenceKind,
+    relation: str | None = None,
+) -> tuple[SearchEvidence, ...]:
+    """Map a source-text match to the units of that same source, without copying text."""
+    result = []
+    offset = 0
+    for unit in units:
+        stop = offset + len(unit.text)
+        if start < stop and end > offset:
+            result.append(
+                SearchEvidence(
+                    unit.id,
+                    kind,
+                    max(0, start - offset),
+                    min(len(unit.text), end - offset),
+                    relation,
+                )
+            )
+        offset = stop
+    return tuple(result)
+
+
+def project_candidate(candidate: SearchCandidate, budget: int) -> CandidatePreview:
+    """Share deterministic, evidence-aware excerpts between model input and pages."""
+    units = {unit.id: unit for unit in candidate.content_units}
+    decisions = candidate.evaluation.basis if candidate.evaluation else ()
+    # Give the leading contribution of each channel space before its remaining hits.
+    by_kind: dict[EvidenceKind, list[SearchEvidence]] = {}
+    for hit in candidate.evidence:
+        by_kind.setdefault(hit.kind, []).append(hit)
+    leads = tuple(values[0] for values in by_kind.values())
+    rest = tuple(hit for values in by_kind.values() for hit in values[1:])
+    preferred = (*decisions, *leads)
+    ordered = (*preferred, *rest)
+    slots = min(max(1, len(preferred)), max(1, budget // 160))
+    allowance = max(1, budget // slots)
+    fragments: list[ContentSlice] = []
+    remaining = budget
+    for hit in ordered:
+        if remaining <= 0:
+            break
+        unit = units[hit.unit_id]
+        stop = hit.end if hit.end is not None else len(unit.text)
+        size = min(remaining, allowance)
+        start = max(0, hit.start - min(80, size // 4))
+        end = min(len(unit.text), start + size)
+        covered_index = next(
+            (
+                index
+                for index, part in enumerate(fragments)
+                if part.unit.id == unit.id
+                and part.start <= hit.start
+                and part.end >= min(stop, hit.start + size)
+            ),
+            None,
+        )
+        if covered_index is not None:
+            part = fragments[covered_index]
+            fragments[covered_index] = replace(
+                part,
+                evidence=part.evidence
+                if any(
+                    (entry.kind, entry.relation) == (hit.kind, hit.relation)
+                    for entry in part.evidence
+                )
+                else (*part.evidence, hit),
+            )
+            continue
+        fragments.append(ContentSlice(unit, start, end, (hit,)))
+        remaining -= end - start
+    for unit in candidate.content_units:
+        if remaining <= 0:
+            break
+        # Fill uncovered ranges with original content, never duplicate an excerpt.
+        spans = sorted(
+            (part.start, part.end) for part in fragments if part.unit.id == unit.id
+        )
+        offset = 0
+        for start, end in (*spans, (len(unit.text), len(unit.text))):
+            stop = min(start, offset + remaining)
+            if stop > offset or (not unit.text and not fragments):
+                fragments.append(ContentSlice(unit, offset, stop))
+                remaining -= stop - offset
+            offset = max(offset, end)
+    covered = 0
+    for unit in candidate.content_units:
+        end = 0
+        for start, stop in sorted(
+            (part.start, part.end) for part in fragments if part.unit.id == unit.id
+        ):
+            covered += max(0, stop - max(start, end))
+            end = max(end, stop)
+    coverage = candidate.content_coverage
+    if coverage is ContentCoverage.FULL and covered < sum(
+        len(unit.text) for unit in candidate.content_units
+    ):
+        coverage = ContentCoverage.EXCERPT
+    return CandidatePreview(candidate, tuple(fragments), coverage)
 
 
 def fragment_range(text: str, fragment: str) -> tuple[int, int]:

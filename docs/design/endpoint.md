@@ -54,11 +54,15 @@ HTTP route 只做路径参数/schema 转换和 engine 调用，不直接访问�
 
 WebSocket 在首帧完成 token、cursor 和 mode 认证；HTTP replay 与 WebSocket 都使用实例身份和序号续传。实例变化、超前游标或已淘汰区间通过 gap 明确呈现；客户端重新获取 owner 状态，不能把事件丢失当作业务丢失。Observation 不参与业务提交和 Runtime 控制流。
 
+Search 的 verbose 观测按 search_id 与 step_index 关联各步骤；LLM 调用通过 retrieval.model.invoked 连接既有 task_id，JEV/Embedding 的 model.call 连接 call_id，query 通道标为 source 阶段。重复 rerank 仍可区分，无需 Endpoint 另存评估历史。SearchPage 中来源覆盖、内容快照覆盖、模型实际输入覆盖和页面覆盖各有含义，客户端不能把“页面摘录”显示为“来源不完整”。真实片段保留资源 ref、位置和代表性命中；模型依据 ID 不是跨 Turn 链接。
+
 ## 配置与 Action projection
 
 `EndpointConfigurationEngine` 读取 ConfigController 的 status/catalog，并 await Agent 服务的 action_catalog 投影。Action catalog 的数据所有权仍属于 ActionEngine；Endpoint 不扫描 TOML、不缓存副本。它通过 `GET /v2/config/actions` 暴露给 Settings 配置工作流，不将其定义为聊天运行时 Action API。
 
 `PATCH /v2/config` 把 typed `set`/`delete` mutation 交给 ConfigController。ConfigController 负责候选环境、owner validator、持久化事务和 Runtime activation；Endpoint 不自行重建 Generation。PATCH 只校验并保存候选，返回 saved/pending_reload；POST /v2/config/reload 在 idle 时显式构造并激活新 Generation。活跃或等待 work 不阻止保存候选，但会阻止激活。进程外壳配置保持只读。
+
+action.retrieval 在配置 catalog 中是整体 object，内部 home.search、core.context.search 等含点 Action ID 为原子 key。设置页修改其中一项时，以 path=action.retrieval 提交完整 map，不拆为多个点路径。Action catalog 的 retrieval capability 和实际 tool schema 共同描述可用来源、属性条件与操作；日期比较及 Memory document_ref query 来自公共 typed 契约。Endpoint 复用配置候选验证、保存和 reload，无特殊搜索配置路由。
 
 配置 reload 全链异步等待候选构造、失败候选关闭与旧资源退休。退休失败返回有限 cleanup diagnostics，响应仍明确表示新世代已经 active；它不进入“原世代仍生效”的激活失败路径。
 

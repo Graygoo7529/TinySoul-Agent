@@ -1,21 +1,23 @@
 """Current-day Workspace capabilities, excluding lifecycle and physical paths."""
 
-from tinysoul.infra.services import ScopedService, ServiceScope
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Protocol, Self
-from tinysoul.kernel.retrieval.operations import SearchSession, SelectionInput
+
+from tinysoul.infra.services import ScopedService, ServiceScope
 from tinysoul.kernel.retrieval.contracts import (
     RetrievalRequest,
-    SearchPage,
     SearchFailure,
     SearchFailureKind,
+    SearchPage,
 )
+from tinysoul.kernel.retrieval.operations import SearchSession, SelectionInput
+
 from .engine import WorkspaceEngine, WorkspaceExecutionLocation
 from .inspection.models import (
-    WorkspaceTextRead,
-    WorkspaceBundleWrite,
     WorkspaceBundleResult,
+    WorkspaceBundleWrite,
+    WorkspaceTextRead,
 )
 
 
@@ -96,7 +98,7 @@ class WorkspaceService(ScopedService[WorkspaceEngine]):
         super().__init__(owner, scope)
         self._queries = queries
         self.retrieval_policies = queries.retrieval_policies if queries else ()
-        self.search_retrieval = scope.remote(self._search_retrieval)
+        self.search = scope.remote(self._search)
         self.max_read_chars = owner.settings.max_read_chars
         self.max_write_chars = owner.settings.max_write_chars
         self.analysis_settings = owner.settings.analysis
@@ -112,7 +114,6 @@ class WorkspaceService(ScopedService[WorkspaceEngine]):
         self.read_text = scope.local(owner.read_text)
         self.read_text_range = scope.local(owner.read_text_range)
         self.read_bytes = scope.local(owner.read_bytes)
-        self.search = scope.local(owner.search, after=owner.events.flush)
         self.write_text = scope.local(owner.write_text, after=owner.events.flush)
         self.write_bundle = scope.local(owner.write_bundle, after=owner.events.flush)
         self.edit_text = scope.local(owner.edit_text, after=owner.events.flush)
@@ -136,8 +137,11 @@ class WorkspaceService(ScopedService[WorkspaceEngine]):
     def _bind(self, scope: ServiceScope) -> Self:
         return type(self)(self._owner, scope, queries=self._queries)
 
-    async def _search_retrieval(
-        self, request: RetrievalRequest | str, *, inputs: SelectionInput = SelectionInput()
+    async def _search(
+        self,
+        request: RetrievalRequest | str,
+        *,
+        inputs: SelectionInput = SelectionInput(),
     ) -> SearchPage:
         if self._queries is None:
             raise SearchFailure(

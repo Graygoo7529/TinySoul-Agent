@@ -1,45 +1,44 @@
 """Session's public service and fixed source projection."""
 
 from collections.abc import Callable
-from functools import partial
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
-from tinysoul.infra.time import CalendarDay
-from tinysoul.kernel.registration import (
-    PluginProfileExtension,
-    Service,
-    PluginGeneration,
-    PluginConfig,
-    PluginServiceExport,
-    ServiceLifetime,
-    GenerationBuildContext,
-    ProfileBuildContext,
-    ProfileKind,
-)
-from tinysoul.kernel.context import ContextTurnFacts
-
-from .engine import SessionEngine
-from .projection import session_segment_registration
-from .services import SessionService, SessionViewSource, SessionOrganizeService
-from .actions import register_session_actions
-from .projection import SessionTurnCompletionHandler
-from .runtime_bridge import RuntimeSessionBridge
-from .config import SessionSettings, parse_session_settings
-from .errors import SessionError
+from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.model_services import ModelServices
 from tinysoul.infra.references import ReferenceResolver
-from tinysoul.infra.concurrency import JoinedOperations
+from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.action.config import ActionSettings
 from tinysoul.kernel.action.models import ModelUseRegistry
-from tinysoul.kernel.retrieval.operations import SearchSession
-from tinysoul.kernel.retrieval.selection import CandidateSelector
+from tinysoul.kernel.context import ContextTurnFacts
+from tinysoul.kernel.context.search import CONTEXT_SEARCH_FILTERS, disclosure_corpus
+from tinysoul.kernel.registration import (
+    GenerationBuildContext,
+    PluginConfig,
+    PluginGeneration,
+    PluginProfileExtension,
+    PluginServiceExport,
+    ProfileBuildContext,
+    ProfileKind,
+    Service,
+    ServiceLifetime,
+)
 from tinysoul.kernel.retrieval.contracts import (
     RefsSource,
     SearchFailure,
     SearchFailureKind,
 )
-from tinysoul.kernel.context.search import disclosure_corpus
+from tinysoul.kernel.retrieval.operations import SearchSession
+from tinysoul.kernel.retrieval.selection import CandidateSelector
+
+from .actions import register_session_actions
+from .config import SessionSettings, parse_session_settings
+from .engine import SessionEngine
+from .errors import SessionError
+from .projection import SessionTurnCompletionHandler, session_segment_registration
+from .runtime_bridge import RuntimeSessionBridge
+from .services import SessionOrganizeService, SessionService, SessionViewSource
 
 
 @dataclass(frozen=True)
@@ -124,7 +123,9 @@ class SessionPlugin:
                         )
                     view = owner.snapshot_view(day)
                     entries = view.search_entries(
-                        request.source.refs if isinstance(request.source, RefsSource) else ()
+                        request.source.refs
+                        if isinstance(request.source, RefsSource)
+                        else ()
                     )
                     return disclosure_corpus(
                         entries, request, context.services.get(ReferenceResolver)
@@ -138,11 +139,12 @@ class SessionPlugin:
             queries = SearchSession(
                 observations=context.observations,
                 action_id="core.context.search",
-
-                retrieval_policies=context.settings.get(ActionSettings).retrieval_policies,
+                retrieval_policies=context.settings.get(
+                    ActionSettings
+                ).retrieval_policies,
                 source=source,
                 selector=selector,
-                supported_filters=frozenset({"source", "basis", "kind", "day"}),
+                filters=CONTEXT_SEARCH_FILTERS,
             )
             return SessionService(owner, scope, queries=queries)
 

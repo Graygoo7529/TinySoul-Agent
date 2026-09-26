@@ -2,7 +2,7 @@ name = "home.search"
 domain = "home"
 
 [tool]
-description = "Compose registered query, backlinks, directory, refs, result, filter, select and rerank operations over effective Home. Results include links and real content previews; operation models are configured internally."
+description = "Compose registered query, backlinks, directory, refs, result, filter, select and rerank operations over effective Home. Query/directory aggregate Skill resources; refs read the exact entry or fragment. Results include links and real content previews; operation models are configured internally."
 schema = { type = "object", properties = { source = { type = "object" }, steps = { type = "array" }, exclude_refs = { type = "array", items = { type = "string" } }, page = { type = "object" } }, required = ["source"], additionalProperties = false }
 
 [semantic]

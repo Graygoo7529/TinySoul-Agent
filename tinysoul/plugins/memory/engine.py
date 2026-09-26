@@ -2,26 +2,44 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import secrets
 from datetime import date
 from pathlib import Path
-import secrets
 from threading import RLock
-from typing import cast
 
+from tinysoul.infra.json import JsonObject
+from tinysoul.infra.references import (
+    ReferenceError,
+    ReferenceResolver,
+    ResourceTarget,
+    markdown_references,
+    relative_reference,
+)
 from tinysoul.infra.time import CalendarDay
-from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.kernel.retrieval.contracts import (
+    AttributeField,
+    AttributeFilters,
+    AttributeKind,
+    BacklinksSource,
+    DocumentQuery,
+    EvidenceKind,
+    QuerySource,
+    RefsSource,
+    RetrievalRequest,
+    SearchCandidate,
+    SearchEvidence,
+    SearchFailure,
+    SearchFailureKind,
+)
+from tinysoul.kernel.retrieval.disclosure import (
+    content_units,
+    fragment_range,
+    inspect_document,
+    range_evidence,
+)
+from tinysoul.kernel.retrieval.engine import VectorSource
+from tinysoul.kernel.retrieval.operations import SearchCorpus
 
-from .storage.active import (
-    ActiveMemoryDocument,
-    ActiveMemoryStore,
-    MemoryPatchOperation,
-)
-from .retrieval import (
-    MemoryCatalog,
-    MemoryCatalogSnapshot,
-    resolve_redirect,
-)
 from .config import MemorySettings
 from .documents import (
     DailyMemoryDocument,
@@ -31,35 +49,27 @@ from .documents import (
 )
 from .errors import MemoryContractError, MemoryInvariantError
 from .links import MemoryKind, MemoryLink
-from .storage.persistent import MemoryStore
+from .retrieval import (
+    MemoryCatalog,
+    MemoryCatalogSnapshot,
+    resolve_redirect,
+)
 from .retrieval.models import MemoryCatalogEntry
-from tinysoul.infra.references import (
-    ReferenceResolver,
-    ReferenceError,
-    ResourceTarget,
-    markdown_references,
-    relative_reference,
+from .storage.active import (
+    ActiveMemoryDocument,
+    ActiveMemoryStore,
+    MemoryPatchOperation,
 )
-from tinysoul.kernel.retrieval.contracts import (
-    DocumentQuery,
-    SearchCandidate,
-    SearchEvidence,
-    SearchFailure,
-    SearchFailureKind,
-    RetrievalRequest,
-    QuerySource,
-    RefsSource,
-    BacklinksSource,
+from .storage.persistent import MemoryStore
+
+MEMORY_SEARCH_FILTERS = AttributeFilters(
+    (
+        AttributeField("kind"),
+        AttributeField("status"),
+        AttributeField("updated_on", AttributeKind.DATE),
+        AttributeField("confidence"),
+    )
 )
-from tinysoul.kernel.retrieval.disclosure import (
-    evidence_units,
-    fragment_range,
-    fragment_content,
-    inspect_document,
-)
-from tinysoul.kernel.retrieval.engine import VectorSource
-from tinysoul.kernel.retrieval.operations import SearchCorpus
-from tinysoul.kernel.retrieval.requests import eligible
 
 
 class MemoryEngine:
@@ -193,12 +203,7 @@ class MemoryEngine:
         self, resource: str, fragment: str = "", source_day: date | None = None
     ) -> ResourceTarget:
         try:
-            body = resource.removeprefix("memory:")
-            link = (
-                MemoryLink.from_relative(body)
-                if body.endswith(".md")
-                else MemoryLink.parse(resource)
-            )
+            link = MemoryLink.from_resource(resource)
             chain = resolve_redirect(
                 self._catalog.snapshot,
                 link,
@@ -219,7 +224,7 @@ class MemoryEngine:
         max_chars: int | None = None,
     ) -> JsonObject:
         resource, _, fragment = memory_link.partition("#")
-        link = MemoryLink.parse(resource)
+        link = MemoryLink.from_resource(resource)
         stored = self._store.read(link)
         chain = resolve_redirect(
             self._catalog.snapshot,
@@ -266,35 +271,49 @@ class MemoryEngine:
                 SearchFailureKind.INVALID_REQUEST,
                 "Memory scope must be all or one persistent document kind",
             )
-        supported = frozenset({"kind", "status", "updated_on", "confidence"})
-        # Validate filters even when no source documents exist.
-        eligible({}, getattr(source, "where", {}), supported=supported, ordered=frozenset({"updated_on"}))
+        predicates = MEMORY_SEARCH_FILTERS.parse(getattr(source, "where", {}))
+
+        def identity(ref: str) -> tuple[str, str]:
+            resource, _, fragment = ref.partition("#")
+            try:
+                return str(MemoryLink.from_resource(resource)), fragment
+            except MemoryContractError as exc:
+                raise ReferenceError(
+                    "Memory search requires a persistent identity"
+                ) from exc
+
+        # Exclusions normalize syntax without requiring the target to still exist.
+        excluded = {identity(ref) for ref in request.exclude_refs}
         seeds: dict[str, list[tuple[str, str]]] = {}
-        excluded = None
+        seed_order: dict[str, int] = {}
         if isinstance(source, RefsSource):
             for ref in source.refs:
-                resource, _, fragment = ref.partition("#")
-                canonical = self.canonical_reference(resource).resource
-                seeds.setdefault(canonical, []).append((ref, fragment))
+                canonical, fragment = identity(ref)
+                if (canonical, fragment) in excluded:
+                    continue
+                if MemoryLink.parse(canonical) not in snapshot.entries:
+                    raise ReferenceError("Memory search reference does not exist")
+                selected_ref = canonical + ("#" + fragment if fragment else "")
+                seed_order.setdefault(selected_ref, len(seed_order))
+                pair = (selected_ref, fragment)
+                if pair not in seeds.setdefault(canonical, []):
+                    seeds[canonical].append(pair)
+        query, query_ref = "", None
         if isinstance(source, QuerySource):
             if isinstance(source.query, DocumentQuery):
-                target = self.canonical_reference(source.query.document_ref).resource
-                excluded = target
-                query = self._store.read(MemoryLink.parse(target)).text
+                query_ref = self.canonical_reference(source.query.document_ref).resource
+                query = self._store.read(MemoryLink.parse(query_ref)).text
             else:
                 query = source.query.text
-        else:
-            query = ""
-        try:
-            anchor = (
-                references.resolve(source.anchor_ref)
-                if isinstance(source, BacklinksSource)
-                else None
-            )
-        except ReferenceError as exc:
-            raise SearchFailure(SearchFailureKind.INVALID_REQUEST, str(exc)) from exc
-        candidates = []
-        for link, entry in snapshot.entries.items():
+        anchor = (
+            references.resolve(source.anchor_ref)
+            if isinstance(source, BacklinksSource)
+            else None
+        )
+        entries = list(snapshot.entries.items())
+        candidates: list[SearchCandidate] = []
+        scanned = 0
+        for link, entry in entries:
             ref = str(link)
             attributes: JsonObject = {
                 "kind": link.kind.value,
@@ -302,38 +321,66 @@ class MemoryEngine:
                 "updated_on": entry.updated_on.isoformat(),
                 "confidence": entry.confidence,
             }
-            if (scope != "all" and scope != link.kind.value) or not eligible(
-                attributes, getattr(source, "where", {}), supported=supported
+            if scope not in {"all", link.kind.value} or not all(
+                predicate.matches(attributes) for predicate in predicates
             ):
                 continue
-            if ref == excluded or (
-                isinstance(source, RefsSource)
-                and self.canonical_reference(ref).resource not in seeds
+            if (
+                ref == query_ref
+                or (isinstance(source, RefsSource) and ref not in seeds)
+                or (not isinstance(source, RefsSource) and (ref, "") in excluded)
             ):
                 continue
+            text = self._store.read(link).text
+            scanned += 1
             if isinstance(source, RefsSource):
-                text = self._store.read(link).text
                 for selected_ref, fragment in seeds[ref]:
                     first, last = fragment_range(text, fragment)
-                    selected_text = "".join(text.splitlines(keepends=True)[first - 1:last])
-                    candidates.append(SearchCandidate(selected_ref, entry.display, evidence_units(ref, selected_text, first_line=first), attributes))
+                    selected_text = "".join(
+                        text.splitlines(keepends=True)[first - 1 : last]
+                    )
+                    candidates.append(
+                        SearchCandidate(
+                            selected_ref,
+                            entry.display,
+                            content_units(ref, selected_text, first_line=first),
+                            attributes,
+                        )
+                    )
                 continue
+            units = content_units(ref, text)
+            evidence: list[SearchEvidence] = []
             if anchor is not None:
-                evidence = []
-                for target, relation, text in self._navigation_refs(entry):
+                for target, relation, _ in self._navigation_refs(entry):
                     try:
                         actual = references.resolve(target, source_day=entry.updated_on)
                     except ReferenceError:
                         continue
                     if actual.matches(anchor):
-                        evidence.append(SearchEvidence(ref, text, relation))
+                        position = text.find(target)
+                        evidence.extend(
+                            range_evidence(
+                                units,
+                                max(0, position),
+                                position + len(target) if position >= 0 else len(text),
+                                kind=EvidenceKind.REFERENCE,
+                                relation=relation,
+                            )
+                        )
                 if not evidence:
                     continue
-                units = (*evidence, *evidence_units(ref, self._store.read(link).text))
-            else:
-                units = evidence_units(ref, self._store.read(link).text)
-            candidates.append(SearchCandidate(ref, entry.display, units, attributes))
-        return SearchCorpus(tuple(candidates), query, len(snapshot.entries))
+            candidates.append(
+                SearchCandidate(
+                    ref,
+                    entry.display,
+                    units,
+                    attributes,
+                    tuple(dict.fromkeys(evidence)),
+                )
+            )
+        if isinstance(source, RefsSource):
+            candidates.sort(key=lambda item: seed_order[item.ref])
+        return SearchCorpus(tuple(candidates), query, scanned)
 
     def _navigation_refs(
         self, entry: MemoryCatalogEntry

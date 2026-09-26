@@ -363,59 +363,6 @@ value_kind = "integer"
 importance = "advanced"
 
 [[field]]
-path = "workspace.search.candidate_limit"
-surface = "workspace"
-group = "workspace.search"
-title = "Search Candidates"
-description = "Maximum matching Workspace candidates considered before result paging."
-value_kind = "integer"
-importance = "advanced"
-
-[[field]]
-path = "workspace.search.default_top_k"
-surface = "workspace"
-group = "workspace.search"
-title = "Default Search Results"
-description = "Default number of Workspace search results returned."
-value_kind = "integer"
-
-[[field]]
-path = "workspace.search.max_top_k"
-surface = "workspace"
-group = "workspace.search"
-title = "Maximum Search Results"
-description = "Largest result count accepted by a Workspace search request."
-value_kind = "integer"
-importance = "advanced"
-
-[[field]]
-path = "workspace.search.context_lines"
-surface = "workspace"
-group = "workspace.search"
-title = "Search Context Lines"
-description = "Lines included around each Workspace text match."
-value_kind = "integer"
-importance = "advanced"
-
-[[field]]
-path = "workspace.search.max_excerpt_chars"
-surface = "workspace"
-group = "workspace.search"
-title = "Search Excerpt Length"
-description = "Maximum characters retained in one Workspace search excerpt."
-value_kind = "integer"
-importance = "advanced"
-
-[[field]]
-path = "workspace.search.max_result_chars"
-surface = "workspace"
-group = "workspace.search"
-title = "Search Result Length"
-description = "Maximum combined characters returned by one Workspace search."
-value_kind = "integer"
-importance = "advanced"
-
-[[field]]
 path = "workspace.analysis.max_intent_chars"
 surface = "workspace"
 group = "workspace.analysis"

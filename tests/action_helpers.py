@@ -2,28 +2,26 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from pathlib import Path
-from functools import cache
-from dataclasses import replace
-from importlib.resources import files
 import tomllib
+from collections.abc import Callable
+from dataclasses import replace
+from functools import cache
+from importlib.resources import files
+from pathlib import Path
 from typing import Self
 
+from tests.support.catalog import builtin_action_catalog_root
+from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.kernel.action import (
+    ActionCatalog,
+    ActionCatalogLoader,
     ActionEngineBuilder,
     ActionExecution,
     ActionExecutionContext,
     ActionResult,
-    ActionCatalog,
-    ActionCatalogLoader,
 )
-from tinysoul.infra.json import JsonObject, to_json_object
-from tests.support.catalog import builtin_action_catalog_root
 from tinysoul.kernel.action.config import parse_action_settings
 from tinysoul.kernel.retrieval.policy import retrieval_schema
-from tinysoul.kernel.retrieval.policy import SearchCapability
-from tinysoul.kernel.retrieval.contracts import SourceKind, OperationKind
 
 TEST_SCENARIOS = frozenset({"user", "home_reflection", "memory_reflection"})
 
@@ -44,35 +42,25 @@ def builtin_catalog() -> ActionCatalog:
         .joinpath("configs/action/retrieval.toml")
         .read_text(encoding="utf-8")
     )
-    policies = parse_action_settings(tomllib.loads(routing)["action"]).retrieval_policies
+    policies = parse_action_settings(
+        tomllib.loads(routing)["action"]
+    ).retrieval_policies
+    from tinysoul.agent.composition.actions import CorePlugin
+    from tinysoul.plugins.capabilities.expand.plugin import ExpandPlugin
+    from tinysoul.plugins.home.plugin import HomePlugin
+    from tinysoul.plugins.memory.plugin import MemoryPlugin
+    from tinysoul.plugins.workspace.plugin import WorkspacePlugin
+
     capabilities = {
-        "core.context.search": SearchCapability(
-            "core.context.search", tuple(SourceKind), tuple(OperationKind),
-            scopes=("all", "trace", "session"),
-            filters=("source", "basis", "kind", "day"),
-            ordered_filters=("day",),
-        ),
-        "home.search": SearchCapability(
-            "home.search", tuple(SourceKind), tuple(OperationKind),
-            scopes=("all", "agent", "skills"), filters=("space", "file_type"),
-        ),
-        "memory.search": SearchCapability(
-            "memory.search", tuple(SourceKind), tuple(OperationKind),
-            scopes=("all", "daily", "entity", "concept", "fact", "note"),
-            filters=("kind", "status", "updated_on", "confidence"),
-            ordered_filters=("updated_on",), document_query=True,
-        ),
-        "expand.search": SearchCapability(
-            "expand.search",
-            (SourceKind.QUERY, SourceKind.DIRECTORY, SourceKind.REFS, SourceKind.RESULT),
-            tuple(OperationKind), filters=("server_id", "tool_name"),
-            server_scope=True, lexical_syntax=True,
-        ),
-        "workspace.search": SearchCapability(
-            "workspace.search", tuple(SourceKind), tuple(OperationKind),
-            filters=("tags", "file_type", "day", "kind"),
-            ordered_filters=("day",), resource_scope=True, lexical_syntax=True,
-        ),
+        capability.action_id: capability
+        for plugin in (
+            CorePlugin,
+            HomePlugin,
+            MemoryPlugin,
+            WorkspacePlugin,
+            ExpandPlugin,
+        )
+        for capability in plugin.search_capabilities
     }
     return ActionCatalog(
         domains=catalog.domains(),

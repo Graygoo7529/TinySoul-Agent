@@ -19,7 +19,7 @@ type = "array"
 type = "object"
 
 [semantic]
-use_when = ["Select relevant MCP tools for a non-empty request using one bounded model task. Narrow server scope when requested."]
+use_when = ["Locate known tool names or parameters with literal/regex query", "Discover tools semantically with directory and explicit select/rerank steps; narrow server scope when requested"]
 effects = ["read_only"]
 
 [execution]

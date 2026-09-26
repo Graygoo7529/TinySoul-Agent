@@ -30,7 +30,9 @@ Memory provider 每 Turn 打开 Heap 段，维护本轮加载视图、目录与�
 
 ## 检索与召回
 
-memory.search 使用 `query`、`directory`、`refs`、`backlinks` 四种来源，并以 `filter`、`select`、`rerank` 组成有限管道。lexical 与 Embedding 独立召回后融合；refs 不做隐藏相关性裁剪，需显式 select/rerank。backlinks 只返回真实入边。memory.inspect 只检查已知文档内容和 direct refs，不查询 backlinks 或相似文档。result_ref 保存完整候选快照，continuation 只分页该快照。
+memory.search 使用 `query`、`directory`、`refs`、`backlinks` 来源和冻结的 `result` 输入，并以 `filter`、`select`、`rerank` 组成有限管道。lexical 与 Embedding 独立召回后融合；refs 不做隐藏相关性裁剪，需显式 select/rerank。backlinks 只返回真实入边。memory.inspect 只检查已知文档内容和 direct refs，不查询 backlinks 或相似文档。result_ref 保存完整候选快照，continuation 只分页该快照。
+
+refs 保序、去重并精确读取指定文档及 fragment，与 Inspect 一样保留旧文档的迁移说明，不自动内联 redirect 目标。source.where 与 filter 复用 typed 属性比较；updated_on 的 before/after 是严格日期比较。排除在正文读取前生效，result 排除只比较冻结身份。document_ref query 由 owner 解析完整查询文档并排除其自身，schema 显式发布该变体。
 
 memory.inspect 接受精确持久 Link，返回有界 Markdown 内容、direct refs、类型 metadata 与 redirect chain；不会自动内联目标正文。模型根据搜索结果渐进读取，Trace 保留有限投影和来源 Link，检索本身不改变 Background 或知识文档。
 

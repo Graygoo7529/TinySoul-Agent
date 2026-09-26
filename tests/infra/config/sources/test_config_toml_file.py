@@ -79,3 +79,38 @@ def test_toml_config_rejects_unsupported_value_as_config_error(
 
     with pytest.raises(ConfigError, match="Unsupported TOML value type"):
         config.save()
+
+
+def test_retrieval_action_ids_are_atomic_map_keys_through_save_and_reload(
+    local_tmp: Path,
+):
+    from tinysoul.infra.config import ConfigEnvironment, ProjectConfig
+    from tinysoul.infra.config.descriptors import load_config_catalog
+    from tinysoul.infra.config.descriptors.models import ConfigValueKind
+    from tinysoul.kernel.retrieval.policy import parse_retrieval_policies
+
+    path = local_tmp / "retrieval.toml"
+    config = ConfigFileToml(path)
+    mapping = {
+        "home.search": {
+            "sources": ["query", "refs"],
+            "operations": [],
+            "page": {"max_items": 7},
+        },
+        "core.context.search": {"sources": ["directory"], "operations": []},
+    }
+    config.set_value("action.retrieval", mapping)
+    config.save()
+    source = ConfigFileToml(path).to_source()
+    assert source.values == {"action.retrieval": mapping}
+    descriptor = load_config_catalog().match("action.retrieval")
+    assert descriptor and descriptor.value_kind is ConfigValueKind.OBJECT
+    environment = ConfigEnvironment(project=ProjectConfig(local_tmp), sources=[source])
+    policies = parse_retrieval_policies(environment.section_tree("action")["retrieval"])
+    assert {policy.action_id for policy in policies} == set(mapping)
+    assert (
+        next(
+            policy for policy in policies if policy.action_id == "home.search"
+        ).page_max_items
+        == 7
+    )

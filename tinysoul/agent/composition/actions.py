@@ -6,28 +6,22 @@ from tinysoul.infra import StagingDirectoryManager, StagingError
 from tinysoul.infra.config import ConfigError
 from tinysoul.infra.model_services import ModelServices
 from tinysoul.infra.references import ReferenceResolver
-from tinysoul.kernel.retrieval.policy import SearchCapability
-from tinysoul.kernel.retrieval.contracts import (
-    SourceKind,
-    OperationKind,
-)
-from tinysoul.kernel.retrieval.operations import SearchSession
-from tinysoul.kernel.retrieval.selection import CandidateSelector
 from tinysoul.kernel.action import ActionEngineBuilder, ActionError, LoadedActionCatalog
-from tinysoul.kernel.action.tasks import ActionTaskFactory
-from tinysoul.kernel.action.models import (
-    ModelUseRegistry,
-    ModelUseDescriptor,
-    ModelOperation,
-    ModelImplementation,
-)
 from tinysoul.kernel.action.builtins.core import register_core_actions
 from tinysoul.kernel.action.config import ActionSettings
+from tinysoul.kernel.action.models import (
+    ModelImplementation,
+    ModelOperation,
+    ModelUseDescriptor,
+    ModelUseRegistry,
+)
 from tinysoul.kernel.action.runtime_bridge import RuntimeActionBridge
+from tinysoul.kernel.action.tasks import ActionTaskFactory
 from tinysoul.kernel.context import ContextEngine
 from tinysoul.kernel.context.actions import register_context_actions
 from tinysoul.kernel.context.errors import ContextError
 from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
+from tinysoul.kernel.context.search import CONTEXT_SEARCH_FILTERS
 from tinysoul.kernel.jobs import JobRegistry, jobs_segment_registration
 from tinysoul.kernel.jobs.actions import register_job_actions
 from tinysoul.kernel.jobs.config import JobSettings, parse_job_settings
@@ -41,14 +35,21 @@ from tinysoul.kernel.registration import (
     PluginGeneration,
     PluginProfileExtension,
     PluginRegistry,
+    PluginTurnResource,
     ProfileBuildContext,
     ProfileKind,
     RegistrationError,
     ResolvedProfileExtensions,
     Service,
     ServiceRegistry,
-    PluginTurnResource,
 )
+from tinysoul.kernel.retrieval.contracts import (
+    OperationKind,
+    SourceKind,
+)
+from tinysoul.kernel.retrieval.operations import SearchSession
+from tinysoul.kernel.retrieval.policy import SearchCapability
+from tinysoul.kernel.retrieval.selection import CandidateSelector
 from tinysoul.plugins.home import HomeActionSkillProvider
 from tinysoul.plugins.home.runtime_bridge import RuntimeAgentHomeBridge
 from tinysoul.plugins.home.services import HomeService
@@ -67,7 +68,11 @@ class CorePlugin:
     id = "core"
     search_capabilities = (
         SearchCapability(
-            "core.context.search", tuple(SourceKind), tuple(OperationKind), scopes=("all", "trace", "session"), filters=("source", "basis", "kind", "day"), ordered_filters=("day",)
+            "core.context.search",
+            tuple(SourceKind),
+            tuple(OperationKind),
+            scopes=("all", "trace", "session"),
+            filters=CONTEXT_SEARCH_FILTERS,
         ),
     )
     model_uses = (
@@ -138,11 +143,12 @@ class CorePlugin:
             queries = SearchSession(
                 observations=context.observations,
                 action_id="core.context.search",
-
-                retrieval_policies=context.settings.get(ActionSettings).retrieval_policies,
+                retrieval_policies=context.settings.get(
+                    ActionSettings
+                ).retrieval_policies,
                 source=source,
                 selector=selector,
-                supported_filters=frozenset({"source", "basis", "kind", "day"}),
+                filters=CONTEXT_SEARCH_FILTERS,
             )
 
             def register(builder: ActionEngineBuilder) -> ActionEngineBuilder:
@@ -235,7 +241,6 @@ class ProfileAssembly:
                 catalog,
                 scenarios=frozenset(kind.value for kind in ProfileKind),
                 model_uses=self._models,
-
                 retrieval_policies=self._settings.retrieval_policies,
             ).with_observations(self._observations)
             resolved.activate(builder)

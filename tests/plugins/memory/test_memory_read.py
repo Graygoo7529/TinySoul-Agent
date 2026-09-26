@@ -1,21 +1,21 @@
 from __future__ import annotations
 
-import asyncio
-from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from datetime import date
-import json
 from pathlib import Path
-from typing import cast
 
 import pytest
 
-from tinysoul.infra.time import CalendarDay
-from tinysoul.plugins.memory.services import MemoryService
+from tinysoul.infra.json import JsonObject
 from tinysoul.infra.references import ReferenceResolver, ResourceTarget
+from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.retrieval.contracts import (
-    RetrievalRequest, QuerySource, BacklinksSource, RefsSource, TextQuery,
-    SourceKind, OperationKind, ModelStep, SearchFailure,
+    BacklinksSource,
+    OperationKind,
+    RefsSource,
+    RetrievalRequest,
+    SearchFailure,
+    SourceKind,
 )
 from tinysoul.plugins.memory import (
     ActiveMemoryBackgroundEntryProvider,
@@ -26,9 +26,6 @@ from tinysoul.plugins.memory import (
     MemoryConfidence,
     MemoryContractError,
     MemoryEngine,
-    MemoryInspectSettings,
-    MemoryInvariantError,
-    MemoryIOError,
     MemoryKind,
     MemoryLink,
     MemoryPatchKind,
@@ -38,7 +35,7 @@ from tinysoul.plugins.memory import (
     NoteMemoryDocument,
     parse_memory_settings,
 )
-
+from tinysoul.plugins.memory.services import MemoryService
 
 DAY = CalendarDay.parse("2026-07-12")
 NEXT_DAY = CalendarDay.parse("2026-07-13")
@@ -215,12 +212,12 @@ def test_memory_backlinks_combine_real_edges_and_preserve_workspace_source_day(
     assert {e.relation for e in corpus.candidates[0].evidence} == {
         "memory_reference",
         "markdown_link",
-        "content",
     }
     # Historical Memory never points to today's resource merely because its name matches.
     assert (
         memory.search_corpus(
-            RetrievalRequest(BacklinksSource("all", "workspace:report.md")), references=refs
+            RetrievalRequest(BacklinksSource("all", "workspace:report.md")),
+            references=refs,
         ).candidates
         == ()
     )
@@ -243,6 +240,85 @@ def _memory(
         settings=MemorySettings(root=tmp_path / "memory"),
         active_session_root=session_root,
     )
+
+
+def test_memory_refs_normalize_preserve_order_and_read_the_exact_document(
+    tmp_path: Path,
+):
+    memory = _memory(tmp_path)
+    current = _concept("current")
+    old = replace(
+        _concept("old"),
+        status=MemoryStatus.MERGED,
+        redirect_to=current.link,
+        content="Moved to the current concept.",
+    )
+    memory.write_document(current)
+    memory.write_document(old)
+    corpus = memory.search_corpus(
+        RetrievalRequest(
+            RefsSource(
+                (
+                    "memory:concept/old.md",
+                    str(current.link) + "#L1",
+                    str(old.link),
+                )
+            )
+        ),
+        references=ReferenceResolver(),
+    )
+    assert [item.ref for item in corpus.candidates] == [
+        str(old.link),
+        str(current.link) + "#L1",
+    ]
+    assert "Moved to" in "".join(
+        unit.text for unit in corpus.candidates[0].content_units
+    )
+    assert (
+        "".join(unit.text for unit in corpus.candidates[1].content_units)
+        == memory.read_document(current.link).text.splitlines(keepends=True)[0]
+    )
+
+
+async def test_memory_date_source_and_snapshot_filter_share_one_contract(
+    tmp_path: Path,
+):
+    from tinysoul.kernel.retrieval.contracts import DirectorySource, FilterStep
+    from tinysoul.kernel.retrieval.operations import SearchSession
+    from tinysoul.kernel.retrieval.policy import RetrievalPolicy
+    from tinysoul.plugins.memory.engine import MEMORY_SEARCH_FILTERS
+
+    memory = _memory(tmp_path)
+    memory.write_document(_concept("older"))
+    memory.write_document(replace(_concept("newer"), updated_on=NEXT_DAY.value))
+
+    async def source(request):
+        return memory.search_corpus(request, references=ReferenceResolver())
+
+    session = SearchSession(
+        action_id="memory.search",
+        source=source,
+        filters=MEMORY_SEARCH_FILTERS,
+        retrieval_policies=(
+            RetrievalPolicy("memory.search", tuple(SourceKind), tuple(OperationKind)),
+        ),
+    )
+    where: JsonObject = {"updated_on": {"after": DAY.value.isoformat()}}
+    qualified = await session.search(RetrievalRequest(DirectorySource("all", where)))
+    filtered = await session.search(
+        RetrievalRequest(DirectorySource("all"), (FilterStep(where),))
+    )
+    assert (
+        [item.ref for item in qualified.items]
+        == [item.ref for item in filtered.items]
+        == ["memory:concept/newer"]
+    )
+    with pytest.raises(SearchFailure):
+        await session.search(
+            RetrievalRequest(
+                DirectorySource("all", {"updated_on": {"after": "2026-02-30"}})
+            )
+        )
 
 
 def _daily(day: date) -> DailyMemoryDocument:

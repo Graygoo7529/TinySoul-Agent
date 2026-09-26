@@ -33,3 +33,9 @@ LLM 继续使用现有 task_id 关联一次调用，Action 内部任务增加 co
 ## Journal
 
 可选 Journal 位于 runtime Endpoint 目录，失败时降级到有界内存 buffer。Journal 是可重建的观察索引，不是 Session 或审计数据库；status 只暴露 enabled、degraded 和保留 sequence 范围。
+
+## 检索步骤关联
+
+retrieval.step.completed 在 verbose 级提供 search_id、action、step_index、op、input/output 数量（模型步骤另有 evaluated）及 elapsed_seconds。即使同一次 Search 两次执行 rerank，step_index 也分别标识其位置。空集合上的步骤记录零数量，不伪造模型调用。
+
+LLM 的 retrieval.model.invoked 通过 search_id、step_index、op、consumer 与 task_id 连接现有 LLM 事件；它只表示任务已发起，成功失败仍读 LLM 终态。专用模型 model.call 事件带相同 search_id 和 step_index；query 通道的 phase 为 source、step_index 为 null，候选操作的 phase 为 step。沿现有 call_id 追踪专用调用，不复制模型或搜索历史。

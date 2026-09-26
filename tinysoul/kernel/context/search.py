@@ -2,29 +2,40 @@
 
 from __future__ import annotations
 
-from typing import cast
-
-from tinysoul.infra.json import JsonValue, JsonObject, dumps_json
+from tinysoul.infra.json import JsonObject, JsonValue, dumps_json
 from tinysoul.infra.references import (
-    ReferenceResolver,
     ReferenceError,
+    ReferenceResolver,
     ResourceTarget,
     markdown_references,
 )
 from tinysoul.kernel.retrieval.contracts import (
+    AttributeField,
+    AttributeFilters,
+    AttributeKind,
+    BacklinksSource,
+    ContentUnit,
     DocumentQuery,
+    EvidenceKind,
+    QuerySource,
+    RefsSource,
+    RetrievalRequest,
     SearchCandidate,
     SearchEvidence,
     SearchFailure,
     SearchFailureKind,
-    RetrievalRequest,
-    QuerySource,
-    RefsSource,
-    BacklinksSource,
 )
 from tinysoul.kernel.retrieval.operations import SearchCorpus
-from tinysoul.kernel.retrieval.requests import eligible
-from .disclosure import DisclosureSearchEntry, DisclosureReference
+
+CONTEXT_SEARCH_FILTERS = AttributeFilters(
+    (
+        AttributeField("source"),
+        AttributeField("basis"),
+        AttributeField("kind"),
+        AttributeField("day", AttributeKind.DATE),
+    )
+)
+from .disclosure import DisclosureReference, DisclosureSearchEntry
 
 
 def disclosure_corpus(
@@ -47,8 +58,7 @@ def disclosure_corpus(
         query = candidate_source.query.text
     else:
         query = ""
-    supported = frozenset({"source", "basis", "kind", "day"})
-    eligible({}, getattr(candidate_source, "where", {}), supported=supported, ordered=frozenset({"day"}))
+    predicates = CONTEXT_SEARCH_FILTERS.parse(getattr(candidate_source, "where", {}))
 
     def resolve(ref: str, source: DisclosureReference | None = None) -> ResourceTarget:
         if ref.startswith(("session:", "turn:")):
@@ -58,23 +68,31 @@ def disclosure_corpus(
 
     try:
         anchor = (
-            resolve(candidate_source.anchor_ref) if isinstance(candidate_source, BacklinksSource) else None
+            resolve(candidate_source.anchor_ref)
+            if isinstance(candidate_source, BacklinksSource)
+            else None
         )
     except ReferenceError as exc:
         raise SearchFailure(SearchFailureKind.INVALID_REQUEST, str(exc)) from exc
     candidates = []
     for entry in entries:
+        if entry.ref in request.exclude_refs:
+            continue
         attributes: JsonObject = {
             "source": entry.source,
             "basis": entry.basis,
             "kind": entry.content.get("kind", entry.title),
             "day": entry.day.isoformat() if entry.day else None,
         }
-        if getattr(candidate_source, "scope", "all") not in {"all", entry.source} or not eligible(
-            attributes, getattr(candidate_source, "where", {}), supported=supported
-        ):
+        if getattr(candidate_source, "scope", "all") not in {
+            "all",
+            entry.source,
+        } or not all(predicate.matches(attributes) for predicate in predicates):
             continue
-        evidence = (SearchEvidence(entry.ref, dumps_json(entry.content)),)
+        units = (
+            ContentUnit(entry.ref, entry.ref, dumps_json(entry.content), "structured"),
+        )
+        evidence: tuple[SearchEvidence, ...] = ()
         if anchor is not None:
             found = []
             links = (
@@ -92,16 +110,20 @@ def disclosure_corpus(
                 if target.matches(anchor):
                     found.append(
                         SearchEvidence(
-                            entry.ref,
-                            f"{source.relation}: {source.target}\n"
-                            + dumps_json(entry.content),
-                            source.relation,
+                            entry.ref, EvidenceKind.REFERENCE, relation=source.relation
                         )
                     )
             if not found:
                 continue
             evidence = tuple(dict.fromkeys(found))
-        candidates.append(SearchCandidate(entry.ref, entry.title, evidence, attributes))
+        candidates.append(
+            SearchCandidate(entry.ref, entry.title, units, attributes, evidence)
+        )
+    if isinstance(candidate_source, RefsSource):
+        order = {
+            ref: index for index, ref in enumerate(dict.fromkeys(candidate_source.refs))
+        }
+        candidates.sort(key=lambda item: order.get(item.ref, len(order)))
     return SearchCorpus(tuple(candidates), query, len(entries))
 
 

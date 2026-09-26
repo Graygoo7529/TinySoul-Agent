@@ -1,21 +1,19 @@
 """The Workspace owner preserves metadata and reports committed file effects."""
 
-from pathlib import Path
 import os
+from pathlib import Path
 
 import pytest
 
 from tinysoul.plugins.workspace import (
+    WorkspaceBundleWrite,
     WorkspaceContractError,
     WorkspaceEngineBuilder,
     WorkspaceSettings,
     WorkspaceTag,
     WorkspaceTextEdit,
-    WorkspaceSearchScope,
-    WorkspaceSearchScopeKind,
-    WorkspaceBundleWrite,
 )
-from tinysoul.plugins.workspace.errors import WorkspaceIOError, WorkspaceInvariantError
+from tinysoul.plugins.workspace.errors import WorkspaceInvariantError, WorkspaceIOError
 from tinysoul.plugins.workspace.storage.manifest import (
     WorkspaceManifest,
     WorkspaceManifestStore,
@@ -238,7 +236,8 @@ def test_bundle_rejects_case_aliases_before_any_write(
         target = "workspace:A.md" if conflict == "write_delete" else "workspace:b.md"
         writes = (WorkspaceBundleWrite(target, b"changed", overwrite=True),)
         deletes = (
-            ("workspace:a.md",) if conflict == "write_delete"
+            ("workspace:a.md",)
+            if conflict == "write_delete"
             else ("workspace:a.md", "workspace:A.md")
         )
     before = engine.snapshot()
@@ -304,31 +303,46 @@ def test_incomplete_discovery_keeps_existing_metadata(tmp_path: Path) -> None:
     assert engine.snapshot() == before
 
 
-def test_regex_search_has_explicit_scope_and_rejects_invalid_pattern(
-    tmp_path: Path,
-) -> None:
-    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
-    engine.write_text("workspace:a.md", "alpha 12\nbeta 34\n")
-    scope = WorkspaceSearchScope(WorkspaceSearchScopeKind.FILE, "workspace:a.md")
-    result = engine.search(query=r"alpha\s+\d+", scope=scope, use_regex=True)
-    assert result.fragments and "alpha 12" in result.fragments[0].text
-    with pytest.raises(WorkspaceContractError):
-        engine.search(query="[", scope=scope, use_regex=True)
+def test_workspace_matcher_rejects_invalid_or_excessive_regex(tmp_path: Path) -> None:
+    from tinysoul.infra.references import ReferenceResolver
+    from tinysoul.kernel.retrieval.contracts import (
+        QuerySource,
+        ResourceScope,
+        ResourceScopeKind,
+        RetrievalRequest,
+        SearchFailure,
+        SearchFailureKind,
+        TextQuery,
+    )
+    from tinysoul.plugins.workspace.inspection.search import WorkspaceTextMatcher
 
-
-def test_regex_timeout_reports_incomplete_coverage_and_owner_remains_usable(
-    tmp_path: Path,
-) -> None:
     engine = WorkspaceEngineBuilder(
         WorkspaceSettings(root=tmp_path, max_write_chars=120000)
     ).build()
+    engine.write_text("workspace:a.md", "alpha 12\nbeta 34\n")
+    scope = ResourceScope(ResourceScopeKind.FILE, "workspace:a.md")
+    source = QuerySource(scope, TextQuery(r"alpha\s+\d+"), regex=True)
+    corpus = engine.retrieval_corpus(
+        RetrievalRequest(source), references=ReferenceResolver()
+    )
+    matcher = WorkspaceTextMatcher(engine.settings.search)
+    assert matcher.match(source, r"alpha\s+\d+", corpus.candidates)
+    with pytest.raises(SearchFailure) as invalid:
+        matcher.match(source, "[", corpus.candidates)
+    assert invalid.value.kind is SearchFailureKind.INVALID_REQUEST
     engine.write_text("workspace:long.txt", "a" * 100000 + "!")
-    scope = WorkspaceSearchScope(WorkspaceSearchScopeKind.FILE, "workspace:long.txt")
-    result = engine.search(query=r"(a+)+$", scope=scope, use_regex=True)
-    assert not result.coverage.complete
-    assert result.coverage.reason == "regex_timeout"
-    assert not result.fragments
-    assert engine.search(query="!", scope=scope).fragments
+    source = QuerySource(
+        ResourceScope(ResourceScopeKind.FILE, "workspace:long.txt"),
+        TextQuery(r"(a+)+$"),
+        regex=True,
+    )
+    corpus = engine.retrieval_corpus(
+        RetrievalRequest(source), references=ReferenceResolver()
+    )
+    with pytest.raises(SearchFailure) as timeout:
+        matcher.match(source, r"(a+)+$", corpus.candidates)
+    assert timeout.value.kind is SearchFailureKind.SCOPE_REQUIRED
+    assert matcher.match(source, "!", corpus.candidates)
 
 
 @pytest.mark.parametrize("document", [None, "not json", '{"trashed_at": NaN}', "{}"])

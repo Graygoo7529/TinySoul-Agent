@@ -214,9 +214,9 @@ Model 以四项边界清晰的事实参与调用：`providers` 按顺序保存 P
 
 `TaskSpecTable` 提供稳定的 profile 查询门面，不解释 Action ID 或拥有 Action routing。Action-owned `action.models.bindings` 选择代码声明 consumer 的实现及 task profile，由 Agent 装配校验。LLMTaskRunner.invoke 是唯一可组合调用入口，返回类型化结果或 LLMInvocationFailure；run 复用 invoke 并增加 Runtime bridge。LLM 仍只拥有生成模型的 provider、model、task、重试和解释；Embedding/JEV 的 typed 协议归 infra.model_services，输入的业务语义归调用 owner。展示元数据属于 infra.config。
 
-内置 `home_search` profile 服务于 Home-owned top candidate reranker：禁用工具、要求 JSON object、使用低 temperature 和有界输出。模型只看到确定性候选 metadata，只能返回候选内唯一 Link；Task failure 或任何结构/业务校验失败都由 Home search service 回退到稳定的确定性顺序，不影响只读搜索可用性。
+Search 的模型步骤通过各 Action 的 select/rerank consumer 绑定 task profile，输入包含真实内容预览与可选 Context。LLM 同次输出候选及可为空的片段依据，解释与校验归公共 retrieval；显式模型步骤失败不会回退成确定性成功排序。JEV 和 Embedding 通过各自 typed 服务实现对应契约，详见 [Action 模型与检索基础设施](action-model-retrieval.md)。
 
-内置 `memory_daily` profile 只服务于 Memory-owned daily composer：禁用工具、要求 JSON object、使用较低 temperature，并为目标日 source 的分层 reduce 和最终完整 daily 正文保留明确输出预算。每次输出只接受精确 `content` 字段；validator 负责非空、文档大小和 H1 约束，最终 Link/status/reference 校验仍在 Memory changeset preview。entity/concept/fact/note 的判断与维护发生在 Memory Reflection Turn 的普通 Phase/Action 循环，不另建专用 task profile。Memory 的 `inspect` 是已知文档内容和 direct refs 的确定性读取；检索、反链和可选 Embedding 都属于 `memory.search`，由对应 Action 的模型用途和 owner 索引负责。
+Memory 持久文档维护发生在 Memory Reflection Turn 的普通 Phase/Action 循环，由受约束写服务提交单个完整文档，不存在专用 daily composer/task profile。Memory inspect 只读取已知文档和 direct refs，发现、反链及 Embedding 属于 memory.search。
 
 单次调用可以显式覆盖任务配置中的调用设置。模型配置不承担回答格式和工具使用策略，因为输出形态表达的是任务意图，而不是模型身份。通用调用参数通常来自任务或单次调用；当某个具体模型有固定要求时，模型级 `request_overrides` 在最终请求阶段具有更高优先级。
 

@@ -1,39 +1,63 @@
 """Current Workspace service and explicit read-only archive contributions."""
 
 from collections.abc import Callable
-from functools import partial
-from tinysoul.kernel.action.models import (
-    ModelUseDescriptor,
-    ModelOperation,
-    ModelImplementation,
-)
 from dataclasses import dataclass, replace
-from tinysoul.kernel.registration import PluginTurnResource
+from functools import partial
 
-from tinysoul.kernel.action.tasks import ActionTaskFactory, ActionTaskOutput
-from tinysoul.kernel.loop.phases import LLMRunner
-from tinysoul.llm.protocol.responses import AnswerFormat
+from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
+from tinysoul.infra.model_services import ModelServices
+from tinysoul.infra.references import ReferenceResolver
+from tinysoul.kernel.action.config import ActionSettings
+from tinysoul.kernel.action.models import (
+    ModelImplementation,
+    ModelOperation,
+    ModelUseDescriptor,
+    ModelUseRegistry,
+)
+from tinysoul.kernel.action.tasks import ActionTaskFactory
 from tinysoul.kernel.loop.interaction.events import TurnEventSubscription
+from tinysoul.kernel.loop.phases import LLMRunner
 from tinysoul.kernel.registration import (
-    PluginProfileExtension,
-    Service,
-    PluginGeneration,
-    PluginConfig,
-    PluginServiceExport,
-    ServiceLifetime,
     GenerationBuildContext,
+    PluginConfig,
+    PluginGeneration,
+    PluginProfileExtension,
+    PluginServiceExport,
+    PluginTurnResource,
     ProfileBuildContext,
     ProfileKind,
-    PluginTurnResource,
+    Service,
+    ServiceLifetime,
     TurnResourceStage,
 )
+from tinysoul.kernel.retrieval.contracts import (
+    OperationKind,
+    SourceKind,
+)
+from tinysoul.kernel.retrieval.operations import SearchSession
+from tinysoul.kernel.retrieval.policy import SearchCapability
+from tinysoul.kernel.retrieval.selection import CandidateSelector
 from tinysoul.runtime import RunScope, Signal
 from tinysoul.runtime.events import EnvironmentEvent, EventFilter
+from tinysoul.runtime.sources import RuntimeWatcher
 
 from .actions import register_workspace_actions
-from .engine import WorkspaceArchiveView, WorkspaceEngine
-from .events import WORKSPACE_CHANGED, WORKSPACE_OWNER, WORKSPACE_WATCH
+from .config import WorkspaceSettings, parse_workspace_settings
+from .engine import (
+    WORKSPACE_SEARCH_FILTERS,
+    WorkspaceArchiveView,
+    WorkspaceEngine,
+    WorkspaceEngineBuilder,
+)
+from .errors import WorkspaceError, WorkspaceReconciliationError
+from .events import (
+    WORKSPACE_CHANGED,
+    WORKSPACE_OWNER,
+    WORKSPACE_WATCH,
+    WorkspaceRuntime,
+)
 from .failures import WorkspaceFailureKind
+from .inspection.search import WorkspaceTextMatcher
 from .projection import (
     WorkspaceTurnPreparationHandler,
     archived_workspace_segment_registration,
@@ -41,24 +65,7 @@ from .projection import (
     workspace_segment_registration,
 )
 from .runtime_bridge import RuntimeWorkspaceBridge
-from .services import WorkspaceService, WorkspaceExecutionService
-from .config import WorkspaceSettings, parse_workspace_settings
-from .engine import WorkspaceEngineBuilder
-from .errors import WorkspaceError, WorkspaceReconciliationError
-from .events import WorkspaceRuntime
-from tinysoul.runtime.sources import RuntimeWatcher
-from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
-from tinysoul.infra.references import ReferenceResolver
-from tinysoul.kernel.action.config import ActionSettings
-from tinysoul.kernel.retrieval.policy import SearchCapability
-from tinysoul.kernel.retrieval.contracts import (
-    SourceKind,
-    OperationKind,
-)
-from tinysoul.kernel.retrieval.operations import SearchSession
-from tinysoul.kernel.retrieval.selection import CandidateSelector
-from tinysoul.kernel.action.models import ModelUseRegistry
-from tinysoul.infra.model_services import ModelServices
+from .services import WorkspaceExecutionService, WorkspaceService
 
 
 @dataclass(frozen=True)
@@ -91,10 +98,17 @@ class WorkspacePlugin:
     search_capabilities = (
         SearchCapability(
             "workspace.search",
-            (SourceKind.QUERY, SourceKind.BACKLINKS, SourceKind.DIRECTORY, SourceKind.REFS, SourceKind.RESULT),
+            (
+                SourceKind.QUERY,
+                SourceKind.BACKLINKS,
+                SourceKind.DIRECTORY,
+                SourceKind.REFS,
+                SourceKind.RESULT,
+            ),
             tuple(OperationKind),
-            filters=("tags", "file_type", "day", "kind"),
-            ordered_filters=("day",), resource_scope=True, lexical_syntax=True,
+            filters=WORKSPACE_SEARCH_FILTERS,
+            resource_scope=True,
+            lexical_syntax=True,
         ),
     )
     model_uses = (
@@ -165,11 +179,13 @@ class WorkspacePlugin:
             return SearchSession(
                 observations=context.observations,
                 action_id="workspace.search",
-
-                retrieval_policies=context.settings.get(ActionSettings).retrieval_policies,
+                retrieval_policies=context.settings.get(
+                    ActionSettings
+                ).retrieval_policies,
                 source=source,
                 selector=selector,
-                supported_filters=frozenset({"tags", "file_type", "day", "kind"}),
+                filters=WORKSPACE_SEARCH_FILTERS,
+                lexical=WorkspaceTextMatcher(owner.settings.search).match,
             )
 
         service = WorkspaceService(owner, queries=queries())
