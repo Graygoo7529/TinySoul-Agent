@@ -7,7 +7,7 @@ from typing import cast
 import pytest
 
 from tinysoul.infra.json import JsonObject
-from tinysoul.infra.json.schema import JSONSchema
+from tinysoul.infra.json.schema import JSONSchema, JSONSchemaValidationError
 from tinysoul.infra.model_services.protocol import ModelFailureKind, ModelServiceError
 from tinysoul.kernel.retrieval.contracts import (
     AttributeField,
@@ -258,6 +258,14 @@ def test_parser_and_schema_share_the_source_step_contract():
     schema.validate(cast(JsonObject, value))
     request = parse_retrieval_request(cast(JsonObject, value), policy)
     assert isinstance(request, RetrievalRequest) and request.page_limit == 4
+    empty_filter = {
+        "source": {"kind": "directory", "scope": "all"},
+        "steps": [{"op": "filter", "where": {}}],
+    }
+    with pytest.raises(JSONSchemaValidationError):
+        schema.validate(cast(JsonObject, empty_filter))
+    with pytest.raises(SearchFailure):
+        parse_retrieval_request(cast(JsonObject, empty_filter), policy)
     for invalid in (
         {**value, "model": "arbitrary"},
         {"source": {"kind": "refs", "refs": []}},

@@ -422,6 +422,24 @@ def test_action_schema_enforces_collection_and_text_bounds() -> None:
             validate_action_params(to_json_object({"refs": refs}), schema=schema)
 
 
+def test_action_schema_enforces_object_bounds() -> None:
+    schema: JsonObject = {
+        "type": "object",
+        "properties": {
+            "where": {
+                "type": "object",
+                "minProperties": 1,
+                "maxProperties": 2,
+            }
+        },
+    }
+    ActionToolSpec(name="x.filter", description="Filter.", schema=schema)
+    validate_action_params({"where": {"kind": "note"}}, schema=schema)
+    for where in ({}, {"a": "1", "b": "2", "c": "3"}):
+        with pytest.raises(ActionSchemaValidationError):
+            validate_action_params(to_json_object({"where": where}), schema=schema)
+
+
 @pytest.mark.parametrize(
     "field",
     [

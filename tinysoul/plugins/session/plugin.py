@@ -25,6 +25,9 @@ from tinysoul.kernel.registration import (
     ServiceLifetime,
 )
 from tinysoul.kernel.retrieval.contracts import (
+    BacklinksSource,
+    DirectorySource,
+    QuerySource,
     RefsSource,
     SearchFailure,
     SearchFailureKind,
@@ -108,7 +111,14 @@ class SessionPlugin:
 
         def sdk(scope):
             async def source(request):
-                if request.options.scope not in {"all", "session"}:
+                source_scope = (
+                    request.source.scope
+                    if isinstance(
+                        request.source, (QuerySource, BacklinksSource, DirectorySource)
+                    )
+                    else "all"
+                )
+                if source_scope not in {"all", "session"}:
                     raise SearchFailure(
                         SearchFailureKind.INVALID_REQUEST,
                         "SDK Session search only reads Session sources",

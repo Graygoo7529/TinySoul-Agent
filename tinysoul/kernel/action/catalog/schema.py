@@ -17,7 +17,9 @@ SUPPORTED_SCHEMA_KEYS = {
     "maximum",
     "minimum",
     "minItems",
+    "minProperties",
     "maxItems",
+    "maxProperties",
     "minLength",
     "maxLength",
     "properties",
@@ -217,6 +219,7 @@ def _check_numeric_boundaries(schema: JsonObject, *, key: str) -> None:
 def _check_size_boundaries(schema: JsonObject, *, key: str) -> None:
     for expected_type, lower, upper in (
         ("array", "minItems", "maxItems"),
+        ("object", "minProperties", "maxProperties"),
         ("string", "minLength", "maxLength"),
     ):
         for name in (lower, upper):
@@ -401,6 +404,16 @@ def _validate_value(value: JsonValue, *, schema: JsonObject, path: str) -> None:
 
 
 def _validate_object(value: JsonObject, *, schema: JsonObject, path: str) -> None:
+    minimum = schema.get("minProperties")
+    maximum = schema.get("maxProperties")
+    if isinstance(minimum, int) and len(value) < minimum:
+        raise ActionSchemaValidationError(
+            f"Action parameter {path} size must be >= {minimum}"
+        )
+    if isinstance(maximum, int) and len(value) > maximum:
+        raise ActionSchemaValidationError(
+            f"Action parameter {path} size must be <= {maximum}"
+        )
     properties = schema.get("properties", {})
     if not isinstance(properties, dict):
         raise ActionSchemaValidationError(

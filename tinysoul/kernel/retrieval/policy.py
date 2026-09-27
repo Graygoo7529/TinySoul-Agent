@@ -441,12 +441,17 @@ def retrieval_schema(base: JsonObject, policy: RetrievalPolicy) -> JsonObject:
         )
     steps: list[JsonValue] = []
     if OperationKind.FILTER in policy.operations:
+        filter_schema = dict(where_schema)
+        filter_schema["minProperties"] = 1
         steps.append(
             cast(
                 JsonValue,
                 {
                     "type": "object",
-                    "properties": {"op": {"enum": ["filter"]}, "where": where_schema},
+                    "properties": {
+                        "op": {"enum": ["filter"]},
+                        "where": filter_schema,
+                    },
                     "required": ["op", "where"],
                     "additionalProperties": False,
                 },

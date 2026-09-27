@@ -1009,6 +1009,24 @@ async def test_session_organize_updates_next_cycle_and_survives_restart_until_da
             assert str(session_messages).count(f"prior question {index}") == 1
         service = agent.services.get(SessionService)
         assert not hasattr(service, "organize")
+        from tinysoul.kernel.retrieval.contracts import (
+            QuerySource,
+            RetrievalRequest,
+            TextQuery,
+        )
+
+        search_page = await service.search(
+            RetrievalRequest(QuerySource("session", TextQuery("prior question 0")))
+        )
+        search_items = [*search_page.items]
+        while search_page.continuation:
+            search_page = await service.search(search_page.continuation)
+            search_items.extend(search_page.items)
+        assert search_items and any(
+            "prior question 0" in fragment.text
+            for item in search_items
+            for fragment in item.fragments
+        )
         with pytest.raises(RegistrationError):
             agent.services.get(SessionOrganizeService)
         for scenario in ("user", "home_reflection", "memory_reflection"):
