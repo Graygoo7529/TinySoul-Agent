@@ -7,5 +7,7 @@ if ($env:TINYSOUL_PYTHON) {
     $pythonPath = $pythonCommand.Source
 }
 
+& $pythonPath --version
+& $pythonPath -m ty --version
 & $pythonPath -m ty check --python $pythonPath
 exit $LASTEXITCODE

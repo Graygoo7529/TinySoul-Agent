@@ -23,6 +23,8 @@ Search 的公共请求使用 source + steps + page。Agent 决定已登记的候
 
 三类来源之外，refs 是显式已知入口，result 是当前 lease 中的既有完整结果。两者不构成新的发现函数。没有 steps 合法；refs 纯读、refs → filter、refs → rerank 都不需要先 select。每一步 criterion 独立，不隐式继承 query。一次请求共用已经构造好的 Context；新请求可按新 Context 重评同一 result。辅助模型任务不解除 Inspect 结果的展示保护。
 
+用途配置可以不开放任何约束操作。operations 省略或为空时，来源仍可独立使用；生成的 Action schema 与请求解析器均允许省略 steps 或传入空数组，并拒绝非空步骤。
+
 source.where 定义来源资格，filter 只处理当前集合。各 owner 的 AttributeFilters 声明文本、文本集合、日期属性，共用 schema、解析和比较语义。多个属性同时满足；标量属性的列表表示允许值，集合属性要求包含所有给定值；日期 before/after 为严格早于/晚于。条件不会反向改写来源正文或重跑 query。exclude_refs 显式排除指定候选身份，seen 或低分不自动形成黑名单。
 
 ## 内容、命中和判断

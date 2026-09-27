@@ -37,7 +37,7 @@ dev = [
     "pytest",
     "pytest-asyncio>=1.0,<2",
     "setuptools>=70.1",
-    "ty>=0.0.57",
+    "ty>=0.0.84",
 ]
 web-crawl = [
     "crawlee>=1.8,<2",

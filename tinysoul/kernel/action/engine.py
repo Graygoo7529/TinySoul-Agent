@@ -745,4 +745,5 @@ def _action_editable_paths() -> tuple[str, ...]:
 
 
 def _visibility_json(visibility: ActionVisibilitySpec) -> JsonObject:
-    return {"default": visibility.default, "scenarios": dict(visibility.scenarios)}
+    scenarios: JsonObject = {name: enabled for name, enabled in visibility.scenarios}
+    return {"default": visibility.default, "scenarios": scenarios}

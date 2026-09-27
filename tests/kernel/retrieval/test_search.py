@@ -9,6 +9,11 @@ import pytest
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.json.schema import JSONSchema, JSONSchemaValidationError
 from tinysoul.infra.model_services.protocol import ModelFailureKind, ModelServiceError
+from tinysoul.kernel.action.catalog.schema import (
+    ActionSchemaValidationError,
+    validate_action_params,
+)
+from tinysoul.kernel.action.catalog.specs import ActionToolSpec
 from tinysoul.kernel.retrieval.contracts import (
     AttributeField,
     AttributeFilters,
@@ -36,7 +41,11 @@ from tinysoul.kernel.retrieval.contracts import (
 from tinysoul.kernel.retrieval.disclosure import project_candidate
 from tinysoul.kernel.retrieval.engine import SearchEngine, SearchViews
 from tinysoul.kernel.retrieval.operations import SearchCorpus, SearchSession
-from tinysoul.kernel.retrieval.policy import RetrievalPolicy, retrieval_schema
+from tinysoul.kernel.retrieval.policy import (
+    RetrievalPolicy,
+    parse_retrieval_policies,
+    retrieval_schema,
+)
 from tinysoul.kernel.retrieval.requests import parse_retrieval_request
 
 
@@ -275,6 +284,43 @@ def test_parser_and_schema_share_the_source_step_contract():
     ):
         with pytest.raises(SearchFailure):
             parse_retrieval_request(cast(JsonObject, invalid), policy)
+
+
+@pytest.mark.parametrize("declare_operations", [False, True])
+def test_source_only_policy_shares_config_schema_and_parser_contract(declare_operations):
+    configuration: JsonObject = {"sources": ["query", "directory", "refs", "result"]}
+    if declare_operations:
+        configuration["operations"] = []
+    policy = parse_retrieval_policies({"home.search": configuration})[0]
+    tool = ActionToolSpec(
+        name="home.search",
+        description="Search Home",
+        schema=retrieval_schema({}, policy),
+    )
+    schema = JSONSchema(tool.schema)
+    source: JsonObject = {"kind": "query", "query": "knowledge"}
+    for value in (
+        {"source": source},
+        {"source": source, "steps": []},
+    ):
+        parameters = cast(JsonObject, value)
+        schema.validate(parameters)
+        validate_action_params(parameters, schema=tool.schema)
+        request = parse_retrieval_request(parameters, policy)
+        assert isinstance(request, RetrievalRequest) and not request.steps
+    for step in (
+        {"op": "filter", "where": {"kind": "note"}},
+        {"op": "select", "criterion": "useful"},
+        {"op": "rerank", "criterion": "useful"},
+    ):
+        parameters = cast(JsonObject, {"source": source, "steps": [step]})
+        with pytest.raises(JSONSchemaValidationError):
+            schema.validate(parameters)
+        with pytest.raises(ActionSchemaValidationError):
+            validate_action_params(parameters, schema=tool.schema)
+        with pytest.raises(SearchFailure) as failure:
+            parse_retrieval_request(parameters, policy)
+        assert failure.value.kind is SearchFailureKind.INVALID_REQUEST
 
 
 async def test_filter_validation_and_snapshot_capacity_do_not_depend_on_result_count():

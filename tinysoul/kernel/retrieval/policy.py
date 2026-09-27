@@ -485,8 +485,8 @@ def retrieval_schema(base: JsonObject, policy: RetrievalPolicy) -> JsonObject:
             "exclude_refs": {"type": "array", "items": {"type": "string"}},
             "steps": {
                 "type": "array",
-                "items": {"oneOf": steps},
-                "maxItems": policy.max_steps,
+                "items": {"oneOf": steps} if steps else {"type": "object"},
+                "maxItems": policy.max_steps if steps else 0,
             },
             "page": {
                 "type": "object",

@@ -28,6 +28,8 @@ action.retrieval 的 catalog value_kind 为 object。home.search、core.context.
 
 retrieval.where 与 tool.schema 来自 owner 的 typed 属性声明：日期允许 YYYY-MM-DD 的值或 before/after，集合属性允许包含条件。Memory query 显式提供 document_ref 变体；refs 可没有 steps，也可直接 filter/rerank。MCP query 表达 literal/regex，directory → select/rerank 表达没有词面预筛的语义发现。具体允许能力以当前情景 catalog 为准。
 
+某个 Action 的 retrieval.operations 为空时，仍可调用已开放的 source；其 tool.schema 允许省略 steps 或传入空数组，非空步骤不合法。客户端应以实际 catalog 中的操作集合和 schema 为准。
+
 SearchPage 是 Action/SDK 结果，Endpoint 不增加执行搜索路由。其契约如下：
 
 | 内容 | 客户端解释 |

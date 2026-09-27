@@ -93,7 +93,8 @@ class DecisionQuestion:
         if self.levels:
             value["criteria"] = list(self.levels)
         elif self.choices:
-            value["criteria"] = dict(self.choices)
+            criteria: JsonObject = {key: label for key, label in self.choices}
+            value["criteria"] = criteria
         return value
 
 

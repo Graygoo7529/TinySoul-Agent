@@ -2,8 +2,8 @@
 
 - 日期：2026-09-27。
 - 检查提交：`76012da5306d0eb403d61cd614ff6d8cd9eced6e`，`fix: close retrieval schema and session sdk contracts`。
-- 状态：review 已完成；核心架构与正常功能通过本次核对；R1、R2 两项局部收尾待处理。
-- 本次只新增 review 文档，没有修改生产实现、测试、配置或既有归档计划。
+- 状态：`done`；独立 review 与收尾复核已完成，R1、R2 均已修正并通过本地门禁，于 2026-09-27 归档。
+- 初次 review 只新增本文。后续收尾基于 `65a6814`，修改 R1/R2 对应实现、开发依赖、类型检查脚本及契约说明；既有验证事实保留。
 
 ## 1. 结论与推进建议
 
@@ -11,15 +11,15 @@
 
 这不是只把旧 `mode` 改名。query/backlinks/directory、refs/result 输入、filter/select/rerank、真实内容快照、命中依据、模型评估和页面投影已经贯通；五类来源实际接入了公共链路。之前重点指出的 lexical 否决 Embedding、模型只看零碎元数据、结果先截断再操作、缓存随一次查询覆盖等问题，已有对应实现和行为测试。
 
-**建议结论：核心重构完成，补两项小范围收尾后关闭本轮，再进入前后端对接。无需再开一轮 Search 架构重设计，也没有需要维护者重新裁决的核心设计分歧。**
+核心重构与两项局部收尾均已完成，可以按现行契约进入前后端对接。没有发现需要维护者重新裁决的核心设计分歧；修正及验证见第 3、9、10 节。
 
 | 项目 | 判断 | 影响 |
 | --- | --- | --- |
 | 统一检索语义、来源与操作组合 | 已落实 | 可以作为后续功能基础 |
 | 真实内容、语义命中、模型输入与分页 | 已落实 | 覆盖有限且如实披露，不等同于读过全文 |
 | SDK、Action 与 owner 接入 | 已落实 | Session SDK 的旧字段问题已修正 |
-| R1：不开放任何约束操作的 policy | 有可复现缺口 | 合法配置生成无效 Action Schema，装配失败 |
-| R2：新安装环境的类型检查 | 有可复现差异 | `ty 0.0.57` 通过，`0.0.84` 有 3 处诊断 |
+| R1：不开放任何约束操作的 policy | done | 空操作配置生成合法 schema；Action 参数校验与 parser 一致 |
+| R2：新安装环境的类型检查 | done | 三个 JSON 边界已明确；Conda 环境升级后 `ty 0.0.84` 全量通过 |
 | 真实供应商效果 | 本次未验证 | 不把本地替身结果当成 LLM/JEV 检索质量证据 |
 
 ## 2. 复核依据与范围
@@ -27,7 +27,7 @@
 重新读取了根目录 `AGENTS.md`，并以以下文件及当前代码共同判断：
 
 - `docs/analysis/done/20260926-done-action-model-retrieval-review-and-refactor-plan-r4.md`。
-- `docs/chat/20260927 检索统一语义与改进方案.md`。
+- `docs/chat/finished-review-or-plans/20260927 检索统一语义与改进方案.md`。
 - `docs/analysis/done/20260927-done-检索统一内容流与来源契约执行计划.md`。
 - `docs/analysis/done/20260927-done-检索提交后复核.md`。
 - `docs/design/action-model-retrieval.md`，相关 owner、配置、Endpoint 文档与当前测试。
@@ -36,13 +36,13 @@
 
 检查聚焦正常功能、清晰所有权、接口契约、模型配置与使用、内容/结果一致性及必要失败分类；没有扩展为新的沙箱、全局检索记忆、分布式搜索或防御性恢复平台设计。
 
-## 3. 尚需收尾的问题
+## 3. 问题与解决记录
 
 ### R1 — P2：空 operations 配置通过 policy 解析，却生成无效 Action Schema
 
-状态：本次独立复现；待修复。默认配置的普通 query 不受影响。
+状态：`done`。初次 review 独立复现，已在 `retrieval_schema()` 修正；默认配置的普通 query 原本不受影响。
 
-**位置与触发条件**
+**原始位置与触发条件（76012da）**
 
 - `tinysoul/kernel/retrieval/policy.py:278–280`：配置解析允许 `operations = []`，省略时也默认空集合。
 - 同文件 `RetrievalPolicy` 及请求校验允许只执行来源、没有任何 step。
@@ -107,13 +107,15 @@ key=ActionToolSpec(home.search).schema.oneOf.0.properties.steps.items.oneOf
 
 必要验收：配置解析、实际 ActionToolSpec 构造、参数 schema 校验与请求 parser 对省略 steps、`steps: []` 都成功；对任意非空 step 都拒绝。用一个组合契约测试覆盖即可，不必为每个插件复制同样的测试。
 
+落实位置：`tinysoul/kernel/retrieval/policy.py` 在没有操作变体时发布 object items 与 `maxItems: 0`；有操作时保持既有 `oneOf` 和步骤上限。`tests/kernel/retrieval/test_search.py::test_source_only_policy_shares_config_schema_and_parser_contract` 覆盖 operations 省略/空数组、steps 省略/空数组，以及三类非空操作的拒绝，贯通配置解析、ActionToolSpec、两套既有 schema 校验入口和请求 parser。设计文档与 Endpoint 配置说明同步这一契约。
+
 ### R2 — P2：类型门禁在依赖允许的新版本中仍有三处不一致
 
-状态：两种版本均已实际运行；待收尾。这是类型边界/验证可复现性问题，不是已证明的 Search 运行时错误，也不说明历史记录中的旧环境验证虚假。
+状态：`done`。三个 JSON 输出边界已明确，升级后的 `ty 0.0.84` 全量通过。这是类型边界/验证可复现性问题，不是已证明的 Search 运行时错误，也不说明历史记录中的旧环境验证虚假。
 
-`pyproject.toml:40` 声明 `ty>=0.0.57`。本次在 Python 3.13.15 环境中安装项目开发依赖后使用 `ty 0.0.84`，运行与脚本相同的检查参数，得到：
+初次 review 基线的 `pyproject.toml:40` 声明 `ty>=0.0.57`。当时在 Python 3.13.15 环境中安装项目开发依赖后使用 `ty 0.0.84`，运行与脚本相同的检查参数，得到：
 
-| 位置 | 诊断 | 当前表达 |
+| 位置 | 诊断 | 复核时表达 |
 | --- | --- | --- |
 | `tinysoul/infra/model_services/protocol.py:96` | invalid-assignment | `dict[str, str]` 赋给递归 `JsonValue` |
 | `tinysoul/kernel/action/engine.py:748` | invalid-return-type | `scenarios` 内层为 `dict[str, bool]` |
@@ -128,6 +130,8 @@ key=ActionToolSpec(home.search).schema.oneOf.0.properties.steps.items.oneOf
 将实际通过的 Python/ty 版本记录到本次收尾记录。若项目另行选择固定工具版本，应明确记录；但对这三处简单边界，优先修清类型表达比单纯压住检查器版本更合适。
 
 必要验收：当前采用的类型检查器通过，JSON 序列化结果不变。无需再增加一套逐字段镜像测试。
+
+落实位置：上述三个文件分别通过带 `JsonObject` 标注的字典推导式构造 criteria、scenarios、created_refs，再装入原有 payload，保持键、值、顺序和序列化语义。没有扩大为 Any 或新增忽略。`pyproject.toml` 的开发依赖下限提高到 `ty>=0.0.84`；维护者批准后，Conda TinySoul 中的 ty 从 0.0.61 升至 0.0.84，Python 保持 3.13.12。`scripts/typecheck.ps1` 输出实际 Python 和 ty 版本后执行原有全量检查；仍使用范围依赖，没有另设固定版本锁文件。
 
 ## 4. 对原始目标的逐项判断
 
@@ -241,7 +245,7 @@ SearchSession 是本轮查询视图和组合门面，没有成为新的 Agent �
 - Action Schema 从已解析 capability/policy 生成；Endpoint 投影与配置编辑遵循同一对象。
 - `action.retrieval` 使用包含完整 Action ID 的原子 map，不把带点 ID 误拆为路径层级。
 
-这些方面已落实。R1 是该统一契约的一个遗漏组合，需要补齐，但不需要改变这套架构。
+这些方面已落实。R1 所遗漏的空操作组合现已补齐，继续使用同一 policy、schema 和 parser。
 
 ### 6.3 失败和生命周期没有引入第二套语义
 
@@ -262,7 +266,7 @@ SearchSession 是本轮查询视图和组合门面，没有成为新的 Agent �
 
 新增 R1、R2 不应被写回成“F1 整体未完成”，也不应因 F1–F4 已修复而忽略它们。
 
-## 8. 本次实际验证
+## 8. 初次独立复核验证（修正前）
 
 环境：Linux、Python 3.13.15；新建隔离环境并安装项目开发依赖。当前环境没有执行 PowerShell 标准脚本，使用了其对应 pytest marker 和 ty 参数；这是本次独立结果，不覆盖仓库原有 Windows 验证记录。
 
@@ -278,11 +282,30 @@ SearchSession 是本轮查询视图和组合门面，没有成为新的 Agent �
 
 真实 LLM/JEV/Embedding provider 的调用与检索效果本次未运行。已验证的是代码路径、协议、内容映射、组合、配置和替身环境中的行为。模型质量与成本需由代表性真实输入衡量，不能通过增加本地断言来冒充；当前尚未发现因此需要改变核心设计的证据。
 
-## 9. 建议的最小收尾清单
+## 9. 收尾清单核对
 
-1. 修复 R1，补一个空操作 policy 的组合契约测试；保持来源可独立使用。
-2. 修清 R2 三个 JSON 输出边界，记录实际类型检查器版本。
-3. 运行新增契约测试和类型检查，生产代码收尾后按项目规约完成 Full；把结果追加到本轮收尾记录。
-4. 通过后即可以当前 Search、model-use、capability/schema、SearchPage 和 Observation 契约推进前端/后端对接，不恢复旧 mode，也不重新打开已经确认的 JEV、Reflection 或 Home top 语义。
+| 项目 | 状态 | 对应实现与证据 |
+| --- | --- | --- |
+| R1：空操作 policy | done | retrieval schema 修正与公共组合契约测试；来源可独立使用 |
+| R2：JSON 类型边界 | done | criteria/scenarios/created_refs 显式 JsonObject；ty 0.0.84 全量通过 |
+| 开发环境与检查版本 | done | dev 下限升级、Conda ty 0.0.84、typecheck 输出 Python/ty 版本 |
+| 设计与 Endpoint 同步 | done | `docs/design/action-model-retrieval.md`、`docs/endpoint/configuration.md` |
+| 必要验证及 review 归档 | done | 聚焦、Fast、Full、typecheck 通过，本文移入 done 并保留初次复核事实 |
 
-本次文档提交建议：`docs: review Search refactor completion at 76012da`。
+复核第 4–7 节的统一管道、真实内容、独立召回、语境选择、Inspect、来源 owner 及生命周期结论，仍与本次实现一致。本次修正没有扩展模型调用或改变结果协议，已确认的 JEV、Reflection 和 Home top 语义保持成立。
+
+## 10. 收尾验证（2026-09-27）
+
+环境：Windows，Conda `TinySoul`，Python 3.13.12，ty 0.0.84（8dd9a7f7f，2026-09-24）。脚本通过 `TINYSOUL_PYTHON` 选择该环境，并使用进程级 ExecutionPolicy Bypass 执行。
+
+| 验证 | 结果 |
+| --- | --- |
+| 检索、ModelServices、Action catalog/engine、Session organize 聚焦测试 | 81 passed，2.93 秒 |
+| `scripts/test.ps1`（Fast） | 1178 passed, 30 deselected，141.46 秒 |
+| `scripts/test.ps1 -Suite Full` | 1183 passed, 25 deselected，153.72 秒 |
+| `scripts/typecheck.ps1` | 输出 Python 3.13.12 / ty 0.0.84，All checks passed |
+| `git diff --check` | passed |
+
+Full 包含生成与 wheel 验收；真实 provider/network 测试本次未运行。本次收尾已逐项核对实现、文档和验证，没有剩余的 R1/R2 待办。
+
+提交建议：`fix: finish search review contracts and upgrade ty`。

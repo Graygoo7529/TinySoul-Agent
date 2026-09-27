@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 
+from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.action import (
     ActionEngineBuilder,
     ActionExecution,
@@ -68,6 +69,7 @@ class SessionOrganizeExecutor(ActionExecutor):
                 payload={"refresh": True},
             )
         )
+        created_refs: JsonObject = {name: ref for name, ref in result.created}
         return ActionResult.success(
             call_id=execution.call.call_id,
             invoke_id=execution.framework.invoke_id,
@@ -77,7 +79,7 @@ class SessionOrganizeExecutor(ActionExecutor):
             domain=execution.framework.domain,
             payload={
                 "changed_refs": list(result.changed_refs),
-                "created_refs": dict(result.created),
+                "created_refs": created_refs,
             },
         )
 
