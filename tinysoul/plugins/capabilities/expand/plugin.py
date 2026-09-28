@@ -21,6 +21,7 @@ from tinysoul.kernel.registration import (
     PluginTurnResource,
     ProfileBuildContext,
     ProfileKind,
+    Service,
 )
 from tinysoul.kernel.retrieval.contracts import (
     OperationKind,
@@ -69,7 +70,7 @@ class ExpandPlugin:
             (ModelImplementation.LLM_TASK, ModelImplementation.STRUCTURED_DECISION),
         ),
     )
-    provides = ()
+    provides = (ExpandEngine,)
     requires = (WorkspaceExecutionService, ModelServices)
     configuration = (
         PluginConfig(
@@ -89,6 +90,7 @@ class ExpandPlugin:
             root=context.root,
             workspace=context.services.get(WorkspaceExecutionService),
             environment=context.runtime_env,
+            observations=context.observations,
         )
 
         async def invoke(call):
@@ -138,5 +140,9 @@ class ExpandPlugin:
                 raise RuntimeExpandBridge().close_failed(exc) from exc
 
         return PluginGeneration(
-            self.id, profile_extension_factory=extend, release_day=release, close=close
+            self.id,
+            services=(Service(ExpandEngine, engine),),
+            profile_extension_factory=extend,
+            release_day=release,
+            close=close,
         )

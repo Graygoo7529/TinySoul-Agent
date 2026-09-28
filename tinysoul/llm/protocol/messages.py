@@ -337,10 +337,44 @@ Message = SystemMessage | UserMessage | AssistantMessage | ToolResultMessage
 
 
 @dataclass(frozen=True)
+class MessageOrigin:
+    """Caller-supplied provenance; not sent to the model or interpreted by LLM."""
+
+    segment_id: str
+    owner: str
+    slot: str
+    shape: str
+    message_indices: tuple[int, ...]
+    refs: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if (
+            not self.segment_id
+            or not self.owner
+            or any(index < 0 for index in self.message_indices)
+        ):
+            raise LLMContractError(
+                "Message provenance requires an owner and valid positions"
+            )
+
+    def to_json(self) -> JsonObject:
+        return {
+            "segment_id": self.segment_id,
+            "owner": self.owner,
+            "slot": self.slot,
+            "shape": self.shape,
+            "message_indices": list(self.message_indices),
+            "refs": list(self.refs),
+        }
+
+
+@dataclass(frozen=True)
 class MessageStack:
     """An ordered stack of model messages."""
 
     messages: tuple[Message, ...] = field(default_factory=tuple)
+    provenance: tuple[MessageOrigin, ...] = ()
+    resolved_references: JsonObject = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         try:
@@ -358,9 +392,24 @@ class MessageStack:
                     "MessageStack.messages must contain TinySoul message values"
                 )
         object.__setattr__(self, "messages", messages)
+        object.__setattr__(
+            self, "resolved_references", to_json_object(self.resolved_references)
+        )
+        if any(
+            index >= len(messages)
+            for origin in self.provenance
+            for index in origin.message_indices
+        ):
+            raise LLMContractError("Message provenance references an absent message")
 
-    def append(self, message: Message) -> "MessageStack":
-        return MessageStack(messages=(*self.messages, message))
+    def append(
+        self, message: Message, *, origin: MessageOrigin | None = None
+    ) -> "MessageStack":
+        return MessageStack(
+            messages=(*self.messages, message),
+            provenance=(*self.provenance, origin) if origin else self.provenance,
+            resolved_references=self.resolved_references,
+        )
 
     @classmethod
     def of(cls, *messages: Message) -> "MessageStack":

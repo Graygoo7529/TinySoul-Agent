@@ -2,21 +2,22 @@
 
 from __future__ import annotations
 
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from collections.abc import AsyncIterator
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Protocol
 
 from tinysoul.infra.clock import CalendarClock
-from tinysoul.infra.concurrency import AsyncReadWriteLock, JoinedOperations
+from tinysoul.infra.concurrency import AsyncCloser, AsyncReadWriteLock, JoinedOperations
 from tinysoul.infra.time import CalendarDay
-from tinysoul.infra.concurrency import AsyncCloser
 from tinysoul.plugins.archive import DailyLifecycleCoordinator, DailyTransitionOutcome
 from tinysoul.plugins.archive.errors import ArchiveError
+from tinysoul.plugins.archive.projection import ArchiveProjection
 from tinysoul.plugins.archive.runtime_bridge import RuntimeArchiveBridge
 from tinysoul.plugins.memory import MemoryEngine
 from tinysoul.plugins.memory.errors import MemoryError
 from tinysoul.plugins.memory.runtime_bridge import RuntimeMemoryBridge
 from tinysoul.runtime import RunScope
+
 from ..errors import AgentInvariantError
 from .sources import GenerationSources
 
@@ -54,6 +55,14 @@ class AgentDayCoordinator:
 
     def bind_sources(self, sources: GenerationSources) -> None:
         self._sources = sources
+
+    def archive_for(self, day: CalendarDay) -> ArchiveProjection | None:
+        return self._archive.archive_for(day)
+
+    def archived_days(
+        self, *, before: CalendarDay | None = None, limit: int = 100
+    ) -> tuple[CalendarDay, ...]:
+        return self._archive.archived_days(before=before, limit=limit)
 
     @asynccontextmanager
     async def active_day_lease(self) -> AsyncIterator[CalendarDay]:

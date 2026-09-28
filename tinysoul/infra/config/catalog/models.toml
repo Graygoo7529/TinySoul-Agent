@@ -132,7 +132,7 @@ title = "Model"
 description = "A provider model with TinySoul-visible capabilities and request options."
 identity = { title = "Model ID", description = "Stable TinySoul model identifier referenced by task chains; dots, outer whitespace, and numeric-only IDs are not allowed." }
 create_source = "project:configs/llm/models/custom.toml"
-create_template = { adapter = "openai_compatible_chat", providers = [{ provider = "", provider_model = "" }], context_window_tokens = 262144, capabilities = ["text_input"], adapter_options = {}, request_overrides = {} }
+create_template = { adapter = "openai_compatible_chat", providers = [{ provider = "", provider_model = "" }], context_window_tokens = 262144, capabilities = ["text_input"], adapter_options = {}, request_overrides = {}, family = "", collapsed = false }
 delete_policy = "create_source_only"
 
 [[collection]]
@@ -202,6 +202,22 @@ choices = [
   { value = "glm", label = "GLM" },
   { value = "minimax", label = "MiniMax" },
 ]
+
+[[field]]
+path = "llm.models.*.family"
+surface = "models"
+group = "models.binding"
+title = "Family"
+description = "Optional display group; does not affect routing or availability."
+value_kind = "string"
+
+[[field]]
+path = "llm.models.*.collapsed"
+surface = "models"
+group = "models.binding"
+title = "Collapsed"
+description = "Collapsed by default in the model list; referenced models remain selectable."
+value_kind = "boolean"
 
 [[field]]
 path = "llm.models.*.providers"

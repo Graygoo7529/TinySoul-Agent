@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from uuid import uuid4
 
+from tinysoul.agent.requests import UserTurnRequest
 from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.time import CalendarDay, CalendarDayError
+from tinysoul.kernel.interaction import QuestionAnswer
 from tinysoul.kernel.loop import LoopControlKind
 from tinysoul.kernel.loop.interaction.inbox import InboxReceipt
-from tinysoul.plugins.reflection import ReflectionScope, ReflectionRequest, ReflectionTrigger
-from tinysoul.agent.requests import UserTurnRequest
-from uuid import uuid4
-from tinysoul.infra.time import CalendarDay, CalendarDayError
+from tinysoul.plugins.reflection import (
+    ReflectionRequest,
+    ReflectionScope,
+    ReflectionTrigger,
+)
 from tinysoul.runtime import RuntimeException, RuntimeGatewayError
 
 from ..errors import EndpointRequestError
@@ -111,11 +116,14 @@ class EndpointRuntimeEngine:
         if kind == "user":
             if not text.strip():
                 raise EndpointRequestError(
-                    status_code=422, code="turn.text_required", message="User Turn requires text."
+                    status_code=422,
+                    code="turn.text_required",
+                    message="User Turn requires text.",
                 )
             if target_day or instructions:
                 raise EndpointRequestError(
-                    status_code=422, code="turn.fields_invalid",
+                    status_code=422,
+                    code="turn.fields_invalid",
                     message="User Turn accepts text, not Reflection fields.",
                 )
             request = UserTurnRequest(
@@ -124,17 +132,27 @@ class EndpointRuntimeEngine:
         else:
             if kind not in {"home", "memory"} or text:
                 raise EndpointRequestError(
-                    status_code=422, code="turn.fields_invalid",
+                    status_code=422,
+                    code="turn.fields_invalid",
                     message="Reflection Turn requires home/memory and instructions.",
                 )
             request = ReflectionRequest(
-                scope=ReflectionScope(kind), trigger=ReflectionTrigger.MANUAL,
-                target_day=_parse_target_day(kind, target_day), instructions=instructions,
-                source="endpoint", metadata=metadata, request_id=identity,
+                scope=ReflectionScope(kind),
+                trigger=ReflectionTrigger.MANUAL,
+                target_day=_parse_target_day(kind, target_day),
+                instructions=instructions,
+                source="endpoint",
+                metadata=metadata,
+                request_id=identity,
             )
         handle = await self._context.gateway.commands.submit_turn(request)
-        return {"accepted": True, "command_id": identity, "turn_id": handle.turn_id,
-                "kind": kind, "state": handle.state.value}
+        return {
+            "accepted": True,
+            "command_id": identity,
+            "turn_id": handle.turn_id,
+            "kind": kind,
+            "state": handle.state.value,
+        }
 
     async def get_turn(self, turn_id: str) -> JsonObject:
         snapshot = self._context.services.turn_snapshot(turn_id)
@@ -145,15 +163,23 @@ class EndpointRuntimeEngine:
         return snapshot.to_json()
 
     async def append_input(self, turn_id: str, text: str, input_id: str) -> JsonObject:
-        receipt = await self._context.gateway.commands.append_input(turn_id, text, input_id=input_id)
+        receipt = await self._context.gateway.commands.append_input(
+            turn_id, text, input_id=input_id
+        )
         return _receipt_json(receipt)
 
-    async def reply(self, turn_id: str, question_id: str, response: str) -> JsonObject:
-        receipt = await self._context.gateway.commands.reply(turn_id, question_id, response)
+    async def reply(
+        self, turn_id: str, question_id: str, answer: QuestionAnswer
+    ) -> JsonObject:
+        receipt = await self._context.gateway.commands.reply(
+            turn_id, question_id, answer
+        )
         return _receipt_json(receipt)
 
     async def grant(self, turn_id: str, request_id: str, count: int) -> JsonObject:
-        accepted = await self._context.gateway.commands.grant_cycles(turn_id, request_id, count)
+        accepted = await self._context.gateway.commands.grant_cycles(
+            turn_id, request_id, count
+        )
         return {"turn_id": turn_id, "request_id": request_id, "accepted": accepted}
 
     async def cancel(self, turn_id: str) -> JsonObject:

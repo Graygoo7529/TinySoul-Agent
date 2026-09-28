@@ -2,21 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import deque
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from tinysoul.infra.concurrency import AsyncMailbox, JoinedOperations
-import asyncio
 from types import SimpleNamespace
 from typing import Generic, Protocol, TypeVar
-from uuid import uuid4
 
 from tinysoul.agent.errors import AgentClosedError, AgentQueueFullError, AgentSDKError
 from tinysoul.agent.handles import RequestFailure, TurnHandle, TurnResult, TurnState
-from tinysoul.kernel.loop.interaction.inbox import InboxLimits, TurnInbox
-
+from tinysoul.agent.requests import AgentRequest, ExitRequest, UserTurnRequest
+from tinysoul.infra.concurrency import AsyncMailbox, JoinedOperations
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.time import CalendarDay
+from tinysoul.kernel.loop.interaction.inbox import InboxLimits, TurnInbox
 from tinysoul.kernel.loop.turn import TurnExecutionCancelled, TurnOutcome
 from tinysoul.plugins.archive import DailyTransitionOutcome
 from tinysoul.plugins.reflection import (
@@ -26,30 +25,29 @@ from tinysoul.plugins.reflection import (
     ReflectionRequest,
     ReflectionScope,
 )
-from tinysoul.plugins.reflection.runtime_bridge import ReflectionRuntimeBridge
 from tinysoul.plugins.reflection.models import ReflectionExecutionCancelled
+from tinysoul.plugins.reflection.runtime_bridge import ReflectionRuntimeBridge
 from tinysoul.runtime import (
+    RUNTIME_AGENT_END,
     NullObservationEmitter,
     ObservationEmitter,
     ObservationEvent,
     ObservationLevel,
-    RUNTIME_AGENT_END,
     RunLevel,
     RunScope,
+    RuntimeActivity,
     RuntimeException,
+    RuntimeHandle,
     RuntimeInvariantError,
-    RuntimeTrap,
     RuntimeTransfer,
     RuntimeTransferAction,
     RuntimeTransferInterrupt,
-    RuntimeActivity,
-    RuntimeHandle,
+    RuntimeTrap,
     SignalBus,
     emit_observation,
     observation_enabled,
 )
 
-from tinysoul.agent.requests import AgentRequest, ExitRequest, UserTurnRequest
 from ..lifecycle.day import DayLifecycle
 
 
@@ -511,6 +509,12 @@ class RootScheduler(Generic[AgentGenerationT]):
                     raise AgentSDKError("Active Business Day changed before User Turn")
                 handle = self._handles.get(request.request_id)
                 if handle is not None:
+                    handle.generation_id = (
+                        self._generation_handle.generation_id
+                        if self._generation_handle
+                        else None
+                    )
+                    handle.active_day = leased_day
                     return await generation.user_turn.run(
                         request.text,
                         active_day=leased_day,
@@ -536,6 +540,13 @@ class RootScheduler(Generic[AgentGenerationT]):
             async with generation.day.active_day_lease() as day:
                 if day != transition.active_day:
                     raise AgentSDKError("Active day changed before Reflection")
+                if handle is not None:
+                    handle.generation_id = (
+                        self._generation_handle.generation_id
+                        if self._generation_handle
+                        else None
+                    )
+                    handle.active_day = day
                 return await generation.reflection.run(
                     request,
                     active_day=day,

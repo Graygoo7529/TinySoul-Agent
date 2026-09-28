@@ -1,27 +1,31 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Awaitable
+from collections.abc import Awaitable, Callable
 from datetime import date
 from pathlib import Path
 from typing import TypeVar
 
 import pytest
-from tinysoul.plugins.home.services import HomeService
-from tinysoul.plugins.home.links import parse_home_link
 
+from tinysoul.infra.config import ConfigError
+from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.action.call import ActionCall, ActionExecution
-from tinysoul.kernel.action.execution.preparation import ActionExecutionBuilder
 from tinysoul.kernel.action.catalog.catalog import ActionCatalog
-from tinysoul.kernel.action.execution.executor import ActionExecutionContext
-from tinysoul.kernel.action.result import ActionResultStatus
 from tinysoul.kernel.action.catalog.specs import (
-    ActionExecutionSpec,
     ActionDomainSpec,
+    ActionExecutionSpec,
     ActionRuntimeSpec,
     ActionSemanticSpec,
     ActionSpec,
     ActionToolSpec,
 )
+from tinysoul.kernel.action.execution.executor import ActionExecutionContext
+from tinysoul.kernel.action.execution.preparation import ActionExecutionBuilder
+from tinysoul.kernel.action.result import ActionResultStatus
+from tinysoul.kernel.context import ContextEngineBuilder
+from tinysoul.kernel.context.background import BackgroundPatch
+from tinysoul.kernel.context.signals import build_background_patch_signal
+from tinysoul.kernel.loop.context_signals import ContextSignalConsumer
 from tinysoul.plugins.home import (
     AgentHomeContractError,
     AgentHomeEngine,
@@ -32,36 +36,31 @@ from tinysoul.plugins.home import (
     AgentHomeRuntimeCopyTrapHandler,
     AgentHomeSettings,
     HomeActionSkillProvider,
-    HomeBackgroundContentLoader,
     HomeBackgroundEntryProvider,
     HomeDomainSkillProvider,
     HomeInspectExecutor,
     HomePromptMountWriteExecutor,
-    HomeTopWriteExecutor,
     HomeTopLink,
+    HomeTopWriteExecutor,
 )
 from tinysoul.plugins.home.background import (
     ActualHomeBackgroundEntryProvider,
     home_segment_registration,
 )
-from tinysoul.kernel.context import ContextEngineBuilder
-from tinysoul.kernel.context.background import BackgroundPatch
-from tinysoul.kernel.context.signals import build_background_patch_signal
-from tinysoul.kernel.loop.context_signals import ContextSignalConsumer
-from tinysoul.infra.config import ConfigError
-from tinysoul.infra.json import JsonObject
 from tinysoul.plugins.home.failures import HOME_RUNTIME_COPY_REQUIRED
+from tinysoul.plugins.home.links import parse_home_link
+from tinysoul.plugins.home.services import HomeService
 from tinysoul.runtime import (
     RUNTIME_TURN_END,
     RunLevel,
     RunScope,
     RuntimeException,
     RuntimeModuleRunner,
+    RuntimeTransferAction,
     RuntimeTrap,
     Signal,
     SignalBus,
     TrapHandlerRegistry,
-    RuntimeTransferAction,
     TrapSnap,
 )
 
@@ -258,7 +257,8 @@ async def test_home_provides_default_background_without_exposing_domain_skills(
     assert defaults[0].link == "home:agent@AGENT"
     assert defaults[0].content == "core rules"
     assert "home:skills_domain:workspace" not in loadable
-    assert guidance == ("workspace guidance",)
+    assert tuple(item.text for item in guidance) == ("workspace guidance",)
+    assert guidance[0].reference == "home:skills_domain:workspace"
     assert (tmp_path / "runtime" / "home" / "agent" / "AGENT.md").is_file()
     assert (
         tmp_path / "runtime" / "home" / "skills_domain" / "workspace" / "DOMAIN.md"
@@ -622,7 +622,7 @@ async def test_home_domain_skills_uses_runtime_copy_trap(tmp_path: Path) -> None
         home=home,
     )
 
-    assert guidance == ("workspace guidance",)
+    assert tuple(item.text for item in guidance) == ("workspace guidance",)
 
 
 async def test_home_action_skills_uses_runtime_copy_trap(tmp_path: Path) -> None:
@@ -647,7 +647,8 @@ async def test_home_action_skills_uses_runtime_copy_trap(tmp_path: Path) -> None
     )
 
     assert guidance.domain == ()
-    assert guidance.action == ("rewrite guidance",)
+    assert tuple(item.text for item in guidance.action) == ("rewrite guidance",)
+    assert guidance.action[0].reference == "home:skills_action:workspace/compose"
     assert (
         tmp_path / "runtime" / "home" / "skills_action" / "workspace" / "compose.md"
     ).is_file()
@@ -679,8 +680,8 @@ async def test_home_action_skills_includes_domain_and_action_skills(
         home=home,
     )
 
-    assert guidance.domain == ("workspace guidance",)
-    assert guidance.action == ("rewrite guidance",)
+    assert tuple(item.text for item in guidance.domain) == ("workspace guidance",)
+    assert tuple(item.text for item in guidance.action) == ("rewrite guidance",)
 
 
 async def test_missing_home_prompt_mount_is_optional(tmp_path: Path) -> None:
@@ -801,6 +802,39 @@ async def test_home_inspect_reads_source_without_runtime_copy(tmp_path: Path) ->
         ActionExecutionContext(),
     )
     assert result.status is ActionResultStatus.SUCCESS
+
+
+def test_home_browser_reads_actual_effective_guidance_and_direct_refs_without_copy(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "home"
+    (root / "agent").mkdir(parents=True)
+    (root / "agent" / "AGENT.md").write_text(
+        "Original [guide](guide.md)", encoding="utf-8"
+    )
+    (root / "agent" / "guide.md").write_text("Guide body", encoding="utf-8")
+    (root / "skills_domain" / "workspace").mkdir(parents=True)
+    (root / "skills_domain" / "workspace" / "DOMAIN.md").write_text(
+        "Workspace guidance", encoding="utf-8"
+    )
+    runtime = tmp_path / "runtime" / "home"
+    home = AgentHomeEngineBuilder(
+        AgentHomeSettings(original_root=root, runtime_root=runtime)
+    ).build()
+    _bind_workspace_mounts(home)
+    before = tuple(runtime.rglob("*"))
+    document = home.browse_content("home:agent@AGENT")
+    assert "home:agent/guide.md" in str(document["metadata"])
+    assert "Workspace guidance" in str(
+        home.browse_content("home:skills_domain:workspace")
+    )
+    assert home.browse_changes()["items"] == []
+    assert tuple(runtime.rglob("*")) == before
+    home.write_top("home:agent@AGENT", "Changed", overwrite=True)
+    assert "Original" in str(home.browse_content("home:agent@AGENT", view="actual"))
+    assert "Changed" in str(home.browse_content("home:agent@AGENT"))
+    assert home.browse_changes()["items"]
+    assert "Original" in str(home.browse_diff("home:agent@AGENT"))
 
 
 def _execution(action_name: str, params: JsonObject) -> ActionExecution:

@@ -1,14 +1,16 @@
 """Memory capabilities selected by the consumer's execution scenario."""
 
+from typing import Self
+
 from tinysoul.infra.services import ScopedService, ServiceScope
-from tinysoul.kernel.retrieval.operations import SearchSession, SelectionInput
 from tinysoul.kernel.retrieval.contracts import (
     RetrievalRequest,
-    SearchPage,
     SearchFailure,
     SearchFailureKind,
+    SearchPage,
 )
-from typing import Self
+from tinysoul.kernel.retrieval.operations import SearchSession, SelectionInput
+
 from .engine import MemoryEngine
 
 
@@ -26,6 +28,7 @@ class MemoryReadService(ScopedService[MemoryEngine]):
         self.active_day = scope.local(owner.active_day)
         self.read_active = scope.local(owner.read_active)
         self.inspect = scope.local(owner.inspect)
+        self.catalog = scope.local(owner.browse_catalog)
         self._queries = queries
         self.retrieval_policies = queries.retrieval_policies if queries else ()
         self.search = scope.remote(self._search)
@@ -35,7 +38,10 @@ class MemoryReadService(ScopedService[MemoryEngine]):
         return type(self)(self._owner, scope, queries=self._queries)
 
     async def _search(
-        self, request: RetrievalRequest | str, *, inputs: SelectionInput = SelectionInput()
+        self,
+        request: RetrievalRequest | str,
+        *,
+        inputs: SelectionInput = SelectionInput(),
     ) -> SearchPage:
         if self._queries is None:
             raise SearchFailure(

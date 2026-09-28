@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
-import re
 from typing import Protocol, runtime_checkable
 
 from tinysoul.infra.json import JsonObject
+from tinysoul.infra.references import ResourceLocator
 from tinysoul.llm.protocol.messages import Message
 
+from ..disclosure import DisclosureSearchEntry
 from ..errors import ContextContractError, ContextInvariantError
 from ..providers import SegmentSelectionView
-from ..disclosure import DisclosureSearchEntry
 
 
 class SegmentSlot(StrEnum):
@@ -112,6 +113,11 @@ class ContextSegment(Protocol):
     def seal(self) -> JsonObject: ...
 
     async def close(self) -> None: ...
+
+
+@runtime_checkable
+class ReferenceBindingSegment(Protocol):
+    def resolved_references(self) -> dict[str, ResourceLocator]: ...
 
 
 class UpdatingSegment[U, P](ContextSegment, Protocol):

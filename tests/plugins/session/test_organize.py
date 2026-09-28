@@ -7,12 +7,6 @@ import pytest
 
 from tinysoul.infra.json import JsonObject, dumps_json
 from tinysoul.infra.references import ReferenceResolver
-from tinysoul.kernel.retrieval.contracts import (
-    RetrievalRequest, QuerySource, BacklinksSource, RefsSource, TextQuery,
-    SourceKind, OperationKind, ModelStep, SearchFailure,
-)
-from tinysoul.kernel.retrieval.operations import SearchSession
-from tinysoul.kernel.retrieval.policy import RetrievalPolicy
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.action import (
     ActionCall,
@@ -25,13 +19,22 @@ from tinysoul.kernel.context import (
     ContextEngineBuilder,
     ContextTurnFacts,
     ContextTurnInput,
-    TaskPrompt,
     PromptBlock,
+    TaskPrompt,
 )
-from tinysoul.kernel.context.segments import TurnInfo
 from tinysoul.kernel.context.errors import ContextInspectRequestError
+from tinysoul.kernel.context.segments import TurnInfo
 from tinysoul.kernel.context.signals import build_input_append_signal
 from tinysoul.kernel.loop.outcomes import TurnOutcomeStatus
+from tinysoul.kernel.retrieval.contracts import (
+    OperationKind,
+    QuerySource,
+    RetrievalRequest,
+    SourceKind,
+    TextQuery,
+)
+from tinysoul.kernel.retrieval.operations import SearchSession
+from tinysoul.kernel.retrieval.policy import RetrievalPolicy
 from tinysoul.plugins.session import SessionEngine, SessionSettings
 from tinysoul.plugins.session.annotations.models import (
     AnnotationKind,
@@ -42,20 +45,20 @@ from tinysoul.plugins.session.annotations.models import (
     SemanticNode,
     SemanticRelation,
 )
-from tinysoul.plugins.session.views.navigation import SessionEvidence
 from tinysoul.plugins.session.errors import (
     SessionInspectRequestError,
-    SessionIOError,
     SessionInvariantError,
+    SessionIOError,
 )
 from tinysoul.plugins.session.projection import (
-    UpdatingSessionProvider,
     SessionRefresh,
+    UpdatingSessionProvider,
     session_segment_registration,
 )
 from tinysoul.plugins.session.records.models import SessionOutputRecord
-from tinysoul.plugins.session.services import SessionService, SessionOrganizeService
-from tinysoul.runtime import RunScope, RunLevel, SignalBus
+from tinysoul.plugins.session.services import SessionOrganizeService, SessionService
+from tinysoul.plugins.session.views.navigation import SessionEvidence
+from tinysoul.runtime import RunLevel, RunScope, SignalBus
 
 from .synthetic import SyntheticAction, completion
 
@@ -138,9 +141,19 @@ async def test_context_search_uses_session_originals_and_interpretations_after_f
     ):
         request = RetrievalRequest(QuerySource("session", TextQuery(query)))
         corpus = await context.search_corpus(request, references=ReferenceResolver())
+
         async def source(_request):
             return corpus
-        page = await SearchSession(action_id="core.context.search", retrieval_policies=(RetrievalPolicy("core.context.search", tuple(SourceKind), tuple(OperationKind)),), source=source).search(request)
+
+        page = await SearchSession(
+            action_id="core.context.search",
+            retrieval_policies=(
+                RetrievalPolicy(
+                    "core.context.search", tuple(SourceKind), tuple(OperationKind)
+                ),
+            ),
+            source=source,
+        ).search(request)
         assert expected in {item.ref for item in page.items}
         assert query in str(await context.inspect(expected))
     assert session.background_snapshot(DAY).refs == (PRIOR,)
@@ -576,7 +589,13 @@ async def test_multiple_complete_dialogues_share_background_and_inspection(
             batch_id="batch",
             action_name="core.ask",
             sequence=2,
-            payload={"text": "Which strategy?", "options": ["scheduled", "on demand"]},
+            payload={
+                "text": "Which strategy?",
+                "options": [
+                    {"id": "a", "label": "scheduled"},
+                    {"id": "b", "label": "on demand"},
+                ],
+            },
         )
         context.record_action_result(result, cycle_id="c")
         bus.emit(
@@ -594,7 +613,10 @@ async def test_multiple_complete_dialogues_share_background_and_inspection(
             batch_id="followup",
             action_name="core.ask",
             sequence=1,
-            payload={"text": "Apply now?", "options": ["yes", "later"]},
+            payload={
+                "text": "Apply now?",
+                "options": [{"id": "a", "label": "yes"}, {"id": "b", "label": "later"}],
+            },
         )
         context.record_action_result(followup_result, cycle_id="followup")
         bus.emit(
@@ -636,9 +658,19 @@ async def test_multiple_complete_dialogues_share_background_and_inspection(
         ]
         assert projected[0]["text"] == f"original request {index}"
         assert projected[2]["text"] == f"extra constraint {index}"
-        assert projected[3]["options"] == ["scheduled", "on demand"]
+        options = projected[3]["options"]
+        assert isinstance(options, list)
+        assert [item["label"] for item in options if isinstance(item, dict)] == [
+            "scheduled",
+            "on demand",
+        ]
         assert projected[4]["reply_to"] == projected[3]["ref"]
-        assert projected[5]["options"] == ["yes", "later"]
+        options = projected[5]["options"]
+        assert isinstance(options, list)
+        assert [item["label"] for item in options if isinstance(item, dict)] == [
+            "yes",
+            "later",
+        ]
         assert "reply_to" not in projected[6]
         assert projected[7]["reply_to"] == projected[5]["ref"]
         assert "never inline" not in str(projected)

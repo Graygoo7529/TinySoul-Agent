@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from binascii import Error as Base64Error
 from dataclasses import dataclass
 from enum import StrEnum
 from hashlib import sha256
-import json
 
 from .json import JsonObject, JsonValue, dumps_json, to_json_object, to_json_value
-
 
 MIN_CONTINUATION_PAGE_CHARS = 1024
 
@@ -190,6 +189,7 @@ def continue_json_sequence(
     codec: OpaqueContinuationCodec,
     ref: str,
     max_chars: int,
+    max_items: int | None = None,
     binding: JsonObject | None = None,
 ) -> JsonObject:
     """Return one compact page whose canonical JSON fits *max_chars*."""
@@ -198,6 +198,10 @@ def continue_json_sequence(
         raise ContinuationError(
             ContinuationFailureReason.INVALID_LIMIT,
             "Inspect character limit must be positive",
+        )
+    if max_items is not None and (type(max_items) is not int or max_items < 1):
+        raise ContinuationError(
+            ContinuationFailureReason.INVALID_LIMIT, "Page item limit must be positive"
         )
     if not item_field or item_field in base or "next_continuation" in base:
         raise ContinuationError(
@@ -227,7 +231,7 @@ def continue_json_sequence(
 
     selected: list[JsonValue] = []
     index = position.item_index
-    while index < len(items):
+    while index < len(items) and (max_items is None or len(selected) < max_items):
         next_position = (
             ContinuationPosition(item_index=index + 1)
             if index + 1 < len(items)
@@ -325,7 +329,7 @@ def _continue_fragment(
             base,
             item_field=item_field,
             items=(),
-            fragment=serialized[position.char_offset:stop],
+            fragment=serialized[position.char_offset : stop],
             next_continuation=(
                 codec.encode(next_position, ref=ref, binding=binding)
                 if next_position is not None

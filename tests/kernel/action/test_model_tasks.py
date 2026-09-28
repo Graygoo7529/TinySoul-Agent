@@ -4,31 +4,31 @@ from __future__ import annotations
 
 from datetime import date as CalendarDate
 
-import pytest
-
-from tinysoul.kernel.action.tasks import ActionSkillGuidance, ActionTaskOutput
 from tests.support.model_uses import action_tasks
+from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.action.builtins.core import (
     CoreAnswerActionExecutor,
     CoreReasonActionExecutor,
 )
 from tinysoul.kernel.action.call import ActionCall, ActionExecution
-from tinysoul.kernel.action.execution.preparation import ActionExecutionBuilder
 from tinysoul.kernel.action.catalog.catalog import ActionCatalog
-from tinysoul.kernel.action.execution.executor import ActionExecutionContext
-from tinysoul.kernel.action.execution.executor import ActionExecutionControl
-from tinysoul.kernel.action.result import ActionResult, ActionResultStatus
 from tinysoul.kernel.action.catalog.specs import (
-    ActionExecutionSpec,
     ActionDomainSpec,
+    ActionExecutionSpec,
     ActionRuntimeSpec,
     ActionSemanticSpec,
     ActionSpec,
     ActionToolSpec,
 )
+from tinysoul.kernel.action.execution.executor import (
+    ActionExecutionContext,
+    ActionExecutionControl,
+)
+from tinysoul.kernel.action.execution.preparation import ActionExecutionBuilder
+from tinysoul.kernel.action.result import ActionResult, ActionResultStatus
+from tinysoul.kernel.action.tasks import ActionSkillGuidance, ActionTaskOutput
 from tinysoul.kernel.context import ContextEngineBuilder, PromptBlock, TaskPrompt
-from tinysoul.infra.json import JsonObject
-from tinysoul.infra.config import ConfigError
+from tinysoul.kernel.context.prompts import PromptGuidance
 from tinysoul.llm.protocol.messages import TextPart
 from tinysoul.llm.protocol.requests import TaskCall
 from tinysoul.llm.protocol.responses import (
@@ -42,8 +42,6 @@ from tinysoul.llm.protocol.responses import (
     TaskResult,
     TextAnswer,
 )
-from tinysoul.kernel.context.failures import CONTEXT_COMPRESSION_REQUIRED
-from tinysoul.llm.failures import LLM_CONTEXT_CAPACITY_EXCEEDED
 from tinysoul.runtime import (
     RunLevel,
     RunScope,
@@ -145,8 +143,18 @@ class TestActionSkillProvider:
         assert domain == "core"
         assert action_name == "core.reason"
         return ActionSkillGuidance(
-            domain=("Use the core domain style.",),
-            action=("Use the project rewrite style.",),
+            domain=(
+                PromptGuidance(
+                    "Use the core domain style.", "home:skills_domain:core", "home"
+                ),
+            ),
+            action=(
+                PromptGuidance(
+                    "Use the project rewrite style.",
+                    "home:skills_action:core/reason",
+                    "home",
+                ),
+            ),
         )
 
 

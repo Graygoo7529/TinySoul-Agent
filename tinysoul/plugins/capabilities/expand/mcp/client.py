@@ -10,19 +10,20 @@ from pathlib import Path
 from time import monotonic
 
 import anyio
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 import httpx2
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp import Client
 from mcp.client import InputRequiredRoundsExceededError
 from mcp.client.session import IncomingMessage
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.message import SessionMessage
-from mcp.types import jsonrpc_message_adapter, ServerNotification
+from mcp.types import ServerNotification, jsonrpc_message_adapter
 
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.config.validation import resolve_references
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.infra.process import ManagedProcessRequest, StdioProcess
+
 from ..config import ExpandSettings, MCPServerSettings, MCPTransport
 from ..failures import ExpandFailure, ExpandRequestError
 
@@ -106,6 +107,15 @@ class MCPConnection:
 
     def invalidate(self) -> None:
         self._dirty = True
+
+    def status_view(self) -> JsonObject:
+        return {
+            "connected": self._client is not None,
+            "discovered": self._directory is not None,
+            "stale": self._dirty
+            or self._directory is not None
+            and self._directory.expires_at <= monotonic(),
+        }
 
     @property
     def directory_identity(self) -> ToolDirectory | None:

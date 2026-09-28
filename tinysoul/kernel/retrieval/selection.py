@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
 from tinysoul.infra.config import ConfigError
 from tinysoul.infra.json import JsonObject, JsonValue
@@ -19,10 +20,14 @@ from tinysoul.infra.model_services.protocol import (
 from tinysoul.infra.model_services.service import ModelCallEvent
 from tinysoul.kernel.action.models import ModelImplementation, ModelUseRegistry
 from tinysoul.llm.errors import LLMInvocationFailure
+
+if TYPE_CHECKING:
+    from tinysoul.kernel.context.prompts import PromptGuidance
 from tinysoul.llm.failures import LLMFailureKind
 from tinysoul.llm.protocol.messages import (
     AssistantMessage,
     JsonPart,
+    MessageOrigin,
     MessageStack,
     SystemMessage,
     TextPart,
@@ -77,7 +82,7 @@ class CandidateSelector:
         candidates: tuple[SearchCandidate, ...],
         operation: OperationKind,
         context: MessageStack | None = None,
-        guidance: tuple[str, ...] = (),
+        guidance: tuple[PromptGuidance, ...] = (),
         scope: RunScope | None = None,
         cancellation: TaskCancellation | None = None,
         embedding: VectorSource | None = None,
@@ -165,7 +170,7 @@ class CandidateSelector:
                 }
                 for index, item in enumerate(candidates)
             ],
-            "guidance": list(guidance),
+            "guidance": [item.text for item in guidance],
         }
         if binding.implementation is ModelImplementation.STRUCTURED_DECISION:
             if context is not None:
@@ -262,7 +267,18 @@ class CandidateSelector:
             },
             label="retrieval:selection",
         )
-        messages = (context or MessageStack()).append(prompt)
+        messages = context or MessageStack()
+        messages = messages.append(
+            prompt,
+            origin=MessageOrigin(
+                "retrieval:selection",
+                "retrieval",
+                "task_prompt",
+                "state",
+                (len(messages.messages),),
+                tuple(item.reference for item in guidance),
+            ),
+        )
         if (
             len(json.dumps(context_state(messages), ensure_ascii=False))
             > input_max_chars

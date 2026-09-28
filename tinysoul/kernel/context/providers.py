@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Protocol
 
+from tinysoul.infra.references import ResourceLocator
+
 from .errors import ContextInvariantError
 
 
@@ -16,6 +18,7 @@ class BackgroundCatalogItem:
     link: str
     title: str
     description: str
+    resolved_locator: ResourceLocator | None = None
 
     def __post_init__(self) -> None:
         for name in ("link", "title", "description"):
@@ -83,11 +86,9 @@ class BackgroundCatalog:
 
 
 class BackgroundEntryProvider(Protocol):
-    async def catalog(self, active_day: date) -> BackgroundCatalog:
-        ...
+    async def catalog(self, active_day: date) -> BackgroundCatalog: ...
 
-    async def load(self, link: str, active_day: date) -> str:
-        ...
+    async def load(self, link: str, active_day: date) -> str: ...
 
 
 @dataclass(frozen=True)
@@ -101,8 +102,16 @@ class SegmentSelectionView:
     def __post_init__(self) -> None:
         for name in ("available", "loaded", "protected"):
             refs = tuple(getattr(self, name))
-            if any(not isinstance(ref, str) or not ref for ref in refs) or len(set(refs)) != len(refs):
-                raise ContextInvariantError("Segment selection references must be unique text")
+            if any(not isinstance(ref, str) or not ref for ref in refs) or len(
+                set(refs)
+            ) != len(refs):
+                raise ContextInvariantError(
+                    "Segment selection references must be unique text"
+                )
             object.__setattr__(self, name, refs)
-        if not set(self.loaded).issubset(self.available) or not set(self.protected).issubset(self.available):
-            raise ContextInvariantError("Segment selection state is outside its catalog")
+        if not set(self.loaded).issubset(self.available) or not set(
+            self.protected
+        ).issubset(self.available):
+            raise ContextInvariantError(
+                "Segment selection state is outside its catalog"
+            )

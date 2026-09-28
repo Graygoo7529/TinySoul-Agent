@@ -7,8 +7,51 @@ from tinysoul.gateway.endpoint import (
     EndpointEventJournal,
     EndpointSettings,
 )
+from tinysoul.gateway.endpoint.events.models import EventFilter
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.runtime import ObservationEvent, ObservationLevel
+
+
+def test_filtered_replay_advances_global_cursor_across_journal_and_memory(
+    tmp_path: Path,
+) -> None:
+    journal = EndpointEventJournal(
+        tmp_path / "events", max_segment_bytes=4096, max_total_bytes=65536
+    )
+    buffer = EndpointEventBuffer(
+        capacity=2, max_bytes=65536, page_bytes=65536, journal=journal
+    )
+    for index in range(1, 8):
+        buffer.write(
+            _event(
+                "step",
+                payload={
+                    "search_id": "s",
+                    "step_index": index % 2,
+                    "task_id": f"t{index}",
+                },
+            )
+        )
+    first = buffer.replay(
+        after=0,
+        mode=ObservationLevel.MODEL,
+        limit=1,
+        filters=EventFilter(search_id="s", step_index=0, through=6),
+    )
+    assert [item.sequence for item in first.events] == [2]
+    second = buffer.replay(
+        after=first.next_sequence,
+        mode=ObservationLevel.MODEL,
+        filters=EventFilter(search_id="s", step_index=0, through=6),
+    )
+    assert [item.sequence for item in second.events] == [4, 6]
+    assert second.next_sequence == 6
+    absent = buffer.replay(
+        after=0,
+        mode=ObservationLevel.MODEL,
+        filters=EventFilter(task_id="absent", through=5),
+    )
+    assert absent.events == () and absent.next_sequence == 5 and not absent.gap
 
 
 def test_journal_survives_restart_and_deep_replay(tmp_path: Path) -> None:
@@ -136,11 +179,14 @@ def test_journal_rebuilds_stale_manifest_from_segments(tmp_path: Path) -> None:
 
     assert restarted.degraded is False
     assert restarted.latest_sequence == 1
-    assert [event.sequence for event in restarted.read_after(
-        after=0,
-        mode=ObservationLevel.MODEL,
-        limit=20,
-    )] == [1]
+    assert [
+        event.sequence
+        for event in restarted.read_after(
+            after=0,
+            mode=ObservationLevel.MODEL,
+            limit=20,
+        )
+    ] == [1]
 
 
 def test_journal_recovers_partial_latest_record(tmp_path: Path) -> None:
@@ -224,7 +270,9 @@ def test_replay_does_not_skip_memory_after_journal_byte_stop(tmp_path: Path) -> 
     assert [event.sequence for event in first.events] == [1]
     assert first.next_sequence == 1
 
-    second = buffer.replay(after=first.next_sequence, mode=ObservationLevel.MODEL, limit=20)
+    second = buffer.replay(
+        after=first.next_sequence, mode=ObservationLevel.MODEL, limit=20
+    )
     assert [event.sequence for event in second.events] == [2]
     assert second.next_sequence == 2
 

@@ -2,7 +2,7 @@
 
 ## Read
 
-- `GET /v2/config`：activity、sources、effective fields、Runtime generation/activation、LLM Provider 凭据就绪状态和 process shell projection。
+- `GET /v2/config?view=saved|active`：默认 saved；active 来自最后成功发布的配置快照，saved 读取当前配置文件。两者都包含 activity、sources、effective fields、Runtime generation/activation、LLM Provider 凭据就绪状态和 process shell projection。pending_reload 比较保存值与活动值。
 - `GET /v2/config/catalog`：Infra 维护的 surfaces、field groups、collections、field/document descriptors、choices 和 references。
 - `GET /v2/config/actions?scenario=user`：当前 Runtime Generation 指定情景的 domain/action 定义、visibility、selection、granted/supported/available、runtime policy、tool schema、execution、model_uses、retrieval、source binding。scenario 支持 user、home_reflection、memory_reflection，默认 user；未知情景返回 422 config.invalid_scenario。
 
@@ -30,7 +30,7 @@ retrieval.where 与 tool.schema 来自 owner 的 typed 属性声明：日期允�
 
 某个 Action 的 retrieval.operations 为空时，仍可调用已开放的 source；其 tool.schema 允许省略 steps 或传入空数组，非空步骤不合法。客户端应以实际 catalog 中的操作集合和 schema 为准。
 
-SearchPage 是 Action/SDK 结果，Endpoint 不增加执行搜索路由。其契约如下：
+SearchPage 是 Action/SDK 结果；页面 POST search 直接返回同一契约，见 [浏览与定位](inspection.md)。其契约如下：
 
 | 内容 | 客户端解释 |
 | --- | --- |
@@ -45,6 +45,14 @@ SearchPage 是 Action/SDK 结果，Endpoint 不增加执行搜索路由。其契
 LLM 的 basis 为实际输入片段指认，Embedding 为真实向量贡献，JEV Score 不产生片段指认；不能把任何普通预览称作模型理由。result 派生保留来源内容及覆盖，清除旧模型评估后执行本次步骤，原视图仍保持旧评估。内部单元 ID 和模型短 ID 不暴露为持久资源身份。全文深读使用所属 owner 的 Inspect/read/describe。
 
 ## Mutation
+
+`POST /v2/config/apply` 接受非空 `operations` 或 `preset_id`，必须且只能提供其中一种。候选统一校验并 prepare generation 后，原子保存文件并发布；发布前失败恢复此次事务触及的文件，保留调用前已经存在的 pending 配置。只有 idle 且没有排队根 work 时可激活。`reload` 沿同一发布流程激活已保存配置。
+
+`GET/POST /v2/config/presets`、`GET/PUT/DELETE /v2/config/presets/{id}` 管理运行方案。创建请求为 `name, description?, source=active|saved, operations?, include_budgets=true`；operations 只用于内存捕获。PUT 默认只改名称/说明，提供 `capture`（source/operations/include_budgets）才重新捕获。列表为 presets 数组；记录返回 id/name/description/included_scopes/active_match/saved_match/validation_issues/created_at/updated_at，详情含 snapshot；DELETE 只删方案文件。未知方案为 404 config.preset_not_found，当前不可激活为 409 config.activation_unavailable，其余配置问题为 422 config.invalid。
+
+方案完整替换 llm.models、llm.tasks、action.models.bindings、Phase1/2 路由，管理已登记检索策略的 query.channels，可选管理执行计划限定的预算。能力授权、Provider 连接及凭据、专用模型目录、知识库 embedding_use、路径和内容均不捕获。方案不新增配置 source 或运行时覆盖层；保存于 configs/presets。只读来源或缺失依赖导致不能实现精确替换时拒绝应用。
+
+LLM model 的 `family`（默认空）与 `collapsed`（默认 false）只提供显示元数据，不改变链顺序或模型可用性。
 
 `PATCH /v2/config` 接受 `operations` 数组。每项是：
 

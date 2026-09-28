@@ -7,8 +7,9 @@ from datetime import date
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from tinysoul.llm.protocol.messages import Message, UserMessage
 from tinysoul.infra.json import JsonObject
+from tinysoul.infra.references import ResourceLocator
+from tinysoul.llm.protocol.messages import Message, UserMessage
 from tinysoul.runtime import Signal
 
 from .errors import ContextContractError, ContextInvariantError
@@ -17,8 +18,8 @@ from .providers import BackgroundCatalog, BackgroundEntryProvider, SegmentSelect
 if TYPE_CHECKING:
     from .segments import (
         SegmentDescriptor,
-        SegmentRegistration,
         SegmentReclaim,
+        SegmentRegistration,
         TurnInfo,
     )
 
@@ -392,7 +393,20 @@ class HeapSegment:
         return self._view.render_messages()
 
     def seal(self) -> JsonObject:
-        return {"loaded_refs": list(self._view.links())}
+        return {
+            "loaded_refs": list(self._view.links()),
+            "resolved_references": {
+                ref: locator.to_json()
+                for ref, locator in self.resolved_references().items()
+            },
+        }
+
+    def resolved_references(self) -> dict[str, ResourceLocator]:
+        return {
+            item.link: item.resolved_locator
+            for item in self._catalog.items
+            if item.resolved_locator is not None
+        }
 
     def reclaim(self, required_chars: int) -> SegmentReclaim:
         from .segments import SegmentReclaim

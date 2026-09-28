@@ -1,10 +1,13 @@
 """HTTP request schemas grouped by Endpoint protocol domain."""
 
 from .configuration import (
+    ConfigApplyRequest,
     ConfigDeleteMutationRequest,
     ConfigMutationRequest,
     ConfigPatchRequest,
     ConfigSetMutationRequest,
+    PresetCreateRequest,
+    PresetUpdateRequest,
 )
 from .reflection import ReflectionRequest
 from .runtime import ControlRequest, InputRequest
@@ -22,9 +25,12 @@ from .workspace import (
 
 __all__ = [
     "ConfigDeleteMutationRequest",
+    "ConfigApplyRequest",
     "ConfigMutationRequest",
     "ConfigPatchRequest",
     "ConfigSetMutationRequest",
+    "PresetCreateRequest",
+    "PresetUpdateRequest",
     "ControlRequest",
     "InputRequest",
     "TurnCreateRequest",

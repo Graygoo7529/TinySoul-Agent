@@ -5,17 +5,16 @@ from asyncio import Event
 
 import pytest
 
-from tinysoul.infra.json import JsonObject
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
-from tinysoul.runtime import RuntimeException
+from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.jobs import (
     JobError,
-    JobRequestError,
-    JobRegistry,
-    JobSnapshot,
-    JobState,
     JobInputOption,
     JobInputRequest,
+    JobRegistry,
+    JobRequestError,
+    JobSnapshot,
+    JobState,
 )
 from tinysoul.kernel.loop.interaction.inbox import (
     InboxKind,
@@ -26,6 +25,7 @@ from tinysoul.kernel.loop.interaction.inbox import (
     WaitReason,
     WakeReason,
 )
+from tinysoul.runtime import RuntimeException
 
 
 class _Backend:
@@ -51,6 +51,11 @@ class _Backend:
 
     async def describe(self) -> JsonObject:
         return {"finished": self.finished.is_set()}
+
+    async def read_output(
+        self, *, continuation: str | None = None, max_chars: int = 16000
+    ) -> JsonObject:
+        return {"items": [], "result_locators": []}
 
     async def close_execution(self) -> tuple[CleanupDiagnostic, ...]:
         await self.request_stop()

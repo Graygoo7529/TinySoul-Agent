@@ -1,8 +1,8 @@
 # Visualization 后端功能支持执行计划
 
-> 日期：2026-09-28；状态：pending；代码基线：`1aa0db4`。
-> 设计范围已确认，实施尚未开始。本文件完整定义后端交付，不需要其它讨论材料补充语义。
-> 实施顺序：先完成本计划并交付 Endpoint 契约，再实施配套的 [前端执行计划](20260928-visualization-frontend-implementation-plan.md)。两份计划中的 API 编号一致。
+> 日期：2026-09-28；状态：done；代码基线：`1aa0db4`；实施起点：`4093b94`。
+> B0～B7、接口文档、模板和必要验证均已完成。本文件记录后端交付及最终核对结果。
+> 实施顺序：先完成本计划并交付 Endpoint 契约，再实施配套的 [前端执行计划](../20260928-visualization-frontend-implementation-plan.md)。两份计划中的 API 编号一致。
 > 规约依据：根目录 AGENTS.md；现行模块设计与 `docs/endpoint/`。执行期间同步真实设计和接口文档，尚未实现的能力不得写成当前事实。
 
 ## 1. 目标、范围与完成定义
@@ -431,7 +431,7 @@ Action 外壳保留 invoke/call identity、state、result/failure。Search 直�
 
 ## 11. 实施步骤与文件职责
 
-所有步骤初始 pending；阶段之间是依赖顺序，不削减本轮交付。
+阶段之间是依赖顺序，不削减本轮交付。B0～B7 已按 owner、SDK lease、Endpoint 映射、文档和测试逐项核对。当前 Session snapshot 的 reconcile 不用于页面 GET；活动 Context 只读入口绑定所属 Turn，关闭后失效。
 
 | 阶段 | 工作与主要位置 | 退出条件 |
 | --- | --- | --- |
@@ -450,20 +450,20 @@ B0/B1 的类型命名可以沿现有代码细化，但不能自行变更已确�
 
 测试优先覆盖真实风险与正常主线，owner 契约只完整测一次，不为每个页面重复后端集成测试。使用 fake 模型/协议后端，不用真实网络或长 sleep 作为默认门禁。
 
-- [ ] active/saved 明确；混合 dotenv/TOML apply 成功、校验失败、prepare 失败、发布前回退、发布后清理诊断各有正确结果。
-- [ ] waiting/queued/day transition 不应用；前端可编辑草稿；已有 pending 保存不会被本地 reset 撤销。
-- [ ] preset 完整替换受管组，保留未管理能力；缺引用/只读源明确失败；budget 缺省/包含和 LLM/JEV 切换正确。
-- [ ] family/collapsed 不影响执行；Action descriptor、绑定、激活和真实调用一致；生图未新增伪配置。
-- [ ] ask→choice/text→追加→完成→Session；问题/预算并存；accepted-but-not-installed、取消与 final drain 不丢事实。
-- [ ] Session 地图共享节点、证据、归档读取；Reflection 不进入 User Session。
-- [ ] Context 查询不 seal/compose 新任务、不 load/evict、不解除模型 inspect 保护；close 后明确不可用。
-- [ ] Home effective/actual/guidance、Memory active/persistent/redirect、Workspace 当前/归档/编辑全文正确。
-- [ ] Search 双通道保留真实命中、模型输入片段真实、rerank 不删成员、翻页不调模型、跨 lease 句柄不可混用。
-- [ ] Job output 不消费 Agent 消息；ACP 空闲连接跨 Turn，Job 不跨 Turn；MCP GET 不 connect、refresh 明确 I/O。
-- [ ] Event 过滤游标可前进；缺失观测不伪造正文；provenance 来自实际组装。
-- [ ] ResourceLocator 解析保留 day/view/绑定，不能把历史动态链接解析为当前资源。
+- [x] active/saved 明确；混合 dotenv/TOML apply 成功、校验失败、prepare 失败、发布前回退、发布后清理诊断各有正确结果。
+- [x] waiting/queued/day transition 不应用；前端可编辑草稿；已有 pending 保存不会被本地 reset 撤销。
+- [x] preset 完整替换受管组，保留未管理能力；缺引用/只读源明确失败；budget 缺省/包含和 LLM/JEV 切换正确。
+- [x] family/collapsed 不影响执行；Action descriptor、绑定、激活和真实调用一致；生图未新增伪配置。
+- [x] ask→choice/text→追加→完成→Session；问题/预算并存；accepted-but-not-installed、取消与 final drain 不丢事实。
+- [x] Session 地图共享节点、证据、归档读取；Reflection 不进入 User Session。
+- [x] Context 查询不 seal/compose 新任务、不 load/evict、不解除模型 inspect 保护；close 后明确不可用。
+- [x] Home effective/actual/guidance、Memory active/persistent/redirect、Workspace 当前/归档/编辑全文正确。
+- [x] Search 双通道保留真实命中、模型输入片段真实、rerank 不删成员、翻页不调模型、跨 lease 句柄不可混用。
+- [x] Job output 不消费 Agent 消息；ACP 空闲连接跨 Turn，Job 不跨 Turn；MCP GET 不 connect、refresh 明确 I/O。
+- [x] Event 过滤游标可前进；缺失观测不伪造正文；provenance 来自实际组装。
+- [x] ResourceLocator 解析保留 day/view/绑定，不能把历史动态链接解析为当前资源。
 
-B7 执行仓库标准 Full 与 typecheck（优先 Conda TinySoul 或显式 TINYSOUL_PYTHON；按 AGENTS.md 的 scripts/test.ps1、scripts/typecheck.ps1），记录命令、环境、结果；只有业务实现完成才运行并声明实现门禁。本计划编写本身不意味着测试或实现已经完成。
+B7 已执行仓库标准门禁：`TINYSOUL_PYTHON=C:\Anaconda3\envs\TinySoul\python.exe powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '& ./scripts/test.ps1 -Suite Full -Durations 0'`，结果为 `1197 passed, 25 deselected`；`TINYSOUL_PYTHON=... powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/typecheck.ps1`，结果为 Python 3.13.12、ty 0.0.84、`All checks passed!`。`git diff --check` 无差异错误；真实 provider/network 测试未作为本地门禁启用。
 
 前端交接必须包含：每个 API 的请求/响应、稳定错误 code、分页/失效说明；生成自实际 DTO 的空态/正常/等待/失败样例；LLM/JEV/Embedding 与 Search 的真实结构样例；一条可复现的 User Turn 追加/问答/补额/完成流程，以及 Home/Memory/Job/MCP 场景。同步文档，不只交付截图或路由名。
 

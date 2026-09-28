@@ -43,7 +43,7 @@ tinysoul/gateway/endpoint/
   http/
     app.py, auth.py, errors.py, server.py
     schemas/{runtime,turns,reflection,configuration,workspace}.py
-    routes/{health,runtime,turns,reflection,events,configuration,workspace}.py
+    routes/{health,runtime,turns,reflection,events,configuration,workspace,inspection,resources}.py
 ```
 
 HTTP route 只做路径参数/schema 转换和 engine 调用，不直接访问业务私有状态。`http/app.py` 集中注册 middleware、认证、统一错误处理和 routes；`http/server.py` 在 Agent 的事件循环上运行 uvicorn task，异步等待启动与停止，不创建独立服务器线程，也不接管宿主信号处理。
@@ -68,7 +68,9 @@ action.retrieval 在配置 catalog 中是整体 object，内部 home.search、co
 
 ## Workspace
 
-`EndpointWorkspaceEngine` 通过 WorkspaceService 的 async operation 作用域调用唯一 Workspace owner，统一处理 manifest、text/blob read/write、显式创建/覆盖、有序编辑、目录/标签与 Trash/Restore 和 context sync。Endpoint 不提供任意文件 API；`PUT /v2/workspace/blob` 是完整 Workspace binary write 能力的一部分。
+`EndpointWorkspaceEngine` 通过 WorkspaceService 的 async operation 作用域调用唯一 Workspace owner，负责活动日写入；manifest/text/blob/trash 的当前日、归档日只读投影由 Agent SDK lease 暴露给 inspection/resources routes。Endpoint 不提供任意文件 API。
+
+AgentRuntimeServices 统一绑定 generation/day lease，并组合 Context、Session、Home、Memory、Workspace、Job、ACP/MCP 和 ResourceLocator 读取；只读 GET 不 reconcile、connect、discover、seal 或提交事实。历史动态资源没有真实 binding 时返回 unresolved_origin。
 
 ## 失败边界
 

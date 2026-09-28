@@ -12,6 +12,7 @@ from threading import RLock
 
 from tinysoul.infra.filesystem import atomic_write_text, read_text_prefix
 from tinysoul.infra.json import JsonObject
+from tinysoul.infra.paging import PageOptions
 from tinysoul.infra.references import (
     ReferenceError,
     ReferenceResolver,
@@ -53,10 +54,12 @@ from .errors import (
     WorkspaceContractError,
     WorkspaceInvariantError,
     WorkspaceIOError,
+    WorkspaceNotFoundError,
     WorkspaceReconciliationError,
 )
 from .inspection.models import (
     WorkspaceAnalysisPreparation,
+    WorkspaceBlobRead,
     WorkspaceBundleResult,
     WorkspaceBundleWrite,
     WorkspaceByteRead,
@@ -119,29 +122,45 @@ class WorkspaceArchiveView:
     def day(self) -> str:
         return self.manifest.day
 
-    def read_text(
-        self, link: str, *, max_chars: int | None = None
-    ) -> WorkspaceTextRead:
+    def reader(self) -> WorkspaceReader:
         settings = WorkspaceSettings(root=self.root, max_read_chars=self.max_read_chars)
         discovery = WorkspaceReconciler(
             settings=settings,
             manifest_store=WorkspaceManifestStore(settings.manifest_path),
         )
 
-        def inspect(value: str) -> WorkspaceResourceRecord:
+        def inspect(link: str) -> WorkspaceResourceRecord:
             record = next(
-                (item for item in self.manifest.resources if item.link == value), None
+                (item for item in self.manifest.resources if item.link == link), None
             )
             if record is None:
-                raise WorkspaceContractError("Archived Workspace resource is absent")
+                raise WorkspaceNotFoundError("Archived Workspace resource is absent")
             return record
 
+        return WorkspaceReader(
+            settings=settings, inspect=inspect, path_for=discovery.path_for
+        )
+
+    def browse_text(
+        self, link: str, *, page: PageOptions = PageOptions(), full: bool = False
+    ) -> JsonObject:
+        return self.reader().browse_text(
+            link, day=self.day, page=page, full=full, editable=False
+        )
+
+    def open_blob(self, link: str) -> WorkspaceBlobRead:
+        return self.reader().open_blob(link)
+
+    def trash_items(self) -> tuple[WorkspaceTrashItem, ...]:
+        return WorkspaceTrashStore(self.root.parent / "trash").list()
+
+    def read_text(
+        self, link: str, *, max_chars: int | None = None
+    ) -> WorkspaceTextRead:
         limit = self.max_read_chars if max_chars is None else max_chars
         if type(limit) is not int or not 0 < limit <= self.max_read_chars:
             raise WorkspaceContractError("Archived Workspace read bound is invalid")
-        return WorkspaceReader(
-            settings=settings, inspect=inspect, path_for=discovery.path_for
-        ).read_text(link, max_chars=limit)
+        return self.reader().read_text(link, max_chars=limit)
 
 
 class WorkspaceEngine:
@@ -265,6 +284,12 @@ class WorkspaceEngine:
 
     def path_for(self, link: WorkspaceLink | str) -> Path:
         return self._reconciler.path_for(link)
+
+    def resolve_relative(self, reference: str, origin_link: str) -> str:
+        origin = WorkspaceLink.parse(origin_link.partition("#")[0])
+        return relative_reference(
+            reference, source_path=origin.relative_path, prefix="workspace:"
+        )
 
     def load_manifest(self) -> WorkspaceManifest:
         with self._lock:
@@ -455,6 +480,18 @@ class WorkspaceEngine:
     def read_bytes(self, link: str, *, max_bytes: int) -> WorkspaceByteRead:
         with self._lock:
             return self._reader.read_bytes(link, max_bytes=max_bytes)
+
+    def browse_text(
+        self, link: str, *, page: PageOptions = PageOptions(), full: bool = False
+    ) -> JsonObject:
+        with self._lock:
+            return self._reader.browse_text(
+                link, day=str(self.active_day), page=page, full=full
+            )
+
+    def open_blob(self, link: str) -> WorkspaceBlobRead:
+        with self._lock:
+            return self._reader.open_blob(link)
 
     def read_image(
         self, link: str, *, max_bytes: int | None = None

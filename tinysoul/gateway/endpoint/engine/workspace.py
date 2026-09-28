@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from collections.abc import Awaitable, Callable
 
-from tinysoul.infra.json import JsonObject, to_json_object
-from tinysoul.plugins.workspace.services import WorkspaceService
+from tinysoul.infra.json import JsonObject
 from tinysoul.plugins.workspace import (
     WorkspaceBundleWrite,
-    WorkspaceManifest,
     WorkspaceResourceRecord,
     WorkspaceTag,
     WorkspaceTextEdit,
@@ -18,18 +15,12 @@ from tinysoul.plugins.workspace.errors import (
     WorkspaceContractError,
     WorkspaceError,
     WorkspaceIOError,
+    WorkspaceNotFoundError,
 )
+from tinysoul.plugins.workspace.services import WorkspaceService
 
 from ..errors import EndpointRequestError
 from .context import EndpointEngineContext
-
-
-@dataclass(frozen=True)
-class EndpointResourceBlob:
-    link: str
-    data: bytes
-    media_type: str
-    size: int
 
 
 class EndpointWorkspaceEngine:
@@ -37,61 +28,6 @@ class EndpointWorkspaceEngine:
 
     def __init__(self, context: EndpointEngineContext) -> None:
         self._context = context
-
-    async def manifest(self) -> JsonObject:
-        try:
-            async with self._context.services.registry.get(
-                WorkspaceService
-            ).operation() as workspace:
-                result = await workspace.reconcile()
-                if not result.complete:
-                    raise EndpointRequestError(
-                        status_code=409,
-                        code="workspace.reconciliation_incomplete",
-                        message="Workspace reconciliation is incomplete.",
-                        details=to_json_object({"skip_counts": result.skip_counts()}),
-                    )
-                return result.manifest.to_json()
-        except EndpointRequestError:
-            raise
-        except WorkspaceError as exc:
-            raise _workspace_error(exc) from exc
-
-    async def read_text(self, link: str) -> JsonObject:
-        try:
-            async with self._context.services.registry.get(
-                WorkspaceService
-            ).operation() as workspace:
-                read = await workspace.read_text(
-                    link,
-                    max_chars=self._context.settings.max_resource_chars,
-                )
-                return {
-                    "link": read.link,
-                    "text": read.text,
-                    "truncated": read.truncated,
-                    "size": read.size,
-                }
-        except WorkspaceError as exc:
-            raise _workspace_error(exc) from exc
-
-    async def read_blob(self, link: str) -> EndpointResourceBlob:
-        try:
-            async with self._context.services.registry.get(
-                WorkspaceService
-            ).operation() as workspace:
-                read = await workspace.read_bytes(
-                    link,
-                    max_bytes=self._context.settings.max_resource_bytes,
-                )
-                return EndpointResourceBlob(
-                    link=read.link,
-                    data=read.data,
-                    media_type=read.media_type,
-                    size=read.size,
-                )
-        except WorkspaceError as exc:
-            raise _workspace_error(exc) from exc
 
     async def write_text(
         self,
@@ -144,20 +80,6 @@ class EndpointWorkspaceEngine:
                 return {
                     "record": record.to_json(),
                     "manifest": result.manifest.to_json(),
-                }
-        except WorkspaceError as exc:
-            raise _workspace_error(exc) from exc
-
-    async def trash(self) -> JsonObject:
-        try:
-            async with self._context.services.registry.get(
-                WorkspaceService
-            ).operation() as workspace:
-                return {
-                    "items": [
-                        {"ref": item.ref, **item.to_json()}
-                        for item in await workspace.trash_items()
-                    ]
                 }
         except WorkspaceError as exc:
             raise _workspace_error(exc) from exc
@@ -236,6 +158,12 @@ class EndpointWorkspaceEngine:
 
 
 def _workspace_error(error: WorkspaceError) -> EndpointRequestError:
+    if isinstance(error, WorkspaceNotFoundError):
+        return EndpointRequestError(
+            status_code=404,
+            code="workspace.not_found",
+            message="Workspace resource was not found in the requested day.",
+        )
     if isinstance(error, WorkspaceContractError):
         return EndpointRequestError(
             status_code=409,

@@ -1,15 +1,42 @@
 from __future__ import annotations
 
+from tinysoul.kernel.interaction import QuestionOption
+
+
+async def test_choice_reply_preserves_option_content_and_pending_reads_do_not_consume() -> (
+    None
+):
+    inbox = TurnInbox()
+    question = QuestionRequest(
+        "q",
+        QuestionContent(
+            "Choose", (QuestionOption("a", "Run", "Use the checked plan"),), False
+        ),
+    )
+    await inbox.open_question(question)
+    with pytest.raises(InboxError):
+        await inbox.reply("q", QuestionAnswer(AnswerKind.TEXT, text="other"))
+    with pytest.raises(InboxError):
+        await inbox.reply("q", QuestionAnswer(AnswerKind.CHOICE, option_id="missing"))
+    answer = QuestionAnswer(AnswerKind.CHOICE, option_id="a", comment="Start now")
+    await inbox.reply("q", answer)
+    pending = inbox.pending_items()
+    assert len(pending) == 1 and pending[0].payload["answer"] == answer.to_json()
+    assert pending[0].payload["text"] == "Run (a)\nUse the checked plan\nStart now"
+    pending[0].payload["text"] = "not owner state"
+    batch = await inbox.capture()
+    assert batch.records[0][1].payload["text"] != "not owner state"
+
+
 import asyncio
 from dataclasses import replace
 from time import monotonic
 
 import pytest
 
+from tinysoul.kernel.interaction import AnswerKind, QuestionAnswer, QuestionContent
+from tinysoul.kernel.loop.interaction.events import TurnEventSubscription
 from tinysoul.kernel.loop.interaction.inbox import (
-    WaitCondition,
-    WaitReason,
-    WakeReason,
     InboxCapacityError,
     InboxClosedError,
     InboxError,
@@ -18,29 +45,45 @@ from tinysoul.kernel.loop.interaction.inbox import (
     InboxRecord,
     QuestionRequest,
     TurnInbox,
+    WaitCondition,
+    WaitReason,
+    WakeReason,
 )
-from tinysoul.kernel.loop.interaction.events import TurnEventSubscription
 from tinysoul.runtime.events import EnvironmentEvent, EventFilter, EventKind
-from tinysoul.runtime.sources import SourceStatus, SourceState
+from tinysoul.runtime.sources import SourceState, SourceStatus
 
 
-async def test_state_notifications_preserve_capture_input_order_and_receipt_time() -> None:
+async def test_state_notifications_preserve_capture_input_order_and_receipt_time() -> (
+    None
+):
     inbox = TurnInbox(InboxLimits(capacity=1))
-    inbox.subscribe_events((TurnEventSubscription(
-        EventFilter(topic="files.changed", source="files"), lambda event, scope: (),
-        coalesce=True, requires_decision=False,
-    ),))
+    inbox.subscribe_events(
+        (
+            TurnEventSubscription(
+                EventFilter(topic="files.changed", source="files"),
+                lambda event, scope: (),
+                coalesce=True,
+                requires_decision=False,
+            ),
+        )
+    )
     first = InboxRecord(InboxKind.INPUT, {"text": "first"}, received_at=123.5)
     await inbox.accept(first)
     for index in range(20):
-        await inbox.accept_event(EnvironmentEvent(EventKind.EVENT, {"value": index},
-            topic="files.changed", source="files"))
+        await inbox.accept_event(
+            EnvironmentEvent(
+                EventKind.EVENT, {"value": index}, topic="files.changed", source="files"
+            )
+        )
     batch = await inbox.capture()
     assert len(batch.records) == 2
     assert batch.records[0][1].received_at == 123.5
     assert batch.records[1][1].payload == {"value": 19}
-    await inbox.accept_event(EnvironmentEvent(EventKind.EVENT, {"value": 20},
-        topic="files.changed", source="files"))
+    await inbox.accept_event(
+        EnvironmentEvent(
+            EventKind.EVENT, {"value": 20}, topic="files.changed", source="files"
+        )
+    )
     assert await inbox.capture() is batch
     await inbox.ack(batch)
     latest = await inbox.capture()
@@ -54,14 +97,27 @@ async def test_topic_source_wait_and_source_failure_still_require_budget() -> No
     statuses = [SourceStatus("files", SourceState.RUNNING, topics=("files.changed",))]
     inbox.bind_source_status(lambda: tuple(statuses))
     budget = await inbox.request_budget(2)
-    condition = WaitCondition(WaitReason.EVENT, 0, event_kind=InboxKind.EVENT,
-                              topic="files.changed", source="files")
+    condition = WaitCondition(
+        WaitReason.EVENT,
+        0,
+        event_kind=InboxKind.EVENT,
+        topic="files.changed",
+        source="files",
+    )
     waiter = asyncio.create_task(inbox.wait_for_cycle(condition, budget=budget))
     await asyncio.sleep(0)
-    assert not inbox.accepts_event(EnvironmentEvent(EventKind.EVENT, {}, topic="unrelated", source="files"))
-    statuses[0] = SourceStatus("files", SourceState.FAILED, "OSError", ("files.changed",))
-    status = EnvironmentEvent(EventKind.EVENT, {"state": "failed"},
-                              topic="runtime.source_status", source="files")
+    assert not inbox.accepts_event(
+        EnvironmentEvent(EventKind.EVENT, {}, topic="unrelated", source="files")
+    )
+    statuses[0] = SourceStatus(
+        "files", SourceState.FAILED, "OSError", ("files.changed",)
+    )
+    status = EnvironmentEvent(
+        EventKind.EVENT,
+        {"state": "failed"},
+        topic="runtime.source_status",
+        source="files",
+    )
     assert inbox.accepts_event(status)
     await inbox.accept_event(status)
     await asyncio.sleep(0)
@@ -147,9 +203,9 @@ async def test_payload_snapshot_and_encoded_size_are_owned_by_inbox() -> None:
 async def test_reply_has_reserved_capacity_and_timeout_rejects_late_reply() -> None:
     inbox = TurnInbox(InboxLimits(capacity=1))
     await inbox.accept(InboxRecord(InboxKind.EVENT, {}, "event"))
-    question = QuestionRequest("q", "choose")
+    question = QuestionRequest("q", QuestionContent("choose"))
     await inbox.open_question(question)
-    await inbox.reply("q", "yes")
+    await inbox.reply("q", QuestionAnswer(AnswerKind.TEXT, text="yes"))
     assert (
         await inbox.wait_for_cycle(
             WaitCondition(WaitReason.INPUT, 0, question=question)
@@ -161,7 +217,7 @@ async def test_reply_has_reserved_capacity_and_timeout_rejects_late_reply() -> N
         InboxKind.REPLY,
     ]
     await inbox.ack(batch)
-    timed = QuestionRequest("timed", "choose", timeout_seconds=0.001)
+    timed = QuestionRequest("timed", QuestionContent("choose"), timeout_seconds=0.001)
     await inbox.open_question(timed)
     assert (
         await inbox.wait_for_cycle(
@@ -174,7 +230,7 @@ async def test_reply_has_reserved_capacity_and_timeout_rejects_late_reply() -> N
         )
     ).reason is WakeReason.TIMER
     with pytest.raises(InboxClosedError):
-        await inbox.reply("timed", "late")
+        await inbox.reply("timed", QuestionAnswer(AnswerKind.TEXT, text="late"))
 
 
 async def test_terminal_capacity_is_reserved_independently_from_progress() -> None:
@@ -241,7 +297,11 @@ async def test_append_interrupts_wait_but_does_not_grant_budget(
     reason: WaitReason,
 ) -> None:
     inbox = TurnInbox()
-    question = QuestionRequest("q", "choose") if reason is WaitReason.INPUT else None
+    question = (
+        QuestionRequest("q", QuestionContent("choose"))
+        if reason is WaitReason.INPUT
+        else None
+    )
     if question is not None:
         await inbox.open_question(question)
     condition = WaitCondition(
@@ -260,7 +320,9 @@ async def test_append_interrupts_wait_but_does_not_grant_budget(
     assert not waiter.done()
     if question is not None:
         with pytest.raises(InboxClosedError):
-            await inbox.reply(question.question_id, "late")
+            await inbox.reply(
+                question.question_id, QuestionAnswer(AnswerKind.TEXT, text="late")
+            )
     await inbox.grant_cycles(budget.request_id, 1)
     assert (await asyncio.wait_for(waiter, 1)).reason is WakeReason.INPUT
     assert all(

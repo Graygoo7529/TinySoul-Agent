@@ -1,4 +1,6 @@
 [llm.models.glm_5_1]
+family = "glm"
+collapsed = false
 adapter = "glm"
 providers = [
   { provider = "orca", provider_model = "z-ai/glm-5.1" },

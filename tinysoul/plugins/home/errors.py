@@ -19,6 +19,10 @@ class AgentHomeInvariantError(AgentHomeError):
     """Raised when Agent Home internal invariants are broken."""
 
 
+class AgentHomeNotFoundError(AgentHomeContractError):
+    """Requested Home content is absent from the selected owner view."""
+
+
 class AgentHomeIOError(AgentHomeError):
     """Raised when Agent Home filesystem operations fail at the module boundary."""
 

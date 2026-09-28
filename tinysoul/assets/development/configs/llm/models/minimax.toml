@@ -1,4 +1,6 @@
 [llm.models.minimax_m3]
+family = "minimax"
+collapsed = false
 adapter = "minimax"
 providers = [
   { provider = "orca", provider_model = "minimax/minimax-m3" },

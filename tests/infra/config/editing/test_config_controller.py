@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
-from collections.abc import Mapping
 
 import pytest
 
-from tinysoul.infra.config import ConfigController, ConfigEnvironment, ConfigMutation
-from tinysoul.infra.config import ConfigError, PreparedConfigActivation
+from tinysoul.infra.config import (
+    ConfigController,
+    ConfigEnvironment,
+    ConfigError,
+    ConfigMutation,
+    PreparedConfigActivation,
+)
 from tinysoul.infra.json import JsonObject
 
 
@@ -52,24 +57,17 @@ def _project_with_document(root: Path) -> ConfigEnvironment:
     return ConfigEnvironment.from_project_root(root, env={})
 
 
-def test_config_status_uses_one_effective_snapshot(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_config_status_keeps_active_and_refreshes_saved(tmp_path: Path) -> None:
     environment = _project(tmp_path)
-    original = environment.effective_values
-    calls = 0
-
-    def effective_values() -> dict[str, object]:
-        nonlocal calls
-        calls += 1
-        return original()
-
-    monkeypatch.setattr(environment, "effective_values", effective_values)
-    status = ConfigController(root=tmp_path, environment=environment).status()
-
-    assert calls == 1
-    assert isinstance(status["sources"], list)
-    assert isinstance(status["fields"], dict)
+    controller = ConfigController(root=tmp_path, environment=environment)
+    active = controller.status(view="active")
+    (tmp_path / "configs" / "infra.toml").write_text(
+        "[capabilities.web.search_by_kimi]\nenabled = true\n", encoding="utf-8"
+    )
+    saved = controller.status()
+    assert saved["pending_reload"] is True
+    assert controller.status(view="active")["fields"] == active["fields"]
+    assert saved["fields"] != active["fields"]
 
 
 def test_specialized_provider_array_credentials_are_redacted(tmp_path: Path) -> None:

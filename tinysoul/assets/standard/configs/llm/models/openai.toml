@@ -1,4 +1,6 @@
 [llm.models.gpt_5_5]
+family = "openai"
+collapsed = false
 adapter = "openai"
 providers = [
   { provider = "orca", provider_model = "openai/gpt-5.5" },
@@ -25,6 +27,8 @@ reasoning_effort = "high"
 reasoning_summary = "auto"
 
 [llm.models.gpt_5_6_sol]
+family = "openai"
+collapsed = false
 adapter = "openai"
 providers = [
   { provider = "orca", provider_model = "openai/gpt-5.6-sol" },
@@ -51,6 +55,8 @@ reasoning_effort = "high"
 reasoning_summary = "auto"
 
 [llm.models.gpt_5_6_terra]
+family = "openai"
+collapsed = false
 adapter = "openai"
 providers = [
   { provider = "orca", provider_model = "openai/gpt-5.6-terra" },
@@ -77,6 +83,8 @@ reasoning_effort = "high"
 reasoning_summary = "auto"
 
 [llm.models.gpt_5_6_luna]
+family = "openai"
+collapsed = false
 adapter = "openai"
 providers = [
   { provider = "orca", provider_model = "openai/gpt-5.6-luna" },

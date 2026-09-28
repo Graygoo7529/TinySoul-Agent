@@ -15,6 +15,10 @@ class WorkspaceImageValidationError(WorkspaceContractError):
     """Raised when image bytes do not match the classified media type."""
 
 
+class WorkspaceNotFoundError(WorkspaceContractError):
+    """Requested Workspace resource is absent from its day."""
+
+
 class WorkspaceInvariantError(WorkspaceError):
     """Raised when workspace internal invariants are broken."""
 

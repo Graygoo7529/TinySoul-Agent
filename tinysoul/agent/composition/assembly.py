@@ -21,7 +21,8 @@ from tinysoul.kernel.registration import ServiceRegistry
 
 from ..errors import AgentInvariantError
 from tinysoul.agent.dispatch.scheduler import AgentRunResult, RootScheduler
-from ..dispatch.inputs import InputDispatcher, InputEvent, InputSource
+from ..dispatch.inputs import InputDispatcher
+from tinysoul.environment.inputs import InputEvent, InputSource
 from ..dispatch.ingress import AgentIngress
 from ..observation.outputs import ObservationRouter
 from tinysoul.environment.services import EnvironmentService

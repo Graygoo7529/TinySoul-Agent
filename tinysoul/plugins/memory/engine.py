@@ -8,6 +8,7 @@ from pathlib import Path
 from threading import RLock
 
 from tinysoul.infra.json import JsonObject
+from tinysoul.infra.paging import PageOptions
 from tinysoul.infra.references import (
     ReferenceError,
     ReferenceResolver,
@@ -199,6 +200,64 @@ class MemoryEngine:
             )
         return tuple(sorted(result, key=str))
 
+    def browse_catalog(
+        self,
+        *,
+        kind: str | None = None,
+        query: str | None = None,
+        page: PageOptions = PageOptions(),
+    ) -> JsonObject:
+        if kind is not None and kind not in {item.value for item in MemoryKind}:
+            raise MemoryContractError("Unknown persistent Memory kind")
+        with self._lock:
+            values: tuple[JsonObject, ...] = tuple(
+                {
+                    "link": str(item.link),
+                    "kind": item.link.kind.value,
+                    "display": item.display,
+                    "status": item.status,
+                    "redirect_to": str(item.redirect_to) if item.redirect_to else None,
+                    "locator": {"link": str(item.link)},
+                }
+                for item in sorted(
+                    self._catalog.snapshot.entries.values(),
+                    key=lambda item: str(item.link),
+                )
+                if (kind is None or item.link.kind.value == kind)
+                and (
+                    query is None
+                    or query.casefold() in f"{item.link} {item.display}".casefold()
+                )
+            )
+            return page.render(values, owner="memory", ref=f"catalog:{kind}:{query}")
+
+    def browse_active(
+        self,
+        day: CalendarDay,
+        *,
+        archive_root: Path | None = None,
+        page: PageOptions = PageOptions(),
+    ) -> JsonObject:
+        document = (
+            self.read_archived_active(day, archive_root)
+            if archive_root
+            else self.read_active(day)
+        )
+        return inspect_document(
+            owner="memory.active",
+            ref=f"memory:current@{day}",
+            text=document.content,
+            direct_refs=tuple(
+                item.target for item in markdown_references(document.content)
+            ),
+            continuation=page.continuation,
+            max_chars=page.max_chars,
+            metadata={
+                "day": str(day),
+                "locator": {"link": "memory:current", "day": str(day)},
+            },
+        )
+
     def canonical_reference(
         self, resource: str, fragment: str = "", source_day: date | None = None
     ) -> ResourceTarget:
@@ -214,6 +273,12 @@ class MemoryEngine:
             raise ReferenceError(
                 "Memory reference is not a readable persistent identity"
             ) from exc
+
+    def resolve_relative(self, reference: str, origin_link: str) -> str:
+        origin = MemoryLink.from_resource(origin_link.partition("#")[0])
+        return relative_reference(
+            reference, source_path=origin.relative_path, prefix="memory:"
+        )
 
     def inspect(
         self,
@@ -257,6 +322,8 @@ class MemoryEngine:
                 "status": stored.document.status.value,
                 "display": stored.document.display,
                 "resolution_chain": [str(item) for item in chain],
+                "locator": {"link": str(link)},
+                "direct_refs": list(direct_refs),
             },
         )
 

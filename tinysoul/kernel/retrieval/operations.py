@@ -54,6 +54,7 @@ from .policy import RetrievalPolicy
 from .selection import CandidateSelector
 
 if TYPE_CHECKING:
+    from tinysoul.kernel.context.prompts import PromptGuidance
     from tinysoul.kernel.loop.lifecycle.preparation import TurnPreparationRequest
 
 
@@ -68,7 +69,7 @@ class SearchCorpus:
 @dataclass(frozen=True)
 class SelectionInput:
     context: MessageStack | None = None
-    guidance: tuple[str, ...] = ()
+    guidance: tuple[PromptGuidance, ...] = ()
     scope: RunScope | None = None
     cancellation: TaskCancellation | None = None
 

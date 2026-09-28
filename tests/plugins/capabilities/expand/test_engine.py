@@ -1,7 +1,7 @@
-from pathlib import Path
-import sys
-import socket
 import asyncio
+import socket
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -28,7 +28,9 @@ async def test_real_sdk_stdio_discovery_validation_and_resource_output(
     start = StdioProcess.start
 
     async def capture_start(
-        request: ManagedProcessRequest, *, max_message_bytes: int = 8_000_000,
+        request: ManagedProcessRequest,
+        *,
+        max_message_bytes: int = 8_000_000,
     ) -> StdioProcess:
         process = await start(request, max_message_bytes=max_message_bytes)
         processes.append(process)
@@ -48,17 +50,30 @@ async def test_real_sdk_stdio_discovery_validation_and_resource_output(
                     command=sys.executable,
                     args=(str(Path(__file__).with_name("fixture_server.py")),),
                 ),
-            )
+            ),
         ),
         root=tmp_path,
         workspace=workspace,
         environment={},
     )
     try:
+        overview = engine.servers_view()
+        servers = overview["items"]
+        assert isinstance(servers, list) and isinstance(servers[0], dict)
+        assert (
+            not servers[0]["connected"]
+            and not servers[0]["discovered"]
+            and not processes
+        )
+        assert engine.tools_view("local")["items"] == [] and not processes
         directory = await engine.discover()
         assert directory.servers[0]["status"] == "available"
         assert {item.name for item in directory.tools} == {"add", "long_text"}
         assert all(not item.problem for item in directory.tools)
+        assert len(processes) == 1
+        assert engine.tools_view("local", tool_name="add")["items"]
+        refreshed = await engine.refresh("local")
+        assert refreshed["status"] == "available" and len(processes) == 1
         result = await engine.call(
             "local", "add", {"a": 2, "b": 3}, operations=JoinedOperations()
         )
@@ -75,7 +90,8 @@ async def test_real_sdk_stdio_discovery_validation_and_resource_output(
         assert workspace.snapshot().resources
         page = engine.page(
             tuple(item.summary() for item in directory.tools),
-            servers=directory.servers, kind="tools",
+            servers=directory.servers,
+            kind="tools",
         )
         cursor = page["next_page"]
         assert isinstance(cursor, str)
@@ -87,7 +103,9 @@ async def test_real_sdk_stdio_discovery_validation_and_resource_output(
         assert stale.value.reason is ExpandFailure.INVALID_REQUEST
         rebuilt = await engine.discover()
         assert rebuilt.servers[0]["status"] == "available"
-        assert {item.name for item in rebuilt.tools} == {item.name for item in directory.tools}
+        assert {item.name for item in rebuilt.tools} == {
+            item.name for item in directory.tools
+        }
         assert len(processes) == 2
         result = await engine.call(
             "local", "add", {"a": 4, "b": 5}, operations=JoinedOperations()

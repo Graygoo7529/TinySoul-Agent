@@ -2,22 +2,22 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import StrEnum
-import re
 
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.kernel.action.call import ExecutionState
 from tinysoul.kernel.context import ContextTurnFacts
 
-from ..completion import project_action_record, project_fact_refs
-from ..errors import SessionContractError
 from ..annotations.models import (
     AnnotationStatus,
-    SemanticNode,
     SemanticEdge,
+    SemanticNode,
     SessionMap,
 )
+from ..completion import project_action_record, project_fact_refs
+from ..errors import SessionContractError
 from ..records.models import (
     SessionActionOutcome,
     SessionActionRecord,
@@ -141,6 +141,17 @@ def resource_locator(record: SessionTurnRecord, link: str) -> JsonObject:
     }
     if link.startswith("workspace:"):
         value["source_day"] = record.day
+        value["locator"] = {"link": link, "day": record.day}
+    elif link in {"memory:current", "memory:latest", "memory:target"}:
+        segment = record.segments.get("memory")
+        bindings = (
+            segment.get("resolved_references") if isinstance(segment, dict) else None
+        )
+        locator = bindings.get(link) if isinstance(bindings, dict) else None
+        if isinstance(locator, dict):
+            value["locator"] = locator
+        else:
+            value["unresolved_origin"] = True
     return value
 
 

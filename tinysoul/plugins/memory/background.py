@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import date
-import json
 from typing import Protocol
 
+from tinysoul.infra.references import ResourceLocator
 from tinysoul.kernel.context import BackgroundCatalog, BackgroundCatalogItem
 from tinysoul.kernel.context.background import (
     HeapCandidate,
@@ -22,11 +23,11 @@ from tinysoul.kernel.context.segments import (
 )
 from tinysoul.plugins.memory.runtime_bridge import RuntimeMemoryBridge
 
-from .storage.active import ActiveMemoryDocument
-from .services import MemoryReadService
+from .documents import DailyMemoryDocument, StoredMemoryDocument
 from .errors import MemoryContractError, MemoryError, MemoryInvariantError
 from .links import MemoryBackgroundRef
-from .documents import DailyMemoryDocument, StoredMemoryDocument
+from .services import MemoryReadService
+from .storage.active import ActiveMemoryDocument
 
 
 class TargetMemoryBinding(Protocol):
@@ -52,6 +53,9 @@ class ActiveMemoryBackgroundEntryProvider:
                 link=MemoryBackgroundRef.CURRENT.value,
                 title="Current memory",
                 description="Explicit working memory for the current Business Day.",
+                resolved_locator=ResourceLocator(
+                    link="memory:current", day=active_day.isoformat()
+                ),
             )
         ]
         if latest is not None:
@@ -61,6 +65,7 @@ class ActiveMemoryBackgroundEntryProvider:
                     link=MemoryBackgroundRef.LATEST.value,
                     title="Latest daily memory",
                     description=f"Nearest earlier daily Memory: {latest.link}.",
+                    resolved_locator=ResourceLocator(link=str(latest.link)),
                 )
             )
         values = tuple(links)
@@ -116,6 +121,9 @@ class TargetMemoryBackgroundEntryProvider:
                 link=MemoryBackgroundRef.TARGET.value,
                 title="Target memory",
                 description=f"Fixed target-day Memory for {target_day.isoformat()}.",
+                resolved_locator=ResourceLocator(
+                    link="memory:current", day=target_day.isoformat()
+                ),
             )
         ]
         if latest is not None:
@@ -125,6 +133,7 @@ class TargetMemoryBackgroundEntryProvider:
                     link=MemoryBackgroundRef.LATEST.value,
                     title="Latest daily memory",
                     description=f"Nearest daily before target: {latest.link}.",
+                    resolved_locator=ResourceLocator(link=str(latest.link)),
                 )
             )
         values = tuple(links)

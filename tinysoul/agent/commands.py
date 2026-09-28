@@ -2,32 +2,37 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import timedelta
-from collections.abc import Callable
-from tinysoul.runtime.sources import SourceStatus
 
 from tinysoul.infra.time import CalendarDay
-from tinysoul.kernel.loop.interaction.inbox import InboxKind, InboxRecord, InboxReceipt
+from tinysoul.kernel.interaction import QuestionAnswer
+from tinysoul.kernel.loop.interaction.inbox import InboxKind, InboxReceipt, InboxRecord
 from tinysoul.plugins.reflection import (
     ReflectionRequest,
     ReflectionScope,
     ReflectionTrigger,
 )
 from tinysoul.runtime.events import EnvironmentEvent, EventBus, EventReceipt
+from tinysoul.runtime.sources import SourceStatus
 
+from .dispatch.router import EventRouter
+from .dispatch.scheduler import RootScheduler
 from .errors import AgentClosedError, AgentSDKError
 from .handles import TurnHandle
 from .requests import ExitRequest, UserTurnRequest
-from .dispatch.router import EventRouter
-from .dispatch.scheduler import RootScheduler
 
 
 class AgentCommands:
     """Accept commands once; the scheduler and Inbox own all mutable work state."""
 
-    def __init__(self, scheduler: RootScheduler, *,
-                 source_statuses: Callable[[], tuple[SourceStatus, ...]] = lambda: ()) -> None:
+    def __init__(
+        self,
+        scheduler: RootScheduler,
+        *,
+        source_statuses: Callable[[], tuple[SourceStatus, ...]] = lambda: (),
+    ) -> None:
         self._scheduler = scheduler
         self._router = EventRouter()
         self._events = EventBus()
@@ -90,7 +95,9 @@ class AgentCommands:
     def _register(self, handle: TurnHandle) -> TurnHandle:
         handle.inbox.bind_source_status(self._source_statuses)
         self._router.register_target(handle.turn_id, handle.deliver)
-        self._router.subscribe(handle.turn_id, handle.turn_id, handle.inbox.accepts_event)
+        self._router.subscribe(
+            handle.turn_id, handle.turn_id, handle.inbox.accepts_event
+        )
         handle.on_complete(
             lambda completed: self._router.unregister_target(completed.turn_id)
         )
@@ -119,9 +126,9 @@ class AgentCommands:
         return await self._open_turn(turn_id).inbox.grant_cycles(request_id, count)
 
     async def reply(
-        self, turn_id: str, question_id: str, response: str
+        self, turn_id: str, question_id: str, answer: QuestionAnswer
     ) -> InboxReceipt:
-        return await self._open_turn(turn_id).inbox.reply(question_id, response)
+        return await self._open_turn(turn_id).inbox.reply(question_id, answer)
 
     async def publish(self, event: EnvironmentEvent) -> EventReceipt:
         if event.source != "host":

@@ -35,7 +35,9 @@ def register_turn_routes(app: FastAPI, engine: EndpointEngine) -> None:
 
     @app.post("/v2/turns/{turn_id}/reply")
     async def reply(turn_id: str, body: TurnReplyRequest) -> JsonObject:
-        return await engine.runtime.reply(turn_id, body.question_id, body.response)
+        return await engine.runtime.reply(
+            turn_id, body.question_id, body.answer.to_answer()
+        )
 
     @app.post("/v2/turns/{turn_id}/grant")
     async def grant(turn_id: str, body: TurnGrantRequest) -> JsonObject:

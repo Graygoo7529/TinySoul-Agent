@@ -11,12 +11,13 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
-from tinysoul.infra.process import ManagedProcessCloseError
 from tinysoul.infra.json import JsonObject
+from tinysoul.infra.process import ManagedProcessCloseError
 from tinysoul.kernel.jobs import JobRegistry
 from tinysoul.plugins.workspace.services import WorkspaceExecutionPort
 from tinysoul.runtime.events import EnvironmentEvent, EventKind
 from tinysoul.runtime.sources import EventSink, SourceState, SourceStatus
+
 from .config import AgentTarget, SubagentSettings, validate_subagent_bindings
 from .failures import SubagentFailure, SubagentRequestError
 
@@ -87,7 +88,7 @@ class SubagentEngine:
             ]
         }
 
-    def connections(self, turn_id: str) -> JsonObject:
+    def connections(self, turn_id: str | None = None) -> JsonObject:
         return {
             "connections": [
                 {
@@ -100,9 +101,10 @@ class SubagentEngine:
                     if item.job_id
                     else ConnectionState.READY.value,
                     "active_job_id": item.job_id,
+                    "turn_id": item.owner_turn,
                 }
                 for item in self._connections.values()
-                if item.owner_turn == turn_id
+                if turn_id is None or item.owner_turn == turn_id
             ]
         }
 
@@ -117,6 +119,19 @@ class SubagentEngine:
                     source="subagent",
                 )
             )
+
+    def status_view(self) -> JsonObject:
+        return {
+            "targets": [
+                {
+                    "agent_id": item.agent_id,
+                    "description": item.description,
+                    "enabled": item.enabled,
+                }
+                for item in self.settings.agents
+            ],
+            **self.connections(),
+        }
 
     async def connect(
         self, turn_id: str, profile: str, agent_id: str, cwd_link: str = ""

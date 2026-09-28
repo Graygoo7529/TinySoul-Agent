@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
-import os
 
 from tinysoul.infra.filesystem import FilesystemBoundaryError, resolve_under_root
+
 from ..config import WorkspaceSettings
-from ..errors import WorkspaceContractError, WorkspaceIOError
+from ..errors import WorkspaceContractError, WorkspaceIOError, WorkspaceNotFoundError
+from ..inspection.classification import WorkspaceResourceClassifier
 from ..links import WorkspaceLink
 from .manifest import (
     WorkspaceManifest,
@@ -17,7 +19,6 @@ from .manifest import (
     WorkspaceResourceKind,
     WorkspaceResourceRecord,
 )
-from ..inspection.classification import WorkspaceResourceClassifier
 
 
 class WorkspaceDiscoverySkipKind(StrEnum):
@@ -160,7 +161,7 @@ class WorkspaceReconciler:
                     "Workspace resource must be a regular file or directory"
                 )
         except FileNotFoundError as exc:
-            raise WorkspaceContractError("Workspace resource does not exist") from exc
+            raise WorkspaceNotFoundError("Workspace resource does not exist") from exc
         except OSError as exc:
             raise WorkspaceIOError("Workspace resource cannot be inspected") from exc
         return WorkspaceResourceRecord(

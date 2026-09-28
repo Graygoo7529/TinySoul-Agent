@@ -7,44 +7,45 @@ from dataclasses import dataclass
 from threading import Lock
 from typing import Callable, Protocol
 
-from tinysoul.kernel.context import (
-    ContextEngine,
-    ContextTurnCompletion,
-    ContextSignalBatch,
-    build_trace_phase_note_signal,
-    build_input_append_signal,
-)
-from tinysoul.kernel.context.errors import ContextError
 from tinysoul.infra.concurrency import CleanupDiagnostic
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.infra.time import CalendarDay
+from tinysoul.kernel.context import (
+    ContextEngine,
+    ContextSignalBatch,
+    ContextTurnCompletion,
+    build_input_append_signal,
+    build_trace_phase_note_signal,
+)
+from tinysoul.kernel.context.errors import ContextError
+from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
+from tinysoul.kernel.interaction import QuestionAnswer
+from tinysoul.kernel.loop.runtime_bridge import RuntimeLoopBridge
 from tinysoul.runtime import (
+    RUNTIME_TURN_END,
     NullObservationEmitter,
     ObservationEmitter,
     ObservationEvent,
     ObservationLevel,
-    RUNTIME_TURN_END,
     RunLevel,
     RunScope,
     RuntimeException,
-    RuntimeTrap,
     RuntimeTransfer,
     RuntimeTransferAction,
     RuntimeTransferInterrupt,
+    RuntimeTrap,
     Signal,
     SignalBus,
     emit_observation,
     observation_enabled,
 )
-from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
-from tinysoul.kernel.loop.runtime_bridge import RuntimeLoopBridge
 
-from .interaction.cancellation import TurnCancellation
 from .config import TurnSettings
-from .lifecycle.completion import TurnCompletion, TurnCompletionPipeline
 from .context_signals import ContextSignalConsumer
 from .cycle import CycleOutcome, CycleRunner
 from .errors import LoopInvariantError
+from .failures import LOOP_BUDGET_REQUIRED, LoopFailureKind
+from .interaction.cancellation import TurnCancellation
 from .interaction.inbox import (
     InboxKind,
     TurnInbox,
@@ -53,9 +54,9 @@ from .interaction.inbox import (
     WaitReason,
     WakeReason,
 )
-from .failures import LOOP_BUDGET_REQUIRED, LoopFailureKind
-from .outcomes import TurnFailure, TurnOutcomeStatus, TurnOutput, failure_from_runtime
+from .lifecycle.completion import TurnCompletion, TurnCompletionPipeline
 from .lifecycle.preparation import TurnPreparationPipeline, TurnPreparationRequest
+from .outcomes import TurnFailure, TurnOutcomeStatus, TurnOutput, failure_from_runtime
 from .signals import LoopControlKind, LoopTraceNoteKind
 
 
@@ -146,8 +147,9 @@ class TurnActivityController(Protocol):
     async def cleanup_turn(self, turn_id: str) -> tuple[CleanupDiagnostic, ...]: ...
 
 
-from .interaction.events import TurnEventSubscription
 from tinysoul.runtime.events import EnvironmentEvent, EventKind
+
+from .interaction.events import TurnEventSubscription
 
 
 class TurnRunner:
@@ -191,8 +193,9 @@ class TurnRunner:
         self._active_cancellation: TurnCancellation | None = None
         self._active_scope_lock = Lock()
 
-    async def _consume_inbox(self, inbox: TurnInbox | None, scope: RunScope,
-                             *, decisions_only: bool = False) -> bool:
+    async def _consume_inbox(
+        self, inbox: TurnInbox | None, scope: RunScope, *, decisions_only: bool = False
+    ) -> bool:
         if inbox is None:
             return False
         batch = await inbox.capture()
@@ -214,13 +217,21 @@ class TurnRunner:
                         reply_to=reply_to,
                         admission_sequence=sequence,
                         received_at=record.received_at,
+                        answer=QuestionAnswer.from_json(record.payload["answer"])
+                        if record.kind is InboxKind.REPLY
+                        else None,
                     )
                 )
                 continue
             else:
                 if record.topic and record.kind in {InboxKind.EVENT, InboxKind.TIMER}:
-                    event = EnvironmentEvent(EventKind(record.kind.value), record.payload,
-                                             record.record_id, topic=record.topic, source=record.source)
+                    event = EnvironmentEvent(
+                        EventKind(record.kind.value),
+                        record.payload,
+                        record.record_id,
+                        topic=record.topic,
+                        source=record.source,
+                    )
                     for subscription in self._events:
                         if subscription.filter.matches(event):
                             signals.extend(subscription.adapt(event, scope))
@@ -230,12 +241,19 @@ class TurnRunner:
                         "event_id": record.record_id,
                         "event_kind": record.kind.value,
                         "payload": record.payload,
-                        **({"topic": record.topic, "source": record.source} if record.topic else {}),
+                        **(
+                            {"topic": record.topic, "source": record.source}
+                            if record.topic
+                            else {}
+                        ),
                     }
                 )
             signals.append(
                 build_trace_phase_note_signal(
-                    note, scope=scope, source="loop.inbox", admission_sequence=sequence,
+                    note,
+                    scope=scope,
+                    source="loop.inbox",
+                    admission_sequence=sequence,
                 )
             )
         if signals:
@@ -249,7 +267,11 @@ class TurnRunner:
             if results:
                 raise LoopInvariantError("Context rejected an accepted Inbox batch")
         await inbox.ack(batch)
-        return any(record.requires_decision for _, record in batch.records) if decisions_only else bool(batch.records)
+        return (
+            any(record.requires_decision for _, record in batch.records)
+            if decisions_only
+            else bool(batch.records)
+        )
 
     @property
     def active_scope(self) -> RunScope | None:
@@ -410,8 +432,14 @@ class TurnRunner:
                                             "sequence": readiness.sequence,
                                             "topic": pending_wait.topic,
                                             "source": pending_wait.source,
-                                            **({"feedback": "The selected environment source is unavailable; choose another action or ask the user."}
-                                               if readiness.reason is WakeReason.SOURCE_UNAVAILABLE else {}),
+                                            **(
+                                                {
+                                                    "feedback": "The selected environment source is unavailable; choose another action or ask the user."
+                                                }
+                                                if readiness.reason
+                                                is WakeReason.SOURCE_UNAVAILABLE
+                                                else {}
+                                            ),
                                             "unanswered_question_id": (
                                                 question.question_id
                                                 if question is not None
@@ -465,10 +493,10 @@ class TurnRunner:
                             turn_scope,
                             "turn.question",
                             ObservationLevel.NORMAL,
-                            question.text,
+                            question.content.text,
                             {
                                 "question_id": question.question_id,
-                                "options": list(question.options),
+                                **question.content.to_json(),
                             },
                         )
                         if inbox is None:
@@ -509,7 +537,9 @@ class TurnRunner:
                             )
                             cycle_index += 1
                             continue
-                        if await self._consume_inbox(inbox, turn_scope, decisions_only=True):
+                        if await self._consume_inbox(
+                            inbox, turn_scope, decisions_only=True
+                        ):
                             cycle_index += 1
                             continue
                         if inbox is not None:

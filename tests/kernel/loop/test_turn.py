@@ -1,27 +1,24 @@
 from __future__ import annotations
 
-from tinysoul.infra.concurrency import CleanupDiagnostic
-
 import asyncio
-from datetime import date
-import pytest
 from dataclasses import dataclass, field, replace
+from datetime import date
 from pathlib import Path
 from threading import Event
 from typing import cast
 
+import pytest
+
+from tinysoul.infra.concurrency import CleanupDiagnostic
+from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.context import ContextEngine, ContextEngineBuilder
 from tinysoul.kernel.context.errors import ContextContractError
 from tinysoul.kernel.context.segments import TurnInfo
-from tinysoul.plugins.workspace.projection import (
-    WorkspaceSegment,
-    workspace_segment_registration,
-)
-from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
+from tinysoul.kernel.interaction import QuestionContent
 from tinysoul.kernel.loop import (
+    PhaseFailure,
     TurnCompletion,
     TurnCompletionPipeline,
-    PhaseFailure,
     TurnOutcomeStatus,
     TurnOutput,
     TurnPreparationPipeline,
@@ -29,36 +26,40 @@ from tinysoul.kernel.loop import (
     TurnSettings,
 )
 from tinysoul.kernel.loop.cycle import CycleOutcome, CycleRunner
-from tinysoul.kernel.loop.trap_handlers import (
-    BudgetSuspendTrapHandler,
-    EndFrameTrapHandler,
-)
 from tinysoul.kernel.loop.failures import LOOP_BUDGET_REQUIRED
 from tinysoul.kernel.loop.interaction.inbox import (
     InboxKind,
     InboxRecord,
+    QuestionRequest,
     TurnInbox,
     WaitReason,
 )
-from tinysoul.kernel.loop.interaction.inbox import QuestionRequest
+from tinysoul.kernel.loop.trap_handlers import (
+    BudgetSuspendTrapHandler,
+    EndFrameTrapHandler,
+)
 from tinysoul.kernel.loop.turn import TurnRunner
-from tinysoul.infra.time import CalendarDay
 from tinysoul.plugins.session import SessionEngine, SessionSettings
-from tinysoul.plugins.session.projection import SessionTurnCompletionHandler
-from tinysoul.plugins.session.records.store import SessionStore
-from tinysoul.plugins.session.records.models import SessionTurnRecord
 from tinysoul.plugins.session.errors import SessionIOError
+from tinysoul.plugins.session.projection import SessionTurnCompletionHandler
+from tinysoul.plugins.session.records.models import SessionTurnRecord
+from tinysoul.plugins.session.records.store import SessionStore
+from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
+from tinysoul.plugins.workspace.projection import (
+    WorkspaceSegment,
+    workspace_segment_registration,
+)
 from tinysoul.runtime import (
+    RUNTIME_TURN_END,
     CyclePhase,
     ObservationEvent,
     ObservationLevel,
-    RUNTIME_TURN_END,
     RunLevel,
     RunScope,
+    RuntimeException,
     RuntimeTransfer,
     RuntimeTransferAction,
     RuntimeTransferInterrupt,
-    RuntimeException,
     RuntimeTrap,
     Signal,
     SignalBus,
@@ -1024,7 +1025,9 @@ async def test_question_timeout_records_waiting_terminal_without_user_answer() -
         async def run(self, **kwargs: object) -> CycleOutcome:
             return CycleOutcome(
                 cycle_id="1",
-                question=QuestionRequest("q", "choose", timeout_seconds=0.001),
+                question=QuestionRequest(
+                    "q", QuestionContent("choose"), timeout_seconds=0.001
+                ),
             )
 
     runner = TurnRunner(

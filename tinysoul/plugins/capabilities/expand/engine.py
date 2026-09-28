@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.json import JsonObject, JsonValue, dumps_json
+from tinysoul.infra.paging import PageOptions
 from tinysoul.kernel.retrieval.contracts import (
     AttributeField,
     AttributeFilters,
@@ -29,6 +30,12 @@ from tinysoul.kernel.retrieval.contracts import (
 from tinysoul.kernel.retrieval.operations import SearchCorpus
 from tinysoul.plugins.workspace.inspection.models import WorkspaceBundleWrite
 from tinysoul.plugins.workspace.services import WorkspaceExecutionPort
+from tinysoul.runtime import (
+    ObservationEmitter,
+    ObservationEvent,
+    ObservationLevel,
+    emit_observation,
+)
 
 MCP_SEARCH_FILTERS = AttributeFilters(
     (AttributeField("server_id"), AttributeField("tool_name"))
@@ -94,10 +101,13 @@ class ExpandEngine:
         root: Path,
         workspace: WorkspaceExecutionPort,
         environment: Mapping[str, str],
+        observations: ObservationEmitter | None = None,
     ) -> None:
         self.settings, self._workspace = settings, workspace
+        self._observations = observations
         self._connections: dict[str, MCPConnection] = {}
         self._pages: dict[str, _Page] = {}
+        self._problems: dict[str, str] = {}
         self._definitions: dict[
             str, tuple[ToolDirectory, tuple[ToolDefinition, ...]]
         ] = {}
@@ -137,11 +147,14 @@ class ExpandEngine:
             try:
                 directory = await connection.directory()
             except ExpandRequestError as exc:
+                self._problems[identity] = exc.reason.value
+                self._directory_changed(identity)
                 servers.append(
                     {**status, "status": "unavailable", "reason": exc.reason.value}
                 )
                 continue
             cached = self._definitions.get(identity)
+            self._problems.pop(identity, None)
             if cached is not None and cached[0] is directory:
                 tools.extend(cached[1])
                 servers.append(
@@ -187,7 +200,75 @@ class ExpandEngine:
                 )
             servers.append({**status, "status": "available", "tool_count": count})
             self._definitions[identity] = (directory, tuple(tools[start:]))
+            self._directory_changed(identity)
         return Discovery(tuple(tools), tuple(servers))
+
+    def _directory_changed(self, server_id: str) -> None:
+        if self._observations is None:
+            return
+        emit_observation(
+            self._observations,
+            ObservationEvent(
+                name="expand.directory.changed",
+                level=ObservationLevel.VERBOSE,
+                source="expand",
+                payload={"server_id": server_id},
+            ),
+        )
+
+    def servers_view(self, page: PageOptions = PageOptions()) -> JsonObject:
+        values: tuple[JsonObject, ...] = tuple(
+            {
+                "server_id": server.server_id,
+                "description": server.description,
+                "enabled": server.enabled,
+                **(
+                    self._connections[server.server_id].status_view()
+                    if server.server_id in self._connections
+                    else {"connected": False, "discovered": False, "stale": False}
+                ),
+                "tool_count": len(self._definitions[server.server_id][1])
+                if server.server_id in self._definitions
+                else 0,
+                "error": self._problems.get(server.server_id),
+            }
+            for server in self.settings.servers
+        )
+        return page.render(values, owner="expand", ref="servers")
+
+    def tools_view(
+        self,
+        server_id: str,
+        *,
+        tool_name: str | None = None,
+        page: PageOptions = PageOptions(),
+    ) -> JsonObject:
+        if not any(server.server_id == server_id for server in self.settings.servers):
+            raise ExpandRequestError(
+                ExpandFailure.INVALID_REQUEST, "Unknown MCP server"
+            )
+        cached = self._definitions.get(server_id)
+        values = tuple(
+            tool.describe() if tool_name else tool.summary()
+            for tool in (cached[1] if cached else ())
+            if tool_name is None or tool.name == tool_name
+        )
+        return page.render(
+            values,
+            owner="expand",
+            ref=f"tools:{server_id}:{tool_name}",
+            base={"server_id": server_id, "discovered": cached is not None},
+        )
+
+    async def refresh(self, server_id: str) -> JsonObject:
+        connection = self._connections.get(server_id)
+        if connection is None:
+            raise ExpandRequestError(
+                ExpandFailure.UNAVAILABLE, "MCP server is not enabled"
+            )
+        connection.invalidate()
+        discovery = await self.discover((server_id,))
+        return discovery.servers[0]
 
     async def search_corpus(self, request: RetrievalRequest) -> SearchCorpus:
         source = request.source

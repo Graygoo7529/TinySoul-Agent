@@ -15,6 +15,9 @@ class MemoryInvariantError(MemoryError):
     """Raised when persisted Memory cannot satisfy module invariants."""
 
 
+class MemoryNotFoundError(MemoryContractError):
+    """Requested persistent Memory identity is absent."""
+
+
 class MemoryIOError(MemoryError):
     """Raised when Memory filesystem operations fail."""
-

@@ -14,30 +14,29 @@ from tinysoul.runtime import (
     Signal,
 )
 
+from ..background import BackgroundPatch
+from ..disclosure import DisclosureSearchEntry
 from ..errors import (
     ContextContractError,
     ContextError,
-    ContextInvariantError,
     ContextInspectFailureReason,
     ContextInspectRequestError,
+    ContextInvariantError,
 )
-from ..background import BackgroundPatch
 from ..providers import SegmentSelectionView
-
-
 from .protocol import (
-    TurnInfo,
+    InspectableSegment,
+    ReclaimableSegment,
+    ReferenceBindingSegment,
+    SearchableSegment,
     SegmentCapability,
-    SegmentShape,
     SegmentProjection,
     SegmentReclaim,
-    InspectableSegment,
-    SearchableSegment,
+    SegmentShape,
     SelectableSegment,
-    ReclaimableSegment,
+    TurnInfo,
 )
-from .registration import RegisteredSegment, _OpenedSegment, _Installation
-from ..disclosure import DisclosureSearchEntry
+from .registration import RegisteredSegment, _Installation, _OpenedSegment
 
 
 @dataclass(frozen=True)
@@ -160,6 +159,23 @@ class TurnSegments:
             loaded=tuple(ref for view in views for ref in view.loaded),
             protected=tuple(ref for view in views for ref in view.protected),
         )
+
+    def selections(self) -> dict[str, SegmentSelectionView]:
+        self._require_ready()
+        return {
+            item.descriptor.id: item.segment.selection_view()
+            for item in self._opened
+            if isinstance(item.segment, SelectableSegment)
+        }
+
+    def resolved_references(self) -> JsonObject:
+        self._require_ready()
+        return {
+            ref: locator.to_json()
+            for item in self._opened
+            if isinstance(item.segment, ReferenceBindingSegment)
+            for ref, locator in item.segment.resolved_references().items()
+        }
 
     def selection_signals(
         self, patch: BackgroundPatch, source: Signal

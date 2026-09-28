@@ -1,6 +1,6 @@
 # Runtime 与 Turn
 
-Turn 内的 Search/Inspect 继续通过 Agent 的 Action 执行与事件返回，不提供任意 `/v2/actions/run` 或读取任意活动 Context 的接口。Search 结果包含稳定 ref、有界 evidence、coverage 和 continuation；续页绑定原 Turn/profile 查询视图，不重新调用模型。配置与用途能力由 [Configuration](configuration.md) 提供。
+Turn 内的 Search/Inspect 通过 Agent 的 Action 执行与事件返回，不提供任意 `/v2/actions/run`。页面通过绑定 Turn 的只读 Context 接口及独立 SDK Search 查询资源，见 [浏览与定位](inspection.md)。Search 续页绑定原 Turn/profile 或 SDK 查询视图，不重新调用模型。
 
 ## 状态与生命周期
 
@@ -35,13 +35,17 @@ result 尚未完成时为 null；完成后与 SDK TurnResult.to_json() 一致。
 | 操作 | 请求体 | 回执 |
 |---|---|---|
 | POST /v2/turns/{id}/input | text、可选 input_id | Inbox sequence、record_id、accepted |
-| POST /v2/turns/{id}/reply | question_id、response | Inbox sequence、record_id、accepted |
+| POST /v2/turns/{id}/reply | question_id、answer | Inbox sequence、record_id、accepted |
 | POST /v2/turns/{id}/grant | request_id、正整数 count | turn_id、request_id、accepted |
 | POST /v2/turns/{id}/cancel | 无 | turn_id、accepted |
 | GET /v2/turns/{id}/jobs | 无 | turn_id、jobs |
 | POST /v2/turns/{id}/jobs/{job_id}/stop | 无 | owner 的 JobSnapshot |
 
 重复 input/reply 的 accepted=false 表示该记录已受理，不代表执行失败。过期等待或关闭的 Inbox 返回 409。cancel 的 accepted 仅表示取消意图可受理；最终结果需继续查询，收尾已经完成时不会改写它。
+
+question 为 `question_id, text, options[{id,label,description}], allow_other, timeout_seconds`。最多 8 项，单选；默认允许自行输入。reply 请求为 `{"question_id":"q","answer":{"kind":"choice","option_id":"a","comment":"补充说明"}}` 或 `{"question_id":"q","answer":{"kind":"text","text":"其它意见"}}`。不再接受 response 字符串。未知选项或不允许的自由回答不受理；模型收到包含选项正文与说明的规范文本，Session 同时保留结构化 answer。
+
+`core.ask` 可使用显式字段或一个完整 `tinysoul-question` JSON fence（question/options/allow_other）；冲突、多块、无效结构为局部 Action 失败。普通回答中的代码块不创建等待状态，前端只对正式 question 身份启用提交。
 
 Job 查询和停止经 Agent 服务进入 Job owner；返回 job_id、kind、state、summary、reason，以及有界 `pending_inputs` 和 `result_links`。待答项包含 request_id、question 和 option_id/label 选项；`waiting_input` 表示父 Agent 有待处理请求，`core.job.wait` 会在该状态唤醒。`result_links` 指向 owner 已写入的 Workspace 材料。停止等待受控执行收敛，不等于取消 Turn；Job 在所属 Turn 收尾后被回收，列表为空，不另建历史表。停止与收尾由同一 owner 串行处理；错误只暴露有限分类。跨 Turn 或已回收 Job 返回 404 turn.resource_not_found。Job 应答不提供通用 Gateway 路由；父 Agent 经 `subagent.respond` 回应 ACP 原生请求，需要人判断时复用 ask/reply。
 

@@ -10,6 +10,7 @@ from tinysoul.llm.protocol.messages import (
     ImagePart,
     JsonPart,
     Message,
+    MessageOrigin,
     MessageStack,
     TextPart,
     ToolResultMessage,
@@ -117,7 +118,23 @@ class MessageStackComposer:
                 max_image_bytes=max_image_bytes,
                 section_usage=report.to_json(),
             )
-        return MessageStack(messages=messages)
+        origins: list[MessageOrigin] = []
+        offset = 0
+        for item in ordered:
+            descriptor = item.descriptor
+            origins.append(
+                MessageOrigin(
+                    descriptor.id,
+                    descriptor.owner,
+                    descriptor.slot.value,
+                    descriptor.shape.value,
+                    tuple(range(offset, offset + len(item.messages))),
+                )
+            )
+            offset += len(item.messages)
+        return MessageStack(
+            messages=messages, provenance=(*origins, *task_prompt.provenance(offset))
+        )
 
 
 def estimate_chars(messages: tuple[Message, ...]) -> int:

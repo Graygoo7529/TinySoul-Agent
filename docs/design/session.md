@@ -28,6 +28,8 @@ Turn record v10 与 manifest v3 保持原协议。record 相同身份/业务事�
 
 ### 当前轮证据
 
+活动 Turn 只读 facts 与 Inbox pending 分离呈现，queued 根请求不是已安装输入；完成后以 Session record 替换活动 projection。QuestionContent/QuestionAnswer 是 Action、Inbox、Session codec 和 Endpoint 共用类型；历史旧 option 文本仅在 codec 边界转换为 display-only legacy_options。动态资源 locator 只采用记录的真实 binding。
+
 Context 提供只读 ContextTurnFacts，Action 在事件循环取得快照后交给 joined owner 操作。Session 共用完成时的引用映射，把当前已接受输入、已结算 Action 转成最终 Session occurrence；不 seal 活动 Trace、不对已结算子集重新编号。
 
 当前证据只可解释已有历史，不进入 prior-Turn 目录、话题成员或线性交互正文。段更新时绑定本轮证据快照，精确读取标注 active_turn；完成后相同 ref 读取不可变 record。未接受输入、未来结果和未结算 Action 被局部拒绝；若完成记录未能保存，来源报告不可用，不伪造证据或回滚已提交 map。

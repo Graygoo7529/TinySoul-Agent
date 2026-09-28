@@ -5,12 +5,15 @@ from __future__ import annotations
 from typing import Protocol
 
 from tinysoul.kernel.context import PromptBlock, TaskPrompt
+from tinysoul.kernel.context.prompts import PromptGuidance
 
 
 class DomainSkillProvider(Protocol):
     """Provide domain-level skills for Phase2 task prompts."""
 
-    async def guidance_for(self, domains: tuple[str, ...]) -> tuple[str, ...]:
+    async def guidance_for(
+        self, domains: tuple[str, ...]
+    ) -> tuple[PromptGuidance, ...]:
         """Return guidance snippets for selected domains."""
         ...
 
@@ -18,7 +21,9 @@ class DomainSkillProvider(Protocol):
 class EmptyDomainSkillProvider:
     """Empty domain skill provider used before Agent Home is connected."""
 
-    async def guidance_for(self, domains: tuple[str, ...]) -> tuple[str, ...]:
+    async def guidance_for(
+        self, domains: tuple[str, ...]
+    ) -> tuple[PromptGuidance, ...]:
         return ()
 
 
@@ -65,7 +70,9 @@ def phase1_task_prompt(
     ]
     sections.extend(turn_guidance)
     if feedback:
-        sections.append("Previous attempt feedback:\n" + "\n".join(f"- {item}" for item in feedback))
+        sections.append(
+            "Previous attempt feedback:\n" + "\n".join(f"- {item}" for item in feedback)
+        )
     return TaskPrompt(
         guide_blocks=(
             PromptBlock.from_text(
@@ -99,7 +106,7 @@ def phase1_task_prompt(
 def phase2_task_prompt(
     *,
     selected_domains: tuple[str, ...],
-    domain_skills: tuple[str, ...] = (),
+    domain_skills: tuple[PromptGuidance, ...] = (),
     feedback: tuple[str, ...] = (),
     turn_guidance: tuple[str, ...] = (),
 ) -> TaskPrompt:
@@ -110,7 +117,9 @@ def phase2_task_prompt(
     ]
     sections.extend(turn_guidance)
     if feedback:
-        sections.append("Previous attempt feedback:\n" + "\n".join(f"- {item}" for item in feedback))
+        sections.append(
+            "Previous attempt feedback:\n" + "\n".join(f"- {item}" for item in feedback)
+        )
     guide_blocks = [
         PromptBlock.from_text(
             "task_prompt:guide:phase2",
@@ -121,7 +130,9 @@ def phase2_task_prompt(
         guide_blocks.append(
             PromptBlock.from_text(
                 f"task_prompt:guide:domain_skill:{index}",
-                "# Domain Skill\n" + skill,
+                "# Domain Skill\n" + skill.text,
+                owner=skill.owner,
+                refs=(skill.reference,),
             )
         )
     return TaskPrompt(

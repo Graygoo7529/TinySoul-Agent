@@ -18,7 +18,7 @@ Composer 只接收带段描述的消息投影，按 Background → Trace → Wor
 6. plan 的 milestones/todos，以及独立 workspace 段的资源摘要；
 7. 当前 LLM Task 的 prompt overlay。
 
-除 system identity 外，框架构造的语境使用 user role；TinySoul ToolResult 仍按内部工具消息语义表达，并由 provider adapter 决定供应商协议映射。前端在 model Observation 中看到的 MessageStack 就是实际交给 LLM 层的构造结果，不另建 Context REST snapshot。
+除 system identity 外，框架构造的语境使用 user role；TinySoul ToolResult 仍按内部工具消息语义表达，并由 provider adapter 决定供应商协议映射。前端在 model Observation 中看到的 MessageStack 就是实际交给 LLM 层的构造结果，不另建 Context REST snapshot。MessageOrigin 记录 segment、owner、slot、shape、实际 message indices 与 refs；resolved_references 保留动态绑定。
 
 ## Background 与 Working
 

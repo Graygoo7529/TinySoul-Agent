@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hashlib import sha256
+from difflib import unified_diff
 from pathlib import Path, PurePosixPath
 from threading import RLock
 
@@ -12,26 +12,28 @@ from tinysoul.infra.filesystem import (
     file_digest,
     read_text_prefix,
 )
+from tinysoul.infra.json import JsonObject
+from tinysoul.infra.paging import PageOptions
+from tinysoul.kernel.retrieval.disclosure import inspect_document
 
+from ..content.layout import AgentHomeLayout
 from ..errors import (
     AgentHomeContractError,
-    AgentHomeIOError,
     AgentHomeInvariantError,
+    AgentHomeIOError,
+    AgentHomeNotFoundError,
 )
-from ..content.layout import AgentHomeLayout
 from ..links import HomeTopLink
-from ..skills.metadata import parse_home_skill_metadata
 from ..overlay import HomeOverlayManager, HomeOverlayRecord, HomeOverlayState
-
-
+from ..skills.metadata import parse_home_skill_metadata
 from .models import (
-    HomeReviewResolution,
-    HomeSkillMemoryContext,
     HomeReviewChange,
-    HomeSkillReview,
     HomeReviewPending,
-    HomeReviewSnapshot,
+    HomeReviewResolution,
     HomeReviewResolveOutcome,
+    HomeReviewSnapshot,
+    HomeSkillMemoryContext,
+    HomeSkillReview,
 )
 
 
@@ -164,6 +166,74 @@ class HomeReviewService:
                     record.state is not HomeOverlayState.DELETED
                     for record in self._skill_memories().values()
                 ),
+            )
+
+    def read_changes(self, page: PageOptions = PageOptions()) -> JsonObject:
+        """Observe differences without cleanup, review tokens or write capability."""
+        with self._lock:
+            values: list[JsonObject] = []
+            for record in self._overlay.records():
+                if (
+                    record.state is HomeOverlayState.COPIED
+                    or self._record_matches_actual(record)
+                ):
+                    continue
+                link = self._layout.link_for_relative(record.relative_path)
+                if link is not None:
+                    values.append(
+                        {
+                            "link": str(link),
+                            "kind": record.state.value,
+                            "locator": {"link": str(link), "view": "effective"},
+                            "baseline_diverged": _actual_digest(
+                                self._layout.source_for_relative(record.relative_path)
+                            )
+                            != record.baseline_digest,
+                        }
+                    )
+            return page.render(tuple(values), owner="home", ref="changes")
+
+    def read_diff(self, link: str, page: PageOptions = PageOptions()) -> JsonObject:
+        with self._lock:
+            record = next(
+                (
+                    item
+                    for item in self._overlay.records()
+                    if str(self._layout.link_for_relative(item.relative_path)) == link
+                ),
+                None,
+            )
+            if record is None:
+                raise AgentHomeNotFoundError("Home change was not found")
+            actual = self._layout.source_for_relative(record.relative_path)
+            before = actual.read_text(encoding="utf-8") if actual.is_file() else ""
+            effective = self._layout.runtime_for_relative(record.relative_path)
+            after = (
+                ""
+                if record.state is HomeOverlayState.DELETED
+                else effective.read_text(encoding="utf-8")
+            )
+            diff = "".join(
+                unified_diff(
+                    before.splitlines(keepends=True),
+                    after.splitlines(keepends=True),
+                    fromfile=f"actual:{link}",
+                    tofile=f"effective:{link}",
+                )
+            )
+            return inspect_document(
+                owner="home.diff",
+                ref=link,
+                text=diff,
+                direct_refs=(),
+                continuation=page.continuation,
+                max_chars=page.max_chars,
+                metadata={
+                    "baseline_diverged": _actual_digest(actual)
+                    != record.baseline_digest,
+                    "actual_chars": len(before),
+                    "effective_chars": len(after),
+                },
             )
 
     def _clean_deterministic_records(self) -> tuple[int, int, int]:

@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import StrEnum
-import re
 from time import time_ns
 from uuid import uuid4
 
-from tinysoul.kernel.action import ActionInvariantError, ActionLocalFailure
-from tinysoul.kernel.context.builtin.trace import TraceFactKind
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.infra.time import CalendarDay, CalendarDayError
+from tinysoul.kernel.action import ActionInvariantError, ActionLocalFailure
+from tinysoul.kernel.context.builtin.trace import TraceFactKind
+from tinysoul.kernel.interaction import QuestionAnswer, QuestionError
 from tinysoul.kernel.loop.errors import LoopContractError
 from tinysoul.kernel.loop.outcomes import TurnFailure, TurnOutcomeStatus
 
@@ -52,12 +53,17 @@ class SessionFact:
             raise SessionContractError("Session admission sequence must be positive")
 
     def to_json(self) -> JsonObject:
-        return {"kind": self.kind.value, "ref": self.ref,
-                "admission_sequence": self.admission_sequence}
+        return {
+            "kind": self.kind.value,
+            "ref": self.ref,
+            "admission_sequence": self.admission_sequence,
+        }
 
     @classmethod
     def from_json(cls, value: object) -> SessionFact:
-        item = _exact_object(value, {"kind", "ref", "admission_sequence"}, "Session fact")
+        item = _exact_object(
+            value, {"kind", "ref", "admission_sequence"}, "Session fact"
+        )
         try:
             kind = TraceFactKind(_required_text(item, "kind"))
         except ValueError as exc:
@@ -74,6 +80,7 @@ class SessionInputRecord:
     received_at: float
     input_id: str = field(default_factory=lambda: f"input_{uuid4().hex}")
     reply_to: str = ""
+    answer: QuestionAnswer | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -90,28 +97,44 @@ class SessionInputRecord:
             or self.received_at < 0
         ):
             raise SessionContractError("Session input timestamp must be non-negative")
+        if self.answer is not None and not isinstance(self.answer, QuestionAnswer):
+            raise SessionContractError("Session input answer must be typed")
 
     def to_json(self) -> JsonObject:
-        return {
+        value: JsonObject = {
             "text": self.text,
             "received_at": float(self.received_at),
             "input_id": self.input_id,
             "reply_to": self.reply_to,
         }
+        if self.answer is not None:
+            value["answer"] = self.answer.to_json()
+        return value
 
     @classmethod
     def from_json(cls, value: object) -> "SessionInputRecord":
-        item = _exact_object(
-            value, {"text", "received_at", "input_id", "reply_to"}, "Session input"
+        item = _limited_object(
+            value,
+            {"text", "received_at", "input_id", "reply_to", "answer"},
+            "Session input",
         )
+        if not {"text", "received_at", "input_id", "reply_to"} <= set(item):
+            raise SessionContractError("Session input is missing required fields")
         reply_to = item["reply_to"]
         if not isinstance(reply_to, str):
             raise SessionContractError("Session input reply target must be text")
+        try:
+            answer = (
+                QuestionAnswer.from_json(item["answer"]) if "answer" in item else None
+            )
+        except QuestionError as exc:
+            raise SessionContractError("Session input answer is invalid") from exc
         return cls(
             text=_required_text(item, "text"),
             received_at=_non_negative_number(item, "received_at"),
             input_id=_required_text(item, "input_id"),
             reply_to=reply_to,
+            answer=answer,
         )
 
 
@@ -228,12 +251,21 @@ class SessionActionRecord:
             outcome = SessionActionOutcome(item.get("outcome"))
         except (TypeError, ValueError) as exc:
             raise SessionContractError("Session Action outcome is invalid") from exc
+        result = _optional_object(item, "result")
+        options = result.get("options")
+        if (
+            item.get("action") == "core.ask"
+            and isinstance(options, list)
+            and options
+            and all(isinstance(option, str) for option in options)
+        ):
+            result = {**result, "options": [], "legacy_options": options}
         return cls(
             action=_required_text(item, "action"),
             result_id=_optional_text(item, "result_id"),
             request=_required_object(item, "request"),
             outcome=outcome,
-            result=_optional_object(item, "result"),
+            result=result,
             failure=_optional_action_failure(item),
             references=_string_list(item.get("references", []), "references"),
         )
@@ -417,7 +449,9 @@ class SessionTurnRecord:
                 SessionFact.from_json(item)
                 for item in _required_list(value, "timeline")
             ),
-            notes=tuple(_required_note(item) for item in _required_list(value, "notes")),
+            notes=tuple(
+                _required_note(item) for item in _required_list(value, "notes")
+            ),
         )
 
 

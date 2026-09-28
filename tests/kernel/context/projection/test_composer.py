@@ -5,15 +5,15 @@ from __future__ import annotations
 import pytest
 
 from tinysoul.kernel.context.background import BackgroundContext, BackgroundEntry
+from tinysoul.kernel.context.builtin.trace import PendingInputs, TurnTraceHeap
+from tinysoul.kernel.context.builtin.working import WorkingContext
+from tinysoul.kernel.context.errors import ContextBudgetError
 from tinysoul.kernel.context.projection.composer import (
     ContextBudget,
     MessageStackComposer,
     estimate_chars,
 )
-from tinysoul.kernel.context.errors import ContextBudgetError
 from tinysoul.kernel.context.prompts import PromptBlock, TaskPrompt
-from tinysoul.kernel.context.builtin.trace import PendingInputs, TurnTraceHeap
-from tinysoul.kernel.context.builtin.working import WorkingContext
 from tinysoul.kernel.context.segments import (
     SegmentDescriptor,
     SegmentProjection,
@@ -62,6 +62,28 @@ def _sections() -> tuple[SegmentProjection, ...]:
             background.render_messages(),
         ),
     )
+
+
+def test_provenance_uses_actual_positions_and_guidance_refs() -> None:
+    prompt = TaskPrompt(
+        guide_blocks=(
+            PromptBlock.from_text(
+                "arbitrary-label",
+                "Skill body",
+                owner="home",
+                refs=("home:skills_domain:workspace",),
+            ),
+        )
+    )
+    stack = MessageStackComposer().compose(segments=_sections(), task_prompt=prompt)
+    positions = [
+        index for origin in stack.provenance for index in origin.message_indices
+    ]
+    assert positions == list(range(len(stack.messages)))
+    assert stack.provenance[-1].refs == ("home:skills_domain:workspace",)
+    assert stack.provenance[-1].owner == "home"
+    assert stack.append(UserMessage.from_text("extra")).provenance == stack.provenance
+    assert prompt.message_stack().provenance[0].message_indices == (0,)
 
 
 def test_compose_section_order_and_labels() -> None:

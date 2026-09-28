@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import fields, is_dataclass, replace
 from enum import Enum
-import os
 from pathlib import Path
 from types import NoneType
 from typing import TypeVar, cast, get_args, get_origin, get_type_hints
 
-from .sources.dotenv import DotenvSource, _env_mapping_to_dotted
 from .documents import ConfigDocument, ConfigDocumentSet, config_documents
 from .errors import ConfigError
+from .sources.dotenv import DotenvSource, _env_mapping_to_dotted
 from .sources.project import ProjectConfig
 from .sources.source import ConfigSource, ConfigSourceKind
 from .sources.toml_file import deep_copy_mapping
@@ -32,6 +32,7 @@ class ConfigEnvironment:
         process_env: Mapping[str, str] | None = None,
         project_tree: Mapping[str, object] | None = None,
         dotenv_path: Path | None = None,
+        dotenv_values: Mapping[str, str] | None = None,
         document_sets: Iterable[ConfigDocumentSet] = (),
     ) -> None:
         self._project = project
@@ -42,6 +43,7 @@ class ConfigEnvironment:
             project_tree if project_tree is not None else project.data
         )
         self._dotenv_path = dotenv_path or project.env_file_path()
+        self._dotenv_values = dict(dotenv_values or {})
         self._document_sets = tuple(document_sets)
         set_ids = tuple(item.set_id for item in self._document_sets)
         if len(set_ids) != len(set(set_ids)):
@@ -87,6 +89,7 @@ class ConfigEnvironment:
             project=project,
             sources=sources,
             runtime_env={**dotenv_raw, **process_env},
+            dotenv_values=dotenv_raw,
             process_env=process_env,
             document_sets=project.document_sets,
         )
@@ -124,6 +127,10 @@ class ConfigEnvironment:
     @property
     def runtime_env(self) -> dict[str, str]:
         return dict(self._runtime_env)
+
+    @property
+    def dotenv_values(self) -> dict[str, str]:
+        return dict(self._dotenv_values)
 
     @property
     def process_env(self) -> dict[str, str]:

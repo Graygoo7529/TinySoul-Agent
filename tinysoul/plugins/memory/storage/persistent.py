@@ -13,7 +13,12 @@ from ..documents import (
     PersistentMemoryDocument,
     StoredMemoryDocument,
 )
-from ..errors import MemoryContractError, MemoryIOError, MemoryInvariantError
+from ..errors import (
+    MemoryContractError,
+    MemoryInvariantError,
+    MemoryIOError,
+    MemoryNotFoundError,
+)
 from ..links import MemoryKind, MemoryLink
 
 
@@ -97,7 +102,7 @@ class MemoryStore:
             raise MemoryContractError("Memory read requires a MemoryLink")
         path = self.path_for(link)
         if not self.exists(link):
-            raise MemoryContractError(f"Memory does not exist: {link}")
+            raise MemoryNotFoundError(f"Memory does not exist: {link}")
         try:
             read = read_text_prefix(path, max_chars=self.max_chars(link.kind))
         except UnicodeDecodeError as exc:

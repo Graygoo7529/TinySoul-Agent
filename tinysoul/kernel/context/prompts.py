@@ -4,9 +4,27 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from tinysoul.llm.protocol.messages import Message, UserMessage
+from tinysoul.llm.protocol.messages import (
+    Message,
+    MessageOrigin,
+    MessageStack,
+    UserMessage,
+)
 
 from .errors import ContextInvariantError
+
+
+@dataclass(frozen=True)
+class PromptGuidance:
+    """Local guidance together with its actual owner resource identity."""
+
+    text: str
+    reference: str
+    owner: str
+
+    def __post_init__(self) -> None:
+        if not self.text or not self.reference or not self.owner:
+            raise ContextInvariantError("Prompt guidance requires content and source")
 
 
 @dataclass(frozen=True)
@@ -15,6 +33,8 @@ class PromptBlock:
 
     label: str
     message: UserMessage
+    owner: str = "task_prompt"
+    refs: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.label:
@@ -25,10 +45,22 @@ class PromptBlock:
             raise ContextInvariantError("PromptBlock.message must contain content")
 
     @classmethod
-    def from_text(cls, label: str, text: str) -> "PromptBlock":
+    def from_text(
+        cls,
+        label: str,
+        text: str,
+        *,
+        owner: str = "task_prompt",
+        refs: tuple[str, ...] = (),
+    ) -> "PromptBlock":
         if not text:
             raise ContextInvariantError("PromptBlock text must be non-empty")
-        return cls(label=label, message=UserMessage.from_text(text, label=label))
+        return cls(
+            label=label,
+            message=UserMessage.from_text(text, label=label),
+            owner=owner,
+            refs=refs,
+        )
 
 
 @dataclass(frozen=True)
@@ -57,6 +89,24 @@ class TaskPrompt:
                 *self.output_blocks,
             )
         )
+
+    def provenance(self, offset: int = 0) -> tuple[MessageOrigin, ...]:
+        return tuple(
+            MessageOrigin(
+                block.label,
+                block.owner,
+                "task_prompt",
+                "state",
+                (offset + index,),
+                block.refs,
+            )
+            for index, block in enumerate(
+                (*self.guide_blocks, *self.input_blocks, *self.output_blocks)
+            )
+        )
+
+    def message_stack(self) -> MessageStack:
+        return MessageStack(self.render_messages(), self.provenance())
 
 
 def _check_blocks(blocks: tuple[PromptBlock, ...], field: str) -> None:

@@ -3,20 +3,19 @@
 from __future__ import annotations
 
 import asyncio
-from math import isfinite
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from math import isfinite
 from typing import Protocol
 
-from tinysoul.kernel.action import ActionResult, ActionResultStatus
-from tinysoul.kernel.context import ContextTurnCompletion
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.time import CalendarDay
+from tinysoul.kernel.action import ActionResult, ActionResultStatus
+from tinysoul.kernel.context import ContextTurnCompletion
+from tinysoul.kernel.interaction import QuestionContent, QuestionError
 from tinysoul.runtime import RuntimeException, RuntimeTransferInterrupt
 
 from ..errors import LoopContractError, LoopInvariantError
-from ..outcomes import TurnFailure, TurnOutcomeStatus, TurnOutput
-from ..runtime_bridge import RuntimeLoopBridge
 from ..interaction.inbox import (
     InboxError,
     InboxKind,
@@ -24,6 +23,8 @@ from ..interaction.inbox import (
     WaitCondition,
     WaitReason,
 )
+from ..outcomes import TurnFailure, TurnOutcomeStatus, TurnOutput
+from ..runtime_bridge import RuntimeLoopBridge
 
 
 @dataclass(frozen=True)
@@ -226,24 +227,16 @@ def question_from_results(results: tuple[ActionResult, ...]) -> QuestionRequest 
     if len(questions) != 1:
         raise LoopContractError("Question detection requires one validated intent")
     result = questions[0]
-    text = result.payload.get("text")
-    options = result.payload.get("options", [])
     timeout = result.payload.get("timeout_seconds")
-    if (
-        not isinstance(text, str)
-        or not isinstance(options, list)
-        or any(not isinstance(item, str) for item in options)
-        or (timeout is not None and type(timeout) not in (int, float))
-    ):
+    if timeout is not None and type(timeout) not in (int, float):
         raise LoopContractError("Successful question result violated its contract")
     try:
         return QuestionRequest(
             result.result_id,
-            text,
-            tuple(item for item in options if isinstance(item, str)),
+            QuestionContent.from_json(result.payload),
             float(timeout) if isinstance(timeout, (int, float)) else None,
         )
-    except InboxError as exc:
+    except (InboxError, QuestionError) as exc:
         raise LoopContractError(
             "Successful question result violated its contract"
         ) from exc

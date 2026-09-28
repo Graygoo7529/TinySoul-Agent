@@ -7,21 +7,18 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from fastapi.testclient import TestClient
 import httpx
 import pytest
+from fastapi.testclient import TestClient
 
-from tinysoul.environment.inputs import CommandReceipt
-from tinysoul.agent import TurnHandle, TurnSnapshot, UserTurnRequest, ReflectionRequest
-from tinysoul.kernel.jobs import JobSnapshot
-from tinysoul.kernel.loop.interaction.inbox import InboxReceipt
+from tinysoul.agent import ReflectionRequest, TurnHandle, TurnSnapshot, UserTurnRequest
 from tinysoul.agent.errors import (
     AgentSDKError,
     AgentServiceStaleError,
     AgentServiceUnavailableError,
 )
-from tinysoul.agent.observation.outputs import ObservationRoute
-from tinysoul.agent.observation.outputs import ObservationRouter
+from tinysoul.agent.observation.outputs import ObservationRoute, ObservationRouter
+from tinysoul.environment.inputs import CommandReceipt
 from tinysoul.gateway.endpoint import (
     EndpointContractError,
     EndpointEngine,
@@ -31,11 +28,22 @@ from tinysoul.gateway.endpoint import (
 from tinysoul.gateway.endpoint.http import EndpointASGIServer, create_endpoint_app
 from tinysoul.infra.config import ConfigController, ConfigEnvironment
 from tinysoul.infra.json import JsonObject
+from tinysoul.infra.paging import PageOptions
 from tinysoul.infra.time import CalendarDay
+from tinysoul.kernel.interaction import QuestionAnswer
+from tinysoul.kernel.jobs import JobSnapshot
 from tinysoul.kernel.loop import LoopControlKind
-from tinysoul.plugins.memory import MemoryEngine, MemorySettings
+from tinysoul.kernel.loop.interaction.inbox import InboxReceipt
+from tinysoul.kernel.registration import Service, ServiceRegistry
 from tinysoul.plugins.archive import DailyLifecycleCoordinator
+from tinysoul.plugins.memory import MemoryEngine, MemorySettings
 from tinysoul.plugins.reflection import ReflectionAvailability, ReflectionScope
+from tinysoul.plugins.session import SessionEngine, SessionSettings
+from tinysoul.plugins.workspace import (
+    WorkspaceEngineBuilder,
+    WorkspaceSettings,
+)
+from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.runtime import (
     ObservationEvent,
     ObservationLevel,
@@ -43,16 +51,61 @@ from tinysoul.runtime import (
     RunScope,
     RuntimeException,
 )
-from tinysoul.plugins.session import SessionEngine, SessionSettings
-from tinysoul.kernel.registration import Service, ServiceRegistry
-from tinysoul.plugins.workspace.services import WorkspaceService
-from tinysoul.plugins.workspace import (
-    WorkspaceEngineBuilder,
-    WorkspaceSettings,
-)
 
 DAY = CalendarDay.parse("2026-07-19")
 TOKEN = "endpoint-test-token-0000000000000000"
+
+
+def test_workspace_paging_full_text_and_single_byte_ranges(tmp_path: Path) -> None:
+    engine, _, _ = _engine(tmp_path)
+    client = TestClient(create_endpoint_app(engine, engine.settings))
+    text = "line\n" * 900
+    assert (
+        client.put(
+            "/v2/workspace/resource",
+            headers=_auth(),
+            json={"link": "workspace:paged.txt", "text": text},
+        ).status_code
+        == 200
+    )
+    first = client.get(
+        "/v2/workspace/resource",
+        headers=_auth(),
+        params={"link": "workspace:paged.txt", "max_chars": 1024},
+    ).json()
+    assert first["truncated"] and not first["complete"] and first["editable"]
+    assert first["locator"]["day"] == str(DAY)
+    full = client.get(
+        "/v2/workspace/resource",
+        headers=_auth(),
+        params={"link": "workspace:paged.txt", "full": True},
+    ).json()
+    assert full["text"] == text and full["complete"]
+    for header, expected in (
+        ("bytes=1-4", text.encode()[1:5]),
+        ("bytes=-4", text.encode()[-4:]),
+    ):
+        response = client.get(
+            "/v2/workspace/blob",
+            headers={**_auth(), "Range": header},
+            params={"link": "workspace:paged.txt"},
+        )
+        assert response.status_code == 206 and response.content == expected
+    invalid = client.get(
+        "/v2/workspace/blob",
+        headers={**_auth(), "Range": "bytes=99999-"},
+        params={"link": "workspace:paged.txt"},
+    )
+    assert invalid.status_code == 416
+    missing = client.get(
+        "/v2/workspace/resource",
+        headers=_auth(),
+        params={"link": "workspace:missing.txt"},
+    )
+    assert (
+        missing.status_code == 404
+        and missing.json()["error"]["code"] == "workspace.not_found"
+    )
 
 
 @pytest.mark.parametrize("value", [0.0, -1.0, True])
@@ -101,7 +154,11 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
     assert "/v2/workspace/blob" in openapi["paths"]
     assert "put" in openapi["paths"]["/v2/workspace/blob"]
     assert "/v2/reflection/decision" not in openapi["paths"]
-    assert all(not path.startswith("/v2/session/") for path in openapi["paths"])
+    assert all(
+        set(methods) == {"get"}
+        for path, methods in openapi["paths"].items()
+        if path.startswith("/v2/session/")
+    )
 
     response = client.post(
         "/v2/input",
@@ -219,7 +276,7 @@ def test_endpoint_workspace_preserves_sdk_service_failure(
             json={"link": "workspace:note.txt", "text": "content"},
         ),
     ):
-        assert response.status_code == 409
+        assert response.status_code == (409 if code == "service.stale" else 503)
         assert response.json()["error"]["code"] == code
         assert "private" not in response.text
     assert not (tmp_path / "workspace" / "note.txt").exists()
@@ -702,6 +759,132 @@ class _EndpointServices:
     def __init__(self, workspace: WorkspaceService) -> None:
         self.registry = ServiceRegistry((Service(WorkspaceService, workspace),))
 
+    async def workspace_manifest(self, day: CalendarDay | None = None) -> JsonObject:
+        async with self.registry.get(WorkspaceService).operation() as service:
+            return (await service.load_manifest()).to_json()
+
+    async def job_detail(self, turn_id: str, job_id: str) -> JsonObject:
+        raise AgentSDKError("Test service has no Jobs")
+
+    async def job_output(
+        self, turn_id: str, job_id: str, page: PageOptions = PageOptions()
+    ) -> JsonObject:
+        raise AgentSDKError("Test service has no Jobs")
+
+    async def subagent_status(self) -> JsonObject:
+        return {"targets": [], "connections": []}
+
+    async def expand_servers(self, page: PageOptions = PageOptions()) -> JsonObject:
+        return {"items": []}
+
+    async def expand_tools(
+        self,
+        server_id: str,
+        *,
+        tool_name: str | None = None,
+        page: PageOptions = PageOptions(),
+    ) -> JsonObject:
+        raise AgentSDKError("Test service has no MCP")
+
+    async def expand_refresh(self, server_id: str) -> JsonObject:
+        raise AgentSDKError("Test service has no MCP")
+
+    async def resolve_resource(
+        self,
+        reference: str,
+        *,
+        origin_link: str | None = None,
+        day: CalendarDay | None = None,
+        turn_id: str | None = None,
+        view: str = "effective",
+    ) -> JsonObject:
+        raise AgentSDKError("Test service has no resource resolver")
+
+    async def days(
+        self, *, before: CalendarDay | None = None, limit: int = 30
+    ) -> JsonObject:
+        return {"items": [{"day": str(DAY), "active": True}]}
+
+    async def turn_interactions(
+        self, turn_id: str, page: PageOptions = PageOptions()
+    ) -> JsonObject:
+        raise AgentSDKError("Test service has no Turn")
+
+    async def context_overview(self, turn_id: str) -> JsonObject:
+        raise AgentSDKError("Test service has no Context")
+
+    async def context_segment(
+        self, turn_id: str, segment_id: str, page: PageOptions = PageOptions()
+    ) -> JsonObject:
+        raise AgentSDKError("Test service has no Context")
+
+    async def context_inspect(
+        self,
+        turn_id: str,
+        ref: str,
+        *,
+        query: str | None = None,
+        continuation: str | None = None,
+    ) -> JsonObject:
+        raise AgentSDKError("Test service has no Context")
+
+    async def session_turns(
+        self, day: CalendarDay | None = None, page: PageOptions = PageOptions()
+    ) -> JsonObject:
+        return {"items": []}
+
+    async def session_interactions(
+        self, turn_id: str, day: CalendarDay, page: PageOptions = PageOptions()
+    ) -> JsonObject:
+        raise AgentSDKError("Test service has no Session")
+
+    async def session_inspect(
+        self,
+        day: CalendarDay | None = None,
+        *,
+        ref: str | None = None,
+        query: str | None = None,
+        continuation: str | None = None,
+    ) -> JsonObject:
+        raise AgentSDKError("Test service has no Session")
+
+    async def memory_active(
+        self, day: CalendarDay | None = None, page: PageOptions = PageOptions()
+    ) -> JsonObject:
+        raise AgentSDKError("Test service has no Memory")
+
+    async def workspace_text(
+        self,
+        link: str,
+        day: CalendarDay | None = None,
+        *,
+        page: PageOptions = PageOptions(),
+        full: bool = False,
+    ) -> JsonObject:
+        async with self.registry.get(WorkspaceService).operation() as service:
+            return await service.browse_text(link, page=page, full=full)
+
+    async def workspace_trash(
+        self, day: CalendarDay | None = None, page: PageOptions = PageOptions()
+    ) -> JsonObject:
+        async with self.registry.get(WorkspaceService).operation() as service:
+            items = await service.trash_items()
+            return page.render(
+                tuple({"ref": item.ref, **item.to_json()} for item in items),
+                owner="workspace",
+                ref=f"trash:{DAY}",
+                base={"day": str(DAY)},
+            )
+
+    @asynccontextmanager
+    async def workspace_blob(self, link: str, day: CalendarDay | None = None):
+        async with self.registry.get(WorkspaceService).operation() as service:
+            blob = await service.open_blob(link)
+            try:
+                yield blob
+            finally:
+                blob.stream.close()
+
     def turn_snapshot(self, turn_id: str) -> TurnSnapshot | None:
         return None
 
@@ -751,7 +934,7 @@ class _EndpointGateway:
         raise AgentSDKError("No active Turn")
 
     async def reply(
-        self, turn_id: str, question_id: str, response: str
+        self, turn_id: str, question_id: str, answer: QuestionAnswer
     ) -> InboxReceipt:
         raise AgentSDKError("No active Turn")
 

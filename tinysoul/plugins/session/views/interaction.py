@@ -4,7 +4,10 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from tinysoul.infra.json import JsonObject
+from tinysoul.kernel.context import ContextTurnFacts
 from tinysoul.kernel.context.builtin.trace import TraceFactKind
+from tinysoul.kernel.interaction import QuestionContent, QuestionError
+
 from ..errors import SessionInvariantError
 from ..records.models import SessionActionOutcome, SessionTurnRecord
 from .navigation import action_leaf_ref, input_ref, resource_locator
@@ -35,6 +38,7 @@ class SessionInteraction:
     def to_json(self) -> JsonObject:
         return {
             "kind": "interaction",
+            "id": self.ref,
             "role": self.role.value,
             "ref": self.ref,
             **self.content,
@@ -72,9 +76,17 @@ def project_interactions(record: SessionTurnRecord) -> tuple[SessionInteraction,
             if item.reply_to
             else (InteractionRole.INPUT if index == 0 else InteractionRole.APPEND)
         )
-        content: JsonObject = {"text": item.text}
+        ref = input_ref(record.ref, index)
+        visible = (ref, TraceFactKind.INPUT_VISIBLE) in positions
+        content: JsonObject = {
+            "text": item.text,
+            "delivery": "visible" if visible else "installed",
+        }
         if item.reply_to:
             content["reply_to"] = questions[item.reply_to]
+            content["question_id"] = item.reply_to
+        if item.answer is not None:
+            content["answer"] = item.answer.to_json()
         add(
             SessionInteraction(role, input_ref(record.ref, index), content),
             (TraceFactKind.INPUT_VISIBLE, TraceFactKind.INPUT_INSTALLED),
@@ -92,16 +104,17 @@ def project_interactions(record: SessionTurnRecord) -> tuple[SessionInteraction,
             and action.outcome is SessionActionOutcome.SUCCESS
         ):
             role = InteractionRole.QUESTION
-            text, options = action.result.get("text"), action.result.get("options", [])
-            if (
-                not isinstance(text, str)
-                or not isinstance(options, list)
-                or any(not isinstance(item, str) for item in options)
-            ):
+            try:
+                content.update(QuestionContent.from_json(action.result).to_json())
+            except QuestionError as exc:
                 raise SessionInvariantError(
                     "Stored question has invalid canonical content"
+                ) from exc
+            if "legacy_options" in action.result:
+                content.update(
+                    legacy_options=action.result["legacy_options"], legacy=True
                 )
-            content.update(text=text, options=options)
+            content["question_id"] = action.result_id
             content["answered"] = any(
                 item.reply_to == action.result_id for item in record.inputs
             )
@@ -150,3 +163,78 @@ def interaction_header(record: SessionTurnRecord) -> JsonObject:
             {"kind": item.kind, "message": item.message[:240]} for item in failures
         ]
     return value
+
+
+def project_current_interactions(
+    facts: ContextTurnFacts,
+) -> tuple[SessionInteraction, ...]:
+    """Use original Trace identities and order; never manufacture a completed record."""
+    root = f"turn:trace@{facts.turn_id}"
+    positions = {item.ref: item.sequence for item in reversed(facts.timeline)}
+    settled = {
+        item.ref: item.sequence
+        for item in facts.timeline
+        if item.kind is TraceFactKind.ACTION_SETTLED
+    }
+    visible = {
+        item.ref for item in facts.timeline if item.kind is TraceFactKind.INPUT_VISIBLE
+    }
+    items: list[SessionInteraction] = []
+    for index, item in enumerate(facts.inputs):
+        ref = f"{root}#input/{item.input_id}"
+        role = (
+            InteractionRole.REPLY
+            if item.reply_to
+            else InteractionRole.INPUT
+            if index == 0
+            else InteractionRole.APPEND
+        )
+        content: JsonObject = {
+            "id": item.input_id,
+            "text": item.text,
+            "delivery": "visible" if ref in visible else "installed",
+        }
+        if item.reply_to:
+            content["question_id"] = item.reply_to
+        if item.answer:
+            content["answer"] = item.answer.to_json()
+        items.append(SessionInteraction(role, ref, content))
+    for index, fact in enumerate(facts.actions):
+        action, result = fact.call.action_name, fact.result
+        ref = f"{root}#action/{index}"
+        role = (
+            InteractionRole.REASON
+            if action == "core.reason"
+            else InteractionRole.ACTION
+        )
+        content = {
+            "id": fact.invoke_id or fact.call.call_id,
+            "action": action,
+            "state": fact.state.value,
+            "call_id": fact.call.call_id,
+            "invoke_id": fact.invoke_id,
+        }
+        if result is not None:
+            content["outcome"] = result.status.value
+            content["result"] = (
+                result.trace_projection.canonical_payload
+                if result.trace_projection
+                else result.payload
+            )
+            if action == "core.ask" and result.status.value == "success":
+                role = InteractionRole.QUESTION
+                content.update(QuestionContent.from_json(result.payload).to_json())
+                content["question_id"] = result.result_id
+                content["answered"] = any(
+                    item.reply_to == result.result_id for item in facts.inputs
+                )
+                positions[ref] = settled.get(
+                    ref, positions.get(ref, len(facts.timeline))
+                )
+            elif action == "core.answer" and result.status.value == "success":
+                role = InteractionRole.OUTPUT
+                content.update(result.payload)
+        items.append(SessionInteraction(role, ref, content))
+    return tuple(
+        sorted(items, key=lambda item: positions.get(item.ref, len(facts.timeline) + 1))
+    )

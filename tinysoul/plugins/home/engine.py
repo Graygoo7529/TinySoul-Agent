@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 
 from tinysoul.infra.filesystem import TextPrefixRead, file_digest, read_text_prefix
 from tinysoul.infra.json import JsonObject
+from tinysoul.infra.paging import PageOptions
 from tinysoul.infra.references import (
     ReferenceError,
     ReferenceResolver,
@@ -56,6 +57,7 @@ from .errors import (
     AgentHomeContractError,
     AgentHomeInvariantError,
     AgentHomeIOError,
+    AgentHomeNotFoundError,
     AgentHomeRuntimeCopyRequired,
 )
 from .links import (
@@ -331,10 +333,32 @@ class AgentHomeEngine:
         except AgentHomeContractError as exc:
             raise ReferenceError("Invalid Home reference") from exc
 
+    def resolve_relative(self, reference: str, origin_link: str) -> str:
+        parsed = parse_home_link(origin_link.partition("#")[0])
+        path = (
+            self._layout.relative_for_prompt_mount(parsed)
+            if isinstance(parsed, HomePromptMountLink)
+            else self._layout.relative_for_top(parsed)
+            if isinstance(parsed, HomeTopLink)
+            else self._layout.relative_for_resource(parsed)
+        )
+        value = relative_reference(reference, source_path=path, prefix="home:")
+        resource, marker, fragment = value.partition("#")
+        if resource.startswith("home:"):
+            mapped = self._layout.link_for_relative(resource.removeprefix("home:"))
+            if mapped is not None:
+                return str(mapped) + ("#" + fragment if marker else "")
+        return value
+
     def _search_paths(self, *, actual: bool) -> tuple[tuple[str, Path], ...]:
+        return self._content_paths(actual=actual, spaces=("agent", "skills"))
+
+    def _content_paths(
+        self, *, actual: bool, spaces: tuple[str, ...]
+    ) -> tuple[tuple[str, Path], ...]:
         relatives = {
             path.relative_to(self.original_root).as_posix()
-            for space in ("agent", "skills")
+            for space in spaces
             for path in (self.original_root / space).rglob("*")
             if path.is_file() and not path.is_symlink()
         }
@@ -344,9 +368,7 @@ class AgentHomeEngine:
             else {record.relative_path: record for record in self._overlay.records()}
         )
         relatives.update(
-            relative
-            for relative in records
-            if relative.split("/")[0] in {"agent", "skills"}
+            relative for relative in records if relative.split("/")[0] in spaces
         )
         result = []
         for relative in sorted(relatives):
@@ -361,6 +383,102 @@ class AgentHomeEngine:
             if path.is_file() and not path.is_symlink():
                 result.append((relative, path))
         return tuple(result)
+
+    def browse_catalog(
+        self,
+        *,
+        view: str = "effective",
+        space: str | None = None,
+        query: str | None = None,
+        page: PageOptions = PageOptions(),
+    ) -> JsonObject:
+        self._validate_view(view)
+        spaces = ("agent", "skills", "skills_domain", "skills_action")
+        if space is not None and space not in spaces:
+            raise AgentHomeContractError("Unknown Home space")
+        values: list[JsonObject] = []
+        for relative, path in self._content_paths(
+            actual=view == "actual", spaces=(space,) if space else spaces
+        ):
+            link = self._layout.link_for_relative(relative)
+            if link is None or query and query.casefold() not in str(link).casefold():
+                continue
+            values.append(
+                {
+                    "link": str(link),
+                    "locator": {"link": str(link), "view": view},
+                    "title": str(link).removeprefix("home:"),
+                    "kind": "guidance"
+                    if isinstance(link, HomePromptMountLink)
+                    else "top"
+                    if isinstance(link, HomeTopLink)
+                    else "resource",
+                    "size": path.stat().st_size,
+                }
+            )
+        return page.render(
+            tuple(values),
+            owner="home",
+            ref=f"catalog:{view}:{space}:{query}",
+            base={"view": view},
+        )
+
+    def browse_content(
+        self, link: str, *, view: str = "effective", page: PageOptions = PageOptions()
+    ) -> JsonObject:
+        self._validate_view(view)
+        resource = link.partition("#")[0]
+        parsed = parse_home_link(resource)
+        relative = (
+            self._layout.relative_for_prompt_mount(parsed)
+            if isinstance(parsed, HomePromptMountLink)
+            else self._layout.relative_for_top(parsed)
+            if isinstance(parsed, HomeTopLink)
+            else self._layout.relative_for_resource(parsed)
+        )
+        paths = dict(
+            self._content_paths(actual=view == "actual", spaces=(parsed.space,))
+        )
+        if relative not in paths:
+            raise AgentHomeNotFoundError("Home content is unavailable in this view")
+        text = _read_text(paths[relative])
+        return inspect_document(
+            owner=f"home.{view}",
+            ref=link,
+            text=text,
+            direct_refs=self._direct_refs(text, relative),
+            continuation=page.continuation,
+            max_chars=page.max_chars,
+            metadata={
+                "locator": {"link": resource, "view": view},
+                "direct_refs": list(self._direct_refs(text, relative)),
+            },
+        )
+
+    @staticmethod
+    def _direct_refs(text: str, relative: str) -> tuple[str, ...]:
+        refs: list[str] = []
+        for item in markdown_references(text):
+            try:
+                refs.append(
+                    relative_reference(
+                        item.target, source_path=relative, prefix="home:"
+                    )
+                )
+            except ReferenceError:
+                continue
+        return tuple(dict.fromkeys(refs))
+
+    def browse_changes(self, page: PageOptions = PageOptions()) -> JsonObject:
+        return self._review.read_changes(page)
+
+    def browse_diff(self, link: str, page: PageOptions = PageOptions()) -> JsonObject:
+        return self._review.read_diff(link, page)
+
+    @staticmethod
+    def _validate_view(view: str) -> None:
+        if view not in {"actual", "effective"}:
+            raise AgentHomeContractError("Home view must be actual or effective")
 
     def inspect(
         self,
@@ -379,16 +497,7 @@ class AgentHomeEngine:
         if path is None:
             raise AgentHomeContractError("Home resource is not available in this view")
         text = _read_text(path)
-        direct_refs = []
-        for link in markdown_references(text):
-            try:
-                direct_refs.append(
-                    relative_reference(
-                        link.target, source_path=relative, prefix="home:"
-                    )
-                )
-            except ReferenceError:
-                continue
+        direct_refs = self._direct_refs(text, relative)
         if max_chars is not None and (type(max_chars) is not int or max_chars < 512):
             raise AgentHomeContractError("Inspect max_chars must be at least 512")
         return inspect_document(

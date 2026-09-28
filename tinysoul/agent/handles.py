@@ -6,30 +6,29 @@ import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
-from tinysoul.infra.json import JsonObject, to_json_object
-from tinysoul.kernel.jobs import JobSnapshot
 
+from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.time import CalendarDay
+from tinysoul.kernel.jobs import JobSnapshot
 from tinysoul.kernel.loop.interaction.inbox import (
     BudgetRequest,
-    InboxKind,
     InboxClosedError,
     InboxLimits,
-    InboxRecord,
     QuestionRequest,
     TurnInbox,
     TurnState,
     WaitReason,
 )
 from tinysoul.kernel.loop.outcomes import TurnOutcomeStatus
-from tinysoul.runtime.events import EnvironmentEvent
 from tinysoul.kernel.loop.turn import TurnOutcome
 from tinysoul.plugins.reflection.models import (
     ReflectionOutcome,
     ReflectionRequest,
     ReflectionStatus,
 )
+from tinysoul.runtime.events import EnvironmentEvent
 
-from .errors import AgentClosedError, AgentSDKError
+from .errors import AgentSDKError
 from .requests import UserTurnRequest
 
 
@@ -149,15 +148,17 @@ class TurnSnapshot:
             "question": (
                 {
                     "question_id": question.question_id,
-                    "text": question.text,
-                    "options": list(question.options),
+                    **question.content.to_json(),
                     "timeout_seconds": question.timeout_seconds,
                 }
                 if question is not None
                 else None
             ),
             "budget_request": (
-                {"request_id": budget.request_id, "next_cycle_index": budget.next_cycle_index}
+                {
+                    "request_id": budget.request_id,
+                    "next_cycle_index": budget.next_cycle_index,
+                }
                 if budget is not None
                 else None
             ),
@@ -183,6 +184,8 @@ class TurnHandle:
         )
         self._task: asyncio.Task[TurnOutcome | ReflectionOutcome] | None = None
         self._cancel_requested = False
+        self.generation_id: str | None = None
+        self.active_day: CalendarDay | None = None
 
     @property
     def state(self) -> TurnState:

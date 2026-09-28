@@ -1,14 +1,16 @@
 """Effective Home operations and separately granted actual Home review."""
 
-from tinysoul.infra.services import ScopedService, ServiceScope
 from typing import Self
-from tinysoul.kernel.retrieval.operations import SearchSession, SelectionInput
+
+from tinysoul.infra.services import ScopedService, ServiceScope
 from tinysoul.kernel.retrieval.contracts import (
     RetrievalRequest,
-    SearchPage,
     SearchFailure,
     SearchFailureKind,
+    SearchPage,
 )
+from tinysoul.kernel.retrieval.operations import SearchSession, SelectionInput
+
 from .engine import AgentHomeEngine
 
 
@@ -28,6 +30,10 @@ class HomeService(ScopedService[AgentHomeEngine]):
         self.retrieval_policies = queries.retrieval_policies if queries else ()
         self.search = scope.remote(self._search)
         self.inspect = scope.local(owner.inspect)
+        self.catalog = scope.local(owner.browse_catalog)
+        self.content = scope.local(owner.browse_content)
+        self.changes = scope.local(owner.browse_changes)
+        self.diff = scope.local(owner.browse_diff)
         self.read_top = scope.local(owner.read_top)
         self.read_resource = scope.local(owner.read_resource)
         self.resource_exists = scope.local(owner.resource_exists)
@@ -52,7 +58,10 @@ class HomeService(ScopedService[AgentHomeEngine]):
         return type(self)(self._owner, scope, queries=self._queries)
 
     async def _search(
-        self, request: RetrievalRequest | str, *, inputs: SelectionInput = SelectionInput()
+        self,
+        request: RetrievalRequest | str,
+        *,
+        inputs: SelectionInput = SelectionInput(),
     ) -> SearchPage:
         if self._queries is None:
             raise SearchFailure(

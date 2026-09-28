@@ -8,13 +8,15 @@ from dataclasses import dataclass, field
 from uuid import uuid4
 
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
+from tinysoul.infra.continuation import ContinuationError
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.kernel.loop.interaction.inbox import InboxError, TurnInbox
-from tinysoul.runtime import RunScope, Signal, SignalBus, RuntimeException
+from tinysoul.runtime import RunScope, RuntimeException, Signal, SignalBus
 from tinysoul.runtime.control.exception import RUNTIME_AGENT_END
-from .failures import JobError, JobRequestError, JobFailureKind
+
+from .failures import JobError, JobFailureKind, JobRequestError
+from .models import JobBackend, JobSnapshot, JobState
 from .runtime_bridge import RuntimeJobsBridge
-from .models import JobState, JobSnapshot, JobBackend
 
 
 @dataclass
@@ -136,6 +138,21 @@ class JobRegistry:
             "details": to_json_object(details),
         }
 
+    async def output(
+        self,
+        turn_id: str,
+        job_id: str,
+        *,
+        continuation: str | None,
+        max_chars: int,
+        operations: JoinedOperations,
+    ) -> JsonObject:
+        backend = self.get(turn_id, job_id)
+        return await self._call(
+            lambda: backend.read_output(continuation=continuation, max_chars=max_chars),
+            operations=operations,
+        )
+
     async def stop(
         self, turn_id: str, job_id: str, *, operations: JoinedOperations
     ) -> JobSnapshot:
@@ -184,7 +201,7 @@ class JobRegistry:
             if operations is not None:
                 return await operations.run_async(operation)
             return await operation()
-        except (JobError, RuntimeException):
+        except (JobError, RuntimeException, ContinuationError):
             raise
         except Exception as exc:
             raise JobError(

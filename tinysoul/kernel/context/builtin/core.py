@@ -18,20 +18,19 @@ from tinysoul.llm.protocol.messages import (
     ToolResultMessage,
     UserMessage,
 )
-from tinysoul.llm.protocol.tools import ToolKind
 from tinysoul.runtime import Signal
 
-from ..errors import (
-    ContextInvariantError,
-    ContextInspectFailureReason,
-    ContextInspectRequestError,
-)
 from ..disclosure import (
     DisclosureHint,
     DisclosurePage,
-    DisclosureSearchEntry,
     DisclosureReference,
+    DisclosureSearchEntry,
     query_hint,
+)
+from ..errors import (
+    ContextInspectFailureReason,
+    ContextInspectRequestError,
+    ContextInvariantError,
 )
 from ..segments import (
     ContextSegment,
@@ -39,8 +38,8 @@ from ..segments import (
     RegisteredSegment,
     SegmentCapability,
     SegmentDescriptor,
-    SegmentRegistration,
     SegmentReclaim,
+    SegmentRegistration,
     SegmentShape,
     SegmentSlot,
     TurnInfo,
@@ -125,6 +124,7 @@ class InputsSegment:
                 input_id=update.input_id,
                 reply_to=update.reply_to,
                 received_at=update.received_at,
+                answer=update.answer,
             )
         return candidate
 

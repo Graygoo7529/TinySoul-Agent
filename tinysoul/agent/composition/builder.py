@@ -86,7 +86,8 @@ from ..errors import (
     AgentQueueFullError,
 )
 from ..dispatch.ingress import AgentIngress
-from ..dispatch.inputs import InputCommandParser, InputDispatcher, InputSource
+from ..dispatch.inputs import InputCommandParser, InputDispatcher
+from tinysoul.environment.inputs import InputSource
 from ..observation.outputs import ObservationRoute, ObservationRouter, OutputSink
 from tinysoul.agent.dispatch.scheduler import RootScheduler
 from .assembly import AgentAssembly, AgentRuntime

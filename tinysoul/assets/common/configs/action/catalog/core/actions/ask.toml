@@ -11,12 +11,18 @@ additionalProperties = false
 
 [tool.schema.properties.text]
 type = "string"
-description = "Non-empty question, at most 4000 characters."
+description = "Question text, optionally containing one tinysoul-question JSON fence with question, options and allow_other. Ordinary Markdown fences outside core.ask are display-only."
+maxLength = 16000
 
 [tool.schema.properties.options]
 type = "array"
-description = "Up to eight optional choices, each at most 400 characters."
-items = { type = "string" }
+description = "Optional choices with stable IDs. A reply identifies one ID, or supplies free text when allow_other is true."
+maxItems = 8
+items = { type = "object", required = ["id", "label"], additionalProperties = false, properties = { id = { type = "string", minLength = 1, maxLength = 128 }, label = { type = "string", minLength = 1, maxLength = 256 }, description = { type = "string", maxLength = 2000 } } }
+
+[tool.schema.properties.allow_other]
+type = "boolean"
+description = "Allow a free-text response alongside choices. Defaults to true."
 
 [tool.schema.properties.timeout_seconds]
 type = "number"

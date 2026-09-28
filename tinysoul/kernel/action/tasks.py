@@ -7,31 +7,32 @@ from typing import Protocol
 
 from tinysoul.infra.config import ConfigError
 from tinysoul.infra.json import JsonObject
-from tinysoul.kernel.context import ContextEngine, TaskPrompt, PromptBlock
+from tinysoul.kernel.context import ContextEngine, PromptBlock, TaskPrompt
 from tinysoul.kernel.context.errors import ContextError
+from tinysoul.kernel.context.prompts import PromptGuidance
 from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
-from tinysoul.llm.protocol.messages import MessageStack
 from tinysoul.llm.protocol.requests import (
-    TaskCall,
-    TaskCancellation,
     CallSettings,
     ModelContextOverflowPolicy,
+    TaskCall,
+    TaskCancellation,
 )
 from tinysoul.llm.protocol.responses import (
     AnswerFormat,
     JsonAnswer,
-    TextAnswer,
     TaskResult,
     TaskResultStatus,
+    TextAnswer,
 )
 from tinysoul.llm.protocol.tools import ToolUse
+
 from .call import ActionExecution
-from .models import ModelUseRegistry, ModelImplementation
 from .execution.executor import ActionExecutionControl
+from .models import ModelImplementation, ModelUseRegistry
 from .result import (
-    ActionResult,
-    ActionLocalFailure,
     ActionFailureDisposition,
+    ActionLocalFailure,
+    ActionResult,
     ActionResultStage,
 )
 
@@ -40,8 +41,8 @@ from .result import (
 class ActionSkillGuidance:
     """Skill snippets automatically mounted for one nested LLM action."""
 
-    domain: tuple[str, ...] = ()
-    action: tuple[str, ...] = ()
+    domain: tuple[PromptGuidance, ...] = ()
+    action: tuple[PromptGuidance, ...] = ()
 
 
 class ActionSkillProvider(Protocol):
@@ -154,7 +155,7 @@ class ActionTaskFactory:
             messages = (
                 self._context.compose(prompt)
                 if include_context
-                else MessageStack(prompt.render_messages())
+                else prompt.message_stack()
             )
         except ContextError as exc:
             raise RuntimeContextBridge().from_context_error(exc) from exc
@@ -267,7 +268,9 @@ def with_action_skills(prompt: TaskPrompt, skills: ActionSkillGuidance) -> TaskP
             guide_blocks.append(
                 PromptBlock.from_text(
                     f"task_prompt:guide:domain_skill:{index}",
-                    "# Domain Skill\n" + item,
+                    "# Domain Skill\n" + item.text,
+                    owner=item.owner,
+                    refs=(item.reference,),
                 )
             )
     for index, item in enumerate(skills.action, start=1):
@@ -275,7 +278,9 @@ def with_action_skills(prompt: TaskPrompt, skills: ActionSkillGuidance) -> TaskP
             guide_blocks.append(
                 PromptBlock.from_text(
                     f"task_prompt:guide:action_skill:{index}",
-                    "# Action Skill\n" + item,
+                    "# Action Skill\n" + item.text,
+                    owner=item.owner,
+                    refs=(item.reference,),
                 )
             )
     return TaskPrompt(

@@ -1,11 +1,14 @@
 """Job facts and backend contract shared by supervisors and plugins."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
+
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.json import JsonObject, dumps_json
+
 from .failures import JobError
 
 
@@ -182,11 +185,29 @@ class JobBackend(Protocol):
 
     async def describe(self) -> JsonObject: ...
 
+    async def read_output(
+        self, *, continuation: str | None = None, max_chars: int = 16000
+    ) -> JsonObject: ...
+
 
 class JobControl(Protocol):
     """Owner supervision surface for hosts; no execution backend access."""
 
     def snapshots(self, turn_id: str) -> tuple[JobSnapshot, ...]: ...
+
+    async def describe(
+        self, turn_id: str, job_id: str, *, operations: JoinedOperations
+    ) -> JsonObject: ...
+
+    async def output(
+        self,
+        turn_id: str,
+        job_id: str,
+        *,
+        continuation: str | None,
+        max_chars: int,
+        operations: JoinedOperations,
+    ) -> JsonObject: ...
 
     async def stop(
         self, turn_id: str, job_id: str, *, operations: JoinedOperations

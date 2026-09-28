@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from tinysoul.kernel.action.tasks import ActionSkillGuidance
+from tinysoul.kernel.context.prompts import PromptGuidance
 from tinysoul.plugins.home.runtime_bridge import RuntimeAgentHomeBridge
 
-from ..services import HomeService
 from ..errors import AgentHomeError, AgentHomeRuntimeCopyRequired
+from ..services import HomeService
 
 
 class HomeDomainSkillProvider:
@@ -20,8 +21,10 @@ class HomeDomainSkillProvider:
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    async def guidance_for(self, domains: tuple[str, ...]) -> tuple[str, ...]:
-        snippets: list[str] = []
+    async def guidance_for(
+        self, domains: tuple[str, ...]
+    ) -> tuple[PromptGuidance, ...]:
+        snippets: list[PromptGuidance] = []
         for domain in domains:
             try:
                 guidance = await self._home.guidance_for_domain(domain)
@@ -36,7 +39,9 @@ class HomeDomainSkillProvider:
                     payload={"domain": domain},
                 ) from exc
             if guidance:
-                snippets.append(guidance)
+                snippets.append(
+                    PromptGuidance(guidance, f"home:skills_domain:{domain}", "home")
+                )
         return tuple(snippets)
 
 
@@ -68,6 +73,18 @@ class HomeActionSkillProvider:
                 payload={"domain": domain, "action_name": action_name},
             ) from exc
         return ActionSkillGuidance(
-            domain=(domain_guidance,) if domain_guidance else (),
-            action=(action_guidance,) if action_guidance else (),
+            domain=(
+                PromptGuidance(domain_guidance, f"home:skills_domain:{domain}", "home"),
+            )
+            if domain_guidance
+            else (),
+            action=(
+                PromptGuidance(
+                    action_guidance,
+                    f"home:skills_action:{domain}/{action_name.removeprefix(domain + '.')}",
+                    "home",
+                ),
+            )
+            if action_guidance
+            else (),
         )

@@ -3,20 +3,22 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from hashlib import sha256
-import json
 from math import isfinite
 from time import time
 from uuid import uuid4
 
 from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.kernel.interaction import QuestionAnswer, QuestionContent, QuestionError
 from tinysoul.runtime.events import EnvironmentEvent
+from tinysoul.runtime.sources import SourceState, SourceStatus
+
 from .events import TurnEventSubscription
-from tinysoul.runtime.sources import SourceStatus, SourceState
 
 
 class InboxKind(StrEnum):
@@ -130,26 +132,18 @@ class BudgetRequest:
 @dataclass(frozen=True)
 class QuestionRequest:
     question_id: str
-    text: str
-    options: tuple[str, ...] = ()
+    content: QuestionContent
     timeout_seconds: float | None = None
 
     def __post_init__(self) -> None:
-        if (
-            not self.question_id
-            or not isinstance(self.text, str)
-            or not self.text.strip()
-        ):
+        if not self.question_id or not isinstance(self.content, QuestionContent):
             raise InboxError("Question identity and text are required")
-        if any(not isinstance(item, str) or not item for item in self.options):
-            raise InboxError("Question options must be non-empty text")
         if self.timeout_seconds is not None and (
             type(self.timeout_seconds) not in (int, float)
             or not isfinite(self.timeout_seconds)
             or self.timeout_seconds <= 0
         ):
             raise InboxError("Question timeout must be finite and positive")
-        object.__setattr__(self, "options", tuple(self.options))
 
 
 class InboxError(Exception):
@@ -210,6 +204,26 @@ class InboxReceipt:
     sequence: int
     record_id: str
     accepted: bool
+
+
+@dataclass(frozen=True)
+class InboxPendingItem:
+    """A non-consuming projection for UI/SDK interaction views."""
+
+    sequence: int
+    record_id: str
+    kind: InboxKind
+    payload: JsonObject
+    state: str = "accepted"
+
+    def to_json(self) -> JsonObject:
+        return {
+            "sequence": self.sequence,
+            "record_id": self.record_id,
+            "kind": self.kind.value,
+            "payload": self.payload,
+            "state": self.state,
+        }
 
 
 @dataclass(frozen=True)
@@ -333,6 +347,24 @@ class TurnInbox:
     def acknowledged_sequence(self) -> int:
         return self._acknowledged_sequence
 
+    def pending_items(self) -> tuple[InboxPendingItem, ...]:
+        """Return accepted facts without capturing or acknowledging them."""
+        items: list[InboxPendingItem] = [
+            InboxPendingItem(
+                seq, record.record_id, record.kind, to_json_object(record.payload)
+            )
+            for seq, record, _ in self._records
+            if record.kind in {InboxKind.INPUT, InboxKind.REPLY}
+        ]
+        if self._reply is not None:
+            seq, record, _ = self._reply
+            items.append(
+                InboxPendingItem(
+                    seq, record.record_id, record.kind, to_json_object(record.payload)
+                )
+            )
+        return tuple(sorted(items, key=lambda value: value.sequence))
+
     @property
     def activity(self) -> TurnState:
         if self._activity is TurnState.RUNNING and self.wait_reason is not None:
@@ -431,26 +463,37 @@ class TurnInbox:
             self._question = question
             self._condition.notify_all()
 
-    async def reply(self, question_id: str, text: str) -> InboxReceipt:
-        record = InboxRecord(
-            InboxKind.REPLY,
-            {"text": text, "reply_to": question_id},
-            f"reply_{question_id}",
-        )
-        encoded = _encode(record)
-        digest = sha256(encoded).hexdigest()
+    async def reply(self, question_id: str, answer: QuestionAnswer) -> InboxReceipt:
+        if not isinstance(answer, QuestionAnswer):
+            raise InboxError("Reply requires a typed answer")
+        record_id = f"reply_{question_id}"
+        digest = sha256(
+            json.dumps(answer.to_json(), sort_keys=True, ensure_ascii=False).encode(
+                "utf-8"
+            )
+        ).hexdigest()
         async with self._condition:
-            previous = self._receipts.get(record.record_id)
+            previous = self._receipts.get(record_id)
             if previous is not None:
                 if previous[1] != digest:
                     raise InboxError("Question already received a different reply")
-                return InboxReceipt(previous[0], record.record_id, False)
+                return InboxReceipt(previous[0], record_id, False)
             if (
                 self._closed
                 or self._question is None
                 or self._question.question_id != question_id
             ):
                 raise InboxClosedError("Question is not awaiting a reply")
+            try:
+                text = self._question.content.answer_text(answer)
+            except QuestionError as exc:
+                raise InboxError(str(exc)) from exc
+            record = InboxRecord(
+                InboxKind.REPLY,
+                {"text": text, "reply_to": question_id, "answer": answer.to_json()},
+                record_id,
+            )
+            encoded = _encode(record)
             if len(encoded) > self._max_record_bytes:
                 raise InboxCapacityError("Reply exceeds the reserved record size")
             self._sequence += 1

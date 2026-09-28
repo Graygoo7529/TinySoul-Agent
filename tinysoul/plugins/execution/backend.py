@@ -14,6 +14,7 @@ from tinysoul.infra.process import (
     ProcessContractError,
 )
 from tinysoul.kernel.jobs import JobError, JobFailureKind, JobSnapshot, JobState
+from tinysoul.kernel.jobs.output import JobOutputPosition
 
 from .config import ExecutionSettings
 from .failures import ExecutionRequestError
@@ -153,6 +154,36 @@ class ProcessJobBackend:
         result = await operations.run(self._describe)
         operations.check_cancelled()
         return result
+
+    async def read_output(
+        self, *, continuation: str | None = None, max_chars: int = 16000
+    ) -> JsonObject:
+        channels = ("stdout", "stderr")
+        position = JobOutputPosition.decode(
+            continuation, job_id=self.job_id, channels=channels
+        )
+        operations = JoinedOperations()
+        value = await operations.run(
+            lambda: self.collect(
+                stdout_cursor=position.offsets[0],
+                stderr_cursor=position.offsets[1],
+                max_chars=min(max(1, max_chars // 2), self._settings.max_collect_chars),
+            )
+        )
+        operations.check_cancelled()
+        stdout, stderr = value["stdout_cursor"], value["stderr_cursor"]
+        assert isinstance(stdout, int) and isinstance(stderr, int)
+        return {
+            "job_id": self.job_id,
+            "items": [
+                {"channel": channel, "text": value[channel]} for channel in channels
+            ],
+            "next_continuation": JobOutputPosition((stdout, stderr)).encode(
+                job_id=self.job_id, channels=channels
+            ),
+            "truncated": bool(value["stdout_truncated"] or value["stderr_truncated"]),
+            "result_locators": [{"link": link} for link in self._workspace_links],
+        }
 
     def _describe(self) -> JsonObject:
         with self._lock:

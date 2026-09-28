@@ -2,23 +2,25 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
-from typing import cast
 from uuid import uuid4
-from tinysoul.kernel.action.call import ActionCall, ExecutionFact, ExecutionState
-from tinysoul.kernel.action.result import ActionResult
 
 from tinysoul.infra.concurrency import CleanupDiagnostic
-from tinysoul.infra.continuation import MIN_CONTINUATION_PAGE_CHARS
+from tinysoul.infra.continuation import (
+    MIN_CONTINUATION_PAGE_CHARS,
+    OpaqueContinuationCodec,
+)
 from tinysoul.infra.json import JsonObject, to_json_object
-from tinysoul.llm.protocol.messages import MessageStack, ToolResultMessage
+from tinysoul.infra.paging import PageOptions
 from tinysoul.infra.references import ReferenceResolver
-from tinysoul.infra.continuation import OpaqueContinuationCodec
-from tinysoul.kernel.retrieval.contracts import RetrievalRequest, RefsSource
+from tinysoul.kernel.action.call import ActionCall, ExecutionFact, ExecutionState
+from tinysoul.kernel.action.result import ActionResult
+from tinysoul.kernel.interaction import QuestionAnswer
+from tinysoul.kernel.retrieval.contracts import RefsSource, RetrievalRequest
 from tinysoul.kernel.retrieval.operations import SearchCorpus
-from .disclosure import DisclosureSearchEntry, DisclosureReference, DisclosurePage
-from .search import disclosure_corpus
+from tinysoul.llm.protocol.messages import MessageStack
+from tinysoul.llm.protocol.projection import message_projection
 from tinysoul.llm.protocol.tools import ToolCallRecord, ToolScope
 from tinysoul.runtime import (
     NullObservationEmitter,
@@ -37,7 +39,25 @@ from .background import (
     BackgroundPatch,
     check_background_patches,
 )
-from .projection.composer import ContextBudget, MessageStackComposer
+from .builtin.core import (
+    CORE_DESCRIPTORS,
+    CORE_SEGMENT_IDS,
+    InputsSegment,
+    PlanSegment,
+    TraceSegment,
+    core_registrations,
+)
+from .builtin.trace import (
+    PendingInputs,
+    SealedTurnTrace,
+    TraceAction,
+    TraceCompactionReport,
+    TraceFact,
+    TraceFactKind,
+    TraceKind,
+    TurnTraceHeap,
+)
+from .builtin.working import WorkingContext, WorkingPatch
 from .compress import ContextCompressor, ContextPressureReport
 from .config import ContextSettings
 from .control.tools import (
@@ -47,43 +67,33 @@ from .control.tools import (
     ControlResult,
     ControlResultStage,
 )
+from .disclosure import DisclosurePage, DisclosureReference, DisclosureSearchEntry
 from .errors import (
     ContextContractError,
-    ContextInvariantError,
     ContextInspectFailureReason,
     ContextInspectRequestError,
+    ContextInvariantError,
+)
+from .projection.composer import (
+    ContextBudget,
+    MessageStackComposer,
+    estimate_chars,
+    estimate_image_bytes,
 )
 from .prompts import TaskPrompt
 from .providers import SegmentSelectionView
+from .search import disclosure_corpus
+from .segments import RegisteredSegment, SegmentRegistry, TurnInfo, TurnSegments
 from .signals import (
     SIGNAL_BACKGROUND_PATCH,
     SIGNAL_INPUT_APPEND,
     SIGNAL_NAMESPACE,
     SIGNAL_TRACE_APPEND,
     SIGNAL_WORKING_PATCH,
-    parse_background_patch_signal,
-    parse_working_patch_signal,
-    parse_input_append_signal,
     build_trace_phase_note_signal,
-)
-from .builtin.trace import (
-    PendingInputs,
-    SealedTurnTrace,
-    TraceCompactionReport,
-    TraceKind,
-    TraceFactKind,
-    TraceAction,
-    TurnTraceHeap,
-)
-from .builtin.working import WorkingContext, WorkingPatch
-from .segments import RegisteredSegment, SegmentRegistry, TurnInfo, TurnSegments
-from .builtin.core import (
-    CORE_DESCRIPTORS,
-    CORE_SEGMENT_IDS,
-    InputsSegment,
-    PlanSegment,
-    TraceSegment,
-    core_registrations,
+    parse_background_patch_signal,
+    parse_input_append_signal,
+    parse_working_patch_signal,
 )
 
 
@@ -95,6 +105,7 @@ class ContextTurnInput:
     received_at: float
     input_id: str = field(default_factory=lambda: f"input_{uuid4().hex}")
     reply_to: str = ""
+    answer: QuestionAnswer | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.text, str) or not self.text:
@@ -116,6 +127,7 @@ class ContextTurnFacts:
     turn_id: str
     inputs: tuple[ContextTurnInput, ...]
     actions: tuple[TraceAction, ...]
+    timeline: tuple[TraceFact, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.turn_id or not self.inputs:
@@ -413,8 +425,11 @@ class ContextEngine:
             raise ContextContractError(
                 "Context segments must be opened before composition"
             )
-        return self._composer.compose(
-            segments=self._segments.render(), task_prompt=task_prompt
+        return replace(
+            self._composer.compose(
+                segments=self._segments.render(), task_prompt=task_prompt
+            ),
+            resolved_references=self._segments.resolved_references(),
         )
 
     def control_scope(self) -> ToolScope:
@@ -600,6 +615,16 @@ class ContextEngine:
                     link for link in background_before if link not in after
                 ),
             )
+        if ordered:
+            emit_observation(
+                self._observations,
+                ObservationEvent(
+                    name="context.installed",
+                    level=ObservationLevel.VERBOSE,
+                    source="context.engine",
+                    payload={"turn_id": self._turn_id},
+                ),
+            )
         return tuple(sorted(results, key=lambda result: result.sequence))
 
     def merge_pending_inputs(self) -> int:
@@ -713,7 +738,9 @@ class ContextEngine:
         current_ids = {item.ref for item in current}
         remaining_seeds = tuple(ref for ref in seeds if ref not in current_ids)
         entries = (
-            await self._segments.search_entries(getattr(request.source, "scope", "all"), remaining_seeds)
+            await self._segments.search_entries(
+                getattr(request.source, "scope", "all"), remaining_seeds
+            )
             if not seeds or remaining_seeds
             else ()
         )
@@ -788,6 +815,82 @@ class ContextEngine:
         self._require_turn()
         return self._trace.seal()
 
+    @property
+    def active_turn_id(self) -> str:
+        return self._turn_id if self._segments is not None else ""
+
+    def installed_overview(self) -> JsonObject:
+        self._require_turn()
+        if self._segments is None:
+            raise ContextContractError("Context segments are unavailable")
+        projections = self._segments.render()
+        selections = self._segments.selections()
+        values = []
+        for projection in projections:
+            descriptor = projection.descriptor
+            selection = selections.get(descriptor.id)
+            values.append(
+                {
+                    "id": descriptor.id,
+                    "owner": descriptor.owner,
+                    "slot": descriptor.slot.value,
+                    "shape": descriptor.shape.value,
+                    "order": descriptor.order,
+                    "capabilities": sorted(
+                        item.value for item in descriptor.capabilities
+                    ),
+                    "root_refs": list(descriptor.ref_prefixes),
+                    "chars": estimate_chars(projection.messages),
+                    "image_bytes": estimate_image_bytes(projection.messages),
+                    "available_refs": list(selection.available) if selection else [],
+                    "loaded_refs": list(selection.loaded) if selection else [],
+                    "protected_refs": list(selection.protected) if selection else [],
+                }
+            )
+        return to_json_object(
+            {
+                "turn_id": self._turn_id,
+                "day": self._search_day.isoformat() if self._search_day else None,
+                "segments": values,
+                "resolved_references": self._segments.resolved_references(),
+                "measurement": "characters_and_inline_image_bytes_not_tokens",
+            }
+        )
+
+    def resolved_references(self) -> JsonObject:
+        self._require_turn()
+        if self._segments is None:
+            raise ContextContractError("Context segments are unavailable")
+        return self._segments.resolved_references()
+
+    def installed_segment(
+        self, segment_id: str, page: PageOptions = PageOptions()
+    ) -> JsonObject:
+        self._require_turn()
+        if self._segments is None:
+            raise ContextContractError("Context segments are unavailable")
+        projections = self._segments.render()
+        offset = 0
+        for projection in projections:
+            if projection.descriptor.id == segment_id:
+                return page.render(
+                    tuple(
+                        {
+                            "message_index": offset + index,
+                            "message": message_projection(message),
+                        }
+                        for index, message in enumerate(projection.messages)
+                    ),
+                    owner="context",
+                    ref=f"{self._turn_id}:{segment_id}",
+                    item_field="messages",
+                    base={"turn_id": self._turn_id, "segment_id": segment_id},
+                )
+            offset += len(projection.messages)
+        raise ContextInspectRequestError(
+            ContextInspectFailureReason.UNKNOWN_REF, "Unknown installed segment"
+        )
+
     def current_facts(self) -> ContextTurnFacts:
         """Capture on the event loop; owners may then read this value off-loop."""
         self._require_turn()
@@ -799,10 +902,12 @@ class ContextEngine:
                     received_at=item.received_at,
                     input_id=item.input_id,
                     reply_to=item.reply_to,
+                    answer=item.answer,
                 )
                 for item in self._inputs.all()
             ),
             self._trace.actions(),
+            self._trace.timeline(),
         )
 
     def end_turn(self) -> ContextTurnCompletion:
@@ -815,6 +920,7 @@ class ContextEngine:
                     received_at=item.received_at,
                     input_id=item.input_id,
                     reply_to=item.reply_to,
+                    answer=item.answer,
                 )
                 for item in self._inputs.all()
             ),

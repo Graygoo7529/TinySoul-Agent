@@ -11,7 +11,7 @@ from tinysoul.runtime import ObservationEvent, ObservationLevel
 
 from ..errors import EndpointContractError, EndpointInvariantError
 from .journal import EndpointEventJournal
-from .models import EndpointEventEnvelope, EndpointEventPage
+from .models import EndpointEventEnvelope, EndpointEventPage, EventFilter
 
 
 class EndpointEventBuffer:
@@ -69,16 +69,18 @@ class EndpointEventBuffer:
                 {"level": frame.level.value, "name": frame.name}
                 for frame in event.scope
             )
-            record = to_json_object({
-                "sequence": sequence,
-                "name": event.name,
-                "level": event.level.value,
-                "source": event.source,
-                "scope": list(scope),
-                "message": event.message,
-                "payload": event.payload,
-                "created_at": event.created_at,
-            })
+            record = to_json_object(
+                {
+                    "sequence": sequence,
+                    "name": event.name,
+                    "level": event.level.value,
+                    "source": event.source,
+                    "scope": list(scope),
+                    "message": event.message,
+                    "payload": event.payload,
+                    "created_at": event.created_at,
+                }
+            )
             size = len(dumps_json(record).encode("utf-8"))
             if size > self._max_bytes:
                 raise EndpointInvariantError(
@@ -111,99 +113,65 @@ class EndpointEventBuffer:
         after: int,
         mode: ObservationLevel,
         limit: int = 200,
+        filters: EventFilter = EventFilter(),
     ) -> EndpointEventPage:
         if after < 0 or limit <= 0:
             raise EndpointContractError("Endpoint replay bounds are invalid")
         with self._condition:
-            memory = tuple(self._events)
-            sequence = self._sequence
-            journal = self._journal
-            page_bytes = self._page_bytes
-
+            memory, sequence, journal = (
+                tuple(self._events),
+                self._sequence,
+                self._journal,
+            )
+        upper = (
+            min(sequence, filters.through) if filters.through is not None else sequence
+        )
         memory_oldest = memory[0].sequence if memory else sequence + 1
-        retained_oldest = memory_oldest
-        if journal is not None and not journal.degraded:
-            journal_oldest = journal.oldest_sequence
-            if journal_oldest is not None:
-                retained_oldest = journal_oldest
+        oldest = journal.oldest_sequence if journal and not journal.degraded else None
+        retained_oldest = oldest if oldest is not None else memory_oldest
         gap = after < retained_oldest - 1 or after > sequence
         if after > sequence:
             after = 0
-
         selected: list[EndpointEventEnvelope] = []
-        used_bytes = 0
+        scanned, used = after, 0
 
-        def _accept(event: EndpointEventEnvelope) -> bool:
-            nonlocal used_bytes
-            if _level_rank(event.level) > _level_rank(mode):
+        def accept(event: EndpointEventEnvelope) -> bool:
+            nonlocal scanned, used
+            if event.sequence > upper:
+                return False
+            if _level_rank(event.level) > _level_rank(mode) or not filters.matches(
+                event
+            ):
+                scanned = event.sequence
                 return True
-            if selected and used_bytes + event.size_bytes > page_bytes:
+            if selected and used + event.size_bytes > self._page_bytes:
                 return False
             selected.append(event)
-            used_bytes += event.size_bytes
+            used += event.size_bytes
+            scanned = event.sequence
             return len(selected) < limit
 
-        need_journal = (
-            journal is not None
-            and not journal.degraded
-            and after < memory_oldest - 1
-        )
-        if need_journal:
-            journal_page = journal.read_after_page(
+        if journal and not journal.degraded and after < memory_oldest - 1:
+            page = journal.read_after_page(
                 after=after,
                 mode=mode,
                 limit=limit,
+                filters=filters,
+                through=min(upper, memory_oldest - 1),
             )
-            if journal.degraded:
-                gap = gap or after < memory_oldest - 1
-            reached_memory = False
-            for event in journal_page.events:
-                if event.sequence >= memory_oldest:
-                    reached_memory = True
-                    break
-                if not _accept(event):
-                    next_sequence = selected[-1].sequence if selected else after
-                    return EndpointEventPage(
-                        events=tuple(selected),
-                        next_sequence=next_sequence,
-                        gap=gap,
-                    )
-            # A healthy journal page that stopped at its record/byte boundary
-            # must preserve its cursor. Once a read has degraded the journal,
-            # gap=true explicitly accounts for the unavailable range and the
-            # hot memory tail remains the only usable continuation.
-            if (
-                not reached_memory
-                and not journal_page.complete
-                and not journal.degraded
-            ):
-                next_sequence = selected[-1].sequence if selected else after
-                return EndpointEventPage(
-                    events=tuple(selected),
-                    next_sequence=next_sequence,
-                    gap=gap,
-                )
-
-        if len(selected) < limit and (
-            not selected or used_bytes < page_bytes
-        ):
-            for event in memory:
-                if event.sequence <= after:
-                    continue
-                if not _accept(event):
-                    next_sequence = selected[-1].sequence if selected else after
-                    return EndpointEventPage(
-                        events=tuple(selected),
-                        next_sequence=next_sequence,
-                        gap=gap,
-                    )
-
-        next_sequence = selected[-1].sequence if selected else sequence
-        return EndpointEventPage(
-            events=tuple(selected),
-            next_sequence=next_sequence,
-            gap=gap,
-        )
+            for event in page.events:
+                if not accept(event):
+                    return EndpointEventPage(tuple(selected), scanned, gap)
+            scanned = max(scanned, page.scanned_through)
+            if not page.complete and not journal.degraded:
+                return EndpointEventPage(tuple(selected), scanned, gap)
+            gap = gap or journal.degraded
+        for event in memory:
+            if event.sequence <= scanned or event.sequence > upper:
+                continue
+            if not accept(event):
+                return EndpointEventPage(tuple(selected), scanned, gap)
+        return EndpointEventPage(tuple(selected), max(scanned, upper), gap)
 
     def wait_after(
         self,

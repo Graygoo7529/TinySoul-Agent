@@ -12,6 +12,7 @@ from tinysoul.runtime import ObservationLevel
 from ...config import EndpointSettings
 from ...engine import EndpointEngine
 from ...errors import EndpointRequestError
+from ...events.models import EventFilter
 from ..auth import websocket_cursor, websocket_mode, websocket_token_valid
 
 
@@ -26,8 +27,28 @@ def register_event_routes(
         mode: ObservationLevel = Query(default=ObservationLevel.NORMAL),
         limit: int = Query(default=200, ge=1, le=1000),
         instance_id: str | None = None,
+        turn_id: str | None = None,
+        task_id: str | None = None,
+        call_id: str | None = None,
+        search_id: str | None = None,
+        step_index: int | None = Query(None, ge=0),
+        through: int | None = Query(None, ge=0),
     ) -> JsonObject:
-        page = engine.events.replay(after=after, mode=mode, limit=limit, instance_id=instance_id)
+        if step_index is not None and search_id is None:
+            raise EndpointRequestError(
+                status_code=422,
+                code="request.invalid",
+                message="step_index requires search_id",
+            )
+        page = engine.events.replay(
+            after=after,
+            mode=mode,
+            limit=limit,
+            instance_id=instance_id,
+            filters=EventFilter(
+                turn_id, task_id, call_id, search_id, step_index, through
+            ),
+        )
         return {"instance_id": settings.instance_id, **page.to_json()}
 
     @app.websocket("/v2/events/ws")
@@ -57,20 +78,34 @@ def register_event_routes(
                 }
             )
             page = await asyncio.to_thread(
-                engine.events.replay, after=after, mode=mode, limit=200,
+                engine.events.replay,
+                after=after,
+                mode=mode,
+                limit=200,
                 instance_id=instance_id,
             )
             while True:
                 if page.events or page.gap:
-                    await websocket.send_json({"type": "events", "instance_id": settings.instance_id, **page.to_json()})
+                    await websocket.send_json(
+                        {
+                            "type": "events",
+                            "instance_id": settings.instance_id,
+                            **page.to_json(),
+                        }
+                    )
                 else:
                     await websocket.send_json(
-                        {"type": "heartbeat", "instance_id": settings.instance_id,
-                         "next_sequence": page.next_sequence}
+                        {
+                            "type": "heartbeat",
+                            "instance_id": settings.instance_id,
+                            "next_sequence": page.next_sequence,
+                        }
                     )
                 after = page.next_sequence
                 page = await asyncio.to_thread(
-                    engine.events.wait_after, after=after, mode=mode,
+                    engine.events.wait_after,
+                    after=after,
+                    mode=mode,
                     timeout_seconds=settings.websocket_heartbeat_seconds,
                 )
         except (WebSocketDisconnect, asyncio.TimeoutError):

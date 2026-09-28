@@ -112,9 +112,10 @@ class DotenvSource:
 class DotenvDocument:
     """Editable dotenv document that preserves untouched lines and comments."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, text: str | None = None) -> None:
         self.path = path
-        text = path.read_text(encoding="utf-8") if path.exists() else ""
+        if text is None:
+            text = path.read_text(encoding="utf-8") if path.exists() else ""
         self._lines = text.splitlines()
 
     @property

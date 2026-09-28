@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from ..errors import LLMContractError
-from .reasoning import ReasoningKeep
 from .adapter_types import AdapterKind
+from .reasoning import ReasoningKeep
 
 
 class ModelCapability(StrEnum):
@@ -106,8 +106,14 @@ class ModelSpec:
     )
     adapter_options: AdapterOptions = field(default_factory=AdapterOptions)
     request_overrides: RequestOverrides = field(default_factory=RequestOverrides)
+    family: str = ""
+    collapsed: bool = False
 
     def __post_init__(self) -> None:
+        if not isinstance(self.family, str) or type(self.collapsed) is not bool:
+            raise LLMContractError(
+                "Model display metadata requires text family and boolean collapsed"
+            )
         if not isinstance(self.id, str) or not self.id:
             raise LLMContractError("ModelSpec.id must be non-empty")
         try:

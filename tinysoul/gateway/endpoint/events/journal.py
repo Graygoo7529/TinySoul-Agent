@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import os
-from pathlib import Path
 import re
+from dataclasses import dataclass
+from pathlib import Path
 from threading import Lock
 from typing import TYPE_CHECKING
 
@@ -15,6 +15,7 @@ from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
 from tinysoul.runtime import ObservationLevel
 
 from ..errors import EndpointContractError
+from .models import EventFilter
 
 if TYPE_CHECKING:
     from .models import EndpointEventEnvelope
@@ -123,6 +124,8 @@ class EndpointEventJournal:
         after: int,
         mode: ObservationLevel,
         limit: int,
+        filters: EventFilter = EventFilter(),
+        through: int | None = None,
     ) -> JournalReadPage:
         from .buffer import _level_rank
 
@@ -139,10 +142,16 @@ class EndpointEventJournal:
                         scanned_through = max(scanned_through, part.last_sequence)
                         continue
                     for envelope in self._read_part(part):
+                        if through is not None and envelope.sequence > through:
+                            return JournalReadPage(
+                                tuple(selected), max(scanned_through, through), True
+                            )
                         scanned_through = max(scanned_through, envelope.sequence)
                         if envelope.sequence <= after:
                             continue
                         if _level_rank(envelope.level) > _level_rank(mode):
+                            continue
+                        if not filters.matches(envelope):
                             continue
                         selected.append(envelope)
                         if len(selected) >= limit:
@@ -219,14 +228,10 @@ class EndpointEventJournal:
 
     def _append_locked(self, envelope: EndpointEventEnvelope) -> None:
         if envelope.sequence != self._latest_sequence + 1:
-            raise EndpointContractError(
-                "journal append sequence must be contiguous"
-            )
+            raise EndpointContractError("journal append sequence must be contiguous")
         line = dumps_json(envelope.to_json()).encode("utf-8") + b"\n"
         if len(line) > self._max_segment_bytes:
-            raise EndpointContractError(
-                "journal event exceeds the segment byte budget"
-            )
+            raise EndpointContractError("journal event exceeds the segment byte budget")
         if (
             self._current_path is None
             or self._current_bytes + len(line) > self._max_segment_bytes
@@ -306,7 +311,6 @@ class EndpointEventJournal:
         }
 
     def _read_part(self, part: _PartInfo) -> list[EndpointEventEnvelope]:
-        from .models import EndpointEventEnvelope
 
         path = self._root / part.name
         events: list[EndpointEventEnvelope] = []

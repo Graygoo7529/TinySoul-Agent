@@ -2,26 +2,28 @@
 
 from __future__ import annotations
 
+import re
+import tomllib
 from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
-import tomllib
-import re
 
-from ..errors import ConfigError
+from ...filesystem import atomic_write_text
 from ..descriptors import load_config_catalog
 from ..descriptors.models import ConfigCatalog, ConfigValueKind
+from ..errors import ConfigError
 from .source import ConfigSource, ConfigSourceKind
-from ...filesystem import atomic_write_text
 
 
 class ConfigFileToml:
     """Readable and writable TOML configuration file."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, data: Mapping[str, object] | None = None) -> None:
         self.path = path
         self._data: dict[str, object] = {}
-        if self.path.exists():
+        if data is not None:
+            self._data = deep_copy_mapping(data)
+        elif self.path.exists():
             self._data = _string_key_mapping(
                 tomllib.loads(self.path.read_text(encoding="utf-8"))
             )

@@ -13,6 +13,7 @@ from math import isfinite
 from uuid import uuid4
 
 from tinysoul.infra.json import JsonObject, JsonValue, to_json_object
+from tinysoul.kernel.interaction import QuestionAnswer, QuestionError
 from tinysoul.llm.protocol.messages import (
     AssistantMessage,
     JsonPart,
@@ -23,11 +24,11 @@ from tinysoul.llm.protocol.reasoning import Reasoning
 from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind, ToolResultStatus
 from tinysoul.runtime import CyclePhase, RunScope, Signal
 
-from .errors import ContextContractError
 from .background import (
     BackgroundPatch,
 )
 from .builtin.working import Milestone, TodoItem, TodoStatus, WorkingPatch
+from .errors import ContextContractError
 
 SIGNAL_NAMESPACE = "context"
 SIGNAL_WORKING_PATCH = "context.working.patch"
@@ -377,7 +378,10 @@ def parse_trace_append_signal(signal: Signal) -> TraceAppend:
         if sequence is not None and (type(sequence) is not int or sequence <= 0):
             raise ContextContractError("Trace admission sequence must be positive")
         return TraceAppend(
-            kind=kind, cycle_id=cycle_id, phase=phase, note=note,
+            kind=kind,
+            cycle_id=cycle_id,
+            phase=phase,
+            note=note,
             admission_sequence=sequence,
         )
     raise ContextContractError(f"Unknown trace append kind: {kind.value}")
@@ -394,6 +398,7 @@ class InputAppend:
     reply_to: str = ""
     admission_sequence: int | None = None
     received_at: float | None = None
+    answer: QuestionAnswer | None = None
 
     def __post_init__(self) -> None:
         if not self.text or not self.input_id or not isinstance(self.reply_to, str):
@@ -409,6 +414,7 @@ def build_input_append_signal(
     reply_to: str = "",
     admission_sequence: int | None = None,
     received_at: float | None = None,
+    answer: QuestionAnswer | None = None,
 ) -> Signal:
     if not text:
         raise ContextContractError("Input append signal requires non-empty text")
@@ -422,6 +428,7 @@ def build_input_append_signal(
             "reply_to": reply_to,
             "admission_sequence": admission_sequence,
             "received_at": received_at,
+            "answer": answer.to_json() if answer is not None else None,
         },
     )
 
@@ -438,12 +445,21 @@ def parse_input_append_signal(signal: Signal) -> InputAppend:
         or received_at < 0
     ):
         raise ContextContractError("Input receipt time must be finite and non-negative")
+    try:
+        answer = (
+            QuestionAnswer.from_json(signal.payload["answer"])
+            if signal.payload.get("answer") is not None
+            else None
+        )
+    except QuestionError as exc:
+        raise ContextContractError("Input answer is invalid") from exc
     return InputAppend(
         _required_str(signal.payload, "text"),
         _required_str(signal.payload, "input_id"),
         _optional_str(signal.payload, "reply_to"),
         sequence,
         received_at,
+        answer,
     )
 
 

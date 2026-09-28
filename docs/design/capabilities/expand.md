@@ -19,6 +19,8 @@ describe_tools 面向模型的分页按完整定义分组，同时限制条目�
 
 ## 有界语义搜索
 
+MCP 页面 GET 只读取 ExpandEngine 已发现目录和连接状态，不 connect/discover；refresh 才明确触发 owner I/O。目录变化发布轻量 Observation。空闲 ACP connection 由 SubagentEngine generation 共享并可跨 Turn，Job 与连接状态分别投影；UI 不创建连接。
+
 来源由 ExpandEngine 的真实 server/tool directory 提供，先应用服务启用、工具选择和显式属性/排除，再构造包含完整原始定义的内容快照。query 在名称、描述和参数定义上做 literal/regex 匹配；directory 直接形成候选，供自然语言 select/rerank 使用，不经过词法初筛。没有 MCP 向量索引或递归内部搜索。
 
 公共 SearchSession 使用 query、directory、refs、result 来源和 filter/select/rerank 管道；refs 保持显式顺序。ActionTaskFactory 提供局部 Skill 与可选 Context，MCP 默认 context=none。模型输入和页面使用共享真实内容投影并标明覆盖；摘录不足以确定参数时，通过 describe_tools 读取完整定义再 call。不能把 Search 的 schema 摘录当作完整工具定义。LLM 指认依据、JEV Score 与完整结果分页遵循 [公共检索契约](../action-model-retrieval.md)。

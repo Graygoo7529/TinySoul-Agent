@@ -1,4 +1,6 @@
 [llm.models.kimi_k2_7]
+family = "kimi"
+collapsed = false
 adapter = "kimi"
 providers = [
   { provider = "orca", provider_model = "kimi/kimi-k2.7-code" },
@@ -23,6 +25,8 @@ thinking = "enabled"
 temperature = 1.0
 
 [llm.models.kimi_k3]
+family = "kimi"
+collapsed = false
 adapter = "kimi"
 providers = [
   { provider = "orca", provider_model = "kimi/kimi-k3" },

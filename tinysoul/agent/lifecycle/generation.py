@@ -4,33 +4,33 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from tinysoul.agent.user import UserTurnEntry
+from tinysoul.infra import InfraSettings
 from tinysoul.infra.concurrency import (
     AsyncResourceScope,
     CleanupDiagnostic,
 )
-
 from tinysoul.infra.config import ConfigEnvironment
-from tinysoul.infra import InfraSettings
 from tinysoul.kernel.action import LoadedActionCatalog
 from tinysoul.kernel.action.config import ActionSettings
 from tinysoul.kernel.action.models import ModelUseRegistry
 from tinysoul.kernel.context import ContextSettings
-from tinysoul.llm.config.types import LLMConfig, ProviderCredentialStatus
-from tinysoul.kernel.loop.config import LoopSettings
+from tinysoul.kernel.jobs.models import JobControl
 from tinysoul.kernel.loop.assembly import TurnProfile
+from tinysoul.kernel.loop.config import LoopSettings
 from tinysoul.kernel.registration import (
     PluginGeneration,
     ServiceExport,
     ServiceRegistration,
+    ServiceRegistry,
 )
-from tinysoul.agent.user import UserTurnEntry
+from tinysoul.llm.config.types import LLMConfig, ProviderCredentialStatus
 from tinysoul.plugins.reflection import ReflectionEngine, ReflectionSettings
 from tinysoul.plugins.workspace import WorkspaceEngine
-from tinysoul.kernel.jobs.models import JobControl
 
 from ..config import AgentSettings
 from ..dispatch.inputs import InputCommandParser
-from .day import DayLifecycle
+from .day import AgentDayCoordinator
 from .sources import GenerationSources
 
 
@@ -60,7 +60,7 @@ class AgentGeneration:
     llm_provider_credentials: tuple[ProviderCredentialStatus, ...]
     user_turn: UserTurnEntry
     reflection: ReflectionEngine
-    day: DayLifecycle
+    day: AgentDayCoordinator
     workspace: WorkspaceEngine
     jobs: JobControl
     input_parser: InputCommandParser
@@ -74,6 +74,16 @@ class AgentGeneration:
     @property
     def profiles(self) -> tuple[TurnProfile, ...]:
         return (self.user_turn.profile, *self.reflection_profiles)
+
+    @property
+    def plugin_services(self) -> ServiceRegistry:
+        return ServiceRegistry(
+            tuple(
+                service
+                for plugin in self.plugin_generations
+                for service in plugin.services
+            )
+        )
 
     @property
     def sdk_exports(self) -> tuple[ServiceExport, ...]:

@@ -11,24 +11,25 @@ from typing import TYPE_CHECKING
 
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.config import ConfigController, ConfigMutation
-from tinysoul.infra.time import CalendarDay
 from tinysoul.infra.json import JsonObject
+from tinysoul.infra.time import CalendarDay
+from tinysoul.kernel.interaction import QuestionAnswer
+from tinysoul.kernel.jobs import JobSnapshot
 from tinysoul.kernel.loop.interaction.inbox import InboxLimits, InboxReceipt
+from tinysoul.kernel.registration import ServiceRegistry
 from tinysoul.plugins.reflection.models import ReflectionRequest
 from tinysoul.runtime.events import EnvironmentEvent, EventReceipt
 from tinysoul.runtime.sources import SourceStatus
 
+from .commands import AgentCommands
 from .errors import AgentClosedError, AgentSDKError
 from .handles import RequestFailure, TurnHandle, TurnSnapshot
-from tinysoul.kernel.jobs import JobSnapshot
-from .requests import UserTurnRequest
-from .commands import AgentCommands
 from .observation.observations import ObservationFilter, ObservationSubscription
-from tinysoul.kernel.registration import ServiceRegistry
+from .requests import UserTurnRequest
 
 if TYPE_CHECKING:
-    from tinysoul.agent.dispatch.scheduler import AgentRunResult
     from tinysoul.agent.composition.assembly import AgentAssembly, AgentRuntime
+    from tinysoul.agent.dispatch.scheduler import AgentRunResult
 
 
 class AgentState(StrEnum):
@@ -132,7 +133,9 @@ class Agent:
             active.turn_id if active is not None else None,
             runtime.agent_runner.queued_turn_ids if runtime is not None else (),
             runtime.observations.failures if runtime is not None else (),
-            runtime.generation_handle.snapshot().generation.sources.statuses if runtime is not None else (),
+            runtime.generation_handle.snapshot().generation.sources.statuses
+            if runtime is not None
+            else (),
         )
 
     async def start(self) -> None:
@@ -186,7 +189,8 @@ class Agent:
                     try:
                         await runtime.agent_runner.close_requests(
                             request_failure=(
-                                RequestFailure.CANCELLED if cancelled
+                                RequestFailure.CANCELLED
+                                if cancelled
                                 else RequestFailure.FAILED
                             ),
                             error_type=None if cancelled else type(exc).__name__,
@@ -230,9 +234,9 @@ class Agent:
         return await self.commands.grant_cycles(turn_id, request_id, count)
 
     async def reply(
-        self, turn_id: str, question_id: str, response: str
+        self, turn_id: str, question_id: str, answer: QuestionAnswer
     ) -> InboxReceipt:
-        return await self.commands.reply(turn_id, question_id, response)
+        return await self.commands.reply(turn_id, question_id, answer)
 
     async def publish(self, event: EnvironmentEvent) -> EventReceipt:
         return await self.commands.publish(event)

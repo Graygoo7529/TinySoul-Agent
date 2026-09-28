@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from tinysoul.infra.json import JsonObject
 from tinysoul.runtime import ObservationLevel
 
+from ..errors import EndpointContractError
+
 
 @dataclass(frozen=True)
 class EndpointEventEnvelope:
@@ -45,3 +47,41 @@ class EndpointEventPage:
             "next_sequence": self.next_sequence,
             "gap": self.gap,
         }
+
+
+@dataclass(frozen=True)
+class EventFilter:
+    turn_id: str | None = None
+    task_id: str | None = None
+    call_id: str | None = None
+    search_id: str | None = None
+    step_index: int | None = None
+    through: int | None = None
+
+    def __post_init__(self) -> None:
+        if (
+            self.step_index is not None
+            and (self.search_id is None or self.step_index < 0)
+            or self.through is not None
+            and self.through < 0
+        ):
+            raise EndpointContractError("Event filter boundaries are invalid")
+
+    def matches(self, event: EndpointEventEnvelope) -> bool:
+        for key in ("turn_id", "task_id", "call_id", "search_id", "step_index"):
+            expected = getattr(self, key)
+            if expected is None:
+                continue
+            actual = event.payload.get(key)
+            if key == "turn_id" and actual is None:
+                actual = next(
+                    (
+                        frame["name"]
+                        for frame in event.scope
+                        if frame.get("level") == "turn"
+                    ),
+                    None,
+                )
+            if actual != expected:
+                return False
+        return True

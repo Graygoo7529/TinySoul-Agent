@@ -6,39 +6,39 @@ from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
 
+from tinysoul.infra.json import JsonObject
+from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.context import (
     ContextTurnCompletion,
     ContextTurnFacts,
 )
-from tinysoul.infra.json import JsonObject
-from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.loop.outcomes import TurnFailure, TurnOutcomeStatus
 
-from .views.background import SessionBackgroundSnapshot
-from .completion import project_turn_record
-from .views.navigation import SessionEvidence
 from .annotations.models import (
-    SessionMap,
     OrganizeChange,
-    OrganizeResult,
-    OrganizeRequestError,
     OrganizeFailureReason,
+    OrganizeRequestError,
+    OrganizeResult,
+    SessionMap,
 )
 from .annotations.store import AnnotationStore
+from .completion import project_turn_record
 from .config import SessionSettings
 from .errors import (
     SessionContractError,
     SessionInvariantError,
 )
-from .views.memory import SessionMemoryFactsProjection, project_session_memory_facts
 from .records.models import (
     SessionManifest,
     SessionOutputRecord,
 )
-from .views import SessionView
-from .records.reconcile import SessionReconcileResult, SessionReconciler
+from .records.reconcile import SessionReconciler, SessionReconcileResult
 from .records.store import SessionStore
 from .records.validation import validate_turn_record
+from .views import SessionView
+from .views.background import SessionBackgroundSnapshot
+from .views.memory import SessionMemoryFactsProjection, project_session_memory_facts
+from .views.navigation import SessionEvidence
 
 
 @dataclass(frozen=True)
@@ -227,6 +227,17 @@ class SessionEngine:
         with self._lock:
             self._require_day(day)
             self._last_reconcile_result = self._reconcile_current()
+            return SessionView(
+                self._require_manifest(),
+                self._settings,
+                self._store,
+                annotations=self._map,
+            )
+
+    def read_view(self, day: CalendarDay) -> SessionView:
+        """Observe the committed head without reconciliation or persistence."""
+        with self._lock:
+            self._require_day(day)
             return SessionView(
                 self._require_manifest(),
                 self._settings,

@@ -10,28 +10,24 @@ from tinysoul.infra.continuation import (
     OpaqueContinuationCodec,
 )
 from tinysoul.infra.json import JsonObject, dumps_json
+from tinysoul.infra.paging import PageOptions
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.context.disclosure import (
     DisclosureHint,
     DisclosurePage,
-    query_hint,
-    DisclosureSearchEntry,
     DisclosureReference,
+    DisclosureSearchEntry,
+    query_hint,
 )
 
-from .background import (
-    SessionBackgroundItem,
-    SessionBackgroundSnapshot,
-)
-from .interaction import project_interactions, interaction_header
 from ..annotations.models import (
-    SessionMap,
-    SemanticNode,
     AnnotationKind,
     AnnotationStatus,
-    SemanticRelation,
-    OrganizeRequestError,
     OrganizeFailureReason,
+    OrganizeRequestError,
+    SemanticNode,
+    SemanticRelation,
+    SessionMap,
 )
 from ..config import SessionSettings
 from ..errors import (
@@ -41,20 +37,25 @@ from ..errors import (
     SessionInvariantError,
 )
 from ..records.models import SessionManifest, SessionTurnRecord
-from .navigation import (
-    SessionEvidence,
-    annotation_content,
-    annotation_relations,
-    annotation_navigation,
-    action_leaf_ref,
-    parse_action_ref,
-    project_action,
-    project_relations,
-    project_occurrence,
-    resource_links,
-)
 from ..records.store import SessionStore
 from ..records.validation import validate_turn_record
+from .background import (
+    SessionBackgroundItem,
+    SessionBackgroundSnapshot,
+)
+from .interaction import interaction_header, project_interactions
+from .navigation import (
+    SessionEvidence,
+    action_leaf_ref,
+    annotation_content,
+    annotation_navigation,
+    annotation_relations,
+    parse_action_ref,
+    project_action,
+    project_occurrence,
+    project_relations,
+    resource_links,
+)
 
 
 @dataclass(frozen=True)
@@ -92,6 +93,49 @@ class SessionView:
         if day != self.day:
             raise SessionContractError("Session view day does not match its source")
         return self
+
+    def turns(self, page: PageOptions = PageOptions()) -> JsonObject:
+        values: tuple[JsonObject, ...] = tuple(
+            {
+                "turn_id": ref.removeprefix("session:turn/"),
+                "ref": ref,
+                "day": record.day,
+                "status": record.status.value,
+                "initial_input_excerpt": record.inputs[0].text[:240],
+                "output_excerpt": record.output.text[:240] if record.output else "",
+                "question_count": sum(
+                    item.action == "core.ask" and item.result_id != ""
+                    for item in record.actions
+                ),
+            }
+            for ref in reversed(self.manifest.refs)
+            for record in (self._record(ref),)
+        )
+        return page.render(
+            values,
+            owner="session",
+            ref=f"{self.day}:turns",
+            base={"day": str(self.day)},
+        )
+
+    def interactions(
+        self, turn_id: str, page: PageOptions = PageOptions()
+    ) -> JsonObject:
+        record = self._requested_record(f"session:turn/{turn_id}")
+        return page.render(
+            tuple(item.to_json() for item in project_interactions(record)),
+            owner="session",
+            ref=record.ref,
+            base={**interaction_header(record), "turn_id": turn_id},
+        )
+
+    def resolved_references(self, turn_id: str) -> JsonObject:
+        record = self._requested_record(f"session:turn/{turn_id}")
+        segment = record.segments.get("memory")
+        bindings = (
+            segment.get("resolved_references") if isinstance(segment, dict) else None
+        )
+        return bindings if isinstance(bindings, dict) else {}
 
     def background_snapshot(self, day: CalendarDay) -> SessionBackgroundSnapshot:
         if day != self.day:

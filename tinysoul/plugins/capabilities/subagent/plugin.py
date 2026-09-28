@@ -15,19 +15,20 @@ from tinysoul.kernel.registration import (
     PluginTurnResource,
     ProfileBuildContext,
     ProfileKind,
+    Service,
 )
 from tinysoul.plugins.workspace.services import WorkspaceExecutionService
 from tinysoul.runtime.events import EventFilter
 
+from .actions import register_subagent_actions
 from .config import (
     SubagentSettings,
     parse_subagent_settings,
     validate_subagent_bindings,
 )
 from .engine import SubagentEngine
-from .actions import register_subagent_actions
 from .runtime_bridge import RuntimeSubagentBridge
-from .segments.connections import connections_registration, connection_refresh
+from .segments.connections import connection_refresh, connections_registration
 
 
 class SubagentTurnResources:
@@ -46,7 +47,7 @@ class SubagentPlugin:
     id = "subagent"
     model_uses = ()
     search_capabilities = ()
-    provides = ()
+    provides = (SubagentEngine,)
     requires = (JobRegistry, WorkspaceExecutionService)
     configuration = (
         PluginConfig(
@@ -102,6 +103,7 @@ class SubagentPlugin:
 
         return PluginGeneration(
             self.id,
+            services=(Service(SubagentEngine, engine),),
             profile_extension_factory=extend,
             sources=(engine,),
             release_day=release,

@@ -2,23 +2,23 @@
 
 from __future__ import annotations
 
+from tinysoul.infra.json import JsonObject
+from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.action.call import ExecutionState
 from tinysoul.kernel.context import (
     ContextTurnCompletion,
     ContextTurnInput,
 )
-from tinysoul.kernel.context.builtin.trace import TraceKind, TraceAction
-from tinysoul.infra.json import JsonObject
-from tinysoul.infra.time import CalendarDay
+from tinysoul.kernel.context.builtin.trace import TraceAction, TraceKind
 from tinysoul.kernel.loop.outcomes import TurnFailure, TurnOutcomeStatus
 
 from .records.models import (
     SessionActionOutcome,
     SessionActionRecord,
+    SessionFact,
     SessionInputRecord,
     SessionOutputRecord,
     SessionTurnRecord,
-    SessionFact,
 )
 
 
@@ -107,6 +107,7 @@ def project_turn_record(
                 received_at=item.received_at,
                 input_id=item.input_id,
                 reply_to=item.reply_to,
+                answer=item.answer,
             )
             for item in completion.inputs
         ),

@@ -6,21 +6,20 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from uuid import uuid4
-from tinysoul.environment.inputs import (
-    CommandReceipt,
-    InputEvent,
-    InputSource,
-    InputSink,
-)
 
 from tinysoul.agent.commands import AgentCommands
 from tinysoul.agent.errors import AgentClosedError, AgentQueueFullError, AgentSDKError
-from tinysoul.kernel.loop.interaction.inbox import InboxError, InboxCapacityError
+from tinysoul.agent.requests import ExitRequest, UserTurnRequest
+from tinysoul.environment.inputs import (
+    CommandReceipt,
+    InputEvent,
+)
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.infra.time import CalendarDay, CalendarDayError
+from tinysoul.kernel.interaction import AnswerKind, QuestionAnswer, QuestionError
 from tinysoul.kernel.loop import LoopControlKind
+from tinysoul.kernel.loop.interaction.inbox import InboxCapacityError, InboxError
 from tinysoul.plugins.reflection import (
-    ReflectionContractError,
     ReflectionRequest,
     ReflectionScope,
     ReflectionTrigger,
@@ -38,7 +37,6 @@ from tinysoul.runtime import (
 
 from ..config import InputCommandSettings
 from ..errors import AgentContractError
-from tinysoul.agent.requests import ExitRequest, UserTurnRequest
 
 
 class InputIntentKind(StrEnum):
@@ -285,7 +283,15 @@ class InputDispatcher:
                 )
             elif intent.kind is InputIntentKind.REPLY:
                 await self._commands.reply(
-                    active.turn_id, intent.correlation_id, intent.text
+                    active.turn_id,
+                    intent.correlation_id,
+                    QuestionAnswer(AnswerKind.CHOICE, option_id=intent.text)
+                    if active.question is not None
+                    and any(
+                        item.id == intent.text
+                        for item in active.question.content.options
+                    )
+                    else QuestionAnswer(AnswerKind.TEXT, text=intent.text),
                 )
             elif intent.kind is InputIntentKind.GRANT:
                 await self._commands.grant_cycles(
@@ -294,7 +300,7 @@ class InputDispatcher:
             else:
                 raise AgentContractError("Unsupported input intent")
             return self._accepted(intent, "signaled", scope)
-        except (AgentSDKError, InboxError) as exc:
+        except (AgentSDKError, InboxError, QuestionError) as exc:
             rejected = replace(intent, error=type(exc).__name__)
             self._emit_rejected(rejected)
             state = (

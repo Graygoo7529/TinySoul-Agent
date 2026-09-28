@@ -10,16 +10,18 @@ from uuid import uuid4
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.jobs import (
+    JobError,
     JobInputOption,
     JobInputRequest,
     JobSnapshot,
     JobState,
-    JobError,
 )
+from tinysoul.kernel.jobs.output import JobOutputPosition
 from tinysoul.plugins.workspace import WorkspaceError
-from tinysoul.plugins.workspace.services import WorkspaceExecutionPort
 from tinysoul.plugins.workspace.inspection.models import WorkspaceBundleWrite
 from tinysoul.plugins.workspace.runtime_bridge import RuntimeWorkspaceBridge
+from tinysoul.plugins.workspace.services import WorkspaceExecutionPort
+
 from ..acp.connection import ACPConnection
 from ..config import SubagentSettings
 from ..failures import SubagentFailure, SubagentRequestError
@@ -219,14 +221,43 @@ class ACPJobBackend:
                 SubagentFailure.INVALID_REQUEST, "Output cursor is unavailable."
             )
         await self._flush()
+        return self._read_output(cursor, self._settings.max_collect_chars)
+
+    def _read_output(self, cursor: int, limit: int) -> JsonObject:
         text = "".join(self._output)
-        end = min(len(text), cursor + self._settings.max_collect_chars)
+        end = min(len(text), cursor + limit)
         return {
             "job_id": self.job_id,
             "text": text[cursor:end],
             "next_cursor": end,
             "truncated": end < len(text),
             "result_link": self._link,
+        }
+
+    async def read_output(
+        self, *, continuation: str | None = None, max_chars: int = 16000
+    ) -> JsonObject:
+        channels = ("text",)
+        cursor = JobOutputPosition.decode(
+            continuation, job_id=self.job_id, channels=channels
+        ).offsets[0]
+        if cursor > self._chars:
+            raise SubagentRequestError(
+                SubagentFailure.INVALID_REQUEST, "Output cursor is unavailable"
+            )
+        value = self._read_output(
+            cursor, min(max_chars, self._settings.max_collect_chars)
+        )
+        offset = value["next_cursor"]
+        assert isinstance(offset, int)
+        return {
+            "job_id": self.job_id,
+            "items": [{"channel": "text", "text": value["text"]}],
+            "next_continuation": JobOutputPosition((offset,)).encode(
+                job_id=self.job_id, channels=channels
+            ),
+            "truncated": value["truncated"],
+            "result_locators": [{"link": self._link}] if self._saved_chars >= 0 else [],
         }
 
     async def describe(self) -> JsonObject:

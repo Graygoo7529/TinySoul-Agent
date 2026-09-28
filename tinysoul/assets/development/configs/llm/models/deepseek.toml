@@ -1,4 +1,6 @@
 [llm.models.deepseek_pro]
+family = "deepseek"
+collapsed = false
 adapter = "deepseek"
 providers = [
   { provider = "orca", provider_model = "deepseek/deepseek-v4-pro" },
@@ -18,6 +20,8 @@ reasoning_effort = "high"
 reasoning_keep = "content"
 
 [llm.models.deepseek_flash]
+family = "deepseek"
+collapsed = false
 adapter = "deepseek"
 providers = [
   { provider = "orca", provider_model = "deepseek/deepseek-v4-flash-vision-exp" },

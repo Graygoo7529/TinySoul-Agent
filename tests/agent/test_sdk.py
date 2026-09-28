@@ -2,78 +2,77 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from datetime import datetime
-from dataclasses import replace
-from zoneinfo import ZoneInfo
 from collections import deque
+from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
-import pytest
 import httpx
+import pytest
+
+from tests.support.project import copy_initialized_project
+from tinysoul.agent import (
+    Agent,
+    AgentClosedError,
+    AgentQueueFullError,
+    AgentServiceStaleError,
+    AgentState,
+    HomeService,
+    InboxCapacityError,
+    InboxLimits,
+    ObservationFilter,
+    ObservationRecord,
+    RequestFailure,
+    TurnState,
+    UserTurnRequest,
+)
+from tinysoul.agent.composition.assembly import AgentRuntime
+from tinysoul.agent.composition.builder import AgentBuilder, standard_agent
+from tinysoul.agent.config import AgentSettings
 from tinysoul.gateway.endpoint import (
     EndpointEngine,
     EndpointEventBuffer,
     EndpointSettings,
 )
 from tinysoul.gateway.endpoint.http import create_endpoint_app
-
-from tinysoul.agent import (
-    Agent,
-    AgentClosedError,
-    AgentQueueFullError,
-    AgentState,
-    TurnState,
-    UserTurnRequest,
-)
-from tinysoul.agent import (
-    InboxLimits,
-    InboxCapacityError,
-    ObservationFilter,
-    ObservationRecord,
-)
-from tinysoul.agent.config import AgentSettings
-from tinysoul.agent.composition.assembly import AgentRuntime
-from tinysoul.agent.composition.builder import AgentBuilder, standard_agent
-from tinysoul.infra.config import ConfigEnvironment, ConfigMutation, ConfigError
-from tinysoul.plugins.workspace.services import WorkspaceService
-from tinysoul.plugins.workspace import WorkspaceEngine
-from tinysoul.plugins.workspace.storage.reconcile import (
-    WorkspaceReconcileResult,
-    WorkspaceReconcileStatus,
-)
-from tinysoul.plugins.home import AgentHomeEngineBuilder, AgentHomeSettings
-from tinysoul.plugins.reflection import (
-    ReflectionRequest,
-    ReflectionScope,
-    ReflectionTrigger,
-    ReflectionOutcome,
-    ReflectionStatus,
-)
-from tinysoul.llm.protocol.requests import TaskCall
-from tinysoul.llm.protocol.messages import JsonPart
-from tinysoul.llm.protocol.responses import JsonAnswer, RawResponse, TaskResult
-from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind
-from tinysoul.kernel.loop.turn import TurnOutcome
-from tinysoul.kernel.loop.outcomes import TurnOutcomeStatus
-from tinysoul.agent import RequestFailure
-from tinysoul.agent import AgentServiceStaleError, HomeService
-from tinysoul.kernel.registration import RegistrationError
-from tinysoul.plugins.home.services import HomeReviewService
-from tinysoul.plugins.memory.services import MemoryKnowledgeService
-from tinysoul.plugins.memory import MemoryEngine
-from tinysoul.kernel.loop.interaction.inbox import InboxClosedError, WaitReason
-from tinysoul.runtime.events import EnvironmentEvent, EventKind
-from tinysoul.runtime.sources import SourceState
-from tests.support.project import copy_initialized_project
-from tinysoul.infra.time import CalendarDay
+from tinysoul.infra.clock import CalendarClock
+from tinysoul.infra.config import ConfigEnvironment, ConfigError, ConfigMutation
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.infra.process import (
     ManagedProcess,
     ManagedProcessRequest,
     ManagedProcessRunner,
 )
-from tinysoul.infra.clock import CalendarClock
-from tinysoul.plugins.memory import MemoryLink
+from tinysoul.infra.time import CalendarDay
+from tinysoul.kernel.interaction import AnswerKind, QuestionAnswer
+from tinysoul.kernel.loop.interaction.inbox import InboxClosedError, WaitReason
+from tinysoul.kernel.loop.outcomes import TurnOutcomeStatus
+from tinysoul.kernel.loop.turn import TurnOutcome
+from tinysoul.kernel.registration import RegistrationError
+from tinysoul.llm.protocol.messages import JsonPart
+from tinysoul.llm.protocol.requests import TaskCall
+from tinysoul.llm.protocol.responses import JsonAnswer, RawResponse, TaskResult
+from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind
+from tinysoul.plugins.home import AgentHomeEngineBuilder, AgentHomeSettings
+from tinysoul.plugins.home.services import HomeReviewService
+from tinysoul.plugins.memory import MemoryEngine, MemoryLink
+from tinysoul.plugins.memory.services import MemoryKnowledgeService
+from tinysoul.plugins.reflection import (
+    ReflectionOutcome,
+    ReflectionRequest,
+    ReflectionScope,
+    ReflectionStatus,
+    ReflectionTrigger,
+)
+from tinysoul.plugins.workspace import WorkspaceEngine
+from tinysoul.plugins.workspace.services import WorkspaceService
+from tinysoul.plugins.workspace.storage.reconcile import (
+    WorkspaceReconcileResult,
+    WorkspaceReconcileStatus,
+)
+from tinysoul.runtime.events import EnvironmentEvent, EventKind
+from tinysoul.runtime.sources import SourceState
 
 
 class _LLM:
@@ -481,7 +480,19 @@ async def test_v2_turn_admission_question_budget_and_result_share_sdk_owner(
                 ToolKind.CONTROL,
             ),
             ToolCallRecord(
-                "ask", "core.ask", {"text": "Choose a direction"}, ToolKind.ACTION
+                "ask",
+                "core.ask",
+                {
+                    "text": "Choose a direction",
+                    "options": [
+                        {
+                            "id": "a",
+                            "label": "Execute",
+                            "description": "Use the approved plan",
+                        }
+                    ],
+                },
+                ToolKind.ACTION,
             ),
         )
     ):
@@ -543,6 +554,26 @@ async def test_v2_turn_admission_question_budget_and_result_share_sdk_owner(
             assert runtime["runtime"]["active_turn_id"] == "main"
             assert runtime["runtime"]["queued_turn_ids"] == ["queued"]
             assert runtime["runtime"] == agent.runtime_status()
+            waiting_projection = (
+                await client.get("/v2/turns/queued/interactions")
+            ).json()
+            assert waiting_projection["items"] == []
+            assert waiting_projection["queued_request"]["delivery"] == "queued"
+            assert (
+                waiting_projection["pending_items"][0]["payload"]["text"]
+                == "More context"
+            )
+            overview = (await client.get("/v2/turns/main/context")).json()
+            assert overview["segments"] and overview["generation_id"]
+            assert overview["captured_at"]
+            assert (
+                await client.get("/v2/turns/main/context/segments/inputs")
+            ).status_code == 200
+            assert (await client.get("/v2/expand/servers")).status_code == 200
+            assert (await client.get("/v2/subagent")).status_code == 200
+            assert (await client.get("/v2/home/catalog")).status_code == 200
+            assert (await client.get("/v2/memory/catalog")).status_code == 200
+            assert (await client.get("/v2/memory/active")).status_code == 200
             assert (await client.post("/v2/turns/queued/cancel")).json()["accepted"]
             assert (await client.get("/v2/turns/queued")).json()["result"][
                 "request_failure"
@@ -558,10 +589,18 @@ async def test_v2_turn_admission_question_budget_and_result_share_sdk_owner(
             restored = (await client.get("/v2/turns/main")).json()
             assert snapshot is not None and restored == snapshot.to_json()
             assert restored["wait_reason"] == ("budget" if max_cycles == 1 else "input")
+            interactions = (await client.get("/v2/turns/main/interactions")).json()
+            assert any(
+                item["role"] == "agent.question" and item["options"][0]["id"] == "a"
+                for item in interactions["items"]
+            )
             assert (
                 await client.post(
                     "/v2/turns/main/reply",
-                    json={"question_id": "stale", "response": "A"},
+                    json={
+                        "question_id": "stale",
+                        "answer": {"kind": "text", "text": "A"},
+                    },
                 )
             ).status_code == 409
             assert (
@@ -569,7 +608,11 @@ async def test_v2_turn_admission_question_budget_and_result_share_sdk_owner(
                     "/v2/turns/main/reply",
                     json={
                         "question_id": restored["question"]["question_id"],
-                        "response": "A",
+                        "answer": {
+                            "kind": "choice",
+                            "option_id": "a",
+                            "comment": "Proceed",
+                        },
                     },
                 )
             ).json()["accepted"]
@@ -599,6 +642,33 @@ async def test_v2_turn_admission_question_budget_and_result_share_sdk_owner(
             assert current["result"] == result.to_json()
             assert current["result"]["output"]["text"] == "done"
             assert "context_completion" not in current["result"]
+            saved = (await client.get("/v2/turns/main/interactions")).json()
+            assert (
+                saved["day"] == current["result"]["active_day"]
+                and saved["generation_id"]
+            )
+            assert any(
+                item["role"] == "user.reply"
+                and item["answer"]["option_id"] == "a"
+                and "Execute" in item["text"]
+                for item in saved["items"]
+            )
+            assert (await client.get("/v2/turns/main/context")).status_code == 409
+            assert (await client.get("/v2/session/turns")).status_code == 200
+            assert (await client.get("/v2/session/map")).status_code == 200
+            assert (await client.get("/v2/days")).status_code == 200
+            unresolved = await client.get(
+                "/v2/resources/resolve",
+                params={"reference": "memory:latest", "day": "2000-01-01"},
+            )
+            assert unresolved.status_code == 422
+            resolved = (
+                await client.get(
+                    "/v2/resources/resolve",
+                    params={"reference": "workspace:note.md", "turn_id": "main"},
+                )
+            ).json()
+            assert resolved["locator"]["day"] == saved["day"]
             assert (
                 await client.post("/v2/turns/main/input", json={"text": "too late"})
             ).status_code == 409
@@ -678,7 +748,7 @@ async def test_v2_job_stop_uses_turn_owner_and_sdk_projection(tmp_path: Path) ->
         active = await agent.submit_turn(UserTurnRequest("Run", request_id="owner"))
         async with asyncio.timeout(5):
             while active.question is None:
-                assert not active.done
+                assert not active.done, active.result
                 await asyncio.sleep(0.01)
         snapshots = agent.turn_jobs(active.turn_id)
         assert snapshots and not snapshots[0].state.terminal
@@ -693,6 +763,17 @@ async def test_v2_job_stop_uses_turn_owner_and_sdk_projection(tmp_path: Path) ->
             jobs = (await client.get("/v2/turns/owner/jobs")).json()["jobs"]
             assert jobs == [item.to_json() for item in snapshots]
             job_id = snapshots[0].job_id
+            detail = await client.get(f"/v2/turns/owner/jobs/{job_id}")
+            assert detail.status_code == 200 and detail.json()["job_id"] == job_id
+            output = await client.get(f"/v2/turns/owner/jobs/{job_id}/output")
+            assert output.status_code == 200 and "items" in output.json()
+            again = await client.get(f"/v2/turns/owner/jobs/{job_id}/output")
+            assert again.json() == output.json()
+            invalid_output = await client.get(
+                f"/v2/turns/owner/jobs/{job_id}/output",
+                params={"continuation": "invalid"},
+            )
+            assert invalid_output.status_code == 409
             assert (
                 await client.post(f"/v2/turns/wrong/jobs/{job_id}/stop")
             ).status_code == 404
@@ -1187,6 +1268,7 @@ async def test_sdk_local_write_is_joined_before_shutdown_releases_owner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from threading import Event
+
     from tinysoul.plugins.workspace import WorkspaceEngine
 
     agent = await _create(tmp_path, _LLM())
@@ -1461,7 +1543,13 @@ async def test_question_reply_resumes_same_turn_and_keeps_new_root_queued(
             ToolCallRecord(
                 "ask",
                 "core.ask",
-                {"text": "Choose a direction", "options": ["A", "B"]},
+                {
+                    "text": "Choose a direction",
+                    "options": [
+                        {"id": "A", "label": "Direction A"},
+                        {"id": "B", "label": "Direction B"},
+                    ],
+                },
                 ToolKind.ACTION,
             ),
         )
@@ -1499,11 +1587,23 @@ async def test_question_reply_resumes_same_turn_and_keeps_new_root_queued(
             )
         ).delivered
         with pytest.raises(InboxClosedError):
-            await agent.reply(active.turn_id, "old_question", "no")
+            await agent.reply(
+                active.turn_id,
+                "old_question",
+                QuestionAnswer(AnswerKind.TEXT, text="no"),
+            )
         assert len(llm.calls) == 2 and queued.state is TurnState.QUEUED
         await agent.cancel_turn(queued.turn_id)
-        receipt = await agent.reply(active.turn_id, question.question_id, "A")
-        duplicate = await agent.reply(active.turn_id, question.question_id, "A")
+        receipt = await agent.reply(
+            active.turn_id,
+            question.question_id,
+            QuestionAnswer(AnswerKind.CHOICE, option_id="A"),
+        )
+        duplicate = await agent.reply(
+            active.turn_id,
+            question.question_id,
+            QuestionAnswer(AnswerKind.CHOICE, option_id="A"),
+        )
         assert receipt.accepted and not duplicate.accepted
         result = await asyncio.wait_for(active.wait(), 5)
         assert isinstance(result.outcome, TurnOutcome) and result.outcome.answered
@@ -1511,7 +1611,7 @@ async def test_question_reply_resumes_same_turn_and_keeps_new_root_queued(
         completion = result.outcome.context_completion
         assert completion is not None
         reply = completion.inputs[-1]
-        assert reply.text == "A" and reply.input_id == receipt.record_id
+        assert reply.text == "Direction A (A)" and reply.input_id == receipt.record_id
         assert reply.reply_to == question.question_id
         assert (await queued.wait()).status is RequestFailure.CANCELLED
         llm.results.extend(_LLM().results)
@@ -1718,7 +1818,11 @@ async def test_home_reflection_waits_and_retains_full_turn_without_user_session(
         with pytest.raises(ConfigError) as busy:
             await agent.reload_config()
         assert busy.value.key == "config.activation_unavailable"
-        await agent.reply(handle.turn_id, question.question_id, "Keep it")
+        await agent.reply(
+            handle.turn_id,
+            question.question_id,
+            QuestionAnswer(AnswerKind.TEXT, text="Keep it"),
+        )
         result = await asyncio.wait_for(handle.wait(), 5)
         assert isinstance(result.outcome, ReflectionOutcome)
         assert result.outcome.status is ReflectionStatus.COMPLETED
@@ -1790,7 +1894,11 @@ async def test_append_resumes_unified_wait_on_same_turn(
         assert completion.inputs[-1].reply_to == ""
         if question is not None:
             with pytest.raises(AgentClosedError):
-                await agent.reply(handle.turn_id, question.question_id, "late")
+                await agent.reply(
+                    handle.turn_id,
+                    question.question_id,
+                    QuestionAnswer(AnswerKind.TEXT, text="late"),
+                )
     finally:
         await agent.shutdown()
 
@@ -1800,6 +1908,7 @@ async def test_sdk_finalizing_rejects_late_cancel_and_preserves_session_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from threading import Event
+
     from tinysoul.plugins.session import SessionEngine
 
     llm = _LLM()

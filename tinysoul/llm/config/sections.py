@@ -5,7 +5,17 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
+from tinysoul.llm.protocol.routing import ModelChain, RetryPolicy, TaskSpec
 
+from ..errors import LLMContractError
+from ..execution.model_chain import TaskSpecTable
+from ..execution.registry import ModelRegistry
+from ..protocol.adapter import adapter_spec
+from ..protocol.adapter_types import AdapterKind
+from ..protocol.models import ModelCapability, ModelProviderBinding, ModelSpec
+from ..protocol.requests import CallSettings
+from ..protocol.responses import AnswerFormat
+from ..protocol.tools import ToolUse
 from .helpers import (
     as_table,
     enum_value,
@@ -23,17 +33,7 @@ from .helpers import (
     required_str,
     required_str_list,
 )
-from ..protocol.adapter import adapter_spec
-from ..protocol.adapter_types import AdapterKind
 from .types import ProviderSpec
-from ..errors import LLMContractError
-from tinysoul.llm.protocol.routing import ModelChain, RetryPolicy, TaskSpec
-from ..execution.model_chain import TaskSpecTable
-from ..protocol.models import ModelCapability, ModelProviderBinding, ModelSpec
-from ..execution.registry import ModelRegistry
-from ..protocol.requests import CallSettings
-from ..protocol.responses import AnswerFormat
-from ..protocol.tools import ToolUse
 
 
 def _validate_object_id(value: str, *, key: str) -> None:
@@ -117,6 +117,11 @@ class ModelConfigParser:
         for model_id, value in table.items():
             _validate_object_id(model_id, key=f"llm.models.{model_id}")
             model_table = as_table(value, key=f"llm.models.{model_id}")
+            family = model_table.get("family", "")
+            if not isinstance(family, str):
+                raise ConfigError(
+                    "Model family must be text", key=f"llm.models.{model_id}.family"
+                )
             reject_unknown_keys(
                 model_table,
                 {
@@ -126,6 +131,8 @@ class ModelConfigParser:
                     "capabilities",
                     "adapter_options",
                     "request_overrides",
+                    "family",
+                    "collapsed",
                 },
                 key=f"llm.models.{model_id}",
             )
@@ -174,6 +181,12 @@ class ModelConfigParser:
                         ),
                         adapter_options=adapter_options,
                         request_overrides=request_overrides,
+                        family=family,
+                        collapsed=required_bool(
+                            {"collapsed": model_table.get("collapsed", False)},
+                            "collapsed",
+                            key=f"llm.models.{model_id}",
+                        ),
                     )
                 )
             except LLMContractError as exc:

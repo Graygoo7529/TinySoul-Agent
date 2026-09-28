@@ -5,9 +5,7 @@ from .engine import (
     EndpointControlKind,
     EndpointEngine,
     EndpointLifecycle,
-    EndpointResourceBlob,
 )
-from .host import EndpointHost, EndpointReady
 from .errors import (
     EndpointContractError,
     EndpointError,
@@ -22,6 +20,7 @@ from .events import (
     EndpointEventPage,
 )
 from .failures import EndpointFailureKind
+from .host import EndpointHost, EndpointReady
 from .http.server import EndpointASGIServer
 
 __all__ = [
@@ -40,7 +39,6 @@ __all__ = [
     "EndpointInvariantError",
     "EndpointReady",
     "EndpointRequestError",
-    "EndpointResourceBlob",
     "EndpointServerError",
     "EndpointSettings",
 ]

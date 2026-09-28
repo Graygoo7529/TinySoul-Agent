@@ -112,6 +112,8 @@ class WorkspaceService(ScopedService[WorkspaceEngine]):
         self.reconcile = scope.local(owner.reconcile, after=owner.events.flush)
         self.load_manifest = scope.local(owner.load_manifest)
         self.read_text = scope.local(owner.read_text)
+        self.browse_text = scope.local(owner.browse_text)
+        self.open_blob = scope.local(owner.open_blob)
         self.read_text_range = scope.local(owner.read_text_range)
         self.read_bytes = scope.local(owner.read_bytes)
         self.write_text = scope.local(owner.write_text, after=owner.events.flush)

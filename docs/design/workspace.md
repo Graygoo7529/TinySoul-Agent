@@ -40,6 +40,8 @@ Trash 条目保存原身份、说明、标签、子项元数据和内容。内�
 
 ## 有界读取与模型输入
 
+WorkspaceReader 提供 owner 绑定的文本分页、全文可编辑读取和 blob 流式 Range。Text continuation 绑定实际文件 digest 以识别内容变化，但不形成 CAS；full 读取超过写入上限拒绝，归档视图 editable=false。Agent SDK 负责 generation/day lease，HTTP 不直接打开任意路径。
+
 小文本可以完整读取，大文本按显式行范围和 continuation 渐进读取，结果标明覆盖与截断。continuation 表达同一读取请求的下一位置，不锁定文件版本；外部改写后分页可能看到新内容。编码、图像真实格式、字节大小和模型图像能力均在各自入口校验；二进制资源不自动注入语境。
 
 search 明确区分文件、目录前缀和整个 Workspace。来源字符预算、共享候选快照预算、模型输入及页面预算各自归其 owner；实际文件读取经 joined owner 边界执行。原生 matcher 在原始正文逐行做 literal/regex 匹配，跨内容单元的文本不丢失，casefold 后的命中仍映射回原文行列。正则共享一次 0.2 秒匹配预算；超时或来源超预算返回 scope_required，不能当作零命中。SDK 与 Action 只使用同一 search 服务，不在 matcher 内按展示数量提前截掉候选。

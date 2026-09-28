@@ -7,11 +7,10 @@ from enum import StrEnum
 from time import time
 from uuid import uuid4
 
+from tinysoul.infra.json import JsonObject, JsonValue, dumps_json, to_json_object
 from tinysoul.kernel.action.call import ActionCall, ExecutionFact, ExecutionState
 from tinysoul.kernel.action.result import ActionResult
-
-from tinysoul.infra.json import JsonObject, JsonValue, dumps_json, to_json_object
-from tinysoul.llm.protocol.tools import ToolKind
+from tinysoul.kernel.interaction import QuestionAnswer
 from tinysoul.llm.protocol.messages import (
     AssistantMessage,
     JsonPart,
@@ -20,13 +19,14 @@ from tinysoul.llm.protocol.messages import (
     ToolResultMessage,
     UserMessage,
 )
+from tinysoul.llm.protocol.tools import ToolKind
 from tinysoul.runtime import CyclePhase
 
 from ..errors import (
     ContextContractError,
-    ContextInvariantError,
     ContextInspectFailureReason,
     ContextInspectRequestError,
+    ContextInvariantError,
 )
 
 
@@ -738,6 +738,7 @@ class PendingInputs:
         input_id: str = "",
         reply_to: str = "",
         received_at: float | None = None,
+        answer: QuestionAnswer | None = None,
     ) -> "PendingInput":
         if not text:
             raise ContextContractError("Pending input text must be non-empty")
@@ -747,6 +748,7 @@ class PendingInputs:
             received_at=time() if received_at is None else received_at,
             merged=merged,
             reply_to=reply_to,
+            answer=answer,
         )
         self._inputs.append(item)
         return item
@@ -786,12 +788,15 @@ class PendingInput:
     received_at: float
     merged: bool = False
     reply_to: str = ""
+    answer: QuestionAnswer | None = None
 
     def __post_init__(self) -> None:
         if not self.input_id:
             raise ContextInvariantError("PendingInput.input_id must be non-empty")
         if not self.text:
             raise ContextInvariantError("PendingInput.text must be non-empty")
+        if self.answer is not None and not isinstance(self.answer, QuestionAnswer):
+            raise ContextInvariantError("PendingInput.answer must be typed")
 
 
 def _entry_id() -> str:

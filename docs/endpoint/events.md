@@ -6,6 +6,8 @@
 
 ## WebSocket
 
+HTTP replay 还接受 `turn_id, task_id, call_id, search_id, step_index, through`。过滤条件同时满足；step_index 必须与 search_id 同用。through 是固定扫描上界。next_sequence 表示扫描过的全局位置，无匹配也前进；不能按返回条数推进游标。WS 仍只按 normal/verbose/model 分级；默认订阅 verbose，展开模型正文时按 task_id/call_id 查询 model。
+
 连接地址为 `/v2/events/ws`，首帧为：
 
 ```json
@@ -27,6 +29,10 @@ message 是 owner 提供的有限说明，不再透传原始 Python 异常文本
 ## 模型用途观察
 
 LLM 继续使用现有 task_id 关联一次调用，Action 内部任务增加 consumer、implementation 和 target，实际 provider/model 与尝试沿现有 LLM 事件报告，不增加重复调用身份。Embedding/JEV 使用 `model.call.started/retry/completed/failed/cancelled`，verbose payload 包括 call_id、consumer、implementation、target、provider、model、attempt/retry、elapsed_seconds、usage 和有限 failure；Embedding 另外报告 input_count/dimensions，不返回向量。
+
+LLM 请求 detail 的 provenance 包含 `segment_id, owner, slot, shape, message_indices, refs`，索引为零起始，对应同 payload 的实际 messages。TaskPrompt/guidance 单独标识，Home refs 来自 owner。resolved_references 保存该次消息实际绑定的动态资源定位。它们不是提示正文，不影响供应商请求；这里展示的是 provider-neutral MessageStack，不是原始 HTTP 包。
+
+`context.installed` 提示所属 turn_id 的段已安装；`expand.directory.changed` 提示 server_id 的发现目录或有限错误变化。复用既有 Turn、Workspace、Session、Home/Memory 和 Job 事件刷新相应快照，不以事件代替事实；发生 gap 后重新读取 owner 视图。
 
 显式 model 分级可收到 `model.call.detail` 的已准备输入/结果。父 Turn/Cycle/Action 关联沿 Observation scope；SDK 查询无父 Action 时使用独立 call_id，不伪造 invoke_id。事件是旁路，sink 失败不改变模型调用或业务提交；catalog 不保存最近调用结果。
 

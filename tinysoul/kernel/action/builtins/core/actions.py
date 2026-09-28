@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import json
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from math import isfinite
 
-from tinysoul.kernel.action.tasks import ActionTaskFactory, ActionTaskOutput
-from tinysoul.kernel.loop.phases import LLMRunner
-from tinysoul.llm.protocol.responses import AnswerFormat
+from tinysoul.infra.json import JsonObject, JsonTypeError, JsonValue, to_json_object
 from tinysoul.kernel.action.call import ActionExecution
+from tinysoul.kernel.action.engine import ActionEngineBuilder
 from tinysoul.kernel.action.execution.executor import ActionExecutionContext
 from tinysoul.kernel.action.result import (
     ActionFailureDisposition,
@@ -17,14 +18,16 @@ from tinysoul.kernel.action.result import (
     ActionResult,
     ActionResultStage,
 )
-from tinysoul.kernel.action.engine import ActionEngineBuilder
+from tinysoul.kernel.action.tasks import ActionTaskFactory, ActionTaskOutput
 from tinysoul.kernel.context import (
     PromptBlock,
     PromptReferenceError,
     PromptReferenceResolver,
     TaskPrompt,
 )
-from tinysoul.infra.json import JsonObject, JsonTypeError, JsonValue, to_json_object
+from tinysoul.kernel.interaction import QuestionContent, QuestionError
+from tinysoul.kernel.loop.phases import LLMRunner
+from tinysoul.llm.protocol.responses import AnswerFormat
 
 
 @dataclass(frozen=True)
@@ -159,38 +162,64 @@ class CoreAskActionExecutor:
         self, execution: ActionExecution, context: ActionExecutionContext
     ) -> ActionResult:
         params = execution.call.params
-        text = params.get("text")
-        options = params.get("options", [])
         timeout = params.get("timeout_seconds")
-        if (
-            not isinstance(text, str)
-            or not text.strip()
-            or len(text) > 4000
-            or not isinstance(options, list)
-            or len(options) > 8
-            or any(
-                not isinstance(item, str) or not item or len(item) > 400
-                for item in options
-            )
-            or (
-                timeout is not None
-                and (
-                    isinstance(timeout, bool)
-                    or not isinstance(timeout, (int, float))
-                    or not isfinite(timeout)
-                    or timeout <= 0
-                )
-            )
-        ):
+        try:
+            question, explanation = _question_content(params)
+            if timeout is not None and (
+                isinstance(timeout, bool)
+                or not isinstance(timeout, (int, float))
+                or not isfinite(timeout)
+                or timeout <= 0
+            ):
+                raise QuestionError("Question timeout must be positive")
+        except QuestionError:
             return _failed(
                 execution,
-                "Provide a question, optional choices and a positive timeout.",
+                "Provide one question with unique option IDs, labels and a positive optional timeout. Do not combine conflicting explicit choices and question blocks.",
                 reason="invalid_question",
             )
         return _success(
             execution,
-            {"text": text.strip(), "options": options, "timeout_seconds": timeout},
+            {
+                **question.to_json(),
+                "timeout_seconds": timeout,
+                **({"explanation": explanation} if explanation else {}),
+            },
         )
+
+
+def _question_content(params: JsonObject) -> tuple[QuestionContent, str]:
+    text = params.get("text")
+    if not isinstance(text, str):
+        raise QuestionError("Question requires text")
+    starts = re.findall(r"(?m)^\s*```tinysoul-question\s*$", text)
+    if not starts:
+        return QuestionContent.from_json(params), ""
+    blocks = tuple(
+        re.finditer(r"(?m)^\s*```tinysoul-question\s*\n([\s\S]*?)^\s*```\s*$", text)
+    )
+    if len(starts) != 1 or len(blocks) != 1:
+        raise QuestionError("Use one complete question block")
+    try:
+        content = to_json_object(json.loads(blocks[0].group(1)))
+    except (ValueError, TypeError) as exc:
+        raise QuestionError("Question block must contain a JSON object") from exc
+    if set(content) - {"question", "options", "allow_other"}:
+        raise QuestionError("Question block has unknown fields")
+    content["text"] = content.pop("question", None)
+    question = QuestionContent.from_json(content)
+    canonical = question.to_json()
+    explicit = QuestionContent.from_json(
+        {
+            **canonical,
+            **{key: params[key] for key in ("options", "allow_other") if key in params},
+        }
+    ).to_json()
+    for key in ("options", "allow_other"):
+        if key in params and explicit[key] != canonical[key]:
+            raise QuestionError("Explicit fields conflict with the question block")
+    explanation = (text[: blocks[0].start()] + text[blocks[0].end() :]).strip()
+    return question, explanation
 
 
 class CoreWaitActionExecutor:

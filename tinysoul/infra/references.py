@@ -2,18 +2,52 @@
 
 from __future__ import annotations
 
+import posixpath
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date
-import posixpath
 from types import MappingProxyType
 from urllib.parse import unquote, urlsplit
 
 from markdown_it import MarkdownIt
 
+from .json import JsonObject
+
 
 class ReferenceError(Exception):
     """A local reference cannot be interpreted by its declared owner."""
+
+
+@dataclass(frozen=True)
+class ResourceLocator:
+    link: str = ""
+    ref: str = ""
+    day: str = ""
+    turn_id: str = ""
+    view: str = ""
+
+    def __post_init__(self) -> None:
+        if bool(self.link) == bool(self.ref) or self.view not in {
+            "",
+            "actual",
+            "effective",
+        }:
+            raise ReferenceError(
+                "Resource locator requires one Link or reference and a valid view"
+            )
+
+    def to_json(self) -> JsonObject:
+        return {
+            key: value
+            for key, value in (
+                ("link", self.link),
+                ("ref", self.ref),
+                ("day", self.day),
+                ("turn_id", self.turn_id),
+                ("view", self.view),
+            )
+            if value
+        }
 
 
 @dataclass(frozen=True)

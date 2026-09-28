@@ -1,30 +1,36 @@
 """Bounded reads and task-local resource bundles."""
 
 from __future__ import annotations
+
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from tinysoul.infra.filesystem import read_text_prefix
+from tinysoul.infra.continuation import ContinuationPosition, OpaqueContinuationCodec
+from tinysoul.infra.filesystem import file_digest, read_text_prefix
+from tinysoul.infra.json import JsonObject
+from tinysoul.infra.paging import PageOptions
+
 from ..config import WorkspaceSettings
 from ..errors import (
     WorkspaceContractError,
-    WorkspaceIOError,
     WorkspaceImageValidationError,
+    WorkspaceIOError,
 )
-from ..storage.manifest import WorkspaceResourceRecord, WorkspaceResourceKind
+from ..storage.manifest import WorkspaceResourceKind, WorkspaceResourceRecord
 from .classification import image_data_matches
 from .models import (
-    WorkspaceTextRead,
+    WorkspaceAnalysisBudgetFailure,
+    WorkspaceAnalysisBudgetReason,
+    WorkspaceAnalysisInput,
+    WorkspaceAnalysisPreparation,
+    WorkspaceAnalysisReference,
+    WorkspaceBlobRead,
     WorkspaceByteRead,
     WorkspaceDocumentRead,
     WorkspaceImageRead,
-    WorkspaceTextRangeResult,
-    WorkspaceAnalysisPreparation,
-    WorkspaceAnalysisInput,
-    WorkspaceAnalysisReference,
-    WorkspaceAnalysisBudgetFailure,
-    WorkspaceAnalysisBudgetReason,
     WorkspacePromptInput,
+    WorkspaceTextRangeResult,
+    WorkspaceTextRead,
     WorkspaceTextSlice,
 )
 from .text import read_text_range
@@ -73,6 +79,70 @@ class WorkspaceReader:
         return WorkspaceByteRead(
             record.link, data, record.kind, record.media_type, len(data)
         )
+
+    def open_blob(self, link: str) -> WorkspaceBlobRead:
+        record = self._inspect(link)
+        if record.kind is WorkspaceResourceKind.DIRECTORY:
+            raise WorkspaceContractError("A directory has no file body")
+        try:
+            stream = self._path_for(link).open("rb")
+            stream.seek(0, 2)
+            size = stream.tell()
+            stream.seek(0)
+        except OSError as exc:
+            raise WorkspaceIOError("Workspace blob cannot be opened") from exc
+        return WorkspaceBlobRead(record.link, stream, record.media_type, size)
+
+    def browse_text(
+        self,
+        link: str,
+        *,
+        day: str,
+        page: PageOptions = PageOptions(),
+        full: bool = False,
+        editable: bool = True,
+    ) -> JsonObject:
+        record = self._inspect(link)
+        if record.kind is not WorkspaceResourceKind.TEXT:
+            raise WorkspaceContractError("Workspace resource is not readable text")
+        if full and page.continuation is not None:
+            raise WorkspaceContractError("Full text reads cannot use a continuation")
+        path = self._path_for(link)
+        codec = OpaqueContinuationCodec(owner="workspace", operation="text")
+        try:
+            binding: JsonObject = {"day": day, "content": file_digest(path)}
+            position = codec.decode(page.continuation, ref=link, binding=binding)
+            read = read_text_range(
+                path,
+                start_line=1,
+                end_line=2**63 - 1,
+                cursor=position.item_index,
+                max_chars=self._settings.max_write_chars if full else page.max_chars,
+            )
+        except (OSError, UnicodeError) as exc:
+            raise WorkspaceIOError("Workspace text cannot be read") from exc
+        if not read.cursor_valid or full and read.truncated:
+            raise WorkspaceContractError(
+                "Full text exceeds the editable limit or the cursor is invalid"
+            )
+        value: JsonObject = {
+            "link": link,
+            "locator": {"link": link, "day": day},
+            "day": day,
+            "text": read.text,
+            "size": record.size,
+            "media_type": record.media_type,
+            "editable": editable,
+            "truncated": read.truncated,
+            "complete": not read.truncated and position.item_index == 0,
+        }
+        if read.next_cursor is not None:
+            value["next_continuation"] = codec.encode(
+                ContinuationPosition(item_index=read.next_cursor),
+                ref=link,
+                binding=binding,
+            )
+        return value
 
     def read_image(
         self, link: str, *, max_bytes: int | None = None

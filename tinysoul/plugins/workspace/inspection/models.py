@@ -1,14 +1,17 @@
 """Typed bounded resources and task-local inputs; no filesystem versions."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import BinaryIO
+
 from ..errors import WorkspaceContractError
 from ..links import WorkspaceLink
 from ..storage.manifest import (
     WorkspaceManifest,
-    WorkspaceResourceRecord,
     WorkspaceResourceKind,
+    WorkspaceResourceRecord,
 )
 from .text import WorkspaceTextRangeRead
 
@@ -28,6 +31,16 @@ class WorkspaceByteRead:
     link: str
     data: bytes
     kind: WorkspaceResourceKind
+    media_type: str
+    size: int
+
+
+@dataclass(frozen=True)
+class WorkspaceBlobRead:
+    """Opened owner resource; the caller holds its day lease until close."""
+
+    link: str
+    stream: BinaryIO
     media_type: str
     size: int
 

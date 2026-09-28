@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-
 from ..config import EndpointSettings
 from ..events import EndpointEventBuffer
 from .configuration import EndpointConfigurationEngine
@@ -17,8 +16,9 @@ from .contracts import (
 )
 from .events import EndpointEventsEngine
 from .reflection import EndpointReflectionEngine
+from .resources import EndpointResourcesEngine
 from .runtime import EndpointControlKind, EndpointRuntimeEngine
-from .workspace import EndpointResourceBlob, EndpointWorkspaceEngine
+from .workspace import EndpointWorkspaceEngine
 
 
 class EndpointEngine:
@@ -51,6 +51,7 @@ class EndpointEngine:
         self.events = EndpointEventsEngine(context)
         self.configuration = EndpointConfigurationEngine(context)
         self.workspace = EndpointWorkspaceEngine(context)
+        self.resources = EndpointResourcesEngine(context)
 
     def bind(
         self,
@@ -72,12 +73,16 @@ class EndpointEngine:
     def settings(self) -> EndpointSettings:
         return self._settings
 
+    @property
+    def inspection(self) -> EndpointServices:
+        """Read-only SDK projections; transport never owns their state."""
+        return self._context.services
+
 
 __all__ = [
     "EndpointConfigController",
     "EndpointControlKind",
     "EndpointEngine",
     "EndpointLifecycle",
-    "EndpointResourceBlob",
     "EndpointServices",
 ]

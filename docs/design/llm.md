@@ -32,6 +32,8 @@ LLM 模块可以向上层暴露某个任务当前优先模型的能力和上下�
 
 ## 消息栈
 
+LLM 层保留 provider-neutral MessageStack，不解释业务 owner。MessageOrigin 与 resolved_references 由 Context Composer/TaskPrompt 生成并原样进入 model observation，只定位真实消息和资源，不改变供应商请求。
+
 TinySoul 内部使用自己的消息栈表达模型输入，而不是直接使用某个供应商的报文格式。
 
 消息栈由有序消息组成。TinySoul 通用消息使用语义消息类型表达模型输入历史，包括系统消息、用户消息、助手消息和工具结果消息。系统消息、用户消息和助手消息表达常规对话内容；工具结果消息表达模型侧工具调用完成后的结果回放。供应商协议中的 role 只是适配层映射结果，不作为 TinySoul 内部消息模型的核心分类。语境分类应通过额外的来源或范围信息表达。
