@@ -1,6 +1,15 @@
 # 需求：编辑类 Action 结果携带内容预览/diff（可选、非阻塞）
 
-日期：2026-08-09 · 提出方：前端（visualization） · 状态：pending
+日期：2026-08-09 · 提出方：前端（visualization） · 状态：superseded
+
+## 归档结论
+
+本需求不形成通用 v2 `ActionResult.content_preview` 契约。当前设计由具体 owner 决定
+呈现：patch 类 Action 可使用调用参数中的 `old_text`/`new_text`，资源正文通过 Home、
+Memory 或 Workspace 的正式资源接口按需读取；Search 和 Inspect 直接复用各自的
+`SearchPage`/`DisclosurePage`。历史 before/after 或生成内容差异若确有需要，应由提交
+owner 产生有界、语义明确的专用 presentation，而不是向所有 ActionResult 添加第二套
+通用内容协议。
 
 ## 背景
 

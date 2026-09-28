@@ -1,6 +1,14 @@
 # 需求：Phase2 任务事件显式携带 mounted_skills（可选、非阻塞）
 
-日期：2026-08-08 · 提出方：前端（visualization） · 状态：pending
+日期：2026-08-08 · 提出方：前端（visualization） · 状态：superseded
+
+## 归档结论
+
+本需求由当前后端设计取代，不再作为待实现的事件契约。领域 Skill 通过
+`PromptGuidance`、TaskPrompt provenance 以及 resolved references 表达；前端应从实际
+`llm.model.request` 的消息栈和 provenance 渲染已组装的指导，不另建 `mounted_skills`
+事件或平行挂载状态表。若未来需要更丰富的 Skill 展示，应在现有 provenance 投影上扩展，
+而不是恢复本需求的独立事件。
 
 ## 背景
 

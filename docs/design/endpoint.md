@@ -12,6 +12,7 @@ endpoint.engine.reflection
 endpoint.engine.events
 endpoint.engine.configuration
 endpoint.engine.workspace
+endpoint.engine.resources
 ```
 
 各领域 engine 通过 EndpointEngineContext 使用 Agent ingress、ConfigController、受约束服务和 Observation source。Context 不持有 raw generation、完整 owner 或底层 lease 工厂；服务调用自行完成世代/日准入。Generation 重建时，EndpointHost、进程外壳、事件 buffer、实例锁和连接信息保持稳定。
@@ -37,7 +38,7 @@ tinysoul/gateway/endpoint/
   config.py, errors.py, failures.py, host.py
   engine/
     contracts.py, context.py, runtime.py, reflection.py
-    events.py, configuration.py, workspace.py
+    events.py, configuration.py, workspace.py, resources.py
   events/
     models.py, buffer.py, journal.py
   http/

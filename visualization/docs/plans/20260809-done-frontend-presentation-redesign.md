@@ -141,11 +141,12 @@ export interface ActionDescriptor {
 > - text-shine/live-border 渐变升级为 accent→violet→info。
 > 验收：`pnpm test` 62 全绿、`pnpm build` 通过。详见 `docs/design/visual-system.md`。
 
-## 后端需求单（已提交，不阻塞后续阶段）
+## 历史后端需求单（已归档，不构成当前契约）
 
-1. `docs/demand/20260809-action-result-content-preview.md`：编辑/生成类 action result 增加内容预览/diff（前端短期用 params diff + `/v1/workspace/resource` 补拉）。
-2. `docs/demand/20260809-action-execution-started-event.md`：`action.execution.started` 事件（并发批次精确标识运行项；phase3 镜像启发式已够用）。
-3. mounted skills 结构化事件（`docs/demand/20260808-mounted-skills-event.md`，维持 pending）。
+早期前端需求单已移至 `docs/demand/archived/`，并标记为 `superseded`。它们保留当时的
+背景和取舍，不再作为后端待办：Skill 展示由 provenance/guidance 表达，Action 运行状态
+由统一 `action.execution` 状态观测表达，内容预览由具体 owner 的资源读取或专用
+presentation 表达。当前前端实现应以 v2 Endpoint 与最新后端执行计划为准。
 
 ---
 
@@ -172,7 +173,7 @@ export interface ActionDescriptor {
 
 **重设计实施**：
 1. **LiveStatus 流动化**：流光与入场动画分层嵌套（外 span swap、内 span shine）；节流 350ms 只合并并发爆发 + 同批 90ms 级联交错；标题/思考流仅淡入交换。
-2. **单一待定规则**（derive + 组件三处统一）：phase3 仅剩 1 个无结果 action 才具名显示"动词+目标"并点亮 running；多个待定显示 "Executing N actions…" 批次进度不妄指；新增 chat.test 覆盖乱序结果场景。彻底解依赖后端 `action.execution.started`（需求单已提）。
+2. **单一待定规则**（derive + 组件三处统一）：phase3 仅剩 1 个无结果 action 才具名显示"动词+目标"并点亮 running；多个待定显示 "Executing N actions…" 批次进度不妄指；新增 chat.test 覆盖乱序结果场景。当前后端以统一 `action.execution` 状态观测提供精确执行状态，前端不依赖单独的 started 事件。
 3. **沉淀态恢复**：最新完成轮保留静态 LiveStatus（状态行 + 概要 + 定格时长 + 活动轨迹，`answer-in` 入场），新 user turn 自然收起。
 4. **ActionGlimpse 终端收敛**：输出尾部默认 2 行，"展开输出（N 行）"放到 6 行。
 5. **最终回答入场**：`answer-in`（0.5s 上浮 + 去模糊）。

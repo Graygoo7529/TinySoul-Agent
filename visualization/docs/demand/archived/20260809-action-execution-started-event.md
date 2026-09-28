@@ -1,6 +1,14 @@
 # 需求：Action 执行开始事件 action.execution.started（可选、非阻塞）
 
-日期：2026-08-09 · 提出方：前端（visualization） · 状态：pending
+日期：2026-08-09 · 提出方：前端（visualization） · 状态：superseded
+
+## 归档结论
+
+本需求由统一的 `action.execution` 状态观测取代。ActionRunner 对同一执行事实发布
+`requested`、`started`、`settled`、`cancelled`、`not_executed` 和 `unknown` 等状态，
+前端按 `call_id`/`invoke_id` 解释即可，不再维护单独的
+`action.execution.started` 事件协议。并发 Action 的精确运行展示应直接消费该统一状态，
+而不是继续扩展一套平行事件。
 
 ## 背景
 
