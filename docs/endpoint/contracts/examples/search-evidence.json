@@ -1,8 +1,61 @@
 {
-  "operation": "query",
-  "query": "workspace guidance",
-  "candidates": [{"ref": "home:agent@guide", "coverage": "excerpt", "evidence": [{"kind": "lexical", "text": "workspace guidance"}], "content": [{"text": "Workspace guidance", "line_start": 1, "line_end": 1}]}],
-  "items": [{"ref": "home:agent@guide", "preview": "Workspace guidance"}],
-  "continuation": "search-next",
-  "complete": false
+  "result_ref": "search-result:example",
+  "scope": "home",
+  "source": "query",
+  "items": [
+    {
+      "ref": "home:agent@guide",
+      "title": "Workspace guidance",
+      "rank": 1,
+      "evidence": [
+        {
+          "ref": "home:agent@guide",
+          "text": "Workspace guidance",
+          "kind": "content",
+          "location": {
+            "line": 1,
+            "end_line": 1,
+            "column": 1,
+            "unit_start": 0,
+            "unit_end": 18
+          },
+          "basis": ["lexical"],
+          "matches": [
+            {
+              "kind": "lexical",
+              "start": 0,
+              "end": 18,
+              "relation": null
+            }
+          ]
+        }
+      ],
+      "content_coverage": "full",
+      "preview_coverage": "excerpt",
+      "attributes": {}
+    }
+  ],
+  "coverage": {
+    "scanned": 4,
+    "eligible": 4,
+    "candidates": 1,
+    "evaluated": 0,
+    "selected": 1,
+    "retained": 1,
+    "omitted_candidates": 0,
+    "source_complete": true,
+    "stages": ["lexical"],
+    "missing_stages": [],
+    "steps": [],
+    "final_count": 1,
+    "shown": 1,
+    "remaining": 0
+  },
+  "page": {
+    "offset": 0,
+    "count": 1,
+    "total": 1,
+    "continuation": null
+  },
+  "continuation": null
 }

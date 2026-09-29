@@ -222,7 +222,7 @@ Context 更新时保留当前阅读位置，显示可刷新提示；刷新 overv
 
 ### 9.1 Action renderer
 
-显式注册：精确 Action ID → 结果族 renderer → 通用结构视图。renderer 只处理呈现与导航，不执行后端动作。
+显式注册：精确 Action ID → 结果族 renderer → 通用结构视图。renderer 只处理呈现与导航，不执行后端动作。Action ID 以当前 Action Catalog 的 canonical 名称为准，迁移时删除旧 registry 名称和兼容映射；未知 Action 仍走通用 JSON 回退。
 
 | 结果族 | 默认展示 | 展开内容 |
 | --- | --- | --- |
@@ -586,6 +586,7 @@ ActionRenderer、CodeBlockRegistry、ResourceRouter、Settings editor adapters �
 - [ ] family/collapsed 展示不禁用模型；LLM/专用 Provider 与用途引用真实；生图预留无假保存。
 - [ ] Context 三槽四形状、折叠披露、Session 证据；UI 阅读不改变模型语境；历史 Task 与当前 Context 不混淆。
 - [ ] Search 真片段/双通道命中/评分/覆盖、result 派生、续页与失效；页面不调用 current Context，不卡在隐式 top-k。
+- [ ] Action renderer registry 与当前 Action Catalog 同步，旧 registry 名称和兼容映射已清理，未知 Action 保留通用回退。
 - [ ] Workspace 完整编辑/外部变化/归档；Home actual/effective/diff/Reflection；Memory active/daily/知识/反链/redirect。
 - [ ] 资源链接正确进入 day/view/fragment；动态引用无绑定时明确；网页打开外部浏览器。
 - [ ] Job 输出/停止、ACP 连接与委派区分、MCP GET 无副作用及显式刷新、watcher 状态正确。
