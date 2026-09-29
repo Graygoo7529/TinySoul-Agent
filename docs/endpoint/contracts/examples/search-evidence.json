@@ -1,0 +1,8 @@
+{
+  "operation": "query",
+  "query": "workspace guidance",
+  "candidates": [{"ref": "home:agent@guide", "coverage": "excerpt", "evidence": [{"kind": "lexical", "text": "workspace guidance"}], "content": [{"text": "Workspace guidance", "line_start": 1, "line_end": 1}]}],
+  "items": [{"ref": "home:agent@guide", "preview": "Workspace guidance"}],
+  "continuation": "search-next",
+  "complete": false
+}

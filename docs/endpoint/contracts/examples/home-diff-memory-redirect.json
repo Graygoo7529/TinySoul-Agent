@@ -1,0 +1,5 @@
+{
+  "home_diff": {"ref": "home:agent@AGENT", "view": "effective", "baseline_diverged": true, "items": [{"kind": "changed", "path": "agent/AGENT.md"}]},
+  "memory_redirect": {"kind": "memory", "link": "memory:daily/2026-09-28", "redirect": "memory:daily/2026-09-29", "reason": "canonicalized"},
+  "error": {"error": {"code": "resource.unresolved_origin", "message": "Resource origin is unavailable.", "details": {"module": "resource"}}}
+}

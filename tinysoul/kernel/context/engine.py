@@ -839,7 +839,9 @@ class ContextEngine:
                     "capabilities": sorted(
                         item.value for item in descriptor.capabilities
                     ),
-                    "root_refs": list(descriptor.ref_prefixes),
+                    "root_refs": list(
+                        self._segments.navigation_refs().get(descriptor.id, ())
+                    ),
                     "chars": estimate_chars(projection.messages),
                     "image_bytes": estimate_image_bytes(projection.messages),
                     "available_refs": list(selection.available) if selection else [],
@@ -862,6 +864,12 @@ class ContextEngine:
         if self._segments is None:
             raise ContextContractError("Context segments are unavailable")
         return self._segments.resolved_references()
+
+    def resolve_reference(self, ref: str) -> str:
+        self._require_turn()
+        if self._segments is None:
+            raise ContextContractError("Context segments are unavailable")
+        return self._segments.resolve_reference(ref)
 
     def installed_segment(
         self, segment_id: str, page: PageOptions = PageOptions()

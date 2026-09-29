@@ -91,6 +91,9 @@ class SessionSegment:
             "refs": list(self._snapshot.refs),
         }
 
+    def navigation_refs(self) -> tuple[str, ...]:
+        return ("session:map",)
+
     def reclaim(self, required_chars: int) -> SegmentReclaim:
         before = sum(len(dumps_json(item.content)) for item in self._snapshot.items)
         if required_chars <= 0 or before <= self._snapshot.max_chars * 0.8:

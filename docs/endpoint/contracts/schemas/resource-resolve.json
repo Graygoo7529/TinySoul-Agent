@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["kind", "locator", "capabilities"],
+  "properties": {
+    "kind": {"type": "string"},
+    "locator": {"$ref": "resource-locator.json"},
+    "capabilities": {"type": "array", "items": {"type": "string"}},
+    "resolved_from": {"type": "string"}
+  },
+  "additionalProperties": true
+}

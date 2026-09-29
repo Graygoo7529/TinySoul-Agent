@@ -9,10 +9,15 @@ from datetime import datetime, timezone
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.json import JsonObject, JsonValue
 from tinysoul.infra.paging import PageOptions
-from tinysoul.infra.references import ReferenceError, ResourceLocator
+from tinysoul.infra.references import (
+    ReferenceError,
+    ResourceLocator,
+    append_locator_fragment,
+)
 from tinysoul.infra.services import ServiceScope
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.context import ContextEngine
+from tinysoul.kernel.context.builtin.trace import parse_trace_reference
 from tinysoul.kernel.jobs import JobSnapshot
 from tinysoul.kernel.jobs.failures import JobError, JobRequestError
 from tinysoul.kernel.loop.turn import TurnOutcome
@@ -628,29 +633,30 @@ class AgentRuntimeServices:
                 else:
                     raise ReferenceError("Origin has no relative reference owner")
         resource, marker, fragment = reference.partition("#")
+        context: ContextEngine | None = None
+        bindings: JsonObject = {}
+        if turn_id:
+            async with self._handle.read() as generation:
+                context = next(
+                    (
+                        p.context
+                        for p in generation.profiles
+                        if p.context.active_turn_id == turn_id
+                    ),
+                    None,
+                )
+                if context is not None:
+                    bindings = context.resolved_references()
         if resource in {"memory:current", "memory:latest", "memory:target"}:
-            bindings: JsonObject = {}
-            if turn_id:
-                async with self._handle.read() as generation:
-                    context = next(
-                        (
-                            p.context
-                            for p in generation.profiles
-                            if p.context.active_turn_id == turn_id
-                        ),
-                        None,
-                    )
-                    if context is not None:
-                        bindings = context.resolved_references()
-                if context is None and day:
-                    bindings = await self._session_read(
-                        lambda session: session.resolved_references(turn_id), day
-                    )
+            if context is None and day and turn_id:
+                bindings = await self._session_read(
+                    lambda session: session.resolved_references(turn_id), day
+                )
             locator = bindings.get(resource)
             if isinstance(locator, dict):
                 return {
                     "kind": "memory",
-                    "locator": locator,
+                    "locator": append_locator_fragment(locator, fragment),
                     "capabilities": ["read"],
                     "resolved_from": reference,
                 }
@@ -658,9 +664,8 @@ class AgentRuntimeServices:
             if day and not turn_id and resource in {"memory:current", "memory:target"}:
                 return {
                     "kind": "memory",
-                    "locator": ResourceLocator(
-                        link="memory:current", day=str(day)
-                    ).to_json(),
+                    "locator": ResourceLocator(link=reference, day=str(day)).to_json(),
+                    "resolved_from": reference,
                     "capabilities": ["read"],
                 }
             raise AgentServiceUnavailableError(
@@ -692,10 +697,18 @@ class AgentRuntimeServices:
                 )
             locator = ResourceLocator(ref=reference, day=str(day))
             kind = "session"
-        elif resource.startswith("turn:trace@"):
-            identity = resource.removeprefix("turn:trace@")
+        elif resource.startswith(("turn:trace@", "turn:trace/")):
+            try:
+                identity = parse_trace_reference(reference)
+            except Exception as exc:
+                raise ReferenceError("Invalid trace resource reference") from exc
             if turn_id is not None and identity != turn_id:
                 raise ReferenceError("Trace origin does not match its Turn")
+            if context is not None and context.active_turn_id == identity:
+                try:
+                    context.resolve_reference(reference)
+                except Exception as exc:
+                    raise ReferenceError("Trace resource reference is unavailable") from exc
             locator = ResourceLocator(
                 ref=reference, turn_id=identity, day=str(day) if day else ""
             )

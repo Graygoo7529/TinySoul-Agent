@@ -19,19 +19,30 @@ from ..schemas import (
     ConfigSetMutationRequest,
     PresetCreateRequest,
     PresetUpdateRequest,
+    ConfigResponse,
+    PageResponse,
 )
 
 
 def register_configuration_routes(app: FastAPI, engine: EndpointEngine) -> None:
-    @app.get("/v2/config")
+    @app.get(
+        "/v2/config", response_model=ConfigResponse, response_model_exclude_none=True,
+        response_model_exclude_unset=True,
+    )
     async def config_status(view: Literal["saved", "active"] = "saved") -> JsonObject:
         return await engine.configuration.status(view=view)
 
-    @app.get("/v2/config/catalog")
+    @app.get(
+        "/v2/config/catalog", response_model=PageResponse, response_model_exclude_none=True,
+        response_model_exclude_unset=True,
+    )
     def config_catalog() -> JsonObject:
         return engine.configuration.catalog()
 
-    @app.get("/v2/config/actions")
+    @app.get(
+        "/v2/config/actions", response_model=PageResponse, response_model_exclude_none=True,
+        response_model_exclude_unset=True,
+    )
     async def action_catalog(scenario: str = "user") -> JsonObject:
         return await engine.configuration.actions(scenario=scenario)
 

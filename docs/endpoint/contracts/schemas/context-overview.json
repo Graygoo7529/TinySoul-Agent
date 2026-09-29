@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["generation_id", "captured_at", "turn_id", "segments", "resolved_references"],
+  "properties": {
+    "generation_id": {"type": "string"},
+    "captured_at": {"type": "string"},
+    "turn_id": {"type": "string"},
+    "day": {"type": ["string", "null"]},
+    "segments": {"type": "array"},
+    "resolved_references": {"type": "object"}
+  },
+  "additionalProperties": true
+}

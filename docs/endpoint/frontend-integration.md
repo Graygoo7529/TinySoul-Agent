@@ -1,5 +1,21 @@
 # Visualization 对接
 
+## Contract entry point
+
+The frontend consumes only the v2 routes described here. Stable response
+schemas and representative payloads live in
+[`contracts/`](contracts/README.md); generated OpenAPI is the machine-readable
+route index. A client must keep `generation_id`, `day`, `turn_id`, `ref`, and a
+continuation token together and discard a continuation after the corresponding
+lease changes.
+
+Context overview roots are already inspectable owner links. Home direct refs
+use the canonical Home layout (`home:agent@...`, `home:skills@...`,
+`home:skills_domain:...`, `home:skills_action:...`, or progressive resource
+links), and may be sent to resource resolve without a client-side rewrite.
+Search, disclosure, job output, and model observations retain their owner
+specific fields inside the shared page envelope.
+
 后端现行协议为 v2，v1 路由已删除。本文描述对接要求；本轮未修改 visualization 源码，其客户端需要同步迁移后才能连接当前后端。`POST /v2/restart` 返回新的 runtime projection，Endpoint instance 与事件游标保持不变；重启窗口内 `ready=false` 是可观察状态。
 
 `ready` 表示生命周期 owner 已可运行；候选依赖和 active day 已存在时仍可能处于激活中，此时业务操作返回 `409 service.unavailable`，status、health 与 replay 仍可读取。重叠重启共用一次 SDK 操作；取消请求等待者不表示底层重启被撤销，重新连接后应读取状态。

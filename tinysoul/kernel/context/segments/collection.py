@@ -26,8 +26,10 @@ from ..errors import (
 from ..providers import SegmentSelectionView
 from .protocol import (
     InspectableSegment,
+    NavigableSegment,
     ReclaimableSegment,
     ReferenceBindingSegment,
+    ReferenceResolvableSegment,
     SearchableSegment,
     SegmentCapability,
     SegmentProjection,
@@ -176,6 +178,29 @@ class TurnSegments:
             if isinstance(item.segment, ReferenceBindingSegment)
             for ref, locator in item.segment.resolved_references().items()
         }
+
+    def navigation_refs(self) -> dict[str, tuple[str, ...]]:
+        """Return owner navigation roots, rather than descriptor route prefixes."""
+        self._require_ready()
+        return {
+            item.descriptor.id: tuple(item.segment.navigation_refs())
+            for item in self._opened
+            if isinstance(item.segment, NavigableSegment)
+        }
+
+    def resolve_reference(self, ref: str) -> str:
+        """Ask the owning segment to validate a routed reference."""
+        self._require_ready()
+        for item in self._opened:
+            if any(ref.startswith(prefix) for prefix in item.descriptor.ref_prefixes):
+                if isinstance(item.segment, ReferenceResolvableSegment):
+                    return item.segment.resolve_reference(ref)
+                return ref
+        raise ContextInspectRequestError(
+            ContextInspectFailureReason.UNKNOWN_REF,
+            "No Context segment owns this reference",
+            constraint={"ref": ref},
+        )
 
     def selection_signals(
         self, patch: BackgroundPatch, source: Signal

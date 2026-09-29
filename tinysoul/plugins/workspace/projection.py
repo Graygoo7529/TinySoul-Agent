@@ -171,6 +171,11 @@ class ArchivedWorkspaceSegment:
     def seal(self) -> JsonObject:
         return {"source_day": self._view.day if self._view is not None else None}
 
+    def navigation_refs(self) -> tuple[str, ...]:
+        if self._view is None:
+            return ()
+        return (f"workspace_archive:{self._view.day}",)
+
     def _page(self, offset: int) -> JsonObject:
         if self._view is None:
             return {"resources": []}

@@ -1,0 +1,11 @@
+{
+  "turn_id": "turn-1",
+  "kind": "user",
+  "state": "finished",
+  "cancel_requested": false,
+  "wait_reason": null,
+  "question": null,
+  "budget_request": null,
+  "result": {"status": "completed", "turn_id": "turn-1", "output": {"text": "Finished response"}},
+  "jobs": []
+}

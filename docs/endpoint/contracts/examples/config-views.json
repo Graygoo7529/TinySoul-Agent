@@ -1,0 +1,6 @@
+{
+  "saved": {"view": "saved", "generation_id": "generation-1", "pending_reload": false, "sources": [], "presets": [{"preset_id": "default", "name": "Default"}]},
+  "active": {"view": "active", "generation_id": "generation-2", "pending_reload": true, "sources": [], "presets": []},
+  "apply": {"accepted": true, "state": "reload_requested", "generation_id": "generation-2"},
+  "reset": {"accepted": true, "state": "discarded", "pending_reload": false}
+}

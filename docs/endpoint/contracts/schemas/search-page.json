@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "allOf": [
+    {"$ref": "page.json"},
+    {
+      "type": "object",
+      "properties": {
+        "operation": {"type": ["string", "null"]},
+        "candidates": {"type": "array"},
+        "query": {"type": ["string", "null"]}
+      }
+    }
+  ],
+  "additionalProperties": true
+}

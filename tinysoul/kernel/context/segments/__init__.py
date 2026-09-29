@@ -12,6 +12,8 @@ from .protocol import (
     SegmentProjection,
     SegmentReclaim,
     InspectableSegment,
+    NavigableSegment,
+    ReferenceResolvableSegment,
     SelectableSegment,
     ReclaimableSegment,
 )

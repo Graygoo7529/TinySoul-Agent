@@ -10,10 +10,16 @@ from tinysoul.infra.time import CalendarDay
 
 from ...engine import EndpointEngine
 from ...engine.resources import SearchSpace
+from ..schemas import PageResponse, ResourceResolveResponse, SearchResponse
 
 
 def register_resource_routes(app: FastAPI, engine: EndpointEngine) -> None:
-    @app.get("/v2/resources/resolve")
+    @app.get(
+        "/v2/resources/resolve",
+        response_model=ResourceResolveResponse,
+        response_model_exclude_none=True,
+        response_model_exclude_unset=True,
+    )
     async def resolve(
         reference: str,
         origin_link: str | None = None,
@@ -29,7 +35,10 @@ def register_resource_routes(app: FastAPI, engine: EndpointEngine) -> None:
             view=view,
         )
 
-    @app.get("/v2/home/catalog")
+    @app.get(
+        "/v2/home/catalog", response_model=PageResponse, response_model_exclude_none=True,
+        response_model_exclude_unset=True,
+    )
     async def home_catalog(
         view: Literal["actual", "effective"] = "effective",
         space: str | None = None,
@@ -45,7 +54,10 @@ def register_resource_routes(app: FastAPI, engine: EndpointEngine) -> None:
             page=PageOptions(continuation, limit, max_chars),
         )
 
-    @app.get("/v2/home/content")
+    @app.get(
+        "/v2/home/content", response_model=PageResponse, response_model_exclude_none=True,
+        response_model_exclude_unset=True,
+    )
     async def home_content(
         link: str,
         view: Literal["actual", "effective"] = "effective",
@@ -72,7 +84,10 @@ def register_resource_routes(app: FastAPI, engine: EndpointEngine) -> None:
             link, PageOptions(continuation, max_chars=max_chars)
         )
 
-    @app.get("/v2/memory/catalog")
+    @app.get(
+        "/v2/memory/catalog", response_model=PageResponse, response_model_exclude_none=True,
+        response_model_exclude_unset=True,
+    )
     async def memory_catalog(
         kind: str | None = None,
         query: str | None = None,
@@ -84,7 +99,10 @@ def register_resource_routes(app: FastAPI, engine: EndpointEngine) -> None:
             kind=kind, query=query, page=PageOptions(continuation, limit, max_chars)
         )
 
-    @app.get("/v2/memory/document")
+    @app.get(
+        "/v2/memory/document", response_model=PageResponse, response_model_exclude_none=True,
+        response_model_exclude_unset=True,
+    )
     async def memory_document(
         link: str, continuation: str | None = None, max_chars: int = 16000
     ):
@@ -101,14 +119,23 @@ def register_resource_routes(app: FastAPI, engine: EndpointEngine) -> None:
             PageOptions(continuation, max_chars=max_chars),
         )
 
-    @app.post("/v2/home/search")
+    @app.post(
+        "/v2/home/search", response_model=SearchResponse, response_model_exclude_none=True,
+        response_model_exclude_unset=True,
+    )
     async def home_search(body: JsonObject = Body()):
         return await engine.resources.search(SearchSpace.HOME, body)
 
-    @app.post("/v2/memory/search")
+    @app.post(
+        "/v2/memory/search", response_model=SearchResponse, response_model_exclude_none=True,
+        response_model_exclude_unset=True,
+    )
     async def memory_search(body: JsonObject = Body()):
         return await engine.resources.search(SearchSpace.MEMORY, body)
 
-    @app.post("/v2/workspace/search")
+    @app.post(
+        "/v2/workspace/search", response_model=SearchResponse, response_model_exclude_none=True,
+        response_model_exclude_unset=True,
+    )
     async def workspace_search(body: JsonObject = Body()):
         return await engine.resources.search(SearchSpace.WORKSPACE, body)

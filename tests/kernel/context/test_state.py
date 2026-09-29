@@ -25,6 +25,7 @@ from tinysoul.kernel.context.builtin.trace import (
     PendingInputs,
     TraceKind,
     TurnTraceHeap,
+    parse_trace_reference,
 )
 from tinysoul.kernel.context.builtin.working import (
     Milestone,
@@ -313,6 +314,27 @@ def test_trace_compaction_builds_inspectable_leaf_nodes() -> None:
     assert [entry.kind for entry in trace.leaf_entries(ref)] == [
         TraceKind.PHASE_NOTE
     ] * 3
+
+
+def test_trace_owner_resolves_head_compact_and_fact_identities() -> None:
+    trace = TurnTraceHeap(turn_id="turn_identity", min_hot_entries=0)
+    entry = trace.append_phase_note("note")
+    assert parse_trace_reference(trace.head_ref()) == "turn_identity"
+    assert trace.resolve_reference(trace.head_ref()) == trace.head_ref()
+    assert trace.resolve_reference(trace.entry_ref(entry.entry_id)) == trace.entry_ref(
+        entry.entry_id
+    )
+    assert trace.resolve_reference(trace.input_ref("input_1")) == trace.input_ref(
+        "input_1"
+    )
+    trace.compact(required_chars=1)
+    nodes = trace.inspect(trace.head_ref())["nodes"]
+    assert isinstance(nodes, list) and nodes
+    node = nodes[0]
+    assert isinstance(node, dict)
+    node_ref = node["ref"]
+    assert isinstance(node_ref, str)
+    assert trace.resolve_reference(node_ref) == node_ref
 
 
 def test_trace_leaf_keeps_immutable_interaction_order() -> None:

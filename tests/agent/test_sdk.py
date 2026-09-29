@@ -662,6 +662,18 @@ async def test_v2_turn_admission_question_budget_and_result_share_sdk_owner(
                 params={"reference": "memory:latest", "day": "2000-01-01"},
             )
             assert unresolved.status_code == 422
+            memory_fragment = await client.get(
+                "/v2/resources/resolve",
+                params={
+                    "reference": "memory:current#notes",
+                    "day": saved["day"],
+                },
+            )
+            assert memory_fragment.status_code == 200
+            assert memory_fragment.json()["locator"] == {
+                "link": "memory:current#notes",
+                "day": saved["day"],
+            }
             resolved = (
                 await client.get(
                     "/v2/resources/resolve",

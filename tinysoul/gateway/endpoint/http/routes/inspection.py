@@ -6,6 +6,7 @@ from tinysoul.infra.paging import PageOptions
 from tinysoul.infra.time import CalendarDay
 
 from ...engine import EndpointEngine
+from ..schemas import ContextOverviewResponse, PageResponse
 
 
 def register_inspection_routes(app: FastAPI, engine: EndpointEngine) -> None:
@@ -67,11 +68,21 @@ def register_inspection_routes(app: FastAPI, engine: EndpointEngine) -> None:
             turn_id, PageOptions(continuation, limit, max_chars)
         )
 
-    @app.get("/v2/turns/{turn_id}/context")
+    @app.get(
+        "/v2/turns/{turn_id}/context",
+        response_model=ContextOverviewResponse,
+        response_model_exclude_none=True,
+        response_model_exclude_unset=True,
+    )
     async def context(turn_id: str):
         return await engine.inspection.context_overview(turn_id)
 
-    @app.get("/v2/turns/{turn_id}/context/segments/{segment_id}")
+    @app.get(
+        "/v2/turns/{turn_id}/context/segments/{segment_id}",
+        response_model=PageResponse,
+        response_model_exclude_none=True,
+        response_model_exclude_unset=True,
+    )
     async def segment(
         turn_id: str,
         segment_id: str,
@@ -82,7 +93,12 @@ def register_inspection_routes(app: FastAPI, engine: EndpointEngine) -> None:
             turn_id, segment_id, PageOptions(continuation, max_chars=max_chars)
         )
 
-    @app.get("/v2/turns/{turn_id}/context/inspect")
+    @app.get(
+        "/v2/turns/{turn_id}/context/inspect",
+        response_model=PageResponse,
+        response_model_exclude_none=True,
+        response_model_exclude_unset=True,
+    )
     async def inspect_context(
         turn_id: str,
         ref: str,
@@ -115,7 +131,10 @@ def register_inspection_routes(app: FastAPI, engine: EndpointEngine) -> None:
             PageOptions(continuation, max_chars=max_chars),
         )
 
-    @app.get("/v2/session/map")
+    @app.get(
+        "/v2/session/map", response_model=PageResponse, response_model_exclude_none=True,
+        response_model_exclude_unset=True,
+    )
     async def session_map(day: str | None = None, continuation: str | None = None):
         return await engine.inspection.session_inspect(
             CalendarDay.parse(day) if day else None,
@@ -123,7 +142,10 @@ def register_inspection_routes(app: FastAPI, engine: EndpointEngine) -> None:
             continuation=continuation,
         )
 
-    @app.get("/v2/session/inspect")
+    @app.get(
+        "/v2/session/inspect", response_model=PageResponse, response_model_exclude_none=True,
+        response_model_exclude_unset=True,
+    )
     async def inspect_session(
         day: str,
         ref: str | None = None,

@@ -1,5 +1,15 @@
 # Agent Home 设计
 
+## Canonical Markdown references
+
+Home direct references are mapped through the layout owner before they are
+returned by browse/inspect or used for backlink evidence. Top and prompt-mount
+identities therefore remain canonical (`home:agent@...`, `home:skills@...`,
+`home:skills_domain:...`, and `home:skills_action:...`), while progressive
+resources retain their `home:<space>/<path>` form. The same mapping is used by
+`resolve_relative`, so a returned direct ref can be sent to Resource resolve
+without a client-side rewrite.
+
 ## 状态
 
 本文描述 Agent Home 的已确认目标边界与当前实施状态。代码已完成 `home:` 链接解析、仅含 `agent`/`skills` 的 effective 顶层目录、`home:agent@AGENT`、严格 skill frontmatter 与自动 metadata 目录、领域/动作 skill、带 operation recovery 的跨日 overlay、渐进资源与 top/prompt mount mutation、覆盖完整 effective Home 的 `home.search`、Action Catalog mount reconciliation、`SKILL_MEMORY.md` 路径约束和 Runtime copy Trap。旧 `what`、`why`、`how` 命名空间已删除，不提供兼容 Link、双读或迁移 API。Home 已从 DailyLifecycleCoordinator 解耦，不再提供 active day/archive 业务 API。

@@ -1,0 +1,7 @@
+{
+  "ref": "turn:trace/turn-1/node-abc",
+  "kind": "context_trace",
+  "children": [{"ref": "turn:trace/turn-1/node-def", "kind": "leaf", "preview": "..."}],
+  "continuation": "trace-next",
+  "complete": false
+}

@@ -1,5 +1,12 @@
 # Endpoint 协议
 
+## Contract artifacts
+
+The versioned response projection used by visualization is documented in
+[`contracts/`](contracts/README.md). It includes fixed envelopes, page/search
+schemas, and sanitized fixtures for runtime, Turn, Context, Home, Memory,
+Search, Job, ACP, MCP, and model observations.
+
 Endpoint 是 loopback 本地协议。除 `GET /v2/health` 外，HTTP 请求都需要 `Authorization: Bearer <token>`；WebSocket 在连接建立后发送 token 首帧。连接描述由 App 发布，包含 host、port、token、instance_id、project_identity 和 project_root，Visualization 必须核对实例身份。
 
 ## 路由总表

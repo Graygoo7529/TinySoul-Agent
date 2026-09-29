@@ -824,7 +824,7 @@ def test_home_browser_reads_actual_effective_guidance_and_direct_refs_without_co
     _bind_workspace_mounts(home)
     before = tuple(runtime.rglob("*"))
     document = home.browse_content("home:agent@AGENT")
-    assert "home:agent/guide.md" in str(document["metadata"])
+    assert "home:agent@guide" in str(document["metadata"])
     assert "Workspace guidance" in str(
         home.browse_content("home:skills_domain:workspace")
     )

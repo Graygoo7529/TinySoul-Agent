@@ -1,6 +1,6 @@
 # Visualization 后端实施 Review
 
-> 日期：2026-09-28。Review 状态：done；下列 R1–R4 状态：pending。
+> 日期：2026-09-28。Review 状态：done；R1–R4 后续改进已于 2026-09-29 完成。
 > 核对代码：`5993913`，主要实施提交 `d3d0bf2`，计划提交 `4093b94`。
 > 核对依据：重新读取的根目录 `AGENTS.md`、`docs/analysis/done/20260928-done-visualization-backend-support-plan.md`、当前模块设计、Endpoint 文档与实际代码。
 > 本文只记录评审和补齐建议，没有修改业务实现，也没有重新实施前端。
@@ -8,6 +8,8 @@
 ## 1. 结论与完成判断
 
 **整体架构方向合理，主要后端能力已经落地，可以承接下一阶段前端建设；但还不能把这份后端计划按全部交付完成验收。** 剩余问题集中在页面导航的正常功能与契约交接，不需要新增一轮架构重构。
+
+以上是 2026-09-28 初始 Review 结论；R1–R4 已由后续执行计划完成并在本文末复核，当前 Review 可归档。
 
 本次实现沿用了 Agent 根调度、插件 owner、generation/day lease、Action/ModelUse、Search/Disclosure、Session 事实与旁路 Observation。没有发现为了页面新建第二套 Search、聊天事实库、模型执行体系或运行调度器。配置 apply/presets、结构化问答、只读浏览、运行查询的主要路径与既定设计一致。
 
@@ -64,7 +66,7 @@ Job detail/output 读取同一个 Job backend，输出续接不消费父 Agent �
 
 ## 3. R1：Context 根入口不能直接打开
 
-**状态：pending。**
+**状态：done。** 后续计划已由 `NavigableSegment` owner roots 和 overview 投影完成。
 
 位置：`tinysoul/kernel/context/engine.py:842`；Trace descriptor 位于 `kernel/context/builtin/core.py`，Session descriptor 位于 `plugins/session/projection.py:241`。
 
@@ -98,7 +100,7 @@ Job detail/output 读取同一个 Job backend，输出续接不消费父 Agent �
 
 ## 4. R2：统一 ResourceLocator 尚未覆盖真实 ref，并丢失动态锚点
 
-**状态：pending。**
+**状态：done。** 后续计划已由 Trace owner identity resolver、动态 locator fragment 保留完成。
 
 ### 4.1 压缩 Trace 节点被当作无 owner
 
@@ -134,7 +136,7 @@ GET /v2/resources/resolve?reference=memory:current%23notes&turn_id=review-main
 
 ## 5. R3：Home direct refs 没有复用 Home 自身的规范化
 
-**状态：pending。**
+**状态：done。** 后续计划已由 Home canonical markdown reference helper 完成。
 
 位置：`tinysoul/plugins/home/engine.py:449`、`:459`。同文件 `resolve_relative()` 已有正确的 layout 映射。
 
@@ -160,9 +162,9 @@ GET /v2/resources/resolve?reference=memory:current%23notes&turn_id=review-main
 
 **最小验收：** Home 浏览输出的每个受支持 direct ref 都能继续 resolve/read；top、Skill resource、domain/action guidance 和 fragment 分别覆盖一个正常样例；actual/effective 视图按调用来源保留。
 
-## 6. R4：B0/B7 前端契约交接尚未完成
+## 6. R4：B0/B7 前端契约交接（已完成）
 
-**状态：pending。** 此项是交付缺口，不等同于接口功能全部缺失。
+**状态：done。** 已补齐关键 response model、OpenAPI schema、contracts/examples 和代表性校验测试。
 
 计划第 3、12 节明确要求完整 request/response、稳定错误、分页/失效说明，以及从真实 DTO 生成的正常/空态/等待/失败样例。当前新增 `docs/endpoint/inspection.md` 主要是路由和字段概述，没有覆盖这些完整实例。仓库中也没有本轮 Endpoint 响应 fixture 包。
 
@@ -192,14 +194,14 @@ GET /v2/resources/resolve?reference=memory:current%23notes&turn_id=review-main
 
 | 阶段 | 判断 | 依据与剩余项 |
 | --- | --- | --- |
-| B0 契约 | 未完成交接 | 路由目录齐备；R4 的响应契约、fixtures 仍需补齐 |
+| B0 契约 | 已完成交接 | 路由目录、response model、OpenAPI schemas 与 fixtures 已同步 |
 | B1 配置与方案 | 主要完成 | 单发布流程、双视图、完整组替换、预算与边界有实现和测试 |
 | B2 问题与交互 | 主要完成 | typed ask/reply、Inbox、Context、Session 同一事实链 |
-| B3 Session/Context/定位 | 需修正 | 只读与生命周期合理；R1/R2 导航缺口 |
-| B4 资源与 Search | 主要完成，需修正链接 | 浏览/Search 复用 owner；R3 direct refs 不一致 |
+| B3 Session/Context/定位 | 已完成 | owner navigation roots、Trace identity 和生命周期边界已统一 |
+| B4 资源与 Search | 已完成 | Home canonical direct refs、Resource resolve 和动态 fragment 已统一 |
 | B5 运行观察 | 主要完成 | Job、ACP、MCP 复用运行 owner，GET/refresh 边界清楚 |
 | B6 呈现与观测 | 主要完成 | provenance 来自消息组装；EventFilter 延续原游标体系 |
-| B7 收口 | 未完整完成 | 测试门禁与 R4 交接是不同要求；标记 done 不能替代契约交付 |
+| B7 收口 | 已完成 | response model、OpenAPI、contracts/examples、Full 与 ty 均已核对 |
 
 生图只有前端设置归属预留；没有后端执行器不构成本轮缺失。未新增通用 Action RPC、任意历史 Context、HTTP Memory/Home 持久写入口，同样符合计划。无需因为“统一”再添加这些能力。
 
@@ -229,7 +231,9 @@ ty check --python /absolute/path/to/review-venv/bin/python
 
 类型检查和已有测试通过不覆盖新增断链问题：当前 overview 测试主要断言存在 segments/generation_id，Home 测试检查字段出现，没有验证返回的线索可继续打开。这正是补充少量跨接口正常路径测试的价值。
 
-## 9. 建议的收尾顺序
+## 9. 已完成的收尾顺序（历史记录）
+
+以下保留当时提出的实施顺序；对应事项已由后续计划完成。
 
 1. 修 R1：segment owner 提供可打开的真实导航 roots。
 2. 修 R2/R3：Trace 身份解析与 Home canonical Link 各回到 owner；保留动态资源 fragment/day/view。
@@ -242,3 +246,15 @@ ty check --python /absolute/path/to/review-venv/bin/python
 ```text
 docs: review visualization backend delivery at 5993913
 ```
+
+## Follow-up completion (2026-09-29)
+
+The follow-up plan is archived as
+`docs/analysis/done/20260929-done-visualization-backend-review-followup-improvement-plan.md`.
+R1–R4 are resolved by the owner navigation protocol, Trace reference resolver,
+dynamic locator fragment preservation, Home canonical reference helper, and the
+critical v2 response/OpenAPI contract artifacts. The current validation is
+`scripts/test.ps1 -Suite Full`: 1203 passed, 25 deselected; `scripts/typecheck.ps1`
+with the `TinySoul` Conda interpreter and ty 0.0.84 passed; `git diff --check`
+passed. The older numerical test result above remains a historical review
+record; the follow-up result is the authoritative completion check.

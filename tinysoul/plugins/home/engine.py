@@ -455,19 +455,21 @@ class AgentHomeEngine:
             },
         )
 
-    @staticmethod
-    def _direct_refs(text: str, relative: str) -> tuple[str, ...]:
+    def _direct_refs(self, text: str, relative: str) -> tuple[str, ...]:
         refs: list[str] = []
         for item in markdown_references(text):
             try:
-                refs.append(
-                    relative_reference(
-                        item.target, source_path=relative, prefix="home:"
-                    )
-                )
+                refs.append(self._canonical_markdown_reference(item.target, relative))
             except ReferenceError:
                 continue
         return tuple(dict.fromkeys(refs))
+
+    def _canonical_markdown_reference(self, target: str, relative: str) -> str:
+        """Map a Markdown edge through Home's canonical logical layout."""
+        origin = self._layout.link_for_relative(relative)
+        if origin is None:
+            raise ReferenceError("Home source has no canonical origin")
+        return self.resolve_relative(target, str(origin))
 
     def browse_changes(self, page: PageOptions = PageOptions()) -> JsonObject:
         return self._review.read_changes(page)
@@ -666,8 +668,8 @@ class AgentHomeEngine:
                     for link in markdown_references(text):
                         try:
                             target = references.resolve(
-                                relative_reference(
-                                    link.target, source_path=relative, prefix="home:"
+                                self._canonical_markdown_reference(
+                                    link.target, relative
                                 )
                             )
                         except ReferenceError:

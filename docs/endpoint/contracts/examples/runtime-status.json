@@ -1,0 +1,11 @@
+{
+  "protocol_version": 2,
+  "instance_id": "example-instance",
+  "project_identity": "tinysoul-example",
+  "ready": true,
+  "active_day": "2026-09-29",
+  "turn_active": false,
+  "runtime": {"state": "idle", "active_turn_id": null, "queued_turn_ids": []},
+  "latest_event_sequence": 12,
+  "event_journal": {"enabled": false, "degraded": false, "oldest_sequence": null, "latest_sequence": 12}
+}

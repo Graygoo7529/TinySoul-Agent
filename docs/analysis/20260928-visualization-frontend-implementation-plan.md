@@ -3,7 +3,7 @@
 > 日期：2026-09-28；状态：pending；代码基线：`1aa0db4`。
 > 产品范围已确认，实施尚未开始。本文完整定义前端页面、交互、数据来源、接口用法和验收；不需要其它讨论材料补充语义。
 > 先完成配套 [后端支持执行计划](done/20260928-done-visualization-backend-support-plan.md)，取得实际 Endpoint schema/样例，再实施本计划。两份计划的 API 编号一致。
-> 规约依据：根目录 AGENTS.md；后端实际契约以实施完成后同步的 `docs/endpoint/` 为准。本文标记为新增/扩展的接口不能提前当作当前已有能力。
+> 规约依据：根目录 AGENTS.md；后端实际契约以 `docs/endpoint/contracts/`、`docs/endpoint/` 和受鉴权的 OpenAPI 为准。本文标记为新增/扩展的接口不能提前当作当前已有能力。
 
 ## 1. 产品目标与实施范围
 

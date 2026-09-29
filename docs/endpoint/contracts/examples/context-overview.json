@@ -1,0 +1,11 @@
+{
+  "generation_id": "generation-1",
+  "captured_at": "2026-09-29T10:00:00+00:00",
+  "turn_id": "turn-1",
+  "day": "2026-09-29",
+  "segments": [
+    {"id": "session", "owner": "session", "slot": "background", "shape": "map", "order": 10, "capabilities": ["inspect", "query"], "root_refs": ["session:map"], "chars": 320, "image_bytes": 0, "available_refs": [], "loaded_refs": [], "protected_refs": []},
+    {"id": "trace", "owner": "context", "slot": "trace", "shape": "stack", "order": 10, "capabilities": ["inspect", "query", "reclaim", "search"], "root_refs": ["turn:trace@turn-1"], "chars": 640, "image_bytes": 0, "available_refs": [], "loaded_refs": [], "protected_refs": []}
+  ],
+  "resolved_references": {}
+}

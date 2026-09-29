@@ -38,6 +38,15 @@ prepare 不改变活动视图或持久事实；全部候选准备成功才同步
 
 ## TurnTraceHeap
 
+### Owner navigation and reference identity
+
+`SegmentDescriptor.ref_prefixes` is a routing scope only. Each opened owner
+may expose `navigation_refs()` for roots that can be passed directly to
+`core.context.inspect`; the Context overview projects those owner roots as
+`segments[].root_refs`. The kernel does not construct Session, Trace, or Home
+identities. Trace additionally owns validation of head, compact node, entry,
+action, and input references before Resource resolve returns a locator.
+
 TurnTraceHeap 是当前 Turn 的 append-only 运行事实：
 
 - hot entries 直接进入 MessageStack；

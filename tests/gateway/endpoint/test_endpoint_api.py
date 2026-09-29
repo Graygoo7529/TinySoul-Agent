@@ -154,6 +154,16 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
     assert "/v2/workspace/blob" in openapi["paths"]
     assert "put" in openapi["paths"]["/v2/workspace/blob"]
     assert "/v2/reflection/decision" not in openapi["paths"]
+    for path, method in (
+        ("/v2/status", "get"),
+        ("/v2/turns/{turn_id}", "get"),
+        ("/v2/turns/{turn_id}/context", "get"),
+        ("/v2/resources/resolve", "get"),
+    ):
+        response_schema = openapi["paths"][path][method]["responses"]["200"][
+            "content"
+        ]["application/json"]["schema"]
+        assert response_schema.get("$ref") or response_schema.get("properties")
     assert all(
         set(methods) == {"get"}
         for path, methods in openapi["paths"].items()

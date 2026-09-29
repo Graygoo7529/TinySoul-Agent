@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["turn_id"],
+  "properties": {
+    "turn_id": {"type": "string"},
+    "kind": {"type": ["string", "null"]},
+    "state": {"type": ["string", "null"]},
+    "active_day": {"type": ["string", "null"]},
+    "accepted": {"type": ["boolean", "null"]},
+    "jobs": {"type": "array"}
+  },
+  "additionalProperties": true
+}

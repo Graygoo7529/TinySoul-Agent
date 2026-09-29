@@ -1,0 +1,6 @@
+{
+  "kind": "memory",
+  "locator": {"link": "memory:current#notes", "day": "2026-09-29", "turn_id": "turn-1"},
+  "capabilities": ["read"],
+  "resolved_from": "memory:current#notes"
+}

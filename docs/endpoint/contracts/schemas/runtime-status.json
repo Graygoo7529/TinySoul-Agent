@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["protocol_version", "instance_id", "project_identity", "ready", "active_day", "turn_active", "runtime", "latest_event_sequence", "event_journal"],
+  "properties": {
+    "protocol_version": {"type": "integer"},
+    "instance_id": {"type": "string"},
+    "project_identity": {"type": "string"},
+    "ready": {"type": "boolean"},
+    "active_day": {"type": "string"},
+    "turn_active": {"type": "boolean"},
+    "runtime": {"type": "object"},
+    "latest_event_sequence": {"type": "integer", "minimum": 0},
+    "event_journal": {"type": "object"}
+  },
+  "additionalProperties": true
+}

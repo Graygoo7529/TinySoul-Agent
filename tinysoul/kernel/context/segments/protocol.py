@@ -120,6 +120,20 @@ class ReferenceBindingSegment(Protocol):
     def resolved_references(self) -> dict[str, ResourceLocator]: ...
 
 
+@runtime_checkable
+class NavigableSegment(Protocol):
+    """Owner-provided roots that can be passed directly to Context inspect."""
+
+    def navigation_refs(self) -> tuple[str, ...]: ...
+
+
+@runtime_checkable
+class ReferenceResolvableSegment(Protocol):
+    """Owner validation for references that are more specific than a route prefix."""
+
+    def resolve_reference(self, ref: str) -> str: ...
+
+
 class UpdatingSegment[U, P](ContextSegment, Protocol):
     async def prepare(self, updates: tuple[U, ...]) -> P: ...
 

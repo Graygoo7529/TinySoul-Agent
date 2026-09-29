@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "job_id": {"type": "string"},
+    "turn_id": {"type": "string"},
+    "state": {"type": "string"},
+    "result": {},
+    "continuation": {"type": ["string", "null"]}
+  },
+  "additionalProperties": true
+}

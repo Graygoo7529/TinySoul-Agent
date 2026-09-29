@@ -1,0 +1,5 @@
+{
+  "acp": {"connections": [{"connection_id": "acp-1", "state": "connected", "cwd_link": "workspace:agent"}]},
+  "mcp": {"servers": [{"server_id": "local", "state": "ready", "tools": [{"name": "describe", "available": true}]}]},
+  "model_observation": {"task_id": "task-1", "model_use": "search.select", "provider": "fake", "level": "normal", "model_uses": ["llm", "jev", "embedding"]}
+}

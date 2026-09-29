@@ -208,6 +208,12 @@ class TraceSegment:
         # The serializable view only identifies the current inspection root.
         return {"ref": self.state.head_ref()}
 
+    def navigation_refs(self) -> tuple[str, ...]:
+        return (self.state.head_ref(),)
+
+    def resolve_reference(self, ref: str) -> str:
+        return self.state.resolve_reference(ref)
+
     def reclaim(self, required_chars: int) -> SegmentReclaim:
         return SegmentReclaim(
             self.state.compact(required_chars=required_chars).reclaimed_chars

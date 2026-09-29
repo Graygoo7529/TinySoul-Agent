@@ -38,6 +38,28 @@ class TraceKind(StrEnum):
     PHASE_NOTE = "phase_note"
 
 
+def parse_trace_reference(ref: str) -> str:
+    """Parse the stable trace identity while keeping syntax owned by Context."""
+    resource, marker, fragment = ref.partition("#")
+    if resource.startswith("turn:trace@"):
+        turn_id = resource.removeprefix("turn:trace@").strip()
+        if not turn_id:
+            raise ContextContractError("Trace reference requires a Turn identity")
+        if marker:
+            prefix, separator, value = fragment.partition("/")
+            if prefix not in {"entry", "action", "input"} or not separator or not value:
+                raise ContextContractError("Trace reference fragment is invalid")
+            if "/" in value:
+                raise ContextContractError("Trace reference fragment is invalid")
+        return turn_id
+    if resource.startswith("turn:trace/"):
+        parts = resource.split("/")
+        if len(parts) != 3 or not parts[1] or not parts[2] or marker:
+            raise ContextContractError("Trace node reference is invalid")
+        return parts[1]
+    raise ContextContractError("Reference is not a trace resource")
+
+
 class TraceFactKind(StrEnum):
     """Owner-observed order, never a claim about external causal time."""
 
@@ -398,6 +420,41 @@ class TurnTraceHeap:
 
     def head_ref(self) -> str:
         return f"turn:trace@{self._turn_id}"
+
+    def resolve_reference(self, ref: str) -> str:
+        """Validate a trace ref against this heap before an owner read."""
+        turn_id = parse_trace_reference(ref)
+        if turn_id != self._turn_id:
+            raise ContextInspectRequestError(
+                ContextInspectFailureReason.INVALID_REF,
+                "Trace ref does not belong to the active Turn",
+                constraint={"ref": ref},
+            )
+        if ref == self.head_ref():
+            return ref
+        prefix = f"{self.head_ref()}#entry/"
+        if ref.startswith(prefix):
+            entry_id = ref[len(prefix) :]
+            if any(entry.entry_id == entry_id for entry in self._entries):
+                return ref
+            raise ContextInspectRequestError(
+                ContextInspectFailureReason.UNKNOWN_REF,
+                "Unknown trace entry",
+                constraint={"ref": ref},
+            )
+        if ref.startswith(f"{self.head_ref()}#action/"):
+            value = ref.removeprefix(f"{self.head_ref()}#action/")
+            if value.isascii() and value.isdigit() and int(value) < len(self._actions):
+                return ref
+            raise ContextInspectRequestError(
+                ContextInspectFailureReason.UNKNOWN_REF,
+                "Unknown trace action",
+                constraint={"ref": ref},
+            )
+        if ref.startswith(f"{self.head_ref()}#input/"):
+            return ref
+        self._node_for_ref(ref)
+        return ref
 
     def append_decision(
         self,

@@ -171,6 +171,18 @@ async def test_background_prepare_failure_installs_neither_catalog_nor_entries()
     assert engine.background_links() == ()
 
 
+async def test_installed_overview_exposes_owner_navigation_root_for_inspect() -> None:
+    engine = _engine()
+    turn_id = engine.begin_turn("inspect roots")
+    await engine.open_segments(date(2026, 9, 15))
+
+    overview = engine.installed_overview()
+    trace = next(item for item in overview["segments"] if item["id"] == "trace")
+    assert trace["root_refs"] == [f"turn:trace@{turn_id}"]
+    page = await engine.inspect(trace["root_refs"][0])
+    assert page["ref"] == trace["root_refs"][0]
+
+
 async def test_cancelled_background_prepare_joins_read_without_installing_view() -> (
     None
 ):

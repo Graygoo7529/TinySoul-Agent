@@ -1,0 +1,7 @@
+{
+  "job_id": "job-1",
+  "turn_id": "turn-1",
+  "state": "finished",
+  "result": {"exit_code": 0, "stdout": "done"},
+  "continuation": null
+}

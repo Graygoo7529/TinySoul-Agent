@@ -5,15 +5,29 @@ from fastapi import FastAPI
 from tinysoul.infra.json import JsonObject, to_json_object
 
 from ...engine import EndpointControlKind, EndpointEngine
-from ..schemas import ControlRequest, InputRequest
+from ..schemas import (
+    CommandReceiptResponse,
+    ControlRequest,
+    InputRequest,
+    RuntimeStatusResponse,
+)
 
 
 def register_runtime_routes(app: FastAPI, engine: EndpointEngine) -> None:
-    @app.get("/v2/status")
+    @app.get(
+        "/v2/status", response_model=RuntimeStatusResponse, response_model_exclude_none=True,
+        response_model_exclude_unset=True,
+    )
     async def status() -> JsonObject:
         return await engine.runtime.status()
 
-    @app.post("/v2/input", status_code=202)
+    @app.post(
+        "/v2/input",
+        status_code=202,
+        response_model=CommandReceiptResponse,
+        response_model_exclude_none=True,
+        response_model_exclude_unset=True,
+    )
     async def submit_input(body: InputRequest) -> JsonObject:
         return await engine.runtime.submit_user_input(
             body.text,
@@ -21,7 +35,13 @@ def register_runtime_routes(app: FastAPI, engine: EndpointEngine) -> None:
             command_id=body.command_id,
         )
 
-    @app.post("/v2/control", status_code=202)
+    @app.post(
+        "/v2/control",
+        status_code=202,
+        response_model=CommandReceiptResponse,
+        response_model_exclude_none=True,
+        response_model_exclude_unset=True,
+    )
     async def submit_control(body: ControlRequest) -> JsonObject:
         return await engine.runtime.submit_control(
             EndpointControlKind(body.kind),
@@ -29,6 +49,12 @@ def register_runtime_routes(app: FastAPI, engine: EndpointEngine) -> None:
             command_id=body.command_id,
         )
 
-    @app.post("/v2/restart", status_code=202)
+    @app.post(
+        "/v2/restart",
+        status_code=202,
+        response_model=CommandReceiptResponse,
+        response_model_exclude_none=True,
+        response_model_exclude_unset=True,
+    )
     async def restart() -> JsonObject:
         return await engine.runtime.restart()

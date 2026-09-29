@@ -1,5 +1,24 @@
 # 浏览、定位与运行读取
 
+## Current v2 contract notes
+
+`segments[].root_refs` contains owner navigation identities that can be sent
+directly to `/v2/turns/{turn_id}/context/inspect`. Descriptor `ref_prefixes`
+remain internal routing scopes. Normal roots include `session:map`,
+`turn:trace@<turn_id>`, and `workspace_archive:<day>` when an archive view is
+installed.
+
+Trace inspection may return compact branch/leaf refs such as
+`turn:trace/<turn_id>/<node_id>`. Resource resolution preserves that exact
+`ref` and the owning Turn binding. Dynamic Memory links also preserve a
+fragment, for example `memory:current#notes`; the returned locator keeps its
+day and Turn fields.
+
+The fixed response envelopes and sanitized examples are maintained in
+[`contracts/`](contracts/README.md). The page envelope is intentionally
+polymorphic: owner content remains in `items`, `children`, `content`, and
+owner extension fields rather than being copied into another business model.
+
 所有路径前缀为 `/v2`，须 Bearer 鉴权。页面 GET 不调用模型、修改 Context 或隐式发现远端工具。所有内容来自已有 owner；不提供任意文件、Action 执行或历史 Context 数据库。
 
 ## 分页

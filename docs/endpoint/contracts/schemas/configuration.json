@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "view": {"type": ["string", "null"]},
+    "generation_id": {"type": ["string", "null"]},
+    "pending_reload": {"type": ["boolean", "null"]},
+    "sources": {"type": "array"},
+    "presets": {"type": "array"}
+  },
+  "additionalProperties": true
+}

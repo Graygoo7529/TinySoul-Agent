@@ -11,7 +11,7 @@ from urllib.parse import unquote, urlsplit
 
 from markdown_it import MarkdownIt
 
-from .json import JsonObject
+from .json import JsonObject, to_json_object
 
 
 class ReferenceError(Exception):
@@ -48,6 +48,19 @@ class ResourceLocator:
             )
             if value
         }
+
+
+def append_locator_fragment(locator: JsonObject, fragment: str) -> JsonObject:
+    """Preserve a dynamic owner binding while applying the requested fragment."""
+    if not fragment:
+        return to_json_object(locator)
+    result = to_json_object(locator)
+    for key in ("link", "ref"):
+        value = result.get(key)
+        if isinstance(value, str) and value:
+            result[key] = value.partition("#")[0] + "#" + fragment
+            return result
+    raise ReferenceError("Resource locator has no fragment-bearing identity")
 
 
 @dataclass(frozen=True)

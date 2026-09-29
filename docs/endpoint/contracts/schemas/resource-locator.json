@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "link": {"type": "string"},
+    "ref": {"type": "string"},
+    "day": {"type": "string"},
+    "turn_id": {"type": "string"},
+    "view": {"type": "string", "enum": ["actual", "effective"]}
+  },
+  "oneOf": [
+    {"required": ["link"]},
+    {"required": ["ref"]}
+  ],
+  "additionalProperties": true
+}

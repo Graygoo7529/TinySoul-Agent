@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "ref": {"type": ["string", "null"]},
+    "kind": {"type": ["string", "null"]},
+    "items": {"type": "array"},
+    "children": {"type": "array"},
+    "content": {"type": ["array", "object", "string", "null"]},
+    "sources": {"type": "array", "items": {"type": "string"}},
+    "continuation": {"type": ["string", "null"]},
+    "truncated": {"type": ["boolean", "null"]},
+    "complete": {"type": ["boolean", "null"]}
+  },
+  "additionalProperties": true
+}
