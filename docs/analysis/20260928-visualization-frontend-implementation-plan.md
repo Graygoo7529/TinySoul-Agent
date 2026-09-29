@@ -11,6 +11,8 @@
 
 TinySoul 是一个在独立主机上持续运行的个人 Agent。Visualization 是它的远端界面，既可以在浏览器运行，也可以在 Tauri 桌面壳运行。关闭界面不结束 Agent；打开多个页面也不会创建多个 Agent。一次配置应用会重建 Agent 的运行世代（generation），不是重建项目或删除数据。
 
+Endpoint 只监听后端主机的 loopback。本地调试支持手动输入 `127.0.0.1:1430` 等实际后端地址并提供连接凭据；远端使用以已有隧道/转发为前提，填写客户端可达的转发地址。本轮不部署转发服务或改变后端监听边界，连接细节见 §4。
+
 用户主要在对话页提出目标。Agent 可以连续思考和执行、操作工作区、检索自己的知识、等待后台任务，也可以在同一轮中向用户提问。一个 User Turn 可以包含多个 Cycle、Action 和模型调用；等待回复或预算时仍是同一个 Turn。普通新消息可以开始下一轮，也可以明确追加到正在运行的一轮。前端必须让这些操作的差异可见，但无需让用户学习内核术语。
 
 下面的说明用于指导页面实现和帮助内容，不应原样成为页面上大量的小字。日常界面优先呈现对象、内容和操作；仅在用户第一次进入、展开帮助或遇到选择歧义时解释必要概念。
@@ -32,20 +34,22 @@ TinySoul 是一个在独立主机上持续运行的个人 Agent。Visualization 
 
 ### 0.3 页面与典型使用路径
 
-| 页面/入口 | 用户来这里做什么 | 与其它页面的衔接 |
-| --- | --- | --- |
-| 对话 | 交代目标、补充信息、回答 Agent、查看回答与过程、切换运行方案 | 产物进入工作区；资源引用打开对应 owner；问题和预算留在对话中处理。 |
-| 对话历史与 Session | 回看某一天的交流，理解话题和证据 | 从历史菜单进入；地图也可从 Context 的 Session 段进入，无新增常驻日期栏。 |
-| Context 抽屉 | 回答“Agent 这一轮目前看到了什么” | 右上按钮打开；资源全文与模型调用详情是明确的下一层阅读入口。 |
-| 工作区 | 阅读、编辑和管理文件，寻找执行产物 | 从导航或回答中的 workspace 链接进入；原有目录与编辑主布局保留。 |
-| Home | 了解 Agent 的身份、偏好、技能与当前改动，发起整理 | 默认读 effective；对照 actual/diff；实际审核由 Reflection 执行。 |
-| Memory | 查找 Agent 已积累的经历和知识，沿引用阅读 | 当日活动记忆与持久知识分栏；按来源日发起记忆整理。 |
-| 运行观察 | 了解为什么正在运行或等待、后台任务和外部连接情况 | 跳回对话答问题，跳产物，跳设置修改连接；不成为另一套命令控制台。 |
-| 设置 | 配置 Provider、模型、任务链、Action 用途、预算及工具，批量应用 | 对话只保留运行方案快捷入口；外观等本地偏好不触发 Agent 重载。 |
+| 页面/入口 | 用户来这里做什么 | 与其它页面的衔接 | 操作边界 |
+| --- | --- | --- | --- |
+| 对话 | 交代目标、补充信息、回答 Agent、查看回答与过程、切换运行方案 | 产物进入工作区；资源引用打开对应 owner；问题和预算留在对话中处理。 | 新轮、追加、回复和补额是不同意图。 |
+| 对话历史与 Session | 回看某一天的交流，理解话题和证据 | 从历史菜单进入；地图也可从 Context 的 Session 段进入，无新增常驻日期栏。 | 只读事实和解释，不提供外部编辑地图。 |
+| Context 抽屉 | 回答“Agent 这一轮目前看到了什么” | 右上按钮打开；资源全文与模型调用详情是明确的下一层阅读入口。 | 阅读已安装语境，不提供手动加载/逐出控制。 |
+| 工作区 | 阅读、编辑和管理文件，寻找执行产物 | 从导航或回答中的 workspace 链接进入；原有目录与编辑主布局保留。 | 活动日可编辑、移入回收站及恢复；归档只读。 |
+| Home | 了解 Agent 的身份、偏好、技能与当前改动，发起整理 | 默认读 effective；对照 actual/diff；实际审核由 Reflection 执行。 | 页面不直接写入或接受 Home 改动。 |
+| Memory | 查找 Agent 已积累的经历和知识，沿引用阅读 | 当日活动记忆与持久知识分栏；按来源日发起记忆整理。 | 页面不直接保存活动记忆或持久知识正文。 |
+| 运行观察 | 了解为什么正在运行或等待、后台任务和外部连接情况 | 跳回对话答问题，跳产物，跳设置修改连接；不成为另一套命令控制台。 | 仅使用已有取消、停止、刷新能力，无任意 Action/MCP 调用。 |
+| 设置 | 配置 Provider、模型、任务链、Action 用途、预算及工具，批量应用 | 对话只保留运行方案快捷入口；外观等本地偏好不触发 Agent 重载。 | 后端草稿整批应用，本地外观即时生效。 |
 
 首次配置路径：连接后端 → 设置 Provider/凭据 → 模型及 Provider 顺序 → LLM 链或专用用途 → Phase/Action 绑定 → 查看整批变更 → 应用 → 对话。已有可用配置时直接进入对话，不强制向导。
 
 日常工作路径：发送目标 → 追加或回复问题 → 阅读 Action/Job 过程 → 打开产物 → 完成后从 Session 回看。知识阅读路径：搜索 Home/Memory → 阅读真实片段 → 打开全文/引用/反链 → 必要时将引用放入对话。知识整理路径：在 Home/Memory 明确发起一次 Reflection → 在运行观察查看排队及结果 → 回资源页刷新。
+
+正常空状态不作为系统故障：没有活动 Turn 时 Context 提示暂无当前语境，没有 Job 时显示暂无后台任务，Memory 尚无文档时显示知识目录为空；MCP 已配置但未连接或未发现时引导显式刷新。提示当前事实及适用的下一步，不为填满页面而自动开始 Turn、Reflection 或外部连接；加载失败与空结果分别呈现。
 
 ### 0.4 开始编码前的阅读顺序
 
@@ -154,7 +158,7 @@ Visualization 是同一个 Agent 的交互、知识/资源浏览、配置和运�
 | Context 段正文 | messages；可有 content_fragment | 同一 JSON fragment 基础协议，集合字段不同。 |
 | Workspace 文本 | text、complete、editable、truncated | 按该接口的 next_continuation 读更多；完整编辑另用 full=true。 |
 | Search | items、coverage、page、result_ref | 有下一页时使用响应顶层 continuation；不将 page.continuation 当成统一游标，也不把结果为空当作失败。 |
-| Job output | items 中的 channel/text | next_continuation 可在空页后继续轮询；是否完成依据 Job 状态，不能依 token 是否存在判断。 |
+| Job output | items 中的 channel/text | next_continuation 用于增量读取，运行中空页可继续轮询；Job 执行终态与输出阅读进度分开，truncated 不是丢失标记，见 §14。 |
 | 日期/Reflection availability | 日期列表或 memory_days/missing_daily_days 等 | next_before；Reflection 列表不是运行队列。 |
 | Observation replay | events 与窗口信息 | next_sequence；过滤后 events 为空也可能已经推进扫描位置。 |
 
@@ -203,6 +207,14 @@ Visualization 是同一个 Agent 的交互、知识/资源浏览、配置和运�
 
 修改 `api/connection.ts` 和 Tauri discovery 的版本假设；以握手为准，删除硬编码 protocol_version=1 与 v1 transport。连接信息与 UI 偏好分开，切换项目不携带上个项目的草稿、Turn 或 Search 句柄。
 
+Browser 与 Tauri 均提供手动连接表单，地址和 token 分开输入：
+
+- 地址接受 `IP:Port`，如 `127.0.0.1:1430`，省略协议时按 `http://` 解释；也接受显式 `http://` 或 `https://` 地址。`1430` 是可输入的本地调试地址示例，不是固定后端端口；只有 Endpoint 实际监听或转发至该端口时才能连接。
+- 除 health 外，读取和操作仍需有效 token。手动连接填写 token，本机发现可取得实例发布的凭据；不因地址是 loopback 而跳过鉴权。
+- HTTP、blob 与 WebSocket 从同一客户端连接地址构建，WebSocket 按协议使用 ws/wss，并沿现有 token 首帧鉴权。转发须同时承载 HTTP 与 WebSocket；不能只替换普通 API 地址而遗漏流和媒体。
+- Tauri 的项目发现只读取客户端本机项目/实例记录，不把远端项目路径当作可访问的本地目录。远端连接填写已有隧道/转发的可达地址；`127.0.0.1` 始终指运行客户端的机器。协议和凭据不变时，改 IP:Port 即可切换入口，不必修改后端监听地址。
+- 实例身份以 health/status 核对，但传输继续使用客户端可达地址，不被后端报告的内部 loopback host/port 覆盖。
+
 连接入口支持项目/后端地址与真实状态、手动重连、明确的宿主重启。先保存 status 返回的 instance 与事件 cursor，再加载快照，并从该 cursor 订阅/补读过程；快照期间的新事件用于失效刷新，交互按 identity 去重，不因订阅开始较晚漏掉问题。旧 project/generation 的异步响应不得覆盖新连接状态；日志 gap 不清空已经由 Session 读出的对话。关闭页面或 WebSocket 不取消 Agent；重启是显式按钮，不把前端刷新变成重启。
 
 共享 Inspector 保存来源/返回栈，支持关闭、返回、展开宽视图、复制真实链接。跳转后焦点落在详情标题，关闭回触发按钮。常规错误就地呈现；只有应用级连接状态才用全局提示。
@@ -242,6 +254,8 @@ Composer 明确显示“发送新一轮/补充本轮/排队下一轮”的当前
 列表展示名称、当前匹配、有限说明；“管理方案”进入设置。展开摘要包含受管组和关键预算；不提供虚假的统一模型/推理强度。
 
 只有后端声明可应用时允许点击激活；运行期间可查看方案，但不显示已经切换的假状态。应用走 API-06，成功后重取 API-01/05/07；随后用户正常发送。切换与发起 Turn 是两次明确操作，不暗示原子性。
+
+快捷入口与设置中的方案应用共用 §15 的草稿处理规则；存在未应用修改时不能绕过确认直接切换。
 
 无方案或已偏离方案显示“自定义”。模型簇的 UI 收起与运行方案本身不是同一开关。
 
@@ -395,7 +409,7 @@ LLM 左侧来源目录可按 Background/Trace/Working/TaskPrompt 定位，正文
 
 只有原有或明确支持的上传/创建流程调用后端写入；拖入文件失败保留清晰错误，不自动发起 Agent Turn。日切后当前列表切换，仍打开的归档资源保持明确日期。
 
-写入路由只作用于活动 Workspace，不携带历史 day 来模拟归档编辑。回收站沿用现有查看/恢复/删除操作，禁用状态来自真实能力。目录空、文本空、二进制不支持内嵌预览和请求失败分别呈现；只有失败才显示错误。编辑器快捷键与保存状态继续沿用现有体验，跨页回来保留同一文件草稿。
+写入路由只作用于活动 Workspace，不携带历史 day 来模拟归档编辑。活动文件的删除操作是“移入回收站”；回收站提供查看和恢复，不提供永久删除或清空操作。归档 Workspace 与归档回收站仅供浏览，禁用状态来自真实能力。目录空、文本空、二进制不支持内嵌预览和请求失败分别呈现；只有失败才显示错误。编辑器快捷键与保存状态继续沿用现有体验，跨页回来保留同一文件草稿。
 
 ## 11. P07：Home
 
@@ -482,7 +496,7 @@ API-01/02 提供状态，API-17 提供过程。显示 preparing/running/waiting/
 
 API-14 列表显示 kind/state/summary/所属 Turn；选中才取 detail/output，cursor 追加而非每次整段替换。输出页打开时才轮询/跟随，离开只停止读取，不停止 Job。停止按钮等待正式状态，不等于取消整个 Turn。
 
-stdout/stderr 等 channel 保留标识，可合并阅读但不编造严格跨流顺序。空 output 页更新轮询 token 后继续等待；truncated 显示输出缺口，result_locators 提供产物入口。切换 Job 清理对应轮询，不用整个运行页定时全量刷新。
+stdout/stderr 等 channel 保留标识，可合并阅读但不编造严格跨流顺序。truncated 表示本次有界读取未展示全部输出，不表示日志丢失；通过 continuation 继续读取可取得的内容，达到读取上限时提供 result_locators 中的实际产物入口，不单凭 truncated 持续请求不前进的页面。Job 运行中，空 output 页保留返回 token 继续等待；Job 进入终态也不应立即丢弃尚可读取的剩余输出。执行状态与输出阅读进度分别呈现，不能依 token 是否存在判断 Job 完成。切换 Job 清理对应轮询，不用整个运行页定时全量刷新。
 
 pending_inputs 表示父 Agent 待处理请求；需用户决定时跳主对话 ask，不增加用户直接回复 ACP 的接口。Turn 完成后 Job 被回收，显示实际产物链接和保留过程，不能保留可操作的假历史 Job。
 
@@ -530,6 +544,8 @@ Agent 忙碌时允许编辑，禁用应用并显示真实原因；不以 can_wri
 应用 API-06 成功后清草稿、重读状态/配置/方案/catalog；失败保留草稿并定位字段/来源或模块错误。放弃本地修改不撤销其它客户端的 saved。刷新发现 saved 变化：干净字段采用新基线，脏对象保留本地值并提示重新载入/保留，不引入后端 CAS 或复杂自动合并器。
 
 离开设置可保留内存草稿并显示数量；关闭窗口有未保存更改提示。凭据值仅内存编辑，不写 localStorage 草稿，不混进运行方案。网络中断后先读真实状态，不无条件重复 apply。
+
+有未应用 ConfigDraft 时，所有运行方案应用入口都必须先要求明确处理：用户返回设置应用或放弃修改后再切换，或者确认“放弃未应用修改并切换”；取消切换保留草稿。确认放弃并切换时只提交 preset_id，成功后才清除已同意放弃的草稿，失败仍保留。不自动合并草稿与方案，也不连发草稿应用和方案应用两次请求。仅浏览或捕获方案不清除草稿；本地外观偏好和 Workspace 编辑草稿不属于此处理范围。
 
 ### 15.1 配置编辑的实现约束
 
@@ -671,7 +687,7 @@ MCP/ACP 修改进入同一整批草稿，不能在表单每次变化时自动启
 
 列表显示名称、简短说明、active/saved 匹配状态与依赖问题；右侧详情显示受管范围、任务链/用途/预算摘要。支持从运行值/保存值/当前草稿新建、重命名、删除、显式覆盖捕获、应用；删除不影响当前配置。
 
-捕获源选择当前运行、已保存、或当前草稿。草稿捕获使用 `source=saved + operations`，只保存方案，不应用配置。只有显式覆盖才更新快照，重命名不重抓当前值。
+捕获源选择当前运行、已保存、或当前草稿。草稿捕获使用 `source=saved + operations`，只保存方案，不应用配置或清除草稿。捕获仅包含下述受管范围，不能当作全部配置草稿的备份；应用方案共用 §15 的草稿处理规则。只有显式覆盖才更新快照，重命名不重抓当前值。
 
 创建对话框包含名称、可选说明、捕获源和“包含预算”；捕获范围为后端定义的整组，前端不增加任意字段勾选导出。详情 snapshot 是读取结构，不是 POST 请求体。当前 API 没有 from_preset/任意 snapshot 写入，不提供“任意旧方案复制”按钮，也不在前端复制后端的 snapshot 替换算法；需要新变体时编辑当前配置草稿并另存为方案。这满足命名保存与切换需求，并保持唯一的捕获/应用语义。
 
@@ -727,6 +743,8 @@ Question 采用 §6 协议与 active/compose/readonly 模式。Mermaid 使用官
 
 点击跳转、复制原引用、“在对话中引用”是不同操作；引用仅填入 Composer，用户决定发送。Search result_ref 和内部模型短 ID 不提供永久资源跳转。相对图片等资源先通过 owner 解析，再按实际提供的读取能力展示，不把原文路径拼成任意 URL。
 
+“在对话中引用”生成可检查、可编辑的文本草稿，保留原引用以及辨认资源所必需的来源日期、view 或原始 Turn；动态引用已有正式解析结果时同时保留对应资源身份。例如：`请参考 workspace:reports/result.md，来源为 2026-09-28 的归档工作区。` 前端内部 origin 不会自动成为模型可见信息，不依赖自定义 metadata 实现隐式附件或内容注入。引用不等于已读取或加载全文，不自动附加大段正文，也不承诺当前 Action 具有该来源的读取能力。
+
 所有 Markdown 实例——回答、问题说明、资源正文、Search 片段详情、模型输出——传入同一 origin 结构，并复用 a/img 解析。ReactMarkdown 的 URL 转换与 renderer 要一起适配自定义协议，否则合法 home:/memory:/workspace: 链接可能在到达点击处理前被清空；只传递本文明确的资源协议与网页链接，不依赖 raw HTML 或物理路径。fragment、day、view 与 turn_id 保留到最终详情，返回栈恢复原页面和滚动位置。
 
 媒体按实际能力分发：解析为 Workspace 的资源走鉴权 blob client；当前 Home/Memory 无通用 blob 路由，不能承诺所有相对图片都可内嵌。HTTP(S) 图片按正常网络资源能力处理；不支持的本地附件保留有意义的引用/提示，不猜接口。纯文本或 inline code 中的引用仅在确认为合法资源格式时提供链接控件，不把任意冒号文本识别成资源。
@@ -764,7 +782,7 @@ ActionRenderer、CodeBlockRegistry、ResourceRouter、Settings editor adapters �
 | 现有位置/模式 | 保留与替换要求 |
 | --- | --- |
 | `src/components/shell/AppShell.tsx`、TopBar/NavRail/StatusBar | 保留壳和视觉；添加 Home/Memory 导航、统一 Inspector，替换旧连接/数据来源。 |
-| `src/api/connection.ts`、`src-tauri/src/lib.rs` | Browser 与 Tauri 均使用 v2 discovery/握手，前者移除 protocol_version=1 假设；所有 HTTP/binary 复用鉴权。 |
+| `src/api/connection.ts`、`src-tauri/src/lib.rs` | Browser/Tauri 手动地址+token 及 Tauri 本机发现共用 v2 握手；移除 protocol_version=1 假设；HTTP/binary/WS 共用客户端可达地址与现有鉴权。 |
 | `src/api/` 中 runtime/history/maintenance/configuration/workspace clients | 按 API-01～18 整理；删 v1 与旧 maintenance 路由，普通聊天不走终端命令解析。 |
 | `src/derive/chat.ts`、现有 useDerivedChat(events,localInputs) | 正式对话来自 interactions/Session；事件继续支持过程细节，不能继续承担完整聊天权威来源。 |
 | `src/api/history.ts` 的全量事件恢复 | 用 Session 分页读取替代对话恢复；历史模型日志仅在打开详情时定向读取。 |
@@ -781,7 +799,7 @@ ActionRenderer、CodeBlockRegistry、ResourceRouter、Settings editor adapters �
 
 | 阶段 | 工作 | 依赖与退出条件 |
 | --- | --- | --- |
-| F0 契约与技术核对 | API-01～18 类型/fixtures、Browser/Tauri v2 连接、TikZ/Mermaid 最小真实渲染验证 | 当前后端已可对接；确认请求、分页和资源路径，不凭示意图猜字段 |
+| F0 契约与技术核对 | API-01～18 类型/fixtures、手动地址+token 与 Tauri 本机发现的 v2 连接、TikZ/Mermaid 最小真实渲染验证 | 核对 IP:Port 输入、HTTP/WS/blob 共用地址及鉴权、分页和资源路径；不要求前端部署隧道/转发 |
 | F1 数据与壳 | 正式实体缓存、事件失效、共享详情、导航 | status/Turn/Session 来源区分正确 |
 | F2 设置与方案 | P10～15、统一草稿、模型/用途、apply/presets | 多页编辑/应用/失败/重置、方案切换闭环 |
 | F3 对话与历史 | P01～03、Question/预算、追加/排队、历史接替 | 正常交互不丢、不重复，原滚动体验保留 |
@@ -801,9 +819,12 @@ ActionRenderer、CodeBlockRegistry、ResourceRouter、Settings editor adapters �
 ### 24.1 必须走通的完整场景
 
 - [ ] 空项目连接、重连、ready=false、generation 切换与观察缺口，业务历史不被事件丢失破坏。
+- [ ] Browser/Tauri 可手动填写实际 IP:Port 和 token；显式协议、HTTP/WS/blob 地址一致，本机发现可用，后端内部地址不覆盖手动入口。
+- [ ] 无活动 Turn、无 Job、知识目录为空、MCP 未连接/未发现分别呈现正常状态，不误报故障或自动启动工作。
 - [ ] 新 Turn → 追加 → ask → choice/Other → 补充 → 完成 → 刷新，身份/顺序/全文正确；输入未受理和已受理状态明确。
 - [ ] 问题与预算同时等待，各自提交；排队/取消/finalizing 正确；Reflection 运行不误接普通追加。
 - [ ] 运行方案应用后实际 LLM/JEV 与 query 通道改变；运行中不可假切换；缺引用清晰定位。
+- [ ] 有未应用草稿时，对话和设置中的方案切换均要求明确处理；取消/失败保留，确认放弃并成功切换才清除；捕获方案不清草稿或冒充全量备份。
 - [ ] 多页配置草稿、对象排序、含点 map、整批凭据+配置、应用失败/重置、已有 pending 配置的说明正确。
 - [ ] family/collapsed 展示不禁用模型；LLM/专用 Provider 与用途引用真实；生图预留无假保存。
 - [ ] Context 三槽四形状、折叠披露、Session 证据；UI 阅读不改变模型语境；历史 Task 与当前 Context 不混淆。
@@ -811,10 +832,12 @@ ActionRenderer、CodeBlockRegistry、ResourceRouter、Settings editor adapters �
 - [ ] Search 真片段/双通道命中/评分/覆盖、result 派生、续页与失效；页面不调用 current Context，不卡在隐式 top-k。
 - [ ] Action renderer registry 与当前 Action Catalog 同步，旧 registry 名称和兼容映射已清理，未知 Action 保留通用回退。
 - [ ] Workspace 完整编辑/外部变化/归档；Home actual/effective/diff/Reflection；Memory active/daily/知识/反链/redirect。
+- [ ] 活动文件移入回收站及恢复可用，归档回收站只读，无永久删除或清空入口。
 - [ ] Workspace full=true 完整正文才可覆盖保存；Blob 预览真实携带鉴权且保留 day；不为 Home 非文本资源编造下载接口。
 - [ ] 资源链接正确进入 day/view/fragment；动态引用无绑定时明确；网页打开外部浏览器。
+- [ ] 资源引用进入 Composer 时保留必要的来源日期/视图/Turn 或正式解析身份；仅形成可编辑文本，不自动发送或加载全文。
 - [ ] Job 输出/停止、ACP 连接与委派区分、MCP GET 无副作用及显式刷新、watcher 状态正确。
-- [ ] Job 空输出继续轮询；事件过滤空页仍按 next_sequence 推进；日期/Reflection 按 next_before 续读，不能依赖统一 cursor 假设。
+- [ ] Job 运行中空输出继续轮询，终态仍可读取剩余输出；truncated 不误报丢失，读取上限转实际产物入口。事件过滤空页仍按 next_sequence 推进；日期/Reflection 按 next_before 续读，不能依赖统一 cursor 假设。
 - [ ] Question active/compose/readonly、Mermaid、TikZ、普通代码和错误回退；大图不阻塞主对话输入。
 - [ ] 明暗主题、小窗口、字号缩放、键盘焦点、reduced-motion；无演示口号与新增常驻聊天日期栏。
 
@@ -829,10 +852,12 @@ TypeScript 契约与核心状态合并用单元测试；Question/ConfigDraft/排
 | 风险/协作边界 | 必要验证 |
 | --- | --- |
 | 配置共享原子对象 | 在两个 Action 页修改同一 map 后一次提交，两个改动均保留；reset 本页不丢另一页修改；masked secret 不回写。 |
+| 草稿与方案 | 两个应用入口共用确认规则；取消/失败保留草稿，确认放弃并成功应用才清除；请求不混用 operations/preset_id。 |
 | 交互与控制 | 同一 question 从快照和交互到达只生成一个待答卡；预算并存；完成 Session 整轮接替无重复。 |
-| 阅读与日期 | 当前 Context/Home 全文区分，动态 Memory 原绑定、归档 Workspace day、链接 fragment 和返回位置均正确。 |
+| 阅读与日期 | 当前 Context/Home 全文区分，动态 Memory 原绑定、归档 Workspace day、链接 fragment 和返回位置均正确；引用到 Composer 的文本保留必要来源。 |
 | 内容与检索 | 连续 JSON fragment 解码、最后片消费、真实 evidence 含 emoji 高亮、派生 result 与冻结分页不混淆。 |
-| 运行与观察 | 空 Job 页可续读、退出详情停轮询，事件过滤跳过非匹配记录可前进，MCP 打开页面不发 refresh。 |
+| 运行与观察 | Job 运行中空页可续读、终态读取剩余页、truncated 不误报丢失、退出详情停轮询；事件过滤可前进，MCP 打开页面不发 refresh。 |
+| 连接与转发地址 | IP:Port 与显式协议均正确构建 HTTP/WS/blob 请求并携带对应鉴权；握手不把客户端可达地址改回服务端 loopback。 |
 | 渲染与应用壳 | 完整/不完整 fence、Question 三模式、Mermaid/TikZ 成功与失败；Browser/Tauri 本地资源可用且不影响输入。 |
 
 仓库现有 `pnpm-lock.yaml` 与 Tauri 的 pnpm hooks 保持一致，在 `visualization/` 使用 `pnpm install --frozen-lockfile`、`pnpm test`、`pnpm build`；新增依赖时更新同一锁文件，不另加 npm 锁文件。为代表性流程建立明确的 Playwright 配置/命令后执行并记录，不能仅因有依赖就声称已有端到端门禁。Tauri 连接/外链/本地资源与 Browser 均做代表性验证，记录环境和未覆盖项，不用 Browser build 代替桌面集成结论。完成源码改动时仍遵守根 AGENTS.md 的完整本地门禁要求；平台或环境不能执行的项目明确列出，不能写成已通过。
