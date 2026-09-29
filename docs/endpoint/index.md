@@ -45,9 +45,9 @@ Action 目录以 execution.executor、model_uses、retrieval 和有效工具 sch
 {"error":{"code":"workspace.conflict","message":"Workspace request conflicts with the current resource or is invalid.","details":{}}}
 ```
 
-`401` 表示鉴权失败，`409` 表示未 ready、运行中、目标冲突或 owner 拒绝的资源操作，`413` 表示大小超限，`422` 表示 schema/配置值无效，`500` 表示收敛后的模块或服务失败。
+`401` 表示鉴权失败，`409` 表示未 ready、运行中、目标冲突或 owner 拒绝的资源操作，`413` 表示大小超限，`422` 表示 schema/配置值无效，`500` 表示未预期的内部失败，`503` 表示服务或来源不可用。
 
-服务在世代或日期切换后失效返回 `409 service.stale`；Endpoint 无可用绑定或 Agent 尚未完成激活时返回 `409 service.unavailable`；已进入 SDK 但 Agent 停止受理的请求返回 `409 agent.not_ready`；owner 准备失败也返回 `409 service.unavailable`，details 中包含 module/kind。客户端重新读取当前状态后决定后续操作，后端不自动重放写入。
+服务在世代或日期切换后失效返回 `409 service.stale`；Endpoint 无可用绑定或 Agent 尚未完成激活时返回 `409 service.unavailable`；已进入 SDK 但 Agent 停止受理的请求返回 `409 agent.not_ready`。SDK 的 `AgentServiceUnavailableError` 默认返回 `503 service.unavailable`，details 包含 module/kind；其中活动 Context 不可用映射为 `409 context.unavailable`，动态资源缺少来源绑定映射为 `422 resource.unresolved_origin`。客户端重新读取当前状态后决定后续操作，后端不自动重放写入。
 
 结构化受理满载为 `409 agent.queue_full`，请求身份冲突为 `409 agent.command_rejected`；Inbox 容量与等待关联错误分别为 `409 turn.inbox_full`、`409 turn.command_rejected`。未知/淘汰 Turn 为 `404 turn.not_found`，已回收或不属于该 Turn 的 Job 为 `404 turn.resource_not_found`。所有错误采用同一 envelope，不暴露原始异常文本。
 
@@ -55,4 +55,4 @@ Action 目录以 execution.executor、model_uses、retrieval 和有效工具 sch
 
 v1 路由不再存在；HTTP 不提供项目 reset，初始化仍由 CLI 提供。`POST /v2/restart` 只请求宿主重建 Agent generation，不迁移 Turn/Job；失败和重启期间通过 status 读取当前服务状态。ACP Job 应答不属于通用 Gateway 协议。
 
-详细协议见 [runtime](runtime.md)、[reflection](reflection.md)、[events](events.md)、[configuration](configuration.md)、[workspace](workspace.md)、[inspection](inspection.md) 和 [frontend integration](frontend-integration.md)。SDK owner 不可用为 503 service.unavailable（含 module/kind）；Endpoint 尚未绑定时保留已有 409 service.unavailable。
+详细协议见 [runtime](runtime.md)、[reflection](reflection.md)、[events](events.md)、[configuration](configuration.md)、[workspace](workspace.md)、[inspection](inspection.md) 和 [frontend integration](frontend-integration.md)。

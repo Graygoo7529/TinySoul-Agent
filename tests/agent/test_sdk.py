@@ -44,7 +44,10 @@ from tinysoul.infra.process import (
     ManagedProcessRequest,
     ManagedProcessRunner,
 )
+from tinysoul.infra.references import ReferenceError
 from tinysoul.infra.time import CalendarDay
+from tinysoul.kernel.context import ContextEngine
+from tinysoul.kernel.context.errors import ContextContractError, ContextInvariantError
 from tinysoul.kernel.interaction import AnswerKind, QuestionAnswer
 from tinysoul.kernel.loop.interaction.inbox import InboxClosedError, WaitReason
 from tinysoul.kernel.loop.outcomes import TurnOutcomeStatus
@@ -691,6 +694,77 @@ async def test_v2_turn_admission_question_budget_and_result_share_sdk_owner(
                 for path in (await client.get("/openapi.json")).json()["paths"]
             )
             assert (await client.post("/v2/reset")).status_code == 404
+    finally:
+        llm.release.set()
+        await agent.shutdown()
+
+
+@pytest.mark.parametrize("branch", ("syntax", "owner"))
+async def test_trace_locator_only_translates_context_contract_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, branch: str
+) -> None:
+    llm = _LLM()
+    endpoints: list[EndpointEngine] = []
+    agent = await _create(tmp_path, llm, endpoints=endpoints)
+    await agent.start()
+    try:
+        await agent.submit_turn(UserTurnRequest("Read Trace", request_id="trace-test"))
+        await asyncio.wait_for(llm.started.wait(), 5)
+        service = agent.runtime.service_access
+        valid_ref = "turn:trace@trace-test"
+        invalid_ref = (
+            "turn:trace@" if branch == "syntax" else valid_ref + "#entry/missing"
+        )
+        resolved = await service.resolve_resource(valid_ref, turn_id="trace-test")
+        locator = resolved["locator"]
+        assert isinstance(locator, dict)
+        assert locator["ref"] == valid_ref
+        with pytest.raises(ReferenceError) as rejected:
+            await service.resolve_resource(invalid_ref, turn_id="trace-test")
+        assert isinstance(rejected.value.__cause__, ContextContractError)
+
+        app = create_endpoint_app(endpoints[0], endpoints[0].settings)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
+            base_url="http://test",
+            headers={"Authorization": f"Bearer {'x' * 32}"},
+        ) as client:
+            response = await client.get(
+                "/v2/resources/resolve",
+                params={"reference": invalid_ref, "turn_id": "trace-test"},
+            )
+            assert response.status_code == 422
+            assert response.json()["error"]["code"] == "resource.invalid_reference"
+
+            unexpected = (
+                RuntimeError("private parser details")
+                if branch == "syntax"
+                else ContextInvariantError("private owner details")
+            )
+
+            def broken_parser(ref: str) -> str:
+                raise unexpected
+
+            def broken_owner(self: ContextEngine, ref: str) -> str:
+                raise unexpected
+
+            with monkeypatch.context() as patch:
+                if branch == "syntax":
+                    patch.setattr(
+                        "tinysoul.agent.services.parse_trace_reference", broken_parser
+                    )
+                else:
+                    patch.setattr(ContextEngine, "resolve_reference", broken_owner)
+                with pytest.raises(type(unexpected)) as propagated:
+                    await service.resolve_resource(valid_ref, turn_id="trace-test")
+                assert propagated.value is unexpected
+                response = await client.get(
+                    "/v2/resources/resolve",
+                    params={"reference": valid_ref, "turn_id": "trace-test"},
+                )
+                assert response.status_code == 500
+                assert response.json()["error"]["code"] == "endpoint.internal"
+                assert "private" not in response.text
     finally:
         llm.release.set()
         await agent.shutdown()

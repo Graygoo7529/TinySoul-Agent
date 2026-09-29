@@ -18,6 +18,7 @@ from tinysoul.infra.services import ServiceScope
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.context import ContextEngine
 from tinysoul.kernel.context.builtin.trace import parse_trace_reference
+from tinysoul.kernel.context.errors import ContextContractError
 from tinysoul.kernel.jobs import JobSnapshot
 from tinysoul.kernel.jobs.failures import JobError, JobRequestError
 from tinysoul.kernel.loop.turn import TurnOutcome
@@ -700,14 +701,14 @@ class AgentRuntimeServices:
         elif resource.startswith(("turn:trace@", "turn:trace/")):
             try:
                 identity = parse_trace_reference(reference)
-            except Exception as exc:
+            except ContextContractError as exc:
                 raise ReferenceError("Invalid trace resource reference") from exc
             if turn_id is not None and identity != turn_id:
                 raise ReferenceError("Trace origin does not match its Turn")
             if context is not None and context.active_turn_id == identity:
                 try:
                     context.resolve_reference(reference)
-                except Exception as exc:
+                except ContextContractError as exc:
                     raise ReferenceError("Trace resource reference is unavailable") from exc
             locator = ResourceLocator(
                 ref=reference, turn_id=identity, day=str(day) if day else ""
