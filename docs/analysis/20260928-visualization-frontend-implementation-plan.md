@@ -2,7 +2,7 @@
 
 > 日期：2026-09-28；状态：pending；代码基线：`1aa0db4`。
 > 产品范围已确认，实施尚未开始。本文完整定义前端页面、交互、数据来源、接口用法和验收；不需要其它讨论材料补充语义。
-> 先完成配套 [后端支持执行计划](done/20260928-done-visualization-backend-support-plan.md)，取得实际 Endpoint schema/样例，再实施本计划。两份计划的 API 编号一致。
+> 先完成配套 [后端支持执行计划](done/20260928-done-visualization-backend-support-plan.md) 和 [契约对齐计划](done/20260929-done-visualization-backend-contract-alignment-plan.md)，取得实际 Endpoint schema/样例，再实施本计划。本计划与后端支持计划的 API 编号一致。
 > 规约依据：根目录 AGENTS.md；后端实际契约以 `docs/endpoint/contracts/`、`docs/endpoint/` 和受鉴权的 OpenAPI 为准。本文标记为新增/扩展的接口不能提前当作当前已有能力。
 
 ## 1. 产品目标与实施范围
@@ -84,12 +84,13 @@ Visualization 是同一个 Agent 的交互、知识/资源浏览、配置和运�
 ### 3.3 必须理解的 DTO
 
 - ResourceLocator：逻辑 link/ref 加实际需要的 day、turn_id、view；不拼物理路径。
-- InteractionItem：稳定 id/role/turn_id/content，适用的 input_id/question_id/call_id/ref/reply_to/delivery。pending_items 与已有事实顺序分开。
-- ContextOverview/SegmentView：本次 installed 状态、descriptor/shape/root refs、适用 selection/usage、正文原始位置。
-- ResourceDocument：locator/title/media_type/text或content/direct_refs/truncated/next_continuation。
+- InteractionPage：items 中保留各类交互的 id/role/ref/text 及适用的 question_id/reply_to/delivery；Turn/day 在页级，pending_items 与已有事实顺序分开。
+- ContextOverview/SegmentView：本次 installed 状态，segments 中的 owner/slot/shape/root_refs、容量与加载引用，以及 resolved_references。
+- Context 段正文：turn_id/segment_id、messages[{message_index,message}]，可选 next_continuation/content_fragment；不使用资源页的 items 字段。
+- 资源读取页：Home/Memory 使用 items 中的 ref/text，locator/direct_refs 等位于 metadata；Context/Session Disclosure 使用带 kind 的 items。按实际 owner 协议消费 content_fragment/next_continuation，不假设通用顶层 text/content。
 - SearchPage：result_ref、scope/source、items、coverage、page/continuation；保持后端原结构。
 - JobOutputPage：有界 channel/text、实际顺序、result_locators、next_continuation；不同流不强排精确因果顺序。
-- PresetSummary：id/name/description/scopes/active_match/saved_match/validation_issues/updated_at。
+- PresetSummary：id/name/description/included_scopes/active_match/saved_match/validation_issues/updated_at。
 
 普通列表默认 30、上限 100；普通文本页默认 16000、上限 64000 字符；Search/Disclosure 服从各 owner 预算。前端不靠截断 JSON 代替分页。continuation 失效与单纯网络错误分开显示，不自动重跑可能调用模型的查询。
 

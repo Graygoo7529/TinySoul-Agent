@@ -1,0 +1,22 @@
+{
+  "ref": "memory:entity/project",
+  "view": "content",
+  "items": [
+    {
+      "ref": "memory:entity/project#L1-L13",
+      "text": "---\nschema_version: 2\nkind: entity\ncite: project\nstatus: active\ncreated_on: '2026-09-29'\nupdated_on: '2026-09-29'\nrelations: []\nevidence: []\nredirect_to: null\n---\n\nProject notes\n"
+    }
+  ],
+  "metadata": {
+    "kind": "entity",
+    "status": "active",
+    "display": "project",
+    "resolution_chain": [
+      "memory:entity/project"
+    ],
+    "locator": {
+      "link": "memory:entity/project"
+    },
+    "direct_refs": []
+  }
+}

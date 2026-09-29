@@ -6,12 +6,13 @@ from tinysoul.infra.json import JsonObject, to_json_object
 
 from ...engine import EndpointEngine
 from ..schemas import (
+    CommandReceiptResponse,
+    JobDetailResponse,
+    JobListResponse,
     TurnCreateRequest,
     TurnGrantRequest,
     TurnInputRequest,
     TurnReplyRequest,
-    CommandReceiptResponse,
-    PageResponse,
     TurnResponse,
 )
 
@@ -35,7 +36,8 @@ def register_turn_routes(app: FastAPI, engine: EndpointEngine) -> None:
         )
 
     @app.get(
-        "/v2/turns/{turn_id}", response_model=TurnResponse,
+        "/v2/turns/{turn_id}",
+        response_model=TurnResponse,
         response_model_exclude_unset=True,
     )
     async def get_turn(turn_id: str) -> JsonObject:
@@ -80,7 +82,9 @@ def register_turn_routes(app: FastAPI, engine: EndpointEngine) -> None:
         return await engine.runtime.cancel(turn_id)
 
     @app.get(
-        "/v2/turns/{turn_id}/jobs", response_model=PageResponse, response_model_exclude_none=True,
+        "/v2/turns/{turn_id}/jobs",
+        response_model=JobListResponse,
+        response_model_exclude_none=True,
         response_model_exclude_unset=True,
     )
     async def jobs(turn_id: str) -> JsonObject:
@@ -88,7 +92,7 @@ def register_turn_routes(app: FastAPI, engine: EndpointEngine) -> None:
 
     @app.post(
         "/v2/turns/{turn_id}/jobs/{job_id}/stop",
-        response_model=CommandReceiptResponse,
+        response_model=JobDetailResponse,
         response_model_exclude_none=True,
         response_model_exclude_unset=True,
     )

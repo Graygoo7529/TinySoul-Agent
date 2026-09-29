@@ -1,17 +1,99 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "required": ["protocol_version", "instance_id", "project_identity", "ready", "active_day", "turn_active", "runtime", "latest_event_sequence", "event_journal"],
-  "properties": {
-    "protocol_version": {"type": "integer"},
-    "instance_id": {"type": "string"},
-    "project_identity": {"type": "string"},
-    "ready": {"type": "boolean"},
-    "active_day": {"type": "string"},
-    "turn_active": {"type": "boolean"},
-    "runtime": {"type": "object"},
-    "latest_event_sequence": {"type": "integer", "minimum": 0},
-    "event_journal": {"type": "object"}
+  "$defs": {
+    "JsonObject": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "type": "object"
+    },
+    "JsonScalar": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "JsonValue": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/JsonScalar"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "object"
+        }
+      ]
+    }
   },
-  "additionalProperties": true
+  "additionalProperties": true,
+  "properties": {
+    "protocol_version": {
+      "title": "Protocol Version",
+      "type": "integer"
+    },
+    "instance_id": {
+      "title": "Instance Id",
+      "type": "string"
+    },
+    "project_identity": {
+      "title": "Project Identity",
+      "type": "string"
+    },
+    "ready": {
+      "title": "Ready",
+      "type": "boolean"
+    },
+    "active_day": {
+      "title": "Active Day",
+      "type": "string"
+    },
+    "turn_active": {
+      "title": "Turn Active",
+      "type": "boolean"
+    },
+    "runtime": {
+      "$ref": "#/$defs/JsonObject"
+    },
+    "latest_event_sequence": {
+      "title": "Latest Event Sequence",
+      "type": "integer"
+    },
+    "event_journal": {
+      "$ref": "#/$defs/JsonObject"
+    }
+  },
+  "required": [
+    "protocol_version",
+    "instance_id",
+    "project_identity",
+    "ready",
+    "active_day",
+    "turn_active",
+    "runtime",
+    "latest_event_sequence",
+    "event_journal"
+  ],
+  "title": "RuntimeStatusResponse",
+  "type": "object"
 }

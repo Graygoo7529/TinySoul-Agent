@@ -1,11 +1,49 @@
 {
   "protocol_version": 2,
-  "instance_id": "example-instance",
-  "project_identity": "tinysoul-example",
+  "instance_id": "instance_1",
+  "project_identity": "",
   "ready": true,
   "active_day": "2026-09-29",
-  "turn_active": false,
-  "runtime": {"state": "idle", "active_turn_id": null, "queued_turn_ids": []},
-  "latest_event_sequence": 12,
-  "event_journal": {"enabled": false, "degraded": false, "oldest_sequence": null, "latest_sequence": 12}
+  "turn_active": true,
+  "runtime": {
+    "generation_id": "generation_1",
+    "activity": "user_turn",
+    "activation": "active",
+    "active_day": "2026-09-29",
+    "active_turn_id": "contract-turn",
+    "queued_turn_ids": [],
+    "sources": [
+      {
+        "source": "workspace.fswatch",
+        "state": "running",
+        "topics": [
+          "workspace.changed"
+        ],
+        "error_type": null
+      },
+      {
+        "source": "subagent",
+        "state": "running",
+        "topics": [
+          "subagent.connections"
+        ],
+        "error_type": null
+      },
+      {
+        "source": "reflection.schedule",
+        "state": "disabled",
+        "topics": [
+          "reflection.due"
+        ],
+        "error_type": null
+      }
+    ]
+  },
+  "latest_event_sequence": 52,
+  "event_journal": {
+    "enabled": false,
+    "degraded": false,
+    "oldest_sequence": null,
+    "latest_sequence": 0
+  }
 }

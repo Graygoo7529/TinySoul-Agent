@@ -1,7 +1,36 @@
 {
-  "ref": "turn:trace/turn-1/node-abc",
+  "ref": "turn:trace@contract-turn",
   "kind": "context_trace",
-  "children": [{"ref": "turn:trace/turn-1/node-def", "kind": "leaf", "preview": "..."}],
-  "continuation": "trace-next",
-  "complete": false
+  "items": [
+    {
+      "kind": "child",
+      "ref": "turn:trace@contract-turn#entry/trace_1",
+      "title": "decision",
+      "clue": "{\"actions\":[{\"action\":\"execution.start\",\"request\":{\"interactive\":true,\"interpreter\":\"python\",\"source_link\":\"workspace:job.py\"}}],\"kind\":\"decision\"}"
+    },
+    {
+      "kind": "child",
+      "ref": "turn:trace@contract-turn#entry/trace_2",
+      "title": "action_result",
+      "clue": "{\"action\":\"execution.start\",\"kind\":\"action_result\",\"outcome\":\"success\",\"result\":{\"exit_code\":null,\"job_id\":\"job_1\",\"kind\":\"execution.process\",\"pending_inputs\":[],\"reason\":\"\",\"result_links\":[],\"state\":\"starting"
+    },
+    {
+      "kind": "child",
+      "ref": "turn:trace@contract-turn#entry/trace_3",
+      "title": "phase_note",
+      "clue": "{\"content\":{\"event_id\":\"event_1\",\"event_kind\":\"event\",\"kind\":\"environment_event\",\"payload\":{\"changed_count\":6,\"day\":\"2026-09-29\",\"links\":[\"workspace:jobs\",\"workspace:jobs/job_1\","
+    },
+    {
+      "kind": "child",
+      "ref": "turn:trace@contract-turn#entry/trace_4",
+      "title": "decision",
+      "clue": "{\"actions\":[{\"action\":\"core.ask\",\"request\":{\"options\":[{\"description\":\"Use the approved plan\",\"id\":\"a\",\"label\":\"Execute\"}],\"text\":\"Choose a direction\"}}],\"kind\":\"decision\"}"
+    },
+    {
+      "kind": "child",
+      "ref": "turn:trace@contract-turn#entry/trace_5",
+      "title": "action_result",
+      "clue": "{\"action\":\"core.ask\",\"kind\":\"action_result\",\"outcome\":\"success\",\"result\":{\"allow_other\":true,\"options\":[{\"description\":\"Use the approved plan\",\"id\":\"a\",\"label\":\"Execute\"}],\"text\":\"Choose a direction\",\"timeout_seconds\":null}}"
+    }
+  ]
 }

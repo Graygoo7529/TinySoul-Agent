@@ -48,41 +48,30 @@
   },
   "additionalProperties": true,
   "properties": {
-    "job_id": {
-      "title": "Job Id",
+    "schema_version": {
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "id": {
+      "title": "Id",
       "type": "string"
     },
-    "kind": {
-      "title": "Kind",
+    "name": {
+      "title": "Name",
       "type": "string"
     },
-    "state": {
-      "title": "State",
+    "description": {
+      "title": "Description",
       "type": "string"
     },
-    "summary": {
-      "title": "Summary",
-      "type": "string"
-    },
-    "reason": {
-      "title": "Reason",
-      "type": "string"
-    },
-    "pending_inputs": {
-      "items": {
-        "$ref": "#/$defs/JsonValue"
-      },
-      "title": "Pending Inputs",
-      "type": "array"
-    },
-    "result_links": {
+    "included_scopes": {
       "items": {
         "type": "string"
       },
-      "title": "Result Links",
+      "title": "Included Scopes",
       "type": "array"
     },
-    "details": {
+    "snapshot": {
       "anyOf": [
         {
           "$ref": "#/$defs/JsonObject"
@@ -92,17 +81,43 @@
         }
       ],
       "default": null
+    },
+    "active_match": {
+      "title": "Active Match",
+      "type": "boolean"
+    },
+    "saved_match": {
+      "title": "Saved Match",
+      "type": "boolean"
+    },
+    "validation_issues": {
+      "items": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "title": "Validation Issues",
+      "type": "array"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "updated_at": {
+      "title": "Updated At",
+      "type": "string"
     }
   },
   "required": [
-    "job_id",
-    "kind",
-    "state",
-    "summary",
-    "reason",
-    "pending_inputs",
-    "result_links"
+    "schema_version",
+    "id",
+    "name",
+    "description",
+    "included_scopes",
+    "active_match",
+    "saved_match",
+    "validation_issues",
+    "created_at",
+    "updated_at"
   ],
-  "title": "JobDetailResponse",
+  "title": "PresetResponse",
   "type": "object"
 }

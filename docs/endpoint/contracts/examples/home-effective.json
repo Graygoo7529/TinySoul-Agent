@@ -1,7 +1,17 @@
 {
-  "ref": "home:agent@AGENT",
-  "kind": "home.document",
-  "content": "Effective Home guidance",
-  "metadata": {"locator": {"link": "home:agent@AGENT", "view": "effective"}, "direct_refs": ["home:agent@guide", "home:skills_domain:workspace"]},
-  "continuation": null
+  "ref": "home:agent@contract",
+  "view": "content",
+  "items": [
+    {
+      "ref": "home:agent@contract#L1-L1",
+      "text": "Workspace guidance\n"
+    }
+  ],
+  "metadata": {
+    "locator": {
+      "link": "home:agent@contract",
+      "view": "effective"
+    },
+    "direct_refs": []
+  }
 }

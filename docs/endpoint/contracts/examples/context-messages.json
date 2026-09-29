@@ -1,0 +1,19 @@
+{
+  "turn_id": "contract-turn",
+  "segment_id": "inputs",
+  "messages": [
+    {
+      "message_index": 2,
+      "message": {
+        "role": "user",
+        "label": "user_input",
+        "parts": [
+          {
+            "type": "text",
+            "text": "Run the prepared job and ask before proceeding"
+          }
+        ]
+      }
+    }
+  ]
+}

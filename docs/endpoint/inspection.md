@@ -16,14 +16,14 @@ day and Turn fields.
 
 The fixed response envelopes and sanitized examples are maintained in
 [`contracts/`](contracts/README.md). The page envelope is intentionally
-polymorphic: owner content remains in `items`, `children`, `content`, and
-owner extension fields rather than being copied into another business model.
+polymorphic: owner content remains in `items` and owner extension fields
+rather than being copied into another business model.
 
 所有路径前缀为 `/v2`，须 Bearer 鉴权。页面 GET 不调用模型、修改 Context 或隐式发现远端工具。所有内容来自已有 owner；不提供任意文件、Action 执行或历史 Context 数据库。
 
 ## 分页
 
-普通列表参数为 continuation、limit（默认 30，1–100）、max_chars（默认 16000，1024–64000），具体支持项见 OpenAPI。结果为 items 与可选 next_continuation。单项超预算使用公共 JSON fragment 协议，按同一 token 顺序拼接 fragment 再解码，不把空 items 当作终页。continuation 绑定实际读取内容，变化返回 409 invalid_continuation/continuation_mismatch/continuation_content_changed/continuation_out_of_range；无效容量为 422 invalid_limit/page_budget_too_small。SearchPage/DisclosurePage 保留原协议，不再套一层分页。
+普通列表参数为 continuation、limit（默认 30，1–100）、max_chars（默认 16000，1024–64000），具体支持项见 OpenAPI。结果为 `items` 与可选 `next_continuation`。单项超预算使用公共 JSON fragment 协议，沿 continuation 顺序拼接同一项的 `content_fragment.text`，按 `encoding=canonical_json` 解码。先消费本页内容，再由 `next_continuation` 判断是否续读；空 `items` 可能仍带正文 fragment，最后一个 fragment 也可能没有续页 token。continuation 绑定实际读取内容，变化返回 409 invalid_continuation/continuation_mismatch/continuation_content_changed/continuation_out_of_range；无效容量为 422 invalid_limit/page_budget_too_small。SearchPage/DisclosurePage 保留各自协议，不再套一层分页。
 
 ## Turn、Context 与 Session
 
@@ -32,7 +32,7 @@ owner extension fields rather than being copied into another business model.
 | /days | before?, limit? | items[{day,active}]、next_before；活动及归档日 |
 | /turns/{id}/interactions | continuation?, limit?, max_chars? | turn_id/generation_id/day/state、items、pending_items；完成后 result |
 | /turns/{id}/context | 无 | turn_id/generation_id/day/captured_at、segments、resolved_references |
-| /turns/{id}/context/segments/{segment_id} | continuation?, max_chars? | 段的已安装 messages，原始 message_index |
+| /turns/{id}/context/segments/{segment_id} | continuation?, max_chars? | turn_id/segment_id、messages[{message_index,message}]；可选 next_continuation/content_fragment |
 | /turns/{id}/context/inspect | ref、query?、continuation? | 既有 DisclosurePage |
 | /session/turns | day?、普通分页 | Turn 摘要：turn_id/ref/day/status/input/output 线索及问题数 |
 | /session/turns/{id} | day、continuation?、max_chars? | 正式 Session 交互页 |
@@ -42,6 +42,8 @@ owner extension fields rather than being copied into another business model.
 Interaction role 为 user.input/append/reply、agent.question/reason/action/output。id/ref 保留事实身份；输入 delivery 区分 installed/visible。pending_items 保留 Inbox sequence/record_id/kind/payload/state=accepted，与 Trace 顺序分开，和 items 共用有界页。queued_request 只是排队文本线索，不冒充 Context 输入。完成后用 Session 正式交互替换活动内容，不重复拼接；必要提交失败时 history_unavailable=true，不从事件伪造历史。
 
 Context segment descriptor 包含 id/owner/slot/shape/order/capabilities/root_refs 与 available/loaded/protected_refs；chars/image_bytes 不是精确 token。正文来自已安装段，不读取最新文件替换它；TaskPrompt 只在具体 LLM 调用中显示。GET inspect 不追加 Action 结果、不解除展示保护。关闭后 409 context.unavailable；历史转 Session 或 Observation。未找到 Turn/归档日返回 404 turn.resource_not_found；未知 Session ref 为 404 unknown_ref。
+
+段正文的集合字段为 `messages`，不同于资源和 Disclosure 页的 `items`；分页与 JSON fragment 仍复用同一基础协议，不应把段正文交给要求 `items` 的资源页类型。
 
 ## Home、Memory 与定位
 

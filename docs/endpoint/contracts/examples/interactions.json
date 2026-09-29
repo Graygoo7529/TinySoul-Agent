@@ -1,11 +1,23 @@
 {
+  "ref": "session:turn/contract-turn",
+  "kind": "session_turn",
+  "items": [
+    {
+      "kind": "interaction",
+      "id": "session:turn/contract-turn#input/0",
+      "role": "user.input",
+      "ref": "session:turn/contract-turn#input/0",
+      "text": "Run the prepared job and ask before proceeding",
+      "delivery": "visible"
+    }
+  ],
+  "next_continuation": "continuation_3",
   "turn_id": "contract-turn",
-  "kind": "user",
+  "day": "2026-09-29",
+  "generation_id": "generation_1",
   "state": "finished",
-  "cancel_requested": false,
-  "wait_reason": null,
-  "question": null,
-  "budget_request": null,
+  "status": "answered",
+  "pending_items": [],
   "result": {
     "turn_id": "contract-turn",
     "active_day": "2026-09-29",
@@ -27,6 +39,5 @@
     "failure": null,
     "finish_failures": [],
     "cleanup": []
-  },
-  "jobs": []
+  }
 }

@@ -1,5 +1,42 @@
 {
-  "home_diff": {"ref": "home:agent@AGENT", "view": "effective", "baseline_diverged": true, "items": [{"kind": "changed", "path": "agent/AGENT.md"}]},
-  "memory_redirect": {"kind": "memory", "link": "memory:daily/2026-09-28", "redirect": "memory:daily/2026-09-29", "reason": "canonicalized"},
-  "error": {"error": {"code": "resource.unresolved_origin", "message": "Resource origin is unavailable.", "details": {"module": "resource"}}}
+  "home_diff": {
+    "ref": "home:agent@contract",
+    "view": "content",
+    "metadata": {
+      "baseline_diverged": false,
+      "actual_chars": 0,
+      "effective_chars": 19
+    },
+    "items": [
+      {
+        "ref": "home:agent@contract#L1-L4",
+        "text": "--- actual:home:agent@contract\n+++ effective:home:agent@contract\n@@ -0,0 +1 @@\n+Workspace guidance\n"
+      }
+    ]
+  },
+  "memory_redirect": {
+    "ref": "memory:entity/old-project",
+    "view": "content",
+    "items": [
+      {
+        "ref": "memory:entity/old-project#L1-L13",
+        "text": "---\nschema_version: 2\nkind: entity\ncite: old-project\nstatus: merged\ncreated_on: '2026-09-29'\nupdated_on: '2026-09-29'\nrelations: []\nevidence: []\nredirect_to: memory:entity/project\n---\n\nProject notes\n"
+      }
+    ],
+    "metadata": {
+      "kind": "entity",
+      "status": "merged",
+      "display": "old-project",
+      "resolution_chain": [
+        "memory:entity/old-project",
+        "memory:entity/project"
+      ],
+      "locator": {
+        "link": "memory:entity/old-project"
+      },
+      "direct_refs": [
+        "memory:entity/project"
+      ]
+    }
+  }
 }

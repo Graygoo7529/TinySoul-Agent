@@ -1,14 +1,204 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "required": ["generation_id", "captured_at", "turn_id", "segments", "resolved_references"],
-  "properties": {
-    "generation_id": {"type": "string"},
-    "captured_at": {"type": "string"},
-    "turn_id": {"type": "string"},
-    "day": {"type": ["string", "null"]},
-    "segments": {"type": "array"},
-    "resolved_references": {"type": "object"}
+  "$defs": {
+    "ContextSegmentResponse": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "owner": {
+          "title": "Owner",
+          "type": "string"
+        },
+        "slot": {
+          "title": "Slot",
+          "type": "string"
+        },
+        "shape": {
+          "title": "Shape",
+          "type": "string"
+        },
+        "order": {
+          "title": "Order",
+          "type": "integer"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "root_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Root Refs",
+          "type": "array"
+        },
+        "chars": {
+          "default": 0,
+          "title": "Chars",
+          "type": "integer"
+        },
+        "image_bytes": {
+          "default": 0,
+          "title": "Image Bytes",
+          "type": "integer"
+        },
+        "available_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Available Refs",
+          "type": "array"
+        },
+        "loaded_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Loaded Refs",
+          "type": "array"
+        },
+        "protected_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Protected Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "owner",
+        "slot",
+        "shape",
+        "order"
+      ],
+      "title": "ContextSegmentResponse",
+      "type": "object"
+    },
+    "ResourceLocatorResponse": {
+      "additionalProperties": true,
+      "properties": {
+        "link": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Link"
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ref"
+        },
+        "day": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Day"
+        },
+        "turn_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Turn Id"
+        },
+        "view": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "View"
+        }
+      },
+      "title": "ResourceLocatorResponse",
+      "type": "object"
+    }
   },
-  "additionalProperties": true
+  "additionalProperties": true,
+  "properties": {
+    "generation_id": {
+      "title": "Generation Id",
+      "type": "string"
+    },
+    "captured_at": {
+      "title": "Captured At",
+      "type": "string"
+    },
+    "turn_id": {
+      "title": "Turn Id",
+      "type": "string"
+    },
+    "measurement": {
+      "title": "Measurement",
+      "type": "string"
+    },
+    "day": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Day"
+    },
+    "segments": {
+      "items": {
+        "$ref": "#/$defs/ContextSegmentResponse"
+      },
+      "title": "Segments",
+      "type": "array"
+    },
+    "resolved_references": {
+      "additionalProperties": {
+        "$ref": "#/$defs/ResourceLocatorResponse"
+      },
+      "title": "Resolved References",
+      "type": "object"
+    }
+  },
+  "required": [
+    "generation_id",
+    "captured_at",
+    "turn_id",
+    "measurement"
+  ],
+  "title": "ContextOverviewResponse",
+  "type": "object"
 }

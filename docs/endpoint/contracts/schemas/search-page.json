@@ -1,15 +1,113 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "allOf": [
-    {"$ref": "page.json"},
-    {
-      "type": "object",
-      "properties": {
-        "operation": {"type": ["string", "null"]},
-        "candidates": {"type": "array"},
-        "query": {"type": ["string", "null"]}
-      }
+  "$defs": {
+    "JsonObject": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "type": "object"
+    },
+    "JsonScalar": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "JsonValue": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/JsonScalar"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "object"
+        }
+      ]
     }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "result_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Result Ref"
+    },
+    "scope": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/$defs/JsonObject"
+        }
+      ],
+      "title": "Scope"
+    },
+    "source": {
+      "title": "Source",
+      "type": "string"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "coverage": {
+      "$ref": "#/$defs/JsonObject"
+    },
+    "page": {
+      "$ref": "#/$defs/JsonObject"
+    },
+    "continuation": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Continuation"
+    }
+  },
+  "required": [
+    "scope",
+    "source",
+    "items",
+    "coverage",
+    "page"
   ],
-  "additionalProperties": true
+  "title": "SearchResponse",
+  "type": "object"
 }

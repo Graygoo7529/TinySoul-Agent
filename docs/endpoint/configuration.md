@@ -46,7 +46,7 @@ LLM 的 basis 为实际输入片段指认，Embedding 为真实向量贡献，JE
 
 ## Mutation
 
-`POST /v2/config/apply` 接受非空 `operations` 或 `preset_id`，必须且只能提供其中一种。候选统一校验并 prepare generation 后，原子保存文件并发布；发布前失败恢复此次事务触及的文件，保留调用前已经存在的 pending 配置。只有 idle 且没有排队根 work 时可激活。`reload` 沿同一发布流程激活已保存配置。
+`POST /v2/config/apply` 接受非空 `operations` 或 `preset_id`，必须且只能提供其中一种。候选统一校验并 prepare generation 后，原子保存文件并发布；发布前失败恢复此次事务触及的文件，保留调用前已经存在的 pending 配置。只有 idle 且没有排队根 work 时可激活。成功响应为 `state=active`、`generation_id`、`pending_reload=false`，并带 `changed_fields`、`changed_sources`、`matching_presets`。`reload` 沿同一发布流程激活已保存配置。
 
 `GET/POST /v2/config/presets`、`GET/PUT/DELETE /v2/config/presets/{id}` 管理运行方案。创建请求为 `name, description?, source=active|saved, operations?, include_budgets=true`；operations 只用于内存捕获。PUT 默认只改名称/说明，提供 `capture`（source/operations/include_budgets）才重新捕获。列表为 presets 数组；记录返回 id/name/description/included_scopes/active_match/saved_match/validation_issues/created_at/updated_at，详情含 snapshot；DELETE 只删方案文件。未知方案为 404 config.preset_not_found，当前不可激活为 409 config.activation_unavailable，其余配置问题为 422 config.invalid。
 

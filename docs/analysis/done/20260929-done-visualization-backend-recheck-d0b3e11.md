@@ -1,11 +1,11 @@
 # Visualization 后端修复复核与前端阶段准入判断
 
 > 日期：2026-09-29；代码基线：`d0b3e11`。
-> Review 状态：done；R1–R3：closed；R4：pending。
+> Review 状态：done；R1–R4：closed。R4 已由 [契约对齐执行计划](20260929-done-visualization-backend-contract-alignment-plan.md) 完成并验证，实施复核见第 8 节；下方第 1–7 节保留基线检查记录。
 > 对比基线：`5993913`。本次检查 `a49a6a5` 的实现修复及 `d0b3e11` 的契约/前端计划更新。
 > 已重新读取根目录 AGENTS.md、前次 Review、后续改进计划、当前 Endpoint 契约及相关 owner 实现。本次只增加评审文档，不修改业务代码。
 
-## 1. 结论
+## 1. 基线结论（d0b3e11）
 
 **可以开始前端对接和改进阶段，但应把 R4 的真实契约校正作为 F0 接口冻结前的任务。当前不能把 `docs/endpoint/contracts/` 全部当作已验证的实际响应使用。**
 
@@ -53,7 +53,7 @@
 
 现在 `home/content` 返回 `home:skills_domain:workspace`，交给 `resources/resolve` 得到 200；没有再返回错误的 `home:skills_domain/workspace/DOMAIN.md`。实际正文仍由原 Home owner 提供。
 
-## 3. 尚未完成的 R4：契约存在，但部分内容不是实际协议
+## 3. 基线发现 R4：契约存在，但部分内容不是实际协议
 
 **优先级：P2，F0 接口冻结前处理。** 这不是要求新增复杂框架；它直接影响普通页面如何读正文、续页、判断完成和应用配置。
 
@@ -113,7 +113,7 @@
 
 `docs/endpoint/frontend-integration.md` 增加了 contracts 入口，但主体仍把配置流程写作 PATCH + reload，未明确前端主交互采用 apply/presets、active/saved 与本地 reset。其它正式文档中已有较准确说明，应在入口文档统一，而不是让前端自行判断哪个描述是主流程。
 
-后续改进计划虽然已归档为 done，R4 的完成清单与上述事实仍不一致。建议将 R4 验收恢复为待完成，在真实契约补齐后再关闭；R1–R3 的结论不需要回退。
+后续改进计划的 R1–R3 结论保持不变；R4 的实施复核见第 8 节。
 
 ## 4. R4 的最小且完整修订方案
 
@@ -173,3 +173,15 @@ ty check --python /absolute/path/to/review-venv/bin/python
 ```text
 docs: recheck visualization backend fixes at d0b3e11
 ```
+
+## 8. 契约对齐实施复核（2026-09-29）
+
+R4 已完成。公开响应声明、独立 JSON Schema、OpenAPI 与本地 owner/SDK/ASGI 实际输出建立了对应验证，未改变业务 owner 或运行时语义。
+
+- 普通页明确 items、fragment 和续页；Context 已安装段正文单独声明 messages；Search、InteractionPage、Job 输出和配置/方案保持各自真实响应族。Turn 的问题、预算和结果保留显式 null。
+- 24 组样例来自本地真实路径，覆盖长正文首/末 fragment、Search 模型依据、Job stdout/stderr、同时待决的问题与预算、回复后 answered、交互续页、配置激活、Preset、Home diff/Memory redirect 和资源定位。ACP/MCP 样例明确为未配置目录，不宣称已验证外部连接。
+- 测试消费全部 Home fragment 并解码、续读 Job 输出、沿 InteractionPage 读到问题和关联回复。静态样例同时通过对应模型与独立 Schema；Schema 导出与实际 OpenAPI 固定字段及类型一致。
+- frontend integration、inspection、configuration 和前端计划同步了 apply 主流程、本地 reset、真实字段位置、分页及状态。前端 F0 可据此冻结接入类型，不需要旧样例兼容分支；未实施前端页面。
+- TinySoul Conda 环境下 Full：1220 passed、25 deselected；ty 与 git diff --check 通过。全仓 Fast 曾发现 Context messages 被误套 items 声明的回归，已修正并通过原 SDK/HTTP 路径及 Full 复验。
+
+R1–R3 的 owner 修复保持有效。第 5 节的 Trace 宽泛异常捕获是非阻塞整理建议，本轮未纳入 HTTP 契约工作范围，也未记作已修复。

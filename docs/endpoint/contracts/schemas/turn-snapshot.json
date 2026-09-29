@@ -1,14 +1,129 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "required": ["turn_id"],
-  "properties": {
-    "turn_id": {"type": "string"},
-    "kind": {"type": ["string", "null"]},
-    "state": {"type": ["string", "null"]},
-    "active_day": {"type": ["string", "null"]},
-    "accepted": {"type": ["boolean", "null"]},
-    "jobs": {"type": "array"}
+  "$defs": {
+    "JsonObject": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "type": "object"
+    },
+    "JsonScalar": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "JsonValue": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/JsonScalar"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "object"
+        }
+      ]
+    }
   },
-  "additionalProperties": true
+  "additionalProperties": true,
+  "properties": {
+    "turn_id": {
+      "title": "Turn Id",
+      "type": "string"
+    },
+    "kind": {
+      "title": "Kind",
+      "type": "string"
+    },
+    "state": {
+      "title": "State",
+      "type": "string"
+    },
+    "cancel_requested": {
+      "title": "Cancel Requested",
+      "type": "boolean"
+    },
+    "wait_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Wait Reason"
+    },
+    "question": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/JsonObject"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "budget_request": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/JsonObject"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "result": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/JsonObject"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "jobs": {
+      "items": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "title": "Jobs",
+      "type": "array"
+    }
+  },
+  "required": [
+    "turn_id",
+    "kind",
+    "state",
+    "cancel_requested",
+    "wait_reason",
+    "question",
+    "budget_request",
+    "result",
+    "jobs"
+  ],
+  "title": "TurnResponse",
+  "type": "object"
 }

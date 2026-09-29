@@ -26,6 +26,11 @@ from tinysoul.gateway.endpoint import (
     EndpointSettings,
 )
 from tinysoul.gateway.endpoint.http import EndpointASGIServer, create_endpoint_app
+from tinysoul.gateway.endpoint.http.schemas import (
+    ConfigCatalogResponse,
+    ConfigMutationResponse,
+    ConfigResponse,
+)
 from tinysoul.infra.config import ConfigController, ConfigEnvironment
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.paging import PageOptions
@@ -160,10 +165,52 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
         ("/v2/turns/{turn_id}/context", "get"),
         ("/v2/resources/resolve", "get"),
     ):
-        response_schema = openapi["paths"][path][method]["responses"]["200"][
-            "content"
-        ]["application/json"]["schema"]
+        response_schema = openapi["paths"][path][method]["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"]
         assert response_schema.get("$ref") or response_schema.get("properties")
+    critical_response_fields = {
+        ("/v2/config", "get"): {
+            "view",
+            "activity",
+            "pending_reload",
+            "sources",
+            "fields",
+        },
+        ("/v2/config/apply", "post"): {
+            "state",
+            "generation_id",
+            "pending_reload",
+            "changed_fields",
+        },
+        ("/v2/home/content", "get"): {"items", "next_continuation", "content_fragment"},
+        ("/v2/home/search", "post"): {
+            "result_ref",
+            "source",
+            "items",
+            "coverage",
+            "page",
+        },
+        ("/v2/turns/{turn_id}", "get"): {
+            "turn_id",
+            "question",
+            "budget_request",
+            "result",
+        },
+        ("/v2/turns/{turn_id}/jobs/{job_id}/output", "get"): {
+            "job_id",
+            "items",
+            "next_continuation",
+            "result_locators",
+        },
+    }
+    for (path, method), fields in critical_response_fields.items():
+        schema = openapi["paths"][path][method]["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"]
+        if "$ref" in schema:
+            schema = openapi["components"]["schemas"][schema["$ref"].rsplit("/", 1)[-1]]
+        assert fields <= set(schema.get("properties", {}))
     assert all(
         set(methods) == {"get"}
         for path, methods in openapi["paths"].items()
@@ -587,6 +634,7 @@ def test_config_routes_read_and_patch_project_source(tmp_path: Path) -> None:
 
     status = client.get("/v2/config", headers=_auth())
     assert status.status_code == 200
+    ConfigResponse.model_validate(status.json())
     assert (
         status.json()["fields"]["capabilities.expand.timeout_seconds"]["writable"]
         is True
@@ -594,6 +642,7 @@ def test_config_routes_read_and_patch_project_source(tmp_path: Path) -> None:
 
     catalog = client.get("/v2/config/catalog", headers=_auth())
     assert catalog.status_code == 200
+    ConfigCatalogResponse.model_validate(catalog.json())
     assert any(
         field["path"] == "capabilities.expand.timeout_seconds"
         for field in catalog.json()["fields"]
@@ -655,6 +704,7 @@ def test_config_routes_read_and_patch_project_source(tmp_path: Path) -> None:
 
     patched = client.patch("/v2/config", headers=_auth(), json=body)
     assert patched.status_code == 200
+    ConfigMutationResponse.model_validate(patched.json())
     assert patched.json()["state"] == "saved"
     assert "timeout_seconds = 30.0" in target.read_text(encoding="utf-8")
 

@@ -6,7 +6,14 @@ from tinysoul.infra.paging import PageOptions
 from tinysoul.infra.time import CalendarDay
 
 from ...engine import EndpointEngine
-from ..schemas import ContextOverviewResponse, PageResponse
+from ..schemas import (
+    ContextMessagesResponse,
+    ContextOverviewResponse,
+    InteractionPageResponse,
+    JobDetailResponse,
+    JobOutputResponse,
+    PageResponse,
+)
 
 
 def register_inspection_routes(app: FastAPI, engine: EndpointEngine) -> None:
@@ -36,11 +43,21 @@ def register_inspection_routes(app: FastAPI, engine: EndpointEngine) -> None:
     async def expand_refresh(server_id: str):
         return await engine.inspection.expand_refresh(server_id)
 
-    @app.get("/v2/turns/{turn_id}/jobs/{job_id}")
+    @app.get(
+        "/v2/turns/{turn_id}/jobs/{job_id}",
+        response_model=JobDetailResponse,
+        response_model_exclude_none=True,
+        response_model_exclude_unset=True,
+    )
     async def job(turn_id: str, job_id: str):
         return await engine.inspection.job_detail(turn_id, job_id)
 
-    @app.get("/v2/turns/{turn_id}/jobs/{job_id}/output")
+    @app.get(
+        "/v2/turns/{turn_id}/jobs/{job_id}/output",
+        response_model=JobOutputResponse,
+        response_model_exclude_none=True,
+        response_model_exclude_unset=True,
+    )
     async def output(
         turn_id: str,
         job_id: str,
@@ -57,7 +74,11 @@ def register_inspection_routes(app: FastAPI, engine: EndpointEngine) -> None:
             before=CalendarDay.parse(before) if before else None, limit=limit
         )
 
-    @app.get("/v2/turns/{turn_id}/interactions")
+    @app.get(
+        "/v2/turns/{turn_id}/interactions",
+        response_model=InteractionPageResponse,
+        response_model_exclude_unset=True,
+    )
     async def interactions(
         turn_id: str,
         continuation: str | None = None,
@@ -79,7 +100,7 @@ def register_inspection_routes(app: FastAPI, engine: EndpointEngine) -> None:
 
     @app.get(
         "/v2/turns/{turn_id}/context/segments/{segment_id}",
-        response_model=PageResponse,
+        response_model=ContextMessagesResponse,
         response_model_exclude_none=True,
         response_model_exclude_unset=True,
     )
@@ -121,7 +142,11 @@ def register_inspection_routes(app: FastAPI, engine: EndpointEngine) -> None:
             PageOptions(continuation, limit, max_chars),
         )
 
-    @app.get("/v2/session/turns/{turn_id}")
+    @app.get(
+        "/v2/session/turns/{turn_id}",
+        response_model=InteractionPageResponse,
+        response_model_exclude_unset=True,
+    )
     async def session_turn(
         turn_id: str, day: str, continuation: str | None = None, max_chars: int = 16000
     ):
@@ -132,7 +157,9 @@ def register_inspection_routes(app: FastAPI, engine: EndpointEngine) -> None:
         )
 
     @app.get(
-        "/v2/session/map", response_model=PageResponse, response_model_exclude_none=True,
+        "/v2/session/map",
+        response_model=PageResponse,
+        response_model_exclude_none=True,
         response_model_exclude_unset=True,
     )
     async def session_map(day: str | None = None, continuation: str | None = None):
@@ -143,7 +170,9 @@ def register_inspection_routes(app: FastAPI, engine: EndpointEngine) -> None:
         )
 
     @app.get(
-        "/v2/session/inspect", response_model=PageResponse, response_model_exclude_none=True,
+        "/v2/session/inspect",
+        response_model=PageResponse,
+        response_model_exclude_none=True,
         response_model_exclude_unset=True,
     )
     async def inspect_session(

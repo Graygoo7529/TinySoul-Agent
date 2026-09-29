@@ -1,12 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
-    "JsonObject": {
-      "additionalProperties": {
-        "$ref": "#/$defs/JsonValue"
-      },
-      "type": "object"
-    },
     "JsonScalar": {
       "anyOf": [
         {
@@ -52,57 +46,36 @@
       "title": "Job Id",
       "type": "string"
     },
-    "kind": {
-      "title": "Kind",
-      "type": "string"
-    },
-    "state": {
-      "title": "State",
-      "type": "string"
-    },
-    "summary": {
-      "title": "Summary",
-      "type": "string"
-    },
-    "reason": {
-      "title": "Reason",
-      "type": "string"
-    },
-    "pending_inputs": {
+    "items": {
       "items": {
         "$ref": "#/$defs/JsonValue"
       },
-      "title": "Pending Inputs",
+      "title": "Items",
       "type": "array"
     },
-    "result_links": {
+    "next_continuation": {
+      "title": "Next Continuation",
+      "type": "string"
+    },
+    "truncated": {
+      "title": "Truncated",
+      "type": "boolean"
+    },
+    "result_locators": {
       "items": {
-        "type": "string"
+        "$ref": "#/$defs/JsonValue"
       },
-      "title": "Result Links",
+      "title": "Result Locators",
       "type": "array"
-    },
-    "details": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/JsonObject"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
     }
   },
   "required": [
     "job_id",
-    "kind",
-    "state",
-    "summary",
-    "reason",
-    "pending_inputs",
-    "result_links"
+    "items",
+    "next_continuation",
+    "truncated",
+    "result_locators"
   ],
-  "title": "JobDetailResponse",
+  "title": "JobOutputResponse",
   "type": "object"
 }

@@ -1,6 +1,6 @@
 # Visualization 后端契约对齐与前端交接执行计划
 
-> 日期：2026-09-29；状态：pending。依据 `docs/analysis/20260929-visualization-backend-recheck-d0b3e11.md` 建立。
+> 日期：2026-09-29；状态：done。依据 [后端复核](20260929-done-visualization-backend-recheck-d0b3e11.md) 建立；C0–C5 的实现、交接材料与本地验证已逐项完成。
 > 目标是在前端 F0 接口冻结前，把后端已经提供的正常能力用同一套可验证的 Endpoint 契约、样例和接入说明表达清楚。本计划不改变运行时、owner、Search 语义或前端实现。
 
 ## 1. 复核结论
@@ -31,14 +31,16 @@ owner 的 typed result 和其现有 `to_json()` 是业务事实来源；HTTP Pyd
 
 | 响应族 | 对外固定语义 | 主要消费者 |
 | --- | --- | --- |
-| 普通读取页 | `ref/kind/items`，可选 `next_continuation`、`content_fragment`、`truncated`、`metadata` | Home、Memory、Context/Session Disclosure、Workspace 读取 |
+| 普通读取页 | 必需 `items`，按 owner 提供 `ref/kind/view`、`next_continuation`、`content_fragment`、`truncated`、`metadata` | Home、Memory、Context/Session Disclosure、Workspace 读取 |
+| Context 段正文 | `turn_id/segment_id/messages`，可选 `next_continuation/content_fragment`；复用普通分页机制 | 已安装语境正文阅读 |
 | SearchPage | `result_ref/scope/source/items/coverage/page/continuation`；真实 `evidence`、`evaluation` 和覆盖信息保持原结构 | Home/Memory/Workspace Search、Search 结果卡片 |
-| TurnSnapshot | Turn 身份与状态，以及可选 `question`、`budget_request`、`wait_reason`、`result`、Jobs/交互投影 | 对话恢复、QuestionCard、预算卡片、完成状态 |
+| TurnSnapshot | Turn 身份与状态、Jobs，以及必有但可为空的 `question`、`budget_request`、`wait_reason`、`result` | 对话恢复、QuestionCard、预算卡片、完成状态 |
+| InteractionPage | 普通读取页加 `turn_id/day`，按 live/history 来源提供 generation、状态、待受理输入和结果 | 对话时间线与历史恢复 |
 | JobOutputPage | 按 channel 的 `items`、`next_continuation`、`truncated`、`result_locators` | Job 输出面板 |
-| Configuration/Preset | `view/generation_id/activity/pending_reload/fields/sources/presets`；方案身份使用 `id`，apply 请求才使用 `preset_id` | 设置草稿、整批应用、方案切换 |
+| Configuration/Preset | Config 状态使用 `view/generation_id/activity/pending_reload/fields/sources`；Preset 独立使用 `id` 与匹配状态，apply 请求才使用 `preset_id` | 设置草稿、整批应用、方案切换 |
 | ResourceResolve | canonical locator、能力和来源解析结果 | ResourceRouter、Home/Memory/Workspace 跳转 |
 
-普通读取页和 SearchPage 继续是不同协议。Search 不再继承旧的 `operation/candidates/query` 示例字段；普通页的空 `items` 在有 `content_fragment` 或 `next_continuation` 时不表示终页。配置的本地 reset 不请求后端，后端只描述实际 saved/active/apply 状态。
+普通读取页和 SearchPage 继续是不同协议。Search 不再继承旧的 `operation/candidates/query` 示例字段；普通页先消费本页 items/fragment，再按 `next_continuation` 判断是否续读，最后一个 fragment 可以没有续页 token。配置的本地 reset 不请求后端，后端只描述实际 saved/active/apply 状态。
 
 ### 2.3 生命周期与续页
 
@@ -105,8 +107,37 @@ owner 的 typed result 和其现有 `to_json()` 是业务事实来源；HTTP Pyd
 - Home/Memory/Context/Workspace、Search、Job、Question、Config/Preset 和 ResourceRouter 的正常主线均有可直接消费的字段、分页和失效边界。
 - 现有 owner 语义、R1–R3 修复和 v2 路由保持不变；没有为了契约统一引入第二套业务状态或冗余抽象。
 
-可用 commit 文本：
+## 6. 实施核对
 
-```text
-docs: plan visualization endpoint contract alignment
-```
+### C0–C1：响应声明与实际来源
+
+| 实际来源及路径 | 公共声明 | 已校正的差异 |
+| --- | --- | --- |
+| Home/Memory owner + PageOptions；Context/Session Disclosure | PageResponse | items 必需，声明 view、fragment、next_continuation；不伪造顶层正文或 children |
+| SDK Context overview | ContextOverviewResponse | root_refs、加载引用和 measurement 明确声明 |
+| ContextEngine.installed_segment；`/v2/turns/{turn_id}/context/segments/{segment_id}` | ContextMessagesResponse | 集合字段是 messages 而非 items；保留原 message_index 和共用分页 |
+| SearchPage.to_json；`/v2/home/search` | SearchResponse | 独立 items/evidence、coverage、page，不再声明 candidates/operation |
+| SDK TurnSnapshot；`/v2/turns/{turn_id}` | TurnResponse | 等待原因、问题、预算和结果保留显式 null，正常回答为 answered |
+| Session interaction projection + SDK live/history 包络 | InteractionPageResponse | 页级 Turn/day 与适用的 state/status/result、pending_items 分开 |
+| kernel/jobs + execution/ACP backend；SDK 加 day locator | JobListResponse / JobDetailResponse / JobOutputResponse | 列表、详情、双通道输出与续读分别声明；stop 返回详情而非命令回执 |
+| ConfigController + generation activation；`/v2/config/*` | ConfigResponse / ConfigMutationResponse / PresetResponse | fields/activity、saved/active、Preset id 与匹配状态；方案不重复挂到 Config 状态 |
+
+这些声明只在 HTTP 边界描述现有输出，没有修改 owner 存储、运行状态机或 Action 结果语义。
+
+### C2–C4：交接材料与验证
+
+- `schemas/` 从公开响应模型的 serialization schema 导出；固定字段、required 和类型通过与导出结果及实际 OpenAPI 比较验证。动态 owner 内容保持 JsonValue，不复制业务 DTO。
+- `test_contracts.collect_contract_responses` 使用临时项目、真实 owner/SDK/ASGI 与受控模型输出，产出 24 组正常响应；仅规范化身份、时间和 opaque token。Home/Memory diff/redirect、ACP/MCP 未配置目录和模型用途观察也有实际来源。
+- Home 长正文走完全部 fragment 并解码；Job 验证 stdout/stderr 与不重放的续读；同一 Turn 的 question/budget 同时待决后，经 reply/grant 恢复为 answered，InteractionPage 续页取得关联问题与回复。
+- Config apply 的 HTTP 激活、saved/active 和 Preset 响应已验证；小型 ConfigController 样例保留来源、fields 和未设置项的 null，不把本地 reset 写成 API。
+- Endpoint 接入文档和前端计划已同步真实字段、分页和结果族。前端 F0 可从 OpenAPI/独立 Schema 与样例接入，不增加旧字段兼容分支。未发现本计划范围内需另提后端能力需求的缺口；未修改前端代码或验证前端页面。
+
+### C5：验收记录
+
+- Endpoint 定向测试：49 passed。
+- `scripts/typecheck.ps1`：通过（TinySoul Python 3.13.12 / ty 0.0.84）。
+- 全仓 Fast 首次检查：1212 passed、2 failed；失败定位为本轮 PageResponse 收紧后误用于 Context 段正文，已按真实 messages 响应单独声明，原 SDK/HTTP 回归路径复测 2 passed。未放宽 items 要求来掩盖不同响应形状。
+- `scripts/test.ps1 -Suite Full`：1220 passed、25 deselected，包含全部非 external 本地测试及 wheel 验收。
+- `git diff --check`：通过。未运行真实供应商/network 测试，未使用供应商密钥。
+
+已关闭原 review 的 R4 契约交接项；R1–R3 结论不变。review 提到的 Trace 宽泛异常捕获属于非阻塞整理建议，不在本计划的 HTTP 契约范围内，未将其记作已修改。

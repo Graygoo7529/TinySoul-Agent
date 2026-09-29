@@ -1,12 +1,107 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "required": ["kind", "locator", "capabilities"],
-  "properties": {
-    "kind": {"type": "string"},
-    "locator": {"$ref": "resource-locator.json"},
-    "capabilities": {"type": "array", "items": {"type": "string"}},
-    "resolved_from": {"type": "string"}
+  "$defs": {
+    "ResourceLocatorResponse": {
+      "additionalProperties": true,
+      "properties": {
+        "link": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Link"
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ref"
+        },
+        "day": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Day"
+        },
+        "turn_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Turn Id"
+        },
+        "view": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "View"
+        }
+      },
+      "title": "ResourceLocatorResponse",
+      "type": "object"
+    }
   },
-  "additionalProperties": true
+  "additionalProperties": true,
+  "properties": {
+    "kind": {
+      "title": "Kind",
+      "type": "string"
+    },
+    "locator": {
+      "$ref": "#/$defs/ResourceLocatorResponse"
+    },
+    "capabilities": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "resolved_from": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resolved From"
+    }
+  },
+  "required": [
+    "kind",
+    "locator"
+  ],
+  "title": "ResourceResolveResponse",
+  "type": "object"
 }

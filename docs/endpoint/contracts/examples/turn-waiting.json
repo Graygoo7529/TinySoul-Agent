@@ -1,0 +1,40 @@
+{
+  "turn_id": "contract-turn",
+  "kind": "user",
+  "state": "waiting",
+  "cancel_requested": false,
+  "wait_reason": "budget",
+  "question": {
+    "question_id": "action_result_1",
+    "text": "Choose a direction",
+    "options": [
+      {
+        "id": "a",
+        "label": "Execute",
+        "description": "Use the approved plan"
+      }
+    ],
+    "allow_other": true,
+    "timeout_seconds": null
+  },
+  "budget_request": {
+    "request_id": "budget_1",
+    "next_cycle_index": 3
+  },
+  "result": null,
+  "jobs": [
+    {
+      "job_id": "job_1",
+      "kind": "execution.process",
+      "state": "running",
+      "summary": "",
+      "reason": "",
+      "pending_inputs": [],
+      "result_links": [
+        "workspace:jobs/job_1",
+        "workspace:jobs/job_1/logs/stdout.log",
+        "workspace:jobs/job_1/logs/stderr.log"
+      ]
+    }
+  ]
+}

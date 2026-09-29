@@ -1,12 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
-    "JsonObject": {
-      "additionalProperties": {
-        "$ref": "#/$defs/JsonValue"
-      },
-      "type": "object"
-    },
     "JsonScalar": {
       "anyOf": [
         {
@@ -48,61 +42,22 @@
   },
   "additionalProperties": true,
   "properties": {
-    "job_id": {
-      "title": "Job Id",
+    "turn_id": {
+      "title": "Turn Id",
       "type": "string"
     },
-    "kind": {
-      "title": "Kind",
-      "type": "string"
-    },
-    "state": {
-      "title": "State",
-      "type": "string"
-    },
-    "summary": {
-      "title": "Summary",
-      "type": "string"
-    },
-    "reason": {
-      "title": "Reason",
-      "type": "string"
-    },
-    "pending_inputs": {
+    "jobs": {
       "items": {
         "$ref": "#/$defs/JsonValue"
       },
-      "title": "Pending Inputs",
+      "title": "Jobs",
       "type": "array"
-    },
-    "result_links": {
-      "items": {
-        "type": "string"
-      },
-      "title": "Result Links",
-      "type": "array"
-    },
-    "details": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/JsonObject"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
     }
   },
   "required": [
-    "job_id",
-    "kind",
-    "state",
-    "summary",
-    "reason",
-    "pending_inputs",
-    "result_links"
+    "turn_id",
+    "jobs"
   ],
-  "title": "JobDetailResponse",
+  "title": "JobListResponse",
   "type": "object"
 }

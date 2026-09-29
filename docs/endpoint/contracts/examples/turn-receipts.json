@@ -1,5 +1,9 @@
 {
-  "queued": {"accepted": true, "command_id": "ui-1", "turn_id": "turn-1", "kind": "user", "state": "queued"},
-  "pending_question": {"turn_id": "turn-1", "state": "waiting", "question": {"question_id": "q-1", "text": "Choose a direction", "options": [{"id": "a", "label": "Continue"}, {"id": "other", "label": "Other", "free_text": true}]}},
-  "reply": {"accepted": true, "turn_id": "turn-1", "request_id": "q-1"}
+  "create": {
+    "accepted": true,
+    "command_id": "contract-turn",
+    "turn_id": "contract-turn",
+    "state": "queued",
+    "kind": "user"
+  }
 }

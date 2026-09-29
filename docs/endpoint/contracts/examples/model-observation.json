@@ -1,0 +1,16 @@
+{
+  "sequence": 7,
+  "name": "retrieval.model.invoked",
+  "level": "verbose",
+  "source": "retrieval",
+  "scope": [],
+  "message": "Search model task invoked.",
+  "payload": {
+    "search_id": "id-3",
+    "step_index": 0,
+    "op": "rerank",
+    "task_id": "task_1",
+    "consumer": "home.search.rerank"
+  },
+  "created_at": 1790668800
+}

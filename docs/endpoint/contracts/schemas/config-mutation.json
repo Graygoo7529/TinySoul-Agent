@@ -1,12 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
-    "JsonObject": {
-      "additionalProperties": {
-        "$ref": "#/$defs/JsonValue"
-      },
-      "type": "object"
-    },
     "JsonScalar": {
       "anyOf": [
         {
@@ -48,61 +42,65 @@
   },
   "additionalProperties": true,
   "properties": {
-    "job_id": {
-      "title": "Job Id",
-      "type": "string"
-    },
-    "kind": {
-      "title": "Kind",
-      "type": "string"
-    },
     "state": {
+      "enum": [
+        "saved",
+        "active"
+      ],
       "title": "State",
       "type": "string"
     },
-    "summary": {
-      "title": "Summary",
-      "type": "string"
-    },
-    "reason": {
-      "title": "Reason",
-      "type": "string"
-    },
-    "pending_inputs": {
-      "items": {
-        "$ref": "#/$defs/JsonValue"
-      },
-      "title": "Pending Inputs",
-      "type": "array"
-    },
-    "result_links": {
-      "items": {
-        "type": "string"
-      },
-      "title": "Result Links",
-      "type": "array"
-    },
-    "details": {
+    "generation_id": {
       "anyOf": [
         {
-          "$ref": "#/$defs/JsonObject"
+          "type": "string"
         },
         {
           "type": "null"
         }
       ],
-      "default": null
+      "default": null,
+      "title": "Generation Id"
+    },
+    "pending_reload": {
+      "title": "Pending Reload",
+      "type": "boolean"
+    },
+    "changed_fields": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Changed Fields",
+      "type": "array"
+    },
+    "changed_sources": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Changed Sources",
+      "type": "array"
+    },
+    "matching_presets": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Matching Presets",
+      "type": "array"
+    },
+    "cleanup_diagnostics": {
+      "items": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "title": "Cleanup Diagnostics",
+      "type": "array"
     }
   },
   "required": [
-    "job_id",
-    "kind",
     "state",
-    "summary",
-    "reason",
-    "pending_inputs",
-    "result_links"
+    "pending_reload",
+    "changed_fields",
+    "changed_sources"
   ],
-  "title": "JobDetailResponse",
+  "title": "ConfigMutationResponse",
   "type": "object"
 }

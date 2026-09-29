@@ -48,41 +48,34 @@
   },
   "additionalProperties": true,
   "properties": {
-    "job_id": {
-      "title": "Job Id",
+    "turn_id": {
+      "title": "Turn Id",
       "type": "string"
     },
-    "kind": {
-      "title": "Kind",
+    "segment_id": {
+      "title": "Segment Id",
       "type": "string"
     },
-    "state": {
-      "title": "State",
-      "type": "string"
-    },
-    "summary": {
-      "title": "Summary",
-      "type": "string"
-    },
-    "reason": {
-      "title": "Reason",
-      "type": "string"
-    },
-    "pending_inputs": {
+    "messages": {
       "items": {
         "$ref": "#/$defs/JsonValue"
       },
-      "title": "Pending Inputs",
+      "title": "Messages",
       "type": "array"
     },
-    "result_links": {
-      "items": {
-        "type": "string"
-      },
-      "title": "Result Links",
-      "type": "array"
+    "next_continuation": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Next Continuation"
     },
-    "details": {
+    "content_fragment": {
       "anyOf": [
         {
           "$ref": "#/$defs/JsonObject"
@@ -95,14 +88,10 @@
     }
   },
   "required": [
-    "job_id",
-    "kind",
-    "state",
-    "summary",
-    "reason",
-    "pending_inputs",
-    "result_links"
+    "turn_id",
+    "segment_id",
+    "messages"
   ],
-  "title": "JobDetailResponse",
+  "title": "ContextMessagesResponse",
   "type": "object"
 }

@@ -1,11 +1,222 @@
 {
-  "generation_id": "generation-1",
-  "captured_at": "2026-09-29T10:00:00+00:00",
-  "turn_id": "turn-1",
+  "generation_id": "generation_1",
+  "captured_at": "2026-09-29T08:00:00+00:00",
+  "turn_id": "contract-turn",
+  "measurement": "characters_and_inline_image_bytes_not_tokens",
   "day": "2026-09-29",
   "segments": [
-    {"id": "session", "owner": "session", "slot": "background", "shape": "map", "order": 10, "capabilities": ["inspect", "query"], "root_refs": ["session:map"], "chars": 320, "image_bytes": 0, "available_refs": [], "loaded_refs": [], "protected_refs": []},
-    {"id": "trace", "owner": "context", "slot": "trace", "shape": "stack", "order": 10, "capabilities": ["inspect", "query", "reclaim", "search"], "root_refs": ["turn:trace@turn-1"], "chars": 640, "image_bytes": 0, "available_refs": [], "loaded_refs": [], "protected_refs": []}
+    {
+      "id": "identity",
+      "owner": "context",
+      "slot": "background",
+      "shape": "state",
+      "order": 10,
+      "capabilities": [],
+      "root_refs": [],
+      "chars": 17,
+      "image_bytes": 0,
+      "available_refs": [],
+      "loaded_refs": [],
+      "protected_refs": []
+    },
+    {
+      "id": "session",
+      "owner": "session",
+      "slot": "background",
+      "shape": "map",
+      "order": 20,
+      "capabilities": [
+        "inspect",
+        "query",
+        "reclaim",
+        "search"
+      ],
+      "root_refs": [
+        "session:map"
+      ],
+      "chars": 205,
+      "image_bytes": 0,
+      "available_refs": [],
+      "loaded_refs": [],
+      "protected_refs": []
+    },
+    {
+      "id": "inputs",
+      "owner": "context",
+      "slot": "background",
+      "shape": "state",
+      "order": 30,
+      "capabilities": [],
+      "root_refs": [],
+      "chars": 46,
+      "image_bytes": 0,
+      "available_refs": [],
+      "loaded_refs": [],
+      "protected_refs": []
+    },
+    {
+      "id": "journal",
+      "owner": "context",
+      "slot": "background",
+      "shape": "state",
+      "order": 39,
+      "capabilities": [],
+      "root_refs": [],
+      "chars": 0,
+      "image_bytes": 0,
+      "available_refs": [],
+      "loaded_refs": [],
+      "protected_refs": []
+    },
+    {
+      "id": "home",
+      "owner": "home",
+      "slot": "background",
+      "shape": "heap",
+      "order": 40,
+      "capabilities": [
+        "reclaim",
+        "select"
+      ],
+      "root_refs": [],
+      "chars": 11317,
+      "image_bytes": 0,
+      "available_refs": [
+        "home:agent@AGENT",
+        "home:agent@context/background",
+        "home:agent@context/turn-trace",
+        "home:agent@context/working",
+        "home:agent@contract",
+        "home:agent@identity/identity",
+        "home:agent@identity/soul",
+        "home:agent@long-contract",
+        "home:agent@user/user",
+        "home:skills@tinysoul-docs"
+      ],
+      "loaded_refs": [
+        "home:agent@AGENT",
+        "home:agent@identity/identity",
+        "home:agent@identity/soul",
+        "home:agent@context/background",
+        "home:agent@context/turn-trace",
+        "home:agent@context/working",
+        "home:agent@user/user"
+      ],
+      "protected_refs": [
+        "home:agent@AGENT",
+        "home:agent@identity/identity",
+        "home:agent@identity/soul",
+        "home:agent@context/background",
+        "home:agent@context/turn-trace",
+        "home:agent@context/working",
+        "home:agent@user/user"
+      ]
+    },
+    {
+      "id": "memory",
+      "owner": "memory",
+      "slot": "background",
+      "shape": "heap",
+      "order": 50,
+      "capabilities": [
+        "reclaim",
+        "select"
+      ],
+      "root_refs": [],
+      "chars": 201,
+      "image_bytes": 0,
+      "available_refs": [
+        "memory:current"
+      ],
+      "loaded_refs": [
+        "memory:current"
+      ],
+      "protected_refs": [
+        "memory:current"
+      ]
+    },
+    {
+      "id": "trace",
+      "owner": "context",
+      "slot": "trace",
+      "shape": "stack",
+      "order": 10,
+      "capabilities": [
+        "inspect",
+        "query",
+        "reclaim",
+        "search"
+      ],
+      "root_refs": [
+        "turn:trace@contract-turn"
+      ],
+      "chars": 1784,
+      "image_bytes": 0,
+      "available_refs": [],
+      "loaded_refs": [],
+      "protected_refs": []
+    },
+    {
+      "id": "plan",
+      "owner": "context",
+      "slot": "working",
+      "shape": "state",
+      "order": 10,
+      "capabilities": [],
+      "root_refs": [],
+      "chars": 28,
+      "image_bytes": 0,
+      "available_refs": [],
+      "loaded_refs": [],
+      "protected_refs": []
+    },
+    {
+      "id": "workspace",
+      "owner": "workspace",
+      "slot": "working",
+      "shape": "state",
+      "order": 20,
+      "capabilities": [],
+      "root_refs": [],
+      "chars": 744,
+      "image_bytes": 0,
+      "available_refs": [],
+      "loaded_refs": [],
+      "protected_refs": []
+    },
+    {
+      "id": "jobs",
+      "owner": "jobs",
+      "slot": "working",
+      "shape": "state",
+      "order": 30,
+      "capabilities": [],
+      "root_refs": [],
+      "chars": 361,
+      "image_bytes": 0,
+      "available_refs": [],
+      "loaded_refs": [],
+      "protected_refs": []
+    },
+    {
+      "id": "connections",
+      "owner": "subagent",
+      "slot": "working",
+      "shape": "state",
+      "order": 40,
+      "capabilities": [],
+      "root_refs": [],
+      "chars": 0,
+      "image_bytes": 0,
+      "available_refs": [],
+      "loaded_refs": [],
+      "protected_refs": []
+    }
   ],
-  "resolved_references": {}
+  "resolved_references": {
+    "memory:current": {
+      "link": "memory:current",
+      "day": "2026-09-29"
+    }
+  }
 }

@@ -1,12 +1,113 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "properties": {
-    "view": {"type": ["string", "null"]},
-    "generation_id": {"type": ["string", "null"]},
-    "pending_reload": {"type": ["boolean", "null"]},
-    "sources": {"type": "array"},
-    "presets": {"type": "array"}
+  "$defs": {
+    "JsonObject": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "type": "object"
+    },
+    "JsonScalar": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "JsonValue": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/JsonScalar"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "object"
+        }
+      ]
+    }
   },
-  "additionalProperties": true
+  "additionalProperties": true,
+  "properties": {
+    "view": {
+      "enum": [
+        "saved",
+        "active"
+      ],
+      "title": "View",
+      "type": "string"
+    },
+    "generation_id": {
+      "title": "Generation Id",
+      "type": "string"
+    },
+    "activity": {
+      "$ref": "#/$defs/JsonObject"
+    },
+    "pending_reload": {
+      "title": "Pending Reload",
+      "type": "boolean"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "title": "Sources",
+      "type": "array"
+    },
+    "fields": {
+      "$ref": "#/$defs/JsonObject"
+    },
+    "runtime": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/JsonObject"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "process_shell": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/JsonObject"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "view",
+    "generation_id",
+    "activity",
+    "pending_reload",
+    "sources",
+    "fields"
+  ],
+  "title": "ConfigResponse",
+  "type": "object"
 }
