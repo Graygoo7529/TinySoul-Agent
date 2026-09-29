@@ -1,63 +1,51 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
-import type { EndpointEvent } from "../types";
-import {
-  normalizePersistedActiveTab,
-  selectLatestSequence,
-  selectTopLinks,
-} from "./appStore";
+import { normalizePersistedActiveTab, useAppStore } from "./appStore";
 
-function event(
-  sequence: number,
-  name: string,
-  payload: Record<string, unknown> = {},
-): EndpointEvent {
-  return {
-    sequence,
-    name,
-    level: "model",
-    source: "test",
-    scope: [],
-    message: "",
-    payload,
-    created_at: sequence,
-  };
-}
-
-describe("event-derived application state", () => {
-  it("applies background snapshots and changes in event order", () => {
-    const events = [
-      event(1, "context.background.snapshot", {
-        entries: [
-          { link: "home:agent@context/background", title: "Background" },
-        ],
-      }),
-      event(2, "context.background.changed", {
-        evicted_links: ["home:agent@context/background"],
-        entries: [{ link: "memory:2026-07-24", title: "Yesterday" }],
-      }),
-    ];
-
-    expect(selectTopLinks(events)).toEqual([
-      { link: "memory:2026-07-24", title: "Yesterday" },
-    ]);
-    expect(selectLatestSequence(events)).toBe(2);
+describe("appStore", () => {
+  beforeEach(() => {
+    useAppStore.setState({ theme: "light", activeTab: "chat", toasts: [] });
   });
 
-  it("uses zero for an empty event stream", () => {
-    expect(selectLatestSequence([])).toBe(0);
+  it("toggles the theme", () => {
+    useAppStore.getState().toggleTheme();
+    expect(useAppStore.getState().theme).toBe("dark");
+    useAppStore.getState().toggleTheme();
+    expect(useAppStore.getState().theme).toBe("light");
+  });
+
+  it("switches the active tab", () => {
+    useAppStore.getState().setActiveTab("runtime");
+    expect(useAppStore.getState().activeTab).toBe("runtime");
+  });
+
+  it("caps toasts at five and dismisses by id", () => {
+    for (let i = 0; i < 7; i += 1) {
+      useAppStore.getState().pushToast("info", `toast ${i}`);
+    }
+    const toasts = useAppStore.getState().toasts;
+    expect(toasts).toHaveLength(5);
+    expect(toasts[0].text).toBe("toast 2");
+    useAppStore.getState().dismissToast(toasts[0].id);
+    expect(useAppStore.getState().toasts).toHaveLength(4);
   });
 });
 
-describe("persisted application state", () => {
-  it.each([
-    ["chat", "chat"],
-    ["workspace", "workspace"],
-    ["monitor", "monitor"],
-    ["settings", "chat"],
-    ["unexpected", "chat"],
-    [undefined, "chat"],
-  ])("normalizes startup tab %s to %s", (persisted, expected) => {
-    expect(normalizePersistedActiveTab(persisted)).toBe(expected);
+describe("normalizePersistedActiveTab", () => {
+  it("keeps known v2 tabs", () => {
+    expect(normalizePersistedActiveTab("workspace")).toBe("workspace");
+    expect(normalizePersistedActiveTab("home")).toBe("home");
+    expect(normalizePersistedActiveTab("memory")).toBe("memory");
+    expect(normalizePersistedActiveTab("runtime")).toBe("runtime");
+  });
+
+  it("maps the v1 monitor tab to runtime", () => {
+    expect(normalizePersistedActiveTab("monitor")).toBe("runtime");
+  });
+
+  it("never restores settings and falls back to chat", () => {
+    expect(normalizePersistedActiveTab("settings")).toBe("chat");
+    expect(normalizePersistedActiveTab(undefined)).toBe("chat");
+    expect(normalizePersistedActiveTab(42)).toBe("chat");
   });
 });

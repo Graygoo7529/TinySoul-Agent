@@ -1,0 +1,36 @@
+{
+  "question": {
+    "kind": "interaction",
+    "id": "session:turn/contract-turn#action/1",
+    "role": "agent.question",
+    "ref": "session:turn/contract-turn#action/1",
+    "action": "core.ask",
+    "outcome": "success",
+    "text": "Choose a direction",
+    "options": [
+      {
+        "id": "a",
+        "label": "Execute",
+        "description": "Use the approved plan"
+      }
+    ],
+    "allow_other": true,
+    "question_id": "action_result_1",
+    "answered": true
+  },
+  "reply": {
+    "kind": "interaction",
+    "id": "session:turn/contract-turn#input/1",
+    "role": "user.reply",
+    "ref": "session:turn/contract-turn#input/1",
+    "text": "Execute (a)\nUse the approved plan\nProceed",
+    "delivery": "visible",
+    "reply_to": "session:turn/contract-turn#action/1",
+    "question_id": "action_result_1",
+    "answer": {
+      "kind": "choice",
+      "option_id": "a",
+      "comment": "Proceed"
+    }
+  }
+}

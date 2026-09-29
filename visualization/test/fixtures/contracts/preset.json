@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "id-1",
+  "name": "Balanced",
+  "description": "",
+  "included_scopes": [
+    "models",
+    "tasks",
+    "routing",
+    "retrieval"
+  ],
+  "snapshot": {
+    "values": {
+      "llm.models": null,
+      "llm.tasks": null,
+      "action.models.bindings": null,
+      "loop.cycle.phase1_task_profile": null,
+      "loop.cycle.phase2_task_profile": null
+    },
+    "retrieval": {},
+    "include_budgets": false
+  },
+  "created_at": "2026-09-29T08:00:00+00:00",
+  "updated_at": "2026-09-29T08:00:00+00:00",
+  "active_match": true,
+  "saved_match": true,
+  "validation_issues": []
+}

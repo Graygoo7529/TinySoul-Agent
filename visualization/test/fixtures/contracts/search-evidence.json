@@ -1,0 +1,84 @@
+{
+  "result_ref": "search-result:id-2",
+  "scope": "refs",
+  "source": "refs",
+  "items": [
+    {
+      "ref": "home:agent@contract",
+      "title": "contract",
+      "rank": 1,
+      "evidence": [
+        {
+          "ref": "home:agent/contract.md#L1-L1",
+          "text": "Workspace guidance\n",
+          "kind": "content",
+          "location": {
+            "line": 1,
+            "column": 1,
+            "end_line": 1,
+            "offset": 0,
+            "unit_start": 0,
+            "unit_end": 19
+          },
+          "basis": [
+            "model"
+          ],
+          "matches": [
+            {
+              "kind": "model",
+              "start": 0,
+              "end": 19,
+              "relation": null
+            }
+          ]
+        }
+      ],
+      "content_coverage": "full",
+      "preview_coverage": "full",
+      "attributes": {
+        "space": "agent",
+        "resource_types": [
+          ".md"
+        ],
+        "file_type": ".md"
+      },
+      "evaluation": {
+        "op": "rerank",
+        "step_index": 0,
+        "input_coverage": "full"
+      }
+    }
+  ],
+  "coverage": {
+    "scanned": 1,
+    "eligible": 1,
+    "candidates": 1,
+    "evaluated": 1,
+    "selected": 1,
+    "retained": 1,
+    "omitted_candidates": 0,
+    "source_complete": true,
+    "stages": [
+      "rerank"
+    ],
+    "missing_stages": [],
+    "steps": [
+      {
+        "step_index": 0,
+        "op": "rerank",
+        "input": 1,
+        "evaluated": 1,
+        "output": 1
+      }
+    ],
+    "final_count": 1,
+    "shown": 1,
+    "remaining": 0
+  },
+  "page": {
+    "offset": 0,
+    "count": 1,
+    "total": 1,
+    "continuation": null
+  }
+}

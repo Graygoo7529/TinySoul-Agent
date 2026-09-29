@@ -34,13 +34,3 @@ export interface BackendError {
     details?: Record<string, unknown>;
   };
 }
-
-export interface ConnectionInfo {
-  host: string;
-  port: number;
-  token: string;
-  protocol_version: number;
-  instance_id: string;
-  project_identity: string;
-  project_root: string;
-}

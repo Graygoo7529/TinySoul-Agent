@@ -1,0 +1,9 @@
+{
+  "create": {
+    "accepted": true,
+    "command_id": "contract-turn",
+    "turn_id": "contract-turn",
+    "state": "queued",
+    "kind": "user"
+  }
+}

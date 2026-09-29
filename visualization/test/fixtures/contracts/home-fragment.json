@@ -1,0 +1,17 @@
+{
+  "ref": "home:agent@long-contract",
+  "view": "content",
+  "items": [],
+  "next_continuation": "continuation_1",
+  "content_fragment": {
+    "encoding": "canonical_json",
+    "text": "{\"ref\":\"home:agent@long-contract#L1-L1\",\"text\":\"Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content L"
+  },
+  "metadata": {
+    "locator": {
+      "link": "home:agent@long-contract",
+      "view": "effective"
+    },
+    "direct_refs": []
+  }
+}

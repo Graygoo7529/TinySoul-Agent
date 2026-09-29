@@ -1,43 +1,58 @@
-import { useAppStore } from "../../store/appStore";
+import { useConnectionStore } from "../../store/connectionStore";
+import { useTurnStore } from "../../store/turnStore";
 
+/**
+ * The bottom status bar: connection phase, backend readiness, the active
+ * day, the current turn kind/state and the connected endpoint address.
+ */
 export function StatusBar() {
-  const connection = useAppStore((s) => s.connection);
-  const status = useAppStore((s) => s.status);
-  const reconnecting = useAppStore((s) => s.streamReconnecting);
-  const unreachable = useAppStore((s) => s.backendUnreachable);
-  const connected = connection.status === "connected";
+  const phase = useConnectionStore((s) => s.phase);
+  const eventsPhase = useConnectionStore((s) => s.eventsPhase);
+  const unreachable = useConnectionStore((s) => s.unreachable);
+  const status = useConnectionStore((s) => s.status);
+  const info = useConnectionStore((s) => s.info);
+  const snapshot = useTurnStore((s) => s.snapshot);
+
+  const connected = phase === "connected";
+  const degraded = unreachable || eventsPhase === "reconnecting";
 
   return (
     <footer className="flex h-7 shrink-0 items-center gap-3 overflow-hidden border-t border-line bg-bg-elev px-3 text-[11px] text-fg-muted tabular-nums whitespace-nowrap">
       <span className="flex shrink-0 items-center gap-1.5">
         <span
           className={`h-1.5 w-1.5 rounded-full ${
-            connected
-              ? unreachable || reconnecting
-                ? "bg-warning"
-                : "bg-success"
-              : "bg-danger"
+            connected ? (degraded ? "bg-warning" : "bg-success") : "bg-danger"
           }`}
         />
         {connected
           ? unreachable
             ? "not responding…"
-            : reconnecting
+            : eventsPhase === "reconnecting"
               ? "reconnecting…"
               : "connected"
-          : connection.status}
+          : phase}
       </span>
-      {status && (
+      {connected && status && (
         <>
+          <span className={status.ready ? "hidden text-fg-faint sm:inline" : "hidden text-warning sm:inline"}>
+            {status.ready ? "ready" : "starting…"}
+          </span>
           <span className="hidden text-fg-faint sm:inline">day {status.active_day}</span>
-          <span className="hidden text-fg-faint sm:inline">workspace rev {status.workspace_revision}</span>
-          <span className={`hidden sm:inline ${status.turn_active ? "text-accent" : "text-fg-faint"}`}>
-            {status.turn_active ? "turn active" : "waiting for input"}
+          <span
+            className={`hidden sm:inline ${
+              status.turn_active ? "text-accent" : "text-fg-faint"
+            }`}
+          >
+            {snapshot !== null && status.turn_active
+              ? `${snapshot.kind} turn · ${snapshot.state}`
+              : status.turn_active
+                ? "turn active"
+                : "waiting for input"}
           </span>
         </>
       )}
       <span className="ml-auto hidden font-mono text-fg-faint sm:inline">
-        {connection.info ? `${connection.info.host}:${connection.info.port}` : "—"}
+        {info ? info.address.httpBaseUrl : "—"}
       </span>
     </footer>
   );

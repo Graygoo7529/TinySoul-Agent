@@ -1,0 +1,32 @@
+{
+  "turn_id": "contract-turn",
+  "kind": "user",
+  "state": "finished",
+  "cancel_requested": false,
+  "wait_reason": null,
+  "question": null,
+  "budget_request": null,
+  "result": {
+    "turn_id": "contract-turn",
+    "active_day": "2026-09-29",
+    "status": "answered",
+    "output": {
+      "text": "Finished response",
+      "result_id": "action_result_2",
+      "references": [],
+      "metadata": {
+        "action": "core.answer"
+      }
+    },
+    "completion": {
+      "kind": "answer",
+      "result_id": "action_result_2",
+      "text": "Finished response",
+      "references": []
+    },
+    "failure": null,
+    "finish_failures": [],
+    "cleanup": []
+  },
+  "jobs": []
+}

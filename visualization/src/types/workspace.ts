@@ -1,4 +1,11 @@
-/** Workspace manifest, resource and CAS contracts. */
+/**
+ * Workspace manifest, resource and CAS contracts.
+ *
+ * @deprecated v1 contract types retained only so the preserved workspace
+ * components (src/components/workspace, disconnected from the render tree in
+ * F1) keep compiling. F5 migrates the workspace page to
+ * src/api/v2/workspace.ts and deletes this file.
+ */
 
 export interface WorkspaceResourceRecord {
   link: string;

@@ -1,0 +1,43 @@
+{
+  "ref": "session:turn/contract-turn",
+  "kind": "session_turn",
+  "items": [
+    {
+      "kind": "interaction",
+      "id": "session:turn/contract-turn#input/0",
+      "role": "user.input",
+      "ref": "session:turn/contract-turn#input/0",
+      "text": "Run the prepared job and ask before proceeding",
+      "delivery": "visible"
+    }
+  ],
+  "next_continuation": "continuation_3",
+  "turn_id": "contract-turn",
+  "day": "2026-09-29",
+  "generation_id": "generation_1",
+  "state": "finished",
+  "status": "answered",
+  "pending_items": [],
+  "result": {
+    "turn_id": "contract-turn",
+    "active_day": "2026-09-29",
+    "status": "answered",
+    "output": {
+      "text": "Finished response",
+      "result_id": "action_result_2",
+      "references": [],
+      "metadata": {
+        "action": "core.answer"
+      }
+    },
+    "completion": {
+      "kind": "answer",
+      "result_id": "action_result_2",
+      "text": "Finished response",
+      "references": []
+    },
+    "failure": null,
+    "finish_failures": [],
+    "cleanup": []
+  }
+}

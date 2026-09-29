@@ -1,11 +1,24 @@
-import { Activity, Bot, FolderTree, MessageSquareText, Moon, Settings, Sun } from "lucide-react";
+import {
+  Activity,
+  Bot,
+  Brain,
+  FolderTree,
+  House,
+  MessageSquareText,
+  Moon,
+  Settings,
+  Sun,
+} from "lucide-react";
 import { useAppStore } from "../../store/appStore";
+import { useConnectionStore } from "../../store/connectionStore";
 import type { AppTab } from "../../types";
 
 const navItems: { tab: AppTab; label: string; icon: typeof MessageSquareText }[] = [
   { tab: "chat", label: "Chat", icon: MessageSquareText },
   { tab: "workspace", label: "Workspace", icon: FolderTree },
-  { tab: "monitor", label: "Monitor", icon: Activity },
+  { tab: "home", label: "Home", icon: House },
+  { tab: "memory", label: "Memory", icon: Brain },
+  { tab: "runtime", label: "Runtime", icon: Activity },
 ];
 
 export function NavRail() {
@@ -13,7 +26,7 @@ export function NavRail() {
   const setActiveTab = useAppStore((s) => s.setActiveTab);
   const theme = useAppStore((s) => s.theme);
   const toggleTheme = useAppStore((s) => s.toggleTheme);
-  const connected = useAppStore((s) => s.connection.status === "connected");
+  const connected = useConnectionStore((s) => s.phase === "connected");
 
   return (
     <nav className="flex w-[52px] shrink-0 flex-col items-center border-r border-line bg-bg-elev py-3">

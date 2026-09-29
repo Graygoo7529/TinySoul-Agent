@@ -1,46 +1,31 @@
-import { useMemo } from "react";
 import { RefreshCw } from "lucide-react";
+import { useConnectionStore } from "../../store/connectionStore";
+import { useInspectorStore } from "../../store/inspectorStore";
 import { useAppStore } from "../../store/appStore";
-import { useDerivedChat } from "../../derive/chat";
-import { useNotifiers } from "../../hooks/notifiers";
+import { InspectorHost } from "../inspector";
+import { Toasts } from "../ui/Toasts";
 import { NavRail } from "./NavRail";
 import { TopBar } from "./TopBar";
 import { StatusBar } from "./StatusBar";
-import { BackgroundDrawer } from "./BackgroundDrawer";
-import { MaintenanceDialog } from "./MaintenanceDialog";
-import { ChatView } from "../chat/ChatView";
-import { WorkspaceView } from "../workspace/WorkspaceView";
-import { MonitorView } from "../monitor/MonitorView";
-import { TurnTraceDrawer } from "../trace/TurnTraceDrawer";
-import { Toasts } from "../ui/Toasts";
-import { DisconnectedScreen } from "./DisconnectedScreen";
-import { SettingsPage } from "../../features/settings/SettingsPage";
+import { ConnectScreen } from "./ConnectScreen";
+import { PlaceholderPage } from "./PlaceholderPage";
+import { ChatView } from "../../features/chat/ChatView";
 
 /**
  * The application shell: NavRail on the left; the main column (TopBar, the
- * active tab's view, StatusBar); overlay surfaces — BackgroundDrawer,
- * TurnTraceDrawer, dialogs and toasts — render on top.
+ * active tab's view, StatusBar); the shared Inspector drawer and toasts
+ * render on top. Without a connection the main column shows the connect
+ * screen on every tab except settings.
  */
-export function AppShell({
-  connect,
-}: {
-  connect: (projectRoot: string) => Promise<void>;
-}) {
-  const connection = useAppStore((s) => s.connection);
+export function AppShell() {
+  const phase = useConnectionStore((s) => s.phase);
+  const unreachable = useConnectionStore((s) => s.unreachable);
   const activeTab = useAppStore((s) => s.activeTab);
-  const events = useAppStore((s) => s.events);
-  const localInputs = useAppStore((s) => s.localInputs);
-  const traceTurnId = useAppStore((s) => s.traceTurnId);
-  const backendUnreachable = useAppStore((s) => s.backendUnreachable);
+  const inspectorEntries = useInspectorStore((s) => s.entries);
+  const inspectorPop = useInspectorStore((s) => s.pop);
+  const inspectorClose = useInspectorStore((s) => s.close);
 
-  const turns = useDerivedChat(events, localInputs);
-  useNotifiers(turns);
-  const traceTurn = useMemo(
-    () => turns.find((t) => t.turnId === traceTurnId) ?? null,
-    [turns, traceTurnId],
-  );
-
-  const connected = connection.status === "connected";
+  const connected = phase === "connected";
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden bg-bg text-fg">
@@ -48,35 +33,33 @@ export function AppShell({
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <TopBar />
 
-        <main className="min-h-0 flex-1">
-          {backendUnreachable && connected && (
+        <main className="flex min-h-0 flex-1 flex-col">
+          {connected && unreachable && (
             <div className="flex items-center gap-2 border-b border-warning/30 bg-warning-soft px-4 py-1.5 text-[12px] text-warning">
               <RefreshCw size={12} className="animate-spin-slow" />
               The backend is not responding — the conversation stays in place
               and reconnects automatically.
             </div>
           )}
-          {activeTab === "settings" ? (
-            <SettingsPage connect={connect} />
-          ) : connected ? (
-            activeTab === "chat" ? (
-              <ChatView turns={turns} />
-            ) : activeTab === "workspace" ? (
-              <WorkspaceView />
+          <div className="min-h-0 flex-1">
+            {!connected && activeTab !== "settings" ? (
+              <ConnectScreen />
+            ) : activeTab === "chat" ? (
+              <ChatView />
             ) : (
-              <MonitorView />
-            )
-          ) : (
-            <DisconnectedScreen connect={connect} />
-          )}
+              <PlaceholderPage page={activeTab} />
+            )}
+          </div>
         </main>
 
         <StatusBar />
       </div>
 
-      <BackgroundDrawer />
-      {traceTurn && <TurnTraceDrawer turn={traceTurn} />}
-      <MaintenanceDialog />
+      <InspectorHost
+        entries={inspectorEntries}
+        onPop={inspectorPop}
+        onClose={inspectorClose}
+      />
       <Toasts />
     </div>
   );

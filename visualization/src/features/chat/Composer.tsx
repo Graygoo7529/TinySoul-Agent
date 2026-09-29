@@ -1,0 +1,113 @@
+/**
+ * The v2 composer (plan §5.1).
+ *
+ * The visible intent — new turn / append / queued — is derived from the
+ * formal runtime status and the active turn snapshot at send time
+ * (resolveComposerIntent), and the same intent drives the placeholder and
+ * hint text, so what the user reads is what the submit does. With an empty
+ * draft and a cancellable active turn the send position becomes the stop
+ * button.
+ */
+
+import { useState } from "react";
+import { Send, Square } from "lucide-react";
+import { useConnectionStore } from "../../store/connectionStore";
+import { useTurnStore } from "../../store/turnStore";
+import { canCancelActiveTurn, resolveComposerIntent } from "./interactions";
+import { cancelActiveTurn, sendUserMessage } from "./turnController";
+
+export function Composer() {
+  const epoch = useConnectionStore((s) => s.epoch);
+  const phase = useConnectionStore((s) => s.phase);
+  const status = useConnectionStore((s) => s.status);
+  const snapshot = useTurnStore((s) => s.snapshot);
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const connected = phase === "connected";
+  const intent = resolveComposerIntent(status, snapshot, connected);
+  const cancellable = canCancelActiveTurn(status, snapshot);
+  const canSend =
+    intent.kind !== "unavailable" && text.trim().length > 0 && !sending;
+
+  const send = async () => {
+    if (!canSend) return;
+    setSending(true);
+    try {
+      const sent = await sendUserMessage(epoch, text);
+      if (sent) setText("");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const placeholder =
+    intent.kind === "unavailable"
+      ? intent.reason === "not-ready"
+        ? "The backend is starting…"
+        : "Connect to a running TinySoul backend first"
+      : intent.kind === "append"
+        ? "Append to the current turn…"
+        : intent.queued
+          ? "Queue a new turn…"
+          : "Message TinySoul…";
+
+  const hint =
+    intent.kind === "append"
+      ? "Enter to send · Shift+Enter for newline · sent as input to the current turn"
+      : intent.kind === "new-turn" && intent.queued
+        ? "Enter to send · Shift+Enter for newline · queued as the next turn"
+        : "Enter to send · Shift+Enter for newline";
+
+  return (
+    <div className="border-t border-line bg-bg px-4 pt-3 pb-4">
+      <div className="mx-auto max-w-3xl">
+        <div className="composer-box rounded-xl border border-line-strong bg-bg-elev shadow-card transition-[border-color,box-shadow] focus-within:border-accent focus-within:shadow-(--focus-ring)">
+          <div className="flex items-start px-3.5 pt-3 pb-1">
+            <span
+              className="composer-prompt mr-2 leading-6 select-none"
+              aria-hidden="true"
+            >
+              ›
+            </span>
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  void send();
+                }
+              }}
+              placeholder={placeholder}
+              disabled={intent.kind === "unavailable"}
+              rows={Math.min(8, Math.max(1, text.split("\n").length))}
+              className="composer-input block w-full flex-1 resize-none bg-transparent text-sm leading-6 outline-none placeholder:text-fg-faint disabled:cursor-not-allowed"
+            />
+          </div>
+          <div className="flex items-center justify-between px-2.5 pb-2">
+            <div className="px-1 text-[11px] text-fg-faint">{hint}</div>
+            {cancellable && !text.trim() ? (
+              <button
+                onClick={() => void cancelActiveTurn(epoch)}
+                title="Stop the current turn"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-danger text-white shadow-sm transition-colors hover:bg-danger/90"
+              >
+                <Square size={13} />
+              </button>
+            ) : (
+              <button
+                onClick={() => void send()}
+                disabled={!canSend}
+                title="Send"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-accent-grad text-white shadow-brand transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Send size={14} className={sending ? "animate-pulse-dot" : ""} />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

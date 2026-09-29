@@ -1,0 +1,94 @@
+{
+  "saved": {
+    "sources": [
+      {
+        "id": "project:tinysoul.toml",
+        "kind": "project_toml",
+        "path": "tinysoul.toml",
+        "exists": true,
+        "writable": true,
+        "values": {
+          "execution.enabled": true
+        }
+      },
+      {
+        "id": "dotenv",
+        "kind": "dotenv",
+        "path": ".env",
+        "exists": false,
+        "writable": true,
+        "values": {}
+      },
+      {
+        "id": "environment",
+        "kind": "environment",
+        "path": "",
+        "exists": true,
+        "writable": false,
+        "values": {}
+      }
+    ],
+    "fields": {
+      "execution.enabled": {
+        "value": true,
+        "source": "project:tinysoul.toml",
+        "writable": true
+      }
+    },
+    "view": "saved",
+    "generation_id": "",
+    "activity": {
+      "state": "idle",
+      "can_write": true,
+      "can_reload": true,
+      "reason": ""
+    },
+    "pending_reload": false
+  },
+  "active": {
+    "sources": [
+      {
+        "id": "project:tinysoul.toml",
+        "kind": "project_toml",
+        "path": "tinysoul.toml",
+        "exists": true,
+        "writable": true,
+        "values": {
+          "execution.enabled": true
+        }
+      },
+      {
+        "id": "dotenv",
+        "kind": "dotenv",
+        "path": ".env",
+        "exists": false,
+        "writable": true,
+        "values": {}
+      },
+      {
+        "id": "environment",
+        "kind": "environment",
+        "path": "",
+        "exists": true,
+        "writable": false,
+        "values": {}
+      }
+    ],
+    "fields": {
+      "execution.enabled": {
+        "value": true,
+        "source": "project:tinysoul.toml",
+        "writable": true
+      }
+    },
+    "view": "active",
+    "generation_id": "",
+    "activity": {
+      "state": "idle",
+      "can_write": true,
+      "can_reload": true,
+      "reason": ""
+    },
+    "pending_reload": false
+  }
+}

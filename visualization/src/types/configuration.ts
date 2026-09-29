@@ -1,4 +1,11 @@
-/** Configuration status, catalog and mutation contracts. */
+/**
+ * Configuration status, catalog and mutation contracts.
+ *
+ * @deprecated v1 contract types retained only so the preserved settings
+ * feature (src/features/settings, disconnected from the render tree in F1)
+ * keeps compiling. F2 migrates settings to src/api/v2/config.ts and deletes
+ * this file.
+ */
 
 import type { ConfigValue, JsonValue } from "./common";
 

@@ -1,0 +1,12 @@
+{
+  "state": "active",
+  "generation_id": "generation_1",
+  "pending_reload": false,
+  "changed_fields": [
+    "execution.enabled"
+  ],
+  "changed_sources": [
+    "project:configs/execution.toml"
+  ],
+  "matching_presets": []
+}
