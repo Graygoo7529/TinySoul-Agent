@@ -1,7 +1,7 @@
 # Visualization 前端重构与建设执行计划
 
-> 建立：2026-09-28；最终设计修订：2026-09-29；实施状态：pending。
-> 核对基线：`5de6991b11cde8a6f5238445b2c339d6dd6011aa`。本基线已交付本文使用的 Endpoint v2 后端能力，前端可以开始实施；本文更新不表示前端已经完成。
+> 建立：2026-09-28；最近设计核对：2026-09-29；实施状态：pending。
+> 后端契约基线：`5de6991b11cde8a6f5238445b2c339d6dd6011aa`；本次复核检出：`6eb0eee357443d882be230c54c961cf3e7e513c8`。后端已交付本文使用的 Endpoint v2 能力；本次按已确认的复核意见补充实施与验收细节，不表示前端实现或联调已经完成。
 > 本文独立定义产品语义、页面布局、用户路径、接口使用、迁移步骤和验收，不需要历史讨论稿补充。API 编号是本文的接口索引。
 > 规约依据：根目录 `AGENTS.md`；请求及响应事实以 `tinysoul/gateway/endpoint/http/`、`docs/endpoint/contracts/`、`docs/endpoint/` 和受鉴权 OpenAPI 为准。遇字段差异先核对实现和真实样例，不构造兼容两套语义的前端适配。
 
@@ -58,7 +58,7 @@ Endpoint 只监听后端主机的 loopback。本地调试支持手动输入 `127
 3. `visualization/src/components/shell/AppShell.tsx`、`src/styles/index.css`、`src/utils/motion.ts`、现有 Chat/Workspace/Settings：识别要保留的体验和必须删除的旧 v1 假设。这里的 `src/` 均相对 `visualization/`。
 4. 需要解释数据时再读对应 owner/route；不把后端存储路径、私有服务或模型执行逻辑搬到前端。
 
-本次核对结论：页面范围和架构可行，主要工作是消费已交付契约、重组前端状态及补齐交互，不需要再增加一个后端重构阶段。实施遇到具体缺口时按 §23 提交需求并继续独立部分，不能假定未提供的写入或调用接口已经存在。
+本次核对结论：页面范围和架构具备实施基础，主要工作是消费已交付契约、重组前端状态及补齐交互；本次静态核对未发现需要另设整体后端重构阶段的问题。具体退出条件以真实接口与页面验证为准，Mermaid/TikZ 的 Browser/Tauri 技术路径仍须 F0 验证。实施遇到具体缺口时按 §23 提交需求并继续独立部分，不能假定未提供的写入或调用接口已经存在。
 
 ## 1. 产品目标与实施范围
 
@@ -139,7 +139,7 @@ Visualization 是同一个 Agent 的交互、知识/资源浏览、配置和运�
 ### 3.3 必须理解的 DTO
 
 - ResourceLocator：逻辑 link/ref 加实际需要的 day、turn_id、view；不拼物理路径。
-- InteractionPage：items 中保留各类交互的 id/role/ref/text 及适用的 question_id/reply_to/delivery；Turn/day 在页级，pending_items 与已有事实顺序分开。
+- InteractionPage：items 中保留各类交互的 id/role/ref/text 及适用的 question_id/reply_to/delivery；Turn/day 在页级。pending_items 使用 record_id/sequence/kind/payload/state，表示已受理而尚未安装的输入，与正式交互顺序分开；queued_request 只是尚无活动 Context 时的请求摘要。
 - ContextOverview/SegmentView：本次 installed 状态，segments 中的 owner/slot/shape/root_refs、容量与加载引用，以及 resolved_references。
 - Context 段正文：turn_id/segment_id、messages[{message_index,message}]，可选 next_continuation/content_fragment；不使用资源页的 items 字段。
 - 资源读取页：Home/Memory 使用 items 中的 ref/text，locator/direct_refs 等位于 metadata；Context/Session Disclosure 使用带 kind 的 items。按实际 owner 协议消费 content_fragment/next_continuation，不假设通用顶层 text/content。
@@ -164,6 +164,8 @@ Visualization 是同一个 Agent 的交互、知识/资源浏览、配置和运�
 
 `content_fragment` 是一个超长 JSON **单项**的序列化分片，不是 Markdown 文本截断。封装一个轻量的顺序解码器：在同一读取身份下拼接 `encoding=canonical_json` 的 text；完整 JSON 成形后解析并按所属页类型交付一次，然后清空该项缓冲。不要等待 next_continuation 消失才尝试解析，因为该项结束后可能还有其它项；也不要先检查 token 而漏读最后一片。协议未提供 item_id/last 标记，不能自己假定存在。未完整时显示加载进度，不把 JSON 片段当正文渲染；重开或失效后重置缓冲，不跨资源、段或快照拼接。保留后端不透明 token，不解码并改造它。
 
+普通读取页绑定实际内容，不能统一解释为后端长期保留的冻结快照。活动 interactions 中新增输入、pending 安装为正式交互或 Action 结算，都可能改变分页绑定；Context 段正文变化也可能使旧 continuation 失效。已经读取的内容可以保留展示，未读部分不能承诺继续沿旧 token 取得。Interaction 的分片解码后仍按正式交互或 pending 的实际结构分发，不能因为它来自 fragment 就统一当成正文消息。
+
 ### 3.4 查询参数与错误处理
 
 | API | 页面使用的参数 |
@@ -180,7 +182,16 @@ Visualization 是同一个 Agent 的交互、知识/资源浏览、配置和运�
 | API-17 | after/mode/limit/instance_id；按需 turn_id/task_id/call_id/search_id/step_index/through，step_index 配合 search_id |
 | API-18 | reference、可选 origin_link/day/turn_id/view，优先使用响应中已有 resolved locator |
 
-错误外壳是 error.code/message/details。422 字段错误定位控件；409 config.activation_unavailable 保留草稿；404 不自动跳当前同名资源；context.unavailable 停止 live 读取；resource.unresolved_origin 显示需要明确来源。search.scope_required 提示缩小范围，search.view_expired 提供重搜，search.source_unavailable 显示来源问题，search.operation_failed 展示有限步骤失败，均不伪造空结果。已有接口 code 沿真实 schema；Observation gap 是缺失提示，不是断线。后端模块失败和清理诊断按作用范围呈现，前端不自动重启。
+错误外壳是 error.code/message/details。只有结构化 details 提供字段定位时才定位控件；通用 `422 request.invalid` 当前不返回字段定位，显示表单级错误并保留输入，不解析 message 猜字段。`config.invalid` 有可用 key 时定位配置对象，否则显示整批应用错误。409 config.activation_unavailable 保留草稿；404 不自动跳当前同名资源；context.unavailable 停止 live 读取；resource.unresolved_origin 显示需要明确来源。search.scope_required 提示缩小范围，search.view_expired 提供重搜，search.source_unavailable 显示来源问题，search.operation_failed 展示有限步骤失败，均不伪造空结果。已有接口 code 沿真实 schema；Observation gap 是缺失提示，不是断线。后端模块失败和清理诊断按作用范围呈现，前端不自动重启。
+
+| 输入/控制错误 | 前端处理 |
+| --- | --- |
+| agent.queue_full | 新轮未入队，保留正文与原请求身份，提示队列已满，不自动改为追加。 |
+| turn.inbox_full | 追加或回复未受理，保留草稿，提示本次输入超过受理容量；不简单断言都是排队数量已满。 |
+| turn.command_rejected、agent.not_ready | 刷新目标 Turn/status；按实际问题、预算及生命周期决定可用操作，不单凭错误码断言等待已过期。 |
+| turn.invalid_answer、request.invalid | 保留选择和文字；有明确结构化定位才标注控件，否则在卡片或表单显示错误。 |
+
+等待身份已失效时停止提交旧 question_id/request_id，保留可复制或转入 Composer 的未发送内容；转为新轮或补充须由用户明确选择。网络结果不明确时先核对正式状态和原请求身份，不自动换 ID 重发。
 
 状态码只能辅助分类：Endpoint 尚未绑定服务的 `service.unavailable` 与 SDK owner 不可用有不同 HTTP 状态，Context 关闭又是独立语义。使用具体 code/details 与当前操作决定提示，不能把全部 409 当配置冲突、全部 503 当连接断开。
 
@@ -191,13 +202,27 @@ Visualization 是同一个 Agent 的交互、知识/资源浏览、配置和运�
 | 变化 | 刷新对象与 UI 行为 |
 | --- | --- |
 | Turn 状态/交互 | 刷新 status、目标 TurnSnapshot 和 interactions；立刻更新问题/预算，不等待过程动画。 |
-| User Turn 完成 | 查正式 Session 记录；按 turn_id 整体接替当前交互，不按正文相似度逐项猜合并。 |
-| Context install | 标记 overview/当前段可刷新；已打开分页先保持旧读取，用户刷新后开始新序列。 |
+| User Turn 完成 | 查正式 Session 记录；所需历史页就绪后按 turn_id 接替当前交互，不能用首页清空整轮已读内容，详见 §7。 |
+| Context install | 标记 overview/当前段可刷新；保留已读内容与位置，不保证旧 continuation 仍有效，刷新后开始新序列。 |
 | Workspace/Home/Memory 内容 | 失效对应目录/文档；脏编辑器保留草稿，Search 冻结结果不自动重算。 |
 | apply/reload/restart | 重取 status、active/saved、actions、方案与代级运行能力；废弃旧代 Search/Context/Job 句柄。restart 不假定 Endpoint instance/cursor 一定改变。 |
 | 日切 | 重新获取活动 day、Session、Workspace、活动 Memory；已经打开的历史资源继续绑定原日。 |
 
 主连接订阅状态所需事件层级；过程页面按需使用 verbose，模型详情通过带过滤条件的 HTTP model replay 读取。WS 的 mode 是层级，不是 Turn 过滤器。HTTP 过滤读始终使用返回 next_sequence 推进，历史详情固定 through，避免无命中页循环或不断追逐新增日志。轻量合并同一批失效即可，不引入前端恢复调度器。
+
+续页返回内容绑定失效时，结束该读取序列并清除未完成的 fragment 缓冲，从无 continuation 的新请求刷新；旧请求晚到的页面不得进入新序列。保留已展示内容和滚动位置，直到新读取可接替；不能将新旧页拼成一份声称完整的快照。活动交互按 §5.1 的身份更新已取得条目，不以一次不完整响应中未出现某项为由删除它；完整新投影或正式 Session 接替后再收敛展示。持续变化导致刷新仍失效时保留内容与明确刷新入口，不无限重试。该只读刷新规则不用于自动重跑 Search 模型步骤。
+
+### 3.6 页面能力的正式依据
+
+| 页面判断 | 读取来源与消费字段 | 使用边界 |
+| --- | --- | --- |
+| Action 模型实现及目标选择 | API-05 actions 中对应 Action 的 model_uses：consumer、implementations、options 约束、embedding_owner、binding | 不从动作名称或 executor 推断模型能力；草稿不改变当前运行标签。 |
+| 页面 Search 来源、操作、条件和预算 | API-05 actions 中对应 home.search、memory.search、workspace.search 的 retrieval 与 tool.schema | 与 SDK owner 使用的已登记 policy 对齐；页面额外限定 context=none，不以 Action visibility/granted 禁止独立 SDK 浏览。 |
+| 配置可写位置及原子对象 | API-05 config/catalog 的字段、集合声明，以及 config 的 fields/sources；Action 文档另读 actions 的 source/editable_paths | 用实际 source_id/path；只读归属和完整 map/数组边界保留。 |
+| 配置及方案能否激活 | API-05 config 的 activity.can_reload 及活动原因 | API-01 的表面 idle 不能代替激活条件，最终以 apply/reload 回执为准。 |
+| 当前问题、预算与取消状态 | API-02 TurnSnapshot 的 question、budget_request、cancel_requested、state、result | 不从日志文字或旧问题卡推断当前控制身份；当前没有公开 Inbox 开放标志。 |
+
+API-13 的 HTTP 请求体是动态 JSON，OpenAPI 请求壳不足以单独生成搜索表单。F0 同时核对对应 retrieval/tool.schema 与真实请求样例，页面仅消费实际使用的声明，不另建通用 schema 执行引擎。能力描述缺失或冲突时按 §23 记录具体缺口，不通过发送模型请求试探有哪些操作。
 
 ## 4. P00：应用外壳、连接与共享详情
 
@@ -232,7 +257,7 @@ Browser 与 Tauri 均提供手动连接表单，地址和 token 分开输入：
 | 正式状态 | 输入行为 | 其它控制 |
 | --- | --- | --- |
 | idle | 新 User Turn | 允许切换方案 |
-| User Turn preparing/running | Inbox 已开放时追加到该 Turn；菜单可排队下一轮；preparing 不代表一定已可追加 | 停止当前 Turn |
+| 活动 User Turn preparing/running | 已有明确活动 Turn ID 时默认补充该轮；菜单可排队下一轮，实际受理以回执为准 | 停止当前 Turn |
 | waiting question | 卡片内答复；Composer 可独立补充或排队 | 不把补充自动当 reply |
 | waiting budget | 独立补额卡片 | 可与问题同时显示；停止仍可用 |
 | Reflection 运行 | 普通消息排队 User Turn | 跳转 Reflection 详情，不追加到维护情景 |
@@ -243,9 +268,18 @@ Browser 与 Tauri 均提供手动连接表单，地址和 token 分开输入：
 
 发送中保留本地 ID。成功受理后按返回 identity 替换状态；重复 accepted=false 不是发送失败。失败保留文字与重试入口；Turn 已关闭时提供“作为下一轮发送”，不能悄悄改请求对象。取消回执仅表示已受理意图，实际结束后再关闭等待卡片。
 
-Composer 明确显示“发送新一轮/补充本轮/排队下一轮”的当前意图，但保持原输入框布局，不增加全宽模式面板。无明确目标 Turn 时不得猜测追加对象；Inbox 尚未开放或已关闭的正常拒绝保留草稿，提供显式下一轮入口。网络结果不明确时先核对对应请求身份和正式状态，不无条件再发一个新 ID。
+Composer 明确显示“发送新一轮/补充本轮/排队下一轮”的当前意图，但保持原输入框布局，不增加全宽模式面板。preparing 阶段使用 status 已确定的活动 User Turn ID，不等待未提供的 Inbox 开放字段；只有排队请求而无明确活动 User Turn 时，普通发送创建下一轮，不猜测追加对象。提交固定本次意图和目标，状态随后变化不能悄悄改发到其它 Turn；正常拒绝保留草稿，并按 §3.4 刷新状态、提供显式下一轮入口。网络结果不明确时先核对对应请求身份和正式状态，不无条件再发一个新 ID。
 
 交互流区分排队请求、已接受但尚未安装的 pending_items、已进入 Context 的 items 和模型已看到的 delivery 状态。待投递内容可以留在流中显示“待处理”，但不能编造 Trace 位置。正式消息以 interaction id/ref 管理，Question 用 question_id 关联；当前 Trace 身份与归档 Session 身份不保证相同，完成时按 Turn 接替。
+
+| 衔接 | 身份与显示规则 |
+| --- | --- |
+| 新轮发送 → 已入队 | 保存 command_id 与回执 turn_id；client_message_id 仅为客户端关联信息，不代替正式 Turn 身份。queued_request 可能只有摘要，不冒充全文。 |
+| 追加 → pending → 正式交互 | 同一 input_id 对应回执和 pending_items.record_id，安装后对应 interaction.id；从“已受理、待处理”更新为 installed/visible，不再追加第二条相同用户消息。 |
+| 问题 → 回复 | question_id 关联当前问题与回复；回复回执 record_id 用于衔接 pending 与正式用户回复。重复请求的 accepted=false 按已有受理事实处理，不重新生成一条回答。 |
+| 当前交互 → Session | 以 turn_id/day 切换正式来源，不能要求 Trace ref 等于归档 ref；分页接替遵循 §7。 |
+
+pending_items 的缺席可能只是分页尚未读到或已经安装，不能据此标记发送失败。安装后的顺序以正式交互投影为准，不能长期沿用本地发送时间或 Inbox sequence 排列整轮事实；续页与刷新按 §3.5 处理。
 
 问题、预算卡片立即出现，不排在长动画之后；用户上滚阅读时不抢滚动，显示“有新内容/待回复”入口；回到底部恢复跟随。窗口恢复不逐条播放历史。
 
@@ -293,7 +327,7 @@ Other/自由回答：`{"question_id":"q1","answer":{"kind":"text","text":"我的
 
 预算卡片使用 request_id/count 调用 grant；回复不补预算，补额不答问题。若等待过期，刷新实际状态并保留未发送文本，不反复重试旧 question_id。
 
-TurnSnapshot 恢复的问题即刻可见；随后 interactions 或 core.ask 过程到达时，以同一 question_id 收敛到一个卡片，不在过程卡和正文中制造两个可提交表单。等待卡片是消息流中的定位目标，滚动到底部之外也有紧凑的“待回复”入口。选择只保存在当前问题草稿，提交成功后显示后端规范答案；刷新已答问题使用正式交互而不是浏览器选择缓存。
+TurnSnapshot 恢复的问题即刻可见，不等待 interactions 翻完；随后 interactions 或 core.ask 过程到达时，以同一 question_id 收敛到一个卡片，不在过程卡和正文中制造两个可提交表单。等待卡片是消息流中的定位目标，滚动到底部之外也有紧凑的“待回复”入口。选择只保存在当前问题草稿，提交成功后先按回执显示已受理，再从 pending/正式交互显示后端规范答案；刷新已答问题使用正式交互而不是浏览器选择缓存。
 
 ## 7. P03：历史对话与 Session
 
@@ -302,6 +336,8 @@ TurnSnapshot 恢复的问题即刻可见；随后 interactions 或 core.ask 过�
 沿用对话历史/更多入口打开日期与 Turn 列表，不新增常驻日期栏。日期目录使用 API-08 /days；选择日期后取 Turn 摘要，打开一轮才取交互页；不读取整日模型日志作为历史。
 
 摘要使用真实 initial/output excerpt、状态、问题数量。活动/排队项与已完成 Session 项分开；完成时以 turn_id 将活动内容整体接替成 Session 投影，避免 append 两套相同正文。必要持久化失败显示 TurnResult 的有限事实，不伪造“已保存”。
+
+接替前按需取得能够承接当前展示范围的 Session 页；第一响应仍有 continuation 时，不能把它视为整轮内容并删除尚未读到的消息。所需历史页未就绪时保留原阅读内容及历史加载状态，不混排两套正文；就绪后切换到 Session 来源并恢复阅读位置。若不能确定当前展示范围已被历史页覆盖，继续分页核对该轮，读完后再整体接替。此操作只处理正在完成的目标 Turn，重新打开历史仍按需分页，不预读整日。历史不可用时显示已取得的有限结果和未能恢复历史的状态，不宣称持久化成功。
 
 Session map 从 Context 中的 Session 入口或历史详情进入。默认阅读列表：话题/解释入口、相关 Turn、未归类交互；关系图作为展开视图。thread/note 与不可变事实视觉分开，有证据链接；共享节点与回路保留同一 ID，导航树不作为数据模型。
 
@@ -343,7 +379,7 @@ capabilities 是能力说明，不意味着前端应显示模型侧 SELECT/RECLA
 
 动态 memory 引用使用响应已解析 locator；无法确定原绑定时不自动打开当前 latest。能力未声明 query 时不显示范围搜索控件。usage 字符数不标成 token。
 
-Context 更新时保留当前阅读位置，显示可刷新提示；刷新 overview 后按需重取段，不能将两份内容快照的分页混在一起。Turn close 后停止续读 live Context，已打开内容标记为刚才捕获的视图，历史跳转使用 API-08/17。
+Context 更新时保留当前已读内容和阅读位置，显示可刷新提示；这不表示后端保存了可继续翻页的旧段快照。旧 continuation 失效时按 §3.5 结束序列，刷新 overview 后按需重取段，不能将两份内容的分页混在一起；未变化页面也不因收到一次 install 通知就被前端武断判为失效。Turn close 后停止续读 live Context，已打开内容标记为刚才捕获的视图，历史跳转使用 API-08/17。
 
 ## 9. P05：Action、Search 与模型调用详情
 
@@ -360,12 +396,29 @@ Context 更新时保留当前阅读位置，显示可刷新提示；刷新 overv
 | Search | 来源、步骤与结果数，首批真实片段 | query/criterion/条件、逐步数量、证据/覆盖、原始结构 |
 | Inspect/read | 所读资源与片段 | 原始范围、DisclosurePage、更多资源导航 |
 | Workspace/Home/Memory 写入 | 操作、目标与结果 | 当时记录的变更片段/diff；打开当前资源另设按钮 |
+| Web 搜索/抓取/页面发现 | 来源网页、标题和提取结果摘要 | 真实链接、读取范围、产物与有限失败 |
+| Workspace 分析/生成/转换 | 输入资源、结果摘要与输出产物 | 实际分析内容、格式、模型调用或转换结果 |
 | execution | 命令与状态 | 输出/退出结果、Job 或产物链接 |
+| 等待/Job 控制 | 等待对象、条件与实际状态 | Job 详情、等待结果与相关控制事实 |
 | ACP | 委派目标、Job 状态 | 连接、任务输入、待处理请求、结果 |
 | MCP | server/tool 与结果摘要 | 参数、真实 schema、返回内容 |
-| core.reason/answer/plan | 模型实际披露的内容/状态 | 关联 Task、plan 变化与产物 |
+| Session 整理 | 解释入口与变更摘要 | 相关成员、证据和导航，不暗示改写交互事实 |
+| Home review/Memory 持久写入 | 处理目标与实际提交结果 | review 决定、文档引用和当时可用的变更信息 |
+| core.reason/answer | 模型实际披露的内容 | 关联 Task、引用与产物；core.ask 复用 §6 问题卡 |
 
 没有历史 before/after 就只显示操作和 locator，不能查询当前文件充当历史差异。Unknown renderer 保留可读 JSON，不吞掉结果。正常视图不堆叠所有内部键。
+
+F4 按当前 canonical Action Catalog 建立覆盖矩阵，逐项记录 Action ID、结果族、摘要字段、展开内容、资源/Job/模型导航以及代表性样例。下列动作须明确核对，不能因为已有通用回退就视为完成：
+
+| 现有动作 | 核对重点 |
+| --- | --- |
+| web.search_by_kimi、web.fetch_with_trafilatura、web.fetch_with_defuddle、web.discover_pages | 外部网页与内部 Search 分开；呈现真实来源和提取产物。 |
+| workspace.analyze、workspace.compose、workspace.convert_with_pypdf、workspace.convert_with_markitdown | 区分分析、生成与转换，提供真实输入/输出资源入口。 |
+| core.wait、core.job.status、core.job.wait、core.job.stop | 区分等待条件、状态读取和停止意图，不把停止回执冒充已结束。 |
+| core.session.organize | 只描述语义解释及证据变化，不显示为编辑原始会话。 |
+| home.diff、home.review、memory.write_daily、memory.write | 明确 Reflection 处理对象、提交结果与读取入口，不添加直接审核/编辑按钮。 |
+
+表中是必核对项，不替代完整 Catalog 清单；基础读写、目录/标签/回收站、execution、ACP、MCP 和 core 动作同样要有映射。一个动作只选主要展示方式，可以组合共享结果组件。适合通用结构视图的已知动作在矩阵中说明理由，未适配不能记为通用视图已验收。plan 现态与变化沿实际 Context/Control 意图呈现，不据此注册不存在的 core.plan Action。每个结果族选能区分真实行为的成功、失败或等待样例，不为每个 Action 复制组件和测试。
 
 ### 9.2 Search 卡片
 
@@ -458,6 +511,8 @@ domain/action guidance 可以浏览，但不出现在通用 Home 搜索空间。
 
 用于 Home/Memory/Workspace；主界面保持 query、范围、明确提交按钮、结果列表。高级区提供 owner 声明的属性条件、literal/regex（适用时）、排除 refs；不把原始 JSON 管道编辑器作为常用交互。
 
+表单能力按 §3.6 读取当前 generation 对应 Search 的 retrieval/tool.schema，并落实 SDK 的 context=none 限制。只隐藏真实未开放的操作，不因该 Action 在某个 Turn 情景中不可见而关闭页面搜索；未应用的设置草稿也不能提前改变本页可用操作。
+
 首次 query 发掘候选；进一步操作用已有 result_ref：选择“语义筛选”输入 criterion→select；“语义排序”输入 criterion→rerank；属性条件→filter。不支持的操作隐藏并在设置中解释原因；不让用户在每次查询选择 Provider/实现，这属于设置。
 
 常用请求：
@@ -541,9 +596,9 @@ API-01 sources + API-17 事件，按来源/topic/关联 Turn 筛选。显示实�
 
 Agent 忙碌时允许编辑，禁用应用并显示真实原因；不以 can_write 代替 can_reload。已有 pending 保存时提示本次应用会一并激活它们。无本地修改但 saved 待激活时提供明确 reload 入口，不伪造空 apply。
 
-应用 API-06 成功后清草稿、重读状态/配置/方案/catalog；失败保留草稿并定位字段/来源或模块错误。放弃本地修改不撤销其它客户端的 saved。刷新发现 saved 变化：干净字段采用新基线，脏对象保留本地值并提示重新载入/保留，不引入后端 CAS 或复杂自动合并器。
+应用 API-06 返回 state=active 后按成功发布处理：清除本次已提交草稿、重读状态/配置/方案/catalog；即使附带 cleanup_diagnostics，也只另行提示旧资源清理情况，不恢复成“未应用”、不自动再次提交。reload 和方案应用遵循相同结果语义。发布前失败保留草稿，按 §3.4 的真实结构化信息定位字段/来源或显示整批错误。放弃本地修改不撤销其它客户端的 saved。刷新发现 saved 变化：干净字段采用新基线，脏对象保留本地值并提示重新载入/保留，不引入后端 CAS 或复杂自动合并器。
 
-离开设置可保留内存草稿并显示数量；关闭窗口有未保存更改提示。凭据值仅内存编辑，不写 localStorage 草稿，不混进运行方案。网络中断后先读真实状态，不无条件重复 apply。
+离开设置可保留内存草稿并显示数量；关闭窗口有未保存更改提示。凭据值仅内存编辑，不写 localStorage 草稿，不混进运行方案。网络中断导致应用结果不明确时保留草稿，先读 status 与 active/saved 核对，不单凭断线判定发布失败或成功，也不无条件重复 apply；无法确认的脱敏凭据值不靠占位内容比较后宣称已应用。
 
 有未应用 ConfigDraft 时，所有运行方案应用入口都必须先要求明确处理：用户返回设置应用或放弃修改后再切换，或者确认“放弃未应用修改并切换”；取消切换保留草稿。确认放弃并切换时只提交 preset_id，成功后才清除已同意放弃的草稿，失败仍保留。不自动合并草稿与方案，也不连发草稿应用和方案应用两次请求。仅浏览或捕获方案不清除草稿；本地外观偏好和 Workspace 编辑草稿不属于此处理范围。
 
@@ -551,9 +606,9 @@ Agent 忙碌时允许编辑，禁用应用并显示真实原因；不以 can_wri
 
 - 每个编辑项保留 `source_id/path` 与 catalog 声明。`fields` 是正式字段映射，sources 表达来源；不得把某个展示 value 当作完整的可写配置文件。只读来源显示归属，写入来源用后端实际可写 source_id，不按标题拼路径。
 - 草稿按可写原子值集中管理。同一个 `action.models.bindings` 数组、`action.retrieval` 对象或 MCP tools map 即使在多页呈现，也只有一份草稿；页面操作更新该完整值，应用时只生成一项相应 mutation，保留其它条目。
-- `set` 提交完整合法值，`delete` 表达删除覆盖/恢复来源默认；不提交 null。恢复本页是撤销本页引入的编辑，与删除后端覆盖值的“恢复默认”分开；涉及共享原子对象时按编辑条目撤回，不能误删其它页草稿。
+- `set` 提交完整合法值，`delete` 表达删除覆盖/恢复来源默认；不提交 null。恢复本页是撤销该页负责条目的草稿修改，与删除后端覆盖值的“恢复默认”分开。共享原子对象按 consumer、Action ID、模型/Provider/use ID 或实际 map key 识别条目；同一条目有唯一主要编辑入口，其它页面跳转，不维护独立副本。撤回本页条目时保留其它页修改，不能把整个数组/map 重置回旧值。
 - secret 脱敏占位只用于显示：未改凭据不生成 operation，输入新值才 set，删除须显式操作；不可将 `***` 或空表单默认值写回。凭据引用名与凭据值是不同字段。
-- 选择引用时能看到同一草稿中新建对象，完整依赖统一提交；运行状态仍来自 active。后端校验问题映射到具体对象/字段，保留原 details 供展开，不靠解析 message 找字段。
+- 选择引用时能看到同一草稿中新建对象，完整依赖统一提交；运行状态仍来自 active。后端校验问题具备定位信息时映射到具体对象/字段，其余显示表单或整批错误；保留原 details 供展开，不靠解析 message 找字段。
 - 应用条件来自 activity.can_reload；有排队根 work 时即使没有正在执行的 Turn 也不能认为 idle 可用。保存一个运行方案不等于应用配置，不清空 ConfigDraft。
 
 一次 apply 请求示意（source_id 应取真实 catalog/source）：
@@ -563,6 +618,22 @@ Agent 忙碌时允许编辑，禁用应用并显示真实原因；不以 can_wri
 ```
 
 运行方案应用为 `{"preset_id":"<真实方案 ID>"}`，不同时发送 operations。主设置流程不再使用 onBlur PATCH；仅保存/重载这组底层接口留给明确的 saved 待激活场景，不在普通用户流程重新建立第二种确认方式。
+
+### 15.2 配置覆盖与编辑归属
+
+F0 在 visualization 文档建立配置覆盖清单，以当前 API-05 config/catalog 和 Action 文档可编辑声明为依据。每项记录实际对象或字段路径、所属页面、主要/高级区、可写 source_id/path 或只读原因、原子提交边界及真实引用入口；不按旧设置页是否存在推定覆盖完成。集合按实际 descriptor 和对象编辑能力核对，不把每个用户自建对象变成一份重复规格。
+
+| 配置对象 | 主要编辑入口 | 其它页面的行为 |
+| --- | --- | --- |
+| LLM Provider、模型、任务链；专用 Provider、模型、use | 各自对象页 | consumer/被引用位置给摘要与跳转，不复制定义。 |
+| Phase1/Phase2 链绑定 | Phase 调用分配 | 任务链页显示引用位置。 |
+| action.models.bindings、action.retrieval 内条目 | 对应 Action 的用途/Search 分区 | Search 策略导航定位到同一编辑器；按 consumer/Action ID 撤回本页修改。 |
+| Home/Memory embedding_use | 对应 owner 设置 | 专用用途及 Action 页显示绑定与跳转，不创建第二份用途选择。 |
+| MCP tools map、ACP 目标与连接配置 | MCP/ACP 设置 | 运行观察只读实际连接/目录，修改入口跳设置。 |
+| 凭据值 | 统一凭据编辑入口，复用同一 dotenv 草稿 | Provider/工具页引用同一编辑流程，不维护另一份 secret。 |
+| Turn/Context/Session 预算与其它 owner/system 参数 | §17～18 指定页面；共享概念确定唯一字段入口 | 概览/方案显示摘要，涉及只读来源说明实际归属。 |
+
+各页主要区承担日常选择和操作，高级区保留所属对象的真实扩展选项。F2 退出时逐项核对覆盖清单、主要入口和本页重置边界；只读项有理由，暂缺项如实记录。不能以一个通用 JSON 编辑器或“高级设置”入口代替主要配置的可用交互，也不为覆盖字段而把内部只读投影做成可写控件。
 
 ## 16. P11：模型与服务各子页
 
@@ -635,6 +706,8 @@ Phase1/Phase2 分别选择真实 LLM task profile，并可跳转链编辑；不�
 scenario 决定可用能力视图，不自动产生三套模型绑定。Reflection 中的 memory.write/write_daily/home.review 是确定性行为，不能为保持布局加入虚构 LLM 选择器。
 
 模型用途按 consumer 展开：operation、允许 implementation、当前 target 和 options。LLM 选任务链，JEV 选逻辑 use，Embedding 按 descriptor 引用 owner 用途。不可用实现只在真实 descriptor 支持时出现；不从 executor 名猜能力。
+
+用途声明、当前绑定与原子可写来源分别按 §3.6 获取，编辑归属遵循 §15.2。scenario 切换只改变能力视图，同一 consumer 的草稿仍只有一份；草稿中的实现/target 选择不覆盖 active 的可用性、来源和运行状态。
 
 操作路径示例：选 Home search → 找到 select 用途 → 在该 consumer 允许时选择 JEV → 选择 structured_decision 用途 → 调整其真实 options → 查看变更 → 应用。同一 Action 的 query/select/rerank 可有不同配置；只显示对应 descriptor 声明的控件。原 Reflection 独立模型链页面删除，Reflection 扩充的动作在情景视图内展示；确定性 write/review 显示其操作语义即可。
 
@@ -799,18 +872,22 @@ ActionRenderer、CodeBlockRegistry、ResourceRouter、Settings editor adapters �
 
 | 阶段 | 工作 | 依赖与退出条件 |
 | --- | --- | --- |
-| F0 契约与技术核对 | API-01～18 类型/fixtures、手动地址+token 与 Tauri 本机发现的 v2 连接、TikZ/Mermaid 最小真实渲染验证 | 核对 IP:Port 输入、HTTP/WS/blob 共用地址及鉴权、分页和资源路径；不要求前端部署隧道/转发 |
-| F1 数据与壳 | 正式实体缓存、事件失效、共享详情、导航 | status/Turn/Session 来源区分正确 |
-| F2 设置与方案 | P10～15、统一草稿、模型/用途、apply/presets | 多页编辑/应用/失败/重置、方案切换闭环 |
+| F0 契约与技术核对 | API-01～18 类型/fixtures、§3.6 能力来源、§15.2 配置覆盖清单、v2 手动连接/本机发现、TikZ/Mermaid 最小真实渲染验证 | 核对 HTTP/WS/blob 地址及鉴权、分页和资源路径，记录原页面视觉保留项；不要求前端部署隧道/转发 |
+| F1 数据与壳 | 正式实体缓存、事件失效、共享详情、导航及最小真实交互流程 | 提交 Turn→恢复问题→回复→完成→Session 恢复，身份和正式来源正确 |
+| F2 设置与方案 | P10～15、统一草稿、模型/用途、apply/presets | 多页编辑/应用/失败/重置、方案切换闭环；配置覆盖清单逐项核对并完成代表性页面视觉核对 |
 | F3 对话与历史 | P01～03、Question/预算、追加/排队、历史接替 | 正常交互不丢、不重复，原滚动体验保留 |
-| F4 Context/Action/模型 | P04～05、Search renderer、provenance | 读视图无执行副作用，模型详情真实 |
-| F5 资源与链接 | P06～08、共享 SearchPanel、ResourceRouter | 日期/view/动态绑定正确，归档只读 |
-| F6 运行与代码块 | P09、完善 Mermaid/TikZ/通用 registry | 在 F0 已验证的技术路径上完成状态、刷新、图渲染与回退 |
+| F4 Context/Action/模型 | P04～05、Search renderer、provenance、canonical Action 覆盖矩阵 | 读视图无执行副作用，模型详情真实；内置动作展示逐项有归属及验证依据 |
+| F5 资源与链接 | P06～08、共享 SearchPanel、ResourceRouter | 日期/view/动态绑定正确，归档只读；Home/Memory 代表性页面及状态视觉核对 |
+| F6 运行与代码块 | P09、完善 Mermaid/TikZ/通用 registry | 在 F0 已验证的技术路径上完成状态、刷新、图渲染与回退，完成运行观察代表性页面视觉核对 |
 | F7 收口 | 清理旧逻辑、性能、响应式、主题、文档 | 全部页面验收、测试和 build 完成 |
 
 前端实现只修改 `visualization/` 及其内文档。本文位于 docs/analysis，由项目维护者更新实施状态；前端实施者在 visualization 文档记录进度即可。遇缺失能力，在 `visualization/docs/demand/` 记录具体页面、请求/结果、owner 和复现；可用与已定契约一致的 fixture 开发，不把 mock 当成功集成。若实际后端契约需要调整，由后端同步接口文档并由维护者修订本计划，不加前端猜测兼容层。
 
 依赖细化：F1 依赖 F0；F2～F6 都复用 F1 数据/壳，F3 的方案入口依赖 F2，F4 的资源深读与 F5 共用 ResourceRouter，Question 的 registry 在 F3 建立而不是等 F6。F4/F5 先完成最小真实资源导航，再扩完整页面。F0 的技术验证属于正式实现的基础，不保留另一个演示应用。
+
+F1 的最小真实流程复用正式 client/state 与真实 Endpoint，可使用临时项目和受控模型响应验证，不要求真实供应商调用。它先验证回执、等待身份、交互与 Session 来源衔接；完整 Question renderer、Composer、动画与历史页面仍在 F3 完成。保留这条集成路径供 F3 扩展使用，不另造临时聊天状态或第二套客户端。
+
+设置、Home、Memory 和运行观察在各自阶段先做代表性实际页面与关键状态的视觉核对，再扩展同类表单或视图。以现有应用的 tokens、布局和成熟交互为基准，记录首屏主次、字号、控件密度、等待状态、明暗主题及小窗口阅读体验；对照原版保留项展示实际页面，按项目规约讨论重要布局调整，不另建 Demo 应用。加载/空态/错误可以使用同一正式组件的契约 fixture 检查视觉，但阶段退出仍需真实接口闭环。
 
 实施阶段安排服务于逐项集成，不能把 Home/Memory、代码块、运行页或完整设置当作未来可选项。每个阶段以真实接口闭环和语义验收退出；一页完成不能仅指布局和 mock 已完成。
 
@@ -822,15 +899,22 @@ ActionRenderer、CodeBlockRegistry、ResourceRouter、Settings editor adapters �
 - [ ] Browser/Tauri 可手动填写实际 IP:Port 和 token；显式协议、HTTP/WS/blob 地址一致，本机发现可用，后端内部地址不覆盖手动入口。
 - [ ] 无活动 Turn、无 Job、知识目录为空、MCP 未连接/未发现分别呈现正常状态，不误报故障或自动启动工作。
 - [ ] 新 Turn → 追加 → ask → choice/Other → 补充 → 完成 → 刷新，身份/顺序/全文正确；输入未受理和已受理状态明确。
+- [ ] preparing 阶段使用明确活动 User Turn ID 补充，拒绝后保留草稿；排队满、Inbox 容量不足与失效等待分别处理，不改发请求意图或依赖不存在的 Inbox 开放字段。
+- [ ] 活动交互翻页期间新增输入、pending→installed/visible、Context 正文更新时，失效序列/分片正确结束，已读内容不丢且不混接新旧页；问题和预算不等待正文翻完。
+- [ ] 完成 Turn 的 Session 超过一页时，首页不清空整轮已展示正文；所需页面就绪后按 Turn 接替，原阅读位置与完整问题/回复保留。
 - [ ] 问题与预算同时等待，各自提交；排队/取消/finalizing 正确；Reflection 运行不误接普通追加。
 - [ ] 运行方案应用后实际 LLM/JEV 与 query 通道改变；运行中不可假切换；缺引用清晰定位。
 - [ ] 有未应用草稿时，对话和设置中的方案切换均要求明确处理；取消/失败保留，确认放弃并成功切换才清除；捕获方案不清草稿或冒充全量备份。
 - [ ] 多页配置草稿、对象排序、含点 map、整批凭据+配置、应用失败/重置、已有 pending 配置的说明正确。
+- [ ] apply/reload/方案返回 active 且带 cleanup_diagnostics 时仍显示已应用并更新配置，清理提示独立；响应中断保留草稿并核对正式状态，不盲目重发。
+- [ ] request.invalid 无字段定位时显示表单级错误；有结构化配置 key 时定位对应控件，不解析 message 猜字段。
+- [ ] 配置覆盖清单逐项核对，主要/高级区与只读原因明确；同一条目只有一个主要编辑入口，本页重置不撤回其它页负责条目的修改。
 - [ ] family/collapsed 展示不禁用模型；LLM/专用 Provider 与用途引用真实；生图预留无假保存。
 - [ ] Context 三槽四形状、折叠披露、Session 证据；UI 阅读不改变模型语境；历史 Task 与当前 Context 不混淆。
 - [ ] Home/Memory Heap 无 INSPECT 时仍可读取 installed messages，并正确转 owner 阅读；fragment 中间页/末页不丢项或重复项，messages/items/text 不混用。
 - [ ] Search 真片段/双通道命中/评分/覆盖、result 派生、续页与失效；页面不调用 current Context，不卡在隐式 top-k。
-- [ ] Action renderer registry 与当前 Action Catalog 同步，旧 registry 名称和兼容映射已清理，未知 Action 保留通用回退。
+- [ ] Search 控件来自实际 retrieval/tool.schema 及 SDK 限制，不以 Action visibility/granted 或未应用草稿改变页面搜索能力。
+- [ ] Action 覆盖矩阵与当前 canonical Catalog 逐项对应，Web、分析/转换、等待/Job 控制、Session 整理及 Reflection 提交均有实际呈现；已知动作采用通用视图有理由，旧名称/兼容映射已清理，未知扩展可回退。
 - [ ] Workspace 完整编辑/外部变化/归档；Home actual/effective/diff/Reflection；Memory active/daily/知识/反链/redirect。
 - [ ] 活动文件移入回收站及恢复可用，归档回收站只读，无永久删除或清空入口。
 - [ ] Workspace full=true 完整正文才可覆盖保存；Blob 预览真实携带鉴权且保留 day；不为 Home 非文本资源编造下载接口。
@@ -840,12 +924,13 @@ ActionRenderer、CodeBlockRegistry、ResourceRouter、Settings editor adapters �
 - [ ] Job 运行中空输出继续轮询，终态仍可读取剩余输出；truncated 不误报丢失，读取上限转实际产物入口。事件过滤空页仍按 next_sequence 推进；日期/Reflection 按 next_before 续读，不能依赖统一 cursor 假设。
 - [ ] Question active/compose/readonly、Mermaid、TikZ、普通代码和错误回退；大图不阻塞主对话输入。
 - [ ] 明暗主题、小窗口、字号缩放、键盘焦点、reduced-motion；无演示口号与新增常驻聊天日期栏。
+- [ ] F1 最小真实交互流程及设置/Home/Memory/运行观察的代表性页面视觉核对有记录，fixture 视觉检查与真实接口验收分别说明。
 
 ### 24.2 测试组织
 
 TypeScript 契约与核心状态合并用单元测试；Question/ConfigDraft/排序/ResourceRouter 用行为组件测试；代表性 Browser 流程用 Playwright。fixtures 取自后端真实 schema；fake timers 替代长 sleep，不用大批全页面快照固化像素或字段顺序。
 
-至少覆盖 API 重连后交互去重、pending→Session 接替、配置失败保留、Search lifecycle、实际路由来源。不要为低影响样式改动写镜像实现的测试。
+至少覆盖 API 重连后交互去重、pending→installed/visible、动态续页失效和多页 Session 接替、配置失败保留与成功清理诊断、Search lifecycle、实际路由来源。不要为低影响样式改动写镜像实现的测试。
 
 契约样例以 `docs/endpoint/contracts/examples/` 为来源，挑选当前 UI 有消费者的最小集合复制到 visualization 测试 fixtures，并注明基线。重点包括 turn-waiting/interactions/question-reply、context-overview/context-messages、home-fragment/home-fragment-end、search-evidence、job-output、config-views/config-apply/preset、resource resolve。fragment 的首/末样例并非相邻页，必须补齐真实中间序列或构造符合协议的短分片测试，不能直接拼首尾宣称通过。token 样例仅展示结构，不能发送到真实后端。
 
@@ -853,9 +938,12 @@ TypeScript 契约与核心状态合并用单元测试；Question/ConfigDraft/排
 | --- | --- |
 | 配置共享原子对象 | 在两个 Action 页修改同一 map 后一次提交，两个改动均保留；reset 本页不丢另一页修改；masked secret 不回写。 |
 | 草稿与方案 | 两个应用入口共用确认规则；取消/失败保留草稿，确认放弃并成功应用才清除；请求不混用 operations/preset_id。 |
-| 交互与控制 | 同一 question 从快照和交互到达只生成一个待答卡；预算并存；完成 Session 整轮接替无重复。 |
+| 应用结果与错误定位 | active 附 cleanup_diagnostics 仍成功更新；请求结果不明确时先核对；通用 request.invalid 与有定位 key 的 config.invalid 使用不同反馈。 |
+| 交互与控制 | 同一 question 从快照和交互到达只生成一个待答卡；预算并存；追加 record_id→interaction.id 无重复，拒绝保稿且不换目标。 |
+| 动态分页与历史接替 | 翻页中新增/安装输入及更新段正文后，旧 token/晚到响应/未完成 fragment 不进入新序列；Session 多页就绪前不清空已读正文，接替后无重复。 |
 | 阅读与日期 | 当前 Context/Home 全文区分，动态 Memory 原绑定、归档 Workspace day、链接 fragment 和返回位置均正确；引用到 Composer 的文本保留必要来源。 |
 | 内容与检索 | 连续 JSON fragment 解码、最后片消费、真实 evidence 含 emoji 高亮、派生 result 与冻结分页不混淆。 |
+| 能力与展示覆盖 | 同一 Search 的 SDK 浏览不受 Action visibility 误禁用；配置清单和 Action 矩阵逐项核对，行为测试按代表性编辑操作及结果族组织，不固化整个 Catalog 快照。 |
 | 运行与观察 | Job 运行中空页可续读、终态读取剩余页、truncated 不误报丢失、退出详情停轮询；事件过滤可前进，MCP 打开页面不发 refresh。 |
 | 连接与转发地址 | IP:Port 与显式协议均正确构建 HTTP/WS/blob 请求并携带对应鉴权；握手不把客户端可达地址改回服务端 loopback。 |
 | 渲染与应用壳 | 完整/不完整 fence、Question 三模式、Mermaid/TikZ 成功与失败；Browser/Tauri 本地资源可用且不影响输入。 |
@@ -868,6 +956,6 @@ TypeScript 契约与核心状态合并用单元测试；Question/ConfigDraft/排
 
 每阶段记录改动文件、真实完成项、命令/结果、剩余缺口和可用 commit 文本。前端设计说明同步到 visualization 文档，Endpoint 使用与后端已发布契约一致；无消费者组件、重复状态或临时兼容分支在 F7 删除。
 
-交接文档至少包含页面地图/用户路径、状态和接口所有权、设置保存与方案语义、Context 与资源的差别、代码块注册方法、实际运行/测试命令。用实际页面操作示例解释，不要求下一个实施者重新阅读整个历史讨论。已有 `visualization/docs/demand/` 文档只保留仍真实存在的缺口，过时条目按项目文档规则整理，不把旧需求编号当作新实现依据。
+交接文档至少包含页面地图/用户路径、状态和接口所有权、设置保存与方案语义、Context 与资源的差别、代码块注册方法、实际运行/测试命令，并附配置覆盖清单、canonical Action 展示矩阵、最小真实交互流程与代表性页面视觉核对记录。清单记录实际缺口和验证依据，不用“通用回退”或 mock 页面代替完成证据。用实际页面操作示例解释，不要求下一个实施者重新阅读整个历史讨论。已有 `visualization/docs/demand/` 文档只保留仍真实存在的缺口，过时条目按项目文档规则整理，不把旧需求编号当作新实现依据。
 
-只有 F0～F7、所有页面、接口集成和必要验证逐项完成，才将计划标为 done，并按 AGENTS.md 移入 `docs/analysis/done/` 加 `-done-`。本计划当前是完整可实施设计，不是已完成实现或测试报告。
+只有 F0～F7、所有页面、接口集成和必要验证逐项完成，才将计划标为 done，并按 AGENTS.md 移入 `docs/analysis/done/` 加 `-done-`。本计划具备实施基础，具体退出条件以真实接口与页面验证为准；当前仍为 pending，不表示前端实现或测试已经完成。
