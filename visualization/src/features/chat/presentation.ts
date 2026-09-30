@@ -5,11 +5,7 @@
  * the restored baseline components expect.
  */
 
-import type {
-  TurnSnapshot,
-  Question,
-  Budget,
-} from "../../api/v2/types";
+import type { TurnSnapshot } from "../../api/v2/types";
 
 /**
  * Turn presentation model for TurnView consumption.

@@ -14,7 +14,7 @@ import type { ObservationEvent } from "../../api/v2/types";
 import { ActivityBuffer } from "./activityBuffer";
 import { snapshotToPresentation } from "./adapters";
 import type { TurnPresentation } from "./presentation";
-import { turnStore } from "../../store/turnStore";
+import { useTurnStore } from "../../store/turnStore";
 
 export interface PresentationStoreState {
   /** Activity buffer for the current turn */
@@ -136,7 +136,7 @@ export const presentationStore = create<PresentationStoreState>((set, get) => ({
 }));
 
 // Subscribe to turnStore snapshot changes
-turnStore.subscribe(
+useTurnStore.subscribe(
   (state) => state.snapshot,
   () => {
     presentationStore.getState().refresh();
@@ -144,7 +144,7 @@ turnStore.subscribe(
 );
 
 // Subscribe to turnStore Turn changes to create/clear buffer
-turnStore.subscribe(
+useTurnStore.subscribe(
   (state) => state.turnId,
   (turnId, prevTurnId) => {
     const store = presentationStore.getState();

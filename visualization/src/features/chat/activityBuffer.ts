@@ -21,9 +21,6 @@ import type {
   PhaseHeadline,
   ThinkingStream,
   WorkingState,
-  ActivityStepType,
-  ActivityStepContent,
-  ActionGlimpseData,
 } from "./presentation";
 
 export class ActivityBuffer {
@@ -102,8 +99,6 @@ export class ActivityBuffer {
 
       // loop.phase.started or loop.phase.* events
       if (event.name?.startsWith("loop.phase.")) {
-        const phasePart = event.name.split(".")[2]; // "started", "phase1", "phase2", "phase3"
-
         // Extract phase from event name or payload
         const phase = this.extractPhase(event);
         const domain = event.payload?.domain as string | undefined;

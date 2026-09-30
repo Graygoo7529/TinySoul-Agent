@@ -117,9 +117,9 @@ export function LiveStatus({ activity, mode = "live", onStop }: LiveStatusProps)
       <AnimatePresence initial={false}>
         {bodyOpen && (
           <motion.div
-            initial={reduced ? false : { height: 0, opacity: 0 }}
+            initial={reduced ? undefined : { height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
-            exit={reduced ? false : { height: 0, opacity: 0 }}
+            exit={reduced ? undefined : { height: 0, opacity: 0 }}
             transition={{ duration: LIVE_FOLD_MS / 1000, ease: EASE_CALM, delay: live ? 0 : FOLD_DELAY_MS / 1000 }}
             className="overflow-hidden border-t border-line"
           >
@@ -143,9 +143,9 @@ export function LiveStatus({ activity, mode = "live", onStop }: LiveStatusProps)
                     {trail.map((step) => (
                       <motion.div
                         key={step.id}
-                        initial={reduced || !live ? false : { opacity: 0, x: 20 }}
+                        initial={reduced || !live ? undefined : { opacity: 0, x: 20 }}
                         animate={{ opacity: 1, x: 0 }}
-                        exit={reduced || !live ? false : { opacity: 0, scale: 0.95 }}
+                        exit={reduced || !live ? undefined : { opacity: 0, scale: 0.95 }}
                         transition={{ duration: 0.3, ease: EASE_CALM }}
                         layout={!reduced && live}
                       >

@@ -17,7 +17,6 @@ import {
   Circle,
   CircleDashed,
   CircleStop,
-  Loader2,
   XCircle,
   Brain,
   Flag,
@@ -86,7 +85,7 @@ export function ActivityStep({
       ? actionStatusVisual(item.content.glimpse.result?.status)
       : undefined;
 
-  const finalIcon = actionStatus?.Icon ?? Icon;
+  const FinalIcon = actionStatus?.Icon ?? Icon;
   const finalColor = actionStatus?.color ?? color;
 
   const body = <StepBody content={item.content} />;
@@ -109,10 +108,10 @@ export function ActivityStep({
           transition={{ duration: 0.2, ease: EASE_CALM }}
           className={`mt-[3px] inline-flex shrink-0 ${finalColor}`}
         >
-          <finalIcon size={12} className={actionStatus?.spin ? "animate-spin-slow" : ""} />
+          <FinalIcon size={12} className={actionStatus?.spin ? "animate-spin-slow" : ""} />
         </motion.span>
       ) : (
-        <finalIcon
+        <FinalIcon
           size={12}
           className={`mt-[3px] shrink-0 ${finalColor} ${actionStatus?.spin ? "animate-spin-slow" : ""}`}
         />
