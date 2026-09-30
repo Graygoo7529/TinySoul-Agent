@@ -20,8 +20,8 @@ import {
   loadConfig,
   reloadSaved,
 } from "./applyController";
-import { draftKey } from "./model";
-import { selectDraftCount, useConfigDraftStore } from "./store";
+import { draftKey } from "./draft/model";
+import { selectDraftCount, useConfigDraftStore } from "./draft/store";
 
 const EMPTY_CATALOG = {
   surfaces: [],
@@ -224,7 +224,7 @@ describe("applyDrafts", () => {
   });
 
   it("is a no-op while another apply/reload is running", async () => {
-    let resolveApply: ((response: Response) => void) | null = null;
+    let resolveApply: ((response: Response) => void) | undefined;
     const { clients, requests } = makeClients({
       apply: () =>
         new Promise<Response>((resolve) => {

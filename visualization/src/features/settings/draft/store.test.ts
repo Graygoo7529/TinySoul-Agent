@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
+import type { JsonValue } from "../../../api/v2/json";
 import type { Configuration } from "../../../api/v2/types";
 import { draftKey } from "./model";
 import {
@@ -81,7 +82,7 @@ describe("shared atomic objects across pages", () => {
       baseline[1],
     ]);
     // Page B reads the current draft, merges its own change, writes the atom again.
-    const current = displayValue(store(), atom) as unknown[];
+    const current = displayValue(store(), atom) as JsonValue[];
     store().setValue(atom.sourceId, atom.path, [
       current[0],
       { consumer: "home.search.select", target: { use: "jev-1" } },

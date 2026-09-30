@@ -1,18 +1,22 @@
 import { useState } from "react";
-import { Layers, Power, RefreshCw } from "lucide-react";
+import { History, Layers, Power, RefreshCw } from "lucide-react";
 import { restartBackend } from "../../app/connection";
 import { useConnectionStore } from "../../store/connectionStore";
+import { openContextDrawer } from "../../features/context/entries";
+import { openHistoryBrowser } from "../../features/history/entries";
 import { Badge } from "../ui/Badge";
 import { Button, IconButton } from "../ui/Button";
 import { Modal } from "../ui/Modal";
 
 /**
  * The top bar: product title, the "turn active" badge, entry points for the
- * Context inspector (F4) and an explicit host restart, plus the reconnect
- * indicator shown while the connection is down.
+ * history browser (day directory / Session map), the Context drawer (P04)
+ * and an explicit host restart, plus the reconnect indicator shown while the
+ * connection is down.
  */
 export function TopBar() {
   const status = useConnectionStore((s) => s.status);
+  const epoch = useConnectionStore((s) => s.epoch);
   const connected = useConnectionStore((s) => s.phase === "connected");
   const [confirmingRestart, setConfirmingRestart] = useState(false);
 
@@ -26,7 +30,18 @@ export function TopBar() {
           <span className="animate-pulse-dot">●</span> turn active
         </Badge>
       )}
-      <IconButton label="Context (available in a later milestone)" disabled>
+      <IconButton
+        label="History"
+        onClick={() => openHistoryBrowser(epoch)}
+        disabled={!connected}
+      >
+        <History size={15} />
+      </IconButton>
+      <IconButton
+        label="Context"
+        onClick={() => openContextDrawer(epoch)}
+        disabled={!connected}
+      >
         <Layers size={15} />
       </IconButton>
       <IconButton

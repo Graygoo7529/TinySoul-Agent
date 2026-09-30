@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type ComponentType } from "react";
 import { Loader2, RefreshCw, Settings2, Unplug } from "lucide-react";
 
 import { Button, IconButton } from "../../components/ui/Button";
@@ -12,7 +12,7 @@ import {
   selectDraftCount,
   useConfigDraftStore,
 } from "./draft/store";
-import { SETTINGS_PAGES } from "./pages";
+import { SETTINGS_PAGES, type SettingsPageId } from "./pages";
 import { SettingsBottomBar } from "./SettingsBottomBar";
 import { SettingsNav } from "./SettingsNav";
 import {
@@ -21,7 +21,57 @@ import {
   SettingsOverviewPage,
 } from "./SettingsOverviewPage";
 import { SettingsPlaceholderPage } from "./SettingsPlaceholderPage";
+import { PlansPage } from "./presets/PlansPage";
+import { ActionsPage } from "./behavior/ActionsPage";
+import { BudgetsPage } from "./behavior/BudgetsPage";
+import { PhaseBindingsPage } from "./behavior/PhaseBindingsPage";
+import { ReflectionPage } from "./behavior/ReflectionPage";
+import { SearchPoliciesPage } from "./behavior/SearchPoliciesPage";
+import { AcpPage } from "./editors/AcpPage";
+import { ExecutionPage } from "./editors/ExecutionPage";
+import { HomePage } from "./editors/HomePage";
+import { InterfacePage } from "./editors/InterfacePage";
+import { McpPage } from "./editors/McpPage";
+import { MemoryPage } from "./editors/MemoryPage";
+import { SessionPage } from "./editors/SessionPage";
+import { SystemPage } from "./editors/SystemPage";
+import { WebPage } from "./editors/WebPage";
+import { WorkspacePage } from "./editors/WorkspacePage";
+import { CredentialsPage } from "./models/CredentialsPage";
+import { DedicatedModelsPage } from "./models/DedicatedModelsPage";
+import { DedicatedProvidersPage } from "./models/DedicatedProvidersPage";
+import { ImageGenerationPage } from "./models/ImageGenerationPage";
+import { LlmModelsPage } from "./models/LlmModelsPage";
+import { LlmProvidersPage } from "./models/LlmProvidersPage";
+import { LlmTaskChainsPage } from "./models/LlmTaskChainsPage";
 import { useSettingsUiStore } from "./uiStore";
+
+/** Implemented settings pages beyond the overview (registry: pages.ts). */
+const PAGE_COMPONENTS: Partial<Record<SettingsPageId, ComponentType>> = {
+  overview: SettingsOverviewPage,
+  plans: PlansPage,
+  "llm-providers": LlmProvidersPage,
+  "llm-models": LlmModelsPage,
+  "llm-tasks": LlmTaskChainsPage,
+  "dedicated-providers": DedicatedProvidersPage,
+  "dedicated-models": DedicatedModelsPage,
+  credentials: CredentialsPage,
+  "image-generation": ImageGenerationPage,
+  "phase-bindings": PhaseBindingsPage,
+  actions: ActionsPage,
+  "search-policies": SearchPoliciesPage,
+  budgets: BudgetsPage,
+  reflection: ReflectionPage,
+  execution: ExecutionPage,
+  web: WebPage,
+  acp: AcpPage,
+  mcp: McpPage,
+  workspace: WorkspacePage,
+  session: SessionPage,
+  home: HomePage,
+  memory: MemoryPage,
+  system: SystemPage,
+};
 
 /**
  * The settings shell (P10): left group navigation, the active page, and the
@@ -56,7 +106,6 @@ export function SettingsPage() {
   }, [draftCount]);
 
   const page = useSettingsUiStore((s) => s.page);
-  const def = SETTINGS_PAGES[page];
 
   return (
     <div className="flex h-full min-h-0">
@@ -88,7 +137,18 @@ function PageContent({ pageId }: { pageId: keyof typeof SETTINGS_PAGES }) {
     </div>
   );
 
-  if (pageId === "interface" || SETTINGS_PAGES[pageId].placeholder !== false) {
+  // Interface preferences are client-local; they render without a connection
+  // and never read the configuration store.
+  if (pageId === "interface") {
+    return (
+      <>
+        {banners}
+        <InterfacePage />
+      </>
+    );
+  }
+  const PageComponent = PAGE_COMPONENTS[pageId];
+  if (PageComponent === undefined) {
     return (
       <>
         {banners}
@@ -110,7 +170,7 @@ function PageContent({ pageId }: { pageId: keyof typeof SETTINGS_PAGES }) {
     <>
       {banners}
       {loadPhase === "ready" ? (
-        <SettingsOverviewPage />
+        <PageComponent />
       ) : (
         <div className="flex h-full items-center justify-center p-6 text-fg-faint">
           <Loader2 size={18} className="animate-spin-slow" />

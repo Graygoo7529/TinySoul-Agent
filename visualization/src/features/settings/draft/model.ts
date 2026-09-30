@@ -141,6 +141,9 @@ export function activeValue(
 
 /**
  * Whether the given source itself carries a value at path in the saved view.
+ * Owning any key strictly below the path counts as well: the backend's
+ * `delete` removes the whole subtree at the path, so a source holding
+ * `llm.providers.openai.enabled` owns a deletable `llm.providers.openai`.
  * `delete` on a source without the path is a no-op and must not produce a
  * mutation.
  */
@@ -150,10 +153,10 @@ export function sourceOwnsPath(
   path: string,
 ): boolean {
   const source = saved?.sources.find((item) => item.id === sourceId);
-  return (
-    source !== undefined &&
-    Object.prototype.hasOwnProperty.call(source.values, path)
-  );
+  if (source === undefined) return false;
+  if (Object.prototype.hasOwnProperty.call(source.values, path)) return true;
+  const prefix = `${path}.`;
+  return Object.keys(source.values).some((key) => key.startsWith(prefix));
 }
 
 /**
@@ -268,10 +271,11 @@ export function rebaseOnSaved(
  *
  * Array atoms need `entryKey` to give each entry its stable identity (a
  * consumer name, an id); map atoms use their keys. Owned entries present in
- * the baseline are restored to it; owned entries absent from the baseline are
- * dropped; owned baseline entries missing from the draft are appended back in
- * baseline order. When the result equals the baseline the draft entry is
- * cleared.
+ * the baseline are restored to it at their baseline position (so a fully
+ * reset array is the baseline again, order included); owned entries absent
+ * from the baseline are dropped; entries owned by other pages keep their
+ * draft state, including deletions. When the result equals the baseline the
+ * draft entry is cleared.
  */
 export function resetAtomEntries(
   drafts: Record<string, DraftEntry>,
@@ -319,38 +323,42 @@ function resetArrayEntries(
   if (baseline !== undefined && !Array.isArray(baseline)) return undefined;
   const keyOf =
     options.entryKey ?? ((entry: JsonValue) => JSON.stringify(entry));
-  const baselineByKey = new Map<string, JsonValue>();
-  const baselineOrder: string[] = [];
-  for (const entry of baseline ?? []) {
-    const entryKey = keyOf(entry);
-    if (entryKey === null) continue;
-    baselineByKey.set(entryKey, entry);
-    baselineOrder.push(entryKey);
-  }
-  const seen = new Set<string>();
-  const result: JsonValue[] = [];
+  const draftByKey = new Map<string, JsonValue>();
+  const unkeyed: JsonValue[] = [];
   for (const entry of current) {
     const entryKey = keyOf(entry);
     if (entryKey === null) {
-      result.push(entry);
-      continue;
-    }
-    seen.add(entryKey);
-    if (!options.owns(entryKey, entry)) {
-      result.push(entry);
-      continue;
-    }
-    const restored = baselineByKey.get(entryKey);
-    if (restored !== undefined) result.push(restored);
-    // owned + absent from baseline → drop (the page created it locally)
-  }
-  for (const entryKey of baselineOrder) {
-    if (seen.has(entryKey)) continue;
-    const baselineEntry = baselineByKey.get(entryKey);
-    if (baselineEntry !== undefined && options.owns(entryKey, baselineEntry)) {
-      result.push(baselineEntry);
+      unkeyed.push(entry);
+    } else {
+      draftByKey.set(entryKey, entry);
     }
   }
+  const baselineKeys = new Set<string>();
+  const result: JsonValue[] = [];
+  // Walk the baseline in order so that, once every owned entry is reset, the
+  // atom is exactly the baseline again (order included) and the draft clears.
+  for (const entry of baseline ?? []) {
+    const entryKey = keyOf(entry);
+    if (entryKey === null) continue;
+    baselineKeys.add(entryKey);
+    if (options.owns(entryKey, entry)) {
+      // Owned entries return to the baseline value at the baseline position,
+      // which also restores owned entries the draft had removed.
+      result.push(entry);
+    } else {
+      const draftEntry = draftByKey.get(entryKey);
+      // The other page's edit survives; its deletion stays deleted.
+      if (draftEntry !== undefined) result.push(draftEntry);
+    }
+  }
+  for (const entry of current) {
+    const entryKey = keyOf(entry);
+    if (entryKey === null || baselineKeys.has(entryKey)) continue;
+    // Locally created entries survive unless they belong to the resetting page.
+    if (!options.owns(entryKey, entry)) result.push(entry);
+  }
+  // Entries without a stable key cannot be attributed to a page; keep them.
+  result.push(...unkeyed);
   return result;
 }
 

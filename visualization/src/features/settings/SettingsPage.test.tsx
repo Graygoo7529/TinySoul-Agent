@@ -8,12 +8,15 @@ import presetFixture from "../../../test/fixtures/contracts/preset.json";
 import {
   FakeEndpoint,
   jsonResponse,
+  makeStatus,
   resetAppStores,
   wireConnectedStores,
 } from "../../app/testing";
 import { useConfigDraftStore } from "./draft/store";
 import { useSettingsUiStore } from "./uiStore";
+import type { SettingsGroupId } from "./pages";
 import { SettingsPage } from "./SettingsPage";
+import { SettingsPlaceholderPage } from "./SettingsPlaceholderPage";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -66,7 +69,7 @@ beforeEach(() => {
   useSettingsUiStore.setState({
     page: "overview",
     focusPath: null,
-    collapsedGroups: {} as never,
+    collapsedGroups: {} as Record<SettingsGroupId, boolean>,
   });
   endpoint = new FakeEndpoint();
   endpoint.get("/v2/config/catalog", () => jsonResponse(CATALOG));
@@ -81,9 +84,7 @@ beforeEach(() => {
         : views.saved,
     ),
   );
-  wireConnectedStores(endpoint, {
-    ...structuredClone({}),
-  } as never);
+  wireConnectedStores(endpoint, makeStatus());
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -98,8 +99,6 @@ afterEach(async () => {
 
 describe("SettingsPage shell", () => {
   it("renders the six groups, the interface entry and the overview after loading", async () => {
-    const status = wireStatus();
-    void status;
     await act(async () => {
       root.render(<SettingsPage />);
     });
@@ -121,21 +120,33 @@ describe("SettingsPage shell", () => {
     expect(text()).toContain("No local changes"); // bottom bar
   });
 
-  it("shows an honest placeholder for unimplemented pages", async () => {
+  it("renders the run-plans page from the overview group", async () => {
+    endpoint.get("/v2/config/presets/", () => jsonResponse(presetFixture));
     await act(async () => {
       root.render(<SettingsPage />);
     });
     await flush();
 
     const button = [...container.querySelectorAll("button")].find((item) =>
-      item.textContent?.includes("MCP Servers"),
+      item.textContent?.includes("Run plans"),
     );
     expect(button).toBeDefined();
     await act(async () => {
       button?.click();
     });
+    await flush();
+    expect(text()).toContain("New plan");
+    expect(text()).toContain("Managed scope");
+    expect(text()).toContain("Balanced");
+  });
+
+  it("keeps an honest placeholder component for unimplemented pages", async () => {
+    await act(async () => {
+      root.render(<SettingsPlaceholderPage page="plans" />);
+    });
+    await flush();
     expect(text()).toContain("under construction");
-    expect(text()).toContain("Tools & Connections");
+    expect(text()).toContain("Overview & Plans");
   });
 
   it("routes catalog search hits to their owning page", async () => {
@@ -158,14 +169,15 @@ describe("SettingsPage shell", () => {
     await act(async () => {
       hit?.click();
     });
+    await flush();
     expect(useSettingsUiStore.getState().page).toBe("execution");
-    expect(useSettingsUiStore.getState().focusPath).toBe("execution.enabled");
+    // The target page consumed the focus request and highlighted the field.
+    expect(
+      container.querySelector('[data-field-path="execution.enabled"]'),
+    ).not.toBeNull();
+    expect(useSettingsUiStore.getState().focusPath).toBeNull();
   });
 });
-
-function wireStatus() {
-  return null;
-}
 
 function setInputValue(input: HTMLInputElement, value: string): void {
   const setter = Object.getOwnPropertyDescriptor(

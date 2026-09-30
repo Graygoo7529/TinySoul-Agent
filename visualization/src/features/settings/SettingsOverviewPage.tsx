@@ -39,7 +39,7 @@ function previewValue(value: JsonValue | undefined, limit = 60): string {
 /**
  * The settings overview (P10): running configuration facts, saved-but-not-
  * activated changes, local draft changes grouped by owning page, and the
- * read-only run-plan summary (plan management lands with F2-E).
+ * run-plan summary that routes to the plans page for capture/management.
  */
 export function SettingsOverviewPage() {
   const clients = useConnectionStore((s) => s.clients);
@@ -200,18 +200,32 @@ export function SettingsOverviewPage() {
 
       <SectionCard
         title="Run plans"
-        description="Named presets of model routing and budgets. Plan capture and management arrive with the plans workflow (F2-E)."
+        description="Named presets of model routing and budgets. Capture, manage and apply them on the plans page."
+        actions={
+          <Button variant="ghost" size="xs" onClick={() => navigateTo("plans")}>
+            Manage plans
+          </Button>
+        }
       >
         {presets === null || presets.length === 0 ? (
           <EmptyState
             icon={<CircleDashed size={20} />}
             title="No run plans yet"
             description="Plans capture model chains, action bindings and optional budgets for quick switching."
+            action={
+              <Button variant="outline" size="sm" onClick={() => navigateTo("plans")}>
+                Open the plans page
+              </Button>
+            }
           />
         ) : (
           <div className="space-y-1.5">
             {presets.map((preset) => (
-              <PresetRow key={preset.id} preset={preset} />
+              <PresetRow
+                key={preset.id}
+                preset={preset}
+                onOpen={() => navigateTo("plans")}
+              />
             ))}
           </div>
         )}
@@ -288,10 +302,19 @@ function DraftList({
   );
 }
 
-function PresetRow({ preset }: { preset: PresetSummary }) {
+function PresetRow({
+  preset,
+  onOpen,
+}: {
+  preset: PresetSummary;
+  onOpen: () => void;
+}) {
   const issueCount = preset.validation_issues.length;
   return (
-    <div className="flex items-center gap-2 rounded-md border border-line px-3 py-2">
+    <button
+      className="flex w-full items-center gap-2 rounded-md border border-line px-3 py-2 text-left transition-colors hover:bg-hover"
+      onClick={onOpen}
+    >
       <Layers size={14} className="shrink-0 text-fg-faint" />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
@@ -320,7 +343,7 @@ function PresetRow({ preset }: { preset: PresetSummary }) {
       <span className="shrink-0 text-[10px] text-fg-faint">
         {preset.included_scopes.join(" · ")}
       </span>
-    </div>
+    </button>
   );
 }
 

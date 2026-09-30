@@ -9,7 +9,7 @@
 配置由四类 source 合并，**后列优先**（后者覆盖前者）：
 
 1. **project TOML**：项目 `tinysoul.toml` 主文件 + `config.include` 声明的 include 文件；唯一的主体可写来源，按文件给出 source_id（如 `project:configs/llm/models.toml`）。
-2. **dotenv**：项目 `.env` 文件；可写（path 为原始变量名，值必须是字符串）。被 `credential_reference` 字段引用的凭据值在读取投影中脱敏为 `{"$credential": true}`。
+2. **dotenv**：项目 `.env` 文件；可写（path 为原始变量名，值必须是字符串）。被 `credential_reference` 字段引用的凭据值在读取投影中脱敏为字符串 `"<redacted>"`（fields 项另带 `redacted: true`）。
 3. **environment**：进程环境变量，仅 `TINYSOUL_` 前缀的变量参与映射（可映射为 dotted 配置键）；只读。
 4. **overrides**：CLI 启动覆盖；只读。
 
@@ -98,7 +98,7 @@ catalog value_kind 为 object_list，三个数组**各自整体提交**；UI 按
 
 ### 2.5 凭据
 
-无独立配置树。凭据值一律存于 dotenv source（path=原始变量名，值必须字符串），被 `credential_reference` 字段引用：LLM `api_key_envs`、专用 Provider `api_key_env`、Web Kimi `api_key_env`、MCP `env_refs/header_refs`、ACP `env_refs`。读取投影脱敏为 `{"$credential": true}`；前端只用脱敏占位显示，未修改不生成 operation，输入新值才 set，删除须显式操作，不回写 `***`。
+无独立配置树。凭据值一律存于 dotenv source（path=原始变量名，值必须字符串），被 `credential_reference` 字段引用：LLM `api_key_envs`、专用 Provider `api_key_env`、Web Kimi `api_key_env`、MCP `env_refs/header_refs`、ACP `env_refs`。读取投影脱敏为字符串 `"<redacted>"`（effective `fields` 项另带 `redacted: true`）；前端只用脱敏占位显示，未修改不生成 operation，输入新值才 set，删除须显式操作，不回写 `***`。
 
 ### 2.6 生图
 

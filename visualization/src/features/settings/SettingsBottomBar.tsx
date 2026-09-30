@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { AlertTriangle, Loader2, RotateCcw, Trash2, UploadCloud } from "lucide-react";
 
 import { Button } from "../../components/ui/Button";
@@ -28,7 +29,8 @@ export function SettingsBottomBar() {
   const applyPhase = useConfigDraftStore((s) => s.applyPhase);
   const pendingReload = useConfigDraftStore((s) => s.saved?.pending_reload === true);
   const blocker = useConfigDraftStore(activationBlocker);
-  const pageKeys = useConfigDraftStore((s) => pageDraftKeys(page, s.drafts));
+  const drafts = useConfigDraftStore((s) => s.drafts);
+  const pageKeys = useMemo(() => pageDraftKeys(page, drafts), [page, drafts]);
   const resetEntries = useConfigDraftStore((s) => s.resetEntries);
   const discardAll = useConfigDraftStore((s) => s.discardAll);
 

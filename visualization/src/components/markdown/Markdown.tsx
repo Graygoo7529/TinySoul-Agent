@@ -8,15 +8,22 @@ import {
   type ReactNode,
   type Ref,
 } from "react";
-import ReactMarkdown, { type ExtraProps } from "react-markdown";
+import ReactMarkdown, {
+  defaultUrlTransform,
+  type ExtraProps,
+} from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
-import {
-  resolveCodeBlock,
-  type MarkdownOrigin,
-} from "./codeBlockRegistry";
+import { resolveCodeBlock, type MarkdownOrigin } from "./codeBlockRegistry";
+import { MarkdownRenderContext, type MarkdownRenderContextValue } from "./origin";
 import { RegisteredCodeBlock } from "./CodeBlock";
+import {
+  MarkdownAnchor,
+  MarkdownImage,
+  MarkdownInlineCode,
+} from "../../features/resources/links";
+import { classifyReference } from "../../features/resources/reference";
 import "./blocks/builtinBlocks";
 
 /**
@@ -34,18 +41,22 @@ import "./blocks/builtinBlocks";
  * origin; unknown languages keep the default code rendering. A fence that is
  * still the open tail of a streaming document renders as plain source until
  * it closes.
+ *
+ * Links and images go through the ResourceRouter (plan §21.2): the URL
+ * transform keeps the resource protocols and relative references intact for
+ * the renderers (everything else falls back to the default safe transform),
+ * and the a/img renderers route clicks through the instance origin. Inline
+ * code that strictly is a resource reference gets a link control; arbitrary
+ * colon text never does.
  */
 
-interface MarkdownRenderContextValue {
-  origin: MarkdownOrigin;
-  /** 1-based line of the still-open trailing fence, if any. */
-  unclosedFenceLine: number | null;
+/** URL transform: resource protocols survive for the ResourceRouter. */
+function markdownUrlTransform(url: string): string {
+  return classifyReference(url) === "other" ? defaultUrlTransform(url) : url;
 }
 
-const MarkdownRenderContext = createContext<MarkdownRenderContextValue>({
-  origin: {},
-  unclosedFenceLine: null,
-});
+/** Set while rendering the default `pre` branch: inline-code stays plain. */
+const InsidePreContext = createContext(false);
 
 export function Markdown({
   children,
@@ -55,17 +66,25 @@ export function Markdown({
 }: {
   children: string;
   className?: string;
-  /** Reading context for interactive blocks (default: live). */
+  /** Reading context for interactive blocks and link routing. */
   origin?: MarkdownOrigin;
   /** Forwarded to the .md-body root (e.g. truncation measurement). */
   ref?: Ref<HTMLDivElement>;
 }) {
+  // Normalize to the primitive fields so an inline `origin={{view}}` literal
+  // at the call site does not churn the context identity on every render
+  // (streaming answers re-render this component per typewriter tick).
+  const view = origin?.view;
+  const link = origin?.link;
+  const day = origin?.day;
+  const turnId = origin?.turnId;
+  const homeView = origin?.homeView;
   const context = useMemo<MarkdownRenderContextValue>(
     () => ({
-      origin: origin ?? {},
+      origin: { view, link, day, turnId, homeView },
       unclosedFenceLine: findUnclosedFenceLine(children),
     }),
-    [origin, children],
+    [view, link, day, turnId, homeView, children],
   );
   return (
     <div ref={ref} className={`md-body ${className}`}>
@@ -73,7 +92,13 @@ export function Markdown({
         <ReactMarkdown
           remarkPlugins={[remarkGfm, remarkMath]}
           rehypePlugins={[rehypeKatex]}
-          components={{ pre: MarkdownPreBlock }}
+          urlTransform={markdownUrlTransform}
+          components={{
+            pre: MarkdownPreBlock,
+            a: MarkdownAnchor,
+            img: MarkdownImgRenderer,
+            code: MarkdownCodeRenderer,
+          }}
         >
           {children}
         </ReactMarkdown>
@@ -126,11 +151,11 @@ function MarkdownPreBlock({
 }): ReactElement {
   const context = useContext(MarkdownRenderContext);
   const code = extractCodeChild(children);
-  if (code === null) return <pre>{children}</pre>;
+  if (code === null) return <DefaultPre>{children}</DefaultPre>;
   const language = /language-([\w-]+)/.exec(code.className ?? "")?.[1] ?? null;
   const registration = resolveCodeBlock(language);
   if (registration === null || language === null) {
-    return <pre>{children}</pre>;
+    return <DefaultPre>{children}</DefaultPre>;
   }
   const streaming =
     context.unclosedFenceLine !== null &&
@@ -146,6 +171,39 @@ function MarkdownPreBlock({
   );
 }
 
+/** Default `pre` rendering; marks block code for the code renderer. */
+function DefaultPre({ children }: { children?: ReactNode }): ReactElement {
+  return (
+    <InsidePreContext.Provider value={true}>
+      <pre>{children}</pre>
+    </InsidePreContext.Provider>
+  );
+}
+
+/** The `code` renderer: block code stays plain; inline code may route. */
+function MarkdownCodeRenderer({
+  children,
+  className,
+}: {
+  children?: ReactNode;
+  className?: string;
+}): ReactElement {
+  const insidePre = useContext(InsidePreContext);
+  return (
+    <MarkdownInlineCode insidePre={insidePre} className={className}>
+      {children}
+    </MarkdownInlineCode>
+  );
+}
+
+/** The `img` renderer (props narrowed by the ResourceRouter component). */
+function MarkdownImgRenderer(props: {
+  src?: string;
+  alt?: string;
+}): ReactElement {
+  return <MarkdownImage src={props.src} alt={props.alt} />;
+}
+
 /** The code child of a `pre`, flattened to its plain source text. */
 function extractCodeChild(
   children: ReactNode,
@@ -153,7 +211,14 @@ function extractCodeChild(
   const array = Children.toArray(children);
   if (array.length !== 1) return null;
   const element = array[0];
-  if (!isValidElement(element) || element.type !== "code") return null;
+  // The components map replaces the `code` tag with MarkdownCodeRenderer, so
+  // the pre child arrives as that component element, not the "code" string.
+  if (
+    !isValidElement(element) ||
+    (element.type !== "code" && element.type !== MarkdownCodeRenderer)
+  ) {
+    return null;
+  }
   const props = element.props as { className?: string; children?: ReactNode };
   const source = flattenText(props.children);
   if (source === null) return null;

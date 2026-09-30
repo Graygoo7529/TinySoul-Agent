@@ -23,11 +23,11 @@ import {
 } from "../../api/v2/errors";
 import type { JsonValue } from "../../api/v2/types";
 import { useAppStore } from "../../store/appStore";
-import { buildOperations } from "./model";
+import { buildOperations } from "./draft/model";
 import {
   useConfigDraftStore,
   type ApplyFailure,
-} from "./store";
+} from "./draft/store";
 
 /** Load (or refresh) saved + active views, the catalog and the plan list. */
 export async function loadConfig(clients: V2Clients): Promise<boolean> {
@@ -51,6 +51,24 @@ export async function loadConfig(clients: V2Clients): Promise<boolean> {
     useConfigDraftStore.getState().failLoading(describeError(error));
     return false;
   }
+}
+
+// The clients identity the current snapshots were loaded for. The Composer
+// quick entry mounts outside the settings shell, so a same-connection remount
+// must not refetch, while a new connection (new clients object) must — the
+// settings tab may have been unmounted across the disconnect and missed its
+// store reset.
+let snapshotsLoadedFor: V2Clients | null = null;
+
+/** Load the shared config snapshots once per connection (idempotent). */
+export function ensureConfigLoaded(clients: V2Clients): void {
+  if (snapshotsLoadedFor === clients) return;
+  if (useConfigDraftStore.getState().loadPhase === "loading") return;
+  snapshotsLoadedFor = clients;
+  void loadConfig(clients).then((ok) => {
+    // A failed load is retried on the next mount.
+    if (!ok && snapshotsLoadedFor === clients) snapshotsLoadedFor = null;
+  });
 }
 
 /** Apply every local draft as one batch. */

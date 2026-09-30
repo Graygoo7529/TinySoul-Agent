@@ -12,6 +12,8 @@ import { PlaceholderPage } from "./PlaceholderPage";
 import { ChatView } from "../../features/chat/ChatView";
 import { SettingsPage } from "../../features/settings/SettingsPage";
 import { SettingsDraftChip } from "../../features/settings/SettingsDraftChip";
+import { WorkspacePage } from "../../features/workspace/WorkspacePage";
+import { PendingTargetLanding } from "../../features/resources/PendingTargetLanding";
 
 /**
  * The application shell: NavRail on the left; the main column (TopBar, the
@@ -48,6 +50,12 @@ export function AppShell() {
               <ConnectScreen />
             ) : activeTab === "chat" ? (
               <ChatView />
+            ) : activeTab === "workspace" ? (
+              <WorkspacePage />
+            ) : activeTab === "home" ? (
+              <PendingTargetLanding owner="home" />
+            ) : activeTab === "memory" ? (
+              <PendingTargetLanding owner="memory" />
             ) : activeTab === "settings" ? (
               <SettingsPage />
             ) : (

@@ -448,7 +448,7 @@ describe("questions", () => {
     const ok = await replyToQuestion(
       epoch,
       "contract-turn",
-      question,
+      question.question_id,
       { kind: "choice", option_id: "a", comment: "Proceed" },
       "Execute\nProceed",
     );
@@ -496,7 +496,7 @@ describe("questions", () => {
     const ok = await replyToQuestion(
       epoch,
       "contract-turn",
-      question,
+      question.question_id,
       { kind: "text", text: "My own plan" },
       "My own plan",
     );
@@ -522,7 +522,7 @@ describe("questions", () => {
     const ok = await replyToQuestion(
       epoch,
       "contract-turn",
-      question,
+      question.question_id,
       { kind: "choice", option_id: "a" },
       "Execute",
     );
@@ -547,7 +547,7 @@ describe("questions", () => {
       replyToQuestion(
         epoch,
         "contract-turn",
-        question,
+        question.question_id,
         { kind: "choice", option_id: "a" },
         "Execute",
       ),

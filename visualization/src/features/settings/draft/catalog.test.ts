@@ -91,11 +91,11 @@ const RAW_CATALOG = {
   ],
   document_fields: [],
   rules: {},
-} satisfies ConfigCatalog;
+};
 
 describe("decodeCatalog", () => {
   it("decodes the wire projection into typed declarations", () => {
-    const catalog = decodeCatalog(RAW_CATALOG as ConfigCatalog);
+    const catalog = decodeCatalog(RAW_CATALOG as unknown as ConfigCatalog);
     expect(catalog.surfaces).toHaveLength(2);
     expect(catalog.collections[0]?.root).toBe("llm.tasks");
     expect(catalog.fields).toHaveLength(4);
@@ -121,7 +121,7 @@ describe("decodeCatalog", () => {
 });
 
 describe("matchField", () => {
-  const catalog = decodeCatalog(RAW_CATALOG as ConfigCatalog);
+  const catalog = decodeCatalog(RAW_CATALOG as unknown as ConfigCatalog);
 
   it("matches wildcard patterns segment-wise", () => {
     expect(matchField(catalog, "llm.providers.openai.enabled")?.title).toBe(
@@ -140,7 +140,7 @@ describe("matchField", () => {
 });
 
 describe("validateDrafts", () => {
-  const catalog = decodeCatalog(RAW_CATALOG as ConfigCatalog);
+  const catalog = decodeCatalog(RAW_CATALOG as unknown as ConfigCatalog);
   const saved = {
     fields: {
       "llm.tasks.main.models": { value: ["m1"], source: "s", writable: true },

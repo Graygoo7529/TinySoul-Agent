@@ -1,5 +1,7 @@
 import type { ComponentType } from "react";
 
+import type { ResourceOrigin } from "../../features/resources/reference";
+
 /**
  * CodeBlockRegistry (plan §21.1): explicit registration of rich fence
  * renderers, keyed by a stable language alias. Each entry declares an
@@ -14,11 +16,13 @@ import type { ComponentType } from "react";
 export type CodeBlockTheme = "light" | "dark";
 
 /**
- * Where the Markdown is being read. Only the live/history distinction has a
- * consumer today (question fence interaction mode); resource-routing fields
- * (day, turn, locators) join this structure with the ResourceRouter work.
+ * Where the Markdown is being read. `view` marks the live/history
+ * conversation distinction (question fence interaction mode); the
+ * ResourceOrigin fields carry the routing facts (origin link for relative
+ * references, day/turn binding, Home view) used by the ResourceRouter for
+ * links and images.
  */
-export interface MarkdownOrigin {
+export interface MarkdownOrigin extends ResourceOrigin {
   /** "history" marks read-only committed conversations. */
   view?: "live" | "history";
 }

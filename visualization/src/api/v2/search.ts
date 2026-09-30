@@ -107,6 +107,7 @@ export interface SearchPage {
 /** Search request body (docs/endpoint/inspection.md). */
 export interface SearchRequest {
   source: JsonObject;
+  exclude_refs?: string[];
   steps?: JsonObject[];
   page?: { limit?: number; max_chars?: number };
 }

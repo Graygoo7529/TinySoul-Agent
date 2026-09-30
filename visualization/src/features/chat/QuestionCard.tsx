@@ -54,12 +54,16 @@ export function QuestionCard({
       </div>
     );
   }
+  // The snapshot's waiting question is the answerability authority (§6.2);
+  // an `answered` flag on the interaction only matters once no live
+  // question claims this card.
   const answered = reply !== null || item.answered === true;
-  const mode: QuestionFormMode = answered
-    ? "readonly"
-    : live !== null && turnId !== null
+  const mode: QuestionFormMode =
+    live !== null && turnId !== null
       ? "active"
-      : "expired";
+      : answered
+        ? "readonly"
+        : "expired";
   return (
     <StatefulQuestionCard
       epoch={epoch}
@@ -117,13 +121,7 @@ function StatefulQuestionCard({
           : chosen.label
         : (draft.text ?? "");
     try {
-      await replyToQuestion(
-        epoch,
-        turnId,
-        { question_id: questionId },
-        answer,
-        displayText,
-      );
+      await replyToQuestion(epoch, turnId, questionId, answer, displayText);
       // The formal projection converges the card into its read-only state.
     } catch (failure) {
       // The draft stays; the error sits next to the submit control.

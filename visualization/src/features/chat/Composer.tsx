@@ -10,7 +10,7 @@
  *
  * The draft lives in useComposerDraft so compose-mode question blocks can
  * place picked text into it; filling the draft never sends. The run-preset
- * quick entry is only a mount point here — the preset workflow wires it.
+ * quick entry (PresetEntry) renders at the data-slot="preset-entry" position.
  */
 
 import { useState } from "react";
@@ -20,6 +20,7 @@ import { useTurnStore } from "../../store/turnStore";
 import { canCancelActiveTurn, resolveComposerIntent } from "./interactions";
 import { cancelActiveTurn, sendUserMessage } from "./turnController";
 import { useComposerDraft } from "./composerDraft";
+import { PresetEntry } from "./PresetEntry";
 
 export function Composer() {
   const epoch = useConnectionStore((s) => s.epoch);
@@ -82,6 +83,14 @@ export function Composer() {
         <ArrowUp size={10} />
         New turn · queued
       </span>
+    ) : intent.kind === "new-turn" ? (
+      <span
+        className="inline-flex items-center gap-1 rounded-full bg-hover px-2 py-0.5 text-[10px] font-medium text-fg-faint"
+        title="This message starts a new turn"
+      >
+        <ArrowUp size={10} />
+        New turn
+      </span>
     ) : null;
 
   return (
@@ -116,8 +125,7 @@ export function Composer() {
               <span className="min-w-0 truncate">{hint}</span>
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
-              {/* F2-E mount point: the run-preset quick entry renders here. */}
-              <div data-slot="preset-entry" />
+              <PresetEntry />
               {cancellable && !text.trim() ? (
                 <button
                   onClick={() => void cancelActiveTurn(epoch)}

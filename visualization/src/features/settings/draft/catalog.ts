@@ -82,12 +82,41 @@ export interface CatalogDocumentField {
   valueKind: ConfigValueKind;
 }
 
+/**
+ * One adapter-owned model option rule (`rules.llm.adapters[].*_options[]`).
+ * `valueKind` follows the adapter contract: string / boolean / number / enum /
+ * object; `choices` constrains enum-like options; `validator` names special
+ * object shapes (e.g. thinking_deepseek / thinking_glm).
+ */
+export interface AdapterOptionRule {
+  id: string;
+  valueKind: string;
+  choices: string[];
+  validator: string | null;
+}
+
+/** One protocol branch of an adapter (e.g. Kimi k2/k3). */
+export interface AdapterProtocolRule {
+  id: string;
+  optionKeys: string[];
+  options: AdapterOptionRule[];
+}
+
+/** Machine rules for one LLM provider adapter (catalog `rules.llm.adapters`). */
+export interface AdapterRule {
+  id: string;
+  apiStyle: string;
+  commonOptions: AdapterOptionRule[];
+  protocols: AdapterProtocolRule[];
+}
+
 export interface SettingsCatalog {
   surfaces: CatalogSurface[];
   fieldGroups: CatalogFieldGroup[];
   collections: CatalogCollection[];
   fields: CatalogField[];
   documentFields: CatalogDocumentField[];
+  adapterRules: AdapterRule[];
 }
 
 const VALUE_KINDS = new Set<string>([
@@ -217,7 +246,79 @@ export function decodeCatalog(raw: ConfigCatalog): SettingsCatalog {
       valueKind: valueKind as ConfigValueKind,
     });
   }
-  return { surfaces, fieldGroups, collections, fields, documentFields };
+  return {
+    surfaces,
+    fieldGroups,
+    collections,
+    fields,
+    documentFields,
+    adapterRules: decodeAdapterRules(raw.rules),
+  };
+}
+
+/** Decode `rules.llm.adapters`; unknown entries are skipped. */
+function decodeAdapterRules(rules: unknown): AdapterRule[] {
+  if (!isPlainRecord(rules)) return [];
+  const llm = rules.llm;
+  if (!isPlainRecord(llm) || !Array.isArray(llm.adapters)) return [];
+  const result: AdapterRule[] = [];
+  for (const item of llm.adapters) {
+    if (!isPlainRecord(item)) continue;
+    const id = text(item.id);
+    if (id === null) continue;
+    result.push({
+      id,
+      apiStyle: typeof item.api_style === "string" ? item.api_style : "",
+      commonOptions: decodeOptionRules(item.common_options),
+      protocols: Array.isArray(item.protocols)
+        ? item.protocols.flatMap((protocol) => {
+            if (!isPlainRecord(protocol)) return [];
+            const protocolId = text(protocol.id);
+            if (protocolId === null) return [];
+            return [
+              {
+                id: protocolId,
+                optionKeys: Array.isArray(protocol.option_keys)
+                  ? protocol.option_keys.filter(
+                      (key): key is string => typeof key === "string",
+                    )
+                  : [],
+                options: decodeOptionRules(protocol.options),
+              },
+            ];
+          })
+        : [],
+    });
+  }
+  return result;
+}
+
+function decodeOptionRules(value: unknown): AdapterOptionRule[] {
+  if (!Array.isArray(value)) return [];
+  const result: AdapterOptionRule[] = [];
+  for (const item of value) {
+    if (!isPlainRecord(item)) continue;
+    const id = text(item.id);
+    const valueKind = text(item.value_kind);
+    if (id === null || valueKind === null) continue;
+    result.push({
+      id,
+      valueKind,
+      choices: Array.isArray(item.choices)
+        ? item.choices.filter((choice): choice is string => typeof choice === "string")
+        : [],
+      validator: typeof item.validator === "string" ? item.validator : null,
+    });
+  }
+  return result;
+}
+
+/** The rule set for one adapter id, when declared. */
+export function adapterRule(
+  catalog: SettingsCatalog | null,
+  adapterId: string,
+): AdapterRule | null {
+  return catalog?.adapterRules.find((rule) => rule.id === adapterId) ?? null;
 }
 
 function decodeField(item: Record<string, unknown>): CatalogField | null {

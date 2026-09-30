@@ -105,6 +105,37 @@ describe("QuestionCard: live question", () => {
     expect(replyButton().disabled).toBe(true);
   });
 
+  it("numbers the options A/B/C visually; submission keeps stable ids", () => {
+    const threeOptions = {
+      ...LIVE_QUESTION,
+      options: [
+        { id: "opt_x", label: "First" },
+        { id: "opt_y", label: "Second" },
+        { id: "opt_z", label: "Third" },
+      ],
+    };
+    act(() => {
+      root.render(
+        <QuestionCard
+          epoch={epoch}
+          turnId="contract-turn"
+          item={QUESTION_ITEM}
+          live={threeOptions}
+          reply={null}
+        />,
+      );
+    });
+    const letters = Array.from(
+      container.querySelectorAll('[data-question-form="active"] label span[aria-hidden="true"]'),
+    ).map((node) => node.textContent);
+    expect(letters).toEqual(["A", "B", "C"]);
+    // The radio group shares one stable name.
+    const radios = container.querySelectorAll(
+      'input[type="radio"][name="question-action_result_1"]',
+    );
+    expect(radios).toHaveLength(3);
+  });
+
   it("submits a choice with an optional comment", async () => {
     let replyBody: Record<string, unknown>;
     endpoint.post("/v2/turns/contract-turn/reply", (request) => {
@@ -228,5 +259,89 @@ describe("QuestionCard: read-only question", () => {
       ),
     ).toBeUndefined();
     expect(endpoint.requests).toHaveLength(0);
+  });
+
+  it("shows the actual question, the chosen option's label and the comment", () => {
+    act(() => {
+      root.render(
+        <QuestionCard
+          epoch={epoch}
+          turnId="contract-turn"
+          item={QUESTION_ITEM}
+          live={null}
+          reply={replyInteractionFixture()}
+        />,
+      );
+    });
+    // The fixture reply: choice "a" with comment "Proceed".
+    expect(container.textContent).toContain("Proceed");
+    const chosen = Array.from(container.querySelectorAll("div")).find(
+      (node) =>
+        node.className.includes("border-accent/50") &&
+        node.textContent?.includes("Execute"),
+    );
+    expect(chosen).toBeDefined();
+    // The A/B/C letter stays visual; the stable id drove the reply.
+    expect(container.textContent).toContain("A");
+    // No interactive control survives.
+    expect(container.querySelectorAll('input[type="radio"]')).toHaveLength(0);
+    expect(container.querySelector("input")).toBeNull();
+  });
+});
+
+describe("QuestionCard: expired question", () => {
+  it("marks a lapsed wait as expired and preserves the unsubmitted draft", () => {
+    renderLive();
+    act(() => {
+      radio().click();
+    });
+    typeInto(inputByPlaceholder("Comment (optional)…"), "Proceed carefully");
+
+    // The wait lapses (superseded / turn moved on) before the reply went
+    // out: the same card instance flips to the expired mode.
+    act(() => {
+      root.render(
+        <QuestionCard
+          epoch={epoch}
+          turnId="contract-turn"
+          item={{ ...QUESTION_ITEM, answered: false }}
+          live={null}
+          reply={null}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "This question is no longer awaiting a reply",
+    );
+    // The unsubmitted draft text is still visible, nothing was sent.
+    expect(container.textContent).toContain("Proceed carefully");
+    expect(endpoint.requests).toHaveLength(0);
+    expect(
+      Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent === "Reply",
+      ),
+    ).toBeUndefined();
+    // The preserved selection is visible but no longer interactive.
+    expect(container.querySelectorAll('input[type="radio"]')).toHaveLength(0);
+  });
+
+  it("unanswered history reads as expired without a draft", () => {
+    act(() => {
+      root.render(
+        <QuestionCard
+          epoch={epoch}
+          turnId="contract-turn"
+          item={{ ...QUESTION_ITEM, answered: false }}
+          live={null}
+          reply={null}
+        />,
+      );
+    });
+    expect(container.textContent).toContain("Choose a direction");
+    expect(container.textContent).toContain("Execute");
+    expect(container.textContent).toContain(
+      "This question is no longer awaiting a reply",
+    );
   });
 });

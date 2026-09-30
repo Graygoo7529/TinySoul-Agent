@@ -1198,3 +1198,106 @@ body {
     grid-template-rows: 1fr;
   }
 }
+
+/* ---- rich code block frame (CodeBlockRegistry renderers: Mermaid, TikZ,
+   question fences, …) — a labeled plate with a diagram/source toggle; the
+   source stays visible on failure next to the bounded error ---- */
+.cb-frame {
+  margin: 0.6em 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-elev);
+}
+.cb-frame-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-sunken);
+}
+.cb-frame-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--fg-faint);
+}
+.cb-frame-toggle {
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--fg-muted);
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+.cb-frame-toggle:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+.cb-frame-error {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 12px;
+}
+.cb-frame-loading {
+  padding: 10px 12px;
+  color: var(--fg-faint);
+  font-size: 12px;
+}
+/* element-qualified so it outranks the generic .md-body pre rules */
+pre.cb-frame-source {
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  border: none;
+  border-radius: 0;
+  background: var(--bg);
+}
+.cb-diagram {
+  padding: 12px;
+  overflow-x: auto;
+}
+.cb-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* ---- accepted-but-uninstalled inbox item: the user bubble with a dashed
+   accent outline — between the local echo and the formal row ---- */
+.bubble-pending {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.dark .bubble-pending {
+  border-color: rgba(129, 140, 248, 0.45);
+}
+
+/* ---- local interface preferences (Interface settings page) ----
+   App.tsx sets --font-sans/--font-mono/--ui-font-size/--ui-line-height/
+   --ui-density on <html> from the persisted ui prefs; the fallbacks below are
+   exactly the base theme, so an untouched client renders identically. */
+body {
+  font-size: var(--ui-font-size, 14px);
+  line-height: var(--ui-line-height, 1.5);
+}
+/* Markdown bodies keep their roomier reading rhythm relative to the pref. */
+.md-body {
+  font-size: var(--ui-font-size, 14px);
+  line-height: calc(var(--ui-line-height, 1.5) + 0.15);
+}
+/* Tailwind v4 derives every spacing utility from --spacing. */
+:root {
+  --spacing: calc(0.25rem * var(--ui-density, 1));
+}
+/* Blanket motion kill-switch for non-motion-library CSS animations. */
+.ui-reduced-motion *,
+.ui-reduced-motion *::before,
+.ui-reduced-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}

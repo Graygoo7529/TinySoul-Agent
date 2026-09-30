@@ -15,8 +15,8 @@
  *   via `resetEntriesWithin` (see draft/store.ts).
  */
 
-import type { DraftEntry } from "./model";
-import type { SettingsCatalog } from "./catalog";
+import type { DraftEntry } from "./draft/model";
+import type { SettingsCatalog } from "./draft/catalog";
 
 export type SettingsGroupId =
   | "overview"
@@ -85,6 +85,7 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     group: "overview",
     title: "Run plans",
     description: "Named presets captured from configuration.",
+    placeholder: false,
   },
   "llm-providers": {
     id: "llm-providers",
@@ -93,6 +94,7 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     description: "Chat model endpoints, adapters and credential references.",
     surfaces: ["providers"],
     pathPrefixes: ["llm.providers"],
+    placeholder: false,
   },
   "llm-models": {
     id: "llm-models",
@@ -101,6 +103,7 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     description: "Model capabilities and ordered provider chains.",
     surfaces: ["models"],
     pathPrefixes: ["llm.models"],
+    placeholder: false,
   },
   "llm-tasks": {
     id: "llm-tasks",
@@ -109,6 +112,7 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     description: "Ordered model chains and task parameters.",
     surfaces: ["task_chains"],
     pathPrefixes: ["llm.tasks"],
+    placeholder: false,
   },
   "dedicated-providers": {
     id: "dedicated-providers",
@@ -116,6 +120,7 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     title: "Dedicated Providers",
     description: "Embedding and structured-evaluation endpoints.",
     pathPrefixes: ["infra.model_services.providers"],
+    placeholder: false,
   },
   "dedicated-models": {
     id: "dedicated-models",
@@ -124,18 +129,21 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     description: "Embedding/JEV models and the logical uses bound to them.",
     surfaces: ["model_services"],
     pathPrefixes: ["infra.model_services.models", "infra.model_services.uses"],
+    placeholder: false,
   },
   credentials: {
     id: "credentials",
     group: "models",
     title: "Credentials",
     description: "Project dotenv values referenced by configuration.",
+    placeholder: false,
   },
   "image-generation": {
     id: "image-generation",
     group: "models",
     title: "Image Generation",
     description: "Reserved; the backend has no image configuration surface yet.",
+    placeholder: false,
   },
   "phase-bindings": {
     id: "phase-bindings",
@@ -144,6 +152,7 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     description: "The task chains Phase 1 and Phase 2 call.",
     surfaces: ["cycle_routing"],
     pathPrefixes: ["loop.cycle"],
+    placeholder: false,
   },
   actions: {
     id: "actions",
@@ -152,6 +161,7 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     description: "Per-action visibility, runtime policy and model-use bindings.",
     surfaces: ["action_catalog", "action_routing"],
     pathPrefixes: ["action.models.bindings"],
+    placeholder: false,
   },
   "search-policies": {
     id: "search-policies",
@@ -159,6 +169,7 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     title: "Search Policies",
     description: "Retrieval sources, operations, context and page budgets.",
     pathPrefixes: ["action.retrieval"],
+    placeholder: false,
   },
   budgets: {
     id: "budgets",
@@ -175,6 +186,7 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
       "context.trace_",
       "session.background_max_chars",
     ],
+    placeholder: false,
   },
   reflection: {
     id: "reflection",
@@ -182,7 +194,12 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     title: "Reflection Schedule",
     description: "Daily reflection timing and archive location.",
     surfaces: ["reflection"],
-    pathPrefixes: ["reflection"],
+    pathPrefixes: [
+      "reflection.timezone",
+      "reflection.archive_root",
+      "reflection.schedule",
+    ],
+    placeholder: false,
   },
   execution: {
     id: "execution",
@@ -191,6 +208,7 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     description: "Shell/script interpreters, limits and job capacity.",
     surfaces: ["execution", "jobs"],
     pathPrefixes: ["execution", "jobs"],
+    placeholder: false,
   },
   web: {
     id: "web",
@@ -199,6 +217,7 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     description: "Web search/discovery/fetch providers and conversion limits.",
     surfaces: ["capabilities.web", "capabilities.resource"],
     pathPrefixes: ["capabilities.web", "capabilities.resource"],
+    placeholder: false,
   },
   acp: {
     id: "acp",
@@ -207,6 +226,7 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     description: "Delegation targets, commands, environments and limits.",
     surfaces: ["capabilities.subagent"],
     pathPrefixes: ["capabilities.subagent"],
+    placeholder: false,
   },
   mcp: {
     id: "mcp",
@@ -215,6 +235,7 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     description: "External tool servers, transports, env/header references.",
     surfaces: ["capabilities.expand"],
     pathPrefixes: ["capabilities.expand"],
+    placeholder: false,
   },
   workspace: {
     id: "workspace",
@@ -223,6 +244,7 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     description: "Daily workspace root, read/write limits and watching.",
     surfaces: ["workspace"],
     pathPrefixes: ["workspace"],
+    placeholder: false,
   },
   session: {
     id: "session",
@@ -231,6 +253,7 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     description: "Session root, background budget and inspect limits.",
     surfaces: ["session"],
     pathPrefixes: ["session"],
+    placeholder: false,
   },
   home: {
     id: "home",
@@ -239,6 +262,7 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     description: "Home roots, read/write limits and the embedding use.",
     surfaces: ["home"],
     pathPrefixes: ["home"],
+    placeholder: false,
   },
   memory: {
     id: "memory",
@@ -247,6 +271,7 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     description: "Active/persistent memory limits and the embedding use.",
     surfaces: ["memory"],
     pathPrefixes: ["memory"],
+    placeholder: false,
   },
   system: {
     id: "system",
@@ -255,12 +280,14 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     description: "Read-only process items, config sources and observation.",
     surfaces: ["infrastructure"],
     pathPrefixes: ["agent", "config", "context.system_text", "context.journal"],
+    placeholder: false,
   },
   interface: {
     id: "interface",
     group: "interface",
     title: "Interface",
     description: "Theme, typography and density — local, applied immediately.",
+    placeholder: false,
   },
 };
 

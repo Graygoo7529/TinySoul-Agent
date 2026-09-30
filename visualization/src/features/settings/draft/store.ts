@@ -81,6 +81,13 @@ export interface ConfigDraftState {
   // --- draft editing -------------------------------------------------------
   setValue: (sourceId: string, path: string, value: JsonValue) => void;
   deleteValue: (sourceId: string, path: string) => void;
+  /**
+   * Record delete drafts for refs whose ownership the caller has already
+   * established (e.g. subtreeDeleteRefs for a collection object root). Unlike
+   * deleteValue this skips the leaf-ownership check: a project source holds an
+   * object through its flattened leaves, never through the root path itself.
+   */
+  deleteRefs: (refs: DraftRef[]) => void;
   /** Withdraw exactly the listed draft keys; other pages' edits stay. */
   resetEntries: (keys: string[]) => void;
   /**
@@ -155,6 +162,21 @@ export const useConfigDraftStore = create<ConfigDraftState>()((set) => ({
       if (drafts === state.drafts) return state;
       const stale = { ...state.stale };
       delete stale[draftKey({ sourceId, path })];
+      return { drafts, stale };
+    }),
+
+  deleteRefs: (refs) =>
+    set((state) => {
+      if (refs.length === 0) return state;
+      const drafts = { ...state.drafts };
+      const stale = { ...state.stale };
+      for (const ref of refs) {
+        const key = draftKey(ref);
+        // The caller established ownership (subtreeDeleteRefs); a delete
+        // replaces any pending set at the same identity.
+        drafts[key] = { key, ...ref, op: { op: "delete" } };
+        delete stale[key];
+      }
       return { drafts, stale };
     }),
 
@@ -307,8 +329,13 @@ export function projectedKeys(state: ConfigDraftState): Set<string> {
   for (const entry of Object.values(state.drafts)) {
     if (entry.op.op === "set") {
       keys.add(entry.path);
-    } else if (state.saved?.fields[entry.path]?.source === entry.sourceId) {
-      keys.delete(entry.path);
+    } else {
+      // A delete removes the whole subtree at its path (keys owned by the
+      // draft's source), matching the backend's delete semantics.
+      for (const key of [...keys]) {
+        if (key !== entry.path && !key.startsWith(`${entry.path}.`)) continue;
+        if (state.saved?.fields[key]?.source === entry.sourceId) keys.delete(key);
+      }
     }
   }
   return keys;
