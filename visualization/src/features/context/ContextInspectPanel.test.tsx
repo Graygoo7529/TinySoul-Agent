@@ -206,13 +206,14 @@ describe("ContextInspectPanel", () => {
     expect(container.textContent).not.toContain("Show more");
   });
 
-  it("marks the page refreshable on turn activity without disturbing content", async () => {
+  it("marks the page refreshable on context install without disturbing content", async () => {
     endpoint.get(`/v2/turns/${TURN_ID}/context/inspect`, () =>
       jsonResponse(structuredClone(tracePageFixture)),
     );
     renderInspect();
     await flush();
     expect(container.textContent).not.toContain("refresh to see the latest");
+    // An unrelated status re-read is not a context change.
     act(() => {
       useConnectionStore
         .getState()
@@ -220,6 +221,10 @@ describe("ContextInspectPanel", () => {
           epoch,
           makeStatus({ activity: "user_turn", activeTurnId: TURN_ID }),
         );
+    });
+    expect(container.textContent).not.toContain("refresh to see the latest");
+    act(() => {
+      useConnectionStore.getState().noteContextInstalled();
     });
     expect(container.textContent).toContain("refresh to see the latest");
     expect(container.textContent).toContain("decision");

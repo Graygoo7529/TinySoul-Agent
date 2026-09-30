@@ -286,6 +286,49 @@ describe("SegmentPanel shapes", () => {
     expect(top?.copyText).toBe(`turn:trace@${TURN_ID}`);
   });
 
+  it("stack: the inspect route offers locate-in-scope from the query capability", async () => {
+    endpoint.get(`/v2/turns/${TURN_ID}/context/inspect`, () =>
+      jsonResponse({ ref: `turn:trace@${TURN_ID}`, kind: "context_trace", items: [] }),
+    );
+    await renderSegment("trace");
+    clickText(`turn:trace@${TURN_ID}`);
+    const pushed = useInspectorStore.getState().entries;
+    const top = pushed[pushed.length - 1]!;
+    act(() => {
+      root.render(<>{top.render()}</>);
+    });
+    await flush();
+    // The trace segment declares query: the locate form is wired through.
+    expect(container.querySelector("input")).not.toBeNull();
+  });
+
+  it("stack: a segment without the query capability hides locate-in-scope", async () => {
+    endpoint.get(`/v2/turns/${TURN_ID}/context/inspect`, () =>
+      jsonResponse({ ref: `turn:trace@${TURN_ID}`, kind: "context_trace", items: [] }),
+    );
+    serveSegment("trace", structuredClone(messagesFixture));
+    const segment: SegmentView = { ...segmentOf("trace"), capabilities: ["inspect"] };
+    act(() => {
+      root.render(
+        <SegmentPanel
+          epoch={epoch}
+          turnId={TURN_ID}
+          segment={segment}
+          context={contextFor()}
+        />,
+      );
+    });
+    await flush();
+    clickText(`turn:trace@${TURN_ID}`);
+    const pushedEntries = useInspectorStore.getState().entries;
+    const top = pushedEntries[pushedEntries.length - 1]!;
+    act(() => {
+      root.render(<>{top.render()}</>);
+    });
+    await flush();
+    expect(container.querySelector("input")).toBeNull();
+  });
+
   it("state: the technical descriptor lives in the Details section", async () => {
     await renderSegment("inputs");
     expect(container.textContent).not.toContain("capabilities");

@@ -177,6 +177,102 @@ describe("SettingsPage shell", () => {
     ).not.toBeNull();
     expect(useSettingsUiStore.getState().focusPath).toBeNull();
   });
+
+  it("owns dotenv drafts on the credentials page (count, locate, reset)", async () => {
+    await act(async () => {
+      root.render(<SettingsPage />);
+    });
+    await flush();
+
+    // Stage one credential value: the draft path is the bare variable name.
+    await act(async () => {
+      useConfigDraftStore
+        .getState()
+        .setValue("dotenv", "OPENAI_API_KEY", "sk-test");
+    });
+    await flush();
+
+    // The nav count lands on the Credentials page.
+    const navRow = [...container.querySelectorAll("nav button")].find((item) =>
+      item.textContent?.includes("Credentials"),
+    );
+    expect(navRow?.textContent).toContain("1");
+
+    // The overview local-changes list locates the entry to its owning page.
+    const locate = [...container.querySelectorAll("button")].find(
+      (item) => item.textContent === "OPENAI_API_KEY",
+    );
+    expect(locate).toBeDefined();
+    await act(async () => {
+      locate?.click();
+    });
+    await flush();
+    expect(useSettingsUiStore.getState().page).toBe("credentials");
+
+    // The page keeps its own Discard button as the equivalent path…
+    expect(text()).toContain("Discard 1 credential change");
+
+    // …and the bottom bar reset now withdraws the credentials draft.
+    const reset = [...container.querySelectorAll("button")].find((item) =>
+      item.textContent?.includes("Reset this page"),
+    ) as HTMLButtonElement | undefined;
+    expect(reset).toBeDefined();
+    expect(reset!.disabled).toBe(false);
+    await act(async () => {
+      reset!.click();
+    });
+    await flush();
+    expect(Object.keys(useConfigDraftStore.getState().drafts)).toHaveLength(0);
+    expect(
+      [...container.querySelectorAll("nav button")].find((item) =>
+        item.textContent?.includes("Credentials"),
+      )?.textContent,
+    ).not.toContain("1");
+  });
+
+  it("expands the raw structured details of an apply failure", async () => {
+    await act(async () => {
+      root.render(<SettingsPage />);
+    });
+    await flush();
+
+    await act(async () => {
+      useConfigDraftStore.getState().failApply({
+        kind: "config-invalid",
+        key: "execution.enabled",
+        message: "not a boolean",
+        details: { key: "execution.enabled", expected: "boolean", got: "maybe" },
+      });
+    });
+    await flush();
+    expect(text()).toContain("configuration was rejected");
+    expect(text()).not.toContain('"expected"');
+
+    const toggle = [...container.querySelectorAll("button")].find(
+      (item) => item.textContent === "Details",
+    );
+    expect(toggle).toBeDefined();
+    await act(async () => {
+      toggle?.click();
+    });
+    await flush();
+    expect(text()).toContain('"expected"');
+    expect(text()).toContain('"boolean"');
+
+    // Failures without structured details offer no expander.
+    await act(async () => {
+      useConfigDraftStore.getState().failApply({
+        kind: "activation-unavailable",
+        message: "busy",
+      });
+    });
+    await flush();
+    expect(
+      [...container.querySelectorAll("button")].find(
+        (item) => item.textContent === "Details",
+      ),
+    ).toBeUndefined();
+  });
 });
 
 function setInputValue(input: HTMLInputElement, value: string): void {

@@ -35,7 +35,7 @@ import {
   Toggle,
   selectClass,
 } from "./controls";
-import { CredentialValueEditor } from "./credentials";
+import { CredentialValueEditor } from "../editors/controls";
 import {
   CreateObjectModal,
   DeleteObjectModal,

@@ -14,7 +14,7 @@ import { Button } from "../../../components/ui/Button";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { useConfigDraftStore } from "../draft/store";
 import { deriveCredentials, type CredentialEntry } from "./collectionDrafts";
-import { CredentialValueEditor } from "./credentials";
+import { CredentialValueEditor } from "../editors/controls";
 import { inputClass } from "./controls";
 
 export function CredentialsPage() {

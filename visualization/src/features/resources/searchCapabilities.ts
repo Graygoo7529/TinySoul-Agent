@@ -34,6 +34,8 @@ export interface SearchCapabilities {
   whereFields: SearchWhereField[];
   /** literal/regex/case_sensitive exist on the query source. */
   lexicalSyntax: boolean;
+  /** The query source also accepts {document_ref} (owner document query). */
+  documentQuery: boolean;
   selectContexts: string[] | null;
   rerankContexts: string[] | null;
   filterAvailable: boolean;
@@ -71,7 +73,19 @@ export function parseSearchCapabilities(
     queryChannels,
     scope: parseScopeModel(retrieval.scope),
     whereFields: parseWhereFields(retrieval.where),
-    lexicalSyntax: querySourceHasLexicalFlags(action),
+    lexicalSyntax: querySourceProp(action, (props) =>
+      "literal" in props || "regex" in props || "case_sensitive" in props,
+    ),
+    documentQuery: querySourceProp(action, (props) => {
+      const query = isRecord(props.query) ? props.query : null;
+      const variants = query !== null && Array.isArray(query.oneOf) ? query.oneOf : [];
+      return variants.some(
+        (variant) =>
+          isRecord(variant) &&
+          isRecord(variant.properties) &&
+          "document_ref" in variant.properties,
+      );
+    }),
     selectContexts: operationContexts(operations, steps, "select"),
     rerankContexts: operationContexts(operations, steps, "rerank"),
     filterAvailable: operations.includes("filter"),
@@ -118,10 +132,14 @@ function parseWhereFields(value: JsonValue | undefined): SearchWhereField[] {
 }
 
 /**
- * literal/regex/case_sensitive exist on the query source variant of the
- * compiled tool schema only when the owner capability exposes lexical syntax.
+ * Evaluate `check` against the query source variant of the compiled tool
+ * schema. The variant exists once per action; returns false when the schema
+ * has no query source at all.
  */
-function querySourceHasLexicalFlags(action: JsonObject): boolean {
+function querySourceProp(
+  action: JsonObject,
+  check: (props: JsonObject) => boolean,
+): boolean {
   const tool = isRecord(action.tool) ? action.tool : null;
   const schema = tool !== null && isRecord(tool.schema) ? tool.schema : null;
   const variants = schema !== null && Array.isArray(schema.oneOf) ? schema.oneOf : [];
@@ -135,9 +153,7 @@ function querySourceHasLexicalFlags(action: JsonObject): boolean {
       const kindProp = isRecord(props.kind) ? props.kind : null;
       const kindEnum = kindProp !== null && Array.isArray(kindProp.enum) ? kindProp.enum : [];
       if (!kindEnum.includes("query")) continue;
-      return (
-        "literal" in props || "regex" in props || "case_sensitive" in props
-      );
+      return check(props);
     }
   }
   return false;

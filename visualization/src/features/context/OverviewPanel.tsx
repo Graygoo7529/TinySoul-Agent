@@ -7,7 +7,7 @@
  * descriptor lives in the segment detail's Details section. A segment body is
  * fetched only after the user selects the segment.
  *
- * Refresh semantics (plan §3.5): turn activity marks the overview stale
+ * Refresh semantics (plan §3.5): a context install marks the overview stale
  * without touching what is on screen; an explicit refresh re-reads the
  * overview. When the bound turn ends, the last read stays visible as the
  * captured view, with a route into the day history.

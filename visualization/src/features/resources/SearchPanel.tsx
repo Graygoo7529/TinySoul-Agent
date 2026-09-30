@@ -44,6 +44,7 @@ import {
 } from "./searchCapabilities";
 import {
   buildQueryRequest,
+  buildDocumentQueryRequest,
   buildRefineRequest,
   describeSearchError,
   highlightSegments,
@@ -75,6 +76,11 @@ export interface SearchPanelProps {
   run: (body: SearchRequestBody, signal: AbortSignal) => Promise<SearchPage>;
   /** Open one result or evidence ref (fragment included when present). */
   onOpenRef: (ref: string) => void;
+  /**
+   * Optional current-document anchor: when the owner declares a document
+   * query, the panel offers "related documents" searches against it.
+   */
+  documentAnchor?: { link: string; label: string } | null;
   onClose: () => void;
 }
 
@@ -91,7 +97,7 @@ interface SearchResults {
 const DEFAULT_PAGE_LIMIT = 20;
 
 export function SearchPanel(props: SearchPanelProps): ReactElement {
-  const { epoch, actionId, identityKey, title, placeholder, scopes, run, onOpenRef, onClose } = props;
+  const { epoch, actionId, identityKey, title, placeholder, scopes, run, onOpenRef, documentAnchor, onClose } = props;
   const [caps, setCaps] = useState<SearchCapabilities | null | "loading" | "error">(
     "loading",
   );
@@ -209,6 +215,18 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
     };
     submit(
       buildQueryRequest(draft, { lexicalSyntax: capabilities.lexicalSyntax }),
+      "search",
+    );
+  };
+
+  const startDocumentQuery = () => {
+    if (capabilities === null || scopeChoice === undefined) return;
+    if (documentAnchor === undefined || documentAnchor === null) return;
+    const limit = capabilities.pageMaxItems !== null
+      ? Math.min(DEFAULT_PAGE_LIMIT, capabilities.pageMaxItems)
+      : DEFAULT_PAGE_LIMIT;
+    submit(
+      buildDocumentQueryRequest(scopeChoice.value, documentAnchor.link, limit),
       "search",
     );
   };
@@ -382,6 +400,22 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
                   </label>
                 </div>
               )}
+              {capabilities.documentQuery &&
+                documentAnchor !== undefined &&
+                documentAnchor !== null && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    loading={busy === "search"}
+                    disabled={staleResults}
+                    onClick={startDocumentQuery}
+                    title={documentAnchor.link}
+                  >
+                    <Search size={11} />
+                    Find documents related to {documentAnchor.label}
+                  </Button>
+                )}
             </form>
 
             {error !== null && (

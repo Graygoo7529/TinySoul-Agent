@@ -574,7 +574,7 @@ export function ObjMap({
               className="flex items-center gap-2 rounded-md bg-bg-sunken px-2 py-1"
             >
               <span className="font-mono text-[11px] text-fg-muted">{envName}</span>
-              <CredentialValueEditor envName={envName} />
+              <CredentialValueEditor name={envName} compact />
             </div>
           ))}
     </div>

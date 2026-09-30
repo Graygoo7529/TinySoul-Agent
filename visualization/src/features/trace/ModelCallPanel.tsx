@@ -15,7 +15,7 @@
 import { useRef, type ReactElement } from "react";
 import { Download } from "lucide-react";
 
-import type { JsonObject, ObservationEvent } from "../../api/v2/types";
+import type { JsonObject } from "../../api/v2/types";
 import { Badge, type BadgeTone } from "../../components/ui/Badge";
 import { Collapsible } from "../../components/ui/Collapsible";
 import { JsonTree } from "../../components/ui/JsonTree";
@@ -173,7 +173,7 @@ function ExportButton({
 // ---------------------------------------------------------------------------
 
 interface LlmAttempt {
-  attempt: number | null;
+  attempt: number;
   modelId: string | null;
   providerId: string | null;
   providerModel: string | null;
@@ -182,6 +182,16 @@ interface LlmAttempt {
   errorType: string | null;
   request: JsonObject | null;
   response: JsonObject | null;
+}
+
+/**
+ * llm.model.started/completed/failed carry no attempt number — they are the
+ * task-level head/tail of one model in the chain, not a provider attempt.
+ */
+interface ModelLifecycleEntry {
+  modelId: string | null;
+  status: string | null;
+  errorType: string | null;
 }
 
 function LlmTaskView({
@@ -208,51 +218,99 @@ function LlmTaskView({
           errorType: fact.errorType ?? merged.errorType,
         }));
 
-  // Group model/provider events into attempts, preserving event order.
+  // Split the model/provider events: lifecycle events without an attempt
+  // number are task-level facts; only events carrying a real attempt number
+  // join an attempt group (keyed by model/provider so two providers sharing
+  // an attempt number never merge).
+  const lifecycle: ModelLifecycleEntry[] = [];
   const attempts = new Map<string, LlmAttempt>();
-  const attemptFor = (event: ObservationEvent): LlmAttempt => {
-    const attempt = asNumber(event.payload.attempt);
-    const key = attempt === null ? "?" : String(attempt);
-    let entry = attempts.get(key);
-    if (entry === undefined) {
-      entry = {
-        attempt,
-        modelId: null,
-        providerId: null,
-        providerModel: null,
-        adapter: null,
+  for (const event of window.events) {
+    if (event.name === "llm.model.started") {
+      lifecycle.push({
+        modelId: asString(event.payload.model_id),
         status: null,
         errorType: null,
-        request: null,
-        response: null,
-      };
-      attempts.set(key, entry);
+      });
+      continue;
     }
-    return entry;
-  };
-  for (const event of window.events) {
-    if (event.name.startsWith("llm.model.") || event.name.startsWith("llm.provider.")) {
-      const entry = attemptFor(event);
-      entry.modelId = entry.modelId ?? asString(event.payload.model_id);
-      entry.providerId = entry.providerId ?? asString(event.payload.provider_id);
-      entry.providerModel = entry.providerModel ?? asString(event.payload.provider_model);
+    if (
+      event.name === "llm.model.completed" ||
+      event.name === "llm.model.failed"
+    ) {
+      const modelId = asString(event.payload.model_id);
+      const entry =
+        [...lifecycle]
+          .reverse()
+          .find(
+            (candidate) =>
+              candidate.status === null && candidate.modelId === modelId,
+          ) ??
+        [...lifecycle].reverse().find((candidate) => candidate.status === null);
+      const target = entry ?? {
+        modelId,
+        status: null,
+        errorType: null,
+      };
+      if (entry === undefined) lifecycle.push(target);
+      target.modelId = target.modelId ?? modelId;
+      if (event.name === "llm.model.completed") {
+        target.status = asString(event.payload.status) ?? "completed";
+      } else {
+        target.status = "failed";
+        const errorType = asString(event.payload.error_type);
+        const providerKind = asString(event.payload.provider_error_kind);
+        target.errorType =
+          errorType !== null && providerKind !== null
+            ? `${errorType} · ${providerKind}`
+            : (errorType ?? providerKind);
+      }
+      continue;
+    }
+    if (
+      event.name.startsWith("llm.model.") ||
+      event.name.startsWith("llm.provider.")
+    ) {
+      const attempt = asNumber(event.payload.attempt);
+      if (attempt === null) continue; // no attempt number: not an attempt record
+      const modelId = asString(event.payload.model_id);
+      const providerId = asString(event.payload.provider_id);
+      const key = `${modelId ?? "?"}/${providerId ?? "?"}/${attempt}`;
+      let entry = attempts.get(key);
+      if (entry === undefined) {
+        entry = {
+          attempt,
+          modelId: null,
+          providerId: null,
+          providerModel: null,
+          adapter: null,
+          status: null,
+          errorType: null,
+          request: null,
+          response: null,
+        };
+        attempts.set(key, entry);
+      }
+      entry.modelId = entry.modelId ?? modelId;
+      entry.providerId = entry.providerId ?? providerId;
+      entry.providerModel =
+        entry.providerModel ?? asString(event.payload.provider_model);
       entry.adapter = entry.adapter ?? asString(event.payload.adapter);
       if (event.name === "llm.model.request") entry.request = event.payload;
       if (event.name === "llm.model.response") entry.response = event.payload;
-      if (event.name === "llm.model.completed") {
-        entry.status = asString(event.payload.status) ?? "completed";
-      }
-      if (event.name === "llm.model.failed" || event.name === "llm.provider.failed") {
+      if (event.name === "llm.provider.completed") entry.status = "completed";
+      if (event.name === "llm.provider.failed") {
         entry.status = "failed";
-        entry.errorType = asString(event.payload.error_type);
+        entry.errorType =
+          asString(event.payload.provider_error_kind) ??
+          asString(event.payload.error_type);
       }
     }
   }
   const orderedAttempts = [...attempts.values()].sort(
-    (a, b) => (a.attempt ?? 0) - (b.attempt ?? 0),
+    (a, b) => a.attempt - b.attempt,
   );
 
-  if (task === null && orderedAttempts.length === 0) {
+  if (task === null && lifecycle.length === 0 && orderedAttempts.length === 0) {
     return <MissingRecord what={`Model task ${taskId}`} />;
   }
 
@@ -300,6 +358,33 @@ function LlmTaskView({
           No task header was retained; the attempts below are all the record holds.
         </div>
       )}
+      {lifecycle.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
+            Model lifecycle
+          </div>
+          {lifecycle.map((entry, index) => (
+            <div
+              key={index}
+              className="flex flex-wrap items-center gap-1.5 text-[12px]"
+            >
+              <span className="font-mono text-[11px] text-fg-muted">
+                {entry.modelId ?? "model"}
+              </span>
+              {entry.status !== null ? (
+                <Badge tone={entry.status === "failed" ? "red" : "green"}>
+                  {entry.status}
+                </Badge>
+              ) : (
+                <Badge tone="blue">started</Badge>
+              )}
+              {entry.errorType !== null && (
+                <span className="text-danger">{entry.errorType}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
       {orderedAttempts.map((attempt, index) => (
         <AttemptView key={index} attempt={attempt} />
       ))}
@@ -310,7 +395,7 @@ function LlmTaskView({
 function AttemptView({ attempt }: { attempt: LlmAttempt }): ReactElement {
   return (
     <Collapsible
-      title={`Attempt ${attempt.attempt ?? "?"}`}
+      title={`Attempt ${attempt.attempt}`}
       meta={
         <span className="flex items-center gap-1.5 text-[11px] text-fg-faint">
           {attempt.providerId !== null && (

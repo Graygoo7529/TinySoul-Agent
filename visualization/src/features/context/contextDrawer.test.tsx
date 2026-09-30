@@ -152,10 +152,11 @@ describe("openContextDrawer", () => {
     expect(segmentRequests()).toHaveLength(0);
   });
 
-  it("marks the overview refreshable on turn activity; refresh re-reads it", async () => {
+  it("marks the overview refreshable on context install; refresh re-reads it", async () => {
     await openOverview();
     expect(container.textContent).not.toContain("refresh to see the latest");
 
+    // An unrelated status re-read is not a context change.
     act(() => {
       useConnectionStore
         .getState()
@@ -163,6 +164,11 @@ describe("openContextDrawer", () => {
           epoch,
           makeStatus({ activity: "user_turn", activeTurnId: TURN_ID }),
         );
+    });
+    expect(container.textContent).not.toContain("refresh to see the latest");
+
+    act(() => {
+      useConnectionStore.getState().noteContextInstalled();
     });
     expect(container.textContent).toContain("refresh to see the latest");
 

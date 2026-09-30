@@ -1264,6 +1264,16 @@ pre.cb-frame-source {
   max-width: 100%;
   height: auto;
 }
+.cb-frame-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.cb-frame-zoom {
+  min-width: 44px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
 
 /* ---- accepted-but-uninstalled inbox item: the user bubble with a dashed
    accent outline — between the local echo and the formal row ---- */

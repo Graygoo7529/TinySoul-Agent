@@ -31,6 +31,7 @@ import { BudgetsPage } from "./BudgetsPage";
 import { PhaseBindingsPage } from "./PhaseBindingsPage";
 import { ReflectionPage } from "./ReflectionPage";
 import { SearchPoliciesPage } from "./SearchPoliciesPage";
+import { SettingsField } from "../editors/controls";
 import { resetActionsViewCache } from "./useActionsView";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -79,7 +80,7 @@ function makeCatalog(): ConfigCatalog {
       field("loop.cycle.phase2_task_profile", "reference", {
         reference: { collection: "llm.tasks" },
       }),
-      field("loop.user.max_cycles", "integer"),
+      field("loop.user.max_cycles", "integer", { min: 1, max: 64 }),
       field("reflection.home.max_cycles", "integer"),
       field("reflection.memory.max_cycles", "integer"),
       field("context.budget_max_image_bytes", "integer"),
@@ -669,7 +670,7 @@ describe("BudgetsPage", () => {
     await flush();
 
     const input = container.querySelector(
-      '[data-field-path="loop.user.max_cycles"] input',
+      '[data-field-path="loop.user.max_cycles"] input[type="number"]',
     ) as HTMLInputElement;
     expect(input.value).toBe("8");
 
@@ -691,6 +692,96 @@ describe("BudgetsPage", () => {
     expect(draftOperations(store())).toEqual([
       { op: "set", source_id: TINYSOUL, path: "loop.user.max_cycles", value: 12 },
     ]);
+  });
+
+  it("pairs a slider with the exact input and unit for bounded numbers", async () => {
+    await act(async () => {
+      root.render(<BudgetsPage />);
+    });
+    await flush();
+
+    const row = container.querySelector(
+      '[data-field-path="loop.user.max_cycles"]',
+    ) as HTMLElement;
+    const slider = row.querySelector('input[type="range"]') as HTMLInputElement;
+    expect(slider).not.toBeNull();
+    expect(slider.min).toBe("1");
+    expect(slider.max).toBe("64");
+    // The saved value positions the knob; the exact input sits next to it.
+    expect(slider.value).toBe("8");
+    expect(row.querySelector('input[type="number"]')).not.toBeNull();
+
+    // Sliding stages the exact numeric value.
+    await act(async () => {
+      setInputValue(slider, "24");
+    });
+    await flush();
+    expect(draftOperations(store())).toEqual([
+      { op: "set", source_id: TINYSOUL, path: "loop.user.max_cycles", value: 24 },
+    ]);
+
+    // Values beyond the presentation range clamp to the range bound.
+    await act(async () => {
+      setInputValue(slider, "100");
+    });
+    await flush();
+    expect(draftOperations(store())).toEqual([
+      { op: "set", source_id: TINYSOUL, path: "loop.user.max_cycles", value: 64 },
+    ]);
+
+    // The compression ratio slider uses a fine step; the unit row shows bytes.
+    const ratio = container.querySelector(
+      '[data-field-path="context.compression_trigger_ratio"] input[type="range"]',
+    ) as HTMLInputElement;
+    expect(ratio.step).toBe("0.01");
+    expect(
+      container.querySelector('[data-field-path="context.budget_max_image_bytes"]')
+        ?.textContent,
+    ).toContain("bytes");
+  });
+
+  it("restore default deletes the override; unbounded numbers keep a plain input", async () => {
+    await act(async () => {
+      root.render(<BudgetsPage />);
+    });
+    await flush();
+
+    const restore = container.querySelector(
+      '[data-field-path="loop.user.max_cycles"] button[aria-label="Restore the owner default"]',
+    ) as HTMLButtonElement;
+    expect(restore.disabled).toBe(false);
+    await act(async () => {
+      restore.click();
+    });
+    await flush();
+    expect(draftOperations(store())).toEqual([
+      { op: "delete", source_id: TINYSOUL, path: "loop.user.max_cycles" },
+    ]);
+  });
+
+  it("renders a slider from catalog-declared bounds and none without bounds", async () => {
+    await act(async () => {
+      root.render(
+        <>
+          <SettingsField path="loop.user.max_cycles" />
+          <SettingsField path="context.budget_max_image_bytes" />
+        </>,
+      );
+    });
+    await flush();
+
+    // The catalog declares min/max for max_cycles → slider without an override.
+    expect(
+      container.querySelector(
+        '[data-field-path="loop.user.max_cycles"] input[type="range"]',
+      ),
+    ).not.toBeNull();
+    // No declared bounds anywhere → the honest plain number input stays.
+    const unbounded = container.querySelector(
+      '[data-field-path="context.budget_max_image_bytes"]',
+    ) as HTMLElement;
+    expect(unbounded.querySelector('input[type="range"]')).toBeNull();
+    expect(unbounded.querySelector('input[type="number"]')).not.toBeNull();
   });
 });
 

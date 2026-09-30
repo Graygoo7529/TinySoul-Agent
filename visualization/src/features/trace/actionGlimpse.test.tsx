@@ -136,6 +136,163 @@ describe("ActionGlimpse status presentation", () => {
   });
 });
 
+describe("family result views (audit display gaps)", () => {
+  it("web.discover_pages renders the per-page directory with states", async () => {
+    renderGlimpse({
+      id: "w1",
+      action: "web.discover_pages",
+      outcome: "success",
+      result: {
+        source: {
+          url: "https://example.com/docs",
+          final_url: "https://example.com/docs",
+          title: "Docs",
+        },
+        pages: [
+          {
+            url: "https://example.com/docs/a",
+            depth: 1,
+            state: "visited",
+            discovered_from: "",
+            anchor_text: "Guide A",
+            link_title: "",
+            rel: "",
+            title: "Guide A",
+          },
+          {
+            url: "https://example.com/docs/b",
+            depth: 1,
+            state: "failed",
+            discovered_from: "",
+            anchor_text: "Guide B",
+            link_title: "",
+            rel: "",
+            failure_reason: "http 404",
+          },
+          {
+            url: "https://example.com/docs/c",
+            depth: 2,
+            state: "candidate",
+            discovered_from: "",
+            anchor_text: "",
+            link_title: "",
+            rel: "",
+          },
+        ],
+        page_count: 3,
+        visited_count: 1,
+        candidate_count: 1,
+        failed_count: 1,
+        skipped_count: 0,
+        stop_reason: "page_limit",
+        truncated: false,
+        untrusted_external_content: true,
+      },
+    });
+    clickButton("web.discover_pages");
+    await flush();
+    const text = container.textContent ?? "";
+    expect(text).toContain("Discovered pages (3)");
+    expect(text).toContain("Guide A");
+    expect(text).toContain("visited");
+    expect(text).toContain("failed");
+    expect(text).toContain("candidate");
+    expect(text).toContain("http 404");
+    expect(text).toContain("page_limit");
+  });
+
+  it("workspace.analyze shows the coverage line", async () => {
+    renderGlimpse({
+      id: "w2",
+      action: "workspace.analyze",
+      outcome: "success",
+      result: {
+        intent: "summarize the notes",
+        answer: "Two themes.",
+        sources: [
+          {
+            source_id: "s1",
+            link: "workspace:notes.md",
+            size: 1200,
+            range: { start_line: 1, end_line: 40 },
+          },
+        ],
+        coverage: { complete: true, files_loaded: 2, source_chars: 1234 },
+      },
+    });
+    clickButton("workspace.analyze");
+    await flush();
+    expect(container.textContent).toContain(
+      "complete · 2 files · 1,234 source chars",
+    );
+  });
+
+  it("workspace.read shows the requested→actual range", async () => {
+    renderGlimpse({
+      id: "w3",
+      action: "workspace.read",
+      outcome: "success",
+      result: {
+        link: "workspace:big.md",
+        size: 9000,
+        requested: {
+          start_line: 1,
+          end_line: 2147483647,
+          cursor: 0,
+          max_chars: 4000,
+        },
+        actual: {
+          start: { line: 1, column: 1 },
+          end: { line: 87, column: 14 },
+        },
+        text: "partial body",
+        truncated: true,
+        truncation_reason: "character_limit",
+        next_cursor: 1,
+        eof_reached: false,
+      },
+    });
+    clickButton("workspace.read");
+    await flush();
+    expect(container.textContent).toContain(
+      "requested lines 1–end → actual 1:1–87:14",
+    );
+  });
+
+  it("workspace.trash_list renders items as link + tags, not raw JSON", async () => {
+    renderGlimpse({
+      id: "w4",
+      action: "workspace.trash_list",
+      outcome: "success",
+      result: {
+        items: [
+          {
+            ref: "trash:workspace/20260929-abc",
+            link: "workspace:old.md",
+            tags: ["tmp"],
+          },
+          {
+            ref: "trash:workspace/20260929-def",
+            link: "workspace:draft.md",
+            tags: [],
+          },
+        ],
+        total: 2,
+        next_offset: null,
+      },
+    });
+    clickButton("workspace.trash_list");
+    await flush();
+    const text = container.textContent ?? "";
+    expect(text).toContain("Trash items (2)");
+    expect(text).toContain("workspace:old.md");
+    expect(text).toContain("tmp");
+    expect(text).toContain("trash:workspace/20260929-abc");
+    // No JsonTree fallback for the trash listing itself.
+    expect(text).not.toContain("Page items");
+  });
+});
+
 describe("ActionGlimpse expansion", () => {
   it("never fakes a before/after diff for write actions", async () => {
     renderGlimpse({

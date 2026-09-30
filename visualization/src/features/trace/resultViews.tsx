@@ -74,6 +74,46 @@ function FactGrid({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * The requested→actual line range of a bounded text read (workspace.read).
+ * The backend resolves unbounded requests to a sentinel end line; that tail
+ * reads as "end" instead of a giant number.
+ */
+function readRangeLine(requested: JsonObject, actual: JsonObject | null): string {
+  const start = asNumber(requested.start_line);
+  const end = asNumber(requested.end_line);
+  const endText =
+    end === null ? "?" : end >= 2 ** 31 - 1 ? "end" : String(end);
+  const requestedText = `lines ${start ?? "?"}–${endText}`;
+  if (actual === null) return `requested ${requestedText}`;
+  const position = (value: unknown): string => {
+    const point = asObject(value);
+    if (point === null) return "–";
+    const line = asNumber(point.line);
+    const column = asNumber(point.column);
+    return line !== null
+      ? `${line}${column !== null ? `:${column}` : ""}`
+      : "–";
+  };
+  return `requested ${requestedText} → actual ${position(actual.start)}–${position(actual.end)}`;
+}
+
+/** workspace.analyze coverage: complete/files_loaded/source_chars. */
+function analysisCoverageLine(coverage: JsonObject): string | null {
+  const parts: string[] = [];
+  if (coverage.complete === true) parts.push("complete");
+  if (coverage.complete === false) parts.push("partial");
+  const filesLoaded = asNumber(coverage.files_loaded);
+  if (filesLoaded !== null) {
+    parts.push(`${filesLoaded} file${filesLoaded === 1 ? "" : "s"}`);
+  }
+  const sourceChars = asNumber(coverage.source_chars);
+  if (sourceChars !== null) {
+    parts.push(`${sourceChars.toLocaleString("en-US")} source chars`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 /** Bounded pre-wrap text; longer bodies stay behind the collapsible. */
 function Excerpt({ text, max = 600 }: { text: string; max?: number }) {
   const truncated = text.length > max;
@@ -162,6 +202,22 @@ function InspectView({ result, nav }: ResultViewProps) {
   const resources = Array.isArray(result.resources) ? result.resources : null;
   const truncated = result.truncated === true;
   const complete = result.complete;
+  const requested = asObject(result.requested);
+  const actual = asObject(result.actual);
+  // workspace.trash_list: every entry carries the trash ref + original link.
+  const trashItems =
+    items !== null &&
+    items.length > 0 &&
+    items.every((entry) => {
+      const record = asObject(entry);
+      return (
+        record !== null &&
+        asString(record.ref) !== null &&
+        asString(record.link) !== null
+      );
+    })
+      ? items
+      : null;
   return (
     <div className="space-y-2">
       {link !== null && (
@@ -176,6 +232,11 @@ function InspectView({ result, nav }: ResultViewProps) {
           )}
         </div>
       )}
+      {requested !== null && (
+        <div className="text-[11px] text-fg-faint">
+          {readRangeLine(requested, actual)}
+        </div>
+      )}
       {text !== null && (
         <Collapsible title={`Read text (${text.length} chars)`} defaultOpen={text.length <= 1200}>
           <Excerpt text={text} max={4000} />
@@ -188,6 +249,55 @@ function InspectView({ result, nav }: ResultViewProps) {
       )}
       {complete === false && (
         <div className="text-[11px] text-warning">Partial read.</div>
+      )}
+      {trashItems !== null && (
+        <div className="space-y-1">
+          <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
+            Trash items ({trashItems.length}
+            {asNumber(result.total) !== null &&
+            asNumber(result.total) !== trashItems.length
+              ? ` of ${asNumber(result.total)}`
+              : ""}
+            )
+          </div>
+          {trashItems.slice(0, 24).map((entry, index) => {
+            const record = asObject(entry);
+            if (record === null) return null;
+            const itemLink = asString(record.link);
+            const itemRef = asString(record.ref);
+            const tags = asStringArray(record.tags);
+            return (
+              <div key={index} className="flex items-center gap-1.5">
+                <span className="min-w-0 flex-1">
+                  {itemLink !== null ? (
+                    <ReferenceButton
+                      reference={itemLink}
+                      onOpen={nav.openReference}
+                    />
+                  ) : null}
+                </span>
+                {tags.map((tag) => (
+                  <Badge key={tag} tone="gray">
+                    {tag}
+                  </Badge>
+                ))}
+                {itemRef !== null && (
+                  <span
+                    className="shrink-0 font-mono text-[10px] text-fg-faint"
+                    title={itemRef}
+                  >
+                    {itemRef}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+          {trashItems.length > 24 && (
+            <div className="text-[11px] text-fg-faint">
+              … {trashItems.length - 24} more in the trash
+            </div>
+          )}
+        </div>
       )}
       {resources !== null && (
         <div className="space-y-0.5">
@@ -214,7 +324,7 @@ function InspectView({ result, nav }: ResultViewProps) {
           })}
         </div>
       )}
-      {items !== null && text === null && (
+      {items !== null && text === null && trashItems === null && (
         <Collapsible title={`Page items (${items.length})`} defaultOpen={items.length <= 8}>
           <JsonTree value={items} defaultExpanded={false} />
         </Collapsible>
@@ -277,6 +387,7 @@ function WebView({ result, nav }: ResultViewProps) {
   if (result === null) return <EmptyResult />;
   const source = asObject(result.source);
   const results = Array.isArray(result.results) ? result.results : null;
+  const pages = Array.isArray(result.pages) ? result.pages : null;
   const answer = asString(result.answer);
   const warningCodes = asStringArray(result.warning_codes);
 
@@ -364,6 +475,67 @@ function WebView({ result, nav }: ResultViewProps) {
               <FactRow label="stop" value={asString(result.stop_reason)} />
             )}
           </FactGrid>
+          {pages !== null && pages.length > 0 && (
+            <div className="space-y-0.5">
+              <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
+                Discovered pages ({pages.length}
+                {asNumber(result.page_count) !== null &&
+                asNumber(result.page_count) !== pages.length
+                  ? ` of ${asNumber(result.page_count)}`
+                  : ""}
+                )
+              </div>
+              {pages.slice(0, 24).map((entry, index) => {
+                const page = asObject(entry);
+                if (page === null) return null;
+                const url = asString(page.url);
+                const state = asString(page.state) ?? "candidate";
+                const title =
+                  asString(page.title) ?? asString(page.anchor_text) ?? url;
+                return (
+                  <div key={index} className="flex items-center gap-1.5">
+                    <Badge
+                      tone={
+                        state === "visited"
+                          ? "green"
+                          : state === "failed"
+                            ? "red"
+                            : "gray"
+                      }
+                    >
+                      {state}
+                    </Badge>
+                    {url !== null ? (
+                      <button
+                        type="button"
+                        onClick={() => openExternal(url)}
+                        className="flex min-w-0 items-center gap-1 text-left text-[12px] text-accent hover:underline"
+                        title={url}
+                      >
+                        <ExternalLink size={11} className="shrink-0" />
+                        <span className="truncate">{title}</span>
+                      </button>
+                    ) : (
+                      <span className="truncate text-[12px] text-fg-muted">
+                        {title}
+                      </span>
+                    )}
+                    {state === "failed" &&
+                      asString(page.failure_reason) !== null && (
+                        <span className="truncate text-[11px] text-fg-faint">
+                          {asString(page.failure_reason)}
+                        </span>
+                      )}
+                  </div>
+                );
+              })}
+              {pages.length > 24 && (
+                <div className="text-[11px] text-fg-faint">
+                  … {pages.length - 24} more pages in the full result
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
       {warningCodes.length > 0 && (
@@ -404,6 +576,8 @@ function AnalysisView({ result, params, nav }: ResultViewProps) {
   const converter = asString(result.converter);
   const visualRefs = asStringArray(result.visual_reference_links);
   const warningCodes = asStringArray(result.warning_codes);
+  const coverage = asObject(result.coverage);
+  const coverageLine = coverage !== null ? analysisCoverageLine(coverage) : null;
   return (
     <div className="space-y-2">
       <FactGrid>
@@ -412,6 +586,7 @@ function AnalysisView({ result, params, nav }: ResultViewProps) {
         {asString(result.content_status) !== null && (
           <FactRow label="content" value={asString(result.content_status)} />
         )}
+        {coverageLine !== null && <FactRow label="coverage" value={coverageLine} />}
         {asNumber(result.generated_resource_count) !== null && (
           <FactRow
             label="generated"

@@ -1,5 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
+import mermaidPackage from "mermaid/package.json";
 import { BlockFrame } from "./BlockFrame";
+import { downloadSvg } from "./downloadSvg";
 import { useInViewport } from "./useInViewport";
 
 export type MermaidTheme = "light" | "dark";
@@ -20,6 +22,9 @@ const MERMAID_THEMES: Record<
   dark: "dark",
 };
 
+/** The locked renderer version, part of every cache key. */
+const RENDERER_VERSION = mermaidPackage.version;
+
 const CACHE_LIMIT = 50;
 
 let modulePromise: Promise<MermaidApi> | null = null;
@@ -33,16 +38,19 @@ function limitedError(err: unknown): string {
 }
 
 async function renderMermaidSvg(source: string, theme: MermaidTheme): Promise<string> {
-  const cacheKey = `${theme}\n${source}`;
+  // The cache key covers source + renderer version + theme; the module load
+  // above is a resolved promise after the first diagram, so checking the
+  // cache after it costs nothing and keeps the version in the key.
+  modulePromise ??= import("mermaid").then((mod) => mod.default);
+  const mermaid = await modulePromise;
+
+  const cacheKey = `${RENDERER_VERSION}\n${theme}\n${source}`;
   const cached = svgCache.get(cacheKey);
   if (cached !== undefined) {
     svgCache.delete(cacheKey);
     svgCache.set(cacheKey, cached);
     return cached;
   }
-
-  modulePromise ??= import("mermaid").then((mod) => mod.default);
-  const mermaid = await modulePromise;
 
   const mermaidTheme = MERMAID_THEMES[theme];
   if (initializedTheme !== mermaidTheme) {
@@ -75,7 +83,10 @@ async function renderMermaidSvg(source: string, theme: MermaidTheme): Promise<st
 /**
  * Mermaid diagram block backed by the official initialize + render API
  * (no deprecated mermaid.init document scan). The mermaid module is loaded
- * on demand and the render result is cached per source + theme.
+ * on demand and the render result is cached per source + renderer version +
+ * theme. Beyond the diagram/source toggle the frame offers zoom and an SVG
+ * export; a failed render keeps the source with a bounded error and retries
+ * only when the user asks.
  */
 export function MermaidBlock({
   source,
@@ -89,6 +100,7 @@ export function MermaidBlock({
 }): ReactElement {
   const [ref, visible] = useInViewport<HTMLDivElement>(eager);
   const [state, setState] = useState<RenderState>({ status: "idle" });
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!visible || !source.trim()) return;
@@ -104,7 +116,7 @@ export function MermaidBlock({
     return () => {
       cancelled = true;
     };
-  }, [visible, source, theme]);
+  }, [visible, source, theme, attempt]);
 
   return (
     <div ref={ref} data-block="mermaid" data-status={state.status}>
@@ -113,6 +125,16 @@ export function MermaidBlock({
         source={source}
         status={state.status}
         error={state.status === "error" ? state.error : null}
+        onRetry={
+          state.status === "error"
+            ? () => setAttempt((current) => current + 1)
+            : undefined
+        }
+        onExport={
+          state.status === "done"
+            ? () => downloadSvg(state.svg, "diagram.svg")
+            : undefined
+        }
       >
         {state.status === "done" && (
           <div

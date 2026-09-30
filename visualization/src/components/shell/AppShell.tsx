@@ -13,7 +13,9 @@ import { ChatView } from "../../features/chat/ChatView";
 import { SettingsPage } from "../../features/settings/SettingsPage";
 import { SettingsDraftChip } from "../../features/settings/SettingsDraftChip";
 import { WorkspacePage } from "../../features/workspace/WorkspacePage";
-import { PendingTargetLanding } from "../../features/resources/PendingTargetLanding";
+import { HomePage } from "../../features/home/HomePage";
+import { MemoryPage } from "../../features/memory/MemoryPage";
+import { RuntimePage } from "../../features/runtime/RuntimePage";
 
 /**
  * The application shell: NavRail on the left; the main column (TopBar, the
@@ -53,9 +55,11 @@ export function AppShell() {
             ) : activeTab === "workspace" ? (
               <WorkspacePage />
             ) : activeTab === "home" ? (
-              <PendingTargetLanding owner="home" />
+              <HomePage />
             ) : activeTab === "memory" ? (
-              <PendingTargetLanding owner="memory" />
+              <MemoryPage />
+            ) : activeTab === "runtime" ? (
+              <RuntimePage />
             ) : activeTab === "settings" ? (
               <SettingsPage />
             ) : (

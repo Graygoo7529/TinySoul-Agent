@@ -21,6 +21,7 @@
 6. 模型调用视图按 task_id/call_id/search_id(+step_index) 定向读取并在打开时固定 through 上界；缺失记录显示"未保留/已截断"，不从别的调用拼补；导出只含实际保留记录并附截断说明。
 7. LLM 请求是 TinySoul provider-neutral 记录，不称"网络原始请求"；只展示实际记录的 reasoning summary，不声称能展开供应商内部推理。
 8. Reflection 处理对象（home.review/diff、memory.write/write_daily）展示提交结果与读取入口，不提供前端直接审核/编辑按钮；Session 整理只描述语义解释变化，不显示为编辑原始会话。
+9. llm.model.started/completed/failed 的 payload 没有 attempt 字段（只有 request/response 与 llm.provider.* 有），作为任务级 model 生命周期头/尾呈现，绝不参与 attempt 分组制造"Attempt ?"伪组；provider 失败类型读 provider_error_kind，不读不存在的 error_type。
 
 ## 覆盖矩阵
 
@@ -73,12 +74,12 @@
 | web.search_by_kimi | web | 回答摘录 | answer、结果列表、截断/see_more | 结果链接 → 外部浏览器 |
 | web.fetch_with_trafilatura | web | 页面标题 | extractor、标题、摘录、产物 markdown、警告码 | markdown_link → Workspace；来源 URL → 外部 |
 | web.fetch_with_defuddle | web | 页面标题 | 同上 | 同上 |
-| web.discover_pages | web | N pages · host | 来源、页面目录、停止原因、失败数 | 页面链接 → 外部/资源 |
+| web.discover_pages | web | N pages · host | 来源、逐页目录（链接/visited-failed-candidate 状态/失败原因，截断显示+计数）、停止原因 | 页面链接 → 外部浏览器 |
 | workspace.search | search | 结果数 · workspace | Search 卡片 | item ref → Workspace；search_id → 模型 Inspector |
-| workspace.read | inspect | 目标 link | 所读文本范围（真实区间） | link → Workspace |
+| workspace.read | inspect | 目标 link | requested→actual 真实区间、所读文本、有界读取注记 | link → Workspace |
 | workspace.list | inspect | N resources | 目录页、next_offset | link → Workspace |
-| workspace.trash_list | inspect | N resources | 回收站目录 | link → Workspace |
-| workspace.analyze | analysis | intent — 摘要 | 实际分析内容、来源、覆盖 | sources → Workspace；模型调用 |
+| workspace.trash_list | inspect | N resources | 回收站 items（可点原 link + tags + trash ref），不落 JsonTree | link → Workspace |
+| workspace.analyze | analysis | intent — 摘要 | 实际分析内容、来源、coverage（complete/files_loaded/source_chars） | sources → Workspace；模型调用 |
 | workspace.describe | analysis | 摘要 | 资源描述结果 | link → Workspace |
 | workspace.compose | analysis | 摘要 | 生成内容、产物 | 产物 → Workspace |
 | workspace.convert_with_pypdf | analysis | 转换产物 | converter、产物 markdown、视觉引用、警告码 | 产物 → Workspace |
@@ -97,7 +98,7 @@
 每个族选能区分真实行为的样例，不为每个 Action 复制用例：
 
 - **search**：`searchResultView.test.tsx` 用契约 fixture `search-evidence.json`——真实 evidence 高亮（码点映射含 emoji/CJK）、无 matches 片段如实显示、双分数分离、覆盖注记与 continuation 提示。
-- **inspect / write / web / analysis / execution / job-control / acp / mcp / session-organize / reflection-write / core-dialog / generic**：族视图经 `actionGlimpse.test.tsx`（写入无 before/after 注记、失败 feedback、执行态区分）与 `panels.test.tsx`（失败详情、无 result 说明、模块域关联模型调用、Job 分页）覆盖；generic 兜底由 `registry.test.ts` 的未知 ID 断言与 `FAMILY_VIEWS.generic` 存在性保证。
+- **inspect / write / web / analysis / execution / job-control / acp / mcp / session-organize / reflection-write / core-dialog / generic**：族视图经 `actionGlimpse.test.tsx`（写入无 before/after 注记、失败 feedback、执行态区分；discover_pages 逐页目录与失败原因、analyze coverage 行、read 的 requested→actual 区间、trash_list 可点 link+tags 列表）与 `panels.test.tsx`（失败详情、无 result 说明、模块域关联模型调用、Job 分页）覆盖；generic 兜底由 `registry.test.ts` 的未知 ID 断言与 `FAMILY_VIEWS.generic` 存在性保证。
 
 ## 已知边界
 

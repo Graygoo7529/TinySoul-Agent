@@ -178,10 +178,12 @@ describe("ModelCallPanel directed reads (plan §9.3)", () => {
       }),
       event("llm.model.request", 20, {
         task_id: "task_1",
-        attempt: 1,
+        profile: "action",
         model_id: "model_x",
         provider_id: "prov",
+        provider_model: "pm-1",
         adapter: "openai",
+        attempt: 1,
         messages: [
           { role: "system", label: "identity", parts: [{ type: "text", text: "You are TinySoul." }] },
           { role: "user", label: null, parts: [{ type: "text", text: "read the file" }] },
@@ -196,9 +198,12 @@ describe("ModelCallPanel directed reads (plan §9.3)", () => {
       }),
       event("llm.model.response", 30, {
         task_id: "task_1",
-        attempt: 1,
+        profile: "action",
         model_id: "model_x",
         provider_id: "prov",
+        provider_model: "pm-1",
+        adapter: "openai",
+        attempt: 1,
         stop_reason: "stop",
         answer_text: "Done.",
         tool_calls: [],
@@ -238,17 +243,79 @@ describe("ModelCallPanel directed reads (plan §9.3)", () => {
   it("says when the request was not recorded instead of inventing one", async () => {
     serveEvents([
       event("llm.task.started", 10, { task_id: "task_1", consumer: "loop.phase1", profile: "control" }),
-      event("llm.model.started", 20, {
+      // Model lifecycle events carry no attempt number: they are task-level
+      // head/tail facts, not attempts.
+      event("llm.model.started", 20, { task_id: "task_1", profile: "control", model_id: "model_x" }),
+      event("llm.provider.started", 25, {
         task_id: "task_1",
-        attempt: 1,
+        profile: "control",
         model_id: "model_x",
         provider_id: "prov",
+        provider_model: "pm-1",
         adapter: "openai",
+        attempt: 1,
       }),
-      event("llm.model.completed", 30, { task_id: "task_1", attempt: 1, status: "completed" }),
+      event("llm.provider.completed", 28, {
+        task_id: "task_1",
+        profile: "control",
+        model_id: "model_x",
+        provider_id: "prov",
+        provider_model: "pm-1",
+        adapter: "openai",
+        attempt: 1,
+      }),
+      event("llm.model.completed", 30, { task_id: "task_1", profile: "control", model_id: "model_x", status: "completed" }),
     ]);
     await renderPanel({ kind: "llm", taskId: "task_1" });
     expect(container.textContent).toContain("was not recorded");
+    // No attempt-less event ever lands in a misleading "Attempt ?" group.
+    expect(container.textContent).not.toContain("Attempt ?");
+    // The lifecycle row carries the model-level head/tail instead.
+    expect(container.textContent).toContain("Model lifecycle");
+    expect(container.textContent).toContain("Attempt 1");
+  });
+
+  it("shows provider failures by provider_error_kind, model failures at task level", async () => {
+    serveEvents([
+      event("llm.task.started", 10, { task_id: "task_1", consumer: "loop.phase1", profile: "control" }),
+      event("llm.model.started", 20, { task_id: "task_1", profile: "control", model_id: "model_x" }),
+      event("llm.provider.started", 25, {
+        task_id: "task_1",
+        profile: "control",
+        model_id: "model_x",
+        provider_id: "prov",
+        provider_model: "pm-1",
+        adapter: "openai",
+        attempt: 1,
+      }),
+      event("llm.provider.failed", 28, {
+        task_id: "task_1",
+        profile: "control",
+        model_id: "model_x",
+        provider_id: "prov",
+        provider_model: "pm-1",
+        adapter: "openai",
+        attempt: 1,
+        provider_error_kind: "transient",
+        provider_failure_scope: "provider",
+      }),
+      event("llm.model.failed", 30, {
+        task_id: "task_1",
+        profile: "control",
+        model_id: "model_x",
+        error_type: "ProviderError",
+        provider_error_kind: "transient",
+        provider_failure_scope: "provider",
+      }),
+      event("llm.task.failed", 40, { task_id: "task_1", profile: "control", error_type: "ProviderChainExhaustedError" }),
+    ]);
+    await renderPanel({ kind: "llm", taskId: "task_1" });
+    const text = container.textContent ?? "";
+    // The attempt failure reads provider_error_kind — not a null error_type.
+    expect(text).toContain("Attempt failed (transient)");
+    // The model-level failure stays at task level, outside the attempt group.
+    expect(text).toContain("ProviderError · transient");
+    expect(text).not.toContain("Attempt ?");
   });
 
   it("reports a missing record without stitching from other calls", async () => {

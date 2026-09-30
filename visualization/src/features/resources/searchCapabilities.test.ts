@@ -95,4 +95,28 @@ describe("parseSearchCapabilities", () => {
     expect(caps?.rerankContexts).toBeNull();
     expect(caps?.filterAvailable).toBe(true);
   });
+
+  it("detects a document query when the query property accepts document_ref", () => {
+    const action = workspaceSearchAction({ lexical: false });
+    const schema = (action.tool as JsonObject).schema as JsonObject;
+    const sourceVariants = (
+      ((schema.oneOf as JsonObject[])[0]!.properties as JsonObject).source as JsonObject
+    ).oneOf as JsonObject[];
+    (sourceVariants[0]!.properties as JsonObject).query = {
+      oneOf: [
+        { type: "string" },
+        { type: "object", properties: { document_ref: { type: "string" } } },
+      ],
+    };
+    const caps = parseSearchCapabilities(actionsView(action), "workspace.search");
+    expect(caps?.documentQuery).toBe(true);
+  });
+
+  it("has no document query for a plain string query property", () => {
+    const caps = parseSearchCapabilities(
+      actionsView(workspaceSearchAction({ lexical: true })),
+      "workspace.search",
+    );
+    expect(caps?.documentQuery).toBe(false);
+  });
 });

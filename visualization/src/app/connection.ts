@@ -441,6 +441,12 @@ function ensureReadyPoll(epoch: number): void {
 
 function routeEvent(epoch: number, event: ObservationEvent): void {
   const name = event.name;
+  // Context-install events drive the drawer's lightweight generation signal
+  // (plan §3.5): panels mark themselves refreshable from it — an unrelated
+  // status re-read never marks the installed view stale.
+  if (name === "context.installed" || name === "context.background.changed") {
+    useConnectionStore.getState().noteContextInstalled();
+  }
   if (
     name.startsWith("turn.") ||
     name.startsWith("agent.command.") ||

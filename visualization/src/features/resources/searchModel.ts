@@ -75,6 +75,37 @@ export function buildRefineRequest(
   };
 }
 
+/**
+ * A document query (owner declares document_query, e.g. Memory): find
+ * documents related to one known document. Never a text rewrite of the link.
+ */
+export function buildDocumentQueryRequest(
+  scope: string | JsonObject,
+  documentRef: string,
+  pageLimit: number,
+): SearchRequest {
+  return {
+    source: {
+      kind: "query",
+      scope: typeof scope === "string" ? scope : scope,
+      query: { document_ref: documentRef },
+    },
+    page: { limit: pageLimit },
+  };
+}
+
+/** A backlinks source request anchored at one known document. */
+export function buildBacklinksRequest(
+  scope: string | JsonObject,
+  anchorRef: string,
+  pageLimit: number,
+): SearchRequest {
+  return {
+    source: { kind: "backlinks", scope, anchor_ref: anchorRef },
+    page: { limit: pageLimit },
+  };
+}
+
 /** Drop empty conditions; the backend rejects unknown fields, not missing ones. */
 function cleanWhere(where: Record<string, string>): Record<string, string> {
   const result: Record<string, string> = {};

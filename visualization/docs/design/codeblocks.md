@@ -18,8 +18,8 @@
 - **按需加载**：`import("mermaid")` 动态导入，首次渲染时才加载；构建产物中 mermaid 核心与各图族是独立 async chunk，不进主 chunk。
 - **官方 API**：`mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme })` + `mermaid.render(id, source)`；不使用已废弃的 `mermaid.init` 全局扫描。`initialize` 是全局配置，组件记录当前已初始化主题，主题切换时重新 initialize 后再 render。
 - **触发时机**：默认 `IntersectionObserver` 进入视区才渲染（jsdom 无此 API 时立即渲染以便测试）；`eager` prop 跳过等待。空源码不触发加载。
-- **缓存**：模块级 Map，key 为 `theme + source`，LRU 上限 50 条。
-- **失败回退**：render 抛错时显示源码 + 有限错误（错误首行截断至 200 字符，不含原始异常对象）；`finally` 清理 mermaid 渲染沙箱的临时 DOM 元素。
+- **缓存**：模块级 Map，key 为渲染器版本 + `theme + source`（升级 mermaid 包后旧条目自然失效），LRU 上限 50 条。
+- **失败回退**：render 抛错时显示源码 + 有限错误（错误首行截断至 200 字符，不含原始异常对象）与"重试"入口；`finally` 清理 mermaid 渲染沙箱的临时 DOM 元素。
 - **卸载**：组件卸载仅取消挂起的状态更新；mermaid render 本身不可中断。
 
 ## TikZBlock
@@ -49,8 +49,9 @@ tikzjax 运行时（`tikzjax.js`）硬绑定其所在 `document`：`getElementsB
 
 ## 共享结构
 
-- `BlockFrame`：统一的语言标签头、图/源码切换、失败时的"错误 + 源码"呈现。
+- `BlockFrame`：统一的语言标签头、图/源码切换、缩放控制（0.5×–3×，作用于图视图的 CSS zoom 包裹层）、"导出 SVG"（当前渲染结果经 objectURL 下载）、失败时的"错误 + 源码 + 重试"呈现与排队态（"排队等待编译…"）。
 - `useInViewport`：视区触发 hook，两个渲染器共用。
+- `tikzSlots`：TikZ 编译槽位（上限 2 并发）：可见块进入视区后先取槽再挂载 iframe，槽满排队（取消的等待者被跳过、让位给后续块）；编译收敛（成功/失败/超时）或块卸载即释放槽位，iframe 随之卸载以终止其 Worker。
 - `cb-*` className 当前只有 dev 验证页的临时样式；正式视觉归 F6。
 
 ## 验证入口与证据
@@ -70,8 +71,8 @@ tikzjax 运行时（`tikzjax.js`）硬绑定其所在 `document`：`getElementsB
 
 ## 已知限制与未覆盖项
 
-- 每个可见 TikZBlock 启动一个 iframe + Worker，首次需加载 tex.wasm.gz + core.dump.gz（约 2 MB）；未实现跨块共享运行时或并发上限（§21.1 的并发约束属 F6 议题，iframe 本身不解决主线程外的调度问题——编译已在 Worker，但多实例内存各自一份）。
-- TikZ 编译失败的详情只有 iframe 内的 TeX 日志，组件层只呈现有限错误；向用户暴露日志需要运行时支持，本轮不扩展。
+- 每个编译中的 TikZBlock 占一个 iframe + Worker，首次需加载 tex.wasm.gz + core.dump.gz（约 2 MB）；并发上限 2（`tikzSlots`）限制同时存活的实例数，其余可见块排队等待，未实现跨块共享运行时（编译已在 Worker，但多实例内存各自一份）。
+- TikZ 编译失败的详情只有 iframe 内的 TeX 日志，组件层只呈现有限错误 + 用户触发的重试；向用户暴露日志需要运行时支持，本轮不扩展。
 - Mermaid `initialize` 是全局配置：主题不同的块并发渲染时以最后一次 initialize 为准（渲染调用顺序执行，实际无交错，但这是一个全局性约束）。
-- 流式未闭合 fence 的识别、缩放/导出交互、与 ReactMarkdown 的 registry 接线均在 F6 完成；本轮组件只接收 props（source/theme/eager），不自建全局扫描。
+- 流式未闭合 fence 的识别与 ReactMarkdown 的 registry 接线已在 F3-A 完成；缩放/导出/重试与 TikZ 并发上限已在 F6-A 完成。Mermaid 失败块的重试为整图重渲染；导出文件名固定为 `diagram.svg`（同源多图各自下载，不带块标识）。
 - Tauri：`pnpm tauri build` 已通过（桌面安装器含全部自包含资源），但 webview 内真实渲染未做交互式验证（见上节）。

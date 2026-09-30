@@ -38,7 +38,12 @@ import {
   RotateCw,
   X,
 } from "lucide-react";
-import type { Interaction, PendingItem, TurnResult } from "../../api/v2/types";
+import type {
+  Interaction,
+  PendingItem,
+  TurnQuestion,
+  TurnResult,
+} from "../../api/v2/types";
 import {
   selectActiveDay,
   selectActiveTurnId,
@@ -46,11 +51,13 @@ import {
 } from "../../store/connectionStore";
 import { useTurnStore, type OutgoingEcho } from "../../store/turnStore";
 import {
+  cancelQueuedTurn,
   dismissEcho,
   grantBudget,
   openSessionTurn,
   retryEcho,
   retryTakeover,
+  sendEchoAsNewTurn,
   syncFromStatus,
 } from "./turnController";
 import {
@@ -64,6 +71,8 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
 import { Badge } from "../../components/ui/Badge";
 import { Markdown } from "../../components/markdown/Markdown";
+import type { MarkdownOrigin } from "../../components/markdown/codeBlockRegistry";
+import { conversationOrigin } from "../../components/markdown/origin";
 import { useTypewriter } from "../../hooks/useTypewriter";
 import { EASE_CALM, SETTLE_WIPE_MS } from "../../utils/motion";
 import { Composer } from "./Composer";
@@ -195,9 +204,13 @@ function ConversationView() {
   const source = useTurnStore((s) => s.source);
   const turnId = useTurnStore((s) => s.turnId);
   const day = useTurnStore((s) => s.day);
+  const activeDay = useConnectionStore(selectActiveDay);
   const pendingQuestion = useTurnStore(selectPendingQuestion);
 
   const view: ChatViewMode = historyView ? "history" : "live";
+  // The shared conversation origin (plan §7): archived-day content binds its
+  // references to its own day/turn; the active day keeps live resources.
+  const origin = conversationOrigin({ view, day, turnId, activeDay });
 
   // Freshness baseline: the items present when a view's first projection
   // lands are restored content — they render instantly. Rows arriving after
@@ -277,9 +290,7 @@ function ConversationView() {
 
   // The typewriter's growth does not change the projection lists; a
   // ResizeObserver keeps the follow anchored through it. jsdom (tests) has
-  // no ResizeObserver and relies on the list-driven follow above. The
-  // content node appears once the first projection lands, hence the
-  // dependency on `loading`.
+  // no ResizeObserver and relies on the list-driven follow above.
   useEffect(() => {
     const node = scrollRef.current;
     const content = contentRef.current;
@@ -289,7 +300,7 @@ function ConversationView() {
     });
     observer.observe(content);
     return () => observer.disconnect();
-  }, [loading]);
+  }, []);
 
   const onScroll = (event: UIEvent<HTMLDivElement>) => {
     const node = event.currentTarget;
@@ -313,36 +324,45 @@ function ConversationView() {
         }}
         className="chat-grid min-h-0 flex-1 overflow-y-auto"
       >
-        {loading && items.length === 0 ? (
-          <EmptyState
-            icon={<Loader2 size={26} className="animate-spin-slow" />}
-            title="Loading the conversation…"
-          />
-        ) : (
-          <div ref={contentRef} className="mx-auto max-w-3xl space-y-4 px-4 py-6">
-            {items.map((item) => (
-              <InteractionRow
-                key={item.id}
-                item={item}
-                fresh={isFresh(item)}
-                view={view}
-                epoch={epoch}
-                turnId={turnId}
-                day={day}
-                actionOrdinal={actionOrdinals.get(item.id) ?? 0}
+        <div ref={contentRef} className="mx-auto max-w-3xl space-y-4 px-4 py-6">
+          {loading && items.length === 0 ? (
+            <div className="flex min-h-[60vh] items-center justify-center">
+              <EmptyState
+                icon={<Loader2 size={26} className="animate-spin-slow" />}
+                title="Loading the conversation…"
               />
-            ))}
-            {pendingItems.map((item) => (
-              <PendingRow key={item.record_id} item={item} />
-            ))}
-            {outgoing.map((echo) => (
-              <EchoRow key={echo.echoId} echo={echo} />
-            ))}
-            <QueuedRequestRow />
-            <BudgetCard />
-            <TurnResultRow />
-          </div>
-        )}
+            </div>
+          ) : (
+            <>
+              {items.map((item) => (
+                <InteractionRow
+                  key={item.id}
+                  item={item}
+                  fresh={isFresh(item)}
+                  view={view}
+                  origin={origin}
+                  epoch={epoch}
+                  turnId={turnId}
+                  day={day}
+                  actionOrdinal={actionOrdinals.get(item.id) ?? 0}
+                />
+              ))}
+              {pendingItems.map((item) => (
+                <PendingRow key={item.record_id} item={item} />
+              ))}
+              {outgoing.map((echo) => (
+                <EchoRow key={echo.echoId} echo={echo} />
+              ))}
+            </>
+          )}
+          {/* The snapshot-driven waiting area stays mounted across the first
+              interaction read: a waiting question is answerable before the
+              pages finish draining (plan §6.2). */}
+          <WaitingQuestionCard />
+          <QueuedRequestRow />
+          <BudgetCard />
+          <TurnResultRow />
+        </div>
       </div>
       {!pinned && hasNew && (
         <button
@@ -463,6 +483,7 @@ function InteractionRow({
   item,
   fresh,
   view,
+  origin,
   epoch,
   turnId,
   day,
@@ -471,6 +492,7 @@ function InteractionRow({
   item: Interaction;
   fresh: boolean;
   view: ChatViewMode;
+  origin: MarkdownOrigin;
   epoch: number;
   turnId: string | null;
   day: string | null;
@@ -487,9 +509,9 @@ function InteractionRow({
     case "user.reply":
       return wrapper(<UserBubble text={replyDisplayText(item)} label="Reply" />);
     case "agent.output":
-      return <AgentOutput text={item.text ?? ""} stream={fresh} view={view} />;
+      return <AgentOutput text={item.text ?? ""} stream={fresh} origin={origin} />;
     case "agent.reason":
-      return wrapper(<AgentReason text={item.text ?? ""} view={view} />);
+      return wrapper(<AgentReason text={item.text ?? ""} origin={origin} />);
     case "agent.question":
       return wrapper(<QuestionRow item={item} />);
     case "agent.action":
@@ -563,11 +585,11 @@ function replyDisplayText(item: Interaction): string {
 function AgentOutput({
   text,
   stream,
-  view,
+  origin,
 }: {
   text: string;
   stream: boolean;
-  view: ChatViewMode;
+  origin: MarkdownOrigin;
 }) {
   return (
     <div className="flex gap-2.5">
@@ -575,7 +597,7 @@ function AgentOutput({
         <Bot size={15} />
       </div>
       <div className="min-w-0 flex-1">
-        <AnswerCard text={text} stream={stream} view={view} />
+        <AnswerCard text={text} stream={stream} origin={origin} />
       </div>
     </div>
   );
@@ -593,11 +615,11 @@ function AgentOutput({
 function AnswerCard({
   text,
   stream,
-  view,
+  origin,
 }: {
   text: string;
   stream: boolean;
-  view: ChatViewMode;
+  origin: MarkdownOrigin;
 }) {
   const reduced = useReducedMotion();
   const streaming = stream && !reduced;
@@ -629,12 +651,12 @@ function AnswerCard({
       animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
       transition={{ duration: 0.5, ease: EASE_CALM }}
     >
-      <Markdown origin={{ view }}>{shown}</Markdown>
+      <Markdown origin={origin}>{shown}</Markdown>
     </motion.div>
   );
 }
 
-function AgentReason({ text, view }: { text: string; view: ChatViewMode }) {
+function AgentReason({ text, origin }: { text: string; origin: MarkdownOrigin }) {
   if (!text.trim()) return null;
   return (
     <div className="flex gap-2.5">
@@ -642,7 +664,7 @@ function AgentReason({ text, view }: { text: string; view: ChatViewMode }) {
         <Bot size={14} />
       </div>
       <div className="thinking-md min-w-0 flex-1 px-1 py-1 text-[13px] leading-6 text-fg-faint italic">
-        <Markdown origin={{ view }}>{text}</Markdown>
+        <Markdown origin={origin}>{text}</Markdown>
       </div>
     </div>
   );
@@ -652,16 +674,64 @@ function AgentReason({ text, view }: { text: string; view: ChatViewMode }) {
 // Questions
 // ---------------------------------------------------------------------------
 
+/**
+ * The live waiting question of the displayed turn, if it is answerable right
+ * now: the snapshot says the turn is waiting on it and no formal reply (or
+ * answered flag) has arrived for its question_id yet. The snapshot alone is
+ * enough — the card must not wait for the interaction pages to drain
+ * (plan §6.2). While this question is live the waiting area owns the single
+ * card; the formal interaction row with the same question_id stays hidden so
+ * the two projections never produce two submittable forms.
+ */
+function useLiveWaitingQuestion(): TurnQuestion | null {
+  const historyView = useTurnStore((s) => s.historyView);
+  const snapshot = useTurnStore((s) => s.snapshot);
+  const items = useTurnStore((s) => s.items);
+  if (historyView || snapshot === null || snapshot.state !== "waiting") {
+    return null;
+  }
+  const question = snapshot.question;
+  if (question === null) return null;
+  const answered = items.some(
+    (item) =>
+      item.question_id === question.question_id &&
+      (item.role === "user.reply" ||
+        (item.role === "agent.question" && item.answered === true)),
+  );
+  return answered ? null : question;
+}
+
+/** The single card of the live waiting question, rendered immediately from
+    the snapshot — before and regardless of the interaction drain progress. */
+function WaitingQuestionCard() {
+  const epoch = useConnectionStore((s) => s.epoch);
+  const turnId = useTurnStore((s) => s.turnId);
+  const question = useLiveWaitingQuestion();
+  if (question === null || turnId === null) return null;
+  return (
+    <QuestionCard
+      key={question.question_id}
+      epoch={epoch}
+      turnId={turnId}
+      item={null}
+      live={question}
+      reply={null}
+    />
+  );
+}
+
 function QuestionRow({ item }: { item: Interaction }) {
   const epoch = useConnectionStore((s) => s.epoch);
   const turnId = useTurnStore((s) => s.turnId);
-  const historyView = useTurnStore((s) => s.historyView);
-  const snapshot = useTurnStore((s) => s.snapshot);
-  const pendingQuestion = useTurnStore(selectPendingQuestion);
   const items = useTurnStore((s) => s.items);
+  const liveQuestion = useLiveWaitingQuestion();
 
   const questionId = typeof item.question_id === "string" ? item.question_id : null;
-  const answeredFlag = item.answered === true;
+  // The waiting area renders the live question's single card; this formal
+  // row joins the flow once the reply (or the lapsed wait) settles it.
+  if (liveQuestion !== null && questionId === liveQuestion.question_id) {
+    return null;
+  }
   const reply =
     questionId !== null
       ? (items.find(
@@ -669,22 +739,13 @@ function QuestionRow({ item }: { item: Interaction }) {
             candidate.role === "user.reply" && candidate.question_id === questionId,
         ) ?? null)
       : null;
-  const live =
-    !historyView &&
-    !answeredFlag &&
-    reply === null &&
-    pendingQuestion !== null &&
-    questionId !== null &&
-    pendingQuestion.question_id === questionId &&
-    snapshot !== null &&
-    snapshot.state === "waiting";
 
   return (
     <QuestionCard
       epoch={epoch}
       turnId={turnId}
       item={item}
-      live={live ? pendingQuestion : null}
+      live={null}
       reply={reply}
     />
   );
@@ -734,6 +795,15 @@ function EchoRow({ echo }: { echo: OutgoingEcho }) {
           {failed ? (
             <>
               <span className="text-danger">{echo.error ?? "send failed"}</span>
+              {echo.turnClosed && (
+                <button
+                  className="font-medium text-accent hover:underline"
+                  title="The target turn is closed; send the same text as a new turn"
+                  onClick={() => void sendEchoAsNewTurn(epoch, echo.echoId)}
+                >
+                  Send as next turn
+                </button>
+              )}
               {echo.kind !== "reply" && (
                 <button
                   className="font-medium text-accent hover:underline"
@@ -767,21 +837,43 @@ function EchoRow({ echo }: { echo: OutgoingEcho }) {
   );
 }
 
+/**
+ * The displayed turn is still queued: its summary clue and the cancel entry.
+ * Cancelling targets this queued turn — not whatever work is currently
+ * running (plan §5.1).
+ */
 function QueuedRequestRow() {
+  const epoch = useConnectionStore((s) => s.epoch);
   const queued = useTurnStore((s) => s.queuedRequest);
-  if (queued === null) return null;
+  const turnId = useTurnStore((s) => s.turnId);
+  const snapshot = useTurnStore((s) => s.snapshot);
+  if (queued === null || turnId === null) return null;
   const text =
     typeof queued.text === "string"
       ? queued.text
       : typeof queued.excerpt === "string"
         ? queued.excerpt
         : null;
+  const cancellable =
+    snapshot !== null &&
+    !snapshot.cancel_requested &&
+    (snapshot.state === "queued" || snapshot.state === "preparing");
   return (
     <div className="flex items-center gap-1.5 px-1 text-[12px] text-fg-faint">
       <Clock size={11} className="shrink-0" />
-      <span className="min-w-0 truncate">
+      <span className="min-w-0 flex-1 truncate">
         Queued as the next turn{text ? `: ${text}` : ""}
       </span>
+      {cancellable && (
+        <button
+          type="button"
+          className="shrink-0 font-medium text-fg-muted hover:text-danger hover:underline"
+          title="Cancel this queued turn (the current work is not affected)"
+          onClick={() => void cancelQueuedTurn(epoch, turnId)}
+        >
+          Cancel queued turn
+        </button>
+      )}
     </div>
   );
 }

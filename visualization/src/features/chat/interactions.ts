@@ -146,6 +146,26 @@ export type ComposerIntent =
   | { kind: "new-turn"; queued: boolean }
   | { kind: "unavailable"; reason: "offline" | "not-ready" };
 
+/** The composer's explicit intent choice from the chip menu (plan §5.1). */
+export type ComposerIntentChoice = "append" | "queue";
+
+/**
+ * Apply the explicit intent choice to the derived intent. The choice only
+ * bites while an appendable turn is active: "queue" turns the submission
+ * into a new turn queued behind the current work. Every other state keeps
+ * the derived intent — an explicit "append" never resurrects a closed inbox,
+ * and an unavailable composer stays unavailable.
+ */
+export function applyIntentChoice(
+  intent: ComposerIntent,
+  choice: ComposerIntentChoice | null,
+): ComposerIntent {
+  if (intent.kind === "append" && choice === "queue") {
+    return { kind: "new-turn", queued: true };
+  }
+  return intent;
+}
+
 /**
  * Resolve the composer's submission target from the formal status and the
  * active turn snapshot. A snapshot is only trusted when it belongs to the

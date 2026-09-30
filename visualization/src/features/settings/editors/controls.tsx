@@ -9,12 +9,15 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
+  Check,
   Eye,
   EyeOff,
   Info,
+  KeyRound,
   Lock,
   Plus,
   RotateCcw,
+  Trash2,
   X,
 } from "lucide-react";
 
@@ -365,6 +368,79 @@ export function DraftNumber({
   );
 }
 
+/** Presentation bounds of one slider (the exact input stays authoritative). */
+export interface SliderRange {
+  min: number;
+  max: number;
+  step?: number;
+}
+
+/**
+ * A bounded numeric field (plan §15/§17.4): a range slider for quick
+ * adjustment plus the exact number input with its unit, and an explicit
+ * restore-default that deletes the source override. The slider only ever
+ * shows for values with real bounds on both sides; it never expresses object
+ * ordering. `min`/`max` remain the validation bounds of the exact input.
+ */
+export function SliderField({
+  api,
+  slider,
+  min,
+  max,
+  unit,
+}: {
+  api: DraftFieldApi;
+  slider: SliderRange;
+  min?: number;
+  max?: number;
+  unit?: string;
+}) {
+  const integer = api.field?.valueKind === "integer";
+  const readOnly = api.readOnly !== null;
+  const value = typeof api.value === "number" ? api.value : undefined;
+  const step = slider.step ?? (integer ? 1 : 0.01);
+  // With no override the owner default applies; park the knob at the range
+  // start — the exact input keeps showing the "default" placeholder.
+  const knob =
+    value === undefined
+      ? slider.min
+      : Math.min(Math.max(value, slider.min), slider.max);
+
+  const slide = (raw: string) => {
+    let next = Number(raw);
+    if (!Number.isFinite(next)) return;
+    // The native control clamps into the range; mirror that for robustness.
+    next = Math.min(Math.max(next, slider.min), slider.max);
+    if (integer) next = Math.round(next);
+    api.set(next);
+  };
+
+  return (
+    <span className="flex items-center gap-2">
+      <input
+        type="range"
+        aria-label={`${api.path} slider`}
+        className="w-32 accent-accent disabled:opacity-50"
+        min={slider.min}
+        max={slider.max}
+        step={step}
+        value={knob}
+        disabled={readOnly}
+        onChange={(event) => slide(event.target.value)}
+      />
+      <DraftNumber api={api} min={min} max={max} unit={unit} />
+      <IconButton
+        label="Restore the owner default"
+        title="Delete the override and restore the owner default"
+        disabled={readOnly || value === undefined}
+        onClick={() => api.clear()}
+      >
+        <RotateCcw size={13} />
+      </IconButton>
+    </span>
+  );
+}
+
 export function DraftText({
   api,
   placeholder,
@@ -568,32 +644,55 @@ function StringListRow({
 // Credentials — the shared dotenv draft (implementation plan §15.1)
 // ---------------------------------------------------------------------------
 
+/** The writable dotenv source id (synthesized as "dotenv" when absent). */
+function dotenvSourceId(state: ConfigDraftState): string {
+  return (
+    state.saved?.sources.find((source) => source.kind === "dotenv")?.id ??
+    DOTENV_SOURCE_ID
+  );
+}
+
 /** Whether the dotenv source currently holds a value for `envName`. */
 function dotenvHas(state: ConfigDraftState, envName: string): boolean {
-  const source = state.saved?.sources.find((item) => item.id === DOTENV_SOURCE_ID);
+  const source = state.saved?.sources.find((item) => item.kind === "dotenv");
+  const stored = source?.values[envName];
   return (
-    source !== undefined &&
-    Object.prototype.hasOwnProperty.call(source.values, envName)
+    typeof stored === "string" && (isRedactedValue(stored) || stored.trim() !== "")
   );
 }
 
 /**
- * The value side of one credential: writes go to the shared dotenv draft
- * under the raw variable name. An untouched credential produces no operation;
- * typing a new value sets it; removal is the explicit Remove action.
+ * The one credential value editor shared by the Credentials page, the
+ * provider pages and credential-reference fields (plan §15.1/§16.6). Writes
+ * go to the shared dotenv draft under the raw variable name: an untouched
+ * credential produces no operation, a staged value sets it, removal is the
+ * explicit delete action, and the redacted placeholder is never written back.
  */
-export function CredentialValueEditor({ envName }: { envName: string }) {
+export function CredentialValueEditor({
+  name,
+  compact = false,
+}: {
+  name: string;
+  compact?: boolean;
+}) {
   const setValue = useConfigDraftStore((s) => s.setValue);
   const deleteValue = useConfigDraftStore((s) => s.deleteValue);
   const resetEntries = useConfigDraftStore((s) => s.resetEntries);
-  const key = draftKey({ sourceId: DOTENV_SOURCE_ID, path: envName });
+  const sourceId = useConfigDraftStore((s) => dotenvSourceId(s));
+  const writable = useConfigDraftStore(
+    (s) =>
+      s.saved?.sources.find((source) => source.kind === "dotenv")?.writable !==
+      false,
+  );
+  const key = draftKey({ sourceId, path: name });
   const draft = useConfigDraftStore((s) => s.drafts[key]);
-  const stored = useConfigDraftStore((s) => dotenvHas(s, envName));
+  const stored = useConfigDraftStore((s) => dotenvHas(s, name));
 
+  const [editing, setEditing] = useState(false);
   const [text, setText] = useState("");
   const [visible, setVisible] = useState(false);
 
-  if (envName.trim() === "") {
+  if (name.trim() === "") {
     return (
       <span className="text-[11px] text-fg-faint">
         Set the variable name first.
@@ -603,59 +702,110 @@ export function CredentialValueEditor({ envName }: { envName: string }) {
 
   const draftSet = draft?.op.op === "set";
   const draftDelete = draft?.op.op === "delete";
+  const stopEditing = () => {
+    setText("");
+    setVisible(false);
+    setEditing(false);
+  };
+  const commit = () => {
+    if (text === "") return;
+    setValue(sourceId, name, text);
+    stopEditing();
+  };
 
   return (
-    <span className="flex flex-wrap items-center gap-1.5">
-      <span className="text-[11px] text-fg-faint">value:</span>
+    <div
+      className={`flex items-center gap-2 rounded-md border border-line bg-bg px-2 py-1.5 ${
+        compact ? "" : "min-h-9"
+      }`}
+    >
+      <KeyRound size={12} className="shrink-0 text-fg-faint" />
+      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-fg">
+        {name}
+      </span>
       {draftDelete ? (
-        <Badge tone="red">will be removed</Badge>
+        <Badge tone="red" title="Deletion is staged in the local draft">
+          delete pending
+        </Badge>
       ) : draftSet ? (
-        <Badge tone="accent">new value pending</Badge>
+        <Badge tone="accent" title="A new value is staged in the local draft">
+          •••••• pending apply
+        </Badge>
       ) : stored ? (
-        <Badge tone="green">configured</Badge>
+        <Badge tone="green" title="A value exists in the project dotenv file">
+          •••••• configured
+        </Badge>
       ) : (
-        <Badge tone="gray">not set</Badge>
+        <Badge tone="gray" title="No value found in the dotenv source">
+          not set
+        </Badge>
       )}
-      <input
-        type={visible ? "text" : "password"}
-        autoComplete="new-password"
-        className={`${inputClass} w-44 font-mono`}
-        placeholder={stored ? "•••••• (unchanged)" : "enter value"}
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-      />
-      <IconButton
-        label={visible ? "Hide value" : "Show value"}
-        onClick={() => setVisible((v) => !v)}
-      >
-        {visible ? <EyeOff size={13} /> : <Eye size={13} />}
-      </IconButton>
-      <button
-        type="button"
-        className="h-7 rounded-md bg-hover px-2 text-xs font-medium text-fg hover:bg-line-strong/60 disabled:opacity-50"
-        disabled={text === ""}
-        onClick={() => {
-          setValue(DOTENV_SOURCE_ID, envName, text);
-          setText("");
-        }}
-      >
-        Set
-      </button>
-      {(stored || draftSet) && !draftDelete && (
+      {editing ? (
+        <>
+          <input
+            autoFocus
+            aria-label={`New value for ${name}`}
+            type={visible ? "text" : "password"}
+            autoComplete="new-password"
+            value={text}
+            placeholder="Enter new value…"
+            onChange={(event) => setText(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") commit();
+              if (event.key === "Escape") stopEditing();
+            }}
+            className={`${inputClass} h-7 max-w-44 font-mono text-[11px]`}
+          />
+          <IconButton
+            label={visible ? "Hide value" : "Show value"}
+            onClick={() => setVisible((v) => !v)}
+          >
+            {visible ? <EyeOff size={13} /> : <Eye size={13} />}
+          </IconButton>
+          <IconButton label="Stage new value" disabled={text === ""} onClick={commit}>
+            <Check size={13} />
+          </IconButton>
+          <button
+            type="button"
+            className="h-7 rounded-md px-1.5 text-xs font-medium text-fg-muted hover:text-fg"
+            onClick={stopEditing}
+          >
+            Cancel
+          </button>
+        </>
+      ) : (
         <button
           type="button"
-          className="h-7 rounded-md bg-danger-soft px-2 text-xs font-medium text-danger hover:bg-danger/20"
-          onClick={() => deleteValue(DOTENV_SOURCE_ID, envName)}
+          className="h-7 rounded-md bg-hover px-2 text-xs font-medium text-fg hover:bg-line-strong/60 disabled:opacity-50"
+          disabled={!writable}
+          title={
+            writable
+              ? "Stage a new value in the shared credentials draft"
+              : "The dotenv source is read-only"
+          }
+          onClick={() => setEditing(true)}
         >
-          Remove
+          Set value
         </button>
       )}
+      {(stored || draftSet) && !draftDelete && (
+        <IconButton
+          label="Stage credential deletion"
+          disabled={!writable}
+          onClick={() => deleteValue(sourceId, name)}
+        >
+          <Trash2 size={13} />
+        </IconButton>
+      )}
       {draft !== undefined && (
-        <IconButton label="Withdraw credential change" onClick={() => resetEntries([key])}>
+        <IconButton
+          label="Withdraw credential change"
+          onClick={() => resetEntries([key])}
+        >
           <RotateCcw size={13} />
         </IconButton>
       )}
-    </span>
+    </div>
   );
 }
 
@@ -668,7 +818,7 @@ export function CredentialReferenceControl({ api }: { api: DraftFieldApi }) {
   return (
     <span className="flex flex-col items-end gap-1">
       <DraftText api={api} mono placeholder="ENV_VARIABLE_NAME" width="w-56" />
-      {api.readOnly === null && <CredentialValueEditor envName={envName} />}
+      {api.readOnly === null && <CredentialValueEditor name={envName} compact />}
     </span>
   );
 }
@@ -859,6 +1009,12 @@ export interface FieldOverride {
   min?: number;
   max?: number;
   unit?: string;
+  /**
+   * Real bounds of a bounded numeric field: renders the SliderField (range +
+   * exact input + unit + restore default). Without it (or catalog min/max) a
+   * numeric field stays a plain input.
+   */
+  slider?: SliderRange;
 }
 
 /** Dispatch one config path to its control by catalog value kind. */
@@ -881,16 +1037,33 @@ export function SettingsField({
         control = <DraftBoolean api={api} />;
         break;
       case "integer":
-      case "number":
-        control = (
-          <DraftNumber
-            api={api}
-            min={override?.min ?? 0}
-            max={override?.max}
-            unit={override?.unit ?? unitForPath(path)}
-          />
-        );
+      case "number": {
+        const min = override?.min ?? api.field?.min ?? 0;
+        const max = override?.max ?? api.field?.max ?? undefined;
+        const slider =
+          override?.slider ??
+          (api.field?.min != null && api.field?.max != null
+            ? { min: api.field.min, max: api.field.max }
+            : undefined);
+        control =
+          slider !== undefined ? (
+            <SliderField
+              api={api}
+              slider={slider}
+              min={min}
+              max={max}
+              unit={override?.unit ?? unitForPath(path)}
+            />
+          ) : (
+            <DraftNumber
+              api={api}
+              min={min}
+              max={max}
+              unit={override?.unit ?? unitForPath(path)}
+            />
+          );
         break;
+      }
       case "enum":
         control = <DraftEnum api={api} choices={override?.choices} />;
         break;

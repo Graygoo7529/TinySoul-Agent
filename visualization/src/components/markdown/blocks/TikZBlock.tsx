@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { BlockFrame } from "./BlockFrame";
+import { requestTikzSlot, type TikzSlot } from "./tikzSlots";
 import { useInViewport } from "./useInViewport";
 
 type RenderState =
   | { status: "idle" }
+  | { status: "queued" }
   | { status: "rendering" }
   | { status: "done"; svg: string }
   | { status: "error"; error: string };
@@ -68,8 +70,10 @@ function readResult(doc: Document): RenderState | null {
  * TikZ/TikZ-picture block compiled by @drgrice1/tikzjax. The runtime scans
  * whatever document it loads into, so it is confined to a dedicated iframe;
  * the resulting SVG is lifted back into the React tree. Everything is loaded
- * lazily: the iframe (and thus the TeX wasm worker) only starts once the
- * block is visible. Unmounting removes the iframe and its worker.
+ * lazily: the block first waits for the viewport, then for a compile slot
+ * (bounded concurrency — each iframe carries its own TeX wasm worker).
+ * Settling drops the iframe and releases the slot, so a compiled diagram
+ * keeps no worker alive; unmounting withdraws or releases the slot as well.
  *
  * Detection arms on the iframe element's load event: reading
  * contentDocument earlier can yield the initial about:blank document that
@@ -85,9 +89,14 @@ export function TikZBlock({
 }): ReactElement {
   const [containerRef, visible] = useInViewport<HTMLDivElement>(eager);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const [state, setState] = useState<RenderState>({ status: "idle" });
+  const [run, setRun] = useState<{ source: string; state: RenderState }>({
+    source: "",
+    state: { status: "idle" },
+  });
+  const [slotHeld, setSlotHeld] = useState(false);
   const settledFor = useRef<string | null>(null);
   const disposersRef = useRef<(() => void) | null>(null);
+  const slotRef = useRef<TikzSlot | null>(null);
 
   const trimmed = source.trim();
   const embedError = trimmed
@@ -95,19 +104,54 @@ export function TikZBlock({
       ? "源码包含无法嵌入的 </script> 序列"
       : null
     : "空 TikZ 源码";
-  const srcDoc = visible && !embedError ? buildTikZSrcDoc(trimmed) : null;
 
+  // A state belongs to the source it was computed for; a new source falls
+  // back to idle until the slot effect below starts a fresh compile.
+  // Embedding rejections are deterministic: they derive straight from the
+  // source and never enter the compile queue.
+  const state: RenderState =
+    visible && embedError !== null
+      ? { status: "error", error: embedError }
+      : run.source === trimmed
+        ? run.state
+        : { status: "idle" };
+  const settled = state.status === "done" || state.status === "error";
+  // Compile only while visible, embeddable and not yet settled; the slot
+  // queue below is the only path that mounts the iframe.
+  const needCompile = visible && embedError === null && !settled;
+  const srcDoc = needCompile && slotHeld ? buildTikZSrcDoc(trimmed) : null;
+
+  // Visible blocks queue for a bounded compile slot; the iframe only mounts
+  // once the slot is held. Unmounting or a new source withdraws/releases it.
   useEffect(() => {
-    if (!visible) return;
-    if (embedError) {
-      setState({ status: "error", error: embedError });
-      return;
-    }
-    setState({ status: "rendering" });
-  }, [visible, embedError, srcDoc]);
+    if (!needCompile) return;
+    setRun({ source: trimmed, state: { status: "queued" } });
+    const request = requestTikzSlot();
+    let withdrawn = false;
+    void request.promise.then((slot) => {
+      if (withdrawn) {
+        slot.release();
+        return;
+      }
+      slotRef.current = slot;
+      setSlotHeld(true);
+      setRun({ source: trimmed, state: { status: "rendering" } });
+    });
+    return () => {
+      withdrawn = true;
+      request.cancel();
+      slotRef.current?.release();
+      slotRef.current = null;
+      setSlotHeld(false);
+    };
+  }, [needCompile, trimmed]);
 
   useEffect(() => {
     if (srcDoc === null) return;
+    const releaseSlot = () => {
+      slotRef.current?.release();
+      slotRef.current = null;
+    };
     const settle = (next: RenderState) => {
       if (settledFor.current === srcDoc) return;
       settledFor.current = srcDoc;
@@ -115,7 +159,8 @@ export function TikZBlock({
       disposersRef.current = null;
       window.clearTimeout(timer);
       if (next.status === "done") ensureTikzFonts();
-      setState(next);
+      releaseSlot();
+      setRun({ source: trimmed, state: next });
     };
 
     const timer = window.setTimeout(() => {
@@ -188,6 +233,14 @@ export function TikZBlock({
         source={source}
         status={state.status}
         error={state.status === "error" ? state.error : null}
+        onRetry={
+          state.status === "error" && embedError === null
+            ? () => {
+                settledFor.current = null;
+                setRun({ source: trimmed, state: { status: "idle" } });
+              }
+            : undefined
+        }
       >
         {state.status === "done" && (
           <div

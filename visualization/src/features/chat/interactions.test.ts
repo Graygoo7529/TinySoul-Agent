@@ -8,12 +8,14 @@ import {
   waitingSnapshot,
 } from "../../app/testing";
 import {
+  applyIntentChoice,
   canCancelActiveTurn,
   convergeEchoes,
   formalItemForEcho,
   mergeInteractions,
   pendingItemForEcho,
   resolveComposerIntent,
+  type ComposerIntent,
 } from "./interactions";
 
 function interaction(
@@ -30,6 +32,7 @@ function echo(partial: Partial<OutgoingEcho> & { echoId: string }): OutgoingEcho
     text: "text",
     state: "accepted",
     error: null,
+    turnClosed: false,
     ...partial,
   };
 }
@@ -341,5 +344,30 @@ describe("canCancelActiveTurn", () => {
     expect(canCancelActiveTurn(status, runningSnapshot("other-turn"))).toBe(false);
     expect(canCancelActiveTurn(status, null)).toBe(false);
     expect(canCancelActiveTurn(null, runningSnapshot())).toBe(false);
+  });
+});
+
+describe("applyIntentChoice", () => {
+  const append: ComposerIntent = { kind: "append", turnId: "contract-turn" };
+
+  it("turns an append into a queued new turn on the explicit choice", () => {
+    expect(applyIntentChoice(append, "queue")).toEqual({
+      kind: "new-turn",
+      queued: true,
+    });
+  });
+
+  it("keeps the append intent on the explicit append choice or no choice", () => {
+    expect(applyIntentChoice(append, "append")).toEqual(append);
+    expect(applyIntentChoice(append, null)).toEqual(append);
+  });
+
+  it("never resurrects a closed or unavailable target", () => {
+    const newTurn: ComposerIntent = { kind: "new-turn", queued: true };
+    const unavailable: ComposerIntent = { kind: "unavailable", reason: "offline" };
+    expect(applyIntentChoice(newTurn, "append")).toEqual(newTurn);
+    expect(applyIntentChoice(newTurn, "queue")).toEqual(newTurn);
+    expect(applyIntentChoice(unavailable, "append")).toEqual(unavailable);
+    expect(applyIntentChoice(unavailable, "queue")).toEqual(unavailable);
   });
 });

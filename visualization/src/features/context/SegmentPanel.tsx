@@ -49,6 +49,7 @@ import {
 } from "./panelShared";
 import {
   canInspect,
+  canQuery,
   classifyRef,
   partitionHeapRefs,
   shapeLabel,
@@ -248,7 +249,10 @@ function HeapRefs({
       case "session":
       case "trace":
         return canInspect(segment)
-          ? () => pushContextInspect(epoch, turnId, ref)
+          ? () =>
+              pushContextInspect(epoch, turnId, ref, {
+                canQuery: canQuery(segment),
+              })
           : undefined;
       default:
         return undefined;
@@ -312,6 +316,7 @@ function RootRefs({
   closed: boolean;
 }): ReactElement {
   const inspectable = canInspect(segment) && !closed;
+  const queryable = canQuery(segment);
   return (
     <section className="space-y-2">
       <h3 className="px-1 text-[11px] font-semibold tracking-wide text-fg-faint uppercase">
@@ -323,7 +328,9 @@ function RootRefs({
             key={ref}
             reference={ref}
             onOpen={
-              inspectable ? () => pushContextInspect(epoch, turnId, ref) : undefined
+              inspectable
+                ? () => pushContextInspect(epoch, turnId, ref, { canQuery: queryable })
+                : undefined
             }
             hint={
               inspectable

@@ -44,6 +44,13 @@ export interface CatalogField {
   credentialReference: boolean;
   choices: CatalogChoice[];
   reference: { collection: string; multiple: boolean } | null;
+  /**
+   * Declared numeric bounds when the catalog carries them (optional keys).
+   * Both present ⇒ the field has a real bounded range and may render a
+   * slider; absent on either side ⇒ plain number input.
+   */
+  min: number | null;
+  max: number | null;
 }
 
 export interface CatalogCollection {
@@ -356,7 +363,13 @@ function decodeField(item: Record<string, unknown>): CatalogField | null {
     credentialReference: item.credential_reference === true,
     choices: decodeChoices(item.choices),
     reference,
+    min: numberOrNull(item.min),
+    max: numberOrNull(item.max),
   };
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function arrayOf(value: unknown): Record<string, unknown>[] {

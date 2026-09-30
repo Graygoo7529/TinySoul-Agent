@@ -3,9 +3,11 @@
  *
  * Holds the handshake facts (ConnectionInfo from api/v2/connection), the
  * shared owner clients, the latest formal RuntimeStatus snapshot and the
- * observation-stream position. The async connection lifecycle itself —
- * handshake, WebSocket supervision, backoff and gap refill — lives in
- * src/app/connection.ts; this store is the state it publishes.
+ * observation-stream position — including the lightweight context generation
+ * the Context drawer uses as its refresh signal. The async connection
+ * lifecycle itself — handshake, WebSocket supervision, backoff and gap
+ * refill — lives in src/app/connection.ts; this store is the state it
+ * publishes.
  *
  * `epoch` is the connection generation guard: every connect attempt bumps
  * it, and async completions from an older attempt must not overwrite the
@@ -57,6 +59,13 @@ export interface ConnectionState {
   unreachable: boolean;
   /** Connection generation; stale async work compares against it. */
   epoch: number;
+  /**
+   * Lightweight generation signal for the installed context: bumped by the
+   * context-install events (`context.installed`, `context.background.changed`)
+   * as they arrive on the event stream — never by unrelated status re-reads.
+   * The Context drawer marks itself refreshable from it.
+   */
+  contextGeneration: number;
   /** A POST /v2/restart request is in flight. */
   restartPending: boolean;
 
@@ -76,6 +85,8 @@ export interface ConnectionState {
   setEventGap: (gap: boolean) => void;
   setUnreachable: (unreachable: boolean) => void;
   setRestartPending: (pending: boolean) => void;
+  /** Record one context-install event from the observation stream. */
+  noteContextInstalled: () => void;
   /** Explicit disconnect: drop handles and return to the connect form. */
   reset: () => void;
 }
@@ -91,6 +102,7 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
   eventGap: false,
   unreachable: false,
   epoch: 0,
+  contextGeneration: 0,
   restartPending: false,
 
   beginConnect: () => {
@@ -140,6 +152,8 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
   setEventGap: (eventGap) => set({ eventGap }),
   setUnreachable: (unreachable) => set({ unreachable }),
   setRestartPending: (restartPending) => set({ restartPending }),
+  noteContextInstalled: () =>
+    set((state) => ({ contextGeneration: state.contextGeneration + 1 })),
 
   reset: () =>
     set((state) => ({
@@ -152,6 +166,7 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
       eventsPhase: "offline",
       eventGap: false,
       unreachable: false,
+      contextGeneration: 0,
       restartPending: false,
       epoch: state.epoch + 1,
     })),

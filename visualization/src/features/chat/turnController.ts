@@ -34,7 +34,11 @@ import {
   useConnectionStore,
 } from "../../store/connectionStore";
 import { useTurnStore, type OutgoingEcho } from "../../store/turnStore";
-import { convergeEchoes, resolveComposerIntent } from "./interactions";
+import {
+  convergeEchoes,
+  resolveComposerIntent,
+  type ComposerIntent,
+} from "./interactions";
 import { randomId } from "../../utils/randomId";
 
 /** Bounded take-over retries while the Session commit lags the finish event. */
@@ -401,38 +405,46 @@ export async function openSessionTurn(
   useTurnStore.getState().applyProjection(readEpoch, read);
 }
 
-/** Send the composer text with the intent derived from the formal state. */
+/**
+ * Send the composer text with the given intent. The Composer pins the intent
+ * (and its target) at submit time (plan §5.1); callers that leave it out get
+ * the intent derived from the formal state right now.
+ */
 export async function sendUserMessage(
   epoch: number,
   text: string,
+  intent?: ComposerIntent,
 ): Promise<boolean> {
   const clients = clientsFor(epoch);
   if (clients === null) return false;
   const connection = useConnectionStore.getState();
-  const intent = resolveComposerIntent(
-    connection.status,
-    useTurnStore.getState().snapshot,
-    true,
-  );
-  if (intent.kind === "unavailable") return false;
+  const resolved =
+    intent ??
+    resolveComposerIntent(
+      connection.status,
+      useTurnStore.getState().snapshot,
+      true,
+    );
+  if (resolved.kind === "unavailable") return false;
   const value = text.trim();
   if (!value) return false;
   const store = useTurnStore.getState();
   const echoId = randomId();
 
-  if (intent.kind === "append") {
+  if (resolved.kind === "append") {
     const echo: OutgoingEcho = {
       echoId,
       kind: "append",
-      turnId: intent.turnId,
+      turnId: resolved.turnId,
       questionId: null,
       text: value,
       state: "sending",
       error: null,
+      turnClosed: false,
     };
     store.addEcho(echo);
     try {
-      const receipt = await clients.turns.appendInput(intent.turnId, {
+      const receipt = await clients.turns.appendInput(resolved.turnId, {
         text: value,
         input_id: echoId,
       });
@@ -452,6 +464,20 @@ export async function sendUserMessage(
     }
   }
 
+  return sendNewTurn(epoch, value);
+}
+
+/**
+ * Create a new user turn with a local echo. Once the receipt names the turn,
+ * the view opens it right away when nothing else is displayed — a fast turn
+ * may start and finish entirely between status reads, and only the receipt
+ * still points at it.
+ */
+async function sendNewTurn(epoch: number, value: string): Promise<boolean> {
+  const clients = clientsFor(epoch);
+  if (clients === null) return false;
+  const store = useTurnStore.getState();
+  const echoId = randomId();
   const echo: OutgoingEcho = {
     echoId,
     kind: "new-turn",
@@ -460,6 +486,7 @@ export async function sendUserMessage(
     text: value,
     state: "sending",
     error: null,
+    turnClosed: false,
   };
   store.addEcho(echo);
   try {
@@ -474,6 +501,7 @@ export async function sendUserMessage(
       state: "accepted",
       turnId: receipt.turn_id ?? null,
     });
+    openAcceptedTurn(receipt.turn_id ?? null);
     // A queued turn's echo stays until its turn becomes active and the
     // formal initial input appears.
     void refreshDisplayedTurn(epoch);
@@ -483,6 +511,19 @@ export async function sendUserMessage(
     failEcho(echoId, error);
     return false;
   }
+}
+
+/**
+ * Open the just-accepted turn when the view shows nothing. An explicit
+ * history view or another displayed turn is never stolen by this; the
+ * status sync still decides every later switch.
+ */
+function openAcceptedTurn(turnId: string | null): void {
+  if (turnId === null) return;
+  const turn = useTurnStore.getState();
+  if (turn.turnId !== null) return;
+  const day = useConnectionStore.getState().status?.active_day ?? null;
+  turn.openTurn(turnId, day, "live");
 }
 
 /** Reply to the currently pending question (choice with comment, or text). */
@@ -505,6 +546,7 @@ export async function replyToQuestion(
     text: displayText,
     state: "sending",
     error: null,
+    turnClosed: false,
   });
   try {
     const receipt = await clients.turns.reply(turnId, {
@@ -562,9 +604,28 @@ export async function grantBudget(
 
 /** Ask the active turn to stop; the receipt only confirms the intent. */
 export async function cancelActiveTurn(epoch: number): Promise<void> {
-  const clients = clientsFor(epoch);
   const turnId = selectActiveTurnId(useConnectionStore.getState());
-  if (clients === null || turnId === null) return;
+  if (turnId === null) return;
+  await postCancelIntent(epoch, turnId, "stop the turn");
+}
+
+/**
+ * Cancel a queued turn from its summary row. This targets the queued turn
+ * itself — never the currently running work — so it takes the turn id from
+ * the row's own projection, not from the runtime status (plan §5.1).
+ */
+export async function cancelQueuedTurn(epoch: number, turnId: string): Promise<void> {
+  await postCancelIntent(epoch, turnId, "cancel the queued turn");
+}
+
+/** Shared cancel-intent POST; the receipt only confirms the intent. */
+async function postCancelIntent(
+  epoch: number,
+  turnId: string,
+  action: string,
+): Promise<void> {
+  const clients = clientsFor(epoch);
+  if (clients === null) return;
   try {
     await clients.turns.cancel(turnId);
     void refreshDisplayedTurn(epoch);
@@ -575,7 +636,7 @@ export async function cancelActiveTurn(epoch: number): Promise<void> {
       void refreshDisplayedTurn(epoch);
       return;
     }
-    toast("error", `Failed to stop the turn: ${errorMessage(error)}`);
+    toast("error", `Failed to ${action}: ${errorMessage(error)}`);
   }
 }
 
@@ -597,13 +658,32 @@ export function dismissEcho(echoId: string): void {
   useTurnStore.getState().removeEcho(echoId);
 }
 
+/**
+ * The explicit "send as next turn" entry on a failed append whose target
+ * turn is closed (plan §5.1). The original text becomes a new-turn request
+ * with a fresh request identity — only ever on the user's explicit click.
+ */
+export async function sendEchoAsNewTurn(
+  epoch: number,
+  echoId: string,
+): Promise<boolean> {
+  const echo = useTurnStore
+    .getState()
+    .outgoing.find((item) => item.echoId === echoId);
+  if (!echo || echo.state !== "failed" || echo.kind !== "append") return false;
+  useTurnStore.getState().removeEcho(echoId);
+  return sendNewTurn(epoch, echo.text);
+}
+
 async function resendNewTurn(
   epoch: number,
   echo: OutgoingEcho,
 ): Promise<void> {
   const clients = clientsFor(epoch);
   if (clients === null) return;
-  useTurnStore.getState().addEcho({ ...echo, state: "sending", error: null });
+  useTurnStore
+    .getState()
+    .addEcho({ ...echo, state: "sending", error: null, turnClosed: false });
   try {
     const receipt = await clients.turns.create({
       kind: "user",
@@ -616,6 +696,7 @@ async function resendNewTurn(
       state: "accepted",
       turnId: receipt.turn_id ?? null,
     });
+    openAcceptedTurn(receipt.turn_id ?? null);
     void refreshDisplayedTurn(epoch);
   } catch (error) {
     if (clientsFor(epoch) === null) return;
@@ -629,7 +710,9 @@ async function resendAppend(
 ): Promise<void> {
   const clients = clientsFor(epoch);
   if (clients === null || echo.turnId === null) return;
-  useTurnStore.getState().addEcho({ ...echo, state: "sending", error: null });
+  useTurnStore
+    .getState()
+    .addEcho({ ...echo, state: "sending", error: null, turnClosed: false });
   try {
     await clients.turns.appendInput(echo.turnId, {
       text: echo.text,
@@ -646,20 +729,34 @@ async function resendAppend(
 
 function failEcho(echoId: string, error: unknown): void {
   const code = apiErrorCode(error);
+  const kind = useTurnStore
+    .getState()
+    .outgoing.find((item) => item.echoId === echoId)?.kind;
   let message: string;
   if (isCapacityRejection(error)) {
     message =
       code === "agent.queue_full"
         ? "The request queue is full — the draft stays here; retry when the current work settles."
         : "The turn inbox cannot accept more input right now — retry shortly.";
-  } else if (code === "turn.command_rejected" || code === "agent.not_ready") {
+  } else if (code === "turn.command_rejected" || code === "turn.not_found") {
+    message =
+      kind === "append"
+        ? "This turn is closed and can no longer accept input."
+        : "The backend rejected the input; the turn state was refreshed.";
+  } else if (code === "agent.not_ready") {
     message = "The backend rejected the input; the turn state was refreshed.";
   } else if (code === null) {
     message = "The send result is unknown (network). Retry uses the same request identity.";
   } else {
     message = errorMessage(error);
   }
-  useTurnStore.getState().updateEcho(echoId, { state: "failed", error: message });
+  useTurnStore.getState().updateEcho(echoId, {
+    state: "failed",
+    error: message,
+    turnClosed:
+      kind === "append" &&
+      (code === "turn.command_rejected" || code === "turn.not_found"),
+  });
   if (code !== null) {
     const epoch = useConnectionStore.getState().epoch;
     void refreshDisplayedTurn(epoch);

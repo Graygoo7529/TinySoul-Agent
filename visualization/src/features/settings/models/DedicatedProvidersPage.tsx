@@ -29,7 +29,7 @@ import {
   TextInput,
   Toggle,
 } from "./controls";
-import { CredentialValueEditor } from "./credentials";
+import { CredentialValueEditor } from "../editors/controls";
 import { atomWriteSource, setAtomEntries } from "./objectEditing";
 import {
   CreateObjectModal,

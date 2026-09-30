@@ -8,6 +8,9 @@
  * - `pathPrefixes` name the config paths a page is primarily responsible for;
  *   the longest matching prefix wins, so `session.background_max_chars` lands
  *   on Budgets while the rest of `session.` stays with the Session page.
+ * - `draftSources` name whole sources whose drafts belong to a page: dotenv
+ *   drafts carry a bare variable name as their path, so the Credentials page
+ *   claims them by source instead of by prefix.
  * - `surfaces` route catalog field/document declarations (their paths are
  *   document-local, e.g. action catalog `visibility.default`).
  * - A page's "reset this page" scope defaults to drafts whose path starts
@@ -17,6 +20,7 @@
 
 import type { DraftEntry } from "./draft/model";
 import type { SettingsCatalog } from "./draft/catalog";
+import { DOTENV_SOURCE_ID } from "./draft/fields";
 
 export type SettingsGroupId =
   | "overview"
@@ -62,6 +66,8 @@ export interface SettingsPageDef {
   surfaces?: string[];
   /** Config path prefixes this page primarily owns (longest match wins). */
   pathPrefixes?: string[];
+  /** Source ids whose drafts this page owns (bare-name paths, e.g. dotenv). */
+  draftSources?: string[];
   /** Implemented pages set this false; everything else renders the honest placeholder. */
   placeholder?: boolean;
 }
@@ -136,6 +142,7 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     group: "models",
     title: "Credentials",
     description: "Project dotenv values referenced by configuration.",
+    draftSources: [DOTENV_SOURCE_ID],
     placeholder: false,
   },
   "image-generation": {
@@ -345,6 +352,19 @@ export function pageForPath(path: string): SettingsPageDef | null {
   return best;
 }
 
+/**
+ * Route one draft entry to its owning page: whole-source ownership first
+ * (dotenv drafts carry bare variable names), then the longest path prefix.
+ */
+export function pageForDraft(
+  entry: Pick<DraftEntry, "sourceId" | "path">,
+): SettingsPageDef | null {
+  for (const page of Object.values(SETTINGS_PAGES)) {
+    if (page.draftSources?.includes(entry.sourceId)) return page;
+  }
+  return pageForPath(entry.path);
+}
+
 /** Route a catalog surface to its page (for field/document declarations). */
 export function pageForSurface(surface: string): SettingsPageDef | null {
   for (const page of Object.values(SETTINGS_PAGES)) {
@@ -360,9 +380,14 @@ export function pageDraftKeys(
 ): string[] {
   const def = SETTINGS_PAGES[page];
   const prefixes = def.pathPrefixes ?? [];
-  if (prefixes.length === 0) return [];
+  const sources = def.draftSources ?? [];
+  if (prefixes.length === 0 && sources.length === 0) return [];
   return Object.values(drafts)
-    .filter((entry) => prefixes.some((prefix) => pathUnder(entry.path, prefix)))
+    .filter(
+      (entry) =>
+        sources.includes(entry.sourceId) ||
+        prefixes.some((prefix) => pathUnder(entry.path, prefix)),
+    )
     .map((entry) => entry.key);
 }
 

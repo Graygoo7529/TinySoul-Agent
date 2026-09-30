@@ -43,6 +43,12 @@ export interface OutgoingEcho {
   state: EchoState;
   /** Short failure feedback for state="failed". */
   error: string | null;
+  /**
+   * state="failed" and the append target is a closed turn
+   * (turn.command_rejected / turn.not_found): the card offers the explicit
+   * "send as next turn" entry (plan §5.1).
+   */
+  turnClosed: boolean;
 }
 
 export interface TurnStoreState {

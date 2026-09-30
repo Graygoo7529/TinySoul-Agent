@@ -30,12 +30,14 @@ import {
 } from "../../app/testing";
 import {
   cancelActiveTurn,
+  cancelQueuedTurn,
   grantBudget,
   refreshDisplayedTurn,
   replyToQuestion,
   retryEcho,
   retryTakeover,
   resetTurnController,
+  sendEchoAsNewTurn,
   sendUserMessage,
   openSessionTurn,
   syncFromStatus,
@@ -873,5 +875,124 @@ describe("syncFromStatus", () => {
     await vi.waitFor(() => {
       expect(endpoint.calls("/v2/session/turns")).toHaveLength(1);
     });
+  });
+});
+
+describe("sendEchoAsNewTurn", () => {
+  it("marks a rejected append as turn-closed; the explicit entry sends it as a new turn", async () => {
+    const { endpoint, epoch } = setup();
+    await activateTurn(endpoint, epoch);
+    endpoint.post("/v2/turns/contract-turn/input", () =>
+      errorResponse(409, "turn.command_rejected"),
+    );
+
+    const sent = await sendUserMessage(epoch, "late addition");
+    expect(sent).toBe(false);
+    const failed = turnState().outgoing[0]!;
+    expect(failed.state).toBe("failed");
+    expect(failed.turnClosed).toBe(true);
+    expect(failed.error).toContain("closed");
+
+    let createBody: Record<string, unknown>;
+    endpoint.post("/v2/turns", (request) => {
+      createBody = bodyJson(request) as Record<string, unknown>;
+      return jsonResponse({
+        accepted: true,
+        command_id: createBody.command_id,
+        turn_id: "t-new",
+        state: "queued",
+        kind: "user",
+      });
+    });
+    const ok = await sendEchoAsNewTurn(epoch, failed.echoId);
+    expect(ok).toBe(true);
+
+    // The old echo is gone; the replacement carries a fresh request identity.
+    expect(
+      turnState().outgoing.find((echo) => echo.echoId === failed.echoId),
+    ).toBeUndefined();
+    const replacement = turnState().outgoing[0]!;
+    expect(replacement.kind).toBe("new-turn");
+    expect(replacement.state).toBe("accepted");
+    expect(createBody!.text).toBe("late addition");
+    expect(createBody!.command_id).toBe(replacement.echoId);
+    expect(createBody!.command_id).not.toBe(failed.echoId);
+  });
+
+  it("a capacity or network failure is not marked turn-closed", async () => {
+    const { endpoint, epoch } = setup();
+    await activateTurn(endpoint, epoch);
+    endpoint.post("/v2/turns/contract-turn/input", () =>
+      errorResponse(429, "turn.inbox_full"),
+    );
+    expect(await sendUserMessage(epoch, "hold this")).toBe(false);
+    const echo = turnState().outgoing[0]!;
+    expect(echo.state).toBe("failed");
+    expect(echo.turnClosed).toBe(false);
+  });
+});
+
+describe("cancelQueuedTurn", () => {
+  it("posts the cancel intent to the queued turn itself", async () => {
+    const { endpoint, epoch } = setup();
+    endpoint.post("/v2/turns/contract-turn/cancel", () =>
+      jsonResponse({ accepted: true, turn_id: "contract-turn" }),
+    );
+
+    await cancelQueuedTurn(epoch, "contract-turn");
+    expect(
+      endpoint.calls("/v2/turns/contract-turn/cancel", "POST"),
+    ).toHaveLength(1);
+  });
+
+  it("treats a rejected cancel as stale state, not an error", async () => {
+    const { endpoint, epoch } = setup();
+    endpoint.post("/v2/turns/contract-turn/cancel", () =>
+      errorResponse(409, "turn.command_rejected"),
+    );
+
+    await cancelQueuedTurn(epoch, "contract-turn");
+    expect(
+      useAppStore.getState().toasts.some((toast) => toast.kind === "error"),
+    ).toBe(false);
+  });
+});
+
+describe("sendUserMessage: fast-turn race", () => {
+  it("opens the accepted turn even when it starts and finishes between status reads", async () => {
+    const { endpoint, epoch } = setup();
+    // The status never reports an active turn: the (scripted) backend runs
+    // the turn to completion between the POST receipt and the first status
+    // read. Only the receipt still names the turn.
+    endpoint.post("/v2/turns", (request) => {
+      const body = bodyJson(request) as Record<string, unknown>;
+      return jsonResponse({
+        accepted: true,
+        command_id: body.command_id,
+        turn_id: "contract-turn",
+        state: "finished",
+        kind: "user",
+      });
+    });
+    endpoint.get("/v2/turns/contract-turn", () =>
+      jsonResponse(finishedSnapshot()),
+    );
+    endpoint.get("/v2/turns/contract-turn/interactions", () =>
+      jsonResponse(sessionTurnPage()),
+    );
+
+    const sent = await sendUserMessage(epoch, "hello");
+    expect(sent).toBe(true);
+
+    // The receipt alone opened the conversation: the view does not fall back
+    // to the day list with the answer never shown.
+    expect(turnState().turnId).toBe("contract-turn");
+    await flushAsync();
+    const turn = turnState();
+    expect(turn.loading).toBe(false);
+    expect(turn.source).toBe("session");
+    expect(turn.items.map((item) => item.text)).toEqual([
+      "Run the prepared job and ask before proceeding",
+    ]);
   });
 });

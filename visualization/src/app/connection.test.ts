@@ -310,6 +310,24 @@ describe("event invalidation", () => {
     expect(useTurnStore.getState().items).toHaveLength(1);
   });
 
+  it("context-install events bump the context generation; other events do not", async () => {
+    const { endpoint, ok } = await connectActiveTurn();
+    expect(ok).toBe(true);
+
+    const socket = MockEventsSocket.instances[0]!;
+    socket.authenticate();
+    endpoint.clear();
+
+    const before = useConnectionStore.getState().contextGeneration;
+    socket.emitEvent("turn.phase", 53);
+    expect(useConnectionStore.getState().contextGeneration).toBe(before);
+    socket.emitEvent("context.installed", 54);
+    socket.emitEvent("context.background.changed", 55);
+    expect(useConnectionStore.getState().contextGeneration).toBe(before + 2);
+
+    await vi.advanceTimersByTimeAsync(150);
+  });
+
   it("terminal turn events additionally refresh the day history", async () => {
     const { endpoint } = await connectActiveTurn();
     const socket = MockEventsSocket.instances[0]!;
@@ -417,6 +435,7 @@ describe("event invalidation", () => {
       text: "draft",
       state: "sending",
       error: null,
+      turnClosed: false,
     });
     const socket = MockEventsSocket.instances[0]!;
     socket.authenticate();
@@ -524,6 +543,7 @@ describe("disconnect and restart", () => {
       text: "draft",
       state: "sending",
       error: null,
+      turnClosed: false,
     });
     endpoint.post("/v2/restart", () => jsonResponse({ accepted: true }));
     endpoint.on("GET", "/v2/status", () =>

@@ -5,12 +5,14 @@ import {
   CircleDashed,
   Layers,
 } from "lucide-react";
+import { useState } from "react";
 
 import type { JsonValue, PresetSummary } from "../../api/v2/types";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { SectionCard } from "../../components/ui/Card";
 import { EmptyState } from "../../components/ui/EmptyState";
+import { JsonTree } from "../../components/ui/JsonTree";
 import { useConnectionStore } from "../../store/connectionStore";
 import { reloadSaved } from "./applyController";
 import {
@@ -25,7 +27,7 @@ import {
   pendingActivationChanges,
   type DraftEntry,
 } from "./draft/model";
-import { pageForPath, SETTINGS_PAGES } from "./pages";
+import { pageForDraft, pageForPath, SETTINGS_PAGES } from "./pages";
 import { useSettingsUiStore } from "./uiStore";
 
 /** Compact one-line rendering of a config value for summaries. */
@@ -190,7 +192,7 @@ export function SettingsOverviewPage() {
             drafts={drafts}
             stale={stale}
             onLocate={(entry) => {
-              const owner = pageForPath(entry.path);
+              const owner = pageForDraft(entry);
               if (owner !== null) navigateTo(owner.id, entry.path);
             }}
             onResolveStale={resolveStale}
@@ -351,10 +353,16 @@ function PresetRow({
 export function ApplyFailureBanner({ failure }: { failure: ApplyFailure }) {
   const clearApplyFailure = useConfigDraftStore((s) => s.clearApplyFailure);
   const navigateTo = useSettingsUiStore((s) => s.navigateTo);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const locatedPage =
     failure.kind === "config-invalid" && failure.key !== null
       ? pageForPath(failure.key)
       : null;
+
+  // The structured details stay available verbatim for inspection (plan
+  // §15.1); locating never parses them for field names.
+  const details = "details" in failure ? failure.details : null;
+  const hasDetails = details !== null && Object.keys(details).length > 0;
 
   const tone =
     failure.kind === "activation-unavailable"
@@ -384,6 +392,22 @@ export function ApplyFailureBanner({ failure }: { failure: ApplyFailure }) {
         {failure.kind === "config-invalid" && failure.key !== null && (
           <div className="mt-0.5 font-mono text-[11px] break-all opacity-90">
             key: {failure.key}
+          </div>
+        )}
+        {hasDetails && (
+          <div className="mt-1.5">
+            <button
+              type="button"
+              className="font-medium underline opacity-80 hover:opacity-100"
+              onClick={() => setDetailsOpen((open) => !open)}
+            >
+              {detailsOpen ? "Hide details" : "Details"}
+            </button>
+            {detailsOpen && (
+              <div className="mt-1.5 max-h-64 overflow-y-auto text-fg">
+                <JsonTree value={details} defaultExpanded={false} />
+              </div>
+            )}
           </div>
         )}
       </div>

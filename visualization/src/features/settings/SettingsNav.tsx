@@ -4,7 +4,7 @@ import { ChevronRight, Search, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { useConfigDraftStore } from "./draft/store";
 import {
-  pageForPath,
+  pageForDraft,
   searchConfig,
   SETTINGS_GROUPS,
   SETTINGS_PAGES,
@@ -27,11 +27,11 @@ export function SettingsNav() {
   const catalog = useConfigDraftStore((s) => s.catalog);
   const [query, setQuery] = useState("");
 
-  /** Local-change count per page, routed by the registry's longest-prefix rule. */
+  /** Local-change count per page, routed by the registry's ownership rule. */
   const draftsPerPage = useMemo(() => {
     const counts = new Map<SettingsPageId, number>();
     for (const entry of Object.values(drafts)) {
-      const owner = pageForPath(entry.path);
+      const owner = pageForDraft(entry);
       if (owner === null) continue;
       counts.set(owner.id, (counts.get(owner.id) ?? 0) + 1);
     }
