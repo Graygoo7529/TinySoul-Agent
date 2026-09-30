@@ -49,8 +49,8 @@ Context segment descriptor 包含 id/owner/slot/shape/order/capabilities/root_re
 
 | GET 路径 | 参数 | 内容 |
 | --- | --- | --- |
-| /home/catalog | view=effective或actual、space?、query?、普通分页 | 目录 locator/title/kind/size；含局部 guidance |
-| /home/content | link、view?、continuation?、max_chars? | 实际正文与 direct refs 的 DisclosurePage |
+| /home/catalog | view=effective或actual、space?、query?、普通分页 | `actual` 枚举全部 actual Home；`effective` 只枚举已物化 runtime/home 内容；目录读取无副作用 |
+| /home/content | link、view?、continuation?、max_chars? | 对应 view 的实际正文与 direct refs 的 DisclosurePage；effective 未物化资源不可读且不会触发 runtime copy |
 | /home/changes | 普通分页 | overlay 的创建/修改/删除；只读，不清理 review 状态 |
 | /home/diff | link、continuation?、max_chars? | actual/effective 差异及 baseline_diverged |
 | /memory/active | day?、continuation?、max_chars? | 当日或归档活动 Memory.md |

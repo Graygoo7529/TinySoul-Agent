@@ -1,6 +1,6 @@
 # 需求：`capabilities.resource.render_pdf_pages` 的 catalog choices 与代码可接受值对齐
 
-日期：2026-09-30 · 提出方：前端（visualization） · 状态：pending · 阻塞：否
+日期：2026-09-30 · 提出方：前端（visualization） · 状态：resolved · 阻塞：否
 
 ## 现象
 
@@ -20,3 +20,8 @@
 
 后端把 catalog choices 修正为代码实际接受的值（`disabled / on_no_text`，
 或恢复 `always` 的实现并保留三值）。修正后前端无需改动即自动展示正确选项。
+
+## 结论
+
+后端 catalog 已声明 `disabled / on_no_text`，与 `PdfPageRenderMode` 一致。前端后续直接
+消费该 choices 列表即可。

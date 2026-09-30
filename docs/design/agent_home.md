@@ -154,6 +154,8 @@ Agent Home 分为 actual Home 和跨日 runtime Home：
 
 当 Home 顶层内容、渐进式资源或 prompt mount 被加载到运行期时，Agent Home 确保 runtime Home 中存在对应副本，并从统一 effective view 读取：runtime override 优先，runtime tombstone 隐藏 actual 内容，未物化内容回退 actual Home。语义检索可以只读取 effective metadata；一旦 Home 正文进入 BackgroundContext、skill 或 action result，就按链接建立 runtime record。所有普通可写操作只能落在 runtime Home。
 
+Endpoint 的 Home 浏览接口提供一个无副作用的双视图投影：`view=actual` 只枚举并读取 actual Home，`view=effective` 只枚举并读取已经存在于 `runtime/home` 的 overlay 内容。浏览页面不会调用 Agent 的 `read_top()`，不会因为打开页面而物化 runtime 副本；未物化的 actual 内容因此不会出现在浏览 effective 目录中。这个浏览约束不改变 Agent 运行时的 `read_top()`、Context/Skill/Action loader 或内部 Search/Inspect：它们仍按运行时 effective 规则按需准备副本并读取。
+
 runtime mutation 按链接类别拆分：
 
 - 渐进式资源继续使用 `home.inspect 与 home.resource.write/patch/delete`；Top Markdown 和 skill `SKILL.md` 在 resource 入口统一拒绝，不存在同一物理文件的第二 Link；
@@ -334,6 +336,7 @@ AgentBuilder 的目标职责是：
 - `home.inspect` 不写入 BackgroundContext，并返回有界内容/direct refs；write/patch/delete 只修改 active overlay，actual Home 保持零写入；
 - `home.top.write/patch/delete` 只修改 runtime；skill create 要求严格 frontmatter，core delete 被拒绝；
 - `home.search` 返回 effective Home 全部资源的有界候选、真实内容预览与证据；actual 搜索不物化，尚未通过 trap 加载的 runtime-only 资源也可见，tombstone 不可见，来源/操作策略由 retrieval policy 绑定；
+- Endpoint Home catalog/content 的 `actual` 与 `effective` view 分别读取 actual 源和已物化 runtime overlay，不产生 runtime copy 副作用；
 - prompt mount 由 Action Catalog 自动维护逻辑生命周期，模型只通过 write/patch 修改 runtime；
 - `HOME_RUNTIME_COPY_REQUIRED` trap handler 能准备副本并重试当前 frame；
 - Agent Home 的配置错误、索引损坏和 runtime copy 失败经专门 bridge 映射；

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from datetime import date
 from pathlib import Path
-from typing import TypeVar
+from typing import TypeVar, cast
 
 import pytest
 
@@ -48,6 +48,7 @@ from tinysoul.plugins.home.background import (
     home_segment_registration,
 )
 from tinysoul.plugins.home.failures import HOME_RUNTIME_COPY_REQUIRED
+from tinysoul.plugins.home.errors import AgentHomeNotFoundError
 from tinysoul.plugins.home.links import parse_home_link
 from tinysoul.plugins.home.services import HomeService
 from tinysoul.runtime import (
@@ -804,7 +805,7 @@ async def test_home_inspect_reads_source_without_runtime_copy(tmp_path: Path) ->
     assert result.status is ActionResultStatus.SUCCESS
 
 
-def test_home_browser_reads_actual_effective_guidance_and_direct_refs_without_copy(
+def test_home_browser_separates_actual_and_materialized_effective_views(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "home"
@@ -823,16 +824,35 @@ def test_home_browser_reads_actual_effective_guidance_and_direct_refs_without_co
     ).build()
     _bind_workspace_mounts(home)
     before = tuple(runtime.rglob("*"))
-    document = home.browse_content("home:agent@AGENT")
-    assert "home:agent@guide" in str(document["metadata"])
-    assert "Workspace guidance" in str(
-        home.browse_content("home:skills_domain:workspace")
+    with pytest.raises(AgentHomeNotFoundError):
+        home.browse_content("home:agent@AGENT")
+    actual = home.browse_content("home:agent@AGENT", view="actual")
+    assert "Original" in str(actual["items"])
+    assert "home:agent@guide" in str(actual["metadata"])
+    actual_items = cast(list[JsonObject], home.browse_catalog(view="actual")["items"])
+    assert any(
+        item["link"] == "home:agent@AGENT"
+        for item in actual_items
     )
+    effective_items = cast(list[JsonObject], home.browse_catalog()["items"])
+    assert not any(
+        item["link"] == "home:agent@AGENT"
+        for item in effective_items
+    )
+    document = home.browse_content(
+        "home:skills_domain:workspace", view="actual"
+    )
+    assert "Workspace guidance" in str(document)
     assert home.browse_changes()["items"] == []
     assert tuple(runtime.rglob("*")) == before
     home.write_top("home:agent@AGENT", "Changed", overwrite=True)
     assert "Original" in str(home.browse_content("home:agent@AGENT", view="actual"))
     assert "Changed" in str(home.browse_content("home:agent@AGENT"))
+    effective_items = cast(list[JsonObject], home.browse_catalog()["items"])
+    assert any(
+        item["link"] == "home:agent@AGENT"
+        for item in effective_items
+    )
     assert home.browse_changes()["items"]
     assert "Original" in str(home.browse_diff("home:agent@AGENT"))
 

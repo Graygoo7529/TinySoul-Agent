@@ -8,6 +8,7 @@ import sys
 from collections import deque
 from datetime import date
 from pathlib import Path
+from typing import cast
 
 import httpx
 import pytest
@@ -279,6 +280,31 @@ async def collect_contract_responses(root: Path) -> dict[str, JsonObject]:
             )
             _validate("preset-list", await get("/v2/config/presets"))
             home = agent.services.get(HomeService)
+            actual_catalog = await get(
+                "/v2/home/catalog", view="actual", query="AGENT"
+            )
+            actual_items = cast(list[JsonObject], actual_catalog["items"])
+            assert any(
+                item["link"] == "home:agent@AGENT"
+                for item in actual_items
+            )
+            effective_catalog = await get(
+                "/v2/home/catalog", view="effective", query="AGENT"
+            )
+            effective_items = cast(list[JsonObject], effective_catalog["items"])
+            assert not any(
+                item["link"] == "home:agent@AGENT"
+                for item in effective_items
+            )
+            actual_content = await get(
+                "/v2/home/content", link="home:agent@AGENT", view="actual"
+            )
+            assert actual_content["items"]
+            effective_content = await client.get(
+                "/v2/home/content",
+                params={"link": "home:agent@AGENT", "view": "effective"},
+            )
+            assert effective_content.status_code == 404, effective_content.text
             await home.write_top("home:agent@contract", "Workspace guidance\n")
             samples["home-effective"] = await get(
                 "/v2/home/content", link="home:agent@contract"

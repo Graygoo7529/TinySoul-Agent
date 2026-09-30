@@ -140,7 +140,11 @@ surface = "capabilities.web"
 group = "capabilities.web.search"
 title = "Search Model"
 description = "Provider model identifier used for tool-assisted web search."
-value_kind = "string"
+value_kind = "enum"
+choices = [
+  { value = "kimi-k2.5", label = "kimi-k2.5" },
+  { value = "kimi-k2.6", label = "kimi-k2.6" },
+]
 
 [[field]]
 path = "capabilities.web.search_by_kimi.max_query_chars"
@@ -368,9 +372,8 @@ title = "PDF Page Rendering"
 description = "Controls when PDF pages are rendered as image assets."
 value_kind = "enum"
 choices = [
-  { value = "never", label = "Never" },
+  { value = "disabled", label = "Disabled" },
   { value = "on_no_text", label = "When no text is extracted" },
-  { value = "always", label = "Always" },
 ]
 
 [[field]]

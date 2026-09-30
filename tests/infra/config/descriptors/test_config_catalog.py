@@ -10,6 +10,7 @@ from tinysoul.infra.config.descriptors import ConfigCollectionDeletePolicy
 from tinysoul.llm.protocol.adapter_types import AdapterKind
 from tinysoul.llm.protocol.responses import AnswerFormat
 from tinysoul.llm.protocol.tools import ToolUse
+from tinysoul.plugins.capabilities.resource.config import PdfPageRenderMode
 from tests.support.project import copy_initialized_project
 
 
@@ -44,6 +45,18 @@ def test_config_catalog_static_choices_match_business_enums() -> None:
         item.value for item in AnswerFormat
     }
     assert _choices(catalog, "llm.tasks.*.tool_use") == {item.value for item in ToolUse}
+
+
+def test_config_catalog_declares_capability_choices_supported_by_owners() -> None:
+    catalog = load_config_catalog()
+
+    assert _choices(catalog, "capabilities.resource.render_pdf_pages") == {
+        item.value for item in PdfPageRenderMode
+    }
+    assert _choices(catalog, "capabilities.web.search_by_kimi.model") == {
+        "kimi-k2.5",
+        "kimi-k2.6",
+    }
 
 
 def test_config_catalog_declares_controlled_model_creation_source() -> None:

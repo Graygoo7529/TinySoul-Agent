@@ -205,7 +205,7 @@ catalog value_kind = object，**整张 map 原子提交**；source_id 为 `proje
 | --- | --- | --- | --- |
 | `max_source_bytes` / `max_output_chars` / `max_excerpt_chars` | integer（advanced 部分） | 5242880 / 1000000 / 600 | 共享下载/存储/摘录上限 |
 | `request_timeout_seconds` / `max_redirects` / `user_agent` | number / integer / string | 30 / 5 / TinySoul-Agent/0.1 | 共享请求行为 |
-| `search_by_kimi.enabled` / `.base_url` / `.api_key_env` / `.model` | boolean / string / credential_reference / string | false / api.moonshot.cn / KIMI_SEARCH_API_KEY / kimi-k2.6 | Kimi 网页搜索 Action 注册；**model 代码仅接受 kimi-k2.5、kimi-k2.6，catalog 未列 choices** |
+| `search_by_kimi.enabled` / `.base_url` / `.api_key_env` / `.model` | boolean / string / credential_reference / enum | false / api.moonshot.cn / KIMI_SEARCH_API_KEY / kimi-k2.6 | Kimi 网页搜索 Action 注册；choices 为 kimi-k2.5、kimi-k2.6 |
 | `search_by_kimi.max_query_chars` / `.max_result_chars` / `.max_inline_chars` / `.max_tool_rounds` / `.max_search_tokens` / `.max_output_tokens` | integer（advanced） | 4000 / 100000 / 12000 / 6 / 100000 / 8192 | 搜索边界 |
 | `discover_pages.enabled` 及 `max_visit_depth` / `max_pages` / `max_candidates` / `max_links_per_page` / `max_result_chars` / `max_inline_chars` / `max_concurrency` / `max_tasks_per_minute` / `max_request_retries` / `max_crawl_seconds` / `allow_query_links` | 按 catalog | false / 1 / 20 / 100 / 200 / 100000 / 12000 / 2 / 30 / 1 / 90 / false | 页面发现 Action 注册与边界（concurrency ≤ pages 等由代码校验） |
 | `fetch_with_defuddle.enabled` / `fetch_with_trafilatura.enabled` | boolean | false / true | 抓取实现注册 |
@@ -215,7 +215,7 @@ catalog value_kind = object，**整张 map 原子提交**；source_id 为 `proje
 | 路径 | 类型 | 默认 | 影响 |
 | --- | --- | --- | --- |
 | `max_source_bytes` / `max_output_chars` / `max_assets` / `max_total_asset_bytes` / `max_pdf_pages` | integer | 20MB / 1M / 64 / 50MB / 300 | 转换边界 |
-| `render_pdf_pages` | enum | on_no_text | **catalog choices 为 never/on_no_text/always，代码实际只接受 disabled/on_no_text —— 已知不一致，见 §8** |
+| `render_pdf_pages` | enum | on_no_text | choices 为 disabled/on_no_text |
 | `convert_with_markitdown.enabled` / `.formats` / `.extract_images` / `.extract_attachments` | boolean / string_list ⊂ {pdf,docx} 非空 / boolean / boolean | true / [pdf,docx] / true / true | MarkItDown 转换 Action |
 | `convert_with_pypdf.enabled` / `.extract_images` / `.extract_attachments` | boolean | true / true / true | PyPDF 转换 Action |
 
@@ -336,11 +336,11 @@ Endpoint：`GET/POST /v2/config/presets`、`GET/PUT/DELETE /v2/config/presets/{i
 
 ## 9. 与计划及现有前端文档的不一致点
 
-1. **catalog 滞后**：`capabilities.resource.render_pdf_pages` 的 catalog choices 为 `never/on_no_text/always`，代码实际只接受 `disabled/on_no_text`。前端表单应以后端校验为准，同时在 catalog choices 修正前按 catalog 显示并依赖 422 反馈。（后端问题，不在前端修改范围。）
+1. **catalog choices 已对齐**：`capabilities.resource.render_pdf_pages` 现在声明并接受 `disabled/on_no_text`；前端应直接消费 catalog choices。
 2. **现有 `visualization/docs/design/settings.md` 使用 `/v1/config*`**，实际 endpoint 全部是 `/v2/*`；F2 重组设置文档时须统一替换。
 3. **现有 settings.md 的能力分组只列 Web/Resource/Execution**，catalog 实际还有 `capabilities.subagent`、`capabilities.expand` 两个 surface 与 `jobs` surface；§15 六组导航已覆盖，旧文档分组作废。
 4. **`agent.*` 在 catalog runtime.toml 中有字段声明但全部进程独有只读**；系统页只读项须以 config 读取投影的 `writable:false` 为准，不凭 catalog 存在性做成可写控件。
-5. **Kimi 搜索 model 仅接受 kimi-k2.5/kimi-k2.6（代码约束），catalog 未提供 choices**；表单提供该两个值的选择，不开放自由文本。
+5. **Kimi 搜索 model 已声明 choices**：后端 catalog 提供 kimi-k2.5/kimi-k2.6；表单应消费 choices，不开放自由文本。
 6. **LLM Provider 无 `proxy` 字段，专用 Provider（`infra.model_services.providers`）有**；两个表单可复用控件但协议不同（复数 `adapters`/`api_key_envs` vs 单数 `adapter`/`api_key_env`），不做假统一字段映射（与计划 §16.5 一致）。
 7. **计划 §19 的简写键名**（`compression_trigger/target_ratio`、`trace_chunk_max_chars/branch_factor/min_hot_entries/inspect_max_chars`）对应真实完整键 `context.compression_trigger_ratio` 等（见 §8），语义一致，仅书写省略。
 8. **模板中 expand.search 无 backlinks source**（其余四个 search action 有）；MCP 配置面不显示反链入口，与计划 §17.3 “MCP 不自动获得 Embedding”一致。

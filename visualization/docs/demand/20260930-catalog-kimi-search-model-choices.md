@@ -1,6 +1,6 @@
 # 需求：`capabilities.web.search_by_kimi.model` 在 catalog 中声明 choices
 
-日期：2026-09-30 · 提出方：前端（visualization） · 状态：pending · 阻塞：否
+日期：2026-09-30 · 提出方：前端（visualization） · 状态：resolved · 阻塞：否
 
 ## 现象
 
@@ -19,3 +19,8 @@
 
 后端在 catalog 中为该字段声明 choices（当前为 `kimi-k2.5 / kimi-k2.6`）。
 声明后前端按 catalog 渲染选择列表，新增型号无需改前端。
+
+## 结论
+
+后端 catalog 已声明 `kimi-k2.5 / kimi-k2.6` choices。前端后续应直接消费该列表，移除
+当前设置页的重复硬编码。

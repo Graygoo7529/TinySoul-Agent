@@ -345,6 +345,12 @@ class AgentHomeEngine:
         value = relative_reference(reference, source_path=path, prefix="home:")
         resource, marker, fragment = value.partition("#")
         if resource.startswith("home:"):
+            try:
+                absolute = parse_home_link(resource)
+            except AgentHomeContractError:
+                absolute = None
+            if isinstance(absolute, (HomeTopLink, HomePromptMountLink)):
+                return str(absolute) + ("#" + fragment if marker else "")
             mapped = self._layout.link_for_relative(resource.removeprefix("home:"))
             if mapped is not None:
                 return str(mapped) + ("#" + fragment if marker else "")
@@ -384,6 +390,27 @@ class AgentHomeEngine:
                 result.append((relative, path))
         return tuple(result)
 
+    def _browse_paths(
+        self, *, view: str, spaces: tuple[str, ...]
+    ) -> tuple[tuple[str, Path], ...]:
+        """Return the side-effect-free collection exposed by Home browse APIs."""
+
+        if view == "actual":
+            return self._content_paths(actual=True, spaces=spaces)
+        records = {
+            record.relative_path: record for record in self._overlay.records()
+        }
+        result = []
+        for relative, record in sorted(records.items()):
+            if relative.split("/")[0] not in spaces:
+                continue
+            if record.state is HomeOverlayState.DELETED:
+                continue
+            path = self._layout.runtime_for_relative(relative)
+            if path.is_file() and not path.is_symlink():
+                result.append((relative, path))
+        return tuple(result)
+
     def browse_catalog(
         self,
         *,
@@ -397,8 +424,8 @@ class AgentHomeEngine:
         if space is not None and space not in spaces:
             raise AgentHomeContractError("Unknown Home space")
         values: list[JsonObject] = []
-        for relative, path in self._content_paths(
-            actual=view == "actual", spaces=(space,) if space else spaces
+        for relative, path in self._browse_paths(
+            view=view, spaces=(space,) if space else spaces
         ):
             link = self._layout.link_for_relative(relative)
             if link is None or query and query.casefold() not in str(link).casefold():
@@ -436,9 +463,7 @@ class AgentHomeEngine:
             if isinstance(parsed, HomeTopLink)
             else self._layout.relative_for_resource(parsed)
         )
-        paths = dict(
-            self._content_paths(actual=view == "actual", spaces=(parsed.space,))
-        )
+        paths = dict(self._browse_paths(view=view, spaces=(parsed.space,)))
         if relative not in paths:
             raise AgentHomeNotFoundError("Home content is unavailable in this view")
         text = _read_text(paths[relative])
