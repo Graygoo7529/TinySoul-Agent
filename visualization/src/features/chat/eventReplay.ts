@@ -2,7 +2,7 @@
  * Event replay for rebuilding activity buffer after reconnect or gap.
  */
 
-import { fetchEvents } from "../../api/v2/events";
+import { useConnectionStore } from "../../store/connectionStore";
 import { presentationStore } from "./presentationStore";
 
 /**
@@ -19,16 +19,22 @@ export async function rebuildActivityBuffer(
   try {
     console.log(`eventReplay: rebuilding buffer for turn ${turnId}`);
 
-    const events = await fetchEvents({
+    const clients = useConnectionStore.getState().clients;
+    if (!clients) {
+      console.warn("eventReplay: no clients available");
+      presentationStore.getState().markIncomplete();
+      return;
+    }
+
+    const page = await clients.events.replay({
       turn_id: turnId,
       mode: "verbose",
-      through: "latest",
     });
 
-    console.log(`eventReplay: loaded ${events.length} events`);
+    console.log(`eventReplay: loaded ${page.events.length} events`);
 
     presentationStore.getState().createBuffer(turnId);
-    presentationStore.getState().loadEvents(events);
+    presentationStore.getState().loadEvents(page.events);
   } catch (err) {
     console.error("eventReplay: failed to rebuild buffer:", err);
     // Mark buffer as incomplete so UI shows the warning

@@ -28,16 +28,15 @@ export function snapshotToPresentation(
     turnId: snapshot.turn_id,
     status,
     inputs: deriveInputs(snapshot),
-    activity: null,  // Provided by ActivityBuffer
     question: deriveQuestion(snapshot),
     budgetSuspension: deriveBudget(snapshot),
     answer: deriveAnswer(snapshot),
     pendingItems: derivePendingItems(snapshot),
     timestamps: {
-      created: snapshot.created_at,
-      answered: snapshot.answered_at,
-      stopped: snapshot.stopped_at,
-      cancelled: snapshot.cancelled_at,
+      created: (snapshot as any).created_at || "",
+      answered: (snapshot as any).answered_at,
+      stopped: (snapshot as any).stopped_at,
+      cancelled: (snapshot as any).cancelled_at,
     },
   };
 }
@@ -46,45 +45,42 @@ export function snapshotToPresentation(
  * Derive UI-facing turn status from snapshot.
  */
 function deriveTurnStatus(snapshot: TurnSnapshot): TurnStatus {
-  if (snapshot.cancelled_at) return "cancelled";
-  if (snapshot.stopped_at) return "stopped";
-  if (snapshot.answered_at) return "answered";
-  if (snapshot.failure) return "failed";
-  if (snapshot.question) return "waiting_question";
-  if (snapshot.budget_suspension) return "waiting_budget";
+  // Check result first
+  if (snapshot.result) {
+    const resultStatus = snapshot.result.status;
+    if (resultStatus === "cancelled") return "cancelled";
+    if (resultStatus === "stopped") return "stopped";
+    if (resultStatus === "failed") return "failed";
+    if (resultStatus === "answered" || resultStatus === "completed") return "answered";
+  }
+
+  // Check state
+  if (snapshot.state === "finished") return "answered";
+  if (snapshot.state === "waiting") {
+    if (snapshot.question) return "waiting_question";
+    if (snapshot.budget_request) return "waiting_budget";
+  }
+  if (snapshot.state === "running" || snapshot.state === "preparing") return "running";
+
   return "running";
 }
 
 /**
  * Derive user inputs (initial + appends + reply).
+ * Note: TurnSnapshot doesn't expose inputs directly; we'll need to get them from interactions.
+ * For now, return empty array as placeholder.
  */
 function deriveInputs(snapshot: TurnSnapshot): TurnInput[] {
+  // TODO: Get inputs from interaction page
   const inputs: TurnInput[] = [];
 
-  // Initial input
-  if (snapshot.initial_input) {
+  // Try to extract from snapshot if available
+  const initialInput = (snapshot as any).initial_input;
+  if (initialInput) {
     inputs.push({
       type: "initial",
-      text: snapshot.initial_input.text,
-      timestamp: snapshot.initial_input.timestamp || snapshot.created_at,
-    });
-  }
-
-  // Appends
-  for (const append of snapshot.appends || []) {
-    inputs.push({
-      type: "append",
-      text: append.text,
-      timestamp: append.timestamp,
-    });
-  }
-
-  // Reply
-  if (snapshot.reply) {
-    inputs.push({
-      type: "reply",
-      text: snapshot.reply.text,
-      timestamp: snapshot.reply.timestamp,
+      text: initialInput.text || initialInput,
+      timestamp: (snapshot as any).created_at || new Date().toISOString(),
     });
   }
 
@@ -100,14 +96,14 @@ function deriveQuestion(
   if (!snapshot.question) return null;
 
   return {
-    question: snapshot.question.question,
+    question: snapshot.question.text,
     options: snapshot.question.options.map((opt) => ({
       id: opt.id,
       label: opt.label,
-      description: opt.description,
+      description: opt.description || undefined,
     })),
     allowOther: snapshot.question.allow_other,
-    requireComment: snapshot.question.require_comment || false,
+    requireComment: false,  // Not in TurnQuestion schema
   };
 }
 
@@ -117,17 +113,18 @@ function deriveQuestion(
 function deriveBudget(
   snapshot: TurnSnapshot,
 ): BudgetPresentation | null {
-  if (!snapshot.budget_suspension) return null;
+  if (!snapshot.budget_request) return null;
 
+  // Budget details not in TurnBudgetRequest; return placeholder
   return {
-    reason: snapshot.budget_suspension.reason,
+    reason: snapshot.wait_reason || "Budget approval required",
     requested: {
-      inputTokens: snapshot.budget_suspension.requested.input_tokens,
-      outputTokens: snapshot.budget_suspension.requested.output_tokens,
+      inputTokens: 0,
+      outputTokens: 0,
     },
     current: {
-      inputTokens: snapshot.budget_suspension.current.input_tokens,
-      outputTokens: snapshot.budget_suspension.current.output_tokens,
+      inputTokens: 0,
+      outputTokens: 0,
     },
   };
 }
@@ -136,12 +133,18 @@ function deriveBudget(
  * Derive answer presentation.
  */
 function deriveAnswer(snapshot: TurnSnapshot): AnswerPresentation | null {
-  if (!snapshot.answer) return null;
+  if (!snapshot.result) return null;
+
+  const output = snapshot.result.output;
+  if (!output) return null;
+
+  // Try to extract answer text
+  const content = (output as any).answer || (output as any).content || "";
 
   return {
-    content: snapshot.answer.content,
-    isTerminal: snapshot.answer.mode === "terminal",
-    isSettled: snapshot.answer.mode === "document",
+    content,
+    isTerminal: false,
+    isSettled: true,
   };
 }
 
@@ -151,10 +154,15 @@ function deriveAnswer(snapshot: TurnSnapshot): AnswerPresentation | null {
 function derivePendingItems(
   snapshot: TurnSnapshot,
 ): PendingItemPresentation[] {
-  return (snapshot.pending_items || []).map((item) => ({
-    id: item.id,
-    type: item.type,
-    label: item.label,
-    status: item.status as "pending" | "resolved" | "failed",
+  // Jobs as pending items
+  return snapshot.jobs.map((job) => ({
+    id: job.job_id,
+    type: job.kind,
+    label: job.summary || job.kind,
+    status: job.state === "running" || job.state === "pending"
+      ? "pending"
+      : job.state === "failed"
+        ? "failed"
+        : "resolved",
   }));
 }

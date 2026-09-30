@@ -5,8 +5,6 @@
  * the restored baseline components expect.
  */
 
-import type { TurnSnapshot } from "../../api/v2/types";
-
 /**
  * Turn presentation model for TurnView consumption.
  * Combines owner snapshot (formal state) and activity buffer (live details).

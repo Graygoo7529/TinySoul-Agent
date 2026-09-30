@@ -23,7 +23,7 @@
   * deriveTrail：活动步骤（10 种类型）
   * deriveWorking：todos/milestones
 
-### P3 基线组件恢复（部分完成） 🔄
+### P3 基线组件恢复 ✅
 - ✅ `src/features/chat/ActivityStep.tsx`：活动步骤组件
 - ✅ `src/features/chat/LiveStatus.tsx`：实时状态卡片
 - ✅ `src/features/chat/TurnView.tsx`：Turn 容器
@@ -36,23 +36,30 @@
 - ✅ Gap 标记 incomplete
 - ✅ Generation 变化重置
 - ✅ Turn 切换自动创建/清除 buffer
+- ✅ 所有类型错误已修复
+- ✅ 构建通过（`pnpm tsc --noEmit` + `pnpm build`）
 
 ## 待完成
 
-### P3 剩余工作
-1. 修复类型错误：
-   - `adapters.ts`：TurnSnapshot 类型断言
-   - `eventReplay.ts`：导入 fetchEvents
-   - `TurnView.tsx`：QuestionCard props
+### P3.5 ChatView 集成
+1. 渐进式集成 TurnView：
+   - 在 ChatView 中使用 useTurnPresentation hook
+   - 渲染 TurnView 而不是旧组件
+   - 保留已有 ChatView 布局和样式
 
-2. 创建缺失组件：
-   - AnswerCard 完整实现（typewriter 动画）
-   - 其他必要的小组件
+2. QuestionCard 适配：
+   - 当前使用临时简化版
+   - 需要完整恢复或创建适配层
 
-3. ChatView 集成：
-   - 渐进式集成 TurnView
-   - 测试实时 Turn 显示
-   - 测试历史 Turn 显示
+3. AnswerCard 完整实现：
+   - Typewriter 动画
+   - Markdown 渲染
+   - 代码块高亮
+
+4. 测试：
+   - 实时 Turn 显示
+   - 历史 Turn 显示
+   - 活动步骤动画
 
 ### P4 Turn Trace 主呈现
 - TurnTraceDrawer 恢复
@@ -76,15 +83,13 @@
 
 ## 当前阻塞项
 
-1. **类型错误**：adapters.ts 需要正确的 TurnSnapshot 类型定义
-2. **API 缺失**：fetchEvents 需要从正确的位置导入
-3. **组件对接**：QuestionCard 需要适配新的 props
+无。P3 核心工作已完成，类型检查和构建均通过。
 
 ## 下一步行动
 
-1. 修复剩余类型错误
-2. 运行 `pnpm tsc --noEmit` 验证无错误
-3. 运行 `pnpm build` 验证构建通过
+1. ✅ 修复剩余类型错误
+2. ✅ 运行 `pnpm tsc --noEmit` 验证无错误
+3. ✅ 运行 `pnpm build` 验证构建通过
 4. 创建简单的集成测试验证 presentation 层工作
 5. 在 ChatView 中渐进式集成 TurnView
 

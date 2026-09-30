@@ -102,7 +102,7 @@ export const presentationStore = create<PresentationStoreState>((set, get) => ({
   },
 
   refresh: () => {
-    const snapshot = turnStore.getState().snapshot;
+    const snapshot = useTurnStore.getState().snapshot;
     if (!snapshot) {
       set({ presentation: null });
       return;
@@ -114,7 +114,7 @@ export const presentationStore = create<PresentationStoreState>((set, get) => ({
     const activity =
       base.status === "running" && activityBuffer
         ? activityBuffer.toPresentation(
-            snapshot.created_at,
+            (snapshot as any).created_at || new Date().toISOString(),
             /* canStop */ true,  // TODO: read from snapshot
           )
         : null;
@@ -137,16 +137,16 @@ export const presentationStore = create<PresentationStoreState>((set, get) => ({
 
 // Subscribe to turnStore snapshot changes
 useTurnStore.subscribe(
-  (state) => state.snapshot,
   () => {
     presentationStore.getState().refresh();
   },
 );
 
 // Subscribe to turnStore Turn changes to create/clear buffer
+let prevTurnId = useTurnStore.getState().turnId;
 useTurnStore.subscribe(
-  (state) => state.turnId,
-  (turnId, prevTurnId) => {
+  () => {
+    const turnId = useTurnStore.getState().turnId;
     const store = presentationStore.getState();
 
     // Turn changed
@@ -160,6 +160,8 @@ useTurnStore.subscribe(
       if (turnId) {
         store.createBuffer(turnId);
       }
+
+      prevTurnId = turnId;
     }
   },
 );

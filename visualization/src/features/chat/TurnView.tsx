@@ -16,7 +16,6 @@
 import { Bot, AlertTriangle, PanelRightOpen } from "lucide-react";
 import type { TurnPresentation } from "./presentation";
 import { LiveStatus } from "./LiveStatus";
-import { QuestionCard } from "./QuestionCard";
 import { TurnStatusBadge } from "../../components/trace/semantic";
 
 export interface TurnViewProps {
@@ -64,7 +63,20 @@ export function TurnView({ presentation, isLatest, onOpenTrace, onStop }: TurnVi
 
           {/* Question card */}
           {presentation.question && (
-            <QuestionCard question={presentation.question} />
+            <div className="rounded-lg border border-line bg-bg-elev px-4 py-3">
+              <div className="text-[13px] font-medium text-fg">{presentation.question.question}</div>
+              <div className="mt-2 space-y-1">
+                {presentation.question.options.map((opt) => (
+                  <div key={opt.id} className="text-[12px] text-fg-muted">
+                    • {opt.label}
+                    {opt.description && <span className="text-fg-faint"> — {opt.description}</span>}
+                  </div>
+                ))}
+              </div>
+              {presentation.question.allowOther && (
+                <div className="mt-2 text-[11px] text-fg-faint">Custom answer allowed</div>
+              )}
+            </div>
           )}
 
           {/* Budget card */}
