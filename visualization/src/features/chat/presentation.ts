@@ -215,17 +215,13 @@ export interface QuestionOption {
 
 /**
  * Budget presentation
+ * TurnBudgetRequest only carries request_id and next_cycle_index;
+ * token budget details are not available from the snapshot.
  */
 export interface BudgetPresentation {
   reason: string;
-  requested: {
-    inputTokens: number;
-    outputTokens: number;
-  };
-  current: {
-    inputTokens: number;
-    outputTokens: number;
-  };
+  requestId: string;
+  cycleIndex: number;
 }
 
 /**

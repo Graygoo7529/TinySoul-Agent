@@ -154,15 +154,8 @@ function BudgetCard({ budget }: { budget: NonNullable<TurnPresentation["budgetSu
       <div className="text-[13px] text-warning">
         <div className="font-medium">Budget suspended</div>
         <div className="mt-1 text-[12px]">{budget.reason}</div>
-        <div className="mt-2 space-y-1 text-[11px]">
-          <div>
-            Requested: {budget.requested.inputTokens.toLocaleString()} in /{" "}
-            {budget.requested.outputTokens.toLocaleString()} out
-          </div>
-          <div>
-            Current: {budget.current.inputTokens.toLocaleString()} in /{" "}
-            {budget.current.outputTokens.toLocaleString()} out
-          </div>
+        <div className="mt-2 text-[11px] text-warning/70">
+          Cycle {budget.cycleIndex} — approve more cycles to continue.
         </div>
       </div>
     </div>

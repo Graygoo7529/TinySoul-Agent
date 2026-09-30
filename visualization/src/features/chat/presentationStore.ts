@@ -1,18 +1,19 @@
 /**
- * Presentation layer extension for turnStore.
+ * Presentation layer store — combines the formal owner snapshot from
+ * turnStore with the short-lived observation activity buffer.
  *
- * Adds:
- * - ActivityBuffer for live observation events
- * - TurnPresentation derivation combining snapshot + activity
+ * The formal snapshot decides status, question, budget, result, cancel
+ * and input permission. Observation facts are only process detail and
+ * animation input, never authority for business state.
  *
- * This is a separate store to avoid polluting turnStore with presentation
- * concerns. Components can subscribe to both or only this layer.
+ * Activity is kept for settled turns (until the turn changes) so the
+ * settled LiveStatus card stays visible after completion.
  */
 
 import { create } from "zustand";
-import type { ObservationEvent } from "../../api/v2/types";
+import type { Interaction, ObservationEvent } from "../../api/v2/types";
 import { ActivityBuffer } from "./activityBuffer";
-import { snapshotToPresentation } from "./adapters";
+import { snapshotToPresentation, deriveCanStop } from "./adapters";
 import type { TurnPresentation } from "./presentation";
 import { useTurnStore } from "../../store/turnStore";
 
@@ -20,73 +21,70 @@ export interface PresentationStoreState {
   /** Activity buffer for the current turn */
   activityBuffer: ActivityBuffer | null;
 
+  /** ISO timestamp of the first activity event for the current buffer */
+  bufferStartedAt: string | null;
+
   /** Complete presentation (snapshot + activity) */
   presentation: TurnPresentation | null;
 
-  /**
-   * Create activity buffer for a turn.
-   */
+  /** Create activity buffer for a turn. */
   createBuffer: (turnId: string) => void;
 
-  /**
-   * Add observation event to the buffer.
-   */
+  /** Add observation event to the buffer. */
   addEvent: (event: ObservationEvent) => void;
 
-  /**
-   * Bulk load events (for replay after reconnect/gap).
-   */
+  /** Bulk load events (for replay after reconnect/gap). */
   loadEvents: (events: ObservationEvent[]) => void;
 
-  /**
-   * Mark buffer as incomplete (connection lost, gap, or truncated).
-   */
+  /** Mark buffer as incomplete (connection lost, gap, or truncated). */
   markIncomplete: () => void;
 
-  /**
-   * Clear activity buffer.
-   */
+  /** Clear activity buffer and reset bufferStartedAt. */
   clearBuffer: () => void;
 
-  /**
-   * Refresh presentation from turnStore snapshot + activity buffer.
-   */
+  /** Refresh presentation from turnStore snapshot + interactions + activity buffer. */
   refresh: () => void;
 
-  /**
-   * Full reset.
-   */
+  /** Full reset (generation change or disconnect). */
   reset: () => void;
 }
 
 export const presentationStore = create<PresentationStoreState>((set, get) => ({
   activityBuffer: null,
+  bufferStartedAt: null,
   presentation: null,
 
   createBuffer: (turnId: string) => {
-    set({ activityBuffer: new ActivityBuffer(turnId) });
+    set({ activityBuffer: new ActivityBuffer(turnId), bufferStartedAt: null });
     get().refresh();
   },
 
   addEvent: (event: ObservationEvent) => {
-    const { activityBuffer } = get();
-    if (!activityBuffer) {
-      console.warn("presentationStore: no buffer to add event to");
-      return;
+    const state = get();
+    if (!state.activityBuffer) return;
+
+    // Record the timestamp of the first event as the turn start time
+    if (state.bufferStartedAt === null) {
+      const ts = new Date(event.created_at * 1000).toISOString();
+      set({ bufferStartedAt: ts });
     }
 
-    activityBuffer.addEvent(event);
+    state.activityBuffer.addEvent(event);
     get().refresh();
   },
 
   loadEvents: (events: ObservationEvent[]) => {
-    const { activityBuffer } = get();
-    if (!activityBuffer) {
-      console.warn("presentationStore: no buffer to load events into");
-      return;
+    const state = get();
+    if (!state.activityBuffer) return;
+
+    state.activityBuffer.loadEvents(events);
+
+    // Derive startedAt from the first loaded event
+    const first = events[0];
+    if (first && state.bufferStartedAt === null) {
+      set({ bufferStartedAt: new Date(first.created_at * 1000).toISOString() });
     }
 
-    activityBuffer.loadEvents(events);
     get().refresh();
   },
 
@@ -97,7 +95,7 @@ export const presentationStore = create<PresentationStoreState>((set, get) => ({
   },
 
   clearBuffer: () => {
-    set({ activityBuffer: null });
+    set({ activityBuffer: null, bufferStartedAt: null });
     get().refresh();
   },
 
@@ -108,14 +106,20 @@ export const presentationStore = create<PresentationStoreState>((set, get) => ({
       return;
     }
 
-    const base = snapshotToPresentation(snapshot);
-    const { activityBuffer } = get();
+    const interactions: Interaction[] = useTurnStore.getState().items;
+    const { activityBuffer, bufferStartedAt } = get();
+    const canStop = deriveCanStop(snapshot);
 
+    const base = snapshotToPresentation(snapshot, interactions, bufferStartedAt);
+
+    // Keep activity for both running and settled turns while the buffer exists.
+    // This lets the settled LiveStatus card show the last trail after completion.
+    // Activity is cleared only when the turn changes (createBuffer / clearBuffer).
     const activity =
-      base.status === "running" && activityBuffer
+      activityBuffer
         ? activityBuffer.toPresentation(
-            (snapshot as any).created_at || new Date().toISOString(),
-            /* canStop */ true,  // TODO: read from snapshot
+            bufferStartedAt ?? new Date().toISOString(),
+            canStop,
           )
         : null;
 
@@ -130,38 +134,29 @@ export const presentationStore = create<PresentationStoreState>((set, get) => ({
   reset: () => {
     set({
       activityBuffer: null,
+      bufferStartedAt: null,
       presentation: null,
     });
   },
 }));
 
-// Subscribe to turnStore snapshot changes
-useTurnStore.subscribe(
-  () => {
-    presentationStore.getState().refresh();
-  },
-);
+// Refresh on every snapshot change (state, question, budget, result, jobs).
+useTurnStore.subscribe(() => {
+  presentationStore.getState().refresh();
+});
 
-// Subscribe to turnStore Turn changes to create/clear buffer
-let prevTurnId = useTurnStore.getState().turnId;
-useTurnStore.subscribe(
-  () => {
-    const turnId = useTurnStore.getState().turnId;
-    const store = presentationStore.getState();
+// Create/clear buffer when the active turnId changes.
+let prevTurnId: string | null = useTurnStore.getState().turnId;
+useTurnStore.subscribe(() => {
+  const turnId = useTurnStore.getState().turnId;
+  if (turnId === prevTurnId) return;
 
-    // Turn changed
-    if (turnId !== prevTurnId) {
-      // Clear old buffer
-      if (prevTurnId) {
-        store.clearBuffer();
-      }
-
-      // Create new buffer for new Turn
-      if (turnId) {
-        store.createBuffer(turnId);
-      }
-
-      prevTurnId = turnId;
-    }
-  },
-);
+  const store = presentationStore.getState();
+  if (prevTurnId) {
+    store.clearBuffer();
+  }
+  if (turnId) {
+    store.createBuffer(turnId);
+  }
+  prevTurnId = turnId;
+});

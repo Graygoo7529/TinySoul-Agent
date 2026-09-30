@@ -2,9 +2,11 @@
  * Adapters from v2 owner snapshots to presentation models.
  *
  * Pure functions — no side effects, no state mutation, no network calls.
+ * Inputs/timestamps come from interaction items (user.* roles) and local
+ * receipt time; TurnSnapshot has no created_at, initial_input, or timestamps.
  */
 
-import type { TurnSnapshot } from "../../api/v2/types";
+import type { Interaction, TurnSnapshot } from "../../api/v2/types";
 import type {
   TurnPresentation,
   TurnStatus,
@@ -16,36 +18,47 @@ import type {
 } from "./presentation";
 
 /**
- * Map v2 TurnSnapshot to TurnPresentation (without live activity).
+ * Map v2 TurnSnapshot + interaction items to TurnPresentation (without live activity).
  * Activity comes from the ActivityBuffer.
+ *
+ * startedAt is the ISO timestamp of the first event in the activity buffer,
+ * or null if no events have been seen yet.
  */
 export function snapshotToPresentation(
   snapshot: TurnSnapshot,
+  interactions: Interaction[],
+  startedAt: string | null,
 ): Omit<TurnPresentation, "activity"> {
   const status = deriveTurnStatus(snapshot);
 
   return {
     turnId: snapshot.turn_id,
     status,
-    inputs: deriveInputs(snapshot),
+    inputs: deriveInputs(interactions),
     question: deriveQuestion(snapshot),
     budgetSuspension: deriveBudget(snapshot),
     answer: deriveAnswer(snapshot),
     pendingItems: derivePendingItems(snapshot),
     timestamps: {
-      created: (snapshot as any).created_at || "",
-      answered: (snapshot as any).answered_at,
-      stopped: (snapshot as any).stopped_at,
-      cancelled: (snapshot as any).cancelled_at,
+      // TurnSnapshot has no timestamps; use startedAt from the first activity event
+      created: startedAt ?? "",
     },
   };
+}
+
+/**
+ * canStop is true when the turn is not finished/finalizing and cancel has not been requested.
+ */
+export function deriveCanStop(snapshot: TurnSnapshot): boolean {
+  const finalStates = new Set(["finished", "finalizing"]);
+  return !finalStates.has(snapshot.state) && !snapshot.cancel_requested;
 }
 
 /**
  * Derive UI-facing turn status from snapshot.
  */
 function deriveTurnStatus(snapshot: TurnSnapshot): TurnStatus {
-  // Check result first
+  // Check result first — result is the authoritative terminal state
   if (snapshot.result) {
     const resultStatus = snapshot.result.status;
     if (resultStatus === "cancelled") return "cancelled";
@@ -54,45 +67,48 @@ function deriveTurnStatus(snapshot: TurnSnapshot): TurnStatus {
     if (resultStatus === "answered" || resultStatus === "completed") return "answered";
   }
 
-  // Check state
+  // Finished without a result we know about — treat as answered
   if (snapshot.state === "finished") return "answered";
+
+  // Waiting: check for question or budget request
   if (snapshot.state === "waiting") {
     if (snapshot.question) return "waiting_question";
     if (snapshot.budget_request) return "waiting_budget";
   }
-  if (snapshot.state === "running" || snapshot.state === "preparing") return "running";
 
+  // Anything else that's active
   return "running";
 }
 
 /**
- * Derive user inputs (initial + appends + reply).
- * Note: TurnSnapshot doesn't expose inputs directly; we'll need to get them from interactions.
- * For now, return empty array as placeholder.
+ * Derive user inputs from interaction items (user.input, user.append, user.reply roles).
  */
-function deriveInputs(snapshot: TurnSnapshot): TurnInput[] {
-  // TODO: Get inputs from interaction page
-  const inputs: TurnInput[] = [];
-
-  // Try to extract from snapshot if available
-  const initialInput = (snapshot as any).initial_input;
-  if (initialInput) {
-    inputs.push({
-      type: "initial",
-      text: initialInput.text || initialInput,
-      timestamp: (snapshot as any).created_at || new Date().toISOString(),
+function deriveInputs(interactions: Interaction[]): TurnInput[] {
+  return interactions
+    .filter((item) =>
+      item.role === "user.input" ||
+      item.role === "user.append" ||
+      item.role === "user.reply",
+    )
+    .map((item) => {
+      const type: TurnInput["type"] =
+        item.role === "user.reply"
+          ? "reply"
+          : item.role === "user.append"
+            ? "append"
+            : "initial";
+      return {
+        type,
+        text: typeof item.text === "string" ? item.text : "",
+        timestamp: "",
+      };
     });
-  }
-
-  return inputs;
 }
 
 /**
- * Derive question presentation.
+ * Derive question presentation from snapshot.question.
  */
-function deriveQuestion(
-  snapshot: TurnSnapshot,
-): QuestionPresentation | null {
+function deriveQuestion(snapshot: TurnSnapshot): QuestionPresentation | null {
   if (!snapshot.question) return null;
 
   return {
@@ -100,46 +116,42 @@ function deriveQuestion(
     options: snapshot.question.options.map((opt) => ({
       id: opt.id,
       label: opt.label,
-      description: opt.description || undefined,
+      description: opt.description ?? undefined,
     })),
     allowOther: snapshot.question.allow_other,
-    requireComment: false,  // Not in TurnQuestion schema
+    requireComment: false,
   };
 }
 
 /**
- * Derive budget suspension presentation.
+ * Derive budget suspension presentation from snapshot.budget_request.
+ * TurnBudgetRequest only carries request_id and next_cycle_index; token details
+ * are not available from the snapshot alone.
  */
-function deriveBudget(
-  snapshot: TurnSnapshot,
-): BudgetPresentation | null {
+function deriveBudget(snapshot: TurnSnapshot): BudgetPresentation | null {
   if (!snapshot.budget_request) return null;
 
-  // Budget details not in TurnBudgetRequest; return placeholder
   return {
-    reason: snapshot.wait_reason || "Budget approval required",
-    requested: {
-      inputTokens: 0,
-      outputTokens: 0,
-    },
-    current: {
-      inputTokens: 0,
-      outputTokens: 0,
-    },
+    reason: snapshot.wait_reason ?? "Budget approval required",
+    cycleIndex: snapshot.budget_request.next_cycle_index,
+    requestId: snapshot.budget_request.request_id,
   };
 }
 
 /**
- * Derive answer presentation.
+ * Derive answer from result.output.
+ * The core.answer action stores answer text as output.answer or output.text.
  */
 function deriveAnswer(snapshot: TurnSnapshot): AnswerPresentation | null {
   if (!snapshot.result) return null;
-
   const output = snapshot.result.output;
-  if (!output) return null;
+  if (output === null || output === undefined) return null;
 
-  // Try to extract answer text
-  const content = (output as any).answer || (output as any).content || "";
+  // output is JsonObject; the core.answer action writes { answer: string }
+  const answer = typeof output["answer"] === "string" ? output["answer"] : null;
+  const text = typeof output["text"] === "string" ? output["text"] : null;
+  const content = answer ?? text ?? "";
+  if (!content) return null;
 
   return {
     content,
@@ -149,20 +161,18 @@ function deriveAnswer(snapshot: TurnSnapshot): AnswerPresentation | null {
 }
 
 /**
- * Derive pending items presentation.
+ * Derive pending items from jobs in the snapshot.
  */
-function derivePendingItems(
-  snapshot: TurnSnapshot,
-): PendingItemPresentation[] {
-  // Jobs as pending items
+function derivePendingItems(snapshot: TurnSnapshot): PendingItemPresentation[] {
   return snapshot.jobs.map((job) => ({
     id: job.job_id,
     type: job.kind,
-    label: job.summary || job.kind,
-    status: job.state === "running" || job.state === "pending"
-      ? "pending"
-      : job.state === "failed"
-        ? "failed"
-        : "resolved",
+    label: typeof job.summary === "string" ? job.summary : job.kind,
+    status:
+      job.state === "running" || job.state === "pending"
+        ? "pending"
+        : job.state === "failed"
+          ? "failed"
+          : "resolved",
   }));
 }

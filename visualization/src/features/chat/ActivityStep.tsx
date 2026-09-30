@@ -1,15 +1,15 @@
 /**
- * ActivityStep — one semantic activity step in the rolling trail.
+ * One semantic activity step — shared renderer behind the live status stack
+ * in the chat view and the activity timeline in the trace view.
  *
- * Restored from baseline (c479ca0) to work with v2 presentation types.
- * Every kind renders structured semantics instead of bare text:
- * - Reasoning excerpts expand inline
- * - Domain selections show chips
- * - Skill mounts render as chips
- * - Action calls show paired plan/result entries
+ * Every kind renders its structured semantics instead of a bare text line:
+ * reasoning excerpts expand inline, the stage-1 intent shows its domains as
+ * chips, mounted skills render as chips, and action calls come as paired
+ * entries — the plan entry shows the stage-2 call headline, the result
+ * entry leads with the stage-3 outcome headline.
  */
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   Check,
@@ -17,106 +17,60 @@ import {
   Circle,
   CircleDashed,
   CircleStop,
+  Loader2,
   XCircle,
-  Brain,
-  Flag,
-  Package,
-  Sparkles,
 } from "lucide-react";
 import { motion } from "motion/react";
-import type { ActivityStep as ActivityStepModel, ActivityStepContent } from "./presentation";
+import type { ActivityStep as ActivityStepType } from "./presentation";
 import { EASE_CALM } from "../../utils/motion";
-
-const activityIcons: Record<string, typeof Circle> = {
-  phase_start: Flag,
-  thinking: Brain,
-  domain_select: Package,
-  skill_mount: Sparkles,
-  context_update: Circle,
-  action_plan: CircleDashed,
-  action_result: Check,
-  provider_retry: AlertTriangle,
-  milestone: Check,
-  todo: Circle,
-};
-
-const activityColors: Record<string, string> = {
-  phase_start: "text-accent",
-  thinking: "text-fg-muted",
-  domain_select: "text-info",
-  skill_mount: "text-purple-500",
-  context_update: "text-fg-faint",
-  action_plan: "text-fg-faint",
-  action_result: "text-success",
-  provider_retry: "text-warning",
-  milestone: "text-success",
-  todo: "text-fg-muted",
-};
-
-export interface ActivityStepProps {
-  item: ActivityStepModel;
-  /** Render a colored timeline dot instead of the kind icon */
-  rail?: boolean;
-  /** Live status: tween in-place status icon flips */
-  animate?: boolean;
-  /** Inline glimpse content (for action steps) */
-  glimpse?: React.ReactNode;
-  /** Toggle glimpse handler */
-  onToggleGlimpse?: () => void;
-  /** Glimpse expanded state */
-  glimpseExpanded?: boolean;
-}
+import { Markdown } from "../../components/markdown/Markdown";
+import { activityColors, activityIcons, DomainChip } from "../../components/trace/semantic";
 
 export function ActivityStep({
   item,
   rail = false,
-  animate = false,
   glimpse,
+  animate = false,
   onToggleGlimpse,
   glimpseExpanded = false,
-}: ActivityStepProps) {
-  // Determine icon and color
-  const Icon = activityIcons[item.type] ?? Circle;
-  const color = activityColors[item.type] ?? "text-fg-faint";
+}: {
+  item: ActivityStepType;
+  /** Render a colored timeline dot instead of the kind icon. */
+  rail?: boolean;
+  /** Inline action detail rendered below the body (live activity bar only). */
+  glimpse?: ReactNode;
+  /** Live status only: tween in-place status icon flips so the trail never hard-cuts. */
+  animate?: boolean;
+  /** When set, the row body becomes a toggle button for the glimpse. */
+  onToggleGlimpse?: () => void;
+  /** Drives the chevron direction for onToggleGlimpse rows. */
+  glimpseExpanded?: boolean;
+}) {
+  const kind = item.content.type;
+  const Icon = activityIcons[kind] ?? Circle;
+  const color = activityColors[kind] ?? "text-fg-faint";
 
-  // Action result status overrides
-  const actionStatus =
-    item.type === "action_result" && item.content.type === "action_result"
-      ? actionStatusVisual(item.content.glimpse.result?.status)
-      : undefined;
-
-  const FinalIcon = actionStatus?.Icon ?? Icon;
-  const finalColor = actionStatus?.color ?? color;
-
-  const body = <StepBody content={item.content} />;
+  const body = <StepBody item={item} />;
 
   return (
     <div className="flex min-w-0 items-start gap-2">
       {rail ? (
-        <span className={`flex w-[11px] shrink-0 justify-center ${finalColor}`}>
-          <span
-            className={`mt-[5px] block h-[7px] w-[7px] rounded-full ${
-              actionStatus?.hollow ? "border border-current" : "bg-current"
-            }`}
-          />
+        <span className={`flex w-[11px] shrink-0 justify-center ${color}`}>
+          <span className={`mt-[5px] block h-[7px] w-[7px] rounded-full bg-current`} />
         </span>
       ) : animate ? (
         <motion.span
-          key={item.id}
+          key={kind}
           initial={{ opacity: 0, scale: 0.6 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.2, ease: EASE_CALM }}
-          className={`mt-[3px] inline-flex shrink-0 ${finalColor}`}
+          className={`mt-[3px] inline-flex shrink-0 ${color}`}
         >
-          <FinalIcon size={12} className={actionStatus?.spin ? "animate-spin-slow" : ""} />
+          <Icon size={12} />
         </motion.span>
       ) : (
-        <FinalIcon
-          size={12}
-          className={`mt-[3px] shrink-0 ${finalColor} ${actionStatus?.spin ? "animate-spin-slow" : ""}`}
-        />
+        <Icon size={12} className={`mt-[3px] shrink-0 ${color}`} />
       )}
-
       {onToggleGlimpse ? (
         <div className="min-w-0 flex-1">
           <button
@@ -134,7 +88,6 @@ export function ActivityStep({
           {glimpse}
         </div>
       )}
-
       {onToggleGlimpse && (
         <ChevronRight
           size={11}
@@ -147,195 +100,263 @@ export function ActivityStep({
   );
 }
 
-/* ----------------------------- Body renderers ----------------------------- */
+/* ------------------------------ per kind ----------------------------- */
 
-function StepBody({ content }: { content: ActivityStepContent }) {
+function StepBody({ item }: { item: ActivityStepType }) {
+  const content = item.content;
   switch (content.type) {
-    case "phase_start":
-      return <PhaseStartBody content={content} />;
     case "thinking":
-      return <ThinkingBody content={content} />;
+      return <ThinkingBody text={content.text} />;
     case "domain_select":
-      return <DomainSelectBody content={content} />;
+      return <DomainSelectBody domains={content.domains} />;
     case "skill_mount":
-      return <SkillMountBody content={content} />;
-    case "context_update":
-      return <ContextUpdateBody content={content} />;
+      return <SkillMountBody skill={content.skill} domain={content.domain} />;
+    case "phase_start":
+      return <PhaseStartBody label={content.phase.label} domain={content.phase.domain} />;
     case "action_plan":
-      return <ActionPlanBody content={content} />;
+      return <ActionPlanBody actionId={content.glimpse.actionId} domain={content.glimpse.domain} />;
     case "action_result":
-      return <ActionResultBody content={content} />;
+      return (
+        <ActionResultBody
+          actionId={content.glimpse.actionId}
+          status={content.glimpse.result?.status}
+          preview={content.glimpse.result?.preview}
+        />
+      );
     case "provider_retry":
-      return <ProviderRetryBody content={content} />;
+      return <ProviderRetryBody provider={content.provider} attempt={content.attempt} />;
     case "milestone":
-      return <MilestoneBody content={content} />;
+      return <MilestoneBody text={content.text} status={content.status} />;
     case "todo":
-      return <TodoBody content={content} />;
+      return <TodoBody text={content.text} status={content.status} />;
+    case "context_update":
+      return <ContextUpdateBody summary={content.summary} />;
+    default:
+      return null;
   }
 }
 
-function PhaseStartBody({ content }: { content: Extract<ActivityStepContent, { type: "phase_start" }> }) {
-  const { phase } = content;
-  return (
-    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-      <span className="text-[12px] font-medium text-fg">{phase.label}</span>
-      {phase.domain && (
-        <span className="inline-flex items-center rounded-md bg-info-soft px-1.5 py-0.5 text-[10.5px] text-info">
-          {phase.domain}
-        </span>
-      )}
-      {phase.skill && (
-        <span className="inline-flex items-center rounded-md bg-purple-500/15 px-1.5 py-0.5 text-[10.5px] text-purple-600 dark:text-purple-400">
-          {phase.skill}
-        </span>
-      )}
-    </div>
-  );
-}
-
-function ThinkingBody({ content }: { content: Extract<ActivityStepContent, { type: "thinking" }> }) {
+function ThinkingBody({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
-  const truncated = content.text.length > 140 ? content.text.slice(0, 140) + "..." : content.text;
-
-  if (content.text.length <= 140) {
-    return <span className="text-[12px] italic text-fg-muted">{content.text}</span>;
-  }
+  const lines = text.split("\n").filter((l) => l.trim().length > 0);
+  const preview = lines[0] ?? text;
+  const hasMore = lines.length > 1;
 
   return (
     <div>
       <button
         onClick={() => setOpen(!open)}
         className="flex w-full items-start gap-1 text-left"
-        title={open ? "Collapse thinking" : "Expand thinking"}
       >
-        <span className="min-w-0 flex-1 truncate text-[12px] italic text-fg-muted">
-          {open ? content.text : truncated}
-        </span>
-        <ChevronRight
-          size={11}
-          className={`mt-0.5 shrink-0 text-fg-faint transition-transform ${open ? "rotate-90" : ""}`}
-        />
+        <span className="min-w-0 flex-1 truncate text-[12px] italic text-fg-muted">{preview}</span>
+        {hasMore && (
+          <ChevronRight
+            size={11}
+            className={`mt-0.5 shrink-0 text-fg-faint transition-transform ${open ? "rotate-90" : ""}`}
+          />
+        )}
       </button>
+      {open && hasMore && (
+        <div className="mt-1 rounded-lg bg-accent-soft/50 px-2.5 py-2">
+          <Markdown className="md-calm text-[12px] text-fg-muted">{text}</Markdown>
+        </div>
+      )}
     </div>
   );
 }
 
-function DomainSelectBody({ content }: { content: Extract<ActivityStepContent, { type: "domain_select" }> }) {
+function DomainSelectBody({ domains }: { domains: string[] }) {
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-      <span className="text-[12px] text-fg-muted">Domains selected</span>
-      {content.domains.map((domain) => (
-        <span
-          key={domain}
-          className="inline-flex items-center rounded-md bg-info-soft px-1.5 py-0.5 text-[10.5px] text-info"
-        >
-          {domain}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function SkillMountBody({ content }: { content: Extract<ActivityStepContent, { type: "skill_mount" }> }) {
-  return (
-    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-      <span className="text-[12px] text-fg-muted">Skill mounted</span>
-      <span className="inline-flex max-w-[180px] items-center rounded-md bg-purple-500/15 px-1.5 py-0.5 text-[10.5px] text-purple-600 dark:text-purple-400">
-        <span className="truncate">{content.skill}</span>
+      <span className="text-[12px] italic text-fg">
+        {domains.length > 0 ? `"${domains.join(", ")}"` : ""}
       </span>
-      <span className="text-[11px] text-fg-faint">in {content.domain}</span>
+      <span className="inline-flex shrink-0 items-center gap-1">
+        {domains.map((d) => (
+          <DomainChip key={d} domain={d} />
+        ))}
+      </span>
     </div>
   );
 }
 
-function ContextUpdateBody({ content }: { content: Extract<ActivityStepContent, { type: "context_update" }> }) {
+function SkillMountBody({ skill, domain }: { skill: string; domain: string }) {
   return (
-    <span className="truncate text-[12px] text-fg-muted" title={content.summary}>
-      {content.summary}
-    </span>
+    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+      <span className="text-[12px] text-fg-muted">Loaded skill</span>
+      <span
+        title={`${domain}/${skill}`}
+        className="inline-flex max-w-[180px] items-center rounded-md bg-info-soft px-1.5 py-0.5 text-[10.5px] text-info"
+      >
+        <span className="truncate">{skill}</span>
+      </span>
+    </div>
   );
 }
 
-function ActionPlanBody({ content }: { content: Extract<ActivityStepContent, { type: "action_plan" }> }) {
-  const { glimpse } = content;
+function PhaseStartBody({ label, domain }: { label: string; domain?: string }) {
   return (
     <div className="flex min-w-0 items-baseline gap-2">
-      <span className="truncate text-[12px] font-medium text-fg">{glimpse.actionId}</span>
-      <span className="truncate font-mono text-[11px] text-fg-faint">{glimpse.domain}</span>
+      <span className="truncate text-[12px] text-fg-muted">{label}</span>
+      {domain && (
+        <span className="truncate font-mono text-[11px] text-fg-faint">{domain}</span>
+      )}
     </div>
   );
 }
 
-function ActionResultBody({ content }: { content: Extract<ActivityStepContent, { type: "action_result" }> }) {
-  const { glimpse } = content;
-  const failed = glimpse.result?.status === "failure" || glimpse.result?.status === "timeout";
-  const resultText = glimpse.result?.status ?? "completed";
+function ActionPlanBody({ actionId, domain }: { actionId: string; domain: string }) {
+  const shortName = actionId.includes(".") ? actionId.split(".").slice(1).join(".") : actionId;
+  return (
+    <div className="flex min-w-0 items-baseline gap-2">
+      <span className="truncate text-[12px] font-medium text-fg">{shortName}</span>
+      <span className="shrink-0 font-mono text-[11px] text-fg-faint">{domain}</span>
+    </div>
+  );
+}
 
+function ActionResultBody({
+  actionId,
+  status,
+  preview,
+}: {
+  actionId: string;
+  status?: string;
+  preview?: string;
+}) {
+  const failed = status === "failure" || status === "timeout" || status === "cancelled";
+  const shortName = actionId.includes(".") ? actionId.split(".").slice(1).join(".") : actionId;
+  const StatusIcon =
+    status === "success"
+      ? Check
+      : status === "failure"
+        ? XCircle
+        : status === "timeout"
+          ? AlertTriangle
+          : status === "cancelled"
+            ? CircleStop
+            : status === "not_executed"
+              ? CircleDashed
+              : Circle;
+
+  return (
+    <div className="flex min-w-0 items-baseline gap-2">
+      <StatusIcon
+        size={11}
+        className={`mt-[2px] shrink-0 ${
+          status === "success"
+            ? "text-success"
+            : failed
+              ? "text-danger"
+              : "text-fg-faint"
+        }`}
+      />
+      <span
+        className={`truncate text-[12px] ${failed ? "text-danger" : "text-fg-muted"}`}
+        title={preview}
+      >
+        {preview ?? shortName}
+      </span>
+      <span className="shrink-0 font-mono text-[11px] text-fg-faint">{shortName}</span>
+    </div>
+  );
+}
+
+function ProviderRetryBody({ provider, attempt }: { provider: string; attempt: number }) {
+  return (
+    <div className="flex min-w-0 items-baseline gap-2">
+      <span className="truncate text-[12px] text-warning">Retry #{attempt}</span>
+      <span className="truncate font-mono text-[11px] text-fg-faint">{provider}</span>
+    </div>
+  );
+}
+
+function MilestoneBody({ text, status }: { text: string; status: string }) {
   return (
     <div className="flex min-w-0 items-baseline gap-2">
       <span
-        className={`truncate text-[12px] ${failed ? "text-danger" : "text-fg-muted"}`}
-        title={resultText}
+        className={`shrink-0 text-[12px] ${
+          status === "done"
+            ? "text-success"
+            : status === "blocked"
+              ? "text-warning"
+              : "text-fg-faint"
+        }`}
       >
-        {resultText}
+        {status === "done" ? "✓" : status === "blocked" ? "⊘" : "−"}
       </span>
-      <span className="shrink-0 font-mono text-[11px] text-fg-faint">{glimpse.actionId}</span>
+      <span className="truncate text-[12px] text-fg">{text}</span>
     </div>
   );
 }
 
-function ProviderRetryBody({ content }: { content: Extract<ActivityStepContent, { type: "provider_retry" }> }) {
+function TodoBody({ text, status }: { text: string; status: string }) {
   return (
     <div className="flex min-w-0 items-baseline gap-2">
-      <span className="text-[12px] text-warning">Retry {content.attempt}</span>
-      <span className="truncate font-mono text-[11px] text-fg-faint">{content.provider}</span>
-    </div>
-  );
-}
-
-function MilestoneBody({ content }: { content: Extract<ActivityStepContent, { type: "milestone" }> }) {
-  const statusColors: Record<typeof content.status, string> = {
-    done: "text-success",
-    blocked: "text-warning",
-    skipped: "text-fg-faint",
-  };
-
-  return (
-    <div className="flex min-w-0 items-baseline gap-2">
-      <span className={`text-[12px] ${statusColors[content.status]}`}>
-        {content.status === "done" ? "✓" : content.status === "blocked" ? "⊘" : "−"}
+      <span className={`shrink-0 text-[12px] ${status === "done" ? "text-success" : "text-fg-faint"}`}>
+        {status === "done" ? "✓" : "○"}
       </span>
-      <span className="truncate text-[12px] text-fg">{content.text}</span>
+      <span className={`truncate text-[12px] ${status === "done" ? "line-through text-fg-faint" : "text-fg-muted"}`}>
+        {text}
+      </span>
     </div>
   );
 }
 
-function TodoBody({ content }: { content: Extract<ActivityStepContent, { type: "todo" }> }) {
+function ContextUpdateBody({ summary }: { summary: string }) {
   return (
-    <div className="flex min-w-0 items-baseline gap-2">
-      <span className="text-[12px] text-fg-faint">{content.status === "done" ? "✓" : "○"}</span>
-      <span className="truncate text-[12px] text-fg-muted">{content.text}</span>
-    </div>
+    <span className="truncate text-[12px] text-fg-faint">{summary}</span>
   );
 }
 
-/* --------------------------- Action status visuals --------------------------- */
+/* ------------- status visuals for action plan entries ---------------- */
 
-function actionStatusVisual(status?: string) {
+export function ActionStepStatusIcon({
+  status,
+  animate = false,
+}: {
+  status?: string;
+  animate?: boolean;
+}) {
+  const config = actionStepStatusConfig(status);
+  if (animate) {
+    return (
+      <motion.span
+        key={status ?? "none"}
+        initial={{ opacity: 0, scale: 0.6 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.2, ease: EASE_CALM }}
+        className={`mt-[3px] inline-flex shrink-0 ${config.color}`}
+      >
+        <config.Icon size={12} className={config.spin ? "animate-spin-slow" : ""} />
+      </motion.span>
+    );
+  }
+  return (
+    <config.Icon
+      size={12}
+      className={`mt-[3px] shrink-0 ${config.color} ${config.spin ? "animate-spin-slow" : ""}`}
+    />
+  );
+}
+
+function actionStepStatusConfig(status?: string) {
   switch (status) {
-    case "success":
-      return { Icon: Check, color: "text-success", spin: false, hollow: false };
-    case "failure":
-      return { Icon: XCircle, color: "text-danger", spin: false, hollow: false };
+    case "planned":
+      return { Icon: CircleDashed, color: "text-fg-faint", spin: false };
+    case "running":
+      return { Icon: Loader2, color: "text-accent", spin: true };
+    case "executed":
+      return { Icon: Check, color: "text-fg-faint", spin: false };
+    case "succeeded":
+      return { Icon: Check, color: "text-success", spin: false };
+    case "failed":
+      return { Icon: XCircle, color: "text-danger", spin: false };
     case "timeout":
-      return { Icon: AlertTriangle, color: "text-danger", spin: false, hollow: false };
-    case "cancelled":
-      return { Icon: CircleStop, color: "text-fg-faint", spin: false, hollow: true };
-    case "not_executed":
-      return { Icon: CircleDashed, color: "text-fg-faint", spin: false, hollow: true };
-    case "result_unknown":
-      return { Icon: Circle, color: "text-fg-faint", spin: false, hollow: true };
+      return { Icon: AlertTriangle, color: "text-danger", spin: false };
+    case "stopped":
+      return { Icon: CircleStop, color: "text-fg-faint", spin: false };
     default:
-      return undefined;
+      return { Icon: Circle, color: "text-fg-faint", spin: false };
   }
 }

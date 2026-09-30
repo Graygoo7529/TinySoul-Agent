@@ -1,39 +1,31 @@
 /**
- * useTurnPresentation — hook to consume presentation layer in React components.
+ * useTurnPresentation — hooks to consume the presentation layer in React components.
  *
- * Subscribes to presentationStore and refreshes when turnStore snapshot changes.
+ * Subscribes to presentationStore. The store itself subscribes to turnStore
+ * for snapshot changes, so components don't need a separate effect to trigger
+ * refresh — that would be a duplicate path.
  */
 
-import { useEffect } from "react";
 import { presentationStore } from "./presentationStore";
-import { useTurnStore } from "../../store/turnStore";
 import type { TurnPresentation } from "./presentation";
 
 /**
- * Get the current turn presentation.
- * Returns null if no turn is active.
+ * Get the current turn presentation. Returns null when no turn is active.
+ * The presentation refreshes automatically whenever the turnStore snapshot
+ * or the activity buffer changes.
  */
 export function useTurnPresentation(): TurnPresentation | null {
-  const snapshot = useTurnStore((s) => s.snapshot);
-  const presentation = presentationStore((s) => s.presentation);
-
-  // Refresh presentation when snapshot changes
-  useEffect(() => {
-    if (snapshot) {
-      presentationStore.getState().refresh();
-    }
-  }, [snapshot]);
-
-  return presentation;
+  return presentationStore((s) => s.presentation);
 }
 
 /**
- * Get the activity buffer state.
+ * Get the activity buffer diagnostic state (useful for tests and debug UI).
  */
 export function useActivityBuffer() {
   const buffer = presentationStore((s) => s.activityBuffer);
+  const startedAt = presentationStore((s) => s.bufferStartedAt);
   const incomplete = buffer?.isIncomplete() ?? false;
   const eventCount = buffer?.getEventCount() ?? 0;
 
-  return { buffer, incomplete, eventCount };
+  return { buffer, startedAt, incomplete, eventCount };
 }
