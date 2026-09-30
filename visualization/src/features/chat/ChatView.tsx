@@ -51,6 +51,7 @@ import {
 } from "../../store/connectionStore";
 import { useTurnStore, type OutgoingEcho } from "../../store/turnStore";
 import {
+  cancelActiveTurn,
   cancelQueuedTurn,
   dismissEcho,
   grantBudget,
@@ -78,6 +79,8 @@ import { EASE_CALM, SETTLE_WIPE_MS } from "../../utils/motion";
 import { Composer } from "./Composer";
 import { QuestionCard } from "./QuestionCard";
 import { registerQuestionBlock } from "./questionBlock";
+import { LiveStatus } from "./LiveStatus";
+import { useTurnPresentation } from "./useTurnPresentation";
 
 // The chat feature's assembly: the question fence protocol joins the
 // CodeBlockRegistry (plan §21.1 explicit composition).
@@ -355,6 +358,12 @@ function ConversationView() {
               ))}
             </>
           )}
+          {/* Live activity card: observation-event layer for the running turn.
+              Appears after the formal interaction stream so it feels like
+              the agent is actively continuing work below the last settled
+              row. Hidden once the turn settles and has no activity. */}
+          {!historyView && <LiveActivityCard onStop={() => void cancelActiveTurn(epoch)} />}
+
           {/* The snapshot-driven waiting area stays mounted across the first
               interaction read: a waiting question is answerable before the
               pages finish draining (plan §6.2). */}
@@ -931,6 +940,44 @@ function ResultSummary({ result }: { result: TurnResult }) {
         {result.status}
       </Badge>
       {failureText && <span className="min-w-0 truncate">{failureText}</span>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Live activity card (observation-event layer)
+// ---------------------------------------------------------------------------
+
+/**
+ * Renders the observation-event presentation (LiveStatus) for the active turn
+ * while it is running, and keeps a settled view briefly after it finishes.
+ *
+ * Sits after the formal interaction stream so the agent activity feels like
+ * it continues below the last committed row. Hidden when there is no
+ * presentation or no activity.
+ */
+function LiveActivityCard({ onStop }: { onStop?: () => void }) {
+  const presentation = useTurnPresentation();
+
+  if (!presentation || !presentation.activity) return null;
+
+  const running = presentation.status === "running";
+  const settled = !running && presentation.activity !== null;
+
+  if (!running && !settled) return null;
+
+  return (
+    <div className="flex gap-2.5">
+      <div className="bg-accent-grad mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white shadow-brand">
+        <Bot size={15} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <LiveStatus
+          activity={presentation.activity}
+          mode={running ? "live" : "settled"}
+          onStop={running ? onStop : undefined}
+        />
+      </div>
     </div>
   );
 }
