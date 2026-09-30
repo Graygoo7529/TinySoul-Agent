@@ -17,9 +17,13 @@ async function collectPage(page: Page) {
     if (msg.type() === "error") consoleErrors.push(msg.text());
   });
   page.on("pageerror", (err) => pageErrors.push(String(err)));
-  page.on("requestfailed", (req) =>
-    failedRequests.push(`${req.url()} :: ${req.failure()?.errorText ?? "?"}`),
-  );
+  page.on("requestfailed", (req) => {
+    // The tikzjax invalid-case fallback is a designed marker image pointing
+    // at //invalid.site; its fetch is expected to fail (and whether it fires
+    // inside the test window is timing/DNS dependent).
+    if (req.url().startsWith("http://invalid.site/")) return;
+    failedRequests.push(`${req.url()} :: ${req.failure()?.errorText ?? "?"}`);
+  });
   page.on("requestfinished", (req) => requestUrls.push(req.url()));
   return { consoleErrors, pageErrors, failedRequests, requestUrls };
 }
@@ -65,6 +69,9 @@ test("mermaid / tikzjax 在真实浏览器中产出 SVG，资源全部本地", a
   }
   const external = obs.requestUrls.filter((url) => {
     if (url.startsWith("data:")) return false;
+    // The tikzjax invalid-case marker image (//invalid.site) is the runtime's
+    // designed failure signal, not a CDN fetch.
+    if (url.startsWith("http://invalid.site/")) return false;
     try {
       // blob:<origin>/... URLs report the embedding origin.
       return new URL(url).origin !== "http://127.0.0.1:5199";

@@ -5,7 +5,8 @@ import { defineConfig } from "playwright/test";
 const visualizationRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 /**
- * Dev-only verification entry for the Mermaid/TikZJax code block renderers.
+ * Dev-only verification entries: the Mermaid/TikZJax code block renderers
+ * (W2) and the F1-D minimal real interaction flow against a real Endpoint.
  * Run from visualization/:
  *   pnpm exec playwright test -c test/e2e/playwright.config.ts
  *
@@ -19,6 +20,10 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   reporter: [["list"]],
+  // Real backend harness (real Agent + Endpoint, scripted model) for the
+  // chat-flow spec; publishes <repo>/.local-test/e2e-backend/connection.json.
+  // The setup returns its own teardown function.
+  globalSetup: "./backend.global.ts",
   use: {
     baseURL: "http://127.0.0.1:5199",
     browserName: "chromium",

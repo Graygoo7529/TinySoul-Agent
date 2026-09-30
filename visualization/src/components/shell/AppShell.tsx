@@ -10,6 +10,8 @@ import { StatusBar } from "./StatusBar";
 import { ConnectScreen } from "./ConnectScreen";
 import { PlaceholderPage } from "./PlaceholderPage";
 import { ChatView } from "../../features/chat/ChatView";
+import { SettingsPage } from "../../features/settings/SettingsPage";
+import { SettingsDraftChip } from "../../features/settings/SettingsDraftChip";
 
 /**
  * The application shell: NavRail on the left; the main column (TopBar, the
@@ -41,13 +43,20 @@ export function AppShell() {
               and reconnects automatically.
             </div>
           )}
-          <div className="min-h-0 flex-1">
+          <div className="relative min-h-0 flex-1">
             {!connected && activeTab !== "settings" ? (
               <ConnectScreen />
             ) : activeTab === "chat" ? (
               <ChatView />
+            ) : activeTab === "settings" ? (
+              <SettingsPage />
             ) : (
               <PlaceholderPage page={activeTab} />
+            )}
+            {activeTab !== "settings" && (
+              <SettingsDraftChip
+                onOpen={() => useAppStore.getState().setActiveTab("settings")}
+              />
             )}
           </div>
         </main>

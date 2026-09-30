@@ -20,7 +20,7 @@
 | 阶段 | 状态 | 完成证据/备注 |
 | --- | --- | --- |
 | F0 契约与技术核对 | done | W1/W2/W3 完成；test 191 例全绿，build + tauri build 通过 |
-| F1 数据与壳 | in_progress | A/B/C 完成；D 真实 Endpoint 验收待做 |
+| F1 数据与壳 | done | 真实 Endpoint E2E 五连绿；vitest 263 例、tsc/build 全绿 |
 | F2 设置与方案 | pending | |
 | F3 对话与历史 | pending | |
 | F4 Context/Action/模型 | pending | |
@@ -90,7 +90,7 @@
 
 ### F1-C：连接生命周期 / v2 状态架构 / 壳导航 / 最小对话流
 
-已完成主体，测试补齐中。架构切换要点：
+已完成（含 88 个行为测试）。架构切换要点：
 
 - 旧 v1 世界已删除：`src/api/{runtime,history,maintenance,events,tinysoul,exportTrace,connection,transport,configuration,workspace}.ts`、`src/derive/`、`src/components/{chat,monitor,trace,workspace}/`、`src/features/settings/`、`src/store/{configStore,eventRetention}.ts`、`src/hooks/{useBackend,useWorkspace}.ts`、`shell/{MaintenanceDialog,BackgroundDrawer,DisconnectedScreen}.tsx`。旧实现以 git 历史为参考材料，F2/F5 在 v2 上重建（计划 §22.1 的"保留"指复用对象编辑/布局设计而非保留 v1 耦合文件）。
 - 新增 `src/app/connection.ts`（handshake → 快照 → WS 订阅全生命周期：epoch guard 防旧连接覆盖、有界退避重连、gap 后 owner 重读 resync、generation/instance 变化处理、ready=false 轮询、显式 restart）与 `src/app/discovery.ts`（Browser localStorage 手动目标 + v1 迁移；Tauri lease 只提供地址+token+身份，协议由 handshake 裁定；lib.rs 无需改动——后端 lease 格式未变）。
@@ -100,7 +100,15 @@
 
 ### F1-D：最小真实交互流程验收
 
-待做：真实 Endpoint + 受控模型的端到端验证（提交 Turn→恢复问题→回复→完成→Session 恢复）。
+已完成（2026-09-30）。真实 Endpoint（无 mock）+ 受控脚本模型的端到端验证通过：连接 → 提交 Turn → 问题卡 → 选择回复（含 comment）→ 完成 → 刷新后从 Session 恢复。
+
+- 后端 harness `test/e2e/backend_server.py`：装配方式与后端契约测试（`tests/gateway/endpoint/test_contracts.py`）一致——`ProjectInitializer` 初始化临时项目 + `standard_agent` + 配置覆盖（`reflection.schedule.enabled=false`、`loop.user.max_cycles=8`）+ `EndpointEngine` + `EndpointASGIServer`（uvicorn，127.0.0.1）。只有模型输出是脚本（`ScriptedLLM` 实现 TaskRunner 协议，按消息内容驱动）：stage1 选 `core` 域；普通输入回显 `You said: <原文>`；含触发词 `e2e-ask` 时先 `core.ask`（两个选项 + allow_other），检测到回复标记（`e2e-reply-comment`）后 `core.answer` 点名所选 option；`core.answer.generate` 任务返回 input_blocks 中携带的成稿；未知 consumer 返回最小 JSON 兜底。`--port 0` 由 OS 分配空闲端口，实际端口写入 ready file（规避端口冲突），stdout 打 `TINYSOUL_E2E_READY port=N`。
+- Playwright 接入 `test/e2e/backend.global.ts`：globalSetup  spawn Python harness（Python 解析顺序 `$TINYSOUL_PYTHON` → `$CONDA_PREFIX/python.exe` → PATH 上的 `python`），轮询 ready file 后把 `{address, token}` 写到 `<repo>/.local-test/e2e-backend/connection.json`，并返回 teardown 杀进程；项目目录每次运行重建（当日 Session 列表从空开始）。运行目录放在仓库根 `.local-test/` 而非 `visualization/.local-test/`：vite dev server 监视 `visualization/`，其瞬时读句柄会导致 Windows 下项目初始化 staging 目录 rename 失败（WinError 5）。
+- 场景 `test/e2e/chat-flow.pw.ts`：ConnectScreen 填地址+token 连接（导航解锁、空态可见）；发送 `e2e-plain …` → 用户气泡收敛为恰好 1 条、`.answer-card` 回显恰好 1 条；发送 `e2e-ask …` → 问题卡出现（2 个 radio）→ 选 Option B + 填 comment → Reply → radio 消失、卡片只读（"answered"、所选选项高亮类）、回复气泡（option_id+comment）恰好 1 条、最终回答 `You picked Option B (opt_b).` 且含 comment；`page.reload()` 后经 localStorage 自动重连，当日对话列表出现两轮，打开 ask 轮为只读历史（user.input / 已答问题 / user.reply / agent.output 齐全且各 1 条）；全程 `pageerror` 为空。
+- 运行命令（visualization/ 下，需 TinySoul conda 环境）：`TINYSOUL_PYTHON=$CONDA_PREFIX/python.exe pnpm exec playwright test -c test/e2e/playwright.config.ts`（或先 `conda activate TinySoul`）。结果：连续 4 次全绿（chat-flow 约 3.8–3.9s，codeblocks 约 1.2–1.4s），后端每次随机端口（如 55334/49680/64961）。
+- 修复的真实 bug（真实浏览器才暴露）：`src/api/v2/transport.ts` 默认分支 `options.fetchImpl ?? fetch` 把全局 `fetch` 裸存为成员，随后以方法形式调用导致 `Illegal invocation`，Connect 必然失败（vitest 注入 fake/Node fetch 不触发）。修复为箭头包装调用。该文件位于"不改 src/api/v2"约定边界内，属阻塞 F1-D 的最小真实 bug 修复，特此说明。
+- 既有测试 flake 修复：`test/e2e/codeblocks.pw.ts` 对 tikzjax 失败用例的运行时标记图（`http://invalid.site/img-not-found.png`）的 fetch 失败/DNS 行为是环境相关的，现对该已知标记豁免 `requestfailed` 与 external 检查（设计内的失败信号，非 CDN 拉取）。
+- 备注（已过时部分更新）：F1-C 测试文件随后已由测试补齐工作流完成并修正——当前 tsc、vitest 263 例、build 均全绿。
 
 ## 实施中发现的需求/缺口
 

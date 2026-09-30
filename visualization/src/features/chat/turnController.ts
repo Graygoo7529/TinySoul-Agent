@@ -20,7 +20,6 @@ import type {
   PendingItem,
   QuestionAnswer,
   QueuedRequest,
-  TurnQuestion,
   TurnResult,
 } from "../../api/v2/types";
 import { nextContinuation, createPageAssembler } from "../../api/v2/pagination";
@@ -490,7 +489,7 @@ export async function sendUserMessage(
 export async function replyToQuestion(
   epoch: number,
   turnId: string,
-  question: TurnQuestion,
+  questionId: string,
   answer: QuestionAnswer,
   displayText: string,
 ): Promise<boolean> {
@@ -502,14 +501,14 @@ export async function replyToQuestion(
     echoId,
     kind: "reply",
     turnId,
-    questionId: question.question_id,
+    questionId,
     text: displayText,
     state: "sending",
     error: null,
   });
   try {
     const receipt = await clients.turns.reply(turnId, {
-      question_id: question.question_id,
+      question_id: questionId,
       answer,
     });
     if (clientsFor(epoch) === null) return true;

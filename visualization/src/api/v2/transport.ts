@@ -58,7 +58,10 @@ export class V2Transport {
 
   constructor(options: V2TransportOptions) {
     this.connection = options.connection;
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    // The browser's global fetch must be invoked through the global binding;
+    // storing the bare reference and calling it as a method throws
+    // "Illegal invocation" in real browsers.
+    this.fetchImpl = options.fetchImpl ?? ((...args) => fetch(...args));
   }
 
   get token(): string {
