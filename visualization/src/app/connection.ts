@@ -24,11 +24,13 @@ import { V2Transport } from "../api/v2/transport";
 import type { ObservationEvent, RuntimeStatus } from "../api/v2/types";
 import { useAppStore } from "../store/appStore";
 import { useConnectionStore } from "../store/connectionStore";
+import { useTurnStore } from "../store/turnStore";
 import {
   refreshSessionTurns,
   resetTurnController,
   syncFromStatus,
 } from "../features/chat/turnController";
+import { presentationStore } from "../features/chat/presentationStore";
 import {
   discoverLocalLease,
   isTauriShell,
@@ -276,6 +278,7 @@ function handleStatusTransition(
   if (generationChanged) {
     // Old generation handles are dead; conversation state starts clean.
     resetTurnController();
+    presentationStore.getState().reset();
     toast("info", "The backend restarted a new generation; the view was re-synchronized.");
   }
   const becameReady = previous !== null && !previous.ready && status.ready;
@@ -347,6 +350,8 @@ function openStream(epoch: number): void {
         const current = useConnectionStore.getState();
         if (current.epoch !== epoch) return;
         current.setEventGap(true);
+        // Mark activity buffer as incomplete due to gap
+        presentationStore.getState().markIncomplete();
         void resyncAfterGap(epoch);
       },
       onClose: () => {
@@ -441,6 +446,14 @@ function ensureReadyPoll(epoch: number): void {
 
 function routeEvent(epoch: number, event: ObservationEvent): void {
   const name = event.name;
+
+  // Route to presentation layer for current turn activity
+  const currentTurnId = useTurnStore.getState().turnId;
+  if (currentTurnId && event.turn_id === currentTurnId) {
+    // Add event to activity buffer for live presentation
+    presentationStore.getState().addEvent(event);
+  }
+
   // Context-install events drive the drawer's lightweight generation signal
   // (plan §3.5): panels mark themselves refreshable from it — an unrelated
   // status re-read never marks the installed view stale.
