@@ -21,12 +21,12 @@
 | --- | --- | --- |
 | F0 契约与技术核对 | done | W1/W2/W3 完成；test 191 例全绿，build + tauri build 通过 |
 | F1 数据与壳 | done | 真实 Endpoint E2E 五连绿；vitest 263 例、tsc/build 全绿 |
-| F2 设置与方案 | in_progress | F2-A 完成：设置外壳 + ConfigDraft + apply 控制器；F2-B 完成：模型与服务 7 页 + 集合草稿投影/对象编辑原语；F2-C 完成：行为与调用 5 页 + actions 投影/模型用途绑定与检索策略原子；F2-D 完成：工具/连接、数据/知识、系统与界面 10 页 + 集合编辑器 + uiPrefs；F2-E 完成：运行方案管理页 + 草稿确认流 + Composer 方案快捷入口；vitest 77 文件 686 例全绿，tsc/build 全绿，真实后端 e2e 2 例通过 |
-| F3 对话与历史 | in_progress | F3-A 完成：CodeBlockRegistry + Question 代码块协议 + P01 对话体验；F3-B 完成：历史浏览器（日目录/日 Turn 列表）+ Session map + 只读历史轮视图与入口，vitest 51 文件 445 例全绿、tsc/build 全绿、真实后端 e2e 2 例通过 |
-| F4 Context/Action/模型 | in_progress | F4-A 完成：Context Drawer（P04 全部）；F4-B 完成：Action 渲染器 + Search 卡片 + 模型调用 Inspector（P05 全部），vitest 73 文件 640 例全绿、tsc/build 全绿、真实后端 e2e 2 例通过 |
-| F5 资源与链接 | in_progress | F5-A 完成：ResourceRouter（引用分类/路由/三区分操作/Markdown 协议链接与图片）+ 工作区页（P06：分页读取/full=true 编辑门控/串行写/外部变化基线/blob 鉴权/Trash/归档只读/共享搜索接入）；F5-B 完成：Home 页（P07：effective/actual 目录与阅读/overlay 变化与 diff/整理 Home）+ Memory 页（P08：活动记忆日绑定/持久知识目录与文档/redirect 呈现/整理记忆）+ 两页共享搜索与引用面板落地（§13/§14 相关部分），vitest 80 文件 740 例全绿、tsc/build 全绿、真实后端 e2e 2 例通过 |
-| F6 运行与代码块 | in_progress | F6-A 完成：运行观察页（P09：Execution/Jobs/ACP/MCP/Environment 五分页 + 紧凑概览）+ 代码块收尾（§21.1：Mermaid 缩放/导出/版本感知缓存/重试、TikZ 并发上限 2 与排队/卸载释放/重试），vitest 86 文件 781 例全绿、tsc/build 全绿、真实后端 e2e 2 例通过 |
-| F7 收口 | pending | |
+| F2 设置与方案 | done | F2-A 设置外壳 + ConfigDraft + apply 控制器；F2-B 模型与服务 7 页 + 集合草稿投影/对象编辑原语；F2-C 行为与调用 5 页 + actions 投影/模型用途绑定与检索策略原子；F2-D 工具/连接、数据/知识、系统与界面 10 页 + 集合编辑器 + uiPrefs；F2-E 运行方案管理页 + 草稿确认流 + Composer 方案快捷入口；F2 审计修复完成 |
+| F3 对话与历史 | done | F3-A CodeBlockRegistry + Question 代码块协议 + P01 对话体验；F3-B 历史浏览器（日目录/日 Turn 列表）+ Session map + 只读历史轮视图与入口 |
+| F4 Context/Action/模型 | done | F4-A Context Drawer（P04 全部）；F4-B Action 渲染器 + Search 卡片 + 模型调用 Inspector（P05 全部）；F4-C 审计修复完成 |
+| F5 资源与链接 | done | F5-A ResourceRouter（引用分类/路由/三区分操作/Markdown 协议链接与图片）+ 工作区页（P06 全部）+ 对话侧审计修复；F5-B Home 页（P07）+ Memory 页（P08）+ 两页共享搜索与引用面板落地（§13/§14 相关部分） |
+| F6 运行与代码块 | done | F6-A 运行观察页（P09：Execution/Jobs/ACP/MCP/Environment 五分页 + 紧凑概览）+ 代码块收尾（§21.1 全部） |
+| F7 收口 | in_progress | F7-A 完成：交接文档 `docs/handoff.md` + 验收映射 `docs/acceptance-map.md`、demand 目录整理（3 项 pending + 5 项归档 + README 索引）、死代码清理（v1 类型簇/占位组件/未消费字段/陈旧注释）、v1 设计文档过期标注、本文收尾；vitest 84 文件 773 例全绿、tsc/build 全绿。F7-B 完成：代表性页面视觉核对——真实后端 harness + Playwright 截取 23 张语义化截图（对话/设置/Home/Memory/工作区/运行观察/Context 抽屉/历史/窄窗口，含明暗双主题），产物 `docs/review/screenshots/` + `docs/review/visual-check.md`；发现 1 中 8 低共 9 项视觉/一致性观察问题（含 Home `home:agent@AGENT` 读取 503 后端疑点），记录未修。F7-C 完成：9 项观察中 7 项低严重度问题（问题 2–8）修复并回归——LLM Models 字段行改名 Feature capabilities、Session map 摘要「·」拍平与下钻钮改面板图标、只读历史 Composer 整体禁用降级、活动 Memory 显式空态、TopBar connecting/reconnecting 区分、引用悬停操作零宽展开；vitest 84 文件 778 例全绿、tsc/build 全绿、视觉 spec 重跑 23 张截图目检+Pillow 复测确认；问题 1 转后端需求单、问题 9 保留观察 |
 
 ## F0 实施记录
 
@@ -95,7 +95,7 @@
 - 旧 v1 世界已删除：`src/api/{runtime,history,maintenance,events,tinysoul,exportTrace,connection,transport,configuration,workspace}.ts`、`src/derive/`、`src/components/{chat,monitor,trace,workspace}/`、`src/features/settings/`、`src/store/{configStore,eventRetention}.ts`、`src/hooks/{useBackend,useWorkspace}.ts`、`shell/{MaintenanceDialog,BackgroundDrawer,DisconnectedScreen}.tsx`。旧实现以 git 历史为参考材料，F2/F5 在 v2 上重建（计划 §22.1 的"保留"指复用对象编辑/布局设计而非保留 v1 耦合文件）。
 - 新增 `src/app/connection.ts`（handshake → 快照 → WS 订阅全生命周期：epoch guard 防旧连接覆盖、有界退避重连、gap 后 owner 重读 resync、generation/instance 变化处理、ready=false 轮询、显式 restart）与 `src/app/discovery.ts`（Browser localStorage 手动目标 + v1 迁移；Tauri lease 只提供地址+token+身份，协议由 handshake 裁定；lib.rs 无需改动——后端 lease 格式未变）。
 - 状态三分：`connectionStore`（连接/status 快照/事件 cursor）、`turnStore`（活动 Turn 投影：正式 interactions + pending_items + 本地 echo，按 command_id/input_id/question_id 身份收敛）、`appStore`（仅本地偏好+toast）；事件只做失效触发，无事件重放权威。
-- 壳：NavRail 新导航（Chat/Workspace/Home/Memory/Runtime + 设置），ConnectScreen（地址+token 手动表单、Tauri 本机发现按钮）、PlaceholderPage（未迁移页的诚实空态）。
+- 壳：NavRail 新导航（Chat/Workspace/Home/Memory/Runtime + 设置），ConnectScreen（地址+token 手动表单、Tauri 本机发现按钮）、PlaceholderPage（未迁移页的诚实空态）。（更新 2026-09-30 F7-A：全部 tab 落地后 PlaceholderPage 已无可达路径，随死代码清理删除，见 F7 实施记录。）
 - 最小对话流 `src/features/chat/`：ChatView（owner 投影渲染、当日 Session 列表入口）、Composer（明确意图：新一轮/补充本轮/排队）、QuestionCard（快照恢复即刻可见、choice+comment/Other、预算卡 grant）、turnController（发送收敛、Session 接替有界重试、容量拒绝保稿）。
 
 ### F1-D：最小真实交互流程验收
@@ -216,7 +216,11 @@
 
 > 仍然真实存在的后端缺口按 `visualization/docs/demand/` 规则记录；过时需求单不作为实现依据。
 
-（暂无）
+当前 pending 需求（索引与详情见 `docs/demand/README.md`，均为非阻塞）：
+
+- `20260930-catalog-render-pdf-pages-choices.md`：`render_pdf_pages` 的 catalog choices（never/on_no_text/always）与代码可接受值（disabled/on_no_text）不一致（F0/W3 发现，config-coverage §9.1）。
+- `20260930-catalog-kimi-search-model-choices.md`：`capabilities.web.search_by_kimi.model` 代码只接受 kimi-k2.5/k2.6 但 catalog 无 choices（F0/W3 发现，config-coverage §9.5）。
+- `20260930-home-agent-top-document-503.md`：`home:agent@AGENT` 正文读取 503（`AgentHomeInvariantError`），需后端确认读取语义（F7-B 视觉核对发现，visual-check 问题 1）。
 
 ## F4 实施记录
 
@@ -330,3 +334,51 @@
 - **已知边界**：Environment 事件流为打开时的一次性定向窗口（手动 Re-read 更新），不做常驻跟随；Mermaid 重试为整图重渲染，导出文件名固定 `diagram.svg`；TikZ 未实现跨块共享运行时（并发上限已就位）；Working 节带参深链与 §14 之外的运行控制项归后续阶段。
 
 建议 commit：`feat(visualization): F6-A runtime observation page & codeblock finishers — P09 five tabs with overview strip, job output polling/drain/stop semantics, MCP four-fact directory with per-server refresh, ACP honest states, environment window, mermaid zoom/export/version-aware cache, tikz compile slots (max 2) with queue/release/retry`
+
+## F7 实施记录
+
+### F7-A：文档收口、验收映射、demand 整理与死代码清理
+
+已完成（2026-09-30）。`pnpm test` 84 文件 / 773 例全绿，`pnpm build`（tsc + vite）通过。范围约束遵守：新增/整理的全部为 `visualization/docs/` 文档；`src/` 改动仅限死代码删除与陈旧注释修正（无业务行为变化）；未运行 git；未触碰 `docs/analysis/` 权威计划（其复选框由维护者更新）。
+
+- **交接文档 `docs/handoff.md`（新建）**：按权威计划 §25 覆盖——文档地图（区分当前有效文档与 v1 历史文档）、九个页面地图与用户路径（含实际操作示例）、状态与接口所有权（connectionStore/turnStore/turnController/configDraft/inspectorStore/targetsStore 及各 feature store，owner 投影为正式来源、事件只做失效）、设置保存与方案语义（ConfigDraft 原子模型、apply/reload 结果语义、preset 捕获/应用与 §15 草稿确认流）、Context 与资源的差别（已安装语境 vs owner 当前内容）、CodeBlockRegistry 注册方法与新增 renderer 步骤、ResourceRouter 三操作、实际运行/测试命令（含 Playwright e2e 与 TINYSOUL_PYTHON）、已知边界与遗留 13 项。
+- **验收映射 `docs/acceptance-map.md`（新建）**：§24.1 三十项逐项映射到实现文件/测试文件/e2e 场景并标注状态——28 项已覆盖（含 F7-B 视觉核对落地后的 29/30），2 项部分覆盖（第 9 项真实通道切换的后端效果仅有代码证据、第 14 项缺 document_fields 编辑面）；缺口汇总 G1–G6（G1 document_fields 编辑、G2 Tauri webview 未实测、G3 方案通道切换无 e2e、G4 F7-B 九项视觉观察问题、G5/G6 为设计内呈现边界）。
+- **demand 目录整理**：通读 `docs/demand/`——v1 旧需求单 5 份已全部在 `archived/`（2 份 done、3 份 superseded 均带归档结论），无仍真实存在的旧缺口；新建 3 份当前语义需求单（两份 catalog choices 对齐——W3 记录的后端不一致转正式需求、一份 F7-B 发现的 `home:agent@AGENT` 503 读取语义确认）；新建 `README.md` 索引（pending 表 + archived 表）。旧需求编号不作为新实现依据。
+- **死代码/占位扫描与清理**（全部经 tsc + vitest 验证无引用）：
+  - 删除 `src/components/shell/PlaceholderPage.tsx` 及 AppShell 兜底分支（AppTab 封闭联合六值全部有真实页面，分支不可达）；所有 tab 均渲染真实页面。
+  - 删除 v1 类型簇 `src/types/{maintenance,workspace,configuration,events,runtime,common}.ts`（`src/types/` 桶仅 AppTab 有消费者；`types/index.ts` 收窄为只导出 `ui`）。
+  - 删除无消费者 hooks `src/hooks/{useNow,useOverflowing,useTruncated,useThrottledValue}.ts`（+ 后者自测）与 `src/components/ui/Crossfade.tsx`（+ 自测）——均为 v1 LiveStatus 遗留。
+  - 删除 `SettingsPageDef.placeholder` 字段（声明 + 24 处 `placeholder: false` 赋值，无任何读取方）。
+  - 陈旧注释/文案修正：`src/api/v2/errors.ts`（删掉对已删除 v1 transport 的引用）、`src/features/resources/targetsStore.ts`（F5-B 已落地）、`SettingsPlaceholderPage`（保留为未注册页防御性兜底，文案与测试同步更新——不再称 "later F2 milestone"）。
+  - 全仓扫描确认：无 TODO/FIXME/XXX/HACK、无 "under construction" 残留（仅保留组件内防御文案）、无 monitor/maintenance 旧命名残留（`appStore` 的 v1 "monitor"→"runtime" 持久化迁移为有意保留）。
+- **v1 设计文档过期标注**：`docs/design/{index,chat,connection,workspace,settings}.md` 顶部加过期提示并指向 handoff.md（内容不重写，留作历史参考）；`visual-system.md` 经核对仍有效。
+- **一致性修正**：阶段表 F1–F6 翻 done（全部子项完成、门禁绿）；F1-C 的 PlaceholderPage 早期声称加注更新；「实施中发现的需求/缺口」小节由（暂无）更新为 3 项 pending 索引。
+- **与 F7-B 的并行说明**：本项与 F7-B（视觉核对）并行执行；F7-B 产物（`docs/review/`、`test/e2e/visual-review.pw.ts`）已落地，其 9 项观察问题如实汇入 handoff.md §9 与 acceptance-map.md G4，其中 `home:agent@AGENT` 503 一项转为后端需求单。
+
+建议 commit：`docs(visualization): F7-A closeout — handoff & acceptance-map docs, demand reorganization with three pending notes, dead-code sweep (v1 types/placeholder/unused hooks) and progress-doc consistency fixes`
+
+### F7-B：代表性页面视觉核对（§24.1 末项）
+
+已完成（2026-09-30）。真实后端 harness（`test/e2e/backend_server.py` + 既有 `backend.global.ts` 生命周期）+ Playwright 截取 23 张语义化截图，逐张人工核对并记录。范围约束遵守：未改 `src/` 业务代码；新增 `test/e2e/visual-review.pw.ts` 与独立入口 `test/e2e/visual-review.config.ts`（端口 5198，`testMatch` 仅本 spec），既有 `playwright.config.ts` 仅加一行 `testIgnore` 把本 spec 排除在 chat-flow/codeblocks 门禁之外；文档产物在 `docs/review/`。
+
+- **产物**：`docs/review/screenshots/`（23 张 PNG：对话空态/回答/question 卡、Context overview+段详情、暗主题会话与日列表、历史日目录+Session map、设置概览/LLM Models/Actions/Run plans、Home 目录+正文+读取失败态、Memory 活动+Knowledge、工作区、运行观察 Execution/Jobs/MCP、800px 窄窗口对话+设置）；`docs/review/visual-check.md`（每图一段：首屏主次、字号/密度、等待与空态、明暗主题、与 Luminous tokens 的一致性 + 问题清单 + 总体结论）。
+- **运行与防空白**：`TINYSOUL_PYTHON=… pnpm exec playwright test -c test/e2e/visual-review.config.ts` 1 例通过（~30s）；spec 内每张断言 >15KB，运行后以 Pillow 抽样像素（每 37px）测灰度标准差，23 张 std ∈ [8.4, 33.5]，无空白截图；全程零 pageerror。
+- **核对结论**：tokens 消费一致（三层底/细边线/靛蓝主动作/领域色仅表来源/状态色仅表运行结果），明暗双主题成立，空态与等待态普遍诚实。
+- **问题清单摘要**（详见 visual-check.md，本轮不修）：①中——Home effective 目录首项 `home:agent@AGENT` 正文读取 503（`AgentHomeInvariantError`，curl 直连复现，其余 top content 均 200，目录仍把它呈现为普通可选项，需后端跟进）；②–⑨低——LLM Models 页「Capabilities」标题连续重名、Session map 未归类 Turn 双 chevron 并列与摘要无分隔连排、只读历史下 Composer 禁用语义仅靠 banner、活动 Memory 空白无显式空态、连接瞬间 TopBar「reconnecting…」与状态栏并存、Home 正文 `session:map` 引用后异常空隙、亮主题 answer-card 凹版角标对比极弱（观察）。
+
+建议 commit：`test(visualization): F7-B visual review — real-backend screenshot tour (23 pages, both themes, narrow window) with blank-capture guards, visual-check record and issue list under docs/review/`
+
+### F7-C：视觉核对 7 项低严重度问题修复（visual-check.md 问题 2–8）
+
+已完成（2026-09-30）。对 F7-B 记录的 9 项观察问题中的 7 项低严重度前端问题（问题 2–8）做小范围修复；问题 1（`home:agent@AGENT` 503）属后端、已转需求单 `docs/demand/20260930-home-agent-top-document-503.md`，问题 9（凹版角标对比弱）为风格化取舍、保留观察。`pnpm test` 84 文件 / 778 例全绿（本项新增/修改测试 5 处），`pnpm build`（tsc + vite）通过，视觉核对 spec 重跑 1 例通过（23 张截图重截，六处修复点目检确认，Pillow 每 37px 抽样灰度 std ∈ [8.4, 33.6] 无空白）。范围约束遵守：改动仅 `visualization/` 内 src 与测试、视觉核对 spec 产物与文档；未触碰后端。
+
+- **问题 2（LLM Models「Capabilities」重名）**：`src/features/settings/models/LlmModelsPage.tsx` 字段行标题由读 field meta（与区段标题同为 "Capabilities"）改为硬编码 "Feature capabilities"；区段标题与 meta description 保留。测试：`test/settings/models/pages.test.tsx` 断言 "Feature capabilities" 存在且全文精确 "Capabilities" 的 div 仅区段标题 1 个。
+- **问题 3（Session map 双 chevron）**：`src/features/history/panelShared.tsx` 未归类 Turn 卡外「Inspect the recorded facts」下钻钮图标由 ChevronRight 改为 PanelRightOpen（面板语义），与卡内表「跳转对话」的 chevron 区分。
+- **问题 4（Session map 摘要连排）**：根因是后端 `_turn_hint` 以 " / " 连接 inputs 且回复文本内含换行（label+description+comment），HTML 折叠空白后连排。`src/features/history/disclosure.ts` 新增 `flattenClue`（按 `\n` 与 " / " 拆分、去空、以「 · 」连接），`panelShared.tsx` HintRow clue 渲染改调之。测试：`test/history/SessionMap.test.tsx` 新增用例覆盖拍平分隔与面板图标（同时断言无 chevron 图标）。
+- **问题 5（只读历史 Composer 看不出禁用）**：`src/features/chat/Composer.tsx` 读 `useTurnStore` 的 `historyView` 为 readOnly——`canSend` 加 `!readOnly`，textarea 禁用，placeholder/hint 改为明示文案（"Read-only history — replies and edits are disabled" / "Back to today to send a message"），composer-box 灰化（opacity-60、无 accent 焦点环），意图 chip 换为静态「Read-only」灰 chip，方案入口（PresetEntry）与停止钮不渲染（发送钮渲染但禁用）。测试：`test/chat/ChatView.test.tsx` 新增 describe 覆盖禁用态五断言。
+- **问题 6（活动 Memory 空态缺失）**：根因是后端 `content_units` 对空文档也返回一个空文本 chunk，原 `items.length` 判定使空态永不触发。`src/features/memory/ActiveMemoryView.tsx` 与 `MemoryDocumentView.tsx`（同一协议形状、同一根因一并修复）改为 `hasContent`（存在非空文本 chunk）判定空态/错误态/footer，空文档呈现既有「Nothing recorded yet」空态。测试：`test/memory/memoryPage.test.tsx` 两处空态用例 mock 对齐真实后端形状（单空文本 chunk）。
+- **问题 7（TopBar 窗口期误显 reconnecting）**：`src/components/shell/TopBar.tsx` ReconnectIndicator——phase=connected 且事件流 `reconnecting` 才显「reconnecting…」；首次接入窗口期（offline/connecting）显「connecting…」。测试：`test/context/contextDrawer.test.tsx` TopBar 用例补三阶段断言。
+- **问题 8（`session:map` 引用后宽空白）**：`src/features/resources/links.tsx` ReferenceActions——隐藏操作条原以 opacity-0 恒占位约 38px，改为 `max-w-0 overflow-hidden` 零宽、`group-hover/ref` 与 `focus-within` 时展开（`max-w-10`），保留原 hover/focus 交互；接受悬停展开时后文右移约 38px 的布局让步。测试：`test/resources/links.test.tsx` 断言容器类名。
+- **文档同步**：`docs/review/visual-check.md` 逐图记录（01/09/11/14b/15/21）以删除线保留原问题描述并追加「已修复」标注，问题清单整节改为「问题清单与修复状态」（含状态列与修复位置），截图清单表更新为重跑后的尺寸/KB/std 复测值（注明 runId 内容不可与首轮逐位比较），总体结论同步；`docs/handoff.md` §9 第 12 项与 `docs/acceptance-map.md` G4 同步改写。
+
+建议 commit：`fix(visualization): F7-C visual-check follow-ups — distinct Feature capabilities label, session-map clue flattening & panel-icon inspect affordance, read-only composer degradation in history, empty-memory explicit state, honest connecting vs reconnecting indicator, zero-width hover reference actions`

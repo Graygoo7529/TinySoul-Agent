@@ -551,7 +551,7 @@ function ModelEditor({
           />
         </FieldRow>
         <FieldRow
-          title={field("capabilities").meta?.title ?? "Capabilities"}
+          title="Feature capabilities"
           description={field("capabilities").meta?.description}
           dirty={field("capabilities").dirty}
         >

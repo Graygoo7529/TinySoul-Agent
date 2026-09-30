@@ -1,5 +1,7 @@
 # 前端连接与生命周期设计
 
+> ⚠️ 本文描述 v1 连接协议（`/v1/status`、`/v1/events`、protocol_version 1）。当前 v2 连接生命周期见 `../handoff.md` 与 `src/app/connection.ts`。
+
 ## 运行模型
 
 `tinysoul start --root <project-root> --mode normal` 是当前唯一的交互运行入口。Terminal 拥有后端进程与退出生命周期；前端只发现并连接当前项目已经运行的实例。

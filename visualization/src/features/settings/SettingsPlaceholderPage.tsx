@@ -4,8 +4,10 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { SETTINGS_GROUPS, SETTINGS_PAGES, type SettingsPageId } from "./pages";
 
 /**
- * Honest placeholder for settings pages whose workflow lands in a later F2
- * milestone. Carries the owning group so the navigation structure is visible.
+ * Fallback for a registered settings page that has no component in
+ * SettingsPage's PAGE_COMPONENTS table yet (e.g. a newly added page id whose
+ * implementation has not landed). Every currently registered page has a real
+ * component, so this is not reachable from the navigation today.
  */
 export function SettingsPlaceholderPage({ page }: { page: SettingsPageId }) {
   const def = SETTINGS_PAGES[page];
@@ -19,8 +21,7 @@ export function SettingsPlaceholderPage({ page }: { page: SettingsPageId }) {
           <>
             {def.description}
             <span className="mt-1 block text-fg-faint">
-              {group?.title} · this page is under construction — its editing
-              workflow arrives with a later F2 milestone.
+              {group?.title} · this page has no implementation yet.
             </span>
           </>
         }

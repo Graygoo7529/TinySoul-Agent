@@ -90,14 +90,20 @@ function ReconnectIndicator() {
   const phase = useConnectionStore((s) => s.phase);
   const eventsPhase = useConnectionStore((s) => s.eventsPhase);
   if (phase === "connected" && eventsPhase === "live") return null;
+  // The stream's first attach after a fresh handshake is still "connecting";
+  // "reconnecting" is reserved for a dropped stream the client is recovering.
+  const label =
+    phase === "connecting"
+      ? "connecting…"
+      : phase === "connected"
+        ? eventsPhase === "reconnecting"
+          ? "reconnecting…"
+          : "connecting…"
+        : "disconnected";
   return (
     <span className="inline-flex items-center gap-1.5 text-[11px] text-fg-faint">
       <RefreshCw size={12} className="animate-spin-slow" />
-      {phase === "connecting"
-        ? "connecting…"
-        : phase === "connected"
-          ? "reconnecting…"
-          : "disconnected"}
+      {label}
     </span>
   );
 }

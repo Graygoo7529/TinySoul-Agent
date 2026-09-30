@@ -2,9 +2,9 @@
  * Pending navigation targets produced by the ResourceRouter for owner pages.
  *
  * The Workspace page is live and consumes its target immediately through its
- * own store; Home and Memory land in F5-B, so their targets wait here and the
- * placeholder landing shows exactly what was asked for. Consuming a target
- * clears it — a target is a one-shot navigation intent, not page state.
+ * own store; Home and Memory read their pending target from this store on
+ * mount and clear it as they take over — a target is a one-shot navigation
+ * intent, not page state.
  */
 
 import { create } from "zustand";

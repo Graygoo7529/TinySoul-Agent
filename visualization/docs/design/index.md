@@ -1,5 +1,7 @@
 # TinySoul 桌面前端设计
 
+> ⚠️ 本文描述 v1 前端（`derive/`、`components/chat|monitor|trace/`、`/v1/*` 接口），该实现已在 F1-C 删除。仅作历史参考；当前 v2 实现见 `../handoff.md`。
+
 > 本文档描述 `visualization/` 目录内的前端设计思路与整体架构。前端只负责可视化与交互，不直接操作后端业务目录；所有状态通过已运行的 `tinysoul start` Endpoint 获取。
 
 ## 定位与边界

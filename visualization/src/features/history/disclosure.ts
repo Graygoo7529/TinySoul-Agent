@@ -170,6 +170,20 @@ export function splitAnnotationClue(clue: string): {
   return { status: match[1] ?? null, text: match[2] ?? "" };
 }
 
+/**
+ * A turn hint's clue joins the first inputs with " / ", and a question-reply
+ * input itself carries newlines (picked option, description, comment). Flatten
+ * both separators to the app's middot so the summary never reads as one
+ * run-on sentence.
+ */
+export function flattenClue(clue: string): string {
+  return clue
+    .split(/\n| \/ /)
+    .map((part) => part.trim())
+    .filter((part) => part !== "")
+    .join(" · ");
+}
+
 // ---------------------------------------------------------------------------
 // Ref identities
 // ---------------------------------------------------------------------------

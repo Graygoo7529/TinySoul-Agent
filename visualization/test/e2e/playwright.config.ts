@@ -16,6 +16,9 @@ const visualizationRoot = path.resolve(path.dirname(fileURLToPath(import.meta.ur
 export default defineConfig({
   testDir: "./",
   testMatch: "**/*.pw.ts",
+  // F7-B visual review runs under its own config (visual-review.config.ts);
+  // keep it out of this guarded pair.
+  testIgnore: "visual-review.pw.ts",
   timeout: 240_000,
   fullyParallel: false,
   workers: 1,

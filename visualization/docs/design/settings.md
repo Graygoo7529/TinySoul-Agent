@@ -1,5 +1,7 @@
 # Settings 与配置管理
 
+> ⚠️ 本文描述 v1 设置页（`/v1/config*`、`configStore`、旧分组导航）。当前 v2 设置与 ConfigDraft 语义见 `../handoff.md`、`config-coverage.md` 与 `src/features/settings/`。
+
 ## 定位
 
 Settings 是主导航中的独立工作页，负责项目 TOML、项目 dotenv credential 和客户端偏好。

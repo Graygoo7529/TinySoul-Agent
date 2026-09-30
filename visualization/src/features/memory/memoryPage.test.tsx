@@ -221,7 +221,10 @@ describe("MemoryPage active memory", () => {
     endpoint.get("/v2/memory/active", (request) =>
       queryOf(request, "day") === ARCHIVE
         ? errorResponse(404, "resource.not_found")
-        : jsonResponse(activePage(ACTIVE, [])),
+        : jsonResponse(
+            // The owner's empty document still delivers one empty chunk.
+            activePage(ACTIVE, [{ ref: "memory:current#L1-L1", text: "" }]),
+          ),
     );
     await renderPage();
     // The active day reads fine but is empty — a fact, not a failure.
@@ -373,7 +376,12 @@ describe("MemoryPage documents", () => {
     endpoint.get("/v2/memory/document", (request) =>
       queryOf(request, "link") === "memory:entity/gone"
         ? errorResponse(404, "resource.not_found")
-        : jsonResponse(documentPage("memory:entity/empty", {}, [])),
+        : jsonResponse(
+            // The owner's empty document still delivers one empty chunk.
+            documentPage("memory:entity/empty", {}, [
+              { ref: "memory:entity/empty#L1-L1", text: "" },
+            ]),
+          ),
     );
     useMemoryPage.setState({ section: "persistent", link: "memory:entity/gone" });
     await renderPage();

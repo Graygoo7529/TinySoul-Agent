@@ -369,6 +369,17 @@ describe("LlmModelsPage", () => {
     expect(deleteButton.disabled).toBe(true);
     expect(renameButton.disabled).toBe(true);
   });
+
+  it("labels the capabilities field distinctly from its section heading", async () => {
+    await renderSelected("kimi-k2");
+    const exactDivs = (text: string) =>
+      [...container.querySelectorAll("div")].filter(
+        (node) => node.textContent === text,
+      );
+    // One section heading only; the field row carries the more specific label.
+    expect(container.textContent).toContain("Feature capabilities");
+    expect(exactDivs("Capabilities")).toHaveLength(1);
+  });
 });
 
 // ---------------------------------------------------------------------------

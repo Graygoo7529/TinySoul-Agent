@@ -43,6 +43,7 @@ export function Composer() {
   const phase = useConnectionStore((s) => s.phase);
   const status = useConnectionStore((s) => s.status);
   const snapshot = useTurnStore((s) => s.snapshot);
+  const historyView = useTurnStore((s) => s.historyView);
   const text = useComposerDraft((s) => s.draft);
   const setText = useComposerDraft((s) => s.setDraft);
   const [sending, setSending] = useState(false);
@@ -52,8 +53,11 @@ export function Composer() {
   const derived = resolveComposerIntent(status, snapshot, connected);
   const intent = applyIntentChoice(derived, choice);
   const cancellable = canCancelActiveTurn(status, snapshot);
+  // A committed conversation is read-only: the composer is not an input path
+  // here, and the whole unit degrades instead of looking sendable.
+  const readOnly = historyView;
   const canSend =
-    intent.kind !== "unavailable" && text.trim().length > 0 && !sending;
+    !readOnly && intent.kind !== "unavailable" && text.trim().length > 0 && !sending;
 
   const send = async () => {
     if (!canSend) return;
@@ -71,8 +75,9 @@ export function Composer() {
     }
   };
 
-  const placeholder =
-    intent.kind === "unavailable"
+  const placeholder = readOnly
+    ? "Read-only history — replies and edits are disabled"
+    : intent.kind === "unavailable"
       ? intent.reason === "not-ready"
         ? "The backend is starting…"
         : "Connect to a running TinySoul backend first"
@@ -82,8 +87,9 @@ export function Composer() {
           ? "Queue a new turn…"
           : "Message TinySoul…";
 
-  const hint =
-    intent.kind === "append"
+  const hint = readOnly
+    ? "Back to today to send a message"
+    : intent.kind === "append"
       ? "Enter to send · Shift+Enter for newline · sent as input to the current turn"
       : intent.kind === "new-turn" && intent.queued
         ? "Enter to send · Shift+Enter for newline · queued as the next turn"
@@ -92,7 +98,13 @@ export function Composer() {
   return (
     <div className="border-t border-line bg-bg px-4 pt-3 pb-4">
       <div className="mx-auto max-w-3xl">
-        <div className="composer-box rounded-xl border border-line-strong bg-bg-elev shadow-card transition-[border-color,box-shadow] focus-within:border-accent focus-within:shadow-(--focus-ring)">
+        <div
+          className={`composer-box rounded-xl border transition-[border-color,box-shadow] ${
+            readOnly
+              ? "border-line bg-bg opacity-60"
+              : "border-line-strong bg-bg-elev shadow-card focus-within:border-accent focus-within:shadow-(--focus-ring)"
+          }`}
+        >
           <div className="flex items-start px-3.5 pt-3 pb-1">
             <span
               className="composer-prompt mr-2 leading-6 select-none"
@@ -110,19 +122,25 @@ export function Composer() {
                 }
               }}
               placeholder={placeholder}
-              disabled={intent.kind === "unavailable"}
+              disabled={readOnly || intent.kind === "unavailable"}
               rows={Math.min(8, Math.max(1, text.split("\n").length))}
               className="composer-input block w-full flex-1 resize-none bg-transparent text-sm leading-6 outline-none placeholder:text-fg-faint disabled:cursor-not-allowed"
             />
           </div>
           <div className="flex items-center justify-between gap-2 px-2.5 pb-2">
             <div className="flex min-w-0 items-center gap-2 px-1 text-[11px] text-fg-faint">
-              <IntentChip intent={intent} derived={derived} choice={choice} onChoose={setChoice} />
+              {readOnly ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-hover px-2 py-0.5 text-[10px] font-medium text-fg-faint">
+                  Read-only
+                </span>
+              ) : (
+                <IntentChip intent={intent} derived={derived} choice={choice} onChoose={setChoice} />
+              )}
               <span className="min-w-0 truncate">{hint}</span>
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
-              <PresetEntry />
-              {cancellable && !text.trim() ? (
+              {!readOnly && <PresetEntry />}
+              {cancellable && !text.trim() && !readOnly ? (
                 <button
                   onClick={() => void cancelActiveTurn(epoch)}
                   title="Stop the current turn"

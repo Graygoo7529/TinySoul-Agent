@@ -6,7 +6,7 @@
  */
 
 import type { ReactElement } from "react";
-import { AlertTriangle, ChevronRight, Loader2, RotateCw } from "lucide-react";
+import { AlertTriangle, ChevronRight, Loader2, PanelRightOpen, RotateCw } from "lucide-react";
 
 import type { V2Clients } from "../../api/v2/clients";
 import { useConnectionStore } from "../../store/connectionStore";
@@ -14,6 +14,7 @@ import { IconButton } from "../../components/ui/Button";
 import { Badge } from "../../components/ui/Badge";
 import { pushSessionRef } from "./entries";
 import {
+  flattenClue,
   sessionTurnId,
   splitAnnotationClue,
   type DisclosureChild,
@@ -127,13 +128,13 @@ export function HintRow({
         </span>
         {clue.text !== "" && (
           <span className="mt-0.5 line-clamp-2 block text-[12px] leading-5 text-fg-faint">
-            {clue.text}
+            {flattenClue(clue.text)}
           </span>
         )}
       </button>
       {turnId !== null && onOpenTurn !== undefined && (
         <IconButton label="Inspect the recorded facts" onClick={openDetail}>
-          <ChevronRight size={14} />
+          <PanelRightOpen size={14} />
         </IconButton>
       )}
     </div>

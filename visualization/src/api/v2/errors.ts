@@ -2,10 +2,8 @@
  * Endpoint v2 error envelope and classification.
  * Shape: schemas/error.json ({error: {code, message, details}}). Branch on
  * `code`, preserve structured `details`, never parse human-facing `message`
- * (implementation plan §3.4).
- *
- * Note: src/api/transport.ts still carries the v1 TinySoulApiError used by
- * the existing clients; F1 rewires transport to this implementation.
+ * (implementation plan §3.4). The transport layer (transport.ts) builds these
+ * from HTTP responses; feature code classifies with the helpers below.
  */
 
 import type { JsonObject, JsonValue } from "./json";

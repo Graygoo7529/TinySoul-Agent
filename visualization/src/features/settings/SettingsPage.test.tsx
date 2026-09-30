@@ -140,12 +140,12 @@ describe("SettingsPage shell", () => {
     expect(text()).toContain("Balanced");
   });
 
-  it("keeps an honest placeholder component for unimplemented pages", async () => {
+  it("keeps an honest fallback component for pages without an implementation", async () => {
     await act(async () => {
       root.render(<SettingsPlaceholderPage page="plans" />);
     });
     await flush();
-    expect(text()).toContain("under construction");
+    expect(text()).toContain("no implementation yet");
     expect(text()).toContain("Overview & Plans");
   });
 

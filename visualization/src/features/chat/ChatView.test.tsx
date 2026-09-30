@@ -611,6 +611,48 @@ describe("ChatView: composer intent menu", () => {
   });
 });
 
+describe("ChatView: read-only history composer", () => {
+  it("degrades and disables the composer for a committed conversation", async () => {
+    endpoint.get("/v2/session/turns/t-old", () =>
+      jsonResponse(
+        makeInteractionsPage({
+          ref: "session:turn/t-old",
+          turn_id: "t-old",
+          day: "2026-09-28",
+          items: [
+            makeInteraction({
+              id: "i-1",
+              role: "user.input",
+              ref: "session:turn/t-old#input/i-1",
+              text: "old question",
+            }),
+          ],
+        }),
+      ),
+    );
+    await act(async () => {
+      await openSessionTurn(epoch, "t-old", "2026-09-28");
+    });
+    expect(turnState().historyView).toBe(true);
+    await renderChat();
+
+    // The composer is not an input path here, and it must look the part even
+    // though the live runtime below would accept a new turn.
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+    expect(textarea.disabled).toBe(true);
+    expect(textarea.placeholder).toContain("Read-only history");
+    const box = container.querySelector(".composer-box") as HTMLDivElement;
+    expect(box.className).toContain("opacity-60");
+    const send = container.querySelector(
+      'button[title="Send"]',
+    ) as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+    expect(container.textContent).toContain("Back to today to send a message");
+    // The live intent chip menu is not offered for committed history.
+    expect(container.querySelector("button[aria-expanded]")).toBeNull();
+  });
+});
+
 describe("ChatView: failed echo on a closed turn", () => {
   it("offers the explicit 'send as next turn' entry only on a turn-closed failure", async () => {
     await openLiveTurn();

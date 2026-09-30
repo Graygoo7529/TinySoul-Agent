@@ -1,5 +1,7 @@
 # 对话与执行轨迹设计
 
+> ⚠️ 本文描述 v1 对话与 trace 实现（`derive/` 事件派生、LiveStatus、TurnTraceDrawer、Maintenance Turn 呈现）。当前 v2 对话见 `../handoff.md` 与 `src/features/chat/`；动作/模型详情见 `action-renderers.md` 与 `src/features/trace/`。
+
 ## 对话优先
 
 - 主界面是一条连续的聊天历史（背景为 2% 透明度 24px 微网格）：右侧为用户消息（浅 tinted 玻璃气泡：accent 浅底 + 深靛文字 + 细描边 + 背模糊），左侧为 Agent 行（渐变头像 + 内容区）。

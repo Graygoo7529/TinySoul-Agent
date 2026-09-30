@@ -1,6 +1,3 @@
-/** Public frontend type surface, grouped internally by Endpoint domain. */
+/** Public frontend type surface (client-local view models). */
 
-export * from "./common";
-export * from "./configuration";
 export * from "./ui";
-export * from "./workspace";

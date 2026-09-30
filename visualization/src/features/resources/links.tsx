@@ -46,7 +46,11 @@ import { copyReference, openExternal, openReference, quoteReference } from "./ro
 // Shared operations
 // ---------------------------------------------------------------------------
 
-/** Copy + quote operations for one reference (jump is the link click). */
+/**
+ * Copy + quote operations for one reference (jump is the link click). The
+ * actions stay zero-width while hidden — reserving their layout space would
+ * leave a wide gap after every inline reference — and expand on hover/focus.
+ */
 export function ReferenceActions({
   reference,
   origin,
@@ -55,7 +59,7 @@ export function ReferenceActions({
   origin: ResourceOrigin;
 }): ReactElement {
   return (
-    <span className="ml-1 inline-flex translate-y-px items-center gap-0.5 align-baseline opacity-0 transition-opacity group-hover/ref:opacity-100 focus-within:opacity-100">
+    <span className="inline-flex max-w-0 translate-y-px items-center gap-0.5 overflow-hidden align-baseline opacity-0 transition-[max-width,opacity,margin] group-hover/ref:ml-1 group-hover/ref:max-w-10 group-hover/ref:opacity-100 focus-within:ml-1 focus-within:max-w-10 focus-within:opacity-100">
       <MiniAction label="Copy reference" onClick={() => copyReference(reference)}>
         <Copy size={11} />
       </MiniAction>

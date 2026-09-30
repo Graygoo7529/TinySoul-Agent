@@ -8,7 +8,6 @@ import { NavRail } from "./NavRail";
 import { TopBar } from "./TopBar";
 import { StatusBar } from "./StatusBar";
 import { ConnectScreen } from "./ConnectScreen";
-import { PlaceholderPage } from "./PlaceholderPage";
 import { ChatView } from "../../features/chat/ChatView";
 import { SettingsPage } from "../../features/settings/SettingsPage";
 import { SettingsDraftChip } from "../../features/settings/SettingsDraftChip";
@@ -62,9 +61,7 @@ export function AppShell() {
               <RuntimePage />
             ) : activeTab === "settings" ? (
               <SettingsPage />
-            ) : (
-              <PlaceholderPage page={activeTab} />
-            )}
+            ) : null}
             {activeTab !== "settings" && (
               <SettingsDraftChip
                 onOpen={() => useAppStore.getState().setActiveTab("settings")}

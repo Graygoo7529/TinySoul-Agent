@@ -285,4 +285,27 @@ describe("TopBar integration", () => {
     });
     expect(topEntry().key).toBe(`context:overview:${TURN_ID}`);
   });
+
+  it("never calls the stream's first attach a reconnect", () => {
+    // Fresh handshake done, the event stream is still attaching.
+    useConnectionStore.getState().setEventsPhase("connecting");
+    act(() => {
+      root.render(<TopBar />);
+    });
+    expect(container.textContent).toContain("connecting…");
+    expect(container.textContent).not.toContain("reconnecting…");
+
+    // A dropped live stream is the real reconnect.
+    act(() => {
+      useConnectionStore.getState().setEventsPhase("reconnecting");
+    });
+    expect(container.textContent).toContain("reconnecting…");
+
+    // Live again: no indicator at all.
+    act(() => {
+      useConnectionStore.getState().setEventsPhase("live");
+    });
+    expect(container.textContent).not.toContain("connecting…");
+    expect(container.textContent).not.toContain("reconnecting…");
+  });
 });

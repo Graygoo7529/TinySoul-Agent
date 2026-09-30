@@ -1,5 +1,7 @@
 # 工作区（Workspace）视图设计
 
+> ⚠️ 本文描述 v1 工作区视图（`/v1/workspace/*`、digest/revision CAS）。当前 v2 工作区页见 `../handoff.md` 与 `src/features/workspace/`。
+
 ## 定位
 
 Workspace 视图让使用者浏览、创建、编辑和恢复当日工作区中的资源。前端不直接操作本地文件，所有变更都通过 Endpoint REST 提交，由后端 WorkspaceEngine 执行 revision/digest CAS 校验。

@@ -217,6 +217,37 @@ describe("SessionMapPanel", () => {
     expect(entries[0].subtitle).toBe("session:node/n1");
   });
 
+  it("flattens a multi-part reply clue and marks the inspect affordance with its own icon", async () => {
+    mapRoute();
+    inspectRoute({
+      "session:unclassified": {
+        ref: "session:unclassified",
+        items: [
+          child(
+            "session:turn/t-old",
+            `${DAY} · answered`,
+            "Which option? / Option B (opt_b)\nThe second option\nreply comment",
+          ),
+        ],
+      },
+      "session:history": { ref: "session:history", items: [HISTORY_HINT] },
+    });
+    await renderAndSettle(<SessionMapPanel epoch={epoch} day={DAY} />);
+
+    // Question, picked option, description and comment never run together.
+    expect(container.textContent).toContain(
+      "Which option? · Option B (opt_b) · The second option · reply comment",
+    );
+    // The card body opens the conversation (chevron); the adjacent button
+    // drills into the recorded facts and carries a distinct panel icon.
+    const inspect = container.querySelector(
+      'button[aria-label="Inspect the recorded facts"]',
+    ) as HTMLButtonElement | null;
+    expect(inspect).not.toBeNull();
+    expect(inspect!.querySelector("svg.lucide-panel-right-open")).not.toBeNull();
+    expect(inspect!.querySelector("svg.lucide-chevron-right")).toBeNull();
+  });
+
   it("opens a history conversation from its hint", async () => {
     endpoint.get("/v2/session/turns/t-old", () =>
       jsonResponse(

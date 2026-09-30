@@ -95,6 +95,9 @@ export function MemoryDocumentView({
   const errorCode = apiErrorCode(page.error);
   const errorMessage =
     page.error instanceof Error ? page.error.message : String(page.error ?? "");
+  // An empty document still delivers one empty chunk (it exists); content
+  // presence is decided by text, not by the chunk count.
+  const hasContent = page.items.some((item) => item.text.trim() !== "");
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -176,7 +179,7 @@ export function MemoryDocumentView({
             }
           />
         </div>
-      ) : page.error !== null && page.items.length === 0 ? (
+      ) : page.error !== null && !hasContent ? (
         <div className="flex flex-1 items-center justify-center p-6">
           <EmptyState
             icon={<AlertTriangle size={24} />}
@@ -190,7 +193,7 @@ export function MemoryDocumentView({
             }
           />
         </div>
-      ) : page.items.length === 0 ? (
+      ) : !hasContent ? (
         // Empty is a fact of the document, distinct from missing above.
         <div className="flex flex-1 items-center justify-center p-6">
           <EmptyState
@@ -209,7 +212,7 @@ export function MemoryDocumentView({
         </div>
       )}
 
-      {page.error !== null && page.items.length > 0 && (
+      {page.error !== null && hasContent && (
         <div className="flex items-center gap-2 border-t border-line bg-danger-soft px-4 py-2 text-[12px] text-danger">
           <AlertTriangle size={12} className="shrink-0" />
           <span className="min-w-0 flex-1">{errorMessage}</span>

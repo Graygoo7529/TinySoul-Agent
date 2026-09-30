@@ -125,6 +125,18 @@ describe("Markdown resource links", () => {
     });
     expect(useWorkspacePage.getState().link).toBe("workspace:a.md");
   });
+
+  it("keeps the hover reference actions out of the reading layout", async () => {
+    await renderMarkdown("See `session:map` or the next reference.");
+    const copy = container.querySelector(
+      'button[aria-label="Copy reference"]',
+    ) as HTMLButtonElement | null;
+    expect(copy).not.toBeNull();
+    // Hidden actions reserve no width: no wide gap after an inline reference.
+    const actions = copy!.parentElement as HTMLElement;
+    expect(actions.className).toContain("max-w-0");
+    expect(actions.className).toContain("group-hover/ref:max-w-10");
+  });
 });
 
 describe("Markdown images", () => {
