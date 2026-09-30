@@ -142,3 +142,24 @@ turnStore.subscribe(
     presentationStore.getState().refresh();
   },
 );
+
+// Subscribe to turnStore Turn changes to create/clear buffer
+turnStore.subscribe(
+  (state) => state.turnId,
+  (turnId, prevTurnId) => {
+    const store = presentationStore.getState();
+
+    // Turn changed
+    if (turnId !== prevTurnId) {
+      // Clear old buffer
+      if (prevTurnId) {
+        store.clearBuffer();
+      }
+
+      // Create new buffer for new Turn
+      if (turnId) {
+        store.createBuffer(turnId);
+      }
+    }
+  },
+);
