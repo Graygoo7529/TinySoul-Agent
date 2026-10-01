@@ -245,3 +245,4 @@ endpoint 回归已通过。
 计划只有 P0–P9 的代码、文档、测试和真实页面验收均完成后，才按 `AGENTS.md` 改名加入
 `docs/analysis/done/`。本计划虽已确认 P8 的语义，仍须等 P0–P9 的代码、文档、测试和真实页面
 验收全部完成后才能归档。
+# Archived as superseded on 2026-10-01. Status: dropped. The recorded completion claims are historical and are replaced by the new 20261001 visualization chat v2 baseline restoration plan.

@@ -959,3 +959,4 @@ TypeScript 契约与核心状态合并用单元测试；Question/ConfigDraft/排
 交接文档至少包含页面地图/用户路径、状态和接口所有权、设置保存与方案语义、Context 与资源的差别、代码块注册方法、实际运行/测试命令，并附配置覆盖清单、canonical Action 展示矩阵、最小真实交互流程与代表性页面视觉核对记录。清单记录实际缺口和验证依据，不用“通用回退”或 mock 页面代替完成证据。用实际页面操作示例解释，不要求下一个实施者重新阅读整个历史讨论。已有 `visualization/docs/demand/` 文档只保留仍真实存在的缺口，过时条目按项目文档规则整理，不把旧需求编号当作新实现依据。
 
 只有 F0～F7、所有页面、接口集成和必要验证逐项完成，才将计划标为 done，并按 AGENTS.md 移入 `docs/analysis/done/` 加 `-done-`。本计划具备实施基础，具体退出条件以真实接口与页面验证为准；当前仍为 pending，不表示前端实现或测试已经完成。
+# Archived as superseded on 2026-10-01. Status: dropped. The implementation records are retained for history; the current contract and execution plan are defined by the new 20261001 visualization chat v2 baseline restoration plan.
