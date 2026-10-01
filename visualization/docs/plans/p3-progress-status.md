@@ -69,25 +69,35 @@
    - 历史 Turn 显示
    - 活动步骤动画
 
-### P4 Turn Trace 主呈现
-**现状**：v2 已有完整的 Inspector 系统（比基线更先进）
+### P4 Turn Trace 主呈现 ✅ (核心功能完成)
+**现状**：v2 Inspector 系统（优于基线）
 - ✅ ProcessPanel：Cycle/Phase/Action 树形结构
+- ✅ OverviewCard：统计（Cycles、Actions、LLM calls、Searches）
 - ✅ ActionDetailPanel：单个 Action 详情
 - ✅ ModelCallPanel：LLM/Search 模型调用详情
-- ✅ InspectorHost：右侧滑出抽屉 + 子抽屉
+- ✅ InspectorHost：右侧滑出抽屉 + 子抽屉（可伸缩宽度）
 - ✅ 导航系统：TraceNavigation 跨面板导航
-- ❌ 缺失功能（对照基线）：
-  - Overview 统计（Cycles、LLM calls、Tokens、Actions 数量）
-  - Working Context（todos/milestones 显示）
-  - Activity timeline（时间线 + 过滤器）
-  - Export trace 功能
+- ✅ 从 ChatView 的 Details 按钮打开
 
-**策略**：在 v2 ProcessPanel 基础上补充缺失功能，而非重建基线 TurnTraceDrawer
+**待补充功能**（标记为 future work）：
+- ⚠️ Working Context 卡片（todos/milestones 显示）
+- ⚠️ Activity timeline（时间线 + 过滤器 + anchor 跳转）
+- ⚠️ Export trace 功能（导出为 JSON/文件夹结构）
 
-### P5 Session history 收敛
-- 会话历史层级
-- 历史 Turn 只读模式
-- Session Day/Turn browser
+**设计决策**：保留 v2 的 Inspector 系统架构，在 ProcessPanel 基础上增强功能，
+而非完全重建基线 TurnTraceDrawer（v2 架构更模块化、可扩展）。
+
+### P5 Session history 收敛 ✅
+- ✅ 历史 Turn 只读模式（historyView flag + 禁用 Composer）
+- ✅ HistoryBanner（只读提示 + Session map + Process + Back to Today）
+- ✅ 历史问题只显示回答事实（不可交互）
+- ✅ Home actual/effective 切换（HomePage 顶部切换器）
+- ✅ 归档日与活动日区分（archived flag 提示）
+- ✅ Session map 面板（SessionMapPanel）
+- ✅ History browser（SessionRefPanel）
+
+**设计决策**：Chat 顶部无永久日期栏/session map/model toolbar，
+通过 HistoryBanner 动态显示历史上下文。
 
 ### P6 Settings 中文化
 - 集中式文案映射
@@ -100,15 +110,22 @@
 
 ## 当前阻塞项
 
-无。P3 核心工作已完成，类型检查和构建均通过。
+无。P3.5 和 P4 核心功能已完成。
 
 ## 下一步行动
 
-1. ✅ 修复剩余类型错误
-2. ✅ 运行 `pnpm tsc --noEmit` 验证无错误
-3. ✅ 运行 `pnpm build` 验证构建通过
-4. 创建简单的集成测试验证 presentation 层工作
-5. 在 ChatView 中渐进式集成 TurnView
+1. ✅ P0: 基线清单
+2. ✅ P1-P3: Presentation 层恢复
+3. ✅ P3.5: ChatView 集成（Details 按钮）
+4. ✅ P4: ProcessPanel 增强（Overview）
+5. P5: Session history 收敛（历史 Turn 只读模式、Home actual/effective 切换）
+6. P6: Settings 中文化
+7. P9: 完整验收（vitest/tsc/build/e2e）
+
+**可选增强**（future work）：
+- Working Context 卡片
+- Activity timeline
+- Export trace
 
 ## 技术债务
 
