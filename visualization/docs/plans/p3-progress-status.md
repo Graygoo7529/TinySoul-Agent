@@ -1,7 +1,50 @@
 # P3 Chat 基线恢复进度状态
 
 日期：2026-10-01  
-状态：in_progress
+状态：**done** ✅
+
+## 执行计划 B 完成总结
+
+**Plan B 目标**：恢复 35f1440 之前（基线 c479ca0）的前端界面组件，以老前端为界面和动画基线。
+
+**完成状态**：
+- ✅ P0: 基线冻结与行为清单
+- ✅ P1: v2 Chat presentation projection
+- ✅ P2: ActivityBuffer 完整实现
+- ✅ P3: 基线组件恢复（ActivityStep, LiveStatus, TurnView, hooks）
+- ✅ P3.5: ChatView 集成（LiveActivityCard + Details 按钮）
+- ✅ P4: Turn Trace 主呈现（v2 Inspector 系统 + OverviewCard）
+- ✅ P5: Session history 收敛（只读历史 + Home actual/effective）
+- ⚠️ P6: Settings 中文化（待规划，需要 i18n 框架）
+- ✅ P9: 完整验收（778/778 tests pass, tsc clean, build success）
+
+**架构决策**：
+1. 保留 v2 的 Inspector 系统（优于基线 TurnTraceDrawer）
+2. Presentation 层双输入：TurnSnapshot（正式）+ ActivityBuffer（活动细节）
+3. 单向数据流：WebSocket → routeEvent → addEvent → presentation → UI
+4. 自动 buffer 管理：presentationStore 订阅 turnStore
+
+**Future work**（可选增强）：
+- Working Context 卡片（todos/milestones 在 ProcessPanel 中显示）
+- Activity timeline（时间线 + 过滤器 + anchor 跳转）
+- Export trace（导出为 JSON/文件夹结构）
+- Settings i18n framework + 中文翻译
+
+## 验收证据
+
+```bash
+# 2026-10-01 最终验收
+pnpm vitest run
+# ✅ Test Files  84 passed (84)
+# ✅ Tests  778 passed (778)
+# ✅ Duration  8.96s
+
+pnpm tsc --noEmit
+# ✅ No errors
+
+pnpm build
+# ✅ built in 14.08s
+```
 
 ## 已完成
 
