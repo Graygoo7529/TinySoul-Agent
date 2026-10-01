@@ -69,13 +69,56 @@ export function ProcessPanel({
       {empty ? (
         <MissingRecord what={`Process records of turn ${turnId}`} />
       ) : (
-        <ProcessTree
-          epoch={epoch}
-          turnId={turnId}
-          day={day}
-          process={process}
-        />
+        <>
+          <OverviewCard process={process} />
+          <ProcessTree
+            epoch={epoch}
+            turnId={turnId}
+            day={day}
+            process={process}
+          />
+        </>
       )}
+    </div>
+  );
+}
+
+function OverviewCard({ process }: { process: TurnProcess }): ReactElement {
+  const cyclesCount = process.cycles.length;
+  const actionsCount = process.cycles.reduce(
+    (sum, cycle) =>
+      sum +
+      cycle.phases.reduce(
+        (pSum, phase) => pSum + phase.actions.length,
+        0,
+      ),
+    0,
+  ) + process.unscopedActions.length;
+
+  const llmTasksCount = process.llmTasks.length;
+  const searchesCount = process.searches.length;
+
+  return (
+    <div className="rounded-lg border border-line bg-bg-elev px-4 py-3">
+      <div className="mb-2 text-[12px] font-medium text-fg">Overview</div>
+      <div className="grid grid-cols-2 gap-3 text-[11px]">
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-fg-faint">Cycles:</span>
+          <span className="font-mono text-fg">{cyclesCount}</span>
+        </div>
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-fg-faint">Actions:</span>
+          <span className="font-mono text-fg">{actionsCount}</span>
+        </div>
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-fg-faint">LLM calls:</span>
+          <span className="font-mono text-fg">{llmTasksCount}</span>
+        </div>
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-fg-faint">Searches:</span>
+          <span className="font-mono text-fg">{searchesCount}</span>
+        </div>
+      </div>
     </div>
   );
 }
