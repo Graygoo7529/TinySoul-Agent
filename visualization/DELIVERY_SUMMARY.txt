@@ -1,0 +1,100 @@
+================================================================================
+                    Plan B 交付摘要 - 2026-10-01
+================================================================================
+
+执行状态：✅ 完成
+
+一、核心成果
+------------
+✅ P0-P5 全部完成（P6 Settings i18n 待规划）
+✅ 验收测试：778/778 tests PASS, tsc 0 errors, build success
+✅ 基线组件全部恢复并适配 v2 类型系统
+✅ 架构质量优于基线（零 as any，Inspector 系统模块化）
+
+二、关键文件
+------------
+核心代码：
+  src/features/chat/presentation.ts        - Presentation 类型定义
+  src/features/chat/adapters.ts            - v2 适配器（零 as any）
+  src/features/chat/presentationStore.ts   - Presentation store
+  src/features/chat/activityBuffer.ts      - 活动事件 buffer（10 种类型）
+  src/features/chat/LiveStatus.tsx         - 实时状态卡片（动画）
+  src/features/chat/ActivityStep.tsx       - 活动步骤组件
+  src/features/chat/TurnView.tsx           - Turn 容器
+  src/features/chat/ChatView.tsx           - 主界面集成
+  src/features/trace/ProcessPanel.tsx      - Turn Trace Inspector
+
+文档：
+  docs/review/baseline-checklist.md        - P0 基线清单
+  docs/plans/p3-progress-status.md         - 进度追踪
+  docs/plans/PLAN_B_DELIVERY.md            - 完整交付文档
+
+三、技术亮点
+------------
+1. 双输入架构：TurnSnapshot（正式）+ ActivityBuffer（活动细节）
+2. 类型安全：100% TypeScript，零 as any，运行时边界校验
+3. 自动管理：presentationStore 订阅 turnStore，自动创建/清除 buffer
+4. 单向数据流：WebSocket → routeEvent → addEvent → presentation → UI
+5. Inspector 系统：模块化 trace 面板，优于基线单体 TurnTraceDrawer
+
+四、测试覆盖
+------------
+84 文件，778 测试全部通过：
+  - ActivityBuffer 完整逻辑测试
+  - Adapters 转换测试
+  - PresentationStore 状态管理测试
+  - Hooks 测试
+  - 组件集成测试
+
+五、Git 提交
+------------
+Plan B 核心提交：
+  cb51fa5 - P0 基线清单
+  2900cf3 - Details 按钮连接 Inspector
+  90b398a - P3.5 完成状态
+  e3a5e85 - OverviewCard
+  5884cf3 - P4-P5 完成
+  2b3fb7f - 完成总结
+  f7d2ad8 - 交付文档
+
+当前分支：main（领先 origin/main 18 commits）
+
+六、待办事项
+------------
+高优先级（核心功能）：✅ 全部完成
+
+中优先级（体验增强）：
+  - Activity timeline（时间线 + 过滤器）
+  - Working Context 卡片（todos/milestones）
+  - Export trace 功能
+
+低优先级（可选）：
+  - Settings i18n 框架 + 中文翻译
+  - AnswerCard settle 动画优化
+  - BudgetCard 详细统计
+
+七、验收命令
+------------
+# 运行测试
+pnpm vitest run
+# → ✅ 778/778 PASS
+
+# TypeScript 检查
+pnpm tsc --noEmit
+# → ✅ 0 errors
+
+# 构建
+pnpm build
+# → ✅ success (14.08s)
+
+八、下一步建议
+--------------
+短期：根据实际使用反馈迭代 UI 细节
+中期：补充 Working Context 和 Activity timeline
+长期：规划 Settings i18n 框架建设
+
+================================================================================
+交付人：Claude Opus 5.5
+日期：2026-10-01
+文档：docs/plans/PLAN_B_DELIVERY.md
+================================================================================
