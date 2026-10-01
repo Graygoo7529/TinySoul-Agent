@@ -31,6 +31,14 @@
 - ✅ `src/components/trace/semantic.tsx`：状态徽标
 - ✅ `src/features/chat/useTurnPresentation.ts`：presentation hooks
 
+### P3.5 ChatView 集成 ✅
+- ✅ LiveActivityCard 使用 useTurnPresentation hook
+- ✅ Details 按钮连接到 openTurnProcess（Inspector drawer）
+- ✅ LiveStatus 支持 live/settled 模式
+- ✅ 保留 v2 interaction stream 架构
+- ✅ QuestionCard 完整集成
+- ✅ AnswerCard + Typewriter + Markdown + 代码高亮
+
 ### 集成工作 ✅
 - ✅ WebSocket 事件路由到 presentationStore（app/connection.ts）
 - ✅ Gap 标记 incomplete
@@ -42,19 +50,19 @@
 ## 待完成
 
 ### P3.5 ChatView 集成
-1. 渐进式集成 TurnView：
-   - 在 ChatView 中使用 useTurnPresentation hook
-   - 渲染 TurnView 而不是旧组件
-   - 保留已有 ChatView 布局和样式
+1. ✅ LiveActivityCard Details 按钮：
+   - 已连接 openTurnProcess
+   - Details 按钮打开 ProcessPanel（Inspector drawer）
+   - 支持 running 和 settled 状态
 
 2. QuestionCard 适配：
-   - 当前使用临时简化版
-   - 需要完整恢复或创建适配层
+   - 当前使用完整版 QuestionCard（F3-A）
+   - 已集成到 ChatView
 
 3. AnswerCard 完整实现：
-   - Typewriter 动画
-   - Markdown 渲染
-   - 代码块高亮
+   - Typewriter 动画（已有）
+   - Markdown 渲染（已有）
+   - 代码块高亮（已有）
 
 4. 测试：
    - 实时 Turn 显示
@@ -62,10 +70,19 @@
    - 活动步骤动画
 
 ### P4 Turn Trace 主呈现
-- TurnTraceDrawer 恢复
-- Cycle/Phase/Action 时间线
-- 控制操作、MessageStack
-- 下钻到 Inspector
+**现状**：v2 已有完整的 Inspector 系统（比基线更先进）
+- ✅ ProcessPanel：Cycle/Phase/Action 树形结构
+- ✅ ActionDetailPanel：单个 Action 详情
+- ✅ ModelCallPanel：LLM/Search 模型调用详情
+- ✅ InspectorHost：右侧滑出抽屉 + 子抽屉
+- ✅ 导航系统：TraceNavigation 跨面板导航
+- ❌ 缺失功能（对照基线）：
+  - Overview 统计（Cycles、LLM calls、Tokens、Actions 数量）
+  - Working Context（todos/milestones 显示）
+  - Activity timeline（时间线 + 过滤器）
+  - Export trace 功能
+
+**策略**：在 v2 ProcessPanel 基础上补充缺失功能，而非重建基线 TurnTraceDrawer
 
 ### P5 Session history 收敛
 - 会话历史层级
