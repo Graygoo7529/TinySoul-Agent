@@ -957,6 +957,9 @@ function ResultSummary({ result }: { result: TurnResult }) {
  * presentation or no activity.
  */
 function LiveActivityCard({ onStop }: { onStop?: () => void }) {
+  const epoch = useConnectionStore((s) => s.epoch);
+  const turnId = useTurnStore((s) => s.turnId);
+  const day = useTurnStore((s) => s.day);
   const presentation = useTurnPresentation();
 
   if (!presentation || !presentation.activity) return null;
@@ -966,17 +969,34 @@ function LiveActivityCard({ onStop }: { onStop?: () => void }) {
 
   if (!running && !settled) return null;
 
+  const handleOpenTrace = () => {
+    if (turnId && day) {
+      openTurnProcess(epoch, turnId, day);
+    }
+  };
+
   return (
     <div className="flex gap-2.5">
       <div className="bg-accent-grad mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white shadow-brand">
         <Bot size={15} />
       </div>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 space-y-2">
         <LiveStatus
           activity={presentation.activity}
           mode={running ? "live" : "settled"}
           onStop={running ? onStop : undefined}
         />
+        {turnId && day && (
+          <div className="flex px-1">
+            <button
+              onClick={handleOpenTrace}
+              className="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-fg-faint transition-colors hover:bg-hover hover:text-fg"
+            >
+              <ListTree size={12} />
+              Details
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
