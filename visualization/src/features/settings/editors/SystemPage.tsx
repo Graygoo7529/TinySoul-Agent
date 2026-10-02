@@ -1,3 +1,4 @@
+import { settingsText } from "../i18n";
 /**
  * System & Diagnostics settings (config-coverage §7): read-only process items
  * (endpoint listener, agent/config process fields) with their ownership
@@ -33,8 +34,8 @@ export function SystemPage() {
       <ProcessShellCard />
       <SourcesCard />
       <SectionCard
-        title="Process-owned fields"
-        description="Declared by the process itself — the CLI launch, environment or overrides; they are never writable through the endpoint."
+        title={settingsText("Process-owned fields")}
+        description={settingsText("Declared by the process itself — the CLI launch, environment or overrides; they are never writable through the endpoint.")}
       >
         <div className="flex flex-col divide-y divide-line">
           {PROCESS_FIELDS.map((path) => (
@@ -43,8 +44,8 @@ export function SystemPage() {
         </div>
       </SectionCard>
       <FieldSection
-        title="Writable system fields"
-        description="Fixed system identity text and the optional Context journal content."
+        title={settingsText("Writable system fields")}
+        description={settingsText("Fixed system identity text and the optional Context journal content.")}
         paths={["context.system_text", "context.journal"]}
         forceAdvanced={["context.journal"]}
       />
@@ -68,9 +69,9 @@ function ProcessShellCard() {
   );
   return (
     <SectionCard
-      title="Endpoint listener"
-      description="Where this backend listens; the listener belongs to the process and never comes from configuration files."
-      actions={<Badge tone="gray">process-owned</Badge>}
+      title={settingsText("Endpoint listener")}
+      description={settingsText("Where this backend listens; the listener belongs to the process and never comes from configuration files.")}
+      actions={<Badge tone="gray">进程管理</Badge>}
     >
       <dl className="grid grid-cols-[140px_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-[12px]">
         {row("Host", endpoint?.host)}
@@ -96,8 +97,8 @@ function SourcesCard() {
   const sources = useConfigDraftStore((s) => s.saved?.sources ?? []);
   return (
     <SectionCard
-      title="Configuration sources"
-      description="Every source the saved view was projected from, in precedence order."
+      title={settingsText("Configuration sources")}
+      description={settingsText("Every source the saved view was projected from, in precedence order.")}
     >
       <div className="space-y-1">
         {sources.map((source) => (
@@ -108,17 +109,17 @@ function SourcesCard() {
               {source.path || "—"}
             </span>
             <span className="flex shrink-0 items-center gap-1">
-              {!source.exists && <Badge tone="yellow">missing</Badge>}
+              {!source.exists && <Badge tone="yellow">缺失</Badge>}
               {source.writable ? (
-                <Badge tone="green">writable</Badge>
+                <Badge tone="green">可写</Badge>
               ) : (
-                <Badge tone="gray">read-only</Badge>
+                <Badge tone="gray">只读</Badge>
               )}
             </span>
           </div>
         ))}
         {sources.length === 0 && (
-          <div className="text-[12px] text-fg-faint">No sources projected.</div>
+          <div className="text-[12px] text-fg-faint">暂无配置来源。</div>
         )}
       </div>
     </SectionCard>

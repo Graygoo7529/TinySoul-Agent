@@ -233,6 +233,17 @@ describe("scopeValue", () => {
 });
 
 describe("buildTurnProcess", () => {
+  it("shows a live decision before actions and preserves observed phase order", () => {
+    const first = event("llm.task.started", { task_id: "understand", consumer: "phase1" }, [TURN, CYCLE, { level: "phase", name: "phase1" }]);
+    expect(buildTurnProcess([first]).cycles[0]?.phases[0]?.llmTasks[0]?.taskId).toBe("understand");
+    const response = event("llm.model.response", { task_id: "understand", reasoning: { summary: "Review the question." }, tool_calls: [
+      { name: "select_action_domains", kind: "control", arguments: { domains: ["core"] } },
+    ] }, [TURN, CYCLE, { level: "phase", name: "phase1" }]);
+    const process = buildTurnProcess([first, response, actionCall("c", "core.answer"), actionResult("c", "core.answer", "success")]);
+    expect(process.llmTasks[0]).toMatchObject({ reasoning: "Review the question.", controls: [{ name: "select_action_domains", arguments: { domains: ["core"] } }] });
+    expect(process.cycles[0]?.phases.map((phase) => phase.phase)).toEqual(["phase1", "phase2", "phase3"]);
+    expect(process.cycles[0]?.phases[2]?.actions[0]?.call?.callId).toBe("c");
+  });
   it("joins call/result/execution by call_id and places actions on the path", () => {
     const process = buildTurnProcess([
       actionCall("c1", "workspace.read"),
@@ -240,7 +251,7 @@ describe("buildTurnProcess", () => {
       actionResult("c1", "workspace.read", "success", { text: "hi" }),
     ]);
     expect(process.cycles).toHaveLength(1);
-    const phase = process.cycles[0]!.phases.find((entry) => entry.phase === "phase2");
+    const phase = process.cycles[0]!.phases.find((entry) => entry.phase === "phase3");
     expect(phase?.actions).toHaveLength(1);
     const trace = phase!.actions[0]!;
     expect(trace.result?.status).toBe("success");
@@ -258,7 +269,7 @@ describe("buildTurnProcess", () => {
       event("retrieval.model.invoked", { search_id: "s1", step_index: 0, op: "select", task_id: "t1", consumer: "memory.search.select" }, [TURN, CYCLE, PHASE3, moduleFrame]),
       event("model.call.completed", { call_id: "mc1", search_id: "s1" }, [TURN, CYCLE, PHASE3, moduleFrame]),
     ]);
-    const trace = process.cycles[0]!.phases[0]!.actions[0]!;
+    const trace = process.cycles[0]!.phases.flatMap((phase) => phase.actions)[0]!;
     expect(trace.llmTaskIds).toEqual(["t1"]);
     expect(trace.searchIds).toEqual(["s1"]);
     const search = process.searches[0]!;

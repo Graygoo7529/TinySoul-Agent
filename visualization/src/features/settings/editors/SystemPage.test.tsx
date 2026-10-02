@@ -127,7 +127,7 @@ describe("SystemPage", () => {
     expect(container.textContent).toContain("127.0.0.1");
     expect(container.textContent).toContain("8765");
     expect(container.textContent).toContain("inst-abc");
-    expect(container.textContent).toContain("process-owned");
+    expect(container.textContent).toContain("进程管理");
   });
 
   it("marks process-owned fields read-only and never offers a control", async () => {
@@ -137,7 +137,7 @@ describe("SystemPage", () => {
     await flush();
     const row = container.querySelector('[data-field-path="agent.interactive"]');
     expect(row).not.toBeNull();
-    expect(row!.textContent).toContain("read-only");
+    expect(row!.textContent).toContain("只读");
     expect(row!.querySelector("[role='switch']")).toBeNull();
     expect(row!.querySelector("input")).toBeNull();
   });

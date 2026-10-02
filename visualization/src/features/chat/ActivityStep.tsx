@@ -58,6 +58,8 @@ export function ActivityStep({
         <span className={`flex w-[11px] shrink-0 justify-center ${color}`}>
           <span className={`mt-[5px] block h-[7px] w-[7px] rounded-full bg-current`} />
         </span>
+      ) : item.content.type === "action_plan" ? (
+        <ActionStepStatusIcon status={item.content.glimpse.executionState} animate={animate} />
       ) : animate ? (
         <motion.span
           key={kind}
@@ -355,6 +357,8 @@ function actionStepStatusConfig(status?: string) {
     case "timeout":
       return { Icon: AlertTriangle, color: "text-danger", spin: false };
     case "stopped":
+    case "cancelled":
+    case "not_executed":
       return { Icon: CircleStop, color: "text-fg-faint", spin: false };
     default:
       return { Icon: Circle, color: "text-fg-faint", spin: false };

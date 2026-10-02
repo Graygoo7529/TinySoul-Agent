@@ -1,3 +1,4 @@
+import { settingsText } from "../i18n";
 /**
  * Phase Bindings settings page (config-coverage §3.1): which task chain the
  * framework Phase1/Phase2 tasks call. The pickers read the projected
@@ -24,8 +25,8 @@ export function PhaseBindingsPage() {
   return (
     <SettingsPageBody>
       <FieldSection
-        title="Cycle Phases"
-        description="The task chains called by the two model tasks of every Agent Cycle. Phase 1 updates the Context and selects action domains; Phase 2 generates the Action calls inside them."
+        title={settingsText("Cycle Phases")}
+        description={settingsText("The task chains called by the two model tasks of every Agent Cycle. Phase 1 updates the Context and selects action domains; Phase 2 generates the Action calls inside them.")}
         paths={[PHASE1_PATH, PHASE2_PATH]}
         overrides={{
           [PHASE1_PATH]: {
@@ -78,9 +79,9 @@ function TaskChainRefControl({
           }
         }}
       >
-        <option value="">{ownerDefault} (default)</option>
+        <option value="">{ownerDefault}{settingsText("(default)")}</option>
         {current !== "" && !known && (
-          <option value={current}>{current} (unknown)</option>
+          <option value={current}>{current}{settingsText("(unknown)")}</option>
         )}
         {chains.map((chain) => (
           <option key={chain.id} value={chain.id}>
@@ -94,8 +95,7 @@ function TaskChainRefControl({
           type="button"
           className="flex items-center gap-1 text-[12px] font-medium whitespace-nowrap text-accent hover:underline"
           onClick={() => navigateTo("llm-tasks", `llm.tasks.${current}`)}
-        >
-          Open chain <ArrowRight size={12} />
+        >{settingsText("Open chain")}<ArrowRight size={12} />
         </button>
       )}
     </span>

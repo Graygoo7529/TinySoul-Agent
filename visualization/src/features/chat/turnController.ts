@@ -20,6 +20,7 @@ import type {
   PendingItem,
   QuestionAnswer,
   QueuedRequest,
+  SessionTurnSummary,
   TurnResult,
 } from "../../api/v2/types";
 import { nextContinuation, createPageAssembler } from "../../api/v2/pagination";
@@ -33,7 +34,11 @@ import {
   selectActiveTurnId,
   useConnectionStore,
 } from "../../store/connectionStore";
-import { useTurnStore, type OutgoingEcho } from "../../store/turnStore";
+import {
+  useTurnStore,
+  type OutgoingEcho,
+  type SessionTurnProjection,
+} from "../../store/turnStore";
 import {
   convergeEchoes,
   resolveComposerIntent,
@@ -45,6 +50,7 @@ import { randomId } from "../../utils/randomId";
 const TAKEOVER_RETRY_DELAYS_MS = [400, 900, 2000, 4000];
 
 let activeRead: AbortController | null = null;
+let sessionReadSerial = 0;
 const takeoverRetries = new Map<
   string,
   { attempt: number; timer: ReturnType<typeof setTimeout> | null }
@@ -363,17 +369,64 @@ function convergeAfterProjection(): void {
 export async function refreshSessionTurns(epoch: number): Promise<void> {
   const clients = clientsFor(epoch);
   if (clients === null) return;
+  const serial = ++sessionReadSerial;
   const store = useTurnStore.getState();
   store.setSessionTurnsLoading(true);
   try {
-    const page = await clients.session.turns({ limit: 30 });
-    if (clientsFor(epoch) === null) return;
-    useTurnStore.getState().setSessionTurns(page.items);
+    const summaries: SessionTurnSummary[] = [];
+    const assembler = createPageAssembler<SessionTurnSummary>((value) => value as SessionTurnSummary);
+    let continuation: string | null = null;
+    let day: string | undefined;
+    do {
+      const page = await clients.session.turns({ day, limit: 30, continuation: continuation ?? undefined });
+      if (clientsFor(epoch) === null || serial !== sessionReadSerial) return;
+      day = page.day ?? day;
+      summaries.push(...assembler.push({ items: page.items, content_fragment: page.content_fragment }));
+      continuation = nextContinuation(page);
+    } while (continuation !== null);
+    useTurnStore.getState().setSessionTurns(summaries);
+
+    // The summary endpoint is the ordering authority. Read each committed
+    // turn through Session and keep the result as a read-only chat projection;
+    // the active Turn continues to use turnStore's live projection.
+    const projections = await Promise.all(
+      summaries.map(async (summary): Promise<SessionTurnProjection> => {
+        const cached = useTurnStore.getState().sessionProjections[summary.turn_id];
+        if (cached && cached.day === summary.day && !cached.unavailable && !cached.loading) return cached;
+        const read = await readSessionTurn(
+          clients,
+          summary.turn_id,
+          summary.day,
+          new AbortController().signal,
+        );
+        return read === null
+          ? {
+              turnId: summary.turn_id,
+              day: summary.day,
+              items: [],
+              result: null,
+              loading: false,
+              unavailable: true,
+            }
+          : {
+              turnId: summary.turn_id,
+              day: read.day ?? summary.day,
+              items: read.items,
+              result: read.result,
+              loading: false,
+              unavailable: read.historyUnavailable,
+            };
+      }),
+    );
+    if (clientsFor(epoch) === null || serial !== sessionReadSerial) return;
+    useTurnStore.getState().setSessionProjections(
+      Object.fromEntries(projections.map((projection) => [projection.turnId, projection])),
+    );
   } catch (error) {
-    if (clientsFor(epoch) === null) return;
+    if (clientsFor(epoch) === null || serial !== sessionReadSerial) return;
     toast("error", `Failed to load conversation history: ${errorMessage(error)}`);
   } finally {
-    if (clientsFor(epoch) !== null) {
+    if (clientsFor(epoch) !== null && serial === sessionReadSerial) {
       useTurnStore.getState().setSessionTurnsLoading(false);
     }
   }
@@ -768,5 +821,6 @@ export function resetTurnController(): void {
   activeRead?.abort();
   activeRead = null;
   cancelTakeoverRetry();
+  sessionReadSerial += 1;
   useTurnStore.getState().reset();
 }

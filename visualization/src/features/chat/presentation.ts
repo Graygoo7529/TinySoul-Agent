@@ -6,7 +6,7 @@
  */
 
 /**
- * Turn presentation model for TurnView consumption.
+ * Turn presentation model for the current ChatView consumption.
  * Combines owner snapshot (formal state) and activity buffer (live details).
  */
 export interface TurnPresentation {
@@ -161,6 +161,10 @@ export type ActivityStepContent =
  * Action glimpse data (two-stage preview)
  */
 export interface ActionGlimpseData {
+  callId?: string;
+  executionState?: "planned" | "running" | "executed" | "cancelled" | "not_executed" | "unknown";
+  payload?: import("../../api/v2/types").JsonObject | null;
+  failure?: import("../../api/v2/types").JsonObject | null;
   /** Canonical action ID */
   actionId: string;
   /** Domain */
@@ -188,13 +192,13 @@ export interface WorkingState {
 export interface TodoItem {
   id: string;
   text: string;
-  status: "pending" | "done";
+  status: "pending" | "in_progress" | "done" | "cancelled";
 }
 
 export interface MilestoneItem {
   id: string;
   text: string;
-  status: "done" | "blocked" | "skipped";
+  status?: "done" | "blocked" | "skipped";
 }
 
 /**

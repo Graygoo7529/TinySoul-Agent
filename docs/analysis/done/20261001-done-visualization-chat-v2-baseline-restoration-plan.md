@@ -1,9 +1,9 @@
 # Visualization Chat v2 基线恢复与界面重构执行计划
 
 > 建立日期：2026-10-01  
-> 状态：`pending`  
+> 状态：`done`，2026-10-02 完成实施核对
 > 视觉基线：`c479ca0`（35f1440 之前的 Chat、LiveStatus、Turn Trace 和滚动交互）  
-> 数据与接口契约：当前 v2 Endpoint、owner snapshot、Session、Context 和 Observation  ���  
+> 数据与接口契约：当前 v2 Endpoint、owner snapshot、Session、Context 和 Observation
 > 当前实施路线：在最新代码上直接重构，旧提交只作为表现层参考，不恢复 v1 API 或 v1 状态模型。
 
 ## 1. 目标与边界
@@ -26,11 +26,11 @@
 - 不为当前 UI 增加新的通用 Action 状态机、第二个 Session owner 或长期事件日志；
 - 不把 actual/effective Home 浏览和 Agent 运行时 `read_top()` 混为同一条路径。
 
-## 2. 当前事实与问题定位
+## 2. 实施前事实与问题定位
 
 ### 2.1 LiveStatus 没有事件输入
 
-v2 Observation 的父级关系由 `scope` 表达，事件没有稳定的顶层 `turn_id`。当前 [connection.ts](../../visualization/src/app/connection.ts) 和 [activityBuffer.ts](../../visualization/src/features/chat/activityBuffer.ts) 读取 `event.turn_id`，导致真实的 Phase、Action、模型和 Working 事件被忽略。
+v2 Observation 的父级关系由 `scope` 表达，事件没有稳定的顶层 `turn_id`。实施前 [connection.ts](../../../visualization/src/app/connection.ts) 和 [activityBuffer.ts](../../../visualization/src/features/chat/activityBuffer.ts) 读取 `event.turn_id`，导致真实的 Phase、Action、模型和 Working 事件被忽略。
 
 当前 `LiveStatus` 的主要滚动轨迹、思考流、动画节奏和 Working 区域仍然存在，缺少的是正确的事件身份适配和真实事件 fixture 覆盖。
 
@@ -159,6 +159,7 @@ LLM 调用上下文从 Trace 的模型行进入 ModelCallPanel，不与当前 Co
 ### P6：设置页中文化与视觉收口
 
 - 将用户可见的 Settings 分组、页面标题、按钮、提示、状态、错误和空状态翻译为简洁中文。
+- 使用前端 i18n 映射管理页面文案及 catalog 字段标题、说明；未知字段保留后端原文。搜索兼容中文、原文和配置路径，配置值与校验规则仍由后端定义。
 - 保留 provider/model/action/task/endpoint、Link、scope、profile、catalog value 等协议标识；必要时提供中文说明，不翻译稳定 ID。
 - 不改变现有批量草稿、Apply/Discard/Reset、generation reload 和未应用草稿保护逻辑。
 - 继续使用 c479ca0 的 Luminous 明暗主题、领域色、边框光泽和 motion token；删除重复标签、无意义 JSON 展示和只为说明架构而存在的小字。
@@ -192,3 +193,20 @@ LLM 调用上下文从 Trace 的模型行进入 ModelCallPanel，不与当前 Co
 - 旧 `TurnView`、v1 API、旧事件 authority 和重复状态模型已经清除；
 - 设置页中文化和视觉收口不改变批量配置语义；
 - 真实联调、组件测试、TypeScript 检查和构建均通过，文档与实际实现一致。
+
+## 8. 完成核对（2026-10-02）
+
+| 阶段 | 状态 | 对应实现 |
+|---|---|---|
+| P0 | done | 对照 c479ca0 原 Chat/Turn/LiveStatus/ActionGlimpse/TurnTrace 组件，提取布局、主题和 motion 规则 |
+| P1 | done | typed Observation Turn scope、model 级订阅、真实 reasoning 摘要、Action 执行事实与有界 replay |
+| P2 | done | Session 目录完整分页、正文复用、当天连续展示、活动 Turn 去重和刷新恢复 |
+| P3 | done | ChatView / ConversationRows / useConversationScroll；恢复动作、回答、完成栏与锚点，删除重复 TurnView |
+| P4 | done | Process Cycle/Phase 层级、阶段推理与 context 入口、ModelCall 相邻抽屉、Job 与历史 Activity |
+| P5 | done | Context 四子页复用已安装快照和 Session map，不调用 Agent read_top |
+| P6 | done | Settings 本地 i18n 元数据与 UI 映射、中英文搜索、草稿保护，稳定标识和值不翻译 |
+| P7 | done | 前后端门禁、真实本地 Endpoint 浏览器交互与明暗/窄屏巡检、设计文档同步 |
+
+完整结果与验证范围见 [实施核对记录](../../../visualization/docs/plans/20261002-v2-baseline-restoration-progress.md)。Vitest 88 文件 / 789 用例通过，最后的完成栏改动另通过 15 个 ChatView 用例；TypeScript、Vite build、Python Full（1223 passed，25 deselected）与 typecheck 通过。端到端联调启动真实 Agent/owner/Endpoint 和 WebSocket，使用系统分配的 loopback 端口及确定性模型 runner，不包含外部 provider 测试。
+
+本轮未增加生产后端接口。历史 Session 未保存的耗时和模型用量不伪造；完成栏呈现实际提供的状态及交互统计，留存的详细模型记录从 Trace 按需读取。设置没有翻译映射的新字段保留后端原文，动态诊断保持来源文本。

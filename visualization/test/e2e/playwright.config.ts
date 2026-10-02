@@ -24,7 +24,7 @@ export default defineConfig({
   workers: 1,
   reporter: [["list"]],
   // Real backend harness (real Agent + Endpoint, scripted model) for the
-  // chat-flow spec; publishes <repo>/.local-test/e2e-backend/connection.json.
+  // chat-flow spec; publishes TINYSOUL_E2E_CONNECTION in a unique scratch directory.
   // The setup returns its own teardown function.
   globalSetup: "./backend.global.ts",
   use: {
@@ -38,7 +38,7 @@ export default defineConfig({
     command: "pnpm exec vite --port 5199 --strictPort --host 127.0.0.1",
     url: "http://127.0.0.1:5199/codeblocks-dev.html",
     timeout: 120_000,
-    reuseExistingServer: false,
+    reuseExistingServer: process.env.TINYSOUL_E2E_REUSE_SERVER === "1",
   },
   // Keep run artifacts inside the repo-ignored .local-test tree.
   outputDir: "../../.local-test/playwright-output",

@@ -7,7 +7,7 @@ const visualizationRoot = path.resolve(path.dirname(fileURLToPath(import.meta.ur
 /**
  * F7-B visual review entry: representative-page screenshots against the real
  * backend harness (backend_server.py via the shared backend.global.ts), stored
- * under docs/review/screenshots/ and assessed in docs/review/visual-check.md.
+ * under .local-test/visual-review/ for visual inspection.
  *
  * Deliberately a separate config from playwright.config.ts so the guarded e2e
  * pair (chat-flow / codeblocks) keeps its own scope; the default config
@@ -32,7 +32,7 @@ export default defineConfig({
     command: "pnpm exec vite --port 5198 --strictPort --host 127.0.0.1",
     url: "http://127.0.0.1:5198/",
     timeout: 120_000,
-    reuseExistingServer: false,
+    reuseExistingServer: process.env.TINYSOUL_E2E_REUSE_SERVER === "1",
   },
   outputDir: "../../.local-test/playwright-output-visual",
 });

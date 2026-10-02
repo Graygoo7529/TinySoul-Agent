@@ -26,6 +26,7 @@ export type AsyncRead<T> =
 export function useAsyncRead<T>(
   read: (signal: AbortSignal) => Promise<T>,
   deps: readonly unknown[],
+  retainWhileRefreshing = false,
 ): AsyncRead<T> {
   const [state, setState] = useState<AsyncRead<T>>({ kind: "loading" });
   const seqRef = useRef(0);
@@ -34,7 +35,7 @@ export function useAsyncRead<T>(
   useEffect(() => {
     const seq = ++seqRef.current;
     const controller = new AbortController();
-    setState({ kind: "loading" });
+    setState((previous) => retainWhileRefreshing && previous.kind === "ready" ? previous : { kind: "loading" });
     void (async () => {
       try {
         const value = await readRef.current(controller.signal);

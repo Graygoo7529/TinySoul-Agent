@@ -24,6 +24,7 @@ import type {
   PresetUpdateBody,
 } from "../../../api/v2/types";
 import { isPlainRecord, jsonDeepEqual } from "../draft/model";
+import { settingsText } from "../i18n";
 
 // ---------------------------------------------------------------------------
 // Managed scope registry (fixed by the backend; see §19 and
@@ -76,7 +77,7 @@ export const PRESET_SCOPES: Record<PresetScopeId, PresetScopeInfo> = {
 export function presetScopes(preset: PresetSummary): PresetScopeInfo[] {
   return preset.included_scopes
     .filter((scope): scope is PresetScopeId => scope in PRESET_SCOPES)
-    .map((scope) => PRESET_SCOPES[scope]);
+    .map((scope) => ({ ...PRESET_SCOPES[scope], title: settingsText(PRESET_SCOPES[scope].title), description: settingsText(PRESET_SCOPES[scope].description) }));
 }
 
 /** One-line summary of what a plan deliberately does not capture (§19). */

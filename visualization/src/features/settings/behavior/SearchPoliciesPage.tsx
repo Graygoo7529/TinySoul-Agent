@@ -1,3 +1,4 @@
+import { settingsText } from "../i18n";
 /**
  * Search Policies settings page (config-coverage §3.3): the `action.retrieval`
  * map, one entry per registered search Action. The five capabilities and the
@@ -61,8 +62,8 @@ export function SearchPoliciesPage() {
 
   return (
     <ObjectEditorLayout
-      title="Search policies"
-      description="Retrieval sources, constraint operations, contexts and budgets per search Action."
+      title={settingsText("Search policies")}
+      description={settingsText("Retrieval sources, constraint operations, contexts and budgets per search Action.")}
       items={SEARCH_CAPABILITIES.map((capability) => ({
         id: capability.actionId,
         summary: capability.title,
@@ -115,17 +116,12 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
   return (
     <div>
       {readOnly && (
-        <div className="border-b border-line bg-warning-soft px-5 py-2.5 text-[11px] text-warning">
-          action.retrieval is owned by a read-only source; no local edit can be
-          staged.
-        </div>
+        <div className="border-b border-line bg-warning-soft px-5 py-2.5 text-[11px] text-warning">{settingsText("action.retrieval is owned by a read-only source; no local edit can be staged.")}</div>
       )}
       {issues.length > 0 && (
         <div className="border-b border-line bg-warning-soft px-5 py-2.5">
           <div className="flex items-center gap-1.5 text-[11px] font-medium text-warning">
-            <AlertTriangle size={13} /> Local validation (apply stays
-            authoritative):
-          </div>
+            <AlertTriangle size={13} />{settingsText("Local validation (apply stays authoritative):")}</div>
           <ul className="mt-1 list-disc space-y-0.5 pl-5 text-[11px] text-warning">
             {issues.map((issue, index) => (
               <li key={index}>{issue}</li>
@@ -135,7 +131,7 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
       )}
 
       <FieldSection
-        title="Sources & Operations"
+        title={settingsText("Sources & Operations")}
         description={capability.description}
         meta={
           dirty ? (
@@ -149,8 +145,8 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
         }
       >
         <FieldRow
-          title="Sources"
-          description="Candidate origins Stage 2 may combine. At least one is required."
+          title={settingsText("Sources")}
+          description={settingsText("Candidate origins Stage 2 may combine. At least one is required.")}
           dirty={dirty}
         >
           <ChoiceToggles
@@ -166,8 +162,8 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
           />
         </FieldRow>
         <FieldRow
-          title="Operations"
-          description="Constraint operations available to Stage 2. May be empty; filter never uses a model."
+          title={settingsText("Operations")}
+          description={settingsText("Constraint operations available to Stage 2. May be empty; filter never uses a model.")}
           dirty={dirty}
         >
           <ChoiceToggles
@@ -181,8 +177,8 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
           />
         </FieldRow>
         <FieldRow
-          title="Query channels"
-          description="Lexical matching always works; the embedding channel resolves through the owner's shared embedding use (Home and Memory only)."
+          title={settingsText("Query channels")}
+          description={settingsText("Lexical matching always works; the embedding channel resolves through the owner's shared embedding use (Home and Memory only).")}
           dirty={dirty}
         >
           <ChoiceToggles
@@ -211,8 +207,8 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
 
       {draft.operations.length > 0 && (
         <FieldSection
-          title="Operation Context & Input"
-          description="Which context each operation may read and how many input characters it accepts."
+          title={settingsText("Operation Context & Input")}
+          description={settingsText("Which context each operation may read and how many input characters it accepts.")}
         >
           {draft.operations.map((operation) => {
             const step = stepDraft(operation);
@@ -267,10 +263,10 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
       )}
 
       <FieldSection
-        title="Budgets"
-        description="Step count, snapshot size and page shape of one search call."
+        title={settingsText("Budgets")}
+        description={settingsText("Step count, snapshot size and page shape of one search call.")}
       >
-        <FieldRow title="Max steps" dirty={dirty}>
+        <FieldRow title={settingsText("Max steps")} dirty={dirty}>
           <NumberInput
             ariaLabel="Max steps"
             value={draft.maxSteps}
@@ -282,7 +278,7 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
             onCommit={(value) => patch({ maxSteps: value })}
           />
         </FieldRow>
-        <FieldRow title="Snapshot budget" dirty={dirty}>
+        <FieldRow title={settingsText("Snapshot budget")} dirty={dirty}>
           <NumberInput
             ariaLabel="Snapshot max chars"
             value={draft.snapshotMaxChars}
@@ -293,7 +289,7 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
             onCommit={(value) => patch({ snapshotMaxChars: value })}
           />
         </FieldRow>
-        <FieldRow title="Page size" dirty={dirty}>
+        <FieldRow title={settingsText("Page size")} dirty={dirty}>
           <NumberInput
             ariaLabel="Page max items"
             value={draft.pageMaxItems}
@@ -304,7 +300,7 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
             onCommit={(value) => patch({ pageMaxItems: value })}
           />
         </FieldRow>
-        <FieldRow title="Page budget" dirty={dirty}>
+        <FieldRow title={settingsText("Page budget")} dirty={dirty}>
           <NumberInput
             ariaLabel="Page max chars"
             value={draft.pageMaxChars}
@@ -345,16 +341,15 @@ function ModelOperationRow({
   return (
     <FieldRow
       title={`${operation} binding`}
-      description="The model implementation of this operation, edited per consumer on the Actions page."
+      description={settingsText("The model implementation of this operation, edited per consumer on the Actions page.")}
     >
       <span className="flex items-center gap-1.5">
-        {!enabled && <Badge tone="gray">operation disabled</Badge>}
+        {!enabled && <Badge tone="gray">操作已禁用</Badge>}
         <span className="font-mono text-[11px] text-fg-muted">{label}</span>
         {entry !== null && entry.status !== "saved" && (
           <Badge tone="accent">{entry.status}</Badge>
         )}
-        <Button size="xs" variant="ghost" onClick={onOpenActions}>
-          Edit in Actions <ArrowRight size={11} />
+        <Button size="xs" variant="ghost" onClick={onOpenActions}>{settingsText("Edit in Actions")}<ArrowRight size={11} />
         </Button>
       </span>
     </FieldRow>

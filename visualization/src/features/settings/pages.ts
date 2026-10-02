@@ -21,6 +21,7 @@
 import type { DraftEntry } from "./draft/model";
 import type { SettingsCatalog } from "./draft/catalog";
 import { DOTENV_SOURCE_ID } from "./draft/fields";
+import { localizeDocument, localizeField, settingsText } from "./i18n";
 
 export type SettingsGroupId =
   | "overview"
@@ -393,20 +394,21 @@ export function searchConfig(
     parts.some((part) => part?.toLowerCase().includes(needle));
 
   for (const field of catalog.fields) {
-    if (!matches(field.path, field.title, field.description)) continue;
+    const localized = localizeField(field);
+    if (!matches(field.path, field.title, field.description, localized.title, localized.description)) continue;
     const page = pageForPath(field.path) ?? pageForSurface(field.surface);
     if (page === null) continue;
     hits.push({
       id: `field:${field.path}`,
       kind: "field",
-      title: field.title,
+      title: localized.title,
       path: field.path,
       subtitle: field.path,
       page: page.id,
     });
   }
   for (const collection of catalog.collections) {
-    if (!matches(collection.id, collection.root, collection.title, collection.description)) {
+    if (!matches(collection.id, collection.root, collection.title, collection.description, settingsText(collection.title), settingsText(collection.description))) {
       continue;
     }
     const page = pageForPath(collection.root) ?? pageForSurface(collection.surface);
@@ -414,20 +416,21 @@ export function searchConfig(
     hits.push({
       id: `collection:${collection.id}`,
       kind: "collection",
-      title: collection.title,
+      title: settingsText(collection.title),
       path: collection.root,
       subtitle: collection.root,
       page: page.id,
     });
   }
   for (const doc of catalog.documentFields) {
-    if (!matches(doc.path, doc.title, doc.description)) continue;
+    const localized = localizeDocument(doc);
+    if (!matches(doc.path, doc.title, doc.description, localized.title, localized.description)) continue;
     const page = pageForSurface(doc.surface);
     if (page === null) continue;
     hits.push({
       id: `document:${doc.documentSet}:${doc.documentKind}:${doc.path}`,
       kind: "document",
-      title: doc.title,
+      title: localized.title,
       path: null,
       subtitle: `${doc.documentKind} · ${doc.path}`,
       page: page.id,

@@ -24,3 +24,4 @@ export * from "./workspace";
 export * from "./home";
 export * from "./memory";
 export * from "./events";
+export * from "./observation";

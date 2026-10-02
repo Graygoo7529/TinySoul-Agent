@@ -223,7 +223,7 @@ describe("LlmProvidersPage", () => {
     await flush();
 
     await act(async () => {
-      buttonByText("Delete").click();
+      buttonByText("删除").click();
     });
     await flush();
 
@@ -234,7 +234,7 @@ describe("LlmProvidersPage", () => {
 
     const modal = container.querySelector(".fixed.inset-0");
     const confirm = [...(modal?.querySelectorAll("button") ?? [])].find(
-      (item) => item.textContent?.trim() === "Delete",
+      (item) => item.textContent?.trim() === "删除",
     );
     await act(async () => {
       (confirm as HTMLButtonElement).click();
@@ -256,7 +256,7 @@ describe("LlmProvidersPage", () => {
 
     // Set a new value through the inline credential editor.
     await act(async () => {
-      buttonByText("Set value").click();
+      buttonByText("设置值").click();
     });
     await flush();
     const input = container.querySelector(
@@ -320,7 +320,7 @@ describe("LlmModelsPage", () => {
   it("rename with references stages the move and rewrites the task chain", async () => {
     await renderSelected("custom-1");
     await act(async () => {
-      buttonByText("Rename").click();
+      buttonByText("重命名").click();
     });
     await flush();
 
@@ -333,7 +333,7 @@ describe("LlmModelsPage", () => {
       setInputValue(input, "custom-2");
     });
     const rename = [...container.querySelectorAll(".fixed.inset-0 button")].find(
-      (item) => item.textContent?.trim() === "Rename",
+      (item) => item.textContent?.trim() === "重命名",
     );
     await act(async () => {
       (rename as HTMLButtonElement).click();
@@ -364,8 +364,8 @@ describe("LlmModelsPage", () => {
 
   it("built-in models cannot be deleted or renamed", async () => {
     await renderSelected("kimi-k2");
-    const deleteButton = buttonByText("Delete");
-    const renameButton = buttonByText("Rename");
+    const deleteButton = buttonByText("删除");
+    const renameButton = buttonByText("重命名");
     expect(deleteButton.disabled).toBe(true);
     expect(renameButton.disabled).toBe(true);
   });
@@ -377,8 +377,8 @@ describe("LlmModelsPage", () => {
         (node) => node.textContent === text,
       );
     // One section heading only; the field row carries the more specific label.
-    expect(container.textContent).toContain("Feature capabilities");
-    expect(exactDivs("Capabilities")).toHaveLength(1);
+    expect(container.textContent).toContain("功能能力");
+    expect(exactDivs("模型能力")).toHaveLength(1);
   });
 });
 
@@ -419,7 +419,7 @@ describe("LlmTaskChainsPage", () => {
       root.render(<LlmTaskChainsPage />);
     });
     await flush();
-    expect(container.textContent).toContain("Used By");
+    expect(container.textContent).toContain("引用位置");
     expect(container.textContent).toContain("loop.cycle.phase1_task_profile");
   });
 });

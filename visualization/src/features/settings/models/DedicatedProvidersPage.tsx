@@ -1,3 +1,4 @@
+import { settingsText } from "../i18n";
 /**
  * Dedicated Providers settings page (plan §16.4): the
  * `infra.model_services.providers` object_list atom — embedding and
@@ -97,8 +98,8 @@ export function DedicatedProvidersPage() {
   return (
     <>
       <ObjectEditorLayout
-        title="Dedicated providers"
-        description="Connections and credentials for specialized inference (embedding and structured decision)."
+        title={settingsText("Dedicated providers")}
+        description={settingsText("Connections and credentials for specialized inference (embedding and structured decision).")}
         items={[
           ...effective.map((entry) => ({
             id: entry.id,
@@ -123,12 +124,12 @@ export function DedicatedProvidersPage() {
         headerBadges={
           current !== null && (
             <>
-              {current.status === "new" && <Badge tone="accent">new in draft</Badge>}
-              {current.status === "modified" && <Badge tone="accent">modified</Badge>}
+              {current.status === "new" && <Badge tone="accent">草稿新增</Badge>}
+              {current.status === "modified" && <Badge tone="accent">已修改</Badge>}
               {current.value.enabled === true ? (
-                <Badge tone="blue">enabled</Badge>
+                <Badge tone="blue">启用</Badge>
               ) : (
-                <Badge tone="gray">disabled</Badge>
+                <Badge tone="gray">禁用</Badge>
               )}
             </>
           )
@@ -136,8 +137,7 @@ export function DedicatedProvidersPage() {
         headerActions={
           current !== null && (
             <Button size="xs" variant="danger" onClick={() => setDeleting(current.id)}>
-              <Trash2 size={13} /> Delete
-            </Button>
+              <Trash2 size={13} />{settingsText("Delete")}</Button>
           )
         }
       >
@@ -156,7 +156,7 @@ export function DedicatedProvidersPage() {
         )}
         {current === null && deletedEntries.length > 0 && (
           <div className="space-y-2 px-5 py-4">
-            <div className="text-[12px] font-medium text-fg">Pending deletions</div>
+            <div className="text-[12px] font-medium text-fg">待删除项</div>
             {deletedEntries.map((entry) => (
               <div
                 key={entry.id}
@@ -169,9 +169,7 @@ export function DedicatedProvidersPage() {
                   onClick={() =>
                     commit([...effectiveValues(), cloneJsonValue(entry.value)])
                   }
-                >
-                  Restore
-                </Button>
+                >{settingsText("Restore")}</Button>
               </div>
             ))}
           </div>
@@ -180,7 +178,7 @@ export function DedicatedProvidersPage() {
 
       <CreateObjectModal
         title="New dedicated provider"
-        idTitle="Provider ID"
+        idTitle={settingsText("Provider ID")}
         idDescription="Stable identifier referenced by specialized model bindings; dots, outer whitespace and numeric-only ids are not allowed."
         existing={atom.entries.map((entry) => entry.id)}
         open={creating}
@@ -254,10 +252,10 @@ function DedicatedProviderEditor({
   return (
     <div>
       <FieldSection
-        title="Availability"
-        description="Whether this connection is built into the running configuration. Enabled is a configuration fact — it does not prove the remote endpoint answers."
+        title={settingsText("Availability")}
+        description={settingsText("Whether this connection is built into the running configuration. Enabled is a configuration fact — it does not prove the remote endpoint answers.")}
       >
-        <FieldRow title="Enabled">
+        <FieldRow title={settingsText("Enabled")}>
           <Toggle
             ariaLabel="Enabled"
             checked={entry.enabled === true}
@@ -266,12 +264,12 @@ function DedicatedProviderEditor({
         </FieldRow>
       </FieldSection>
       <FieldSection
-        title="Connection"
-        description="Protocol adapter, endpoint and request limits of this provider."
+        title={settingsText("Connection")}
+        description={settingsText("Protocol adapter, endpoint and request limits of this provider.")}
       >
         <FieldRow
-          title="Adapter"
-          description="Embedding providers serve vector models; structured-decision providers serve evaluation calls."
+          title={settingsText("Adapter")}
+          description={settingsText("Embedding providers serve vector models; structured-decision providers serve evaluation calls.")}
         >
           <SelectInput
             ariaLabel="Adapter"
@@ -280,7 +278,7 @@ function DedicatedProviderEditor({
             onChange={(value) => onPatch({ adapter: value })}
           />
         </FieldRow>
-        <FieldRow title="Base URL">
+        <FieldRow title={settingsText("Base URL")}>
           <TextInput
             ariaLabel="Base URL"
             value={stringField(entry, "base_url")}
@@ -290,8 +288,8 @@ function DedicatedProviderEditor({
           />
         </FieldRow>
         <FieldRow
-          title="Timeout"
-          description="Request timeout in seconds."
+          title={settingsText("Timeout")}
+          description={settingsText("Request timeout in seconds.")}
         >
           <NumberInput
             ariaLabel="Timeout"
@@ -302,8 +300,8 @@ function DedicatedProviderEditor({
           />
         </FieldRow>
         <FieldRow
-          title="Max Retries"
-          description="Additional attempts after a retryable failure (0–5)."
+          title={settingsText("Max Retries")}
+          description={settingsText("Additional attempts after a retryable failure (0–5).")}
         >
           <NumberInput
             ariaLabel="Max retries"
@@ -315,8 +313,8 @@ function DedicatedProviderEditor({
           />
         </FieldRow>
         <FieldRow
-          title="Proxy"
-          description="Optional http/https/socks5 proxy URL; clear the text to remove it."
+          title={settingsText("Proxy")}
+          description={settingsText("Optional http/https/socks5 proxy URL; clear the text to remove it.")}
         >
           <TextInput
             ariaLabel="Proxy"
@@ -337,10 +335,10 @@ function DedicatedProviderEditor({
         </FieldRow>
       </FieldSection>
       <FieldSection
-        title="Credential"
-        description="The dotenv variable holding this provider's API key. The value is edited in the shared credentials draft and never displayed."
+        title={settingsText("Credential")}
+        description={settingsText("The dotenv variable holding this provider's API key. The value is edited in the shared credentials draft and never displayed.")}
       >
-        <FieldRow title="Credential name">
+        <FieldRow title={settingsText("Credential name")}>
           <TextInput
             ariaLabel="Credential name"
             value={apiKeyEnv}
@@ -352,8 +350,7 @@ function DedicatedProviderEditor({
         <div className="px-5 py-3">
           {apiKeyEnv === "" ? (
             <div className="flex items-center gap-1.5 text-[11px] text-warning">
-              <AlertTriangle size={13} /> No credential name declared.
-            </div>
+              <AlertTriangle size={13} />{settingsText("No credential name declared.")}</div>
           ) : (
             <CredentialValueEditor name={apiKeyEnv} compact />
           )}

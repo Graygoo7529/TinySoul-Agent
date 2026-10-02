@@ -38,6 +38,7 @@ import asyncio
 import json
 import re
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 from tinysoul.agent import Agent
@@ -56,10 +57,15 @@ from tinysoul.gateway.project.initializer import (
 from tinysoul.infra.config import ConfigEnvironment
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.llm.protocol.messages import MessageStack, TextPart
+from tinysoul.llm.execution.observation_payloads import (
+    task_request_observation,
+    task_response_observation,
+)
+from tinysoul.llm.protocol.reasoning import Reasoning
 from tinysoul.llm.protocol.requests import TaskCall, TaskProfile
 from tinysoul.llm.protocol.responses import JsonAnswer, RawResponse, TaskResult
 from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind
-from tinysoul.runtime import ObservationLevel
+from tinysoul.runtime import ObservationEvent, ObservationLevel
 
 # Distinctive markers the Playwright spec uses inside its messages. They are
 # part of the e2e protocol between this harness and chat-flow.pw.ts.
@@ -125,10 +131,45 @@ def _answer_action(answer_text: str) -> TaskResult:
 class ScriptedLLM:
     """Deterministic TaskRunner: the only fake in an otherwise real backend."""
 
+    def __init__(self, events: EndpointEventBuffer) -> None:
+        self._events = events
+
+    def _emit(
+        self, call: TaskCall, name: str, level: ObservationLevel, payload: JsonObject
+    ) -> None:
+        self._events.write(ObservationEvent(
+            name=name, level=level, source="e2e.scripted_llm", scope=call.scope,
+            payload={
+                "task_id": call.task_id, "consumer": call.consumer,
+                "profile": str(call.profile), "implementation": "llm_task",
+                "target": str(call.profile), **payload,
+            },
+        ))
+
     async def invoke(self, call: TaskCall) -> TaskResult:
         return await self.run(call)
 
     async def run(self, call: TaskCall) -> TaskResult:
+        # Script only the model boundary; serialize the real constructed request
+        # with the same provider-neutral payloads as LLMTaskRunner.
+        self._emit(call, "llm.task.started", ObservationLevel.VERBOSE, {})
+        self._emit(call, "llm.model.request", ObservationLevel.MODEL, {
+            **task_request_observation(call.messages, call.tool_scope),
+            "model_id": "scripted", "provider_id": "scripted", "attempt": 1,
+        })
+        await asyncio.sleep(0.35)
+        result = self._respond(call)
+        if result.raw_response is not None:
+            response = replace(result.raw_response, reasoning=Reasoning(
+                summary="I’ll use the current request and loaded context to choose the next action."
+            ))
+            self._emit(call, "llm.model.response", ObservationLevel.MODEL, {
+                **task_response_observation(response), "attempt": 1,
+            })
+        self._emit(call, "llm.task.completed", ObservationLevel.VERBOSE, {"status": "success"})
+        return result
+
+    def _respond(self, call: TaskCall) -> TaskResult:
         text = _stack_text(call.messages)
         if call.consumer == "core.answer.generate":
             prepared = re.findall(
@@ -217,11 +258,11 @@ async def _serve(args: argparse.Namespace) -> int:
         .with_agent_settings(
             AgentSettings(
                 interactive=False,
-                output=OutputSettings(mode=ObservationLevel.VERBOSE),
+                output=OutputSettings(mode=ObservationLevel.MODEL),
             )
         )
         .with_output_sink(events)
-        .with_llm_runner(ScriptedLLM())
+        .with_llm_runner(ScriptedLLM(events))
         .build()
     )
     await agent.start()

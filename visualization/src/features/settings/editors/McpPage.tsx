@@ -1,3 +1,4 @@
+import { settingsText } from "../i18n";
 /**
  * MCP Servers settings (config-coverage §4.5): configured servers are
  * collection objects edited atomically; the read-only runtime directory
@@ -35,8 +36,8 @@ export function McpPage() {
       renderFields={(ctx) => <McpServerFields ctx={ctx} />}
       limits={
         <FieldSection
-          title="Shared MCP Limits"
-          description="Directory and call bounds shared by all servers."
+          title={settingsText("Shared MCP Limits")}
+          description={settingsText("Directory and call bounds shared by all servers.")}
           paths={[
             "capabilities.expand.timeout_seconds",
             "capabilities.expand.max_tools",
@@ -109,7 +110,7 @@ function McpServerFields({ ctx }: { ctx: ObjectEditContext }) {
             ctx.update({ transport: event.target.value })
           }
         >
-          <option value="stdio">Local stdio</option>
+          <option value="stdio">本地 stdio</option>
           <option value="streamable_http">Streamable HTTP</option>
         </select>
       </ObjRow>
@@ -208,11 +209,7 @@ function McpServerFields({ ctx }: { ctx: ObjectEditContext }) {
           }
           tone="sunken"
         >
-          <div className="mb-1.5 text-[10.5px] leading-4 text-fg-faint">
-            Exact remote tool names (dots included) map to booleans; each
-            choice overrides the default policy. The whole map applies as one
-            value.
-          </div>
+          <div className="mb-1.5 text-[10.5px] leading-4 text-fg-faint">{settingsText("Exact remote tool names (dots included) map to booleans; each choice overrides the default policy. The whole map applies as one value.")}</div>
           <ObjMap
             value={map("tools")}
             disabled={disabled}
@@ -253,32 +250,26 @@ function McpRuntimeSummary() {
 
   return (
     <SectionCard
-      title="Runtime directory"
+      title={settingsText("Runtime directory")}
       description="Live connection facts of the running generation. Applying configuration does not connect servers by itself; refresh happens on activation or from Runtime Observation."
       actions={
         <button
           type="button"
           className="flex items-center gap-1 text-[12px] font-medium text-accent hover:underline"
           onClick={() => setActiveTab("runtime")}
-        >
-          Runtime Observation <ArrowRight size={12} />
+        >{settingsText("Runtime Observation")}<ArrowRight size={12} />
         </button>
       }
     >
       {clients === null ? (
-        <div className="text-[12px] text-fg-faint">
-          No backend connection — runtime facts are unavailable.
-        </div>
+        <div className="text-[12px] text-fg-faint">{settingsText("No backend connection — runtime facts are unavailable.")}</div>
       ) : error !== null ? (
-        <div className="text-[12px] text-fg-faint">
-          The runtime directory is unavailable: {error}
+        <div className="text-[12px] text-fg-faint">{settingsText("The runtime directory is unavailable:")}{error}
         </div>
       ) : page === null ? (
-        <div className="text-[12px] text-fg-faint">Loading…</div>
+        <div className="text-[12px] text-fg-faint">{settingsText("Loading…")}</div>
       ) : page.items.length === 0 ? (
-        <div className="text-[12px] text-fg-faint">
-          No servers are visible to the running generation yet.
-        </div>
+        <div className="text-[12px] text-fg-faint">{settingsText("No servers are visible to the running generation yet.")}</div>
       ) : (
         <div className="flex flex-wrap gap-1.5">
           {page.items.map((item) => (
@@ -289,18 +280,18 @@ function McpRuntimeSummary() {
             >
               <span className="font-mono text-fg">{item.server_id}</span>
               {!item.enabled ? (
-                <Badge tone="gray">disabled</Badge>
+                <Badge tone="gray">禁用</Badge>
               ) : item.connected ? (
-                <Badge tone="green">connected</Badge>
+                <Badge tone="green">已连接</Badge>
               ) : (
-                <Badge tone="yellow">not connected</Badge>
+                <Badge tone="yellow">未连接</Badge>
               )}
               {item.discovered && (
                 <Badge tone={item.stale ? "yellow" : "blue"}>
                   {item.tool_count} tools{item.stale ? " (stale)" : ""}
                 </Badge>
               )}
-              {item.error !== null && <Badge tone="red">error</Badge>}
+              {item.error !== null && <Badge tone="red">错误</Badge>}
             </span>
           ))}
         </div>

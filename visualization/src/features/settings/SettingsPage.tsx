@@ -1,3 +1,4 @@
+import { settingsText } from "./i18n";
 import { useEffect, type ComponentType } from "react";
 import { Loader2, RefreshCw, Settings2, Unplug } from "lucide-react";
 
@@ -45,6 +46,7 @@ import { LlmModelsPage } from "./models/LlmModelsPage";
 import { LlmProvidersPage } from "./models/LlmProvidersPage";
 import { LlmTaskChainsPage } from "./models/LlmTaskChainsPage";
 import { useSettingsUiStore } from "./uiStore";
+import { settingsDescription, settingsTitle } from "./labels";
 
 /** Implemented settings pages beyond the overview (registry: pages.ts). */
 const PAGE_COMPONENTS: Partial<Record<SettingsPageId, ComponentType>> = {
@@ -194,10 +196,10 @@ function SettingsHeader({ connected }: { connected: boolean }) {
       </div>
       <div className="min-w-0">
         <h1 className="truncate text-[15px] font-semibold text-fg">
-          {def.title}
+          {settingsTitle(def)}
         </h1>
         <div className="line-clamp-1 text-[10px] text-fg-faint">
-          {def.description}
+          {settingsDescription(def)}
         </div>
       </div>
       {connected && (
@@ -205,13 +207,13 @@ function SettingsHeader({ connected }: { connected: boolean }) {
           {blocker !== null && (
             <span
               className="hidden max-w-[280px] truncate text-[10px] text-warning sm:block"
-              title={blocker}
+              title={settingsText(blocker)}
             >
-              {blocker}
+              {settingsText(blocker)}
             </span>
           )}
           <IconButton
-            label="Refresh configuration"
+            label="刷新配置"
             disabled={loadPhase === "loading"}
             onClick={() => clients !== null && void loadConfig(clients)}
           >
@@ -233,15 +235,14 @@ function ConnectNotice() {
   return (
     <div className="flex h-full items-start justify-center overflow-y-auto p-6">
       <div className="w-full max-w-md rounded-xl border border-line bg-bg-elev p-6 shadow-card">
-        <h2 className="text-base font-semibold">No backend connected</h2>
+          <h2 className="text-base font-semibold">未连接后端</h2>
         <p className="mt-1 text-[13px] leading-5 text-fg-muted">
-          Agent settings are read from and applied to a running TinySoul
-          backend. Connect from the main screen, or change the address here.
+          Agent 设置从运行中的 TinySoul 后端读取并应用。请从主界面连接，或在这里修改地址。
         </p>
         {info !== null && (
           <div className="mt-4 border-t border-line pt-4">
             <div className="text-xs font-medium text-fg-muted">
-              Last connection
+              上次连接
             </div>
             <div className="mt-1 font-mono text-[12px] break-all text-fg">
               {info.address.httpBaseUrl}
@@ -258,7 +259,7 @@ function ConnectNotice() {
                 clearStoredBrowserTarget();
               }}
             >
-              <Unplug size={13} className="mr-1" /> Disconnect and change address
+              <Unplug size={13} className="mr-1" /> 断开并修改地址
             </Button>
           </div>
         )}

@@ -33,6 +33,7 @@ import {
   cancelQueuedTurn,
   grantBudget,
   refreshDisplayedTurn,
+  refreshSessionTurns,
   replyToQuestion,
   retryEcho,
   retryTakeover,
@@ -837,6 +838,29 @@ describe("Session take-over of a finished turn", () => {
     expect(turn.turnId).toBe("old-turn");
     expect(turn.source).toBe("session");
     expect(turn.items.map((item) => item.id)).toEqual(["old-1"]);
+  });
+});
+
+describe("day conversation projection", () => {
+  it("drains the summary pages in owner order and reuses immutable turn bodies", async () => {
+    const { endpoint, epoch } = setup();
+    const summary = (id: string) => ({ turn_id: id, ref: `session:turn/${id}`, day: "2026-09-29", status: "answered", initial_input_excerpt: id, output_excerpt: "", question_count: 0 });
+    endpoint.get("/v2/session/turns", (request) => jsonResponse({
+      day: "2026-09-29",
+      items: [summary(queryOf(request, "continuation") ? "older" : "newer")],
+      next_continuation: queryOf(request, "continuation") ? null : "page-2",
+    }));
+    for (const id of ["older", "newer"]) endpoint.get(`/v2/session/turns/${id}`, () => jsonResponse({
+      ...sessionTurnPage(), turn_id: id,
+      items: [makeInteraction({ id, role: "user.input", text: id })],
+    }));
+    await refreshSessionTurns(epoch);
+    expect(turnState().sessionTurns?.map((turn) => turn.turn_id)).toEqual(["newer", "older"]);
+    expect(turnState().sessionProjections.older?.items[0]?.text).toBe("older");
+    expect(queryOf(endpoint.calls("/v2/session/turns")[1]!, "day")).toBe("2026-09-29");
+    await refreshSessionTurns(epoch);
+    expect(endpoint.calls("/v2/session/turns/older")).toHaveLength(1);
+    expect(endpoint.calls("/v2/session/turns/newer")).toHaveLength(1);
   });
 });
 

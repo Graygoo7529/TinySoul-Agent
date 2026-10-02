@@ -80,9 +80,9 @@ async function flush(): Promise<void> {
 }
 
 function button(label: string): HTMLButtonElement | undefined {
-  return [...container.querySelectorAll("button")].find((item) =>
-    item.textContent?.includes(label),
-  );
+  const buttons = [...container.querySelectorAll("button")];
+  return buttons.find((item) => item.textContent?.trim() === label)
+    ?? buttons.find((item) => item.textContent?.includes(label));
 }
 
 async function click(node: HTMLElement | undefined | null): Promise<void> {
@@ -163,13 +163,13 @@ describe("PlansPage list & detail", () => {
     await flush();
 
     // Managed scope section (fixed groups) and the dependency issue.
-    expect(text()).toContain("Managed scope");
-    expect(text()).toContain("Task chains");
-    expect(text()).toContain("Dependency issues");
+    expect(text()).toContain("方案范围");
+    expect(text()).toContain("任务链");
+    expect(text()).toContain("依赖问题");
     expect(text()).toContain("Model 'missing_model' is not defined");
     // Snapshot detail was fetched and diffed against the running values.
     expect(text()).toContain("loop.cycle.phase2_task_profile");
-    expect(text()).toContain("Stored snapshot");
+    expect(text()).toContain("已保存快照");
   });
 
   it("routes a dependency issue to its owning settings page", async () => {
@@ -203,9 +203,9 @@ describe("PlansPage list & detail", () => {
     await click(button("Thorough"));
     await flush();
 
-    const apply = button("Apply plan");
+    const apply = button("应用方案");
     expect(apply?.disabled).toBe(true);
-    expect(text()).toContain("busy with a turn");
+    expect(text()).toContain("Agent 正在执行对话或整理");
   });
 });
 
@@ -216,13 +216,13 @@ describe("PlansPage apply draft guard (§15)", () => {
     await flush();
     const before = endpoint.calls("/v2/config/apply", "POST").length;
 
-    await click(button("Apply plan"));
+    await click(button("应用方案"));
     await flush();
 
     const calls = endpoint.calls("/v2/config/apply", "POST");
     expect(calls.length).toBe(before + 1);
     expect(bodyJson(calls[calls.length - 1])).toEqual({ preset_id: "id-2" });
-    expect(text()).not.toContain("Unsaved configuration changes");
+    expect(text()).not.toContain("有未应用的配置修改");
   });
 
   it("cancel keeps the draft and never applies", async () => {
@@ -230,11 +230,11 @@ describe("PlansPage apply draft guard (§15)", () => {
     seedDraft();
     await click(button("Thorough"));
     await flush();
-    await click(button("Apply plan"));
+    await click(button("应用方案"));
     await flush();
 
-    expect(text()).toContain("Unsaved configuration changes");
-    await click(button("Cancel — keep my changes"));
+    expect(text()).toContain("有未应用的配置修改");
+    await click(button("取消并保留修改"));
     await flush();
 
     expect(endpoint.calls("/v2/config/apply", "POST")).toHaveLength(0);
@@ -246,10 +246,10 @@ describe("PlansPage apply draft guard (§15)", () => {
     seedDraft();
     await click(button("Thorough"));
     await flush();
-    await click(button("Apply plan"));
+    await click(button("应用方案"));
     await flush();
 
-    await click(button("Review my changes first"));
+    await click(button("先查看未应用修改"));
     await flush();
 
     expect(useSettingsUiStore.getState().page).toBe("overview");
@@ -262,10 +262,10 @@ describe("PlansPage apply draft guard (§15)", () => {
     seedDraft();
     await click(button("Thorough"));
     await flush();
-    await click(button("Apply plan"));
+    await click(button("应用方案"));
     await flush();
 
-    await click(button("Discard changes and switch"));
+    await click(button("丢弃修改并切换到"));
     await flush();
 
     const calls = endpoint.calls("/v2/config/apply", "POST");
@@ -286,9 +286,9 @@ describe("PlansPage apply draft guard (§15)", () => {
     seedDraft();
     await click(button("Thorough"));
     await flush();
-    await click(button("Apply plan"));
+    await click(button("应用方案"));
     await flush();
-    await click(button("Discard changes and switch"));
+    await click(button("丢弃修改并切换到"));
     await flush();
 
     expect(Object.keys(useConfigDraftStore.getState().drafts)).toHaveLength(1);
@@ -301,7 +301,7 @@ describe("PlansPage apply draft guard (§15)", () => {
 describe("PlansPage capture & records", () => {
   it("create dialog: the draft source is disabled without local changes", async () => {
     await render();
-    await click(button("New plan"));
+    await click(button("新建方案"));
     await flush();
 
     const radios = [...container.querySelectorAll("input[name='capture-source']")];
@@ -312,7 +312,7 @@ describe("PlansPage capture & records", () => {
   it("create from the running values posts source=active and closes", async () => {
     endpoint.post("/v2/config/presets", () => jsonResponse(PRESET_ACTIVE));
     await render();
-    await click(button("New plan"));
+    await click(button("新建方案"));
     await flush();
 
     const nameInput = container.querySelector(
@@ -323,7 +323,7 @@ describe("PlansPage capture & records", () => {
       setter?.call(nameInput, "Live");
       nameInput.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    await click(button("Capture plan"));
+    await click(button("保存方案"));
     await flush();
 
     const calls = endpoint.calls("/v2/config/presets", "POST");
@@ -333,7 +333,7 @@ describe("PlansPage capture & records", () => {
       source: "active",
       include_budgets: true,
     });
-    expect(text()).not.toContain("Capture from");
+    expect(text()).not.toContain("捕获来源");
   });
 
   it("rename sends no capture; overwrite sends only the capture", async () => {
@@ -342,7 +342,7 @@ describe("PlansPage capture & records", () => {
     await click(button("Balanced"));
     await flush();
 
-    await click(container.querySelector("button[aria-label='Rename']") as HTMLElement);
+    await click(container.querySelector("button[aria-label='重命名']") as HTMLElement);
     await flush();
     const nameInput = [...container.querySelectorAll("input")].find(
       (input) => input.value === "Balanced",
@@ -352,7 +352,7 @@ describe("PlansPage capture & records", () => {
       setter?.call(nameInput, "Renamed");
       nameInput.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    await click(button("Save"));
+    await click(button("保存"));
     await flush();
     const putCalls = endpoint.calls("/v2/config/presets/id-1", "PUT");
     expect(putCalls).toHaveLength(1);
@@ -362,7 +362,7 @@ describe("PlansPage capture & records", () => {
 
     await click(container.querySelector("button[aria-label='Overwrite capture']") as HTMLElement);
     await flush();
-    await click(button("Overwrite snapshot"));
+    await click(button("覆盖快照"));
     await flush();
     const recaptureBody = bodyJson(
       endpoint.calls("/v2/config/presets/id-1", "PUT")[1],
@@ -377,11 +377,11 @@ describe("PlansPage capture & records", () => {
       jsonResponse({ deleted: true, preset_id: "id-1" }),
     );
     await render();
-    await click(container.querySelector("button[aria-label='Delete plan']") as HTMLElement);
+    await click(container.querySelector("button[aria-label='删除方案']") as HTMLElement);
     await flush();
 
     expect(text()).toContain("the running and saved configuration stay unchanged");
-    await click(button("Delete plan"));
+    await click(button("删除方案"));
     await flush();
     expect(endpoint.calls("/v2/config/presets/id-1", "DELETE")).toHaveLength(1);
   });

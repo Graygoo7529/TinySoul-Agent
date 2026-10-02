@@ -1,3 +1,4 @@
+import { settingsText } from "../i18n";
 /**
  * Workspace settings (config-coverage §5.1): the daily workspace root and its
  * read/write/search/analysis bounds. pinned/tmp/library are manifest tags and
@@ -11,8 +12,8 @@ export function WorkspacePage() {
   return (
     <SettingsPageBody>
       <FieldSection
-        title="Location & Capacity"
-        description="The daily workspace root and how many resources it tracks."
+        title={settingsText("Location & Capacity")}
+        description={settingsText("The daily workspace root and how many resources it tracks.")}
         paths={[
           "workspace.root",
           "workspace.max_files",
@@ -30,13 +31,11 @@ export function WorkspacePage() {
       />
       <div className="-mt-2 rounded-lg border border-line bg-bg-elev px-3.5 py-2.5 text-[12px] leading-5 text-fg-muted">
         <Badge tone="gray">pinned</Badge> <Badge tone="gray">tmp</Badge>{" "}
-        <Badge tone="gray">library</Badge> are manifest tags on workspace
-        resources; they do not change the daily lifecycle or archive
-        semantics.
+        <Badge tone="gray">library</Badge> 是 Workspace 的资源标签，不改变按日归档的生命周期。
       </div>
       <FieldSection
-        title="Watching & Search"
-        description="External change hints and lexical search bounds; formal writes never depend on watching."
+        title={settingsText("Watching & Search")}
+        description={settingsText("External change hints and lexical search bounds; formal writes never depend on watching.")}
         paths={[
           "workspace.watch.enabled",
           "workspace.watch.debounce_ms",
@@ -50,8 +49,8 @@ export function WorkspacePage() {
         }}
       />
       <FieldSection
-        title="Analysis"
-        description="Bounds of the workspace analyze action."
+        title={settingsText("Analysis")}
+        description={settingsText("Bounds of the workspace analyze action.")}
         paths={[
           "workspace.analysis.max_intent_chars",
           "workspace.analysis.max_reference_links",

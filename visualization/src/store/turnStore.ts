@@ -51,6 +51,16 @@ export interface OutgoingEcho {
   turnClosed: boolean;
 }
 
+/** Read-only formal projection for one completed Turn in the active day. */
+export interface SessionTurnProjection {
+  turnId: string;
+  day: string;
+  items: Interaction[];
+  result: TurnResult | null;
+  loading: boolean;
+  unavailable: boolean;
+}
+
 export interface TurnStoreState {
   /** The turn the chat view renders; null when showing only the day list. */
   turnId: string | null;
@@ -82,6 +92,7 @@ export interface TurnStoreState {
   /** Committed turn summaries of the active day (the "recent" list). */
   sessionTurns: SessionTurnSummary[] | null;
   sessionTurnsLoading: boolean;
+  sessionProjections: Record<string, SessionTurnProjection>;
 
   outgoing: OutgoingEcho[];
 
@@ -112,6 +123,7 @@ export interface TurnStoreState {
   setTakeoverPending: (pending: boolean) => void;
   setSessionTurns: (turns: SessionTurnSummary[] | null) => void;
   setSessionTurnsLoading: (loading: boolean) => void;
+  setSessionProjections: (projections: Record<string, SessionTurnProjection>) => void;
 
   addEcho: (echo: OutgoingEcho) => void;
   updateEcho: (echoId: string, patch: Partial<OutgoingEcho>) => void;
@@ -157,6 +169,7 @@ export const useTurnStore = create<TurnStoreState>()((set, get) => ({
   readEpoch: 0,
   sessionTurns: null,
   sessionTurnsLoading: false,
+  sessionProjections: {},
   outgoing: [],
 
   openTurn: (turnId, day, source, options) => {
@@ -213,6 +226,7 @@ export const useTurnStore = create<TurnStoreState>()((set, get) => ({
   setSessionTurns: (sessionTurns) => set({ sessionTurns }),
   setSessionTurnsLoading: (sessionTurnsLoading) =>
     set({ sessionTurnsLoading }),
+  setSessionProjections: (sessionProjections) => set({ sessionProjections }),
 
   addEcho: (echo) => set((state) => ({ outgoing: [...state.outgoing, echo] })),
   updateEcho: (echoId, patch) =>
@@ -238,6 +252,7 @@ export const useTurnStore = create<TurnStoreState>()((set, get) => ({
       readEpoch: state.readEpoch + 1,
       sessionTurns: null,
       sessionTurnsLoading: false,
+      sessionProjections: {},
       outgoing: [],
     })),
 }));

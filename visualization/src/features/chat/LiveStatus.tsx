@@ -28,8 +28,8 @@ import {
   XCircle,
 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import type { ActivityPresentation, ActivityStep, WorkingState } from "./presentation";
-import { ActivityStep as ActivityStepComponent } from "./ActivityStep";
+import type { ActivityPresentation, ActivityStep, WorkingState, TurnStatus } from "./presentation";
+import { ActivityGlimpse } from "./ActivityGlimpse";
 import { useNow } from "../../hooks/useNow";
 import { useThrottledValue } from "../../hooks/useThrottledValue";
 import { useOverflowing } from "../../hooks/useOverflowing";
@@ -60,9 +60,10 @@ export interface LiveStatusProps {
   activity: ActivityPresentation;
   mode?: "live" | "settled";
   onStop?: () => void;
+  status?: TurnStatus;
 }
 
-export function LiveStatus({ activity, mode = "live", onStop }: LiveStatusProps) {
+export function LiveStatus({ activity, mode = "live", onStop, status }: LiveStatusProps) {
   const live = mode === "live";
   useNow(live, 1000);
   const reduced = useReducedMotion();
@@ -177,7 +178,7 @@ export function LiveStatus({ activity, mode = "live", onStop }: LiveStatusProps)
   const releasedIdx = steps.findIndex((s) => s.id === releasedId);
   const releasedNewestFirst = releasedIdx === -1
     ? []
-    : steps.slice(0, releasedIdx + 1);
+    : steps.slice(releasedIdx);
 
   const visible = showAll ? releasedNewestFirst : releasedNewestFirst.slice(0, ROLL_WINDOW);
   const overflow = showAll ? 0 : releasedNewestFirst.length - visible.length;
@@ -186,14 +187,12 @@ export function LiveStatus({ activity, mode = "live", onStop }: LiveStatusProps)
   const startMs = activity.timing.startedAt
     ? new Date(activity.timing.startedAt).getTime()
     : Date.now();
-  const elapsedSeconds = Math.floor(activity.timing.elapsedMs / 1000);
-  const elapsedFormatted = formatDuration(startMs / 1000, (startMs + activity.timing.elapsedMs) / 1000);
-  void elapsedSeconds; // used via formatDuration above
+  const elapsedFormatted = formatDuration(startMs / 1000, live ? Date.now() / 1000 : (startMs + activity.timing.elapsedMs) / 1000);
 
   const headlineLabel = headline.label;
   const headlineDomain = headline.domain;
 
-  const settled = live ? undefined : settledHeadline(activity);
+  const settled = live ? undefined : settledHeadline(status);
 
   const renderStep = (item: ActivityStep, i: number) => {
     const instant = !live || reduced === true;
@@ -226,7 +225,7 @@ export function LiveStatus({ activity, mode = "live", onStop }: LiveStatusProps)
               ease: EASE_CALM,
             }}
           >
-            <ActivityStepComponent animate={live} item={item} />
+            <ActivityGlimpse live={live} item={item} />
           </motion.div>
         </div>
       </motion.div>
@@ -483,7 +482,7 @@ function ThinkingWriter({
 
 /* --------------------------- working zone ---------------------------- */
 
-function WorkingZone({ working }: { working: WorkingState }) {
+export function WorkingZone({ working }: { working: WorkingState }) {
   const reduced = useReducedMotion();
   const [showAllMilestones, setShowAllMilestones] = useState(false);
   const { todos, milestones } = working;
@@ -565,6 +564,10 @@ export function TodoIcon({ status }: { status: string }) {
   switch (status) {
     case "done":
       return <CheckCircle2 size={13} className="shrink-0 text-success" />;
+    case "in_progress":
+      return <Loader2 size={13} className="shrink-0 animate-spin-slow text-accent" />;
+    case "cancelled":
+      return <XCircle size={13} className="shrink-0 text-fg-faint" />;
     case "blocked":
     case "skipped":
       return <AlertTriangle size={13} className="shrink-0 text-warning" />;
@@ -575,14 +578,16 @@ export function TodoIcon({ status }: { status: string }) {
 
 /* ------------------------------ helpers ------------------------------ */
 
-function settledHeadline(activity: ActivityPresentation): {
+function settledHeadline(status: TurnStatus | undefined): {
   text: string;
   Icon: typeof CheckCircle2;
   tone: string;
 } | undefined {
-  // Use the headline label from the activity
+  if (status === "failed") return { text: "Failed", Icon: AlertTriangle, tone: "text-danger" };
+  if (status === "cancelled" || status === "stopped") return { text: "Stopped", Icon: XCircle, tone: "text-fg-muted" };
+  if (status === "waiting_question" || status === "waiting_budget") return { text: "Waiting for you", Icon: Circle, tone: "text-warning" };
   return {
-    text: activity.headline.label,
+    text: "Completed",
     Icon: CheckCircle2,
     tone: "text-fg-muted",
   };

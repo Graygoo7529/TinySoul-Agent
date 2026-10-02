@@ -103,7 +103,7 @@ describe("InterfacePage", () => {
 
     // Theme stays in appStore.
     const dark = [...container.querySelectorAll("button")].find(
-      (item) => item.textContent === "Dark",
+      (item) => item.textContent === "深色",
     );
     await act(async () => {
       dark!.click();
@@ -112,7 +112,7 @@ describe("InterfacePage", () => {
 
     // Density segmented control.
     const compact = [...container.querySelectorAll("button")].find(
-      (item) => item.textContent === "Compact",
+      (item) => item.textContent === "紧凑",
     );
     await act(async () => {
       compact!.click();
@@ -132,7 +132,7 @@ describe("InterfacePage", () => {
 
     // Reset restores prefs and the theme.
     const reset = [...container.querySelectorAll("button")].find((item) =>
-      item.textContent?.includes("Reset interface defaults"),
+      item.textContent?.includes("恢复界面默认设置"),
     );
     await act(async () => {
       reset!.click();

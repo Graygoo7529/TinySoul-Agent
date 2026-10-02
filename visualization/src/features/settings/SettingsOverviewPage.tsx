@@ -1,3 +1,4 @@
+import { settingsText } from "./i18n";
 import {
   AlertTriangle,
   ArrowRight,
@@ -64,41 +65,41 @@ export function SettingsOverviewPage() {
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4 p-5">
       <SectionCard
-        title="Running configuration"
-        description="What the current Agent generation is using right now."
+        title="运行配置"
+        description="当前 Agent generation 正在使用的配置。"
         actions={
           activity.can_reload ? (
-            <Badge tone="green">idle</Badge>
+            <Badge tone="green">空闲</Badge>
           ) : (
-            <Badge tone="yellow" title={activityReasonText(activity.reason)}>
-              busy
+            <Badge tone="yellow" title={settingsText(activityReasonText(activity.reason))}>
+              忙碌
             </Badge>
           )
         }
       >
         <dl className="grid grid-cols-[140px_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-[12px]">
-          <dt className="text-fg-faint">Generation</dt>
+          <dt className="text-fg-faint">运行代次</dt>
           <dd className="font-mono break-all text-fg">
             {active.generation_id || "—"}
           </dd>
-          <dt className="text-fg-faint">Activity</dt>
+          <dt className="text-fg-faint">运行状态</dt>
           <dd className="text-fg">
             {activity.state}
             {activity.reason !== "" && (
               <span className="ml-1.5 text-fg-muted">
-                — {activityReasonText(activity.reason)}
+                — {settingsText(activityReasonText(activity.reason))}
               </span>
             )}
           </dd>
-          <dt className="text-fg-faint">Pending saved changes</dt>
+          <dt className="text-fg-faint">待激活修改</dt>
           <dd className="text-fg">
-            {saved.pending_reload ? `${pending.length} field(s)` : "none"}
+            {saved.pending_reload ? `${pending.length} 项` : "无"}
           </dd>
         </dl>
 
         <div className="mt-3 border-t border-line pt-3">
           <div className="mb-1.5 text-[11px] font-semibold tracking-wide text-fg-muted uppercase">
-            Sources
+            配置来源
           </div>
           <div className="space-y-1">
             {saved.sources.map((source) => (
@@ -111,8 +112,8 @@ export function SettingsOverviewPage() {
                   {source.path || "—"}
                 </span>
                 <span className="ml-auto flex shrink-0 items-center gap-1">
-                  {!source.exists && <Badge tone="gray">missing</Badge>}
-                  {!source.writable && <Badge tone="gray">read-only</Badge>}
+                  {!source.exists && <Badge tone="gray">缺失</Badge>}
+                  {!source.writable && <Badge tone="gray">只读</Badge>}
                 </span>
               </div>
             ))}
@@ -121,8 +122,8 @@ export function SettingsOverviewPage() {
       </SectionCard>
 
       <SectionCard
-        title="Pending activation"
-        description="Saved values that differ from the running configuration; they activate on the next apply or reload."
+        title="待激活"
+        description="已保存但不同于运行配置的值，会在下次应用或重载时激活。"
         actions={
           saved.pending_reload && draftCount === 0 ? (
             <Button
@@ -133,21 +134,20 @@ export function SettingsOverviewPage() {
               title={blocker ?? "Activate the saved configuration"}
               onClick={() => clients !== null && void reloadSaved(clients)}
             >
-              Activate saved configuration
+              激活已保存配置
             </Button>
           ) : undefined
         }
       >
         {pending.length === 0 ? (
           <div className="text-[12px] text-fg-muted">
-            The saved configuration matches the running one.
+            已保存配置与当前运行配置一致。
           </div>
         ) : (
           <>
             {draftCount > 0 && (
               <div className="mb-2 flex items-center gap-1.5 rounded-md bg-info-soft px-2.5 py-1.5 text-[12px] text-info">
-                <ArrowRight size={12} /> Applying your local changes will also
-                activate these saved changes.
+                <ArrowRight size={12} /> 应用本地修改时也会激活这些已保存修改。
               </div>
             )}
             <div className="space-y-1">
@@ -179,13 +179,12 @@ export function SettingsOverviewPage() {
       </SectionCard>
 
       <SectionCard
-        title="Local changes"
-        description="Uncommitted drafts held in this window; apply saves and activates them together."
+        title="本地修改"
+        description="当前窗口中的未提交草稿；应用时会一次保存并激活。"
       >
         {draftCount === 0 ? (
           <div className="text-[12px] text-fg-muted">
-            No local changes. Edits on any settings page collect here until you
-            apply or discard them.
+            没有本地修改。各设置页的编辑会集中在这里，直到应用或放弃。
           </div>
         ) : (
           <DraftList
@@ -201,22 +200,22 @@ export function SettingsOverviewPage() {
       </SectionCard>
 
       <SectionCard
-        title="Run plans"
-        description="Named presets of model routing and budgets. Capture, manage and apply them on the plans page."
+        title="运行方案"
+        description="命名的模型路由与预算预设，可在运行方案页保存、管理和应用。"
         actions={
           <Button variant="ghost" size="xs" onClick={() => navigateTo("plans")}>
-            Manage plans
+            管理方案
           </Button>
         }
       >
         {presets === null || presets.length === 0 ? (
           <EmptyState
             icon={<CircleDashed size={20} />}
-            title="No run plans yet"
-            description="Plans capture model chains, action bindings and optional budgets for quick switching."
+            title="还没有运行方案"
+            description="方案保存模型链、Action 绑定和可选预算，方便快速切换。"
             action={
               <Button variant="outline" size="sm" onClick={() => navigateTo("plans")}>
-                Open the plans page
+                打开运行方案
               </Button>
             }
           />
@@ -277,24 +276,19 @@ function DraftList({
             {isStale && (
               <span className="flex shrink-0 items-center gap-1">
                 <Badge tone="yellow" title="The saved baseline changed while you were editing">
-                  <AlertTriangle size={10} /> stale
-                </Badge>
+                  <AlertTriangle size={10} />{settingsText("stale")}</Badge>
                 <Button
                   variant="ghost"
                   size="xs"
                   title="Drop the local change and use the new baseline"
                   onClick={() => onResolveStale(entry.key, "adopt")}
-                >
-                  Adopt
-                </Button>
+                >{settingsText("Adopt")}</Button>
                 <Button
                   variant="ghost"
                   size="xs"
                   title="Keep the local change"
                   onClick={() => onResolveStale(entry.key, "keep")}
-                >
-                  Keep
-                </Button>
+                >{settingsText("Keep")}</Button>
               </span>
             )}
           </div>
@@ -323,9 +317,9 @@ function PresetRow({
           <span className="truncate text-[13px] font-medium text-fg">
             {preset.name}
           </span>
-          {preset.active_match && <Badge tone="green">active</Badge>}
+          {preset.active_match && <Badge tone="green">运行中</Badge>}
           {!preset.active_match && preset.saved_match && (
-            <Badge tone="blue">matches saved</Badge>
+            <Badge tone="blue">匹配已保存</Badge>
           )}
           {issueCount > 0 && (
             <Badge
@@ -377,16 +371,16 @@ export function ApplyFailureBanner({ failure }: { failure: ApplyFailure }) {
       <div className="min-w-0 flex-1">
         <div className="font-medium">
           {failure.kind === "config-invalid"
-            ? "The configuration was rejected; your draft is unchanged."
+              ? "配置被拒绝，草稿未改变。"
             : failure.kind === "request-invalid"
-              ? "The request was rejected; your draft is unchanged."
+              ? "请求被拒绝，草稿未改变。"
               : failure.kind === "activation-unavailable"
-                ? "Activation is unavailable right now; your draft is kept."
+                ? "当前无法激活配置，草稿已保留。"
                 : failure.kind === "activation-failed"
-                  ? "Activation failed; the previous runtime remains active."
+                  ? "激活失败，之前的运行配置仍在使用。"
                   : failure.kind === "api-error"
-                    ? `The endpoint rejected the apply (${failure.code}).`
-                    : "The apply result is unknown; your draft is kept."}
+                    ? `端点拒绝了配置应用（${failure.code}）。`
+                    : "配置应用结果未知，草稿已保留。"}
         </div>
         <div className="mt-0.5 break-words opacity-90">{failure.message}</div>
         {failure.kind === "config-invalid" && failure.key !== null && (
@@ -401,7 +395,7 @@ export function ApplyFailureBanner({ failure }: { failure: ApplyFailure }) {
               className="font-medium underline opacity-80 hover:opacity-100"
               onClick={() => setDetailsOpen((open) => !open)}
             >
-              {detailsOpen ? "Hide details" : "Details"}
+              {detailsOpen ? "隐藏详情" : "查看详情"}
             </button>
             {detailsOpen && (
               <div className="mt-1.5 max-h-64 overflow-y-auto text-fg">
@@ -420,11 +414,11 @@ export function ApplyFailureBanner({ failure }: { failure: ApplyFailure }) {
             clearApplyFailure();
           }}
         >
-          Locate
+          定位
         </Button>
       )}
       <Button variant="ghost" size="xs" onClick={() => clearApplyFailure()}>
-        Dismiss
+        关闭
       </Button>
     </div>
   );
@@ -439,8 +433,7 @@ export function CleanupDiagnosticsBanner() {
     <div className="flex items-start gap-2.5 rounded-lg border border-warning/30 bg-warning-soft px-3.5 py-2.5 text-[12px] leading-5 text-warning">
       <CheckCircle2 size={15} className="mt-0.5 shrink-0" />
       <div className="min-w-0 flex-1">
-        The configuration was applied. Some old resources could not be cleaned
-        up:
+        配置已应用，但部分旧资源未能清理：
         <ul className="mt-1 list-inside list-disc font-mono text-[11px]">
           {cleanupDiagnostics.map((item, index) => (
             <li key={index} className="break-all">
@@ -450,7 +443,7 @@ export function CleanupDiagnosticsBanner() {
         </ul>
       </div>
       <Button variant="ghost" size="xs" onClick={dismiss}>
-        Dismiss
+        关闭
       </Button>
     </div>
   );

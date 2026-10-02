@@ -14,10 +14,10 @@ export function SettingsDraftChip({ onOpen }: { onOpen: () => void }) {
     <button
       onClick={onOpen}
       className="absolute bottom-3 left-3 z-(--z-overlay) inline-flex items-center gap-1.5 rounded-full border border-line bg-bg-elev px-3 py-1.5 text-[12px] font-medium text-fg shadow-pop transition-colors hover:border-accent/50 hover:text-accent"
-      title="Unapplied settings changes — click to return to Settings"
+      title="有未应用的设置修改，点击返回设置"
     >
       <Settings size={13} />
-      {draftCount} unsaved settings {draftCount === 1 ? "change" : "changes"}
+      {draftCount} 项未保存设置修改
     </button>
   );
 }

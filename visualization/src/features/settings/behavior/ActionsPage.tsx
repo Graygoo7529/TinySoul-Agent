@@ -1,3 +1,4 @@
+import { settingsText } from "../i18n";
 /**
  * Actions & Model Uses settings page (config-coverage §3.2): the real Action
  * catalog of the running generation, projected per scenario
@@ -49,9 +50,9 @@ import {
 import { useActionsView } from "./useActionsView";
 
 const SCENARIOS: SelectOption[] = [
-  { value: "user", label: "User turns" },
-  { value: "home_reflection", label: "Home reflection" },
-  { value: "memory_reflection", label: "Memory reflection" },
+  { value: "user", label: settingsText("User turns") },
+  { value: "home_reflection", label: settingsText("Home reflection") },
+  { value: "memory_reflection", label: settingsText("Memory reflection") },
 ];
 
 export function ActionsPage() {
@@ -113,16 +114,14 @@ export function ActionsPage() {
   }
   if (loading || view === null) {
     return (
-      <div className="flex h-full items-center justify-center p-6 text-[12px] text-fg-faint">
-        Loading the action catalog…
-      </div>
+      <div className="flex h-full items-center justify-center p-6 text-[12px] text-fg-faint">{settingsText("Loading the action catalog…")}</div>
     );
   }
 
   return (
     <ObjectEditorLayout
-      title="Actions"
-      description="Every action registered in the running generation, with its scenario availability and model-use bindings."
+      title={settingsText("Actions")}
+      description={settingsText("Every action registered in the running generation, with its scenario availability and model-use bindings.")}
       items={filtered.map((action) => ({
         id: action.id,
         group: action.domain,
@@ -142,7 +141,7 @@ export function ActionsPage() {
           <input
             aria-label="Search actions"
             className={inputClass}
-            placeholder="Filter by name or description…"
+            placeholder={settingsText("Filter by name or description…")}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
@@ -157,13 +156,13 @@ export function ActionsPage() {
               </Badge>
             )}
             {current.available && !current.selection.enabled && (
-              <Badge tone="gray">not selectable</Badge>
+              <Badge tone="gray">不可选择</Badge>
             )}
           </>
         )
       }
     >
-      {current !== null && <ActionDetail action={current} scenario={scenario} />}
+      {current !== null && <ActionDetail action={current} />}
     </ObjectEditorLayout>
   );
 }
@@ -185,14 +184,12 @@ function actionBindingsDirty(
 
 function ActionDetail({
   action,
-  scenario,
 }: {
   action: ActionEntryView;
-  scenario: ConfigScenario;
 }) {
   return (
     <div>
-      <BehaviorSection action={action} scenario={scenario} />
+      <BehaviorSection action={action} />
       <ModelUsesSection action={action} />
       {action.retrieval !== null && <RetrievalSection action={action} />}
       <ProtocolSection action={action} />
@@ -202,31 +199,29 @@ function ActionDetail({
 
 function BehaviorSection({
   action,
-  scenario,
 }: {
   action: ActionEntryView;
-  scenario: ConfigScenario;
 }) {
   const visibility = action.visibility;
   const scenarioOverrides = Object.entries(visibility.scenarios);
   return (
     <FieldSection
-      title="Behavior"
-      description="Resolved availability and runtime policy in the selected scenario. These values come from the catalog documents and code grants; catalog document editing is a follow-up surface."
+      title={settingsText("Behavior")}
+      description={settingsText("Resolved availability and runtime policy in the selected scenario. These values come from the catalog documents and code grants; catalog document editing is a follow-up surface.")}
     >
       <FieldRow
-        title="Availability"
-        description={`Granted by code, supported by this generation, and available in the ${scenario} scenario.`}
+        title={settingsText("Availability")}
+        description={settingsText("Code grants, executor support and availability in the selected scenario.")}
       >
         <span className="flex flex-wrap items-center gap-1.5">
           <Badge tone={action.granted ? "green" : "gray"}>
-            {action.granted ? "granted" : "not granted"}
+            {settingsText(action.granted ? "granted" : "not granted")}
           </Badge>
           <Badge tone={action.supported ? "green" : "gray"}>
-            {action.supported ? "supported" : "executor unavailable"}
+            {settingsText(action.supported ? "supported" : "executor unavailable")}
           </Badge>
           <Badge tone={action.available ? "green" : "yellow"}>
-            {action.available ? "available" : "unavailable"}
+            {settingsText(action.available ? "available" : "unavailable")}
           </Badge>
           {!action.available && action.unavailableReason !== null && (
             <span className="text-[11px] text-fg-faint">
@@ -236,12 +231,12 @@ function BehaviorSection({
         </span>
       </FieldRow>
       <FieldRow
-        title="Model selection"
-        description="Whether Phase 1/2 may select this action in the scenario, and which configuration layer decided it."
+        title={settingsText("Model selection")}
+        description={settingsText("Whether Phase 1/2 may select this action in the scenario, and which configuration layer decided it.")}
       >
         <span className="flex items-center gap-1.5 text-[12px] text-fg">
           <Badge tone={action.selection.enabled ? "green" : "gray"}>
-            {action.selection.enabled ? "selectable" : "not selectable"}
+            {settingsText(action.selection.enabled ? "selectable" : "not selectable")}
           </Badge>
           <span className="font-mono text-[11px] text-fg-faint">
             source: {action.selection.source}
@@ -249,8 +244,8 @@ function BehaviorSection({
         </span>
       </FieldRow>
       <FieldRow
-        title="Visibility"
-        description="Declared default and per-scenario overrides from the catalog document."
+        title={settingsText("Visibility")}
+        description={settingsText("Declared default and per-scenario overrides from the catalog document.")}
       >
         <span className="font-mono text-[11px] text-fg-muted">
           default:{" "}
@@ -266,8 +261,8 @@ function BehaviorSection({
         </span>
       </FieldRow>
       <FieldRow
-        title="Timeout"
-        description="Total execution time budget and where it is declared."
+        title={settingsText("Timeout")}
+        description={settingsText("Total execution time budget and where it is declared.")}
       >
         <span className="font-mono text-[11px] text-fg-muted">
           {action.runtime.timeoutSeconds !== null
@@ -275,31 +270,31 @@ function BehaviorSection({
             : "none"}
         </span>
       </FieldRow>
-      <FieldRow title="Parallel policy">
+      <FieldRow title={settingsText("Parallel policy")}>
         <span className="font-mono text-[11px] text-fg-muted">
           {action.runtime.parallelPolicy}
         </span>
       </FieldRow>
-      <FieldRow title="Hooks">
+      <FieldRow title={settingsText("Hooks")}>
         <span className="font-mono text-[11px] break-all text-fg-muted">
           normalize: {action.runtime.hooks.normalize.join(", ") || "—"} · execute:{" "}
           {action.runtime.hooks.execute.join(", ") || "—"}
         </span>
       </FieldRow>
-      <FieldRow title="Trace mode">
+      <FieldRow title={settingsText("Trace mode")}>
         <span className="font-mono text-[11px] text-fg-muted">
           {action.runtime.traceMode}
         </span>
       </FieldRow>
-      <FieldRow title="Execution">
+      <FieldRow title={settingsText("Execution")}>
         <span className="font-mono text-[11px] break-all text-fg-muted">
           {action.execution.executor}
         </span>
       </FieldRow>
       {action.source !== null && (
         <FieldRow
-          title="Catalog document"
-          description="The document this definition is loaded from; editing document fields is a follow-up surface."
+          title={settingsText("Catalog document")}
+          description={settingsText("The document this definition is loaded from; editing document fields is a follow-up surface.")}
         >
           <span className="font-mono text-[11px] break-all text-fg-muted">
             {action.source.path}
@@ -317,13 +312,11 @@ function BehaviorSection({
 function ModelUsesSection({ action }: { action: ActionEntryView }) {
   return (
     <FieldSection
-      title="Model Uses"
-      description="Which model implementation each declared consumer calls. Bindings are global (shared by every scenario); one consumer edits one entry of action.models.bindings."
+      title={settingsText("Model Uses")}
+      description={settingsText("Which model implementation each declared consumer calls. Bindings are global (shared by every scenario); one consumer edits one entry of action.models.bindings.")}
     >
       {action.modelUses.length === 0 ? (
-        <div className="px-5 py-3 text-[11px] text-fg-faint">
-          This action runs deterministically — no model is involved.
-        </div>
+        <div className="px-5 py-3 text-[11px] text-fg-faint">{settingsText("This action runs deterministically — no model is involved.")}</div>
       ) : (
         action.modelUses.map((modelUse) => (
           <ModelUseEditor key={modelUse.consumer} modelUse={modelUse} />
@@ -407,13 +400,13 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
         </span>
         <Badge tone="gray">{modelUse.operation}</Badge>
         {entry !== null && entry.status === "modified" && (
-          <Badge tone="accent">modified</Badge>
+          <Badge tone="accent">已修改</Badge>
         )}
         {entry !== null && entry.status === "new" && (
-          <Badge tone="accent">new in draft</Badge>
+          <Badge tone="accent">草稿新增</Badge>
         )}
         {entry === null && modelUse.binding === null && (
-          <Badge tone="yellow">no binding</Badge>
+          <Badge tone="yellow">未绑定</Badge>
         )}
         {entry !== null && entry.status !== "saved" && (
           <IconButton
@@ -426,7 +419,7 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
       </div>
 
       <div className="mt-2 grid gap-2 md:grid-cols-[minmax(180px,220px)_minmax(0,1fr)] md:items-center">
-        <span className="text-[11px] text-fg-muted">Implementation</span>
+        <span className="text-[11px] text-fg-muted">实现</span>
         <SelectInput
           ariaLabel={`${modelUse.consumer} implementation`}
           value={implementation}
@@ -477,7 +470,7 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
           optionRules.max_output_tokens !== undefined && (
             <OptionalNumberRow
               label="Max output tokens"
-              description="Unset inherits the task chain's own limit."
+              description={settingsText("Unset inherits the task chain's own limit.")}
               value={maxOutputTokens}
               min={optionRules.max_output_tokens.minimum ?? 1}
               disabled={readOnly}
@@ -489,9 +482,7 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
         {implementation === "structured_decision" &&
           optionRules.relevance_threshold !== undefined && (
             <>
-              <span className="text-[11px] text-fg-muted">
-                Relevance threshold
-              </span>
+              <span className="text-[11px] text-fg-muted">{settingsText("Relevance threshold")}</span>
               <NumberInput
                 ariaLabel={`${modelUse.consumer} relevance threshold`}
                 value={relevanceThreshold}
@@ -507,10 +498,7 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
 
       {implementation === "embedding_similarity" &&
         modelUse.operation === "rerank" && (
-          <div className="mt-2 text-[10.5px] text-fg-faint">
-            Similarity reranking cannot read the current Context; the resolved
-            policy forces its allowed context to none.
-          </div>
+          <div className="mt-2 text-[10.5px] text-fg-faint">{settingsText("Similarity reranking cannot read the current Context; the resolved policy forces its allowed context to none.")}</div>
         )}
       {runningDiffers && modelUse.binding !== null && (
         <div className="mt-2 text-[10.5px] text-fg-faint">
@@ -519,15 +507,10 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
             modelUse.binding.implementation,
             modelUse.binding.taskProfile,
             modelUse.binding.use,
-          )}{" "}
-          (applies after activation)
-        </div>
+          )}{" "}{settingsText("(applies after activation)")}</div>
       )}
       {readOnly && (
-        <div className="mt-2 text-[10.5px] text-warning">
-          action.models.bindings is owned by a read-only source; no local edit
-          can be staged.
-        </div>
+        <div className="mt-2 text-[10.5px] text-warning">{settingsText("action.models.bindings is owned by a read-only source; no local edit can be staged.")}</div>
       )}
     </div>
   );
@@ -552,7 +535,7 @@ function LlmTaskTarget({
   const known = current !== "" && chains.some((chain) => chain.id === current);
   return (
     <>
-      <span className="text-[11px] text-fg-muted">Task chain</span>
+      <span className="text-[11px] text-fg-muted">任务链</span>
       <span className="flex items-center gap-1.5">
         <SelectInput
           ariaLabel={`${consumer} task chain`}
@@ -619,7 +602,7 @@ function StructuredDecisionTarget({
   const known = current !== "" && uses.some((use) => use.id === current);
   return (
     <>
-      <span className="text-[11px] text-fg-muted">Logical use</span>
+      <span className="text-[11px] text-fg-muted">逻辑用途</span>
       <span className="flex items-center gap-1.5">
         <SelectInput
           ariaLabel={`${consumer} structured decision use`}
@@ -645,8 +628,7 @@ function StructuredDecisionTarget({
           size="xs"
           variant="ghost"
           onClick={() => navigateTo("dedicated-models")}
-        >
-          Uses <ArrowRight size={11} />
+        >{settingsText("Uses")}<ArrowRight size={11} />
         </Button>
       </span>
     </>
@@ -667,10 +649,10 @@ function EmbeddingSimilarityTarget({ owner }: { owner: string | null }) {
   const current = typeof useValue === "string" && useValue !== "" ? useValue : null;
   return (
     <>
-      <span className="text-[11px] text-fg-muted">Embedding use</span>
+      <span className="text-[11px] text-fg-muted">Embedding 用途</span>
       <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-fg-muted">
         {owner === null ? (
-          <span>No owner declared.</span>
+          <span>未声明 owner。</span>
         ) : (
           <>
             <span className="font-mono">{path}</span>
@@ -770,15 +752,14 @@ function RetrievalSection({ action }: { action: ActionEntryView }) {
   if (retrieval === null) return null;
   return (
     <FieldSection
-      title="Retrieval Policy"
-      description="The resolved sources, operations and budgets this search runs with. Sources, operations, contexts and budgets are edited on the Search Policies page."
+      title={settingsText("Retrieval Policy")}
+      description={settingsText("The resolved sources, operations and budgets this search runs with. Sources, operations, contexts and budgets are edited on the Search Policies page.")}
       meta={
         <Button
           size="xs"
           variant="ghost"
           onClick={() => navigateTo("search-policies", action.id)}
-        >
-          Edit in Search Policies <ArrowRight size={11} />
+        >{settingsText("Edit in Search Policies")}<ArrowRight size={11} />
         </Button>
       }
     >
@@ -806,22 +787,22 @@ function ProtocolSection({ action }: { action: ActionEntryView }) {
   const semantic = action.semantic;
   return (
     <FieldSection
-      title="Protocol Details"
-      description="The tool contract the model sees. Declared in the catalog document; editing is a follow-up surface."
+      title={settingsText("Protocol Details")}
+      description={settingsText("The tool contract the model sees. Declared in the catalog document; editing is a follow-up surface.")}
     >
       <div className="space-y-3 px-5 py-3">
         <div>
-          <div className="text-[11px] font-medium text-fg">Tool description</div>
+          <div className="text-[11px] font-medium text-fg">工具说明</div>
           <p className="mt-1 text-[11.5px] leading-5 whitespace-pre-wrap text-fg-muted">
             {action.tool.description}
           </p>
         </div>
-        <SemanticList title="Use when" items={semantic.useWhen} />
-        <SemanticList title="Avoid when" items={semantic.avoidWhen} />
-        <SemanticList title="Effects" items={semantic.effects} />
-        <SemanticList title="Examples" items={semantic.examples} />
+        <SemanticList title={settingsText("Use when")} items={semantic.useWhen} />
+        <SemanticList title={settingsText("Avoid when")} items={semantic.avoidWhen} />
+        <SemanticList title={settingsText("Effects")} items={semantic.effects} />
+        <SemanticList title={settingsText("Examples")} items={semantic.examples} />
         <div>
-          <div className="text-[11px] font-medium text-fg">Parameters schema</div>
+          <div className="text-[11px] font-medium text-fg">参数结构</div>
           <pre className="mt-1 max-h-64 overflow-auto rounded-md bg-bg-sunken p-2.5 font-mono text-[10.5px] leading-4 text-fg-muted">
             {JSON.stringify(action.tool.schema, null, 2)}
           </pre>

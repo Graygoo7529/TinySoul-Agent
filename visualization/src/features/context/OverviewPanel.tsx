@@ -47,9 +47,11 @@ type OverviewState =
 export function ContextOverviewPanel({
   epoch,
   turnId,
+  resourceOwner,
 }: {
   epoch: number;
   turnId: string;
+  resourceOwner?: "home" | "memory";
 }): ReactElement {
   const [state, setState] = useState<OverviewState>({ kind: "loading" });
   const [refreshing, setRefreshing] = useState(false);
@@ -149,6 +151,7 @@ export function ContextOverviewPanel({
           epoch={epoch}
           overview={state.overview}
           closed={closed}
+          resourceOwner={resourceOwner}
         />
       )}
     </div>
@@ -184,11 +187,28 @@ function OverviewBody({
   epoch,
   overview,
   closed,
+  resourceOwner,
 }: {
   epoch: number;
   overview: ContextOverview;
   closed: boolean;
+  resourceOwner?: "home" | "memory";
 }): ReactElement {
+  if (resourceOwner) {
+    const segments = overview.segments.filter((segment) =>
+      segment.loaded_refs.some((ref) => ref.startsWith(`${resourceOwner}:`)));
+    return segments.length === 0 ? <EmptyState title={`尚未加载 ${resourceOwner === "home" ? "Home" : "Memory"} 内容`} /> : (
+      <div className="space-y-3">
+        {segments.map((segment) => <section key={segment.id} className="space-y-1.5">
+          <SegmentRow epoch={epoch} overview={overview} segment={segment} closed={closed} />
+          <div className="space-y-1 px-3 font-mono text-[11px] text-fg-muted">
+            {segment.loaded_refs.filter((ref) => ref.startsWith(`${resourceOwner}:`)).map((ref) =>
+              <div key={ref} className="truncate" title={ref}>{ref}</div>)}
+          </div>
+        </section>)}
+      </div>
+    );
+  }
   const groups = groupBySlot(overview.segments);
   return (
     <>

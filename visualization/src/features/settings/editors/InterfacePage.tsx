@@ -1,3 +1,4 @@
+import { settingsText } from "../i18n";
 /**
  * Interface settings (implementation plan §20): local reading-experience
  * preferences — theme, typography, density, reduced motion. They apply to
@@ -56,14 +57,10 @@ export function InterfacePage() {
 
   return (
     <SettingsPageBody>
-      <div className="rounded-lg border border-line bg-bg-elev px-3.5 py-2.5 text-[12px] leading-5 text-fg-muted">
-        These preferences apply to this client immediately and are stored
-        locally. They never change the Agent&apos;s configuration or other
-        clients.
-      </div>
+      <div className="rounded-lg border border-line bg-bg-elev px-3.5 py-2.5 text-[12px] leading-5 text-fg-muted">{settingsText("These preferences apply to this client immediately and are stored locally. They never change the Agent&apos;s configuration or other clients.")}</div>
 
-      <SectionCard title="Appearance" description="Theme of the whole interface.">
-        <PrefRow label="Theme">
+      <SectionCard title={settingsText("Appearance")} description={settingsText("Theme of the whole interface.")}>
+        <PrefRow label={settingsText("Theme")}>
           <Segmented
             options={THEME_OPTIONS}
             value={theme}
@@ -73,11 +70,11 @@ export function InterfacePage() {
       </SectionCard>
 
       <SectionCard
-        title="Typography"
-        description="Reading fonts, size and line height across the app."
+        title={settingsText("Typography")}
+        description={settingsText("Reading fonts, size and line height across the app.")}
       >
         <PrefRow
-          label="Interface font"
+          label={settingsText("Interface font")}
           preview={<FontPreview family="var(--font-sans)" mono={false} />}
         >
           <SelectControl
@@ -86,7 +83,7 @@ export function InterfacePage() {
             onChange={(next) => prefs.setPref("fontSans", next as SansFontChoice)}
           />
         </PrefRow>
-        <PrefRow label="Font size" description={`${FONT_SIZE_RANGE.min}–${FONT_SIZE_RANGE.max}px`}>
+        <PrefRow label={settingsText("Font size")} description={`${FONT_SIZE_RANGE.min}–${FONT_SIZE_RANGE.max}px`}>
           <NumberControl
             value={prefs.fontSize}
             min={FONT_SIZE_RANGE.min}
@@ -96,7 +93,7 @@ export function InterfacePage() {
           />
         </PrefRow>
         <PrefRow
-          label="Line height"
+          label={settingsText("Line height")}
           description={`${LINE_HEIGHT_RANGE.min}–${LINE_HEIGHT_RANGE.max}`}
         >
           <NumberControl
@@ -108,7 +105,7 @@ export function InterfacePage() {
           />
         </PrefRow>
         <PrefRow
-          label="Code font"
+          label={settingsText("Code font")}
           preview={<FontPreview family="var(--font-mono)" mono />}
         >
           <SelectControl
@@ -120,10 +117,10 @@ export function InterfacePage() {
       </SectionCard>
 
       <SectionCard
-        title="Layout & Motion"
-        description="Spacing density and animation behavior."
+        title={settingsText("Layout & Motion")}
+        description={settingsText("Spacing density and animation behavior.")}
       >
-        <PrefRow label="Density">
+        <PrefRow label={settingsText("Density")}>
           <Segmented
             options={DENSITY_OPTIONS}
             value={prefs.density}
@@ -131,8 +128,8 @@ export function InterfacePage() {
           />
         </PrefRow>
         <PrefRow
-          label="Reduce motion"
-          description="Minimizes animations and transitions across the interface."
+          label={settingsText("Reduce motion")}
+          description={settingsText("Minimizes animations and transitions across the interface.")}
         >
           <LocalSwitch
             on={prefs.reducedMotion}
@@ -146,9 +143,7 @@ export function InterfacePage() {
           type="button"
           className="h-8 rounded-lg border border-line bg-bg-elev px-3 text-[13px] font-medium text-fg hover:border-line-strong hover:bg-hover"
           onClick={resetAll}
-        >
-          Reset interface defaults
-        </button>
+        >{settingsText("Reset interface defaults")}</button>
       </div>
     </SettingsPageBody>
   );
@@ -168,7 +163,7 @@ function PrefRow({
   return (
     <div className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
       <div className="min-w-0 flex-1">
-        <div className="text-[13px] font-medium text-fg">{label}</div>
+        <div className="text-[13px] font-medium text-fg">{settingsText(label)}</div>
         {description !== undefined && (
           <div className="mt-0.5 text-[11px] text-fg-muted">{description}</div>
         )}
@@ -212,7 +207,7 @@ function Segmented<T extends string>({
               : "bg-bg-elev text-fg-muted hover:bg-hover hover:text-fg"
           }`}
         >
-          {option.label}
+          {settingsText(option.label)}
         </button>
       ))}
     </span>
@@ -236,7 +231,7 @@ function SelectControl<T extends string>({
     >
       {options.map((option) => (
         <option key={option.value} value={option.value}>
-          {option.label}
+          {settingsText(option.label)}
         </option>
       ))}
     </select>

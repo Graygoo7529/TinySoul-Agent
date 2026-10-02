@@ -443,7 +443,7 @@ describe("PhaseBindingsPage", () => {
     ]);
 
     await act(async () => {
-      buttonByText("Open chain").click();
+      buttonByText("查看模型链").click();
     });
     expect(useSettingsUiStore.getState().page).toBe("llm-tasks");
     expect(useSettingsUiStore.getState().focusPath).toBe("llm.tasks.vision");
@@ -509,7 +509,7 @@ describe("ActionsPage", () => {
     await renderAndSelect("memory.write");
 
     // In the user scenario the deterministic action is hidden and model-free.
-    expect(container.textContent).toContain("no model is involved");
+    expect(container.textContent).toContain("无需调用模型");
     expect(container.textContent).toContain("Hidden by visibility configuration");
     expect(draftOperations(store())).toEqual([]);
 
@@ -791,7 +791,7 @@ describe("ReflectionPage", () => {
       root.render(<ReflectionPage />);
     });
     await flush();
-    expect(container.textContent).toContain("Home or Memory page");
+    expect(container.textContent).toContain("Home 或 Memory 页面");
 
     const toggle = container.querySelector(
       '[data-field-path="reflection.schedule.enabled"] button[role="switch"]',

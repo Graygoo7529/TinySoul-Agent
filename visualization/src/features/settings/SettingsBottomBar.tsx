@@ -1,3 +1,4 @@
+import { settingsText } from "./i18n";
 import { useMemo } from "react";
 import { AlertTriangle, Loader2, RotateCcw, Trash2, UploadCloud } from "lucide-react";
 
@@ -43,17 +44,17 @@ export function SettingsBottomBar() {
       <div className="flex min-w-0 flex-1 items-center gap-2 text-[12px] text-fg-muted">
         {draftCount > 0 ? (
           <span className="font-medium text-fg">
-            {draftCount} unsaved {draftCount === 1 ? "change" : "changes"}
+            {draftCount} 项未保存修改
           </span>
         ) : (
-          <span>No local changes</span>
+          <span>没有本地修改</span>
         )}
         {staleCount > 0 && (
           <span
             className="inline-flex items-center gap-1 text-warning"
             title="The saved baseline changed while these entries were being edited"
           >
-            <AlertTriangle size={12} /> {staleCount} stale
+            <AlertTriangle size={12} /> {staleCount} 项基线已变化
           </span>
         )}
         {issueCount > 0 && (
@@ -61,11 +62,11 @@ export function SettingsBottomBar() {
             className="inline-flex items-center gap-1 text-warning"
             title="Local validation issues; apply performs the authoritative check"
           >
-            <AlertTriangle size={12} /> {issueCount} field {issueCount === 1 ? "issue" : "issues"}
+            <AlertTriangle size={12} /> {issueCount} 项字段问题
           </span>
         )}
         {blocker !== null && (draftCount > 0 || pendingReload) && (
-          <span className="truncate text-fg-faint">· {blocker}</span>
+          <span className="truncate text-fg-faint">· {settingsText(blocker)}</span>
         )}
       </div>
 
@@ -77,11 +78,11 @@ export function SettingsBottomBar() {
           title={
             pageKeys.length === 0
               ? "This page has no local changes to withdraw"
-              : `Withdraw the ${pageKeys.length} change(s) this page is responsible for`
+              : `撤销此页面负责的 ${pageKeys.length} 项修改`
           }
           onClick={() => resetEntries(pageKeys)}
         >
-          <RotateCcw size={13} /> Reset this page
+          <RotateCcw size={13} /> 重置此页
         </Button>
         <Button
           variant="ghost"
@@ -89,7 +90,7 @@ export function SettingsBottomBar() {
           disabled={draftCount === 0 || busy}
           onClick={() => discardAll()}
         >
-          <Trash2 size={13} /> Discard all
+          <Trash2 size={13} /> 放弃全部
         </Button>
         {draftCount > 0 ? (
           <Button
@@ -97,10 +98,10 @@ export function SettingsBottomBar() {
             size="sm"
             disabled={!canApply}
             loading={applyPhase === "applying"}
-            title={blocker ?? "Save and activate all local changes"}
+            title={settingsText(blocker ?? "保存并激活全部本地修改")}
             onClick={() => clients !== null && void applyDrafts(clients)}
           >
-            <UploadCloud size={13} /> Apply configuration
+            <UploadCloud size={13} /> 应用配置
           </Button>
         ) : (
           pendingReload && (
@@ -109,7 +110,7 @@ export function SettingsBottomBar() {
               size="sm"
               disabled={!canReload}
               loading={applyPhase === "reloading"}
-              title={blocker ?? "Activate the saved configuration"}
+              title={settingsText(blocker ?? "激活已保存配置")}
               onClick={() => clients !== null && void reloadSaved(clients)}
             >
               {applyPhase === "reloading" ? (
@@ -117,7 +118,7 @@ export function SettingsBottomBar() {
               ) : (
                 <UploadCloud size={13} />
               )}
-              Activate saved configuration
+              激活已保存配置
             </Button>
           )
         )}

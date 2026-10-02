@@ -1,3 +1,4 @@
+import { settingsText } from "../i18n";
 /**
  * The run-plan management page (implementation plan §19/P14), mounted in the
  * "Overview & Plans" group.
@@ -82,20 +83,20 @@ export function PlansPage() {
   return (
     <div className="mx-auto flex max-w-5xl items-start gap-4 p-5">
       <SectionCard
-        title="Run plans"
-        description="Named captures of model routing and budgets for quick switching."
+        title="运行方案"
+        description="保存模型路由与预算的命名方案，便于快速切换。"
         className="w-80 shrink-0"
         actions={
           <Button variant="outline" size="xs" onClick={() => setCreating(true)}>
-            <Plus size={12} /> New plan
+            <Plus size={12} /> 新建方案
           </Button>
         }
       >
         {presets === null || presets.length === 0 ? (
           <EmptyState
             icon={<CircleDashed size={20} />}
-            title="No run plans yet"
-            description="Capture the current model routing as a named plan to switch between calling strategies."
+            title="还没有运行方案"
+            description="将当前模型路由保存为命名方案，方便切换调用策略。"
           />
         ) : (
           <div className="space-y-1.5">
@@ -115,8 +116,8 @@ export function PlansPage() {
         {selected === null ? (
           <EmptyState
             icon={<Layers size={22} />}
-            title="Select a plan"
-            description="Create a plan from the running, saved or drafted configuration to see its scope here."
+            title="选择一个方案"
+            description="从运行中、已保存或当前草稿创建方案后，可在此查看范围。"
           />
         ) : (
           <PlanDetail key={`${selected.id}:${selected.updated_at}`} preset={selected} />
@@ -160,9 +161,9 @@ export function PlanListRow({
           {preset.name}
         </span>
         {preset.active_match ? (
-          <Badge tone="green">active</Badge>
+          <Badge tone="green">运行中</Badge>
         ) : preset.saved_match ? (
-          <Badge tone="blue">matches saved</Badge>
+          <Badge tone="blue">匹配已保存</Badge>
         ) : null}
         {issues.length > 0 && (
           <Badge tone="yellow" title="Dependencies of this plan are currently missing">
@@ -240,7 +241,7 @@ function PlanDetail({ preset }: { preset: PresetSummary }) {
         }
         actions={
           <>
-            <IconButton label="Rename" onClick={() => setRenaming(true)}>
+            <IconButton label={settingsText("Rename")} onClick={() => setRenaming(true)}>
               <Pencil size={13} />
             </IconButton>
             <IconButton
@@ -250,7 +251,7 @@ function PlanDetail({ preset }: { preset: PresetSummary }) {
             >
               <Camera size={13} />
             </IconButton>
-            <IconButton label="Delete plan" onClick={() => setDeleting(true)}>
+            <IconButton label={settingsText("Delete plan")} onClick={() => setDeleting(true)}>
               <Trash2 size={13} />
             </IconButton>
           </>
@@ -269,19 +270,17 @@ function PlanDetail({ preset }: { preset: PresetSummary }) {
             }
             onClick={() => requestApply(preset)}
           >
-            <UploadCloud size={13} /> Apply plan
-          </Button>
+            <UploadCloud size={13} />{settingsText("Apply plan")}</Button>
           {preset.active_match ? (
             <Badge tone="green">
-              <CheckCircle2 size={11} /> matches the running configuration
-            </Badge>
+              <CheckCircle2 size={11} />{settingsText("matches the running configuration")}</Badge>
           ) : preset.saved_match ? (
-            <Badge tone="blue">matches the saved configuration</Badge>
+            <Badge tone="blue">匹配已保存配置</Badge>
           ) : (
-            <Badge tone="gray">the running configuration has diverged</Badge>
+            <Badge tone="gray">运行配置已发生变化</Badge>
           )}
           {blocker !== null && !preset.active_match && (
-            <span className="text-[11px] text-warning">{blocker}</span>
+            <span className="text-[11px] text-warning">{settingsText(blocker)}</span>
           )}
         </div>
         <div className="mt-3 border-t border-line pt-3 text-[11px] text-fg-faint">
@@ -292,8 +291,8 @@ function PlanDetail({ preset }: { preset: PresetSummary }) {
 
       {issues.length > 0 && (
         <SectionCard
-          title="Dependency issues"
-          description="The backend reports missing targets this plan references. Plans are never auto-repaired; fix the target and the plan applies."
+          title={settingsText("Dependency issues")}
+          description={settingsText("The backend reports missing targets this plan references. Plans are never auto-repaired; fix the target and the plan applies.")}
         >
           <div className="space-y-1.5">
             {issues.map((issue, index) => {
@@ -329,8 +328,8 @@ function PlanDetail({ preset }: { preset: PresetSummary }) {
       )}
 
       <SectionCard
-        title="Managed scope"
-        description="Fixed by the backend; a capture always covers these whole groups — the frontend does not pick individual fields."
+        title={settingsText("Managed scope")}
+        description={settingsText("Fixed by the backend; a capture always covers these whole groups — the frontend does not pick individual fields.")}
       >
         <div className="space-y-2">
           {presetScopes(preset).map((scope) => (
@@ -342,43 +341,30 @@ function PlanDetail({ preset }: { preset: PresetSummary }) {
             </div>
           ))}
           {!preset.included_scopes.includes("budgets") && (
-            <div className="text-[11px] text-fg-faint">
-              Budgets are not part of this plan — applying it leaves the
-              current budgets untouched.
-            </div>
+            <div className="text-[11px] text-fg-faint">{settingsText("Budgets are not part of this plan — applying it leaves the current budgets untouched.")}</div>
           )}
           <div className="border-t border-line pt-2 text-[11px] leading-4 text-fg-faint">
-            {PRESET_EXCLUDED_NOTE}
+            {settingsText(PRESET_EXCLUDED_NOTE)}
           </div>
         </div>
       </SectionCard>
 
       <SectionCard
-        title="Difference from the running configuration"
-        description="Leaf-level comparison of the stored snapshot against the running values, restricted to the managed scope."
+        title={settingsText("Difference from the running configuration")}
+        description={settingsText("Leaf-level comparison of the stored snapshot against the running values, restricted to the managed scope.")}
       >
         {detailError !== null ? (
-          <div className="text-[12px] text-danger">
-            The stored snapshot could not be read: {detailError}
+          <div className="text-[12px] text-danger">{settingsText("The stored snapshot could not be read:")}{detailError}
           </div>
         ) : detail === null ? (
-          <div className="text-[12px] text-fg-muted">Loading the stored snapshot…</div>
+          <div className="text-[12px] text-fg-muted">{settingsText("Loading the stored snapshot…")}</div>
         ) : snapshot === null ? (
-          <div className="text-[12px] text-fg-muted">
-            The stored snapshot could not be decoded; the match badges above
-            still come from the backend.
-          </div>
+          <div className="text-[12px] text-fg-muted">{settingsText("The stored snapshot could not be decoded; the match badges above still come from the backend.")}</div>
         ) : preset.active_match ? (
           <div className="flex items-center gap-1.5 text-[12px] text-success">
-            <CheckCircle2 size={13} /> The plan matches the running
-            configuration.
-          </div>
+            <CheckCircle2 size={13} />{settingsText("The plan matches the running configuration.")}</div>
         ) : diff.length === 0 ? (
-          <div className="text-[12px] text-fg-muted">
-            No managed value differs, but the plan's budgets or retrieval
-            channels are outside this comparison — check the stored snapshot
-            below.
-          </div>
+          <div className="text-[12px] text-fg-muted">{settingsText("No managed value differs, but the plan's budgets or retrieval channels are outside this comparison — check the stored snapshot below.")}</div>
         ) : (
           <DiffTable rows={diff} />
         )}
@@ -389,8 +375,8 @@ function PlanDetail({ preset }: { preset: PresetSummary }) {
 
       {detail !== null && (
         <Collapsible
-          title="Stored snapshot"
-          meta={<Badge tone="gray">read model — never an apply body</Badge>}
+          title={settingsText("Stored snapshot")}
+          meta={<Badge tone="gray">只读快照，不作为应用请求</Badge>}
         >
           <JsonTree value={detail.snapshot} defaultExpanded={false} />
         </Collapsible>
@@ -419,9 +405,7 @@ function SnapshotExtras({ snapshot }: { snapshot: PresetSnapshotView }) {
   if (budgets.length === 0) return null;
   return (
     <div className="mt-3 border-t border-line pt-2.5">
-      <div className="mb-1 text-[11px] font-semibold tracking-wide text-fg-muted uppercase">
-        Key budgets in this plan
-      </div>
+      <div className="mb-1 text-[11px] font-semibold tracking-wide text-fg-muted uppercase">{settingsText("Key budgets in this plan")}</div>
       <div className="flex flex-wrap gap-x-4 gap-y-1">
         {budgets.map((row) => (
           <span key={row.path} className="font-mono text-[11px] text-fg-muted">
@@ -461,7 +445,7 @@ function DiffTable({ rows }: { rows: SnapshotDiffRow[] }) {
                 </span>
               )}
               {row.kind === "default" && (
-                <span className="text-[11px] text-fg-faint">resets to the owner default</span>
+                <span className="text-[11px] text-fg-faint">恢复为 owner 默认值</span>
               )}
             </div>
           );
@@ -553,9 +537,7 @@ function CaptureDialog({
       <div className="flex flex-col gap-3">
         {creating && (
           <>
-            <label className="flex flex-col gap-1 text-[12px] text-fg-muted">
-              Name
-              <input
+            <label className="flex flex-col gap-1 text-[12px] text-fg-muted">{settingsText("Name")}<input
                 type="text"
                 autoFocus
                 className="h-8 rounded-md border border-line bg-bg px-2 text-[12.5px] text-fg outline-none focus:border-accent"
@@ -564,8 +546,7 @@ function CaptureDialog({
                 onChange={(event) => setName(event.target.value)}
               />
             </label>
-            <label className="flex flex-col gap-1 text-[12px] text-fg-muted">
-              Description <span className="text-fg-faint">(optional)</span>
+            <label className="flex flex-col gap-1 text-[12px] text-fg-muted">{settingsText("Description")}<span className="text-fg-faint">{settingsText("(optional)")}</span>
               <input
                 type="text"
                 className="h-8 rounded-md border border-line bg-bg px-2 text-[12.5px] text-fg outline-none focus:border-accent"
@@ -576,7 +557,7 @@ function CaptureDialog({
           </>
         )}
 
-        <div className="text-[12px] font-medium text-fg">Capture from</div>
+        <div className="text-[12px] font-medium text-fg">捕获来源</div>
         <div className="flex flex-col gap-1.5">
           {SOURCE_OPTIONS.map((option) => {
             const disabled = option.id === "draft" && draftCount === 0;
@@ -597,13 +578,13 @@ function CaptureDialog({
                 />
                 <span>
                   <span className="font-medium text-fg">
-                    {option.title}
-                    {option.id === "draft" && ` (${draftCount} change${draftCount === 1 ? "" : "s"})`}
+                    {settingsText(option.title)}
+                    {option.id === "draft" && `（${draftCount} 项修改）`}
                   </span>
                   <span className="mt-0.5 block leading-4 text-fg-muted">
-                    {disabled
+                    {settingsText(disabled
                       ? "No local changes to capture. Edit settings first, or pick another source."
-                      : option.hint}
+                      : option.hint)}
                   </span>
                 </span>
               </label>
@@ -617,17 +598,11 @@ function CaptureDialog({
             className="accent-accent"
             checked={includeBudgets}
             onChange={(event) => setIncludeBudgets(event.target.checked)}
-          />
-          Include budgets
-          <span className="text-fg-faint">
-            (cycle limits and context/session/retrieval budgets)
-          </span>
+          />{settingsText("Include budgets")}<span className="text-fg-faint">{settingsText("(cycle limits and context/session/retrieval budgets)")}</span>
         </label>
 
         <div className="mt-1 flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            Cancel
-          </Button>
+          <Button variant="ghost" size="sm" onClick={onClose}>{settingsText("Cancel")}</Button>
           <Button
             variant="primary"
             size="sm"
@@ -635,7 +610,7 @@ function CaptureDialog({
             loading={busy}
             onClick={() => void submit()}
           >
-            {creating ? "Capture plan" : "Overwrite snapshot"}
+            {settingsText(creating ? "Capture plan" : "Overwrite snapshot")}
           </Button>
         </div>
       </div>
@@ -659,9 +634,7 @@ function RenameDialog({
   return (
     <Modal title={`Rename — ${preset.name}`} onClose={onClose}>
       <div className="flex flex-col gap-3">
-        <label className="flex flex-col gap-1 text-[12px] text-fg-muted">
-          Name
-          <input
+        <label className="flex flex-col gap-1 text-[12px] text-fg-muted">{settingsText("Name")}<input
             type="text"
             autoFocus
             className="h-8 rounded-md border border-line bg-bg px-2 text-[12.5px] text-fg outline-none focus:border-accent"
@@ -669,8 +642,7 @@ function RenameDialog({
             onChange={(event) => setName(event.target.value)}
           />
         </label>
-        <label className="flex flex-col gap-1 text-[12px] text-fg-muted">
-          Description <span className="text-fg-faint">(optional)</span>
+        <label className="flex flex-col gap-1 text-[12px] text-fg-muted">{settingsText("Description")}<span className="text-fg-faint">{settingsText("(optional)")}</span>
           <input
             type="text"
             className="h-8 rounded-md border border-line bg-bg px-2 text-[12.5px] text-fg outline-none focus:border-accent"
@@ -678,13 +650,9 @@ function RenameDialog({
             onChange={(event) => setDescription(event.target.value)}
           />
         </label>
-        <div className="text-[11px] leading-4 text-fg-faint">
-          Renaming never re-captures: the stored snapshot stays as it is.
-        </div>
+        <div className="text-[11px] leading-4 text-fg-faint">{settingsText("Renaming never re-captures: the stored snapshot stays as it is.")}</div>
         <div className="mt-1 flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            Cancel
-          </Button>
+          <Button variant="ghost" size="sm" onClick={onClose}>{settingsText("Cancel")}</Button>
           <Button
             variant="primary"
             size="sm"
@@ -700,9 +668,7 @@ function RenameDialog({
                 },
               );
             }}
-          >
-            Save
-          </Button>
+          >{settingsText("Save")}</Button>
         </div>
       </div>
     </Modal>
@@ -726,9 +692,7 @@ function DeleteDialog({
         record — the running and saved configuration stay unchanged.
       </div>
       <div className="mt-4 flex justify-end gap-2">
-        <Button variant="ghost" size="sm" onClick={onClose}>
-          Cancel
-        </Button>
+        <Button variant="ghost" size="sm" onClick={onClose}>{settingsText("Cancel")}</Button>
         <Button
           variant="danger"
           size="sm"
@@ -742,9 +706,7 @@ function DeleteDialog({
               if (ok) onClose();
             });
           }}
-        >
-          Delete plan
-        </Button>
+        >{settingsText("Delete plan")}</Button>
       </div>
     </Modal>
   );

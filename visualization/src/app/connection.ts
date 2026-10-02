@@ -21,6 +21,7 @@ import { createV2Clients } from "../api/v2/clients";
 import type { EventsSocket, EventsWebSocketFactory } from "../api/v2/clients";
 import { handshakeFromStatus, parseEndpointAddress } from "../api/v2/connection";
 import { V2Transport } from "../api/v2/transport";
+import { turnIdOfObservation } from "../api/v2/types";
 import type { ObservationEvent, RuntimeStatus } from "../api/v2/types";
 import { useAppStore } from "../store/appStore";
 import { useConnectionStore } from "../store/connectionStore";
@@ -326,7 +327,7 @@ function openStream(epoch: number): void {
   connection.setEventsPhase("connecting");
   const cursor = connection.eventCursor;
   socket = clients.events.stream(
-    { after: cursor, mode: "verbose", instanceId: info.instanceId },
+    { after: cursor, mode: "model", instanceId: info.instanceId },
     {
       onAuthenticated: (frame) => {
         const current = useConnectionStore.getState();
@@ -449,7 +450,7 @@ function routeEvent(epoch: number, event: ObservationEvent): void {
 
   // Route to presentation layer for current turn activity
   const currentTurnId = useTurnStore.getState().turnId;
-  if (currentTurnId && event.turn_id === currentTurnId) {
+  if (currentTurnId && turnIdOfObservation(event) === currentTurnId) {
     // Add event to activity buffer for live presentation
     presentationStore.getState().addEvent(event);
   }

@@ -3,30 +3,20 @@
  *
  * Renders the owner projection from turnStore: formal interactions in owner
  * order, then accepted-but-uninstalled pending items and local outgoing
- * echoes, the waiting question/budget cards and the Session take-over
- * notice. With no displayed turn it offers the day's committed
- * conversations.
+ * echoes and the waiting question/budget cards. Completed conversations
+ * remain visible above the active Turn in the same current-day stream.
  *
- * Scrolling is anchored to the bottom: while pinned the view follows new
- * content (including the streaming answer's growth); scrolling up unpins and
- * a compact "new content / question waiting" entry appears instead of the
- * view being stolen. Content already present when a projection lands renders
+ * The newest Turn anchors near the top; long streaming answers follow their
+ * growing content. Manual scrolling takes control until the user chooses
+ * the compact "new content / question waiting" entry. Existing content renders
  * instantly — only genuinely fresh rows animate, so a window recovery or a
  * Session take-over never replays history.
  */
 
-import {
-  useEffect,
-  useRef,
-  useState,
-  type ReactElement,
-  type UIEvent,
-} from "react";
-import { motion, useReducedMotion } from "motion/react";
+import { useRef } from "react";
 import {
   AlertTriangle,
   ArrowDown,
-  Bot,
   Check,
   Clock,
   History,
@@ -41,7 +31,7 @@ import {
 import type {
   Interaction,
   PendingItem,
-  TurnQuestion,
+  SessionTurnSummary,
   TurnResult,
 } from "../../api/v2/types";
 import {
@@ -49,13 +39,16 @@ import {
   selectActiveTurnId,
   useConnectionStore,
 } from "../../store/connectionStore";
-import { useTurnStore, type OutgoingEcho } from "../../store/turnStore";
+import {
+  useTurnStore,
+  type OutgoingEcho,
+  type SessionTurnProjection,
+} from "../../store/turnStore";
 import {
   cancelActiveTurn,
   cancelQueuedTurn,
   dismissEcho,
   grantBudget,
-  openSessionTurn,
   retryEcho,
   retryTakeover,
   sendEchoAsNewTurn,
@@ -66,137 +59,99 @@ import {
   openSessionMap,
 } from "../history/entries";
 import { openTurnProcess } from "../trace/entries";
-import { ActionGlimpse } from "../trace/ActionGlimpse";
 import { selectPendingQuestion } from "../../store/turnStore";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
-import { Badge } from "../../components/ui/Badge";
-import { Markdown } from "../../components/markdown/Markdown";
-import type { MarkdownOrigin } from "../../components/markdown/codeBlockRegistry";
 import { conversationOrigin } from "../../components/markdown/origin";
-import { useTypewriter } from "../../hooks/useTypewriter";
-import { EASE_CALM, SETTLE_WIPE_MS } from "../../utils/motion";
 import { Composer } from "./Composer";
-import { QuestionCard } from "./QuestionCard";
+import { AgentRow, InteractionRow, TurnFooter, WaitingQuestionCard } from "./ConversationRows";
 import { registerQuestionBlock } from "./questionBlock";
 import { LiveStatus } from "./LiveStatus";
 import { useTurnPresentation } from "./useTurnPresentation";
+import { useConversationScroll } from "./useConversationScroll";
+import { useActivityDetails } from "./useActivityDetails";
 
 // The chat feature's assembly: the question fence protocol joins the
 // CodeBlockRegistry (plan §21.1 explicit composition).
 registerQuestionBlock();
 
-const FOLLOW_THRESHOLD_PX = 80;
-
 type ChatViewMode = "live" | "history";
 
 export function ChatView() {
-  const turnId = useTurnStore((s) => s.turnId);
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1">
-        {turnId === null ? <DayEntryList /> : <ConversationView />}
-      </div>
+      <div className="min-h-0 flex-1"><ConversationView /></div>
       <Composer />
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// No displayed turn: the day's committed conversations and the start hint.
-// ---------------------------------------------------------------------------
+function CommittedTurnBlock({
+  epoch,
+  summary,
+  projection,
+  activeDay,
+  showDayDivider = false,
+}: {
+  epoch: number;
+  summary: SessionTurnSummary;
+  projection: SessionTurnProjection | undefined;
+  activeDay: string | null;
+  showDayDivider?: boolean;
+}) {
+  const items = projection?.items ?? [];
+  const origin = conversationOrigin({
+    view: "history",
+    day: summary.day,
+    turnId: summary.turn_id,
+    activeDay,
+  });
 
-function DayEntryList() {
-  const epoch = useConnectionStore((s) => s.epoch);
-  const sessionTurns = useTurnStore((s) => s.sessionTurns);
-  const loading = useTurnStore((s) => s.sessionTurnsLoading);
-
-  if (loading && sessionTurns === null) {
-    return (
-      <EmptyState
-        icon={<Loader2 size={26} className="animate-spin-slow" />}
-        title="Loading today's conversations…"
-      />
-    );
-  }
-  if (sessionTurns === null || sessionTurns.length === 0) {
-    return (
-      <EmptyState
-        icon={<MessageSquareText size={28} />}
-        title="Start a conversation"
-        description="Send a message below. Replies, questions and budget requests appear here as the owner projections report them."
-        action={
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => openHistoryBrowser(epoch)}
-          >
-            <History size={13} />
-            Browse earlier days
-          </Button>
-        }
-      />
-    );
-  }
   return (
-    <div className="mx-auto h-full max-w-3xl overflow-y-auto px-4 py-6">
-      <div className="mb-3 flex items-center gap-1.5 text-[12px] font-medium text-fg-muted">
-        <History size={13} />
-        <span className="min-w-0 flex-1">Today's conversations</span>
-        <Button
-          variant="ghost"
-          size="xs"
-          onClick={() => openHistoryBrowser(epoch)}
-        >
-          Earlier days
-        </Button>
-      </div>
-      <div className="space-y-2">
-        {sessionTurns.map((turn) => (
-          <button
-            key={turn.turn_id}
-            onClick={() => void openSessionTurn(epoch, turn.turn_id, turn.day)}
-            className="block w-full rounded-xl border border-line bg-bg-elev px-4 py-3 text-left transition-colors hover:border-line-strong hover:bg-hover"
-          >
-            <div className="flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
-                {turn.initial_input_excerpt || "(no input)"}
-              </span>
-              <Badge tone={turn.status === "answered" ? "green" : "gray"}>
-                {turn.status}
-              </Badge>
-            </div>
-            {turn.output_excerpt && (
-              <div className="mt-1 line-clamp-2 text-[12px] leading-5 text-fg-faint">
-                {turn.output_excerpt}
-              </div>
-            )}
-            <div className="mt-1 text-[11px] text-fg-faint">
-              {turn.day}
-              {turn.question_count > 0 &&
-                ` · ${turn.question_count} question${turn.question_count > 1 ? "s" : ""}`}
-            </div>
-          </button>
+    <section data-turn-root={summary.turn_id} data-turn-id={summary.turn_id} className="space-y-3">
+      {showDayDivider && (
+        <div className="flex items-center gap-2 px-1 text-[11px] text-fg-faint">
+          <span className="h-px flex-1 bg-line" />
+          <span>{summary.day}</span>
+          <span className="h-px flex-1 bg-line" />
+        </div>
+      )}
+      {projection?.unavailable ? (
+        <div className="rounded-xl border border-warning/30 bg-warning-soft px-4 py-3 text-[12px] text-warning">
+          This conversation is currently unavailable. The Session summary is still retained.
+        </div>
+      ) : projection === undefined || projection.loading ? (
+        <div className="rounded-xl border border-line bg-bg-elev px-4 py-3 text-[12px] text-fg-faint">
+          Loading conversation…
+        </div>
+      ) : items.length === 0 ? (
+        <div className="rounded-xl border border-line bg-bg-elev px-4 py-3 text-[12px] text-fg-faint">
+          {summary.initial_input_excerpt || "Empty conversation"}
+        </div>
+      ) : (
+        items.filter((item) => item.role === "user.input").map((item) => (
+          <InteractionRow
+            key={item.id}
+            item={item}
+            fresh={false}
+            view="history"
+            origin={origin}
+            turnId={summary.turn_id}
+          />
+        ))
+      )}
+      <AgentRow>
+        {items.filter((item) => item.role !== "user.input" && item.role !== "agent.action").map((item) => (
+          <InteractionRow key={item.id} item={item} fresh={false} view="history" origin={origin} turnId={summary.turn_id} nested />
         ))}
-      </div>
-      <div className="pt-3">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => openHistoryBrowser(epoch)}
-        >
-          <History size={13} />
-          Browse earlier days
-        </Button>
-      </div>
-    </div>
+        {projection?.result && <ResultSummary result={projection.result} />}
+        <TurnFooter epoch={epoch} turnId={summary.turn_id} day={summary.day} status={summary.status} items={items} />
+      </AgentRow>
+    </section>
   );
 }
 
-// ---------------------------------------------------------------------------
-// The displayed turn: formal projection + pending items + outgoing echoes.
-// ---------------------------------------------------------------------------
-
+// One persistent scroll container for the active day and explicit history reads.
 function ConversationView() {
   const epoch = useConnectionStore((s) => s.epoch);
   const items = useTurnStore((s) => s.items);
@@ -204,11 +159,19 @@ function ConversationView() {
   const outgoing = useTurnStore((s) => s.outgoing);
   const loading = useTurnStore((s) => s.loading);
   const historyView = useTurnStore((s) => s.historyView);
-  const source = useTurnStore((s) => s.source);
   const turnId = useTurnStore((s) => s.turnId);
   const day = useTurnStore((s) => s.day);
   const activeDay = useConnectionStore(selectActiveDay);
   const pendingQuestion = useTurnStore(selectPendingQuestion);
+  const sessionTurns = useTurnStore((s) => s.sessionTurns) ?? [];
+  const sessionProjections = useTurnStore((s) => s.sessionProjections);
+  const chronologicalTurns = [...sessionTurns].reverse();
+  const snapshot = useTurnStore((s) => s.snapshot);
+  const sessionLoading = useTurnStore((s) => s.sessionTurnsLoading);
+  const running = !historyView && snapshot !== null && snapshot.state !== "finished";
+  const latestId = turnId ?? chronologicalTurns[chronologicalTurns.length - 1]?.turn_id ?? null;
+  const scroll = useConversationScroll(latestId, running, loading || sessionLoading);
+  const { scrollRef, contentRef, pinned, jumpToLatest } = scroll;
 
   const view: ChatViewMode = historyView ? "history" : "live";
   // The shared conversation origin (plan §7): archived-day content binds its
@@ -219,100 +182,24 @@ function ConversationView() {
   // lands are restored content — they render instantly. Rows arriving after
   // that are fresh and animate in. A Session take-over (source change)
   // re-baselines: the same conversation under new identities never replays.
-  const viewKey = `${turnId ?? ""}:${source ?? ""}`;
+  const viewKey = turnId ?? "";
   const baselineRef = useRef<{ key: string; ids: Set<string> | null } | null>(
     null,
   );
   if (baselineRef.current === null || baselineRef.current.key !== viewKey) {
     baselineRef.current = {
       key: viewKey,
-      ids: loading ? null : new Set(items.map((item) => item.id)),
+      ids: loading ? null : new Set(items.map((item) => interactionKey(item, items))),
     };
   } else if (baselineRef.current.ids === null && !loading) {
     baselineRef.current = {
       key: viewKey,
-      ids: new Set(items.map((item) => item.id)),
+      ids: new Set(items.map((item) => interactionKey(item, items))),
     };
   }
   const baseline = baselineRef.current.ids;
   const isFresh = (item: Interaction) =>
-    baseline !== null && !baseline.has(item.id);
-
-  // Same-name ordinal per agent.action row: the k-th same-named interaction
-  // joins the k-th same-named action.call of the event stream (owner
-  // projection and events share the original order).
-  const actionOrdinals = new Map<string, number>();
-  {
-    const counts = new Map<string, number>();
-    for (const item of items) {
-      if (item.role !== "agent.action") continue;
-      const name = typeof item.action === "string" ? item.action : "";
-      const ordinal = counts.get(name) ?? 0;
-      counts.set(name, ordinal + 1);
-      actionOrdinals.set(item.id, ordinal);
-    }
-  }
-
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const contentRef = useRef<HTMLDivElement | null>(null);
-  const [pinned, setPinned] = useState(true);
-  const pinnedRef = useRef(true);
-  const [hasNew, setHasNew] = useState(false);
-
-  const setFollowing = (value: boolean) => {
-    pinnedRef.current = value;
-    setPinned(value);
-  };
-
-  const jumpToLatest = () => {
-    const node = scrollRef.current;
-    if (node) node.scrollTop = node.scrollHeight;
-    setFollowing(true);
-    setHasNew(false);
-  };
-
-  // A different turn restarts the follow-from-bottom posture.
-  const turnKey = turnId ?? "";
-  useEffect(() => {
-    setFollowing(true);
-    setHasNew(false);
-  }, [turnKey]);
-
-  // Follow-bottom: while pinned, arriving content keeps the view at the
-  // bottom; unpinned, it raises the jump-back entry instead of stealing the
-  // reading position.
-  useEffect(() => {
-    const node = scrollRef.current;
-    if (pinnedRef.current) {
-      if (node) node.scrollTop = node.scrollHeight;
-      setHasNew(false);
-    } else {
-      setHasNew(true);
-    }
-  }, [items, pendingItems, outgoing, pendingQuestion]);
-
-  // The typewriter's growth does not change the projection lists; a
-  // ResizeObserver keeps the follow anchored through it. jsdom (tests) has
-  // no ResizeObserver and relies on the list-driven follow above.
-  useEffect(() => {
-    const node = scrollRef.current;
-    const content = contentRef.current;
-    if (!node || !content || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => {
-      if (pinnedRef.current) node.scrollTop = node.scrollHeight;
-    });
-    observer.observe(content);
-    return () => observer.disconnect();
-  }, []);
-
-  const onScroll = (event: UIEvent<HTMLDivElement>) => {
-    const node = event.currentTarget;
-    const atBottom =
-      node.scrollHeight - node.scrollTop - node.clientHeight <
-      FOLLOW_THRESHOLD_PX;
-    setFollowing(atBottom);
-    if (atBottom) setHasNew(false);
-  };
+    baseline !== null && !baseline.has(interactionKey(item, items));
 
   return (
     <div className="relative flex h-full min-h-0 flex-col">
@@ -321,59 +208,57 @@ function ConversationView() {
       <ReadErrorNotice />
       <div
         ref={scrollRef}
-        onScroll={onScroll}
-        onWheel={(e) => {
-          if (e.deltaY < 0) setFollowing(false);
-        }}
+        onScroll={scroll.onScroll}
+        onWheel={scroll.onWheel}
+        onTouchStart={scroll.onTouchStart}
         className="chat-grid min-h-0 flex-1 overflow-y-auto"
       >
-        <div ref={contentRef} className="mx-auto max-w-3xl space-y-4 px-4 py-6">
-          {loading && items.length === 0 ? (
-            <div className="flex min-h-[60vh] items-center justify-center">
-              <EmptyState
-                icon={<Loader2 size={26} className="animate-spin-slow" />}
-                title="Loading the conversation…"
-              />
-            </div>
-          ) : (
-            <>
-              {items.map((item) => (
-                <InteractionRow
-                  key={item.id}
-                  item={item}
-                  fresh={isFresh(item)}
-                  view={view}
-                  origin={origin}
-                  epoch={epoch}
-                  turnId={turnId}
-                  day={day}
-                  actionOrdinal={actionOrdinals.get(item.id) ?? 0}
-                />
-              ))}
-              {pendingItems.map((item) => (
-                <PendingRow key={item.record_id} item={item} />
-              ))}
-              {outgoing.map((echo) => (
-                <EchoRow key={echo.echoId} echo={echo} />
-              ))}
-            </>
+        <div ref={contentRef} className="mx-auto max-w-3xl space-y-8 px-4 py-6">
+          {!historyView && chronologicalTurns.length > 0 && <div className="flex items-center text-[11px] text-fg-faint">
+            <span className="flex-1">{activeDay}</span>
+            <Button size="xs" variant="ghost" onClick={() => openHistoryBrowser(epoch)}><History size={12} /> Earlier days</Button>
+          </div>}
+          {!historyView && chronologicalTurns.filter((summary) => summary.turn_id !== turnId).map((summary) => (
+            <CommittedTurnBlock key={summary.turn_id} epoch={epoch} summary={summary}
+              projection={sessionProjections[summary.turn_id]} activeDay={activeDay} />
+          ))}
+          {latestId === null && (
+            <EmptyState
+              icon={sessionLoading ? <Loader2 size={26} className="animate-spin-slow" /> : <MessageSquareText size={28} />}
+              title={sessionLoading ? "Loading today's conversations…" : "Start a conversation"}
+              description={sessionLoading ? undefined : "Send a message below. Open a turn’s Details to explore its activity and model calls."}
+              action={<Button variant="outline" size="sm" onClick={() => openHistoryBrowser(epoch)}><History size={13} /> Browse earlier days</Button>}
+            />
           )}
-          {/* Live activity card: observation-event layer for the running turn.
-              Appears after the formal interaction stream so it feels like
-              the agent is actively continuing work below the last settled
-              row. Hidden once the turn settles and has no activity. */}
-          {!historyView && <LiveActivityCard onStop={() => void cancelActiveTurn(epoch)} />}
-
-          {/* The snapshot-driven waiting area stays mounted across the first
-              interaction read: a waiting question is answerable before the
-              pages finish draining (plan §6.2). */}
-          <WaitingQuestionCard />
-          <QueuedRequestRow />
-          <BudgetCard />
-          <TurnResultRow />
+          {turnId !== null && (
+            <section data-turn-root={turnId} className="space-y-4">
+              {loading && items.length === 0 && <div className="text-[12px] text-fg-faint">Loading the conversation…</div>}
+              {/* c479ca0: user bubbles, live card, answer and trace footer.
+                  Questions and replies retain their formal interaction order. */}
+              {items.filter((item) => item.role === "user.input").map((item) => (
+                <InteractionRow key={interactionKey(item, items)} item={item} fresh={isFresh(item)} view={view} origin={origin}
+                  turnId={turnId} />
+              ))}
+              <AgentRow>
+              {!historyView && <LiveActivityCard onStop={() => void cancelActiveTurn(epoch)} />}
+              {items.filter((item) => item.role !== "user.input" && item.role !== "agent.action").map((item) => (
+                <InteractionRow key={interactionKey(item, items)} item={item} fresh={isFresh(item)} view={view} origin={origin}
+                  turnId={turnId} nested />
+              ))}
+              {pendingItems.map((item) => <PendingRow key={item.record_id} item={item} />)}
+              {outgoing.map((echo) => <EchoRow key={echo.echoId} echo={echo} />)}
+              <WaitingQuestionCard />
+              <QueuedRequestRow />
+              <BudgetCard />
+              <TurnResultRow />
+              <CurrentTurnFooter />
+              </AgentRow>
+            </section>
+          )}
+          {latestId !== null && <div data-chat-spacer style={{ height: "85vh" }} />}
         </div>
       </div>
-      {!pinned && hasNew && (
+      {!pinned && (
         <button
           type="button"
           onClick={jumpToLatest}
@@ -387,6 +272,11 @@ function ConversationView() {
       )}
     </div>
   );
+}
+
+/** Session replaces storage refs, not the identity of already displayed interactions. */
+function interactionKey(item: Interaction, items: Interaction[]): string {
+  return `${item.role}:${items.slice(0, items.indexOf(item)).filter((entry) => entry.role === item.role).length}`;
 }
 
 function HistoryBanner() {
@@ -487,278 +377,6 @@ function ReadErrorNotice() {
 // ---------------------------------------------------------------------------
 // Interaction rows
 // ---------------------------------------------------------------------------
-
-function InteractionRow({
-  item,
-  fresh,
-  view,
-  origin,
-  epoch,
-  turnId,
-  day,
-  actionOrdinal,
-}: {
-  item: Interaction;
-  fresh: boolean;
-  view: ChatViewMode;
-  origin: MarkdownOrigin;
-  epoch: number;
-  turnId: string | null;
-  day: string | null;
-  actionOrdinal: number;
-}) {
-  // The answer card runs its own materialization; every other fresh row
-  // fades in once. Restored content renders instantly.
-  const wrapper = (node: ReactElement) =>
-    fresh ? <div className="animate-fade-in">{node}</div> : node;
-  switch (item.role) {
-    case "user.input":
-    case "user.append":
-      return wrapper(<UserBubble text={item.text ?? ""} />);
-    case "user.reply":
-      return wrapper(<UserBubble text={replyDisplayText(item)} label="Reply" />);
-    case "agent.output":
-      return <AgentOutput text={item.text ?? ""} stream={fresh} origin={origin} />;
-    case "agent.reason":
-      return wrapper(<AgentReason text={item.text ?? ""} origin={origin} />);
-    case "agent.question":
-      return wrapper(<QuestionRow item={item} />);
-    case "agent.action":
-      return wrapper(
-        turnId !== null ? (
-          <ActionGlimpse
-            epoch={epoch}
-            item={item}
-            ordinal={actionOrdinal}
-            view={view}
-            turnId={turnId}
-            day={day}
-          />
-        ) : (
-          <div className="px-1 text-[12px] text-fg-faint">
-            {typeof item.action === "string" ? item.action : "action"}
-          </div>
-        ),
-      );
-    default:
-      return wrapper(
-        <div className="px-1 text-[12px] text-fg-faint">
-          [{item.role}] {item.text ?? ""}
-        </div>,
-      );
-  }
-}
-
-function UserBubble({ text, label }: { text: string; label?: string }) {
-  return (
-    <div className="flex justify-end">
-      <div className="max-w-[85%]">
-        {label && (
-          <div className="mb-0.5 text-right text-[10px] tracking-wide text-fg-faint uppercase">
-            {label}
-          </div>
-        )}
-        <div className="bubble-user rounded-2xl rounded-tr-sm px-3.5 py-2.5 text-sm leading-6 break-words whitespace-pre-wrap">
-          {text}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** Canonical reply text is "Label (id)\nDescription\nComment"; prefer the
-    structured answer for a compact bubble. */
-function replyDisplayText(item: Interaction): string {
-  const answer = item.answer;
-  if (
-    typeof answer === "object" &&
-    answer !== null &&
-    (answer as { kind?: unknown }).kind === "choice"
-  ) {
-    const choice = answer as { option_id?: unknown; comment?: unknown };
-    const comment = typeof choice.comment === "string" ? choice.comment : "";
-    const option = typeof choice.option_id === "string" ? choice.option_id : "";
-    return comment ? `${option}\n${comment}` : option || (item.text ?? "");
-  }
-  if (
-    typeof answer === "object" &&
-    answer !== null &&
-    (answer as { kind?: unknown }).kind === "text"
-  ) {
-    const text = (answer as { text?: unknown }).text;
-    if (typeof text === "string") return text;
-  }
-  return item.text ?? "";
-}
-
-function AgentOutput({
-  text,
-  stream,
-  origin,
-}: {
-  text: string;
-  stream: boolean;
-  origin: MarkdownOrigin;
-}) {
-  return (
-    <div className="flex gap-2.5">
-      <div className="bg-accent-grad mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white shadow-brand">
-        <Bot size={15} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <AnswerCard text={text} stream={stream} origin={origin} />
-      </div>
-    </div>
-  );
-}
-
-/**
- * The final answer card (plan §5.1 typewriter/settle, motion constants in
- * utils/motion.ts). A fresh answer materializes as a dark terminal window
- * and types in at a fixed cadence (~150 chars/s, capped at 9s) behind the
- * phosphor caret; when the stream ends the terminal layer wipes away
- * top-to-bottom into the settled document (the .answer-streaming /
- * .answer-settling styles in index.css). Restored answers and reduced
- * motion render instantly in the settled state.
- */
-function AnswerCard({
-  text,
-  stream,
-  origin,
-}: {
-  text: string;
-  stream: boolean;
-  origin: MarkdownOrigin;
-}) {
-  const reduced = useReducedMotion();
-  const streaming = stream && !reduced;
-  const { shown, typing } = useTypewriter(text, {
-    durationMs: Math.min(text.length * 6.5, 9000),
-    active: streaming,
-  });
-  const [settling, setSettling] = useState(false);
-  const wasTyping = useRef(false);
-
-  useEffect(() => {
-    if (typing) {
-      wasTyping.current = true;
-      return;
-    }
-    if (!wasTyping.current) return;
-    wasTyping.current = false;
-    setSettling(true);
-    const timer = window.setTimeout(() => setSettling(false), SETTLE_WIPE_MS);
-    return () => window.clearTimeout(timer);
-  }, [typing]);
-
-  return (
-    <motion.div
-      className={`answer-card rounded-sm border px-6 py-5 ${
-        typing ? "answer-streaming" : settling ? "answer-settling" : ""
-      }`}
-      initial={streaming ? { opacity: 0, y: 8, filter: "blur(3px)" } : false}
-      animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-      transition={{ duration: 0.5, ease: EASE_CALM }}
-    >
-      <Markdown origin={origin}>{shown}</Markdown>
-    </motion.div>
-  );
-}
-
-function AgentReason({ text, origin }: { text: string; origin: MarkdownOrigin }) {
-  if (!text.trim()) return null;
-  return (
-    <div className="flex gap-2.5">
-      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-line text-fg-faint">
-        <Bot size={14} />
-      </div>
-      <div className="thinking-md min-w-0 flex-1 px-1 py-1 text-[13px] leading-6 text-fg-faint italic">
-        <Markdown origin={origin}>{text}</Markdown>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Questions
-// ---------------------------------------------------------------------------
-
-/**
- * The live waiting question of the displayed turn, if it is answerable right
- * now: the snapshot says the turn is waiting on it and no formal reply (or
- * answered flag) has arrived for its question_id yet. The snapshot alone is
- * enough — the card must not wait for the interaction pages to drain
- * (plan §6.2). While this question is live the waiting area owns the single
- * card; the formal interaction row with the same question_id stays hidden so
- * the two projections never produce two submittable forms.
- */
-function useLiveWaitingQuestion(): TurnQuestion | null {
-  const historyView = useTurnStore((s) => s.historyView);
-  const snapshot = useTurnStore((s) => s.snapshot);
-  const items = useTurnStore((s) => s.items);
-  if (historyView || snapshot === null || snapshot.state !== "waiting") {
-    return null;
-  }
-  const question = snapshot.question;
-  if (question === null) return null;
-  const answered = items.some(
-    (item) =>
-      item.question_id === question.question_id &&
-      (item.role === "user.reply" ||
-        (item.role === "agent.question" && item.answered === true)),
-  );
-  return answered ? null : question;
-}
-
-/** The single card of the live waiting question, rendered immediately from
-    the snapshot — before and regardless of the interaction drain progress. */
-function WaitingQuestionCard() {
-  const epoch = useConnectionStore((s) => s.epoch);
-  const turnId = useTurnStore((s) => s.turnId);
-  const question = useLiveWaitingQuestion();
-  if (question === null || turnId === null) return null;
-  return (
-    <QuestionCard
-      key={question.question_id}
-      epoch={epoch}
-      turnId={turnId}
-      item={null}
-      live={question}
-      reply={null}
-    />
-  );
-}
-
-function QuestionRow({ item }: { item: Interaction }) {
-  const epoch = useConnectionStore((s) => s.epoch);
-  const turnId = useTurnStore((s) => s.turnId);
-  const items = useTurnStore((s) => s.items);
-  const liveQuestion = useLiveWaitingQuestion();
-
-  const questionId = typeof item.question_id === "string" ? item.question_id : null;
-  // The waiting area renders the live question's single card; this formal
-  // row joins the flow once the reply (or the lapsed wait) settles it.
-  if (liveQuestion !== null && questionId === liveQuestion.question_id) {
-    return null;
-  }
-  const reply =
-    questionId !== null
-      ? (items.find(
-          (candidate) =>
-            candidate.role === "user.reply" && candidate.question_id === questionId,
-        ) ?? null)
-      : null;
-
-  return (
-    <QuestionCard
-      epoch={epoch}
-      turnId={turnId}
-      item={item}
-      live={null}
-      reply={reply}
-    />
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Pending items, echoes, queued request, budget, result
@@ -927,21 +545,26 @@ function TurnResultRow() {
   return <ResultSummary result={result} />;
 }
 
+function CurrentTurnFooter() {
+  const epoch = useConnectionStore((s) => s.epoch);
+  const turn = useTurnStore();
+  const presentation = useTurnPresentation();
+  if (turn.turnId === null) return null;
+  const status = turn.result?.status ?? turn.sessionTurns?.find((item) => item.turn_id === turn.turnId)?.status ?? null;
+  return <TurnFooter epoch={epoch} turnId={turn.turnId} day={turn.day} status={status} items={turn.items}
+    elapsedMs={status !== null ? presentation?.activity?.timing.elapsedMs : undefined} />;
+}
+
 function ResultSummary({ result }: { result: TurnResult }) {
-  if (result.status === "answered") return null;
   const failure = result.failure;
   const failureText =
     failure !== null && typeof failure === "object" && "message" in failure
       ? String((failure as { message?: unknown }).message ?? "")
       : "";
-  return (
-    <div className="flex items-center gap-2 px-1 text-[12px] text-fg-faint">
-      <Badge tone={result.status === "completed" ? "gray" : "yellow"}>
-        {result.status}
-      </Badge>
-      {failureText && <span className="min-w-0 truncate">{failureText}</span>}
-    </div>
-  );
+  if (!failureText) return null;
+  return <div className="flex items-start gap-2 rounded-xl border border-danger/30 bg-danger-soft px-3.5 py-2.5 text-[13px] text-danger">
+    <AlertTriangle size={15} className="mt-0.5 shrink-0" /><span className="break-words">{failureText}</span>
+  </div>;
 }
 
 // ---------------------------------------------------------------------------
@@ -957,10 +580,8 @@ function ResultSummary({ result }: { result: TurnResult }) {
  * presentation or no activity.
  */
 function LiveActivityCard({ onStop }: { onStop?: () => void }) {
-  const epoch = useConnectionStore((s) => s.epoch);
-  const turnId = useTurnStore((s) => s.turnId);
-  const day = useTurnStore((s) => s.day);
   const presentation = useTurnPresentation();
+  const working = useActivityDetails();
 
   if (!presentation || !presentation.activity) return null;
 
@@ -969,35 +590,12 @@ function LiveActivityCard({ onStop }: { onStop?: () => void }) {
 
   if (!running && !settled) return null;
 
-  const handleOpenTrace = () => {
-    if (turnId && day) {
-      openTurnProcess(epoch, turnId, day);
-    }
-  };
-
   return (
-    <div className="flex gap-2.5">
-      <div className="bg-accent-grad mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white shadow-brand">
-        <Bot size={15} />
-      </div>
-      <div className="min-w-0 flex-1 space-y-2">
         <LiveStatus
-          activity={presentation.activity}
+          activity={{ ...presentation.activity, working }}
           mode={running ? "live" : "settled"}
+          status={presentation.status}
           onStop={running ? onStop : undefined}
         />
-        {turnId && day && (
-          <div className="flex px-1">
-            <button
-              onClick={handleOpenTrace}
-              className="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-fg-faint transition-colors hover:bg-hover hover:text-fg"
-            >
-              <ListTree size={12} />
-              Details
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
   );
 }

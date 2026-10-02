@@ -128,7 +128,7 @@ describe("handshake", () => {
     expect(socket.authFrame()).toEqual({
       token: "test-token",
       after: 52,
-      mode: "verbose",
+      mode: "model",
       instance_id: "instance_1",
     });
     expect(useConnectionStore.getState().eventsPhase).toBe("connecting");

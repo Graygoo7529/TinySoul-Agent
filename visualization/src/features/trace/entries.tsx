@@ -49,7 +49,7 @@ export function openTurnProcess(
 ): void {
   useInspectorStore.getState().open({
     key: `trace:process:${turnId}`,
-    title: "Turn process",
+    title: "Turn Trace",
     subtitle: `Turn ${turnId}`,
     render: () => <ProcessPanel epoch={epoch} turnId={turnId} day={day} />,
   });
@@ -64,7 +64,7 @@ export function pushTurnProcess(
   detailCounter += 1;
   useInspectorStore.getState().push({
     key: `trace:process:${turnId}:${detailCounter}`,
-    title: "Turn process",
+    title: "Turn Trace",
     subtitle: `Turn ${turnId}`,
     render: () => <ProcessPanel epoch={epoch} turnId={turnId} day={day} />,
   });
@@ -113,6 +113,7 @@ export function pushModelCall(
         : target.searchId;
   useInspectorStore.getState().push({
     key: `trace:model:${target.kind}:${id}:${detailCounter}`,
+    adjacent: true,
     title:
       target.kind === "llm"
         ? "Model task"

@@ -7,9 +7,7 @@ import { expect, test, type Page } from "playwright/test";
  * F7-B visual review (plan §24.1): representative pages against the real
  * backend harness (real Agent/owners/HTTP/WS, scripted model — nothing in the
  * frontend or the transport is mocked). Every screenshot lands in
- * docs/review/screenshots/ as a semantic PNG and is guarded against blank
- * captures by a minimum-size assertion; pixel-variance sampling is done
- * afterwards and recorded in docs/review/visual-check.md.
+ * .local-test/visual-review/; screenshots support a human visual check.
  *
  * Runs under visual-review.config.ts only; the guarded chat-flow/codeblocks
  * config ignores this spec.
@@ -20,7 +18,7 @@ const connectionFile = path.resolve(
   here,
   "../../../.local-test/e2e-backend/connection.json",
 );
-const shotsDir = path.resolve(here, "../../docs/review/screenshots");
+const shotsDir = path.resolve(here, "../../.local-test/visual-review");
 
 interface BackendConnection {
   address: string;
@@ -28,7 +26,7 @@ interface BackendConnection {
 }
 
 function backendConnection(): BackendConnection {
-  return JSON.parse(readFileSync(connectionFile, "utf-8")) as BackendConnection;
+  return JSON.parse(readFileSync(process.env.TINYSOUL_E2E_CONNECTION ?? connectionFile, "utf-8")) as BackendConnection;
 }
 
 const BACKEND_WAIT = 30_000;
@@ -53,7 +51,7 @@ async function connect(page: Page): Promise<void> {
   await expect(page.getByText("Start a conversation")).toBeVisible({
     timeout: BACKEND_WAIT,
   });
-  await expect(page.getByTitle("Workspace")).toBeEnabled();
+  await expect(page.getByTitle("Workspace", { exact: true })).toBeEnabled();
 }
 
 test("F7-B 代表性页面视觉核对截图", async ({ page }) => {
@@ -117,17 +115,17 @@ test("F7-B 代表性页面视觉核对截图", async ({ page }) => {
   ).toHaveCount(1, { timeout: BACKEND_WAIT });
   await page.waitForTimeout(2600);
 
-  await page.getByTitle("Switch to dark theme").click();
+  await page.getByTitle("Switch to dark theme", { exact: true }).click();
   await page.waitForTimeout(400);
   await shot(page, "06-chat-conversation-dark");
 
   await page.reload();
-  await expect(page.getByText("Today's conversations")).toBeVisible({
+  await expect(page.locator(".answer-card")).toHaveCount(2, {
     timeout: BACKEND_WAIT,
   });
   await page.waitForTimeout(400);
-  await shot(page, "07-chat-daylist-dark");
-  await page.getByTitle("Switch to light theme").click();
+  await shot(page, "07-chat-continuous-dark");
+  await page.getByTitle("Switch to light theme", { exact: true }).click();
   await page.waitForTimeout(300);
 
   // --- History: day directory + Session map -------------------------------
@@ -153,58 +151,48 @@ test("F7-B 代表性页面视觉核对截图", async ({ page }) => {
   await page.getByRole("button", { name: "Close", exact: true }).click();
 
   // --- Settings ------------------------------------------------------------
-  await page.getByTitle("Settings").click();
-  await expect(page.locator("h1", { hasText: "Configuration status" })).toBeVisible();
+  await page.getByTitle("Settings", { exact: true }).click();
+  await expect(page.locator("h1", { hasText: "配置状态" })).toBeVisible();
   await expect(
-    page.getByText("Running configuration", { exact: true }),
+    page.getByText("运行配置", { exact: true }),
   ).toBeVisible({
     timeout: BACKEND_WAIT,
   });
   await page.waitForTimeout(600);
   await shot(page, "10-settings-overview-light");
 
-  await page.getByRole("button", { name: "LLM Models", exact: true }).click();
-  await expect(page.locator("h1", { hasText: "LLM Models" })).toBeVisible();
+  await page.getByRole("button", { name: "LLM 模型", exact: true }).click();
+  await expect(page.locator("h1", { hasText: "LLM 模型" })).toBeVisible();
   await page.waitForTimeout(900);
   await shot(page, "11-settings-llm-models-light");
 
   await page
-    .getByRole("button", { name: "Actions & Model Uses", exact: true })
+    .getByRole("button", { name: "Actions 与模型用途", exact: true })
     .click();
   await expect(
-    page.locator("h1", { hasText: "Actions & Model Uses" }),
+    page.locator("h1", { hasText: "Actions 与模型用途" }),
   ).toBeVisible();
   await page.waitForTimeout(900);
   await shot(page, "12-settings-actions-light");
 
-  await page.getByRole("button", { name: "Run plans", exact: true }).click();
-  await expect(page.locator("h1", { hasText: "Run plans" })).toBeVisible();
+  await page.getByRole("button", { name: "运行方案", exact: true }).click();
+  await expect(page.locator("h1", { hasText: "运行方案" })).toBeVisible();
   await page.waitForTimeout(900);
   await shot(page, "13-settings-plans-light");
 
   // --- Home ----------------------------------------------------------------
-  await page.getByTitle("Home").click();
+  await page.getByTitle("Home", { exact: true }).click();
   await expect(page.getByText("What the next run uses")).toBeVisible();
+  await page.getByRole("button", { name: "Actual", exact: true }).click();
   const homeEntry = page.locator('main button[title^="home:"]').first();
   await expect(homeEntry).toBeVisible({ timeout: BACKEND_WAIT });
-  // The first top-content row currently fails to read (AgentHomeInvariantError
-  // on home:agent@AGENT) — capture the honest error state as issue evidence.
   await homeEntry.click();
-  await expect(page.getByText("The document could not be read")).toBeVisible({
-    timeout: BACKEND_WAIT,
-  });
-  await page.waitForTimeout(400);
-  await shot(page, "14a-home-unreadable-top-doc-light");
-  // A readable document for the directory + body review.
-  await page.locator('main button[title="home:agent@context/background"]').click();
-  await expect(page.getByText("Background Context").first()).toBeVisible({
-    timeout: BACKEND_WAIT,
-  });
+  await expect(page.getByText("The document could not be read")).toHaveCount(0);
   await page.waitForTimeout(600);
-  await shot(page, "14b-home-effective-light");
+  await shot(page, "14-home-actual-light");
 
   // --- Memory ---------------------------------------------------------------
-  await page.getByTitle("Memory").click();
+  await page.getByTitle("Memory", { exact: true }).click();
   await expect(
     page.getByText("What the agent is recording this day", { exact: true }),
   ).toBeVisible();
@@ -222,12 +210,12 @@ test("F7-B 代表性页面视觉核对截图", async ({ page }) => {
   await shot(page, "16-memory-knowledge-light");
 
   // --- Workspace -------------------------------------------------------------
-  await page.getByTitle("Workspace").click();
+  await page.getByTitle("Workspace", { exact: true }).click();
   await page.waitForTimeout(1500);
   await shot(page, "17-workspace-light");
 
   // --- Runtime observation -----------------------------------------------------
-  await page.getByTitle("Runtime").click();
+  await page.getByTitle("Runtime", { exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Execution", exact: true }),
   ).toBeVisible();
@@ -244,21 +232,17 @@ test("F7-B 代表性页面视觉核对截图", async ({ page }) => {
 
   // --- Narrow window (~800px) ----------------------------------------------------
   await page.setViewportSize({ width: 800, height: 900 });
-  await page.getByTitle("Chat").click();
-  await expect(page.getByText("Today's conversations")).toBeVisible();
-  await page.locator("button", { hasText: plainText }).click();
-  await expect(page.getByText("Read-only history")).toBeVisible({
-    timeout: BACKEND_WAIT,
-  });
+  await page.getByTitle("Chat", { exact: true }).click();
+  await expect(page.locator(".answer-card")).toHaveCount(2, { timeout: BACKEND_WAIT });
   await page.waitForTimeout(600);
   await shot(page, "21-chat-narrow-800-light");
 
-  await page.getByTitle("Settings").click();
+  await page.getByTitle("Settings", { exact: true }).click();
   await page
-    .getByRole("button", { name: "Configuration status", exact: true })
+    .getByRole("button", { name: "配置状态", exact: true })
     .click();
   await expect(
-    page.locator("h1", { hasText: "Configuration status" }),
+    page.locator("h1", { hasText: "配置状态" }),
   ).toBeVisible();
   await page.waitForTimeout(800);
   await shot(page, "22-settings-narrow-800-light");

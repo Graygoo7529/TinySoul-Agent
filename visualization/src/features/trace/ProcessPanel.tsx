@@ -1,16 +1,26 @@
 /**
  * Whole-Turn process view (plan §9): Turn → Cycle → Phase → Action, with the
  * phase-level model decisions and the searches/model calls each action
- * owned. Built from one directed verbose read pinned at open time. Events
+ * owned. Built from a directed model read, refreshed while the Turn is active. Events
  * are the process detail — formal state stays with the owner projections,
  * which this panel links to instead of re-deriving.
  */
 
-import type { ReactElement } from "react";
-import { ChevronRight, Wrench } from "lucide-react";
+import { useState, type ReactElement, type ReactNode } from "react";
+import { Brain, ChevronRight, Wrench, Download } from "lucide-react";
+import { selectActiveTurnId, useConnectionStore } from "../../store/connectionStore";
+import { useThrottledValue } from "../../hooks/useThrottledValue";
+import { downloadJson } from "../../utils/download";
+import { workingFromMessages } from "../chat/useActivityDetails";
+import { WorkingZone } from "../chat/LiveStatus";
+import { SectionCard } from "../../components/ui/Card";
+import { asString, asStringArray, type PhaseProcess } from "./facts";
+import { Markdown } from "../../components/markdown/Markdown";
 
 import { Badge, type BadgeTone } from "../../components/ui/Badge";
 import { Collapsible } from "../../components/ui/Collapsible";
+import { ActivityStep as ActivityStepComponent } from "../chat/ActivityStep";
+import { ActivityBuffer } from "../chat/activityBuffer";
 import {
   actionTraceStatus,
   buildTurnProcess,
@@ -37,22 +47,30 @@ export function ProcessPanel({
   turnId: string;
   day: string | null;
 }): ReactElement {
+  const activeTurnId = useConnectionStore(selectActiveTurnId);
+  const cursor = useConnectionStore((state) => state.eventCursor);
+  const revision = useThrottledValue(activeTurnId === turnId ? cursor : 0, 1200);
   const read = useAsyncRead(
     async (signal) => {
       const window = await readEventWindow(
         traceClients(epoch),
-        { mode: "verbose", turn_id: turnId },
+        { mode: "model", turn_id: turnId },
         { signal },
       );
-      return { window, process: buildTurnProcess(window.events) };
+      const snapshot = await traceClients(epoch).turns.get(turnId, { signal }).catch(() => null);
+      return { turnId, window, snapshot, process: buildTurnProcess(window.events) };
     },
-    [epoch, turnId],
+    [epoch, turnId, revision],
+    true,
   );
 
   const status = AsyncStatus({ state: read });
   if (status !== null) return status;
-  if (read.kind !== "ready") return <></>;
-  const { window, process } = read.value;
+  if (read.kind !== "ready" || read.value.turnId !== turnId) return <></>;
+  const { window, process, snapshot } = read.value;
+  const lastRequest = [...window.events].reverse().find((event) => event.name === "llm.model.request");
+  const working = workingFromMessages((Array.isArray(lastRequest?.payload.messages) ? lastRequest.payload.messages : [])
+    .map((message, message_index) => ({ message, message_index })));
   const empty =
     process.cycles.length === 0 &&
     process.unscopedActions.length === 0 &&
@@ -62,24 +80,73 @@ export function ProcessPanel({
   return (
     <div className="space-y-3">
       {window.truncated && <TruncationNotice />}
-      <div className="text-[11px] text-fg-faint">
-        The retained observation of this Turn — the formal record stays with
-        the conversation and owner projections.
+      <div className="flex items-center justify-between gap-2 text-[11px] text-fg-faint">
+        <span>{snapshot?.state ?? "Captured trace"}{activeTurnId === turnId && <span className="ml-2 animate-pulse-dot text-accent">live</span>}</span>
+        <button className="inline-flex items-center gap-1 text-accent hover:underline" onClick={() => downloadJson(`trace-${turnId}.json`, { turn_id: turnId, day, ...window })}>
+          <Download size={12} /> Export trace…
+        </button>
       </div>
       {empty ? (
         <MissingRecord what={`Process records of turn ${turnId}`} />
       ) : (
         <>
           <OverviewCard process={process} />
+          {(working.todos.length > 0 || working.milestones.length > 0) && <SectionCard title="Working Context" description="Captured before the last recorded model task.">
+            <WorkingZone working={working} />
+          </SectionCard>}
           <ProcessTree
             epoch={epoch}
             turnId={turnId}
             day={day}
             process={process}
           />
+          {(snapshot?.jobs.length ?? 0) > 0 && <Collapsible title="Jobs" defaultOpen>
+            {snapshot?.jobs.map((job) => <button key={job.job_id} className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[12px] hover:bg-hover"
+              onClick={() => makeTraceNavigation(epoch, turnId, day).openJob(job.job_id)}>
+              <span className="flex-1 truncate">{job.summary || job.kind}</span><Badge>{job.state}</Badge>
+            </button>)}
+          </Collapsible>}
+          <ActivityTimeline events={window.events} turnId={turnId} />
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * The baseline trace exposed the same semantic activity trail as the live
+ * card, with animation disabled for a retained turn. Reuse the observation
+ * adapter here so historical trace reads keep the familiar thinking/action
+ * language without inventing a second event interpretation.
+ */
+function ActivityTimeline({
+  events,
+  turnId,
+}: {
+  events: Parameters<ActivityBuffer["loadEvents"]>[0];
+  turnId: string;
+}): ReactElement | null {
+  if (events.length === 0) return null;
+  const buffer = new ActivityBuffer(turnId);
+  buffer.loadEvents(events);
+  const startedAt = new Date((events[0]?.created_at ?? 0) * 1000).toISOString();
+  const activity = buffer.toPresentation(startedAt, false);
+  if (activity === null) return null;
+  return (
+    <Collapsible
+      title="Activity"
+      meta={
+        <span className="text-[10px] text-fg-faint">
+          {activity.trail.length} steps
+        </span>
+      }
+    >
+      <div className="space-y-1.5">
+        {activity.trail.map((item) => (
+          <ActivityStepComponent key={item.id} item={item} rail />
+        ))}
+      </div>
+    </Collapsible>
   );
 }
 
@@ -99,27 +166,16 @@ function OverviewCard({ process }: { process: TurnProcess }): ReactElement {
   const searchesCount = process.searches.length;
 
   return (
-    <div className="rounded-lg border border-line bg-bg-elev px-4 py-3">
-      <div className="mb-2 text-[12px] font-medium text-fg">Overview</div>
-      <div className="grid grid-cols-2 gap-3 text-[11px]">
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-fg-faint">Cycles:</span>
-          <span className="font-mono text-fg">{cyclesCount}</span>
-        </div>
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-fg-faint">Actions:</span>
-          <span className="font-mono text-fg">{actionsCount}</span>
-        </div>
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-fg-faint">LLM calls:</span>
-          <span className="font-mono text-fg">{llmTasksCount}</span>
-        </div>
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-fg-faint">Searches:</span>
-          <span className="font-mono text-fg">{searchesCount}</span>
-        </div>
+    <SectionCard title="Overview">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {[["Cycles", cyclesCount], ["LLM calls", llmTasksCount], ["Actions", actionsCount], ["Searches", searchesCount]].map(([label, value]) => (
+          <div key={label} className="rounded-lg bg-bg-sunken px-3 py-2">
+            <div className="text-[10px] font-medium tracking-wide text-fg-faint uppercase">{label}</div>
+            <div className="mt-0.5 font-mono text-[13px] font-medium tabular-nums">{value}</div>
+          </div>
+        ))}
       </div>
-    </div>
+    </SectionCard>
   );
 }
 
@@ -155,14 +211,13 @@ function ProcessTree({
         <Collapsible
           key={cycle.cycleId}
           title={`Cycle ${cycle.cycleId}`}
-          defaultOpen={process.cycles.length <= 3}
+          className="overflow-hidden rounded-xl shadow-card"
+          defaultOpen={cycle === process.cycles[process.cycles.length - 1]}
         >
           <div className="space-y-2.5">
             {cycle.phases.map((phase) => (
-              <div key={phase.phase} className="space-y-1">
-                <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-                  {phase.phase}
-                </div>
+              <PhaseCard key={phase.phase} phase={phase}
+                onOpenTask={(taskId) => nav.openModelCall({ kind: "llm", taskId })}>
                 <div className="space-y-0.5">
                   {phase.actions.map((trace, index) => (
                     <ActionRow
@@ -199,7 +254,7 @@ function ProcessTree({
                     </div>
                   )}
                 </div>
-              </div>
+              </PhaseCard>
             ))}
           </div>
         </Collapsible>
@@ -278,6 +333,56 @@ function ProcessTree({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/** c479ca0 phase disclosure and direct model-context chip, fed by v2 task IDs. */
+function PhaseCard({ phase, onOpenTask, children }: {
+  phase: PhaseProcess; onOpenTask: (taskId: string) => void; children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const lastTask = phase.llmTasks[phase.llmTasks.length - 1]?.taskId;
+  const reasoning = phase.llmTasks.map((task) => task.reasoning).find(Boolean);
+  const controls = phase.llmTasks.flatMap((task) => task.controls);
+  const selection = controls.find((call) => call.name === "select_action_domains");
+  const domains = asStringArray(selection?.arguments.domains);
+  const preview = asString(selection?.arguments.intent) ?? reasoning;
+  const headline = domains.length > 0 ? `Selected ${domains.length} domain${domains.length > 1 ? "s" : ""}`
+    : phase.actions.length > 0 ? `${phase.actions.length} action${phase.actions.length > 1 ? "s" : ""}`
+    : phase.phase === "phase1" ? "Context maintenance" : phase.phase === "phase2" ? "Action planning" : "Execution";
+  return (
+    <div className="overflow-hidden rounded-lg border border-line">
+      <div className="flex items-center gap-2 bg-bg-sunken px-2.5 py-2">
+        <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left">
+          <ChevronRight size={13} className={`shrink-0 text-fg-faint transition-transform ${open ? "rotate-90" : ""}`} />
+          <span className="text-[12.5px] font-medium">{headline}</span>
+          <span className="text-[10px] text-fg-faint">{phase.phase}</span>
+        </button>
+        {domains.map((domain) => <Badge key={domain}>{domain}</Badge>)}
+        {lastTask && <button type="button" title="View the LLM message stack"
+          onClick={() => onOpenTask(lastTask)}
+          className="inline-flex h-5.5 shrink-0 items-center gap-1 rounded-full border border-accent/30 bg-accent-soft px-2 text-[10px] font-medium text-accent transition-colors hover:bg-accent hover:text-white">
+          <Brain size={10} /> context
+        </button>}
+      </div>
+      {!open && preview && <div className="truncate bg-bg-sunken px-3 pb-2 pl-8 text-[11px] text-fg-faint italic">{preview}</div>}
+      {open && <div className="space-y-3 border-t border-line bg-bg-elev px-3 py-3">
+        {reasoning && <div className="rounded-r-lg border-l-2 border-accent/40 bg-bg-sunken/60 px-3 py-2">
+          <div className="mb-0.5 flex items-center gap-1 text-[10px] font-semibold tracking-wide text-accent uppercase"><Brain size={10} /> Reasoning</div>
+          <Markdown className="md-calm text-[12px] text-fg-muted">{reasoning}</Markdown>
+        </div>}
+        {controls.length > 0 && <Collapsible title="Control requests">
+          {controls.map((call, index) => <div key={index} className="space-y-1 py-1 text-[12px]">
+            <span className="font-mono text-accent">{call.name}</span>
+            {Object.entries(call.arguments).map(([key, value]) => <div key={key} className="break-words text-fg-muted">
+              <span className="text-fg-faint">{key}: </span>{typeof value === "string" ? value : JSON.stringify(value)}
+            </div>)}
+          </div>)}
+        </Collapsible>}
+        {children}
+      </div>}
     </div>
   );
 }

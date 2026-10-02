@@ -1,3 +1,4 @@
+import { settingsText } from "../i18n";
 /**
  * Dedicated Models & Uses settings page (plan §16.5): the
  * `infra.model_services.models` and `infra.model_services.uses` object_list
@@ -65,12 +66,8 @@ export function DedicatedModelsPage() {
         aria-label="Dedicated models and uses"
         className="flex shrink-0 gap-1 border-b border-line bg-bg-sunken/30 px-4 py-2"
       >
-        <TabButton active={tab === "models"} onSelect={() => setTab("models")}>
-          Models
-        </TabButton>
-        <TabButton active={tab === "uses"} onSelect={() => setTab("uses")}>
-          Uses
-        </TabButton>
+        <TabButton active={tab === "models"} onSelect={() => setTab("models")}>{settingsText("Models")}</TabButton>
+        <TabButton active={tab === "uses"} onSelect={() => setTab("uses")}>{settingsText("Uses")}</TabButton>
       </div>
       <div className="min-h-0 flex-1">
         {tab === "models" ? <ServiceModelsTab /> : <ServiceUsesTab />}
@@ -160,8 +157,8 @@ function ServiceModelsTab() {
   return (
     <>
       <ObjectEditorLayout
-        title="Dedicated models"
-        description="Logical specialized models and their ordered provider bindings."
+        title={settingsText("Dedicated models")}
+        description={settingsText("Logical specialized models and their ordered provider bindings.")}
         items={[
           ...effective.map((entry) => ({
             id: entry.id,
@@ -184,8 +181,8 @@ function ServiceModelsTab() {
         headerBadges={
           current !== null && (
             <>
-              {current.status === "new" && <Badge tone="accent">new in draft</Badge>}
-              {current.status === "modified" && <Badge tone="accent">modified</Badge>}
+              {current.status === "new" && <Badge tone="accent">草稿新增</Badge>}
+              {current.status === "modified" && <Badge tone="accent">已修改</Badge>}
               <Badge tone="gray">{kindLabel(stringField(current.value, "kind"))}</Badge>
             </>
           )
@@ -193,8 +190,7 @@ function ServiceModelsTab() {
         headerActions={
           current !== null && (
             <Button size="xs" variant="danger" onClick={() => setDeleting(current.id)}>
-              <Trash2 size={13} /> Delete
-            </Button>
+              <Trash2 size={13} />{settingsText("Delete")}</Button>
           )
         }
       >
@@ -221,7 +217,7 @@ function ServiceModelsTab() {
 
       <CreateObjectModal
         title="New dedicated model"
-        idTitle="Model ID"
+        idTitle={settingsText("Model ID")}
         idDescription="Stable identifier referenced by uses; dots, outer whitespace and numeric-only ids are not allowed."
         existing={effective.map((entry) => entry.id)}
         open={creating}
@@ -300,12 +296,12 @@ function ServiceModelEditor({
   return (
     <div>
       <FieldSection
-        title="Identity"
-        description="The capability kind decides which provider adapters this model may bind."
+        title={settingsText("Identity")}
+        description={settingsText("The capability kind decides which provider adapters this model may bind.")}
       >
         <FieldRow
-          title="Kind"
-          description="Embedding models bind OpenAI-compatible embedding providers; structured-decision models bind Typesafe System One providers."
+          title={settingsText("Kind")}
+          description={settingsText("Embedding models bind OpenAI-compatible embedding providers; structured-decision models bind Typesafe System One providers.")}
         >
           <SelectInput
             ariaLabel="Kind"
@@ -320,8 +316,8 @@ function ServiceModelEditor({
         </FieldRow>
         {kind === "embedding" ? (
           <FieldRow
-            title="Dimensions"
-            description="Vector dimensions produced by this embedding model (required)."
+            title={settingsText("Dimensions")}
+            description={settingsText("Vector dimensions produced by this embedding model (required).")}
           >
             <NumberInput
               ariaLabel="Dimensions"
@@ -332,7 +328,7 @@ function ServiceModelEditor({
             />
           </FieldRow>
         ) : null}
-        <FieldRow title="Batch Size" description="Items per provider call (1–256).">
+        <FieldRow title={settingsText("Batch Size")} description={settingsText("Items per provider call (1–256).")}>
           <NumberInput
             ariaLabel="Batch size"
             integer
@@ -345,16 +341,14 @@ function ServiceModelEditor({
       </FieldSection>
 
       <FieldSection
-        title="Provider Bindings"
-        description="Providers tried in order. Only providers whose adapter matches the model kind are offered."
+        title={settingsText("Provider Bindings")}
+        description={settingsText("Providers tried in order. Only providers whose adapter matches the model kind are offered.")}
         meta={<Badge>{bindings.length}</Badge>}
       >
         <div className="space-y-1.5 px-5 py-3">
           {bindings.length === 0 && (
             <div className="flex items-center gap-1.5 text-[11px] text-warning">
-              <AlertTriangle size={13} /> Add at least one provider binding before
-              applying.
-            </div>
+              <AlertTriangle size={13} />{settingsText("Add at least one provider binding before applying.")}</div>
           )}
           {bindings.map((binding, index) => {
             const provider = providers.find(
@@ -467,8 +461,7 @@ function ServiceModelEditor({
                 });
               }}
             >
-              <Plus size={13} /> Add binding
-            </Button>
+              <Plus size={13} />{settingsText("Add binding")}</Button>
             {eligibleProviders.length === 0 && (
               <span className="text-[10px] text-fg-faint">
                 No {expectedAdapter} provider configured yet.
@@ -525,8 +518,8 @@ function ServiceUsesTab() {
   return (
     <>
       <ObjectEditorLayout
-        title="Uses"
-        description="Named capabilities selected by business consumers (Home/Memory search, Action model uses)."
+        title={settingsText("Uses")}
+        description={settingsText("Named capabilities selected by business consumers (Home/Memory search, Action model uses).")}
         items={[
           ...effective.map((entry) => ({
             id: entry.id,
@@ -549,8 +542,8 @@ function ServiceUsesTab() {
         headerBadges={
           current !== null && (
             <>
-              {current.status === "new" && <Badge tone="accent">new in draft</Badge>}
-              {current.status === "modified" && <Badge tone="accent">modified</Badge>}
+              {current.status === "new" && <Badge tone="accent">草稿新增</Badge>}
+              {current.status === "modified" && <Badge tone="accent">已修改</Badge>}
               <Badge tone="gray">{kindLabel(stringField(current.value, "kind"))}</Badge>
             </>
           )
@@ -558,8 +551,7 @@ function ServiceUsesTab() {
         headerActions={
           current !== null && (
             <Button size="xs" variant="danger" onClick={() => setDeleting(current.id)}>
-              <Trash2 size={13} /> Delete
-            </Button>
+              <Trash2 size={13} />{settingsText("Delete")}</Button>
           )
         }
       >
@@ -587,7 +579,7 @@ function ServiceUsesTab() {
 
       <CreateObjectModal
         title="New use"
-        idTitle="Use ID"
+        idTitle={settingsText("Use ID")}
         idDescription="Stable capability identifier selected by consumers; dots, outer whitespace and numeric-only ids are not allowed."
         existing={effective.map((entry) => entry.id)}
         open={creating}
@@ -667,10 +659,10 @@ function ServiceUseEditor({
   return (
     <div>
       <FieldSection
-        title="Binding"
-        description="The use names a capability kind and the logical model that serves it. The model kind must match."
+        title={settingsText("Binding")}
+        description={settingsText("The use names a capability kind and the logical model that serves it. The model kind must match.")}
       >
-        <FieldRow title="Kind">
+        <FieldRow title={settingsText("Kind")}>
           <SelectInput
             ariaLabel="Kind"
             value={kind}
@@ -690,7 +682,7 @@ function ServiceUseEditor({
           />
         </FieldRow>
         <FieldRow
-          title="Model"
+          title={settingsText("Model")}
           description={`Only ${kindLabel(kind).toLowerCase()} models are offered.`}
         >
           <SelectInput
@@ -711,20 +703,17 @@ function ServiceUseEditor({
         </FieldRow>
         {modelId === "" && (
           <div className="flex items-center gap-1.5 px-5 py-2.5 text-[11px] text-warning">
-            <AlertTriangle size={13} /> No model selected — apply will be rejected.
-          </div>
+            <AlertTriangle size={13} />{settingsText("No model selected — apply will be rejected.")}</div>
         )}
       </FieldSection>
 
       <FieldSection
-        title="Consumers"
-        description="Who selects this use today. These locations are edited on their own pages."
+        title={settingsText("Consumers")}
+        description={settingsText("Who selects this use today. These locations are edited on their own pages.")}
       >
         <div className="space-y-1.5 px-5 py-3">
           {consumers.ownerRefs.length === 0 && consumers.consumers.length === 0 && (
-            <div className="text-[11px] text-fg-faint">
-              Not referenced by any owner configuration or Action model use.
-            </div>
+            <div className="text-[11px] text-fg-faint">{settingsText("Not referenced by any owner configuration or Action model use.")}</div>
           )}
           {consumers.ownerRefs.map((reference) => (
             <div
@@ -752,9 +741,7 @@ function ServiceUseEditor({
           {consumers.consumers.map((consumer) => (
             <div key={consumer} className="flex items-center justify-between gap-2">
               <span className="font-mono text-[11px] text-fg">{consumer}</span>
-              <Button size="xs" variant="ghost" onClick={() => navigateTo("actions")}>
-                Open Actions
-              </Button>
+              <Button size="xs" variant="ghost" onClick={() => navigateTo("actions")}>{settingsText("Open Actions")}</Button>
             </div>
           ))}
         </div>
@@ -772,16 +759,14 @@ function PendingDeletions({
 }) {
   return (
     <div className="space-y-2 px-5 py-4">
-      <div className="text-[12px] font-medium text-fg">Pending deletions</div>
+      <div className="text-[12px] font-medium text-fg">待删除项</div>
       {entries.map((entry) => (
         <div
           key={entry.id}
           className="flex items-center justify-between gap-2 rounded-md border border-line bg-bg px-3 py-2"
         >
           <span className="font-mono text-[11px] text-fg">{entry.id}</span>
-          <Button size="xs" variant="outline" onClick={() => onRestore(entry)}>
-            Restore
-          </Button>
+          <Button size="xs" variant="outline" onClick={() => onRestore(entry)}>{settingsText("Restore")}</Button>
         </div>
       ))}
     </div>

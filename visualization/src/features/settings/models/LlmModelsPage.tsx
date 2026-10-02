@@ -1,3 +1,4 @@
+import { settingsText } from "../i18n";
 /**
  * LLM Models settings page (plan §16.2): the model collection with family
  * grouping, collapsed-by-default list hygiene, ordered provider chains and
@@ -18,11 +19,11 @@ import { isPlainRecord } from "../draft/model";
 import { useConfigDraftStore } from "../draft/store";
 import {
   adapterRule,
-  matchField,
   type AdapterOptionRule,
   type CatalogField,
   type SettingsCatalog,
 } from "../draft/catalog";
+import { translatedField as matchField } from "../i18n";
 import { useSettingsUiStore } from "../uiStore";
 import {
   cloneJsonValue,
@@ -157,7 +158,7 @@ export function LlmModelsPage() {
   return (
     <>
       <ObjectEditorLayout
-        title="Models"
+        title={settingsText("Models")}
         description={
           collection?.description ??
           "Provider models with capabilities and request options."
@@ -180,7 +181,7 @@ export function LlmModelsPage() {
             <input
               aria-label="Filter models"
               value={query}
-              placeholder="Filter models…"
+              placeholder={settingsText("Filter models…")}
               onChange={(event) => setQuery(event.target.value)}
               className={`${inputClass} h-7 text-[11px]`}
             />
@@ -190,20 +191,18 @@ export function LlmModelsPage() {
                 checked={showCollapsed}
                 onChange={(event) => setShowCollapsed(event.target.checked)}
                 className="accent-accent"
-              />
-              Show collapsed models
-            </label>
+              />{settingsText("Show collapsed models")}</label>
           </div>
         }
         headerBadges={
           current !== null && (
             <>
-              {current.isNew && <Badge tone="accent">new in draft</Badge>}
-              {!current.isNew && current.dirty && <Badge tone="accent">modified</Badge>}
+              {current.isNew && <Badge tone="accent">草稿新增</Badge>}
+              {!current.isNew && current.dirty && <Badge tone="accent">已修改</Badge>}
               <Badge tone={currentCustom ? "accent" : "gray"}>
-                {currentCustom ? "Custom" : "Built-in"}
+                {settingsText(currentCustom ? "Custom" : "Built-in")}
               </Badge>
-              {current.value.collapsed === true && <Badge tone="gray">collapsed</Badge>}
+              {current.value.collapsed === true && <Badge tone="gray">已折叠</Badge>}
             </>
           )
         }
@@ -219,8 +218,7 @@ export function LlmModelsPage() {
                   setCreating(true);
                 }}
               >
-                <Copy size={13} /> Duplicate
-              </Button>
+                <Copy size={13} />{settingsText("Duplicate")}</Button>
               <Button
                 size="xs"
                 variant="outline"
@@ -232,8 +230,7 @@ export function LlmModelsPage() {
                 }
                 onClick={() => setRenaming(current)}
               >
-                <Pencil size={13} /> Rename
-              </Button>
+                <Pencil size={13} />{settingsText("Rename")}</Button>
               <Button
                 size="xs"
                 variant="danger"
@@ -245,8 +242,7 @@ export function LlmModelsPage() {
                 }
                 onClick={() => setDeleting(current)}
               >
-                <Trash2 size={13} /> Delete
-              </Button>
+                <Trash2 size={13} />{settingsText("Delete")}</Button>
             </>
           )
         }
@@ -263,7 +259,7 @@ export function LlmModelsPage() {
 
       <CreateObjectModal
         title={template === "" ? "New model" : `Duplicate model ${template}`}
-        idTitle="Model ID"
+        idTitle={settingsText("Model ID")}
         idDescription="Stable identifier referenced by task chains; dots, outer whitespace and numeric-only ids are not allowed."
         existing={objects.map((item) => item.id)}
         open={creating}
@@ -281,16 +277,14 @@ export function LlmModelsPage() {
         }}
       >
         <label className="block">
-          <span className="mb-1.5 block text-[11px] font-medium text-fg-muted">
-            Model template
-          </span>
+          <span className="mb-1.5 block text-[11px] font-medium text-fg-muted">{settingsText("Model template")}</span>
           <select
             aria-label="Model template"
             value={template}
             onChange={(event) => setTemplate(event.target.value)}
             className={selectClass}
           >
-            <option value="">Blank model</option>
+            <option value="">空白模型</option>
             {objects.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.id}
@@ -455,8 +449,8 @@ function ModelEditor({
   return (
     <div>
       <FieldSection
-        title="Identity"
-        description="How this model is reached and where it appears in the model list."
+        title={settingsText("Identity")}
+        description={settingsText("How this model is reached and where it appears in the model list.")}
       >
         <FieldRow
           title={adapterField.meta?.title ?? "Adapter"}
@@ -520,8 +514,8 @@ function ModelEditor({
       />
 
       <FieldSection
-        title="Capabilities"
-        description="What TinySoul may rely on when routing tasks to this model."
+        title={settingsText("Capabilities")}
+        description={settingsText("What TinySoul may rely on when routing tasks to this model.")}
       >
         <FieldRow
           title={field("context_window_tokens").meta?.title ?? "Context Window"}
@@ -551,7 +545,7 @@ function ModelEditor({
           />
         </FieldRow>
         <FieldRow
-          title="Feature capabilities"
+          title={settingsText("Feature capabilities")}
           description={field("capabilities").meta?.description}
           dirty={field("capabilities").dirty}
         >
@@ -693,7 +687,7 @@ function ProviderChainSection({
   return (
     <FieldSection
       title={meta?.title ?? "Provider Chain"}
-      description="Try providers in order for this model. A successful backup provider is preferred temporarily before returning to the chain head."
+      description={settingsText("Try providers in order for this model. A successful backup provider is preferred temporarily before returning to the chain head.")}
       meta={<Badge>{rows.length}</Badge>}
     >
       <div className="space-y-1.5 px-5 py-3">
@@ -758,9 +752,7 @@ function ProviderChainSection({
           </OrderableRow>
         ))}
         {rows.length === 0 && (
-          <div className="text-[11px] text-danger">
-            The chain is empty — this model cannot be called.
-          </div>
+          <div className="text-[11px] text-danger">{settingsText("The chain is empty — this model cannot be called.")}</div>
         )}
         {available.length === 0 && (
           <div className="flex items-center gap-1.5 text-[11px] text-danger">
@@ -775,9 +767,7 @@ function ProviderChainSection({
               lock !== null || available.length <= rows.length || available.length === 0
             }
             onClick={addRow}
-          >
-            Add provider
-          </Button>
+          >{settingsText("Add provider")}</Button>
         </OrderableListFooter>
       </div>
     </FieldSection>
@@ -838,9 +828,9 @@ function AdapterOptionsSection({
 
   return (
     <FieldSection
-      title="Adapter Options"
-      description="Adapter-specific request behavior. Only options the selected adapter and protocol understand are offered; unset options keep the adapter default."
-      meta={<Badge tone="gray">advanced</Badge>}
+      title={settingsText("Adapter Options")}
+      description={settingsText("Adapter-specific request behavior. Only options the selected adapter and protocol understand are offered; unset options keep the adapter default.")}
+      meta={<Badge tone="gray">高级</Badge>}
     >
       {rule === null ? (
         <div className="px-5 py-3 text-[11px] text-fg-faint">
@@ -881,7 +871,7 @@ function AdapterOptionsSection({
           ))}
           {addable.length > 0 && (
             <div className="flex items-center justify-between gap-2 px-5 py-2.5">
-              <span className="text-[11px] text-fg-faint">Add adapter option</span>
+              <span className="text-[11px] text-fg-faint">添加适配器选项</span>
               <select
                 aria-label="Add adapter option"
                 value=""
@@ -903,7 +893,7 @@ function AdapterOptionsSection({
                 }}
                 className={`${selectClass} max-w-56`}
               >
-                <option value="">Select option…</option>
+                <option value="">{settingsText("Select option…")}</option>
                 {addable.map((key) => (
                   <option key={key} value={key}>
                     {optionMeta(key)?.title ?? key}
@@ -945,9 +935,7 @@ function AdapterOptionRow({
         <span className="flex items-center gap-1.5">
           {meta?.title ?? optionKey}
           {unknown && (
-            <Badge tone="yellow" title="Not used by the current adapter/protocol">
-              unused
-            </Badge>
+            <Badge tone="yellow" title="Not used by the current adapter/protocol">{settingsText("unused")}</Badge>
           )}
         </span>
       }
@@ -1091,9 +1079,9 @@ function RequestOverridesSection({
   ];
   return (
     <FieldSection
-      title="Request Overrides"
-      description="Optional per-model overrides of the task-chain request values; unset rows inherit the chain."
-      meta={<Badge tone="gray">advanced</Badge>}
+      title={settingsText("Request Overrides")}
+      description={settingsText("Optional per-model overrides of the task-chain request values; unset rows inherit the chain.")}
+      meta={<Badge tone="gray">高级</Badge>}
     >
       {rows.map(({ key, integer, fallback }) => {
         const meta = matchField(state.catalog, `${ROOT}.*.request_overrides.${key}`);
@@ -1128,18 +1116,14 @@ function RequestOverridesSection({
               />
             ) : (
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] text-fg-faint">
-                  Inherits the task chain
-                </span>
+                <span className="text-[11px] text-fg-faint">{settingsText("Inherits the task chain")}</span>
                 <Button
                   size="xs"
                   variant="outline"
                   onClick={() =>
                     setObjectField(ROOT, object, subpath, fallback, createSource)
                   }
-                >
-                  Set override
-                </Button>
+                >{settingsText("Set override")}</Button>
               </div>
             )}
           </FieldRow>
@@ -1177,14 +1161,14 @@ function AdapterChangeModal({
       <div className="space-y-4">
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 rounded-md border border-line bg-bg-sunken/40 px-3 py-3">
           <div>
-            <div className="text-[10px] text-fg-faint">Current</div>
+              <div className="text-[10px] text-fg-faint">当前值</div>
             <div className="mt-0.5 font-mono text-[12px] text-fg">
               {stringField(object.value, "adapter")}
             </div>
           </div>
           <ArrowRightLeft size={14} className="text-fg-faint" />
           <div>
-            <div className="text-[10px] text-fg-faint">Target</div>
+              <div className="text-[10px] text-fg-faint">目标值</div>
             <div className="mt-0.5 font-mono text-[12px] text-fg">{change.adapter}</div>
           </div>
         </div>
@@ -1199,9 +1183,7 @@ function AdapterChangeModal({
           </div>
         )}
         <label className="block">
-          <span className="mb-1.5 block text-[11px] font-medium text-fg-muted">
-            Provider
-          </span>
+          <span className="mb-1.5 block text-[11px] font-medium text-fg-muted">{settingsText("Provider")}</span>
           <select
             aria-label="Provider for target adapter"
             value={providerId}
@@ -1216,9 +1198,7 @@ function AdapterChangeModal({
           </select>
         </label>
         <div className="flex justify-end gap-2 border-t border-line pt-3">
-          <Button size="xs" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
+          <Button size="xs" variant="ghost" onClick={onClose}>{settingsText("Cancel")}</Button>
           <Button
             size="xs"
             variant="primary"

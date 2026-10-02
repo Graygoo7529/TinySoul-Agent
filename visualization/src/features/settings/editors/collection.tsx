@@ -1,3 +1,4 @@
+import { settingsText } from "../i18n";
 /**
  * Collection object editor shared by the MCP and ACP pages (config-coverage
  * §1.2, §4.5/§4.6): one collection object (a server, an agent) is one atomic
@@ -14,7 +15,8 @@ import { Badge } from "../../../components/ui/Badge";
 import { Button, IconButton } from "../../../components/ui/Button";
 import { SectionCard } from "../../../components/ui/Card";
 import { EmptyState } from "../../../components/ui/EmptyState";
-import { matchField, type CatalogCollection } from "../draft/catalog";
+import { type CatalogCollection } from "../draft/catalog";
+import { translatedField as matchField } from "../i18n";
 import { draftKey, isPlainRecord } from "../draft/model";
 import {
   objectBaseline,
@@ -90,10 +92,7 @@ export function CollectionObjectEditor({
           />
           <div className="min-w-0 flex-1 border-l border-line pl-4">
             {selected === null ? (
-              <div className="py-6 text-center text-[12px] text-fg-faint">
-                Select an entry to edit, or create a new one. New entries are
-                disabled until configured.
-              </div>
+              <div className="py-6 text-center text-[12px] text-fg-faint">{settingsText("Select an entry to edit, or create a new one. New entries are disabled until configured.")}</div>
             ) : (
               <CollectionObjectDetail
                 collection={collection}
@@ -171,7 +170,7 @@ function CollectionList({
         />
       ))}
       {ids.length === 0 && (
-        <div className="py-2 text-[11px] text-fg-faint">No entries yet.</div>
+        <div className="py-2 text-[11px] text-fg-faint">暂无条目。</div>
       )}
       {collection.allowCreate && (
         <div className="mt-1 border-t border-line pt-2">
@@ -192,8 +191,7 @@ function CollectionList({
               disabled={newId.trim() === ""}
               onClick={create}
             >
-              <Plus size={11} /> Create
-            </Button>
+              <Plus size={11} />{settingsText("Create")}</Button>
             {error !== null && (
               <span className="text-[10px] text-danger">{error}</span>
             )}
@@ -237,13 +235,13 @@ function CollectionListRow({
     >
       <span className="min-w-0 flex-1 truncate">{id}</span>
       {draft?.op.op === "delete" ? (
-        <Badge tone="red">delete</Badge>
+        <Badge tone="red">删除</Badge>
       ) : draft !== undefined ? (
-        <Badge tone="accent">draft</Badge>
+        <Badge tone="accent">草稿</Badge>
       ) : enabled ? (
         <Badge tone="green">on</Badge>
       ) : (
-        <Badge tone="gray">off</Badge>
+        <Badge tone="gray">关闭</Badge>
       )}
     </button>
   );
@@ -335,12 +333,10 @@ function CollectionObjectDetail({
     <div className="flex flex-col gap-1">
       <div className="flex items-center gap-2 border-b border-line pb-2">
         <span className="font-mono text-[13px] font-medium text-fg">{id}</span>
-        {ctx.dirty && !ctx.draftOnly && <Badge tone="accent">modified</Badge>}
-        {ctx.draftOnly && <Badge tone="blue">new</Badge>}
+        {ctx.dirty && !ctx.draftOnly && <Badge tone="accent">已修改</Badge>}
+        {ctx.draftOnly && <Badge tone="blue">新增</Badge>}
         {ctx.readOnly !== null && (
-          <Badge tone="gray" title={ctx.readOnly}>
-            read-only
-          </Badge>
+          <Badge tone="gray" title={ctx.readOnly}>{settingsText("read-only")}</Badge>
         )}
         <span className="ml-auto">
           <Button

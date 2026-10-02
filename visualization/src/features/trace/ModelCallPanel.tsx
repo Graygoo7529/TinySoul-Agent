@@ -14,6 +14,7 @@
 
 import { useRef, type ReactElement } from "react";
 import { Download } from "lucide-react";
+import { downloadJson } from "../../utils/download";
 
 import type { JsonObject } from "../../api/v2/types";
 import { Badge, type BadgeTone } from "../../components/ui/Badge";
@@ -145,15 +146,7 @@ function ExportButton({
       note: "Exactly the records retained for this directed read; truncated=true means earlier records fell out of the retained window.",
       events: eventWindow.events,
     };
-    const blob = new Blob([JSON.stringify(document, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const anchor = window.document.createElement("a");
-    anchor.href = url;
-    anchor.download = `trace-model-${target.kind}-${id}.json`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    downloadJson(`trace-model-${target.kind}-${id}.json`, document);
   };
   return (
     <button

@@ -4,8 +4,8 @@
  * Starts the real TinySoul backend harness (backend_server.py: real Agent +
  * Endpoint, scripted model) on an OS-assigned loopback port, waits for its
  * ready file, and publishes the connection target for the specs at
- * <repo>/.local-test/e2e-backend/connection.json (repo-level scratch tree,
- * outside the vite watch root). The project directory is recreated per run so
+ * TINYSOUL_E2E_CONNECTION in an isolated repo-level scratch directory,
+ * outside the vite watch root. The project directory is unique per run so
  * the Session day list starts empty.
  *
  * Python resolution order: $TINYSOUL_PYTHON, then $CONDA_PREFIX/python.exe
@@ -18,7 +18,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  rmSync,
+  mkdtempSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
@@ -32,12 +32,6 @@ const repoRoot = path.resolve(visualizationRoot, "..");
 // Keep the backend project outside the vite root: the dev server watches
 // visualization/ and its transient read handles break the initializer's
 // staging-directory rename on Windows.
-const runDir = path.join(repoRoot, ".local-test", "e2e-backend");
-const readyFile = path.join(runDir, "ready.json");
-const connectionFile = path.join(runDir, "connection.json");
-const pidFile = path.join(runDir, "backend.pid");
-const logFile = path.join(runDir, "backend.log");
-const projectDir = path.join(runDir, "project");
 const harnessScript = path.join(here, "backend_server.py");
 
 const READY_TIMEOUT_MS = 180_000;
@@ -60,10 +54,15 @@ function sleep(ms: number): Promise<void> {
 }
 
 export default async function globalSetup(): Promise<() => Promise<void>> {
-  rmSync(runDir, { recursive: true, force: true });
-  // Only the run dir is created here; the harness creates the project dir so
-  // the initializer installs onto a fresh path (Windows replace semantics).
-  mkdirSync(runDir, { recursive: true });
+  const runs = path.join(repoRoot, ".local-test");
+  mkdirSync(runs, { recursive: true });
+  const runDir = mkdtempSync(path.join(runs, "e2e-backend-"));
+  const readyFile = path.join(runDir, "ready.json");
+  const connectionFile = path.join(runDir, "connection.json");
+  const pidFile = path.join(runDir, "backend.pid");
+  const logFile = path.join(runDir, "backend.log");
+  const projectDir = path.join(runDir, "project");
+  process.env.TINYSOUL_E2E_CONNECTION = connectionFile;
   const log = createWriteStream(logFile);
   const python = resolvePython();
   backend = spawn(
@@ -134,15 +133,5 @@ async function globalTeardown(): Promise<void> {
   backend = null;
   if (child && child.exitCode === null && !child.killed) {
     child.kill();
-  } else if (!child && existsSync(pidFile)) {
-    // Defensive fallback if setup/teardown ever run in separate processes.
-    const pid = Number(readFileSync(pidFile, "utf-8"));
-    if (Number.isInteger(pid) && pid > 0) {
-      try {
-        process.kill(pid);
-      } catch {
-        // already gone
-      }
-    }
   }
 }

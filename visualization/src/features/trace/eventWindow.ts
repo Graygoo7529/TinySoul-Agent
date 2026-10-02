@@ -40,8 +40,10 @@ const MAX_PAGES = 40;
 
 /** The current scan head; null when no status snapshot is available. */
 export function currentEventHead(): number | null {
-  const status = useConnectionStore.getState().status;
-  return status === null ? null : status.latest_event_sequence;
+  const { status, eventCursor } = useConnectionStore.getState();
+  return status === null && eventCursor === 0
+    ? null
+    : Math.max(status?.latest_event_sequence ?? 0, eventCursor);
 }
 
 /**

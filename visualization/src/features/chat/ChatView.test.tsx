@@ -134,6 +134,8 @@ function fakeScrollMetrics(scrollHeight: number, clientHeight: number) {
     value: clientHeight,
     configurable: true,
   });
+  const turn = container.querySelector("[data-turn-root]") as HTMLElement;
+  turn.getBoundingClientRect = () => ({ top: 700 - node.scrollTop } as DOMRect);
   return node;
 }
 
@@ -205,6 +207,8 @@ describe("ChatView: echo convergence", () => {
 });
 
 describe("ChatView: scroll anchoring", () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
   it("unpinned by scrolling up; new content raises the jump entry instead of stealing the scroll", async () => {
     await openLiveTurn([
       makeInteraction({ id: "i-1", role: "user.input", text: "start" }),
@@ -214,6 +218,7 @@ describe("ChatView: scroll anchoring", () => {
 
     // The user scrolls up: the view unpins.
     act(() => {
+      node.dispatchEvent(new WheelEvent("wheel", { deltaY: -100, bubbles: true }));
       node.scrollTop = 100;
       node.dispatchEvent(new Event("scroll"));
     });
@@ -243,7 +248,9 @@ describe("ChatView: scroll anchoring", () => {
     act(() => {
       (pill as HTMLButtonElement).click();
     });
-    expect(node.scrollTop).toBe(1000);
+    await act(async () => { await vi.advanceTimersByTimeAsync(800); });
+    // c479ca0 anchors the latest Turn 20px below the viewport top.
+    expect(node.scrollTop).toBe(680);
     expect(
       Array.from(container.querySelectorAll("button")).find(
         (button) => button.textContent === "New content",
@@ -256,6 +263,7 @@ describe("ChatView: scroll anchoring", () => {
     await renderChat();
     const node = fakeScrollMetrics(1000, 200);
     act(() => {
+      node.dispatchEvent(new WheelEvent("wheel", { deltaY: -100, bubbles: true }));
       node.scrollTop = 50;
       node.dispatchEvent(new Event("scroll"));
     });
@@ -318,7 +326,7 @@ describe("ChatView: answer streaming and settle", () => {
     expect(streaming?.textContent).not.toContain("The final answer.");
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(400);
+      await vi.advanceTimersByTimeAsync(2000);
     });
     const settling = container.querySelector(".answer-card");
     expect(settling?.textContent).toContain("The final answer.");
@@ -349,9 +357,10 @@ describe("ChatView: answer streaming and settle", () => {
     expect(card?.textContent).toContain("Already there.");
   });
 
-  it("the Session take-over re-baselines: the same conversation never replays", async () => {
+  it("the Session take-over preserves an already displayed answer across new refs", async () => {
     await openLiveTurn([
       makeInteraction({ id: "i-1", role: "user.input", text: "start" }),
+      makeInteraction({ id: "a-1", role: "agent.output", text: "Settled answer." }),
     ]);
     await renderChat();
     await act(async () => {

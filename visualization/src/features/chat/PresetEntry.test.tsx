@@ -227,11 +227,11 @@ describe("PresetEntry popover", () => {
     await click(button("Apply"));
     await flush();
 
-    expect(text()).toContain("Unsaved configuration changes");
+    expect(text()).toContain("有未应用的配置修改");
     expect(endpoint.calls("/v2/config/apply", "POST")).toHaveLength(0);
 
     // "Review first" routes to the settings overview and keeps the draft.
-    await click(button("Review my changes first"));
+    await click(button("先查看未应用修改"));
     expect(useAppStore.getState().activeTab).toBe("settings");
     expect(useSettingsUiStore.getState().page).toBe("overview");
     expect(Object.keys(useConfigDraftStore.getState().drafts)).toHaveLength(1);
@@ -245,7 +245,7 @@ describe("PresetEntry popover", () => {
     await openPopover();
     await click(button("Apply"));
     await flush();
-    await click(button("Discard changes and switch"));
+    await click(button("丢弃修改并切换到"));
     await flush();
 
     const calls = endpoint.calls("/v2/config/apply", "POST");

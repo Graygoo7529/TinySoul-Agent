@@ -1,3 +1,4 @@
+import { settingsText } from "../i18n";
 /**
  * ACP Subagents settings (config-coverage §4.6): delegation targets are
  * collection objects edited atomically; live connections are read-only and
@@ -33,8 +34,8 @@ export function AcpPage() {
       renderFields={(ctx) => <AcpTargetFields ctx={ctx} />}
       limits={
         <FieldSection
-          title="Delegation Limits"
-          description="Connection and delegation bounds shared by all targets."
+          title={settingsText("Delegation Limits")}
+          description={settingsText("Connection and delegation bounds shared by all targets.")}
           paths={[
             "capabilities.subagent.max_connections",
             "capabilities.subagent.connect_timeout_seconds",
@@ -115,10 +116,7 @@ function AcpTargetFields({ ctx }: { ctx: ObjectEditContext }) {
             disabled={disabled}
             onChange={(next) => ctx.update({ auto_approve: next })}
           />
-          <span className="text-[11px] text-fg-faint">
-            On: the adapter approves its own requests; off: requests come back
-            to this Agent.
-          </span>
+          <span className="text-[11px] text-fg-faint">{settingsText("On: the adapter approves its own requests; off: requests come back to this Agent.")}</span>
         </div>
       </ObjRow>
       <ObjRow path={at("env")} label="env">
@@ -187,28 +185,24 @@ function AcpRuntimeSummary() {
 
   return (
     <SectionCard
-      title="Runtime connections"
+      title={settingsText("Runtime connections")}
       description="Live connections of the running generation. Configuration changes activate on apply; they never start a connection by themselves."
       actions={
         <button
           type="button"
           className="flex items-center gap-1 text-[12px] font-medium text-accent hover:underline"
           onClick={() => setActiveTab("runtime")}
-        >
-          Runtime Observation <ArrowRight size={12} />
+        >{settingsText("Runtime Observation")}<ArrowRight size={12} />
         </button>
       }
     >
       {clients === null ? (
-        <div className="text-[12px] text-fg-faint">
-          No backend connection — runtime facts are unavailable.
-        </div>
+        <div className="text-[12px] text-fg-faint">{settingsText("No backend connection — runtime facts are unavailable.")}</div>
       ) : error !== null ? (
-        <div className="text-[12px] text-fg-faint">
-          The runtime directory is unavailable: {error}
+        <div className="text-[12px] text-fg-faint">{settingsText("The runtime directory is unavailable:")}{error}
         </div>
       ) : directory === null ? (
-        <div className="text-[12px] text-fg-faint">Loading…</div>
+        <div className="text-[12px] text-fg-faint">{settingsText("Loading…")}</div>
       ) : (
         <div className="flex flex-col gap-1.5">
           <div className="text-[12px] text-fg-muted">

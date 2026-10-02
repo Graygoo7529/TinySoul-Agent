@@ -8,53 +8,23 @@
  * day history — the previous turn's cached context is never shown as current.
  */
 
-import { Layers } from "lucide-react";
-
 import type { ResourceLocator, SegmentView } from "../../api/v2/types";
 import { selectActiveTurnId, useConnectionStore } from "../../store/connectionStore";
 import { useInspectorStore } from "../../store/inspectorStore";
-import { Button } from "../../components/ui/Button";
-import { EmptyState } from "../../components/ui/EmptyState";
-import { openHistoryBrowser } from "../history/entries";
 import { ContextInspectPanel } from "./ContextInspectPanel";
-import { ContextOverviewPanel } from "./OverviewPanel";
+import { ContextInspectorPanel } from "./ContextInspectorPanel";
 import { OwnerResourcePanel } from "./OwnerResourcePanel";
 import { SegmentPanel, type SegmentContext } from "./SegmentPanel";
 
 /** Entry into the Context drawer: the active turn's installed context. */
 export function openContextDrawer(epoch: number): void {
   const turnId = selectActiveTurnId(useConnectionStore.getState());
-  if (turnId === null) {
-    useInspectorStore.getState().open({
-      key: "context:empty",
-      title: "Context",
-      subtitle: "The installed context of the active turn",
-      render: () => <NoActiveContext epoch={epoch} />,
-    });
-    return;
-  }
   useInspectorStore.getState().open({
     key: `context:overview:${turnId}`,
     title: "Context",
-    subtitle: `Active turn ${turnId}`,
-    render: () => <ContextOverviewPanel epoch={epoch} turnId={turnId} />,
+    subtitle: turnId === null ? "Session map" : `Active turn ${turnId}`,
+    render: () => <ContextInspectorPanel epoch={epoch} turnId={turnId} />,
   });
-}
-
-/** Shown when there is no running turn; routes into history, never cached. */
-function NoActiveContext({ epoch }: { epoch: number }) {
-  return (
-    <EmptyState
-      icon={<Layers size={26} />}
-      title="No running context right now"
-      description="When a turn is running, the background, trace and working state it has installed appear here. Completed conversations live in the day history."
-      action={
-        <Button variant="outline" onClick={() => openHistoryBrowser(epoch)}>
-          Browse history
-        </Button>
-      }
-    />
-  );
 }
 
 let detailCounter = 0;

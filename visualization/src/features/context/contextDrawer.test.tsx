@@ -105,23 +105,23 @@ function segmentRequests() {
 }
 
 describe("openContextDrawer", () => {
-  it("opens the empty state without an active turn and routes into history", async () => {
+  it("keeps Session map available while installed Context tabs are empty", async () => {
     useConnectionStore
       .getState()
       .applyStatus(epoch, makeStatus({ activity: "idle", activeTurnId: null }));
 
     act(() => openContextDrawer(epoch));
     expect(entries()).toHaveLength(1);
-    expect(topEntry().key).toBe("context:empty");
+    expect(topEntry().key).toBe("context:overview:null");
 
     renderTop();
     await flush();
-    expect(container.textContent).toContain("No running context right now");
+    expect(container.textContent).toContain("Session map");
+    clickText("当前 Context");
+    expect(container.textContent).toContain("当前没有运行中的语境");
     // No cached context of a previous turn is read.
     expect(endpoint.calls(`/v2/turns/${TURN_ID}/context`)).toHaveLength(0);
 
-    clickText("Browse history");
-    expect(topEntry().key).toBe("history:days");
   });
 
   it("opens the overview of the active turn, grouped by the three slots", async () => {

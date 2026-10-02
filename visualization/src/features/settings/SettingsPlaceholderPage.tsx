@@ -2,6 +2,7 @@ import { Construction } from "lucide-react";
 
 import { EmptyState } from "../../components/ui/EmptyState";
 import { SETTINGS_GROUPS, SETTINGS_PAGES, type SettingsPageId } from "./pages";
+import { settingsDescription, settingsGroupTitle, settingsTitle } from "./labels";
 
 /**
  * Fallback for a registered settings page that has no component in
@@ -16,12 +17,12 @@ export function SettingsPlaceholderPage({ page }: { page: SettingsPageId }) {
     <div className="flex h-full items-center justify-center p-6">
       <EmptyState
         icon={<Construction size={22} />}
-        title={def.title}
+        title={settingsTitle(def)}
         description={
           <>
-            {def.description}
+            {settingsDescription(def)}
             <span className="mt-1 block text-fg-faint">
-              {group?.title} · this page has no implementation yet.
+              {group ? settingsGroupTitle(group) : ""} · 此页面尚未实现。
             </span>
           </>
         }

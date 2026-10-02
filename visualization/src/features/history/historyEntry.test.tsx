@@ -116,7 +116,7 @@ describe("history entries", () => {
     await act(async () => {
       root.render(<ChatView />);
     });
-    expect(container.textContent).toContain("Today's conversations");
+    expect(container.querySelector("[data-turn-root]")).not.toBeNull();
     await act(async () => {
       buttonByText("Earlier days").click();
     });

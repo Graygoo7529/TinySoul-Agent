@@ -33,6 +33,8 @@ export interface InspectorEntry {
   copyText?: string;
   /** Width used while this entry is on top and the wide view is collapsed. */
   width?: string;
+  /** A model task opens beside its parent trace, using the same navigation stack. */
+  adjacent?: boolean;
   /** Body content, supplied by the caller. */
   render: () => ReactNode;
 }
@@ -83,11 +85,12 @@ export function InspectorHost(props: InspectorHostProps) {
     defaultWidth = INSPECTOR_DEFAULT_WIDTH,
     expandedWidth = INSPECTOR_EXPANDED_WIDTH,
   } = props;
-  const sub = props.sub ?? null;
-  const onCloseSub = props.onCloseSub;
+  const stackedSub = entries.length > 1 && entries[entries.length - 1].adjacent === true;
+  const sub = props.sub ?? (stackedSub ? entries[entries.length - 1] : null);
+  const onCloseSub = props.onCloseSub ?? (stackedSub ? onPop : undefined);
 
   const open = entries.length > 0;
-  const top = open ? entries[entries.length - 1] : undefined;
+  const top = open ? entries[entries.length - (stackedSub ? 2 : 1)] : undefined;
   const topKey = top?.key ?? null;
   const subKey = sub?.key ?? null;
 
@@ -213,7 +216,7 @@ export function InspectorHost(props: InspectorHostProps) {
           entry={top}
           titleId={mainTitleId}
           titleRef={titleRef}
-          onBack={entries.length > 1 ? onPop : undefined}
+          onBack={entries.length > (stackedSub ? 2 : 1) ? onPop : undefined}
           expanded={expanded}
           onToggleExpand={() => setExpanded((value) => !value)}
           onClose={onClose}
@@ -241,15 +244,15 @@ export function InspectorHost(props: InspectorHostProps) {
             role="dialog"
             aria-modal="true"
             aria-labelledby={subTitleId}
-            className={`glass-panel fixed inset-y-0 right-0 z-(--z-subdrawer) flex flex-col border-l border-line shadow-pop${reduced ? "" : " animate-sub-drawer-in"}`}
-            style={{ width: subWidth, transition: widthTransition }}
+            className={`glass-panel fixed inset-y-0 z-(--z-subdrawer) flex flex-col border-r border-line shadow-pop${sub.adjacent ? " inspector-adjacent" : " right-0"}${reduced ? "" : " animate-sub-drawer-in"}`}
+            style={sub.adjacent ? { "--parent-width": width } as React.CSSProperties : { width: subWidth, transition: widthTransition }}
           >
             <PanelHeader
               entry={sub}
               titleId={subTitleId}
               titleRef={subTitleRef}
               onBack={onCloseSub}
-              onClose={onClose}
+              onClose={onCloseSub}
             />
             <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
               <div key={sub.key}>{sub.render()}</div>

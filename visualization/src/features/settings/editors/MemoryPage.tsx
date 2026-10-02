@@ -1,3 +1,4 @@
+import { settingsText } from "../i18n";
 /**
  * Memory settings (config-coverage §5.4): the persistent Markdown store's
  * limits per document kind, inspect/search bounds and the embedding use.
@@ -9,16 +10,16 @@ export function MemoryPage() {
   return (
     <SettingsPageBody>
       <FieldSection
-        title="Location & Active Memory"
-        description="The persistent memory root and the active Memory.md size."
+        title={settingsText("Location & Active Memory")}
+        description={settingsText("The persistent memory root and the active Memory.md size.")}
         paths={["memory.root", "memory.max_active_chars"]}
         overrides={{
           "memory.max_active_chars": { min: 1 },
         }}
       />
       <FieldSection
-        title="Persistent Documents"
-        description="Size limits of the five persistent Markdown kinds and the redirect chain."
+        title={settingsText("Persistent Documents")}
+        description={settingsText("Size limits of the five persistent Markdown kinds and the redirect chain.")}
         paths={[
           "memory.documents.daily_max_chars",
           "memory.documents.entity_max_chars",
@@ -37,8 +38,8 @@ export function MemoryPage() {
         }}
       />
       <FieldSection
-        title="Inspect & Search"
-        description="Single-page inspect bounds and the logical embedding use shared by Memory search."
+        title={settingsText("Inspect & Search")}
+        description={settingsText("Single-page inspect bounds and the logical embedding use shared by Memory search.")}
         paths={[
           "memory.inspect.page_max_chars",
           "memory.search.embedding_cache_max_chars",

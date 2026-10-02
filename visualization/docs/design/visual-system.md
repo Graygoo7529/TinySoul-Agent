@@ -48,7 +48,7 @@ Badge 十色调全部经 token：gray/green/red/yellow/blue/accent 用语义变�
 ## 层级、光泽与玻璃
 
 - **elevation 投影**：`--shadow-card`（e1 卡片：顶部 1px 内高光 + 接触影 + 氛围影）、`--shadow-pop`（e2 弹层/抽屉：内高光 + 大氛围影）、`--shadow-brand`（渐变品牌件：内高光 + accent 色晕）。同级表面只用对应档位的投影，不再混用 shadow-sm。
-- **玻璃拟态**：e2 覆盖层（TurnTraceDrawer / LlmTaskDrawer / BackgroundDrawer）用 `.glass-panel`（80% 底 + 14px blur + 1.35 饱和），与下层内容产生景深；抽屉头部保持实色 bg-elev 以稳定阅读。
+- **玻璃拟态**：Trace、ModelCall、Context Inspector 等覆盖层使用 `.glass-panel`（80% 底 + 14px blur + 1.35 饱和），与下层内容产生景深；抽屉头部保持实色 bg-elev 以稳定阅读。
 - **暗色辉光**：运行中的 LiveStatus 卡在暗色主题下有低透明度 accent 辉光（`.dark .live-border` box-shadow）。
 - **z-index 刻度**：`--z-overlay(40) < --z-drawer(50) < --z-toast(60) < --z-subdrawer(70)`，组件经 `z-(--z-*)` 消费，不硬编码数字。
 - **统一焦点环**：`--focus-ring`（3px accent-soft），Composer 用 `focus-within:shadow-(--focus-ring)`，文本输入统一 `focus-ring` 类。

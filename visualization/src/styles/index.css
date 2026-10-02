@@ -1303,6 +1303,18 @@ body {
   --spacing: calc(0.25rem * var(--ui-density, 1));
 }
 /* Blanket motion kill-switch for non-motion-library CSS animations. */
+.inspector-adjacent {
+  left: 0;
+  right: var(--parent-width);
+}
+@media (max-width: 1000px) {
+  .inspector-adjacent {
+    left: auto;
+    right: 0;
+    width: min(640px, 96vw);
+  }
+}
+
 .ui-reduced-motion *,
 .ui-reduced-motion *::before,
 .ui-reduced-motion *::after {

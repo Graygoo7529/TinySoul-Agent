@@ -13,6 +13,7 @@ import { Button, IconButton } from "../../../components/ui/Button";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { Modal } from "../../../components/ui/Modal";
 import { inputClass } from "./controls";
+import { settingsText } from "../i18n";
 import { objectIdError, type ObjectReference } from "./collectionDrafts";
 
 // ---------------------------------------------------------------------------
@@ -63,9 +64,9 @@ export function ObjectEditorLayout({
       <aside className="border-b border-line bg-bg-sunken/25 md:border-r md:border-b-0">
         <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2.5">
           <div className="min-w-0">
-            <div className="text-[12px] font-semibold text-fg">{title}</div>
+            <div className="text-[12px] font-semibold text-fg">{settingsText(title)}</div>
             <div className="text-[10px] text-fg-faint">
-              {items.length} configured
+              已配置 {items.length} 项
             </div>
           </div>
           {onAdd !== undefined && (
@@ -99,7 +100,7 @@ export function ObjectEditorLayout({
                   <span className="truncate font-mono text-[11px] font-medium">
                     {item.id}
                   </span>
-                  {item.isNew && <Badge tone="accent">new</Badge>}
+                  {item.isNew && <Badge tone="accent">新增</Badge>}
                   {!item.isNew && item.dirty && (
                     <span
                       className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-accent"
@@ -117,7 +118,7 @@ export function ObjectEditorLayout({
           ))}
           {items.length === 0 && (
             <div className="px-2.5 py-3 text-[11px] text-fg-faint">
-              None configured yet.
+              尚未配置。
             </div>
           )}
         </div>
@@ -125,8 +126,8 @@ export function ObjectEditorLayout({
       <main className="min-w-0">
         {selected === null ? (
           <EmptyState
-            title={`No ${title.toLowerCase()} selected`}
-            description={description}
+            title={`请选择${settingsText(title)}`}
+            description={settingsText(description)}
           />
         ) : (
           <>
@@ -138,7 +139,7 @@ export function ObjectEditorLayout({
                   </h2>
                   {headerBadges}
                 </div>
-                <p className="mt-0.5 text-[10px] text-fg-faint">{description}</p>
+                <p className="mt-0.5 text-[10px] text-fg-faint">{settingsText(description)}</p>
               </div>
               {headerActions && (
                 <div className="flex shrink-0 items-center gap-1.5">
@@ -209,9 +210,7 @@ export function CreateObjectModal({
             {validation ?? idDescription}
           </span>
           {id !== "" && validation === null && existing.includes(id) && (
-            <span className="mt-1 block text-[10px] text-danger">
-              An entry with this id already exists.
-            </span>
+            <span className="mt-1 block text-[10px] text-danger">{settingsText("An entry with this id already exists.")}</span>
           )}
         </label>
         {children}
@@ -222,17 +221,14 @@ export function CreateObjectModal({
           </div>
         )}
         <div className="flex justify-end gap-2 border-t border-line pt-3">
-          <Button size="xs" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
+          <Button size="xs" variant="ghost" onClick={onClose}>{settingsText("Cancel")}</Button>
           <Button
             size="xs"
             variant="primary"
             disabled={!available || !valid}
             onClick={() => onCreate(id)}
           >
-            <Plus size={13} /> Create
-          </Button>
+            <Plus size={13} />{settingsText("Create")}</Button>
         </div>
       </div>
     </Modal>
@@ -262,8 +258,7 @@ export function DeleteObjectModal({
   return (
     <Modal title={title} onClose={onClose}>
       <div className="space-y-4">
-        <p className="text-[12px] leading-5 text-fg-muted">
-          Delete <span className="font-mono text-fg">{objectId}</span>? The change
+        <p className="text-[12px] leading-5 text-fg-muted">{settingsText("Delete")}<span className="font-mono text-fg">{objectId}</span>? The change
           joins the local draft and only takes effect when you apply the
           configuration.
         </p>
@@ -287,12 +282,8 @@ export function DeleteObjectModal({
           </div>
         )}
         <div className="flex justify-end gap-2 border-t border-line pt-3">
-          <Button size="xs" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button size="xs" variant="danger" onClick={onDelete}>
-            Delete
-          </Button>
+          <Button size="xs" variant="ghost" onClick={onClose}>{settingsText("Cancel")}</Button>
+          <Button size="xs" variant="danger" onClick={onDelete}>{settingsText("Delete")}</Button>
         </div>
       </div>
     </Modal>
@@ -355,9 +346,7 @@ export function RenameObjectModal({
             <span className="mt-1 block text-[10px] text-danger">{validation}</span>
           )}
           {id !== objectId && validation === null && existing.includes(id) && (
-            <span className="mt-1 block text-[10px] text-danger">
-              An entry with this id already exists.
-            </span>
+            <span className="mt-1 block text-[10px] text-danger">{settingsText("An entry with this id already exists.")}</span>
           )}
         </label>
         {references.length > 0 && (
@@ -381,23 +370,17 @@ export function RenameObjectModal({
                 checked={updateRefs}
                 onChange={(event) => setUpdateRefs(event.target.checked)}
                 className="accent-accent"
-              />
-              Also update these references to the new id in this draft
-            </label>
+              />{settingsText("Also update these references to the new id in this draft")}</label>
           </div>
         )}
         <div className="flex justify-end gap-2 border-t border-line pt-3">
-          <Button size="xs" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
+          <Button size="xs" variant="ghost" onClick={onClose}>{settingsText("Cancel")}</Button>
           <Button
             size="xs"
             variant="primary"
             disabled={!available}
             onClick={() => onRename(id, updateRefs)}
-          >
-            Rename
-          </Button>
+          >{settingsText("Rename")}</Button>
         </div>
       </div>
     </Modal>

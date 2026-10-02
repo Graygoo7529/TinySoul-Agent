@@ -11,7 +11,7 @@
  */
 
 import { create } from "zustand";
-import type { Interaction, ObservationEvent } from "../../api/v2/types";
+import { turnIdOfObservation, type Interaction, type ObservationEvent } from "../../api/v2/types";
 import { ActivityBuffer } from "./activityBuffer";
 import { snapshotToPresentation, deriveCanStop } from "./adapters";
 import type { TurnPresentation } from "./presentation";
@@ -23,6 +23,7 @@ export interface PresentationStoreState {
 
   /** ISO timestamp of the first activity event for the current buffer */
   bufferStartedAt: string | null;
+  bufferFinishedAt: number | null;
 
   /** Complete presentation (snapshot + activity) */
   presentation: TurnPresentation | null;
@@ -52,19 +53,20 @@ export interface PresentationStoreState {
 export const presentationStore = create<PresentationStoreState>((set, get) => ({
   activityBuffer: null,
   bufferStartedAt: null,
+  bufferFinishedAt: null,
   presentation: null,
 
   createBuffer: (turnId: string) => {
-    set({ activityBuffer: new ActivityBuffer(turnId), bufferStartedAt: null });
+    set({ activityBuffer: new ActivityBuffer(turnId), bufferStartedAt: null, bufferFinishedAt: null });
     get().refresh();
   },
 
   addEvent: (event: ObservationEvent) => {
     const state = get();
-    if (!state.activityBuffer) return;
+    if (!state.activityBuffer || turnIdOfObservation(event) !== state.activityBuffer.turnId) return;
 
     // Record the timestamp of the first event as the turn start time
-    if (state.bufferStartedAt === null) {
+    if (state.bufferStartedAt === null || event.created_at * 1000 < Date.parse(state.bufferStartedAt)) {
       const ts = new Date(event.created_at * 1000).toISOString();
       set({ bufferStartedAt: ts });
     }
@@ -77,11 +79,12 @@ export const presentationStore = create<PresentationStoreState>((set, get) => ({
     const state = get();
     if (!state.activityBuffer) return;
 
-    state.activityBuffer.loadEvents(events);
+    const matching = events.filter((event) => turnIdOfObservation(event) === state.activityBuffer?.turnId);
+    for (const event of matching) state.activityBuffer.addEvent(event);
 
     // Derive startedAt from the first loaded event
-    const first = events[0];
-    if (first && state.bufferStartedAt === null) {
+    const first = matching.sort((a, b) => a.sequence - b.sequence)[0];
+    if (first && (state.bufferStartedAt === null || first.created_at * 1000 < Date.parse(state.bufferStartedAt))) {
       set({ bufferStartedAt: new Date(first.created_at * 1000).toISOString() });
     }
 
@@ -95,7 +98,7 @@ export const presentationStore = create<PresentationStoreState>((set, get) => ({
   },
 
   clearBuffer: () => {
-    set({ activityBuffer: null, bufferStartedAt: null });
+    set({ activityBuffer: null, bufferStartedAt: null, bufferFinishedAt: null });
     get().refresh();
   },
 
@@ -111,6 +114,7 @@ export const presentationStore = create<PresentationStoreState>((set, get) => ({
     const canStop = deriveCanStop(snapshot);
 
     const base = snapshotToPresentation(snapshot, interactions, bufferStartedAt);
+    const finishedAt = snapshot.state === "finished" ? get().bufferFinishedAt ?? Date.now() : null;
 
     // Keep activity for both running and settled turns while the buffer exists.
     // This lets the settled LiveStatus card show the last trail after completion.
@@ -124,9 +128,12 @@ export const presentationStore = create<PresentationStoreState>((set, get) => ({
         : null;
 
     set({
+      bufferFinishedAt: finishedAt,
       presentation: {
         ...base,
-        activity,
+        activity: activity && finishedAt !== null && bufferStartedAt !== null
+          ? { ...activity, timing: { ...activity.timing, elapsedMs: finishedAt - Date.parse(bufferStartedAt) } }
+          : activity,
       },
     });
   },
@@ -135,6 +142,7 @@ export const presentationStore = create<PresentationStoreState>((set, get) => ({
     set({
       activityBuffer: null,
       bufferStartedAt: null,
+      bufferFinishedAt: null,
       presentation: null,
     });
   },

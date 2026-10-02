@@ -1,3 +1,4 @@
+import { settingsText } from "../i18n";
 /**
  * Execution & Jobs settings (config-coverage §4.1/§4.2): the running
  * generation's effective values are shown read-only on top; editing targets
@@ -17,8 +18,8 @@ export function ExecutionPage() {
     <SettingsPageBody>
       <RunningStrip />
       <FieldSection
-        title="Interpreters"
-        description="Which shell/script interpreters the execution domain may use."
+        title={settingsText("Interpreters")}
+        description={settingsText("Which shell/script interpreters the execution domain may use.")}
         paths={[
           "execution.enabled",
           ...INTERPRETERS.map((id) => `execution.interpreters.${id}.enabled`),
@@ -29,8 +30,8 @@ export function ExecutionPage() {
         )}
       />
       <FieldSection
-        title="Limits"
-        description="Bounds of a single execution; the runtime enforces one total timeout per batch."
+        title={settingsText("Limits")}
+        description={settingsText("Bounds of a single execution; the runtime enforces one total timeout per batch.")}
         paths={[
           "execution.max_runtime_seconds",
           "execution.max_output_bytes",
@@ -52,8 +53,8 @@ export function ExecutionPage() {
         ]}
       />
       <FieldSection
-        title="Jobs"
-        description="Background work supervised inside a turn; live jobs never exceed the retained capacity."
+        title={settingsText("Jobs")}
+        description={settingsText("Background work supervised inside a turn; live jobs never exceed the retained capacity.")}
         paths={["jobs.retained_capacity", "jobs.per_turn_live_capacity"]}
         overrides={{
           "jobs.retained_capacity": { min: 1 },
@@ -74,16 +75,16 @@ function RunningStrip() {
   );
   return (
     <SectionCard
-      title="Currently in effect"
-      description="Values of the running generation; changes below activate on apply."
+      title={settingsText("Currently in effect")}
+      description={settingsText("Values of the running generation; changes below activate on apply.")}
       actions={
-        enabled ? <Badge tone="green">enabled</Badge> : <Badge tone="gray">disabled</Badge>
+        enabled ? <Badge tone="green">启用</Badge> : <Badge tone="gray">禁用</Badge>
       }
     >
       <div className="flex flex-wrap items-center gap-2 text-[12px] text-fg-muted">
-        <span>Interpreters:</span>
+        <span>解释器：</span>
         {interpreters.length === 0 ? (
-          <span className="text-fg-faint">none</span>
+          <span className="text-fg-faint">无</span>
         ) : (
           interpreters.map((id) => (
             <span key={id} className="rounded-md bg-hover px-1.5 py-0.5 font-mono text-[11px] text-fg">

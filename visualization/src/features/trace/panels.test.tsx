@@ -153,7 +153,8 @@ describe("ProcessPanel", () => {
     await flush();
 
     expect(queryOf(endpoint.calls("/v2/events")[0]!, "turn_id")).toBe(TURN_ID);
-    expect(queryOf(endpoint.calls("/v2/events")[0]!, "mode")).toBe("verbose");
+    expect(queryOf(endpoint.calls("/v2/events")[0]!, "mode")).toBe("model");
+    clickButton("phase3");
     const text = container.textContent ?? "";
     expect(text).toContain("Cycle cycle_1");
     expect(text).toContain("workspace.read");
@@ -161,13 +162,13 @@ describe("ProcessPanel", () => {
     expect(text).toContain("execution.run_shell");
     // A not-executed action is shown as such — never as a tool answer.
     expect(text).toContain("not executed");
-    expect(text).toContain("formal record stays with the conversation");
   });
 
   it("pushes the action detail from a process row", async () => {
     serveEvents(processEvents);
     render(<ProcessPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29" />);
     await flush();
+    clickButton("phase3");
     clickButton("workspace.read");
     const entries = useInspectorStore.getState().entries;
     expect(entries).toHaveLength(1);

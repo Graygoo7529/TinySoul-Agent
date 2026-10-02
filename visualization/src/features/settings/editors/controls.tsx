@@ -27,10 +27,10 @@ import { IconButton } from "../../../components/ui/Button";
 import { SectionCard } from "../../../components/ui/Card";
 import { Collapsible } from "../../../components/ui/Collapsible";
 import {
-  matchField,
   type CatalogChoice,
   type CatalogField,
 } from "../draft/catalog";
+import { settingsText, translatedField as matchField } from "../i18n";
 import {
   draftKey,
   isRedactedValue,
@@ -183,7 +183,7 @@ export function FieldRow({
     return () => clearTimeout(timer);
   }, [focusPath, path, clearFocus]);
 
-  const title = titleOverride ?? api.field?.title ?? lastSegment(path);
+  const title = titleOverride ? settingsText(titleOverride) : api.field?.title ?? lastSegment(path);
   const description = api.field?.description ?? "";
 
   return (
@@ -196,19 +196,19 @@ export function FieldRow({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-[13px] font-medium text-fg">{title}</span>
-            {api.dirty && !api.deleting && <Badge tone="accent">modified</Badge>}
-            {api.deleting && <Badge tone="red">reset to default</Badge>}
+            {api.dirty && !api.deleting && <Badge tone="accent">已修改</Badge>}
+            {api.deleting && <Badge tone="red">恢复默认</Badge>}
             {api.stale && (
               <Badge
                 tone="yellow"
-                title="The saved baseline changed while you were editing"
+                title="编辑期间，已保存的配置发生了变化"
               >
-                <AlertTriangle size={10} /> stale
+                <AlertTriangle size={10} /> 基线已变化
               </Badge>
             )}
             {api.readOnly !== null && (
               <Badge tone="gray" title={api.readOnly}>
-                <Lock size={10} /> read-only
+                <Lock size={10} /> 只读
               </Badge>
             )}
           </div>
@@ -222,14 +222,14 @@ export function FieldRow({
           {children}
           {api.dirty && (
             <IconButton
-              label="Withdraw this change"
+              label="撤销此修改"
               onClick={() => api.withdraw()}
             >
               <RotateCcw size={13} />
             </IconButton>
           )}
           <IconButton
-            label="Field details"
+            label="配置项详情"
             active={detailsOpen}
             onClick={() => setDetailsOpen((open) => !open)}
           >
@@ -239,30 +239,29 @@ export function FieldRow({
       </div>
       {api.stale && (
         <div className="mt-1.5 flex items-center gap-2 rounded-md bg-warning-soft px-2.5 py-1.5 text-[11px] text-warning">
-          The saved value changed elsewhere. Adopt the new baseline or keep
-          your local edit.
+          已保存的值发生了变化，请采用新值或保留本地修改。
           <button
             className="font-medium underline"
             onClick={() => api.resolveStale("adopt")}
           >
-            Adopt
+            采用新值
           </button>
           <button
             className="font-medium underline"
             onClick={() => api.resolveStale("keep")}
           >
-            Keep
+            保留修改
           </button>
         </div>
       )}
       {detailsOpen && (
         <div className="mt-1.5 space-y-0.5 rounded-md bg-bg-sunken px-2.5 py-1.5 font-mono text-[11px] text-fg-muted">
-          <div className="break-all">path: {path}</div>
+          <div className="break-all">路径：{path}</div>
           <div className="break-all">
-            source: {api.sourceId ?? api.field?.surface ?? "—"}
+            来源：{api.sourceId ?? api.field?.surface ?? "—"}
           </div>
           {api.readOnly !== null && (
-            <div className="break-all">read-only: {api.readOnly}</div>
+            <div className="break-all">只读：{api.readOnly}</div>
           )}
         </div>
       )}
@@ -505,9 +504,9 @@ export function DraftEnum({
         }
       }}
     >
-      {current === undefined && <option value="">default</option>}
+      {current === undefined && <option value="">默认</option>}
       {!known && current !== undefined && (
-        <option value={current}>{current} (current)</option>
+        <option value={current}>{current}{settingsText("(current)")}</option>
       )}
       {options.map((choice) => (
         <option key={choice.value} value={choice.value}>
@@ -694,9 +693,7 @@ export function CredentialValueEditor({
 
   if (name.trim() === "") {
     return (
-      <span className="text-[11px] text-fg-faint">
-        Set the variable name first.
-      </span>
+      <span className="text-[11px] text-fg-faint">{settingsText("Set the variable name first.")}</span>
     );
   }
 
@@ -724,21 +721,13 @@ export function CredentialValueEditor({
         {name}
       </span>
       {draftDelete ? (
-        <Badge tone="red" title="Deletion is staged in the local draft">
-          delete pending
-        </Badge>
+        <Badge tone="red" title="Deletion is staged in the local draft">{settingsText("delete pending")}</Badge>
       ) : draftSet ? (
-        <Badge tone="accent" title="A new value is staged in the local draft">
-          •••••• pending apply
-        </Badge>
+        <Badge tone="accent" title="A new value is staged in the local draft">{settingsText("•••••• pending apply")}</Badge>
       ) : stored ? (
-        <Badge tone="green" title="A value exists in the project dotenv file">
-          •••••• configured
-        </Badge>
+        <Badge tone="green" title="A value exists in the project dotenv file">{settingsText("•••••• configured")}</Badge>
       ) : (
-        <Badge tone="gray" title="No value found in the dotenv source">
-          not set
-        </Badge>
+        <Badge tone="gray" title="No value found in the dotenv source">{settingsText("not set")}</Badge>
       )}
       {editing ? (
         <>
@@ -769,9 +758,7 @@ export function CredentialValueEditor({
             type="button"
             className="h-7 rounded-md px-1.5 text-xs font-medium text-fg-muted hover:text-fg"
             onClick={stopEditing}
-          >
-            Cancel
-          </button>
+          >{settingsText("Cancel")}</button>
         </>
       ) : (
         <button
@@ -784,9 +771,7 @@ export function CredentialValueEditor({
               : "The dotenv source is read-only"
           }
           onClick={() => setEditing(true)}
-        >
-          Set value
-        </button>
+        >{settingsText("Set value")}</button>
       )}
       {(stored || draftSet) && !draftDelete && (
         <IconButton
@@ -967,7 +952,7 @@ export function KeyValueMapEditor({
           <Plus size={12} /> {addLabel}
         </button>
         {rows.length === 0 && (
-          <span className="text-[11px] text-fg-faint">empty map</span>
+          <span className="text-[11px] text-fg-faint">空映射</span>
         )}
         {error !== null && (
           <span className="text-[11px] text-danger">{error}</span>
@@ -992,7 +977,7 @@ function toRows(value: Record<string, JsonValue>): MapRow[] {
 export function AdvancedFields({ children }: { children: ReactNode }) {
   return (
     <Collapsible
-      title={<span className="text-fg-muted">Advanced</span>}
+      title={<span className="text-fg-muted">高级</span>}
       tone="sunken"
       className="m-2"
     >
@@ -1137,7 +1122,7 @@ export function FieldSection({
   const primary = paths.filter((path) => !isAdvanced(path));
   const advanced = paths.filter(isAdvanced);
   return (
-    <SectionCard title={title} description={description} actions={actions}>
+    <SectionCard title={settingsText(title)} description={description === undefined ? undefined : settingsText(description)} actions={actions}>
       <div className="flex flex-col divide-y divide-line">
         {primary.map((path) => (
           <SettingsField key={path} path={path} override={overrides?.[path]} />
@@ -1217,9 +1202,9 @@ export function EmbeddingUseControl({ api }: { api: DraftFieldApi }) {
           }
         }}
       >
-        <option value="">Not set (owner default)</option>
+        <option value="">未设置（使用 owner 默认值）</option>
         {!known && current !== undefined && (
-          <option value={current}>{current} (unknown)</option>
+          <option value={current}>{current}{settingsText("(unknown)")}</option>
         )}
         {options.map((option) => (
           <option key={option.value} value={option.value}>
@@ -1227,16 +1212,12 @@ export function EmbeddingUseControl({ api }: { api: DraftFieldApi }) {
           </option>
         ))}
       </select>
-      <span className="max-w-72 text-right text-[10.5px] leading-4 text-fg-faint">
-        Changing the use rebuilds the owner&apos;s rebuildable vector cache on
-        activation. Uses are managed under{" "}
+      <span className="max-w-72 text-right text-[10.5px] leading-4 text-fg-faint">{settingsText("Changing the use rebuilds the owner&apos;s rebuildable vector cache on activation. Uses are managed under")}{" "}
         <button
           type="button"
           className="text-accent hover:underline"
           onClick={() => navigateTo("dedicated-models")}
-        >
-          Models &amp; Services → Dedicated Models &amp; Uses
-        </button>
+        >{settingsText("Models &amp; Services → Dedicated Models &amp; Uses")}</button>
         .
       </span>
     </span>

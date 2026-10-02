@@ -350,7 +350,7 @@ describe("McpPage collection editor", () => {
       setInputValue(input, "remote");
     });
     const create = [...container.querySelectorAll("button")].find(
-      (item) => item.textContent?.includes("Create"),
+      (item) => item.textContent?.includes("创建"),
     );
     await act(async () => {
       create!.click();
@@ -411,7 +411,7 @@ describe("AcpPage", () => {
   it("creates a target through the subagent create_source and shows the runtime summary honestly", async () => {
     await renderPage(<AcpPage />);
     // No connection in the test environment → an honest notice, not a fake list.
-    expect(container.textContent).toContain("No backend connection");
+    expect(container.textContent).toContain("尚未连接后端");
 
     const input = container.querySelector(
       "input[placeholder='new id']",
@@ -420,7 +420,7 @@ describe("AcpPage", () => {
       setInputValue(input, "worker");
     });
     const create = [...container.querySelectorAll("button")].find((item) =>
-      item.textContent?.includes("Create"),
+      item.textContent?.includes("创建"),
     );
     await act(async () => {
       create!.click();

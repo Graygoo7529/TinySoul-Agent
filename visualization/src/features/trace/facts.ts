@@ -340,6 +340,8 @@ export interface ActionTrace {
 }
 
 export interface LlmTaskTrace extends LlmTaskFact {
+  reasoning: string | null;
+  controls: { name: string; arguments: JsonObject }[];
   cycleId: string | null;
   phase: string | null;
   /** Module frame == the owning action's invoke_id, when scoped to an action. */
@@ -437,10 +439,8 @@ export function buildTurnProcess(events: ObservationEvent[]): TurnProcess {
       const trace =
         actionsByCallId.get(result.callId) ??
         placeholderAction(result.callId, result.action, event);
-      if (trace.call === null) {
-        trace.cycleId = trace.cycleId ?? scopeValue(event, "cycle");
-        trace.phase = trace.phase ?? scopeValue(event, "phase");
-      }
+      trace.cycleId = scopeValue(event, "cycle") ?? trace.cycleId;
+      trace.phase = scopeValue(event, "phase") ?? trace.phase;
       trace.result = result;
       trace.invokeId = result.invokeId || trace.invokeId;
       if (trace.invokeId !== null) actionsByInvokeId.set(trace.invokeId, trace);
@@ -453,6 +453,8 @@ export function buildTurnProcess(events: ObservationEvent[]): TurnProcess {
         actionsByCallId.get(execution.callId) ??
         placeholderAction(execution.callId, "", event);
       trace.executions.push(execution);
+      trace.cycleId = scopeValue(event, "cycle") ?? trace.cycleId;
+      trace.phase = scopeValue(event, "phase") ?? trace.phase;
       trace.invokeId = trace.invokeId ?? (execution.invokeId || null);
       if (trace.invokeId !== null) actionsByInvokeId.set(trace.invokeId, trace);
       actionsByCallId.set(execution.callId, trace);
@@ -463,6 +465,8 @@ export function buildTurnProcess(events: ObservationEvent[]): TurnProcess {
       const existing = llmTasks.get(task.taskId);
       const trace: LlmTaskTrace = existing ?? {
         ...task,
+        reasoning: null,
+        controls: [],
         cycleId: scopeValue(event, "cycle"),
         phase: scopeValue(event, "phase"),
         invokeId: scopeValue(event, "module"),
@@ -509,6 +513,19 @@ export function buildTurnProcess(events: ObservationEvent[]): TurnProcess {
     }
   }
 
+  for (const event of ordered) {
+    if (event.name !== "llm.model.response") continue;
+    const task = llmTasks.get(asString(event.payload.task_id) ?? "");
+    if (task === undefined) continue;
+    task.reasoning = asString(asObject(event.payload.reasoning)?.summary) ?? task.reasoning;
+    task.controls = (Array.isArray(event.payload.tool_calls) ? event.payload.tool_calls : []).flatMap((value) => {
+      const call = asObject(value);
+      const name = asString(call?.name);
+      return call?.kind === "control" && name !== null
+        ? [{ name, arguments: asObject(call.arguments) ?? {} }] : [];
+    });
+  }
+
   // Link searches and LLM tasks into their owning action via the module frame.
   for (const search of searches.values()) {
     search.steps.sort(
@@ -532,6 +549,27 @@ export function buildTurnProcess(events: ObservationEvent[]): TurnProcess {
   const cycles: CycleProcess[] = [];
   const unscoped: ActionTrace[] = [];
   const cycleIndex = new Map<string, CycleProcess>();
+  // Establish the path from observed scope order, including a live decision
+  // before its first action. Execution scope takes precedence over call intent.
+  const phaseAt = (cycleId: string, phaseName: string): PhaseProcess => {
+    let cycle = cycleIndex.get(cycleId);
+    if (cycle === undefined) {
+      cycle = { cycleId, phases: [] };
+      cycleIndex.set(cycleId, cycle);
+      cycles.push(cycle);
+    }
+    let phase = cycle.phases.find((item) => item.phase === phaseName);
+    if (phase === undefined) {
+      phase = { phase: phaseName, actions: [], llmTasks: [] };
+      cycle.phases.push(phase);
+    }
+    return phase;
+  };
+  for (const event of ordered) {
+    const cycleId = scopeValue(event, "cycle");
+    const phase = scopeValue(event, "phase");
+    if (cycleId !== null && phase !== null) phaseAt(cycleId, phase);
+  }
   const allActions = [...actionsByCallId.values()].sort(
     (a, b) => a.firstSequence - b.firstSequence,
   );
@@ -540,32 +578,12 @@ export function buildTurnProcess(events: ObservationEvent[]): TurnProcess {
       unscoped.push(trace);
       continue;
     }
-    let cycle = cycleIndex.get(trace.cycleId);
-    if (cycle === undefined) {
-      cycle = { cycleId: trace.cycleId, phases: [] };
-      cycleIndex.set(trace.cycleId, cycle);
-      cycles.push(cycle);
-    }
-    const phaseName = trace.phase ?? "phase?";
-    let phase = cycle.phases.find((item) => item.phase === phaseName);
-    if (phase === undefined) {
-      phase = { phase: phaseName, actions: [], llmTasks: [] };
-      cycle.phases.push(phase);
-    }
-    phase.actions.push(trace);
+    phaseAt(trace.cycleId, trace.phase ?? "phase?").actions.push(trace);
   }
   // Phase-scoped LLM tasks (Phase1/Phase2 decisions) sit beside the actions.
   for (const task of llmTasks.values()) {
     if (task.invokeId !== null || task.cycleId === null) continue;
-    const cycle = cycleIndex.get(task.cycleId);
-    if (cycle === undefined) continue;
-    const phaseName = task.phase ?? "phase?";
-    let phase = cycle.phases.find((item) => item.phase === phaseName);
-    if (phase === undefined) {
-      phase = { phase: phaseName, actions: [], llmTasks: [] };
-      cycle.phases.push(phase);
-    }
-    phase.llmTasks.push(task);
+    phaseAt(task.cycleId, task.phase ?? "phase?").llmTasks.push(task);
   }
 
   return {

@@ -1,3 +1,4 @@
+import { settingsText } from "../i18n";
 /**
  * Session settings (config-coverage §5.2): the daily session root and inspect
  * limits. The background budget is owned by Behavior → Budgets (the longest
@@ -19,7 +20,7 @@ export function SessionPage() {
       <BackgroundBudgetRow />
       <FieldSection
         title="Session"
-        description="Daily session facts and the semantic map."
+        description={settingsText("Daily session facts and the semantic map.")}
         paths={["session.root", "session.inspect_max_chars"]}
         overrides={{
           "session.inspect_max_chars": { min: 1 },
@@ -37,14 +38,14 @@ function BackgroundBudgetRow() {
 
   return (
     <SectionCard
-      title="Background Budget"
-      description="How much session background the Context may carry; edited under Behavior → Budgets together with the other budgets."
+      title={settingsText("Background Budget")}
+      description={settingsText("How much session background the Context may carry; edited under Behavior → Budgets together with the other budgets.")}
     >
       <div className="flex items-center gap-3">
         <span className="text-[13px] font-medium text-fg">
           session.background_max_chars
         </span>
-        <Badge tone="gray">owned by Budgets</Badge>
+        <Badge tone="gray">由预算管理</Badge>
         <span className="ml-auto flex items-center gap-3">
           <span className="font-mono text-[12px] text-fg-muted">
             saved {valuePreview(savedValue(saved, "session.background_max_chars"))}
@@ -55,8 +56,7 @@ function BackgroundBudgetRow() {
             type="button"
             className="flex items-center gap-1 text-[12px] font-medium text-accent hover:underline"
             onClick={() => navigateTo("budgets", "session.background_max_chars")}
-          >
-            Edit in Budgets <ArrowRight size={12} />
+          >{settingsText("Edit in Budgets")}<ArrowRight size={12} />
           </button>
         </span>
       </div>

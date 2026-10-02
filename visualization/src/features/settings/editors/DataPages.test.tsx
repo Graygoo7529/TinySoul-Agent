@@ -193,7 +193,7 @@ describe("SessionPage background budget", () => {
     ).toBeNull();
 
     const jump = [...container.querySelectorAll("button")].find((item) =>
-      item.textContent?.includes("Edit in Budgets"),
+      item.textContent?.includes("前往预算设置"),
     );
     expect(jump).toBeDefined();
     await act(async () => {

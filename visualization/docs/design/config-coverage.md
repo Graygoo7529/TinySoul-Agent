@@ -1,6 +1,6 @@
 # 配置覆盖清单（W3 产物）
 
-> 建立：2026-09-29。依据 `docs/analysis/20260928-visualization-frontend-implementation-plan.md` §15.2 要求，逐项核对后端全部可配置设置。后端事实来源：`tinysoul/infra/config/`（catalog TOML、sources、editing）、`docs/endpoint/configuration.md`、`tinysoul/assets/{standard,common}/configs/` 模板、各 owner 的 config 类型。本文是前端设置页实现的对账清单；遇本文与后端不一致，以后端 catalog/endpoint 实际行为为准并更新本文。
+> 建立：2026-09-29。本文是前端设置页与 v2 catalog/config/actions 的对账清单。后端事实来源：`tinysoul/infra/config/`、`docs/endpoint/configuration.md`、资源模板和各 owner 的 config 类型。遇本文与后端 catalog/endpoint 不一致，以后端实际行为为准并更新本文。
 
 ## 1. 配置系统事实模型
 
@@ -337,8 +337,8 @@ Endpoint：`GET/POST /v2/config/presets`、`GET/PUT/DELETE /v2/config/presets/{i
 ## 9. 与计划及现有前端文档的不一致点
 
 1. **catalog choices 已对齐**：`capabilities.resource.render_pdf_pages` 现在声明并接受 `disabled/on_no_text`；前端应直接消费 catalog choices。
-2. **现有 `visualization/docs/design/settings.md` 使用 `/v1/config*`**，实际 endpoint 全部是 `/v2/*`；F2 重组设置文档时须统一替换。
-3. **现有 settings.md 的能力分组只列 Web/Resource/Execution**，catalog 实际还有 `capabilities.subagent`、`capabilities.expand` 两个 surface 与 `jobs` surface；§15 六组导航已覆盖，旧文档分组作废。
+2. `visualization/docs/design/settings.md` 与当前 Settings 实现使用 `/v2/config*`；字段标签和交互以 catalog/ConfigDraft 为准。
+3. 工具与连接分组覆盖 Web、资源、Execution/Job、ACP 与 MCP；字段可写性仍由实际 source 和 catalog 决定。
 4. **`agent.*` 在 catalog runtime.toml 中有字段声明但全部进程独有只读**；系统页只读项须以 config 读取投影的 `writable:false` 为准，不凭 catalog 存在性做成可写控件。
 5. **Kimi 搜索 model 已声明 choices**：后端 catalog 提供 kimi-k2.5/kimi-k2.6；表单应消费 choices，不开放自由文本。
 6. **LLM Provider 无 `proxy` 字段，专用 Provider（`infra.model_services.providers`）有**；两个表单可复用控件但协议不同（复数 `adapters`/`api_key_envs` vs 单数 `adapter`/`api_key_env`），不做假统一字段映射（与计划 §16.5 一致）。

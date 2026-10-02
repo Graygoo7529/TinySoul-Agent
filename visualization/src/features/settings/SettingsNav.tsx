@@ -10,6 +10,7 @@ import {
   SETTINGS_PAGES,
   type SettingsPageId,
 } from "./pages";
+import { settingsGroupTitle, settingsTitle } from "./labels";
 import { useSettingsUiStore } from "./uiStore";
 
 /**
@@ -49,14 +50,14 @@ export function SettingsNav() {
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search settings…"
+            placeholder="搜索设置…"
             className="min-w-0 flex-1 bg-transparent text-[12px] outline-none placeholder:text-fg-faint"
           />
           {searching && (
             <button
               onClick={() => setQuery("")}
               className="shrink-0 rounded p-0.5 text-fg-faint hover:bg-hover hover:text-fg"
-              aria-label="Clear search"
+              aria-label="清除搜索"
             >
               <X size={12} />
             </button>
@@ -69,7 +70,7 @@ export function SettingsNav() {
           <div className="space-y-0.5">
             {hits.length === 0 && (
               <div className="px-2.5 py-3 text-[11px] text-fg-faint">
-                No catalog field matches “{query.trim()}”.
+                没有找到匹配“{query.trim()}”的配置项
               </div>
             )}
             {hits.map((hit) => (
@@ -87,7 +88,7 @@ export function SettingsNav() {
                 <div className="mt-0.5 truncate font-mono text-[10px] text-fg-faint">
                   {hit.subtitle}
                   <span className="ml-1.5 font-sans">
-                    → {SETTINGS_PAGES[hit.page].title}
+                    → {settingsTitle(SETTINGS_PAGES[hit.page])}
                   </span>
                 </div>
               </button>
@@ -106,7 +107,7 @@ export function SettingsNav() {
                     size={11}
                     className={`shrink-0 transition-transform ${collapsed ? "" : "rotate-90"}`}
                   />
-                  <span className="truncate">{group.title}</span>
+                  <span className="truncate">{settingsGroupTitle(group)}</span>
                 </button>
                 {!collapsed &&
                   group.pages.map((pageId) => {
@@ -123,7 +124,7 @@ export function SettingsNav() {
                             : "text-fg-muted hover:bg-hover hover:text-fg"
                         }`}
                       >
-                        <span className="min-w-0 flex-1 truncate">{def.title}</span>
+                        <span className="min-w-0 flex-1 truncate">{settingsTitle(def)}</span>
                         {count > 0 && (
                           <Badge tone="accent" title={`${count} unsaved change(s)`}>
                             {count}

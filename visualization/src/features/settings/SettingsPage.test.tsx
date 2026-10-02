@@ -105,19 +105,19 @@ describe("SettingsPage shell", () => {
     await flush();
 
     for (const group of [
-      "Overview & Plans",
-      "Models & Services",
-      "Behavior & Invocation",
-      "Tools & Connections",
-      "Data & Knowledge",
-      "System & Diagnostics",
-      "Interface",
+      "概览与方案",
+      "模型与服务",
+      "行为与调用",
+      "工具与连接",
+      "数据与知识",
+      "系统与诊断",
+      "界面",
     ]) {
       expect(text()).toContain(group);
     }
-    expect(text()).toContain("Running configuration");
+    expect(text()).toContain("运行配置");
     expect(text()).toContain("Balanced"); // preset summary
-    expect(text()).toContain("No local changes"); // bottom bar
+    expect(text()).toContain("没有本地修改"); // bottom bar
   });
 
   it("renders the run-plans page from the overview group", async () => {
@@ -128,15 +128,15 @@ describe("SettingsPage shell", () => {
     await flush();
 
     const button = [...container.querySelectorAll("button")].find((item) =>
-      item.textContent?.includes("Run plans"),
+      item.textContent?.includes("运行方案"),
     );
     expect(button).toBeDefined();
     await act(async () => {
       button?.click();
     });
     await flush();
-    expect(text()).toContain("New plan");
-    expect(text()).toContain("Managed scope");
+    expect(text()).toContain("新建方案");
+    expect(text()).toContain("方案范围");
     expect(text()).toContain("Balanced");
   });
 
@@ -145,8 +145,8 @@ describe("SettingsPage shell", () => {
       root.render(<SettingsPlaceholderPage page="plans" />);
     });
     await flush();
-    expect(text()).toContain("no implementation yet");
-    expect(text()).toContain("Overview & Plans");
+    expect(text()).toContain("此页面尚未实现");
+    expect(text()).toContain("概览与方案");
   });
 
   it("routes catalog search hits to their owning page", async () => {
@@ -156,14 +156,14 @@ describe("SettingsPage shell", () => {
     await flush();
 
     const input = container.querySelector(
-      "input[placeholder='Search settings…']",
+      "input[placeholder='搜索设置…']",
     ) as HTMLInputElement | null;
     expect(input).not.toBeNull();
     await act(async () => {
       setInputValue(input!, "execution");
     });
     const hit = [...container.querySelectorAll("button")].find((item) =>
-      item.textContent?.includes("Execution Enabled"),
+      item.textContent?.includes("启用本地执行"),
     );
     expect(hit).toBeDefined();
     await act(async () => {
@@ -194,7 +194,7 @@ describe("SettingsPage shell", () => {
 
     // The nav count lands on the Credentials page.
     const navRow = [...container.querySelectorAll("nav button")].find((item) =>
-      item.textContent?.includes("Credentials"),
+      item.textContent?.includes("凭据"),
     );
     expect(navRow?.textContent).toContain("1");
 
@@ -210,11 +210,11 @@ describe("SettingsPage shell", () => {
     expect(useSettingsUiStore.getState().page).toBe("credentials");
 
     // The page keeps its own Discard button as the equivalent path…
-    expect(text()).toContain("Discard 1 credential change");
+    expect(text()).toContain("放弃 1 项凭据修改");
 
     // …and the bottom bar reset now withdraws the credentials draft.
     const reset = [...container.querySelectorAll("button")].find((item) =>
-      item.textContent?.includes("Reset this page"),
+      item.textContent?.includes("重置此页"),
     ) as HTMLButtonElement | undefined;
     expect(reset).toBeDefined();
     expect(reset!.disabled).toBe(false);
@@ -225,7 +225,7 @@ describe("SettingsPage shell", () => {
     expect(Object.keys(useConfigDraftStore.getState().drafts)).toHaveLength(0);
     expect(
       [...container.querySelectorAll("nav button")].find((item) =>
-        item.textContent?.includes("Credentials"),
+        item.textContent?.includes("凭据"),
       )?.textContent,
     ).not.toContain("1");
   });
@@ -245,11 +245,11 @@ describe("SettingsPage shell", () => {
       });
     });
     await flush();
-    expect(text()).toContain("configuration was rejected");
+    expect(text()).toContain("配置被拒绝");
     expect(text()).not.toContain('"expected"');
 
     const toggle = [...container.querySelectorAll("button")].find(
-      (item) => item.textContent === "Details",
+      (item) => item.textContent === "查看详情",
     );
     expect(toggle).toBeDefined();
     await act(async () => {
@@ -269,7 +269,7 @@ describe("SettingsPage shell", () => {
     await flush();
     expect(
       [...container.querySelectorAll("button")].find(
-        (item) => item.textContent === "Details",
+        (item) => item.textContent === "查看详情",
       ),
     ).toBeUndefined();
   });

@@ -1,3 +1,4 @@
+import { settingsText } from "../i18n";
 /**
  * The §15/§5.2 draft-conflict flow shared by every run-plan apply entry
  * (the settings plans page and the Composer quick entry).
@@ -41,32 +42,26 @@ export function PresetDraftConfirm({
   onCancel: () => void;
 }) {
   return (
-    <Modal title="Unsaved configuration changes" onClose={onCancel}>
+    <Modal title="有未应用的配置修改" onClose={onCancel}>
       <div className="flex items-start gap-2.5 text-[13px] leading-5 text-fg">
         <AlertTriangle size={16} className="mt-0.5 shrink-0 text-warning" />
         <div>
-          You have {draftCount} unapplied{" "}
-          {draftCount === 1 ? "change" : "changes"} in settings. Switching to{" "}
-          <span className="font-medium">“{preset.name}”</span> applies the plan
-          as-is — the two are never merged, and the plan is applied with a
-          single request.
+          设置中有 {draftCount} 项未应用修改。切换到
+          <span className="font-medium">“{preset.name}”</span>
+          前，请先处理草稿。丢弃并切换将直接应用该方案，不合并草稿。
         </div>
       </div>
       <div className="mt-4 flex flex-col gap-2">
-        <Button variant="outline" size="sm" onClick={onReview}>
-          Review my changes first
-        </Button>
+        <Button variant="outline" size="sm" onClick={onReview}>{settingsText("Review my changes first")}</Button>
         <Button
           variant="danger"
           size="sm"
           loading={applying}
           onClick={onDiscardAndApply}
         >
-          Discard changes and switch to “{preset.name}”
+          丢弃修改并切换到“{preset.name}”
         </Button>
-        <Button variant="ghost" size="sm" onClick={onCancel}>
-          Cancel — keep my changes
-        </Button>
+        <Button variant="ghost" size="sm" onClick={onCancel}>{settingsText("Cancel — keep my changes")}</Button>
       </div>
     </Modal>
   );

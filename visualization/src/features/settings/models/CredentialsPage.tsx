@@ -1,3 +1,4 @@
+import { settingsText } from "../i18n";
 /**
  * Credentials settings page (plan §16.6): the unified editor for every
  * credential reference the catalog declares (provider env names, dedicated
@@ -67,17 +68,14 @@ export function CredentialsPage() {
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <KeyRound size={15} className="text-fg-faint" />
         <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-semibold text-fg">Project credentials</div>
+          <div className="text-[13px] font-semibold text-fg">项目凭据</div>
           <div className="text-[11px] text-fg-faint">
-            Stored in the project dotenv file{dotenv !== undefined ? ` (${dotenv.path})` : ""}.
-            Values are never displayed; setting or deleting stages a local draft
-            until you apply the configuration.
+            保存在项目 dotenv 文件{dotenv !== undefined ? ` (${dotenv.path})` : ""}中。值不会直接显示；设置或删除会先形成本地草稿，应用配置后才会提交。
           </div>
         </div>
         {pendingCount > 0 && (
           <Button size="xs" variant="outline" onClick={discardCredentialDrafts}>
-            <RotateCcw size={13} /> Discard {pendingCount} credential{" "}
-            {pendingCount === 1 ? "change" : "changes"}
+            <RotateCcw size={13} /> 放弃 {pendingCount} 项凭据修改
           </Button>
         )}
       </div>
@@ -96,8 +94,7 @@ export function CredentialsPage() {
           disabled={dotenv !== undefined && !dotenv.writable}
           onClick={() => setAdding((open) => !open)}
         >
-          <Plus size={13} /> Add credential
-        </Button>
+          <Plus size={13} />{settingsText("Add credential")}</Button>
       </div>
 
       {adding && (
@@ -129,17 +126,12 @@ export function CredentialsPage() {
                 setNewValue("");
                 setAdding(false);
               }}
-            >
-              Stage value
-            </Button>
+            >{settingsText("Stage value")}</Button>
           </div>
           {nameError !== null && (
             <div className="text-[10px] text-danger">{nameError}</div>
           )}
-          <div className="text-[10px] text-fg-faint">
-            Prefer names referenced by a provider or MCP server so the entry stays
-            connected to a use; unreferenced entries are listed at the end.
-          </div>
+          <div className="text-[10px] text-fg-faint">{settingsText("Prefer names referenced by a provider or MCP server so the entry stays connected to a use; unreferenced entries are listed at the end.")}</div>
         </div>
       )}
 
@@ -163,9 +155,7 @@ export function CredentialsPage() {
         ))
       )}
       {visible.length === 0 && credentials.length > 0 && (
-        <div className="px-1 py-3 text-[11px] text-fg-faint">
-          No credential matches the filter.
-        </div>
+        <div className="px-1 py-3 text-[11px] text-fg-faint">{settingsText("No credential matches the filter.")}</div>
       )}
     </div>
   );

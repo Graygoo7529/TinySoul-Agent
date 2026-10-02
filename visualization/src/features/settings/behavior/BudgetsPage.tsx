@@ -1,3 +1,4 @@
+import { settingsText } from "../i18n";
 /**
  * Budgets settings page (config-coverage §3.4): turn cycle limits and the
  * Context/Session character budgets. Every field edits one writable atomic
@@ -16,8 +17,8 @@ export function BudgetsPage() {
   return (
     <SettingsPageBody>
       <FieldSection
-        title="Turn Cycles"
-        description="Complete Agent Cycles allowed in one turn of each kind. A turn that exhausts its budget ends as exhausted instead of answering."
+        title={settingsText("Turn Cycles")}
+        description={settingsText("Complete Agent Cycles allowed in one turn of each kind. A turn that exhausts its budget ends as exhausted instead of answering.")}
         paths={[
           "loop.user.max_cycles",
           "reflection.home.max_cycles",
@@ -30,8 +31,8 @@ export function BudgetsPage() {
         }}
       />
       <FieldSection
-        title="Context & Session Budgets"
-        description="Character and byte budgets of the constructed model context and the session background it carries."
+        title={settingsText("Context & Session Budgets")}
+        description={settingsText("Character and byte budgets of the constructed model context and the session background it carries.")}
         paths={[
           "context.budget_max_image_bytes",
           "session.background_max_chars",
@@ -61,7 +62,7 @@ export function BudgetsPage() {
       />
       <FieldSection
         title="TurnTrace"
-        description="Heap chunking and progressive inspection of the current turn's trace. These shape how long-running turns keep their history readable."
+        description={settingsText("Heap chunking and progressive inspection of the current turn's trace. These shape how long-running turns keep their history readable.")}
         paths={[
           "context.trace_chunk_max_chars",
           "context.trace_branch_factor",

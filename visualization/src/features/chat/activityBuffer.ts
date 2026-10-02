@@ -3,20 +3,23 @@
  *
  * Responsibilities:
  * - Receive ObservationEvents for the current turn
- * - Derive phase headline, thinking, activity trail, working state
+ * - Derive phase headline, thinking and activity trail
  * - Mark incomplete on connection loss / gap / truncation
  * - Never override formal owner state
  * - Never fabricate results
  *
  * Lifecycle:
  * - Bound to a single active turn
- * - Discarded when turn ends or switches
+ * - Retained for the settled card, discarded when the displayed Turn switches
  * - Rebuilt from /v2/events replay on reconnect or gap
  */
 
+import { turnIdOfObservation } from "../../api/v2/types";
+import { asObject, asString, parseActionCall, parseActionExecution, parseActionResult, scopeValue } from "../trace/facts";
 import type { ObservationEvent } from "../../api/v2/types";
 import type {
   ActivityPresentation,
+  ActionGlimpseData,
   ActivityStep,
   PhaseHeadline,
   ThinkingStream,
@@ -24,33 +27,39 @@ import type {
 } from "./presentation";
 
 export class ActivityBuffer {
-  private turnId: string;
   private events: ObservationEvent[] = [];
   private incomplete = false;
 
-  constructor(turnId: string) {
-    this.turnId = turnId;
-  }
+  constructor(readonly turnId: string) {}
 
   /**
    * Add a new observation event.
    */
   addEvent(event: ObservationEvent): void {
-    if (event.turn_id !== this.turnId) {
+    const eventTurnId = turnIdOfObservation(event);
+    if (eventTurnId !== this.turnId) {
       console.warn(
-        `ActivityBuffer: ignoring event for wrong turn ${event.turn_id} (expected ${this.turnId})`,
+        `ActivityBuffer: ignoring event for wrong turn ${eventTurnId} (expected ${this.turnId})`,
       );
       return;
     }
 
-    this.events.push(event);
+    if (event.name === "llm.model.request") return; // messages belong to the directed ModelCall reader
+    if (this.events.some((existing) => existing.sequence === event.sequence)) return;
+    const reasoning = asString(asObject(event.payload.reasoning)?.summary);
+    this.events.push(event.name === "llm.model.response"
+      ? { ...event, payload: { task_id: event.payload.task_id ?? null, reasoning: { summary: reasoning } } }
+      : event);
+    this.events.sort((a, b) => a.sequence - b.sequence);
+    if (this.events.length > 2000) { this.events = this.events.slice(-2000); this.incomplete = true; }
   }
 
   /**
    * Bulk load events (from replay).
    */
   loadEvents(events: ObservationEvent[]): void {
-    this.events = events.filter((e) => e.turn_id === this.turnId);
+    this.events = [];
+    for (const event of events) if (turnIdOfObservation(event) === this.turnId) this.addEvent(event);
   }
 
   /**
@@ -121,6 +130,8 @@ export class ActivityBuffer {
   }
 
   private extractPhase(event: ObservationEvent): "phase1" | "phase2" | "phase3" {
+    const scoped = scopeValue(event, "phase");
+    if (scoped === "phase1" || scoped === "phase2" || scoped === "phase3") return scoped;
     // Try event name first
     if (event.name.includes("phase1")) return "phase1";
     if (event.name.includes("phase2")) return "phase2";
@@ -150,36 +161,10 @@ export class ActivityBuffer {
    * Derive thinking stream from thinking-related events.
    */
   private deriveThinking(): ThinkingStream {
-    const thinkingEvents = this.events.filter(
-      (e) =>
-        e.name === "turn.thinking_updated" ||
-        e.name === "loop.thinking" ||
-        e.message?.toLowerCase().includes("thinking"),
-    );
-
-    if (thinkingEvents.length === 0) {
-      return {
-        current: "",
-        expanded: true,
-        history: [],
-      };
-    }
-
-    // Latest thinking is current
-    const latest = thinkingEvents[thinkingEvents.length - 1];
-    const current = (latest.payload?.text as string) || latest.message || "";
-
-    // History is all previous thinking texts
-    const history = thinkingEvents
-      .slice(0, -1)
-      .map((e) => (e.payload?.text as string) || e.message || "")
-      .filter((text) => text.length > 0);
-
-    return {
-      current,
-      expanded: true,
-      history,
-    };
+    const summaries = this.events.filter((event) => event.name === "llm.model.response")
+      .map((event) => asString(asObject(event.payload.reasoning)?.summary))
+      .filter((text): text is string => text !== null);
+    return { current: summaries[summaries.length - 1] ?? "", expanded: true, history: summaries.slice(0, -1) };
   }
 
   /**
@@ -187,24 +172,43 @@ export class ActivityBuffer {
    */
   private deriveTrail(): ActivityStep[] {
     const steps: ActivityStep[] = [];
+    const plans = new Map<string, ActionGlimpseData>();
 
     for (const event of this.events) {
+      const execution = parseActionExecution(event);
+      if (execution !== null) {
+        const plan = plans.get(execution.callId);
+        if (plan) {
+          switch (execution.state) {
+            case "started": plan.executionState = "running"; break;
+            case "settled": plan.executionState = "executed"; break;
+            case "cancelled": case "not_executed": case "unknown": plan.executionState = execution.state; break;
+          }
+        }
+      }
       const step = this.eventToActivityStep(event);
       if (step) {
+        if (step.content.type === "action_plan" && step.content.glimpse.callId) {
+          plans.set(step.content.glimpse.callId, step.content.glimpse);
+        } else if (step.content.type === "action_result") {
+          const plan = plans.get(step.content.glimpse.callId ?? "");
+          if (plan) {
+            plan.executionState = "executed";
+            step.content.glimpse.params = plan.params;
+          }
+        }
         steps.push(step);
       }
     }
 
-    // Keep only the most recent ROLL_WINDOW (14) steps
-    const ROLL_WINDOW = 14;
-    return steps.slice(-ROLL_WINDOW);
+    return steps; // LiveStatus owns its visible roller window.
   }
 
   private eventToActivityStep(event: ObservationEvent): ActivityStep | null {
     const timestamp = new Date(event.created_at * 1000).toISOString();
 
     // Phase started
-    if (event.name?.startsWith("loop.phase.")) {
+    if (event.name === "loop.phase.started") {
       const phase = this.extractPhase(event);
       return {
         id: `step-${event.sequence}`,
@@ -223,61 +227,17 @@ export class ActivityBuffer {
       };
     }
 
-    // Thinking updated
-    if (event.name === "turn.thinking_updated" || event.name === "loop.thinking") {
-      const text = (event.payload?.text as string) || event.message;
-      if (!text) return null;
-
+    if (event.name === "llm.model.response") {
+      const text = asString(asObject(event.payload.reasoning)?.summary);
+      if (text === null) return null;
       return {
-        id: `step-${event.sequence}`,
-        type: "thinking",
-        timestamp,
-        content: {
-          type: "thinking",
-          text,
-        },
-        autoExpandGist: true,
-      };
-    }
-
-    // Domain selected
-    if (event.name === "phase.domain_selected" || event.payload?.domains) {
-      const domains = (event.payload?.domains as string[]) || [];
-      if (domains.length === 0) return null;
-
-      return {
-        id: `step-${event.sequence}`,
-        type: "domain_select",
-        timestamp,
-        content: {
-          type: "domain_select",
-          domains,
-        },
-        autoExpandGist: false,
-      };
-    }
-
-    // Skill mounted
-    if (event.name === "phase.skill_mounted" || event.payload?.skill) {
-      const skill = event.payload?.skill as string;
-      const domain = event.payload?.domain as string;
-      if (!skill) return null;
-
-      return {
-        id: `step-${event.sequence}`,
-        type: "skill_mount",
-        timestamp,
-        content: {
-          type: "skill_mount",
-          skill,
-          domain: domain || "unknown",
-        },
-        autoExpandGist: false,
+        id: `step-${event.sequence}`, type: "thinking", timestamp,
+        content: { type: "thinking", text }, autoExpandGist: true,
       };
     }
 
     // Context updated
-    if (event.name === "context.installed" || event.name === "context.segment_updated") {
+    if (event.name === "context.installed" || event.name === "context.background.changed") {
       const summary = event.message || "Context updated";
       return {
         id: `step-${event.sequence}`,
@@ -291,64 +251,34 @@ export class ActivityBuffer {
       };
     }
 
-    // Action planned
-    if (event.name === "action.planned" || event.name === "loop.action.planned") {
-      const actionId = event.payload?.action_id as string;
-      const domain = event.payload?.domain as string;
-      if (!actionId) return null;
-
+    const call = parseActionCall(event);
+    if (call !== null) {
       return {
-        id: `step-${event.sequence}`,
-        type: "action_plan",
-        timestamp,
-        content: {
-          type: "action_plan",
-          glimpse: {
-            actionId,
-            domain: domain || "unknown",
-            stage: "plan",
-            params: event.payload?.params as Record<string, unknown>,
-          },
-        },
-        autoExpandGist: true,
+        id: `step-${event.sequence}`, type: "action_plan", timestamp,
+        content: { type: "action_plan", glimpse: {
+          actionId: call.action, callId: call.callId, domain: call.domain, stage: "plan", params: call.params, executionState: "planned",
+        } }, autoExpandGist: true,
       };
     }
-
-    // Action result
-    if (event.name === "action.completed" || event.name === "action.failed" || event.name === "loop.action.completed") {
-      const actionId = event.payload?.action_id as string;
-      const domain = event.payload?.domain as string;
-      if (!actionId) return null;
-
-      const status = event.name === "action.failed" ? "failure" : "success";
-      const durationMs = event.payload?.elapsed_seconds
-        ? (event.payload.elapsed_seconds as number) * 1000
-        : undefined;
-
+    const result = parseActionResult(event);
+    if (result !== null) {
+      const status = result.status === "failed" ? "failure" :
+        result.status === "success" || result.status === "timeout" ? result.status : "result_unknown";
       return {
-        id: `step-${event.sequence}`,
-        type: "action_result",
-        timestamp,
-        content: {
-          type: "action_result",
-          glimpse: {
-            actionId,
-            domain: domain || "unknown",
-            stage: "result",
-            result: {
-              status,
-              durationMs,
-              preview: event.payload?.preview as string | undefined,
-            },
-          },
-        },
-        autoExpandGist: true,
+        id: `step-${event.sequence}`, type: "action_result", timestamp,
+        content: { type: "action_result", glimpse: {
+          actionId: result.action, callId: result.callId, domain: result.domain, stage: "result",
+          payload: result.payload, failure: result.failure,
+          result: { status, preview: asString(result.failure?.feedback) ?? undefined },
+        } }, autoExpandGist: true,
       };
     }
 
     // Provider retry
     if (event.name?.includes("retry")) {
-      const provider = event.payload?.provider as string;
+      const provider =
+        (event.payload?.provider_id as string | undefined) ??
+        (event.payload?.provider as string | undefined);
       const attempt = event.payload?.attempt as number;
       if (!provider) return null;
 
@@ -365,44 +295,6 @@ export class ActivityBuffer {
       };
     }
 
-    // Milestone
-    if (event.name === "turn.milestone_updated" || event.payload?.milestone) {
-      const text = (event.payload?.text as string) || event.message;
-      const status = (event.payload?.status as "done" | "blocked" | "skipped") || "done";
-      if (!text) return null;
-
-      return {
-        id: `step-${event.sequence}`,
-        type: "milestone",
-        timestamp,
-        content: {
-          type: "milestone",
-          text,
-          status,
-        },
-        autoExpandGist: false,
-      };
-    }
-
-    // Todo
-    if (event.name === "turn.todo_updated" || event.payload?.todo) {
-      const text = (event.payload?.text as string) || event.message;
-      const status = (event.payload?.status as "pending" | "done") || "pending";
-      if (!text) return null;
-
-      return {
-        id: `step-${event.sequence}`,
-        type: "todo",
-        timestamp,
-        content: {
-          type: "todo",
-          text,
-          status,
-        },
-        autoExpandGist: false,
-      };
-    }
-
     return null;
   }
 
@@ -410,43 +302,12 @@ export class ActivityBuffer {
    * Derive working state (todos/milestones).
    */
   private deriveWorking(): WorkingState {
-    const todos: Map<string, { text: string; status: "pending" | "done" }> = new Map();
-    const milestones: Map<string, { text: string; status: "done" | "blocked" | "skipped" }> = new Map();
-
-    // Process events in order to build up current working state
-    for (const event of this.events) {
-      // Todos
-      if (event.name === "turn.todo_updated" || event.payload?.todo) {
-        const id = (event.payload?.id as string) || `todo-${event.sequence}`;
-        const text = (event.payload?.text as string) || event.message;
-        const status = (event.payload?.status as "pending" | "done") || "pending";
-        if (text) {
-          todos.set(id, { text, status });
-        }
-      }
-
-      // Milestones
-      if (event.name === "turn.milestone_updated" || event.payload?.milestone) {
-        const id = (event.payload?.id as string) || `milestone-${event.sequence}`;
-        const text = (event.payload?.text as string) || event.message;
-        const status = (event.payload?.status as "done" | "blocked" | "skipped") || "done";
-        if (text) {
-          milestones.set(id, { text, status });
-        }
-      }
-    }
-
+    // Current v2 observations do not publish Working mutations as a parallel
+    // event stream. Working remains a Context projection and is shown by the
+    // Context/Trace panels when it is installed.
     return {
-      todos: Array.from(todos.entries()).map(([id, { text, status }]) => ({
-        id,
-        text,
-        status,
-      })),
-      milestones: Array.from(milestones.entries()).map(([id, { text, status }]) => ({
-        id,
-        text,
-        status,
-      })),
+      todos: [],
+      milestones: [],
     };
   }
 
