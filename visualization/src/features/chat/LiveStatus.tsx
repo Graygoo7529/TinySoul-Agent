@@ -29,7 +29,8 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type { ActivityPresentation, ActivityStep, WorkingState, TurnStatus } from "./presentation";
-import { ActivityGlimpse } from "./ActivityGlimpse";
+import { ActivityGlimpse, glimpseBody } from "./ActivityGlimpse";
+import { useHoldChatFollow } from "./useConversationScroll";
 import { useNow } from "../../hooks/useNow";
 import { useThrottledValue } from "../../hooks/useThrottledValue";
 import { useOverflowing } from "../../hooks/useOverflowing";
@@ -55,16 +56,22 @@ const THINK_REVEAL_MS = 450;
 const THINK_LINE_HEIGHT = 20;
 const SLATE_GLIDE_MS = 360;
 const MILESTONE_WINDOW = 3;
+const GIST_POP_DELAY_MS = 400;
 
 export interface LiveStatusProps {
+  epoch: number;
+  turnId: string;
+  day: string | null;
   activity: ActivityPresentation;
   mode?: "live" | "settled";
   onStop?: () => void;
   status?: TurnStatus;
 }
 
-export function LiveStatus({ activity, mode = "live", onStop, status }: LiveStatusProps) {
+export function LiveStatus({ activity, mode = "live", onStop, status, epoch, turnId, day }: LiveStatusProps) {
   const live = mode === "live";
+  const waiting = status === "waiting_question" || status === "waiting_budget";
+  const holdFollow = useHoldChatFollow();
   useNow(live, 1000);
   const reduced = useReducedMotion();
 
@@ -85,17 +92,23 @@ export function LiveStatus({ activity, mode = "live", onStop, status }: LiveStat
 
   // Thinking stream: find the latest thinking step
   const thoughtStep = useMemo(() => {
-    for (let i = activity.trail.length - 1; i >= 0; i--) {
-      if (activity.trail[i].content.type === "thinking") return activity.trail[i];
+    for (let i = feed.trail.length - 1; i >= 0; i--) {
+      if (feed.trail[i].content.type === "thinking") return feed.trail[i];
     }
     return null;
-  }, [activity.trail]);
-  const throttledThoughtStep = useThrottledValue(thoughtStep, live ? 1500 : 0);
+  }, [feed.trail]);
+  const throttledThoughtStep = thoughtStep;
   const thoughtSeq = throttledThoughtStep?.id ?? "";
 
   // Newest-first steps for trail roller
   const steps = useMemo(() => [...activity.trail].reverse(), [activity.trail]);
   const [showAll, setShowAll] = useState(false);
+  const [openGists, setOpenGists] = useState<Set<string>>(new Set());
+  const autoOpened = useRef<Set<string>>(new Set());
+  const gistTimers = useRef(new Map<string, number>());
+  useEffect(() => () => { gistTimers.current.forEach(window.clearTimeout); gistTimers.current.clear(); }, []);
+  const hasGlimpse = (item: ActivityStep) =>
+    (item.content.type === "action_plan" || item.content.type === "action_result") && Boolean(glimpseBody(item.content.glimpse));
 
   const {
     ref: viewportRef,
@@ -163,6 +176,10 @@ export function LiveStatus({ activity, mode = "live", onStop, status }: LiveStat
       const item = pending[0];
       if (drain) {
         flushedIds.current.add(item.id);
+        if (!autoOpened.current.has(item.id) && hasGlimpse(item)) {
+          autoOpened.current.add(item.id);
+          setOpenGists((current) => new Set(current).add(item.id));
+        }
       }
       lastReleaseAt.current = Date.now();
       setReleasedId(item.id);
@@ -183,13 +200,36 @@ export function LiveStatus({ activity, mode = "live", onStop, status }: LiveStat
   const visible = showAll ? releasedNewestFirst : releasedNewestFirst.slice(0, ROLL_WINDOW);
   const overflow = showAll ? 0 : releasedNewestFirst.length - visible.length;
 
+  // Baseline two-beat action reveal: the row lands first, then its gist pops.
+  useEffect(() => {
+    if (showAll || visible.length === 0) return;
+    const candidates = visible.filter((item) =>
+      hasGlimpse(item) &&
+      !autoOpened.current.has(item.id) && !openGists.has(item.id));
+    for (const item of candidates) {
+      const open = () => {
+        gistTimers.current.delete(item.id);
+        if (autoOpened.current.has(item.id)) return;
+        autoOpened.current.add(item.id);
+        setOpenGists((current) => new Set(current).add(item.id));
+      };
+      if (!live || reduced) {
+        window.clearTimeout(gistTimers.current.get(item.id));
+        open();
+      } else if (!gistTimers.current.has(item.id)) {
+        gistTimers.current.set(item.id, window.setTimeout(open, GIST_POP_DELAY_MS));
+      }
+    }
+  });
+
   // Elapsed time
   const startMs = activity.timing.startedAt
     ? new Date(activity.timing.startedAt).getTime()
     : Date.now();
   const elapsedFormatted = formatDuration(startMs / 1000, live ? Date.now() / 1000 : (startMs + activity.timing.elapsedMs) / 1000);
 
-  const headlineLabel = headline.label;
+  const stopping = live && activity.stopping === true;
+  const headlineLabel = stopping ? "Stopping turn…" : waiting ? "Waiting for you" : headline.label;
   const headlineDomain = headline.domain;
 
   const settled = live ? undefined : settledHeadline(status);
@@ -200,6 +240,7 @@ export function LiveStatus({ activity, mode = "live", onStop, status }: LiveStat
     return (
       <motion.div
         key={item.id}
+        data-activity-step={item.id}
         style={{ overflow: "hidden" }}
         initial={instant ? false : { height: 0 }}
         animate={{ height: "auto" }}
@@ -225,7 +266,21 @@ export function LiveStatus({ activity, mode = "live", onStop, status }: LiveStat
               ease: EASE_CALM,
             }}
           >
-            <ActivityGlimpse live={live} item={item} />
+            <ActivityGlimpse
+              epoch={epoch} turnId={turnId} day={day}
+              live={live}
+              item={item}
+              glimpseExpanded={openGists.has(item.id)}
+              onToggleGlimpse={() => {
+                holdFollow();
+                autoOpened.current.add(item.id);
+                setOpenGists((current) => {
+                  const next = new Set(current);
+                  if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
+                  return next;
+                });
+              }}
+            />
           </motion.div>
         </div>
       </motion.div>
@@ -235,7 +290,7 @@ export function LiveStatus({ activity, mode = "live", onStop, status }: LiveStat
   return (
     <div
       className={
-        live ? "live-border" : "rounded-xl border border-line shadow-card"
+        live ? (stopping ? "rounded-xl border border-danger/40 p-px" : "live-border") : "rounded-xl border border-line shadow-card"
       }
     >
       <div className={`overflow-hidden bg-bg-elev ${live ? "rounded-[11px]" : "rounded-xl"}`}>
@@ -272,6 +327,8 @@ export function LiveStatus({ activity, mode = "live", onStop, status }: LiveStat
           </div>
           <div className="shrink-0 space-y-0.5 text-right font-mono text-[11px] text-fg-faint tabular-nums">
             <div>{elapsedFormatted}</div>
+            {live && headline.startedAt && <div className="text-[10px] opacity-70" title="Current phase elapsed time">
+              {headline.phase} {formatDuration(headline.startedAt / 1000, Date.now() / 1000)}</div>}
           </div>
           {live && activity.canStop && onStop && (
             <button
@@ -286,6 +343,7 @@ export function LiveStatus({ activity, mode = "live", onStop, status }: LiveStat
           {!live && releasedNewestFirst.length > 0 && (
             <button
               onClick={() => {
+                holdFollow();
                 trailOpenedOnce.current = true;
                 setTrailOpen(!trailOpen);
               }}
@@ -302,6 +360,7 @@ export function LiveStatus({ activity, mode = "live", onStop, status }: LiveStat
 
         {/* Body */}
         <motion.div
+          data-live-body
           style={{ overflow: "hidden" }}
           initial={false}
           animate={{ height: bodyOpen ? "auto" : 0, opacity: bodyOpen ? 1 : 0 }}
@@ -342,7 +401,14 @@ export function LiveStatus({ activity, mode = "live", onStop, status }: LiveStat
           {(overflow > 0 || (live && rolledFull.current) || showAll) && (
             <div className="grow-in px-4 pb-2.5">
               <button
-                onClick={() => setShowAll(!showAll)}
+                onClick={() => {
+                  holdFollow();
+                  if (!showAll) {
+                    const windowIds = new Set(releasedNewestFirst.slice(0, ROLL_WINDOW).map((step) => step.id));
+                    setOpenGists((current) => new Set([...current].filter((id) => windowIds.has(id))));
+                  }
+                  setShowAll(!showAll);
+                }}
                 className="w-fit text-left text-[11px] text-fg-faint transition-colors hover:text-fg-muted"
               >
                 {showAll
@@ -375,11 +441,13 @@ export function LiveStatus({ activity, mode = "live", onStop, status }: LiveStat
 
 function ThinkingStream({ text, stepId }: { text: string; stepId: string }) {
   const [expanded, setExpanded] = useState(false);
+  const [truncated, setTruncated] = useState(false);
+  const holdFollow = useHoldChatFollow();
 
   const lines = text.split("\n").filter((l) => l.trim().length > 0);
   const preview = lines[0]?.trim() ?? text;
   const hasMoreLines = text.trim() !== preview;
-  const collapsible = hasMoreLines;
+  const collapsible = hasMoreLines || truncated || expanded;
 
   return (
     <div className="mx-4 mb-2.5 rounded-lg bg-accent-soft/40 px-3 py-2">
@@ -388,7 +456,7 @@ function ThinkingStream({ text, stepId }: { text: string; stepId: string }) {
         Thinking
         {collapsible && (
           <button
-            onClick={() => setExpanded(!expanded)}
+            onClick={() => { holdFollow(); setExpanded(!expanded); }}
             className="ml-auto font-normal normal-case text-accent/80 transition-colors hover:text-accent"
           >
             {expanded ? "Collapse" : "Expand"}
@@ -400,7 +468,7 @@ function ThinkingStream({ text, stepId }: { text: string; stepId: string }) {
         preview={preview}
         full={text}
         expanded={expanded}
-        onTruncatedChange={() => {}}
+        onTruncatedChange={setTruncated}
       />
     </div>
   );
@@ -421,7 +489,6 @@ function ThinkingWriter({
 }) {
   const reduced = useReducedMotion();
   const previewRef = useRef(preview);
-  previewRef.current = preview;
   const [exiting, setExiting] = useState<{ id: string; text: string } | null>(null);
   const lastId = useRef(stepId);
   const { ref: lineRef, truncated } = useTruncated<HTMLDivElement>(preview);
@@ -431,12 +498,14 @@ function ThinkingWriter({
   }, [truncated, onTruncatedChange]);
 
   useEffect(() => {
+    const previousPreview = previewRef.current;
+    previewRef.current = preview;
     if (lastId.current === stepId) return;
     const prev = lastId.current;
     lastId.current = stepId;
     if (reduced || expanded) return;
-    setExiting({ id: prev, text: previewRef.current });
-  }, [stepId, reduced, expanded]);
+    setExiting({ id: prev, text: previousPreview });
+  }, [stepId, preview, reduced, expanded]);
 
   const lineClass =
     "md-inline truncate pl-3 text-[11.5px] leading-5 font-[380] text-fg-faint [font-style:oblique_8deg]";

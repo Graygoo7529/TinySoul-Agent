@@ -5,6 +5,7 @@
  */
 
 import type {
+  BackgroundPage,
   DaysPage,
   DisclosurePage,
   InteractionPage,
@@ -15,6 +16,11 @@ import type { ContinuationParams, ListPageParams } from "./paging";
 
 export class SessionClient {
   constructor(private readonly transport: V2Transport) {}
+
+  background(turnId: string, params: { day: string } & ContinuationParams, options?: RequestOptions): Promise<BackgroundPage> {
+    return this.transport.get<BackgroundPage>(`/session/turns/${encodeURIComponent(turnId)}/background`,
+      { ...options, query: { ...params } });
+  }
 
   /**
    * GET /v2/days?before=&limit= — active and archived days, newest first.

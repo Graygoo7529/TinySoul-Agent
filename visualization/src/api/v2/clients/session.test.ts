@@ -89,4 +89,14 @@ describe("SessionClient", () => {
     expect(queryOf(requests[1]!, "query")).toBe("job");
     expect(queryOf(requests[1]!, "continuation")).toBe("c9");
   });
+
+  it("reads a completed turn's saved heap content with its owning day", async () => {
+    const { transport, requests } = createTestTransport(() => jsonResponse({
+      turn_id: "contract-turn", day: "2026-09-29", source: "session",
+      snapshot_available: true, items: [],
+    }));
+    await new SessionClient(transport).background("contract-turn", { day: "2026-09-29" });
+    expect(new URL(requests[0]!.url).pathname).toBe("/v2/session/turns/contract-turn/background");
+    expect(queryOf(requests[0]!, "day")).toBe("2026-09-29");
+  });
 });

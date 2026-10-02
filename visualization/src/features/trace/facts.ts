@@ -35,6 +35,28 @@ export function asStringArray(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === "string");
 }
 
+/** Compact action text shared by the live feed and trace, derived only from recorded facts. */
+export function actionTarget(params: JsonObject | null): string | null {
+  if (!params) return null;
+  return asString(params.command) ?? asString(params.link) ?? asString(params.ref) ??
+    asString(asObject(params.source)?.query) ?? asString(params.query) ?? asString(params.path);
+}
+
+export function actionResultSummary(payload: JsonObject | null): string | undefined {
+  if (!payload) return undefined;
+  const items = Array.isArray(payload.items) ? payload.items : null;
+  if (items) return `${items.length} results`;
+  const code = asNumber(payload.exit_code);
+  if (code !== null) return `Exit ${code}`;
+  return asString(payload.summary) ?? asString(payload.link) ?? asString(payload.ref) ?? undefined;
+}
+
+export function taskSkillRefs(payload: JsonObject): string[] {
+  const provenance = Array.isArray(payload.provenance) ? payload.provenance : [];
+  return [...new Set(provenance.flatMap((entry) => asStringArray(asObject(entry)?.refs))
+    .filter((ref) => ref.startsWith("home:skills_domain:") || ref.startsWith("home:skills_action:")))];
+}
+
 // ---------------------------------------------------------------------------
 // Scope frames
 // ---------------------------------------------------------------------------
@@ -340,6 +362,7 @@ export interface ActionTrace {
 }
 
 export interface LlmTaskTrace extends LlmTaskFact {
+  tokens: number | null;
   reasoning: string | null;
   controls: { name: string; arguments: JsonObject }[];
   cycleId: string | null;
@@ -358,6 +381,10 @@ export interface SearchTrace {
 }
 
 export interface PhaseProcess {
+  startedAt: number | null;
+  finishedAt: number | null;
+  status: "running" | "completed" | "cancelled" | "failed" | "unavailable";
+  selectedDomains: string[];
   phase: string;
   actions: ActionTrace[];
   /** LLM tasks scoped to the phase itself (Phase1/Phase2 decisions). */
@@ -465,6 +492,7 @@ export function buildTurnProcess(events: ObservationEvent[]): TurnProcess {
       const existing = llmTasks.get(task.taskId);
       const trace: LlmTaskTrace = existing ?? {
         ...task,
+        tokens: null,
         reasoning: null,
         controls: [],
         cycleId: scopeValue(event, "cycle"),
@@ -518,6 +546,11 @@ export function buildTurnProcess(events: ObservationEvent[]): TurnProcess {
     const task = llmTasks.get(asString(event.payload.task_id) ?? "");
     if (task === undefined) continue;
     task.reasoning = asString(asObject(event.payload.reasoning)?.summary) ?? task.reasoning;
+    const usage = asObject(event.payload.usage);
+    const inputTokens = asNumber(usage?.input_tokens) ?? asNumber(usage?.prompt_tokens);
+    const outputTokens = asNumber(usage?.output_tokens) ?? asNumber(usage?.completion_tokens);
+    const total = asNumber(usage?.total_tokens) ?? (inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens : null);
+    if (total !== null) task.tokens = (task.tokens ?? 0) + total;
     task.controls = (Array.isArray(event.payload.tool_calls) ? event.payload.tool_calls : []).flatMap((value) => {
       const call = asObject(value);
       const name = asString(call?.name);
@@ -560,7 +593,7 @@ export function buildTurnProcess(events: ObservationEvent[]): TurnProcess {
     }
     let phase = cycle.phases.find((item) => item.phase === phaseName);
     if (phase === undefined) {
-      phase = { phase: phaseName, actions: [], llmTasks: [] };
+      phase = { phase: phaseName, actions: [], llmTasks: [], startedAt: null, finishedAt: null, status: "unavailable", selectedDomains: [] };
       cycle.phases.push(phase);
     }
     return phase;
@@ -568,7 +601,17 @@ export function buildTurnProcess(events: ObservationEvent[]): TurnProcess {
   for (const event of ordered) {
     const cycleId = scopeValue(event, "cycle");
     const phase = scopeValue(event, "phase");
-    if (cycleId !== null && phase !== null) phaseAt(cycleId, phase);
+    if (cycleId !== null && phase !== null) {
+      const item = phaseAt(cycleId, phase);
+      if (event.name === "loop.phase.started") {
+        item.startedAt = event.created_at;
+        item.status = "running";
+      } else if (event.name === "loop.phase.completed") {
+        item.finishedAt = event.created_at;
+        item.status = event.payload.cancelled === true ? "cancelled" : event.payload.failed === true ? "failed" : "completed";
+        item.selectedDomains = asStringArray(event.payload.selected_domains);
+      }
+    }
   }
   const allActions = [...actionsByCallId.values()].sort(
     (a, b) => a.firstSequence - b.firstSequence,

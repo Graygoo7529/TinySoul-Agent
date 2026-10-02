@@ -156,7 +156,7 @@ describe("ProcessPanel", () => {
     expect(queryOf(endpoint.calls("/v2/events")[0]!, "mode")).toBe("model");
     clickButton("phase3");
     const text = container.textContent ?? "";
-    expect(text).toContain("Cycle cycle_1");
+    expect(text).toContain("Cycle 1");
     expect(text).toContain("workspace.read");
     expect(text).toContain("success");
     expect(text).toContain("execution.run_shell");

@@ -397,3 +397,17 @@ describe("locateAction", () => {
     expect(locateAction(process, { action: "web.search_by_kimi", ordinal: 0 })).toBeNull();
   });
 });
+
+it("keeps requested domains distinct from accepted phase outcomes and totals retained usage", () => {
+  const scope = [TURN, CYCLE, { level: "phase", name: "phase1" }];
+  const started = event("loop.phase.started", {}, scope);
+  const requested = event("llm.model.response", { task_id: "task", usage: { input_tokens: 10, output_tokens: 4 },
+    tool_calls: [{ kind: "control", name: "select_action_domains", arguments: { domains: ["home"] } }] }, scope);
+  const events = [started, event("llm.task.started", { task_id: "task", profile: "frame_stage1" }, scope), requested];
+  expect(buildTurnProcess(events).cycles[0].phases[0]).toMatchObject({ status: "running", selectedDomains: [], startedAt: started.created_at });
+  const completed = event("loop.phase.completed", { failed: true }, scope);
+  const process = buildTurnProcess([...events, completed]);
+  expect(process.cycles[0].phases[0]).toMatchObject({ status: "failed", selectedDomains: [], finishedAt: completed.created_at });
+  expect(process.llmTasks[0].tokens).toBe(14);
+  expect(buildTurnProcess([...events, event("loop.phase.completed", { selected_domains: ["core"] }, scope)]).cycles[0].phases[0].selectedDomains).toEqual(["core"]);
+});

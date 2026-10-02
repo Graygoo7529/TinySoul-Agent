@@ -25,6 +25,9 @@ import type { ActivityStep as ActivityStepType } from "./presentation";
 import { EASE_CALM } from "../../utils/motion";
 import { Markdown } from "../../components/markdown/Markdown";
 import { activityColors, activityIcons, DomainChip } from "../../components/trace/semantic";
+import { useTruncated } from "../../hooks/useTruncated";
+import { useHoldChatFollow } from "./useConversationScroll";
+import { actionTarget, asObject } from "../trace/facts";
 
 export function ActivityStep({
   item,
@@ -116,7 +119,7 @@ function StepBody({ item }: { item: ActivityStepType }) {
     case "phase_start":
       return <PhaseStartBody label={content.phase.label} domain={content.phase.domain} />;
     case "action_plan":
-      return <ActionPlanBody actionId={content.glimpse.actionId} domain={content.glimpse.domain} />;
+      return <ActionPlanBody actionId={content.glimpse.actionId} domain={content.glimpse.domain} target={actionTarget(asObject(content.glimpse.params))} />;
     case "action_result":
       return (
         <ActionResultBody
@@ -140,17 +143,19 @@ function StepBody({ item }: { item: ActivityStepType }) {
 
 function ThinkingBody({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
+  const holdFollow = useHoldChatFollow();
+  const { ref, truncated } = useTruncated<HTMLSpanElement>(text);
   const lines = text.split("\n").filter((l) => l.trim().length > 0);
   const preview = lines[0] ?? text;
-  const hasMore = lines.length > 1;
+  const hasMore = lines.length > 1 || truncated || open;
 
   return (
     <div>
       <button
-        onClick={() => setOpen(!open)}
+        onClick={() => { holdFollow(); setOpen(!open); }}
         className="flex w-full items-start gap-1 text-left"
       >
-        <span className="min-w-0 flex-1 truncate text-[12px] italic text-fg-muted">{preview}</span>
+        <span ref={ref} className="min-w-0 flex-1 truncate text-[12px] italic text-fg-muted">{preview}</span>
         {hasMore && (
           <ChevronRight
             size={11}
@@ -170,9 +175,7 @@ function ThinkingBody({ text }: { text: string }) {
 function DomainSelectBody({ domains }: { domains: string[] }) {
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-      <span className="text-[12px] italic text-fg">
-        {domains.length > 0 ? `"${domains.join(", ")}"` : ""}
-      </span>
+      <span className="text-[12px] text-fg-muted">Selected domains</span>
       <span className="inline-flex shrink-0 items-center gap-1">
         {domains.map((d) => (
           <DomainChip key={d} domain={d} />
@@ -185,7 +188,7 @@ function DomainSelectBody({ domains }: { domains: string[] }) {
 function SkillMountBody({ skill, domain }: { skill: string; domain: string }) {
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-      <span className="text-[12px] text-fg-muted">Loaded skill</span>
+      <span className="text-[12px] text-fg-muted">{domain === "task" ? "Task skill" : "Loaded skill"}</span>
       <span
         title={`${domain}/${skill}`}
         className="inline-flex max-w-[180px] items-center rounded-md bg-info-soft px-1.5 py-0.5 text-[10.5px] text-info"
@@ -207,12 +210,13 @@ function PhaseStartBody({ label, domain }: { label: string; domain?: string }) {
   );
 }
 
-function ActionPlanBody({ actionId, domain }: { actionId: string; domain: string }) {
+function ActionPlanBody({ actionId, domain, target }: { actionId: string; domain: string; target: string | null }) {
   const shortName = actionId.includes(".") ? actionId.split(".").slice(1).join(".") : actionId;
   return (
     <div className="flex min-w-0 items-baseline gap-2">
       <span className="truncate text-[12px] font-medium text-fg">{shortName}</span>
       <span className="shrink-0 font-mono text-[11px] text-fg-faint">{domain}</span>
+      {target && <span className="min-w-0 truncate text-[11px] text-fg-muted" title={target}>{target}</span>}
     </div>
   );
 }
@@ -259,7 +263,7 @@ function ActionResultBody({
       >
         {preview ?? shortName}
       </span>
-      <span className="shrink-0 font-mono text-[11px] text-fg-faint">{shortName}</span>
+      {preview && <span className="shrink-0 font-mono text-[11px] text-fg-faint">{shortName}</span>}
     </div>
   );
 }

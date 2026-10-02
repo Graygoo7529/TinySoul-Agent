@@ -16,12 +16,13 @@ ready file, prints "TINYSOUL_E2E_READY port=N" on stdout, and serves until
 terminated. `--port 0` lets the OS assign a free port; the ready file carries
 the actual bound port, so no fixed port can conflict.
 
-Scripted model behavior (driven by message content, stateless across calls):
+Scripted model behavior (message-driven, with one resource read per ask Turn):
 
-- frame_stage1: select the `core` domain.
+- frame_stage1: select `core`; ask Turns also select `workspace` and load a review Skill.
 - frame_stage2 with a normal input: `core.answer` echoing the `e2e-plain` user
   input verbatim ("You said: <text>").
-- frame_stage2 with the ask trigger (`e2e-ask`) and no reply yet: `core.ask`
+- frame_stage2 with the ask trigger (`e2e-ask`): first read the seeded Workspace
+  resource, then `core.ask`
   with two options (opt_a/opt_b) and allow_other=true.
 - frame_stage2 with the ask trigger and an accepted reply (the reply carries
   the `e2e-reply-comment` marker): `core.answer` naming the selected option
@@ -65,7 +66,9 @@ from tinysoul.llm.protocol.reasoning import Reasoning
 from tinysoul.llm.protocol.requests import TaskCall, TaskProfile
 from tinysoul.llm.protocol.responses import JsonAnswer, RawResponse, TaskResult
 from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind
-from tinysoul.runtime import ObservationEvent, ObservationLevel
+from tinysoul.runtime import ObservationEvent, ObservationLevel, RunLevel
+from tinysoul.plugins.home.services import HomeService
+from tinysoul.plugins.workspace.services import WorkspaceService
 
 # Distinctive markers the Playwright spec uses inside its messages. They are
 # part of the e2e protocol between this harness and chat-flow.pw.ts.
@@ -133,6 +136,7 @@ class ScriptedLLM:
 
     def __init__(self, events: EndpointEventBuffer) -> None:
         self._events = events
+        self._scripted_read: set[str] = set()
 
     def _emit(
         self, call: TaskCall, name: str, level: ObservationLevel, payload: JsonObject
@@ -161,7 +165,9 @@ class ScriptedLLM:
         result = self._respond(call)
         if result.raw_response is not None:
             response = replace(result.raw_response, reasoning=Reasoning(
-                summary="I’ll use the current request and loaded context to choose the next action."
+                summary="I’ll use the current request and loaded context to choose the next action. "
+                "The review skill describes how to inspect the working copy, compare the observed "
+                "result with the intended behavior, and preserve the user’s current reading position."
             ))
             self._emit(call, "llm.model.response", ObservationLevel.MODEL, {
                 **task_response_observation(response), "attempt": 1,
@@ -184,19 +190,36 @@ class ScriptedLLM:
             else str(call.profile)
         )
         if profile == TaskProfile.FRAME_STAGE1.value:
+            if ASK_TRIGGER in text:
+                controls = (
+                    ToolCallRecord("select", "select_action_domains", {"domains": ["core", "workspace"]}, ToolKind.CONTROL),
+                    ToolCallRecord("load", "load_background", {"links": ["home:skills@review"]}, ToolKind.CONTROL),
+                )
+                return TaskResult.success(
+                    raw_response=RawResponse("", "scripted", "scripted", tool_calls=controls),
+                    answer=None, tool_calls=controls,
+                )
             return _tool_result(
                 "select_action_domains",
                 to_json_object({"domains": ["core"]}),
                 ToolKind.CONTROL,
             )
         if profile == TaskProfile.FRAME_STAGE2.value:
-            return self._stage2(text)
+            turn = call.scope.nearest(RunLevel.TURN)
+            return self._stage2(text, turn.name if turn is not None else "")
         # Unknown consumer (retrieval rerank and similar auxiliaries): a
         # minimal well-formed JSON answer keeps the owner path functional.
         return _json_result(to_json_object({"text": "Finished response"}))
 
-    def _stage2(self, text: str) -> TaskResult:
+    def _stage2(self, text: str, turn_id: str) -> TaskResult:
         if ASK_TRIGGER in text:
+            if turn_id not in self._scripted_read:
+                self._scripted_read.add(turn_id)
+                return _tool_result(
+                    "workspace.read",
+                    {"link": "workspace:baseline.md"},
+                    ToolKind.ACTION,
+                )
             if REPLY_MARKER not in text:
                 return _tool_result(
                     "core.ask",
@@ -266,6 +289,16 @@ async def _serve(args: argparse.Namespace) -> int:
         .build()
     )
     await agent.start()
+    await agent.services.get(HomeService).write_top(
+        "home:skills@review",
+        "---\ntitle: Review baseline\ndescription: Inspect baseline behavior.\n---\n\n"
+        "# Review baseline\n\nKeep the original visual rhythm and verify real owner facts.\n\n"
+        + "Further reading: preserve the user’s reading position and inspect actual results.\n" * 15,
+    )
+    await agent.services.get(WorkspaceService).write_text(
+        "workspace:baseline.md",
+        "# Baseline read\n\nbaseline-output-ready\nInspect the actual resource before answering.\n",
+    )
     runtime = agent.runtime
     engine = EndpointEngine(
         settings=settings,

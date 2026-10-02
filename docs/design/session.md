@@ -71,6 +71,8 @@ Session 仅在自身超过 80% 水位时回收到半预算，最低保留目录�
 
 ## 日生命周期与服务
 
+已完成 Turn 的段快照包含当时已安装的 Home/Memory Heap 正文。Session 的只读背景页直接呈现该快照，当前资源后来改变不会改写历史；没有保存正文的旧记录明确表示不可用。动态资源的原日绑定继续沿记录解释，背景快照不替代 Home/Memory 的事实所有权。
+
 Session root 包含 Memory owner 维护的活动 Memory.md；map 与 turns 一起归档，新日为空图。同日重启保留注释，归档与 Reflection 共用只读 SessionView，不创建可写归档 Engine。Memory facts 从原有记录派生，不把模型解释升级为 Memory 的原始证据。
 
 SessionService 暴露读取；SessionOrganizeService 只注入 User profile 的 Action 和可更新段，两者共享同一 Engine。SDK 保持只读并绑定世代/日 lease；没有外部 Session 编辑 HTTP API。visibility 筛选不能授予缺失写服务。

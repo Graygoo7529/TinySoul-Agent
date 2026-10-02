@@ -218,6 +218,13 @@ class AgentRuntimeServices:
                 segment_id, page
             )
 
+    async def context_background(
+        self, turn_id: str, page: PageOptions = PageOptions()
+    ) -> JsonObject:
+        self._require_open()
+        async with self._handle.read() as generation:
+            return self._context_for(generation, turn_id).installed_background(page)
+
     async def context_inspect(
         self,
         turn_id: str,
@@ -405,6 +412,11 @@ class AgentRuntimeServices:
         return await self._session_read(
             lambda view: view.interactions(turn_id, page), day
         )
+
+    async def session_background(
+        self, turn_id: str, day: CalendarDay, page: PageOptions = PageOptions()
+    ) -> JsonObject:
+        return await self._session_read(lambda view: view.background(turn_id, page), day)
 
     async def session_inspect(
         self,

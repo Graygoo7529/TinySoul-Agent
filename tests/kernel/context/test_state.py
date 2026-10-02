@@ -19,6 +19,7 @@ from tinysoul.kernel.context.background import (
     BackgroundEntry,
     BackgroundPatch,
     BackgroundSource,
+    background_projection,
 )
 from tinysoul.kernel.context.errors import ContextContractError, ContextInvariantError
 from tinysoul.kernel.context.builtin.trace import (
@@ -129,6 +130,11 @@ def test_background_load_evict_and_render() -> None:
     assert not background.has("home:skills@tinysoul")
     with pytest.raises(ContextContractError):
         background.evict("home:skills@tinysoul")
+
+
+def test_background_projection_distinguishes_missing_from_empty_snapshot() -> None:
+    assert background_projection({"home": {"loaded_refs": ["home:skills@old"]}}) is None
+    assert background_projection({"home": {"background_entries": []}}) == ()
 
 
 def test_background_load_replaces_same_link() -> None:

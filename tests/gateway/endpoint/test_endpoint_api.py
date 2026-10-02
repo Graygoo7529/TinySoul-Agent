@@ -878,6 +878,11 @@ class _EndpointServices:
     ) -> JsonObject:
         raise AgentSDKError("Test service has no Context")
 
+    async def context_background(
+        self, turn_id: str, page: PageOptions = PageOptions()
+    ) -> JsonObject:
+        raise AgentSDKError("Test service has no Context")
+
     async def context_inspect(
         self,
         turn_id: str,
@@ -894,6 +899,11 @@ class _EndpointServices:
         return {"items": []}
 
     async def session_interactions(
+        self, turn_id: str, day: CalendarDay, page: PageOptions = PageOptions()
+    ) -> JsonObject:
+        raise AgentSDKError("Test service has no Session")
+
+    async def session_background(
         self, turn_id: str, day: CalendarDay, page: PageOptions = PageOptions()
     ) -> JsonObject:
         raise AgentSDKError("Test service has no Session")

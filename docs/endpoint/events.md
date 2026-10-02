@@ -32,7 +32,9 @@ LLM 继续使用现有 task_id 关联一次调用，Action 内部任务增加 co
 
 LLM 请求 detail 的 provenance 包含 `segment_id, owner, slot, shape, message_indices, refs`，索引为零起始，对应同 payload 的实际 messages。TaskPrompt/guidance 单独标识，Home refs 来自 owner。resolved_references 保存该次消息实际绑定的动态资源定位。它们不是提示正文，不影响供应商请求；这里展示的是 provider-neutral MessageStack，不是原始 HTTP 包。
 
-`context.installed` 提示所属 turn_id 的段已安装；`expand.directory.changed` 提示 server_id 的发现目录或有限错误变化。复用既有 Turn、Workspace、Session、Home/Memory 和 Job 事件刷新相应快照，不以事件代替事实；发生 gap 后重新读取 owner 视图。
+`context.background.snapshot` 在 Turn 打开 Heap 时给出当前 top-level refs；`context.background.changed` 给出真实 `loaded_links`、`evicted_links` 和变化后的 `links`。`context.installed` 只提示所属 turn_id 的段已安装；`expand.directory.changed` 提示 MCP 目录已变化。发生 gap 后重新读取 owner 视图，不以事件代替事实。
+
+`loop.phase.started/completed` 沿 scope 标识 Turn/Cycle/Phase，时间取事件 `created_at`。completed 的 `cancelled` 表示取消，`failed` 表示局部 Phase 或模块失败；`ended/transfer_action` 描述运行转移，不单独推断失败。Phase1 成功完成时另外提供已接受的 `selected_domains`，不能把模型 Control Tool 请求当成已接受选择。这些事件供 Activity/Trace 展示，正文仍从 Context/Session owner 读取。
 
 显式 model 分级可收到 `model.call.detail` 的已准备输入/结果。父 Turn/Cycle/Action 关联沿 Observation scope；SDK 查询无父 Action 时使用独立 call_id，不伪造 invoke_id。事件是旁路，sink 失败不改变模型调用或业务提交；catalog 不保存最近调用结果。
 

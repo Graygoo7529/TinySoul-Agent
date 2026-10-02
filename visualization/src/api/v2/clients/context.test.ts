@@ -56,4 +56,14 @@ describe("ContextClient", () => {
     );
     expect(queryOf(requests[0]!, "ref")).toBe("turn:trace@contract-turn");
   });
+
+  it("reads installed heap content through the dedicated snapshot endpoint", async () => {
+    const { transport, requests } = createTestTransport(() => jsonResponse({
+      turn_id: "contract-turn", day: "2026-09-29", source: "installed",
+      snapshot_available: true, items: [{ ref: "home:agent@context/background", title: "Agent", content: "captured", owner: "home", source: "default", evictable: false }],
+    }));
+    const page = await new ContextClient(transport).background("contract-turn");
+    expect(page.items[0]?.content).toBe("captured");
+    expect(new URL(requests[0]!.url).pathname).toBe("/v2/turns/contract-turn/context/background");
+  });
 });

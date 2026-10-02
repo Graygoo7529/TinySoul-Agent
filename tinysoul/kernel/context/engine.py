@@ -37,6 +37,7 @@ from tinysoul.runtime import (
 
 from .background import (
     BackgroundPatch,
+    background_projection,
     check_background_patches,
 )
 from .builtin.core import (
@@ -870,6 +871,23 @@ class ContextEngine:
         if self._segments is None:
             raise ContextContractError("Context segments are unavailable")
         return self._segments.resolve_reference(ref)
+
+    def installed_background(self, page: PageOptions = PageOptions()) -> JsonObject:
+        self._require_turn()
+        if self._segments is None:
+            raise ContextContractError("Context segments are unavailable")
+        items = background_projection(self._segments.seal())
+        return page.render(
+            items or (),
+            owner="context",
+            ref=f"{self._turn_id}:background",
+            base={
+                "turn_id": self._turn_id,
+                "day": self._search_day.isoformat() if self._search_day else None,
+                "source": "installed",
+                "snapshot_available": items is not None,
+            },
+        )
 
     def installed_segment(
         self, segment_id: str, page: PageOptions = PageOptions()

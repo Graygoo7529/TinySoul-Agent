@@ -75,4 +75,25 @@ describe("ActivityBuffer v2 event projection", () => {
     expect(activity?.trail).toHaveLength(21);
     expect(activity?.trail[20].content).toMatchObject({ glimpse: { result: { status: "failure" } } });
   });
+
+  it("shows real background changes and phase domain decisions", () => {
+    const buffer = new ActivityBuffer("turn-1");
+    buffer.loadEvents([
+      event("context.background.snapshot", { links: ["home:agent@context/background"] }, 1),
+      event("loop.phase.completed", { phase: "phase1", selected_domains: ["home", "memory"] }, 2),
+    ]);
+    const trail = buffer.toPresentation(new Date().toISOString(), true)?.trail ?? [];
+    expect(trail[0]?.content).toMatchObject({ type: "context_update", summary: "Loaded home:agent@context/background" });
+    expect(trail[1]?.content).toEqual({ type: "domain_select", domains: ["home", "memory"] });
+  });
+
+  it("keeps task skill provenance while dropping the model message body", () => {
+    const buffer = new ActivityBuffer("turn-1");
+    buffer.addEvent(event("llm.model.request", {
+      messages: [{ role: "user", content: "large prompt" }],
+      provenance: [{ refs: ["home:skills_domain:home"] }],
+    }, 1));
+    const trail = buffer.toPresentation(new Date().toISOString(), true)?.trail ?? [];
+    expect(trail[0]?.content).toEqual({ type: "skill_mount", skill: "home:skills_domain:home", domain: "task" });
+  });
 });

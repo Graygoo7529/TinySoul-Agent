@@ -4,8 +4,8 @@
  * The drawer is the shared Inspector: opening Context replaces the stack with
  * the active turn's overview; selecting a segment, expanding a disclosure
  * node or opening an owner resource each push one level (Back returns). With
- * no active turn the drawer opens an honest empty state that routes into the
- * day history — the previous turn's cached context is never shown as current.
+ * no active turn the drawer offers the Session map and the latest completed
+ * background snapshot, explicitly separate from an active Context.
  */
 
 import type { ResourceLocator, SegmentView } from "../../api/v2/types";
@@ -22,7 +22,7 @@ export function openContextDrawer(epoch: number): void {
   useInspectorStore.getState().open({
     key: `context:overview:${turnId}`,
     title: "Context",
-    subtitle: turnId === null ? "Session map" : `Active turn ${turnId}`,
+    subtitle: turnId === null ? "Session map / 已加载背景" : `Turn ${turnId}`,
     render: () => <ContextInspectorPanel epoch={epoch} turnId={turnId} />,
   });
 }

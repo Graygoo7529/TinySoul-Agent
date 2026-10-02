@@ -395,6 +395,20 @@ class HeapSegment:
     def seal(self) -> JsonObject:
         return {
             "loaded_refs": list(self._view.links()),
+            "background_entries": [
+                {
+                    "ref": entry.link,
+                    "title": next(
+                        (item.title for item in self._catalog.items if item.link == entry.link),
+                        entry.link,
+                    ),
+                    "content": entry.content,
+                    "owner": entry.owner,
+                    "source": entry.source.value,
+                    "evictable": entry.evictable,
+                }
+                for entry in self._view.entries()
+            ],
             "resolved_references": {
                 ref: locator.to_json()
                 for ref, locator in self.resolved_references().items()
@@ -417,6 +431,24 @@ class HeapSegment:
     async def close(self) -> None:
         self._view.reset_entries()
         self._view.reset_catalogs()
+
+
+def background_projection(segments: JsonObject) -> tuple[JsonObject, ...] | None:
+    """Project installed or committed heap snapshots without reopening sources."""
+    snapshots = [
+        segment["background_entries"]
+        for segment in segments.values()
+        if isinstance(segment, dict) and "background_entries" in segment
+    ]
+    if not snapshots:
+        return None
+    return tuple(
+        entry
+        for snapshot in snapshots
+        if isinstance(snapshot, list)
+        for entry in snapshot
+        if isinstance(entry, dict)
+    )
 
 
 async def _heap_entry(

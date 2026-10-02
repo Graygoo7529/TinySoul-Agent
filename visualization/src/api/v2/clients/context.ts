@@ -6,6 +6,7 @@
  */
 
 import type {
+  BackgroundPage,
   ContextMessagesPage,
   ContextOverview,
   DisclosurePage,
@@ -15,6 +16,11 @@ import type { ContinuationParams } from "./paging";
 
 export class ContextClient {
   constructor(private readonly transport: V2Transport) {}
+
+  background(turnId: string, params?: ContinuationParams, options?: RequestOptions): Promise<BackgroundPage> {
+    return this.transport.get<BackgroundPage>(`/turns/${encodeURIComponent(turnId)}/context/background`,
+      { ...options, query: { ...params } });
+  }
 
   /** GET /v2/turns/{id}/context — installed segments and resolved refs. */
   overview(turnId: string, options?: RequestOptions): Promise<ContextOverview> {

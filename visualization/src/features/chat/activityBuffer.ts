@@ -15,7 +15,7 @@
  */
 
 import { turnIdOfObservation } from "../../api/v2/types";
-import { asObject, asString, parseActionCall, parseActionExecution, parseActionResult, scopeValue } from "../trace/facts";
+import { actionTarget, actionResultSummary, taskSkillRefs, asStringArray, asObject, asString, parseActionCall, parseActionExecution, parseActionResult, scopeValue } from "../trace/facts";
 import type { ObservationEvent } from "../../api/v2/types";
 import type {
   ActivityPresentation,
@@ -44,8 +44,12 @@ export class ActivityBuffer {
       return;
     }
 
-    if (event.name === "llm.model.request") return; // messages belong to the directed ModelCall reader
     if (this.events.some((existing) => existing.sequence === event.sequence)) return;
+    if (event.name === "llm.model.request") {
+      const refs = taskSkillRefs(event.payload);
+      if (refs.length === 0) return;
+      event = { ...event, payload: { skill_refs: refs } }; // never retain message bodies here
+    }
     const reasoning = asString(asObject(event.payload.reasoning)?.summary);
     this.events.push(event.name === "llm.model.response"
       ? { ...event, payload: { task_id: event.payload.task_id ?? null, reasoning: { summary: reasoning } } }
@@ -78,6 +82,12 @@ export class ActivityBuffer {
     const headline = this.deriveHeadline();
     const thinking = this.deriveThinking();
     const trail = this.deriveTrail();
+    const plans = trail.flatMap((step) => step.content.type === "action_plan" ? [step.content.glimpse] : []);
+    const running = plans.find((plan) => plan.executionState === "running");
+    if (headline.phase === "phase3" && running) {
+      headline.label = running.actionId;
+      headline.domain = actionTarget(asObject(running.params)) ?? running.domain;
+    }
     const working = this.deriveWorking();
 
     const now = Date.now();
@@ -106,8 +116,7 @@ export class ActivityBuffer {
     for (let i = this.events.length - 1; i >= 0; i--) {
       const event = this.events[i];
 
-      // loop.phase.started or loop.phase.* events
-      if (event.name?.startsWith("loop.phase.")) {
+      if (event.name === "loop.phase.started") {
         // Extract phase from event name or payload
         const phase = this.extractPhase(event);
         const domain = event.payload?.domain as string | undefined;
@@ -118,6 +127,7 @@ export class ActivityBuffer {
           label: this.getPhaseLabel(phase),
           domain,
           skill,
+          startedAt: event.created_at * 1000,
         };
       }
     }
@@ -236,9 +246,19 @@ export class ActivityBuffer {
       };
     }
 
-    // Context updated
-    if (event.name === "context.installed" || event.name === "context.background.changed") {
-      const summary = event.message || "Context updated";
+    if (event.name === "loop.phase.completed" && Array.isArray(event.payload.selected_domains)) {
+      return { id: `step-${event.sequence}`, type: "domain_select", timestamp,
+        content: { type: "domain_select", domains: asStringArray(event.payload.selected_domains) }, autoExpandGist: false };
+    }
+    if (event.name === "llm.model.request") {
+      return { id: `step-${event.sequence}`, type: "skill_mount", timestamp,
+        content: { type: "skill_mount", skill: asStringArray(event.payload.skill_refs).join(", "), domain: "task" }, autoExpandGist: false };
+    }
+    if (event.name === "context.background.snapshot" || event.name === "context.background.changed") {
+      const loaded = asStringArray(event.payload[event.name.endsWith("snapshot") ? "links" : "loaded_links"]);
+      const evicted = asStringArray(event.payload.evicted_links);
+      const summary = [loaded.length ? `Loaded ${loaded.join(", ")}` : "", evicted.length ? `Evicted ${evicted.join(", ")}` : ""].filter(Boolean).join("; ");
+      if (!summary) return null;
       return {
         id: `step-${event.sequence}`,
         type: "context_update",
@@ -269,7 +289,7 @@ export class ActivityBuffer {
         content: { type: "action_result", glimpse: {
           actionId: result.action, callId: result.callId, domain: result.domain, stage: "result",
           payload: result.payload, failure: result.failure,
-          result: { status, preview: asString(result.failure?.feedback) ?? undefined },
+          result: { status, preview: asString(result.failure?.feedback) ?? actionResultSummary(result.payload) },
         } }, autoExpandGist: true,
       };
     }

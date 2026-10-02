@@ -38,3 +38,13 @@
 | 浏览器页面巡检 | 明暗 Chat、Session map、历史、中文设置、Home、Memory、Workspace、Runtime 以及 800px 窄屏通过 |
 
 追加输入、预算、取消、事件 gap、历史只读和迟到响应隔离由组件/控制器测试覆盖；真实浏览器路径验证共同使用的 v2 接线。测试截图位于忽略的 `.local-test/playwright-output/` 与 `.local-test/visual-review/`，可由 `test/e2e/chat-flow.pw.ts` 和 `visual-review.pw.ts` 重建。测试端口由系统分配，日常连接仍由设置页输入 `127.0.0.1:1430` 或已有转发地址。
+
+## 组件细节复核与补齐
+
+后续对照见 [组件细节恢复计划](../../../docs/analysis/done/20261002-done-visualization-baseline-detail-restoration-plan.md)。上述 P0–P7 记录接线与页面恢复；本轮继续补齐其未充分验证的表现细节：
+
+- Turn 使用同一挂载实例承接活动投影和 Session，复用 c479ca0 起止编排；滑动定位、活动折叠、回答打字和收束经过浏览器逐帧采样。
+- 动作浮层恢复原版紧凑内容与两拍展开；手动折叠、快速释放和 reduced-motion 分别验证，完整结果仍进入 Trace。
+- Activity 显示真实背景资源、任务 Skill、思考及已接受域；原版图标/领域色适配现有类型。Trace 补齐 Phase 状态、Cycle/Phase 耗时和留存 token 统计。
+- 后端新增只读 background 页，通过既有 Session completion 保存 Heap 正文。Home/Memory 子页直接阅读，完成后和刷新后仍可查看原快照，不调用 Agent 加载接口；旧记录缺失正文时明确提示。
+- 最终验证：Python Full 1224 项、ty、TypeScript、Vite；Vitest 90 个文件 799 项；真实 Endpoint 连续对话与背景/模型抽屉联调通过。细节与验证边界以新计划为准。

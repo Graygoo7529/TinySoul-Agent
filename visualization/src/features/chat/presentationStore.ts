@@ -120,12 +120,13 @@ export const presentationStore = create<PresentationStoreState>((set, get) => ({
     // This lets the settled LiveStatus card show the last trail after completion.
     // Activity is cleared only when the turn changes (createBuffer / clearBuffer).
     const activity =
-      activityBuffer
+      activityBuffer?.turnId === snapshot.turn_id
         ? activityBuffer.toPresentation(
             bufferStartedAt ?? new Date().toISOString(),
             canStop,
           )
         : null;
+    if (activity) activity.stopping = snapshot.cancel_requested && snapshot.state !== "finished";
 
     set({
       bufferFinishedAt: finishedAt,

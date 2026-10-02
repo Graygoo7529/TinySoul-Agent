@@ -30,9 +30,9 @@ import {
   Trash2,
   WandSparkles,
   Wrench,
-  XCircle,
 } from "lucide-react";
 import { Badge, type BadgeTone } from "../ui/Badge";
+import type { ActivityStepType } from "../../features/chat/presentation";
 
 /* ------------------------------ domains ------------------------------ */
 
@@ -216,32 +216,28 @@ export function actionIcon(family: string) {
 
 /* -------------------------- activity visuals ------------------------- */
 
-export const activityIcons: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
-  context: FileText,
+export const activityIcons: Record<ActivityStepType, React.ComponentType<{ size?: number; className?: string }>> = {
+  context_update: FileText,
   todo: ListChecks,
   milestone: Flag,
-  intent: Compass,
-  skills: WandSparkles,
+  domain_select: Compass,
+  skill_mount: WandSparkles,
   thinking: Brain,
-  retry: RotateCcw,
-  action: Loader2,
-  workspace: FileText,
-  answer: CheckCircle2,
-  info: Circle,
-  error: XCircle,
+  provider_retry: RotateCcw,
+  action_plan: Loader2,
+  action_result: CheckCircle2,
+  phase_start: Circle,
 };
 
-export const activityColors: Record<string, string> = {
-  context: "text-info",
+export const activityColors: Record<ActivityStepType, string> = {
+  context_update: "text-info",
   todo: "text-accent",
   milestone: "text-warning",
-  intent: "text-accent",
-  skills: "text-info",
+  domain_select: "text-accent",
+  skill_mount: "text-info",
   thinking: "text-accent",
-  retry: "text-warning",
-  action: "text-warning",
-  workspace: "text-info",
-  answer: "text-success",
-  info: "text-fg-faint",
-  error: "text-danger",
+  provider_retry: "text-warning",
+  action_plan: "text-warning",
+  action_result: "text-success",
+  phase_start: "text-fg-faint",
 };

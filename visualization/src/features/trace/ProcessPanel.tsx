@@ -7,14 +7,16 @@
  */
 
 import { useState, type ReactElement, type ReactNode } from "react";
-import { Brain, ChevronRight, Wrench, Download } from "lucide-react";
+import { Brain, ChevronRight, Wrench, Download, Loader2, CheckCircle2, CircleDashed, XCircle } from "lucide-react";
+import { formatDuration } from "../../utils/format";
+import { useNow } from "../../hooks/useNow";
 import { selectActiveTurnId, useConnectionStore } from "../../store/connectionStore";
 import { useThrottledValue } from "../../hooks/useThrottledValue";
 import { downloadJson } from "../../utils/download";
 import { workingFromMessages } from "../chat/useActivityDetails";
 import { WorkingZone } from "../chat/LiveStatus";
 import { SectionCard } from "../../components/ui/Card";
-import { asString, asStringArray, type PhaseProcess } from "./facts";
+import { asString, type PhaseProcess } from "./facts";
 import { Markdown } from "../../components/markdown/Markdown";
 
 import { Badge, type BadgeTone } from "../../components/ui/Badge";
@@ -164,6 +166,7 @@ function OverviewCard({ process }: { process: TurnProcess }): ReactElement {
 
   const llmTasksCount = process.llmTasks.length;
   const searchesCount = process.searches.length;
+  const tokenTasks = process.llmTasks.filter((task) => task.tokens !== null);
 
   return (
     <SectionCard title="Overview">
@@ -175,6 +178,9 @@ function OverviewCard({ process }: { process: TurnProcess }): ReactElement {
           </div>
         ))}
       </div>
+      {tokenTasks.length > 0 && <div className="mt-2 text-[11px] text-fg-faint" title="Usage of retained model responses; unavailable responses are excluded">
+        {tokenTasks.reduce((sum, task) => sum + (task.tokens ?? 0), 0).toLocaleString()} tokens / {tokenTasks.length} recorded tasks
+      </div>}
     </SectionCard>
   );
 }
@@ -210,7 +216,8 @@ function ProcessTree({
       {process.cycles.map((cycle) => (
         <Collapsible
           key={cycle.cycleId}
-          title={`Cycle ${cycle.cycleId}`}
+          title={`Cycle ${cycle.cycleId.replace(/^cycle_(\d+)$/, "$1")}`}
+          meta={<CycleMeta phases={cycle.phases} />}
           className="overflow-hidden rounded-xl shadow-card"
           defaultOpen={cycle === process.cycles[process.cycles.length - 1]}
         >
@@ -338,6 +345,20 @@ function ProcessTree({
 }
 
 /** c479ca0 phase disclosure and direct model-context chip, fed by v2 task IDs. */
+function CycleMeta({ phases }: { phases: PhaseProcess[] }) {
+  const running = phases.some((phase) => phase.status === "running");
+  useNow(running, 1000);
+  const starts = phases.flatMap((phase) => phase.startedAt === null ? [] : [phase.startedAt]);
+  const ends = phases.flatMap((phase) => phase.finishedAt === null ? [] : [phase.finishedAt]);
+  const actions = phases.reduce((sum, phase) => sum + phase.actions.length, 0);
+  return <span className="flex items-center gap-2 text-[10px] text-fg-faint">
+    {running && <Loader2 size={11} className="animate-spin-slow text-accent" />}
+    {starts.length > 0 && (running || ends.length > 0) && <span className="font-mono" title="Observed phases elapsed time">
+      {formatDuration(Math.min(...starts), running ? Date.now() / 1000 : Math.max(...ends))}</span>}
+    {actions > 0 && <span>{actions} {actions === 1 ? "action" : "actions"}</span>}
+  </span>;
+}
+
 function PhaseCard({ phase, onOpenTask, children }: {
   phase: PhaseProcess; onOpenTask: (taskId: string) => void; children: ReactNode;
 }) {
@@ -346,21 +367,27 @@ function PhaseCard({ phase, onOpenTask, children }: {
   const reasoning = phase.llmTasks.map((task) => task.reasoning).find(Boolean);
   const controls = phase.llmTasks.flatMap((task) => task.controls);
   const selection = controls.find((call) => call.name === "select_action_domains");
-  const domains = asStringArray(selection?.arguments.domains);
+  const domains = phase.selectedDomains;
+  const running = phase.status === "running";
+  useNow(running, 1000);
+  const StateIcon = running ? Loader2 : phase.status === "completed" ? CheckCircle2 : phase.status === "failed" || phase.status === "cancelled" ? XCircle : CircleDashed;
   const preview = asString(selection?.arguments.intent) ?? reasoning;
   const headline = domains.length > 0 ? `Selected ${domains.length} domain${domains.length > 1 ? "s" : ""}`
     : phase.actions.length > 0 ? `${phase.actions.length} action${phase.actions.length > 1 ? "s" : ""}`
     : phase.phase === "phase1" ? "Context maintenance" : phase.phase === "phase2" ? "Action planning" : "Execution";
   return (
-    <div className="overflow-hidden rounded-lg border border-line">
-      <div className="flex items-center gap-2 bg-bg-sunken px-2.5 py-2">
+    <div className={`overflow-hidden rounded-lg border ${running ? "border-accent/40" : "border-line"}`}>
+      <div className={`flex items-center gap-2 px-2.5 py-2 ${running ? "bg-accent-soft/50" : "bg-bg-sunken"}`}>
         <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}
           className="flex min-w-0 flex-1 items-center gap-2 text-left">
           <ChevronRight size={13} className={`shrink-0 text-fg-faint transition-transform ${open ? "rotate-90" : ""}`} />
-          <span className="text-[12.5px] font-medium">{headline}</span>
+          <StateIcon size={12} className={running ? "animate-spin-slow text-accent" : "text-fg-faint"} />
+          <span className={`min-w-0 flex-1 truncate text-[12.5px] font-medium ${running ? "text-shine" : ""}`}>{headline}</span>
           <span className="text-[10px] text-fg-faint">{phase.phase}</span>
         </button>
         {domains.map((domain) => <Badge key={domain}>{domain}</Badge>)}
+        {phase.startedAt !== null && (phase.finishedAt !== null || running) && <span className="font-mono text-[10px] text-fg-faint">
+          {formatDuration(phase.startedAt, phase.finishedAt ?? Date.now() / 1000)}</span>}
         {lastTask && <button type="button" title="View the LLM message stack"
           onClick={() => onOpenTask(lastTask)}
           className="inline-flex h-5.5 shrink-0 items-center gap-1 rounded-full border border-accent/30 bg-accent-soft px-2 text-[10px] font-medium text-accent transition-colors hover:bg-accent hover:text-white">
@@ -368,6 +395,11 @@ function PhaseCard({ phase, onOpenTask, children }: {
         </button>}
       </div>
       {!open && preview && <div className="truncate bg-bg-sunken px-3 pb-2 pl-8 text-[11px] text-fg-faint italic">{preview}</div>}
+      {!open && phase.actions.length > 0 && <div className="flex flex-wrap gap-1 bg-bg-sunken px-3 pb-2 pl-8">
+        {phase.actions.map((action) => <Badge key={action.firstSequence} tone={STATUS_TONES[actionTraceStatus(action).kind]}>
+          {action.call?.action ?? action.result?.action} {actionTraceStatus(action).label}
+        </Badge>)}
+      </div>}
       {open && <div className="space-y-3 border-t border-line bg-bg-elev px-3 py-3">
         {reasoning && <div className="rounded-r-lg border-l-2 border-accent/40 bg-bg-sunken/60 px-3 py-2">
           <div className="mb-0.5 flex items-center gap-1 text-[10px] font-semibold tracking-wide text-accent uppercase"><Brain size={10} /> Reasoning</div>

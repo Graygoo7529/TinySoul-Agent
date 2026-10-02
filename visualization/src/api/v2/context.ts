@@ -8,6 +8,24 @@
 import type { ContentFragment, ContinuationPage, ResourceLocator } from "./common";
 import type { JsonValue } from "./json";
 
+export interface BackgroundResource {
+  ref: string;
+  title: string;
+  content: string;
+  owner: string;
+  source: "default" | "automatic" | "phase1";
+  evictable: boolean;
+}
+
+export interface BackgroundPage extends ContinuationPage {
+  turn_id: string;
+  day: string;
+  source: "installed" | "session";
+  snapshot_available: boolean;
+  items: BackgroundResource[];
+  content_fragment?: ContentFragment | null;
+}
+
 /** ContextOverview.segments[] (context-overview.json ContextSegmentResponse). */
 export interface SegmentView {
   id: string;

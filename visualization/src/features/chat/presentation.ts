@@ -88,6 +88,7 @@ export interface ActivityPresentation {
 
   /** Can stop */
   canStop: boolean;
+  stopping?: boolean;
 
   /** Incomplete flag (connection lost, gap, or truncated) */
   incomplete: boolean;
@@ -97,6 +98,7 @@ export interface ActivityPresentation {
  * Phase headline (current activity phase)
  */
 export interface PhaseHeadline {
+  startedAt?: number;
   phase: "phase1" | "phase2" | "phase3";
   label: string;  // "Understanding", "Planning", "Executing"
   domain?: string;

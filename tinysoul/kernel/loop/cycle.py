@@ -297,11 +297,21 @@ class CycleRunner:
         phase: CyclePhase,
         result: _PhaseRun,
     ) -> None:
+        selection: JsonObject = {}
+        failed = result.failure is not None or (
+            isinstance(result.value, (Phase1Outcome, Phase2Outcome, Phase3Outcome))
+            and result.value.failure is not None
+        )
+        if isinstance(result.value, Phase1Outcome) and result.value.failure is None:
+            selection["selected_domains"] = list(result.value.selected_domains)
         self._emit_phase(
             scope,
             phase,
             started=False,
             payload={
+                **selection,
+                "cancelled": result.cancelled,
+                "failed": failed,
                 "ended": result.ended,
                 "transfer_action": (
                     result.transfer.action.value

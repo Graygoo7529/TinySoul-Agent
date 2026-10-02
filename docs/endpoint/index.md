@@ -31,7 +31,7 @@ Endpoint 是 loopback 本地协议。除 `GET /v2/health` 外，HTTP 请求都�
 | Configuration | `POST /v2/config/reload` | 在 idle 边界显式激活候选 |
 | Workspace | `/v2/workspace/*` | 当前/归档浏览，活动日编辑 |
 | Configuration | `POST /v2/config/apply`、`/v2/config/presets` | 整批发布、命名方案 |
-| Inspection | `/v2/days`、`/v2/session/*`、`/v2/turns/{id}/context*`、`/v2/turns/{id}/interactions` | 已提交历史、已安装 Context、活动交互 |
+| Inspection | `/v2/days`、`/v2/session/*`、`/v2/turns/{id}/context*`、`/v2/turns/{id}/interactions` | 已提交历史、已安装 Context、活动交互与已安装 Heap 正文快照 |
 | Resources | `/v2/home/*`、`/v2/memory/*`、`/v2/resources/resolve` | owner 浏览与定位；search 为显式 POST |
 | Capabilities | `/v2/subagent`、`/v2/expand/*`、Job detail/output | 现有连接、目录与 backend 的只读投影 |
 

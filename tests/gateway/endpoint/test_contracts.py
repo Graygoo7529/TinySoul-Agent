@@ -393,6 +393,16 @@ async def collect_contract_responses(root: Path) -> dict[str, JsonObject]:
             assert snapshot is not None
             assert samples["turn-waiting"] == snapshot.to_json()
             samples["context-overview"] = await get("/v2/turns/contract-turn/context")
+            installed_background = await get(
+                "/v2/turns/contract-turn/context/background", max_chars=64000
+            )
+            assert installed_background["source"] == "installed"
+            assert installed_background["snapshot_available"] is True
+            installed_entries = cast(list[JsonObject], installed_background["items"])
+            loaded_agent = next(
+                item for item in installed_entries if item["ref"] == "home:agent@AGENT"
+            )
+            assert isinstance(loaded_agent["content"], str) and loaded_agent["content"]
             samples["context-messages"] = await get(
                 "/v2/turns/contract-turn/context/segments/inputs"
             )
@@ -449,6 +459,21 @@ async def collect_contract_responses(root: Path) -> dict[str, JsonObject]:
             samples["turn-finished"] = await get("/v2/turns/contract-turn")
             assert samples["turn-finished"]["result"] == result.to_json()
             assert result.to_json()["status"] == "answered"
+            # Completion persists the installed content. Reading it later does
+            # not reopen Home, even after the runtime overlay has changed.
+            await agent.services.get(HomeService).write_top(
+                "home:agent@AGENT", "Changed after completion\n", overwrite=True
+            )
+            committed_background = await get(
+                "/v2/session/turns/contract-turn/background", day=str(installed_background["day"]), max_chars=64000
+            )
+            assert committed_background["source"] == "session"
+            assert committed_background["snapshot_available"] is True
+            committed_entries = cast(list[JsonObject], committed_background["items"])
+            assert next(
+                item for item in committed_entries if item["ref"] == loaded_agent["ref"]
+            ) == loaded_agent
+            assert any(item["owner"] == "memory" for item in committed_entries)
             interaction_page = await get(
                 "/v2/turns/contract-turn/interactions", limit=1
             )

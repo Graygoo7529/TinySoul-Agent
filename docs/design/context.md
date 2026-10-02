@@ -71,6 +71,8 @@ inspect 的完整可见结果必须先进入一次实际返回的 Phase1/Phase2 
 
 ## Turn Completion
 
+Heap 段快照保留本轮实际安装的资源正文、身份与加载来源。运行中只读投影从已安装段取得同一内容，结束后沿必要 completion 保存到 Session；查看页面不会调用资源 owner 的加载操作。它是本轮结束事实的一部分，不是新的活动 Context，也不复制每次模型调用的消息栈。
+
 运行中需要引用事实的 owner 可读取 ContextTurnFacts：在事件循环取得当前已接受输入与按请求登记的 Action 快照，不 seal、不结算行动、不安装 Context 更新。Session 用它解释当前证据和完成后的同一来源身份；Kernel 不解析 Session 图或持久引用。seal_trace/end_turn 保留为收尾入口，不能代替运行中读取。
 
 `end_turn()` 产生 typed immutable `ContextTurnCompletion`，包含 Turn identity、有序输入文本与原始接收时间、plan 终态、Background links、按 id 标识的段快照和 `SealedTurnTrace`。Sealed trace 保存 canonical entries、类型化 Action 执行事实和只存引用的时间线，不携带 heap topology。输入保留 Inbox 的受理顺序，时间线另记安装和合并可见位置；Action 请求、开始和结算按实际回调记录，不能从批次结果排序反推。环境/Job 交付、必要 phase note 与已安装 plan patch 通过现有 Signal 批次记录。

@@ -93,6 +93,10 @@ class EndpointServices(Protocol):
         self, turn_id: str, segment_id: str, page: PageOptions = PageOptions()
     ) -> JsonObject: ...
 
+    async def context_background(
+        self, turn_id: str, page: PageOptions = PageOptions()
+    ) -> JsonObject: ...
+
     async def context_inspect(
         self,
         turn_id: str,
@@ -132,6 +136,10 @@ class EndpointServices(Protocol):
     ) -> AbstractAsyncContextManager[WorkspaceBlobRead]: ...
 
     async def session_interactions(
+        self, turn_id: str, day: CalendarDay, page: PageOptions = PageOptions()
+    ) -> JsonObject: ...
+
+    async def session_background(
         self, turn_id: str, day: CalendarDay, page: PageOptions = PageOptions()
     ) -> JsonObject: ...
 

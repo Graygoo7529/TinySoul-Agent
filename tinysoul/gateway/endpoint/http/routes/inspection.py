@@ -130,6 +130,30 @@ def register_inspection_routes(app: FastAPI, engine: EndpointEngine) -> None:
             turn_id, ref, query=query, continuation=continuation
         )
 
+    @app.get(
+        "/v2/turns/{turn_id}/context/background",
+        response_model=PageResponse,
+        response_model_exclude_unset=True,
+    )
+    async def context_background(
+        turn_id: str, continuation: str | None = None, max_chars: int = 16000
+    ):
+        return await engine.inspection.context_background(
+            turn_id, PageOptions(continuation, max_chars=max_chars)
+        )
+
+    @app.get(
+        "/v2/session/turns/{turn_id}/background",
+        response_model=PageResponse,
+        response_model_exclude_unset=True,
+    )
+    async def session_background(
+        turn_id: str, day: str, continuation: str | None = None, max_chars: int = 16000
+    ):
+        return await engine.inspection.session_background(
+            turn_id, CalendarDay.parse(day), PageOptions(continuation, max_chars=max_chars)
+        )
+
     @app.get("/v2/session/turns")
     async def turns(
         day: str | None = None,

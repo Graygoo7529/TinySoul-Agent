@@ -12,6 +12,7 @@ from tinysoul.infra.continuation import (
 from tinysoul.infra.json import JsonObject, dumps_json
 from tinysoul.infra.paging import PageOptions
 from tinysoul.infra.time import CalendarDay
+from tinysoul.kernel.context.background import background_projection
 from tinysoul.kernel.context.disclosure import (
     DisclosureHint,
     DisclosurePage,
@@ -127,6 +128,21 @@ class SessionView:
             owner="session",
             ref=record.ref,
             base={**interaction_header(record), "turn_id": turn_id},
+        )
+
+    def background(self, turn_id: str, page: PageOptions = PageOptions()) -> JsonObject:
+        record = self._requested_record(f"session:turn/{turn_id}")
+        items = background_projection(record.segments)
+        return page.render(
+            items or (),
+            owner="session",
+            ref=f"{record.ref}:background",
+            base={
+                "turn_id": turn_id,
+                "day": record.day,
+                "source": "session",
+                "snapshot_available": items is not None,
+            },
         )
 
     def resolved_references(self, turn_id: str) -> JsonObject:

@@ -31,7 +31,6 @@ import {
 import type {
   Interaction,
   PendingItem,
-  SessionTurnSummary,
   TurnResult,
 } from "../../api/v2/types";
 import {
@@ -42,7 +41,6 @@ import {
 import {
   useTurnStore,
   type OutgoingEcho,
-  type SessionTurnProjection,
 } from "../../store/turnStore";
 import {
   cancelActiveTurn,
@@ -68,8 +66,9 @@ import { AgentRow, InteractionRow, TurnFooter, WaitingQuestionCard } from "./Con
 import { registerQuestionBlock } from "./questionBlock";
 import { LiveStatus } from "./LiveStatus";
 import { useTurnPresentation } from "./useTurnPresentation";
-import { useConversationScroll } from "./useConversationScroll";
+import { ChatFollowContext, useConversationScroll } from "./useConversationScroll";
 import { useActivityDetails } from "./useActivityDetails";
+import type { TurnPresentation, WorkingState } from "./presentation";
 
 // The chat feature's assembly: the question fence protocol joins the
 // CodeBlockRegistry (plan §21.1 explicit composition).
@@ -86,77 +85,52 @@ export function ChatView() {
   );
 }
 
-function CommittedTurnBlock({
-  epoch,
-  summary,
-  projection,
-  activeDay,
-  showDayDivider = false,
-}: {
-  epoch: number;
-  summary: SessionTurnSummary;
-  projection: SessionTurnProjection | undefined;
-  activeDay: string | null;
-  showDayDivider?: boolean;
+/** One mounted Turn from its first input through immutable Session takeover. */
+function ConversationTurn({ epoch, turnId, day, activeDay, items, current, latest, history, loading, unavailable, status, result, presentation, working }: {
+  epoch: number; turnId: string; day: string | null; activeDay: string | null; items: Interaction[];
+  current: boolean; latest: boolean; history: boolean; loading: boolean; unavailable: boolean; status: string | null; result: TurnResult | null;
+  presentation: TurnPresentation | null; working: WorkingState;
 }) {
-  const items = projection?.items ?? [];
-  const origin = conversationOrigin({
-    view: "history",
-    day: summary.day,
-    turnId: summary.turn_id,
-    activeDay,
-  });
+  const view: ChatViewMode = history || !current ? "history" : "live";
+  const origin = conversationOrigin({ view, day, turnId, activeDay });
+  const baseline = useRef<Set<string> | null>(loading ? null : new Set(items.map((item) => interactionKey(item, items))));
+  if (baseline.current === null && !loading) baseline.current = new Set(items.map((item) => interactionKey(item, items)));
+  const isFresh = (item: Interaction) => !history && baseline.current !== null && !baseline.current.has(interactionKey(item, items));
+  // Presentation cache lasts only while this mounted Turn is visible. Formal history always comes from Session.
+  const captured = useRef<{ presentation: TurnPresentation; working: WorkingState } | null>(null);
+  if (presentation?.turnId === turnId) captured.current = { presentation, working };
+  const detail = captured.current;
+  return <section data-turn-root={turnId} data-turn-id={turnId} className="space-y-4 animate-fade-in">
+    {unavailable && <div className="text-[12px] text-warning">This conversation is currently unavailable.</div>}
+    {loading && items.length === 0 && <div className="text-[12px] text-fg-faint">Loading the conversation…</div>}
+    {items.filter((item) => item.role === "user.input").map((item) => <InteractionRow key={interactionKey(item, items)}
+      item={item} fresh={isFresh(item)} view={view} origin={origin} turnId={turnId} />)}
+    <AgentRow>
+      {!history && latest && detail?.presentation.activity && <LiveStatus epoch={epoch} turnId={turnId} day={day} activity={{ ...detail.presentation.activity, working: detail.working }}
+        mode={current && !status ? "live" : "settled"} status={detail.presentation.status}
+        onStop={current ? () => void cancelActiveTurn(epoch) : undefined} />}
+      {items.filter((item) => item.role !== "user.input" && item.role !== "agent.action").map((item) => <InteractionRow key={interactionKey(item, items)}
+        item={item} fresh={isFresh(item)} view={view} origin={origin} turnId={turnId} nested />)}
+      {current && <CurrentTurnControls />}
+      {result && <ResultSummary result={result} />}
+      <TurnFooter epoch={epoch} turnId={turnId} day={day} status={status} items={items}
+        elapsedMs={status !== null ? detail?.presentation.activity?.timing.elapsedMs : undefined} />
+    </AgentRow>
+  </section>;
+}
 
-  return (
-    <section data-turn-root={summary.turn_id} data-turn-id={summary.turn_id} className="space-y-3">
-      {showDayDivider && (
-        <div className="flex items-center gap-2 px-1 text-[11px] text-fg-faint">
-          <span className="h-px flex-1 bg-line" />
-          <span>{summary.day}</span>
-          <span className="h-px flex-1 bg-line" />
-        </div>
-      )}
-      {projection?.unavailable ? (
-        <div className="rounded-xl border border-warning/30 bg-warning-soft px-4 py-3 text-[12px] text-warning">
-          This conversation is currently unavailable. The Session summary is still retained.
-        </div>
-      ) : projection === undefined || projection.loading ? (
-        <div className="rounded-xl border border-line bg-bg-elev px-4 py-3 text-[12px] text-fg-faint">
-          Loading conversation…
-        </div>
-      ) : items.length === 0 ? (
-        <div className="rounded-xl border border-line bg-bg-elev px-4 py-3 text-[12px] text-fg-faint">
-          {summary.initial_input_excerpt || "Empty conversation"}
-        </div>
-      ) : (
-        items.filter((item) => item.role === "user.input").map((item) => (
-          <InteractionRow
-            key={item.id}
-            item={item}
-            fresh={false}
-            view="history"
-            origin={origin}
-            turnId={summary.turn_id}
-          />
-        ))
-      )}
-      <AgentRow>
-        {items.filter((item) => item.role !== "user.input" && item.role !== "agent.action").map((item) => (
-          <InteractionRow key={item.id} item={item} fresh={false} view="history" origin={origin} turnId={summary.turn_id} nested />
-        ))}
-        {projection?.result && <ResultSummary result={projection.result} />}
-        <TurnFooter epoch={epoch} turnId={summary.turn_id} day={summary.day} status={summary.status} items={items} />
-      </AgentRow>
-    </section>
-  );
+function CurrentTurnControls() {
+  const pending = useTurnStore((s) => s.pendingItems);
+  const outgoing = useTurnStore((s) => s.outgoing);
+  return <>{pending.map((item) => <PendingRow key={item.record_id} item={item} />)}
+    {outgoing.map((echo) => <EchoRow key={echo.echoId} echo={echo} />)}
+    <WaitingQuestionCard /><QueuedRequestRow /><BudgetCard /></>;
 }
 
 // One persistent scroll container for the active day and explicit history reads.
 function ConversationView() {
   const epoch = useConnectionStore((s) => s.epoch);
   const items = useTurnStore((s) => s.items);
-  const pendingItems = useTurnStore((s) => s.pendingItems);
-  const outgoing = useTurnStore((s) => s.outgoing);
   const loading = useTurnStore((s) => s.loading);
   const historyView = useTurnStore((s) => s.historyView);
   const turnId = useTurnStore((s) => s.turnId);
@@ -167,39 +141,17 @@ function ConversationView() {
   const sessionProjections = useTurnStore((s) => s.sessionProjections);
   const chronologicalTurns = [...sessionTurns].reverse();
   const snapshot = useTurnStore((s) => s.snapshot);
+  const result = useTurnStore((s) => s.result);
+  const presentation = useTurnPresentation();
+  const working = useActivityDetails();
   const sessionLoading = useTurnStore((s) => s.sessionTurnsLoading);
   const running = !historyView && snapshot !== null && snapshot.state !== "finished";
   const latestId = turnId ?? chronologicalTurns[chronologicalTurns.length - 1]?.turn_id ?? null;
   const scroll = useConversationScroll(latestId, running, loading || sessionLoading);
   const { scrollRef, contentRef, pinned, jumpToLatest } = scroll;
 
-  const view: ChatViewMode = historyView ? "history" : "live";
-  // The shared conversation origin (plan §7): archived-day content binds its
-  // references to its own day/turn; the active day keeps live resources.
-  const origin = conversationOrigin({ view, day, turnId, activeDay });
-
-  // Freshness baseline: the items present when a view's first projection
-  // lands are restored content — they render instantly. Rows arriving after
-  // that are fresh and animate in. A Session take-over (source change)
-  // re-baselines: the same conversation under new identities never replays.
-  const viewKey = turnId ?? "";
-  const baselineRef = useRef<{ key: string; ids: Set<string> | null } | null>(
-    null,
-  );
-  if (baselineRef.current === null || baselineRef.current.key !== viewKey) {
-    baselineRef.current = {
-      key: viewKey,
-      ids: loading ? null : new Set(items.map((item) => interactionKey(item, items))),
-    };
-  } else if (baselineRef.current.ids === null && !loading) {
-    baselineRef.current = {
-      key: viewKey,
-      ids: new Set(items.map((item) => interactionKey(item, items))),
-    };
-  }
-  const baseline = baselineRef.current.ids;
-  const isFresh = (item: Interaction) =>
-    baseline !== null && !baseline.has(interactionKey(item, items));
+  const ids = [...(!historyView ? chronologicalTurns.map((summary) => summary.turn_id) : [])];
+  if (turnId !== null && !ids.includes(turnId)) ids.push(turnId);
 
   return (
     <div className="relative flex h-full min-h-0 flex-col">
@@ -218,10 +170,6 @@ function ConversationView() {
             <span className="flex-1">{activeDay}</span>
             <Button size="xs" variant="ghost" onClick={() => openHistoryBrowser(epoch)}><History size={12} /> Earlier days</Button>
           </div>}
-          {!historyView && chronologicalTurns.filter((summary) => summary.turn_id !== turnId).map((summary) => (
-            <CommittedTurnBlock key={summary.turn_id} epoch={epoch} summary={summary}
-              projection={sessionProjections[summary.turn_id]} activeDay={activeDay} />
-          ))}
           {latestId === null && (
             <EmptyState
               icon={sessionLoading ? <Loader2 size={26} className="animate-spin-slow" /> : <MessageSquareText size={28} />}
@@ -230,31 +178,18 @@ function ConversationView() {
               action={<Button variant="outline" size="sm" onClick={() => openHistoryBrowser(epoch)}><History size={13} /> Browse earlier days</Button>}
             />
           )}
-          {turnId !== null && (
-            <section data-turn-root={turnId} className="space-y-4">
-              {loading && items.length === 0 && <div className="text-[12px] text-fg-faint">Loading the conversation…</div>}
-              {/* c479ca0: user bubbles, live card, answer and trace footer.
-                  Questions and replies retain their formal interaction order. */}
-              {items.filter((item) => item.role === "user.input").map((item) => (
-                <InteractionRow key={interactionKey(item, items)} item={item} fresh={isFresh(item)} view={view} origin={origin}
-                  turnId={turnId} />
-              ))}
-              <AgentRow>
-              {!historyView && <LiveActivityCard onStop={() => void cancelActiveTurn(epoch)} />}
-              {items.filter((item) => item.role !== "user.input" && item.role !== "agent.action").map((item) => (
-                <InteractionRow key={interactionKey(item, items)} item={item} fresh={isFresh(item)} view={view} origin={origin}
-                  turnId={turnId} nested />
-              ))}
-              {pendingItems.map((item) => <PendingRow key={item.record_id} item={item} />)}
-              {outgoing.map((echo) => <EchoRow key={echo.echoId} echo={echo} />)}
-              <WaitingQuestionCard />
-              <QueuedRequestRow />
-              <BudgetCard />
-              <TurnResultRow />
-              <CurrentTurnFooter />
-              </AgentRow>
-            </section>
-          )}
+          <ChatFollowContext.Provider value={scroll.holdFollow}>
+            {ids.map((id) => {
+              const current = id === turnId;
+              const summary = sessionTurns.find((entry) => entry.turn_id === id);
+              const cached = sessionProjections[id];
+              return <ConversationTurn key={id} epoch={epoch} turnId={id} current={current} latest={id === latestId} history={historyView}
+                day={current ? day : summary?.day ?? null} activeDay={activeDay} items={current ? items : cached?.items ?? []}
+                loading={current ? loading : cached === undefined || cached.loading} unavailable={cached?.unavailable ?? false}
+                status={(current ? result?.status : cached?.result?.status) ?? summary?.status ?? null}
+                result={current ? result : cached?.result ?? null} presentation={current ? presentation : null} working={working} />;
+            })}
+          </ChatFollowContext.Provider>
           {latestId !== null && <div data-chat-spacer style={{ height: "85vh" }} />}
         </div>
       </div>
@@ -536,25 +471,6 @@ function BudgetCard() {
   );
 }
 
-function TurnResultRow() {
-  const result = useTurnStore((s) => s.result);
-  const snapshot = useTurnStore((s) => s.snapshot);
-  if (result === null || snapshot === null || snapshot.state !== "finished") {
-    return null;
-  }
-  return <ResultSummary result={result} />;
-}
-
-function CurrentTurnFooter() {
-  const epoch = useConnectionStore((s) => s.epoch);
-  const turn = useTurnStore();
-  const presentation = useTurnPresentation();
-  if (turn.turnId === null) return null;
-  const status = turn.result?.status ?? turn.sessionTurns?.find((item) => item.turn_id === turn.turnId)?.status ?? null;
-  return <TurnFooter epoch={epoch} turnId={turn.turnId} day={turn.day} status={status} items={turn.items}
-    elapsedMs={status !== null ? presentation?.activity?.timing.elapsedMs : undefined} />;
-}
-
 function ResultSummary({ result }: { result: TurnResult }) {
   const failure = result.failure;
   const failureText =
@@ -565,37 +481,4 @@ function ResultSummary({ result }: { result: TurnResult }) {
   return <div className="flex items-start gap-2 rounded-xl border border-danger/30 bg-danger-soft px-3.5 py-2.5 text-[13px] text-danger">
     <AlertTriangle size={15} className="mt-0.5 shrink-0" /><span className="break-words">{failureText}</span>
   </div>;
-}
-
-// ---------------------------------------------------------------------------
-// Live activity card (observation-event layer)
-// ---------------------------------------------------------------------------
-
-/**
- * Renders the observation-event presentation (LiveStatus) for the active turn
- * while it is running, and keeps a settled view briefly after it finishes.
- *
- * Sits after the formal interaction stream so the agent activity feels like
- * it continues below the last committed row. Hidden when there is no
- * presentation or no activity.
- */
-function LiveActivityCard({ onStop }: { onStop?: () => void }) {
-  const presentation = useTurnPresentation();
-  const working = useActivityDetails();
-
-  if (!presentation || !presentation.activity) return null;
-
-  const running = presentation.status === "running";
-  const settled = !running && presentation.activity !== null;
-
-  if (!running && !settled) return null;
-
-  return (
-        <LiveStatus
-          activity={{ ...presentation.activity, working }}
-          mode={running ? "live" : "settled"}
-          status={presentation.status}
-          onStop={running ? onStop : undefined}
-        />
-  );
 }

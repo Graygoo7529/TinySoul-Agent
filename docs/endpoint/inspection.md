@@ -33,9 +33,11 @@ rather than being copied into another business model.
 | /turns/{id}/interactions | continuation?, limit?, max_chars? | turn_id/generation_id/day/state、items、pending_items；完成后 result |
 | /turns/{id}/context | 无 | turn_id/generation_id/day/captured_at、segments、resolved_references |
 | /turns/{id}/context/segments/{segment_id} | continuation?, max_chars? | turn_id/segment_id、messages[{message_index,message}]；可选 next_continuation/content_fragment |
+| /turns/{id}/context/background | continuation?, max_chars? | 当前 Turn 已安装 Home/Memory 等 Heap 的正文快照；只读、不读取 owner 当前文件 |
 | /turns/{id}/context/inspect | ref、query?、continuation? | 既有 DisclosurePage |
 | /session/turns | day?、普通分页 | Turn 摘要：turn_id/ref/day/status/input/output 线索及问题数 |
 | /session/turns/{id} | day、continuation?、max_chars? | 正式 Session 交互页 |
+| /session/turns/{id}/background | day、continuation?、max_chars? | 该已完成 Turn 提交时保存的 Heap 正文；旧记录无快照时 snapshot_available=false |
 | /session/map | day?、continuation? | session:map 的 DisclosurePage |
 | /session/inspect | day、ref?、query?、continuation? | 已提交记录/解释的确定性披露 |
 
@@ -44,6 +46,10 @@ Interaction role 为 user.input/append/reply、agent.question/reason/action/outp
 Context segment descriptor 包含 id/owner/slot/shape/order/capabilities/root_refs 与 available/loaded/protected_refs；chars/image_bytes 不是精确 token。正文来自已安装段，不读取最新文件替换它；TaskPrompt 只在具体 LLM 调用中显示。GET inspect 不追加 Action 结果、不解除展示保护。关闭后 409 context.unavailable；历史转 Session 或 Observation。未找到 Turn/归档日返回 404 turn.resource_not_found；未知 Session ref 为 404 unknown_ref。
 
 段正文的集合字段为 `messages`，不同于资源和 Disclosure 页的 `items`；分页与 JSON fragment 仍复用同一基础协议，不应把段正文交给要求 `items` 的资源页类型。
+
+background 页共用普通 Page envelope，附带 `turn_id/day/source/snapshot_available`，其中 source 为 `installed` 或 `session`。资源项为 `{ref,title,content,owner,source,evictable}`；项的 source 表示加载来源（`default/automatic/phase1`）。content 是实际安装时的正文，包括 owner 自带的内容头；例如动态 Memory 的首行元数据与后续 Markdown。两种读取均不重新打开 Home/Memory 文件，也不执行 Agent 的加载操作。
+
+已完成 User Turn 的 Heap 正文沿既有 completion 段快照保存，读取需给出该 Turn 的 day。`snapshot_available=false` 表示记录没有保存正文，不能用今天的文件补全；已保存但没有资源则为 true 和空 items。长资源仍按 canonical_json fragment 续读。背景快照不表示整份 Context 在 Turn 结束后仍活动，ModelCall 的 TaskPrompt 和调用消息仍从模型详情读取。
 
 ## Home、Memory 与定位
 

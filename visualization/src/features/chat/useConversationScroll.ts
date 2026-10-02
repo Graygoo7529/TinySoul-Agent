@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useReducedMotion } from "motion/react";
 
 // Geometry and timing from c479ca0 ChatView. Only the input projection changed.
@@ -6,12 +6,18 @@ const TOP_ANCHOR = 20;
 const ANCHOR_GLIDE_MS = 700;
 const BOTTOM_GAP = 32;
 
+export const ChatFollowContext = createContext<() => void>(() => {});
+export const useHoldChatFollow = () => useContext(ChatFollowContext);
+
 export function useConversationScroll(latestId: string | null, running: boolean, recovering: boolean) {
   const reduced = useReducedMotion();
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const current = useRef({ running, latestId });
-  current.current = { running, latestId };
+  const current = useRef({ running, latestId, recovering });
+  current.current = { running, latestId, recovering };
+  const holdUntil = useRef(0);
+  const landed = useRef(false);
+  const previous = useRef(latestId);
   const programmatic = useRef<number | null>(null);
   const glideFrame = useRef<number | undefined>(undefined);
   const following = useRef(true);
@@ -75,7 +81,8 @@ export function useConversationScroll(latestId: string | null, running: boolean,
     if (!scroll || !content) return;
     const onResize = () => {
       updateSpacer();
-      if (!following.current || glideFrame.current !== undefined) return;
+      if (current.current.recovering || !landed.current || previous.current !== current.current.latestId ||
+          Date.now() < holdUntil.current || !following.current || glideFrame.current !== undefined) return;
       const target = followTarget();
       if (target === null || Math.abs(scroll.scrollTop - target) < 1) return;
       programmatic.current = target;
@@ -91,10 +98,9 @@ export function useConversationScroll(latestId: string | null, running: boolean,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latestId === null, recovering]);
 
-  const landed = useRef(false);
-  const previous = useRef(latestId);
   useEffect(() => {
-    if (recovering || latestId === null) return;
+    if (recovering) return;
+    if (latestId === null) { landed.current = true; previous.current = null; return; }
     const scroll = scrollRef.current;
     if (!scroll) return;
     updateSpacer();
@@ -116,6 +122,7 @@ export function useConversationScroll(latestId: string | null, running: boolean,
 
   return {
     scrollRef, contentRef, pinned,
+    holdFollow: () => { holdUntil.current = Date.now() + 1200; cancelGlide(); },
     jumpToLatest: () => { setFollowing(true); updateSpacer(); glideTo(followTarget() ?? anchorTarget()); },
     onScroll: () => {
       const scroll = scrollRef.current;
