@@ -146,14 +146,8 @@ function ThinkingBody({ text }: { text: string }) {
   const holdFollow = useHoldChatFollow();
   const { ref, truncated } = useTruncated<HTMLSpanElement>(text);
   const lines = text.split("\n").filter((l) => l.trim().length > 0);
-
-  // R3: Smart multi-line preview — show two short paragraphs if first is brief
-  const firstPara = lines[0] ?? text;
-  const secondPara = lines.length > 1 && firstPara.length < 60 ? lines[1] : null;
-  const preview = secondPara ? `${firstPara} ${secondPara}` : firstPara;
-
-  const hasMore = lines.length > (secondPara ? 2 : 1) || truncated || open;
-  const isLong = text.length > 200;
+  const preview = lines[0] ?? text;
+  const hasMore = lines.length > 1 || truncated || open;
 
   return (
     <div>
@@ -161,14 +155,7 @@ function ThinkingBody({ text }: { text: string }) {
         onClick={() => { holdFollow(); setOpen(!open); }}
         className="flex w-full items-start gap-1 text-left"
       >
-        <span
-          ref={ref}
-          className={`min-w-0 flex-1 text-[12px] italic text-fg-muted ${
-            secondPara ? "line-clamp-2" : "truncate"
-          }`}
-        >
-          {preview}
-        </span>
+        <span ref={ref} className="min-w-0 flex-1 truncate text-[12px] italic text-fg-muted">{preview}</span>
         {hasMore && (
           <ChevronRight
             size={11}
@@ -177,19 +164,8 @@ function ThinkingBody({ text }: { text: string }) {
         )}
       </button>
       {open && hasMore && (
-        <div className="mt-1.5 rounded-lg bg-accent-soft/50 px-3 py-2.5">
-          <Markdown
-            className={`md-calm text-[12px] leading-relaxed text-fg-muted ${
-              isLong ? "max-h-[240px] overflow-y-auto" : ""
-            }`}
-          >
-            {text}
-          </Markdown>
-          {isLong && (
-            <div className="mt-1 text-[10px] text-fg-faint">
-              {text.length} characters
-            </div>
-          )}
+        <div className="mt-1 rounded-lg bg-accent-soft/50 px-2.5 py-2">
+          <Markdown className="md-calm text-[12px] text-fg-muted">{text}</Markdown>
         </div>
       )}
     </div>

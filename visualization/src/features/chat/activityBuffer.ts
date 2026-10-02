@@ -179,19 +179,12 @@ export class ActivityBuffer {
 
   /**
    * Derive activity trail (recent semantic steps).
-   * R7: Annotate each step with its phase context for visual grouping.
    */
   private deriveTrail(): ActivityStep[] {
     const steps: ActivityStep[] = [];
     const plans = new Map<string, ActionGlimpseData>();
-    let currentPhase: "phase1" | "phase2" | "phase3" = "phase1";
 
     for (const event of this.events) {
-      // Track phase transitions
-      if (event.name === "loop.phase.started") {
-        currentPhase = this.extractPhase(event);
-      }
-
       const execution = parseActionExecution(event);
       if (execution !== null) {
         const plan = plans.get(execution.callId);
@@ -205,9 +198,6 @@ export class ActivityBuffer {
       }
       const step = this.eventToActivityStep(event);
       if (step) {
-        // R7: Attach current phase to each step
-        step.phase = currentPhase;
-
         if (step.content.type === "action_plan" && step.content.glimpse.callId) {
           plans.set(step.content.glimpse.callId, step.content.glimpse);
         } else if (step.content.type === "action_result") {
@@ -227,11 +217,24 @@ export class ActivityBuffer {
   private eventToActivityStep(event: ObservationEvent): ActivityStep | null {
     const timestamp = new Date(event.created_at * 1000).toISOString();
 
-    // R4: Phase transitions update headline only, not trail entries.
-    // Empty "Understanding" / "Planning" / "Executing" rows don't add information;
-    // the headline already reflects the current phase via deriveHeadline().
+    // Phase started
     if (event.name === "loop.phase.started") {
-      return null;
+      const phase = this.extractPhase(event);
+      return {
+        id: `step-${event.sequence}`,
+        type: "phase_start",
+        timestamp,
+        content: {
+          type: "phase_start",
+          phase: {
+            phase,
+            label: this.getPhaseLabel(phase),
+            domain: event.payload?.domain as string | undefined,
+            skill: event.payload?.skill as string | undefined,
+          },
+        },
+        autoExpandGist: true,
+      };
     }
 
     if (event.name === "llm.model.response") {
@@ -251,21 +254,11 @@ export class ActivityBuffer {
       return { id: `step-${event.sequence}`, type: "skill_mount", timestamp,
         content: { type: "skill_mount", skill: asStringArray(event.payload.skill_refs).join(", "), domain: "task" }, autoExpandGist: false };
     }
-
-    // R6: Only show dynamic background changes, not initial snapshot.
-    // Initial "Loaded home:xxx" at turn start is background context, not an action.
-    if (event.name === "context.background.changed") {
-      const loaded = asStringArray(event.payload.loaded_links);
+    if (event.name === "context.background.snapshot" || event.name === "context.background.changed") {
+      const loaded = asStringArray(event.payload[event.name.endsWith("snapshot") ? "links" : "loaded_links"]);
       const evicted = asStringArray(event.payload.evicted_links);
-
-      // Only show if there's actual change
-      if (loaded.length === 0 && evicted.length === 0) return null;
-
-      const summary = [
-        loaded.length ? `Loaded ${loaded.join(", ")}` : "",
-        evicted.length ? `Evicted ${evicted.join(", ")}` : ""
-      ].filter(Boolean).join("; ");
-
+      const summary = [loaded.length ? `Loaded ${loaded.join(", ")}` : "", evicted.length ? `Evicted ${evicted.join(", ")}` : ""].filter(Boolean).join("; ");
+      if (!summary) return null;
       return {
         id: `step-${event.sequence}`,
         type: "context_update",
@@ -277,7 +270,6 @@ export class ActivityBuffer {
         autoExpandGist: false,
       };
     }
-    // Don't process context.background.snapshot (initial load)
 
     const call = parseActionCall(event);
     if (call !== null) {

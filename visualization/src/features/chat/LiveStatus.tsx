@@ -40,25 +40,23 @@ import { Markdown } from "../../components/markdown/Markdown";
 import { formatDuration } from "../../utils/format";
 import { EASE_CALM, FOLD_DELAY_MS, LIVE_FOLD_MS } from "../../utils/motion";
 
-// R1: Optimized visible window and trail height (baseline: 9, current: 14 → 10)
-const ROLL_WINDOW = 10;
-const TRAIL_MAX_PX = 220;
-// R2: Unified motion timing (aligned with 502b76d baseline rhythm)
+const ROLL_WINDOW = 14;
+const TRAIL_MAX_PX = 256;
 const ROLL_STRIDE_MS = 1100;
-const DRAIN_STRIDE_MS = 200;  // 240 → 200, sync with thinking erase
+const DRAIN_STRIDE_MS = 240;
 const SAFETY_THRESHOLD = 10;
 const SAFETY_RELEASE = 6;
-const ROLL_MS = 500;  // 420 → 500, reference baseline
-const REVEAL_MS = 400;  // 340 → 400, reference baseline
-const DRAIN_ROLL_MS = 350;  // 320 → 350, align with normal roll
-const DRAIN_REVEAL_MS = 300;  // 280 → 300, align with normal reveal
+const ROLL_MS = 420;
+const REVEAL_MS = 340;
+const DRAIN_ROLL_MS = 320;
+const DRAIN_REVEAL_MS = 280;
 const THINK_ERASE_MS = 300;
 const THINK_REVEAL_DELAY_MS = 60;
 const THINK_REVEAL_MS = 450;
 const THINK_LINE_HEIGHT = 20;
 const SLATE_GLIDE_MS = 360;
 const MILESTONE_WINDOW = 3;
-const GIST_POP_DELAY_MS = 450;  // 400 → 450, maintain two-beat clarity
+const GIST_POP_DELAY_MS = 400;
 
 export interface LiveStatusProps {
   epoch: number;
@@ -236,16 +234,6 @@ export function LiveStatus({ activity, mode = "live", onStop, status, epoch, tur
 
   const settled = live ? undefined : settledHeadline(status);
 
-  // R7: Phase color mapping for visual grouping
-  const getPhaseBackground = (phase?: "phase1" | "phase2" | "phase3"): string => {
-    if (!phase) return "";
-    switch (phase) {
-      case "phase1": return "bg-blue-500/5";       // Understanding - subtle blue
-      case "phase2": return "bg-amber-500/5";      // Planning - subtle amber
-      case "phase3": return "bg-emerald-500/5";    // Executing - subtle emerald
-    }
-  };
-
   const renderStep = (item: ActivityStep, i: number) => {
     const instant = !live || reduced === true;
     const drained = flushedIds.current.has(item.id);
@@ -267,7 +255,7 @@ export function LiveStatus({ activity, mode = "live", onStop, status, epoch, tur
         }}
       >
         <div
-          className={`step-depth ${getPhaseBackground(item.phase)}`}
+          className="step-depth"
           style={{ "--step-opacity": Math.max(0.68, 1 - i * 0.06) } as React.CSSProperties}
         >
           <motion.div

@@ -79,15 +79,11 @@ describe("ActivityBuffer v2 event projection", () => {
   it("shows real background changes and phase domain decisions", () => {
     const buffer = new ActivityBuffer("turn-1");
     buffer.loadEvents([
-      // R6: Initial snapshot is filtered (background context, not action)
       event("context.background.snapshot", { links: ["home:agent@context/background"] }, 1),
-      // Dynamic changes are shown
-      event("context.background.changed", { loaded_links: ["memory:daily/2024-01-01"], evicted_links: [] }, 2),
-      event("loop.phase.completed", { phase: "phase1", selected_domains: ["home", "memory"] }, 3),
+      event("loop.phase.completed", { phase: "phase1", selected_domains: ["home", "memory"] }, 2),
     ]);
     const trail = buffer.toPresentation(new Date().toISOString(), true)?.trail ?? [];
-    // First entry should be the dynamic change, not the initial snapshot
-    expect(trail[0]?.content).toMatchObject({ type: "context_update", summary: "Loaded memory:daily/2024-01-01" });
+    expect(trail[0]?.content).toMatchObject({ type: "context_update", summary: "Loaded home:agent@context/background" });
     expect(trail[1]?.content).toEqual({ type: "domain_select", domains: ["home", "memory"] });
   });
 
