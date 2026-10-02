@@ -59,16 +59,18 @@ export function InteractionRow({
   turnId: string | null;
   nested?: boolean;
 }) {
-  // The answer card runs its own materialization; every other fresh row
-  // fades in once. Restored content renders instantly.
-  const wrapper = (node: ReactElement) =>
-    fresh ? <div className="animate-fade-in">{node}</div> : node;
+  // R5: User input appears immediately to anchor the turn visually.
+  // The answer card runs its own materialization; other fresh rows fade in.
+  // Restored content renders instantly.
+  const wrapper = (node: ReactElement, immediate = false) =>
+    fresh && !immediate ? <div className="animate-fade-in">{node}</div> : node;
   switch (item.role) {
     case "user.input":
     case "user.append":
-      return wrapper(<UserBubble text={item.text ?? ""} />);
+      // User input should appear immediately without fade-in delay
+      return wrapper(<UserBubble text={item.text ?? ""} />, true);
     case "user.reply":
-      return wrapper(<UserBubble text={replyDisplayText(item)} label="Reply" />);
+      return wrapper(<UserBubble text={replyDisplayText(item)} label="Reply" />, true);
     case "agent.output":
       return nested ? <AnswerCard text={item.text ?? ""} stream={fresh} origin={origin} />
         : <AgentOutput text={item.text ?? ""} stream={fresh} origin={origin} />;

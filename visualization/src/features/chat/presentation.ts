@@ -130,6 +130,9 @@ export interface ActivityStep {
 
   /** Auto-expand gist */
   autoExpandGist: boolean;
+
+  /** R7: Phase context for visual grouping */
+  phase?: "phase1" | "phase2" | "phase3";
 }
 
 export type ActivityStepType =
