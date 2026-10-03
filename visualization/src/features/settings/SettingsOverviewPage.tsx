@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
-  CircleDashed,
   Layers,
 } from "lucide-react";
 import { useState } from "react";
@@ -12,13 +11,12 @@ import type { JsonValue, PresetSummary } from "../../api/v2/types";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { SectionCard } from "../../components/ui/Card";
-import { EmptyState } from "../../components/ui/EmptyState";
 import { JsonTree } from "../../components/ui/JsonTree";
-import { useConnectionStore } from "../../store/connectionStore";
-import { reloadSaved } from "./applyController";
+import { CopyButton } from "../../components/ui/CopyButton";
+import { SettingsDisclosure } from "./SettingsDisclosure";
 import {
   activityReasonText,
-  activationBlocker,
+  draftIssues,
   selectDraftCount,
   useConfigDraftStore,
   type ApplyFailure,
@@ -45,192 +43,83 @@ function previewValue(value: JsonValue | undefined, limit = 60): string {
  * run-plan summary that routes to the plans page for capture/management.
  */
 export function SettingsOverviewPage() {
-  const clients = useConnectionStore((s) => s.clients);
   const saved = useConfigDraftStore((s) => s.saved);
   const active = useConfigDraftStore((s) => s.active);
   const presets = useConfigDraftStore((s) => s.presets);
   const drafts = useConfigDraftStore((s) => s.drafts);
   const stale = useConfigDraftStore((s) => s.stale);
   const draftCount = useConfigDraftStore(selectDraftCount);
-  const blocker = useConfigDraftStore(activationBlocker);
-  const applyPhase = useConfigDraftStore((s) => s.applyPhase);
+  const issueCount = useConfigDraftStore((s) => draftIssues(s).length);
   const resolveStale = useConfigDraftStore((s) => s.resolveStale);
   const navigateTo = useSettingsUiStore((s) => s.navigateTo);
-
+  const [sourceQuery, setSourceQuery] = useState("");
   if (saved === null || active === null) return null;
 
   const pending = pendingActivationChanges(saved, active);
   const activity = saved.activity;
-
+  const sources = saved.sources.filter((source) =>
+    `${source.id} ${source.path ?? ""}`.toLocaleLowerCase().includes(sourceQuery.trim().toLocaleLowerCase()));
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-4 p-5">
-      <SectionCard
-        title="运行配置"
-        description="当前 Agent generation 正在使用的配置。"
-        actions={
-          activity.can_reload ? (
-            <Badge tone="green">空闲</Badge>
-          ) : (
-            <Badge tone="yellow" title={settingsText(activityReasonText(activity.reason))}>
-              忙碌
-            </Badge>
-          )
-        }
-      >
-        <dl className="grid grid-cols-[140px_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-[12px]">
-          <dt className="text-fg-faint">运行代次</dt>
-          <dd className="font-mono break-all text-fg">
-            {active.generation_id || "—"}
-          </dd>
-          <dt className="text-fg-faint">运行状态</dt>
-          <dd className="text-fg">
-            {activity.state}
-            {activity.reason !== "" && (
-              <span className="ml-1.5 text-fg-muted">
-                — {settingsText(activityReasonText(activity.reason))}
-              </span>
-            )}
-          </dd>
-          <dt className="text-fg-faint">待激活修改</dt>
-          <dd className="text-fg">
-            {saved.pending_reload ? `${pending.length} 项` : "无"}
-          </dd>
-        </dl>
-
-        <div className="mt-3 border-t border-line pt-3">
-          <div className="mb-1.5 text-[11px] font-semibold tracking-wide text-fg-muted uppercase">
-            配置来源
-          </div>
-          <div className="space-y-1">
-            {saved.sources.map((source) => (
-              <div
-                key={source.id}
-                className="flex items-center gap-2 text-[12px]"
-              >
-                <span className="font-mono text-fg">{source.id}</span>
-                <span className="truncate font-mono text-[11px] text-fg-faint">
-                  {source.path || "—"}
-                </span>
-                <span className="ml-auto flex shrink-0 items-center gap-1">
-                  {!source.exists && <Badge tone="gray">缺失</Badge>}
-                  {!source.writable && <Badge tone="gray">只读</Badge>}
-                </span>
-              </div>
-            ))}
-          </div>
+    <div className="settings-form mx-auto flex max-w-3xl flex-col gap-4 p-5">
+      <SectionCard title="运行配置" actions={<Badge tone={activity.can_reload ? "green" : "yellow"}>
+        {activity.can_reload ? "可应用修改" : "忙碌"}</Badge>}>
+        <div className="flex flex-wrap items-center gap-2 text-[13px] text-fg-muted">
+          <CheckCircle2 size={16} className="shrink-0 text-accent" />
+          <span>{saved.pending_reload ? "有已保存配置等待激活。" : "已保存配置与当前运行配置一致。"}</span>
         </div>
+        {!activity.can_reload && <p className="mt-2 text-[12px] text-fg-muted">{settingsText(activityReasonText(activity.reason))}</p>}
+        {draftCount === 0 && <p className="mt-2 text-[12px] text-fg-faint">没有本地修改</p>}
       </SectionCard>
 
-      <SectionCard
-        title="待激活"
-        description="已保存但不同于运行配置的值，会在下次应用或重载时激活。"
-        actions={
-          saved.pending_reload && draftCount === 0 ? (
-            <Button
-              variant="primary"
-              size="xs"
-              disabled={blocker !== null || clients === null}
-              loading={applyPhase === "reloading"}
-              title={blocker ?? "Activate the saved configuration"}
-              onClick={() => clients !== null && void reloadSaved(clients)}
-            >
-              激活已保存配置
-            </Button>
-          ) : undefined
-        }
-      >
-        {pending.length === 0 ? (
-          <div className="text-[12px] text-fg-muted">
-            已保存配置与当前运行配置一致。
-          </div>
-        ) : (
-          <>
-            {draftCount > 0 && (
-              <div className="mb-2 flex items-center gap-1.5 rounded-md bg-info-soft px-2.5 py-1.5 text-[12px] text-info">
-                <ArrowRight size={12} /> 应用本地修改时也会激活这些已保存修改。
+      {draftCount > 0 && <SectionCard title="本地修改" description="这些修改尚未保存；在底部一次应用全部修改。"
+        actions={issueCount > 0 ? <Badge tone="yellow">{issueCount} 项字段问题</Badge> : <Badge tone="accent">{draftCount} 项</Badge>}>
+        <DraftList drafts={drafts} stale={stale} onResolveStale={resolveStale}
+          onLocate={(entry) => { const owner = pageForDraft(entry); if (owner !== null) navigateTo(owner.id, entry.path); }} />
+      </SectionCard>}
+
+      {saved.pending_reload && <SectionCard title="已保存待激活" description="保存值与运行值的差异，应用或重载后生效。">
+        {draftCount > 0 && <div className="mb-2 flex items-center gap-1.5 rounded-md bg-info-soft px-2.5 py-1.5 text-[12px] text-info">
+          <ArrowRight size={12} /> 应用本地修改时也会激活这些已保存修改。
+        </div>}
+        <div className="space-y-1">{pending.map((change) => {
+          const owner = pageForPath(change.path);
+          return <button key={change.path} className="flex w-full flex-wrap items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-hover"
+            onClick={() => owner !== null && navigateTo(owner.id, change.path)}>
+            <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-fg">{change.path}</span>
+            {owner !== null && <Badge tone="gray">{SETTINGS_PAGES[owner.id].title}</Badge>}
+            <span className="w-full break-all text-[11px] text-fg-faint">{previewValue(change.active, 50)} → {previewValue(change.saved, 50)}</span>
+          </button>;
+        })}</div>
+      </SectionCard>}
+
+      <SectionCard title="运行方案" description="保存模型路由与可选预算，方便切换。"
+        actions={<Button variant="ghost" size="xs" onClick={() => navigateTo("plans")}>管理方案</Button>}>
+        {presets === null || presets.length === 0
+          ? <p className="text-[12px] text-fg-muted">尚未保存运行方案。</p>
+          : <div className="space-y-1.5">{presets.map((preset) =>
+              <PresetRow key={preset.id} preset={preset} onOpen={() => navigateTo("plans")} />)}</div>}
+      </SectionCard>
+
+      <SettingsDisclosure title="配置来源与运行详情" meta={<span className="text-[11px] text-fg-faint">{saved.sources.length} 个来源</span>}>
+        <div className="space-y-3 p-3">
+          <div className="text-[12px] text-fg-muted">运行代次 <span className="break-all font-mono text-fg">{active.generation_id || "—"}</span></div>
+          <input aria-label="筛选配置来源" placeholder="按名称或路径筛选…" value={sourceQuery} onChange={(event) => setSourceQuery(event.target.value)}
+            className="w-full rounded-md border border-line bg-bg px-2.5 py-1.5 text-[12px] outline-none focus:border-accent" />
+          <div className="space-y-1">{sources.map((source) =>
+            <details key={source.id} className="rounded-md border border-line">
+              <summary className="flex cursor-pointer items-center gap-2 px-2.5 py-2 text-[12px]">
+                <span className="min-w-0 flex-1 truncate font-mono" title={source.id}>{source.id}</span>
+                {!source.exists && <Badge tone="gray">缺失</Badge>}
+                {!source.writable && <Badge tone="gray">只读</Badge>}
+              </summary>
+              <div className="flex items-start gap-2 border-t border-line p-2.5">
+                <span className="min-w-0 flex-1 break-all font-mono text-[11px] text-fg-muted">{source.path === source.id ? "名称即来源路径" : source.path || "未提供路径"}</span>
+                <CopyButton label="复制路径" text={() => source.path || source.id} />
               </div>
-            )}
-            <div className="space-y-1">
-              {pending.map((change) => {
-                const owner = pageForPath(change.path);
-                return (
-                  <button
-                    key={change.path}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-hover"
-                    onClick={() =>
-                      owner !== null && navigateTo(owner.id, change.path)
-                    }
-                  >
-                    <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-fg">
-                      {change.path}
-                    </span>
-                    <span className="hidden max-w-[220px] truncate font-mono text-[11px] text-fg-faint sm:block">
-                      {previewValue(change.active, 30)} → {previewValue(change.saved, 30)}
-                    </span>
-                    {owner !== null && (
-                      <Badge tone="gray">{SETTINGS_PAGES[owner.id].title}</Badge>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </>
-        )}
-      </SectionCard>
-
-      <SectionCard
-        title="本地修改"
-        description="当前窗口中的未提交草稿；应用时会一次保存并激活。"
-      >
-        {draftCount === 0 ? (
-          <div className="text-[12px] text-fg-muted">
-            没有本地修改。各设置页的编辑会集中在这里，直到应用或放弃。
-          </div>
-        ) : (
-          <DraftList
-            drafts={drafts}
-            stale={stale}
-            onLocate={(entry) => {
-              const owner = pageForDraft(entry);
-              if (owner !== null) navigateTo(owner.id, entry.path);
-            }}
-            onResolveStale={resolveStale}
-          />
-        )}
-      </SectionCard>
-
-      <SectionCard
-        title="运行方案"
-        description="命名的模型路由与预算预设，可在运行方案页保存、管理和应用。"
-        actions={
-          <Button variant="ghost" size="xs" onClick={() => navigateTo("plans")}>
-            管理方案
-          </Button>
-        }
-      >
-        {presets === null || presets.length === 0 ? (
-          <EmptyState
-            icon={<CircleDashed size={20} />}
-            title="还没有运行方案"
-            description="方案保存模型链、Action 绑定和可选预算，方便快速切换。"
-            action={
-              <Button variant="outline" size="sm" onClick={() => navigateTo("plans")}>
-                打开运行方案
-              </Button>
-            }
-          />
-        ) : (
-          <div className="space-y-1.5">
-            {presets.map((preset) => (
-              <PresetRow
-                key={preset.id}
-                preset={preset}
-                onOpen={() => navigateTo("plans")}
-              />
-            ))}
-          </div>
-        )}
-      </SectionCard>
+            </details>)}</div>
+          {sources.length === 0 && <p className="text-[12px] text-fg-faint">没有匹配的来源。</p>}
+        </div>
+      </SettingsDisclosure>
     </div>
   );
 }

@@ -47,14 +47,6 @@ export function snapshotToPresentation(
 }
 
 /**
- * canStop is true when the turn is not finished/finalizing and cancel has not been requested.
- */
-export function deriveCanStop(snapshot: TurnSnapshot): boolean {
-  const finalStates = new Set(["finished", "finalizing"]);
-  return !finalStates.has(snapshot.state) && !snapshot.cancel_requested;
-}
-
-/**
  * Derive UI-facing turn status from snapshot.
  */
 function deriveTurnStatus(snapshot: TurnSnapshot): TurnStatus {

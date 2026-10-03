@@ -13,7 +13,7 @@
 import { create } from "zustand";
 import { turnIdOfObservation, type Interaction, type ObservationEvent } from "../../api/v2/types";
 import { ActivityBuffer } from "./activityBuffer";
-import { snapshotToPresentation, deriveCanStop } from "./adapters";
+import { snapshotToPresentation } from "./adapters";
 import type { TurnPresentation } from "./presentation";
 import { useTurnStore } from "../../store/turnStore";
 
@@ -111,7 +111,6 @@ export const presentationStore = create<PresentationStoreState>((set, get) => ({
 
     const interactions: Interaction[] = useTurnStore.getState().items;
     const { activityBuffer, bufferStartedAt } = get();
-    const canStop = deriveCanStop(snapshot);
 
     const base = snapshotToPresentation(snapshot, interactions, bufferStartedAt);
     const finishedAt = snapshot.state === "finished" ? get().bufferFinishedAt ?? Date.now() : null;
@@ -121,12 +120,10 @@ export const presentationStore = create<PresentationStoreState>((set, get) => ({
     // Activity is cleared only when the turn changes (createBuffer / clearBuffer).
     const activity =
       activityBuffer?.turnId === snapshot.turn_id
-        ? activityBuffer.toPresentation(
-            bufferStartedAt ?? new Date().toISOString(),
-            canStop,
-          )
+        ? activityBuffer.toPresentation(bufferStartedAt)
         : null;
     if (activity) activity.stopping = snapshot.cancel_requested && snapshot.state !== "finished";
+    if (activity) activity.waitingToStart = snapshot.state === "queued";
 
     set({
       bufferFinishedAt: finishedAt,

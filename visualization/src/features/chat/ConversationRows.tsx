@@ -1,7 +1,7 @@
 /** Baseline conversation presentation over v2 interactions and question snapshots. */
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { Bot, PanelRightOpen } from "lucide-react";
+import { Bot, Check, Loader2, PanelRightOpen } from "lucide-react";
 import type { Interaction, TurnQuestion } from "../../api/v2/types";
 import { Badge, type BadgeTone } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -87,7 +87,7 @@ export function InteractionRow({
   }
 }
 
-export function UserBubble({ text, label, delivery, failed = false }: { text: string; label?: string; delivery?: ReactNode; failed?: boolean }) {
+export function UserBubble({ text, label, delivery, pending, failed = false }: { text: string; label?: string; delivery?: ReactNode; pending?: "sending" | "accepted"; failed?: boolean }) {
   return (
     <div className="flex justify-end">
       <div className={`max-w-[85%] ${delivery && !failed ? "opacity-60" : ""}`}>
@@ -96,8 +96,12 @@ export function UserBubble({ text, label, delivery, failed = false }: { text: st
             {label}
           </div>
         )}
-        <div className={`bubble-user rounded-2xl rounded-tr-sm px-3.5 py-2.5 text-sm leading-6 break-words whitespace-pre-wrap ${failed ? "border border-danger/40 bg-danger-soft" : ""}`}>
+        <div className={`bubble-user relative rounded-2xl rounded-tr-sm px-3.5 py-2.5 text-sm leading-6 break-words whitespace-pre-wrap ${failed ? "border border-danger/40 bg-danger-soft" : ""}`}>
           {text}
+          <span className={`pointer-events-none absolute -right-1 -bottom-1 flex h-4 w-4 items-center justify-center rounded-full bg-bg-elev text-fg-faint shadow-sm transition-opacity ${pending ? "opacity-100" : "opacity-0"}`}
+            role={pending ? "status" : undefined} aria-label={pending === "sending" ? "Sending" : pending === "accepted" ? "Sent" : undefined} aria-hidden={!pending}>
+            {pending === "sending" ? <Loader2 size={10} className="animate-spin-slow" /> : <Check size={10} />}
+          </span>
         </div>
         {delivery}
       </div>

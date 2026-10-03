@@ -1,0 +1,93 @@
+/* Layout follows the settings surface and the editor, not the viewport. */
+.settings-scope { container: settings / inline-size; }
+.settings-shell {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas: "nav header" "nav content" "nav footer";
+}
+.settings-header { grid-area: header; }
+.settings-content { grid-area: content; }
+.settings-footer { grid-area: footer; }
+.settings-picker[data-kind="pages"] { grid-area: nav; }
+.settings-picker { min-width: 0; min-height: 0; }
+.settings-picker-panel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.settings-picker-trigger, .settings-picker-heading, .settings-picker-backdrop { display: none; }
+.settings-object-layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); }
+.settings-collection-layout { display: grid; grid-template-columns: 176px minmax(0, 1fr); gap: 16px; }
+.settings-form { container: settings-form / inline-size; }
+.settings-field-row { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; }
+.settings-field-row > * { min-width: 0; max-width: 100%; }
+.settings-form :is(input, select, textarea) { min-width: 0; max-width: 100%; }
+.settings-field-control { max-width: 100%; }
+.settings-secondary-actions { display: flex; gap: 8px; }
+.settings-more-actions { display: none; }
+@container settings-form (min-width: 600px) {
+  .settings-field-row { grid-template-columns: minmax(160px, 1fr) minmax(240px, 1.4fr); }
+  .settings-field-control { justify-content: flex-end; }
+}
+@container settings-form (max-width: 599px) {
+  .settings-field-row > :last-child { flex-wrap: wrap; justify-content: flex-start; }
+  .settings-field-row :is(.w-64, .w-56, .w-72) { width: 100%; }
+  .settings-field-row .text-right { text-align: left; }
+}
+@container settings-form (max-width: 479px) {
+  .settings-object-identity { flex-basis: 100%; }
+  .settings-orderable-row { display: grid; grid-template-columns: 14px 20px minmax(0, 1fr); }
+  .settings-orderable-fields { grid-column: 1 / -1; grid-row: 2; flex-wrap: wrap; }
+  .settings-orderable-fields > * { flex-basis: 100%; }
+  .settings-orderable-actions { grid-column: 3; grid-row: 1; justify-content: flex-end; }
+}
+@container settings (max-width: 1199px) {
+  .settings-object-layout, .settings-collection-layout { grid-template-columns: minmax(0, 1fr); }
+  .settings-picker[data-kind="objects"] > .settings-picker-trigger {
+    display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 20px;
+    border-bottom: 1px solid var(--line); background: var(--bg-elev); color: var(--fg); font-size: 13px;
+  }
+  .settings-picker[data-kind="objects"] > .settings-picker-panel { display: none; }
+  .settings-picker[data-kind="objects"][data-open="true"] > .settings-picker-panel {
+    display: flex; position: fixed; inset: 8vh 16px auto; margin-inline: auto;
+    width: min(440px, calc(100% - 32px)); height: auto; max-height: 80vh;
+    z-index: var(--z-drawer); overflow: hidden; border: 1px solid var(--line);
+    border-radius: 12px; background: var(--bg-elev); box-shadow: var(--shadow-pop);
+  }
+  .settings-picker[data-kind="objects"] .settings-picker-heading { display: flex; }
+  .settings-picker[data-kind="objects"] .settings-picker-backdrop { display: block; }
+}
+@container settings (max-width: 899px) {
+  .settings-shell {
+    grid-template-columns: 48px minmax(0, 1fr);
+    grid-template-areas: "nav header" "content content" "footer footer";
+  }
+  .settings-header { padding-inline: 4px 12px; }
+  .settings-header-icon { display: none; }
+  .settings-picker[data-kind="pages"] > .settings-picker-trigger {
+    display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;
+    border-bottom: 1px solid var(--line); background: var(--bg-elev); color: var(--fg-muted);
+  }
+  .settings-picker[data-kind="pages"] > .settings-picker-panel { display: none; }
+  .settings-picker[data-kind="pages"][data-open="true"] > .settings-picker-panel {
+    display: flex; position: fixed; inset: 16px auto 16px 16px; z-index: var(--z-drawer);
+    width: min(320px, calc(100% - 32px)); height: auto; overflow: hidden;
+    border: 1px solid var(--line); border-radius: 12px; background: var(--bg-elev); box-shadow: var(--shadow-pop);
+  }
+  .settings-picker[data-kind="pages"] .settings-picker-heading { display: flex; }
+  .settings-picker[data-kind="pages"] .settings-picker-backdrop { display: block; }
+  .settings-footer { padding-inline: 12px; }
+  .settings-secondary-actions { display: none; }
+  .settings-more-actions { display: block; }
+  .settings-secondary-menu[data-open="true"] .settings-secondary-actions {
+    display: flex; flex-direction: column; position: absolute; bottom: calc(100% + 8px); left: 0;
+    min-width: 150px; z-index: var(--z-drawer); padding: 4px;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--bg-elev); box-shadow: var(--shadow-pop);
+  }
+}
+.settings-picker-heading {
+  align-items: center; gap: 12px; padding: 10px 14px; flex-shrink: 0;
+  border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 600;
+}
+.settings-picker-backdrop {
+  position: fixed; inset: 0; z-index: var(--z-drawer); background: #0006; backdrop-filter: blur(2px);
+}

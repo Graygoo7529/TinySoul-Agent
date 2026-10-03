@@ -38,7 +38,7 @@ export function FieldRow({
   children: ReactNode;
 }) {
   return (
-    <div className="grid gap-2 px-5 py-3 md:grid-cols-[minmax(220px,1fr)_minmax(260px,420px)] md:items-center">
+    <div className="settings-field-row gap-2 px-5 py-3">
       <div className="min-w-0">
         <div className="flex items-center gap-1.5 text-[12px] font-medium text-fg">
           {typeof title === "string" ? settingsText(title) : title}
@@ -53,8 +53,8 @@ export function FieldRow({
           <div className="mt-0.5 text-[11px] leading-4 text-fg-faint">{typeof description === "string" ? settingsText(description) : description}</div>
         )}
       </div>
-      <div className="flex min-w-0 items-center gap-1.5 md:justify-end">
-        <div className="min-w-0 flex-1 md:flex-none md:basis-full">{children}</div>
+      <div className="settings-field-control flex min-w-0 items-center gap-1.5">
+        <div className="min-w-0 flex-1">{children}</div>
         {actions}
       </div>
     </div>
@@ -323,7 +323,7 @@ export function OrderableRow({
         const source = Number(event.dataTransfer.getData("text/plain"));
         if (Number.isInteger(source)) onDrop(source);
       }}
-      className={`flex items-center gap-2 rounded-md border bg-bg-elev px-2 py-1.5 ${
+      className={`settings-orderable-row flex items-center gap-2 rounded-md border bg-bg-elev px-2 py-1.5 ${
         dragOver ? "border-accent" : "border-line"
       }`}
       aria-label={ariaLabel}
@@ -335,8 +335,8 @@ export function OrderableRow({
       <span className="w-5 shrink-0 text-center text-[10px] text-fg-faint">
         {index + 1}
       </span>
-      <div className="flex min-w-0 flex-1 items-center gap-2">{children}</div>
-      <div className="flex shrink-0 items-center gap-0.5">
+      <div className="settings-orderable-fields flex min-w-0 flex-1 items-center gap-2">{children}</div>
+      <div className="settings-orderable-actions flex shrink-0 items-center gap-0.5">
         <IconButton
           label="Move up"
           disabled={disabled || index === 0}
@@ -363,7 +363,7 @@ export function OrderableRow({
 
 /** Footer row with an add control for ordered editors. */
 export function OrderableListFooter({ children }: { children: ReactNode }) {
-  return <div className="flex items-center gap-2 pt-2">{children}</div>;
+  return <div className="flex flex-wrap items-center gap-2 pt-2">{children}</div>;
 }
 
 // ---------------------------------------------------------------------------

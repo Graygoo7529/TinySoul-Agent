@@ -18,7 +18,6 @@ import {
   AlertTriangle,
   ArrowDown,
   Check,
-  Clock,
   History,
   Inbox,
   ListTree,
@@ -43,8 +42,6 @@ import {
   type OutgoingEcho,
 } from "../../store/turnStore";
 import {
-  cancelActiveTurn,
-  cancelQueuedTurn,
   dismissEcho,
   grantBudget,
   retryEcho,
@@ -86,9 +83,9 @@ export function ChatView() {
 }
 
 /** One mounted Turn from its first input through immutable Session takeover. */
-function ConversationTurn({ epoch, turnId, viewKey, echo, queued, day, activeDay, items, current, latest, history, loading, unavailable, status, result, presentation, working }: {
+function ConversationTurn({ epoch, turnId, viewKey, echo, preview, day, activeDay, items, current, latest, history, loading, unavailable, status, result, presentation, working }: {
   epoch: number; turnId: string; day: string | null; activeDay: string | null; items: Interaction[];
-  viewKey: string; echo?: OutgoingEcho; queued: boolean;
+  viewKey: string; echo?: OutgoingEcho; preview: { text: string; truncated: boolean } | null;
   current: boolean; latest: boolean; history: boolean; loading: boolean; unavailable: boolean; status: string | null; result: TurnResult | null;
   presentation: TurnPresentation | null; working: WorkingState;
 }) {
@@ -102,16 +99,21 @@ function ConversationTurn({ epoch, turnId, viewKey, echo, queued, day, activeDay
   if (presentation?.turnId === turnId) captured.current = { presentation, working };
   const detail = captured.current;
   const initial = items.find((item) => item.role === "user.input");
+  const hasControls = useTurnStore((s) => current && (s.pendingItems.length > 0 ||
+    s.outgoing.some((entry) => entry.kind !== "new-turn" && entry.turnId === turnId) ||
+    s.snapshot?.question != null || s.snapshot?.budget_request != null));
+  const inputText = initial?.text ?? echo?.text ?? preview?.text;
+  const activity = !history && latest ? detail?.presentation.activity : null;
+  const hasAgentContent = (inputText !== undefined && activity != null) || hasControls || items.some((item) => item.role !== "user.input") || result !== null;
   return <section data-turn-root={viewKey} data-turn-id={turnId} className="space-y-4 animate-fade-in">
     {unavailable && <div className="text-[12px] text-warning">This conversation is currently unavailable.</div>}
-    {loading && items.length === 0 && !echo && <div className="text-[12px] text-fg-faint">Loading the conversation…</div>}
-    {(initial || echo) && <UserBubble text={initial?.text ?? echo?.text ?? ""} failed={!initial && echo?.state === "failed"}
-      delivery={!initial && echo ? <EchoDelivery echo={echo} /> : undefined} />}
-    {current && <QueuedRequestRow />}
-    {!queued && (initial || items.length > 0 || current) && <AgentRow>
-      {(initial || echo) && !history && latest && detail?.presentation.activity && <LiveStatus epoch={epoch} turnId={turnId} day={day} activity={{ ...detail.presentation.activity, working: detail.working }}
-        mode={current && !status ? "live" : "settled"} status={detail.presentation.status}
-        onStop={current ? () => void cancelActiveTurn(epoch) : undefined} />}
+    {loading && inputText === undefined && !hasAgentContent && <div className="text-[12px] text-fg-faint">Loading the conversation…</div>}
+    {inputText !== undefined && <UserBubble text={inputText + (!initial && !echo && preview?.truncated ? "…" : "")} failed={!initial && echo?.state === "failed"}
+      pending={!initial && echo && echo.state !== "failed" ? echo.state : undefined}
+      delivery={!initial && echo?.state === "failed" ? <EchoDelivery echo={echo} /> : undefined} />}
+    {hasAgentContent && <AgentRow>
+      {activity && detail && <LiveStatus epoch={epoch} turnId={turnId} day={day} activity={{ ...activity, working: detail.working }}
+        mode={current && !status ? "live" : "settled"} status={detail.presentation.status} />}
       {items.filter((item) => item.role !== "user.input" && item.role !== "agent.action").map((item) => <InteractionRow key={interactionKey(item, items)}
         item={item} fresh={isFresh(item)} view={view} origin={origin} turnId={turnId} nested />)}
       {current && <CurrentTurnControls />}
@@ -145,6 +147,9 @@ function ConversationView() {
   const sessionProjections = useTurnStore((s) => s.sessionProjections);
   const chronologicalTurns = [...sessionTurns].reverse();
   const snapshot = useTurnStore((s) => s.snapshot);
+  const queuedRequest = useTurnStore((s) => s.queuedRequest);
+  const preview = queuedRequest && typeof queuedRequest.text === "string"
+    ? { text: queuedRequest.text, truncated: queuedRequest.truncated === true } : null;
   const result = useTurnStore((s) => s.result);
   const presentation = useTurnPresentation();
   const working = useActivityDetails();
@@ -199,7 +204,7 @@ function ConversationView() {
               const summary = sessionTurns.find((entry) => entry.turn_id === id);
               const cached = sessionProjections[id];
               const echo = initialEchoes.find((entry) => (entry.turnId ?? entry.echoId) === id);
-              return <ConversationTurn key={viewKey(id)} viewKey={viewKey(id)} echo={echo} queued={current && snapshot?.state === "queued"}
+              return <ConversationTurn key={viewKey(id)} viewKey={viewKey(id)} echo={echo} preview={current ? preview : null}
                 epoch={epoch} turnId={id} current={current} latest={id === latestId} history={historyView}
                 day={current ? day : summary?.day ?? null} activeDay={activeDay} items={current ? items : cached?.items ?? []}
                 loading={current ? loading : !echo && (cached === undefined || cached.loading)} unavailable={cached?.unavailable ?? false}
@@ -373,7 +378,7 @@ function EchoDelivery({ echo }: { echo: OutgoingEcho }) {
                   title="The target turn is closed; send the same text as a new turn"
                   onClick={() => void sendEchoAsNewTurn(epoch, echo.echoId)}
                 >
-                  Send as next turn
+                  Send as new conversation
                 </button>
               )}
               {echo.kind !== "reply" && (
@@ -407,46 +412,6 @@ function EchoDelivery({ echo }: { echo: OutgoingEcho }) {
   );
 }
 
-/**
- * The displayed turn is still queued: its summary clue and the cancel entry.
- * Cancelling targets this queued turn — not whatever work is currently
- * running (plan §5.1).
- */
-function QueuedRequestRow() {
-  const epoch = useConnectionStore((s) => s.epoch);
-  const queued = useTurnStore((s) => s.queuedRequest);
-  const turnId = useTurnStore((s) => s.turnId);
-  const snapshot = useTurnStore((s) => s.snapshot);
-  if (queued === null || turnId === null) return null;
-  const text =
-    typeof queued.text === "string"
-      ? queued.text
-      : typeof queued.excerpt === "string"
-        ? queued.excerpt
-        : null;
-  const cancellable =
-    snapshot !== null &&
-    !snapshot.cancel_requested &&
-    (snapshot.state === "queued" || snapshot.state === "preparing");
-  return (
-    <div className="flex items-center gap-1.5 px-1 text-[12px] text-fg-faint">
-      <Clock size={11} className="shrink-0" />
-      <span className="min-w-0 flex-1 truncate">
-        Queued as the next turn{text ? `: ${text}` : ""}
-      </span>
-      {cancellable && (
-        <button
-          type="button"
-          className="shrink-0 font-medium text-fg-muted hover:text-danger hover:underline"
-          title="Cancel this queued turn (the current work is not affected)"
-          onClick={() => void cancelQueuedTurn(epoch, turnId)}
-        >
-          Cancel queued turn
-        </button>
-      )}
-    </div>
-  );
-}
 
 function BudgetCard() {
   const epoch = useConnectionStore((s) => s.epoch);

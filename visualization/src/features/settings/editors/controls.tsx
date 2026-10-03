@@ -25,12 +25,12 @@ import type { JsonValue } from "../../../api/v2/types";
 import { Badge } from "../../../components/ui/Badge";
 import { IconButton } from "../../../components/ui/Button";
 import { SectionCard } from "../../../components/ui/Card";
-import { Collapsible } from "../../../components/ui/Collapsible";
 import {
   type CatalogChoice,
   type CatalogField,
 } from "../draft/catalog";
 import { settingsText, translatedField as matchField } from "../i18n";
+import { SettingsDisclosure } from "../SettingsDisclosure";
 import {
   draftKey,
   isRedactedValue,
@@ -175,13 +175,21 @@ export function FieldRow({
 
   useEffect(() => {
     if (focusPath !== path || rowRef.current === null) return;
+    let ancestor = rowRef.current.parentElement;
+    while (ancestor) {
+      if (ancestor instanceof HTMLDetailsElement) ancestor.open = true;
+      ancestor = ancestor.parentElement;
+    }
     // jsdom lacks scrollIntoView; the guard keeps tests truthful.
     rowRef.current.scrollIntoView?.({ block: "center" });
     setFlash(true);
     clearFocus();
+  }, [focusPath, path, clearFocus]);
+  useEffect(() => {
+    if (!flash) return;
     const timer = setTimeout(() => setFlash(false), 1600);
     return () => clearTimeout(timer);
-  }, [focusPath, path, clearFocus]);
+  }, [flash]);
 
   const title = titleOverride ? settingsText(titleOverride) : api.field?.title ?? lastSegment(path);
   const description = api.field?.description ?? "";
@@ -192,7 +200,7 @@ export function FieldRow({
       data-field-path={path}
       className={`px-4 py-2.5 transition-colors ${flash ? "bg-accent-soft" : ""}`}
     >
-      <div className="flex items-center gap-3">
+      <div className="settings-field-row gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-[13px] font-medium text-fg">{title}</span>
@@ -974,15 +982,11 @@ function toRows(value: Record<string, JsonValue>): MapRow[] {
 // ---------------------------------------------------------------------------
 
 /** Bounded collapsed region for catalog-`advanced` fields. */
-export function AdvancedFields({ children }: { children: ReactNode }) {
+export function AdvancedFields({ children, paths = [] }: { children: ReactNode; paths?: string[] }) {
   return (
-    <Collapsible
-      title={<span className="text-fg-muted">高级</span>}
-      tone="sunken"
-      className="m-2"
-    >
+    <SettingsDisclosure title="扩展设置" paths={paths} className="m-2">
       <div className="flex flex-col divide-y divide-line">{children}</div>
-    </Collapsible>
+    </SettingsDisclosure>
   );
 }
 
@@ -1129,7 +1133,7 @@ export function FieldSection({
         ))}
       </div>
       {advanced.length > 0 && (
-        <AdvancedFields>
+        <AdvancedFields paths={advanced}>
           {advanced.map((path) => (
             <SettingsField key={path} path={path} override={overrides?.[path]} />
           ))}
@@ -1142,7 +1146,7 @@ export function FieldSection({
 /** The standard page body width shared by all settings editors. */
 export function SettingsPageBody({ children }: { children: ReactNode }) {
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-4 p-5">{children}</div>
+    <div className="settings-form mx-auto flex max-w-3xl flex-col gap-4 p-5">{children}</div>
   );
 }
 

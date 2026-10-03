@@ -64,11 +64,10 @@ export interface LiveStatusProps {
   day: string | null;
   activity: ActivityPresentation;
   mode?: "live" | "settled";
-  onStop?: () => void;
   status?: TurnStatus;
 }
 
-export function LiveStatus({ activity, mode = "live", onStop, status, epoch, turnId, day }: LiveStatusProps) {
+export function LiveStatus({ activity, mode = "live", status, epoch, turnId, day }: LiveStatusProps) {
   const live = mode === "live";
   const waiting = status === "waiting_question" || status === "waiting_budget";
   const holdFollow = useHoldChatFollow();
@@ -229,7 +228,7 @@ export function LiveStatus({ activity, mode = "live", onStop, status, epoch, tur
   const elapsedFormatted = formatDuration(startMs / 1000, live ? Date.now() / 1000 : (startMs + activity.timing.elapsedMs) / 1000);
 
   const stopping = live && activity.stopping === true;
-  const headlineLabel = stopping ? "Stopping turn…" : waiting ? "Waiting for you" : headline.label;
+  const headlineLabel = stopping ? "Stopping turn…" : activity.waitingToStart ? "Waiting to start…" : waiting ? "Waiting for you" : headline.label;
   const headlineDomain = headline.domain;
 
   const settled = live ? undefined : settledHeadline(status);
@@ -325,21 +324,11 @@ export function LiveStatus({ activity, mode = "live", onStop, status, epoch, tur
               </span>
             </Crossfade>
           </div>
-          <div className="shrink-0 space-y-0.5 text-right font-mono text-[11px] text-fg-faint tabular-nums">
+          {activity.timing.startedAt !== null && !activity.waitingToStart && <div className="shrink-0 space-y-0.5 text-right font-mono text-[11px] text-fg-faint tabular-nums">
             <div>{elapsedFormatted}</div>
             {live && headline.startedAt && <div className="text-[10px] opacity-70" title="Current phase elapsed time">
               {headline.phase} {formatDuration(headline.startedAt / 1000, (headline.finishedAt ?? Date.now()) / 1000)}</div>}
-          </div>
-          {live && activity.canStop && onStop && (
-            <button
-              onClick={onStop}
-              title="Stop turn"
-              className="shrink-0 inline-flex h-6 items-center gap-1 rounded-md bg-danger/10 px-2 text-[11px] text-danger transition-colors hover:bg-danger/20"
-            >
-              <XCircle size={12} />
-              Stop
-            </button>
-          )}
+          </div>}
           {!live && releasedNewestFirst.length > 0 && (
             <button
               onClick={() => {

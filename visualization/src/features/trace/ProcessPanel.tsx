@@ -138,7 +138,7 @@ export function ActivityTimeline({
   const buffer = new ActivityBuffer(turnId);
   buffer.loadEvents(events);
   const startedAt = new Date((events[0]?.created_at ?? 0) * 1000).toISOString();
-  const activity = buffer.toPresentation(startedAt, false);
+  const activity = buffer.toPresentation(startedAt);
   if (activity.trail.length === 0) return null;
   const groups = activityGroups(activity.trail, filter);
   return (

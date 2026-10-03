@@ -20,7 +20,7 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 const activity: ActivityPresentation = {
   headline: { phase: "phase3", label: "Executing" }, thinking: { current: "", expanded: false, history: [] },
-  working: { todos: [], milestones: [] }, timing: { startedAt: new Date(0).toISOString(), elapsedMs: 100 }, canStop: false, incomplete: false,
+  working: { todos: [], milestones: [] }, timing: { startedAt: new Date(0).toISOString(), elapsedMs: 100 }, incomplete: false,
   trail: [{ id: "read", type: "action_result", timestamp: "", autoExpandGist: true,
     content: { type: "action_result", glimpse: { actionId: "workspace.read", domain: "workspace", stage: "result", payload: { text: "Real body" }, result: { status: "success" } } } }],
 };

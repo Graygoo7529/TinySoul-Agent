@@ -82,12 +82,12 @@ export interface ActivityPresentation {
 
   /** Timing */
   timing: {
-    startedAt: string;
+    startedAt: string | null;
     elapsedMs: number;
   };
 
-  /** Can stop */
-  canStop: boolean;
+  /** Snapshot-owned pre-execution state; observations cannot establish it. */
+  waitingToStart?: boolean;
   stopping?: boolean;
 
   /** Incomplete flag (connection lost, gap, or truncated) */

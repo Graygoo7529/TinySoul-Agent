@@ -1,4 +1,5 @@
 import { settingsText } from "./i18n";
+import "./layout.css";
 import { useEffect, type ComponentType } from "react";
 import { Loader2, RefreshCw, Settings2, Unplug } from "lucide-react";
 
@@ -110,11 +111,11 @@ export function SettingsPage() {
   const page = useSettingsUiStore((s) => s.page);
 
   return (
-    <div className="flex h-full min-h-0">
+    <div className="settings-scope h-full min-h-0"><div className="settings-shell">
       <SettingsNav />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="contents">
         <SettingsHeader connected={connected} />
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="settings-content min-h-0 min-w-0 overflow-y-auto">
           {!connected && page !== "interface" ? (
             <ConnectNotice />
           ) : (
@@ -123,7 +124,7 @@ export function SettingsPage() {
         </div>
         {connected && <SettingsBottomBar />}
       </div>
-    </div>
+    </div></div>
   );
 }
 
@@ -190,8 +191,8 @@ function SettingsHeader({ connected }: { connected: boolean }) {
   const blocker = useConfigDraftStore(activationBlocker);
 
   return (
-    <header className="flex min-h-14 shrink-0 items-center gap-3 border-b border-line bg-bg-elev px-5 py-2">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-hover text-fg-muted">
+    <header className="settings-header flex min-h-14 min-w-0 items-center gap-3 border-b border-line bg-bg-elev px-5 py-2">
+      <div className="settings-header-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-hover text-fg-muted">
         <Settings2 size={17} />
       </div>
       <div className="min-w-0">

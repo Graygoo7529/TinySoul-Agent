@@ -141,74 +141,40 @@ export function convergeEchoes(
 /** What the composer will do with the current text (plan §5.1 state table). */
 export type ComposerIntent =
   | { kind: "append"; turnId: string }
-  | { kind: "new-turn"; queued: boolean }
-  | { kind: "unavailable"; reason: "offline" | "not-ready" };
-
-/** The composer's explicit intent choice from the chip menu (plan §5.1). */
-export type ComposerIntentChoice = "append" | "queue";
-
-/**
- * Apply the explicit intent choice to the derived intent. The choice only
- * bites while an appendable turn is active: "queue" turns the submission
- * into a new turn queued behind the current work. Every other state keeps
- * the derived intent — an explicit "append" never resurrects a closed inbox,
- * and an unavailable composer stays unavailable.
- */
-export function applyIntentChoice(
-  intent: ComposerIntent,
-  choice: ComposerIntentChoice | null,
-): ComposerIntent {
-  if (intent.kind === "append" && choice === "queue") {
-    return { kind: "new-turn", queued: true };
-  }
-  return intent;
-}
+  | { kind: "new-turn" }
+  | { kind: "unavailable"; reason: "offline" | "not-ready" | "syncing" | "finishing" };
 
 /**
  * Resolve the composer's submission target from the formal status and the
- * active turn snapshot. A snapshot is only trusted when it belongs to the
- * turn the runtime reports active; while it is unknown (still loading), a
- * new turn is the safe submission — POST /v2/turns queues server-side.
+ * displayed user snapshot and the latest accepted creation receipt. Missing
+ * state never turns an intended append into another root request.
  */
 export function resolveComposerIntent(
   status: RuntimeStatus | null,
   activeSnapshot: TurnSnapshot | null,
   connected: boolean,
+  submittedTurnId: string | null = null,
 ): ComposerIntent {
   if (!connected || status === null) return { kind: "unavailable", reason: "offline" };
   if (!status.ready) return { kind: "unavailable", reason: "not-ready" };
   const activeTurnId = status.runtime.active_turn_id;
-  const queued = status.runtime.queued_turn_ids.length > 0;
-  if (activeTurnId === null) {
-    return { kind: "new-turn", queued };
+  const activeUser = activeTurnId !== null &&
+    (status.runtime.activity === "user_turn" ||
+      (activeSnapshot?.turn_id === activeTurnId && activeSnapshot.kind === "user"));
+  const pendingId = activeSnapshot?.turn_id === submittedTurnId && activeSnapshot.state === "finished" ? null : submittedTurnId;
+  const target = activeUser ? activeTurnId : pendingId ??
+    (activeSnapshot?.kind === "user" && activeSnapshot.state !== "finished" ? activeSnapshot.turn_id : null);
+  if (target !== null) {
+    if (activeSnapshot?.turn_id !== target || activeSnapshot.kind !== "user") {
+      return { kind: "unavailable", reason: "syncing" };
+    }
+    if (activeSnapshot.cancel_requested || activeSnapshot.state === "finalizing" || activeSnapshot.state === "finished") {
+      return { kind: "unavailable", reason: "finishing" };
+    }
+    return { kind: "append", turnId: target };
   }
-  if (
-    activeSnapshot !== null &&
-    activeSnapshot.turn_id === activeTurnId &&
-    activeSnapshot.kind === "user" &&
-    (activeSnapshot.state === "preparing" ||
-      activeSnapshot.state === "running" ||
-      activeSnapshot.state === "waiting")
-  ) {
-    return { kind: "append", turnId: activeTurnId };
+  if (status.runtime.activity === "daily_transition" || status.runtime.activity === "config_activation") {
+    return { kind: "unavailable", reason: "not-ready" };
   }
-  // finalizing, a queued user turn, a reflection turn, or an unknown
-  // snapshot: a new user turn queues behind the current root work.
-  return { kind: "new-turn", queued: true };
-}
-
-/** Whether the active turn can be asked to stop right now. */
-export function canCancelActiveTurn(
-  status: RuntimeStatus | null,
-  activeSnapshot: TurnSnapshot | null,
-): boolean {
-  if (status === null || activeSnapshot === null) return false;
-  if (activeSnapshot.turn_id !== status.runtime.active_turn_id) return false;
-  if (activeSnapshot.cancel_requested) return false;
-  return (
-    activeSnapshot.state === "queued" ||
-    activeSnapshot.state === "preparing" ||
-    activeSnapshot.state === "running" ||
-    activeSnapshot.state === "waiting"
-  );
+  return { kind: "new-turn" };
 }

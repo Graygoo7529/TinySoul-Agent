@@ -1,4 +1,5 @@
 import { settingsText } from "../i18n";
+import { SettingsDisclosure } from "../SettingsDisclosure";
 /**
  * LLM Models settings page (plan §16.2): the model collection with family
  * grouping, collapsed-by-default list hygiene, ordered provider chains and
@@ -110,7 +111,6 @@ export function LlmModelsPage() {
 
   // Consume one-shot focus requests (search hits, apply-error locate, jumps).
   const focusPath = useSettingsUiStore((s) => s.focusPath);
-  const clearFocus = useSettingsUiStore((s) => s.clearFocus);
   useEffect(() => {
     if (focusPath !== null && focusPath.startsWith(`${ROOT}.`)) {
       const id = focusPath.slice(ROOT.length + 1).split(".", 1)[0];
@@ -118,9 +118,8 @@ export function LlmModelsPage() {
         setSelected(id);
         setShowCollapsed(true);
       }
-      clearFocus();
     }
-  }, [focusPath, clearFocus]);
+  }, [focusPath]);
   useEffect(() => {
     if (selected === null || !objects.some((item) => item.id === selected)) {
       setSelected(objects[0]?.id ?? null);
@@ -176,6 +175,7 @@ export function LlmModelsPage() {
             ? "New model"
             : "The custom models include file is missing or read-only"
         }
+        searchable={false}
         listHeader={
           <div className="space-y-1.5 border-b border-line px-3 py-2">
             <input
@@ -475,35 +475,6 @@ function ModelEditor({
             )}
           </div>
         </FieldRow>
-        <FieldRow
-          title={field("family").meta?.title ?? "Family"}
-          description={field("family").meta?.description}
-          dirty={field("family").dirty}
-        >
-          <TextInput
-            ariaLabel="Family"
-            value={stringField(object.value, "family")}
-            placeholder="Optional display group"
-            disabled={field("family").lock !== null}
-            onCommit={(value) =>
-              setObjectField(ROOT, object, "family", value.trim(), createSource)
-            }
-          />
-        </FieldRow>
-        <FieldRow
-          title={field("collapsed").meta?.title ?? "Collapsed"}
-          description={field("collapsed").meta?.description}
-          dirty={field("collapsed").dirty}
-        >
-          <Toggle
-            ariaLabel="Collapsed"
-            checked={object.value.collapsed === true}
-            disabled={field("collapsed").lock !== null}
-            onChange={(next) =>
-              setObjectField(ROOT, object, "collapsed", next, createSource)
-            }
-          />
-        </FieldRow>
       </FieldSection>
 
       <ProviderChainSection
@@ -565,6 +536,37 @@ function ModelEditor({
         createSource={createSource}
         adapter={adapter}
       />
+      <SettingsDisclosure title="列表显示" className="m-3" paths={[`${ROOT}.${object.id}.family`, `${ROOT}.${object.id}.collapsed`]}>
+        <FieldRow
+          title={field("family").meta?.title ?? "Family"}
+          description={field("family").meta?.description}
+          dirty={field("family").dirty}
+        >
+          <TextInput
+            ariaLabel="Family"
+            value={stringField(object.value, "family")}
+            placeholder="Optional display group"
+            disabled={field("family").lock !== null}
+            onCommit={(value) =>
+              setObjectField(ROOT, object, "family", value.trim(), createSource)
+            }
+          />
+        </FieldRow>
+        <FieldRow
+          title={field("collapsed").meta?.title ?? "Collapsed"}
+          description={field("collapsed").meta?.description}
+          dirty={field("collapsed").dirty}
+        >
+          <Toggle
+            ariaLabel="Collapsed"
+            checked={object.value.collapsed === true}
+            disabled={field("collapsed").lock !== null}
+            onChange={(next) =>
+              setObjectField(ROOT, object, "collapsed", next, createSource)
+            }
+          />
+        </FieldRow>
+      </SettingsDisclosure>
       <RequestOverridesSection object={object} createSource={createSource} />
 
       {adapterChange !== null && (
@@ -830,7 +832,6 @@ function AdapterOptionsSection({
     <FieldSection
       title={settingsText("Adapter Options")}
       description={settingsText("Adapter-specific request behavior. Only options the selected adapter and protocol understand are offered; unset options keep the adapter default.")}
-      meta={<Badge tone="gray">高级</Badge>}
     >
       {rule === null ? (
         <div className="px-5 py-3 text-[11px] text-fg-faint">
@@ -858,6 +859,7 @@ function AdapterOptionsSection({
               />
             </FieldRow>
           )}
+          <SettingsDisclosure title="适配器扩展选项" className="m-3" paths={[`${ROOT}.${object.id}.adapter_options`]}>
           {setKeys.map((key) => (
             <AdapterOptionRow
               key={key}
@@ -902,6 +904,7 @@ function AdapterOptionsSection({
               </select>
             </div>
           )}
+          </SettingsDisclosure>
         </>
       )}
     </FieldSection>
@@ -1078,11 +1081,7 @@ function RequestOverridesSection({
     { key: "max_output_tokens", integer: true, fallback: 2048 },
   ];
   return (
-    <FieldSection
-      title={settingsText("Request Overrides")}
-      description={settingsText("Optional per-model overrides of the task-chain request values; unset rows inherit the chain.")}
-      meta={<Badge tone="gray">高级</Badge>}
-    >
+    <SettingsDisclosure title="请求参数覆盖" className="m-3" paths={[`${ROOT}.${object.id}.request_overrides`]}>
       {rows.map(({ key, integer, fallback }) => {
         const meta = matchField(state.catalog, `${ROOT}.*.request_overrides.${key}`);
         const set = Object.prototype.hasOwnProperty.call(overrides, key);
@@ -1129,7 +1128,7 @@ function RequestOverridesSection({
           </FieldRow>
         );
       })}
-    </FieldSection>
+    </SettingsDisclosure>
   );
 }
 

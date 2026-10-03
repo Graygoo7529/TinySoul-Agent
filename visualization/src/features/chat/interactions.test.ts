@@ -5,17 +5,13 @@ import type { OutgoingEcho } from "../../store/turnStore";
 import {
   makeStatus,
   runningSnapshot,
-  waitingSnapshot,
 } from "../../app/testing";
 import {
-  applyIntentChoice,
-  canCancelActiveTurn,
   convergeEchoes,
   formalItemForEcho,
   mergeInteractions,
   pendingItemForEcho,
   resolveComposerIntent,
-  type ComposerIntent,
 } from "./interactions";
 
 function interaction(
@@ -225,149 +221,39 @@ describe("convergeEchoes", () => {
 });
 
 describe("resolveComposerIntent", () => {
-  it("is unavailable while offline", () => {
-    expect(resolveComposerIntent(null, null, false)).toEqual({
-      kind: "unavailable",
-      reason: "offline",
-    });
-    expect(resolveComposerIntent(makeStatus(), null, false)).toEqual({
-      kind: "unavailable",
-      reason: "offline",
-    });
-    expect(resolveComposerIntent(null, null, true)).toEqual({
-      kind: "unavailable",
-      reason: "offline",
-    });
+  const status = makeStatus({ activity: "user_turn", activeTurnId: "contract-turn" });
+
+  it("requires a connected, ready backend and starts a new turn when idle", () => {
+    expect(resolveComposerIntent(null, null, false)).toEqual({ kind: "unavailable", reason: "offline" });
+    expect(resolveComposerIntent(makeStatus({ ready: false }), null, true)).toEqual({ kind: "unavailable", reason: "not-ready" });
+    expect(resolveComposerIntent(makeStatus(), null, true)).toEqual({ kind: "new-turn" });
   });
 
-  it("is unavailable while the backend is not ready", () => {
-    expect(
-      resolveComposerIntent(makeStatus({ ready: false }), null, true),
-    ).toEqual({ kind: "unavailable", reason: "not-ready" });
+  it.each(["queued", "preparing", "running", "waiting"])("appends to an open user turn in %s", (state) => {
+    const snapshot = { ...runningSnapshot(), state } as TurnSnapshot;
+    expect(resolveComposerIntent(status, snapshot, true)).toEqual({ kind: "append", turnId: "contract-turn" });
   });
 
-  it("starts a new turn while idle", () => {
-    expect(resolveComposerIntent(makeStatus(), null, true)).toEqual({
-      kind: "new-turn",
-      queued: false,
-    });
-  });
-
-  it("queues the new turn when earlier requests already wait", () => {
-    expect(
-      resolveComposerIntent(makeStatus({ queuedTurnIds: ["t9"] }), null, true),
-    ).toEqual({ kind: "new-turn", queued: true });
-  });
-
-  it("appends to the active user turn in preparing/running/waiting", () => {
+  it("does not create a new root request while the intended target is syncing or closing", () => {
+    for (const snapshot of [null, runningSnapshot("other-turn")]) {
+      expect(resolveComposerIntent(status, snapshot, true)).toEqual({ kind: "unavailable", reason: "syncing" });
+    }
     for (const snapshot of [
-      runningSnapshot(),
-      waitingSnapshot(),
-      { ...runningSnapshot(), state: "preparing" } as TurnSnapshot,
+      { ...runningSnapshot(), state: "finalizing" } as TurnSnapshot,
+      { ...runningSnapshot(), state: "finished" } as TurnSnapshot,
+      { ...runningSnapshot(), cancel_requested: true },
     ]) {
-      const status = makeStatus({
-        activity: "user_turn",
-        activeTurnId: "contract-turn",
-      });
-      expect(resolveComposerIntent(status, snapshot, true)).toEqual({
-        kind: "append",
-        turnId: "contract-turn",
-      });
+      expect(resolveComposerIntent(status, snapshot, true)).toEqual({ kind: "unavailable", reason: "finishing" });
     }
   });
 
-  it("queues a new turn while the active turn is finalizing", () => {
-    const status = makeStatus({
-      activity: "user_turn",
-      activeTurnId: "contract-turn",
-    });
-    const snapshot = {
-      ...runningSnapshot(),
-      state: "finalizing",
-    } as TurnSnapshot;
-    expect(resolveComposerIntent(status, snapshot, true)).toEqual({
-      kind: "new-turn",
-      queued: true,
-    });
-  });
-
-  it("queues a new turn while a reflection turn is active", () => {
-    const status = makeStatus({
-      activity: "reflection_turn",
-      activeTurnId: "reflection-turn",
-    });
-    const snapshot = {
-      ...runningSnapshot("reflection-turn"),
-      kind: "memory",
-    } as TurnSnapshot;
-    expect(resolveComposerIntent(status, snapshot, true)).toEqual({
-      kind: "new-turn",
-      queued: true,
-    });
-  });
-
-  it("queues a new turn while the active snapshot is unknown or stale", () => {
-    const status = makeStatus({
-      activity: "user_turn",
-      activeTurnId: "contract-turn",
-    });
-    // Snapshot still loading: no snapshot to trust.
-    expect(resolveComposerIntent(status, null, true)).toEqual({
-      kind: "new-turn",
-      queued: true,
-    });
-    // Snapshot of a different turn: not the active one's authority.
-    expect(resolveComposerIntent(status, runningSnapshot("other-turn"), true)).toEqual(
-      { kind: "new-turn", queued: true },
-    );
-  });
-});
-
-describe("canCancelActiveTurn", () => {
-  const status = makeStatus({
-    activity: "user_turn",
-    activeTurnId: "contract-turn",
-  });
-
-  it("allows cancelling queued/preparing/running/waiting snapshots", () => {
-    for (const state of ["queued", "preparing", "running", "waiting"]) {
-      const snapshot = { ...runningSnapshot(), state } as TurnSnapshot;
-      expect(canCancelActiveTurn(status, snapshot)).toBe(true);
-    }
-  });
-
-  it("rejects finished, already-cancelled, stale or missing snapshots", () => {
-    const finished = { ...runningSnapshot(), state: "finished" } as TurnSnapshot;
-    expect(canCancelActiveTurn(status, finished)).toBe(false);
-    const cancelled = { ...runningSnapshot(), cancel_requested: true };
-    expect(canCancelActiveTurn(status, cancelled)).toBe(false);
-    expect(canCancelActiveTurn(status, runningSnapshot("other-turn"))).toBe(false);
-    expect(canCancelActiveTurn(status, null)).toBe(false);
-    expect(canCancelActiveTurn(null, runningSnapshot())).toBe(false);
-  });
-});
-
-describe("applyIntentChoice", () => {
-  const append: ComposerIntent = { kind: "append", turnId: "contract-turn" };
-
-  it("turns an append into a queued new turn on the explicit choice", () => {
-    expect(applyIntentChoice(append, "queue")).toEqual({
-      kind: "new-turn",
-      queued: true,
-    });
-  });
-
-  it("keeps the append intent on the explicit append choice or no choice", () => {
-    expect(applyIntentChoice(append, "append")).toEqual(append);
-    expect(applyIntentChoice(append, null)).toEqual(append);
-  });
-
-  it("never resurrects a closed or unavailable target", () => {
-    const newTurn: ComposerIntent = { kind: "new-turn", queued: true };
-    const unavailable: ComposerIntent = { kind: "unavailable", reason: "offline" };
-    expect(applyIntentChoice(newTurn, "append")).toEqual(newTurn);
-    expect(applyIntentChoice(newTurn, "queue")).toEqual(newTurn);
-    expect(applyIntentChoice(unavailable, "append")).toEqual(unavailable);
-    expect(applyIntentChoice(unavailable, "queue")).toEqual(unavailable);
+  it("keeps accepted input on its own user turn while Reflection is active", () => {
+    const reflecting = makeStatus({ activity: "reflection_turn", activeTurnId: "reflection" });
+    expect(resolveComposerIntent(reflecting, null, true)).toEqual({ kind: "new-turn" });
+    expect(resolveComposerIntent(reflecting, null, true, "mine")).toEqual({ kind: "unavailable", reason: "syncing" });
+    expect(resolveComposerIntent(reflecting, { ...runningSnapshot("mine"), state: "queued" }, true, "mine"))
+      .toEqual({ kind: "append", turnId: "mine" });
+    expect(resolveComposerIntent(reflecting, { ...runningSnapshot("mine"), state: "finished" }, true, "mine"))
+      .toEqual({ kind: "new-turn" });
   });
 });

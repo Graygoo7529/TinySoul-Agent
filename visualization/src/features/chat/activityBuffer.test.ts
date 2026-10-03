@@ -31,10 +31,10 @@ describe("ActivityBuffer v2 event projection", () => {
       event("action.call", { call_id: "c", action: "execution.run_shell" }, 1),
       event("action.execution", { call_id: "c", state: "started" }, 2),
     ]);
-    expect(buffer.toPresentation(new Date().toISOString(), true)?.trail[0]?.content)
+    expect(buffer.toPresentation(new Date().toISOString())?.trail[0]?.content)
       .toMatchObject({ glimpse: { executionState: "running" } });
     buffer.addEvent(event("action.execution", { call_id: "c", state: "cancelled" }, 3));
-    const activity = buffer.toPresentation(new Date().toISOString(), false);
+    const activity = buffer.toPresentation(new Date().toISOString());
     expect(activity?.trail).toHaveLength(1);
     expect(activity?.trail[0]?.content).toMatchObject({ glimpse: { executionState: "cancelled" } });
   });
@@ -48,7 +48,6 @@ describe("ActivityBuffer v2 event projection", () => {
 
     const presentation = buffer.toPresentation(
       new Date(1790668800 * 1000).toISOString(),
-      true,
     );
     expect(presentation).not.toBeNull();
     expect(presentation?.thinking.current).toContain("Home resources");
@@ -71,7 +70,7 @@ describe("ActivityBuffer v2 event projection", () => {
     buffer.loadEvents(events);
     buffer.addEvent(events[0]);
     buffer.addEvent(event("action.result", { call_id: "call-19", action: "workspace.read", status: "failed" }, 21));
-    const activity = buffer.toPresentation(new Date().toISOString(), true);
+    const activity = buffer.toPresentation(new Date().toISOString());
     expect(activity?.trail).toHaveLength(21);
     expect(activity?.trail[20].content).toMatchObject({ glimpse: { result: { status: "failure" } } });
   });
@@ -84,7 +83,7 @@ describe("ActivityBuffer v2 event projection", () => {
       event("context.control.applied", { operation: "load_background", details: { links: ["home:skills@x"] } }, 3),
       event("loop.phase.completed", { phase: "phase1", selected_domains: ["home", "memory"] }, 4),
     ]);
-    const trail = buffer.toPresentation(new Date().toISOString(), true)?.trail ?? [];
+    const trail = buffer.toPresentation(new Date().toISOString())?.trail ?? [];
     expect(trail.map((step) => step.content)).toEqual([
       { type: "background", refs: ["home:skills@x"], operation: "load" },
       { type: "domain_select", domains: ["home", "memory"], intent: null, state: "accepted" },
@@ -98,20 +97,20 @@ describe("ActivityBuffer v2 event projection", () => {
       task_id: "t1",
       provenance: [{ refs: ["home:skills_domain:home"] }],
     }, 1));
-    const trail = buffer.toPresentation(new Date().toISOString(), true)?.trail ?? [];
+    const trail = buffer.toPresentation(new Date().toISOString())?.trail ?? [];
     expect(trail[0]?.content).toEqual({ type: "skill_mount", refs: ["home:skills_domain:home"] });
     buffer.addEvent(event("llm.model.request", { task_id: "t1", provenance: [{ refs: ["home:skills_domain:home"] }] }, 2));
-    expect(buffer.toPresentation("2026-10-03", true).trail).toHaveLength(1);
+    expect(buffer.toPresentation("2026-10-03").trail).toHaveLength(1);
   });
 
   it("uses phase boundaries for the headline and freezes completed timing without empty activity", () => {
     const buffer = new ActivityBuffer("turn-1");
-    expect(buffer.toPresentation("2026-10-03", true).headline).toEqual({ phase: null, label: "Preparing context" });
+    expect(buffer.toPresentation("2026-10-03").headline).toEqual({ phase: null, label: "Preparing context" });
     const start = event("loop.phase.started", { phase: "phase1" }, 1);
     buffer.addEvent(start);
-    expect(buffer.toPresentation("2026-10-03", true).headline.label).toContain("Maintaining context");
+    expect(buffer.toPresentation("2026-10-03").headline.label).toContain("Maintaining context");
     buffer.addEvent(event("loop.phase.completed", { phase: "phase1" }, 2));
-    const presentation = buffer.toPresentation("2026-10-03", true);
+    const presentation = buffer.toPresentation("2026-10-03");
     expect(presentation.headline.finishedAt).toBe((start.created_at + 1) * 1000);
     expect(presentation.trail).toEqual([]);
   });
@@ -122,9 +121,9 @@ describe("ActivityBuffer v2 event projection", () => {
       tool_calls: [{ id: "select", kind: "control", name: "select_action_domains", arguments: { domains: ["home"], intent: "choose tools" } }] }, 1);
     buffer.addEvent(response);
     buffer.addEvent(response);
-    expect(buffer.toPresentation("2026-10-03", true).trail.slice(-1)[0].content).toMatchObject({ state: "requested" });
+    expect(buffer.toPresentation("2026-10-03").trail.slice(-1)[0].content).toMatchObject({ state: "requested" });
     buffer.addEvent(event("loop.phase.completed", { phase: "phase1", selected_domains: ["home"] }, 2));
-    const result = buffer.toPresentation("2026-10-03", true);
+    const result = buffer.toPresentation("2026-10-03");
     expect(result.thinking.current).toBe(reasoning ?? "");
     expect(result.trail.map((step) => step.id).length).toBe(new Set(result.trail.map((step) => step.id)).size);
     expect(result.trail.slice(-1)[0].content).toMatchObject({ type: "domain_select", state: "accepted", intent: reasoning === "choose tools" ? null : "choose tools" });
@@ -139,7 +138,7 @@ describe("ActivityBuffer v2 event projection", () => {
       event("context.control.applied", { operation: "set_milestone", details: { key: "m", content: "Found cause" } }, 3),
       event("loop.phase.completed", { phase: "phase1", control_results: [{ call_id: "bad", status: "failed", feedback: "Unknown todo" }] }, 4),
     ]);
-    expect(buffer.toPresentation("2026-10-03", false).trail.map((step) => step.content)).toEqual([
+    expect(buffer.toPresentation("2026-10-03").trail.map((step) => step.content)).toEqual([
       { type: "todo", text: "verify", status: "done" }, { type: "milestone", text: "Found cause", removed: false },
       { type: "control_failure", operation: "remove_todo", feedback: "Unknown todo" },
     ]);
@@ -153,7 +152,7 @@ describe("ActivityBuffer v2 event projection", () => {
       event("loop.phase.completed", { phase: "phase1", failed: true }, 2),
       event("llm.model.response", { ...payload, phase: "phase3" }, 3),
     ]);
-    const result = buffer.toPresentation("2026-10-03", true);
+    const result = buffer.toPresentation("2026-10-03");
     expect(result.trail).toHaveLength(1);
     expect(result.trail[0].content).toMatchObject({ state: "rejected", intent: "try this scope" });
     expect(result.thinking.current).toBe("");
@@ -168,7 +167,7 @@ describe("ActivityBuffer v2 event projection", () => {
     ];
     events.forEach((item, index) => item.scope.push({ level: "cycle", name: index === 2 ? "cycle2" : "cycle1" }, { level: "phase", name: index === 1 ? "phase3" : "phase1" }));
     buffer.loadEvents(events);
-    const groups = activityGroups(buffer.toPresentation("2026-10-03", true).trail, "Thinking");
+    const groups = activityGroups(buffer.toPresentation("2026-10-03").trail, "Thinking");
     expect(groups.map((group) => group.cycleId)).toEqual(["cycle2", "cycle1"]);
   });
 });

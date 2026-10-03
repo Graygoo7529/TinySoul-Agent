@@ -12,6 +12,7 @@ import {
 } from "./pages";
 import { settingsGroupTitle, settingsTitle } from "./labels";
 import { useSettingsUiStore } from "./uiStore";
+import { SettingsPicker } from "./SettingsPicker";
 
 /**
  * Left settings navigation (P10): the catalog search box on top, then the six
@@ -43,7 +44,7 @@ export function SettingsNav() {
   const searching = query.trim() !== "";
 
   return (
-    <nav className="flex w-[220px] shrink-0 flex-col border-r border-line bg-bg-elev">
+    <SettingsPicker kind="pages" label="设置页面">{(close) => <nav className="flex h-full min-h-0 flex-col border-r border-line bg-bg-elev">
       <div className="border-b border-line p-2.5">
         <div className="flex items-center gap-1.5 rounded-lg border border-line bg-bg px-2 py-1.5 focus-within:border-accent/50">
           <Search size={13} className="shrink-0 text-fg-faint" />
@@ -79,6 +80,7 @@ export function SettingsNav() {
                 onClick={() => {
                   navigateTo(hit.page, hit.path);
                   setQuery("");
+                  close();
                 }}
                 className="w-full rounded-md px-2.5 py-1.5 text-left transition-colors hover:bg-hover"
               >
@@ -117,7 +119,7 @@ export function SettingsNav() {
                     return (
                       <button
                         key={pageId}
-                        onClick={() => setPage(pageId)}
+                        onClick={() => { setPage(pageId); close(); }}
                         className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 pl-6 text-left text-[12px] transition-colors ${
                           active
                             ? "bg-active font-medium text-accent"
@@ -138,6 +140,6 @@ export function SettingsNav() {
           })
         )}
       </div>
-    </nav>
+    </nav>}</SettingsPicker>
   );
 }

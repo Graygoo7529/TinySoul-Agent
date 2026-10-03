@@ -1,4 +1,5 @@
 import { settingsText } from "../i18n";
+import { SettingsDisclosure } from "../SettingsDisclosure";
 /**
  * Actions & Model Uses settings page (config-coverage §3.2): the real Action
  * catalog of the running generation, projected per scenario
@@ -147,20 +148,7 @@ export function ActionsPage() {
           />
         </div>
       }
-      headerBadges={
-        current !== null && (
-          <>
-            {!current.available && (
-              <Badge tone="yellow">
-                {unavailableReasonText(current.unavailableReason) ?? "Unavailable"}
-              </Badge>
-            )}
-            {current.available && !current.selection.enabled && (
-              <Badge tone="gray">不可选择</Badge>
-            )}
-          </>
-        )
-      }
+      searchable={false}
     >
       {current !== null && <ActionDetail action={current} />}
     </ObjectEditorLayout>
@@ -189,9 +177,18 @@ function ActionDetail({
 }) {
   return (
     <div>
-      <BehaviorSection action={action} />
+      <div className="space-y-2 border-b border-line px-5 py-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge tone={action.available && action.selection.enabled ? "green" : "gray"}>
+            {!action.available ? "不可用" : action.selection.enabled ? "可选用" : "不参与模型选择"}
+          </Badge>
+          {!action.available && action.unavailableReason && <span className="text-[12px] text-warning">{unavailableReasonText(action.unavailableReason)}</span>}
+        </div>
+        <p className="line-clamp-2 text-[12px] leading-5 text-fg-muted" title={action.tool.description}>{action.tool.description}</p>
+      </div>
       <ModelUsesSection action={action} />
       {action.retrieval !== null && <RetrievalSection action={action} />}
+      <BehaviorSection action={action} />
       <ProtocolSection action={action} />
     </div>
   );
@@ -205,10 +202,7 @@ function BehaviorSection({
   const visibility = action.visibility;
   const scenarioOverrides = Object.entries(visibility.scenarios);
   return (
-    <FieldSection
-      title={settingsText("Behavior")}
-      description={settingsText("Resolved availability and runtime policy in the selected scenario. These values come from the catalog documents and code grants; catalog document editing is a follow-up surface.")}
-    >
+    <SettingsDisclosure title="执行策略与来源" className="m-3">
       <FieldRow
         title={settingsText("Availability")}
         description={settingsText("Code grants, executor support and availability in the selected scenario.")}
@@ -301,7 +295,7 @@ function BehaviorSection({
           </span>
         </FieldRow>
       )}
-    </FieldSection>
+    </SettingsDisclosure>
   );
 }
 
@@ -310,20 +304,10 @@ function BehaviorSection({
 // ---------------------------------------------------------------------------
 
 function ModelUsesSection({ action }: { action: ActionEntryView }) {
-  return (
-    <FieldSection
-      title={settingsText("Model Uses")}
-      description={settingsText("Which model implementation each declared consumer calls. Bindings are global (shared by every scenario); one consumer edits one entry of action.models.bindings.")}
-    >
-      {action.modelUses.length === 0 ? (
-        <div className="px-5 py-3 text-[11px] text-fg-faint">{settingsText("This action runs deterministically — no model is involved.")}</div>
-      ) : (
-        action.modelUses.map((modelUse) => (
-          <ModelUseEditor key={modelUse.consumer} modelUse={modelUse} />
-        ))
-      )}
-    </FieldSection>
-  );
+  if (action.modelUses.length === 0) return <p className="border-b border-line px-5 py-3 text-[12px] text-fg-muted">{settingsText("This action runs deterministically — no model is involved.")}</p>;
+  return <FieldSection title={settingsText("Model Uses")} description="各用途的模型绑定由所有执行情景共享。">
+    {action.modelUses.map((modelUse) => <ModelUseEditor key={modelUse.consumer} modelUse={modelUse} />)}
+  </FieldSection>;
 }
 
 /** A short label for a binding, e.g. `llm_task → default`. */
@@ -786,10 +770,7 @@ function RetrievalSection({ action }: { action: ActionEntryView }) {
 function ProtocolSection({ action }: { action: ActionEntryView }) {
   const semantic = action.semantic;
   return (
-    <FieldSection
-      title={settingsText("Protocol Details")}
-      description={settingsText("The tool contract the model sees. Declared in the catalog document; editing is a follow-up surface.")}
-    >
+    <SettingsDisclosure title="协议详情" className="m-3">
       <div className="space-y-3 px-5 py-3">
         <div>
           <div className="text-[11px] font-medium text-fg">工具说明</div>
@@ -808,7 +789,7 @@ function ProtocolSection({ action }: { action: ActionEntryView }) {
           </pre>
         </div>
       </div>
-    </FieldSection>
+    </SettingsDisclosure>
   );
 }
 

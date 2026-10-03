@@ -8,6 +8,14 @@ Chat 以 c479ca0 的主对话体验为视觉基线，并使用 v2 的正式 Sess
 
 历史日仍使用独立的历史浏览入口。历史 Turn 是只读投影，不能在其中写入 Action 或 Context。
 
+## 输入与入场
+
+Composer 在没有未完成 User Turn 时创建新 Turn；已有可接受输入的 User Turn 时直接追加，不提供发送模式选择。目标由运行状态、正式快照和本窗口的创建回执确定，并在提交时固定。已知目标尚未同步、取消中或收尾中时保留可编辑草稿，暂不发送；追加失败不会自动改投下一轮。QuestionCard 的明确回复与普通追加仍使用各自入口。Reflection 不接受用户追加，本窗口在其执行期间创建的 User Turn 由 Agent 调度。
+
+初始输入立即成为顶部气泡，提交中和已接受提示只占气泡边角，不额外占行；正式输入接管时同一节点原位更新。请求摘要仅在没有完整输入时作为内容线索，不单独显示排队文本条，也不据此判断执行阶段。正式 snapshot 已就绪后才出现单一 Agent 区域及 LiveStatus；准备态不依赖首条 Observation，实际未开始的请求只显示等待抬头，不虚构阶段和计时。
+
+停止入口位于 Composer：目标可取消且输入为空时显示停止，有文字时显示发送。LiveStatus 不重复提供停止按钮。停止请求只针对交互目标 User Turn，由后端确认执行状态。
+
 ## LiveStatus 与思考流
 
 `ActivityBuffer` 订阅 v2 Observation，并以 Turn scope 识别归属。`action.call` 形成计划条目，`action.execution` 更新执行图标，`action.result` 形成独立结果条目；取消、未执行与未知结果不伪造工具返回。思考流来自 `llm.model.response.reasoning.summary`，没有摘要时不生成思考文字。Working 从当前 Turn 已安装的 plan 段读取，不将模型 Control Tool 意图当成已安装事实。
@@ -37,7 +45,7 @@ Chat 右上角 Context Inspector 提供四个子页：当前 Context、Session m
 ## 渲染和交互
 
 - 用户消息、Agent 回答、动作摘要和等待问题沿用主对话的卡片、Markdown、动画和滚动锚点。
-- 新 Turn 的初始气泡固定在顶部输入槽；从本地发送、回执绑定到正式输入及 Session 接管保持同一节点和表现 key，只入场一次。排队请求在独立槽位展示，不进入当前 Turn 的 Agent 区域或提前展示 LiveStatus；追加与回复保留各自交互位置。
+- 新 Turn 的初始气泡固定在顶部输入槽；从本地发送、回执绑定到正式输入及 Session 接管保持同一节点和表现 key，只入场一次。不同 Turn 保持独立槽位；未读取其运行快照前不提前展示 LiveStatus。追加与回复保留各自交互位置。
 - `ConversationRows` 负责交互行与回答呈现，`ChatView` 负责当天布局与操作入口，`useConversationScroll` 管理滚动。最新 Turn 在顶沿下 20px 停泊；运行中不追逐卡片底部，仅长回答打字时跟随正文。滚轮和触摸交还用户控制。
 - 回答在活动卡收束后流入，再从 terminal 样式过渡为文档；Session 接管时保持已显示交互的表现身份。历史正文和 reduced-motion 不重播这些动画。
 - 完成栏使用正式状态与交互记录中的 Action 统计；活动记录可附捕获耗时。历史 Session 未提供的耗时和模型用量不以零值代替，留存模型详情从 Trace 按需读取。

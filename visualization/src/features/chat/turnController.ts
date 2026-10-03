@@ -477,6 +477,7 @@ export async function sendUserMessage(
       connection.status,
       useTurnStore.getState().snapshot,
       true,
+      useTurnStore.getState().outgoing.find((echo) => echo.kind === "new-turn" && echo.state === "accepted")?.turnId ?? null,
     );
   if (resolved.kind === "unavailable") return false;
   const value = text.trim();
@@ -567,14 +568,14 @@ async function sendNewTurn(epoch: number, value: string): Promise<boolean> {
 }
 
 /**
- * Open the just-accepted turn when the view shows nothing. An explicit
- * history view or another displayed turn is never stolen by this; the
- * status sync still decides every later switch.
+ * Bind a creation receipt immediately, including after a completed Turn.
+ * The day projection keeps preceding conversations mounted.
  */
 function openAcceptedTurn(turnId: string | null): void {
   if (turnId === null) return;
   const turn = useTurnStore.getState();
-  if (turn.turnId !== null) return;
+  if (turn.historyView) return;
+  if (turn.turnId !== null && turn.snapshot !== null && turn.snapshot.state !== "finished") return;
   const day = useConnectionStore.getState().status?.active_day ?? null;
   turn.openTurn(turnId, day, "live");
 }
@@ -657,16 +658,16 @@ export async function grantBudget(
 
 /** Ask the active turn to stop; the receipt only confirms the intent. */
 export async function cancelActiveTurn(epoch: number): Promise<void> {
-  const turnId = selectActiveTurnId(useConnectionStore.getState());
-  if (turnId === null) return;
-  await postCancelIntent(epoch, turnId, "stop the turn");
+  const turn = useTurnStore.getState();
+  const connection = useConnectionStore.getState();
+  if (turn.historyView) return;
+  const intent = resolveComposerIntent(connection.status, turn.snapshot, connection.phase === "connected",
+    turn.outgoing.find((echo) => echo.kind === "new-turn" && echo.state === "accepted")?.turnId ?? null);
+  if (intent.kind !== "append") return;
+  await postCancelIntent(epoch, intent.turnId, "stop the turn");
 }
 
-/**
- * Cancel a queued turn from its summary row. This targets the queued turn
- * itself — never the currently running work — so it takes the turn id from
- * the row's own projection, not from the runtime status (plan §5.1).
- */
+/** Runtime queue management targets a specific request, independent of Chat. */
 export async function cancelQueuedTurn(epoch: number, turnId: string): Promise<void> {
   await postCancelIntent(epoch, turnId, "cancel the queued turn");
 }

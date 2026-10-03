@@ -1,4 +1,5 @@
 import { settingsText } from "../i18n";
+import { SettingsPicker } from "../SettingsPicker";
 /**
  * Collection object editor shared by the MCP and ACP pages (config-coverage
  * §1.2, §4.5/§4.6): one collection object (a server, an agent) is one atomic
@@ -84,13 +85,13 @@ export function CollectionObjectEditor({
         title={collection.title}
         description={collection.description}
       >
-        <div className="flex gap-4">
-          <CollectionList
+        <div className="settings-collection-layout">
+          <SettingsPicker kind="objects" label={selected ?? "选择条目"}>{(close) => <CollectionList
             collection={collection}
             selected={selected}
-            onSelect={setSelected}
-          />
-          <div className="min-w-0 flex-1 border-l border-line pl-4">
+            onSelect={(id) => { setSelected(id); close(); }}
+          />}</SettingsPicker>
+          <div className="settings-form min-w-0">
             {selected === null ? (
               <div className="py-6 text-center text-[12px] text-fg-faint">{settingsText("Select an entry to edit, or create a new one. New entries are disabled until configured.")}</div>
             ) : (
@@ -142,6 +143,7 @@ function CollectionList({
 }) {
   const ids = useCollectionIds(collection.root);
   const [newId, setNewId] = useState("");
+  const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const setValue = useConfigDraftStore((s) => s.setValue);
 
@@ -159,8 +161,10 @@ function CollectionList({
   };
 
   return (
-    <div className="flex w-44 shrink-0 flex-col gap-1">
-      {ids.map((id) => (
+    <div className="flex min-h-0 flex-col gap-1 overflow-y-auto p-2">
+      <input aria-label="搜索配置对象" placeholder="搜索…" value={query} onChange={(event) => setQuery(event.target.value)}
+        className="mb-1 h-8 w-full rounded-md border border-line bg-bg px-2 text-[12px] outline-none focus:border-accent" />
+      {ids.filter((id) => id.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())).map((id) => (
         <CollectionListRow
           key={id}
           collection={collection}
@@ -181,7 +185,10 @@ function CollectionList({
             value={newId}
             onChange={(event) => setNewId(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter") create();
+              if (event.key === "Enter") {
+                event.preventDefault();
+                create();
+              }
             }}
           />
           <div className="mt-1 flex items-center gap-1">
@@ -379,8 +386,8 @@ export function ObjRow({
   const catalog = useConfigDraftStore((s) => s.catalog);
   const field = matchField(catalog, path);
   return (
-    <div className="flex items-start gap-3 py-1.5">
-      <div className="w-36 shrink-0 pt-1">
+    <div className="settings-field-row gap-3 py-1.5">
+      <div className="min-w-0 pt-1">
         <div className="text-[12px] font-medium text-fg">
           {label ?? field?.title ?? path.split(".").pop()}
         </div>

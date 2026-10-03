@@ -102,8 +102,8 @@ function SourcesCard() {
     >
       <div className="space-y-1">
         {sources.map((source) => (
-          <div key={source.id} className="flex items-center gap-2 text-[12px]">
-            <span className="font-mono text-fg">{source.id}</span>
+          <div key={source.id} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-md py-1 text-[12px]">
+            <span className="min-w-0 break-all font-mono text-fg">{source.id}</span>
             <Badge tone="gray">{source.kind}</Badge>
             <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-fg-faint">
               {source.path || "—"}

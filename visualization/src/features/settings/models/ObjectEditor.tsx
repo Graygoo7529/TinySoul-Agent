@@ -5,8 +5,8 @@
  * stage ConfigDraft entries — nothing here talks to the backend.
  */
 
-import { useEffect, useState, type ReactNode } from "react";
-import { AlertTriangle, Plus } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { AlertTriangle, Plus, Search } from "lucide-react";
 
 import { Badge } from "../../../components/ui/Badge";
 import { Button, IconButton } from "../../../components/ui/Button";
@@ -14,6 +14,8 @@ import { EmptyState } from "../../../components/ui/EmptyState";
 import { Modal } from "../../../components/ui/Modal";
 import { inputClass } from "./controls";
 import { settingsText } from "../i18n";
+import { SettingsPicker } from "../SettingsPicker";
+import { useSettingsUiStore } from "../uiStore";
 import { objectIdError, type ObjectReference } from "./collectionDrafts";
 
 // ---------------------------------------------------------------------------
@@ -42,6 +44,7 @@ export function ObjectEditorLayout({
   headerActions,
   children,
   listHeader,
+  searchable = true,
 }: {
   title: string;
   description: string;
@@ -58,10 +61,30 @@ export function ObjectEditorLayout({
   children: ReactNode;
   /** Optional content rendered between the list header and the items. */
   listHeader?: ReactNode;
+  /** Pages with a specialized search control supply it in listHeader. */
+  searchable?: boolean;
 }) {
+  const [query, setQuery] = useState("");
+  const editor = useRef<HTMLElement>(null);
+  const focusPath = useSettingsUiStore((s) => s.focusPath);
+  useEffect(() => {
+    if (focusPath === null || selected === null || !(focusPath === selected || focusPath.split(".").includes(selected) || focusPath.startsWith(`${selected}.`))) return;
+    const frame = requestAnimationFrame(() => {
+      const root = editor.current;
+      if (!root) return;
+      const sections = [...root.querySelectorAll<HTMLDetailsElement>("details[data-settings-paths]")].filter((section) =>
+        section.dataset.settingsPaths?.split(" ").some((path) => path !== "" && (focusPath === path || focusPath.startsWith(`${path}.`))));
+      sections.forEach((section) => { section.open = true; });
+      const field = root.querySelector<HTMLElement>(`[data-field-path="${CSS.escape(focusPath)}"]`);
+      (field ?? sections[sections.length - 1] ?? root).scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+      useSettingsUiStore.getState().clearFocus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusPath, selected]);
+  const visibleItems = items.filter((item) => `${item.id} ${item.group ?? ""}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   return (
-    <div className="grid min-h-full min-w-0 grid-cols-[minmax(0,1fr)] md:grid-cols-[240px_minmax(0,1fr)]">
-      <aside className="border-b border-line bg-bg-sunken/25 md:border-r md:border-b-0">
+    <div className="settings-object-layout min-h-full min-w-0">
+      <SettingsPicker kind="objects" label={selected ?? `选择${settingsText(title)}`}>{(close) => <aside className="min-h-0 overflow-y-auto border-r border-line bg-bg-sunken/25">
         <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2.5">
           <div className="min-w-0">
             <div className="text-[12px] font-semibold text-fg">{settingsText(title)}</div>
@@ -73,17 +96,21 @@ export function ObjectEditorLayout({
             <IconButton
               label={addTitle ?? `Add ${title}`}
               disabled={addDisabled}
-              onClick={onAdd}
+              onClick={() => { close(); onAdd(); }}
             >
               <Plus size={15} />
             </IconButton>
           )}
         </div>
         {listHeader}
-        <div className="flex gap-1 overflow-x-auto p-2 md:block md:space-y-1 md:overflow-y-auto">
-          {items.map((item, index) => (
-            <div key={item.id} className="min-w-40 md:min-w-0">
-              {(index === 0 || items[index - 1]?.group !== item.group) &&
+        {searchable && <label className="mx-2 mt-2 flex items-center gap-1.5 rounded-md border border-line bg-bg px-2 py-1.5 text-fg-faint">
+          <Search size={12} /><input aria-label="搜索配置对象" placeholder="搜索…" value={query} onChange={(event) => setQuery(event.target.value)}
+            className="min-w-0 flex-1 bg-transparent text-[12px] text-fg outline-none" />
+        </label>}
+        <div className="space-y-1 p-2">
+          {visibleItems.map((item, index) => (
+            <div key={item.id} className="min-w-0">
+              {(index === 0 || visibleItems[index - 1]?.group !== item.group) &&
                 item.group !== undefined && (
                   <div className="px-2.5 pt-2 pb-1 text-[10px] font-semibold tracking-wide text-fg-faint uppercase first:pt-0.5">
                     {item.group}
@@ -91,7 +118,7 @@ export function ObjectEditorLayout({
                 )}
               <button
                 type="button"
-                onClick={() => onSelect(item.id)}
+                onClick={() => { onSelect(item.id); close(); }}
                 className={`w-full rounded-md px-2.5 py-2 text-left transition-colors ${
                   selected === item.id ? "bg-active text-accent" : "hover:bg-hover"
                 }`}
@@ -116,14 +143,14 @@ export function ObjectEditorLayout({
               </button>
             </div>
           ))}
-          {items.length === 0 && (
+          {visibleItems.length === 0 && (
             <div className="px-2.5 py-3 text-[11px] text-fg-faint">
-              尚未配置。
+              {items.length === 0 ? "尚未配置。" : "没有匹配的条目。"}
             </div>
           )}
         </div>
-      </aside>
-      <main className="min-w-0">
+      </aside>}</SettingsPicker>
+      <main ref={editor} className="settings-form min-w-0">
         {selected === null ? (
           <EmptyState
             title={`请选择${settingsText(title)}`}
@@ -131,8 +158,8 @@ export function ObjectEditorLayout({
           />
         ) : (
           <>
-            <div className="flex min-h-14 flex-wrap items-center gap-3 border-b border-line px-5 py-2.5">
-              <div className="min-w-0 flex-1">
+            <div className="settings-object-header flex min-h-14 flex-wrap items-center gap-3 border-b border-line px-5 py-2.5">
+              <div className="settings-object-identity min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <h2 className="truncate font-mono text-[14px] font-semibold text-fg">
                     {selected}

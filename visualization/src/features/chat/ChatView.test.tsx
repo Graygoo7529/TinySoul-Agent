@@ -479,7 +479,7 @@ describe("ChatView: snapshot-driven waiting cards", () => {
 
     // Still draining — but the question card and the budget card are live.
     expect(turnState().loading).toBe(true);
-    expect(container.textContent).toContain("Loading the conversation…");
+    expect(container.textContent).not.toContain("Loading the conversation…");
     expect(
       container.querySelectorAll('[data-question-form="active"]'),
     ).toHaveLength(1);
@@ -537,119 +537,53 @@ describe("ChatView: snapshot-driven waiting cards", () => {
   });
 });
 
-describe("ChatView: composer intent menu", () => {
-  function intentChip(): HTMLButtonElement {
-    const chip = container.querySelector(
-      'button[aria-expanded]',
-    ) as HTMLButtonElement | null;
-    if (!chip) throw new Error("intent chip not rendered");
-    return chip;
-  }
-
-  function sendButton(): HTMLButtonElement {
-    const button = container.querySelector(
-      'button[title="Send"]',
-    ) as HTMLButtonElement | null;
-    if (!button) throw new Error("send button not rendered");
-    return button;
-  }
-
-  it("defaults to append; the explicit choice queues the message as a new turn", async () => {
+describe("ChatView: direct composer", () => {
+  it("appends without a mode menu and shows stop only when the draft is empty", async () => {
     await openLiveTurn();
     await renderChat();
-
-    // The appendable turn makes the chip a menu; the default is append.
-    expect(intentChip().textContent).toContain("Append to current turn");
-    act(() => {
-      intentChip().click();
-    });
-    const queueOption = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Queue as next turn"),
-    );
-    expect(queueOption).toBeDefined();
-    act(() => {
-      (queueOption as HTMLButtonElement).click();
-    });
-    expect(intentChip().textContent).toContain("New turn · queued");
-
-    let createBody: Record<string, unknown> | null = null;
-    endpoint.post("/v2/turns", (request) => {
-      createBody = bodyJson(request) as Record<string, unknown>;
-      return jsonResponse({
-        accepted: true,
-        command_id: createBody.command_id,
-        turn_id: "t-queued",
-        state: "queued",
-        kind: "user",
-      });
-    });
-    act(() => {
-      useComposerDraft.getState().setDraft("hold on");
-    });
+    expect(container.querySelector('button[title="Stop the current turn"]')).not.toBeNull();
+    expect(container.querySelector('button[title="Stop turn"]')).toBeNull();
+    expect(container.textContent).not.toContain("Queue as next turn");
+    endpoint.post("/v2/turns/contract-turn/input", () =>
+      jsonResponse({ accepted: true, record_id: "added", sequence: 1 }));
+    act(() => useComposerDraft.getState().setDraft("one more detail"));
+    expect(container.querySelector('button[title="Stop the current turn"]')).toBeNull();
     await act(async () => {
-      sendButton().click();
+      (container.querySelector('button[title="Send"]') as HTMLButtonElement).click();
     });
-
-    // The pinned intent aimed the submission at a new (queued) turn, never
-    // at the running turn's inbox.
-    expect(createBody).not.toBeNull();
-    expect(createBody!.text).toBe("hold on");
-    expect(endpoint.calls("/v2/turns", "POST")).toHaveLength(1);
-    expect(endpoint.calls("/v2/turns/contract-turn/input", "POST")).toHaveLength(
-      0,
-    );
-
-    // A successful send clears the explicit choice back to the default.
+    expect(endpoint.calls("/v2/turns/contract-turn/input", "POST")).toHaveLength(1);
+    expect(endpoint.calls("/v2/turns", "POST")).toHaveLength(0);
     expect(useComposerDraft.getState().draft).toBe("");
-    expect(intentChip().textContent).toContain("Append to current turn");
   });
 
-  it("the choice is pinned at submit time even if the turn settles mid-flight", async () => {
+  it("pins an append in flight and preserves newly typed text", async () => {
     await openLiveTurn();
     await renderChat();
-    act(() => {
-      intentChip().click();
-    });
-    const queueOption = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Queue as next turn"),
-    );
-    act(() => {
-      (queueOption as HTMLButtonElement).click();
-    });
-
-    const sendGate = deferred<Response>();
-    endpoint.post("/v2/turns", () => sendGate.promise);
-    endpoint.post("/v2/turns/contract-turn/input", () =>
-      jsonResponse({ accepted: true, record_id: "x", sequence: 1 }),
-    );
-    act(() => {
-      useComposerDraft.getState().setDraft("hold on");
-    });
+    const gate = deferred<Response>();
+    endpoint.post("/v2/turns/contract-turn/input", () => gate.promise);
+    act(() => useComposerDraft.getState().setDraft("first addition"));
     await act(async () => {
-      sendButton().click();
+      (container.querySelector('button[title="Send"]') as HTMLButtonElement).click();
       await Promise.resolve();
     });
-    // Mid-flight the running turn goes idle; the intent pinned at submit time
-    // must not re-aim the message at the now-closed inbox.
     act(() => {
       useConnectionStore.getState().applyStatus(epoch, makeStatus());
+      useComposerDraft.getState().setDraft("another thought");
     });
-    await act(async () => {
-      sendGate.resolve(
-        jsonResponse({
-          accepted: true,
-          command_id: "cmd-1",
-          turn_id: "t-queued",
-          state: "queued",
-          kind: "user",
-        }),
-      );
+    await act(async () => gate.resolve(jsonResponse({ accepted: true, record_id: "added", sequence: 1 })));
+    expect(endpoint.calls("/v2/turns", "POST")).toHaveLength(0);
+    expect(useComposerDraft.getState().draft).toBe("another thought");
+  });
+
+  it("keeps the draft editable while a known user turn is synchronizing", async () => {
+    await renderChat();
+    act(() => {
+      useConnectionStore.getState().applyStatus(epoch, makeStatus({ activity: "user_turn", activeTurnId: "loading-turn" }));
+      useComposerDraft.getState().setDraft("keep this");
     });
-    expect(endpoint.calls("/v2/turns", "POST")).toHaveLength(1);
-    expect(endpoint.calls("/v2/turns/contract-turn/input", "POST")).toHaveLength(
-      0,
-    );
-    expect(useComposerDraft.getState().draft).toBe("");
+    expect((container.querySelector("textarea") as HTMLTextAreaElement).disabled).toBe(false);
+    expect((container.querySelector('button[title="Send"]') as HTMLButtonElement).disabled).toBe(true);
+    expect(useComposerDraft.getState().draft).toBe("keep this");
   });
 });
 
@@ -724,7 +658,7 @@ describe("ChatView: failed echo on a closed turn", () => {
     });
 
     const entries = Array.from(container.querySelectorAll("button")).filter(
-      (button) => button.textContent === "Send as next turn",
+      (button) => button.textContent === "Send as new conversation",
     );
     expect(entries).toHaveLength(1);
 
@@ -757,74 +691,49 @@ describe("ChatView: failed echo on a closed turn", () => {
   });
 });
 
-describe("ChatView: queued turn row", () => {
-  it("cancels the displayed queued turn, not whatever work is running", async () => {
-    endpoint.get("/v2/turns/contract-turn", () =>
-      jsonResponse({ ...runningSnapshot(), state: "queued" }),
-    );
-    endpoint.get("/v2/turns/contract-turn/interactions", () =>
-      jsonResponse(
-        makeInteractionsPage({
-          queued_request: {
-            text: "look into the build",
-            truncated: false,
-            delivery: "queued",
-          },
-        }),
-      ),
-    );
-    await act(async () => {
-      useTurnStore.getState().openTurn("contract-turn", "2026-09-29", "live");
-      await refreshDisplayedTurn(epoch);
-    });
+describe("ChatView: pre-context entry", () => {
+  it("keeps one bubble and one card as a preparing request becomes formal input", async () => {
     await renderChat();
-
-    expect(container.textContent).toContain(
-      "Queued as the next turn: look into the build",
-    );
-    const cancel = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Cancel queued turn",
-    );
-    expect(cancel).toBeDefined();
-
-    endpoint.post("/v2/turns/contract-turn/cancel", () =>
-      jsonResponse({ accepted: true, turn_id: "contract-turn" }),
-    );
-    await act(async () => {
-      (cancel as HTMLButtonElement).click();
+    const echo = { echoId: "cmd", turnId: "contract-turn", kind: "new-turn" as const,
+      text: "look into the build", state: "accepted" as const, questionId: null, error: null, turnClosed: false };
+    act(() => {
+      useTurnStore.getState().openTurn("contract-turn", "2026-09-29", "live");
+      useTurnStore.setState({ snapshot: { ...runningSnapshot(), state: "preparing" }, loading: false,
+        outgoing: [echo], queuedRequest: { text: echo.text, truncated: false, delivery: "queued" } });
     });
-    expect(
-      endpoint.calls("/v2/turns/contract-turn/cancel", "POST"),
-    ).toHaveLength(1);
+    const bubble = container.querySelector(".bubble-user");
+    const card = container.querySelector(".live-border");
+    expect(bubble?.textContent).toBe(echo.text);
+    expect(card?.textContent).toContain("Preparing context");
+    expect(bubbleCount()).toBe(1);
+    expect(container.textContent).not.toContain("Queued as the next turn");
+    expect(container.textContent).not.toContain("Accepted · waiting to appear");
+    act(() => useTurnStore.setState({
+      snapshot: runningSnapshot(),
+      items: [makeInteraction({ id: "initial", role: "user.input", text: echo.text })],
+      outgoing: [], queuedRequest: null,
+    }));
+    expect(container.querySelector(".bubble-user")).toBe(bubble);
+    expect(container.querySelector(".live-border")).toBe(card);
+    expect(bubbleCount()).toBe(1);
   });
 
-  it("hides the cancel entry once a cancel was requested or the turn started", async () => {
-    endpoint.get("/v2/turns/contract-turn", () =>
-      jsonResponse({ ...runningSnapshot(), state: "running" }),
-    );
+  it("uses the request preview in the initial bubble and stops that user request, never Reflection", async () => {
+    endpoint.get("/v2/turns/contract-turn", () => jsonResponse({ ...runningSnapshot(), state: "queued" }));
     endpoint.get("/v2/turns/contract-turn/interactions", () =>
-      jsonResponse(
-        makeInteractionsPage({
-          queued_request: {
-            text: "look into the build",
-            truncated: false,
-            delivery: "queued",
-          },
-        }),
-      ),
-    );
+      jsonResponse(makeInteractionsPage({ queued_request: { text: "look into the build", truncated: true, delivery: "queued" } })));
     await act(async () => {
+      useConnectionStore.getState().applyStatus(epoch, makeStatus({ activity: "reflection_turn", activeTurnId: "reflection" }));
       useTurnStore.getState().openTurn("contract-turn", "2026-09-29", "live");
       await refreshDisplayedTurn(epoch);
     });
     await renderChat();
-
-    expect(container.textContent).toContain("Queued as the next turn");
-    expect(
-      Array.from(container.querySelectorAll("button")).find(
-        (button) => button.textContent === "Cancel queued turn",
-      ),
-    ).toBeUndefined();
+    expect(container.querySelector(".bubble-user")?.textContent).toBe("look into the build…");
+    expect(container.textContent).toContain("Waiting to start");
+    endpoint.post("/v2/turns/contract-turn/cancel", () => jsonResponse({ accepted: true, turn_id: "contract-turn" }));
+    await act(async () => (container.querySelector('button[title="Stop the current turn"]') as HTMLButtonElement).click());
+    expect(endpoint.calls("/v2/turns/contract-turn/cancel", "POST")).toHaveLength(1);
+    expect(endpoint.calls("/v2/turns/reflection/cancel", "POST")).toHaveLength(0);
   });
 });
 

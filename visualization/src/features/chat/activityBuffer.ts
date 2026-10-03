@@ -48,7 +48,7 @@ export class ActivityBuffer {
   isIncomplete(): boolean { return this.incomplete; }
   getEventCount(): number { return this.events.length; }
 
-  toPresentation(startedAt: string, canStop: boolean): ActivityPresentation {
+  toPresentation(startedAt: string | null): ActivityPresentation {
     const trail = this.deriveTrail();
     const headline = this.deriveHeadline();
     const running = trail.flatMap((step) => step.content.type === "action_plan" && step.content.glimpse.executionState === "running" ? [step.content.glimpse] : []);
@@ -63,8 +63,8 @@ export class ActivityBuffer {
       headline, trail,
       thinking: { current: reasoning[reasoning.length - 1] ?? "", history: reasoning.slice(0, -1), expanded: true },
       working: { todos: [], milestones: [] }, // supplied by the current Context owner projection
-      timing: { startedAt, elapsedMs: Date.now() - new Date(startedAt).getTime() },
-      canStop, incomplete: this.incomplete,
+      timing: { startedAt, elapsedMs: startedAt === null ? 0 : Date.now() - new Date(startedAt).getTime() },
+      incomplete: this.incomplete,
     };
   }
 
