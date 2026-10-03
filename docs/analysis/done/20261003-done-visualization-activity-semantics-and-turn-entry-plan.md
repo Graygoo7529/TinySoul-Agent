@@ -1,6 +1,6 @@
 # Activity 语义、阶段呈现与 Turn 入场执行计划
 
-状态：`pending`，方案已建立，尚未实施。日期：2026-10-03；代码分析开始于 2026-10-02。
+状态：`done`。实施核对：2026-10-03；代码分析开始于 2026-10-02。
 
 视觉与交互基线：`c479ca0`。代码复核基点：`72e015f`；其工作树内容与 `9e6546d` 相同。接口与正式事实来源继续采用 v2。
 
@@ -10,7 +10,7 @@
 
 范围包括：LiveStatus、Activity、Thinking 筛选与思考条、初始用户输入的呈现衔接，以及必要的 Context 控制结果观察。保留现有连续会话、完成收束、动作浮层、模型调用抽屉与结束后背景快照。前后端均可修改，但不恢复 v1，不改变 Turn/Cycle/Phase、Context prepare/install 或资源 owner 的基本语义。
 
-## 2. 已核对的问题与原版依据
+## 2. 实施前核对的问题与原版依据
 
 | 问题 | c479ca0 的做法 | 当前事实与判断 |
 |---|---|---|
@@ -18,11 +18,11 @@
 | 抬头过于抽象 | `derive/model.ts` 的 `PHASE_META.running` 为完整运行句；具体执行时显示行动与目标 | 当前使用 Understanding / Planning / Executing。恢复原版阶段句，并保留 v2 实际执行事件提供的具体行动。 |
 | Activity 语义不完整 | `addControlActivity` 呈现 todo、milestone、域选择 intent；`applyBackgroundEvent` 呈现实际加载/逐出 | 当前只有背景 refs 与域标签，todo/milestone 类型虽存在，却没有活动事件来源。不能只屏蔽初始 Loaded 文案。 |
 | 初始 Loaded Home | 原版 snapshot 用于建立已加载列表；活动加载行只读取 `loaded_links`，并不把 snapshot 的完整列表当成加载操作 | 当前把 snapshot 的 `links` 全部转成 Loaded。初始化现态与 Agent 控制行为被混淆。 |
-| intent 不进入思考呈现 | 原版保留独立 `intent` 行，带域标签，归入 Activity 的 Thinking 筛选 | 当前 ActivityBuffer 在压缩模型响应时丢掉 tool_calls，intent 只在部分 Phase 详情可见。应恢复该来源。原版顶部思考条实际上仅选取 `thinking`，让 intent 也进入顶部思考条是本轮明确扩充。 |
+| intent 不进入思考呈现 | 原版保留独立 `intent` 行，带域标签，归入 Activity 的 Thinking 筛选 | 当前 ActivityBuffer 在压缩模型响应时丢掉 tool_calls，intent 只在部分 Phase 详情可见。恢复该来源；按确认意见，顶部思考条保持原版，仅呈现 reasoning。 |
 | Turn 启动跳位 | 原版 `components/chat/TurnView.tsx` 始终先排用户气泡，再排单一 Agent 区域 | 当前 `CurrentTurnControls` 把所有 outgoing 放在 AgentRow 内、LiveStatus 下方；正式 `user.input` 则由顶部另一个节点渲染，产生移位和重新淡入。发送无当前 Turn 时，echo 还可能没有独立显示位置。 |
 | Details Activity 缺少原版功能 | `components/trace/TurnTraceDrawer.tsx` 有 All / Thinking / Actions / Context / Errors 筛选、倒序时间、动作定位 | 当前 `ProcessPanel.ActivityTimeline` 仅呈现顺序条目。恢复这些直接相关的原版结构，再加入连续阶段底色。 |
 
-启动问题目前由用户体验和渲染路径共同定位；本轮分析没有录制新的浏览器逐帧证据。实施时先复现初始 echo → 正式输入的全过程，再验收修复，不能仅检查最终气泡位置。
+计划建立时，启动问题由用户体验和渲染路径共同定位。实施阶段补充了从发送开始的浏览器证据与节点连续性验证，见第 8 节；不能仅检查最终气泡位置。
 
 ## 3. 统一的数据与表现语义
 
@@ -49,7 +49,7 @@ Observation 是有界过程披露，不能成为另一套正式 Working/Backgrou
 
 复用一份阶段表现元数据供 LiveStatus 与 Trace 使用，区分阶段标题、运行句与阶段色。不要在未出现 Phase 时默认假定 Phase1 已开始；PhaseHeadline 的阶段允许为空。
 
-单个实际运行 Action 可显示名称与真实目标；并行多个 Action 显示批次进度，不随意选第一个冒充唯一正在运行的行动。等待用户、预算与停止中的提示继续由正式 Turn 状态覆盖。阶段结束但尚未进入下一阶段时按实际状态呈现，不继续累加已结束阶段的计时。
+单个实际运行 Action 可显示名称与真实目标；并行多个 Action 显示实际运行数量，不随意选第一个冒充唯一正在运行的行动。等待用户、预算与停止中的提示继续由正式 Turn 状态覆盖。阶段结束但尚未进入下一阶段时按实际状态呈现，不继续累加已结束阶段的计时。
 
 从 Activity 类型、生成分支、渲染器、图标映射和测试中清理 `phase_start`，不保留永远不会生成的兼容分支。不删除 Phase 原始事件或 Process 树中的阶段信息。
 
@@ -95,7 +95,7 @@ v2 的 `llm.model.response.tool_calls` 已保留 `select_action_domains.argument
 - reasoning：模型显式返回的摘要，沿用现有 Markdown 思考条。
 - intent：单独的“域选择意图”，用原版 IntentBody 的文字与域标签结构；长文本可就地展开。
 - 域标签的正式“已选择”状态仍以 Phase1 完成事件的 `selected_domains` 为准。响应刚到时是请求；完成后可在同一条目补齐确认状态，避免再生成内容重复的 Selected domains 行。没有 intent 时仍可展示实际接受的域。
-- 顶部思考条从同一活动投影中选择最新的非空 reasoning 或 intent，使用原有交替与展开动效；通过轻量来源标记区分“思考摘要”和“域选择意图”。只展示模型显式字段，不把 intent 标作完整内部推理。
+- 顶部思考条只选择最新的非空 reasoning，保持原版交替与展开动效；intent 仅在活动与 Thinking 筛选中呈现，不进入顶部思考条。
 - Details 的 Thinking 筛选包含 reasoning、intent 和任务指导，延续原版；Phase 展开区与模型详情复用相同提取语义，不另造一份思考记录。
 
 同一响应若 reasoning 与 intent 在去除首尾空白后完全相同，不重复展示两段正文，可在 intent 行保留域选择信息。不同内容均可在 Activity/Thinking 阅读，不做模糊文本相似度判断。完整模型响应仍通过 ModelCall 查看。
@@ -151,12 +151,12 @@ LiveStatus 的卡片、条目、浮层背景和动画不应用这些阶段底色
 
 | 步骤 | 状态 | 修改范围与输出 | 完成条件 |
 |---|---|---|---|
-| S1 基线复现 | pending | 对照原版 TurnView、LiveStatus、ActivityStep、TurnTraceDrawer 和 derive；记录当前新轮从发送首帧开始的过程 | 复现首轮与连续第二轮的倒置/重挂载，记录源组件与数据路径 |
-| S2 控制观察契约 | pending | Context engine/control、Loop Phase 完成投影、相关 owner 测试；同步 Endpoint events 与 Context 设计 | 仅 install 成功才报告 applied；失败反馈、域选择与 scope 正确，返回契约不变 |
-| S3 Activity 语义 | pending | activityBuffer、presentation、facts、ActivityStep 与 LiveStatus | 无空阶段条目；原版运行句；todo/milestone/load/evict、任务指导、intent/reasoning 共用适配 |
-| S4 Details 表现 | pending | ProcessPanel.ActivityTimeline、semantic 与局部样式，提取原版筛选/定位结构 | 连续阶段底色、时间、Thinking 等筛选与行动跳转；LiveStatus 样式不受影响 |
-| S5 Turn 入场 | pending | ChatView、ConversationRows、turnController、turnStore/interactions、useConversationScroll | echo 到正式输入位置与节点连续；首轮、下一轮、queued、追加与回复各归其位 |
-| S6 联调与复核 | pending | 定向测试、浏览器动态检查、完整门禁、文档与进度记录 | 六个用户关注项逐条验证，并再次对照原版组件后才能归档 |
+| S1 基线复现 | done | 对照原版 TurnView、LiveStatus、ActivityStep、TurnTraceDrawer 和 derive；记录当前新轮从发送首帧开始的过程 | 复现首轮与连续第二轮的倒置/重挂载，记录源组件与数据路径 |
+| S2 控制观察契约 | done | Context engine/control、Loop Phase 完成投影、相关 owner 测试；同步 Endpoint events 与 Context 设计 | 仅 install 成功才报告 applied；失败反馈、域选择与 scope 正确，返回契约不变 |
+| S3 Activity 语义 | done | activityBuffer、presentation、facts、ActivityStep 与 LiveStatus | 无空阶段条目；原版运行句；todo/milestone/load/evict、任务指导、intent/reasoning 共用适配 |
+| S4 Details 表现 | done | ProcessPanel.ActivityTimeline、semantic 与局部样式，提取原版筛选/定位结构 | 连续阶段底色、时间、Thinking 等筛选与行动跳转；LiveStatus 样式不受影响 |
+| S5 Turn 入场 | done | ChatView、ConversationRows、turnController、turnStore/interactions、useConversationScroll | echo 到正式输入位置与节点连续；首轮、下一轮、queued、追加与回复各归其位 |
+| S6 联调与复核 | done | 定向测试、浏览器动态检查、完整门禁、文档与进度记录 | 六个用户关注项逐条验证，并再次对照原版组件后归档 |
 
 允许 S3 的纯表现部分与 S5 独立推进，数据接口以 S2 契约为准。改动尽量落在现有模块；不新增通用活动平台、第二套运行状态机或全站布局重构。
 
@@ -167,7 +167,7 @@ LiveStatus 的卡片、条目、浮层背景和动画不应用这些阶段底色
 - 只有阶段边界而没有语义活动时：抬头与计时正确，Activity 不生成三条空记录，不保留空 Activity 区块。
 - 初始 Home/Memory 装配可在 Context Inspector 看见，但 LiveStatus 不显示初始 Loaded；Phase1 真正应用 load/evict 后出现一次明确资源条目。
 - set/remove todo 与 milestone，todo 完成/取消，正常拒绝一次无效操作：活动准确，WorkingZone 与 owner 一致；milestone 不被默认展示为已完成任务。
-- Phase1 有 intent 而无 reasoning、两者都有、两者同文、域选择被拒绝：顶部与 Thinking 筛选可读，来源与接受状态准确，无重复域选择行。
+- Phase1 有 intent 而无 reasoning、两者都有、两者同文、域选择被拒绝：Thinking 筛选可读，顶部仅含 reasoning，来源与接受状态准确，无重复域选择行。
 - 一个 Phase1 内多条控制、随后 Phase2/3、再一个 Cycle：同一连续阶段底色无间隙，不跨 Cycle 合并；筛选和展开后仍成立。
 - 任务 Skill 在相同 task 的 provider 重试不刷重复条目，Background 与任务指导的资源标签风格一致、含义不同。
 - 初始发送尚未回执、已回执尚未读到 interactions、Observation 先到、正式输入到达：全过程只有一个初始气泡、位于 Agent 区域之前，身份和位置连续。
@@ -185,8 +185,36 @@ LiveStatus 的卡片、条目、浮层背景和动画不应用这些阶段底色
 
 同步文档：`docs/endpoint/events.md`、必要的 runtime/契约样例说明、`docs/design/context.md`、`visualization/docs/design/chat.md` 与 `visualization/docs/plans/` 中的执行记录。已有归档计划保留为历史，不改写成此次问题已经完成的证明。
 
-## 8. 交付判定
+## 8. 实施与基线复核
 
-本文件记录的是待实施方案。S1–S6 的对应实现、设计/Endpoint 文档和验证证据逐项完成后，才将本计划改为 done、文件名加入 `-done-` 并移动到 `docs/analysis/done/`。
+以下是本轮对应实现，不以先前归档记录代替验证。
 
-本轮分析交付仅新增本执行计划，未修改前后端运行代码。建议的实现重点依次为：真实控制活动与 intent → 稳定的输入槽和一次入场 → Details 阶段色与原版筛选；不以测试通过数量代替与 c479ca0 的实际交互对照。
+| 步骤 | 实际实施与复核 |
+|---|---|
+| S1 | 对照 c479ca0 的 `derive/chat.ts`、`components/chat/TurnView.tsx`、`LiveStatus.tsx`、`ActivityStep.tsx` 和 `TurnTraceDrawer.tsx`。修改前用真实 Endpoint 延迟提交复现首轮 sending 气泡不可见；旧代码把后续新轮 echo 放在上一轮 Agent 内。修复后验证首轮/连续轮次的节点、上下顺序和停泊。 |
+| S2 | `ContextEngine.consume_signal_batch` 仅在 install 后发布 normalized control 的 applied 观察；顺序和 scope 保留。控制模块负责紧凑投影，Loop 完成事件披露控制反馈。消费返回值仍仅含失败；无新增持久记录或业务状态机。 |
+| S3 | `ActivityBuffer` 一处解释事件，支持同一响应的 reasoning/intent 多条语义项；阶段边界不再生成空条目。还原三阶段运行句，阶段结束计时停止；任务指导和 Background 复用 LinkChip。Working 仍从 owner 读取。 |
+| S4 | `ProcessPanel.ActivityTimeline` 恢复原版筛选、倒序、时间与行动入口；连续阶段容器使用淡底色，先分组再筛选。共享 ActivityStep，LiveStatus 不增加阶段底色。 |
+| S5 | `ChatView` 顶部初始槽使用同一 UserBubble，回执绑定的本地 key 延续至正式/Session 投影。新轮 echo 不再渲染于 CurrentTurnControls，排队项不显示运行卡。滚动目标使用槽身份；追加、回复、等待和失败入口保留。 |
+| S6 | 已同步 Context/Workspace 设计、Endpoint events、前端 Chat 设计及实施记录；完整门禁与逐项复核通过，计划归档。 |
+
+与原版的具体对照：
+
+- 原版的用户气泡 → 单一 Agent 列 → LiveStatus/回答布局保持；入场修正的是 v2 异步数据的槽位和挂载身份，没有继续叠加动画参数。
+- 20px 顶部停泊、700ms 缓出、LiveStatus 滚动节奏、完成折叠/回答流入参数保持。浏览器逐帧测量同时覆盖入场与结束，不能仅以最后一帧正确判定恢复。
+- 恢复原版阶段运行句及 intent/域标签阅读；intent 加入 Thinking 筛选，但不进入顶部 reasoning 条。长 intent 可就地展开。
+- 原版显式控制操作的语义由 v2 安装成功观察承接；初始 Home/Memory 快照继续服务 Context Inspector。milestone 保留事实寄存器语义，不复活旧版的伪完成状态。
+- 新增连续阶段底色仅在右侧 Activity；浅色、深色与 800px 窄窗已截图核对。
+
+### 验证记录
+
+- Kernel Fast：336 passed，覆盖安装成功、批次准备失败后重放、控制拒绝、六类控制的顺序与 scope、owner 刷新不混入、Phase 完成反馈。
+- 浏览器真实 Agent/Endpoint + 脚本模型：2 条流程通过，包含连续会话、初始 sending→回执→正式节点不变、思考与 intent 区分、todo/milestone/load 真实控制、Details 阶段区段无间隙、筛选、明暗/窄窗、Context 与模型抽屉、完成动效和 Session 接管。
+- TypeScript、Vite 与 ty 已通过；Vite 仍有既有的大 chunk 提示。
+- 前端全量：90 个文件、808 项通过。Python Full：1226 passed，25 deselected；TinySoul Python 3.13.12、ty 0.0.84 通过。TypeScript/Vite 最终构建通过。
+
+### 门禁发现的相邻观察缺陷
+
+两次 Full 在既有 Workspace 等长编辑观察用例漏掉 edit 事件，独立运行通过。分析确认正式写入仅依赖 manifest 差异，文件大小与时间戳相同时会漏发通知。S6 补充修正 `WorkspaceChange`：由成功 mutation 结果提供实际写入 Link，和 manifest 差异共用一个变更投影；Observation 与合并后的环境事件统一使用它，不新增日志、哈希或重试。固定时间戳的真实文件回归同时覆盖 edit/bundle 和环境事件合并；Workspace 78 项及 ty 通过。设计与 Endpoint 文档已同步。
+
+截图保留在忽略目录 `visualization/.local-test/playwright-output/`，可运行 `test/e2e/chat-flow.pw.ts` 重建。旧历史缺少 applied 观察时仍只展示留存事实；本轮不补造过往控制活动，不验证外部供应商网络。

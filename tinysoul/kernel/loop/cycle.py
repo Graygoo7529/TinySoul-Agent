@@ -304,6 +304,17 @@ class CycleRunner:
         )
         if isinstance(result.value, Phase1Outcome) and result.value.failure is None:
             selection["selected_domains"] = list(result.value.selected_domains)
+        if isinstance(result.value, Phase1Outcome) and result.value.control_results:
+            selection["control_results"] = [
+                {
+                    "call_id": item.call_id,
+                    "tool_name": item.tool_name,
+                    "status": item.status.value,
+                    "stage": item.stage.value,
+                    "feedback": item.model_feedback,
+                }
+                for item in result.value.control_results
+            ]
         self._emit_phase(
             scope,
             phase,

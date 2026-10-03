@@ -25,7 +25,7 @@ export function useConversationScroll(latestId: string | null, running: boolean,
   const setFollowing = (value: boolean) => { following.current = value; setPinned(value); };
   const lastTurn = () => {
     const list = contentRef.current?.querySelectorAll<HTMLElement>("[data-turn-root]");
-    return list?.[list.length - 1] ?? null;
+    return list ? [...list].find((node) => node.dataset.turnRoot === current.current.latestId) ?? null : null;
   };
   const spacer = () => contentRef.current?.querySelector<HTMLElement>("[data-chat-spacer]") ?? null;
   const updateSpacer = () => {

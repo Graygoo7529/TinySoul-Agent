@@ -827,10 +827,17 @@ class WorkspaceEngine:
             before = self._manifest_store.load()
             result = mutation()
             after = self._manifest_store.load()
-            self.events.stage(WorkspaceChange(operation, before, after), source)
-        emit_workspace_changed(
-            self._observations, change=WorkspaceChange(operation, before, after)
-        )
+            written_links: tuple[str, ...] = ()
+            if isinstance(result, WorkspaceBundleResult):
+                written_links = tuple(record.link for record in result.records)
+            elif operation in (
+                WorkspaceChangeOperation.WRITE, WorkspaceChangeOperation.APPEND,
+                WorkspaceChangeOperation.EDIT,
+            ) and isinstance(result, WorkspaceResourceRecord):
+                written_links = (result.link,)
+            change = WorkspaceChange(operation, before, after, written_links)
+            self.events.stage(change, source)
+        emit_workspace_changed(self._observations, change=change)
         return result
 
     def _emit_change(

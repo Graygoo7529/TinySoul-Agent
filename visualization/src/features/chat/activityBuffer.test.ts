@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { JsonObject } from "../../api/v2/json";
 import type { ObservationEvent } from "../../api/v2/events";
-import { ActivityBuffer } from "./activityBuffer";
+import { ActivityBuffer, activityGroups } from "./activityBuffer";
 
 function event(
   name: string,
@@ -76,24 +76,99 @@ describe("ActivityBuffer v2 event projection", () => {
     expect(activity?.trail[20].content).toMatchObject({ glimpse: { result: { status: "failure" } } });
   });
 
-  it("shows real background changes and phase domain decisions", () => {
+  it("separates initial background state from applied controls and domain decisions", () => {
     const buffer = new ActivityBuffer("turn-1");
     buffer.loadEvents([
       event("context.background.snapshot", { links: ["home:agent@context/background"] }, 1),
-      event("loop.phase.completed", { phase: "phase1", selected_domains: ["home", "memory"] }, 2),
+      event("context.background.changed", { loaded_links: ["home:skills@x"] }, 2),
+      event("context.control.applied", { operation: "load_background", details: { links: ["home:skills@x"] } }, 3),
+      event("loop.phase.completed", { phase: "phase1", selected_domains: ["home", "memory"] }, 4),
     ]);
     const trail = buffer.toPresentation(new Date().toISOString(), true)?.trail ?? [];
-    expect(trail[0]?.content).toMatchObject({ type: "context_update", summary: "Loaded home:agent@context/background" });
-    expect(trail[1]?.content).toEqual({ type: "domain_select", domains: ["home", "memory"] });
+    expect(trail.map((step) => step.content)).toEqual([
+      { type: "background", refs: ["home:skills@x"], operation: "load" },
+      { type: "domain_select", domains: ["home", "memory"], intent: null, state: "accepted" },
+    ]);
   });
 
   it("keeps task skill provenance while dropping the model message body", () => {
     const buffer = new ActivityBuffer("turn-1");
     buffer.addEvent(event("llm.model.request", {
       messages: [{ role: "user", content: "large prompt" }],
+      task_id: "t1",
       provenance: [{ refs: ["home:skills_domain:home"] }],
     }, 1));
     const trail = buffer.toPresentation(new Date().toISOString(), true)?.trail ?? [];
-    expect(trail[0]?.content).toEqual({ type: "skill_mount", skill: "home:skills_domain:home", domain: "task" });
+    expect(trail[0]?.content).toEqual({ type: "skill_mount", refs: ["home:skills_domain:home"] });
+    buffer.addEvent(event("llm.model.request", { task_id: "t1", provenance: [{ refs: ["home:skills_domain:home"] }] }, 2));
+    expect(buffer.toPresentation("2026-10-03", true).trail).toHaveLength(1);
+  });
+
+  it("uses phase boundaries for the headline and freezes completed timing without empty activity", () => {
+    const buffer = new ActivityBuffer("turn-1");
+    expect(buffer.toPresentation("2026-10-03", true).headline).toEqual({ phase: null, label: "Preparing context" });
+    const start = event("loop.phase.started", { phase: "phase1" }, 1);
+    buffer.addEvent(start);
+    expect(buffer.toPresentation("2026-10-03", true).headline.label).toContain("Maintaining context");
+    buffer.addEvent(event("loop.phase.completed", { phase: "phase1" }, 2));
+    const presentation = buffer.toPresentation("2026-10-03", true);
+    expect(presentation.headline.finishedAt).toBe((start.created_at + 1) * 1000);
+    expect(presentation.trail).toEqual([]);
+  });
+
+  it.each([null, "model reasoning", "choose tools"])("keeps intent in Thinking, never in the top stream (%s)", (reasoning) => {
+    const buffer = new ActivityBuffer("turn-1");
+    const response = event("llm.model.response", { phase: "phase1", reasoning: { summary: reasoning },
+      tool_calls: [{ id: "select", kind: "control", name: "select_action_domains", arguments: { domains: ["home"], intent: "choose tools" } }] }, 1);
+    buffer.addEvent(response);
+    buffer.addEvent(response);
+    expect(buffer.toPresentation("2026-10-03", true).trail.slice(-1)[0].content).toMatchObject({ state: "requested" });
+    buffer.addEvent(event("loop.phase.completed", { phase: "phase1", selected_domains: ["home"] }, 2));
+    const result = buffer.toPresentation("2026-10-03", true);
+    expect(result.thinking.current).toBe(reasoning ?? "");
+    expect(result.trail.map((step) => step.id).length).toBe(new Set(result.trail.map((step) => step.id)).size);
+    expect(result.trail.slice(-1)[0].content).toMatchObject({ type: "domain_select", state: "accepted", intent: reasoning === "choose tools" ? null : "choose tools" });
+    expect(activityGroups(result.trail, "Thinking").flatMap((group) => group.items)).toHaveLength(reasoning ? 2 : 1);
+  });
+
+  it("shows installed changes and local failures without treating tool requests as success", () => {
+    const buffer = new ActivityBuffer("turn-1");
+    buffer.loadEvents([
+      event("llm.model.response", { phase: "phase1", tool_calls: [{ id: "bad", kind: "control", name: "remove_todo", arguments: { key: "missing" } }] }, 1),
+      event("context.control.applied", { operation: "set_todo", details: { key: "a", content: "verify", status: "done" } }, 2),
+      event("context.control.applied", { operation: "set_milestone", details: { key: "m", content: "Found cause" } }, 3),
+      event("loop.phase.completed", { phase: "phase1", control_results: [{ call_id: "bad", status: "failed", feedback: "Unknown todo" }] }, 4),
+    ]);
+    expect(buffer.toPresentation("2026-10-03", false).trail.map((step) => step.content)).toEqual([
+      { type: "todo", text: "verify", status: "done" }, { type: "milestone", text: "Found cause", removed: false },
+      { type: "control_failure", operation: "remove_todo", feedback: "Unknown todo" },
+    ]);
+  });
+
+  it("keeps rejected domain intent visible and excludes controls outside Phase1", () => {
+    const buffer = new ActivityBuffer("turn-1");
+    const payload = { tool_calls: [{ id: "select", kind: "control", name: "select_action_domains", arguments: { domains: ["unknown"], intent: "try this scope" } }] };
+    buffer.loadEvents([
+      event("llm.model.response", { ...payload, phase: "phase1" }, 1),
+      event("loop.phase.completed", { phase: "phase1", failed: true }, 2),
+      event("llm.model.response", { ...payload, phase: "phase3" }, 3),
+    ]);
+    const result = buffer.toPresentation("2026-10-03", true);
+    expect(result.trail).toHaveLength(1);
+    expect(result.trail[0].content).toMatchObject({ state: "rejected", intent: "try this scope" });
+    expect(result.thinking.current).toBe("");
+  });
+
+  it("keeps separate phase runs when a filter hides the intervening activities", () => {
+    const buffer = new ActivityBuffer("turn-1");
+    const events = [
+      event("llm.model.response", { reasoning: { summary: "one" } }, 1),
+      event("action.call", { call_id: "a", action: "core.answer" }, 2),
+      event("llm.model.response", { reasoning: { summary: "two" } }, 3),
+    ];
+    events.forEach((item, index) => item.scope.push({ level: "cycle", name: index === 2 ? "cycle2" : "cycle1" }, { level: "phase", name: index === 1 ? "phase3" : "phase1" }));
+    buffer.loadEvents(events);
+    const groups = activityGroups(buffer.toPresentation("2026-10-03", true).trail, "Thinking");
+    expect(groups.map((group) => group.cycleId)).toEqual(["cycle2", "cycle1"]);
   });
 });

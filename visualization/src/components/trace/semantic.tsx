@@ -9,7 +9,7 @@ import {
   BookOpenText,
   Brain,
   CheckCircle2,
-  Circle,
+  AlertTriangle,
   Compass,
   Eye,
   FileEdit,
@@ -217,7 +217,8 @@ export function actionIcon(family: string) {
 /* -------------------------- activity visuals ------------------------- */
 
 export const activityIcons: Record<ActivityStepType, React.ComponentType<{ size?: number; className?: string }>> = {
-  context_update: FileText,
+  background: BookOpen,
+  control_failure: AlertTriangle,
   todo: ListChecks,
   milestone: Flag,
   domain_select: Compass,
@@ -226,11 +227,11 @@ export const activityIcons: Record<ActivityStepType, React.ComponentType<{ size?
   provider_retry: RotateCcw,
   action_plan: Loader2,
   action_result: CheckCircle2,
-  phase_start: Circle,
 };
 
 export const activityColors: Record<ActivityStepType, string> = {
-  context_update: "text-info",
+  background: "text-info",
+  control_failure: "text-warning",
   todo: "text-accent",
   milestone: "text-warning",
   domain_select: "text-accent",
@@ -239,5 +240,4 @@ export const activityColors: Record<ActivityStepType, string> = {
   provider_retry: "text-warning",
   action_plan: "text-warning",
   action_result: "text-success",
-  phase_start: "text-fg-faint",
 };

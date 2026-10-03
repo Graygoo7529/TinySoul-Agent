@@ -28,6 +28,8 @@ WorkingContext 维护 plan，只向模型呈现 milestones 与 todos，不持有
 
 Context 更新从 SignalBus 捕获当前 Turn 的固定批次；解析、候选校验、背景读取和注册段的 prepare 全部结束后才安装。准备入口和批次消费均为 async；短背景读取使用 joined owner 操作，取消时等待读取结束且不安装候选。默认背景的 catalog、provider 索引和正文也先完整准备，再一起安装，不在加载失败前暴露部分新目录。恢复信号以独立固定批次由内核提交，不从 Trap handler 直接修改视图。Home 顶层变更和活动 Memory 写入先提交 owner，再通知本轮段刷新；刷新只替换本轮目录与已加载内容，不自动内联新资源。
 
+模型 Control Tool 的请求与已安装操作分别披露：Context 在固定批次成功 install 后，以原始 scope 和调用身份发布 todo、milestone、Background 加载/逐出的 `context.control.applied` 观察。准备失败或拒绝的操作不发布成功事件；消费返回值仍只承载局部失败，Phase 完成观察提供控制反馈。初始背景快照、自动回收和 owner 刷新表达现态变化，不冒充 Agent 的控制动作。观察属于旁路，不建立平行的持久活动日志，Working 现态仍由已安装的 plan 段提供。
+
 ## 注册段
 
 SegmentRegistry 在装配时校验段 id、更新路由唯一性与 ref 前缀不重叠。描述统一声明 owner、slot、order、shape、能力与可选 ref 路由；provider 每 Turn 创建实例。只读段不注册空的更新通道，声明 ref 路由的段必须提供真实 inspect 能力。已注册的更新信号在注册边界解码为 owner 的具体类型，再交给该段 prepare，异构调度不把内部候选退化为任意 JSON。identity、inputs、trace、plan、固定 journal、Home、Memory、Session 和 Workspace 都通过同一生命周期注册。Turn 内核必经 open，不要求外部装配重复添加 Context preparation handler；每个新 Turn 都创建新视图。统一 core.context.inspect 路由到声明 ref 的 Trace、Session 或只读归档 Workspace；选择能力提供当前可加载/已加载/受保护 ref，Heap 的加载/逐出和 owner 刷新使用相同 prepare/install。shape 按 State → Heap → Stack → Map 参与回收顺序，仅调用声明了 reclaim 的段，保留受保护默认内容。profile 贡献经 PluginRegistry 校验与激活；需要持久提交的 owner 使用 Turn 完成管线，不在纯段 prepare 中提交业务事实。

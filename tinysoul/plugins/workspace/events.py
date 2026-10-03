@@ -52,6 +52,12 @@ class WorkspaceChange:
     operation: WorkspaceChangeOperation
     before: WorkspaceManifest
     after: WorkspaceManifest
+    written_links: tuple[str, ...] = ()
+
+    @property
+    def changed(self) -> bool:
+        # A committed write remains a fact when stat metadata happens to match.
+        return self.before != self.after or bool(self.updated_links)
 
     @property
     def created_links(self) -> tuple[str, ...]:
@@ -73,7 +79,8 @@ class WorkspaceChange:
         return tuple(
             record.link
             for record in self.after.resources
-            if record.link in before and record != before[record.link]
+            if record.link in before
+            and (record != before[record.link] or record.link in self.written_links)
         )
 
     @property
@@ -97,13 +104,14 @@ class WorkspaceEvents:
 
     def stage(self, change: WorkspaceChange, source: str = WORKSPACE_OWNER) -> None:
         with self._lock:
-            if self._sink is None or change.before == change.after:
+            if self._sink is None or not change.changed:
                 return
             previous = self._pending.get(source)
             self._pending[source] = WorkspaceChange(
                 change.operation,
                 previous.before if previous else change.before,
                 change.after,
+                tuple(dict.fromkeys((*(previous.written_links if previous else ()), *change.written_links))),
             )
 
     async def flush(self) -> None:
@@ -114,7 +122,7 @@ class WorkspaceEvents:
             if sink is None:
                 return
             for source, change in pending.items():
-                if change.before == change.after:
+                if not change.changed:
                     continue
                 links = change.links
                 await sink(

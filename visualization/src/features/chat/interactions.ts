@@ -12,8 +12,8 @@
  * - reply: no client-chosen id; the receipt's record_id is
  *   `reply_<question_id>` and formal reply items carry the question_id.
  * - new turn: the receipt maps command_id → turn_id; the initial user.input
- *   interaction gets a server-generated input_id, so convergence falls back
- *   to role + exact text within the accepted turn.
+ *   interaction gets a server-generated input_id; the unique initial input
+ *   within that accepted turn converges the echo independently of its text.
  */
 
 import type {
@@ -68,8 +68,7 @@ export function formalItemForEcho(
       case "new-turn":
         if (
           item.role === "user.input" &&
-          echo.turnId !== null &&
-          item.text === echo.text
+          echo.turnId !== null
         ) {
           return item;
         }
@@ -122,7 +121,6 @@ export function convergeEchoes(
     // Echoes of another (e.g. still queued) turn wait for their turn.
     if (
       echo.turnId !== null &&
-      displayedTurnId !== null &&
       echo.turnId !== displayedTurnId
     ) {
       waiting.push(echo);

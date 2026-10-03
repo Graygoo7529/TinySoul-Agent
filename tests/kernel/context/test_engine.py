@@ -12,6 +12,7 @@ from typing import cast
 import pytest
 
 from tinysoul.infra.concurrency import JoinedOperations
+from tinysoul.infra.json import to_json_object
 from tinysoul.kernel.context import (
     BackgroundCatalog,
     BackgroundCatalogItem,
@@ -44,7 +45,7 @@ from tinysoul.kernel.context.segments import (
 )
 from tinysoul.kernel.context.builtin.trace import SealedTurnTrace, TraceKind
 from tinysoul.kernel.context.signals import build_working_patch_signal
-from tinysoul.kernel.context.builtin.working import WorkingPatch
+from tinysoul.kernel.context.builtin.working import Milestone, WorkingPatch
 from tinysoul.llm.protocol.messages import (
     AssistantMessage,
     JsonPart,
@@ -249,8 +250,10 @@ async def test_background_batch_retry_keeps_new_input_outside_prepared_batch() -
             return "Loaded details"
 
     loader = Loader()
+    observations = RecordingObservations()
     engine = (
         ContextEngineBuilder(system_text="sys")
+        .with_observations(observations)
         .with_segment(_registration(loader))
         .build()
     )
@@ -291,7 +294,9 @@ async def test_background_batch_retry_keeps_new_input_outside_prepared_batch() -
     with pytest.raises(ContextInvariantError):
         await consuming
     assert engine.working_snapshot() == before
+    assert not [event for event in observations.events if event.name == "context.control.applied"]
     assert await engine.consume_signal_batch(batch) == ()
+    assert [event.payload["call_id"] for event in observations.events if event.name == "context.control.applied"] == ["milestone", "background"]
     assert engine.working_snapshot()["milestones"]
     assert engine.background_links() == ("home:skills@guide",)
     assert bus.peek() == (pending,)
@@ -428,7 +433,8 @@ async def test_control_scope_tracks_background_state() -> None:
 
 
 async def test_consume_signals_commits_feasible_valid_changes() -> None:
-    engine = _engine()
+    observations = RecordingObservations()
+    engine = ContextEngineBuilder(system_text="sys").with_observations(observations).with_segment(_registration(TextSource())).build()
     turn_id = engine.begin_turn("hi")
     await engine.open_segments(date(2026, 7, 14))
     scope = _scope(turn_id)
@@ -459,7 +465,56 @@ async def test_consume_signals_commits_feasible_valid_changes() -> None:
     assert len(results) == 1
     assert results[0].call_id == "bad"
     assert "Unknown todo key" in results[0].model_feedback
-    assert engine.working_snapshot()["milestones"][0]["key"] == "m"
+    assert engine.working_snapshot()["milestones"] == [{"key": "m", "content": "made progress"}]
+    applied = [event for event in observations.events if event.name == "context.control.applied"]
+    assert len(applied) == 1
+    assert applied[0].scope == scope
+    assert applied[0].payload == {
+        "call_id": "ok", "operation": "set_milestone",
+        "details": {"key": "m", "content": "made progress"},
+    }
+
+
+async def test_applied_controls_follow_installed_order_and_do_not_publish_owner_refreshes() -> None:
+    observations = RecordingObservations()
+    engine = (
+        ContextEngineBuilder(system_text="sys")
+        .with_observations(observations)
+        .with_segment(_registration(TextSource()))
+        .build()
+    )
+    scope = _scope(engine.begin_turn("hi"))
+    await engine.open_segments(date(2026, 7, 14))
+    controls = (
+        ("load_background", {"links": ["home:skills@x"]}),
+        ("set_todo", {"key": "t", "content": "verify", "status": "pending"}),
+        ("set_milestone", {"key": "m", "content": "Found the cause"}),
+        ("set_todo", {"key": "t", "content": "verified", "status": "done"}),
+        ("remove_todo", {"key": "t"}),
+        ("remove_milestone", {"key": "m"}),
+        ("evict_background", {"links": ["home:skills@x"]}),
+    )
+    bus = SignalBus()
+    for index, (name, arguments) in enumerate(controls):
+        normalized = engine.normalize_controls(
+            (ToolCallRecord(str(index), name, to_json_object(arguments), ToolKind.CONTROL),),
+            scope=scope,
+        )
+        for signal in normalized.signals:
+            bus.emit(signal)
+    assert await engine.consume_signals(bus) == ()
+    applied = [event for event in observations.events if event.name == "context.control.applied"]
+    assert [event.payload["operation"] for event in applied] == [name for name, _ in controls]
+    assert all(event.scope == scope for event in applied)
+    assert applied[3].payload["details"] == {"key": "t", "content": "verified", "status": "done"}
+    assert "home:skills@x" not in engine.background_links()
+    assert engine.working_snapshot() == {"todos": [], "milestones": []}
+    bus.emit(build_working_patch_signal(
+        WorkingPatch(set_milestones=(Milestone("owner", "refreshed"),)),
+        scope=scope, source="owner", call_id="owner_refresh",
+    ))
+    assert await engine.consume_signals(bus) == ()
+    assert len([event for event in observations.events if event.name == "context.control.applied"]) == len(controls)
 
 
 async def test_consume_signals_validates_working_batch_against_projection() -> None:

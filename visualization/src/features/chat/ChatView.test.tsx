@@ -144,6 +144,39 @@ function bubbleCount(): number {
 }
 
 describe("ChatView: echo convergence", () => {
+  it("keeps the initial bubble mounted from local send through receipt and formal input", async () => {
+    await renderChat();
+    const echo = { echoId: "command-local", kind: "new-turn" as const, turnId: null,
+      questionId: null, text: "initial input", state: "sending" as const, error: null, turnClosed: false };
+    act(() => useTurnStore.setState({ outgoing: [echo] }));
+    const bubble = container.querySelector(".bubble-user");
+    const turn = bubble?.closest("[data-turn-root]");
+    expect(bubble?.textContent).toBe(echo.text);
+    expect(container.querySelector(".live-border")).toBeNull();
+    act(() => useTurnStore.setState({ outgoing: [{ ...echo, turnId: "contract-turn", state: "accepted" }] }));
+    expect(container.querySelector(".bubble-user")).toBe(bubble);
+    act(() => useTurnStore.setState({ turnId: "contract-turn", snapshot: runningSnapshot(), loading: false,
+      items: [makeInteraction({ id: "initial", role: "user.input", text: "initial input normalized" })], outgoing: [] }));
+    expect(container.querySelector(".bubble-user")).toBe(bubble);
+    expect(bubble?.closest("[data-turn-root]")).toBe(turn);
+    expect(bubble?.textContent).toBe("initial input normalized");
+    expect(bubbleCount()).toBe(1);
+    expect(container.querySelectorAll("[data-turn-root]")).toHaveLength(1);
+  });
+
+  it("keeps a queued initial input outside the running turn's Agent area", async () => {
+    await openLiveTurn([makeInteraction({ id: "initial", role: "user.input", text: "current input" })]);
+    await renderChat();
+    const active = container.querySelector('[data-turn-id="contract-turn"]');
+    act(() => useTurnStore.setState({ outgoing: [{ echoId: "next", kind: "new-turn", turnId: "queued-turn",
+      questionId: null, text: "next input", state: "accepted", error: null, turnClosed: false }] }));
+    const queued = container.querySelector('[data-turn-id="queued-turn"]');
+    expect(queued?.querySelector(".bubble-user")?.textContent).toBe("next input");
+    expect(queued?.querySelector(".live-border")).toBeNull();
+    expect(active?.contains(queued)).toBe(false);
+    expect(active?.textContent).not.toContain("next input");
+  });
+
   it("echo → pending → formal: exactly one bubble at every stage", async () => {
     await openLiveTurn();
     await renderChat();

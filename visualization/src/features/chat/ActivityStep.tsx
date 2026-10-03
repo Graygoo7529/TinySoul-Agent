@@ -24,7 +24,7 @@ import { motion } from "motion/react";
 import type { ActivityStep as ActivityStepType } from "./presentation";
 import { EASE_CALM } from "../../utils/motion";
 import { Markdown } from "../../components/markdown/Markdown";
-import { activityColors, activityIcons, DomainChip } from "../../components/trace/semantic";
+import { activityColors, activityIcons, DomainChip, LinkChip } from "../../components/trace/semantic";
 import { useTruncated } from "../../hooks/useTruncated";
 import { useHoldChatFollow } from "./useConversationScroll";
 import { actionTarget, asObject } from "../trace/facts";
@@ -113,11 +113,13 @@ function StepBody({ item }: { item: ActivityStepType }) {
     case "thinking":
       return <ThinkingBody text={content.text} />;
     case "domain_select":
-      return <DomainSelectBody domains={content.domains} />;
+      return <DomainSelectBody {...content} />;
     case "skill_mount":
-      return <SkillMountBody skill={content.skill} domain={content.domain} />;
-    case "phase_start":
-      return <PhaseStartBody label={content.phase.label} domain={content.phase.domain} />;
+      return <ResourceBody label="Task guidance" refs={content.refs} />;
+    case "background":
+      return <ResourceBody label={content.operation === "load" ? "Loaded" : "Evicted"} refs={content.refs} />;
+    case "control_failure":
+      return <div className="text-[12px] text-warning"><span className="font-mono">{content.operation}</span>: {content.feedback}</div>;
     case "action_plan":
       return <ActionPlanBody actionId={content.glimpse.actionId} domain={content.glimpse.domain} target={actionTarget(asObject(content.glimpse.params))} />;
     case "action_result":
@@ -131,11 +133,9 @@ function StepBody({ item }: { item: ActivityStepType }) {
     case "provider_retry":
       return <ProviderRetryBody provider={content.provider} attempt={content.attempt} />;
     case "milestone":
-      return <MilestoneBody text={content.text} status={content.status} />;
+      return <MilestoneBody text={content.text} removed={content.removed} />;
     case "todo":
       return <TodoBody text={content.text} status={content.status} />;
-    case "context_update":
-      return <ContextUpdateBody summary={content.summary} />;
     default:
       return null;
   }
@@ -172,42 +172,27 @@ function ThinkingBody({ text }: { text: string }) {
   );
 }
 
-function DomainSelectBody({ domains }: { domains: string[] }) {
+function DomainSelectBody({ domains, intent, state }: { domains: string[]; intent: string | null; state: "requested" | "accepted" | "rejected" }) {
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-      <span className="text-[12px] text-fg-muted">Selected domains</span>
+    <div className="min-w-0 space-y-1">
+      {intent && <ThinkingBody text={intent} />}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span className="text-[12px] text-fg-muted">{state === "accepted" ? "Selected domains" : state === "requested" ? "Proposed domains" : "Domains not selected"}</span>
       <span className="inline-flex shrink-0 items-center gap-1">
         {domains.map((d) => (
           <DomainChip key={d} domain={d} />
         ))}
       </span>
+      </div>
     </div>
   );
 }
 
-function SkillMountBody({ skill, domain }: { skill: string; domain: string }) {
-  return (
-    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-      <span className="text-[12px] text-fg-muted">{domain === "task" ? "Task skill" : "Loaded skill"}</span>
-      <span
-        title={`${domain}/${skill}`}
-        className="inline-flex max-w-[180px] items-center rounded-md bg-info-soft px-1.5 py-0.5 text-[10.5px] text-info"
-      >
-        <span className="truncate">{skill}</span>
-      </span>
-    </div>
-  );
-}
-
-function PhaseStartBody({ label, domain }: { label: string; domain?: string }) {
-  return (
-    <div className="flex min-w-0 items-baseline gap-2">
-      <span className="truncate text-[12px] text-fg-muted">{label}</span>
-      {domain && (
-        <span className="truncate font-mono text-[11px] text-fg-faint">{domain}</span>
-      )}
-    </div>
-  );
+function ResourceBody({ label, refs }: { label: string; refs: string[] }) {
+  return <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+    <span className="text-[12px] text-fg-muted">{label}</span>
+    {refs.map((ref) => <LinkChip key={ref} link={ref} />)}
+  </div>;
 }
 
 function ActionPlanBody({ actionId, domain, target }: { actionId: string; domain: string; target: string | null }) {
@@ -277,42 +262,19 @@ function ProviderRetryBody({ provider, attempt }: { provider: string; attempt: n
   );
 }
 
-function MilestoneBody({ text, status }: { text: string; status: string }) {
-  return (
-    <div className="flex min-w-0 items-baseline gap-2">
-      <span
-        className={`shrink-0 text-[12px] ${
-          status === "done"
-            ? "text-success"
-            : status === "blocked"
-              ? "text-warning"
-              : "text-fg-faint"
-        }`}
-      >
-        {status === "done" ? "✓" : status === "blocked" ? "⊘" : "−"}
-      </span>
-      <span className="truncate text-[12px] text-fg">{text}</span>
-    </div>
-  );
+function MilestoneBody({ text, removed }: { text: string; removed: boolean }) {
+  return <div className="flex min-w-0 items-baseline gap-2">
+    <span className="shrink-0 text-[11px] text-fg-faint">{removed ? "Removed milestone" : "Milestone"}</span>
+    <span className="truncate text-[12px] text-fg" title={text}>{text}</span>
+  </div>;
 }
 
 function TodoBody({ text, status }: { text: string; status: string }) {
-  return (
-    <div className="flex min-w-0 items-baseline gap-2">
-      <span className={`shrink-0 text-[12px] ${status === "done" ? "text-success" : "text-fg-faint"}`}>
-        {status === "done" ? "✓" : "○"}
-      </span>
-      <span className={`truncate text-[12px] ${status === "done" ? "line-through text-fg-faint" : "text-fg-muted"}`}>
-        {text}
-      </span>
-    </div>
-  );
-}
-
-function ContextUpdateBody({ summary }: { summary: string }) {
-  return (
-    <span className="truncate text-[12px] text-fg-faint">{summary}</span>
-  );
+  const label = { pending: "Todo", in_progress: "In progress", done: "Done", cancelled: "Cancelled", removed: "Removed todo" }[status] ?? status;
+  return <div className="flex min-w-0 items-baseline gap-2">
+    <span className={`shrink-0 text-[11px] ${status === "done" ? "text-success" : "text-fg-faint"}`}>{label}</span>
+    <span className={`truncate text-[12px] ${status === "done" || status === "cancelled" ? "line-through text-fg-faint" : "text-fg-muted"}`} title={text}>{text}</span>
+  </div>;
 }
 
 /* ------------- status visuals for action plan entries ---------------- */

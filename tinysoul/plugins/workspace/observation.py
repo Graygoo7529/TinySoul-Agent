@@ -24,7 +24,7 @@ def emit_workspace_changed(
 ) -> None:
     """Project the same committed change to observation sinks only."""
 
-    if change.before == change.after:
+    if not change.changed:
         return
     if not observation_enabled(observations, ObservationLevel.NORMAL):
         return

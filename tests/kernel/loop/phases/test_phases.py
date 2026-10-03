@@ -36,6 +36,8 @@ from tinysoul.kernel.context import (
     BackgroundCatalogItem,
     ContextEngine,
     ContextEngineBuilder,
+    ControlResult,
+    ControlResultStage,
 )
 from tinysoul.kernel.context.builtin.trace import TraceKind
 from tinysoul.infra.json import JsonObject
@@ -948,7 +950,10 @@ async def test_cycle_stops_after_phase2_failure_without_running_phase3() -> None
 
     class _Phase1:
         async def run(self, **_kwargs: object) -> Phase1Outcome:
-            return Phase1Outcome(selected_domains=("core",))
+            return Phase1Outcome(selected_domains=("core",), control_results=(
+                ControlResult.failed(call_id="missing", tool_name="remove_todo", sequence=1,
+                                     model_feedback="Unknown todo key", stage=ControlResultStage.CONSUME),
+            ))
 
     class _Phase2:
         async def run(self, **_kwargs: object) -> Phase2Outcome:
@@ -969,6 +974,7 @@ async def test_cycle_stops_after_phase2_failure_without_running_phase3() -> None
             return Phase3Outcome()
 
     phase3 = _Phase3()
+    observations = RecordingObservations()
     runner = CycleRunner(
         context=context,
         bus=bus,
@@ -976,6 +982,7 @@ async def test_cycle_stops_after_phase2_failure_without_running_phase3() -> None
         phase1=cast(Phase1Unit, _Phase1()),
         phase2=cast(Phase2Unit, _Phase2()),
         phase3=cast(Phase3Unit, phase3),
+        observations=observations,
     )
     scope = RunScope().push(RunLevel.AGENT, "program").push(RunLevel.TURN, turn_id)
 
@@ -988,6 +995,13 @@ async def test_cycle_stops_after_phase2_failure_without_running_phase3() -> None
     assert outcome.phase_failure is not None
     assert outcome.phase_failure.phase is CyclePhase.PHASE2
     assert phase3.calls == 0
+    completed = next(event for event in observations.events
+                     if event.name == "loop.phase.completed" and event.payload["phase"] == "phase1")
+    assert completed.payload["selected_domains"] == ["core"]
+    assert completed.payload["control_results"] == [{
+        "call_id": "missing", "tool_name": "remove_todo", "status": "failed",
+        "stage": "consume", "feedback": "Unknown todo key",
+    }]
 
 
 async def test_phase3_returns_conflicting_answer_intents_as_local_failure() -> None:

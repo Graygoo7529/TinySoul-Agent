@@ -192,8 +192,10 @@ class ScriptedLLM:
         if profile == TaskProfile.FRAME_STAGE1.value:
             if ASK_TRIGGER in text:
                 controls = (
-                    ToolCallRecord("select", "select_action_domains", {"domains": ["core", "workspace"]}, ToolKind.CONTROL),
+                    ToolCallRecord("select", "select_action_domains", {"domains": ["core", "workspace"], "intent": "Inspect the working copy before asking for a choice."}, ToolKind.CONTROL),
                     ToolCallRecord("load", "load_background", {"links": ["home:skills@review"]}, ToolKind.CONTROL),
+                    ToolCallRecord("todo", "set_todo", {"key": "review", "content": "Verify the working copy", "status": "pending"}, ToolKind.CONTROL),
+                    ToolCallRecord("milestone", "set_milestone", {"key": "baseline", "content": "The baseline review is in progress"}, ToolKind.CONTROL),
                 )
                 return TaskResult.success(
                     raw_response=RawResponse("", "scripted", "scripted", tool_calls=controls),

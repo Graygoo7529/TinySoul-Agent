@@ -18,7 +18,13 @@ from tinysoul.runtime import RunScope, Signal
 
 from ..background import BackgroundPatch
 from ..errors import ContextInvariantError
-from ..signals import build_background_patch_signal, build_working_patch_signal
+from ..signals import (
+    SIGNAL_WORKING_PATCH,
+    build_background_patch_signal,
+    build_working_patch_signal,
+    parse_background_patch_signal,
+    parse_working_patch_signal,
+)
 from ..builtin.working import Milestone, TodoItem, TodoStatus, WorkingPatch
 
 CONTROL_SET_MILESTONE = "set_milestone"
@@ -29,6 +35,33 @@ CONTROL_LOAD_BACKGROUND = "load_background"
 CONTROL_EVICT_BACKGROUND = "evict_background"
 
 CONTROL_SIGNAL_SOURCE = "context.controls"
+
+
+def applied_control_payload(signal: Signal) -> JsonObject:
+    """Describe one normalized, installed control without retaining model input."""
+    if signal.name == SIGNAL_WORKING_PATCH:
+        call_id, patch = parse_working_patch_signal(signal)
+        if patch.set_todos:
+            todo = patch.set_todos[0]
+            operation = CONTROL_SET_TODO
+            details: JsonObject = {
+                "key": todo.key, "content": todo.content, "status": todo.status.value,
+            }
+        elif patch.remove_todos:
+            operation = CONTROL_REMOVE_TODO
+            details = {"key": patch.remove_todos[0]}
+        elif patch.set_milestones:
+            milestone = patch.set_milestones[0]
+            operation = CONTROL_SET_MILESTONE
+            details = {"key": milestone.key, "content": milestone.content}
+        else:
+            operation = CONTROL_REMOVE_MILESTONE
+            details = {"key": patch.remove_milestones[0]}
+    else:
+        call_id, background = parse_background_patch_signal(signal)
+        operation = CONTROL_LOAD_BACKGROUND if background.load_links else CONTROL_EVICT_BACKGROUND
+        details = {"links": list(background.load_links or background.evict_links)}
+    return to_json_object({"call_id": call_id, "operation": operation, "details": details})
 
 
 class ControlResultStatus(StrEnum):

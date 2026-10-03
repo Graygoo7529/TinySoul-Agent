@@ -62,7 +62,7 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
 import { conversationOrigin } from "../../components/markdown/origin";
 import { Composer } from "./Composer";
-import { AgentRow, InteractionRow, TurnFooter, WaitingQuestionCard } from "./ConversationRows";
+import { AgentRow, InteractionRow, TurnFooter, UserBubble, WaitingQuestionCard } from "./ConversationRows";
 import { registerQuestionBlock } from "./questionBlock";
 import { LiveStatus } from "./LiveStatus";
 import { useTurnPresentation } from "./useTurnPresentation";
@@ -86,8 +86,9 @@ export function ChatView() {
 }
 
 /** One mounted Turn from its first input through immutable Session takeover. */
-function ConversationTurn({ epoch, turnId, day, activeDay, items, current, latest, history, loading, unavailable, status, result, presentation, working }: {
+function ConversationTurn({ epoch, turnId, viewKey, echo, queued, day, activeDay, items, current, latest, history, loading, unavailable, status, result, presentation, working }: {
   epoch: number; turnId: string; day: string | null; activeDay: string | null; items: Interaction[];
+  viewKey: string; echo?: OutgoingEcho; queued: boolean;
   current: boolean; latest: boolean; history: boolean; loading: boolean; unavailable: boolean; status: string | null; result: TurnResult | null;
   presentation: TurnPresentation | null; working: WorkingState;
 }) {
@@ -100,13 +101,15 @@ function ConversationTurn({ epoch, turnId, day, activeDay, items, current, lates
   const captured = useRef<{ presentation: TurnPresentation; working: WorkingState } | null>(null);
   if (presentation?.turnId === turnId) captured.current = { presentation, working };
   const detail = captured.current;
-  return <section data-turn-root={turnId} data-turn-id={turnId} className="space-y-4 animate-fade-in">
+  const initial = items.find((item) => item.role === "user.input");
+  return <section data-turn-root={viewKey} data-turn-id={turnId} className="space-y-4 animate-fade-in">
     {unavailable && <div className="text-[12px] text-warning">This conversation is currently unavailable.</div>}
-    {loading && items.length === 0 && <div className="text-[12px] text-fg-faint">Loading the conversation…</div>}
-    {items.filter((item) => item.role === "user.input").map((item) => <InteractionRow key={interactionKey(item, items)}
-      item={item} fresh={isFresh(item)} view={view} origin={origin} turnId={turnId} />)}
-    <AgentRow>
-      {!history && latest && detail?.presentation.activity && <LiveStatus epoch={epoch} turnId={turnId} day={day} activity={{ ...detail.presentation.activity, working: detail.working }}
+    {loading && items.length === 0 && !echo && <div className="text-[12px] text-fg-faint">Loading the conversation…</div>}
+    {(initial || echo) && <UserBubble text={initial?.text ?? echo?.text ?? ""} failed={!initial && echo?.state === "failed"}
+      delivery={!initial && echo ? <EchoDelivery echo={echo} /> : undefined} />}
+    {current && <QueuedRequestRow />}
+    {!queued && (initial || items.length > 0 || current) && <AgentRow>
+      {(initial || echo) && !history && latest && detail?.presentation.activity && <LiveStatus epoch={epoch} turnId={turnId} day={day} activity={{ ...detail.presentation.activity, working: detail.working }}
         mode={current && !status ? "live" : "settled"} status={detail.presentation.status}
         onStop={current ? () => void cancelActiveTurn(epoch) : undefined} />}
       {items.filter((item) => item.role !== "user.input" && item.role !== "agent.action").map((item) => <InteractionRow key={interactionKey(item, items)}
@@ -115,16 +118,17 @@ function ConversationTurn({ epoch, turnId, day, activeDay, items, current, lates
       {result && <ResultSummary result={result} />}
       <TurnFooter epoch={epoch} turnId={turnId} day={day} status={status} items={items}
         elapsedMs={status !== null ? detail?.presentation.activity?.timing.elapsedMs : undefined} />
-    </AgentRow>
+    </AgentRow>}
   </section>;
 }
 
 function CurrentTurnControls() {
   const pending = useTurnStore((s) => s.pendingItems);
   const outgoing = useTurnStore((s) => s.outgoing);
+  const turnId = useTurnStore((s) => s.turnId);
   return <>{pending.map((item) => <PendingRow key={item.record_id} item={item} />)}
-    {outgoing.map((echo) => <EchoRow key={echo.echoId} echo={echo} />)}
-    <WaitingQuestionCard /><QueuedRequestRow /><BudgetCard /></>;
+    {outgoing.filter((echo) => echo.kind !== "new-turn" && echo.turnId === turnId).map((echo) => <EchoRow key={echo.echoId} echo={echo} />)}
+    <WaitingQuestionCard /><BudgetCard /></>;
 }
 
 // One persistent scroll container for the active day and explicit history reads.
@@ -145,13 +149,24 @@ function ConversationView() {
   const presentation = useTurnPresentation();
   const working = useActivityDetails();
   const sessionLoading = useTurnStore((s) => s.sessionTurnsLoading);
+  const outgoing = useTurnStore((s) => s.outgoing);
+  // Local keys are presentation-only, retained through receipt and Session takeover.
+  const identities = useRef({ epoch, keys: new Map<string, string>() });
+  if (identities.current.epoch !== epoch) identities.current = { epoch, keys: new Map() };
+  const initialEchoes = historyView ? [] : outgoing.filter((echo) => echo.kind === "new-turn");
+  for (const echo of initialEchoes) if (echo.turnId) identities.current.keys.set(echo.turnId, echo.echoId);
+  const viewKey = (id: string) => identities.current.keys.get(id) ?? id;
   const running = !historyView && snapshot !== null && snapshot.state !== "finished";
-  const latestId = turnId ?? chronologicalTurns[chronologicalTurns.length - 1]?.turn_id ?? null;
-  const scroll = useConversationScroll(latestId, running, loading || sessionLoading);
-  const { scrollRef, contentRef, pinned, jumpToLatest } = scroll;
-
   const ids = [...(!historyView ? chronologicalTurns.map((summary) => summary.turn_id) : [])];
   if (turnId !== null && !ids.includes(turnId)) ids.push(turnId);
+  for (const echo of initialEchoes) {
+    const id = echo.turnId ?? echo.echoId;
+    if (!ids.includes(id)) ids.push(id);
+  }
+  const latestId = running ? turnId : ids[ids.length - 1] ?? null;
+  const localEntry = initialEchoes.some((echo) => (echo.turnId ?? echo.echoId) === latestId);
+  const scroll = useConversationScroll(latestId ? viewKey(latestId) : null, running, !localEntry && (loading || sessionLoading));
+  const { scrollRef, contentRef, pinned, jumpToLatest } = scroll;
 
   return (
     <div className="relative flex h-full min-h-0 flex-col">
@@ -183,9 +198,11 @@ function ConversationView() {
               const current = id === turnId;
               const summary = sessionTurns.find((entry) => entry.turn_id === id);
               const cached = sessionProjections[id];
-              return <ConversationTurn key={id} epoch={epoch} turnId={id} current={current} latest={id === latestId} history={historyView}
+              const echo = initialEchoes.find((entry) => (entry.turnId ?? entry.echoId) === id);
+              return <ConversationTurn key={viewKey(id)} viewKey={viewKey(id)} echo={echo} queued={current && snapshot?.state === "queued"}
+                epoch={epoch} turnId={id} current={current} latest={id === latestId} history={historyView}
                 day={current ? day : summary?.day ?? null} activeDay={activeDay} items={current ? items : cached?.items ?? []}
-                loading={current ? loading : cached === undefined || cached.loading} unavailable={cached?.unavailable ?? false}
+                loading={current ? loading : !echo && (cached === undefined || cached.loading)} unavailable={cached?.unavailable ?? false}
                 status={(current ? result?.status : cached?.result?.status) ?? summary?.status ?? null}
                 result={current ? result : cached?.result ?? null} presentation={current ? presentation : null} working={working} />;
             })}
@@ -339,20 +356,13 @@ function PendingRow({ item }: { item: PendingItem }) {
 /** A local outgoing message: sending → accepted (receipt) → converged by
     the formal projection; failures keep the text with retry/dismiss. */
 function EchoRow({ echo }: { echo: OutgoingEcho }) {
+  return <UserBubble text={echo.text} failed={echo.state === "failed"} delivery={<EchoDelivery echo={echo} />} />;
+}
+
+function EchoDelivery({ echo }: { echo: OutgoingEcho }) {
   const epoch = useConnectionStore((s) => s.epoch);
   const failed = echo.state === "failed";
   return (
-    <div className="flex justify-end">
-      <div className={`max-w-[85%] ${failed ? "" : "opacity-60"}`}>
-        <div
-          className={`rounded-2xl rounded-tr-sm px-3.5 py-2.5 text-sm leading-6 break-words whitespace-pre-wrap ${
-            failed
-              ? "border border-danger/40 bg-danger-soft text-fg"
-              : "bubble-user"
-          }`}
-        >
-          {echo.text}
-        </div>
         <div className="mt-0.5 flex items-center justify-end gap-2 text-[10px] text-fg-faint">
           {failed ? (
             <>
@@ -394,8 +404,6 @@ function EchoRow({ echo }: { echo: OutgoingEcho }) {
             </span>
           )}
         </div>
-      </div>
-    </div>
   );
 }
 

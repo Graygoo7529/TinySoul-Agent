@@ -129,6 +129,28 @@ test("F1-D 最小真实交互流程：提交 → 问题 → 回复 → 完成 �
   await page.screenshot({ path: testInfo.outputPath("trace-model-context.png") });
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(1);
+  await page.getByRole("button", { name: /^Activity\b/ }).click();
+  const timeline = page.locator('[aria-label="Activity filters"]').locator("..");
+  await expect(timeline).toContainText("Verify the working copy");
+  await expect(timeline).toContainText("The baseline review is in progress");
+  await expect(timeline.locator('[data-activity-phase="phase1"]')).not.toHaveCount(0);
+  const contiguous = await timeline.locator("[data-activity-phase]").evaluateAll((groups) => groups.every((node, index) => index === 0 ||
+    Math.abs(node.getBoundingClientRect().top - groups[index - 1].getBoundingClientRect().bottom) < 1));
+  expect(contiguous).toBe(true);
+  const filters = timeline.locator('[aria-label="Activity filters"]');
+  await filters.getByRole("button", { name: "Thinking", exact: true }).click();
+  await expect(timeline).toContainText("Inspect the working copy before asking for a choice.");
+  await expect(timeline).not.toContainText("Verify the working copy");
+  await expect(page.locator(".thinking-slate")).not.toContainText("Inspect the working copy before asking for a choice.");
+  await filters.getByRole("button", { name: "All", exact: true }).click();
+  await timeline.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath("activity-phases-light.png") });
+  await page.evaluate(() => document.documentElement.classList.add("dark"));
+  await page.screenshot({ path: testInfo.outputPath("activity-phases-dark.png") });
+  await page.setViewportSize({ width: 800, height: 900 });
+  await page.screenshot({ path: testInfo.outputPath("activity-phases-narrow.png") });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.evaluate(() => document.documentElement.classList.remove("dark"));
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.locator("label", { hasText: "Option B" }).click();
@@ -146,7 +168,7 @@ test("F1-D 最小真实交互流程：提交 → 问题 → 回复 → 完成 �
     }
     return samples;
   });
-  await page.getByRole("button", { name: "Reply" }).click();
+  await page.getByRole("button", { name: "Reply", exact: true }).click();
 
   // The formal reply converges the card into its read-only answered state.
   await expect(page.locator('input[type="radio"]')).toHaveCount(0, {
@@ -214,4 +236,48 @@ test("F1-D 最小真实交互流程：提交 → 问题 → 回复 → 完成 �
 
   // e. No uncaught page errors anywhere in the flow.
   expect(pageErrors, pageErrors.join("\n")).toEqual([]);
+});
+
+
+test("Turn 入场：发送气泡原位接管，始终先于 Agent", async ({ page }, testInfo) => {
+  const { address, token } = backendConnection();
+  await page.goto("/");
+  await page.getByPlaceholder("127.0.0.1:1430").fill(address);
+  await page.locator('input[type="password"]').fill(token);
+  await page.getByRole("button", { name: "Connect" }).click();
+  const composer = page.getByPlaceholder("Message TinySoul…");
+  await expect(composer).toBeEnabled({ timeout: BACKEND_WAIT });
+  for (let index = 0; index < 2; index++) {
+    const text = `e2e-plain entry-${Date.now()}-${index}`;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    await page.route("**/v2/turns", async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      await gate;
+      return route.continue();
+    });
+    await composer.fill(text);
+    await composer.press("Enter");
+    const bubble = page.locator(".bubble-user", { hasText: text });
+    try {
+      await expect(bubble).toBeVisible({ timeout: 2000 });
+      const node = await bubble.elementHandle();
+      const root = await bubble.locator("xpath=ancestor::*[@data-turn-root]").elementHandle();
+      await page.screenshot({ path: testInfo.outputPath(`entry-${index}-sending.png`) });
+      release();
+      await expect(page.locator(".answer-card", { hasText: text })).toHaveCount(1, { timeout: BACKEND_WAIT });
+      expect(await node?.evaluate((element) => element.isConnected)).toBe(true);
+      expect(await root?.evaluate((element) => element.isConnected)).toBe(true);
+      expect(await bubble.evaluate((element) => {
+        const turn = element.closest("[data-turn-root]")!;
+        const answer = turn.querySelector(".answer-card")!;
+        return !!(element.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING);
+      })).toBe(true);
+      await expect(bubble).toHaveCount(1);
+      await expect(composer).toBeEnabled({ timeout: BACKEND_WAIT });
+    } finally {
+      release();
+      await page.unrouteAll({ behavior: "wait" });
+    }
+  }
 });

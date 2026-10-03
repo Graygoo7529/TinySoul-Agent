@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import os
 
 import pytest
 
 from tinysoul.runtime import ObservationEvent, ObservationLevel
+from tinysoul.runtime.events import EnvironmentEvent, EventReceipt
+from tinysoul.infra.filesystem import atomic_write_bytes
 from tinysoul.plugins.workspace import (
     WorkspaceBundleWrite,
     WorkspaceTextEdit,
@@ -80,6 +83,43 @@ def test_workspace_bundle_emits_only_one_final_change(tmp_path: Path) -> None:
     assert event.payload["operation"] == "bundle"
     assert event.payload["created_links"] == ["workspace:a.md", "workspace:b.md"]
     assert event.payload["links"] == ["workspace:a.md", "workspace:b.md"]
+
+
+async def test_committed_writes_publish_even_when_file_metadata_is_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observations = _RecordingEmitter()
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(root=tmp_path), observations=observations,
+    ).build()
+    record = engine.write_text("workspace:note.md", "old")
+    observations.events.clear()
+    events: list[EnvironmentEvent] = []
+
+    async def publish(event: EnvironmentEvent) -> EventReceipt:
+        events.append(event)
+        return EventReceipt(len(events), event.event_id, True)
+
+    engine.events.bind(publish)
+
+    def write_with_same_timestamp(path: Path, data: bytes) -> None:
+        atomic_write_bytes(path, data)
+        os.utime(path, ns=(record.mtime_ns, record.mtime_ns))
+
+    monkeypatch.setattr(
+        "tinysoul.plugins.workspace.storage.mutations.atomic_write_bytes",
+        write_with_same_timestamp,
+    )
+    before = engine.snapshot()
+    engine.edit_text(record.link, (WorkspaceTextEdit("old", "new"),))
+    engine.write_bundle((WorkspaceBundleWrite(record.link, b"end", overwrite=True),))
+    assert engine.snapshot() == before
+    assert (tmp_path / "note.md").read_text() == "end"
+    assert [event.payload["operation"] for event in observations.events] == ["edit", "bundle"]
+    assert all(event.payload["updated_links"] == [record.link] for event in observations.events)
+    await engine.events.flush()
+    assert len(events) == 1
+    assert events[0].payload["links"] == [record.link]
 
 
 def test_workspace_reconcile_emits_external_disk_change(tmp_path: Path) -> None:

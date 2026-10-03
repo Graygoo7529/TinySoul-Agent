@@ -62,6 +62,8 @@ from .builtin.working import WorkingContext, WorkingPatch
 from .compress import ContextCompressor, ContextPressureReport
 from .config import ContextSettings
 from .control.tools import (
+    CONTROL_SIGNAL_SOURCE,
+    applied_control_payload,
     ContextControlScopeBuilder,
     ControlCallNormalizer,
     ControlNormalization,
@@ -493,6 +495,7 @@ class ContextEngine:
         working_candidates: list[tuple[int, Signal, str, WorkingPatch]] = []
         segment_signals: list[tuple[int, Signal]] = []
         background_candidates: list[tuple[int, Signal, str, BackgroundPatch]] = []
+        applied_controls: list[tuple[int, Signal]] = []
 
         for index, signal in enumerate(batch.signals):
             sequence = index + 1
@@ -548,6 +551,8 @@ class ContextEngine:
             if problem:
                 results.append(_consume_failure(signal, call_id, sequence, problem))
             else:
+                if signal.source == CONTROL_SIGNAL_SOURCE:
+                    applied_controls.append((sequence, signal))
                 segment_signals.append((sequence, signal))
                 segment_signals.append(
                     (
@@ -569,6 +574,8 @@ class ContextEngine:
             if problem:
                 results.append(_consume_failure(signal, call_id, sequence, problem))
             elif self._segments is not None:
+                if signal.source == CONTROL_SIGNAL_SOURCE:
+                    applied_controls.append((sequence, signal))
                 segment_signals.extend(
                     (sequence, update)
                     for update in self._segments.selection_signals(patch, signal)
@@ -603,6 +610,19 @@ class ContextEngine:
                     )
 
         background_after = self.background_links()
+        # Publish only after the entire prepared batch was installed. The
+        # return value remains the existing failure-only feedback contract.
+        for _, signal in sorted(applied_controls, key=lambda item: item[0]):
+            emit_observation(
+                self._observations,
+                ObservationEvent(
+                    name="context.control.applied",
+                    level=ObservationLevel.VERBOSE,
+                    source="context.engine",
+                    scope=signal.scope,
+                    payload=applied_control_payload(signal),
+                ),
+            )
         if background_after != background_before:
             before = set(background_before)
             after = set(background_after)

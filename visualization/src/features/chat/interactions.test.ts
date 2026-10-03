@@ -116,7 +116,7 @@ describe("formalItemForEcho", () => {
     );
   });
 
-  it("matches a new-turn echo by role + exact text once the turn is known", () => {
+  it("matches the unique initial input within the receipt-bound turn", () => {
     const item = interaction({ id: "s1", role: "user.input", text: "hello" });
     const known = echo({
       echoId: "e",
@@ -131,13 +131,13 @@ describe("formalItemForEcho", () => {
         item,
       ]),
     ).toBeNull();
-    // Text must match exactly.
+    // Normalized text does not change the accepted input identity.
     expect(
       formalItemForEcho(
         echo({ echoId: "e", kind: "new-turn", turnId: "t1", text: "hello " }),
         [item],
       ),
-    ).toBeNull();
+    ).toBe(item);
   });
 });
 
@@ -217,10 +217,10 @@ describe("convergeEchoes", () => {
     expect(result.waiting).toEqual([queued]);
   });
 
-  it("matches against the projection when no turn is displayed", () => {
+  it("does not consume a bound echo without its displayed turn", () => {
     const target = echo({ echoId: "a1", kind: "append", turnId: "t1" });
     const items = [interaction({ id: "a1", role: "user.append" })];
-    expect(convergeEchoes([target], items, [], null).consumed).toEqual(["a1"]);
+    expect(convergeEchoes([target], items, [], null).consumed).toEqual([]);
   });
 });
 

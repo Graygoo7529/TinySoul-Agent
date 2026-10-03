@@ -22,7 +22,8 @@ import { Markdown } from "../../components/markdown/Markdown";
 import { Badge, type BadgeTone } from "../../components/ui/Badge";
 import { Collapsible } from "../../components/ui/Collapsible";
 import { ActivityStep as ActivityStepComponent } from "../chat/ActivityStep";
-import { ActivityBuffer } from "../chat/activityBuffer";
+import { ACTIVITY_FILTERS, ActivityBuffer, activityGroups, type ActivityFilter } from "../chat/activityBuffer";
+import { PHASE_META } from "../chat/presentation";
 import {
   actionTraceStatus,
   buildTurnProcess,
@@ -108,7 +109,7 @@ export function ProcessPanel({
               <span className="flex-1 truncate">{job.summary || job.kind}</span><Badge>{job.state}</Badge>
             </button>)}
           </Collapsible>}
-          <ActivityTimeline events={window.events} turnId={turnId} />
+          <ActivityTimeline events={window.events} turnId={turnId} epoch={epoch} day={day} />
         </>
       )}
     </div>
@@ -121,19 +122,25 @@ export function ProcessPanel({
  * adapter here so historical trace reads keep the familiar thinking/action
  * language without inventing a second event interpretation.
  */
-function ActivityTimeline({
+export function ActivityTimeline({
   events,
   turnId,
+  epoch,
+  day,
 }: {
   events: Parameters<ActivityBuffer["loadEvents"]>[0];
   turnId: string;
+  epoch: number;
+  day: string | null;
 }): ReactElement | null {
+  const [filter, setFilter] = useState<ActivityFilter>("All");
   if (events.length === 0) return null;
   const buffer = new ActivityBuffer(turnId);
   buffer.loadEvents(events);
   const startedAt = new Date((events[0]?.created_at ?? 0) * 1000).toISOString();
   const activity = buffer.toPresentation(startedAt, false);
-  if (activity === null) return null;
+  if (activity.trail.length === 0) return null;
+  const groups = activityGroups(activity.trail, filter);
   return (
     <Collapsible
       title="Activity"
@@ -143,10 +150,24 @@ function ActivityTimeline({
         </span>
       }
     >
-      <div className="space-y-1.5">
-        {activity.trail.map((item) => (
-          <ActivityStepComponent key={item.id} item={item} rail />
-        ))}
+      <div className="mb-2 flex flex-wrap gap-1" aria-label="Activity filters">
+        {ACTIVITY_FILTERS.map((value) => <button key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}
+          className={`rounded-full border px-2 py-0.5 text-[11px] transition-colors ${filter === value ? "border-accent/40 bg-accent-soft text-accent" : "border-line text-fg-muted hover:bg-hover"}`}>{value}</button>)}
+      </div>
+      <div className="max-h-80 overflow-y-auto rounded-lg">
+        {groups.map((group) => <div key={group.id} data-activity-phase={group.phase ?? "unknown"}
+          className={group.phase ? PHASE_META[group.phase].tint : "bg-bg-sunken/40"}>
+          {group.items.map((item) => {
+            const glimpse = item.content.type === "action_plan" || item.content.type === "action_result" ? item.content.glimpse : null;
+            return <div key={item.id} className="flex gap-2 px-2.5 py-2">
+              <div className="min-w-0 flex-1"><ActivityStepComponent item={item} rail /></div>
+              <time className="shrink-0 pt-0.5 font-mono text-[10px] text-fg-faint" title={item.timestamp}>{new Date(item.timestamp).toLocaleTimeString([], { hour12: false })}</time>
+              {glimpse?.callId && <button title="Open action" aria-label={`Open ${glimpse.actionId}`} className="self-start rounded p-0.5 text-fg-faint hover:bg-hover hover:text-accent"
+                onClick={() => pushActionDetail(epoch, turnId, day, { callId: glimpse.callId ?? null, action: glimpse.actionId, ordinal: 0 })}><ChevronRight size={12} /></button>}
+            </div>;
+          })}
+        </div>)}
+        {groups.length === 0 && <div className="px-2 py-3 text-[12px] text-fg-faint">No matching activity.</div>}
       </div>
     </Collapsible>
   );

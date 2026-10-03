@@ -62,6 +62,8 @@ Turn preparation、必要查询以及受控进程结束后进行 reconcile。exe
 
 Workspace 段接收刷新意图，在 prepare 中读取 owner 已提交的最新快照，在 install 中替换本轮投影。Action、SDK、Endpoint 和 execution 不再各自传递整份快照；事件适配进入同一 Context 批次。Context 压力只收缩模型投影，不移动或删除文件。
 
+正式写入的成功结果提供实际写入 Link，与前后 manifest 差异共同形成同一变更投影；文件大小和时间戳相同也不能抹去已提交写入。Observation 与待发布环境事件共用此事实，合并待发布变化时保留写入 Link；这些关联只存在于当前发布批次，不增加内容哈希、存储版本或操作日志。外部监听仍通过 reconcile 识别变化。
+
 WorkspaceRuntime 绑定当前世代的 owner 发布端和可选文件监听。environment 的单一 watchfiles 后端只交付变化线索；owner 按现有规则过滤内部索引、Trash、原子写临时文件和 ignore_dirs，完成 reconcile 后发布领域变化。监听建立后先执行基线扫描，自身写入的原生回声若没有新 manifest 事实就不重复发布。外部重命名按旧路径消失与新路径出现处理，不猜测身份或迁移人工元数据。
 
 `workspace.watch` 配置默认启用，支持关闭与合并窗口，沿普通配置候选/reload 路径生效。只监听当前 Workspace；Home、Memory、Session、Archive 和配置文件没有热监听。日切前停止并等待旧监听回调，归档及新根准备完成后再绑定。暂停监听不撤销正式操作的 owner 发布端；世代关闭才释放它。

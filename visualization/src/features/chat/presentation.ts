@@ -99,11 +99,21 @@ export interface ActivityPresentation {
  */
 export interface PhaseHeadline {
   startedAt?: number;
-  phase: "phase1" | "phase2" | "phase3";
-  label: string;  // "Understanding", "Planning", "Executing"
+  finishedAt?: number;
+  phase: PhaseName | null;
+  label: string;
   domain?: string;
   skill?: string;
 }
+
+export type PhaseName = "phase1" | "phase2" | "phase3";
+
+/** Running sentences from c479ca0; tint belongs only to the Details timeline. */
+export const PHASE_META: Record<PhaseName, { title: string; running: string; tint: string }> = {
+  phase1: { title: "Context & Domains", running: "Maintaining context and selecting domains…", tint: "bg-accent-soft/40" },
+  phase2: { title: "Action Planning", running: "Generating action parameters…", tint: "bg-info-soft/40" },
+  phase3: { title: "Action Execution", running: "Executing actions…", tint: "bg-success-soft/40" },
+};
 
 /**
  * Thinking stream
@@ -124,6 +134,9 @@ export interface ActivityStep {
   id: string;
   type: ActivityStepType;
   timestamp: string;
+  cycleId?: string | null;
+  phase?: PhaseName | null;
+  taskId?: string | null;
 
   /** Step content */
   content: ActivityStepContent;
@@ -133,11 +146,11 @@ export interface ActivityStep {
 }
 
 export type ActivityStepType =
-  | "phase_start"
   | "thinking"
   | "domain_select"
   | "skill_mount"
-  | "context_update"
+  | "background"
+  | "control_failure"
   | "action_plan"
   | "action_result"
   | "provider_retry"
@@ -148,16 +161,16 @@ export type ActivityStepType =
  * Activity step content (discriminated union)
  */
 export type ActivityStepContent =
-  | { type: "phase_start"; phase: PhaseHeadline }
   | { type: "thinking"; text: string }
-  | { type: "domain_select"; domains: string[] }
-  | { type: "skill_mount"; skill: string; domain: string }
-  | { type: "context_update"; summary: string }
+  | { type: "domain_select"; domains: string[]; intent: string | null; state: "requested" | "accepted" | "rejected" }
+  | { type: "skill_mount"; refs: string[] }
+  | { type: "background"; refs: string[]; operation: "load" | "evict" }
+  | { type: "control_failure"; operation: string; feedback: string }
   | { type: "action_plan"; glimpse: ActionGlimpseData }
   | { type: "action_result"; glimpse: ActionGlimpseData }
   | { type: "provider_retry"; provider: string; attempt: number }
-  | { type: "milestone"; text: string; status: "done" | "blocked" | "skipped" }
-  | { type: "todo"; text: string; status: "pending" | "done" };
+  | { type: "milestone"; text: string; removed: boolean }
+  | { type: "todo"; text: string; status: TodoItem["status"] | "removed" };
 
 /**
  * Action glimpse data (two-stage preview)
@@ -200,7 +213,6 @@ export interface TodoItem {
 export interface MilestoneItem {
   id: string;
   text: string;
-  status?: "done" | "blocked" | "skipped";
 }
 
 /**

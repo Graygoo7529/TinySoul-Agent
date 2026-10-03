@@ -12,6 +12,22 @@
 
 import type { JsonObject, ObservationEvent } from "../../api/v2/types";
 
+export interface ControlRequest {
+  callId: string;
+  name: string;
+  arguments: JsonObject;
+}
+
+/** Shared by model detail and the bounded live activity projection. */
+export function modelControlRequests(payload: JsonObject): ControlRequest[] {
+  return (Array.isArray(payload.tool_calls) ? payload.tool_calls : []).flatMap((value) => {
+    const call = asObject(value);
+    const name = asString(call?.name);
+    return call?.kind === "control" && name !== null
+      ? [{ callId: asString(call.id) ?? "", name, arguments: asObject(call.arguments) ?? {} }] : [];
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Small narrowing helpers (dynamic payload boundary → typed fields)
 // ---------------------------------------------------------------------------
@@ -551,12 +567,7 @@ export function buildTurnProcess(events: ObservationEvent[]): TurnProcess {
     const outputTokens = asNumber(usage?.output_tokens) ?? asNumber(usage?.completion_tokens);
     const total = asNumber(usage?.total_tokens) ?? (inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens : null);
     if (total !== null) task.tokens = (task.tokens ?? 0) + total;
-    task.controls = (Array.isArray(event.payload.tool_calls) ? event.payload.tool_calls : []).flatMap((value) => {
-      const call = asObject(value);
-      const name = asString(call?.name);
-      return call?.kind === "control" && name !== null
-        ? [{ name, arguments: asObject(call.arguments) ?? {} }] : [];
-    });
+    task.controls = modelControlRequests(event.payload);
   }
 
   // Link searches and LLM tasks into their owning action via the module frame.
