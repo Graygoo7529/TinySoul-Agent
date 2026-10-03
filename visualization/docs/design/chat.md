@@ -24,7 +24,7 @@ Composer 在没有未完成 User Turn 时创建新 Turn；已有可接受输入�
 
 Activity 只把 `context.control.applied` 作为 todo、milestone、Background 加载/逐出的执行事实；初始背景快照和刷新事件不生成活动条目。模型请求提取局部任务 Skill provenance，以任务指导展示，同一 task 的相同挂载去重，并与 Background 共用资源标签。milestone 是事实寄存器，不默认标记为已完成任务。
 
-Phase 边界只驱动抬头与计时，不添加 Understanding/Planning/Executing 空条目。运行句沿用 c479ca0；完成的阶段计时停止。顶部思考条只取 reasoning；域选择 intent 与 reasoning 共用思考条目样式和 Details 的 Thinking 筛选，展开 intent 后显示全文及所选域，不附 Todo 状态标签。任务指导归入 Context，长 milestone/todo 可就地展开。域选择请求由 Phase 完成事件确认，同一响应中完全相同的 reasoning/intent 不重复正文。思考与标题共用节奏，等待用户/预算保持活动卡，取消状态单独表达。
+Phase 边界只驱动抬头与计时，不添加 Understanding/Planning/Executing 空条目。运行句沿用 c479ca0；完成的阶段计时停止。顶部思考条只取 reasoning；域选择 intent 与 reasoning 共用思考条目样式和 Details 的 Thinking 筛选，正文可展开，所选域作为独立活动直接显示。任务指导归入 Context，长 milestone/todo 可就地展开；待处理的待办设置标为 Set todo，进行中的更新标为 Update todo，完成、取消和移除使用各自标签，悬停显示本次写入的具体状态。域选择请求由 Phase 完成事件确认，同一响应中完全相同的 reasoning/intent 不重复正文。思考与标题共用节奏，等待用户/预算保持活动卡，取消状态单独表达。
 
 动作浮层复用 c479ca0 的紧凑结构：命令、两行输出尾部、前三个命中和修改 diff；完整结果留在 Trace。行先落位，预览再展开；快速释放的队列预展开。手动收起保持关闭，扩大轨迹时折叠滚动窗口外的预览。
 

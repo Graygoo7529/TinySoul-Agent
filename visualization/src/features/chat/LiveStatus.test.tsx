@@ -46,3 +46,17 @@ it("shows the gist immediately when motion is reduced", () => {
   render();
   expect(host.querySelector("[data-activity-gist]")?.textContent).toContain("Real body");
 });
+
+it("shows intent and domains independently while only reasoning enters the top stream", () => {
+  preference.reduced = true;
+  act(() => root.render(<LiveStatus epoch={1} turnId="turn" day="2026-10-03" activity={{ ...activity, trail: [
+    { id: "reason", type: "thinking", timestamp: "", autoExpandGist: false, content: { type: "thinking", source: "reasoning", text: "Provider reasoning" } },
+    { id: "intent", type: "thinking", timestamp: "", autoExpandGist: false, content: { type: "thinking", source: "intent", text: "Choose the relevant tools" } },
+    { id: "domains", type: "domain_select", timestamp: "", autoExpandGist: false, content: { type: "domain_select", domains: ["home"], state: "accepted" } },
+  ] }} />));
+  expect(host.querySelector(".thinking-slate")?.textContent).toContain("Provider reasoning");
+  expect(host.querySelector(".thinking-slate")?.textContent).not.toContain("Choose the relevant tools");
+  expect(host.querySelector('[data-activity-step="intent"]')?.textContent).toContain("Choose the relevant tools");
+  expect(host.querySelector('[data-activity-step="intent"]')?.textContent).not.toContain("Selected domains");
+  expect(host.querySelector('[data-activity-step="domains"]')?.textContent).toContain("Selected domains");
+});

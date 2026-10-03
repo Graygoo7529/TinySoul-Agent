@@ -132,6 +132,7 @@ describe("ActivityTimeline", () => {
     ];
     render(<ActivityTimeline events={events} turnId={TURN_ID} epoch={epoch} day={null} />);
     clickButton("Activity");
+    expect(container.textContent).toContain("Selected domains");
     clickButton("Thinking");
     expect(container.textContent).toContain("First intent");
     expect(container.textContent).not.toContain("Task guidance");
@@ -146,7 +147,9 @@ describe("ActivityTimeline", () => {
     expect(container.textContent).toContain("First intent");
     expect(container.textContent).toContain("Second intent");
     expect(container.textContent).not.toContain("In progress");
-    expect(container.textContent).not.toContain("Selected domains");
+    expect(container.textContent).toContain("Selected domains");
+    const intentButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("Second intent"));
+    expect(intentButton?.parentElement?.textContent).not.toContain("Selected domains");
     clickButton("Second intent");
     expect(container.textContent).toContain("Verify the result against the source.");
     expect(container.textContent).toContain("Selected domains");

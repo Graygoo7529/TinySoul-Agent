@@ -110,9 +110,9 @@ export type PhaseName = "phase1" | "phase2" | "phase3";
 
 /** Running sentences from c479ca0; tint belongs only to the Details timeline. */
 export const PHASE_META: Record<PhaseName, { title: string; running: string; tint: string }> = {
-  phase1: { title: "Context & Domains", running: "Maintaining context and selecting domains…", tint: "bg-fuchsia-500/3 dark:bg-fuchsia-400/4" },
-  phase2: { title: "Action Planning", running: "Generating action parameters…", tint: "bg-info-soft/60" },
-  phase3: { title: "Action Execution", running: "Executing actions…", tint: "bg-success-soft/50" },
+  phase1: { title: "Context & Domains", running: "Maintaining context and selecting domains…", tint: "bg-pink-500/5 dark:bg-pink-400/6" },
+  phase2: { title: "Action Planning", running: "Generating action parameters…", tint: "bg-sky-500/7 dark:bg-sky-400/8" },
+  phase3: { title: "Action Execution", running: "Executing actions…", tint: "bg-lime-500/6 dark:bg-lime-400/6" },
 };
 
 /**
@@ -161,8 +161,8 @@ export type ActivityStepType =
  * Activity step content (discriminated union)
  */
 export type ActivityStepContent =
-  | { type: "thinking"; text: string }
-  | { type: "domain_select"; domains: string[]; intent: string | null; state: "requested" | "accepted" | "rejected" }
+  | { type: "thinking"; source: "reasoning" | "intent"; text: string }
+  | { type: "domain_select"; domains: string[]; state: "requested" | "accepted" | "rejected" }
   | { type: "skill_mount"; refs: string[] }
   | { type: "background"; refs: string[]; operation: "load" | "evict" }
   | { type: "control_failure"; operation: string; feedback: string }

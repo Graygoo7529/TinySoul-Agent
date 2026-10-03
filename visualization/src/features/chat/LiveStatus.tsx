@@ -89,10 +89,11 @@ export function LiveStatus({ activity, mode = "live", status, epoch, turnId, day
   );
   const { headline } = feed;
 
-  // Thinking stream: find the latest thinking step
+  // Only provider reasoning advances the top stream; intent stays in activity.
   const thoughtStep = useMemo(() => {
     for (let i = feed.trail.length - 1; i >= 0; i--) {
-      if (feed.trail[i].content.type === "thinking") return feed.trail[i];
+      const content = feed.trail[i].content;
+      if (content.type === "thinking" && content.source === "reasoning") return feed.trail[i];
     }
     return null;
   }, [feed.trail]);

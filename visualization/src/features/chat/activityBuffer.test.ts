@@ -86,7 +86,7 @@ describe("ActivityBuffer v2 event projection", () => {
     const trail = buffer.toPresentation(new Date().toISOString())?.trail ?? [];
     expect(trail.map((step) => step.content)).toEqual([
       { type: "background", refs: ["home:skills@x"], operation: "load" },
-      { type: "domain_select", domains: ["home", "memory"], intent: null, state: "accepted" },
+      { type: "domain_select", domains: ["home", "memory"], state: "accepted" },
     ]);
   });
 
@@ -126,8 +126,10 @@ describe("ActivityBuffer v2 event projection", () => {
     const result = buffer.toPresentation("2026-10-03");
     expect(result.thinking.current).toBe(reasoning ?? "");
     expect(result.trail.map((step) => step.id).length).toBe(new Set(result.trail.map((step) => step.id)).size);
-    expect(result.trail.slice(-1)[0].content).toMatchObject({ type: "domain_select", state: "accepted", intent: reasoning === "choose tools" ? null : "choose tools" });
-    expect(activityGroups(result.trail, "Thinking").flatMap((group) => group.items)).toHaveLength(reasoning ? 2 : 1);
+    expect(result.trail.slice(-1)[0].content).toEqual({ type: "domain_select", domains: ["home"], state: "accepted" });
+    expect(result.trail.flatMap((step) => step.content.type === "thinking" ? [step.content.text] : []))
+      .toEqual(reasoning && reasoning !== "choose tools" ? [reasoning, "choose tools"] : ["choose tools"]);
+    expect(activityGroups(result.trail, "Thinking").flatMap((group) => group.items)).toHaveLength(result.trail.length);
   });
 
   it("shows installed changes and local failures without treating tool requests as success", () => {
@@ -153,8 +155,10 @@ describe("ActivityBuffer v2 event projection", () => {
       event("llm.model.response", { ...payload, phase: "phase3" }, 3),
     ]);
     const result = buffer.toPresentation("2026-10-03");
-    expect(result.trail).toHaveLength(1);
-    expect(result.trail[0].content).toMatchObject({ state: "rejected", intent: "try this scope" });
+    expect(result.trail.map((step) => step.content)).toEqual([
+      { type: "thinking", source: "intent", text: "try this scope" },
+      { type: "domain_select", domains: ["unknown"], state: "rejected" },
+    ]);
     expect(result.thinking.current).toBe("");
   });
 

@@ -58,7 +58,7 @@ export class ActivityBuffer {
         headline.domain = actionTarget(asObject(running[0].params)) ?? running[0].domain;
       } else if (running.length > 1) headline.label = `Executing ${running.length} actions…`;
     }
-    const reasoning = trail.flatMap((step) => step.content.type === "thinking" ? [step.content.text] : []);
+    const reasoning = trail.flatMap((step) => step.content.type === "thinking" && step.content.source === "reasoning" ? [step.content.text] : []);
     return {
       headline, trail,
       thinking: { current: reasoning[reasoning.length - 1] ?? "", history: reasoning.slice(0, -1), expanded: true },
@@ -115,13 +115,14 @@ export class ActivityBuffer {
       }
       if (event.name === "llm.model.response") {
         const reasoning = asString(asObject(event.payload.reasoning)?.summary)?.trim();
-        if (reasoning) add({ type: "thinking", text: reasoning });
+        if (reasoning) add({ type: "thinking", source: "reasoning", text: reasoning });
         for (const call of modelControlRequests(event.payload)) {
           controls.set(key(call.callId), call.name);
           if (phase !== "phase1" || call.name !== "select_action_domains") continue;
           const intent = asString(call.arguments.intent)?.trim() || null;
+          if (intent && intent !== reasoning) add({ type: "thinking", source: "intent", text: intent }, `-${call.callId}`);
           const step = add({ type: "domain_select", domains: asStringArray(call.arguments.domains),
-            intent: intent === reasoning ? null : intent, state: "requested" }, `-${call.callId}`);
+            state: "requested" }, `-${call.callId}`);
           decisions.set(cycleId ?? "", step);
         }
       }
@@ -131,7 +132,7 @@ export class ActivityBuffer {
         if (decision?.content.type === "domain_select") {
           decision.content.state = accepted ? "accepted" : "rejected";
           if (accepted) decision.content.domains = asStringArray(event.payload.selected_domains);
-        } else if (accepted) add({ type: "domain_select", domains: asStringArray(event.payload.selected_domains), intent: null, state: "accepted" });
+        } else if (accepted) add({ type: "domain_select", domains: asStringArray(event.payload.selected_domains), state: "accepted" });
         for (const value of Array.isArray(event.payload.control_results) ? event.payload.control_results : []) {
           const result = asObject(value);
           if (result?.status !== "failed") continue;
