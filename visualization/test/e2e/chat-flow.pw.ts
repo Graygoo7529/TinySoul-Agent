@@ -31,6 +31,60 @@ function backendConnection(): BackendConnection {
 
 const BACKEND_WAIT = 30_000;
 
+test("Reflection shares LiveStatus and controls, survives refresh, and stays outside Session", async ({ page, request }, testInfo) => {
+  test.setTimeout(75_000);
+  const { address, token } = backendConnection();
+  const base = `http://${address}/v2`;
+  const headers = { Authorization: `Bearer ${token}` };
+  const before = await (await request.get(`${base}/session/turns`, { headers })).json();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/");
+  await page.getByPlaceholder("127.0.0.1:1430").fill(address);
+  await page.locator('input[type="password"]').fill(token);
+  await page.getByRole("button", { name: "Connect" }).click();
+  await expect(page.getByRole("button", { name: "整理", exact: true })).toBeEnabled({ timeout: BACKEND_WAIT });
+  await page.getByRole("button", { name: "整理", exact: true }).click();
+  await page.getByLabel("Reflection instructions").fill("e2e-reflection: review Home with my confirmation");
+  const receiptPromise = page.waitForResponse((response) => response.url().endsWith("/v2/reflection") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "Start Home reflection" }).click();
+  const receipt = await (await receiptPromise).json();
+  const card = page.locator(`[data-turn-id="${receipt.turn_id}"]`);
+  await expect(card.getByText("Home 整理", { exact: true })).toBeVisible({ timeout: BACKEND_WAIT });
+  await expect(card.getByText("Continue this reflection?", { exact: true })).toBeVisible({ timeout: BACKEND_WAIT });
+  await expect(card.locator(".live-border")).toHaveCount(1);
+  await page.screenshot({ path: testInfo.outputPath("reflection-waiting.png") });
+  await page.reload();
+  await expect(card.getByText("Continue this reflection?", { exact: true })).toBeVisible({ timeout: BACKEND_WAIT });
+  await expect(card.locator(".live-border")).toHaveCount(1);
+  await card.getByRole("button", { name: "Details", exact: true }).last().click();
+  const inspector = page.getByRole("dialog");
+  // The shared drawer exposes the actual model-backed process.
+  await inspector.getByTitle("View the LLM message stack", { exact: true }).first().click();
+  await expect(page.getByRole("heading", { name: "Model task", exact: true })).toBeVisible();
+  await expect(page.locator(".inspector-adjacent").getByText(/TinySoul provider-neutral request/)).toBeVisible();
+  await page.keyboard.press("Escape");
+  await inspector.getByRole("button", { name: /^Activity \d/ }).click();
+  await expect(inspector.getByRole("button", { name: "Thinking", exact: true })).toBeVisible({ timeout: BACKEND_WAIT });
+  await inspector.getByRole("button", { name: "Close", exact: true }).click();
+  const node = await card.elementHandle();
+  const live = await card.locator(".live-border").elementHandle();
+  await card.locator("label", { hasText: "Option A" }).click();
+  await card.getByPlaceholder(/comment/i).fill("e2e-reply-comment confirmed");
+  await card.getByRole("button", { name: "Reply", exact: true }).click();
+  await expect(card.getByText("整理完成", { exact: true })).toBeVisible({ timeout: BACKEND_WAIT });
+  await expect(card.getByText("Reflection reviewed with your reply.", { exact: true })).toBeVisible();
+  expect(await node?.evaluate((element) => element.isConnected)).toBe(true);
+  expect(await live?.evaluate((element) => element.isConnected)).toBe(true);
+  await expect(card.locator(".answer-card")).toHaveCount(0);
+  await expect(card.getByRole("button", { name: "停止整理" })).toHaveCount(0);
+  await expect(card.locator("[data-live-body]")).toHaveCSS("height", "0px");
+  await page.screenshot({ path: testInfo.outputPath("reflection-completed.png") });
+  const after = await (await request.get(`${base}/session/turns`, { headers })).json();
+  expect(after.items.map((item: { turn_id: string }) => item.turn_id)).toEqual(before.items.map((item: { turn_id: string }) => item.turn_id));
+  await page.reload();
+  await expect(card.getByText("整理完成", { exact: true })).toBeVisible({ timeout: BACKEND_WAIT });
+});
+
 test("F1-D 最小真实交互流程：提交 → 问题 → 回复 → 完成 → Session 恢复", async ({
   page,
 }, testInfo) => {
@@ -48,9 +102,7 @@ test("F1-D 最小真实交互流程：提交 → 问题 → 回复 → 完成 �
   await page.getByPlaceholder("127.0.0.1:1430").fill(address);
   await page.locator('input[type="password"]').fill(token);
   await page.getByRole("button", { name: "Connect" }).click();
-  await expect(page.getByText("Start a conversation")).toBeVisible({
-    timeout: BACKEND_WAIT,
-  });
+  await expect(page.getByPlaceholder("Message TinySoul…")).toBeEnabled({ timeout: BACKEND_WAIT });
   await expect(page.getByTitle("Workspace")).toBeEnabled();
 
   // b. Plain message: echo answer, no duplicated rows after convergence.

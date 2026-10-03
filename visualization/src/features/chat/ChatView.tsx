@@ -31,6 +31,7 @@ import type {
   Interaction,
   PendingItem,
   TurnResult,
+  TurnSnapshot,
 } from "../../api/v2/types";
 import {
   selectActiveDay,
@@ -43,7 +44,6 @@ import {
 } from "../../store/turnStore";
 import {
   dismissEcho,
-  grantBudget,
   retryEcho,
   retryTakeover,
   sendEchoAsNewTurn,
@@ -59,13 +59,14 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
 import { conversationOrigin } from "../../components/markdown/origin";
 import { Composer } from "./Composer";
-import { AgentRow, InteractionRow, TurnFooter, UserBubble, WaitingQuestionCard } from "./ConversationRows";
+import { AgentRow, BudgetCard, InteractionRow, TurnFooter, UserBubble, WaitingQuestionCard } from "./ConversationRows";
 import { registerQuestionBlock } from "./questionBlock";
 import { LiveStatus } from "./LiveStatus";
 import { useTurnPresentation } from "./useTurnPresentation";
 import { ChatFollowContext, useConversationScroll } from "./useConversationScroll";
 import { useActivityDetails } from "./useActivityDetails";
 import type { TurnPresentation, WorkingState } from "./presentation";
+import { ReflectionTurn } from "./ReflectionTurn";
 
 // The chat feature's assembly: the question fence protocol joins the
 // CodeBlockRegistry (plan §21.1 explicit composition).
@@ -83,12 +84,15 @@ export function ChatView() {
 }
 
 /** One mounted Turn from its first input through immutable Session takeover. */
-function ConversationTurn({ epoch, turnId, viewKey, echo, preview, day, activeDay, items, current, latest, history, loading, unavailable, status, result, presentation, working }: {
+function ConversationTurn({ epoch, turnId, viewKey, echo, preview, day, activeDay, items, current, latest, history, loading, unavailable, status, result, snapshot }: {
   epoch: number; turnId: string; day: string | null; activeDay: string | null; items: Interaction[];
   viewKey: string; echo?: OutgoingEcho; preview: { text: string; truncated: boolean } | null;
   current: boolean; latest: boolean; history: boolean; loading: boolean; unavailable: boolean; status: string | null; result: TurnResult | null;
-  presentation: TurnPresentation | null; working: WorkingState;
+  snapshot: TurnSnapshot | null;
 }) {
+  const enabled = !history && current && latest && snapshot !== null;
+  const presentation = useTurnPresentation(turnId, snapshot, items, enabled);
+  const working = useActivityDetails(turnId, enabled && snapshot?.state !== "finished", enabled);
   const view: ChatViewMode = history || !current ? "history" : "live";
   const origin = conversationOrigin({ view, day, turnId, activeDay });
   const baseline = useRef<Set<string> | null>(loading ? null : new Set(items.map((item) => interactionKey(item, items))));
@@ -96,7 +100,7 @@ function ConversationTurn({ epoch, turnId, viewKey, echo, preview, day, activeDa
   const isFresh = (item: Interaction) => !history && baseline.current !== null && !baseline.current.has(interactionKey(item, items));
   // Presentation cache lasts only while this mounted Turn is visible. Formal history always comes from Session.
   const captured = useRef<{ presentation: TurnPresentation; working: WorkingState } | null>(null);
-  if (presentation?.turnId === turnId) captured.current = { presentation, working };
+  if (presentation?.activity) captured.current = { presentation, working };
   const detail = captured.current;
   const initial = items.find((item) => item.role === "user.input");
   const hasControls = useTurnStore((s) => current && (s.pendingItems.length > 0 ||
@@ -128,9 +132,10 @@ function CurrentTurnControls() {
   const pending = useTurnStore((s) => s.pendingItems);
   const outgoing = useTurnStore((s) => s.outgoing);
   const turnId = useTurnStore((s) => s.turnId);
+  const snapshot = useTurnStore((s) => s.snapshot);
   return <>{pending.map((item) => <PendingRow key={item.record_id} item={item} />)}
     {outgoing.filter((echo) => echo.kind !== "new-turn" && echo.turnId === turnId).map((echo) => <EchoRow key={echo.echoId} echo={echo} />)}
-    <WaitingQuestionCard /><BudgetCard /></>;
+    <WaitingQuestionCard /><BudgetCard snapshot={snapshot} /></>;
 }
 
 // One persistent scroll container for the active day and explicit history reads.
@@ -151,8 +156,10 @@ function ConversationView() {
   const preview = queuedRequest && typeof queuedRequest.text === "string"
     ? { text: queuedRequest.text, truncated: queuedRequest.truncated === true } : null;
   const result = useTurnStore((s) => s.result);
-  const presentation = useTurnPresentation();
-  const working = useActivityDetails();
+  const runtimeTurns = useTurnStore((s) => s.runtimeTurns);
+  const runtimeProjections = useTurnStore((s) => s.runtimeProjections);
+  const focusTurnId = useTurnStore((s) => s.focusTurnId);
+  const rootId = useConnectionStore(selectActiveTurnId);
   const sessionLoading = useTurnStore((s) => s.sessionTurnsLoading);
   const outgoing = useTurnStore((s) => s.outgoing);
   // Local keys are presentation-only, retained through receipt and Session takeover.
@@ -161,16 +168,31 @@ function ConversationView() {
   const initialEchoes = historyView ? [] : outgoing.filter((echo) => echo.kind === "new-turn");
   for (const echo of initialEchoes) if (echo.turnId) identities.current.keys.set(echo.turnId, echo.echoId);
   const viewKey = (id: string) => identities.current.keys.get(id) ?? id;
-  const running = !historyView && snapshot !== null && snapshot.state !== "finished";
+  const running = !historyView && rootId !== null;
   const ids = [...(!historyView ? chronologicalTurns.map((summary) => summary.turn_id) : [])];
+  const reflections = historyView ? [] : runtimeTurns.filter((entry) => entry.kind !== "user" && (!entry.active_day || entry.active_day === activeDay));
+  for (const entry of reflections.filter((entry) => entry.state === "finished").sort((a, b) => (a.finished_at ?? a.accepted_at).localeCompare(b.finished_at ?? b.accepted_at))) {
+    const next = entry.state === "finished" ? ids.findIndex((id) => {
+      const time = sessionTurns.find((summary) => summary.turn_id === id)?.recorded_at;
+      return time && entry.finished_at && Date.parse(time) > Date.parse(entry.finished_at);
+    }) : -1;
+    if (next < 0) ids.push(entry.turn_id); else ids.splice(next, 0, entry.turn_id);
+  }
+  if (turnId !== null && snapshot?.state === "finished" && !ids.includes(turnId)) ids.push(turnId);
+  if (rootId && (rootId === turnId || reflections.some((entry) => entry.turn_id === rootId)) && !ids.includes(rootId)) ids.push(rootId);
+  const pendingRoots = runtimeTurns.filter((entry) => entry.state !== "finished" &&
+    (reflections.includes(entry) || entry.turn_id === turnId)).sort((a, b) => a.accepted_at.localeCompare(b.accepted_at));
+  for (const entry of pendingRoots) if (!ids.includes(entry.turn_id)) ids.push(entry.turn_id);
   if (turnId !== null && !ids.includes(turnId)) ids.push(turnId);
   for (const echo of initialEchoes) {
     const id = echo.turnId ?? echo.echoId;
     if (!ids.includes(id)) ids.push(id);
   }
-  const latestId = running ? turnId : ids[ids.length - 1] ?? null;
+  const latestId = rootId && ids.includes(rootId) ? rootId : ids[ids.length - 1] ?? null;
+  const focusEnded = runtimeTurns.find((entry) => entry.turn_id === focusTurnId)?.state === "finished";
+  const followId = focusTurnId && ids.includes(focusTurnId) && !(rootId && rootId !== focusTurnId && focusEnded) ? focusTurnId : latestId;
   const localEntry = initialEchoes.some((echo) => (echo.turnId ?? echo.echoId) === latestId);
-  const scroll = useConversationScroll(latestId ? viewKey(latestId) : null, running, !localEntry && (loading || sessionLoading));
+  const scroll = useConversationScroll(followId ? viewKey(followId) : null, running, !localEntry && (loading || sessionLoading));
   const { scrollRef, contentRef, pinned, jumpToLatest } = scroll;
 
   return (
@@ -200,6 +222,9 @@ function ConversationView() {
           )}
           <ChatFollowContext.Provider value={scroll.holdFollow}>
             {ids.map((id) => {
+              const reflection = reflections.find((entry) => entry.turn_id === id);
+              if (reflection) return <ReflectionTurn key={id} epoch={epoch} summary={reflection}
+                projection={runtimeProjections[id]} latest={id === latestId || id === focusTurnId} />;
               const current = id === turnId;
               const summary = sessionTurns.find((entry) => entry.turn_id === id);
               const cached = sessionProjections[id];
@@ -209,7 +234,7 @@ function ConversationView() {
                 day={current ? day : summary?.day ?? null} activeDay={activeDay} items={current ? items : cached?.items ?? []}
                 loading={current ? loading : !echo && (cached === undefined || cached.loading)} unavailable={cached?.unavailable ?? false}
                 status={(current ? result?.status : cached?.result?.status) ?? summary?.status ?? null}
-                result={current ? result : cached?.result ?? null} presentation={current ? presentation : null} working={working} />;
+                result={current ? result : cached?.result ?? null} snapshot={current ? snapshot : null} />;
             })}
           </ChatFollowContext.Provider>
           {latestId !== null && <div data-chat-spacer style={{ height: "85vh" }} />}
@@ -320,12 +345,13 @@ function TakeoverNotice() {
 
 function ReadErrorNotice() {
   const readError = useTurnStore((s) => s.readError);
-  if (readError === null) return null;
+  const runtimeError = useTurnStore((s) => s.runtimeReadError);
+  if (readError === null && runtimeError === null) return null;
   return (
     <div className="flex items-center gap-2 border-b border-danger/30 bg-danger-soft px-4 py-1.5 text-[12px] text-danger">
       <AlertTriangle size={12} className="shrink-0" />
       <span className="min-w-0 flex-1">
-        The last refresh failed ({readError}); the previous content stays on screen.
+        The last refresh failed ({readError ?? runtimeError}); the previous content stays on screen.
       </span>
     </div>
   );
@@ -360,7 +386,7 @@ function PendingRow({ item }: { item: PendingItem }) {
 
 /** A local outgoing message: sending → accepted (receipt) → converged by
     the formal projection; failures keep the text with retry/dismiss. */
-function EchoRow({ echo }: { echo: OutgoingEcho }) {
+export function EchoRow({ echo }: { echo: OutgoingEcho }) {
   return <UserBubble text={echo.text} failed={echo.state === "failed"} delivery={<EchoDelivery echo={echo} />} />;
 }
 
@@ -412,37 +438,6 @@ function EchoDelivery({ echo }: { echo: OutgoingEcho }) {
   );
 }
 
-
-function BudgetCard() {
-  const epoch = useConnectionStore((s) => s.epoch);
-  const snapshot = useTurnStore((s) => s.snapshot);
-  const historyView = useTurnStore((s) => s.historyView);
-  if (historyView || snapshot === null) return null;
-  const request = snapshot.budget_request;
-  if (request === null || snapshot.state !== "waiting") return null;
-  const turnId = snapshot.turn_id;
-  return (
-    <div className="rounded-xl border border-warning/40 bg-warning-soft px-4 py-3">
-      <div className="text-[13px] font-medium text-warning">
-        The turn used up its cycles and is waiting for more budget.
-      </div>
-      <div className="mt-2 flex items-center gap-2">
-        {[1, 5, 10].map((count) => (
-          <Button
-            key={count}
-            variant="outline"
-            size="xs"
-            onClick={() =>
-              void grantBudget(epoch, turnId, request.request_id, count)
-            }
-          >
-            +{count} {count === 1 ? "cycle" : "cycles"}
-          </Button>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 function ResultSummary({ result }: { result: TurnResult }) {
   const failure = result.failure;

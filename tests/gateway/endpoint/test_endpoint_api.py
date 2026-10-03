@@ -819,6 +819,9 @@ class _EndpointServices:
     def __init__(self, workspace: WorkspaceService) -> None:
         self.registry = ServiceRegistry((Service(WorkspaceService, workspace),))
 
+    def turn_directory(self) -> JsonObject:
+        return {"items": [], "completed_limit": 0}
+
     async def workspace_manifest(self, day: CalendarDay | None = None) -> JsonObject:
         async with self.registry.get(WorkspaceService).operation() as service:
             return (await service.load_manifest()).to_json()

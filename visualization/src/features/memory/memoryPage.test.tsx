@@ -17,6 +17,7 @@ import {
 import { useResourceTargets } from "../resources/targetsStore";
 import { useMemoryPage } from "./store";
 import { MemoryPage } from "./MemoryPage";
+import { useAppStore } from "../../store/appStore";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -508,7 +509,8 @@ describe("MemoryPage organize", () => {
     const posts = endpoint.calls("/v2/reflection", "POST");
     expect(posts).toHaveLength(1);
     expect(bodyJson(posts[0])).toMatchObject({ kind: "memory", target_day: "2026-09-27" });
-    expect(container.textContent).toContain("Open runtime view");
+    expect(useAppStore.getState().activeTab).toBe("chat");
+    expect(container.querySelector('textarea[aria-label="Reflection instructions"]')).toBeNull();
   });
 
   it("pages further back through next_before instead of trusting the first page", async () => {

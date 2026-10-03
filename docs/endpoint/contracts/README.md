@@ -21,7 +21,7 @@ OpenAPI field definitions. Owner content remains JSON-safe dynamic data.
 | --- | --- | --- |
 | Owner/Disclosure page | `page.json` | `home-effective`, `memory-document`, `context-trace-page` |
 | Installed Context messages | `context-messages.json` | `context-messages` |
-| Turn and history | `turn-snapshot.json`, `interaction-page.json` | `turn-waiting`, `turn-finished`, `interactions`, `question-reply` |
+| Turn and history | `turn-list.json`, `turn-snapshot.json`, `interaction-page.json` | `turn-waiting`, `turn-finished`, `interactions`, `question-reply` |
 | Search result | `search-page.json` | `search-evidence` |
 | Job detail/output | `job.json`, `job-output.json` | `job-detail`, `job-output` |
 | Configuration and presets | `configuration.json`, `config-mutation.json`, `preset.json` | `config-views`, `config-apply`, `preset` |

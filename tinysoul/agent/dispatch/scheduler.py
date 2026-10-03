@@ -269,6 +269,13 @@ class RootScheduler(Generic[AgentGenerationT]):
     def turn_handle(self, turn_id: str) -> TurnHandle | None:
         return self._handles.get(turn_id)
 
+    def turn_directory(self) -> JsonObject:
+        """Read retained roots; this is neither Session history nor a new log."""
+        return {
+            "items": [handle.snapshot().summary_json() for handle in self._handles.values()],
+            "completed_limit": self._retained_outcomes,
+        }
+
     def stop_accepting(self) -> None:
         self._accepting = False
 

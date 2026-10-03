@@ -2,6 +2,13 @@
   "turn_id": "contract-turn",
   "kind": "user",
   "state": "waiting",
+  "status": null,
+  "generation_id": null,
+  "active_day": "2026-09-29",
+  "accepted_at": "2026-09-29T10:00:00+00:00",
+  "started_at": "2026-09-29T10:00:01+00:00",
+  "finished_at": null,
+  "reflection": null,
   "cancel_requested": false,
   "wait_reason": "budget",
   "question": {

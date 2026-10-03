@@ -162,6 +162,9 @@ class EndpointRuntimeEngine:
             )
         return snapshot.to_json()
 
+    async def list_turns(self) -> JsonObject:
+        return self._context.services.turn_directory()
+
     async def append_input(self, turn_id: str, text: str, input_id: str) -> JsonObject:
         receipt = await self._context.gateway.commands.append_input(
             turn_id, text, input_id=input_id

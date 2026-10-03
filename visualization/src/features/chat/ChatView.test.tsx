@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Interaction } from "../../api/v2/types";
+import type { Interaction, TurnSnapshot, TurnSummary } from "../../api/v2/types";
 import { useConnectionStore } from "../../store/connectionStore";
 import { useTurnStore } from "../../store/turnStore";
 import configViews from "../../../test/fixtures/contracts/config-views.json";
@@ -29,11 +29,17 @@ import { useComposerDraft } from "./composerDraft";
 import {
   openSessionTurn,
   refreshDisplayedTurn,
+  refreshRuntimeTurns,
+  refreshRuntimeTurn,
+  replyToQuestion,
+  grantBudget,
+  cancelReflection,
   resetTurnController,
   sendUserMessage,
   syncFromStatus,
 } from "./turnController";
 import { ChatView } from "./ChatView";
+import { presentationStore } from "./presentationStore";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -43,6 +49,7 @@ let endpoint: FakeEndpoint;
 let epoch: number;
 
 beforeEach(() => {
+  vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
   // jsdom has no matchMedia; useReducedMotion subscribes to it.
   window.matchMedia = vi.fn().mockImplementation((query: string) => ({
     matches: false,
@@ -63,6 +70,7 @@ beforeEach(() => {
   document.body.appendChild(container);
   root = createRoot(container);
   endpoint = new FakeEndpoint();
+  endpoint.get("/v2/turns", () => jsonResponse({ items: [], completed_limit: 32 }));
   // The Composer run-plan entry lazily loads the shared config snapshots.
   endpoint.get("/v2/config", () => jsonResponse(configViews.saved));
   endpoint.get("/v2/config/catalog", () =>
@@ -83,6 +91,7 @@ afterEach(() => {
   container.remove();
   resetTurnController();
   resetAppStores();
+  vi.unstubAllGlobals();
 });
 
 function turnState() {
@@ -142,6 +151,81 @@ function fakeScrollMetrics(scrollHeight: number, clientHeight: number) {
 function bubbleCount(): number {
   return container.querySelectorAll(".bubble-user").length;
 }
+
+describe("Reflection in the shared conversation", () => {
+  it("shows a scheduled skip on its execution day without inventing a model process", async () => {
+    const day = makeStatus().active_day!;
+    const reflection = { trigger: "scheduled" as const, target_day: "2026-09-28", instructions_excerpt: "", truncated: false };
+    const summary: TurnSummary = { turn_id: "skipped-reflection", kind: "memory", state: "finished", status: "skipped",
+      active_day: day, generation_id: "g1", accepted_at: "2026-09-29T09:00:00Z", started_at: "2026-09-29T09:00:01Z",
+      finished_at: "2026-09-29T09:00:02Z", reflection };
+    const snapshot: TurnSnapshot = { ...runningSnapshot(), ...summary,
+      result: { turn_id: summary.turn_id, active_day: day, status: "skipped",
+        tasks: [{ kind: "memory", status: "skipped", reason: "target_sources_empty", details: {} }] } };
+    endpoint.get("/v2/turns", () => jsonResponse({ items: [summary], completed_limit: 32 }));
+    endpoint.get(`/v2/turns/${summary.turn_id}`, () => jsonResponse(snapshot));
+    endpoint.get(`/v2/turns/${summary.turn_id}/interactions`, () => jsonResponse(makeInteractionsPage({ turn_id: summary.turn_id, items: [] })));
+    await act(async () => { await refreshRuntimeTurns(epoch); });
+    await renderChat();
+    const card = container.querySelector('[data-reflection="memory"]');
+    expect(card?.textContent).toContain("自动");
+    expect(card?.textContent).toContain("2026-09-28");
+    expect(card?.textContent).toContain("无需整理");
+    expect(card?.textContent).toContain("该日期没有可供整理的会话或记忆");
+    expect(card?.querySelector("[data-live-body]")).toBeNull();
+    expect(card?.textContent).not.toContain("Details");
+    expect(endpoint.calls(`/v2/session/turns/${summary.turn_id}`)).toHaveLength(0);
+  });
+
+  it("recovers a retained root, keeps activity while a User request queues, and targets its own controls", async () => {
+    const day = makeStatus().active_day!;
+    const origin = { trigger: "manual" as const, target_day: "2026-09-28", instructions_excerpt: "Review the day", truncated: false };
+    let snapshot: TurnSnapshot = { ...waitingSnapshot(), turn_id: "reflection-1", kind: "memory", active_day: day, reflection: origin };
+    const summary = (): TurnSummary => ({ turn_id: snapshot.turn_id, kind: "memory", state: snapshot.state,
+      status: snapshot.result?.status ?? null, active_day: day, generation_id: "g1", accepted_at: "2026-09-29T09:00:00Z",
+      started_at: "2026-09-29T09:00:01Z", finished_at: snapshot.state === "finished" ? "2026-09-29T09:01:00Z" : null, reflection: origin });
+    endpoint.get("/v2/turns", () => jsonResponse({ items: [summary()], completed_limit: 32 }));
+    endpoint.get("/v2/turns/reflection-1", () => jsonResponse(snapshot));
+    endpoint.get("/v2/turns/reflection-1/interactions", () => jsonResponse(makeInteractionsPage({ turn_id: "reflection-1", items: [] })));
+    useConnectionStore.getState().applyStatus(epoch, makeStatus({ activity: "reflection", activeTurnId: "reflection-1" }));
+    await act(async () => { await refreshRuntimeTurns(epoch); });
+    await renderChat();
+    const card = container.querySelector('[data-reflection="memory"]');
+    expect(card?.textContent).toContain("Memory 整理");
+    expect(card?.textContent).toContain("2026-09-28");
+    expect(turnState().turnId).toBeNull();
+    act(() => presentationStore.getState().addEvent({ sequence: 10, name: "llm.model.response", level: "model", source: "test", message: "",
+      scope: [{ level: "turn", name: "reflection-1" }], created_at: Date.now() / 1000,
+      payload: { reasoning: { summary: "Organize the source day carefully." } } }));
+    const live = card?.querySelector(".live-border");
+    expect(live).not.toBeNull();
+    act(() => useTurnStore.setState({ turnId: "queued-user", snapshot: { ...runningSnapshot(), turn_id: "queued-user", state: "queued" },
+      items: [], outgoing: [{ echoId: "echo", kind: "new-turn", turnId: "queued-user", text: "Independent message", questionId: null, state: "accepted", error: null, turnClosed: false }] }));
+    expect(card?.querySelector(".live-border")).toBe(live);
+    expect(presentationStore.getState().entries["reflection-1"].activity.thinking.current).toContain("Organize the source day");
+    endpoint.post("/v2/turns/reflection-1/reply", () => jsonResponse({ accepted: true }));
+    endpoint.post("/v2/turns/reflection-1/grant", () => jsonResponse({ accepted: true }));
+    endpoint.post("/v2/turns/reflection-1/cancel", () => jsonResponse({ accepted: true }));
+    await act(async () => {
+      await replyToQuestion(epoch, "reflection-1", snapshot.question!.question_id, { kind: "text", text: "Proceed" }, "Proceed");
+      await grantBudget(epoch, "reflection-1", snapshot.budget_request!.request_id, 5);
+      await cancelReflection(epoch, "reflection-1");
+    });
+    expect(endpoint.calls("/v2/turns/queued-user/reply", "POST")).toHaveLength(0);
+    expect(endpoint.calls("/v2/turns/reflection-1/reply", "POST")).toHaveLength(1);
+    expect(endpoint.calls("/v2/turns/reflection-1/grant", "POST")).toHaveLength(1);
+    expect(endpoint.calls("/v2/turns/reflection-1/cancel", "POST")).toHaveLength(1);
+    snapshot = { ...snapshot, state: "finished", question: null, budget_request: null,
+      result: { turn_id: "reflection-1", active_day: day, status: "partial", tasks: [{ kind: "memory", status: "awaiting_user", details: {}, turn: { status: "awaiting_user", completion: { text: "One decision remains." }, failure: null, finish_failures: [], cleanup: [] } }] } };
+    await act(async () => { await refreshRuntimeTurn(epoch, "reflection-1"); });
+    expect(container.querySelector('[data-reflection="memory"]')).toBe(card);
+    expect(card?.textContent).toContain("部分完成");
+    expect(card?.textContent).toContain("One decision remains.");
+    expect(card?.querySelector('input[type="radio"]')).toBeNull();
+    expect(card?.querySelector(".answer-card")).toBeNull();
+    expect(endpoint.calls("/v2/session/turns/reflection-1")).toHaveLength(0);
+  });
+});
 
 describe("ChatView: echo convergence", () => {
   it("keeps the initial bubble mounted from local send through receipt and formal input", async () => {

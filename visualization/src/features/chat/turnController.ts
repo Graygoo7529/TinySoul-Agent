@@ -45,12 +45,15 @@ import {
   type ComposerIntent,
 } from "./interactions";
 import { randomId } from "../../utils/randomId";
+import { presentationStore } from "./presentationStore";
 
 /** Bounded take-over retries while the Session commit lags the finish event. */
 const TAKEOVER_RETRY_DELAYS_MS = [400, 900, 2000, 4000];
 
 let activeRead: AbortController | null = null;
 let sessionReadSerial = 0;
+let runtimeReadSerial = 0;
+const runtimeReads = new Map<string, AbortController>();
 const takeoverRetries = new Map<
   string,
   { attempt: number; timer: ReturnType<typeof setTimeout> | null }
@@ -95,8 +98,11 @@ export async function syncFromStatus(epoch: number): Promise<void> {
   const connection = useConnectionStore.getState();
   const status = connection.status;
   if (connection.epoch !== epoch || status === null || !status.ready) return;
+  void refreshRuntimeTurns(epoch);
   const turn = useTurnStore.getState();
   const activeTurnId = selectActiveTurnId(connection);
+  if (activeTurnId && turn.focusTurnId !== activeTurnId &&
+      turn.runtimeTurns.find((entry) => entry.turn_id === turn.focusTurnId)?.state === "finished") turn.focusTurn(null);
   const activity = status.runtime.activity;
 
   if (activeTurnId !== null && activity === "user_turn") {
@@ -137,6 +143,79 @@ export async function syncFromStatus(epoch: number): Promise<void> {
   // Read content is never wiped here on a stale snapshot.
   await refreshDisplayedTurn(epoch);
   void refreshSessionTurns(epoch);
+}
+
+/** The bounded handle directory supplies Reflection identity, never Session history. */
+export async function refreshRuntimeTurns(epoch: number): Promise<void> {
+  const clients = clientsFor(epoch);
+  if (!clients) return;
+  const serial = ++runtimeReadSerial;
+  try {
+    const directory = await clients.turns.list();
+    if (!clientsFor(epoch) || serial !== runtimeReadSerial) return;
+    useTurnStore.getState().setRuntimeTurns(directory.items);
+    useTurnStore.setState({ runtimeReadError: null });
+    const day = useConnectionStore.getState().status?.active_day;
+    await Promise.all(directory.items.filter((entry) =>
+      entry.kind !== "user" && (!entry.active_day || entry.active_day === day),
+    ).map(async (entry) => {
+      const cached = useTurnStore.getState().runtimeProjections[entry.turn_id];
+      if (cached?.snapshot.state === "finished") return;
+      await refreshRuntimeTurn(epoch, entry.turn_id);
+    }));
+  } catch (error) {
+    if (clientsFor(epoch) && serial === runtimeReadSerial) {
+      useTurnStore.setState({ runtimeReadError: errorMessage(error) });
+    }
+  }
+}
+
+/** Common snapshot/interaction reader for a retained root outside the User composer. */
+export async function refreshRuntimeTurn(epoch: number, turnId: string): Promise<void> {
+  const clients = clientsFor(epoch);
+  if (!clients) return;
+  runtimeReads.get(turnId)?.abort();
+  const controller = new AbortController();
+  runtimeReads.set(turnId, controller);
+  try {
+    const snapshot = await clients.turns.get(turnId, { signal: controller.signal });
+    if (controller.signal.aborted || !clientsFor(epoch)) return;
+    const previous = useTurnStore.getState().runtimeProjections[turnId];
+    useTurnStore.getState().setRuntimeProjection({ snapshot, items: previous?.items ?? [],
+      pendingItems: previous?.pendingItems ?? [], day: snapshot.active_day ?? previous?.day ?? null });
+    const projection = await drainInteractions(clients, turnId, controller.signal);
+    if (controller.signal.aborted || !clientsFor(epoch)) return;
+    const store = useTurnStore.getState();
+    // Completed Reflection has no Session record. Keep already read interactions
+    // only for this retained handle's view, without manufacturing persistence.
+    const items = snapshot.state === "finished" && projection.items.length === 0
+      ? store.runtimeProjections[turnId]?.items ?? [] : projection.items;
+    store.setRuntimeProjection({
+      snapshot, items, pendingItems: projection.pendingItems,
+      day: snapshot.active_day ?? projection.day,
+    });
+    const { consumed } = convergeEchoes(store.outgoing, items, projection.pendingItems, turnId);
+    store.removeEchoes(consumed);
+    useTurnStore.setState({ runtimeReadError: null });
+  } catch (error) {
+    if (!controller.signal.aborted && clientsFor(epoch)) {
+      useTurnStore.setState({ runtimeReadError: errorMessage(error) });
+    }
+  } finally {
+    if (runtimeReads.get(turnId) === controller) runtimeReads.delete(turnId);
+  }
+}
+
+export async function showRuntimeTurn(epoch: number, turnId: string): Promise<void> {
+  if (useTurnStore.getState().historyView) useTurnStore.getState().clearTurn();
+  useTurnStore.getState().focusTurn(turnId);
+  useAppStore.getState().setActiveTab("chat");
+  await refreshRuntimeTurns(epoch);
+}
+
+function refreshCommandTarget(epoch: number, turnId: string): void {
+  if (useTurnStore.getState().turnId === turnId) void refreshDisplayedTurn(epoch);
+  else void refreshRuntimeTurn(epoch, turnId);
 }
 
 /** Full re-read of the displayed turn: snapshot + interaction projection. */
@@ -531,6 +610,7 @@ async function sendNewTurn(epoch: number, value: string): Promise<boolean> {
   const clients = clientsFor(epoch);
   if (clients === null) return false;
   const store = useTurnStore.getState();
+  store.focusTurn(null);
   const echoId = randomId();
   const echo: OutgoingEcho = {
     echoId,
@@ -614,7 +694,7 @@ export async function replyToQuestion(
     } else {
       useTurnStore.getState().updateEcho(echoId, { state: "accepted" });
     }
-    void refreshDisplayedTurn(epoch);
+    refreshCommandTarget(epoch, turnId);
     return true;
   } catch (error) {
     if (clientsFor(epoch) === null) return true;
@@ -623,7 +703,7 @@ export async function replyToQuestion(
     useTurnStore.getState().removeEcho(echoId);
     const code = apiErrorCode(error);
     if (code === "turn.command_rejected" || code === "turn.not_found") {
-      void refreshDisplayedTurn(epoch);
+      refreshCommandTarget(epoch, turnId);
       throw new Error("This question is no longer awaiting a reply");
     }
     throw error;
@@ -641,13 +721,13 @@ export async function grantBudget(
   if (clients === null || count <= 0) return false;
   try {
     await clients.turns.grant(turnId, { request_id: requestId, count });
-    void refreshDisplayedTurn(epoch);
+    refreshCommandTarget(epoch, turnId);
     return true;
   } catch (error) {
     if (clientsFor(epoch) === null) return false;
     const code = apiErrorCode(error);
     if (code === "turn.command_rejected" || code === "turn.not_found") {
-      void refreshDisplayedTurn(epoch);
+      refreshCommandTarget(epoch, turnId);
       toast("info", "The budget request is no longer open");
       return false;
     }
@@ -672,6 +752,10 @@ export async function cancelQueuedTurn(epoch: number, turnId: string): Promise<v
   await postCancelIntent(epoch, turnId, "cancel the queued turn");
 }
 
+export async function cancelReflection(epoch: number, turnId: string): Promise<void> {
+  await postCancelIntent(epoch, turnId, "stop the reflection");
+}
+
 /** Shared cancel-intent POST; the receipt only confirms the intent. */
 async function postCancelIntent(
   epoch: number,
@@ -682,12 +766,12 @@ async function postCancelIntent(
   if (clients === null) return;
   try {
     await clients.turns.cancel(turnId);
-    void refreshDisplayedTurn(epoch);
+    refreshCommandTarget(epoch, turnId);
   } catch (error) {
     if (clientsFor(epoch) === null) return;
     const code = apiErrorCode(error);
     if (code === "turn.command_rejected" || code === "turn.not_found") {
-      void refreshDisplayedTurn(epoch);
+      refreshCommandTarget(epoch, turnId);
       return;
     }
     toast("error", `Failed to ${action}: ${errorMessage(error)}`);
@@ -823,5 +907,9 @@ export function resetTurnController(): void {
   activeRead = null;
   cancelTakeoverRetry();
   sessionReadSerial += 1;
+  runtimeReadSerial += 1;
+  for (const controller of runtimeReads.values()) controller.abort();
+  runtimeReads.clear();
+  presentationStore.getState().reset();
   useTurnStore.getState().reset();
 }

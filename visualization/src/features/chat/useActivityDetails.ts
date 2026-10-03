@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import type { ContextMessage } from "../../api/v2/types";
 import { createPageAssembler, nextContinuation } from "../../api/v2/pagination";
 import { useConnectionStore } from "../../store/connectionStore";
-import { useTurnStore } from "../../store/turnStore";
 import { readEventWindow } from "../trace/eventWindow";
 import { asObject, asString } from "../trace/facts";
 import { narrowMessage } from "../context/messages";
@@ -45,35 +44,32 @@ export function workingFromMessages(messages: ContextMessage[]): WorkingState {
 }
 
 /** The live card owns these bounded reads for its mounted Turn only. */
-export function useActivityDetails() {
+export function useActivityDetails(turnId: string, active: boolean, enabled: boolean) {
   const epoch = useConnectionStore((s) => s.epoch);
   const installed = useConnectionStore((s) => s.contextGeneration);
   const clients = useConnectionStore((s) => s.clients);
   const eventsPhase = useConnectionStore((s) => s.eventsPhase);
   const gap = useConnectionStore((s) => s.eventGap);
-  const turnId = useTurnStore((s) => s.turnId);
-  const active = useTurnStore((s) => s.snapshot !== null && s.snapshot.state !== "finished");
   const [working, setWorking] = useState<{ turnId: string; value: WorkingState } | null>(null);
 
   useEffect(() => {
-    if (!clients || !turnId || gap) return;
+    if (!clients || !enabled || gap) return;
     const controller = new AbortController();
-    const buffer = presentationStore.getState().activityBuffer;
+    const buffer = presentationStore.getState().entries[turnId]?.buffer;
     // Recover the retained activity after mounting/reconnecting. Merge by sequence
     // with the live stream, which may have advanced while the read was in flight.
     void readEventWindow(clients, { mode: "model", turn_id: turnId }, {
       through: useConnectionStore.getState().eventCursor, signal: controller.signal,
     }).then((window) => {
-      if (controller.signal.aborted || presentationStore.getState().activityBuffer !== buffer) return;
-      presentationStore.getState().loadEvents(window.events);
-      if (window.truncated) buffer?.markIncomplete();
-      presentationStore.getState().refresh();
-    }).catch(() => { if (!controller.signal.aborted) presentationStore.getState().markIncomplete(); });
+      if (controller.signal.aborted || presentationStore.getState().entries[turnId]?.buffer !== buffer) return;
+      presentationStore.getState().loadEvents(turnId, window.events);
+      if (window.truncated) presentationStore.getState().markIncomplete(turnId);
+    }).catch(() => { if (!controller.signal.aborted) presentationStore.getState().markIncomplete(turnId); });
     return () => controller.abort();
-  }, [clients, epoch, turnId, eventsPhase, gap]);
+  }, [clients, epoch, turnId, eventsPhase, gap, enabled]);
 
   useEffect(() => {
-    if (!clients || !turnId || !active) return;
+    if (!clients || !active || !enabled) return;
     const controller = new AbortController();
     const signal = controller.signal;
     const read = async () => {
@@ -93,6 +89,6 @@ export function useActivityDetails() {
     // A closed Context keeps its last installed view; no owner mutation or retry.
     void read().catch(() => {});
     return () => controller.abort();
-  }, [clients, epoch, turnId, active, installed]);
+  }, [clients, epoch, turnId, active, installed, enabled]);
   return working?.turnId === turnId ? working.value : EMPTY;
 }

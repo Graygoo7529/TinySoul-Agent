@@ -17,6 +17,7 @@ import {
 } from "../../app/testing";
 import { openContextDrawer } from "./entries";
 import { ContextOverviewPanel } from "./OverviewPanel";
+import { BackgroundPanel } from "./BackgroundPanel";
 
 import overviewFixture from "../../../test/fixtures/contracts/context-overview.json";
 
@@ -105,6 +106,22 @@ function segmentRequests() {
 }
 
 describe("openContextDrawer", () => {
+  it("retains already read Reflection background after completion without a Session fallback", async () => {
+    endpoint.get(`/v2/turns/${TURN_ID}/context/background`, () => jsonResponse({
+      source: "context", snapshot_available: true, continuation: null, items: [{
+        owner: "home", ref: "home:skills@review", title: "Review skill", source: "phase1", content: "Review these changes carefully.",
+      }],
+    }));
+    act(() => root.render(<BackgroundPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29" active committed={false} reflection owner="home" />));
+    await flush();
+    expect(container.textContent).toContain("Review these changes carefully.");
+    act(() => root.render(<BackgroundPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29" active={false} committed={false} reflection owner="home" />));
+    await flush();
+    expect(container.textContent).toContain("整理已结束");
+    expect(container.textContent).toContain("Review these changes carefully.");
+    expect(endpoint.calls(`/v2/session/turns/${TURN_ID}/background`)).toHaveLength(0);
+  });
+
   it("keeps Session map available while installed Context tabs are empty", async () => {
     useConnectionStore
       .getState()

@@ -265,6 +265,10 @@ class Agent:
     def turn_snapshot(self, turn_id: str) -> TurnSnapshot | None:
         return self._running_runtime().service_access.turn_snapshot(turn_id)
 
+    def turn_directory(self) -> JsonObject:
+        """List the current scheduler's bounded retained root requests."""
+        return self._running_runtime().service_access.turn_directory()
+
     def runtime_status(self) -> JsonObject:
         return self._running_runtime().service_access.runtime_status()
 

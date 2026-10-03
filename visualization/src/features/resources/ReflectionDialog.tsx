@@ -10,7 +10,7 @@
  * a day that already has a daily stays selectable.
  *
  * The Reflection shares the root queue: when other root work is active or
- * queued the dialog says so, and the receipt view leads to the runtime page.
+ * queued the dialog says so; acceptance opens the corresponding Chat card.
  */
 
 import { useEffect, useMemo, useState, type ReactElement } from "react";
@@ -19,18 +19,17 @@ import { AlertTriangle, CalendarClock, Loader2, Sparkles } from "lucide-react";
 import type {
   ReflectionAvailability,
   ReflectionRequestBody,
-  TurnCreateReceipt,
 } from "../../api/v2/types";
 import { apiErrorCode } from "../../api/v2/errors";
 import { Modal } from "../../components/ui/Modal";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
-import { useAppStore } from "../../store/appStore";
+import { showRuntimeTurn } from "../chat/turnController";
 import { useConnectionStore } from "../../store/connectionStore";
 import { randomId } from "../../utils/randomId";
 
 export interface ReflectionDialogProps {
-  kind: "home" | "memory";
+  kind?: "home" | "memory";
   onClose: () => void;
 }
 
@@ -60,7 +59,8 @@ export function suggestedTargetDay(candidates: DayCandidate[]): string | null {
     null;
 }
 
-export function ReflectionDialog({ kind, onClose }: ReflectionDialogProps): ReactElement {
+export function ReflectionDialog({ kind: initialKind, onClose }: ReflectionDialogProps): ReactElement {
+  const [kind, setKind] = useState<"home" | "memory">(initialKind ?? "home");
   const [availability, setAvailability] = useState<ReflectionAvailability | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [earlierBusy, setEarlierBusy] = useState(false);
@@ -69,7 +69,6 @@ export function ReflectionDialog({ kind, onClose }: ReflectionDialogProps): Reac
   const [instructions, setInstructions] = useState("");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [receipt, setReceipt] = useState<TurnCreateReceipt | null>(null);
 
   const queueBusy = useConnectionStore(
     (s) =>
@@ -151,7 +150,7 @@ export function ReflectionDialog({ kind, onClose }: ReflectionDialogProps): Reac
   const effectiveTargetDay = manualDay.trim() !== "" ? manualDay.trim() : targetDay;
 
   const submit = () => {
-    const clients = useConnectionStore.getState().clients;
+    const { clients, epoch } = useConnectionStore.getState();
     if (clients === null || busy) return;
     if (kind === "memory" && effectiveTargetDay === null) return;
     setBusy(true);
@@ -173,7 +172,9 @@ export function ReflectionDialog({ kind, onClose }: ReflectionDialogProps): Reac
       .request(body)
       .then((result) => {
         setBusy(false);
-        setReceipt(result);
+        if (useConnectionStore.getState().epoch !== epoch) return;
+        void showRuntimeTurn(epoch, result.turn_id);
+        onClose();
       })
       .catch((error: unknown) => {
         setBusy(false);
@@ -188,39 +189,16 @@ export function ReflectionDialog({ kind, onClose }: ReflectionDialogProps): Reac
       });
   };
 
-  const openRuntime = () => {
-    useAppStore.getState().setActiveTab("runtime");
-    onClose();
-  };
-
-  const title = kind === "home" ? "Organize Home" : "Organize Memory";
+  const title = kind === "home" ? "整理 Home" : "整理 Memory";
 
   return (
     <Modal title={title} onClose={onClose}>
-      {receipt !== null ? (
-        <div className="space-y-3">
-          <p className="text-[13px] text-fg-muted">
-            The {kind === "home" ? "Home" : "Memory"} reflection was accepted
-            {kind === "memory" && effectiveTargetDay !== null && (
-              <>
-                {" "}for source day{" "}
-                <span className="font-mono text-[12px]">{effectiveTargetDay}</span>
-              </>
-            )}
-            . It runs as its own turn on the shared root queue.
-          </p>
-          <p className="font-mono text-[11px] text-fg-faint">turn: {receipt.turn_id}</p>
-          <div className="flex items-center gap-2 pt-1">
-            <Button variant="primary" size="sm" onClick={openRuntime}>
-              Open runtime view
-            </Button>
-            <Button variant="outline" size="sm" onClick={onClose}>
-              Close
-            </Button>
-          </div>
-        </div>
-      ) : (
         <div className="space-y-4">
+          {!initialKind && <div className="flex gap-1 rounded-lg border border-line bg-bg-sunken p-1">
+            {(["home", "memory"] as const).map((value) => <Button key={value} className="flex-1" size="sm"
+              variant={kind === value ? "secondary" : "ghost"} disabled={busy}
+              onClick={() => { setKind(value); setSubmitError(null); }}>{value === "home" ? "Home" : "Memory"}</Button>)}
+          </div>}
           {queueBusy && (
             <div className="flex items-start gap-2 rounded-lg border border-line bg-bg-sunken px-3 py-2 text-[12px] text-fg-muted">
               <CalendarClock size={13} className="mt-0.5 shrink-0 text-fg-faint" />
@@ -245,7 +223,7 @@ export function ReflectionDialog({ kind, onClose }: ReflectionDialogProps): Reac
 
           {kind === "home" && availability !== null && (
             <p className="text-[13px] leading-5.5 text-fg-muted">
-              {availability.home_change_count > 0 ? (
+              {availability.home_change_count > 0 || availability.home_skill_memory_count > 0 ? (
                 <>
                   {availability.home_change_count} overlay{" "}
                   {availability.home_change_count === 1 ? "change" : "changes"}{" "}
@@ -254,10 +232,10 @@ export function ReflectionDialog({ kind, onClose }: ReflectionDialogProps): Reac
                 </>
               ) : (
                 <>
-                  No overlay changes are pending. A Home reflection can still
-                  tidy and reorganize the accepted content.
+                  没有待审核的 Home 差异；整理会跳过模型执行，并清理没有变更的运行副本。
                 </>
               )}
+              {availability.home_skill_memory_count > 0 && <span className="block mt-1">{availability.home_skill_memory_count} 项 Skill memory 待整理。</span>}
             </p>
           )}
 
@@ -332,6 +310,7 @@ export function ReflectionDialog({ kind, onClose }: ReflectionDialogProps): Reac
               value={instructions}
               onChange={(event) => setInstructions(event.target.value)}
               rows={4}
+              maxLength={16000}
               placeholder={
                 kind === "home"
                   ? "What to focus on while reviewing Home…"
@@ -368,7 +347,6 @@ export function ReflectionDialog({ kind, onClose }: ReflectionDialogProps): Reac
             </Button>
           </div>
         </div>
-      )}
     </Modal>
   );
 }

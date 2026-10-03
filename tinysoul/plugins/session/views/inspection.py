@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 from tinysoul.infra.continuation import (
     ContinuationError,
@@ -102,6 +103,9 @@ class SessionView:
                 "ref": ref,
                 "day": record.day,
                 "status": record.status.value,
+                "recorded_at": datetime.fromtimestamp(
+                    record.recorded_at_ns / 1_000_000_000, tz=timezone.utc
+                ).isoformat(),
                 "initial_input_excerpt": record.inputs[0].text[:240],
                 "output_excerpt": record.output.text[:240] if record.output else "",
                 "question_count": sum(

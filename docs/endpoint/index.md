@@ -18,7 +18,7 @@ Endpoint 是 loopback 本地协议。除 `GET /v2/health` 外，HTTP 请求都�
 | Runtime | `POST /v2/input` | 提交 User input |
 | Runtime | `POST /v2/control` | 提交 stop/exit control |
 | Runtime | `POST /v2/restart` | 请求宿主重建 Agent generation，保持 Endpoint instance |
-| Turn | `POST /v2/turns`、`GET /v2/turns/{id}` | 结构化受理和 owner 状态/结果 |
+| Turn | `POST /v2/turns`、`GET /v2/turns`、`GET /v2/turns/{id}` | 结构化受理、有界句柄目录和 owner 状态/结果 |
 | Turn | `POST /v2/turns/{id}/input`、`reply`、`grant`、`cancel` | 指定 Turn 的输入与控制 |
 | Job | `GET /v2/turns/{id}/jobs`、`POST /v2/turns/{id}/jobs/{job_id}/stop` | Turn-owned 查询与停止 |
 | Reflection | `GET/POST /v2/reflection` | 读取 availability、提交维护请求 |

@@ -10,14 +10,15 @@ import { asObject, asString } from "../trace/facts";
 import type { MarkdownOrigin } from "../../components/markdown/codeBlockRegistry";
 
 /** Read installed content or its immutable completion snapshot, never Home.read_top. */
-export function BackgroundPanel({ epoch, turnId, day, active, committed, owner }: {
-  epoch: number; turnId: string; day: string; active: boolean; committed: boolean; owner: "home" | "memory";
+export function BackgroundPanel({ epoch, turnId, day, active, committed, reflection = false, owner }: {
+  epoch: number; turnId: string; day: string; active: boolean; committed: boolean; reflection?: boolean; owner: "home" | "memory";
 }) {
   const generation = useConnectionStore((s) => s.contextGeneration);
   const [data, setData] = useState<{ items: BackgroundResource[]; available: boolean; source: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(new Set<string>());
   useEffect(() => {
+    if (reflection && !active) return;
     const controller = new AbortController();
     const clients = contextClients(epoch);
     void drainPages<BackgroundResource, BackgroundPage>((continuation) => {
@@ -28,12 +29,12 @@ export function BackgroundPanel({ epoch, turnId, day, active, committed, owner }
       if (!controller.signal.aborted) { setData({ items: result.items, available: result.pages[0].snapshot_available, source: result.pages[0].source }); setError(null); }
     }).catch((reason: unknown) => { if (!controller.signal.aborted) setError(errorMessage(reason)); });
     return () => controller.abort();
-  }, [epoch, turnId, day, active, committed, active ? generation : 0]);
+  }, [epoch, turnId, day, active, committed, reflection, active ? generation : 0]);
   const resources = data?.items.filter((item) => item.owner === owner) ?? [];
   return <div className="space-y-3" data-background-source={data?.source}>
-    <div className="text-[11px] text-fg-faint">{data?.source === "session" ? "已完成会话的背景快照" : "本轮已加载"}</div>
+    <div className="text-[11px] text-fg-faint">{reflection && !active ? "整理已结束；仅保留此面板最近读取的内容" : data?.source === "session" ? "已完成会话的背景快照" : "本轮已加载"}</div>
     {error && <div className="text-[12px] text-warning">{error}</div>}
-    {!data && !error && <Loader2 size={14} className="animate-spin-slow text-fg-faint" />}
+    {!data && !error && (reflection && !active ? <EmptyState title="没有读取到整理背景" description="可从 Details 中查看实际模型调用的 Context。" /> : <Loader2 size={14} className="animate-spin-slow text-fg-faint" />)}
     {data && !data.available && <EmptyState title="这轮会话没有保存背景正文" />}
     {data?.available && resources.length === 0 && <EmptyState title={`未加载 ${owner === "home" ? "Home" : "Memory"} 内容`} />}
     {resources.map((item) => <ResourceCard key={item.ref} item={item} expanded={expanded.has(item.ref)}

@@ -49,6 +49,7 @@ CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "page": responses.PageResponse,
     "search-page": responses.SearchResponse,
     "turn-snapshot": responses.TurnResponse,
+    "turn-list": responses.TurnListResponse,
     "interaction-page": responses.InteractionPageResponse,
     "configuration": responses.ConfigResponse,
     "config-mutation": responses.ConfigMutationResponse,
@@ -392,6 +393,9 @@ async def collect_contract_responses(root: Path) -> dict[str, JsonObject]:
             snapshot = agent.turn_snapshot("contract-turn")
             assert snapshot is not None
             assert samples["turn-waiting"] == snapshot.to_json()
+            directory = await get("/v2/turns")
+            _validate("turn-list", directory)
+            assert directory["items"] == [snapshot.summary_json()]
             samples["context-overview"] = await get("/v2/turns/contract-turn/context")
             installed_background = await get(
                 "/v2/turns/contract-turn/context/background", max_chars=64000

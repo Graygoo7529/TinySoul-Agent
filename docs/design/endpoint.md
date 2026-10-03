@@ -29,6 +29,8 @@ HTTP restart 只等待 SDK 已有的共享重启任务并投影结果，不逐�
 
 TurnSnapshot 由 Agent 从保留的 TurnHandle 构造；完成结果通过 TurnResult 投影 owner outcome，包含正式输出、必要提交失败与独立清理诊断，不包含运行时 trace 或 transfer。排队、等待和完成没有 Endpoint 状态副本；句柄淘汰后返回明确的未找到。Reflection 请求进入同一结构化受理与查询路径。
 
+Turn 目录同样经 SDK 投影已保留句柄，向界面提供生命周期、执行日和 Reflection 来源摘要。目录只用于发现与定位，详细问题、预算和结果仍由单 Turn 快照提供；Endpoint 不由事件 replay 拼接任务目录。
+
 问题与预算请求可同时待决，reply 与 grant 分别传入同一个 Inbox；断开连接不改变等待或取消状态。Job 查询/停止经 Agent 服务和 JobControl 进入唯一 JobRegistry，不暴露 backend。Job owner 串行处理外部停止与 Turn 收尾，停止失败保留可由 Turn sync/Trap 消费的事实；Job 在 Turn 清理后不被 Endpoint 另行保留。ACP Job 应答由 S6 adapter 按权限请求协议实现，不预建通用 Endpoint 状态或回应路由。
 
 ## 目录边界

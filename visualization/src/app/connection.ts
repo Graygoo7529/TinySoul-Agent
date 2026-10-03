@@ -21,11 +21,9 @@ import { createV2Clients } from "../api/v2/clients";
 import type { EventsSocket, EventsWebSocketFactory } from "../api/v2/clients";
 import { handshakeFromStatus, parseEndpointAddress } from "../api/v2/connection";
 import { V2Transport } from "../api/v2/transport";
-import { turnIdOfObservation } from "../api/v2/types";
 import type { ObservationEvent, RuntimeStatus } from "../api/v2/types";
 import { useAppStore } from "../store/appStore";
 import { useConnectionStore } from "../store/connectionStore";
-import { useTurnStore } from "../store/turnStore";
 import {
   refreshSessionTurns,
   resetTurnController,
@@ -449,11 +447,7 @@ function routeEvent(epoch: number, event: ObservationEvent): void {
   const name = event.name;
 
   // Route to presentation layer for current turn activity
-  const currentTurnId = useTurnStore.getState().turnId;
-  if (currentTurnId && turnIdOfObservation(event) === currentTurnId) {
-    // Add event to activity buffer for live presentation
-    presentationStore.getState().addEvent(event);
-  }
+  presentationStore.getState().addEvent(event);
 
   // Context-install events drive the drawer's lightweight generation signal
   // (plan §3.5): panels mark themselves refreshable from it — an unrelated

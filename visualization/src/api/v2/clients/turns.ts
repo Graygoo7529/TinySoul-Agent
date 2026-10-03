@@ -16,12 +16,17 @@ import type {
   TurnInputBody,
   TurnReplyBody,
   TurnSnapshot,
+  TurnDirectory,
 } from "../types";
 import type { RequestOptions, V2Transport } from "../transport";
 import type { ListPageParams } from "./paging";
 
 export class TurnsClient {
   constructor(private readonly transport: V2Transport) {}
+
+  list(options?: RequestOptions): Promise<TurnDirectory> {
+    return this.transport.get<TurnDirectory>("/turns", options);
+  }
 
   /** POST /v2/turns — queue a new User Turn (202 acceptance fact). */
   create(

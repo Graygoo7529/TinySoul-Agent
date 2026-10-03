@@ -146,7 +146,7 @@ function JobsLine({ count }: { count: number }): ReactElement {
  */
 function ResultCard({ result }: { result: TurnResult }): ReactElement {
   const hasCleanup =
-    result.finish_failures.length > 0 || result.cleanup.length > 0;
+    (result.finish_failures?.length ?? 0) > 0 || (result.cleanup?.length ?? 0) > 0;
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2 text-[12px]">
@@ -155,7 +155,7 @@ function ResultCard({ result }: { result: TurnResult }): ReactElement {
           {result.status}
         </Badge>
       </div>
-      {result.failure !== null && (
+      {result.failure != null && (
         <Collapsible
           title="Execution failure"
           meta={<Badge tone="red">failed</Badge>}
@@ -164,12 +164,12 @@ function ResultCard({ result }: { result: TurnResult }): ReactElement {
           <JsonTree value={result.failure} defaultExpanded={false} />
         </Collapsible>
       )}
-      {result.output !== null && (
+      {result.output != null && (
         <Collapsible title="Output">
           <JsonTree value={result.output} defaultExpanded={false} />
         </Collapsible>
       )}
-      {result.completion !== null && (
+      {result.completion != null && (
         <Collapsible title="Completion">
           <JsonTree value={result.completion} defaultExpanded={false} />
         </Collapsible>
@@ -179,7 +179,7 @@ function ResultCard({ result }: { result: TurnResult }): ReactElement {
           title="After-finish diagnostics"
           meta={
             <Badge tone="yellow">
-              {result.finish_failures.length + result.cleanup.length}
+              {(result.finish_failures?.length ?? 0) + (result.cleanup?.length ?? 0)}
             </Badge>
           }
         >
@@ -188,11 +188,11 @@ function ResultCard({ result }: { result: TurnResult }): ReactElement {
               Raised while finishing or cleaning up — separate from the
               Turn's own result above.
             </p>
-            {result.finish_failures.length > 0 && (
-              <JsonTree value={result.finish_failures} defaultExpanded={false} />
+            {(result.finish_failures?.length ?? 0) > 0 && (
+              <JsonTree value={result.finish_failures ?? []} defaultExpanded={false} />
             )}
-            {result.cleanup.length > 0 && (
-              <JsonTree value={result.cleanup} defaultExpanded={false} />
+            {(result.cleanup?.length ?? 0) > 0 && (
+              <JsonTree value={result.cleanup ?? []} defaultExpanded={false} />
             )}
           </div>
         </Collapsible>

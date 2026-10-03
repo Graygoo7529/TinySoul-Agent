@@ -194,6 +194,10 @@ class AgentRuntimeServices:
         handle = self._scheduler.turn_handle(turn_id)
         return handle.snapshot(jobs=self._turn_jobs(turn_id)) if handle else None
 
+    def turn_directory(self) -> JsonObject:
+        self._require_open()
+        return self._scheduler.turn_directory()
+
     def _context_for(self, generation: AgentGeneration, turn_id: str) -> ContextEngine:
         for profile in generation.profiles:
             if profile.context.active_turn_id == turn_id:

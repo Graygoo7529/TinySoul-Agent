@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { Bot, Check, Loader2, PanelRightOpen } from "lucide-react";
-import type { Interaction, TurnQuestion } from "../../api/v2/types";
+import type { Interaction, TurnQuestion, TurnSnapshot } from "../../api/v2/types";
 import { Badge, type BadgeTone } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { formatDuration } from "../../utils/format";
@@ -14,8 +14,23 @@ import type { MarkdownOrigin } from "../../components/markdown/codeBlockRegistry
 import { useTypewriter } from "../../hooks/useTypewriter";
 import { EASE_CALM, SETTLE_WIPE_MS, ANSWER_STREAM_DELAY_MS, FOLD_DELAY_MS, LIVE_FOLD_MS } from "../../utils/motion";
 import { QuestionCard } from "./QuestionCard";
+import { grantBudget } from "./turnController";
 
 type ChatViewMode = "live" | "history";
+
+export function BudgetCard({ snapshot }: { snapshot: TurnSnapshot | null }) {
+  const epoch = useConnectionStore((s) => s.epoch);
+  const history = useTurnStore((s) => s.historyView);
+  const request = snapshot?.budget_request;
+  if (history || !snapshot || snapshot.state !== "waiting" || !request) return null;
+  return <div className="rounded-xl border border-warning/40 bg-warning-soft px-4 py-3">
+    <div className="text-[13px] font-medium text-warning">The turn used up its cycles and is waiting for more budget.</div>
+    <div className="mt-2 flex items-center gap-2">{[1, 5, 10].map((count) =>
+      <Button key={count} variant="outline" size="xs" onClick={() => void grantBudget(epoch, snapshot.turn_id, request.request_id, count)}>
+        +{count} {count === 1 ? "cycle" : "cycles"}
+      </Button>)}</div>
+  </div>;
+}
 
 /** Baseline metadata row; status and action outcomes come from owner facts.
     Duration is optional because archived Session facts do not retain it. */
@@ -243,11 +258,11 @@ function AgentReason({ text, origin, nested }: { text: string; origin: MarkdownO
  * card; the formal interaction row with the same question_id stays hidden so
  * the two projections never produce two submittable forms.
  */
-function useLiveWaitingQuestion(): TurnQuestion | null {
+function useLiveWaitingQuestion(targetId?: string | null): TurnQuestion | null {
   const historyView = useTurnStore((s) => s.historyView);
-  const snapshot = useTurnStore((s) => s.snapshot);
-  const items = useTurnStore((s) => s.items);
-  if (historyView || snapshot === null || snapshot.state !== "waiting") {
+  const snapshot = useTurnStore((s) => targetId && targetId !== s.turnId ? s.runtimeProjections[targetId]?.snapshot : s.snapshot);
+  const items = useTurnStore((s) => targetId && targetId !== s.turnId ? s.runtimeProjections[targetId]?.items : s.items) ?? [];
+  if (historyView || !snapshot || snapshot.state !== "waiting") {
     return null;
   }
   const question = snapshot.question;
@@ -263,10 +278,10 @@ function useLiveWaitingQuestion(): TurnQuestion | null {
 
 /** The single card of the live waiting question, rendered immediately from
     the snapshot — before and regardless of the interaction drain progress. */
-export function WaitingQuestionCard() {
+export function WaitingQuestionCard({ targetId }: { targetId?: string } = {}) {
   const epoch = useConnectionStore((s) => s.epoch);
-  const turnId = useTurnStore((s) => s.turnId);
-  const question = useLiveWaitingQuestion();
+  const turnId = useTurnStore((s) => targetId ?? s.turnId);
+  const question = useLiveWaitingQuestion(turnId);
   if (question === null || turnId === null) return null;
   return (
     <QuestionCard
@@ -283,8 +298,8 @@ export function WaitingQuestionCard() {
 function QuestionRow({ item, turnId, view }: { item: Interaction; turnId: string | null; view: ChatViewMode }) {
   const epoch = useConnectionStore((s) => s.epoch);
   const items = useTurnStore((s) =>
-    view === "history" && turnId !== null ? s.sessionProjections[turnId]?.items ?? s.items : s.items);
-  const liveQuestion = useLiveWaitingQuestion();
+    turnId !== null && turnId !== s.turnId ? s.runtimeProjections[turnId]?.items ?? s.sessionProjections[turnId]?.items ?? s.items : s.items);
+  const liveQuestion = useLiveWaitingQuestion(turnId);
 
   const questionId = typeof item.question_id === "string" ? item.question_id : null;
   // The waiting area renders the live question's single card; this formal

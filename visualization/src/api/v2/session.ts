@@ -31,6 +31,7 @@ export interface SessionTurnSummary {
   ref: string;
   day: string;
   status: string;
+  recorded_at?: string;
   initial_input_excerpt: string;
   output_excerpt: string;
   question_count: number;

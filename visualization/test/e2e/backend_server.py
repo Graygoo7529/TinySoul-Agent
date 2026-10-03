@@ -74,6 +74,7 @@ from tinysoul.plugins.workspace.services import WorkspaceService
 # part of the e2e protocol between this harness and chat-flow.pw.ts.
 PLAIN_MARKER = "e2e-plain"
 ASK_TRIGGER = "e2e-ask"
+REFLECTION_TRIGGER = "e2e-reflection"
 REPLY_MARKER = "e2e-reply-comment"
 
 QUESTION_TEXT = "Which option do you pick?"
@@ -192,6 +193,8 @@ class ScriptedLLM:
             else str(call.profile)
         )
         if profile == TaskProfile.FRAME_STAGE1.value:
+            if REFLECTION_TRIGGER in text:
+                return _tool_result("select_action_domains", {"domains": ["core"], "intent": "Review the source and ask before concluding this reflection."}, ToolKind.CONTROL)
             if ASK_TRIGGER in text:
                 controls = (
                     ToolCallRecord("select", "select_action_domains", {"domains": ["core", "workspace"], "intent": "Inspect the working copy before asking for a choice."}, ToolKind.CONTROL),
@@ -216,6 +219,10 @@ class ScriptedLLM:
         return _json_result(to_json_object({"text": "Finished response"}))
 
     def _stage2(self, text: str, turn_id: str) -> TaskResult:
+        if REFLECTION_TRIGGER in text:
+            if REPLY_MARKER not in text:
+                return _tool_result("core.ask", to_json_object({"text": "Continue this reflection?", "options": list(QUESTION_OPTIONS), "allow_other": True}), ToolKind.ACTION)
+            return _answer_action("Reflection reviewed with your reply.")
         if ASK_TRIGGER in text:
             if turn_id not in self._scripted_read:
                 self._scripted_read.add(turn_id)

@@ -35,7 +35,7 @@ rather than being copied into another business model.
 | /turns/{id}/context/segments/{segment_id} | continuation?, max_chars? | turn_id/segment_id、messages[{message_index,message}]；可选 next_continuation/content_fragment |
 | /turns/{id}/context/background | continuation?, max_chars? | 当前 Turn 已安装 Home/Memory 等 Heap 的正文快照；只读、不读取 owner 当前文件 |
 | /turns/{id}/context/inspect | ref、query?、continuation? | 既有 DisclosurePage |
-| /session/turns | day?、普通分页 | Turn 摘要：turn_id/ref/day/status/input/output 线索及问题数 |
+| /session/turns | day?、普通分页 | User Turn 摘要：turn_id/ref/day/status/input/output 线索、问题数和 recorded_at（现有 Session 记录的提交时间，UTC ISO） |
 | /session/turns/{id} | day、continuation?、max_chars? | 正式 Session 交互页 |
 | /session/turns/{id}/background | day、continuation?、max_chars? | 该已完成 Turn 提交时保存的 Heap 正文；旧记录无快照时 snapshot_available=false |
 | /session/map | day?、continuation? | session:map 的 DisclosurePage |

@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react";
+import { useRef, useState, type ReactElement } from "react";
 import { BookOpen, Brain, Layers, Map } from "lucide-react";
 
 import { selectActiveDay, selectActiveTurnId, useConnectionStore } from "../../store/connectionStore";
@@ -27,12 +27,18 @@ export function ContextInspectorPanel({
   const displayedDay = useTurnStore((s) => s.day);
   const snapshot = useTurnStore((s) => s.snapshot);
   const turns = useTurnStore((s) => s.sessionTurns);
+  const runtimeTurns = useTurnStore((s) => s.runtimeTurns);
   const [target] = useState(() => {
     const id = turnId ?? activeId ?? displayedId ?? turns?.[0]?.turn_id ?? null;
     const day = id === activeId ? activeDay : id === displayedId ? displayedDay : turns?.find((entry) => entry.turn_id === id)?.day;
     return { id, day: day ?? activeDay };
   });
   const { id: targetId, day: targetDay } = target;
+  const retainedRoot = useRef(runtimeTurns.find((entry) => entry.turn_id === targetId));
+  const root = runtimeTurns.find((entry) => entry.turn_id === targetId);
+  if (root) retainedRoot.current = root;
+  const kind = retainedRoot.current?.kind ?? "user";
+  const mapDay = kind === "memory" ? retainedRoot.current?.reflection?.target_day ?? targetDay : targetDay;
   const committed = turns?.some((entry) => entry.turn_id === targetId) ?? false;
   const active = targetId !== null && targetId === activeId && !(snapshot?.turn_id === targetId && snapshot.state === "finished");
   const tabs: Array<{ id: ContextTab; label: string; icon: ReactElement }> = [
@@ -60,14 +66,16 @@ export function ContextInspectorPanel({
       </div>
       {visited.has("context") && targetId && <div hidden={tab !== "context"}><ContextOverviewPanel key={targetId} epoch={epoch} turnId={targetId} /></div>}
       {tab === "context" && !targetId && <EmptyState title="当前没有运行中的语境" description="Home 和 Memory 子页保留最近会话已加载的正文。" />}
-      {visited.has("session") && (targetDay ?? activeDay) !== null && (
-        <div hidden={tab !== "session"}><SessionMapPanel epoch={epoch} day={(targetDay ?? activeDay)!} /></div>
+      {visited.has("session") && (mapDay ?? activeDay) !== null && (
+        <div hidden={tab !== "session"}>
+          {kind === "memory" && <p className="mb-2 text-[11px] text-fg-faint">整理来源：{mapDay}</p>}
+          <SessionMapPanel epoch={epoch} day={(mapDay ?? activeDay)!} /></div>
       )}
       {tab === "session" && activeDay === null && (
         <EmptyState title="No active day" description="The Session map is available after the Agent establishes a calendar day." />
       )}
       {(visited.has("home") || visited.has("memory")) && <div hidden={tab !== "home" && tab !== "memory"}>
-        {targetId && targetDay ? <BackgroundPanel key={targetId} epoch={epoch} turnId={targetId} day={targetDay} active={active} committed={committed} owner={tab === "memory" ? "memory" : "home"} />
+        {targetId && targetDay ? <BackgroundPanel key={targetId} epoch={epoch} turnId={targetId} day={targetDay} active={active} committed={committed} reflection={kind !== "user"} owner={tab === "memory" ? "memory" : "home"} />
           : <EmptyState title="暂无会话背景" />}
       </div>}
     </div>

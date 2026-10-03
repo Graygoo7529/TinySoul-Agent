@@ -109,8 +109,21 @@ async def test_program_dispatches_typed_requests_to_user_or_reflection() -> None
             scope=ReflectionScope.HOME,
             trigger=ReflectionTrigger.MANUAL,
             request_id="reflection_1",
+            instructions="Review the runtime Home. " * 30,
         )
     )
+    queued = runner.turn_directory()
+    queued_items = queued["items"]
+    assert isinstance(queued_items, list)
+    assert [item["kind"] for item in queued_items if isinstance(item, dict)] == ["user", "home"]
+    origin = reflection_handle.snapshot().to_json()["reflection"]
+    assert isinstance(origin, dict) and origin["instructions"] == "Review the runtime Home. " * 30
+    summary = reflection_handle.snapshot().summary_json()
+    assert summary["started_at"] is None and summary["finished_at"] is None
+    clue = summary["reflection"]
+    assert isinstance(clue, dict) and clue["truncated"] is True
+    assert isinstance(clue["instructions_excerpt"], str) and len(clue["instructions_excerpt"]) == 240
+    assert "instructions" not in clue and "result" not in summary
     worker = asyncio.create_task(runner.run())
     await user_handle.wait()
     await reflection_handle.wait()
@@ -123,6 +136,11 @@ async def test_program_dispatches_typed_requests_to_user_or_reflection() -> None
     assert outcome.reflection_count == 1
     assert len(outcome.turns) == 1
     assert len(outcome.reflection) == 1
+    settled = reflection_handle.snapshot()
+    assert settled.active_day == DAY
+    assert settled.started_at is not None and settled.finished_at is not None
+    assert settled.accepted_at <= settled.started_at <= settled.finished_at
+    assert settled.summary_json()["status"] == "skipped"
 
 
 async def test_queued_cancellations_release_capacity_and_retain_by_completion_order() -> (
@@ -150,6 +168,10 @@ async def test_queued_cancellations_release_capacity_and_retain_by_completion_or
     assert all(
         runner.turn_handle(handle.turn_id) is handle for handle in cancelled[-2:]
     )
+    directory = runner.turn_directory()
+    assert directory["completed_limit"] == 2
+    assert isinstance(directory["items"], list) and len(directory["items"]) == 2
+    assert all(handle.snapshot().started_at is None and handle.snapshot().finished_at is not None for handle in cancelled)
     for handle in cancelled:
         assert (await handle.wait()).status.value == "cancelled"
     active = runner.submit_turn(

@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Crossfade } from "../../components/ui/Crossfade";
 import { diffLines } from "../../utils/diff";
+import { EASE_CALM } from "../../utils/motion";
 import { actionFamily } from "../trace/registry";
 import { asObject, asString, asNumber } from "../trace/facts";
 import { pushActionDetail } from "../trace/entries";
@@ -30,12 +31,12 @@ export function ActivityGlimpse({ item, live, glimpseExpanded, onToggleGlimpse, 
   return <Step item={item} animate={live} onToggleGlimpse={onToggleGlimpse} glimpseExpanded={glimpseExpanded}
     glimpse={<AnimatePresence initial={false}>{glimpseExpanded && <motion.div key={item.id} data-activity-gist={data.stage}
       style={{ overflow: "hidden" }} initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-      transition={{ duration: reduced ? 0 : 0.35 }}>
-      <Crossfade id={`${data.callId}:${data.stage}`} className="mt-1 rounded-lg border border-line/70 bg-bg-sunken/70 px-2.5 py-1.5">
+      transition={{ duration: reduced ? 0 : 0.35, ease: EASE_CALM }}>
+      <div className="grow-in"><Crossfade id={`${data.callId}:${data.stage}`} className="mt-1 rounded-lg border border-line/70 bg-bg-sunken/70 px-2.5 py-1.5">
         {body}
         {data.callId && <button type="button" className="mt-1 text-[10px] text-accent hover:underline"
           onClick={() => pushActionDetail(epoch, turnId, day, { callId: data.callId!, action: data.actionId, ordinal: 0 })}>Details</button>}
-      </Crossfade>
+      </Crossfade></div>
     </motion.div>}</AnimatePresence>} />;
 }
 /** Null means the row has no compact inset; never mount an empty disclosure. */

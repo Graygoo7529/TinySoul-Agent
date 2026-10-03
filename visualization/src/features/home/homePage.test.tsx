@@ -375,6 +375,7 @@ describe("HomePage search and organize", () => {
     const body = bodyJson(posts[0]) as Record<string, unknown>;
     expect(body).toMatchObject({ kind: "home", instructions: "Tidy the identity section" });
     expect(body).not.toHaveProperty("target_day");
-    expect(container.textContent).toContain("Open runtime view");
+    expect(useAppStore.getState().activeTab).toBe("chat");
+    expect(container.querySelector('textarea[aria-label="Reflection instructions"]')).toBeNull();
   });
 });

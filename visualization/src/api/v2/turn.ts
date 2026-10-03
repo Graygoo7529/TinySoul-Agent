@@ -50,20 +50,30 @@ export interface TurnBudgetRequest {
 }
 
 /**
- * TurnSnapshot.result: SDK TurnResult.to_json() projection. Only the fields
- * visible in the turn-finished example are typed; reflection results and
- * failure payloads stay JsonObject.
+ * Root outcome: User completion, Reflection tasks, or request failure.
+ * The snapshot kind determines which owner-specific fields are present.
  */
 export interface TurnResult {
   turn_id: string;
-  active_day: string;
+  request_id?: string;
+  active_day?: string;
   status: string;
-  output: JsonObject | null;
-  completion: JsonObject | null;
-  failure: JsonObject | null;
-  finish_failures: JsonValue[];
-  cleanup: JsonValue[];
+  output?: JsonObject | null;
+  completion?: JsonObject | null;
+  failure?: JsonObject | null;
+  finish_failures?: JsonValue[];
+  cleanup?: JsonValue[];
+  tasks?: ReflectionTaskResult[];
   [key: string]: unknown;
+}
+
+export interface ReflectionTaskResult {
+  kind: string;
+  status: string;
+  target_day?: string;
+  reason?: string;
+  details: JsonObject;
+  turn?: { status: string; completion: JsonObject | null; failure: JsonObject | null; finish_failures: JsonValue[]; cleanup: JsonValue[] };
 }
 
 /** Job summary embedded in TurnSnapshot.jobs and job lists (job.json). */
@@ -78,6 +88,33 @@ export interface JobSummary {
   [key: string]: unknown;
 }
 
+export interface ReflectionOrigin {
+  trigger: "manual" | "scheduled";
+  target_day: string | null;
+  instructions_excerpt: string;
+  truncated: boolean;
+  instructions?: string;
+}
+
+/** Retained root handles, independently of persistent User Session history. */
+export interface TurnSummary {
+  turn_id: string;
+  kind: TurnKind;
+  state: TurnState;
+  status: string | null;
+  generation_id: string | null;
+  active_day: string | null;
+  accepted_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  reflection: ReflectionOrigin | null;
+}
+
+export interface TurnDirectory {
+  items: TurnSummary[];
+  completed_limit: number;
+}
+
 /** Schema: turn-snapshot.json (GET /v2/turns/{id}). */
 export interface TurnSnapshot {
   turn_id: string;
@@ -89,6 +126,12 @@ export interface TurnSnapshot {
   budget_request: TurnBudgetRequest | null;
   result: TurnResult | null;
   jobs: JobSummary[];
+  generation_id?: string | null;
+  active_day?: string | null;
+  accepted_at?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  reflection?: ReflectionOrigin | null;
   [key: string]: unknown;
 }
 

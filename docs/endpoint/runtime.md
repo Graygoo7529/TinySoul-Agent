@@ -26,7 +26,9 @@ kind 默认 user；home/memory 表示同一 Agent 的独立 Reflection 情景，
 
 成功返回 202 和 `accepted / command_id / turn_id / kind / state`。这是受理事实，不是执行结果；相同 command_id 与内容在活动及结果保留窗口内复用同一 Turn，内容不同返回 409。容量不足返回 409 agent.queue_full。未提供 command_id 时由服务端生成；需要安全重试的客户端应主动指定。
 
-`GET /v2/turns/{turn_id}` 返回与 SDK TurnSnapshot 相同的投影：kind、state、cancel_requested、wait_reason、question、budget_request、result、jobs。state 为 queued/preparing/running/waiting/finalizing/finished。问题与预算请求可同时存在；reply 不补预算，grant 不冒充回复。
+`GET /v2/turns` 返回 Agent 仍保留的有界句柄目录，包含全部 queued/active 与最多 `completed_limit` 个 finished Turn。每项给出 turn_id、kind、state、status、generation_id、active_day 和 UTC ISO accepted_at/started_at/finished_at；started_at 表示根执行开始，含准备阶段。queued 或执行前取消的 started_at/active_day 可为空。Reflection 额外给出 reflection.trigger、target_day、instructions_excerpt（最多 240 字符）和 truncated。目录不展开 result、Jobs 或模型正文，不从 Observation 重建已淘汰身份。
+
+`GET /v2/turns/{turn_id}` 返回与 SDK TurnSnapshot 相同的投影：上述目录元信息加上 cancel_requested、wait_reason、question、budget_request、result、jobs；reflection 还包含本次完整 instructions。state 为 queued/preparing/running/waiting/finalizing/finished。问题与预算请求可同时存在；reply 不补预算，grant 不冒充回复。完整 schema 见 [Turn 目录](contracts/schemas/turn-list.json) 和 [Turn 快照](contracts/schemas/turn-snapshot.json)。
 
 result 尚未完成时为 null；完成后与 SDK TurnResult.to_json() 一致。User 结果包含正式 output 或 completion、有限 failure、finish_failures 和独立 cleanup；Reflection 结果保留各任务及其目标日期；执行前取消/失败使用 request_failure，不伪造执行事实。结果不包含 Context trace、Runtime transfer 或私有对象。
 

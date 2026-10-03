@@ -1,5 +1,7 @@
 # Reflection
 
+整理入口与普通 User Turn 共用 Agent 根队列和 Turn 查询。前端通过 `GET /v2/turns` 发现仍保留的手动或自动整理，用单 Turn snapshot 读取状态、来源和结果；不依赖本窗口是否发起请求。来源与生命周期字段见 [Runtime 与 Turn](runtime.md)。完成的 Reflection 不存在于 User Session，刷新恢复范围限于 Agent 当前保留的句柄。
+
 `GET /v2/reflection` 返回 owner 派生的内存 availability projection，包括 Home pending、可再次整理的 memory_days、其中尚无 daily 的 missing_daily_days、scanned_days 和 next_before。每页最多检查 64 个日期，使用 `?before=YYYY-MM-DD` 读取更早页；无后续页时 next_before 为 null。候选不是待办队列，已有 daily 仍可整理；不写 availability.json，不自动遍历历史执行。Endpoint 不扫描 Archive，也不建立第二份维护状态。
 
 `POST /v2/reflection` 提交 `kind=home|memory`、command_id、metadata 与可选 instructions（最多 16000 字符）；Memory 必须携带 target_day。该入口表示用户明确允许本次指定整理，只受理一个独立 Reflection Turn，正常对话不持有 Reflection 能力。它复用结构化 Turn 受理，返回 202 与 turn_id；通过 GET /v2/turns/{turn_id} 查询状态和结果。相同身份与内容在活动及结果保留窗口内去重；容量不足返回 409 agent.queue_full。daily 仅由内部自动策略拆分受理，HTTP 不接受 daily 或 rebuild_memory。

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import StrEnum
 
 from tinysoul.infra.json import JsonObject, to_json_object
@@ -125,6 +126,12 @@ class TurnSnapshot:
     question: QuestionRequest | None
     budget_request: BudgetRequest | None
     result: TurnResult | None
+    accepted_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    generation_id: str | None
+    active_day: CalendarDay | None
+    reflection: ReflectionRequest | None
     jobs: tuple[JobSnapshot, ...] = ()
 
     def __post_init__(self) -> None:
@@ -137,12 +144,38 @@ class TurnSnapshot:
         if self.result is not None and self.result.turn_id != self.turn_id:
             raise AgentSDKError("Turn snapshot result identity differs")
 
-    def to_json(self) -> JsonObject:
-        question, budget = self.question, self.budget_request
+    def summary_json(self) -> JsonObject:
+        """The bounded directory shares this handle's identity and lifecycle."""
+        request = self.reflection
         return {
             "turn_id": self.turn_id,
             "kind": self.kind.value,
             "state": self.state.value,
+            "status": self.result.status.value if self.result else None,
+            "generation_id": self.generation_id,
+            "active_day": str(self.active_day) if self.active_day else None,
+            "accepted_at": self.accepted_at.isoformat(),
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+            "reflection": (
+                {
+                    "trigger": request.trigger.value,
+                    "target_day": str(request.target_day) if request.target_day else None,
+                    "instructions_excerpt": request.instructions[:240],
+                    "truncated": len(request.instructions) > 240,
+                }
+                if request else None
+            ),
+        }
+
+    def to_json(self) -> JsonObject:
+        question, budget = self.question, self.budget_request
+        summary = self.summary_json()
+        reflection = summary["reflection"]
+        if isinstance(reflection, dict) and self.reflection is not None:
+            reflection["instructions"] = self.reflection.instructions
+        return {
+            **summary,
             "cancel_requested": self.cancel_requested,
             "wait_reason": self.wait_reason.value if self.wait_reason else None,
             "question": (
@@ -186,6 +219,9 @@ class TurnHandle:
         self._cancel_requested = False
         self.generation_id: str | None = None
         self.active_day: CalendarDay | None = None
+        self.accepted_at = datetime.now(timezone.utc)
+        self.started_at: datetime | None = None
+        self.finished_at: datetime | None = None
 
     @property
     def state(self) -> TurnState:
@@ -217,6 +253,12 @@ class TurnHandle:
             question=self.question,
             budget_request=self.budget_request,
             result=self.result,
+            accepted_at=self.accepted_at,
+            started_at=self.started_at,
+            finished_at=self.finished_at,
+            generation_id=self.generation_id,
+            active_day=self.active_day,
+            reflection=self.request if isinstance(self.request, ReflectionRequest) else None,
             jobs=jobs,
         )
 
@@ -271,6 +313,7 @@ class TurnHandle:
         if self.state is not TurnState.QUEUED:
             raise AgentSDKError("Turn execution can be bound only once")
         self._task = task
+        self.started_at = datetime.now(timezone.utc)
         self.inbox.set_activity(TurnState.PREPARING)
         if self._cancel_requested:
             task.cancel()
@@ -281,4 +324,5 @@ class TurnHandle:
         await self.inbox.close()
         self.inbox.set_activity(TurnState.FINISHED)
         self._task = None
+        self.finished_at = datetime.now(timezone.utc)
         self._future.set_result(result)

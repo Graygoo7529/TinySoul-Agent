@@ -14,10 +14,15 @@ from ..schemas import (
     TurnInputRequest,
     TurnReplyRequest,
     TurnResponse,
+    TurnListResponse,
 )
 
 
 def register_turn_routes(app: FastAPI, engine: EndpointEngine) -> None:
+    @app.get("/v2/turns", response_model=TurnListResponse, response_model_exclude_unset=True)
+    async def list_turns() -> JsonObject:
+        return await engine.runtime.list_turns()
+
     @app.post(
         "/v2/turns",
         status_code=202,

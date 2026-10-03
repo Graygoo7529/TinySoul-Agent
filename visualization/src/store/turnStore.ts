@@ -21,6 +21,7 @@ import type {
   SessionTurnSummary,
   TurnResult,
   TurnSnapshot,
+  TurnSummary,
 } from "../api/v2/types";
 
 /** Where the displayed interaction list came from. */
@@ -61,6 +62,13 @@ export interface SessionTurnProjection {
   unavailable: boolean;
 }
 
+export interface RuntimeTurnProjection {
+  snapshot: TurnSnapshot;
+  items: Interaction[];
+  pendingItems: PendingItem[];
+  day: string | null;
+}
+
 export interface TurnStoreState {
   /** The turn the chat view renders; null when showing only the day list. */
   turnId: string | null;
@@ -93,6 +101,13 @@ export interface TurnStoreState {
   sessionTurns: SessionTurnSummary[] | null;
   sessionTurnsLoading: boolean;
   sessionProjections: Record<string, SessionTurnProjection>;
+  runtimeTurns: TurnSummary[];
+  runtimeReadError: string | null;
+  runtimeProjections: Record<string, RuntimeTurnProjection>;
+  focusTurnId: string | null;
+  setRuntimeTurns: (turns: TurnSummary[]) => void;
+  setRuntimeProjection: (projection: RuntimeTurnProjection) => void;
+  focusTurn: (turnId: string | null) => void;
 
   outgoing: OutgoingEcho[];
 
@@ -170,6 +185,16 @@ export const useTurnStore = create<TurnStoreState>()((set, get) => ({
   sessionTurns: null,
   sessionTurnsLoading: false,
   sessionProjections: {},
+  runtimeTurns: [],
+  runtimeReadError: null,
+  runtimeProjections: {},
+  focusTurnId: null,
+  setRuntimeTurns: (runtimeTurns) => set((state) => ({
+    runtimeTurns,
+    runtimeProjections: Object.fromEntries(Object.entries(state.runtimeProjections).filter(([id]) => runtimeTurns.some((turn) => turn.turn_id === id))),
+  })),
+  setRuntimeProjection: (projection) => set((state) => ({ runtimeProjections: { ...state.runtimeProjections, [projection.snapshot.turn_id]: projection } })),
+  focusTurn: (focusTurnId) => set({ focusTurnId }),
   outgoing: [],
 
   openTurn: (turnId, day, source, options) => {
@@ -253,6 +278,10 @@ export const useTurnStore = create<TurnStoreState>()((set, get) => ({
       sessionTurns: null,
       sessionTurnsLoading: false,
       sessionProjections: {},
+      runtimeTurns: [],
+      runtimeReadError: null,
+      runtimeProjections: {},
+      focusTurnId: null,
       outgoing: [],
     })),
 }));

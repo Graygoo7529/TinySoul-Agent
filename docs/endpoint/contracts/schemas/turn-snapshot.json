@@ -44,6 +44,54 @@
           "type": "object"
         }
       ]
+    },
+    "ReflectionOriginResponse": {
+      "additionalProperties": true,
+      "properties": {
+        "trigger": {
+          "title": "Trigger",
+          "type": "string"
+        },
+        "target_day": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Day"
+        },
+        "instructions_excerpt": {
+          "title": "Instructions Excerpt",
+          "type": "string"
+        },
+        "truncated": {
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "instructions": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instructions"
+        }
+      },
+      "required": [
+        "trigger",
+        "target_day",
+        "instructions_excerpt",
+        "truncated"
+      ],
+      "title": "ReflectionOriginResponse",
+      "type": "object"
     }
   },
   "additionalProperties": true,
@@ -59,6 +107,89 @@
     "state": {
       "title": "State",
       "type": "string"
+    },
+    "status": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Status"
+    },
+    "generation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Generation Id"
+    },
+    "active_day": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Active Day"
+    },
+    "accepted_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Accepted At"
+    },
+    "started_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Started At"
+    },
+    "finished_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Finished At"
+    },
+    "reflection": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ReflectionOriginResponse"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "cancel_requested": {
       "title": "Cancel Requested",

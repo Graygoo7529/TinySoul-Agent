@@ -56,11 +56,11 @@ function deriveTurnStatus(snapshot: TurnSnapshot): TurnStatus {
     if (resultStatus === "cancelled") return "cancelled";
     if (resultStatus === "stopped") return "stopped";
     if (resultStatus === "failed") return "failed";
-    if (resultStatus === "answered" || resultStatus === "completed") return "answered";
+    if (resultStatus === "answered" || resultStatus === "completed" || resultStatus === "skipped" ||
+      resultStatus === "partial" || resultStatus === "awaiting_user" || resultStatus === "exhausted") return resultStatus;
   }
 
-  // Finished without a result we know about — treat as answered
-  if (snapshot.state === "finished") return "answered";
+  if (snapshot.state === "finished") return "finished";
 
   // Waiting: check for question or budget request
   if (snapshot.state === "waiting") {

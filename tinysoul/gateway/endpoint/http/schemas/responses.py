@@ -104,10 +104,33 @@ class ContextMessagesResponse(ContractResponse):
     content_fragment: JsonObject | None = None
 
 
-class TurnResponse(ContractResponse):
+class ReflectionOriginResponse(ContractResponse):
+    trigger: str
+    target_day: str | None
+    instructions_excerpt: str
+    truncated: bool
+    instructions: str | None = None
+
+
+class TurnSummaryResponse(ContractResponse):
     turn_id: str
     kind: str
     state: str
+    status: str | None = None
+    generation_id: str | None = None
+    active_day: str | None = None
+    accepted_at: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    reflection: ReflectionOriginResponse | None = None
+
+
+class TurnListResponse(ContractResponse):
+    items: list[TurnSummaryResponse]
+    completed_limit: int
+
+
+class TurnResponse(TurnSummaryResponse):
     cancel_requested: bool
     wait_reason: str | None
     question: JsonObject | None

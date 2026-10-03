@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { History, Layers, Power, RefreshCw } from "lucide-react";
+import { History, Layers, Power, RefreshCw, Wrench } from "lucide-react";
 import { restartBackend } from "../../app/connection";
 import { useConnectionStore } from "../../store/connectionStore";
 import { openContextDrawer } from "../../features/context/entries";
@@ -7,6 +7,7 @@ import { openHistoryBrowser } from "../../features/history/entries";
 import { Badge } from "../ui/Badge";
 import { Button, IconButton } from "../ui/Button";
 import { Modal } from "../ui/Modal";
+import { ReflectionDialog } from "../../features/resources/ReflectionDialog";
 
 /**
  * The top bar: product title, the "turn active" badge, entry points for the
@@ -19,6 +20,7 @@ export function TopBar() {
   const epoch = useConnectionStore((s) => s.epoch);
   const connected = useConnectionStore((s) => s.phase === "connected");
   const [confirmingRestart, setConfirmingRestart] = useState(false);
+  const [organizing, setOrganizing] = useState(false);
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-bg-elev px-4">
@@ -37,6 +39,9 @@ export function TopBar() {
       >
         <History size={15} />
       </IconButton>
+      <Button variant="ghost" size="xs" aria-label="整理" disabled={!connected} onClick={() => setOrganizing(true)}>
+        <Wrench size={14} /><span className="hidden sm:inline">整理</span>
+      </Button>
       <IconButton
         label="Context"
         onClick={() => openContextDrawer(epoch)}
@@ -52,6 +57,7 @@ export function TopBar() {
         <Power size={15} />
       </IconButton>
       <ReconnectIndicator />
+      {organizing && <ReflectionDialog onClose={() => setOrganizing(false)} />}
       {confirmingRestart && (
         <RestartConfirm onClose={() => setConfirmingRestart(false)} />
       )}

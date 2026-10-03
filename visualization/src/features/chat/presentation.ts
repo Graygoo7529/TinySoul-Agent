@@ -51,6 +51,12 @@ export type TurnStatus =
   | "waiting_question"
   | "waiting_budget"
   | "answered"
+  | "completed"
+  | "skipped"
+  | "partial"
+  | "awaiting_user"
+  | "exhausted"
+  | "finished"
   | "stopped"
   | "cancelled"
   | "failed";
