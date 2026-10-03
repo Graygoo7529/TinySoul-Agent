@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import asyncio
 
 import pytest
@@ -1352,12 +1352,13 @@ async def test_runner_rejects_forced_tool_selection_without_required_tool_use() 
     assert exc_info.value.reason == RUNTIME_TURN_END
 
 
-async def test_runner_interprets_tool_call_output() -> None:
+@pytest.mark.parametrize("kind", (ToolKind.CONTROL, ToolKind.ACTION))
+async def test_runner_interprets_tool_call_output(kind: ToolKind) -> None:
+    tool = replace(_tool(), kind=kind)
     tool_call = ToolCallRecord(
         id="call_1",
         name="read_file",
         arguments={"path": "workspace:doc.md"},
-        kind=ToolKind.ACTION,
     )
 
     @dataclass
@@ -1384,9 +1385,11 @@ async def test_runner_interprets_tool_call_output() -> None:
         ),
     )
     provider = ToolProvider(provider_id="fake")
+    observations = RecordingObservations()
     runner = LLMTaskRunner(
         models=ModelRegistry([model]),
         providers=ProviderRegistry([provider]),
+        observations=observations,
         tasks=TaskSpecTable(
             [
                 TaskSpec(
@@ -1405,13 +1408,26 @@ async def test_runner_interprets_tool_call_output() -> None:
         TaskCall(
             profile="framework",
             messages=MessageStack.of(UserMessage.from_text("hello")),
-            tool_scope=ToolScope(tools=(_tool(),)),
+            tool_scope=ToolScope(tools=(tool,)),
         )
     )
 
     assert result.answer is None
-    assert result.tool_calls == (tool_call,)
-    assert provider.requests[0].tool_scope.tools == (_tool(),)
+    assert result.tool_calls == (replace(tool_call, kind=kind),)
+    assert provider.requests[0].tool_scope.tools == (tool,)
+    response_event = next(
+        event for event in observations.events if event.name == "llm.model.response"
+    )
+    assert response_event.payload["tool_calls"] == [
+        {
+            "id": tool_call.id,
+            "name": tool_call.name,
+            "arguments": tool_call.arguments,
+            "kind": kind.value,
+        }
+    ]
+    assert result.raw_response is not None
+    assert result.raw_response.tool_calls[0].kind is None
 
 
 async def test_runner_returns_failure_result_for_json_parse_error() -> None:

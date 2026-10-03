@@ -110,9 +110,9 @@ export type PhaseName = "phase1" | "phase2" | "phase3";
 
 /** Running sentences from c479ca0; tint belongs only to the Details timeline. */
 export const PHASE_META: Record<PhaseName, { title: string; running: string; tint: string }> = {
-  phase1: { title: "Context & Domains", running: "Maintaining context and selecting domains…", tint: "bg-accent-soft/40" },
-  phase2: { title: "Action Planning", running: "Generating action parameters…", tint: "bg-info-soft/40" },
-  phase3: { title: "Action Execution", running: "Executing actions…", tint: "bg-success-soft/40" },
+  phase1: { title: "Context & Domains", running: "Maintaining context and selecting domains…", tint: "bg-fuchsia-500/3 dark:bg-fuchsia-400/4" },
+  phase2: { title: "Action Planning", running: "Generating action parameters…", tint: "bg-info-soft/60" },
+  phase3: { title: "Action Execution", running: "Executing actions…", tint: "bg-success-soft/50" },
 };
 
 /**

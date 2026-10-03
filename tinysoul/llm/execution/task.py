@@ -631,7 +631,7 @@ class LLMTaskRunner:
                 },
             )
             if observation_enabled(self._observations, ObservationLevel.MODEL):
-                response_payload = task_response_observation(response)
+                response_payload = task_response_observation(response, call.tool_scope)
                 response_payload.update(
                     {
                         "profile": task.profile,

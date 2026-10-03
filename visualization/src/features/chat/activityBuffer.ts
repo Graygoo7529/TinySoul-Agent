@@ -195,9 +195,9 @@ function matchesFilter(step: ActivityStep, filter: ActivityFilter): boolean {
   const content = step.content;
   switch (filter) {
     case "All": return true;
-    case "Thinking": return ["thinking", "domain_select", "skill_mount"].includes(content.type);
+    case "Thinking": return content.type === "thinking" || content.type === "domain_select";
     case "Actions": return content.type === "action_plan" || content.type === "action_result";
-    case "Context": return ["background", "todo", "milestone"].includes(content.type);
+    case "Context": return ["background", "todo", "milestone", "skill_mount"].includes(content.type);
     case "Errors": return content.type === "provider_retry" || content.type === "control_failure" ||
       (content.type === "action_result" && ["failure", "timeout"].includes(content.glimpse.result?.status ?? ""));
   }

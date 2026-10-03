@@ -3,8 +3,8 @@
  * in the chat view and the activity timeline in the trace view.
  *
  * Every kind renders its structured semantics instead of a bare text line:
- * reasoning excerpts expand inline, the stage-1 intent shows its domains as
- * chips, mounted skills render as chips, and action calls come as paired
+ * reasoning and stage-1 intent expand inline, with domains in the intent
+ * detail; mounted skills render as chips, and action calls come as paired
  * entries — the plan entry shows the stage-2 call headline, the result
  * entry leads with the stage-3 outcome headline.
  */
@@ -49,7 +49,8 @@ export function ActivityStep({
   /** Drives the chevron direction for onToggleGlimpse rows. */
   glimpseExpanded?: boolean;
 }) {
-  const kind = item.content.type;
+  const kind = item.content.type === "domain_select" && item.content.intent
+    ? "thinking" : item.content.type;
   const Icon = activityIcons[kind] ?? Circle;
   const color = activityColors[kind] ?? "text-fg-faint";
 
@@ -111,7 +112,7 @@ function StepBody({ item }: { item: ActivityStepType }) {
   const content = item.content;
   switch (content.type) {
     case "thinking":
-      return <ThinkingBody text={content.text} />;
+      return <ActivityText text={content.text} textClassName="italic text-fg-muted" />;
     case "domain_select":
       return <DomainSelectBody {...content} />;
     case "skill_mount":
@@ -141,31 +142,40 @@ function StepBody({ item }: { item: ActivityStepType }) {
   }
 }
 
-function ThinkingBody({ text }: { text: string }) {
+function ActivityText({ text, prefix, textClassName = "text-fg-muted", children }: {
+  text: string;
+  prefix?: ReactNode;
+  textClassName?: string;
+  children?: ReactNode;
+}) {
   const [open, setOpen] = useState(false);
   const holdFollow = useHoldChatFollow();
   const { ref, truncated } = useTruncated<HTMLSpanElement>(text);
   const lines = text.split("\n").filter((l) => l.trim().length > 0);
   const preview = lines[0] ?? text;
-  const hasMore = lines.length > 1 || truncated || open;
+  const hasMore = lines.length > 1 || truncated || children != null || open;
 
   return (
     <div>
       <button
+        aria-expanded={hasMore ? open : undefined}
+        disabled={!hasMore}
         onClick={() => { holdFollow(); setOpen(!open); }}
-        className="flex w-full items-start gap-1 text-left"
+        className="flex w-full items-baseline gap-2 text-left disabled:cursor-default"
       >
-        <span ref={ref} className="min-w-0 flex-1 truncate text-[12px] italic text-fg-muted">{preview}</span>
+        {prefix}
+        <span ref={ref} className={`min-w-0 flex-1 truncate text-[12px] ${textClassName}`}>{preview}</span>
         {hasMore && (
           <ChevronRight
             size={11}
-            className={`mt-0.5 shrink-0 text-fg-faint transition-transform ${open ? "rotate-90" : ""}`}
+            className={`shrink-0 self-center text-fg-faint transition-transform ${open ? "rotate-90" : ""}`}
           />
         )}
       </button>
       {open && hasMore && (
         <div className="mt-1 rounded-lg bg-accent-soft/50 px-2.5 py-2">
           <Markdown className="md-calm text-[12px] text-fg-muted">{text}</Markdown>
+          {children && <div className="mt-2">{children}</div>}
         </div>
       )}
     </div>
@@ -173,19 +183,19 @@ function ThinkingBody({ text }: { text: string }) {
 }
 
 function DomainSelectBody({ domains, intent, state }: { domains: string[]; intent: string | null; state: "requested" | "accepted" | "rejected" }) {
-  return (
-    <div className="min-w-0 space-y-1">
-      {intent && <ThinkingBody text={intent} />}
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+  const selection = (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
       <span className="text-[12px] text-fg-muted">{state === "accepted" ? "Selected domains" : state === "requested" ? "Proposed domains" : "Domains not selected"}</span>
       <span className="inline-flex shrink-0 items-center gap-1">
         {domains.map((d) => (
           <DomainChip key={d} domain={d} />
         ))}
       </span>
-      </div>
     </div>
   );
+  return intent
+    ? <ActivityText text={intent} textClassName="italic text-fg-muted">{selection}</ActivityText>
+    : selection;
 }
 
 function ResourceBody({ label, refs }: { label: string; refs: string[] }) {
@@ -263,18 +273,18 @@ function ProviderRetryBody({ provider, attempt }: { provider: string; attempt: n
 }
 
 function MilestoneBody({ text, removed }: { text: string; removed: boolean }) {
-  return <div className="flex min-w-0 items-baseline gap-2">
-    <span className="shrink-0 text-[11px] text-fg-faint">{removed ? "Removed milestone" : "Milestone"}</span>
-    <span className="truncate text-[12px] text-fg" title={text}>{text}</span>
-  </div>;
+  return <ActivityText text={text} textClassName="text-fg" prefix={
+    <span className="shrink-0 text-[11px] font-semibold text-fg-muted">{removed ? "Removed milestone" : "Milestone"}</span>
+  } />;
 }
 
 function TodoBody({ text, status }: { text: string; status: string }) {
   const label = { pending: "Todo", in_progress: "In progress", done: "Done", cancelled: "Cancelled", removed: "Removed todo" }[status] ?? status;
-  return <div className="flex min-w-0 items-baseline gap-2">
+  return <ActivityText text={text}
+    textClassName={status === "done" || status === "cancelled" ? "line-through text-fg-faint" : "text-fg-muted"}
+    prefix={
     <span className={`shrink-0 text-[11px] ${status === "done" ? "text-success" : "text-fg-faint"}`}>{label}</span>
-    <span className={`truncate text-[12px] ${status === "done" || status === "cancelled" ? "line-through text-fg-faint" : "text-fg-muted"}`} title={text}>{text}</span>
-  </div>;
+  } />;
 }
 
 /* ------------- status visuals for action plan entries ---------------- */

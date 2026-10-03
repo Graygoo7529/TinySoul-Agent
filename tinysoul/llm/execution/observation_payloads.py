@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from hashlib import sha256
 
-from tinysoul.infra.json import JsonObject, JsonTypeError, dumps_json, to_json_object
+from tinysoul.infra.json import JsonObject, JsonTypeError, JsonValue, dumps_json, to_json_object
 
 from ..protocol.messages import (
     MessageStack,
@@ -39,13 +39,22 @@ def task_request_observation(
     }
 
 
-def task_response_observation(response: RawResponse) -> JsonObject:
+def task_response_observation(response: RawResponse, tools: ToolScope) -> JsonObject:
+    kinds = {tool.name: tool.kind for tool in tools.visible_tools()}
+    calls: list[JsonValue] = []
+    for call in response.tool_calls:
+        projected = _tool_call_payload(call)
+        # Providers do not own TinySoul tool categories. Resolve missing kinds
+        # from this request's scope; this does not imply protocol acceptance.
+        kind = call.kind if call.kind is not None else kinds.get(call.name)
+        projected["kind"] = kind.value if kind is not None else None
+        calls.append(projected)
     payload: JsonObject = {
         "model_id": response.model_id,
         "provider_id": response.provider_id,
         "stop_reason": response.stop_reason.value,
         "answer_text": response.answer_text,
-        "tool_calls": [_tool_call_payload(call) for call in response.tool_calls],
+        "tool_calls": calls,
     }
     payload["usage"] = _safe_mapping(response.usage)
     payload["metadata"] = _safe_mapping(response.metadata)

@@ -164,13 +164,15 @@ class ScriptedLLM:
         await asyncio.sleep(0.35)
         result = self._respond(call)
         if result.raw_response is not None:
-            response = replace(result.raw_response, reasoning=Reasoning(
+            response = replace(result.raw_response, tool_calls=tuple(
+                replace(tool, kind=None) for tool in result.raw_response.tool_calls
+            ), reasoning=Reasoning(
                 summary="I’ll use the current request and loaded context to choose the next action. "
                 "The review skill describes how to inspect the working copy, compare the observed "
                 "result with the intended behavior, and preserve the user’s current reading position."
             ))
             self._emit(call, "llm.model.response", ObservationLevel.MODEL, {
-                **task_response_observation(response), "attempt": 1,
+                **task_response_observation(response, call.tool_scope), "attempt": 1,
             })
         self._emit(call, "llm.task.completed", ObservationLevel.VERBOSE, {"status": "success"})
         return result

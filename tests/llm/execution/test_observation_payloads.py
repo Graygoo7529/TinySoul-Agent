@@ -71,7 +71,7 @@ def test_model_response_observation_omits_provider_payload_and_raw_reasoning() -
         provider_payload={"provider_secret": "must-not-appear"},
     )
 
-    rendered = dumps_json(task_response_observation(response))
+    rendered = dumps_json(task_response_observation(response, ToolScope()))
 
     assert "visible answer" in rendered
     assert "safe summary" in rendered

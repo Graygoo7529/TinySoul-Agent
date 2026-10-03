@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { JsonObject, ObservationEvent } from "../../api/v2/types";
 import { useInspectorStore } from "../../store/inspectorStore";
@@ -14,7 +14,7 @@ import {
   wireConnectedStores,
 } from "../../app/testing";
 import { openTurnProcess, pushActionDetail, pushJobDetail } from "./entries";
-import { ProcessPanel } from "./ProcessPanel";
+import { ActivityTimeline, ProcessPanel } from "./ProcessPanel";
 import { ActionDetailPanel } from "./ActionDetailPanel";
 import { JobPanel } from "./JobPanel";
 
@@ -110,6 +110,57 @@ function clickButton(text: string) {
 // ---------------------------------------------------------------------------
 // ProcessPanel
 // ---------------------------------------------------------------------------
+
+describe("ActivityTimeline", () => {
+  beforeEach(() => {
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("keeps successive intents in Thinking and expands intent and Context details inline", () => {
+    const phase = { level: "phase", name: "phase1" };
+    const events = [
+      event("llm.model.response", 1, {
+        tool_calls: [{ id: "select", name: "select_action_domains", kind: "control",
+          arguments: { domains: ["home"], intent: "First intent\nRead the relevant resources." } }],
+      }, [TURN, CYCLE, phase]),
+      event("loop.phase.completed", 2, { phase: "phase1", selected_domains: ["home"] }, [TURN, CYCLE, phase]),
+      event("llm.model.request", 3, { task_id: "t2", provenance: [{ refs: ["home:skills_domain:home"] }] }, [TURN, CYCLE, PHASE2]),
+      event("context.control.applied", 4, { operation: "set_milestone", details: {
+        content: "Found the relevant document\nIts section on testing explains the decision.",
+      } }, [TURN, CYCLE, phase]),
+    ];
+    render(<ActivityTimeline events={events} turnId={TURN_ID} epoch={epoch} day={null} />);
+    clickButton("Activity");
+    clickButton("Thinking");
+    expect(container.textContent).toContain("First intent");
+    expect(container.textContent).not.toContain("Task guidance");
+    const nextCycle = { level: "cycle", name: "cycle_2" };
+    render(<ActivityTimeline events={[...events,
+      event("llm.model.response", 5, {
+        tool_calls: [{ id: "select", name: "select_action_domains", kind: "control",
+          arguments: { domains: ["workspace"], intent: "Second intent\nVerify the result against the source." } }],
+      }, [TURN, nextCycle, phase]),
+      event("loop.phase.completed", 6, { phase: "phase1", selected_domains: ["workspace"] }, [TURN, nextCycle, phase]),
+    ]} turnId={TURN_ID} epoch={epoch} day={null} />);
+    expect(container.textContent).toContain("First intent");
+    expect(container.textContent).toContain("Second intent");
+    expect(container.textContent).not.toContain("In progress");
+    expect(container.textContent).not.toContain("Selected domains");
+    clickButton("Second intent");
+    expect(container.textContent).toContain("Verify the result against the source.");
+    expect(container.textContent).toContain("Selected domains");
+    clickButton("Second intent");
+    expect(container.textContent).not.toContain("Verify the result against the source.");
+    clickButton("Context");
+    expect(container.textContent).toContain("Task guidance");
+    expect(container.textContent).not.toContain("Second intent");
+    clickButton("Milestone");
+    expect(container.textContent).toContain("Its section on testing explains the decision.");
+    clickButton("Milestone");
+    expect(container.textContent).not.toContain("Its section on testing explains the decision.");
+  });
+});
 
 describe("ProcessPanel", () => {
   const processEvents = [
