@@ -40,6 +40,8 @@ Trash 条目保存原身份、说明、标签、子项元数据和内容。内�
 
 ## 有界读取与模型输入
 
+describe/compose/analyze 的固定引导、输出说明及资源包装由 `prompts/plugins/workspace.py` 管理。Workspace 原有 Builder 继续解析引用、选择正文和组合 TaskPrompt，限制来自真实调用参数；内容函数不读资源或决定截断，见[固定模型文案设计](prompts.md)。
+
 WorkspaceReader 提供 owner 绑定的文本分页、全文可编辑读取和 blob 流式 Range。Text continuation 绑定实际文件 digest 以识别内容变化，但不形成 CAS；full 读取超过写入上限拒绝，归档视图 editable=false。Agent SDK 负责 generation/day lease，HTTP 不直接打开任意路径。
 
 小文本可以完整读取，大文本按显式行范围和 continuation 渐进读取，结果标明覆盖与截断。continuation 表达同一读取请求的下一位置，不锁定文件版本；外部改写后分页可能看到新内容。编码、图像真实格式、字节大小和模型图像能力均在各自入口校验；二进制资源不自动注入语境。

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tinysoul.prompts.plugins import reflection as prompt_text
 from tinysoul.infra.time import CalendarDay
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.plugins.memory import (
@@ -106,15 +107,9 @@ class MemoryReflectionTask:
                 return skipped
             outcome = await self._turn.run(
                 (
-                    "Maintain daily, entity, concept, fact, and note Memory for the "
-                    f"target day {target_day}. Search and inspect existing Memory "
-                    "before writing. If the target daily exists, read it first, then "
-                    "revise, reorganize and supplement it with available evidence. "
-                    "If it does not exist, create a complete daily. "
-                    "Write one complete document at a time; "
-                    "create redirect targets before retiring sources. Finish with core.answer."
+                    prompt_text.memory_task(target_day=str(target_day))
                     + (
-                        f"\nInstructions for this Reflection: {instructions}"
+                        prompt_text.additional_instructions(instructions=instructions)
                         if instructions
                         else ""
                     )

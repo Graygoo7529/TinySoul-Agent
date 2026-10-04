@@ -2,6 +2,7 @@
 
 from math import isfinite
 from enum import StrEnum
+from tinysoul.prompts.kernel import jobs as prompt_text
 from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.action import (
     ActionLocalFailure,
@@ -38,7 +39,9 @@ class JobActionExecutor:
         job_id = execution.call.params.get("job_id")
         if not isinstance(job_id, str) or not job_id:
             return _failed(
-                execution, "Provide an active Job identity.", reason="invalid_job"
+                execution,
+                prompt_text.PROVIDE_AN_ACTIVE_JOB_IDENTITY,
+                reason="invalid_job",
             )
         turn_id = execution.framework.turn_id
         try:
@@ -53,7 +56,7 @@ class JobActionExecutor:
                 ):
                     return _failed(
                         execution,
-                        "Wait timeout must be positive.",
+                        prompt_text.WAIT_TIMEOUT_MUST_BE_POSITIVE,
                         reason="invalid_wait",
                     )
                 return _success(
@@ -77,7 +80,9 @@ class JobActionExecutor:
             )
         except JobRequestError:
             return _failed(
-                execution, "Job is not available in this Turn.", reason="unknown_job"
+                execution,
+                prompt_text.JOB_IS_NOT_AVAILABLE_IN_THIS_TURN,
+                reason="unknown_job",
             )
         except JobError as exc:
             raise RuntimeJobsBridge().from_error(exc) from exc
@@ -108,7 +113,7 @@ class JobAnswerGuard:
                     reason="live_job",
                     scope="jobs.answer_guard",
                     disposition=ActionFailureDisposition.CHANGE_REQUEST,
-                    feedback="Wait for or stop the active Job before answering.",
+                    feedback=prompt_text.WAIT_FOR_OR_STOP_THE_ACTIVE_JOB_BEFORE_ANSWERING,
                 )
             )
         return HookOutcome.success()

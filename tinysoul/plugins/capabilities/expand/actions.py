@@ -2,6 +2,7 @@
 
 from enum import StrEnum
 
+from tinysoul.prompts.plugins.capabilities import expand as prompt_text
 from tinysoul.infra.json import JsonObject, JsonValue, dumps_json
 from tinysoul.infra.process import ManagedProcessCloseError
 from tinysoul.kernel.action import (
@@ -78,7 +79,7 @@ class ExpandAction:
             return _failure(
                 execution,
                 ExpandRequestError(
-                    ExpandFailure.REMOTE, "Remote tool reported a failure."
+                    ExpandFailure.REMOTE, prompt_text.REMOTE_TOOL_REPORTED_A_FAILURE
                 ),
                 payload=result,
             )
@@ -109,7 +110,7 @@ class ExpandAction:
             ):
                 raise ExpandRequestError(
                     ExpandFailure.INVALID_REQUEST,
-                    "Provide a server, tool name and argument object.",
+                    prompt_text.PROVIDE_A_SERVER_TOOL_NAME_AND_ARGUMENT_OBJECT,
                 )
             return await engine.call(
                 server, name, arguments, operations=context.owner_operations
@@ -117,7 +118,8 @@ class ExpandAction:
         if self._operation is ExpandOperation.SEARCH:
             if self._queries is None:
                 raise ExpandRequestError(
-                    ExpandFailure.INVALID_REQUEST, "Tool search is not configured"
+                    ExpandFailure.INVALID_REQUEST,
+                    prompt_text.TOOL_SEARCH_IS_NOT_CONFIGURED,
                 )
             request = parse_retrieval_request(params, self._queries.retrieval_policies[0])
             if isinstance(request, str):
@@ -133,7 +135,7 @@ class ExpandAction:
         if cursor is not None:
             if self._operation is ExpandOperation.SEARCH or not isinstance(cursor, str):
                 raise ExpandRequestError(
-                    ExpandFailure.INVALID_REQUEST, "Page identity is invalid."
+                    ExpandFailure.INVALID_REQUEST, prompt_text.PAGE_IDENTITY_IS_INVALID
                 )
             return engine.page(cursor=cursor, kind=self._operation.value)
         server_ids = _server_ids(params.get("server_ids"))
@@ -142,7 +144,7 @@ class ExpandAction:
             if (params.get("tools") is None) == (server_ids is None):
                 raise ExpandRequestError(
                     ExpandFailure.INVALID_REQUEST,
-                    "Provide tools or server_ids, exactly one selector.",
+                    prompt_text.PROVIDE_TOOLS_OR_SERVER_IDS_EXACTLY_ONE_SELECTOR,
                 )
             if params.get("tools") is not None:
                 requested = _tool_ids(params["tools"])
@@ -174,7 +176,7 @@ class ExpandAction:
                 items, servers=discovered.servers, kind=self._operation.value
             )
         raise ExpandRequestError(
-            ExpandFailure.INVALID_REQUEST, "Unsupported directory operation"
+            ExpandFailure.INVALID_REQUEST, prompt_text.UNSUPPORTED_DIRECTORY_OPERATION
         )
 
 
@@ -207,7 +209,7 @@ def _server_ids(value: JsonValue | None) -> tuple[str, ...] | None:
     ):
         raise ExpandRequestError(
             ExpandFailure.INVALID_REQUEST,
-            "server_ids must be a non-empty bounded list.",
+            prompt_text.SERVER_IDS_MUST_BE_A_NON_EMPTY_BOUNDED_LIST,
         )
     return tuple(item for item in value if isinstance(item, str))
 
@@ -216,7 +218,7 @@ def _tool_ids(value: JsonValue) -> tuple[tuple[str, str], ...]:
     if not isinstance(value, list) or not value or len(value) > 100:
         raise ExpandRequestError(
             ExpandFailure.INVALID_REQUEST,
-            "tools must contain bounded structured identities.",
+            prompt_text.TOOLS_MUST_CONTAIN_BOUNDED_STRUCTURED_IDENTITIES,
         )
     result: list[tuple[str, str]] = []
     for item in value:
@@ -227,7 +229,7 @@ def _tool_ids(value: JsonValue) -> tuple[tuple[str, str], ...]:
         ):
             raise ExpandRequestError(
                 ExpandFailure.INVALID_REQUEST,
-                "Each tool requires server_id and tool_name.",
+                prompt_text.EACH_TOOL_REQUIRES_SERVER_ID_AND_TOOL_NAME,
             )
         result.append((str(item["server_id"]), str(item["tool_name"])))
     return tuple(dict.fromkeys(result))

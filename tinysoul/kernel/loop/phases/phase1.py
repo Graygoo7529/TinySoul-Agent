@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-
+from tinysoul.prompts.kernel import loop as prompt_text
 from tinysoul.kernel.action import ActionEngine, ActionError
 from tinysoul.kernel.context import (
     ContextEngine,
@@ -144,9 +144,7 @@ class Phase1Unit:
                 )
             )
         feedback = selection.feedback or (
-            ("Phase1 did not select any action domain.",)
-            if not selection.selected_domains
-            else ()
+            (prompt_text.NO_DOMAIN_SELECTED,) if not selection.selected_domains else ()
         )
         if feedback:
             return await self._failed(

@@ -2,6 +2,7 @@
 
 from typing import Protocol
 
+from tinysoul.prompts.plugins import reflection as prompt_text
 from tinysoul.kernel.action import ActionEngine, ActionEngineBuilder, LoadedActionCatalog
 from tinysoul.kernel.action.catalog.specs import ActionSemanticSpec
 from tinysoul.kernel.context import ContextEngine
@@ -23,10 +24,10 @@ def build_reflection_action(
     builder, jobs, services = assembly.prepare(context, action_catalog, kind=kind, bindings=bindings)
     builder.with_action_semantics(
         "core.answer",
-        description="Conclude this Reflection with a summary of changes, remaining work and limitations.",
+        description=prompt_text.ANSWER_DESCRIPTION,
         semantic=ActionSemanticSpec(
-            use_when=("The Reflection can conclude, including a bounded partial result.",),
-            avoid_when=("Work still needs to be executed within this Reflection.",),
+            use_when=(prompt_text.ANSWER_USE_WHEN,),
+            avoid_when=(prompt_text.ANSWER_AVOID_WHEN,),
         ),
     )
     return builder.with_scenario(kind.value).build(), jobs, services

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
+from tinysoul.prompts.kernel import context as prompt_text
 from tinysoul.infra.concurrency import AsyncResourceScope, CleanupDiagnostic
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.runtime import (
@@ -198,7 +199,7 @@ class TurnSegments:
                 return ref
         raise ContextInspectRequestError(
             ContextInspectFailureReason.UNKNOWN_REF,
-            "No Context segment owns this reference",
+            prompt_text.NO_CONTEXT_SEGMENT_OWNS_THIS_REFERENCE,
             constraint={"ref": ref},
         )
 
@@ -326,7 +327,7 @@ class TurnSegments:
         if unmatched:
             raise ContextInspectRequestError(
                 ContextInspectFailureReason.UNKNOWN_REF,
-                "Seed refs are outside the requested Context source scope",
+                prompt_text.SEED_REFS_OUTSIDE_SCOPE,
             )
         return tuple(result)
 
@@ -343,7 +344,7 @@ class TurnSegments:
                 ):
                     raise ContextInspectRequestError(
                         ContextInspectFailureReason.QUERY_UNSUPPORTED,
-                        "This owner supports navigation but not query; inspect without query",
+                        prompt_text.INSPECT_QUERY_UNSUPPORTED,
                         constraint={"ref": ref},
                     )
                 try:
@@ -360,7 +361,7 @@ class TurnSegments:
                     ) from exc
         raise ContextInspectRequestError(
             ContextInspectFailureReason.UNKNOWN_REF,
-            "No Context segment owns this reference",
+            prompt_text.NO_CONTEXT_SEGMENT_OWNS_THIS_REFERENCE,
             constraint={"ref": ref},
         )
 

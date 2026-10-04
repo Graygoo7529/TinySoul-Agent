@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from uuid import uuid4
 
+from tinysoul.prompts.kernel import context as prompt_text
 from tinysoul.infra.json import JsonObject, JsonValue, to_json_object
 from tinysoul.llm.protocol.tools import (
     ToolCallRecord,
@@ -182,12 +183,18 @@ class ContextControlScopeBuilder:
     def _set_milestone_spec(self) -> ToolSpec:
         return ToolSpec(
             name=CONTROL_SET_MILESTONE,
-            description="Set or replace one WorkingContext milestone.",
+            description=prompt_text.SET_MILESTONE_DESCRIPTION,
             parameters={
                 "type": "object",
                 "properties": {
-                    "key": {"type": "string", "description": "Stable milestone key."},
-                    "content": {"type": "string", "description": "Milestone content."},
+                    "key": {
+                        "type": "string",
+                        "description": prompt_text.STABLE_MILESTONE_KEY,
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": prompt_text.MILESTONE_CONTENT,
+                    },
                 },
                 "required": ["key", "content"],
                 "additionalProperties": False,
@@ -198,22 +205,28 @@ class ContextControlScopeBuilder:
     def _remove_milestone_spec(self) -> ToolSpec:
         return _remove_working_spec(
             CONTROL_REMOVE_MILESTONE,
-            description="Remove one existing WorkingContext milestone.",
+            description=prompt_text.REMOVE_MILESTONE_DESCRIPTION,
         )
 
     def _set_todo_spec(self) -> ToolSpec:
         return ToolSpec(
             name=CONTROL_SET_TODO,
-            description="Set or replace one WorkingContext todo.",
+            description=prompt_text.SET_TODO_DESCRIPTION,
             parameters={
                 "type": "object",
                 "properties": {
-                    "key": {"type": "string", "description": "Stable todo key."},
-                    "content": {"type": "string", "description": "Todo content."},
+                    "key": {
+                        "type": "string",
+                        "description": prompt_text.STABLE_TODO_KEY,
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": prompt_text.TODO_CONTENT,
+                    },
                     "status": {
                         "type": "string",
                         "enum": [status.value for status in TodoStatus],
-                        "description": "Todo status.",
+                        "description": prompt_text.TODO_STATUS,
                     },
                 },
                 "required": ["key", "content", "status"],
@@ -225,16 +238,13 @@ class ContextControlScopeBuilder:
     def _remove_todo_spec(self) -> ToolSpec:
         return _remove_working_spec(
             CONTROL_REMOVE_TODO,
-            description="Remove one existing WorkingContext todo.",
+            description=prompt_text.REMOVE_TODO_DESCRIPTION,
         )
 
     def _load_background_spec(self) -> ToolSpec:
         return ToolSpec(
             name=CONTROL_LOAD_BACKGROUND,
-            description=(
-                "Load one or more top-level content links already exposed in the "
-                "current context into the background context."
-            ),
+            description=prompt_text.LOAD_BACKGROUND_DESCRIPTION,
             parameters={
                 "type": "object",
                 "properties": {
@@ -242,12 +252,9 @@ class ContextControlScopeBuilder:
                         "type": "array",
                         "items": {
                             "type": "string",
-                            "description": (
-                                "An effective top-level content link already exposed "
-                                "in the current context."
-                            ),
+                            "description": prompt_text.BACKGROUND_LINK_DESCRIPTION,
                         },
-                        "description": "Top-level content links to load together.",
+                        "description": prompt_text.TOP_LEVEL_CONTENT_LINKS_TO_LOAD_TOGETHER,
                     },
                 },
                 "required": ["links"],
@@ -259,14 +266,14 @@ class ContextControlScopeBuilder:
     def _evict_background_spec(self, loaded_links: tuple[str, ...]) -> ToolSpec:
         return ToolSpec(
             name=CONTROL_EVICT_BACKGROUND,
-            description="Evict loaded top-level content entries from the background context.",
+            description=prompt_text.EVICT_BACKGROUND_DESCRIPTION,
             parameters={
                 "type": "object",
                 "properties": {
                     "links": {
                         "type": "array",
                         "items": {"type": "string", "enum": list(loaded_links)},
-                        "description": "Loaded top-level content links to evict.",
+                        "description": prompt_text.LOADED_TOP_LEVEL_CONTENT_LINKS_TO_EVICT,
                     },
                 },
                 "required": ["links"],
@@ -295,7 +302,9 @@ class ControlCallNormalizer:
                     _normalize_failure(
                         tool_call,
                         sequence=sequence,
-                        model_feedback=f"Duplicate control tool call id: {tool_call.id}",
+                        model_feedback=prompt_text.duplicate_control_call(
+                            call_id=tool_call.id
+                        ),
                         frame_data={"reason": "duplicate_call_id"},
                     )
                 )
@@ -306,7 +315,7 @@ class ControlCallNormalizer:
                     _normalize_failure(
                         tool_call,
                         sequence=sequence,
-                        model_feedback="Expected a control tool call.",
+                        model_feedback=prompt_text.EXPECTED_A_CONTROL_TOOL_CALL,
                         frame_data={"tool_kind": tool_call.kind.value},
                     )
                 )
@@ -341,7 +350,7 @@ class ControlCallNormalizer:
         return _normalize_failure(
             tool_call,
             sequence=sequence,
-            model_feedback=f"Unknown context control tool: {tool_call.name}",
+            model_feedback=prompt_text.unknown_control_tool(name=tool_call.name),
             frame_data={"reason": "unknown_control_tool"},
         )
 
@@ -388,7 +397,7 @@ class ControlCallNormalizer:
             return _normalize_failure(
                 tool_call,
                 sequence=sequence,
-                model_feedback=f"{tool_call.name} requires at least one link.",
+                model_feedback=prompt_text.links_required(name=tool_call.name),
                 frame_data={"reason": "empty_links"},
             )
         patch = (
@@ -428,7 +437,7 @@ def _normalize_failure(
 def _arg_str(value: JsonObject, name: str) -> str:
     item = value.get(name)
     if not isinstance(item, str) or not item:
-        raise ControlArgumentError(f"Argument must be a non-empty string: {name}")
+        raise ControlArgumentError(prompt_text.nonempty_string_required(name=name))
     return item
 
 
@@ -437,13 +446,11 @@ def _arg_str_list(value: JsonObject, name: str) -> tuple[str, ...]:
     if item is None:
         return ()
     if not isinstance(item, list):
-        raise ControlArgumentError(f"Argument must be a string list: {name}")
+        raise ControlArgumentError(prompt_text.string_list_required(name=name))
     result: list[str] = []
     for element in item:
         if not isinstance(element, str) or not element:
-            raise ControlArgumentError(
-                f"Argument must contain non-empty strings: {name}"
-            )
+            raise ControlArgumentError(prompt_text.nonempty_strings_required(name=name))
         result.append(element)
     return tuple(result)
 
@@ -451,11 +458,11 @@ def _arg_str_list(value: JsonObject, name: str) -> tuple[str, ...]:
 def _arg_todo_status(item: JsonObject) -> TodoStatus:
     raw = item.get("status")
     if not isinstance(raw, str):
-        raise ControlArgumentError("Todo status must be a string")
+        raise ControlArgumentError(prompt_text.TODO_STATUS_MUST_BE_A_STRING)
     try:
         return TodoStatus(raw)
     except ValueError as exc:
-        raise ControlArgumentError(f"Unknown todo status: {raw}") from exc
+        raise ControlArgumentError(prompt_text.unknown_todo_status(raw=raw)) from exc
 
 
 def _remove_working_spec(name: str, *, description: str) -> ToolSpec:
@@ -465,7 +472,7 @@ def _remove_working_spec(name: str, *, description: str) -> ToolSpec:
         parameters={
             "type": "object",
             "properties": {
-                "key": {"type": "string", "description": "Existing item key."},
+                "key": {"type": "string", "description": prompt_text.EXISTING_ITEM_KEY},
             },
             "required": ["key"],
             "additionalProperties": False,
@@ -483,7 +490,9 @@ def _working_operation_patch(tool_call: ToolCallRecord) -> WorkingPatch:
     )
     if set(arguments) != expected:
         raise ControlArgumentError(
-            f"{tool_call.name} requires exactly: {', '.join(sorted(expected))}"
+            prompt_text.unexpected_control_arguments(
+                name=tool_call.name, expected_arguments=", ".join(sorted(expected))
+            )
         )
     key = _arg_str(arguments, "key")
     if tool_call.name == CONTROL_SET_MILESTONE:

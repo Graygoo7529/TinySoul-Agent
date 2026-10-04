@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from tinysoul.prompts.plugins import session as prompt_text
 from tinysoul.infra.continuation import (
     ContinuationError,
     ContinuationFailureReason,
@@ -250,7 +251,7 @@ class SessionView:
                     pass
         raise OrganizeRequestError(
             OrganizeFailureReason.INVALID_SOURCE,
-            "Reference must identify an available history fact or accepted current evidence",
+            prompt_text.UNAVAILABLE_EVIDENCE_REFERENCE,
         )
 
     def search_entries(

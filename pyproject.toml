@@ -53,6 +53,7 @@ where = ["."]
 include = ["tinysoul*"]
 
 [tool.setuptools.package-data]
+"tinysoul.prompts" = ["README.md"]
 "tinysoul.infra.config" = [
     "catalog/*.toml",
 ]

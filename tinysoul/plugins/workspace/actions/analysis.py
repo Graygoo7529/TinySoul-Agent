@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tinysoul.prompts.plugins import workspace as prompt_text
 from tinysoul.kernel.action.tasks import ActionTaskFactory, ActionTaskOutput
 from tinysoul.kernel.loop.phases import LLMRunner
 from tinysoul.llm.protocol.responses import AnswerFormat
@@ -47,14 +48,14 @@ class WorkspaceAnalyzeExecutor(ActionExecutor):
         if not isinstance(intent, str) or not intent.strip():
             return _failed(
                 execution,
-                "workspace.analyze requires a non-empty 'intent' parameter.",
+                prompt_text.ANALYSIS_INTENT_REQUIRED,
                 {"reason": "invalid_intent"},
             )
         settings = workspace.analysis_settings
         if len(intent) > settings.max_intent_chars:
             return _failed(
                 execution,
-                "workspace.analyze intent exceeds its size limit.",
+                prompt_text.ANALYSIS_INTENT_TOO_LONG,
                 {
                     "reason": "intent_chars_exceeded",
                     "limit": settings.max_intent_chars,
@@ -69,7 +70,7 @@ class WorkspaceAnalyzeExecutor(ActionExecutor):
         ):
             return _failed(
                 execution,
-                "workspace.analyze reference_links must be a non-empty string array.",
+                prompt_text.ANALYSIS_REFERENCE_LINKS_REQUIRED,
                 {"reason": "invalid_reference_links"},
             )
         links = tuple(link for link in links_value if isinstance(link, str))
@@ -78,7 +79,7 @@ class WorkspaceAnalyzeExecutor(ActionExecutor):
         except WorkspaceContractError as exc:
             return _failed(
                 execution,
-                "Workspace analysis references are invalid or unavailable.",
+                prompt_text.ANALYSIS_REFERENCES_UNAVAILABLE,
                 {
                     "reason": "workspace_analysis_preparation_failed",
                     "error_type": type(exc).__name__,
@@ -92,7 +93,7 @@ class WorkspaceAnalyzeExecutor(ActionExecutor):
             budget_payload = _analysis_budget_payload(preparation.failure)
             return _failed(
                 execution,
-                "Workspace analysis references exceed the configured source budget.",
+                prompt_text.ANALYSIS_SOURCE_BUDGET_EXCEEDED,
                 budget_payload,
                 payload=budget_payload,
             )
@@ -100,7 +101,7 @@ class WorkspaceAnalyzeExecutor(ActionExecutor):
         if analysis_input is None:
             return _failed(
                 execution,
-                "Workspace analysis preparation returned no input.",
+                prompt_text.ANALYSIS_INPUT_MISSING,
                 {"reason": "missing_analysis_input"},
             )
         prompt = self._prompt_builder.build(
@@ -127,7 +128,7 @@ class WorkspaceAnalyzeExecutor(ActionExecutor):
         if set(value) != {"answer", "source_ids"}:
             return _failed(
                 execution,
-                "workspace.analyze LLM output must contain only answer and source_ids.",
+                prompt_text.INVALID_ANALYSIS_OUTPUT_FIELDS,
                 {"reason": "invalid_analysis_output"},
             )
         answer = value.get("answer")
@@ -135,13 +136,13 @@ class WorkspaceAnalyzeExecutor(ActionExecutor):
         if not isinstance(answer, str) or not answer.strip():
             return _failed(
                 execution,
-                "workspace.analyze LLM output requires a non-empty answer.",
+                prompt_text.ANALYSIS_ANSWER_REQUIRED,
                 {"reason": "invalid_analysis_answer"},
             )
         if len(answer) > settings.max_answer_chars:
             return _failed(
                 execution,
-                "workspace.analyze LLM answer exceeds its size limit.",
+                prompt_text.ANALYSIS_ANSWER_TOO_LONG,
                 {
                     "reason": "analysis_answer_chars_exceeded",
                     "limit": settings.max_answer_chars,
@@ -158,7 +159,7 @@ class WorkspaceAnalyzeExecutor(ActionExecutor):
         ):
             return _failed(
                 execution,
-                "workspace.analyze source_ids must be a non-empty string array.",
+                prompt_text.ANALYSIS_SOURCE_IDS_REQUIRED,
                 {"reason": "invalid_analysis_source_ids"},
             )
         source_ids = tuple(
@@ -172,7 +173,7 @@ class WorkspaceAnalyzeExecutor(ActionExecutor):
         ):
             return _failed(
                 execution,
-                "workspace.analyze source_ids must uniquely reference supplied sources.",
+                prompt_text.INVALID_ANALYSIS_SOURCE_IDS,
                 {"reason": "unknown_analysis_source_ids"},
             )
         sources: list[JsonObject] = []

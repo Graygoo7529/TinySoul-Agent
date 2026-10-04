@@ -8,6 +8,7 @@ from typing import Protocol
 
 import regex
 
+from tinysoul.prompts.plugins import workspace as prompt_text
 from tinysoul.kernel.retrieval.contracts import (
     EvidenceKind,
     QuerySource,
@@ -45,7 +46,7 @@ class WorkspaceTextMatcher:
         ):
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
-                "Workspace query must be one nonempty line within its character limit",
+                prompt_text.INVALID_QUERY_TEXT,
             )
         try:
             pattern = (
@@ -56,7 +57,7 @@ class WorkspaceTextMatcher:
         except regex.error as exc:
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
-                "Workspace regular expression is invalid",
+                prompt_text.WORKSPACE_REGULAR_EXPRESSION_IS_INVALID,
             ) from exc
         deadline = monotonic() + 0.2
         ranked = []
@@ -73,7 +74,7 @@ class WorkspaceTextMatcher:
             except TimeoutError as exc:
                 raise SearchFailure(
                     SearchFailureKind.SCOPE_REQUIRED,
-                    "Workspace regex exceeded its matching budget; simplify the pattern",
+                    prompt_text.REGEX_MATCHING_BUDGET_EXCEEDED,
                 ) from exc
             if not matches:
                 continue

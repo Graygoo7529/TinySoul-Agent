@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
+from tinysoul.prompts.plugins import memory as prompt_text
 from tinysoul.kernel.action import (
     ActionEngineBuilder,
     ActionExecution,
@@ -62,7 +63,7 @@ class MemoryWriteSession:
         if not isinstance(markdown, str) or not markdown.strip():
             return _failed(
                 execution,
-                "Memory write requires non-empty Markdown.",
+                prompt_text.MEMORY_WRITE_REQUIRES_NON_EMPTY_MARKDOWN,
                 "invalid_document",
             )
         try:
@@ -88,7 +89,7 @@ class MemoryWriteSession:
         except MemoryContractError:
             return _failed(
                 execution,
-                "Memory write rejected: check the Link, Markdown schema, existing references and redirect chain.",
+                prompt_text.MEMORY_WRITE_REJECTED,
                 "invalid_document",
             )
         except MemoryError as exc:
@@ -108,7 +109,7 @@ class MemoryWriteExecutor(ActionExecutor):
         if execution.call.action_name not in MEMORY_WRITE_ACTIONS:
             return _failed(
                 execution,
-                "Memory action is not available in this Reflection.",
+                prompt_text.MEMORY_ACTION_IS_NOT_AVAILABLE_IN_THIS_REFLECTION,
                 "unknown_action",
             )
         return await self._controller.write(execution, context)

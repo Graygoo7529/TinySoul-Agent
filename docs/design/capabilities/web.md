@@ -15,6 +15,8 @@ Web domain 当前暴露四个独立 action：
 
 ## Kimi Search 边界
 
+worker 的固定 system 指引由 `prompts/plugins/capabilities/web.py` 提供；请求、角色、工具交互和结果解释仍由 Web worker 负责。这是独立供应商请求，不经过通用 TaskPrompt，见[固定模型文案设计](../prompts.md)。
+
 Kimi Search 是 Web capability-owned provider 封装，不是 TinySoul LLM task：
 
 - 不读取 Context、MessageStack、Home skill 或 `[llm]` provider 配置；

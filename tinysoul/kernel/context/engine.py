@@ -6,6 +6,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from uuid import uuid4
 
+from tinysoul.prompts.kernel import context as prompt_text
 from tinysoul.infra.concurrency import CleanupDiagnostic
 from tinysoul.infra.continuation import (
     MIN_CONTINUATION_PAGE_CHARS,
@@ -729,7 +730,7 @@ class ContextEngine:
         if query is not None and (not isinstance(query, str) or not query.strip()):
             raise ContextInspectRequestError(
                 ContextInspectFailureReason.INVALID_QUERY,
-                "Query must be non-empty text",
+                prompt_text.QUERY_MUST_BE_NON_EMPTY_TEXT,
             )
         fact = next(
             (item for item in self._current_search_facts() if item.ref == ref), None
@@ -934,7 +935,8 @@ class ContextEngine:
                 )
             offset += len(projection.messages)
         raise ContextInspectRequestError(
-            ContextInspectFailureReason.UNKNOWN_REF, "Unknown installed segment"
+            ContextInspectFailureReason.UNKNOWN_REF,
+            prompt_text.UNKNOWN_INSTALLED_SEGMENT,
         )
 
     def current_facts(self) -> ContextTurnFacts:

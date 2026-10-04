@@ -8,6 +8,8 @@ Context 拥有一个活动 Turn 的模型语境。内核维护 User Inputs、pla
 
 ## MessageStack
 
+Context 继续定义 TaskPrompt、PromptBlock 和来源协议。代码定义的 Control Tool 说明及可修正反馈从 `prompts/kernel/context.py` 取得；schema、Signal 消费、段投影和消息装配仍属于 Context，见[固定模型文案设计](prompts.md)。
+
 Composer 只接收带段描述的消息投影，按 Background → Trace → Working 槽位、段 order 和 id 排序，最后附加 TaskPrompt。当前装配顺序为：
 
 1. system identity；

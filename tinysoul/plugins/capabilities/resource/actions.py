@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from tinysoul.prompts.plugins.capabilities import resource as prompt_text
 from tinysoul.kernel.action import (
     ActionEngineBuilder,
     ActionExecution,
@@ -108,21 +109,21 @@ class ResourceConversionExecutor(ActionExecutor):
         except ResourceWorkerProtocolError:
             return _failed(
                 execution,
-                "Resource conversion returned an invalid staged result.",
+                prompt_text.INVALID_CONVERSION_RESULT,
                 reason="worker_protocol_invalid",
                 disposition=ActionFailureDisposition.STOP,
             )
         except StagingError:
             return _failed(
                 execution,
-                "Resource conversion staging could not be completed.",
+                prompt_text.CONVERSION_STAGING_FAILED,
                 reason="staging_failed",
                 disposition=ActionFailureDisposition.STOP,
             )
         except (ResourceContractError, WorkspaceContractError) as exc:
             return _failed(
                 execution,
-                "Resource conversion could not be completed.",
+                prompt_text.RESOURCE_CONVERSION_COULD_NOT_BE_COMPLETED,
                 reason="resource_conversion_failed",
                 frame_data={"error_type": type(exc).__name__},
             )
@@ -184,21 +185,21 @@ def _params(execution: ActionExecution) -> _ConversionParams | ActionResult:
     if not isinstance(source_link, str) or not source_link:
         return _failed(
             execution,
-            f"{execution.call.action_name} requires a non-empty 'source_link'.",
+            prompt_text.source_link_required(action_name=execution.call.action_name),
             reason="invalid_source_link",
         )
     target_link = execution.call.params.get("target_link")
     if not isinstance(target_link, str) or not target_link:
         return _failed(
             execution,
-            f"{execution.call.action_name} requires a non-empty 'target_link'.",
+            prompt_text.target_link_required(action_name=execution.call.action_name),
             reason="invalid_target_link",
         )
     overwrite = execution.call.params.get("overwrite", False)
     if not isinstance(overwrite, bool):
         return _failed(
             execution,
-            "Resource conversion overwrite must be boolean.",
+            prompt_text.RESOURCE_CONVERSION_OVERWRITE_MUST_BE_BOOLEAN,
             reason="invalid_overwrite",
         )
     return _ConversionParams(

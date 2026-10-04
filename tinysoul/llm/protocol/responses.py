@@ -7,6 +7,7 @@ from enum import StrEnum
 import json
 from collections.abc import Mapping
 
+from tinysoul.prompts import llm as prompt_text
 from tinysoul.infra.json import JsonObject, JsonTypeError, to_json_object
 
 from ..errors import LLMContractError
@@ -258,7 +259,9 @@ class ResponseInterpreter:
         elif answer_format is AnswerFormat.JSON_OBJECT:
             answer = JsonAnswer(self._parse_json_object(response.answer_text))
         else:
-            raise ResponseInterpretError(f"Unsupported answer format: {answer_format}")
+            raise ResponseInterpretError(
+                prompt_text.unsupported_answer_format(answer_format=answer_format)
+            )
 
         tool_calls = self._interpret_tool_calls(
             response,
@@ -280,15 +283,21 @@ class ResponseInterpreter:
     ) -> tuple[ToolCallRecord, ...]:
         if tool_use is ToolUse.DISABLED:
             if response.tool_calls:
-                raise ResponseInterpretError("Tool calls are disabled for this task")
+                raise ResponseInterpretError(
+                    prompt_text.TOOL_CALLS_ARE_DISABLED_FOR_THIS_TASK
+                )
             return ()
         if tool_use is ToolUse.OPTIONAL:
             return self._validate_tool_scope(response.tool_calls, tool_scope)
         if tool_use is ToolUse.REQUIRED:
             if not response.tool_calls:
-                raise ResponseInterpretError("Expected at least one tool call")
+                raise ResponseInterpretError(
+                    prompt_text.EXPECTED_AT_LEAST_ONE_TOOL_CALL
+                )
             return self._validate_tool_scope(response.tool_calls, tool_scope)
-        raise ResponseInterpretError(f"Unsupported tool use: {tool_use}")
+        raise ResponseInterpretError(
+            prompt_text.unsupported_tool_use(tool_use=tool_use)
+        )
 
     def _validate_tool_scope(
         self,
@@ -302,17 +311,21 @@ class ResponseInterpreter:
         for tool_call in tool_calls:
             tool = visible.get(tool_call.name)
             if tool is None:
-                raise ResponseInterpretError(f"Unexpected tool call: {tool_call.name}")
+                raise ResponseInterpretError(
+                    prompt_text.unexpected_tool_call(name=tool_call.name)
+                )
             if tool_call.kind is not None and tool_call.kind is not tool.kind:
                 raise ResponseInterpretError(
-                    f"Tool call kind does not match its scope: {tool_call.name}"
+                    prompt_text.tool_kind_mismatch(name=tool_call.name)
                 )
             normalized.append(replace(tool_call, kind=tool.kind))
         forced_name = tool_scope.selection.forced_name
         if forced_name is not None and not any(
             tool_call.name == forced_name for tool_call in tool_calls
         ):
-            raise ResponseInterpretError(f"Expected forced tool call: {forced_name}")
+            raise ResponseInterpretError(
+                prompt_text.missing_forced_tool(forced_name=forced_name)
+            )
         return tuple(normalized)
 
     def _parse_json_object(self, text: str) -> JsonObject:
@@ -321,11 +334,11 @@ class ResponseInterpreter:
             value = json.loads(cleaned)
         except json.JSONDecodeError as exc:
             raise ResponseInterpretError(
-                f"Failed to parse model response as JSON object: {exc}"
+                prompt_text.invalid_json_response(detail=str(exc))
             ) from exc
         if not isinstance(value, dict):
             raise ResponseInterpretError(
-                f"Expected JSON object, got {type(value).__name__}"
+                prompt_text.expected_json_object(type_name=type(value).__name__)
             )
         return to_json_object(value)
 

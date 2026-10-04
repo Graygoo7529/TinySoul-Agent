@@ -30,6 +30,8 @@ Phase1/Phase2 的可修正协议失败是 PhaseFailure，当前 Cycle 在失败 
 
 Phase task profile 由 loop.cycle 配置，三 profile 共用模型链选择；TaskPrompt 只叠加当前引导和 Skill。背景、Trace、Working 均由 Context 按段描述组合，Phase 不解释领域内容。
 
+Phase 固定指引和局部反馈由 `prompts/kernel/loop.py` 提供，User 情景固定指引由 `prompts/agent/user.py` 提供。Loop 继续拥有提示组合、role、顺序和失败处理；内容包只维护文字，边界见[固定模型文案设计](prompts.md)。
+
 ## 输入、问题与预算
 
 TurnInbox 从请求受理到收尾持续接收。固定批次经 Context prepare/install 成功后 ack；准备期间到达的记录留在后批。inputs 保存正文，Trace 只引用输入身份与顺序。等待只观察就绪，不能抢走消费者记录。

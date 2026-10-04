@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from math import isfinite
 
+from tinysoul.prompts.kernel import action as prompt_text
 from tinysoul.infra.json import JsonObject, JsonTypeError, JsonValue, to_json_object
 from tinysoul.kernel.action.call import ActionExecution
 from tinysoul.kernel.action.engine import ActionEngineBuilder
@@ -175,7 +176,7 @@ class CoreAskActionExecutor:
         except QuestionError:
             return _failed(
                 execution,
-                "Provide one question with unique option IDs, labels and a positive optional timeout. Do not combine conflicting explicit choices and question blocks.",
+                prompt_text.INVALID_QUESTION,
                 reason="invalid_question",
             )
         return _success(
@@ -260,7 +261,7 @@ class CoreWaitActionExecutor:
         ):
             return _failed(
                 execution,
-                "Choose a positive timeout or an explicit event kind and optional identity.",
+                prompt_text.INVALID_WAIT,
                 reason="invalid_wait",
             )
         return _success(
@@ -292,7 +293,7 @@ class _PromptArgumentBuilder:
                         params.get("guide_blocks"),
                         key="guide_blocks",
                         section="guide",
-                        heading="Task Guide",
+                        heading=prompt_text.TASK_GUIDE_HEADING,
                         required=True,
                     ),
                     input_blocks=(
@@ -300,7 +301,7 @@ class _PromptArgumentBuilder:
                             params.get("input_blocks", []),
                             key="input_blocks",
                             section="input",
-                            heading="Task Input",
+                            heading=prompt_text.TASK_INPUT_HEADING,
                         ),
                         *(await self._parse_reference_links(reference_links)),
                     ),
@@ -308,7 +309,7 @@ class _PromptArgumentBuilder:
                         params.get("output_blocks"),
                         key="output_blocks",
                         section="output",
-                        heading="Expected Output",
+                        heading=prompt_text.EXPECTED_OUTPUT_HEADING,
                         required=True,
                     ),
                 ),
@@ -336,7 +337,7 @@ class _PromptArgumentBuilder:
                         params.get("guide_blocks"),
                         key="guide_blocks",
                         section="guide",
-                        heading="Answer Guide",
+                        heading=prompt_text.ANSWER_GUIDE_HEADING,
                         required=True,
                     ),
                     input_blocks=(
@@ -344,19 +345,14 @@ class _PromptArgumentBuilder:
                             params.get("input_blocks", []),
                             key="input_blocks",
                             section="input",
-                            heading="Answer Input",
+                            heading=prompt_text.ANSWER_INPUT_HEADING,
                         ),
                         *(await self._parse_reference_links(reference_links)),
                     ),
                     output_blocks=(
                         PromptBlock.from_text(
                             "task_prompt:output:answer",
-                            (
-                                "# Expected Output\n"
-                                "Return a JSON object with a string field 'text'. "
-                                "If source links are used, include a 'references' "
-                                "array of source link strings."
-                            ),
+                            prompt_text.ANSWER_EXPECTED_OUTPUT,
                         ),
                     ),
                 ),
@@ -387,13 +383,13 @@ class _PromptArgumentBuilder:
         if value is None:
             if required:
                 raise _PromptParameterError(
-                    f"Model task requires non-empty '{key}'.",
+                    prompt_text.required_prompt_blocks(key=key),
                     reason=f"missing_{key}",
                 )
             return ()
         if not isinstance(value, list):
             raise _PromptParameterError(
-                f"Model task '{key}' must be a list.",
+                prompt_text.prompt_blocks_must_be_list(key=key),
                 reason=f"invalid_{key}",
             )
         blocks: list[PromptBlock] = []
@@ -409,7 +405,7 @@ class _PromptArgumentBuilder:
             )
         if required and not blocks:
             raise _PromptParameterError(
-                f"Model task requires non-empty '{key}'.",
+                prompt_text.required_prompt_blocks(key=key),
                 reason=f"missing_{key}",
             )
         return tuple(blocks)
@@ -427,14 +423,14 @@ class _PromptArgumentBuilder:
             item = to_json_object(value)
         except JsonTypeError as exc:
             raise _PromptParameterError(
-                f"Model task '{key}' items must be objects.",
+                prompt_text.prompt_blocks_must_be_objects(key=key),
                 reason=f"invalid_{key}_item",
                 payload={"index": index},
             ) from exc
         text = item.get("text")
         if not isinstance(text, str) or not text:
             raise _PromptParameterError(
-                f"Model task '{key}' items require non-empty text.",
+                prompt_text.prompt_block_text_required(key=key),
                 reason=f"invalid_{key}_text",
                 payload={"index": index},
             )
@@ -443,14 +439,14 @@ class _PromptArgumentBuilder:
             not isinstance(label_value, str) or not label_value
         ):
             raise _PromptParameterError(
-                f"Model task '{key}' label must be non-empty when provided.",
+                prompt_text.prompt_block_label_required(key=key),
                 reason=f"invalid_{key}_label",
                 payload={"index": index},
             )
         label_suffix = label_value if isinstance(label_value, str) else str(index)
         return PromptBlock.from_text(
             f"task_prompt:{section}:{label_suffix}",
-            f"# {heading}\n{text}",
+            prompt_text.task_block(heading=heading, text=text),
         )
 
     async def _parse_reference_links(self, value: object) -> tuple[PromptBlock, ...]:
@@ -458,28 +454,28 @@ class _PromptArgumentBuilder:
             return ()
         if not isinstance(value, list):
             raise PromptReferenceError(
-                "Model task 'reference_links' must be a list when provided.",
+                prompt_text.REFERENCE_LINKS_LIST_REQUIRED,
                 reason="invalid_reference_links",
             )
         blocks: list[PromptBlock] = []
         for index, item in enumerate(value, start=1):
             if not isinstance(item, str) or not item:
                 raise PromptReferenceError(
-                    "Model task 'reference_links' items must be non-empty strings.",
+                    prompt_text.REFERENCE_LINK_STRINGS_REQUIRED,
                     reason="invalid_reference_link",
                     payload={"index": index},
                 )
             resolver = self._resolver_for(item)
             if resolver is None:
                 raise PromptReferenceError(
-                    f"Unsupported task prompt reference link: {item}",
+                    prompt_text.unsupported_reference(item=item),
                     reason="unsupported_reference_link",
                     payload={"index": index, "link": item},
                 )
             resolved = await resolver.resolve_reference(item)
             if not resolved:
                 raise PromptReferenceError(
-                    f"Task prompt reference produced no content: {item}",
+                    prompt_text.empty_reference(item=item),
                     reason="empty_reference",
                     payload={"index": index, "link": item},
                 )

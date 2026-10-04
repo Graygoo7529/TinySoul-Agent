@@ -2,6 +2,7 @@
 
 from enum import StrEnum
 
+from tinysoul.prompts.plugins import execution as prompt_text
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.action import (
@@ -65,12 +66,14 @@ class ExecutionActionExecutor:
         ):
             return _failed(
                 execution,
-                "The execution request is unavailable or invalid.",
+                prompt_text.THE_EXECUTION_REQUEST_IS_UNAVAILABLE_OR_INVALID,
                 "invalid_request",
             )
         except ExecutionStartError:
             return _failed(
-                execution, "The requested process could not start.", "start_failed"
+                execution,
+                prompt_text.THE_REQUESTED_PROCESS_COULD_NOT_START,
+                "start_failed",
             )
         except JobError as exc:
             raise RuntimeJobsBridge().from_error(exc) from exc
@@ -199,7 +202,7 @@ class ExecutionActionExecutor:
         ):
             return _failed(
                 execution,
-                "Process execution failed; existing Workspace effects remain available.",
+                prompt_text.PROCESS_EXECUTION_FAILED,
                 "process_failed",
                 payload=payload,
             )

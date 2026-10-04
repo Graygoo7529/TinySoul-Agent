@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import cast
 
+from tinysoul.prompts.plugins.capabilities import web as prompt_text
 from tinysoul.kernel.action import (
     ActionEngineBuilder,
     ActionExecution,
@@ -85,7 +86,7 @@ class KimiSearchExecutor(ActionExecutor):
         if not isinstance(query, str) or not query.strip():
             return _failed(
                 execution,
-                "Kimi Web Search requires a non-empty 'query'.",
+                prompt_text.KIMI_WEB_SEARCH_REQUIRES_A_NON_EMPTY_QUERY,
                 reason="invalid_query",
             )
         try:
@@ -105,19 +106,19 @@ class KimiSearchExecutor(ActionExecutor):
         except WebWorkerProtocolError:
             return _failed(
                 execution,
-                "Kimi Web Search returned an invalid bounded result.",
+                prompt_text.KIMI_WEB_SEARCH_RETURNED_AN_INVALID_BOUNDED_RESULT,
                 reason="worker_protocol_invalid",
             )
         except StagingError:
             return _failed(
                 execution,
-                "Kimi Web Search staging could not be completed.",
+                prompt_text.KIMI_WEB_SEARCH_STAGING_COULD_NOT_BE_COMPLETED,
                 reason="staging_failed",
             )
         except (WebContractError, WorkspaceContractError) as exc:
             return _failed(
                 execution,
-                "Kimi Web Search could not be completed.",
+                prompt_text.KIMI_WEB_SEARCH_COULD_NOT_BE_COMPLETED,
                 reason="web_search_failed",
                 frame_data={"error_type": type(exc).__name__},
             )
@@ -166,19 +167,19 @@ class WebFetchExecutor(ActionExecutor):
         except WebWorkerProtocolError:
             return _failed(
                 execution,
-                "Web fetch returned an invalid staged result.",
+                prompt_text.WEB_FETCH_RETURNED_AN_INVALID_STAGED_RESULT,
                 reason="worker_protocol_invalid",
             )
         except StagingError:
             return _failed(
                 execution,
-                "Web fetch staging could not be completed.",
+                prompt_text.WEB_FETCH_STAGING_COULD_NOT_BE_COMPLETED,
                 reason="staging_failed",
             )
         except (WebContractError, WorkspaceContractError) as exc:
             return _failed(
                 execution,
-                "Web fetch could not be completed.",
+                prompt_text.WEB_FETCH_COULD_NOT_BE_COMPLETED,
                 reason="web_fetch_failed",
                 frame_data={"error_type": type(exc).__name__},
             )
@@ -225,19 +226,19 @@ class WebDiscoveryExecutor(ActionExecutor):
         except WebWorkerProtocolError:
             return _failed(
                 execution,
-                "Web page discovery returned an invalid bounded result.",
+                prompt_text.WEB_PAGE_DISCOVERY_RETURNED_AN_INVALID_BOUNDED_RESULT,
                 reason="worker_protocol_invalid",
             )
         except StagingError:
             return _failed(
                 execution,
-                "Web page discovery staging could not be completed.",
+                prompt_text.WEB_PAGE_DISCOVERY_STAGING_COULD_NOT_BE_COMPLETED,
                 reason="staging_failed",
             )
         except (WebContractError, WorkspaceContractError) as exc:
             return _failed(
                 execution,
-                "Web page discovery could not be completed.",
+                prompt_text.WEB_PAGE_DISCOVERY_COULD_NOT_BE_COMPLETED,
                 reason="web_discovery_failed",
                 frame_data={"error_type": type(exc).__name__},
             )
@@ -321,21 +322,21 @@ def _fetch_params(execution: ActionExecution) -> _FetchParams | ActionResult:
     if not isinstance(url, str) or not url:
         return _failed(
             execution,
-            f"{execution.call.action_name} requires a non-empty 'url'.",
+            prompt_text.url_required(action_name=execution.call.action_name),
             reason="invalid_url",
         )
     target_link = execution.call.params.get("target_link")
     if not isinstance(target_link, str) or not target_link:
         return _failed(
             execution,
-            f"{execution.call.action_name} requires a non-empty 'target_link'.",
+            prompt_text.target_link_required(action_name=execution.call.action_name),
             reason="invalid_target_link",
         )
     overwrite = execution.call.params.get("overwrite", False)
     if not isinstance(overwrite, bool):
         return _failed(
             execution,
-            "Web fetch overwrite must be boolean.",
+            prompt_text.WEB_FETCH_OVERWRITE_MUST_BE_BOOLEAN,
             reason="invalid_overwrite",
         )
     return _FetchParams(
@@ -352,7 +353,7 @@ def _discovery_params(
     if not isinstance(start_url, str) or not start_url.strip():
         return _failed(
             execution,
-            "Web page discovery requires a non-empty 'start_url'.",
+            prompt_text.WEB_PAGE_DISCOVERY_REQUIRES_A_NON_EMPTY_START_URL,
             reason="invalid_start_url",
         )
     max_visit_depth = execution.call.params.get("max_visit_depth", 0)
@@ -363,7 +364,7 @@ def _discovery_params(
     ):
         return _failed(
             execution,
-            "Web page discovery max_visit_depth must be a non-negative integer.",
+            prompt_text.INVALID_DISCOVERY_DEPTH,
             reason="invalid_visit_depth",
         )
     include_globs = _string_tuple_param(execution, "include_globs")
@@ -390,7 +391,7 @@ def _string_tuple_param(
     ):
         return _failed(
             execution,
-            f"Web page discovery {name} must be an array of non-empty strings.",
+            prompt_text.discovery_patterns_required(name=name),
             reason="invalid_path_globs",
         )
     return tuple(cast(list[str], value))

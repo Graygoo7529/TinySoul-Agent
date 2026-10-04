@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tinysoul.prompts.kernel import context as prompt_text
 from tinysoul.infra.json import JsonObject, JsonValue, dumps_json
 from tinysoul.infra.references import (
     ReferenceError,
@@ -47,13 +48,13 @@ def disclosure_corpus(
     if getattr(candidate_source, "scope", "all") not in {"all", "trace", "session"}:
         raise SearchFailure(
             SearchFailureKind.INVALID_REQUEST,
-            "Context scope must be trace, session or all",
+            prompt_text.CONTEXT_SCOPE_MUST_BE_TRACE_SESSION_OR_ALL,
         )
     if isinstance(candidate_source, QuerySource):
         if isinstance(candidate_source.query, DocumentQuery):
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
-                "Context discovery requires a text query",
+                prompt_text.CONTEXT_DISCOVERY_REQUIRES_A_TEXT_QUERY,
             )
         query = candidate_source.query.text
     else:

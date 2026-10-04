@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-
+from tinysoul.prompts.kernel import action as prompt_text
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind
 
@@ -41,7 +41,9 @@ class ActionCallNormalizer:
                     _normalize_failure(
                         tool_call,
                         sequence=sequence,
-                        feedback=f"Duplicate action tool call id: {tool_call.id}",
+                        feedback=prompt_text.duplicate_action_tool_call(
+                            call_id=tool_call.id
+                        ),
                         reason="duplicate_call_id",
                     )
                 )
@@ -52,10 +54,7 @@ class ActionCallNormalizer:
                     _normalize_failure(
                         tool_call,
                         sequence=sequence,
-                        feedback=(
-                            "Expected an action tool call, but received a control or "
-                            "uncategorized tool call."
-                        ),
+                        feedback=prompt_text.EXPECTED_ACTION_TOOL_CALL,
                         reason="unexpected_tool_kind",
                         frame_data={
                             "tool_kind": (
@@ -70,7 +69,7 @@ class ActionCallNormalizer:
                     _normalize_failure(
                         tool_call,
                         sequence=sequence,
-                        feedback=f"Unknown action tool call: {tool_call.name}",
+                        feedback=prompt_text.unknown_action_tool(name=tool_call.name),
                         reason="unknown_action",
                     )
                 )

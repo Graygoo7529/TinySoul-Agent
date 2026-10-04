@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+from tinysoul.prompts.plugins.capabilities import subagent as prompt_text
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.process import ManagedProcessCloseError
@@ -143,7 +144,7 @@ class SubagentEngine:
             if target is None:
                 raise SubagentRequestError(
                     SubagentFailure.UNAVAILABLE,
-                    "Configured Agent target is unavailable.",
+                    prompt_text.CONFIGURED_AGENT_TARGET_IS_UNAVAILABLE,
                 )
             for item in self._connections.values():
                 if (
@@ -159,7 +160,7 @@ class SubagentEngine:
                         await item.client.close()
                         raise SubagentRequestError(
                             SubagentFailure.UNAVAILABLE,
-                            "External Agent session could not be created.",
+                            prompt_text.EXTERNAL_AGENT_SESSION_COULD_NOT_BE_CREATED,
                         ) from exc
                     item.owner_turn = turn_id
                     await self._changed(turn_id)
@@ -178,7 +179,7 @@ class SubagentEngine:
             if len(self._connections) >= self.settings.max_connections:
                 raise SubagentRequestError(
                     SubagentFailure.BUSY,
-                    "Connection capacity is full; disconnect an idle connection.",
+                    prompt_text.CONNECTION_CAPACITY_EXCEEDED,
                 )
             identity = f"connection_{uuid4().hex}"
             operations = JoinedOperations()
@@ -197,7 +198,7 @@ class SubagentEngine:
             except Exception as exc:
                 raise SubagentRequestError(
                     SubagentFailure.UNAVAILABLE,
-                    "External Agent could not connect; check its local setup and authentication.",
+                    prompt_text.EXTERNAL_AGENT_CONNECTION_FAILED,
                 ) from exc
             self._connections[identity] = _Connection(
                 identity, target, cwd, link, profile, turn_id, client
@@ -210,7 +211,7 @@ class SubagentEngine:
         if item is None or item.owner_turn != turn_id:
             raise SubagentRequestError(
                 SubagentFailure.INVALID_REQUEST,
-                "Connection is unavailable in this Turn.",
+                prompt_text.CONNECTION_IS_UNAVAILABLE_IN_THIS_TURN,
             )
         return item
 
@@ -221,12 +222,12 @@ class SubagentEngine:
             item = self._owned(turn_id, connection_id)
             if item.job_id is not None or item.client.closed:
                 raise SubagentRequestError(
-                    SubagentFailure.BUSY, "Connection is busy or closed."
+                    SubagentFailure.BUSY, prompt_text.CONNECTION_IS_BUSY_OR_CLOSED
                 )
             if not brief.strip() or len(brief) > self.settings.max_brief_chars:
                 raise SubagentRequestError(
                     SubagentFailure.INVALID_REQUEST,
-                    "Delegation requires a bounded non-empty brief.",
+                    prompt_text.DELEGATION_REQUIRES_A_BOUNDED_NON_EMPTY_BRIEF,
                 )
 
             async def closed() -> None:
@@ -262,7 +263,7 @@ class SubagentEngine:
             if not link.startswith("workspace:"):
                 raise SubagentRequestError(
                     SubagentFailure.INVALID_REQUEST,
-                    "Delegation references must name Workspace resources.",
+                    prompt_text.WORKSPACE_REFERENCE_REQUIRED,
                 )
             source = await operations.run(
                 lambda: self._workspace.read_text(
@@ -272,13 +273,14 @@ class SubagentEngine:
             if source.truncated:
                 raise SubagentRequestError(
                     SubagentFailure.INVALID_REQUEST,
-                    "Reference exceeds the delegation input bound; provide a smaller resource.",
+                    prompt_text.REFERENCE_INPUT_LIMIT_EXCEEDED,
                 )
-            blocks.append(f"Reference {link}:\n{source.text}")
+            blocks.append(prompt_text.delegation_reference(link=link, text=source.text))
         result = "\n\n".join(blocks)
         if len(result) > self.settings.max_brief_chars:
             raise SubagentRequestError(
-                SubagentFailure.INVALID_REQUEST, "Delegation input exceeds its bound."
+                SubagentFailure.INVALID_REQUEST,
+                prompt_text.DELEGATION_INPUT_EXCEEDS_ITS_BOUND,
             )
         return result
 
@@ -288,7 +290,7 @@ class SubagentEngine:
             if item.job_id is not None:
                 raise SubagentRequestError(
                     SubagentFailure.BUSY,
-                    "Stop or finish the connection's Job before disconnecting.",
+                    prompt_text.ACTIVE_JOB_BLOCKS_DISCONNECTION,
                 )
             await item.client.close()
             del self._connections[connection_id]
@@ -301,7 +303,8 @@ class SubagentEngine:
                     continue
                 if item.job_id is not None:
                     raise SubagentRequestError(
-                        SubagentFailure.BUSY, "Jobs must close before their sessions."
+                        SubagentFailure.BUSY,
+                        prompt_text.JOBS_MUST_CLOSE_BEFORE_THEIR_SESSIONS,
                     )
                 await item.client.release_session()
                 item.owner_turn = None

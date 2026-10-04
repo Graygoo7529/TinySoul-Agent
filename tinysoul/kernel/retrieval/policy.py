@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import TypeVar, cast
 
+from tinysoul.prompts.kernel import retrieval as prompt_text
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
 from tinysoul.infra.json import JsonObject, JsonValue
 
@@ -59,7 +60,7 @@ class SearchCapability:
         if self.server_scope:
             return {
                 "type": "string",
-                "description": "all or server:<registered server id>",
+                "description": prompt_text.ALL_OR_SERVER_REGISTERED_SERVER_ID,
             }
         return {"type": "string", "enum": list(self.scopes)}
 
@@ -148,11 +149,12 @@ class RetrievalPolicy:
         if source_kind not in self.sources:
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
-                "Requested source is not available for this action",
+                prompt_text.REQUESTED_SOURCE_IS_NOT_AVAILABLE_FOR_THIS_ACTION,
             )
         if request.page_limit > self.page_max_items:
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "Page limit exceeds action policy"
+                SearchFailureKind.INVALID_REQUEST,
+                prompt_text.PAGE_LIMIT_EXCEEDS_ACTION_POLICY,
             )
         if self.capability is not None:
             self._validate_source(request)
@@ -160,21 +162,21 @@ class RetrievalPolicy:
         if len(steps) > self.max_steps:
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
-                "Requested operation pipeline exceeds its configured step limit",
+                prompt_text.PIPELINE_STEP_LIMIT_EXCEEDED,
             )
         for step in steps:
             operation = step.op
             if operation not in self.operations:
                 raise SearchFailure(
                     SearchFailureKind.INVALID_REQUEST,
-                    "Requested operation is not available for this action",
+                    prompt_text.OPERATION_UNAVAILABLE,
                 )
             if operation in {OperationKind.SELECT, OperationKind.RERANK}:
                 context = getattr(step, "context", SearchContext.NONE)
                 if context not in self.operation(operation).allowed_context:
                     raise SearchFailure(
                         SearchFailureKind.INVALID_REQUEST,
-                        "Requested Context is not available for this operation",
+                        prompt_text.OPERATION_CONTEXT_UNAVAILABLE,
                     )
 
     def _validate_source(self, request: RetrievalRequest) -> None:
@@ -200,7 +202,7 @@ class RetrievalPolicy:
             if not valid:
                 raise SearchFailure(
                     SearchFailureKind.INVALID_REQUEST,
-                    "Source scope is not supported by this owner",
+                    prompt_text.SOURCE_SCOPE_IS_NOT_SUPPORTED_BY_THIS_OWNER,
                 )
         if isinstance(request.source, QuerySource):
             if (
@@ -209,7 +211,7 @@ class RetrievalPolicy:
             ):
                 raise SearchFailure(
                     SearchFailureKind.INVALID_REQUEST,
-                    "This owner requires a text query",
+                    prompt_text.THIS_OWNER_REQUIRES_A_TEXT_QUERY,
                 )
             if (
                 request.source.regex
@@ -218,7 +220,7 @@ class RetrievalPolicy:
             ) and not capability.lexical_syntax:
                 raise SearchFailure(
                     SearchFailureKind.INVALID_REQUEST,
-                    "This owner does not expose literal/regex matching",
+                    prompt_text.THIS_OWNER_DOES_NOT_EXPOSE_LITERAL_REGEX_MATCHING,
                 )
         conditions = [
             getattr(request.source, "where", {}),

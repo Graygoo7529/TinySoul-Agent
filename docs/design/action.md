@@ -321,6 +321,8 @@ Phase1 和 Phase2 只是在这个基础上选择不同的工具作用域和不�
 
 ### TOML catalog
 
+Catalog 的模型语义仍属于项目配置。`prompts/kernel/action.py` 只管理代码中的固定说明、任务包装和局部反馈，不复制 Catalog 描述或覆盖配置值；scope、schema、执行与失败处理继续由 Action owner 决定，见[固定模型文案设计](prompts.md)。
+
 每个 domain 一个目录，目录下放：
 
 - `domain.toml`

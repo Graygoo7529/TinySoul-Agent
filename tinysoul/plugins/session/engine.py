@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
 
+from tinysoul.prompts.plugins import session as prompt_text
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.context import (
@@ -258,7 +259,7 @@ class SessionEngine:
             if not manifest.refs:
                 return OrganizeResult(
                     failure=OrganizeFailureReason.NO_HISTORY,
-                    feedback="There are no completed Turns to organize yet",
+                    feedback=prompt_text.THERE_ARE_NO_COMPLETED_TURNS_TO_ORGANIZE_YET,
                 )
             view = SessionView(
                 manifest,

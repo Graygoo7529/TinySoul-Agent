@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-
+from tinysoul.prompts.kernel import loop as prompt_text
 from tinysoul.kernel.context import ControlResult
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.protocol.requests import CallSettings, TaskCancellation
@@ -53,7 +53,7 @@ def _turn_task_cancellation(
 
 def _task_result_feedback(result: TaskResult) -> str:
     if result.failure is None or not result.failure.model_feedback:
-        return "LLM task output did not satisfy the phase protocol."
+        return prompt_text.INVALID_PHASE_OUTPUT
     return result.failure.model_feedback
 
 

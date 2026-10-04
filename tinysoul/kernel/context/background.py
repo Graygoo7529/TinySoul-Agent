@@ -7,6 +7,7 @@ from datetime import date
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from tinysoul.prompts.kernel import context as prompt_text
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.references import ResourceLocator
 from tinysoul.llm.protocol.messages import Message, UserMessage
@@ -224,27 +225,25 @@ class BackgroundContext:
     ) -> str:
         duplicate = _first_duplicate(patch.load_links)
         if duplicate:
-            return f"Background patch contains duplicate load link: {duplicate}"
+            return prompt_text.duplicate_background_load(duplicate=duplicate)
         duplicate = _first_duplicate(patch.evict_links)
         if duplicate:
-            return f"Background patch contains duplicate evict link: {duplicate}"
+            return prompt_text.duplicate_background_eviction(duplicate=duplicate)
         conflict = sorted(set(patch.load_links) & set(patch.evict_links))
         if conflict:
-            return (
-                f"Background patch cannot load and evict the same link: {conflict[0]}"
-            )
+            return prompt_text.conflicting_background_link(link=conflict[0])
         if patch.is_empty():
-            return "Background patch contains no links"
+            return prompt_text.BACKGROUND_PATCH_CONTAINS_NO_LINKS
         loadable = set(loadable_links)
         evictable = set(evictable_links)
         for link in patch.load_links:
             if link not in loadable:
-                return f"Unknown loadable background link: {link}"
+                return prompt_text.unknown_background_link(link=link)
         for link in patch.evict_links:
             if link not in loaded:
-                return f"Background link is not loaded: {link}"
+                return prompt_text.background_not_loaded(link=link)
             if link not in evictable:
-                return f"Background link is not evictable: {link}"
+                return prompt_text.background_not_evictable(link=link)
             loaded.remove(link)
         for link in patch.load_links:
             loaded.add(link)

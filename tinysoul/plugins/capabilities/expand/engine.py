@@ -11,6 +11,7 @@ from time import monotonic
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+from tinysoul.prompts.plugins.capabilities import expand as prompt_text
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.json import JsonObject, JsonValue, dumps_json
 from tinysoul.infra.paging import PageOptions
@@ -245,7 +246,7 @@ class ExpandEngine:
     ) -> JsonObject:
         if not any(server.server_id == server_id for server in self.settings.servers):
             raise ExpandRequestError(
-                ExpandFailure.INVALID_REQUEST, "Unknown MCP server"
+                ExpandFailure.INVALID_REQUEST, prompt_text.UNKNOWN_MCP_SERVER
             )
         cached = self._definitions.get(server_id)
         values = tuple(
@@ -264,7 +265,7 @@ class ExpandEngine:
         connection = self._connections.get(server_id)
         if connection is None:
             raise ExpandRequestError(
-                ExpandFailure.UNAVAILABLE, "MCP server is not enabled"
+                ExpandFailure.UNAVAILABLE, prompt_text.MCP_SERVER_IS_NOT_ENABLED
             )
         connection.invalidate()
         discovery = await self.discover((server_id,))
@@ -275,13 +276,13 @@ class ExpandEngine:
         if not isinstance(source, (QuerySource, DirectorySource, RefsSource)):
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
-                "MCP search uses a declared server/tool directory",
+                prompt_text.MCP_SEARCH_USES_A_DECLARED_SERVER_TOOL_DIRECTORY,
             )
         scope = getattr(source, "scope", "all")
         if scope != "all" and not scope.startswith("server:"):
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
-                "MCP scope must be all or server:<id>",
+                prompt_text.MCP_SCOPE_MUST_BE_ALL_OR_SERVER_ID,
             )
         predicates = MCP_SEARCH_FILTERS.parse(getattr(source, "where", {}))
         discovered = await self.discover(
@@ -292,7 +293,7 @@ class ExpandEngine:
         if len(available) != len(discovered.servers):
             raise SearchFailure(
                 SearchFailureKind.SOURCE_UNAVAILABLE,
-                "A selected MCP server is unavailable; choose an available server scope",
+                prompt_text.SELECTED_SERVER_UNAVAILABLE,
             )
         candidates = []
         query = (
@@ -335,13 +336,13 @@ class ExpandEngine:
             if missing:
                 raise SearchFailure(
                     SearchFailureKind.INVALID_REQUEST,
-                    "MCP ref is not available in the tool directory",
+                    prompt_text.MCP_REF_IS_NOT_AVAILABLE_IN_THE_TOOL_DIRECTORY,
                 )
             candidates.sort(key=lambda item: order[item.ref])
         if total_input > self.settings.search_max_chars:
             raise SearchFailure(
                 SearchFailureKind.SCOPE_REQUIRED,
-                "MCP candidate directory exceeds input capacity; narrow server scope or browse describe_servers",
+                prompt_text.DIRECTORY_CAPACITY_EXCEEDED,
             )
         return SearchCorpus(
             tuple(candidates),
@@ -389,7 +390,7 @@ class ExpandEngine:
             ):
                 raise ExpandRequestError(
                     ExpandFailure.INVALID_REQUEST,
-                    "Directory page expired; describe the scope again.",
+                    prompt_text.DIRECTORY_PAGE_EXPIRED_DESCRIBE_THE_SCOPE_AGAIN,
                 )
             items, offset = page.items, page.offset
             sources = page.sources
@@ -408,7 +409,7 @@ class ExpandEngine:
                 if not selected and not server_page:
                     raise ExpandRequestError(
                         ExpandFailure.CAPACITY,
-                        "Directory item exceeds response capacity.",
+                        prompt_text.DIRECTORY_ITEM_EXCEEDS_RESPONSE_CAPACITY,
                     )
                 break
             if "server" in item:
@@ -443,22 +444,23 @@ class ExpandEngine:
         if tool is None:
             raise ExpandRequestError(
                 ExpandFailure.UNAVAILABLE,
-                "Tool is unavailable or excluded by server policy.",
+                prompt_text.TOOL_IS_UNAVAILABLE_OR_EXCLUDED_BY_SERVER_POLICY,
             )
         if tool.problem or tool.inputs is None:
             raise ExpandRequestError(
                 ExpandFailure.SCHEMA,
-                "Tool definition is unsupported or exceeds its bound.",
+                prompt_text.UNSUPPORTED_TOOL_DEFINITION,
             )
         try:
             tool.inputs.validate(arguments)
         except JSONSchemaValidationError as exc:
             raise ExpandRequestError(
-                ExpandFailure.ARGUMENTS, "Arguments do not satisfy the tool definition."
+                ExpandFailure.ARGUMENTS,
+                prompt_text.ARGUMENTS_DO_NOT_SATISFY_THE_TOOL_DEFINITION,
             ) from exc
         except JSONSchemaError as exc:
             raise ExpandRequestError(
-                ExpandFailure.SCHEMA, "Tool schema could not be resolved."
+                ExpandFailure.SCHEMA, prompt_text.TOOL_SCHEMA_COULD_NOT_BE_RESOLVED
             ) from exc
         result = await self._connections[server_id].call(name, arguments)
         structured = result.get("structuredContent")
@@ -468,7 +470,7 @@ class ExpandEngine:
             except JSONSchemaError as exc:
                 raise ExpandRequestError(
                     ExpandFailure.REMOTE,
-                    "Tool returned output that does not satisfy its schema.",
+                    prompt_text.INVALID_TOOL_OUTPUT,
                 ) from exc
         return await self._project_result(tool, result, operations)
 
@@ -479,14 +481,16 @@ class ExpandEngine:
         if len(serialized.encode()) > self.settings.max_result_bytes:
             raise ExpandRequestError(
                 ExpandFailure.CAPACITY,
-                "Tool result exceeds the configured output bound; effects may already exist.",
+                prompt_text.TOOL_OUTPUT_LIMIT_EXCEEDED,
             )
         prefix = f"workspace:mcp/{uuid4().hex}"
         writes: list[WorkspaceBundleWrite] = []
         content: list[JsonValue] = []
         blocks = result.get("content", [])
         if not isinstance(blocks, list):
-            raise ExpandRequestError(ExpandFailure.REMOTE, "Tool content is invalid.")
+            raise ExpandRequestError(
+                ExpandFailure.REMOTE, prompt_text.TOOL_CONTENT_IS_INVALID
+            )
         for index, block in enumerate(blocks):
             if not isinstance(block, dict):
                 continue
@@ -525,7 +529,8 @@ class ExpandEngine:
                     )
                 except ValueError as exc:
                     raise ExpandRequestError(
-                        ExpandFailure.REMOTE, "Tool returned invalid embedded content."
+                        ExpandFailure.REMOTE,
+                        prompt_text.TOOL_RETURNED_INVALID_EMBEDDED_CONTENT,
                     ) from exc
                 suffix = {
                     "image/png": ".png",

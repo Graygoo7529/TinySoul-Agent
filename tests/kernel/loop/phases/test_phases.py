@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 from tests.action_helpers import builtin_catalog
 
 from datetime import date as CalendarDate
@@ -1440,3 +1441,43 @@ def _message_stack_text(stack: MessageStack) -> str:
 
 def _stack() -> MessageStack:
     return MessageStack()
+
+
+def test_phase_prompt_content_preserves_scenario_and_skill_boundaries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tinysoul.kernel.context.prompts import PromptGuidance
+    from tinysoul.kernel.loop.prompts import phase1_task_prompt, phase2_task_prompt
+    from tinysoul.llm.protocol.messages import UserMessage
+    from tinysoul.prompts.kernel import loop as prompt_text
+
+    monkeypatch.setattr(prompt_text, "PHASE1_GUIDANCE", ("phase one {literal}",))
+    monkeypatch.setattr(prompt_text, "PHASE2_GUIDANCE", ("phase two {literal}",))
+    scenario = "scenario {instruction}"
+    feedback = "feedback {detail}"
+    skill = PromptGuidance("skill {body}", "home:skills_domain:core", "home")
+    first = phase1_task_prompt(
+        domain_prompt="domain {data}",
+        turn_guidance=(scenario,),
+        feedback=(feedback,),
+    )
+    second = phase2_task_prompt(
+        selected_domains=("core",),
+        domain_skills=(skill,),
+        turn_guidance=(scenario,),
+        feedback=(feedback,),
+    )
+    for prompt, marker in (
+        (first, "phase one {literal}"),
+        (second, "phase two {literal}"),
+    ):
+        assert all(
+            isinstance(message, UserMessage) for message in prompt.render_messages()
+        )
+        parts = prompt.guide_blocks[0].message.parts
+        text = "".join(part.text for part in parts if isinstance(part, TextPart))
+        assert text.index(marker) < text.index(scenario) < text.index(feedback)
+    assert len(first.guide_blocks) == 1
+    assert second.guide_blocks[1].owner == skill.owner
+    assert second.guide_blocks[1].refs == (skill.reference,)
+    assert second.provenance()[1].message_indices == (1,)

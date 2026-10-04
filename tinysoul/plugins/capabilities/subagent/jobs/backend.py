@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from uuid import uuid4
 
+from tinysoul.prompts.plugins.capabilities import subagent as prompt_text
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.jobs import (
@@ -132,7 +133,7 @@ class ACPJobBackend:
         ):
             raise SubagentRequestError(
                 SubagentFailure.INVALID_REQUEST,
-                "Permission request or option is no longer available.",
+                prompt_text.PERMISSION_REQUEST_OR_OPTION_IS_NO_LONGER_AVAILABLE,
             )
         pending.answer.set_result(option_id)
 
@@ -218,7 +219,8 @@ class ACPJobBackend:
     async def collect(self, cursor: int = 0) -> JsonObject:
         if type(cursor) is not int or cursor < 0 or cursor > self._chars:
             raise SubagentRequestError(
-                SubagentFailure.INVALID_REQUEST, "Output cursor is unavailable."
+                SubagentFailure.INVALID_REQUEST,
+                prompt_text.OUTPUT_CURSOR_IS_UNAVAILABLE,
             )
         await self._flush()
         return self._read_output(cursor, self._settings.max_collect_chars)
@@ -243,7 +245,8 @@ class ACPJobBackend:
         ).offsets[0]
         if cursor > self._chars:
             raise SubagentRequestError(
-                SubagentFailure.INVALID_REQUEST, "Output cursor is unavailable"
+                SubagentFailure.INVALID_REQUEST,
+                prompt_text.BACKEND_OUTPUT_CURSOR_IS_UNAVAILABLE,
             )
         value = self._read_output(
             cursor, min(max_chars, self._settings.max_collect_chars)

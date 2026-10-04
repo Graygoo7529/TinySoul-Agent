@@ -29,6 +29,8 @@ source.where 定义来源资格，filter 只处理当前集合。各 owner 的 A
 
 ## 内容、命中和判断
 
+选择/排序指令、JEV 问题及其有序自然语言等级由 `prompts/kernel/retrieval.py` 管理。候选投影、预算、输出 schema、解释与排序仍由 retrieval owner 决定，模型请求保留既有出口，见[固定模型文案设计](prompts.md)。
+
 ContentUnit 保存一次来源读取的真实正文、稳定资源 ref 与位置；SearchEvidence 只引用其中的范围，表示词法命中、向量贡献、真实关系或模型指认。SearchCandidate 组合身份、属性与内容；CandidateSet 表达有序集合及来源处理事实。两者均为查询生命周期内快照，不是另一套持久内容。
 
 共享投影为模型输入与 SearchPage 生成 CandidatePreview。片段保存到 ContentUnit 的子范围映射，长行的起始列与实际匹配位置保持原文含义；匹配先在原始内容进行，不在拼接的展示摘录中查找。页面的 matches 定位本片段中的代表性命中，不保证列出全部出现位置。内部单元 ID 和模型短 ID 不成为可跨 Turn 使用的资源身份。

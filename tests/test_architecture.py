@@ -59,16 +59,26 @@ def test_runtime_failure_kind_values_are_module_qualified(
     (
         ("infra", {"infra"}),
         ("runtime", {"infra", "runtime"}),
-        ("llm", {"infra", "runtime", "llm"}),
-        ("kernel", {"infra", "runtime", "llm", "kernel"}),
-        ("plugins", {"infra", "runtime", "llm", "kernel", "plugins"}),
+        ("prompts", set()),
+        ("llm", {"infra", "runtime", "llm", "prompts"}),
+        ("kernel", {"infra", "runtime", "llm", "kernel", "prompts"}),
+        ("plugins", {"infra", "runtime", "llm", "kernel", "plugins", "prompts"}),
         (
             "environment",
             {"infra", "runtime", "llm", "kernel", "plugins", "environment"},
         ),
         (
             "agent",
-            {"infra", "runtime", "llm", "kernel", "plugins", "environment", "agent"},
+            {
+                "infra",
+                "runtime",
+                "llm",
+                "kernel",
+                "plugins",
+                "environment",
+                "agent",
+                "prompts",
+            },
         ),
     ),
 )
@@ -102,6 +112,45 @@ def test_foundation_imports_follow_ownership(owner: str, allowed: set[str]) -> N
                     and parts[1] not in allowed
                 ):
                     violations.append(f"{path.relative_to(root)}:{node.lineno}: {name}")
+    assert not violations, "\n".join(violations)
+
+
+def test_model_text_imports_preserve_business_ownership() -> None:
+    root = Path(__file__).resolve().parents[1] / "tinysoul"
+    violations: list[str] = []
+    for path in root.rglob("*.py"):
+        relative = path.relative_to(root)
+        if relative.parts[0] == "prompts":
+            continue
+        owner_depth = 3 if relative.parts[:2] == ("plugins", "capabilities") else 2
+        owner = ".".join(relative.parts[:owner_depth])
+        if relative.parts[0] == "llm":
+            owner = "llm"
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8-sig"))):
+            names: list[str] = []
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                if node.level:
+                    package = "tinysoul." + ".".join(relative.parts[:-1])
+                    module = importlib.util.resolve_name(
+                        "." * node.level + module, package
+                    )
+                names = [module, *(f"{module}.{alias.name}" for alias in node.names)]
+            else:
+                continue
+            for name in names:
+                if not name.startswith("tinysoul.prompts."):
+                    continue
+                content_owner = name.removeprefix("tinysoul.prompts.")
+                # A namespace import is allowed only along this owner's path.
+                if not (
+                    owner == content_owner
+                    or owner.startswith(content_owner + ".")
+                    or content_owner.startswith(owner + ".")
+                ):
+                    violations.append(f"{relative}:{node.lineno}: {name}")
     assert not violations, "\n".join(violations)
 
 

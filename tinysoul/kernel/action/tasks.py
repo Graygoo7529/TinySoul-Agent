@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
+from tinysoul.prompts.kernel import action as prompt_text
 from tinysoul.infra.config import ConfigError
 from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.context import ContextEngine, PromptBlock, TaskPrompt
@@ -99,7 +100,7 @@ class ActionTaskFactory:
                         guide_blocks=(
                             PromptBlock.from_text(
                                 "retrieval:context",
-                                "Use the current Context as reference for the requested candidate selection.",
+                                prompt_text.SELECTION_CONTEXT_GUIDE,
                             ),
                         )
                     )
@@ -200,7 +201,7 @@ class ActionTaskOutput:
         if not isinstance(result.answer, JsonAnswer):
             return _failure(
                 execution,
-                feedback=f"{subject} did not return a JSON object.",
+                feedback=prompt_text.missing_json_answer(subject=subject),
                 reason="missing_json_answer",
                 scope="llm.output_protocol",
                 disposition=ActionFailureDisposition.RETRY_SAME,
@@ -217,7 +218,7 @@ class ActionTaskOutput:
         if not isinstance(result.answer, TextAnswer) or not result.answer.text:
             return _failure(
                 execution,
-                feedback=f"{subject} did not return nonempty text.",
+                feedback=prompt_text.missing_text_answer(subject=subject),
                 reason="missing_text_answer",
                 scope="llm.output_protocol",
                 disposition=ActionFailureDisposition.RETRY_SAME,
@@ -226,7 +227,7 @@ class ActionTaskOutput:
         if len(text) > max_chars:
             return _failure(
                 execution,
-                feedback=f"{subject} exceeded its artifact limit.",
+                feedback=prompt_text.artifact_limit_exceeded(subject=subject),
                 reason="artifact_too_large",
                 scope="action.artifact",
                 disposition=ActionFailureDisposition.CHANGE_REQUEST,
@@ -246,7 +247,7 @@ class ActionTaskOutput:
         return _failure(
             execution,
             feedback=(failure.model_feedback if failure else None)
-            or f"{subject} failed.",
+            or prompt_text.task_failed(subject=subject),
             reason=reason,
             scope=failure.scope.value if failure else "llm.task",
             disposition=ActionFailureDisposition.CHANGE_REQUEST
@@ -268,7 +269,7 @@ def with_action_skills(prompt: TaskPrompt, skills: ActionSkillGuidance) -> TaskP
             guide_blocks.append(
                 PromptBlock.from_text(
                     f"task_prompt:guide:domain_skill:{index}",
-                    "# Domain Skill\n" + item.text,
+                    prompt_text.DOMAIN_SKILL_HEADING + item.text,
                     owner=item.owner,
                     refs=(item.reference,),
                 )
@@ -278,7 +279,7 @@ def with_action_skills(prompt: TaskPrompt, skills: ActionSkillGuidance) -> TaskP
             guide_blocks.append(
                 PromptBlock.from_text(
                     f"task_prompt:guide:action_skill:{index}",
-                    "# Action Skill\n" + item.text,
+                    prompt_text.ACTION_SKILL_HEADING + item.text,
                     owner=item.owner,
                     refs=(item.reference,),
                 )

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Protocol
 
+from tinysoul.prompts.plugins import workspace as prompt_text
 from tinysoul.kernel.context.segments import (
     ReadOnlySegmentRegistration,
     SegmentCapability,
@@ -201,13 +202,15 @@ class ArchivedWorkspaceSegment:
 
     async def inspect(self, ref: str, *, query: str | None = None, continuation: str | None = None) -> JsonObject:
         if query is not None:
-            raise ContextInspectRequestError(ContextInspectFailureReason.QUERY_UNSUPPORTED,
-                                             "Archived Workspace supports navigation only")
+            raise ContextInspectRequestError(
+                ContextInspectFailureReason.QUERY_UNSUPPORTED,
+                prompt_text.ARCHIVED_WORKSPACE_SUPPORTS_NAVIGATION_ONLY,
+            )
         view = self._view
         if view is None:
             raise ContextInspectRequestError(
                 ContextInspectFailureReason.UNKNOWN_REF,
-                "No archived Workspace is bound",
+                prompt_text.NO_ARCHIVED_WORKSPACE_IS_BOUND,
             )
         root = f"workspace_archive:{view.day}"
         if ref == root:
@@ -220,7 +223,7 @@ class ArchivedWorkspaceSegment:
                 ):
                     raise ContextInspectRequestError(
                         ContextInspectFailureReason.UNKNOWN_REF,
-                        "Invalid archive continuation",
+                        prompt_text.INVALID_ARCHIVE_CONTINUATION,
                     )
                 offset = int(continuation)
             return self._page(offset)
@@ -235,7 +238,7 @@ class ArchivedWorkspaceSegment:
         if record is None or continuation is not None:
             raise ContextInspectRequestError(
                 ContextInspectFailureReason.UNKNOWN_REF,
-                "Unknown archived Workspace reference",
+                prompt_text.UNKNOWN_ARCHIVED_WORKSPACE_REFERENCE,
             )
         try:
             operations = JoinedOperations()
@@ -244,7 +247,7 @@ class ArchivedWorkspaceSegment:
         except WorkspaceContractError as exc:
             raise ContextInspectRequestError(
                 ContextInspectFailureReason.UNKNOWN_REF,
-                "Archived resource cannot be read as text",
+                prompt_text.ARCHIVED_RESOURCE_CANNOT_BE_READ_AS_TEXT,
             ) from exc
         except WorkspaceError as exc:
             raise RuntimeWorkspaceBridge().from_workspace_error(exc) from exc

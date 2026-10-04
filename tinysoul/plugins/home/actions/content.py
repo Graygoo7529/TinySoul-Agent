@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tinysoul.prompts.plugins import home as prompt_text
 from tinysoul.kernel.action import (
     ActionEngineBuilder,
     ActionExecution,
@@ -166,7 +167,7 @@ class HomeInspectExecutor(ActionExecutor):
         ):
             return _failed(
                 execution,
-                "Inspect requires a known ref and valid page options",
+                prompt_text.INVALID_INSPECT_REQUEST,
                 reason="invalid_inspect",
             )
         try:
@@ -220,13 +221,13 @@ class HomeResourceWriteExecutor(ActionExecutor):
         if not isinstance(link, str) or not link or not isinstance(text, str):
             return _failed(
                 execution,
-                "home.resource.write requires non-empty 'link' and string 'text'.",
+                prompt_text.RESOURCE_WRITE_INPUT_REQUIRED,
                 reason="invalid_parameters",
             )
         if not isinstance(overwrite, bool) or not isinstance(expected_digest, str):
             return _failed(
                 execution,
-                "home.resource.write overwrite/expected_digest parameters are invalid.",
+                prompt_text.INVALID_RESOURCE_WRITE_PRECONDITIONS,
                 reason="invalid_precondition",
             )
         try:
@@ -239,7 +240,7 @@ class HomeResourceWriteExecutor(ActionExecutor):
         except AgentHomeContractError:
             return _failed(
                 execution,
-                "Home resource write request rejected; check the Link and current content.",
+                prompt_text.RESOURCE_WRITE_REJECTED,
                 reason="resource_write_failed",
             )
         except AgentHomeError as exc:
@@ -278,7 +279,7 @@ class HomeResourcePatchExecutor(ActionExecutor):
         ):
             return _failed(
                 execution,
-                "home.resource.patch parameters are invalid.",
+                prompt_text.HOME_RESOURCE_PATCH_PARAMETERS_ARE_INVALID,
                 reason="invalid_parameters",
             )
         try:
@@ -291,7 +292,7 @@ class HomeResourcePatchExecutor(ActionExecutor):
         except AgentHomeContractError:
             return _failed(
                 execution,
-                "Home resource patch request rejected; check the Link and current content.",
+                prompt_text.RESOURCE_PATCH_REJECTED,
                 reason="resource_patch_failed",
             )
         except AgentHomeError as exc:
@@ -325,7 +326,7 @@ class HomeResourceDeleteExecutor(ActionExecutor):
         ):
             return _failed(
                 execution,
-                "home.resource.delete parameters are invalid.",
+                prompt_text.HOME_RESOURCE_DELETE_PARAMETERS_ARE_INVALID,
                 reason="invalid_parameters",
             )
         try:
@@ -336,7 +337,7 @@ class HomeResourceDeleteExecutor(ActionExecutor):
         except AgentHomeContractError:
             return _failed(
                 execution,
-                "Home resource delete request rejected; check the Link and current content.",
+                prompt_text.RESOURCE_DELETE_REJECTED,
                 reason="resource_delete_failed",
             )
         except AgentHomeError as exc:
@@ -369,13 +370,13 @@ class HomeTopWriteExecutor(ActionExecutor):
         if not isinstance(link, str) or not link or not isinstance(text, str):
             return _failed(
                 execution,
-                "home.top.write requires non-empty 'link' and string 'text'.",
+                prompt_text.TOP_WRITE_INPUT_REQUIRED,
                 reason="invalid_parameters",
             )
         if not isinstance(overwrite, bool) or not isinstance(expected_digest, str):
             return _failed(
                 execution,
-                "home.top.write precondition parameters are invalid.",
+                prompt_text.INVALID_TOP_WRITE_PRECONDITIONS,
                 reason="invalid_precondition",
             )
         try:
@@ -388,7 +389,7 @@ class HomeTopWriteExecutor(ActionExecutor):
         except AgentHomeContractError:
             return _failed(
                 execution,
-                "Home top write request rejected; check the Link and current content.",
+                prompt_text.TOP_WRITE_REJECTED,
                 reason="top_write_failed",
             )
         except AgentHomeError as exc:
@@ -436,7 +437,7 @@ class HomeTopPatchExecutor(ActionExecutor):
         ):
             return _failed(
                 execution,
-                "home.top.patch parameters are invalid.",
+                prompt_text.HOME_TOP_PATCH_PARAMETERS_ARE_INVALID,
                 reason="invalid_parameters",
             )
         try:
@@ -449,7 +450,7 @@ class HomeTopPatchExecutor(ActionExecutor):
         except AgentHomeContractError:
             return _failed(
                 execution,
-                "Home top patch request rejected; check the Link and current content.",
+                prompt_text.TOP_PATCH_REJECTED,
                 reason="top_patch_failed",
             )
         except AgentHomeError as exc:
@@ -492,7 +493,7 @@ class HomeTopDeleteExecutor(ActionExecutor):
         ):
             return _failed(
                 execution,
-                "home.top.delete parameters are invalid.",
+                prompt_text.HOME_TOP_DELETE_PARAMETERS_ARE_INVALID,
                 reason="invalid_parameters",
             )
         try:
@@ -500,7 +501,7 @@ class HomeTopDeleteExecutor(ActionExecutor):
         except AgentHomeContractError:
             return _failed(
                 execution,
-                "Home top delete request rejected; check the Link and current content.",
+                prompt_text.TOP_DELETE_REJECTED,
                 reason="top_delete_failed",
             )
         except AgentHomeError as exc:
@@ -540,13 +541,13 @@ class HomePromptMountWriteExecutor(ActionExecutor):
         if not isinstance(link, str) or not link or not isinstance(text, str):
             return _failed(
                 execution,
-                "home.prompt_mount.write requires non-empty 'link' and string 'text'.",
+                prompt_text.PROMPT_MOUNT_WRITE_INPUT_REQUIRED,
                 reason="invalid_parameters",
             )
         if not isinstance(overwrite, bool) or not isinstance(expected_digest, str):
             return _failed(
                 execution,
-                "home.prompt_mount.write precondition parameters are invalid.",
+                prompt_text.INVALID_PROMPT_MOUNT_WRITE_PRECONDITIONS,
                 reason="invalid_precondition",
             )
         try:
@@ -559,7 +560,7 @@ class HomePromptMountWriteExecutor(ActionExecutor):
         except AgentHomeContractError:
             return _failed(
                 execution,
-                "Home prompt mount write request rejected; check the Link and current content.",
+                prompt_text.PROMPT_MOUNT_WRITE_REJECTED,
                 reason="prompt_mount_write_failed",
             )
         except AgentHomeError as exc:
@@ -598,7 +599,7 @@ class HomePromptMountPatchExecutor(ActionExecutor):
         ):
             return _failed(
                 execution,
-                "home.prompt_mount.patch parameters are invalid.",
+                prompt_text.HOME_PROMPT_MOUNT_PATCH_PARAMETERS_ARE_INVALID,
                 reason="invalid_parameters",
             )
         try:
@@ -611,7 +612,7 @@ class HomePromptMountPatchExecutor(ActionExecutor):
         except AgentHomeContractError:
             return _failed(
                 execution,
-                "Home prompt mount patch request rejected; check the Link and current content.",
+                prompt_text.PROMPT_MOUNT_PATCH_REJECTED,
                 reason="prompt_mount_patch_failed",
             )
         except AgentHomeError as exc:

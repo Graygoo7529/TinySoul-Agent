@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from tinysoul.prompts.plugins import home as prompt_text
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.kernel.action import (
     ActionEngineBuilder,
@@ -38,7 +39,7 @@ class HomeReviewExecutor(ActionExecutor):
         context: ActionExecutionContext,
     ) -> ActionResult:
         if execution.call.action_name not in HOME_REVIEW_ACTIONS:
-            return _failed(execution, "Unknown Home review action")
+            return _failed(execution, prompt_text.UNKNOWN_HOME_REVIEW_ACTION)
         # A bounded review finishes its selected owner commits and records them
         # before the Action runner propagates cancellation.
         return await context.owner_operations.run_async(
@@ -59,7 +60,7 @@ class HomeReviewExecutor(ActionExecutor):
         if not isinstance(raw_paths, list) or any(
             not isinstance(path, str) or not path for path in raw_paths
         ):
-            return _failed(execution, "paths must contain Home Links")
+            return _failed(execution, prompt_text.PATHS_MUST_CONTAIN_HOME_LINKS)
         paths = tuple(dict.fromkeys(str(path) for path in raw_paths))
         try:
             snapshot = await home.review_snapshot()
@@ -90,7 +91,9 @@ class HomeReviewExecutor(ActionExecutor):
                 bus = context.require_signal_bus()
                 decision = params.get("decision")
                 if not paths or decision not in {"accept", "reject"}:
-                    return _failed(execution, "Select Home Links and accept or reject")
+                    return _failed(
+                        execution, prompt_text.SELECT_HOME_LINKS_AND_ACCEPT_OR_REJECT
+                    )
                 resolution = HomeReviewResolution(str(decision))
                 results: list[JsonObject] = []
                 for path in paths:
@@ -153,7 +156,8 @@ class HomeReviewExecutor(ActionExecutor):
                 )
         except AgentHomeContractError:
             return _failed(
-                execution, "Home review request is invalid; inspect the current diff"
+                execution,
+                prompt_text.INVALID_REVIEW_REQUEST,
             )
         except AgentHomeError as exc:
             raise RuntimeAgentHomeBridge().from_home_error(exc) from exc

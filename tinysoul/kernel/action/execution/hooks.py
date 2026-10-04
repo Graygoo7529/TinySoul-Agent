@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
+from tinysoul.prompts.kernel import action as prompt_text
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.llm.protocol.tools import ToolCallRecord
 from tinysoul.runtime import RuntimeException, RuntimeTransferInterrupt
@@ -281,7 +282,7 @@ class ActionNormalizeHookPipeline:
                 return _normalize_hook_failure(
                     item,
                     reason="normalize_hook_unavailable",
-                    feedback=f"Action normalize hook is not available: {name}",
+                    feedback=prompt_text.normalize_hook_unavailable(name=name),
                     frame_data={
                         "hook": name,
                         "error_type": type(exc).__name__,
@@ -311,7 +312,7 @@ class ActionNormalizeHookPipeline:
             return _normalize_hook_failure(
                 item,
                 reason="normalize_hook_failed",
-                feedback=f"Action normalize hook failed: {name}",
+                feedback=prompt_text.normalize_hook_failed(name=name),
                 frame_data={
                     "hook": name,
                     "error_type": type(exc).__name__,
@@ -321,7 +322,7 @@ class ActionNormalizeHookPipeline:
             return _normalize_hook_failure(
                 item,
                 reason="normalize_hook_failed",
-                feedback=f"Action normalize hook failed: {name}",
+                feedback=prompt_text.normalize_hook_failed(name=name),
                 frame_data={
                     "hook": name,
                     "returned_type": type(outcome).__name__,
@@ -362,7 +363,7 @@ class ActionExecutionHookPipeline:
                 return _execution_hook_failure(
                     execution,
                     reason="execution_hook_unavailable",
-                    feedback=f"Action execution hook is not available: {name}",
+                    feedback=prompt_text.execution_hook_unavailable(name=name),
                     frame_data={
                         "hook": name,
                         "error_type": type(exc).__name__,
@@ -376,7 +377,7 @@ class ActionExecutionHookPipeline:
                 return _execution_hook_failure(
                     execution,
                     reason="execution_hook_failed",
-                    feedback=f"Action execution hook failed: {name}",
+                    feedback=prompt_text.execution_hook_failed(name=name),
                     frame_data={
                         "hook": name,
                         "error_type": type(exc).__name__,
@@ -386,7 +387,7 @@ class ActionExecutionHookPipeline:
                 return _execution_hook_failure(
                     execution,
                     reason="execution_hook_failed",
-                    feedback=f"Action execution hook failed: {name}",
+                    feedback=prompt_text.execution_hook_failed(name=name),
                     frame_data={
                         "hook": name,
                         "returned_type": type(outcome).__name__,

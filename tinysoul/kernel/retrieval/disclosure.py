@@ -8,6 +8,7 @@ from hashlib import sha256
 
 from markdown_it import MarkdownIt
 
+from tinysoul.prompts.kernel import retrieval as prompt_text
 from tinysoul.infra.continuation import OpaqueContinuationCodec, continue_json_sequence
 from tinysoul.infra.json import JsonObject, JsonValue, to_json_object
 
@@ -38,12 +39,12 @@ def inspect_document(
     if view not in {"content", "direct_refs"}:
         raise SearchFailure(
             SearchFailureKind.INVALID_REQUEST,
-            "Inspect view must be content or direct_refs",
+            prompt_text.INSPECT_VIEW_MUST_BE_CONTENT_OR_DIRECT_REFS,
         )
     if type(max_chars) is not int or max_chars < 512:
         raise SearchFailure(
             SearchFailureKind.INVALID_REQUEST,
-            "Inspect page budget must be at least 512 characters",
+            prompt_text.INSPECT_PAGE_BUDGET_MUST_BE_AT_LEAST_CHARACTERS,
         )
     resource, _, fragment = ref.partition("#")
     if view == "content":
@@ -219,7 +220,7 @@ def fragment_range(text: str, fragment: str) -> tuple[int, int]:
             return first, last
         raise SearchFailure(
             SearchFailureKind.INVALID_REQUEST,
-            "Requested line fragment is outside the document",
+            prompt_text.REQUESTED_LINE_FRAGMENT_IS_OUTSIDE_THE_DOCUMENT,
         )
     tokens = MarkdownIt("commonmark").parse(text)
     headings = [
@@ -245,5 +246,5 @@ def fragment_range(text: str, fragment: str) -> tuple[int, int]:
             return first, last
     raise SearchFailure(
         SearchFailureKind.INVALID_REQUEST,
-        "Document fragment does not identify a known heading or line range",
+        prompt_text.UNKNOWN_DOCUMENT_FRAGMENT,
     )

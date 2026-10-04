@@ -10,6 +10,7 @@ from datetime import date
 from pathlib import Path
 from threading import RLock
 
+from tinysoul.prompts.plugins import workspace as prompt_text
 from tinysoul.infra.filesystem import atomic_write_text, read_text_prefix
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.paging import PageOptions
@@ -558,7 +559,8 @@ class WorkspaceEngine:
             source, (QuerySource, DirectorySource, RefsSource, BacklinksSource)
         ):
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "Unsupported Workspace source"
+                SearchFailureKind.INVALID_REQUEST,
+                prompt_text.UNSUPPORTED_WORKSPACE_SOURCE,
             )
         scope_value = getattr(
             source, "scope", ResourceScope(ResourceScopeKind.WORKSPACE, "")
@@ -566,7 +568,7 @@ class WorkspaceEngine:
         if not isinstance(scope_value, ResourceScope):
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
-                "Workspace source requires a resource scope",
+                prompt_text.WORKSPACE_SOURCE_REQUIRES_A_RESOURCE_SCOPE,
             )
         locator = scope_value.locator
         if locator:
@@ -589,7 +591,8 @@ class WorkspaceEngine:
                     seeds[canonical].append(pair)
         if isinstance(source, QuerySource) and not isinstance(source.query, TextQuery):
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "Workspace query requires text"
+                SearchFailureKind.INVALID_REQUEST,
+                prompt_text.WORKSPACE_QUERY_REQUIRES_TEXT,
             )
         query = (
             source.query.text
@@ -610,7 +613,8 @@ class WorkspaceEngine:
             records = snapshot.manifest.resources
             if seeds is not None and set(seeds) - {record.link for record in records}:
                 raise SearchFailure(
-                    SearchFailureKind.INVALID_REQUEST, "Workspace ref is unavailable"
+                    SearchFailureKind.INVALID_REQUEST,
+                    prompt_text.WORKSPACE_REF_IS_UNAVAILABLE,
                 )
             remaining = self.settings.search.max_scan_chars
             scanned, complete = 0, True
@@ -671,7 +675,7 @@ class WorkspaceEngine:
                             if fragment:
                                 raise SearchFailure(
                                     SearchFailureKind.INVALID_REQUEST,
-                                    "Non-text resource has no text fragment",
+                                    prompt_text.NON_TEXT_RESOURCE_HAS_NO_TEXT_FRAGMENT,
                                 )
                             units = (
                                 ContentUnit(record.link, record.link, text, "metadata"),

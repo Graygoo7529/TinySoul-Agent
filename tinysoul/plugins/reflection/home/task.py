@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tinysoul.prompts.plugins import reflection as prompt_text
 from tinysoul.plugins.home import AgentHomeEngine, AgentHomeIOError
 from tinysoul.infra.time import CalendarDay
 from tinysoul.infra.concurrency import JoinedOperations
@@ -52,9 +53,9 @@ class HomeReflectionTask:
             if skipped is not None:
                 return skipped
             outcome = await self._turn.run(
-                "Review and resolve every current runtime Home difference."
+                prompt_text.HOME_TASK
                 + (
-                    f"\nInstructions for this Reflection: {instructions}"
+                    prompt_text.additional_instructions(instructions=instructions)
                     if instructions
                     else ""
                 ),

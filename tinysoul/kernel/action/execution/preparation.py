@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from tinysoul.prompts.kernel import action as prompt_text
 from tinysoul.infra.json import JsonObject
 from tinysoul.runtime import RunScope
 
@@ -54,7 +55,9 @@ class ActionExecutionBuilder:
                     _prepare_failure(
                         call,
                         batch_id=resolved_batch_id,
-                        feedback=f"Duplicate action call id: {call.call_id}",
+                        feedback=prompt_text.duplicate_action_call(
+                            call_id=call.call_id
+                        ),
                         reason="duplicate_call_id",
                     )
                 )
@@ -64,7 +67,9 @@ class ActionExecutionBuilder:
                     _prepare_failure(
                         call,
                         batch_id=resolved_batch_id,
-                        feedback=f"Duplicate action sequence: {call.sequence}",
+                        feedback=prompt_text.duplicate_action_sequence(
+                            sequence=call.sequence
+                        ),
                         reason="duplicate_sequence",
                     )
                 )
@@ -76,7 +81,9 @@ class ActionExecutionBuilder:
                     _prepare_failure(
                         call,
                         batch_id=resolved_batch_id,
-                        feedback=f"Unknown action during preparation: {call.action_name}",
+                        feedback=prompt_text.unknown_prepared_action(
+                            action_name=call.action_name
+                        ),
                         reason="unknown_action",
                     )
                 )
@@ -116,7 +123,7 @@ class ActionExecutionBuilder:
                             reason="batch_invariant_error",
                             scope="action.prepare",
                             disposition=ActionFailureDisposition.STOP,
-                            feedback="Action batch preparation failed.",
+                            feedback=prompt_text.ACTION_BATCH_PREPARATION_FAILED,
                         ),
                         frame_data={
                             "error_type": type(exc).__name__,

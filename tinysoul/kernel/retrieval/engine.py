@@ -14,6 +14,7 @@ from uuid import uuid4
 
 import regex
 
+from tinysoul.prompts.kernel import retrieval as prompt_text
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.model_services.service import ModelObserver
 
@@ -86,7 +87,7 @@ class SearchViews:
         if size > self._max_chars:
             raise SearchFailure(
                 SearchFailureKind.SCOPE_REQUIRED,
-                "Result exceeds the search view capacity",
+                prompt_text.RESULT_EXCEEDS_THE_SEARCH_VIEW_CAPACITY,
             )
         identity = uuid4().hex
         scope = getattr(request.source, "scope", request.source_kind.value)
@@ -117,7 +118,7 @@ class SearchViews:
         if view is None:
             raise SearchFailure(
                 SearchFailureKind.VIEW_EXPIRED,
-                "Search result view expired; start a new search",
+                prompt_text.SEARCH_RESULT_VIEW_EXPIRED_START_A_NEW_SEARCH,
             )
         return CandidateSet(
             tuple(
@@ -139,7 +140,7 @@ class SearchViews:
         if position is None or position[0] not in self._views:
             raise SearchFailure(
                 SearchFailureKind.VIEW_EXPIRED,
-                "Search continuation expired; start a new search",
+                prompt_text.SEARCH_CONTINUATION_EXPIRED_START_A_NEW_SEARCH,
             )
         return self._page(*position)
 
@@ -168,7 +169,7 @@ class SearchViews:
                 if not items:
                     raise SearchFailure(
                         SearchFailureKind.SCOPE_REQUIRED,
-                        "One candidate exceeds the configured page budget",
+                        prompt_text.ONE_CANDIDATE_EXCEEDS_THE_CONFIGURED_PAGE_BUDGET,
                     )
                 break
             items.append(candidate)
@@ -301,7 +302,7 @@ class SearchEngine:
         if snapshot_size(candidates) > snapshot_max_chars:
             raise SearchFailure(
                 SearchFailureKind.SCOPE_REQUIRED,
-                "Search result snapshot exceeds its configured budget; narrow the source or pipeline",
+                prompt_text.RESULT_SNAPSHOT_BUDGET_EXCEEDED,
             )
         coverage = SearchCoverage(
             scanned=corpus.scanned,
@@ -355,7 +356,7 @@ def lexical_rank(
         )
     except regex.error as exc:
         raise SearchFailure(
-            SearchFailureKind.INVALID_REQUEST, "Query regex is invalid"
+            SearchFailureKind.INVALID_REQUEST, prompt_text.QUERY_REGEX_IS_INVALID
         ) from exc
     ranked = []
     for candidate in candidates:
@@ -380,7 +381,7 @@ def lexical_rank(
         except TimeoutError as exc:
             raise SearchFailure(
                 SearchFailureKind.SCOPE_REQUIRED,
-                "Query matching exceeded its budget; simplify the pattern",
+                prompt_text.QUERY_MATCHING_BUDGET_EXCEEDED,
             ) from exc
         if score:
             ranked.append(
@@ -461,7 +462,7 @@ async def embedding_rank(
     if set(scores) != set(documents):
         raise SearchFailure(
             SearchFailureKind.OPERATION_FAILED,
-            "Embedding response does not cover all content units",
+            prompt_text.INCOMPLETE_EMBEDDING_RESPONSE,
         )
     ranked = []
     for item in candidates:

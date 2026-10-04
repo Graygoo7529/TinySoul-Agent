@@ -7,6 +7,7 @@ from datetime import date
 from pathlib import Path
 from threading import RLock
 
+from tinysoul.prompts.plugins import memory as prompt_text
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.paging import PageOptions
 from tinysoul.infra.references import (
@@ -336,7 +337,7 @@ class MemoryEngine:
         if scope not in {"all", *(kind.value for kind in MemoryKind)}:
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
-                "Memory scope must be all or one persistent document kind",
+                prompt_text.INVALID_MEMORY_SCOPE,
             )
         predicates = MEMORY_SEARCH_FILTERS.parse(getattr(source, "where", {}))
 

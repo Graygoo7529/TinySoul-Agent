@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from threading import Lock
 from typing import Callable, Protocol
 
+from tinysoul.prompts.kernel import loop as prompt_text
 from tinysoul.infra.concurrency import CleanupDiagnostic
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.infra.time import CalendarDay
@@ -434,7 +435,7 @@ class TurnRunner:
                                             "source": pending_wait.source,
                                             **(
                                                 {
-                                                    "feedback": "The selected environment source is unavailable; choose another action or ask the user."
+                                                    "feedback": prompt_text.ENVIRONMENT_SOURCE_UNAVAILABLE
                                                 }
                                                 if readiness.reason
                                                 is WakeReason.SOURCE_UNAVAILABLE
@@ -474,9 +475,9 @@ class TurnRunner:
                         failure = cycle.failure
                     stopped = stopped or cycle.stopped
                     if cycle.phase_failure is not None:
-                        prefix = (
-                            f"Previous cycle {cycle.phase_failure.phase.value} "
-                            f"failure ({cycle.phase_failure.reason}): "
+                        prefix = prompt_text.previous_cycle_failure(
+                            phase=cycle.phase_failure.phase.value,
+                            reason=cycle.phase_failure.reason,
                         )
                         for item in cycle.phase_failure.feedback:
                             feedback = prefix + item
@@ -533,7 +534,7 @@ class TurnRunner:
                             and self._activity_controller.has_unresolved(turn_id)
                         ):
                             phase_feedback.append(
-                                "Resolve the active Jobs before completing this Turn."
+                                prompt_text.ACTIVE_JOBS_BLOCK_COMPLETION
                             )
                             cycle_index += 1
                             continue

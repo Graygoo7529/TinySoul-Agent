@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import asyncio
 
+from tinysoul.prompts import llm as prompt_text
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.infra.concurrency import CleanupDiagnostic
 from tinysoul.runtime import (
@@ -330,7 +331,7 @@ class LLMTaskRunner:
                     answer=None,
                     failure=TaskFailure(
                         reason=TaskFailureReason.INPUT_CAPACITY,
-                        model_feedback="The complete task exceeds model input capacity; reduce the task input scope.",
+                        model_feedback=prompt_text.INPUT_CAPACITY_EXCEEDED,
                         constraint={"capacity_exceeded": True},
                     ),
                 )
@@ -878,20 +879,20 @@ def _completion_failure(
         if max_output_tokens is not None:
             constraint["max_output_tokens"] = max_output_tokens
         return TaskFailure(
-            model_feedback="Model generation reached its output token limit.",
+            model_feedback=prompt_text.MODEL_GENERATION_REACHED_ITS_OUTPUT_TOKEN_LIMIT,
             reason=TaskFailureReason.OUTPUT_LIMIT_REACHED,
             scope=TaskFailureScope.OUTPUT,
             constraint=constraint,
         )
     if response.stop_reason is ResponseStopReason.CONTENT_FILTER:
         return TaskFailure(
-            model_feedback="Model generation was stopped by a content filter.",
+            model_feedback=prompt_text.MODEL_GENERATION_WAS_STOPPED_BY_A_CONTENT_FILTER,
             reason=TaskFailureReason.CONTENT_FILTERED,
             scope=TaskFailureScope.OUTPUT,
         )
     if response.stop_reason is ResponseStopReason.INCOMPLETE:
         return TaskFailure(
-            model_feedback="Model generation ended before producing a complete response.",
+            model_feedback=prompt_text.INCOMPLETE_RESPONSE,
             reason=TaskFailureReason.INCOMPLETE_RESPONSE,
             scope=TaskFailureScope.OUTPUT,
         )

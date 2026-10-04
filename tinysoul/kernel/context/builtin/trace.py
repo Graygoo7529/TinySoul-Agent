@@ -7,6 +7,7 @@ from enum import StrEnum
 from time import time
 from uuid import uuid4
 
+from tinysoul.prompts.kernel import context as prompt_text
 from tinysoul.infra.json import JsonObject, JsonValue, dumps_json, to_json_object
 from tinysoul.kernel.action.call import ActionCall, ExecutionFact, ExecutionState
 from tinysoul.kernel.action.result import ActionResult
@@ -427,7 +428,7 @@ class TurnTraceHeap:
         if turn_id != self._turn_id:
             raise ContextInspectRequestError(
                 ContextInspectFailureReason.INVALID_REF,
-                "Trace ref does not belong to the active Turn",
+                prompt_text.TRACE_REF_DOES_NOT_BELONG_TO_THE_ACTIVE_TURN,
                 constraint={"ref": ref},
             )
         if ref == self.head_ref():
@@ -439,7 +440,7 @@ class TurnTraceHeap:
                 return ref
             raise ContextInspectRequestError(
                 ContextInspectFailureReason.UNKNOWN_REF,
-                "Unknown trace entry",
+                prompt_text.UNKNOWN_TRACE_ENTRY,
                 constraint={"ref": ref},
             )
         if ref.startswith(f"{self.head_ref()}#action/"):
@@ -448,7 +449,7 @@ class TurnTraceHeap:
                 return ref
             raise ContextInspectRequestError(
                 ContextInspectFailureReason.UNKNOWN_REF,
-                "Unknown trace action",
+                prompt_text.UNKNOWN_TRACE_ACTION,
                 constraint={"ref": ref},
             )
         if ref.startswith(f"{self.head_ref()}#input/"):
@@ -568,7 +569,7 @@ class TurnTraceHeap:
         if node.kind is not TraceHeapNodeKind.LEAF:
             raise ContextInspectRequestError(
                 ContextInspectFailureReason.REF_NOT_LEAF,
-                "Context inspect requires a leaf ref for interaction content",
+                prompt_text.INSPECT_LEAF_REQUIRED,
                 constraint={"ref": ref},
             )
         by_id = {entry.entry_id: entry for entry in self._entries}
@@ -586,7 +587,7 @@ class TurnTraceHeap:
                 return entries
             raise ContextInspectRequestError(
                 ContextInspectFailureReason.UNKNOWN_REF,
-                "Unknown trace entry",
+                prompt_text.UNKNOWN_TRACE_ENTRY,
                 constraint={"ref": ref},
             )
         node = self._node_for_ref(ref)
@@ -767,7 +768,7 @@ class TurnTraceHeap:
         if not ref.startswith(prefix):
             raise ContextInspectRequestError(
                 ContextInspectFailureReason.INVALID_REF,
-                "Trace ref does not belong to the active Turn",
+                prompt_text.TRACE_REF_DOES_NOT_BELONG_TO_THE_ACTIVE_TURN,
                 constraint={"ref": ref},
             )
         node_id = ref[len(prefix) :]
@@ -775,7 +776,7 @@ class TurnTraceHeap:
         if node is None:
             raise ContextInspectRequestError(
                 ContextInspectFailureReason.UNKNOWN_REF,
-                "Unknown Context trace ref",
+                prompt_text.UNKNOWN_CONTEXT_TRACE_REF,
                 constraint={"ref": ref},
             )
         return node

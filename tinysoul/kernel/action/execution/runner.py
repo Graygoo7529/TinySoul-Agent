@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace
 from time import monotonic
+from tinysoul.prompts.kernel import action as prompt_text
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.llm.errors import TaskCancelled, LLMInvocationFailure
 from tinysoul.llm.runtime_bridge import RuntimeLLMBridge, LLM_FAILURE_MESSAGES
@@ -376,7 +377,7 @@ class ActionBatchRunner:
                 reason=reason,
                 scope="action.timeout",
                 disposition=ActionFailureDisposition.RETRY_SAME,
-                feedback="Action exceeded its execution deadline.",
+                feedback=prompt_text.ACTION_EXCEEDED_ITS_EXECUTION_DEADLINE,
             ),
             frame_data={
                 "executor_started": True,

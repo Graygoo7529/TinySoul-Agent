@@ -29,7 +29,7 @@ from tinysoul.kernel.loop.lifecycle.completion import AnswerCompletionDetector
 from .completion import user_output_from_completion
 from tinysoul.plugins.home.services import HomeService
 from .entry import UserTurnEntry
-from .prompts import USER_TURN_GUIDANCE
+from tinysoul.prompts.agent.user import USER_TURN_GUIDANCE
 from .runtime import build_user_turn_trap
 
 

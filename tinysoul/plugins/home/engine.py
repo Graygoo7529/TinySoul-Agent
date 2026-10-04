@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path, PurePosixPath
 
+from tinysoul.prompts.plugins import home as prompt_text
 from tinysoul.infra.filesystem import TextPrefixRead, file_digest, read_text_prefix
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.paging import PageOptions
@@ -552,7 +553,7 @@ class AgentHomeEngine:
         if scope not in {"all", "agent", "skills"}:
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
-                "Home scope must be all, agent or skills",
+                prompt_text.HOME_SCOPE_MUST_BE_ALL_AGENT_OR_SKILLS,
             )
         predicates = HOME_SEARCH_FILTERS.parse(getattr(source, "where", {}))
         paths = dict(self._search_paths(actual=actual))
@@ -577,7 +578,7 @@ class AgentHomeEngine:
                 if relative not in paths:
                     raise SearchFailure(
                         SearchFailureKind.INVALID_REQUEST,
-                        "Home ref is unavailable in this view",
+                        prompt_text.HOME_REF_IS_UNAVAILABLE_IN_THIS_VIEW,
                     )
                 groups.append((ref, (relative,), fragment))
         else:
@@ -607,7 +608,7 @@ class AgentHomeEngine:
         if isinstance(source, QuerySource) and isinstance(source.query, DocumentQuery):
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
-                "Home discovery accepts text query only",
+                prompt_text.HOME_DISCOVERY_ACCEPTS_TEXT_QUERY_ONLY,
             )
         query = (
             source.query.text
@@ -674,7 +675,7 @@ class AgentHomeEngine:
                     if fragment:
                         raise SearchFailure(
                             SearchFailureKind.INVALID_REQUEST,
-                            "Non-text Home resource has no text fragment",
+                            prompt_text.NON_TEXT_HOME_RESOURCE_HAS_NO_TEXT_FRAGMENT,
                         )
                     resource_units = (
                         ContentUnit(resource, resource, path.name, "metadata"),

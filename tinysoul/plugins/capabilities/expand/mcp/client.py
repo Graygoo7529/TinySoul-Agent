@@ -19,6 +19,7 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.message import SessionMessage
 from mcp.types import ServerNotification, jsonrpc_message_adapter
 
+from tinysoul.prompts.plugins.capabilities import expand as prompt_text
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.config.validation import resolve_references
 from tinysoul.infra.json import JsonObject, to_json_object
@@ -179,7 +180,8 @@ class MCPConnection:
             if not ready.done():
                 ready.set_exception(
                     ExpandRequestError(
-                        ExpandFailure.UNAVAILABLE, "MCP server could not connect."
+                        ExpandFailure.UNAVAILABLE,
+                        prompt_text.MCP_SERVER_COULD_NOT_CONNECT,
                     )
                 )
             else:
@@ -216,7 +218,7 @@ class MCPConnection:
             await self.close()
             if isinstance(exc, TimeoutError):
                 raise ExpandRequestError(
-                    ExpandFailure.UNAVAILABLE, "MCP connection timed out."
+                    ExpandFailure.UNAVAILABLE, prompt_text.MCP_CONNECTION_TIMED_OUT
                 ) from exc
             raise
 
@@ -255,7 +257,7 @@ class MCPConnection:
                         ):
                             raise ExpandRequestError(
                                 ExpandFailure.CAPACITY,
-                                "Server tool directory exceeds its configured bound.",
+                                prompt_text.SERVER_DIRECTORY_LIMIT_EXCEEDED,
                             )
                         cursor = page.next_cursor
                         if cursor is None:
@@ -263,7 +265,7 @@ class MCPConnection:
                         if cursor in seen or len(seen) >= self._settings.max_tools:
                             raise ExpandRequestError(
                                 ExpandFailure.REMOTE,
-                                "Server tool pagination did not converge.",
+                                prompt_text.SERVER_TOOL_PAGINATION_DID_NOT_CONVERGE,
                             )
                         seen.add(cursor)
             except ExpandRequestError:
@@ -272,7 +274,8 @@ class MCPConnection:
             except Exception as exc:
                 self._dirty = True
                 raise ExpandRequestError(
-                    ExpandFailure.UNAVAILABLE, "MCP tool directory is unavailable."
+                    ExpandFailure.UNAVAILABLE,
+                    prompt_text.MCP_TOOL_DIRECTORY_IS_UNAVAILABLE,
                 ) from exc
             self._directory = ToolDirectory(tuple(tools), expiry)
             return self._directory
@@ -289,13 +292,13 @@ class MCPConnection:
             except InputRequiredRoundsExceededError as exc:
                 raise ExpandRequestError(
                     ExpandFailure.INPUT_REQUIRED,
-                    "MCP tool requires an unsupported input exchange; no continuation was sent. External effects may already exist.",
+                    prompt_text.UNSUPPORTED_INPUT_EXCHANGE,
                 ) from exc
             except Exception as exc:
                 self.invalidate()
                 raise ExpandRequestError(
                     ExpandFailure.RESULT_UNKNOWN,
-                    "MCP call did not return a usable result; external effects may already exist. Inspect before retrying.",
+                    prompt_text.MCP_CALL_RESULT_UNAVAILABLE,
                 ) from exc
 
     async def close(self) -> tuple[CleanupDiagnostic, ...]:

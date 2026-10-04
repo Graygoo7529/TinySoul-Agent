@@ -7,6 +7,7 @@ from datetime import date
 from enum import StrEnum
 from typing import TypeAlias
 
+from tinysoul.prompts.kernel import retrieval as prompt_text
 from tinysoul.infra.json import JsonObject, JsonValue, to_json_object
 
 
@@ -50,7 +51,7 @@ class AttributeField:
         if self.kind is AttributeKind.DATE:
             scalar.update(
                 {
-                    "description": "Calendar date in YYYY-MM-DD form",
+                    "description": prompt_text.CALENDAR_DATE_IN_YYYY_MM_DD_FORM,
                     "minLength": 10,
                     "maxLength": 10,
                 }
@@ -120,7 +121,7 @@ class AttributeFilters:
             if field is None:
                 raise SearchFailure(
                     SearchFailureKind.INVALID_REQUEST,
-                    "This source does not support the requested filter",
+                    prompt_text.THIS_SOURCE_DOES_NOT_SUPPORT_THE_REQUESTED_FILTER,
                 )
             if isinstance(value, dict):
                 if (
@@ -129,14 +130,16 @@ class AttributeFilters:
                     or set(value) - {"before", "after"}
                 ):
                     raise SearchFailure(
-                        SearchFailureKind.INVALID_REQUEST, "Invalid ordered filter"
+                        SearchFailureKind.INVALID_REQUEST,
+                        prompt_text.INVALID_ORDERED_FILTER,
                     )
                 values = list(value.values())
             else:
                 values = value if isinstance(value, list) else [value]
             if not values or any(not isinstance(item, str) for item in values):
                 raise SearchFailure(
-                    SearchFailureKind.INVALID_REQUEST, "Filter requires text values"
+                    SearchFailureKind.INVALID_REQUEST,
+                    prompt_text.FILTER_REQUIRES_TEXT_VALUES,
                 )
             checked = tuple(item for item in values if isinstance(item, str))
             if field.kind is AttributeKind.DATE:
@@ -148,7 +151,7 @@ class AttributeFilters:
                 except ValueError as exc:
                     raise SearchFailure(
                         SearchFailureKind.INVALID_REQUEST,
-                        "Date filter requires YYYY-MM-DD",
+                        prompt_text.DATE_FILTER_REQUIRES_YYYY_MM_DD,
                     ) from exc
             if isinstance(value, dict):
                 before, after = value.get("before"), value.get("after")
@@ -190,7 +193,7 @@ class TextQuery:
     def __post_init__(self) -> None:
         if not self.text.strip():
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "Query must not be empty"
+                SearchFailureKind.INVALID_REQUEST, prompt_text.QUERY_MUST_NOT_BE_EMPTY
             )
 
 
@@ -201,7 +204,8 @@ class DocumentQuery:
     def __post_init__(self) -> None:
         if not self.document_ref:
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "Document query requires an identity"
+                SearchFailureKind.INVALID_REQUEST,
+                prompt_text.DOCUMENT_QUERY_REQUIRES_AN_IDENTITY,
             )
 
 
@@ -224,7 +228,7 @@ class ResourceScope:
         )
         if not valid:
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "Invalid resource scope"
+                SearchFailureKind.INVALID_REQUEST, prompt_text.INVALID_RESOURCE_SCOPE
             )
 
     def to_json(self) -> JsonObject:
@@ -243,7 +247,8 @@ class QuerySource:
     def __post_init__(self) -> None:
         if not self.scope:
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "Query source requires a scope"
+                SearchFailureKind.INVALID_REQUEST,
+                prompt_text.QUERY_SOURCE_REQUIRES_A_SCOPE,
             )
         object.__setattr__(self, "where", to_json_object(self.where))
 
@@ -258,7 +263,7 @@ class BacklinksSource:
         if not self.scope or not self.anchor_ref:
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
-                "Backlinks source requires scope and anchor_ref",
+                prompt_text.BACKLINKS_SOURCE_REQUIRES_SCOPE_AND_ANCHOR_REF,
             )
         object.__setattr__(self, "where", to_json_object(self.where))
 
@@ -271,7 +276,8 @@ class DirectorySource:
     def __post_init__(self) -> None:
         if not self.scope:
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "Directory source requires a scope"
+                SearchFailureKind.INVALID_REQUEST,
+                prompt_text.DIRECTORY_SOURCE_REQUIRES_A_SCOPE,
             )
         object.__setattr__(self, "where", to_json_object(self.where))
 
@@ -283,7 +289,8 @@ class RefsSource:
     def __post_init__(self) -> None:
         if not self.refs or any(not ref for ref in self.refs):
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "Refs source requires non-empty refs"
+                SearchFailureKind.INVALID_REQUEST,
+                prompt_text.REFS_SOURCE_REQUIRES_NON_EMPTY_REFS,
             )
 
 
@@ -294,7 +301,8 @@ class ResultSource:
     def __post_init__(self) -> None:
         if not self.result_ref:
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "Result source requires result_ref"
+                SearchFailureKind.INVALID_REQUEST,
+                prompt_text.RESULT_SOURCE_REQUIRES_RESULT_REF,
             )
 
 
@@ -311,7 +319,8 @@ class FilterStep:
     def __post_init__(self) -> None:
         if not self.where:
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "Filter requires a non-empty where"
+                SearchFailureKind.INVALID_REQUEST,
+                prompt_text.FILTER_REQUIRES_A_NON_EMPTY_WHERE,
             )
         object.__setattr__(self, "where", to_json_object(self.where))
 
@@ -329,7 +338,7 @@ class ModelStep:
         ):
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
-                "Select and rerank require a criterion",
+                prompt_text.SELECT_AND_RERANK_REQUIRE_A_CRITERION,
             )
 
 
@@ -347,14 +356,15 @@ class RetrievalRequest:
     def __post_init__(self) -> None:
         if type(self.page_limit) is not int or self.page_limit < 1:
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "Page limit must be positive"
+                SearchFailureKind.INVALID_REQUEST,
+                prompt_text.PAGE_LIMIT_MUST_BE_POSITIVE,
             )
         if len(set(self.exclude_refs)) != len(self.exclude_refs) or any(
             not ref for ref in self.exclude_refs
         ):
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
-                "exclude_refs must contain unique non-empty refs",
+                prompt_text.EXCLUDE_REFS_MUST_CONTAIN_UNIQUE_NON_EMPTY_REFS,
             )
 
     @property

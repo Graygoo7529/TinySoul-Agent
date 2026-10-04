@@ -25,6 +25,7 @@ from acp.schema import (
     WriteTextFileResponse,
 )
 
+from tinysoul.prompts.plugins.capabilities import subagent as prompt_text
 from tinysoul.infra.concurrency import CleanupDiagnostic
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.infra.process import ManagedProcessRequest, StdioProcess
@@ -251,7 +252,8 @@ class ACPConnection:
     async def prompt(self, brief: str, receiver: PromptReceiver) -> str:
         if self._session_id is None or self.receiver is not None or self._closed:
             raise SubagentRequestError(
-                SubagentFailure.BUSY, "ACP session is not ready for a new delegation."
+                SubagentFailure.BUSY,
+                prompt_text.ACP_SESSION_IS_NOT_READY_FOR_A_NEW_DELEGATION,
             )
         self.receiver = receiver
         try:

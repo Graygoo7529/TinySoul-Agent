@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+from tinysoul.prompts.kernel import retrieval as prompt_text
 from tinysoul.infra.concurrency import CleanupDiagnostic
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.model_services.protocol import ModelServiceError
@@ -119,7 +120,7 @@ class SearchSession:
         if self._closed:
             raise SearchFailure(
                 SearchFailureKind.VIEW_EXPIRED,
-                "Search scope has closed; start a new query scope",
+                prompt_text.SEARCH_SCOPE_HAS_CLOSED_START_A_NEW_QUERY_SCOPE,
             )
         if isinstance(request, str):
             return self._engine.views.resume(request)
@@ -131,7 +132,7 @@ class SearchSession:
         if self._closed:
             raise SearchFailure(
                 SearchFailureKind.VIEW_EXPIRED,
-                "Search scope has closed; start a new query scope",
+                prompt_text.SEARCH_SCOPE_HAS_CLOSED_START_A_NEW_QUERY_SCOPE,
             )
         policy = next(
             (
@@ -143,7 +144,8 @@ class SearchSession:
         )
         if policy is None:
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "This action has no retrieval policy"
+                SearchFailureKind.INVALID_REQUEST,
+                prompt_text.THIS_ACTION_HAS_NO_RETRIEVAL_POLICY,
             )
         policy.validate_request(request)
         filters = policy.capability.filters if policy.capability else self._filters
@@ -160,7 +162,7 @@ class SearchSession:
         if current_steps and inputs.context is None:
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
-                "Current Context is unavailable; use context=none",
+                prompt_text.CURRENT_CONTEXT_IS_UNAVAILABLE_USE_CONTEXT_NONE,
             )
         if inputs.cancellation:
             inputs.cancellation.check()
@@ -180,7 +182,7 @@ class SearchSession:
             except ReferenceError as exc:
                 raise SearchFailure(
                     SearchFailureKind.INVALID_REQUEST,
-                    "Search source reference is invalid or unreadable",
+                    prompt_text.SEARCH_SOURCE_REFERENCE_IS_INVALID_OR_UNREADABLE,
                 ) from exc
         if isinstance(corpus_value, SearchCorpus):
             corpus = CandidateSet(
@@ -192,12 +194,12 @@ class SearchSession:
         if snapshot_size(corpus.candidates) > policy.snapshot_max_chars:
             raise SearchFailure(
                 SearchFailureKind.SCOPE_REQUIRED,
-                "Source content snapshot exceeds its budget; narrow the scope",
+                prompt_text.SOURCE_SNAPSHOT_BUDGET_EXCEEDED,
             )
         if not corpus.complete:
             raise SearchFailure(
                 SearchFailureKind.SCOPE_REQUIRED,
-                "Source scope exceeds its read budget; narrow the scope",
+                prompt_text.SOURCE_READ_BUDGET_EXCEEDED,
             )
         search_id = uuid4().hex
 
@@ -291,7 +293,7 @@ class SearchSession:
             if self._selector is None:
                 raise SearchFailure(
                     SearchFailureKind.INVALID_REQUEST,
-                    "The query scope has no configured selector",
+                    prompt_text.THE_QUERY_SCOPE_HAS_NO_CONFIGURED_SELECTOR,
                     step=step.op.value,
                 )
             operation_policy = policy.operation(step.op)
@@ -362,7 +364,7 @@ class SearchSession:
         elif query is None:
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
-                "Source owner did not resolve the document query",
+                prompt_text.SOURCE_OWNER_DID_NOT_RESOLVE_THE_DOCUMENT_QUERY,
             )
         if policy.capability and policy.capability.lexical_syntax and not source.regex:
             source = replace(source, literal=True)
@@ -396,7 +398,7 @@ class SearchSession:
         if not rankings:
             raise SearchFailure(
                 SearchFailureKind.SOURCE_UNAVAILABLE,
-                "Every configured query channel was unavailable",
+                prompt_text.EVERY_CONFIGURED_QUERY_CHANNEL_WAS_UNAVAILABLE,
             )
         return CandidateSet(
             fuse(rankings),

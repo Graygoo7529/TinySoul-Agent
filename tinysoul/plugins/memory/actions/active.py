@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import cast
 
+from tinysoul.prompts.plugins import memory as prompt_text
 from tinysoul.kernel.action import (
     ActionEngineBuilder,
     ActionExecution,
@@ -68,7 +69,9 @@ class MemoryMemorizeExecutor(ActionExecutor):
         raw_operations = params.get("operations")
         if not isinstance(raw_operations, list):
             return _failed(
-                execution, "memory.memorize requires operations", "invalid_patch"
+                execution,
+                prompt_text.MEMORY_MEMORIZE_REQUIRES_OPERATIONS,
+                "invalid_patch",
             )
         try:
             parsed_operations: list[MemoryPatchOperation] = []
@@ -175,7 +178,7 @@ class MemoryInspectExecutor(ActionExecutor):
         ):
             return _failed(
                 execution,
-                "Inspect requires a known ref and valid content page options",
+                prompt_text.INVALID_INSPECT_REQUEST,
                 "invalid_inspect",
             )
         try:

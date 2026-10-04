@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from tinysoul.prompts.kernel import context as prompt_text
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.protocol.messages import Message, UserMessage
 
@@ -156,7 +157,7 @@ def _apply_patch_to_projection(
     todos: dict[str, TodoItem],
 ) -> str:
     if patch.is_empty():
-        return "Working patch contains no operations"
+        return prompt_text.EMPTY_WORKING_PATCH
     problem = _operation_problem(
         set_keys=tuple(item.key for item in patch.set_milestones),
         remove_keys=patch.remove_milestones,
@@ -173,11 +174,11 @@ def _apply_patch_to_projection(
         return problem
     for key in patch.remove_milestones:
         if key not in milestones:
-            return f"Unknown milestone key: {key}"
+            return prompt_text.unknown_milestone(key=key)
         del milestones[key]
     for key in patch.remove_todos:
         if key not in todos:
-            return f"Unknown todo key: {key}"
+            return prompt_text.unknown_todo(key=key)
         del todos[key]
     for milestone in patch.set_milestones:
         milestones[milestone.key] = milestone
@@ -194,13 +195,13 @@ def _operation_problem(
 ) -> str:
     duplicate = _first_duplicate(set_keys)
     if duplicate:
-        return f"Working patch contains duplicate {label} set key: {duplicate}"
+        return prompt_text.duplicate_set_key(label=label, duplicate=duplicate)
     duplicate = _first_duplicate(remove_keys)
     if duplicate:
-        return f"Working patch contains duplicate {label} remove key: {duplicate}"
+        return prompt_text.duplicate_remove_key(label=label, duplicate=duplicate)
     conflict = sorted(set(set_keys) & set(remove_keys))
     if conflict:
-        return f"Working patch cannot set and remove the same {label}: {conflict[0]}"
+        return prompt_text.conflicting_patch_key(label=label, key=conflict[0])
     return ""
 
 

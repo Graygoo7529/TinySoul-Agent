@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import cast
 
+from tinysoul.prompts.kernel import retrieval as prompt_text
 from tinysoul.infra.json import JsonObject, JsonTypeError, to_json_object
 
 from .contracts import (
@@ -41,19 +42,22 @@ def parse_retrieval_request(
             or not parameters["continuation"]
         ):
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "Continuation must be supplied alone"
+                SearchFailureKind.INVALID_REQUEST,
+                prompt_text.CONTINUATION_MUST_BE_SUPPLIED_ALONE,
             )
         return parameters["continuation"]
     try:
         unknown = set(parameters) - {"source", "exclude_refs", "steps", "page"}
         if unknown:
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "Unknown Search request field"
+                SearchFailureKind.INVALID_REQUEST,
+                prompt_text.UNKNOWN_SEARCH_REQUEST_FIELD,
             )
         source_value = parameters.get("source")
         if not isinstance(source_value, Mapping):
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "Search requires a source object"
+                SearchFailureKind.INVALID_REQUEST,
+                prompt_text.SEARCH_REQUIRES_A_SOURCE_OBJECT,
             )
         normalized = dict(source_value)
         if (
@@ -67,7 +71,7 @@ def parse_retrieval_request(
         raw_steps = parameters.get("steps", [])
         if not isinstance(raw_steps, list):
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "steps must be an array"
+                SearchFailureKind.INVALID_REQUEST, prompt_text.STEPS_MUST_BE_AN_ARRAY
             )
         steps = tuple(_parse_step(value) for value in raw_steps)
         exclude = parameters.get("exclude_refs", [])
@@ -75,15 +79,18 @@ def parse_retrieval_request(
             not isinstance(item, str) for item in exclude
         ):
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "exclude_refs must be a string array"
+                SearchFailureKind.INVALID_REQUEST,
+                prompt_text.EXCLUDE_REFS_MUST_BE_A_STRING_ARRAY,
             )
         page = parameters.get("page", {})
         if not isinstance(page, Mapping):
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "page must be an object"
+                SearchFailureKind.INVALID_REQUEST, prompt_text.PAGE_MUST_BE_AN_OBJECT
             )
         if set(page) - {"limit", "max_chars"}:
-            raise SearchFailure(SearchFailureKind.INVALID_REQUEST, "Unknown page field")
+            raise SearchFailure(
+                SearchFailureKind.INVALID_REQUEST, prompt_text.UNKNOWN_PAGE_FIELD
+            )
         limit = page.get("limit", min(20, policy.page_max_items))
         max_chars = page.get("max_chars")
         if (
@@ -92,7 +99,7 @@ def parse_retrieval_request(
             or (max_chars is not None and (type(max_chars) is not int or max_chars < 1))
         ):
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "Invalid page budget"
+                SearchFailureKind.INVALID_REQUEST, prompt_text.INVALID_PAGE_BUDGET
             )
         result = RetrievalRequest(
             source, steps, tuple(cast(str, item) for item in exclude), limit, max_chars
@@ -100,14 +107,15 @@ def parse_retrieval_request(
         policy.validate_request(result)
         if result.page_limit > policy.page_max_items:
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "Page limit exceeds action policy"
+                SearchFailureKind.INVALID_REQUEST,
+                prompt_text.PAGE_LIMIT_EXCEEDS_ACTION_POLICY,
             )
         return result
     except SearchFailure:
         raise
     except (ValueError, TypeError, JsonTypeError) as exc:
         raise SearchFailure(
-            SearchFailureKind.INVALID_REQUEST, "Invalid retrieval request"
+            SearchFailureKind.INVALID_REQUEST, prompt_text.INVALID_RETRIEVAL_REQUEST
         ) from exc
 
 
@@ -117,7 +125,7 @@ def _parse_source(value: Mapping[str, object]):
         source_kind = SourceKind(kind)
     except (ValueError, TypeError) as exc:
         raise SearchFailure(
-            SearchFailureKind.INVALID_REQUEST, "Unknown retrieval source"
+            SearchFailureKind.INVALID_REQUEST, prompt_text.UNKNOWN_RETRIEVAL_SOURCE
         ) from exc
     if source_kind is SourceKind.QUERY:
         _reject_source_fields(
@@ -129,7 +137,7 @@ def _parse_source(value: Mapping[str, object]):
         where = to_json_object(value.get("where", {}))
         if not isinstance(scope, (str, ResourceScope)):
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "Query scope must be text"
+                SearchFailureKind.INVALID_REQUEST, prompt_text.QUERY_SCOPE_MUST_BE_TEXT
             )
         if isinstance(query, str):
             parsed = TextQuery(query)
@@ -138,19 +146,19 @@ def _parse_source(value: Mapping[str, object]):
             if not isinstance(query_map.get("document_ref"), str):
                 raise SearchFailure(
                     SearchFailureKind.INVALID_REQUEST,
-                    "Document query requires document_ref",
+                    prompt_text.DOCUMENT_QUERY_REQUIRES_DOCUMENT_REF,
                 )
             parsed = DocumentQuery(cast(str, query_map["document_ref"]))
         else:
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
-                "Query source requires text or document_ref",
+                prompt_text.QUERY_SOURCE_REQUIRES_TEXT_OR_DOCUMENT_REF,
             )
         flags = ("literal", "regex", "case_sensitive")
         if any(type(value.get(name, False)) is not bool for name in flags):
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
-                "Query matching flags must be boolean",
+                prompt_text.QUERY_MATCHING_FLAGS_MUST_BE_BOOLEAN,
             )
         return QuerySource(
             scope,
@@ -166,7 +174,7 @@ def _parse_source(value: Mapping[str, object]):
         if not isinstance(scope, (str, ResourceScope)) or not isinstance(anchor, str):
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
-                "Backlinks source requires scope and anchor_ref",
+                prompt_text.BACKLINKS_SOURCE_REQUIRES_SCOPE_AND_ANCHOR_REF,
             )
         return BacklinksSource(scope, anchor, to_json_object(value.get("where", {})))
     if source_kind is SourceKind.DIRECTORY:
@@ -174,7 +182,8 @@ def _parse_source(value: Mapping[str, object]):
         scope = _parse_scope(value.get("scope", "all"))
         if not isinstance(scope, (str, ResourceScope)):
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "Directory scope must be text"
+                SearchFailureKind.INVALID_REQUEST,
+                prompt_text.DIRECTORY_SCOPE_MUST_BE_TEXT,
             )
         return DirectorySource(scope, to_json_object(value.get("where", {})))
     if source_kind is SourceKind.REFS:
@@ -182,14 +191,16 @@ def _parse_source(value: Mapping[str, object]):
         refs = value.get("refs")
         if not isinstance(refs, list) or any(not isinstance(ref, str) for ref in refs):
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "refs must be a string array"
+                SearchFailureKind.INVALID_REQUEST,
+                prompt_text.REFS_MUST_BE_A_STRING_ARRAY,
             )
         return RefsSource(tuple(cast(str, ref) for ref in refs))
     _reject_source_fields(value, {"kind", "result_ref"})
     result_ref = value.get("result_ref")
     if not isinstance(result_ref, str):
         raise SearchFailure(
-            SearchFailureKind.INVALID_REQUEST, "result source requires result_ref"
+            SearchFailureKind.INVALID_REQUEST,
+            prompt_text.REQUESTS_RESULT_SOURCE_REQUIRES_RESULT_REF,
         )
     return ResultSource(result_ref)
 
@@ -197,41 +208,44 @@ def _parse_source(value: Mapping[str, object]):
 def _reject_source_fields(value: Mapping[str, object], allowed: set[str]) -> None:
     if set(value) - allowed:
         raise SearchFailure(
-            SearchFailureKind.INVALID_REQUEST, "Unknown retrieval source field"
+            SearchFailureKind.INVALID_REQUEST,
+            prompt_text.UNKNOWN_RETRIEVAL_SOURCE_FIELD,
         )
 
 
 def _parse_step(value: object):
     if not isinstance(value, Mapping):
         raise SearchFailure(
-            SearchFailureKind.INVALID_REQUEST, "Search steps must be objects"
+            SearchFailureKind.INVALID_REQUEST, prompt_text.SEARCH_STEPS_MUST_BE_OBJECTS
         )
     try:
         operation = OperationKind(value.get("op"))
     except (ValueError, TypeError) as exc:
         raise SearchFailure(
-            SearchFailureKind.INVALID_REQUEST, "Unknown search operation"
+            SearchFailureKind.INVALID_REQUEST, prompt_text.UNKNOWN_SEARCH_OPERATION
         ) from exc
     if operation is OperationKind.FILTER:
         if set(value) != {"op", "where"}:
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "Filter accepts only where"
+                SearchFailureKind.INVALID_REQUEST, prompt_text.FILTER_ACCEPTS_ONLY_WHERE
             )
         where = value.get("where")
         if not isinstance(where, Mapping):
             raise SearchFailure(
-                SearchFailureKind.INVALID_REQUEST, "Filter where must be an object"
+                SearchFailureKind.INVALID_REQUEST,
+                prompt_text.FILTER_WHERE_MUST_BE_AN_OBJECT,
             )
         return FilterStep(to_json_object(cast(Mapping[str, object], where)))
     criterion = value.get("criterion")
     if not isinstance(criterion, str):
         raise SearchFailure(
-            SearchFailureKind.INVALID_REQUEST, "Model operation requires criterion"
+            SearchFailureKind.INVALID_REQUEST,
+            prompt_text.MODEL_OPERATION_REQUIRES_CRITERION,
         )
     context = SearchContext(value.get("context", SearchContext.NONE.value))
     if set(value) - {"op", "criterion", "context"}:
         raise SearchFailure(
-            SearchFailureKind.INVALID_REQUEST, "Unknown model operation field"
+            SearchFailureKind.INVALID_REQUEST, prompt_text.UNKNOWN_MODEL_OPERATION_FIELD
         )
     return ModelStep(operation, criterion, context)
 
@@ -244,4 +258,6 @@ def _parse_scope(value: object) -> str | ResourceScope:
         locator = fields.get("locator")
         if set(fields) == {"kind", "locator"} and isinstance(locator, str):
             return ResourceScope(ResourceScopeKind(fields["kind"]), locator)
-    raise SearchFailure(SearchFailureKind.INVALID_REQUEST, "Invalid source scope")
+    raise SearchFailure(
+        SearchFailureKind.INVALID_REQUEST, prompt_text.INVALID_SOURCE_SCOPE
+    )

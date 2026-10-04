@@ -8,6 +8,7 @@ from enum import StrEnum
 import re
 from uuid import uuid4
 
+from tinysoul.prompts.plugins import session as prompt_text
 from tinysoul.infra.json import JsonObject
 from ..errors import SessionContractError
 
@@ -60,7 +61,7 @@ def _text(value: object, name: str, limit: int, *, empty: bool = False) -> str:
         or len(value) > limit
         or (not empty and not value.strip())
     ):
-        _reject(f"{name} must be text within {limit} characters")
+        _reject(prompt_text.bounded_text_required(name=name, limit=limit))
     assert isinstance(value, str)
     return value
 
@@ -69,17 +70,17 @@ def _refs(
     value: object, name: str, limit: int, *, empty: bool = False
 ) -> tuple[str, ...]:
     if not isinstance(value, (list, tuple)) or len(value) > limit:
-        _reject(f"{name} must be a bounded list of references")
+        _reject(prompt_text.bounded_references_required(name=name))
     assert isinstance(value, (list, tuple))
     result = tuple(_text(item, name, 240) for item in value)
     if (not empty and not result) or len(set(result)) != len(result):
-        _reject(f"{name} must contain distinct references")
+        _reject(prompt_text.distinct_references_required(name=name))
     return result
 
 
 def _object(value: object, fields: set[str]) -> dict[str, object]:
     if not isinstance(value, dict) or set(value) != fields:
-        _reject("Annotation fields do not match the declared object")
+        _reject(prompt_text.INVALID_ANNOTATION_FIELDS)
     assert isinstance(value, dict)
     return {str(key): item for key, item in value.items()}
 
@@ -89,7 +90,7 @@ def _identity(ref: str, kind: str) -> None:
         re.fullmatch(rf"(?:local:[a-zA-Z0-9_-]+|session:{kind}/[a-z0-9_-]+)", ref)
         is None
     ):
-        _reject("Use an existing annotation ref or local:<key> for a new object")
+        _reject(prompt_text.USE_AN_EXISTING_ANNOTATION_REF_OR_LOCAL_KEY_FOR_A)
 
 
 @dataclass(frozen=True)
@@ -108,7 +109,7 @@ class SemanticNode:
         if not isinstance(self.kind, AnnotationKind) or not isinstance(
             self.status, AnnotationStatus
         ):
-            _reject("Node requires a typed kind and status")
+            _reject(prompt_text.NODE_REQUIRES_A_TYPED_KIND_AND_STATUS)
         object.__setattr__(
             self, "source_refs", _refs(self.source_refs, "source_refs", 32)
         )
@@ -141,7 +142,7 @@ class SemanticNode:
         except (ValueError, TypeError) as exc:
             raise OrganizeRequestError(
                 OrganizeFailureReason.INVALID_CHANGE,
-                "Invalid annotation kind or status",
+                prompt_text.INVALID_ANNOTATION_KIND_OR_STATUS,
             ) from exc
 
 
@@ -163,7 +164,7 @@ class SemanticEdge:
         if not isinstance(self.relation, SemanticRelation) or not isinstance(
             self.status, AnnotationStatus
         ):
-            _reject("Edge requires a typed relation and status")
+            _reject(prompt_text.EDGE_REQUIRES_A_TYPED_RELATION_AND_STATUS)
         object.__setattr__(
             self, "source_refs", _refs(self.source_refs, "source_refs", 32)
         )
@@ -200,7 +201,8 @@ class SemanticEdge:
             )
         except (ValueError, TypeError) as exc:
             raise OrganizeRequestError(
-                OrganizeFailureReason.INVALID_CHANGE, "Invalid relation or status"
+                OrganizeFailureReason.INVALID_CHANGE,
+                prompt_text.INVALID_RELATION_OR_STATUS,
             ) from exc
 
 
@@ -221,11 +223,11 @@ class OrganizeChange:
             or len(self.edges) > 64
             or not (self.nodes or self.edges or self.retract_ids)
         ):
-            _reject("Organize requires a bounded non-empty change")
+            _reject(prompt_text.ORGANIZE_REQUIRES_A_BOUNDED_NON_EMPTY_CHANGE)
         if any(not isinstance(item, SemanticNode) for item in self.nodes) or any(
             not isinstance(item, SemanticEdge) for item in self.edges
         ):
-            _reject("Organize requires typed objects")
+            _reject(prompt_text.ORGANIZE_REQUIRES_TYPED_OBJECTS)
         refs = (
             *(item.ref for item in self.nodes),
             *(item.ref for item in self.edges),
@@ -233,7 +235,7 @@ class OrganizeChange:
         )
         if len(set(refs)) != len(refs):
             _reject(
-                "An object may only be changed once per call",
+                prompt_text.AN_OBJECT_MAY_ONLY_BE_CHANGED_ONCE_PER_CALL,
                 OrganizeFailureReason.CONFLICT,
             )
 
@@ -241,7 +243,7 @@ class OrganizeChange:
     def parse(cls, value: JsonObject) -> OrganizeChange:
         nodes, edges = value.get("upsert_nodes", []), value.get("upsert_edges", [])
         if not isinstance(nodes, list) or not isinstance(edges, list):
-            _reject("Upserts must be lists")
+            _reject(prompt_text.UPSERTS_MUST_BE_LISTS)
         assert isinstance(nodes, list) and isinstance(edges, list)
         return cls(
             _refs(value.get("scope_refs"), "scope_refs", 64),
@@ -275,7 +277,7 @@ class SessionMap:
     def __post_init__(self) -> None:
         refs = tuple(item.ref for item in (*self.nodes, *self.edges))
         if len(set(refs)) != len(refs) or any(ref.startswith("local:") for ref in refs):
-            _reject("Stored annotations require distinct stable identities")
+            _reject(prompt_text.INVALID_STORED_ANNOTATION_IDENTITIES)
         nodes = {item.ref: item for item in self.nodes}
         for edge in self.edges:
             for endpoint in (edge.source, edge.target):
@@ -286,11 +288,11 @@ class SessionMap:
                         and node.status is AnnotationStatus.RETRACTED
                     ):
                         _reject(
-                            "Retracted nodes cannot retain active relations",
+                            prompt_text.RETRACTED_NODES_CANNOT_RETAIN_ACTIVE_RELATIONS,
                             OrganizeFailureReason.CONFLICT,
                         )
                 elif not endpoint.startswith("session:turn/"):
-                    _reject("Relations must link semantic nodes or history facts")
+                    _reject(prompt_text.INVALID_RELATION_ENDPOINTS)
             if edge.relation is SemanticRelation.COVERS:
                 node = nodes.get(edge.source)
                 if (
@@ -298,7 +300,7 @@ class SessionMap:
                     or node.kind is not AnnotationKind.THREAD
                     or not edge.target.startswith("session:turn/")
                 ):
-                    _reject("covers links a thread to a history fact")
+                    _reject(prompt_text.COVERS_LINKS_A_THREAD_TO_A_HISTORY_FACT)
 
     def get(self, ref: str) -> SemanticNode | SemanticEdge | None:
         return next(
@@ -355,7 +357,7 @@ class SessionMap:
                 return created[ref]
             if ref not in (nodes if kind == "node" else edges):
                 _reject(
-                    "Unknown annotation; use local:<key> to create it",
+                    prompt_text.UNKNOWN_ANNOTATION_USE_LOCAL_KEY_TO_CREATE_IT,
                     OrganizeFailureReason.UNKNOWN_REF,
                 )
             return ref
@@ -366,7 +368,7 @@ class SessionMap:
             old = nodes.get(ref)
             if old is not None and old.kind is not node.kind:
                 _reject(
-                    "An existing node cannot change kind",
+                    prompt_text.AN_EXISTING_NODE_CANNOT_CHANGE_KIND,
                     OrganizeFailureReason.CONFLICT,
                 )
             nodes[ref] = replace(
@@ -397,7 +399,8 @@ class SessionMap:
                 edges[ref] = replace(edges[ref], status=AnnotationStatus.RETRACTED)
             else:
                 _reject(
-                    "Unknown annotation to retract", OrganizeFailureReason.UNKNOWN_REF
+                    prompt_text.UNKNOWN_ANNOTATION_TO_RETRACT,
+                    OrganizeFailureReason.UNKNOWN_REF,
                 )
             changed.append(ref)
         return SessionMap(tuple(nodes.values()), tuple(edges.values())), OrganizeResult(

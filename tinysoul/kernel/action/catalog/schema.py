@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from tinysoul.prompts.kernel import action as prompt_text
 from tinysoul.infra.config import ConfigError
 from tinysoul.infra.json import JsonObject, JsonValue
 
@@ -335,7 +336,7 @@ def _validate_value(value: JsonValue, *, schema: JsonObject, path: str) -> None:
         matches = 0
         for alternative in alternatives:
             if not isinstance(alternative, dict):
-                raise ActionSchemaValidationError("Invalid oneOf definition")
+                raise ActionSchemaValidationError(prompt_text.INVALID_ONEOF_DEFINITION)
             try:
                 _validate_value(value, schema=alternative, path=path)
             except ActionSchemaValidationError:
@@ -343,23 +344,25 @@ def _validate_value(value: JsonValue, *, schema: JsonObject, path: str) -> None:
             matches += 1
         if matches != 1:
             raise ActionSchemaValidationError(
-                f"Action parameter {path} must match exactly one declared variant"
+                prompt_text.parameter_variant_mismatch(path=path)
             )
     expected_type = schema.get("type")
     if expected_type is not None:
         if not isinstance(expected_type, str):
             raise ActionSchemaValidationError(
-                f"Action parameter schema type for {path} is invalid"
+                prompt_text.invalid_parameter_schema_type(path=path)
             )
         if not _matches_json_type(value, expected_type):
             raise ActionSchemaValidationError(
-                f"Action parameter {path} must be {expected_type}"
+                prompt_text.parameter_type_mismatch(
+                    path=path, expected_type=expected_type
+                )
             )
 
     enum_values = schema.get("enum")
     if isinstance(enum_values, list) and value not in enum_values:
         raise ActionSchemaValidationError(
-            f"Action parameter {path} must be one of the allowed values"
+            prompt_text.parameter_enum_mismatch(path=path)
         )
 
     if isinstance(value, int | float) and not isinstance(value, bool):
@@ -367,11 +370,11 @@ def _validate_value(value: JsonValue, *, schema: JsonObject, path: str) -> None:
         maximum = schema.get("maximum")
         if isinstance(minimum, int | float) and value < minimum:
             raise ActionSchemaValidationError(
-                f"Action parameter {path} must be >= {minimum}"
+                prompt_text.parameter_below_minimum(path=path, minimum=minimum)
             )
         if isinstance(maximum, int | float) and value > maximum:
             raise ActionSchemaValidationError(
-                f"Action parameter {path} must be <= {maximum}"
+                prompt_text.parameter_above_maximum(path=path, maximum=maximum)
             )
 
     if isinstance(value, str | list):
@@ -383,20 +386,24 @@ def _validate_value(value: JsonValue, *, schema: JsonObject, path: str) -> None:
         minimum, maximum = schema.get(lower), schema.get(upper)
         if isinstance(minimum, int) and len(value) < minimum:
             raise ActionSchemaValidationError(
-                f"Action parameter {path} size must be >= {minimum}"
+                prompt_text.parameter_size_below_minimum(path=path, minimum=minimum)
             )
         if isinstance(maximum, int) and len(value) > maximum:
             raise ActionSchemaValidationError(
-                f"Action parameter {path} size must be <= {maximum}"
+                prompt_text.parameter_size_above_maximum(path=path, maximum=maximum)
             )
 
     if expected_type == "object":
         if not isinstance(value, dict):
-            raise ActionSchemaValidationError(f"Action parameter {path} must be object")
+            raise ActionSchemaValidationError(
+                prompt_text.parameter_must_be_object(path=path)
+            )
         _validate_object(value, schema=schema, path=path)
     elif expected_type == "array":
         if not isinstance(value, list):
-            raise ActionSchemaValidationError(f"Action parameter {path} must be array")
+            raise ActionSchemaValidationError(
+                prompt_text.parameter_must_be_array(path=path)
+            )
         items_schema = schema.get("items")
         if isinstance(items_schema, dict):
             for index, item in enumerate(value):
@@ -408,34 +415,32 @@ def _validate_object(value: JsonObject, *, schema: JsonObject, path: str) -> Non
     maximum = schema.get("maxProperties")
     if isinstance(minimum, int) and len(value) < minimum:
         raise ActionSchemaValidationError(
-            f"Action parameter {path} size must be >= {minimum}"
+            prompt_text.parameter_size_below_minimum(path=path, minimum=minimum)
         )
     if isinstance(maximum, int) and len(value) > maximum:
         raise ActionSchemaValidationError(
-            f"Action parameter {path} size must be <= {maximum}"
+            prompt_text.parameter_size_above_maximum(path=path, maximum=maximum)
         )
     properties = schema.get("properties", {})
     if not isinstance(properties, dict):
         raise ActionSchemaValidationError(
-            f"Action parameter schema properties for {path} is invalid"
+            prompt_text.invalid_schema_properties(path=path)
         )
 
     required = schema.get("required", [])
     if not isinstance(required, list):
         raise ActionSchemaValidationError(
-            f"Action parameter schema required for {path} is invalid"
+            prompt_text.invalid_schema_required(path=path)
         )
     for name in required:
         if isinstance(name, str) and name not in value:
-            raise ActionSchemaValidationError(
-                f"Missing required action parameter: {name}"
-            )
+            raise ActionSchemaValidationError(prompt_text.missing_parameter(name=name))
 
     if schema.get("additionalProperties") is False:
         for name in value:
             if name not in properties:
                 raise ActionSchemaValidationError(
-                    f"Unexpected action parameter: {name}"
+                    prompt_text.unexpected_parameter(name=name)
                 )
 
     for name, item in value.items():

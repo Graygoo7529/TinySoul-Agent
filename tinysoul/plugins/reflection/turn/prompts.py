@@ -2,30 +2,26 @@
 
 from __future__ import annotations
 
+from tinysoul.prompts.plugins import reflection as prompt_text
+
 from ..errors import ReflectionContractError
 
 
 def reflection_turn_guidance(kind: str) -> tuple[str, ...]:
-    common = (
-        "This is an autonomous Reflection Turn.",
-        "Use the supplied Background, Session, Workspace, and TurnTrace as context.",
-        "Common domains remain available. Inspect evidence and act in small steps.",
-        "Use core.answer to conclude with a summary of changes, remaining work and limitations.",
-        "The summary is a Reflection result, not a user response. Normal Reflection needs no approval.",
-    )
+    common = prompt_text.COMMON_GUIDANCE
     if kind == "home":
         return (
             *common,
-            "Review every runtime Home difference against actual Home and the actual core rules.",
-            "Use home.diff; edit effective copies through home actions as needed.",
-            "Use home.review to accept or reject selected changes.",
+            prompt_text.HOME_REVIEW_GUIDE,
+            prompt_text.HOME_DIFF_GUIDE,
+            prompt_text.HOME_REVIEW_DECISION_GUIDE,
         )
     if kind == "memory":
         return (
             *common,
-            "Distinguish the target day from the current execution day.",
-            "Use the fixed target-day Session and active Memory sources. Archived Workspace is read-only; current Workspace is the execution workbench.",
-            "Search/inspect before writing. Write one document at a time and inspect the result.",
-            "Create redirect targets before retiring source documents; committed writes remain if later work fails.",
+            prompt_text.MEMORY_TARGET_DAY_GUIDE,
+            prompt_text.MEMORY_SOURCES_GUIDE,
+            prompt_text.MEMORY_WRITING_GUIDE,
+            prompt_text.MEMORY_REDIRECT_GUIDE,
         )
     raise ReflectionContractError(f"Unknown Reflection Turn kind: {kind}")

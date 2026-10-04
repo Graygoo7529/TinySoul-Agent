@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Protocol
 
+from tinysoul.prompts.plugins import memory as prompt_text
 from tinysoul.infra.references import ResourceLocator
 from tinysoul.kernel.context import BackgroundCatalog, BackgroundCatalogItem
 from tinysoul.kernel.context.background import (
@@ -51,8 +52,8 @@ class ActiveMemoryBackgroundEntryProvider:
         items = [
             BackgroundCatalogItem(
                 link=MemoryBackgroundRef.CURRENT.value,
-                title="Current memory",
-                description="Explicit working memory for the current Business Day.",
+                title=prompt_text.CURRENT_MEMORY,
+                description=prompt_text.CURRENT_MEMORY_DESCRIPTION,
                 resolved_locator=ResourceLocator(
                     link="memory:current", day=active_day.isoformat()
                 ),
@@ -63,8 +64,10 @@ class ActiveMemoryBackgroundEntryProvider:
             items.append(
                 BackgroundCatalogItem(
                     link=MemoryBackgroundRef.LATEST.value,
-                    title="Latest daily memory",
-                    description=f"Nearest earlier daily Memory: {latest.link}.",
+                    title=prompt_text.LATEST_DAILY_MEMORY,
+                    description=prompt_text.latest_daily_description(
+                        link=str(latest.link)
+                    ),
                     resolved_locator=ResourceLocator(link=str(latest.link)),
                 )
             )
@@ -119,8 +122,10 @@ class TargetMemoryBackgroundEntryProvider:
         items = [
             BackgroundCatalogItem(
                 link=MemoryBackgroundRef.TARGET.value,
-                title="Target memory",
-                description=f"Fixed target-day Memory for {target_day.isoformat()}.",
+                title=prompt_text.TARGET_MEMORY,
+                description=prompt_text.target_memory_description(
+                    target_day=target_day.isoformat()
+                ),
                 resolved_locator=ResourceLocator(
                     link="memory:current", day=target_day.isoformat()
                 ),
@@ -131,8 +136,10 @@ class TargetMemoryBackgroundEntryProvider:
             items.append(
                 BackgroundCatalogItem(
                     link=MemoryBackgroundRef.LATEST.value,
-                    title="Latest daily memory",
-                    description=f"Nearest daily before target: {latest.link}.",
+                    title=prompt_text.LATEST_DAILY_MEMORY,
+                    description=prompt_text.prior_daily_description(
+                        link=str(latest.link)
+                    ),
                     resolved_locator=ResourceLocator(link=str(latest.link)),
                 )
             )

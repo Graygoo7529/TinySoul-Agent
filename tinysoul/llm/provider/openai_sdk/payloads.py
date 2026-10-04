@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import json
 from typing import Protocol
 
+from tinysoul.prompts import llm as prompt_text
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.protocol.adapter_types import ProviderApiStyle
 from tinysoul.llm.execution.message_rendering import (
@@ -440,9 +441,9 @@ def tool_result_text(
 ) -> str:
     """Render a tool result as ordinary context when native tools are disabled."""
 
-    return (
-        f"Tool result for {message.tool_name}:\n"
-        f"{tool_result_content(message, renderer=renderer)}"
+    return prompt_text.tool_result_context(
+        tool_name=message.tool_name,
+        content=tool_result_content(message, renderer=renderer),
     )
 
 

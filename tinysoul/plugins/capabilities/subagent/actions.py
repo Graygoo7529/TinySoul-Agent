@@ -2,6 +2,7 @@
 
 from enum import StrEnum
 
+from tinysoul.prompts.plugins.capabilities import subagent as prompt_text
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.process import ManagedProcessCloseError
 from tinysoul.kernel.action import (
@@ -59,7 +60,7 @@ class SubagentAction:
                     disposition=ActionFailureDisposition.CHANGE_REQUEST,
                     feedback=str(exc)
                     if isinstance(exc, SubagentRequestError)
-                    else "The requested resource is unavailable in this Turn.",
+                    else prompt_text.RESOURCE_UNAVAILABLE,
                 ),
             )
         except JobError as exc:
@@ -92,7 +93,7 @@ class SubagentAction:
             if not isinstance(value, str):
                 raise SubagentRequestError(
                     SubagentFailure.INVALID_REQUEST,
-                    "Required action text or identity is absent.",
+                    prompt_text.REQUIRED_ACTION_TEXT_OR_IDENTITY_IS_ABSENT,
                 )
             return value
 
@@ -112,7 +113,7 @@ class SubagentAction:
                 ):
                     raise SubagentRequestError(
                         SubagentFailure.INVALID_REQUEST,
-                        "Reference links must be a bounded list.",
+                        prompt_text.REFERENCE_LINKS_MUST_BE_A_BOUNDED_LIST,
                     )
                 brief = await engine.prepare_brief(
                     text("brief"),
@@ -135,7 +136,7 @@ class SubagentAction:
                 if type(cursor) is not int:
                     raise SubagentRequestError(
                         SubagentFailure.INVALID_REQUEST,
-                        "Collection cursor must be an integer.",
+                        prompt_text.COLLECTION_CURSOR_MUST_BE_AN_INTEGER,
                     )
                 return await engine.backend(turn_id, text("job_id")).collect(cursor)
             case SubagentOperation.DISCONNECT:

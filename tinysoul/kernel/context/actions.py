@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tinysoul.prompts.kernel import context as prompt_text
 from tinysoul.kernel.action import (
     ActionEngineBuilder,
     ActionExecution,
@@ -117,7 +118,7 @@ class ContextInspectExecutor(ActionExecutor):
         if ref is None:
             return _failed(
                 execution,
-                "core.context.inspect requires a non-empty ref",
+                prompt_text.CORE_CONTEXT_INSPECT_REQUIRES_A_NON_EMPTY_REF,
                 reason="invalid_ref",
             )
         continuation = execution.call.params.get("continuation")
@@ -126,14 +127,16 @@ class ContextInspectExecutor(ActionExecutor):
         ):
             return _failed(
                 execution,
-                "core.context.inspect continuation must be a non-empty opaque string",
+                prompt_text.INVALID_INSPECT_CONTINUATION,
                 reason=ContextInspectFailureReason.INVALID_CONTINUATION.value,
             )
         try:
             query = execution.call.params.get("query")
             if query is not None and (not isinstance(query, str) or not query.strip()):
                 return _failed(
-                    execution, "Query must be non-empty text", reason="invalid_query"
+                    execution,
+                    prompt_text.QUERY_MUST_BE_NON_EMPTY_TEXT,
+                    reason="invalid_query",
                 )
             payload = await self._context.inspect(
                 ref, query=query, continuation=continuation

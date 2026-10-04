@@ -101,11 +101,13 @@ SDK 服务绑定运行世代，日级服务同时绑定 CalendarDay；切换后�
 ### 总体边界
 
 - 依赖方向为 `infra → runtime/llm → kernel → plugins/environment → agent → gateway`。上层通过稳定门面、服务、provider、snapshot 或 signal 协作，不绕过 owner 操作私有状态。
+- `prompts` 是无业务依赖的固定模型文案包；实际消费者只导入所属 owner 的文案。内容依赖不改变业务依赖方向，也不转移消息装配、协议、状态或失败处理职责。
 - 每项持久事实只有一个 owner；运行状态、模型投影和持久内容分层，不复制状态、不建立平行日志、不保留语义不清的兼容别名。
 - 显式 PluginProfileExtension 贡献服务、段、动作、preparation/completion 和事件适配；PluginGeneration 持有代级 owner、来源与永久 close。只有具有仓库内真实消费者的 SPI 才加入协议，不构建动态发现平台。
 
 ### 模块职责
 
+- `prompts`：按 owner 管理随代码维护的固定模型文案，只提供常量、不可变 tuple 和参数明确的纯文本函数；不读取配置或文件、不导入业务模块。Home 内容与 Action Catalog 可配置语义由原 owner 管理，不在此建立副本。
 - `infra`：配置来源、JSON、文件、动态校验、时钟、HTTP、受控进程、标准 Markdown 引用语法及专用模型 typed 协议等无业务设施。ModelServices 持 generation 共享客户端，Home/Memory 各自拥有可重建向量索引；不拥有业务失败恢复或 Runtime bridge。
 - `runtime`：运行位置、Trap/transfer、Signal、环境 envelope 和 Observation；不导入上层业务、不执行 Action 或访问业务存储。
 - `llm`：统一消息/工具、模型选择、供应商适配、重试和输出解释。

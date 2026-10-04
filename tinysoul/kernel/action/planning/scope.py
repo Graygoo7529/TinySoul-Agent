@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from tinysoul.prompts.kernel import action as prompt_text
 from tinysoul.llm.protocol.tools import (
     ToolCallRecord,
     ToolKind,
@@ -46,7 +47,7 @@ class Phase1DomainScopeBuilder:
         )
         tool = ToolSpec(
             name=DOMAIN_SELECTION_TOOL,
-            description="Select action domains for the next action-parameter generation phase.",
+            description=prompt_text.SELECT_DOMAINS_DESCRIPTION,
             parameters={
                 "type": "object",
                 "properties": {
@@ -56,11 +57,11 @@ class Phase1DomainScopeBuilder:
                             "type": "string",
                             "enum": [domain.name for domain in domains],
                         },
-                        "description": "Action domain names to expose in Phase2.",
+                        "description": prompt_text.DOMAIN_NAMES_DESCRIPTION,
                     },
                     "intent": {
                         "type": "string",
-                        "description": "Brief reason for the selected action domains.",
+                        "description": prompt_text.DOMAIN_INTENT_DESCRIPTION,
                     },
                 },
                 "required": ["domains"],
@@ -84,29 +85,25 @@ class Phase1DomainScopeBuilder:
         if not selections:
             return ActionDomainSelection(
                 selected_domains=(),
-                feedback=("Phase1 must call select_action_domains.",),
+                feedback=(prompt_text.DOMAIN_SELECTION_REQUIRED,),
             )
         if len(selections) > 1:
             return ActionDomainSelection(
                 selected_domains=(),
-                feedback=("Phase1 must call select_action_domains only once.",),
+                feedback=(prompt_text.DUPLICATE_DOMAIN_SELECTION,),
             )
         value = selections[0].arguments.get("domains")
         if not isinstance(value, list) or not value:
             return ActionDomainSelection(
                 selected_domains=(),
-                feedback=(
-                    "select_action_domains.domains must be a non-empty string list.",
-                ),
+                feedback=(prompt_text.DOMAIN_LIST_REQUIRED,),
             )
         selected_domains: list[str] = []
         feedback: list[str] = []
         seen: set[str] = set()
         for item in value:
             if not isinstance(item, str) or not item:
-                feedback.append(
-                    "select_action_domains.domains must contain non-empty strings."
-                )
+                feedback.append(prompt_text.DOMAIN_NAMES_REQUIRED)
                 continue
             if item in seen:
                 continue
@@ -117,9 +114,7 @@ class Phase1DomainScopeBuilder:
                 continue
             selected_domains.append(item)
         if not selected_domains and not feedback:
-            feedback.append(
-                "select_action_domains.domains contained no usable domains."
-            )
+            feedback.append(prompt_text.NO_USABLE_DOMAINS)
         return ActionDomainSelection(
             selected_domains=tuple(selected_domains),
             feedback=tuple(feedback),
@@ -130,13 +125,17 @@ class ActionDomainPromptRenderer:
     """Render Phase1-visible domain descriptions for task prompt overlays."""
 
     def render(self, catalog: ActionCatalog) -> str:
-        lines = ["Available action domains:"]
+        lines = [prompt_text.AVAILABLE_DOMAINS_HEADING]
         for domain in catalog.domains():
             if not catalog.actions_in_domain(domain.name):
                 continue
             lines.append(f"- {domain.name}: {domain.description}")
             if domain.selection_hint:
-                lines.append(f"  Selection hint: {domain.selection_hint}")
+                lines.append(
+                    prompt_text.domain_selection_hint(
+                        selection_hint=domain.selection_hint
+                    )
+                )
         return "\n".join(lines)
 
 
@@ -170,7 +169,7 @@ class Phase2ActionScopeBuilder:
                             reason="scope_preparation_failed",
                             scope="action.scope",
                             disposition=ActionFailureDisposition.STOP,
-                            feedback="Action scope preparation failed.",
+                            feedback=prompt_text.ACTION_SCOPE_PREPARATION_FAILED,
                         ),
                         frame_data={
                             "error_type": type(exc).__name__,
@@ -213,14 +212,20 @@ class Phase2ActionScopeBuilder:
     def _description(self, action: ActionSpec) -> str:
         lines = [action.tool.description]
         if action.semantic.use_when:
-            lines.append("Use when: " + "; ".join(action.semantic.use_when))
+            lines.append(
+                prompt_text.USE_WHEN_HEADING + "; ".join(action.semantic.use_when)
+            )
         if action.semantic.avoid_when:
-            lines.append("Avoid when: " + "; ".join(action.semantic.avoid_when))
+            lines.append(
+                prompt_text.AVOID_WHEN_HEADING + "; ".join(action.semantic.avoid_when)
+            )
         if action.semantic.effects:
             effects = ", ".join(effect.value for effect in action.semantic.effects)
-            lines.append("Effects: " + effects)
+            lines.append(prompt_text.EFFECTS_HEADING + effects)
         if action.semantic.examples:
-            lines.append("Examples: " + "; ".join(action.semantic.examples))
+            lines.append(
+                prompt_text.EXAMPLES_HEADING + "; ".join(action.semantic.examples)
+            )
         return "\n".join(lines)
 
 
@@ -234,7 +239,7 @@ class ActionScopePreparation:
 
 def _domain_selection_feedback(catalog: ActionCatalog, domain: str) -> str | None:
     if not catalog.has_domain(domain):
-        return f"Unknown action domain: {domain}"
+        return prompt_text.unknown_domain(domain=domain)
     if not catalog.actions_in_domain(domain):
-        return f"Action domain has no available actions: {domain}"
+        return prompt_text.empty_domain(domain=domain)
     return None

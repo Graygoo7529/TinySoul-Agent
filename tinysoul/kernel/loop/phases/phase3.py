@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-
+from tinysoul.prompts.kernel import loop as prompt_text
 from tinysoul.kernel.action import (
     ActionEngine,
     ActionError,
@@ -102,9 +102,7 @@ class Phase3Unit:
                 failure=PhaseFailure(
                     phase=CyclePhase.PHASE3,
                     reason="conflicting_turn_intents",
-                    feedback=(
-                        "Choose one answer, question or wait intent per Cycle; no actions were executed.",
-                    ),
+                    feedback=(prompt_text.CONFLICTING_CONTROL_INTENTS,),
                 )
             )
         try:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 from collections.abc import Callable
 from datetime import date as CalendarDate
 from pathlib import Path
@@ -1082,3 +1083,47 @@ def test_workspace_backlinks_read_markdown_edges_without_similarity(
         )
         assert [item.ref for item in corpus.candidates] == ["workspace:sub/source.md"]
         assert corpus.candidates[0].attributes["day"] == str(DAY)
+
+
+def test_analysis_prompt_keeps_dynamic_limits_and_reference_bodies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tinysoul.plugins.workspace.inspection.models import (
+        WorkspaceAnalysisInput,
+        WorkspaceAnalysisReference,
+    )
+    from tinysoul.plugins.workspace.prompts import WorkspaceAnalysisPromptBuilder
+    from tinysoul.prompts.plugins import workspace as prompt_text
+
+    guide = "analysis guide {literal}"
+    body = 'source body: {"answer": "data"}\n{unexpanded}'
+    source_id = "source_17"
+    monkeypatch.setattr(prompt_text, "ANALYSIS_GUIDE", guide)
+    prompt = WorkspaceAnalysisPromptBuilder().build(
+        intent="inspect {literal}",
+        analysis_input=WorkspaceAnalysisInput(
+            references=(
+                WorkspaceAnalysisReference(
+                    source_id, "workspace:a.md", body, len(body), 2
+                ),
+            ),
+            total_chars=len(body),
+        ),
+        max_answer_chars=731,
+    )
+    assert prompt.guide_blocks[0].message.parts == (TextPart(guide),)
+    reference_text = "".join(
+        part.text
+        for part in prompt.input_blocks[1].message.parts
+        if isinstance(part, TextPart)
+    )
+    assert body in reference_text
+    assert source_id in reference_text
+    output = "".join(
+        part.text
+        for part in prompt.output_blocks[0].message.parts
+        if isinstance(part, TextPart)
+    )
+    assert "731" in output
+    assert source_id in output
+    assert all(isinstance(message, UserMessage) for message in prompt.render_messages())
