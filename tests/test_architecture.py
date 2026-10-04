@@ -154,15 +154,6 @@ def test_model_text_imports_preserve_business_ownership() -> None:
     assert not violations, "\n".join(violations)
 
 
-def test_web_actions_do_not_expose_exception_messages() -> None:
-    """Action feedback must be selected explicitly at the owner boundary."""
-
-    source = (
-        PROJECT_ROOT / "tinysoul" / "plugins" / "capabilities" / "web" / "actions.py"
-    ).read_text(encoding="utf-8")
-    assert "str(exc)" not in source
-
-
 def test_package_imports_in_fresh_process() -> None:
     script = """
 import importlib

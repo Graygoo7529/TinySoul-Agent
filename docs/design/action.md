@@ -169,7 +169,7 @@ Phase2 的模型侧 action tool call 即使无法归一化，也必须产出局�
 
 上述局部收敛规则不包含 Runtime 控制异常。并行 worker 一旦产生 Runtime transfer，批次不再为未完成 sibling 伪造局部 ActionResult，而是先执行取消清理，再把同一个控制异常交回 Runtime 边界。
 
-超时结果有两类来源：runner 发现 deadline 已过并给出 timeout；后端执行器在自身边界内发现 timeout 并给出 timeout。超时后的成功结果必须改判为 timeout，避免越过 deadline 的副作用被当作正常完成；超时后的失败结果可以保留 failed，因为失败信息通常比 timeout 标签更有利于下一 cycle 修正。
+超时结果有两类来源：runner 发现 deadline 已过并给出 timeout；后端执行器在自身边界内发现 timeout 并给出 timeout。协作执行先于 runner 定时器发现到期时，runner 同样收敛为 timeout，当前 Catalog 生效时限可通过 failure.constraint 反馈；已有的 Turn 取消或 Runtime transfer 原因不被超时覆盖。短 owner 操作已提交并返回的真实结果先交付 Trace，迟到的成功不改写为 timeout；尚未产生局部结果的取消保留类型化执行事实。
 
 无法绑定到具体 action tool call 的阶段性框架问题不伪造成 ActionResult，而是产出 phase-level result，供 Context 记录为 cycle phase 执行反馈。
 

@@ -13,10 +13,11 @@ import pytest
 from tests.action_helpers import FunctionActionExecutor
 from tinysoul.kernel.action.planning.normalization import ActionCallNormalizer
 from tinysoul.kernel.action.execution.preparation import ActionExecutionBuilder
-from tinysoul.kernel.action.call import ExecutionFact, ExecutionState
+from tinysoul.kernel.action.call import ActionExecution, ExecutionFact, ExecutionState
 from tinysoul.kernel.action.catalog.catalog import ActionCatalog
 from tinysoul.kernel.action.errors import ActionContractError, ActionInvariantError
 from tinysoul.kernel.action.execution.executor import (
+    ActionExecutionCancelled,
     ActionExecutionContext,
     ExecutorRegistry,
 )
@@ -744,6 +745,42 @@ def test_normalizer_propagates_runtime_exception_from_hook() -> None:
             ),
             catalog=catalog,
         )
+
+
+@pytest.mark.parametrize("cancel_reason", ["", "runtime_transfer"])
+async def test_runner_classifies_cooperative_expiry_without_overriding_cancellation(
+    cancel_reason: str,
+) -> None:
+    _, batch = _single_test_batch(_test_action("test.expired", timeout_seconds=17))
+    facts: list[ExecutionFact] = []
+
+    class ExpiredExecutor:
+        async def execute(
+            self, execution: ActionExecution, context: ActionExecutionContext
+        ) -> ActionResult:
+            # Expire cooperatively before the runner's timer callback; no sleep race.
+            context.control.deadline = monotonic() - 1
+            if cancel_reason:
+                context.control.request_cancel(cancel_reason)
+            context.control.check_cancelled()
+            raise AssertionError("Expired execution must stop")
+
+    executors = ExecutorRegistry()
+    executors.register("test.expired", ExpiredExecutor())
+    runner = ActionBatchRunner(executors=executors)
+    context = ActionExecutionContext(record_execution=facts.append)
+    if cancel_reason:
+        with pytest.raises(ActionExecutionCancelled, match=cancel_reason):
+            await runner.run(batch, context)
+        assert facts[-1].state is ExecutionState.CANCELLED
+        assert facts[-1].result is None
+    else:
+        results = await runner.run(batch, context)
+        assert results[0].status is ActionResultStatus.TIMEOUT
+        assert results[0].failure is not None
+        assert results[0].failure.reason == "execution_timeout"
+        assert results[0].failure.constraint == {"timeout_seconds": 17}
+        assert facts[-1].state is ExecutionState.SETTLED
 
 
 async def test_runner_retains_committed_owner_result_after_deadline() -> None:

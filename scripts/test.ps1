@@ -4,6 +4,7 @@ param(
     [Alias("Path")]
     [string[]]$TestPath = @("tests"),
     [string]$Filter = "",
+    [string]$ArtifactRoot = "",
     [ValidateRange(0, 100)]
     [int]$Durations = 10
 )
@@ -26,9 +27,14 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
-$localTestRoot = [System.IO.Path]::GetFullPath(
-    (Join-Path $repositoryRoot ".local-test")
-)
+$artifactBase = if ([string]::IsNullOrWhiteSpace($ArtifactRoot)) {
+    Join-Path $repositoryRoot ".local-test"
+} elseif ([System.IO.Path]::IsPathRooted($ArtifactRoot)) {
+    $ArtifactRoot
+} else {
+    Join-Path $repositoryRoot $ArtifactRoot
+}
+$localTestRoot = [System.IO.Path]::GetFullPath($artifactBase)
 $runRoot = [System.IO.Path]::GetFullPath(
     (Join-Path $localTestRoot ("runs\" + [guid]::NewGuid().ToString("N")))
 )
@@ -37,7 +43,7 @@ $expectedPrefix = $localTestRoot.TrimEnd(
     [System.IO.Path]::AltDirectorySeparatorChar
 ) + [System.IO.Path]::DirectorySeparatorChar
 if (-not $runRoot.StartsWith($expectedPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
-    throw "Test run root must stay under .local-test"
+    throw "Test run root must stay under the artifact root"
 }
 
 $pytestRoot = Join-Path $runRoot "pytest"

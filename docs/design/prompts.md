@@ -14,7 +14,7 @@
 
 retrieval/JEV 的选择指令和问题、Web worker 的供应商 system 提示、ACP 引用包装、LLM 的工具结果包装也在内容包中管理，但它们保留各自请求出口，不统一套入 TaskPrompt。
 
-局部失败文本通过既有 TaskFailure、PhaseFailure、ActionLocalFailure 或 owner 的结构化结果进入模型。校验、失败分类、异常捕获、取消与 Runtime bridge 留在原 owner。异常对象的内部 message 不自动成为模型文案；Action 边界明确选择或格式化的配置限制、输入约束、结果说明和执行语义反馈才进入内容包。动态诊断保留在结构化摘要中，不把原始异常或 traceback 传给模型。内容包不接收异常对象，不新增失败枚举、全局恢复策略或空内容降级。仅供存储、SDK、日志和 Runtime 诊断使用的文字不属于提示文案。
+局部失败文本通过既有 TaskFailure、PhaseFailure、ActionLocalFailure 或 owner 的结构化结果进入模型。校验、失败分类、异常捕获、取消与 Runtime bridge 留在原 owner。Action owner 应区分已整理的稳定反馈、动态约束/结果和内部诊断；不以 `str(exc)` 的语法形式判断可见性。动态诊断保留在结构化摘要中，不把原始异常、traceback 或供应商原始正文传给模型。内容包不接收异常对象，不新增失败枚举、全局恢复策略或空内容降级。仅供存储、SDK、日志和 Runtime 诊断使用的文字不属于提示文案。
 
 ## 独立内容来源
 
@@ -24,6 +24,6 @@ Home 继续拥有身份、偏好和 Skill；运行期间接受的用户输入、
 
 ## 维护与验证
 
-[内容导航](../../tinysoul/prompts/README.md) 按 owner 标明实际可见位置，定义旁的注释定位消费函数。修改固定文字时沿显式引用检查消费者；涉及输出约束时同时核对 schema、解释器和真实参数来源，不另存重复协议。
+[内容导航](../../tinysoul/prompts/README.md) 按 owner 标明实际可见位置，定义旁的注释定位消费函数。修改固定文字时沿显式引用检查消费者；涉及输出约束、输入限制或结果反馈时，同时核对 schema、解释器、实际配置值和 payload/feedback/constraint 的真实传递，不另存重复协议。提取工作不得把动态配置或执行结果压缩成通用句子。
 
 依赖测试保护内容包与业务 owner 的边界；组合测试保护角色、块顺序、Skill 来源及动态内容传递。自然语言措辞不做重复快照。Python 模块随既有包发现机制发布，安装验收与完整本地门禁验证真实消费路径。

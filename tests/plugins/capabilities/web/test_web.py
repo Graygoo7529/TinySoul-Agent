@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 import shutil
 from time import monotonic
 from typing import cast
 
 import pytest
+import httpx
 
 from tinysoul.kernel.action import (
     ActionCall,
@@ -27,7 +29,8 @@ from tinysoul.kernel.action.backends import (
 )
 from tinysoul.kernel.action.catalog.loader import ActionCatalogLoader
 from tinysoul.plugins.capabilities import parse_capabilities_settings
-from tinysoul.prompts.plugins.capabilities import web as prompt_text
+from tinysoul.kernel.action.planning.rendering import ActionResultRenderer
+from tinysoul.kernel.action.execution.executor import ActionExecutionCancelled
 from tinysoul.plugins.capabilities.web.actions import (
     WEB_FETCH_TRAFILATURA_ACTION,
     WEB_SEARCH_KIMI_ACTION,
@@ -43,14 +46,15 @@ from tinysoul.plugins.capabilities.web.config import (
 from tinysoul.plugins.capabilities.web.dependencies import kimi_search_api_key
 from tinysoul.plugins.capabilities.web.errors import (
     WebProcessingError,
-    WebProcessTimeout,
     web_failure_disposition,
 )
 from tinysoul.plugins.capabilities.web.models import WebExtractor
 from tinysoul.plugins.capabilities.web.backends.network import (
     FetchedPage,
+    fetch_public_page,
     validate_public_https_url,
 )
+from tinysoul.plugins.capabilities.web.backends import network
 from tinysoul.plugins.capabilities.web.service import (
     WebCapabilityService,
     _worker_failure_facts,
@@ -61,6 +65,7 @@ from tinysoul.plugins.capabilities.web.backends.worker import (
     _normalize_search_result,
     _parse_kimi_tool_round,
     _read_bounded_json_file,
+    _failure,
 )
 from tinysoul.infra.config import ConfigError
 from tinysoul.infra import (
@@ -449,6 +454,102 @@ async def test_kimi_search_returns_answer_and_results_without_mode(
     assert result.payload["truncated"] is False
     assert "mode" not in result.payload
     assert workspace.snapshot().resources == ()
+    assert (
+        ActionResultRenderer().render_model_payload(result)["payload"] == result.payload
+    )
+
+
+@pytest.mark.parametrize("limit", [101, 203])
+async def test_query_failure_preserves_current_limit_and_actual_length(
+    local_tmp: Path,
+    limit: int,
+) -> None:
+    service = WebCapabilityService(
+        workspace=WorkspaceService(_workspace(local_tmp)),
+        settings=WebSettings(search_by_kimi=KimiSearchSettings(max_query_chars=limit)),
+        runtime_env={},
+        staging=_staging(local_tmp),
+    )
+    execution = _search_execution()
+    execution = replace(
+        execution,
+        call=replace(execution.call, params={"query": "x" * (limit + 9)}),
+    )
+    result = await KimiSearchExecutor(service=service).execute(
+        execution,
+        ActionExecutionContext(),
+    )
+    assert result.failure is not None
+    assert result.failure.reason == "query_chars_limit_exceeded"
+    assert str(limit) in result.failure.feedback
+    assert str(limit + 9) in result.failure.feedback
+    assert (
+        ActionResultRenderer().render_model_payload(result)["failure"]
+        == result.failure.to_json()
+    )
+
+
+@pytest.mark.parametrize("status_code", [429, None])
+async def test_network_feedback_preserves_status_without_raw_error(
+    local_tmp: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int | None,
+) -> None:
+    raw_detail = "private credential and local path must not reach the model"
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if status_code is None:
+            raise httpx.ConnectError(raw_detail, request=request)
+        return httpx.Response(status_code, text=raw_detail)
+
+    client = httpx.Client
+    monkeypatch.setattr(network, "validate_public_https_url", lambda value: value)
+    monkeypatch.setattr(
+        network.httpx,
+        "Client",
+        lambda **kwargs: client(transport=httpx.MockTransport(respond), **kwargs),
+    )
+
+    class NetworkRunner(ControlledProcessRunner):
+        def run(
+            self, request: ProcessRequest, control: ActionExecutionControl
+        ) -> ProcessOutcome:
+            with pytest.raises(WebProcessingError) as failure:
+                fetch_public_page(
+                    "https://example.com/page",
+                    max_bytes=4096,
+                    timeout_seconds=7,
+                    max_redirects=2,
+                    user_agent="test",
+                )
+            exc = failure.value
+            return ProcessOutcome(
+                status=ProcessStatus.COMPLETED,
+                exit_code=1,
+                stdout=dumps_json(_failure(exc.reason, str(exc), payload=exc.payload)),
+            )
+
+    service = WebCapabilityService(
+        workspace=WorkspaceService(_workspace(local_tmp)),
+        settings=WebSettings(),
+        runtime_env={},
+        staging=_staging(local_tmp),
+        process_runner=NetworkRunner(),
+    )
+    result = await WebFetchExecutor(
+        service=service,
+        extractor=WebExtractor.TRAFILATURA,
+    ).execute(_fetch_execution(), ActionExecutionContext())
+    assert result.failure is not None
+    assert result.failure.disposition is ActionFailureDisposition.RETRY_SAME
+    if status_code is not None:
+        assert result.failure.reason == "http_status_error"
+        assert str(status_code) in result.failure.feedback
+    else:
+        assert result.failure.reason == "network_request_failed"
+    visible = ActionResultRenderer().render_model_payload(result)
+    assert visible["failure"] == result.failure.to_json()
+    assert raw_detail not in dumps_json(visible)
 
 
 async def test_kimi_worker_failure_preserves_only_safe_shape_facts(
@@ -495,6 +596,11 @@ async def test_kimi_worker_failure_preserves_only_safe_shape_facts(
     assert action_result.failure is not None
     assert action_result.failure.reason == "provider_protocol_invalid"
     assert action_result.failure.disposition is ActionFailureDisposition.USE_FALLBACK
+    # Preserve the worker's owner-written detail, not just its shared reason.
+    assert action_result.failure.feedback == error.value.feedback
+    visible = ActionResultRenderer().render_model_payload(action_result)
+    assert visible["failure"] == action_result.failure.to_json()
+    assert "must not cross the worker boundary" not in dumps_json(visible)
     assert action_result.frame_data == {
         "call_type": "builtin_function",
         "function_name": "$web_search",
@@ -505,8 +611,10 @@ async def test_kimi_worker_failure_preserves_only_safe_shape_facts(
     }
 
 
+@pytest.mark.parametrize("timeout_seconds", [17.0, 43.0])
 async def test_kimi_timeout_returns_model_visible_fallback_disposition(
     local_tmp: Path,
+    timeout_seconds: float,
 ) -> None:
     service = WebCapabilityService(
         workspace=WorkspaceService(_workspace(local_tmp)),
@@ -517,8 +625,13 @@ async def test_kimi_timeout_returns_model_visible_fallback_disposition(
         process_runner=_SearchTimeoutRunner(),
     )
 
+    execution = _search_execution()
+    execution = replace(
+        execution,
+        framework=replace(execution.framework, timeout_seconds=timeout_seconds),
+    )
     result = await KimiSearchExecutor(service=service).execute(
-        _search_execution(),
+        execution,
         ActionExecutionContext(
             control=ActionExecutionControl(deadline=monotonic() + 30),
         ),
@@ -529,7 +642,11 @@ async def test_kimi_timeout_returns_model_visible_fallback_disposition(
     assert result.failure is not None
     assert result.failure.reason == "process_timeout"
     assert result.failure.disposition is ActionFailureDisposition.USE_FALLBACK
-    assert result.failure.feedback == prompt_text.WEB_ACTION_TIMED_OUT
+    assert "timed out" in result.failure.feedback
+    assert result.failure.constraint == {"timeout_seconds": timeout_seconds}
+    assert ActionResultRenderer().render_model_payload(result)["failure"] == (
+        result.failure.to_json()
+    )
     assert result.frame_data == {"executor_leaked": False}
 
 
@@ -675,7 +792,10 @@ async def test_fetch_action_result_omits_source_url_and_emits_workspace_signal(
     assert result.payload["markdown_link"] == "workspace:web/pages/article.md"
     assert result.payload["excerpt"] == "Readable page excerpt"
     assert "url" not in result.payload
-    assert workspace.inspect("workspace:web/pages/article.md").link == result.payload["markdown_link"]
+    assert (
+        workspace.inspect("workspace:web/pages/article.md").link
+        == result.payload["markdown_link"]
+    )
 
 
 async def test_fetch_cancellation_after_worker_prevents_workspace_commit(
@@ -690,16 +810,17 @@ async def test_fetch_cancellation_after_worker_prevents_workspace_commit(
         process_runner=_FetchCancellingRunner(),
     )
 
-    with pytest.raises(WebProcessTimeout) as error:
-        await service.fetch(
+    with pytest.raises(ActionExecutionCancelled, match="runtime_transfer"):
+        await WebFetchExecutor(
+            service=service,
             extractor=WebExtractor.TRAFILATURA,
-            url="https://example.com/article",
-            target_link="workspace:web/pages/article.md",
-            overwrite=False,
-            control=ActionExecutionControl(deadline=monotonic() + 30),
+        ).execute(
+            _fetch_execution(),
+            ActionExecutionContext(
+                control=ActionExecutionControl(deadline=monotonic() + 30),
+            ),
         )
 
-    assert error.value.reason == "runtime_transfer"
     assert workspace.snapshot().resources == ()
 
 

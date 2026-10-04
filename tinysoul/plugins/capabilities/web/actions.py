@@ -49,33 +49,6 @@ WEB_DISCOVER_PAGES_ACTION = "web.discover_pages"
 WEB_FETCH_DEFUDDLE_ACTION = "web.fetch_with_defuddle"
 WEB_FETCH_TRAFILATURA_ACTION = "web.fetch_with_trafilatura"
 
-_CONSTRAINT_FEEDBACK_BY_REASON = {
-    "invalid_url": prompt_text.WEB_REQUEST_REQUIRES_PUBLIC_HTTPS_URL,
-    "unsupported_url_scheme": prompt_text.WEB_REQUEST_REQUIRES_PUBLIC_HTTPS_URL,
-    "private_network_target": prompt_text.WEB_REQUEST_REQUIRES_PUBLIC_HTTPS_URL,
-    "url_chars_limit_exceeded": prompt_text.WEB_REQUEST_EXCEEDS_A_CONFIGURED_LIMIT,
-    "query_chars_limit_exceeded": prompt_text.WEB_REQUEST_EXCEEDS_A_CONFIGURED_LIMIT,
-    "result_chars_limit_exceeded": prompt_text.WEB_REQUEST_EXCEEDS_A_CONFIGURED_LIMIT,
-    "search_token_limit_exceeded": prompt_text.WEB_REQUEST_EXCEEDS_A_CONFIGURED_LIMIT,
-    "source_bytes_limit_exceeded": prompt_text.WEB_REQUEST_EXCEEDS_A_CONFIGURED_LIMIT,
-    "output_chars_limit_exceeded": prompt_text.WEB_REQUEST_EXCEEDS_A_CONFIGURED_LIMIT,
-    "staged_result_bytes_limit_exceeded": prompt_text.WEB_REQUEST_EXCEEDS_A_CONFIGURED_LIMIT,
-    "unsupported_content_type": prompt_text.WEB_PAGE_CONTENT_TYPE_IS_NOT_SUPPORTED,
-    "invalid_redirect": prompt_text.WEB_REQUEST_CANNOT_FOLLOW_REDIRECT,
-    "redirect_limit_exceeded": prompt_text.WEB_REQUEST_CANNOT_FOLLOW_REDIRECT,
-    "discovery_scope_violation": prompt_text.WEB_DISCOVERY_REQUEST_IS_OUT_OF_SCOPE,
-    "invalid_visit_depth": prompt_text.WEB_DISCOVERY_REQUEST_IS_OUT_OF_SCOPE,
-    "visit_depth_limit_exceeded": prompt_text.WEB_DISCOVERY_REQUEST_IS_OUT_OF_SCOPE,
-    "invalid_path_globs": prompt_text.WEB_DISCOVERY_REQUEST_IS_OUT_OF_SCOPE,
-    "seed_disallowed_by_robots": prompt_text.WEB_DISCOVERY_SEED_IS_DISALLOWED,
-}
-_PROVIDER_FAILURE_REASONS = frozenset(
-    {
-        "provider_output_incomplete",
-        "provider_protocol_invalid",
-    }
-)
-
 
 @dataclass(frozen=True)
 class _FetchParams:
@@ -123,11 +96,11 @@ class KimiSearchExecutor(ActionExecutor):
                 operations=context.owner_operations,
             )
         except WebProcessTimeout as exc:
-            return _timeout(execution, _timeout_feedback(exc.reason), reason=exc.reason)
+            return _timeout(execution, exc.feedback, reason=exc.reason)
         except WebProcessingError as exc:
             return _failed(
                 execution,
-                _processing_feedback(exc.reason),
+                exc.feedback,
                 reason=exc.reason,
                 frame_data=exc.payload,
             )
@@ -187,11 +160,11 @@ class WebFetchExecutor(ActionExecutor):
                 operations=context.owner_operations,
             )
         except WebProcessTimeout as exc:
-            return _timeout(execution, _timeout_feedback(exc.reason), reason=exc.reason)
+            return _timeout(execution, exc.feedback, reason=exc.reason)
         except WebProcessingError as exc:
             return _failed(
                 execution,
-                _processing_feedback(exc.reason),
+                exc.feedback,
                 reason=exc.reason,
                 frame_data=exc.payload,
             )
@@ -249,11 +222,11 @@ class WebDiscoveryExecutor(ActionExecutor):
                 operations=context.owner_operations,
             )
         except WebProcessTimeout as exc:
-            return _timeout(execution, _timeout_feedback(exc.reason), reason=exc.reason)
+            return _timeout(execution, exc.feedback, reason=exc.reason)
         except WebProcessingError as exc:
             return _failed(
                 execution,
-                _processing_feedback(exc.reason),
+                exc.feedback,
                 reason=exc.reason,
                 frame_data=exc.payload,
             )
@@ -456,21 +429,6 @@ def _success(execution: ActionExecution, payload: JsonObject) -> ActionResult:
     )
 
 
-def _processing_feedback(reason: str) -> str:
-    if reason in _PROVIDER_FAILURE_REASONS:
-        return prompt_text.WEB_PROVIDER_RETURNED_AN_INVALID_RESULT
-    return _CONSTRAINT_FEEDBACK_BY_REASON.get(
-        reason,
-        prompt_text.WEB_ACTION_COULD_NOT_BE_COMPLETED,
-    )
-
-
-def _timeout_feedback(reason: str) -> str:
-    if reason in {"process_timeout", "deadline_expired"}:
-        return prompt_text.WEB_ACTION_TIMED_OUT
-    return prompt_text.WEB_ACTION_WAS_CANCELLED
-
-
 def _failed(
     execution: ActionExecution,
     model_feedback: str,
@@ -504,6 +462,9 @@ def _timeout(
     reason: str,
 ) -> ActionResult:
     frame_data: JsonObject = {"executor_leaked": False}
+    constraint: JsonObject = {}
+    if execution.framework.timeout_seconds is not None:
+        constraint["timeout_seconds"] = execution.framework.timeout_seconds
     return ActionResult.timeout(
         call_id=execution.call.call_id,
         invoke_id=execution.framework.invoke_id,
@@ -516,6 +477,7 @@ def _timeout(
             scope="web.execution",
             disposition=web_failure_disposition(reason, frame_data),
             feedback=model_feedback,
+            constraint=constraint,
         ),
         frame_data=frame_data,
     )

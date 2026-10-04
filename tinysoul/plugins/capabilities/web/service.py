@@ -9,6 +9,7 @@ import shutil
 import sys
 
 from tinysoul.kernel.action import ActionExecutionControl
+from tinysoul.kernel.action.execution.executor import ActionExecutionCancelled
 from tinysoul.kernel.action.backends import (
     ControlledProcessRunner,
     ProcessRequest,
@@ -27,6 +28,8 @@ from tinysoul.plugins.workspace import (
 
 from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.infra.concurrency import JoinedOperations
+from tinysoul.prompts.plugins.capabilities import web as prompt_text
+
 from .config import WebSettings
 from .errors import (
     WebContractError,
@@ -128,7 +131,9 @@ class WebCapabilityService:
             raise WebContractError("Kimi search query must be non-empty")
         if len(query) > search.max_query_chars:
             raise WebProcessingError(
-                "Kimi search query exceeds the configured limit",
+                prompt_text.query_too_long(
+                    actual=len(query), limit=search.max_query_chars
+                ),
                 reason="query_chars_limit_exceeded",
             )
         if not isinstance(invoke_id, str) or not invoke_id:
@@ -137,7 +142,7 @@ class WebCapabilityService:
             raise WebContractError("Kimi search call id must be non-empty")
         if not self._kimi_api_key:
             raise WebProcessingError(
-                "Kimi Search credential is unavailable",
+                prompt_text.KIMI_SEARCH_CREDENTIAL_IS_UNAVAILABLE,
                 reason="credential_unavailable",
             )
         _require_active(control)
@@ -319,7 +324,7 @@ class WebCapabilityService:
             raise WebContractError("Web discovery seed URL must be non-empty")
         if len(start_url) > 4_000:
             raise WebProcessingError(
-                "Web discovery seed URL exceeds the configured protocol limit",
+                prompt_text.seed_url_too_long(limit=4_000),
                 reason="url_chars_limit_exceeded",
             )
         if (
@@ -329,7 +334,7 @@ class WebCapabilityService:
             or max_visit_depth > discovery.max_visit_depth
         ):
             raise WebProcessingError(
-                "Web discovery visit depth exceeds the configured limit",
+                prompt_text.visit_depth_out_of_range(limit=discovery.max_visit_depth),
                 reason="visit_depth_limit_exceeded",
             )
         _validate_discovery_globs(include_globs)
@@ -435,15 +440,15 @@ class WebCapabilityService:
             control,
         )
         if outcome.status is ProcessStatus.TIMED_OUT:
-            raise WebProcessTimeout("Web worker timed out", reason="process_timeout")
-        if outcome.status is ProcessStatus.CANCELLED:
             raise WebProcessTimeout(
-                "Web worker was cancelled",
-                reason=control.cancel_reason or "cancelled",
+                prompt_text.WEB_WORKER_TIMED_OUT, reason="process_timeout"
             )
+        if outcome.status is ProcessStatus.CANCELLED:
+            control.check_cancelled()
+            raise ActionExecutionCancelled("cancelled")
         if outcome.status is ProcessStatus.START_FAILED:
             raise WebProcessingError(
-                "Web worker failed to start",
+                prompt_text.WEB_WORKER_FAILED_TO_START,
                 reason="process_start_failed",
                 payload={"error_type": outcome.error_type},
             )
@@ -453,7 +458,7 @@ class WebCapabilityService:
             reason = _optional_string(response, "reason") or "worker_failed"
             raise WebProcessingError(
                 _optional_string(response, "message")
-                or "Web worker could not complete the request",
+                or prompt_text.WEB_WORKER_COULD_NOT_COMPLETE_THE_REQUEST,
                 reason=reason,
                 payload=_worker_failure_facts(response),
             )

@@ -35,7 +35,7 @@ Kimi Search 的 capability-owned 执行契约固定为非思考搜索，默认�
 
 动态协议失败可以从 worker 返回有界 shape facts，例如 call type、function/name/arguments 是否存在、是否携带 reasoning content；宿主只允许这些字段和稳定 error type 穿过 subprocess 边界。原始 provider response、arguments、reasoning 正文、密钥与 traceback 始终不得进入 ActionResult 或 Trace。模型可见的失败处置语义仍由 Web Action 单独定义，不由 worker 或通用 Action 核心推断。
 
-Web Action 把稳定 failure reason 映射为 capability-owned 模型恢复方向，并在失败或 timeout 的模型可见 payload 中固定返回 `{failure: {reason, disposition}}`。`disposition` 使用 Web 自有 `StrEnum`，只包含 `retry_same`、`change_request`、`use_fallback` 和 `stop`。HTTP 状态和 provider error type 等有界 facts 只用于本地分类与 trace 诊断，不复制进模型 payload。只有明确的暂时网络/DNS、HTTP 408/425/429/5xx 和已知瞬时 provider error 才是 `retry_same`；参数、URL、安全范围和资源上限问题是 `change_request`；provider/extractor 协议和可替代处理失败是 `use_fallback`；凭据、依赖、worker/Workspace 环境失败及未知原因保守为 `stop`。
+Web Action 把稳定 failure reason 映射为 capability-owned 模型恢复方向，通过通用 `ActionLocalFailure` 返回 reason、scope、disposition、具体 feedback 和必要 constraint。`disposition` 使用 Action 定义的 `ActionFailureDisposition`，Web 选择其中的 `retry_same`、`change_request`、`use_fallback` 和 `stop`。HTTP 状态等有界事实可由 Web owner 整理进具体反馈，帮助模型理解失败；provider error type、shape facts 和其它内部诊断仍只进入本地分类或 trace，不复制到模型 payload。Action timeout 反馈沿用当前 Action Catalog 生效的执行期限，不能在 prompts 中复制默认值。只有明确的暂时网络/DNS、HTTP 408/425/429/5xx 和已知瞬时 provider error 才是 `retry_same`；参数、URL、安全范围和资源上限问题是 `change_request`；provider/extractor 协议和可替代处理失败是 `use_fallback`；凭据、依赖、worker/Workspace 环境失败及未知原因保守为 `stop`。
 
 该协议不实现自动重试、不保存 provider health、不改变 ActionResult 通用类型，也不强制 Loop 转移。Web domain skill 负责解释模型应如何消费 disposition：原样重试仅允许一次有界瞬时恢复；`change_request` 必须实质修改调用；`use_fallback` 不得重复同一调用；`stop` 在当前 Turn 停止使用受影响能力。已有证据足够时应继续用户目标，而不是为了尝试其它 Web action 继续扩展检索。
 
@@ -72,7 +72,7 @@ Defuddle 是可选 executable，默认关闭；启用时 `DependencyChecker` 必
 
 Search answer/results、网页正文、title、snippet 和远程链接都属于不可信外部数据。Web capability 不执行网页脚本、不遵循正文指令、不登录、不提交表单，也不把抓取内容升级为 system/guide prompt。模型只能在普通 interaction result 或 Workspace reference 中读取这些内容。
 
-worker 超时或 Runtime transfer 通过 `ControlledProcessRunner` 终止进程树；commit point 前再次检查 cancellation/deadline。worker 非零退出、无效 JSON、staged path 越界或字段不满足协议收敛为稳定局部失败，并且不得提交 Workspace 或发布 snapshot signal。Action 边界按 failure reason 选择简短的模型反馈；搜索/抓取的原始异常 message、绝对路径、密钥、worker stderr 和供应商原始响应不进入模型反馈。Action 的执行 deadline 仍由 Action Catalog/runtime 负责，文案不复制具体时长。
+worker 超时或 Runtime transfer 通过 `ControlledProcessRunner` 终止进程树；commit point 前再次检查 cancellation/deadline。worker 非零退出、无效 JSON、staged path 越界或字段不满足协议收敛为稳定局部失败，并且不得提交 Workspace 或发布 snapshot signal。Action 边界保留 Web owner 已整理的具体反馈，同时按现有 failure reason 计算 disposition；搜索/抓取的原始异常、绝对路径、密钥、worker stderr 和供应商原始响应不进入模型反馈。配置限制、HTTP 状态、结果大小等对模型修正有用的事实可由 owner 以有界动态值进入 feedback、constraint 或 payload。Action 的执行 deadline 仍由 Action Catalog/runtime 负责，文案不复制默认时长；如果需要说明实际生效时长，由 Action owner 传入当前值。
 
 ## 后续边界
 

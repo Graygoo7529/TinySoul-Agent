@@ -33,7 +33,7 @@ TaskPrompt 的 guide/input/output 使用既有 user role；角色和实际消息
 - 固定段落使用常量或 tuple；插入动态值时使用参数具体的函数。日期、资源正文、限制、候选和引用由 owner 准备，函数只格式化，不读取业务状态或解释异常。
 - 消费端显式导入自己的 owner 文案模块。新增或移动用途时同步定义旁的消费注释；相似措辞不代表相同职责，不跨 owner 合并成通用错误字典。
 - schema 字段、工具名、稳定 ref/Link、label、失败 reason、状态、输出解析和序列化仍在原 owner。修改涉及这些协议的文案时，应同时核对真实 schema 和解释器。
-- 异常对象的内部 message 不自动进入内容包；Action 边界明确选择的配置限制、输入约束、结果说明和执行语义反馈才提取为文案。异常类型、reason、payload 和失败处置仍由业务模块维护，动态 provider/worker 诊断也必须与模型反馈分开。
+- 异常对象的内部 message 不会自动成为模型反馈；Action owner 应明确区分已整理的稳定反馈与底层异常。前者可以在内容包中维护并通过 ActionLocalFailure.feedback 进入模型结果，后者仍只保留异常链或有界结构化诊断。配置限制、输入约束、结果说明和执行语义的固定措辞可以提取，但当前 Catalog 值、状态码、限制数值和 Action payload 仍由业务 owner 动态提供。
 - `kernel/context/prompts.py` 是 TaskPrompt 协议；`kernel/loop/prompts.py`、`plugins/workspace/prompts.py` 和 `plugins/reflection/turn/prompts.py` 仍负责装配、解析或情景选择。这些模块有业务职责，不能作为纯文本文件搬入本包。
 - `MessageOrigin` 继续表达业务来源。此目录是源码位置，不是模型资源，不建立 `prompt:` Link、注册表、模板加载器、配置入口或 Runtime bridge。
 - 仅用于 SDK、存储校验、日志、Observation 和 Runtime 的诊断留在原模块。共享校验若也产生可修正模型反馈，可以消费此包；错误类别与传播仍由原 owner 决定。

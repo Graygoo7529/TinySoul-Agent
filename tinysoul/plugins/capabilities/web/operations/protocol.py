@@ -7,7 +7,7 @@ import json
 from tinysoul.kernel.action import ActionExecutionControl
 from tinysoul.infra import JsonObject, JsonValue, dumps_json, to_json_object
 
-from ..errors import WebProcessTimeout, WebWorkerProtocolError
+from ..errors import WebWorkerProtocolError
 
 _MAX_WORKER_STDERR = 8_000
 _MAX_WARNING_CODES = 20
@@ -31,16 +31,8 @@ _SAFE_WORKER_ENV = (
 
 
 def _require_active(control: ActionExecutionControl) -> None:
-    if control.is_cancelled():
-        raise WebProcessTimeout(
-            "Web operation was cancelled before Workspace commit",
-            reason=control.cancel_reason or "cancelled",
-        )
-    if control.is_expired():
-        raise WebProcessTimeout(
-            "Web operation deadline expired before Workspace commit",
-            reason="deadline_expired",
-        )
+    # The Action runner owns deadline and lifecycle cancellation classification.
+    control.check_cancelled()
 
 
 def _worker_failure_facts(response: JsonObject) -> JsonObject:

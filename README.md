@@ -112,4 +112,6 @@ $env:TINYSOUL_PYTHON=(Get-Command python).Source
 
 `test.ps1` runs the Fast local business-logic suite by default and creates a unique isolated run root under `.local-test/runs/`. Use `-TestPath` for focused feedback, `-Suite Generation` for the small set of package-owned project/resource generation contracts, and `-Suite Full` for the completion gate, which includes both local suites plus wheel build and isolated-install checks. Real-provider and opt-in network tests are excluded from Fast and Full and can only be selected with `-Suite External` plus their existing environment switches. If PowerShell blocks local script execution, invoke the same script with `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1`. `typecheck.ps1` runs `ty` with the selected Python environment.
 
+If repository-local file operations are disrupted by the host environment, use `-ArtifactRoot <scratch-directory>` to place isolated runs elsewhere. Relative paths resolve against the repository. The script creates and cleans only its own `runs/<uuid>` directory; failed runs retain their artifacts. The selected suite and its assertions remain the same.
+
 Architecture and module contracts are under `docs/design/`; the desktop frontend is documented in `visualization/README.md`.

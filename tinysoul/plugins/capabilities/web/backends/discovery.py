@@ -20,6 +20,8 @@ from lxml import html
 
 from tinysoul.infra import JsonObject, to_json_object
 
+from tinysoul.prompts.plugins.capabilities import web as prompt_text
+
 from ..errors import WebProcessingError
 from .network import (
     AddressResolver,
@@ -69,12 +71,12 @@ class DiscoveryRequest:
     def __post_init__(self) -> None:
         if not self.start_url:
             raise WebProcessingError(
-                "Discovery seed URL must be non-empty",
+                prompt_text.DISCOVERY_SEED_URL_MUST_BE_NON_EMPTY,
                 reason="invalid_url",
             )
         if self.max_visit_depth < 0:
             raise WebProcessingError(
-                "Discovery visit depth must be non-negative",
+                prompt_text.DISCOVERY_VISIT_DEPTH_MUST_BE_NON_NEGATIVE,
                 reason="invalid_visit_depth",
             )
         for name in (
@@ -91,17 +93,17 @@ class DiscoveryRequest:
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise WebProcessingError(
-                    "Discovery numeric boundary is invalid",
+                    prompt_text.DISCOVERY_NUMERIC_BOUNDARY_IS_INVALID,
                     reason="worker_protocol_invalid",
                 )
         if self.max_request_retries < 0:
             raise WebProcessingError(
-                "Discovery retry boundary is invalid",
+                prompt_text.DISCOVERY_RETRY_BOUNDARY_IS_INVALID,
                 reason="worker_protocol_invalid",
             )
         if self.max_concurrency > self.max_pages:
             raise WebProcessingError(
-                "Discovery concurrency exceeds its page budget",
+                prompt_text.DISCOVERY_CONCURRENCY_EXCEEDS_ITS_PAGE_BUDGET,
                 reason="worker_protocol_invalid",
             )
         _validate_globs(self.include_globs)
@@ -163,7 +165,7 @@ async def discover_pages(
     robots.parse(robots_text.splitlines())
     if not robots.can_fetch(request.user_agent, start_url):
         raise WebProcessingError(
-            "Discovery seed is disallowed by robots.txt",
+            prompt_text.DISCOVERY_SEED_IS_DISALLOWED_BY_ROBOTS_TXT,
             reason="seed_disallowed_by_robots",
         )
 
@@ -319,7 +321,7 @@ async def discover_pages(
     source = state.pages[start_url]
     if source.state != "visited":
         raise WebProcessingError(
-            "Discovery seed could not be visited",
+            prompt_text.DISCOVERY_SEED_COULD_NOT_BE_VISITED,
             reason=source.failure_reason or "seed_fetch_failed",
         )
     pages = [
@@ -565,7 +567,7 @@ def _stop_reason(reasons: set[str]) -> str:
 def _validate_globs(values: tuple[str, ...]) -> None:
     if len(values) > _MAX_PATTERN_COUNT:
         raise WebProcessingError(
-            "Discovery path glob count exceeds the configured protocol limit",
+            prompt_text.too_many_path_globs(limit=_MAX_PATTERN_COUNT),
             reason="invalid_path_globs",
         )
     for value in values:
@@ -576,6 +578,6 @@ def _validate_globs(values: tuple[str, ...]) -> None:
             or any(ord(char) < 32 for char in value)
         ):
             raise WebProcessingError(
-                "Discovery path glob is invalid",
+                prompt_text.DISCOVERY_PATH_GLOB_IS_INVALID,
                 reason="invalid_path_globs",
             )

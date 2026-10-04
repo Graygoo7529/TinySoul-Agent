@@ -106,16 +106,16 @@ async def test_successful_root_closes_children_before_job_becomes_resolved(
             "import socket\nfrom pathlib import Path\n"
             f"with socket.create_connection({listener.getsockname()!r}) as connection:\n"
             " connection.settimeout(8)\n"
-            " connection.sendall(b'ready')\n"
             " Path('child-ready.txt').write_text('kept')\n"
+            " connection.sendall(b'ready')\n"
+            " print('ready', flush=True)\n"
             " connection.recv(1)\n"
         )
         parent = (
-            "import subprocess,sys,time\nfrom pathlib import Path\n"
-            f"subprocess.Popen([sys.executable, '-c', {child!r}])\n"
-            "deadline = time.monotonic() + 8\n"
-            "while not Path('child-ready.txt').exists() and time.monotonic() < deadline:\n"
-            " time.sleep(0.01)\n"
+            "import subprocess,sys\n"
+            f"child = subprocess.Popen([sys.executable, '-c', {child!r}], "
+            "stdout=subprocess.PIPE, text=True)\n"
+            "assert child.stdout.readline() == 'ready\\n'\n"
         )
         backend = await _start(engine, workspace, home, parent)
         try:
@@ -166,13 +166,18 @@ async def test_cancelled_bounded_run_stops_process_and_keeps_written_files(
         engine,
         workspace,
         home,
-        "from pathlib import Path\nimport threading\nPath('before-stop.txt').write_text('kept')\nthreading.Event().wait()\n",
+        "from pathlib import Path\nimport threading\n"
+        "Path('before-stop.txt').write_text('kept', encoding='utf-8')\n"
+        "print('written', flush=True)\n"
+        "threading.Event().wait()\n",
         cwd_link="workspace:",
     )
     try:
         path = workspace.settings.root / "before-stop.txt"
+        # Existence only proves the file was opened, not that write_text closed it.
         async with asyncio.timeout(10):
-            while not path.exists():
+            while backend.collect()["stdout"] != "written\n":
+                assert not jobs.snapshot("turn", backend.job_id).state.terminal
                 await asyncio.sleep(0.01)
         waiter = asyncio.create_task(engine.wait("turn", backend.job_id))
         await asyncio.sleep(0)
@@ -181,7 +186,7 @@ async def test_cancelled_bounded_run_stops_process_and_keeps_written_files(
             await waiter
         assert jobs.snapshot("turn", backend.job_id).state is JobState.CANCELLED
         assert not jobs.has_unresolved("turn")
-        assert path.read_text() == "kept"
+        assert path.read_text(encoding="utf-8") == "kept"
     finally:
         await jobs.cleanup_turn("turn")
 

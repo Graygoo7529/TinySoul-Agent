@@ -226,7 +226,7 @@ class ActionBatchRunner:
                 ):
                     remaining = context.control.remaining_seconds()
                     if (
-                        context.control.cancel_reason is None
+                        not context.control.cancel_reason
                         and remaining is not None
                         and remaining <= 0
                     ):
@@ -378,6 +378,11 @@ class ActionBatchRunner:
                 scope="action.timeout",
                 disposition=ActionFailureDisposition.RETRY_SAME,
                 feedback=prompt_text.ACTION_EXCEEDED_ITS_EXECUTION_DEADLINE,
+                constraint=(
+                    {"timeout_seconds": execution.framework.timeout_seconds}
+                    if execution.framework.timeout_seconds is not None
+                    else {}
+                ),
             ),
             frame_data={
                 "executor_started": True,

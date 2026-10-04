@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import pytest
 
 from tinysoul.kernel.action.errors import ActionInvariantError
@@ -74,12 +75,13 @@ def test_result_renderer_creates_error_tool_result_message() -> None:
 
 
 def test_result_renderer_keeps_hook_diagnostics_out_of_model_feedback() -> None:
+    failure = replace(_failure(), constraint={"maximum": 17, "actual": 23})
     result = ActionResult.failed(
         call_id="call_hook",
         action_name="workspace.list",
         stage=ActionResultStage.HOOK,
         sequence=1,
-        failure=_failure(),
+        failure=failure,
         payload={"blocked_resource": "resource_1"},
         frame_data={"hook": "policy", "policy_revision": 3},
     )
@@ -89,7 +91,7 @@ def test_result_renderer_keeps_hook_diagnostics_out_of_model_feedback() -> None:
     trace_payload = renderer.render_trace_payload(result)
 
     assert model_payload["payload"] == {"blocked_resource": "resource_1"}
-    assert model_payload["failure"] == _failure().to_json()
+    assert model_payload["failure"] == failure.to_json()
     assert "frame_data" not in model_payload
     assert trace_payload["frame_data"] == {
         "hook": "policy",

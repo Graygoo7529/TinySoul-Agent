@@ -201,8 +201,8 @@ SDK 服务绑定运行世代，日级服务同时绑定 CalendarDay；切换后�
 - 固定段使用字符串常量、不可变 tuple 等静态值；含运行时值的文案使用参数明确的纯文本函数。函数只接收 owner 已校验的基础值，不读取配置、文件、服务或环境，不接收原始 Exception，也不决定消息 role、装配顺序、工具可见性、引用、预算或失败分类。
 - 消费模块保留消息装配、工具协议、状态转换、异常分层和业务所有权。文案定义旁应注明实际消费者路径；调整文案时同步检查输出解析、结构化字段、动态数据和引用是否仍由消费者负责。
 - Action Catalog、Home、Memory 和 Skill 中可配置或可编辑的语义继续留在各自 owner；不要因为文字会显示给模型，就把运行时配置、资源正文、Link、schema 名称、状态值或内部标识符提取到 `prompts`。
-- 异常通过局部结果反馈给模型时，先由业务 owner 在 Action 边界明确选择或格式化模型反馈；异常对象的内部 message 不会因为被 `str(exc)` 转换就自动成为提示文案。不要把未整理的原始异常、traceback、敏感路径或大块供应商正文传给模型，动态诊断另存为结构化摘要。若反馈包含配置限制、输入约束或结果说明，再把这段稳定自然语言提取到 owner 文案模块；超时反馈说明执行语义，不复制 Catalog 的时长值。
-- 新增或修改模型文案后，先运行对应 owner 的静态审计和聚焦测试，再运行 Fast、Full 与 typecheck；测试优先检查角色、结构、顺序、数据流和失败语义，只有机器协议或明确稳定语义才逐项锁定文案全文。
+- 固定文案提取只调整自然语言的源码维护位置，不改变模型可见结果的来源、信息量、动态值或业务语义。Catalog 的当前配置、Action 的输入约束、执行结果和实际限制值仍由原 owner 读取、校验和装配；`prompts` 的纯文本函数只组合固定措辞与调用方已校验的基础值。
+- 异常通过局部结果反馈给模型时，由业务 owner 在 Action 边界明确提供模型反馈、失败 reason、disposition 和结构化事实。已经整理为稳定业务反馈的异常文本可以进入模型结果，不以是否使用 `str(exc)` 作为判断标准；应优先使用明确的反馈/结果字段表达该契约。不得把未经整理的原始异常、traceback、敏感路径或大块供应商正文传给模型，动态诊断另存为结构化摘要。若反馈包含配置限制、输入约束、状态码、结果说明或执行语义，保留 owner 提供的动态值；不要把默认配置复制到 `prompts`。
 
 ## 文档规则
 
@@ -245,6 +245,8 @@ conda activate TinySoul
 `scripts/test.ps1` 默认运行 Fast 本地业务逻辑 pytest suite，排除项目/资源生成、wheel 发布验收和真实 provider/network 测试；`-Suite Generation` 只运行项目/资源生成契约与 wheel 验收，`-Suite Full` 运行全部非 external 本地测试，`-Suite External` 只选择真实 provider/network 测试，后者仍需显式环境开关和凭据。每次运行使用 `.local-test/runs/<uuid>` 隔离 pytest、临时文件、实例锁和 cache，失败时保留工件。若当前 PowerShell 禁止脚本执行，使用 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1`，不要把执行策略错误当作 pytest 失败。
 
 标准工作流为：先按修改模块运行聚焦路径，再运行默认 Fast；完成前运行 `-Suite Full` 和 typecheck。日常开发环境通过 `conda activate TinySoul` 或设置 `TINYSOUL_PYTHON` 选择包含 pytest/ty 的 Python，随后通过 `python -m pip install -e ".[dev]"` 安装依赖。直接 `python -m pytest` 仍有 `tests/conftest.py` 兜底，会创建唯一 `.local-test` 临时目录，但标准入口优先，因为它还负责 cache 生命周期和 suite 语义。
+
+若已通过独立复现确认仓库内测试目录受到宿主文件访问干扰，可用 `scripts/test.ps1 -ArtifactRoot <临时目录>` 指定工件根目录；相对路径按仓库根解析，仍使用独立 `runs/<uuid>`，成功只清理本次目录，失败保留工件。不得通过跳过用例、吞掉失败或放宽业务断言换取通过。跨进程测试应等待明确的完成信号，不能用文件刚创建或固定延时替代写入完成。
 
 - 测试约定：
   - 测试按 `tests/<module>/test_<切面>.py` 组织，镜像模块结构；

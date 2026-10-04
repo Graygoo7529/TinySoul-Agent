@@ -21,6 +21,7 @@ def test_filtered_replay_advances_global_cursor_across_journal_and_memory(
     buffer = EndpointEventBuffer(
         capacity=2, max_bytes=65536, page_bytes=65536, journal=journal
     )
+    assert not journal.degraded, journal.failure
     for index in range(1, 8):
         buffer.write(
             _event(
@@ -32,12 +33,14 @@ def test_filtered_replay_advances_global_cursor_across_journal_and_memory(
                 },
             )
         )
+        assert not journal.degraded, journal.failure
     first = buffer.replay(
         after=0,
         mode=ObservationLevel.MODEL,
         limit=1,
         filters=EventFilter(search_id="s", step_index=0, through=6),
     )
+    assert not first.gap, journal.failure
     assert [item.sequence for item in first.events] == [2]
     second = buffer.replay(
         after=first.next_sequence,

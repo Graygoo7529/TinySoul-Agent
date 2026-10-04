@@ -95,7 +95,12 @@ class WebWorkerProtocolError(WebError):
 
 
 class WebProcessingError(WebError):
-    """A stable Web failure suitable for ActionResult mapping."""
+    """Owner-written model feedback with stable reason and internal facts.
+
+    The message may contain validated runtime values. Never pass a raw provider
+    exception or response here; retain the cause through exception chaining.
+    Actions preserve this feedback instead of reconstructing it from the reason.
+    """
 
     def __init__(
         self,
@@ -105,15 +110,17 @@ class WebProcessingError(WebError):
         payload: JsonObject | None = None,
     ) -> None:
         super().__init__(message)
+        self.feedback = message
         self.reason = reason
         self.payload = payload or {}
 
 
 class WebProcessTimeout(WebError):
-    """Raised when a controlled Web worker times out or is cancelled."""
+    """Model feedback for a timed-out worker; cancellation uses Action control."""
 
     def __init__(self, message: str, *, reason: str) -> None:
         super().__init__(message)
+        self.feedback = message
         self.reason = reason
 
 

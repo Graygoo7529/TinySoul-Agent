@@ -3,6 +3,7 @@ from __future__ import annotations
 from tests.action_helpers import builtin_catalog
 
 from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
@@ -10,6 +11,8 @@ import pytest
 
 from tinysoul.kernel.action.errors import ActionContractError
 from tinysoul.kernel.action.catalog.catalog import ActionCatalog
+from tinysoul.kernel.action.execution.preparation import ActionExecutionBuilder
+from tinysoul.kernel.action.planning.normalization import ActionCallNormalizer
 from tinysoul.kernel.action.catalog.loader import ActionCatalogLoader
 from tinysoul.kernel.action.planning.scope import (
     ActionDomainPromptRenderer,
@@ -19,6 +22,7 @@ from tinysoul.kernel.action.planning.scope import (
 from tinysoul.kernel.action.catalog.specs import ActionDomainSpec
 from tinysoul.infra.json import JsonValue
 from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind
+from tinysoul.runtime import RunScope
 
 
 def test_phase1_scope_exposes_domain_control_tool() -> None:
@@ -75,6 +79,67 @@ def test_phase2_scope_exposes_selected_domain_actions_only() -> None:
     }
     assert all(tool.kind is ToolKind.ACTION for tool in tools)
     assert all(tool.description for tool in tools)
+
+
+@pytest.mark.parametrize("maximum", [7, 19])
+def test_catalog_values_reach_tools_validation_and_execution(maximum: int) -> None:
+    baseline = builtin_catalog()
+    original = baseline.get_action("core.answer")
+    description = f"Configured operation with maximum {maximum}"
+    parameter_description = f"Configured count up to {maximum}"
+    action = replace(
+        original,
+        tool=replace(
+            original.tool,
+            description=description,
+            schema={
+                "type": "object",
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "maximum": maximum,
+                        "description": parameter_description,
+                    },
+                },
+                "required": ["count"],
+                "additionalProperties": False,
+            },
+        ),
+        semantic=replace(original.semantic, use_when=(f"user condition {maximum}",)),
+        runtime=replace(original.runtime, timeout_seconds=float(maximum)),
+    )
+    catalog = ActionCatalog(domains=baseline.domains(), actions=(action,))
+    tool = (
+        Phase2ActionScopeBuilder()
+        .build(catalog, selected_domains=("core",))
+        .visible_tools()[0]
+    )
+    assert description in tool.description
+    assert action.semantic.use_when[0] in tool.description
+    assert tool.parameters == action.tool.schema
+    call = ToolCallRecord(
+        id="configured",
+        name=action.name,
+        arguments={"count": maximum + 1},
+        kind=ToolKind.ACTION,
+    )
+    invalid = ActionCallNormalizer().normalize((call,), catalog=catalog)
+    assert not invalid.calls
+    failure = invalid.results[0].failure
+    assert failure is not None
+    assert failure.reason == "invalid_action_params"
+    assert "count" in failure.feedback
+    assert str(maximum) in failure.feedback
+    valid = ActionCallNormalizer().normalize(
+        (replace(call, arguments={"count": maximum}),),
+        catalog=catalog,
+    )
+    batch = ActionExecutionBuilder().build_batch(
+        valid.calls,
+        catalog=catalog,
+        scope=RunScope(),
+    )
+    assert batch.executions[0].framework.timeout_seconds == maximum
 
 
 def test_phase2_scope_rejects_domain_without_actions() -> None:

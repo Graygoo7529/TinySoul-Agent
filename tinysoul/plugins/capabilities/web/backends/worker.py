@@ -78,7 +78,7 @@ def _search_by_kimi(request: JsonObject) -> JsonObject:
     api_key = os.environ.get("TINYSOUL_KIMI_SEARCH_API_KEY", "").strip()
     if not api_key:
         raise WebProcessingError(
-            "Kimi Search credential is unavailable",
+            prompt_text.KIMI_SEARCH_CREDENTIAL_IS_UNAVAILABLE,
             reason="credential_unavailable",
         )
     client = OpenAI(api_key=api_key, base_url=base_url)
@@ -115,7 +115,7 @@ def _search_by_kimi(request: JsonObject) -> JsonObject:
             )
         except OpenAIError as exc:
             raise WebProcessingError(
-                "Kimi Search provider request failed",
+                prompt_text.KIMI_SEARCH_PROVIDER_REQUEST_FAILED,
                 reason="provider_request_failed",
                 payload={"error_type": type(exc).__name__},
             ) from exc
@@ -124,7 +124,7 @@ def _search_by_kimi(request: JsonObject) -> JsonObject:
             completion_tokens += completion.usage.completion_tokens
         if not completion.choices:
             raise WebProcessingError(
-                "Kimi Search returned no completion choice",
+                prompt_text.KIMI_SEARCH_RETURNED_NO_COMPLETION_CHOICE,
                 reason="provider_protocol_invalid",
             )
         choice = completion.choices[0]
@@ -136,13 +136,15 @@ def _search_by_kimi(request: JsonObject) -> JsonObject:
             tool_round = _parse_kimi_tool_round(assistant_message)
             if _round >= max_tool_rounds:
                 raise WebProcessingError(
-                    "Kimi Search exceeded the tool round limit",
+                    prompt_text.search_round_limit(limit=max_tool_rounds),
                     reason="tool_round_limit_exceeded",
                 )
             search_tokens += tool_round.search_tokens
             if search_tokens > max_search_tokens:
                 raise WebProcessingError(
-                    "Kimi Search exceeded the configured search token limit",
+                    prompt_text.search_token_limit(
+                        actual=search_tokens, limit=max_search_tokens
+                    ),
                     reason="search_token_limit_exceeded",
                 )
             tool_calls += len(tool_round.tool_messages)
@@ -151,14 +153,14 @@ def _search_by_kimi(request: JsonObject) -> JsonObject:
             continue
         if choice.finish_reason != "stop" or not message.content:
             raise WebProcessingError(
-                "Kimi Search did not return a complete result",
+                prompt_text.KIMI_SEARCH_DID_NOT_RETURN_A_COMPLETE_RESULT,
                 reason="provider_output_incomplete",
             )
         try:
             provider_result = _json_object(message.content)
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
             raise WebProcessingError(
-                "Kimi Search returned invalid JSON",
+                prompt_text.KIMI_SEARCH_RETURNED_INVALID_JSON,
                 reason="provider_protocol_invalid",
             ) from exc
         normalized = _normalize_search_result(provider_result)
@@ -172,12 +174,12 @@ def _search_by_kimi(request: JsonObject) -> JsonObject:
         )
         if len(dumps_json(normalized)) > max_result_chars:
             raise WebProcessingError(
-                "Kimi Search result exceeds the configured result limit",
+                prompt_text.search_result_too_large(limit=max_result_chars),
                 reason="result_chars_limit_exceeded",
             )
         return {"ok": True, **normalized}
     raise WebProcessingError(
-        "Kimi Search ended without a result",
+        prompt_text.KIMI_SEARCH_ENDED_WITHOUT_A_RESULT,
         reason="provider_protocol_invalid",
     )
 
@@ -188,14 +190,14 @@ def _parse_kimi_tool_round(assistant_message: JsonObject) -> _KimiToolRound:
     }
     if assistant_message.get("role") != "assistant":
         raise WebProcessingError(
-            "Kimi Search returned an invalid assistant tool message",
+            prompt_text.KIMI_SEARCH_RETURNED_AN_INVALID_ASSISTANT_TOOL_MESSAGE,
             reason="provider_protocol_invalid",
             payload=facts,
         )
     raw_calls = assistant_message.get("tool_calls")
     if not isinstance(raw_calls, list) or not raw_calls:
         raise WebProcessingError(
-            "Kimi Search requested an empty tool round",
+            prompt_text.KIMI_SEARCH_REQUESTED_AN_EMPTY_TOOL_ROUND,
             reason="provider_protocol_invalid",
             payload=facts,
         )
@@ -209,7 +211,7 @@ def _parse_kimi_tool_round(assistant_message: JsonObject) -> _KimiToolRound:
         )
         if not isinstance(raw_call, dict):
             raise WebProcessingError(
-                "Kimi Search returned an unsupported tool call shape",
+                prompt_text.KIMI_SEARCH_RETURNED_AN_UNSUPPORTED_TOOL_CALL_SHAPE,
                 reason="provider_protocol_invalid",
                 payload=call_facts,
             )
@@ -220,27 +222,27 @@ def _parse_kimi_tool_round(assistant_message: JsonObject) -> _KimiToolRound:
             dict,
         ):
             raise WebProcessingError(
-                "Kimi Search returned an unsupported tool call shape",
+                prompt_text.KIMI_SEARCH_RETURNED_AN_UNSUPPORTED_TOOL_CALL_SHAPE,
                 reason="provider_protocol_invalid",
                 payload=call_facts,
             )
         call_id = raw_call.get("id")
         if not isinstance(call_id, str) or not call_id:
             raise WebProcessingError(
-                "Kimi Search returned an invalid tool call id",
+                prompt_text.KIMI_SEARCH_RETURNED_AN_INVALID_TOOL_CALL_ID,
                 reason="provider_protocol_invalid",
                 payload=call_facts,
             )
         if function.get("name") != _KIMI_SEARCH_TOOL_NAME:
             raise WebProcessingError(
-                "Kimi Search requested an unsupported tool",
+                prompt_text.KIMI_SEARCH_REQUESTED_AN_UNSUPPORTED_TOOL,
                 reason="provider_protocol_invalid",
                 payload=call_facts,
             )
         raw_arguments = function.get("arguments")
         if not isinstance(raw_arguments, str) or not raw_arguments:
             raise WebProcessingError(
-                "Kimi Search returned invalid tool arguments",
+                prompt_text.KIMI_SEARCH_RETURNED_INVALID_TOOL_ARGUMENTS,
                 reason="provider_protocol_invalid",
                 payload=call_facts,
             )
@@ -248,7 +250,7 @@ def _parse_kimi_tool_round(assistant_message: JsonObject) -> _KimiToolRound:
             arguments = _json_object(raw_arguments)
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
             raise WebProcessingError(
-                "Kimi Search returned invalid tool arguments",
+                prompt_text.KIMI_SEARCH_RETURNED_INVALID_TOOL_ARGUMENTS,
                 reason="provider_protocol_invalid",
                 payload=call_facts,
             ) from exc
@@ -352,7 +354,7 @@ def _discover_pages(request: JsonObject) -> JsonObject:
     )
     if len(dumps_json(result)) > max_result_chars:
         raise WebProcessingError(
-            "Web discovery result exceeds the configured result limit",
+            prompt_text.discovery_result_too_large(limit=max_result_chars),
             reason="result_chars_limit_exceeded",
         )
     return {"ok": True, **result}
@@ -382,7 +384,7 @@ def _fetch(request: JsonObject, *, operation: str) -> JsonObject:
         extractor = "trafilatura"
     if not body.strip():
         raise WebProcessingError(
-            "Web extractor did not produce readable content",
+            prompt_text.WEB_EXTRACTOR_DID_NOT_PRODUCE_READABLE_CONTENT,
             reason="no_usable_output",
         )
     markdown = _document_markdown(
@@ -393,7 +395,9 @@ def _fetch(request: JsonObject, *, operation: str) -> JsonObject:
     )
     if len(markdown) > max_output_chars:
         raise WebProcessingError(
-            "Extracted Web Markdown exceeds the configured output limit",
+            prompt_text.markdown_too_large(
+                actual=len(markdown), limit=max_output_chars
+            ),
             reason="output_chars_limit_exceeded",
         )
     document = output_path / "document.md"
@@ -426,7 +430,7 @@ def _extract_with_trafilatura(page: FetchedPage) -> tuple[str, str]:
     # Third-party extractor exception types are not a stable public contract.
     except Exception as exc:
         raise WebProcessingError(
-            "Trafilatura could not extract the fetched page",
+            prompt_text.TRAFILATURA_COULD_NOT_EXTRACT_THE_FETCHED_PAGE,
             reason="extractor_failed",
             payload={"error_type": type(exc).__name__},
         ) from exc
@@ -465,7 +469,7 @@ def _extract_with_defuddle(
     )
     if completed.returncode != 0 or not result.is_file():
         raise WebProcessingError(
-            "Defuddle could not extract the fetched page",
+            prompt_text.DEFUDDLE_COULD_NOT_EXTRACT_THE_FETCHED_PAGE,
             reason="extractor_failed",
         )
     value = _read_bounded_json_file(
@@ -475,7 +479,7 @@ def _extract_with_defuddle(
     content = value.get("contentMarkdown", value.get("content", ""))
     if not isinstance(content, str):
         raise WebProcessingError(
-            "Defuddle returned an invalid result",
+            prompt_text.DEFUDDLE_RETURNED_AN_INVALID_RESULT,
             reason="extractor_protocol_invalid",
         )
     title = value.get("title", "")
@@ -491,14 +495,14 @@ def _normalize_search_result(
     raw_results = value.get("results")
     if not isinstance(raw_results, list):
         raise WebProcessingError(
-            "Kimi Search results must be an array",
+            prompt_text.KIMI_SEARCH_RESULTS_MUST_BE_AN_ARRAY,
             reason="provider_protocol_invalid",
         )
     results: list[JsonObject] = []
     for item in raw_results:
         if not isinstance(item, dict):
             raise WebProcessingError(
-                "Kimi Search result entry is invalid",
+                prompt_text.KIMI_SEARCH_RESULT_ENTRY_IS_INVALID,
                 reason="provider_protocol_invalid",
             )
         result = to_json_object(item)
@@ -507,7 +511,7 @@ def _normalize_search_result(
         parsed = urlsplit(url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise WebProcessingError(
-                "Kimi Search returned an invalid source URL",
+                prompt_text.KIMI_SEARCH_RETURNED_AN_INVALID_SOURCE_URL,
                 reason="provider_protocol_invalid",
             )
         snippet = _required_string(result, "snippet").strip()
@@ -521,19 +525,19 @@ def _read_bounded_json_file(path: Path, *, max_bytes: int) -> JsonObject:
             data = handle.read(max_bytes + 1)
     except OSError as exc:
         raise WebProcessingError(
-            "Defuddle result could not be read",
+            prompt_text.DEFUDDLE_RESULT_COULD_NOT_BE_READ,
             reason="extractor_protocol_invalid",
         ) from exc
     if len(data) > max_bytes:
         raise WebProcessingError(
-            "Defuddle staged result exceeds the configured limit",
+            prompt_text.staged_result_too_large(limit=max_bytes),
             reason="staged_result_bytes_limit_exceeded",
         )
     try:
         return _json_object(data.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
         raise WebProcessingError(
-            "Defuddle returned an invalid result",
+            prompt_text.DEFUDDLE_RETURNED_AN_INVALID_RESULT,
             reason="extractor_protocol_invalid",
         ) from exc
 
@@ -599,7 +603,7 @@ def _required_string(value: JsonObject, name: str) -> str:
     item = value.get(name)
     if not isinstance(item, str) or not item:
         raise WebProcessingError(
-            "Web worker request or response is invalid",
+            prompt_text.WEB_WORKER_REQUEST_OR_RESPONSE_IS_INVALID,
             reason="worker_protocol_invalid",
         )
     return item
@@ -609,7 +613,7 @@ def _required_positive_int(value: JsonObject, name: str) -> int:
     item = value.get(name)
     if isinstance(item, bool) or not isinstance(item, int) or item <= 0:
         raise WebProcessingError(
-            "Web worker numeric boundary is invalid",
+            prompt_text.WEB_WORKER_NUMERIC_BOUNDARY_IS_INVALID,
             reason="worker_protocol_invalid",
         )
     return item
@@ -619,7 +623,7 @@ def _required_non_negative_int(value: JsonObject, name: str) -> int:
     item = value.get(name)
     if isinstance(item, bool) or not isinstance(item, int) or item < 0:
         raise WebProcessingError(
-            "Web worker numeric boundary is invalid",
+            prompt_text.WEB_WORKER_NUMERIC_BOUNDARY_IS_INVALID,
             reason="worker_protocol_invalid",
         )
     return item
@@ -629,7 +633,7 @@ def _required_bool(value: JsonObject, name: str) -> bool:
     item = value.get(name)
     if not isinstance(item, bool):
         raise WebProcessingError(
-            "Web worker boolean boundary is invalid",
+            prompt_text.WEB_WORKER_BOOLEAN_BOUNDARY_IS_INVALID,
             reason="worker_protocol_invalid",
         )
     return item
@@ -641,7 +645,7 @@ def _required_string_tuple(value: JsonObject, name: str) -> tuple[str, ...]:
         not isinstance(entry, str) or not entry for entry in item
     ):
         raise WebProcessingError(
-            "Web worker string list is invalid",
+            prompt_text.WEB_WORKER_STRING_LIST_IS_INVALID,
             reason="worker_protocol_invalid",
         )
     return tuple(cast(list[str], item))

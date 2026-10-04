@@ -11,6 +11,8 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 import httpx
 from lxml import html
 
+from tinysoul.prompts.plugins.capabilities import web as prompt_text
+
 from ..errors import WebProcessingError
 
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
@@ -116,12 +118,12 @@ def _fetch_public_text(
                         location = response.headers.get("location", "")
                         if not location:
                             raise WebProcessingError(
-                                "Web redirect did not provide a destination",
+                                prompt_text.WEB_REDIRECT_DID_NOT_PROVIDE_A_DESTINATION,
                                 reason="invalid_redirect",
                             )
                         if redirect_count >= max_redirects:
                             raise WebProcessingError(
-                                "Web redirect limit was exceeded",
+                                prompt_text.redirect_limit(limit=max_redirects),
                                 reason="redirect_limit_exceeded",
                             )
                         current = validate_public_https_url(
@@ -139,7 +141,9 @@ def _fetch_public_text(
                         )
                     if response.status_code < 200 or response.status_code >= 300:
                         raise WebProcessingError(
-                            "Web page returned an unsuccessful HTTP status",
+                            prompt_text.http_status_error(
+                                status_code=response.status_code
+                            ),
                             reason="http_status_error",
                             payload={"status_code": response.status_code},
                         )
@@ -148,7 +152,7 @@ def _fetch_public_text(
                     )
                     if content_type not in allowed_content_types:
                         raise WebProcessingError(
-                            "Web page content type is not supported",
+                            prompt_text.WEB_PAGE_CONTENT_TYPE_IS_NOT_SUPPORTED,
                             reason="unsupported_content_type",
                             payload={"content_type": content_type or "unknown"},
                         )
@@ -160,7 +164,7 @@ def _fetch_public_text(
                             declared_size = 0
                         if declared_size > max_bytes:
                             raise WebProcessingError(
-                                "Web page exceeds the configured byte limit",
+                                prompt_text.page_too_large(limit=max_bytes),
                                 reason="source_bytes_limit_exceeded",
                             )
                     body = bytearray()
@@ -168,7 +172,7 @@ def _fetch_public_text(
                         body.extend(chunk)
                         if len(body) > max_bytes:
                             raise WebProcessingError(
-                                "Web page exceeds the configured byte limit",
+                                prompt_text.page_too_large(limit=max_bytes),
                                 reason="source_bytes_limit_exceeded",
                             )
                     final_url = validate_public_https_url(str(response.url))
@@ -184,12 +188,12 @@ def _fetch_public_text(
         raise
     except (httpx.HTTPError, OSError, UnicodeError) as exc:
         raise WebProcessingError(
-            "Web page could not be retrieved",
+            prompt_text.WEB_PAGE_COULD_NOT_BE_RETRIEVED,
             reason="network_request_failed",
             payload={"error_type": type(exc).__name__},
         ) from exc
     raise WebProcessingError(
-        "Web page retrieval ended without a result",
+        prompt_text.WEB_PAGE_RETRIEVAL_ENDED_WITHOUT_A_RESULT,
         reason="network_request_failed",
     )
 
@@ -203,17 +207,19 @@ def validate_public_https_url(
 
     if not isinstance(value, str) or not value:
         raise WebProcessingError(
-            "Web URL must be a non-empty string",
+            prompt_text.WEB_URL_MUST_BE_A_NON_EMPTY_STRING,
             reason="invalid_url",
         )
     try:
         parsed = urlsplit(value)
         port = parsed.port
     except ValueError as exc:
-        raise WebProcessingError("Web URL is invalid", reason="invalid_url") from exc
+        raise WebProcessingError(
+            prompt_text.WEB_URL_IS_INVALID, reason="invalid_url"
+        ) from exc
     if parsed.scheme.lower() != "https":
         raise WebProcessingError(
-            "Web fetch only accepts HTTPS URLs",
+            prompt_text.WEB_FETCH_ONLY_ACCEPTS_HTTPS_URLS,
             reason="unsupported_url_scheme",
         )
     if (
@@ -221,11 +227,13 @@ def validate_public_https_url(
         or parsed.username is not None
         or parsed.password is not None
     ):
-        raise WebProcessingError("Web URL authority is invalid", reason="invalid_url")
+        raise WebProcessingError(
+            prompt_text.WEB_URL_AUTHORITY_IS_INVALID, reason="invalid_url"
+        )
     host = parsed.hostname.rstrip(".").lower()
     if host == "localhost" or host.endswith(".localhost"):
         raise WebProcessingError(
-            "Web URL must resolve to a public host",
+            prompt_text.WEB_URL_MUST_RESOLVE_TO_A_PUBLIC_HOST,
             reason="private_network_target",
         )
     effective_port = port or 443
@@ -233,24 +241,24 @@ def validate_public_https_url(
         resolved = resolver(host, effective_port, type=socket.SOCK_STREAM)
     except OSError as exc:
         raise WebProcessingError(
-            "Web host could not be resolved",
+            prompt_text.WEB_HOST_COULD_NOT_BE_RESOLVED,
             reason="dns_resolution_failed",
         ) from exc
     if not isinstance(resolved, list) or not resolved:
         raise WebProcessingError(
-            "Web host did not resolve to an address",
+            prompt_text.WEB_HOST_DID_NOT_RESOLVE_TO_AN_ADDRESS,
             reason="dns_resolution_failed",
         )
     for item in resolved:
         if not isinstance(item, tuple) or len(item) < 5:
             raise WebProcessingError(
-                "Web host resolution returned an invalid address",
+                prompt_text.WEB_HOST_RESOLUTION_RETURNED_AN_INVALID_ADDRESS,
                 reason="dns_resolution_failed",
             )
         sockaddr = item[4]
         if not isinstance(sockaddr, tuple) or not sockaddr:
             raise WebProcessingError(
-                "Web host resolution returned an invalid address",
+                prompt_text.WEB_HOST_RESOLUTION_RETURNED_AN_INVALID_ADDRESS,
                 reason="dns_resolution_failed",
             )
         address = str(sockaddr[0]).split("%", 1)[0]
@@ -258,12 +266,12 @@ def validate_public_https_url(
             parsed_address = ipaddress.ip_address(address)
         except ValueError as exc:
             raise WebProcessingError(
-                "Web host resolution returned an invalid address",
+                prompt_text.WEB_HOST_RESOLUTION_RETURNED_AN_INVALID_ADDRESS,
                 reason="dns_resolution_failed",
             ) from exc
         if not parsed_address.is_global:
             raise WebProcessingError(
-                "Web URL must resolve only to public addresses",
+                prompt_text.WEB_URL_MUST_RESOLVE_ONLY_TO_PUBLIC_ADDRESSES,
                 reason="private_network_target",
             )
     netloc = host
@@ -284,7 +292,7 @@ def normalize_html_links(value: str, *, base_url: str) -> str:
     # lxml does not expose a stable cross-version parser exception hierarchy.
     except Exception as exc:
         raise WebProcessingError(
-            "Web page HTML could not be normalized",
+            prompt_text.WEB_PAGE_HTML_COULD_NOT_BE_NORMALIZED,
             reason="invalid_html",
         ) from exc
 
