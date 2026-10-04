@@ -59,6 +59,48 @@ WEB_PAGE_DISCOVERY_STAGING_COULD_NOT_BE_COMPLETED = (
 # Local model feedback. Used by plugins/capabilities/web/actions.py:execute.
 WEB_PAGE_DISCOVERY_COULD_NOT_BE_COMPLETED = "Web page discovery could not be completed."
 
+# Local model feedback. Used by plugins/capabilities/web/actions.py at the
+# exception-to-ActionResult boundary.
+WEB_ACTION_TIMED_OUT = "The Web action did not complete before its execution deadline."
+
+# Local model feedback. Used by plugins/capabilities/web/actions.py at the
+# exception-to-ActionResult boundary.
+WEB_ACTION_WAS_CANCELLED = "The Web action was cancelled before completion."
+
+# Local model feedback. Used by plugins/capabilities/web/actions.py at the
+# exception-to-ActionResult boundary.
+WEB_ACTION_COULD_NOT_BE_COMPLETED = "The Web action could not be completed."
+
+# Local model feedback. Used by plugins/capabilities/web/actions.py at the
+# exception-to-ActionResult boundary.
+WEB_REQUEST_REQUIRES_PUBLIC_HTTPS_URL = "Web requests require a public HTTPS URL."
+
+# Local model feedback. Used by plugins/capabilities/web/actions.py at the
+# exception-to-ActionResult boundary.
+WEB_REQUEST_EXCEEDS_A_CONFIGURED_LIMIT = "The Web request exceeds a configured limit."
+
+# Local model feedback. Used by plugins/capabilities/web/actions.py at the
+# exception-to-ActionResult boundary.
+WEB_PAGE_CONTENT_TYPE_IS_NOT_SUPPORTED = "The Web page content type is not supported."
+
+# Local model feedback. Used by plugins/capabilities/web/actions.py at the
+# exception-to-ActionResult boundary.
+WEB_REQUEST_CANNOT_FOLLOW_REDIRECT = "The Web request cannot follow the redirect."
+
+# Local model feedback. Used by plugins/capabilities/web/actions.py at the
+# exception-to-ActionResult boundary.
+WEB_DISCOVERY_REQUEST_IS_OUT_OF_SCOPE = (
+    "The Web discovery request is outside its configured scope."
+)
+
+# Local model feedback. Used by plugins/capabilities/web/actions.py at the
+# exception-to-ActionResult boundary.
+WEB_DISCOVERY_SEED_IS_DISALLOWED = "The Web discovery seed is disallowed by robots.txt."
+
+# Local model feedback. Used by plugins/capabilities/web/actions.py at the
+# exception-to-ActionResult boundary.
+WEB_PROVIDER_RETURNED_AN_INVALID_RESULT = "The Web provider returned an invalid result."
+
 
 # Local model feedback. Used by plugins/capabilities/web/actions.py:_fetch_params.
 def url_required(*, action_name: str) -> str:

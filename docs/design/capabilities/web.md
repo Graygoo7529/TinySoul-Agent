@@ -72,7 +72,7 @@ Defuddle 是可选 executable，默认关闭；启用时 `DependencyChecker` 必
 
 Search answer/results、网页正文、title、snippet 和远程链接都属于不可信外部数据。Web capability 不执行网页脚本、不遵循正文指令、不登录、不提交表单，也不把抓取内容升级为 system/guide prompt。模型只能在普通 interaction result 或 Workspace reference 中读取这些内容。
 
-worker 超时或 Runtime transfer 通过 `ControlledProcessRunner` 终止进程树；commit point 前再次检查 cancellation/deadline。worker 非零退出、无效 JSON、staged path 越界或字段不满足协议收敛为稳定局部失败，并且不得提交 Workspace 或发布 snapshot signal。搜索/抓取的原始异常、绝对路径、密钥、worker stderr 和供应商原始响应不进入模型反馈。
+worker 超时或 Runtime transfer 通过 `ControlledProcessRunner` 终止进程树；commit point 前再次检查 cancellation/deadline。worker 非零退出、无效 JSON、staged path 越界或字段不满足协议收敛为稳定局部失败，并且不得提交 Workspace 或发布 snapshot signal。Action 边界按 failure reason 选择简短的模型反馈；搜索/抓取的原始异常 message、绝对路径、密钥、worker stderr 和供应商原始响应不进入模型反馈。Action 的执行 deadline 仍由 Action Catalog/runtime 负责，文案不复制具体时长。
 
 ## 后续边界
 

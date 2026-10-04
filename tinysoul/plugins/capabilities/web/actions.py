@@ -6,7 +6,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import cast
 
-from tinysoul.prompts.plugins.capabilities import web as prompt_text
+from tinysoul.infra import (
+    DependencyChecker,
+    JsonObject,
+    StagingDirectoryManager,
+    StagingError,
+)
 from tinysoul.kernel.action import (
     ActionEngineBuilder,
     ActionExecution,
@@ -16,19 +21,14 @@ from tinysoul.kernel.action import (
     ActionResult,
     ActionResultStage,
 )
-from tinysoul.infra import (
-    DependencyChecker,
-    JsonObject,
-    StagingDirectoryManager,
-    StagingError,
-)
 from tinysoul.plugins.workspace import (
-    WorkspaceError,
     WorkspaceContractError,
+    WorkspaceError,
 )
-
-from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.workspace.runtime_bridge import RuntimeWorkspaceBridge
+from tinysoul.plugins.workspace.services import WorkspaceService
+from tinysoul.prompts.plugins.capabilities import web as prompt_text
+
 from .config import WebSettings
 from .dependencies import kimi_search_api_key, require_web_dependencies
 from .errors import (
@@ -39,10 +39,8 @@ from .errors import (
     web_failure_disposition,
 )
 from .models import (
-    WebDiscoveryResult,
     WebExtractor,
     WebFetchResult,
-    WebSearchResult,
 )
 from .service import WebCapabilityService
 
@@ -50,6 +48,33 @@ WEB_SEARCH_KIMI_ACTION = "web.search_by_kimi"
 WEB_DISCOVER_PAGES_ACTION = "web.discover_pages"
 WEB_FETCH_DEFUDDLE_ACTION = "web.fetch_with_defuddle"
 WEB_FETCH_TRAFILATURA_ACTION = "web.fetch_with_trafilatura"
+
+_CONSTRAINT_FEEDBACK_BY_REASON = {
+    "invalid_url": prompt_text.WEB_REQUEST_REQUIRES_PUBLIC_HTTPS_URL,
+    "unsupported_url_scheme": prompt_text.WEB_REQUEST_REQUIRES_PUBLIC_HTTPS_URL,
+    "private_network_target": prompt_text.WEB_REQUEST_REQUIRES_PUBLIC_HTTPS_URL,
+    "url_chars_limit_exceeded": prompt_text.WEB_REQUEST_EXCEEDS_A_CONFIGURED_LIMIT,
+    "query_chars_limit_exceeded": prompt_text.WEB_REQUEST_EXCEEDS_A_CONFIGURED_LIMIT,
+    "result_chars_limit_exceeded": prompt_text.WEB_REQUEST_EXCEEDS_A_CONFIGURED_LIMIT,
+    "search_token_limit_exceeded": prompt_text.WEB_REQUEST_EXCEEDS_A_CONFIGURED_LIMIT,
+    "source_bytes_limit_exceeded": prompt_text.WEB_REQUEST_EXCEEDS_A_CONFIGURED_LIMIT,
+    "output_chars_limit_exceeded": prompt_text.WEB_REQUEST_EXCEEDS_A_CONFIGURED_LIMIT,
+    "staged_result_bytes_limit_exceeded": prompt_text.WEB_REQUEST_EXCEEDS_A_CONFIGURED_LIMIT,
+    "unsupported_content_type": prompt_text.WEB_PAGE_CONTENT_TYPE_IS_NOT_SUPPORTED,
+    "invalid_redirect": prompt_text.WEB_REQUEST_CANNOT_FOLLOW_REDIRECT,
+    "redirect_limit_exceeded": prompt_text.WEB_REQUEST_CANNOT_FOLLOW_REDIRECT,
+    "discovery_scope_violation": prompt_text.WEB_DISCOVERY_REQUEST_IS_OUT_OF_SCOPE,
+    "invalid_visit_depth": prompt_text.WEB_DISCOVERY_REQUEST_IS_OUT_OF_SCOPE,
+    "visit_depth_limit_exceeded": prompt_text.WEB_DISCOVERY_REQUEST_IS_OUT_OF_SCOPE,
+    "invalid_path_globs": prompt_text.WEB_DISCOVERY_REQUEST_IS_OUT_OF_SCOPE,
+    "seed_disallowed_by_robots": prompt_text.WEB_DISCOVERY_SEED_IS_DISALLOWED,
+}
+_PROVIDER_FAILURE_REASONS = frozenset(
+    {
+        "provider_output_incomplete",
+        "provider_protocol_invalid",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -98,10 +123,13 @@ class KimiSearchExecutor(ActionExecutor):
                 operations=context.owner_operations,
             )
         except WebProcessTimeout as exc:
-            return _timeout(execution, str(exc), reason=exc.reason)
+            return _timeout(execution, _timeout_feedback(exc.reason), reason=exc.reason)
         except WebProcessingError as exc:
             return _failed(
-                execution, str(exc), reason=exc.reason, frame_data=exc.payload
+                execution,
+                _processing_feedback(exc.reason),
+                reason=exc.reason,
+                frame_data=exc.payload,
             )
         except WebWorkerProtocolError:
             return _failed(
@@ -159,10 +187,13 @@ class WebFetchExecutor(ActionExecutor):
                 operations=context.owner_operations,
             )
         except WebProcessTimeout as exc:
-            return _timeout(execution, str(exc), reason=exc.reason)
+            return _timeout(execution, _timeout_feedback(exc.reason), reason=exc.reason)
         except WebProcessingError as exc:
             return _failed(
-                execution, str(exc), reason=exc.reason, frame_data=exc.payload
+                execution,
+                _processing_feedback(exc.reason),
+                reason=exc.reason,
+                frame_data=exc.payload,
             )
         except WebWorkerProtocolError:
             return _failed(
@@ -218,10 +249,13 @@ class WebDiscoveryExecutor(ActionExecutor):
                 operations=context.owner_operations,
             )
         except WebProcessTimeout as exc:
-            return _timeout(execution, str(exc), reason=exc.reason)
+            return _timeout(execution, _timeout_feedback(exc.reason), reason=exc.reason)
         except WebProcessingError as exc:
             return _failed(
-                execution, str(exc), reason=exc.reason, frame_data=exc.payload
+                execution,
+                _processing_feedback(exc.reason),
+                reason=exc.reason,
+                frame_data=exc.payload,
             )
         except WebWorkerProtocolError:
             return _failed(
@@ -420,6 +454,21 @@ def _success(execution: ActionExecution, payload: JsonObject) -> ActionResult:
         domain=execution.framework.domain,
         payload=payload,
     )
+
+
+def _processing_feedback(reason: str) -> str:
+    if reason in _PROVIDER_FAILURE_REASONS:
+        return prompt_text.WEB_PROVIDER_RETURNED_AN_INVALID_RESULT
+    return _CONSTRAINT_FEEDBACK_BY_REASON.get(
+        reason,
+        prompt_text.WEB_ACTION_COULD_NOT_BE_COMPLETED,
+    )
+
+
+def _timeout_feedback(reason: str) -> str:
+    if reason in {"process_timeout", "deadline_expired"}:
+        return prompt_text.WEB_ACTION_TIMED_OUT
+    return prompt_text.WEB_ACTION_WAS_CANCELLED
 
 
 def _failed(

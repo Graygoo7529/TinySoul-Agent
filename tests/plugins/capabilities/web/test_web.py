@@ -27,6 +27,7 @@ from tinysoul.kernel.action.backends import (
 )
 from tinysoul.kernel.action.catalog.loader import ActionCatalogLoader
 from tinysoul.plugins.capabilities import parse_capabilities_settings
+from tinysoul.prompts.plugins.capabilities import web as prompt_text
 from tinysoul.plugins.capabilities.web.actions import (
     WEB_FETCH_TRAFILATURA_ACTION,
     WEB_SEARCH_KIMI_ACTION,
@@ -528,6 +529,7 @@ async def test_kimi_timeout_returns_model_visible_fallback_disposition(
     assert result.failure is not None
     assert result.failure.reason == "process_timeout"
     assert result.failure.disposition is ActionFailureDisposition.USE_FALLBACK
+    assert result.failure.feedback == prompt_text.WEB_ACTION_TIMED_OUT
     assert result.frame_data == {"executor_leaked": False}
 
 

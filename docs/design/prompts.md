@@ -14,7 +14,7 @@
 
 retrieval/JEV 的选择指令和问题、Web worker 的供应商 system 提示、ACP 引用包装、LLM 的工具结果包装也在内容包中管理，但它们保留各自请求出口，不统一套入 TaskPrompt。
 
-局部失败文本通过既有 TaskFailure、PhaseFailure、ActionLocalFailure 或 owner 的结构化结果进入模型。校验、失败分类、异常捕获、取消与 Runtime bridge 留在原 owner。内容包不接收异常对象，不新增失败枚举、全局恢复策略或空内容降级。仅供存储、SDK、日志和 Runtime 诊断使用的文字不属于提示文案。
+局部失败文本通过既有 TaskFailure、PhaseFailure、ActionLocalFailure 或 owner 的结构化结果进入模型。校验、失败分类、异常捕获、取消与 Runtime bridge 留在原 owner。异常对象的内部 message 不自动成为模型文案；Action 边界明确选择或格式化的配置限制、输入约束、结果说明和执行语义反馈才进入内容包。动态诊断保留在结构化摘要中，不把原始异常或 traceback 传给模型。内容包不接收异常对象，不新增失败枚举、全局恢复策略或空内容降级。仅供存储、SDK、日志和 Runtime 诊断使用的文字不属于提示文案。
 
 ## 独立内容来源
 
