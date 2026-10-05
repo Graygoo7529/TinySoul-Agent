@@ -28,6 +28,7 @@ import {
   questionReplyView,
   type QuestionContent,
   type QuestionDraft,
+  questionReplyViewFromDraft,
 } from "./questionContent";
 
 export function QuestionCard({
@@ -36,6 +37,8 @@ export function QuestionCard({
   item,
   live,
   reply,
+  commentAsBubble = false,
+  onSubmitted,
 }: {
   epoch: number;
   turnId: string | null;
@@ -46,6 +49,9 @@ export function QuestionCard({
   live: TurnQuestion | null;
   /** The formal reply interaction, once it exists. */
   reply: Interaction | null;
+  /** Present a submitted comment as a user bubble below the read-only board. */
+  commentAsBubble?: boolean;
+  onSubmitted?: (draft: QuestionDraft) => void;
 }) {
   const question: QuestionContent | null =
     live !== null
@@ -84,6 +90,8 @@ export function QuestionCard({
       question={question}
       mode={mode}
       reply={reply}
+      commentAsBubble={commentAsBubble}
+      onSubmitted={onSubmitted}
     />
   );
 }
@@ -99,6 +107,8 @@ function StatefulQuestionCard({
   question,
   mode,
   reply,
+  commentAsBubble = false,
+  onSubmitted,
 }: {
   epoch: number;
   turnId: string | null;
@@ -106,9 +116,12 @@ function StatefulQuestionCard({
   question: QuestionContent;
   mode: QuestionFormMode;
   reply: Interaction | null;
+  commentAsBubble?: boolean;
+  onSubmitted?: (draft: QuestionDraft) => void;
 }): ReactElement | null {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [submittedDraft, setSubmittedDraft] = useState<QuestionDraft | null>(null);
 
   const onSubmit = async (draft: QuestionDraft) => {
     if (mode !== "active" || turnId === null || questionId === null) return;
@@ -134,7 +147,11 @@ function StatefulQuestionCard({
         : (draft.text ?? "");
     try {
       await replyToQuestion(epoch, turnId, questionId, answer, displayText);
-      // The formal projection converges the card into its read-only state.
+      // Show the committed local answer immediately; the formal projection
+      // later replaces this temporary view without changing the protocol.
+      setSubmittedDraft(draft);
+      setSubmitting(false);
+      onSubmitted?.(draft);
     } catch (failure) {
       // The draft stays; the error sits next to the submit control.
       setError(failure instanceof Error ? failure.message : String(failure));
@@ -142,15 +159,29 @@ function StatefulQuestionCard({
     }
   };
 
+  const effectiveMode: QuestionFormMode = submittedDraft !== null && mode === "active" ? "readonly" : mode;
+  const effectiveReply = submittedDraft !== null
+    ? questionReplyViewFromDraft(submittedDraft)
+    : questionReplyView(reply);
   return (
-    <QuestionForm
+    <>
+      <QuestionForm
       question={question}
-      mode={mode}
-      reply={questionReplyView(reply)}
+      mode={effectiveMode}
+      reply={effectiveReply}
       submitting={submitting}
       error={error}
       groupName={questionId !== null ? `question-${questionId}` : undefined}
       onSubmit={(draft) => void onSubmit(draft)}
-    />
+      showReplyComment={!commentAsBubble}
+      />
+      {commentAsBubble && effectiveMode === "readonly" && effectiveReply?.comment && (
+        <div className="mt-2 flex justify-end">
+          <div className="bubble-user max-w-[88%] rounded-2xl rounded-tr-sm px-3.5 py-2 text-[13px] leading-5 whitespace-pre-wrap">
+            {effectiveReply.comment}
+          </div>
+        </div>
+      )}
+    </>
   );
 }

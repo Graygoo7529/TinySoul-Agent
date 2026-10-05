@@ -54,7 +54,8 @@ export function asStringArray(value: unknown): string[] {
 /** Compact action text shared by the live feed and trace, derived only from recorded facts. */
 export function actionTarget(params: JsonObject | null): string | null {
   if (!params) return null;
-  return asString(params.command) ?? asString(params.link) ?? asString(params.ref) ??
+  return asString(params.command) ?? asString(params.target_link) ?? asString(params.source_link) ??
+    asString(params.cwd_link) ?? asString(params.link) ?? asString(params.ref) ??
     asString(asObject(params.source)?.query) ?? asString(params.query) ?? asString(params.path);
 }
 

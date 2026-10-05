@@ -38,3 +38,31 @@ it("adapts ordered v2 edits to the original diff rows and retains failure feedba
   expect(host.textContent).toBe("Resource missing");
   expect(glimpseBody(result({ actionId: "core.answer", payload: { text: "Already shown in chat" } }))).toBeNull();
 });
+
+it("keeps the result preview grounded in the returned write facts", () => {
+  act(() => root.render(glimpseBody(result({
+    actionId: "workspace.edit",
+    params: { edits: [{ old_text: "old", new_text: "new" }] },
+    payload: { changed: true, written: 42, link: "workspace:notes.md", summary: "Saved" },
+  }))));
+  expect(host.textContent).toContain("changed");
+  expect(host.textContent).toContain("42 written");
+  expect(host.textContent).toContain("workspace:notes.md");
+  expect(host.textContent).not.toContain("+ new");
+});
+
+it("labels Memory character counts and Home resource sizes with their actual units", () => {
+  act(() => root.render(glimpseBody(result({
+    actionId: "memory.memorize",
+    payload: { ref: "memory:current", changed: true, chars: 126 },
+  }))));
+  expect(host.textContent).toContain("126 chars");
+  expect(host.textContent).not.toContain("126 bytes");
+
+  act(() => root.render(glimpseBody(result({
+    actionId: "home.resource.write",
+    payload: { link: "home:agent/resources/guide.md", size: 240 },
+  }))));
+  expect(host.textContent).toContain("240 chars");
+  expect(host.textContent).not.toContain("240 bytes");
+});

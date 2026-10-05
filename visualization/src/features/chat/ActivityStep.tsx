@@ -27,7 +27,7 @@ import { Markdown } from "../../components/markdown/Markdown";
 import { activityColors, activityIcons, DomainChip, LinkChip } from "../../components/trace/semantic";
 import { useTruncated } from "../../hooks/useTruncated";
 import { useHoldChatFollow } from "./useConversationScroll";
-import { actionTarget, asObject } from "../trace/facts";
+import { actionResultSummary, actionTarget, asObject } from "../trace/facts";
 
 export function ActivityStep({
   item,
@@ -121,13 +121,14 @@ function StepBody({ item }: { item: ActivityStepType }) {
     case "control_failure":
       return <div className="text-[12px] text-warning"><span className="font-mono">{content.operation}</span>: {content.feedback}</div>;
     case "action_plan":
-      return <ActionPlanBody actionId={content.glimpse.actionId} domain={content.glimpse.domain} target={actionTarget(asObject(content.glimpse.params))} />;
+      return <ActionPlanBody actionId={content.glimpse.actionId} domain={content.glimpse.domain}
+        target={actionTarget(asObject(content.glimpse.params))} params={asObject(content.glimpse.params)} />;
     case "action_result":
       return (
         <ActionResultBody
           actionId={content.glimpse.actionId}
           status={content.glimpse.result?.status}
-          preview={content.glimpse.result?.preview}
+          preview={content.glimpse.result?.preview ?? actionResultSummary(asObject(content.glimpse.payload))}
         />
       );
     case "provider_retry":
@@ -199,15 +200,26 @@ function ResourceBody({ label, refs }: { label: string; refs: string[] }) {
   </div>;
 }
 
-function ActionPlanBody({ actionId, domain, target }: { actionId: string; domain: string; target: string | null }) {
+function ActionPlanBody({ actionId, domain, target, params }: { actionId: string; domain: string; target: string | null; params: Record<string, unknown> | null }) {
   const shortName = actionId.includes(".") ? actionId.split(".").slice(1).join(".") : actionId;
+  const detail = actionPlanDetail(actionId, params);
   return (
     <div className="flex min-w-0 items-baseline gap-2">
       <span className="truncate text-[12px] font-medium text-fg">{shortName}</span>
       <span className="shrink-0 font-mono text-[11px] text-fg-faint">{domain}</span>
       {target && <span className="min-w-0 truncate text-[11px] text-fg-muted" title={target}>{target}</span>}
+      {detail && <span className="shrink-0 text-[11px] text-fg-faint">{detail}</span>}
     </div>
   );
+}
+
+function actionPlanDetail(actionId: string, params: Record<string, unknown> | null): string | null {
+  if (!params) return null;
+  if (actionId === "workspace.edit" && Array.isArray(params.edits)) return `${params.edits.length} edits`;
+  if (actionId === "memory.memorize" && Array.isArray(params.operations)) return `${params.operations.length} operations`;
+  if (actionId.endsWith(".search") && typeof params.limit === "number") return `up to ${params.limit}`;
+  if (typeof params.page_size === "number") return `page size ${params.page_size}`;
+  return null;
 }
 
 function ActionResultBody({

@@ -525,9 +525,8 @@ describe("ChatView: snapshot-driven waiting cards", () => {
     // The interaction read hangs; the snapshot alone drives the waiting area.
     const gate = deferred<void>();
     let page = makeInteractionsPage();
-    endpoint.get("/v2/turns/contract-turn", () =>
-      jsonResponse(waitingSnapshot()),
-    );
+    let liveSnapshot: TurnSnapshot = waitingSnapshot();
+    endpoint.get("/v2/turns/contract-turn", () => jsonResponse(liveSnapshot));
     endpoint.get("/v2/turns/contract-turn/interactions", async () => {
       await gate.promise;
       return jsonResponse(page);
@@ -564,10 +563,9 @@ describe("ChatView: snapshot-driven waiting cards", () => {
     // Still draining — but the question card and the budget card are live.
     expect(turnState().loading).toBe(true);
     expect(container.textContent).not.toContain("Loading the conversation…");
-    expect(
-      container.querySelectorAll('[data-question-form="active"]'),
-    ).toHaveLength(1);
+    expect(container.querySelectorAll('[data-question-form="active"]')).toHaveLength(1);
     expect(container.querySelectorAll('input[type="radio"]')).toHaveLength(1);
+    expect(container.querySelector('[data-waiting-dock]')).not.toBeNull();
     expect(container.textContent).toContain("waiting for more budget");
 
     // The card submits against the snapshot's question right away.
@@ -588,8 +586,15 @@ describe("ChatView: snapshot-driven waiting cards", () => {
       answer: { kind: "choice", option_id: "a" },
     });
 
+    // The runtime may clear its waiting question before the interaction page
+    // carrying the formal reply arrives. Keep the submitted board visible.
+    liveSnapshot = { ...liveSnapshot, question: null };
+    act(() => useTurnStore.getState().applySnapshot(liveSnapshot));
+    expect(container.querySelector('[data-waiting-dock]')).not.toBeNull();
+    expect(container.querySelector('[data-question-form="readonly"]')).not.toBeNull();
+
     // The formal agent.question arrives (still unanswered): the same single
-    // card stays — the interaction row joins it, never a second form.
+    // question row stays hidden while the accepted local reply is retained.
     page = makeInteractionsPage({
       items: [{ ...questionInteractionFixture(), answered: false }],
     });
@@ -602,10 +607,9 @@ describe("ChatView: snapshot-driven waiting cards", () => {
       for (let i = 0; i < 10; i += 1) await Promise.resolve();
     });
     expect(turnState().loading).toBe(false);
-    expect(
-      container.querySelectorAll('[data-question-form="active"]'),
-    ).toHaveLength(1);
-    expect(container.querySelectorAll('input[type="radio"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-question-form="active"]')).toHaveLength(0);
+    expect(container.querySelectorAll('[data-question-form="readonly"]')).toHaveLength(1);
+    expect(container.querySelectorAll('input[type="radio"]')).toHaveLength(0);
 
     // The formal reply settles the card into its read-only state.
     page = makeInteractionsPage({
@@ -617,6 +621,10 @@ describe("ChatView: snapshot-driven waiting cards", () => {
     });
     expect(container.querySelectorAll('input[type="radio"]')).toHaveLength(0);
     expect(container.textContent).toContain("answered");
+    expect(container.textContent).toContain("Execute");
+    expect(container.textContent).not.toContain("Execute (a)");
+    expect(Array.from(container.querySelectorAll(".bubble-user")).some((bubble) => bubble.textContent === "Proceed")).toBe(true);
+    expect(container.querySelector('[data-waiting-dock]')).toBeNull();
     expect(turnState().outgoing).toEqual([]);
   });
 });

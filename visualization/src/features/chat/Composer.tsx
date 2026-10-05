@@ -67,7 +67,7 @@ export function Composer() {
       <div className="mx-auto max-w-3xl">
         <div className={`composer-box rounded-xl border transition-[border-color,box-shadow] ${
           readOnly ? "border-line bg-bg opacity-60"
-            : "border-line-strong bg-bg-elev shadow-card focus-within:border-accent focus-within:shadow-(--focus-ring)"
+            : "border-line-strong bg-bg-elev shadow-card focus-within:border-accent focus-within:shadow-(--focus-glow)"
         }`}>
           <div className="flex items-start px-3.5 pt-3 pb-1">
             <span className="composer-prompt mr-2 leading-6 select-none" aria-hidden="true">›</span>

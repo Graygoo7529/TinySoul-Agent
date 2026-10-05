@@ -186,11 +186,13 @@ export function HomeContentView({
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
+          <div className="reading-column mx-auto w-full max-w-[76ch]">
           <ChunkedMarkdown
             items={page.items}
             fragment={fragment}
             origin={{ link, homeView: view }}
           />
+          </div>
         </div>
       )}
 

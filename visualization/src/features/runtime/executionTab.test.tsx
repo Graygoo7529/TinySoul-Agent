@@ -124,14 +124,14 @@ describe("ExecutionTab", () => {
     await flush();
 
     expect(container.textContent).toContain("Execution failure");
-    expect(container.textContent).toContain("After-finish diagnostics");
+    expect(container.textContent).toContain("Finish and cleanup diagnostics");
     // The failure body is open; the after-finish diagnostics stay collapsed
     // until asked for — related, but never one merged red box.
     expect(container.textContent).toContain("turn.budget_exhausted");
     expect(container.textContent).not.toContain("session.commit_failed");
 
     const header = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("After-finish diagnostics"),
+      (button) => button.textContent?.includes("Finish and cleanup diagnostics"),
     );
     await act(async () => (header as HTMLButtonElement).click());
     expect(container.textContent).toContain("Raised while finishing");

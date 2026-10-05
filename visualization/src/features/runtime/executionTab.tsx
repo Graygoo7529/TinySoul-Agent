@@ -176,7 +176,7 @@ function ResultCard({ result }: { result: TurnResult }): ReactElement {
       )}
       {hasCleanup && (
         <Collapsible
-          title="After-finish diagnostics"
+          title="Finish and cleanup diagnostics"
           meta={
             <Badge tone="yellow">
               {(result.finish_failures?.length ?? 0) + (result.cleanup?.length ?? 0)}

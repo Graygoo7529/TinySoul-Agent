@@ -59,7 +59,7 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
 import { conversationOrigin } from "../../components/markdown/origin";
 import { Composer } from "./Composer";
-import { AgentRow, BudgetCard, InteractionRow, TurnFooter, UserBubble, WaitingQuestionCard } from "./ConversationRows";
+import { AgentRow, BudgetCard, InteractionRow, TurnFooter, UserBubble } from "./ConversationRows";
 import { registerQuestionBlock } from "./questionBlock";
 import { LiveStatus } from "./LiveStatus";
 import { useTurnPresentation } from "./useTurnPresentation";
@@ -67,6 +67,7 @@ import { ChatFollowContext, useConversationScroll } from "./useConversationScrol
 import { useActivityDetails } from "./useActivityDetails";
 import type { TurnPresentation, WorkingState } from "./presentation";
 import { ReflectionTurn } from "./ReflectionTurn";
+import { WaitingResponseDock } from "./WaitingResponseDock";
 
 // The chat feature's assembly: the question fence protocol joins the
 // CodeBlockRegistry (plan §21.1 explicit composition).
@@ -76,9 +77,10 @@ type ChatViewMode = "live" | "history";
 
 export function ChatView() {
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="relative flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1"><ConversationView /></div>
       <Composer />
+      <WaitingResponseDock />
     </div>
   );
 }
@@ -134,8 +136,9 @@ function CurrentTurnControls() {
   const turnId = useTurnStore((s) => s.turnId);
   const snapshot = useTurnStore((s) => s.snapshot);
   return <>{pending.map((item) => <PendingRow key={item.record_id} item={item} />)}
-    {outgoing.filter((echo) => echo.kind !== "new-turn" && echo.turnId === turnId).map((echo) => <EchoRow key={echo.echoId} echo={echo} />)}
-    <WaitingQuestionCard /><BudgetCard snapshot={snapshot} /></>;
+    {outgoing.filter((echo) => echo.kind !== "new-turn" && echo.turnId === turnId &&
+      (echo.kind !== "reply" || echo.state === "failed")).map((echo) => <EchoRow key={echo.echoId} echo={echo} />)}
+    <BudgetCard snapshot={snapshot} /></>;
 }
 
 // One persistent scroll container for the active day and explicit history reads.

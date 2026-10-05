@@ -71,9 +71,8 @@ export function glimpseBody(data: ActionGlimpseData) {
     const feedback = asString(data.failure?.feedback) ?? data.result.preview;
     return feedback ? <div className="line-clamp-2 text-[11px] text-danger">{feedback}</div> : null;
   }
-  if (patches.length) return <div className="space-y-1">{patches.map((patch, i) =>
-    <DiffGlimpse key={i} oldText={asString(patch.old_text) ?? ""} newText={asString(patch.new_text) ?? ""} statOnly />)}</div>;
   if (!payload) return null;
+  if (family === "write") return <WriteResultGlimpse actionId={data.actionId} payload={payload} />;
   if (family === "execution") return <TerminalGlimpse payload={payload} />;
   const items = Array.isArray(payload.items) ? payload.items : Array.isArray(payload.results) ? payload.results : [];
   if (items.length) return <div className="space-y-0.5">{items.slice(0, SEARCH_GLIMPSE_ITEMS).map((raw, i) => {
@@ -92,6 +91,37 @@ export function glimpseBody(data: ActionGlimpseData) {
     {title && <div className="truncate text-[11px] font-medium text-fg">{title}</div>}
     {text && <div className="line-clamp-2 break-words text-[11px] text-fg-muted">{text}</div>}
   </div> : null;
+}
+
+function WriteResultGlimpse({ actionId, payload }: { actionId: string; payload: Record<string, unknown> }) {
+  const link = asString(payload.link) ?? asString(payload.ref) ?? asString(payload.path);
+  const changed = typeof payload.changed === "boolean" ? payload.changed : null;
+  const written = asNumber(payload.written);
+  const isHome = actionId.startsWith("home.");
+  const chars = asNumber(payload.chars) ?? (isHome ? asNumber(payload.size) : null);
+  const bytes = asNumber(payload.bytes) ?? (!isHome ? asNumber(payload.size) : null);
+  const operations = Array.isArray(payload.operations) ? payload.operations.length : null;
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  const operation = asString(payload.operation) ?? (changed === true ? "changed" : changed === false ? "unchanged" : payload.written === true || written !== null ? "written" : operations !== null ? `${operations} operations` : chars !== null || bytes !== null ? "updated" : null);
+  const detail = asString(payload.summary) ?? asString(payload.message);
+  if (!link && !operation && written === null && chars === null && bytes === null && !detail && items.length === 0) return null;
+  return <div className="min-w-0 text-[11px]">
+    <div className="flex min-w-0 items-center gap-2">
+      <span className={changed === false ? "text-fg-muted" : "text-success"}>{operation ?? "completed"}</span>
+      {written !== null && <span className="font-mono text-fg-faint">{written} written</span>}
+      {chars !== null && <span className="font-mono text-fg-faint">{chars} chars</span>}
+      {bytes !== null && <span className="font-mono text-fg-faint">{bytes} bytes</span>}
+      {link && <span className="truncate text-fg-muted" title={link}>{link}</span>}
+    </div>
+    {detail && <div className="line-clamp-1 text-fg-muted">{detail}</div>}
+    {items.length > 0 && <div className="mt-0.5 space-y-0.5">
+      {items.slice(0, SEARCH_GLIMPSE_ITEMS).map((raw, index) => {
+        const item = asObject(raw);
+        const label = asString(item?.title) ?? asString(item?.ref) ?? asString(item?.link) ?? asString(item?.path);
+        return label ? <div key={index} className="truncate text-fg-muted">{label}</div> : null;
+      })}
+    </div>}
+  </div>;
 }
 
 /** Original two-line terminal tail and six-line manual expansion, using v2 streams. */

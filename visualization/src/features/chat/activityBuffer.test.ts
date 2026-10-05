@@ -62,6 +62,18 @@ describe("ActivityBuffer v2 event projection", () => {
     });
   });
 
+  it("keeps action facts chronological while presenting the newest result above its plan", () => {
+    const buffer = new ActivityBuffer("turn-1");
+    buffer.loadEvents([
+      event("action.call", { action: "workspace.edit", domain: "workspace", call_id: "call-1", params: { path: "notes.md" } }, 1),
+      event("action.result", { action: "workspace.edit", call_id: "call-1", status: "success", payload: { changed: true } }, 2),
+    ]);
+    const trail = buffer.toPresentation("2026-10-03").trail;
+    expect(trail.map((step) => step.content.type)).toEqual(["action_plan", "action_result"]);
+    expect(activityGroups(trail, "Actions").flatMap((group) => group.items.map((step) => step.content.type)))
+      .toEqual(["action_result", "action_plan"]);
+  });
+
   it("retains released trail history, deduplicates replay and preserves failed outcomes", () => {
     const buffer = new ActivityBuffer("turn-1");
     const events = Array.from({ length: 20 }, (_, index) => event("action.call", {

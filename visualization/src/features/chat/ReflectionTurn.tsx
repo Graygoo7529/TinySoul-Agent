@@ -7,7 +7,7 @@ import { useTurnStore } from "../../store/turnStore";
 import { Button } from "../../components/ui/Button";
 import { Markdown } from "../../components/markdown/Markdown";
 import { openTurnProcess } from "../trace/entries";
-import { AgentRow, BudgetCard, InteractionRow, UserBubble, WaitingQuestionCard } from "./ConversationRows";
+import { AgentRow, BudgetCard, InteractionRow, UserBubble } from "./ConversationRows";
 import { useTurnPresentation } from "./useTurnPresentation";
 import { useActivityDetails } from "./useActivityDetails";
 import { LiveStatus } from "./LiveStatus";
@@ -64,8 +64,8 @@ export function ReflectionTurn({ epoch, summary, projection, latest }: {
       {items.filter((item) => item.role === "agent.question" || item.role === "user.reply").map((item) =>
         <InteractionRow key={item.id} item={item} fresh={false} view="live" turnId={id} nested
           origin={{ turnId: id, day: day ?? undefined, view: "live" }} />)}
-      {outgoing.filter((echo) => echo.turnId === id).map((echo) => <UserBubble key={echo.echoId} text={echo.text} pending={echo.state === "failed" ? undefined : echo.state} />)}
-      <WaitingQuestionCard targetId={id} /><BudgetCard snapshot={snapshot} />
+      {outgoing.filter((echo) => echo.turnId === id && (echo.kind !== "reply" || echo.state === "failed")).map((echo) => <UserBubble key={echo.echoId} text={echo.text} pending={echo.state === "failed" ? undefined : echo.state} />)}
+      <BudgetCard snapshot={snapshot} />
       {!active && <ReflectionResult result={result ?? null} status={result?.status ?? summary.status} />}
       <div className="flex items-center justify-end gap-2">
         {active && <Button variant="ghost" size="xs" disabled={snapshot?.cancel_requested}

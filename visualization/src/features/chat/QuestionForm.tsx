@@ -31,6 +31,7 @@ export function QuestionForm({
   reply = null,
   submitting = false,
   error = null,
+  showReplyComment = true,
   groupName,
   onSubmit,
   onCompose,
@@ -40,6 +41,8 @@ export function QuestionForm({
   reply?: QuestionReplyView | null;
   submitting?: boolean;
   error?: string | null;
+  /** Read-only cards can move the optional comment into a user bubble. */
+  showReplyComment?: boolean;
   /** Radio group name; defaults to a per-instance id. */
   groupName?: string;
   onSubmit?: (draft: QuestionDraft) => void;
@@ -139,7 +142,7 @@ export function QuestionForm({
                 className="mt-2 h-8 w-full rounded-lg border border-line bg-bg-elev px-3 text-[13px] outline-none focus-ring focus:border-accent"
               />
             )}
-            {mode === "active" && selected !== null && (
+            {mode === "active" && question.options.length > 0 && (
               <input
                 value={comment}
                 onChange={(event) => setComment(event.target.value)}
@@ -164,7 +167,7 @@ export function QuestionForm({
                 Added to the composer draft — review and send it there.
               </div>
             )}
-            {reply?.comment && (
+            {showReplyComment && reply?.comment && (
               <div className="mt-2 text-[12px] break-words whitespace-pre-wrap text-fg-muted">
                 {reply.comment}
               </div>
@@ -254,7 +257,7 @@ function OptionRow({
       <label
         className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-[13px] transition-colors ${
           selected
-            ? "border-accent bg-accent-soft"
+            ? "border-accent bg-accent-soft shadow-(--selection-glow)"
             : "border-line bg-bg-elev hover:border-line-strong"
         }`}
       >

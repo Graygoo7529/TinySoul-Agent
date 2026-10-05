@@ -49,21 +49,22 @@ function ResourceCard({ item, expanded, onToggle, origin }: {
 }) {
   const body = resourceBody(item);
   const title = item.title && item.title !== item.ref ? item.title : body.text.match(/^#\s+(.+)$/m)?.[1] ?? item.ref;
-  const long = body.text.length > 500 || body.text.split("\n").length > 8;
+  const summary = body.text.split("\n").map((line) => line.trim()).find((line) => line.length > 0 && !line.startsWith("#")) ?? "";
   const source = { default: "默认", automatic: "自动", phase1: "按需" }[item.source];
   return <article className="overflow-hidden rounded-xl border border-line bg-bg-elev shadow-card">
-    <div className="border-b border-line/60 px-3 py-2">
-      <div className="flex items-baseline gap-2"><span className="min-w-0 flex-1 truncate text-[12px] font-medium">{title}</span>
-        <span className="text-[10px] text-fg-faint">{source}</span></div>
-      <div className="truncate font-mono text-[10px] text-fg-faint" title={item.ref}>{item.ref}</div>
-    </div>
-    <div className={`relative px-3 py-2 ${long && !expanded ? "max-h-40 overflow-hidden" : ""}`}>
+    <button type="button" className="block w-full text-left px-3 py-2.5 hover:bg-hover" onClick={onToggle} aria-expanded={expanded}>
+      <div className="flex items-center gap-2">
+        {expanded ? <ChevronDown size={13} className="shrink-0 text-accent" /> : <ChevronRight size={13} className="shrink-0 text-fg-faint" />}
+        <span className="min-w-0 flex-1 truncate text-[12px] font-medium">{title}</span>
+        <span className="shrink-0 text-[10px] text-fg-faint">{source} · {body.text.length} 字</span>
+      </div>
+      <div className="mt-1 truncate pl-5 font-mono text-[10px] text-fg-faint" title={item.ref}>{item.ref}</div>
+      {!expanded && summary && <div className="mt-1 line-clamp-1 pl-5 text-[11px] text-fg-muted">{summary}</div>}
+    </button>
+    {expanded && <div className="border-t border-line/60 px-3 py-2">
       {body.day && <div className="mb-1 text-[10px] text-fg-faint">{body.day}</div>}
       <Markdown origin={{ ...origin, link: body.link ?? origin.link }} className="md-calm text-[12px]">{body.text}</Markdown>
-      {long && !expanded && <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-bg-elev to-transparent" />}
-    </div>
-    {long && <button className="flex w-full items-center gap-1 border-t border-line/50 px-3 py-1.5 text-[11px] text-accent hover:bg-hover"
-      onClick={onToggle}>{expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}{expanded ? "收起" : "展开全文"}</button>}
+    </div>}
   </article>;
 }
 

@@ -134,3 +134,10 @@ export function questionReplyView(reply: Interaction | null): QuestionReplyView 
   }
   return null;
 }
+
+/** Convert the local draft into the same read-only shape used by formal replies. */
+export function questionReplyViewFromDraft(draft: QuestionDraft): QuestionReplyView {
+  return draft.kind === "choice"
+    ? { optionId: draft.optionId ?? null, text: null, comment: draft.comment ?? null }
+    : { optionId: null, text: draft.text ?? null, comment: null };
+}

@@ -60,28 +60,51 @@ export function ChunkedMarkdown({
     if (target === null) return -1;
     return items.findIndex((item) => fragmentHits(item.ref, target));
   }, [items, target]);
+  const groups = useMemo(() => {
+    const result: Array<{ base: string; items: ContentChunk[]; start: number; end: number }> = [];
+    items.forEach((item, index) => {
+      const base = splitFragment(item.ref).resource;
+      const previous = result[result.length - 1];
+      if (previous?.base === base && previous.end === index - 1) {
+        previous.items.push(item);
+        previous.end = index;
+      } else {
+        result.push({ base, items: [item], start: index, end: index });
+      }
+    });
+    return result;
+  }, [items]);
+  const hitGroupIndex = useMemo(() => groups.findIndex((group) =>
+    hitIndex >= group.start && hitIndex <= group.end), [groups, hitIndex]);
   const locatedRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     locatedRef.current?.scrollIntoView({ block: "center" });
-  }, [hitIndex, items.length]);
+  }, [hitGroupIndex, items.length]);
 
   return (
     <div className="space-y-1">
-      {items.map((item, index) => {
-        const located = index === hitIndex;
+      {groups.map((group, groupIndex) => {
+        const located = groupIndex === hitGroupIndex;
         return (
           <div
-            key={`${item.ref}:${index}`}
+            key={`${group.base}:${group.start}`}
             ref={located ? locatedRef : undefined}
-            data-chunk-ref={item.ref}
+            data-chunk-ref={group.items[0].ref}
+            data-chunk-refs={group.items.map((item) => item.ref).join(" ")}
             className={
               located
                 ? "rounded-lg bg-accent-soft/50 px-3 py-1 ring-1 ring-accent/40"
                 : "px-3 py-1"
             }
           >
-            <Markdown origin={origin}>{item.text}</Markdown>
+            {group.items.slice(1).map((item, offset) => {
+              const itemIndex = group.start + offset + 1;
+              return <div key={item.ref} data-chunk-ref={item.ref}
+                className={itemIndex === hitIndex ? "sr-only ring-1 ring-accent" : "sr-only"}
+                aria-hidden="true">{item.text}</div>;
+            })}
+            <Markdown origin={origin}>{group.items.map((item) => item.text).join("")}</Markdown>
           </div>
         );
       })}

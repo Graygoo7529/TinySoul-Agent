@@ -74,6 +74,11 @@ export function InteractionRow({
   turnId: string | null;
   nested?: boolean;
 }) {
+  const projectionItems = useTurnStore((s) =>
+    turnId !== null && turnId !== s.turnId
+      ? s.runtimeProjections[turnId]?.items ?? s.sessionProjections[turnId]?.items ?? s.items
+      : s.items,
+  );
   // The answer card runs its own materialization; every other fresh row
   // fades in once. Restored content renders instantly.
   const wrapper = (node: ReactElement) =>
@@ -83,7 +88,9 @@ export function InteractionRow({
     case "user.append":
       return wrapper(<UserBubble text={item.text ?? ""} />);
     case "user.reply":
-      return wrapper(<UserBubble text={replyDisplayText(item)} label="Reply" />);
+      if (projectionItems.some((candidate) => candidate.role === "agent.question" &&
+        candidate.question_id === item.question_id)) return null;
+      return wrapper(<UserBubble text={replyDisplayText(item, projectionItems)} label="Reply" />);
     case "agent.output":
       return nested ? <AnswerCard text={item.text ?? ""} stream={fresh} origin={origin} />
         : <AgentOutput text={item.text ?? ""} stream={fresh} origin={origin} />;
@@ -126,17 +133,30 @@ export function UserBubble({ text, label, delivery, pending, failed = false }: {
 
 /** Canonical reply text is "Label (id)\nDescription\nComment"; prefer the
     structured answer for a compact bubble. */
-function replyDisplayText(item: Interaction): string {
+function replyDisplayText(item: Interaction, items: Interaction[]): string {
   const answer = item.answer;
   if (
     typeof answer === "object" &&
     answer !== null &&
     (answer as { kind?: unknown }).kind === "choice"
   ) {
-    const choice = answer as { option_id?: unknown; comment?: unknown };
+    const choice = answer as { option_id?: unknown; option_label?: unknown; comment?: unknown };
     const comment = typeof choice.comment === "string" ? choice.comment : "";
-    const option = typeof choice.option_id === "string" ? choice.option_id : "";
-    return comment ? `${option}\n${comment}` : option || (item.text ?? "");
+    const optionId = typeof choice.option_id === "string" ? choice.option_id : "";
+    const question = items.find((candidate) =>
+      candidate.role === "agent.question" && candidate.question_id === item.question_id,
+    );
+    const options = question !== undefined
+      ? (question as Interaction & { options?: unknown }).options
+      : null;
+    const option = typeof choice.option_label === "string"
+      ? choice.option_label
+      : Array.isArray(options)
+      ? (options.find((candidate) => typeof candidate === "object" && candidate !== null &&
+          (candidate as { id?: unknown }).id === optionId) as { label?: unknown } | undefined)?.label
+      : null;
+    const shown = typeof option === "string" ? option : optionId;
+    return comment ? `${shown}\n${comment}` : shown || (item.text ?? "");
   }
   if (
     typeof answer === "object" &&
@@ -258,7 +278,7 @@ function AgentReason({ text, origin, nested }: { text: string; origin: MarkdownO
  * card; the formal interaction row with the same question_id stays hidden so
  * the two projections never produce two submittable forms.
  */
-function useLiveWaitingQuestion(targetId?: string | null): TurnQuestion | null {
+export function useLiveWaitingQuestion(targetId?: string | null): TurnQuestion | null {
   const historyView = useTurnStore((s) => s.historyView);
   const snapshot = useTurnStore((s) => targetId && targetId !== s.turnId ? s.runtimeProjections[targetId]?.snapshot : s.snapshot);
   const items = useTurnStore((s) => targetId && targetId !== s.turnId ? s.runtimeProjections[targetId]?.items : s.items) ?? [];
@@ -302,9 +322,12 @@ function QuestionRow({ item, turnId, view }: { item: Interaction; turnId: string
   const liveQuestion = useLiveWaitingQuestion(turnId);
 
   const questionId = typeof item.question_id === "string" ? item.question_id : null;
+  const replyPending = useTurnStore((s) => s.outgoing.some((echo) =>
+    echo.kind === "reply" && echo.questionId === questionId && echo.state !== "failed",
+  ));
   // The waiting area renders the live question's single card; this formal
   // row joins the flow once the reply (or the lapsed wait) settles it.
-  if (view === "live" && liveQuestion !== null && questionId === liveQuestion.question_id) {
+  if (view === "live" && ((liveQuestion !== null && questionId === liveQuestion.question_id) || replyPending)) {
     return null;
   }
   const reply =
@@ -322,6 +345,7 @@ function QuestionRow({ item, turnId, view }: { item: Interaction; turnId: string
       item={item}
       live={null}
       reply={reply}
+      commentAsBubble={view === "live"}
     />
   );
 }
