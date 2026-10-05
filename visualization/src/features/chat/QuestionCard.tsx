@@ -37,7 +37,6 @@ export function QuestionCard({
   item,
   live,
   reply,
-  commentAsBubble = false,
   onSubmitted,
 }: {
   epoch: number;
@@ -49,8 +48,6 @@ export function QuestionCard({
   live: TurnQuestion | null;
   /** The formal reply interaction, once it exists. */
   reply: Interaction | null;
-  /** Present a submitted comment as a user bubble below the read-only board. */
-  commentAsBubble?: boolean;
   onSubmitted?: (draft: QuestionDraft) => void;
 }) {
   const question: QuestionContent | null =
@@ -90,7 +87,6 @@ export function QuestionCard({
       question={question}
       mode={mode}
       reply={reply}
-      commentAsBubble={commentAsBubble}
       onSubmitted={onSubmitted}
     />
   );
@@ -107,7 +103,6 @@ function StatefulQuestionCard({
   question,
   mode,
   reply,
-  commentAsBubble = false,
   onSubmitted,
 }: {
   epoch: number;
@@ -116,7 +111,6 @@ function StatefulQuestionCard({
   question: QuestionContent;
   mode: QuestionFormMode;
   reply: Interaction | null;
-  commentAsBubble?: boolean;
   onSubmitted?: (draft: QuestionDraft) => void;
 }): ReactElement | null {
   const [submitting, setSubmitting] = useState(false);

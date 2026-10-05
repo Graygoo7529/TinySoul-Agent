@@ -152,7 +152,6 @@ export function WaitingResponseDock() {
                   item={null}
                   live={question}
                   reply={null}
-                  commentAsBubble
                   onSubmitted={(_draft: QuestionDraft) => {
                     setSubmitted({ targetId, question });
                     // Auto-collapse after submit

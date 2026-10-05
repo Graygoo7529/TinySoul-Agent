@@ -345,7 +345,6 @@ function QuestionRow({ item, turnId, view }: { item: Interaction; turnId: string
       item={item}
       live={null}
       reply={reply}
-      commentAsBubble={view === "live"}
     />
   );
 }
