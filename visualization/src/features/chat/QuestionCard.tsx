@@ -164,8 +164,7 @@ function StatefulQuestionCard({
     ? questionReplyViewFromDraft(submittedDraft)
     : questionReplyView(reply);
   return (
-    <>
-      <QuestionForm
+    <QuestionForm
       question={question}
       mode={effectiveMode}
       reply={effectiveReply}
@@ -173,15 +172,7 @@ function StatefulQuestionCard({
       error={error}
       groupName={questionId !== null ? `question-${questionId}` : undefined}
       onSubmit={(draft) => void onSubmit(draft)}
-      showReplyComment={!commentAsBubble}
-      />
-      {commentAsBubble && effectiveMode === "readonly" && effectiveReply?.comment && (
-        <div className="mt-2 flex justify-end">
-          <div className="bubble-user max-w-[88%] rounded-2xl rounded-tr-sm px-3.5 py-2 text-[13px] leading-5 whitespace-pre-wrap">
-            {effectiveReply.comment}
-          </div>
-        </div>
-      )}
-    </>
+      showReplyComment={false}
+    />
   );
 }

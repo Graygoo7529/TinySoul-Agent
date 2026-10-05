@@ -76,10 +76,12 @@ registerQuestionBlock();
 type ChatViewMode = "live" | "history";
 
 export function ChatView() {
+  const pendingQuestion = useTurnStore(selectPendingQuestion);
+
   return (
     <div className="relative flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1"><ConversationView /></div>
-      <Composer />
+      {!pendingQuestion && <Composer />}
       <WaitingResponseDock />
     </div>
   );

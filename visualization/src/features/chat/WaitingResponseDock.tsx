@@ -99,6 +99,9 @@ export function WaitingResponseDock() {
         aria-live="polite"
         aria-expanded={!collapsed}
       >
+        {/* Top decorative glow line */}
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/50 to-transparent" />
+
         {/* Top control bar */}
         <div className="sticky top-0 z-10 border-b border-accent/20 bg-bg-elev/98 backdrop-blur-md rounded-t-2xl">
           <button

@@ -2,9 +2,31 @@
 
 日期：2026-10-05
 
-状态：待执行
+状态：部分完成（阶段一已完成，阶段二、三待执行）
 
 基于：代码实际检查与深度分析的综合方案
+
+---
+
+## 执行进度
+
+- [x] **阶段一：WaitingResponseDock 优化**（已完成，2026-10-05）
+  - [x] 背景模糊增强（blur 2px → 16px）
+  - [x] 收起/展开功能
+  - [x] Markdown 渲染支持
+  - [x] 弹簧动画优化
+  - [x] 后端约束适配
+  - [x] 细节修复（补充想法、选项框、编号等）
+  - 📄 详见：`docs/analysis/done/20261005-done-WaitingResponseDock完整优化.md`
+
+- [ ] **阶段二：ActivityGlimpse 视觉增强**（待执行）
+  - [ ] Plan/Result 容器样式区分
+  - [ ] 状态图标（✓/✗/⚠）
+  - [ ] 参数格式化改进
+
+- [ ] **阶段三：Context 资源目录紧凑化**（待执行）
+  - [ ] ResourceDirectoryRow 组件
+  - [ ] BackgroundPanel 改造
 
 ---
 
@@ -115,167 +137,56 @@ export function glimpseBody(data: ActionGlimpseData) {
 
 ## 二、优化执行计划
 
-### 阶段一：修复 WaitingResponseDock 布局（优先级：P0）
+### ~~阶段一：WaitingResponseDock 优化~~（✅ 已完成）
 
-#### 目标
-修复当前布局问题，确保 Dock 正确固定在 Composer 上方，不产生重叠
+**完成日期**：2026-10-05
 
-#### 任务 1.1：调整 ChatView 布局结构
+**实际完成内容**：
 
-**修改文件**：`visualization/src/features/chat/ChatView.tsx`
+#### ✅ 任务 1.1：背景模糊与收起功能
+- 背景模糊从 2px 提升到 16px，增加渐变遮罩
+- 顶部控制栏可收起卡片
+- 收起后显示紧凑提示条（~48px）
+- 用户可以滚动查看对话历史和 LiveStatus
 
-**当前代码**（L78-86）：
-```tsx
-export function ChatView() {
-  return (
-    <div className="relative flex h-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1"><ConversationView /></div>
-      <Composer />
-      <WaitingResponseDock />
-    </div>
-  );
-}
-```
+#### ✅ 任务 1.2：Markdown 渲染支持
+- 问题文本支持 Markdown 格式
+- 加粗、斜体、列表、代码、链接
+- 紧凑样式不占用过多空间
 
-**修改为**：
-```tsx
-export function ChatView() {
-  const pendingQuestion = useTurnStore(selectPendingQuestion);
-  
-  return (
-    <div className="relative flex h-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1"><ConversationView /></div>
-      
-      {/* WaitingResponseDock - 固定在 Composer 上方 */}
-      <AnimatePresence mode="wait">
-        {pendingQuestion && <WaitingResponseDock />}
-      </AnimatePresence>
-      
-      <Composer />
-    </div>
-  );
-}
-```
+#### ✅ 任务 1.3：弹簧动画优化
+- 使用 spring 参数（damping: 25, stiffness: 300）
+- 自然的物理感和轻微回弹
 
-**关键改进**：
-1. Dock 移到 Composer 之前，成为独立的布局层
-2. 使用 `AnimatePresence` 控制进入/退出动画
-3. 只有当 `pendingQuestion` 存在时才渲染
+#### ✅ 任务 1.4：后端约束适配
+- 分析后端 QuestionAnswer 类型约束
+- TEXT 类型禁止 comment，CHOICE 类型禁止 text
+- Comment 输入框条件显示（输入 Other 时自动隐藏）
 
-#### 任务 1.2：重构 WaitingResponseDock 布局
+#### ✅ 任务 1.5：细节优化
+- 补充想法从气泡改为卡片内斜体引用（图标+左边框+渐变背景）
+- Readonly 选项框用框 + 字母标签 + 勾选标记
+- 自定义输入也有字母编号（下一个字母）
+- 等待期间隐藏 Composer
+- 选项间距优化（问题到选项 16px，选项间距 6px）
+- 选项 hover 光晕和选中内层光泽
+- 顶部装饰光泽条
+- 移除 "answered" 文本
+- 补充想法不显示引号
 
-**修改文件**：`visualization/src/features/chat/WaitingResponseDock.tsx`
+#### 验收结果 ✅
 
-**当前代码**（L40-61）有问题，需要完全重构：
+- [x] Dock 正确定位，不与 Composer 冲突
+- [x] 背景模糊效果明显（blur 16px）
+- [x] 收起/展开功能正常
+- [x] Markdown 渲染支持完整
+- [x] 弹簧动画流畅自然
+- [x] 后端约束适配正确
+- [x] 所有细节优化完成
 
-```tsx
-export function WaitingResponseDock() {
-  const [submitted, setSubmitted] = useState<{ targetId: string; question: TurnQuestion } | null>(null);
-  const epoch = useConnectionStore((state) => state.epoch);
-  const activeTurnId = useConnectionStore(selectActiveTurnId);
-  const displayedTurnId = useTurnStore((state) => state.turnId);
-  const targetId = activeTurnId ?? displayedTurnId;
-  const liveQuestion = useLiveWaitingQuestion(targetId);
-  const items = useTurnStore((state) => targetId !== null && targetId !== state.turnId
-    ? state.runtimeProjections[targetId]?.items ?? EMPTY_ITEMS
-    : state.items);
-  const hasFormalReply = submitted !== null && items.some((item) =>
-    item.role === "user.reply" && item.question_id === submitted.question.question_id,
-  );
-  const question = liveQuestion ?? (submitted?.targetId === targetId && !hasFormalReply ? submitted.question : null);
+**详细文档**：`docs/analysis/done/20261005-done-WaitingResponseDock完整优化.md`
 
-  useEffect(() => {
-    if (hasFormalReply) setSubmitted(null);
-    else if (submitted !== null && liveQuestion !== null && submitted.question.question_id !== liveQuestion.question_id) setSubmitted(null);
-    else if (submitted !== null && targetId !== submitted.targetId && liveQuestion === null) setSubmitted(null);
-  }, [hasFormalReply, liveQuestion, submitted, targetId]);
-
-  if (targetId === null || question === null) return null;
-
-  return (
-    <motion.div
-      initial={{ y: 100, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      exit={{ y: 100, opacity: 0 }}
-      transition={{ duration: 0.3, ease: EASE_CALM }}
-      className="border-t border-accent/30 bg-bg-elev/95 backdrop-blur-md shadow-pop"
-    >
-      {/* 顶部装饰光泽条 */}
-      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/40 to-transparent" />
-      
-      <div className="mx-auto max-w-3xl px-4 py-4">
-        {/* 提示文字 */}
-        <div className="mb-2 flex items-center gap-2 text-[11px] text-fg-muted">
-          <Loader2 size={11} className="animate-spin-slow text-accent" />
-          <span>The turn is waiting for your response</span>
-        </div>
-        
-        <QuestionCard
-          key={question.question_id}
-          epoch={epoch}
-          turnId={targetId}
-          item={null}
-          live={question}
-          reply={null}
-          commentAsBubble
-          onSubmitted={(draft: QuestionDraft) => setSubmitted({ targetId, question })}
-        />
-      </div>
-    </motion.div>
-  );
-}
-```
-
-**关键改进**：
-1. 移除 `absolute` 定位，使用正常文档流
-2. 添加顶部装饰光泽条
-3. 添加等待提示文字
-4. 简化容器结构
-
-#### 任务 1.3：优化 QuestionForm 选项样式
-
-**修改文件**：`visualization/src/features/chat/QuestionForm.tsx`
-
-**当前选项行**（需要找到对应位置并修改）：
-
-```tsx
-// 在 QuestionForm.tsx 中找到选项渲染部分，增强 hover 和 selected 状态
-<label
-  className={`
-    group relative flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-[13px]
-    transition-all duration-200
-    ${selected 
-      ? `
-        border-accent bg-accent-soft/40
-        shadow-[inset_0_1px_4px_rgba(129,140,248,0.2),0_0_0_1px_rgba(129,140,248,0.3),0_0_12px_rgba(129,140,248,0.15)]
-      ` 
-      : `
-        border-line bg-bg-elev
-        hover:border-accent/30 hover:bg-accent-soft/10
-        hover:shadow-[0_0_8px_rgba(129,140,248,0.12)]
-      `
-    }
-  `}
->
-  {/* 选中时的内层光泽条 */}
-  {selected && (
-    <div className="absolute inset-x-3 top-0 h-px bg-gradient-to-r from-transparent via-accent/40 to-transparent" />
-  )}
-  
-  <input type="radio" ... className="sr-only" />
-  {chip}
-  {body}
-</label>
-```
-
-#### 验收标准
-
-- [ ] Dock 固定在 Composer 上方，不产生重叠
-- [ ] 长对话时 Dock 始终在视口内
-- [ ] 背景模糊效果正常
-- [ ] 选项 hover 时有轻微外晕
-- [ ] 选中选项有内层光泽和外晕
-- [ ] 进入/退出动画流畅
+---
 
 ---
 
@@ -758,19 +669,27 @@ function formatBytes(bytes: number): string {
 
 ## 四、实施顺序与工作量
 
-### 优先级 P0（立即执行，2 天）
+### ✅ 阶段一：WaitingResponseDock（已完成）
+
+| 任务 | 预估 | 实际 | 状态 |
+|------|------|------|------|
+| 背景模糊与收起功能 | 4h | 4h | ✅ |
+| Markdown 渲染支持 | 2h | 2h | ✅ |
+| 后端分析与适配 | - | 2h | ✅ |
+| 细节优化与修复 | - | 8h | ✅ |
+| **小计** | **6h** | **16h ≈ 2天** | ✅ |
+
+### 优先级 P0（待执行，1.5 天）
 
 | 任务 | 时间 | 难度 |
 |------|------|------|
-| 1.1 调整 ChatView 布局 | 0.5h | 低 |
-| 1.2 重构 WaitingResponseDock | 2h | 中 |
-| 1.3 优化 QuestionForm 选项 | 1.5h | 低 |
 | 2.1 拆分 Glimpse 容器样式 | 1h | 低 |
 | 2.2 增加状态图标 | 1.5h | 低 |
 | 2.3 改进参数格式化 | 2h | 中 |
-| **小计** | **8.5h ≈ 1.5 天** | |
+| 测试与调整 | 1h | - |
+| **小计** | **5.5h ≈ 1 天** | |
 
-### 优先级 P1（短期，1 天）
+### 优先级 P1（待执行，1 天）
 
 | 任务 | 时间 | 难度 |
 |------|------|------|
@@ -779,7 +698,7 @@ function formatBytes(bytes: number): string {
 | 测试与调整 | 1.5h | - |
 | **小计** | **6h ≈ 1 天** | |
 
-### 总计：2.5 个工作日
+### 剩余工作量：2 个工作日
 
 ---
 
@@ -827,8 +746,10 @@ function formatBytes(bytes: number): string {
 
 ---
 
-**执行状态**：待开始
+**执行状态**：部分完成（阶段一 ✅，阶段二、三待执行）
 
-**预计完成时间**：2.5 个工作日
+**预计剩余时间**：2 个工作日
 
-**负责人**：GPT Agent（实施）+ Claude（审查）
+**已完成时间**：2 个工作日（2026-10-05）
+
+**负责人**：Claude（实施与审查）

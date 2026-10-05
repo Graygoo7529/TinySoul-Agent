@@ -1,5 +1,5 @@
 import { useId, useState, type ReactElement } from "react";
-import { Check, HelpCircle } from "lucide-react";
+import { Check, HelpCircle, MessageSquare } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Markdown } from "../../components/markdown/Markdown";
 import type {
@@ -120,7 +120,7 @@ export function QuestionForm({
               </Markdown>
             </div>
             {question.options.length > 0 && (
-              <div className="mt-2 space-y-1" role={mode === "active" ? "radiogroup" : undefined}>
+              <div className="mt-4 space-y-1.5" role={mode === "active" ? "radiogroup" : undefined}>
                 {question.options.map((option, index) => (
                   <OptionRow
                     key={option.id}
@@ -145,15 +145,15 @@ export function QuestionForm({
                   if (event.target.value.trim()) setSelected(null);
                 }}
                 placeholder="Other answer…"
-                className="mt-2 h-8 w-full rounded-lg border border-line bg-bg-elev px-3 text-[13px] outline-none focus-ring focus:border-accent"
+                className="mt-3 h-8 w-full rounded-lg border border-line bg-bg-elev px-3 text-[13px] outline-none focus-ring focus:border-accent"
               />
             )}
-            {mode === "active" && question.options.length > 0 && (
+            {mode === "active" && question.options.length > 0 && !otherText.trim() && (
               <input
                 value={comment}
                 onChange={(event) => setComment(event.target.value)}
-                placeholder="Comment (optional)…"
-                className="mt-2 h-8 w-full rounded-lg border border-line bg-bg-elev px-3 text-[13px] outline-none focus-ring focus:border-accent"
+                placeholder="Additional thoughts (optional)…"
+                className="mt-3 h-8 w-full rounded-lg border border-line bg-bg-elev px-3 text-[13px] outline-none focus-ring focus:border-accent"
               />
             )}
             {mode === "expired" && (otherText || comment) && (
@@ -178,13 +178,24 @@ export function QuestionForm({
                 {reply.comment}
               </div>
             )}
-            {reply?.text && (
-              <div className="mt-2 text-[12px] break-words whitespace-pre-wrap text-fg-muted">
-                {reply.text}
+            {/* Readonly: 自行输入的选项（带字母编号） */}
+            {mode === "readonly" && reply?.text && (
+              <div className="mt-4 flex items-start gap-2 rounded-lg border border-accent/50 bg-accent-soft/60 px-3 py-2.5 text-[13px]">
+                <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-accent/60 bg-accent-soft text-accent font-mono text-[11px]">
+                  {String.fromCharCode(65 + question.options.length)}
+                </span>
+                <span className="flex-1 font-medium break-words whitespace-pre-wrap">{reply.text}</span>
+                <Check size={13} className="mt-0.5 shrink-0 text-accent" />
               </div>
             )}
-            {mode === "readonly" && reply !== null && (
-              <div className="mt-2 text-[12px] text-fg-faint">answered</div>
+            {/* Readonly: 补充想法在卡片内部，带图标 */}
+            {mode === "readonly" && reply?.comment && (
+              <div className="question-comment">
+                <MessageSquare size={14} className="shrink-0 text-accent/60" style={{ marginTop: '2px' }} />
+                <div className="question-comment-text">
+                  {reply.comment}
+                </div>
+              </div>
             )}
             {error !== null && (
               <div className="mt-2 rounded-lg bg-danger-soft px-3 py-1.5 text-[12px] text-danger">
@@ -192,7 +203,7 @@ export function QuestionForm({
               </div>
             )}
             {mode === "active" && (
-              <div className="mt-2 flex justify-end">
+              <div className="mt-3 flex justify-end">
                 <Button
                   variant="primary"
                   size="sm"
@@ -261,9 +272,9 @@ function OptionRow({
   if (mode === "active") {
     return (
       <label
-        className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-[13px] transition-colors ${
+        className={`question-option flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-[13px] transition-colors ${
           selected
-            ? "border-accent bg-accent-soft shadow-(--selection-glow)"
+            ? "question-option-selected border-accent bg-accent-soft"
             : "border-line bg-bg-elev hover:border-line-strong"
         }`}
       >
