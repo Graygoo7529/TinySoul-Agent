@@ -1,6 +1,7 @@
 import { useId, useState, type ReactElement } from "react";
 import { Check, HelpCircle } from "lucide-react";
 import { Button } from "../../components/ui/Button";
+import { Markdown } from "../../components/markdown/Markdown";
 import type {
   QuestionContent,
   QuestionDraft,
@@ -110,8 +111,13 @@ export function QuestionForm({
             className={`mt-0.5 shrink-0 ${mode === "active" ? "text-accent" : "text-fg-faint"}`}
           />
           <div className="min-w-0 flex-1">
-            <div className="text-[13px] font-medium break-words whitespace-pre-wrap">
-              {question.text}
+            <div className="text-[13px] font-medium">
+              <Markdown
+                className="md-inline-question"
+                origin={{ link: "", turnId: null, day: null, view: "active" }}
+              >
+                {question.text}
+              </Markdown>
             </div>
             {question.options.length > 0 && (
               <div className="mt-2 space-y-1" role={mode === "active" ? "radiogroup" : undefined}>

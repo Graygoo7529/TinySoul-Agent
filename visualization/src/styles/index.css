@@ -14,6 +14,7 @@
  */
 :root {
   --bg: #f6f7f9;
+  --bg-rgb: 246, 247, 249;
   --bg-elev: #ffffff;
   --bg-sunken: #eef0f3;
   --hover: rgba(15, 23, 42, 0.05);
@@ -24,6 +25,7 @@
   --line: #e3e6eb;
   --line-strong: #cfd4dc;
   --accent: #6366f1;
+  --accent-rgb: 99, 102, 241;
   --accent-strong: #4f46e5;
   --accent-soft: rgba(99, 102, 241, 0.12);
   --danger: #dc2626;
@@ -85,6 +87,7 @@
 
 .dark {
   --bg: #0d1017;
+  --bg-rgb: 13, 16, 23;
   --bg-elev: #151a23;
   --bg-sunken: #090c12;
   --hover: rgba(230, 233, 239, 0.06);
@@ -95,6 +98,7 @@
   --line: #262b34;
   --line-strong: #363d49;
   --accent: #818cf8;
+  --accent-rgb: 129, 140, 248;
   --accent-strong: #6366f1;
   --accent-soft: rgba(129, 140, 248, 0.14);
   --danger: #f87171;
@@ -237,13 +241,35 @@ body {
 }
 .animate-slide-up { animation: slide-up 0.24s ease-out; }
 
+/* Waiting Dock Enhanced Styles */
 .waiting-dock-scrim {
-  background: linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--bg) 16%, transparent) 36%, color-mix(in srgb, var(--bg) 56%, transparent) 100%);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
+  background: linear-gradient(
+    to top,
+    rgba(var(--bg-rgb), 0.6) 0%,
+    rgba(var(--bg-rgb), 0.3) 50%,
+    transparent 100%
+  );
+  backdrop-filter: blur(16px) saturate(0.8);
+  -webkit-backdrop-filter: blur(16px) saturate(0.8);
 }
+
 .waiting-response-dock {
-  box-shadow: var(--shadow-pop), 0 0 28px color-mix(in srgb, var(--accent) 12%, transparent);
+  backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 12px 48px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(var(--accent-rgb), 0.25),
+    0 0 32px rgba(var(--accent-rgb), 0.12);
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 2s linear infinite;
 }
 .animate-fade-in {
   animation: fade-in 0.18s ease-out;
@@ -1352,4 +1378,87 @@ body {
   animation-iteration-count: 1 !important;
   transition-duration: 0.001ms !important;
   scroll-behavior: auto !important;
+}
+
+/* ============================================
+   Inline Question Markdown Styles
+   ============================================ */
+
+.md-inline-question {
+  font-size: inherit;
+  line-height: 1.5;
+  color: var(--fg);
+}
+
+.md-inline-question p {
+  margin: 0;
+  display: inline;
+}
+
+.md-inline-question p + p {
+  display: block;
+  margin-top: 0.5em;
+}
+
+.md-inline-question strong {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.md-inline-question em {
+  font-style: italic;
+  color: var(--fg-muted);
+}
+
+.md-inline-question code {
+  padding: 0.125rem 0.375rem;
+  background: var(--code-bg);
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+  font-size: 0.9em;
+  font-family: var(--font-mono);
+  color: var(--fg);
+}
+
+.md-inline-question ul,
+.md-inline-question ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.md-inline-question li {
+  margin: 0.25em 0;
+}
+
+.md-inline-question li::marker {
+  color: var(--fg-faint);
+}
+
+/* Question code blocks - compact */
+.md-inline-question pre {
+  margin: 0.5em 0;
+  padding: 0.5rem;
+  font-size: 0.85em;
+  background: var(--code-bg);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  overflow-x: auto;
+}
+
+.md-inline-question pre code {
+  padding: 0;
+  background: none;
+  border: none;
+  font-size: inherit;
+}
+
+/* Question links */
+.md-inline-question a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.md-inline-question a:hover {
+  color: var(--accent-strong);
 }
