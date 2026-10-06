@@ -52,40 +52,42 @@ class WorkspaceChange:
     operation: WorkspaceChangeOperation
     before: WorkspaceManifest
     after: WorkspaceManifest
-    written_links: tuple[str, ...] = ()
+    written_refs: tuple[str, ...] = ()
 
     @property
     def changed(self) -> bool:
         # A committed write remains a fact when stat metadata happens to match.
-        return self.before != self.after or bool(self.updated_links)
+        return self.before != self.after or bool(self.updated_refs)
 
     @property
-    def created_links(self) -> tuple[str, ...]:
-        before = {record.link for record in self.before.resources}
+    def created_refs(self) -> tuple[str, ...]:
+        before = {record.ref for record in self.before.resources}
         return tuple(
-            record.link for record in self.after.resources if record.link not in before
+            record.ref for record in self.after.resources if record.ref not in before
         )
 
     @property
-    def removed_links(self) -> tuple[str, ...]:
-        after = {record.link for record in self.after.resources}
+    def removed_refs(self) -> tuple[str, ...]:
+        after = {record.ref for record in self.after.resources}
         return tuple(
-            record.link for record in self.before.resources if record.link not in after
+            record.ref for record in self.before.resources if record.ref not in after
         )
 
     @property
-    def updated_links(self) -> tuple[str, ...]:
-        before = {record.link: record for record in self.before.resources}
+    def updated_refs(self) -> tuple[str, ...]:
+        before = {record.ref: record for record in self.before.resources}
         return tuple(
-            record.link
+            record.ref
             for record in self.after.resources
-            if record.link in before
-            and (record != before[record.link] or record.link in self.written_links)
+            if record.ref in before
+            and (record != before[record.ref] or record.ref in self.written_refs)
         )
 
     @property
-    def links(self) -> tuple[str, ...]:
-        return tuple(sorted({*self.created_links, *self.updated_links, *self.removed_links}))
+    def refs(self) -> tuple[str, ...]:
+        return tuple(
+            sorted({*self.created_refs, *self.updated_refs, *self.removed_refs})
+        )
 
 
 class WorkspaceEvents:
@@ -111,7 +113,14 @@ class WorkspaceEvents:
                 change.operation,
                 previous.before if previous else change.before,
                 change.after,
-                tuple(dict.fromkeys((*(previous.written_links if previous else ()), *change.written_links))),
+                tuple(
+                    dict.fromkeys(
+                        (
+                            *(previous.written_refs if previous else ()),
+                            *change.written_refs,
+                        )
+                    )
+                ),
             )
 
     async def flush(self) -> None:
@@ -124,15 +133,15 @@ class WorkspaceEvents:
             for source, change in pending.items():
                 if not change.changed:
                     continue
-                links = change.links
+                refs = change.refs
                 await sink(
                     EnvironmentEvent(
                         EventKind.EVENT,
                         {
                             "day": change.after.day,
                             "operation": change.operation.value,
-                            "changed_count": len(links),
-                            "links": list(links[:16]),
+                            "changed_count": len(refs),
+                            "refs": list(refs[:16]),
                             "summary": (
                                 "Workspace state changed; inspect the current "
                                 "workbench for resource summaries."
@@ -219,8 +228,10 @@ class WorkspaceRuntime:
                 )
         except WorkspaceError as exc:
             self._status = SourceStatus(
-                WORKSPACE_WATCH, SourceState.FAILED,
-                type(exc).__name__, (WORKSPACE_CHANGED,),
+                WORKSPACE_WATCH,
+                SourceState.FAILED,
+                type(exc).__name__,
+                (WORKSPACE_CHANGED,),
             )
             if self._sink is not None:
                 await self._sink(
@@ -240,7 +251,9 @@ class WorkspaceRuntime:
 
     async def _failed(self, error_type: str) -> None:
         self._status = SourceStatus(
-            WORKSPACE_WATCH, SourceState.FAILED, error_type,
+            WORKSPACE_WATCH,
+            SourceState.FAILED,
+            error_type,
             topics=(WORKSPACE_CHANGED,),
         )
         summary = (

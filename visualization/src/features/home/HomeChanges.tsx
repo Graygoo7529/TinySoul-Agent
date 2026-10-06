@@ -19,7 +19,7 @@ import { usePagedSequence } from "../history/usePagedSequence";
 import { useHomePage } from "./store";
 
 export interface HomeChangeEntry {
-  link: string;
+  ref: string;
   kind: string;
   baselineDiverged: boolean;
 }
@@ -30,11 +30,11 @@ export function decodeHomeChange(value: JsonValue): HomeChangeEntry | null {
     return null;
   }
   const record = value as Record<string, unknown>;
-  const link = typeof record.link === "string" ? record.link : null;
+  const ref = typeof record.ref === "string" ? record.ref : null;
   const kind = typeof record.kind === "string" ? record.kind : null;
-  if (link === null || kind === null) return null;
+  if (ref === null || kind === null) return null;
   return {
-    link,
+    ref,
     kind,
     baselineDiverged: record.baseline_diverged === true,
   };
@@ -100,20 +100,20 @@ export function HomeChanges({ epoch }: { epoch: number }): ReactElement {
           <div className="space-y-1">
             {entries.map((entry) => (
               <button
-                key={entry.link}
+                key={entry.ref}
                 type="button"
                 onClick={() =>
-                  useHomePage.getState().openDiff(entry.link, entry.kind)
+                  useHomePage.getState().openDiff(entry.ref, entry.kind)
                 }
-                title={entry.link}
+                title={entry.ref}
                 className={`flex w-full items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-left ${
-                  diffLink === entry.link
+                  diffLink === entry.ref
                     ? "border-accent/50 bg-accent-soft"
                     : "border-line bg-bg-elev hover:border-line-strong"
                 }`}
               >
                 <span className="min-w-0 flex-1 truncate text-[12.5px] text-fg">
-                  {entry.link.replace(/^home:/, "")}
+                  {entry.ref.replace(/^home:/, "")}
                 </span>
                 <Badge tone={KIND_TONES[entry.kind] ?? "gray"}>{entry.kind}</Badge>
                 {entry.baselineDiverged && (

@@ -2,29 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": true,
   "properties": {
-    "link": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Link"
-    },
     "ref": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Ref"
+      "title": "Ref",
+      "type": "string"
     },
     "day": {
       "anyOf": [
@@ -63,6 +43,9 @@
       "title": "View"
     }
   },
+  "required": [
+    "ref"
+  ],
   "title": "ResourceLocatorResponse",
   "type": "object"
 }

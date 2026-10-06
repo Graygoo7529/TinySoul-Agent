@@ -19,7 +19,7 @@ import yaml
 from yaml.resolver import BaseResolver
 
 from ..errors import MemoryContractError, MemoryInvariantError
-from ..links import MemoryKind, MemoryLink
+from ..refs import MemoryKind, MemoryRef
 
 
 from .models import (
@@ -33,7 +33,7 @@ from .models import (
     PersistentMemoryDocument,
     StoredMemoryDocument,
 )
-from .models import _content, _links
+from .models import _content, _refs
 
 
 class _KnowledgeFields(TypedDict):
@@ -42,16 +42,16 @@ class _KnowledgeFields(TypedDict):
     created_on: date
     updated_on: date
     content: str
-    relations: tuple[MemoryLink, ...]
-    evidence: tuple[MemoryLink, ...]
-    redirect_to: MemoryLink | None
+    relations: tuple[MemoryRef, ...]
+    evidence: tuple[MemoryRef, ...]
+    redirect_to: MemoryRef | None
     confidence: MemoryConfidence | None
 
 
-def inline_memory_links(
-    text: str, *, source: MemoryLink | None = None
-) -> tuple[MemoryLink, ...]:
-    links: list[MemoryLink] = []
+def inline_memory_refs(
+    text: str, *, source: MemoryRef | None = None
+) -> tuple[MemoryRef, ...]:
+    refs: list[MemoryRef] = []
     for reference in markdown_references(text):
         try:
             target = (
@@ -64,34 +64,34 @@ def inline_memory_links(
             value = target.partition("#")[0]
             if not value.startswith("memory:"):
                 continue
-            link = (
-                MemoryLink.from_relative(value.removeprefix("memory:"))
+            ref = (
+                MemoryRef.from_relative(value.removeprefix("memory:"))
                 if value.endswith(".md")
-                else MemoryLink.parse(value)
+                else MemoryRef.parse(value)
             )
         except (MemoryContractError, ReferenceError):
             continue
-        if link not in links:
-            links.append(link)
-    return tuple(links)
+        if ref not in refs:
+            refs.append(ref)
+    return tuple(refs)
 
 
 class MemoryDocumentCodec:
     """Parse and deterministically render all persistent Memory Markdown."""
 
-    def parse(self, link: MemoryLink, text: str) -> PersistentMemoryDocument:
-        if not isinstance(link, MemoryLink):
-            raise MemoryContractError("Memory codec requires a MemoryLink")
+    def parse(self, ref: MemoryRef, text: str) -> PersistentMemoryDocument:
+        if not isinstance(ref, MemoryRef):
+            raise MemoryContractError("Memory codec requires a MemoryRef")
         frontmatter, content = _split_frontmatter(text)
         version = _required_int(frontmatter, "schema_version")
         if version != 2:
             raise MemoryInvariantError("Unsupported Memory schema_version")
         raw_kind = _required_text(frontmatter, "kind")
-        if raw_kind != link.kind.value:
-            raise MemoryInvariantError("Memory kind does not match its Link")
-        if link.kind is MemoryKind.DAILY:
-            return self._parse_daily(link, frontmatter, content)
-        return self._parse_knowledge(link, frontmatter, content)
+        if raw_kind != ref.kind.value:
+            raise MemoryInvariantError("Memory kind does not match its reference")
+        if ref.kind is MemoryKind.DAILY:
+            return self._parse_daily(ref, frontmatter, content)
+        return self._parse_knowledge(ref, frontmatter, content)
 
     def render(self, document: PersistentMemoryDocument) -> str:
         if isinstance(document, DailyMemoryDocument):
@@ -111,8 +111,8 @@ class MemoryDocumentCodec:
             "status": document.status.value,
             "created_on": document.created_on.isoformat(),
             "updated_on": document.updated_on.isoformat(),
-            "relations": [str(link) for link in document.relations],
-            "evidence": [str(link) for link in document.evidence],
+            "relations": [str(ref) for ref in document.relations],
+            "evidence": [str(ref) for ref in document.evidence],
             "redirect_to": (
                 str(document.redirect_to) if document.redirect_to is not None else None
             ),
@@ -138,7 +138,7 @@ class MemoryDocumentCodec:
 
     def _parse_daily(
         self,
-        link: MemoryLink,
+        ref: MemoryRef,
         values: Mapping[str, object],
         content: str,
     ) -> DailyMemoryDocument:
@@ -158,8 +158,8 @@ class MemoryDocumentCodec:
         if not stripped.startswith(f"{heading}\n"):
             raise MemoryInvariantError("Daily Memory requires its canonical H1")
         body = stripped[len(heading) :].strip()
-        if day != link.day:
-            raise MemoryInvariantError("Daily Memory day does not match its Link")
+        if day != ref.day:
+            raise MemoryInvariantError("Daily Memory day does not match its reference")
         return DailyMemoryDocument(
             day=day,
             created_on=_required_date(values, "created_on"),
@@ -169,7 +169,7 @@ class MemoryDocumentCodec:
 
     def _parse_knowledge(
         self,
-        link: MemoryLink,
+        ref: MemoryRef,
         values: Mapping[str, object],
         content: str,
     ) -> PersistentMemoryDocument:
@@ -185,22 +185,22 @@ class MemoryDocumentCodec:
             "redirect_to",
         }
         allowed = set(common)
-        if link.kind is MemoryKind.FACT:
+        if ref.kind is MemoryKind.FACT:
             allowed.update({"summary", "confidence"})
-        elif link.kind is MemoryKind.NOTE:
+        elif ref.kind is MemoryKind.NOTE:
             allowed.update({"title", "confidence"})
         else:
             allowed.add("confidence")
         _exact_keys(values, allowed, required=common)
         cite = _required_text(values, "cite")
-        if cite != link.cite:
-            raise MemoryInvariantError("Memory cite does not match its Link")
+        if cite != ref.cite:
+            raise MemoryInvariantError("Memory cite does not match its reference")
         status = _enum(MemoryStatus, values, "status")
         created_on = _required_date(values, "created_on")
         updated_on = _required_date(values, "updated_on")
-        relations = _link_list(values.get("relations"), "relations")
-        evidence = _link_list(values.get("evidence"), "evidence")
-        redirect_to = _optional_link(values.get("redirect_to"))
+        relations = _ref_list(values.get("relations"), "relations")
+        evidence = _ref_list(values.get("evidence"), "evidence")
+        redirect_to = _optional_ref(values.get("redirect_to"))
         confidence = _optional_enum(MemoryConfidence, values.get("confidence"))
         common_values: _KnowledgeFields = {
             "cite": cite,
@@ -213,16 +213,16 @@ class MemoryDocumentCodec:
             "redirect_to": redirect_to,
             "confidence": confidence,
         }
-        if link.kind is MemoryKind.ENTITY:
+        if ref.kind is MemoryKind.ENTITY:
             return EntityMemoryDocument(**common_values)
-        if link.kind is MemoryKind.CONCEPT:
+        if ref.kind is MemoryKind.CONCEPT:
             return ConceptMemoryDocument(**common_values)
-        if link.kind is MemoryKind.FACT:
+        if ref.kind is MemoryKind.FACT:
             return FactMemoryDocument(
                 **common_values,
                 summary=_required_text(values, "summary"),
             )
-        if link.kind is MemoryKind.NOTE:
+        if ref.kind is MemoryKind.NOTE:
             return NoteMemoryDocument(
                 **common_values,
                 title=_required_text(values, "title"),
@@ -328,27 +328,29 @@ def _required_date(values: Mapping[str, object], key: str) -> date:
     return parsed
 
 
-def _link_list(value: object, key: str) -> tuple[MemoryLink, ...]:
+def _ref_list(value: object, key: str) -> tuple[MemoryRef, ...]:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
         raise MemoryInvariantError(f"Memory {key} must be a list")
     if any(not isinstance(item, str) for item in value):
-        raise MemoryInvariantError(f"Memory {key} contains a non-text Link")
+        raise MemoryInvariantError(f"Memory {key} contains a non-text reference")
     try:
-        return _links(
-            tuple(MemoryLink.parse(item) for item in cast(Sequence[str], value)),
+        return _refs(
+            tuple(MemoryRef.parse(item) for item in cast(Sequence[str], value)),
             key,
         )
     except (MemoryContractError, TypeError) as exc:
-        raise MemoryInvariantError(f"Memory {key} contains an invalid Link") from exc
+        raise MemoryInvariantError(
+            f"Memory {key} contains an invalid reference"
+        ) from exc
 
 
-def _optional_link(value: object) -> MemoryLink | None:
+def _optional_ref(value: object) -> MemoryRef | None:
     if value is None:
         return None
     if not isinstance(value, str):
-        raise MemoryInvariantError("Memory redirect_to must be a Link or null")
+        raise MemoryInvariantError("Memory redirect_to must be a reference or null")
     try:
-        return MemoryLink.parse(value)
+        return MemoryRef.parse(value)
     except MemoryContractError as exc:
         raise MemoryInvariantError("Memory redirect_to is invalid") from exc
 

@@ -124,14 +124,14 @@ class ReturningAfterReserveLLMRunner(FakeLLMRunner):
 
 
 class TestReferenceResolver:
-    def supports(self, link: str) -> bool:
-        return link in {"test:ref", "workspace:a.md"}
+    def supports(self, ref: str) -> bool:
+        return ref in {"test:ref", "workspace:a.md"}
 
-    async def resolve_reference(self, link: str) -> tuple[PromptBlock, ...]:
+    async def resolve_reference(self, ref: str) -> tuple[PromptBlock, ...]:
         return (
             PromptBlock.from_text(
                 "task_prompt:input:test-ref",
-                f"# Reference\nresolved reference: {link}",
+                f"# Reference\nresolved reference: {ref}",
             ),
         )
 
@@ -145,13 +145,13 @@ class TestActionSkillProvider:
         return ActionSkillGuidance(
             domain=(
                 PromptGuidance(
-                    "Use the core domain style.", "home:skills_domain:core", "home"
+                    "Use the core domain style.", "home:mount/domain/core", "home"
                 ),
             ),
             action=(
                 PromptGuidance(
                     "Use the project rewrite style.",
-                    "home:skills_action:core/reason",
+                    "home:mount/action/core/reason",
                     "home",
                 ),
             ),
@@ -160,7 +160,7 @@ class TestActionSkillProvider:
 
 async def test_llm_action_uses_splittable_prompt_blocks_and_reference_links() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
-    context.begin_turn("user asks")
+    context.begin_turn("user asks", turn_id="2026-10-06/163")
     await context.open_segments(CalendarDate(2026, 7, 12))
     llm = FakeLLMRunner()
     executor = CoreReasonActionExecutor(
@@ -173,7 +173,7 @@ async def test_llm_action_uses_splittable_prompt_blocks_and_reference_links() ->
         {
             "guide_blocks": [{"label": "main", "text": "analyze"}],
             "input_blocks": [{"label": "literal", "text": "literal input"}],
-            "reference_links": ["test:ref"],
+            "references": ["test:ref"],
             "output_blocks": [{"label": "json", "text": '{"ok": true}'}],
         },
     )
@@ -191,7 +191,7 @@ async def test_llm_action_uses_splittable_prompt_blocks_and_reference_links() ->
 
 async def test_llm_action_reports_unsupported_reference_link() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
-    context.begin_turn("user asks")
+    context.begin_turn("user asks", turn_id="2026-10-06/194")
     await context.open_segments(CalendarDate(2026, 7, 12))
     llm = FakeLLMRunner({"text": "done"})
     executor = CoreReasonActionExecutor(tasks=action_tasks(context), llm=llm)
@@ -199,7 +199,7 @@ async def test_llm_action_reports_unsupported_reference_link() -> None:
         "core.reason",
         {
             "guide_blocks": [{"text": "analyze"}],
-            "reference_links": ["missing:ref"],
+            "references": ["missing:ref"],
             "output_blocks": [{"text": '{"ok": true}'}],
         },
     )
@@ -208,13 +208,13 @@ async def test_llm_action_reports_unsupported_reference_link() -> None:
 
     assert result.status is ActionResultStatus.FAILED
     assert result.failure is not None
-    assert result.failure.reason == "unsupported_reference_link"
+    assert result.failure.reason == "unsupported_reference_ref"
     assert llm.calls == []
 
 
 async def test_llm_action_injects_domain_and_action_skills_as_guide_blocks() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
-    context.begin_turn("user asks")
+    context.begin_turn("user asks", turn_id="2026-10-06/217")
     await context.open_segments(CalendarDate(2026, 7, 12))
     llm = FakeLLMRunner()
     executor = CoreReasonActionExecutor(
@@ -247,7 +247,7 @@ async def test_answer_executor_uses_reference_links_and_returns_answer_payload()
     None
 ):
     context = ContextEngineBuilder(system_text="sys").build()
-    context.begin_turn("user asks")
+    context.begin_turn("user asks", turn_id="2026-10-06/250")
     await context.open_segments(CalendarDate(2026, 7, 12))
     llm = FakeLLMRunner({"text": "done"})
     executor = CoreAnswerActionExecutor(
@@ -259,7 +259,7 @@ async def test_answer_executor_uses_reference_links_and_returns_answer_payload()
         "core.answer",
         {
             "guide_blocks": [{"text": "answer"}],
-            "reference_links": ["workspace:a.md"],
+            "references": ["workspace:a.md"],
         },
         executor_id="core.answer",
     )
@@ -274,7 +274,7 @@ async def test_answer_executor_uses_reference_links_and_returns_answer_payload()
 
 async def test_task_factory_has_no_invocation_side_effects_and_uses_binding() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
-    context.begin_turn("question")
+    context.begin_turn("question", turn_id="2026-10-06/277")
     await context.open_segments(CalendarDate(2026, 7, 12))
     call = await action_tasks(context, max_output_tokens=2048).create(
         execution=_execution("core.reason", {}),
@@ -329,7 +329,7 @@ async def test_auxiliary_selection_input_does_not_mark_inspect_consumed(
     monkeypatch,
 ) -> None:
     context = ContextEngineBuilder(system_text="identity").build()
-    context.begin_turn("select relevant links")
+    context.begin_turn("select relevant links", turn_id="2026-10-06/332")
     await context.open_segments(CalendarDate(2026, 9, 25))
 
     def forbidden(messages):

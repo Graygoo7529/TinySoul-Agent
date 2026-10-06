@@ -82,11 +82,11 @@ export function Sidebar({
 
   const dirtyLinks = useMemo(() => {
     const prefix = `${apiDay ?? ""}|`;
-    const links = new Set<string>();
+    const refs = new Set<string>();
     for (const key of Object.keys(drafts)) {
-      if (key.startsWith(prefix)) links.add(key.slice(prefix.length));
+      if (key.startsWith(prefix)) refs.add(key.slice(prefix.length));
     }
-    return links;
+    return refs;
   }, [drafts, apiDay]);
 
   const tree = useMemo(
@@ -315,9 +315,9 @@ function TreeNodeRow({
   onDragOver: (event: DragEvent) => void;
 }): ReactElement {
   const [collapsed, setCollapsed] = useState(false);
-  const selectedLink = useWorkspacePage((s) => s.link);
+  const selectedLink = useWorkspacePage((s) => s.ref);
   const select = useWorkspacePage((s) => s.select);
-  const link = `workspace:${node.path}`;
+  const ref = `workspace:${node.path}`;
 
   if (node.kind === "directory") {
     return (
@@ -361,11 +361,11 @@ function TreeNodeRow({
     );
   }
 
-  const selected = selectedLink === link;
+  const selected = selectedLink === ref;
   return (
     <button
       type="button"
-      onClick={() => select(link)}
+      onClick={() => select(ref)}
       className={`flex h-6.5 w-full items-center gap-1 rounded-md px-1 text-left text-[12.5px] ${
         selected ? "bg-accent-soft text-accent" : "text-fg-muted hover:bg-hover"
       }`}
@@ -374,7 +374,7 @@ function TreeNodeRow({
     >
       <FileIcon size={13} className="shrink-0 text-fg-faint" />
       <span className="min-w-0 flex-1 truncate">{node.name}</span>
-      {dirtyLinks.has(link) && (
+      {dirtyLinks.has(ref) && (
         <span
           className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent"
           title="Unsaved edits"

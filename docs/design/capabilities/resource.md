@@ -2,7 +2,7 @@
 
 ## 定位
 
-`capabilities.resource` 负责 Workspace 资源之间的本地转换和提取。它不拥有新的 Link namespace，不维护独立索引，不把转换正文放入 Context，也不调用 LLM 识别文档。
+`capabilities.resource` 负责 Workspace 资源之间的本地转换和提取。它不拥有新的 引用 namespace，不维护独立索引，不把转换正文放入 Context，也不调用 LLM 识别文档。
 
 Resource capability 不建立独立 Action Domain。转换属于对 Workspace 资源的操作，因此并入宽泛的 `workspace` Domain，并提供：
 
@@ -19,15 +19,15 @@ workspace.convert_with_pypdf
 
 `workspace.convert_with_pypdf` 只处理 PDF，强调页级文本、嵌入图片、附件和页面可追踪性。pypdf 负责 PDF 文本与嵌入资源，pypdfium2 负责在无有效文本时把页面渲染为 PNG；页面渲染不是 pypdf 自身能力。
 
-`home:skills_domain:workspace` 同时说明一般 Workspace 操作和转换选择倾向：普通文档和结构化输出优先 MarkItDown；PDF 专用提取、页级追踪、图像型页面或嵌入资源优先 pypdf。两个 action 都是确定性本地 action，不含内部 LLM Task，因此不消费 action skill。Capability 仍由 `tinysoul.plugins.capabilities.resource` 拥有配置、依赖、转换 service 和 `resource.*` executor；Domain 与 Capability 不要求一一对应。
+`home:mount/domain/workspace` 同时说明一般 Workspace 操作和转换选择倾向：普通文档和结构化输出优先 MarkItDown；PDF 专用提取、页级追踪、图像型页面或嵌入资源优先 pypdf。两个 action 都是确定性本地 action，不含内部 LLM Task，因此不消费 action skill。Capability 仍由 `tinysoul.plugins.capabilities.resource` 拥有配置、依赖、转换 service 和 `resource.*` executor；Domain 与 Capability 不要求一一对应。
 
 ## 输入输出
 
 两个 action 使用同一稳定参数协议：
 
 ```text
-source_link: required Workspace document Link
-target_link: required Workspace .md Link
+source_ref: required Workspace document 引用
+target_ref: required Workspace .md 引用
 overwrite: optional boolean, default false
 ```
 
@@ -42,17 +42,17 @@ workspace:converted/report.assets/attachment-001.xlsx
 workspace:converted/report.assets/page-003.png
 ```
 
-图片、渲染页面和附件统一进入 Markdown 末尾的 `Extracted Resources`，使用 canonical Workspace Link；资源 label 保留可确定的页面或原文件名信息。无有效文本但页面可渲染时，Markdown 对每页给出有界占位，并在资源段列出页面图片 Link，结果状态为 `visual_only` 或 `partial`，不是 OCR 失败。
+图片、渲染页面和附件统一进入 Markdown 末尾的 `Extracted Resources`，使用 canonical Workspace 引用；资源 label 保留可确定的页面或原文件名信息。无有效文本但页面可渲染时，Markdown 对每页给出有界占位，并在资源段列出页面图片 引用，结果状态为 `visual_only` 或 `partial`，不是 OCR 失败。
 
-转换过程不产生 `ImagePart` 或 base64。Agent 后续把生成的图片 Link 用作 `reference_links` 时，WorkspacePromptReferenceResolver 才读取图片并构造 ImagePart，LLM provider adapter 再编码供应商传输格式。
+转换过程不产生 `ImagePart` 或 base64。Agent 后续把生成的图片 引用 用作 `references` 时，WorkspacePromptReferenceResolver 才读取图片并构造 ImagePart，LLM provider adapter 再编码供应商传输格式。
 
 ## Workspace 协作
 
 Resource 不能直接通过 `WorkspaceEngine.path_for()` 绕过资源边界。Workspace 提供：
 
 - bounded document read/stage，校验种类、编码与大小；
-- bytes/text bundle write，预检全部 Link、显式覆盖与旧资产范围；
-- 同一 owner 锁内逐文件原子替换并刷新索引，后续失败保留已提交 Link；
+- bytes/text bundle write，预检全部 引用、显式覆盖与旧资产范围；
+- 同一 owner 锁内逐文件原子替换并刷新索引，后续失败保留已提交 引用；
 - 标签与说明归 Workspace，无 retention 或内容 CAS；
 - 完成后返回当前 records/manifest，多文件不承诺整体回滚。
 
@@ -60,7 +60,7 @@ Resource 不能直接通过 `WorkspaceEngine.path_for()` 绕过资源边界。Wo
 
 覆盖转换使用 target 对应的 `.assets/` 前缀作为该转换产物范围。提交前计算新资源集合；旧产物中不再存在的文件由同一个 bundle mutation 删除，避免重复转换留下失效图片。
 
-`source_link` 在整个转换中保持只读；如果 source 本身位于 target 的 `.assets/` 所有权前缀下，转换在 worker 启动前拒绝，避免覆盖清理把输入误判为旧产物。禁用页面渲染或渲染失败时，只有生成标题/占位而没有实际文本、图片或附件不构成可提交输出。
+`source_ref` 在整个转换中保持只读；如果 source 本身位于 target 的 `.assets/` 所有权前缀下，转换在 worker 启动前拒绝，避免覆盖清理把输入误判为旧产物。禁用页面渲染或渲染失败时，只有生成标题/占位而没有实际文本、图片或附件不构成可提交输出。
 
 ## ActionResult
 
@@ -68,20 +68,20 @@ Resource 不能直接通过 `WorkspaceEngine.path_for()` 绕过资源边界。Wo
 
 ```json
 {
-  "source_link": "workspace:incoming/report.pdf",
-  "markdown_link": "workspace:converted/report.md",
+  "source_ref": "workspace:incoming/report.pdf",
+  "markdown_ref": "workspace:converted/report.md",
   "converter": "pypdf",
   "content_status": "partial",
   "generated_resource_count": 4,
   "visual_review_required": true,
-  "visual_reference_links": [
+  "visual_refs": [
     "workspace:converted/report.assets/page-003.png"
   ],
   "warning_codes": ["page_text_unavailable"]
 }
 ```
 
-`visual_reference_links` 与 warning 都有上限；完整生成资源列表由 Markdown 与 Workspace manifest 表达。ActionResult 不返回 Markdown 正文、图片字节、base64、附件正文或 worker stdout。
+`visual_refs` 与 warning 都有上限；完整生成资源列表由 Markdown 与 Workspace manifest 表达。ActionResult 不返回 Markdown 正文、图片字节、base64、附件正文或 worker stdout。
 
 ## Subprocess
 
@@ -124,8 +124,8 @@ extract_attachments = true
 
 ## 失败与限制
 
-以下为局部 ActionResult：不支持的 suffix、source/target Link 无效、source 过大、加密或损坏文档、输出/资源数量超限、目标冲突、worker 失败、无文本且无可提交图片、bundle 写入冲突。
+以下为局部 ActionResult：不支持的 suffix、source/target 引用 无效、source 过大、加密或损坏文档、输出/资源数量超限、目标冲突、worker 失败、无文本且无可提交图片、bundle 写入冲突。
 
-如果部分页面或嵌入资源无法提取，但仍有安全、可用输出，则提交完整 bundle，状态为 `partial` 并返回稳定 warning。只有完整输出通过 UTF-8、非空、字符上限、asset count/bytes 与 Link 范围校验后才允许提交。
+如果部分页面或嵌入资源无法提取，但仍有安全、可用输出，则提交完整 bundle，状态为 `partial` 并返回稳定 warning。只有完整输出通过 UTF-8、非空、字符上限、asset count/bytes 与 引用 范围校验后才允许提交。
 
 配置非法、启用 action 缺少依赖以及 Catalog/registrar 装配矛盾属于启动或模块边界失败。worker 非零结果和 staged output/manifest 协议错误属于当前调用的局部 ActionResult，后者使用稳定 `worker_protocol_invalid` reason，不能泄露绝对路径或原始 traceback。Runtime transfer 原样传播；受控进程超时或 commit point 前的取消收敛为 Action timeout 并清理临时目录，不留下半成品 Workspace 资源。

@@ -47,12 +47,12 @@ class WorkspaceRefresh:
 class WorkspaceResource:
     """A workspace resource handle with a short summary."""
 
-    link: str
+    ref: str
     summary: str
 
     def __post_init__(self) -> None:
-        if not isinstance(self.link, str) or not self.link:
-            raise WorkspaceContractError("WorkspaceResource.link must be non-empty")
+        if not isinstance(self.ref, str) or not self.ref:
+            raise WorkspaceContractError("WorkspaceResource.ref must be non-empty")
         if not isinstance(self.summary, str) or not self.summary:
             raise WorkspaceContractError("WorkspaceResource.summary must be non-empty")
 
@@ -70,10 +70,10 @@ class WorkspaceSnapshot:
                 "Workspace projection requires typed resources"
             )
         object.__setattr__(self, "resources", resources)
-        links = tuple(resource.link for resource in resources)
-        if len(set(links)) != len(links):
+        refs = tuple(resource.ref for resource in resources)
+        if len(set(refs)) != len(refs):
             raise WorkspaceContractError(
-                "WorkspaceSnapshot.resources must contain unique links"
+                "WorkspaceSnapshot.resources must contain unique refs"
             )
 
 
@@ -125,12 +125,20 @@ class WorkspaceSegment:
 
     def render(self) -> tuple[Message, ...]:
         return (
-            UserMessage.from_json({"resources": self._resources()}, label="workspace"),
+            UserMessage.from_text(
+                prompt_text.workspace_directory(
+                    tuple(
+                        (item.ref, item.summary)
+                        for item in (self._snapshot.resources if self._snapshot else ())
+                    )
+                ),
+                label="workspace",
+            ),
         )
 
     def _resources(self) -> list[JsonValue]:
         return [
-            {"link": item.link, "summary": item.summary}
+            {"ref": item.ref, "summary": item.summary}
             for item in (self._snapshot.resources if self._snapshot is not None else ())
         ]
 
@@ -146,9 +154,9 @@ class WorkspaceSegmentProvider:
         return WorkspaceSegment(self._workspace)
 
 
-def workspace_segment_registration(workspace: WorkspaceEngine) -> (
-    SegmentRegistration[WorkspaceRefresh, WorkspaceSnapshot | None]
-):
+def workspace_segment_registration(
+    workspace: WorkspaceEngine,
+) -> SegmentRegistration[WorkspaceRefresh, WorkspaceSnapshot | None]:
     return SegmentRegistration(
         descriptor=SegmentDescriptor("workspace", "workspace", SegmentSlot.WORKING, 20),
         provider=WorkspaceSegmentProvider(workspace),
@@ -200,7 +208,9 @@ class ArchivedWorkspaceSegment:
             ),
         }
 
-    async def inspect(self, ref: str, *, query: str | None = None, continuation: str | None = None) -> JsonObject:
+    async def inspect(
+        self, ref: str, *, query: str | None = None, continuation: str | None = None
+    ) -> JsonObject:
         if query is not None:
             raise ContextInspectRequestError(
                 ContextInspectFailureReason.QUERY_UNSUPPORTED,
@@ -242,7 +252,7 @@ class ArchivedWorkspaceSegment:
             )
         try:
             operations = JoinedOperations()
-            read = await operations.run(lambda: view.read_text(record.link))
+            read = await operations.run(lambda: view.read_text(record.ref))
             operations.check_cancelled()
         except WorkspaceContractError as exc:
             raise ContextInspectRequestError(
@@ -306,7 +316,7 @@ def workspace_snapshot(manifest: WorkspaceManifest) -> WorkspaceSnapshot:
 
     return WorkspaceSnapshot(
         resources=tuple(
-            WorkspaceResource(link=record.link, summary=record.context_summary)
+            WorkspaceResource(ref=record.ref, summary=record.context_summary)
             for record in manifest.resources
         ),
     )

@@ -141,7 +141,7 @@ export function ActiveMemoryView({ epoch }: { epoch: number }): ReactElement {
             label="Quote in conversation"
             onClick={() =>
               quoteReference("memory:current", {
-                link: "memory:current",
+                ref: "memory:current",
                 day: boundDay ?? undefined,
               })
             }
@@ -200,7 +200,7 @@ export function ActiveMemoryView({ epoch }: { epoch: number }): ReactElement {
           <ChunkedMarkdown
             items={page.items}
             fragment={fragment}
-            origin={{ link: "memory:current", day: boundDay ?? undefined }}
+            origin={{ ref: "memory:current", day: boundDay ?? undefined }}
           />
           </div>
         </div>

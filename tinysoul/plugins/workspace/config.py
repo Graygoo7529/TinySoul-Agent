@@ -25,7 +25,7 @@ DEFAULT_MAX_IMAGE_BYTES = 5 * 1024 * 1024
 DEFAULT_SEARCH_MAX_QUERY_CHARS = 256
 DEFAULT_SEARCH_MAX_SCAN_CHARS = 1_000_000
 DEFAULT_ANALYSIS_MAX_INTENT_CHARS = 2000
-DEFAULT_ANALYSIS_MAX_REFERENCE_LINKS = 8
+DEFAULT_ANALYSIS_MAX_REFERENCE_REFS = 8
 DEFAULT_ANALYSIS_MAX_SOURCE_CHARS = 24_000
 DEFAULT_ANALYSIS_MAX_CHARS_PER_REFERENCE = 12_000
 DEFAULT_ANALYSIS_MAX_ANSWER_CHARS = 4000
@@ -48,7 +48,7 @@ class WorkspaceAnalysisSettings:
     """Bounded Workspace reference analysis settings."""
 
     max_intent_chars: int = DEFAULT_ANALYSIS_MAX_INTENT_CHARS
-    max_reference_links: int = DEFAULT_ANALYSIS_MAX_REFERENCE_LINKS
+    max_reference_refs: int = DEFAULT_ANALYSIS_MAX_REFERENCE_REFS
     max_source_chars: int = DEFAULT_ANALYSIS_MAX_SOURCE_CHARS
     max_chars_per_reference: int = DEFAULT_ANALYSIS_MAX_CHARS_PER_REFERENCE
     max_answer_chars: int = DEFAULT_ANALYSIS_MAX_ANSWER_CHARS
@@ -56,7 +56,7 @@ class WorkspaceAnalysisSettings:
     def __post_init__(self) -> None:
         for name in (
             "max_intent_chars",
-            "max_reference_links",
+            "max_reference_refs",
             "max_source_chars",
             "max_chars_per_reference",
             "max_answer_chars",
@@ -325,7 +325,7 @@ def _parse_analysis(tree: Mapping[str, object]) -> WorkspaceAnalysisSettings:
         tree,
         {
             "max_intent_chars",
-            "max_reference_links",
+            "max_reference_refs",
             "max_source_chars",
             "max_chars_per_reference",
             "max_answer_chars",
@@ -340,10 +340,10 @@ def _parse_analysis(tree: Mapping[str, object]) -> WorkspaceAnalysisSettings:
             default=defaults.max_intent_chars,
             key="workspace.analysis",
         ),
-        max_reference_links=_optional_int(
+        max_reference_refs=_optional_int(
             tree,
-            "max_reference_links",
-            default=defaults.max_reference_links,
+            "max_reference_refs",
+            default=defaults.max_reference_refs,
             key="workspace.analysis",
         ),
         max_source_chars=_optional_int(

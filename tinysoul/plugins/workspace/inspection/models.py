@@ -7,7 +7,7 @@ from enum import StrEnum
 from typing import BinaryIO
 
 from ..errors import WorkspaceContractError
-from ..links import WorkspaceLink
+from ..refs import WorkspaceRef
 from ..storage.manifest import (
     WorkspaceManifest,
     WorkspaceResourceKind,
@@ -18,7 +18,7 @@ from .text import WorkspaceTextRangeRead
 
 @dataclass(frozen=True)
 class WorkspaceTextRead:
-    link: str
+    ref: str
     text: str
     truncated: bool
     size: int
@@ -28,7 +28,7 @@ class WorkspaceTextRead:
 class WorkspaceByteRead:
     """A complete bounded byte resource for external protocol adapters."""
 
-    link: str
+    ref: str
     data: bytes
     kind: WorkspaceResourceKind
     media_type: str
@@ -39,7 +39,7 @@ class WorkspaceByteRead:
 class WorkspaceBlobRead:
     """Opened owner resource; the caller holds its day lease until close."""
 
-    link: str
+    ref: str
     stream: BinaryIO
     media_type: str
     size: int
@@ -49,7 +49,7 @@ class WorkspaceBlobRead:
 class WorkspaceImageRead:
     """A complete image resource prepared for an LLM image part."""
 
-    link: str
+    ref: str
     data: bytes
     media_type: str
     size: int
@@ -59,7 +59,7 @@ class WorkspaceImageRead:
 class WorkspaceDocumentRead:
     """A complete bounded document resource for local conversion."""
 
-    link: str
+    ref: str
     data: bytes
     media_type: str
     suffix: str
@@ -70,12 +70,12 @@ class WorkspaceDocumentRead:
 class WorkspaceBundleWrite:
     """One validated file write in a serialized Workspace bundle."""
 
-    link: str
+    ref: str
     data: bytes
     overwrite: bool = False
 
     def __post_init__(self) -> None:
-        WorkspaceLink.parse(self.link)
+        WorkspaceRef.parse(self.ref)
         if not isinstance(self.data, bytes):
             raise WorkspaceContractError("Workspace bundle data must be bytes")
         if not isinstance(self.overwrite, bool):
@@ -94,15 +94,15 @@ class WorkspaceBundleResult:
 class WorkspaceTextSlice:
     """A bounded text slice for temporary workspace prompt input."""
 
-    link: str
+    ref: str
     range_label: str
     text: str
     truncated: bool
     size: int
 
     def __post_init__(self) -> None:
-        if not self.link:
-            raise WorkspaceContractError("WorkspaceTextSlice.link must be non-empty")
+        if not self.ref:
+            raise WorkspaceContractError("WorkspaceTextSlice.ref must be non-empty")
         if not self.range_label:
             raise WorkspaceContractError(
                 "WorkspaceTextSlice.range_label must be non-empty"
@@ -115,7 +115,7 @@ class WorkspaceTextSlice:
 class WorkspaceTextRangeResult:
     """A bounded page from the current contents of an explicit line range."""
 
-    link: str
+    ref: str
     size: int
     start_line: int
     end_line: int
@@ -128,7 +128,7 @@ class WorkspaceAnalysisReference:
     """One complete text reference for a Workspace analysis task."""
 
     source_id: str
-    link: str
+    ref: str
     text: str
     size: int
     end_line: int
@@ -153,7 +153,7 @@ class WorkspaceAnalysisBudgetFailure:
     reason: WorkspaceAnalysisBudgetReason
     limit: int
     observed: int
-    offending_link: str = ""
+    offending_ref: str = ""
     inspected: tuple[WorkspaceResourceRecord, ...] = ()
 
 
@@ -187,6 +187,6 @@ class WorkspacePromptInput:
 
     def render(self) -> str:
         return "\n\n".join(
-            f"{text_slice.link} ({text_slice.range_label})\n{text_slice.text}"
+            f"{text_slice.ref} ({text_slice.range_label})\n{text_slice.text}"
             for text_slice in self.slices
         )

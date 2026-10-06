@@ -18,7 +18,7 @@ export class SessionClient {
   constructor(private readonly transport: V2Transport) {}
 
   background(turnId: string, params: { day: string } & ContinuationParams, options?: RequestOptions): Promise<BackgroundPage> {
-    return this.transport.get<BackgroundPage>(`/session/turns/${encodeURIComponent(turnId)}/background`,
+    return this.transport.get<BackgroundPage>(`/session/turns/${turnId.split("/").map(encodeURIComponent).join("/")}/background`,
       { ...options, query: { ...params } });
   }
 
@@ -54,7 +54,7 @@ export class SessionClient {
     options?: RequestOptions,
   ): Promise<InteractionPage> {
     return this.transport.get<InteractionPage>(
-      `/session/turns/${encodeURIComponent(turnId)}`,
+      `/session/turns/${turnId.split("/").map(encodeURIComponent).join("/")}`,
       { ...options, query: { ...params } },
     );
   }

@@ -25,12 +25,12 @@ class PromptReferenceError(Exception):
 
 
 class PromptReferenceResolver(Protocol):
-    """Resolve read-only resource links into task prompt blocks."""
+    """Resolve read-only resource refs into task prompt blocks."""
 
-    def supports(self, link: str) -> bool:
-        """Return whether this resolver handles a resource link."""
+    def supports(self, ref: str) -> bool:
+        """Return whether this resolver handles a resource ref."""
         ...
 
-    async def resolve_reference(self, link: str) -> tuple[PromptBlock, ...]:
-        """Resolve one read-only resource link into prompt blocks."""
+    async def resolve_reference(self, ref: str) -> tuple[PromptBlock, ...]:
+        """Resolve one read-only resource ref into prompt blocks."""
         ...

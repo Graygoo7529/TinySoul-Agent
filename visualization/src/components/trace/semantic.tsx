@@ -89,13 +89,13 @@ export function DomainChip({ domain }: { domain: string }) {
 
 /* ------------------------------ links -------------------------------- */
 
-export function linkNamespace(link: string): string {
-  const colon = link.indexOf(":");
-  return colon > 0 ? link.slice(0, colon) : "";
+export function linkNamespace(resourceRef: string): string {
+  const colon = resourceRef.indexOf(":");
+  return colon > 0 ? resourceRef.slice(0, colon) : "";
 }
 
-export function LinkChip({ link, className = "" }: { link: string; className?: string }) {
-  const ns = linkNamespace(link);
+export function LinkChip({ resourceRef, className = "" }: { resourceRef: string; className?: string }) {
+  const ns = linkNamespace(resourceRef);
   const Icon =
     ns === "workspace"
       ? FileText
@@ -106,11 +106,11 @@ export function LinkChip({ link, className = "" }: { link: string; className?: s
           : FileText;
   return (
     <span
-      title={link}
+      title={resourceRef}
       className={`inline-flex max-w-full items-center gap-1 rounded-md bg-hover px-1.5 py-0.5 font-mono text-[11px] text-fg-muted ${className}`}
     >
       <Icon size={11} className="shrink-0" />
-      <span className="truncate">{link}</span>
+      <span className="truncate">{resourceRef}</span>
     </span>
   );
 }

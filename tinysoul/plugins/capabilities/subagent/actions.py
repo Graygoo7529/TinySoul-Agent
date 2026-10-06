@@ -102,22 +102,22 @@ class SubagentAction:
                 return engine.agents()
             case SubagentOperation.CONNECT:
                 return await engine.connect(
-                    turn_id, self._scenario, text("agent_id"), text("cwd_link", "")
+                    turn_id, self._scenario, text("agent_id"), text("cwd_ref", "")
                 )
             case SubagentOperation.DELEGATE:
-                links = params.get("reference_links", [])
+                refs = params.get("references", [])
                 if (
-                    not isinstance(links, list)
-                    or len(links) > 8
-                    or any(not isinstance(link, str) for link in links)
+                    not isinstance(refs, list)
+                    or len(refs) > 8
+                    or any(not isinstance(ref, str) for ref in refs)
                 ):
                     raise SubagentRequestError(
                         SubagentFailure.INVALID_REQUEST,
-                        prompt_text.REFERENCE_LINKS_MUST_BE_A_BOUNDED_LIST,
+                        prompt_text.REFERENCE_REFS_MUST_BE_A_BOUNDED_LIST,
                     )
                 brief = await engine.prepare_brief(
                     text("brief"),
-                    tuple(link for link in links if isinstance(link, str)),
+                    tuple(ref for ref in refs if isinstance(ref, str)),
                     context.owner_operations,
                 )
                 job_id = await engine.delegate(turn_id, text("connection_id"), brief)

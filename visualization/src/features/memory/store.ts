@@ -33,8 +33,8 @@ interface MemoryPageState {
   kind: string | null;
   /** Persistent catalog name filter (server-side query). */
   query: string;
-  /** Selected persistent document link (fragment-free). */
-  link: string | null;
+  /** Selected persistent document ref (fragment-free). */
+  ref: string | null;
   /** Fragment waiting to be located in the selected document. */
   fragment: string | null;
   /** Direct refs of the currently read document (from its page metadata). */
@@ -47,7 +47,7 @@ interface MemoryPageState {
   setActiveDay: (day: string | null) => void;
   setKind: (kind: string | null) => void;
   setQuery: (query: string) => void;
-  select: (link: string | null, fragment?: string | null) => void;
+  select: (ref: string | null, fragment?: string | null) => void;
   setRightPanel: (panel: MemoryRightPanel) => void;
   /** Document reader installs the current document's facts. */
   setCurrentDocument: (refs: string[], meta: MemoryDocMeta | null) => void;
@@ -61,7 +61,7 @@ export const useMemoryPage = create<MemoryPageState>()((set) => ({
   activeFragment: null,
   kind: null,
   query: "",
-  link: null,
+  ref: null,
   fragment: null,
   currentDirectRefs: [],
   currentMeta: null,
@@ -71,18 +71,18 @@ export const useMemoryPage = create<MemoryPageState>()((set) => ({
   setActiveDay: (activeDay) => set({ activeDay, activeFragment: null }),
   setKind: (kind) => set({ kind }),
   setQuery: (query) => set({ query }),
-  select: (link, fragment = null) =>
+  select: (ref, fragment = null) =>
     set((state) => ({
-      link,
+      ref,
       fragment,
-      currentDirectRefs: state.link === link ? state.currentDirectRefs : [],
-      currentMeta: state.link === link ? state.currentMeta : null,
+      currentDirectRefs: state.ref === ref ? state.currentDirectRefs : [],
+      currentMeta: state.ref === ref ? state.currentMeta : null,
     })),
   setRightPanel: (rightPanel) => set({ rightPanel }),
   setCurrentDocument: (currentDirectRefs, currentMeta) =>
     set({ currentDirectRefs, currentMeta }),
   openTarget: (target) => {
-    if (target.link === "memory:current") {
+    if (target.ref === "memory:current") {
       // A dynamic current reference reads the active Memory.md at its day.
       set({
         section: "active",
@@ -93,7 +93,7 @@ export const useMemoryPage = create<MemoryPageState>()((set) => ({
     }
     set({
       section: "persistent",
-      link: target.link,
+      ref: target.ref,
       fragment: target.fragment,
       currentDirectRefs: [],
       currentMeta: null,

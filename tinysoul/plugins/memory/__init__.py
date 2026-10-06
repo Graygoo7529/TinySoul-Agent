@@ -33,7 +33,7 @@ from .documents import (
     NoteMemoryDocument,
     PersistentMemoryDocument,
     StoredMemoryDocument,
-    inline_memory_links,
+    inline_memory_refs,
 )
 from .engine import MemoryEngine
 from .errors import (
@@ -43,7 +43,7 @@ from .errors import (
     MemoryInvariantError,
 )
 from .failures import MemoryFailureKind
-from .links import MemoryBackgroundRef, MemoryKind, MemoryLink
+from .refs import MemoryBackgroundRef, MemoryKind, MemoryRef
 
 __all__ = [
     "ActiveMemoryBackgroundEntryProvider",
@@ -68,7 +68,7 @@ __all__ = [
     "MemorySearchSettings",
     "MemoryInvariantError",
     "MemoryKind",
-    "MemoryLink",
+    "MemoryRef",
     "MemoryMemorizeExecutor",
     "MemoryPatchKind",
     "MemoryPatchOperation",
@@ -79,7 +79,7 @@ __all__ = [
     "PersistentMemoryDocument",
     "StoredMemoryDocument",
     "TargetMemoryBackgroundEntryProvider",
-    "inline_memory_links",
+    "inline_memory_refs",
     "parse_memory_settings",
     "register_memory_actions",
 ]

@@ -1,5 +1,5 @@
 {
-  "job_id": "job_1",
+  "job_id": "job_2b6040352ffc4954a8e6565b2c1ace8f",
   "items": [
     {
       "channel": "stdout",
@@ -10,20 +10,20 @@
       "text": "notice\n"
     }
   ],
-  "next_continuation": "continuation_2",
+  "next_continuation": "v1.eyJiaW5kaW5nIjp7fSwib3BlcmF0aW9uIjoib3V0cHV0Iiwib3duZXIiOiJqb2JzIiwicG9zaXRpb24iOnsiY2hhcl9vZmZzZXQiOjAsIml0ZW1fZGlnZXN0IjoiIiwiaXRlbV9pbmRleCI6Nn0sInJlZiI6ImpvYl8yYjYwNDAzNTJmZmM0OTU0YThlNjU2NWIyYzFhY2U4ZjpzdGRvdXQiLCJ2ZXJzaW9uIjoxfQ.e68c797e5e84919cb21d140e784d958e1783989d3ee437dfb8c100b1424daac6~v1.eyJiaW5kaW5nIjp7fSwib3BlcmF0aW9uIjoib3V0cHV0Iiwib3duZXIiOiJqb2JzIiwicG9zaXRpb24iOnsiY2hhcl9vZmZzZXQiOjAsIml0ZW1fZGlnZXN0IjoiIiwiaXRlbV9pbmRleCI6N30sInJlZiI6ImpvYl8yYjYwNDAzNTJmZmM0OTU0YThlNjU2NWIyYzFhY2U4ZjpzdGRlcnIiLCJ2ZXJzaW9uIjoxfQ.dedaf4a2901b1d5510190fced04059f548b3cfb22e6d55f5433e62c69897ea6b",
   "truncated": false,
   "result_locators": [
     {
-      "link": "workspace:jobs/job_1",
-      "day": "2026-09-29"
+      "ref": "workspace:jobs/job_2b6040352ffc4954a8e6565b2c1ace8f",
+      "day": "2026-10-06"
     },
     {
-      "link": "workspace:jobs/job_1/logs/stdout.log",
-      "day": "2026-09-29"
+      "ref": "workspace:jobs/job_2b6040352ffc4954a8e6565b2c1ace8f/logs/stdout.log",
+      "day": "2026-10-06"
     },
     {
-      "link": "workspace:jobs/job_1/logs/stderr.log",
-      "day": "2026-09-29"
+      "ref": "workspace:jobs/job_2b6040352ffc4954a8e6565b2c1ace8f/logs/stderr.log",
+      "day": "2026-10-06"
     }
   ]
 }

@@ -33,8 +33,9 @@ export interface RuntimeProjection {
   activity: string;
   activation: string;
   active_day: string;
+  active_request_id: string | null;
   active_turn_id: string | null;
-  queued_turn_ids: string[];
+  queued_request_ids: string[];
   sources: RuntimeSourceStatus[];
   [key: string]: unknown;
 }

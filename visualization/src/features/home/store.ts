@@ -19,8 +19,8 @@ export type HomeRightPanel = "none" | "search" | "references";
 
 interface HomePageState {
   view: HomeView;
-  /** Selected resource link (fragment-free). */
-  link: string | null;
+  /** Selected resource ref (fragment-free). */
+  ref: string | null;
   /** Fragment waiting to be located in the selected resource. */
   fragment: string | null;
   panel: HomePanel;
@@ -35,10 +35,10 @@ interface HomePageState {
   rightPanel: HomeRightPanel;
 
   setView: (view: HomeView) => void;
-  select: (link: string | null, fragment?: string | null) => void;
+  select: (ref: string | null, fragment?: string | null) => void;
   setPanel: (panel: HomePanel) => void;
   setQuery: (query: string) => void;
-  openDiff: (link: string, kind?: string | null) => void;
+  openDiff: (ref: string, kind?: string | null) => void;
   closeDiff: () => void;
   setRightPanel: (panel: HomeRightPanel) => void;
   /** Content reader installs the current document's direct refs. */
@@ -49,7 +49,7 @@ interface HomePageState {
 
 export const useHomePage = create<HomePageState>()((set) => ({
   view: "effective",
-  link: null,
+  ref: null,
   fragment: null,
   panel: "directory",
   query: "",
@@ -63,14 +63,14 @@ export const useHomePage = create<HomePageState>()((set) => ({
       view,
       // The diff is view-independent (actual vs effective); everything else
       // rebinds to the new view.
-      link: state.link,
+      ref: state.ref,
       rightPanel: state.rightPanel === "search" ? "none" : state.rightPanel,
     })),
-  select: (link, fragment = null) =>
+  select: (ref, fragment = null) =>
     set((state) => ({
-      link,
+      ref,
       fragment,
-      currentDirectRefs: state.link === link ? state.currentDirectRefs : [],
+      currentDirectRefs: state.ref === ref ? state.currentDirectRefs : [],
     })),
   setPanel: (panel) => set({ panel }),
   setQuery: (query) => set({ query }),
@@ -82,7 +82,7 @@ export const useHomePage = create<HomePageState>()((set) => ({
   openTarget: (target) =>
     set({
       view: target.view,
-      link: target.link,
+      ref: target.ref,
       fragment: target.fragment,
       diffLink: null,
       diffKind: null,

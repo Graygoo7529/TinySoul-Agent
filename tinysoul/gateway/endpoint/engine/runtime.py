@@ -101,7 +101,7 @@ class EndpointRuntimeEngine:
             ) from exc
         return receipt.to_json()
 
-    async def create_turn(
+    async def create_request(
         self,
         *,
         kind: str,
@@ -149,60 +149,69 @@ class EndpointRuntimeEngine:
         return {
             "accepted": True,
             "command_id": identity,
+            "request_id": handle.request_id,
             "turn_id": handle.turn_id,
             "kind": kind,
             "state": handle.state.value,
         }
 
-    async def get_turn(self, turn_id: str) -> JsonObject:
-        snapshot = self._context.services.turn_snapshot(turn_id)
+    async def get_request(self, request_id: str) -> JsonObject:
+        snapshot = self._context.services.request_snapshot(request_id)
         if snapshot is None:
             raise EndpointRequestError(
                 status_code=404, code="turn.not_found", message="Turn was not found."
             )
         return snapshot.to_json()
 
-    async def list_turns(self) -> JsonObject:
-        return self._context.services.turn_directory()
+    async def list_requests(self) -> JsonObject:
+        return self._context.services.request_directory()
 
-    async def append_input(self, turn_id: str, text: str, input_id: str) -> JsonObject:
+    async def append_input(
+        self, request_id: str, text: str, input_id: str
+    ) -> JsonObject:
         receipt = await self._context.gateway.commands.append_input(
-            turn_id, text, input_id=input_id
+            request_id, text, input_id=input_id
         )
         return _receipt_json(receipt)
 
     async def reply(
-        self, turn_id: str, question_id: str, answer: QuestionAnswer
+        self, request_id: str, question_id: str, answer: QuestionAnswer
     ) -> JsonObject:
         receipt = await self._context.gateway.commands.reply(
-            turn_id, question_id, answer
+            request_id, question_id, answer
         )
         return _receipt_json(receipt)
 
-    async def grant(self, turn_id: str, request_id: str, count: int) -> JsonObject:
+    async def grant(
+        self, request_id: str, budget_request_id: str, count: int
+    ) -> JsonObject:
         accepted = await self._context.gateway.commands.grant_cycles(
-            turn_id, request_id, count
+            request_id, budget_request_id, count
         )
-        return {"turn_id": turn_id, "request_id": request_id, "accepted": accepted}
+        return {
+            "request_id": request_id,
+            "budget_request_id": budget_request_id,
+            "accepted": accepted,
+        }
 
-    async def cancel(self, turn_id: str) -> JsonObject:
-        accepted = await self._context.gateway.commands.cancel_turn(turn_id)
-        return {"turn_id": turn_id, "accepted": accepted}
+    async def cancel(self, request_id: str) -> JsonObject:
+        accepted = await self._context.gateway.commands.cancel_request(request_id)
+        return {"request_id": request_id, "accepted": accepted}
 
-    async def jobs(self, turn_id: str) -> JsonObject:
-        jobs = self._context.services.turn_jobs(turn_id)
+    async def jobs(self, request_id: str) -> JsonObject:
+        jobs = self._context.services.turn_jobs(request_id)
         if jobs is None:
             raise EndpointRequestError(
                 status_code=404, code="turn.not_found", message="Turn was not found."
             )
-        return {"turn_id": turn_id, "jobs": [item.to_json() for item in jobs]}
+        return {"request_id": request_id, "jobs": [item.to_json() for item in jobs]}
 
-    async def stop_job(self, turn_id: str, job_id: str) -> JsonObject:
-        if self._context.services.turn_jobs(turn_id) is None:
+    async def stop_job(self, request_id: str, job_id: str) -> JsonObject:
+        if self._context.services.turn_jobs(request_id) is None:
             raise EndpointRequestError(
                 status_code=404, code="turn.not_found", message="Turn was not found."
             )
-        snapshot = await self._context.services.stop_job(turn_id, job_id)
+        snapshot = await self._context.services.stop_job(request_id, job_id)
         return snapshot.to_json()
 
     async def submit_control(

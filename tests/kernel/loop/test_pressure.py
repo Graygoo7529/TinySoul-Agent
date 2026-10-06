@@ -102,7 +102,7 @@ async def test_capacity_recovery_rebuilds_task_or_ends_without_replaying_complet
         .with_trace_heap(chunk_max_chars=12000, branch_factor=4, min_hot_entries=0)
         .build()
     )
-    turn_id = context.begin_turn("continue")
+    turn_id = context.begin_turn("continue", turn_id="2026-10-06/105")
     await context.open_segments(CalendarDate(2026, 7, 12))
     scope = (
         _scope(turn_id)
@@ -132,6 +132,7 @@ async def test_capacity_recovery_rebuilds_task_or_ends_without_replaying_complet
         )
     ).build()
     from tinysoul.kernel.registration import PluginRegistry
+
     plugins = PluginRegistry(()).resolve(context)
     trap = (
         build_reflection_turn_trap(context, plugins=plugins)
@@ -237,7 +238,7 @@ async def test_image_only_pressure_does_not_delete_workspace_files(
         "temporary",
     )
     context = ContextEngineBuilder(system_text="system").build()
-    turn_id = context.begin_turn("continue")
+    turn_id = context.begin_turn("continue", turn_id="2026-10-06/240")
     await context.open_segments(CalendarDate(2026, 7, 12))
     scope = _scope(turn_id)
 
@@ -266,7 +267,7 @@ async def test_reflection_pressure_never_reclaims_active_workspace(
         "active work",
     )
     context = ContextEngineBuilder(system_text="system").build()
-    turn_id = context.begin_turn("maintain memory")
+    turn_id = context.begin_turn("maintain memory", turn_id="2026-10-06/269")
     await context.open_segments(CalendarDate(2026, 7, 12))
 
     ReflectionContextPressureRecovery(context).recover(
@@ -274,7 +275,7 @@ async def test_reflection_pressure_never_reclaims_active_workspace(
         scope=_scope(turn_id),
     )
 
-    assert {record.link for record in workspace.snapshot().resources} == {
+    assert {record.ref for record in workspace.snapshot().resources} == {
         "workspace:active.txt"
     }
 

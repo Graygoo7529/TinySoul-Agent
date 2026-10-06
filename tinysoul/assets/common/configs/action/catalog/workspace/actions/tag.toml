@@ -6,12 +6,12 @@ description = "Replace owner-maintained resource tags. Tags do not extend the da
 
 [tool.schema]
 type = "object"
-required = ["target_link","tags"]
+required = ["target_ref","tags"]
 additionalProperties = false
 
 [tool.schema.properties]
 
-[tool.schema.properties.target_link]
+[tool.schema.properties.target_ref]
 type = "string"
 
 [tool.schema.properties.tags]

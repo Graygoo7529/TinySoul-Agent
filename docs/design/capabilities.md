@@ -2,7 +2,7 @@
 
 ## 定位
 
-Capabilities 承载通过 Action 使用的外围业务能力，不拥有独立持久化或 Link namespace。能力可以持有连接、协议会话和派生目录，由 Agent 的 Turn、日与世代生命周期管理；它不建立独立调度器，也不复制 Workspace、Home、Memory、Session 的业务事实。
+Capabilities 承载通过 Action 使用的外围业务能力，不拥有独立持久化或 引用 namespace。能力可以持有连接、协议会话和派生目录，由 Agent 的 Turn、日与世代生命周期管理；它不建立独立调度器，也不复制 Workspace、Home、Memory、Session 的业务事实。
 
 一个 capability 负责自身的业务配置、依赖需求、service/client/converter 和 Action executor 适配。Action 继续拥有 Catalog、Phase2 工具协议、Phase3 调度、超时和结果回放；Infra 提供配置、依赖检查、标准 schema 校验和受控传输；Agent 组合 owner 的装配和关闭顺序。
 
@@ -79,7 +79,7 @@ Capability 不重复实现 Action executor。需要硬停止的第三方解析�
 
 需要产生中间文件的 capability 共用 Agent 按项目根装配的 `runtime/.staging/`，由 Infra 的 staging manager 提供启动清理、唯一 action 子目录和作用域结束清理。该目录是无业务身份的短期执行设施，不属于 Workspace、Session、Home、Memory 或 archive；capability 不自行创建平行 temp root。原子写同目录临时文件、subprocess 输出捕获和项目 initializer staging 具有不同语义，不纳入此 capability staging 根。
 
-ActionResult 是否包含正文由 action 的交互语义和明确上限决定，而不是 capability 全局固定为 metadata-only。生成长期或可继续处理 artifact 的 action 只返回 Link、状态和有界摘要；本来就属于当前交互的短搜索结果可以直接进入 TurnTrace，但必须先规范化并受 action 专属上限约束，超限正文写入 Workspace 后只返回保持稳定 shape 的预览和 Link。图片字节、base64、原始供应商响应、未规范化网页正文和无界诊断始终不能进入 ActionResult。
+ActionResult 是否包含正文由 action 的交互语义和明确上限决定，而不是 capability 全局固定为 metadata-only。生成长期或可继续处理 artifact 的 action 只返回 引用、状态和有界摘要；本来就属于当前交互的短搜索结果可以直接进入 TurnTrace，但必须先规范化并受 action 专属上限约束，超限正文写入 Workspace 后只返回保持稳定 shape 的预览和 引用。图片字节、base64、原始供应商响应、未规范化网页正文和无界诊断始终不能进入 ActionResult。
 
 当前具体能力设计：
 
@@ -98,7 +98,7 @@ Capability 失败分为三层：
 
 worker 的非零退出、格式错误或无效输出属于当前 action 的局部失败；它不能破坏宿主 Workspace，也不能把 worker traceback、绝对路径或原始输出带入模型反馈。宿主内部对象关系被破坏时仍按 Action 模块的公共失败边界处理。
 
-局部失败只返回稳定 reason、资源 Link 和有界诊断。原始文件内容、worker traceback、绝对路径和敏感环境值不能进入模型反馈。
+局部失败只返回稳定 reason、资源 引用 和有界诊断。原始文件内容、worker traceback、绝对路径和敏感环境值不能进入模型反馈。
 
 ## 测试要求
 
@@ -107,6 +107,6 @@ worker 的非零退出、格式错误或无效输出属于当前 action 的局�
 - settings 解析、未知键和依赖需求推导；
 - enabled/disabled/effective Catalog 行为；
 - service/converter 的正常、部分成功、限制和损坏输入；
-- executor 的 Link 边界、ActionResult 和 Runtime transfer；
+- executor 的 引用 边界、ActionResult 和 Runtime transfer；
 - Agent 装配与隔离项目工作流；
 - package template、wheel package data 和无仓库路径依赖。

@@ -44,7 +44,7 @@ const SEARCH_SCOPES: SearchScopeChoice[] = [
 export function MemoryPage(): ReactElement {
   const epoch = useConnectionStore((s) => s.epoch);
   const section = useMemoryPage((s) => s.section);
-  const link = useMemoryPage((s) => s.link);
+  const ref = useMemoryPage((s) => s.ref);
   const fragment = useMemoryPage((s) => s.fragment);
   const currentMeta = useMemoryPage((s) => s.currentMeta);
   const currentDirectRefs = useMemoryPage((s) => s.currentDirectRefs);
@@ -107,7 +107,7 @@ export function MemoryPage(): ReactElement {
       const target = outcome.value.target;
       if (target.kind === "memory") {
         useMemoryPage.getState().openTarget({
-          link: target.link,
+          ref: target.ref,
           day: target.day,
           fragment: target.fragment,
         });
@@ -119,8 +119,8 @@ export function MemoryPage(): ReactElement {
   );
 
   const documentAnchor =
-    section === "persistent" && link !== null
-      ? { link, label: currentMeta?.display ?? link }
+    section === "persistent" && ref !== null
+      ? { ref, label: currentMeta?.display ?? ref }
       : null;
 
   return (
@@ -168,8 +168,8 @@ export function MemoryPage(): ReactElement {
         <div className="relative min-w-0 flex-1">
           {section === "active" ? (
             <ActiveMemoryView epoch={epoch} />
-          ) : link !== null ? (
-            <MemoryDocumentView epoch={epoch} link={link} fragment={fragment} />
+          ) : ref !== null ? (
+            <MemoryDocumentView epoch={epoch} ref={ref} fragment={fragment} />
           ) : (
             <div className="flex h-full items-center justify-center p-6">
               <EmptyState
@@ -196,12 +196,12 @@ export function MemoryPage(): ReactElement {
           onClose={() => useMemoryPage.getState().setRightPanel("none")}
         />
       )}
-      {rightPanel === "references" && section === "persistent" && link !== null && (
+      {rightPanel === "references" && section === "persistent" && ref !== null && (
         <ReferencesPanel
           actionId="memory.search"
-          anchor={link}
+          anchor={ref}
           directRefs={currentDirectRefs}
-          origin={{ link }}
+          origin={{ ref }}
           run={runSearch}
           onOpenRef={(ref) => void openSearchRef(ref)}
           onClose={() => useMemoryPage.getState().setRightPanel("none")}

@@ -38,9 +38,9 @@ export class MemoryClient {
     });
   }
 
-  /** GET /v2/memory/document?link= — document body, refs and redirect chain. */
+  /** GET /v2/memory/document?ref= — document body, refs and redirect chain. */
   document(
-    params: { link: string } & ContinuationParams,
+    params: { ref: string } & ContinuationParams,
     options?: RequestOptions,
   ): Promise<MemoryDocumentPage> {
     return this.transport.get<MemoryDocumentPage>("/memory/document", {

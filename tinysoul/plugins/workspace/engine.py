@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+from hashlib import sha256
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import date
@@ -11,8 +12,9 @@ from pathlib import Path
 from threading import RLock
 
 from tinysoul.prompts.plugins import workspace as prompt_text
+from tinysoul.infra.continuation import OpaqueContinuationCodec, continue_json_sequence
 from tinysoul.infra.filesystem import atomic_write_text, read_text_prefix
-from tinysoul.infra.json import JsonObject
+from tinysoul.infra.json import JsonObject, JsonValue, dumps_json
 from tinysoul.infra.paging import PageOptions
 from tinysoul.infra.references import (
     ReferenceError,
@@ -71,7 +73,7 @@ from .inspection.models import (
     WorkspaceTextRead,
 )
 from .inspection.reader import WorkspaceReader
-from .links import WorkspaceLink
+from .refs import WorkspaceRef
 from .storage.manifest import (
     WorkspaceManifest,
     WorkspaceManifestStore,
@@ -108,7 +110,7 @@ class WorkspaceExecutionLocation:
     cwd: Path
     capture_root: Path
     script_path: Path | None
-    links: tuple[str, ...]
+    refs: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -130,38 +132,36 @@ class WorkspaceArchiveView:
             manifest_store=WorkspaceManifestStore(settings.manifest_path),
         )
 
-        def inspect(link: str) -> WorkspaceResourceRecord:
+        def stat(ref: str) -> WorkspaceResourceRecord:
             record = next(
-                (item for item in self.manifest.resources if item.link == link), None
+                (item for item in self.manifest.resources if item.ref == ref), None
             )
             if record is None:
                 raise WorkspaceNotFoundError("Archived Workspace resource is absent")
             return record
 
         return WorkspaceReader(
-            settings=settings, inspect=inspect, path_for=discovery.path_for
+            settings=settings, stat=stat, path_for=discovery.path_for
         )
 
     def browse_text(
-        self, link: str, *, page: PageOptions = PageOptions(), full: bool = False
+        self, ref: str, *, page: PageOptions = PageOptions(), full: bool = False
     ) -> JsonObject:
         return self.reader().browse_text(
-            link, day=self.day, page=page, full=full, editable=False
+            ref, day=self.day, page=page, full=full, editable=False
         )
 
-    def open_blob(self, link: str) -> WorkspaceBlobRead:
-        return self.reader().open_blob(link)
+    def open_blob(self, ref: str) -> WorkspaceBlobRead:
+        return self.reader().open_blob(ref)
 
     def trash_items(self) -> tuple[WorkspaceTrashItem, ...]:
         return WorkspaceTrashStore(self.root.parent / "trash").list()
 
-    def read_text(
-        self, link: str, *, max_chars: int | None = None
-    ) -> WorkspaceTextRead:
+    def read_text(self, ref: str, *, max_chars: int | None = None) -> WorkspaceTextRead:
         limit = self.max_read_chars if max_chars is None else max_chars
         if type(limit) is not int or not 0 < limit <= self.max_read_chars:
             raise WorkspaceContractError("Archived Workspace read bound is invalid")
-        return self.reader().read_text(link, max_chars=limit)
+        return self.reader().read_text(ref, max_chars=limit)
 
 
 class WorkspaceEngine:
@@ -185,7 +185,7 @@ class WorkspaceEngine:
             settings=settings, manifest_store=manifest_store
         )
         self._reader = WorkspaceReader(
-            settings=settings, inspect=self.inspect, path_for=self.path_for
+            settings=settings, stat=self.stat, path_for=self.path_for
         )
         self._mutations = WorkspaceMutations(
             settings=settings,
@@ -283,11 +283,11 @@ class WorkspaceEngine:
                 except OSError as exc:
                     raise WorkspaceIOError("Workspace cannot be archived") from exc
 
-    def path_for(self, link: WorkspaceLink | str) -> Path:
-        return self._reconciler.path_for(link)
+    def path_for(self, ref: WorkspaceRef | str) -> Path:
+        return self._reconciler.path_for(ref)
 
-    def resolve_relative(self, reference: str, origin_link: str) -> str:
-        origin = WorkspaceLink.parse(origin_link.partition("#")[0])
+    def resolve_relative(self, reference: str, origin_ref: str) -> str:
+        origin = WorkspaceRef.parse(origin_ref.partition("#")[0])
         return relative_reference(
             reference, source_path=origin.relative_path, prefix="workspace:"
         )
@@ -296,47 +296,122 @@ class WorkspaceEngine:
         with self._lock:
             return self._manifest_store.load()
 
-    def inspect(self, link: str) -> WorkspaceResourceRecord:
+    def stat(self, ref: str) -> WorkspaceResourceRecord:
         with self._lock:
             previous = next(
                 (
                     item
                     for item in self._manifest_store.load().resources
-                    if item.link == link
+                    if item.ref == ref
                 ),
                 None,
             )
-            return self._reconciler.inspect_record(self.path_for(link), previous)
+            return self._reconciler.inspect_record(self.path_for(ref), previous)
 
-    def write_target_exists(self, link: str) -> bool:
+    def inspect(
+        self, ref: str, *, continuation: str | None = None, max_chars: int | None = None
+    ) -> JsonObject:
+        """Disclose the current resource through a bounded, model-free read."""
+        limit = self._settings.max_read_chars if max_chars is None else max_chars
+        if type(limit) is not int or limit < 512:
+            raise WorkspaceContractError(
+                "Inspect page budget must be at least 512 characters"
+            )
+        limit = min(limit, self._settings.max_read_chars)
+        resource, _, fragment = ref.partition("#")
         with self._lock:
-            return self.path_for(link).exists()
+            record = self.stat(resource)
+            day = self._manifest_store.load().day
+            base: JsonObject = {
+                "ref": ref,
+                "title": record.relative_path,
+                "summary": record.context_summary,
+                "kind": record.kind.value,
+                "media_type": record.media_type,
+                "size": record.size,
+            }
+            if record.kind is WorkspaceResourceKind.TEXT:
+                page = self._reader.inspect_text(
+                    ref, day=day, continuation=continuation, max_chars=limit
+                )
+                body = page["text"]
+                assert isinstance(body, str)
+                direct: list[JsonValue] = []
+                for item in markdown_references(body):
+                    try:
+                        target = self.resolve_relative(item.target, resource)
+                    except ReferenceError:
+                        continue
+                    direct.append({"ref": target, "title": item.label or target})
+                return {**base, **page, "direct_refs": direct}
+            if fragment:
+                raise WorkspaceContractError("This resource has no text fragment")
+            if record.kind is WorkspaceResourceKind.DIRECTORY:
+                children: list[JsonValue] = []
+                for path in sorted(
+                    self.path_for(resource).iterdir(), key=lambda item: item.name
+                ):
+                    if path.is_symlink():
+                        continue
+                    child = self.stat(f"{resource}/{path.name}")
+                    children.append(
+                        {
+                            "ref": child.ref,
+                            "title": path.name,
+                            "summary": child.context_summary,
+                            "kind": child.kind.value,
+                        }
+                    )
+                page = continue_json_sequence(
+                    tuple(children),
+                    base={**base, "view": "children"},
+                    item_field="items",
+                    continuation=continuation,
+                    codec=OpaqueContinuationCodec(
+                        owner="workspace", operation="inspect_directory"
+                    ),
+                    ref=ref,
+                    max_chars=limit,
+                    binding={
+                        "day": day,
+                        "content": sha256(dumps_json(children).encode()).hexdigest(),
+                    },
+                )
+                page["has_more"] = bool(page.get("next_continuation"))
+                return page
+            if continuation is not None:
+                raise WorkspaceContractError("Metadata has no continuation")
+            return {**base, "view": "metadata", "has_more": False}
+
+    def write_target_exists(self, ref: str) -> bool:
+        with self._lock:
+            return self.path_for(ref).exists()
 
     def prepare_external_cwd(
-        self, connection_id: str, *, cwd_link: str = ""
+        self, connection_id: str, *, cwd_ref: str = ""
     ) -> tuple[Path, str]:
         """Resolve an existing explicit cwd, or create an isolated Agent directory."""
         if re.fullmatch(r"connection_[0-9a-f]{32}", connection_id) is None:
             raise WorkspaceContractError("External connection identity is invalid")
-        link = cwd_link or f"workspace:connections/{connection_id}"
+        ref = cwd_ref or f"workspace:connections/{connection_id}"
         with self._lock:
-            if link == "workspace:":
-                return self._settings.root, link
-            path = self.path_for(link)
-            if cwd_link:
+            if ref == "workspace:":
+                return self._settings.root, ref
+            path = self.path_for(ref)
+            if cwd_ref:
                 if not path.is_dir():
                     raise WorkspaceContractError(
                         "External Agent cwd must be an existing directory"
                     )
             else:
-                self.mkdir(link)
-            return path, link
+                self.mkdir(ref)
+            return path, ref
 
     def prepare_execution(
         self,
         job_id: str,
         *,
-        cwd_link: str = "",
+        cwd_ref: str = "",
         source_text: str | None = None,
         source_suffix: str = "",
     ) -> WorkspaceExecutionLocation:
@@ -346,8 +421,8 @@ class WorkspaceEngine:
             or re.fullmatch(r"job_[0-9a-f]{32}", job_id) is None
         ):
             raise WorkspaceContractError("Execution requires a valid Job identity")
-        if not isinstance(cwd_link, str):
-            raise WorkspaceContractError("Execution cwd must be a Workspace Link")
+        if not isinstance(cwd_ref, str):
+            raise WorkspaceContractError("Execution cwd must be a Workspace reference")
         if source_text is not None and (
             not isinstance(source_text, str)
             or source_suffix not in {".py", ".sh", ".ps1", ".cmd"}
@@ -359,10 +434,10 @@ class WorkspaceEngine:
             cwd = (
                 (
                     self._settings.root
-                    if cwd_link == "workspace:"
-                    else self.path_for(cwd_link)
+                    if cwd_ref == "workspace:"
+                    else self.path_for(cwd_ref)
                 )
-                if cwd_link
+                if cwd_ref
                 else job_root
             )
             for target in (job_root, cwd):
@@ -378,7 +453,7 @@ class WorkspaceEngine:
                         raise WorkspaceContractError(
                             "Execution path crosses an internal or redirected directory"
                         )
-            if cwd_link and not cwd.is_dir():
+            if cwd_ref and not cwd.is_dir():
                 raise WorkspaceContractError(
                     "Execution cwd must be an existing Workspace directory"
                 )
@@ -396,7 +471,7 @@ class WorkspaceEngine:
                 cwd=cwd,
                 capture_root=job_root / "logs",
                 script_path=script_path,
-                links=(
+                refs=(
                     prefix,
                     f"{prefix}/logs/stdout.log",
                     f"{prefix}/logs/stderr.log",
@@ -472,41 +547,39 @@ class WorkspaceEngine:
         except ValueError:
             return False
 
-    def read_text(
-        self, link: str, *, max_chars: int | None = None
-    ) -> WorkspaceTextRead:
+    def read_text(self, ref: str, *, max_chars: int | None = None) -> WorkspaceTextRead:
         with self._lock:
-            return self._reader.read_text(link, max_chars=max_chars)
+            return self._reader.read_text(ref, max_chars=max_chars)
 
-    def read_bytes(self, link: str, *, max_bytes: int) -> WorkspaceByteRead:
+    def read_bytes(self, ref: str, *, max_bytes: int) -> WorkspaceByteRead:
         with self._lock:
-            return self._reader.read_bytes(link, max_bytes=max_bytes)
+            return self._reader.read_bytes(ref, max_bytes=max_bytes)
 
     def browse_text(
-        self, link: str, *, page: PageOptions = PageOptions(), full: bool = False
+        self, ref: str, *, page: PageOptions = PageOptions(), full: bool = False
     ) -> JsonObject:
         with self._lock:
             return self._reader.browse_text(
-                link, day=str(self.active_day), page=page, full=full
+                ref, day=str(self.active_day), page=page, full=full
             )
 
-    def open_blob(self, link: str) -> WorkspaceBlobRead:
+    def open_blob(self, ref: str) -> WorkspaceBlobRead:
         with self._lock:
-            return self._reader.open_blob(link)
+            return self._reader.open_blob(ref)
 
     def read_image(
-        self, link: str, *, max_bytes: int | None = None
+        self, ref: str, *, max_bytes: int | None = None
     ) -> WorkspaceImageRead:
         with self._lock:
-            return self._reader.read_image(link, max_bytes=max_bytes)
+            return self._reader.read_image(ref, max_bytes=max_bytes)
 
-    def read_document(self, link: str, *, max_bytes: int) -> WorkspaceDocumentRead:
+    def read_document(self, ref: str, *, max_bytes: int) -> WorkspaceDocumentRead:
         with self._lock:
-            return self._reader.read_document(link, max_bytes=max_bytes)
+            return self._reader.read_document(ref, max_bytes=max_bytes)
 
     def read_text_range(
         self,
-        link: str,
+        ref: str,
         *,
         start_line: int,
         end_line: int,
@@ -515,7 +588,7 @@ class WorkspaceEngine:
     ) -> WorkspaceTextRangeResult:
         with self._lock:
             return self._reader.read_text_range(
-                link,
+                ref,
                 start_line=start_line,
                 end_line=end_line,
                 cursor=cursor,
@@ -523,29 +596,29 @@ class WorkspaceEngine:
             )
 
     def prepare_task_input(
-        self, links: Sequence[str], *, max_chars_per_resource: int | None = None
+        self, refs: Sequence[str], *, max_chars_per_resource: int | None = None
     ) -> WorkspacePromptInput:
         with self._lock:
             return self._reader.prepare_task_input(
-                links, max_chars_per_resource=max_chars_per_resource
+                refs, max_chars_per_resource=max_chars_per_resource
             )
 
     def prepare_analysis_references(
-        self, links: Sequence[str]
+        self, refs: Sequence[str]
     ) -> WorkspaceAnalysisPreparation:
         with self._lock:
-            return self._reader.prepare_analysis_references(links)
+            return self._reader.prepare_analysis_references(refs)
 
     def canonical_reference(
         self, resource: str, fragment: str = "", source_day: date | None = None
     ) -> ResourceTarget:
         try:
-            link = WorkspaceLink.parse(resource)
+            ref = WorkspaceRef.parse(resource)
         except WorkspaceContractError as exc:
             raise ReferenceError("Invalid Workspace reference") from exc
         day = self.active_day
         return ResourceTarget(
-            str(link), fragment, source_day or (day.value if day else None)
+            str(ref), fragment, source_day or (day.value if day else None)
         )
 
     def retrieval_corpus(
@@ -563,27 +636,27 @@ class WorkspaceEngine:
                 prompt_text.UNSUPPORTED_WORKSPACE_SOURCE,
             )
         scope_value = getattr(
-            source, "scope", ResourceScope(ResourceScopeKind.WORKSPACE, "")
+            source, "scope", ResourceScope(ResourceScopeKind.WORKSPACE)
         )
         if not isinstance(scope_value, ResourceScope):
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
                 prompt_text.WORKSPACE_SOURCE_REQUIRES_A_RESOURCE_SCOPE,
             )
-        locator = scope_value.locator
+        locator = scope_value.ref
         if locator:
-            WorkspaceLink.parse(locator.rstrip("/"))
+            WorkspaceRef.parse(locator.rstrip("/"))
         predicates = WORKSPACE_SEARCH_FILTERS.parse(getattr(source, "where", {}))
         excluded = set()
         for ref in request.exclude_refs:
             resource, _, fragment = ref.partition("#")
-            excluded.add((str(WorkspaceLink.parse(resource)), fragment))
+            excluded.add((str(WorkspaceRef.parse(resource)), fragment))
         seeds: dict[str, list[tuple[str, str]]] | None = None
         if isinstance(source, RefsSource):
             seeds = {}
             for ref in source.refs:
                 resource, _, fragment = ref.partition("#")
-                canonical = str(WorkspaceLink.parse(resource))
+                canonical = str(WorkspaceRef.parse(resource))
                 if (canonical, fragment) in excluded:
                     continue
                 pair = (canonical + ("#" + fragment if fragment else ""), fragment)
@@ -611,7 +684,7 @@ class WorkspaceEngine:
                     "Workspace retrieval requires complete discovery"
                 )
             records = snapshot.manifest.resources
-            if seeds is not None and set(seeds) - {record.link for record in records}:
+            if seeds is not None and set(seeds) - {record.ref for record in records}:
                 raise SearchFailure(
                     SearchFailureKind.INVALID_REQUEST,
                     prompt_text.WORKSPACE_REF_IS_UNAVAILABLE,
@@ -621,14 +694,14 @@ class WorkspaceEngine:
             candidates: list[SearchCandidate] = []
             day = self.active_day
             for record in records:
-                if seeds is not None and record.link not in seeds:
+                if seeds is not None and record.ref not in seeds:
                     continue
-                if seeds is None and (record.link, "") in excluded:
+                if seeds is None and (record.ref, "") in excluded:
                     continue
                 if locator and not (
-                    record.link.startswith(locator.rstrip("/") + "/")
+                    record.ref.startswith(locator.rstrip("/") + "/")
                     if scope_value.kind is ResourceScopeKind.DIRECTORY
-                    else record.link == locator
+                    else record.ref == locator
                 ):
                     continue
                 if anchor is not None and (
@@ -651,7 +724,7 @@ class WorkspaceEngine:
                         break
                     try:
                         read = read_text_prefix(
-                            self.path_for(record.link), max_chars=remaining
+                            self.path_for(record.ref), max_chars=remaining
                         )
                     except (OSError, UnicodeError) as exc:
                         raise WorkspaceIOError(
@@ -670,7 +743,7 @@ class WorkspaceEngine:
                     coverage = ContentCoverage.METADATA
                 scanned += 1
                 if seeds is not None:
-                    for ref, fragment in seeds[record.link]:
+                    for ref, fragment in seeds[record.ref]:
                         if coverage is ContentCoverage.METADATA:
                             if fragment:
                                 raise SearchFailure(
@@ -678,7 +751,7 @@ class WorkspaceEngine:
                                     prompt_text.NON_TEXT_RESOURCE_HAS_NO_TEXT_FRAGMENT,
                                 )
                             units = (
-                                ContentUnit(record.link, record.link, text, "metadata"),
+                                ContentUnit(record.ref, record.ref, text, "metadata"),
                             )
                         else:
                             first, last = fragment_range(text, fragment)
@@ -686,7 +759,7 @@ class WorkspaceEngine:
                                 text.splitlines(keepends=True)[first - 1 : last]
                             )
                             units = content_units(
-                                record.link, selected, first_line=first
+                                record.ref, selected, first_line=first
                             )
                         candidates.append(
                             SearchCandidate(
@@ -699,9 +772,9 @@ class WorkspaceEngine:
                         )
                     continue
                 units = (
-                    (ContentUnit(record.link, record.link, text, "metadata"),)
+                    (ContentUnit(record.ref, record.ref, text, "metadata"),)
                     if coverage is ContentCoverage.METADATA
-                    else content_units(record.link, text)
+                    else content_units(record.ref, text)
                 )
                 evidence: list[SearchEvidence] = []
                 if anchor is not None:
@@ -728,14 +801,14 @@ class WorkspaceEngine:
                                     start,
                                     start + len(lines[reference.line - 1]),
                                     kind=EvidenceKind.REFERENCE,
-                                    relation="markdown_link",
+                                    relation="markdown_ref",
                                 )
                             )
                     if not evidence:
                         continue
                 candidates.append(
                     SearchCandidate(
-                        record.link,
+                        record.ref,
                         record.relative_path,
                         units,
                         attributes,
@@ -751,63 +824,63 @@ class WorkspaceEngine:
             return SearchCorpus(tuple(candidates), query, scanned, complete)
 
     def write_text(
-        self, link: str, text: str, *, overwrite: bool = False
+        self, ref: str, text: str, *, overwrite: bool = False
     ) -> WorkspaceResourceRecord:
         return self._change(
             WorkspaceChangeOperation.WRITE,
-            lambda: self._mutations.write_text(link, text, overwrite=overwrite),
+            lambda: self._mutations.write_text(ref, text, overwrite=overwrite),
         )
 
     def write_bundle(
         self,
         writes: Sequence[WorkspaceBundleWrite],
         *,
-        delete_links: Sequence[str] = (),
+        delete_refs: Sequence[str] = (),
     ) -> WorkspaceBundleResult:
         return self._change(
             WorkspaceChangeOperation.BUNDLE,
-            lambda: self._mutations.write_bundle(writes, delete_links=delete_links),
+            lambda: self._mutations.write_bundle(writes, delete_refs=delete_refs),
         )
 
-    def append_text(self, link: str, text: str) -> WorkspaceResourceRecord:
+    def append_text(self, ref: str, text: str) -> WorkspaceResourceRecord:
         return self._change(
             WorkspaceChangeOperation.APPEND,
-            lambda: self._mutations.append_text(link, text),
+            lambda: self._mutations.append_text(ref, text),
         )
 
     def edit_text(
-        self, link: str, edits: Sequence[WorkspaceTextEdit]
+        self, ref: str, edits: Sequence[WorkspaceTextEdit]
     ) -> WorkspaceResourceRecord:
         return self._change(
             WorkspaceChangeOperation.EDIT,
-            lambda: self._mutations.edit_text(link, edits),
+            lambda: self._mutations.edit_text(ref, edits),
         )
 
-    def mkdir(self, link: str) -> WorkspaceResourceRecord:
+    def mkdir(self, ref: str) -> WorkspaceResourceRecord:
         return self._change(
-            WorkspaceChangeOperation.MKDIR, lambda: self._mutations.mkdir(link)
+            WorkspaceChangeOperation.MKDIR, lambda: self._mutations.mkdir(ref)
         )
 
-    def move(self, link: str, target_link: str) -> WorkspaceResourceRecord:
+    def move(self, ref: str, target_ref: str) -> WorkspaceResourceRecord:
         return self._change(
             WorkspaceChangeOperation.MOVE,
-            lambda: self._mutations.move(link, target_link),
+            lambda: self._mutations.move(ref, target_ref),
         )
 
-    def tag(self, link: str, tags: tuple[WorkspaceTag, ...]) -> WorkspaceResourceRecord:
+    def tag(self, ref: str, tags: tuple[WorkspaceTag, ...]) -> WorkspaceResourceRecord:
         return self._change(
-            WorkspaceChangeOperation.TAG, lambda: self._mutations.tag(link, tags)
+            WorkspaceChangeOperation.TAG, lambda: self._mutations.tag(ref, tags)
         )
 
-    def set_description(self, link: str, description: str) -> WorkspaceResourceRecord:
+    def set_description(self, ref: str, description: str) -> WorkspaceResourceRecord:
         return self._change(
             WorkspaceChangeOperation.DESCRIBE,
-            lambda: self._mutations.set_description(link, description),
+            lambda: self._mutations.set_description(ref, description),
         )
 
-    def trash_resource(self, link: str) -> WorkspaceTrashItem:
+    def trash_resource(self, ref: str) -> WorkspaceTrashItem:
         return self._change(
-            WorkspaceChangeOperation.TRASH, lambda: self._mutations.trash_resource(link)
+            WorkspaceChangeOperation.TRASH, lambda: self._mutations.trash_resource(ref)
         )
 
     def restore_resource(self, ref: str) -> WorkspaceResourceRecord:
@@ -831,15 +904,16 @@ class WorkspaceEngine:
             before = self._manifest_store.load()
             result = mutation()
             after = self._manifest_store.load()
-            written_links: tuple[str, ...] = ()
+            written_refs: tuple[str, ...] = ()
             if isinstance(result, WorkspaceBundleResult):
-                written_links = tuple(record.link for record in result.records)
+                written_refs = tuple(record.ref for record in result.records)
             elif operation in (
-                WorkspaceChangeOperation.WRITE, WorkspaceChangeOperation.APPEND,
+                WorkspaceChangeOperation.WRITE,
+                WorkspaceChangeOperation.APPEND,
                 WorkspaceChangeOperation.EDIT,
             ) and isinstance(result, WorkspaceResourceRecord):
-                written_links = (result.link,)
-            change = WorkspaceChange(operation, before, after, written_links)
+                written_refs = (result.ref,)
+            change = WorkspaceChange(operation, before, after, written_refs)
             self.events.stage(change, source)
         emit_workspace_changed(self._observations, change=change)
         return result

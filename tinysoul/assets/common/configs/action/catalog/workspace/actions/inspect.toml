@@ -1,0 +1,42 @@
+name = "workspace.inspect"
+domain = "workspace"
+
+[tool]
+description = "Inspect a known Workspace reference: read a bounded text page or section, list a directory's direct children, or identify a non-text resource. No internal model call."
+
+[tool.schema]
+type = "object"
+required = ["ref"]
+additionalProperties = false
+
+[tool.schema.properties.ref]
+type = "string"
+description = "Exact Workspace reference; text may include #L10-L20 or a Markdown heading fragment."
+
+[tool.schema.properties.continuation]
+type = "string"
+description = "Opaque continuation returned by a previous Inspect of this reference."
+
+[tool.schema.properties.max_chars]
+type = "integer"
+minimum = 512
+description = "Optional page budget, capped by the Workspace read limit."
+
+[semantic]
+use_when = ["Read a known resource or follow a reference", "Continue a previous text or directory page"]
+avoid_when = ["Discover an unknown resource; use search", "Modify resource content"]
+effects = ["read_only"]
+examples = ["Inspect workspace:notes/plan.md#next-steps"]
+
+[runtime]
+parallel_policy = "serial"
+
+[runtime.result]
+trace_mode = "foldable"
+
+[runtime.hooks]
+normalize = []
+execute = []
+
+[execution]
+executor = "workspace.inspect"

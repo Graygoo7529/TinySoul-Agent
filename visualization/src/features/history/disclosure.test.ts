@@ -146,8 +146,8 @@ describe("splitAnnotationClue", () => {
 
 describe("ref identities", () => {
   it("sessionTurnId only matches whole turn refs", () => {
-    expect(sessionTurnId("session:turn/abc_1")).toBe("abc_1");
-    expect(sessionTurnId("session:turn/abc_1#input/0")).toBeNull();
+    expect(sessionTurnId("session:turn/2026-09-29/1")).toBe("2026-09-29/1");
+    expect(sessionTurnId("session:turn/2026-09-29/1#input/0")).toBeNull();
     expect(sessionTurnId("session:node/abc")).toBeNull();
   });
 
@@ -162,7 +162,7 @@ describe("ref identities", () => {
     expect(shortRef("session:turn/contract-turn#output")).toBe(
       "contract-turn#output",
     );
-    expect(shortRef("session:node/0123456789abcdef")).toBe("node 01234567");
+    expect(shortRef("session:node/2026-09-29/1")).toBe("node 2026-09-29/1");
     expect(shortRef("session:map")).toBe("session:map");
   });
 });

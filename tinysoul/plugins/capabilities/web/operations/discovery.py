@@ -39,7 +39,7 @@ _SAFE_WORKER_ENV = (
 )
 
 
-def _discovery_workspace_link(invoke_id: str, call_id: str) -> str:
+def _discovery_workspace_ref(invoke_id: str, call_id: str) -> str:
     identity = f"{invoke_id}-{call_id}"
     normalized = re.sub(r"[^A-Za-z0-9_-]+", "-", identity).strip("-")[:80]
     if not normalized:
@@ -87,7 +87,7 @@ def _discovery_payload(value: JsonObject, *, start_url: str) -> JsonObject:
             "state": state,
             "discovered_from": _required_text(page, "discovered_from"),
             "anchor_text": _required_text(page, "anchor_text"),
-            "link_title": _required_text(page, "link_title"),
+            "ref_title": _required_text(page, "ref_title"),
             "rel": _required_text(page, "rel"),
         }
         discovered_from = str(normalized["discovered_from"])
@@ -166,7 +166,7 @@ def _discovery_payload(value: JsonObject, *, start_url: str) -> JsonObject:
 def _discovery_preview_payload(
     full_payload: JsonObject,
     *,
-    target_link: str,
+    target_ref: str,
     limit: int,
 ) -> JsonObject:
     source = full_payload["source"]
@@ -186,8 +186,8 @@ def _discovery_preview_payload(
             "skipped_count": full_payload["skipped_count"],
             "stop_reason": full_payload["stop_reason"],
             "truncated": True,
-            "see_more_at": target_link,
-            "hint": f"See the complete page discovery result at {target_link}",
+            "see_more_at": target_ref,
+            "hint": f"See the complete page discovery result at {target_ref}",
             "untrusted_external_content": True,
         }
     )

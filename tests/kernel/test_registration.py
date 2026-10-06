@@ -364,6 +364,7 @@ async def test_two_plugins_use_the_same_event_and_completion_pipeline() -> None:
     )
     await runner.run(
         "work",
+        turn_id=f"{CalendarDay.parse('2026-09-20')}/365",
         active_day=CalendarDay.parse("2026-09-20"),
         scope=RunScope().push(RunLevel.AGENT, "test"),
         inbox=inbox,

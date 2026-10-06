@@ -24,8 +24,12 @@ from ..records.models import (
     SessionTurnRecord,
 )
 
-_ACTION_COLLECTION = re.compile(r"^(session:turn/[a-z0-9_-]+)#actions$")
-_ACTION_LEAF = re.compile(r"^(session:turn/[a-z0-9_-]+)#action/([0-9]+)$")
+_ACTION_COLLECTION = re.compile(
+    r"^(session:turn/[0-9]{4}-[0-9]{2}-[0-9]{2}/[1-9][0-9]*)#actions$"
+)
+_ACTION_LEAF = re.compile(
+    r"^(session:turn/[0-9]{4}-[0-9]{2}-[0-9]{2}/[1-9][0-9]*)#action/([0-9]+)$"
+)
 
 
 class SessionRelationKind(StrEnum):
@@ -75,8 +79,8 @@ def project_relations(record: SessionTurnRecord) -> tuple[JsonObject, ...]:
         )
 
     def references(source: str, refs: tuple[str, ...]) -> None:
-        for link in dict.fromkeys(refs):
-            target = resource_locator(record, link)["ref"]
+        for resource in dict.fromkeys(refs):
+            target = resource_locator(record, resource)["ref"]
             assert isinstance(target, str)
             edge(source, target, SessionRelationKind.REFERENCES)
 
@@ -103,7 +107,7 @@ def project_relations(record: SessionTurnRecord) -> tuple[JsonObject, ...]:
         references(ref, record.output.references)
     if record.working:
         edge(record.ref, f"{record.ref}#working", SessionRelationKind.CONTAINS)
-    references(record.ref, record.background_links)
+    references(record.ref, record.background_refs)
     previous = None
     for index, action in enumerate(record.actions):
         ref = action_leaf_ref(record.ref, index)
@@ -119,11 +123,11 @@ def input_ref(turn_ref: str, occurrence: int) -> str:
     return f"{turn_ref}#input/{occurrence}"
 
 
-def resource_links(record: SessionTurnRecord) -> tuple[str, ...]:
+def resource_refs(record: SessionTurnRecord) -> tuple[str, ...]:
     return tuple(
         dict.fromkeys(
             (
-                *record.background_links,
+                *record.background_refs,
                 *(record.output.references if record.output is not None else ()),
                 *(ref for action in record.actions for ref in action.references),
             )
@@ -131,23 +135,23 @@ def resource_links(record: SessionTurnRecord) -> tuple[str, ...]:
     )
 
 
-def resource_locator(record: SessionTurnRecord, link: str) -> JsonObject:
+def resource_locator(record: SessionTurnRecord, ref: str) -> JsonObject:
     """Locate a historical reference occurrence without reading another owner."""
     value: JsonObject = {
         "kind": "resource",
-        "ref": f"{record.ref}#resource/{resource_links(record).index(link)}",
-        "link": link,
+        "ref": f"{record.ref}#resource/{resource_refs(record).index(ref)}",
+        "target_ref": ref,
         "basis": "fact",
     }
-    if link.startswith("workspace:"):
+    if ref.startswith("workspace:"):
         value["source_day"] = record.day
-        value["locator"] = {"link": link, "day": record.day}
-    elif link in {"memory:current", "memory:latest", "memory:target"}:
+        value["locator"] = {"ref": ref, "day": record.day}
+    elif ref in {"memory:current", "memory:latest", "memory:target"}:
         segment = record.segments.get("memory")
         bindings = (
             segment.get("resolved_references") if isinstance(segment, dict) else None
         )
-        locator = bindings.get(link) if isinstance(bindings, dict) else None
+        locator = bindings.get(ref) if isinstance(bindings, dict) else None
         if isinstance(locator, dict):
             value["locator"] = locator
         else:
@@ -180,9 +184,9 @@ def project_occurrence(record: SessionTurnRecord, suffix: str) -> JsonObject:
                 "ref": input_ref(record.ref, index),
                 "text": record.inputs[index].text,
             }
-        links = resource_links(record)
-        if match.group(1) == "resource" and index < len(links):
-            return resource_locator(record, links[index])
+        refs = resource_refs(record)
+        if match.group(1) == "resource" and index < len(refs):
+            return resource_locator(record, refs[index])
     raise SessionContractError("Unknown Session occurrence")
 
 
@@ -284,6 +288,7 @@ class SessionEvidence:
 def _require_turn_ref(ref: str) -> None:
     if (
         not isinstance(ref, str)
-        or re.fullmatch(r"session:turn/[a-z0-9_-]+", ref) is None
+        or re.fullmatch(r"session:turn/[0-9]{4}-[0-9]{2}-[0-9]{2}/[1-9][0-9]*", ref)
+        is None
     ):
         raise SessionContractError("Invalid Session Turn ref")

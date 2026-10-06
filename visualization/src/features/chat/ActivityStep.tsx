@@ -196,7 +196,7 @@ function DomainSelectBody({ domains, state }: { domains: string[]; state: "reque
 function ResourceBody({ label, refs }: { label: string; refs: string[] }) {
   return <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
     <span className="text-[12px] text-fg-muted">{label}</span>
-    {refs.map((ref) => <LinkChip key={ref} link={ref} />)}
+    {refs.map((ref) => <LinkChip key={ref} resourceRef={ref} />)}
   </div>;
 }
 

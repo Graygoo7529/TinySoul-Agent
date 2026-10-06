@@ -1,3 +1,4 @@
+import { requestIdForTurn } from "../../store/turnStore";
 /**
  * One installed segment's detail (plan §8, API-09 segment body).
  *
@@ -85,7 +86,7 @@ export function SegmentPanel({
     async (token: string | null, signal: AbortSignal) => {
       try {
         const page = await contextClients(epoch).context.segment(
-          turnId,
+          requestIdForTurn(turnId),
           segment.id,
           { continuation: token ?? undefined },
           { signal },
@@ -382,7 +383,7 @@ function SegmentDetails({ segment }: { segment: SegmentView }): ReactElement {
   );
 }
 
-/** Working-slot segments link out to their owner page (F5/F6 deepen these). */
+/** Working-slot segments ref out to their owner page (F5/F6 deepen these). */
 function WorkingJump({ segment }: { segment: SegmentView }): ReactElement | null {
   if (segment.slot !== "working") return null;
   const target: { tab: AppTab; label: string } | null =

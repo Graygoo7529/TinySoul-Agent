@@ -38,6 +38,7 @@ from tinysoul.kernel.context.builtin.working import (
 from tinysoul.llm.protocol.messages import (
     AssistantMessage,
     JsonPart,
+    TextPart,
     ToolResultMessage,
     UserMessage,
 )
@@ -45,7 +46,7 @@ from tinysoul.runtime import CyclePhase, RunScope
 
 
 def test_trace_keeps_cycle_order_and_finalizes_unstarted_calls() -> None:
-    trace = TurnTraceHeap(turn_id="turn_1")
+    trace = TurnTraceHeap(turn_id="2026-10-06/1001")
     first = ActionCall(
         call_id="reused", action_name="test.write", params={}, sequence=2
     )
@@ -57,7 +58,7 @@ def test_trace_keeps_cycle_order_and_finalizes_unstarted_calls() -> None:
         batch_id="batch_1",
         scope=RunScope(),
         domain="test",
-        turn_id="turn_1",
+        turn_id="2026-10-06/1001",
         cycle_id="cycle_1",
     )
     for state in (ExecutionState.REQUESTED, ExecutionState.STARTED):
@@ -89,7 +90,7 @@ def test_trace_keeps_cycle_order_and_finalizes_unstarted_calls() -> None:
 
 
 def test_trace_rejects_identity_changes_and_sealing_live_execution() -> None:
-    trace = TurnTraceHeap(turn_id="turn_1")
+    trace = TurnTraceHeap(turn_id="2026-10-06/1001")
     call = ActionCall(call_id="call_1", action_name="test.write", params={}, sequence=1)
     trace.register_action_calls((call,), cycle_id="cycle_1")
     framework = ActionFramework(
@@ -97,7 +98,7 @@ def test_trace_rejects_identity_changes_and_sealing_live_execution() -> None:
         batch_id="batch_1",
         scope=RunScope(),
         domain="test",
-        turn_id="turn_1",
+        turn_id="2026-10-06/1001",
         cycle_id="cycle_1",
     )
     started = ExecutionFact(
@@ -116,33 +117,36 @@ def test_background_load_evict_and_render() -> None:
     background = BackgroundContext(journal="today so far")
     background.load(
         BackgroundEntry(
-            link="home:skills@tinysoul",
+            ref="home:top/skills/tinysoul",
             content="TinySoul is an agent.",
         )
     )
-    assert background.has("home:skills@tinysoul")
+    assert background.has("home:top/skills/tinysoul")
     messages = background.render_messages()
     assert isinstance(messages[0], UserMessage)
     assert messages[0].label == "background:journal"
-    assert messages[1].label == "background:home:skills@tinysoul"
+    assert messages[1].label == "background:home:top/skills/tinysoul"
 
-    background.evict("home:skills@tinysoul")
-    assert not background.has("home:skills@tinysoul")
+    background.evict("home:top/skills/tinysoul")
+    assert not background.has("home:top/skills/tinysoul")
     with pytest.raises(ContextContractError):
-        background.evict("home:skills@tinysoul")
+        background.evict("home:top/skills/tinysoul")
 
 
 def test_background_projection_distinguishes_missing_from_empty_snapshot() -> None:
-    assert background_projection({"home": {"loaded_refs": ["home:skills@old"]}}) is None
+    assert (
+        background_projection({"home": {"loaded_refs": ["home:top/skills/old"]}})
+        is None
+    )
     assert background_projection({"home": {"background_entries": []}}) == ()
 
 
 def test_background_load_replaces_same_link() -> None:
     background = BackgroundContext()
-    background.load(BackgroundEntry(link="home:skills@q", content="old"))
+    background.load(BackgroundEntry(ref="home:top/skills/q", content="old"))
     background.load(
         BackgroundEntry(
-            link="home:skills@q",
+            ref="home:top/skills/q",
             content="new",
             source=BackgroundSource.PHASE1,
         )
@@ -157,12 +161,12 @@ def test_background_patch_sequence_validates_projected_loaded_links() -> None:
     background = BackgroundContext()
     problems = background.check_patch_sequence(
         (
-            BackgroundPatch(load_links=("home:skills@x",)),
-            BackgroundPatch(evict_links=("home:skills@x",)),
-            BackgroundPatch(evict_links=("home:skills@x",)),
+            BackgroundPatch(load_refs=("home:top/skills/x",)),
+            BackgroundPatch(evict_refs=("home:top/skills/x",)),
+            BackgroundPatch(evict_refs=("home:top/skills/x",)),
         ),
-        loadable_links=("home:skills@x",),
-        evictable_links=("home:skills@x",),
+        loadable_refs=("home:top/skills/x",),
+        evictable_refs=("home:top/skills/x",),
     )
 
     assert problems[0] == ""
@@ -174,11 +178,11 @@ def test_background_patch_rejects_load_evict_conflict() -> None:
     background = BackgroundContext()
     problem = background.check_patch(
         BackgroundPatch(
-            load_links=("home:skills@x",),
-            evict_links=("home:skills@x",),
+            load_refs=("home:top/skills/x",),
+            evict_refs=("home:top/skills/x",),
         ),
-        loadable_links=("home:skills@x",),
-        evictable_links=("home:skills@x",),
+        loadable_refs=("home:top/skills/x",),
+        evictable_refs=("home:top/skills/x",),
     )
 
     assert "cannot load and evict" in problem
@@ -187,12 +191,12 @@ def test_background_patch_rejects_load_evict_conflict() -> None:
 def test_background_patch_rejects_duplicate_links() -> None:
     background = BackgroundContext()
     problem = background.check_patch(
-        BackgroundPatch(load_links=("home:skills@x", "home:skills@x")),
-        loadable_links=("home:skills@x",),
-        evictable_links=("home:skills@x",),
+        BackgroundPatch(load_refs=("home:top/skills/x", "home:top/skills/x")),
+        loadable_refs=("home:top/skills/x",),
+        evictable_refs=("home:top/skills/x",),
     )
 
-    assert "duplicate load link" in problem
+    assert "duplicate load ref" in problem
 
 
 def test_working_patch_check_and_apply() -> None:
@@ -229,7 +233,7 @@ def test_working_patch_rejects_conflicting_and_duplicate_operations() -> None:
 
 def test_working_message_hides_internal_revisions_without_changing_state() -> None:
     working = WorkingContext()
-    trace = TurnTraceHeap(turn_id="turn_anchor")
+    trace = TurnTraceHeap(turn_id="2026-10-06/1002")
     trace.append_phase_note("observed")
 
     message = working.render_messages()[0]
@@ -258,7 +262,7 @@ def test_working_patch_sequence_validates_projected_state() -> None:
 
 
 def test_trace_appends_and_render_order() -> None:
-    trace = TurnTraceHeap()
+    trace = TurnTraceHeap(turn_id="2026-10-06/261")
     trace.append_decision(
         AssistantMessage.from_text("thinking"),
         cycle_id="c1",
@@ -283,7 +287,7 @@ def test_trace_appends_and_render_order() -> None:
 
 
 def test_trace_compaction_keeps_canonical_entries_and_exposes_heap_head() -> None:
-    trace = TurnTraceHeap(min_hot_entries=2)
+    trace = TurnTraceHeap(turn_id="2026-10-06/286", min_hot_entries=2)
     for index in range(6):
         trace.append_phase_note(f"note {index}")
     report = trace.compact(required_chars=1)
@@ -299,16 +303,16 @@ def test_trace_compaction_keeps_canonical_entries_and_exposes_heap_head() -> Non
 
 
 def test_trace_compaction_builds_inspectable_leaf_nodes() -> None:
-    trace = TurnTraceHeap(turn_id="turn_test", min_hot_entries=1)
+    trace = TurnTraceHeap(turn_id="2026-10-06/1005", min_hot_entries=1)
     for index in range(4):
         trace.append_phase_note(f"note {index}")
     report = trace.compact(required_chars=1)
     assert report.compacted_count == 3
     model_header = trace.render_messages()[0].parts[0]
-    assert isinstance(model_header, JsonPart)
-    assert "canonical_revision" not in model_header.value
+    assert isinstance(model_header, TextPart)
+    assert "canonical_revision" not in model_header.text
     head = trace.inspect(trace.head_ref())
-    assert head == model_header.value
+    assert trace.head_ref() in model_header.text
     nodes = head["nodes"]
     assert isinstance(nodes, list)
     assert nodes
@@ -317,22 +321,21 @@ def test_trace_compaction_builds_inspectable_leaf_nodes() -> None:
     ref = root["ref"]
     assert isinstance(ref, str)
     assert trace.inspect(ref) == {"kind": "context_trace_leaf", "ref": ref}
+    assert ref in model_header.text and "note 0" in model_header.text
     assert [entry.kind for entry in trace.leaf_entries(ref)] == [
         TraceKind.PHASE_NOTE
     ] * 3
 
 
 def test_trace_owner_resolves_head_compact_and_fact_identities() -> None:
-    trace = TurnTraceHeap(turn_id="turn_identity", min_hot_entries=0)
+    trace = TurnTraceHeap(turn_id="2026-10-06/1003", min_hot_entries=0)
     entry = trace.append_phase_note("note")
-    assert parse_trace_reference(trace.head_ref()) == "turn_identity"
+    assert parse_trace_reference(trace.head_ref()) == "2026-10-06/1003"
     assert trace.resolve_reference(trace.head_ref()) == trace.head_ref()
     assert trace.resolve_reference(trace.entry_ref(entry.entry_id)) == trace.entry_ref(
         entry.entry_id
     )
-    assert trace.resolve_reference(trace.input_ref("input_1")) == trace.input_ref(
-        "input_1"
-    )
+    assert trace.resolve_reference(trace.input_ref(0)) == trace.input_ref(0)
     trace.compact(required_chars=1)
     nodes = trace.inspect(trace.head_ref())["nodes"]
     assert isinstance(nodes, list) and nodes
@@ -344,7 +347,7 @@ def test_trace_owner_resolves_head_compact_and_fact_identities() -> None:
 
 
 def test_trace_leaf_keeps_immutable_interaction_order() -> None:
-    trace = TurnTraceHeap(turn_id="turn_page", min_hot_entries=0)
+    trace = TurnTraceHeap(turn_id="2026-10-06/1004", min_hot_entries=0)
     for index in range(4):
         trace.append_phase_note(f"note {index}" + "x" * 30)
     trace.compact(required_chars=1)
@@ -362,7 +365,7 @@ def test_trace_leaf_keeps_immutable_interaction_order() -> None:
 
 
 def test_trace_compaction_does_not_split_cycle_at_hot_boundary() -> None:
-    trace = TurnTraceHeap(min_hot_entries=2)
+    trace = TurnTraceHeap(turn_id="2026-10-06/365", min_hot_entries=2)
     for index in range(3):
         trace.append_phase_note(f"cycle one {index}", cycle_id="cycle_1")
     trace.append_phase_note("cycle two", cycle_id="cycle_2")
@@ -375,7 +378,7 @@ def test_trace_compaction_does_not_split_cycle_at_hot_boundary() -> None:
 
 
 def test_trace_inspect_overlay_folds_back_to_origin_pointer() -> None:
-    trace = TurnTraceHeap()
+    trace = TurnTraceHeap(turn_id="2026-10-06/378")
     full = ToolResultMessage.from_json(
         call_id="recall_1",
         tool_name="core.session.inspect",
@@ -384,12 +387,12 @@ def test_trace_inspect_overlay_folds_back_to_origin_pointer() -> None:
     compact = ToolResultMessage.from_json(
         call_id="recall_1",
         tool_name="core.session.inspect",
-        value={"origin_ref": "session:turn/old", "folded": True},
+        value={"origin_ref": "session:turn/2026-10-06/1000", "folded": True},
     )
     trace.append_action_result(
         full,
         canonical_message=compact,
-        origin_refs=("session:turn/old",),
+        origin_refs=("session:turn/2026-10-06/1000",),
     )
 
     assert trace.render_messages()[0] == full
@@ -398,7 +401,7 @@ def test_trace_inspect_overlay_folds_back_to_origin_pointer() -> None:
     report = trace.compact(required_chars=0)
     assert report.folded_overlay_count == 1
     assert trace.render_messages()[0] == compact
-    assert trace.entries()[0].origin_refs == ("session:turn/old",)
+    assert trace.entries()[0].origin_refs == ("session:turn/2026-10-06/1000",)
 
 
 def test_pending_inputs_merge_lifecycle() -> None:

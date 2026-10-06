@@ -45,8 +45,8 @@ def test_control_result_validates_protocol_fields() -> None:
 def test_control_scope_reflects_loadable_and_loaded_links() -> None:
     builder = ContextControlScopeBuilder()
     scope = builder.build(
-        loadable_links=("home:skills@a",),
-        loaded_links=("home:skills@b",),
+        loadable_refs=("home:top/skills/a",),
+        loaded_refs=("home:top/skills/b",),
     )
     names = [tool.name for tool in scope.tools]
     assert names == [
@@ -61,14 +61,14 @@ def test_control_scope_reflects_loadable_and_loaded_links() -> None:
     load = next(tool for tool in scope.tools if tool.name == CONTROL_LOAD_BACKGROUND)
     properties = load.parameters["properties"]
     assert isinstance(properties, dict)
-    links = properties["links"]
-    assert isinstance(links, dict)
-    items = links["items"]
+    refs = properties["refs"]
+    assert isinstance(refs, dict)
+    items = refs["items"]
     assert isinstance(items, dict)
     assert items["type"] == "string"
     assert "enum" not in items
 
-    minimal = builder.build(loadable_links=(), loaded_links=())
+    minimal = builder.build(loadable_refs=(), loaded_refs=())
     assert [tool.name for tool in minimal.tools] == [
         CONTROL_SET_MILESTONE,
         CONTROL_REMOVE_MILESTONE,
@@ -81,8 +81,8 @@ def test_working_control_scope_does_not_expose_workspace_resources() -> None:
     tools = (
         ContextControlScopeBuilder()
         .build(
-            loadable_links=(),
-            loaded_links=(),
+            loadable_refs=(),
+            loaded_refs=(),
         )
         .tools
     )
@@ -125,9 +125,9 @@ def test_normalize_background_calls_produce_signals() -> None:
                 id="call_1",
                 name=CONTROL_LOAD_BACKGROUND,
                 arguments={
-                    "links": [
-                        "home:skills@a",
-                        "home:skills@question",
+                    "refs": [
+                        "home:top/skills/a",
+                        "home:top/skills/question",
                     ]
                 },
                 kind=ToolKind.CONTROL,
@@ -135,7 +135,7 @@ def test_normalize_background_calls_produce_signals() -> None:
             ToolCallRecord(
                 id="call_2",
                 name=CONTROL_EVICT_BACKGROUND,
-                arguments={"links": ["home:skills@b"]},
+                arguments={"refs": ["home:top/skills/b"]},
                 kind=ToolKind.CONTROL,
             ),
         ),
@@ -146,11 +146,11 @@ def test_normalize_background_calls_produce_signals() -> None:
         SIGNAL_BACKGROUND_PATCH,
         SIGNAL_BACKGROUND_PATCH,
     ]
-    assert normalization.signals[0].payload["load_links"] == [
-        "home:skills@a",
-        "home:skills@question",
+    assert normalization.signals[0].payload["load_refs"] == [
+        "home:top/skills/a",
+        "home:top/skills/question",
     ]
-    assert normalization.signals[1].payload["evict_links"] == ["home:skills@b"]
+    assert normalization.signals[1].payload["evict_refs"] == ["home:top/skills/b"]
 
 
 def test_normalize_failures_become_local_results() -> None:
@@ -182,7 +182,7 @@ def test_normalize_failures_become_local_results() -> None:
             ToolCallRecord(
                 id="c6",
                 name=CONTROL_LOAD_BACKGROUND,
-                arguments={"links": []},
+                arguments={"refs": []},
                 kind=ToolKind.ACTION,
             ),
         ),

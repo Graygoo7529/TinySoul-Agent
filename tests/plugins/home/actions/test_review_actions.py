@@ -42,7 +42,7 @@ async def test_home_diff_and_review_do_not_require_stage_tokens(
         )
     ).build()
     home.write_resource(
-        "home:skills/review/SKILL_MEMORY.md",
+        "home:resource/skills/review/SKILL_MEMORY.md",
         "The method was useful as written.",
     )
     controller = HomeReviewExecutor(HomeReviewService(home))
@@ -51,14 +51,14 @@ async def test_home_diff_and_review_do_not_require_stage_tokens(
     assert listed.status is ActionResultStatus.SUCCESS
     assert home.review_pending().skill_memory_count == 1
     inspected = await _execute(
-        controller, "home.diff", {"paths": ["home:skills@review"]}
+        controller, "home.diff", {"paths": ["home:top/skills/review"]}
     )
     assert inspected.status is ActionResultStatus.SUCCESS
     resolved = await _execute(
         controller,
         "home.review",
         {
-            "paths": ["home:skills@review"],
+            "paths": ["home:top/skills/review"],
             "decision": "reject",
         },
     )

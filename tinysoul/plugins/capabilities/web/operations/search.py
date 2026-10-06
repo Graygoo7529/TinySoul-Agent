@@ -36,7 +36,7 @@ def _search_results(
     return results
 
 
-def _search_workspace_link(invoke_id: str, call_id: str) -> str:
+def _search_workspace_ref(invoke_id: str, call_id: str) -> str:
     identity = f"{invoke_id}-{call_id}"
     normalized = re.sub(r"[^A-Za-z0-9_-]+", "-", identity).strip("-")[:80]
     if not normalized:
@@ -78,7 +78,7 @@ def _search_preview_payload(
     answer: str,
     results: list[JsonObject],
     usage: JsonObject,
-    target_link: str,
+    target_ref: str,
     limit: int,
 ) -> JsonObject:
     preview: JsonObject = {
@@ -86,8 +86,8 @@ def _search_preview_payload(
         "results": [],
         "result_count": len(results),
         "truncated": True,
-        "see_more_at": target_link,
-        "hint": f"See the complete answer and results at {target_link}",
+        "see_more_at": target_ref,
+        "hint": f"See the complete answer and results at {target_ref}",
         "untrusted_external_content": True,
         "usage": usage,
     }

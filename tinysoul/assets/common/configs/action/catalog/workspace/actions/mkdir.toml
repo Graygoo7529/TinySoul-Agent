@@ -6,12 +6,12 @@ description = "Create a Workspace directory, rejecting an existing target."
 
 [tool.schema]
 type = "object"
-required = ["target_link"]
+required = ["target_ref"]
 additionalProperties = false
 
 [tool.schema.properties]
 
-[tool.schema.properties.target_link]
+[tool.schema.properties.target_ref]
 type = "string"
 
 [semantic]

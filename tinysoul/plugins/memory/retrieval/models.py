@@ -8,19 +8,19 @@ from datetime import date
 
 
 from ..errors import MemoryContractError
-from ..links import MemoryKind, MemoryLink
+from ..refs import MemoryKind, MemoryRef
 
 
 @dataclass(frozen=True)
 class MemoryCatalogEntry:
-    link: MemoryLink
+    ref: MemoryRef
     display: str
     status: str
     digest: str
     content: str
-    outgoing: tuple[MemoryLink, ...]
-    backlinks: tuple[MemoryLink, ...] = ()
-    redirect_to: MemoryLink | None = None
+    outgoing: tuple[MemoryRef, ...]
+    backlinks: tuple[MemoryRef, ...] = ()
+    redirect_to: MemoryRef | None = None
     updated_on: date = date.min
     confidence: str | None = None
 
@@ -32,13 +32,13 @@ class MemoryCatalogEntry:
 @dataclass(frozen=True)
 class MemoryCatalogSnapshot:
     generation: str
-    entries: Mapping[MemoryLink, MemoryCatalogEntry] = field(default_factory=dict)
+    entries: Mapping[MemoryRef, MemoryCatalogEntry] = field(default_factory=dict)
 
-    def get(self, link: MemoryLink) -> MemoryCatalogEntry | None:
-        return self.entries.get(link)
+    def get(self, ref: MemoryRef) -> MemoryCatalogEntry | None:
+        return self.entries.get(ref)
 
-    def require(self, link: MemoryLink) -> MemoryCatalogEntry:
-        entry = self.get(link)
+    def require(self, ref: MemoryRef) -> MemoryCatalogEntry:
+        entry = self.get(ref)
         if entry is None:
-            raise MemoryContractError(f"Memory does not exist: {link}")
+            raise MemoryContractError(f"Memory does not exist: {ref}")
         return entry

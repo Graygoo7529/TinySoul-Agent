@@ -10,6 +10,7 @@ from enum import StrEnum
 
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.infra.time import CalendarDay
+from tinysoul.kernel.identity import TurnIdentity, TurnIdentityError
 from tinysoul.kernel.jobs import JobSnapshot
 from tinysoul.kernel.loop.interaction.inbox import (
     BudgetRequest,
@@ -42,13 +43,16 @@ class RequestFailure(StrEnum):
 
 @dataclass(frozen=True)
 class TurnResult:
-    turn_id: str
+    request_id: str
+    turn_id: str | None = None
     outcome: TurnOutcome | ReflectionOutcome | None = None
     request_failure: RequestFailure | None = None
     error_type: str | None = None
 
     def __post_init__(self) -> None:
-        if not self.turn_id or (self.outcome is None) == (self.request_failure is None):
+        if not self.request_id or (self.outcome is None) == (
+            self.request_failure is None
+        ):
             raise AgentSDKError(
                 "Result requires exactly one owner outcome or request failure"
             )
@@ -107,7 +111,9 @@ class TurnResult:
                 "request_failure": self.status.value,
                 "error_type": self.error_type,
             }
-        return to_json_object({"turn_id": self.turn_id, **value})
+        return to_json_object(
+            {"request_id": self.request_id, "turn_id": self.turn_id, **value}
+        )
 
 
 class TurnKind(StrEnum):
@@ -118,7 +124,8 @@ class TurnKind(StrEnum):
 
 @dataclass(frozen=True)
 class TurnSnapshot:
-    turn_id: str
+    request_id: str
+    turn_id: str | None
     kind: TurnKind
     state: TurnState
     cancel_requested: bool
@@ -136,18 +143,22 @@ class TurnSnapshot:
 
     def __post_init__(self) -> None:
         if (
-            not self.turn_id
+            not self.request_id
             or not isinstance(self.kind, TurnKind)
             or not isinstance(self.state, TurnState)
         ):
             raise AgentSDKError("Turn snapshot requires typed identity and state")
-        if self.result is not None and self.result.turn_id != self.turn_id:
+        if self.result is not None and (
+            self.result.turn_id != self.turn_id
+            or self.result.request_id != self.request_id
+        ):
             raise AgentSDKError("Turn snapshot result identity differs")
 
     def summary_json(self) -> JsonObject:
         """The bounded directory shares this handle's identity and lifecycle."""
         request = self.reflection
         return {
+            "request_id": self.request_id,
             "turn_id": self.turn_id,
             "kind": self.kind.value,
             "state": self.state.value,
@@ -160,11 +171,14 @@ class TurnSnapshot:
             "reflection": (
                 {
                     "trigger": request.trigger.value,
-                    "target_day": str(request.target_day) if request.target_day else None,
+                    "target_day": str(request.target_day)
+                    if request.target_day
+                    else None,
                     "instructions_excerpt": request.instructions[:240],
                     "truncated": len(request.instructions) > 240,
                 }
-                if request else None
+                if request
+                else None
             ),
         }
 
@@ -209,7 +223,8 @@ class TurnHandle:
         *,
         inbox_limits: InboxLimits = InboxLimits(),
     ) -> None:
-        self.turn_id = request.request_id
+        self.request_id = request.request_id
+        self.turn_id: str | None = None
         self.request = request
         self.inbox = TurnInbox(inbox_limits)
         self._future: asyncio.Future[TurnResult] = (
@@ -245,6 +260,7 @@ class TurnHandle:
             else TurnKind(self.request.scope.value)
         )
         return TurnSnapshot(
+            request_id=self.request_id,
             turn_id=self.turn_id,
             kind=kind,
             state=self.state,
@@ -258,7 +274,9 @@ class TurnHandle:
             finished_at=self.finished_at,
             generation_id=self.generation_id,
             active_day=self.active_day,
-            reflection=self.request if isinstance(self.request, ReflectionRequest) else None,
+            reflection=self.request
+            if isinstance(self.request, ReflectionRequest)
+            else None,
             jobs=jobs,
         )
 
@@ -318,8 +336,24 @@ class TurnHandle:
         if self._cancel_requested:
             task.cancel()
 
+    def bind_turn(self, turn_id: str, day: CalendarDay) -> None:
+        if self.turn_id is not None:
+            raise AgentSDKError("A request may own only one Turn identity")
+        try:
+            identity = TurnIdentity.parse(turn_id)
+        except TurnIdentityError as exc:
+            raise AgentSDKError("Invalid Turn identity") from exc
+        if identity.day != day:
+            raise AgentSDKError("Turn identity must belong to the leased day")
+        self.turn_id = turn_id
+        self.active_day = day
+
     async def finish(self, result: TurnResult) -> None:
-        if result.turn_id != self.turn_id or self.done:
+        if (
+            result.request_id != self.request_id
+            or result.turn_id != self.turn_id
+            or self.done
+        ):
             raise AgentSDKError("Turn completion identity or lifecycle is invalid")
         await self.inbox.close()
         self.inbox.set_activity(TurnState.FINISHED)

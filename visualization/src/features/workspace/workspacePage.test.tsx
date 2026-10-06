@@ -37,7 +37,7 @@ beforeEach(() => {
   useInspectorStore.getState().close();
   useWorkspacePage.setState({
     day: null,
-    link: null,
+    ref: null,
     fragment: null,
     panel: "files",
     searchOpen: false,
@@ -80,7 +80,7 @@ function textRecord(
   overrides: Partial<WorkspaceResourceRecord> = {},
 ): WorkspaceResourceRecord {
   return {
-    link: `workspace:${path}`,
+    ref: `workspace:${path}`,
     relative_path: path,
     kind: "text",
     media_type: "text/markdown",
@@ -102,14 +102,14 @@ function manifest(
 }
 
 function textPage(
-  link: string,
+  ref: string,
   day: string,
   text: string,
   page: { complete?: boolean; next?: string | null; editable?: boolean } = {},
 ): JsonObject {
   return {
-    link,
-    locator: { link, day },
+    ref,
+    locator: { ref, day },
     day,
     text,
     size: text.length,
@@ -169,10 +169,10 @@ describe("WorkspacePage reading", () => {
     await act(async () => {
       fileRow("notes/a.md").click();
     });
-    expect(useWorkspacePage.getState().link).toBe("workspace:notes/a.md");
+    expect(useWorkspacePage.getState().ref).toBe("workspace:notes/a.md");
     const reads = endpoint.calls("/v2/workspace/resource");
     expect(reads).toHaveLength(1);
-    expect(queryOf(reads[0], "link")).toBe("workspace:notes/a.md");
+    expect(queryOf(reads[0], "ref")).toBe("workspace:notes/a.md");
     expect(queryOf(reads[0], "day")).toBeNull();
     expect(container.querySelector("h1")?.textContent).toBe("Hello");
   });
@@ -212,7 +212,7 @@ describe("WorkspacePage reading", () => {
       jsonResponse(textPage("workspace:a.md", ACTIVE, "one\ntwo\nthree\nfour\nfive")),
     );
     useWorkspacePage.getState().openFile({
-      link: "workspace:a.md",
+      ref: "workspace:a.md",
       day: null,
       fragment: "L3",
     });
@@ -275,7 +275,7 @@ describe("WorkspacePage editing", () => {
     const writes = endpoint.calls("/v2/workspace/resource", "PUT");
     expect(writes).toHaveLength(1);
     expect(bodyJson(writes[0])).toEqual({
-      link: "workspace:a.md",
+      ref: "workspace:a.md",
       text: "full text here",
       overwrite: true,
     });
@@ -373,8 +373,8 @@ describe("WorkspacePage trash", () => {
     });
     const trashed = endpoint.calls("/v2/workspace/trash", "POST");
     expect(trashed).toHaveLength(1);
-    expect(bodyJson(trashed[0])).toEqual({ link: "workspace:a.md" });
-    expect(useWorkspacePage.getState().link).toBeNull();
+    expect(bodyJson(trashed[0])).toEqual({ ref: "workspace:a.md" });
+    expect(useWorkspacePage.getState().ref).toBeNull();
     expect(container.textContent).toContain("No files yet");
   });
 
@@ -534,8 +534,8 @@ describe("WorkspacePage search", () => {
     );
     endpoint.post("/v2/workspace/search", () =>
       jsonResponse({
-        result_ref: "sr:1",
-        scope: { kind: "workspace", locator: "" },
+        result_handle: "sr:1",
+        scope: { kind: "workspace" },
         source: "query",
         items: [
           {
@@ -583,7 +583,7 @@ describe("WorkspacePage search", () => {
     const searches = endpoint.calls("/v2/workspace/search", "POST");
     expect(searches).toHaveLength(1);
     expect(bodyJson(searches[0])).toMatchObject({
-      source: { kind: "query", scope: { kind: "workspace", locator: "" }, query: "hello" },
+      source: { kind: "query", scope: { kind: "workspace" }, query: "hello" },
       page: { limit: 20 },
     });
     // The evidence excerpt highlights the real match range.
@@ -600,7 +600,7 @@ describe("WorkspacePage search", () => {
       (resultButton as HTMLButtonElement).click();
     });
     const page = useWorkspacePage.getState();
-    expect(page.link).toBe("workspace:notes/a.md");
+    expect(page.ref).toBe("workspace:notes/a.md");
     expect(page.fragment).toBe("L1");
     // The frozen results stay open behind the opened file.
     expect(page.searchOpen).toBe(true);

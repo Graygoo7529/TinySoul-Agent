@@ -20,6 +20,7 @@ class ReflectionTurnRunner(Protocol):
         active_day: CalendarDay,
         scope: RunScope,
         request_id: str,
+        turn_id: str,
         input_source: str,
         inbox: TurnInbox | None = None,
     ) -> TurnOutcome: ...
@@ -41,6 +42,7 @@ class ReflectionTurnEntry:
         active_day: CalendarDay,
         scope: RunScope,
         request_id: str,
+        turn_id: str,
         input_source: str,
         inbox: TurnInbox | None = None,
     ) -> TurnOutcome:
@@ -49,6 +51,7 @@ class ReflectionTurnEntry:
             active_day=active_day,
             scope=scope,
             request_id=request_id,
+            turn_id=turn_id,
             input_source=input_source,
             inbox=inbox,
         )

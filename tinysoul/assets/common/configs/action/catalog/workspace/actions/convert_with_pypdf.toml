@@ -2,20 +2,20 @@ name = "workspace.convert_with_pypdf"
 domain = "workspace"
 
 [tool]
-description = "Convert a Workspace PDF to page-oriented Markdown, extracted images and attachments, rendering pages without usable text. The result returns links and execution metadata only."
+description = "Convert a Workspace PDF to page-oriented Markdown, extracted images and attachments, rendering pages without usable text. The result returns refs and execution metadata only."
 
 [tool.schema]
 type = "object"
-required = ["source_link", "target_link"]
+required = ["source_ref", "target_ref"]
 additionalProperties = false
 
-[tool.schema.properties.source_link]
+[tool.schema.properties.source_ref]
 type = "string"
-description = "Existing Workspace PDF link."
+description = "Existing Workspace PDF ref."
 
-[tool.schema.properties.target_link]
+[tool.schema.properties.target_ref]
 type = "string"
-description = "Target Workspace Markdown link such as workspace:converted/report.md."
+description = "Target Workspace Markdown ref such as workspace:converted/report.md."
 
 [tool.schema.properties.overwrite]
 type = "boolean"

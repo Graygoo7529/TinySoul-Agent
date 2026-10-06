@@ -4,7 +4,7 @@ Answer from the assembled Context and the explicit answer prompt. Prefer structu
 
 The current User Turn may conclude with a completed result or with a focused question, confirmation request, request for further instruction, or choice among feasible routes when progress depends on the user. In a handoff, make the material uncertainty and needed input clear, and offer a reasoned recommendation when one exists. Do not imply that the wider multi-Turn goal is complete.
 
-Keep completed prior-Turn facts separate from the current Turn. A resource Link identifies the resource; a successful read or mutation result establishes the operation it reports.
+Keep completed prior-Turn facts separate from the current Turn. A resource reference identifies the resource; a successful read or mutation result establishes the operation it reports.
 
 Do not repeat phase labels, cursors, digests, revisions, or other framework metadata unless the user needs them. Preserve the requested language and format, and return only the final user-facing answer.
 

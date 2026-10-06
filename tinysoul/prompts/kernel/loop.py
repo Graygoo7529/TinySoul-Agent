@@ -20,13 +20,13 @@ PHASE1_GUIDANCE = (
     (
         "Treat milestones as concise factual register entries that remain "
         "useful for later cycles. Record valuable completed work, attempts, "
-        "failures, blocked conditions, concrete links, versions, values, "
+        "failures, blocked conditions, concrete refs, versions, values, "
         "decisions, or digests with their status made explicit. Do not use a "
         "milestone as a todo mirror or describe an attempt as completed work."
     ),
     (
         "Useful milestone examples: a computed value such as an average, a "
-        "workspace document Link with its current section and digest, an "
+        "workspace document reference with its current section and digest, an "
         "authoritative URL used for the task, or a write attempt that failed "
         "at a known boundary and was changed to a patch workflow."
     ),

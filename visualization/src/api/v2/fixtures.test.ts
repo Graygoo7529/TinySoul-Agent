@@ -136,7 +136,7 @@ describe("contract fixtures: context family", () => {
       expect(typeof segment.shape).toBe("string");
       expect(Array.isArray(segment.root_refs)).toBe(true);
     }
-    expect(overview.resolved_references["memory:current"]?.link).toBe(
+    expect(overview.resolved_references["memory:current"]?.ref).toBe(
       "memory:current",
     );
   });
@@ -161,7 +161,7 @@ describe("contract fixtures: context family", () => {
 describe("contract fixtures: resource pages", () => {
   it("home-effective is a content page with locator metadata", () => {
     const page = checkPageEnvelope(homeEffective) as HomeContentPage;
-    expect(page.metadata?.locator.link).toBe("home:agent@contract");
+    expect(page.metadata?.locator.ref).toBe("home:top/agent/contract");
     expect(Array.isArray(page.metadata?.direct_refs)).toBe(true);
   });
 
@@ -185,7 +185,7 @@ describe("contract fixtures: resource pages", () => {
   it("memory-fragment is a resource-resolve response (no dedicated example)", () => {
     const resolved = memoryFragment as ResourceResolve;
     expect(resolved.kind).toBe("memory");
-    expect(resolved.locator.link).toBe("memory:current#notes");
+    expect(resolved.locator.ref).toBe("memory:current#notes");
     expect(resolved.locator.day).toBe("2026-09-29");
     expect(resolved.capabilities).toContain("read");
   });
@@ -210,9 +210,9 @@ describe("contract fixtures: resource pages", () => {
 });
 
 describe("contract fixtures: search family", () => {
-  it("search-evidence carries items, coverage, page and result_ref", () => {
+  it("search-evidence carries items, coverage, page and result_handle", () => {
     const page = searchEvidence as SearchPage;
-    expect(page.result_ref).toBe("search-result:id-2");
+    expect(page.result_handle).toBe("search-result:id-2");
     expect(page.source).toBe("refs");
     const item = page.items[0];
     expect(item?.content_coverage).toBe("full");
@@ -229,12 +229,12 @@ describe("contract fixtures: search family", () => {
 });
 
 describe("contract fixtures: job family", () => {
-  it("job-detail exposes state, pending_inputs and result_links", () => {
+  it("job-detail exposes state, pending_inputs and result_refs", () => {
     const detail = jobDetail as JobDetail;
     expect(detail.job_id).toBe("job_1");
     expect(detail.state).toBe("running");
     expect(Array.isArray(detail.pending_inputs)).toBe(true);
-    expect(detail.result_links.length).toBeGreaterThan(0);
+    expect(detail.result_refs.length).toBeGreaterThan(0);
     expect(detail.details?.stdout_bytes).toBe(7);
   });
 

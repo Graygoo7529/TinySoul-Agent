@@ -39,11 +39,11 @@ import { useMemoryPage } from "./store";
 
 export function MemoryDocumentView({
   epoch,
-  link,
+  ref,
   fragment,
 }: {
   epoch: number;
-  link: string;
+  ref: string;
   fragment: string | null;
 }): ReactElement {
   const rightPanel = useMemoryPage((s) => s.rightPanel);
@@ -58,7 +58,7 @@ export function MemoryDocumentView({
         return Promise.reject(new Error("Not connected to a backend."));
       }
       return clients.memory.document(
-        { link, continuation: token ?? undefined },
+        { ref, continuation: token ?? undefined },
         { signal },
       );
     },
@@ -67,12 +67,12 @@ export function MemoryDocumentView({
       page.metadata ?? {
         kind: "",
         status: "",
-        display: link,
-        resolution_chain: [link],
-        locator: { link },
+        display: ref,
+        resolution_chain: [ref],
+        locator: { ref },
         direct_refs: [],
       },
-    [epoch, link],
+    [epoch, ref],
   );
 
   // The References panel and redirect banner read the document facts from
@@ -103,8 +103,8 @@ export function MemoryDocumentView({
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-start gap-2 border-b border-line px-4 py-2">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[13px] font-medium" title={link}>
-            {metadata?.display ?? link}
+          <div className="truncate text-[13px] font-medium" title={ref}>
+            {metadata?.display ?? ref}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-fg-faint">
             {metadata !== null && metadata.kind !== "" && (
@@ -115,7 +115,7 @@ export function MemoryDocumentView({
                 {metadata.status}
               </Badge>
             )}
-            <span className="truncate font-mono">{link}</span>
+            <span className="truncate font-mono">{ref}</span>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
@@ -130,12 +130,12 @@ export function MemoryDocumentView({
           >
             <Link2 size={15} />
           </IconButton>
-          <IconButton label="Copy reference" onClick={() => copyReference(link)}>
+          <IconButton label="Copy reference" onClick={() => copyReference(ref)}>
             <Copy size={15} />
           </IconButton>
           <IconButton
             label="Quote in conversation"
-            onClick={() => quoteReference(link, { link })}
+            onClick={() => quoteReference(ref, { ref })}
           >
             <MessageSquareQuote size={15} />
           </IconButton>
@@ -172,7 +172,7 @@ export function MemoryDocumentView({
             title="This document is missing"
             description={
               <>
-                <span className="font-mono text-[11px]">{link}</span> is not in
+                <span className="font-mono text-[11px]">{ref}</span> is not in
                 persistent Memory. It may have been merged into another
                 document.
               </>
@@ -200,7 +200,7 @@ export function MemoryDocumentView({
             title="This document is empty"
             description={
               <>
-                <span className="font-mono text-[11px]">{link}</span> exists in
+                <span className="font-mono text-[11px]">{ref}</span> exists in
                 persistent Memory but has no content.
               </>
             }
@@ -209,7 +209,7 @@ export function MemoryDocumentView({
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
           <div className="reading-column mx-auto w-full max-w-[76ch]">
-            <ChunkedMarkdown items={page.items} fragment={fragment} origin={{ link }} />
+            <ChunkedMarkdown items={page.items} fragment={fragment} origin={{ ref }} />
           </div>
         </div>
       )}

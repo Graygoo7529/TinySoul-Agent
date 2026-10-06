@@ -34,10 +34,10 @@ describe("V2Transport", () => {
       jsonResponse({ items: [] }),
     );
     await transport.get("/home/content", {
-      query: { link: "home:agent@x", continuation: "tok/+?=with space" },
+      query: { ref: "home:top/agent/x", continuation: "tok/+?=with space" },
     });
     expect(queryOf(requests[0]!, "continuation")).toBe("tok/+?=with space");
-    expect(queryOf(requests[0]!, "link")).toBe("home:agent@x");
+    expect(queryOf(requests[0]!, "ref")).toBe("home:top/agent/x");
   });
 
   it("serializes JSON bodies on writes and supports all methods", async () => {
@@ -45,7 +45,7 @@ describe("V2Transport", () => {
       jsonResponse({ state: "saved" }),
     );
     await transport.post("/turns", { body: { kind: "user", text: "hi" } });
-    await transport.put("/workspace/tags", { body: { link: "workspace:a", tags: [] } });
+    await transport.put("/workspace/tags", { body: { ref: "workspace:a", tags: [] } });
     await transport.patch("/config", { body: { operations: [] } });
     await transport.delete("/config/presets/p1");
     expect(requests.map((r) => r.method)).toEqual(["POST", "PUT", "PATCH", "DELETE"]);
@@ -96,7 +96,7 @@ describe("V2Transport", () => {
         }),
     );
     const response = await transport.readBlob("/workspace/blob", {
-      query: { link: "workspace:a.bin" },
+      query: { ref: "workspace:a.bin" },
       headers: { Range: "bytes=0-2" },
     });
     expect(response.status).toBe(206);
@@ -123,14 +123,14 @@ describe("V2Transport", () => {
 
   it("writeBlob sends octet-stream bytes and parses the JSON result", async () => {
     const { transport, requests } = createTestTransport(() =>
-      jsonResponse({ record: { link: "workspace:a.bin" }, manifest: {} }),
+      jsonResponse({ record: { ref: "workspace:a.bin" }, manifest: {} }),
     );
-    const result = await transport.writeBlob<{ record: { link: string } }>(
+    const result = await transport.writeBlob<{ record: { ref: string } }>(
       "/workspace/blob",
       new Blob([new Uint8Array([1, 2])]),
-      { query: { link: "workspace:a.bin", overwrite: true } },
+      { query: { ref: "workspace:a.bin", overwrite: true } },
     );
-    expect(result.record.link).toBe("workspace:a.bin");
+    expect(result.record.ref).toBe("workspace:a.bin");
     expect(requests[0]?.method).toBe("PUT");
     expect(requests[0]?.headers["content-type"]).toBe("application/octet-stream");
     expect(queryOf(requests[0]!, "overwrite")).toBe("true");

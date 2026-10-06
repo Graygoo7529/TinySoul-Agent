@@ -11,7 +11,8 @@ from tinysoul.prompts.kernel import context as prompt_text
 from tinysoul.infra.json import JsonObject, JsonValue, dumps_json, to_json_object
 from tinysoul.kernel.action.call import ActionCall, ExecutionFact, ExecutionState
 from tinysoul.kernel.action.result import ActionResult
-from tinysoul.kernel.interaction import QuestionAnswer
+from tinysoul.kernel.identity import TurnIdentity, TurnIdentityError
+from tinysoul.kernel.interaction import QuestionAnswer, QuestionContent, input_narrative
 from tinysoul.llm.protocol.messages import (
     AssistantMessage,
     JsonPart,
@@ -37,28 +38,31 @@ class TraceKind(StrEnum):
     DECISION = "decision"
     ACTION_RESULT = "action_result"
     PHASE_NOTE = "phase_note"
+    INPUT = "input"
 
 
 def parse_trace_reference(ref: str) -> str:
     """Parse the stable trace identity while keeping syntax owned by Context."""
     resource, marker, fragment = ref.partition("#")
-    if resource.startswith("turn:trace@"):
-        turn_id = resource.removeprefix("turn:trace@").strip()
-        if not turn_id:
-            raise ContextContractError("Trace reference requires a Turn identity")
-        if marker:
-            prefix, separator, value = fragment.partition("/")
-            if prefix not in {"entry", "action", "input"} or not separator or not value:
-                raise ContextContractError("Trace reference fragment is invalid")
-            if "/" in value:
-                raise ContextContractError("Trace reference fragment is invalid")
-        return turn_id
-    if resource.startswith("turn:trace/"):
-        parts = resource.split("/")
-        if len(parts) != 3 or not parts[1] or not parts[2] or marker:
-            raise ContextContractError("Trace node reference is invalid")
-        return parts[1]
-    raise ContextContractError("Reference is not a trace resource")
+    if not resource.startswith("turn:trace/"):
+        raise ContextContractError("Reference is not a trace resource")
+    turn_id = resource.removeprefix("turn:trace/")
+    try:
+        TurnIdentity.parse(turn_id)
+    except TurnIdentityError as exc:
+        raise ContextContractError("Invalid Trace Turn identity") from exc
+    if marker:
+        kind, separator, value = fragment.partition("/")
+        if (
+            kind not in {"entry", "action", "input", "node"}
+            or not separator
+            or not value.isascii()
+            or not value.isdecimal()
+            or str(int(value)) != value
+            or (kind in {"entry", "node"} and int(value) == 0)
+        ):
+            raise ContextContractError("Trace reference fragment is invalid")
+    return turn_id
 
 
 class TraceFactKind(StrEnum):
@@ -113,6 +117,7 @@ class TraceEntry:
     visible_overlay: Message | None = None
     origin_refs: tuple[str, ...] = field(default_factory=tuple)
     admission_sequence: int | None = None
+    input_id: str = ""
 
     def __post_init__(self) -> None:
         if not self.entry_id:
@@ -135,6 +140,10 @@ class TraceEntry:
     def to_semantic(self) -> JsonObject:
         return _semantic_trace_entry(self)
 
+    @property
+    def clue(self) -> str:
+        return _entry_clue(self)
+
 
 @dataclass(frozen=True)
 class TraceHeapNode:
@@ -149,6 +158,7 @@ class TraceHeapNode:
     trace_kinds: tuple[str, ...] = field(default_factory=tuple)
     action_names: tuple[str, ...] = field(default_factory=tuple)
     char_count: int = 0
+    clue: str = ""
 
     def __post_init__(self) -> None:
         if not self.node_id:
@@ -175,6 +185,7 @@ class TraceHeapNode:
         value: JsonObject = {
             "ref": _node_ref(turn_id, self.node_id),
             "kind": self.kind.value,
+            "clue": self.clue,
         }
         if self.kind is TraceHeapNodeKind.LEAF:
             value["interaction_count"] = len(self.entry_ids)
@@ -264,7 +275,7 @@ class TurnTraceHeap:
     def __init__(
         self,
         *,
-        turn_id: str = "detached",
+        turn_id: str,
         chunk_max_chars: int = 12000,
         branch_factor: int = 4,
         min_hot_entries: int = 2,
@@ -317,8 +328,8 @@ class TurnTraceHeap:
     def entry_ref(self, entry_id: str) -> str:
         return f"{self.head_ref()}#entry/{entry_id}"
 
-    def input_ref(self, input_id: str) -> str:
-        return f"{self.head_ref()}#input/{input_id}"
+    def input_ref(self, occurrence: int) -> str:
+        return f"{self.head_ref()}#input/{occurrence}"
 
     def mark_consumed(self, messages: tuple[Message, ...]) -> None:
         """Release only overlays present in a completed decision-model request."""
@@ -420,7 +431,7 @@ class TurnTraceHeap:
         return tuple(self._nodes.values())
 
     def head_ref(self) -> str:
-        return f"turn:trace@{self._turn_id}"
+        return f"turn:trace/{self._turn_id}"
 
     def resolve_reference(self, ref: str) -> str:
         """Validate a trace ref against this heap before an owner read."""
@@ -465,6 +476,29 @@ class TurnTraceHeap:
         phase: CyclePhase | None = None,
     ) -> TraceEntry:
         return self._append(TraceKind.DECISION, message, cycle_id=cycle_id, phase=phase)
+
+    def append_input(self, item: PendingInput, *, initial: bool = False) -> TraceEntry:
+        text = input_narrative(item.text, initial=initial)
+        if item.reply_to and item.answer is not None:
+            question = next(
+                (
+                    fact.result
+                    for fact in self._actions.values()
+                    if fact.result is not None
+                    and fact.result.result_id == item.reply_to
+                    and fact.call.action_name == "core.ask"
+                ),
+                None,
+            )
+            if question is not None:
+                text = QuestionContent.from_json(question.payload).reply_narrative(
+                    item.answer
+                )
+        return self._append(
+            TraceKind.INPUT,
+            UserMessage.from_text(text, label="trace_input"),
+            input_id=item.input_id,
+        )
 
     def append_action_result(
         self,
@@ -605,8 +639,17 @@ class TurnTraceHeap:
         messages: list[Message] = []
         if self._root_ids:
             messages.append(
-                UserMessage.from_json(
-                    self._head_payload(),
+                UserMessage.from_text(
+                    prompt_text.trace_directory(
+                        self.head_ref(),
+                        tuple(
+                            (
+                                _node_ref(self._turn_id, node_id),
+                                self._nodes[node_id].clue,
+                            )
+                            for node_id in self._root_ids
+                        ),
+                    ),
                     label="trace_heap_head",
                 )
             )
@@ -642,9 +685,10 @@ class TurnTraceHeap:
         visible_overlay: Message | None = None,
         origin_refs: tuple[str, ...] = (),
         admission_sequence: int | None = None,
+        input_id: str = "",
     ) -> TraceEntry:
         entry = TraceEntry(
-            entry_id=_entry_id(),
+            entry_id=str(len(self._entries) + 1),
             kind=kind,
             message=message,
             cycle_id=cycle_id,
@@ -652,6 +696,7 @@ class TurnTraceHeap:
             visible_overlay=visible_overlay,
             origin_refs=origin_refs,
             admission_sequence=admission_sequence,
+            input_id=input_id,
         )
         self._entries.append(entry)
         self._hot_entry_ids.append(entry.entry_id)
@@ -712,7 +757,7 @@ class TurnTraceHeap:
 
     def _append_leaf(self, entries: list[TraceEntry]) -> None:
         node = TraceHeapNode(
-            node_id=_node_id(),
+            node_id=str(len(self._nodes) + 1),
             kind=TraceHeapNodeKind.LEAF,
             level=0,
             entry_ids=tuple(entry.entry_id for entry in entries),
@@ -722,6 +767,7 @@ class TurnTraceHeap:
             trace_kinds=tuple(sorted({entry.kind.value for entry in entries})),
             action_names=tuple(sorted(_action_names(entries))),
             char_count=sum(_message_chars(entry.message) for entry in entries),
+            clue="; ".join(_entry_clue(entry) for entry in entries)[:360],
         )
         self._nodes[node.node_id] = node
         self._root_ids.append(node.node_id)
@@ -731,7 +777,7 @@ class TurnTraceHeap:
             child_ids = tuple(self._root_ids[: self._branch_factor])
             children = [self._nodes[child_id] for child_id in child_ids]
             node = TraceHeapNode(
-                node_id=_node_id(),
+                node_id=str(len(self._nodes) + 1),
                 kind=TraceHeapNodeKind.BRANCH,
                 level=max(child.level for child in children) + 1,
                 child_ids=child_ids,
@@ -747,6 +793,7 @@ class TurnTraceHeap:
                     sorted({name for child in children for name in child.action_names})
                 ),
                 char_count=sum(child.char_count for child in children),
+                clue="; ".join(child.clue for child in children)[:360],
             )
             self._nodes[node.node_id] = node
             self._root_ids = [node.node_id, *self._root_ids[self._branch_factor :]]
@@ -764,7 +811,7 @@ class TurnTraceHeap:
         )
 
     def _node_for_ref(self, ref: str) -> TraceHeapNode:
-        prefix = f"turn:trace/{self._turn_id}/"
+        prefix = f"{self.head_ref()}#node/"
         if not ref.startswith(prefix):
             raise ContextInspectRequestError(
                 ContextInspectFailureReason.INVALID_REF,
@@ -857,8 +904,18 @@ class PendingInput:
             raise ContextInvariantError("PendingInput.answer must be typed")
 
 
-def _entry_id() -> str:
-    return f"trace_{uuid4().hex[:8]}"
+def _entry_clue(entry: TraceEntry) -> str:
+    semantic = _semantic_trace_entry(entry)
+    pieces = [
+        value if isinstance(value, str) else dumps_json(value)
+        for key, value in semantic.items()
+        if key in {"content", "result", "failure", "actions", "controls"}
+    ]
+    if isinstance(entry.message, ToolResultMessage):
+        pieces.insert(0, entry.message.tool_name)
+    elif isinstance(entry.message, AssistantMessage):
+        pieces.extend(call.name for call in entry.message.tool_calls)
+    return " ".join(" ".join(pieces).split())[:240] or entry.kind.value
 
 
 def _semantic_trace_entry(entry: TraceEntry) -> JsonObject:
@@ -911,7 +968,7 @@ def _semantic_trace_entry(entry: TraceEntry) -> JsonObject:
         if entry.origin_refs:
             value["references"] = list(entry.origin_refs)
         return to_json_object(value)
-    value = {"kind": "phase_note"}
+    value = {"kind": entry.kind.value}
     if content:
         value["content"] = content[0] if len(content) == 1 else content
     return to_json_object(value)
@@ -927,12 +984,8 @@ def _semantic_parts(message: Message) -> list[JsonValue]:
     return values
 
 
-def _node_id() -> str:
-    return f"node_{uuid4().hex[:10]}"
-
-
 def _node_ref(turn_id: str, node_id: str) -> str:
-    return f"turn:trace/{turn_id}/{node_id}"
+    return f"turn:trace/{turn_id}#node/{node_id}"
 
 
 def _action_names(entries: list[TraceEntry]) -> set[str]:

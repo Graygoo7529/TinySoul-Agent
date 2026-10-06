@@ -15,7 +15,7 @@ type = "string"
 [tool.schema.properties.brief]
 type = "string"
 
-[tool.schema.properties.reference_links]
+[tool.schema.properties.references]
 type = "array"
 items = { type = "string" }
 

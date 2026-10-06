@@ -71,7 +71,7 @@ function contextFor(): SegmentContext {
 }
 
 function serveSegment(id: string, body: unknown) {
-  endpoint.get(`/v2/turns/${TURN_ID}/context/segments/${id}`, () =>
+  endpoint.get(`/v2/requests/${TURN_ID}/context/segments/${id}`, () =>
     jsonResponse(body),
   );
 }
@@ -102,7 +102,7 @@ function clickText(text: string) {
 }
 
 function segmentCalls(id: string) {
-  return endpoint.calls(`/v2/turns/${TURN_ID}/context/segments/${id}`);
+  return endpoint.calls(`/v2/requests/${TURN_ID}/context/segments/${id}`);
 }
 
 describe("SegmentPanel body", () => {
@@ -157,7 +157,7 @@ describe("SegmentPanel body", () => {
     expect(container.textContent).toContain("page one");
     expect(container.textContent).not.toContain("page two");
 
-    endpoint.get(`/v2/turns/${TURN_ID}/context/segments/inputs`, (request) => {
+    endpoint.get(`/v2/requests/${TURN_ID}/context/segments/inputs`, (request) => {
       void request;
       return jsonResponse(second);
     });
@@ -206,7 +206,7 @@ describe("SegmentPanel body", () => {
     expect(container.textContent).toContain("regular");
     expect(container.textContent).not.toContain("fragment assembled body");
 
-    endpoint.get(`/v2/turns/${TURN_ID}/context/segments/inputs`, () =>
+    endpoint.get(`/v2/requests/${TURN_ID}/context/segments/inputs`, () =>
       jsonResponse({
         turn_id: TURN_ID,
         segment_id: "inputs",
@@ -246,7 +246,7 @@ describe("SegmentPanel body", () => {
     });
     await flush();
 
-    endpoint.get(`/v2/turns/${TURN_ID}/context/segments/inputs`, () =>
+    endpoint.get(`/v2/requests/${TURN_ID}/context/segments/inputs`, () =>
       errorResponse(409, "context.unavailable"),
     );
     clickText("Show more");
@@ -262,18 +262,18 @@ describe("SegmentPanel body", () => {
 describe("SegmentPanel shapes", () => {
   it("heap: partitions installed vs available refs and routes owner reads", async () => {
     await renderSegment("home");
-    expect(container.textContent).toContain("home:agent@AGENT");
-    expect(container.textContent).toContain("home:skills@tinysoul-docs");
+    expect(container.textContent).toContain("home:top/agent/AGENT");
+    expect(container.textContent).toContain("home:top/skills/tinysoul-docs");
     expect(container.textContent).toContain("installed");
     expect(container.textContent).toContain("available");
     // The heap declares select/reclaim only: no SELECT/RECLAIM controls.
     expect(container.textContent).not.toContain("SELECT");
     expect(container.textContent).not.toContain("RECLAIM");
 
-    clickText("home:agent@AGENT");
+    clickText("home:top/agent/AGENT");
     const entries = useInspectorStore.getState().entries;
     const top = entries[entries.length - 1];
-    expect(top?.key).toContain("context:resource:home:agent@AGENT");
+    expect(top?.key).toContain("context:resource:home:top/agent/AGENT");
     expect(top?.subtitle).toBe("Owner's current content");
   });
 
@@ -287,7 +287,7 @@ describe("SegmentPanel shapes", () => {
   });
 
   it("stack: the inspect route offers locate-in-scope from the query capability", async () => {
-    endpoint.get(`/v2/turns/${TURN_ID}/context/inspect`, () =>
+    endpoint.get(`/v2/requests/${TURN_ID}/context/inspect`, () =>
       jsonResponse({ ref: `turn:trace@${TURN_ID}`, kind: "context_trace", items: [] }),
     );
     await renderSegment("trace");
@@ -303,7 +303,7 @@ describe("SegmentPanel shapes", () => {
   });
 
   it("stack: a segment without the query capability hides locate-in-scope", async () => {
-    endpoint.get(`/v2/turns/${TURN_ID}/context/inspect`, () =>
+    endpoint.get(`/v2/requests/${TURN_ID}/context/inspect`, () =>
       jsonResponse({ ref: `turn:trace@${TURN_ID}`, kind: "context_trace", items: [] }),
     );
     serveSegment("trace", structuredClone(messagesFixture));
@@ -338,14 +338,14 @@ describe("SegmentPanel shapes", () => {
     expect(container.textContent).toContain("46 chars");
   });
 
-  it("working: the workspace segment links out to its owner page", async () => {
+  it("working: the workspace segment refs out to its owner page", async () => {
     await renderSegment("workspace");
     clickText("Open the Workspace page");
     expect(useAppStore.getState().activeTab).toBe("workspace");
     expect(useInspectorStore.getState().entries).toHaveLength(0);
   });
 
-  it("working: the jobs segment links to runtime observation", async () => {
+  it("working: the jobs segment refs to runtime observation", async () => {
     await renderSegment("jobs");
     clickText("Open Runtime observation");
     expect(useAppStore.getState().activeTab).toBe("runtime");

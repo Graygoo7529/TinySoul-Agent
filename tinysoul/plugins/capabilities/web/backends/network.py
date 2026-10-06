@@ -287,7 +287,7 @@ def normalize_html_links(value: str, *, base_url: str) -> str:
 
     try:
         document = html.fromstring(value, base_url=base_url)
-        document.make_links_absolute(base_url, resolve_base_href=True)
+        document.make_refs_absolute(base_url, resolve_base_href=True)
         return html.tostring(document, encoding="unicode", method="html")
     # lxml does not expose a stable cross-version parser exception hierarchy.
     except Exception as exc:

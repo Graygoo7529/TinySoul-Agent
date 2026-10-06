@@ -216,8 +216,8 @@ class TurnSegments:
             ):
                 continue
             refs = set(item.segment.selection_view().available)
-            load = tuple(ref for ref in patch.load_links if ref in refs)
-            evict = tuple(ref for ref in patch.evict_links if ref in refs)
+            load = tuple(ref for ref in patch.load_refs if ref in refs)
+            evict = tuple(ref for ref in patch.evict_refs if ref in refs)
             if not load and not evict:
                 continue
             if item.signal_name is None:
@@ -229,7 +229,7 @@ class TurnSegments:
                     name=item.signal_name,
                     source=source.source,
                     scope=source.scope,
-                    payload={"load_links": list(load), "evict_links": list(evict)},
+                    payload={"load_refs": list(load), "evict_refs": list(evict)},
                 )
             )
         return tuple(signals)

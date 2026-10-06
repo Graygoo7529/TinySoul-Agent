@@ -25,7 +25,7 @@ max_scan_chars = 1000000
 
 [workspace.analysis]
 max_intent_chars = 2000
-max_reference_links = 8
+max_reference_refs = 8
 max_source_chars = 24000
 max_chars_per_reference = 12000
 max_answer_chars = 4000

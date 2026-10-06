@@ -1,6 +1,6 @@
 /**
- * API-18: resolve a link/ref/relative reference into a logical
- * ResourceLocator. Relative references need origin_link; dynamic Memory
+ * API-18: resolve an absolute or relative reference into a logical
+ * ResourceLocator. Relative references need origin_ref; dynamic Memory
  * references need their original day/turn binding (missing bindings answer
  * 422 resource.unresolved_origin — never substitute today's latest).
  */
@@ -9,8 +9,8 @@ import type { HomeView, ResourceResolve } from "../types";
 import type { RequestOptions, V2Transport } from "../transport";
 
 export interface ResourceResolveParams {
-  reference: string;
-  origin_link?: string;
+  ref: string;
+  origin_ref?: string;
   day?: string;
   turn_id?: string;
   view?: HomeView;

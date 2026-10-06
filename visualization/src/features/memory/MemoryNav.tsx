@@ -106,7 +106,7 @@ function KnowledgeNav({
 }): ReactElement {
   const kind = useMemoryPage((s) => s.kind);
   const query = useMemoryPage((s) => s.query);
-  const selectedLink = useMemoryPage((s) => s.link);
+  const selectedLink = useMemoryPage((s) => s.ref);
   const [filter, setFilter] = useState(query);
 
   // Debounce the filter into the server-side catalog query.
@@ -216,12 +216,12 @@ function KnowledgeNav({
           <div className="space-y-0.5">
             {items.map((item) => (
               <button
-                key={item.link}
+                key={item.ref}
                 type="button"
-                onClick={() => useMemoryPage.getState().select(item.link)}
-                title={item.link}
+                onClick={() => useMemoryPage.getState().select(item.ref)}
+                title={item.ref}
                 className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[12.5px] ${
-                  selectedLink === item.link
+                  selectedLink === item.ref
                     ? "bg-accent-soft text-accent"
                     : "text-fg-muted hover:bg-hover"
                 }`}

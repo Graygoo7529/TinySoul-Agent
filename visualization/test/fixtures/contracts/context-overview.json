@@ -82,34 +82,34 @@
       "chars": 11317,
       "image_bytes": 0,
       "available_refs": [
-        "home:agent@AGENT",
-        "home:agent@context/background",
-        "home:agent@context/turn-trace",
-        "home:agent@context/working",
-        "home:agent@contract",
-        "home:agent@identity/identity",
-        "home:agent@identity/soul",
-        "home:agent@long-contract",
-        "home:agent@user/user",
-        "home:skills@tinysoul-docs"
+        "home:top/agent/AGENT",
+        "home:top/agent/context/background",
+        "home:top/agent/context/turn-trace",
+        "home:top/agent/context/working",
+        "home:top/agent/contract",
+        "home:top/agent/identity/identity",
+        "home:top/agent/identity/soul",
+        "home:top/agent/long-contract",
+        "home:top/agent/user/user",
+        "home:top/skills/tinysoul-docs"
       ],
       "loaded_refs": [
-        "home:agent@AGENT",
-        "home:agent@identity/identity",
-        "home:agent@identity/soul",
-        "home:agent@context/background",
-        "home:agent@context/turn-trace",
-        "home:agent@context/working",
-        "home:agent@user/user"
+        "home:top/agent/AGENT",
+        "home:top/agent/identity/identity",
+        "home:top/agent/identity/soul",
+        "home:top/agent/context/background",
+        "home:top/agent/context/turn-trace",
+        "home:top/agent/context/working",
+        "home:top/agent/user/user"
       ],
       "protected_refs": [
-        "home:agent@AGENT",
-        "home:agent@identity/identity",
-        "home:agent@identity/soul",
-        "home:agent@context/background",
-        "home:agent@context/turn-trace",
-        "home:agent@context/working",
-        "home:agent@user/user"
+        "home:top/agent/AGENT",
+        "home:top/agent/identity/identity",
+        "home:top/agent/identity/soul",
+        "home:top/agent/context/background",
+        "home:top/agent/context/turn-trace",
+        "home:top/agent/context/working",
+        "home:top/agent/user/user"
       ]
     },
     {
@@ -215,7 +215,7 @@
   ],
   "resolved_references": {
     "memory:current": {
-      "link": "memory:current",
+      "ref": "memory:current",
       "day": "2026-09-29"
     }
   }

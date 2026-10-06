@@ -73,7 +73,7 @@ export function ReflectionDialog({ kind: initialKind, onClose }: ReflectionDialo
   const queueBusy = useConnectionStore(
     (s) =>
       (s.status?.runtime.active_turn_id ?? null) !== null ||
-      (s.status?.runtime.queued_turn_ids.length ?? 0) > 0,
+      (s.status?.runtime.queued_request_ids.length ?? 0) > 0,
   );
 
   useEffect(() => {
@@ -173,7 +173,7 @@ export function ReflectionDialog({ kind: initialKind, onClose }: ReflectionDialo
       .then((result) => {
         setBusy(false);
         if (useConnectionStore.getState().epoch !== epoch) return;
-        void showRuntimeTurn(epoch, result.turn_id);
+        void showRuntimeTurn(epoch, result.request_id);
         onClose();
       })
       .catch((error: unknown) => {

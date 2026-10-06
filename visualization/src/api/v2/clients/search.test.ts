@@ -23,7 +23,7 @@ describe("SearchClient", () => {
       page: { limit: 20, max_chars: 8000 },
     };
     const page = await client.searchHome(request);
-    expect(page.result_ref).toBe("search-result:id-2");
+    expect(page.result_handle).toBe("search-result:id-2");
     expect(page.items[0]?.evidence[0]?.matches[0]).toMatchObject({
       kind: "model",
       start: 0,

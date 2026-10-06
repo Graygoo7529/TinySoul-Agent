@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "id": "id-1",
+  "id": "2cc770115e8749f58e201abb7c485eca",
   "name": "Balanced",
   "description": "",
   "included_scopes": [
@@ -20,8 +20,8 @@
     "retrieval": {},
     "include_budgets": false
   },
-  "created_at": "2026-09-29T08:00:00+00:00",
-  "updated_at": "2026-09-29T08:00:00+00:00",
+  "created_at": "2026-10-06T15:04:16.648296+00:00",
+  "updated_at": "2026-10-06T15:04:16.648296+00:00",
   "active_match": true,
   "saved_match": true,
   "validation_issues": []

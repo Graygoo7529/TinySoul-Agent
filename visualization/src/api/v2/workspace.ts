@@ -11,7 +11,7 @@ export type WorkspaceTag = "pinned" | "tmp" | "library" | (string & {});
 
 /** Manifest resource record (WorkspaceManifest record to_json). */
 export interface WorkspaceResourceRecord {
-  link: string;
+  ref: string;
   relative_path: string;
   kind: string;
   media_type: string;
@@ -39,7 +39,7 @@ export interface WorkspaceManifest {
  * complete editable text and rejects over-limit resources.
  */
 export interface WorkspaceTextPage extends ContinuationPage {
-  link: string;
+  ref: string;
   locator: ResourceLocator;
   day: string;
   text: string;

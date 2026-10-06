@@ -30,11 +30,12 @@
       "summary": "",
       "reason": "",
       "pending_inputs": [],
-      "result_links": [
+      "result_refs": [
         "workspace:jobs/job_1",
         "workspace:jobs/job_1/logs/stdout.log",
         "workspace:jobs/job_1/logs/stderr.log"
       ]
     }
-  ]
+  ],
+  "request_id": "contract-turn"
 }

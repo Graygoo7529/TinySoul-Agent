@@ -54,8 +54,8 @@ export function asStringArray(value: unknown): string[] {
 /** Compact action text shared by the live feed and trace, derived only from recorded facts. */
 export function actionTarget(params: JsonObject | null): string | null {
   if (!params) return null;
-  return asString(params.command) ?? asString(params.target_link) ?? asString(params.source_link) ??
-    asString(params.cwd_link) ?? asString(params.link) ?? asString(params.ref) ??
+  return asString(params.command) ?? asString(params.target_ref) ?? asString(params.source_ref) ??
+    asString(params.cwd_ref) ?? asString(params.ref) ?? asString(params.ref) ??
     asString(asObject(params.source)?.query) ?? asString(params.query) ?? asString(params.path);
 }
 
@@ -65,13 +65,13 @@ export function actionResultSummary(payload: JsonObject | null): string | undefi
   if (items) return `${items.length} results`;
   const code = asNumber(payload.exit_code);
   if (code !== null) return `Exit ${code}`;
-  return asString(payload.summary) ?? asString(payload.link) ?? asString(payload.ref) ?? undefined;
+  return asString(payload.summary) ?? asString(payload.ref) ?? asString(payload.ref) ?? undefined;
 }
 
 export function taskSkillRefs(payload: JsonObject): string[] {
   const provenance = Array.isArray(payload.provenance) ? payload.provenance : [];
   return [...new Set(provenance.flatMap((entry) => asStringArray(asObject(entry)?.refs))
-    .filter((ref) => ref.startsWith("home:skills_domain:") || ref.startsWith("home:skills_action:")))];
+    .filter((ref) => ref.startsWith("home:mount/domain/") || ref.startsWith("home:mount/action/")))];
 }
 
 // ---------------------------------------------------------------------------

@@ -5,8 +5,8 @@ import { parseDiffLines, toSideRows } from "./diffModel";
 describe("parseDiffLines", () => {
   it("classifies headers, hunks and content lines without altering text", () => {
     const text = [
-      "--- actual:home:agent@identity",
-      "+++ effective:home:agent@identity",
+      "--- actual:home:top/agent/identity",
+      "+++ effective:home:top/agent/identity",
       "@@ -1,2 +1,3 @@",
       " keep me",
       "-old line",
@@ -29,7 +29,7 @@ describe("parseDiffLines", () => {
     expect(lines[3]).toEqual({ kind: "context", text: "keep me" });
     expect(lines[4]).toEqual({ kind: "del", text: "old line" });
     expect(lines[6]).toEqual({ kind: "add", text: "another" });
-    expect(lines[0]!.text).toBe("--- actual:home:agent@identity");
+    expect(lines[0]!.text).toBe("--- actual:home:top/agent/identity");
   });
 
   it("keeps +++/--- headers as meta even inside content-looking positions", () => {

@@ -17,43 +17,43 @@ import type { ContinuationParams } from "./paging";
 export class ContextClient {
   constructor(private readonly transport: V2Transport) {}
 
-  background(turnId: string, params?: ContinuationParams, options?: RequestOptions): Promise<BackgroundPage> {
-    return this.transport.get<BackgroundPage>(`/turns/${encodeURIComponent(turnId)}/context/background`,
+  background(requestId: string, params?: ContinuationParams, options?: RequestOptions): Promise<BackgroundPage> {
+    return this.transport.get<BackgroundPage>(`/requests/${encodeURIComponent(requestId)}/context/background`,
       { ...options, query: { ...params } });
   }
 
-  /** GET /v2/turns/{id}/context — installed segments and resolved refs. */
-  overview(turnId: string, options?: RequestOptions): Promise<ContextOverview> {
+  /** GET /v2/requests/{id}/context — installed segments and resolved refs. */
+  overview(requestId: string, options?: RequestOptions): Promise<ContextOverview> {
     return this.transport.get<ContextOverview>(
-      `/turns/${encodeURIComponent(turnId)}/context`,
+      `/requests/${encodeURIComponent(requestId)}/context`,
       options,
     );
   }
 
-  /** GET /v2/turns/{id}/context/segments/{segment_id} — installed body. */
+  /** GET /v2/requests/{id}/context/segments/{segment_id} — installed body. */
   segment(
-    turnId: string,
+    requestId: string,
     segmentId: string,
     params?: ContinuationParams,
     options?: RequestOptions,
   ): Promise<ContextMessagesPage> {
     return this.transport.get<ContextMessagesPage>(
-      `/turns/${encodeURIComponent(turnId)}/context/segments/${encodeURIComponent(segmentId)}`,
+      `/requests/${encodeURIComponent(requestId)}/context/segments/${encodeURIComponent(segmentId)}`,
       { ...options, query: { ...params } },
     );
   }
 
   /**
-   * GET /v2/turns/{id}/context/inspect — user-side reading only; never
+   * GET /v2/requests/{id}/context/inspect — user-side reading only; never
    * appends Action results or lifts the model-side display protection.
    */
   inspect(
-    turnId: string,
+    requestId: string,
     params: { ref: string; query?: string; continuation?: string },
     options?: RequestOptions,
   ): Promise<DisclosurePage> {
     return this.transport.get<DisclosurePage>(
-      `/turns/${encodeURIComponent(turnId)}/context/inspect`,
+      `/requests/${encodeURIComponent(requestId)}/context/inspect`,
       { ...options, query: { ...params } },
     );
   }

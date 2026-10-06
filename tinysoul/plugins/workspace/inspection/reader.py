@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from hashlib import sha256
 from pathlib import Path
+from urllib.parse import unquote
 
 from tinysoul.infra.continuation import ContinuationPosition, OpaqueContinuationCodec
 from tinysoul.infra.filesystem import file_digest, read_text_prefix
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.paging import PageOptions
+from tinysoul.kernel.retrieval.disclosure import fragment_range
 
 from ..config import WorkspaceSettings
 from ..errors import (
@@ -41,77 +44,130 @@ class WorkspaceReader:
         self,
         *,
         settings: WorkspaceSettings,
-        inspect: Callable[[str], WorkspaceResourceRecord],
+        stat: Callable[[str], WorkspaceResourceRecord],
         path_for: Callable[[str], Path],
     ) -> None:
-        self._settings, self._inspect, self._path_for = settings, inspect, path_for
+        self._settings, self._stat, self._path_for = settings, stat, path_for
 
-    def read_text(
-        self, link: str, *, max_chars: int | None = None
-    ) -> WorkspaceTextRead:
-        limit = self._settings.max_read_chars if max_chars is None else max_chars
-        _positive(limit)
-        record = self._inspect(link)
-        if record.kind is not WorkspaceResourceKind.TEXT:
-            raise WorkspaceContractError("Workspace resource is not readable text")
+    def inspect_text(
+        self, ref: str, *, day: str, continuation: str | None, max_chars: int
+    ) -> JsonObject:
+        """Return a content-bound page, without retaining a second copy of the file."""
+        resource, _, fragment = ref.partition("#")
+        path = self._path_for(resource)
         try:
-            read = read_text_prefix(self._path_for(link), max_chars=limit)
+            text = path.read_text(encoding="utf-8")
         except UnicodeError as exc:
             raise WorkspaceContractError(
                 "Workspace resource is not UTF-8 text"
             ) from exc
         except OSError as exc:
             raise WorkspaceIOError("Workspace text cannot be read") from exc
-        return WorkspaceTextRead(record.link, read.text, read.truncated, record.size)
+        first, last = fragment_range(text, unquote(fragment))
+        selected = "".join(text.splitlines(keepends=True)[first - 1 : last])
+        codec = OpaqueContinuationCodec(owner="workspace", operation="inspect")
+        binding: JsonObject = {
+            "day": day,
+            "content": sha256(selected.encode()).hexdigest(),
+        }
+        position = codec.decode(continuation, ref=ref, binding=binding)
+        offset = position.char_offset
+        if offset > len(selected):
+            raise WorkspaceContractError(
+                "Workspace continuation exceeds the selected content"
+            )
+        body = selected[offset : offset + max_chars]
+        stop = offset + len(body)
+        start_line = first + selected[:offset].count("\n")
+        end_line = start_line + body.rstrip("\r\n").count("\n")
+        has_more = stop < len(selected)
+        return {
+            "text": body,
+            "requested_ref": ref,
+            "coverage": {
+                "ref": f"{resource}#L{start_line}-L{end_line}" if body else resource,
+                "start_offset": offset,
+                "end_offset": stop,
+                "selected_start_line": first,
+                "selected_end_line": last,
+            },
+            "has_more": has_more,
+            "next_continuation": codec.encode(
+                ContinuationPosition(
+                    char_offset=stop,
+                    item_digest="sha256:" + sha256(selected.encode()).hexdigest(),
+                ),
+                ref=ref,
+                binding=binding,
+            )
+            if has_more
+            else None,
+        }
 
-    def read_bytes(self, link: str, *, max_bytes: int) -> WorkspaceByteRead:
+    def read_text(self, ref: str, *, max_chars: int | None = None) -> WorkspaceTextRead:
+        limit = self._settings.max_read_chars if max_chars is None else max_chars
+        _positive(limit)
+        record = self._stat(ref)
+        if record.kind is not WorkspaceResourceKind.TEXT:
+            raise WorkspaceContractError("Workspace resource is not readable text")
+        try:
+            read = read_text_prefix(self._path_for(ref), max_chars=limit)
+        except UnicodeError as exc:
+            raise WorkspaceContractError(
+                "Workspace resource is not UTF-8 text"
+            ) from exc
+        except OSError as exc:
+            raise WorkspaceIOError("Workspace text cannot be read") from exc
+        return WorkspaceTextRead(record.ref, read.text, read.truncated, record.size)
+
+    def read_bytes(self, ref: str, *, max_bytes: int) -> WorkspaceByteRead:
         _positive(max_bytes)
-        record = self._inspect(link)
+        record = self._stat(ref)
         if record.kind is WorkspaceResourceKind.DIRECTORY:
             raise WorkspaceContractError("A directory has no file body")
         try:
-            with self._path_for(link).open("rb") as stream:
+            with self._path_for(ref).open("rb") as stream:
                 data = stream.read(max_bytes + 1)
         except OSError as exc:
             raise WorkspaceIOError("Workspace bytes cannot be read") from exc
         if len(data) > max_bytes:
             raise WorkspaceContractError("Workspace resource exceeds the read limit")
         return WorkspaceByteRead(
-            record.link, data, record.kind, record.media_type, len(data)
+            record.ref, data, record.kind, record.media_type, len(data)
         )
 
-    def open_blob(self, link: str) -> WorkspaceBlobRead:
-        record = self._inspect(link)
+    def open_blob(self, ref: str) -> WorkspaceBlobRead:
+        record = self._stat(ref)
         if record.kind is WorkspaceResourceKind.DIRECTORY:
             raise WorkspaceContractError("A directory has no file body")
         try:
-            stream = self._path_for(link).open("rb")
+            stream = self._path_for(ref).open("rb")
             stream.seek(0, 2)
             size = stream.tell()
             stream.seek(0)
         except OSError as exc:
             raise WorkspaceIOError("Workspace blob cannot be opened") from exc
-        return WorkspaceBlobRead(record.link, stream, record.media_type, size)
+        return WorkspaceBlobRead(record.ref, stream, record.media_type, size)
 
     def browse_text(
         self,
-        link: str,
+        ref: str,
         *,
         day: str,
         page: PageOptions = PageOptions(),
         full: bool = False,
         editable: bool = True,
     ) -> JsonObject:
-        record = self._inspect(link)
+        record = self._stat(ref)
         if record.kind is not WorkspaceResourceKind.TEXT:
             raise WorkspaceContractError("Workspace resource is not readable text")
         if full and page.continuation is not None:
             raise WorkspaceContractError("Full text reads cannot use a continuation")
-        path = self._path_for(link)
+        path = self._path_for(ref)
         codec = OpaqueContinuationCodec(owner="workspace", operation="text")
         try:
             binding: JsonObject = {"day": day, "content": file_digest(path)}
-            position = codec.decode(page.continuation, ref=link, binding=binding)
+            position = codec.decode(page.continuation, ref=ref, binding=binding)
             read = read_text_range(
                 path,
                 start_line=1,
@@ -126,8 +182,8 @@ class WorkspaceReader:
                 "Full text exceeds the editable limit or the cursor is invalid"
             )
         value: JsonObject = {
-            "link": link,
-            "locator": {"link": link, "day": day},
+            "ref": ref,
+            "locator": {"ref": ref, "day": day},
             "day": day,
             "text": read.text,
             "size": record.size,
@@ -139,16 +195,16 @@ class WorkspaceReader:
         if read.next_cursor is not None:
             value["next_continuation"] = codec.encode(
                 ContinuationPosition(item_index=read.next_cursor),
-                ref=link,
+                ref=ref,
                 binding=binding,
             )
         return value
 
     def read_image(
-        self, link: str, *, max_bytes: int | None = None
+        self, ref: str, *, max_bytes: int | None = None
     ) -> WorkspaceImageRead:
         read = self.read_bytes(
-            link,
+            ref,
             max_bytes=(
                 self._settings.max_image_bytes if max_bytes is None else max_bytes
             ),
@@ -159,19 +215,19 @@ class WorkspaceReader:
             raise WorkspaceImageValidationError(
                 "Workspace image bytes do not match its media type"
             )
-        return WorkspaceImageRead(read.link, read.data, read.media_type, read.size)
+        return WorkspaceImageRead(read.ref, read.data, read.media_type, read.size)
 
-    def read_document(self, link: str, *, max_bytes: int) -> WorkspaceDocumentRead:
-        read = self.read_bytes(link, max_bytes=max_bytes)
+    def read_document(self, ref: str, *, max_bytes: int) -> WorkspaceDocumentRead:
+        read = self.read_bytes(ref, max_bytes=max_bytes)
         if read.kind is not WorkspaceResourceKind.DOCUMENT:
             raise WorkspaceContractError("Workspace resource is not a document")
         return WorkspaceDocumentRead(
-            read.link, read.data, read.media_type, Path(link).suffix.lower(), read.size
+            read.ref, read.data, read.media_type, Path(ref).suffix.lower(), read.size
         )
 
     def read_text_range(
         self,
-        link: str,
+        ref: str,
         *,
         start_line: int,
         end_line: int,
@@ -189,13 +245,13 @@ class WorkspaceReader:
             or cursor < 0
         ):
             raise WorkspaceContractError("Workspace text range is invalid")
-        record = self._inspect(link)
+        record = self._stat(ref)
         if record.kind is not WorkspaceResourceKind.TEXT:
             raise WorkspaceContractError("Workspace resource is not readable text")
         limit = min(limit, self._settings.max_read_chars)
         try:
             page = read_text_range(
-                self._path_for(link),
+                self._path_for(ref),
                 start_line=start_line,
                 end_line=end_line,
                 cursor=cursor,
@@ -210,55 +266,55 @@ class WorkspaceReader:
         if not page.cursor_valid:
             raise WorkspaceContractError("Workspace cursor exceeds its requested range")
         return WorkspaceTextRangeResult(
-            record.link, record.size, start_line, end_line, limit, page
+            record.ref, record.size, start_line, end_line, limit, page
         )
 
     def prepare_task_input(
-        self, links: Sequence[str], *, max_chars_per_resource: int | None = None
+        self, refs: Sequence[str], *, max_chars_per_resource: int | None = None
     ) -> WorkspacePromptInput:
-        self._validate_links(links)
+        self._validate_refs(refs)
         limit = (
             self._settings.max_read_chars
             if max_chars_per_resource is None
             else max_chars_per_resource
         )
         _positive(limit)
-        reads = tuple(self.read_text(link, max_chars=limit) for link in links)
+        reads = tuple(self.read_text(ref, max_chars=limit) for ref in refs)
         return WorkspacePromptInput(
             tuple(
                 WorkspaceTextSlice(
-                    read.link, f"prefix:{limit}", read.text, read.truncated, read.size
+                    read.ref, f"prefix:{limit}", read.text, read.truncated, read.size
                 )
                 for read in reads
             )
         )
 
     def prepare_analysis_references(
-        self, links: Sequence[str]
+        self, refs: Sequence[str]
     ) -> WorkspaceAnalysisPreparation:
-        self._validate_links(links)
+        self._validate_refs(refs)
         settings = self._settings.analysis
-        if len(links) > settings.max_reference_links:
+        if len(refs) > settings.max_reference_refs:
             return WorkspaceAnalysisPreparation(
                 failure=WorkspaceAnalysisBudgetFailure(
                     WorkspaceAnalysisBudgetReason.REFERENCE_COUNT,
-                    settings.max_reference_links,
-                    len(links),
+                    settings.max_reference_refs,
+                    len(refs),
                 )
             )
         references: list[WorkspaceAnalysisReference] = []
         inspected: list[WorkspaceResourceRecord] = []
         total = 0
-        for index, link in enumerate(links, 1):
-            inspected.append(self._inspect(link))
-            read = self.read_text(link, max_chars=settings.max_chars_per_reference)
+        for index, ref in enumerate(refs, 1):
+            inspected.append(self._stat(ref))
+            read = self.read_text(ref, max_chars=settings.max_chars_per_reference)
             if read.truncated:
                 return WorkspaceAnalysisPreparation(
                     failure=WorkspaceAnalysisBudgetFailure(
                         WorkspaceAnalysisBudgetReason.REFERENCE_CHARS,
                         settings.max_chars_per_reference,
                         settings.max_chars_per_reference + 1,
-                        link,
+                        ref,
                         tuple(inspected),
                     )
                 )
@@ -269,14 +325,14 @@ class WorkspaceReader:
                         WorkspaceAnalysisBudgetReason.SOURCE_CHARS,
                         settings.max_source_chars,
                         total,
-                        link,
+                        ref,
                         tuple(inspected),
                     )
                 )
             references.append(
                 WorkspaceAnalysisReference(
                     f"source_{index}",
-                    link,
+                    ref,
                     read.text,
                     read.size,
                     max(1, len(read.text.splitlines())),
@@ -287,15 +343,15 @@ class WorkspaceReader:
         )
 
     @staticmethod
-    def _validate_links(links: Sequence[str]) -> None:
+    def _validate_refs(refs: Sequence[str]) -> None:
         if (
-            not links
-            or isinstance(links, str)
-            or any(not isinstance(link, str) for link in links)
-            or len(set(links)) != len(links)
+            not refs
+            or isinstance(refs, str)
+            or any(not isinstance(ref, str) for ref in refs)
+            or len(set(refs)) != len(refs)
         ):
             raise WorkspaceContractError(
-                "Workspace input requires unique resource links"
+                "Workspace input requires unique resource refs"
             )
 
 

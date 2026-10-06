@@ -24,9 +24,9 @@ Composer 只接收带段描述的消息投影，按 Background → Trace → Wor
 
 ## Background 与 Working
 
-Session provider 在段 open 时读取固定的历史事实集合；模型投影只在 Session 自身超过水位时折叠，保留地图入口与全部事实引用，Context 不能任意削减它。通用 Background 每 Turn 重建；默认 Home 条目、按需加载的 Top Link 和 Memory 动态投影都属于当前 Turn。User/Home Reflection 装配不可逐出的 `memory:current + optional memory:latest`，Memory Reflection 装配不可逐出的 `memory:target + optional memory:latest`；latest 是严格早于 Context 活动日期的最近 daily，缺失时省略。Background catalog 只提供有界 Link、title 和 description，不等同于已加载正文。
+Session provider 在段 open 时读取固定的历史事实集合；模型投影只在 Session 自身超过水位时折叠，保留地图入口与全部事实引用，Context 不能任意削减它。通用 Background 每 Turn 重建；默认 Home 条目、按需加载的 Top 引用 和 Memory 动态投影都属于当前 Turn。User/Home Reflection 装配不可逐出的 `memory:current + optional memory:latest`，Memory Reflection 装配不可逐出的 `memory:target + optional memory:latest`；latest 是严格早于 Context 活动日期的最近 daily，缺失时省略。Background catalog 只提供有界 引用、title 和 description，不等同于已加载正文。
 
-WorkingContext 维护 plan，只向模型呈现 milestones 与 todos，不持有 Workspace 快照。Milestone 是少量、可复用的事实寄存器：可以记录有价值的完成、尝试、失败、阻塞、测量值、决定、来源 Link、版本/digest 或局部成果，供后续 Cycle 防止遗忘；它不是 todo 的镜像、进度徽章或对模型的自我确认。失败或仅尝试过的工作必须明确记录其状态，不能登记为完成事实。Workspace 段只呈现 resource Link/summary；Workspace 不保存 revision 或内容 CAS；Session 的 continuation 等有消费者的独立协议仍由各自 owner 解释。
+WorkingContext 维护 plan，只向模型呈现 milestones 与 todos，不持有 Workspace 快照。Milestone 是少量、可复用的事实寄存器：可以记录有价值的完成、尝试、失败、阻塞、测量值、决定、来源 引用、版本/digest 或局部成果，供后续 Cycle 防止遗忘；它不是 todo 的镜像、进度徽章或对模型的自我确认。失败或仅尝试过的工作必须明确记录其状态，不能登记为完成事实。Workspace 段只呈现 resource 引用/summary；Workspace 不保存 revision 或内容 CAS；Session 的 continuation 等有消费者的独立协议仍由各自 owner 解释。
 
 Context 更新从 SignalBus 捕获当前 Turn 的固定批次；解析、候选校验、背景读取和注册段的 prepare 全部结束后才安装。准备入口和批次消费均为 async；短背景读取使用 joined owner 操作，取消时等待读取结束且不安装候选。默认背景的 catalog、provider 索引和正文也先完整准备，再一起安装，不在加载失败前暴露部分新目录。恢复信号以独立固定批次由内核提交，不从 Trap handler 直接修改视图。Home 顶层变更和活动 Memory 写入先提交 owner，再通知本轮段刷新；刷新只替换本轮目录与已加载内容，不自动内联新资源。
 
@@ -41,6 +41,10 @@ prepare 不改变活动视图或持久事实；全部候选准备成功才同步
 部分 open 失败关闭已经交出的视图；尚未交出的资源由 provider 自行回收。Turn 在必要 finish 后逆序 close 段，连续取消仍等待清理完成。close 不关闭跨 Turn Engine，不再次提交 Session；失败成为独立有限诊断。
 
 ## TurnTraceHeap
+
+Inputs 的初始文本、追加和回答在可见边界生成独立输入 Entry，映射为 user 消息；它们与 Inputs 保持同源，不另存输入事实。回答从 typed answer 和原问题补全选项标签、说明及 comment。ask 仍只有自己的 ActionResult Entry，可读文字准确表达已生成的问题、完整选项和说明，不制造第二个提问事件。ActionResult 的 model_text 只改变显示，payload 和状态继续由 Action owner 持有；普通结果是否折叠由自己的保留契约决定。
+
+引用格式由[引用设计](references.md)统一说明。Trace 的根、input/action/entry/node 共用正式 Turn 身份；hot Entry、压缩节点和目录同时给出真实语义线索与引用。Background catalog、已加载资源头和 Workspace Working 使用可读文本，保留具体说明与定位入口；内部机器快照继续供 SDK、owner 和持久化使用。
 
 ### Owner navigation and reference identity
 
@@ -81,7 +85,7 @@ Heap 段快照保留本轮实际安装的资源正文、身份与加载来源。
 
 运行中需要引用事实的 owner 可读取 ContextTurnFacts：在事件循环取得当前已接受输入与按请求登记的 Action 快照，不 seal、不结算行动、不安装 Context 更新。Session 用它解释当前证据和完成后的同一来源身份；Kernel 不解析 Session 图或持久引用。seal_trace/end_turn 保留为收尾入口，不能代替运行中读取。
 
-`end_turn()` 产生 typed immutable `ContextTurnCompletion`，包含 Turn identity、有序输入文本与原始接收时间、plan 终态、Background links、按 id 标识的段快照和 `SealedTurnTrace`。Sealed trace 保存 canonical entries、类型化 Action 执行事实和只存引用的时间线，不携带 heap topology。输入保留 Inbox 的受理顺序，时间线另记安装和合并可见位置；Action 请求、开始和结算按实际回调记录，不能从批次结果排序反推。环境/Job 交付、必要 phase note 与已安装 plan patch 通过现有 Signal 批次记录。
+`end_turn()` 产生 typed immutable `ContextTurnCompletion`，包含 Turn identity、有序输入文本与原始接收时间、plan 终态、Background refs、按 id 标识的段快照和 `SealedTurnTrace`。Sealed trace 保存 canonical entries、类型化 Action 执行事实和只存引用的时间线，不携带 heap topology。输入保留 Inbox 的受理顺序，时间线另记安装和合并可见位置；Action 请求、开始和结算按实际回调记录，不能从批次结果排序反推。环境/Job 交付、必要 phase note 与已安装 plan patch 通过现有 Signal 批次记录。
 
 该对象只在唯一 Loop completion pipeline 中传递。Session 在自身边界投影为 v10 业务记录：输入与行动正文各存一处，时间线引用它们，必要语义 note 单独保存；不从消息布局猜测 call/result 配对。时间线表达 owner 观察与提交顺序，不声称外部因果时间。Context 不生成持久 Summary、平行日志或崩溃续跑协议。
 

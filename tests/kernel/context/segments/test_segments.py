@@ -136,7 +136,7 @@ async def test_registered_updates_retry_fixed_batch_without_installing_other_vie
     context = ContextEngineBuilder(system_text="identity").build()
     context.register_segment(_registration("first", first))
     context.register_segment(_registration("second", second, 2))
-    turn = context.begin_turn("input")
+    turn = context.begin_turn("input", turn_id="2026-10-06/139")
     await context.open_segments(date(2026, 9, 16))
     second.opened[0].reject_prepare = True
     bus = SignalBus()
@@ -166,7 +166,7 @@ async def test_registered_updates_retry_fixed_batch_without_installing_other_vie
     await context.close_segments()
     assert first.opened[0].closed == second.opened[0].closed == 1
 
-    context.begin_turn("another input")
+    context.begin_turn("another input", turn_id="2026-10-06/169")
     await context.open_segments(date(2026, 9, 16))
     assert context.segment_snapshot("first") == {"value": 0}
     context.end_turn()

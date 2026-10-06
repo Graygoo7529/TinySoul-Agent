@@ -3,7 +3,7 @@
  *
  * The wire shape follows the retrieval contracts: a query source carries
  * scope/query/where plus the lexical switches only when the owner declared
- * them; a refinement request derives from the frozen `result_ref` with one
+ * them; a refinement request derives from the frozen `result_handle` with one
  * more step; a continuation request carries only the token. Evidence match
  * ranges are Unicode code points from the backend, so slicing goes through
  * code points, never UTF-16 indices.
@@ -69,7 +69,7 @@ export function buildRefineRequest(
       ? { op: "filter", where: step.where as JsonValue }
       : { op: step.op, criterion: step.criterion, context: "none" };
   return {
-    source: { kind: "result", result_ref: resultRef },
+    source: { kind: "result", result_handle: resultRef },
     steps: [stepBody],
     page: { limit: pageLimit },
   };

@@ -82,7 +82,7 @@ describe("AcpTab", () => {
             {
               connection_id: "conn_1",
               agent_id: "alpha",
-              cwd_link: "",
+              cwd_ref: "",
               state: "ready",
               active_job_id: null,
               turn_id: null,
@@ -90,7 +90,7 @@ describe("AcpTab", () => {
             {
               connection_id: "conn_2",
               agent_id: "alpha",
-              cwd_link: "",
+              cwd_ref: "",
               state: "busy",
               active_job_id: "job_9",
               turn_id: "turn_other",

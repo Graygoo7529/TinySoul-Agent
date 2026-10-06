@@ -19,7 +19,7 @@ from ..errors import (
     MemoryIOError,
     MemoryNotFoundError,
 )
-from ..links import MemoryKind, MemoryLink
+from ..refs import MemoryKind, MemoryRef
 
 
 class MemoryStore:
@@ -53,15 +53,15 @@ class MemoryStore:
     def codec(self) -> MemoryDocumentCodec:
         return self._codec
 
-    def exists(self, link: MemoryLink) -> bool:
-        path = self.path_for(link)
+    def exists(self, ref: MemoryRef) -> bool:
+        path = self.path_for(ref)
         _regular_or_missing(path, owner="Memory document")
         return path.is_file()
 
-    def links(self) -> tuple[MemoryLink, ...]:
-        return tuple(sorted(self.iter_links(), key=str))
+    def refs(self) -> tuple[MemoryRef, ...]:
+        return tuple(sorted(self.iter_refs(), key=str))
 
-    def iter_links(self) -> Iterator[MemoryLink]:
+    def iter_refs(self) -> Iterator[MemoryRef]:
         self._validate_root()
         if not self._root.exists():
             return
@@ -89,7 +89,7 @@ class MemoryStore:
                         )
                     relative = path.relative_to(self._root).as_posix()
                     try:
-                        yield MemoryLink.from_relative(relative)
+                        yield MemoryRef.from_relative(relative)
                     except MemoryContractError as exc:
                         raise MemoryInvariantError(
                             f"Memory store contains an invalid path: {relative}"
@@ -97,28 +97,26 @@ class MemoryStore:
         except OSError as exc:
             raise MemoryIOError(f"Failed to scan Memory root: {exc}") from exc
 
-    def read(self, link: MemoryLink) -> StoredMemoryDocument:
-        if not isinstance(link, MemoryLink):
-            raise MemoryContractError("Memory read requires a MemoryLink")
-        path = self.path_for(link)
-        if not self.exists(link):
-            raise MemoryNotFoundError(f"Memory does not exist: {link}")
+    def read(self, ref: MemoryRef) -> StoredMemoryDocument:
+        if not isinstance(ref, MemoryRef):
+            raise MemoryContractError("Memory read requires a MemoryRef")
+        path = self.path_for(ref)
+        if not self.exists(ref):
+            raise MemoryNotFoundError(f"Memory does not exist: {ref}")
         try:
-            read = read_text_prefix(path, max_chars=self.max_chars(link.kind))
+            read = read_text_prefix(path, max_chars=self.max_chars(ref.kind))
         except UnicodeDecodeError as exc:
-            raise MemoryInvariantError(f"Memory is not UTF-8 text: {link}") from exc
+            raise MemoryInvariantError(f"Memory is not UTF-8 text: {ref}") from exc
         except OSError as exc:
-            raise MemoryIOError(f"Failed to read Memory {link}: {exc}") from exc
+            raise MemoryIOError(f"Failed to read Memory {ref}: {exc}") from exc
         if read.truncated:
             raise MemoryInvariantError(
-                f"Memory exceeds {self.max_chars(link.kind)} characters: {link}"
+                f"Memory exceeds {self.max_chars(ref.kind)} characters: {ref}"
             )
         try:
-            document = self._codec.parse(link, read.text)
+            document = self._codec.parse(ref, read.text)
         except MemoryContractError as exc:
-            raise MemoryInvariantError(
-                f"Invalid Memory document {link}: {exc}"
-            ) from exc
+            raise MemoryInvariantError(f"Invalid Memory document {ref}: {exc}") from exc
         # Derived indexes identify the exact stored content, including formatting.
         from hashlib import sha256
 
@@ -135,29 +133,29 @@ class MemoryStore:
         stored = self._codec.stored(document)
         if len(stored.text) > self.max_chars(document.kind):
             raise MemoryContractError(
-                f"Memory exceeds {self.max_chars(document.kind)} characters: {document.link}"
+                f"Memory exceeds {self.max_chars(document.kind)} characters: {document.ref}"
             )
-        path = self.validate_write_target(document.link)
+        path = self.validate_write_target(document.ref)
         try:
             atomic_write_text(path, stored.text)
         except OSError as exc:
             raise MemoryIOError(
-                f"Failed to write Memory {document.link}: {exc}"
+                f"Failed to write Memory {document.ref}: {exc}"
             ) from exc
         return stored
 
-    def validate_write_target(self, link: MemoryLink) -> Path:
+    def validate_write_target(self, ref: MemoryRef) -> Path:
         """Return an owner-validated target for single-document replacement."""
 
         self._validate_root()
-        path = self.path_for(link)
+        path = self.path_for(ref)
         self._validate_write_path(path)
         return path
 
-    def path_for(self, link: MemoryLink) -> Path:
-        if not isinstance(link, MemoryLink):
-            raise MemoryContractError("Memory store requires a MemoryLink")
-        path = self._root.joinpath(*link.relative_path.split("/"))
+    def path_for(self, ref: MemoryRef) -> Path:
+        if not isinstance(ref, MemoryRef):
+            raise MemoryContractError("Memory store requires a MemoryRef")
+        path = self._root.joinpath(*ref.relative_path.split("/"))
         root = self._root.resolve()
         resolved = path.resolve()
         if root not in resolved.parents:

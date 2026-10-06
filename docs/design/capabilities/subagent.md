@@ -8,9 +8,9 @@ subagent 把外部 ACP Agent 接入同一个 TinySoul Turn。SubagentEngine 拥�
 
 同一连接同时只运行一个 prompt Job；其后同 Turn 的新 delegate 延续同一 session，但获得新的 Job 身份。新根 Turn 使用新 session。同日、同世代且相同 profile 的空闲连接，在成功释放旧 session 后可以复用；不支持或无法完成 session 释放时关闭连接。
 
-`connections` Working State 段只显示连接身份、目标、ready/busy/unavailable、cwd Link 和当前 Job 引用。Engine 发布连接变化，段在固定 Inbox 批次 prepare/install；协议回调不改 Context，关闭段也不关闭服务。待答和输出分别由 jobs 段与 Trace 承载。
+`connections` Working State 段只显示连接身份、目标、ready/busy/unavailable、cwd 引用 和当前 Job 引用。Engine 发布连接变化，段在固定 Inbox 批次 prepare/install；协议回调不改 Context，关闭段也不关闭服务。待答和输出分别由 jobs 段与 Trace 承载。
 
-默认 cwd 为当天 Workspace 的独立连接目录，显式 cwd_link 可选择已有目录。brief 与最多八个 Workspace 引用经 owner 有界解析，父 Context、Home、Memory 和 Session 不自动复制。输出写入 `workspace:jobs/<job_id>/output.txt`；失败和取消保留已有材料，不回滚真实 Workspace 修改。
+默认 cwd 为当天 Workspace 的独立连接目录，显式 cwd_ref 可选择已有目录。brief 与最多八个 Workspace 引用经 owner 有界解析，父 Context、Home、Memory 和 Session 不自动复制。输出写入 `workspace:jobs/<job_id>/output.txt`；失败和取消保留已有材料，不回滚真实 Workspace 修改。
 
 ## 权限与完成
 

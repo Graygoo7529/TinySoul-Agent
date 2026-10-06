@@ -53,6 +53,7 @@ export interface StatusOverrides {
   activeDay?: string;
   activity?: string;
   activeTurnId?: string | null;
+  activeRequestId?: string | null;
   queuedTurnIds?: string[];
   generationId?: string;
   latestEventSequence?: number;
@@ -63,6 +64,7 @@ export function makeStatus(overrides: StatusOverrides = {}): RuntimeStatus {
   const status = structuredClone(runtimeStatusFixture) as RuntimeStatus;
   status.runtime.activity = "idle";
   status.runtime.active_turn_id = null;
+  status.runtime.active_request_id = null;
   if (overrides.protocolVersion !== undefined) {
     status.protocol_version = overrides.protocolVersion;
   }
@@ -78,9 +80,10 @@ export function makeStatus(overrides: StatusOverrides = {}): RuntimeStatus {
   if (overrides.activity !== undefined) status.runtime.activity = overrides.activity;
   if (overrides.activeTurnId !== undefined) {
     status.runtime.active_turn_id = overrides.activeTurnId;
+    status.runtime.active_request_id = overrides.activeRequestId ?? overrides.activeTurnId;
   }
   if (overrides.queuedTurnIds !== undefined) {
-    status.runtime.queued_turn_ids = overrides.queuedTurnIds;
+    status.runtime.queued_request_ids = overrides.queuedTurnIds;
   }
   if (overrides.generationId !== undefined) {
     status.runtime.generation_id = overrides.generationId;
@@ -105,6 +108,7 @@ export function finishedSnapshot(): TurnSnapshot {
 export function runningSnapshot(turnId = "contract-turn"): TurnSnapshot {
   const snapshot = structuredClone(turnWaitingFixture) as TurnSnapshot;
   snapshot.turn_id = turnId;
+  snapshot.request_id = turnId;
   snapshot.state = "running";
   snapshot.wait_reason = null;
   snapshot.question = null;

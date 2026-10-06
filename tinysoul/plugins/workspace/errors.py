@@ -26,9 +26,9 @@ class WorkspaceInvariantError(WorkspaceError):
 class WorkspaceIOError(WorkspaceError):
     """Filesystem failure, preserving known committed side effects."""
 
-    def __init__(self, message: str, *, committed_links: tuple[str, ...] = ()) -> None:
+    def __init__(self, message: str, *, committed_refs: tuple[str, ...] = ()) -> None:
         super().__init__(message)
-        self.committed_links = committed_links
+        self.committed_refs = committed_refs
 
 
 class WorkspaceReconciliationError(WorkspaceError):

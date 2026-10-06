@@ -167,7 +167,7 @@ class SearchSession:
         if inputs.cancellation:
             inputs.cancellation.check()
         if isinstance(request.source, ResultSource):
-            corpus_value = self._engine.views.result(request.source.result_ref)
+            corpus_value = self._engine.views.result(request.source.result_handle)
             corpus_value = replace(
                 corpus_value,
                 candidates=tuple(

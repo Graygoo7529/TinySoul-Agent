@@ -20,27 +20,25 @@ class ReferenceError(Exception):
 
 @dataclass(frozen=True)
 class ResourceLocator:
-    link: str = ""
-    ref: str = ""
+    ref: str
     day: str = ""
     turn_id: str = ""
     view: str = ""
 
     def __post_init__(self) -> None:
-        if bool(self.link) == bool(self.ref) or self.view not in {
+        if not self.ref or self.view not in {
             "",
             "actual",
             "effective",
         }:
             raise ReferenceError(
-                "Resource locator requires one Link or reference and a valid view"
+                "Resource locator requires a reference and a valid view"
             )
 
     def to_json(self) -> JsonObject:
         return {
             key: value
             for key, value in (
-                ("link", self.link),
                 ("ref", self.ref),
                 ("day", self.day),
                 ("turn_id", self.turn_id),
@@ -55,11 +53,10 @@ def append_locator_fragment(locator: JsonObject, fragment: str) -> JsonObject:
     if not fragment:
         return to_json_object(locator)
     result = to_json_object(locator)
-    for key in ("link", "ref"):
-        value = result.get(key)
-        if isinstance(value, str) and value:
-            result[key] = value.partition("#")[0] + "#" + fragment
-            return result
+    value = result.get("ref")
+    if isinstance(value, str) and value:
+        result["ref"] = value.partition("#")[0] + "#" + fragment
+        return result
     raise ReferenceError("Resource locator has no fragment-bearing identity")
 
 

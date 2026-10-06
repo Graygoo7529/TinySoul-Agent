@@ -94,7 +94,7 @@ export interface SearchPageWindow {
  * are a valid result, not a failure.
  */
 export interface SearchPage {
-  result_ref?: string | null;
+  result_handle?: string | null;
   scope: string | JsonObject;
   source: string;
   items: SearchItem[];

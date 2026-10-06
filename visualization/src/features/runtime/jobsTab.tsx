@@ -1,3 +1,4 @@
+import { requestIdForTurn } from "../../store/turnStore";
 /**
  * Jobs tab (plan §14 Jobs, API-14).
  *
@@ -95,7 +96,7 @@ export function JobsTab({
     let timer: number | null = null;
     const tick = async (): Promise<void> => {
       try {
-        const list = await runtimeClients(epoch).jobs.list(turnId);
+        const list = await runtimeClients(epoch).jobs.list(requestIdForTurn(turnId));
         if (stopped) return;
         setListError(null);
         setJobs(list.jobs);
@@ -271,7 +272,7 @@ function JobDetailView({
     readerRef.current = new JobOutputReader(
       (continuation) =>
         clients.jobs.output(
-          turnId,
+          requestIdForTurn(turnId),
           jobId,
           continuation !== undefined ? { continuation } : {},
         ),
@@ -288,7 +289,7 @@ function JobDetailView({
     let timer: number | null = null;
     const tick = async (): Promise<void> => {
       try {
-        const current = await clients.jobs.get(turnId, jobId);
+        const current = await clients.jobs.get(requestIdForTurn(turnId), jobId);
         if (stopped) return;
         setDetail(current);
         setReadError(null);
@@ -316,7 +317,7 @@ function JobDetailView({
     setStopping(true);
     try {
       // The POST answers with the formal snapshot — that is the new state.
-      const updated = await runtimeClients(epoch).jobs.stop(turnId, jobId);
+      const updated = await runtimeClients(epoch).jobs.stop(requestIdForTurn(turnId), jobId);
       setDetail(updated);
     } catch (error) {
       useAppStore
@@ -406,10 +407,10 @@ function JobDetailBody({
           </Button>
         </div>
       )}
-      {detail.result_links.length > 0 && (
+      {detail.result_refs.length > 0 && (
         <div className="space-y-1">
           <div className="text-fg-faint">Artifacts</div>
-          {detail.result_links.map((link) => (
+          {detail.result_refs.map((link) => (
             <button
               key={link}
               type="button"
@@ -503,7 +504,7 @@ function locatorLink(value: ResourceLocator | JsonValue): string | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return null;
   }
-  const link = (value as { link?: unknown }).link;
+  const link = (value as { ref?: unknown }).ref;
   return typeof link === "string" && link !== "" ? link : null;
 }
 

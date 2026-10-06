@@ -62,7 +62,7 @@ export function narrowConnections(value: unknown): AcpConnection[] {
     connections.push({
       connectionId,
       agentId: asString(item.agent_id) ?? "",
-      cwdLink: asString(item.cwd_link) ?? "",
+      cwdLink: asString(item.cwd_ref) ?? "",
       state: asString(item.state) ?? "unavailable",
       activeJobId: asString(item.active_job_id),
       turnId: asString(item.turn_id),

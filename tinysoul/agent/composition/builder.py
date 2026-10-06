@@ -409,7 +409,7 @@ class AgentBuilder:
                 ),
                 activity=lambda: (
                     "queued"
-                    if agent_runner.queued_turn_ids
+                    if agent_runner.queued_request_ids
                     else generation_handle.activity.value
                 ),
                 generation_id=lambda: generation_handle.generation_id,
@@ -638,6 +638,10 @@ class AgentBuilder:
                 archive,
                 memory,
                 self._calendar_clock or IanaCalendarClock(reflection_settings.timezone),
+                turn_sequence_path=self._root
+                / "runtime"
+                / "agent"
+                / "turn-sequence.json",
                 active_day=session.active_day,
                 release_day=tuple(
                     plugin.release_day
@@ -790,14 +794,18 @@ class AgentBuilder:
         model_uses = ModelUseRegistry(definitions.model_uses, action_settings.bindings)
         retrieval_policies = action_settings.retrieval_policies
         retrieval_policies = resolve_retrieval_policies(
-            definitions.search_capabilities, retrieval_policies,
-            {binding.consumer: binding.implementation.value for binding in action_settings.bindings},
+            definitions.search_capabilities,
+            retrieval_policies,
+            {
+                binding.consumer: binding.implementation.value
+                for binding in action_settings.bindings
+            },
         )
-        action_settings = replace(action_settings, retrieval_policies=retrieval_policies)
+        action_settings = replace(
+            action_settings, retrieval_policies=retrieval_policies
+        )
         action_ids = {action.name for action in action_catalog.catalog.actions()}
-        if any(
-            policy.action_id not in action_ids for policy in retrieval_policies
-        ):
+        if any(policy.action_id not in action_ids for policy in retrieval_policies):
             raise ConfigError(
                 "Search policy names an unknown action",
                 key="action.retrieval",
@@ -814,12 +822,18 @@ class AgentBuilder:
                             schema=(
                                 retrieval_schema(
                                     action.tool.schema,
-                                    next(item for item in retrieval_policies if item.action_id == action.name),
+                                    next(
+                                        item
+                                        for item in retrieval_policies
+                                        if item.action_id == action.name
+                                    ),
                                 )
                             ),
                         ),
                     )
-                    if any(policy.action_id == action.name for policy in retrieval_policies)
+                    if any(
+                        policy.action_id == action.name for policy in retrieval_policies
+                    )
                     else action
                     for action in action_catalog.catalog.actions()
                 ),

@@ -52,6 +52,11 @@ def project_interactions(record: SessionTurnRecord) -> tuple[SessionInteraction,
         for index, item in enumerate(record.actions)
         if item.action == "core.ask" and item.outcome is SessionActionOutcome.SUCCESS
     }
+    question_content = {
+        item.result_id: QuestionContent.from_json(item.result)
+        for item in record.actions
+        if item.action == "core.ask" and item.outcome is SessionActionOutcome.SUCCESS
+    }
     positions: dict[tuple[str, TraceFactKind], int] = {}
     for index, fact in enumerate(record.timeline):
         positions.setdefault((fact.ref, fact.kind), index)
@@ -87,6 +92,10 @@ def project_interactions(record: SessionTurnRecord) -> tuple[SessionInteraction,
             content["question_id"] = item.reply_to
         if item.answer is not None:
             content["answer"] = item.answer.to_json()
+            if item.reply_to in question_content:
+                content["narrative"] = question_content[item.reply_to].reply_narrative(
+                    item.answer
+                )
         add(
             SessionInteraction(role, input_ref(record.ref, index), content),
             (TraceFactKind.INPUT_VISIBLE, TraceFactKind.INPUT_INSTALLED),
@@ -96,9 +105,21 @@ def project_interactions(record: SessionTurnRecord) -> tuple[SessionInteraction,
         ref = action_leaf_ref(record.ref, index)
         if action.action == "core.answer":
             continue
-        content = {"action": action.action, "outcome": action.outcome.value}
+        content = {
+            "action": action.action,
+            "outcome": action.outcome.value,
+            "request": action.request,
+            "result": action.result,
+        }
         role = InteractionRole.ACTION
-        anchor = (TraceFactKind.ACTION_STARTED, TraceFactKind.ACTION_REQUESTED)
+        anchor = (
+            TraceFactKind.ACTION_SETTLED,
+            TraceFactKind.ACTION_CANCELLED,
+            TraceFactKind.ACTION_NOT_EXECUTED,
+            TraceFactKind.ACTION_UNKNOWN,
+            TraceFactKind.ACTION_STARTED,
+            TraceFactKind.ACTION_REQUESTED,
+        )
         if (
             action.action == "core.ask"
             and action.outcome is SessionActionOutcome.SUCCESS
@@ -110,25 +131,23 @@ def project_interactions(record: SessionTurnRecord) -> tuple[SessionInteraction,
                 raise SessionInvariantError(
                     "Stored question has invalid canonical content"
                 ) from exc
-            if "legacy_options" in action.result:
-                content.update(
-                    legacy_options=action.result["legacy_options"], legacy=True
-                )
+            explanation = action.result.get("explanation", "")
+            if isinstance(explanation, str) and explanation:
+                content["explanation"] = explanation
             content["question_id"] = action.result_id
             content["answered"] = any(
                 item.reply_to == action.result_id for item in record.inputs
             )
-            anchor = (TraceFactKind.ACTION_SETTLED, *anchor)
         elif action.action == "core.reason":
             role = InteractionRole.REASON
         if action.failure is not None:
             content["failure"] = {
                 "reason": action.failure.reason,
-                "feedback": action.failure.feedback[:240],
+                "feedback": action.failure.feedback,
             }
         if action.references:
             content["references"] = [
-                resource_locator(record, link) for link in action.references
+                resource_locator(record, resource) for resource in action.references
             ]
         add(SessionInteraction(role, ref, content), anchor, len(record.inputs) + index)
     ordered.sort(key=lambda item: (item[0], item[1]))
@@ -141,8 +160,8 @@ def project_interactions(record: SessionTurnRecord) -> tuple[SessionInteraction,
                 {
                     "text": record.output.text,
                     "references": [
-                        resource_locator(record, link)
-                        for link in record.output.references
+                        resource_locator(record, resource)
+                        for resource in record.output.references
                     ],
                 },
             ),
@@ -169,7 +188,7 @@ def project_current_interactions(
     facts: ContextTurnFacts,
 ) -> tuple[SessionInteraction, ...]:
     """Use original Trace identities and order; never manufacture a completed record."""
-    root = f"turn:trace@{facts.turn_id}"
+    root = f"turn:trace/{facts.turn_id}"
     positions = {item.ref: item.sequence for item in reversed(facts.timeline)}
     settled = {
         item.ref: item.sequence
@@ -179,9 +198,16 @@ def project_current_interactions(
     visible = {
         item.ref for item in facts.timeline if item.kind is TraceFactKind.INPUT_VISIBLE
     }
+    questions = {
+        fact.result.result_id: QuestionContent.from_json(fact.result.payload)
+        for fact in facts.actions
+        if fact.result is not None
+        and fact.call.action_name == "core.ask"
+        and fact.result.status.value == "success"
+    }
     items: list[SessionInteraction] = []
     for index, item in enumerate(facts.inputs):
-        ref = f"{root}#input/{item.input_id}"
+        ref = f"{root}#input/{index}"
         role = (
             InteractionRole.REPLY
             if item.reply_to
@@ -198,6 +224,10 @@ def project_current_interactions(
             content["question_id"] = item.reply_to
         if item.answer:
             content["answer"] = item.answer.to_json()
+            if item.reply_to in questions:
+                content["narrative"] = questions[item.reply_to].reply_narrative(
+                    item.answer
+                )
         items.append(SessionInteraction(role, ref, content))
     for index, fact in enumerate(facts.actions):
         action, result = fact.call.action_name, fact.result
@@ -215,6 +245,7 @@ def project_current_interactions(
             "invoke_id": fact.invoke_id,
         }
         if result is not None:
+            positions[ref] = settled.get(ref, positions.get(ref, len(facts.timeline)))
             content["outcome"] = result.status.value
             content["result"] = (
                 result.trace_projection.canonical_payload
@@ -224,6 +255,8 @@ def project_current_interactions(
             if action == "core.ask" and result.status.value == "success":
                 role = InteractionRole.QUESTION
                 content.update(QuestionContent.from_json(result.payload).to_json())
+                if isinstance(result.payload.get("explanation"), str):
+                    content["explanation"] = result.payload["explanation"]
                 content["question_id"] = result.result_id
                 content["answered"] = any(
                     item.reply_to == result.result_id for item in facts.inputs

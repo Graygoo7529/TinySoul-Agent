@@ -186,3 +186,7 @@ export function selectActiveTurnId(state: ConnectionState): string | null {
 export function selectGenerationId(state: ConnectionState): string | null {
   return state.status?.runtime.generation_id ?? state.info?.generationId ?? null;
 }
+
+export function selectActiveRequestId(state: ConnectionState): string | null {
+  return state.status?.runtime.active_request_id ?? null;
+}

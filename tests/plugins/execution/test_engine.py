@@ -48,17 +48,17 @@ def _owners(
 
 
 async def _start(
-    engine, workspace, home, text: str, *, cwd_link: str = "", interactive: bool = False
+    engine, workspace, home, text: str, *, cwd_ref: str = "", interactive: bool = False
 ):
-    link = "workspace:input.py"
-    workspace.write_text(link, text, overwrite=True)
+    ref = "workspace:input.py"
+    workspace.write_text(ref, text, overwrite=True)
     return await engine.start(
-        turn_id="turn",
+        turn_id="2026-10-06/1000",
         interpreter="python",
         command=None,
-        source_link=link,
+        source_ref=ref,
         args=(),
-        cwd_link=cwd_link,
+        cwd_ref=cwd_ref,
         interactive=interactive,
         home=home,
         operations=JoinedOperations(),
@@ -77,19 +77,25 @@ async def test_real_workspace_effects_and_repeated_output_collection(
     )
     try:
         async with asyncio.timeout(10):
-            await engine.wait("turn", backend.job_id)
-        assert jobs.snapshot("turn", backend.job_id).state is JobState.SUCCEEDED
+            await engine.wait("2026-10-06/1000", backend.job_id)
+        assert (
+            jobs.snapshot("2026-10-06/1000", backend.job_id).state is JobState.SUCCEEDED
+        )
         result_path = workspace.settings.root / "jobs" / backend.job_id / "result.txt"
         assert result_path.read_text(encoding="utf-8") == "committed"
         first = backend.collect(max_chars=4)
         assert first["stdout"] == "abcd"
         assert first == backend.collect(max_chars=4)
         assert backend.collect(stdout_cursor=4, max_chars=4)["stdout"] == "efgh"
-        assert not jobs.has_unresolved("turn")
-        await jobs.stop("turn", backend.job_id, operations=JoinedOperations())
-        assert jobs.snapshot("turn", backend.job_id).state is JobState.SUCCEEDED
+        assert not jobs.has_unresolved("2026-10-06/1000")
+        await jobs.stop(
+            "2026-10-06/1000", backend.job_id, operations=JoinedOperations()
+        )
+        assert (
+            jobs.snapshot("2026-10-06/1000", backend.job_id).state is JobState.SUCCEEDED
+        )
     finally:
-        await jobs.cleanup_turn("turn")
+        await jobs.cleanup_turn("2026-10-06/1000")
     assert result_path.exists()
     assert (result_path.parent / "logs" / "stdout.log").exists()
 
@@ -124,17 +130,20 @@ async def test_successful_root_closes_children_before_job_becomes_resolved(
                 connection.settimeout(1)
                 assert connection.recv(5) == b"ready"
                 async with asyncio.timeout(8):
-                    await engine.wait("turn", backend.job_id)
-                assert jobs.snapshot("turn", backend.job_id).state is JobState.SUCCEEDED
-                assert not jobs.has_unresolved("turn")
+                    await engine.wait("2026-10-06/1000", backend.job_id)
+                assert (
+                    jobs.snapshot("2026-10-06/1000", backend.job_id).state
+                    is JobState.SUCCEEDED
+                )
+                assert not jobs.has_unresolved("2026-10-06/1000")
                 try:
                     assert connection.recv(1) == b""
                 except ConnectionResetError:
                     pass
                 assert backend.collect()["exit_code"] == 0
         finally:
-            await jobs.cleanup_turn("turn")
-        assert jobs.ids("turn") == ()
+            await jobs.cleanup_turn("2026-10-06/1000")
+        assert jobs.ids("2026-10-06/1000") == ()
         assert (
             workspace.root / "jobs" / backend.job_id / "child-ready.txt"
         ).read_text() == "kept"
@@ -148,14 +157,14 @@ async def test_terminal_results_do_not_occupy_live_slot_but_capacity_is_retained
         for _ in range(2):
             backend = await _start(engine, workspace, home, "print('done')")
             async with asyncio.timeout(10):
-                await engine.wait("turn", backend.job_id)
+                await engine.wait("2026-10-06/1000", backend.job_id)
         with pytest.raises(JobRequestError):
             await _start(engine, workspace, home, "print('not admitted')")
-        assert len(jobs.ids("turn")) == 2
+        assert len(jobs.ids("2026-10-06/1000")) == 2
         with pytest.raises(JobRequestError):
             jobs.get("another-turn", backend.job_id)
     finally:
-        await jobs.cleanup_turn("turn")
+        await jobs.cleanup_turn("2026-10-06/1000")
 
 
 async def test_cancelled_bounded_run_stops_process_and_keeps_written_files(
@@ -170,25 +179,29 @@ async def test_cancelled_bounded_run_stops_process_and_keeps_written_files(
         "Path('before-stop.txt').write_text('kept', encoding='utf-8')\n"
         "print('written', flush=True)\n"
         "threading.Event().wait()\n",
-        cwd_link="workspace:",
+        cwd_ref="workspace:",
     )
     try:
         path = workspace.settings.root / "before-stop.txt"
         # Existence only proves the file was opened, not that write_text closed it.
         async with asyncio.timeout(10):
             while backend.collect()["stdout"] != "written\n":
-                assert not jobs.snapshot("turn", backend.job_id).state.terminal
+                assert not jobs.snapshot(
+                    "2026-10-06/1000", backend.job_id
+                ).state.terminal
                 await asyncio.sleep(0.01)
-        waiter = asyncio.create_task(engine.wait("turn", backend.job_id))
+        waiter = asyncio.create_task(engine.wait("2026-10-06/1000", backend.job_id))
         await asyncio.sleep(0)
         waiter.cancel()
         with pytest.raises(asyncio.CancelledError):
             await waiter
-        assert jobs.snapshot("turn", backend.job_id).state is JobState.CANCELLED
-        assert not jobs.has_unresolved("turn")
+        assert (
+            jobs.snapshot("2026-10-06/1000", backend.job_id).state is JobState.CANCELLED
+        )
+        assert not jobs.has_unresolved("2026-10-06/1000")
         assert path.read_text(encoding="utf-8") == "kept"
     finally:
-        await jobs.cleanup_turn("turn")
+        await jobs.cleanup_turn("2026-10-06/1000")
 
 
 async def test_interactive_input_reports_accepted_utf8_bytes_and_no_silence_inference(
@@ -203,12 +216,12 @@ async def test_interactive_input_reports_accepted_utf8_bytes_and_no_silence_infe
         assert (await backend.poll()).state is JobState.RUNNING
         assert backend.write_stdin("中文", close=True) == 6
         async with asyncio.timeout(10):
-            await engine.wait("turn", backend.job_id)
+            await engine.wait("2026-10-06/1000", backend.job_id)
         assert backend.collect()["stdout"].strip() == "中文"
         with pytest.raises(ExecutionRequestError):
             backend.write_stdin("late")
     finally:
-        await jobs.cleanup_turn("turn")
+        await jobs.cleanup_turn("2026-10-06/1000")
 
 
 @pytest.mark.parametrize("reason", ["timeout", "output_limit"])
@@ -233,9 +246,9 @@ async def test_execution_limits_are_failed_job_reasons(
     backend = await _start(engine, workspace, home, source)
     try:
         async with asyncio.timeout(10):
-            await engine.wait("turn", backend.job_id)
-        snapshot = jobs.snapshot("turn", backend.job_id)
+            await engine.wait("2026-10-06/1000", backend.job_id)
+        snapshot = jobs.snapshot("2026-10-06/1000", backend.job_id)
         assert snapshot.state is JobState.FAILED and snapshot.reason == reason
-        assert not jobs.has_unresolved("turn")
+        assert not jobs.has_unresolved("2026-10-06/1000")
     finally:
-        await jobs.cleanup_turn("turn")
+        await jobs.cleanup_turn("2026-10-06/1000")

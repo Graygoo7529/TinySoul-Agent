@@ -53,7 +53,7 @@ def test_cli_init_copies_editable_project_without_provider_selection(
         / "skills"
         / "tinysoul-docs"
         / "references"
-        / "use-tinysoul-context-and-link.md"
+        / "use-tinysoul-context-and-ref.md"
     ).is_file()
 
     providers = tomllib.loads(

@@ -6,12 +6,12 @@ description = "Read one explicit bounded line range from a UTF-8 Workspace text 
 
 [tool.schema]
 type = "object"
-required = ["link"]
+required = ["ref"]
 additionalProperties = false
 
-[tool.schema.properties.link]
+[tool.schema.properties.ref]
 type = "string"
-description = "Exact Workspace text resource link."
+description = "Exact Workspace text resource ref."
 
 [tool.schema.properties.start_line]
 type = "integer"
@@ -30,7 +30,7 @@ type = "integer"
 description = "Optional 0-based continuation cursor within the requested line range."
 
 [semantic]
-use_when = ["An exact Workspace text Link and relevant line range are known", "A previous bounded read should be continued"]
+use_when = ["An exact Workspace text reference and relevant line range are known", "A previous bounded read should be continued"]
 avoid_when = ["The relevant file or line range is unknown", "A document requires conversion", "The resource should be modified"]
 effects = ["read_only"]
 examples = ["Read lines 120 through 180 from workspace:src/service.py"]

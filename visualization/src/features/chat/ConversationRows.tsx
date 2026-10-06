@@ -26,7 +26,7 @@ export function BudgetCard({ snapshot }: { snapshot: TurnSnapshot | null }) {
   return <div className="rounded-xl border border-warning/40 bg-warning-soft px-4 py-3">
     <div className="text-[13px] font-medium text-warning">The turn used up its cycles and is waiting for more budget.</div>
     <div className="mt-2 flex items-center gap-2">{[1, 5, 10].map((count) =>
-      <Button key={count} variant="outline" size="xs" onClick={() => void grantBudget(epoch, snapshot.turn_id, request.request_id, count)}>
+      <Button key={count} variant="outline" size="xs" onClick={() => void grantBudget(epoch, snapshot.request_id, request.request_id, count)}>
         +{count} {count === 1 ? "cycle" : "cycles"}
       </Button>)}</div>
   </div>;

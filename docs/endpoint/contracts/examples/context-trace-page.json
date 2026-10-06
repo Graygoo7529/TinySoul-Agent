@@ -1,36 +1,42 @@
 {
-  "ref": "turn:trace@contract-turn",
+  "ref": "turn:trace/2026-10-06/1",
   "kind": "context_trace",
   "items": [
     {
       "kind": "child",
-      "ref": "turn:trace@contract-turn#entry/trace_1",
+      "ref": "turn:trace/2026-10-06/1#entry/1",
+      "title": "input",
+      "clue": "User input: Run the prepared job and ask before proceeding"
+    },
+    {
+      "kind": "child",
+      "ref": "turn:trace/2026-10-06/1#entry/2",
       "title": "decision",
-      "clue": "{\"actions\":[{\"action\":\"execution.start\",\"request\":{\"interactive\":true,\"interpreter\":\"python\",\"source_link\":\"workspace:job.py\"}}],\"kind\":\"decision\"}"
+      "clue": "execution.start"
     },
     {
       "kind": "child",
-      "ref": "turn:trace@contract-turn#entry/trace_2",
+      "ref": "turn:trace/2026-10-06/1#entry/3",
       "title": "action_result",
-      "clue": "{\"action\":\"execution.start\",\"kind\":\"action_result\",\"outcome\":\"success\",\"result\":{\"exit_code\":null,\"job_id\":\"job_1\",\"kind\":\"execution.process\",\"pending_inputs\":[],\"reason\":\"\",\"result_links\":[],\"state\":\"starting"
+      "clue": "execution.start {\"action\":\"execution.start\",\"payload\":{\"exit_code\":null,\"job_id\":\"job_2b6040352ffc4954a8e6565b2c1ace8f\",\"kind\":\"execution.process\",\"pending_inputs\":[],\"reason\":\"\",\"result_refs\":[],\"state\":\"starting\",\"stderr\":\"\",\"stderr_bytes"
     },
     {
       "kind": "child",
-      "ref": "turn:trace@contract-turn#entry/trace_3",
+      "ref": "turn:trace/2026-10-06/1#entry/4",
       "title": "phase_note",
-      "clue": "{\"content\":{\"event_id\":\"event_1\",\"event_kind\":\"event\",\"kind\":\"environment_event\",\"payload\":{\"changed_count\":6,\"day\":\"2026-09-29\",\"links\":[\"workspace:jobs\",\"workspace:jobs/job_1\","
+      "clue": "{\"event_id\":\"event_dff906fd77454d1c8a76b8938b91e06d\",\"event_kind\":\"event\",\"kind\":\"environment_event\",\"payload\":{\"changed_count\":6,\"day\":\"2026-10-06\",\"operation\":\"reconcile\",\"refs\":[\"workspace:jobs\",\"workspace:jobs/job_2b6040352ffc4954a8e656"
     },
     {
       "kind": "child",
-      "ref": "turn:trace@contract-turn#entry/trace_4",
+      "ref": "turn:trace/2026-10-06/1#entry/5",
       "title": "decision",
-      "clue": "{\"actions\":[{\"action\":\"core.ask\",\"request\":{\"options\":[{\"description\":\"Use the approved plan\",\"id\":\"a\",\"label\":\"Execute\"}],\"text\":\"Choose a direction\"}}],\"kind\":\"decision\"}"
+      "clue": "core.ask"
     },
     {
       "kind": "child",
-      "ref": "turn:trace@contract-turn#entry/trace_5",
+      "ref": "turn:trace/2026-10-06/1#entry/6",
       "title": "action_result",
-      "clue": "{\"action\":\"core.ask\",\"kind\":\"action_result\",\"outcome\":\"success\",\"result\":{\"allow_other\":true,\"options\":[{\"description\":\"Use the approved plan\",\"id\":\"a\",\"label\":\"Execute\"}],\"text\":\"Choose a direction\",\"timeout_seconds\":null}}"
+      "clue": "core.ask Agent question: Choose a direction - Execute [a]: Use the approved plan You may also answer in your own words."
     }
   ]
 }

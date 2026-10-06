@@ -29,9 +29,9 @@ export class HomeClient {
     });
   }
 
-  /** GET /v2/home/content?link= — body text plus direct refs. */
+  /** GET /v2/home/content?ref= — body text plus direct refs. */
   content(
-    params: { link: string; view?: HomeView } & ContinuationParams,
+    params: { ref: string; view?: HomeView } & ContinuationParams,
     options?: RequestOptions,
   ): Promise<HomeContentPage> {
     return this.transport.get<HomeContentPage>("/home/content", {
@@ -51,9 +51,9 @@ export class HomeClient {
     });
   }
 
-  /** GET /v2/home/diff?link= — actual/effective diff chunks. */
+  /** GET /v2/home/diff?ref= — actual/effective diff chunks. */
   diff(
-    params: { link: string } & ContinuationParams,
+    params: { ref: string } & ContinuationParams,
     options?: RequestOptions,
   ): Promise<HomeDiffPage> {
     return this.transport.get<HomeDiffPage>("/home/diff", {

@@ -1,5 +1,5 @@
 {
-  "ref": "home:agent@long-contract",
+  "ref": "home:top/agent/long-contract",
   "view": "content",
   "items": [],
   "content_fragment": {
@@ -8,7 +8,7 @@
   },
   "metadata": {
     "locator": {
-      "link": "home:agent@long-contract",
+      "ref": "home:top/agent/long-contract",
       "view": "effective"
     },
     "direct_refs": []

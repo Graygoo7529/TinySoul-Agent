@@ -75,11 +75,11 @@
       "title": "Pending Inputs",
       "type": "array"
     },
-    "result_links": {
+    "result_refs": {
       "items": {
         "type": "string"
       },
-      "title": "Result Links",
+      "title": "Result Refs",
       "type": "array"
     },
     "details": {
@@ -101,7 +101,7 @@
     "summary",
     "reason",
     "pending_inputs",
-    "result_links"
+    "result_refs"
   ],
   "title": "JobDetailResponse",
   "type": "object"

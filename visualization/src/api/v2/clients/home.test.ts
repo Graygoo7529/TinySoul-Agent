@@ -36,12 +36,12 @@ describe("HomeClient", () => {
       jsonResponse(homeEffective),
     );
     const page = await new HomeClient(transport).content({
-      link: "home:agent@contract",
+      ref: "home:top/agent/contract",
       view: "effective",
     });
-    expect(page.metadata?.locator.link).toBe("home:agent@contract");
-    expect(page.items[0]?.ref).toBe("home:agent@contract#L1-L1");
-    expect(queryOf(requests[0]!, "link")).toBe("home:agent@contract");
+    expect(page.metadata?.locator.ref).toBe("home:top/agent/contract");
+    expect(page.items[0]?.ref).toBe("home:top/agent/contract#L1-L1");
+    expect(queryOf(requests[0]!, "ref")).toBe("home:top/agent/contract");
     expect(queryOf(requests[0]!, "view")).toBe("effective");
   });
 
@@ -55,9 +55,9 @@ describe("HomeClient", () => {
     const client = new HomeClient(transport);
     const changes = await client.changes({ continuation: "c1" });
     expect(changes.items).toEqual([]);
-    const diff = await client.diff({ link: "home:agent@contract" });
+    const diff = await client.diff({ ref: "home:top/agent/contract" });
     expect(diff.metadata?.baseline_diverged).toBe(false);
-    expect(diff.items[0]?.text).toContain("+++ effective:home:agent@contract");
+    expect(diff.items[0]?.text).toContain("+++ effective:home:top/agent/contract");
     expect(requests.map((r) => new URL(r.url).pathname)).toEqual([
       "/v2/home/changes",
       "/v2/home/diff",
@@ -78,13 +78,13 @@ describe("HomeClient", () => {
     const client = new HomeClient(transport);
     const result = await drainPages<HomeContentItem>((continuation) =>
       client.content({
-        link: "home:agent@contract",
+        ref: "home:top/agent/contract",
         continuation: continuation ?? undefined,
       }),
     );
     expect(requests).toHaveLength(2);
     expect(result.incomplete).toBe(false);
     expect(result.items).toHaveLength(1);
-    expect(result.items[0]?.ref).toBe("home:agent@long-contract#L1-L1");
+    expect(result.items[0]?.ref).toBe("home:top/agent/long-contract#L1-L1");
   });
 });

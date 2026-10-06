@@ -11,8 +11,8 @@ SELECT_DOMAINS_DESCRIPTION = (
 
 # Task instruction or output constraint. Used by kernel/action/builtins/core/actions.py:answer_prompt.
 ANSWER_EXPECTED_OUTPUT = (
-    "# Expected Output\nReturn a JSON object with a string field 'text'. If source links"
-    " are used, include a 'references' array of source link strings."
+    "# Expected Output\nReturn a JSON object with a string field 'text'. If source refs"
+    " are used, include a 'references' array of source ref strings."
 )
 
 # Task instruction or output constraint. Used by kernel/action/tasks.py:selection_input.
@@ -130,23 +130,21 @@ def prompt_block_label_required(*, key: str) -> str:
     return f"Model task '{key}' label must be non-empty when provided."
 
 
-# Local model feedback. Used by kernel/action/builtins/core/actions.py:_parse_reference_links.
-REFERENCE_LINKS_LIST_REQUIRED = (
-    "Model task 'reference_links' must be a list when provided."
+# Local model feedback. Used by kernel/action/builtins/core/actions.py:_parse_reference_refs.
+REFERENCE_REFS_LIST_REQUIRED = "Model task 'references' must be a list when provided."
+
+# Local model feedback. Used by kernel/action/builtins/core/actions.py:_parse_reference_refs.
+REFERENCE_REF_STRINGS_REQUIRED = (
+    "Model task 'references' items must be non-empty strings."
 )
 
-# Local model feedback. Used by kernel/action/builtins/core/actions.py:_parse_reference_links.
-REFERENCE_LINK_STRINGS_REQUIRED = (
-    "Model task 'reference_links' items must be non-empty strings."
-)
 
-
-# Local model feedback. Used by kernel/action/builtins/core/actions.py:_parse_reference_links.
+# Local model feedback. Used by kernel/action/builtins/core/actions.py:_parse_reference_refs.
 def unsupported_reference(*, item: str) -> str:
-    return f"Unsupported task prompt reference link: {item}"
+    return f"Unsupported task prompt reference ref: {item}"
 
 
-# Local model feedback. Used by kernel/action/builtins/core/actions.py:_parse_reference_links.
+# Local model feedback. Used by kernel/action/builtins/core/actions.py:_parse_reference_refs.
 def empty_reference(*, item: str) -> str:
     return f"Task prompt reference produced no content: {item}"
 

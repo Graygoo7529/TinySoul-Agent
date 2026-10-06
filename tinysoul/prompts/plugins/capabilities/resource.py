@@ -16,13 +16,13 @@ RESOURCE_CONVERSION_COULD_NOT_BE_COMPLETED = (
 
 
 # Local model feedback. Used by plugins/capabilities/resource/actions.py:_params.
-def source_link_required(*, action_name: str) -> str:
-    return f"{action_name} requires a non-empty 'source_link'."
+def source_ref_required(*, action_name: str) -> str:
+    return f"{action_name} requires a non-empty 'source_ref'."
 
 
 # Local model feedback. Used by plugins/capabilities/resource/actions.py:_params.
-def target_link_required(*, action_name: str) -> str:
-    return f"{action_name} requires a non-empty 'target_link'."
+def target_ref_required(*, action_name: str) -> str:
+    return f"{action_name} requires a non-empty 'target_ref'."
 
 
 # Local model feedback. Used by plugins/capabilities/resource/actions.py:_params.

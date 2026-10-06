@@ -6,16 +6,16 @@ description = "Fetch one public HTTPS page and use Trafilatura to write readable
 
 [tool.schema]
 type = "object"
-required = ["url", "target_link"]
+required = ["url", "target_ref"]
 additionalProperties = false
 
 [tool.schema.properties.url]
 type = "string"
 description = "Public HTTPS page URL."
 
-[tool.schema.properties.target_link]
+[tool.schema.properties.target_ref]
 type = "string"
-description = "Target Workspace Markdown link such as workspace:web/pages/article.md."
+description = "Target Workspace Markdown reference such as workspace:web/pages/article.md."
 
 [tool.schema.properties.overwrite]
 type = "boolean"

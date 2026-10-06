@@ -3,7 +3,7 @@ domain = "workspace"
 
 [tool]
 description = "Generate and store a concise semantic description for a directly readable workspace resource."
-schema = { type = "object", properties = { target_link = { type = "string", description = "A directly readable text or image workspace link." }, instruction = { type = "string", description = "Optional description focus." } }, required = ["target_link"], additionalProperties = false }
+schema = { type = "object", properties = { target_ref = { type = "string", description = "A directly readable text or image workspace ref." }, instruction = { type = "string", description = "Optional description focus." } }, required = ["target_ref"], additionalProperties = false }
 
 [semantic]
 use_when = ["A workspace text or image resource needs a semantic description in the manifest"]

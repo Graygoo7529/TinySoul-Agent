@@ -41,7 +41,7 @@ import { useWorkspaceText } from "./useWorkspaceText";
 type EditorView = "edit" | "split" | "preview";
 
 export function TextFileView({
-  link,
+  ref,
   day,
   isActive,
   fragment,
@@ -51,8 +51,8 @@ export function TextFileView({
   onSaved,
   onConsumeFragment,
 }: {
-  /** Fragment-free `workspace:` link. */
-  link: string;
+  /** Fragment-free `workspace:` ref. */
+  ref: string;
   /** Archive binding; null reads/writes the active day. */
   day: string | null;
   isActive: boolean;
@@ -67,8 +67,8 @@ export function TextFileView({
   onConsumeFragment: () => void;
 }): ReactElement {
   const [retry, setRetry] = useState(0);
-  const text = useWorkspaceText(link, day, reloadToken + retry);
-  const draftKey = workspaceDraftKey(day, link);
+  const text = useWorkspaceText(ref, day, reloadToken + retry);
+  const draftKey = workspaceDraftKey(day, ref);
   const draft = useWorkspacePage((s) => s.drafts[draftKey]);
   const setDraft = useWorkspacePage((s) => s.setDraft);
   const editing = draft !== undefined;
@@ -95,7 +95,7 @@ export function TextFileView({
   const scrolledRef = useRef<string | null>(null);
   useEffect(() => {
     if (targetLines === null) return;
-    const key = `${day ?? ""}|${link}#${fragment ?? ""}`;
+    const key = `${day ?? ""}|${ref}#${fragment ?? ""}`;
     if (scrolledRef.current === key) return;
     if (lines.length < targetLines.startLine) return;
     const element = document.getElementById(`ws-line-${targetLines.startLine}`);
@@ -103,7 +103,7 @@ export function TextFileView({
       element.scrollIntoView({ block: "center" });
       scrolledRef.current = key;
     }
-  }, [targetLines, lines.length, day, link, fragment]);
+  }, [targetLines, lines.length, day, ref, fragment]);
 
   const startEdit = async (): Promise<void> => {
     if (!isActive || !text.editable) return;
@@ -116,7 +116,7 @@ export function TextFileView({
     if (clients === null) return;
     try {
       const page = await clients.workspace.resource({
-        link,
+        ref,
         day: day ?? undefined,
         full: true,
       });
@@ -135,7 +135,7 @@ export function TextFileView({
 
   const save = async (): Promise<void> => {
     if (draft === undefined) return;
-    const record = await mutations.saveText(link, draft);
+    const record = await mutations.saveText(ref, draft);
     if (record !== null) {
       setDraft(draftKey, null);
       onSaved(record);
@@ -144,8 +144,8 @@ export function TextFileView({
 
   const showLines = !editing && (sourceView || !isMarkdown || targetLines !== null);
   const markdownOrigin = useMemo(
-    () => ({ link, day: day ?? undefined }),
-    [link, day],
+    () => ({ ref, day: day ?? undefined }),
+    [ref, day],
   );
 
   return (

@@ -112,8 +112,8 @@ class SearchViews:
             }
         return self._page(identity, 0)
 
-    def result(self, result_ref: str) -> CandidateSet:
-        identity = result_ref.removeprefix("search-result:")
+    def result(self, result_handle: str) -> CandidateSet:
+        identity = result_handle.removeprefix("search-result:")
         view = self._views.get(identity)
         if view is None:
             raise SearchFailure(

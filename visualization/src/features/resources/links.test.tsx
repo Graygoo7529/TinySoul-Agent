@@ -30,7 +30,7 @@ beforeEach(() => {
   useInspectorStore.getState().close();
   useWorkspacePage.setState({
     day: null,
-    link: null,
+    ref: null,
     fragment: null,
     panel: "files",
     searchOpen: false,
@@ -59,7 +59,7 @@ afterEach(() => {
 async function renderMarkdown(source: string): Promise<void> {
   await act(async () => {
     root.render(
-      <Markdown origin={{ link: "workspace:notes/doc.md" }}>{source}</Markdown>,
+      <Markdown origin={{ ref: "workspace:notes/doc.md" }}>{source}</Markdown>,
     );
   });
 }
@@ -87,7 +87,7 @@ describe("Markdown resource links", () => {
       anchor.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     });
     const page = useWorkspacePage.getState();
-    expect(page.link).toBe("workspace:notes/a.md");
+    expect(page.ref).toBe("workspace:notes/a.md");
     expect(page.fragment).toBe("L2");
     expect(useAppStore.getState().activeTab).toBe("workspace");
   });
@@ -123,7 +123,7 @@ describe("Markdown resource links", () => {
     await act(async () => {
       routable?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     });
-    expect(useWorkspacePage.getState().link).toBe("workspace:a.md");
+    expect(useWorkspacePage.getState().ref).toBe("workspace:a.md");
   });
 
   it("keeps the hover reference actions out of the reading layout", async () => {
@@ -158,7 +158,7 @@ describe("Markdown images", () => {
   });
 
   it("shows a reference hint for home images instead of a fake embed", async () => {
-    await renderMarkdown("![diagram](home:agent@diagram.png)");
+    await renderMarkdown("![diagram](home:top/agent/diagram.png)");
     await flush();
     expect(container.querySelector("img")).toBeNull();
     expect(container.textContent).toContain("not embeddable");
@@ -170,7 +170,7 @@ describe("Markdown images", () => {
       new Response(
         JSON.stringify({
           kind: "workspace",
-          locator: { link: "workspace:notes/assets/x.png" },
+          locator: { ref: "workspace:notes/assets/x.png" },
           capabilities: ["read"],
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
@@ -189,7 +189,7 @@ describe("Markdown images", () => {
     await flush();
     const blobCalls = endpoint.calls("/v2/workspace/blob");
     expect(blobCalls).toHaveLength(1);
-    expect(new URL(blobCalls[0].url).searchParams.get("link")).toBe(
+    expect(new URL(blobCalls[0].url).searchParams.get("ref")).toBe(
       "workspace:notes/assets/x.png",
     );
     expect(container.querySelector("img")?.getAttribute("src")).toBe("blob:fake-relative");

@@ -10,7 +10,7 @@ import re
 
 
 from ..errors import MemoryContractError
-from ..links import MemoryKind, MemoryLink
+from ..refs import MemoryKind, MemoryRef
 
 
 class MemoryStatus(StrEnum):
@@ -47,8 +47,8 @@ class DailyMemoryDocument:
             )
 
     @property
-    def link(self) -> MemoryLink:
-        return MemoryLink.daily(self.day)
+    def ref(self) -> MemoryRef:
+        return MemoryRef.daily(self.day)
 
     @property
     def kind(self) -> MemoryKind:
@@ -70,9 +70,9 @@ class _KnowledgeDocument:
     created_on: date
     updated_on: date
     content: str
-    relations: tuple[MemoryLink, ...] = field(default_factory=tuple)
-    evidence: tuple[MemoryLink, ...] = field(default_factory=tuple)
-    redirect_to: MemoryLink | None = None
+    relations: tuple[MemoryRef, ...] = field(default_factory=tuple)
+    evidence: tuple[MemoryRef, ...] = field(default_factory=tuple)
+    redirect_to: MemoryRef | None = None
     confidence: MemoryConfidence | None = None
 
     @property
@@ -89,16 +89,15 @@ class _KnowledgeDocument:
         if self.created_on > self.updated_on:
             raise MemoryContractError("Memory created_on exceeds updated_on")
         _content(self.content, "Persistent Memory")
-        relations = _links(self.relations, "relations")
-        evidence = _links(self.evidence, "evidence")
+        relations = _refs(self.relations, "relations")
+        evidence = _refs(self.evidence, "evidence")
         if any(
-            link.kind not in {MemoryKind.ENTITY, MemoryKind.CONCEPT}
-            for link in relations
+            ref.kind not in {MemoryKind.ENTITY, MemoryKind.CONCEPT} for ref in relations
         ):
             raise MemoryContractError("Memory relations may only target entity/concept")
         if any(
-            link.kind not in {MemoryKind.DAILY, MemoryKind.FACT, MemoryKind.NOTE}
-            for link in evidence
+            ref.kind not in {MemoryKind.DAILY, MemoryKind.FACT, MemoryKind.NOTE}
+            for ref in evidence
         ):
             raise MemoryContractError("Memory evidence may only target daily/fact/note")
         if self.status is MemoryStatus.ACTIVE and self.redirect_to is not None:
@@ -130,8 +129,8 @@ class EntityMemoryDocument(_KnowledgeDocument):
         return MemoryKind.ENTITY
 
     @property
-    def link(self) -> MemoryLink:
-        return MemoryLink(self.kind, self.cite)
+    def ref(self) -> MemoryRef:
+        return MemoryRef(self.kind, self.cite)
 
     @property
     def display(self) -> str:
@@ -145,8 +144,8 @@ class ConceptMemoryDocument(_KnowledgeDocument):
         return MemoryKind.CONCEPT
 
     @property
-    def link(self) -> MemoryLink:
-        return MemoryLink(self.kind, self.cite)
+    def ref(self) -> MemoryRef:
+        return MemoryRef(self.kind, self.cite)
 
     @property
     def display(self) -> str:
@@ -162,7 +161,7 @@ class FactMemoryDocument(_KnowledgeDocument):
         _one_line(self.summary, "Fact summary", max_chars=480)
         if self.confidence is None:
             raise MemoryContractError("Fact Memory requires confidence")
-        if not any(link.kind is MemoryKind.DAILY for link in self.evidence):
+        if not any(ref.kind is MemoryKind.DAILY for ref in self.evidence):
             raise MemoryContractError("Fact Memory requires daily evidence")
         if self.status is MemoryStatus.ACTIVE:
             _one_line(self.content, "Active Fact content")
@@ -174,8 +173,8 @@ class FactMemoryDocument(_KnowledgeDocument):
         return MemoryKind.FACT
 
     @property
-    def link(self) -> MemoryLink:
-        return MemoryLink(self.kind, self.cite)
+    def ref(self) -> MemoryRef:
+        return MemoryRef(self.kind, self.cite)
 
     @property
     def display(self) -> str:
@@ -199,8 +198,8 @@ class NoteMemoryDocument(_KnowledgeDocument):
         return MemoryKind.NOTE
 
     @property
-    def link(self) -> MemoryLink:
-        return MemoryLink(self.kind, self.cite)
+    def ref(self) -> MemoryRef:
+        return MemoryRef(self.kind, self.cite)
 
     @property
     def display(self) -> str:
@@ -223,14 +222,14 @@ class StoredMemoryDocument:
     digest: str
 
     @property
-    def link(self) -> MemoryLink:
-        return self.document.link
+    def ref(self) -> MemoryRef:
+        return self.document.ref
 
 
-def _links(values: Sequence[MemoryLink], key: str) -> tuple[MemoryLink, ...]:
+def _refs(values: Sequence[MemoryRef], key: str) -> tuple[MemoryRef, ...]:
     result = tuple(values)
-    if any(not isinstance(item, MemoryLink) for item in result):
-        raise MemoryContractError(f"Memory {key} must contain MemoryLink values")
+    if any(not isinstance(item, MemoryRef) for item in result):
+        raise MemoryContractError(f"Memory {key} must contain MemoryRef values")
     if len(set(result)) != len(result):
         raise MemoryContractError(f"Memory {key} cannot contain duplicate Links")
     return result

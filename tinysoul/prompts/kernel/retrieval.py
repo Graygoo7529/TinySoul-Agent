@@ -84,7 +84,7 @@ DIRECTORY_SOURCE_REQUIRES_A_SCOPE = "Directory source requires a scope"
 REFS_SOURCE_REQUIRES_NON_EMPTY_REFS = "Refs source requires non-empty refs"
 
 # Local model feedback. Used by kernel/retrieval/contracts.py:__post_init__.
-RESULT_SOURCE_REQUIRES_RESULT_REF = "Result source requires result_ref"
+RESULT_SOURCE_REQUIRES_RESULT_REF = "Result source requires result_handle"
 
 # Local model feedback. Used by kernel/retrieval/contracts.py:__post_init__.
 FILTER_REQUIRES_A_NON_EMPTY_WHERE = "Filter requires a non-empty where"
@@ -279,7 +279,7 @@ DIRECTORY_SCOPE_MUST_BE_TEXT = "Directory scope must be text"
 REFS_MUST_BE_A_STRING_ARRAY = "refs must be a string array"
 
 # Local model feedback. Used by kernel/retrieval/requests.py:_parse_source.
-REQUESTS_RESULT_SOURCE_REQUIRES_RESULT_REF = "result source requires result_ref"
+REQUESTS_RESULT_SOURCE_REQUIRES_RESULT_REF = "result source requires result_handle"
 
 # Local model feedback. Used by kernel/retrieval/requests.py:_reject_source_fields.
 UNKNOWN_RETRIEVAL_SOURCE_FIELD = "Unknown retrieval source field"

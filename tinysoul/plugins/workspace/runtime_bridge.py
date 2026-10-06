@@ -81,8 +81,8 @@ class RuntimeWorkspaceBridge:
         elif isinstance(error, (WorkspaceIOError, WorkspaceReconciliationError)):
             kind = WorkspaceFailureKind.IO_FAILED
         facts = dict(payload or {})
-        if isinstance(error, WorkspaceIOError) and error.committed_links:
-            facts["committed_links"] = list(error.committed_links)
+        if isinstance(error, WorkspaceIOError) and error.committed_refs:
+            facts["committed_refs"] = list(error.committed_refs)
         return self.from_exception(kind, error, payload=facts)
 
     def startup_failure(

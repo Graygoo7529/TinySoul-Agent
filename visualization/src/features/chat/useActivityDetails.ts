@@ -1,3 +1,4 @@
+import { requestIdForTurn } from "../../store/turnStore";
 import { useEffect, useState } from "react";
 import type { ContextMessage } from "../../api/v2/types";
 import { createPageAssembler, nextContinuation } from "../../api/v2/pagination";
@@ -73,14 +74,14 @@ export function useActivityDetails(turnId: string, active: boolean, enabled: boo
     const controller = new AbortController();
     const signal = controller.signal;
     const read = async () => {
-      const overview = await clients.context.overview(turnId, { signal });
+      const overview = await clients.context.overview(requestIdForTurn(turnId), { signal });
       const segment = overview.segments.find((entry) => entry.id === "plan" && entry.slot === "working");
       if (!segment) { if (!signal.aborted) setWorking({ turnId, value: EMPTY }); return; }
       const assembler = createPageAssembler<ContextMessage>((value) => value as ContextMessage);
       const messages: ContextMessage[] = [];
       let continuation: string | null = null;
       do {
-        const page = await clients.context.segment(turnId, segment.id, { continuation: continuation ?? undefined }, { signal });
+        const page = await clients.context.segment(requestIdForTurn(turnId), segment.id, { continuation: continuation ?? undefined }, { signal });
         messages.push(...assembler.push({ items: page.messages, content_fragment: page.content_fragment }));
         continuation = nextContinuation(page);
       } while (continuation !== null && !signal.aborted);

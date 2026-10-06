@@ -84,11 +84,11 @@ def _decode(signal: Signal) -> JobsUpdate:
             pending = job.get("pending_inputs", [])
             if not isinstance(pending, list):
                 raise ContextContractError("Job inputs must be a list")
-            links = job.get("result_links", [])
-            if not isinstance(links, list) or any(
-                not isinstance(link, str) for link in links
+            refs = job.get("result_refs", [])
+            if not isinstance(refs, list) or any(
+                not isinstance(ref, str) for ref in refs
             ):
-                raise ContextContractError("Job result links must be a list of strings")
+                raise ContextContractError("Job result refs must be a list of strings")
             parsed.append(
                 JobSnapshot(
                     job_id,
@@ -97,7 +97,7 @@ def _decode(signal: Signal) -> JobsUpdate:
                     summary,
                     reason,
                     tuple(JobInputRequest.from_json(item) for item in pending),
-                    tuple(link for link in links if isinstance(link, str)),
+                    tuple(ref for ref in refs if isinstance(ref, str)),
                 )
             )
         except (ValueError, JobError) as exc:

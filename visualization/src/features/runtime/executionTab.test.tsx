@@ -45,10 +45,10 @@ beforeEach(() => {
     endpoint,
     makeStatus({ activeTurnId: ACTIVE_TURN, queuedTurnIds: [QUEUED_A, QUEUED_B] }),
   ));
-  endpoint.post(`/v2/turns/${QUEUED_A}/cancel`, () =>
+  endpoint.post(`/v2/requests/${QUEUED_A}/cancel`, () =>
     jsonResponse({ accepted: true, turn_id: QUEUED_A }),
   );
-  endpoint.post(`/v2/turns/${QUEUED_B}/cancel`, () =>
+  endpoint.post(`/v2/requests/${QUEUED_B}/cancel`, () =>
     jsonResponse({ accepted: true, turn_id: QUEUED_B }),
   );
 });
@@ -87,9 +87,9 @@ describe("ExecutionTab", () => {
     await act(async () => buttons[0].click());
     await flush();
 
-    expect(endpoint.calls(`/v2/turns/${QUEUED_A}/cancel`, "POST")).toHaveLength(1);
-    expect(endpoint.calls(`/v2/turns/${QUEUED_B}/cancel`, "POST")).toHaveLength(0);
-    expect(endpoint.calls(`/v2/turns/${ACTIVE_TURN}/cancel`, "POST")).toHaveLength(0);
+    expect(endpoint.calls(`/v2/requests/${QUEUED_A}/cancel`, "POST")).toHaveLength(1);
+    expect(endpoint.calls(`/v2/requests/${QUEUED_B}/cancel`, "POST")).toHaveLength(0);
+    expect(endpoint.calls(`/v2/requests/${ACTIVE_TURN}/cancel`, "POST")).toHaveLength(0);
   });
 
   it("shows the real wait reason with the way back to the conversation", async () => {

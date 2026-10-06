@@ -190,7 +190,7 @@ export function flattenClue(clue: string): string {
 
 /** `session:turn/<id>` → `<id>`; null for any other ref. */
 export function sessionTurnId(ref: string): string | null {
-  const match = /^session:turn\/([a-z0-9_-]+)$/.exec(ref);
+  const match = /^session:turn\/(\d{4}-\d{2}-\d{2}\/[1-9]\d*)$/.exec(ref);
   return match?.[1] ?? null;
 }
 
@@ -201,8 +201,8 @@ export function isAnnotationRef(ref: string): boolean {
 
 /** Compact display form of a Session ref; the full ref stays in tooltips. */
 export function shortRef(ref: string): string {
-  const node = /^session:(node|edge)\/([a-z0-9_-]+)$/.exec(ref);
-  if (node !== null) return `${node[1]} ${node[2]!.slice(0, 8)}`;
+  const node = /^session:(node|edge)\/(\d{4}-\d{2}-\d{2}\/[1-9]\d*)(?:#.*)?$/.exec(ref);
+  if (node !== null) return `${node[1]} ${node[2]}`;
   if (ref.startsWith("session:turn/")) return ref.slice("session:turn/".length);
   return ref;
 }

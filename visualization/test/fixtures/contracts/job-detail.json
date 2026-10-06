@@ -5,7 +5,7 @@
   "summary": "",
   "reason": "",
   "pending_inputs": [],
-  "result_links": [
+  "result_refs": [
     "workspace:jobs/job_1",
     "workspace:jobs/job_1/logs/stdout.log",
     "workspace:jobs/job_1/logs/stderr.log"
@@ -14,7 +14,7 @@
     "exit_code": null,
     "stdout_bytes": 7,
     "stderr_bytes": 8,
-    "workspace_links": [
+    "workspace_refs": [
       "workspace:jobs/job_1",
       "workspace:jobs/job_1/logs/stdout.log",
       "workspace:jobs/job_1/logs/stderr.log"

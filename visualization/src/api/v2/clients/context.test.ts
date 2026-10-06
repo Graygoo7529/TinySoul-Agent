@@ -18,11 +18,11 @@ describe("ContextClient", () => {
     const overview = await new ContextClient(transport).overview("contract-turn");
     expect(overview.turn_id).toBe("contract-turn");
     expect(overview.segments[0]?.id).toBe("identity");
-    expect(overview.resolved_references["memory:current"]?.link).toBe(
+    expect(overview.resolved_references["memory:current"]?.ref).toBe(
       "memory:current",
     );
     expect(new URL(requests[0]!.url).pathname).toBe(
-      "/v2/turns/contract-turn/context",
+      "/v2/requests/contract-turn/context",
     );
   });
 
@@ -39,7 +39,7 @@ describe("ContextClient", () => {
     expect(page.messages[0]?.message_index).toBe(2);
     expect("items" in page).toBe(false);
     const url = new URL(requests[0]!.url);
-    expect(url.pathname).toBe("/v2/turns/contract-turn/context/segments/inputs");
+    expect(url.pathname).toBe("/v2/requests/contract-turn/context/segments/inputs");
     expect(queryOf(requests[0]!, "max_chars")).toBe("32000");
   });
 
@@ -48,22 +48,22 @@ describe("ContextClient", () => {
       jsonResponse(contextTracePage),
     );
     const page = await new ContextClient(transport).inspect("contract-turn", {
-      ref: "turn:trace@contract-turn",
+      ref: "turn:trace/2026-09-29/1",
     });
     expect(page.kind).toBe("context_trace");
     expect(new URL(requests[0]!.url).pathname).toBe(
-      "/v2/turns/contract-turn/context/inspect",
+      "/v2/requests/contract-turn/context/inspect",
     );
-    expect(queryOf(requests[0]!, "ref")).toBe("turn:trace@contract-turn");
+    expect(queryOf(requests[0]!, "ref")).toBe("turn:trace/2026-09-29/1");
   });
 
   it("reads installed heap content through the dedicated snapshot endpoint", async () => {
     const { transport, requests } = createTestTransport(() => jsonResponse({
       turn_id: "contract-turn", day: "2026-09-29", source: "installed",
-      snapshot_available: true, items: [{ ref: "home:agent@context/background", title: "Agent", content: "captured", owner: "home", source: "default", evictable: false }],
+      snapshot_available: true, items: [{ ref: "home:top/agent/context/background", title: "Agent", content: "captured", owner: "home", source: "default", evictable: false }],
     }));
     const page = await new ContextClient(transport).background("contract-turn");
     expect(page.items[0]?.content).toBe("captured");
-    expect(new URL(requests[0]!.url).pathname).toBe("/v2/turns/contract-turn/context/background");
+    expect(new URL(requests[0]!.url).pathname).toBe("/v2/requests/contract-turn/context/background");
   });
 });

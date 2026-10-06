@@ -114,7 +114,7 @@ export function QuestionForm({
             <div className="text-[13px] font-medium">
               <Markdown
                 className="md-inline-question"
-                origin={{ link: "" }}
+                origin={{ ref: "" }}
               >
                 {question.text}
               </Markdown>

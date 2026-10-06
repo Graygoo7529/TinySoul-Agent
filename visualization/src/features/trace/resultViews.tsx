@@ -132,7 +132,7 @@ function referenceFields(payload: JsonObject): { key: string; value: string }[] 
     if (
       /^(workspace|home|memory):/.test(value) ||
       key === "link" ||
-      key.endsWith("_link") ||
+      key.endsWith("_ref") ||
       key === "ref" ||
       key.endsWith("_ref")
     ) {
@@ -152,8 +152,8 @@ function LinksBlock({
   title?: string;
 }) {
   const fields = referenceFields(payload);
-  const links = asStringArray(payload.result_links);
-  const workspaceLinks = asStringArray(payload.workspace_links);
+  const links = asStringArray(payload.result_refs);
+  const workspaceLinks = asStringArray(payload.workspace_refs);
   if (fields.length === 0 && links.length === 0 && workspaceLinks.length === 0) {
     return null;
   }
@@ -197,7 +197,7 @@ function SearchFamilyView({ result, params, nav }: ResultViewProps) {
 function InspectView({ result, nav }: ResultViewProps) {
   if (result === null) return <EmptyResult />;
   const text = asString(result.text);
-  const link = asString(result.link) ?? asString(result.ref);
+  const link = asString(result.ref);
   const items = Array.isArray(result.items) ? result.items : null;
   const resources = Array.isArray(result.resources) ? result.resources : null;
   const truncated = result.truncated === true;
@@ -213,7 +213,7 @@ function InspectView({ result, nav }: ResultViewProps) {
       return (
         record !== null &&
         asString(record.ref) !== null &&
-        asString(record.link) !== null
+        asString(record.target_ref) !== null
       );
     })
       ? items
@@ -263,7 +263,7 @@ function InspectView({ result, nav }: ResultViewProps) {
           {trashItems.slice(0, 24).map((entry, index) => {
             const record = asObject(entry);
             if (record === null) return null;
-            const itemLink = asString(record.link);
+            const itemLink = asString(record.target_ref);
             const itemRef = asString(record.ref);
             const tags = asStringArray(record.tags);
             return (
@@ -312,7 +312,7 @@ function InspectView({ result, nav }: ResultViewProps) {
             const record = asObject(entry);
             const entryLink =
               record !== null
-                ? (asString(record.link) ?? asString(record.ref))
+                ? (asString(record.ref) ?? asString(record.ref))
                 : null;
             return entryLink !== null ? (
               <ReferenceButton
@@ -574,7 +574,7 @@ function AnalysisView({ result, params, nav }: ResultViewProps) {
   const answer = asString(result.answer) ?? asString(result.text);
   const sources = Array.isArray(result.sources) ? result.sources : null;
   const converter = asString(result.converter);
-  const visualRefs = asStringArray(result.visual_reference_links);
+  const visualRefs = asStringArray(result.visual_refs);
   const warningCodes = asStringArray(result.warning_codes);
   const coverage = asObject(result.coverage);
   const coverageLine = coverage !== null ? analysisCoverageLine(coverage) : null;
@@ -606,19 +606,19 @@ function AnalysisView({ result, params, nav }: ResultViewProps) {
           </div>
           {sources.map((entry, index) => {
             const object = asObject(entry);
-            const link = object !== null ? asString(object.link) : null;
+            const link = object !== null ? asString(object.ref) : null;
             return link !== null ? (
               <ReferenceButton key={index} reference={link} onOpen={nav.openReference} />
             ) : null;
           })}
         </div>
       )}
-      {params !== null && asStringArray(params.reference_links).length > 0 && (
+      {params !== null && asStringArray(params.references).length > 0 && (
         <div className="space-y-0.5">
           <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
             Requested references
           </div>
-          {asStringArray(params.reference_links).map((link) => (
+          {asStringArray(params.references).map((link) => (
             <ReferenceButton key={link} reference={link} onOpen={nav.openReference} />
           ))}
         </div>
@@ -901,7 +901,7 @@ function SessionOrganizeView({ result, nav }: ResultViewProps) {
 function ReflectionWriteView({ result, nav }: ResultViewProps) {
   if (result === null) return <EmptyResult />;
   const items = Array.isArray(result.items) ? result.items : null;
-  const link = asString(result.link);
+  const link = asString(result.ref);
   return (
     <div className="space-y-2">
       {link !== null && (
@@ -916,7 +916,7 @@ function ReflectionWriteView({ result, nav }: ResultViewProps) {
           {items.map((entry, index) => {
             const item = asObject(entry);
             if (item === null) return null;
-            const itemLink = asString(item.link);
+            const itemLink = asString(item.ref);
             const decision = asString(item.decision);
             const reason = asString(item.reason);
             const kind = asString(item.kind);

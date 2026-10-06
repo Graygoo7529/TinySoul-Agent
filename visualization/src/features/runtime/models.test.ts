@@ -30,7 +30,7 @@ describe("acpModel", () => {
         {
           connection_id: "conn_1",
           agent_id: "alpha",
-          cwd_link: "workspace:notes/a.md",
+          cwd_ref: "workspace:notes/a.md",
           state: "ready",
           active_job_id: null,
           turn_id: null,

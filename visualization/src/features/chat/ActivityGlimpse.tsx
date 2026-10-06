@@ -52,10 +52,10 @@ export function glimpseBody(data: ActionGlimpseData) {
     if (patches.length) return <div className="space-y-1">{patches.map((patch, i) =>
       <DiffGlimpse key={i} oldText={asString(patch.old_text) ?? ""} newText={asString(patch.new_text) ?? ""} />)}</div>;
     if (family === "execution") {
-      const command = asString(params.command) ?? asString(params.source_link);
+      const command = asString(params.command) ?? asString(params.source_ref);
       if (!command) return null;
       return <div className="term-block">
-        {asString(params.cwd_link) && <div className="opacity-50"># {asString(params.cwd_link)}</div>}
+        {asString(params.cwd_ref) && <div className="opacity-50"># {asString(params.cwd_ref)}</div>}
         <span className="term-cmd">$ {command}</span>
       </div>;
     }
@@ -77,7 +77,7 @@ export function glimpseBody(data: ActionGlimpseData) {
   const items = Array.isArray(payload.items) ? payload.items : Array.isArray(payload.results) ? payload.results : [];
   if (items.length) return <div className="space-y-0.5">{items.slice(0, SEARCH_GLIMPSE_ITEMS).map((raw, i) => {
     const item = asObject(raw);
-    const label = asString(item?.title) ?? asString(item?.ref) ?? asString(item?.link) ?? asString(item?.url);
+    const label = asString(item?.title) ?? asString(item?.ref) ?? asString(item?.ref) ?? asString(item?.url);
     const evidence = Array.isArray(item?.evidence) ? item.evidence : [];
     const preview = evidence.map((value) => asString(asObject(value)?.text)).find(Boolean) ?? asString(item?.snippet);
     return label ? <div key={i} className="min-w-0 text-[11px]">
@@ -94,7 +94,7 @@ export function glimpseBody(data: ActionGlimpseData) {
 }
 
 function WriteResultGlimpse({ actionId, payload }: { actionId: string; payload: Record<string, unknown> }) {
-  const link = asString(payload.link) ?? asString(payload.ref) ?? asString(payload.path);
+  const link = asString(payload.ref) ?? asString(payload.ref) ?? asString(payload.path);
   const changed = typeof payload.changed === "boolean" ? payload.changed : null;
   const written = asNumber(payload.written);
   const isHome = actionId.startsWith("home.");
@@ -117,7 +117,7 @@ function WriteResultGlimpse({ actionId, payload }: { actionId: string; payload: 
     {items.length > 0 && <div className="mt-0.5 space-y-0.5">
       {items.slice(0, SEARCH_GLIMPSE_ITEMS).map((raw, index) => {
         const item = asObject(raw);
-        const label = asString(item?.title) ?? asString(item?.ref) ?? asString(item?.link) ?? asString(item?.path);
+        const label = asString(item?.title) ?? asString(item?.ref) ?? asString(item?.ref) ?? asString(item?.path);
         return label ? <div key={index} className="truncate text-fg-muted">{label}</div> : null;
       })}
     </div>}

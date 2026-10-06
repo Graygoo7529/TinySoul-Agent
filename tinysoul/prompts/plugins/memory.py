@@ -8,8 +8,8 @@ CURRENT_MEMORY_DESCRIPTION = "Explicit working memory for the current Business D
 
 
 # Tool description. Used by plugins/memory/background.py:catalog.
-def latest_daily_description(*, link: str) -> str:
-    return f"Nearest earlier daily Memory: {link}."
+def latest_daily_description(*, ref: str) -> str:
+    return f"Nearest earlier daily Memory: {ref}."
 
 
 # Tool description. Used by plugins/memory/background.py:catalog.
@@ -18,8 +18,8 @@ def target_memory_description(*, target_day: str) -> str:
 
 
 # Tool description. Used by plugins/memory/background.py:catalog.
-def prior_daily_description(*, link: str) -> str:
-    return f"Nearest daily before target: {link}."
+def prior_daily_description(*, ref: str) -> str:
+    return f"Nearest daily before target: {ref}."
 
 
 # Model context presentation or local feedback. Used by plugins/memory/background.py:catalog.
@@ -41,7 +41,7 @@ MEMORY_WRITE_REQUIRES_NON_EMPTY_MARKDOWN = "Memory write requires non-empty Mark
 
 # Local model feedback. Used by plugins/memory/actions/write.py:write.
 MEMORY_WRITE_REJECTED = (
-    "Memory write rejected: check the Link, Markdown schema, existing references and "
+    "Memory write rejected: check the reference, Markdown schema, existing references and "
     "redirect chain."
 )
 
@@ -52,3 +52,12 @@ MEMORY_ACTION_IS_NOT_AVAILABLE_IN_THIS_REFLECTION = (
 
 # Local model feedback. Used by plugins/memory/engine.py:search_corpus.
 INVALID_MEMORY_SCOPE = "Memory scope must be all or one persistent document kind"
+
+
+def active_context(ref: str, day: str, content: str) -> str:
+    """Consumer: plugins/memory/background.py."""
+    return f"Active memory for {day} ({ref})\n\n{content or '(empty)'}"
+
+
+def latest_context(ref: str, day: str, content: str) -> str:
+    return f"Latest earlier daily memory, {day} (memory:latest; {ref})\n\n{content}"

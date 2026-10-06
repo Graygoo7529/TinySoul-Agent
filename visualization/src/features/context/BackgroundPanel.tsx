@@ -1,3 +1,4 @@
+import { requestIdForTurn } from "../../store/turnStore";
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import type { BackgroundPage, BackgroundResource } from "../../api/v2/types";
@@ -23,7 +24,7 @@ export function BackgroundPanel({ epoch, turnId, day, active, committed, reflect
     const clients = contextClients(epoch);
     void drainPages<BackgroundResource, BackgroundPage>((continuation) => {
       const params = { max_chars: 64000, ...(continuation ? { continuation } : {}) };
-      return active ? clients.context.background(turnId, params, { signal: controller.signal })
+      return active ? clients.context.background(requestIdForTurn(turnId), params, { signal: controller.signal })
         : clients.session.background(turnId, { ...params, day }, { signal: controller.signal });
     }, { signal: controller.signal }).then((result) => {
       if (!controller.signal.aborted) { setData({ items: result.items, available: result.pages[0].snapshot_available, source: result.pages[0].source }); setError(null); }
@@ -38,7 +39,7 @@ export function BackgroundPanel({ epoch, turnId, day, active, committed, reflect
     {data && !data.available && <EmptyState title="这轮会话没有保存背景正文" />}
     {data?.available && resources.length === 0 && <EmptyState title={`未加载 ${owner === "home" ? "Home" : "Memory"} 内容`} />}
     {resources.map((item) => <ResourceCard key={item.ref} item={item} expanded={expanded.has(item.ref)}
-      origin={{ link: item.ref, turnId, day, view: "history" }} onToggle={() => setExpanded((current) => {
+      origin={{ ref: item.ref, turnId, day, view: "history" }} onToggle={() => setExpanded((current) => {
         const next = new Set(current); if (next.has(item.ref)) next.delete(item.ref); else next.add(item.ref); return next;
       })} />)}
   </div>;
@@ -63,20 +64,20 @@ function ResourceCard({ item, expanded, onToggle, origin }: {
     </button>
     {expanded && <div className="border-t border-line/60 px-3 py-2">
       {body.day && <div className="mb-1 text-[10px] text-fg-faint">{body.day}</div>}
-      <Markdown origin={{ ...origin, link: body.link ?? origin.link }} className="md-calm text-[12px]">{body.text}</Markdown>
+      <Markdown origin={{ ...origin, ref: body.ref ?? origin.ref }} className="md-calm text-[12px]">{body.text}</Markdown>
     </div>}
   </article>;
 }
 
 /** Memory's dynamic projection has one owner metadata header followed by Markdown. */
-function resourceBody(item: BackgroundResource): { text: string; day?: string; link?: string } {
+function resourceBody(item: BackgroundResource): { text: string; day?: string; ref?: string } {
   if (["memory:current", "memory:latest", "memory:target"].includes(item.ref)) {
     const split = item.content.indexOf("\n\n");
     if (split > 0) {
       try {
         const metadata = asObject(JSON.parse(item.content.slice(0, split)) as unknown);
         if (metadata?.ref === item.ref) return { text: item.content.slice(split + 2),
-          day: asString(metadata.day) ?? undefined, link: asString(metadata.resolved_link) ?? undefined };
+          day: asString(metadata.day) ?? undefined, ref: asString(metadata.resolved_ref) ?? undefined };
       } catch { /* Unrecognized content remains visible in full. */ }
     }
   }

@@ -6,10 +6,10 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from enum import StrEnum
 import re
-from uuid import uuid4
 
 from tinysoul.prompts.plugins import session as prompt_text
 from tinysoul.infra.json import JsonObject
+from tinysoul.infra.time import CalendarDay
 from ..errors import SessionContractError
 
 
@@ -87,7 +87,10 @@ def _object(value: object, fields: set[str]) -> dict[str, object]:
 
 def _identity(ref: str, kind: str) -> None:
     if (
-        re.fullmatch(rf"(?:local:[a-zA-Z0-9_-]+|session:{kind}/[a-z0-9_-]+)", ref)
+        re.fullmatch(
+            rf"(?:local:[a-zA-Z0-9_-]+|session:{kind}/[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}/[1-9][0-9]*)",
+            ref,
+        )
         is None
     ):
         _reject(prompt_text.USE_AN_EXISTING_ANNOTATION_REF_OR_LOCAL_KEY_FOR_A)
@@ -336,17 +339,27 @@ class SessionMap:
         change: OrganizeChange,
         *,
         fact: Callable[[str, bool], str],
+        day: CalendarDay,
     ) -> tuple[SessionMap, OrganizeResult]:
         """Resolve every reference before producing a complete candidate."""
         for ref in change.scope_refs:
             if self.get(ref) is None:
                 fact(ref, False)
-        created = {
-            item.ref: f"session:{kind}/{uuid4().hex}"
-            for kind, items in (("node", change.nodes), ("edge", change.edges))
-            for item in items
-            if item.ref.startswith("local:")
-        }
+        created: dict[str, str] = {}
+        for kind, existing, requested in (
+            ("node", self.nodes, change.nodes),
+            ("edge", self.edges, change.edges),
+        ):
+            prefix = f"session:{kind}/{day}/"
+            if any(not item.ref.startswith(prefix) for item in existing):
+                raise SessionContractError("Session annotations belong to another day")
+            sequence = max(
+                (int(item.ref.removeprefix(prefix)) for item in existing), default=0
+            )
+            for item in requested:
+                if item.ref.startswith("local:"):
+                    sequence += 1
+                    created[item.ref] = f"{prefix}{sequence}"
         nodes, edges = (
             {item.ref: item for item in self.nodes},
             {item.ref: item for item in self.edges},

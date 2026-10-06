@@ -11,7 +11,6 @@
     "activation": "active",
     "active_day": "2026-09-29",
     "active_turn_id": "contract-turn",
-    "queued_turn_ids": [],
     "sources": [
       {
         "source": "workspace.fswatch",
@@ -37,7 +36,9 @@
         ],
         "error_type": null
       }
-    ]
+    ],
+    "active_request_id": "contract-turn",
+    "queued_request_ids": []
   },
   "latest_event_sequence": 52,
   "event_journal": {

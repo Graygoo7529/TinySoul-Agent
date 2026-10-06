@@ -17,7 +17,7 @@ const manifest: WorkspaceManifest = {
 
 const mutation: WorkspaceMutationResult = {
   record: {
-    link: "workspace:notes/a.md",
+    ref: "workspace:notes/a.md",
     relative_path: "notes/a.md",
     kind: "text",
     media_type: "text/markdown",
@@ -55,8 +55,8 @@ describe("WorkspaceClient", () => {
   it("resource passes continuation and full=true", async () => {
     const { transport, requests } = createTestTransport(() =>
       jsonResponse({
-        link: "workspace:notes/a.md",
-        locator: { link: "workspace:notes/a.md", day: "2026-09-29" },
+        ref: "workspace:notes/a.md",
+        locator: { ref: "workspace:notes/a.md", day: "2026-09-29" },
         day: "2026-09-29",
         text: "完整正文",
         size: 12,
@@ -68,13 +68,13 @@ describe("WorkspaceClient", () => {
     );
     const client = new WorkspaceClient(transport);
     const page = await client.resource({
-      link: "workspace:notes/a.md",
+      ref: "workspace:notes/a.md",
       full: true,
     });
     expect(page.complete).toBe(true);
     expect(page.editable).toBe(true);
     expect(queryOf(requests[0]!, "full")).toBe("true");
-    expect(queryOf(requests[0]!, "link")).toBe("workspace:notes/a.md");
+    expect(queryOf(requests[0]!, "ref")).toBe("workspace:notes/a.md");
   });
 
   it("readBlob sends Range and returns the raw Response", async () => {
@@ -89,7 +89,7 @@ describe("WorkspaceClient", () => {
         }),
     );
     const response = await new WorkspaceClient(transport).readBlob({
-      link: "workspace:assets/logo.png",
+      ref: "workspace:assets/logo.png",
       day: "2026-09-28",
       range: { start: 4, end: 5 },
     });
@@ -104,22 +104,22 @@ describe("WorkspaceClient", () => {
       jsonResponse(mutation),
     );
     const client = new WorkspaceClient(transport);
-    await client.writeText({ link: "workspace:notes/a.md", text: "hi", overwrite: true });
+    await client.writeText({ ref: "workspace:notes/a.md", text: "hi", overwrite: true });
     await client.writeBlob(
-      { link: "workspace:assets/logo.png", overwrite: false },
+      { ref: "workspace:assets/logo.png", overwrite: false },
       new Blob([new Uint8Array([1])]),
     );
-    await client.createDirectory({ link: "workspace:notes" });
+    await client.createDirectory({ ref: "workspace:notes" });
     await client.move({
-      link: "workspace:notes/a.md",
-      target_link: "workspace:notes/b.md",
+      source_ref: "workspace:notes/a.md",
+      target_ref: "workspace:notes/b.md",
     });
-    await client.setTags({ link: "workspace:notes/a.md", tags: ["pinned"] });
+    await client.setTags({ ref: "workspace:notes/a.md", tags: ["pinned"] });
     await client.edit({
-      link: "workspace:notes/a.md",
+      ref: "workspace:notes/a.md",
       edits: [{ old_text: "hi", new_text: "hello" }],
     });
-    await client.append({ link: "workspace:notes/a.md", text: "\nmore" });
+    await client.append({ ref: "workspace:notes/a.md", text: "\nmore" });
 
     expect(requests.map((r) => [r.method, new URL(r.url).pathname])).toEqual([
       ["PUT", "/v2/workspace/resource"],
@@ -131,18 +131,18 @@ describe("WorkspaceClient", () => {
       ["POST", "/v2/workspace/append"],
     ]);
     expect(bodyJson(requests[0]!)).toEqual({
-      link: "workspace:notes/a.md",
+      ref: "workspace:notes/a.md",
       text: "hi",
       overwrite: true,
     });
-    expect(queryOf(requests[1]!, "link")).toBe("workspace:assets/logo.png");
+    expect(queryOf(requests[1]!, "ref")).toBe("workspace:assets/logo.png");
     expect(queryOf(requests[1]!, "overwrite")).toBe("false");
     expect(bodyJson(requests[4]!)).toEqual({
-      link: "workspace:notes/a.md",
+      ref: "workspace:notes/a.md",
       tags: ["pinned"],
     });
     expect(bodyJson(requests[5]!)).toEqual({
-      link: "workspace:notes/a.md",
+      ref: "workspace:notes/a.md",
       edits: [{ old_text: "hi", new_text: "hello" }],
     });
   });
@@ -171,12 +171,12 @@ describe("WorkspaceClient", () => {
     expect(page.items[0]?.ref).toBe("trash:workspace/abc");
     expect(page.day).toBe("2026-09-29");
 
-    const trashed = await client.trash({ link: "workspace:notes/a.md" });
+    const trashed = await client.trash({ ref: "workspace:notes/a.md" });
     expect(trashed.trash.trash_id).toBe("abc");
     expect(trashed.manifest.schema_version).toBe(4);
 
     const restored = await client.restore({ trash_ref: "trash:workspace/abc" });
-    expect(restored.record.link).toBe("workspace:notes/a.md");
+    expect(restored.record.ref).toBe("workspace:notes/a.md");
 
     expect(requests.map((r) => [r.method, new URL(r.url).pathname])).toEqual([
       ["GET", "/v2/workspace/trash"],

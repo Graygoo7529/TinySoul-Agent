@@ -45,11 +45,11 @@ SAMPLES = (
         "如何检查 CSV 缺失值？",
         (
             (
-                "home:skills@data",
+                "home:top/skills/data",
                 "数据检查",
                 "用 pandas isna 检查 CSV 中的缺失值并统计每列缺失比例。",
             ),
-            ("home:skills@cooking", "晚餐", "番茄炒蛋的配料和做法。"),
+            ("home:top/skills/cooking", "晚餐", "番茄炒蛋的配料和做法。"),
         ),
     ),
     (
@@ -282,9 +282,9 @@ async def test_llm_selection_accepts_only_known_unique_subset_and_rank_requires_
 
 async def test_llm_basis_can_only_reference_actual_input_and_preserves_snapshot():
     item = SearchCandidate(
-        "home:skills@test",
+        "home:top/skills/test",
         "Test",
-        (ContentUnit("body", "home:skills/test/deep.md", "visible " * 1000),),
+        (ContentUnit("body", "home:resource/skills/test/deep.md", "visible " * 1000),),
     )
     answer: JsonObject = {"items": [{"id": "c0", "basis_ids": ["u0"]}]}
     calls = []
@@ -351,7 +351,7 @@ async def test_embedding_step_retains_its_contribution_and_actual_full_input():
     )
     services = ModelServices(ModelServicesSettings(), env={})
     item = SearchCandidate(
-        "home:skills@test",
+        "home:top/skills/test",
         "Test",
         (
             ContentUnit("intro", "intro", "introduction " * 400),

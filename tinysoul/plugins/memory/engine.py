@@ -50,7 +50,7 @@ from .documents import (
     StoredMemoryDocument,
 )
 from .errors import MemoryContractError, MemoryInvariantError
-from .links import MemoryKind, MemoryLink
+from .refs import MemoryKind, MemoryRef
 from .retrieval import (
     MemoryCatalog,
     MemoryCatalogSnapshot,
@@ -184,20 +184,20 @@ class MemoryEngine:
     ) -> ActiveMemoryDocument:
         return self.read_archived_active(day, session_archive_root)
 
-    def links(
+    def refs(
         self,
         *,
         kinds: tuple[MemoryKind, ...] | None = None,
         statuses: tuple[str, ...] | None = None,
-    ) -> tuple[MemoryLink, ...]:
+    ) -> tuple[MemoryRef, ...]:
         result = tuple(self._catalog.snapshot.entries)
         if kinds:
-            result = tuple(link for link in result if link.kind in kinds)
+            result = tuple(ref for ref in result if ref.kind in kinds)
         if statuses:
             result = tuple(
-                link
-                for link in result
-                if self._catalog.snapshot.require(link).status in statuses
+                ref
+                for ref in result
+                if self._catalog.snapshot.require(ref).status in statuses
             )
         return tuple(sorted(result, key=str))
 
@@ -213,21 +213,21 @@ class MemoryEngine:
         with self._lock:
             values: tuple[JsonObject, ...] = tuple(
                 {
-                    "link": str(item.link),
-                    "kind": item.link.kind.value,
+                    "ref": str(item.ref),
+                    "kind": item.ref.kind.value,
                     "display": item.display,
                     "status": item.status,
                     "redirect_to": str(item.redirect_to) if item.redirect_to else None,
-                    "locator": {"link": str(item.link)},
+                    "locator": {"ref": str(item.ref)},
                 }
                 for item in sorted(
                     self._catalog.snapshot.entries.values(),
-                    key=lambda item: str(item.link),
+                    key=lambda item: str(item.ref),
                 )
-                if (kind is None or item.link.kind.value == kind)
+                if (kind is None or item.ref.kind.value == kind)
                 and (
                     query is None
-                    or query.casefold() in f"{item.link} {item.display}".casefold()
+                    or query.casefold() in f"{item.ref} {item.display}".casefold()
                 )
             )
             return page.render(values, owner="memory", ref=f"catalog:{kind}:{query}")
@@ -255,7 +255,7 @@ class MemoryEngine:
             max_chars=page.max_chars,
             metadata={
                 "day": str(day),
-                "locator": {"link": "memory:current", "day": str(day)},
+                "locator": {"ref": "memory:current", "day": str(day)},
             },
         )
 
@@ -263,10 +263,10 @@ class MemoryEngine:
         self, resource: str, fragment: str = "", source_day: date | None = None
     ) -> ResourceTarget:
         try:
-            link = MemoryLink.from_resource(resource)
+            ref = MemoryRef.from_resource(resource)
             chain = resolve_redirect(
                 self._catalog.snapshot,
-                link,
+                ref,
                 max_hops=self._settings.documents.redirect_max_hops,
             )
             return ResourceTarget(str(chain[-1]), fragment)
@@ -275,26 +275,26 @@ class MemoryEngine:
                 "Memory reference is not a readable persistent identity"
             ) from exc
 
-    def resolve_relative(self, reference: str, origin_link: str) -> str:
-        origin = MemoryLink.from_resource(origin_link.partition("#")[0])
+    def resolve_relative(self, reference: str, origin_ref: str) -> str:
+        origin = MemoryRef.from_resource(origin_ref.partition("#")[0])
         return relative_reference(
             reference, source_path=origin.relative_path, prefix="memory:"
         )
 
     def inspect(
         self,
-        memory_link: str,
+        ref: str,
         *,
         view: str = "content",
         continuation: str | None = None,
         max_chars: int | None = None,
     ) -> JsonObject:
-        resource, _, fragment = memory_link.partition("#")
-        link = MemoryLink.from_resource(resource)
-        stored = self._store.read(link)
+        resource, _, fragment = ref.partition("#")
+        resource = MemoryRef.from_resource(resource)
+        stored = self._store.read(resource)
         chain = resolve_redirect(
             self._catalog.snapshot,
-            link,
+            resource,
             max_hops=self._settings.documents.redirect_max_hops,
         )
         if max_chars is not None and (type(max_chars) is not int or max_chars < 512):
@@ -303,13 +303,13 @@ class MemoryEngine:
             dict.fromkeys(
                 target
                 for target, _, _ in self._navigation_refs(
-                    self._catalog.snapshot.require(link)
+                    self._catalog.snapshot.require(resource)
                 )
             )
         )
         return inspect_document(
             owner="memory",
-            ref=memory_link,
+            ref=ref,
             text=stored.text,
             direct_refs=direct_refs,
             view=view,
@@ -319,11 +319,11 @@ class MemoryEngine:
                 self._settings.inspect.page_max_chars,
             ),
             metadata={
-                "kind": link.kind.value,
+                "kind": resource.kind.value,
                 "status": stored.document.status.value,
                 "display": stored.document.display,
                 "resolution_chain": [str(item) for item in chain],
-                "locator": {"link": str(link)},
+                "locator": {"ref": str(resource)},
                 "direct_refs": list(direct_refs),
             },
         )
@@ -344,7 +344,7 @@ class MemoryEngine:
         def identity(ref: str) -> tuple[str, str]:
             resource, _, fragment = ref.partition("#")
             try:
-                return str(MemoryLink.from_resource(resource)), fragment
+                return str(MemoryRef.from_resource(resource)), fragment
             except MemoryContractError as exc:
                 raise ReferenceError(
                     "Memory search requires a persistent identity"
@@ -359,7 +359,7 @@ class MemoryEngine:
                 canonical, fragment = identity(ref)
                 if (canonical, fragment) in excluded:
                     continue
-                if MemoryLink.parse(canonical) not in snapshot.entries:
+                if MemoryRef.parse(canonical) not in snapshot.entries:
                     raise ReferenceError("Memory search reference does not exist")
                 selected_ref = canonical + ("#" + fragment if fragment else "")
                 seed_order.setdefault(selected_ref, len(seed_order))
@@ -370,7 +370,7 @@ class MemoryEngine:
         if isinstance(source, QuerySource):
             if isinstance(source.query, DocumentQuery):
                 query_ref = self.canonical_reference(source.query.document_ref).resource
-                query = self._store.read(MemoryLink.parse(query_ref)).text
+                query = self._store.read(MemoryRef.parse(query_ref)).text
             else:
                 query = source.query.text
         anchor = (
@@ -381,15 +381,15 @@ class MemoryEngine:
         entries = list(snapshot.entries.items())
         candidates: list[SearchCandidate] = []
         scanned = 0
-        for link, entry in entries:
-            ref = str(link)
+        for resource, entry in entries:
+            ref = str(resource)
             attributes: JsonObject = {
-                "kind": link.kind.value,
+                "kind": resource.kind.value,
                 "status": entry.status,
                 "updated_on": entry.updated_on.isoformat(),
                 "confidence": entry.confidence,
             }
-            if scope not in {"all", link.kind.value} or not all(
+            if scope not in {"all", resource.kind.value} or not all(
                 predicate.matches(attributes) for predicate in predicates
             ):
                 continue
@@ -399,7 +399,7 @@ class MemoryEngine:
                 or (not isinstance(source, RefsSource) and (ref, "") in excluded)
             ):
                 continue
-            text = self._store.read(link).text
+            text = self._store.read(resource).text
             scanned += 1
             if isinstance(source, RefsSource):
                 for selected_ref, fragment in seeds[ref]:
@@ -453,31 +453,31 @@ class MemoryEngine:
     def _navigation_refs(
         self, entry: MemoryCatalogEntry
     ) -> tuple[tuple[str, str, str], ...]:
-        from .retrieval.query import _structured_links
+        from .retrieval.query import _structured_refs
 
         result = [
-            (str(target), "memory_reference", f"{entry.link} references {target}")
-            for target in _structured_links(self._store.read(entry.link).document)
+            (str(target), "memory_reference", f"{entry.ref} references {target}")
+            for target in _structured_refs(self._store.read(entry.ref).document)
         ]
         lines = entry.content.splitlines()
         for reference in markdown_references(entry.content):
             try:
                 target = relative_reference(
                     reference.target,
-                    source_path=entry.link.relative_path,
+                    source_path=entry.ref.relative_path,
                     prefix="memory:",
                 )
                 resource, marker, fragment = target.partition("#")
                 if resource.startswith("memory:") and resource.endswith(".md"):
                     target = str(
-                        MemoryLink.from_relative(resource.removeprefix("memory:"))
+                        MemoryRef.from_relative(resource.removeprefix("memory:"))
                     ) + ("#" + fragment if marker else "")
             except (ReferenceError, MemoryContractError):
                 continue
             result.append(
                 (
                     target,
-                    "markdown_link",
+                    "markdown_reference",
                     lines[reference.line - 1]
                     if reference.line <= len(lines)
                     else reference.label,
@@ -486,10 +486,10 @@ class MemoryEngine:
         return tuple(dict.fromkeys(result))
 
     def read_daily(self, day: date | CalendarDay) -> DailyMemoryDocument | None:
-        link = MemoryLink.daily(_date(day))
-        if not self._store.exists(link):
+        ref = MemoryRef.daily(_date(day))
+        if not self._store.exists(ref):
             return None
-        document = self._store.read(link).document
+        document = self._store.read(ref).document
         if not isinstance(document, DailyMemoryDocument):
             raise MemoryInvariantError("Daily Memory path contains another kind")
         return document
@@ -498,17 +498,17 @@ class MemoryEngine:
         self, day: date | CalendarDay
     ) -> StoredMemoryDocument | None:
         target = _date(day)
-        links = [
-            link
-            for link in self._store.links()
-            if link.kind is MemoryKind.DAILY and link.day < target
+        refs = [
+            ref
+            for ref in self._store.refs()
+            if ref.kind is MemoryKind.DAILY and ref.day < target
         ]
-        if not links:
+        if not refs:
             return None
-        return self._store.read(max(links, key=lambda item: item.day))
+        return self._store.read(max(refs, key=lambda item: item.day))
 
-    def read_document(self, link: MemoryLink) -> StoredMemoryDocument:
-        return self._store.read(link)
+    def read_document(self, ref: MemoryRef) -> StoredMemoryDocument:
+        return self._store.read(ref)
 
     def render_document(self, document: PersistentMemoryDocument) -> str:
         return self._codec.render(document)
@@ -532,23 +532,23 @@ class MemoryEngine:
             self._catalog.install(candidate)
             return result
 
-    def write_markdown(self, link: MemoryLink, markdown: str) -> StoredMemoryDocument:
+    def write_markdown(self, ref: MemoryRef, markdown: str) -> StoredMemoryDocument:
         try:
-            document = self._codec.parse(link, markdown)
+            document = self._codec.parse(ref, markdown)
         except MemoryInvariantError as exc:
             raise MemoryContractError(
                 "Memory Markdown does not satisfy its document schema"
             ) from exc
         return self.write_document(document)
 
-    def new_link(self, kind: MemoryKind) -> MemoryLink:
+    def new_ref(self, kind: MemoryKind) -> MemoryRef:
         if kind not in {MemoryKind.FACT, MemoryKind.NOTE}:
             raise MemoryContractError("Only fact/note Links use owner-generated cites")
         prefix = "f-" if kind is MemoryKind.FACT else "n-"
         while True:
-            link = MemoryLink(kind, prefix + secrets.token_hex(8))
-            if not self._store.exists(link):
-                return link
+            ref = MemoryRef(kind, prefix + secrets.token_hex(8))
+            if not self._store.exists(ref):
+                return ref
 
     def rebuild_catalog(self) -> None:
         with self._lock:

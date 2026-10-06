@@ -54,11 +54,11 @@ def project_fact_refs(
     inputs: tuple[ContextTurnInput, ...],
     action_count: int,
 ) -> dict[str, str]:
-    root, target = f"turn:trace@{turn_id}", f"session:turn/{turn_id}"
+    root, target = f"turn:trace/{turn_id}", f"session:turn/{turn_id}"
     return {
         **{
-            f"{root}#input/{item.input_id}": f"{target}#input/{index}"
-            for index, item in enumerate(inputs)
+            f"{root}#input/{index}": f"{target}#input/{index}"
+            for index in range(len(inputs))
         },
         **{
             f"{root}#action/{index}": f"{target}#action/{index}"
@@ -81,10 +81,18 @@ def project_turn_record(
 
     actions = tuple(project_action_record(fact) for fact in completion.trace.actions)
     turn_ref = f"session:turn/{completion.turn_id}"
-    trace_root = f"turn:trace@{completion.turn_id}"
+    trace_root = f"turn:trace/{completion.turn_id}"
     refs = project_fact_refs(completion.turn_id, completion.inputs, len(actions))
     notes: list[JsonObject] = []
     for entry in completion.trace.entries:
+        if entry.kind is TraceKind.INPUT:
+            occurrence = tuple(item.input_id for item in completion.inputs).index(
+                entry.input_id
+            )
+            refs[f"{trace_root}#entry/{entry.entry_id}"] = (
+                f"{turn_ref}#input/{occurrence}"
+            )
+            continue
         if entry.kind is TraceKind.ACTION_RESULT:
             continue  # Action canonical results already have their own records.
         value = entry.to_semantic()
@@ -113,7 +121,7 @@ def project_turn_record(
         ),
         working=completion.working,
         segments=completion.segments,
-        background_links=completion.background_links,
+        background_refs=completion.background_refs,
         output=output,
         exhausted=exhausted,
         status=status,

@@ -48,7 +48,7 @@
   },
   "additionalProperties": true,
   "properties": {
-    "result_ref": {
+    "result_handle": {
       "anyOf": [
         {
           "type": "string"
@@ -58,7 +58,7 @@
         }
       ],
       "default": null,
-      "title": "Result Ref"
+      "title": "Result Handle"
     },
     "scope": {
       "anyOf": [

@@ -69,7 +69,15 @@ class _Work:
         self.inbox: TurnInbox | None = None
 
     async def run(
-        self, turn_input, *, active_day, scope, request_id, input_source, inbox=None
+        self,
+        turn_input,
+        *,
+        turn_id,
+        active_day,
+        scope,
+        request_id,
+        input_source,
+        inbox=None,
     ):
         self.inbox = inbox
         self.started.set()
@@ -98,8 +106,12 @@ class _Reflection:
     async def active_day_lease(self):
         yield CalendarDay.parse("2026-09-16")
 
-    async def run(self, request, *, active_day, scope=None, inbox=None):
+    async def run(self, request, *, turn_id, active_day, scope=None, inbox=None):
         raise AssertionError("Queued reflection must not start in this test")
+
+    def allocate_turn(self, day):
+        self._turn_sequence = getattr(self, "_turn_sequence", 0) + 1
+        return f"{day}/{self._turn_sequence}"
 
 
 async def test_daily_trigger_uses_calendar_day_before_rollover_and_deduplicates() -> (
@@ -135,7 +147,7 @@ async def test_daily_trigger_uses_calendar_day_before_rollover_and_deduplicates(
         ReflectionScope.MEMORY,
     ]
     assert requests[1].target_day == CalendarDay.parse("2026-09-15")
-    assert len(root.queued_turn_ids) == 2
+    assert len(root.queued_request_ids) == 2
     await root.close_requests()
 
 
@@ -166,7 +178,7 @@ async def test_all_ingress_uses_bounded_roots_and_the_active_inbox() -> None:
             InputEvent("/reflection home", command_id="home")
         )
         assert queued.accepted
-        reflection = commands.turn("home")
+        reflection = commands.request("home")
         assert reflection is not None and isinstance(
             reflection.request, ReflectionRequest
         )

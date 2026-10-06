@@ -112,17 +112,26 @@ async def test_program_dispatches_typed_requests_to_user_or_reflection() -> None
             instructions="Review the runtime Home. " * 30,
         )
     )
-    queued = runner.turn_directory()
+    queued = runner.request_directory()
     queued_items = queued["items"]
     assert isinstance(queued_items, list)
-    assert [item["kind"] for item in queued_items if isinstance(item, dict)] == ["user", "home"]
+    assert [item["kind"] for item in queued_items if isinstance(item, dict)] == [
+        "user",
+        "home",
+    ]
     origin = reflection_handle.snapshot().to_json()["reflection"]
-    assert isinstance(origin, dict) and origin["instructions"] == "Review the runtime Home. " * 30
+    assert (
+        isinstance(origin, dict)
+        and origin["instructions"] == "Review the runtime Home. " * 30
+    )
     summary = reflection_handle.snapshot().summary_json()
     assert summary["started_at"] is None and summary["finished_at"] is None
     clue = summary["reflection"]
     assert isinstance(clue, dict) and clue["truncated"] is True
-    assert isinstance(clue["instructions_excerpt"], str) and len(clue["instructions_excerpt"]) == 240
+    assert (
+        isinstance(clue["instructions_excerpt"], str)
+        and len(clue["instructions_excerpt"]) == 240
+    )
     assert "instructions" not in clue and "result" not in summary
     worker = asyncio.create_task(runner.run())
     await user_handle.wait()
@@ -161,17 +170,23 @@ async def test_queued_cancellations_release_capacity_and_retain_by_completion_or
         handle = runner.submit_turn(
             UserTurnRequest("cancel before execution", request_id=f"queued_{index}")
         )
-        assert await runner.cancel_turn(handle.turn_id)
-        assert runner.queued_turn_ids == ()
+        assert await runner.cancel_request(handle.request_id)
+        assert runner.queued_request_ids == ()
         cancelled.append(handle)
-    assert all(runner.turn_handle(handle.turn_id) is None for handle in cancelled[:-2])
     assert all(
-        runner.turn_handle(handle.turn_id) is handle for handle in cancelled[-2:]
+        runner.request_handle(handle.request_id) is None for handle in cancelled[:-2]
     )
-    directory = runner.turn_directory()
+    assert all(
+        runner.request_handle(handle.request_id) is handle for handle in cancelled[-2:]
+    )
+    directory = runner.request_directory()
     assert directory["completed_limit"] == 2
     assert isinstance(directory["items"], list) and len(directory["items"]) == 2
-    assert all(handle.snapshot().started_at is None and handle.snapshot().finished_at is not None for handle in cancelled)
+    assert all(
+        handle.snapshot().started_at is None
+        and handle.snapshot().finished_at is not None
+        for handle in cancelled
+    )
     for handle in cancelled:
         assert (await handle.wait()).status.value == "cancelled"
     active = runner.submit_turn(
@@ -182,7 +197,7 @@ async def test_queued_cancellations_release_capacity_and_retain_by_completion_or
     runner.request_exit(ExitRequest(request_id="exit"))
     await asyncio.wait_for(worker, 3)
     assert user.inputs == ["only this executes"]
-    assert runner.turn_handle(cancelled[-2].turn_id) is None
+    assert runner.request_handle(cancelled[-2].request_id) is None
 
 
 async def test_program_startup_reports_complete_reflection_availability() -> None:
@@ -225,7 +240,15 @@ class _UserTurn:
         self.inputs: list[str] = []
 
     async def run(
-        self, turn_input, *, active_day, scope, request_id, input_source, inbox=None
+        self,
+        turn_input,
+        *,
+        turn_id,
+        active_day,
+        scope,
+        request_id,
+        input_source,
+        inbox=None,
     ):
         del scope, request_id, input_source
         self.inputs.append(turn_input)
@@ -262,7 +285,7 @@ class _Reflection:
     async def active_day_lease(self):
         yield DAY
 
-    async def run(self, request, *, active_day, scope=None, inbox=None):
+    async def run(self, request, *, turn_id, active_day, scope=None, inbox=None):
         del scope
         self.requests.append(request)
         return ReflectionOutcome(
@@ -270,6 +293,10 @@ class _Reflection:
             active_day=DAY,
             status=ReflectionStatus.SKIPPED,
         )
+
+    def allocate_turn(self, day):
+        self._turn_sequence = getattr(self, "_turn_sequence", 0) + 1
+        return f"{day}/{self._turn_sequence}"
 
 
 class _RecordingObservations:

@@ -43,13 +43,13 @@ description = "Optional stable label for this input block."
 type = "string"
 description = "Input text for the final answer task."
 
-[tool.schema.properties.reference_links]
+[tool.schema.properties.references]
 type = "array"
-description = "Optional read-only resource links to use as answer sources."
+description = "Optional read-only resource references to use as answer sources."
 
-[tool.schema.properties.reference_links.items]
+[tool.schema.properties.references.items]
 type = "string"
-description = "Read-only resource link, for example workspace:docs/task.md."
+description = "Read-only resource reference, for example workspace:docs/task.md."
 
 [semantic]
 use_when = ["The current Turn should deliver a result to the user", "Further progress requires a focused user question, confirmation, further instruction, or choice among feasible routes"]

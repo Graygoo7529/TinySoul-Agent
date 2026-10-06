@@ -34,12 +34,12 @@ from .errors import (
 )
 from .failures import AgentHomeFailureKind
 from .skills.guidance import HomeActionSkillProvider, HomeDomainSkillProvider
-from .links import (
-    HomeLink,
-    HomePromptMountLink,
-    HomeResourceLink,
-    HomeTopLink,
-    parse_home_link,
+from .refs import (
+    HomeRef,
+    HomePromptMountRef,
+    HomeResourceRef,
+    HomeTopRef,
+    parse_home_ref,
 )
 from .content.runtime_copy import AgentHomeRuntimeCopyTrapHandler
 from .review import (
@@ -71,22 +71,22 @@ __all__ = [
     "HomeBackgroundEntryProvider",
     "HomeBackgroundEntry",
     "HomeDomainSkillProvider",
-    "HomeLink",
+    "HomeRef",
     "HomeReviewChange",
     "HomeReviewPending",
     "HomeReview",
     "HomeReviewResolveOutcome",
     "HomeReviewResolution",
     "HomeReviewSnapshot",
-    "HomePromptMountLink",
+    "HomePromptMountRef",
     "HomePromptMountPatchExecutor",
     "HomePromptMountWriteExecutor",
-    "HomeResourceLink",
+    "HomeResourceRef",
     "HomeInspectExecutor",
     "HomeResourceMutation",
     "HomeOverlayRecord",
     "HomeOverlayState",
-    "HomeTopLink",
+    "HomeTopRef",
     "HomeSearchExecutor",
     "HomeTopDeleteExecutor",
     "HomeTopPatchExecutor",
@@ -96,7 +96,7 @@ __all__ = [
     "HomeSkillReview",
     "HomeSkillMetadata",
     "parse_agent_home_settings",
-    "parse_home_link",
+    "parse_home_ref",
     "parse_home_skill_metadata",
     "register_home_actions",
 ]

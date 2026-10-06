@@ -17,6 +17,7 @@ from tinysoul.infra.paging import PageOptions
 from tinysoul.infra.references import ReferenceResolver
 from tinysoul.kernel.action.call import ActionCall, ExecutionFact, ExecutionState
 from tinysoul.kernel.action.result import ActionResult
+from tinysoul.kernel.identity import TurnIdentity, TurnIdentityError
 from tinysoul.kernel.interaction import QuestionAnswer
 from tinysoul.kernel.retrieval.contracts import RefsSource, RetrievalRequest
 from tinysoul.kernel.retrieval.operations import SearchCorpus
@@ -149,7 +150,7 @@ class ContextTurnCompletion:
     turn_id: str
     inputs: tuple[ContextTurnInput, ...]
     working: JsonObject
-    background_links: tuple[str, ...]
+    background_refs: tuple[str, ...]
     trace: SealedTurnTrace
     segments: JsonObject = field(default_factory=dict)
 
@@ -166,16 +167,16 @@ class ContextTurnCompletion:
         object.__setattr__(self, "inputs", inputs)
         object.__setattr__(self, "working", to_json_object(self.working))
         object.__setattr__(self, "segments", to_json_object(self.segments))
-        links = tuple(self.background_links)
-        if any(not isinstance(link, str) or not link for link in links):
+        refs = tuple(self.background_refs)
+        if any(not isinstance(ref, str) or not ref for ref in refs):
             raise ContextContractError(
-                "ContextTurnCompletion.background_links must contain non-empty strings"
+                "ContextTurnCompletion.background_refs must contain non-empty strings"
             )
-        if len(set(links)) != len(links):
+        if len(set(refs)) != len(refs):
             raise ContextContractError(
-                "ContextTurnCompletion.background_links must be unique"
+                "ContextTurnCompletion.background_refs must be unique"
             )
-        object.__setattr__(self, "background_links", links)
+        object.__setattr__(self, "background_refs", refs)
         if not isinstance(self.trace, SealedTurnTrace):
             raise ContextContractError(
                 "ContextTurnCompletion.trace must be a SealedTurnTrace"
@@ -184,9 +185,9 @@ class ContextTurnCompletion:
             raise ContextContractError(
                 "ContextTurnCompletion trace must belong to the same Turn"
             )
-        root = f"turn:trace@{self.turn_id}"
+        root = f"turn:trace/{self.turn_id}"
         refs = {
-            *(f"{root}#input/{item.input_id}" for item in inputs),
+            *(f"{root}#input/{index}" for index in range(len(inputs))),
             *(f"{root}#entry/{item.entry_id}" for item in self.trace.entries),
             *(f"{root}#action/{index}" for index in range(len(self.trace.actions))),
         }
@@ -274,8 +275,8 @@ class ContextEngine:
     def compression_target_ratio(self) -> float:
         return self._compression_target_ratio
 
-    def background_links(self) -> tuple[str, ...]:
-        """Return currently loaded background links without exposing mutable state."""
+    def background_refs(self) -> tuple[str, ...]:
+        """Return currently loaded background refs without exposing mutable state."""
 
         return self._selection_view().loaded
 
@@ -356,18 +357,22 @@ class ContextEngine:
         self._require_turn()
         return tuple(entry.kind for entry in self._trace.entries())
 
-    def begin_turn(self, user_input: str, *, turn_id: str = "") -> str:
+    def _input_ref(self, input_id: str) -> str:
+        occurrence = tuple(item.input_id for item in self._inputs.all()).index(input_id)
+        return self._trace.input_ref(occurrence)
+
+    def begin_turn(self, user_input: str, *, turn_id: str) -> str:
         if self._turn_id or self._segments is not None:
             raise ContextContractError(
                 "Previous Turn must be ended and its segments closed"
             )
         if not user_input:
             raise ContextContractError("begin_turn requires non-empty user input")
-        if not isinstance(turn_id, str) or (turn_id and not turn_id.strip()):
-            raise ContextContractError(
-                "Turn identity must be non-empty text when supplied"
-            )
-        self._turn_id = turn_id or f"turn_{uuid4().hex[:8]}"
+        try:
+            TurnIdentity.parse(turn_id)
+        except TurnIdentityError as exc:
+            raise ContextContractError("Invalid Turn identity") from exc
+        self._turn_id = turn_id
         self._plan_segment = PlanSegment()
         self._trace_segment = TraceSegment(
             self._compressor.new_trace(self._turn_id),
@@ -376,11 +381,12 @@ class ContextEngine:
         self._inputs_segment = InputsSegment(user_input)
         initial = self._inputs.all()[0]
         self._trace.record_fact(
-            TraceFactKind.INPUT_INSTALLED, self._trace.input_ref(initial.input_id)
+            TraceFactKind.INPUT_INSTALLED, self._input_ref(initial.input_id)
         )
         self._trace.record_fact(
-            TraceFactKind.INPUT_VISIBLE, self._trace.input_ref(initial.input_id)
+            TraceFactKind.INPUT_VISIBLE, self._input_ref(initial.input_id)
         )
+        self._trace.append_input(initial, initial=True)
         self._turn_registry = SegmentRegistry(
             (
                 *core_registrations(
@@ -440,10 +446,10 @@ class ContextEngine:
         self._require_turn()
         view = self._selection_view()
         return self._scope_builder.build(
-            loadable_links=tuple(
+            loadable_refs=tuple(
                 ref for ref in view.available if ref not in view.loaded
             ),
-            loaded_links=tuple(ref for ref in view.loaded if ref not in view.protected),
+            loaded_refs=tuple(ref for ref in view.loaded if ref not in view.protected),
         )
 
     def mark_model_consumed(self, messages: MessageStack) -> None:
@@ -491,7 +497,7 @@ class ContextEngine:
             raise ContextContractError(
                 "Context signal batch belongs to a different active Turn"
             )
-        background_before = self.background_links()
+        background_before = self.background_refs()
         results: list[ControlResult] = []
         working_candidates: list[tuple[int, Signal, str, WorkingPatch]] = []
         segment_signals: list[tuple[int, Signal]] = []
@@ -598,7 +604,7 @@ class ContextEngine:
                     update = parse_input_append_signal(signal)
                     self._trace.record_fact(
                         TraceFactKind.INPUT_INSTALLED,
-                        self._trace.input_ref(update.input_id),
+                        self._input_ref(update.input_id),
                         admission_sequence=update.admission_sequence,
                     )
                 elif signal.name == SIGNAL_TRACE_APPEND:
@@ -610,7 +616,7 @@ class ContextEngine:
                         admission_sequence=entry.admission_sequence,
                     )
 
-        background_after = self.background_links()
+        background_after = self.background_refs()
         # Publish only after the entire prepared batch was installed. The
         # return value remains the existing failure-only feedback contract.
         for _, signal in sorted(applied_controls, key=lambda item: item[0]):
@@ -630,11 +636,9 @@ class ContextEngine:
             self._emit_background_observation(
                 name="context.background.changed",
                 message="Top-level background context changed.",
-                loaded_links=tuple(
-                    link for link in background_after if link not in before
-                ),
-                evicted_links=tuple(
-                    link for link in background_before if link not in after
+                loaded_refs=tuple(ref for ref in background_after if ref not in before),
+                evicted_refs=tuple(
+                    ref for ref in background_before if ref not in after
                 ),
             )
         if ordered:
@@ -655,8 +659,9 @@ class ContextEngine:
         self._inputs.mark_merged(tuple(item.input_id for item in unmerged))
         for item in unmerged:
             self._trace.record_fact(
-                TraceFactKind.INPUT_VISIBLE, self._trace.input_ref(item.input_id)
+                TraceFactKind.INPUT_VISIBLE, self._input_ref(item.input_id)
             )
+            self._trace.append_input(item)
         return len(unmerged)
 
     def compress(self, *, required_chars: int = 1) -> TraceCompactionReport:
@@ -678,13 +683,13 @@ class ContextEngine:
         report = ContextPressureReport(
             changed=bool(background_report.reclaimed_chars),
             reclaimed_chars=(background_report.reclaimed_chars),
-            evicted_background_links=background_report.evicted_refs,
+            evicted_background_refs=background_report.evicted_refs,
         )
         if background_report.evicted_refs:
             self._emit_background_observation(
                 name="context.background.changed",
                 message="Top-level background context evicted for budget.",
-                evicted_links=background_report.evicted_refs,
+                evicted_refs=background_report.evicted_refs,
             )
         return report
 
@@ -693,8 +698,8 @@ class ContextEngine:
         *,
         name: str,
         message: str,
-        loaded_links: tuple[str, ...] = (),
-        evicted_links: tuple[str, ...] = (),
+        loaded_refs: tuple[str, ...] = (),
+        evicted_refs: tuple[str, ...] = (),
     ) -> None:
         if not observation_enabled(self._observations, ObservationLevel.VERBOSE):
             return
@@ -708,9 +713,9 @@ class ContextEngine:
                 message=message,
                 payload={
                     "turn_id": self._turn_id,
-                    "links": list(self.background_links()),
-                    "loaded_links": list(loaded_links),
-                    "evicted_links": list(evicted_links),
+                    "refs": list(self.background_refs()),
+                    "loaded_refs": list(loaded_refs),
+                    "evicted_refs": list(evicted_refs),
                 },
             ),
         )
@@ -779,7 +784,7 @@ class ContextEngine:
         result = []
         day = self._search_day
         for item in self._inputs.all():
-            ref = self._trace.input_ref(item.input_id)
+            ref = self._input_ref(item.input_id)
             result.append(
                 DisclosureSearchEntry(
                     ref,
@@ -973,7 +978,7 @@ class ContextEngine:
                 for item in self._inputs.all()
             ),
             working=self._working.to_json(),
-            background_links=self.background_links(),
+            background_refs=self.background_refs(),
             trace=self._trace.seal(),
             segments={
                 key: value

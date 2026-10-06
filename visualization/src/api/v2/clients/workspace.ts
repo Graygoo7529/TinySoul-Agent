@@ -49,7 +49,7 @@ export class WorkspaceClient {
   /** GET /v2/workspace/resource — paged text, or the full editable text. */
   resource(
     params: {
-      link: string;
+      ref: string;
       day?: string;
       full?: boolean;
     } & ContinuationParams,
@@ -66,12 +66,12 @@ export class WorkspaceClient {
    * (200 or 206 with Content-Range); the caller manages Object URLs.
    */
   readBlob(
-    params: { link: string; day?: string; range?: ByteRange },
+    params: { ref: string; day?: string; range?: ByteRange },
     options?: RequestOptions,
   ): Promise<Response> {
     return this.transport.readBlob("/workspace/blob", {
       ...options,
-      query: { link: params.link, day: params.day },
+      query: { ref: params.ref, day: params.day },
       headers: params.range
         ? { Range: formatByteRange(params.range) }
         : undefined,
@@ -80,7 +80,7 @@ export class WorkspaceClient {
 
   /** PUT /v2/workspace/resource — atomic JSON/text write. */
   writeText(
-    body: { link: string; text: string; overwrite?: boolean },
+    body: { ref: string; text: string; overwrite?: boolean },
     options?: RequestOptions,
   ): Promise<WorkspaceMutationResult> {
     return this.transport.put<WorkspaceMutationResult>("/workspace/resource", {
@@ -89,9 +89,9 @@ export class WorkspaceClient {
     });
   }
 
-  /** PUT /v2/workspace/blob?link=&overwrite= — bounded binary write. */
+  /** PUT /v2/workspace/blob?ref=&overwrite= — bounded binary write. */
   writeBlob(
-    params: { link: string; overwrite?: boolean },
+    params: { ref: string; overwrite?: boolean },
     data: Blob | ArrayBuffer | Uint8Array,
     options?: RequestOptions,
   ): Promise<WorkspaceMutationResult> {
@@ -104,7 +104,7 @@ export class WorkspaceClient {
 
   /** POST /v2/workspace/directory — create a directory. */
   createDirectory(
-    body: { link: string },
+    body: { ref: string },
     options?: RequestOptions,
   ): Promise<WorkspaceMutationResult> {
     return this.transport.post<WorkspaceMutationResult>(
@@ -115,7 +115,7 @@ export class WorkspaceClient {
 
   /** POST /v2/workspace/move — refuses when the target exists. */
   move(
-    body: { link: string; target_link: string },
+    body: { source_ref: string; target_ref: string },
     options?: RequestOptions,
   ): Promise<WorkspaceMutationResult> {
     return this.transport.post<WorkspaceMutationResult>("/workspace/move", {
@@ -126,7 +126,7 @@ export class WorkspaceClient {
 
   /** PUT /v2/workspace/tags — replace the tag set; an empty list clears. */
   setTags(
-    body: { link: string; tags: WorkspaceTag[] },
+    body: { ref: string; tags: WorkspaceTag[] },
     options?: RequestOptions,
   ): Promise<WorkspaceMutationResult> {
     return this.transport.put<WorkspaceMutationResult>("/workspace/tags", {
@@ -137,7 +137,7 @@ export class WorkspaceClient {
 
   /** POST /v2/workspace/edit — 1–64 unique old_text matches, one commit. */
   edit(
-    body: { link: string; edits: WorkspaceTextEdit[] },
+    body: { ref: string; edits: WorkspaceTextEdit[] },
     options?: RequestOptions,
   ): Promise<WorkspaceMutationResult> {
     return this.transport.post<WorkspaceMutationResult>("/workspace/edit", {
@@ -148,7 +148,7 @@ export class WorkspaceClient {
 
   /** POST /v2/workspace/append — append explicit text. */
   append(
-    body: { link: string; text: string },
+    body: { ref: string; text: string },
     options?: RequestOptions,
   ): Promise<WorkspaceMutationResult> {
     return this.transport.post<WorkspaceMutationResult>("/workspace/append", {
@@ -170,7 +170,7 @@ export class WorkspaceClient {
 
   /** POST /v2/workspace/trash — move an active resource into the trash. */
   trash(
-    body: { link: string },
+    body: { ref: string },
     options?: RequestOptions,
   ): Promise<WorkspaceTrashResult> {
     return this.transport.post<WorkspaceTrashResult>("/workspace/trash", {

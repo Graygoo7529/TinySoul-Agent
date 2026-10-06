@@ -56,7 +56,7 @@ TrapSnap 是 Trap 捕获异常后形成的陷入上下文快照。它包含原�
 
 Runtime bridge 是模块失败语义和 Runtime 通用原因之间的唯一翻译层。bridge 应通过显式映射表把模块失败类型映射为 Runtime 原因，并显式构造错误消息和 JSON payload。payload 至少应表达模块名和模块失败类型，并可包含 `error_type`、配置 key、任务 profile、资源句柄等稳定摘要字段。traceback 和原始异常对象不属于 payload 协议；实现上可以通过异常链保留调试信息。
 
-各 bridge 复用公开的 `runtime/failures.py` 构造 RuntimeException 和异常类型摘要；纯 ConfigError 投影由 `infra/config/errors.py` 提供。模块名、failure enum、failure→reason 映射表与诊断语义仍由 owner 维护。message 使用明确的失败摘要，payload 不包含原始异常文本、配置原值、绝对路径或完整资源正文；保留容量度量、保护 Link 等实际恢复输入。公共 helper 不分类业务失败，不决定控制流。
+各 bridge 复用公开的 `runtime/failures.py` 构造 RuntimeException 和异常类型摘要；纯 ConfigError 投影由 `infra/config/errors.py` 提供。模块名、failure enum、failure→reason 映射表与诊断语义仍由 owner 维护。message 使用明确的失败摘要，payload 不包含原始异常文本、配置原值、绝对路径或完整资源正文；保留容量度量、保护 引用 等实际恢复输入。公共 helper 不分类业务失败，不决定控制流。
 
 模块事件和状态变更请求不应通过 Runtime 异常表达。模块完成一次动作、产生状态 patch、需要追加 TurnTrace 或需要通知其他模块消费数据时，应发出信号；只需要向外部报告运行边界时应发布 ObservationEvent。只有结束 Turn、结束 Cycle、结束 Agent、触发全局恢复或启动失败这类控制流变化，才进入 Runtime Trap。
 

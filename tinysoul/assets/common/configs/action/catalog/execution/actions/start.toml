@@ -10,12 +10,12 @@ additionalProperties = false
 type = "string"
 [tool.schema.properties.command]
 type = "string"
-[tool.schema.properties.source_link]
+[tool.schema.properties.source_ref]
 type = "string"
 [tool.schema.properties.args]
 type = "array"
 items = { type = "string" }
-[tool.schema.properties.cwd_link]
+[tool.schema.properties.cwd_ref]
 type = "string"
 [tool.schema.properties.interactive]
 type = "boolean"

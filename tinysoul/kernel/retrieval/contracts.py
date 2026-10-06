@@ -218,13 +218,15 @@ class ResourceScopeKind(StrEnum):
 @dataclass(frozen=True)
 class ResourceScope:
     kind: ResourceScopeKind
-    locator: str
+    ref: str | None = None
 
     def __post_init__(self) -> None:
         valid = (
-            self.locator == ""
+            self.ref is None
             if self.kind is ResourceScopeKind.WORKSPACE
-            else self.locator.startswith("workspace:") and self.locator != "workspace:"
+            else isinstance(self.ref, str)
+            and self.ref.startswith("workspace:")
+            and self.ref != "workspace:"
         )
         if not valid:
             raise SearchFailure(
@@ -232,7 +234,10 @@ class ResourceScope:
             )
 
     def to_json(self) -> JsonObject:
-        return {"kind": self.kind.value, "locator": self.locator}
+        return {
+            "kind": self.kind.value,
+            **({"ref": self.ref} if self.ref is not None else {}),
+        }
 
 
 @dataclass(frozen=True)
@@ -296,10 +301,10 @@ class RefsSource:
 
 @dataclass(frozen=True)
 class ResultSource:
-    result_ref: str
+    result_handle: str
 
     def __post_init__(self) -> None:
-        if not self.result_ref:
+        if not self.result_handle:
             raise SearchFailure(
                 SearchFailureKind.INVALID_REQUEST,
                 prompt_text.RESULT_SOURCE_REQUIRES_RESULT_REF,
@@ -641,7 +646,21 @@ class SearchPage:
     coverage: SearchCoverage
     offset: int = 0
     continuation: str | None = None
-    result_ref: str | None = None
+    result_handle: str | None = None
+
+    def recollection(self) -> JsonObject:
+        """Keep each selected reference with its real title and bounded excerpt."""
+        return {
+            "source": self.source.value,
+            "selected": [
+                {
+                    "ref": item.ref,
+                    "title": item.candidate.title,
+                    "excerpt": " ".join(part.text for part in item.fragments)[:240],
+                }
+                for item in self.items
+            ],
+        }
 
     def to_json(self) -> JsonObject:
         total = (
@@ -650,7 +669,7 @@ class SearchPage:
             else self.coverage.retained
         )
         return {
-            "result_ref": self.result_ref,
+            "result_handle": self.result_handle,
             "scope": self.scope.to_json()
             if isinstance(self.scope, ResourceScope)
             else self.scope,

@@ -47,31 +47,31 @@ describe("classifyReference", () => {
   });
 
   it("classifies home references of the declared spaces", () => {
-    expect(classifyReference("home:agent@identity.md")).toBe("home");
-    expect(classifyReference("home:skills@coding")).toBe("home");
-    expect(classifyReference("home:agent/notes/x.md")).toBe("home");
-    expect(classifyReference("home:skills_domain:execution")).toBe("home");
-    expect(classifyReference("home:skills_action:execution/shell")).toBe("home");
+    expect(classifyReference("home:top/agent/identity.md")).toBe("home");
+    expect(classifyReference("home:top/skills/coding")).toBe("home");
+    expect(classifyReference("home:resource/agent/notes/x.md")).toBe("home");
+    expect(classifyReference("home:mount/domain/execution")).toBe("home");
+    expect(classifyReference("home:mount/action/execution/shell")).toBe("home");
     expect(classifyReference("home:foo@bar")).toBe("other");
-    expect(classifyReference("home:agent@")).toBe("other");
-    expect(classifyReference("home:agent@a b")).toBe("other");
+    expect(classifyReference("home:top/agent/")).toBe("other");
+    expect(classifyReference("home:top/agent/a b")).toBe("other");
   });
 
   it("classifies session refs", () => {
     expect(classifyReference("session:map")).toBe("session");
     expect(classifyReference("session:topics")).toBe("session");
     expect(classifyReference("session:history/3")).toBe("session");
-    expect(classifyReference("session:turn/abc-1")).toBe("session");
-    expect(classifyReference("session:node/n1")).toBe("session");
-    expect(classifyReference("session:edge/e1")).toBe("session");
+    expect(classifyReference("session:turn/2026-10-06/1")).toBe("session");
+    expect(classifyReference("session:node/2026-10-06/1")).toBe("session");
+    expect(classifyReference("session:edge/2026-10-06/1")).toBe("session");
     expect(classifyReference("session:unknown")).toBe("other");
     expect(classifyReference("session:history/x")).toBe("other");
   });
 
   it("classifies trace refs", () => {
-    expect(classifyReference("turn:trace@t-1")).toBe("trace");
-    expect(classifyReference("turn:trace@t-1#entry")).toBe("trace");
-    expect(classifyReference("turn:trace/t-1/3")).toBe("trace");
+    expect(classifyReference("turn:trace/2026-10-06/1")).toBe("trace");
+    expect(classifyReference("turn:trace/2026-10-06/1#entry/2")).toBe("trace");
+    expect(classifyReference("turn:trace/2026-10-06/1#node/3")).toBe("trace");
     expect(classifyReference("turn:trace/t-1")).toBe("other");
     expect(classifyReference("turn:trace@")).toBe("other");
   });
@@ -127,16 +127,16 @@ describe("parseLineFragment", () => {
     expect(parseLineFragment("L")).toBeNull();
   });
 
-  it("normalizes a reversed range upward", () => {
-    expect(parseLineFragment("L15-L12")).toEqual({ startLine: 15, endLine: 15 });
+  it("rejects a reversed range", () => {
+    expect(parseLineFragment("L15-L12")).toBeNull();
   });
 });
 
 describe("traceTurnId", () => {
   it("extracts the turn identity of both trace forms", () => {
-    expect(traceTurnId("turn:trace@t-1")).toBe("t-1");
-    expect(traceTurnId("turn:trace@t-1#entry")).toBe("t-1");
-    expect(traceTurnId("turn:trace/t-1/3")).toBe("t-1");
+    expect(traceTurnId("turn:trace/2026-10-06/1")).toBe("2026-10-06/1");
+    expect(traceTurnId("turn:trace/2026-10-06/1#entry/2")).toBe("2026-10-06/1");
+    expect(traceTurnId("turn:trace/2026-10-06/1#node/3")).toBe("2026-10-06/1");
     expect(traceTurnId("workspace:a.md")).toBeNull();
   });
 });

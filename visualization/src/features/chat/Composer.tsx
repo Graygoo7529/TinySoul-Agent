@@ -17,7 +17,7 @@ export function Composer() {
   const status = useConnectionStore((s) => s.status);
   const snapshot = useTurnStore((s) => s.snapshot);
   const submittedTurnId = useTurnStore((s) =>
-    s.outgoing.find((echo) => echo.kind === "new-turn" && echo.state === "accepted")?.turnId ?? null);
+    s.outgoing.find((echo) => echo.kind === "new-turn" && echo.state === "accepted")?.requestId ?? null);
   const historyView = useTurnStore((s) => s.historyView);
   const text = useComposerDraft((s) => s.draft);
   const setText = useComposerDraft((s) => s.setDraft);

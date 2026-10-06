@@ -23,7 +23,7 @@ from ..errors import (
     AgentHomeIOError,
     AgentHomeNotFoundError,
 )
-from ..links import HomeTopLink
+from ..refs import HomeTopRef
 from ..overlay import HomeOverlayManager, HomeOverlayRecord, HomeOverlayState
 from ..skills.metadata import parse_home_skill_metadata
 from .models import (
@@ -149,7 +149,7 @@ class HomeReviewService:
                 for record in self._skill_memories().values()
             )
             return HomeReviewResolveOutcome(
-                link=review.link,
+                ref=review.ref,
                 relative_path=review.relative_path,
                 resolution=resolution,
                 remaining_reviews=remaining,
@@ -178,13 +178,13 @@ class HomeReviewService:
                     or self._record_matches_actual(record)
                 ):
                     continue
-                link = self._layout.link_for_relative(record.relative_path)
-                if link is not None:
+                ref = self._layout.ref_for_relative(record.relative_path)
+                if ref is not None:
                     values.append(
                         {
-                            "link": str(link),
+                            "ref": str(ref),
                             "kind": record.state.value,
-                            "locator": {"link": str(link), "view": "effective"},
+                            "locator": {"ref": str(ref), "view": "effective"},
                             "baseline_diverged": _actual_digest(
                                 self._layout.source_for_relative(record.relative_path)
                             )
@@ -193,13 +193,13 @@ class HomeReviewService:
                     )
             return page.render(tuple(values), owner="home", ref="changes")
 
-    def read_diff(self, link: str, page: PageOptions = PageOptions()) -> JsonObject:
+    def read_diff(self, ref: str, page: PageOptions = PageOptions()) -> JsonObject:
         with self._lock:
             record = next(
                 (
                     item
                     for item in self._overlay.records()
-                    if str(self._layout.link_for_relative(item.relative_path)) == link
+                    if str(self._layout.ref_for_relative(item.relative_path)) == ref
                 ),
                 None,
             )
@@ -217,13 +217,13 @@ class HomeReviewService:
                 unified_diff(
                     before.splitlines(keepends=True),
                     after.splitlines(keepends=True),
-                    fromfile=f"actual:{link}",
-                    tofile=f"effective:{link}",
+                    fromfile=f"actual:{ref}",
+                    tofile=f"effective:{ref}",
                 )
             )
             return inspect_document(
                 owner="home.diff",
-                ref=link,
+                ref=ref,
                 text=diff,
                 direct_refs=(),
                 continuation=page.continuation,
@@ -311,10 +311,10 @@ class HomeReviewService:
             raise AgentHomeInvariantError(
                 f"Runtime Home change exceeds write limit: {record.relative_path}"
             )
-        link = self._layout.link_for_relative(record.relative_path)
-        if link is None:
+        ref = self._layout.ref_for_relative(record.relative_path)
+        if ref is None:
             raise AgentHomeInvariantError(
-                f"Home review cannot map overlay path to a Link: {record.relative_path}"
+                f"Home review cannot map overlay path to a reference: {record.relative_path}"
             )
         actual = self._layout.source_for_relative(record.relative_path)
         actual_digest = _actual_digest(actual)
@@ -326,7 +326,7 @@ class HomeReviewService:
             runtime = self._layout.runtime_for_relative(record.relative_path)
             runtime_read = _preview(runtime, self._max_preview_chars)
         return HomeReviewChange(
-            link=str(link),
+            ref=str(ref),
             relative_path=record.relative_path,
             state=record.state,
             baseline_digest=record.baseline_digest,
@@ -355,8 +355,8 @@ class HomeReviewService:
                 f"Deleted SKILL_MEMORY remained reviewable: {skill}"
             )
         relative_path = f"skills/{skill}/SKILL.md"
-        link = self._layout.link_for_relative(relative_path)
-        if link is None:
+        ref = self._layout.ref_for_relative(relative_path)
+        if ref is None:
             raise AgentHomeInvariantError(
                 f"Home review cannot map skill review target: {relative_path}"
             )
@@ -373,14 +373,14 @@ class HomeReviewService:
         )
         return HomeSkillReview(
             skill=skill,
-            link=str(link),
+            ref=str(ref),
             relative_path=relative_path,
             actual_digest=actual_digest,
             actual_text=actual_read.text,
             actual_truncated=actual_read.truncated,
             skill_memory=HomeSkillMemoryContext(
                 skill=skill,
-                link=f"home:skills/{skill}/SKILL_MEMORY.md",
+                ref=f"home:resource/skills/{skill}/SKILL_MEMORY.md",
                 digest=memory_record.runtime_digest,
                 text=memory_read.text,
                 truncated=memory_read.truncated,
@@ -423,17 +423,17 @@ class HomeReviewService:
     def _validate_rewrite(self, relative_path: str, text: str) -> None:
         """Validate owner-specific rewrite semantics before touching actual Home."""
 
-        link = self._layout.link_for_relative(relative_path)
-        if link is None:
+        ref = self._layout.ref_for_relative(relative_path)
+        if ref is None:
             raise AgentHomeInvariantError(
                 f"Home review cannot map rewrite target: {relative_path}"
             )
         if (
-            isinstance(link, HomeTopLink)
-            and link.space == "skills"
-            and relative_path == f"skills/{link.name}/SKILL.md"
+            isinstance(ref, HomeTopRef)
+            and ref.space == "skills"
+            and relative_path == f"skills/{ref.name}/SKILL.md"
         ):
-            parse_home_skill_metadata(text, link=link)
+            parse_home_skill_metadata(text, ref=ref)
 
     def _verify_change(self, change: HomeReviewChange) -> None:
         record = self._overlay.record_for(change.relative_path)

@@ -11,7 +11,7 @@ function chunk(text: string, size: number): string[] {
 }
 
 describe("drainPages", () => {
-  const longItem = { ref: "home:agent@x#1", text: "长正文 emoji 🎉".repeat(20) };
+  const longItem = { ref: "home:top/agent/x#1", text: "长正文 emoji 🎉".repeat(20) };
   const serialized = JSON.stringify(longItem);
   const [c1, ...restChunks] = chunk(serialized, 40);
   const c2 = restChunks.join("");

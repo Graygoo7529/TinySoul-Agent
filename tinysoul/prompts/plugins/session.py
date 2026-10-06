@@ -3,6 +3,44 @@
 Consumers listed below decide visibility, role, data and failure semantics.
 """
 
+# Narrative projection. Used by plugins/session/views/background.py.
+INTERACTION_LABELS = (
+    ("user.input", "User input"),
+    ("user.append", "User added"),
+    ("user.reply", "User answer"),
+    ("agent.question", "Agent question"),
+    ("agent.reason", "Agent reasoning action"),
+    ("agent.action", "Agent action"),
+    ("agent.output", "Agent answer"),
+)
+EXCERPT_NOTICE = "Excerpt; inspect the reference for the retained facts."
+FOLDED_NOTICE = "History folded; inspect this Turn to recall its interactions."
+
+
+def map_header(*, day: str, count: int) -> str:
+    return (
+        f"Session · {day} · {count} completed turns\n"
+        "Topics and relationships: session:map\n"
+        "Turn history: session:history\n"
+        "Topics: session:topics · Notes: session:annotations · Unclassified: session:unclassified"
+    )
+
+
+def turn_header(*, day: str, status: str, ref: str) -> str:
+    return f"Turn · {day} · {status}\nReference: {ref}"
+
+
+def interaction(*, label: str, ref: str, body: str) -> str:
+    return f"{label} · {ref}\n{body}"
+
+
+def action_result(*, action: str, outcome: str, request: str, result: str) -> str:
+    return f"{action} · {outcome}\nRequest: {request}\nResult: {result}"
+
+
+def referenced_content(*, text: str, refs: tuple[str, ...]) -> str:
+    return text + ("\nReferences: " + ", ".join(refs) if refs else "")
+
 
 # Local model feedback. Used by plugins/session/annotations/models.py:_text.
 def bounded_text_required(*, name: str, limit: int) -> str:
@@ -66,10 +104,10 @@ RETRACTED_NODES_CANNOT_RETAIN_ACTIVE_RELATIONS = (
 )
 
 # Local model feedback. Used by plugins/session/annotations/models.py:__post_init__.
-INVALID_RELATION_ENDPOINTS = "Relations must link semantic nodes or history facts"
+INVALID_RELATION_ENDPOINTS = "Relations must connect semantic nodes or history facts"
 
 # Local model feedback. Used by plugins/session/annotations/models.py:__post_init__.
-COVERS_LINKS_A_THREAD_TO_A_HISTORY_FACT = "covers links a thread to a history fact"
+COVERS_LINKS_A_THREAD_TO_A_HISTORY_FACT = "covers connects a thread to a history fact"
 
 # Local model feedback. Used by plugins/session/annotations/models.py:identity.
 UNKNOWN_ANNOTATION_USE_LOCAL_KEY_TO_CREATE_IT = (

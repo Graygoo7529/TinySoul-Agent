@@ -57,7 +57,7 @@ from .navigation import (
     project_action,
     project_occurrence,
     project_relations,
-    resource_links,
+    resource_refs,
 )
 
 
@@ -286,10 +286,10 @@ class SessionView:
                         DisclosureReference(target, source_day=self.day.value)
                         for target in record.output.references
                     )
-                elif "#resource/" in ref and isinstance(content.get("link"), str):
+                elif "#resource/" in ref and isinstance(content.get("target_ref"), str):
                     refs.append(
                         DisclosureReference(
-                            str(content["link"]), source_day=self.day.value
+                            str(content["target_ref"]), source_day=self.day.value
                         )
                     )
             result.append(
@@ -502,8 +502,8 @@ class SessionView:
                     DisclosureHint(f"{turn_ref}#working", "Final working state")
                 )
             children.extend(
-                DisclosureHint(f"{turn_ref}#resource/{index}", link)
-                for index, link in enumerate(resource_links(record))
+                DisclosureHint(f"{turn_ref}#resource/{index}", resource)
+                for index, resource in enumerate(resource_refs(record))
             )
             relations = project_relations(record)
             return DisclosurePage(
@@ -650,7 +650,7 @@ class SessionView:
                 if item.action != "core.context.inspect"
                 and (action is None or action == item.action)
             ),
-            *(f"{record.ref}#resource/{i}" for i in range(len(resource_links(record)))),
+            *(f"{record.ref}#resource/{i}" for i in range(len(resource_refs(record)))),
             *((f"{record.ref}#working",) if record.working else ()),
         ]
         if record.output is not None:

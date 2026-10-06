@@ -1,3 +1,4 @@
+import { findRequestIdForTurn } from "../../store/turnStore";
 /**
  * Whole-Turn process view (plan §9): Turn → Cycle → Phase → Action, with the
  * phase-level model decisions and the searches/model calls each action
@@ -60,7 +61,8 @@ export function ProcessPanel({
         { mode: "model", turn_id: turnId },
         { signal },
       );
-      const snapshot = await traceClients(epoch).turns.get(turnId, { signal }).catch(() => null);
+      const requestId = findRequestIdForTurn(turnId);
+      const snapshot = requestId === null ? null : await traceClients(epoch).turns.get(requestId, { signal }).catch(() => null);
       return { turnId, window, snapshot, process: buildTurnProcess(window.events) };
     },
     [epoch, turnId, revision],

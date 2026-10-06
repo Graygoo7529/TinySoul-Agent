@@ -61,7 +61,7 @@ Workspace 的 Action 与 SDK 共用一个 search 入口。owner 以 manifest 解
 
 ## 结果、分页与观测
 
-SearchViews 冻结完整最终集合。page 的数量与字符预算仅控制展示，result_ref 指向全部成员，continuation 定位其中一页。页面不足以容纳有意义候选时明确反馈容量问题；更深正文使用 Inspect/read/describe，不建立 Search 正文游标。视图绑定 Turn/profile 或 SDK generation/day lease，结束后失效。
+SearchViews 冻结完整最终集合。page 的数量与字符预算仅控制展示，result_handle 指向全部成员，continuation 定位其中一页。页面不足以容纳有意义候选时明确反馈容量问题；更深正文使用 Inspect/read/describe，不建立 Search 正文游标。视图绑定 Turn/profile 或 SDK generation/day lease，结束后失效。
 
 翻页只读取旧快照与旧评估，不重读来源、不重调模型。result 派生复用全部成员、顺序、内容、来源通道与缺失覆盖，清除旧评估和旧分数，再执行本次步骤；无步骤时不会调用模型。新模型步骤按请求正常调用模型。原视图不受派生操作影响，result 排除只比较冻结身份。
 

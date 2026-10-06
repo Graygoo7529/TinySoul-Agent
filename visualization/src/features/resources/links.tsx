@@ -234,7 +234,7 @@ interface ImgProps {
 
 type ImageResolution =
   | { kind: "external"; url: string }
-  | { kind: "workspace"; link: string; day: string | null }
+  | { kind: "workspace"; ref: string; day: string | null }
   | { kind: "reference"; reference: string }
   | { kind: "invalid"; reason: string };
 
@@ -247,14 +247,14 @@ async function resolveImageSource(
   if (kind === "external") return { kind: "external", url: src };
   if (kind === "workspace") {
     const { resource } = splitFragment(src);
-    return { kind: "workspace", link: resource, day: origin.day ?? null };
+    return { kind: "workspace", ref: resource, day: origin.day ?? null };
   }
   if (kind === "home" || kind === "memory" || kind === "memory-dynamic") {
     // Home/Memory expose no blob route; keep the reference visible.
     return { kind: "reference", reference: src };
   }
   if (kind === "relative") {
-    if (!origin.link) {
+    if (!origin.ref) {
       return {
         kind: "invalid",
         reason: "A relative image needs the resource it was read from.",
@@ -266,21 +266,21 @@ async function resolveImageSource(
     }
     try {
       const resolved = await clients.resources.resolve({
-        reference: src,
-        origin_link: origin.link,
+        ref: src,
+        origin_ref: origin.ref,
         day: origin.day,
         turn_id: origin.turnId,
         view: origin.homeView,
       });
       const link =
-        typeof resolved.locator.link === "string" ? resolved.locator.link : null;
+        typeof resolved.locator.ref === "string" ? resolved.locator.ref : null;
       if (link !== null && link.startsWith("workspace:")) {
         const { resource } = splitFragment(link);
         const day =
           typeof resolved.locator.day === "string" && resolved.locator.day !== ""
             ? resolved.locator.day
             : null;
-        return { kind: "workspace", link: resource, day };
+        return { kind: "workspace", ref: resource, day };
       }
       return { kind: "reference", reference: link ?? src };
     } catch (error) {
@@ -315,7 +315,7 @@ export function MarkdownImage({ src, alt }: ImgProps) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [epoch, src, origin.link, origin.day, origin.turnId, origin.homeView]);
+  }, [epoch, src, origin.ref, origin.day, origin.turnId, origin.homeView]);
 
   if (failed !== null) {
     return <ImageHint alt={alt} detail={failed} />;
@@ -339,7 +339,7 @@ export function MarkdownImage({ src, alt }: ImgProps) {
         />
       );
     case "workspace":
-      return <WorkspaceImage link={resolution.link} day={resolution.day} alt={alt} />;
+      return <WorkspaceImage resourceRef={resolution.ref} day={resolution.day} alt={alt} />;
     case "reference":
       return (
         <ReferenceImageHint epoch={epoch} reference={resolution.reference} alt={alt} origin={origin} />
@@ -351,17 +351,17 @@ export function MarkdownImage({ src, alt }: ImgProps) {
 
 /** An embedded workspace image through the authenticated blob client. */
 function WorkspaceImage({
-  link,
+  resourceRef,
   day,
   alt,
 }: {
-  link: string;
+  resourceRef: string;
   day: string | null;
   alt?: string;
 }) {
-  const blob = useWorkspaceBlobUrl(link, day);
+  const blob = useWorkspaceBlobUrl(resourceRef, day);
   if (blob.error !== null) {
-    return <ImageHint alt={alt} detail={blob.error} reference={link} />;
+    return <ImageHint alt={alt} detail={blob.error} reference={resourceRef} />;
   }
   if (blob.url === null) {
     return (

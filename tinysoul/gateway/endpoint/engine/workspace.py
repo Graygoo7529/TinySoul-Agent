@@ -32,7 +32,7 @@ class EndpointWorkspaceEngine:
     async def write_text(
         self,
         *,
-        link: str,
+        ref: str,
         text: str,
         overwrite: bool,
     ) -> JsonObject:
@@ -41,7 +41,7 @@ class EndpointWorkspaceEngine:
                 WorkspaceService
             ).operation() as workspace:
                 record = await workspace.write_text(
-                    link,
+                    ref,
                     text,
                     overwrite=overwrite,
                 )
@@ -53,7 +53,7 @@ class EndpointWorkspaceEngine:
     async def write_blob(
         self,
         *,
-        link: str,
+        ref: str,
         data: bytes,
         overwrite: bool,
     ) -> JsonObject:
@@ -70,7 +70,7 @@ class EndpointWorkspaceEngine:
                 result = await workspace.write_bundle(
                     (
                         WorkspaceBundleWrite(
-                            link=link,
+                            ref=ref,
                             data=data,
                             overwrite=overwrite,
                         ),
@@ -87,14 +87,14 @@ class EndpointWorkspaceEngine:
     async def trash_resource(
         self,
         *,
-        link: str,
+        ref: str,
     ) -> JsonObject:
         try:
             async with self._context.services.registry.get(
                 WorkspaceService
             ).operation() as workspace:
                 item = await workspace.trash_resource(
-                    link,
+                    ref,
                 )
                 manifest = await workspace.load_manifest()
                 return {
@@ -121,25 +121,25 @@ class EndpointWorkspaceEngine:
         except WorkspaceError as exc:
             raise _workspace_error(exc) from exc
 
-    async def mkdir(self, link: str) -> JsonObject:
-        return await self._resource_change(lambda workspace: workspace.mkdir(link))
+    async def mkdir(self, ref: str) -> JsonObject:
+        return await self._resource_change(lambda workspace: workspace.mkdir(ref))
 
-    async def move(self, link: str, target_link: str) -> JsonObject:
+    async def move(self, source_ref: str, target_ref: str) -> JsonObject:
         return await self._resource_change(
-            lambda workspace: workspace.move(link, target_link)
+            lambda workspace: workspace.move(source_ref, target_ref)
         )
 
-    async def tag(self, link: str, tags: tuple[WorkspaceTag, ...]) -> JsonObject:
-        return await self._resource_change(lambda workspace: workspace.tag(link, tags))
+    async def tag(self, ref: str, tags: tuple[WorkspaceTag, ...]) -> JsonObject:
+        return await self._resource_change(lambda workspace: workspace.tag(ref, tags))
 
-    async def edit(self, link: str, edits: tuple[WorkspaceTextEdit, ...]) -> JsonObject:
+    async def edit(self, ref: str, edits: tuple[WorkspaceTextEdit, ...]) -> JsonObject:
         return await self._resource_change(
-            lambda workspace: workspace.edit_text(link, edits)
+            lambda workspace: workspace.edit_text(ref, edits)
         )
 
-    async def append(self, link: str, text: str) -> JsonObject:
+    async def append(self, ref: str, text: str) -> JsonObject:
         return await self._resource_change(
-            lambda workspace: workspace.append_text(link, text)
+            lambda workspace: workspace.append_text(ref, text)
         )
 
     async def _resource_change(
@@ -176,8 +176,8 @@ def _workspace_error(error: WorkspaceError) -> EndpointRequestError:
         message="Workspace operation failed.",
         details={
             "error_type": type(error).__name__,
-            "committed_links": (
-                list(error.committed_links)
+            "committed_refs": (
+                list(error.committed_refs)
                 if isinstance(error, WorkspaceIOError)
                 else []
             ),

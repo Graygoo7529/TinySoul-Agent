@@ -1,6 +1,6 @@
 # 引用格式与渐进读取
 
-本文按维护者要求记录**目标格式**。公共语法、Home 显式类别和 Trace 共用根格式已确认，但代码、默认资源与前后端尚未完成迁移，不能将本文示例当作当前版本已支持的接口。实施与验证以[引用统一计划](<../analysis/20261006 引用体系梳理与统一执行计划.md>)和[上下文叙事计划](<../analysis/20261006 模型上下文叙事投影与引用语义统一执行计划.md>)为准；完成迁移后同步更新本文的落地状态。
+本文记录代码、默认资源和公共接口共同采用的引用格式。引用由各 owner 产生和解释；调用方保留完整字符串及有意义的日期、情景绑定，不自行构造路径或兼容别名。
 
 ## 设计意图与公共语法
 
@@ -63,9 +63,9 @@
 
 路径相对活动 Workspace，使用 `/`，目录规范引用不带末尾 `/`。文件与目录由 owner 判断，不通过文件扩展名或显示 label 猜测。
 
-完整 Workspace 搜索范围是范围选择器，不是空资源引用；目标设计以 `kind=workspace` 表达全范围，仅文件/目录范围携带精确 ref。普通模型不通过旧日 Workspace 字符串取得跨日读取能力。
+完整 Workspace 搜索范围是范围选择器，不是空资源引用；`{"kind":"workspace"}` 表达全范围，文件/目录范围使用 `{"kind":"file","ref":"workspace:docs/plan.md"}` 或 `{"kind":"directory","ref":"workspace:docs"}`。普通模型不通过旧日 Workspace 字符串取得跨日读取能力。
 
-读取方向是 `workspace.inspect`：无内部模型调用，按引用返回真实、有界的资源内容及覆盖说明。该 Action 尚在设计中，文本/目录、分页和 Action 结果保留契约见引用统一计划；现有 `workspace.read` 的后续去留不由本文提前决定。Working 仍只显示资源说明和引用，Inspect 正文通过实际 ActionResult 进入 Trace。
+`workspace.inspect` 无内部模型调用，按引用及可选片段返回真实正文。小文本完整返回，大文本按 continuation 和 max_chars 续页；目录给出直接子项的名称、说明与引用，非文本只返回类型和元数据并说明需要对应读取或转换能力。`workspace.read` 保留其原有行范围接口。Working 只显示资源说明和引用，Inspect 正文通过实际 ActionResult 进入 Trace。
 
 该读取结果采用有界折叠：实际返回的正文页先进入一次取得响应的主循环 Phase1/Phase2 的 LLM 请求，随后才可按容量移除正文展示层，保留资源说明、精确引用、请求/实际范围与执行状态。解除保护不立即触发折叠，也不表示模型已经理解或完成使用。Session 在 completion 时直接保存这一读取事实，与活动 Trace 是否曾折叠无关。回忆 Action 能理解当时读了什么；需要内容时再次 Inspect 当前资源。行范围或标题可能随文件更新而改变，不承诺恢复旧页，也不建立资源版本库。
 
@@ -132,6 +132,8 @@ Search result_handle 指向最终保留的完整集合，不只指当前页面�
 
 scope 中的 all/trace/session 等选择器，以及 question_id/job_id/call_id 等业务身份，不因为字符串可指代某物就自动获得 ref + Inspect 语义。
 
+Execution/ACP 的 cwd 参数还支持 `workspace:` 表示活动工作区根目录；这是已有 cwd 操作约定，不是可交给普通 Workspace Inspect 的空路径资源。发现整个 Workspace 仍使用 Search 的 `kind=workspace` 范围。
+
 ## continuation 的共同语义
 
 continuation 是“在同一读取接口继续取得后续内容”的不透明令牌，与 LLM 续写、JEV 判断或主循环的展示保护标记无关。调用者使用所属接口返回的令牌，owner 校验目标、读取条件及适用生命周期；不能在不同接口间交换令牌，也不能根据其编码拼造位置。
@@ -156,7 +158,7 @@ continuation 是“在同一读取接口继续取得后续内容”的不透明�
 
 已确认 request_id 与 Turn 身份分工：request_id 定位排队请求及其控制；正式 Turn 身份服务执行、Trace 和 Session 定位。正式 Turn 身份在活动日确定后分配，排队时不伪造已有 Turn 编号。模型侧正式引用保留日期，不支持省略日期的短格式或另一套显示 alias。
 
-日期 + 日内序号是目标编码，例如 `turn:trace/2026-10-06/42#entry/17`、`session:turn/2026-10-06/42#action/2`。日期表示所属 CalendarDay，不是请求接收日或 Reflection 来源日。Turn 内条目利用已有作用域分配不可重编号的局部身份。分配 owner、跨午夜排队、重启高水位及 request/Turn 消费者的具体修改记录在引用统一计划第 4.8、5.3 节；本文表格用 `<turn-id>` 表示正式身份整体，不宣告新编码已经实现。
+日期 + 日内序号是正式编码，例如 `turn:trace/2026-10-06/42#entry/17`、`session:turn/2026-10-06/42#action/2`。日期表示所属 CalendarDay，不是请求接收日或 Reflection 来源日。Turn 内条目利用已有作用域分配不可重编号的局部身份。Agent 日协调在实例的 `runtime/agent/turn-sequence.json` 保存日期和分配高水位，重启后继续分配，新日重新从 1 开始；Session 按日保存 `turns/<sequence>.json`。本文表格用 `<turn-id>` 表示正式身份整体。
 
 时间由真实 received_at/started_at 等事实解释，可以显示在引用旁，不由序号推算。时间戳方案的比较保留在执行计划，不再与正式引用省略日期混为一个选择。标题/说明与精确引用仍一起显示和折叠。
 

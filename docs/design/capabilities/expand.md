@@ -31,7 +31,7 @@ MCP 页面 GET 只读取 ExpandEngine 已发现目录和连接状态，不 conne
 
 Action 的受限 schema 只校验调用外壳；远端 inputSchema/outputSchema 交 infra/json 的标准 validator。支持默认 2020-12、2019-09 和 Draft 7，拒绝未支持的必需 vocabulary、非法 schema 和无法解析的引用；引用只在给定 schema 内解析，不联网抓取。超过完整定义上限的工具明确不可调用。协议 header 等传输语义由 SDK 处理。
 
-短文本与结构化内容有界返回，相同内容不重复投影。长文本、图片/音频和嵌入资源经 Workspace 写成 Link；总反馈过大时保存 result.json。外部 resource URI 保持外部身份，不自动抓取、不伪装 Workspace。原始 stdio 日志和诊断不进入 Context。
+短文本与结构化内容有界返回，相同内容不重复投影。长文本、图片/音频和嵌入资源经 Workspace 写成 引用；总反馈过大时保存 result.json。外部 resource URI 保持外部身份，不自动抓取、不伪装 Workspace。原始 stdio 日志和诊断不进入 Context。
 
 isError、参数不符、服务不可用和协议能力不足为局部结果；Workspace 写入失败、配置与必要关闭失败保留 owner bridge。写调用超时或断流返回结果未知，可能已产生副作用，不自动重放。取消交 Action 执行事实处理，不伪造工具响应。现代 input-required 自动续交次数为零，不启动隐藏的授权、sampling 或 elicitation 流程。
 

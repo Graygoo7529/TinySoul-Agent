@@ -13,6 +13,7 @@
  */
 
 import { create } from "zustand";
+import { useConnectionStore } from "./connectionStore";
 
 import type {
   Interaction,
@@ -35,8 +36,8 @@ export interface OutgoingEcho {
   /** The identity sent with the request (command_id or input_id). */
   echoId: string;
   kind: EchoKind;
-  /** The accepting turn, known once the receipt arrived. */
-  turnId: string | null;
+  /** Root request accepting this input. */
+  requestId: string | null;
   /** Set for replies: formal reply items converge through it. */
   questionId: string | null;
   /** The text as the user entered it (replies render their choice). */
@@ -70,6 +71,8 @@ export interface RuntimeTurnProjection {
 }
 
 export interface TurnStoreState {
+  requestId: string | null;
+  openRequest: (requestId: string, day: string | null) => number;
   /** The turn the chat view renders; null when showing only the day list. */
   turnId: string | null;
   /** The owning day of the displayed turn. */
@@ -150,6 +153,7 @@ export interface TurnStoreState {
 }
 
 const initialTurnProjection: {
+  requestId: string | null;
   turnId: string | null;
   day: string | null;
   source: TurnProjectionSource | null;
@@ -164,6 +168,7 @@ const initialTurnProjection: {
   readError: string | null;
   takeoverPending: boolean;
 } = {
+  requestId: null,
   turnId: null,
   day: null,
   source: null,
@@ -191,11 +196,20 @@ export const useTurnStore = create<TurnStoreState>()((set, get) => ({
   focusTurnId: null,
   setRuntimeTurns: (runtimeTurns) => set((state) => ({
     runtimeTurns,
-    runtimeProjections: Object.fromEntries(Object.entries(state.runtimeProjections).filter(([id]) => runtimeTurns.some((turn) => turn.turn_id === id))),
+    runtimeProjections: Object.fromEntries(Object.entries(state.runtimeProjections).filter(([id]) => runtimeTurns.some((turn) => (turn.turn_id ?? turn.request_id) === id))),
   })),
-  setRuntimeProjection: (projection) => set((state) => ({ runtimeProjections: { ...state.runtimeProjections, [projection.snapshot.turn_id]: projection } })),
+  setRuntimeProjection: (projection) => set((state) => ({ runtimeProjections: {
+    ...Object.fromEntries(Object.entries(state.runtimeProjections).filter(([, value]) => value.snapshot.request_id !== projection.snapshot.request_id)),
+    [projection.snapshot.turn_id ?? projection.snapshot.request_id]: projection,
+  } })),
   focusTurn: (focusTurnId) => set({ focusTurnId }),
   outgoing: [],
+
+  openRequest: (requestId, day) => {
+    const readEpoch = get().readEpoch + 1;
+    set({ ...initialTurnProjection, requestId, day, source: "live", loading: true, readEpoch });
+    return readEpoch;
+  },
 
   openTurn: (turnId, day, source, options) => {
     const readEpoch = get().readEpoch + 1;
@@ -221,7 +235,7 @@ export const useTurnStore = create<TurnStoreState>()((set, get) => ({
 
   applySnapshot: (snapshot) =>
     set((state) =>
-      state.turnId === snapshot.turn_id ? { snapshot } : state,
+      state.requestId === snapshot.request_id ? { snapshot, turnId: snapshot.turn_id } : state,
     ),
 
   applyProjection: (epoch, projection) => {
@@ -298,4 +312,23 @@ export function selectBudgetRequest(state: TurnStoreState) {
   const snapshot = state.snapshot;
   if (!snapshot || snapshot.state !== "waiting") return null;
   return snapshot.budget_request;
+}
+
+/** Resolve a formal Turn identity to its retained request for live HTTP operations. */
+export function findRequestIdForTurn(turnId: string): string | null {
+  const state = useTurnStore.getState();
+  if (state.snapshot?.turn_id === turnId) return state.snapshot.request_id;
+  const retained = state.runtimeTurns.find((entry) => entry.turn_id === turnId);
+  if (retained) return retained.request_id;
+  const projection = state.runtimeProjections[turnId];
+  if (projection) return projection.snapshot.request_id;
+  const status = useConnectionStore.getState().status?.runtime;
+  if (status?.active_turn_id === turnId && status.active_request_id) return status.active_request_id;
+  return null;
+}
+
+export function requestIdForTurn(turnId: string): string {
+  const requestId = findRequestIdForTurn(turnId);
+  if (requestId === null) throw new Error("This Turn no longer has a retained request.");
+  return requestId;
 }

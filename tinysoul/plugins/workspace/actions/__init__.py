@@ -14,6 +14,7 @@ from .operations import WorkspaceExecutor
 WORKSPACE_ACTIONS = (
     "workspace.list",
     "workspace.search",
+    "workspace.inspect",
     "workspace.read",
     "workspace.write",
     "workspace.edit",

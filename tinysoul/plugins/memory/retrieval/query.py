@@ -8,24 +8,24 @@ from hashlib import sha256
 
 from ..documents import PersistentMemoryDocument, StoredMemoryDocument
 from ..errors import MemoryContractError, MemoryInvariantError
-from ..links import MemoryLink
+from ..refs import MemoryRef
 
 
 from .models import MemoryCatalogSnapshot
 
 
-def _structured_links(document: PersistentMemoryDocument) -> tuple[MemoryLink, ...]:
-    values: list[MemoryLink] = []
+def _structured_refs(document: PersistentMemoryDocument) -> tuple[MemoryRef, ...]:
+    values: list[MemoryRef] = []
     for name in ("relations", "evidence"):
         values.extend(getattr(document, name, ()))
     redirect = getattr(document, "redirect_to", None)
-    if isinstance(redirect, MemoryLink):
+    if isinstance(redirect, MemoryRef):
         values.append(redirect)
     return _unique(values)
 
 
 def _validate_redirects(
-    documents: Mapping[MemoryLink, StoredMemoryDocument],
+    documents: Mapping[MemoryRef, StoredMemoryDocument],
     *,
     max_hops: int,
 ) -> None:
@@ -44,26 +44,26 @@ def _validate_redirects(
                 raise MemoryInvariantError(
                     f"Memory redirect target is missing: {current}"
                 )
-            next_link = getattr(target.document, "redirect_to", None)
-            if next_link is None:
+            next_ref = getattr(target.document, "redirect_to", None)
+            if next_ref is None:
                 if target.document.status.value != "active":
                     raise MemoryInvariantError(
                         f"Memory redirect does not resolve to active: {source}"
                     )
                 break
-            current = next_link
+            current = next_ref
         else:
             raise MemoryInvariantError(f"Memory redirect exceeds hop limit: {source}")
 
 
 def _redirect_chain(
-    documents: Mapping[MemoryLink, StoredMemoryDocument],
-    link: MemoryLink,
+    documents: Mapping[MemoryRef, StoredMemoryDocument],
+    ref: MemoryRef,
     *,
     max_hops: int,
-) -> tuple[MemoryLink, ...]:
-    chain: list[MemoryLink] = []
-    current = link
+) -> tuple[MemoryRef, ...]:
+    chain: list[MemoryRef] = []
+    current = ref
     for _ in range(max_hops + 1):
         stored = documents.get(current)
         if stored is None:
@@ -73,17 +73,17 @@ def _redirect_chain(
         if redirect is None:
             return tuple(chain)
         current = redirect
-    raise MemoryInvariantError(f"Memory redirect exceeds hop limit: {link}")
+    raise MemoryInvariantError(f"Memory redirect exceeds hop limit: {ref}")
 
 
 def resolve_redirect(
     snapshot: MemoryCatalogSnapshot,
-    link: MemoryLink,
+    ref: MemoryRef,
     *,
     max_hops: int,
-) -> tuple[MemoryLink, ...]:
-    chain: list[MemoryLink] = []
-    current = link
+) -> tuple[MemoryRef, ...]:
+    chain: list[MemoryRef] = []
+    current = ref
     for _ in range(max_hops + 1):
         entry = snapshot.require(current)
         chain.append(current)
@@ -92,11 +92,11 @@ def resolve_redirect(
         if entry.redirect_to is None:
             raise MemoryInvariantError(f"Memory redirect is unresolved: {current}")
         current = entry.redirect_to
-    raise MemoryInvariantError(f"Memory redirect exceeds hop limit: {link}")
+    raise MemoryInvariantError(f"Memory redirect exceeds hop limit: {ref}")
 
 
-def _unique(values: Sequence[MemoryLink]) -> tuple[MemoryLink, ...]:
-    result: list[MemoryLink] = []
+def _unique(values: Sequence[MemoryRef]) -> tuple[MemoryRef, ...]:
+    result: list[MemoryRef] = []
     for value in values:
         if value not in result:
             result.append(value)
@@ -104,5 +104,5 @@ def _unique(values: Sequence[MemoryLink]) -> tuple[MemoryLink, ...]:
 
 
 def _generation(stored: Sequence[StoredMemoryDocument]) -> str:
-    material = "\n".join(f"{item.link}:{item.digest}" for item in stored)
+    material = "\n".join(f"{item.ref}:{item.digest}" for item in stored)
     return sha256(material.encode("utf-8")).hexdigest()[:24]

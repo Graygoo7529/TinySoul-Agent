@@ -7,7 +7,7 @@
  * through /v2/config/actions (literal/regex only where the owner exposes
  * them; select/rerank only when allowed with context=none). Results freeze
  * on screen — turning pages posts only the continuation token, refinements
- * derive from the frozen result_ref with exactly one more step, and a day or
+ * derive from the frozen result_handle with exactly one more step, and a day or
  * generation change marks the results stale instead of silently re-running
  * model steps.
  */
@@ -80,7 +80,7 @@ export interface SearchPanelProps {
    * Optional current-document anchor: when the owner declares a document
    * query, the panel offers "related documents" searches against it.
    */
-  documentAnchor?: { link: string; label: string } | null;
+  documentAnchor?: { ref: string; label: string } | null;
   onClose: () => void;
 }
 
@@ -161,13 +161,13 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
                   ...current,
                   items: [...current.items, ...page.items],
                   continuation: page.continuation ?? null,
-                  resultRef: page.result_ref ?? current.resultRef,
+                  resultRef: page.result_handle ?? current.resultRef,
                   coverageNote: coverageNoteOf(page),
                 }
               : {
                   items: page.items,
                   continuation: page.continuation ?? null,
-                  resultRef: page.result_ref ?? null,
+                  resultRef: page.result_handle ?? null,
                   coverageNote: coverageNoteOf(page),
                   boundEpoch: epoch,
                   boundIdentity: identityKey,
@@ -226,7 +226,7 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
       ? Math.min(DEFAULT_PAGE_LIMIT, capabilities.pageMaxItems)
       : DEFAULT_PAGE_LIMIT;
     submit(
-      buildDocumentQueryRequest(scopeChoice.value, documentAnchor.link, limit),
+      buildDocumentQueryRequest(scopeChoice.value, documentAnchor.ref, limit),
       "search",
     );
   };
@@ -410,7 +410,7 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
                     loading={busy === "search"}
                     disabled={staleResults}
                     onClick={startDocumentQuery}
-                    title={documentAnchor.link}
+                    title={documentAnchor.ref}
                   >
                     <Search size={11} />
                     Find documents related to {documentAnchor.label}

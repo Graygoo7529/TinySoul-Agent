@@ -6,12 +6,12 @@ description = "Remove one resource from the active Workspace by moving it to rec
 
 [tool.schema]
 type = "object"
-required = ["target_link"]
+required = ["target_ref"]
 additionalProperties = false
 
-[tool.schema.properties.target_link]
+[tool.schema.properties.target_ref]
 type = "string"
-description = "Target workspace resource link such as workspace:docs/task.md."
+description = "Target workspace resource ref such as workspace:docs/task.md."
 
 [semantic]
 use_when = ["Need to remove a workspace resource that is no longer useful"]

@@ -54,7 +54,7 @@ class WebDiscoveryResult:
 class WebFetchResult:
     """Committed Workspace Markdown from one fetched public page."""
 
-    markdown_link: str
+    markdown_ref: str
     extractor: WebExtractor
     title: str
     excerpt: str
@@ -65,8 +65,8 @@ class WebFetchResult:
     warning_codes: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        if not self.markdown_link:
-            raise WebContractError("Web fetch Markdown link must be non-empty")
+        if not self.markdown_ref:
+            raise WebContractError("Web fetch Markdown ref must be non-empty")
         if not isinstance(self.extractor, WebExtractor):
             raise WebContractError("Web fetch extractor is invalid")
         if self.content_chars <= 0 or self.remote_image_count < 0:

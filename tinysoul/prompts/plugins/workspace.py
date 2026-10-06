@@ -68,8 +68,8 @@ ANALYSIS_INTENT_REQUIRED = "workspace.analyze requires a non-empty 'intent' para
 ANALYSIS_INTENT_TOO_LONG = "workspace.analyze intent exceeds its size limit."
 
 # Local model feedback. Used by plugins/workspace/actions/analysis.py:execute.
-ANALYSIS_REFERENCE_LINKS_REQUIRED = (
-    "workspace.analyze reference_links must be a non-empty string array."
+ANALYSIS_REFERENCE_REFS_REQUIRED = (
+    "workspace.analyze references must be a non-empty string array."
 )
 
 # Local model feedback. Used by plugins/workspace/actions/analysis.py:execute.
@@ -176,26 +176,86 @@ UNKNOWN_ARCHIVED_WORKSPACE_REFERENCE = "Unknown archived Workspace reference"
 ARCHIVED_RESOURCE_CANNOT_BE_READ_AS_TEXT = "Archived resource cannot be read as text"
 
 # Local model feedback. Used by plugins/workspace/prompts.py:_resolve.
-REFERENCE_LINK_REQUIRED = "Workspace prompt reference requires a non-empty link."
+REFERENCE_REF_REQUIRED = "Workspace prompt reference requires a non-empty ref."
 
 # Local model feedback. Used by plugins/workspace/prompts.py:_resolve.
-WORKSPACE_REFERENCE_REQUIRED = "Workspace prompt reference requires a workspace link."
-
-
-# Local model feedback. Used by plugins/workspace/prompts.py:_resolve.
-def reference_requires_conversion(*, link: str) -> str:
-    return f"Workspace document requires conversion before prompt use: {link}"
+WORKSPACE_REFERENCE_REQUIRED = "Workspace prompt reference requires a workspace ref."
 
 
 # Local model feedback. Used by plugins/workspace/prompts.py:_resolve.
-def unsupported_binary_reference(*, link: str) -> str:
-    return f"Workspace binary resource cannot be loaded into a prompt: {link}"
+def reference_requires_conversion(*, ref: str) -> str:
+    return f"Workspace document requires conversion before prompt use: {ref}"
 
 
 # Local model feedback. Used by plugins/workspace/prompts.py:_resolve.
-def invalid_image_reference(*, link: str) -> str:
-    return f"Workspace image resource is invalid: {link}"
+def unsupported_binary_reference(*, ref: str) -> str:
+    return f"Workspace binary resource cannot be loaded into a prompt: {ref}"
+
+
+# Local model feedback. Used by plugins/workspace/prompts.py:_resolve.
+def invalid_image_reference(*, ref: str) -> str:
+    return f"Workspace image resource is invalid: {ref}"
 
 
 # Local model feedback. Used by plugins/workspace/prompts.py:_resolve.
 REFERENCE_UNAVAILABLE = "Workspace prompt reference is unavailable or invalid."
+INSPECT_CONTINUATION_INVALID = (
+    "This continuation no longer matches the resource; inspect its reference again."
+)
+INSPECT_METADATA_ONLY = "Metadata only; the body has not been read. Choose a compatible resource reading or conversion action from the available capabilities."
+
+
+def inspect_result(title: str, ref: str, summary: str, content: str) -> str:
+    """Consumer: plugins/workspace/actions/operations.py."""
+    return f"Read {title} ({ref})\n{summary}\n\n{content}"
+
+
+def inspect_continuation(token: str) -> str:
+    """Consumer: plugins/workspace/actions/operations.py."""
+    return (
+        f"More content is available. Continue this Inspect with continuation: {token}"
+    )
+
+
+def inspect_recollection(
+    title: str,
+    ref: str,
+    summary: str,
+    coverage: str,
+    has_more: bool,
+    content_read: bool,
+) -> str:
+    """Consumer: plugins/workspace/actions/operations.py."""
+    state = (
+        "The returned content has been folded; inspect the resource again for its current content."
+        if content_read
+        else "The resource body was not read."
+    )
+    return f"Inspected {title} ({ref}). {summary}\n{coverage}\nMore content: {has_more}. {state}"
+
+
+def workspace_directory(entries: tuple[tuple[str, str], ...]) -> str:
+    """Consumer: plugins/workspace/projection.py."""
+    return "Current Workspace resources\n" + (
+        "\n".join(f"- {summary} ({ref})" for ref, summary in entries) or "No resources."
+    )
+
+
+def inspect_coverage(ref: str, start: str, end: str) -> str:
+    """Consumer: plugins/workspace/actions/operations.py."""
+    return f"Returned range: {ref}; characters {start} to {end} within the selected section."
+
+
+def inspect_metadata(kind: str, media_type: str, size: str) -> str:
+    """Consumer: plugins/workspace/actions/operations.py."""
+    return f"Resource type: {kind}; media type: {media_type}; size: {size} bytes."
+
+
+def inspect_directory_coverage(refs: tuple[str, ...], partial_item: bool) -> str:
+    """Consumer: plugins/workspace/actions/operations.py."""
+    return f"Returned directory entries: {', '.join(refs) or 'none complete'}. Partial entry: {partial_item}."
+
+
+def inspect_page_budget(max_chars: int) -> str:
+    """Consumer: plugins/workspace/actions/operations.py."""
+    return f"This page budget cannot hold the resource metadata and content. Increase max_chars, up to the configured Workspace limit of {max_chars}."

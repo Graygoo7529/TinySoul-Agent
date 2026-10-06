@@ -58,8 +58,8 @@ function setup(status = makeStatus()) {
 }
 
 function activateTurn(endpoint: FakeEndpoint, epoch: number) {
-  endpoint.get("/v2/turns/contract-turn", () => jsonResponse(runningSnapshot()));
-  endpoint.get("/v2/turns/contract-turn/interactions", () =>
+  endpoint.get("/v2/requests/contract-turn", () => jsonResponse(runningSnapshot()));
+  endpoint.get("/v2/requests/contract-turn/interactions", () =>
     jsonResponse(makeInteractionsPage()),
   );
   useConnectionStore
@@ -73,8 +73,8 @@ function activateTurn(endpoint: FakeEndpoint, epoch: number) {
 
 /** Open the contract turn live with one already-read user input. */
 async function openLiveTurn(endpoint: FakeEndpoint, epoch: number) {
-  endpoint.get("/v2/turns/contract-turn", () => jsonResponse(runningSnapshot()));
-  endpoint.get("/v2/turns/contract-turn/interactions", () =>
+  endpoint.get("/v2/requests/contract-turn", () => jsonResponse(runningSnapshot()));
+  endpoint.get("/v2/requests/contract-turn/interactions", () =>
     jsonResponse(
       makeInteractionsPage({
         items: [
@@ -97,8 +97,8 @@ async function openLiveTurn(endpoint: FakeEndpoint, epoch: number) {
 }
 
 async function openWaitingTurn(endpoint: FakeEndpoint, epoch: number) {
-  endpoint.get("/v2/turns/contract-turn", () => jsonResponse(waitingSnapshot()));
-  endpoint.get("/v2/turns/contract-turn/interactions", () =>
+  endpoint.get("/v2/requests/contract-turn", () => jsonResponse(waitingSnapshot()));
+  endpoint.get("/v2/requests/contract-turn/interactions", () =>
     jsonResponse(
       makeInteractionsPage({ items: [questionInteractionFixture()] }),
     ),
@@ -137,20 +137,21 @@ describe("sendUserMessage: new turn", () => {
   it("converges echo → receipt → formal user.input without a duplicate", async () => {
     const { endpoint, epoch } = setup();
     let createBody: Record<string, unknown>;
-    endpoint.post("/v2/turns", (request) => {
+    endpoint.post("/v2/requests", (request) => {
       createBody = bodyJson(request) as Record<string, unknown>;
       return jsonResponse({
         accepted: true,
         command_id: createBody.command_id,
-        turn_id: "contract-turn",
+        request_id: "contract-turn",
+          turn_id: "contract-turn",
         state: "queued",
         kind: "user",
       });
     });
-    endpoint.get("/v2/turns/contract-turn", () =>
+    endpoint.get("/v2/requests/contract-turn", () =>
       jsonResponse(runningSnapshot()),
     );
-    endpoint.get("/v2/turns/contract-turn/interactions", () =>
+    endpoint.get("/v2/requests/contract-turn/interactions", () =>
       jsonResponse(
         makeInteractionsPage({
           items: [
@@ -177,7 +178,7 @@ describe("sendUserMessage: new turn", () => {
     const echo = turnState().outgoing[0]!;
     expect(echo.kind).toBe("new-turn");
     expect(echo.state).toBe("accepted");
-    expect(echo.turnId).toBe("contract-turn");
+    expect(echo.requestId).toBe("contract-turn");
     expect(createBody!.command_id).toBe(echo.echoId);
     expect(createBody!.metadata).toEqual({ client_message_id: echo.echoId });
 
@@ -200,7 +201,7 @@ describe("sendUserMessage: new turn", () => {
   it("keeps the echo in sending state while the request is in flight", async () => {
     const { endpoint, epoch } = setup();
     const pending = deferred<Response>();
-    endpoint.post("/v2/turns", () => pending.promise);
+    endpoint.post("/v2/requests", () => pending.promise);
 
     const sentPromise = sendUserMessage(epoch, "hello");
     const echo = turnState().outgoing[0]!;
@@ -211,7 +212,8 @@ describe("sendUserMessage: new turn", () => {
       jsonResponse({
         accepted: true,
         command_id: echo.echoId,
-        turn_id: "t-new",
+        request_id: "t-new",
+          turn_id: "t-new",
         state: "queued",
         kind: "user",
       }),
@@ -219,13 +221,13 @@ describe("sendUserMessage: new turn", () => {
     expect(await sentPromise).toBe(true);
     expect(turnState().outgoing[0]).toMatchObject({
       state: "accepted",
-      turnId: "t-new",
+      requestId: "t-new",
     });
   });
 
   it("agent.queue_full keeps the draft; manual retry reuses the same identity", async () => {
     const { endpoint, epoch } = setup();
-    endpoint.post("/v2/turns", () => errorResponse(429, "agent.queue_full"));
+    endpoint.post("/v2/requests", () => errorResponse(429, "agent.queue_full"));
 
     const sent = await sendUserMessage(epoch, "hold this thought");
     expect(sent).toBe(false);
@@ -236,32 +238,33 @@ describe("sendUserMessage: new turn", () => {
 
     // No automatic retry, no retargeting — time passes, nothing is re-sent.
     await vi.advanceTimersByTimeAsync(5000);
-    expect(endpoint.calls("/v2/turns", "POST")).toHaveLength(1);
+    expect(endpoint.calls("/v2/requests", "POST")).toHaveLength(1);
 
     let retryBody: Record<string, unknown>;
-    endpoint.post("/v2/turns", (request) => {
+    endpoint.post("/v2/requests", (request) => {
       retryBody = bodyJson(request) as Record<string, unknown>;
       return jsonResponse({
         accepted: true,
         command_id: echo.echoId,
-        turn_id: "t-new",
+        request_id: "t-new",
+          turn_id: "t-new",
         state: "queued",
         kind: "user",
       });
     });
     await retryEcho(epoch, echo.echoId);
-    expect(endpoint.calls("/v2/turns", "POST")).toHaveLength(2);
+    expect(endpoint.calls("/v2/requests", "POST")).toHaveLength(2);
     expect(retryBody!.command_id).toBe(echo.echoId);
     expect(retryBody!.metadata).toEqual({ client_message_id: echo.echoId });
     expect(turnState().outgoing[0]).toMatchObject({
       state: "accepted",
-      turnId: "t-new",
+      requestId: "t-new",
     });
   });
 
   it("an unknown network result keeps the text and does not refresh blindly", async () => {
     const { endpoint, epoch } = setup();
-    endpoint.post("/v2/turns", () => {
+    endpoint.post("/v2/requests", () => {
       throw new TypeError("socket closed");
     });
 
@@ -304,7 +307,7 @@ describe("sendUserMessage: append to the active turn", () => {
 
     let stage: "empty" | "pending" | "formal" = "empty";
     let inputBody: Record<string, unknown>;
-    endpoint.post("/v2/turns/contract-turn/input", (request) => {
+    endpoint.post("/v2/requests/contract-turn/input", (request) => {
       inputBody = bodyJson(request) as Record<string, unknown>;
       return jsonResponse({
         accepted: true,
@@ -312,7 +315,7 @@ describe("sendUserMessage: append to the active turn", () => {
         sequence: 7,
       });
     });
-    endpoint.on("GET", "/v2/turns/contract-turn/interactions", () => {
+    endpoint.on("GET", "/v2/requests/contract-turn/interactions", () => {
       const inputId = inputBody?.input_id as string | undefined;
       if (stage === "pending" && inputId) {
         return jsonResponse(
@@ -347,7 +350,7 @@ describe("sendUserMessage: append to the active turn", () => {
     // Receipt accepted: echo waits for its projection; the automatic refresh
     // (stage empty) changes nothing yet.
     await vi.waitFor(() => {
-      expect(endpoint.calls("/v2/turns/contract-turn/interactions")).toHaveLength(1);
+      expect(endpoint.calls("/v2/requests/contract-turn/interactions")).toHaveLength(1);
     });
     expect(turnState().outgoing.map((echo) => echo.echoId)).toEqual([echoId]);
     expect(turnState().outgoing[0]!.state).toBe("accepted");
@@ -373,7 +376,7 @@ describe("sendUserMessage: append to the active turn", () => {
   it("treats a duplicate receipt (accepted=false) as already converged", async () => {
     const { endpoint, epoch } = setup();
     await activateTurn(endpoint, epoch);
-    endpoint.post("/v2/turns/contract-turn/input", (request) => {
+    endpoint.post("/v2/requests/contract-turn/input", (request) => {
       const body = bodyJson(request) as Record<string, unknown>;
       return jsonResponse({
         accepted: false,
@@ -392,7 +395,7 @@ describe("sendUserMessage: append to the active turn", () => {
   it("turn.inbox_full keeps the draft; retry posts to the same turn and id", async () => {
     const { endpoint, epoch } = setup();
     await activateTurn(endpoint, epoch);
-    endpoint.post("/v2/turns/contract-turn/input", () =>
+    endpoint.post("/v2/requests/contract-turn/input", () =>
       errorResponse(429, "turn.inbox_full"),
     );
 
@@ -404,10 +407,10 @@ describe("sendUserMessage: append to the active turn", () => {
     expect(echo.text).toBe("hold this");
 
     await vi.advanceTimersByTimeAsync(5000);
-    expect(endpoint.calls("/v2/turns/contract-turn/input", "POST")).toHaveLength(1);
+    expect(endpoint.calls("/v2/requests/contract-turn/input", "POST")).toHaveLength(1);
 
     let retryBody: Record<string, unknown>;
-    endpoint.post("/v2/turns/contract-turn/input", (request) => {
+    endpoint.post("/v2/requests/contract-turn/input", (request) => {
       retryBody = bodyJson(request) as Record<string, unknown>;
       return jsonResponse({
         accepted: true,
@@ -416,7 +419,7 @@ describe("sendUserMessage: append to the active turn", () => {
       });
     });
     await retryEcho(epoch, echo.echoId);
-    expect(endpoint.calls("/v2/turns/contract-turn/input", "POST")).toHaveLength(2);
+    expect(endpoint.calls("/v2/requests/contract-turn/input", "POST")).toHaveLength(2);
     expect(retryBody!.input_id).toBe(echo.echoId);
     expect(turnState().outgoing[0]!.state).toBe("accepted");
   });
@@ -439,7 +442,7 @@ describe("questions", () => {
     const question = selectPendingQuestion(turnState())!;
 
     let replyBody: Record<string, unknown>;
-    endpoint.post("/v2/turns/contract-turn/reply", (request) => {
+    endpoint.post("/v2/requests/contract-turn/reply", (request) => {
       replyBody = bodyJson(request) as Record<string, unknown>;
       return jsonResponse({
         accepted: true,
@@ -466,7 +469,7 @@ describe("questions", () => {
     expect(echo.state).toBe("accepted");
 
     // The formal reply interaction converges the echo — exactly one answer.
-    endpoint.on("GET", "/v2/turns/contract-turn/interactions", () =>
+    endpoint.on("GET", "/v2/requests/contract-turn/interactions", () =>
       jsonResponse(
         makeInteractionsPage({
           ref: "session:turn/contract-turn",
@@ -487,7 +490,7 @@ describe("questions", () => {
     const question = selectPendingQuestion(turnState())!;
 
     let replyBody: Record<string, unknown>;
-    endpoint.post("/v2/turns/contract-turn/reply", (request) => {
+    endpoint.post("/v2/requests/contract-turn/reply", (request) => {
       replyBody = bodyJson(request) as Record<string, unknown>;
       return jsonResponse({
         accepted: true,
@@ -514,7 +517,7 @@ describe("questions", () => {
     const { endpoint, epoch } = setup();
     await openWaitingTurn(endpoint, epoch);
     const question = selectPendingQuestion(turnState())!;
-    endpoint.post("/v2/turns/contract-turn/reply", () =>
+    endpoint.post("/v2/requests/contract-turn/reply", () =>
       jsonResponse({
         accepted: false,
         record_id: "reply_action_result_1",
@@ -542,7 +545,7 @@ describe("questions", () => {
     const { endpoint, epoch } = setup();
     await openWaitingTurn(endpoint, epoch);
     const question = selectPendingQuestion(turnState())!;
-    endpoint.post("/v2/turns/contract-turn/reply", () =>
+    endpoint.post("/v2/requests/contract-turn/reply", () =>
       errorResponse(409, "turn.command_rejected"),
     );
 
@@ -564,7 +567,7 @@ describe("budget and cancel", () => {
     const { endpoint, epoch } = setup();
     await openWaitingTurn(endpoint, epoch);
     let grantBody: Record<string, unknown>;
-    endpoint.post("/v2/turns/contract-turn/grant", (request) => {
+    endpoint.post("/v2/requests/contract-turn/grant", (request) => {
       grantBody = bodyJson(request) as Record<string, unknown>;
       return jsonResponse({
         accepted: true,
@@ -575,13 +578,13 @@ describe("budget and cancel", () => {
 
     const granted = await grantBudget(epoch, "contract-turn", "budget_1", 5);
     expect(granted).toBe(true);
-    expect(grantBody!).toEqual({ request_id: "budget_1", count: 5 });
+    expect(grantBody!).toEqual({ budget_request_id: "budget_1", count: 5 });
   });
 
   it("reports a vanished budget request as info, not an error", async () => {
     const { endpoint, epoch } = setup();
     await openWaitingTurn(endpoint, epoch);
-    endpoint.post("/v2/turns/contract-turn/grant", () =>
+    endpoint.post("/v2/requests/contract-turn/grant", () =>
       errorResponse(409, "turn.command_rejected"),
     );
 
@@ -603,18 +606,18 @@ describe("budget and cancel", () => {
   it("sends the cancel intent for the active turn", async () => {
     const { endpoint, epoch } = setup();
     await activateTurn(endpoint, epoch);
-    endpoint.post("/v2/turns/contract-turn/cancel", () =>
+    endpoint.post("/v2/requests/contract-turn/cancel", () =>
       jsonResponse({ accepted: true, turn_id: "contract-turn" }),
     );
 
     await cancelActiveTurn(epoch);
-    expect(endpoint.calls("/v2/turns/contract-turn/cancel", "POST")).toHaveLength(1);
+    expect(endpoint.calls("/v2/requests/contract-turn/cancel", "POST")).toHaveLength(1);
   });
 
   it("treats a rejected cancel as stale state, not an error", async () => {
     const { endpoint, epoch } = setup();
     await activateTurn(endpoint, epoch);
-    endpoint.post("/v2/turns/contract-turn/cancel", () =>
+    endpoint.post("/v2/requests/contract-turn/cancel", () =>
       errorResponse(409, "turn.command_rejected"),
     );
 
@@ -627,7 +630,7 @@ describe("budget and cancel", () => {
   it("surfaces a network failure of the cancel intent", async () => {
     const { endpoint, epoch } = setup();
     await activateTurn(endpoint, epoch);
-    endpoint.post("/v2/turns/contract-turn/cancel", () => {
+    endpoint.post("/v2/requests/contract-turn/cancel", () => {
       throw new TypeError("socket closed");
     });
 
@@ -642,7 +645,7 @@ describe("Session take-over of a finished turn", () => {
   /** Finish the displayed live turn; the Session commit lags behind. */
   async function finishTurn(endpoint: FakeEndpoint, epoch: number) {
     useConnectionStore.getState().applyStatus(epoch, makeStatus());
-    endpoint.on("GET", "/v2/turns/contract-turn", () =>
+    endpoint.on("GET", "/v2/requests/contract-turn", () =>
       jsonResponse(finishedSnapshot()),
     );
     endpoint.get("/v2/session/turns", () =>
@@ -655,7 +658,7 @@ describe("Session take-over of a finished turn", () => {
     await openLiveTurn(endpoint, epoch);
     let historyReady = false;
     await finishTurn(endpoint, epoch);
-    endpoint.on("GET", "/v2/turns/contract-turn/interactions", () =>
+    endpoint.on("GET", "/v2/requests/contract-turn/interactions", () =>
       jsonResponse(
         historyReady
           ? sessionTurnPage()
@@ -688,7 +691,7 @@ describe("Session take-over of a finished turn", () => {
     expect(turn.items.map((item) => item.text)).toEqual([
       "Run the prepared job and ask before proceeding",
     ]);
-    expect(endpoint.calls("/v2/turns/contract-turn/interactions")).toHaveLength(2);
+    expect(endpoint.calls("/v2/requests/contract-turn/interactions")).toHaveLength(2);
   });
 
   it("bounds the take-over retries, keeps content, then a manual retry succeeds", async () => {
@@ -696,7 +699,7 @@ describe("Session take-over of a finished turn", () => {
     await openLiveTurn(endpoint, epoch);
     let historyReady = false;
     await finishTurn(endpoint, epoch);
-    endpoint.on("GET", "/v2/turns/contract-turn/interactions", () =>
+    endpoint.on("GET", "/v2/requests/contract-turn/interactions", () =>
       jsonResponse(
         historyReady
           ? sessionTurnPage()
@@ -710,7 +713,7 @@ describe("Session take-over of a finished turn", () => {
 
     await syncFromStatus(epoch);
     const reads = () =>
-      endpoint.calls("/v2/turns/contract-turn/interactions").length;
+      endpoint.calls("/v2/requests/contract-turn/interactions").length;
     expect(reads()).toBe(1);
 
     // Bounded schedule: 400ms, 900ms, 2000ms, 4000ms — then it stops.
@@ -746,10 +749,10 @@ describe("Session take-over of a finished turn", () => {
   it("falls back to the Session owner when the retained turn handle is gone", async () => {
     const { endpoint, epoch } = setup();
     await openLiveTurn(endpoint, epoch);
-    endpoint.on("GET", "/v2/turns/contract-turn", () =>
+    endpoint.on("GET", "/v2/requests/contract-turn", () =>
       errorResponse(404, "turn.not_found"),
     );
-    endpoint.on("GET", "/v2/turns/contract-turn/interactions", () =>
+    endpoint.on("GET", "/v2/requests/contract-turn/interactions", () =>
       errorResponse(404, "turn.not_found"),
     );
     endpoint.get("/v2/session/turns/contract-turn", (request) => {
@@ -780,10 +783,10 @@ describe("Session take-over of a finished turn", () => {
   it("keeps the live content and reports the error when the Session read fails too", async () => {
     const { endpoint, epoch } = setup();
     await openLiveTurn(endpoint, epoch);
-    endpoint.on("GET", "/v2/turns/contract-turn", () =>
+    endpoint.on("GET", "/v2/requests/contract-turn", () =>
       errorResponse(404, "turn.not_found"),
     );
-    endpoint.on("GET", "/v2/turns/contract-turn/interactions", () =>
+    endpoint.on("GET", "/v2/requests/contract-turn/interactions", () =>
       errorResponse(404, "turn.not_found"),
     );
     endpoint.get("/v2/session/turns/contract-turn", () =>
@@ -803,10 +806,10 @@ describe("Session take-over of a finished turn", () => {
     endpoint.clear();
 
     const late = deferred<Response>();
-    endpoint.on("GET", "/v2/turns/contract-turn/interactions", () => late.promise);
+    endpoint.on("GET", "/v2/requests/contract-turn/interactions", () => late.promise);
     const refresh = refreshDisplayedTurn(epoch);
     await vi.waitFor(() => {
-      expect(endpoint.calls("/v2/turns/contract-turn/interactions")).toHaveLength(1);
+      expect(endpoint.calls("/v2/requests/contract-turn/interactions")).toHaveLength(1);
     });
 
     // The user opens a history turn; the in-flight live read is superseded.
@@ -895,7 +898,7 @@ describe("syncFromStatus", () => {
 
     expect(turnState().turnId).toBe("old-turn");
     // The live turn is not read; only the day history refreshes.
-    expect(endpoint.calls("/v2/turns/contract-turn")).toHaveLength(0);
+    expect(endpoint.calls("/v2/requests/contract-turn")).toHaveLength(0);
     await vi.waitFor(() => {
       expect(endpoint.calls("/v2/session/turns")).toHaveLength(1);
     });
@@ -906,7 +909,7 @@ describe("sendEchoAsNewTurn", () => {
   it("marks a rejected append as turn-closed; the explicit entry sends it as a new turn", async () => {
     const { endpoint, epoch } = setup();
     await activateTurn(endpoint, epoch);
-    endpoint.post("/v2/turns/contract-turn/input", () =>
+    endpoint.post("/v2/requests/contract-turn/input", () =>
       errorResponse(409, "turn.command_rejected"),
     );
 
@@ -918,12 +921,13 @@ describe("sendEchoAsNewTurn", () => {
     expect(failed.error).toContain("closed");
 
     let createBody: Record<string, unknown>;
-    endpoint.post("/v2/turns", (request) => {
+    endpoint.post("/v2/requests", (request) => {
       createBody = bodyJson(request) as Record<string, unknown>;
       return jsonResponse({
         accepted: true,
         command_id: createBody.command_id,
-        turn_id: "t-new",
+        request_id: "t-new",
+          turn_id: "t-new",
         state: "queued",
         kind: "user",
       });
@@ -946,7 +950,7 @@ describe("sendEchoAsNewTurn", () => {
   it("a capacity or network failure is not marked turn-closed", async () => {
     const { endpoint, epoch } = setup();
     await activateTurn(endpoint, epoch);
-    endpoint.post("/v2/turns/contract-turn/input", () =>
+    endpoint.post("/v2/requests/contract-turn/input", () =>
       errorResponse(429, "turn.inbox_full"),
     );
     expect(await sendUserMessage(epoch, "hold this")).toBe(false);
@@ -959,19 +963,19 @@ describe("sendEchoAsNewTurn", () => {
 describe("cancelQueuedTurn", () => {
   it("posts the cancel intent to the queued turn itself", async () => {
     const { endpoint, epoch } = setup();
-    endpoint.post("/v2/turns/contract-turn/cancel", () =>
+    endpoint.post("/v2/requests/contract-turn/cancel", () =>
       jsonResponse({ accepted: true, turn_id: "contract-turn" }),
     );
 
     await cancelQueuedTurn(epoch, "contract-turn");
     expect(
-      endpoint.calls("/v2/turns/contract-turn/cancel", "POST"),
+      endpoint.calls("/v2/requests/contract-turn/cancel", "POST"),
     ).toHaveLength(1);
   });
 
   it("treats a rejected cancel as stale state, not an error", async () => {
     const { endpoint, epoch } = setup();
-    endpoint.post("/v2/turns/contract-turn/cancel", () =>
+    endpoint.post("/v2/requests/contract-turn/cancel", () =>
       errorResponse(409, "turn.command_rejected"),
     );
 
@@ -988,20 +992,21 @@ describe("sendUserMessage: fast-turn race", () => {
     // The status never reports an active turn: the (scripted) backend runs
     // the turn to completion between the POST receipt and the first status
     // read. Only the receipt still names the turn.
-    endpoint.post("/v2/turns", (request) => {
+    endpoint.post("/v2/requests", (request) => {
       const body = bodyJson(request) as Record<string, unknown>;
       return jsonResponse({
         accepted: true,
         command_id: body.command_id,
-        turn_id: "contract-turn",
+        request_id: "contract-turn",
+          turn_id: "contract-turn",
         state: "finished",
         kind: "user",
       });
     });
-    endpoint.get("/v2/turns/contract-turn", () =>
+    endpoint.get("/v2/requests/contract-turn", () =>
       jsonResponse(finishedSnapshot()),
     );
-    endpoint.get("/v2/turns/contract-turn/interactions", () =>
+    endpoint.get("/v2/requests/contract-turn/interactions", () =>
       jsonResponse(sessionTurnPage()),
     );
 
@@ -1010,7 +1015,7 @@ describe("sendUserMessage: fast-turn race", () => {
 
     // The receipt alone opened the conversation: the view does not fall back
     // to the day list with the answer never shown.
-    expect(turnState().turnId).toBe("contract-turn");
+    expect(turnState().requestId).toBe("contract-turn");
     await flushAsync();
     const turn = turnState();
     expect(turn.loading).toBe(false);
@@ -1019,4 +1024,31 @@ describe("sendUserMessage: fast-turn race", () => {
       "Run the prepared job and ask before proceeding",
     ]);
   });
+});
+
+
+it("keeps request control independent of the allocated Turn and Session identity", async () => {
+  const { endpoint, epoch } = setup();
+  const requestId = "queued-request";
+  const turnId = "2026-09-29/42";
+  let snapshot = { ...runningSnapshot(), request_id: requestId, turn_id: null as string | null, state: "queued" };
+  endpoint.post("/v2/requests", () => jsonResponse({ accepted: true, command_id: "cmd", request_id: requestId, turn_id: null }));
+  endpoint.get(`/v2/requests/${requestId}`, () => jsonResponse(snapshot));
+  endpoint.get(`/v2/requests/${requestId}/interactions`, () => jsonResponse(makeInteractionsPage({ request_id: requestId, turn_id: snapshot.turn_id })));
+  expect(await sendUserMessage(epoch, "Queued work")).toBe(true);
+  await flushAsync();
+  expect(turnState().requestId).toBe(requestId);
+  expect(turnState().turnId).toBeNull();
+  snapshot = { ...waitingSnapshot(), request_id: requestId, turn_id: turnId };
+  useConnectionStore.getState().applyStatus(epoch, makeStatus({ activity: "user_turn", activeTurnId: turnId, activeRequestId: requestId }));
+  await syncFromStatus(epoch);
+  expect(turnState().turnId).toBe(turnId);
+  endpoint.post(`/v2/requests/${requestId}/reply`, () => jsonResponse({ accepted: true }));
+  await replyToQuestion(epoch, turnId, snapshot.question!.question_id, { kind: "choice", option_id: "a" }, "Execute");
+  expect(endpoint.calls(`/v2/requests/${requestId}/reply`, "POST")).toHaveLength(1);
+  endpoint.get(`/v2/session/turns/${turnId}`, () => jsonResponse(makeInteractionsPage({ ref: `session:turn/${turnId}`, turn_id: turnId })));
+  await openSessionTurn(epoch, turnId, "2026-09-29");
+  expect(turnState().requestId).toBeNull();
+  expect(turnState().turnId).toBe(turnId);
+  expect(endpoint.calls(`/v2/session/turns/${turnId}`)).toHaveLength(1);
 });

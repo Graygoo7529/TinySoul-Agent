@@ -23,7 +23,7 @@ function interaction(
 function echo(partial: Partial<OutgoingEcho> & { echoId: string }): OutgoingEcho {
   return {
     kind: "append",
-    turnId: null,
+    requestId: null,
     questionId: null,
     text: "text",
     state: "accepted",
@@ -117,7 +117,7 @@ describe("formalItemForEcho", () => {
     const known = echo({
       echoId: "e",
       kind: "new-turn",
-      turnId: "t1",
+      requestId: "t1",
       text: "hello",
     });
     expect(formalItemForEcho(known, [item])).toBe(item);
@@ -130,7 +130,7 @@ describe("formalItemForEcho", () => {
     // Normalized text does not change the accepted input identity.
     expect(
       formalItemForEcho(
-        echo({ echoId: "e", kind: "new-turn", turnId: "t1", text: "hello " }),
+        echo({ echoId: "e", kind: "new-turn", requestId: "t1", text: "hello " }),
         [item],
       ),
     ).toBe(item);
@@ -173,9 +173,9 @@ describe("pendingItemForEcho", () => {
 describe("convergeEchoes", () => {
   it("consumes echoes covered by pending or formal projections", () => {
     const echoes = [
-      echo({ echoId: "a1", kind: "append", turnId: "t1" }),
-      echo({ echoId: "a2", kind: "append", turnId: "t1" }),
-      echo({ echoId: "a3", kind: "append", turnId: "t1" }),
+      echo({ echoId: "a1", kind: "append", requestId: "t1" }),
+      echo({ echoId: "a2", kind: "append", requestId: "t1" }),
+      echo({ echoId: "a3", kind: "append", requestId: "t1" }),
     ];
     const pendingItems = [
       { record_id: "a1", sequence: 1, kind: "input", payload: {}, state: "accepted" },
@@ -190,7 +190,7 @@ describe("convergeEchoes", () => {
     const failed = echo({
       echoId: "a1",
       kind: "append",
-      turnId: "t1",
+      requestId: "t1",
       state: "failed",
       error: "boom",
     });
@@ -204,7 +204,7 @@ describe("convergeEchoes", () => {
     const queued = echo({
       echoId: "a1",
       kind: "new-turn",
-      turnId: "t2",
+      requestId: "t2",
       text: "hello",
     });
     const items = [interaction({ id: "s1", role: "user.input", text: "hello" })];
@@ -214,7 +214,7 @@ describe("convergeEchoes", () => {
   });
 
   it("does not consume a bound echo without its displayed turn", () => {
-    const target = echo({ echoId: "a1", kind: "append", turnId: "t1" });
+    const target = echo({ echoId: "a1", kind: "append", requestId: "t1" });
     const items = [interaction({ id: "a1", role: "user.append" })];
     expect(convergeEchoes([target], items, [], null).consumed).toEqual([]);
   });
@@ -231,7 +231,7 @@ describe("resolveComposerIntent", () => {
 
   it.each(["queued", "preparing", "running", "waiting"])("appends to an open user turn in %s", (state) => {
     const snapshot = { ...runningSnapshot(), state } as TurnSnapshot;
-    expect(resolveComposerIntent(status, snapshot, true)).toEqual({ kind: "append", turnId: "contract-turn" });
+    expect(resolveComposerIntent(status, snapshot, true)).toEqual({ kind: "append", requestId: "contract-turn" });
   });
 
   it("does not create a new root request while the intended target is syncing or closing", () => {
@@ -252,7 +252,7 @@ describe("resolveComposerIntent", () => {
     expect(resolveComposerIntent(reflecting, null, true)).toEqual({ kind: "new-turn" });
     expect(resolveComposerIntent(reflecting, null, true, "mine")).toEqual({ kind: "unavailable", reason: "syncing" });
     expect(resolveComposerIntent(reflecting, { ...runningSnapshot("mine"), state: "queued" }, true, "mine"))
-      .toEqual({ kind: "append", turnId: "mine" });
+      .toEqual({ kind: "append", requestId: "mine" });
     expect(resolveComposerIntent(reflecting, { ...runningSnapshot("mine"), state: "finished" }, true, "mine"))
       .toEqual({ kind: "new-turn" });
   });

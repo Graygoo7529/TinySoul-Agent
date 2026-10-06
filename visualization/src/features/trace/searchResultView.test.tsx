@@ -62,7 +62,7 @@ describe("SearchResultView (plan §9.2)", () => {
     await flush();
 
     expect(container.textContent).toContain("contract");
-    expect(container.textContent).toContain("home:agent@contract");
+    expect(container.textContent).toContain("home:top/agent/contract");
     expect(container.textContent).toContain("L1");
     // The whole fragment is one model-kind match [0,19).
     const marks = container.querySelectorAll("mark");
@@ -73,7 +73,7 @@ describe("SearchResultView (plan §9.2)", () => {
     expect(container.textContent).toContain("source complete");
 
     clickButton("contract");
-    expect(onOpenReference).toHaveBeenCalledWith("home:agent@contract");
+    expect(onOpenReference).toHaveBeenCalledWith("home:top/agent/contract");
   });
 
   it("highlights astral/CJK text by code points, not UTF-16 units", async () => {
@@ -110,11 +110,11 @@ describe("SearchResultView (plan §9.2)", () => {
       source: "directory",
       items: [
         {
-          ref: "home:agent@x",
+          ref: "home:top/agent/x",
           title: "x",
           evidence: [
             {
-              ref: "home:agent/x.md#L3-L3",
+              ref: "home:resource/agent/x.md#L3-L3",
               text: "a real fragment with no recorded match",
               kind: "content",
               basis: [],

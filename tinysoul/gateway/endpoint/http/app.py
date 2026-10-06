@@ -73,7 +73,7 @@ def create_endpoint_app(
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "Range"],
         expose_headers=[
-            "X-TinySoul-Link",
+            "X-TinySoul-Ref",
             "X-TinySoul-Size",
             "Content-Range",
             "Accept-Ranges",

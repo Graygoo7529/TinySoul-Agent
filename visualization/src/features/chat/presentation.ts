@@ -11,7 +11,7 @@
  */
 export interface TurnPresentation {
   /** Unique turn ID */
-  turnId: string;
+  turnId: string | null;
 
   /** Formal turn status from owner snapshot */
   status: TurnStatus;

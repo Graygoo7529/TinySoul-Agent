@@ -9,7 +9,7 @@ from typing import cast
 import yaml
 
 from ..errors import AgentHomeContractError
-from ..links import HomeTopLink
+from ..refs import HomeTopRef
 
 SKILL_FRONTMATTER_MAX_CHARS = 2048
 SKILL_TITLE_MAX_CHARS = 160
@@ -20,40 +20,40 @@ SKILL_DESCRIPTION_MAX_CHARS = 320
 class HomeSkillMetadata:
     """Validated discovery metadata for one effective general skill."""
 
-    link: HomeTopLink
+    ref: HomeTopRef
     title: str
     description: str
 
     def __post_init__(self) -> None:
-        if not isinstance(self.link, HomeTopLink) or self.link.space != "skills":
-            raise AgentHomeContractError("Skill metadata requires a general skill link")
+        if not isinstance(self.ref, HomeTopRef) or self.ref.space != "skills":
+            raise AgentHomeContractError("Skill metadata requires a general skill ref")
         _validate_field(
             self.title,
             name="title",
             max_chars=SKILL_TITLE_MAX_CHARS,
-            link=self.link,
+            ref=self.ref,
         )
         _validate_field(
             self.description,
             name="description",
             max_chars=SKILL_DESCRIPTION_MAX_CHARS,
-            link=self.link,
+            ref=self.ref,
         )
 
     @property
     def catalog_chars(self) -> int:
-        return len(str(self.link)) + len(self.title) + len(self.description) + 32
+        return len(str(self.ref)) + len(self.title) + len(self.description) + 32
 
 
-def parse_home_skill_metadata(text: str, *, link: HomeTopLink) -> HomeSkillMetadata:
+def parse_home_skill_metadata(text: str, *, ref: HomeTopRef) -> HomeSkillMetadata:
     """Parse the leading YAML frontmatter of a general skill SKILL.md."""
 
     if not isinstance(text, str):
-        raise AgentHomeContractError(f"Skill frontmatter must be text: {link}")
+        raise AgentHomeContractError(f"Skill frontmatter must be text: {ref}")
     lines = text.splitlines(keepends=True)
     if not lines or lines[0].rstrip("\r\n") != "---":
         raise AgentHomeContractError(
-            f"Skill SKILL.md must start with YAML frontmatter: {link}"
+            f"Skill SKILL.md must start with YAML frontmatter: {ref}"
         )
     closing_index = next(
         (
@@ -66,44 +66,42 @@ def parse_home_skill_metadata(text: str, *, link: HomeTopLink) -> HomeSkillMetad
     if closing_index is None and len(text) > SKILL_FRONTMATTER_MAX_CHARS:
         raise AgentHomeContractError(
             f"Skill SKILL.md frontmatter exceeds {SKILL_FRONTMATTER_MAX_CHARS} "
-            f"characters: {link}"
+            f"characters: {ref}"
         )
     if closing_index is None:
-        raise AgentHomeContractError(
-            f"Skill SKILL.md frontmatter is not closed: {link}"
-        )
+        raise AgentHomeContractError(f"Skill SKILL.md frontmatter is not closed: {ref}")
     frontmatter_chars = sum(len(line) for line in lines[: closing_index + 1])
     if frontmatter_chars > SKILL_FRONTMATTER_MAX_CHARS:
         raise AgentHomeContractError(
             f"Skill SKILL.md frontmatter exceeds {SKILL_FRONTMATTER_MAX_CHARS} "
-            f"characters: {link}"
+            f"characters: {ref}"
         )
     source = "".join(lines[1:closing_index])
     try:
         value = yaml.safe_load(source)
     except yaml.YAMLError as exc:
         raise AgentHomeContractError(
-            f"Skill SKILL.md frontmatter is invalid YAML: {link}"
+            f"Skill SKILL.md frontmatter is invalid YAML: {ref}"
         ) from exc
     if not isinstance(value, Mapping) or any(not isinstance(key, str) for key in value):
         raise AgentHomeContractError(
-            f"Skill SKILL.md frontmatter must be a string-keyed table: {link}"
+            f"Skill SKILL.md frontmatter must be a string-keyed table: {ref}"
         )
     metadata = cast(Mapping[str, object], value)
     keys = set(metadata)
     if keys != {"title", "description"}:
         raise AgentHomeContractError(
             "Skill SKILL.md frontmatter must contain exactly title and description: "
-            f"{link}"
+            f"{ref}"
         )
     title = metadata["title"]
     description = metadata["description"]
     if not isinstance(title, str) or not isinstance(description, str):
         raise AgentHomeContractError(
-            f"Skill SKILL.md title and description must be strings: {link}"
+            f"Skill SKILL.md title and description must be strings: {ref}"
         )
     return HomeSkillMetadata(
-        link=link,
+        ref=ref,
         title=title.strip(),
         description=description.strip(),
     )
@@ -114,13 +112,13 @@ def _validate_field(
     *,
     name: str,
     max_chars: int,
-    link: HomeTopLink,
+    ref: HomeTopRef,
 ) -> None:
     if not isinstance(value, str) or not value.strip():
-        raise AgentHomeContractError(f"Skill SKILL.md {name} must be non-empty: {link}")
+        raise AgentHomeContractError(f"Skill SKILL.md {name} must be non-empty: {ref}")
     if "\n" in value or "\r" in value:
-        raise AgentHomeContractError(f"Skill SKILL.md {name} must be one line: {link}")
+        raise AgentHomeContractError(f"Skill SKILL.md {name} must be one line: {ref}")
     if len(value) > max_chars:
         raise AgentHomeContractError(
-            f"Skill SKILL.md {name} exceeds {max_chars} characters: {link}"
+            f"Skill SKILL.md {name} exceeds {max_chars} characters: {ref}"
         )

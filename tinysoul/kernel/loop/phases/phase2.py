@@ -129,7 +129,8 @@ class Phase2Unit:
                 cancellation=_turn_task_cancellation(cancellation),
             )
         )
-        self._context.mark_model_consumed(messages)
+        if result.raw_response is not None:
+            self._context.mark_model_consumed(messages)
         if result.status is TaskResultStatus.FAILURE:
             feedback = (_task_result_feedback(result),)
             (

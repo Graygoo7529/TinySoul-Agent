@@ -6,12 +6,12 @@ description = "Write exact UTF-8 content. Create by default; overwrite explicitl
 
 [tool.schema]
 type = "object"
-required = ["target_link","text"]
+required = ["target_ref","text"]
 additionalProperties = false
 
 [tool.schema.properties]
 
-[tool.schema.properties.target_link]
+[tool.schema.properties.target_ref]
 type = "string"
 
 [tool.schema.properties.text]

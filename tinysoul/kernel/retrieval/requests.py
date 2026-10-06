@@ -66,7 +66,7 @@ def parse_retrieval_request(
             and policy.capability
             and policy.capability.resource_scope
         ):
-            normalized["scope"] = {"kind": "workspace", "locator": ""}
+            normalized["scope"] = {"kind": "workspace"}
         source = _parse_source(cast(Mapping[str, object], normalized))
         raw_steps = parameters.get("steps", [])
         if not isinstance(raw_steps, list):
@@ -195,14 +195,14 @@ def _parse_source(value: Mapping[str, object]):
                 prompt_text.REFS_MUST_BE_A_STRING_ARRAY,
             )
         return RefsSource(tuple(cast(str, ref) for ref in refs))
-    _reject_source_fields(value, {"kind", "result_ref"})
-    result_ref = value.get("result_ref")
-    if not isinstance(result_ref, str):
+    _reject_source_fields(value, {"kind", "result_handle"})
+    result_handle = value.get("result_handle")
+    if not isinstance(result_handle, str):
         raise SearchFailure(
             SearchFailureKind.INVALID_REQUEST,
             prompt_text.REQUESTS_RESULT_SOURCE_REQUIRES_RESULT_REF,
         )
-    return ResultSource(result_ref)
+    return ResultSource(result_handle)
 
 
 def _reject_source_fields(value: Mapping[str, object], allowed: set[str]) -> None:
@@ -255,9 +255,11 @@ def _parse_scope(value: object) -> str | ResourceScope:
         return value
     if isinstance(value, Mapping):
         fields = cast(Mapping[str, object], value)
-        locator = fields.get("locator")
-        if set(fields) == {"kind", "locator"} and isinstance(locator, str):
-            return ResourceScope(ResourceScopeKind(fields["kind"]), locator)
+        if fields == {"kind": "workspace"}:
+            return ResourceScope(ResourceScopeKind.WORKSPACE)
+        ref = fields.get("ref")
+        if set(fields) == {"kind", "ref"} and isinstance(ref, str):
+            return ResourceScope(ResourceScopeKind(fields["kind"]), ref)
     raise SearchFailure(
         SearchFailureKind.INVALID_REQUEST, prompt_text.INVALID_SOURCE_SCOPE
     )

@@ -8,8 +8,7 @@ import type { JsonValue } from "./json";
 
 /** Schema: resource-locator.json. Logical identity; never a physical path. */
 export interface ResourceLocator {
-  link?: string | null;
-  ref?: string | null;
+  ref: string;
   day?: string | null;
   turn_id?: string | null;
   view?: string | null;

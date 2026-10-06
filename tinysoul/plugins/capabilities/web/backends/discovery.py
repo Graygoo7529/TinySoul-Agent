@@ -114,7 +114,7 @@ class DiscoveryRequest:
 class _Reference:
     source_url: str
     anchor_text: str
-    link_title: str
+    ref_title: str
     rel: str
 
 
@@ -387,7 +387,7 @@ def _page_links(
         reference = _Reference(
             source_url=page.final_url,
             anchor_text=_clean_text(" ".join(node.itertext()), _MAX_ANCHOR_CHARS),
-            link_title=_clean_text(node.get("title", ""), _MAX_METADATA_CHARS),
+            ref_title=_clean_text(node.get("title", ""), _MAX_METADATA_CHARS),
             rel=_clean_text(" ".join(rel_values), _MAX_REL_CHARS),
         )
         previous = discovered.get(candidate)
@@ -493,7 +493,7 @@ def _page_payload(page: _PageState) -> JsonObject:
         "state": page.state,
         "discovered_from": reference.source_url if reference else "",
         "anchor_text": reference.anchor_text if reference else "",
-        "link_title": reference.link_title if reference else "",
+        "ref_title": reference.ref_title if reference else "",
         "rel": reference.rel if reference else "",
     }
     if page.state == "visited":
@@ -546,7 +546,7 @@ def _reference_key(reference: _Reference) -> tuple[str, str, str, str]:
     return (
         reference.source_url,
         reference.anchor_text,
-        reference.link_title,
+        reference.ref_title,
         reference.rel,
     )
 

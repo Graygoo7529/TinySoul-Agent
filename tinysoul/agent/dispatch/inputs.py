@@ -219,7 +219,7 @@ class InputDispatcher:
         active = self._commands.active_turn
         return (
             self._agent_scope.push(RunLevel.TURN, active.turn_id)
-            if active is not None
+            if active is not None and active.turn_id is not None
             else None
         )
 
@@ -275,15 +275,15 @@ class InputDispatcher:
             if active is None:
                 raise AgentClosedError("There is no active Turn")
             if intent.kind is InputIntentKind.STOP_TURN:
-                if not await self._commands.cancel_turn(active.turn_id):
+                if not await self._commands.cancel_request(active.request_id):
                     raise AgentClosedError("Turn is already finished")
             elif intent.kind is InputIntentKind.APPEND_INPUT:
                 await self._commands.append_input(
-                    active.turn_id, intent.text, input_id=intent.command_id
+                    active.request_id, intent.text, input_id=intent.command_id
                 )
             elif intent.kind is InputIntentKind.REPLY:
                 await self._commands.reply(
-                    active.turn_id,
+                    active.request_id,
                     intent.correlation_id,
                     QuestionAnswer(AnswerKind.CHOICE, option_id=intent.text)
                     if active.question is not None
@@ -295,7 +295,7 @@ class InputDispatcher:
                 )
             elif intent.kind is InputIntentKind.GRANT:
                 await self._commands.grant_cycles(
-                    active.turn_id, intent.correlation_id, intent.cycles
+                    active.request_id, intent.correlation_id, intent.cycles
                 )
             else:
                 raise AgentContractError("Unsupported input intent")
@@ -363,8 +363,8 @@ class InputDispatcher:
             accepted = True
         else:
             active = self._commands.active_turn
-            accepted = active is not None and await self._commands.cancel_turn(
-                active.turn_id
+            accepted = active is not None and await self._commands.cancel_request(
+                active.request_id
             )
         return CommandReceipt(
             accepted, command_id, kind.value, "signaled" if accepted else "rejected"

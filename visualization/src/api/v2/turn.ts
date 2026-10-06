@@ -54,8 +54,8 @@ export interface TurnBudgetRequest {
  * The snapshot kind determines which owner-specific fields are present.
  */
 export interface TurnResult {
-  turn_id: string;
-  request_id?: string;
+  turn_id: string | null;
+  request_id: string;
   active_day?: string;
   status: string;
   output?: JsonObject | null;
@@ -84,7 +84,7 @@ export interface JobSummary {
   summary: string;
   reason: string;
   pending_inputs: JsonValue[];
-  result_links: string[];
+  result_refs: string[];
   [key: string]: unknown;
 }
 
@@ -98,7 +98,8 @@ export interface ReflectionOrigin {
 
 /** Retained root handles, independently of persistent User Session history. */
 export interface TurnSummary {
-  turn_id: string;
+  request_id: string;
+  turn_id: string | null;
   kind: TurnKind;
   state: TurnState;
   status: string | null;
@@ -115,9 +116,10 @@ export interface TurnDirectory {
   completed_limit: number;
 }
 
-/** Schema: turn-snapshot.json (GET /v2/turns/{id}). */
+/** Schema: turn-snapshot.json (GET /v2/requests/{id}). */
 export interface TurnSnapshot {
-  turn_id: string;
+  request_id: string;
+  turn_id: string | null;
   kind: TurnKind;
   state: TurnState;
   cancel_requested: boolean;
@@ -146,35 +148,36 @@ export interface CommandReceipt {
   [key: string]: unknown;
 }
 
-/** turn-receipts example: POST /v2/turns acceptance fact. */
+/** turn-receipts example: POST /v2/requests acceptance fact. */
 export interface TurnCreateReceipt extends CommandReceipt {
+  request_id: string;
   accepted: boolean;
   command_id: string;
-  turn_id: string;
+  turn_id?: string | null;
 }
 
-/** POST /v2/turns/{id}/input|reply receipt: Inbox acceptance facts. */
+/** POST /v2/requests/{id}/input|reply receipt: Inbox acceptance facts. */
 export interface InboxReceipt extends CommandReceipt {
   sequence: number;
   record_id: string;
   accepted: boolean;
 }
 
-/** POST /v2/turns/{id}/grant receipt. */
+/** POST /v2/requests/{id}/grant receipt. */
 export interface TurnGrantReceipt extends CommandReceipt {
-  turn_id: string;
+  budget_request_id: string;
   request_id: string;
   accepted: boolean;
 }
 
-/** POST /v2/turns/{id}/cancel receipt: the cancel intent was accepted. */
+/** POST /v2/requests/{id}/cancel receipt: the cancel intent was accepted. */
 export interface TurnCancelReceipt extends CommandReceipt {
-  turn_id: string;
+  request_id: string;
   accepted: boolean;
 }
 
 /**
- * POST /v2/turns body (TurnCreateRequest). This entry creates user turns;
+ * POST /v2/requests body (TurnCreateRequest). This entry creates user turns;
  * Reflection scenarios go through POST /v2/reflection. `metadata` carries
  * client correlation such as metadata.client_message_id.
  */
@@ -185,21 +188,21 @@ export interface TurnCreateBody {
   metadata?: JsonObject;
 }
 
-/** POST /v2/turns/{id}/input body (TurnInputRequest). */
+/** POST /v2/requests/{id}/input body (TurnInputRequest). */
 export interface TurnInputBody {
   text: string;
   input_id?: string;
 }
 
-/** POST /v2/turns/{id}/reply body (TurnReplyRequest). */
+/** POST /v2/requests/{id}/reply body (TurnReplyRequest). */
 export interface TurnReplyBody {
   question_id: string;
   answer: QuestionAnswer;
 }
 
-/** POST /v2/turns/{id}/grant body (TurnGrantRequest); count is positive. */
+/** POST /v2/requests/{id}/grant body (TurnGrantRequest); count is positive. */
 export interface TurnGrantBody {
-  request_id: string;
+  budget_request_id: string;
   count: number;
 }
 
@@ -248,8 +251,9 @@ export interface QueuedRequest {
   [key: string]: unknown;
 }
 
-/** Schema: interaction-page.json (GET /v2/turns/{id}/interactions). */
+/** Schema: interaction-page.json (GET /v2/requests/{id}/interactions). */
 export interface InteractionPage extends ContinuationPage {
+  request_id?: string | null;
   ref?: string | null;
   kind?: string | null;
   view?: string | null;
@@ -257,7 +261,7 @@ export interface InteractionPage extends ContinuationPage {
   content_fragment?: ContentFragment | null;
   metadata?: { [key: string]: unknown } | null;
   truncated?: boolean | null;
-  turn_id: string;
+  turn_id: string | null;
   day: string | null;
   generation_id?: string | null;
   state?: string | null;
@@ -269,7 +273,7 @@ export interface InteractionPage extends ContinuationPage {
   [key: string]: unknown;
 }
 
-/** Reply answer payloads accepted by POST /v2/turns/{id}/reply. */
+/** Reply answer payloads accepted by POST /v2/requests/{id}/reply. */
 export type QuestionAnswer =
   | { kind: "choice"; option_id: string; comment?: string }
   | { kind: "text"; text: string };

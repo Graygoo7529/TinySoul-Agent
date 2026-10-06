@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import cast
 
+from tinysoul.kernel.retrieval.disclosure import inspect_recollection
 from tinysoul.prompts.plugins import memory as prompt_text
 from tinysoul.kernel.action import (
     ActionEngineBuilder,
@@ -25,12 +26,17 @@ from ..storage.active import MemoryPatchOperation
 from ..background import MEMORY_CONTEXT_UPDATE
 from tinysoul.infra.continuation import ContinuationError
 from tinysoul.kernel.action.tasks import ActionTaskFactory
-from tinysoul.kernel.retrieval.contracts import SearchContext, SearchFailure, RetrievalRequest, ModelStep
+from tinysoul.kernel.retrieval.contracts import (
+    SearchContext,
+    SearchFailure,
+    RetrievalRequest,
+    ModelStep,
+)
 from tinysoul.kernel.retrieval.operations import SelectionInput
 from tinysoul.kernel.retrieval.requests import parse_retrieval_request
 from ..services import MemoryReadService, MemoryService
 from ..errors import MemoryContractError, MemoryError, MemoryInvariantError
-from ..links import MemoryKind, MemoryLink
+from ..refs import MemoryKind, MemoryRef
 
 
 def register_memory_actions(
@@ -123,12 +129,15 @@ class MemorySearchExecutor(ActionExecutor):
     ) -> ActionResult:
         memory = self._memory.using(context.owner_operations)
         try:
-            request = parse_retrieval_request(execution.call.params, memory.retrieval_policies[0])
+            request = parse_retrieval_request(
+                execution.call.params, memory.retrieval_policies[0]
+            )
             inputs = SelectionInput()
             if not isinstance(request, str) and self._tasks is not None:
-                use_context = (
-                    any(isinstance(step, ModelStep) and step.context is SearchContext.CURRENT for step in request.steps)
-
+                use_context = any(
+                    isinstance(step, ModelStep)
+                    and step.context is SearchContext.CURRENT
+                    for step in request.steps
                 )
                 inputs = await self._tasks.selection_input(
                     execution,
@@ -147,10 +156,7 @@ class MemorySearchExecutor(ActionExecutor):
             result.to_json(),
             trace_projection=ActionTraceProjection(
                 origin_refs=tuple(item.ref for item in result.items),
-                canonical_payload={
-                    "source": result.source.value,
-                    "selected": [item.ref for item in result.items],
-                },
+                canonical_payload=result.recollection(),
             ),
         )
 
@@ -194,7 +200,7 @@ class MemoryInspectExecutor(ActionExecutor):
             result,
             trace_projection=ActionTraceProjection(
                 origin_refs=(ref,),
-                canonical_payload={"ref": ref, "view": view},
+                canonical_payload=inspect_recollection(result),
             ),
         )
 

@@ -1,15 +1,15 @@
 {
-  "ref": "home:agent@contract",
+  "ref": "home:top/agent/contract",
   "view": "content",
   "items": [
     {
-      "ref": "home:agent@contract#L1-L1",
+      "ref": "home:top/agent/contract#L1-L1",
       "text": "Workspace guidance\n"
     }
   ],
   "metadata": {
     "locator": {
-      "link": "home:agent@contract",
+      "ref": "home:top/agent/contract",
       "view": "effective"
     },
     "direct_refs": []

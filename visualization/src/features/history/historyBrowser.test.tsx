@@ -238,10 +238,10 @@ describe("DayTurnsPanel", () => {
         next_continuation: null,
       }),
     );
-    endpoint.get("/v2/turns/live-1/interactions", () =>
+    endpoint.get("/v2/requests/live-1/interactions", () =>
       jsonResponse(makeInteractionsPage({ turn_id: "live-1" })),
     );
-    endpoint.get("/v2/turns/live-1", () =>
+    endpoint.get("/v2/requests/live-1", () =>
       jsonResponse(runningSnapshot("live-1")),
     );
     await renderAndSettle(

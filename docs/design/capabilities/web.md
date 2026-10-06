@@ -2,7 +2,7 @@
 
 ## 定位
 
-`tinysoul.plugins.capabilities.web` 是无独立持久状态的只读外部 Web 能力。它不拥有 Link namespace、缓存、索引或 Runtime/Trap 生命周期；搜索的交互结果进入 TurnTrace，需保留的长结果和网页正文写入现有 `workspace:` 资源。
+`tinysoul.plugins.capabilities.web` 是无独立持久状态的只读外部 Web 能力。它不拥有 引用 namespace、缓存、索引或 Runtime/Trap 生命周期；搜索的交互结果进入 TurnTrace，需保留的长结果和网页正文写入现有 `workspace:` 资源。
 
 Web domain 当前暴露四个独立 action：
 
@@ -55,7 +55,7 @@ Discovery 的网络解析边界允许显式注入 resolver。生产默认仍使�
 
 ## Fetch 与提取
 
-Fetch action 接收 `url`、显式 `.md` `target_link`、显式 overwrite。宿主通过固定 worker 完成“网络读取 -> 本地提取 -> staged Markdown”，校验结果后在单次 `WorkspaceEngine.write_bundle()` 中提交。Web 与 Resource 共用 Agent 装配的项目级 `runtime/.staging/` 根；每次 action 使用唯一子目录，完成、失败或取消后清理，进程中断遗留内容在下次 Agent 启动时清理。staging 不进入 Workspace Manifest、Daily archive 或 capability 持久状态：
+Fetch action 接收 `url`、显式 `.md` `target_ref`、显式 overwrite。宿主通过固定 worker 完成“网络读取 -> 本地提取 -> staged Markdown”，校验结果后在单次 `WorkspaceEngine.write_bundle()` 中提交。Web 与 Resource 共用 Agent 装配的项目级 `runtime/.staging/` 根；每次 action 使用唯一子目录，完成、失败或取消后清理，进程中断遗留内容在下次 Agent 启动时清理。staging 不进入 Workspace Manifest、Daily archive 或 capability 持久状态：
 
 - 只接受公开 HTTPS URL，拒绝 userinfo、localhost 以及解析到非 public IP 的目标；
 - 每次跳转重新解析和校验，跳转次数、请求时长、响应 bytes、输出 chars 都有硬上限；
@@ -64,7 +64,7 @@ Fetch action 接收 `url`、显式 `.md` `target_link`、显式 overwrite。宿�
 - Defuddle 只读取已下载的本地 HTML，不能自行 fetch URL；Trafilatura 也只处理同一 staged HTML；
 - Defuddle JSON 在解析前先经过 staged file bytes 上限检查和有界 UTF-8 读取，最终 Markdown 再检查 output chars 上限；
 - 图片暂不下载为本地 asset，Markdown 保留远程图片 URL；后续需要查看图片时才由已有加载能力处理；
-- 完整正文始终只写 Workspace，ActionResult 返回 Markdown Link、extractor、title、有限 excerpt、字符数、远程图片计数和 warning code，不返回原始 URL 或完整正文。
+- 完整正文始终只写 Workspace，ActionResult 返回 Markdown 引用、extractor、title、有限 excerpt、字符数、远程图片计数和 warning code，不返回原始 URL 或完整正文。
 
 Defuddle 是可选 executable，默认关闭；启用时 `DependencyChecker` 必须在 Agent 启动期找到 `defuddle`。Trafilatura 是 wheel 基础 Python 依赖并默认启用。启用但缺依赖属于 Agent 装配失败；启动后 executable 被移除、网络失败、HTTP 状态、内容类型、资源超限或 extractor 失败属于单次局部 ActionResult。
 

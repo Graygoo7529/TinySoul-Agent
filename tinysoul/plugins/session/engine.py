@@ -269,7 +269,9 @@ class SessionEngine:
                 evidence=SessionEvidence(facts),
             )
             try:
-                candidate, result = self._map.apply(change, fact=view.fact_ref)
+                candidate, result = self._map.apply(
+                    change, fact=view.fact_ref, day=CalendarDay.parse(manifest.day)
+                )
             except OrganizeRequestError as exc:
                 return OrganizeResult(failure=exc.reason, feedback=str(exc))
             self._annotations.save(candidate)

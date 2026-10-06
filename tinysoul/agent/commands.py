@@ -42,8 +42,8 @@ class AgentCommands:
     def active_turn(self) -> TurnHandle | None:
         return self._scheduler.active_turn
 
-    def turn(self, turn_id: str) -> TurnHandle | None:
-        return self._scheduler.turn_handle(turn_id)
+    def request(self, request_id: str) -> TurnHandle | None:
+        return self._scheduler.request_handle(request_id)
 
     async def submit_turn(
         self, request: UserTurnRequest | ReflectionRequest
@@ -54,7 +54,7 @@ class AgentCommands:
             and request.target_day > self._scheduler.current_day()
         ):
             raise AgentSDKError("Memory Reflection target day cannot be in the future")
-        existing = self.turn(request.request_id)
+        existing = self.request(request.request_id)
         handle = self._scheduler.submit_turn(request)
         return self._register(handle) if existing is None else handle
 
@@ -84,37 +84,37 @@ class AgentCommands:
         existing = {
             request.request_id
             for request in requests
-            if self.turn(request.request_id) is not None
+            if self.request(request.request_id) is not None
         }
         handles = self._scheduler.submit_batch(requests)
         return tuple(
-            self._register(handle) if handle.turn_id not in existing else handle
+            self._register(handle) if handle.request_id not in existing else handle
             for handle in handles
         )
 
     def _register(self, handle: TurnHandle) -> TurnHandle:
         handle.inbox.bind_source_status(self._source_statuses)
-        self._router.register_target(handle.turn_id, handle.deliver)
+        self._router.register_target(handle.request_id, handle.deliver)
         self._router.subscribe(
-            handle.turn_id, handle.turn_id, handle.inbox.accepts_event
+            handle.request_id, handle.request_id, handle.inbox.accepts_event
         )
         handle.on_complete(
-            lambda completed: self._router.unregister_target(completed.turn_id)
+            lambda completed: self._router.unregister_target(completed.request_id)
         )
         return handle
 
-    async def cancel_turn(self, turn_id: str) -> bool:
-        return await self._scheduler.cancel_turn(turn_id)
+    async def cancel_request(self, request_id: str) -> bool:
+        return await self._scheduler.cancel_request(request_id)
 
     def request_exit(self, request: ExitRequest) -> None:
         self._scheduler.request_exit(request)
 
     async def append_input(
-        self, turn_id: str, text: str, *, input_id: str = ""
+        self, request_id: str, text: str, *, input_id: str = ""
     ) -> InboxReceipt:
         if not isinstance(text, str) or not text.strip():
             raise AgentSDKError("Appended input must be non-empty")
-        return await self._open_turn(turn_id).inbox.accept(
+        return await self._open_turn(request_id).inbox.accept(
             InboxRecord(
                 kind=InboxKind.INPUT,
                 payload={"text": text.strip()},
@@ -122,13 +122,17 @@ class AgentCommands:
             )
         )
 
-    async def grant_cycles(self, turn_id: str, request_id: str, count: int) -> bool:
-        return await self._open_turn(turn_id).inbox.grant_cycles(request_id, count)
+    async def grant_cycles(
+        self, request_id: str, budget_request_id: str, count: int
+    ) -> bool:
+        return await self._open_turn(request_id).inbox.grant_cycles(
+            budget_request_id, count
+        )
 
     async def reply(
-        self, turn_id: str, question_id: str, answer: QuestionAnswer
+        self, request_id: str, question_id: str, answer: QuestionAnswer
     ) -> InboxReceipt:
-        return await self._open_turn(turn_id).inbox.reply(question_id, answer)
+        return await self._open_turn(request_id).inbox.reply(question_id, answer)
 
     async def publish(self, event: EnvironmentEvent) -> EventReceipt:
         if event.source != "host":
@@ -138,8 +142,8 @@ class AgentCommands:
     async def publish_internal(self, event: EnvironmentEvent) -> EventReceipt:
         return await self._events.publish(event, deliver=self._router.route)
 
-    def _open_turn(self, turn_id: str) -> TurnHandle:
-        handle = self.turn(turn_id)
+    def _open_turn(self, request_id: str) -> TurnHandle:
+        handle = self.request(request_id)
         if handle is None or handle.done or handle.cancel_requested:
             raise AgentClosedError("Turn is no longer accepting commands")
         return handle

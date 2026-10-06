@@ -42,7 +42,7 @@ const SEARCH_SCOPES: SearchScopeChoice[] = [
 export function HomePage(): ReactElement {
   const epoch = useConnectionStore((s) => s.epoch);
   const view = useHomePage((s) => s.view);
-  const link = useHomePage((s) => s.link);
+  const ref = useHomePage((s) => s.ref);
   const fragment = useHomePage((s) => s.fragment);
   const panel = useHomePage((s) => s.panel);
   const diffLink = useHomePage((s) => s.diffLink);
@@ -84,7 +84,7 @@ export function HomePage(): ReactElement {
       }
       const target = outcome.value.target;
       if (target.kind === "home") {
-        useHomePage.getState().select(target.link, target.fragment);
+        useHomePage.getState().select(target.ref, target.fragment);
         return;
       }
       routeTarget(epoch, target);
@@ -151,7 +151,7 @@ export function HomePage(): ReactElement {
         {panel === "changes" ? <HomeChanges epoch={epoch} /> : <HomeDirectory epoch={epoch} />}
 
         <div className="relative min-w-0 flex-1">
-          {link === null && diffLink === null && (
+          {ref === null && diffLink === null && (
             <div className="flex h-full items-center justify-center p-6">
               <EmptyState
                 icon={<House size={26} />}
@@ -167,14 +167,14 @@ export function HomePage(): ReactElement {
               />
             </div>
           )}
-          {link !== null && (
+          {ref !== null && (
             <div className={diffLink === null ? "h-full" : "hidden"}>
-              <HomeContentView epoch={epoch} link={link} view={view} fragment={fragment} />
+              <HomeContentView epoch={epoch} ref={ref} view={view} fragment={fragment} />
             </div>
           )}
           {diffLink !== null && (
             <div className="h-full">
-              <HomeDiffView epoch={epoch} link={diffLink} />
+              <HomeDiffView epoch={epoch} ref={diffLink} />
             </div>
           )}
         </div>
@@ -193,10 +193,10 @@ export function HomePage(): ReactElement {
           onClose={() => useHomePage.getState().setRightPanel("none")}
         />
       )}
-      {rightPanel === "references" && link !== null && (
+      {rightPanel === "references" && ref !== null && (
         <ReferencesPanel
           actionId="home.search"
-          anchor={link}
+          anchor={ref}
           directRefs={currentDirectRefs}
           origin={{ homeView: view }}
           run={runSearch}

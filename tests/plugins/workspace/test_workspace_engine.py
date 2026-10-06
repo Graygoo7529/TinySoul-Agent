@@ -56,7 +56,7 @@ from tinysoul.plugins.workspace import (
     WorkspaceAnalysisSettings,
     WorkspaceContractError,
     WorkspaceEngineBuilder,
-    WorkspaceLink,
+    WorkspaceRef,
     WorkspaceManifest,
     WorkspacePromptInput,
     WorkspacePromptReferenceResolver,
@@ -135,7 +135,7 @@ def test_workspace_settings_parse_search_and_analysis_tables(tmp_path: Path) -> 
                 "max_query_chars": 321,
             },
             "analysis": {
-                "max_reference_links": 3,
+                "max_reference_refs": 3,
                 "max_source_chars": 6000,
                 "max_chars_per_reference": 2000,
             },
@@ -145,7 +145,7 @@ def test_workspace_settings_parse_search_and_analysis_tables(tmp_path: Path) -> 
 
     assert settings.search.max_scan_chars == 1234
     assert settings.search.max_query_chars == 321
-    assert settings.analysis.max_reference_links == 3
+    assert settings.analysis.max_reference_refs == 3
     assert settings.analysis.max_source_chars == 6000
     assert settings.analysis.max_chars_per_reference == 2000
 
@@ -178,13 +178,13 @@ def test_workspace_document_read_is_bounded(local_tmp: Path) -> None:
 
 
 def test_workspace_link_rejects_unsafe_paths() -> None:
-    assert str(WorkspaceLink.parse("workspace:docs/a.md")) == "workspace:docs/a.md"
+    assert str(WorkspaceRef.parse("workspace:docs/a.md")) == "workspace:docs/a.md"
     with pytest.raises(WorkspaceContractError):
-        WorkspaceLink.parse("file:docs/a.md")
+        WorkspaceRef.parse("file:docs/a.md")
     with pytest.raises(WorkspaceContractError):
-        WorkspaceLink.parse("workspace:../secret.md")
+        WorkspaceRef.parse("workspace:../secret.md")
     with pytest.raises(WorkspaceContractError):
-        WorkspaceLink.parse("workspace:C:/secret.md")
+        WorkspaceRef.parse("workspace:C:/secret.md")
 
 
 def test_workspace_scan_manifest_file_does_not_hide_root(tmp_path: Path) -> None:
@@ -197,9 +197,9 @@ def test_workspace_scan_manifest_file_does_not_hide_root(tmp_path: Path) -> None
 
     result = engine.reconcile()
 
-    assert [resource.link for resource in result.resources] == ["workspace:a.md"]
+    assert [resource.ref for resource in result.resources] == ["workspace:a.md"]
     assert all(
-        item.link != "workspace:workspace_manifest.json" for item in result.resources
+        item.ref != "workspace:workspace_manifest.json" for item in result.resources
     )
 
 
@@ -216,7 +216,7 @@ def test_workspace_scan_reports_limit_reached(tmp_path: Path) -> None:
 
     result = engine.reconcile()
 
-    assert [resource.link for resource in result.resources] == ["workspace:a.md"]
+    assert [resource.ref for resource in result.resources] == ["workspace:a.md"]
     assert result.limit_reached is True
     assert result.status is WorkspaceReconcileStatus.INCOMPLETE
     assert engine.load_manifest().resources == ()
@@ -234,7 +234,7 @@ def test_workspace_classifies_prompt_access_kinds(tmp_path: Path) -> None:
         )
     ).build()
 
-    records = {record.link: record for record in engine.reconcile().manifest.resources}
+    records = {record.ref: record for record in engine.reconcile().manifest.resources}
 
     assert records["workspace:a.md"].kind is WorkspaceResourceKind.TEXT
     assert records["workspace:image.png"].kind is WorkspaceResourceKind.IMAGE
@@ -294,7 +294,7 @@ async def test_workspace_turn_preparation_projects_manifest_into_context(
     workspace.initialize_day(DAY)
     context = ContextEngineBuilder(system_text="system").build()
     context.register_segment(workspace_segment_registration(workspace))
-    turn_id = context.begin_turn("hello")
+    turn_id = context.begin_turn("hello", turn_id="2026-07-12/297")
     await context.open_segments(DAY.value)
     scope = RunScope().push(RunLevel.AGENT, "program").push(RunLevel.TURN, turn_id)
     bus = SignalBus()
@@ -316,7 +316,7 @@ async def test_workspace_turn_preparation_projects_manifest_into_context(
 
     working = context.segment_snapshot("workspace")
     assert working["resources"] == [
-        {"link": "workspace:a.md", "summary": "Markdown text, 5 bytes"}
+        {"ref": "workspace:a.md", "summary": "Markdown text, 5 bytes"}
     ]
 
 
@@ -331,7 +331,7 @@ def test_workspace_read_text_returns_bounded_text(tmp_path: Path) -> None:
 
     result = engine.read_text("workspace:a.md", max_chars=3)
 
-    assert result.link == "workspace:a.md"
+    assert result.ref == "workspace:a.md"
     assert result.text == "abc"
     assert result.truncated is True
     assert engine.load_manifest().resources == ()
@@ -398,7 +398,7 @@ async def test_workspace_prompt_reference_resolver_returns_prefix_block(
     )
     text = _message_text(blocks[0].message)
     assert "# Workspace Reference" in text
-    assert "link: workspace:a.md" in text
+    assert "ref: workspace:a.md" in text
     assert "abc" in text
     assert "truncated: true" in text
 
@@ -424,7 +424,7 @@ async def test_workspace_prompt_reference_resolver_returns_target_block(
     )
     text = _message_text(blocks[0].message)
     assert "# Workspace Target" in text
-    assert "link: workspace:a.md" in text
+    assert "ref: workspace:a.md" in text
     assert "abc" in text
     assert "truncated: true" in text
 
@@ -493,7 +493,7 @@ async def test_workspace_read_action_returns_foldable_text_range(
     result = await _executor(engine).execute(
         _execution(
             "workspace.read",
-            {"link": "workspace:a.md", "start_line": 2, "end_line": 3},
+            {"ref": "workspace:a.md", "start_line": 2, "end_line": 3},
         ),
         ActionExecutionContext(),
     )
@@ -596,7 +596,7 @@ async def test_workspace_query_reports_read_budget_and_honors_exclusions_first(
     ).build()
     service = _search_service(engine)
     source = QuerySource(
-        ResourceScope(ResourceScopeKind.WORKSPACE, ""), TextQuery("needle")
+        ResourceScope(ResourceScopeKind.WORKSPACE), TextQuery("needle")
     )
     with pytest.raises(SearchFailure) as failure:
         await service.search(RetrievalRequest(source))
@@ -616,7 +616,7 @@ async def test_workspace_unreadable_text_is_not_a_complete_empty_result(tmp_path
         await _search_service(engine).search(
             RetrievalRequest(
                 QuerySource(
-                    ResourceScope(ResourceScopeKind.WORKSPACE, ""), TextQuery("needle")
+                    ResourceScope(ResourceScopeKind.WORKSPACE), TextQuery("needle")
                 )
             )
         )
@@ -635,7 +635,7 @@ async def test_workspace_search_action_returns_foldable_fragments(
             {
                 "source": {
                     "kind": "query",
-                    "scope": {"kind": "file", "locator": "workspace:a.md"},
+                    "scope": {"kind": "file", "ref": "workspace:a.md"},
                     "query": "needle",
                 },
             },
@@ -644,7 +644,7 @@ async def test_workspace_search_action_returns_foldable_fragments(
     )
 
     assert result.status.value == "success"
-    expected_scope = {"kind": "file", "locator": "workspace:a.md"}
+    expected_scope = {"kind": "file", "ref": "workspace:a.md"}
     assert result.payload["scope"] == expected_scope
     items = result.payload["items"]
     assert isinstance(items, list)
@@ -659,7 +659,9 @@ async def test_workspace_search_action_returns_foldable_fragments(
     assert result.trace_projection is not None
     compact = result.trace_projection.canonical_payload
     assert compact["source"] == "query"
-    assert compact["selected"] == ["workspace:a.md"]
+    assert compact["selected"] == [
+        {"ref": "workspace:a.md", "title": "a.md", "excerpt": "needle\n"}
+    ]
 
 
 async def test_workspace_search_action_rejects_legacy_scope_shape(
@@ -674,7 +676,7 @@ async def test_workspace_search_action_rejects_legacy_scope_shape(
             "workspace.search",
             {
                 "query": "needle",
-                "scope": {"kind": "file", "link": "workspace:a.md"},
+                "scope": {"kind": "file", "ref": "workspace:a.md"},
             },
         ),
         ActionExecutionContext(),
@@ -692,7 +694,7 @@ async def test_workspace_analyze_returns_grounded_standard_result(
     (tmp_path / "b.md").write_text("beta\n", encoding="utf-8")
     engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
     context_engine = ContextEngineBuilder(system_text="system").build()
-    context_engine.begin_turn("analyze files")
+    context_engine.begin_turn("analyze files", turn_id="2026-07-12/695")
     await context_engine.open_segments(CalendarDate(2026, 7, 12))
     llm = FakeLLMRunner(
         answer={"answer": "Alpha and beta are present.", "source_ids": ["source_1"]}
@@ -709,7 +711,7 @@ async def test_workspace_analyze_returns_grounded_standard_result(
             "workspace.analyze",
             {
                 "intent": "Compare the files.",
-                "reference_links": ["workspace:a.md", "workspace:b.md"],
+                "references": ["workspace:a.md", "workspace:b.md"],
             },
         ),
         ActionExecutionContext(),
@@ -720,8 +722,8 @@ async def test_workspace_analyze_returns_grounded_standard_result(
     assert result.payload["sources"] == [
         {
             "source_id": "source_1",
-            "link": "workspace:a.md",
-            "size": engine.inspect("workspace:a.md").size,
+            "ref": "workspace:a.md",
+            "size": engine.stat("workspace:a.md").size,
             "range": {"start_line": 1, "end_line": 1},
         }
     ]
@@ -747,7 +749,7 @@ async def test_workspace_analyze_budget_failure_does_not_call_llm(
         )
     ).build()
     context_engine = ContextEngineBuilder(system_text="system").build()
-    context_engine.begin_turn("analyze files")
+    context_engine.begin_turn("analyze files", turn_id="2026-07-12/750")
     await context_engine.open_segments(CalendarDate(2026, 7, 12))
     llm = FakeLLMRunner(answer={"answer": "unused", "source_ids": ["source_1"]})
 
@@ -758,14 +760,14 @@ async def test_workspace_analyze_budget_failure_does_not_call_llm(
     ).execute(
         _execution(
             "workspace.analyze",
-            {"intent": "Analyze.", "reference_links": ["workspace:a.md"]},
+            {"intent": "Analyze.", "references": ["workspace:a.md"]},
         ),
         ActionExecutionContext(),
     )
 
     assert result.status.value == "failed"
     assert result.payload["reason"] == "reference_chars_exceeded"
-    assert result.payload["offending_link"] == "workspace:a.md"
+    assert result.payload["offending_ref"] == "workspace:a.md"
     assert llm.calls == []
 
 
@@ -773,7 +775,7 @@ async def test_workspace_analyze_rejects_invented_source_id(tmp_path: Path) -> N
     (tmp_path / "a.md").write_text("alpha", encoding="utf-8")
     engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
     context_engine = ContextEngineBuilder(system_text="system").build()
-    context_engine.begin_turn("analyze files")
+    context_engine.begin_turn("analyze files", turn_id="2026-07-12/776")
     await context_engine.open_segments(CalendarDate(2026, 7, 12))
     llm = FakeLLMRunner(answer={"answer": "Invented.", "source_ids": ["source_99"]})
 
@@ -784,7 +786,7 @@ async def test_workspace_analyze_rejects_invented_source_id(tmp_path: Path) -> N
     ).execute(
         _execution(
             "workspace.analyze",
-            {"intent": "Analyze.", "reference_links": ["workspace:a.md"]},
+            {"intent": "Analyze.", "references": ["workspace:a.md"]},
         ),
         ActionExecutionContext(),
     )
@@ -800,7 +802,7 @@ async def test_workspace_analyze_requires_at_least_one_grounding_source(
     (tmp_path / "a.md").write_text("alpha", encoding="utf-8")
     engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
     context_engine = ContextEngineBuilder(system_text="system").build()
-    context_engine.begin_turn("analyze files")
+    context_engine.begin_turn("analyze files", turn_id="2026-07-12/803")
     await context_engine.open_segments(CalendarDate(2026, 7, 12))
     llm = FakeLLMRunner(answer={"answer": "Alpha is present.", "source_ids": []})
 
@@ -811,7 +813,7 @@ async def test_workspace_analyze_requires_at_least_one_grounding_source(
     ).execute(
         _execution(
             "workspace.analyze",
-            {"intent": "Analyze.", "reference_links": ["workspace:a.md"]},
+            {"intent": "Analyze.", "references": ["workspace:a.md"]},
         ),
         ActionExecutionContext(),
     )
@@ -832,9 +834,9 @@ def test_workspace_write_text_creates_resource_and_manifest(tmp_path: Path) -> N
     record = engine.write_text("workspace:docs/a.md", "hello")
 
     assert (tmp_path / "docs" / "a.md").read_text(encoding="utf-8") == "hello"
-    assert record.link == "workspace:docs/a.md"
+    assert record.ref == "workspace:docs/a.md"
     assert record.size == 5
-    assert {item.link for item in engine.load_manifest().resources} == {
+    assert {item.ref for item in engine.load_manifest().resources} == {
         "workspace:docs",
         "workspace:docs/a.md",
     }
@@ -887,7 +889,7 @@ def test_workspace_describe_rejects_internal_manifest(tmp_path: Path) -> None:
     ).build()
 
     with pytest.raises(WorkspaceContractError, match="internal"):
-        engine.inspect("workspace:workspace_manifest.json")
+        engine.stat("workspace:workspace_manifest.json")
 
 
 def _message_text(message: UserMessage) -> str:
@@ -956,7 +958,7 @@ async def test_compose_uses_local_sources_and_commits_only_complete_text(
         engine.write_text("workspace:target.md", "old target")
     engine.write_text("workspace:ref.md", "source evidence")
     context = ContextEngineBuilder(system_text="system").build()
-    context.begin_turn("compose")
+    context.begin_turn("compose", turn_id="2026-07-12/959")
     await context.open_segments(CalendarDate(2026, 9, 19))
     llm = FakeLLMRunner({"text": "complete result"})
     bus = SignalBus()
@@ -970,9 +972,9 @@ async def test_compose_uses_local_sources_and_commits_only_complete_text(
         _execution(
             "workspace.compose",
             {
-                "target_link": "workspace:target.md",
+                "target_ref": "workspace:target.md",
                 "instruction": "Use the evidence.",
-                "reference_links": ["workspace:ref.md"],
+                "references": ["workspace:ref.md"],
                 "overwrite": overwrite,
             },
         ),
@@ -983,7 +985,7 @@ async def test_compose_uses_local_sources_and_commits_only_complete_text(
     assert len(llm.calls) == 1
     assert "text" not in result.payload
     assert any(
-        item.link == "workspace:target.md" for item in engine.snapshot().resources
+        item.ref == "workspace:target.md" for item in engine.snapshot().resources
     )
 
 
@@ -995,7 +997,7 @@ async def test_compose_rejects_truncated_target_before_generating(
         WorkspaceSettings(root=tmp_path, max_write_chars=4)
     ).build()
     context = ContextEngineBuilder(system_text="system").build()
-    context.begin_turn("compose")
+    context.begin_turn("compose", turn_id="2026-07-12/998")
     await context.open_segments(CalendarDate(2026, 9, 19))
     llm = FakeLLMRunner({"text": "new"})
     executor = WorkspaceExecutor(
@@ -1008,7 +1010,7 @@ async def test_compose_rejects_truncated_target_before_generating(
         _execution(
             "workspace.compose",
             {
-                "target_link": "workspace:target.md",
+                "target_ref": "workspace:target.md",
                 "instruction": "Change it.",
                 "overwrite": True,
             },
@@ -1037,7 +1039,7 @@ async def test_workspace_owner_io_failure_crosses_bridge_without_raw_detail(
             _execution(
                 "workspace.write",
                 {
-                    "target_link": "workspace:a.md",
+                    "target_ref": "workspace:a.md",
                     "text": "a",
                 },
             ),
@@ -1060,7 +1062,7 @@ def test_workspace_backlinks_read_markdown_edges_without_similarity(
         "workspace:sub/source.md",
         "[local](../target.md#storage)\n[memory][m]\n\n[m]: <memory:concept/storage>",
     )
-    workspace.write_text("workspace:similar.md", "Storage durability target, no link.")
+    workspace.write_text("workspace:similar.md", "Storage durability target, no ref.")
     refs = ReferenceResolver()
     refs.bind(
         {
@@ -1077,7 +1079,7 @@ def test_workspace_backlinks_read_markdown_edges_without_similarity(
     ):
         corpus = workspace.retrieval_corpus(
             RetrievalRequest(
-                BacklinksSource(ResourceScope(ResourceScopeKind.WORKSPACE, ""), target)
+                BacklinksSource(ResourceScope(ResourceScopeKind.WORKSPACE), target)
             ),
             references=refs,
         )
@@ -1127,3 +1129,77 @@ def test_analysis_prompt_keeps_dynamic_limits_and_reference_bodies(
     assert "731" in output
     assert source_id in output
     assert all(isinstance(message, UserMessage) for message in prompt.render_messages())
+
+
+async def test_inspect_pages_selected_text_and_keeps_only_read_facts(
+    tmp_path: Path,
+) -> None:
+    from tinysoul.infra.continuation import ContinuationError
+
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    engine.initialize_day(CalendarDay.parse("2026-10-06"))
+    section = "# Selected\n" + "detail " * 200 + "\n"
+    engine.write_text(
+        "workspace:notes.md", "# Intro\nintro\n" + section + "# Other\nother\n"
+    )
+    params: JsonObject = {"ref": "workspace:notes.md#selected", "max_chars": 512}
+    result = await _executor(engine).execute(
+        _execution("workspace.inspect", params), ActionExecutionContext()
+    )
+    assert result.status.value == "success"
+    assert result.payload["text"] == section[:512]
+    assert result.model_text is not None and section[:512] in result.model_text
+    assert result.trace_projection is not None
+    canonical = result.trace_projection.canonical_payload
+    assert canonical["requested_ref"] == params["ref"] and canonical["coverage"]
+    assert "text" not in canonical and section[:512] not in str(canonical)
+    continuation = result.payload["next_continuation"]
+    assert isinstance(continuation, str)
+    texts = [str(result.payload["text"])]
+    while continuation:
+        page = engine.inspect(
+            str(params["ref"]), continuation=continuation, max_chars=512
+        )
+        texts.append(str(page["text"]))
+        token = page["next_continuation"]
+        assert token is None or isinstance(token, str)
+        continuation = token
+    assert "".join(texts) == section
+    old_token = result.payload["next_continuation"]
+    assert isinstance(old_token, str)
+    engine.write_text("workspace:notes.md", "# Selected\nUpdated.\n", overwrite=True)
+    assert engine.inspect(str(params["ref"]))["text"] == "# Selected\nUpdated.\n"
+    with pytest.raises(ContinuationError):
+        engine.inspect(str(params["ref"]), continuation=old_token)
+
+
+async def test_inspect_directory_and_nontext_describe_current_resources(
+    tmp_path: Path,
+) -> None:
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    engine.initialize_day(CalendarDay.parse("2026-10-06"))
+    engine.write_text("workspace:docs/note.md", "hello")
+    engine.set_description("workspace:docs/note.md", "Meeting notes")
+    page = engine.inspect("workspace:docs")
+    assert "workspace:docs/note.md" in str(page["items"])
+    assert "Meeting notes" in str(page["items"])
+    (tmp_path / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    page = engine.inspect("workspace:image.png")
+    assert page["view"] == "metadata" and "text" not in page
+    executor = _executor(engine)
+    metadata = await executor.execute(
+        _execution("workspace.inspect", {"ref": "workspace:image.png"}),
+        ActionExecutionContext(),
+    )
+    assert metadata.model_text is not None and "image/png" in metadata.model_text
+    assert metadata.trace_projection is not None
+    assert metadata.trace_projection.canonical_payload["view"] == "metadata"
+    directory = await executor.execute(
+        _execution("workspace.inspect", {"ref": "workspace:docs"}),
+        ActionExecutionContext(),
+    )
+    assert directory.trace_projection is not None
+    assert directory.trace_projection.canonical_payload["coverage"] == {
+        "returned_refs": ["workspace:docs/note.md"],
+        "partial_item": False,
+    }

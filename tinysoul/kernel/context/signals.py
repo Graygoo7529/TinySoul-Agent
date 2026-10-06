@@ -119,8 +119,8 @@ def build_background_patch_signal(
         scope=scope,
         payload={
             "call_id": call_id,
-            "load_links": list(patch.load_links),
-            "evict_links": list(patch.evict_links),
+            "load_refs": list(patch.load_refs),
+            "evict_refs": list(patch.evict_refs),
         },
     )
 
@@ -128,11 +128,11 @@ def build_background_patch_signal(
 def parse_background_patch_signal(signal: Signal) -> tuple[str, BackgroundPatch]:
     call_id = _required_str(signal.payload, "call_id")
     patch = BackgroundPatch(
-        load_links=_str_tuple(signal.payload, "load_links"),
-        evict_links=_str_tuple(signal.payload, "evict_links"),
+        load_refs=_str_tuple(signal.payload, "load_refs"),
+        evict_refs=_str_tuple(signal.payload, "evict_refs"),
     )
     if patch.is_empty():
-        raise ContextContractError("Background patch signal contains no links")
+        raise ContextContractError("Background patch signal contains no refs")
     return call_id, patch
 
 

@@ -94,7 +94,7 @@ function ConversationTurn({ epoch, turnId, viewKey, echo, preview, day, activeDa
   current: boolean; latest: boolean; history: boolean; loading: boolean; unavailable: boolean; status: string | null; result: TurnResult | null;
   snapshot: TurnSnapshot | null;
 }) {
-  const enabled = !history && current && latest && snapshot !== null;
+  const enabled = !history && current && latest && snapshot?.turn_id != null;
   const presentation = useTurnPresentation(turnId, snapshot, items, enabled);
   const working = useActivityDetails(turnId, enabled && snapshot?.state !== "finished", enabled);
   const view: ChatViewMode = history || !current ? "history" : "live";
@@ -108,7 +108,7 @@ function ConversationTurn({ epoch, turnId, viewKey, echo, preview, day, activeDa
   const detail = captured.current;
   const initial = items.find((item) => item.role === "user.input");
   const hasControls = useTurnStore((s) => current && (s.pendingItems.length > 0 ||
-    s.outgoing.some((entry) => entry.kind !== "new-turn" && entry.turnId === turnId) ||
+    s.outgoing.some((entry) => entry.kind !== "new-turn" && entry.requestId === snapshot?.request_id) ||
     s.snapshot?.question != null || s.snapshot?.budget_request != null));
   const inputText = initial?.text ?? echo?.text ?? preview?.text;
   const activity = !history && latest ? detail?.presentation.activity : null;
@@ -135,10 +135,9 @@ function ConversationTurn({ epoch, turnId, viewKey, echo, preview, day, activeDa
 function CurrentTurnControls() {
   const pending = useTurnStore((s) => s.pendingItems);
   const outgoing = useTurnStore((s) => s.outgoing);
-  const turnId = useTurnStore((s) => s.turnId);
   const snapshot = useTurnStore((s) => s.snapshot);
   return <>{pending.map((item) => <PendingRow key={item.record_id} item={item} />)}
-    {outgoing.filter((echo) => echo.kind !== "new-turn" && echo.turnId === turnId &&
+    {outgoing.filter((echo) => echo.kind !== "new-turn" && echo.requestId === snapshot?.request_id &&
       (echo.kind !== "reply" || echo.state === "failed")).map((echo) => <EchoRow key={echo.echoId} echo={echo} />)}
     <BudgetCard snapshot={snapshot} /></>;
 }
@@ -149,7 +148,7 @@ function ConversationView() {
   const items = useTurnStore((s) => s.items);
   const loading = useTurnStore((s) => s.loading);
   const historyView = useTurnStore((s) => s.historyView);
-  const turnId = useTurnStore((s) => s.turnId);
+  const turnId = useTurnStore((s) => s.turnId ?? s.requestId);
   const day = useTurnStore((s) => s.day);
   const activeDay = useConnectionStore(selectActiveDay);
   const pendingQuestion = useTurnStore(selectPendingQuestion);
@@ -163,7 +162,8 @@ function ConversationView() {
   const result = useTurnStore((s) => s.result);
   const runtimeTurns = useTurnStore((s) => s.runtimeTurns);
   const runtimeProjections = useTurnStore((s) => s.runtimeProjections);
-  const focusTurnId = useTurnStore((s) => s.focusTurnId);
+  const focusRequestId = useTurnStore((s) => s.focusTurnId);
+  const focusTurnId = runtimeTurns.find((entry) => entry.request_id === focusRequestId)?.turn_id ?? focusRequestId;
   const rootId = useConnectionStore(selectActiveTurnId);
   const sessionLoading = useTurnStore((s) => s.sessionTurnsLoading);
   const outgoing = useTurnStore((s) => s.outgoing);
@@ -171,7 +171,8 @@ function ConversationView() {
   const identities = useRef({ epoch, keys: new Map<string, string>() });
   if (identities.current.epoch !== epoch) identities.current = { epoch, keys: new Map() };
   const initialEchoes = historyView ? [] : outgoing.filter((echo) => echo.kind === "new-turn");
-  for (const echo of initialEchoes) if (echo.turnId) identities.current.keys.set(echo.turnId, echo.echoId);
+  const echoTurnId = (echo: OutgoingEcho) => echo.requestId === snapshot?.request_id ? snapshot.turn_id ?? echo.requestId : runtimeTurns.find((entry) => entry.request_id === echo.requestId)?.turn_id ?? echo.requestId;
+  for (const echo of initialEchoes) { const id = echoTurnId(echo); if (id) identities.current.keys.set(id, echo.echoId); }
   const viewKey = (id: string) => identities.current.keys.get(id) ?? id;
   const running = !historyView && rootId !== null;
   const ids = [...(!historyView ? chronologicalTurns.map((summary) => summary.turn_id) : [])];
@@ -181,22 +182,22 @@ function ConversationView() {
       const time = sessionTurns.find((summary) => summary.turn_id === id)?.recorded_at;
       return time && entry.finished_at && Date.parse(time) > Date.parse(entry.finished_at);
     }) : -1;
-    if (next < 0) ids.push(entry.turn_id); else ids.splice(next, 0, entry.turn_id);
+    if (next < 0) ids.push((entry.turn_id ?? entry.request_id)); else ids.splice(next, 0, (entry.turn_id ?? entry.request_id));
   }
   if (turnId !== null && snapshot?.state === "finished" && !ids.includes(turnId)) ids.push(turnId);
-  if (rootId && (rootId === turnId || reflections.some((entry) => entry.turn_id === rootId)) && !ids.includes(rootId)) ids.push(rootId);
+  if (rootId && (rootId === turnId || reflections.some((entry) => (entry.turn_id ?? entry.request_id) === rootId)) && !ids.includes(rootId)) ids.push(rootId);
   const pendingRoots = runtimeTurns.filter((entry) => entry.state !== "finished" &&
-    (reflections.includes(entry) || entry.turn_id === turnId)).sort((a, b) => a.accepted_at.localeCompare(b.accepted_at));
-  for (const entry of pendingRoots) if (!ids.includes(entry.turn_id)) ids.push(entry.turn_id);
+    (reflections.includes(entry) || (entry.turn_id ?? entry.request_id) === turnId)).sort((a, b) => a.accepted_at.localeCompare(b.accepted_at));
+  for (const entry of pendingRoots) if (!ids.includes((entry.turn_id ?? entry.request_id))) ids.push((entry.turn_id ?? entry.request_id));
   if (turnId !== null && !ids.includes(turnId)) ids.push(turnId);
   for (const echo of initialEchoes) {
-    const id = echo.turnId ?? echo.echoId;
+    const id = echoTurnId(echo) ?? echo.echoId;
     if (!ids.includes(id)) ids.push(id);
   }
   const latestId = rootId && ids.includes(rootId) ? rootId : ids[ids.length - 1] ?? null;
-  const focusEnded = runtimeTurns.find((entry) => entry.turn_id === focusTurnId)?.state === "finished";
+  const focusEnded = runtimeTurns.find((entry) => (entry.turn_id ?? entry.request_id) === focusTurnId)?.state === "finished";
   const followId = focusTurnId && ids.includes(focusTurnId) && !(rootId && rootId !== focusTurnId && focusEnded) ? focusTurnId : latestId;
-  const localEntry = initialEchoes.some((echo) => (echo.turnId ?? echo.echoId) === latestId);
+  const localEntry = initialEchoes.some((echo) => (echoTurnId(echo) ?? echo.echoId) === latestId);
   const scroll = useConversationScroll(followId ? viewKey(followId) : null, running, !localEntry && (loading || sessionLoading));
   const { scrollRef, contentRef, pinned, jumpToLatest } = scroll;
 
@@ -227,13 +228,13 @@ function ConversationView() {
           )}
           <ChatFollowContext.Provider value={scroll.holdFollow}>
             {ids.map((id) => {
-              const reflection = reflections.find((entry) => entry.turn_id === id);
+              const reflection = reflections.find((entry) => (entry.turn_id ?? entry.request_id) === id);
               if (reflection) return <ReflectionTurn key={id} epoch={epoch} summary={reflection}
                 projection={runtimeProjections[id]} latest={id === latestId || id === focusTurnId} />;
               const current = id === turnId;
-              const summary = sessionTurns.find((entry) => entry.turn_id === id);
+              const summary = sessionTurns.find((entry) => (entry.turn_id ?? entry.request_id) === id);
               const cached = sessionProjections[id];
-              const echo = initialEchoes.find((entry) => (entry.turnId ?? entry.echoId) === id);
+              const echo = initialEchoes.find((entry) => (echoTurnId(entry) ?? entry.echoId) === id);
               return <ConversationTurn key={viewKey(id)} viewKey={viewKey(id)} echo={echo} preview={current ? preview : null}
                 epoch={epoch} turnId={id} current={current} latest={id === latestId} history={historyView}
                 day={current ? day : summary?.day ?? null} activeDay={activeDay} items={current ? items : cached?.items ?? []}
@@ -269,7 +270,7 @@ function interactionKey(item: Interaction, items: Interaction[]): string {
 function HistoryBanner() {
   const epoch = useConnectionStore((s) => s.epoch);
   const day = useTurnStore((s) => s.day);
-  const turnId = useTurnStore((s) => s.turnId);
+  const turnId = useTurnStore((s) => s.turnId ?? s.requestId);
   const activeDay = useConnectionStore(selectActiveDay);
   const activeTurnId = useConnectionStore(selectActiveTurnId);
   // The displayed day differs from the runtime's active day: links and

@@ -15,7 +15,7 @@ _CHANGE_REQUEST_REASONS = frozenset(
         "invalid_query",
         "invalid_redirect",
         "invalid_start_url",
-        "invalid_target_link",
+        "invalid_target_ref",
         "invalid_url",
         "invalid_visit_depth",
         "private_network_target",

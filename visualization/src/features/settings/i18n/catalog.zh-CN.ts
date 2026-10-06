@@ -54,7 +54,7 @@ export const fieldText: Record<string, FieldText> = {
   "workspace.search.max_query_chars": ["搜索表达式上限", "搜索表达式的最大字符数。"],
   "workspace.search.max_scan_chars": ["搜索扫描预算", "一次搜索允许扫描的文本总字符数。"],
   "workspace.analysis.max_intent_chars": ["分析指令上限", "分析意图的最大字符数。"],
-  "workspace.analysis.max_reference_links": ["分析引用上限", "一次分析允许使用的资源链接数量。"],
+  "workspace.analysis.max_reference_refs": ["分析引用上限", "一次分析允许使用的资源链接数量。"],
   "workspace.analysis.max_source_chars": ["分析来源总预算", "分析时所有来源内容的合计字符上限。"],
   "workspace.analysis.max_chars_per_reference": ["单个分析来源预算", "每个引用最多读取的字符数。"],
   "workspace.analysis.max_answer_chars": ["分析结果上限", "完整分析结果的最大字符数。"],

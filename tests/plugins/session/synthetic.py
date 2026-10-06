@@ -47,7 +47,7 @@ def completion(
     ask: str = "question",
     received_at: float = 1.0,
     working: JsonObject | None = None,
-    background_links: tuple[str, ...] = (),
+    background_refs: tuple[str, ...] = (),
     actions: tuple[SyntheticAction, ...] = (),
 ) -> ContextTurnCompletion:
     entries: list[TraceEntry] = []
@@ -142,7 +142,7 @@ def completion(
         turn_id=turn_id,
         inputs=(ContextTurnInput(text=ask, received_at=received_at),),
         working=working or {},
-        background_links=background_links,
+        background_refs=background_refs,
         trace=SealedTurnTrace(
             turn_id=turn_id, entries=tuple(entries), actions=tuple(facts)
         ),

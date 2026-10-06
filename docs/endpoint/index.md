@@ -18,9 +18,9 @@ Endpoint 是 loopback 本地协议。除 `GET /v2/health` 外，HTTP 请求都�
 | Runtime | `POST /v2/input` | 提交 User input |
 | Runtime | `POST /v2/control` | 提交 stop/exit control |
 | Runtime | `POST /v2/restart` | 请求宿主重建 Agent generation，保持 Endpoint instance |
-| Turn | `POST /v2/turns`、`GET /v2/turns`、`GET /v2/turns/{id}` | 结构化受理、有界句柄目录和 owner 状态/结果 |
-| Turn | `POST /v2/turns/{id}/input`、`reply`、`grant`、`cancel` | 指定 Turn 的输入与控制 |
-| Job | `GET /v2/turns/{id}/jobs`、`POST /v2/turns/{id}/jobs/{job_id}/stop` | Turn-owned 查询与停止 |
+| Turn | `POST /v2/requests`、`GET /v2/requests`、`GET /v2/requests/{id}` | 结构化受理、有界句柄目录和 owner 状态/结果 |
+| Turn | `POST /v2/requests/{id}/input`、`reply`、`grant`、`cancel` | 指定 Turn 的输入与控制 |
+| Job | `GET /v2/requests/{id}/jobs`、`POST /v2/requests/{id}/jobs/{job_id}/stop` | Turn-owned 查询与停止 |
 | Reflection | `GET/POST /v2/reflection` | 读取 availability、提交维护请求 |
 | Events | `GET /v2/events` | Observation replay |
 | Events | `WS /v2/events/ws` | Observation stream |
@@ -31,7 +31,7 @@ Endpoint 是 loopback 本地协议。除 `GET /v2/health` 外，HTTP 请求都�
 | Configuration | `POST /v2/config/reload` | 在 idle 边界显式激活候选 |
 | Workspace | `/v2/workspace/*` | 当前/归档浏览，活动日编辑 |
 | Configuration | `POST /v2/config/apply`、`/v2/config/presets` | 整批发布、命名方案 |
-| Inspection | `/v2/days`、`/v2/session/*`、`/v2/turns/{id}/context*`、`/v2/turns/{id}/interactions` | 已提交历史、已安装 Context、活动交互与已安装 Heap 正文快照 |
+| Inspection | `/v2/days`、`/v2/session/*`、`/v2/requests/{id}/context*`、`/v2/requests/{id}/interactions` | 已提交历史、已安装 Context、活动交互与已安装 Heap 正文快照 |
 | Resources | `/v2/home/*`、`/v2/memory/*`、`/v2/resources/resolve` | owner 浏览与定位；search 为显式 POST |
 | Capabilities | `/v2/subagent`、`/v2/expand/*`、Job detail/output | 现有连接、目录与 backend 的只读投影 |
 

@@ -1,15 +1,15 @@
 {
-  "result_ref": "search-result:id-2",
+  "result_handle": "search-result:5eafe412fa844e8797d896444d7a7eab",
   "scope": "refs",
   "source": "refs",
   "items": [
     {
-      "ref": "home:agent@contract",
-      "title": "contract",
+      "ref": "home:top/agent/contract",
+      "title": "agent/contract",
       "rank": 1,
       "evidence": [
         {
-          "ref": "home:agent/contract.md#L1-L1",
+          "ref": "home:resource/agent/contract.md#L1-L1",
           "text": "Workspace guidance\n",
           "kind": "content",
           "location": {

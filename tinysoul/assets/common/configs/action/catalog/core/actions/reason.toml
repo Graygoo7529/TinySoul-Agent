@@ -43,13 +43,13 @@ description = "Optional stable label for this input block."
 type = "string"
 description = "Input text for this prompt block."
 
-[tool.schema.properties.reference_links]
+[tool.schema.properties.references]
 type = "array"
-description = "Optional read-only resource links resolved into task prompt blocks."
+description = "Optional read-only resource references resolved into task prompt blocks."
 
-[tool.schema.properties.reference_links.items]
+[tool.schema.properties.references.items]
 type = "string"
-description = "Read-only resource link, for example workspace:docs/task.md."
+description = "Read-only resource reference, for example workspace:docs/task.md."
 
 [tool.schema.properties.output_blocks]
 type = "array"

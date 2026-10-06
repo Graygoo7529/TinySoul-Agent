@@ -303,7 +303,7 @@ def test_workspace_llm_edit_batch_uses_action_timeout(action_name: str) -> None:
                 "call_1",
                 action_name,
                 {
-                    "target_link": "workspace:docs/plan.md",
+                    "target_ref": "workspace:docs/plan.md",
                     "instruction": "Improve the document.",
                 },
                 1,

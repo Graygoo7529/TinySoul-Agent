@@ -38,6 +38,8 @@
     },
     "failure": null,
     "finish_failures": [],
-    "cleanup": []
-  }
+    "cleanup": [],
+    "request_id": "contract-turn"
+  },
+  "request_id": "contract-turn"
 }

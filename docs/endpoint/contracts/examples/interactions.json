@@ -1,30 +1,32 @@
 {
-  "ref": "session:turn/contract-turn",
+  "ref": "session:turn/2026-10-06/1",
   "kind": "session_turn",
   "items": [
     {
       "kind": "interaction",
-      "id": "session:turn/contract-turn#input/0",
+      "id": "session:turn/2026-10-06/1#input/0",
       "role": "user.input",
-      "ref": "session:turn/contract-turn#input/0",
+      "ref": "session:turn/2026-10-06/1#input/0",
       "text": "Run the prepared job and ask before proceeding",
       "delivery": "visible"
     }
   ],
-  "next_continuation": "continuation_3",
-  "turn_id": "contract-turn",
-  "day": "2026-09-29",
-  "generation_id": "generation_1",
+  "next_continuation": "v1.eyJiaW5kaW5nIjp7ImNvbnRlbnQiOiJiNDQ1Y2QyM2EwMWFmNWM3NGM5ZDhjZTZjYjIwMjRlN2Q2MTA4ZDAxODhlMDllYWIzMDlkMWY2NjkxYjg4ODE4In0sIm9wZXJhdGlvbiI6ImJyb3dzZSIsIm93bmVyIjoic2Vzc2lvbiIsInBvc2l0aW9uIjp7ImNoYXJfb2Zmc2V0IjowLCJpdGVtX2RpZ2VzdCI6IiIsIml0ZW1faW5kZXgiOjF9LCJyZWYiOiJzZXNzaW9uOnR1cm4vMjAyNi0xMC0wNi8xIiwidmVyc2lvbiI6MX0.f7383387280828bc74e5d48928bc1e84f7a2c8d60355f56c728a57372bc09bc0",
+  "request_id": "contract-turn",
+  "turn_id": "2026-10-06/1",
+  "day": "2026-10-06",
+  "generation_id": "generation_b54437c9bfd74388b38c1efe4f219d78",
   "state": "finished",
   "status": "answered",
   "pending_items": [],
   "result": {
-    "turn_id": "contract-turn",
-    "active_day": "2026-09-29",
+    "request_id": "contract-turn",
+    "turn_id": "2026-10-06/1",
+    "active_day": "2026-10-06",
     "status": "answered",
     "output": {
       "text": "Finished response",
-      "result_id": "action_result_2",
+      "result_id": "action_result_a3bcd72e",
       "references": [],
       "metadata": {
         "action": "core.answer"
@@ -32,7 +34,7 @@
     },
     "completion": {
       "kind": "answer",
-      "result_id": "action_result_2",
+      "result_id": "action_result_a3bcd72e",
       "text": "Finished response",
       "references": []
     },

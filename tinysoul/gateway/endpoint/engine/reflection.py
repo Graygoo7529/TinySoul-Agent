@@ -50,7 +50,11 @@ class EndpointReflectionEngine:
         command_id: str = "",
         instructions: str = "",
     ) -> JsonObject:
-        return await EndpointRuntimeEngine(self._context).create_turn(
-            kind=kind, text="", target_day=target_day, instructions=instructions,
-            metadata=to_json_object(metadata), command_id=command_id,
+        return await EndpointRuntimeEngine(self._context).create_request(
+            kind=kind,
+            text="",
+            target_day=target_day,
+            instructions=instructions,
+            metadata=to_json_object(metadata),
+            command_id=command_id,
         )

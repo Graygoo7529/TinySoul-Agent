@@ -297,6 +297,7 @@ class TurnRunner:
         *,
         active_day: CalendarDay,
         scope: RunScope,
+        turn_id: str,
         request_id: str = "",
         input_source: str = "",
         inbox: TurnInbox | None = None,
@@ -305,7 +306,6 @@ class TurnRunner:
             raise self._loop_bridge.from_loop_error(
                 LoopInvariantError("TurnRunner requires a CalendarDay")
             )
-        turn_id = ""
         turn_scope = scope.push(RunLevel.TURN, "turn_start")
         output: TurnOutput | None = None
         exhausted = False
@@ -318,11 +318,7 @@ class TurnRunner:
         finish_failures: tuple[TurnFailure, ...] = ()
         try:
             try:
-                turn_id = (
-                    self._context.begin_turn(turn_input, turn_id=request_id)
-                    if request_id
-                    else self._context.begin_turn(turn_input)
-                )
+                self._context.begin_turn(turn_input, turn_id=turn_id)
             except ContextError as exc:
                 raise self._context_bridge.from_context_error(exc) from exc
             turn_scope = scope.push(RunLevel.TURN, turn_id)

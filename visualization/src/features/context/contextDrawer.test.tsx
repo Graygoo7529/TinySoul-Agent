@@ -76,7 +76,7 @@ function renderTop() {
 }
 
 function serveOverview() {
-  endpoint.get(`/v2/turns/${TURN_ID}/context`, () =>
+  endpoint.get(`/v2/requests/${TURN_ID}/context`, () =>
     jsonResponse(structuredClone(overviewFixture)),
   );
 }
@@ -107,9 +107,9 @@ function segmentRequests() {
 
 describe("openContextDrawer", () => {
   it("retains already read Reflection background after completion without a Session fallback", async () => {
-    endpoint.get(`/v2/turns/${TURN_ID}/context/background`, () => jsonResponse({
+    endpoint.get(`/v2/requests/${TURN_ID}/context/background`, () => jsonResponse({
       source: "context", snapshot_available: true, continuation: null, items: [{
-        owner: "home", ref: "home:skills@review", title: "Review skill", source: "phase1", content: "Review these changes carefully.",
+        owner: "home", ref: "home:top/skills/review", title: "Review skill", source: "phase1", content: "Review these changes carefully.",
       }],
     }));
     act(() => root.render(<BackgroundPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29" active committed={false} reflection owner="home" />));
@@ -137,7 +137,7 @@ describe("openContextDrawer", () => {
     clickText("当前 Context");
     expect(container.textContent).toContain("当前没有运行中的语境");
     // No cached context of a previous turn is read.
-    expect(endpoint.calls(`/v2/turns/${TURN_ID}/context`)).toHaveLength(0);
+    expect(endpoint.calls(`/v2/requests/${TURN_ID}/context`)).toHaveLength(0);
 
   });
 
@@ -165,7 +165,7 @@ describe("openContextDrawer", () => {
     // Heap rows summarize installed/available.
     expect(container.textContent).toContain("7 installed · 3 available");
     // Only the overview was fetched — segment bodies wait for selection.
-    expect(endpoint.calls(`/v2/turns/${TURN_ID}/context`)).toHaveLength(1);
+    expect(endpoint.calls(`/v2/requests/${TURN_ID}/context`)).toHaveLength(1);
     expect(segmentRequests()).toHaveLength(0);
   });
 
@@ -191,7 +191,7 @@ describe("openContextDrawer", () => {
 
     clickText("Refresh");
     await flush();
-    expect(endpoint.calls(`/v2/turns/${TURN_ID}/context`)).toHaveLength(2);
+    expect(endpoint.calls(`/v2/requests/${TURN_ID}/context`)).toHaveLength(2);
     expect(container.textContent).not.toContain("refresh to see the latest");
     expect(container.textContent).toContain("identity");
   });
@@ -228,7 +228,7 @@ describe("openContextDrawer", () => {
   });
 
   it("shows the closed empty state when the context answers 409", async () => {
-    endpoint.get(`/v2/turns/${TURN_ID}/context`, () =>
+    endpoint.get(`/v2/requests/${TURN_ID}/context`, () =>
       errorResponse(409, "context.unavailable"),
     );
     act(() => openContextDrawer(epoch));
@@ -238,7 +238,7 @@ describe("openContextDrawer", () => {
   });
 
   it("pushes the selected segment and reads its body only then", async () => {
-    endpoint.get(`/v2/turns/${TURN_ID}/context/segments/home`, () =>
+    endpoint.get(`/v2/requests/${TURN_ID}/context/segments/home`, () =>
       jsonResponse({ turn_id: TURN_ID, segment_id: "home", messages: [] }),
     );
     await openOverview();
@@ -258,7 +258,7 @@ describe("openContextDrawer", () => {
 
 describe("ContextOverviewPanel direct", () => {
   it("surfaces a plain error with retry on non-409 failures", async () => {
-    endpoint.get(`/v2/turns/${TURN_ID}/context`, () =>
+    endpoint.get(`/v2/requests/${TURN_ID}/context`, () =>
       errorResponse(503, "service.unavailable"),
     );
     act(() => {

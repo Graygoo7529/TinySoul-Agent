@@ -18,6 +18,7 @@ def _success(
     payload: JsonObject,
     *,
     trace_projection: ActionTraceProjection | None = None,
+    model_text: str | None = None,
 ) -> ActionResult:
     return ActionResult.success(
         call_id=execution.call.call_id,
@@ -28,6 +29,7 @@ def _success(
         domain=execution.framework.domain,
         payload=payload,
         trace_projection=trace_projection,
+        model_text=model_text,
     )
 
 

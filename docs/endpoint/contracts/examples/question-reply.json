@@ -1,11 +1,33 @@
 {
   "question": {
     "kind": "interaction",
-    "id": "session:turn/contract-turn#action/1",
+    "id": "session:turn/2026-10-06/1#action/1",
     "role": "agent.question",
-    "ref": "session:turn/contract-turn#action/1",
+    "ref": "session:turn/2026-10-06/1#action/1",
     "action": "core.ask",
     "outcome": "success",
+    "request": {
+      "options": [
+        {
+          "description": "Use the approved plan",
+          "id": "a",
+          "label": "Execute"
+        }
+      ],
+      "text": "Choose a direction"
+    },
+    "result": {
+      "allow_other": true,
+      "options": [
+        {
+          "description": "Use the approved plan",
+          "id": "a",
+          "label": "Execute"
+        }
+      ],
+      "text": "Choose a direction",
+      "timeout_seconds": null
+    },
     "text": "Choose a direction",
     "options": [
       {
@@ -15,22 +37,23 @@
       }
     ],
     "allow_other": true,
-    "question_id": "action_result_1",
+    "question_id": "action_result_fe032d05",
     "answered": true
   },
   "reply": {
     "kind": "interaction",
-    "id": "session:turn/contract-turn#input/1",
+    "id": "session:turn/2026-10-06/1#input/1",
     "role": "user.reply",
-    "ref": "session:turn/contract-turn#input/1",
+    "ref": "session:turn/2026-10-06/1#input/1",
     "text": "Execute (a)\nUse the approved plan\nProceed",
     "delivery": "visible",
-    "reply_to": "session:turn/contract-turn#action/1",
-    "question_id": "action_result_1",
+    "reply_to": "session:turn/2026-10-06/1#action/1",
+    "question_id": "action_result_fe032d05",
     "answer": {
       "kind": "choice",
       "option_id": "a",
       "comment": "Proceed"
-    }
+    },
+    "narrative": "In reply to: Choose a direction\nUser selected: Execute\nUse the approved plan\nUser comment: Proceed"
   }
 }

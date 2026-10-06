@@ -30,7 +30,7 @@ class HomeDomainSkillProvider:
                 guidance = await self._home.guidance_for_domain(domain)
             except AgentHomeRuntimeCopyRequired as exc:
                 raise self._runtime_bridge.runtime_copy_required(
-                    link=exc.link,
+                    ref=exc.ref,
                     payload=exc.to_payload(),
                 ) from exc
             except AgentHomeError as exc:
@@ -40,7 +40,7 @@ class HomeDomainSkillProvider:
                 ) from exc
             if guidance:
                 snippets.append(
-                    PromptGuidance(guidance, f"home:skills_domain:{domain}", "home")
+                    PromptGuidance(guidance, f"home:mount/domain/{domain}", "home")
                 )
         return tuple(snippets)
 
@@ -64,7 +64,7 @@ class HomeActionSkillProvider:
             action_guidance = await self._home.guidance_for_action(domain, action_name)
         except AgentHomeRuntimeCopyRequired as exc:
             raise self._runtime_bridge.runtime_copy_required(
-                link=exc.link,
+                ref=exc.ref,
                 payload=exc.to_payload(),
             ) from exc
         except AgentHomeError as exc:
@@ -74,14 +74,14 @@ class HomeActionSkillProvider:
             ) from exc
         return ActionSkillGuidance(
             domain=(
-                PromptGuidance(domain_guidance, f"home:skills_domain:{domain}", "home"),
+                PromptGuidance(domain_guidance, f"home:mount/domain/{domain}", "home"),
             )
             if domain_guidance
             else (),
             action=(
                 PromptGuidance(
                     action_guidance,
-                    f"home:skills_action:{domain}/{action_name.removeprefix(domain + '.')}",
+                    f"home:mount/action/{domain}/{action_name.removeprefix(domain + '.')}",
                     "home",
                 ),
             )

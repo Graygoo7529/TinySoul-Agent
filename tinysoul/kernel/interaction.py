@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from tinysoul.infra.json import JsonObject, JsonValue
+from tinysoul.prompts.kernel import interaction as prompt_text
 
 
 class QuestionError(Exception):
@@ -104,6 +105,33 @@ class QuestionContent:
             )
             if part
         )
+
+    def narrative(self, *, explanation: str = "") -> str:
+        return prompt_text.question(
+            text=self.text,
+            options=tuple(
+                (item.id, item.label, item.description) for item in self.options
+            ),
+            allow_other=self.allow_other,
+            explanation=explanation,
+        )
+
+    def reply_narrative(self, answer: QuestionAnswer) -> str:
+        self.answer_text(answer)  # Validate the answer against this question.
+        option = next(
+            (item for item in self.options if item.id == answer.option_id), None
+        )
+        return prompt_text.reply(
+            question=self.text,
+            text=answer.text,
+            selected=option.label if option else "",
+            description=option.description if option else "",
+            comment=answer.comment,
+        )
+
+
+def input_narrative(text: str, *, initial: bool) -> str:
+    return prompt_text.input_text(text=text, initial=initial)
 
 
 class AnswerKind(StrEnum):

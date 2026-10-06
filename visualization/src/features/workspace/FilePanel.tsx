@@ -71,7 +71,7 @@ export function FilePanel({
   const isActive = viewDay === null || viewDay === activeDay;
   const apiDay = isActive ? null : viewDay;
   const select = useWorkspacePage((s) => s.select);
-  const draftKey = workspaceDraftKey(apiDay, record.link);
+  const draftKey = workspaceDraftKey(apiDay, record.ref);
   const dirty = useWorkspacePage((s) => s.drafts[draftKey] !== undefined);
   const setDraft = useWorkspacePage((s) => s.setDraft);
 
@@ -85,7 +85,7 @@ export function FilePanel({
     baselineRef.current = { mtime: record.mtime_ns, size: record.size };
     setExternalChange(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [record.link, viewDay]);
+  }, [record.ref, viewDay]);
 
   // Later manifest refreshes: a changed record is an external change. A
   // clean view re-reads; a dirty draft asks.
@@ -116,32 +116,32 @@ export function FilePanel({
     record.relative_path.split("/").pop() ?? record.relative_path;
 
   const runMove = async (target: string): Promise<void> => {
-    const moved = await mutations.move(record.link, target);
+    const moved = await mutations.move(record.ref, target);
     if (moved !== null) {
       closeModal();
       select(`workspace:${moved}`);
     }
   };
   const runTags = async (tags: WorkspaceTag[]): Promise<void> => {
-    const committed = await mutations.setTags(record.link, tags);
+    const committed = await mutations.setTags(record.ref, tags);
     if (committed !== null) closeModal();
   };
   const runAppend = async (text: string): Promise<void> => {
-    const committed = await mutations.append(record.link, text);
+    const committed = await mutations.append(record.ref, text);
     if (committed !== null) {
       closeModal();
       adoptRecord(committed);
     }
   };
   const runReplace = async (oldText: string, newText: string): Promise<void> => {
-    const committed = await mutations.replaceText(record.link, oldText, newText);
+    const committed = await mutations.replaceText(record.ref, oldText, newText);
     if (committed !== null) {
       closeModal();
       adoptRecord(committed);
     }
   };
   const runTrash = async (): Promise<void> => {
-    const ok = await mutations.trash(record.link);
+    const ok = await mutations.trash(record.ref);
     if (ok) {
       closeModal();
       select(null);
@@ -158,7 +158,7 @@ export function FilePanel({
         <div className="min-w-0 flex-1">
           <div
             className="truncate text-[13px] font-medium"
-            title={record.link}
+            title={record.ref}
           >
             {record.relative_path}
           </div>
@@ -208,7 +208,7 @@ export function FilePanel({
             <IconButton
               label="Download"
               onClick={() =>
-                void downloadWorkspaceBlob(record.link, apiDay, fileName)
+                void downloadWorkspaceBlob(record.ref, apiDay, fileName)
               }
             >
               <Download size={15} />
@@ -216,15 +216,15 @@ export function FilePanel({
           )}
           <IconButton
             label="Copy reference"
-            onClick={() => copyReference(record.link)}
+            onClick={() => copyReference(record.ref)}
           >
             <Copy size={15} />
           </IconButton>
           <IconButton
             label="Quote in conversation"
             onClick={() =>
-              quoteReference(record.link, {
-                link: record.link,
+              quoteReference(record.ref, {
+                ref: record.ref,
                 day: apiDay ?? undefined,
               })
             }
@@ -285,7 +285,7 @@ export function FilePanel({
         </div>
       ) : isText ? (
         <TextFileView
-          link={record.link}
+          ref={record.ref}
           day={apiDay}
           isActive={isActive}
           fragment={fragment}
@@ -293,10 +293,10 @@ export function FilePanel({
           reloadToken={reloadToken}
           mutations={mutations}
           onSaved={adoptRecord}
-          onConsumeFragment={() => select(record.link)}
+          onConsumeFragment={() => select(record.ref)}
         />
       ) : (
-        <BlobView link={record.link} day={apiDay} record={record} />
+        <BlobView ref={record.ref} day={apiDay} record={record} />
       )}
 
       {modal === "move" && (

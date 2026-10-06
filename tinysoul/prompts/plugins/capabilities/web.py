@@ -66,8 +66,8 @@ def url_required(*, action_name: str) -> str:
 
 
 # Local model feedback. Used by plugins/capabilities/web/actions.py:_fetch_params.
-def target_link_required(*, action_name: str) -> str:
-    return f"{action_name} requires a non-empty 'target_link'."
+def target_ref_required(*, action_name: str) -> str:
+    return f"{action_name} requires a non-empty 'target_ref'."
 
 
 # Local model feedback. Used by plugins/capabilities/web/actions.py:_fetch_params.

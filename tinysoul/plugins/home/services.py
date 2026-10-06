@@ -23,8 +23,8 @@ class HomeService(ScopedService[AgentHomeEngine]):
         queries: SearchSession | None = None,
     ) -> None:
         super().__init__(owner, scope)
-        self.default_background_links = scope.local(owner.default_background_links)
-        self.loadable_background_links = scope.local(owner.loadable_background_links)
+        self.default_background_refs = scope.local(owner.default_background_refs)
+        self.loadable_background_refs = scope.local(owner.loadable_background_refs)
         self.skill_metadata = scope.local(owner.skill_metadata)
         self._queries = queries
         self.retrieval_policies = queries.retrieval_policies if queries else ()
@@ -47,9 +47,9 @@ class HomeService(ScopedService[AgentHomeEngine]):
         self.delete_top = scope.local(owner.delete_top)
         self.write_prompt_mount = scope.local(owner.write_prompt_mount)
         self.patch_prompt_mount = scope.local(owner.patch_prompt_mount)
-        self.actual_top_links = scope.local(owner.actual_top_links)
-        self.actual_default_background_links = scope.local(
-            owner.actual_default_background_links
+        self.actual_top_refs = scope.local(owner.actual_top_refs)
+        self.actual_default_background_refs = scope.local(
+            owner.actual_default_background_refs
         )
         self.actual_skill_metadata = scope.local(owner.actual_skill_metadata)
         self.read_actual_top = scope.local(owner.read_actual_top)

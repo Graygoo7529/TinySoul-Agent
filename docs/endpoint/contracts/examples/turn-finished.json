@@ -1,25 +1,27 @@
 {
-  "turn_id": "contract-turn",
+  "request_id": "contract-turn",
+  "turn_id": "2026-10-06/1",
   "kind": "user",
   "state": "finished",
   "status": "answered",
-  "generation_id": null,
-  "active_day": "2026-09-29",
-  "accepted_at": "2026-09-29T10:00:00+00:00",
-  "started_at": "2026-09-29T10:00:01+00:00",
-  "finished_at": "2026-09-29T10:00:05+00:00",
+  "generation_id": "generation_b54437c9bfd74388b38c1efe4f219d78",
+  "active_day": "2026-10-06",
+  "accepted_at": "2026-10-06T15:04:14.379472+00:00",
+  "started_at": "2026-10-06T15:04:14.379594+00:00",
+  "finished_at": "2026-10-06T15:04:16.322575+00:00",
   "reflection": null,
   "cancel_requested": false,
   "wait_reason": null,
   "question": null,
   "budget_request": null,
   "result": {
-    "turn_id": "contract-turn",
-    "active_day": "2026-09-29",
+    "request_id": "contract-turn",
+    "turn_id": "2026-10-06/1",
+    "active_day": "2026-10-06",
     "status": "answered",
     "output": {
       "text": "Finished response",
-      "result_id": "action_result_2",
+      "result_id": "action_result_a3bcd72e",
       "references": [],
       "metadata": {
         "action": "core.answer"
@@ -27,7 +29,7 @@
     },
     "completion": {
       "kind": "answer",
-      "result_id": "action_result_2",
+      "result_id": "action_result_a3bcd72e",
       "text": "Finished response",
       "references": []
     },

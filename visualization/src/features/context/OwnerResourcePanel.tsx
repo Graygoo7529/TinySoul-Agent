@@ -38,7 +38,7 @@ import {
 import { classifyRef } from "./segments";
 
 interface ResolvedTarget {
-  link: string;
+  ref: string;
   view: HomeView;
   owner: "home" | "memory";
   locator: ResourceLocator;
@@ -80,20 +80,20 @@ export function OwnerResourcePanel({
           resolved ??
           (
             await contextClients(epoch).resources.resolve(
-              { reference, turn_id: turnId, day: day ?? undefined },
+              { ref: reference, turn_id: turnId, day: day ?? undefined },
               { signal: controller.signal },
             )
           ).locator;
         if (seqRef.current !== seq) return;
-        const link = locator.link ?? null;
-        const owner = link === null ? "other" : classifyRef(link);
-        if (link === null || (owner !== "home" && owner !== "memory")) {
+        const ref = locator.ref ?? null;
+        const owner = ref === null ? "other" : classifyRef(ref);
+        if (ref === null || (owner !== "home" && owner !== "memory")) {
           setState({ kind: "unsupported", locator });
           return;
         }
         setState({
           kind: "ready",
-          target: { link, view: homeViewOf(locator), owner, locator },
+          target: { ref, view: homeViewOf(locator), owner, locator },
         });
       } catch (error) {
         if (seqRef.current !== seq || controller.signal.aborted) return;
@@ -178,14 +178,14 @@ function OwnerContentReader({
         target.owner === "home"
           ? await clients.home.content(
               {
-                link: target.link,
+                ref: target.ref,
                 view: target.view,
                 continuation: token ?? undefined,
               },
               { signal },
             )
           : await clients.memory.document(
-              { link: target.link, continuation: token ?? undefined },
+              { ref: target.ref, continuation: token ?? undefined },
               { signal },
             );
       const metadata = page.metadata;
@@ -212,7 +212,7 @@ function OwnerContentReader({
   const seq = usePagedSequence<
     HomeContentItem,
     HomeContentPage | MemoryDocumentPage
-  >(fetchPage, (page) => nextContinuation(page), [epoch, target.link, target.view]);
+  >(fetchPage, (page) => nextContinuation(page), [epoch, target.ref, target.view]);
 
   return (
     <div className="space-y-3">
@@ -275,9 +275,9 @@ function OwnerContentReader({
       {memoryMeta !== null && memoryMeta.resolutionChain.length > 1 && (
         <Collapsible title="Resolution chain" tone="sunken">
           <DetailGrid
-            facts={memoryMeta.resolutionChain.map((link, index) => [
+            facts={memoryMeta.resolutionChain.map((ref, index) => [
               `step ${index + 1}`,
-              link,
+              ref,
             ])}
           />
         </Collapsible>

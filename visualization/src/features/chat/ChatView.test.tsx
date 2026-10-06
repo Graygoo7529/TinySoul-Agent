@@ -65,12 +65,12 @@ beforeEach(() => {
   resetAppStores();
   useConfigDraftStore.getState().reset();
   useComposerDraft.getState().setDraft("");
-  useWorkspacePage.setState({ day: null, link: null, fragment: null });
+  useWorkspacePage.setState({ day: null, ref: null, fragment: null });
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
   endpoint = new FakeEndpoint();
-  endpoint.get("/v2/turns", () => jsonResponse({ items: [], completed_limit: 32 }));
+  endpoint.get("/v2/requests", () => jsonResponse({ items: [], completed_limit: 32 }));
   // The Composer run-plan entry lazily loads the shared config snapshots.
   endpoint.get("/v2/config", () => jsonResponse(configViews.saved));
   endpoint.get("/v2/config/catalog", () =>
@@ -100,8 +100,8 @@ function turnState() {
 
 /** Open the contract turn live with the given formal items already read. */
 async function openLiveTurn(items: Interaction[] = []) {
-  endpoint.get("/v2/turns/contract-turn", () => jsonResponse(runningSnapshot()));
-  endpoint.get("/v2/turns/contract-turn/interactions", () =>
+  endpoint.get("/v2/requests/contract-turn", () => jsonResponse(runningSnapshot()));
+  endpoint.get("/v2/requests/contract-turn/interactions", () =>
     jsonResponse(makeInteractionsPage({ items })),
   );
   useConnectionStore
@@ -156,15 +156,15 @@ describe("Reflection in the shared conversation", () => {
   it("shows a scheduled skip on its execution day without inventing a model process", async () => {
     const day = makeStatus().active_day!;
     const reflection = { trigger: "scheduled" as const, target_day: "2026-09-28", instructions_excerpt: "", truncated: false };
-    const summary: TurnSummary = { turn_id: "skipped-reflection", kind: "memory", state: "finished", status: "skipped",
+    const summary: TurnSummary = { request_id: "request-reflection", turn_id: "skipped-reflection", kind: "memory", state: "finished", status: "skipped",
       active_day: day, generation_id: "g1", accepted_at: "2026-09-29T09:00:00Z", started_at: "2026-09-29T09:00:01Z",
       finished_at: "2026-09-29T09:00:02Z", reflection };
     const snapshot: TurnSnapshot = { ...runningSnapshot(), ...summary,
-      result: { turn_id: summary.turn_id, active_day: day, status: "skipped",
+      result: { request_id: summary.request_id, turn_id: summary.turn_id, active_day: day, status: "skipped",
         tasks: [{ kind: "memory", status: "skipped", reason: "target_sources_empty", details: {} }] } };
-    endpoint.get("/v2/turns", () => jsonResponse({ items: [summary], completed_limit: 32 }));
-    endpoint.get(`/v2/turns/${summary.turn_id}`, () => jsonResponse(snapshot));
-    endpoint.get(`/v2/turns/${summary.turn_id}/interactions`, () => jsonResponse(makeInteractionsPage({ turn_id: summary.turn_id, items: [] })));
+    endpoint.get("/v2/requests", () => jsonResponse({ items: [summary], completed_limit: 32 }));
+    endpoint.get(`/v2/requests/${summary.request_id}`, () => jsonResponse(snapshot));
+    endpoint.get(`/v2/requests/${summary.request_id}/interactions`, () => jsonResponse(makeInteractionsPage({ turn_id: summary.turn_id, items: [] })));
     await act(async () => { await refreshRuntimeTurns(epoch); });
     await renderChat();
     const card = container.querySelector('[data-reflection="memory"]');
@@ -180,13 +180,13 @@ describe("Reflection in the shared conversation", () => {
   it("recovers a retained root, keeps activity while a User request queues, and targets its own controls", async () => {
     const day = makeStatus().active_day!;
     const origin = { trigger: "manual" as const, target_day: "2026-09-28", instructions_excerpt: "Review the day", truncated: false };
-    let snapshot: TurnSnapshot = { ...waitingSnapshot(), turn_id: "reflection-1", kind: "memory", active_day: day, reflection: origin };
-    const summary = (): TurnSummary => ({ turn_id: snapshot.turn_id, kind: "memory", state: snapshot.state,
+    let snapshot: TurnSnapshot = { ...waitingSnapshot(), request_id: "reflection-1", turn_id: "reflection-1", kind: "memory", active_day: day, reflection: origin };
+    const summary = (): TurnSummary => ({ request_id: snapshot.request_id, turn_id: snapshot.turn_id, kind: "memory", state: snapshot.state,
       status: snapshot.result?.status ?? null, active_day: day, generation_id: "g1", accepted_at: "2026-09-29T09:00:00Z",
       started_at: "2026-09-29T09:00:01Z", finished_at: snapshot.state === "finished" ? "2026-09-29T09:01:00Z" : null, reflection: origin });
-    endpoint.get("/v2/turns", () => jsonResponse({ items: [summary()], completed_limit: 32 }));
-    endpoint.get("/v2/turns/reflection-1", () => jsonResponse(snapshot));
-    endpoint.get("/v2/turns/reflection-1/interactions", () => jsonResponse(makeInteractionsPage({ turn_id: "reflection-1", items: [] })));
+    endpoint.get("/v2/requests", () => jsonResponse({ items: [summary()], completed_limit: 32 }));
+    endpoint.get("/v2/requests/reflection-1", () => jsonResponse(snapshot));
+    endpoint.get("/v2/requests/reflection-1/interactions", () => jsonResponse(makeInteractionsPage({ turn_id: "reflection-1", items: [] })));
     useConnectionStore.getState().applyStatus(epoch, makeStatus({ activity: "reflection", activeTurnId: "reflection-1" }));
     await act(async () => { await refreshRuntimeTurns(epoch); });
     await renderChat();
@@ -199,24 +199,24 @@ describe("Reflection in the shared conversation", () => {
       payload: { reasoning: { summary: "Organize the source day carefully." } } }));
     const live = card?.querySelector(".live-border");
     expect(live).not.toBeNull();
-    act(() => useTurnStore.setState({ turnId: "queued-user", snapshot: { ...runningSnapshot(), turn_id: "queued-user", state: "queued" },
-      items: [], outgoing: [{ echoId: "echo", kind: "new-turn", turnId: "queued-user", text: "Independent message", questionId: null, state: "accepted", error: null, turnClosed: false }] }));
+    act(() => useTurnStore.setState({ requestId: "queued-user", snapshot: { ...runningSnapshot(), turn_id: "queued-user", state: "queued" },
+      items: [], outgoing: [{ echoId: "echo", kind: "new-turn", requestId: "queued-user", text: "Independent message", questionId: null, state: "accepted", error: null, turnClosed: false }] }));
     expect(card?.querySelector(".live-border")).toBe(live);
     expect(presentationStore.getState().entries["reflection-1"].activity.thinking.current).toContain("Organize the source day");
-    endpoint.post("/v2/turns/reflection-1/reply", () => jsonResponse({ accepted: true }));
-    endpoint.post("/v2/turns/reflection-1/grant", () => jsonResponse({ accepted: true }));
-    endpoint.post("/v2/turns/reflection-1/cancel", () => jsonResponse({ accepted: true }));
+    endpoint.post("/v2/requests/reflection-1/reply", () => jsonResponse({ accepted: true }));
+    endpoint.post("/v2/requests/reflection-1/grant", () => jsonResponse({ accepted: true }));
+    endpoint.post("/v2/requests/reflection-1/cancel", () => jsonResponse({ accepted: true }));
     await act(async () => {
       await replyToQuestion(epoch, "reflection-1", snapshot.question!.question_id, { kind: "text", text: "Proceed" }, "Proceed");
       await grantBudget(epoch, "reflection-1", snapshot.budget_request!.request_id, 5);
       await cancelReflection(epoch, "reflection-1");
     });
-    expect(endpoint.calls("/v2/turns/queued-user/reply", "POST")).toHaveLength(0);
-    expect(endpoint.calls("/v2/turns/reflection-1/reply", "POST")).toHaveLength(1);
-    expect(endpoint.calls("/v2/turns/reflection-1/grant", "POST")).toHaveLength(1);
-    expect(endpoint.calls("/v2/turns/reflection-1/cancel", "POST")).toHaveLength(1);
+    expect(endpoint.calls("/v2/requests/queued-user/reply", "POST")).toHaveLength(0);
+    expect(endpoint.calls("/v2/requests/reflection-1/reply", "POST")).toHaveLength(1);
+    expect(endpoint.calls("/v2/requests/reflection-1/grant", "POST")).toHaveLength(1);
+    expect(endpoint.calls("/v2/requests/reflection-1/cancel", "POST")).toHaveLength(1);
     snapshot = { ...snapshot, state: "finished", question: null, budget_request: null,
-      result: { turn_id: "reflection-1", active_day: day, status: "partial", tasks: [{ kind: "memory", status: "awaiting_user", details: {}, turn: { status: "awaiting_user", completion: { text: "One decision remains." }, failure: null, finish_failures: [], cleanup: [] } }] } };
+      result: { request_id: "reflection-1", turn_id: "reflection-1", active_day: day, status: "partial", tasks: [{ kind: "memory", status: "awaiting_user", details: {}, turn: { status: "awaiting_user", completion: { text: "One decision remains." }, failure: null, finish_failures: [], cleanup: [] } }] } };
     await act(async () => { await refreshRuntimeTurn(epoch, "reflection-1"); });
     expect(container.querySelector('[data-reflection="memory"]')).toBe(card);
     expect(card?.textContent).toContain("部分完成");
@@ -230,14 +230,14 @@ describe("Reflection in the shared conversation", () => {
 describe("ChatView: echo convergence", () => {
   it("keeps the initial bubble mounted from local send through receipt and formal input", async () => {
     await renderChat();
-    const echo = { echoId: "command-local", kind: "new-turn" as const, turnId: null,
+    const echo = { echoId: "command-local", kind: "new-turn" as const, requestId: null,
       questionId: null, text: "initial input", state: "sending" as const, error: null, turnClosed: false };
     act(() => useTurnStore.setState({ outgoing: [echo] }));
     const bubble = container.querySelector(".bubble-user");
     const turn = bubble?.closest("[data-turn-root]");
     expect(bubble?.textContent).toBe(echo.text);
     expect(container.querySelector(".live-border")).toBeNull();
-    act(() => useTurnStore.setState({ outgoing: [{ ...echo, turnId: "contract-turn", state: "accepted" }] }));
+    act(() => useTurnStore.setState({ outgoing: [{ ...echo, requestId: "contract-turn", state: "accepted" }] }));
     expect(container.querySelector(".bubble-user")).toBe(bubble);
     act(() => useTurnStore.setState({ turnId: "contract-turn", snapshot: runningSnapshot(), loading: false,
       items: [makeInteraction({ id: "initial", role: "user.input", text: "initial input normalized" })], outgoing: [] }));
@@ -252,7 +252,7 @@ describe("ChatView: echo convergence", () => {
     await openLiveTurn([makeInteraction({ id: "initial", role: "user.input", text: "current input" })]);
     await renderChat();
     const active = container.querySelector('[data-turn-id="contract-turn"]');
-    act(() => useTurnStore.setState({ outgoing: [{ echoId: "next", kind: "new-turn", turnId: "queued-turn",
+    act(() => useTurnStore.setState({ outgoing: [{ echoId: "next", kind: "new-turn", requestId: "queued-turn",
       questionId: null, text: "next input", state: "accepted", error: null, turnClosed: false }] }));
     const queued = container.querySelector('[data-turn-id="queued-turn"]');
     expect(queued?.querySelector(".bubble-user")?.textContent).toBe("next input");
@@ -267,12 +267,12 @@ describe("ChatView: echo convergence", () => {
 
     let stage: "empty" | "pending" | "formal" = "empty";
     let inputId: string | null = null;
-    endpoint.post("/v2/turns/contract-turn/input", (request) => {
+    endpoint.post("/v2/requests/contract-turn/input", (request) => {
       inputId = (JSON.parse(String(request.bodyText)) as { input_id: string })
         .input_id;
       return jsonResponse({ accepted: true, record_id: inputId, sequence: 7 });
     });
-    endpoint.on("GET", "/v2/turns/contract-turn/interactions", () => {
+    endpoint.on("GET", "/v2/requests/contract-turn/interactions", () => {
       if (stage === "pending" && inputId !== null) {
         return jsonResponse(
           makeInteractionsPage({ pending_items: [makePendingItem(inputId, 7)] }),
@@ -342,7 +342,7 @@ describe("ChatView: scroll anchoring", () => {
 
     // New formal content arrives: the scroll position is left alone and the
     // "New content" entry appears.
-    endpoint.on("GET", "/v2/turns/contract-turn/interactions", () =>
+    endpoint.on("GET", "/v2/requests/contract-turn/interactions", () =>
       jsonResponse(
         makeInteractionsPage({
           items: [
@@ -386,10 +386,10 @@ describe("ChatView: scroll anchoring", () => {
     });
 
     // The turn starts waiting on a question while the user reads above.
-    endpoint.on("GET", "/v2/turns/contract-turn", () =>
+    endpoint.on("GET", "/v2/requests/contract-turn", () =>
       jsonResponse(waitingSnapshot()),
     );
-    endpoint.on("GET", "/v2/turns/contract-turn/interactions", () =>
+    endpoint.on("GET", "/v2/requests/contract-turn/interactions", () =>
       jsonResponse(makeInteractionsPage()),
     );
     await act(async () => {
@@ -419,7 +419,7 @@ describe("ChatView: answer streaming and settle", () => {
     ]);
     await renderChat();
 
-    endpoint.on("GET", "/v2/turns/contract-turn/interactions", () =>
+    endpoint.on("GET", "/v2/requests/contract-turn/interactions", () =>
       jsonResponse(
         makeInteractionsPage({
           items: [
@@ -486,10 +486,10 @@ describe("ChatView: answer streaming and settle", () => {
 
     // The turn finished; the Session projection takes over with session refs
     // (new identities for the same content).
-    endpoint.on("GET", "/v2/turns/contract-turn", () =>
+    endpoint.on("GET", "/v2/requests/contract-turn", () =>
       jsonResponse({ ...runningSnapshot(), state: "finished" }),
     );
-    endpoint.on("GET", "/v2/turns/contract-turn/interactions", () =>
+    endpoint.on("GET", "/v2/requests/contract-turn/interactions", () =>
       jsonResponse(
         makeInteractionsPage({
           ref: "session:turn/contract-turn",
@@ -526,13 +526,13 @@ describe("ChatView: snapshot-driven waiting cards", () => {
     const gate = deferred<void>();
     let page = makeInteractionsPage();
     let liveSnapshot: TurnSnapshot = waitingSnapshot();
-    endpoint.get("/v2/turns/contract-turn", () => jsonResponse(liveSnapshot));
-    endpoint.get("/v2/turns/contract-turn/interactions", async () => {
+    endpoint.get("/v2/requests/contract-turn", () => jsonResponse(liveSnapshot));
+    endpoint.get("/v2/requests/contract-turn/interactions", async () => {
       await gate.promise;
       return jsonResponse(page);
     });
     let replyBody: Record<string, unknown> | null = null;
-    endpoint.post("/v2/turns/contract-turn/reply", (request) => {
+    endpoint.post("/v2/requests/contract-turn/reply", (request) => {
       replyBody = bodyJson(request) as Record<string, unknown>;
       return jsonResponse({
         accepted: true,
@@ -620,10 +620,10 @@ describe("ChatView: snapshot-driven waiting cards", () => {
       await refreshDisplayedTurn(epoch);
     });
     expect(container.querySelectorAll('input[type="radio"]')).toHaveLength(0);
-    expect(container.textContent).toContain("answered");
+    expect(container.querySelector('[data-question-form="readonly"]')).not.toBeNull();
     expect(container.textContent).toContain("Execute");
     expect(container.textContent).not.toContain("Execute (a)");
-    expect(Array.from(container.querySelectorAll(".bubble-user")).some((bubble) => bubble.textContent === "Proceed")).toBe(true);
+    expect(container.querySelector(".question-comment")?.textContent).toContain("Proceed");
     expect(container.querySelector('[data-waiting-dock]')).toBeNull();
     expect(turnState().outgoing).toEqual([]);
   });
@@ -636,15 +636,15 @@ describe("ChatView: direct composer", () => {
     expect(container.querySelector('button[title="Stop the current turn"]')).not.toBeNull();
     expect(container.querySelector('button[title="Stop turn"]')).toBeNull();
     expect(container.textContent).not.toContain("Queue as next turn");
-    endpoint.post("/v2/turns/contract-turn/input", () =>
+    endpoint.post("/v2/requests/contract-turn/input", () =>
       jsonResponse({ accepted: true, record_id: "added", sequence: 1 }));
     act(() => useComposerDraft.getState().setDraft("one more detail"));
     expect(container.querySelector('button[title="Stop the current turn"]')).toBeNull();
     await act(async () => {
       (container.querySelector('button[title="Send"]') as HTMLButtonElement).click();
     });
-    expect(endpoint.calls("/v2/turns/contract-turn/input", "POST")).toHaveLength(1);
-    expect(endpoint.calls("/v2/turns", "POST")).toHaveLength(0);
+    expect(endpoint.calls("/v2/requests/contract-turn/input", "POST")).toHaveLength(1);
+    expect(endpoint.calls("/v2/requests", "POST")).toHaveLength(0);
     expect(useComposerDraft.getState().draft).toBe("");
   });
 
@@ -652,7 +652,7 @@ describe("ChatView: direct composer", () => {
     await openLiveTurn();
     await renderChat();
     const gate = deferred<Response>();
-    endpoint.post("/v2/turns/contract-turn/input", () => gate.promise);
+    endpoint.post("/v2/requests/contract-turn/input", () => gate.promise);
     act(() => useComposerDraft.getState().setDraft("first addition"));
     await act(async () => {
       (container.querySelector('button[title="Send"]') as HTMLButtonElement).click();
@@ -663,7 +663,7 @@ describe("ChatView: direct composer", () => {
       useComposerDraft.getState().setDraft("another thought");
     });
     await act(async () => gate.resolve(jsonResponse({ accepted: true, record_id: "added", sequence: 1 })));
-    expect(endpoint.calls("/v2/turns", "POST")).toHaveLength(0);
+    expect(endpoint.calls("/v2/requests", "POST")).toHaveLength(0);
     expect(useComposerDraft.getState().draft).toBe("another thought");
   });
 
@@ -730,7 +730,7 @@ describe("ChatView: failed echo on a closed turn", () => {
       store.addEcho({
         echoId: "echo-closed",
         kind: "append",
-        turnId: "contract-turn",
+        requestId: "contract-turn",
         questionId: null,
         text: "late addition",
         state: "failed",
@@ -740,7 +740,7 @@ describe("ChatView: failed echo on a closed turn", () => {
       store.addEcho({
         echoId: "echo-retryable",
         kind: "append",
-        turnId: "contract-turn",
+        requestId: "contract-turn",
         questionId: null,
         text: "try again",
         state: "failed",
@@ -755,12 +755,13 @@ describe("ChatView: failed echo on a closed turn", () => {
     expect(entries).toHaveLength(1);
 
     let createBody: Record<string, unknown> | null = null;
-    endpoint.post("/v2/turns", (request) => {
+    endpoint.post("/v2/requests", (request) => {
       createBody = bodyJson(request) as Record<string, unknown>;
       return jsonResponse({
         accepted: true,
         command_id: createBody.command_id,
-        turn_id: "t-new",
+        request_id: "t-new",
+          turn_id: "t-new",
         state: "queued",
         kind: "user",
       });
@@ -786,10 +787,10 @@ describe("ChatView: failed echo on a closed turn", () => {
 describe("ChatView: pre-context entry", () => {
   it("keeps one bubble and one card as a preparing request becomes formal input", async () => {
     await renderChat();
-    const echo = { echoId: "cmd", turnId: "contract-turn", kind: "new-turn" as const,
+    const echo = { echoId: "cmd", requestId: "contract-turn", kind: "new-turn" as const,
       text: "look into the build", state: "accepted" as const, questionId: null, error: null, turnClosed: false };
     act(() => {
-      useTurnStore.getState().openTurn("contract-turn", "2026-09-29", "live");
+      useTurnStore.getState().openRequest("contract-turn", "2026-09-29");
       useTurnStore.setState({ snapshot: { ...runningSnapshot(), state: "preparing" }, loading: false,
         outgoing: [echo], queuedRequest: { text: echo.text, truncated: false, delivery: "queued" } });
     });
@@ -811,21 +812,21 @@ describe("ChatView: pre-context entry", () => {
   });
 
   it("uses the request preview in the initial bubble and stops that user request, never Reflection", async () => {
-    endpoint.get("/v2/turns/contract-turn", () => jsonResponse({ ...runningSnapshot(), state: "queued" }));
-    endpoint.get("/v2/turns/contract-turn/interactions", () =>
+    endpoint.get("/v2/requests/contract-turn", () => jsonResponse({ ...runningSnapshot(), state: "queued" }));
+    endpoint.get("/v2/requests/contract-turn/interactions", () =>
       jsonResponse(makeInteractionsPage({ queued_request: { text: "look into the build", truncated: true, delivery: "queued" } })));
     await act(async () => {
       useConnectionStore.getState().applyStatus(epoch, makeStatus({ activity: "reflection_turn", activeTurnId: "reflection" }));
-      useTurnStore.getState().openTurn("contract-turn", "2026-09-29", "live");
+      useTurnStore.getState().openRequest("contract-turn", "2026-09-29");
       await refreshDisplayedTurn(epoch);
     });
     await renderChat();
     expect(container.querySelector(".bubble-user")?.textContent).toBe("look into the build…");
     expect(container.textContent).toContain("Waiting to start");
-    endpoint.post("/v2/turns/contract-turn/cancel", () => jsonResponse({ accepted: true, turn_id: "contract-turn" }));
+    endpoint.post("/v2/requests/contract-turn/cancel", () => jsonResponse({ accepted: true, turn_id: "contract-turn" }));
     await act(async () => (container.querySelector('button[title="Stop the current turn"]') as HTMLButtonElement).click());
-    expect(endpoint.calls("/v2/turns/contract-turn/cancel", "POST")).toHaveLength(1);
-    expect(endpoint.calls("/v2/turns/reflection/cancel", "POST")).toHaveLength(0);
+    expect(endpoint.calls("/v2/requests/contract-turn/cancel", "POST")).toHaveLength(1);
+    expect(endpoint.calls("/v2/requests/reflection/cancel", "POST")).toHaveLength(0);
   });
 });
 
@@ -871,7 +872,7 @@ describe("ChatView: historical markdown origin", () => {
       await Promise.resolve();
     });
     expect(useWorkspacePage.getState().day).toBe("2026-09-28");
-    expect(useWorkspacePage.getState().link).toBe("workspace:docs/spec.md");
+    expect(useWorkspacePage.getState().ref).toBe("workspace:docs/spec.md");
   });
 
   it("keeps the active day's content bound to live resources", async () => {
@@ -883,6 +884,6 @@ describe("ChatView: historical markdown origin", () => {
       await Promise.resolve();
     });
     expect(useWorkspacePage.getState().day).toBeNull();
-    expect(useWorkspacePage.getState().link).toBe("workspace:docs/spec.md");
+    expect(useWorkspacePage.getState().ref).toBe("workspace:docs/spec.md");
   });
 });

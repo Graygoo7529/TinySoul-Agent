@@ -46,16 +46,25 @@ class SearchCapability:
     def scope_schema(self) -> JsonObject:
         if self.resource_scope:
             return {
-                "type": "object",
-                "properties": {
-                    "kind": {
-                        "type": "string",
-                        "enum": ["workspace", "directory", "file"],
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "properties": {
+                            "kind": {"type": "string", "enum": ["workspace"]}
+                        },
+                        "required": ["kind"],
+                        "additionalProperties": False,
                     },
-                    "locator": {"type": "string"},
-                },
-                "required": ["kind", "locator"],
-                "additionalProperties": False,
+                    {
+                        "type": "object",
+                        "properties": {
+                            "kind": {"type": "string", "enum": ["directory", "file"]},
+                            "ref": {"type": "string", "minLength": 1},
+                        },
+                        "required": ["kind", "ref"],
+                        "additionalProperties": False,
+                    },
+                ],
             }
         if self.server_scope:
             return {
@@ -428,8 +437,8 @@ def retrieval_schema(base: JsonObject, policy: RetrievalPolicy) -> JsonObject:
             }
             required.append("refs")
         else:
-            props["result_ref"] = {"type": "string", "minLength": 1}
-            required.append("result_ref")
+            props["result_handle"] = {"type": "string", "minLength": 1}
+            required.append("result_handle")
         source_variants.append(
             cast(
                 JsonValue,

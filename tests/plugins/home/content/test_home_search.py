@@ -72,18 +72,19 @@ async def test_full_home_discovery_aggregates_skill_evidence_and_keeps_resources
         source=source,
     ).search(request)
     assert {item.ref for item in page.items} == {
-        "home:skills@design",
-        "home:skills/shared/notes.md",
+        "home:top/skills/design",
+        "home:resource/skills/shared/notes.md",
     }
-    skill = next(item for item in page.items if item.ref == "home:skills@design")
+    skill = next(item for item in page.items if item.ref == "home:top/skills/design")
     assert any(
-        e.unit.ref.startswith("home:skills/design/ref/deep.md#L") and "zephyr" in e.text
+        e.unit.ref.startswith("home:resource/skills/design/ref/deep.md#L")
+        and "zephyr" in e.text
         for e in skill.fragments
     )
     assert "skills_action" not in repr(corpus)
-    seeds = RetrievalRequest(RefsSource(("home:skills@other",)))
+    seeds = RetrievalRequest(RefsSource(("home:top/skills/other",)))
     seeded = owner.search_corpus(seeds, references=refs)
-    assert {item.ref for item in seeded.candidates} == {"home:skills@other"}
+    assert {item.ref for item in seeded.candidates} == {"home:top/skills/other"}
 
 
 def test_backlinks_preserve_actual_source_cross_space_and_fragment(tmp_path: Path):
@@ -93,38 +94,40 @@ def test_backlinks_preserve_actual_source_cross_space_and_fragment(tmp_path: Pat
             RetrievalRequest(BacklinksSource("all", anchor)), references=refs
         )
         assert [item.ref for item in corpus.candidates] == [
-            "home:skills/design/ref/deep.md"
+            "home:resource/skills/design/ref/deep.md"
         ]
-        assert corpus.candidates[0].attributes["top_ref"] == "home:skills@design"
+        assert corpus.candidates[0].attributes["top_ref"] == "home:top/skills/design"
     assert not owner.search_corpus(
         RetrievalRequest(BacklinksSource("all", "memory:concept/storage#other")),
         references=refs,
     ).candidates
     corpus = owner.search_corpus(
-        RetrievalRequest(BacklinksSource("all", "home:skills/design/ref/deep.md")),
+        RetrievalRequest(
+            BacklinksSource("all", "home:resource/skills/design/ref/deep.md")
+        ),
         references=refs,
     )
     assert {item.ref for item in corpus.candidates} == {
-        "home:agent/AGENT.md",
-        "home:skills/other/SKILL.md",
+        "home:resource/agent/AGENT.md",
+        "home:resource/skills/other/SKILL.md",
     }
 
 
 def test_home_inspect_reads_fragments_without_model(tmp_path: Path):
     owner, _ = _home(tmp_path)
-    page = owner.inspect("home:skills/design/ref/deep.md#L2")
+    page = owner.inspect("home:resource/skills/design/ref/deep.md#L2")
     assert page["items"] == [
         {
-            "ref": "home:skills/design/ref/deep.md#L2-L2",
+            "ref": "home:resource/skills/design/ref/deep.md#L2-L2",
             "text": "Rare persistence detail: zephyr\n",
         }
     ]
-    assert owner.inspect("home:skills@design")["ref"] == "home:skills@design"
-    assert owner.inspect("home:agent/AGENT.md", view="direct_refs")["items"] == [
-        {"ref": "home:skills/design/ref/deep.md"}
-    ]
+    assert owner.inspect("home:top/skills/design")["ref"] == "home:top/skills/design"
+    assert owner.inspect("home:resource/agent/AGENT.md", view="direct_refs")[
+        "items"
+    ] == [{"ref": "home:resource/skills/design/ref/deep.md"}]
     with pytest.raises(SearchFailure):
-        owner.inspect("home:agent/AGENT.md", view="backlinks")
+        owner.inspect("home:resource/agent/AGENT.md", view="backlinks")
 
 
 def test_timeless_home_links_use_workspace_owner_day(tmp_path: Path):
@@ -143,7 +146,7 @@ def test_timeless_home_links_use_workspace_owner_day(tmp_path: Path):
     corpus = owner.search_corpus(
         RetrievalRequest(BacklinksSource("all", "workspace:report.md")), references=refs
     )
-    assert [item.ref for item in corpus.candidates] == ["home:agent/AGENT.md"]
+    assert [item.ref for item in corpus.candidates] == ["home:resource/agent/AGENT.md"]
     assert days == [None, None]
 
 
@@ -171,7 +174,7 @@ async def test_home_aggregate_qualification_preserves_other_resource_content(
             QuerySource("skills", TextQuery("zephyr"), {"resource_types": ".py"})
         )
     )
-    assert [item.ref for item in page.items] == ["home:skills@design"]
+    assert [item.ref for item in page.items] == ["home:top/skills/design"]
     resource_types = page.items[0].candidate.attributes["resource_types"]
     assert isinstance(resource_types, list) and set(resource_types) == {".py", ".md"}
     assert any("zephyr" in part.text for part in page.items[0].fragments)
@@ -180,10 +183,10 @@ async def test_home_aggregate_qualification_preserves_other_resource_content(
 def test_home_refs_preserve_order_ranges_and_do_not_expand_top(tmp_path: Path):
     owner, refs = _home(tmp_path)
     requested = (
-        "home:skills/shared/notes.md",
-        "home:skills@design#L5",
-        "home:agent/AGENT.md",
-        "home:skills@design#L5",
+        "home:resource/skills/shared/notes.md",
+        "home:top/skills/design#L5",
+        "home:resource/agent/AGENT.md",
+        "home:top/skills/design#L5",
     )
     corpus = owner.search_corpus(
         RetrievalRequest(RefsSource(requested)), references=refs
@@ -199,7 +202,7 @@ def test_home_refs_preserve_order_ranges_and_do_not_expand_top(tmp_path: Path):
         for unit in item.content_units
     )
     top = owner.search_corpus(
-        RetrievalRequest(RefsSource(("home:skills@design",))), references=refs
+        RetrievalRequest(RefsSource(("home:top/skills/design",))), references=refs
     )
     assert all("SKILL.md" in unit.ref for unit in top.candidates[0].content_units)
 
@@ -221,9 +224,12 @@ def test_home_excludes_before_consuming_source_read_budget(tmp_path: Path):
     corpus = owner.search_corpus(
         RetrievalRequest(
             QuerySource("agent", TextQuery("needle")),
-            exclude_refs=("home:agent/large.md", "home:agent/missing.md"),
+            exclude_refs=(
+                "home:resource/agent/large.md",
+                "home:resource/agent/missing.md",
+            ),
         ),
         references=ReferenceResolver(),
     )
     assert corpus.complete and corpus.scanned == 1
-    assert [item.ref for item in corpus.candidates] == ["home:agent/small.md"]
+    assert [item.ref for item in corpus.candidates] == ["home:resource/agent/small.md"]

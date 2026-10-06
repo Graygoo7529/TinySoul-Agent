@@ -23,7 +23,7 @@ from .errors import (
     WorkspaceImageValidationError,
     WorkspaceContractError,
 )
-from .links import WORKSPACE_LINK_PREFIX
+from .refs import WORKSPACE_REF_PREFIX
 from .storage.manifest import WorkspaceResourceKind
 
 
@@ -44,7 +44,7 @@ class WorkspaceAnalysisPromptBuilder:
                     (
                         prompt_text.WORKSPACE_ANALYSIS_REFERENCE,
                         f"source_id: {reference.source_id}",
-                        f"link: {reference.link}",
+                        f"ref: {reference.ref}",
                         f"size: {reference.size} bytes",
                         f"range: lines:1-{reference.end_line}",
                         "complete: true",
@@ -84,7 +84,7 @@ class WorkspaceAnalysisPromptBuilder:
 
 
 class WorkspacePromptReferenceResolver(PromptReferenceResolver):
-    """Resolve workspace links into task prompt blocks."""
+    """Resolve workspace refs into task prompt blocks."""
 
     def __init__(
         self,
@@ -95,49 +95,49 @@ class WorkspacePromptReferenceResolver(PromptReferenceResolver):
         self._workspace = workspace
         self._runtime_bridge = runtime_bridge
 
-    def supports(self, link: str) -> bool:
-        return isinstance(link, str) and link.startswith(WORKSPACE_LINK_PREFIX)
+    def supports(self, ref: str) -> bool:
+        return isinstance(ref, str) and ref.startswith(WORKSPACE_REF_PREFIX)
 
-    async def resolve_reference(self, link: str) -> tuple[PromptBlock, ...]:
-        """Resolve a workspace link as read-only prompt input."""
+    async def resolve_reference(self, ref: str) -> tuple[PromptBlock, ...]:
+        """Resolve a workspace ref as read-only prompt input."""
 
-        return await self._resolve(link, role="reference")
+        return await self._resolve(ref, role="reference")
 
-    async def resolve_target(self, link: str) -> tuple[PromptBlock, ...]:
-        """Resolve a workspace link as the target of a workspace action."""
+    async def resolve_target(self, ref: str) -> tuple[PromptBlock, ...]:
+        """Resolve a workspace ref as the target of a workspace action."""
 
-        return await self._resolve(link, role="target")
+        return await self._resolve(ref, role="target")
 
-    async def _resolve(self, link: str, *, role: str) -> tuple[PromptBlock, ...]:
-        if not isinstance(link, str) or not link:
+    async def _resolve(self, ref: str, *, role: str) -> tuple[PromptBlock, ...]:
+        if not isinstance(ref, str) or not ref:
             raise PromptReferenceError(
-                prompt_text.REFERENCE_LINK_REQUIRED,
-                reason="missing_workspace_link",
+                prompt_text.REFERENCE_REF_REQUIRED,
+                reason="missing_workspace_ref",
             )
-        if not self.supports(link):
+        if not self.supports(ref):
             raise PromptReferenceError(
                 prompt_text.WORKSPACE_REFERENCE_REQUIRED,
-                reason="unsupported_workspace_link",
-                payload={"link": link},
+                reason="unsupported_workspace_ref",
+                payload={"ref": ref},
             )
         try:
-            record = await self._workspace.inspect(link)
+            record = await self._workspace.stat(ref)
             if record.kind is WorkspaceResourceKind.TEXT:
-                prompt_input = await self._workspace.prepare_task_input((link,))
+                prompt_input = await self._workspace.prepare_task_input((ref,))
                 return prompt_blocks_from_workspace_input(prompt_input, role=role)
             if record.kind is WorkspaceResourceKind.IMAGE:
-                image = await self._workspace.read_image(link)
+                image = await self._workspace.read_image(ref)
                 label_role = "target" if role == "target" else "reference"
                 heading = (
                     prompt_text.WORKSPACE_TARGET
                     if label_role == "target"
                     else prompt_text.WORKSPACE_REFERENCE
                 )
-                label = f"task_prompt:input:workspace:{label_role}:{image.link}:image"
+                label = f"task_prompt:input:workspace:{label_role}:{image.ref}:image"
                 metadata = "\n".join(
                     (
                         heading,
-                        f"link: {image.link}",
+                        f"ref: {image.ref}",
                         f"media_type: {image.media_type}",
                         f"size: {image.size} bytes",
                     )
@@ -154,19 +154,19 @@ class WorkspacePromptReferenceResolver(PromptReferenceResolver):
                 )
             if record.kind is WorkspaceResourceKind.DOCUMENT:
                 raise PromptReferenceError(
-                    prompt_text.reference_requires_conversion(link=link),
+                    prompt_text.reference_requires_conversion(ref=ref),
                     reason="conversion_required",
                     payload={
-                        "link": link,
+                        "ref": ref,
                         "kind": record.kind.value,
                         "media_type": record.media_type,
                     },
                 )
             raise PromptReferenceError(
-                prompt_text.unsupported_binary_reference(link=link),
+                prompt_text.unsupported_binary_reference(ref=ref),
                 reason="unsupported_binary_resource",
                 payload={
-                    "link": link,
+                    "ref": ref,
                     "kind": record.kind.value,
                     "media_type": record.media_type,
                 },
@@ -175,15 +175,15 @@ class WorkspacePromptReferenceResolver(PromptReferenceResolver):
             raise
         except WorkspaceImageValidationError as exc:
             raise PromptReferenceError(
-                prompt_text.invalid_image_reference(link=link),
+                prompt_text.invalid_image_reference(ref=ref),
                 reason="invalid_image_resource",
-                payload={"error_type": type(exc).__name__, "link": link},
+                payload={"error_type": type(exc).__name__, "ref": ref},
             ) from exc
         except WorkspaceContractError as exc:
             raise PromptReferenceError(
                 prompt_text.REFERENCE_UNAVAILABLE,
                 reason="workspace_reference_failed",
-                payload={"error_type": type(exc).__name__, "link": link},
+                payload={"error_type": type(exc).__name__, "ref": ref},
             ) from exc
         except WorkspaceError as exc:
             raise (
@@ -206,7 +206,7 @@ def prompt_blocks_from_workspace_input(
 def _block_from_slice(text_slice: WorkspaceTextSlice, *, role: str) -> PromptBlock:
     label_role = "target" if role == "target" else "reference"
     return PromptBlock.from_text(
-        f"task_prompt:input:workspace:{label_role}:{text_slice.link}:{text_slice.range_label}",
+        f"task_prompt:input:workspace:{label_role}:{text_slice.ref}:{text_slice.range_label}",
         _render_slice(text_slice, role=label_role),
     )
 
@@ -220,7 +220,7 @@ def _render_slice(text_slice: WorkspaceTextSlice, *, role: str) -> str:
     )
     lines = [
         heading,
-        f"link: {text_slice.link}",
+        f"ref: {text_slice.ref}",
         f"range: {text_slice.range_label}",
         f"size: {text_slice.size} bytes",
         f"truncated: {truncated}",

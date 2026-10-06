@@ -27,7 +27,7 @@ from tinysoul.plugins.memory import (
     MemoryContractError,
     MemoryEngine,
     MemoryKind,
-    MemoryLink,
+    MemoryRef,
     MemoryPatchKind,
     MemoryPatchOperation,
     MemorySettings,
@@ -42,17 +42,17 @@ NEXT_DAY = CalendarDay.parse("2026-07-13")
 
 
 def test_five_kind_links_are_canonical_and_map_to_stable_paths() -> None:
-    assert MemoryLink.parse("memory:daily/2026-07-12").relative_path == (
+    assert MemoryRef.parse("memory:daily/2026-07-12").relative_path == (
         "daily/2026/07/2026-07-12.md"
     )
-    assert MemoryLink.parse("memory:entity/graygoo").relative_path == (
+    assert MemoryRef.parse("memory:entity/graygoo").relative_path == (
         "entity/graygoo.md"
     )
-    assert MemoryLink.parse("memory:concept/agent-design").relative_path == (
+    assert MemoryRef.parse("memory:concept/agent-design").relative_path == (
         "concept/agent-design.md"
     )
-    assert MemoryLink.parse("memory:fact/f-a71c9d2e5f42").kind is MemoryKind.FACT
-    assert MemoryLink.parse("memory:note/n-a71c9d2e5f42").kind is MemoryKind.NOTE
+    assert MemoryRef.parse("memory:fact/f-a71c9d2e5f42").kind is MemoryKind.FACT
+    assert MemoryRef.parse("memory:note/n-a71c9d2e5f42").kind is MemoryKind.NOTE
 
     for invalid in (
         "memory:current",
@@ -62,9 +62,9 @@ def test_five_kind_links_are_canonical_and_map_to_stable_paths() -> None:
         "memory:daily/2026-7-12",
     ):
         with pytest.raises(MemoryContractError):
-            MemoryLink.parse(invalid)
+            MemoryRef.parse(invalid)
     with pytest.raises(MemoryContractError, match="120"):
-        MemoryLink(MemoryKind.ENTITY, "a" * 121)
+        MemoryRef(MemoryKind.ENTITY, "a" * 121)
 
 
 def test_document_dates_headings_and_redirect_kinds_are_strict() -> None:
@@ -76,7 +76,7 @@ def test_document_dates_headings_and_redirect_kinds_are_strict() -> None:
         replace(
             _entity("old-entity"),
             status=MemoryStatus.MERGED,
-            redirect_to=MemoryLink.parse("memory:concept/new-concept"),
+            redirect_to=MemoryRef.parse("memory:concept/new-concept"),
             content="Merged into a replacement concept.",
         )
 
@@ -104,8 +104,8 @@ async def test_active_memory_and_non_evictable_current_latest_background(
     memory.write_document(_daily(DAY.value))
     provider = ActiveMemoryBackgroundEntryProvider(MemoryService(memory))
     catalog = await provider.catalog(NEXT_DAY.value)
-    assert catalog.default_links == ("memory:current", "memory:latest")
-    assert catalog.evictable_default_links == ()
+    assert catalog.default_refs == ("memory:current", "memory:latest")
+    assert catalog.evictable_default_refs == ()
     assert patched.content in await provider.load("memory:current", NEXT_DAY.value)
     latest = await provider.load("memory:latest", NEXT_DAY.value)
     assert "memory:daily/2026-07-12" in latest
@@ -116,7 +116,7 @@ def test_single_document_write_requires_existing_references(tmp_path: Path) -> N
     memory = _memory(tmp_path)
     concept = _concept("memory-systems")
     note = _note(
-        "n-b71c9d2e5f42", "Memory systems", relations=(concept.link,), evidence=()
+        "n-b71c9d2e5f42", "Memory systems", relations=(concept.ref,), evidence=()
     )
     with pytest.raises(MemoryContractError, match="references"):
         memory.write_document(note)
@@ -126,14 +126,14 @@ def test_single_document_write_requires_existing_references(tmp_path: Path) -> N
         "n-c71c9d2e5f42",
         "Broken note",
         evidence=(),
-        relations=(MemoryLink.parse("memory:concept/missing"),),
+        relations=(MemoryRef.parse("memory:concept/missing"),),
     )
     with pytest.raises(MemoryContractError, match="references"):
         memory.write_document(missing)
-    metadata = memory.inspect(str(note.link))["metadata"]
+    metadata = memory.inspect(str(note.ref))["metadata"]
     assert isinstance(metadata, dict)
     assert metadata["display"] == "Memory systems"
-    assert memory.read_document(concept.link).document == concept
+    assert memory.read_document(concept.ref).document == concept
 
 
 def test_memory_config_uses_current_sections_and_rejects_old_names(
@@ -164,21 +164,21 @@ def test_all_active_relation_targets_resolve_to_active_entity_or_concept(
         "f-a1b2c3d4e5f6",
         "A relation target fact.",
         relations=(),
-        evidence=(daily.link,),
+        evidence=(daily.ref,),
     )
     memory.write_document(daily)
     memory.write_document(fact)
     old = replace(
         _entity("old-relation-target"),
         status=MemoryStatus.RETRACTED,
-        redirect_to=fact.link,
+        redirect_to=fact.ref,
         content="Retracted because this was not an entity.",
     )
     memory.write_document(old)
 
     with pytest.raises(MemoryContractError, match="references"):
         memory.write_document(
-            _concept("relation-source", relations=(old.link,)),
+            _concept("relation-source", relations=(old.ref,)),
         )
 
 
@@ -189,7 +189,7 @@ def test_memory_backlinks_combine_real_edges_and_preserve_workspace_source_day(
     target = _concept("storage")
     memory.write_document(target)
     source = replace(
-        _concept("source", relations=(target.link,)),
+        _concept("source", relations=(target.ref,)),
         content="[storage][s]\n\n[s]: storage.md\n\n[report](workspace:report.md)",
     )
     memory.write_document(source)
@@ -206,12 +206,12 @@ def test_memory_backlinks_combine_real_edges_and_preserve_workspace_source_day(
         }
     )
     corpus = memory.search_corpus(
-        RetrievalRequest(BacklinksSource("all", str(target.link))), references=refs
+        RetrievalRequest(BacklinksSource("all", str(target.ref))), references=refs
     )
-    assert [item.ref for item in corpus.candidates] == [str(source.link)]
+    assert [item.ref for item in corpus.candidates] == [str(source.ref)]
     assert {e.relation for e in corpus.candidates[0].evidence} == {
         "memory_reference",
-        "markdown_link",
+        "markdown_reference",
     }
     # Historical Memory never points to today's resource merely because its name matches.
     assert (
@@ -221,14 +221,14 @@ def test_memory_backlinks_combine_real_edges_and_preserve_workspace_source_day(
         ).candidates
         == ()
     )
-    direct = memory.inspect(str(source.link), view="direct_refs")
+    direct = memory.inspect(str(source.ref), view="direct_refs")
     assert direct["items"] == [
-        {"ref": str(target.link)},
+        {"ref": str(target.ref)},
         {"ref": "workspace:report.md"},
     ]
-    assert memory.inspect(str(target.link))["ref"] == str(target.link)
+    assert memory.inspect(str(target.ref))["ref"] == str(target.ref)
     with pytest.raises(SearchFailure):
-        memory.inspect(str(source.link), view="backlinks")
+        memory.inspect(str(source.ref), view="backlinks")
 
 
 def _memory(
@@ -250,7 +250,7 @@ def test_memory_refs_normalize_preserve_order_and_read_the_exact_document(
     old = replace(
         _concept("old"),
         status=MemoryStatus.MERGED,
-        redirect_to=current.link,
+        redirect_to=current.ref,
         content="Moved to the current concept.",
     )
     memory.write_document(current)
@@ -260,23 +260,23 @@ def test_memory_refs_normalize_preserve_order_and_read_the_exact_document(
             RefsSource(
                 (
                     "memory:concept/old.md",
-                    str(current.link) + "#L1",
-                    str(old.link),
+                    str(current.ref) + "#L1",
+                    str(old.ref),
                 )
             )
         ),
         references=ReferenceResolver(),
     )
     assert [item.ref for item in corpus.candidates] == [
-        str(old.link),
-        str(current.link) + "#L1",
+        str(old.ref),
+        str(current.ref) + "#L1",
     ]
     assert "Moved to" in "".join(
         unit.text for unit in corpus.candidates[0].content_units
     )
     assert (
         "".join(unit.text for unit in corpus.candidates[1].content_units)
-        == memory.read_document(current.link).text.splitlines(keepends=True)[0]
+        == memory.read_document(current.ref).text.splitlines(keepends=True)[0]
     )
 
 
@@ -343,7 +343,7 @@ def _entity(cite: str, *, content: str = "A known entity.") -> EntityMemoryDocum
 def _concept(
     cite: str,
     *,
-    relations: tuple[MemoryLink, ...] = (),
+    relations: tuple[MemoryRef, ...] = (),
 ) -> ConceptMemoryDocument:
     return ConceptMemoryDocument(
         cite=cite,
@@ -359,8 +359,8 @@ def _fact(
     cite: str,
     summary: str,
     *,
-    relations: tuple[MemoryLink, ...],
-    evidence: tuple[MemoryLink, ...],
+    relations: tuple[MemoryRef, ...],
+    evidence: tuple[MemoryRef, ...],
 ) -> FactMemoryDocument:
     return FactMemoryDocument(
         cite=cite,
@@ -379,8 +379,8 @@ def _note(
     cite: str,
     title: str,
     *,
-    relations: tuple[MemoryLink, ...],
-    evidence: tuple[MemoryLink, ...],
+    relations: tuple[MemoryRef, ...],
+    evidence: tuple[MemoryRef, ...],
 ) -> NoteMemoryDocument:
     return NoteMemoryDocument(
         cite=cite,

@@ -130,8 +130,8 @@ async def test_markitdown_conversion_commits_markdown_and_docx_image(
 
     result = await service.convert(
         converter=ResourceConverter.MARKITDOWN,
-        source_link="workspace:incoming/report.docx",
-        target_link="workspace:converted/report.md",
+        source_ref="workspace:incoming/report.docx",
+        target_ref="workspace:converted/report.md",
         overwrite=False,
         control=ActionExecutionControl(deadline=monotonic() + 30),
     )
@@ -143,7 +143,7 @@ async def test_markitdown_conversion_commits_markdown_and_docx_image(
     assert "Hello TinySoul" in markdown
     assert "workspace:converted/report.assets/image-001.png" in markdown
     assert (
-        workspace.inspect("workspace:converted/report.assets/image-001.png").media_type
+        workspace.stat("workspace:converted/report.assets/image-001.png").media_type
         == "image/png"
     )
     assert result.content_status is ResourceContentStatus.PARTIAL
@@ -168,8 +168,8 @@ async def test_pypdf_conversion_renders_blank_page_as_workspace_image(
 
     result = await service.convert(
         converter=ResourceConverter.PYPDF,
-        source_link="workspace:incoming/blank.pdf",
-        target_link="workspace:converted/blank.md",
+        source_ref="workspace:incoming/blank.pdf",
+        target_ref="workspace:converted/blank.md",
         overwrite=False,
         control=ActionExecutionControl(deadline=monotonic() + 30),
     )
@@ -181,9 +181,7 @@ async def test_pypdf_conversion_renders_blank_page_as_workspace_image(
     assert "No usable text was extracted" in markdown
     assert "workspace:converted/blank.assets/page-001.png" in markdown
     assert result.content_status is ResourceContentStatus.VISUAL_ONLY
-    assert result.visual_reference_links == (
-        "workspace:converted/blank.assets/page-001.png",
-    )
+    assert result.visual_refs == ("workspace:converted/blank.assets/page-001.png",)
 
 
 async def test_blank_pdf_without_page_rendering_does_not_commit_placeholder_only_output(
@@ -206,8 +204,8 @@ async def test_blank_pdf_without_page_rendering_does_not_commit_placeholder_only
     with pytest.raises(ResourceProcessingError) as error:
         await service.convert(
             converter=ResourceConverter.PYPDF,
-            source_link="workspace:incoming/blank.pdf",
-            target_link="workspace:converted/blank.md",
+            source_ref="workspace:incoming/blank.pdf",
+            target_ref="workspace:converted/blank.md",
             overwrite=False,
             control=ActionExecutionControl(deadline=monotonic() + 30),
         )
@@ -236,8 +234,8 @@ async def test_conversion_target_cannot_claim_its_source_as_a_stale_asset(
     with pytest.raises(ResourceContractError, match="target asset bundle"):
         await service.convert(
             converter=ResourceConverter.PYPDF,
-            source_link="workspace:converted/report.assets/source.pdf",
-            target_link="workspace:converted/report.md",
+            source_ref="workspace:converted/report.assets/source.pdf",
+            target_ref="workspace:converted/report.md",
             overwrite=True,
             control=ActionExecutionControl(deadline=monotonic() + 30),
         )
@@ -282,8 +280,8 @@ async def test_pypdf_asset_limits_fail_without_committing_partial_output(
     with pytest.raises(ResourceProcessingError) as error:
         await service.convert(
             converter=ResourceConverter.PYPDF,
-            source_link="workspace:incoming/images.pdf",
-            target_link="workspace:converted/images.md",
+            source_ref="workspace:incoming/images.pdf",
+            target_ref="workspace:converted/images.md",
             overwrite=False,
             control=ActionExecutionControl(deadline=monotonic() + 30),
         )
@@ -379,8 +377,8 @@ async def test_resource_executor_returns_metadata_and_emits_one_workspace_signal
             call_id="call_1",
             action_name=RESOURCE_PYPDF_ACTION,
             params={
-                "source_link": "workspace:incoming/blank.pdf",
-                "target_link": "workspace:converted/blank.md",
+                "source_ref": "workspace:incoming/blank.pdf",
+                "target_ref": "workspace:converted/blank.md",
             },
             sequence=1,
         ),
@@ -389,7 +387,7 @@ async def test_resource_executor_returns_metadata_and_emits_one_workspace_signal
             batch_id="batch_1",
             scope=RunScope(),
             domain="workspace",
-            turn_id="turn_1",
+            turn_id="2026-10-06/1000",
         ),
     )
 
@@ -401,10 +399,13 @@ async def test_resource_executor_returns_metadata_and_emits_one_workspace_signal
     )
 
     assert result.status is ActionResultStatus.SUCCESS
-    assert result.payload["markdown_link"] == "workspace:converted/blank.md"
+    assert result.payload["markdown_ref"] == "workspace:converted/blank.md"
     assert result.payload["content_status"] == "visual_only"
     assert "markdown" not in result.payload
-    assert workspace.inspect("workspace:converted/blank.md").link == result.payload["markdown_link"]
+    assert (
+        workspace.stat("workspace:converted/blank.md").ref
+        == result.payload["markdown_ref"]
+    )
 
 
 async def test_resource_executor_cancellation_after_worker_prevents_commit_and_signal(
@@ -507,7 +508,7 @@ class _InvalidManifestRunner(ControlledProcessRunner):
                     "markdown_file": "../escape.md",
                     "assets": [],
                     "content_status": "complete",
-                    "visual_reference_links": [],
+                    "visual_refs": [],
                     "warning_codes": [],
                 }
             ),
@@ -525,7 +526,7 @@ def _stage_worker_markdown(request: ProcessRequest) -> dict[str, object]:
         "markdown_file": "document.md",
         "assets": [],
         "content_status": "complete",
-        "visual_reference_links": [],
+        "visual_refs": [],
         "warning_codes": [],
     }
 
@@ -539,8 +540,8 @@ def _resource_execution() -> ActionExecution:
             call_id="call_1",
             action_name=RESOURCE_PYPDF_ACTION,
             params={
-                "source_link": "workspace:incoming/blank.pdf",
-                "target_link": "workspace:converted/blank.md",
+                "source_ref": "workspace:incoming/blank.pdf",
+                "target_ref": "workspace:converted/blank.md",
             },
             sequence=1,
         ),
@@ -549,7 +550,7 @@ def _resource_execution() -> ActionExecution:
             batch_id="batch_1",
             scope=RunScope(),
             domain="workspace",
-            turn_id="turn_1",
+            turn_id="2026-10-06/1000",
         ),
     )
 

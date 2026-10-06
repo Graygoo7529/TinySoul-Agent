@@ -53,7 +53,7 @@ WEB_FETCH_TRAFILATURA_ACTION = "web.fetch_with_trafilatura"
 @dataclass(frozen=True)
 class _FetchParams:
     url: str
-    target_link: str
+    target_ref: str
     overwrite: bool
 
 
@@ -154,7 +154,7 @@ class WebFetchExecutor(ActionExecutor):
             result = await self._service.fetch(
                 extractor=self._extractor,
                 url=params.url,
-                target_link=params.target_link,
+                target_ref=params.target_ref,
                 overwrite=params.overwrite,
                 control=context.control,
                 operations=context.owner_operations,
@@ -332,12 +332,12 @@ def _fetch_params(execution: ActionExecution) -> _FetchParams | ActionResult:
             prompt_text.url_required(action_name=execution.call.action_name),
             reason="invalid_url",
         )
-    target_link = execution.call.params.get("target_link")
-    if not isinstance(target_link, str) or not target_link:
+    target_ref = execution.call.params.get("target_ref")
+    if not isinstance(target_ref, str) or not target_ref:
         return _failed(
             execution,
-            prompt_text.target_link_required(action_name=execution.call.action_name),
-            reason="invalid_target_link",
+            prompt_text.target_ref_required(action_name=execution.call.action_name),
+            reason="invalid_target_ref",
         )
     overwrite = execution.call.params.get("overwrite", False)
     if not isinstance(overwrite, bool):
@@ -348,7 +348,7 @@ def _fetch_params(execution: ActionExecution) -> _FetchParams | ActionResult:
         )
     return _FetchParams(
         url=url,
-        target_link=target_link,
+        target_ref=target_ref,
         overwrite=overwrite,
     )
 
@@ -406,7 +406,7 @@ def _string_tuple_param(
 
 def _fetch_payload(result: WebFetchResult) -> JsonObject:
     return {
-        "markdown_link": result.markdown_link,
+        "markdown_ref": result.markdown_ref,
         "extractor": result.extractor.value,
         "title": result.title,
         "excerpt": result.excerpt,

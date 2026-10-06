@@ -12,7 +12,7 @@ from .builtin.trace import TraceCompactionReport, TurnTraceHeap
 class ContextPressureReport:
     changed: bool
     reclaimed_chars: int
-    evicted_background_links: tuple[str, ...] = ()
+    evicted_background_refs: tuple[str, ...] = ()
 
 
 class ContextCompressor:

@@ -54,7 +54,7 @@ export function WorkspacePage(): ReactElement {
   const epoch = useConnectionStore((s) => s.epoch);
   const activeDay = useConnectionStore(selectActiveDay);
   const viewDay = useWorkspacePage((s) => s.day);
-  const link = useWorkspacePage((s) => s.link);
+  const ref = useWorkspacePage((s) => s.ref);
   const fragment = useWorkspacePage((s) => s.fragment);
   const searchOpen = useWorkspacePage((s) => s.searchOpen);
   const setSearchOpen = useWorkspacePage((s) => s.setSearchOpen);
@@ -158,8 +158,8 @@ export function WorkspacePage(): ReactElement {
   const mutations = useWorkspaceMutations(applyMutationManifest);
 
   const record = useMemo(
-    () => manifest?.records.find((item) => item.link === link) ?? null,
-    [manifest, link],
+    () => manifest?.records.find((item) => item.ref === ref) ?? null,
+    [manifest, ref],
   );
 
   const scopes = useMemo<SearchScopeChoice[]>(
@@ -167,12 +167,12 @@ export function WorkspacePage(): ReactElement {
       {
         id: "all",
         label: "Everything",
-        value: { kind: "workspace", locator: "" },
+        value: { kind: "workspace" },
       },
       ...topLevelDirectories(manifest?.records ?? []).map((dir) => ({
         id: `dir:${dir}`,
         label: `Folder: ${dir}`,
-        value: { kind: "directory", locator: `workspace:${dir}` },
+        value: { kind: "directory", ref: `workspace:${dir}` },
       })),
     ],
     [manifest],
@@ -207,7 +207,7 @@ export function WorkspacePage(): ReactElement {
         target.kind === "workspace" &&
         (target.day === null || target.day === activeDay)
       ) {
-        select(target.link, target.fragment);
+        select(target.ref, target.fragment);
         return;
       }
       routeTarget(epoch, target);
@@ -253,13 +253,13 @@ export function WorkspacePage(): ReactElement {
             fragment={fragment}
             mutations={mutations}
           />
-        ) : link !== null && manifestStatus === "ready" ? (
+        ) : ref !== null && manifestStatus === "ready" ? (
           <div className="flex flex-1 items-center justify-center p-6">
             <EmptyState
               title="Not in the manifest"
               description={
                 <>
-                  <span className="font-mono text-[11px]">{link}</span> is not
+                  <span className="font-mono text-[11px]">{ref}</span> is not
                   part of the {manifest?.day ?? ""} Workspace index.
                 </>
               }

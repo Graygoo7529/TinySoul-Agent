@@ -61,12 +61,12 @@ from .errors import (
     AgentHomeNotFoundError,
     AgentHomeRuntimeCopyRequired,
 )
-from .links import (
-    HomeLink,
-    HomePromptMountLink,
-    HomeResourceLink,
-    HomeTopLink,
-    parse_home_link,
+from .refs import (
+    HomeRef,
+    HomePromptMountRef,
+    HomeResourceRef,
+    HomeTopRef,
+    parse_home_ref,
 )
 from .overlay import HomeOverlayManager, HomeOverlayRecord, HomeOverlayState
 from .review import (
@@ -82,14 +82,14 @@ from .skills.metadata import (
     parse_home_skill_metadata,
 )
 
-_DEFAULT_BACKGROUND_TOP_LINKS = (
-    HomeTopLink("agent", "AGENT"),
-    HomeTopLink("agent", "identity/identity"),
-    HomeTopLink("agent", "identity/soul"),
-    HomeTopLink("agent", "context/background"),
-    HomeTopLink("agent", "context/turn-trace"),
-    HomeTopLink("agent", "context/working"),
-    HomeTopLink("agent", "user/user"),
+_DEFAULT_BACKGROUND_TOP_REFS = (
+    HomeTopRef("agent", "AGENT"),
+    HomeTopRef("agent", "identity/identity"),
+    HomeTopRef("agent", "identity/soul"),
+    HomeTopRef("agent", "context/background"),
+    HomeTopRef("agent", "context/turn-trace"),
+    HomeTopRef("agent", "context/working"),
+    HomeTopRef("agent", "user/user"),
 )
 
 
@@ -97,7 +97,7 @@ _DEFAULT_BACKGROUND_TOP_LINKS = (
 class HomeBackgroundEntry:
     """A background entry provided by Agent Home."""
 
-    link: str
+    ref: str
     content: str
 
 
@@ -105,7 +105,7 @@ class HomeBackgroundEntry:
 class HomeResourceRead:
     """A bounded read result for an Agent Home resource."""
 
-    link: str
+    ref: str
     text: str
     truncated: bool
     digest: str
@@ -115,7 +115,7 @@ class HomeResourceRead:
 class HomeResourceMutation:
     """Metadata-only result of an active Home overlay mutation."""
 
-    link: str
+    ref: str
     state: HomeOverlayState
     digest: str
     baseline_digest: str
@@ -140,7 +140,7 @@ class AgentHomeEngine:
         self._max_read_chars = max_read_chars
         self._max_write_chars = max_write_chars
         self._skill_catalog_max_chars = skill_catalog_max_chars
-        self._prompt_mount_links: frozenset[HomePromptMountLink] | None = None
+        self._prompt_mount_refs: frozenset[HomePromptMountRef] | None = None
         self._review = HomeReviewService(
             layout=layout,
             overlay=overlay,
@@ -205,81 +205,81 @@ class AgentHomeEngine:
             )
         return self._overlay.remove_if_empty()
 
-    def parse_link(self, value: str) -> HomeLink:
-        return parse_home_link(value)
+    def parse_ref(self, value: str) -> HomeRef:
+        return parse_home_ref(value)
 
-    def default_background_links(self) -> tuple[str, ...]:
+    def default_background_refs(self) -> tuple[str, ...]:
         """Return the effective, explicitly allowlisted default Agent tops."""
 
-        core = _DEFAULT_BACKGROUND_TOP_LINKS[0]
+        core = _DEFAULT_BACKGROUND_TOP_REFS[0]
         if self._resolve_top_relative(core) is None:
             raise AgentHomeContractError("Agent Home core background is missing")
         return tuple(
-            str(link)
-            for link in _DEFAULT_BACKGROUND_TOP_LINKS
-            if self._resolve_top_relative(link) is not None
+            str(ref)
+            for ref in _DEFAULT_BACKGROUND_TOP_REFS
+            if self._resolve_top_relative(ref) is not None
         )
 
     def default_background_entries(self) -> tuple[HomeBackgroundEntry, ...]:
         return tuple(
-            HomeBackgroundEntry(link=link, content=self.read_top(link))
-            for link in self.default_background_links()
+            HomeBackgroundEntry(ref=ref, content=self.read_top(ref))
+            for ref in self.default_background_refs()
         )
 
-    def loadable_background_links(self) -> tuple[str, ...]:
+    def loadable_background_refs(self) -> tuple[str, ...]:
         """Return the effective top catalog without materializing runtime copies."""
 
         self._validate_overlay_semantics()
-        return tuple(str(link) for link in self._effective_top_links())
+        return tuple(str(ref) for ref in self._effective_top_refs())
 
     def skill_metadata(self) -> tuple[HomeSkillMetadata, ...]:
         """Return bounded discovery metadata for all effective general skills."""
 
         return self._skill_metadata_catalog()
 
-    def _effective_top_links(self) -> tuple[HomeTopLink, ...]:
+    def _effective_top_refs(self) -> tuple[HomeTopRef, ...]:
         relatives = set(self._layout.actual_top_relatives())
         relatives.update(record.relative_path for record in self._overlay.records())
-        links = {
-            link
+        refs = {
+            ref
             for relative in relatives
-            if (link := self._layout.top_link_for_relative(relative)) is not None
-            and self._resolve_top_relative(link) is not None
+            if (ref := self._layout.top_ref_for_relative(relative)) is not None
+            and self._resolve_top_relative(ref) is not None
         }
-        return tuple(sorted(links, key=str))
+        return tuple(sorted(refs, key=str))
 
-    def actual_top_links(self) -> tuple[str, ...]:
-        """Return canonical top links backed by current actual Home files."""
+    def actual_top_refs(self) -> tuple[str, ...]:
+        """Return canonical top refs backed by current actual Home files."""
 
         result: dict[str, str] = {}
         for relative in self._layout.actual_top_relatives():
-            link = self._layout.top_link_for_relative(relative)
-            if link is None:
+            ref = self._layout.top_ref_for_relative(relative)
+            if ref is None:
                 continue
-            value = str(link)
+            value = str(ref)
             previous = result.get(value)
             if previous is not None and previous != relative:
                 raise AgentHomeInvariantError(
-                    f"Actual Home top link has multiple paths: {value}"
+                    f"Actual Home top ref has multiple paths: {value}"
                 )
             result[value] = relative
         return tuple(sorted(result))
 
-    def actual_default_background_links(self) -> tuple[str, ...]:
-        """Return default Background links backed only by actual Home."""
+    def actual_default_background_refs(self) -> tuple[str, ...]:
+        """Return default Background refs backed only by actual Home."""
 
-        actual = set(self.actual_top_links())
-        core = str(_DEFAULT_BACKGROUND_TOP_LINKS[0])
+        actual = set(self.actual_top_refs())
+        core = str(_DEFAULT_BACKGROUND_TOP_REFS[0])
         if core not in actual:
             raise AgentHomeContractError("Actual Home core background is missing")
         return tuple(
-            str(link) for link in _DEFAULT_BACKGROUND_TOP_LINKS if str(link) in actual
+            str(ref) for ref in _DEFAULT_BACKGROUND_TOP_REFS if str(ref) in actual
         )
 
-    def read_actual_top(self, link: HomeTopLink | str) -> str:
+    def read_actual_top(self, ref: HomeTopRef | str) -> str:
         """Read one top-level entry without consulting the runtime overlay."""
 
-        parsed = HomeTopLink.parse(link) if isinstance(link, str) else link
+        parsed = HomeTopRef.parse(ref) if isinstance(ref, str) else ref
         relative = self._layout.relative_for_top(parsed)
         source = self._layout.source_for_relative(relative)
         if source.is_symlink() or not source.is_file():
@@ -292,22 +292,22 @@ class AgentHomeEngine:
         """Return general skill metadata parsed only from actual Home."""
 
         items: list[HomeSkillMetadata] = []
-        for value in self.actual_top_links():
-            link = HomeTopLink.parse(value)
-            if link.space != "skills":
+        for value in self.actual_top_refs():
+            ref = HomeTopRef.parse(value)
+            if ref.space != "skills":
                 continue
-            relative = self._layout.relative_for_top(link)
+            relative = self._layout.relative_for_top(ref)
             prefix = _read_text_prefix(
                 self._layout.source_for_relative(relative),
                 SKILL_FRONTMATTER_MAX_CHARS + 1,
             )
-            items.append(parse_home_skill_metadata(prefix.text, link=link))
-        result = tuple(sorted(items, key=lambda item: str(item.link)))
+            items.append(parse_home_skill_metadata(prefix.text, ref=ref))
+        result = tuple(sorted(items, key=lambda item: str(item.ref)))
         self._validate_skill_catalog_budget(result)
         return result
 
-    def read_top(self, link: HomeTopLink | str) -> str:
-        parsed = HomeTopLink.parse(link) if isinstance(link, str) else link
+    def read_top(self, ref: HomeTopRef | str) -> str:
+        parsed = HomeTopRef.parse(ref) if isinstance(ref, str) else ref
         relative = self._resolve_top_relative(parsed)
         if relative is None:
             raise AgentHomeContractError(
@@ -320,39 +320,41 @@ class AgentHomeEngine:
         self, resource: str, fragment: str = "", source_day: date | None = None
     ) -> ResourceTarget:
         try:
-            parsed = parse_home_link(resource)
-            if isinstance(parsed, HomePromptMountLink):
+            parsed = parse_home_ref(resource)
+            if isinstance(parsed, HomePromptMountRef):
                 raise AgentHomeContractError(
                     "Prompt mounts are not public resource identities"
                 )
             relative = (
                 self._layout.relative_for_top(parsed)
-                if isinstance(parsed, HomeTopLink)
+                if isinstance(parsed, HomeTopRef)
                 else self._layout.relative_for_resource(parsed)
             )
-            return ResourceTarget("home:" + relative, fragment)
+            return ResourceTarget("home:resource/" + relative, fragment)
         except AgentHomeContractError as exc:
             raise ReferenceError("Invalid Home reference") from exc
 
-    def resolve_relative(self, reference: str, origin_link: str) -> str:
-        parsed = parse_home_link(origin_link.partition("#")[0])
+    def resolve_relative(self, reference: str, origin_ref: str) -> str:
+        parsed = parse_home_ref(origin_ref.partition("#")[0])
         path = (
             self._layout.relative_for_prompt_mount(parsed)
-            if isinstance(parsed, HomePromptMountLink)
+            if isinstance(parsed, HomePromptMountRef)
             else self._layout.relative_for_top(parsed)
-            if isinstance(parsed, HomeTopLink)
+            if isinstance(parsed, HomeTopRef)
             else self._layout.relative_for_resource(parsed)
         )
-        value = relative_reference(reference, source_path=path, prefix="home:")
+        value = relative_reference(reference, source_path=path, prefix="home:resource/")
         resource, marker, fragment = value.partition("#")
         if resource.startswith("home:"):
             try:
-                absolute = parse_home_link(resource)
+                absolute = parse_home_ref(resource)
             except AgentHomeContractError:
                 absolute = None
-            if isinstance(absolute, (HomeTopLink, HomePromptMountLink)):
+            if isinstance(absolute, (HomeTopRef, HomePromptMountRef)):
                 return str(absolute) + ("#" + fragment if marker else "")
-            mapped = self._layout.link_for_relative(resource.removeprefix("home:"))
+            mapped = self._layout.ref_for_relative(
+                resource.removeprefix("home:resource/")
+            )
             if mapped is not None:
                 return str(mapped) + ("#" + fragment if marker else "")
         return value
@@ -398,9 +400,7 @@ class AgentHomeEngine:
 
         if view == "actual":
             return self._content_paths(actual=True, spaces=spaces)
-        records = {
-            record.relative_path: record for record in self._overlay.records()
-        }
+        records = {record.relative_path: record for record in self._overlay.records()}
         result = []
         for relative, record in sorted(records.items()):
             if relative.split("/")[0] not in spaces:
@@ -428,18 +428,18 @@ class AgentHomeEngine:
         for relative, path in self._browse_paths(
             view=view, spaces=(space,) if space else spaces
         ):
-            link = self._layout.link_for_relative(relative)
-            if link is None or query and query.casefold() not in str(link).casefold():
+            ref = self._layout.ref_for_relative(relative)
+            if ref is None or query and query.casefold() not in str(ref).casefold():
                 continue
             values.append(
                 {
-                    "link": str(link),
-                    "locator": {"link": str(link), "view": view},
-                    "title": str(link).removeprefix("home:"),
+                    "ref": str(ref),
+                    "locator": {"ref": str(ref), "view": view},
+                    "title": str(ref).removeprefix("home:"),
                     "kind": "guidance"
-                    if isinstance(link, HomePromptMountLink)
+                    if isinstance(ref, HomePromptMountRef)
                     else "top"
-                    if isinstance(link, HomeTopLink)
+                    if isinstance(ref, HomeTopRef)
                     else "resource",
                     "size": path.stat().st_size,
                 }
@@ -452,16 +452,16 @@ class AgentHomeEngine:
         )
 
     def browse_content(
-        self, link: str, *, view: str = "effective", page: PageOptions = PageOptions()
+        self, ref: str, *, view: str = "effective", page: PageOptions = PageOptions()
     ) -> JsonObject:
         self._validate_view(view)
-        resource = link.partition("#")[0]
-        parsed = parse_home_link(resource)
+        resource = ref.partition("#")[0]
+        parsed = parse_home_ref(resource)
         relative = (
             self._layout.relative_for_prompt_mount(parsed)
-            if isinstance(parsed, HomePromptMountLink)
+            if isinstance(parsed, HomePromptMountRef)
             else self._layout.relative_for_top(parsed)
-            if isinstance(parsed, HomeTopLink)
+            if isinstance(parsed, HomeTopRef)
             else self._layout.relative_for_resource(parsed)
         )
         paths = dict(self._browse_paths(view=view, spaces=(parsed.space,)))
@@ -470,13 +470,13 @@ class AgentHomeEngine:
         text = _read_text(paths[relative])
         return inspect_document(
             owner=f"home.{view}",
-            ref=link,
+            ref=ref,
             text=text,
             direct_refs=self._direct_refs(text, relative),
             continuation=page.continuation,
             max_chars=page.max_chars,
             metadata={
-                "locator": {"link": resource, "view": view},
+                "locator": {"ref": resource, "view": view},
                 "direct_refs": list(self._direct_refs(text, relative)),
             },
         )
@@ -492,7 +492,7 @@ class AgentHomeEngine:
 
     def _canonical_markdown_reference(self, target: str, relative: str) -> str:
         """Map a Markdown edge through Home's canonical logical layout."""
-        origin = self._layout.link_for_relative(relative)
+        origin = self._layout.ref_for_relative(relative)
         if origin is None:
             raise ReferenceError("Home source has no canonical origin")
         return self.resolve_relative(target, str(origin))
@@ -500,8 +500,8 @@ class AgentHomeEngine:
     def browse_changes(self, page: PageOptions = PageOptions()) -> JsonObject:
         return self._review.read_changes(page)
 
-    def browse_diff(self, link: str, page: PageOptions = PageOptions()) -> JsonObject:
-        return self._review.read_diff(link, page)
+    def browse_diff(self, ref: str, page: PageOptions = PageOptions()) -> JsonObject:
+        return self._review.read_diff(ref, page)
 
     @staticmethod
     def _validate_view(view: str) -> None:
@@ -519,7 +519,7 @@ class AgentHomeEngine:
     ) -> JsonObject:
         resource, _, fragment = ref.partition("#")
         identity = self.canonical_reference(resource)
-        relative = identity.resource.removeprefix("home:")
+        relative = identity.resource.removeprefix("home:resource/")
         available = dict(self._search_paths(actual=actual))
         path = available.get(relative)
         if path is None:
@@ -532,6 +532,16 @@ class AgentHomeEngine:
             owner="home.actual" if actual else "home.effective",
             ref=ref,
             text=text,
+            metadata={
+                "title": next(
+                    (
+                        line.lstrip("# ")
+                        for line in text.splitlines()
+                        if line.startswith("# ")
+                    ),
+                    path.name,
+                )
+            },
             direct_refs=tuple(dict.fromkeys(direct_refs)),
             view=view,
             continuation=continuation,
@@ -574,7 +584,7 @@ class AgentHomeEngine:
                     continue
                 seen.add(key)
                 resource, fragment = key
-                relative = resource.removeprefix("home:")
+                relative = resource.removeprefix("home:resource/")
                 if relative not in paths:
                     raise SearchFailure(
                         SearchFailureKind.INVALID_REQUEST,
@@ -594,12 +604,12 @@ class AgentHomeEngine:
                     and f"skills/{parts[1]}/SKILL.md" in available
                     else None
                 )
-                result_ref = (
-                    f"home:skills@{skill}"
+                candidate_ref = (
+                    f"home:top/skills/{skill}"
                     if skill and not isinstance(source, BacklinksSource)
-                    else "home:" + relative
+                    else "home:resource/" + relative
                 )
-                grouped.setdefault(result_ref, []).append(relative)
+                grouped.setdefault(candidate_ref, []).append(relative)
             groups = [
                 (ref, tuple(resources), "")
                 for ref, resources in grouped.items()
@@ -636,15 +646,15 @@ class AgentHomeEngine:
                     and len(parts) >= 3
                     and f"skills/{parts[1]}/SKILL.md" in available
                 ):
-                    attributes["top_ref"] = f"home:skills@{parts[1]}"
+                    attributes["top_ref"] = f"home:top/skills/{parts[1]}"
             if not all(predicate.matches(attributes) for predicate in predicates):
                 continue
             units: list[ContentUnit] = []
             hits: list[SearchEvidence] = []
             coverage = ContentCoverage.FULL
             title = (
-                ref.partition("@")[2]
-                if "@" in ref
+                ref.removeprefix("home:top/")
+                if ref.startswith("home:top/")
                 else PurePosixPath(resources[0]).name
             )
             for relative in resources:
@@ -652,16 +662,16 @@ class AgentHomeEngine:
                     complete = False
                     break
                 scanned += 1
-                path, resource = paths[relative], "home:" + relative
+                path, resource = paths[relative], "home:resource/" + relative
                 try:
                     read = read_text_prefix(
                         path, max_chars=self._search_settings.resource_max_chars
                     )
                     text = read.text
-                    if "@" in ref and relative.endswith("/SKILL.md"):
+                    if ref.startswith("home:top/") and relative.endswith("/SKILL.md"):
                         title = parse_home_skill_metadata(
                             text[: SKILL_FRONTMATTER_MAX_CHARS + 1],
-                            link=HomeTopLink.parse(ref.partition("#")[0]),
+                            ref=HomeTopRef.parse(ref.partition("#")[0]),
                         ).title
                     if "\x00" in text:
                         raise UnicodeError("Binary resource")
@@ -691,24 +701,26 @@ class AgentHomeEngine:
                 units.extend(resource_units)
                 if anchor is not None:
                     lines = text.splitlines(keepends=True)
-                    for link in markdown_references(text):
+                    for resource in markdown_references(text):
                         try:
                             target = references.resolve(
                                 self._canonical_markdown_reference(
-                                    link.target, relative
+                                    resource.target, relative
                                 )
                             )
                         except ReferenceError:
                             continue
                         if target.matches(anchor):
-                            start = sum(len(line) for line in lines[: link.line - 1])
+                            start = sum(
+                                len(line) for line in lines[: resource.line - 1]
+                            )
                             hits.extend(
                                 range_evidence(
                                     resource_units,
                                     start,
-                                    start + len(lines[link.line - 1]),
+                                    start + len(lines[resource.line - 1]),
                                     kind=EvidenceKind.REFERENCE,
-                                    relation="markdown_link",
+                                    relation="markdown_reference",
                                 )
                             )
             if not complete:
@@ -722,8 +734,8 @@ class AgentHomeEngine:
             )
         return SearchCorpus(tuple(candidates), query, scanned, complete)
 
-    def read_prompt_mount(self, link: HomePromptMountLink | str) -> str:
-        parsed = HomePromptMountLink.parse(link) if isinstance(link, str) else link
+    def read_prompt_mount(self, ref: HomePromptMountRef | str) -> str:
+        parsed = HomePromptMountRef.parse(ref) if isinstance(ref, str) else ref
         self._require_prompt_mount(parsed)
         relative = self._layout.relative_for_prompt_mount(parsed)
         record = self._overlay.record_for(relative)
@@ -742,11 +754,11 @@ class AgentHomeEngine:
 
     def read_resource(
         self,
-        link: HomeResourceLink | str,
+        ref: HomeResourceRef | str,
         *,
         max_chars: int | None = None,
     ) -> HomeResourceRead:
-        parsed = self._resource_link(link)
+        parsed = self._resource_ref(ref)
         limit = self._max_read_chars if max_chars is None else max_chars
         if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
             raise AgentHomeContractError("Home resource read limit must be positive")
@@ -759,16 +771,16 @@ class AgentHomeEngine:
             )
         read = _read_text_prefix(path, limit)
         return HomeResourceRead(
-            link=str(parsed),
+            ref=str(parsed),
             text=read.text,
             truncated=read.truncated,
             digest=record.runtime_digest,
         )
 
-    def resource_exists(self, link: HomeResourceLink | str) -> bool:
+    def resource_exists(self, ref: HomeResourceRef | str) -> bool:
         """Report whether one validated progressive resource currently exists."""
 
-        parsed = self._resource_link(link)
+        parsed = self._resource_ref(ref)
         relative = self._layout.relative_for_resource(parsed)
         record = self._overlay.record_for(relative)
         if record is not None:
@@ -788,7 +800,7 @@ class AgentHomeEngine:
         if not domain:
             return None
         return self._read_optional_prompt_mount(
-            HomePromptMountLink("skills_domain", domain)
+            HomePromptMountRef("skills_domain", domain)
         )
 
     def guidance_for_action(self, domain: str, action_name: str) -> str | None:
@@ -799,7 +811,7 @@ class AgentHomeEngine:
         if action_name.startswith(prefix):
             action_key = action_name[len(prefix) :]
         return self._read_optional_prompt_mount(
-            HomePromptMountLink("skills_action", f"{domain}/{action_key}")
+            HomePromptMountRef("skills_action", f"{domain}/{action_key}")
         )
 
     def reconcile_prompt_mounts(
@@ -813,7 +825,7 @@ class AgentHomeEngine:
         domain_names = _validated_names(domains, label="Action Catalog domains")
         action_identifiers = _validated_action_identifiers(actions)
         expected = {
-            HomePromptMountLink("skills_domain", domain) for domain in domain_names
+            HomePromptMountRef("skills_domain", domain) for domain in domain_names
         }
         for domain, action_name in action_identifiers:
             if domain not in domain_names or not action_name.startswith(f"{domain}."):
@@ -821,18 +833,18 @@ class AgentHomeEngine:
                     f"Action Catalog action/domain identity is inconsistent: {action_name}"
                 )
             action_key = action_name[len(domain) + 1 :]
-            expected.add(HomePromptMountLink("skills_action", f"{domain}/{action_key}"))
+            expected.add(HomePromptMountRef("skills_action", f"{domain}/{action_key}"))
 
         existing_relatives = set(self._layout.actual_prompt_mount_relatives())
         existing_relatives.update(
             record.relative_path
             for record in self._overlay.records()
-            if self._layout.prompt_mount_link_for_relative(record.relative_path)
+            if self._layout.prompt_mount_ref_for_relative(record.relative_path)
             is not None
         )
         for relative in sorted(existing_relatives):
-            link = self._layout.prompt_mount_link_for_relative(relative)
-            if link is None or link in expected:
+            ref = self._layout.prompt_mount_ref_for_relative(relative)
+            if ref is None or ref in expected:
                 continue
             record = self._overlay.record_for(relative)
             if record is not None and record.state is HomeOverlayState.DELETED:
@@ -841,8 +853,8 @@ class AgentHomeEngine:
             if record is not None or source.is_file():
                 self._overlay.delete(relative, expected_digest="")
 
-        for link in sorted(expected, key=str):
-            relative = self._layout.relative_for_prompt_mount(link)
+        for ref in sorted(expected, key=str):
+            relative = self._layout.relative_for_prompt_mount(ref)
             record = self._overlay.record_for(relative)
             source = self._layout.source_for_relative(relative)
             if (
@@ -853,23 +865,23 @@ class AgentHomeEngine:
             ):
                 self._overlay.reset_to_actual_copy(relative)
 
-        self._prompt_mount_links = frozenset(expected)
+        self._prompt_mount_refs = frozenset(expected)
         self._validate_overlay_semantics()
 
-    def ensure_runtime_copy(self, link: HomeLink) -> bool:
+    def ensure_runtime_copy(self, ref: HomeRef) -> bool:
         """Materialize one missing runtime file and report whether disk changed."""
 
-        if isinstance(link, HomeTopLink):
-            relative = self._layout.relative_for_top(link)
+        if isinstance(ref, HomeTopRef):
+            relative = self._layout.relative_for_top(ref)
             materialized = not self._layout.runtime_for_relative(relative).is_file()
-            relative = self._require_top_relative(link)
-        elif isinstance(link, HomeResourceLink):
-            parsed = self._resource_link(link)
+            relative = self._require_top_relative(ref)
+        elif isinstance(ref, HomeResourceRef):
+            parsed = self._resource_ref(ref)
             relative = self._layout.relative_for_resource(parsed)
             materialized = not self._layout.runtime_for_relative(relative).is_file()
         else:
-            self._require_prompt_mount(link)
-            relative = self._layout.relative_for_prompt_mount(link)
+            self._require_prompt_mount(ref)
+            relative = self._layout.relative_for_prompt_mount(ref)
             materialized = not self._layout.runtime_for_relative(relative).is_file()
             record = self._overlay.record_for(relative)
             source = self._layout.source_for_relative(relative)
@@ -882,13 +894,13 @@ class AgentHomeEngine:
 
     def write_resource(
         self,
-        link: HomeResourceLink | str,
+        ref: HomeResourceRef | str,
         text: str,
         *,
         overwrite: bool = False,
         expected_digest: str = "",
     ) -> HomeResourceMutation:
-        parsed = self._mutable_resource_link(link)
+        parsed = self._mutable_resource_ref(ref)
         self._validate_write_text(text)
         relative = self._layout.relative_for_resource(parsed)
         record = self._overlay.write(
@@ -901,13 +913,13 @@ class AgentHomeEngine:
 
     def patch_resource(
         self,
-        link: HomeResourceLink | str,
+        ref: HomeResourceRef | str,
         *,
         old_text: str,
         new_text: str,
         expected_digest: str = "",
     ) -> HomeResourceMutation:
-        parsed = self._mutable_resource_link(link)
+        parsed = self._mutable_resource_ref(ref)
         relative = self._layout.relative_for_resource(parsed)
         record = self._overlay.patch(
             relative,
@@ -920,29 +932,29 @@ class AgentHomeEngine:
 
     def delete_resource(
         self,
-        link: HomeResourceLink | str,
+        ref: HomeResourceRef | str,
         *,
         expected_digest: str = "",
     ) -> HomeResourceMutation:
-        parsed = self._mutable_resource_link(link)
+        parsed = self._mutable_resource_ref(ref)
         relative = self._layout.relative_for_resource(parsed)
         record = self._overlay.delete(relative, expected_digest=expected_digest)
         return _mutation(str(parsed), record)
 
     def write_top(
         self,
-        link: HomeTopLink | str,
+        ref: HomeTopRef | str,
         text: str,
         *,
         overwrite: bool = False,
         expected_digest: str = "",
     ) -> HomeResourceMutation:
-        parsed = self._mutable_top_link(link)
+        parsed = self._mutable_top_ref(ref)
         self._validate_write_text(text)
         if parsed.space == "skills":
             self._validate_projected_skill_catalog(
                 parsed,
-                parse_home_skill_metadata(text, link=parsed),
+                parse_home_skill_metadata(text, ref=parsed),
             )
         existing = self._resolve_top_relative(parsed)
         if existing is None:
@@ -959,13 +971,13 @@ class AgentHomeEngine:
 
     def patch_top(
         self,
-        link: HomeTopLink | str,
+        ref: HomeTopRef | str,
         *,
         old_text: str,
         new_text: str,
         expected_digest: str = "",
     ) -> HomeResourceMutation:
-        parsed = self._mutable_top_link(link)
+        parsed = self._mutable_top_ref(ref)
         relative = self._require_top_relative(parsed)
         if parsed.space == "skills":
             current = _read_text(self._effective_top_path(parsed, relative))
@@ -982,7 +994,7 @@ class AgentHomeEngine:
             updated = current.replace(old_text, new_text, 1)
             self._validate_projected_skill_catalog(
                 parsed,
-                parse_home_skill_metadata(updated, link=parsed),
+                parse_home_skill_metadata(updated, ref=parsed),
             )
         record = self._overlay.patch(
             relative,
@@ -995,26 +1007,26 @@ class AgentHomeEngine:
 
     def delete_top(
         self,
-        link: HomeTopLink | str,
+        ref: HomeTopRef | str,
         *,
         expected_digest: str = "",
     ) -> HomeResourceMutation:
-        parsed = self._mutable_top_link(link)
-        if parsed == HomeTopLink("agent", "AGENT"):
-            raise AgentHomeContractError("home:agent@AGENT cannot be deleted")
+        parsed = self._mutable_top_ref(ref)
+        if parsed == HomeTopRef("agent", "AGENT"):
+            raise AgentHomeContractError("home:top/agent/AGENT cannot be deleted")
         relative = self._require_top_relative(parsed)
         record = self._overlay.delete(relative, expected_digest=expected_digest)
         return _mutation(str(parsed), record)
 
     def write_prompt_mount(
         self,
-        link: HomePromptMountLink | str,
+        ref: HomePromptMountRef | str,
         text: str,
         *,
         overwrite: bool = False,
         expected_digest: str = "",
     ) -> HomeResourceMutation:
-        parsed = HomePromptMountLink.parse(link) if isinstance(link, str) else link
+        parsed = HomePromptMountRef.parse(ref) if isinstance(ref, str) else ref
         self._require_prompt_mount(parsed)
         self._validate_write_text(text)
         relative = self._layout.relative_for_prompt_mount(parsed)
@@ -1028,13 +1040,13 @@ class AgentHomeEngine:
 
     def patch_prompt_mount(
         self,
-        link: HomePromptMountLink | str,
+        ref: HomePromptMountRef | str,
         *,
         old_text: str,
         new_text: str,
         expected_digest: str = "",
     ) -> HomeResourceMutation:
-        parsed = HomePromptMountLink.parse(link) if isinstance(link, str) else link
+        parsed = HomePromptMountRef.parse(ref) if isinstance(ref, str) else ref
         self._require_prompt_mount(parsed)
         relative = self._layout.relative_for_prompt_mount(parsed)
         record = self._overlay.patch(
@@ -1046,12 +1058,12 @@ class AgentHomeEngine:
         )
         return _mutation(str(parsed), record)
 
-    def _runtime_read_path(self, link: str, relative: str) -> Path:
+    def _runtime_read_path(self, ref: str, relative: str) -> Path:
         record = self._overlay.record_for(relative)
         if record is not None:
             if record.state is HomeOverlayState.DELETED:
                 raise AgentHomeContractError(
-                    f"Home content was deleted in the active overlay: {link}"
+                    f"Home content was deleted in the active overlay: {ref}"
                 )
             return self._layout.runtime_for_relative(relative)
         source = self._layout.source_for_relative(relative)
@@ -1060,19 +1072,19 @@ class AgentHomeEngine:
                 f"Actual Home content cannot be a symlink: {source}"
             )
         if not source.is_file():
-            raise AgentHomeContractError(f"Home content does not exist: {link}")
+            raise AgentHomeContractError(f"Home content does not exist: {ref}")
         raise AgentHomeRuntimeCopyRequired(
-            link,
+            ref,
             source_path=source,
             runtime_path=self._layout.runtime_for_relative(relative),
         )
 
-    def _read_optional_prompt_mount(self, link: HomePromptMountLink) -> str | None:
-        content = self.read_prompt_mount(link)
+    def _read_optional_prompt_mount(self, ref: HomePromptMountRef) -> str | None:
+        content = self.read_prompt_mount(ref)
         return content if content else None
 
-    def _resolve_top_relative(self, link: HomeTopLink) -> str | None:
-        relative = self._layout.relative_for_top(link)
+    def _resolve_top_relative(self, ref: HomeTopRef) -> str | None:
+        relative = self._layout.relative_for_top(ref)
         record = self._overlay.record_for(relative)
         if record is not None:
             if record.state is HomeOverlayState.DELETED:
@@ -1091,63 +1103,63 @@ class AgentHomeEngine:
             )
         return None
 
-    def _require_top_relative(self, link: HomeTopLink) -> str:
-        relative = self._resolve_top_relative(link)
+    def _require_top_relative(self, ref: HomeTopRef) -> str:
+        relative = self._resolve_top_relative(ref)
         if relative is None:
-            raise AgentHomeContractError(f"Home top-level entry does not exist: {link}")
+            raise AgentHomeContractError(f"Home top-level entry does not exist: {ref}")
         return relative
 
-    def _mutable_top_link(self, link: HomeTopLink | str) -> HomeTopLink:
-        return HomeTopLink.parse(link) if isinstance(link, str) else link
+    def _mutable_top_ref(self, ref: HomeTopRef | str) -> HomeTopRef:
+        return HomeTopRef.parse(ref) if isinstance(ref, str) else ref
 
-    def _resource_link(
+    def _resource_ref(
         self,
-        link: HomeResourceLink | str,
-    ) -> HomeResourceLink:
-        parsed_link = parse_home_link(link) if isinstance(link, str) else link
-        if not isinstance(parsed_link, HomeResourceLink):
+        ref: HomeResourceRef | str,
+    ) -> HomeResourceRef:
+        parsed_ref = parse_home_ref(ref) if isinstance(ref, str) else ref
+        if not isinstance(parsed_ref, HomeResourceRef):
             raise AgentHomeContractError(
-                "Home resource operation requires a progressive resource link"
+                "Home resource operation requires a progressive resource ref"
             )
-        self._validate_resource_semantics(parsed_link)
-        if _is_top_entry_resource(parsed_link):
+        self._validate_resource_semantics(parsed_ref)
+        if _is_top_entry_resource(parsed_ref):
             raise AgentHomeContractError(
                 "Home resource operation cannot address a top-level Home file"
             )
-        return parsed_link
+        return parsed_ref
 
-    def _mutable_resource_link(
+    def _mutable_resource_ref(
         self,
-        link: HomeResourceLink | str,
-    ) -> HomeResourceLink:
-        return self._resource_link(link)
+        ref: HomeResourceRef | str,
+    ) -> HomeResourceRef:
+        return self._resource_ref(ref)
 
-    def _validate_resource_semantics(self, link: HomeResourceLink) -> None:
-        path = PurePosixPath(link.relative_path)
+    def _validate_resource_semantics(self, ref: HomeResourceRef) -> None:
+        path = PurePosixPath(ref.relative_path)
         memory_name = path.name.upper()
         if memory_name.endswith("_MEMORY.MD"):
             if not (
-                link.space == "skills"
+                ref.space == "skills"
                 and path.name == "SKILL_MEMORY.md"
                 and len(path.parts) == 2
             ):
                 raise AgentHomeContractError(
                     "Only skills/<skill>/SKILL_MEMORY.md runtime memory is allowed"
                 )
-            skill = HomeTopLink("skills", path.parts[0])
+            skill = HomeTopRef("skills", path.parts[0])
             if self._resolve_top_relative(skill) is None:
                 raise AgentHomeContractError(
                     f"SKILL_MEMORY.md requires an existing general skill: {skill}"
                 )
 
-    def _require_prompt_mount(self, link: HomePromptMountLink) -> None:
-        if self._prompt_mount_links is None:
+    def _require_prompt_mount(self, ref: HomePromptMountRef) -> None:
+        if self._prompt_mount_refs is None:
             raise AgentHomeInvariantError(
                 "Home prompt mounts have not been bound to the Action Catalog"
             )
-        if link not in self._prompt_mount_links:
+        if ref not in self._prompt_mount_refs:
             raise AgentHomeContractError(
-                f"Home prompt mount is not defined by the Action Catalog: {link}"
+                f"Home prompt mount is not defined by the Action Catalog: {ref}"
             )
 
     def _validate_write_text(self, text: str) -> None:
@@ -1169,7 +1181,7 @@ class AgentHomeEngine:
                 and record.state is HomeOverlayState.DELETED
             ):
                 raise AgentHomeInvariantError(
-                    "home:agent@AGENT cannot be deleted in the runtime overlay"
+                    "home:top/agent/AGENT cannot be deleted in the runtime overlay"
                 )
             name = PurePosixPath(relative).name
             if name.upper().endswith("_MEMORY.MD"):
@@ -1185,12 +1197,12 @@ class AgentHomeEngine:
                     raise AgentHomeInvariantError(
                         f"Runtime-only SKILL_MEMORY has an actual baseline: {relative}"
                     )
-                if self._resolve_top_relative(HomeTopLink("skills", parts[1])) is None:
+                if self._resolve_top_relative(HomeTopRef("skills", parts[1])) is None:
                     raise AgentHomeInvariantError(
                         f"Runtime SKILL_MEMORY has no general skill: {relative}"
                     )
             if parts and parts[0] in {"skills_domain", "skills_action"}:
-                if self._layout.prompt_mount_link_for_relative(relative) is None:
+                if self._layout.prompt_mount_ref_for_relative(relative) is None:
                     raise AgentHomeInvariantError(
                         f"Invalid runtime Home prompt mount path: {relative}"
                     )
@@ -1199,54 +1211,54 @@ class AgentHomeEngine:
     def _skill_metadata_catalog(
         self,
         *,
-        exclude: frozenset[HomeTopLink] = frozenset(),
+        exclude: frozenset[HomeTopRef] = frozenset(),
     ) -> tuple[HomeSkillMetadata, ...]:
         items = tuple(
-            self._skill_metadata_for_link(link)
-            for link in self._effective_skill_links()
-            if link not in exclude
+            self._skill_metadata_for_ref(ref)
+            for ref in self._effective_skill_refs()
+            if ref not in exclude
         )
         self._validate_skill_catalog_budget(items)
         return items
 
-    def _effective_skill_links(self) -> tuple[HomeTopLink, ...]:
+    def _effective_skill_refs(self) -> tuple[HomeTopRef, ...]:
         relatives = set(self._layout.actual_top_relatives())
         relatives.update(record.relative_path for record in self._overlay.records())
-        links = {
-            link
+        refs = {
+            ref
             for relative in relatives
-            if (link := self._layout.top_link_for_relative(relative)) is not None
-            and link.space == "skills"
-            and self._resolve_top_relative(link) is not None
+            if (ref := self._layout.top_ref_for_relative(relative)) is not None
+            and ref.space == "skills"
+            and self._resolve_top_relative(ref) is not None
         }
-        return tuple(sorted(links, key=str))
+        return tuple(sorted(refs, key=str))
 
-    def _skill_metadata_for_link(self, link: HomeTopLink) -> HomeSkillMetadata:
-        relative = self._require_top_relative(link)
+    def _skill_metadata_for_ref(self, ref: HomeTopRef) -> HomeSkillMetadata:
+        relative = self._require_top_relative(ref)
         prefix = _read_text_prefix(
-            self._effective_top_path(link, relative),
+            self._effective_top_path(ref, relative),
             SKILL_FRONTMATTER_MAX_CHARS + 1,
         )
-        return parse_home_skill_metadata(prefix.text, link=link)
+        return parse_home_skill_metadata(prefix.text, ref=ref)
 
-    def _effective_top_path(self, link: HomeTopLink, relative: str) -> Path:
+    def _effective_top_path(self, ref: HomeTopRef, relative: str) -> Path:
         record = self._overlay.record_for(relative)
         if record is None:
             return self._layout.source_for_relative(relative)
         if record.state is HomeOverlayState.DELETED:
             raise AgentHomeInvariantError(
-                f"Deleted Home top entry entered effective catalog: {link}"
+                f"Deleted Home top entry entered effective catalog: {ref}"
             )
         return self._layout.runtime_for_relative(relative)
 
     def _validate_projected_skill_catalog(
         self,
-        link: HomeTopLink,
+        ref: HomeTopRef,
         metadata: HomeSkillMetadata,
     ) -> None:
-        items = (*self._skill_metadata_catalog(exclude=frozenset({link})), metadata)
+        items = (*self._skill_metadata_catalog(exclude=frozenset({ref})), metadata)
         self._validate_skill_catalog_budget(
-            tuple(sorted(items, key=lambda item: str(item.link)))
+            tuple(sorted(items, key=lambda item: str(item.ref)))
         )
 
     def _validate_skill_catalog_budget(
@@ -1349,9 +1361,9 @@ def _file_digest(path: Path) -> str:
         raise AgentHomeIOError(f"Failed to digest Agent Home file: {exc}") from exc
 
 
-def _mutation(link: str, record: HomeOverlayRecord) -> HomeResourceMutation:
+def _mutation(ref: str, record: HomeOverlayRecord) -> HomeResourceMutation:
     return HomeResourceMutation(
-        link=link,
+        ref=ref,
         state=record.state,
         digest=record.runtime_digest,
         baseline_digest=record.baseline_digest,
@@ -1359,11 +1371,11 @@ def _mutation(link: str, record: HomeOverlayRecord) -> HomeResourceMutation:
     )
 
 
-def _is_top_entry_resource(link: HomeResourceLink) -> bool:
-    path = PurePosixPath(link.relative_path)
-    if link.space == "agent" and path.suffix.lower() == ".md":
+def _is_top_entry_resource(ref: HomeResourceRef) -> bool:
+    path = PurePosixPath(ref.relative_path)
+    if ref.space == "agent" and path.suffix.lower() == ".md":
         return True
-    return link.space == "skills" and path.name == "SKILL.md"
+    return ref.space == "skills" and path.name == "SKILL.md"
 
 
 def _validated_names(values: tuple[str, ...], *, label: str) -> tuple[str, ...]:

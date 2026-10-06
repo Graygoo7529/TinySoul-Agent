@@ -68,6 +68,7 @@ class HomeReflectionRunner(Protocol):
         active_day: CalendarDay,
         scope: RunScope,
         request_id: str,
+        turn_id: str,
         inbox: TurnInbox | None = None,
         instructions: str = "",
     ) -> ReflectionTaskOutcome: ...
@@ -97,6 +98,7 @@ class MemoryReflectionRunner(Protocol):
         archive: ArchiveProjection | None,
         scope: RunScope,
         request_id: str,
+        turn_id: str,
         inbox: TurnInbox | None = None,
         instructions: str = "",
     ) -> ReflectionTaskOutcome: ...
@@ -142,6 +144,7 @@ class ReflectionEngine:
         request: ReflectionRequest,
         *,
         active_day: CalendarDay,
+        turn_id: str,
         scope: RunScope | None = None,
         inbox: TurnInbox | None = None,
     ) -> ReflectionOutcome:
@@ -212,6 +215,7 @@ class ReflectionEngine:
                                 active_day=active_day,
                                 scope=run_scope,
                                 request_id=request.request_id,
+                                turn_id=turn_id,
                                 inbox=inbox,
                                 instructions=request.instructions,
                             ),
@@ -258,6 +262,7 @@ class ReflectionEngine:
                                     archive=archive,
                                     scope=run_scope,
                                     request_id=request.request_id,
+                                    turn_id=turn_id,
                                     inbox=inbox,
                                     instructions=request.instructions,
                                 ),

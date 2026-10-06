@@ -9,7 +9,7 @@ from tinysoul.plugins.workspace import WorkspaceTag
 class WorkspaceWriteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    link: str = Field(min_length=1)
+    ref: str = Field(min_length=1)
     text: str
     overwrite: bool = False
 
@@ -17,7 +17,7 @@ class WorkspaceWriteRequest(BaseModel):
 class WorkspaceTrashRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    link: str = Field(min_length=1)
+    ref: str = Field(min_length=1)
 
 
 class WorkspaceRestoreRequest(BaseModel):
@@ -28,11 +28,13 @@ class WorkspaceRestoreRequest(BaseModel):
 
 class WorkspaceDirectoryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    link: str = Field(min_length=1)
+    ref: str = Field(min_length=1)
 
 
-class WorkspaceMoveRequest(WorkspaceDirectoryRequest):
-    target_link: str = Field(min_length=1)
+class WorkspaceMoveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_ref: str = Field(min_length=1)
+    target_ref: str = Field(min_length=1)
 
 
 class WorkspaceTagRequest(WorkspaceDirectoryRequest):

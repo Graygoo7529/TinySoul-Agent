@@ -5,7 +5,7 @@
  * records — explicit directory records plus the parent segments implied by
  * every resource path. Directories sort before files, then alphabetically.
  * Filtering keeps the ancestors of every hit so a match stays in context.
- * Path validation mirrors the owner link rules; the backend stays
+ * Path validation mirrors the owner ref rules; the backend stays
  * authoritative.
  */
 
@@ -124,7 +124,7 @@ export function topLevelDirectories(
   return [...dirs].sort((a, b) => a.localeCompare(b));
 }
 
-/** Client-side workspace path check (mirrors the owner link rules). */
+/** Client-side workspace path check (mirrors the owner ref rules). */
 export function isValidWorkspacePath(path: string): boolean {
   if (
     path === "" ||

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from datetime import date
 from typing import Protocol
@@ -26,7 +25,7 @@ from tinysoul.plugins.memory.runtime_bridge import RuntimeMemoryBridge
 
 from .documents import DailyMemoryDocument, StoredMemoryDocument
 from .errors import MemoryContractError, MemoryError, MemoryInvariantError
-from .links import MemoryBackgroundRef
+from .refs import MemoryBackgroundRef
 from .services import MemoryReadService
 from .storage.active import ActiveMemoryDocument
 
@@ -48,46 +47,46 @@ class ActiveMemoryBackgroundEntryProvider:
             latest = await self.memory.latest_daily_before(active_day)
         except MemoryError as exc:
             raise self.runtime_bridge.from_memory_error(exc) from exc
-        links = [MemoryBackgroundRef.CURRENT.value]
+        refs = [MemoryBackgroundRef.CURRENT.value]
         items = [
             BackgroundCatalogItem(
-                link=MemoryBackgroundRef.CURRENT.value,
+                ref=MemoryBackgroundRef.CURRENT.value,
                 title=prompt_text.CURRENT_MEMORY,
                 description=prompt_text.CURRENT_MEMORY_DESCRIPTION,
                 resolved_locator=ResourceLocator(
-                    link="memory:current", day=active_day.isoformat()
+                    ref="memory:current", day=active_day.isoformat()
                 ),
             )
         ]
         if latest is not None:
-            links.append(MemoryBackgroundRef.LATEST.value)
+            refs.append(MemoryBackgroundRef.LATEST.value)
             items.append(
                 BackgroundCatalogItem(
-                    link=MemoryBackgroundRef.LATEST.value,
+                    ref=MemoryBackgroundRef.LATEST.value,
                     title=prompt_text.LATEST_DAILY_MEMORY,
                     description=prompt_text.latest_daily_description(
-                        link=str(latest.link)
+                        ref=str(latest.ref)
                     ),
-                    resolved_locator=ResourceLocator(link=str(latest.link)),
+                    resolved_locator=ResourceLocator(ref=str(latest.ref)),
                 )
             )
-        values = tuple(links)
+        values = tuple(refs)
         return BackgroundCatalog(
             owner="memory",
-            default_links=values,
-            loadable_links=values,
-            evictable_default_links=(),
+            default_refs=values,
+            loadable_refs=values,
+            evictable_default_refs=(),
             items=tuple(items),
         )
 
-    async def load(self, link: str, active_day: date) -> str:
+    async def load(self, ref: str, active_day: date) -> str:
         try:
-            if link == MemoryBackgroundRef.CURRENT.value:
+            if ref == MemoryBackgroundRef.CURRENT.value:
                 return _active_projection(
                     MemoryBackgroundRef.CURRENT,
                     await self.memory.read_active(active_day),
                 )
-            if link == MemoryBackgroundRef.LATEST.value:
+            if ref == MemoryBackgroundRef.LATEST.value:
                 latest = await self.memory.latest_daily_before(active_day)
                 if latest is None:
                     raise MemoryInvariantError("Prepared latest Memory disappeared")
@@ -97,7 +96,7 @@ class ActiveMemoryBackgroundEntryProvider:
             )
         except MemoryError as exc:
             raise self.runtime_bridge.from_memory_error(
-                exc, payload={"link": link}
+                exc, payload={"ref": ref}
             ) from exc
 
 
@@ -118,52 +117,52 @@ class TargetMemoryBackgroundEntryProvider:
             latest = await self.memory.latest_daily_before(target_day)
         except MemoryError as exc:
             raise self.runtime_bridge.from_memory_error(exc) from exc
-        links = [MemoryBackgroundRef.TARGET.value]
+        refs = [MemoryBackgroundRef.TARGET.value]
         items = [
             BackgroundCatalogItem(
-                link=MemoryBackgroundRef.TARGET.value,
+                ref=MemoryBackgroundRef.TARGET.value,
                 title=prompt_text.TARGET_MEMORY,
                 description=prompt_text.target_memory_description(
                     target_day=target_day.isoformat()
                 ),
                 resolved_locator=ResourceLocator(
-                    link="memory:current", day=target_day.isoformat()
+                    ref="memory:current", day=target_day.isoformat()
                 ),
             )
         ]
         if latest is not None:
-            links.append(MemoryBackgroundRef.LATEST.value)
+            refs.append(MemoryBackgroundRef.LATEST.value)
             items.append(
                 BackgroundCatalogItem(
-                    link=MemoryBackgroundRef.LATEST.value,
+                    ref=MemoryBackgroundRef.LATEST.value,
                     title=prompt_text.LATEST_DAILY_MEMORY,
                     description=prompt_text.prior_daily_description(
-                        link=str(latest.link)
+                        ref=str(latest.ref)
                     ),
-                    resolved_locator=ResourceLocator(link=str(latest.link)),
+                    resolved_locator=ResourceLocator(ref=str(latest.ref)),
                 )
             )
-        values = tuple(links)
+        values = tuple(refs)
         return BackgroundCatalog(
             owner="memory",
-            default_links=values,
-            loadable_links=values,
-            evictable_default_links=(),
+            default_refs=values,
+            loadable_refs=values,
+            evictable_default_refs=(),
             items=tuple(items),
         )
 
-    async def load(self, link: str, active_day: date) -> str:
+    async def load(self, ref: str, active_day: date) -> str:
         del active_day
         try:
             target_day, snapshot = self.binding.memory_target()
-            if link == MemoryBackgroundRef.TARGET.value:
+            if ref == MemoryBackgroundRef.TARGET.value:
                 if snapshot.day != target_day:
                     raise MemoryInvariantError("Memory target binding day mismatch")
                 return _active_projection(
                     MemoryBackgroundRef.TARGET,
                     snapshot,
                 )
-            if link == MemoryBackgroundRef.LATEST.value:
+            if ref == MemoryBackgroundRef.LATEST.value:
                 latest = await self.memory.latest_daily_before(target_day)
                 if latest is None:
                     raise MemoryInvariantError("Prepared latest Memory disappeared")
@@ -173,7 +172,7 @@ class TargetMemoryBackgroundEntryProvider:
             )
         except MemoryError as exc:
             raise self.runtime_bridge.from_memory_error(
-                exc, payload={"link": link}
+                exc, payload={"ref": ref}
             ) from exc
 
 
@@ -181,24 +180,17 @@ def _active_projection(
     ref: MemoryBackgroundRef,
     snapshot: ActiveMemoryDocument,
 ) -> str:
-    metadata: dict[str, object] = {
-        "ref": ref.value,
-        "day": snapshot.day.isoformat(),
-    }
-    header = json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
-    content = snapshot.content if snapshot.content else "(empty)"
-    return f"{header}\n\n{content}"
+    return prompt_text.active_context(
+        ref.value, snapshot.day.isoformat(), snapshot.content
+    )
 
 
 def _latest_projection(stored: StoredMemoryDocument) -> str:
     if not isinstance(stored.document, DailyMemoryDocument):
         raise MemoryInvariantError("Latest daily projection received another kind")
-    metadata = {
-        "ref": MemoryBackgroundRef.LATEST.value,
-        "resolved_link": str(stored.link),
-        "day": stored.document.day.isoformat(),
-    }
-    return f"{json.dumps(metadata, ensure_ascii=False, separators=(',', ':'))}\n\n{stored.text}"
+    return prompt_text.latest_context(
+        str(stored.ref), stored.document.day.isoformat(), stored.text
+    )
 
 
 MEMORY_SEGMENT = SegmentDescriptor(

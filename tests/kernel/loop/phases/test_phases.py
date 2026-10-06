@@ -104,20 +104,33 @@ class FakeLLM:
         return self.results.popleft()
 
 
-async def test_capacity_rejection_does_not_consume_inspect_overlay() -> None:
+@pytest.mark.parametrize("response", ["capacity", "not_sent", "responded"])
+async def test_only_a_responded_request_releases_inspect_overlay(response: str) -> None:
     from tinysoul.kernel.context import build_trace_action_result_signal
     from tinysoul.llm.protocol.messages import ToolResultMessage
     from tinysoul.llm.failures import LLM_CONTEXT_CAPACITY_EXCEEDED
+    from tinysoul.llm.protocol.responses import TaskResultStatus
 
     class CapacityLLM:
         async def invoke(self, call: TaskCall) -> TaskResult:
             return await self.run(call)
 
         async def run(self, call: TaskCall) -> TaskResult:
-            raise RuntimeException(LLM_CONTEXT_CAPACITY_EXCEEDED, "capacity")
+            if response == "capacity":
+                raise RuntimeException(LLM_CONTEXT_CAPACITY_EXCEEDED, "capacity")
+            return TaskResult(
+                status=TaskResultStatus.FAILURE,
+                answer=None,
+                raw_response=RawResponse(
+                    answer_text="", model_id="fake", provider_id="fake"
+                )
+                if response == "responded"
+                else None,
+                failure=TaskFailure(model_feedback="No usable action intent"),
+            )
 
     context = ContextEngineBuilder(system_text="test").build()
-    turn_id = context.begin_turn("inspect")
+    turn_id = context.begin_turn("inspect", turn_id="2026-10-06/120")
     await context.open_segments(CalendarDate(2026, 9, 20))
     scope = RunScope().push(RunLevel.TURN, turn_id)
     full = ToolResultMessage.from_json(
@@ -148,10 +161,15 @@ async def test_capacity_rejection_does_not_consume_inspect_overlay() -> None:
         bus=bus,
         task_profile="phase1",
     )
-    with pytest.raises(RuntimeException) as failure:
+    if response == "capacity":
+        with pytest.raises(RuntimeException) as failure:
+            await phase.run(scope=scope, cycle_id="cycle_1")
+        assert failure.value.reason == LLM_CONTEXT_CAPACITY_EXCEEDED
+    else:
         await phase.run(scope=scope, cycle_id="cycle_1")
-    assert failure.value.reason == LLM_CONTEXT_CAPACITY_EXCEEDED
-    assert context.compress(required_chars=100000).changed is False
+    assert context.compress(required_chars=100000).folded_overlay_count == (
+        1 if response == "responded" else 0
+    )
     await context.close_segments()
 
 
@@ -168,7 +186,7 @@ class RecordingObservations:
 
 async def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
-    turn_id = context.begin_turn("answer now")
+    turn_id = context.begin_turn("answer now", turn_id="2026-10-06/171")
     await context.open_segments(CalendarDate(2026, 7, 12))
     action = _action_engine()
     bus = SignalBus()
@@ -243,6 +261,7 @@ async def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
     assert phase3.completion["text"] == "done"
     assert str(phase3.completion["result_id"]).startswith("action_result_")
     assert context.trace_kinds() == (
+        TraceKind.INPUT,
         TraceKind.DECISION,
         TraceKind.ACTION_RESULT,
     )
@@ -261,7 +280,7 @@ async def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
 
 async def test_phase_units_use_independent_task_profiles() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
-    turn_id = context.begin_turn("answer now")
+    turn_id = context.begin_turn("answer now", turn_id="2026-10-06/265")
     await context.open_segments(CalendarDate(2026, 7, 12))
     action = _action_engine()
     bus = SignalBus()
@@ -330,18 +349,18 @@ async def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the
         async def catalog(self, active_day: date) -> BackgroundCatalog:
             return BackgroundCatalog(
                 owner="home",
-                loadable_links=("home:skills@review",),
+                loadable_refs=("home:top/skills/review",),
                 items=(
                     BackgroundCatalogItem(
-                        link="home:skills@review",
+                        ref="home:top/skills/review",
                         title="Review Home",
                         description="Review effective Home changes.",
                     ),
                 ),
             )
 
-        async def load(self, link: str, active_day: date) -> str:
-            assert link == "home:skills@review"
+        async def load(self, ref: str, active_day: date) -> str:
+            assert ref == "home:top/skills/review"
             return "SKILL BODY: compare runtime and actual Home."
 
     context = (
@@ -364,7 +383,7 @@ async def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the
         )
         .build()
     )
-    turn_id = context.begin_turn("review Home")
+    turn_id = context.begin_turn("review Home", turn_id="2026-10-06/368")
     await context.open_segments(date(2026, 7, 14))
     action = _action_engine()
     llm = FakeLLM(
@@ -379,7 +398,7 @@ async def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the
                 ToolCallRecord(
                     id="load_review",
                     name="load_background",
-                    arguments={"links": ["home:skills@review"]},
+                    arguments={"refs": ["home:top/skills/review"]},
                     kind=ToolKind.CONTROL,
                 ),
             ),
@@ -435,31 +454,27 @@ async def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the
         for message in phase1_stack.messages
         if message.label == "background:catalog:home"
     )
-    assert isinstance(catalog.parts[0], JsonPart)
-    assert catalog.parts[0].value["items"] == [
-        {
-            "link": "home:skills@review",
-            "title": "Review Home",
-            "description": "Review effective Home changes.",
-        }
-    ]
+    assert isinstance(catalog.parts[0], TextPart)
+    assert "home:top/skills/review" in catalog.parts[0].text
+    assert "Review effective Home changes." in catalog.parts[0].text
+
     assert "SKILL BODY" not in _message_stack_text(phase1_stack)
 
     phase2_stack = llm.calls[1].messages
     loaded = next(
         message
         for message in phase2_stack.messages
-        if message.label == "background:home:skills@review"
+        if message.label == "background:home:top/skills/review"
     )
     assert isinstance(loaded.parts[0], TextPart)
-    assert loaded.parts[0].text == "SKILL BODY: compare runtime and actual Home."
+    assert "SKILL BODY: compare runtime and actual Home." in loaded.parts[0].text
 
     context.end_turn()
     await context.close_segments()
     await context.close_segments()
-    context.begin_turn("next turn")
+    context.begin_turn("next turn", turn_id="2026-10-06/461")
     await context.open_segments(date(2026, 7, 14))
-    assert "home:skills@review" not in context.background_links()
+    assert "home:top/skills/review" not in context.background_refs()
 
 
 async def test_real_memory_actions_record_turn_trace_without_background_mutation(
@@ -478,7 +493,7 @@ async def test_real_memory_actions_record_turn_trace_without_background_mutation
         ),
     )
     context = ContextEngineBuilder(system_text="sys").build()
-    turn_id = context.begin_turn("recall yesterday")
+    turn_id = context.begin_turn("recall yesterday", turn_id="2026-10-06/482")
     await context.open_segments(CalendarDate(2026, 7, 12))
     action = _action_engine(memory=memory)
     normalization = action.normalize(
@@ -489,18 +504,18 @@ async def test_real_memory_actions_record_turn_trace_without_background_mutation
                 arguments={"ref": "memory:daily/2026-07-13"},
                 kind=ToolKind.ACTION,
             ),
-                ToolCallRecord(
-                    id="search_1",
-                    name="memory.search",
-                    arguments={
-                        "source": {
-                            "kind": "query",
-                            "scope": "all",
-                            "query": "remembered",
-                        },
+            ToolCallRecord(
+                id="search_1",
+                name="memory.search",
+                arguments={
+                    "source": {
+                        "kind": "query",
+                        "scope": "all",
+                        "query": "remembered",
                     },
-                    kind=ToolKind.ACTION,
-                ),
+                },
+                kind=ToolKind.ACTION,
+            ),
         )
     )
     scope = (
@@ -539,10 +554,11 @@ async def test_real_memory_actions_record_turn_trace_without_background_mutation
     assert first_item["ref"] == "memory:daily/2026-07-13"
     assert "period" not in first_item
     assert context.trace_kinds() == (
+        TraceKind.INPUT,
         TraceKind.ACTION_RESULT,
         TraceKind.ACTION_RESULT,
     )
-    assert context.background_links() == ()
+    assert context.background_refs() == ()
 
 
 async def test_real_workspace_inspection_actions_preserve_trace_lifecycle(
@@ -556,7 +572,7 @@ async def test_real_workspace_inspection_actions_preserve_trace_lifecycle(
     workspace.reconcile()
 
     context = ContextEngineBuilder(system_text="sys").build()
-    turn_id = context.begin_turn("inspect workspace")
+    turn_id = context.begin_turn("inspect workspace", turn_id="2026-10-06/561")
     await context.open_segments(CalendarDate(2026, 7, 12))
     bus = SignalBus()
     llm = FakeLLM(
@@ -581,30 +597,30 @@ async def test_real_workspace_inspection_actions_preserve_trace_lifecycle(
                 id="read_1",
                 name="workspace.read",
                 arguments={
-                    "link": "workspace:a.md",
+                    "ref": "workspace:a.md",
                     "start_line": 1,
                     "end_line": 1,
                 },
                 kind=ToolKind.ACTION,
             ),
-                ToolCallRecord(
-                    id="search_1",
-                    name="workspace.search",
-                    arguments={
-                        "source": {
-                            "kind": "query",
-                            "scope": {"kind": "workspace", "locator": ""},
-                            "query": "needle",
-                        },
+            ToolCallRecord(
+                id="search_1",
+                name="workspace.search",
+                arguments={
+                    "source": {
+                        "kind": "query",
+                        "scope": {"kind": "workspace"},
+                        "query": "needle",
                     },
-                    kind=ToolKind.ACTION,
-                ),
+                },
+                kind=ToolKind.ACTION,
+            ),
             ToolCallRecord(
                 id="analyze_1",
                 name="workspace.analyze",
                 arguments={
                     "intent": "Compare the selected files.",
-                    "reference_links": ["workspace:a.md", "workspace:b.md"],
+                    "references": ["workspace:a.md", "workspace:b.md"],
                 },
                 kind=ToolKind.ACTION,
             ),
@@ -632,13 +648,14 @@ async def test_real_workspace_inspection_actions_preserve_trace_lifecycle(
     ]
     assert len(llm.calls) == 1
     entries = context.seal_trace().entries
+    entries = tuple(entry for entry in entries if entry.kind is TraceKind.ACTION_RESULT)
     assert len(entries) == 3
     for entry in entries[:2]:
         assert entry.visible_overlay is not None
         assert isinstance(entry.visible_overlay.parts[0], JsonPart)
         assert isinstance(entry.message.parts[0], JsonPart)
         assert "alpha needle" in str(entry.visible_overlay.parts[0].value)
-        assert "alpha needle" not in str(entry.message.parts[0].value)
+        assert "evidence" not in str(entry.message.parts[0].value)
     assert entries[2].visible_overlay is None
     assert isinstance(entries[2].message.parts[0], JsonPart)
     analyze_payload = entries[2].message.parts[0].value["payload"]
@@ -654,13 +671,13 @@ async def test_real_workspace_inspection_actions_preserve_trace_lifecycle(
     assert all(entry.visible_overlay is None for entry in context.seal_trace().entries)
 
     summary = context.end_turn()
-    assert "alpha needle" not in str(summary.trace)
+    assert all(entry.visible_overlay is None for entry in summary.trace.entries)
     assert "Alpha and beta are present." in str(summary.trace)
 
 
 async def test_phase1_returns_invalid_domain_selection_for_next_cycle() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
-    turn_id = context.begin_turn("answer now")
+    turn_id = context.begin_turn("answer now", turn_id="2026-10-06/666")
     await context.open_segments(CalendarDate(2026, 7, 12))
     action = _action_engine()
     bus = SignalBus()
@@ -707,7 +724,7 @@ async def test_phase1_returns_invalid_domain_selection_for_next_cycle() -> None:
 
 async def test_phase1_returns_provider_failure_for_next_cycle() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
-    turn_id = context.begin_turn("answer now")
+    turn_id = context.begin_turn("answer now", turn_id="2026-10-06/713")
     await context.open_segments(CalendarDate(2026, 7, 12))
     action = _action_engine()
     llm = FakeLLM(
@@ -745,7 +762,7 @@ async def test_phase1_returns_provider_failure_for_next_cycle() -> None:
 
 async def test_phase1_invalid_selection_returns_local_failure() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
-    turn_id = context.begin_turn("answer now")
+    turn_id = context.begin_turn("answer now", turn_id="2026-10-06/751")
     await context.open_segments(CalendarDate(2026, 7, 12))
     action = _action_engine()
     bus = SignalBus()
@@ -791,12 +808,12 @@ async def test_phase1_invalid_selection_returns_local_failure() -> None:
     assert outcome.attempts == 1
     assert outcome.failure.feedback
     assert len(llm.calls) == 1
-    assert context.trace_kinds() == (TraceKind.PHASE_NOTE,)
+    assert context.trace_kinds() == (TraceKind.INPUT, TraceKind.PHASE_NOTE)
 
 
 async def test_phase1_applies_working_reconciliation_before_returning() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
-    turn_id = context.begin_turn("finish current work")
+    turn_id = context.begin_turn("finish current work", turn_id="2026-10-06/802")
     await context.open_segments(CalendarDate(2026, 7, 12))
     action = _action_engine()
     bus = SignalBus()
@@ -873,7 +890,7 @@ async def test_phase1_maps_loop_scope_failure_to_runtime(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     context = ContextEngineBuilder(system_text="sys").build()
-    context.begin_turn("answer now")
+    context.begin_turn("answer now", turn_id="2026-10-06/879")
     await context.open_segments(CalendarDate(2026, 7, 12))
     action = _action_engine()
     duplicate_scope = context.control_scope()
@@ -903,7 +920,7 @@ async def test_phase1_maps_loop_scope_failure_to_runtime(
 
 async def test_phase2_returns_framework_failure_for_next_cycle() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
-    turn_id = context.begin_turn("answer now")
+    turn_id = context.begin_turn("answer now", turn_id="2026-10-06/909")
     await context.open_segments(CalendarDate(2026, 7, 12))
     action = _action_engine()
     bus = SignalBus()
@@ -939,22 +956,30 @@ async def test_phase2_returns_framework_failure_for_next_cycle() -> None:
     assert outcome.failure is not None
     assert outcome.failure.reason == "framework_task_failure"
     assert len(llm.calls) == 1
-    assert context.trace_kinds() == (TraceKind.PHASE_NOTE,)
+    assert context.trace_kinds() == (TraceKind.INPUT, TraceKind.PHASE_NOTE)
 
 
 async def test_cycle_stops_after_phase2_failure_without_running_phase3() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
-    turn_id = context.begin_turn("write a report")
+    turn_id = context.begin_turn("write a report", turn_id="2026-10-06/950")
     await context.open_segments(CalendarDate(2026, 7, 12))
     action = _action_engine()
     bus = SignalBus()
 
     class _Phase1:
         async def run(self, **_kwargs: object) -> Phase1Outcome:
-            return Phase1Outcome(selected_domains=("core",), control_results=(
-                ControlResult.failed(call_id="missing", tool_name="remove_todo", sequence=1,
-                                     model_feedback="Unknown todo key", stage=ControlResultStage.CONSUME),
-            ))
+            return Phase1Outcome(
+                selected_domains=("core",),
+                control_results=(
+                    ControlResult.failed(
+                        call_id="missing",
+                        tool_name="remove_todo",
+                        sequence=1,
+                        model_feedback="Unknown todo key",
+                        stage=ControlResultStage.CONSUME,
+                    ),
+                ),
+            )
 
     class _Phase2:
         async def run(self, **_kwargs: object) -> Phase2Outcome:
@@ -996,18 +1021,26 @@ async def test_cycle_stops_after_phase2_failure_without_running_phase3() -> None
     assert outcome.phase_failure is not None
     assert outcome.phase_failure.phase is CyclePhase.PHASE2
     assert phase3.calls == 0
-    completed = next(event for event in observations.events
-                     if event.name == "loop.phase.completed" and event.payload["phase"] == "phase1")
+    completed = next(
+        event
+        for event in observations.events
+        if event.name == "loop.phase.completed" and event.payload["phase"] == "phase1"
+    )
     assert completed.payload["selected_domains"] == ["core"]
-    assert completed.payload["control_results"] == [{
-        "call_id": "missing", "tool_name": "remove_todo", "status": "failed",
-        "stage": "consume", "feedback": "Unknown todo key",
-    }]
+    assert completed.payload["control_results"] == [
+        {
+            "call_id": "missing",
+            "tool_name": "remove_todo",
+            "status": "failed",
+            "stage": "consume",
+            "feedback": "Unknown todo key",
+        }
+    ]
 
 
 async def test_phase3_returns_conflicting_answer_intents_as_local_failure() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
-    turn_id = context.begin_turn("answer now")
+    turn_id = context.begin_turn("answer now", turn_id="2026-10-06/1013")
     await context.open_segments(CalendarDate(2026, 7, 12))
     action = _action_engine()
     bus = SignalBus()
@@ -1051,7 +1084,7 @@ async def test_phase3_rejects_misdirected_internal_update_even_from_another_call
     None
 ):
     context = ContextEngineBuilder(system_text="sys").build()
-    turn_id = context.begin_turn("reason now")
+    turn_id = context.begin_turn("reason now", turn_id="2026-10-06/1057")
     await context.open_segments(CalendarDate(2026, 7, 12))
     action = _action_engine()
     bus = SignalBus()
@@ -1098,7 +1131,7 @@ async def test_phase3_rejects_misdirected_internal_update_even_from_another_call
 
 async def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
-    turn_id = context.begin_turn("scan now")
+    turn_id = context.begin_turn("scan now", turn_id="2026-10-06/1104")
     await context.open_segments(CalendarDate(2026, 7, 12))
     bus = SignalBus()
     old_scope = (
@@ -1342,9 +1375,7 @@ def _action_engine(
         from tinysoul.kernel.retrieval.contracts import OperationKind, SourceKind
 
         async def workspace_source(request):
-            return workspace.retrieval_corpus(
-                request, references=ReferenceResolver()
-            )
+            return workspace.retrieval_corpus(request, references=ReferenceResolver())
 
         workspace_queries = SearchSession(
             action_id="workspace.search",
@@ -1383,7 +1414,9 @@ def _action_engine(
 
         queries = SearchSession(
             action_id="memory.search",
-            retrieval_policies=(RetrievalPolicy("memory.search", (SourceKind.QUERY,), ()),),
+            retrieval_policies=(
+                RetrievalPolicy("memory.search", (SourceKind.QUERY,), ()),
+            ),
             source=source,
         )
         register_memory_actions(
@@ -1455,7 +1488,7 @@ def test_phase_prompt_content_preserves_scenario_and_skill_boundaries(
     monkeypatch.setattr(prompt_text, "PHASE2_GUIDANCE", ("phase two {literal}",))
     scenario = "scenario {instruction}"
     feedback = "feedback {detail}"
-    skill = PromptGuidance("skill {body}", "home:skills_domain:core", "home")
+    skill = PromptGuidance("skill {body}", "home:mount/domain/core", "home")
     first = phase1_task_prompt(
         domain_prompt="domain {data}",
         turn_guidance=(scenario,),

@@ -1,18 +1,19 @@
 {
-  "turn_id": "contract-turn",
+  "request_id": "contract-turn",
+  "turn_id": "2026-10-06/1",
   "kind": "user",
   "state": "waiting",
   "status": null,
-  "generation_id": null,
-  "active_day": "2026-09-29",
-  "accepted_at": "2026-09-29T10:00:00+00:00",
-  "started_at": "2026-09-29T10:00:01+00:00",
+  "generation_id": "generation_b54437c9bfd74388b38c1efe4f219d78",
+  "active_day": "2026-10-06",
+  "accepted_at": "2026-10-06T15:04:14.379472+00:00",
+  "started_at": "2026-10-06T15:04:14.379594+00:00",
   "finished_at": null,
   "reflection": null,
   "cancel_requested": false,
   "wait_reason": "budget",
   "question": {
-    "question_id": "action_result_1",
+    "question_id": "action_result_fe032d05",
     "text": "Choose a direction",
     "options": [
       {
@@ -25,22 +26,22 @@
     "timeout_seconds": null
   },
   "budget_request": {
-    "request_id": "budget_1",
+    "request_id": "budget_e94aa3aa80014ba1a1c3f333c60c7bc1",
     "next_cycle_index": 3
   },
   "result": null,
   "jobs": [
     {
-      "job_id": "job_1",
+      "job_id": "job_2b6040352ffc4954a8e6565b2c1ace8f",
       "kind": "execution.process",
       "state": "running",
       "summary": "",
       "reason": "",
       "pending_inputs": [],
-      "result_links": [
-        "workspace:jobs/job_1",
-        "workspace:jobs/job_1/logs/stdout.log",
-        "workspace:jobs/job_1/logs/stderr.log"
+      "result_refs": [
+        "workspace:jobs/job_2b6040352ffc4954a8e6565b2c1ace8f",
+        "workspace:jobs/job_2b6040352ffc4954a8e6565b2c1ace8f/logs/stdout.log",
+        "workspace:jobs/job_2b6040352ffc4954a8e6565b2c1ace8f/logs/stderr.log"
       ]
     }
   ]

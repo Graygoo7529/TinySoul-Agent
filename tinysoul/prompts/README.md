@@ -11,6 +11,7 @@
 | [agent/user.py](agent/user.py) | User Turn 的 Phase1/Phase2 情景指引 | `agent/user/builder.py` → `kernel/loop/prompts.py` |
 | [kernel/loop.py](kernel/loop.py) | Phase TaskPrompt 的 guide/input/output，以及后续 Cycle 的局部反馈 | `kernel/loop/prompts.py`、`phases/`、`turn.py` |
 | [kernel/context.py](kernel/context.py) | Phase1 Control Tool 描述、参数说明，以及 Context 操作反馈 | `kernel/context/control/tools.py`、`engine.py`、`actions.py`、段 owner |
+| [kernel/interaction.py](kernel/interaction.py) | 输入、问题、完整选项、回复与补充说明的叙事包装 | `kernel/interaction.py` → Trace、ask ActionResult、Session 投影 |
 | [kernel/action.py](kernel/action.py) | 域选择工具说明、域与 Action 语义包装、Action 内部任务和局部结果反馈 | `kernel/action/planning/`、`tasks.py`、`builtins/core/actions.py`、参数归一化与执行边界 |
 | [kernel/retrieval.py](kernel/retrieval.py) | 选择/排序 LLM 请求、JEV 问题及有序等级、检索工具说明和局部反馈 | `kernel/retrieval/selection.py`、请求与管道 owner |
 | [kernel/jobs.py](kernel/jobs.py) | Job Action 的修正反馈 | `kernel/jobs/actions.py` |
@@ -18,7 +19,7 @@
 | [plugins/workspace.py](plugins/workspace.py) | Workspace describe/compose/analyze 的 TaskPrompt、资源包装、资源状态说明和局部反馈 | `plugins/workspace/prompts.py`、`actions/`、`projection.py` |
 | [plugins/home.py](plugins/home.py) | Home 操作与 review 的局部反馈 | `plugins/home/actions/`、`engine.py` |
 | [plugins/memory.py](plugins/memory.py) | Memory 背景入口标题/说明，以及活动记忆和持久文档操作反馈 | `plugins/memory/background.py`、`actions/`、`engine.py` |
-| [plugins/session.py](plugins/session.py) | Session Organize 校验与来源引用反馈 | `plugins/session/annotations/models.py`、`engine.py`、`views/inspection.py` |
+| [plugins/session.py](plugins/session.py) | Session 按 Turn 排列的历史、地图导航、折叠提示，以及 Organize 校验和来源引用反馈 | `plugins/session/views/background.py`、`annotations/models.py`、`engine.py`、`views/inspection.py` |
 | [plugins/execution.py](plugins/execution.py) | shell/script Action 的局部反馈 | `plugins/execution/actions.py` |
 | [plugins/capabilities/web.py](plugins/capabilities/web.py) | Kimi worker 独立请求的 system 提示，以及 Web Action 反馈 | `plugins/capabilities/web/backends/worker.py`、`actions.py` |
 | [plugins/capabilities/resource.py](plugins/capabilities/resource.py) | Resource Action 的局部反馈 | `plugins/capabilities/resource/actions.py` |
@@ -32,10 +33,10 @@ TaskPrompt 的 guide/input/output 使用既有 user role；角色和实际消息
 
 - 固定段落使用常量或 tuple；插入动态值时使用参数具体的函数。日期、资源正文、限制、候选和引用由 owner 准备，函数只格式化，不读取业务状态或解释异常。
 - 消费端显式导入自己的 owner 文案模块。新增或移动用途时同步定义旁的消费注释；相似措辞不代表相同职责，不跨 owner 合并成通用错误字典。
-- schema 字段、工具名、稳定 ref/Link、label、失败 reason、状态、输出解析和序列化仍在原 owner。修改涉及这些协议的文案时，应同时核对真实 schema 和解释器。
+- schema 字段、工具名、稳定 ref/reference、label、失败 reason、状态、输出解析和序列化仍在原 owner。修改涉及这些协议的文案时，应同时核对真实 schema 和解释器。
 - 异常对象的内部 message 不会自动成为模型反馈；Action owner 应明确区分已整理的稳定反馈与底层异常。前者可以在内容包中维护并通过 ActionLocalFailure.feedback 进入模型结果，后者仍只保留异常链或有界结构化诊断。配置限制、输入约束、结果说明和执行语义的固定措辞可以提取，但当前 Catalog 值、状态码、限制数值和 Action payload 仍由业务 owner 动态提供。
 - `kernel/context/prompts.py` 是 TaskPrompt 协议；`kernel/loop/prompts.py`、`plugins/workspace/prompts.py` 和 `plugins/reflection/turn/prompts.py` 仍负责装配、解析或情景选择。这些模块有业务职责，不能作为纯文本文件搬入本包。
-- `MessageOrigin` 继续表达业务来源。此目录是源码位置，不是模型资源，不建立 `prompt:` Link、注册表、模板加载器、配置入口或 Runtime bridge。
+- `MessageOrigin` 继续表达业务来源。此目录是源码位置，不是模型资源，不建立 `prompt:` reference、注册表、模板加载器、配置入口或 Runtime bridge。
 - 仅用于 SDK、存储校验、日志、Observation 和 Runtime 的诊断留在原模块。共享校验若也产生可修正模型反馈，可以消费此包；错误类别与传播仍由原 owner 决定。
 
 ## 其它模型内容来源

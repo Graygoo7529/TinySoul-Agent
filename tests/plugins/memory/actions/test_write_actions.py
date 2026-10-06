@@ -40,13 +40,13 @@ async def test_reflection_commits_one_document_and_preserves_it_after_rejected_w
         ActionExecutionContext(),
     )
     assert result.status is ActionResultStatus.SUCCESS
-    assert result.payload["link"] == "memory:daily/2026-08-05"
+    assert result.payload["ref"] == "memory:daily/2026-08-05"
 
     invalid = await executor.execute(
         _execution(
             "write",
             {
-                "memory_link": "memory:entity/missing",
+                "ref": "memory:entity/missing",
                 "markdown": "invalid document",
             },
         ),
@@ -77,7 +77,7 @@ async def test_reflection_writes_target_before_redirect_and_rejects_redirect_cyc
     redirected = replace(
         source,
         status=MemoryStatus.MERGED,
-        redirect_to=target.link,
+        redirect_to=target.ref,
         content="Merged into memory:entity/target.",
     )
 
@@ -86,7 +86,7 @@ async def test_reflection_writes_target_before_redirect_and_rejects_redirect_cyc
             _execution(
                 "write",
                 {
-                    "memory_link": str(document.link),
+                    "ref": str(document.ref),
                     "markdown": memory.render_document(document),
                 },
             ),
@@ -95,21 +95,21 @@ async def test_reflection_writes_target_before_redirect_and_rejects_redirect_cyc
 
     assert (await write(source)).status is ActionResultStatus.SUCCESS
     assert (await write(redirected)).status is ActionResultStatus.FAILED
-    assert memory.read_document(source.link).document == source
+    assert memory.read_document(source.ref).document == source
     assert (await write(target)).status is ActionResultStatus.SUCCESS
     assert (await write(redirected)).status is ActionResultStatus.SUCCESS
     cycle = replace(
         target,
         status=MemoryStatus.MERGED,
-        redirect_to=source.link,
+        redirect_to=source.ref,
         content="Merged into memory:entity/source.",
     )
     assert (await write(cycle)).status is ActionResultStatus.FAILED
-    metadata = memory.inspect(str(source.link))["metadata"]
+    metadata = memory.inspect(str(source.ref))["metadata"]
     assert isinstance(metadata, dict)
     assert metadata["resolution_chain"] == [
-        str(source.link),
-        str(target.link),
+        str(source.ref),
+        str(target.ref),
     ]
 
 

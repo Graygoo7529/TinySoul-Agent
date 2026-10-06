@@ -106,7 +106,7 @@ async def test_four_actions_share_exact_definitions_scope_and_bounded_selection(
         environment={},
     )
     context = ContextEngineBuilder(system_text="Identity").build()
-    context.begin_turn("Find arithmetic tools")
+    context.begin_turn("Find arithmetic tools", turn_id="2026-10-06/109")
     await context.open_segments(date(2026, 9, 21))
     selector = Selector()
     runner = action_tasks(context)

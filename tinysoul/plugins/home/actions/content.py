@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tinysoul.kernel.retrieval.disclosure import inspect_recollection
 from tinysoul.prompts.plugins import home as prompt_text
 from tinysoul.kernel.action import (
     ActionEngineBuilder,
@@ -29,7 +30,12 @@ from tinysoul.kernel.action.tasks import ActionTaskFactory
 from tinysoul.kernel.action import ActionTraceProjection
 from tinysoul.kernel.retrieval.requests import parse_retrieval_request
 from tinysoul.kernel.retrieval.operations import SelectionInput
-from tinysoul.kernel.retrieval.contracts import SearchFailure, SearchContext, RetrievalRequest, ModelStep
+from tinysoul.kernel.retrieval.contracts import (
+    SearchFailure,
+    SearchContext,
+    RetrievalRequest,
+    ModelStep,
+)
 from tinysoul.infra.continuation import ContinuationError
 from tinysoul.infra.references import ReferenceError
 
@@ -106,12 +112,15 @@ class HomeSearchExecutor(ActionExecutor):
     ) -> ActionResult:
         home = self._home.using(context.owner_operations)
         try:
-            request = parse_retrieval_request(execution.call.params, home.retrieval_policies[0])
+            request = parse_retrieval_request(
+                execution.call.params, home.retrieval_policies[0]
+            )
             inputs = SelectionInput()
             if not isinstance(request, str) and self._tasks:
-                use_context = (
-                    any(isinstance(step, ModelStep) and step.context is SearchContext.CURRENT for step in request.steps)
-
+                use_context = any(
+                    isinstance(step, ModelStep)
+                    and step.context is SearchContext.CURRENT
+                    for step in request.steps
                 )
                 inputs = await self._tasks.selection_input(
                     execution,
@@ -135,10 +144,7 @@ class HomeSearchExecutor(ActionExecutor):
             payload=page.to_json(),
             trace_projection=ActionTraceProjection(
                 origin_refs=tuple(item.ref for item in page.items),
-                canonical_payload={
-                    "source": page.source.value,
-                    "selected": [item.ref for item in page.items],
-                },
+                canonical_payload=page.recollection(),
             ),
         )
 
@@ -192,7 +198,7 @@ class HomeInspectExecutor(ActionExecutor):
             domain=execution.framework.domain,
             payload=page,
             trace_projection=ActionTraceProjection(
-                origin_refs=(ref,), canonical_payload={"ref": ref, "view": view}
+                origin_refs=(ref,), canonical_payload=inspect_recollection(page)
             ),
         )
 
@@ -214,11 +220,11 @@ class HomeResourceWriteExecutor(ActionExecutor):
         context: ActionExecutionContext,
     ) -> ActionResult:
         home = self._home.using(context.owner_operations)
-        link = execution.call.params.get("link")
+        ref = execution.call.params.get("ref")
         text = execution.call.params.get("text")
         overwrite = execution.call.params.get("overwrite", False)
         expected_digest = execution.call.params.get("expected_digest", "")
-        if not isinstance(link, str) or not link or not isinstance(text, str):
+        if not isinstance(ref, str) or not ref or not isinstance(text, str):
             return _failed(
                 execution,
                 prompt_text.RESOURCE_WRITE_INPUT_REQUIRED,
@@ -232,7 +238,7 @@ class HomeResourceWriteExecutor(ActionExecutor):
             )
         try:
             result = await home.write_resource(
-                link,
+                ref,
                 text,
                 overwrite=overwrite,
                 expected_digest=expected_digest,
@@ -265,13 +271,13 @@ class HomeResourcePatchExecutor(ActionExecutor):
         context: ActionExecutionContext,
     ) -> ActionResult:
         home = self._home.using(context.owner_operations)
-        link = execution.call.params.get("link")
+        ref = execution.call.params.get("ref")
         old_text = execution.call.params.get("old_text")
         new_text = execution.call.params.get("new_text")
         expected_digest = execution.call.params.get("expected_digest", "")
         if (
-            not isinstance(link, str)
-            or not link
+            not isinstance(ref, str)
+            or not ref
             or not isinstance(old_text, str)
             or not old_text
             or not isinstance(new_text, str)
@@ -284,7 +290,7 @@ class HomeResourcePatchExecutor(ActionExecutor):
             )
         try:
             result = await home.patch_resource(
-                link,
+                ref,
                 old_text=old_text,
                 new_text=new_text,
                 expected_digest=expected_digest,
@@ -317,13 +323,9 @@ class HomeResourceDeleteExecutor(ActionExecutor):
         context: ActionExecutionContext,
     ) -> ActionResult:
         home = self._home.using(context.owner_operations)
-        link = execution.call.params.get("link")
+        ref = execution.call.params.get("ref")
         expected_digest = execution.call.params.get("expected_digest", "")
-        if (
-            not isinstance(link, str)
-            or not link
-            or not isinstance(expected_digest, str)
-        ):
+        if not isinstance(ref, str) or not ref or not isinstance(expected_digest, str):
             return _failed(
                 execution,
                 prompt_text.HOME_RESOURCE_DELETE_PARAMETERS_ARE_INVALID,
@@ -331,7 +333,7 @@ class HomeResourceDeleteExecutor(ActionExecutor):
             )
         try:
             result = await home.delete_resource(
-                link,
+                ref,
                 expected_digest=expected_digest,
             )
         except AgentHomeContractError:
@@ -363,11 +365,11 @@ class HomeTopWriteExecutor(ActionExecutor):
     ) -> ActionResult:
         home = self._home.using(context.owner_operations)
         bus = context.require_signal_bus()
-        link = execution.call.params.get("link")
+        ref = execution.call.params.get("ref")
         text = execution.call.params.get("text")
         overwrite = execution.call.params.get("overwrite", False)
         expected_digest = execution.call.params.get("expected_digest", "")
-        if not isinstance(link, str) or not link or not isinstance(text, str):
+        if not isinstance(ref, str) or not ref or not isinstance(text, str):
             return _failed(
                 execution,
                 prompt_text.TOP_WRITE_INPUT_REQUIRED,
@@ -381,7 +383,7 @@ class HomeTopWriteExecutor(ActionExecutor):
             )
         try:
             result = await home.write_top(
-                link,
+                ref,
                 text,
                 overwrite=overwrite,
                 expected_digest=expected_digest,
@@ -423,13 +425,13 @@ class HomeTopPatchExecutor(ActionExecutor):
     ) -> ActionResult:
         home = self._home.using(context.owner_operations)
         bus = context.require_signal_bus()
-        link = execution.call.params.get("link")
+        ref = execution.call.params.get("ref")
         old_text = execution.call.params.get("old_text")
         new_text = execution.call.params.get("new_text")
         expected_digest = execution.call.params.get("expected_digest", "")
         if (
-            not isinstance(link, str)
-            or not link
+            not isinstance(ref, str)
+            or not ref
             or not isinstance(old_text, str)
             or not old_text
             or not isinstance(new_text, str)
@@ -442,7 +444,7 @@ class HomeTopPatchExecutor(ActionExecutor):
             )
         try:
             result = await home.patch_top(
-                link,
+                ref,
                 old_text=old_text,
                 new_text=new_text,
                 expected_digest=expected_digest,
@@ -484,20 +486,16 @@ class HomeTopDeleteExecutor(ActionExecutor):
     ) -> ActionResult:
         home = self._home.using(context.owner_operations)
         bus = context.require_signal_bus()
-        link = execution.call.params.get("link")
+        ref = execution.call.params.get("ref")
         expected_digest = execution.call.params.get("expected_digest", "")
-        if (
-            not isinstance(link, str)
-            or not link
-            or not isinstance(expected_digest, str)
-        ):
+        if not isinstance(ref, str) or not ref or not isinstance(expected_digest, str):
             return _failed(
                 execution,
                 prompt_text.HOME_TOP_DELETE_PARAMETERS_ARE_INVALID,
                 reason="invalid_parameters",
             )
         try:
-            result = await home.delete_top(link, expected_digest=expected_digest)
+            result = await home.delete_top(ref, expected_digest=expected_digest)
         except AgentHomeContractError:
             return _failed(
                 execution,
@@ -534,11 +532,11 @@ class HomePromptMountWriteExecutor(ActionExecutor):
         context: ActionExecutionContext,
     ) -> ActionResult:
         home = self._home.using(context.owner_operations)
-        link = execution.call.params.get("link")
+        ref = execution.call.params.get("ref")
         text = execution.call.params.get("text")
         overwrite = execution.call.params.get("overwrite", False)
         expected_digest = execution.call.params.get("expected_digest", "")
-        if not isinstance(link, str) or not link or not isinstance(text, str):
+        if not isinstance(ref, str) or not ref or not isinstance(text, str):
             return _failed(
                 execution,
                 prompt_text.PROMPT_MOUNT_WRITE_INPUT_REQUIRED,
@@ -552,7 +550,7 @@ class HomePromptMountWriteExecutor(ActionExecutor):
             )
         try:
             result = await home.write_prompt_mount(
-                link,
+                ref,
                 text,
                 overwrite=overwrite,
                 expected_digest=expected_digest,
@@ -585,13 +583,13 @@ class HomePromptMountPatchExecutor(ActionExecutor):
         context: ActionExecutionContext,
     ) -> ActionResult:
         home = self._home.using(context.owner_operations)
-        link = execution.call.params.get("link")
+        ref = execution.call.params.get("ref")
         old_text = execution.call.params.get("old_text")
         new_text = execution.call.params.get("new_text")
         expected_digest = execution.call.params.get("expected_digest", "")
         if (
-            not isinstance(link, str)
-            or not link
+            not isinstance(ref, str)
+            or not ref
             or not isinstance(old_text, str)
             or not old_text
             or not isinstance(new_text, str)
@@ -604,7 +602,7 @@ class HomePromptMountPatchExecutor(ActionExecutor):
             )
         try:
             result = await home.patch_prompt_mount(
-                link,
+                ref,
                 old_text=old_text,
                 new_text=new_text,
                 expected_digest=expected_digest,
@@ -635,7 +633,7 @@ def _mutation_success(execution: ActionExecution, result: object) -> ActionResul
         sequence=execution.call.sequence,
         domain=execution.framework.domain,
         payload={
-            "link": result.link,
+            "ref": result.ref,
             "state": result.state.value,
             "digest": result.digest,
             "baseline_digest": result.baseline_digest,

@@ -8,13 +8,13 @@ Session Map 的事实列表、语义解释和话题森林是同一组内容的�
 
 ## 不可变事实与完成
 
-唯一 Turn completion 管线从 typed Trace 保存原始输入、追加与回复、plan 终态、来源 Link、段快照、正式输出、执行状态和必要反馈。时间线记录输入安装/可见、Action 请求/开始/结算及交付事件的 owner 观察顺序；受理顺序单独保留，不把并行结算顺序当作请求顺序或外部因果时间。
+唯一 Turn completion 管线从 typed Trace 保存原始输入、追加与回复、plan 终态、来源 引用、段快照、正式输出、执行状态和必要反馈。时间线记录输入安装/可见、Action 请求/开始/结算及交付事件的 owner 观察顺序；受理顺序单独保留，不把并行结算顺序当作请求顺序或外部因果时间。
 
 输入身份与 reply_to 可精确连回成功的 core.ask；行动使用请求登记次序的 occurrence ref。success/failed/timeout 保存 canonical result，cancelled/not_executed/unknown 保留实际执行事实，不伪造结果。正文只存一处，时间线只引用输入、行动和必要 note；Session 段 seal 只保存历史来源，不递归复制 prior-Turn 正文。
 
 Session completion 位于必要 finish 的最后，通过 joined owner 等待本地提交。前置 finish 失败仍保存已知事实，不把回答候选发布为正式 output；后续 close 失败只追加诊断，不二次提交。
 
-Turn record v10 与 manifest v3 保持原协议。record 相同身份/业务事实幂等复用；冲突失败。reconcile 只恢复事实索引，收养已写入但未进入 manifest 的孤立记录，不改写注释。更旧格式不静默迁移或 reset。
+Turn record 与 manifest 使用当前严格协议。正式身份为 `YYYY-MM-DD/<sequence>`，日目录内记录保存为 `turns/<sequence>.json`，读取时校验记录归属日。record 相同身份/业务事实幂等复用；冲突失败。reconcile 只恢复事实索引，收养已写入但未进入 manifest 的孤立记录，不改写注释。不提供旧格式兼容或静默迁移。
 
 ## 语义解释与 Organize
 
@@ -40,7 +40,9 @@ Context 提供只读 ContextTurnFacts，Action 在事件循环取得快照后交
 
 Background 先展示语义地图，再展示按历史顺序排列的线性交互。地图只包含解释、关系和 refs；正文从同一 Turn records 投影，每个 Turn 只出现一次，未归类 Turn 也在候选中。
 
-交互流保留初始输入、追加、reason 的行动标记/状态/ref、问题及完整有序选项、带 reply_to 的回复、正式 output。reason 的任意 JSON 不是统一结论，不自动内联推理全文或供应商隐藏 reasoning；core.answer 的行动结果不再复制一次正式回答。普通 Action 只给状态/来源线索，完整请求与结果按 ref 读取。
+交互流按 Turn 包装，保留初始输入、追加、问题、完整有序选项与说明、回答和 comment、显式 core.reason 产物、Action 请求与实际结果、正式 output。reason 的产物保留其实际结构，不称为统一结论，也不包含供应商隐藏 reasoning；core.answer 的正式 output 不重复呈现。行动结果按结算位置呈现，不能提前到开始位置，使中途追加与执行反馈的顺序保持准确。
+
+输入 Trace Entry 在 completion 时映射回原 input occurrence，不再保存为 note。Session 资源出现位置使用 ref，目标资源使用 target_ref。foldable Action 持久化其精简事实：Inspect 记住目标解释、返回范围和后续页状态，不保存已读取资源的旧全文；Search 可保留真实命中摘录。预算衡量实际渲染文字，先保留完整交互，超限再摘录长结果或折叠整轮；问题与回复共同保留或折叠，不产生孤立选择。
 
 Segment 在 open 时固定 prior-Turn manifest 和注释快照。Organize 提交后发 Signal，prepare 读取最新注释并共用已缓存的不可变记录，install 同步替换视图；不扩大本轮历史集合，不每 Cycle 重扫文件。SDK 新读取可见最新提交，已取得的固定视图保持快照语义。render 与 reclaim 无 I/O。
 

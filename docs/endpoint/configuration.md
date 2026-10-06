@@ -34,7 +34,7 @@ SearchPage 是 Action/SDK 结果；页面 POST search 直接返回同一契约�
 
 | 内容 | 客户端解释 |
 | --- | --- |
-| result_ref、continuation | 前者指向完整最终集合，后者只定位成员页面；均绑定所属运行生命周期 |
+| result_handle、continuation | 前者指向完整最终集合，后者只定位成员页面；均绑定所属运行生命周期 |
 | items[].content_coverage | 来源内容快照为 full、excerpt 或 metadata |
 | items[].preview_coverage | 此页实际预览的覆盖，不能代替来源或模型输入事实 |
 | items[].evaluation | 当前请求最后一次模型步骤的 op、step_index、input_coverage 及可用分数；无模型步骤可以省略 |

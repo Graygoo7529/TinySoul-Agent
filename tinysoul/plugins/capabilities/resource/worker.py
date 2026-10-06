@@ -26,12 +26,12 @@ class AssetCollector:
         self,
         *,
         root: Path,
-        link_prefix: str,
+        ref_prefix: str,
         max_assets: int,
         max_total_bytes: int,
     ) -> None:
         self._root = root
-        self._link_prefix = link_prefix.rstrip("/")
+        self._ref_prefix = ref_prefix.rstrip("/")
         self._max_assets = max_assets
         self._max_total_bytes = max_total_bytes
         self._total_bytes = 0
@@ -78,7 +78,7 @@ class AssetCollector:
         path.write_bytes(data)
         item = {
             "file": f"assets/{filename}",
-            "link": f"{self._link_prefix}/{filename}",
+            "ref": f"{self._ref_prefix}/{filename}",
             "role": role,
             "label": _safe_label(label),
             "visual": visual,
@@ -118,7 +118,7 @@ def _convert(request: dict[str, Any]) -> dict[str, Any]:
     output.mkdir(parents=True, exist_ok=True)
     collector = AssetCollector(
         root=output / "assets",
-        link_prefix=request["asset_link_prefix"],
+        ref_prefix=request["asset_ref_prefix"],
         max_assets=request["max_assets"],
         max_total_bytes=request["max_total_asset_bytes"],
     )
@@ -150,9 +150,7 @@ def _convert(request: dict[str, Any]) -> dict[str, Any]:
                 warnings=warnings,
             )
             empty_pages = tuple(
-                index
-                for index, text in enumerate(page_texts)
-                if not _usable_text(text)
+                index for index, text in enumerate(page_texts) if not _usable_text(text)
             )
     elif converter == "pypdf":
         page_texts, page_count = _extract_pdf(
@@ -169,7 +167,9 @@ def _convert(request: dict[str, Any]) -> dict[str, Any]:
         has_extracted_text = any(_usable_text(text) for text in page_texts)
         markdown = _page_markdown(source.stem, page_texts)
     else:
-        raise WorkerFailure("Unknown document converter", reason="unsupported_converter")
+        raise WorkerFailure(
+            "Unknown document converter", reason="unsupported_converter"
+        )
 
     if request["render_pdf_pages"] == "on_no_text" and suffix == ".pdf":
         pages_to_render = empty_pages
@@ -191,22 +191,20 @@ def _convert(request: dict[str, Any]) -> dict[str, Any]:
         )
     markdown_path = output / "document.md"
     markdown_path.write_text(markdown.rstrip() + "\n", encoding="utf-8")
-    visual_links = tuple(
-        item["link"] for item in collector.items if item["visual"]
-    )
+    visual_refs = tuple(item["ref"] for item in collector.items if item["visual"])
     status = "complete"
-    if visual_links and not has_extracted_text:
+    if visual_refs and not has_extracted_text:
         status = "visual_only"
     elif collector.items and not has_extracted_text:
         status = "partial"
-    elif warnings or visual_links:
+    elif warnings or visual_refs:
         status = "partial"
     return {
         "ok": True,
         "markdown_file": "document.md",
         "assets": collector.items,
         "content_status": status,
-        "visual_reference_links": list(visual_links[:16]),
+        "visual_refs": list(visual_refs[:16]),
         "warning_codes": warnings[:_MAX_WARNINGS],
         "page_count": page_count,
     }
@@ -316,7 +314,9 @@ def _extract_docx_assets(
                 if extract_images and info.filename.startswith("word/media/"):
                     role = "image"
                     visual = True
-                elif extract_attachments and info.filename.startswith("word/embeddings/"):
+                elif extract_attachments and info.filename.startswith(
+                    "word/embeddings/"
+                ):
                     role = "attachment"
                 if not role or info.is_dir():
                     continue
@@ -392,22 +392,24 @@ def _append_assets(markdown: str, assets: list[dict[str, Any]]) -> str:
     for item in assets:
         label = item["label"] or item["role"].title()
         if item["visual"]:
-            parts.append(f"![{label}]({item['link']})")
+            parts.append(f"![{label}]({item['ref']})")
         else:
-            parts.append(f"- [Attachment: {label}]({item['link']})")
+            parts.append(f"- [Attachment: {label}]({item['ref']})")
     return "\n\n".join(part for part in parts if part)
 
 
 def _request(value: object) -> dict[str, Any]:
     if not isinstance(value, dict):
-        raise WorkerFailure("Worker request must be an object", reason="invalid_request")
+        raise WorkerFailure(
+            "Worker request must be an object", reason="invalid_request"
+        )
     typed = cast(dict[str, Any], value)
     required_strings = (
         "converter",
         "source_path",
         "source_suffix",
         "output_path",
-        "asset_link_prefix",
+        "asset_ref_prefix",
         "render_pdf_pages",
     )
     required_ints = (

@@ -25,7 +25,7 @@ from tinysoul.infra import (
 )
 from tinysoul.plugins.workspace import (
     WorkspaceBundleWrite,
-    WorkspaceLink,
+    WorkspaceRef,
 )
 
 from tinysoul.plugins.workspace.services import WorkspaceService
@@ -45,14 +45,14 @@ from .models import (
 
 _MAX_WORKER_STDOUT = 64_000
 _MAX_WORKER_STDERR = 8_000
-_MAX_RESULT_LINKS = 16
+_MAX_RESULT_REFS = 16
 _MAX_WARNINGS = 20
 
 
 @dataclass(frozen=True)
 class _WorkerAsset:
     file: str
-    link: str
+    ref: str
     size: int
 
 
@@ -61,7 +61,7 @@ class _WorkerResult:
     markdown_file: str
     assets: tuple[_WorkerAsset, ...]
     content_status: ResourceContentStatus
-    visual_reference_links: tuple[str, ...]
+    visual_refs: tuple[str, ...]
     warning_codes: tuple[str, ...]
 
 
@@ -85,8 +85,8 @@ class ResourceConversionService:
         self,
         *,
         converter: ResourceConverter,
-        source_link: str,
-        target_link: str,
+        source_ref: str,
+        target_ref: str,
         overwrite: bool,
         control: ActionExecutionControl,
         operations: JoinedOperations | None = None,
@@ -95,36 +95,36 @@ class ResourceConversionService:
         operations = operations or JoinedOperations()
         workspace = self._workspace.using(operations)
         self._validate_params(
-            source_link=source_link,
-            target_link=target_link,
+            source_ref=source_ref,
+            target_ref=target_ref,
             overwrite=overwrite,
         )
         _require_active(control)
         source = await workspace.read_document(
-            source_link,
+            source_ref,
             max_bytes=self._settings.max_source_bytes,
         )
         self._validate_converter_source(converter, source.suffix)
-        target = WorkspaceLink.parse(target_link)
+        target = WorkspaceRef.parse(target_ref)
         if target.path.suffix.lower() != ".md":
             raise ResourceContractError("Resource conversion target must end with .md")
-        if source.link == str(target):
-            raise ResourceContractError("Resource source and target links must differ")
+        if source.ref == str(target):
+            raise ResourceContractError("Resource source and target refs must differ")
         asset_prefix = _asset_prefix(target)
-        if source.link.startswith(asset_prefix + "/"):
+        if source.ref.startswith(asset_prefix + "/"):
             raise ResourceContractError(
                 "Resource source cannot be owned by the target asset bundle"
             )
         current_assets = tuple(
-            record.link
+            record.ref
             for record in (await workspace.snapshot()).resources
-            if record.link.startswith(asset_prefix + "/")
+            if record.ref.startswith(asset_prefix + "/")
         )
         if current_assets and not overwrite:
             raise ResourceProcessingError(
                 "Resource conversion asset target already exists",
                 reason="target_exists",
-                payload={"target_link": target_link},
+                payload={"target_ref": target_ref},
             )
 
         async with self._staging.allocate_async("resource", operations) as root:
@@ -189,30 +189,30 @@ class ResourceConversionService:
                 lambda: self._bundle_writes(
                     worker,
                     output_path=output_path,
-                    target_link=str(target),
+                    target_ref=str(target),
                     overwrite=overwrite,
                 )
             )
-            new_links = {item.link for item in writes[1:]}
+            new_refs = {item.ref for item in writes[1:]}
             stale_assets = (
-                tuple(link for link in current_assets if link not in new_links)
+                tuple(ref for ref in current_assets if ref not in new_refs)
                 if overwrite
                 else ()
             )
             _require_active(control)
             committed = await workspace.write_bundle(
                 writes,
-                delete_links=stale_assets,
+                delete_refs=stale_assets,
             )
 
         return ResourceConversionResult(
-            source_link=source.link,
-            markdown_link=str(target),
+            source_ref=source.ref,
+            markdown_ref=str(target),
             converter=converter,
             content_status=worker.content_status,
             manifest=committed.manifest,
             records=committed.records,
-            visual_reference_links=worker.visual_reference_links,
+            visual_refs=worker.visual_refs,
             warning_codes=worker.warning_codes,
         )
 
@@ -235,7 +235,7 @@ class ResourceConversionService:
             "source_path": str(source_path),
             "source_suffix": source_suffix,
             "output_path": str(output_path),
-            "asset_link_prefix": asset_prefix,
+            "asset_ref_prefix": asset_prefix,
             "max_output_chars": self._settings.max_output_chars,
             "max_assets": self._settings.max_assets,
             "max_total_asset_bytes": self._settings.max_total_asset_bytes,
@@ -250,7 +250,7 @@ class ResourceConversionService:
         worker: _WorkerResult,
         *,
         output_path: Path,
-        target_link: str,
+        target_ref: str,
         overwrite: bool,
     ) -> tuple[WorkspaceBundleWrite, ...]:
         markdown_path = _worker_path(output_path, worker.markdown_file)
@@ -270,7 +270,7 @@ class ResourceConversionService:
             raise ResourceWorkerProtocolError("Worker Markdown output violates limits")
         writes = [
             WorkspaceBundleWrite(
-                link=target_link,
+                ref=target_ref,
                 data=markdown,
                 overwrite=overwrite,
             )
@@ -293,7 +293,7 @@ class ResourceConversionService:
                 )
             writes.append(
                 WorkspaceBundleWrite(
-                    link=asset.link,
+                    ref=asset.ref,
                     data=data,
                     overwrite=overwrite,
                 )
@@ -325,24 +325,24 @@ class ResourceConversionService:
     @staticmethod
     def _validate_params(
         *,
-        source_link: str,
-        target_link: str,
+        source_ref: str,
+        target_ref: str,
         overwrite: bool,
     ) -> None:
-        WorkspaceLink.parse(source_link)
-        WorkspaceLink.parse(target_link)
+        WorkspaceRef.parse(source_ref)
+        WorkspaceRef.parse(target_ref)
         if not isinstance(overwrite, bool):
             raise ResourceContractError("Resource overwrite must be boolean")
 
 
-def _asset_prefix(target: WorkspaceLink) -> str:
+def _asset_prefix(target: WorkspaceRef) -> str:
     path = target.path
     stem = path.stem
     parent = path.parent
     relative = PurePosixPath(f"{stem}.assets")
     if str(parent) != ".":
         relative = parent / relative
-    return str(WorkspaceLink.from_relative_path(relative.as_posix()))
+    return str(WorkspaceRef.from_relative_path(relative.as_posix()))
 
 
 def _require_active(control: ActionExecutionControl) -> None:
@@ -391,27 +391,27 @@ def _parse_worker_result(
             raise ResourceWorkerProtocolError("Worker asset entry is invalid")
         typed = cast(dict[str, object], item)
         file = _required_string(typed, "file")
-        link = _required_string(typed, "link")
+        ref = _required_string(typed, "ref")
         size = typed.get("size")
         if isinstance(size, bool) or not isinstance(size, int) or size < 0:
             raise ResourceWorkerProtocolError("Worker asset size is invalid")
         _worker_path(output_path, file)
-        parsed_link = WorkspaceLink.parse(link)
-        if not str(parsed_link).startswith(asset_prefix + "/"):
-            raise ResourceWorkerProtocolError("Worker asset link escapes target prefix")
-        assets.append(_WorkerAsset(file=file, link=link, size=size))
+        parsed_ref = WorkspaceRef.parse(ref)
+        if not str(parsed_ref).startswith(asset_prefix + "/"):
+            raise ResourceWorkerProtocolError("Worker asset ref escapes target prefix")
+        assets.append(_WorkerAsset(file=file, ref=ref, size=size))
     try:
         status = ResourceContentStatus(_required_string(value, "content_status"))
     except ValueError as exc:
         raise ResourceWorkerProtocolError("Worker content status is invalid") from exc
     visual = _bounded_strings(
-        value.get("visual_reference_links"),
-        limit=_MAX_RESULT_LINKS,
-        label="visual links",
+        value.get("visual_refs"),
+        limit=_MAX_RESULT_REFS,
+        label="visual refs",
     )
-    asset_links = {asset.link for asset in assets}
-    if any(link not in asset_links for link in visual):
-        raise ResourceWorkerProtocolError("Worker visual link is not a generated asset")
+    asset_refs = {asset.ref for asset in assets}
+    if any(ref not in asset_refs for ref in visual):
+        raise ResourceWorkerProtocolError("Worker visual ref is not a generated asset")
     warnings = _bounded_strings(
         value.get("warning_codes"),
         limit=_MAX_WARNINGS,
@@ -421,7 +421,7 @@ def _parse_worker_result(
         markdown_file=markdown_file,
         assets=tuple(assets),
         content_status=status,
-        visual_reference_links=visual,
+        visual_refs=visual,
         warning_codes=warnings,
     )
 

@@ -2,7 +2,7 @@
  * API-04: Reflection availability and maintenance requests.
  * Availability pages continue with `?before=<next_before>` (the route has no
  * limit parameter); a request accepts one Reflection Turn on the shared root
- * queue and returns the same receipt as POST /v2/turns.
+ * queue and returns the same receipt as POST /v2/requests.
  */
 
 import type {

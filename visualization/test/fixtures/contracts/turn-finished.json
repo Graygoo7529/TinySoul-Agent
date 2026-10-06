@@ -26,7 +26,9 @@
     },
     "failure": null,
     "finish_failures": [],
-    "cleanup": []
+    "cleanup": [],
+    "request_id": "contract-turn"
   },
-  "jobs": []
+  "jobs": [],
+  "request_id": "contract-turn"
 }

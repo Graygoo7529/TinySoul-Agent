@@ -83,13 +83,14 @@ class SessionStore:
             raise SessionInvariantError(
                 f"Session record location is not a directory: {directory}"
             )
+        day = self.load_manifest().day
         records: list[SessionTurnRecord] = []
         for path in sorted(directory.glob("*.json"), key=lambda item: item.name):
-            ref = f"session:turn/{path.stem}"
+            ref = f"session:turn/{day}/{path.stem}"
             records.append(
                 self._load_record_path(path, ref=ref, kind=SessionRecordKind.TURN)
             )
-        return tuple(records)
+        return tuple(sorted(records, key=lambda record: record.recorded_at_ns))
 
     def archive_to(self, target: Path) -> None:
         if target.exists():
@@ -120,7 +121,9 @@ class SessionStore:
     def _record_path(self, ref: str, *, kind: SessionRecordKind) -> Path:
         if session_ref_kind(ref) is not kind:
             raise SessionContractError(f"Invalid Session ref: {ref}")
-        record_id = ref.split("/", 1)[1]
+        _, day, record_id = ref.split("/")
+        if day != self.load_manifest().day:
+            raise SessionContractError("Session ref belongs to another day")
         try:
             return resolve_under_root(
                 self._root,

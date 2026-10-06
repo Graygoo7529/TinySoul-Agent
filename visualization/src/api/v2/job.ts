@@ -8,14 +8,14 @@ import type { ResourceLocator } from "./common";
 import type { JsonObject, JsonValue } from "./json";
 import type { JobSummary } from "./turn";
 
-/** Schema: job.json (GET /v2/turns/{id}/jobs/{job_id}). */
+/** Schema: job.json (GET /v2/requests/{request_id}/jobs/{job_id}). */
 export interface JobDetail extends JobSummary {
   details?: JsonObject | null;
 }
 
-/** Schema: job-list.json (GET /v2/turns/{id}/jobs). */
+/** Schema: job-list.json (GET /v2/requests/{request_id}/jobs). */
 export interface JobList {
-  turn_id: string;
+  request_id: string;
   jobs: JobSummary[];
   [key: string]: unknown;
 }
@@ -28,7 +28,7 @@ export interface JobOutputItem {
 }
 
 /**
- * Schema: job-output.json (GET /v2/turns/{id}/jobs/{job_id}/output).
+ * Schema: job-output.json (GET /v2/requests/{request_id}/jobs/{job_id}/output).
  * `next_continuation` is always present: an empty page while the Job runs is
  * a polling position, not the end. `truncated` marks a bounded read, never
  * data loss. Job terminal state and output read progress are independent.

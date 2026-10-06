@@ -42,8 +42,8 @@
   },
   "additionalProperties": true,
   "properties": {
-    "turn_id": {
-      "title": "Turn Id",
+    "request_id": {
+      "title": "Request Id",
       "type": "string"
     },
     "jobs": {
@@ -55,7 +55,7 @@
     }
   },
   "required": [
-    "turn_id",
+    "request_id",
     "jobs"
   ],
   "title": "JobListResponse",

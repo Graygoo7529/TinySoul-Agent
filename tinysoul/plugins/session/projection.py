@@ -79,7 +79,7 @@ class SessionSegment:
 
     def render(self) -> tuple[Message, ...]:
         return tuple(
-            UserMessage.from_json(item.content, label=f"session:{item.item_id}")
+            UserMessage.from_text(item.render(), label=f"session:{item.item_id}")
             for item in self._snapshot.items
         )
 
@@ -95,7 +95,7 @@ class SessionSegment:
         return ("session:map",)
 
     def reclaim(self, required_chars: int) -> SegmentReclaim:
-        before = sum(len(dumps_json(item.content)) for item in self._snapshot.items)
+        before = sum(len(item.render()) for item in self._snapshot.items)
         if required_chars <= 0 or before <= self._snapshot.max_chars * 0.8:
             return SegmentReclaim()
         visible = self._snapshot.items[1:]
@@ -110,8 +110,8 @@ class SessionSegment:
                 ref for ref in self._snapshot.priority if ref in visible_refs
             ),
         )
-        self._snapshot = prepared.fit(max(512, self._snapshot.max_chars // 2))
-        after = sum(len(dumps_json(item.content)) for item in self._snapshot.items)
+        self._snapshot = prepared.fit(max(512, self._snapshot.budget_chars // 2))
+        after = sum(len(item.render()) for item in self._snapshot.items)
         return SegmentReclaim(max(0, before - after))
 
     async def search_entries(

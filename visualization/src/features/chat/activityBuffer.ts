@@ -151,7 +151,7 @@ export class ActivityBuffer {
         } else if (operation === "set_milestone" || operation === "remove_milestone") {
           add({ type: "milestone", text, removed: operation === "remove_milestone" });
         } else if (operation === "load_background" || operation === "evict_background") {
-          const refs = asStringArray(details?.links);
+          const refs = asStringArray(details?.refs);
           if (refs.length) add({ type: "background", refs, operation: operation === "load_background" ? "load" : "evict" });
         }
       }

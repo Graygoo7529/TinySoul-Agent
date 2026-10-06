@@ -6,12 +6,12 @@ description = "Apply ordered exact replacements. Every old_text must occur exact
 
 [tool.schema]
 type = "object"
-required = ["target_link","edits"]
+required = ["target_ref","edits"]
 additionalProperties = false
 
 [tool.schema.properties]
 
-[tool.schema.properties.target_link]
+[tool.schema.properties.target_ref]
 type = "string"
 
 [tool.schema.properties.edits]

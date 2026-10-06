@@ -1,3 +1,4 @@
+import { requestIdForTurn } from "../../store/turnStore";
 /**
  * The compact overview strip of the runtime page (plan §14): Agent
  * readiness, the current Turn with its kind/state and its real wait reason,
@@ -72,7 +73,7 @@ export function useActiveTurnSnapshot(epoch: number): ActiveTurnRead {
     );
     void (async () => {
       try {
-        const snapshot = await runtimeClients(epoch).turns.get(activeTurnId, {
+        const snapshot = await runtimeClients(epoch).turns.get(requestIdForTurn(activeTurnId), {
           signal: controller.signal,
         });
         if (seqRef.current === seq && !controller.signal.aborted) {
@@ -118,7 +119,7 @@ export function OverviewStrip({
 }): ReactElement {
   const status = useConnectionStore((s) => s.status);
   const snapshot = read.snapshot;
-  const queued = status?.runtime.queued_turn_ids ?? [];
+  const queued = status?.runtime.queued_request_ids ?? [];
 
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px]">

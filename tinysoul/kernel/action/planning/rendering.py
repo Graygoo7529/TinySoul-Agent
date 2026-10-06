@@ -79,12 +79,22 @@ class ActionResultRenderer:
             if result.status is ActionResultStatus.SUCCESS
             else ToolResultStatus.ERROR
         )
-        visible = ToolResultMessage.from_json(
-            call_id=result.call_id,
-            tool_name=result.action_name,
-            value=self.render_model_payload(result),
-            status=status,
-            label="action_result",
+        visible = (
+            ToolResultMessage.from_text(
+                call_id=result.call_id,
+                tool_name=result.action_name,
+                text=result.model_text,
+                status=status,
+                label="action_result",
+            )
+            if result.model_text is not None
+            else ToolResultMessage.from_json(
+                call_id=result.call_id,
+                tool_name=result.action_name,
+                value=self.render_model_payload(result),
+                status=status,
+                label="action_result",
+            )
         )
         projection = result.trace_projection
         if projection is None:
@@ -92,15 +102,25 @@ class ActionResultRenderer:
                 visible_message=visible,
                 canonical_message=visible,
             )
-        canonical = ToolResultMessage.from_json(
-            call_id=result.call_id,
-            tool_name=result.action_name,
-            value=self.render_model_payload(
-                result,
-                payload=projection.canonical_payload,
-            ),
-            status=status,
-            label="action_result_folded",
+        canonical = (
+            ToolResultMessage.from_text(
+                call_id=result.call_id,
+                tool_name=result.action_name,
+                text=projection.model_text,
+                status=status,
+                label="action_result_folded",
+            )
+            if projection.model_text is not None
+            else ToolResultMessage.from_json(
+                call_id=result.call_id,
+                tool_name=result.action_name,
+                value=self.render_model_payload(
+                    result,
+                    payload=projection.canonical_payload,
+                ),
+                status=status,
+                label="action_result_folded",
+            )
         )
         return RenderedActionResult(
             visible_message=visible,

@@ -61,5 +61,5 @@ class TurnReplyRequest(BaseModel):
 class TurnGrantRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    request_id: str = Field(min_length=1, max_length=128)
+    budget_request_id: str = Field(min_length=1, max_length=128)
     count: int = Field(gt=0, strict=True)

@@ -5,8 +5,8 @@ Consumers listed below decide visibility, role, data and failure semantics.
 
 
 # Model context presentation or local feedback. Used by plugins/capabilities/subagent/engine.py:prepare_brief.
-def delegation_reference(*, link: str, text: str) -> str:
-    return f"Reference {link}:\n{text}"
+def delegation_reference(*, ref: str, text: str) -> str:
+    return f"Reference {ref}:\n{text}"
 
 
 # Local model feedback. Used by plugins/capabilities/subagent/acp/connection.py:prompt.
@@ -23,7 +23,7 @@ REQUIRED_ACTION_TEXT_OR_IDENTITY_IS_ABSENT = (
 )
 
 # Local model feedback. Used by plugins/capabilities/subagent/actions.py:_execute.
-REFERENCE_LINKS_MUST_BE_A_BOUNDED_LIST = "Reference links must be a bounded list."
+REFERENCE_REFS_MUST_BE_A_BOUNDED_LIST = "Reference refs must be a bounded list."
 
 # Local model feedback. Used by plugins/capabilities/subagent/actions.py:_execute.
 COLLECTION_CURSOR_MUST_BE_AN_INTEGER = "Collection cursor must be an integer."

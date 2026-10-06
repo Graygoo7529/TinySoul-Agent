@@ -18,7 +18,7 @@ from tinysoul.kernel.action import (
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.time import CalendarDay
 from ..documents import DailyMemoryDocument
-from ..links import MemoryLink, MemoryKind
+from ..refs import MemoryRef, MemoryKind
 from tinysoul.plugins.memory.services import MemoryKnowledgeService
 from tinysoul.plugins.memory.errors import MemoryContractError, MemoryError
 from tinysoul.plugins.memory.runtime_bridge import RuntimeMemoryBridge
@@ -77,15 +77,17 @@ class MemoryWriteSession:
                     )
                 )
             else:
-                raw_link = params.get("memory_link")
-                if not isinstance(raw_link, str):
-                    raise MemoryContractError("Memory write requires a persistent Link")
-                link = MemoryLink.parse(raw_link)
-                if link.kind is MemoryKind.DAILY:
+                raw_ref = params.get("ref")
+                if not isinstance(raw_ref, str):
+                    raise MemoryContractError(
+                        "Memory write requires a persistent reference"
+                    )
+                ref = MemoryRef.parse(raw_ref)
+                if ref.kind is MemoryKind.DAILY:
                     raise MemoryContractError(
                         "Use write_daily for the Reflection target daily"
                     )
-                stored = await memory.write_markdown(link, markdown)
+                stored = await memory.write_markdown(ref, markdown)
         except MemoryContractError:
             return _failed(
                 execution,
@@ -94,7 +96,7 @@ class MemoryWriteSession:
             )
         except MemoryError as exc:
             raise RuntimeMemoryBridge().from_memory_error(exc) from exc
-        return _success(execution, {"link": str(stored.link), "written": True})
+        return _success(execution, {"ref": str(stored.ref), "written": True})
 
 
 class MemoryWriteExecutor(ActionExecutor):

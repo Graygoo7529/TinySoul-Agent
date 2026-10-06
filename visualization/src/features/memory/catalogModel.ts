@@ -2,7 +2,7 @@
  * Memory catalog decoding (plan §12).
  *
  * The persistent-knowledge catalog is a flat paged list of
- * {link, kind, display, status, redirect_to}; the page filters by kind and
+ * {ref, kind, display, status, redirect_to}; the page filters by kind and
  * name server-side. Decoding never invents entries: an item whose shape is
  * not a Memory catalog entry is dropped.
  */
@@ -10,7 +10,7 @@
 import type { JsonValue } from "../../api/v2/json";
 
 export interface MemoryCatalogItem {
-  link: string;
+  ref: string;
   kind: string;
   display: string;
   status: string;
@@ -24,16 +24,16 @@ export function decodeMemoryCatalogItem(value: JsonValue): MemoryCatalogItem | n
     return null;
   }
   const record = value as Record<string, unknown>;
-  const link = typeof record.link === "string" ? record.link : null;
+  const ref = typeof record.ref === "string" ? record.ref : null;
   const kind = typeof record.kind === "string" ? record.kind : null;
-  if (link === null || kind === null) return null;
+  if (ref === null || kind === null) return null;
   return {
-    link,
+    ref,
     kind,
     display:
       typeof record.display === "string" && record.display !== ""
         ? record.display
-        : link,
+        : ref,
     status: typeof record.status === "string" ? record.status : "",
     redirectTo: typeof record.redirect_to === "string" ? record.redirect_to : null,
   };

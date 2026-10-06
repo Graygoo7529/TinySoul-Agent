@@ -63,7 +63,7 @@ from tinysoul.runtime import RunLevel, RunScope, SignalBus
 from .synthetic import SyntheticAction, completion
 
 DAY = CalendarDay.parse("2026-09-21")
-PRIOR = "session:turn/prior"
+PRIOR = "session:turn/2026-09-21/1004"
 
 
 def _session(tmp_path: Path, *, budget: int = 24000, page: int = 8000) -> SessionEngine:
@@ -79,7 +79,7 @@ def _session(tmp_path: Path, *, budget: int = 24000, page: int = 8000) -> Sessio
 
 
 def _record(
-    session: SessionEngine, turn: str = "prior", *, text: str = "initial task"
+    session: SessionEngine, turn: str = "2026-09-21/1004", *, text: str = "initial task"
 ) -> None:
     session.record_turn(
         completion(turn, ask=text),
@@ -92,7 +92,7 @@ def _record(
 
 def _facts() -> ContextTurnFacts:
     return ContextTurnFacts(
-        "active", (ContextTurnInput("new evidence", 1, "initial"),), ()
+        "2026-09-21/1000", (ContextTurnInput("new evidence", 1, "initial"),), ()
     )
 
 
@@ -132,7 +132,7 @@ async def test_context_search_uses_session_originals_and_interpretations_after_f
     assert result.failure is None
     context = ContextEngineBuilder(system_text="identity").build()
     context.register_segment(session_segment_registration(SessionService(session)))
-    context.begin_turn("search previous facts")
+    context.begin_turn("search previous facts", turn_id="2026-09-21/135")
     await context.open_segments(DAY.value)
     context.compress(required_chars=100000)
     for query, expected in (
@@ -163,7 +163,7 @@ async def test_context_search_uses_session_originals_and_interpretations_after_f
 def test_atomic_annotations_preserve_facts_and_stable_refs(tmp_path: Path) -> None:
     session = _session(tmp_path)
     _record(session)
-    _record(session, "second")
+    _record(session, "2026-09-21/1005")
     history = session.inspect(PRIOR)
     result = session.organize(
         OrganizeChange(
@@ -190,9 +190,12 @@ def test_atomic_annotations_preserve_facts_and_stable_refs(tmp_path: Path) -> No
         item["ref"]
         for item in _items(session.inspect("session:unclassified"))
         if item.get("kind") == "child"
-    ] == ["session:turn/second"]
+    ] == ["session:turn/2026-09-21/1005"]
     assert refs["local:branch"] in str(session.inspect(refs["local:topic"]))
-    assert str(session.background_snapshot(DAY).items).count("answer for prior") == 1
+    assert (
+        str(session.background_snapshot(DAY).items).count("answer for 2026-09-21/1005")
+        == 1
+    )
 
     old = session.annotation_snapshot()
     rejected = session.organize(
@@ -262,7 +265,9 @@ def test_organize_failure_does_not_publish_or_hide_storage_failure(
     _record(session)
     assert (
         session.organize(
-            OrganizeChange((PRIOR,), nodes=(_node(source="session:turn/future"),)),
+            OrganizeChange(
+                (PRIOR,), nodes=(_node(source="session:turn/2026-09-21/1001"),)
+            ),
             _facts(),
         ).failure
         is OrganizeFailureReason.INVALID_SOURCE
@@ -294,14 +299,14 @@ async def test_current_evidence_keeps_occurrence_without_sealing_and_resolves_af
     session = _session(tmp_path)
     _record(session)
     context = ContextEngineBuilder(system_text="identity").build()
-    context.begin_turn("new constraint", turn_id="active")
+    context.begin_turn("new constraint", turn_id="2026-09-21/1000")
     await context.open_segments(DAY.value)
     calls = tuple(
         ActionCall(f"call_{index}", "core.reason", {}, index + 1) for index in range(3)
     )
     context.register_action_calls(calls, cycle_id="c")
     framework = ActionFramework(
-        "invoke", "batch", RunScope(), "core", turn_id="active", cycle_id="c"
+        "invoke", "batch", RunScope(), "core", turn_id="2026-09-21/1000", cycle_id="c"
     )
     context.record_execution(ExecutionFact(calls[0], framework, ExecutionState.STARTED))
     context.record_action_result(
@@ -321,7 +326,7 @@ async def test_current_evidence_keeps_occurrence_without_sealing_and_resolves_af
         ExecutionState.SETTLED,
         ExecutionState.REQUESTED,
     ]
-    assert SessionEvidence(facts).resolve("turn:trace@active#action/0") is None
+    assert SessionEvidence(facts).resolve("turn:trace/2026-09-21/1000#action/0") is None
     result = session.organize(
         OrganizeChange(
             (PRIOR,),
@@ -329,8 +334,8 @@ async def test_current_evidence_keeps_occurrence_without_sealing_and_resolves_af
                 replace(
                     _node(),
                     source_refs=(
-                        f"turn:trace@active#input/{facts.inputs[0].input_id}",
-                        "turn:trace@active#action/1",
+                        f"turn:trace/2026-09-21/1000#input/0",
+                        "turn:trace/2026-09-21/1000#action/1",
                     ),
                 ),
             ),
@@ -341,14 +346,16 @@ async def test_current_evidence_keeps_occurrence_without_sealing_and_resolves_af
     ref = dict(result.created)["local:topic"]
     node = session.annotation_snapshot().get(ref)
     assert node is not None and node.source_refs == (
-        "session:turn/active#input/0",
-        "session:turn/active#action/1",
+        "session:turn/2026-09-21/1000#input/0",
+        "session:turn/2026-09-21/1000#action/1",
     )
     assert (
         session.organize(
             OrganizeChange(
                 (PRIOR,),
-                edges=(_edge("local:bad", ref, "session:turn/active#input/0"),),
+                edges=(
+                    _edge("local:bad", ref, "session:turn/2026-09-21/1000#input/0"),
+                ),
             ),
             facts,
         ).failure
@@ -383,14 +390,14 @@ async def test_update_is_prepared_then_installed_without_expanding_history(
     provider = UpdatingSessionProvider(
         SessionService(session), SessionOrganizeService(session), _facts
     )
-    segment = await provider.open(TurnInfo("active", DAY.value))
+    segment = await provider.open(TurnInfo("2026-09-21/1000", DAY.value))
     original = segment.render()
     result = session.organize(
         OrganizeChange((PRIOR,), nodes=(_node(body="installed interpretation"),)),
         _facts(),
     )
     ref = dict(result.created)["local:topic"]
-    _record(session, "later")
+    _record(session, "2026-09-21/1003")
     prepared = await segment.prepare((SessionRefresh(),))
     assert segment.render() == original
     with pytest.raises(ContextInspectRequestError):
@@ -398,7 +405,9 @@ async def test_update_is_prepared_then_installed_without_expanding_history(
     segment.install(prepared)
     assert "installed interpretation" in str(segment.render())
     assert segment.seal()["refs"] == [PRIOR]
-    assert "session:turn/later" not in str(await segment.inspect("session:history"))
+    assert "session:turn/2026-09-21/1003" not in str(
+        await segment.inspect("session:history")
+    )
     assert not hasattr(SessionService(session), "organize")
 
 
@@ -406,7 +415,7 @@ def test_annotation_query_uses_turn_scope_and_leaf_scope(tmp_path: Path) -> None
     session = _session(tmp_path)
     session.record_turn(
         completion(
-            "prior",
+            "2026-09-21/1004",
             ask="user-only-marker",
             working={"milestones": [{"state": "blocked", "text": "working-marker"}]},
             actions=(
@@ -475,15 +484,15 @@ async def test_active_action_evidence_matches_completed_inspect_and_query(
     session = _session(tmp_path)
     _record(session)
     context = ContextEngineBuilder(system_text="identity").build()
-    context.begin_turn("active input", turn_id="active")
+    context.begin_turn("active input", turn_id="2026-09-21/1000")
     await context.open_segments(DAY.value)
     success = status is ActionResultStatus.SUCCESS
     source = completion(
-        "active",
+        "2026-09-21/1000",
         actions=(
             SyntheticAction(
                 "workspace.read",
-                request={"link": "workspace:request.md"},
+                request={"ref": "workspace:request.md"},
                 result={"read": True} if success else {},
                 status=status,
                 failure_reason="source_unavailable",
@@ -498,7 +507,7 @@ async def test_active_action_evidence_matches_completed_inspect_and_query(
     provider = UpdatingSessionProvider(
         SessionService(session), SessionOrganizeService(session), context.current_facts
     )
-    segment = await provider.open(TurnInfo("active", DAY.value))
+    segment = await provider.open(TurnInfo("2026-09-21/1000", DAY.value))
     facts = context.current_facts()
     result = session.organize(
         OrganizeChange(
@@ -506,7 +515,7 @@ async def test_active_action_evidence_matches_completed_inspect_and_query(
             nodes=(
                 _node(
                     "local:evidence",
-                    source="turn:trace@active#action/0",
+                    source="turn:trace/2026-09-21/1000#action/0",
                 ),
             ),
         ),
@@ -515,7 +524,7 @@ async def test_active_action_evidence_matches_completed_inspect_and_query(
     assert result.failure is None
     ref = dict(result.created)["local:evidence"]
     segment.install(await segment.prepare((SessionRefresh(),)))
-    leaf_ref = "session:turn/active#action/0"
+    leaf_ref = "session:turn/2026-09-21/1000#action/0"
     active = _items(await segment.inspect(leaf_ref))[0]
     assert active["source_state"] == "active_turn"
     assert active["outcome"] == status.value
@@ -530,9 +539,11 @@ async def test_active_action_evidence_matches_completed_inspect_and_query(
         hits = _items(await segment.inspect(target, query=query))
         assert [item["ref"] for item in hits] == [leaf_ref]
     assert segment.seal()["refs"] == [PRIOR]
-    assert "session:turn/active" not in str(await segment.inspect("session:history"))
+    assert "session:turn/2026-09-21/1000" not in str(
+        await segment.inspect("session:history")
+    )
     with pytest.raises(ContextInspectRequestError):
-        await segment.inspect("session:turn/active")
+        await segment.inspect("session:turn/2026-09-21/1000")
     assert context.current_facts() == facts
     completed = context.end_turn()
     await segment.close()
@@ -554,10 +565,12 @@ async def test_active_action_evidence_matches_completed_inspect_and_query(
 async def test_multiple_complete_dialogues_share_background_and_inspection(
     tmp_path: Path,
 ) -> None:
+    from tinysoul.kernel.interaction import AnswerKind, QuestionAnswer
+
     session = _session(tmp_path)
     context = ContextEngineBuilder(system_text="identity").build()
     for index in range(3):
-        turn_id = f"dialogue_{index}"
+        turn_id = f"2026-09-21/{index + 1}"
         context.begin_turn(f"original request {index}", turn_id=turn_id)
         await context.open_segments(DAY.value)
         scope = RunScope().push(RunLevel.TURN, turn_id)
@@ -572,7 +585,7 @@ async def test_multiple_complete_dialogues_share_background_and_inspection(
                 batch_id="batch",
                 action_name="core.reason",
                 sequence=1,
-                payload={"private_text": "never inline this reasoning"},
+                payload={"decision": "use the existing timer"},
             ),
             cycle_id="c",
         )
@@ -593,14 +606,24 @@ async def test_multiple_complete_dialogues_share_background_and_inspection(
                 "text": "Which strategy?",
                 "options": [
                     {"id": "a", "label": "scheduled"},
-                    {"id": "b", "label": "on demand"},
+                    {
+                        "id": "b",
+                        "label": "on demand",
+                        "description": "Run only when requested",
+                    },
                 ],
             },
         )
         context.record_action_result(result, cycle_id="c")
         bus.emit(
             build_input_append_signal(
-                "second option", scope=scope, source="test", reply_to=result.result_id
+                "second option",
+                scope=scope,
+                source="test",
+                reply_to=result.result_id,
+                answer=QuestionAnswer(
+                    AnswerKind.CHOICE, option_id="b", comment="Keep manual control"
+                ),
             )
         )
         await context.consume_signals(bus)
@@ -615,7 +638,10 @@ async def test_multiple_complete_dialogues_share_background_and_inspection(
             sequence=1,
             payload={
                 "text": "Apply now?",
-                "options": [{"id": "a", "label": "yes"}, {"id": "b", "label": "later"}],
+                "options": [
+                    {"id": "a", "label": "yes"},
+                    {"id": "b", "label": "no"},
+                ],
             },
         )
         context.record_action_result(followup_result, cycle_id="followup")
@@ -669,18 +695,18 @@ async def test_multiple_complete_dialogues_share_background_and_inspection(
         assert isinstance(options, list)
         assert [item["label"] for item in options if isinstance(item, dict)] == [
             "yes",
-            "later",
+            "no",
         ]
         assert "reply_to" not in projected[6]
         assert projected[7]["reply_to"] == projected[5]["ref"]
-        assert "never inline" not in str(projected)
+        assert projected[1]["result"] == {"decision": "use the existing timer"}
         assert projected == [
             value
             for value in _items(session.inspect(item.item_id))
             if value.get("kind") == "interaction"
         ]
     context.register_segment(session_segment_registration(SessionService(session)))
-    context.begin_turn("review prior dialogues")
+    context.begin_turn("review prior dialogues", turn_id="2026-09-21/683")
     await context.open_segments(DAY.value)
     stack = context.compose(
         TaskPrompt(guide_blocks=(PromptBlock.from_text("task", "review"),))
@@ -688,23 +714,33 @@ async def test_multiple_complete_dialogues_share_background_and_inspection(
     session_messages = tuple(
         message for message in stack.messages if message.label.startswith("session:")
     )
-    assert str(session_messages).count("Which strategy?") == 3
+    rendered = "\n".join(item.render() for item in snapshot.items)
+    assert "Which strategy?" in rendered
+    assert "Run only when requested" in rendered
+    assert "Keep manual control" in rendered
+    assert "use the existing timer" in rendered
+    assert "delivery" not in rendered and "invoke_id" not in rendered
+    assert (
+        rendered.index("original request 0")
+        < rendered.index("Which strategy?")
+        < rendered.index("Keep manual control")
+        < rendered.index("confirmed answer 0")
+    )
     for index in range(3):
         assert str(session_messages).count(f"original request {index}") == 1
         assert str(session_messages).count(f"extra constraint {index}") == 1
         assert str(session_messages).count(f"confirmed answer {index}") == 1
     context.end_turn()
     await context.close_segments()
-    _record(session, "giant", text="long input " * 4000)
+    _record(session, "2026-09-21/1002", text="long input " * 4000)
     bounded = session.background_snapshot(DAY)
-    assert (
-        sum(len(dumps_json(item.content)) for item in bounded.items)
-        <= bounded.max_chars
+    assert sum(len(item.render()) for item in bounded.items) <= bounded.max_chars
+    giant = next(
+        item for item in bounded.items if item.item_id.endswith("2026-09-21/1002")
     )
-    giant = next(item for item in bounded.items if item.item_id.endswith("giant"))
     assert giant.content["folded"] is True
     assert "excerpted" in str(giant.content)
-    assert "next_continuation" in session.inspect("session:turn/giant")
+    assert "next_continuation" in session.inspect("session:turn/2026-09-21/1002")
 
 
 def test_pagination_depends_on_read_content_and_query_scope(tmp_path: Path) -> None:
@@ -751,7 +787,7 @@ def test_pagination_depends_on_read_content_and_query_scope(tmp_path: Path) -> N
         PRIOR, continuation=factual
     )
     assert session.inspect(target, query="independent")["items"] == []
-    assert "session:turn/prior#input/0" in str(
+    assert "session:turn/2026-09-21/1004#input/0" in str(
         session.inspect("session:map", query="evidence")
     )
 
@@ -761,8 +797,10 @@ async def test_map_and_interactions_share_budget_and_reclaim_stays_folded_after_
 ) -> None:
     session = _session(tmp_path, budget=5000)
     for index in range(7):
-        _record(session, f"t_{index}", text=f"user {index} " + "text " * 80)
-    prior = "session:turn/t_0"
+        _record(
+            session, f"2026-09-21/{index + 1}", text=f"user {index} " + "text " * 80
+        )
+    prior = "session:turn/2026-09-21/1"
     result = session.organize(
         OrganizeChange(
             (prior,),
@@ -781,10 +819,10 @@ async def test_map_and_interactions_share_budget_and_reclaim_stays_folded_after_
     provider = UpdatingSessionProvider(
         SessionService(session), SessionOrganizeService(session), _facts
     )
-    segment = await provider.open(TurnInfo("active", DAY.value))
+    segment = await provider.open(TurnInfo("2026-09-21/1000", DAY.value))
     original = segment.render()
     snapshot = session.background_snapshot(DAY)
-    assert sum(len(dumps_json(item.content)) for item in snapshot.items) <= 5000
+    assert sum(len(item.render()) for item in snapshot.items) <= 5000
     assert len([item for item in snapshot.items if "interactions" in item.content]) >= 2
     assert segment.reclaim(10000).reclaimed_chars > 0
     folded = segment.render()

@@ -47,8 +47,8 @@ _RESOURCE_PYPDF_HANDLER = "resource.convert_with_pypdf"
 
 @dataclass(frozen=True)
 class _ConversionParams:
-    source_link: str
-    target_link: str
+    source_ref: str
+    target_ref: str
     overwrite: bool
 
 
@@ -77,8 +77,8 @@ class ResourceConversionExecutor(ActionExecutor):
         try:
             result = await self._service.convert(
                 converter=self._converter,
-                source_link=params.source_link,
-                target_link=params.target_link,
+                source_ref=params.source_ref,
+                target_ref=params.target_ref,
                 overwrite=params.overwrite,
                 control=context.control,
                 operations=context.owner_operations,
@@ -181,19 +181,19 @@ def register_resource_actions(
 
 
 def _params(execution: ActionExecution) -> _ConversionParams | ActionResult:
-    source_link = execution.call.params.get("source_link")
-    if not isinstance(source_link, str) or not source_link:
+    source_ref = execution.call.params.get("source_ref")
+    if not isinstance(source_ref, str) or not source_ref:
         return _failed(
             execution,
-            prompt_text.source_link_required(action_name=execution.call.action_name),
-            reason="invalid_source_link",
+            prompt_text.source_ref_required(action_name=execution.call.action_name),
+            reason="invalid_source_ref",
         )
-    target_link = execution.call.params.get("target_link")
-    if not isinstance(target_link, str) or not target_link:
+    target_ref = execution.call.params.get("target_ref")
+    if not isinstance(target_ref, str) or not target_ref:
         return _failed(
             execution,
-            prompt_text.target_link_required(action_name=execution.call.action_name),
-            reason="invalid_target_link",
+            prompt_text.target_ref_required(action_name=execution.call.action_name),
+            reason="invalid_target_ref",
         )
     overwrite = execution.call.params.get("overwrite", False)
     if not isinstance(overwrite, bool):
@@ -203,21 +203,21 @@ def _params(execution: ActionExecution) -> _ConversionParams | ActionResult:
             reason="invalid_overwrite",
         )
     return _ConversionParams(
-        source_link=source_link,
-        target_link=target_link,
+        source_ref=source_ref,
+        target_ref=target_ref,
         overwrite=overwrite,
     )
 
 
 def _result_payload(result: ResourceConversionResult) -> JsonObject:
     return {
-        "source_link": result.source_link,
-        "markdown_link": result.markdown_link,
+        "source_ref": result.source_ref,
+        "markdown_ref": result.markdown_ref,
         "converter": result.converter.value,
         "content_status": result.content_status.value,
         "generated_resource_count": len(result.records),
-        "visual_review_required": bool(result.visual_reference_links),
-        "visual_reference_links": list(result.visual_reference_links),
+        "visual_review_required": bool(result.visual_refs),
+        "visual_refs": list(result.visual_refs),
         "warning_codes": list(result.warning_codes),
     }
 

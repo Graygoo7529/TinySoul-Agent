@@ -23,7 +23,7 @@ from tinysoul.infra import (
 )
 from tinysoul.plugins.workspace import (
     WorkspaceBundleWrite,
-    WorkspaceLink,
+    WorkspaceRef,
 )
 
 from tinysoul.plugins.workspace.services import WorkspaceService
@@ -77,12 +77,12 @@ from .operations.protocol import (
 )
 from .operations.search import (
     _search_results,
-    _search_workspace_link,
+    _search_workspace_ref,
     _search_markdown,
     _search_preview_payload,
 )
 from .operations.discovery import (
-    _discovery_workspace_link,
+    _discovery_workspace_ref,
     _discovery_payload,
     _discovery_preview_payload,
     _validate_discovery_globs,
@@ -184,13 +184,13 @@ class WebCapabilityService:
         if len(dumps_json(full_payload)) <= search.max_inline_chars:
             return WebSearchResult(payload=full_payload)
 
-        target_link = _search_workspace_link(invoke_id, call_id)
+        target_ref = _search_workspace_ref(invoke_id, call_id)
         markdown = _search_markdown(query=query.strip(), answer=answer, results=results)
         _require_active(control)
         committed = await workspace.write_bundle(
             (
                 WorkspaceBundleWrite(
-                    link=target_link,
+                    ref=target_ref,
                     data=markdown.encode("utf-8"),
                 ),
             )
@@ -199,7 +199,7 @@ class WebCapabilityService:
             answer=answer,
             results=results,
             usage=usage,
-            target_link=target_link,
+            target_ref=target_ref,
             limit=search.max_inline_chars,
         )
         return WebSearchResult(
@@ -213,7 +213,7 @@ class WebCapabilityService:
         *,
         extractor: WebExtractor,
         url: str,
-        target_link: str,
+        target_ref: str,
         overwrite: bool,
         control: ActionExecutionControl,
         operations: JoinedOperations | None = None,
@@ -227,7 +227,7 @@ class WebCapabilityService:
             raise WebContractError("Web extractor is invalid")
         if not isinstance(url, str) or not url:
             raise WebContractError("Web fetch URL must be non-empty")
-        target = WorkspaceLink.parse(target_link)
+        target = WorkspaceRef.parse(target_ref)
         if target.path.suffix.lower() != ".md":
             raise WebContractError("Web fetch target must end with .md")
         if not isinstance(overwrite, bool):
@@ -274,7 +274,7 @@ class WebCapabilityService:
             committed = await workspace.write_bundle(
                 (
                     WorkspaceBundleWrite(
-                        link=str(target),
+                        ref=str(target),
                         data=data,
                         overwrite=overwrite,
                     ),
@@ -284,7 +284,7 @@ class WebCapabilityService:
         if response_extractor != extractor.value:
             raise WebWorkerProtocolError("Web worker extractor identity is invalid")
         return WebFetchResult(
-            markdown_link=str(target),
+            markdown_ref=str(target),
             extractor=extractor,
             title=_required_string(response, "title"),
             excerpt=_required_string(response, "excerpt"),
@@ -378,7 +378,7 @@ class WebCapabilityService:
         if len(dumps_json(full_payload)) <= discovery.max_inline_chars:
             return WebDiscoveryResult(payload=full_payload)
 
-        target_link = _discovery_workspace_link(invoke_id, call_id)
+        target_ref = _discovery_workspace_ref(invoke_id, call_id)
         document = (
             json.dumps(
                 full_payload,
@@ -392,14 +392,14 @@ class WebCapabilityService:
         committed = await workspace.write_bundle(
             (
                 WorkspaceBundleWrite(
-                    link=target_link,
+                    ref=target_ref,
                     data=document.encode("utf-8"),
                 ),
             )
         )
         preview = _discovery_preview_payload(
             full_payload,
-            target_link=target_link,
+            target_ref=target_ref,
             limit=discovery.max_inline_chars,
         )
         return WebDiscoveryResult(

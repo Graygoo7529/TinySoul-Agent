@@ -63,7 +63,7 @@ class ACPJobBackend:
         self._reason = ""
         self._closed = False
         self._output_overflow = False
-        self._link = f"workspace:jobs/{job_id}/output.txt"
+        self._ref = f"workspace:jobs/{job_id}/output.txt"
         self._task = asyncio.create_task(self._run(brief))
 
     async def _run(self, brief: str) -> None:
@@ -158,7 +158,7 @@ class ACPJobBackend:
             "External Agent delegation.",
             self._reason,
             pending,
-            (self._link,) if self._saved_chars >= 0 else (),
+            (self._ref,) if self._saved_chars >= 0 else (),
         )
 
     async def request_stop(self) -> None:
@@ -206,7 +206,7 @@ class ACPJobBackend:
                     lambda: self._workspace.write_bundle(
                         (
                             WorkspaceBundleWrite(
-                                self._link, text.encode(), overwrite=True
+                                self._ref, text.encode(), overwrite=True
                             ),
                         )
                     )
@@ -233,7 +233,7 @@ class ACPJobBackend:
             "text": text[cursor:end],
             "next_cursor": end,
             "truncated": end < len(text),
-            "result_link": self._link,
+            "result_ref": self._ref,
         }
 
     async def read_output(
@@ -260,13 +260,13 @@ class ACPJobBackend:
                 job_id=self.job_id, channels=channels
             ),
             "truncated": value["truncated"],
-            "result_locators": [{"link": self._link}] if self._saved_chars >= 0 else [],
+            "result_locators": [{"ref": self._ref}] if self._saved_chars >= 0 else [],
         }
 
     async def describe(self) -> JsonObject:
         return {
             "output_chars": self._chars,
-            "result_links": [self._link] if self._saved_chars >= 0 else [],
+            "result_refs": [self._ref] if self._saved_chars >= 0 else [],
         }
 
     async def cleanup(self) -> tuple[CleanupDiagnostic, ...]:

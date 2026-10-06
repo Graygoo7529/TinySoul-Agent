@@ -66,7 +66,7 @@ class ReflectionContextPressureRecovery:
                 else PressureRecoveryStatus.NO_PROGRESS
             ),
             reclaimed_chars=report.reclaimed_chars,
-            evicted_background_links=report.evicted_background_links,
+            evicted_background_refs=report.evicted_background_refs,
         )
 
 

@@ -11,7 +11,7 @@ from tinysoul.plugins.home import (
     AgentHomeEngineBuilder,
     AgentHomeSettings,
     HomeBackgroundEntryProvider,
-    HomeTopLink,
+    HomeTopRef,
     parse_home_skill_metadata,
 )
 from tinysoul.plugins.home.services import HomeService
@@ -21,10 +21,10 @@ from tinysoul.plugins.home.skills.metadata import SKILL_FRONTMATTER_MAX_CHARS
 def test_skill_frontmatter_parses_exact_discovery_fields() -> None:
     metadata = parse_home_skill_metadata(
         _skill("Review Home", "Review pending Home changes."),
-        link=HomeTopLink("skills", "review"),
+        ref=HomeTopRef("skills", "review"),
     )
 
-    assert str(metadata.link) == "home:skills@review"
+    assert str(metadata.ref) == "home:top/skills/review"
     assert metadata.title == "Review Home"
     assert metadata.description == "Review pending Home changes."
 
@@ -54,7 +54,7 @@ def test_skill_frontmatter_rejects_ambiguous_metadata(
     problem: str,
 ) -> None:
     with pytest.raises(AgentHomeContractError, match=problem):
-        parse_home_skill_metadata(text, link=HomeTopLink("skills", "review"))
+        parse_home_skill_metadata(text, ref=HomeTopRef("skills", "review"))
 
 
 def test_home_builder_rejects_invalid_actual_skill(tmp_path: Path) -> None:
@@ -84,20 +84,20 @@ def test_skill_mutation_validates_before_changing_effective_home(
     tmp_path: Path,
 ) -> None:
     home = _home(tmp_path)
-    link = "home:skills@review"
+    ref = "home:top/skills/review"
     original = _skill("Review Home", "Review pending Home changes.")
-    home.write_top(link, original)
+    home.write_top(ref, original)
 
     with pytest.raises(AgentHomeContractError, match="must start"):
-        home.write_top(link, "# Invalid\n", overwrite=True)
+        home.write_top(ref, "# Invalid\n", overwrite=True)
     with pytest.raises(AgentHomeContractError, match="description must be one line"):
         home.patch_top(
-            link,
+            ref,
             old_text="description: Review pending Home changes.",
             new_text="description: |\n  first\n  second",
         )
 
-    assert home.read_top(link) == original
+    assert home.read_top(ref) == original
 
 
 def test_skill_catalog_budget_fails_without_creating_runtime_skill(
@@ -114,9 +114,9 @@ def test_skill_catalog_budget_fails_without_creating_runtime_skill(
     ).build()
 
     with pytest.raises(AgentHomeContractError, match="metadata catalog exceeds"):
-        home.write_top("home:skills@review", _skill("Review", "Review changes."))
+        home.write_top("home:top/skills/review", _skill("Review", "Review changes."))
 
-    assert "home:skills@review" not in home.loadable_background_links()
+    assert "home:top/skills/review" not in home.loadable_background_refs()
 
 
 async def test_home_provider_reflects_effective_skill_metadata_without_loading_body(
@@ -136,9 +136,9 @@ async def test_home_provider_reflects_effective_skill_metadata_without_loading_b
 
     first = await provider.catalog(date(2026, 7, 14))
 
-    assert [(item.link, item.title, item.description) for item in first.items] == [
+    assert [(item.ref, item.title, item.description) for item in first.items] == [
         (
-            "home:skills@review",
+            "home:top/skills/review",
             "Review Home",
             "Review pending Home changes.",
         )
@@ -148,14 +148,14 @@ async def test_home_provider_reflects_effective_skill_metadata_without_loading_b
     ).exists()
 
     home.patch_top(
-        "home:skills@review",
+        "home:top/skills/review",
         old_text="title: Review Home",
         new_text="title: Review Home Daily",
     )
     second = await provider.catalog(date(2026, 7, 15))
     assert second.items[0].title == "Review Home Daily"
 
-    home.delete_top("home:skills@review")
+    home.delete_top("home:top/skills/review")
     third = await provider.catalog(date(2026, 7, 16))
     assert third.items == ()
 

@@ -8,7 +8,7 @@ import { useAppStore } from "../../store/appStore";
 import { useConnectionStore } from "../../store/connectionStore";
 
 export async function downloadWorkspaceBlob(
-  link: string,
+  ref: string,
   day: string | null,
   filename: string,
 ): Promise<void> {
@@ -19,7 +19,7 @@ export async function downloadWorkspaceBlob(
   }
   try {
     const response = await clients.workspace.readBlob({
-      link,
+      ref,
       day: day ?? undefined,
     });
     const blob = await response.blob();

@@ -37,12 +37,12 @@ class ProcessJobBackend:
         process: ManagedProcess,
         *,
         settings: ExecutionSettings,
-        workspace_links: tuple[str, ...],
+        workspace_refs: tuple[str, ...],
     ) -> None:
         self.job_id = job_id
         self._process = process
         self._settings = settings
-        self._workspace_links = workspace_links
+        self._workspace_refs = workspace_refs
         self._deadline = monotonic() + settings.max_runtime_seconds
         self._stop_reason: _StopReason | None = None
         self._lock = RLock()
@@ -72,7 +72,7 @@ class ProcessJobBackend:
                         self.job_id,
                         self.kind,
                         JobState.RUNNING,
-                        result_links=self._workspace_links,
+                        result_refs=self._workspace_refs,
                     )
             if self._stop_reason is _StopReason.CANCELLED:
                 state, reason, summary = (
@@ -104,7 +104,7 @@ class ProcessJobBackend:
                 state,
                 summary,
                 reason,
-                result_links=self._workspace_links,
+                result_refs=self._workspace_refs,
             )
 
     def _stop(self, reason: _StopReason) -> None:
@@ -182,7 +182,7 @@ class ProcessJobBackend:
                 job_id=self.job_id, channels=channels
             ),
             "truncated": bool(value["stdout_truncated"] or value["stderr_truncated"]),
-            "result_locators": [{"link": link} for link in self._workspace_links],
+            "result_locators": [{"ref": ref} for ref in self._workspace_refs],
         }
 
     def _describe(self) -> JsonObject:
@@ -198,7 +198,7 @@ class ProcessJobBackend:
                 "exit_code": self._process.exit_code,
                 "stdout_bytes": stdout_size,
                 "stderr_bytes": stderr_size,
-                "workspace_links": list(self._workspace_links),
+                "workspace_refs": list(self._workspace_refs),
             }
 
     def write_stdin(self, text: str, *, close: bool = False) -> int:

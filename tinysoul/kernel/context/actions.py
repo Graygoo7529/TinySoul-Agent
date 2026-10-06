@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tinysoul.kernel.retrieval.disclosure import inspect_recollection
 from tinysoul.prompts.kernel import context as prompt_text
 from tinysoul.kernel.action import (
     ActionEngineBuilder,
@@ -19,7 +20,12 @@ from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
 from tinysoul.kernel.action.tasks import ActionTaskFactory
 from tinysoul.kernel.retrieval.operations import SearchSession
 from tinysoul.kernel.retrieval.requests import parse_retrieval_request
-from tinysoul.kernel.retrieval.contracts import SearchFailure, SearchContext, RetrievalRequest, ModelStep
+from tinysoul.kernel.retrieval.contracts import (
+    SearchFailure,
+    SearchContext,
+    RetrievalRequest,
+    ModelStep,
+)
 
 from .engine import ContextEngine
 from .errors import (
@@ -64,13 +70,16 @@ class ContextSearchExecutor(ActionExecutor):
         self, execution: ActionExecution, context: ActionExecutionContext
     ) -> ActionResult:
         try:
-            request = parse_retrieval_request(execution.call.params, self._queries.retrieval_policies[0])
+            request = parse_retrieval_request(
+                execution.call.params, self._queries.retrieval_policies[0]
+            )
             if isinstance(request, str):
                 page = await self._queries.search(request)
             else:
-                use_context = (
-                    any(isinstance(step, ModelStep) and step.context is SearchContext.CURRENT for step in request.steps)
-
+                use_context = any(
+                    isinstance(step, ModelStep)
+                    and step.context is SearchContext.CURRENT
+                    for step in request.steps
                 )
                 inputs = await self._tasks.selection_input(
                     execution,
@@ -91,10 +100,7 @@ class ContextSearchExecutor(ActionExecutor):
             page.to_json(),
             trace_projection=ActionTraceProjection(
                 origin_refs=tuple(item.ref for item in page.items),
-                canonical_payload={
-                    "source": page.source.value,
-                    "selected": [item.ref for item in page.items],
-                },
+                canonical_payload=page.recollection(),
             ),
         )
 
@@ -145,7 +151,7 @@ class ContextInspectExecutor(ActionExecutor):
             return _failed_request(execution, exc)
         except ContextError as exc:
             raise self._runtime_bridge.from_context_error(exc) from exc
-        canonical_payload: JsonObject = {"ref": ref, "inspected": True}
+        canonical_payload = inspect_recollection(payload, query=query)
         return _success(
             execution,
             payload,

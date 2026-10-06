@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
+from tinysoul.infra.json import JsonObject, JsonValue, dumps_json, to_json_object
+from tinysoul.kernel.interaction import QuestionContent
+from tinysoul.prompts.plugins import session as prompt_text
 from ..errors import SessionContractError, SessionInvariantError
 
 
@@ -17,6 +19,9 @@ class SessionBackgroundItem:
         if not self.item_id:
             raise SessionContractError("Background item requires an identity")
         object.__setattr__(self, "content", to_json_object(self.content))
+
+    def render(self) -> str:
+        return render_background(self.content)
 
 
 @dataclass(frozen=True)
@@ -50,12 +55,12 @@ class SessionBackgroundSnapshot:
             "annotations": "session:annotations",
             "unclassified": "session:unclassified",
         }
-        if len(dumps_json(head)) > budget:
+        if len(render_background(head)) > budget:
             raise SessionInvariantError("Session minimum Map exceeds its capacity")
         details: list[JsonObject] = []
         for item in self.navigation:
             candidate = to_json_object({**head, "navigation": [*details, item]})
-            if len(dumps_json(candidate)) > budget // 3:
+            if len(render_background(candidate)) > budget // 3:
                 item = {
                     key: value
                     for key, value in item.items()
@@ -64,20 +69,20 @@ class SessionBackgroundSnapshot:
                 }
                 item["folded"] = True
                 candidate = to_json_object({**head, "navigation": [*details, item]})
-                if len(dumps_json(candidate)) > budget // 3:
+                if len(render_background(candidate)) > budget // 3:
                     continue
             details.append(item)
         if details:
             head["navigation"] = [item for item in details]
-        used = len(dumps_json(head))
+        used = len(render_background(head))
         by_ref = {item.item_id: item for item in self.candidates}
         selected: dict[str, SessionBackgroundItem] = {}
         for ref in self.priority:
             item = by_ref[ref]
-            size = len(dumps_json(item.content))
+            size = len(item.render())
             if used + size > budget:
                 compact = _compact_turn(item.content)
-                size = len(dumps_json(compact))
+                size = len(render_background(compact))
                 if used + size > budget:
                     continue
                 item = SessionBackgroundItem(ref, compact)
@@ -93,7 +98,7 @@ class SessionBackgroundSnapshot:
                 if isinstance(first, dict) and isinstance(first.get("text"), str):
                     content["clue"] = str(first["text"])[:120]
             item = SessionBackgroundItem(ref, content)
-            size = len(dumps_json(item.content))
+            size = len(item.render())
             if used + size <= budget:
                 selected[ref] = item
                 used += size
@@ -111,16 +116,157 @@ def _compact_turn(content: JsonObject) -> JsonObject:
         return content
     values: list[JsonObject] = []
     for item in interactions:
-        if not isinstance(item, dict) or item.get("role") == "agent.action":
+        if not isinstance(item, dict):
             continue
         value = dict(item)
         text = value.get("text")
         if (
             isinstance(text, str)
             and len(text) > 240
-            and value.get("role") != "agent.question"
+            and value.get("role") not in {"agent.question", "user.reply"}
         ):
             value["text"] = text[:240]
             value["excerpted"] = True
+        if value.get("role") in {"agent.action", "agent.reason"}:
+            for key in ("request", "result"):
+                body = _action_fields(value.get(key, {}))
+                if len(body) > 400:
+                    value.pop(key, None)
+                    value[f"{key}_excerpt"] = body[:400]
+                    value["excerpted"] = True
         values.append(value)
     return to_json_object({**content, "interactions": values, "folded": True})
+
+
+def render_background(content: JsonObject) -> str:
+    """Model narrative from owner facts; never a source for persistence."""
+    if content.get("kind") == "session_map":
+        count = content.get("total_turns", 0)
+        lines = [
+            prompt_text.map_header(
+                day=str(content.get("day", "")),
+                count=count if isinstance(count, int) else 0,
+            )
+        ]
+        navigation = content.get("navigation", [])
+        if isinstance(navigation, list):
+            for item in navigation:
+                if isinstance(item, dict):
+                    lines.append(
+                        " · ".join(
+                            str(item[key])
+                            for key in (
+                                "title",
+                                "body",
+                                "basis",
+                                "relation",
+                                "source",
+                                "target",
+                                "ref",
+                            )
+                            if item.get(key)
+                        )
+                    )
+                    sources = item.get("source_refs", [])
+                    if isinstance(sources, list):
+                        lines.append(
+                            prompt_text.referenced_content(
+                                text="",
+                                refs=tuple(
+                                    ref for ref in sources if isinstance(ref, str)
+                                ),
+                            )
+                        )
+                    relations = item.get("relations", [])
+                    if isinstance(relations, list):
+                        lines.extend(
+                            " · ".join(
+                                str(edge[key])
+                                for key in (
+                                    "relation",
+                                    "basis",
+                                    "source",
+                                    "target",
+                                    "ref",
+                                )
+                                if edge.get(key)
+                            )
+                            for edge in relations
+                            if isinstance(edge, dict)
+                        )
+        return "\n".join(lines)
+    lines = [
+        prompt_text.turn_header(
+            day=str(content.get("day", "")),
+            status=str(content.get("status", "")),
+            ref=str(content["ref"]),
+        )
+    ]
+    failures = content.get("failures", [])
+    if isinstance(failures, list):
+        lines.extend(
+            str(failure.get("message", ""))
+            for failure in failures
+            if isinstance(failure, dict)
+        )
+    interactions = content.get("interactions", [])
+    if not isinstance(interactions, list) or not interactions:
+        lines.extend((str(content.get("clue", "")), prompt_text.FOLDED_NOTICE))
+    else:
+        labels = dict(prompt_text.INTERACTION_LABELS)
+        for item in interactions:
+            if not isinstance(item, dict):
+                continue
+            role = str(item.get("role", ""))
+            if role == "agent.question":
+                explanation = item.get("explanation", "")
+                body = QuestionContent.from_json(item).narrative(
+                    explanation=explanation if isinstance(explanation, str) else ""
+                )
+            elif role in {"agent.action", "agent.reason"}:
+                body = prompt_text.action_result(
+                    action=str(item.get("action", "")),
+                    outcome=str(item.get("outcome", "")),
+                    request=str(item["request_excerpt"])
+                    if "request_excerpt" in item
+                    else _action_fields(item.get("request", {})),
+                    result=str(item["result_excerpt"])
+                    if "result_excerpt" in item
+                    else _action_fields(item.get("result", {})),
+                )
+            else:
+                body = str(item.get("narrative", item.get("text", "")))
+            failure = item.get("failure")
+            if isinstance(failure, dict):
+                body += "\n" + str(failure.get("feedback", failure.get("reason", "")))
+            refs = item.get("references", [])
+            targets: list[str] = []
+            if isinstance(refs, list):
+                for ref in refs:
+                    if isinstance(ref, str):
+                        targets.append(ref)
+                    elif isinstance(ref, dict):
+                        target = ref.get("target_ref", ref.get("ref"))
+                        if isinstance(target, str):
+                            targets.append(target)
+            body = prompt_text.referenced_content(text=body, refs=tuple(targets))
+            if item.get("excerpted"):
+                body += "\n" + prompt_text.EXCERPT_NOTICE
+            lines.append(
+                prompt_text.interaction(
+                    label=labels.get(role, role),
+                    ref=str(item.get("ref", "")),
+                    body=body,
+                )
+            )
+    return "\n\n".join(lines)
+
+
+def _action_fields(value: JsonValue) -> str:
+    """Expose natural-language values directly while retaining named result fields."""
+    if not isinstance(value, dict):
+        return dumps_json(value)
+    return "\n".join(
+        f"{key}:\n{body}" if isinstance(body, str) else f"{key}: {dumps_json(body)}"
+        for key, body in value.items()
+    )

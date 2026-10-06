@@ -1,15 +1,15 @@
 {
-  "ref": "home:agent@long-contract",
+  "ref": "home:top/agent/long-contract",
   "view": "content",
   "items": [],
-  "next_continuation": "continuation_1",
+  "next_continuation": "v1.eyJiaW5kaW5nIjp7ImRpZ2VzdCI6ImFiMDU0Nzk4Y2MyZjI0ODMyN2VmMmZmOTNiNTI2YTI2YmVjMjIxZTBiZjgxOWM5OWEzZWE1YzNjNjYzNTU1ZjMiLCJtYXhfY2hhcnMiOjEwMjQsInZpZXciOiJjb250ZW50In0sIm9wZXJhdGlvbiI6Imluc3BlY3QiLCJvd25lciI6ImhvbWUuZWZmZWN0aXZlIiwicG9zaXRpb24iOnsiY2hhcl9vZmZzZXQiOjIzMiwiaXRlbV9kaWdlc3QiOiJzaGEyNTY6ZGVmOTlkOTMxMWNkYmRjY2MyZjU4MGEyM2E3Y2EyYzYxNjU1MzMzMjQ2MTQ1YjZiNDZhZjkyM2M0MGViZTM2NiIsIml0ZW1faW5kZXgiOjB9LCJyZWYiOiJob21lOnRvcC9hZ2VudC9sb25nLWNvbnRyYWN0IiwidmVyc2lvbiI6MX0.9cf099268b7c3db3ea1720f8999222510bc265af9959cddfbb1be42c17cefc81",
   "content_fragment": {
     "encoding": "canonical_json",
-    "text": "{\"ref\":\"home:agent@long-contract#L1-L1\",\"text\":\"Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content L"
+    "text": "{\"ref\":\"home:top/agent/long-contract#L1-L1\",\"text\":\"Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long conten"
   },
   "metadata": {
     "locator": {
-      "link": "home:agent@long-contract",
+      "ref": "home:top/agent/long-contract",
       "view": "effective"
     },
     "direct_refs": []

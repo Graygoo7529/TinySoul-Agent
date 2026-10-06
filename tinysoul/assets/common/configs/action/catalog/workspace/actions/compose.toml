@@ -6,12 +6,12 @@ description = "Generate a complete bounded text artifact from task-local resourc
 
 [tool.schema]
 type = "object"
-required = ["target_link","instruction"]
+required = ["target_ref","instruction"]
 additionalProperties = false
 
 [tool.schema.properties]
 
-[tool.schema.properties.target_link]
+[tool.schema.properties.target_ref]
 type = "string"
 
 [tool.schema.properties.instruction]
@@ -20,10 +20,10 @@ type = "string"
 [tool.schema.properties.overwrite]
 type = "boolean"
 
-[tool.schema.properties.reference_links]
+[tool.schema.properties.references]
 type = "array"
 
-[tool.schema.properties.reference_links.items]
+[tool.schema.properties.references.items]
 type = "string"
 
 [semantic]

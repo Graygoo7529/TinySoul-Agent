@@ -11,47 +11,47 @@ import type { ContinuationParams } from "./paging";
 export class JobsClient {
   constructor(private readonly transport: V2Transport) {}
 
-  /** GET /v2/turns/{id}/jobs — live job summaries of one Turn. */
-  list(turnId: string, options?: RequestOptions): Promise<JobList> {
+  /** GET /v2/requests/{id}/jobs — live job summaries of one Turn. */
+  list(requestId: string, options?: RequestOptions): Promise<JobList> {
     return this.transport.get<JobList>(
-      `/turns/${encodeURIComponent(turnId)}/jobs`,
+      `/requests/${encodeURIComponent(requestId)}/jobs`,
       options,
     );
   }
 
-  /** GET /v2/turns/{id}/jobs/{job_id} — owner describe projection. */
+  /** GET /v2/requests/{id}/jobs/{job_id} — owner describe projection. */
   get(
-    turnId: string,
+    requestId: string,
     jobId: string,
     options?: RequestOptions,
   ): Promise<JobDetail> {
     return this.transport.get<JobDetail>(
-      `/turns/${encodeURIComponent(turnId)}/jobs/${encodeURIComponent(jobId)}`,
+      `/requests/${encodeURIComponent(requestId)}/jobs/${encodeURIComponent(jobId)}`,
       options,
     );
   }
 
-  /** GET /v2/turns/{id}/jobs/{job_id}/output — bounded channel/text page. */
+  /** GET /v2/requests/{id}/jobs/{job_id}/output — bounded channel/text page. */
   output(
-    turnId: string,
+    requestId: string,
     jobId: string,
     params?: ContinuationParams,
     options?: RequestOptions,
   ): Promise<JobOutputPage> {
     return this.transport.get<JobOutputPage>(
-      `/turns/${encodeURIComponent(turnId)}/jobs/${encodeURIComponent(jobId)}/output`,
+      `/requests/${encodeURIComponent(requestId)}/jobs/${encodeURIComponent(jobId)}/output`,
       { ...options, query: { ...params } },
     );
   }
 
-  /** POST /v2/turns/{id}/jobs/{job_id}/stop — stop intent, not Turn cancel. */
+  /** POST /v2/requests/{id}/jobs/{job_id}/stop — stop intent, not Turn cancel. */
   stop(
-    turnId: string,
+    requestId: string,
     jobId: string,
     options?: RequestOptions,
   ): Promise<JobDetail> {
     return this.transport.post<JobDetail>(
-      `/turns/${encodeURIComponent(turnId)}/jobs/${encodeURIComponent(jobId)}/stop`,
+      `/requests/${encodeURIComponent(requestId)}/jobs/${encodeURIComponent(jobId)}/stop`,
       options,
     );
   }

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from tinysoul.prompts.plugins import workspace as prompt_text
 from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.continuation import ContinuationError, ContinuationFailureReason
 from tinysoul.kernel.action import (
     ActionExecution,
     ActionExecutionContext,
@@ -54,6 +55,14 @@ class WorkspaceExecutor(ActionExecutor):
             return await self._execute(workspace, execution, context)
         except SearchFailure as exc:
             return _failed(execution, str(exc), {"reason": exc.kind.value})
+        except ContinuationError as exc:
+            return _failed(
+                execution,
+                prompt_text.inspect_page_budget(workspace.max_read_chars)
+                if exc.reason is ContinuationFailureReason.BUDGET_TOO_SMALL
+                else prompt_text.INSPECT_CONTINUATION_INVALID,
+                {"reason": exc.reason.value, "ref": execution.call.params.get("ref")},
+            )
         except PromptReferenceError as exc:
             return _failed(
                 execution,
@@ -76,6 +85,109 @@ class WorkspaceExecutor(ActionExecutor):
         context: ActionExecutionContext,
     ) -> ActionResult:
         params, action = execution.call.params, execution.call.action_name
+        if action == "workspace.inspect":
+            ref = _text(params, "ref")
+            continuation = params.get("continuation")
+            if continuation is not None and not isinstance(continuation, str):
+                raise WorkspaceContractError("Continuation must be text")
+            page = await workspace.inspect(
+                ref,
+                continuation=continuation,
+                max_chars=_integer(params, "max_chars", workspace.max_read_chars),
+            )
+            canonical = {
+                key: value
+                for key, value in page.items()
+                if key
+                in {
+                    "ref",
+                    "title",
+                    "summary",
+                    "kind",
+                    "media_type",
+                    "size",
+                    "view",
+                    "requested_ref",
+                    "coverage",
+                    "has_more",
+                }
+            }
+            canonical["status"] = "inspected"
+            title = str(page["title"])
+            summary = str(page["summary"])
+            details: list[str] = []
+            coverage = page.get("coverage")
+            coverage_text = prompt_text.INSPECT_METADATA_ONLY
+            if isinstance(coverage, dict):
+                coverage_text = prompt_text.inspect_coverage(
+                    str(coverage["ref"]),
+                    str(coverage["start_offset"]),
+                    str(coverage["end_offset"]),
+                )
+                details.append(coverage_text)
+            body = page.get("text")
+            if isinstance(body, str):
+                details.append(body)
+            items = page.get("items", [])
+            if isinstance(items, list):
+                details.extend(
+                    f"- {item['title']}: {item['summary']} ({item['ref']})"
+                    for item in items
+                    if isinstance(item, dict)
+                )
+            fragment = page.get("content_fragment")
+            fragment_text = fragment.get("text") if isinstance(fragment, dict) else None
+            if isinstance(fragment_text, str):
+                details.append(fragment_text)
+            direct = page.get("direct_refs", [])
+            if isinstance(direct, list):
+                details.extend(
+                    f"- {item['title']} ({item['ref']})"
+                    for item in direct
+                    if isinstance(item, dict)
+                )
+            if page.get("view") == "children":
+                returned_refs = (
+                    tuple(str(item["ref"]) for item in items if isinstance(item, dict))
+                    if isinstance(items, list)
+                    else ()
+                )
+                canonical["coverage"] = {
+                    "returned_refs": list(returned_refs),
+                    "partial_item": isinstance(fragment_text, str),
+                }
+                coverage_text = prompt_text.inspect_directory_coverage(
+                    returned_refs, isinstance(fragment_text, str)
+                )
+            if page.get("view") == "metadata":
+                details.append(
+                    prompt_text.inspect_metadata(
+                        str(page["kind"]), str(page["media_type"]), str(page["size"])
+                    )
+                )
+                details.append(prompt_text.INSPECT_METADATA_ONLY)
+            next_page = page.get("next_continuation")
+            if isinstance(next_page, str):
+                details.append(prompt_text.inspect_continuation(next_page))
+            return _success(
+                execution,
+                page,
+                model_text=prompt_text.inspect_result(
+                    title, ref, summary, "\n".join(details)
+                ),
+                trace_projection=ActionTraceProjection(
+                    origin_refs=(ref,),
+                    canonical_payload=canonical,
+                    model_text=prompt_text.inspect_recollection(
+                        title,
+                        ref,
+                        summary,
+                        coverage_text,
+                        bool(page.get("has_more")),
+                        page.get("view") != "metadata",
+                    ),
+                ),
+            )
         if action == "workspace.list":
             result = await workspace.reconcile()
             if not result.complete:
@@ -89,13 +201,13 @@ class WorkspaceExecutor(ActionExecutor):
                 )
             prefix = _text(params, "directory", default="")
             if prefix:
-                from ..links import WorkspaceLink
+                from ..refs import WorkspaceRef
 
-                prefix = str(WorkspaceLink.parse(prefix.rstrip("/"))) + "/"
+                prefix = str(WorkspaceRef.parse(prefix.rstrip("/"))) + "/"
             records = tuple(
                 record
                 for record in result.manifest.resources
-                if not prefix or record.link.startswith(prefix)
+                if not prefix or record.ref.startswith(prefix)
             )
             offset, limit = _integer(params, "offset", 0), _integer(params, "limit", 32)
             if offset < 0 or not 1 <= limit <= 64 or offset > len(records):
@@ -117,9 +229,9 @@ class WorkspaceExecutor(ActionExecutor):
                 ),
             )
         if action == "workspace.read":
-            link = _text(params, "link")
+            ref = _text(params, "ref")
             result = await workspace.read_text_range(
-                link,
+                ref,
                 start_line=_integer(params, "start_line", 1),
                 end_line=_integer(params, "end_line", 2**31 - 1),
                 cursor=_integer(params, "cursor", 0),
@@ -132,7 +244,7 @@ class WorkspaceExecutor(ActionExecutor):
                 execution,
                 payload,
                 trace_projection=ActionTraceProjection(
-                    origin_refs=(link,), canonical_payload=canonical
+                    origin_refs=(ref,), canonical_payload=canonical
                 ),
             )
         if action == "workspace.search":
@@ -158,10 +270,7 @@ class WorkspaceExecutor(ActionExecutor):
                 page.to_json(),
                 trace_projection=ActionTraceProjection(
                     origin_refs=tuple(item.ref for item in page.items),
-                    canonical_payload={
-                        "source": page.source.value,
-                        "selected": [item.ref for item in page.items],
-                    },
+                    canonical_payload=page.recollection(),
                 ),
             )
         if action == "workspace.trash_list":
@@ -176,7 +285,7 @@ class WorkspaceExecutor(ActionExecutor):
                         "items": [
                             {
                                 "ref": item.ref,
-                                "link": item.original.link,
+                                "target_ref": item.original.ref,
                                 "tags": list(item.original.tags),
                             }
                             for item in items[offset : offset + limit]
@@ -189,7 +298,7 @@ class WorkspaceExecutor(ActionExecutor):
                 ),
             )
 
-        target = _text(params, "target_link") if action != "workspace.restore" else ""
+        target = _text(params, "target_ref") if action != "workspace.restore" else ""
         if action in {"workspace.compose", "workspace.describe"}:
             return await self._generate(workspace, execution, context, target)
         context.control.check_cancelled()
@@ -221,7 +330,7 @@ class WorkspaceExecutor(ActionExecutor):
                 target, _text(params, "text", allow_empty=True)
             )
         elif action == "workspace.move":
-            record = await workspace.move(_text(params, "source_link"), target)
+            record = await workspace.move(_text(params, "source_ref"), target)
         elif action == "workspace.mkdir":
             record = await workspace.mkdir(target)
         elif action == "workspace.tag":
@@ -242,7 +351,7 @@ class WorkspaceExecutor(ActionExecutor):
         elif action == "workspace.delete":
             item = await workspace.trash_resource(target)
             return _success(
-                execution, {"trash_ref": item.ref, "link": item.original.link}
+                execution, {"trash_ref": item.ref, "ref": item.original.ref}
             )
         else:
             raise WorkspaceContractError("Unknown Workspace action")
@@ -263,15 +372,13 @@ class WorkspaceExecutor(ActionExecutor):
         )
         if len(instruction) > workspace.analysis_settings.max_intent_chars:
             raise WorkspaceContractError("Workspace instruction exceeds its bound")
-        links = params.get("reference_links", [])
-        if not isinstance(links, list) or any(
-            not isinstance(link, str) for link in links
-        ):
-            raise WorkspaceContractError("Workspace references must be links")
+        refs = params.get("references", [])
+        if not isinstance(refs, list) or any(not isinstance(ref, str) for ref in refs):
+            raise WorkspaceContractError("Workspace references must be refs")
         if (
-            len(set(links)) != len(links)
-            or len(links) > workspace.analysis_settings.max_reference_links
-            or target in links
+            len(set(refs)) != len(refs)
+            or len(refs) > workspace.analysis_settings.max_reference_refs
+            or target in refs
         ):
             raise WorkspaceContractError(
                 "Workspace references must be unique and bounded"
@@ -293,7 +400,7 @@ class WorkspaceExecutor(ActionExecutor):
                     return _failed(
                         execution,
                         prompt_text.TARGET_TRUNCATED,
-                        {"reason": "target_truncated", "link": target},
+                        {"reason": "target_truncated", "ref": target},
                     )
                 blocks.append(
                     PromptBlock.from_text(
@@ -304,9 +411,9 @@ class WorkspaceExecutor(ActionExecutor):
                 blocks.extend(await resolver.resolve_target(target))
         elif action == "workspace.describe":
             raise WorkspaceContractError("Workspace description target is absent")
-        for link in links:
-            if isinstance(link, str):
-                blocks.extend(await resolver.resolve_reference(link))
+        for ref in refs:
+            if isinstance(ref, str):
+                blocks.extend(await resolver.resolve_reference(ref))
         prompt = TaskPrompt(
             guide_blocks=(
                 PromptBlock.from_text(
@@ -429,7 +536,7 @@ def _flag(params: JsonObject, name: str) -> bool:
 
 def _record_payload(record: WorkspaceResourceRecord) -> JsonObject:
     return {
-        "link": record.link,
+        "ref": record.ref,
         "summary": record.summary,
         "description": record.description,
         "tags": [tag.value for tag in record.tags],
@@ -443,7 +550,7 @@ def _record_payload(record: WorkspaceResourceRecord) -> JsonObject:
 def _text_range_payload(result: WorkspaceTextRangeResult) -> JsonObject:
     page = result.page
     return {
-        "link": result.link,
+        "ref": result.ref,
         "size": result.size,
         "requested": {
             "start_line": result.start_line,

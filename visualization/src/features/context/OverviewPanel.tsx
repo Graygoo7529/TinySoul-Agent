@@ -1,3 +1,4 @@
+import { requestIdForTurn } from "../../store/turnStore";
 /**
  * Context overview: the first screen of the Context drawer (plan §8).
  *
@@ -66,7 +67,7 @@ export function ContextOverviewPanel({
     setRefreshing(true);
     void (async () => {
       try {
-        const overview = await contextClients(epoch).context.overview(turnId, {
+        const overview = await contextClients(epoch).context.overview(requestIdForTurn(turnId), {
           signal: controller.signal,
         });
         if (seqRef.current !== seq) return;

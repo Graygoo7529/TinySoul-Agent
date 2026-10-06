@@ -1,6 +1,6 @@
 {
   "home_diff": {
-    "ref": "home:agent@contract",
+    "ref": "home:top/agent/contract",
     "view": "content",
     "metadata": {
       "baseline_diverged": false,
@@ -9,8 +9,8 @@
     },
     "items": [
       {
-        "ref": "home:agent@contract#L1-L4",
-        "text": "--- actual:home:agent@contract\n+++ effective:home:agent@contract\n@@ -0,0 +1 @@\n+Workspace guidance\n"
+        "ref": "home:top/agent/contract#L1-L4",
+        "text": "--- actual:home:top/agent/contract\n+++ effective:home:top/agent/contract\n@@ -0,0 +1 @@\n+Workspace guidance\n"
       }
     ]
   },
@@ -32,7 +32,7 @@
         "memory:entity/project"
       ],
       "locator": {
-        "link": "memory:entity/old-project"
+        "ref": "memory:entity/old-project"
       },
       "direct_refs": [
         "memory:entity/project"

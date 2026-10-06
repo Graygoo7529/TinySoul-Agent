@@ -52,7 +52,7 @@ async def test_context_pressure_trap_retries_current_phase_when_trace_changes(
             manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
         )
     ).build()
-    turn_id = context.begin_turn("compress me")
+    turn_id = context.begin_turn("compress me", turn_id="2026-10-06/55")
     await context.open_segments(CalendarDate(2026, 7, 12))
     bus = SignalBus()
     scope = (

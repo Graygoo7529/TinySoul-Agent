@@ -82,7 +82,7 @@ describe("JobOutputReader", () => {
   });
 
   it("stalls on a truncated page that makes no progress and surfaces locators", async () => {
-    const locators = [{ link: "workspace:jobs/job_1/logs/stdout.log" }];
+    const locators = [{ ref: "workspace:jobs/job_1/logs/stdout.log" }];
     const { reader } = makeReader([
       page({ next_continuation: "c1", truncated: true, result_locators: locators }),
     ]);

@@ -299,7 +299,7 @@ class TraceSegment:
                 assert isinstance(node, dict)
                 children.append(
                     DisclosureHint(
-                        str(node["ref"]), str(node["kind"]), dumps_json(node)
+                        str(node["ref"]), str(node["kind"]), str(node["clue"])
                     )
                 )
             if ref == self.state.head_ref():
@@ -310,7 +310,7 @@ class TraceSegment:
                 DisclosureHint(
                     self.state.entry_ref(item.entry_id),
                     item.kind.value,
-                    dumps_json(item.to_semantic())[:240],
+                    item.clue,
                 )
                 for item in entries
             )

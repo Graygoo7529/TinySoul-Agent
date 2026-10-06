@@ -38,7 +38,7 @@ class _Connection:
     identity: str
     target: AgentTarget
     cwd: Path
-    cwd_link: str
+    cwd_ref: str
     profile: str
     owner_turn: str | None
     client: ACPConnection
@@ -95,7 +95,7 @@ class SubagentEngine:
                 {
                     "connection_id": item.identity,
                     "agent_id": item.target.agent_id,
-                    "cwd_link": item.cwd_link,
+                    "cwd_ref": item.cwd_ref,
                     "state": ConnectionState.UNAVAILABLE.value
                     if item.client.closed
                     else ConnectionState.BUSY.value
@@ -135,7 +135,7 @@ class SubagentEngine:
         }
 
     async def connect(
-        self, turn_id: str, profile: str, agent_id: str, cwd_link: str = ""
+        self, turn_id: str, profile: str, agent_id: str, cwd_ref: str = ""
     ) -> JsonObject:
         from .acp.connection import ACPConnection
 
@@ -151,7 +151,7 @@ class SubagentEngine:
                     item.owner_turn is None
                     and item.target == target
                     and item.profile == profile
-                    and (not cwd_link or item.cwd_link == cwd_link)
+                    and (not cwd_ref or item.cwd_ref == cwd_ref)
                     and not item.client.closed
                 ):
                     try:
@@ -167,7 +167,7 @@ class SubagentEngine:
                     return {
                         "connection_id": item.identity,
                         "agent_id": agent_id,
-                        "cwd_link": item.cwd_link,
+                        "cwd_ref": item.cwd_ref,
                     }
             for identity, item in tuple(self._connections.items()):
                 if item.client.closed or (
@@ -183,10 +183,8 @@ class SubagentEngine:
                 )
             identity = f"connection_{uuid4().hex}"
             operations = JoinedOperations()
-            cwd, link = await operations.run(
-                lambda: self._workspace.prepare_external_cwd(
-                    identity, cwd_link=cwd_link
-                )
+            cwd, ref = await operations.run(
+                lambda: self._workspace.prepare_external_cwd(identity, cwd_ref=cwd_ref)
             )
             operations.check_cancelled()
             try:
@@ -201,10 +199,10 @@ class SubagentEngine:
                     prompt_text.EXTERNAL_AGENT_CONNECTION_FAILED,
                 ) from exc
             self._connections[identity] = _Connection(
-                identity, target, cwd, link, profile, turn_id, client
+                identity, target, cwd, ref, profile, turn_id, client
             )
             await self._changed(turn_id)
-            return {"connection_id": identity, "agent_id": agent_id, "cwd_link": link}
+            return {"connection_id": identity, "agent_id": agent_id, "cwd_ref": ref}
 
     def _owned(self, turn_id: str, connection_id: str) -> _Connection:
         item = self._connections.get(connection_id)
@@ -256,18 +254,18 @@ class SubagentEngine:
         return self.jobs.backend(turn_id, job_id, ACPJobBackend)
 
     async def prepare_brief(
-        self, brief: str, links: tuple[str, ...], operations: JoinedOperations
+        self, brief: str, refs: tuple[str, ...], operations: JoinedOperations
     ) -> str:
         blocks = [brief]
-        for link in links:
-            if not link.startswith("workspace:"):
+        for ref in refs:
+            if not ref.startswith("workspace:"):
                 raise SubagentRequestError(
                     SubagentFailure.INVALID_REQUEST,
                     prompt_text.WORKSPACE_REFERENCE_REQUIRED,
                 )
             source = await operations.run(
                 lambda: self._workspace.read_text(
-                    link, max_chars=self.settings.max_brief_chars
+                    ref, max_chars=self.settings.max_brief_chars
                 )
             )
             if source.truncated:
@@ -275,7 +273,7 @@ class SubagentEngine:
                     SubagentFailure.INVALID_REQUEST,
                     prompt_text.REFERENCE_INPUT_LIMIT_EXCEEDED,
                 )
-            blocks.append(prompt_text.delegation_reference(link=link, text=source.text))
+            blocks.append(prompt_text.delegation_reference(ref=ref, text=source.text))
         result = "\n\n".join(blocks)
         if len(result) > self.settings.max_brief_chars:
             raise SubagentRequestError(

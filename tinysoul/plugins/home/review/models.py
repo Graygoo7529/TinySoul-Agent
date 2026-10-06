@@ -26,13 +26,13 @@ class HomeSkillMemoryContext:
     """Bounded runtime-only reference for one general skill review."""
 
     skill: str
-    link: str
+    ref: str
     digest: str
     text: str
     truncated: bool
 
     def __post_init__(self) -> None:
-        if not self.skill or not self.link or not self.digest:
+        if not self.skill or not self.ref or not self.digest:
             raise AgentHomeContractError(
                 "Home skill memory identity fields must be non-empty"
             )
@@ -42,7 +42,7 @@ class HomeSkillMemoryContext:
     def to_json(self) -> JsonObject:
         return {
             "skill": self.skill,
-            "link": self.link,
+            "ref": self.ref,
             "digest": self.digest,
             "text": self.text,
             "truncated": self.truncated,
@@ -53,7 +53,7 @@ class HomeSkillMemoryContext:
 class HomeReviewChange:
     """Bounded three-way review facts for one active overlay difference."""
 
-    link: str
+    ref: str
     relative_path: str
     state: HomeOverlayState
     baseline_digest: str
@@ -68,7 +68,7 @@ class HomeReviewChange:
     actual_truncated: bool
 
     def __post_init__(self) -> None:
-        if not self.link or not self.relative_path:
+        if not self.ref or not self.relative_path:
             raise AgentHomeContractError(
                 "Home review change identity must be non-empty"
             )
@@ -137,7 +137,7 @@ class HomeReviewChange:
         value: JsonObject = {
             "kind": "change",
             "token": self.token,
-            "link": self.link,
+            "ref": self.ref,
             "relative_path": self.relative_path,
             "state": self.state.value,
             "baseline_digest": self.baseline_digest,
@@ -164,7 +164,7 @@ class HomeSkillReview:
     """Token-bound review of an actual skill using runtime-only skill memory."""
 
     skill: str
-    link: str
+    ref: str
     relative_path: str
     actual_digest: str
     actual_text: str
@@ -172,7 +172,7 @@ class HomeSkillReview:
     skill_memory: HomeSkillMemoryContext
 
     def __post_init__(self) -> None:
-        if not self.skill or not self.link or not self.relative_path:
+        if not self.skill or not self.ref or not self.relative_path:
             raise AgentHomeContractError(
                 "Home skill review identity fields must be non-empty"
             )
@@ -206,7 +206,7 @@ class HomeSkillReview:
             "kind": "skill_review",
             "token": self.token,
             "skill": self.skill,
-            "link": self.link,
+            "ref": self.ref,
             "relative_path": self.relative_path,
             "actual": {
                 "digest": self.actual_digest,
@@ -282,13 +282,13 @@ class HomeReviewSnapshot:
 
 @dataclass(frozen=True)
 class HomeReviewResolveOutcome:
-    link: str
+    ref: str
     relative_path: str
     resolution: HomeReviewResolution
     remaining_reviews: int
 
     def __post_init__(self) -> None:
-        if not self.link or not self.relative_path:
+        if not self.ref or not self.relative_path:
             raise AgentHomeContractError(
                 "Home review resolve outcome identity must be non-empty"
             )

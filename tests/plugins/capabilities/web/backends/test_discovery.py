@@ -262,7 +262,7 @@ async def test_oversized_discovery_spills_complete_json_and_emits_signal(
     assert stored["truncated"] is False
     assert len(stored["pages"]) == 20
     assert stored["pages"][-1]["anchor_text"] == "A" * 400
-    assert workspace.inspect(str(link)).link == link
+    assert workspace.stat(str(link)).ref == link
 
 
 class _DiscoveryRunner(ControlledProcessRunner):
@@ -288,7 +288,7 @@ class _DiscoveryRunner(ControlledProcessRunner):
                 "state": "candidate",
                 "discovered_from": "https://example.com/docs/",
                 "anchor_text": "A" * self._anchor_chars,
-                "link_title": "",
+                "ref_title": "",
                 "rel": "",
             }
             for index in range(self._page_count)
@@ -362,7 +362,7 @@ def _discovery_execution() -> ActionExecution:
             batch_id="batch_1",
             scope=RunScope(),
             domain="web",
-            turn_id="turn_1",
+            turn_id="2026-10-06/1000",
         ),
     )
 

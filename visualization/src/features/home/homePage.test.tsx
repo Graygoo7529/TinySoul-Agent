@@ -33,7 +33,7 @@ beforeEach(() => {
   resetAppStores();
   useHomePage.setState({
     view: "effective",
-    link: null,
+    ref: null,
     fragment: null,
     panel: "directory",
     query: "",
@@ -49,7 +49,7 @@ beforeEach(() => {
   endpoint = new FakeEndpoint();
   wireConnectedStores(endpoint, makeStatus({ activeDay: ACTIVE }));
   endpoint.get("/v2/home/catalog", () =>
-    jsonResponse({ items: [catalogItem("home:agent@identity", "top")], next_continuation: null }),
+    jsonResponse({ items: [catalogItem("home:top/agent/identity", "top")], next_continuation: null }),
   );
   scrollSpy = vi.fn();
   originalScrollIntoView = Element.prototype.scrollIntoView;
@@ -68,26 +68,26 @@ afterEach(() => {
 // Fixtures
 // ---------------------------------------------------------------------------
 
-function catalogItem(link: string, kind: string): JsonObject {
+function catalogItem(ref: string, kind: string): JsonObject {
   return {
-    link,
-    locator: { link, view: "effective" },
-    title: link.replace(/^home:/, ""),
+    ref,
+    locator: { ref, view: "effective" },
+    title: ref.replace(/^home:/, ""),
     kind,
     size: 42,
   };
 }
 
 function contentPage(
-  link: string,
+  ref: string,
   chunks: { ref: string; text: string }[],
   directRefs: string[] = [],
 ): JsonObject {
   return {
-    ref: link,
+    ref: ref,
     view: "content",
     items: chunks,
-    metadata: { locator: { link, view: "effective" }, direct_refs: directRefs },
+    metadata: { locator: { ref, view: "effective" }, direct_refs: directRefs },
   };
 }
 
@@ -122,18 +122,18 @@ describe("HomePage reading", () => {
   it("reads the selected resource in the effective view, then re-reads on actual", async () => {
     endpoint.get("/v2/home/content", () =>
       jsonResponse(
-        contentPage("home:agent@identity", [
-          { ref: "home:agent@identity#L1-L3", text: IDENTITY_TEXT },
+        contentPage("home:top/agent/identity", [
+          { ref: "home:top/agent/identity#L1-L3", text: IDENTITY_TEXT },
         ]),
       ),
     );
     await renderPage();
     await act(async () => {
-      (container.querySelector('button[title="home:agent@identity"]') as HTMLButtonElement).click();
+      (container.querySelector('button[title="home:top/agent/identity"]') as HTMLButtonElement).click();
     });
     let reads = endpoint.calls("/v2/home/content");
     expect(reads).toHaveLength(1);
-    expect(queryOf(reads[0], "link")).toBe("home:agent@identity");
+    expect(queryOf(reads[0], "ref")).toBe("home:top/agent/identity");
     expect(queryOf(reads[0], "view")).toBe("effective");
     expect(container.querySelector("h1")?.textContent).toBe("Identity");
 
@@ -151,17 +151,17 @@ describe("HomePage reading", () => {
   it("locates a #L fragment inside the matching chunk", async () => {
     endpoint.get("/v2/home/content", () =>
       jsonResponse(
-        contentPage("home:agent@identity", [
-          { ref: "home:agent@identity#L1-L2", text: "first\nsecond\n" },
-          { ref: "home:agent@identity#L3-L3", text: "third\n" },
+        contentPage("home:top/agent/identity", [
+          { ref: "home:top/agent/identity#L1-L2", text: "first\nsecond\n" },
+          { ref: "home:top/agent/identity#L3-L3", text: "third\n" },
         ]),
       ),
     );
-    useHomePage.getState().select("home:agent@identity", "L3");
+    useHomePage.getState().select("home:top/agent/identity", "L3");
     await renderPage();
     await flush();
 
-    const located = container.querySelector('div[data-chunk-ref="home:agent@identity#L3-L3"]');
+    const located = container.querySelector('div[data-chunk-ref="home:top/agent/identity#L3-L3"]');
     expect(located).not.toBeNull();
     expect(located?.className).toContain("ring-accent");
     expect(located?.textContent).toContain("third");
@@ -170,27 +170,27 @@ describe("HomePage reading", () => {
 
   it("keeps missing and unreadable resources as distinct, honest states", async () => {
     endpoint.get("/v2/home/content", (request) =>
-      queryOf(request, "link") === "home:agent/missing.md"
+      queryOf(request, "ref") === "home:resource/agent/missing.md"
         ? errorResponse(404, "resource.not_found")
         : errorResponse(422, "resource.invalid"),
     );
     endpoint.get("/v2/home/catalog", () =>
       jsonResponse({
         items: [
-          catalogItem("home:agent/missing.md", "resource"),
-          catalogItem("home:agent/blob.bin", "resource"),
+          catalogItem("home:resource/agent/missing.md", "resource"),
+          catalogItem("home:resource/agent/blob.bin", "resource"),
         ],
         next_continuation: null,
       }),
     );
     await renderPage();
     await act(async () => {
-      (container.querySelector('button[title="home:agent/missing.md"]') as HTMLButtonElement).click();
+      (container.querySelector('button[title="home:resource/agent/missing.md"]') as HTMLButtonElement).click();
     });
     expect(container.textContent).toContain("Not in the effective view");
 
     await act(async () => {
-      (container.querySelector('button[title="home:agent/blob.bin"]') as HTMLButtonElement).click();
+      (container.querySelector('button[title="home:resource/agent/blob.bin"]') as HTMLButtonElement).click();
     });
     // A non-text resource shows the reference and supported operations —
     // never a fake download.
@@ -205,16 +205,16 @@ describe("HomePage reading", () => {
 
 describe("HomePage changes", () => {
   const DIFF_TEXT =
-    "--- actual:home:agent@contract\n+++ effective:home:agent@contract\n@@ -0,0 +1 @@\n+Workspace guidance\n";
+    "--- actual:home:top/agent/contract\n+++ effective:home:top/agent/contract\n@@ -0,0 +1 @@\n+Workspace guidance\n";
 
   function wireChanges(diverged: boolean): void {
     endpoint.get("/v2/home/changes", () =>
       jsonResponse({
         items: [
           {
-            link: "home:agent@contract",
+            ref: "home:top/agent/contract",
             kind: "created",
-            locator: { link: "home:agent@contract", view: "effective" },
+            locator: { ref: "home:top/agent/contract", view: "effective" },
             baseline_diverged: diverged,
           },
         ],
@@ -223,9 +223,9 @@ describe("HomePage changes", () => {
     );
     endpoint.get("/v2/home/diff", () =>
       jsonResponse({
-        ref: "home:agent@contract",
+        ref: "home:top/agent/contract",
         view: "content",
-        items: [{ ref: "home:agent@contract#L1-L4", text: DIFF_TEXT }],
+        items: [{ ref: "home:top/agent/contract#L1-L4", text: DIFF_TEXT }],
         metadata: {
           baseline_diverged: diverged,
           actual_chars: 0,
@@ -239,24 +239,24 @@ describe("HomePage changes", () => {
     wireChanges(false);
     endpoint.get("/v2/home/content", () =>
       jsonResponse(
-        contentPage("home:agent@identity", [
-          { ref: "home:agent@identity#L1-L3", text: IDENTITY_TEXT },
+        contentPage("home:top/agent/identity", [
+          { ref: "home:top/agent/identity#L1-L3", text: IDENTITY_TEXT },
         ]),
       ),
     );
     await renderPage();
     await act(async () => {
-      (container.querySelector('button[title="home:agent@identity"]') as HTMLButtonElement).click();
+      (container.querySelector('button[title="home:top/agent/identity"]') as HTMLButtonElement).click();
     });
     await act(async () => {
       buttonByText("Changes").click();
     });
     await act(async () => {
-      (container.querySelector('button[title="home:agent@contract"]') as HTMLButtonElement).click();
+      (container.querySelector('button[title="home:top/agent/contract"]') as HTMLButtonElement).click();
     });
     const diffs = endpoint.calls("/v2/home/diff");
     expect(diffs).toHaveLength(1);
-    expect(queryOf(diffs[0], "link")).toBe("home:agent@contract");
+    expect(queryOf(diffs[0], "ref")).toBe("home:top/agent/contract");
     // Unified mode shows the added line with its marker.
     expect(container.textContent).toContain("+Workspace guidance");
     expect(container.textContent).toContain("actual 0 chars · effective 19 chars");
@@ -273,7 +273,7 @@ describe("HomePage changes", () => {
       (container.querySelector('button[aria-label="Back to changes"]') as HTMLButtonElement).click();
     });
     expect(useHomePage.getState().diffLink).toBeNull();
-    expect(useHomePage.getState().link).toBe("home:agent@identity");
+    expect(useHomePage.getState().ref).toBe("home:top/agent/identity");
     expect(container.querySelector("h1")?.textContent).toBe("Identity");
   });
 
@@ -284,7 +284,7 @@ describe("HomePage changes", () => {
       buttonByText("Changes").click();
     });
     await act(async () => {
-      (container.querySelector('button[title="home:agent@contract"]') as HTMLButtonElement).click();
+      (container.querySelector('button[title="home:top/agent/contract"]') as HTMLButtonElement).click();
     });
     expect(container.textContent).toContain("accepted baseline changed");
     // Review stays with the Home reflection: no accept/reject affordances.
@@ -304,8 +304,8 @@ describe("HomePage search and organize", () => {
     );
     endpoint.get("/v2/home/content", () =>
       jsonResponse(
-        contentPage("home:agent@identity", [
-          { ref: "home:agent@identity#L1-L3", text: IDENTITY_TEXT },
+        contentPage("home:top/agent/identity", [
+          { ref: "home:top/agent/identity#L1-L3", text: IDENTITY_TEXT },
         ]),
       ),
     );

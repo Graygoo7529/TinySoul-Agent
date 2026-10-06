@@ -43,27 +43,27 @@ class EndpointServices(Protocol):
         self, *, before: CalendarDay | None = None
     ) -> JsonObject: ...
 
-    def turn_snapshot(self, turn_id: str) -> TurnSnapshot | None: ...
+    def request_snapshot(self, request_id: str) -> TurnSnapshot | None: ...
 
-    def turn_directory(self) -> JsonObject: ...
+    def request_directory(self) -> JsonObject: ...
 
-    def turn_jobs(self, turn_id: str) -> tuple[JobSnapshot, ...] | None: ...
+    def turn_jobs(self, request_id: str) -> tuple[JobSnapshot, ...] | None: ...
 
-    async def stop_job(self, turn_id: str, job_id: str) -> JobSnapshot: ...
+    async def stop_job(self, request_id: str, job_id: str) -> JobSnapshot: ...
 
-    async def job_detail(self, turn_id: str, job_id: str) -> JsonObject: ...
+    async def job_detail(self, request_id: str, job_id: str) -> JsonObject: ...
 
     async def job_output(
-        self, turn_id: str, job_id: str, page: PageOptions = PageOptions()
+        self, request_id: str, job_id: str, page: PageOptions = PageOptions()
     ) -> JsonObject: ...
 
     async def subagent_status(self) -> JsonObject: ...
 
     async def resolve_resource(
         self,
-        reference: str,
+        ref: str,
         *,
-        origin_link: str | None = None,
+        origin_ref: str | None = None,
         day: CalendarDay | None = None,
         turn_id: str | None = None,
         view: str = "effective",
@@ -86,22 +86,22 @@ class EndpointServices(Protocol):
     ) -> JsonObject: ...
 
     async def turn_interactions(
-        self, turn_id: str, page: PageOptions = PageOptions()
+        self, request_id: str, page: PageOptions = PageOptions()
     ) -> JsonObject: ...
 
-    async def context_overview(self, turn_id: str) -> JsonObject: ...
+    async def context_overview(self, request_id: str) -> JsonObject: ...
 
     async def context_segment(
-        self, turn_id: str, segment_id: str, page: PageOptions = PageOptions()
+        self, request_id: str, segment_id: str, page: PageOptions = PageOptions()
     ) -> JsonObject: ...
 
     async def context_background(
-        self, turn_id: str, page: PageOptions = PageOptions()
+        self, request_id: str, page: PageOptions = PageOptions()
     ) -> JsonObject: ...
 
     async def context_inspect(
         self,
-        turn_id: str,
+        request_id: str,
         ref: str,
         *,
         query: str | None = None,
@@ -122,7 +122,7 @@ class EndpointServices(Protocol):
 
     async def workspace_text(
         self,
-        link: str,
+        ref: str,
         day: CalendarDay | None = None,
         *,
         page: PageOptions = PageOptions(),
@@ -134,7 +134,7 @@ class EndpointServices(Protocol):
     ) -> JsonObject: ...
 
     def workspace_blob(
-        self, link: str, day: CalendarDay | None = None
+        self, ref: str, day: CalendarDay | None = None
     ) -> AbstractAsyncContextManager[WorkspaceBlobRead]: ...
 
     async def session_interactions(
@@ -161,16 +161,18 @@ class EndpointTurnCommands(Protocol):
     ) -> TurnHandle: ...
 
     async def append_input(
-        self, turn_id: str, text: str, *, input_id: str = ""
+        self, request_id: str, text: str, *, input_id: str = ""
     ) -> InboxReceipt: ...
 
     async def reply(
-        self, turn_id: str, question_id: str, answer: QuestionAnswer
+        self, request_id: str, question_id: str, answer: QuestionAnswer
     ) -> InboxReceipt: ...
 
-    async def grant_cycles(self, turn_id: str, request_id: str, count: int) -> bool: ...
+    async def grant_cycles(
+        self, request_id: str, budget_request_id: str, count: int
+    ) -> bool: ...
 
-    async def cancel_turn(self, turn_id: str) -> bool: ...
+    async def cancel_request(self, request_id: str) -> bool: ...
 
 
 class EndpointAgentIngress(Protocol):

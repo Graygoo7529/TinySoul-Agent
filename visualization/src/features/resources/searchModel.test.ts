@@ -56,14 +56,14 @@ describe("buildQueryRequest", () => {
 });
 
 describe("buildRefineRequest", () => {
-  it("derives from the frozen result_ref with exactly one step", () => {
+  it("derives from the frozen result_handle with exactly one step", () => {
     const request = buildRefineRequest(
       "search-result:abc",
       { op: "select", criterion: "only release notes" },
       20,
     );
     expect(request).toEqual({
-      source: { kind: "result", result_ref: "search-result:abc" },
+      source: { kind: "result", result_handle: "search-result:abc" },
       steps: [{ op: "select", criterion: "only release notes", context: "none" }],
       page: { limit: 20 },
     });

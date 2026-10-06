@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from tinysoul.runtime import RunLevel, RuntimeTransfer, TrapResult, TrapSnap
 
 from ..errors import AgentHomeContractError, AgentHomeError
-from ..links import parse_home_link
+from ..refs import parse_home_ref
 
 if TYPE_CHECKING:
     from ..engine import AgentHomeEngine
@@ -21,12 +21,10 @@ class AgentHomeRuntimeCopyTrapHandler:
     home: "AgentHomeEngine"
 
     def handle(self, snap: TrapSnap) -> TrapResult:
-        link_value = snap.payload.get("link")
-        if isinstance(link_value, str):
+        ref_value = snap.payload.get("ref")
+        if isinstance(ref_value, str):
             try:
-                materialized = self.home.ensure_runtime_copy(
-                    parse_home_link(link_value)
-                )
+                materialized = self.home.ensure_runtime_copy(parse_home_ref(ref_value))
             except AgentHomeError:
                 return _end_available_scope(snap)
             current = snap.scope.current()

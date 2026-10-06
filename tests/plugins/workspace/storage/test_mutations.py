@@ -80,11 +80,11 @@ def test_directory_move_and_trash_restore_preserve_tags_and_description(
     assert engine.trash_items() == (item,)
     engine.restore_resource(item.ref)
     assert engine.trash_items() == ()
-    assert engine.inspect("workspace:moved").tags == (WorkspaceTag.PINNED,)
-    child = engine.inspect("workspace:moved/a.md")
+    assert engine.stat("workspace:moved").tags == (WorkspaceTag.PINNED,)
+    child = engine.stat("workspace:moved/a.md")
     assert child.tags == (WorkspaceTag.TMP, WorkspaceTag.LIBRARY)
     assert child.description == "A retained description"
-    assert engine.read_text(child.link).text == "external update"
+    assert engine.read_text(child.ref).text == "external update"
 
 
 def test_move_and_restore_conflicts_preserve_both_contents(tmp_path: Path) -> None:
@@ -131,7 +131,7 @@ def test_relocated_resource_never_commits_an_index_without_its_metadata(
         result = engine.move("workspace:a.md", "workspace:b.md")
     assert persisted
     for manifest in persisted:
-        record = next(item for item in manifest.resources if item.link == result.link)
+        record = next(item for item in manifest.resources if item.ref == result.ref)
         assert record.tags == (WorkspaceTag.PINNED,)
         assert record.description == "Keep this description"
 
@@ -148,7 +148,7 @@ def test_index_failure_reports_committed_files_without_claiming_rollback(
     monkeypatch.setattr(WorkspaceManifestStore, "save", fail_save)
     with pytest.raises(WorkspaceIOError) as raised:
         engine.write_text("workspace:a.md", "committed")
-    assert raised.value.committed_links == ("workspace:a.md",)
+    assert raised.value.committed_refs == ("workspace:a.md",)
     assert (tmp_path / "a.md").read_text(encoding="utf-8") == "committed"
     assert "private" not in str(raised.value)
 
@@ -200,7 +200,7 @@ def test_relocation_failure_preserves_metadata_across_owner_reopen(
         expected = ()
         if failure_at == "index":
             expected = (destination,) if trash else ("workspace:notes", destination)
-        assert raised.value.committed_links == expected
+        assert raised.value.committed_refs == expected
 
     reopened = WorkspaceEngineBuilder(settings).build()
     assert reopened.reconcile().complete
@@ -208,10 +208,10 @@ def test_relocation_failure_preserves_metadata_across_owner_reopen(
         assert reopened.trash_items() == (trash,)
         reopened.restore_resource(trash.ref)
     location = destination if failure_at == "index" else "workspace:notes"
-    assert reopened.inspect(location).tags == (WorkspaceTag.PINNED,)
-    assert reopened.inspect(location + "/a.md").description == "retained description"
+    assert reopened.stat(location).tags == (WorkspaceTag.PINNED,)
+    assert reopened.stat(location + "/a.md").description == "retained description"
     assert reopened.read_text(location + "/a.md").text == "kept"
-    assert {record.link for record in reopened.snapshot().resources} == {
+    assert {record.ref for record in reopened.snapshot().resources} == {
         location,
         location + "/a.md",
     }
@@ -242,7 +242,7 @@ def test_bundle_rejects_case_aliases_before_any_write(
         )
     before = engine.snapshot()
     with pytest.raises(WorkspaceContractError):
-        engine.write_bundle(writes, delete_links=deletes)
+        engine.write_bundle(writes, delete_refs=deletes)
     assert engine.snapshot() == before
     assert engine.trash_items() == ()
     if conflict == "writes":
@@ -258,13 +258,13 @@ def test_overwrite_alias_returns_disk_identity_and_preserves_metadata(
 ) -> None:
     engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
     original = engine.write_text("workspace:a.md", "first")
-    engine.tag(original.link, (WorkspaceTag.PINNED,))
-    engine.set_description(original.link, "retained")
+    engine.tag(original.ref, (WorkspaceTag.PINNED,))
+    engine.set_description(original.ref, "retained")
     record = engine.write_text("workspace:A.md", "replacement", overwrite=True)
-    assert record.link == original.link
+    assert record.ref == original.ref
     assert record.tags == (WorkspaceTag.PINNED,)
     assert record.description == "retained"
-    assert engine.read_text(original.link).text == "replacement"
+    assert engine.read_text(original.ref).text == "replacement"
 
 
 def test_bundle_failure_preserves_inner_delete_commit(
@@ -282,9 +282,9 @@ def test_bundle_failure_preserves_inner_delete_commit(
         with pytest.raises(WorkspaceIOError) as raised:
             engine.write_bundle(
                 (WorkspaceBundleWrite("workspace:b.md", b"created"),),
-                delete_links=("workspace:a.md",),
+                delete_refs=("workspace:a.md",),
             )
-    assert raised.value.committed_links == ("workspace:b.md", "workspace:a.md")
+    assert raised.value.committed_refs == ("workspace:b.md", "workspace:a.md")
     assert not (tmp_path / "a.md").exists()
     assert engine.read_text("workspace:b.md").text == "created"
     assert len(engine.trash_items()) == 1

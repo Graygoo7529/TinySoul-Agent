@@ -1,9 +1,9 @@
 {
-  "generation_id": "generation_1",
-  "captured_at": "2026-09-29T08:00:00+00:00",
-  "turn_id": "contract-turn",
+  "generation_id": "generation_b54437c9bfd74388b38c1efe4f219d78",
+  "captured_at": "2026-10-06T15:04:16.178908+00:00",
+  "turn_id": "2026-10-06/1",
   "measurement": "characters_and_inline_image_bytes_not_tokens",
-  "day": "2026-09-29",
+  "day": "2026-10-06",
   "segments": [
     {
       "id": "identity",
@@ -34,7 +34,7 @@
       "root_refs": [
         "session:map"
       ],
-      "chars": 205,
+      "chars": 197,
       "image_bytes": 0,
       "available_refs": [],
       "loaded_refs": [],
@@ -79,37 +79,37 @@
         "select"
       ],
       "root_refs": [],
-      "chars": 11317,
+      "chars": 11633,
       "image_bytes": 0,
       "available_refs": [
-        "home:agent@AGENT",
-        "home:agent@context/background",
-        "home:agent@context/turn-trace",
-        "home:agent@context/working",
-        "home:agent@contract",
-        "home:agent@identity/identity",
-        "home:agent@identity/soul",
-        "home:agent@long-contract",
-        "home:agent@user/user",
-        "home:skills@tinysoul-docs"
+        "home:top/agent/AGENT",
+        "home:top/agent/context/background",
+        "home:top/agent/context/turn-trace",
+        "home:top/agent/context/working",
+        "home:top/agent/contract",
+        "home:top/agent/identity/identity",
+        "home:top/agent/identity/soul",
+        "home:top/agent/long-contract",
+        "home:top/agent/user/user",
+        "home:top/skills/tinysoul-docs"
       ],
       "loaded_refs": [
-        "home:agent@AGENT",
-        "home:agent@identity/identity",
-        "home:agent@identity/soul",
-        "home:agent@context/background",
-        "home:agent@context/turn-trace",
-        "home:agent@context/working",
-        "home:agent@user/user"
+        "home:top/agent/AGENT",
+        "home:top/agent/identity/identity",
+        "home:top/agent/identity/soul",
+        "home:top/agent/context/background",
+        "home:top/agent/context/turn-trace",
+        "home:top/agent/context/working",
+        "home:top/agent/user/user"
       ],
       "protected_refs": [
-        "home:agent@AGENT",
-        "home:agent@identity/identity",
-        "home:agent@identity/soul",
-        "home:agent@context/background",
-        "home:agent@context/turn-trace",
-        "home:agent@context/working",
-        "home:agent@user/user"
+        "home:top/agent/AGENT",
+        "home:top/agent/identity/identity",
+        "home:top/agent/identity/soul",
+        "home:top/agent/context/background",
+        "home:top/agent/context/turn-trace",
+        "home:top/agent/context/working",
+        "home:top/agent/user/user"
       ]
     },
     {
@@ -123,7 +123,7 @@
         "select"
       ],
       "root_refs": [],
-      "chars": 201,
+      "chars": 194,
       "image_bytes": 0,
       "available_refs": [
         "memory:current"
@@ -148,9 +148,9 @@
         "search"
       ],
       "root_refs": [
-        "turn:trace@contract-turn"
+        "turn:trace/2026-10-06/1"
       ],
-      "chars": 1784,
+      "chars": 1729,
       "image_bytes": 0,
       "available_refs": [],
       "loaded_refs": [],
@@ -178,7 +178,7 @@
       "order": 20,
       "capabilities": [],
       "root_refs": [],
-      "chars": 744,
+      "chars": 623,
       "image_bytes": 0,
       "available_refs": [],
       "loaded_refs": [],
@@ -192,7 +192,7 @@
       "order": 30,
       "capabilities": [],
       "root_refs": [],
-      "chars": 361,
+      "chars": 360,
       "image_bytes": 0,
       "available_refs": [],
       "loaded_refs": [],
@@ -215,8 +215,8 @@
   ],
   "resolved_references": {
     "memory:current": {
-      "link": "memory:current",
-      "day": "2026-09-29"
+      "ref": "memory:current",
+      "day": "2026-10-06"
     }
   }
 }

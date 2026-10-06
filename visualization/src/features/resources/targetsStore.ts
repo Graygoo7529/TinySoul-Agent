@@ -12,13 +12,13 @@ import { create } from "zustand";
 import type { HomeView } from "../../api/v2/types";
 
 export interface HomeTarget {
-  link: string;
+  ref: string;
   view: HomeView;
   fragment: string | null;
 }
 
 export interface MemoryTarget {
-  link: string;
+  ref: string;
   day: string | null;
   fragment: string | null;
 }

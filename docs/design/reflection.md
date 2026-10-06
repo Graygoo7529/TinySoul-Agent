@@ -43,7 +43,7 @@ core.ask 可以在确有信息缺口时暂停同一 Reflection Turn，回复、�
 
 ## Home Reflection
 
-Home owner 提供 diff snapshot 与基于 token/version 的接受/拒绝，其 actions/review 只按稳定 Home Link 选择条目并返回逐项结果。home.diff 无选择时给目录，明确选择时展开差异；home.review 接受或拒绝选项。
+Home owner 提供 diff snapshot 与基于 token/version 的接受/拒绝，其 actions/review 只按稳定 Home 引用 选择条目并返回逐项结果。home.diff 无选择时给目录，明确选择时展开差异；home.review 接受或拒绝选项。
 
 改写通过通用 home actions 修改 effective overlay，再重新 diff/review。只有 SKILL_MEMORY 的条目不能直接 accept，需要先把经验落实到有效 skill 修改，或拒绝该条。批量 review 逐项提交，失败不撤销已经成功的条目。Turn 结束时报告剩余计数，仅在 owner 确认全部解决后清除空 overlay；core.answer 不伪称所有 diff 已解决。
 

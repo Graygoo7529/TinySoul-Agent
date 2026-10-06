@@ -37,15 +37,15 @@ class BackgroundSource(StrEnum):
 class BackgroundEntry:
     """One top-level content entry visible in the background context."""
 
-    link: str
+    ref: str
     content: str
     source: BackgroundSource = BackgroundSource.DEFAULT
     owner: str = "context"
     evictable: bool = False
 
     def __post_init__(self) -> None:
-        if not self.link:
-            raise ContextInvariantError("BackgroundEntry.link must be non-empty")
+        if not self.ref:
+            raise ContextInvariantError("BackgroundEntry.ref must be non-empty")
         if not self.content:
             raise ContextInvariantError("BackgroundEntry.content must be non-empty")
         if not isinstance(self.source, BackgroundSource):
@@ -62,18 +62,18 @@ class BackgroundEntry:
 class BackgroundPatch:
     """A background load/evict request parsed from a signal payload."""
 
-    load_links: tuple[str, ...] = field(default_factory=tuple)
-    evict_links: tuple[str, ...] = field(default_factory=tuple)
+    load_refs: tuple[str, ...] = field(default_factory=tuple)
+    evict_refs: tuple[str, ...] = field(default_factory=tuple)
 
     def is_empty(self) -> bool:
-        return not (self.load_links or self.evict_links)
+        return not (self.load_refs or self.evict_refs)
 
 
 @dataclass(frozen=True)
 class BackgroundEvictionReport:
     changed: bool
     reclaimed_chars: int
-    evicted_links: tuple[str, ...] = field(default_factory=tuple)
+    evicted_refs: tuple[str, ...] = field(default_factory=tuple)
 
 
 class BackgroundContext:
@@ -95,64 +95,64 @@ class BackgroundContext:
         self._catalogs = tuple(catalogs)
 
     def reset_entries(self, entries: tuple[BackgroundEntry, ...] = ()) -> None:
-        self._entries = {entry.link: entry for entry in entries}
+        self._entries = {entry.ref: entry for entry in entries}
 
-    def has(self, link: str) -> bool:
-        return link in self._entries
+    def has(self, ref: str) -> bool:
+        return ref in self._entries
 
     def load(self, entry: BackgroundEntry) -> None:
         """Load or replace one top-level content entry."""
 
-        self._entries[entry.link] = entry
+        self._entries[entry.ref] = entry
 
-    def evict(self, link: str) -> None:
-        if link not in self._entries:
-            raise ContextContractError(f"Unknown background entry link: {link}")
-        del self._entries[link]
+    def evict(self, ref: str) -> None:
+        if ref not in self._entries:
+            raise ContextContractError(f"Unknown background entry ref: {ref}")
+        del self._entries[ref]
 
     def entries(self) -> tuple[BackgroundEntry, ...]:
         return tuple(self._entries.values())
 
-    def links(self) -> tuple[str, ...]:
+    def refs(self) -> tuple[str, ...]:
         return tuple(self._entries)
 
-    def evictable_links(self) -> tuple[str, ...]:
-        return tuple(entry.link for entry in self._entries.values() if entry.evictable)
+    def evictable_refs(self) -> tuple[str, ...]:
+        return tuple(entry.ref for entry in self._entries.values() if entry.evictable)
 
     def check_patch(
         self,
         patch: BackgroundPatch,
         *,
-        loadable_links: tuple[str, ...],
-        evictable_links: tuple[str, ...],
+        loadable_refs: tuple[str, ...],
+        evictable_refs: tuple[str, ...],
     ) -> str:
         """Return a model-facing patch problem, or empty when applicable."""
 
         return self._check_patch_against_loaded(
             patch,
-            loaded=set(self.links()),
-            loadable_links=loadable_links,
-            evictable_links=evictable_links,
+            loaded=set(self.refs()),
+            loadable_refs=loadable_refs,
+            evictable_refs=evictable_refs,
         )
 
     def check_patch_sequence(
         self,
         patches: tuple[BackgroundPatch, ...],
         *,
-        loadable_links: tuple[str, ...],
-        evictable_links: tuple[str, ...],
+        loadable_refs: tuple[str, ...],
+        evictable_refs: tuple[str, ...],
     ) -> tuple[str, ...]:
-        """Validate patches against a projected loaded-link state."""
+        """Validate patches against a projected loaded-ref state."""
 
-        loaded = set(self.links())
+        loaded = set(self.refs())
         problems: list[str] = []
         for patch in patches:
             next_loaded = set(loaded)
             problem = self._check_patch_against_loaded(
                 patch,
                 loaded=next_loaded,
-                loadable_links=loadable_links,
-                evictable_links=evictable_links,
+                loadable_refs=loadable_refs,
+                evictable_refs=evictable_refs,
             )
             problems.append(problem)
             if not problem:
@@ -172,24 +172,23 @@ class BackgroundContext:
             if not catalog.items:
                 continue
             messages.append(
-                UserMessage.from_json(
-                    {
-                        "owner": catalog.owner,
-                        "items": [
-                            {
-                                "link": item.link,
-                                "title": item.title,
-                                "description": item.description,
-                            }
+                UserMessage.from_text(
+                    prompt_text.background_catalog(
+                        catalog.owner,
+                        tuple(
+                            (item.title, item.description, item.ref)
                             for item in catalog.items
-                        ],
-                    },
+                        ),
+                    ),
                     label=f"background:catalog:{catalog.owner}",
                 )
             )
         for entry in self._entries.values():
             messages.append(
-                UserMessage.from_text(entry.content, label=f"background:{entry.link}")
+                UserMessage.from_text(
+                    prompt_text.background_content(entry.ref, entry.content),
+                    label=f"background:{entry.ref}",
+                )
             )
         return tuple(messages)
 
@@ -202,9 +201,9 @@ class BackgroundContext:
             for entry in tuple(self._entries.values()):
                 if entry.source is not source or not entry.evictable:
                     continue
-                del self._entries[entry.link]
-                evicted.append(entry.link)
-                reclaimed += len(entry.link) + len(entry.content) + 24
+                del self._entries[entry.ref]
+                evicted.append(entry.ref)
+                reclaimed += len(entry.ref) + len(entry.content) + 24
                 if reclaimed >= required_chars:
                     break
             if reclaimed >= required_chars:
@@ -212,7 +211,7 @@ class BackgroundContext:
         return BackgroundEvictionReport(
             changed=bool(evicted),
             reclaimed_chars=reclaimed,
-            evicted_links=tuple(evicted),
+            evicted_refs=tuple(evicted),
         )
 
     @staticmethod
@@ -220,33 +219,33 @@ class BackgroundContext:
         patch: BackgroundPatch,
         *,
         loaded: set[str],
-        loadable_links: tuple[str, ...],
-        evictable_links: tuple[str, ...],
+        loadable_refs: tuple[str, ...],
+        evictable_refs: tuple[str, ...],
     ) -> str:
-        duplicate = _first_duplicate(patch.load_links)
+        duplicate = _first_duplicate(patch.load_refs)
         if duplicate:
             return prompt_text.duplicate_background_load(duplicate=duplicate)
-        duplicate = _first_duplicate(patch.evict_links)
+        duplicate = _first_duplicate(patch.evict_refs)
         if duplicate:
             return prompt_text.duplicate_background_eviction(duplicate=duplicate)
-        conflict = sorted(set(patch.load_links) & set(patch.evict_links))
+        conflict = sorted(set(patch.load_refs) & set(patch.evict_refs))
         if conflict:
-            return prompt_text.conflicting_background_link(link=conflict[0])
+            return prompt_text.conflicting_background_ref(ref=conflict[0])
         if patch.is_empty():
-            return prompt_text.BACKGROUND_PATCH_CONTAINS_NO_LINKS
-        loadable = set(loadable_links)
-        evictable = set(evictable_links)
-        for link in patch.load_links:
-            if link not in loadable:
-                return prompt_text.unknown_background_link(link=link)
-        for link in patch.evict_links:
-            if link not in loaded:
-                return prompt_text.background_not_loaded(link=link)
-            if link not in evictable:
-                return prompt_text.background_not_evictable(link=link)
-            loaded.remove(link)
-        for link in patch.load_links:
-            loaded.add(link)
+            return prompt_text.BACKGROUND_PATCH_CONTAINS_NO_REFS
+        loadable = set(loadable_refs)
+        evictable = set(evictable_refs)
+        for ref in patch.load_refs:
+            if ref not in loadable:
+                return prompt_text.unknown_background_ref(ref=ref)
+        for ref in patch.evict_refs:
+            if ref not in loaded:
+                return prompt_text.background_not_loaded(ref=ref)
+            if ref not in evictable:
+                return prompt_text.background_not_evictable(ref=ref)
+            loaded.remove(ref)
+        for ref in patch.load_refs:
+            loaded.add(ref)
         return ""
 
 
@@ -270,8 +269,8 @@ def check_background_patches(
         problem = BackgroundContext._check_patch_against_loaded(
             patch,
             loaded=candidate,
-            loadable_links=view.available,
-            evictable_links=tuple(
+            loadable_refs=view.available,
+            evictable_refs=tuple(
                 ref for ref in view.available if ref not in view.protected
             ),
         )
@@ -299,10 +298,10 @@ class HeapUpdate:
 
 def decode_heap_update(signal: Signal) -> HeapUpdate:
     fields = signal.payload
-    if set(fields) - {"load_links", "evict_links", "refresh"}:
+    if set(fields) - {"load_refs", "evict_refs", "refresh"}:
         raise ContextContractError("Heap update contains unsupported fields")
     refs: list[tuple[str, ...]] = []
-    for name in ("load_links", "evict_links"):
+    for name in ("load_refs", "evict_refs"):
         value = fields.get(name, [])
         if not isinstance(value, list) or any(
             not isinstance(ref, str) or not ref for ref in value
@@ -335,48 +334,48 @@ class HeapSegment:
 
     def selection_view(self) -> SegmentSelectionView:
         return SegmentSelectionView(
-            self._catalog.loadable_links,
-            self._view.links(),
+            self._catalog.loadable_refs,
+            self._view.refs(),
             tuple(
                 ref
-                for ref in self._catalog.default_links
-                if ref not in self._catalog.evictable_default_links
+                for ref in self._catalog.default_refs
+                if ref not in self._catalog.evictable_default_refs
             ),
         )
 
     async def prepare(self, updates: tuple[HeapUpdate, ...]) -> HeapCandidate:
         catalog = self._catalog
-        entries = {entry.link: entry for entry in self._view.entries()}
+        entries = {entry.ref: entry for entry in self._view.entries()}
         for update in updates:
             if update.refresh:
                 catalog = await self._source.catalog(self._day)
                 if catalog.owner != self._catalog.owner:
                     raise ContextInvariantError("Heap refresh changed its owner")
-                selected = tuple(dict.fromkeys((*catalog.default_links, *entries)))
+                selected = tuple(dict.fromkeys((*catalog.default_refs, *entries)))
                 entries = {
                     ref: await _heap_entry(
                         self._source, self._day, catalog, ref, entries.get(ref)
                     )
                     for ref in selected
-                    if ref in catalog.loadable_links
+                    if ref in catalog.loadable_refs
                 }
             patch = update.selection
             if patch.is_empty():
                 continue
             protected = tuple(
                 ref
-                for ref in catalog.default_links
-                if ref not in catalog.evictable_default_links
+                for ref in catalog.default_refs
+                if ref not in catalog.evictable_default_refs
             )
             problems = check_background_patches(
-                SegmentSelectionView(catalog.loadable_links, tuple(entries), protected),
+                SegmentSelectionView(catalog.loadable_refs, tuple(entries), protected),
                 (patch,),
             )
             if problems[0]:
                 raise ContextContractError(problems[0])
-            for ref in patch.evict_links:
+            for ref in patch.evict_refs:
                 del entries[ref]
-            for ref in patch.load_links:
+            for ref in patch.load_refs:
                 if ref not in entries:
                     entries[ref] = await _heap_entry(
                         self._source, self._day, catalog, ref
@@ -393,13 +392,17 @@ class HeapSegment:
 
     def seal(self) -> JsonObject:
         return {
-            "loaded_refs": list(self._view.links()),
+            "loaded_refs": list(self._view.refs()),
             "background_entries": [
                 {
-                    "ref": entry.link,
+                    "ref": entry.ref,
                     "title": next(
-                        (item.title for item in self._catalog.items if item.link == entry.link),
-                        entry.link,
+                        (
+                            item.title
+                            for item in self._catalog.items
+                            if item.ref == entry.ref
+                        ),
+                        entry.ref,
                     ),
                     "content": entry.content,
                     "owner": entry.owner,
@@ -416,7 +419,7 @@ class HeapSegment:
 
     def resolved_references(self) -> dict[str, ResourceLocator]:
         return {
-            item.link: item.resolved_locator
+            item.ref: item.resolved_locator
             for item in self._catalog.items
             if item.resolved_locator is not None
         }
@@ -425,7 +428,7 @@ class HeapSegment:
         from .segments import SegmentReclaim
 
         report = self._view.evict_for_budget(required_chars=required_chars)
-        return SegmentReclaim(report.reclaimed_chars, report.evicted_links)
+        return SegmentReclaim(report.reclaimed_chars, report.evicted_refs)
 
     async def close(self) -> None:
         self._view.reset_entries()
@@ -458,8 +461,8 @@ async def _heap_entry(
     previous: BackgroundEntry | None = None,
 ) -> BackgroundEntry:
     content = await source.load(ref, day)
-    if ref in catalog.default_links:
-        evictable = ref in catalog.evictable_default_links
+    if ref in catalog.default_refs:
+        evictable = ref in catalog.evictable_default_refs
         origin = BackgroundSource.AUTOMATIC if evictable else BackgroundSource.DEFAULT
     else:
         evictable = True
@@ -483,7 +486,7 @@ class HeapSegmentProvider:
             tuple(
                 [
                     await _heap_entry(self._source, info.day, catalog, ref)
-                    for ref in catalog.default_links
+                    for ref in catalog.default_refs
                 ]
             ),
         )

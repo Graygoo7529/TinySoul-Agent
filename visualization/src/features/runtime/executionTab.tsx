@@ -33,7 +33,7 @@ export function ExecutionTab({
   read: ActiveTurnRead;
 }): ReactElement {
   const queued = useConnectionStore(
-    (s) => s.status?.runtime.queued_turn_ids ?? [],
+    (s) => s.status?.runtime.queued_request_ids ?? [],
   );
   return (
     <div className="space-y-4">
@@ -73,10 +73,10 @@ function CurrentTurnCard({ read }: { read: ActiveTurnRead }): ReactElement {
           {snapshot.cancel_requested && (
             <Badge tone="yellow">cancel requested</Badge>
           )}
-          <span className="text-[12px] text-fg-faint" title={snapshot.turn_id}>
-            {shortTurnId(snapshot.turn_id)}
+          <span className="text-[12px] text-fg-faint" title={snapshot.turn_id ?? snapshot.request_id}>
+            {shortTurnId(snapshot.turn_id ?? snapshot.request_id)}
           </span>
-          <CopyButton text={() => snapshot.turn_id} label="Copy turn id" />
+          <CopyButton text={() => snapshot.turn_id ?? snapshot.request_id} label="Copy turn id" />
           <span className="flex-1" />
           <Button
             variant="outline"

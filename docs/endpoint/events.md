@@ -22,11 +22,11 @@ HTTP replay 还接受 `turn_id, task_id, call_id, search_id, step_index, through
 
 `runtime.source_status` 报告原生 Workspace 监听故障，source 为 `workspace.fswatch`，payload 包含 `state=failed`、受影响 topics 和有限 `error_type`。客户端以 status 中的 `runtime.sources` 查询当前状态；不将其解释为文件修改失败或 Agent 已停止。恢复监听使用显式 reload/restart。
 
-`workspace.changed` 的 `updated_links` 包含 owner 正式写入的已有资源；即使等长内容写入后文件时间戳相同，也会通知更新。外部监听变化仍由 owner reconcile 后发布。
+`workspace.changed` 的 `updated_refs` 包含 owner 正式写入的已有资源；即使等长内容写入后文件时间戳相同，也会通知更新。外部监听变化仍由 owner reconcile 后发布。
 
 LLM 容量恢复使用 `llm.context_capacity_exceeded`，对应模块失败 kind 为 `llm.model_context_pressure`；Context 自身预算原因仍为 `context.compression_required`。共享配置源/Infra 配置的装配失败归 Agent（`agent.configuration_failed`），各业务配置失败归各自 owner；User Turn 的执行资源准备失败归 `loop.resource_preparation_failed`。
 
-message 是 owner 提供的有限说明，不再透传原始 Python 异常文本。配置诊断仅包含有界 key/expected，不包含原始值和 source；Home 副本恢复不提供 source_path/runtime_path。恢复使用的资源 Link 和容量度量仍保留在内部协议中。前端不能依赖被删除的诊断字段获得文件访问能力，也不能用 Observation 是否到达判断业务是否提交。
+message 是 owner 提供的有限说明，不再透传原始 Python 异常文本。配置诊断仅包含有界 key/expected，不包含原始值和 source；Home 副本恢复不提供 source_path/runtime_path。恢复使用的资源 reference 和容量度量仍保留在内部协议中。前端不能依赖被删除的诊断字段获得文件访问能力，也不能用 Observation 是否到达判断业务是否提交。
 
 ## 模型用途观察
 
@@ -36,11 +36,11 @@ LLM 请求 detail 的 provenance 包含 `segment_id, owner, slot, shape, message
 
 `llm.model.response.tool_calls` 中供应商未提供的 `kind` 由该次请求的可见 ToolScope 补齐为 `control` 或 `action`；未登记的调用保留空类别。该类别只标识工具语义，不表示调用已通过校验或已执行。Phase1 的 `select_action_domains.arguments.intent` 可用于展示域选择思路，实际接受的域仍由 Phase 完成事件报告。
 
-`context.background.snapshot` 在 Turn 打开 Heap 时给出当前 top-level refs；`context.background.changed` 给出真实 `loaded_links`、`evicted_links` 和变化后的 `links`。`context.installed` 只提示所属 turn_id 的段已安装；`expand.directory.changed` 提示 MCP 目录已变化。发生 gap 后重新读取 owner 视图，不以事件代替事实。
+`context.background.snapshot` 在 Turn 打开 Heap 时给出当前 top-level refs；`context.background.changed` 给出真实 `loaded_refs`、`evicted_refs` 和变化后的 `refs`。`context.installed` 只提示所属 turn_id 的段已安装；`expand.directory.changed` 提示 MCP 目录已变化。发生 gap 后重新读取 owner 视图，不以事件代替事实。
 
 `loop.phase.started/completed` 沿 scope 标识 Turn/Cycle/Phase，时间取事件 `created_at`。completed 的 `cancelled` 表示取消，`failed` 表示局部 Phase 或模块失败；`ended/transfer_action` 描述运行转移，不单独推断失败。Phase1 成功完成时另外提供已接受的 `selected_domains`，不能把模型 Control Tool 请求当成已接受选择。这些事件供 Activity/Trace 展示，正文仍从 Context/Session owner 读取。
 
-`context.control.applied` 在 Context 批次安装成功后按操作顺序发布，verbose payload 为 `call_id, operation, details`，scope 保留原请求的 Turn/Cycle/Phase。operation 为 set/remove_todo、set/remove_milestone、load/evict_background；details 分别包含 key/content/status、key/content、移除 key 或 links。它报告已应用的显式控制，不报告初始背景装配或任务局部 Skill；整个批次先安装，再发布观察，不表示中间状态逐个对模型可见。现态仍读取 Context 的 plan/background。
+`context.control.applied` 在 Context 批次安装成功后按操作顺序发布，verbose payload 为 `call_id, operation, details`，scope 保留原请求的 Turn/Cycle/Phase。operation 为 set/remove_todo、set/remove_milestone、load/evict_background；details 分别包含 key/content/status、key/content、移除 key 或 refs。它报告已应用的显式控制，不报告初始背景装配或任务局部 Skill；整个批次先安装，再发布观察，不表示中间状态逐个对模型可见。现态仍读取 Context 的 plan/background。
 
 Phase1 的 completed 事件如有局部控制拒绝，会携带 `control_results`（call_id、tool_name、status、stage、feedback），即使该 Phase 随后失败也保留。consume 阶段的 tool_name 可能是 Signal 名，客户端按 call_id 关联原始 Control Tool 请求。拒绝的控制不发布 applied；Observation 缺失不能反向解释为操作未提交。
 

@@ -38,11 +38,11 @@ Context 只属于一个活动 Turn。Kernel 按 Background、Trace、Working 三
 
 当前装配顺序为 system identity → Session → User Inputs → Home/Memory → TurnTrace → plan/Workspace/连接状态 → TaskPrompt。identity 使用 system role；用户态语境和任务提示使用 user role；TinySoul 工具结果保留内部语义，由 provider adapter 映射。
 
-- Inputs 保存当前 Turn 初始输入、已接受追加与回复；排队但未接受的文本不是事实。
+- Inputs 保存当前 Turn 初始输入、已接受追加与回复；排队但未接受的文本不是事实。输入在可见边界同时成为有序 Trace 中的可读消息，reply 投影补全对应问题、选择标签、说明与 comment。
 - Session 段组合语义地图引用与下方按历史顺序一次呈现的交互正文。本轮 prior-Turn 来源集合固定，已安装解释可以经 Organize 更新；多话题不复制正文，未归类 Turn 仍可见。
 - Home/Memory 等 Heap 段维护本轮目录、默认内容、按需加载与逐出，不反向拥有整个 Context。
-- TurnTrace 是当前 Turn 按 owner 观察顺序积累的输入可见位置、决策、执行事实与必要反馈。Stack 压缩保留原始引用和可读取的事实，不复制平行历史。
-- Working 表达 plan 的 milestones/todos 及各插件的现态投影。Workspace 只提供 Link/说明等资源状态，不常驻文件正文。
+- TurnTrace 是当前 Turn 按 owner 观察顺序积累的输入、决策、执行事实与必要反馈。ask 的问题、完整选项和说明在其唯一 ActionResult Entry 中呈现；非 Action 的 input/append/reply 使用独立输入 Entry。Stack 压缩保留有解释的父引用和可读取的事实，不复制平行历史。
+- Working 表达 plan 的 milestones/todos 及各插件的现态投影。Workspace 只提供引用与说明等资源状态，不常驻文件正文；workspace.inspect 的有界正文页通过 ActionResult 进入 Trace。
 
 构造式 MessageStack 在每个 LLM Task 前根据已安装段重新生成；render 纯读取，无文件操作。Signal 固定批次先解析、校验和 prepare，全部候选成功后同步 install；安装不重放已提交业务操作。prepare 不提交持久事实，completion 承担必要提交，close 只回收本轮视图。
 
@@ -58,19 +58,22 @@ Session 的地图和交互正文共用一个背景预算，只在自身高水位
 
 ### 资源与持久化
 
-Link 是跨模块稳定资源身份，不是任意模块拼接的物理路径。所属 owner 负责解析、校验和映射：
+引用是精确定位资源、交互或解释的通用概念，不是任意模块拼接的物理路径。统一采用 `ref` 字段；冒号表示归属、斜线表示层级、井号表示内部位置。所属 owner 负责解析、校验和映射，格式与示例集中在 [引用设计](docs/design/references.md)：
 
-- `home:<space>@<logical-path>`：可进入 Background 的顶层内容。
-- `home:<space>/<resource-path>`：只能由 Action 渐进读取的 Home 资源，保留真实扩展名。
-- `home:skills_domain:<domain>`、`home:skills_action:<domain>/<action>`：仅用于对应任务的局部 Skill mount。
+- `home:top/<space>/<logical-path>`：可进入 Background 的顶层内容。
+- `home:resource/<space>/<resource-path>`：只能由 Action 渐进读取的 Home 资源，保留真实扩展名。
+- `home:mount/domain/<domain>`、`home:mount/action/<domain>/<action>`：仅用于对应任务的局部 Skill mount。
 - `memory:daily/YYYY-MM-DD`、`memory:entity/<name>`、`memory:concept/<name>`、`memory:fact/<cite>`、`memory:note/<cite>`：五类持久 Markdown。`memory:current/latest/target` 是 Context 内动态引用。
-- `workspace:<relative-path>`：当日工作区资源。Session/Trace ref 定位原始交互或语义解释，不是文件 Link；归档资源保持原日身份。
+- `workspace:<relative-path>`：当日工作区资源；可追加行范围或标题片段。Session/Trace 引用定位原始交互或语义解释；归档资源保持原日身份。
+- `turn:trace/YYYY-MM-DD/<sequence>`、`session:turn/YYYY-MM-DD/<sequence>` 共用正式 Turn 身份。Agent 取得活动日 lease 后分配日内序号，User/Reflection 共用序列；`request_id` 独立负责接受、排队与控制，未启动请求可以没有 Turn 身份。Trace entry/node 与 Session node/edge 分别在所属 Turn/日内编号。
+
+标题、摘要或实际命中摘录与引用一起呈现、一起折叠。Inspect 是各 owner 共用的读取抽象，不建立万能工具门面。`result_handle` 是搜索结果集合的临时句柄，continuation 是续页令牌，二者不冒充持久内容引用。Session 资源出现位置的 `ref` 与所指资源的 `target_ref` 分开。
 
 Workspace 是当日可操作资源空间。磁盘是内容事实，manifest 是索引、说明和标签；pinned/tmp/library 标签不改变日生命周期。短 owner 操作串行、单文件原子提交；不维护内容 CAS、来源 read-set 或提交前复验。execution 直接操作真实当天 Workspace，取消不回滚已写文件，外部共写可能覆盖内容。Trash 由显式操作维护，不因 Context 压力删除文件。
 
 Home 持有身份规约、用户偏好、通用 Skill 和行动指导。actual Home 是已接受基线；普通 Turn 的修改写入跨日 runtime overlay，形成 effective Home，只有 Home Reflection 的受约束 review 服务能接受回 actual Home。审核来源 token 保护真正的 review 语义，与 Workspace 不使用 CAS 不冲突。
 
- Memory 持有活动 Memory.md、五类持久 Markdown、Link/codec、catalog、backlinks 与可重建 embedding cache。普通 Turn 在 memory 域通过 memorize 原子 patch 活动记忆、search 发现候选、inspect 读取已知文档内容和 direct refs；search 的 backlink 模式查询真实入边，inspect 不包含 backlinks。只有 Memory Reflection 的写服务可提交持久文档。每次 write_daily/write 原子替换单个完整文档，引用目标须先存在，不建立多文档 draft/commit/journal。已有 daily 可重组和补充，无严格冻结语义；既有持久 Link 不 hard delete，迁移说明与 redirect 由 Memory 校验。
+Memory 持有活动 Memory.md、五类持久 Markdown、引用编解码、catalog、backlinks 与可重建 embedding cache。普通 Turn 在 memory 域通过 memorize 原子 patch 活动记忆、search 发现候选、inspect 读取已知文档内容和 direct refs；search 的 backlink 模式查询真实入边，inspect 不包含 backlinks。只有 Memory Reflection 的写服务可提交持久文档。每次 write_daily/write 原子替换单个完整文档，引用目标须先存在，不建立多文档 draft/commit/journal。已有 daily 可重组和补充，无严格冻结语义；既有持久引用不 hard delete，迁移说明与 redirect 由 Memory 校验。
 
 Session 持有当日已完成 User Turn 的不可变事实，以及单独的有来源语义注释。事实的 contains/precedes/replies_to/references 确定性派生；解释的 thread/note、成员和推导关系只由 User Turn 内 `core.session.organize` 原子修改。语义图允许共享与回路，森林只是导航投影，不另存树。修订/撤回保留稳定身份，不改写事实；合流创建新解释入口，保留旧分支。当前已接受输入或已结算 Action 可作补充证据，不能提前成为历史成员。Session 不承担通用日志、前端审计或跨日语义图职责。
 
@@ -200,7 +203,8 @@ SDK 服务绑定运行世代，日级服务同时绑定 CalendarDay；切换后�
 - 随代码维护的固定引导、输出约束、工具说明、局部反馈和稳定异常反馈，按业务 owner 放在 `tinysoul/prompts/<owner>.py` 或其 owner 子包中。消费者只导入所属 owner 的文案；不要建立跨 owner 的总字典、动态 registry、模板加载器或与 Home、Skill、Action Catalog 内容重复的副本。
 - 固定段使用字符串常量、不可变 tuple 等静态值；含运行时值的文案使用参数明确的纯文本函数。函数只接收 owner 已校验的基础值，不读取配置、文件、服务或环境，不接收原始 Exception，也不决定消息 role、装配顺序、工具可见性、引用、预算或失败分类。
 - 消费模块保留消息装配、工具协议、状态转换、异常分层和业务所有权。文案定义旁应注明实际消费者路径；调整文案时同步检查输出解析、结构化字段、动态数据和引用是否仍由消费者负责。
-- Action Catalog、Home、Memory 和 Skill 中可配置或可编辑的语义继续留在各自 owner；不要因为文字会显示给模型，就把运行时配置、资源正文、Link、schema 名称、状态值或内部标识符提取到 `prompts`。
+- Action Catalog、Home、Memory 和 Skill 中可配置或可编辑的语义继续留在各自 owner；不要因为文字会显示给模型，就把运行时配置、资源正文、引用、schema 名称、状态值或内部标识符提取到 `prompts`。
+- 模型叙事从类型化事实正向投影：ActionResult 可提供独立的可读文字，结构化 payload 仍供 owner 使用；不从显示文本反向恢复事实。foldable Action 的实际返回内容与供回忆、持久化使用的精简事实分别表达，后者保留目标解释、引用和实际读取范围，不暗示可以恢复从未保存的正文。新增投影时检查下一次模型请求、Trace Inspect、Session 线性历史及折叠后的可读性。
 - 固定文案提取只调整自然语言的源码维护位置，不改变模型可见结果的来源、信息量、动态值或业务语义。Catalog 的当前配置、Action 的输入约束、执行结果和实际限制值仍由原 owner 读取、校验和装配；`prompts` 的纯文本函数只组合固定措辞与调用方已校验的基础值。
 - 异常通过局部结果反馈给模型时，由业务 owner 在 Action 边界明确提供模型反馈、失败 reason、disposition 和结构化事实。已经整理为稳定业务反馈的异常文本可以进入模型结果，不以是否使用 `str(exc)` 作为判断标准；应优先使用明确的反馈/结果字段表达该契约。不得把未经整理的原始异常、traceback、敏感路径或大块供应商正文传给模型，动态诊断另存为结构化摘要。若反馈包含配置限制、输入约束、状态码、结果说明或执行语义，保留 owner 提供的动态值；不要把默认配置复制到 `prompts`。
 

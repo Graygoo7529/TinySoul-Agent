@@ -1,4 +1,4 @@
-"""Agent Home link parsing."""
+"""Agent Home ref parsing."""
 
 from __future__ import annotations
 
@@ -7,14 +7,14 @@ from pathlib import PurePosixPath
 
 from .errors import AgentHomeContractError, AgentHomeInvariantError
 
-HOME_LINK_PREFIX = "home:"
+HOME_REF_PREFIX = "home:"
 HOME_TOP_SPACES = frozenset({"agent", "skills"})
 HOME_PROMPT_MOUNT_SPACES = frozenset({"skills_domain", "skills_action"})
 
 
 @dataclass(frozen=True)
-class HomeTopLink:
-    """A top-level Agent Home background entry link."""
+class HomeTopRef:
+    """A top-level Agent Home background entry ref."""
 
     space: str
     name: str
@@ -23,8 +23,7 @@ class HomeTopLink:
         _validate_space(self.space)
         if self.space in HOME_PROMPT_MOUNT_SPACES:
             raise AgentHomeInvariantError(
-                "Automatic skill links must use home:skills_domain: or "
-                "home:skills_action:"
+                "Automatic skill refs must use home:mount/domain/ or home:mount/action/"
             )
         if self.space not in HOME_TOP_SPACES:
             raise AgentHomeInvariantError(
@@ -34,32 +33,34 @@ class HomeTopLink:
         path = PurePosixPath(self.name)
         if path.suffix:
             raise AgentHomeInvariantError(
-                "Home top link must use a logical name without a file suffix"
+                "Home top ref must use a logical name without a file suffix"
             )
         if self.space == "skills":
             if len(path.parts) != 1:
                 raise AgentHomeInvariantError(
-                    "Home skills top link must use one skill name segment"
+                    "Home skills top ref must use one skill name segment"
                 )
 
     @classmethod
-    def parse(cls, value: str) -> "HomeTopLink":
+    def parse(cls, value: str) -> "HomeTopRef":
         body = _body(value)
-        if "@" not in body:
-            raise AgentHomeContractError("Top-level home link must contain @")
-        space, name = body.split("@", 1)
+        if not body.startswith("top/") or body.count("/") < 2:
+            raise AgentHomeContractError(
+                "Top Home ref must use home:top/<space>/<name>"
+            )
+        space, name = body.removeprefix("top/").split("/", 1)
         try:
             return cls(space=space, name=name)
         except AgentHomeInvariantError as exc:
             raise AgentHomeContractError(str(exc)) from exc
 
     def __str__(self) -> str:
-        return f"{HOME_LINK_PREFIX}{self.space}@{self.name}"
+        return f"{HOME_REF_PREFIX}top/{self.space}/{self.name}"
 
 
 @dataclass(frozen=True)
-class HomeResourceLink:
-    """A progressive Agent Home resource link."""
+class HomeResourceRef:
+    """A progressive Agent Home resource ref."""
 
     space: str
     relative_path: str
@@ -68,7 +69,7 @@ class HomeResourceLink:
         _validate_space(self.space)
         if self.space in HOME_PROMPT_MOUNT_SPACES:
             raise AgentHomeInvariantError(
-                "Automatic skill links cannot be progressive resources"
+                "Automatic skill refs cannot be progressive resources"
             )
         if self.space not in HOME_TOP_SPACES:
             raise AgentHomeInvariantError(
@@ -77,25 +78,25 @@ class HomeResourceLink:
         _validate_relative_name(self.relative_path, label="resource path")
 
     @classmethod
-    def parse(cls, value: str) -> "HomeResourceLink":
+    def parse(cls, value: str) -> "HomeResourceRef":
         body = _body(value)
-        if "@" in body:
-            raise AgentHomeContractError("Resource home link cannot contain @")
-        if "/" not in body:
-            raise AgentHomeContractError("Resource home link must contain /")
-        space, relative = body.split("/", 1)
+        if not body.startswith("resource/") or body.count("/") < 2:
+            raise AgentHomeContractError(
+                "Home resource ref must use home:resource/<space>/<path>"
+            )
+        space, relative = body.removeprefix("resource/").split("/", 1)
         try:
             return cls(space=space, relative_path=relative)
         except AgentHomeInvariantError as exc:
             raise AgentHomeContractError(str(exc)) from exc
 
     def __str__(self) -> str:
-        return f"{HOME_LINK_PREFIX}{self.space}/{self.relative_path}"
+        return f"{HOME_REF_PREFIX}resource/{self.space}/{self.relative_path}"
 
 
 @dataclass(frozen=True)
-class HomePromptMountLink:
-    """An automatic Agent Home prompt mount link."""
+class HomePromptMountRef:
+    """An automatic Agent Home prompt mount ref."""
 
     space: str
     name: str
@@ -109,26 +110,26 @@ class HomePromptMountLink:
         parts = PurePosixPath(self.name).parts
         if self.space == "skills_domain" and len(parts) != 1:
             raise AgentHomeInvariantError(
-                "Home domain skill mount link must use one domain segment"
+                "Home domain skill mount ref must use one domain segment"
             )
         if self.space == "skills_action" and len(parts) != 2:
             raise AgentHomeInvariantError(
-                "Home action skill mount link must use <domain>/<action>"
+                "Home action skill mount ref must use <domain>/<action>"
             )
 
     @classmethod
-    def parse(cls, value: str) -> "HomePromptMountLink":
+    def parse(cls, value: str) -> "HomePromptMountRef":
         body = _body(value)
-        if body.startswith("skills_domain:"):
-            name = body[len("skills_domain:") :]
+        if body.startswith("mount/domain/"):
+            name = body[len("mount/domain/") :]
             space = "skills_domain"
-        elif body.startswith("skills_action:"):
-            name = body[len("skills_action:") :]
+        elif body.startswith("mount/action/"):
+            name = body[len("mount/action/") :]
             space = "skills_action"
         else:
             raise AgentHomeContractError(
-                "Home prompt mount link must start with home:skills_domain: "
-                "or home:skills_action:"
+                "Home prompt mount ref must start with home:mount/domain/ "
+                "or home:mount/action/"
             )
         try:
             return cls(space=space, name=name)
@@ -136,44 +137,47 @@ class HomePromptMountLink:
             raise AgentHomeContractError(str(exc)) from exc
 
     def __str__(self) -> str:
-        return f"{HOME_LINK_PREFIX}{self.space}:{self.name}"
+        category = "domain" if self.space == "skills_domain" else "action"
+        return f"{HOME_REF_PREFIX}mount/{category}/{self.name}"
 
 
-HomeLink = HomeTopLink | HomeResourceLink | HomePromptMountLink
+HomeRef = HomeTopRef | HomeResourceRef | HomePromptMountRef
 
 
-def parse_home_link(value: str) -> HomeLink:
+def parse_home_ref(value: str) -> HomeRef:
     body = _body(value)
-    if body.startswith("skills_domain:") or body.startswith("skills_action:"):
-        return HomePromptMountLink.parse(value)
-    if "@" in body:
-        return HomeTopLink.parse(value)
-    return HomeResourceLink.parse(value)
+    if body.startswith("mount/"):
+        return HomePromptMountRef.parse(value)
+    if body.startswith("top/"):
+        return HomeTopRef.parse(value)
+    return HomeResourceRef.parse(value)
 
 
 def _body(value: str) -> str:
-    if not isinstance(value, str) or not value.startswith(HOME_LINK_PREFIX):
-        raise AgentHomeContractError("Home link must start with home:")
-    body = value[len(HOME_LINK_PREFIX) :]
+    if not isinstance(value, str) or not value.startswith(HOME_REF_PREFIX):
+        raise AgentHomeContractError("Home ref must start with home:")
+    body = value[len(HOME_REF_PREFIX) :]
     if not body:
-        raise AgentHomeContractError("Home link body must be non-empty")
+        raise AgentHomeContractError("Home ref body must be non-empty")
     return body
 
 
 def _validate_space(value: str) -> None:
     if not value or not value.replace("_", "").isalnum():
-        raise AgentHomeInvariantError("Home link space must be alphanumeric or underscore")
+        raise AgentHomeInvariantError(
+            "Home ref space must be alphanumeric or underscore"
+        )
 
 
 def _validate_relative_name(value: str, *, label: str) -> None:
     if not isinstance(value, str) or not value:
-        raise AgentHomeInvariantError(f"Home link {label} must be non-empty")
+        raise AgentHomeInvariantError(f"Home ref {label} must be non-empty")
     if "\\" in value:
-        raise AgentHomeInvariantError(f"Home link {label} must use POSIX separators")
+        raise AgentHomeInvariantError(f"Home ref {label} must use POSIX separators")
     if value.startswith("/") or PurePosixPath(value).is_absolute():
-        raise AgentHomeInvariantError(f"Home link {label} must be relative")
-    for part in PurePosixPath(value).parts:
+        raise AgentHomeInvariantError(f"Home ref {label} must be relative")
+    for part in value.split("/"):
         if part in {"", ".", ".."}:
-            raise AgentHomeInvariantError(f"Home link {label} has an invalid segment")
+            raise AgentHomeInvariantError(f"Home ref {label} has an invalid segment")
         if ":" in part:
-            raise AgentHomeInvariantError(f"Home link {label} cannot contain ':'")
+            raise AgentHomeInvariantError(f"Home ref {label} cannot contain ':'")

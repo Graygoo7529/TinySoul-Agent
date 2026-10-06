@@ -52,10 +52,10 @@ async def test_trace_navigation_query_and_stable_refs_across_folding() -> None:
         .with_trace_inspect_max_chars(2048)
         .build()
     )
-    turn_id = context.begin_turn("follow clues")
+    turn_id = context.begin_turn("follow clues", turn_id="2026-10-06/55")
     await context.open_segments(date(2026, 9, 20))
     scope = RunScope().push(RunLevel.TURN, turn_id)
-    root = f"turn:trace@{turn_id}"
+    root = f"turn:trace/{turn_id}"
     bus = SignalBus()
     for index in range(12):
         bus.emit(
@@ -123,7 +123,7 @@ async def test_trace_navigation_query_and_stable_refs_across_folding() -> None:
             if token is None:
                 break
             assert isinstance(token, str)
-    assert len(leaves) == 12 and fact_ref in leaves
+    assert len(leaves) == 13 and fact_ref in leaves  # Includes the initial input.
     with pytest.raises(ContextInspectRequestError):
         await context.inspect(root, query=" ")
     await context.close_segments()

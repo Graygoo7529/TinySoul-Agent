@@ -28,11 +28,11 @@ def test_memory_projection_uses_chronological_turn_facts(
     for index, started_at in enumerate(starts):
         session.record_turn(
             completion(
-                f"turn_{index}",
+                f"2026-07-12/{index + 1}",
                 ask=f"question {index}",
                 received_at=started_at.timestamp(),
                 working={"milestone": f"milestone {index}"},
-                background_links=("home:agent@AGENT",),
+                background_refs=("home:top/agent/AGENT",),
                 actions=(SyntheticAction("workspace.read"),),
             ),
             output=SessionOutputRecord(
@@ -49,9 +49,9 @@ def test_memory_projection_uses_chronological_turn_facts(
     projection = session.memory_facts(DAY, root=archive)
 
     assert tuple(fact.ref for fact in projection.facts) == (
-        "session:turn/turn_1",
-        "session:turn/turn_2",
-        "session:turn/turn_0",
+        "session:turn/2026-07-12/2",
+        "session:turn/2026-07-12/3",
+        "session:turn/2026-07-12/1",
     )
     first = projection.facts[0]
     assert first.user_inputs == ("question 1",)

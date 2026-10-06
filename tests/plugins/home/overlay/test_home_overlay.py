@@ -36,9 +36,9 @@ def test_legacy_home_memory_path_and_link_are_rejected(tmp_path: Path) -> None:
     memory.unlink()
     home = _home(tmp_path)
     with pytest.raises(AgentHomeContractError, match="Unsupported Home"):
-        home.parse_link("home:memory@2026-07-11")
+        home.parse_ref("home:top/memory/2026-07-11")
     with pytest.raises(AgentHomeContractError, match="Unsupported Home"):
-        home.read_resource("home:memory/2026/07/2026-07-11.md")
+        home.read_resource("home:resource/memory/2026/07/2026-07-11.md")
 
 
 def test_home_overlay_mutations_survive_restart_without_touching_original(
@@ -48,20 +48,20 @@ def test_home_overlay_mutations_survive_restart_without_touching_original(
     source.parent.mkdir(parents=True)
     source.write_text("before", encoding="utf-8")
     home = _home(tmp_path)
-    link = "home:skills/refactor/references/check.md"
+    ref = "home:resource/skills/refactor/references/check.md"
 
     with pytest.raises(AgentHomeRuntimeCopyRequired):
-        home.read_resource(link)
-    assert home.ensure_runtime_copy(home.parse_link(link)) is True
-    copied = home.read_resource(link)
+        home.read_resource(ref)
+    assert home.ensure_runtime_copy(home.parse_ref(ref)) is True
+    copied = home.read_resource(ref)
     patched = home.patch_resource(
-        link,
+        ref,
         old_text="before",
         new_text="after",
         expected_digest=copied.digest,
     )
     created = home.write_resource(
-        "home:skills/refactor/references/new.md",
+        "home:resource/skills/refactor/references/new.md",
         "new resource",
     )
 
@@ -70,19 +70,19 @@ def test_home_overlay_mutations_survive_restart_without_touching_original(
     assert source.read_text(encoding="utf-8") == "before"
 
     restarted = _home(tmp_path)
-    assert restarted.read_resource(link).text == "after"
+    assert restarted.read_resource(ref).text == "after"
     assert (
-        restarted.read_resource("home:skills/refactor/references/new.md").text
+        restarted.read_resource("home:resource/skills/refactor/references/new.md").text
         == "new resource"
     )
 
     deleted = restarted.delete_resource(
-        link,
-        expected_digest=restarted.read_resource(link).digest,
+        ref,
+        expected_digest=restarted.read_resource(ref).digest,
     )
     assert deleted.state is HomeOverlayState.DELETED
     with pytest.raises(AgentHomeContractError, match="deleted"):
-        restarted.read_resource(link)
+        restarted.read_resource(ref)
     assert source.read_text(encoding="utf-8") == "before"
 
     manifest = json.loads(
@@ -101,23 +101,23 @@ def test_runtime_only_top_is_catalogued_across_restart_and_tombstone_hides_it(
     home = _home(tmp_path)
 
     created = home.write_top(
-        "home:agent@entity/tiny_soul",
+        "home:top/agent/entity/tiny_soul",
         "runtime entity",
     )
 
     assert created.state is HomeOverlayState.CREATED
-    assert "home:agent@entity/tiny_soul" in home.loadable_background_links()
-    assert home.read_top("home:agent@entity/tiny_soul") == "runtime entity"
+    assert "home:top/agent/entity/tiny_soul" in home.loadable_background_refs()
+    assert home.read_top("home:top/agent/entity/tiny_soul") == "runtime entity"
     assert not (tmp_path / "home" / "agent" / "entity" / "tiny_soul.md").exists()
 
     restarted = _home(tmp_path)
-    assert "home:agent@entity/tiny_soul" in restarted.loadable_background_links()
-    deleted = restarted.delete_top("home:agent@entity/tiny_soul")
+    assert "home:top/agent/entity/tiny_soul" in restarted.loadable_background_refs()
+    deleted = restarted.delete_top("home:top/agent/entity/tiny_soul")
 
     assert deleted.state is HomeOverlayState.DELETED
-    assert "home:agent@entity/tiny_soul" not in restarted.loadable_background_links()
+    assert "home:top/agent/entity/tiny_soul" not in restarted.loadable_background_refs()
     with pytest.raises(AgentHomeContractError, match="does not exist"):
-        restarted.read_top("home:agent@entity/tiny_soul")
+        restarted.read_top("home:top/agent/entity/tiny_soul")
 
 
 def test_top_tombstone_hides_actual_without_modifying_it(tmp_path: Path) -> None:
@@ -126,11 +126,11 @@ def test_top_tombstone_hides_actual_without_modifying_it(tmp_path: Path) -> None
     source.write_text("actual reason", encoding="utf-8")
     home = _home(tmp_path)
 
-    deleted = home.delete_top("home:agent@obsolete")
+    deleted = home.delete_top("home:top/agent/obsolete")
 
     assert deleted.state is HomeOverlayState.DELETED
     assert source.read_text(encoding="utf-8") == "actual reason"
-    assert "home:agent@obsolete" not in home.loadable_background_links()
+    assert "home:top/agent/obsolete" not in home.loadable_background_refs()
 
 
 def test_materialized_top_remains_effective_when_actual_changes_externally(
@@ -140,13 +140,13 @@ def test_materialized_top_remains_effective_when_actual_changes_externally(
     source.parent.mkdir(parents=True)
     source.write_text("baseline", encoding="utf-8")
     home = _home(tmp_path)
-    link = home.parse_link("home:agent@stable")
-    assert home.ensure_runtime_copy(link) is True
+    ref = home.parse_ref("home:top/agent/stable")
+    assert home.ensure_runtime_copy(ref) is True
 
     source.write_text("external change", encoding="utf-8")
 
-    assert home.read_top("home:agent@stable") == "baseline"
-    assert "home:agent@stable" in home.loadable_background_links()
+    assert home.read_top("home:top/agent/stable") == "baseline"
+    assert "home:top/agent/stable" in home.loadable_background_refs()
 
 
 def test_top_mutation_enforces_current_namespaces_core_and_link_rules(
@@ -158,24 +158,24 @@ def test_top_mutation_enforces_current_namespaces_core_and_link_rules(
     home = _home(tmp_path)
 
     with pytest.raises(AgentHomeContractError, match="Unsupported Home"):
-        home.write_top("home:what@missing_kind", "value")
+        home.write_top("home:top/what/missing_kind", "value")
     with pytest.raises(AgentHomeContractError, match="Unsupported Home"):
-        home.write_top("home:why@old_reason", "value")
+        home.write_top("home:top/why/old_reason", "value")
     with pytest.raises(AgentHomeContractError, match="one skill name segment"):
-        home.write_top("home:skills@nested/invalid", _SKILL_TEXT)
+        home.write_top("home:top/skills/nested/invalid", _SKILL_TEXT)
 
     patched = home.patch_top(
-        "home:agent@AGENT",
+        "home:top/agent/AGENT",
         old_text="core before",
         new_text="core after",
     )
     assert patched.state is HomeOverlayState.MODIFIED
-    assert home.read_top("home:agent@AGENT") == "core after"
+    assert home.read_top("home:top/agent/AGENT") == "core after"
     assert core.read_text(encoding="utf-8") == "core before"
     with pytest.raises(AgentHomeContractError, match="cannot be deleted"):
-        home.delete_top("home:agent@AGENT")
+        home.delete_top("home:top/agent/AGENT")
     with pytest.raises(AgentHomeContractError, match="Unsupported Home"):
-        home.write_top("home:memory@2026-07-11", "changed", overwrite=True)
+        home.write_top("home:top/memory/2026-07-11", "changed", overwrite=True)
 
 
 def test_agent_and_skill_top_namespaces_have_distinct_identities(
@@ -189,9 +189,9 @@ def test_agent_and_skill_top_namespaces_have_distinct_identities(
     skill.write_text(_SKILL_TEXT, encoding="utf-8")
     home = _home(tmp_path)
 
-    assert home.loadable_background_links() == (
-        "home:agent@duplicate",
-        "home:skills@duplicate",
+    assert home.loadable_background_refs() == (
+        "home:top/agent/duplicate",
+        "home:top/skills/duplicate",
     )
 
 
@@ -207,17 +207,16 @@ def test_prompt_mounts_follow_action_catalog_and_mutate_only_runtime(
         actions=(("workspace", "workspace.compose"),),
     )
     assert (
-        home.ensure_runtime_copy(home.parse_link("home:skills_domain:workspace"))
-        is True
+        home.ensure_runtime_copy(home.parse_ref("home:mount/domain/workspace")) is True
     )
 
     assert home.guidance_for_action("workspace", "workspace.compose") is None
     written = home.write_prompt_mount(
-        "home:skills_action:workspace/compose",
+        "home:mount/action/workspace/compose",
         "runtime action guidance",
     )
     patched = home.patch_prompt_mount(
-        "home:skills_action:workspace/compose",
+        "home:mount/action/workspace/compose",
         old_text="runtime action",
         new_text="updated action",
     )
@@ -230,7 +229,7 @@ def test_prompt_mounts_follow_action_catalog_and_mutate_only_runtime(
     assert home.guidance_for_domain("workspace") == "actual guidance"
     assert actual.read_text(encoding="utf-8") == "actual guidance"
     with pytest.raises(AgentHomeContractError, match="not defined"):
-        home.write_prompt_mount("home:skills_domain:session", "invalid")
+        home.write_prompt_mount("home:mount/domain/session", "invalid")
 
     home.reconcile_prompt_mounts(domains=(), actions=())
     assert actual.read_text(encoding="utf-8") == "actual guidance"
@@ -253,27 +252,27 @@ def test_skill_memory_exists_only_in_general_how_runtime_package(
     home = _home(tmp_path)
 
     created = home.write_resource(
-        "home:skills/refactor/SKILL_MEMORY.md",
+        "home:resource/skills/refactor/SKILL_MEMORY.md",
         "temporary feedback",
     )
 
     assert created.state is HomeOverlayState.CREATED
-    assert home.read_resource("home:skills/refactor/SKILL_MEMORY.md").text == (
+    assert home.read_resource("home:resource/skills/refactor/SKILL_MEMORY.md").text == (
         "temporary feedback"
     )
     assert not (skill.parent / "SKILL_MEMORY.md").exists()
     restarted = _home(tmp_path)
-    assert restarted.read_resource("home:skills/refactor/SKILL_MEMORY.md").text == (
-        "temporary feedback"
-    )
+    assert restarted.read_resource(
+        "home:resource/skills/refactor/SKILL_MEMORY.md"
+    ).text == ("temporary feedback")
 
-    for link in (
-        "home:skills/missing/SKILL_MEMORY.md",
-        "home:skills/refactor/DOMAIN_MEMORY.md",
-        "home:agent/SKILL_MEMORY.md",
+    for ref in (
+        "home:resource/skills/missing/SKILL_MEMORY.md",
+        "home:resource/skills/refactor/DOMAIN_MEMORY.md",
+        "home:resource/agent/SKILL_MEMORY.md",
     ):
         with pytest.raises(AgentHomeContractError):
-            home.write_resource(link, "invalid")
+            home.write_resource(ref, "invalid")
 
 
 def test_actual_home_rejects_runtime_only_skill_memory(tmp_path: Path) -> None:
@@ -331,22 +330,22 @@ def test_home_builder_migrates_day_bound_manifest_to_cross_day_schema(
 
 
 @pytest.mark.parametrize(
-    "link",
+    "ref",
     (
         "home:what/entity.md",
         "home:why/QA_rule.md",
-        "home:skills/refactor/SKILL.md",
-        "home:memory/old.md",
+        "home:resource/skills/refactor/SKILL.md",
+        "home:resource/memory/old.md",
     ),
 )
 def test_home_overlay_rejects_top_level_and_memory_mutation(
     tmp_path: Path,
-    link: str,
+    ref: str,
 ) -> None:
     home = _home(tmp_path)
 
     with pytest.raises(AgentHomeContractError):
-        home.write_resource(link, "not allowed")
+        home.write_resource(ref, "not allowed")
 
 
 def test_home_operation_recovers_file_replaced_before_manifest_commit(
@@ -402,17 +401,17 @@ def test_home_patch_enforces_complete_resource_write_limit(tmp_path: Path) -> No
             max_write_chars=8,
         )
     ).build()
-    link = "home:skills/refactor/references/limited.md"
-    home.write_resource(link, "before")
+    ref = "home:resource/skills/refactor/references/limited.md"
+    home.write_resource(ref, "before")
 
     with pytest.raises(AgentHomeContractError, match="exceeds"):
         home.patch_resource(
-            link,
+            ref,
             old_text="before",
             new_text="much too long",
         )
 
-    assert home.read_resource(link).text == "before"
+    assert home.read_resource(ref).text == "before"
 
 
 def _home(root: Path) -> AgentHomeEngine:

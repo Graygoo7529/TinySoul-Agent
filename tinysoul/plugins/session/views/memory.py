@@ -26,7 +26,7 @@ class SessionMemoryFact:
     status: TurnOutcomeStatus
     working: JsonObject = field(default_factory=dict)
     segments: JsonObject = field(default_factory=dict)
-    background_links: tuple[str, ...] = field(default_factory=tuple)
+    background_refs: tuple[str, ...] = field(default_factory=tuple)
     answer: str = ""
     references: tuple[str, ...] = field(default_factory=tuple)
     actions: tuple[JsonObject, ...] = field(default_factory=tuple)
@@ -49,7 +49,7 @@ class SessionMemoryFact:
             raise SessionContractError(
                 "Session memory fact started_at must be timezone-aware"
             )
-        for name in ("user_inputs", "background_links", "references"):
+        for name in ("user_inputs", "background_refs", "references"):
             values = tuple(getattr(self, name))
             if any(not isinstance(item, str) or not item for item in values):
                 raise SessionContractError(
@@ -78,7 +78,7 @@ class SessionMemoryFact:
             "user_inputs": list(self.user_inputs),
             "working": self.working,
             "segments": self.segments,
-            "background_links": list(self.background_links),
+            "background_refs": list(self.background_refs),
             "answer": self.answer,
             "references": list(self.references),
             "actions": list(self.actions),
@@ -162,7 +162,7 @@ def _turn_fact(record: SessionTurnRecord) -> SessionMemoryFact:
         user_inputs=tuple(item.text for item in record.inputs),
         working=record.working,
         segments=record.segments,
-        background_links=record.background_links,
+        background_refs=record.background_refs,
         answer=output.text if output is not None else "",
         references=output.references if output is not None else (),
         actions=tuple(action.to_json() for action in record.actions),

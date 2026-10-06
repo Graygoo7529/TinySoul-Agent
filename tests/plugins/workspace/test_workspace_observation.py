@@ -40,11 +40,11 @@ def test_workspace_engine_emits_committed_mutations_from_one_owner(
 
     written = engine.write_text("workspace:note.md", "old")
     patched = engine.edit_text(
-        written.link,
+        written.ref,
         (WorkspaceTextEdit("old", "new"),),
     )
     engine.set_description(
-        patched.link,
+        patched.ref,
         "A note.",
     )
     item = engine.trash_resource("workspace:note.md")
@@ -60,7 +60,7 @@ def test_workspace_engine_emits_committed_mutations_from_one_owner(
     assert all(event.name == "workspace.changed" for event in observations.events)
     assert all(event.source == "workspace.engine" for event in observations.events)
     assert all(
-        event.payload["links"] == ["workspace:note.md"] for event in observations.events
+        event.payload["refs"] == ["workspace:note.md"] for event in observations.events
     )
 
 
@@ -73,24 +73,26 @@ def test_workspace_bundle_emits_only_one_final_change(tmp_path: Path) -> None:
 
     result = engine.write_bundle(
         (
-            WorkspaceBundleWrite(link="workspace:a.md", data=b"a"),
-            WorkspaceBundleWrite(link="workspace:b.md", data=b"b"),
+            WorkspaceBundleWrite(ref="workspace:a.md", data=b"a"),
+            WorkspaceBundleWrite(ref="workspace:b.md", data=b"b"),
         )
     )
 
     assert len(observations.events) == 1
     event = observations.events[0]
     assert event.payload["operation"] == "bundle"
-    assert event.payload["created_links"] == ["workspace:a.md", "workspace:b.md"]
-    assert event.payload["links"] == ["workspace:a.md", "workspace:b.md"]
+    assert event.payload["created_refs"] == ["workspace:a.md", "workspace:b.md"]
+    assert event.payload["refs"] == ["workspace:a.md", "workspace:b.md"]
 
 
 async def test_committed_writes_publish_even_when_file_metadata_is_unchanged(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observations = _RecordingEmitter()
     engine = WorkspaceEngineBuilder(
-        WorkspaceSettings(root=tmp_path), observations=observations,
+        WorkspaceSettings(root=tmp_path),
+        observations=observations,
     ).build()
     record = engine.write_text("workspace:note.md", "old")
     observations.events.clear()
@@ -111,15 +113,20 @@ async def test_committed_writes_publish_even_when_file_metadata_is_unchanged(
         write_with_same_timestamp,
     )
     before = engine.snapshot()
-    engine.edit_text(record.link, (WorkspaceTextEdit("old", "new"),))
-    engine.write_bundle((WorkspaceBundleWrite(record.link, b"end", overwrite=True),))
+    engine.edit_text(record.ref, (WorkspaceTextEdit("old", "new"),))
+    engine.write_bundle((WorkspaceBundleWrite(record.ref, b"end", overwrite=True),))
     assert engine.snapshot() == before
     assert (tmp_path / "note.md").read_text() == "end"
-    assert [event.payload["operation"] for event in observations.events] == ["edit", "bundle"]
-    assert all(event.payload["updated_links"] == [record.link] for event in observations.events)
+    assert [event.payload["operation"] for event in observations.events] == [
+        "edit",
+        "bundle",
+    ]
+    assert all(
+        event.payload["updated_refs"] == [record.ref] for event in observations.events
+    )
     await engine.events.flush()
     assert len(events) == 1
-    assert events[0].payload["links"] == [record.link]
+    assert events[0].payload["refs"] == [record.ref]
 
 
 def test_workspace_reconcile_emits_external_disk_change(tmp_path: Path) -> None:
@@ -135,7 +142,7 @@ def test_workspace_reconcile_emits_external_disk_change(tmp_path: Path) -> None:
     assert result.complete is True
     assert len(observations.events) == 1
     assert observations.events[0].payload["operation"] == "reconcile"
-    assert observations.events[0].payload["created_links"] == ["workspace:external.md"]
+    assert observations.events[0].payload["created_refs"] == ["workspace:external.md"]
 
 
 def test_workspace_failed_mutation_does_not_emit_change(tmp_path: Path) -> None:

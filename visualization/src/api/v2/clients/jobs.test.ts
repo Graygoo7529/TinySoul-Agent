@@ -18,7 +18,7 @@ describe("JobsClient", () => {
     const list = await new JobsClient(transport).list("contract-turn");
     expect(list.jobs[0]?.job_id).toBe("job_1");
     expect(new URL(requests[0]!.url).pathname).toBe(
-      "/v2/turns/contract-turn/jobs",
+      "/v2/requests/contract-turn/jobs",
     );
   });
 
@@ -29,12 +29,12 @@ describe("JobsClient", () => {
     const client = new JobsClient(transport);
     const detail = await client.get("contract-turn", "job_1");
     expect(detail.state).toBe("running");
-    expect(detail.result_links.length).toBeGreaterThan(0);
+    expect(detail.result_refs.length).toBeGreaterThan(0);
     const stopped = await client.stop("contract-turn", "job_1");
     expect(stopped.job_id).toBe("job_1");
     expect(requests.map((r) => [r.method, new URL(r.url).pathname])).toEqual([
-      ["GET", "/v2/turns/contract-turn/jobs/job_1"],
-      ["POST", "/v2/turns/contract-turn/jobs/job_1/stop"],
+      ["GET", "/v2/requests/contract-turn/jobs/job_1"],
+      ["POST", "/v2/requests/contract-turn/jobs/job_1/stop"],
     ]);
   });
 

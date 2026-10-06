@@ -96,9 +96,20 @@
   },
   "additionalProperties": true,
   "properties": {
-    "turn_id": {
-      "title": "Turn Id",
+    "request_id": {
+      "title": "Request Id",
       "type": "string"
+    },
+    "turn_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Turn Id"
     },
     "kind": {
       "title": "Kind",
@@ -245,6 +256,7 @@
     }
   },
   "required": [
+    "request_id",
     "turn_id",
     "kind",
     "state",

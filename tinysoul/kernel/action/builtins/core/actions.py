@@ -34,7 +34,7 @@ from tinysoul.llm.protocol.responses import AnswerFormat
 @dataclass(frozen=True)
 class _PromptParse:
     prompt: TaskPrompt | None = None
-    source_links: tuple[str, ...] = ()
+    source_refs: tuple[str, ...] = ()
     model_feedback: str = ""
     failure_reason: str = ""
     frame_data: JsonObject = field(default_factory=dict)
@@ -151,7 +151,7 @@ class CoreAnswerActionExecutor:
             execution,
             _normalized_answer_payload(
                 payload,
-                source_links=parse.source_links,
+                source_refs=parse.source_refs,
             ),
         )
 
@@ -186,6 +186,7 @@ class CoreAskActionExecutor:
                 "timeout_seconds": timeout,
                 **({"explanation": explanation} if explanation else {}),
             },
+            model_text=question.narrative(explanation=explanation),
         )
 
 
@@ -286,7 +287,7 @@ class _PromptArgumentBuilder:
 
     async def context_task_prompt(self, params: JsonObject) -> _PromptParse:
         try:
-            reference_links = params.get("reference_links", [])
+            references = params.get("references", [])
             return _PromptParse(
                 prompt=TaskPrompt(
                     guide_blocks=self._parse_blocks(
@@ -303,7 +304,7 @@ class _PromptArgumentBuilder:
                             section="input",
                             heading=prompt_text.TASK_INPUT_HEADING,
                         ),
-                        *(await self._parse_reference_links(reference_links)),
+                        *(await self._parse_reference_refs(references)),
                     ),
                     output_blocks=self._parse_blocks(
                         params.get("output_blocks"),
@@ -313,7 +314,7 @@ class _PromptArgumentBuilder:
                         required=True,
                     ),
                 ),
-                source_links=self._source_links(reference_links),
+                source_refs=self._source_refs(references),
             )
         except _PromptParameterError as exc:
             return _PromptParse(
@@ -330,7 +331,7 @@ class _PromptArgumentBuilder:
 
     async def answer_prompt(self, params: JsonObject) -> _PromptParse:
         try:
-            reference_links = params.get("reference_links", [])
+            references = params.get("references", [])
             return _PromptParse(
                 prompt=TaskPrompt(
                     guide_blocks=self._parse_blocks(
@@ -347,7 +348,7 @@ class _PromptArgumentBuilder:
                             section="input",
                             heading=prompt_text.ANSWER_INPUT_HEADING,
                         ),
-                        *(await self._parse_reference_links(reference_links)),
+                        *(await self._parse_reference_refs(references)),
                     ),
                     output_blocks=(
                         PromptBlock.from_text(
@@ -356,7 +357,7 @@ class _PromptArgumentBuilder:
                         ),
                     ),
                 ),
-                source_links=self._source_links(reference_links),
+                source_refs=self._source_refs(references),
             )
         except _PromptParameterError as exc:
             return _PromptParse(
@@ -449,51 +450,51 @@ class _PromptArgumentBuilder:
             prompt_text.task_block(heading=heading, text=text),
         )
 
-    async def _parse_reference_links(self, value: object) -> tuple[PromptBlock, ...]:
+    async def _parse_reference_refs(self, value: object) -> tuple[PromptBlock, ...]:
         if value is None:
             return ()
         if not isinstance(value, list):
             raise PromptReferenceError(
-                prompt_text.REFERENCE_LINKS_LIST_REQUIRED,
-                reason="invalid_reference_links",
+                prompt_text.REFERENCE_REFS_LIST_REQUIRED,
+                reason="invalid_reference_refs",
             )
         blocks: list[PromptBlock] = []
         for index, item in enumerate(value, start=1):
             if not isinstance(item, str) or not item:
                 raise PromptReferenceError(
-                    prompt_text.REFERENCE_LINK_STRINGS_REQUIRED,
-                    reason="invalid_reference_link",
+                    prompt_text.REFERENCE_REF_STRINGS_REQUIRED,
+                    reason="invalid_reference_ref",
                     payload={"index": index},
                 )
             resolver = self._resolver_for(item)
             if resolver is None:
                 raise PromptReferenceError(
                     prompt_text.unsupported_reference(item=item),
-                    reason="unsupported_reference_link",
-                    payload={"index": index, "link": item},
+                    reason="unsupported_reference_ref",
+                    payload={"index": index, "ref": item},
                 )
             resolved = await resolver.resolve_reference(item)
             if not resolved:
                 raise PromptReferenceError(
                     prompt_text.empty_reference(item=item),
                     reason="empty_reference",
-                    payload={"index": index, "link": item},
+                    payload={"index": index, "ref": item},
                 )
             blocks.extend(resolved)
         return tuple(blocks)
 
-    def _source_links(self, value: object) -> tuple[str, ...]:
+    def _source_refs(self, value: object) -> tuple[str, ...]:
         if value is None or not isinstance(value, list):
             return ()
-        links: list[str] = []
+        refs: list[str] = []
         for item in value:
-            if isinstance(item, str) and item and item not in links:
-                links.append(item)
-        return tuple(links)
+            if isinstance(item, str) and item and item not in refs:
+                refs.append(item)
+        return tuple(refs)
 
-    def _resolver_for(self, link: str) -> PromptReferenceResolver | None:
+    def _resolver_for(self, ref: str) -> PromptReferenceResolver | None:
         for resolver in self._reference_resolvers:
-            if resolver.supports(link):
+            if resolver.supports(ref):
                 return resolver
         return None
 
@@ -531,7 +532,7 @@ def _answer_payload_failure(payload: JsonObject) -> _PayloadFailure | None:
 def _normalized_answer_payload(
     payload: JsonObject,
     *,
-    source_links: tuple[str, ...],
+    source_refs: tuple[str, ...],
 ) -> JsonObject:
     result: JsonObject = {"text": payload["text"]}
     references_value: JsonValue = payload.get("references", [])
@@ -541,7 +542,7 @@ def _normalized_answer_payload(
             item for item in references_value if isinstance(item, str) and item
         )
     if not references:
-        references.extend(source_links)
+        references.extend(source_refs)
     if references:
         result["references"] = references
     return result
@@ -584,7 +585,9 @@ def register_core_actions(
     )
 
 
-def _success(execution: ActionExecution, payload: JsonObject) -> ActionResult:
+def _success(
+    execution: ActionExecution, payload: JsonObject, *, model_text: str | None = None
+) -> ActionResult:
     return ActionResult.success(
         call_id=execution.call.call_id,
         invoke_id=execution.framework.invoke_id,
@@ -593,6 +596,7 @@ def _success(execution: ActionExecution, payload: JsonObject) -> ActionResult:
         sequence=execution.call.sequence,
         domain=execution.framework.domain,
         payload=payload,
+        model_text=model_text,
     )
 
 

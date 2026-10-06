@@ -79,7 +79,7 @@ class ExecutionActionExecutor:
             raise RuntimeJobsBridge().from_error(exc) from exc
         except AgentHomeRuntimeCopyRequired as exc:
             raise RuntimeAgentHomeBridge().runtime_copy_required(
-                link=exc.link, payload=exc.to_payload()
+                ref=exc.ref, payload=exc.to_payload()
             ) from exc
         except WorkspaceError as exc:
             raise RuntimeWorkspaceBridge().from_workspace_error(exc) from exc
@@ -133,11 +133,11 @@ class ExecutionActionExecutor:
             interpreter, command, source = (
                 params.get("interpreter"),
                 params.get("command"),
-                params.get("source_link"),
+                params.get("source_ref"),
             )
             args, cwd, interactive = (
                 params.get("args", []),
-                params.get("cwd_link", ""),
+                params.get("cwd_ref", ""),
                 params.get("interactive", False),
             )
             if (
@@ -169,9 +169,9 @@ class ExecutionActionExecutor:
                 turn_id=turn_id,
                 interpreter=interpreter,
                 command=command,
-                source_link=source,
+                source_ref=source,
                 args=arguments,
-                cwd_link=cwd,
+                cwd_ref=cwd,
                 interactive=interactive,
                 home=self._home,
                 operations=context.owner_operations,

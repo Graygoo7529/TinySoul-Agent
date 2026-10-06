@@ -28,7 +28,7 @@ def emit_workspace_changed(
         return
     if not observation_enabled(observations, ObservationLevel.NORMAL):
         return
-    links = change.links
+    refs = change.refs
     emit_observation(
         observations,
         ObservationEvent(
@@ -40,11 +40,11 @@ def emit_workspace_changed(
             payload={
                 "operation": change.operation.value,
                 "day": change.after.day,
-                "link": links[0] if len(links) == 1 else "",
-                "links": list(links),
-                "created_links": list(change.created_links),
-                "updated_links": list(change.updated_links),
-                "removed_links": list(change.removed_links),
+                "ref": refs[0] if len(refs) == 1 else "",
+                "refs": list(refs),
+                "created_refs": list(change.created_refs),
+                "updated_refs": list(change.updated_refs),
+                "removed_refs": list(change.removed_refs),
             },
         ),
     )

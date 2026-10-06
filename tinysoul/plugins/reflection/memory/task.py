@@ -73,8 +73,8 @@ class MemoryReflectionTask:
     ) -> tuple[CalendarDay, ...]:
         days = sorted(
             (
-                CalendarDay(link.day)
-                for link in self._memory.links(kinds=(MemoryKind.DAILY,))
+                CalendarDay(ref.day)
+                for ref in self._memory.refs(kinds=(MemoryKind.DAILY,))
             ),
             reverse=True,
         )
@@ -91,6 +91,7 @@ class MemoryReflectionTask:
         archive: ArchiveProjection | None,
         scope: RunScope,
         request_id: str,
+        turn_id: str,
         inbox: TurnInbox | None = None,
         instructions: str = "",
     ) -> ReflectionTaskOutcome:
@@ -117,6 +118,7 @@ class MemoryReflectionTask:
                 active_day=active_day,
                 scope=scope,
                 request_id=request_id,
+                turn_id=turn_id,
                 input_source="reflection.memory",
                 inbox=inbox,
             )

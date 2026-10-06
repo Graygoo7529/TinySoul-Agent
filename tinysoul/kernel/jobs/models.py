@@ -121,7 +121,7 @@ class JobSnapshot:
     summary: str = ""
     reason: str = ""
     pending_inputs: tuple[JobInputRequest, ...] = ()
-    result_links: tuple[str, ...] = ()
+    result_refs: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -144,13 +144,13 @@ class JobSnapshot:
             raise JobError("Job pending inputs must be typed and bounded")
         if bool(self.pending_inputs) != (self.state is JobState.WAITING_INPUT):
             raise JobError("Waiting Job state must describe its pending inputs")
-        if len(self.result_links) > 8 or any(
-            not isinstance(link, str)
-            or not link.startswith("workspace:")
-            or len(link) > 512
-            for link in self.result_links
+        if len(self.result_refs) > 8 or any(
+            not isinstance(ref, str)
+            or not ref.startswith("workspace:")
+            or len(ref) > 512
+            for ref in self.result_refs
         ):
-            raise JobError("Job results require bounded Workspace links")
+            raise JobError("Job results require bounded Workspace refs")
         try:
             (self.job_id + self.kind + self.summary).encode("utf-8")
         except UnicodeError as exc:
@@ -168,7 +168,7 @@ class JobSnapshot:
             "summary": self.summary,
             "reason": self.reason,
             "pending_inputs": [item.to_json() for item in self.pending_inputs],
-            "result_links": list(self.result_links),
+            "result_refs": list(self.result_refs),
         }
 
 

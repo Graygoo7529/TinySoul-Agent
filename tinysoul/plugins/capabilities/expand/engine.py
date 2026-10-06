@@ -508,9 +508,9 @@ class ExpandEngine:
                 if len(text) <= self.settings.max_inline_chars:
                     content.append({"type": "text", "text": text})
                     continue
-                link = f"{prefix}/{index}.txt"
-                writes.append(WorkspaceBundleWrite(link, text.encode()))
-                content.append({"link": link, "summary": text[:500]})
+                ref = f"{prefix}/{index}.txt"
+                writes.append(WorkspaceBundleWrite(ref, text.encode()))
+                content.append({"ref": ref, "summary": text[:500]})
             elif kind in {"image", "audio", "resource"}:
                 resource = block.get("resource") if kind == "resource" else block
                 if not isinstance(resource, dict):
@@ -541,11 +541,11 @@ class ExpandEngine:
                     str(resource.get("mimeType")),
                     ".txt" if isinstance(text, str) else ".bin",
                 )
-                link = f"{prefix}/{index}{suffix}"
-                writes.append(WorkspaceBundleWrite(link, data))
+                ref = f"{prefix}/{index}{suffix}"
+                writes.append(WorkspaceBundleWrite(ref, data))
                 content.append(
                     {
-                        "link": link,
+                        "ref": ref,
                         "media_type": resource.get(
                             "mimeType", "application/octet-stream"
                         ),
@@ -567,12 +567,12 @@ class ExpandEngine:
         if result.get("structuredContent") is not None:
             payload["structured"] = result["structuredContent"]
         if len(dumps_json(payload)) > self.settings.max_inline_chars:
-            link = f"{prefix}/result.json"
-            writes.append(WorkspaceBundleWrite(link, dumps_json(payload).encode()))
+            ref = f"{prefix}/result.json"
+            writes.append(WorkspaceBundleWrite(ref, dumps_json(payload).encode()))
             payload = {
                 **tool.identity,
                 "is_error": result.get("isError", False),
-                "result_link": link,
+                "result_ref": ref,
             }
         if writes:
             await operations.run(lambda: self._workspace.write_bundle(tuple(writes)))

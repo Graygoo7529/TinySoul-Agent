@@ -2,7 +2,7 @@ name = "subagent.connect"
 domain = "subagent"
 
 [tool]
-description = "Prepare an ACP session for this Turn; optional cwd_link names an existing daily Workspace directory."
+description = "Prepare an ACP session for this Turn; optional cwd_ref names an existing daily Workspace directory."
 
 [tool.schema]
 type = "object"
@@ -12,11 +12,11 @@ additionalProperties = false
 [tool.schema.properties.agent_id]
 type = "string"
 
-[tool.schema.properties.cwd_link]
+[tool.schema.properties.cwd_ref]
 type = "string"
 
 [semantic]
-use_when = ["Prepare an ACP session for this Turn; optional cwd_link names an existing daily Workspace directory."]
+use_when = ["Prepare an ACP session for this Turn; optional cwd_ref names an existing daily Workspace directory."]
 effects = ["modifying"]
 
 [execution]

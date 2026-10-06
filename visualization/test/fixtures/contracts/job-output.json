@@ -14,15 +14,15 @@
   "truncated": false,
   "result_locators": [
     {
-      "link": "workspace:jobs/job_1",
+      "ref": "workspace:jobs/job_1",
       "day": "2026-09-29"
     },
     {
-      "link": "workspace:jobs/job_1/logs/stdout.log",
+      "ref": "workspace:jobs/job_1/logs/stdout.log",
       "day": "2026-09-29"
     },
     {
-      "link": "workspace:jobs/job_1/logs/stderr.log",
+      "ref": "workspace:jobs/job_1/logs/stderr.log",
       "day": "2026-09-29"
     }
   ]

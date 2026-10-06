@@ -44,10 +44,10 @@ const KIND_TONES: Record<string, BadgeTone> = {
 
 export function HomeDiffView({
   epoch,
-  link,
+  ref,
 }: {
   epoch: number;
-  link: string;
+  ref: string;
 }): ReactElement {
   const diffKind = useHomePage((s) => s.diffKind);
   const [mode, setMode] = useState<DiffMode>("unified");
@@ -58,14 +58,14 @@ export function HomeDiffView({
         return Promise.reject(new Error("Not connected to a backend."));
       }
       return clients.home.diff(
-        { link, continuation: token ?? undefined },
+        { ref, continuation: token ?? undefined },
         { signal },
       );
     },
     nextContinuation,
     (page) =>
       page.metadata ?? { baseline_diverged: false, actual_chars: 0, effective_chars: 0 },
-    [epoch, link],
+    [epoch, ref],
   );
 
   const diffText = useMemo(() => page.items.map((item) => item.text).join(""), [page.items]);
@@ -88,8 +88,8 @@ export function HomeDiffView({
           Changes
         </Button>
         <GitCompareArrows size={13} className="shrink-0 text-fg-faint" />
-        <span className="min-w-0 flex-1 truncate text-[13px] font-medium" title={link}>
-          {link.replace(/^home:/, "")}
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium" title={ref}>
+          {ref.replace(/^home:/, "")}
         </span>
         {diffKind !== null && (
           <Badge tone={KIND_TONES[diffKind] ?? "gray"}>{diffKind}</Badge>

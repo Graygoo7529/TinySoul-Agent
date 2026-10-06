@@ -62,20 +62,20 @@ class WorkspaceAnalyzeExecutor(ActionExecutor):
                     "observed": len(intent),
                 },
             )
-        links_value = execution.call.params.get("reference_links")
+        refs_value = execution.call.params.get("references")
         if (
-            not isinstance(links_value, list)
-            or not links_value
-            or any(not isinstance(link, str) or not link for link in links_value)
+            not isinstance(refs_value, list)
+            or not refs_value
+            or any(not isinstance(ref, str) or not ref for ref in refs_value)
         ):
             return _failed(
                 execution,
-                prompt_text.ANALYSIS_REFERENCE_LINKS_REQUIRED,
-                {"reason": "invalid_reference_links"},
+                prompt_text.ANALYSIS_REFERENCE_REFS_REQUIRED,
+                {"reason": "invalid_reference_refs"},
             )
-        links = tuple(link for link in links_value if isinstance(link, str))
+        refs = tuple(ref for ref in refs_value if isinstance(ref, str))
         try:
-            preparation = await workspace.prepare_analysis_references(links)
+            preparation = await workspace.prepare_analysis_references(refs)
         except WorkspaceContractError as exc:
             return _failed(
                 execution,
@@ -182,7 +182,7 @@ class WorkspaceAnalyzeExecutor(ActionExecutor):
             sources.append(
                 {
                     "source_id": source_id,
-                    "link": reference.link,
+                    "ref": reference.ref,
                     "size": reference.size,
                     "range": {"start_line": 1, "end_line": reference.end_line},
                 }
@@ -207,16 +207,16 @@ def _analysis_budget_payload(failure: WorkspaceAnalysisBudgetFailure) -> JsonObj
         "reason": failure.reason.value,
         "limit": failure.limit,
         "observed_at_least": failure.observed,
-        "offending_link": failure.offending_link,
+        "offending_ref": failure.offending_ref,
         "references": [
             {
-                "link": record.link,
+                "ref": record.ref,
                 "size": record.size,
             }
             for record in failure.inspected
         ],
         "hint": (
-            "Reduce reference_links or inspect relevant ranges with "
+            "Reduce references or inspect relevant ranges with "
             "workspace.read/workspace.search."
         ),
     }

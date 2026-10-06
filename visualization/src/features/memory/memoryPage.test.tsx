@@ -38,7 +38,7 @@ beforeEach(() => {
     activeFragment: null,
     kind: null,
     query: "",
-    link: null,
+    ref: null,
     fragment: null,
     currentDirectRefs: [],
     currentMeta: null,
@@ -84,41 +84,41 @@ function activePage(
     ref: "memory:current",
     view: "content",
     items: chunks,
-    metadata: { day, locator: { link: "memory:current", day } },
+    metadata: { day, locator: { ref: "memory:current", day } },
   };
 }
 
 function documentPage(
-  link: string,
+  ref: string,
   metadata: Partial<JsonObject> = {},
   chunks: { ref: string; text: string }[] = [
-    { ref: `${link}#L1-L2`, text: "Document body.\n" },
+    { ref: `${ref}#L1-L2`, text: "Document body.\n" },
   ],
 ): JsonObject {
   return {
-    ref: link,
+    ref: ref,
     view: "content",
     items: chunks,
     metadata: {
       kind: "entity",
       status: "active",
-      display: link.split("/").pop() ?? link,
-      resolution_chain: [link],
-      locator: { link },
+      display: ref.split("/").pop() ?? ref,
+      resolution_chain: [ref],
+      locator: { ref },
       direct_refs: [],
       ...metadata,
     },
   };
 }
 
-function catalogItem(link: string, kind: string, extra: Partial<JsonObject> = {}): JsonObject {
+function catalogItem(ref: string, kind: string, extra: Partial<JsonObject> = {}): JsonObject {
   return {
-    link,
+    ref,
     kind,
-    display: link.split("/").pop() ?? link,
+    display: ref.split("/").pop() ?? ref,
     status: "active",
     redirect_to: null,
-    locator: { link },
+    locator: { ref },
     ...extra,
   };
 }
@@ -330,7 +330,7 @@ describe("MemoryPage documents", () => {
       jsonResponse({ items: [catalogItem("memory:entity/old-project", "entity")], next_continuation: null }),
     );
     endpoint.get("/v2/memory/document", (request) =>
-      queryOf(request, "link") === "memory:entity/old-project"
+      queryOf(request, "ref") === "memory:entity/old-project"
         ? jsonResponse(
             documentPage("memory:entity/old-project", {
               status: "merged",
@@ -341,7 +341,7 @@ describe("MemoryPage documents", () => {
           )
         : jsonResponse(documentPage("memory:entity/project")),
     );
-    useMemoryPage.setState({ section: "persistent", link: "memory:entity/old-project" });
+    useMemoryPage.setState({ section: "persistent", ref: "memory:entity/old-project" });
     await renderPage();
     await flush();
 
@@ -358,8 +358,8 @@ describe("MemoryPage documents", () => {
     });
     reads = endpoint.calls("/v2/memory/document");
     expect(reads).toHaveLength(2);
-    expect(queryOf(reads[1], "link")).toBe("memory:entity/project");
-    expect(useMemoryPage.getState().link).toBe("memory:entity/project");
+    expect(queryOf(reads[1], "ref")).toBe("memory:entity/project");
+    expect(useMemoryPage.getState().ref).toBe("memory:entity/project");
     expect(container.textContent).not.toContain("This document redirects to");
   });
 
@@ -375,7 +375,7 @@ describe("MemoryPage documents", () => {
       }),
     );
     endpoint.get("/v2/memory/document", (request) =>
-      queryOf(request, "link") === "memory:entity/gone"
+      queryOf(request, "ref") === "memory:entity/gone"
         ? errorResponse(404, "resource.not_found")
         : jsonResponse(
             // The owner's empty document still delivers one empty chunk.
@@ -384,7 +384,7 @@ describe("MemoryPage documents", () => {
             ]),
           ),
     );
-    useMemoryPage.setState({ section: "persistent", link: "memory:entity/gone" });
+    useMemoryPage.setState({ section: "persistent", ref: "memory:entity/gone" });
     await renderPage();
     await flush();
     expect(container.textContent).toContain("This document is missing");
@@ -416,7 +416,7 @@ describe("MemoryPage documents", () => {
     );
     endpoint.post("/v2/memory/search", () =>
       jsonResponse({
-        result_ref: "sr:1",
+        result_handle: "sr:1",
         scope: "all",
         source: "backlinks",
         items: [
@@ -435,7 +435,7 @@ describe("MemoryPage documents", () => {
         continuation: null,
       }),
     );
-    useMemoryPage.setState({ section: "persistent", link: "memory:entity/old-project" });
+    useMemoryPage.setState({ section: "persistent", ref: "memory:entity/old-project" });
     await renderPage();
     await flush();
 

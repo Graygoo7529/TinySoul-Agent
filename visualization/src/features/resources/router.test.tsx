@@ -36,10 +36,11 @@ let epoch: number;
 beforeEach(() => {
   resetTurnController();
   resetAppStores();
+  useAppStore.setState({ activeTab: "chat" });
   useInspectorStore.getState().close();
   useWorkspacePage.setState({
     day: null,
-    link: null,
+    ref: null,
     fragment: null,
     panel: "files",
     searchOpen: false,
@@ -50,7 +51,7 @@ beforeEach(() => {
   endpoint = new FakeEndpoint();
   epoch = wireConnectedStores(
     endpoint,
-    makeStatus({ activeDay: ACTIVE_DAY, activeTurnId: "t-live" }),
+    makeStatus({ activeDay: ACTIVE_DAY, activeTurnId: "2026-09-29/1" }),
   ).epoch;
   endpoint.get("/v2/session/turns", () =>
     jsonResponse({ day: ACTIVE_DAY, items: [], next_continuation: null }),
@@ -61,6 +62,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   resetTurnController();
   resetAppStores();
+  useAppStore.setState({ activeTab: "chat" });
   useInspectorStore.getState().close();
 });
 
@@ -81,7 +83,7 @@ describe("resolveReference", () => {
     if (outcome.status !== "resolved") return;
     expect(outcome.value.target).toEqual({
       kind: "workspace",
-      link: "workspace:notes/a.md",
+      ref: "workspace:notes/a.md",
       day: "2026-09-28",
       fragment: "L3",
     });
@@ -110,7 +112,7 @@ describe("resolveReference", () => {
     endpoint.get("/v2/resources/resolve", () =>
       jsonResponse({
         kind: "memory",
-        locator: { link: "memory:daily/2026-09-28" },
+        locator: { ref: "memory:daily/2026-09-28" },
         capabilities: ["read"],
       }),
     );
@@ -122,11 +124,11 @@ describe("resolveReference", () => {
     if (outcome.status !== "resolved") return;
     expect(outcome.value.target).toMatchObject({
       kind: "memory",
-      link: "memory:daily/2026-09-28",
+      ref: "memory:daily/2026-09-28",
     });
     const requests = endpoint.calls("/v2/resources/resolve");
     expect(requests).toHaveLength(1);
-    expect(queryOf(requests[0], "reference")).toBe("memory:current");
+    expect(queryOf(requests[0], "ref")).toBe("memory:current");
     expect(queryOf(requests[0], "turn_id")).toBe("t-1");
     expect(queryOf(requests[0], "day")).toBe("2026-09-28");
   });
@@ -135,16 +137,16 @@ describe("resolveReference", () => {
     endpoint.get("/v2/resources/resolve", () =>
       jsonResponse({
         kind: "session",
-        locator: { ref: "session:turn/t-1", day: "2026-09-28" },
+        locator: { ref: "session:turn/2026-09-28/1", day: "2026-09-28" },
         capabilities: ["read"],
       }),
     );
-    const outcome = await resolveReference(clients(), "session:turn/t-1", {});
+    const outcome = await resolveReference(clients(), "session:turn/2026-09-28/1", {});
     expect(outcome.status).toBe("resolved");
     if (outcome.status !== "resolved") return;
     expect(outcome.value.target).toEqual({
       kind: "session",
-      ref: "session:turn/t-1",
+      ref: "session:turn/2026-09-28/1",
       day: "2026-09-28",
     });
   });
@@ -170,16 +172,16 @@ describe("openReference routing", () => {
     expect(outcome.status).toBe("resolved");
     const page = useWorkspacePage.getState();
     expect(page.day).toBe("2026-09-28");
-    expect(page.link).toBe("workspace:notes/a.md");
+    expect(page.ref).toBe("workspace:notes/a.md");
     expect(page.fragment).toBe("L3");
     expect(useAppStore.getState().activeTab).toBe("workspace");
   });
 
   it("records a home target for the home page", async () => {
-    const outcome = await openReference(epoch, "home:agent@identity.md", {});
+    const outcome = await openReference(epoch, "home:top/agent/identity.md", {});
     expect(outcome.status).toBe("resolved");
     expect(useResourceTargets.getState().home).toEqual({
-      link: "home:agent@identity.md",
+      ref: "home:top/agent/identity.md",
       view: "effective",
       fragment: null,
     });
@@ -187,24 +189,24 @@ describe("openReference routing", () => {
   });
 
   it("drills a session reference into the history inspector", async () => {
-    const outcome = await openReference(epoch, "session:turn/t-1", {
+    const outcome = await openReference(epoch, "session:turn/2026-09-28/1", {
       day: "2026-09-28",
     });
     expect(outcome.status).toBe("resolved");
     const entries = useInspectorStore.getState().entries;
     expect(entries).toHaveLength(1);
-    expect(entries[0]?.key).toContain("session-ref:2026-09-28:session:turn/t-1");
+    expect(entries[0]?.key).toContain("session-ref:2026-09-28:session:turn/2026-09-28/1");
   });
 
-  it("returns to the live turn for its own trace reference", async () => {
-    const outcome = await openReference(epoch, "turn:trace@t-live#entry", {});
+  it("opens the exact active Trace entry for inspection", async () => {
+    const outcome = await openReference(epoch, "turn:trace/2026-09-29/1#entry/1", {});
     expect(outcome.status).toBe("resolved");
     expect(useAppStore.getState().activeTab).toBe("chat");
-    expect(useTurnStore.getState().turnId).toBeNull();
+    expect(useInspectorStore.getState().entries[0]?.copyText).toBe("turn:trace/2026-09-29/1#entry/1");
   });
 
   it("opens an archived trace as its retained conversation", async () => {
-    endpoint.get("/v2/turns/t-old/interactions", () =>
+    endpoint.get("/v2/requests/t-old/interactions", () =>
       jsonResponse(
         makeInteractionsPage({
           ref: "session:turn/t-old",
@@ -213,20 +215,20 @@ describe("openReference routing", () => {
         }),
       ),
     );
-    endpoint.get("/v2/turns/t-old", () => jsonResponse(runningSnapshot("t-old")));
-    const outcome = await openReference(epoch, "turn:trace@t-old", {
+    endpoint.get("/v2/requests/t-old", () => jsonResponse(runningSnapshot("t-old")));
+    const outcome = await openReference(epoch, "turn:trace/2026-09-28/1", {
       day: "2026-09-28",
     });
     expect(outcome.status).toBe("resolved");
     // openSessionTurn binds the store synchronously; the read settles async.
     await Promise.resolve();
     expect(useAppStore.getState().activeTab).toBe("chat");
-    expect(useTurnStore.getState().turnId).toBe("t-old");
+    expect(useTurnStore.getState().turnId).toBe("2026-09-28/1");
     expect(useTurnStore.getState().historyView).toBe(true);
   });
 
   it("keeps a trace reference without day or live turn an explicit dead end", async () => {
-    const outcome = await openReference(epoch, "turn:trace@t-gone", {});
+    const outcome = await openReference(epoch, "turn:trace/2026-09-28/2", {});
     expect(outcome.status).toBe("resolved");
     const toasts = useAppStore.getState().toasts;
     const last = toasts[toasts.length - 1];
@@ -268,7 +270,7 @@ describe("quoteReference", () => {
     expect(useComposerDraft.getState().draft).toBe(text);
     expect(useAppStore.getState().activeTab).toBe("chat");
     // A quote is a draft only: no turn request left the app.
-    expect(endpoint.calls("/v2/turns", "POST")).toHaveLength(0);
+    expect(endpoint.calls("/v2/requests", "POST")).toHaveLength(0);
   });
 
   it("describes the active workspace as today's", () => {
@@ -277,7 +279,7 @@ describe("quoteReference", () => {
   });
 
   it("describes a home view binding", () => {
-    const text = buildQuoteText("home:agent@identity.md", {
+    const text = buildQuoteText("home:top/agent/identity.md", {
       homeView: "actual",
     });
     expect(text).toContain("Home, actual view");

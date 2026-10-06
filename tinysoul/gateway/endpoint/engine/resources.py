@@ -37,17 +37,17 @@ class EndpointResourcesEngine:
         )
 
     async def home_content(
-        self, link: str, *, view: str, page: PageOptions
+        self, ref: str, *, view: str, page: PageOptions
     ) -> JsonObject:
         return await self._context.services.registry.get(HomeService).content(
-            link, view=view, page=page
+            ref, view=view, page=page
         )
 
     async def home_changes(self, page: PageOptions) -> JsonObject:
         return await self._context.services.registry.get(HomeService).changes(page)
 
-    async def home_diff(self, link: str, page: PageOptions) -> JsonObject:
-        return await self._context.services.registry.get(HomeService).diff(link, page)
+    async def home_diff(self, ref: str, page: PageOptions) -> JsonObject:
+        return await self._context.services.registry.get(HomeService).diff(ref, page)
 
     async def memory_catalog(
         self, *, kind: str | None, query: str | None, page: PageOptions
@@ -56,9 +56,9 @@ class EndpointResourcesEngine:
             kind=kind, query=query, page=page
         )
 
-    async def memory_document(self, link: str, page: PageOptions) -> JsonObject:
+    async def memory_document(self, ref: str, page: PageOptions) -> JsonObject:
         return await self._context.services.registry.get(MemoryService).inspect(
-            link, continuation=page.continuation, max_chars=page.max_chars
+            ref, continuation=page.continuation, max_chars=page.max_chars
         )
 
     async def search(self, space: SearchSpace, parameters: JsonObject) -> JsonObject:

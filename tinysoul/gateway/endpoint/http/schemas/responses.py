@@ -44,8 +44,7 @@ class RuntimeStatusResponse(ContractResponse):
 
 
 class ResourceLocatorResponse(ContractResponse):
-    link: str | None = None
-    ref: str | None = None
+    ref: str
     day: str | None = None
     turn_id: str | None = None
     view: str | None = None
@@ -113,7 +112,8 @@ class ReflectionOriginResponse(ContractResponse):
 
 
 class TurnSummaryResponse(ContractResponse):
-    turn_id: str
+    request_id: str
+    turn_id: str | None
     kind: str
     state: str
     status: str | None = None
@@ -140,7 +140,8 @@ class TurnResponse(TurnSummaryResponse):
 
 
 class InteractionPageResponse(PageResponse):
-    turn_id: str
+    request_id: str | None = None
+    turn_id: str | None
     day: str | None
     generation_id: str | None = None
     state: str | None = None
@@ -152,7 +153,7 @@ class InteractionPageResponse(PageResponse):
 
 
 class SearchResponse(ContractResponse):
-    result_ref: str | None = None
+    result_handle: str | None = None
     scope: str | JsonObject
     source: str
     items: list[JsonValue]
@@ -162,7 +163,7 @@ class SearchResponse(ContractResponse):
 
 
 class JobListResponse(ContractResponse):
-    turn_id: str
+    request_id: str
     jobs: list[JsonValue]
 
 
@@ -173,7 +174,7 @@ class JobDetailResponse(ContractResponse):
     summary: str
     reason: str
     pending_inputs: list[JsonValue]
-    result_links: list[str]
+    result_refs: list[str]
     details: JsonObject | None = None
 
 

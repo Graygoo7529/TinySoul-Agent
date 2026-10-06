@@ -40,7 +40,7 @@ export function DayTurnsPanel({ epoch, day }: { epoch: number; day: DayEntry }) 
     day.active && status !== null && status.runtime.activity === "user_turn"
       ? status.runtime.active_turn_id
       : null;
-  const queuedTurnIds = day.active ? (status?.runtime.queued_turn_ids ?? []) : [];
+  const queuedTurnIds = day.active ? (status?.runtime.queued_request_ids ?? []) : [];
 
   const nothingCommitted =
     !seq.loading && seq.items.length === 0 && seq.next === null;

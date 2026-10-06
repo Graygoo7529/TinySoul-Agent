@@ -63,7 +63,7 @@ describe("OwnerResourcePanel", () => {
     endpoint.get("/v2/resources/resolve", () =>
       jsonResponse({
         kind: "home",
-        locator: { link: "home:agent@contract", view: "effective" },
+        locator: { ref: "home:top/agent/contract", view: "effective" },
         capabilities: ["read"],
       }),
     );
@@ -74,7 +74,7 @@ describe("OwnerResourcePanel", () => {
       root.render(
         <OwnerResourcePanel
           epoch={epoch}
-          reference="home:agent@contract"
+          reference="home:top/agent/contract"
           turnId={TURN_ID}
           day={DAY}
         />,
@@ -83,14 +83,14 @@ describe("OwnerResourcePanel", () => {
     await flush();
 
     expect(resolveCalls()).toHaveLength(1);
-    expect(queryOf(resolveCalls()[0]!, "reference")).toBe("home:agent@contract");
+    expect(queryOf(resolveCalls()[0]!, "ref")).toBe("home:top/agent/contract");
     // The drawer's turn/day travel as the resolution binding.
     expect(queryOf(resolveCalls()[0]!, "turn_id")).toBe(TURN_ID);
     expect(queryOf(resolveCalls()[0]!, "day")).toBe(DAY);
 
     const contentCalls = endpoint.calls("/v2/home/content");
     expect(contentCalls).toHaveLength(1);
-    expect(queryOf(contentCalls[0]!, "link")).toBe("home:agent@contract");
+    expect(queryOf(contentCalls[0]!, "ref")).toBe("home:top/agent/contract");
     expect(queryOf(contentCalls[0]!, "view")).toBe("effective");
 
     expect(container.textContent).toContain("Workspace guidance");
@@ -115,7 +115,7 @@ describe("OwnerResourcePanel", () => {
           reference="memory:current"
           turnId={TURN_ID}
           day={DAY}
-          resolved={{ link: "memory:current", day: DAY }}
+          resolved={{ ref: "memory:current", day: DAY }}
         />,
       );
     });
@@ -124,7 +124,7 @@ describe("OwnerResourcePanel", () => {
     expect(resolveCalls()).toHaveLength(0);
     const documentCalls = endpoint.calls("/v2/memory/document");
     expect(documentCalls).toHaveLength(1);
-    expect(queryOf(documentCalls[0]!, "link")).toBe("memory:current");
+    expect(queryOf(documentCalls[0]!, "ref")).toBe("memory:current");
     expect(container.textContent).toContain("Project notes");
     expect(container.textContent).toContain("entity");
     // Direct refs open as further owner reads.

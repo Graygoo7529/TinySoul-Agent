@@ -64,7 +64,7 @@ async def test_reflection_cancel_retains_target_and_owner_completion(
         target_day=DAY_TWO,
     )
     with pytest.raises(ReflectionExecutionCancelled) as cancelled:
-        await engine.run(request, active_day=TODAY)
+        await engine.run(request, turn_id=f"{TODAY}/67", active_day=TODAY)
     outcome = cancelled.value.outcome
     assert outcome.request_id == request.request_id and outcome.active_day == TODAY
     task = outcome.tasks[0]
@@ -153,6 +153,7 @@ async def test_daily_reflection_processes_only_previous_day_and_retains_backlog(
             scope=ReflectionScope.DAILY,
             trigger=trigger,
         ),
+        turn_id=f"{TODAY}/151",
         active_day=TODAY,
     )
 
@@ -179,6 +180,7 @@ async def test_daily_reflection_skips_absent_previous_day_and_retains_backlog(
             scope=ReflectionScope.DAILY,
             trigger=ReflectionTrigger.SCHEDULED,
         ),
+        turn_id=f"{TODAY}/177",
         active_day=TODAY,
     )
 
@@ -204,6 +206,7 @@ async def test_failed_memory_day_remains_available_across_restart(
             trigger=ReflectionTrigger.MANUAL,
             target_day=DAY_ONE,
         ),
+        turn_id=f"{TODAY}/201",
         active_day=TODAY,
     )
 
@@ -245,6 +248,7 @@ async def test_manual_and_scheduled_home_requests_use_the_same_task_path(
                     scope=ReflectionScope.HOME,
                     trigger=trigger,
                 ),
+                turn_id=f"{TODAY}/243",
                 active_day=TODAY,
             )
         )
@@ -272,6 +276,7 @@ async def test_explicit_memory_reflection_does_not_require_pending_entry(
             trigger=ReflectionTrigger.MANUAL,
             target_day=DAY_ONE,
         ),
+        turn_id=f"{TODAY}/269",
         active_day=TODAY,
     )
 
@@ -298,6 +303,7 @@ async def test_started_observation_distinguishes_execution_day_from_memory_targe
             source="endpoint",
             request_id="reflection_request",
         ),
+        turn_id=f"{TODAY}/293",
         active_day=TODAY,
     )
 
@@ -344,6 +350,7 @@ async def test_unknown_task_exception_is_not_downgraded(tmp_path: Path) -> None:
                 scope=ReflectionScope.HOME,
                 trigger=ReflectionTrigger.MANUAL,
             ),
+            turn_id=f"{TODAY}/342",
             active_day=TODAY,
         )
 
@@ -447,6 +454,10 @@ class _Archive:
         self.requested_days.append(day)
         return self._projections.get(day)
 
+    def allocate_turn(self, day):
+        self._turn_sequence = getattr(self, "_turn_sequence", 0) + 1
+        return f"{day}/{self._turn_sequence}"
+
 
 @dataclass
 class _Home:
@@ -458,7 +469,7 @@ class _Home:
         return (1, 0) if self.pending else (0, 0)
 
     async def run(
-        self, *, active_day, scope, request_id, inbox=None, instructions=""
+        self, *, turn_id, active_day, scope, request_id, inbox=None, instructions=""
     ):
         del active_day, scope, request_id
         if self.unexpected_failure:
@@ -496,6 +507,7 @@ class _Memory:
     async def run(
         self,
         *,
+        turn_id,
         active_day,
         target_day,
         archive,

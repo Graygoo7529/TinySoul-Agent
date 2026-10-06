@@ -46,7 +46,7 @@ import "./blocks/builtinBlocks";
  * transform keeps the resource protocols and relative references intact for
  * the renderers (everything else falls back to the default safe transform),
  * and the a/img renderers route clicks through the instance origin. Inline
- * code that strictly is a resource reference gets a link control; arbitrary
+ * code that strictly is a resource reference gets a resourceRef control; arbitrary
  * colon text never does.
  */
 
@@ -66,7 +66,7 @@ export function Markdown({
 }: {
   children: string;
   className?: string;
-  /** Reading context for interactive blocks and link routing. */
+  /** Reading context for interactive blocks and resourceRef routing. */
   origin?: MarkdownOrigin;
   /** Forwarded to the .md-body root (e.g. truncation measurement). */
   ref?: Ref<HTMLDivElement>;
@@ -75,16 +75,16 @@ export function Markdown({
   // at the call site does not churn the context identity on every render
   // (streaming answers re-render this component per typewriter tick).
   const view = origin?.view;
-  const link = origin?.link;
+  const resourceRef = origin?.ref;
   const day = origin?.day;
   const turnId = origin?.turnId;
   const homeView = origin?.homeView;
   const context = useMemo<MarkdownRenderContextValue>(
     () => ({
-      origin: { view, link, day, turnId, homeView },
+      origin: { view, ref: resourceRef, day, turnId, homeView },
       unclosedFenceLine: findUnclosedFenceLine(children),
     }),
-    [view, link, day, turnId, homeView, children],
+    [view, resourceRef, day, turnId, homeView, children],
   );
   return (
     <div ref={ref} className={`md-body ${className}`}>

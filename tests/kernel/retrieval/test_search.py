@@ -230,17 +230,17 @@ async def test_views_keep_all_members_and_original_content_for_result_source():
     )
     page = await queries.search(RetrievalRequest(DirectorySource("all"), page_limit=1))
     assert len(page.items) == 1 and page.coverage.final_count == 5 and page.continuation
-    result_ref, token = page.result_ref, page.continuation
-    assert result_ref is not None
+    result_handle, token = page.result_handle, page.continuation
+    assert result_handle is not None
     page.items[0].candidate.attributes["tags"] = ["mutated"]
     result = await queries.search(
-        RetrievalRequest(ResultSource(result_ref), page_limit=2)
+        RetrievalRequest(ResultSource(result_handle), page_limit=2)
     )
-    assert result.result_ref != result_ref
+    assert result.result_handle != result_handle
     assert result.items[0].candidate.attributes["tags"] == ["original"]
     assert result.coverage.final_count == 5 and calls == 1
     assert len(
-        queries._engine.views.result(result_ref).candidates[0].content_units[0].text
+        queries._engine.views.result(result_handle).candidates[0].content_units[0].text
     ) > len(page.items[0].fragments[0].text)
     assert await queries.search(token) == await queries.search(token)
     found = [*page.items]
@@ -249,7 +249,7 @@ async def test_views_keep_all_members_and_original_content_for_result_source():
         found.extend(page.items)
     assert len(found) == 5
     queries.close()
-    for request in (token, RetrievalRequest(ResultSource(result_ref))):
+    for request in (token, RetrievalRequest(ResultSource(result_handle))):
         with pytest.raises(SearchFailure) as failure:
             await queries.search(request)
         assert failure.value.kind is SearchFailureKind.VIEW_EXPIRED
@@ -261,7 +261,7 @@ def test_parser_and_schema_share_the_source_step_contract():
     )
     schema = JSONSchema(retrieval_schema({}, policy))
     value = {
-        "source": {"kind": "refs", "refs": ["home:agent/test.md"]},
+        "source": {"kind": "refs", "refs": ["home:resource/agent/test.md"]},
         "steps": [{"op": "select", "criterion": "useful"}],
     }
     schema.validate(cast(JsonObject, value))
@@ -287,7 +287,9 @@ def test_parser_and_schema_share_the_source_step_contract():
 
 
 @pytest.mark.parametrize("declare_operations", [False, True])
-def test_source_only_policy_shares_config_schema_and_parser_contract(declare_operations):
+def test_source_only_policy_shares_config_schema_and_parser_contract(
+    declare_operations,
+):
     configuration: JsonObject = {"sources": ["query", "directory", "refs", "result"]}
     if declare_operations:
         configuration["operations"] = []
@@ -354,8 +356,10 @@ async def test_mixed_hits_keep_semantic_excerpt_and_independent_coverages():
         "skill",
         "Skill",
         (
-            ContentUnit("intro", "home:skills/s/SKILL.md", "car " * 1000),
-            ContentUnit("deep", "home:skills/s/deep.md", "automobile maintenance"),
+            ContentUnit("intro", "home:resource/skills/s/SKILL.md", "car " * 1000),
+            ContentUnit(
+                "deep", "home:resource/skills/s/deep.md", "automobile maintenance"
+            ),
         ),
     )
     queries = session((item,), vectors=Vectors(), query_channels=tuple(QueryChannel))
@@ -399,8 +403,8 @@ async def test_result_preserves_source_coverage_but_does_not_replay_evaluation()
         ),
         page_max_chars=8000,
     )
-    assert page.result_ref
-    result = views.result(page.result_ref)
+    assert page.result_handle
+    result = views.result(page.result_handle)
     assert result.missing_stages == ("embedding:unavailable",)
     assert result.scanned == 3 and result.stages == ("lexical",)
     assert result.candidates[0].evaluation is None
@@ -437,7 +441,10 @@ def test_refs_schema_and_parser_allow_independent_operations(steps):
     ]
     value = cast(
         JsonObject,
-        {"source": {"kind": "refs", "refs": ["home:agent/a.md"]}, "steps": values},
+        {
+            "source": {"kind": "refs", "refs": ["home:resource/agent/a.md"]},
+            "steps": values,
+        },
     )
     JSONSchema(retrieval_schema({}, policy)).validate(value)
     assert isinstance(parse_retrieval_request(value, policy), RetrievalRequest)

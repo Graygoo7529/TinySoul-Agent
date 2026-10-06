@@ -10,7 +10,7 @@ additionalProperties = false
 type = "string"
 [tool.schema.properties.command]
 type = "string"
-[tool.schema.properties.cwd_link]
+[tool.schema.properties.cwd_ref]
 type = "string"
 [semantic]
 use_when = ["A deterministic local shell command is needed"]

@@ -70,7 +70,7 @@ function renderTop() {
 }
 
 function inspectCalls() {
-  return endpoint.calls(`/v2/turns/${TURN_ID}/context/inspect`);
+  return endpoint.calls(`/v2/requests/${TURN_ID}/context/inspect`);
 }
 
 function renderInspect(canQuery = false) {
@@ -88,7 +88,7 @@ function renderInspect(canQuery = false) {
 
 describe("ContextInspectPanel", () => {
   it("reads the live disclosure of the original ref, bound to the turn", async () => {
-    endpoint.get(`/v2/turns/${TURN_ID}/context/inspect`, () =>
+    endpoint.get(`/v2/requests/${TURN_ID}/context/inspect`, () =>
       jsonResponse(structuredClone(tracePageFixture)),
     );
     renderInspect(true);
@@ -110,7 +110,7 @@ describe("ContextInspectPanel", () => {
   });
 
   it("expands a child node into its own ref page (back returns to the parent)", async () => {
-    endpoint.get(`/v2/turns/${TURN_ID}/context/inspect`, (request) => {
+    endpoint.get(`/v2/requests/${TURN_ID}/context/inspect`, (request) => {
       const ref = queryOf(request, "ref");
       if (ref === `${TRACE_REF}#entry/trace_1`) {
         return jsonResponse({
@@ -143,7 +143,7 @@ describe("ContextInspectPanel", () => {
   });
 
   it("offers locate-in-scope only with the query capability", async () => {
-    endpoint.get(`/v2/turns/${TURN_ID}/context/inspect`, () =>
+    endpoint.get(`/v2/requests/${TURN_ID}/context/inspect`, () =>
       jsonResponse(structuredClone(tracePageFixture)),
     );
     renderInspect(false);
@@ -176,7 +176,7 @@ describe("ContextInspectPanel", () => {
   });
 
   it("pages with continuation and stops on 409 context.unavailable", async () => {
-    endpoint.get(`/v2/turns/${TURN_ID}/context/inspect`, (request) => {
+    endpoint.get(`/v2/requests/${TURN_ID}/context/inspect`, (request) => {
       if (queryOf(request, "continuation") === null) {
         return jsonResponse({
           ref: TRACE_REF,
@@ -207,7 +207,7 @@ describe("ContextInspectPanel", () => {
   });
 
   it("marks the page refreshable on context install without disturbing content", async () => {
-    endpoint.get(`/v2/turns/${TURN_ID}/context/inspect`, () =>
+    endpoint.get(`/v2/requests/${TURN_ID}/context/inspect`, () =>
       jsonResponse(structuredClone(tracePageFixture)),
     );
     renderInspect();

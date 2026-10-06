@@ -15,7 +15,7 @@
       "memory:entity/project"
     ],
     "locator": {
-      "link": "memory:entity/project"
+      "ref": "memory:entity/project"
     },
     "direct_refs": []
   }

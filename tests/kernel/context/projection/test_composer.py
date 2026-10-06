@@ -36,9 +36,9 @@ def _sections() -> tuple[SegmentProjection, ...]:
     inputs = PendingInputs()
     inputs.add("hello there", merged=True)
     background = BackgroundContext(journal="journal text")
-    background.load(BackgroundEntry(link="home:skills@x", content="entry text"))
+    background.load(BackgroundEntry(ref="home:top/skills/x", content="entry text"))
     working = WorkingContext()
-    trace = TurnTraceHeap()
+    trace = TurnTraceHeap(turn_id="2026-10-06/41")
     trace.append_phase_note("trace note")
     return (
         SegmentProjection(
@@ -71,7 +71,7 @@ def test_provenance_uses_actual_positions_and_guidance_refs() -> None:
                 "arbitrary-label",
                 "Skill body",
                 owner="home",
-                refs=("home:skills_domain:workspace",),
+                refs=("home:mount/domain/workspace",),
             ),
         )
     )
@@ -80,7 +80,7 @@ def test_provenance_uses_actual_positions_and_guidance_refs() -> None:
         index for origin in stack.provenance for index in origin.message_indices
     ]
     assert positions == list(range(len(stack.messages)))
-    assert stack.provenance[-1].refs == ("home:skills_domain:workspace",)
+    assert stack.provenance[-1].refs == ("home:mount/domain/workspace",)
     assert stack.provenance[-1].owner == "home"
     assert stack.append(UserMessage.from_text("extra")).provenance == stack.provenance
     assert prompt.message_stack().provenance[0].message_indices == (0,)
@@ -124,7 +124,7 @@ def test_compose_section_order_and_labels() -> None:
         "identity",
         "user_input",
         "background:journal",
-        "background:home:skills@x",
+        "background:home:top/skills/x",
         "phase_note",
         "plan",
         "task_prompt:guide:phase",

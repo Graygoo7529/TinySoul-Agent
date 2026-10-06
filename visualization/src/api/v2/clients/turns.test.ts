@@ -32,7 +32,7 @@ describe("TurnsClient", () => {
       state: "queued",
     });
     expect(requests[0]?.method).toBe("POST");
-    expect(new URL(requests[0]!.url).pathname).toBe("/v2/turns");
+    expect(new URL(requests[0]!.url).pathname).toBe("/v2/requests");
     expect(bodyJson(requests[0]!)).toEqual({
       kind: "user",
       text: "analyze the workspace",
@@ -75,19 +75,19 @@ describe("TurnsClient", () => {
       answer: { kind: "choice", option_id: "execute", comment: "先完成后端" },
     });
 
-    const grant = await client.grant("t1", { request_id: "b1", count: 4 });
+    const grant = await client.grant("t1", { budget_request_id: "b1", count: 4 });
     expect(grant).toMatchObject({ turn_id: "t1", request_id: "b1", accepted: true });
-    expect(bodyJson(requests[2]!)).toEqual({ request_id: "b1", count: 4 });
+    expect(bodyJson(requests[2]!)).toEqual({ budget_request_id: "b1", count: 4 });
 
     const cancel = await client.cancel("t1");
     expect(cancel).toEqual({ turn_id: "t1", accepted: true });
     expect(requests[3]?.bodyText).toBeUndefined();
 
     expect(requests.map((r) => new URL(r.url).pathname)).toEqual([
-      "/v2/turns/t1/input",
-      "/v2/turns/t1/reply",
-      "/v2/turns/t1/grant",
-      "/v2/turns/t1/cancel",
+      "/v2/requests/t1/input",
+      "/v2/requests/t1/reply",
+      "/v2/requests/t1/grant",
+      "/v2/requests/t1/cancel",
     ]);
   });
 

@@ -39,12 +39,12 @@ import { useHomePage } from "./store";
 
 export function HomeContentView({
   epoch,
-  link,
+  ref,
   view,
   fragment,
 }: {
   epoch: number;
-  link: string;
+  ref: string;
   view: HomeView;
   fragment: string | null;
 }): ReactElement {
@@ -56,14 +56,14 @@ export function HomeContentView({
         return Promise.reject(new Error("Not connected to a backend."));
       }
       return clients.home.content(
-        { link, view, continuation: token ?? undefined },
+        { ref, view, continuation: token ?? undefined },
         { signal },
       );
     },
     nextContinuation,
     (page) =>
-      page.metadata ?? { locator: { link, view }, direct_refs: [] },
-    [epoch, link, view],
+      page.metadata ?? { locator: { ref, view }, direct_refs: [] },
+    [epoch, ref, view],
   );
 
   // The References panel reads the current document's direct refs from here.
@@ -82,12 +82,12 @@ export function HomeContentView({
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-start gap-2 border-b border-line px-4 py-2">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[13px] font-medium" title={link}>
-            {link.replace(/^home:/, "")}
+          <div className="truncate text-[13px] font-medium" title={ref}>
+            {ref.replace(/^home:/, "")}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-fg-faint">
             <Badge tone={view === "effective" ? "accent" : "gray"}>{view}</Badge>
-            <span className="truncate font-mono">{link}</span>
+            <span className="truncate font-mono">{ref}</span>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
@@ -102,12 +102,12 @@ export function HomeContentView({
           >
             <Link2 size={15} />
           </IconButton>
-          <IconButton label="Copy reference" onClick={() => copyReference(link)}>
+          <IconButton label="Copy reference" onClick={() => copyReference(ref)}>
             <Copy size={15} />
           </IconButton>
           <IconButton
             label="Quote in conversation"
-            onClick={() => quoteReference(link, { link, homeView: view })}
+            onClick={() => quoteReference(ref, { ref, homeView: view })}
           >
             <MessageSquareQuote size={15} />
           </IconButton>
@@ -128,13 +128,13 @@ export function HomeContentView({
             title="Not readable as text"
             description={
               <>
-                <span className="font-mono text-[11px]">{link}</span> is not a
+                <span className="font-mono text-[11px]">{ref}</span> is not a
                 UTF-8 text resource, so the page cannot preview it. You can
                 still copy its reference or quote it in the conversation.
               </>
             }
             action={
-                <Button variant="outline" size="sm" onClick={() => copyReference(link)}>
+                <Button variant="outline" size="sm" onClick={() => copyReference(ref)}>
                   <Copy size={13} />
                   Copy reference
                 </Button>
@@ -148,7 +148,7 @@ export function HomeContentView({
             title={`Not in the ${view} view`}
             description={
               <>
-                <span className="font-mono text-[11px]">{link}</span> does not
+                <span className="font-mono text-[11px]">{ref}</span> does not
                 exist in the {view} Home
                 {view === "actual"
                   ? ". It may exist only as an overlay change — check the effective view."
@@ -178,7 +178,7 @@ export function HomeContentView({
             title="This document is empty"
             description={
               <>
-                <span className="font-mono text-[11px]">{link}</span> exists in
+                <span className="font-mono text-[11px]">{ref}</span> exists in
                 the {view} Home but has no content.
               </>
             }
@@ -190,7 +190,7 @@ export function HomeContentView({
           <ChunkedMarkdown
             items={page.items}
             fragment={fragment}
-            origin={{ link, homeView: view }}
+            origin={{ ref, homeView: view }}
           />
           </div>
         </div>

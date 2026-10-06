@@ -137,9 +137,28 @@
       "default": null,
       "title": "Truncated"
     },
+    "request_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Request Id"
+    },
     "turn_id": {
-      "title": "Turn Id",
-      "type": "string"
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Turn Id"
     },
     "day": {
       "anyOf": [

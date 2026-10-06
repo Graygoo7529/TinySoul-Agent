@@ -19,6 +19,7 @@ from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.context import ContextEngine
 from tinysoul.kernel.context.builtin.trace import parse_trace_reference
 from tinysoul.kernel.context.errors import ContextContractError
+from tinysoul.kernel.identity import TurnIdentity, TurnIdentityError
 from tinysoul.kernel.jobs import JobSnapshot
 from tinysoul.kernel.jobs.failures import JobError, JobRequestError
 from tinysoul.kernel.loop.turn import TurnOutcome
@@ -26,9 +27,9 @@ from tinysoul.kernel.registration import ServiceLifetime, ServiceRegistry
 from tinysoul.plugins.capabilities.expand.engine import ExpandEngine
 from tinysoul.plugins.capabilities.subagent.engine import SubagentEngine
 from tinysoul.plugins.home.engine import AgentHomeEngine
-from tinysoul.plugins.home.links import parse_home_link
+from tinysoul.plugins.home.refs import parse_home_ref
 from tinysoul.plugins.memory import MemoryEngine
-from tinysoul.plugins.memory.links import MemoryLink
+from tinysoul.plugins.memory.refs import MemoryRef
 from tinysoul.plugins.reflection.errors import ReflectionError
 from tinysoul.plugins.reflection.failures import ReflectionFailureKind
 from tinysoul.plugins.session import SessionEngine
@@ -40,7 +41,7 @@ from tinysoul.plugins.session.views import SessionView
 from tinysoul.plugins.session.views.interaction import project_current_interactions
 from tinysoul.plugins.workspace.engine import WorkspaceArchiveView, WorkspaceEngine
 from tinysoul.plugins.workspace.inspection.models import WorkspaceBlobRead
-from tinysoul.plugins.workspace.links import WorkspaceLink
+from tinysoul.plugins.workspace.refs import WorkspaceRef
 from tinysoul.runtime import RuntimeException, RuntimeGenerationError, RuntimeHandle
 
 from .dispatch.scheduler import RootScheduler
@@ -161,10 +162,13 @@ class AgentRuntimeServices:
             "activity": snapshot.activity.value,
             "activation": snapshot.activation.value,
             "active_day": str(snapshot.generation.day.active_day or ""),
+            "active_request_id": self._scheduler.active_turn.request_id
+            if self._scheduler.active_turn is not None
+            else None,
             "active_turn_id": self._scheduler.active_turn.turn_id
             if self._scheduler.active_turn is not None
             else None,
-            "queued_turn_ids": list(self._scheduler.queued_turn_ids),
+            "queued_request_ids": list(self._scheduler.queued_request_ids),
             "sources": [
                 {
                     "source": item.source,
@@ -188,15 +192,27 @@ class AgentRuntimeServices:
             }
         return result
 
-    def turn_snapshot(self, turn_id: str) -> TurnSnapshot | None:
+    def request_snapshot(self, request_id: str) -> TurnSnapshot | None:
         """Project the retained handle and current Job owner in one loop turn."""
         self._require_open()
-        handle = self._scheduler.turn_handle(turn_id)
-        return handle.snapshot(jobs=self._turn_jobs(turn_id)) if handle else None
+        handle = self._scheduler.request_handle(request_id)
+        return (
+            handle.snapshot(
+                jobs=self._turn_jobs(handle.turn_id) if handle.turn_id else ()
+            )
+            if handle
+            else None
+        )
 
-    def turn_directory(self) -> JsonObject:
+    def request_directory(self) -> JsonObject:
         self._require_open()
-        return self._scheduler.turn_directory()
+        return self._scheduler.request_directory()
+
+    def _request_turn_id(self, request_id: str) -> str:
+        handle = self._scheduler.request_handle(request_id)
+        if handle is None or handle.turn_id is None:
+            raise AgentTurnUnavailableError("Request has no executing Turn")
+        return handle.turn_id
 
     def _context_for(self, generation: AgentGeneration, turn_id: str) -> ContextEngine:
         for profile in generation.profiles:
@@ -204,8 +220,9 @@ class AgentRuntimeServices:
                 return profile.context
         raise AgentServiceUnavailableError(module="context", kind="context.unavailable")
 
-    async def context_overview(self, turn_id: str) -> JsonObject:
+    async def context_overview(self, request_id: str) -> JsonObject:
         self._require_open()
+        turn_id = self._request_turn_id(request_id)
         async with self._handle.read() as generation:
             return {
                 "generation_id": self._handle.generation_id,
@@ -214,30 +231,33 @@ class AgentRuntimeServices:
             }
 
     async def context_segment(
-        self, turn_id: str, segment_id: str, page: PageOptions = PageOptions()
+        self, request_id: str, segment_id: str, page: PageOptions = PageOptions()
     ) -> JsonObject:
         self._require_open()
+        turn_id = self._request_turn_id(request_id)
         async with self._handle.read() as generation:
             return self._context_for(generation, turn_id).installed_segment(
                 segment_id, page
             )
 
     async def context_background(
-        self, turn_id: str, page: PageOptions = PageOptions()
+        self, request_id: str, page: PageOptions = PageOptions()
     ) -> JsonObject:
         self._require_open()
+        turn_id = self._request_turn_id(request_id)
         async with self._handle.read() as generation:
             return self._context_for(generation, turn_id).installed_background(page)
 
     async def context_inspect(
         self,
-        turn_id: str,
+        request_id: str,
         ref: str,
         *,
         query: str | None = None,
         continuation: str | None = None,
     ) -> JsonObject:
         self._require_open()
+        turn_id = self._request_turn_id(request_id)
         async with self._handle.read() as generation:
             context = self._context_for(generation, turn_id)
             result = await context.inspect(ref, query=query, continuation=continuation)
@@ -366,7 +386,7 @@ class AgentRuntimeServices:
 
     async def workspace_text(
         self,
-        link: str,
+        ref: str,
         day: CalendarDay | None = None,
         *,
         page: PageOptions = PageOptions(),
@@ -375,7 +395,7 @@ class AgentRuntimeServices:
         async with self._workspace_view(day) as view:
             operations = JoinedOperations()
             result = await operations.run(
-                lambda: view.browse_text(link, page=page, full=full)
+                lambda: view.browse_text(ref, page=page, full=full)
             )
             operations.check_cancelled()
             return result
@@ -399,11 +419,11 @@ class AgentRuntimeServices:
 
     @asynccontextmanager
     async def workspace_blob(
-        self, link: str, day: CalendarDay | None = None
+        self, ref: str, day: CalendarDay | None = None
     ) -> AsyncIterator[WorkspaceBlobRead]:
         async with self._workspace_view(day) as view:
             operations = JoinedOperations()
-            blob = await operations.run(lambda: view.open_blob(link))
+            blob = await operations.run(lambda: view.open_blob(ref))
             try:
                 operations.check_cancelled()
                 yield blob
@@ -420,7 +440,9 @@ class AgentRuntimeServices:
     async def session_background(
         self, turn_id: str, day: CalendarDay, page: PageOptions = PageOptions()
     ) -> JsonObject:
-        return await self._session_read(lambda view: view.background(turn_id, page), day)
+        return await self._session_read(
+            lambda view: view.background(turn_id, page), day
+        )
 
     async def session_inspect(
         self,
@@ -435,18 +457,20 @@ class AgentRuntimeServices:
         )
 
     async def turn_interactions(
-        self, turn_id: str, page: PageOptions = PageOptions()
+        self, request_id: str, page: PageOptions = PageOptions()
     ) -> JsonObject:
         self._require_open()
-        handle = self._scheduler.turn_handle(turn_id)
+        handle = self._scheduler.request_handle(request_id)
         if handle is None:
             raise AgentTurnUnavailableError("Turn was not found")
+        turn_id = handle.turn_id
         result = handle.result
         if result is not None:
             outcome = result.outcome
             if (
                 isinstance(outcome, TurnOutcome)
                 and outcome.context_completion is not None
+                and turn_id is not None
             ):
                 # Only the committed Session record supplies completed user history.
                 try:
@@ -463,6 +487,7 @@ class AgentRuntimeServices:
                 value = {"items": []}
             return {
                 **value,
+                "request_id": request_id,
                 "turn_id": turn_id,
                 "generation_id": handle.generation_id,
                 "day": str(handle.active_day) if handle.active_day else None,
@@ -479,11 +504,12 @@ class AgentRuntimeServices:
                 (
                     profile.context
                     for profile in generation.profiles
-                    if profile.context.active_turn_id == turn_id
+                    if turn_id is not None and profile.context.active_turn_id == turn_id
                 ),
                 None,
             )
             base: JsonObject = {
+                "request_id": request_id,
                 "turn_id": turn_id,
                 "generation_id": handle.generation_id,
                 "day": str(handle.active_day) if handle.active_day else None,
@@ -503,7 +529,7 @@ class AgentRuntimeServices:
                     for item in project_current_interactions(context.current_facts())
                 )
             result_page = page.render(
-                (*values, *pending), owner="turn", ref=turn_id, base=base
+                (*values, *pending), owner="request", ref=request_id, base=base
             )
             visible = result_page.get("items", [])
             if isinstance(visible, list):
@@ -525,19 +551,19 @@ class AgentRuntimeServices:
                 ]
             return result_page
 
-    def turn_jobs(self, turn_id: str) -> tuple[JobSnapshot, ...] | None:
+    def turn_jobs(self, request_id: str) -> tuple[JobSnapshot, ...] | None:
         self._require_open()
-        if self._scheduler.turn_handle(turn_id) is None:
+        handle = self._scheduler.request_handle(request_id)
+        if handle is None:
             return None
-        return self._turn_jobs(turn_id)
+        return self._turn_jobs(handle.turn_id) if handle.turn_id else ()
 
     def _turn_jobs(self, turn_id: str) -> tuple[JobSnapshot, ...]:
         return self._handle.snapshot().generation.jobs.snapshots(turn_id)
 
-    async def stop_job(self, turn_id: str, job_id: str) -> JobSnapshot:
+    async def stop_job(self, request_id: str, job_id: str) -> JobSnapshot:
         self._require_open()
-        if self._scheduler.turn_handle(turn_id) is None:
-            raise AgentTurnUnavailableError("Turn is not available")
+        turn_id = self._request_turn_id(request_id)
         try:
             async with self._handle.read() as generation:
                 self._require_open()
@@ -565,8 +591,9 @@ class AgentRuntimeServices:
                     return profile.action.catalog_json()
             raise AgentContractError("Unknown Action scenario")
 
-    async def job_detail(self, turn_id: str, job_id: str) -> JsonObject:
+    async def job_detail(self, request_id: str, job_id: str) -> JsonObject:
         self._require_open()
+        turn_id = self._request_turn_id(request_id)
         async with self._handle.read() as generation:
             operations = JoinedOperations()
             result = await generation.jobs.describe(
@@ -576,9 +603,10 @@ class AgentRuntimeServices:
             return result
 
     async def job_output(
-        self, turn_id: str, job_id: str, page: PageOptions = PageOptions()
+        self, request_id: str, job_id: str, page: PageOptions = PageOptions()
     ) -> JsonObject:
         self._require_open()
+        turn_id = self._request_turn_id(request_id)
         async with self._handle.read() as generation:
             operations = JoinedOperations()
             result = await generation.jobs.output(
@@ -604,9 +632,9 @@ class AgentRuntimeServices:
             connections = value.get("connections", [])
             if isinstance(connections, list):
                 for item in connections:
-                    if isinstance(item, dict) and isinstance(item.get("cwd_link"), str):
+                    if isinstance(item, dict) and isinstance(item.get("cwd_ref"), str):
                         item["cwd_locator"] = {
-                            "link": item["cwd_link"],
+                            "ref": item["cwd_ref"],
                             "day": str(generation.day.active_day),
                         }
             return {
@@ -617,39 +645,39 @@ class AgentRuntimeServices:
 
     async def resolve_resource(
         self,
-        reference: str,
+        ref: str,
         *,
-        origin_link: str | None = None,
+        origin_ref: str | None = None,
         day: CalendarDay | None = None,
         turn_id: str | None = None,
         view: str = "effective",
     ) -> JsonObject:
         self._require_open()
         if turn_id is not None:
-            handle = self._scheduler.turn_handle(turn_id)
-            if handle is not None and handle.active_day is not None:
-                if day is not None and day != handle.active_day:
-                    raise ReferenceError("Resource origin day does not match its Turn")
-                day = handle.active_day
-        if ":" not in reference.partition("#")[0]:
-            if not origin_link:
-                raise ReferenceError("Relative resource requires an origin Link")
+            try:
+                origin_day = TurnIdentity.parse(turn_id).day
+            except TurnIdentityError as exc:
+                raise ReferenceError("Invalid resource Turn identity") from exc
+            if day is not None and day != origin_day:
+                raise ReferenceError("Resource origin day does not match its Turn")
+            day = origin_day
+        if ":" not in ref.partition("#")[0]:
+            if not origin_ref:
+                raise ReferenceError("Relative resource requires an origin ref")
             async with self._handle.read() as generation:
-                if origin_link.startswith("home:"):
-                    reference = generation.plugin_services.get(
+                if origin_ref.startswith("home:"):
+                    ref = generation.plugin_services.get(
                         AgentHomeEngine
-                    ).resolve_relative(reference, origin_link)
-                elif origin_link.startswith("memory:"):
-                    reference = generation.plugin_services.get(
-                        MemoryEngine
-                    ).resolve_relative(reference, origin_link)
-                elif origin_link.startswith("workspace:"):
-                    reference = generation.workspace.resolve_relative(
-                        reference, origin_link
+                    ).resolve_relative(ref, origin_ref)
+                elif origin_ref.startswith("memory:"):
+                    ref = generation.plugin_services.get(MemoryEngine).resolve_relative(
+                        ref, origin_ref
                     )
+                elif origin_ref.startswith("workspace:"):
+                    ref = generation.workspace.resolve_relative(ref, origin_ref)
                 else:
-                    raise ReferenceError("Origin has no relative reference owner")
-        resource, marker, fragment = reference.partition("#")
+                    raise ReferenceError("Origin has no relative ref owner")
+        resource, marker, fragment = ref.partition("#")
         context: ContextEngine | None = None
         bindings: JsonObject = {}
         if turn_id:
@@ -675,59 +703,59 @@ class AgentRuntimeServices:
                     "kind": "memory",
                     "locator": append_locator_fragment(locator, fragment),
                     "capabilities": ["read"],
-                    "resolved_from": reference,
+                    "resolved_from": ref,
                 }
             # An explicit day binds current/target, but never reconstructs latest.
             if day and not turn_id and resource in {"memory:current", "memory:target"}:
                 return {
                     "kind": "memory",
-                    "locator": ResourceLocator(link=reference, day=str(day)).to_json(),
-                    "resolved_from": reference,
+                    "locator": ResourceLocator(ref=ref, day=str(day)).to_json(),
+                    "resolved_from": ref,
                     "capabilities": ["read"],
                 }
             raise AgentServiceUnavailableError(
                 module="resource", kind="resource.unresolved_origin"
             )
         if resource.startswith("home:"):
-            parse_home_link(resource)
-            locator = ResourceLocator(link=reference, view=view)
+            parse_home_ref(resource)
+            locator = ResourceLocator(ref=ref, view=view)
             kind = "home"
         elif resource.startswith("memory:"):
-            link = MemoryLink.from_resource(resource)
+            memory_ref = MemoryRef.from_resource(resource)
             locator = ResourceLocator(
-                link=str(link) + ("#" + fragment if marker else "")
+                ref=str(memory_ref) + ("#" + fragment if marker else "")
             )
             kind = "memory"
         elif resource.startswith("workspace:"):
-            WorkspaceLink.parse(resource)
+            WorkspaceRef.parse(resource)
             if turn_id is not None and day is None:
                 raise AgentServiceUnavailableError(
                     module="resource", kind="resource.unresolved_origin"
                 )
             current = self._handle.snapshot().generation.day.active_day
-            locator = ResourceLocator(link=reference, day=str(day or current))
+            locator = ResourceLocator(ref=ref, day=str(day or current))
             kind = "workspace"
         elif resource.startswith("session:"):
             if day is None:
                 raise AgentServiceUnavailableError(
                     module="resource", kind="resource.unresolved_origin"
                 )
-            locator = ResourceLocator(ref=reference, day=str(day))
+            locator = ResourceLocator(ref=ref, day=str(day))
             kind = "session"
-        elif resource.startswith(("turn:trace@", "turn:trace/")):
+        elif resource.startswith("turn:trace/"):
             try:
-                identity = parse_trace_reference(reference)
+                identity = parse_trace_reference(ref)
             except ContextContractError as exc:
-                raise ReferenceError("Invalid trace resource reference") from exc
+                raise ReferenceError("Invalid trace resource ref") from exc
             if turn_id is not None and identity != turn_id:
                 raise ReferenceError("Trace origin does not match its Turn")
             if context is not None and context.active_turn_id == identity:
                 try:
-                    context.resolve_reference(reference)
+                    context.resolve_reference(ref)
                 except ContextContractError as exc:
-                    raise ReferenceError("Trace resource reference is unavailable") from exc
+                    raise ReferenceError("Trace resource ref is unavailable") from exc
             locator = ResourceLocator(
-                ref=reference, turn_id=identity, day=str(day) if day else ""
+                ref=ref, turn_id=identity, day=str(day) if day else ""
             )
             kind = "trace"
         else:

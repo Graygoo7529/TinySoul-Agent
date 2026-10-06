@@ -155,7 +155,7 @@ describe("family result views (audit display gaps)", () => {
             state: "visited",
             discovered_from: "",
             anchor_text: "Guide A",
-            link_title: "",
+            ref_title: "",
             rel: "",
             title: "Guide A",
           },
@@ -165,7 +165,7 @@ describe("family result views (audit display gaps)", () => {
             state: "failed",
             discovered_from: "",
             anchor_text: "Guide B",
-            link_title: "",
+            ref_title: "",
             rel: "",
             failure_reason: "http 404",
           },
@@ -175,7 +175,7 @@ describe("family result views (audit display gaps)", () => {
             state: "candidate",
             discovered_from: "",
             anchor_text: "",
-            link_title: "",
+            ref_title: "",
             rel: "",
           },
         ],
@@ -212,7 +212,7 @@ describe("family result views (audit display gaps)", () => {
         sources: [
           {
             source_id: "s1",
-            link: "workspace:notes.md",
+            ref: "workspace:notes.md",
             size: 1200,
             range: { start_line: 1, end_line: 40 },
           },
@@ -233,7 +233,7 @@ describe("family result views (audit display gaps)", () => {
       action: "workspace.read",
       outcome: "success",
       result: {
-        link: "workspace:big.md",
+        ref: "workspace:big.md",
         size: 9000,
         requested: {
           start_line: 1,
@@ -268,12 +268,12 @@ describe("family result views (audit display gaps)", () => {
         items: [
           {
             ref: "trash:workspace/20260929-abc",
-            link: "workspace:old.md",
+            target_ref: "workspace:old.md",
             tags: ["tmp"],
           },
           {
             ref: "trash:workspace/20260929-def",
-            link: "workspace:draft.md",
+            target_ref: "workspace:draft.md",
             tags: [],
           },
         ],
@@ -287,7 +287,7 @@ describe("family result views (audit display gaps)", () => {
     expect(text).toContain("Trash items (2)");
     expect(text).toContain("workspace:old.md");
     expect(text).toContain("tmp");
-    expect(text).toContain("trash:workspace/20260929-abc");
+    expect(text).toContain("20260929-abc");
     // No JsonTree fallback for the trash listing itself.
     expect(text).not.toContain("Page items");
   });
@@ -299,7 +299,7 @@ describe("ActionGlimpse expansion", () => {
       id: "a7",
       action: "workspace.write",
       outcome: "success",
-      result: { link: "workspace:notes.md", written: true },
+      result: { ref: "workspace:notes.md", written: true },
     });
     clickButton("workspace.write");
     await flush();

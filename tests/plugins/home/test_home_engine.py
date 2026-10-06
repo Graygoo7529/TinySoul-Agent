@@ -40,7 +40,7 @@ from tinysoul.plugins.home import (
     HomeDomainSkillProvider,
     HomeInspectExecutor,
     HomePromptMountWriteExecutor,
-    HomeTopLink,
+    HomeTopRef,
     HomeTopWriteExecutor,
 )
 from tinysoul.plugins.home.background import (
@@ -49,7 +49,7 @@ from tinysoul.plugins.home.background import (
 )
 from tinysoul.plugins.home.failures import HOME_RUNTIME_COPY_REQUIRED
 from tinysoul.plugins.home.errors import AgentHomeNotFoundError
-from tinysoul.plugins.home.links import parse_home_link
+from tinysoul.plugins.home.refs import parse_home_ref
 from tinysoul.plugins.home.services import HomeService
 from tinysoul.runtime import (
     RUNTIME_TURN_END,
@@ -97,28 +97,28 @@ def test_home_top_links_use_extensionless_identity_and_markdown_mapping(
         )
     ).build()
     cases = {
-        "home:agent@AGENT": "agent/AGENT.md",
-        "home:agent@identity/identity": "agent/identity/identity.md",
-        "home:agent@identity/soul": "agent/identity/soul.md",
-        "home:agent@context/turn-trace": "agent/context/turn-trace.md",
-        "home:agent@user/user": "agent/user/user.md",
-        "home:skills@python-refactor": "skills/python-refactor/SKILL.md",
+        "home:top/agent/AGENT": "agent/AGENT.md",
+        "home:top/agent/identity/identity": "agent/identity/identity.md",
+        "home:top/agent/identity/soul": "agent/identity/soul.md",
+        "home:top/agent/context/turn-trace": "agent/context/turn-trace.md",
+        "home:top/agent/user/user": "agent/user/user.md",
+        "home:top/skills/python-refactor": "skills/python-refactor/SKILL.md",
     }
 
     for value, expected in cases.items():
-        link = HomeTopLink.parse(value)
-        assert home.layout.relative_for_top(link) == expected
-        assert home.layout.top_link_for_relative(expected) == link
+        ref = HomeTopRef.parse(value)
+        assert home.layout.relative_for_top(ref) == expected
+        assert home.layout.top_ref_for_relative(expected) == ref
 
     for legacy in (
-        "home:agent@AGENT.md",
-        "home:skills@python-refactor.md",
-        "home:skills@python/refactor",
+        "home:top/agent/AGENT.md",
+        "home:top/skills/python-refactor.md",
+        "home:top/skills/python/refactor",
         "home:what@entity/tiny-soul",
         "home:why@context-budget",
     ):
         with pytest.raises(AgentHomeContractError):
-            HomeTopLink.parse(legacy)
+            HomeTopRef.parse(legacy)
 
 
 def test_top_files_cannot_be_addressed_as_progressive_resources(
@@ -140,10 +140,10 @@ def test_top_files_cannot_be_addressed_as_progressive_resources(
     ).build()
 
     aliases = (
-        "home:agent/AGENT.md",
+        "home:resource/agent/AGENT.md",
         "home:what/entity/tiny-soul.md",
         "home:why/question.md",
-        "home:skills/refactor/SKILL.md",
+        "home:resource/skills/refactor/SKILL.md",
     )
     for alias in aliases:
         with pytest.raises(AgentHomeContractError, match="Home"):
@@ -167,14 +167,14 @@ async def test_home_background_is_copied_only_when_context_loads_it(
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
-    link = "home:agent@context/project"
+    ref = "home:top/agent/context/project"
     context = (
         ContextEngineBuilder(system_text="sys")
         .with_segment(home_segment_registration(HomeService(home)))
         .build()
     )
-    turn_id = context.begin_turn("load project background")
-    home.ensure_runtime_copy(HomeTopLink.parse("home:agent@AGENT"))
+    turn_id = context.begin_turn("load project background", turn_id="2026-10-06/176")
+    home.ensure_runtime_copy(HomeTopRef.parse("home:top/agent/AGENT"))
     await context.open_segments(date(2026, 7, 14))
     scope = (
         RunScope()
@@ -199,7 +199,7 @@ async def test_home_background_is_copied_only_when_context_loads_it(
     runtime_path = tmp_path / "runtime" / "home" / "agent" / "context" / "project.md"
     assert not runtime_path.exists()
     late_signal = build_background_patch_signal(
-        BackgroundPatch(evict_links=(link,)),
+        BackgroundPatch(evict_refs=(ref,)),
         call_id="evict_later",
         scope=scope,
         source="test",
@@ -214,7 +214,7 @@ async def test_home_background_is_copied_only_when_context_loads_it(
     monkeypatch.setattr(bus, "consume_namespace", take_then_receive_later)
     bus.emit(
         build_background_patch_signal(
-            BackgroundPatch(load_links=(link,)),
+            BackgroundPatch(load_refs=(ref,)),
             call_id="load_project",
             scope=scope,
             source="test",
@@ -224,7 +224,7 @@ async def test_home_background_is_copied_only_when_context_loads_it(
     assert await consumer.consume(scope=scope) == ()
 
     assert runtime_path.read_text(encoding="utf-8") == "project knowledge"
-    assert link in context.background_links()
+    assert ref in context.background_refs()
     assert late_signal in bus.peek()
 
 
@@ -249,17 +249,17 @@ async def test_home_provides_default_background_without_exposing_domain_skills(
         home.default_background_entries,
         home=home,
     )
-    loadable = home.loadable_background_links()
+    loadable = home.loadable_background_refs()
     guidance = await _run_async_copy_trap(
         lambda: HomeDomainSkillProvider(HomeService(home)).guidance_for(("workspace",)),
         home=home,
     )
 
-    assert defaults[0].link == "home:agent@AGENT"
+    assert defaults[0].ref == "home:top/agent/AGENT"
     assert defaults[0].content == "core rules"
-    assert "home:skills_domain:workspace" not in loadable
+    assert "home:mount/domain/workspace" not in loadable
     assert tuple(item.text for item in guidance) == ("workspace guidance",)
-    assert guidance[0].reference == "home:skills_domain:workspace"
+    assert guidance[0].reference == "home:mount/domain/workspace"
     assert (tmp_path / "runtime" / "home" / "agent" / "AGENT.md").is_file()
     assert (
         tmp_path / "runtime" / "home" / "skills_domain" / "workspace" / "DOMAIN.md"
@@ -277,7 +277,7 @@ def test_home_runtime_copy_can_be_prepared_explicitly(tmp_path: Path) -> None:
         )
     ).build()
 
-    home.ensure_runtime_copy(HomeTopLink("skills", "refactor"))
+    home.ensure_runtime_copy(HomeTopRef("skills", "refactor"))
 
     assert (
         tmp_path / "runtime" / "home" / "skills" / "refactor" / "SKILL.md"
@@ -300,13 +300,13 @@ async def test_home_background_provider_catalog_does_not_materialize_core(
 
     catalog = await provider.catalog(date(2026, 7, 14))
 
-    assert catalog.default_links == ("home:agent@AGENT",)
+    assert catalog.default_refs == ("home:top/agent/AGENT",)
     assert not (tmp_path / "runtime" / "home" / "agent" / "AGENT.md").exists()
 
     with pytest.raises(RuntimeException):
-        await provider.load("home:agent@AGENT", date(2026, 7, 14))
-    home.ensure_runtime_copy(home.parse_link("home:agent@AGENT"))
-    content = await provider.load("home:agent@AGENT", date(2026, 7, 14))
+        await provider.load("home:top/agent/AGENT", date(2026, 7, 14))
+    home.ensure_runtime_copy(home.parse_ref("home:top/agent/AGENT"))
+    content = await provider.load("home:top/agent/AGENT", date(2026, 7, 14))
 
     assert content == "core rules"
     assert (tmp_path / "runtime" / "home" / "agent" / "AGENT.md").is_file()
@@ -324,17 +324,17 @@ async def test_actual_home_background_provider_ignores_runtime_overrides(
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
-    home.write_top("home:agent@AGENT", "runtime rules", overwrite=True)
+    home.write_top("home:top/agent/AGENT", "runtime rules", overwrite=True)
 
     user_provider = HomeBackgroundEntryProvider(HomeService(home))
     reflection_provider = ActualHomeBackgroundEntryProvider(HomeService(home))
     day = date(2026, 8, 3)
 
-    assert await user_provider.load("home:agent@AGENT", day) == "runtime rules"
-    assert (await reflection_provider.catalog(day)).default_links == (
-        "home:agent@AGENT",
+    assert await user_provider.load("home:top/agent/AGENT", day) == "runtime rules"
+    assert (await reflection_provider.catalog(day)).default_refs == (
+        "home:top/agent/AGENT",
     )
-    assert await reflection_provider.load("home:agent@AGENT", day) == "actual rules"
+    assert await reflection_provider.load("home:top/agent/AGENT", day) == "actual rules"
 
 
 async def test_home_background_provider_automatically_loads_allowlisted_agent_tops(
@@ -360,21 +360,21 @@ async def test_home_background_provider_automatically_loads_allowlisted_agent_to
 
     catalog = await provider.catalog(date(2026, 7, 14))
 
-    assert catalog.default_links == (
-        "home:agent@AGENT",
-        "home:agent@context/working",
-        "home:agent@user/user",
+    assert catalog.default_refs == (
+        "home:top/agent/AGENT",
+        "home:top/agent/context/working",
+        "home:top/agent/user/user",
     )
-    assert catalog.evictable_default_links == ()
-    assert "home:agent@context/extra" in catalog.loadable_links
-    assert "home:agent@context/extra" not in catalog.default_links
+    assert catalog.evictable_default_refs == ()
+    assert "home:top/agent/context/extra" in catalog.loadable_refs
+    assert "home:top/agent/context/extra" not in catalog.default_refs
     assert not (tmp_path / "runtime" / "home" / "agent").exists()
 
-    home.delete_top("home:agent@user/user")
+    home.delete_top("home:top/agent/user/user")
 
-    assert (await provider.catalog(date(2026, 7, 15))).default_links == (
-        "home:agent@AGENT",
-        "home:agent@context/working",
+    assert (await provider.catalog(date(2026, 7, 15))).default_refs == (
+        "home:top/agent/AGENT",
+        "home:top/agent/context/working",
     )
 
 
@@ -401,7 +401,7 @@ def test_home_runtime_copy_trap_prepares_copy_and_retries_current_frame(
         TrapSnap(
             reason=HOME_RUNTIME_COPY_REQUIRED,
             message="copy required",
-            payload={"link": "home:skills@refactor"},
+            payload={"ref": "home:top/skills/refactor"},
             scope=scope,
         )
     )
@@ -416,7 +416,7 @@ def test_home_runtime_copy_trap_prepares_copy_and_retries_current_frame(
         TrapSnap(
             reason=HOME_RUNTIME_COPY_REQUIRED,
             message="copy still required",
-            payload={"link": "home:skills@refactor"},
+            payload={"ref": "home:top/skills/refactor"},
             scope=scope,
         )
     )
@@ -436,8 +436,8 @@ def test_home_runtime_copy_restores_missing_unmodified_copy(
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
-    link = HomeTopLink("agent", "AGENT")
-    home.ensure_runtime_copy(link)
+    ref = HomeTopRef("agent", "AGENT")
+    home.ensure_runtime_copy(ref)
     runtime = tmp_path / "runtime" / "home" / "agent" / "AGENT.md"
     runtime.unlink()
     scope = RunScope().push(RunLevel.AGENT, "program").push(RunLevel.TURN, "turn")
@@ -446,7 +446,7 @@ def test_home_runtime_copy_restores_missing_unmodified_copy(
         TrapSnap(
             reason=HOME_RUNTIME_COPY_REQUIRED,
             message="copy required",
-            payload={"link": str(link)},
+            payload={"ref": str(ref)},
             scope=scope,
         )
     )
@@ -468,18 +468,24 @@ async def test_home_resource_read_executor_returns_bounded_text(tmp_path: Path) 
     ).build()
     execution = _execution(
         "home.inspect",
-        {"ref": "home:skills/refactor/references/checklist.md", "max_chars": 512},
+        {
+            "ref": "home:resource/skills/refactor/references/checklist.md",
+            "max_chars": 512,
+        },
     )
 
     executor = HomeInspectExecutor(HomeService(home))
     home.ensure_runtime_copy(
-        parse_home_link("home:skills/refactor/references/checklist.md")
+        parse_home_ref("home:resource/skills/refactor/references/checklist.md")
     )
     with_runtime_copy = await executor.execute(execution, ActionExecutionContext())
 
     assert with_runtime_copy.status is ActionResultStatus.SUCCESS
     assert with_runtime_copy.payload["items"] == [
-        {"ref": "home:skills/refactor/references/checklist.md#L1-L1", "text": "abcdef"}
+        {
+            "ref": "home:resource/skills/refactor/references/checklist.md#L1-L1",
+            "text": "abcdef",
+        }
     ]
 
 
@@ -497,14 +503,14 @@ async def test_home_resource_read_rejects_prompt_mount_spaces(tmp_path: Path) ->
         )
     ).build()
 
-    for link in (
-        "home:skills_domain:workspace",
-        "home:skills_action:workspace/compose",
+    for ref in (
+        "home:mount/domain/workspace",
+        "home:mount/action/workspace/compose",
         "home:skills_domain/workspace/DOMAIN.md",
         "home:skills_action/workspace/compose.md",
     ):
         result = await HomeInspectExecutor(HomeService(home)).execute(
-            _execution("home.inspect", {"ref": link}),
+            _execution("home.inspect", {"ref": ref}),
             ActionExecutionContext(),
         )
 
@@ -527,7 +533,10 @@ async def test_home_resource_read_rejects_non_positive_limit(tmp_path: Path) -> 
     result = await HomeInspectExecutor(HomeService(home)).execute(
         _execution(
             "home.inspect",
-            {"ref": "home:skills/refactor/references/checklist.md", "max_chars": 0},
+            {
+                "ref": "home:resource/skills/refactor/references/checklist.md",
+                "max_chars": 0,
+            },
         ),
         ActionExecutionContext(),
     )
@@ -554,7 +563,7 @@ async def test_home_top_and_prompt_mount_write_executors_use_home_mutation_bound
     missing_kind = await HomeTopWriteExecutor(HomeService(home)).execute(
         _execution(
             "home.top.write",
-            {"link": "home:agent@project", "text": "project"},
+            {"ref": "home:top/agent/project", "text": "project"},
         ),
         ActionExecutionContext(signal_bus=bus),
     )
@@ -562,7 +571,7 @@ async def test_home_top_and_prompt_mount_write_executors_use_home_mutation_bound
         _execution(
             "home.top.write",
             {
-                "link": "home:agent@project",
+                "ref": "home:top/agent/project",
                 "text": "project",
             },
         ),
@@ -572,7 +581,7 @@ async def test_home_top_and_prompt_mount_write_executors_use_home_mutation_bound
         _execution(
             "home.prompt_mount.write",
             {
-                "link": "home:skills_domain:workspace",
+                "ref": "home:mount/domain/workspace",
                 "text": "workspace guidance",
             },
         ),
@@ -584,7 +593,7 @@ async def test_home_top_and_prompt_mount_write_executors_use_home_mutation_bound
     assert missing_kind.payload["state"] == "created"
     assert created.status is ActionResultStatus.FAILED
     assert prompt.status is ActionResultStatus.SUCCESS
-    assert home.read_top("home:agent@project") == "project"
+    assert home.read_top("home:top/agent/project") == "project"
     assert home.guidance_for_domain("workspace") == "workspace guidance"
 
 
@@ -601,7 +610,7 @@ def test_home_engine_resource_read_rejects_bool_limit(tmp_path: Path) -> None:
 
     with pytest.raises(AgentHomeContractError, match="positive"):
         home.read_resource(
-            "home:skills/refactor/references/checklist.md", max_chars=True
+            "home:resource/skills/refactor/references/checklist.md", max_chars=True
         )
 
 
@@ -649,7 +658,7 @@ async def test_home_action_skills_uses_runtime_copy_trap(tmp_path: Path) -> None
 
     assert guidance.domain == ()
     assert tuple(item.text for item in guidance.action) == ("rewrite guidance",)
-    assert guidance.action[0].reference == "home:skills_action:workspace/compose"
+    assert guidance.action[0].reference == "home:mount/action/workspace/compose"
     assert (
         tmp_path / "runtime" / "home" / "skills_action" / "workspace" / "compose.md"
     ).is_file()
@@ -721,7 +730,7 @@ async def test_malformed_home_prompt_mount_maps_to_runtime_failure(
         )
     ).build()
     _bind_workspace_mounts(home)
-    home.ensure_runtime_copy(home.parse_link("home:skills_domain:workspace"))
+    home.ensure_runtime_copy(home.parse_ref("home:mount/domain/workspace"))
 
     with pytest.raises(RuntimeException) as raised:
         await HomeDomainSkillProvider(HomeService(home)).guidance_for(("workspace",))
@@ -778,7 +787,7 @@ def test_home_runtime_copy_failure_ends_nearest_turn(tmp_path: Path) -> None:
         TrapSnap(
             reason=HOME_RUNTIME_COPY_REQUIRED,
             message="copy required",
-            payload={"link": "home:skills_domain:missing"},
+            payload={"ref": "home:mount/domain/missing"},
             scope=scope,
         )
     )
@@ -798,7 +807,8 @@ async def test_home_inspect_reads_source_without_runtime_copy(tmp_path: Path) ->
     ).build()
     result = await HomeInspectExecutor(HomeService(home)).execute(
         _execution(
-            "home.inspect", {"ref": "home:skills/refactor/references/checklist.md"}
+            "home.inspect",
+            {"ref": "home:resource/skills/refactor/references/checklist.md"},
         ),
         ActionExecutionContext(),
     )
@@ -825,36 +835,25 @@ def test_home_browser_separates_actual_and_materialized_effective_views(
     _bind_workspace_mounts(home)
     before = tuple(runtime.rglob("*"))
     with pytest.raises(AgentHomeNotFoundError):
-        home.browse_content("home:agent@AGENT")
-    actual = home.browse_content("home:agent@AGENT", view="actual")
+        home.browse_content("home:top/agent/AGENT")
+    actual = home.browse_content("home:top/agent/AGENT", view="actual")
     assert "Original" in str(actual["items"])
-    assert "home:agent@guide" in str(actual["metadata"])
+    assert "home:top/agent/guide" in str(actual["metadata"])
     actual_items = cast(list[JsonObject], home.browse_catalog(view="actual")["items"])
-    assert any(
-        item["link"] == "home:agent@AGENT"
-        for item in actual_items
-    )
+    assert any(item["ref"] == "home:top/agent/AGENT" for item in actual_items)
     effective_items = cast(list[JsonObject], home.browse_catalog()["items"])
-    assert not any(
-        item["link"] == "home:agent@AGENT"
-        for item in effective_items
-    )
-    document = home.browse_content(
-        "home:skills_domain:workspace", view="actual"
-    )
+    assert not any(item["ref"] == "home:top/agent/AGENT" for item in effective_items)
+    document = home.browse_content("home:mount/domain/workspace", view="actual")
     assert "Workspace guidance" in str(document)
     assert home.browse_changes()["items"] == []
     assert tuple(runtime.rglob("*")) == before
-    home.write_top("home:agent@AGENT", "Changed", overwrite=True)
-    assert "Original" in str(home.browse_content("home:agent@AGENT", view="actual"))
-    assert "Changed" in str(home.browse_content("home:agent@AGENT"))
+    home.write_top("home:top/agent/AGENT", "Changed", overwrite=True)
+    assert "Original" in str(home.browse_content("home:top/agent/AGENT", view="actual"))
+    assert "Changed" in str(home.browse_content("home:top/agent/AGENT"))
     effective_items = cast(list[JsonObject], home.browse_catalog()["items"])
-    assert any(
-        item["link"] == "home:agent@AGENT"
-        for item in effective_items
-    )
+    assert any(item["ref"] == "home:top/agent/AGENT" for item in effective_items)
     assert home.browse_changes()["items"]
-    assert "Original" in str(home.browse_diff("home:agent@AGENT"))
+    assert "Original" in str(home.browse_diff("home:top/agent/AGENT"))
 
 
 def _execution(action_name: str, params: JsonObject) -> ActionExecution:

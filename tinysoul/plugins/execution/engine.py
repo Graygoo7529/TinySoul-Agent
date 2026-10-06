@@ -64,9 +64,9 @@ class ExecutionEngine:
         turn_id: str,
         interpreter: str,
         command: str | None,
-        source_link: str | None,
+        source_ref: str | None,
         args: tuple[str, ...],
-        cwd_link: str,
+        cwd_ref: str,
         interactive: bool,
         home: HomeService,
         operations: JoinedOperations,
@@ -78,27 +78,29 @@ class ExecutionEngine:
         executable = self._executables.get(selected)
         if executable is None:
             raise ExecutionRequestError("Interpreter is disabled")
-        if (command is None) == (source_link is None):
-            raise ExecutionRequestError("Provide exactly one command or script Link")
+        if (command is None) == (source_ref is None):
+            raise ExecutionRequestError(
+                "Provide exactly one command or script reference"
+            )
         if len(args) > self.settings.max_args or any(
             len(arg) > self.settings.max_arg_chars or "\x00" in arg for arg in args
         ):
             raise ExecutionRequestError("Script arguments exceed execution limits")
         source: str | None = None
-        if source_link is not None:
-            if source_link.startswith("workspace:"):
+        if source_ref is not None:
+            if source_ref.startswith("workspace:"):
                 read = await operations.run(
                     lambda: self._workspace.read_text(
-                        source_link, max_chars=self.settings.max_source_chars
+                        source_ref, max_chars=self.settings.max_source_chars
                     )
                 )
-            elif source_link.startswith("home:"):
+            elif source_ref.startswith("home:"):
                 read = await home.using(operations).read_resource(
-                    source_link, max_chars=self.settings.max_source_chars
+                    source_ref, max_chars=self.settings.max_source_chars
                 )
             else:
                 raise ExecutionRequestError(
-                    "Script source must be a Home or Workspace Link"
+                    "Script source must be a Home or Workspace reference"
                 )
             if read.truncated:
                 raise ExecutionRequestError(
@@ -124,7 +126,7 @@ class ExecutionEngine:
                 Interpreter.CMD: ".cmd",
             }[selected]
             location = self._workspace.prepare_execution(
-                job_id, cwd_link=cwd_link, source_text=source, source_suffix=suffix
+                job_id, cwd_ref=cwd_ref, source_text=source, source_suffix=suffix
             )
             argv = self._argv(selected, executable, command, location.script_path, args)
             try:
@@ -140,7 +142,7 @@ class ExecutionEngine:
             except ManagedProcessStartError as exc:
                 raise ExecutionStartError("Requested process could not start") from exc
             return ProcessJobBackend(
-                job_id, process, settings=self.settings, workspace_links=location.links
+                job_id, process, settings=self.settings, workspace_refs=location.refs
             )
 
         async def launch(job_id: str) -> ProcessJobBackend:

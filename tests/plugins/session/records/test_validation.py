@@ -31,11 +31,11 @@ DAY = "2026-07-25"
 
 def test_turn_record_round_trips_and_rejects_unknown_fields() -> None:
     record = replace(
-        _turn("turn_roundtrip"),
+        _turn("2026-07-25/1"),
         segments={
             "workspace": {
                 "revision": 3,
-                "resources": [{"link": "workspace:a.md", "summary": "a"}],
+                "resources": [{"ref": "workspace:a.md", "summary": "a"}],
             },
         },
     )
@@ -51,7 +51,7 @@ def test_session_action_failure_is_typed_and_round_trips() -> None:
     failure = _failure()
     record = SessionActionRecord(
         action="workspace.compose",
-        request={"target_link": "workspace:report.md"},
+        request={"target_ref": "workspace:report.md"},
         outcome=SessionActionOutcome.FAILED,
         failure=failure,
     )
@@ -69,7 +69,7 @@ def test_turn_failure_round_trip_preserves_execution_and_finish_distinction() ->
     )
     finish = TurnFailure("runtime.turn_end", "Finish failed.", "home", "home.io_failed")
     record = replace(
-        _turn("turn_failed"),
+        _turn("2026-07-25/2"),
         status=TurnOutcomeStatus.FAILED,
         failure=execution,
         finish_failures=(finish,),
@@ -136,7 +136,7 @@ def test_session_action_requires_typed_failure_and_reserved_result_boundary() ->
 def test_store_rejects_malformed_persisted_action_failure(tmp_path: Path) -> None:
     store = SessionStore(root=tmp_path / "session")
     store.create_manifest(DAY)
-    raw = _turn("turn_invalid_failure").to_json()
+    raw = _turn("2026-07-25/1001").to_json()
     raw["actions"] = [
         {
             "action": "workspace.compose",
@@ -145,29 +145,31 @@ def test_store_rejects_malformed_persisted_action_failure(tmp_path: Path) -> Non
             "failure": {"arbitrary": True},
         }
     ]
-    path = store.root / "turns" / "turn_invalid_failure.json"
+    path = store.root / "turns" / "1001.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(raw), encoding="utf-8")
 
     with pytest.raises(SessionInvariantError, match="failure is invalid"):
-        store.load_record("session:turn/turn_invalid_failure")
+        store.load_record("session:turn/2026-07-25/1001")
 
 
 def test_manifest_v3_indexes_only_immutable_turns() -> None:
-    manifest = SessionManifest(day=DAY, revision=2, refs=("session:turn/turn_a",))
+    manifest = SessionManifest(
+        day=DAY, revision=2, refs=("session:turn/2026-07-25/1000",)
+    )
     assert SESSION_MANIFEST_SCHEMA_VERSION == 3
     assert manifest.to_json() == {
         "schema_version": 3,
         "day": DAY,
         "revision": 2,
-        "refs": ["session:turn/turn_a"],
+        "refs": ["session:turn/2026-07-25/1000"],
     }
 
 
 def test_store_reuses_equal_facts_and_rejects_conflicts(tmp_path: Path) -> None:
     store = SessionStore(root=tmp_path / "session")
     store.create_manifest(DAY)
-    first = _turn("turn_immutable")
+    first = _turn("2026-07-25/3")
     stored = store.save_record_if_absent(first)
     assert store.save_record_if_absent(replace(first, recorded_at_ns=99)) == stored
 
@@ -181,7 +183,7 @@ def _turn(turn_id: str) -> SessionTurnRecord:
         day=DAY,
         inputs=(SessionInputRecord(text="question", received_at=1.0),),
         working={},
-        background_links=(),
+        background_refs=(),
         output=None,
         status=TurnOutcomeStatus.STOPPED,
         exhausted=False,
@@ -196,5 +198,5 @@ def _failure() -> ActionLocalFailure:
         scope="workspace.action",
         disposition=ActionFailureDisposition.CHANGE_REQUEST,
         feedback="Write failed.",
-        constraint={"target_link": "workspace:report.md"},
+        constraint={"target_ref": "workspace:report.md"},
     )

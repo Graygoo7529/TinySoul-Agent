@@ -5,7 +5,7 @@
  * protocols (workspace:/home:/memory:/session:/turn:trace…), is a web URL, or
  * is a relative reference (no protocol before the fragment) that an origin
  * owner can resolve. Arbitrary colon text ("note: important", "C:\\…") never
- * becomes a link. The checks mirror the owner link rules closely enough to
+ * becomes a ref. The checks mirror the owner ref rules closely enough to
  * reject malformed text; the backend resolve (API-18) stays authoritative.
  */
 
@@ -13,8 +13,8 @@ import type { HomeView } from "../../api/v2/types";
 
 /** Reading context a reference is interpreted against. */
 export interface ResourceOrigin {
-  /** Owner link of the document being read; required by relative references. */
-  link?: string;
+  /** Owner ref of the document being read; required by relative references. */
+  ref?: string;
   /** Day the content belongs to (history/archive reads). */
   day?: string;
   /** Turn the content belongs to (trace/dynamic bindings). */
@@ -81,38 +81,17 @@ function isMemoryReference(resource: string): boolean {
 
 function isHomeReference(resource: string): boolean {
   const body = resource.slice("home:".length);
-  if (body === "" || /\s/.test(body)) return false;
-  for (const space of ["skills_domain:", "skills_action:"]) {
-    if (body.startsWith(space)) return body.length > space.length;
-  }
-  const at = body.indexOf("@");
-  if (at >= 0) {
-    const space = body.slice(0, at);
-    const name = body.slice(at + 1);
-    return (space === "agent" || space === "skills") && name !== "";
-  }
-  const slash = body.indexOf("/");
-  if (slash > 0) {
-    const space = body.slice(0, slash);
-    return (
-      (space === "agent" || space === "skills") && slash < body.length - 1
-    );
-  }
-  return false;
+  if (/\s/.test(body)) return false;
+  const [category, space, ...path] = body.split("/");
+  if (!path.length || !isWorkspacePath(path.join("/"))) return false;
+  if (category === "top" || category === "resource") return space === "agent" || space === "skills";
+  return category === "mount" && ((space === "domain" && path.length === 1) || (space === "action" && path.length === 2));
 }
 
-const SESSION_REF =
-  /^session:(map|topics|annotations|history|history\/\d+|turn\/[\w-]+|node\/[\w-]+|edge\/[\w-]+)$/;
+const SESSION_REF = /^session:(map|topics|annotations|unclassified|history(?:\/\d+)?|(?:turn|node|edge)\/\d{4}-\d{2}-\d{2}\/[1-9]\d*)$/;
 
 function isTraceReference(resource: string): boolean {
-  if (resource.startsWith("turn:trace@")) {
-    return resource.length > "turn:trace@".length;
-  }
-  if (resource.startsWith("turn:trace/")) {
-    const parts = resource.split("/");
-    return parts.length === 3 && parts[1] !== "" && parts[2] !== "";
-  }
-  return false;
+  return /^turn:trace\/\d{4}-\d{2}-\d{2}\/[1-9]\d*$/.test(resource);
 }
 
 /** Classify one reference string; the fragment never affects the kind. */
@@ -138,14 +117,14 @@ export function classifyReference(reference: string): ReferenceKind {
   if (resource.startsWith("session:")) {
     return SESSION_REF.test(resource) ? "session" : "other";
   }
-  if (resource.startsWith("turn:trace@") || resource.startsWith("turn:trace/")) {
+  if (resource.startsWith("turn:trace/")) {
     return isTraceReference(resource) ? "trace" : "other";
   }
   if (!resource.includes(":")) return "relative";
   return "other";
 }
 
-/** `true` when the reference can become a link control. */
+/** `true` when the reference can become a ref control. */
 export function isRoutableReference(reference: string): boolean {
   return classifyReference(reference) !== "other";
 }
@@ -160,19 +139,11 @@ export function parseLineFragment(
   const startLine = Number.parseInt(match[1]!, 10);
   const endLine = match[2] !== undefined ? Number.parseInt(match[2], 10) : startLine;
   if (!Number.isFinite(startLine) || startLine < 1) return null;
-  return { startLine, endLine: Math.max(startLine, endLine) };
+  return endLine >= startLine ? { startLine, endLine } : null;
 }
 
 /** The turn identity of a trace reference; null for non-trace references. */
 export function traceTurnId(reference: string): string | null {
   const { resource } = splitFragment(reference);
-  if (resource.startsWith("turn:trace@")) {
-    const id = resource.slice("turn:trace@".length);
-    return id === "" ? null : id;
-  }
-  if (resource.startsWith("turn:trace/")) {
-    const parts = resource.split("/");
-    return parts.length === 3 && parts[1] !== "" ? parts[1] : null;
-  }
-  return null;
+  return isTraceReference(resource) ? resource.slice("turn:trace/".length) : null;
 }

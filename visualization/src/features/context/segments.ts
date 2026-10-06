@@ -108,7 +108,7 @@ export type RefOwner =
   | "web"
   | "other";
 
-/** Classify a ref/link by its owner prefix; decides the read route. */
+/** Classify a ref/ref by its owner prefix; decides the read route. */
 export function classifyRef(ref: string): RefOwner {
   if (ref.startsWith("home:")) return "home";
   if (ref.startsWith("memory:")) return "memory";

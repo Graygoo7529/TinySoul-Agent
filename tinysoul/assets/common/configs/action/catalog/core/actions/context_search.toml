@@ -2,7 +2,7 @@ name = "core.context.search"
 domain = "core"
 
 [tool]
-description = "Compose query, backlinks, directory, refs, result, filter, select and rerank over current Turn and Session facts without loading Background. Results include links and real content previews."
+description = "Compose query, backlinks, directory, refs, result, filter, select and rerank over current Turn and Session facts without loading Background. Results include references and real content previews."
 schema = { type = "object", properties = { source = { type = "object" }, steps = { type = "array" }, exclude_refs = { type = "array", items = { type = "string" } }, page = { type = "object" } }, required = ["source"], additionalProperties = false }
 
 [semantic]

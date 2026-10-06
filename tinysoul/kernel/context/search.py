@@ -96,14 +96,14 @@ def disclosure_corpus(
         evidence: tuple[SearchEvidence, ...] = ()
         if anchor is not None:
             found = []
-            links = (
+            refs = (
                 *entry.references,
                 *(
-                    DisclosureReference(link, "markdown_link", entry.day)
-                    for link in _markdown_targets(entry.content)
+                    DisclosureReference(resource, "markdown_ref", entry.day)
+                    for resource in _markdown_targets(entry.content)
                 ),
             )
-            for source in links:
+            for source in refs:
                 try:
                     target = resolve(source.target, source)
                 except ReferenceError:

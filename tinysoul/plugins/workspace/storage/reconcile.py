@@ -12,7 +12,7 @@ from tinysoul.infra.filesystem import FilesystemBoundaryError, resolve_under_roo
 from ..config import WorkspaceSettings
 from ..errors import WorkspaceContractError, WorkspaceIOError, WorkspaceNotFoundError
 from ..inspection.classification import WorkspaceResourceClassifier
-from ..links import WorkspaceLink
+from ..refs import WorkspaceRef
 from .manifest import (
     WorkspaceManifest,
     WorkspaceManifestStore,
@@ -91,10 +91,10 @@ class WorkspaceReconciler:
         self._store = manifest_store
         self._classifier = WorkspaceResourceClassifier()
 
-    def path_for(self, link: WorkspaceLink | str) -> Path:
-        parsed = WorkspaceLink.parse(link) if isinstance(link, str) else link
-        if not isinstance(parsed, WorkspaceLink):
-            raise WorkspaceContractError("Workspace link is invalid")
+    def path_for(self, ref: WorkspaceRef | str) -> Path:
+        parsed = WorkspaceRef.parse(ref) if isinstance(ref, str) else ref
+        if not isinstance(parsed, WorkspaceRef):
+            raise WorkspaceContractError("Workspace ref is invalid")
         root = self._settings.root
         parts = parsed.path.parts
         if any(
@@ -107,13 +107,13 @@ class WorkspaceReconciler:
             for index in range(1, len(parts) + 1)
         ):
             raise WorkspaceContractError(
-                "Workspace links cannot traverse filesystem redirects"
+                "Workspace refs cannot traverse filesystem redirects"
             )
         try:
             resolved = resolve_under_root(root, parsed.relative_path)
         except FilesystemBoundaryError as exc:
             raise WorkspaceContractError(
-                "Workspace link escapes its owner root"
+                "Workspace ref escapes its owner root"
             ) from exc
         if self.is_internal_path(resolved):
             raise WorkspaceContractError("Workspace internal paths are not resources")
@@ -138,8 +138,8 @@ class WorkspaceReconciler:
     ) -> WorkspaceResourceRecord:
         try:
             relative = path.relative_to(self._settings.root.resolve()).as_posix()
-            link = WorkspaceLink.from_relative_path(relative)
-            resolved = self.path_for(link)
+            ref = WorkspaceRef.from_relative_path(relative)
+            resolved = self.path_for(ref)
             stat = resolved.stat()
             if resolved.is_dir():
                 kind, media_type, suffix, label = (
@@ -165,7 +165,7 @@ class WorkspaceReconciler:
         except OSError as exc:
             raise WorkspaceIOError("Workspace resource cannot be inspected") from exc
         return WorkspaceResourceRecord(
-            link=str(link),
+            ref=str(ref),
             relative_path=relative,
             kind=kind,
             media_type=media_type,
@@ -238,7 +238,7 @@ class WorkspaceReconciler:
                     )
             if limit_reached:
                 break
-        ordered = tuple(sorted(resources, key=lambda record: record.link))
+        ordered = tuple(sorted(resources, key=lambda record: record.ref))
         # An incomplete scan cannot erase metadata for unvisited resources.
         complete = not limit_reached and not any(
             item.kind is not WorkspaceDiscoverySkipKind.UNSAFE_PATH for item in skipped

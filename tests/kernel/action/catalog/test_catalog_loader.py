@@ -43,7 +43,7 @@ def test_load_builtin_catalog() -> None:
         assert action.tool.schema["type"] == "object"
     assert catalog.get_action("execution.run_script").tool.schema["required"] == [
         "interpreter",
-        "source_link",
+        "source_ref",
     ]
     assert catalog.has_action("core.job.wait")
     assert catalog.has_action("core.job.stop")

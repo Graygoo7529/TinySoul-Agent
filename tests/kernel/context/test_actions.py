@@ -26,7 +26,7 @@ async def test_context_inspect_continuation_is_visible_only() -> None:
         .with_trace_inspect_max_chars(1024)
         .build()
     )
-    turn_id = context.begin_turn("inspect")
+    turn_id = context.begin_turn("inspect", turn_id="2026-10-06/29")
     await context.open_segments(CalendarDate(2026, 7, 12))
     scope = RunScope().push(RunLevel.TURN, turn_id)
     bus = SignalBus()
@@ -40,7 +40,7 @@ async def test_context_inspect_continuation_is_visible_only() -> None:
     )
     await context.consume_signals(bus)
     context.compress()
-    nodes = (await context.inspect(f"turn:trace@{turn_id}"))["items"]
+    nodes = (await context.inspect(f"turn:trace/{turn_id}"))["items"]
     assert isinstance(nodes, list)
     root = nodes[0]
     assert isinstance(root, dict)
@@ -48,7 +48,11 @@ async def test_context_inspect_continuation_is_visible_only() -> None:
     assert isinstance(ref, str)
     children = (await context.inspect(ref))["items"]
     assert isinstance(children, list) and isinstance(children[0], dict)
-    ref = children[0]["ref"]
+    ref = next(
+        child["ref"]
+        for child in children
+        if isinstance(child, dict) and "phase_note" in str(child)
+    )
     assert isinstance(ref, str)
 
     action = builtin_catalog().get_action("core.context.inspect")

@@ -30,6 +30,7 @@ import {
   openHistoryConversation,
   pushSessionRef,
 } from "../history/entries";
+import { pushContextInspect } from "../context/entries";
 import { useWorkspacePage } from "../workspace/store";
 import {
   classifyReference,
@@ -41,9 +42,9 @@ import { useResourceTargets } from "./targetsStore";
 
 /** Where a resolved reference leads. */
 export type RouteTarget =
-  | { kind: "workspace"; link: string; day: string | null; fragment: string | null }
-  | { kind: "home"; link: string; view: string; fragment: string | null }
-  | { kind: "memory"; link: string; day: string | null; fragment: string | null }
+  | { kind: "workspace"; ref: string; day: string | null; fragment: string | null }
+  | { kind: "home"; ref: string; view: string; fragment: string | null }
+  | { kind: "memory"; ref: string; day: string | null; fragment: string | null }
   | { kind: "session"; ref: string; day: string }
   | { kind: "trace"; ref: string; turnId: string | null; day: string | null }
   | { kind: "external"; url: string };
@@ -88,7 +89,7 @@ export async function resolveReference(
 ): Promise<ResolveOutcome> {
   const kind = classifyReference(reference);
   if (kind === "external") {
-    return resolved(reference, { link: reference }, { kind: "external", url: reference });
+    return resolved(reference, { ref: reference }, { kind: "external", url: reference });
   }
   if (kind === "other") {
     return {
@@ -100,7 +101,7 @@ export async function resolveReference(
   if (options.locator !== undefined) {
     return fromLocator(reference, options.locator);
   }
-  if (kind === "relative" && !origin.link) {
+  if (kind === "relative" && !origin.ref) {
     return {
       status: "failed",
       reference,
@@ -147,38 +148,38 @@ function resolveLocally(
       const day = origin.day ?? null;
       return resolved(
         reference,
-        { link: resource, day },
-        { kind: "workspace", link: resource, day, fragment },
+        { ref: resource, day },
+        { kind: "workspace", ref: resource, day, fragment },
       );
     }
     case "home": {
       const view = origin.homeView ?? "effective";
       return resolved(
         reference,
-        { link: resource, view },
-        { kind: "home", link: resource, view, fragment },
+        { ref: resource, view },
+        { kind: "home", ref: resource, view, fragment },
       );
     }
     case "memory":
       return resolved(
         reference,
-        { link: resource },
-        { kind: "memory", link: resource, day: origin.day ?? null, fragment },
+        { ref: resource },
+        { kind: "memory", ref: resource, day: origin.day ?? null, fragment },
       );
     case "session":
       // needsBackendResolve guarantees a day here.
       return resolved(
         reference,
-        { ref: resource, day: origin.day ?? null },
-        { kind: "session", ref: resource, day: origin.day! },
+        { ref: reference, day: origin.day ?? null },
+        { kind: "session", ref: reference, day: origin.day! },
       );
     case "trace":
       return resolved(
         reference,
-        { ref: resource, turn_id: traceTurnId(reference), day: origin.day ?? null },
+        { ref: reference, turn_id: traceTurnId(reference), day: origin.day ?? null },
         {
           kind: "trace",
-          ref: resource,
+          ref: reference,
           turnId: traceTurnId(reference),
           day: origin.day ?? null,
         },
@@ -200,8 +201,8 @@ async function resolveViaBackend(
   let response: ResourceResolve;
   try {
     response = await clients.resources.resolve({
-      reference,
-      origin_link: origin.link,
+      ref: reference,
+      origin_ref: origin.ref,
       day: origin.day,
       turn_id: origin.turnId,
       view: origin.homeView,
@@ -224,41 +225,40 @@ async function resolveViaBackend(
   return fromLocator(reference, response.locator);
 }
 
-/** Build the routable target from a formal locator (link may carry #fragment). */
+/** Build the routable target from a formal locator (ref may carry #fragment). */
 function fromLocator(reference: string, locator: ResourceLocator): ResolveOutcome {
-  const link = typeof locator.link === "string" ? locator.link : null;
-  const ref = typeof locator.ref === "string" ? locator.ref : null;
+  const ref = locator.ref;
   const day = typeof locator.day === "string" && locator.day !== "" ? locator.day : null;
   const turnId = typeof locator.turn_id === "string" ? locator.turn_id : null;
   const view = typeof locator.view === "string" ? locator.view : null;
-  const source = link ?? ref;
+  const source = ref;
   if (source === null) {
     return {
       status: "failed",
       reference,
-      detail: "The resolved locator carries neither a link nor a ref.",
+      detail: "The resolved locator has no reference.",
     };
   }
   const { resource, fragment } = splitFragment(source);
   if (resource.startsWith("workspace:")) {
     return resolved(
       reference,
-      { ...locator, link: resource },
-      { kind: "workspace", link: resource, day, fragment },
+      { ...locator, ref: resource },
+      { kind: "workspace", ref: resource, day, fragment },
     );
   }
   if (resource.startsWith("home:")) {
     return resolved(
       reference,
-      { ...locator, link: resource },
-      { kind: "home", link: resource, view: view ?? "effective", fragment },
+      { ...locator, ref: resource },
+      { kind: "home", ref: resource, view: view ?? "effective", fragment },
     );
   }
   if (resource.startsWith("memory:")) {
     return resolved(
       reference,
-      { ...locator, link: resource },
-      { kind: "memory", link: resource, day, fragment },
+      { ...locator, ref: resource },
+      { kind: "memory", ref: resource, day, fragment },
     );
   }
   if (resource.startsWith("session:")) {
@@ -271,15 +271,15 @@ function fromLocator(reference: string, locator: ResourceLocator): ResolveOutcom
     }
     return resolved(
       reference,
-      { ...locator, ref: resource },
-      { kind: "session", ref: resource, day },
+      { ...locator, ref: source },
+      { kind: "session", ref: source, day },
     );
   }
-  if (resource.startsWith("turn:trace@") || resource.startsWith("turn:trace/")) {
+  if (resource.startsWith("turn:trace/")) {
     return resolved(
       reference,
-      { ...locator, ref: resource },
-      { kind: "trace", ref: resource, turnId: turnId ?? traceTurnId(resource), day },
+      { ...locator, ref: source },
+      { kind: "trace", ref: source, turnId: turnId ?? traceTurnId(resource), day },
     );
   }
   return {
@@ -312,7 +312,7 @@ export function routeTarget(epoch: number, target: RouteTarget): void {
   switch (target.kind) {
     case "workspace":
       useWorkspacePage.getState().openFile({
-        link: target.link,
+        ref: target.ref,
         day: target.day,
         fragment: target.fragment,
       });
@@ -320,7 +320,7 @@ export function routeTarget(epoch: number, target: RouteTarget): void {
       return;
     case "home":
       useResourceTargets.getState().openHome({
-        link: target.link,
+        ref: target.ref,
         view: target.view === "actual" ? "actual" : "effective",
         fragment: target.fragment,
       });
@@ -328,7 +328,7 @@ export function routeTarget(epoch: number, target: RouteTarget): void {
       return;
     case "memory":
       useResourceTargets.getState().openMemory({
-        link: target.link,
+        ref: target.ref,
         day: target.day,
         fragment: target.fragment,
       });
@@ -342,6 +342,7 @@ export function routeTarget(epoch: number, target: RouteTarget): void {
       const activeTurn = selectActiveTurnId(state);
       if (target.turnId !== null && target.turnId === activeTurn) {
         backToLiveTurn(epoch);
+        pushContextInspect(epoch, target.turnId, target.ref, { canQuery: true });
         return;
       }
       if (target.turnId !== null && target.day !== null) {
@@ -386,7 +387,7 @@ export async function openReference(
   return outcome;
 }
 
-/** Open a web link: the system browser under Tauri, a new tab in Browser. */
+/** Open a web ref: the system browser under Tauri, a new tab in Browser. */
 export function openExternal(url: string): void {
   if (isTauriShell()) {
     void import("@tauri-apps/plugin-opener")
@@ -460,8 +461,8 @@ function describeSource(
       return `from Home, ${view} view`;
     }
     case "memory": {
-      if (resolvedValue !== undefined && resolvedValue.locator.link) {
-        const bound = String(resolvedValue.locator.link);
+      if (resolvedValue !== undefined && resolvedValue.locator.ref) {
+        const bound = String(resolvedValue.locator.ref);
         if (bound !== reference) {
           return day !== null ? `bound to ${bound}, ${day}` : `bound to ${bound}`;
         }
@@ -481,9 +482,9 @@ function classifyQuoteKind(
   reference: string,
   origin: ResourceOrigin,
 ): RouteTarget["kind"] | null {
-  // The quoted reference is authoritative; the origin link is the fallback
+  // The quoted reference is authoritative; the origin ref is the fallback
   // (e.g. a relative reference quoted from inside a workspace document).
-  for (const candidate of [reference, origin.link]) {
+  for (const candidate of [reference, origin.ref]) {
     if (candidate === undefined) continue;
     const kind = classifyReference(candidate);
     switch (kind) {

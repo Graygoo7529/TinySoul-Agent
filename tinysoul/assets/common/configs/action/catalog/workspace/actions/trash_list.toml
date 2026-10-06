@@ -22,7 +22,7 @@ maximum = 64
 use_when = ["Need to find a trash_ref before restoring a removed Workspace resource"]
 avoid_when = ["The active Workspace manifest already contains the resource"]
 effects = ["read_only"]
-examples = ["List Trash, select the matching link, then call workspace.restore"]
+examples = ["List Trash, select the matching ref, then call workspace.restore"]
 
 [runtime]
 parallel_policy = "serial"

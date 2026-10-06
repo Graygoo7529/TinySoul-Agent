@@ -8,7 +8,7 @@ INVALID_INSPECT_REQUEST = "Inspect requires a known ref and valid page options"
 
 # Local model feedback. Used by plugins/home/actions/content.py:execute.
 RESOURCE_WRITE_INPUT_REQUIRED = (
-    "home.resource.write requires non-empty 'link' and string 'text'."
+    "home.resource.write requires non-empty 'ref' and string 'text'."
 )
 
 # Local model feedback. Used by plugins/home/actions/content.py:execute.
@@ -18,7 +18,7 @@ INVALID_RESOURCE_WRITE_PRECONDITIONS = (
 
 # Local model feedback. Used by plugins/home/actions/content.py:execute.
 RESOURCE_WRITE_REJECTED = (
-    "Home resource write request rejected; check the Link and current content."
+    "Home resource write request rejected; check the reference and current content."
 )
 
 # Local model feedback. Used by plugins/home/actions/content.py:execute.
@@ -28,7 +28,7 @@ HOME_RESOURCE_PATCH_PARAMETERS_ARE_INVALID = (
 
 # Local model feedback. Used by plugins/home/actions/content.py:execute.
 RESOURCE_PATCH_REJECTED = (
-    "Home resource patch request rejected; check the Link and current content."
+    "Home resource patch request rejected; check the reference and current content."
 )
 
 # Local model feedback. Used by plugins/home/actions/content.py:execute.
@@ -38,18 +38,18 @@ HOME_RESOURCE_DELETE_PARAMETERS_ARE_INVALID = (
 
 # Local model feedback. Used by plugins/home/actions/content.py:execute.
 RESOURCE_DELETE_REJECTED = (
-    "Home resource delete request rejected; check the Link and current content."
+    "Home resource delete request rejected; check the reference and current content."
 )
 
 # Local model feedback. Used by plugins/home/actions/content.py:execute.
-TOP_WRITE_INPUT_REQUIRED = "home.top.write requires non-empty 'link' and string 'text'."
+TOP_WRITE_INPUT_REQUIRED = "home.top.write requires non-empty 'ref' and string 'text'."
 
 # Local model feedback. Used by plugins/home/actions/content.py:execute.
 INVALID_TOP_WRITE_PRECONDITIONS = "home.top.write precondition parameters are invalid."
 
 # Local model feedback. Used by plugins/home/actions/content.py:execute.
 TOP_WRITE_REJECTED = (
-    "Home top write request rejected; check the Link and current content."
+    "Home top write request rejected; check the reference and current content."
 )
 
 # Local model feedback. Used by plugins/home/actions/content.py:execute.
@@ -57,7 +57,7 @@ HOME_TOP_PATCH_PARAMETERS_ARE_INVALID = "home.top.patch parameters are invalid."
 
 # Local model feedback. Used by plugins/home/actions/content.py:execute.
 TOP_PATCH_REJECTED = (
-    "Home top patch request rejected; check the Link and current content."
+    "Home top patch request rejected; check the reference and current content."
 )
 
 # Local model feedback. Used by plugins/home/actions/content.py:execute.
@@ -65,12 +65,12 @@ HOME_TOP_DELETE_PARAMETERS_ARE_INVALID = "home.top.delete parameters are invalid
 
 # Local model feedback. Used by plugins/home/actions/content.py:execute.
 TOP_DELETE_REJECTED = (
-    "Home top delete request rejected; check the Link and current content."
+    "Home top delete request rejected; check the reference and current content."
 )
 
 # Local model feedback. Used by plugins/home/actions/content.py:execute.
 PROMPT_MOUNT_WRITE_INPUT_REQUIRED = (
-    "home.prompt_mount.write requires non-empty 'link' and string 'text'."
+    "home.prompt_mount.write requires non-empty 'ref' and string 'text'."
 )
 
 # Local model feedback. Used by plugins/home/actions/content.py:execute.
@@ -80,7 +80,7 @@ INVALID_PROMPT_MOUNT_WRITE_PRECONDITIONS = (
 
 # Local model feedback. Used by plugins/home/actions/content.py:execute.
 PROMPT_MOUNT_WRITE_REJECTED = (
-    "Home prompt mount write request rejected; check the Link and current content."
+    "Home prompt mount write request rejected; check the reference and current content."
 )
 
 # Local model feedback. Used by plugins/home/actions/content.py:execute.
@@ -90,17 +90,17 @@ HOME_PROMPT_MOUNT_PATCH_PARAMETERS_ARE_INVALID = (
 
 # Local model feedback. Used by plugins/home/actions/content.py:execute.
 PROMPT_MOUNT_PATCH_REJECTED = (
-    "Home prompt mount patch request rejected; check the Link and current content."
+    "Home prompt mount patch request rejected; check the reference and current content."
 )
 
 # Local model feedback. Used by plugins/home/actions/review.py:execute.
 UNKNOWN_HOME_REVIEW_ACTION = "Unknown Home review action"
 
 # Local model feedback. Used by plugins/home/actions/review.py:_review.
-PATHS_MUST_CONTAIN_HOME_LINKS = "paths must contain Home Links"
+PATHS_MUST_CONTAIN_HOME_REFS = "paths must contain Home Links"
 
 # Local model feedback. Used by plugins/home/actions/review.py:_review.
-SELECT_HOME_LINKS_AND_ACCEPT_OR_REJECT = "Select Home Links and accept or reject"
+SELECT_HOME_REFS_AND_ACCEPT_OR_REJECT = "Select Home Links and accept or reject"
 
 # Local model feedback. Used by plugins/home/actions/review.py:_review.
 INVALID_REVIEW_REQUEST = "Home review request is invalid; inspect the current diff"

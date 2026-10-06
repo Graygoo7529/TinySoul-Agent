@@ -21,23 +21,23 @@ export interface BlobObjectUrl {
 
 /**
  * Fetch one workspace blob (whole read; Range stays a transport capability —
- * partial media playback is not claimed). `link` is the fragment-free
- * workspace link, `day` the archive binding (null = active day).
+ * partial media playback is not claimed). `resourceRef` is the fragment-free
+ * workspace resourceRef, `day` the archive binding (null = active day).
  */
 export function useWorkspaceBlobUrl(
-  link: string | null,
+  resourceRef: string | null,
   day: string | null,
 ): BlobObjectUrl {
   const epoch = useConnectionStore((s) => s.epoch);
   const [state, setState] = useState<BlobObjectUrl>({
     url: null,
     mediaType: null,
-    loading: link !== null,
+    loading: resourceRef !== null,
     error: null,
   });
 
   useEffect(() => {
-    if (link === null) {
+    if (resourceRef === null) {
       setState({ url: null, mediaType: null, loading: false, error: null });
       return;
     }
@@ -55,7 +55,7 @@ export function useWorkspaceBlobUrl(
     let objectUrl: string | null = null;
     setState({ url: null, mediaType: null, loading: true, error: null });
     clients.workspace
-      .readBlob({ link, day: day ?? undefined }, { signal: controller.signal })
+      .readBlob({ ref: resourceRef, day: day ?? undefined }, { signal: controller.signal })
       .then(async (response) => {
         const blob = await response.blob();
         if (controller.signal.aborted) return;
@@ -80,7 +80,7 @@ export function useWorkspaceBlobUrl(
       controller.abort();
       if (objectUrl !== null) URL.revokeObjectURL(objectUrl);
     };
-  }, [epoch, link, day]);
+  }, [epoch, resourceRef, day]);
 
   return state;
 }

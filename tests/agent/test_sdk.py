@@ -53,13 +53,13 @@ from tinysoul.kernel.loop.interaction.inbox import InboxClosedError, WaitReason
 from tinysoul.kernel.loop.outcomes import TurnOutcomeStatus
 from tinysoul.kernel.loop.turn import TurnOutcome
 from tinysoul.kernel.registration import RegistrationError
-from tinysoul.llm.protocol.messages import JsonPart
+from tinysoul.llm.protocol.messages import TextPart
 from tinysoul.llm.protocol.requests import TaskCall
 from tinysoul.llm.protocol.responses import JsonAnswer, RawResponse, TaskResult
 from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind
 from tinysoul.plugins.home import AgentHomeEngineBuilder, AgentHomeSettings
 from tinysoul.plugins.home.services import HomeReviewService
-from tinysoul.plugins.memory import MemoryEngine, MemoryLink
+from tinysoul.plugins.memory import MemoryEngine, MemoryRef
 from tinysoul.plugins.memory.services import MemoryKnowledgeService
 from tinysoul.plugins.reflection import (
     ReflectionOutcome,
@@ -188,9 +188,9 @@ async def test_workspace_change_resumes_same_turn_with_current_model_state(
             if message.label == "workspace"
         )
         part = state.parts[0]
-        assert isinstance(part, JsonPart)
-        assert "workspace:new.md" in str(part.value)
-        assert "private resource body" not in str(part.value)
+        assert isinstance(part, TextPart)
+        assert "workspace:new.md" in part.text
+        assert "private resource body" not in part.text
     finally:
         await agent.shutdown()
 
@@ -288,7 +288,7 @@ async def test_source_start_failure_keeps_previous_generation_and_listener(
         async with asyncio.timeout(5):
             while not (await service.snapshot()).resources:
                 await asyncio.sleep(0.01)
-        assert (await service.inspect("workspace:recovered.md")).size > 0
+        assert (await service.stat("workspace:recovered.md")).size > 0
     finally:
         await agent.shutdown()
 
@@ -517,48 +517,48 @@ async def test_v2_turn_admission_question_budget_and_result_share_sdk_owner(
             headers={"Authorization": f"Bearer {'x' * 32}"},
         ) as client:
             response = await client.post(
-                "/v2/turns",
+                "/v2/requests",
                 json={"text": "/reply literal user task", "command_id": "main"},
             )
             assert response.status_code == 202
-            assert response.json()["turn_id"] == "main"
+            assert response.json()["request_id"] == "main"
             await asyncio.wait_for(llm.started.wait(), 3)
             duplicate = await client.post(
-                "/v2/turns",
+                "/v2/requests",
                 json={"text": "/reply literal user task", "command_id": "main"},
             )
-            assert duplicate.json()["turn_id"] == "main"
+            assert duplicate.json()["request_id"] == "main"
             assert (
                 await client.post(
-                    "/v2/turns", json={"text": "different", "command_id": "main"}
+                    "/v2/requests", json={"text": "different", "command_id": "main"}
                 )
             ).status_code == 409
             queued = await client.post(
-                "/v2/turns", json={"text": "later", "command_id": "queued"}
+                "/v2/requests", json={"text": "later", "command_id": "queued"}
             )
-            assert queued.json()["turn_id"] == "queued"
+            assert queued.json()["request_id"] == "queued"
             appended = await client.post(
-                "/v2/turns/queued/input",
+                "/v2/requests/queued/input",
                 json={"text": "More context", "input_id": "extra"},
             )
             assert appended.status_code == 200 and appended.json()["accepted"]
             repeat = await client.post(
-                "/v2/turns/queued/input",
+                "/v2/requests/queued/input",
                 json={"text": "More context", "input_id": "extra"},
             )
             assert not repeat.json()["accepted"]
-            full = await client.post("/v2/turns", json={"text": "overflow"})
+            full = await client.post("/v2/requests", json={"text": "overflow"})
             assert (
                 full.status_code == 409
                 and full.json()["error"]["code"] == "agent.queue_full"
             )
             runtime = (await client.get("/v2/status")).json()
             assert runtime["protocol_version"] == 2
-            assert runtime["runtime"]["active_turn_id"] == "main"
-            assert runtime["runtime"]["queued_turn_ids"] == ["queued"]
+            assert runtime["runtime"]["active_request_id"] == "main"
+            assert runtime["runtime"]["queued_request_ids"] == ["queued"]
             assert runtime["runtime"] == agent.runtime_status()
             waiting_projection = (
-                await client.get("/v2/turns/queued/interactions")
+                await client.get("/v2/requests/queued/interactions")
             ).json()
             assert waiting_projection["items"] == []
             assert waiting_projection["queued_request"]["delivery"] == "queued"
@@ -566,40 +566,40 @@ async def test_v2_turn_admission_question_budget_and_result_share_sdk_owner(
                 waiting_projection["pending_items"][0]["payload"]["text"]
                 == "More context"
             )
-            overview = (await client.get("/v2/turns/main/context")).json()
+            overview = (await client.get("/v2/requests/main/context")).json()
             assert overview["segments"] and overview["generation_id"]
             assert overview["captured_at"]
             assert (
-                await client.get("/v2/turns/main/context/segments/inputs")
+                await client.get("/v2/requests/main/context/segments/inputs")
             ).status_code == 200
             assert (await client.get("/v2/expand/servers")).status_code == 200
             assert (await client.get("/v2/subagent")).status_code == 200
             assert (await client.get("/v2/home/catalog")).status_code == 200
             assert (await client.get("/v2/memory/catalog")).status_code == 200
             assert (await client.get("/v2/memory/active")).status_code == 200
-            assert (await client.post("/v2/turns/queued/cancel")).json()["accepted"]
-            assert (await client.get("/v2/turns/queued")).json()["result"][
+            assert (await client.post("/v2/requests/queued/cancel")).json()["accepted"]
+            assert (await client.get("/v2/requests/queued")).json()["result"][
                 "request_failure"
             ] == "cancelled"
             llm.release.set()
             async with asyncio.timeout(4):
                 while True:
-                    snapshot = agent.turn_snapshot("main")
+                    snapshot = agent.request_snapshot("main")
                     assert snapshot is not None and snapshot.result is None
                     if snapshot.question is not None:
                         break
                     await asyncio.sleep(0.01)
-            restored = (await client.get("/v2/turns/main")).json()
+            restored = (await client.get("/v2/requests/main")).json()
             assert snapshot is not None and restored == snapshot.to_json()
             assert restored["wait_reason"] == ("budget" if max_cycles == 1 else "input")
-            interactions = (await client.get("/v2/turns/main/interactions")).json()
+            interactions = (await client.get("/v2/requests/main/interactions")).json()
             assert any(
                 item["role"] == "agent.question" and item["options"][0]["id"] == "a"
                 for item in interactions["items"]
             )
             assert (
                 await client.post(
-                    "/v2/turns/main/reply",
+                    "/v2/requests/main/reply",
                     json={
                         "question_id": "stale",
                         "answer": {"kind": "text", "text": "A"},
@@ -608,7 +608,7 @@ async def test_v2_turn_admission_question_budget_and_result_share_sdk_owner(
             ).status_code == 409
             assert (
                 await client.post(
-                    "/v2/turns/main/reply",
+                    "/v2/requests/main/reply",
                     json={
                         "question_id": restored["question"]["question_id"],
                         "answer": {
@@ -622,30 +622,33 @@ async def test_v2_turn_admission_question_budget_and_result_share_sdk_owner(
             if max_cycles == 1:
                 async with asyncio.timeout(4):
                     while True:
-                        budget = agent.turn_snapshot("main")
+                        budget = agent.request_snapshot("main")
                         assert budget is not None and budget.result is None
                         if budget.budget_request is not None:
                             break
                         await asyncio.sleep(0.01)
                 assert budget is not None and budget.budget_request is not None
-                grant = {"request_id": budget.budget_request.request_id, "count": 1}
+                grant = {
+                    "budget_request_id": budget.budget_request.request_id,
+                    "count": 1,
+                }
                 assert (
                     await client.post(
-                        "/v2/turns/main/grant", json={**grant, "count": True}
+                        "/v2/requests/main/grant", json={**grant, "count": True}
                     )
                 ).status_code == 422
-                assert (await client.post("/v2/turns/main/grant", json=grant)).json()[
-                    "accepted"
-                ]
-            handle = agent.commands.turn("main")
+                assert (
+                    await client.post("/v2/requests/main/grant", json=grant)
+                ).json()["accepted"]
+            handle = agent.commands.request("main")
             assert handle is not None
             result = await asyncio.wait_for(handle.wait(), 5)
-            current = (await client.get("/v2/turns/main")).json()
+            current = (await client.get("/v2/requests/main")).json()
             assert current["state"] == "finished"
             assert current["result"] == result.to_json()
             assert current["result"]["output"]["text"] == "done"
             assert "context_completion" not in current["result"]
-            saved = (await client.get("/v2/turns/main/interactions")).json()
+            saved = (await client.get("/v2/requests/main/interactions")).json()
             assert (
                 saved["day"] == current["result"]["active_day"]
                 and saved["generation_id"]
@@ -656,38 +659,38 @@ async def test_v2_turn_admission_question_budget_and_result_share_sdk_owner(
                 and "Execute" in item["text"]
                 for item in saved["items"]
             )
-            assert (await client.get("/v2/turns/main/context")).status_code == 409
+            assert (await client.get("/v2/requests/main/context")).status_code == 409
             assert (await client.get("/v2/session/turns")).status_code == 200
             assert (await client.get("/v2/session/map")).status_code == 200
             assert (await client.get("/v2/days")).status_code == 200
             unresolved = await client.get(
                 "/v2/resources/resolve",
-                params={"reference": "memory:latest", "day": "2000-01-01"},
+                params={"ref": "memory:latest", "day": "2000-01-01"},
             )
             assert unresolved.status_code == 422
             memory_fragment = await client.get(
                 "/v2/resources/resolve",
                 params={
-                    "reference": "memory:current#notes",
+                    "ref": "memory:current#notes",
                     "day": saved["day"],
                 },
             )
             assert memory_fragment.status_code == 200
             assert memory_fragment.json()["locator"] == {
-                "link": "memory:current#notes",
+                "ref": "memory:current#notes",
                 "day": saved["day"],
             }
             resolved = (
                 await client.get(
                     "/v2/resources/resolve",
-                    params={"reference": "workspace:note.md", "turn_id": "main"},
+                    params={"ref": "workspace:note.md", "turn_id": handle.turn_id},
                 )
             ).json()
             assert resolved["locator"]["day"] == saved["day"]
             assert (
-                await client.post("/v2/turns/main/input", json={"text": "too late"})
+                await client.post("/v2/requests/main/input", json={"text": "too late"})
             ).status_code == 409
-            assert (await client.get("/v2/turns/missing")).status_code == 404
+            assert (await client.get("/v2/requests/missing")).status_code == 404
             assert (await client.get("/v1/status")).status_code == 404
             assert all(
                 path.startswith("/v2/")
@@ -708,19 +711,21 @@ async def test_trace_locator_only_translates_context_contract_errors(
     agent = await _create(tmp_path, llm, endpoints=endpoints)
     await agent.start()
     try:
-        await agent.submit_turn(UserTurnRequest("Read Trace", request_id="trace-test"))
+        handle = await agent.submit_turn(
+            UserTurnRequest("Read Trace", request_id="2026-10-06/1000")
+        )
         await asyncio.wait_for(llm.started.wait(), 5)
         service = agent.runtime.service_access
-        valid_ref = "turn:trace@trace-test"
+        valid_ref = f"turn:trace/{handle.turn_id}"
         invalid_ref = (
-            "turn:trace@" if branch == "syntax" else valid_ref + "#entry/missing"
+            "turn:trace/" if branch == "syntax" else valid_ref + "#entry/missing"
         )
-        resolved = await service.resolve_resource(valid_ref, turn_id="trace-test")
+        resolved = await service.resolve_resource(valid_ref, turn_id=handle.turn_id)
         locator = resolved["locator"]
         assert isinstance(locator, dict)
         assert locator["ref"] == valid_ref
         with pytest.raises(ReferenceError) as rejected:
-            await service.resolve_resource(invalid_ref, turn_id="trace-test")
+            await service.resolve_resource(invalid_ref, turn_id=handle.turn_id)
         assert isinstance(rejected.value.__cause__, ContextContractError)
 
         app = create_endpoint_app(endpoints[0], endpoints[0].settings)
@@ -731,7 +736,7 @@ async def test_trace_locator_only_translates_context_contract_errors(
         ) as client:
             response = await client.get(
                 "/v2/resources/resolve",
-                params={"reference": invalid_ref, "turn_id": "trace-test"},
+                params={"ref": invalid_ref, "turn_id": handle.turn_id},
             )
             assert response.status_code == 422
             assert response.json()["error"]["code"] == "resource.invalid_reference"
@@ -756,11 +761,11 @@ async def test_trace_locator_only_translates_context_contract_errors(
                 else:
                     patch.setattr(ContextEngine, "resolve_reference", broken_owner)
                 with pytest.raises(type(unexpected)) as propagated:
-                    await service.resolve_resource(valid_ref, turn_id="trace-test")
+                    await service.resolve_resource(valid_ref, turn_id=handle.turn_id)
                 assert propagated.value is unexpected
                 response = await client.get(
                     "/v2/resources/resolve",
-                    params={"reference": valid_ref, "turn_id": "trace-test"},
+                    params={"ref": valid_ref, "turn_id": handle.turn_id},
                 )
                 assert response.status_code == 500
                 assert response.json()["error"]["code"] == "endpoint.internal"
@@ -785,7 +790,7 @@ async def test_v2_job_stop_uses_turn_owner_and_sdk_projection(tmp_path: Path) ->
                 "execution.start",
                 {
                     "interpreter": "python",
-                    "source_link": "workspace:long.py",
+                    "source_ref": "workspace:long.py",
                     "interactive": True,
                 },
                 ToolKind.ACTION,
@@ -836,7 +841,7 @@ async def test_v2_job_stop_uses_turn_owner_and_sdk_projection(tmp_path: Path) ->
             while active.question is None:
                 assert not active.done, active.result
                 await asyncio.sleep(0.01)
-        snapshots = agent.turn_jobs(active.turn_id)
+        snapshots = agent.turn_jobs(active.request_id)
         assert snapshots and not snapshots[0].state.terminal
         endpoint = endpoints[0]
         async with httpx.AsyncClient(
@@ -846,24 +851,24 @@ async def test_v2_job_stop_uses_turn_owner_and_sdk_projection(tmp_path: Path) ->
             base_url="http://test",
             headers={"Authorization": f"Bearer {'x' * 32}"},
         ) as client:
-            jobs = (await client.get("/v2/turns/owner/jobs")).json()["jobs"]
+            jobs = (await client.get("/v2/requests/owner/jobs")).json()["jobs"]
             assert jobs == [item.to_json() for item in snapshots]
             job_id = snapshots[0].job_id
-            detail = await client.get(f"/v2/turns/owner/jobs/{job_id}")
+            detail = await client.get(f"/v2/requests/owner/jobs/{job_id}")
             assert detail.status_code == 200 and detail.json()["job_id"] == job_id
-            output = await client.get(f"/v2/turns/owner/jobs/{job_id}/output")
+            output = await client.get(f"/v2/requests/owner/jobs/{job_id}/output")
             assert output.status_code == 200 and "items" in output.json()
-            again = await client.get(f"/v2/turns/owner/jobs/{job_id}/output")
+            again = await client.get(f"/v2/requests/owner/jobs/{job_id}/output")
             assert again.json() == output.json()
             invalid_output = await client.get(
-                f"/v2/turns/owner/jobs/{job_id}/output",
+                f"/v2/requests/owner/jobs/{job_id}/output",
                 params={"continuation": "invalid"},
             )
             assert invalid_output.status_code == 409
             assert (
-                await client.post(f"/v2/turns/wrong/jobs/{job_id}/stop")
+                await client.post(f"/v2/requests/wrong/jobs/{job_id}/stop")
             ).status_code == 404
-            stopped = await client.post(f"/v2/turns/owner/jobs/{job_id}/stop")
+            stopped = await client.post(f"/v2/requests/owner/jobs/{job_id}/stop")
             assert stopped.status_code == 200 and stopped.json()["state"] in {
                 "cancelled",
                 "succeeded",
@@ -871,11 +876,11 @@ async def test_v2_job_stop_uses_turn_owner_and_sdk_projection(tmp_path: Path) ->
             current = agent.turn_jobs("owner")
             assert current and stopped.json() == current[0].to_json()
             assert not active.cancel_requested
-            await client.post("/v2/turns/owner/cancel")
+            await client.post("/v2/requests/owner/cancel")
             await asyncio.wait_for(active.wait(), 5)
-            assert (await client.get("/v2/turns/owner/jobs")).json()["jobs"] == []
+            assert (await client.get("/v2/requests/owner/jobs")).json()["jobs"] == []
             assert (
-                await client.post(f"/v2/turns/owner/jobs/{job_id}/stop")
+                await client.post(f"/v2/requests/owner/jobs/{job_id}/stop")
             ).status_code == 404
     finally:
         await agent.shutdown()
@@ -893,9 +898,11 @@ async def test_create_is_inactive_and_waiter_cancellation_preserves_real_turn(
     await agent.start()
     try:
         handle = await agent.submit_turn(UserTurnRequest("hello", request_id="stable"))
-        await agent.append_input(handle.turn_id, "queued input", input_id="input")
+        await agent.append_input(handle.request_id, "queued input", input_id="input")
         with pytest.raises(InboxCapacityError):
-            await agent.append_input(handle.turn_id, "over capacity", input_id="excess")
+            await agent.append_input(
+                handle.request_id, "over capacity", input_id="excess"
+            )
         assert await agent.submit_turn(handle.request) is handle
         await asyncio.wait_for(llm.started.wait(), 3)
         waiter = asyncio.create_task(handle.wait())
@@ -994,7 +1001,9 @@ async def test_sdk_completed_facts_are_inspectable_until_daily_archive(
         await agent.publish(
             EnvironmentEvent(EventKind.EVENT, {"notice": "event-marker"}, "wake")
         )
-        await agent.append_input(first.turn_id, "additional evidence", input_id="extra")
+        await agent.append_input(
+            first.request_id, "additional evidence", input_id="extra"
+        )
         completed = await asyncio.wait_for(first.wait(), 5)
         assert isinstance(completed.outcome, TurnOutcome) and completed.outcome.answered
         llm.results.extend(
@@ -1241,17 +1250,15 @@ async def test_cancel_active_turn_keeps_dispatcher_and_queued_work_alive(
         with pytest.raises(AgentQueueFullError):
             await agent.submit_turn(UserTurnRequest("three"))
         await agent.append_input(
-            active.turn_id, "accepted before cancellation", input_id="accepted"
+            active.request_id, "accepted before cancellation", input_id="accepted"
         )
-        assert await agent.cancel_turn(active.turn_id)
+        assert await agent.cancel_request(active.request_id)
         cancelled = await asyncio.wait_for(active.wait(), 5)
         assert cancelled.status is TurnOutcomeStatus.CANCELLED
         assert isinstance(cancelled.outcome, TurnOutcome)
         facts = cancelled.outcome.context_completion
         assert facts is not None and facts.inputs[-1].input_id == "accepted"
-        assert any(
-            item.ref.endswith("#input/accepted") for item in facts.trace.timeline
-        )
+        assert any(item.ref.endswith("#input/1") for item in facts.trace.timeline)
         assert active.state is TurnState.FINISHED
         assert agent.state is AgentState.RUNNING
         llm.release.set()
@@ -1450,12 +1457,12 @@ async def test_day_bound_service_rejects_stale_write_and_restart_closes_old_serv
         assert not await current.write_target_exists("workspace:same.txt")
         await current.write_text("workspace:same.txt", "new day")
         assert (await current.read_text("workspace:same.txt")).text == "new day"
-        await home.default_background_links()
+        await home.default_background_refs()
         await agent.restart()
         with pytest.raises(AgentClosedError):
             await current.snapshot()
         with pytest.raises(AgentClosedError):
-            await home.default_background_links()
+            await home.default_background_refs()
         assert (
             await agent.services.get(WorkspaceService).read_text("workspace:same.txt")
         ).text == "new day"
@@ -1546,7 +1553,7 @@ async def test_memory_reflection_revises_daily_from_fixed_target_sources(
                         ToolCallRecord(
                             "recall_daily",
                             "memory.inspect",
-                            {"ref": str(MemoryLink.daily(target.value))},
+                            {"ref": str(MemoryRef.daily(target.value))},
                             ToolKind.ACTION,
                         ),
                         ToolCallRecord(
@@ -1605,7 +1612,7 @@ async def test_memory_reflection_revises_daily_from_fixed_target_sources(
                 archived = segments["workspace_archive"]
                 assert isinstance(archived, dict) and archived["source_day"] is None
             persisted = (
-                root / "memory" / MemoryLink.daily(target.value).relative_path
+                root / "memory" / MemoryRef.daily(target.value).relative_path
             ).read_text(encoding="utf-8")
             assert content in persisted
         records = tuple((root / "runtime" / "session").rglob("turns/*.json"))
@@ -1663,7 +1670,7 @@ async def test_question_reply_resumes_same_turn_and_keeps_new_root_queued(
         assert (
             await agent.publish(
                 EnvironmentEvent(
-                    EventKind.EVENT, {"changed": True}, "e", active.turn_id
+                    EventKind.EVENT, {"changed": True}, "e", active.request_id
                 )
             )
         ).delivered
@@ -1674,19 +1681,19 @@ async def test_question_reply_resumes_same_turn_and_keeps_new_root_queued(
         ).delivered
         with pytest.raises(InboxClosedError):
             await agent.reply(
-                active.turn_id,
+                active.request_id,
                 "old_question",
                 QuestionAnswer(AnswerKind.TEXT, text="no"),
             )
         assert len(llm.calls) == 2 and queued.state is TurnState.QUEUED
-        await agent.cancel_turn(queued.turn_id)
+        await agent.cancel_request(queued.request_id)
         receipt = await agent.reply(
-            active.turn_id,
+            active.request_id,
             question.question_id,
             QuestionAnswer(AnswerKind.CHOICE, option_id="A"),
         )
         duplicate = await agent.reply(
-            active.turn_id,
+            active.request_id,
             question.question_id,
             QuestionAnswer(AnswerKind.CHOICE, option_id="A"),
         )
@@ -1753,7 +1760,7 @@ async def test_execution_is_stopped_before_queued_next_day_work_can_archive(
                 "execution.start",
                 {
                     "interpreter": "python",
-                    "source_link": "workspace:long.py",
+                    "source_ref": "workspace:long.py",
                     "interactive": True,
                 },
                 ToolKind.ACTION,
@@ -1824,7 +1831,7 @@ async def test_execution_is_stopped_before_queued_next_day_work_can_archive(
         queued = await agent.submit_turn(UserTurnRequest("next day"))
         assert queued.state is TurnState.QUEUED
         assert (await workspace.read_text("workspace:long.py")).text
-        await agent.cancel_turn(active.turn_id)
+        await agent.cancel_request(active.request_id)
         cancelled = await asyncio.wait_for(active.wait(), 8)
         assert isinstance(cancelled.outcome, TurnOutcome)
         assert cancelled.outcome.status is TurnOutcomeStatus.CANCELLED
@@ -1880,7 +1887,7 @@ async def test_home_reflection_waits_and_retains_full_turn_without_user_session(
             runtime_root=root / "runtime" / "home",
         )
     ).build()
-    home.write_top("home:agent@preference", "Use concise explanations.")
+    home.write_top("home:top/agent/preference", "Use concise explanations.")
     await agent.start()
     try:
         handle = await agent.submit_turn(
@@ -1905,7 +1912,7 @@ async def test_home_reflection_waits_and_retains_full_turn_without_user_session(
             await agent.reload_config()
         assert busy.value.key == "config.activation_unavailable"
         await agent.reply(
-            handle.turn_id,
+            handle.request_id,
             question.question_id,
             QuestionAnswer(AnswerKind.TEXT, text="Keep it"),
         )
@@ -1968,9 +1975,9 @@ async def test_append_resumes_unified_wait_on_same_turn(
         await agent.publish(EnvironmentEvent(EventKind.EVENT, {}, "unrelated"))
         await asyncio.sleep(0)
         assert len(llm.calls) == 2 and queued.state is TurnState.QUEUED
-        await agent.cancel_turn(queued.turn_id)
+        await agent.cancel_request(queued.request_id)
         receipt = await agent.append_input(
-            handle.turn_id, "Change direction", input_id="new"
+            handle.request_id, "Change direction", input_id="new"
         )
         result = await asyncio.wait_for(handle.wait(), 5)
         assert isinstance(result.outcome, TurnOutcome) and result.outcome.answered
@@ -1981,7 +1988,7 @@ async def test_append_resumes_unified_wait_on_same_turn(
         if question is not None:
             with pytest.raises(AgentClosedError):
                 await agent.reply(
-                    handle.turn_id,
+                    handle.request_id,
                     question.question_id,
                     QuestionAnswer(AnswerKind.TEXT, text="late"),
                 )
@@ -2015,7 +2022,7 @@ async def test_sdk_finalizing_rejects_late_cancel_and_preserves_session_result(
         handle = await agent.submit_turn(UserTurnRequest("answer"))
         await asyncio.wait_for(entered.wait(), 4)
         assert handle.state is TurnState.FINALIZING
-        assert not await agent.cancel_turn(handle.turn_id)
+        assert not await agent.cancel_request(handle.request_id)
         stopping = asyncio.create_task(agent.shutdown())
         await asyncio.sleep(0)
         assert not stopping.done()
@@ -2033,4 +2040,47 @@ async def test_sdk_finalizing_rejects_late_cancel_and_preserves_session_result(
         )
     finally:
         release.set()
+        await agent.shutdown()
+
+
+async def test_request_identity_and_daily_turn_sequence_survive_restart(
+    tmp_path: Path,
+) -> None:
+    llm, clock = _LLM(), _Clock()
+    agent = await _create(tmp_path, llm, clock=clock)
+    await agent.start()
+    try:
+        first = await agent.submit_turn(
+            UserTurnRequest("first", request_id="request-first")
+        )
+        await asyncio.wait_for(llm.started.wait(), 5)
+        assert first.request_id == "request-first" and first.turn_id == "2026-09-15/1"
+        queued = await agent.submit_turn(
+            UserTurnRequest("queued", request_id="request-queued")
+        )
+        assert queued.turn_id is None
+        await agent.cancel_request(queued.request_id)
+        assert (await queued.wait()).turn_id is None
+        llm.release.set()
+        assert (await first.wait()).status is TurnOutcomeStatus.ANSWERED
+        await agent.restart()
+        llm.results.extend(_LLM().results)
+        second = await agent.submit_turn(UserTurnRequest("second"))
+        assert (await second.wait()).turn_id == "2026-09-15/2"
+        reflection = await agent.submit_turn(
+            ReflectionRequest(
+                scope=ReflectionScope.HOME, trigger=ReflectionTrigger.MANUAL
+            )
+        )
+        assert (await reflection.wait()).turn_id == "2026-09-15/3"
+        assert sorted(
+            path.name
+            for path in (tmp_path / "project/runtime/session/turns").glob("*.json")
+        ) == ["1.json", "2.json"]
+        clock.value = datetime(2026, 9, 16, 12, tzinfo=ZoneInfo("Asia/Shanghai"))
+        llm.results.extend(_LLM().results)
+        new_day = await agent.submit_turn(UserTurnRequest("new day"))
+        assert (await new_day.wait()).turn_id == "2026-09-16/1"
+    finally:
+        llm.release.set()
         await agent.shutdown()

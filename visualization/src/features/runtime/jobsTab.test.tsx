@@ -32,7 +32,7 @@ function jobSummary(state: string): JobDetail {
     summary: "run the suite",
     reason: "",
     pending_inputs: [],
-    result_links: ["workspace:jobs/job_1"],
+    result_refs: ["workspace:jobs/job_1"],
   };
 }
 
@@ -100,14 +100,14 @@ function buttonByText(text: string): HTMLButtonElement {
 
 describe("JobsTab", () => {
   it("lists the bound turn's jobs and reads detail/output only for the selected one", async () => {
-    endpoint.get(`/v2/turns/${TURN}/jobs`, () =>
-      jsonResponse({ turn_id: TURN, jobs: [jobSummary("running")] } satisfies JobList),
+    endpoint.get(`/v2/requests/${TURN}/jobs`, () =>
+      jsonResponse({ request_id: TURN, jobs: [jobSummary("running")] } satisfies JobList),
     );
-    endpoint.get(`/v2/turns/${TURN}/jobs/${JOB}`, () =>
+    endpoint.get(`/v2/requests/${TURN}/jobs/${JOB}`, () =>
       jsonResponse(jobSummary("running")),
     );
     let outputCalls = 0;
-    endpoint.get(`/v2/turns/${TURN}/jobs/${JOB}/output`, (request) => {
+    endpoint.get(`/v2/requests/${TURN}/jobs/${JOB}/output`, (request) => {
       outputCalls += 1;
       const url = new URL(request.url);
       const continuation = url.searchParams.get("continuation");
@@ -120,7 +120,7 @@ describe("JobsTab", () => {
     await wait();
 
     // Nothing job-specific is read before a selection.
-    expect(endpoint.calls(`/v2/turns/${TURN}/jobs/${JOB}`)).toHaveLength(0);
+    expect(endpoint.calls(`/v2/requests/${TURN}/jobs/${JOB}`)).toHaveLength(0);
     expect(container.textContent).toContain("execution.process");
 
     await act(async () => jobRow().click());
@@ -134,18 +134,18 @@ describe("JobsTab", () => {
 
   it("stops a job on the formal snapshot and drains remaining output", async () => {
     let state = "running";
-    endpoint.get(`/v2/turns/${TURN}/jobs`, () =>
-      jsonResponse({ turn_id: TURN, jobs: [jobSummary(state)] } satisfies JobList),
+    endpoint.get(`/v2/requests/${TURN}/jobs`, () =>
+      jsonResponse({ request_id: TURN, jobs: [jobSummary(state)] } satisfies JobList),
     );
-    endpoint.get(`/v2/turns/${TURN}/jobs/${JOB}`, () =>
+    endpoint.get(`/v2/requests/${TURN}/jobs/${JOB}`, () =>
       jsonResponse(jobSummary(state)),
     );
-    endpoint.post(`/v2/turns/${TURN}/jobs/${JOB}/stop`, () => {
+    endpoint.post(`/v2/requests/${TURN}/jobs/${JOB}/stop`, () => {
       state = "stopped";
       return jsonResponse(jobSummary("stopped"));
     });
     let outputCalls = 0;
-    endpoint.get(`/v2/turns/${TURN}/jobs/${JOB}/output`, (request) => {
+    endpoint.get(`/v2/requests/${TURN}/jobs/${JOB}/output`, (request) => {
       outputCalls += 1;
       const continuation = new URL(request.url).searchParams.get("continuation");
       return continuation === null
@@ -161,7 +161,7 @@ describe("JobsTab", () => {
     await act(async () => buttonByText("Stop job").click());
     await wait();
 
-    expect(endpoint.calls(`/v2/turns/${TURN}/jobs/${JOB}/stop`, "POST")).toHaveLength(1);
+    expect(endpoint.calls(`/v2/requests/${TURN}/jobs/${JOB}/stop`, "POST")).toHaveLength(1);
     expect(container.textContent).toContain("stopped");
     // Terminal + drained ⇒ exhausted: the output polling stops.
     await wait();
@@ -172,17 +172,17 @@ describe("JobsTab", () => {
 
   it("freezes the last read when the turn is reclaimed, keeping artifact links", async () => {
     let reclaimed = false;
-    endpoint.get(`/v2/turns/${TURN}/jobs`, () =>
+    endpoint.get(`/v2/requests/${TURN}/jobs`, () =>
       jsonResponse(
         reclaimed
-          ? { turn_id: TURN, jobs: [] }
-          : { turn_id: TURN, jobs: [jobSummary("running")] },
+          ? { request_id: TURN, jobs: [] }
+          : { request_id: TURN, jobs: [jobSummary("running")] },
       ),
     );
-    endpoint.get(`/v2/turns/${TURN}/jobs/${JOB}`, () =>
+    endpoint.get(`/v2/requests/${TURN}/jobs/${JOB}`, () =>
       jsonResponse(jobSummary("running")),
     );
-    endpoint.get(`/v2/turns/${TURN}/jobs/${JOB}/output`, () =>
+    endpoint.get(`/v2/requests/${TURN}/jobs/${JOB}/output`, () =>
       jsonResponse(outputPage([], "c2")),
     );
 
@@ -199,8 +199,8 @@ describe("JobsTab", () => {
     expect(container.textContent).toContain("Turn process");
     // The frozen view keeps the last read but offers no job actions.
     expect(container.textContent).not.toContain("Stop job");
-    const readsBefore = endpoint.calls(`/v2/turns/${TURN}/jobs/${JOB}`).length;
+    const readsBefore = endpoint.calls(`/v2/requests/${TURN}/jobs/${JOB}`).length;
     await wait(60);
-    expect(endpoint.calls(`/v2/turns/${TURN}/jobs/${JOB}`).length).toBe(readsBefore);
+    expect(endpoint.calls(`/v2/requests/${TURN}/jobs/${JOB}`).length).toBe(readsBefore);
   });
 });

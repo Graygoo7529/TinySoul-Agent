@@ -170,7 +170,7 @@ function hostOf(url: string | null): string | null {
 }
 
 function firstRef(payload: JsonObject): string | null {
-  for (const key of ["link", "ref", "source_link", "markdown_link"]) {
+  for (const key of ["link", "ref", "source_ref", "markdown_ref"]) {
     const value = asString(payload[key]);
     if (value !== null) return value;
   }

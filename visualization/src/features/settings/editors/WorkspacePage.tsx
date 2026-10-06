@@ -53,14 +53,14 @@ export function WorkspacePage() {
         description={settingsText("Bounds of the workspace analyze action.")}
         paths={[
           "workspace.analysis.max_intent_chars",
-          "workspace.analysis.max_reference_links",
+          "workspace.analysis.max_reference_refs",
           "workspace.analysis.max_source_chars",
           "workspace.analysis.max_chars_per_reference",
           "workspace.analysis.max_answer_chars",
         ]}
         overrides={{
           "workspace.analysis.max_intent_chars": { min: 1 },
-          "workspace.analysis.max_reference_links": { min: 1 },
+          "workspace.analysis.max_reference_refs": { min: 1 },
           "workspace.analysis.max_source_chars": { min: 1 },
           "workspace.analysis.max_chars_per_reference": { min: 1 },
           "workspace.analysis.max_answer_chars": { min: 1 },

@@ -57,7 +57,7 @@ class WorkspaceMutations:
         self,
         writes: Sequence[WorkspaceBundleWrite],
         *,
-        delete_links: Sequence[str] = (),
+        delete_refs: Sequence[str] = (),
     ) -> WorkspaceBundleResult:
         items = tuple(writes)
         if not items or any(
@@ -65,9 +65,9 @@ class WorkspaceMutations:
         ):
             raise WorkspaceContractError("Workspace bundle requires typed writes")
         with self._lock:
-            deletes = tuple(delete_links)
-            paths = tuple(self._discovery.path_for(item.link) for item in items)
-            delete_paths = tuple(self._discovery.path_for(link) for link in deletes)
+            deletes = tuple(delete_refs)
+            paths = tuple(self._discovery.path_for(item.ref) for item in items)
+            delete_paths = tuple(self._discovery.path_for(ref) for ref in deletes)
             targets = (*paths, *delete_paths)
             if len(set(targets)) != len(targets):
                 raise WorkspaceContractError(
@@ -102,50 +102,52 @@ class WorkspaceMutations:
             try:
                 for item, path in zip(items, paths, strict=True):
                     atomic_write_bytes(path, item.data)
-                    committed.append(item.link)
-                for link in deletes:
-                    self.trash_resource(link)
-                    committed.append(link)
+                    committed.append(item.ref)
+                for ref in deletes:
+                    self.trash_resource(ref)
+                    committed.append(ref)
             except OSError as exc:
                 raise WorkspaceIOError(
                     "Workspace bundle could not finish writing",
-                    committed_links=tuple(committed),
+                    committed_refs=tuple(committed),
                 ) from exc
             except WorkspaceError as exc:
-                nested = exc.committed_links if isinstance(exc, WorkspaceIOError) else ()
+                nested = exc.committed_refs if isinstance(exc, WorkspaceIOError) else ()
                 raise WorkspaceIOError(
                     "Workspace bundle could not finish its changes",
-                    committed_links=tuple(dict.fromkeys((*committed, *nested))),
+                    committed_refs=tuple(dict.fromkeys((*committed, *nested))),
                 ) from exc
             manifest = self._index_after(tuple(committed))
             by_path = {
                 self._settings.root.resolve() / record.relative_path: record
                 for record in manifest.resources
             }
-            return WorkspaceBundleResult(manifest, tuple(by_path[path] for path in paths))
+            return WorkspaceBundleResult(
+                manifest, tuple(by_path[path] for path in paths)
+            )
 
     def write_text(
-        self, link: str, text: str, *, overwrite: bool = False
+        self, ref: str, text: str, *, overwrite: bool = False
     ) -> WorkspaceResourceRecord:
         self._validate_text(text)
         return self.write_bundle(
-            (WorkspaceBundleWrite(link, text.encode("utf-8"), overwrite),)
+            (WorkspaceBundleWrite(ref, text.encode("utf-8"), overwrite),)
         ).records[0]
 
-    def append_text(self, link: str, text: str) -> WorkspaceResourceRecord:
+    def append_text(self, ref: str, text: str) -> WorkspaceResourceRecord:
         self._validate_text(text)
         with self._lock:
-            original = self._editable_text(link)
-            return self.write_text(link, original + text, overwrite=True)
+            original = self._editable_text(ref)
+            return self.write_text(ref, original + text, overwrite=True)
 
     def edit_text(
-        self, link: str, edits: Sequence[WorkspaceTextEdit]
+        self, ref: str, edits: Sequence[WorkspaceTextEdit]
     ) -> WorkspaceResourceRecord:
         items = tuple(edits)
         if not items or any(not isinstance(item, WorkspaceTextEdit) for item in items):
             raise WorkspaceContractError("Workspace edit requires typed replacements")
         with self._lock:
-            updated = self._editable_text(link)
+            updated = self._editable_text(ref)
             # Every replacement is validated before the single file commit.
             for item in items:
                 first = updated.find(item.old_text)
@@ -154,11 +156,11 @@ class WorkspaceMutations:
                         "Workspace edit old_text must match exactly once"
                     )
                 updated = updated.replace(item.old_text, item.new_text, 1)
-            return self.write_text(link, updated, overwrite=True)
+            return self.write_text(ref, updated, overwrite=True)
 
-    def mkdir(self, link: str) -> WorkspaceResourceRecord:
+    def mkdir(self, ref: str) -> WorkspaceResourceRecord:
         with self._lock:
-            path = self._discovery.path_for(link)
+            path = self._discovery.path_for(ref)
             if path.exists():
                 raise WorkspaceContractError(
                     "Workspace directory target already exists"
@@ -167,13 +169,14 @@ class WorkspaceMutations:
                 path.mkdir(parents=True)
             except OSError as exc:
                 raise WorkspaceIOError("Workspace directory cannot be created") from exc
-            manifest = self._index_after((link,))
-            return next(record for record in manifest.resources if record.link == link)
+            manifest = self._index_after((ref,))
+            return next(record for record in manifest.resources if record.ref == ref)
 
-    def move(self, link: str, target_link: str) -> WorkspaceResourceRecord:
+    def move(self, ref: str, target_ref: str) -> WorkspaceResourceRecord:
         with self._lock:
-            source, target = self._discovery.path_for(link), self._discovery.path_for(
-                target_link
+            source, target = (
+                self._discovery.path_for(ref),
+                self._discovery.path_for(target_ref),
             )
             if (
                 not source.exists()
@@ -188,48 +191,48 @@ class WorkspaceMutations:
             root = self._settings.root.resolve()
             source_relative = source.relative_to(root).as_posix()
             target_relative = target.relative_to(root).as_posix()
-            link = "workspace:" + source_relative
-            target_link = "workspace:" + target_relative
+            ref = "workspace:" + source_relative
+            target_ref = "workspace:" + target_relative
             changed_metadata = tuple(
                 replace(
                     record,
-                    link=target_link + record.link[len(link) :],
+                    ref=target_ref + record.ref[len(ref) :],
                     relative_path=target_relative
                     + record.relative_path[len(source_relative) :],
                 )
                 for record in current.resources
-                if record.link == link or record.link.startswith(link + "/")
+                if record.ref == ref or record.ref.startswith(ref + "/")
             )
             manifest = self._relocate(
-                source, target, current, changed_metadata, (link, target_link)
+                source, target, current, changed_metadata, (ref, target_ref)
             )
             return next(
-                record for record in manifest.resources if record.link == target_link
+                record for record in manifest.resources if record.ref == target_ref
             )
 
-    def tag(self, link: str, tags: tuple[WorkspaceTag, ...]) -> WorkspaceResourceRecord:
-        return self._metadata(link, tags=tags)
+    def tag(self, ref: str, tags: tuple[WorkspaceTag, ...]) -> WorkspaceResourceRecord:
+        return self._metadata(ref, tags=tags)
 
-    def set_description(self, link: str, description: str) -> WorkspaceResourceRecord:
+    def set_description(self, ref: str, description: str) -> WorkspaceResourceRecord:
         if not isinstance(description, str) or len(description) > 2000:
             raise WorkspaceContractError("Workspace description exceeds its bound")
-        return self._metadata(link, description=description.strip())
+        return self._metadata(ref, description=description.strip())
 
-    def trash_resource(self, link: str) -> WorkspaceTrashItem:
+    def trash_resource(self, ref: str) -> WorkspaceTrashItem:
         with self._lock:
             current = self._store.load()
             previous = next(
-                (record for record in current.resources if record.link == link), None
+                (record for record in current.resources if record.ref == ref), None
             )
-            path = self._discovery.path_for(link)
+            path = self._discovery.path_for(ref)
             original = self._discovery.inspect_record(path, previous)
             children = tuple(
                 record
                 for record in current.resources
-                if record.link.startswith(link + "/")
+                if record.ref.startswith(ref + "/")
             )
             item = self._trash.move_in(path, original, children, day=current.day)
-            self._index_after((link,))
+            self._index_after((ref,))
             return item
 
     def restore_resource(self, ref: str) -> WorkspaceResourceRecord:
@@ -238,7 +241,7 @@ class WorkspaceMutations:
             current = self._store.load()
             if item.day != current.day:
                 raise WorkspaceContractError("Workspace Trash belongs to another day")
-            target = self._discovery.path_for(item.original.link)
+            target = self._discovery.path_for(item.original.ref)
             if target.exists():
                 raise WorkspaceContractError("Workspace restore target already exists")
             manifest = self._relocate(
@@ -246,12 +249,12 @@ class WorkspaceMutations:
                 target,
                 current,
                 (item.original, *item.descendants),
-                (item.original.link,),
+                (item.original.ref,),
             )
             return next(
                 record
                 for record in manifest.resources
-                if record.link == item.original.link
+                if record.ref == item.original.ref
             )
 
     def _relocate(
@@ -264,12 +267,12 @@ class WorkspaceMutations:
     ) -> WorkspaceManifest:
         # Persist destination metadata before moving content. The ordinary disk
         # scan then retains whichever location exists, even after a fresh open.
-        records = {record.link: record for record in current.resources}
-        records.update((record.link, record) for record in metadata)
+        records = {record.ref: record for record in current.resources}
+        records.update((record.ref, record) for record in metadata)
         self._store.save(
             replace(
                 current,
-                resources=tuple(sorted(records.values(), key=lambda item: item.link)),
+                resources=tuple(sorted(records.values(), key=lambda item: item.ref)),
             )
         )
         try:
@@ -281,7 +284,7 @@ class WorkspaceMutations:
 
     def _metadata(
         self,
-        link: str,
+        ref: str,
         *,
         description: str | None = None,
         tags: tuple[WorkspaceTag, ...] | None = None,
@@ -289,10 +292,10 @@ class WorkspaceMutations:
         with self._lock:
             current = self._store.load()
             previous = next(
-                (record for record in current.resources if record.link == link), None
+                (record for record in current.resources if record.ref == ref), None
             )
             record = self._discovery.inspect_record(
-                self._discovery.path_for(link), previous
+                self._discovery.path_for(ref), previous
             )
             record = replace(
                 record,
@@ -302,17 +305,17 @@ class WorkspaceMutations:
             resources = tuple(
                 sorted(
                     (
-                        *[item for item in current.resources if item.link != link],
+                        *[item for item in current.resources if item.ref != ref],
                         record,
                     ),
-                    key=lambda item: item.link,
+                    key=lambda item: item.ref,
                 )
             )
             self._store.save(replace(current, resources=resources))
             return record
 
-    def _editable_text(self, link: str) -> str:
-        path = self._discovery.path_for(link)
+    def _editable_text(self, ref: str) -> str:
+        path = self._discovery.path_for(ref)
         record = self._discovery.inspect_record(path)
         if record.kind is not WorkspaceResourceKind.TEXT:
             raise WorkspaceContractError("Workspace edit target must be text")
@@ -346,5 +349,5 @@ class WorkspaceMutations:
         except WorkspaceError as exc:
             raise WorkspaceIOError(
                 "Workspace files changed but index update failed",
-                committed_links=committed,
+                committed_refs=committed,
             ) from exc

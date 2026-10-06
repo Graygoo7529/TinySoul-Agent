@@ -75,6 +75,40 @@ def inspect_document(
     )
 
 
+def inspect_recollection(page: JsonObject, *, query: str | None = None) -> JsonObject:
+    """Keep target explanation and actual page coverage without retaining its body."""
+    metadata = page.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    title = (
+        metadata.get("title")
+        or metadata.get("display")
+        or page.get("title")
+        or page.get("ref")
+    )
+    items = page.get("items")
+    covered = (
+        [
+            item["ref"]
+            for item in items
+            if isinstance(item, dict) and isinstance(item.get("ref"), str)
+        ]
+        if isinstance(items, list)
+        else []
+    )
+    result: JsonObject = {
+        "ref": page.get("ref"),
+        "title": title,
+        "view": page.get("view", "content"),
+        "returned_refs": covered,
+        "has_more": bool(page.get("next_continuation")),
+        "partial_item": isinstance(page.get("content_fragment"), dict),
+        "inspected": True,
+    }
+    if query is not None:
+        result["query"] = query
+    return result
+
+
 def content_units(
     ref: str, text: str, *, max_chars: int = 2_000, first_line: int = 1
 ) -> tuple[ContentUnit, ...]:

@@ -68,7 +68,7 @@ export function formalItemForEcho(
       case "new-turn":
         if (
           item.role === "user.input" &&
-          echo.turnId !== null
+          echo.requestId !== null
         ) {
           return item;
         }
@@ -120,8 +120,8 @@ export function convergeEchoes(
     }
     // Echoes of another (e.g. still queued) turn wait for their turn.
     if (
-      echo.turnId !== null &&
-      echo.turnId !== displayedTurnId
+      echo.requestId !== null &&
+      echo.requestId !== displayedTurnId
     ) {
       waiting.push(echo);
       continue;
@@ -140,7 +140,7 @@ export function convergeEchoes(
 
 /** What the composer will do with the current text (plan §5.1 state table). */
 export type ComposerIntent =
-  | { kind: "append"; turnId: string }
+  | { kind: "append"; requestId: string }
   | { kind: "new-turn" }
   | { kind: "unavailable"; reason: "offline" | "not-ready" | "syncing" | "finishing" };
 
@@ -157,21 +157,21 @@ export function resolveComposerIntent(
 ): ComposerIntent {
   if (!connected || status === null) return { kind: "unavailable", reason: "offline" };
   if (!status.ready) return { kind: "unavailable", reason: "not-ready" };
-  const activeTurnId = status.runtime.active_turn_id;
+  const activeTurnId = status.runtime.active_request_id;
   const activeUser = activeTurnId !== null &&
     (status.runtime.activity === "user_turn" ||
-      (activeSnapshot?.turn_id === activeTurnId && activeSnapshot.kind === "user"));
-  const pendingId = activeSnapshot?.turn_id === submittedTurnId && activeSnapshot.state === "finished" ? null : submittedTurnId;
+      (activeSnapshot?.request_id === activeTurnId && activeSnapshot.kind === "user"));
+  const pendingId = activeSnapshot?.request_id === submittedTurnId && activeSnapshot.state === "finished" ? null : submittedTurnId;
   const target = activeUser ? activeTurnId : pendingId ??
-    (activeSnapshot?.kind === "user" && activeSnapshot.state !== "finished" ? activeSnapshot.turn_id : null);
+    (activeSnapshot?.kind === "user" && activeSnapshot.state !== "finished" ? activeSnapshot.request_id : null);
   if (target !== null) {
-    if (activeSnapshot?.turn_id !== target || activeSnapshot.kind !== "user") {
+    if (activeSnapshot?.request_id !== target || activeSnapshot.kind !== "user") {
       return { kind: "unavailable", reason: "syncing" };
     }
     if (activeSnapshot.cancel_requested || activeSnapshot.state === "finalizing" || activeSnapshot.state === "finished") {
       return { kind: "unavailable", reason: "finishing" };
     }
-    return { kind: "append", turnId: target };
+    return { kind: "append", requestId: target };
   }
   if (status.runtime.activity === "daily_transition" || status.runtime.activity === "config_activation") {
     return { kind: "unavailable", reason: "not-ready" };

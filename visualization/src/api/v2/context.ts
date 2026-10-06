@@ -43,7 +43,7 @@ export interface SegmentView {
   [key: string]: unknown;
 }
 
-/** Schema: context-overview.json (GET /v2/turns/{id}/context). */
+/** Schema: context-overview.json (GET /v2/requests/{request_id}/context). */
 export interface ContextOverview {
   generation_id: string;
   captured_at: string;
@@ -63,7 +63,7 @@ export interface ContextMessage {
 }
 
 /**
- * Schema: context-messages.json (GET /v2/turns/{id}/context/segments/{id}).
+ * Schema: context-messages.json (GET /v2/requests/{request_id}/context/segments/{id}).
  * The collection field is `messages`, not the resource-page `items`; the
  * continuation and content_fragment protocol is the same as page.json.
  */

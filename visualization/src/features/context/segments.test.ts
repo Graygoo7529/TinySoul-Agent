@@ -71,9 +71,9 @@ describe("partitionHeapRefs", () => {
     const partition = partitionHeapRefs(segment("home"));
     expect(partition.installed).toHaveLength(7);
     expect(partition.available).toEqual([
-      "home:agent@contract",
-      "home:agent@long-contract",
-      "home:skills@tinysoul-docs",
+      "home:top/agent/contract",
+      "home:top/agent/long-contract",
+      "home:top/skills/tinysoul-docs",
     ]);
     expect(partition.protectedRefs).toHaveLength(7);
   });
@@ -81,7 +81,7 @@ describe("partitionHeapRefs", () => {
 
 describe("classifyRef", () => {
   it("routes by owner prefix", () => {
-    expect(classifyRef("home:agent@AGENT")).toBe("home");
+    expect(classifyRef("home:top/agent/AGENT")).toBe("home");
     expect(classifyRef("memory:current")).toBe("memory");
     expect(classifyRef("session:map")).toBe("session");
     expect(classifyRef("turn:trace@contract-turn")).toBe("trace");

@@ -42,12 +42,12 @@ def test_background_is_clean_and_inspect_expands_turn_actions(tmp_path: Path) ->
     session = _session(tmp_path)
     session.record_turn(
         completion(
-            "turn_actions",
+            "2026-07-25/1009",
             ask="create a report",
             actions=(
                 SyntheticAction(
                     "workspace.compose",
-                    request={"link": "workspace:report.md"},
+                    request={"ref": "workspace:report.md"},
                     result={"written": True},
                     references=("workspace:report.md",),
                 ),
@@ -71,7 +71,7 @@ def test_background_is_clean_and_inspect_expands_turn_actions(tmp_path: Path) ->
     background = session.background_snapshot(DAY)
     assert background.items[0].content["total_turns"] == 1
     item = background.items[1].content
-    assert item["ref"] == "session:turn/turn_actions"
+    assert item["ref"] == "session:turn/2026-07-25/1009"
     assert item["status"] == "answered"
     interactions = _json_object_list(item["interactions"])
     assert interactions[0]["role"] == "user.input"
@@ -79,24 +79,27 @@ def test_background_is_clean_and_inspect_expands_turn_actions(tmp_path: Path) ->
     assert interactions[-1]["role"] == "agent.output"
     assert interactions[-1]["text"] == "report created"
     locator = _json_object_list(interactions[-1]["references"])[0]
-    assert locator["link"] == "workspace:report.md" and locator["source_day"] == str(
-        DAY
-    )
+    assert locator["target_ref"] == "workspace:report.md" and locator[
+        "source_day"
+    ] == str(DAY)
     assert [
         value["outcome"] for value in interactions if value["role"] == "agent.action"
     ] == ["success", "failed"]
-    assert all("result" not in value for value in interactions)
+    action_results = [
+        value["result"] for value in interactions if value["role"] == "agent.action"
+    ]
+    assert action_results == [{"written": True}, {"attempted": True}]
     assert "trace" not in item
     assert "revision" not in item
 
-    turn = session.inspect("session:turn/turn_actions")
+    turn = session.inspect("session:turn/2026-07-25/1009")
     content = _json_object_list(turn["items"])
     turn_actions = next(item for item in content if item.get("title") == "Actions")
     turn_action_ref = turn_actions["ref"]
     assert isinstance(turn_action_ref, str)
     assert turn_action_ref.endswith("#actions")
 
-    actions = session.inspect("session:turn/turn_actions#actions")
+    actions = session.inspect("session:turn/2026-07-25/1009#actions")
     headers = _json_object_list(actions["items"])
     assert [header["clue"] for header in headers] == ["success", "failed"]
     failed = _json_object_list(session.inspect(str(headers[1]["ref"]))["items"])[0]
@@ -108,7 +111,7 @@ def test_background_is_clean_and_inspect_expands_turn_actions(tmp_path: Path) ->
     assert isinstance(leaf_ref, str)
     leaf = session.inspect(leaf_ref)
     detail = _json_object_list(leaf["items"])
-    assert detail[0]["request"] == {"link": "workspace:report.md"}
+    assert detail[0]["request"] == {"ref": "workspace:report.md"}
     assert detail[0]["result"] == {"written": True}
 
 
@@ -117,20 +120,20 @@ def test_inspect_uses_opaque_continuation_for_oversized_content(
 ) -> None:
     session = _session(tmp_path, inspect_max_chars=1024)
     session.record_turn(
-        completion("turn_large", ask="q" * 3000),
+        completion("2026-07-25/1012", ask="q" * 3000),
         day=DAY,
         output=SessionOutputRecord(text="a" * 3000),
         status=TurnOutcomeStatus.ANSWERED,
         exhausted=False,
     )
 
-    first = session.inspect("session:turn/turn_large#input/0")
+    first = session.inspect("session:turn/2026-07-25/1012#input/0")
     token = first["next_continuation"]
     assert isinstance(token, str) and token.startswith("v1.")
     assert "content_fragment" in first
     assert "cursor" not in first
     second = session.inspect(
-        "session:turn/turn_large#input/0",
+        "session:turn/2026-07-25/1012#input/0",
         continuation=token,
     )
     fragment = _json_object(second["content_fragment"])
@@ -147,11 +150,9 @@ def test_paginated_turn_retains_readable_children_and_action_leaves(
     session = _session(tmp_path, inspect_max_chars=1024)
     session.record_turn(
         completion(
-            "paged",
+            "2026-07-25/1005",
             ask="long input " * 300,
-            working={
-                "milestones": [{"state": "done", "text": "report created"}]
-            },
+            working={"milestones": [{"state": "done", "text": "report created"}]},
             actions=tuple(
                 SyntheticAction(
                     "workspace.read",
@@ -184,9 +185,13 @@ def test_paginated_turn_retains_readable_children_and_action_leaves(
             assert isinstance(token, str)
             page = session.inspect(ref, continuation=token)
 
-    turn_children = children("session:turn/paged")
+    turn_children = children("session:turn/2026-07-25/1005")
     assert {ref.partition("#")[2] for ref in turn_children} == {
-        "input/0", "actions", "output", "working", "resource/0"
+        "input/0",
+        "actions",
+        "output",
+        "working",
+        "resource/0",
     }
     action_collection = next(ref for ref in turn_children if ref.endswith("#actions"))
     actions = children(action_collection)
@@ -207,7 +212,7 @@ def test_map_preserves_all_facts_when_background_is_bounded(
     session = _session(tmp_path, background_max_chars=512)
     for index in range(3):
         session.record_turn(
-            completion(f"turn_{index}", ask=f"question {index}"),
+            completion(f"2026-07-25/{index + 1}", ask=f"question {index}"),
             day=DAY,
             output=SessionOutputRecord(text="x" * 1000),
             status=TurnOutcomeStatus.ANSWERED,
@@ -218,7 +223,7 @@ def test_map_preserves_all_facts_when_background_is_bounded(
     nodes = _json_object_list(root["items"])
     turns = [node for node in nodes if node["kind"] == "child"]
     assert [node["ref"] for node in turns] == [
-        f"session:turn/turn_{index}" for index in range(3)
+        f"session:turn/2026-07-25/{index + 1}" for index in range(3)
     ]
     edges = [node for node in nodes if node["kind"] == "relation"]
     assert len([edge for edge in edges if edge["relation"] == "precedes"]) == 2
@@ -236,7 +241,7 @@ def test_map_preserves_all_facts_when_background_is_bounded(
 
 def test_reconcile_adopts_an_uncommitted_turn_record(tmp_path: Path) -> None:
     session = _session(tmp_path)
-    record = completion("turn_orphan")
+    record = completion("2026-07-25/1013")
     from tinysoul.plugins.session.completion import project_turn_record
 
     store = SessionStore(root=session.root)
@@ -251,14 +256,14 @@ def test_reconcile_adopts_an_uncommitted_turn_record(tmp_path: Path) -> None:
     )
 
     result = session.reconcile_active()
-    assert result.adopted_turn_refs == ("session:turn/turn_orphan",)
+    assert result.adopted_turn_refs == ("session:turn/2026-07-25/1013",)
     nodes = _json_object_list(session.inspect("session:history")["items"])
-    assert nodes[0]["ref"] == "session:turn/turn_orphan"
+    assert nodes[0]["ref"] == "session:turn/2026-07-25/1013"
 
 
 def test_inspect_rejects_record_outside_authoritative_graph(tmp_path: Path) -> None:
     session = _session(tmp_path)
-    for turn_id in ("turn_root_1", "turn_root_2"):
+    for turn_id in ("2026-07-25/1", "2026-07-25/2"):
         session.record_turn(
             completion(turn_id),
             day=DAY,
@@ -268,10 +273,10 @@ def test_inspect_rejects_record_outside_authoritative_graph(tmp_path: Path) -> N
         )
     from tinysoul.plugins.session.completion import project_turn_record
 
-    orphan_ref = "session:turn/not_indexed"
+    orphan_ref = "session:turn/2026-07-25/1004"
     SessionStore(root=session.root).save_record_if_absent(
         project_turn_record(
-            completion("not_indexed"),
+            completion("2026-07-25/1004"),
             day=DAY,
             output=None,
             status=TurnOutcomeStatus.STOPPED,
@@ -290,7 +295,7 @@ async def test_session_inspect_executor_returns_foldable_origin(
 ) -> None:
     session = _session(tmp_path, inspect_max_chars=1024)
     session.record_turn(
-        completion("turn_executor", ask="q" * 3000),
+        completion("2026-07-25/1011", ask="q" * 3000),
         day=DAY,
         output=None,
         status=TurnOutcomeStatus.EXHAUSTED,
@@ -303,7 +308,7 @@ async def test_session_inspect_executor_returns_foldable_origin(
         call=ActionCall(
             call_id="call_inspect",
             action_name=action.name,
-            params={"ref": "session:turn/turn_executor"},
+            params={"ref": "session:turn/2026-07-25/1011"},
             sequence=1,
         ),
         framework=ActionFramework(
@@ -315,7 +320,7 @@ async def test_session_inspect_executor_returns_foldable_origin(
     )
     context = ContextEngineBuilder(system_text="identity").build()
     context.register_segment(session_segment_registration(SessionService(session)))
-    context.begin_turn("inspect prior turn")
+    context.begin_turn("inspect prior turn", turn_id="2026-07-25/323")
     await context.open_segments(DAY.value)
     result = await ContextInspectExecutor(
         context,
@@ -324,7 +329,7 @@ async def test_session_inspect_executor_returns_foldable_origin(
     await context.close_segments()
     assert result.status is ActionResultStatus.SUCCESS
     assert result.trace_projection is not None
-    assert result.trace_projection.origin_refs == ("session:turn/turn_executor",)
+    assert result.trace_projection.origin_refs == ("session:turn/2026-07-25/1011",)
     assert "next_continuation" in result.payload
     assert "next_continuation" not in result.trace_projection.canonical_payload
 
@@ -336,7 +341,7 @@ async def test_session_segment_is_fixed_and_seals_references_not_history(
 
     session = _session(tmp_path)
     session.record_turn(
-        completion("prior", ask="private prior body"),
+        completion("2026-07-25/1006", ask="private prior body"),
         day=DAY,
         output=SessionOutputRecord(text="prior answer"),
         status=TurnOutcomeStatus.ANSWERED,
@@ -344,16 +349,16 @@ async def test_session_segment_is_fixed_and_seals_references_not_history(
     )
     context = ContextEngineBuilder(system_text="identity").build()
     context.register_segment(session_segment_registration(SessionService(session)))
-    context.begin_turn("next")
+    context.begin_turn("next", turn_id="2026-07-25/352")
     await context.open_segments(DAY.value)
     sealed = context.segment_snapshot("session")
-    assert sealed["refs"] == ["session:turn/prior"]
+    assert sealed["refs"] == ["session:turn/2026-07-25/1006"]
     assert "private prior body" not in str(sealed)
     assert (await context.inspect("session:map"))["kind"] == "session_map"
     with pytest.raises(ContextInspectRequestError):
-        await context.inspect("session:turn/not_in_view")
+        await context.inspect("session:turn/2026-07-25/1003")
     session.record_turn(
-        completion("later"),
+        completion("2026-07-25/1001"),
         day=DAY,
         output=None,
         status=TurnOutcomeStatus.STOPPED,
@@ -361,10 +366,10 @@ async def test_session_segment_is_fixed_and_seals_references_not_history(
     )
     assert context.segment_snapshot("session") == sealed
     fixed_map = await context.inspect("session:history")
-    assert "session:turn/prior" in str(fixed_map)
-    assert "session:turn/later" not in str(fixed_map)
+    assert "session:turn/2026-07-25/1006" in str(fixed_map)
+    assert "session:turn/2026-07-25/1001" not in str(fixed_map)
     with pytest.raises(ContextInspectRequestError):
-        await context.inspect("session:turn/later")
+        await context.inspect("session:turn/2026-07-25/1001")
     await context.close_segments()
 
 
@@ -372,7 +377,7 @@ def test_session_map_relates_occurrences_and_shared_resources(tmp_path: Path) ->
     session = _session(tmp_path)
     session.record_turn(
         completion(
-            "mapped",
+            "2026-07-25/1002",
             actions=(
                 SyntheticAction(
                     "workspace.read",
@@ -391,13 +396,15 @@ def test_session_map_relates_occurrences_and_shared_resources(tmp_path: Path) ->
         status=TurnOutcomeStatus.STOPPED,
         exhausted=False,
     )
-    nodes = _json_object_list(session.inspect("session:turn/mapped")["items"])
+    nodes = _json_object_list(session.inspect("session:turn/2026-07-25/1002")["items"])
     resources = [
         node
         for node in nodes
         if node["kind"] == "child" and "#resource/" in str(node["ref"])
     ]
-    actions = _json_object_list(session.inspect("session:turn/mapped#actions")["items"])
+    actions = _json_object_list(
+        session.inspect("session:turn/2026-07-25/1002#actions")["items"]
+    )
     edges = [node for node in nodes if node["kind"] == "relation"]
     assert len(resources) == 1
     assert len({action["ref"] for action in actions}) == 2
@@ -420,7 +427,7 @@ def test_map_rebuilds_replies_and_preserves_historical_resource_binding(
 
     session = _session(tmp_path)
     source = completion(
-        "dialogue",
+        "2026-07-25/1000",
         working={"milestones": [{"state": "blocked", "text": "Needs input"}]},
         actions=(
             SyntheticAction("core.ask", result={"text": "Which file?"}),
@@ -447,14 +454,14 @@ def test_map_rebuilds_replies_and_preserves_historical_resource_binding(
     )
     # No graph database is needed: a fresh owner derives the same relation.
     rebuilt = _session(tmp_path)
-    nodes = _json_object_list(rebuilt.inspect("session:turn/dialogue")["items"])
+    nodes = _json_object_list(rebuilt.inspect("session:turn/2026-07-25/1000")["items"])
     reply = next(node for node in nodes if node.get("relation") == "replies_to")
-    assert reply["source"] == "session:turn/dialogue#input/1"
-    assert reply["target"] == "session:turn/dialogue#action/0"
+    assert reply["source"] == "session:turn/2026-07-25/1000#input/1"
+    assert reply["target"] == "session:turn/2026-07-25/1000#action/0"
     detail = _json_object_list(rebuilt.inspect(str(reply["source"]))["items"])[0]
     assert detail["text"] == "Report"
     working = _json_object_list(
-        rebuilt.inspect("session:turn/dialogue#working")["items"]
+        rebuilt.inspect("session:turn/2026-07-25/1000#working")["items"]
     )[0]
     assert working["working"] == source.working
     locator = next(
@@ -480,7 +487,7 @@ def test_map_rebuilds_replies_and_preserves_historical_resource_binding(
 def test_archive_snapshot_contains_only_validated_roots(tmp_path: Path) -> None:
     session = _session(tmp_path)
     session.record_turn(
-        completion("turn_archive"),
+        completion("2026-07-25/1010"),
         day=DAY,
         output=SessionOutputRecord(text="done"),
         status=TurnOutcomeStatus.ANSWERED,
@@ -489,7 +496,7 @@ def test_archive_snapshot_contains_only_validated_roots(tmp_path: Path) -> None:
     archive = (tmp_path / "archive" / "session").resolve()
     session.archive_day(DAY, target=archive)
     snapshot = session.archive_snapshot(DAY, root=archive)
-    assert snapshot.refs == ("session:turn/turn_archive",)
+    assert snapshot.refs == ("session:turn/2026-07-25/1010",)
     assert snapshot.has_facts
 
 
@@ -499,7 +506,9 @@ def test_hierarchical_map_query_is_scoped_and_continuation_bound(
     session = _session(tmp_path, inspect_max_chars=2048)
     for index in range(35):
         session.record_turn(
-            completion(f"t_{index}", ask=f"needle {index}: " + "body " * 80),
+            completion(
+                f"2026-07-25/{index + 1}", ask=f"needle {index}: " + "body " * 80
+            ),
             day=DAY,
             output=None,
             status=TurnOutcomeStatus.STOPPED,
@@ -528,12 +537,12 @@ def test_hierarchical_map_query_is_scoped_and_continuation_bound(
             if token is None:
                 break
             assert isinstance(token, str)
-    assert refs == [f"session:turn/t_{index}" for index in range(35)]
+    assert refs == [f"session:turn/2026-07-25/{index + 1}" for index in range(35)]
     assert edges == list(zip(refs, refs[1:]))
     found = _json_object_list(
         session.inspect("session:history/16", query="needle 22:")["items"]
     )
-    assert [item["ref"] for item in found] == ["session:turn/t_22#input/0"]
+    assert [item["ref"] for item in found] == ["session:turn/2026-07-25/23#input/0"]
     assert session.inspect("session:history/0", query="needle 22:")["items"] == []
     result = session.inspect("session:map", query="needle")
     token = result["next_continuation"]
@@ -552,7 +561,7 @@ async def test_session_reclaim_is_governed_by_its_own_watermark(tmp_path: Path) 
     assert minimal.reclaim(100000).reclaimed_chars == 0
     for index in range(8):
         session.record_turn(
-            completion(f"t_{index}", ask="question " * 120),
+            completion(f"2026-07-25/{index + 1}", ask="question " * 120),
             day=DAY,
             output=None,
             status=TurnOutcomeStatus.STOPPED,
@@ -563,7 +572,7 @@ async def test_session_reclaim_is_governed_by_its_own_watermark(tmp_path: Path) 
     assert view.reclaim(100000).reclaimed_chars > 0
     assert view.reclaim(100000).reclaimed_chars == 0
     assert view.seal() == before
-    assert "question" in str(await view.inspect("session:turn/t_0#input/0"))
+    assert "question" in str(await view.inspect("session:turn/2026-07-25/1#input/0"))
 
 
 def _session(

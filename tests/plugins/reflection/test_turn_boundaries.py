@@ -60,6 +60,7 @@ async def test_outer_turn_transfer_is_unwound_without_downgrade() -> None:
     with pytest.raises(RuntimeTransferInterrupt) as captured:
         await entry.run(
             "review home",
+            turn_id=f"{DAY}/61",
             active_day=DAY,
             scope=scope,
             request_id="request",
@@ -108,6 +109,7 @@ async def test_reflection_engine_does_not_add_fake_module_frames(
             scope=ReflectionScope.HOME,
             trigger=ReflectionTrigger.MANUAL,
         ),
+        turn_id=f"{DAY}/106",
         scope=scope,
         active_day=DAY,
     )
@@ -171,7 +173,15 @@ def test_archived_memory_context_retains_source_day_independently_of_turn_day(
 
 class _UserTurn:
     async def run(
-        self, turn_input, *, active_day, scope, request_id, input_source, inbox=None
+        self,
+        turn_input,
+        *,
+        turn_id,
+        active_day,
+        scope,
+        request_id,
+        input_source,
+        inbox=None,
     ):
         del turn_input, scope, request_id, input_source
         return TurnOutcome(
@@ -186,7 +196,15 @@ class _TurnRunner:
         self._outcome = outcome
 
     async def run(
-        self, turn_input, *, active_day, scope, request_id, input_source, inbox=None
+        self,
+        turn_input,
+        *,
+        turn_id,
+        active_day,
+        scope,
+        request_id,
+        input_source,
+        inbox=None,
     ):
         del turn_input, active_day, scope, request_id, input_source
         return self._outcome
@@ -214,9 +232,13 @@ class _FailingReflection:
     def refresh_availability(self, transition, *, scope):
         return self.availability()
 
-    async def run(self, request, *, active_day, scope=None, inbox=None):
+    async def run(self, request, *, turn_id, active_day, scope=None, inbox=None):
         del request, scope
         raise ReflectionInvariantError("reflection invariant")
+
+    def allocate_turn(self, day):
+        self._turn_sequence = getattr(self, "_turn_sequence", 0) + 1
+        return f"{day}/{self._turn_sequence}"
 
 
 class _Clock:
@@ -250,6 +272,10 @@ class _ScopeArchive:
         del day
         return None
 
+    def allocate_turn(self, day):
+        self._turn_sequence = getattr(self, "_turn_sequence", 0) + 1
+        return f"{day}/{self._turn_sequence}"
+
 
 class _ScopeHome:
     def __init__(self):
@@ -259,7 +285,7 @@ class _ScopeHome:
         return (0, 0)
 
     async def run(
-        self, *, active_day, scope, request_id, inbox=None, instructions=""
+        self, *, turn_id, active_day, scope, request_id, inbox=None, instructions=""
     ):
         del active_day, request_id
         self.scopes.append(scope)

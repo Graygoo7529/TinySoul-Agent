@@ -1,3 +1,4 @@
+import { requestIdForTurn } from "../../store/turnStore";
 /**
  * Turn-owned Job detail (plan §9.1 job-control family).
  *
@@ -63,8 +64,8 @@ export function JobPanel({
     async (signal) => {
       const clients = traceClients(epoch);
       const [detail, output] = await Promise.all([
-        clients.jobs.get(turnId, jobId, { signal }),
-        clients.jobs.output(turnId, jobId, {}, { signal }),
+        clients.jobs.get(requestIdForTurn(turnId), jobId, { signal }),
+        clients.jobs.output(requestIdForTurn(turnId), jobId, {}, { signal }),
       ]);
       return {
         detail,
@@ -89,7 +90,7 @@ export function JobPanel({
     setLoadingMore(true);
     setMoreError(null);
     try {
-      const page = await traceClients(epoch).jobs.output(turnId, jobId, {
+      const page = await traceClients(epoch).jobs.output(requestIdForTurn(turnId), jobId, {
         continuation: effectiveContinuation,
       });
       setExtra((current) => [...current, ...page.items]);
@@ -143,12 +144,12 @@ export function JobPanel({
 
       <JobDetails details={detail.details ?? null} />
 
-      {detail.result_links.length > 0 && (
+      {detail.result_refs.length > 0 && (
         <div className="space-y-1">
           <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
             Result resources
           </div>
-          {detail.result_links.map((link) => (
+          {detail.result_refs.map((link) => (
             <ReferenceButton
               key={link}
               reference={link}
@@ -185,7 +186,7 @@ function JobDetails({ details }: { details: Record<string, unknown> | null }) {
   const exitCode = asNumber(details.exit_code);
   const stdoutBytes = asNumber(details.stdout_bytes);
   const stderrBytes = asNumber(details.stderr_bytes);
-  const workspaceLinks = asStringArray(details.workspace_links);
+  const workspaceLinks = asStringArray(details.workspace_refs);
   return (
     <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
       {exitCode !== null && (

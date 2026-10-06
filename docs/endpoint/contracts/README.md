@@ -7,7 +7,10 @@ fields through `additionalProperties`.
 
 The current protocol is v2. A response is scoped to the generation and, when a
 day or Turn is present, to that lease. The frontend must keep the returned
-`generation_id`, `day`, `turn_id`, `ref`, and continuation together. It should
+`generation_id`, `day`, `turn_id`, `ref`, and continuation together. Live control
+uses the separate `request_id` through `/v2/requests`; a queued request may
+have no allocated Turn yet. Session history uses the formal date/sequence
+identity through `/v2/session/turns/{day}/{sequence}`. The frontend should
 discard a continuation after a generation/day change or when the server
 returns an invalid-continuation error.
 

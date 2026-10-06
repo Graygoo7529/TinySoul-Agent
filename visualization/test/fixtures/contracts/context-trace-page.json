@@ -12,7 +12,7 @@
       "kind": "child",
       "ref": "turn:trace@contract-turn#entry/trace_2",
       "title": "action_result",
-      "clue": "{\"action\":\"execution.start\",\"kind\":\"action_result\",\"outcome\":\"success\",\"result\":{\"exit_code\":null,\"job_id\":\"job_1\",\"kind\":\"execution.process\",\"pending_inputs\":[],\"reason\":\"\",\"result_links\":[],\"state\":\"starting"
+      "clue": "{\"action\":\"execution.start\",\"kind\":\"action_result\",\"outcome\":\"success\",\"result\":{\"exit_code\":null,\"job_id\":\"job_1\",\"kind\":\"execution.process\",\"pending_inputs\":[],\"reason\":\"\",\"result_refs\":[],\"state\":\"starting"
     },
     {
       "kind": "child",

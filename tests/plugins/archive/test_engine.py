@@ -88,7 +88,7 @@ def test_daily_rollover_archives_session_workspace_and_trash_but_preserves_home(
     session, workspace, home, coordinator = _daily_system(tmp_path)
     coordinator.ensure_active_day(OLD_DAY, now=ROLLOVER_TIME)
     session.record_turn(
-        completion("turn_old"),
+        completion("2026-07-11/1000"),
         status=TurnOutcomeStatus.ANSWERED,
         output=SessionOutputRecord(text="old answer"),
         exhausted=False,
@@ -100,7 +100,7 @@ def test_daily_rollover_archives_session_workspace_and_trash_but_preserves_home(
         "workspace:discard.md",
     )
     home.write_resource(
-        "home:skills/refactor/references/new.md",
+        "home:resource/skills/refactor/references/new.md",
         "runtime-only home resource",
     )
     home_manifest_before = _home_manifest_bytes(home)
@@ -111,7 +111,7 @@ def test_daily_rollover_archives_session_workspace_and_trash_but_preserves_home(
     archive = outcome.archives[0].root
     assert archive == tmp_path / "archive" / "20260712T000001.123456+0800"
     assert archive is not None
-    assert (archive / "session" / "turns" / "turn_old.json").is_file()
+    assert (archive / "session" / "turns" / "1000.json").is_file()
     assert (archive / "workspace" / "kept.md").read_text(encoding="utf-8") == (
         "old workspace"
     )
@@ -183,7 +183,7 @@ def test_daily_rollover_resume_does_not_touch_home(
     )
     coordinator.ensure_active_day(OLD_DAY, now=ROLLOVER_TIME)
     workspace.write_text("workspace:old.md", "old")
-    home.write_resource("home:skills/refactor/notes.md", "keep home")
+    home.write_resource("home:resource/skills/refactor/notes.md", "keep home")
     home_manifest_before = _home_manifest_bytes(home)
 
     with pytest.raises(ArchiveInvariantError, match="WorkspaceIOError"):
@@ -193,7 +193,9 @@ def test_daily_rollover_resume_does_not_touch_home(
     assert len(pending) == 1
     assert (pending[0] / "workspace" / "old.md").is_file()
     assert workspace.active_day is None
-    assert home.read_resource("home:skills/refactor/notes.md").text == "keep home"
+    assert (
+        home.read_resource("home:resource/skills/refactor/notes.md").text == "keep home"
+    )
     assert _home_manifest_bytes(home) == home_manifest_before
 
     resumed = DailyLifecycleCoordinator(
@@ -209,7 +211,9 @@ def test_daily_rollover_resume_does_not_touch_home(
     assert not (resumed.archives[0].root / "home").exists()
     assert session.active_day == NEW_DAY
     assert workspace.active_day == NEW_DAY
-    assert home.read_resource("home:skills/refactor/notes.md").text == "keep home"
+    assert (
+        home.read_resource("home:resource/skills/refactor/notes.md").text == "keep home"
+    )
     assert _home_manifest_bytes(home) == home_manifest_before
 
 
@@ -245,7 +249,7 @@ def test_daily_resumes_session_move_when_step_journal_write_failed(
     session, workspace, home, coordinator = _daily_system(tmp_path)
     coordinator.ensure_active_day(OLD_DAY, now=ROLLOVER_TIME)
     session.record_turn(
-        completion("turn_session_window"),
+        completion("2026-07-11/1001"),
         status=TurnOutcomeStatus.ANSWERED,
         output=SessionOutputRecord(text="saved"),
         exhausted=False,
@@ -267,7 +271,7 @@ def test_daily_resumes_session_move_when_step_journal_write_failed(
         coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
 
     pending = _only_pending(tmp_path)
-    assert (pending / "session" / "turns" / "turn_session_window.json").is_file()
+    assert (pending / "session" / "turns" / "1001.json").is_file()
     assert session.active_day is None
     assert workspace.active_day == OLD_DAY
     _assert_protected_state(home, marker, protected_before)
@@ -520,7 +524,10 @@ def test_legacy_untagged_workspace_inherits_session_day_without_moving_home(
     assert not (outcome.archives[0].root / "home").exists()
     assert legacy_home.read_text(encoding="utf-8") == "legacy home"
     home.reconcile()
-    assert home.read_resource("home:skills/legacy/notes.txt").text == "legacy home"
+    assert (
+        home.read_resource("home:resource/skills/legacy/notes.txt").text
+        == "legacy home"
+    )
     transition = json.loads(
         (outcome.archives[0].root / "transition.json").read_text(encoding="utf-8")
     )

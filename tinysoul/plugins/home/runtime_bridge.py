@@ -9,7 +9,10 @@ from tinysoul.plugins.home.errors import (
     AgentHomeInvariantError,
     AgentHomeIOError,
 )
-from tinysoul.plugins.home.failures import AgentHomeFailureKind, HOME_RUNTIME_COPY_REQUIRED
+from tinysoul.plugins.home.failures import (
+    AgentHomeFailureKind,
+    HOME_RUNTIME_COPY_REQUIRED,
+)
 from tinysoul.infra.config import ConfigError
 from tinysoul.infra.config.errors import config_error_payload
 from tinysoul.infra.json import JsonObject
@@ -84,11 +87,11 @@ class RuntimeAgentHomeBridge:
     def runtime_copy_required(
         self,
         *,
-        link: str,
+        ref: str,
         message: str = "Agent Home runtime copy is required.",
         payload: JsonObject | None = None,
     ) -> RuntimeException:
-        runtime_payload: JsonObject = {"link": link}
+        runtime_payload: JsonObject = {"ref": ref}
         if payload is not None:
             runtime_payload = {**runtime_payload, **payload}
         return self.from_failure(

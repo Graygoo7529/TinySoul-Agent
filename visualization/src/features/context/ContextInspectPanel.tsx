@@ -1,3 +1,4 @@
+import { requestIdForTurn } from "../../store/turnStore";
 /**
  * Live disclosure reading for Context refs (plan §8, API-09 context/inspect).
  *
@@ -130,7 +131,7 @@ export function ContextInspectPanel({
     async (token: string | null, signal: AbortSignal) => {
       try {
         return await contextClients(epoch).context.inspect(
-          turnId,
+          requestIdForTurn(turnId),
           {
             ref: targetRef,
             query: initialQuery,

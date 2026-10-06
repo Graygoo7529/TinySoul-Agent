@@ -385,7 +385,7 @@ async def test_three_scenarios_have_independent_policies_and_owner_services(
         assert memory.services.get(MemoryKnowledgeService)
         assert memory.services.get(MemoryReadService)
         await user.services.get(HomeService).write_top(
-            "home:agent@search-proof", "uniqueoverlayevidence"
+            "home:top/agent/search-proof", "uniqueoverlayevidence"
         )
         assert not (root / "home/agent/search-proof.md").exists()
         for profile in (user, home, memory):
@@ -395,7 +395,7 @@ async def test_three_scenarios_have_independent_policies_and_owner_services(
                     QuerySource("agent", TextQuery("uniqueoverlayevidence"))
                 )
             )
-            assert page.items[0].ref == "home:agent/search-proof.md"
+            assert page.items[0].ref == "home:resource/agent/search-proof.md"
             assert "uniqueoverlayevidence" in str(
                 await service.inspect(page.items[0].ref)
             )
@@ -1435,7 +1435,7 @@ async def test_agent_workspace_mutation_reaches_endpoint_event_stream(
                             id="patch_note",
                             name="workspace.edit",
                             arguments={
-                                "target_link": "workspace:note.md",
+                                "target_ref": "workspace:note.md",
                                 "edits": [
                                     {"old_text": "old text", "new_text": "new text"}
                                 ],
@@ -1484,7 +1484,7 @@ async def test_agent_workspace_mutation_reaches_endpoint_event_stream(
     ]
     assert len(changes) == 1
     assert changes[0].source == "workspace.engine"
-    assert changes[0].payload["links"] == ["workspace:note.md"]
+    assert changes[0].payload["refs"] == ["workspace:note.md"]
 
 
 async def test_agent_builder_run_once_answers_with_real_action_and_context(
@@ -1528,7 +1528,11 @@ async def test_agent_builder_run_once_answers_with_real_action_and_context(
 
     assert outcome.answered is True
     assert outcome.context_completion is not None
-    assert len(outcome.context_completion.trace.entries) == 2
+    assert [entry.kind.value for entry in outcome.context_completion.trace.entries] == [
+        "input",
+        "decision",
+        "action_result",
+    ]
     assert outcome.context_completion.inputs[0].text == "please answer"
     assert len(recorder.completions) == 1
     assert recorder.completions[0].output is not None
@@ -1566,8 +1570,8 @@ async def test_agent_builder_runs_resource_conversion_through_real_action_chain(
                             id="convert_1",
                             name="workspace.convert_with_pypdf",
                             arguments={
-                                "source_link": "workspace:incoming/blank.pdf",
-                                "target_link": "workspace:converted/blank.md",
+                                "source_ref": "workspace:incoming/blank.pdf",
+                                "target_ref": "workspace:converted/blank.md",
                             },
                             kind=ToolKind.ACTION,
                         )
@@ -1662,7 +1666,7 @@ async def test_agent_builder_cycle_limit_suspends_until_explicit_decision(
                 await asyncio.sleep(0.01)
         assert handle.budget_request is not None
         assert handle.budget_request.next_cycle_index == 2
-        await app.commands.cancel_turn(handle.turn_id)
+        await app.commands.cancel_request(handle.request_id)
         assert (await handle.wait()).outcome is not None
     finally:
         running.cancel()

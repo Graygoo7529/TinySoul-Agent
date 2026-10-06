@@ -36,7 +36,7 @@ from .inspection.models import (
     WorkspaceTextSlice,
 )
 from .inspection.text import WorkspaceTextPosition, WorkspaceTextRangeRead
-from .links import WorkspaceLink
+from .refs import WorkspaceRef
 from .projection import (
     WorkspaceTurnPreparationHandler,
     workspace_refresh_signal,
@@ -82,7 +82,7 @@ __all__ = [
     "WorkspaceImageValidationError",
     "WorkspaceInvariantError",
     "WorkspaceReconciliationError",
-    "WorkspaceLink",
+    "WorkspaceRef",
     "WorkspaceManifest",
     "WorkspacePromptInput",
     "WorkspacePromptReferenceResolver",

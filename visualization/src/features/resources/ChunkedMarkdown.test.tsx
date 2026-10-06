@@ -24,11 +24,11 @@ it("renders contiguous chunks in one Markdown context and keeps fragment refs", 
   act(() => root.render(
     <ChunkedMarkdown
       items={[
-        { ref: "home:agent@guide#L1-L2", text: "Before\n```ts\nconst count = " },
-        { ref: "home:agent@guide#L3-L4", text: "2;\n```\n\nAfter\n" },
+        { ref: "home:top/agent/guide#L1-L2", text: "Before\n```ts\nconst count = " },
+        { ref: "home:top/agent/guide#L3-L4", text: "2;\n```\n\nAfter\n" },
       ]}
       fragment="L3"
-      origin={{ link: "home:agent@guide" }}
+      origin={{ ref: "home:top/agent/guide" }}
     />,
   ));
 
@@ -36,6 +36,6 @@ it("renders contiguous chunks in one Markdown context and keeps fragment refs", 
   expect(host.querySelector("pre code")?.textContent).toBe("const count = 2;\n");
   expect(host.textContent).toContain("Before");
   expect(host.textContent).toContain("After");
-  expect(host.querySelector('[data-chunk-ref="home:agent@guide#L3-L4"]')).not.toBeNull();
-  expect(host.querySelector('[data-chunk-ref="home:agent@guide#L1-L2"]')?.className).toContain("ring-accent");
+  expect(host.querySelector('[data-chunk-ref="home:top/agent/guide#L3-L4"]')).not.toBeNull();
+  expect(host.querySelector('[data-chunk-ref="home:top/agent/guide#L1-L2"]')?.className).toContain("ring-accent");
 });

@@ -24,7 +24,8 @@ from tests.support.project import copy_initialized_project
 
 
 async def test_cli_host_survives_http_restart_failure_and_uses_current_commands(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     root = tmp_path / "agent"
     copy_initialized_project(root)
@@ -66,13 +67,20 @@ async def test_cli_host_survives_http_restart_failure_and_uses_current_commands(
         if fail_build:
             raise RuntimeException("runtime.startup_failed", "private startup detail")
         assembly = await (
-            standard_agent(root).with_config_environment(
-                ConfigEnvironment.from_project_root(root, env={}, overrides={
-                    "agent.interactive": False,
-                    "reflection.schedule.enabled": False,
-                    "workspace.watch.enabled": False,
-                })
-            ).build().build_runtime()
+            standard_agent(root)
+            .with_config_environment(
+                ConfigEnvironment.from_project_root(
+                    root,
+                    env={},
+                    overrides={
+                        "agent.interactive": False,
+                        "reflection.schedule.enabled": False,
+                        "workspace.watch.enabled": False,
+                    },
+                )
+            )
+            .build()
+            .build_runtime()
         )
         if assemblies:
             assembly.mount_service(ActivationGate())
@@ -97,7 +105,9 @@ async def test_cli_host_survives_http_restart_failure_and_uses_current_commands(
             try:
                 await asyncio.wait_for(rebuilding.wait(), 5)
                 assert (await client.get("/v2/status")).json()["ready"] is False
-                refused = await client.post("/v2/turns", json={"kind": "user", "text": "during restart"})
+                refused = await client.post(
+                    "/v2/requests", json={"kind": "user", "text": "during restart"}
+                )
                 assert refused.status_code == 409
                 assert refused.json()["error"]["code"] == "service.unavailable"
                 assert (await client.get("/v2/config")).status_code == 409
@@ -111,10 +121,15 @@ async def test_cli_host_survives_http_restart_failure_and_uses_current_commands(
             assert response.status_code == 202
             assert second_response.status_code == 202
             assert len(assemblies) == 2
-            assert response.json()["runtime"]["generation_id"] == second_response.json()["runtime"]["generation_id"]
+            assert (
+                response.json()["runtime"]["generation_id"]
+                == second_response.json()["runtime"]["generation_id"]
+            )
             after = (await client.get("/v2/status")).json()
             assert after["ready"] is True
-            assert after["runtime"]["generation_id"] != before["runtime"]["generation_id"]
+            assert (
+                after["runtime"]["generation_id"] != before["runtime"]["generation_id"]
+            )
             assert after["instance_id"] == before["instance_id"]
             assert host.engine is engine and len(handshakes) == 1
             assert not application.done()
@@ -123,9 +138,13 @@ async def test_cli_host_survives_http_restart_failure_and_uses_current_commands(
 
             cursor = before["latest_event_sequence"]
             for assembly in assemblies:
-                assembly.observations.emit(ObservationEvent(
-                    name="test.bound", source="test", level=ObservationLevel.NORMAL,
-                ))
+                assembly.observations.emit(
+                    ObservationEvent(
+                        name="test.bound",
+                        source="test",
+                        level=ObservationLevel.NORMAL,
+                    )
+                )
             replay = (await client.get("/v2/events", params={"after": cursor})).json()
             assert replay["gap"] is False
             assert sum(event["name"] == "test.bound" for event in replay["events"]) == 1
@@ -156,9 +175,11 @@ async def test_cli_host_survives_http_restart_failure_and_uses_current_commands(
                 await cancelled
             assert (await client.get("/v2/status")).json()["ready"] is True
             assert (await client.get("/v2/config")).status_code == 200
-            admitted = await client.post("/v2/turns", json={"kind": "user", "text": "after restart"})
+            admitted = await client.post(
+                "/v2/requests", json={"kind": "user", "text": "after restart"}
+            )
             assert admitted.status_code == 202
-            handle = assemblies[-1].commands.turn(admitted.json()["turn_id"])
+            handle = assemblies[-1].commands.request(admitted.json()["request_id"])
             assert handle is not None
             await asyncio.wait_for(handle.wait(), 5)
 

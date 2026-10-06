@@ -749,18 +749,18 @@ async def test_trafilatura_fetch_commits_only_workspace_markdown_and_metadata(
     result = await service.fetch(
         extractor=WebExtractor.TRAFILATURA,
         url="https://example.com/article",
-        target_link="workspace:web/pages/article.md",
+        target_ref="workspace:web/pages/article.md",
         overwrite=False,
         control=ActionExecutionControl(deadline=monotonic() + 30),
     )
 
-    assert result.markdown_link == "workspace:web/pages/article.md"
+    assert result.markdown_ref == "workspace:web/pages/article.md"
     assert result.extractor is WebExtractor.TRAFILATURA
     assert result.excerpt == "Readable page excerpt"
     assert (
         "Readable page"
         in workspace.read_text(
-            result.markdown_link,
+            result.markdown_ref,
             max_chars=1000,
         ).text
     )
@@ -789,12 +789,12 @@ async def test_fetch_action_result_omits_source_url_and_emits_workspace_signal(
     )
 
     assert result.status is ActionResultStatus.SUCCESS
-    assert result.payload["markdown_link"] == "workspace:web/pages/article.md"
+    assert result.payload["markdown_ref"] == "workspace:web/pages/article.md"
     assert result.payload["excerpt"] == "Readable page excerpt"
     assert "url" not in result.payload
     assert (
-        workspace.inspect("workspace:web/pages/article.md").link
-        == result.payload["markdown_link"]
+        workspace.stat("workspace:web/pages/article.md").ref
+        == result.payload["markdown_ref"]
     )
 
 
@@ -1039,7 +1039,7 @@ def _search_execution() -> ActionExecution:
             batch_id="batch_1",
             scope=RunScope(),
             domain="web",
-            turn_id="turn_1",
+            turn_id="2026-10-06/1000",
         ),
     )
 
@@ -1056,7 +1056,7 @@ def _fetch_execution() -> ActionExecution:
             action_name=WEB_FETCH_TRAFILATURA_ACTION,
             params={
                 "url": "https://example.com/article",
-                "target_link": "workspace:web/pages/article.md",
+                "target_ref": "workspace:web/pages/article.md",
             },
             sequence=1,
         ),
@@ -1065,7 +1065,7 @@ def _fetch_execution() -> ActionExecution:
             batch_id="batch_1",
             scope=RunScope(),
             domain="web",
-            turn_id="turn_1",
+            turn_id="2026-10-06/1000",
         ),
     )
 

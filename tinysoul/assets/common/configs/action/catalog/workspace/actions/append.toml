@@ -6,12 +6,12 @@ description = "Append an exact bounded UTF-8 text fragment to an existing worksp
 
 [tool.schema]
 type = "object"
-required = ["target_link", "text"]
+required = ["target_ref", "text"]
 additionalProperties = false
 
-[tool.schema.properties.target_link]
+[tool.schema.properties.target_ref]
 type = "string"
-description = "Existing workspace text resource link."
+description = "Existing workspace text resource ref."
 
 [tool.schema.properties.text]
 type = "string"

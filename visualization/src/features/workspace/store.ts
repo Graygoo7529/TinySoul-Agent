@@ -10,7 +10,7 @@
 import { create } from "zustand";
 
 export interface WorkspaceOpenFile {
-  link: string;
+  ref: string;
   /** Day binding; null means the active day. */
   day: string | null;
   /** Raw `#…` fragment carried by the reference that opened the file. */
@@ -20,17 +20,17 @@ export interface WorkspaceOpenFile {
 interface WorkspacePageState {
   /** Selected day; null = active day. */
   day: string | null;
-  /** Selected resource link (fragment-free). */
-  link: string | null;
+  /** Selected resource ref (fragment-free). */
+  ref: string | null;
   /** Fragment waiting to be located in the selected resource. */
   fragment: string | null;
   panel: "files" | "trash";
   searchOpen: boolean;
-  /** Unsaved editor text by `${day ?? ""}|${link}`. */
+  /** Unsaved editor text by `${day ?? ""}|${ref}`. */
   drafts: Record<string, string>;
 
   setDay: (day: string | null) => void;
-  select: (link: string | null, fragment?: string | null) => void;
+  select: (ref: string | null, fragment?: string | null) => void;
   /** Router entry: open one resource at its day and fragment. */
   openFile: (target: WorkspaceOpenFile) => void;
   setPanel: (panel: "files" | "trash") => void;
@@ -38,13 +38,13 @@ interface WorkspacePageState {
   setDraft: (key: string, text: string | null) => void;
 }
 
-export function workspaceDraftKey(day: string | null, link: string): string {
-  return `${day ?? ""}|${link}`;
+export function workspaceDraftKey(day: string | null, ref: string): string {
+  return `${day ?? ""}|${ref}`;
 }
 
 export const useWorkspacePage = create<WorkspacePageState>()((set) => ({
   day: null,
-  link: null,
+  ref: null,
   fragment: null,
   panel: "files",
   searchOpen: false,
@@ -55,12 +55,12 @@ export const useWorkspacePage = create<WorkspacePageState>()((set) => ({
       day,
       // A day switch rebinds every read; the open selection does not carry
       // over (an archived file must never be read as if it were today's).
-      link: state.day === day ? state.link : null,
+      ref: state.day === day ? state.ref : null,
       fragment: null,
     })),
-  select: (link, fragment = null) => set({ link, fragment }),
-  openFile: ({ link, day, fragment }) =>
-    set({ day, link, fragment, panel: "files", searchOpen: false }),
+  select: (ref, fragment = null) => set({ ref, fragment }),
+  openFile: ({ ref, day, fragment }) =>
+    set({ day, ref, fragment, panel: "files", searchOpen: false }),
   setPanel: (panel) => set({ panel }),
   setSearchOpen: (searchOpen) => set({ searchOpen }),
   setDraft: (key, text) =>

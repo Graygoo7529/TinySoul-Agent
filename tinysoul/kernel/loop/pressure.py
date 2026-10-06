@@ -22,7 +22,7 @@ class PressureRecoveryStatus(StrEnum):
 class PressureRecoveryResult:
     status: PressureRecoveryStatus
     reclaimed_chars: int
-    evicted_background_links: tuple[str, ...] = field(default_factory=tuple)
+    evicted_background_refs: tuple[str, ...] = field(default_factory=tuple)
     error: str = ""
     signals: tuple[Signal, ...] = ()
 

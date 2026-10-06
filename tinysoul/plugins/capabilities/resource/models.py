@@ -25,22 +25,21 @@ class ResourceContentStatus(StrEnum):
 class ResourceConversionResult:
     """Committed Workspace result for one document conversion."""
 
-    source_link: str
-    markdown_link: str
+    source_ref: str
+    markdown_ref: str
     converter: ResourceConverter
     content_status: ResourceContentStatus
     manifest: WorkspaceManifest
     records: tuple[WorkspaceResourceRecord, ...]
-    visual_reference_links: tuple[str, ...] = ()
+    visual_refs: tuple[str, ...] = ()
     warning_codes: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        if not self.source_link or not self.markdown_link:
-            raise ResourceContractError("Resource conversion links must be non-empty")
+        if not self.source_ref or not self.markdown_ref:
+            raise ResourceContractError("Resource conversion refs must be non-empty")
         if not isinstance(self.converter, ResourceConverter):
             raise ResourceContractError("Resource converter is invalid")
         if not isinstance(self.content_status, ResourceContentStatus):
             raise ResourceContractError("Resource content status is invalid")
         if not self.records:
             raise ResourceContractError("Resource conversion must commit records")
-

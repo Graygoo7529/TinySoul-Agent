@@ -15,13 +15,13 @@ from .errors import ContextInvariantError
 class BackgroundCatalogItem:
     """Bounded discovery metadata for one loadable Background entry."""
 
-    link: str
+    ref: str
     title: str
     description: str
     resolved_locator: ResourceLocator | None = None
 
     def __post_init__(self) -> None:
-        for name in ("link", "title", "description"):
+        for name in ("ref", "title", "description"):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
                 raise ContextInvariantError(
@@ -37,58 +37,56 @@ class BackgroundCatalogItem:
 
 @dataclass(frozen=True)
 class BackgroundCatalog:
-    """Current default and loadable top-level Background links."""
+    """Current default and loadable top-level Background refs."""
 
     owner: str
-    default_links: tuple[str, ...] = field(default_factory=tuple)
-    loadable_links: tuple[str, ...] = field(default_factory=tuple)
-    evictable_default_links: tuple[str, ...] = field(default_factory=tuple)
+    default_refs: tuple[str, ...] = field(default_factory=tuple)
+    loadable_refs: tuple[str, ...] = field(default_factory=tuple)
+    evictable_default_refs: tuple[str, ...] = field(default_factory=tuple)
     items: tuple[BackgroundCatalogItem, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         if not isinstance(self.owner, str) or not self.owner:
             raise ContextInvariantError("Background catalog owner must be non-empty")
-        defaults = tuple(self.default_links)
-        loadable = tuple(self.loadable_links)
-        evictable_defaults = tuple(self.evictable_default_links)
+        defaults = tuple(self.default_refs)
+        loadable = tuple(self.loadable_refs)
+        evictable_defaults = tuple(self.evictable_default_refs)
         items = tuple(self.items)
         if any(not isinstance(item, BackgroundCatalogItem) for item in items):
             raise ContextInvariantError(
                 "Background catalog items must be BackgroundCatalogItem values"
             )
-        if any(not link for link in (*defaults, *loadable, *evictable_defaults)):
-            raise ContextInvariantError("Background catalog links must be non-empty")
+        if any(not ref for ref in (*defaults, *loadable, *evictable_defaults)):
+            raise ContextInvariantError("Background catalog refs must be non-empty")
         if len(defaults) != len(set(defaults)) or len(loadable) != len(set(loadable)):
-            raise ContextInvariantError("Background catalog links must be unique")
+            raise ContextInvariantError("Background catalog refs must be unique")
         if len(evictable_defaults) != len(set(evictable_defaults)):
             raise ContextInvariantError(
-                "Evictable default Background links must be unique"
+                "Evictable default Background refs must be unique"
             )
         if not set(defaults).issubset(loadable):
-            raise ContextInvariantError(
-                "Default Background links must also be loadable"
-            )
+            raise ContextInvariantError("Default Background refs must also be loadable")
         if not set(evictable_defaults).issubset(defaults):
             raise ContextInvariantError(
-                "Evictable default Background links must also be defaults"
+                "Evictable default Background refs must also be defaults"
             )
-        item_links = tuple(item.link for item in items)
-        if len(item_links) != len(set(item_links)):
-            raise ContextInvariantError("Background catalog item links must be unique")
-        if not set(item_links).issubset(loadable):
+        item_refs = tuple(item.ref for item in items)
+        if len(item_refs) != len(set(item_refs)):
+            raise ContextInvariantError("Background catalog item refs must be unique")
+        if not set(item_refs).issubset(loadable):
             raise ContextInvariantError(
-                "Background catalog item links must also be loadable"
+                "Background catalog item refs must also be loadable"
             )
-        object.__setattr__(self, "default_links", defaults)
-        object.__setattr__(self, "loadable_links", loadable)
-        object.__setattr__(self, "evictable_default_links", evictable_defaults)
+        object.__setattr__(self, "default_refs", defaults)
+        object.__setattr__(self, "loadable_refs", loadable)
+        object.__setattr__(self, "evictable_default_refs", evictable_defaults)
         object.__setattr__(self, "items", items)
 
 
 class BackgroundEntryProvider(Protocol):
     async def catalog(self, active_day: date) -> BackgroundCatalog: ...
 
-    async def load(self, link: str, active_day: date) -> str: ...
+    async def load(self, ref: str, active_day: date) -> str: ...
 
 
 @dataclass(frozen=True)

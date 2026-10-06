@@ -43,8 +43,9 @@ class AgentState(StrEnum):
 @dataclass(frozen=True)
 class AgentSnapshot:
     state: AgentState
+    active_request_id: str | None
     active_turn_id: str | None
-    queued_turn_ids: tuple[str, ...]
+    queued_request_ids: tuple[str, ...]
     observation_failures: tuple[CleanupDiagnostic, ...] = ()
     sources: tuple[SourceStatus, ...] = ()
 
@@ -130,8 +131,9 @@ class Agent:
         active = runtime.agent_runner.active_turn if runtime is not None else None
         return AgentSnapshot(
             self._state,
+            active.request_id if active is not None else None,
             active.turn_id if active is not None else None,
-            runtime.agent_runner.queued_turn_ids if runtime is not None else (),
+            runtime.agent_runner.queued_request_ids if runtime is not None else (),
             runtime.observations.failures if runtime is not None else (),
             runtime.generation_handle.snapshot().generation.sources.statuses
             if runtime is not None
@@ -222,21 +224,23 @@ class Agent:
     ) -> TurnHandle:
         return await self.commands.submit_turn(request)
 
-    async def cancel_turn(self, turn_id: str) -> bool:
-        return await self.commands.cancel_turn(turn_id)
+    async def cancel_request(self, request_id: str) -> bool:
+        return await self.commands.cancel_request(request_id)
 
     async def append_input(
-        self, turn_id: str, text: str, *, input_id: str = ""
+        self, request_id: str, text: str, *, input_id: str = ""
     ) -> InboxReceipt:
-        return await self.commands.append_input(turn_id, text, input_id=input_id)
+        return await self.commands.append_input(request_id, text, input_id=input_id)
 
-    async def grant_cycles(self, turn_id: str, request_id: str, count: int) -> bool:
-        return await self.commands.grant_cycles(turn_id, request_id, count)
+    async def grant_cycles(
+        self, request_id: str, budget_request_id: str, count: int
+    ) -> bool:
+        return await self.commands.grant_cycles(request_id, budget_request_id, count)
 
     async def reply(
-        self, turn_id: str, question_id: str, answer: QuestionAnswer
+        self, request_id: str, question_id: str, answer: QuestionAnswer
     ) -> InboxReceipt:
-        return await self.commands.reply(turn_id, question_id, answer)
+        return await self.commands.reply(request_id, question_id, answer)
 
     async def publish(self, event: EnvironmentEvent) -> EventReceipt:
         return await self.commands.publish(event)
@@ -262,21 +266,21 @@ class Agent:
             before=before
         )
 
-    def turn_snapshot(self, turn_id: str) -> TurnSnapshot | None:
-        return self._running_runtime().service_access.turn_snapshot(turn_id)
+    def request_snapshot(self, request_id: str) -> TurnSnapshot | None:
+        return self._running_runtime().service_access.request_snapshot(request_id)
 
-    def turn_directory(self) -> JsonObject:
+    def request_directory(self) -> JsonObject:
         """List the current scheduler's bounded retained root requests."""
-        return self._running_runtime().service_access.turn_directory()
+        return self._running_runtime().service_access.request_directory()
 
     def runtime_status(self) -> JsonObject:
         return self._running_runtime().service_access.runtime_status()
 
-    def turn_jobs(self, turn_id: str) -> tuple[JobSnapshot, ...] | None:
-        return self._running_runtime().service_access.turn_jobs(turn_id)
+    def turn_jobs(self, request_id: str) -> tuple[JobSnapshot, ...] | None:
+        return self._running_runtime().service_access.turn_jobs(request_id)
 
-    async def stop_job(self, turn_id: str, job_id: str) -> JobSnapshot:
-        return await self._running_runtime().service_access.stop_job(turn_id, job_id)
+    async def stop_job(self, request_id: str, job_id: str) -> JobSnapshot:
+        return await self._running_runtime().service_access.stop_job(request_id, job_id)
 
     async def patch_config(self, mutations: tuple[ConfigMutation, ...]) -> JsonObject:
         return await self._configuration().patch(mutations)

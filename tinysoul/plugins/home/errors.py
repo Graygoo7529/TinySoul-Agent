@@ -28,17 +28,17 @@ class AgentHomeIOError(AgentHomeError):
 
 
 class AgentHomeRuntimeCopyRequired(AgentHomeError):
-    """Raised when a home link must be copied into runtime home before reading."""
+    """Raised when a home ref must be copied into runtime home before reading."""
 
-    def __init__(self, link: str, *, source_path: Path, runtime_path: Path) -> None:
-        super().__init__(f"Agent Home runtime copy is required: {link}")
-        self.link = link
+    def __init__(self, ref: str, *, source_path: Path, runtime_path: Path) -> None:
+        super().__init__(f"Agent Home runtime copy is required: {ref}")
+        self.ref = ref
         self.source_path = source_path
         self.runtime_path = runtime_path
 
     def to_payload(self) -> JsonObject:
         """Project recovery identity; physical paths stay on the local exception."""
         return {
-            "link": self.link,
+            "ref": self.ref,
             "error_type": type(self).__name__,
         }

@@ -20,6 +20,8 @@ Agent.runtime 与 AgentRuntime 类型供内部宿主集成使用：准备阶段�
 
 只运行一个根 Turn。等待用户、Job、定时器或预算期间仍占根位置，新 User/Reflection 请求排队。队列和已完成句柄保留有界；重复 request identity 必须内容相同。queued 阶段取消不伪造 Session Turn，开始后的取消先收尾再完成句柄。所有路径共用一次收敛出口；取消立即移除队列占位，完成按次序进入保留窗口。去重只保证活动请求和保留窗口内的身份一致；淘汰后外部已持 Handle 仍可 wait。
 
+根请求由 request_id 受理、查询与控制，排队时 turn_id 为 null。取得 active_day lease 后，AgentDayCoordinator 通过 `runtime/agent/turn-sequence.json` 的日期和高水位分配正式 `YYYY-MM-DD/<sequence>`，User/Reflection 共用日内序列，重启或重载继续序号，新日从 1 开始。持久分配复用单文件原子写，不从 Session 推算，不增加 WAL/CAS；允许因未写 Session 的 Reflection 或失败产生空缺。Context、RunScope、Jobs 和 Session 使用正式 Turn 身份。EnvironmentEvent 的目标仍是请求 handle 的 request_id，订阅注册与注销沿该请求生命周期进行。
+
 宿主可以读取这一保留窗口的 Turn 目录，用于在对话中呈现普通对话与独立整理。Handle 记录受理、根执行开始和完成时间，来源由原始类型化请求投影；摘要不展开模型正文或完整结果。目录复用 scheduler 的队列和完成保留策略，不新增 Reflection 历史存储，也不将 Reflection 写入 User Session。
 
 start/shutdown/restart 由各自拥有的任务串行衔接，并发等待者加入同一操作；启动中关闭立即停止受理并等待部分资源回收，旧 worker 回调不会修改新实例。shutdown 停止受理和外部来源，再取消根 work，等待 Action/Job、必要记录、段和来源回收，最后关闭世代。restart 重新装配，旧句柄保留旧结果。自建 LLM 与专用 ModelServices 客户端归世代关闭，注入对象保持借用。Action 用途和来源能力由 PluginDefinitions 收集，generation 在激活前校验有效动作的模型依赖。Search 结果视图经 Turn preparation/cleanup 更新生命周期，SDK 则沿服务 lease 隔离。部分激活失败逆序关闭已创建资源；重复取消不抛弃清理任务，有限 cleanup diagnostics 不覆盖主失败。

@@ -46,7 +46,9 @@ def applied_control_payload(signal: Signal) -> JsonObject:
             todo = patch.set_todos[0]
             operation = CONTROL_SET_TODO
             details: JsonObject = {
-                "key": todo.key, "content": todo.content, "status": todo.status.value,
+                "key": todo.key,
+                "content": todo.content,
+                "status": todo.status.value,
             }
         elif patch.remove_todos:
             operation = CONTROL_REMOVE_TODO
@@ -60,9 +62,15 @@ def applied_control_payload(signal: Signal) -> JsonObject:
             details = {"key": patch.remove_milestones[0]}
     else:
         call_id, background = parse_background_patch_signal(signal)
-        operation = CONTROL_LOAD_BACKGROUND if background.load_links else CONTROL_EVICT_BACKGROUND
-        details = {"links": list(background.load_links or background.evict_links)}
-    return to_json_object({"call_id": call_id, "operation": operation, "details": details})
+        operation = (
+            CONTROL_LOAD_BACKGROUND
+            if background.load_refs
+            else CONTROL_EVICT_BACKGROUND
+        )
+        details = {"refs": list(background.load_refs or background.evict_refs)}
+    return to_json_object(
+        {"call_id": call_id, "operation": operation, "details": details}
+    )
 
 
 class ControlResultStatus(StrEnum):
@@ -162,8 +170,8 @@ class ContextControlScopeBuilder:
     def build(
         self,
         *,
-        loadable_links: tuple[str, ...],
-        loaded_links: tuple[str, ...],
+        loadable_refs: tuple[str, ...],
+        loaded_refs: tuple[str, ...],
     ) -> ToolScope:
         tools: list[ToolSpec] = [
             self._set_milestone_spec(),
@@ -171,10 +179,10 @@ class ContextControlScopeBuilder:
             self._set_todo_spec(),
             self._remove_todo_spec(),
         ]
-        if loadable_links:
+        if loadable_refs:
             tools.append(self._load_background_spec())
-        if loaded_links:
-            tools.append(self._evict_background_spec(loaded_links))
+        if loaded_refs:
+            tools.append(self._evict_background_spec(loaded_refs))
         return ToolScope(
             tools=tuple(tools),
             selection=ToolSelection(allowed_names=tuple(tool.name for tool in tools)),
@@ -248,35 +256,35 @@ class ContextControlScopeBuilder:
             parameters={
                 "type": "object",
                 "properties": {
-                    "links": {
+                    "refs": {
                         "type": "array",
                         "items": {
                             "type": "string",
-                            "description": prompt_text.BACKGROUND_LINK_DESCRIPTION,
+                            "description": prompt_text.BACKGROUND_REF_DESCRIPTION,
                         },
-                        "description": prompt_text.TOP_LEVEL_CONTENT_LINKS_TO_LOAD_TOGETHER,
+                        "description": prompt_text.TOP_LEVEL_CONTENT_REFS_TO_LOAD_TOGETHER,
                     },
                 },
-                "required": ["links"],
+                "required": ["refs"],
                 "additionalProperties": False,
             },
             kind=ToolKind.CONTROL,
         )
 
-    def _evict_background_spec(self, loaded_links: tuple[str, ...]) -> ToolSpec:
+    def _evict_background_spec(self, loaded_refs: tuple[str, ...]) -> ToolSpec:
         return ToolSpec(
             name=CONTROL_EVICT_BACKGROUND,
             description=prompt_text.EVICT_BACKGROUND_DESCRIPTION,
             parameters={
                 "type": "object",
                 "properties": {
-                    "links": {
+                    "refs": {
                         "type": "array",
-                        "items": {"type": "string", "enum": list(loaded_links)},
-                        "description": prompt_text.LOADED_TOP_LEVEL_CONTENT_LINKS_TO_EVICT,
+                        "items": {"type": "string", "enum": list(loaded_refs)},
+                        "description": prompt_text.LOADED_TOP_LEVEL_CONTENT_REFS_TO_EVICT,
                     },
                 },
-                "required": ["links"],
+                "required": ["refs"],
                 "additionalProperties": False,
             },
             kind=ToolKind.CONTROL,
@@ -385,7 +393,7 @@ class ControlCallNormalizer:
         sequence: int,
     ) -> Signal | ControlResult:
         try:
-            links = _arg_str_list(tool_call.arguments, "links")
+            refs = _arg_str_list(tool_call.arguments, "refs")
         except ControlArgumentError as exc:
             return _normalize_failure(
                 tool_call,
@@ -393,17 +401,17 @@ class ControlCallNormalizer:
                 model_feedback=str(exc),
                 frame_data={"reason": "invalid_arguments"},
             )
-        if not links:
+        if not refs:
             return _normalize_failure(
                 tool_call,
                 sequence=sequence,
-                model_feedback=prompt_text.links_required(name=tool_call.name),
-                frame_data={"reason": "empty_links"},
+                model_feedback=prompt_text.refs_required(name=tool_call.name),
+                frame_data={"reason": "empty_refs"},
             )
         patch = (
-            BackgroundPatch(load_links=links)
+            BackgroundPatch(load_refs=refs)
             if tool_call.name == CONTROL_LOAD_BACKGROUND
-            else BackgroundPatch(evict_links=links)
+            else BackgroundPatch(evict_refs=refs)
         )
         return build_background_patch_signal(
             patch,
@@ -486,7 +494,9 @@ def _working_operation_patch(tool_call: ToolCallRecord) -> WorkingPatch:
     expected = (
         {"key", "content", "status"}
         if tool_call.name == CONTROL_SET_TODO
-        else {"key", "content"} if tool_call.name == CONTROL_SET_MILESTONE else {"key"}
+        else {"key", "content"}
+        if tool_call.name == CONTROL_SET_MILESTONE
+        else {"key"}
     )
     if set(arguments) != expected:
         raise ControlArgumentError(

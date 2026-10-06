@@ -77,13 +77,13 @@ function actionResult(
 
 describe("parseActionCall / parseActionResult / parseActionExecution", () => {
   it("narrows the payloads and rejects other events", () => {
-    const call = parseActionCall(actionCall("c1", "workspace.read", { link: "workspace:a.md" }));
+    const call = parseActionCall(actionCall("c1", "workspace.read", { ref: "workspace:a.md" }));
     expect(call).toEqual({
       callId: "c1",
       action: "workspace.read",
       domain: "workspace",
       sequence: 1,
-      params: { link: "workspace:a.md" },
+      params: { ref: "workspace:a.md" },
     });
 
     const result = parseActionResult(actionResult("c1", "workspace.read", "success", { text: "hi" }));

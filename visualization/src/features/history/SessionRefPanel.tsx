@@ -427,7 +427,7 @@ function ResourceFactCard({ item }: { item: JsonObject }) {
     <FactCard label="Referenced resource">
       <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
         <code className="rounded bg-bg-sunken px-1.5 py-0.5 font-mono text-[11px] break-all">
-          {typeof item.link === "string" ? item.link : "(unknown link)"}
+          {typeof item.ref === "string" ? item.ref : "(unknown link)"}
         </code>
         {typeof item.source_day === "string" && (
           <Badge tone="gray">day {item.source_day}</Badge>

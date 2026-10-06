@@ -1,0 +1,59 @@
+"""Workspace ref parsing."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import PurePosixPath
+
+from .errors import WorkspaceContractError, WorkspaceInvariantError
+
+WORKSPACE_REF_PREFIX = "workspace:"
+
+
+@dataclass(frozen=True)
+class WorkspaceRef:
+    """A validated workspace resource ref."""
+
+    relative_path: str
+
+    def __post_init__(self) -> None:
+        _validate_relative_path(self.relative_path)
+
+    @classmethod
+    def parse(cls, value: str) -> "WorkspaceRef":
+        if not isinstance(value, str) or not value.startswith(WORKSPACE_REF_PREFIX):
+            raise WorkspaceContractError("Workspace ref must start with workspace:")
+        try:
+            return cls(value[len(WORKSPACE_REF_PREFIX) :])
+        except WorkspaceInvariantError as exc:
+            raise WorkspaceContractError(str(exc)) from exc
+
+    @classmethod
+    def from_relative_path(cls, value: str) -> "WorkspaceRef":
+        return cls(value)
+
+    @property
+    def path(self) -> PurePosixPath:
+        return PurePosixPath(self.relative_path)
+
+    def __str__(self) -> str:
+        return f"{WORKSPACE_REF_PREFIX}{self.relative_path}"
+
+
+def _validate_relative_path(value: str) -> None:
+    if not isinstance(value, str) or not value:
+        raise WorkspaceInvariantError("Workspace ref path must be non-empty")
+    if "\\" in value:
+        raise WorkspaceInvariantError("Workspace ref path must use POSIX separators")
+    if "\x00" in value:
+        raise WorkspaceInvariantError("Workspace ref path contains a null character")
+    if value.startswith("/") or PurePosixPath(value).is_absolute():
+        raise WorkspaceInvariantError("Workspace ref path must be relative")
+    parts = value.split("/")
+    for part in parts:
+        if part in {"", ".", ".."}:
+            raise WorkspaceInvariantError(
+                "Workspace ref path contains an invalid segment"
+            )
+        if ":" in part:
+            raise WorkspaceInvariantError("Workspace ref path cannot contain ':'")

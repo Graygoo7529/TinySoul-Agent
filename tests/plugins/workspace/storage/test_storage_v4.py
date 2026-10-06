@@ -4,7 +4,7 @@ import pytest
 
 from tinysoul.plugins.workspace.config import WorkspaceSettings
 from tinysoul.plugins.workspace.errors import WorkspaceInvariantError
-from tinysoul.plugins.workspace.links import WorkspaceLink
+from tinysoul.plugins.workspace.refs import WorkspaceRef
 from tinysoul.plugins.workspace.storage.manifest import (
     WorkspaceManifest,
     WorkspaceManifestStore,
@@ -18,7 +18,7 @@ from tinysoul.plugins.workspace.storage.reconcile import WorkspaceReconciler
 def test_workspace_storage_schema_is_explicit_and_round_trips(tmp_path: Path) -> None:
     store = WorkspaceManifestStore(tmp_path / ".tinysoul" / "workspace_manifest.json")
     record = WorkspaceResourceRecord(
-        link="workspace:notes.md",
+        ref="workspace:notes.md",
         relative_path="notes.md",
         kind=WorkspaceResourceKind.TEXT,
         media_type="text/markdown",
@@ -52,4 +52,4 @@ def test_workspace_storage_reconciles_files_without_content_cas(tmp_path: Path) 
         manifest_store=WorkspaceManifestStore(settings.manifest_path),
     ).reconcile()
     assert result.complete
-    assert result.resources[0].link == str(WorkspaceLink.from_relative_path("notes.md"))
+    assert result.resources[0].ref == str(WorkspaceRef.from_relative_path("notes.md"))

@@ -49,7 +49,7 @@ const BACKLINKS_PAGE_LIMIT = 20;
 export interface ReferencesPanelProps {
   /** Owner search action ("home.search" / "memory.search"). */
   actionId: string;
-  /** Current document link — the backlinks anchor. */
+  /** Current document ref — the backlinks anchor. */
   anchor: string;
   /** Direct refs of the current document (from its page metadata). */
   directRefs: string[];

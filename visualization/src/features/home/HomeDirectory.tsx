@@ -37,7 +37,7 @@ import { useHomePage } from "./store";
 export function HomeDirectory({ epoch }: { epoch: number }): ReactElement {
   const view = useHomePage((s) => s.view);
   const query = useHomePage((s) => s.query);
-  const selectedLink = useHomePage((s) => s.link);
+  const selectedLink = useHomePage((s) => s.ref);
   const [filter, setFilter] = useState(query);
 
   // Debounce the filter into the server-side catalog query.
@@ -133,10 +133,10 @@ export function HomeDirectory({ epoch }: { epoch: number }): ReactElement {
               <DirectorySection icon={<Layers size={12} />} title="Top content">
                 {groups.tops.map((item) => (
                   <DirectoryRow
-                    key={item.link}
+                    key={item.ref}
                     item={item}
-                    selected={selectedLink === item.link}
-                    onSelect={() => useHomePage.getState().select(item.link)}
+                    selected={selectedLink === item.ref}
+                    onSelect={() => useHomePage.getState().select(item.ref)}
                   />
                 ))}
               </DirectorySection>
@@ -148,7 +148,7 @@ export function HomeDirectory({ epoch }: { epoch: number }): ReactElement {
                     key={group.name}
                     group={group}
                     selectedLink={selectedLink}
-                    onSelect={(link) => useHomePage.getState().select(link)}
+                    onSelect={(ref) => useHomePage.getState().select(ref)}
                   />
                 ))}
               </DirectorySection>
@@ -157,10 +157,10 @@ export function HomeDirectory({ epoch }: { epoch: number }): ReactElement {
               <DirectorySection icon={<FileText size={12} />} title="Resources">
                 {groups.resources.map((item) => (
                   <DirectoryRow
-                    key={item.link}
+                    key={item.ref}
                     item={item}
-                    selected={selectedLink === item.link}
-                    onSelect={() => useHomePage.getState().select(item.link)}
+                    selected={selectedLink === item.ref}
+                    onSelect={() => useHomePage.getState().select(item.ref)}
                   />
                 ))}
               </DirectorySection>
@@ -169,15 +169,15 @@ export function HomeDirectory({ epoch }: { epoch: number }): ReactElement {
               <DirectorySection icon={<BookOpen size={12} />} title="Guidance">
                 {groups.guidance.map((item) => (
                   <DirectoryRow
-                    key={item.link}
+                    key={item.ref}
                     item={item}
                     badge={
                       <Badge tone={item.guidanceKind === "domain" ? "blue" : "teal"}>
                         {item.guidanceKind}
                       </Badge>
                     }
-                    selected={selectedLink === item.link}
-                    onSelect={() => useHomePage.getState().select(item.link)}
+                    selected={selectedLink === item.ref}
+                    onSelect={() => useHomePage.getState().select(item.ref)}
                   />
                 ))}
               </DirectorySection>
@@ -237,7 +237,7 @@ function DirectoryRow({
     <button
       type="button"
       onClick={onSelect}
-      title={item.link}
+      title={item.ref}
       className={`flex h-6.5 w-full items-center gap-1.5 rounded-md px-2 text-left text-[12.5px] ${
         selected ? "bg-accent-soft text-accent" : "text-fg-muted hover:bg-hover"
       }`}
@@ -257,13 +257,13 @@ function SkillGroupRows({
 }: {
   group: HomeSkillGroup;
   selectedLink: string | null;
-  onSelect: (link: string) => void;
+  onSelect: (ref: string) => void;
 }): ReactElement {
   const containsSelection =
     selectedLink !== null &&
     (selectedLink === group.topLink ||
       selectedLink === group.skillDoc ||
-      group.resources.some((item) => item.link === selectedLink));
+      group.resources.some((item) => item.ref === selectedLink));
   const [open, setOpen] = useState(containsSelection);
   useEffect(() => {
     if (containsSelection) setOpen(true);
@@ -274,7 +274,7 @@ function SkillGroupRows({
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        title={group.topLink ?? `home:skills/${group.name}/`}
+        title={group.topLink ?? `home:resource/skills/${group.name}/`}
         className="flex h-6.5 w-full items-center gap-1 rounded-md px-1.5 text-left text-[12.5px] text-fg-muted hover:bg-hover"
       >
         {open ? (
@@ -290,7 +290,7 @@ function SkillGroupRows({
           {group.skillDoc !== null && (
             <DirectoryRow
               item={{
-                link: group.skillDoc,
+                ref: group.skillDoc,
                 title: "SKILL.md",
                 kind: "resource",
                 size: 0,
@@ -302,7 +302,7 @@ function SkillGroupRows({
           )}
           {group.topLink !== null && (
             <DirectoryRow
-              item={{ link: group.topLink, title: "top entry", kind: "top", size: 0 }}
+              item={{ ref: group.topLink, title: "top entry", kind: "top", size: 0 }}
               depth={1}
               selected={selectedLink === group.topLink}
               onSelect={() => onSelect(group.topLink!)}
@@ -310,14 +310,14 @@ function SkillGroupRows({
           )}
           {group.resources.map((item) => (
             <DirectoryRow
-              key={item.link}
+              key={item.ref}
               item={{
                 ...item,
-                title: item.link.split("/").slice(2).join("/") || item.title,
+                title: item.ref.split("/").slice(2).join("/") || item.title,
               }}
               depth={1}
-              selected={selectedLink === item.link}
-              onSelect={() => onSelect(item.link)}
+              selected={selectedLink === item.ref}
+              onSelect={() => onSelect(item.ref)}
             />
           ))}
         </div>

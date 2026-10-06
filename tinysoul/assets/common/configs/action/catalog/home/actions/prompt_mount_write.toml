@@ -3,13 +3,13 @@ domain = "home"
 
 [tool]
 description = "Create or replace one Action Catalog-defined domain/action skill prompt mount."
-schema = { type = "object", properties = { link = { type = "string", description = "home:skills_domain:<domain> or home:skills_action:<domain>/<action>." }, text = { type = "string" }, overwrite = { type = "boolean" }, expected_digest = { type = "string" } }, required = ["link", "text"], additionalProperties = false }
+schema = { type = "object", properties = { ref = { type = "string", description = "home:mount/domain/<domain> or home:mount/action/<domain>/<action>." }, text = { type = "string" }, overwrite = { type = "boolean" }, expected_digest = { type = "string" } }, required = ["ref", "text"], additionalProperties = false }
 
 [semantic]
 use_when = ["A framework-defined domain or action skill mount should be created or fully replaced"]
 avoid_when = ["The model would need to create or delete a logical mount", "A general skill should change"]
 effects = ["modifying"]
-examples = ["Write guidance to home:skills_domain:workspace"]
+examples = ["Write guidance to home:mount/domain/workspace"]
 
 [runtime]
 parallel_policy = "serial"

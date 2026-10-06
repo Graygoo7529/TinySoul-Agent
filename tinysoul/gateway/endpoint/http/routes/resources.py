@@ -21,22 +21,24 @@ def register_resource_routes(app: FastAPI, engine: EndpointEngine) -> None:
         response_model_exclude_unset=True,
     )
     async def resolve(
-        reference: str,
-        origin_link: str | None = None,
+        ref: str,
+        origin_ref: str | None = None,
         day: str | None = None,
         turn_id: str | None = None,
         view: Literal["actual", "effective"] = "effective",
     ):
         return await engine.inspection.resolve_resource(
-            reference,
-            origin_link=origin_link,
+            ref,
+            origin_ref=origin_ref,
             day=CalendarDay.parse(day) if day else None,
             turn_id=turn_id,
             view=view,
         )
 
     @app.get(
-        "/v2/home/catalog", response_model=PageResponse, response_model_exclude_none=True,
+        "/v2/home/catalog",
+        response_model=PageResponse,
+        response_model_exclude_none=True,
         response_model_exclude_unset=True,
     )
     async def home_catalog(
@@ -55,17 +57,19 @@ def register_resource_routes(app: FastAPI, engine: EndpointEngine) -> None:
         )
 
     @app.get(
-        "/v2/home/content", response_model=PageResponse, response_model_exclude_none=True,
+        "/v2/home/content",
+        response_model=PageResponse,
+        response_model_exclude_none=True,
         response_model_exclude_unset=True,
     )
     async def home_content(
-        link: str,
+        ref: str,
         view: Literal["actual", "effective"] = "effective",
         continuation: str | None = None,
         max_chars: int = 16000,
     ):
         return await engine.resources.home_content(
-            link, view=view, page=PageOptions(continuation, max_chars=max_chars)
+            ref, view=view, page=PageOptions(continuation, max_chars=max_chars)
         )
 
     @app.get("/v2/home/changes")
@@ -78,14 +82,16 @@ def register_resource_routes(app: FastAPI, engine: EndpointEngine) -> None:
 
     @app.get("/v2/home/diff")
     async def home_diff(
-        link: str, continuation: str | None = None, max_chars: int = 16000
+        ref: str, continuation: str | None = None, max_chars: int = 16000
     ):
         return await engine.resources.home_diff(
-            link, PageOptions(continuation, max_chars=max_chars)
+            ref, PageOptions(continuation, max_chars=max_chars)
         )
 
     @app.get(
-        "/v2/memory/catalog", response_model=PageResponse, response_model_exclude_none=True,
+        "/v2/memory/catalog",
+        response_model=PageResponse,
+        response_model_exclude_none=True,
         response_model_exclude_unset=True,
     )
     async def memory_catalog(
@@ -100,14 +106,16 @@ def register_resource_routes(app: FastAPI, engine: EndpointEngine) -> None:
         )
 
     @app.get(
-        "/v2/memory/document", response_model=PageResponse, response_model_exclude_none=True,
+        "/v2/memory/document",
+        response_model=PageResponse,
+        response_model_exclude_none=True,
         response_model_exclude_unset=True,
     )
     async def memory_document(
-        link: str, continuation: str | None = None, max_chars: int = 16000
+        ref: str, continuation: str | None = None, max_chars: int = 16000
     ):
         return await engine.resources.memory_document(
-            link, PageOptions(continuation, max_chars=max_chars)
+            ref, PageOptions(continuation, max_chars=max_chars)
         )
 
     @app.get("/v2/memory/active")
@@ -120,21 +128,27 @@ def register_resource_routes(app: FastAPI, engine: EndpointEngine) -> None:
         )
 
     @app.post(
-        "/v2/home/search", response_model=SearchResponse, response_model_exclude_none=True,
+        "/v2/home/search",
+        response_model=SearchResponse,
+        response_model_exclude_none=True,
         response_model_exclude_unset=True,
     )
     async def home_search(body: JsonObject = Body()):
         return await engine.resources.search(SearchSpace.HOME, body)
 
     @app.post(
-        "/v2/memory/search", response_model=SearchResponse, response_model_exclude_none=True,
+        "/v2/memory/search",
+        response_model=SearchResponse,
+        response_model_exclude_none=True,
         response_model_exclude_unset=True,
     )
     async def memory_search(body: JsonObject = Body()):
         return await engine.resources.search(SearchSpace.MEMORY, body)
 
     @app.post(
-        "/v2/workspace/search", response_model=SearchResponse, response_model_exclude_none=True,
+        "/v2/workspace/search",
+        response_model=SearchResponse,
+        response_model_exclude_none=True,
         response_model_exclude_unset=True,
     )
     async def workspace_search(body: JsonObject = Body()):

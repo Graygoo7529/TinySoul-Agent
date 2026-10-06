@@ -76,12 +76,12 @@ function pageFacts(page: WorkspaceTextPage): Omit<Snapshot, "loading" | "loading
 }
 
 /**
- * @param link fragment-free `workspace:` link; null closes the read
+ * @param ref fragment-free `workspace:` ref; null closes the read
  * @param day archive binding; null reads the active day
  * @param reloadToken bump to restart the sequence (external change, save)
  */
 export function useWorkspaceText(
-  link: string | null,
+  ref: string | null,
   day: string | null,
   reloadToken: number,
 ): WorkspaceTextState {
@@ -95,12 +95,12 @@ export function useWorkspaceText(
   const fetchPage = useCallback(
     (token: string | null, signal: AbortSignal): Promise<WorkspaceTextPage> => {
       const clients = useConnectionStore.getState().clients;
-      if (clients === null || link === null) {
+      if (clients === null || ref === null) {
         return Promise.reject(new Error("Not connected to a backend."));
       }
       return clients.workspace.resource(
         {
-          link,
+          ref,
           day: day ?? undefined,
           continuation: token ?? undefined,
           max_chars: PAGE_MAX_CHARS,
@@ -108,7 +108,7 @@ export function useWorkspaceText(
         { signal },
       );
     },
-    [link, day],
+    [ref, day],
   );
   const fetchRef = useRef(fetchPage);
   fetchRef.current = fetchPage;
@@ -173,7 +173,7 @@ export function useWorkspaceText(
   );
 
   useEffect(() => {
-    if (link === null) {
+    if (ref === null) {
       setState({ ...EMPTY, loading: false });
       return;
     }
@@ -183,7 +183,7 @@ export function useWorkspaceText(
       abortRef.current?.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [epoch, link, day, reloadToken]);
+  }, [epoch, ref, day, reloadToken]);
 
   const loadMore = useCallback(() => {
     const cursor = cursorRef.current;

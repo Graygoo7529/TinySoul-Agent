@@ -11,7 +11,7 @@ from tinysoul.infra.filesystem import atomic_write_text
 from tinysoul.infra.json import JsonObject, JsonTypeError, to_json_object
 from tinysoul.infra.time import CalendarDay, CalendarDayError
 from ..errors import WorkspaceContractError, WorkspaceIOError, WorkspaceInvariantError
-from ..links import WorkspaceLink
+from ..refs import WorkspaceRef
 
 
 class WorkspaceResourceKind(StrEnum):
@@ -30,7 +30,7 @@ class WorkspaceTag(StrEnum):
 
 @dataclass(frozen=True)
 class WorkspaceResourceRecord:
-    link: str
+    ref: str
     relative_path: str
     kind: WorkspaceResourceKind
     media_type: str
@@ -42,7 +42,7 @@ class WorkspaceResourceRecord:
     tags: tuple[WorkspaceTag, ...] = ()
 
     def __post_init__(self) -> None:
-        if WorkspaceLink.parse(self.link).relative_path != self.relative_path:
+        if WorkspaceRef.parse(self.ref).relative_path != self.relative_path:
             raise WorkspaceContractError(
                 "Workspace record identity disagrees with its path"
             )
@@ -77,7 +77,7 @@ class WorkspaceResourceRecord:
 
     def to_json(self) -> JsonObject:
         return {
-            "link": self.link,
+            "ref": self.ref,
             "relative_path": self.relative_path,
             "kind": self.kind.value,
             "media_type": self.media_type,
@@ -92,7 +92,7 @@ class WorkspaceResourceRecord:
     @classmethod
     def from_json(cls, value: JsonObject) -> WorkspaceResourceRecord:
         expected = {
-            "link",
+            "ref",
             "relative_path",
             "kind",
             "media_type",
@@ -120,7 +120,7 @@ class WorkspaceResourceRecord:
                 "Workspace resource kind or tag is unknown"
             ) from exc
         return cls(
-            link=_text(value, "link"),
+            ref=_text(value, "ref"),
             relative_path=_text(value, "relative_path"),
             kind=kind,
             media_type=_text(value, "media_type"),
@@ -153,8 +153,8 @@ class WorkspaceManifest:
             not isinstance(item, WorkspaceResourceRecord) for item in self.resources
         ):
             raise WorkspaceContractError("Workspace manifest requires resource records")
-        links = [item.link for item in self.resources]
-        if len(set(links)) != len(links):
+        refs = [item.ref for item in self.resources]
+        if len(set(refs)) != len(refs):
             raise WorkspaceContractError(
                 "Workspace manifest resource identities must be unique"
             )

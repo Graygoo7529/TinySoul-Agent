@@ -11,4 +11,4 @@ from .models import (
     PersistentMemoryDocument,
     StoredMemoryDocument,
 )
-from .codec import MemoryDocumentCodec, inline_memory_links
+from .codec import MemoryDocumentCodec, inline_memory_refs

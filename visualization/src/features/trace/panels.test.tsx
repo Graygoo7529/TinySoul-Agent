@@ -125,7 +125,7 @@ describe("ActivityTimeline", () => {
           arguments: { domains: ["home"], intent: "First intent\nRead the relevant resources." } }],
       }, [TURN, CYCLE, phase]),
       event("loop.phase.completed", 2, { phase: "phase1", selected_domains: ["home"] }, [TURN, CYCLE, phase]),
-      event("llm.model.request", 3, { task_id: "t2", provenance: [{ refs: ["home:skills_domain:home"] }] }, [TURN, CYCLE, PHASE2]),
+      event("llm.model.request", 3, { task_id: "t2", provenance: [{ refs: ["home:mount/domain/home"] }] }, [TURN, CYCLE, PHASE2]),
       event("context.control.applied", 4, { operation: "set_milestone", details: {
         content: "Found the relevant document\nIts section on testing explains the decision.",
       } }, [TURN, CYCLE, phase]),
@@ -172,7 +172,7 @@ describe("ProcessPanel", () => {
       action: "workspace.read",
       domain: "workspace",
       sequence: 1,
-      params: { link: "workspace:a.md" },
+      params: { ref: "workspace:a.md" },
     }, [TURN, CYCLE, PHASE2]),
     event("action.result", 20, {
       result_id: "r1",
@@ -185,7 +185,7 @@ describe("ProcessPanel", () => {
       invoke_id: "invoke_c1",
       batch_id: "b1",
       failure: null,
-      payload: { link: "workspace:a.md", text: "hi" },
+      payload: { ref: "workspace:a.md", text: "hi" },
     }, [TURN, CYCLE, PHASE3]),
     event("action.call", 30, {
       call_id: "c2",
@@ -246,11 +246,11 @@ describe("ActionDetailPanel", () => {
     serveEvents([
       event("action.call", 10, {
         call_id: "c1", action: "workspace.write", domain: "workspace", sequence: 1,
-        params: { link: "workspace:a.md", content: "v1" },
+        params: { ref: "workspace:a.md", content: "v1" },
       }, [TURN, CYCLE, PHASE2]),
       event("action.call", 20, {
         call_id: "c2", action: "workspace.write", domain: "workspace", sequence: 2,
-        params: { link: "workspace:b.md", content: "v2" },
+        params: { ref: "workspace:b.md", content: "v2" },
       }, [TURN, CYCLE, PHASE2]),
       event("action.result", 30, {
         result_id: "r2", call_id: "c2", action: "workspace.write",
@@ -340,10 +340,10 @@ describe("ActionDetailPanel", () => {
 
 describe("JobPanel", () => {
   it("renders the owner projection and pages output on demand", async () => {
-    endpoint.get(`/v2/turns/${TURN_ID}/jobs/job_1`, () =>
+    endpoint.get(`/v2/requests/${TURN_ID}/jobs/job_1`, () =>
       jsonResponse(structuredClone(jobDetailFixture)),
     );
-    endpoint.get(`/v2/turns/${TURN_ID}/jobs/job_1/output`, (request) => {
+    endpoint.get(`/v2/requests/${TURN_ID}/jobs/job_1/output`, (request) => {
       if (queryOf(request, "continuation") === null) {
         return jsonResponse(structuredClone(jobOutputFixture));
       }
@@ -378,7 +378,7 @@ describe("JobPanel", () => {
 
     clickButton("Show more output");
     await flush();
-    expect(queryOf(endpoint.calls(`/v2/turns/${TURN_ID}/jobs/job_1/output`)[1]!, "continuation")).toBe("continuation_2");
+    expect(queryOf(endpoint.calls(`/v2/requests/${TURN_ID}/jobs/job_1/output`)[1]!, "continuation")).toBe("continuation_2");
     expect(container.textContent).toContain("more");
   });
 });

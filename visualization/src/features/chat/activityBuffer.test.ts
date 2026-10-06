@@ -90,14 +90,14 @@ describe("ActivityBuffer v2 event projection", () => {
   it("separates initial background state from applied controls and domain decisions", () => {
     const buffer = new ActivityBuffer("turn-1");
     buffer.loadEvents([
-      event("context.background.snapshot", { links: ["home:agent@context/background"] }, 1),
-      event("context.background.changed", { loaded_links: ["home:skills@x"] }, 2),
-      event("context.control.applied", { operation: "load_background", details: { links: ["home:skills@x"] } }, 3),
+      event("context.background.snapshot", { refs: ["home:top/agent/context/background"] }, 1),
+      event("context.background.changed", { loaded_refs: ["home:top/skills/x"] }, 2),
+      event("context.control.applied", { operation: "load_background", details: { refs: ["home:top/skills/x"] } }, 3),
       event("loop.phase.completed", { phase: "phase1", selected_domains: ["home", "memory"] }, 4),
     ]);
     const trail = buffer.toPresentation(new Date().toISOString())?.trail ?? [];
     expect(trail.map((step) => step.content)).toEqual([
-      { type: "background", refs: ["home:skills@x"], operation: "load" },
+      { type: "background", refs: ["home:top/skills/x"], operation: "load" },
       { type: "domain_select", domains: ["home", "memory"], state: "accepted" },
     ]);
   });
@@ -107,11 +107,11 @@ describe("ActivityBuffer v2 event projection", () => {
     buffer.addEvent(event("llm.model.request", {
       messages: [{ role: "user", content: "large prompt" }],
       task_id: "t1",
-      provenance: [{ refs: ["home:skills_domain:home"] }],
+      provenance: [{ refs: ["home:mount/domain/home"] }],
     }, 1));
     const trail = buffer.toPresentation(new Date().toISOString())?.trail ?? [];
-    expect(trail[0]?.content).toEqual({ type: "skill_mount", refs: ["home:skills_domain:home"] });
-    buffer.addEvent(event("llm.model.request", { task_id: "t1", provenance: [{ refs: ["home:skills_domain:home"] }] }, 2));
+    expect(trail[0]?.content).toEqual({ type: "skill_mount", refs: ["home:mount/domain/home"] });
+    buffer.addEvent(event("llm.model.request", { task_id: "t1", provenance: [{ refs: ["home:mount/domain/home"] }] }, 2));
     expect(buffer.toPresentation("2026-10-03").trail).toHaveLength(1);
   });
 

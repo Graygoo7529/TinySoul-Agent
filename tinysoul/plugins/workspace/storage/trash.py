@@ -57,7 +57,7 @@ class WorkspaceTrashItem:
             raise WorkspaceContractError(
                 "Workspace Trash descendant is outside its resource"
             )
-        if len({item.link for item in self.descendants}) != len(self.descendants):
+        if len({item.ref for item in self.descendants}) != len(self.descendants):
             raise WorkspaceContractError("Workspace Trash descendants must be unique")
 
     @property

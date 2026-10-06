@@ -100,7 +100,7 @@ class RuntimeExceptionHook:
         raise RuntimeException(
             reason=HOME_RUNTIME_COPY_REQUIRED,
             message="copy required",
-            payload={"link": "home:skills/test/ref.md"},
+            payload={"ref": "home:resource/skills/test/ref.md"},
         )
 
 
@@ -116,7 +116,7 @@ class RuntimeNormalizeHook:
         raise RuntimeException(
             reason=HOME_RUNTIME_COPY_REQUIRED,
             message="copy required",
-            payload={"link": "home:skills/test/ref.md"},
+            payload={"ref": "home:resource/skills/test/ref.md"},
         )
 
 
@@ -137,7 +137,7 @@ class RuntimeExceptionExecutor:
         raise RuntimeException(
             reason=HOME_RUNTIME_COPY_REQUIRED,
             message="copy required",
-            payload={"link": "home:skills/test/ref.md"},
+            payload={"ref": "home:resource/skills/test/ref.md"},
         )
 
 
@@ -153,7 +153,7 @@ class ProjectionExecutor:
             payload={"text": "full"},
             trace_projection=ActionTraceProjection(
                 origin_refs=("workspace:a.md", "workspace:b.md"),
-                canonical_payload={"links": ["workspace:a.md", "workspace:b.md"]},
+                canonical_payload={"refs": ["workspace:a.md", "workspace:b.md"]},
             ),
         )
 
@@ -277,7 +277,7 @@ async def test_runner_allows_runtime_exception_to_reach_trap() -> None:
         )
 
     assert raised.value.reason == HOME_RUNTIME_COPY_REQUIRED
-    assert raised.value.payload["link"] == "home:skills/test/ref.md"
+    assert raised.value.payload["ref"] == "home:resource/skills/test/ref.md"
 
 
 async def test_capacity_retry_replays_only_interrupted_action() -> None:

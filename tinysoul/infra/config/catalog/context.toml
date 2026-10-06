@@ -371,7 +371,7 @@ description = "Maximum characters accepted in a Workspace analysis instruction."
 value_kind = "integer"
 
 [[field]]
-path = "workspace.analysis.max_reference_links"
+path = "workspace.analysis.max_reference_refs"
 surface = "workspace"
 group = "workspace.analysis"
 title = "Analysis References"

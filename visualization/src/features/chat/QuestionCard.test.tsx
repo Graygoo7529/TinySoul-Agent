@@ -36,7 +36,7 @@ beforeEach(() => {
   document.body.appendChild(container);
   root = createRoot(container);
   endpoint = new FakeEndpoint();
-  epoch = wireConnectedStores(endpoint, makeStatus()).epoch;
+  epoch = wireConnectedStores(endpoint, makeStatus({ activeTurnId: "contract-turn" })).epoch;
 });
 
 afterEach(() => {
@@ -138,7 +138,7 @@ describe("QuestionCard: live question", () => {
 
   it("submits a choice with an optional comment", async () => {
     let replyBody: Record<string, unknown>;
-    endpoint.post("/v2/turns/contract-turn/reply", (request) => {
+    endpoint.post("/v2/requests/contract-turn/reply", (request) => {
       replyBody = bodyJson(request) as Record<string, unknown>;
       return jsonResponse({
         accepted: true,
@@ -153,7 +153,7 @@ describe("QuestionCard: live question", () => {
     });
     expect(radio().checked).toBe(true);
     expect(replyButton().disabled).toBe(false);
-    typeInto(inputByPlaceholder("Comment (optional)…"), "Proceed");
+    typeInto(inputByPlaceholder("Additional thoughts (optional)…"), "Proceed");
 
     await act(async () => {
       replyButton().click();
@@ -171,7 +171,7 @@ describe("QuestionCard: live question", () => {
 
   it("submits a free-text Other answer", async () => {
     let replyBody: Record<string, unknown>;
-    endpoint.post("/v2/turns/contract-turn/reply", (request) => {
+    endpoint.post("/v2/requests/contract-turn/reply", (request) => {
       replyBody = bodyJson(request) as Record<string, unknown>;
       return jsonResponse({
         accepted: true,
@@ -195,7 +195,7 @@ describe("QuestionCard: live question", () => {
   });
 
   it("accepts a duplicate receipt without manufacturing a second answer", async () => {
-    endpoint.post("/v2/turns/contract-turn/reply", () =>
+    endpoint.post("/v2/requests/contract-turn/reply", () =>
       jsonResponse({
         accepted: false,
         record_id: "reply_action_result_1",
@@ -215,14 +215,14 @@ describe("QuestionCard: live question", () => {
   });
 
   it("keeps the draft and shows the error when the question went stale", async () => {
-    endpoint.post("/v2/turns/contract-turn/reply", () =>
+    endpoint.post("/v2/requests/contract-turn/reply", () =>
       errorResponse(409, "turn.command_rejected"),
     );
     renderLive();
     act(() => {
       radio().click();
     });
-    typeInto(inputByPlaceholder("Comment (optional)…"), "Proceed");
+    typeInto(inputByPlaceholder("Additional thoughts (optional)…"), "Proceed");
 
     await act(async () => {
       replyButton().click();
@@ -252,7 +252,7 @@ describe("QuestionCard: read-only question", () => {
     });
     expect(container.textContent).toContain("Choose a direction");
     expect(container.textContent).toContain("Execute");
-    expect(container.textContent).toContain("answered");
+    expect(container.querySelector('[data-question-form="readonly"]')).not.toBeNull();
     expect(
       Array.from(container.querySelectorAll("button")).find(
         (button) => button.textContent === "Reply",
@@ -295,7 +295,7 @@ describe("QuestionCard: expired question", () => {
     act(() => {
       radio().click();
     });
-    typeInto(inputByPlaceholder("Comment (optional)…"), "Proceed carefully");
+    typeInto(inputByPlaceholder("Additional thoughts (optional)…"), "Proceed carefully");
 
     // The wait lapses (superseded / turn moved on) before the reply went
     // out: the same card instance flips to the expired mode.

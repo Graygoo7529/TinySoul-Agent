@@ -60,7 +60,7 @@ class HomeReviewExecutor(ActionExecutor):
         if not isinstance(raw_paths, list) or any(
             not isinstance(path, str) or not path for path in raw_paths
         ):
-            return _failed(execution, prompt_text.PATHS_MUST_CONTAIN_HOME_LINKS)
+            return _failed(execution, prompt_text.PATHS_MUST_CONTAIN_HOME_REFS)
         paths = tuple(dict.fromkeys(str(path) for path in raw_paths))
         try:
             snapshot = await home.review_snapshot()
@@ -68,7 +68,7 @@ class HomeReviewExecutor(ActionExecutor):
                 selected = tuple(
                     review
                     for review in snapshot.reviews
-                    if not paths or review.link in paths
+                    if not paths or review.ref in paths
                 )
                 payload: JsonObject = {
                     "items": [
@@ -76,7 +76,7 @@ class HomeReviewExecutor(ActionExecutor):
                             review.to_review_json()
                             if paths
                             else {
-                                "link": review.link,
+                                "ref": review.ref,
                                 "kind": (
                                     "change"
                                     if isinstance(review, HomeReviewChange)
@@ -92,18 +92,18 @@ class HomeReviewExecutor(ActionExecutor):
                 decision = params.get("decision")
                 if not paths or decision not in {"accept", "reject"}:
                     return _failed(
-                        execution, prompt_text.SELECT_HOME_LINKS_AND_ACCEPT_OR_REJECT
+                        execution, prompt_text.SELECT_HOME_REFS_AND_ACCEPT_OR_REJECT
                     )
                 resolution = HomeReviewResolution(str(decision))
                 results: list[JsonObject] = []
                 for path in paths:
                     reviews = tuple(
-                        review for review in snapshot.reviews if review.link == path
+                        review for review in snapshot.reviews if review.ref == path
                     )
                     if not reviews:
                         results.append(
                             {
-                                "link": path,
+                                "ref": path,
                                 "reviewed": False,
                                 "reason": "no_pending_change",
                             }
@@ -117,7 +117,7 @@ class HomeReviewExecutor(ActionExecutor):
                     if resolution is HomeReviewResolution.ACCEPT and not changes:
                         results.append(
                             {
-                                "link": path,
+                                "ref": path,
                                 "reviewed": False,
                                 "reason": "edit_effective_skill_before_accepting",
                             }
@@ -128,7 +128,7 @@ class HomeReviewExecutor(ActionExecutor):
                             current = tuple(
                                 item
                                 for item in (await home.review_snapshot()).reviews
-                                if item.link == path
+                                if item.ref == path
                                 and not isinstance(item, HomeReviewChange)
                             )
                             if not current:
@@ -143,7 +143,7 @@ class HomeReviewExecutor(ActionExecutor):
                             ),
                         )
                     results.append(
-                        {"link": path, "reviewed": True, "decision": decision}
+                        {"ref": path, "reviewed": True, "decision": decision}
                     )
                 payload = to_json_object({"items": results})
                 bus.emit(

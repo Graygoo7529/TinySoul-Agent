@@ -128,7 +128,7 @@ JSON 值类型、JSON 对象校验和稳定序列化属于 Infra 的公共基础
 
 ## 专用模型服务
 
-`InfraSettings` 通过 `[infra.model_services]` 解释 provider、logical model 和 use。`ModelServices`、`EmbeddingSession`、JEV typed decision adapter 和 `EmbeddingBatch` 只表达外部能力，不表达 Memory Link、候选排序或缓存语义。凭据只能由 `ConfigEnvironment.runtime_env` 按显式变量名解析；Home/Memory 的派生缓存大小归各自 owner。
+`InfraSettings` 通过 `[infra.model_services]` 解释 provider、logical model 和 use。`ModelServices`、`EmbeddingSession`、JEV typed decision adapter 和 `EmbeddingBatch` 只表达外部能力，不表达 Memory 引用、候选排序或缓存语义。凭据只能由 `ConfigEnvironment.runtime_env` 按显式变量名解析；Home/Memory 的派生缓存大小归各自 owner。
 
 模型服务使用共享 generation-owned async clients，generation 关闭一次；注入 transport 为借用对象。取消直接传播到网络任务。Embedding 的文档/query 阶段固定 provider，切换时完整重算；JEV adapter 严格校验问题身份、类型、等级、候选和概率。Infra 不持久化向量、不执行 cosine、不决定业务降级。
 

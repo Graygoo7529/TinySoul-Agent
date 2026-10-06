@@ -26,24 +26,24 @@ class WorkspaceExecutionPort(Protocol):
         self,
         job_id: str,
         *,
-        cwd_link: str = "",
+        cwd_ref: str = "",
         source_text: str | None = None,
         source_suffix: str = "",
     ) -> WorkspaceExecutionLocation: ...
 
     def prepare_external_cwd(
-        self, connection_id: str, *, cwd_link: str = ""
+        self, connection_id: str, *, cwd_ref: str = ""
     ) -> tuple[Path, str]: ...
 
     def read_text(
-        self, link: str, *, max_chars: int | None = None
+        self, ref: str, *, max_chars: int | None = None
     ) -> WorkspaceTextRead: ...
 
     def write_bundle(
         self,
         writes: Sequence[WorkspaceBundleWrite],
         *,
-        delete_links: Sequence[str] = (),
+        delete_refs: Sequence[str] = (),
     ) -> WorkspaceBundleResult: ...
 
 
@@ -57,34 +57,32 @@ class WorkspaceExecutionService:
         self,
         job_id: str,
         *,
-        cwd_link: str = "",
+        cwd_ref: str = "",
         source_text: str | None = None,
         source_suffix: str = "",
     ) -> WorkspaceExecutionLocation:
         return self._owner.prepare_execution(
             job_id,
-            cwd_link=cwd_link,
+            cwd_ref=cwd_ref,
             source_text=source_text,
             source_suffix=source_suffix,
         )
 
     def prepare_external_cwd(
-        self, connection_id: str, *, cwd_link: str = ""
+        self, connection_id: str, *, cwd_ref: str = ""
     ) -> tuple[Path, str]:
-        return self._owner.prepare_external_cwd(connection_id, cwd_link=cwd_link)
+        return self._owner.prepare_external_cwd(connection_id, cwd_ref=cwd_ref)
 
-    def read_text(
-        self, link: str, *, max_chars: int | None = None
-    ) -> WorkspaceTextRead:
-        return self._owner.read_text(link, max_chars=max_chars)
+    def read_text(self, ref: str, *, max_chars: int | None = None) -> WorkspaceTextRead:
+        return self._owner.read_text(ref, max_chars=max_chars)
 
     def write_bundle(
         self,
         writes: Sequence[WorkspaceBundleWrite],
         *,
-        delete_links: Sequence[str] = (),
+        delete_refs: Sequence[str] = (),
     ) -> WorkspaceBundleResult:
-        return self._owner.write_bundle(writes, delete_links=delete_links)
+        return self._owner.write_bundle(writes, delete_refs=delete_refs)
 
 
 class WorkspaceService(ScopedService[WorkspaceEngine]):
@@ -103,6 +101,7 @@ class WorkspaceService(ScopedService[WorkspaceEngine]):
         self.max_write_chars = owner.settings.max_write_chars
         self.analysis_settings = owner.settings.analysis
         self.snapshot = scope.local(owner.snapshot)
+        self.stat = scope.local(owner.stat)
         self.inspect = scope.local(owner.inspect)
         self.read_image = scope.local(owner.read_image)
         self.read_document = scope.local(owner.read_document)

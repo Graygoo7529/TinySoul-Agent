@@ -24,18 +24,18 @@ import { isValidWorkspacePath, normalizeWorkspacePath } from "./tree";
 export interface WorkspaceMutations {
   /** A write is in flight; triggers stay disabled until it settles. */
   busy: boolean;
-  saveText: (link: string, text: string) => Promise<WorkspaceResourceRecord | null>;
+  saveText: (ref: string, text: string) => Promise<WorkspaceResourceRecord | null>;
   createFile: (path: string) => Promise<string | null>;
   createDirectory: (path: string) => Promise<string | null>;
-  move: (link: string, targetPath: string) => Promise<string | null>;
-  setTags: (link: string, tags: WorkspaceTag[]) => Promise<WorkspaceResourceRecord | null>;
-  append: (link: string, text: string) => Promise<WorkspaceResourceRecord | null>;
+  move: (ref: string, targetPath: string) => Promise<string | null>;
+  setTags: (ref: string, tags: WorkspaceTag[]) => Promise<WorkspaceResourceRecord | null>;
+  append: (ref: string, text: string) => Promise<WorkspaceResourceRecord | null>;
   replaceText: (
-    link: string,
+    ref: string,
     oldText: string,
     newText: string,
   ) => Promise<WorkspaceResourceRecord | null>;
-  trash: (link: string) => Promise<boolean>;
+  trash: (ref: string) => Promise<boolean>;
   restore: (trashRef: string) => Promise<boolean>;
   upload: (files: File[], targetDir: string) => Promise<void>;
 }
@@ -101,11 +101,11 @@ export function useWorkspaceMutations(
   }, []);
 
   const saveText = useCallback(
-    (link: string, text: string) =>
+    (ref: string, text: string) =>
       execute(
         async (clients) => {
           const result = await clients.workspace.writeText({
-            link,
+            ref,
             text,
             overwrite: true,
           });
@@ -123,7 +123,7 @@ export function useWorkspaceMutations(
       const record = await execute(
         async (clients) => {
           const result = await clients.workspace.writeText({
-            link: `workspace:${path}`,
+            ref: `workspace:${path}`,
             text: "",
             overwrite: false,
           });
@@ -143,7 +143,7 @@ export function useWorkspaceMutations(
       const record = await execute(
         async (clients) => {
           const result = await clients.workspace.createDirectory({
-            link: `workspace:${path}`,
+            ref: `workspace:${path}`,
           });
           return { manifest: result.manifest, value: result.record };
         },
@@ -155,14 +155,14 @@ export function useWorkspaceMutations(
   );
 
   const move = useCallback(
-    async (link: string, targetInput: string): Promise<string | null> => {
+    async (ref: string, targetInput: string): Promise<string | null> => {
       const target = checkedPath(targetInput);
       if (target === null) return null;
       const record = await execute(
         async (clients) => {
           const result = await clients.workspace.move({
-            link,
-            target_link: `workspace:${target}`,
+            source_ref: ref,
+            target_ref: `workspace:${target}`,
           });
           return { manifest: result.manifest, value: result.record };
         },
@@ -174,10 +174,10 @@ export function useWorkspaceMutations(
   );
 
   const setTags = useCallback(
-    (link: string, tags: WorkspaceTag[]) =>
+    (ref: string, tags: WorkspaceTag[]) =>
       execute(
         async (clients) => {
-          const result = await clients.workspace.setTags({ link, tags });
+          const result = await clients.workspace.setTags({ ref, tags });
           return { manifest: result.manifest, value: result.record };
         },
         "Update tags failed",
@@ -186,10 +186,10 @@ export function useWorkspaceMutations(
   );
 
   const append = useCallback(
-    (link: string, text: string) =>
+    (ref: string, text: string) =>
       execute(
         async (clients) => {
-          const result = await clients.workspace.append({ link, text });
+          const result = await clients.workspace.append({ ref, text });
           return { manifest: result.manifest, value: result.record };
         },
         "Append failed",
@@ -198,11 +198,11 @@ export function useWorkspaceMutations(
   );
 
   const replaceText = useCallback(
-    (link: string, oldText: string, newText: string) =>
+    (ref: string, oldText: string, newText: string) =>
       execute(
         async (clients) => {
           const result = await clients.workspace.edit({
-            link,
+            ref,
             edits: [{ old_text: oldText, new_text: newText }],
           });
           return { manifest: result.manifest, value: result.record };
@@ -213,10 +213,10 @@ export function useWorkspaceMutations(
   );
 
   const trash = useCallback(
-    async (link: string): Promise<boolean> => {
+    async (ref: string): Promise<boolean> => {
       const result = await execute(
         async (clients) => {
-          const outcome = await clients.workspace.trash({ link });
+          const outcome = await clients.workspace.trash({ ref });
           return { manifest: outcome.manifest, value: true };
         },
         "Move to trash failed",
@@ -265,7 +265,7 @@ export function useWorkspaceMutations(
           }
           try {
             const result = await clients.workspace.writeBlob(
-              { link: `workspace:${relative}`, overwrite: false },
+              { ref: `workspace:${relative}`, overwrite: false },
               file,
             );
             manifestRef.current(result.manifest);

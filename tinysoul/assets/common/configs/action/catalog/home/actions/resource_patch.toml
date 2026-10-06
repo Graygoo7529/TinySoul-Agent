@@ -3,13 +3,13 @@ domain = "home"
 
 [tool]
 description = "Replace one unique text fragment in a progressive Agent Home resource in the active runtime overlay."
-schema = { type = "object", properties = { link = { type = "string" }, old_text = { type = "string" }, new_text = { type = "string" }, expected_digest = { type = "string" } }, required = ["link", "old_text", "new_text"], additionalProperties = false }
+schema = { type = "object", properties = { ref = { type = "string" }, old_text = { type = "string" }, new_text = { type = "string" }, expected_digest = { type = "string" } }, required = ["ref", "old_text", "new_text"], additionalProperties = false }
 
 [semantic]
 use_when = ["A small exact change is needed in a progressive Home resource"]
 avoid_when = ["The old text is ambiguous", "A top-level or long-term Memory entry should change"]
 effects = ["modifying"]
-examples = ["Patch one command in home:skills/refactor/references/checklist.md"]
+examples = ["Patch one command in home:resource/skills/refactor/references/checklist.md"]
 
 [runtime]
 parallel_policy = "serial"

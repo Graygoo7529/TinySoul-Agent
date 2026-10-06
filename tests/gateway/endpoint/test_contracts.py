@@ -33,7 +33,7 @@ from tinysoul.kernel.interaction import QuestionContent
 from tinysoul.llm.protocol.requests import TaskCall
 from tinysoul.llm.protocol.responses import JsonAnswer, RawResponse, TaskResult
 from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind
-from tinysoul.plugins.memory import MemoryEngine, MemoryLink, MemorySettings
+from tinysoul.plugins.memory import MemoryEngine, MemoryRef, MemorySettings
 from tinysoul.plugins.memory.documents.models import EntityMemoryDocument, MemoryStatus
 from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.runtime import ObservationLevel
@@ -130,7 +130,7 @@ class _ContractLLM:
                     "execution.start",
                     {
                         "interpreter": "python",
-                        "source_link": "workspace:job.py",
+                        "source_ref": "workspace:job.py",
                         "interactive": True,
                     },
                 ),
@@ -189,7 +189,7 @@ async def collect_contract_responses(root: Path) -> dict[str, JsonObject]:
     seed = MemoryEngine(settings=MemorySettings(root=root / "memory"))
     for cite, status, redirect in (
         ("project", MemoryStatus.ACTIVE, None),
-        ("old-project", MemoryStatus.MERGED, MemoryLink.parse("memory:entity/project")),
+        ("old-project", MemoryStatus.MERGED, MemoryRef.parse("memory:entity/project")),
     ):
         seed.write_document(
             EntityMemoryDocument(
@@ -281,34 +281,28 @@ async def collect_contract_responses(root: Path) -> dict[str, JsonObject]:
             )
             _validate("preset-list", await get("/v2/config/presets"))
             home = agent.services.get(HomeService)
-            actual_catalog = await get(
-                "/v2/home/catalog", view="actual", query="AGENT"
-            )
+            actual_catalog = await get("/v2/home/catalog", view="actual", query="AGENT")
             actual_items = cast(list[JsonObject], actual_catalog["items"])
-            assert any(
-                item["link"] == "home:agent@AGENT"
-                for item in actual_items
-            )
+            assert any(item["ref"] == "home:top/agent/AGENT" for item in actual_items)
             effective_catalog = await get(
                 "/v2/home/catalog", view="effective", query="AGENT"
             )
             effective_items = cast(list[JsonObject], effective_catalog["items"])
             assert not any(
-                item["link"] == "home:agent@AGENT"
-                for item in effective_items
+                item["ref"] == "home:top/agent/AGENT" for item in effective_items
             )
             actual_content = await get(
-                "/v2/home/content", link="home:agent@AGENT", view="actual"
+                "/v2/home/content", ref="home:top/agent/AGENT", view="actual"
             )
             assert actual_content["items"]
             effective_content = await client.get(
                 "/v2/home/content",
-                params={"link": "home:agent@AGENT", "view": "effective"},
+                params={"ref": "home:top/agent/AGENT", "view": "effective"},
             )
             assert effective_content.status_code == 404, effective_content.text
-            await home.write_top("home:agent@contract", "Workspace guidance\n")
+            await home.write_top("home:top/agent/contract", "Workspace guidance\n")
             samples["home-effective"] = await get(
-                "/v2/home/content", link="home:agent@contract"
+                "/v2/home/content", ref="home:top/agent/contract"
             )
             samples["empty-page"] = await get(
                 "/v2/home/catalog", query="absent-contract-resource"
@@ -316,7 +310,7 @@ async def collect_contract_responses(root: Path) -> dict[str, JsonObject]:
             samples["search-evidence"] = await post(
                 "/v2/home/search",
                 {
-                    "source": {"kind": "refs", "refs": ["home:agent@contract"]},
+                    "source": {"kind": "refs", "refs": ["home:top/agent/contract"]},
                     "steps": [
                         {
                             "op": "rerank",
@@ -333,9 +327,9 @@ async def collect_contract_responses(root: Path) -> dict[str, JsonObject]:
                 ).events
                 if event.name == "retrieval.model.invoked"
             )
-            await home.write_top("home:agent@long-contract", "Long content " * 140)
+            await home.write_top("home:top/agent/long-contract", "Long content " * 140)
             page = await get(
-                "/v2/home/content", link="home:agent@long-contract", max_chars=1024
+                "/v2/home/content", ref="home:top/agent/long-contract", max_chars=1024
             )
             samples["home-fragment"] = page
             assert page["items"] == [] and "next_continuation" in page
@@ -350,7 +344,7 @@ async def collect_contract_responses(root: Path) -> dict[str, JsonObject]:
                     break
                 page = await get(
                     "/v2/home/content",
-                    link="home:agent@long-contract",
+                    ref="home:top/agent/long-contract",
                     max_chars=1024,
                     continuation=token,
                 )
@@ -358,12 +352,12 @@ async def collect_contract_responses(root: Path) -> dict[str, JsonObject]:
                 pytest.fail("Home fragment did not finish")
             assert json.loads("".join(fragments))["text"] == "Long content " * 140
             samples["memory-document"] = await get(
-                "/v2/memory/document", link="memory:entity/project"
+                "/v2/memory/document", ref="memory:entity/project"
             )
             samples["home-diff-memory-redirect"] = {
-                "home_diff": await get("/v2/home/diff", link="home:agent@contract"),
+                "home_diff": await get("/v2/home/diff", ref="home:top/agent/contract"),
                 "memory_redirect": await get(
-                    "/v2/memory/document", link="memory:entity/old-project"
+                    "/v2/memory/document", ref="memory:entity/old-project"
                 ),
             }
             samples["capabilities"] = {
@@ -376,54 +370,59 @@ async def collect_contract_responses(root: Path) -> dict[str, JsonObject]:
             )
             samples["turn-receipts"] = {
                 "create": await post(
-                    "/v2/turns",
+                    "/v2/requests",
                     {
                         "text": "Run the prepared job and ask before proceeding",
                         "command_id": "contract-turn",
                     },
                 )
             }
-            handle = agent.commands.turn("contract-turn")
+            handle = agent.commands.request("contract-turn")
             assert handle is not None
             async with asyncio.timeout(10):
                 while handle.question is None or handle.budget_request is None:
                     assert not handle.done, handle.result
                     await asyncio.sleep(0.01)
-            samples["turn-waiting"] = await get("/v2/turns/contract-turn")
-            snapshot = agent.turn_snapshot("contract-turn")
+            assert handle.turn_id is not None
+            samples["turn-waiting"] = await get("/v2/requests/contract-turn")
+            snapshot = agent.request_snapshot("contract-turn")
             assert snapshot is not None
             assert samples["turn-waiting"] == snapshot.to_json()
-            directory = await get("/v2/turns")
+            directory = await get("/v2/requests")
             _validate("turn-list", directory)
             assert directory["items"] == [snapshot.summary_json()]
-            samples["context-overview"] = await get("/v2/turns/contract-turn/context")
+            samples["context-overview"] = await get(
+                "/v2/requests/contract-turn/context"
+            )
             installed_background = await get(
-                "/v2/turns/contract-turn/context/background", max_chars=64000
+                "/v2/requests/contract-turn/context/background", max_chars=64000
             )
             assert installed_background["source"] == "installed"
             assert installed_background["snapshot_available"] is True
             installed_entries = cast(list[JsonObject], installed_background["items"])
             loaded_agent = next(
-                item for item in installed_entries if item["ref"] == "home:agent@AGENT"
+                item
+                for item in installed_entries
+                if item["ref"] == "home:top/agent/AGENT"
             )
             assert isinstance(loaded_agent["content"], str) and loaded_agent["content"]
             samples["context-messages"] = await get(
-                "/v2/turns/contract-turn/context/segments/inputs"
+                "/v2/requests/contract-turn/context/segments/inputs"
             )
             samples["context-trace-page"] = await get(
-                "/v2/turns/contract-turn/context/inspect",
-                ref="turn:trace@contract-turn",
+                "/v2/requests/contract-turn/context/inspect",
+                ref=f"turn:trace/{handle.turn_id}",
             )
             samples["runtime-status"] = await get("/v2/status")
             samples["memory-fragment"] = await get(
                 "/v2/resources/resolve",
-                reference="memory:current#notes",
-                turn_id="contract-turn",
+                ref="memory:current#notes",
+                turn_id=handle.turn_id,
             )
-            _validate("job-list", await get("/v2/turns/contract-turn/jobs"))
+            _validate("job-list", await get("/v2/requests/contract-turn/jobs"))
             snapshots = agent.turn_jobs("contract-turn")
             assert snapshots
-            job_path = f"/v2/turns/contract-turn/jobs/{snapshots[0].job_id}"
+            job_path = f"/v2/requests/contract-turn/jobs/{snapshots[0].job_id}"
             async with asyncio.timeout(5):
                 while True:
                     output = await get(job_path + "/output")
@@ -445,7 +444,7 @@ async def collect_contract_responses(root: Path) -> dict[str, JsonObject]:
             question, budget = handle.question, handle.budget_request
             assert question is not None and budget is not None
             await post(
-                "/v2/turns/contract-turn/reply",
+                "/v2/requests/contract-turn/reply",
                 {
                     "question_id": question.question_id,
                     "answer": {
@@ -456,30 +455,37 @@ async def collect_contract_responses(root: Path) -> dict[str, JsonObject]:
                 },
             )
             await post(
-                "/v2/turns/contract-turn/grant",
-                {"request_id": budget.request_id, "count": 1},
+                "/v2/requests/contract-turn/grant",
+                {"budget_request_id": budget.request_id, "count": 1},
             )
             result = await asyncio.wait_for(handle.wait(), 10)
-            samples["turn-finished"] = await get("/v2/turns/contract-turn")
+            samples["turn-finished"] = await get("/v2/requests/contract-turn")
             assert samples["turn-finished"]["result"] == result.to_json()
             assert result.to_json()["status"] == "answered"
             # Completion persists the installed content. Reading it later does
             # not reopen Home, even after the runtime overlay has changed.
             await agent.services.get(HomeService).write_top(
-                "home:agent@AGENT", "Changed after completion\n", overwrite=True
+                "home:top/agent/AGENT", "Changed after completion\n", overwrite=True
             )
             committed_background = await get(
-                "/v2/session/turns/contract-turn/background", day=str(installed_background["day"]), max_chars=64000
+                f"/v2/session/turns/{handle.turn_id}/background",
+                day=str(installed_background["day"]),
+                max_chars=64000,
             )
             assert committed_background["source"] == "session"
             assert committed_background["snapshot_available"] is True
             committed_entries = cast(list[JsonObject], committed_background["items"])
-            assert next(
-                item for item in committed_entries if item["ref"] == loaded_agent["ref"]
-            ) == loaded_agent
+            assert (
+                next(
+                    item
+                    for item in committed_entries
+                    if item["ref"] == loaded_agent["ref"]
+                )
+                == loaded_agent
+            )
             assert any(item["owner"] == "memory" for item in committed_entries)
             interaction_page = await get(
-                "/v2/turns/contract-turn/interactions", limit=1
+                "/v2/requests/contract-turn/interactions", limit=1
             )
             samples["interactions"] = interaction_page
             items = []
@@ -492,7 +498,9 @@ async def collect_contract_responses(root: Path) -> dict[str, JsonObject]:
                 if not isinstance(token, str):
                     break
                 interaction_page = await get(
-                    "/v2/turns/contract-turn/interactions", limit=1, continuation=token
+                    "/v2/requests/contract-turn/interactions",
+                    limit=1,
+                    continuation=token,
                 )
             questions = [
                 item

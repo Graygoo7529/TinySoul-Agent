@@ -1,17 +1,18 @@
 {
   "protocol_version": 2,
-  "instance_id": "instance_1",
+  "instance_id": "instance_bbc45f6a751f4604b9a7122561af16f8",
   "project_identity": "",
   "ready": true,
-  "active_day": "2026-09-29",
+  "active_day": "2026-10-06",
   "turn_active": true,
   "runtime": {
-    "generation_id": "generation_1",
+    "generation_id": "generation_b54437c9bfd74388b38c1efe4f219d78",
     "activity": "user_turn",
     "activation": "active",
-    "active_day": "2026-09-29",
-    "active_turn_id": "contract-turn",
-    "queued_turn_ids": [],
+    "active_day": "2026-10-06",
+    "active_request_id": "contract-turn",
+    "active_turn_id": "2026-10-06/1",
+    "queued_request_ids": [],
     "sources": [
       {
         "source": "workspace.fswatch",

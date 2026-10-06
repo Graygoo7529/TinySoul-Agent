@@ -61,6 +61,7 @@ class UserTurnExecutor(Protocol):
         active_day: CalendarDay,
         scope: RunScope,
         request_id: str,
+        turn_id: str,
         input_source: str,
         inbox: TurnInbox | None = None,
     ) -> TurnOutcome: ...
@@ -80,6 +81,7 @@ class ReflectionService(Protocol):
         request: ReflectionRequest,
         *,
         active_day: CalendarDay,
+        turn_id: str,
         scope: RunScope | None = None,
         inbox: TurnInbox | None = None,
     ) -> ReflectionOutcome: ...
@@ -174,9 +176,9 @@ class RootScheduler(Generic[AgentGenerationT]):
         return self._active
 
     @property
-    def queued_turn_ids(self) -> tuple[str, ...]:
+    def queued_request_ids(self) -> tuple[str, ...]:
         return tuple(
-            handle.turn_id
+            handle.request_id
             for handle in self._handles.values()
             if handle.state is TurnState.QUEUED
         )
@@ -266,13 +268,15 @@ class RootScheduler(Generic[AgentGenerationT]):
         )
         return day.current_day()
 
-    def turn_handle(self, turn_id: str) -> TurnHandle | None:
-        return self._handles.get(turn_id)
+    def request_handle(self, request_id: str) -> TurnHandle | None:
+        return self._handles.get(request_id)
 
-    def turn_directory(self) -> JsonObject:
+    def request_directory(self) -> JsonObject:
         """Read retained roots; this is neither Session history nor a new log."""
         return {
-            "items": [handle.snapshot().summary_json() for handle in self._handles.values()],
+            "items": [
+                handle.snapshot().summary_json() for handle in self._handles.values()
+            ],
             "completed_limit": self._retained_outcomes,
         }
 
@@ -294,20 +298,21 @@ class RootScheduler(Generic[AgentGenerationT]):
                 await self._finish_handle(
                     handle,
                     TurnResult(
-                        handle.turn_id,
+                        handle.request_id,
+                        turn_id=handle.turn_id,
                         request_failure=request_failure,
                         error_type=error_type,
                     ),
                 )
 
-    async def cancel_turn(self, turn_id: str) -> bool:
-        handle = self._handles.get(turn_id)
+    async def cancel_request(self, request_id: str) -> bool:
+        handle = self._handles.get(request_id)
         if handle is None or not handle.request_cancel():
             return False
         if handle.state is TurnState.QUEUED:
             self._input_queue.discard(handle.request)
             await self._finish_handle(
-                handle, TurnResult(turn_id, request_failure=RequestFailure.CANCELLED)
+                handle, TurnResult(request_id, request_failure=RequestFailure.CANCELLED)
             )
         return True
 
@@ -317,20 +322,20 @@ class RootScheduler(Generic[AgentGenerationT]):
 
         async def publish() -> None:
             await handle.finish(result)
-            self._completed.append(handle.turn_id)
+            self._completed.append(handle.request_id)
             while len(self._completed) > self._retained_outcomes:
                 del self._handles[self._completed.popleft()]
 
-        task = self._finishing.get(handle.turn_id)
+        task = self._finishing.get(handle.request_id)
         if task is None:
             handle.inbox.set_activity(TurnState.FINALIZING)
             task = asyncio.create_task(publish())
-            self._finishing[handle.turn_id] = task
+            self._finishing[handle.request_id] = task
         operations = JoinedOperations()
         try:
             await operations.run_async(lambda: task)
         finally:
-            self._finishing.pop(handle.turn_id, None)
+            self._finishing.pop(handle.request_id, None)
         operations.check_cancelled()
 
     async def prepare(self) -> DailyTransitionOutcome:
@@ -426,7 +431,7 @@ class RootScheduler(Generic[AgentGenerationT]):
         if handle is not None and handle.cancel_requested:
             await self._finish_handle(
                 handle,
-                TurnResult(handle.turn_id, request_failure=RequestFailure.CANCELLED),
+                TurnResult(handle.request_id, request_failure=RequestFailure.CANCELLED),
             )
             return None
 
@@ -449,7 +454,11 @@ class RootScheduler(Generic[AgentGenerationT]):
         result: TurnResult | None = None
         try:
             outcome = await task
-            result = TurnResult(request.request_id, outcome=outcome)
+            result = TurnResult(
+                request.request_id,
+                turn_id=handle.turn_id if handle else None,
+                outcome=outcome,
+            )
             return outcome
         except asyncio.CancelledError as exc:
             cancelled_outcome = (
@@ -461,6 +470,7 @@ class RootScheduler(Generic[AgentGenerationT]):
             )
             result = TurnResult(
                 request.request_id,
+                turn_id=handle.turn_id if handle else None,
                 outcome=cancelled_outcome,
                 request_failure=(
                     RequestFailure.CANCELLED if cancelled_outcome is None else None
@@ -473,6 +483,7 @@ class RootScheduler(Generic[AgentGenerationT]):
         except Exception as exc:
             result = TurnResult(
                 request.request_id,
+                turn_id=handle.turn_id if handle else None,
                 request_failure=RequestFailure.FAILED,
                 error_type=type(exc).__name__,
             )
@@ -514,28 +525,16 @@ class RootScheduler(Generic[AgentGenerationT]):
             async with generation.day.active_day_lease() as leased_day:
                 if leased_day != transition.active_day:
                     raise AgentSDKError("Active Business Day changed before User Turn")
-                handle = self._handles.get(request.request_id)
-                if handle is not None:
-                    handle.generation_id = (
-                        self._generation_handle.generation_id
-                        if self._generation_handle
-                        else None
-                    )
-                    handle.active_day = leased_day
-                    return await generation.user_turn.run(
-                        request.text,
-                        active_day=leased_day,
-                        scope=self._scope,
-                        request_id=request.request_id,
-                        input_source=request.source,
-                        inbox=handle.inbox,
-                    )
+                handle = self._handles[request.request_id]
+                turn_id = await self._allocate_turn(generation.day, leased_day, handle)
                 return await generation.user_turn.run(
                     request.text,
                     active_day=leased_day,
                     scope=self._scope,
                     request_id=request.request_id,
+                    turn_id=turn_id,
                     input_source=request.source,
+                    inbox=handle.inbox,
                 )
 
     async def _run_reflection(self, request: ReflectionRequest) -> ReflectionOutcome:
@@ -543,23 +542,30 @@ class RootScheduler(Generic[AgentGenerationT]):
             RuntimeActivity.REFLECTION_TURN
         ) as generation:
             transition = await self._prepare_day()
-            handle = self._handles.get(request.request_id)
+            handle = self._handles[request.request_id]
             async with generation.day.active_day_lease() as day:
                 if day != transition.active_day:
                     raise AgentSDKError("Active day changed before Reflection")
-                if handle is not None:
-                    handle.generation_id = (
-                        self._generation_handle.generation_id
-                        if self._generation_handle
-                        else None
-                    )
-                    handle.active_day = day
+                turn_id = await self._allocate_turn(generation.day, day, handle)
                 return await generation.reflection.run(
                     request,
                     active_day=day,
+                    turn_id=turn_id,
                     scope=self._scope,
-                    inbox=handle.inbox if handle is not None else None,
+                    inbox=handle.inbox,
                 )
+
+    async def _allocate_turn(
+        self, owner: DayLifecycle, day: CalendarDay, handle: TurnHandle
+    ) -> str:
+        operations = JoinedOperations()
+        identity = await operations.run(lambda: owner.allocate_turn(day))
+        handle.bind_turn(identity, day)
+        handle.generation_id = (
+            self._generation_handle.generation_id if self._generation_handle else None
+        )
+        operations.check_cancelled()
+        return identity
 
     @asynccontextmanager
     async def _generation_lease(self):

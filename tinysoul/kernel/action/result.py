@@ -220,8 +220,15 @@ class ActionTraceProjection:
 
     origin_refs: tuple[str, ...] = ()
     canonical_payload: JsonObject = field(default_factory=dict)
+    model_text: str | None = None
 
     def __post_init__(self) -> None:
+        if self.model_text is not None and (
+            not isinstance(self.model_text, str) or not self.model_text.strip()
+        ):
+            raise ActionInvariantError(
+                "ActionTraceProjection.model_text must be non-empty text"
+            )
         if not isinstance(self.origin_refs, tuple):
             raise ActionInvariantError(
                 "ActionTraceProjection.origin_refs must be a tuple"
@@ -272,6 +279,7 @@ class ActionResult:
     failure: ActionLocalFailure | None = None
     frame_data: JsonObject = field(default_factory=dict)
     trace_projection: ActionTraceProjection | None = None
+    model_text: str | None = None
 
     def __post_init__(self) -> None:
         if not self.result_id:
@@ -280,6 +288,10 @@ class ActionResult:
             raise ActionInvariantError("ActionResult.call_id must be non-empty")
         if not self.action_name:
             raise ActionInvariantError("ActionResult.action_name must be non-empty")
+        if self.model_text is not None and (
+            not isinstance(self.model_text, str) or not self.model_text.strip()
+        ):
+            raise ActionInvariantError("ActionResult.model_text must be non-empty text")
         if not isinstance(self.status, ActionResultStatus):
             raise ActionInvariantError(
                 "ActionResult.status must be an ActionResultStatus"
@@ -325,6 +337,7 @@ class ActionResult:
         payload: JsonObject | None = None,
         frame_data: JsonObject | None = None,
         trace_projection: ActionTraceProjection | None = None,
+        model_text: str | None = None,
     ) -> "ActionResult":
         return cls(
             result_id=_result_id(),
@@ -339,6 +352,7 @@ class ActionResult:
             payload=payload or {},
             frame_data=frame_data or {},
             trace_projection=trace_projection,
+            model_text=model_text,
         )
 
     @classmethod

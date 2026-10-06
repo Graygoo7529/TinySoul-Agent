@@ -69,21 +69,21 @@ def test_workspace_paging_full_text_and_single_byte_ranges(tmp_path: Path) -> No
         client.put(
             "/v2/workspace/resource",
             headers=_auth(),
-            json={"link": "workspace:paged.txt", "text": text},
+            json={"ref": "workspace:paged.txt", "text": text},
         ).status_code
         == 200
     )
     first = client.get(
         "/v2/workspace/resource",
         headers=_auth(),
-        params={"link": "workspace:paged.txt", "max_chars": 1024},
+        params={"ref": "workspace:paged.txt", "max_chars": 1024},
     ).json()
     assert first["truncated"] and not first["complete"] and first["editable"]
     assert first["locator"]["day"] == str(DAY)
     full = client.get(
         "/v2/workspace/resource",
         headers=_auth(),
-        params={"link": "workspace:paged.txt", "full": True},
+        params={"ref": "workspace:paged.txt", "full": True},
     ).json()
     assert full["text"] == text and full["complete"]
     for header, expected in (
@@ -93,19 +93,19 @@ def test_workspace_paging_full_text_and_single_byte_ranges(tmp_path: Path) -> No
         response = client.get(
             "/v2/workspace/blob",
             headers={**_auth(), "Range": header},
-            params={"link": "workspace:paged.txt"},
+            params={"ref": "workspace:paged.txt"},
         )
         assert response.status_code == 206 and response.content == expected
     invalid = client.get(
         "/v2/workspace/blob",
         headers={**_auth(), "Range": "bytes=99999-"},
-        params={"link": "workspace:paged.txt"},
+        params={"ref": "workspace:paged.txt"},
     )
     assert invalid.status_code == 416
     missing = client.get(
         "/v2/workspace/resource",
         headers=_auth(),
-        params={"link": "workspace:missing.txt"},
+        params={"ref": "workspace:missing.txt"},
     )
     assert (
         missing.status_code == 404
@@ -161,8 +161,8 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
     assert "/v2/reflection/decision" not in openapi["paths"]
     for path, method in (
         ("/v2/status", "get"),
-        ("/v2/turns/{turn_id}", "get"),
-        ("/v2/turns/{turn_id}/context", "get"),
+        ("/v2/requests/{request_id}", "get"),
+        ("/v2/requests/{request_id}/context", "get"),
         ("/v2/resources/resolve", "get"),
     ):
         response_schema = openapi["paths"][path][method]["responses"]["200"]["content"][
@@ -185,19 +185,19 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
         },
         ("/v2/home/content", "get"): {"items", "next_continuation", "content_fragment"},
         ("/v2/home/search", "post"): {
-            "result_ref",
+            "result_handle",
             "source",
             "items",
             "coverage",
             "page",
         },
-        ("/v2/turns/{turn_id}", "get"): {
+        ("/v2/requests/{request_id}", "get"): {
             "turn_id",
             "question",
             "budget_request",
             "result",
         },
-        ("/v2/turns/{turn_id}/jobs/{job_id}/output", "get"): {
+        ("/v2/requests/{request_id}/jobs/{job_id}/output", "get"): {
             "job_id",
             "items",
             "next_continuation",
@@ -330,7 +330,7 @@ def test_endpoint_workspace_preserves_sdk_service_failure(
         client.put(
             "/v2/workspace/resource",
             headers=_auth(),
-            json={"link": "workspace:note.txt", "text": "content"},
+            json={"ref": "workspace:note.txt", "text": "content"},
         ),
     ):
         assert response.status_code == (409 if code == "service.stale" else 503)
@@ -348,7 +348,7 @@ def test_endpoint_workspace_overwrite_trash_and_restore(tmp_path: Path) -> None:
         "/v2/workspace/resource",
         headers=_auth(),
         json={
-            "link": "workspace:notes/demo.md",
+            "ref": "workspace:notes/demo.md",
             "text": "first",
         },
     )
@@ -368,7 +368,7 @@ def test_endpoint_workspace_overwrite_trash_and_restore(tmp_path: Path) -> None:
     read = client.get(
         "/v2/workspace/resource",
         headers=_auth(),
-        params={"link": "workspace:notes/demo.md"},
+        params={"ref": "workspace:notes/demo.md"},
     ).json()
     assert read["text"] == "first"
     assert "digest" not in read
@@ -377,7 +377,7 @@ def test_endpoint_workspace_overwrite_trash_and_restore(tmp_path: Path) -> None:
         "/v2/workspace/resource",
         headers=_auth(),
         json={
-            "link": "workspace:notes/demo.md",
+            "ref": "workspace:notes/demo.md",
             "text": "stale",
             "overwrite": False,
         },
@@ -389,7 +389,7 @@ def test_endpoint_workspace_overwrite_trash_and_restore(tmp_path: Path) -> None:
         "/v2/workspace/trash",
         headers=_auth(),
         json={
-            "link": "workspace:notes/demo.md",
+            "ref": "workspace:notes/demo.md",
         },
     )
     assert trashed.status_code == 200
@@ -402,7 +402,7 @@ def test_endpoint_workspace_overwrite_trash_and_restore(tmp_path: Path) -> None:
         json={"trash_ref": trash["ref"]},
     )
     assert restored.status_code == 200
-    assert restored.json()["record"]["link"] == "workspace:notes/demo.md"
+    assert restored.json()["record"]["ref"] == "workspace:notes/demo.md"
 
 
 def test_endpoint_workspace_directory_edit_move_tags_and_rejects_old_guards(
@@ -412,27 +412,27 @@ def test_endpoint_workspace_directory_edit_move_tags_and_rejects_old_guards(
     client = TestClient(create_endpoint_app(engine, engine.settings))
     assert (
         client.post(
-            "/v2/workspace/directory", headers=_auth(), json={"link": "workspace:notes"}
+            "/v2/workspace/directory", headers=_auth(), json={"ref": "workspace:notes"}
         ).status_code
         == 200
     )
     created = client.put(
         "/v2/workspace/resource",
         headers=_auth(),
-        json={"link": "workspace:notes/a.md", "text": "old"},
+        json={"ref": "workspace:notes/a.md", "text": "old"},
     )
     assert created.status_code == 200
     tagged = client.put(
         "/v2/workspace/tags",
         headers=_auth(),
-        json={"link": "workspace:notes/a.md", "tags": ["pinned", "library"]},
+        json={"ref": "workspace:notes/a.md", "tags": ["pinned", "library"]},
     )
     assert tagged.status_code == 200
     edited = client.post(
         "/v2/workspace/edit",
         headers=_auth(),
         json={
-            "link": "workspace:notes/a.md",
+            "ref": "workspace:notes/a.md",
             "edits": [{"old_text": "old", "new_text": "new"}],
         },
     )
@@ -440,18 +440,18 @@ def test_endpoint_workspace_directory_edit_move_tags_and_rejects_old_guards(
     moved = client.post(
         "/v2/workspace/move",
         headers=_auth(),
-        json={"link": "workspace:notes", "target_link": "workspace:renamed"},
+        json={"source_ref": "workspace:notes", "target_ref": "workspace:renamed"},
     )
     assert moved.status_code == 200
     assert any(
-        item["link"] == "workspace:renamed/a.md"
+        item["ref"] == "workspace:renamed/a.md"
         for item in moved.json()["manifest"]["resources"]
     )
     assert (
         client.get(
             "/v2/workspace/resource",
             headers=_auth(),
-            params={"link": "workspace:renamed/a.md"},
+            params={"ref": "workspace:renamed/a.md"},
         ).json()["text"]
         == "new"
     )
@@ -460,7 +460,7 @@ def test_endpoint_workspace_directory_edit_move_tags_and_rejects_old_guards(
             "/v2/workspace/resource",
             headers=_auth(),
             json={
-                "link": "workspace:renamed/a.md",
+                "ref": "workspace:renamed/a.md",
                 "text": "unsafe",
                 "overwrite": True,
                 "expected_digest": "old",
@@ -479,7 +479,7 @@ def test_endpoint_workspace_blob_round_trip(tmp_path: Path) -> None:
         "/v2/workspace/blob",
         headers={**_auth(), "Content-Type": "application/octet-stream"},
         params={
-            "link": "workspace:assets/data.bin",
+            "ref": "workspace:assets/data.bin",
         },
         content=data,
     )
@@ -490,11 +490,12 @@ def test_endpoint_workspace_blob_round_trip(tmp_path: Path) -> None:
     response = client.get(
         "/v2/workspace/blob",
         headers=_auth(),
-        params={"link": record["link"]},
+        params={"ref": record["ref"]},
     )
     assert response.status_code == 200
     assert response.content == data
     assert response.headers["x-tinysoul-size"] == str(len(data))
+    assert response.headers["x-tinysoul-ref"] == record["ref"]
 
 
 def test_workspace_observation_failure_does_not_change_mutation_result(
@@ -507,7 +508,7 @@ def test_workspace_observation_failure_does_not_change_mutation_result(
         "/v2/workspace/resource",
         headers=_auth(),
         json={
-            "link": "workspace:committed.md",
+            "ref": "workspace:committed.md",
             "text": "committed",
         },
     )
@@ -819,18 +820,18 @@ class _EndpointServices:
     def __init__(self, workspace: WorkspaceService) -> None:
         self.registry = ServiceRegistry((Service(WorkspaceService, workspace),))
 
-    def turn_directory(self) -> JsonObject:
+    def request_directory(self) -> JsonObject:
         return {"items": [], "completed_limit": 0}
 
     async def workspace_manifest(self, day: CalendarDay | None = None) -> JsonObject:
         async with self.registry.get(WorkspaceService).operation() as service:
             return (await service.load_manifest()).to_json()
 
-    async def job_detail(self, turn_id: str, job_id: str) -> JsonObject:
+    async def job_detail(self, request_id: str, job_id: str) -> JsonObject:
         raise AgentSDKError("Test service has no Jobs")
 
     async def job_output(
-        self, turn_id: str, job_id: str, page: PageOptions = PageOptions()
+        self, request_id: str, job_id: str, page: PageOptions = PageOptions()
     ) -> JsonObject:
         raise AgentSDKError("Test service has no Jobs")
 
@@ -854,9 +855,9 @@ class _EndpointServices:
 
     async def resolve_resource(
         self,
-        reference: str,
+        ref: str,
         *,
-        origin_link: str | None = None,
+        origin_ref: str | None = None,
         day: CalendarDay | None = None,
         turn_id: str | None = None,
         view: str = "effective",
@@ -869,26 +870,26 @@ class _EndpointServices:
         return {"items": [{"day": str(DAY), "active": True}]}
 
     async def turn_interactions(
-        self, turn_id: str, page: PageOptions = PageOptions()
+        self, request_id: str, page: PageOptions = PageOptions()
     ) -> JsonObject:
         raise AgentSDKError("Test service has no Turn")
 
-    async def context_overview(self, turn_id: str) -> JsonObject:
+    async def context_overview(self, request_id: str) -> JsonObject:
         raise AgentSDKError("Test service has no Context")
 
     async def context_segment(
-        self, turn_id: str, segment_id: str, page: PageOptions = PageOptions()
+        self, request_id: str, segment_id: str, page: PageOptions = PageOptions()
     ) -> JsonObject:
         raise AgentSDKError("Test service has no Context")
 
     async def context_background(
-        self, turn_id: str, page: PageOptions = PageOptions()
+        self, request_id: str, page: PageOptions = PageOptions()
     ) -> JsonObject:
         raise AgentSDKError("Test service has no Context")
 
     async def context_inspect(
         self,
-        turn_id: str,
+        request_id: str,
         ref: str,
         *,
         query: str | None = None,
@@ -928,14 +929,14 @@ class _EndpointServices:
 
     async def workspace_text(
         self,
-        link: str,
+        ref: str,
         day: CalendarDay | None = None,
         *,
         page: PageOptions = PageOptions(),
         full: bool = False,
     ) -> JsonObject:
         async with self.registry.get(WorkspaceService).operation() as service:
-            return await service.browse_text(link, page=page, full=full)
+            return await service.browse_text(ref, page=page, full=full)
 
     async def workspace_trash(
         self, day: CalendarDay | None = None, page: PageOptions = PageOptions()
@@ -950,21 +951,21 @@ class _EndpointServices:
             )
 
     @asynccontextmanager
-    async def workspace_blob(self, link: str, day: CalendarDay | None = None):
+    async def workspace_blob(self, ref: str, day: CalendarDay | None = None):
         async with self.registry.get(WorkspaceService).operation() as service:
-            blob = await service.open_blob(link)
+            blob = await service.open_blob(ref)
             try:
                 yield blob
             finally:
                 blob.stream.close()
 
-    def turn_snapshot(self, turn_id: str) -> TurnSnapshot | None:
+    def request_snapshot(self, request_id: str) -> TurnSnapshot | None:
         return None
 
-    def turn_jobs(self, turn_id: str) -> tuple[JobSnapshot, ...] | None:
+    def turn_jobs(self, request_id: str) -> tuple[JobSnapshot, ...] | None:
         return None
 
-    async def stop_job(self, turn_id: str, job_id: str) -> JobSnapshot:
+    async def stop_job(self, request_id: str, job_id: str) -> JobSnapshot:
         raise AgentSDKError("Test service has no Jobs")
 
     def runtime_status(self, *, credentials: bool = False) -> JsonObject:
@@ -1002,19 +1003,21 @@ class _EndpointGateway:
         return TurnHandle(request)
 
     async def append_input(
-        self, turn_id: str, text: str, *, input_id: str = ""
+        self, request_id: str, text: str, *, input_id: str = ""
     ) -> InboxReceipt:
         raise AgentSDKError("No active Turn")
 
     async def reply(
-        self, turn_id: str, question_id: str, answer: QuestionAnswer
+        self, request_id: str, question_id: str, answer: QuestionAnswer
     ) -> InboxReceipt:
         raise AgentSDKError("No active Turn")
 
-    async def grant_cycles(self, turn_id: str, request_id: str, count: int) -> bool:
+    async def grant_cycles(
+        self, request_id: str, budget_request_id: str, count: int
+    ) -> bool:
         raise AgentSDKError("No active Turn")
 
-    async def cancel_turn(self, turn_id: str) -> bool:
+    async def cancel_request(self, request_id: str) -> bool:
         return False
 
     inputs: list[tuple[str, str, JsonObject]] = field(default_factory=list)

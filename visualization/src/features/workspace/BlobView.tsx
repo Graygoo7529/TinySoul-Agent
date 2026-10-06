@@ -17,18 +17,18 @@ import { formatSize } from "../../utils/format";
 import { downloadWorkspaceBlob } from "./download";
 
 export function BlobView({
-  link,
+  ref,
   day,
   record,
 }: {
-  /** Fragment-free `workspace:` link. */
-  link: string;
+  /** Fragment-free `workspace:` ref. */
+  ref: string;
   /** Archive binding; null reads the active day. */
   day: string | null;
   record: WorkspaceResourceRecord;
 }): ReactElement {
   if (record.media_type.startsWith("image/")) {
-    return <ImageBlob link={link} day={day} record={record} />;
+    return <ImageBlob ref={ref} day={day} record={record} />;
   }
   return (
     <div className="flex h-full items-center justify-center p-6">
@@ -56,7 +56,7 @@ export function BlobView({
         <Button
           variant="outline"
           size="sm"
-          onClick={() => void downloadWorkspaceBlob(link, day, fileName(record))}
+          onClick={() => void downloadWorkspaceBlob(ref, day, fileName(record))}
         >
           <Download size={13} />
           Download
@@ -67,15 +67,15 @@ export function BlobView({
 }
 
 function ImageBlob({
-  link,
+  ref,
   day,
   record,
 }: {
-  link: string;
+  ref: string;
   day: string | null;
   record: WorkspaceResourceRecord;
 }): ReactElement {
-  const blob = useWorkspaceBlobUrl(link, day);
+  const blob = useWorkspaceBlobUrl(ref, day);
   if (blob.error !== null) {
     return (
       <div className="flex h-full items-center justify-center p-6">
@@ -103,7 +103,7 @@ function ImageBlob({
         <Button
           variant="ghost"
           size="xs"
-          onClick={() => void downloadWorkspaceBlob(link, day, fileName(record))}
+          onClick={() => void downloadWorkspaceBlob(ref, day, fileName(record))}
         >
           <Download size={12} />
           Download

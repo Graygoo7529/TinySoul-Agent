@@ -3,14 +3,14 @@
 ## Current v2 contract notes
 
 `segments[].root_refs` contains owner navigation identities that can be sent
-directly to `/v2/turns/{turn_id}/context/inspect`. Descriptor `ref_prefixes`
+directly to `/v2/requests/{request_id}/context/inspect`. Descriptor `ref_prefixes`
 remain internal routing scopes. Normal roots include `session:map`,
-`turn:trace@<turn_id>`, and `workspace_archive:<day>` when an archive view is
+`turn:trace/YYYY-MM-DD/<sequence>`, and `workspace_archive:<day>` when an archive view is
 installed.
 
 Trace inspection may return compact branch/leaf refs such as
-`turn:trace/<turn_id>/<node_id>`. Resource resolution preserves that exact
-`ref` and the owning Turn binding. Dynamic Memory links also preserve a
+`turn:trace/YYYY-MM-DD/<sequence>#node/<number>`. Resource resolution preserves that exact
+`ref` and the owning Turn binding. Dynamic Memory refs also preserve a
 fragment, for example `memory:current#notes`; the returned locator keeps its
 day and Turn fields.
 
@@ -30,14 +30,14 @@ rather than being copied into another business model.
 | GET 路径 | 参数 | 响应来源与内容 |
 | --- | --- | --- |
 | /days | before?, limit? | items[{day,active}]、next_before；活动及归档日 |
-| /turns/{id}/interactions | continuation?, limit?, max_chars? | turn_id/generation_id/day/state、items、pending_items；完成后 result |
-| /turns/{id}/context | 无 | turn_id/generation_id/day/captured_at、segments、resolved_references |
-| /turns/{id}/context/segments/{segment_id} | continuation?, max_chars? | turn_id/segment_id、messages[{message_index,message}]；可选 next_continuation/content_fragment |
-| /turns/{id}/context/background | continuation?, max_chars? | 当前 Turn 已安装 Home/Memory 等 Heap 的正文快照；只读、不读取 owner 当前文件 |
-| /turns/{id}/context/inspect | ref、query?、continuation? | 既有 DisclosurePage |
+| /requests/{request_id}/interactions | continuation?, limit?, max_chars? | turn_id/generation_id/day/state、items、pending_items；完成后 result |
+| /requests/{request_id}/context | 无 | turn_id/generation_id/day/captured_at、segments、resolved_references |
+| /requests/{request_id}/context/segments/{segment_id} | continuation?, max_chars? | turn_id/segment_id、messages[{message_index,message}]；可选 next_continuation/content_fragment |
+| /requests/{request_id}/context/background | continuation?, max_chars? | 当前 Turn 已安装 Home/Memory 等 Heap 的正文快照；只读、不读取 owner 当前文件 |
+| /requests/{request_id}/context/inspect | ref、query?、continuation? | 既有 DisclosurePage |
 | /session/turns | day?、普通分页 | User Turn 摘要：turn_id/ref/day/status/input/output 线索、问题数和 recorded_at（现有 Session 记录的提交时间，UTC ISO） |
-| /session/turns/{id} | day、continuation?、max_chars? | 正式 Session 交互页 |
-| /session/turns/{id}/background | day、continuation?、max_chars? | 该已完成 Turn 提交时保存的 Heap 正文；旧记录无快照时 snapshot_available=false |
+| /session/turns/{day}/{sequence} | continuation?、max_chars? | 正式 Session 交互页 |
+| /session/turns/{day}/{sequence}/background | continuation?、max_chars? | 该已完成 Turn 提交时保存的 Heap 正文；旧记录无快照时 snapshot_available=false |
 | /session/map | day?、continuation? | session:map 的 DisclosurePage |
 | /session/inspect | day、ref?、query?、continuation? | 已提交记录/解释的确定性披露 |
 
@@ -56,17 +56,17 @@ background 页共用普通 Page envelope，附带 `turn_id/day/source/snapshot_a
 | GET 路径 | 参数 | 内容 |
 | --- | --- | --- |
 | /home/catalog | view=effective或actual、space?、query?、普通分页 | `actual` 枚举全部 actual Home；`effective` 只枚举已物化 runtime/home 内容；目录读取无副作用 |
-| /home/content | link、view?、continuation?、max_chars? | 对应 view 的实际正文与 direct refs 的 DisclosurePage；effective 未物化资源不可读且不会触发 runtime copy |
+| /home/content | ref、view?、continuation?、max_chars? | 对应 view 的实际正文与 direct refs 的 DisclosurePage；effective 未物化资源不可读且不会触发 runtime copy |
 | /home/changes | 普通分页 | overlay 的创建/修改/删除；只读，不清理 review 状态 |
-| /home/diff | link、continuation?、max_chars? | actual/effective 差异及 baseline_diverged |
+| /home/diff | ref、continuation?、max_chars? | actual/effective 差异及 baseline_diverged |
 | /memory/active | day?、continuation?、max_chars? | 当日或归档活动 Memory.md |
 | /memory/catalog | kind?、query?、普通分页 | 五类持久文档、状态与真实 redirect |
-| /memory/document | link、continuation?、max_chars? | 持久文档正文、direct refs 与解析链 |
-| /resources/resolve | reference、origin_link?、day?、turn_id?、view? | kind、locator、capabilities |
+| /memory/document | ref、continuation?、max_chars? | 持久文档正文、direct refs 与解析链 |
+| /resources/resolve | ref、origin_ref?、day?、turn_id?、view? | kind、locator、capabilities |
 
 目录 query 只做名称/已有摘要筛选；全文检索用显式 Search。Home 不提供虚构的日期快照，不给 HTTP review token 或接受写权限。Memory active 与 persistent daily 分开，浏览历史日不会把持久知识改成历史版本。
 
-ResourceLocator 只含 link 或 ref，附有意义的 day/turn_id/view。相对引用由 origin_link owner 解释。历史动态 memory:latest/current/target 使用原 Context/Session/Task 记录的绑定，缺失返回 422 resource.unresolved_origin；绝不替换成今天 latest。Workspace 来源 Turn 保留原 day。Search result_ref 和模型短 ID 不是永久资源。网页由客户端直接打开，不经后端代理。
+ResourceLocator 只含 单一 ref，附有意义的 day/turn_id/view。相对引用由 origin_ref owner 解释。历史动态 memory:latest/current/target 使用原 Context/Session/Task 记录的绑定，缺失返回 422 resource.unresolved_origin；绝不替换成今天 latest。Workspace 来源 Turn 保留原 day。Search result_handle 和模型短 ID 不是永久资源。网页由客户端直接打开，不经后端代理。
 
 ## 页面 Search
 
@@ -82,7 +82,7 @@ ResourceLocator 只含 link 或 ref，附有意义的 day/turn_id/view。相对�
 
 ## Job、ACP、MCP
 
-`GET /turns/{id}/jobs/{job_id}` 返回 Job owner describe；`GET …/output?continuation=&max_chars=` 返回 channel/text 页、next_continuation、truncated、result_locators。游标封装真实输出位置；轮询不消费父 Agent 通知，不把不同流假装成因果总序。Job 收尾回收后 404 job.unavailable，历史查看实际产物和事件；停止沿原路由，无通用 Job reply。
+`GET /requests/{request_id}/jobs/{job_id}` 返回 Job owner describe；`GET …/output?continuation=&max_chars=` 返回 channel/text 页、next_continuation、truncated、result_locators。游标封装真实输出位置；轮询不消费父 Agent 通知，不把不同流假装成因果总序。Job 收尾回收后 404 job.unavailable，历史查看实际产物和事件；停止沿原路由，无通用 Job reply。
 
 `GET /subagent` 返回 generation_id/day、configured targets 和真实 connections（含空闲跨 Turn 连接）；UI 不创建连接或脱离 Turn 委派。
 

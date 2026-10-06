@@ -55,8 +55,8 @@ async function connectActiveTurn(status = makeStatus({
 })) {
   const endpoint = new FakeEndpoint();
   installBaseRoutes(endpoint, status);
-  endpoint.get("/v2/turns/contract-turn", () => jsonResponse(runningSnapshot()));
-  endpoint.get("/v2/turns/contract-turn/interactions", () =>
+  endpoint.get("/v2/requests/contract-turn", () => jsonResponse(runningSnapshot()));
+  endpoint.get("/v2/requests/contract-turn/interactions", () =>
     jsonResponse(
       makeInteractionsPage({
         items: [
@@ -298,10 +298,10 @@ describe("event invalidation", () => {
 
     await vi.advanceTimersByTimeAsync(150);
     await vi.waitFor(() => {
-      expect(endpoint.calls("/v2/turns/contract-turn/interactions")).toHaveLength(1);
+      expect(endpoint.calls("/v2/requests/contract-turn/interactions")).toHaveLength(1);
     });
     expect(endpoint.calls("/v2/status")).toHaveLength(1);
-    expect(endpoint.calls("/v2/turns/contract-turn", "GET")).toHaveLength(1);
+    expect(endpoint.calls("/v2/requests/contract-turn", "GET")).toHaveLength(1);
     // Non-terminal events do not touch the day history.
     expect(endpoint.calls("/v2/session/turns")).toHaveLength(0);
     // The cursor advanced through every delivered event.
@@ -340,7 +340,7 @@ describe("event invalidation", () => {
       expect(endpoint.calls("/v2/session/turns")).toHaveLength(1);
     });
     expect(endpoint.calls("/v2/status")).toHaveLength(1);
-    expect(endpoint.calls("/v2/turns/contract-turn", "GET")).toHaveLength(1);
+    expect(endpoint.calls("/v2/requests/contract-turn", "GET")).toHaveLength(1);
   });
 
   it("runtime events refresh status and the displayed turn, not the day history", async () => {
@@ -352,7 +352,7 @@ describe("event invalidation", () => {
     socket.emitEvent("runtime.trap", 53);
     await vi.advanceTimersByTimeAsync(150);
     await vi.waitFor(() => {
-      expect(endpoint.calls("/v2/turns/contract-turn", "GET")).toHaveLength(1);
+      expect(endpoint.calls("/v2/requests/contract-turn", "GET")).toHaveLength(1);
     });
     expect(endpoint.calls("/v2/status")).toHaveLength(1);
     expect(endpoint.calls("/v2/session/turns")).toHaveLength(0);
@@ -426,11 +426,11 @@ describe("event invalidation", () => {
   it("resets the conversation state when the generation changes", async () => {
     const { endpoint } = await connectIdle();
     // Conversation state from the old generation.
-    useTurnStore.getState().openTurn("contract-turn", "2026-09-29", "live");
+    useTurnStore.getState().openRequest("contract-turn", "2026-09-29");
     useTurnStore.getState().addEcho({
       echoId: "echo-1",
       kind: "new-turn",
-      turnId: null,
+      requestId: null,
       questionId: null,
       text: "draft",
       state: "sending",
@@ -516,7 +516,7 @@ describe("disconnect and restart", () => {
     expect(ok).toBe(true);
     const socket = MockEventsSocket.instances[0]!;
     socket.authenticate();
-    useTurnStore.getState().openTurn("contract-turn", "2026-09-29", "live");
+    useTurnStore.getState().openRequest("contract-turn", "2026-09-29");
     endpoint.clear();
 
     disconnect();
@@ -534,11 +534,11 @@ describe("disconnect and restart", () => {
 
   it("restartBackend posts /v2/restart and re-syncs on the new generation", async () => {
     const { endpoint } = await connectIdle();
-    useTurnStore.getState().openTurn("contract-turn", "2026-09-29", "live");
+    useTurnStore.getState().openRequest("contract-turn", "2026-09-29");
     useTurnStore.getState().addEcho({
       echoId: "echo-1",
       kind: "new-turn",
-      turnId: null,
+      requestId: null,
       questionId: null,
       text: "draft",
       state: "sending",

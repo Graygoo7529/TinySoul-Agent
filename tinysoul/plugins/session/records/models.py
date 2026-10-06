@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.infra.time import CalendarDay, CalendarDayError
+from tinysoul.kernel.identity import TurnIdentity, TurnIdentityError
 from tinysoul.kernel.action import ActionInvariantError, ActionLocalFailure
 from tinysoul.kernel.context.builtin.trace import TraceFactKind
 from tinysoul.kernel.interaction import QuestionAnswer, QuestionError
@@ -20,7 +21,7 @@ from ..errors import SessionContractError
 
 SESSION_RECORD_SCHEMA_VERSION = 10
 SESSION_MANIFEST_SCHEMA_VERSION = 3
-_TURN_REF = re.compile(r"^session:turn/([a-z0-9_-]+)$")
+_TURN_REF = re.compile(r"^session:turn/([0-9]{4}-[0-9]{2}-[0-9]{2}/[1-9][0-9]*)$")
 
 
 class SessionRecordKind(StrEnum):
@@ -277,7 +278,7 @@ class SessionTurnRecord:
     day: str
     inputs: tuple[SessionInputRecord, ...]
     working: JsonObject
-    background_links: tuple[str, ...]
+    background_refs: tuple[str, ...]
     output: SessionOutputRecord | None
     exhausted: bool
     actions: tuple[SessionActionRecord, ...]
@@ -295,6 +296,12 @@ class SessionTurnRecord:
         if _TURN_REF.fullmatch(self.ref) is None:
             raise SessionContractError("Session Turn ref is invalid")
         _require_day(self.day)
+        try:
+            identity = TurnIdentity.parse(self.turn_id)
+        except TurnIdentityError as exc:
+            raise SessionContractError("Session Turn identity is invalid") from exc
+        if str(identity.day) != self.day:
+            raise SessionContractError("Session Turn identity must match its day")
         inputs = tuple(self.inputs)
         if not inputs or any(
             not isinstance(item, SessionInputRecord) for item in inputs
@@ -305,10 +312,10 @@ class SessionTurnRecord:
         object.__setattr__(self, "segments", to_json_object(self.segments))
         object.__setattr__(
             self,
-            "background_links",
+            "background_refs",
             _non_empty_strings(
-                self.background_links,
-                "Session Turn background links",
+                self.background_refs,
+                "Session Turn background refs",
                 unique=True,
             ),
         )
@@ -379,7 +386,7 @@ class SessionTurnRecord:
             "inputs": [item.to_json() for item in self.inputs],
             "working": self.working,
             "segments": self.segments,
-            "background_links": list(self.background_links),
+            "background_refs": list(self.background_refs),
             "output": self.output.to_json() if self.output is not None else None,
             "exhausted": self.exhausted,
             "status": self.status.value,
@@ -404,7 +411,7 @@ class SessionTurnRecord:
                 "inputs",
                 "working",
                 "segments",
-                "background_links",
+                "background_refs",
                 "output",
                 "exhausted",
                 "status",
@@ -426,8 +433,8 @@ class SessionTurnRecord:
             inputs=tuple(SessionInputRecord.from_json(item) for item in raw_inputs),
             working=_required_object(value, "working"),
             segments=_required_object(value, "segments"),
-            background_links=_string_list(
-                value.get("background_links", []), "background_links"
+            background_refs=_string_list(
+                value.get("background_refs", []), "background_refs"
             ),
             output=(
                 SessionOutputRecord.from_json(raw_output)

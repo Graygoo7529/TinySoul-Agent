@@ -19,13 +19,13 @@ REMOVE_TODO_DESCRIPTION = "Remove one existing WorkingContext todo."
 
 # Tool description. Used by kernel/context/control/tools.py:_load_background_spec.
 LOAD_BACKGROUND_DESCRIPTION = (
-    "Load one or more top-level content links already exposed in the current context "
+    "Load one or more top-level content refs already exposed in the current context "
     "into the background context."
 )
 
 # Tool description. Used by kernel/context/control/tools.py:_load_background_spec.
-BACKGROUND_LINK_DESCRIPTION = (
-    "An effective top-level content link already exposed in the current context."
+BACKGROUND_REF_DESCRIPTION = (
+    "An effective top-level content ref already exposed in the current context."
 )
 
 # Tool description. Used by kernel/context/control/tools.py:_evict_background_spec.
@@ -78,10 +78,10 @@ TODO_CONTENT = "Todo content."
 TODO_STATUS = "Todo status."
 
 # Model tool parameter description. Used by kernel/context/control/tools.py:_load_background_spec.
-TOP_LEVEL_CONTENT_LINKS_TO_LOAD_TOGETHER = "Top-level content links to load together."
+TOP_LEVEL_CONTENT_REFS_TO_LOAD_TOGETHER = "Top-level content refs to load together."
 
 # Model tool parameter description. Used by kernel/context/control/tools.py:_evict_background_spec.
-LOADED_TOP_LEVEL_CONTENT_LINKS_TO_EVICT = "Loaded top-level content links to evict."
+LOADED_TOP_LEVEL_CONTENT_REFS_TO_EVICT = "Loaded top-level content refs to evict."
 
 # Model tool parameter description. Used by kernel/context/control/tools.py:_remove_working_spec.
 EXISTING_ITEM_KEY = "Existing item key."
@@ -89,36 +89,36 @@ EXISTING_ITEM_KEY = "Existing item key."
 
 # Model context presentation or local feedback. Used by kernel/context/background.py:_check_patch_against_loaded.
 def duplicate_background_load(*, duplicate: str) -> str:
-    return f"Background patch contains duplicate load link: {duplicate}"
+    return f"Background patch contains duplicate load ref: {duplicate}"
 
 
 # Model context presentation or local feedback. Used by kernel/context/background.py:_check_patch_against_loaded.
 def duplicate_background_eviction(*, duplicate: str) -> str:
-    return f"Background patch contains duplicate evict link: {duplicate}"
+    return f"Background patch contains duplicate evict ref: {duplicate}"
 
 
 # Model context presentation or local feedback. Used by kernel/context/background.py:_check_patch_against_loaded.
-def conflicting_background_link(*, link: str) -> str:
-    return f"Background patch cannot load and evict the same link: {link}"
+def conflicting_background_ref(*, ref: str) -> str:
+    return f"Background patch cannot load and evict the same ref: {ref}"
 
 
 # Model context presentation or local feedback. Used by kernel/context/background.py:_check_patch_against_loaded.
-BACKGROUND_PATCH_CONTAINS_NO_LINKS = "Background patch contains no links"
+BACKGROUND_PATCH_CONTAINS_NO_REFS = "Background patch contains no refs"
 
 
 # Model context presentation or local feedback. Used by kernel/context/background.py:_check_patch_against_loaded.
-def unknown_background_link(*, link: str) -> str:
-    return f"Unknown loadable background link: {link}"
+def unknown_background_ref(*, ref: str) -> str:
+    return f"Unknown loadable background ref: {ref}"
 
 
 # Model context presentation or local feedback. Used by kernel/context/background.py:_check_patch_against_loaded.
-def background_not_loaded(*, link: str) -> str:
-    return f"Background link is not loaded: {link}"
+def background_not_loaded(*, ref: str) -> str:
+    return f"Background ref is not loaded: {ref}"
 
 
 # Model context presentation or local feedback. Used by kernel/context/background.py:_check_patch_against_loaded.
-def background_not_evictable(*, link: str) -> str:
-    return f"Background link is not evictable: {link}"
+def background_not_evictable(*, ref: str) -> str:
+    return f"Background ref is not evictable: {ref}"
 
 
 # Local model feedback. Used by kernel/context/actions.py:execute.
@@ -167,8 +167,8 @@ def unknown_control_tool(*, name: str) -> str:
 
 
 # Local model feedback. Used by kernel/context/control/tools.py:_normalize_background.
-def links_required(*, name: str) -> str:
-    return f"{name} requires at least one link."
+def refs_required(*, name: str) -> str:
+    return f"{name} requires at least one ref."
 
 
 # Local model feedback. Used by kernel/context/control/tools.py:_arg_str.
@@ -221,3 +221,22 @@ SEED_REFS_OUTSIDE_SCOPE = "Seed refs are outside the requested Context source sc
 INSPECT_QUERY_UNSUPPORTED = (
     "This owner supports navigation but not query; inspect without query"
 )
+
+
+def background_catalog(owner: str, entries: tuple[tuple[str, str, str], ...]) -> str:
+    """Consumer: kernel/context/background.py."""
+    return f"Available {owner} context\n" + "\n".join(
+        f"- {title}: {description} ({ref})" for title, description, ref in entries
+    )
+
+
+def background_content(ref: str, content: str) -> str:
+    return f"Reference: {ref}\n\n{content}"
+
+
+def trace_directory(ref: str, entries: tuple[tuple[str, str], ...]) -> str:
+    """Consumer: kernel/context/builtin/trace.py."""
+    return (
+        f"Earlier events in this Turn ({ref}). Inspect a reference to recall details.\n"
+        + "\n".join(f"- {clue} ({target})" for target, clue in entries)
+    )

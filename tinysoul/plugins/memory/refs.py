@@ -1,4 +1,4 @@
-"""Canonical Memory links and Context-only Memory references."""
+"""Canonical Memory refs and Context-only Memory references."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ class MemoryBackgroundRef(StrEnum):
     TARGET = "memory:target"
 
 
-_LINK = re.compile(r"memory:(daily|entity|concept|fact|note)/([^/]+)\Z")
+_REF = re.compile(r"memory:(daily|entity|concept|fact|note)/([^/]+)\Z")
 _NAME_CITE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 _FACT_CITE = re.compile(r"f-[0-9a-f]{12,64}\Z")
 _NOTE_CITE = re.compile(r"n-[0-9a-f]{12,64}\Z")
@@ -42,7 +42,7 @@ _WINDOWS_RESERVED = {
 
 
 @dataclass(frozen=True, order=True)
-class MemoryLink:
+class MemoryRef:
     """One canonical persistent Memory identity."""
 
     kind: MemoryKind
@@ -50,37 +50,37 @@ class MemoryLink:
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, MemoryKind):
-            raise MemoryContractError("Memory link kind must be a MemoryKind")
+            raise MemoryContractError("Memory ref kind must be a MemoryKind")
         _validate_cite(self.kind, self.cite)
 
     @classmethod
-    def parse(cls, value: str) -> "MemoryLink":
+    def parse(cls, value: str) -> "MemoryRef":
         if not isinstance(value, str):
-            raise MemoryContractError("Memory link must be text")
-        match = _LINK.fullmatch(value)
+            raise MemoryContractError("Memory ref must be text")
+        match = _REF.fullmatch(value)
         if match is None:
             raise MemoryContractError(
-                "Memory link must use memory:<daily|entity|concept|fact|note>/<cite>"
+                "Memory ref must use memory:<daily|entity|concept|fact|note>/<cite>"
             )
-        link = cls(MemoryKind(match.group(1)), match.group(2))
-        if str(link) != value:
-            raise MemoryContractError("Memory link is not canonical")
-        return link
+        ref = cls(MemoryKind(match.group(1)), match.group(2))
+        if str(ref) != value:
+            raise MemoryContractError("Memory ref is not canonical")
+        return ref
 
     @classmethod
-    def from_resource(cls, resource: str) -> "MemoryLink":
-        """Normalize a persistent Link or Markdown resource path without reading."""
+    def from_resource(cls, resource: str) -> "MemoryRef":
+        """Normalize a persistent reference or Markdown resource path without reading."""
         body = resource.removeprefix("memory:")
         return cls.from_relative(body) if body.endswith(".md") else cls.parse(resource)
 
     @classmethod
-    def daily(cls, day: date) -> "MemoryLink":
+    def daily(cls, day: date) -> "MemoryRef":
         if not isinstance(day, date):
             raise MemoryContractError("Daily Memory day must be a date")
         return cls(MemoryKind.DAILY, day.isoformat())
 
     @classmethod
-    def from_relative(cls, relative: str) -> "MemoryLink":
+    def from_relative(cls, relative: str) -> "MemoryRef":
         if (
             not isinstance(relative, str)
             or PurePosixPath(relative).is_absolute()
@@ -89,8 +89,8 @@ class MemoryLink:
             raise MemoryContractError("Memory relative path must be canonical")
         daily = _DAILY_PATH.fullmatch(relative)
         if daily is not None:
-            link = cls.parse(f"memory:daily/{daily.group(3)}")
-            day = link.day
+            ref = cls.parse(f"memory:daily/{daily.group(3)}")
+            day = ref.day
             if (
                 daily.group(1) != f"{day.year:04d}"
                 or daily.group(2) != f"{day.month:02d}"
@@ -98,16 +98,16 @@ class MemoryLink:
                 raise MemoryContractError(
                     "Daily Memory path date does not match its directories"
                 )
-            return link
+            return ref
         other = _OTHER_PATH.fullmatch(relative)
         if other is None:
-            raise MemoryContractError("Memory path does not map to a persistent link")
+            raise MemoryContractError("Memory path does not map to a persistent ref")
         return cls.parse(f"memory:{other.group(1)}/{other.group(2)}")
 
     @property
     def day(self) -> date:
         if self.kind is not MemoryKind.DAILY:
-            raise MemoryContractError("Only daily Memory links have a day")
+            raise MemoryContractError("Only daily Memory refs have a day")
         try:
             return date.fromisoformat(self.cite)
         except ValueError as exc:  # pragma: no cover - guarded by construction
@@ -124,10 +124,10 @@ class MemoryLink:
         return f"memory:{self.kind.value}/{self.cite}"
 
 
-def parse_persistent_memory_link(value: str) -> MemoryLink:
+def parse_persistent_memory_ref(value: str) -> MemoryRef:
     if value in {item.value for item in MemoryBackgroundRef}:
-        raise MemoryContractError("Context Memory references are not persistent links")
-    return MemoryLink.parse(value)
+        raise MemoryContractError("Context Memory references are not persistent refs")
+    return MemoryRef.parse(value)
 
 
 def _validate_cite(kind: MemoryKind, cite: object) -> None:

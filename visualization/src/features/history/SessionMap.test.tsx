@@ -119,7 +119,7 @@ const TOPIC_HINT = child(
   "active: Discussed the rollout",
 );
 const HISTORY_HINT = child(
-  "session:turn/t-old",
+  "session:turn/2026-09-28/1",
   "Summarize the release plan",
   "answered",
 );
@@ -224,7 +224,7 @@ describe("SessionMapPanel", () => {
         ref: "session:unclassified",
         items: [
           child(
-            "session:turn/t-old",
+            "session:turn/2026-09-28/1",
             `${DAY} · answered`,
             "Which option? / Option B (opt_b)\nThe second option\nreply comment",
           ),
@@ -249,11 +249,11 @@ describe("SessionMapPanel", () => {
   });
 
   it("opens a history conversation from its hint", async () => {
-    endpoint.get("/v2/session/turns/t-old", () =>
+    endpoint.get("/v2/session/turns/2026-09-28/1", () =>
       jsonResponse(
         makeInteractionsPage({
-          ref: "session:turn/t-old",
-          turn_id: "t-old",
+          ref: "session:turn/2026-09-28/1",
+          turn_id: "2026-09-28/1",
           day: DAY,
         }),
       ),
@@ -266,7 +266,7 @@ describe("SessionMapPanel", () => {
     await act(async () => {
       buttonByText("Summarize the release plan").click();
     });
-    expect(useTurnStore.getState().turnId).toBe("t-old");
+    expect(useTurnStore.getState().turnId).toBe("2026-09-28/1");
     expect(useTurnStore.getState().historyView).toBe(true);
   });
 
@@ -298,7 +298,7 @@ describe("SessionMapPanel", () => {
         },
         c2: {
           ref: "session:history",
-          items: [child("session:turn/t-older", "An older conversation")],
+          items: [child("session:turn/2026-09-28/1er", "An older conversation")],
         },
       },
     });
@@ -330,21 +330,21 @@ const NODE_PAGE: JsonObject = {
       kind: "thread",
       title: "Release plan",
       body: "Discussed the rollout",
-      source_refs: ["session:turn/t-old#output"],
+      source_refs: ["session:turn/2026-09-28/1#output"],
       status: "active",
     },
     {
       basis: "interpretation",
       ref: "session:edge/e1",
       source: "session:node/n1",
-      target: "session:turn/t-old",
+      target: "session:turn/2026-09-28/1",
       relation: "covers",
       body: "",
       source_refs: [],
       status: "active",
     },
-    child("session:turn/t-old", "History fact", "Summarize the release plan"),
-    { kind: "source", ref: "session:turn/t-old#output" },
+    child("session:turn/2026-09-28/1", "History fact", "Summarize the release plan"),
+    { kind: "source", ref: "session:turn/2026-09-28/1#output" },
   ],
 };
 
@@ -366,11 +366,11 @@ describe("SessionRefPanel", () => {
     expect(text).toContain("Evidence");
     // The evidence chip carries the compact ref and opens its own page.
     await act(async () => {
-      buttonByText("t-old#output").click();
+      buttonByText("2026-09-28/1#output").click();
     });
     const entries = useInspectorStore.getState().entries;
     expect(entries).toHaveLength(1);
-    expect(entries[0].subtitle).toBe("session:turn/t-old#output");
+    expect(entries[0].subtitle).toBe("session:turn/2026-09-28/1#output");
   });
 
   it("marks a retracted interpretation without hiding it", async () => {
@@ -406,7 +406,7 @@ describe("SessionRefPanel", () => {
       "session:node/n1": {
         ref: "session:node/n1",
         kind: "session_query",
-        items: [child("session:turn/t-old", "Located", "rollout")],
+        items: [child("session:turn/2026-09-28/1", "Located", "rollout")],
       },
     });
     await renderAndSettle(
@@ -435,23 +435,23 @@ describe("SessionRefPanel", () => {
   });
 
   it("renders a committed turn page with facts and opens the conversation", async () => {
-    endpoint.get("/v2/session/turns/t-old", () =>
+    endpoint.get("/v2/session/turns/2026-09-28/1", () =>
       jsonResponse(
         makeInteractionsPage({
-          ref: "session:turn/t-old",
-          turn_id: "t-old",
+          ref: "session:turn/2026-09-28/1",
+          turn_id: "2026-09-28/1",
           day: DAY,
         }),
       ),
     );
     inspectRoute({
-      "session:turn/t-old": {
-        ref: "session:turn/t-old",
+      "session:turn/2026-09-28/1": {
+        ref: "session:turn/2026-09-28/1",
         kind: "session_turn",
         items: [
           {
             kind: "session_turn",
-            ref: "session:turn/t-old",
+            ref: "session:turn/2026-09-28/1",
             day: DAY,
             status: "answered",
           },
@@ -459,28 +459,28 @@ describe("SessionRefPanel", () => {
             kind: "interaction",
             id: "input/0",
             role: "user.input",
-            ref: "session:turn/t-old#input/0",
+            ref: "session:turn/2026-09-28/1#input/0",
             text: "Summarize the release plan",
           },
           {
             kind: "interaction",
             id: "output",
             role: "agent.output",
-            ref: "session:turn/t-old#output",
+            ref: "session:turn/2026-09-28/1#output",
             text: "Here is the summary…",
           },
           {
             kind: "session_action",
-            ref: "session:turn/t-old#actions/0",
-            turn_ref: "session:turn/t-old",
+            ref: "session:turn/2026-09-28/1#actions/0",
+            turn_ref: "session:turn/2026-09-28/1",
             action: "shell.exec",
             request: { command: "ls" },
             outcome: "success",
           },
           {
             kind: "relation",
-            source: "session:turn/t-old",
-            target: "session:turn/t-old#input/0",
+            source: "session:turn/2026-09-28/1",
+            target: "session:turn/2026-09-28/1#input/0",
             relation: "contains",
             basis: "fact",
           },
@@ -488,7 +488,7 @@ describe("SessionRefPanel", () => {
       },
     });
     await renderAndSettle(
-      <SessionRefPanel epoch={epoch} day={DAY} targetRef="session:turn/t-old" />,
+      <SessionRefPanel epoch={epoch} day={DAY} targetRef="session:turn/2026-09-28/1" />,
     );
 
     const text = container.textContent ?? "";
@@ -505,7 +505,7 @@ describe("SessionRefPanel", () => {
     await act(async () => {
       buttonByText("Open conversation").click();
     });
-    expect(useTurnStore.getState().turnId).toBe("t-old");
+    expect(useTurnStore.getState().turnId).toBe("2026-09-28/1");
     expect(useTurnStore.getState().historyView).toBe(true);
   });
 

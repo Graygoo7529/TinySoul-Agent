@@ -28,11 +28,11 @@ const REASON_LABELS: Record<string, string> = {
 export function ReflectionTurn({ epoch, summary, projection, latest }: {
   epoch: number; summary: TurnSummary; projection?: RuntimeTurnProjection; latest: boolean;
 }) {
-  const id = summary.turn_id;
+  const id = summary.turn_id ?? summary.request_id;
   const snapshot = projection?.snapshot ?? null;
   const items = projection?.items ?? EMPTY_ITEMS;
   const active = (snapshot?.state ?? summary.state) !== "finished";
-  const enabled = snapshot !== null && (active || latest);
+  const enabled = snapshot?.turn_id != null && (active || latest);
   const presentation = useTurnPresentation(id, snapshot, items, enabled);
   const working = useActivityDetails(id, active, enabled);
   const captured = useRef<ActivityPresentation | null>(null);
@@ -64,12 +64,12 @@ export function ReflectionTurn({ epoch, summary, projection, latest }: {
       {items.filter((item) => item.role === "agent.question" || item.role === "user.reply").map((item) =>
         <InteractionRow key={item.id} item={item} fresh={false} view="live" turnId={id} nested
           origin={{ turnId: id, day: day ?? undefined, view: "live" }} />)}
-      {outgoing.filter((echo) => echo.turnId === id && (echo.kind !== "reply" || echo.state === "failed")).map((echo) => <UserBubble key={echo.echoId} text={echo.text} pending={echo.state === "failed" ? undefined : echo.state} />)}
+      {outgoing.filter((echo) => echo.requestId === summary.request_id && (echo.kind !== "reply" || echo.state === "failed")).map((echo) => <UserBubble key={echo.echoId} text={echo.text} pending={echo.state === "failed" ? undefined : echo.state} />)}
       <BudgetCard snapshot={snapshot} />
       {!active && <ReflectionResult result={result ?? null} status={result?.status ?? summary.status} />}
       <div className="flex items-center justify-end gap-2">
         {active && <Button variant="ghost" size="xs" disabled={snapshot?.cancel_requested}
-          onClick={() => void cancelReflection(epoch, id)}><Square size={11} />{snapshot?.cancel_requested ? "正在停止…" : summary.state === "queued" ? "取消本次整理" : "停止整理"}</Button>}
+          onClick={() => void cancelReflection(epoch, summary.request_id)}><Square size={11} />{snapshot?.cancel_requested ? "正在停止…" : summary.state === "queued" ? "取消本次整理" : "停止整理"}</Button>}
         {(hasProcess || result?.tasks?.some((task) => task.turn !== undefined)) && <Button variant="ghost" size="xs" onClick={() => openTurnProcess(epoch, id, day)}><PanelRightOpen size={12} /> Details</Button>}
       </div>
     </AgentRow>

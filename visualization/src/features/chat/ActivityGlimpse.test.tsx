@@ -23,7 +23,7 @@ it("keeps terminal output compact and reveals the earlier lines on request", () 
 
 it("shows actual search previews and bounds the live inset to three hits", () => {
   act(() => root.render(glimpseBody(result({ actionId: "home.search", payload: {
-    items: [1, 2, 3, 4].map((i) => ({ ...searchExample.items[0], ref: `home:skills@${i}`, title: `Skill ${i}` })),
+    items: [1, 2, 3, 4].map((i) => ({ ...searchExample.items[0], ref: `home:top/skills/${i}`, title: `Skill ${i}` })),
   } }))));
   expect(host.textContent).toContain("Workspace guidance");
   expect(host.textContent).toContain("Skill 3");
@@ -43,7 +43,7 @@ it("keeps the result preview grounded in the returned write facts", () => {
   act(() => root.render(glimpseBody(result({
     actionId: "workspace.edit",
     params: { edits: [{ old_text: "old", new_text: "new" }] },
-    payload: { changed: true, written: 42, link: "workspace:notes.md", summary: "Saved" },
+    payload: { changed: true, written: 42, ref: "workspace:notes.md", summary: "Saved" },
   }))));
   expect(host.textContent).toContain("changed");
   expect(host.textContent).toContain("42 written");
@@ -61,7 +61,7 @@ it("labels Memory character counts and Home resource sizes with their actual uni
 
   act(() => root.render(glimpseBody(result({
     actionId: "home.resource.write",
-    payload: { link: "home:agent/resources/guide.md", size: 240 },
+    payload: { ref: "home:resource/agent/resources/guide.md", size: 240 },
   }))));
   expect(host.textContent).toContain("240 chars");
   expect(host.textContent).not.toContain("240 bytes");

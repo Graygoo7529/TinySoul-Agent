@@ -33,7 +33,7 @@ describe("MemoryClient", () => {
   it("document returns body, kind and the resolution chain", async () => {
     const { transport } = createTestTransport(() => jsonResponse(memoryDocument));
     const page = await new MemoryClient(transport).document({
-      link: "memory:entity/project",
+      ref: "memory:entity/project",
     });
     expect(page.metadata?.kind).toBe("entity");
     expect(page.metadata?.resolution_chain).toEqual(["memory:entity/project"]);
@@ -46,7 +46,7 @@ describe("MemoryClient", () => {
       jsonResponse(bundle.memory_redirect),
     );
     const page = (await new MemoryClient(transport).document({
-      link: "memory:entity/old-project",
+      ref: "memory:entity/old-project",
     })) as MemoryDocumentPage;
     expect(page.metadata?.status).toBe("merged");
     expect(page.metadata?.resolution_chain).toHaveLength(2);

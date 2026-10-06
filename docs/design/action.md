@@ -23,7 +23,7 @@ core.session.organize 是 Session-owned Action：只在 User 情景获得写服�
 7. 内置 Action Catalog 随 TinySoul 包版本发布为 init/reset 模板；运行实例只使用项目中物化的 catalog。
 8. ActionResult 的 trace 生命周期由 Catalog 声明，业务 executor 只提供结果内容及必要的 compact projection 数据。
 
-当前外部能力也沿用这套 Action 边界：`subagent.agents/connect/delegate/respond/collect/disconnect` 使用共享 JobControl 监督 ACP 外部 Agent，`expand.describe_servers/describe_tools/search/call` 使用单一 MCP 目录 owner。远端协议对象不会成为内核 Action；它们的结果先归一化为有限 ActionResult，长内容通过 Workspace Link 继续读取。
+当前外部能力也沿用这套 Action 边界：`subagent.agents/connect/delegate/respond/collect/disconnect` 使用共享 JobControl 监督 ACP 外部 Agent，`expand.describe_servers/describe_tools/search/call` 使用单一 MCP 目录 owner。远端协议对象不会成为内核 Action；它们的结果先归一化为有限 ActionResult，长内容通过 Workspace 引用 继续读取。
 
 ## 分层模型
 
@@ -199,15 +199,17 @@ Action result 需要同时表达三类信息：
 
 `ActionResultRenderer` 负责把 action result 渲染为：
 
-1. 给模型看的统一 `action/status/stage/payload?/failure?` envelope；
+1. 给模型看的统一 `action/status/stage/payload?/failure?` envelope，或由 executor 从同源事实提供的可读 `model_text`；
 2. 给 trace/log 使用的同一 envelope 加执行标识和 frame data；
 3. 可由 Context 加入下一 Cycle MessageStack 的 visible/canonical `ToolResultMessage`。
 
 Renderer 不是失败事实源，不从业务 payload 或 frame data 推断失败。`ActionResult.failure` 是 failed/timeout 的唯一通用失败事实；success 禁止 failure，failed/timeout 必须携带 failure。payload 只承载业务数据，frame data 只承载诊断，因此不存在 `payload.failure`。`ActionResult`、`ActionResultEnvelope` 和 foldable `ActionTraceProjection` 在构造边界拒绝业务 payload 顶层 `failure`；`HookOutcome` 在更早的 hook owner 边界执行同一检查，避免重复失败事实进入 pipeline。
 
-Context 模块决定渲染结果如何进入 TurnTraceHeap；Action 模块不直接维护 MessageStack。Catalog 的 `[runtime.result] trace_mode` 只支持 `standard` 和 `foldable`：standard 的 visible/canonical message 相同；foldable 只允许成功结果提供非空 `canonical_payload` 和有界、去重的 `origin_refs`。Renderer 构造的 canonical message 保留完整 Action envelope，只替换 envelope 内的业务 payload；完整 payload 作为当前 Turn visible overlay。Context 压缩统一移除 visible overlay，不修改 canonical message。Turn 结束时 Session 从已验证 call/result 投影不可变业务事实，不保存 ToolResultMessage 或完整 Context trace。standard action 返回 projection、foldable action 缺少 projection或 failed/timeout 携带 projection，均由 runner 收敛为局部 trace-policy mismatch。
+Context 模块决定渲染结果如何进入 TurnTraceHeap；Action 模块不直接维护 MessageStack。Catalog 的 `[runtime.result] trace_mode` 只支持 `standard` 和 `foldable`：standard 的 visible/canonical message 相同；foldable 只允许成功结果提供非空 `canonical_payload` 和有界、去重的 `origin_refs`。可读文字与折叠能力独立：例如 ask 使用 standard 结果，问题、完整选项和说明通过 model_text 直接可见，payload 继续保存类型化事实。foldable 的实际内容和精简投影分别可提供自己的文字；未提供文字时，Renderer 使用相应 payload 构造 envelope。ToolResult 的调用关联和成功/失败状态始终保留，不从文字反向解析事实。
 
-Catalog 只声明生命周期策略，不能从任意 JSON 自动推断 canonical 字段。业务 payload 的投影选择属于 executor；Loop 只把已验证的完整 visible/canonical message 转成 Context signal。`core.context.inspect`、`workspace.read` 和 `workspace.search` 共用该框架生命周期；各 owner 只在 executor 边界形成自己的紧凑 canonical payload。
+完整返回内容作为当前 Turn visible overlay。它进入一次取得响应的 Phase1/Phase2 请求后，Context 才允许按容量移除该展示层，不立即折叠，也不修改 canonical message。Turn 结束时 Session 直接从已验证 call/result 的精简事实投影不可变记录，与活动展示层是否已消费、是否曾压缩无关；不保存 ToolResultMessage 或完整 Context trace。standard action 返回 projection、foldable action 缺少 projection 或 failed/timeout 携带 projection，均由 runner 收敛为局部 trace-policy mismatch。
+
+Catalog 只声明生命周期策略，不能从任意 JSON 自动推断 canonical 字段。业务 payload 的投影选择属于 executor；Loop 只把已验证的完整 visible/canonical message 转成 Context signal。`core.context.inspect`、各 owner 的 Inspect/Search 和 `workspace.read` 共用该框架生命周期；`workspace.inspect` 保留资源解释、目标和实际覆盖范围，不持久保存旧正文。读取另一个 Action 的 Inspect 产生自己的结果，不删改目标 Action 的原结果。
 
 Phase-level result 没有模型侧 tool call id，因此不渲染为 ToolResultMessage，只渲染为普通模型反馈 payload 或 trace payload，由 Context 写入对应 phase 的执行记录。
 
@@ -235,7 +237,7 @@ Catalog 的 `execution.executor` 是显式注册的实现身份；`runtime` 管�
 
 core.reason/core.answer 与 Workspace compose/describe/analyze 各自拥有 generate 用途。ActionTaskFactory 只准备 TaskCall：挂载 domain/action Skill、按 executor 选择构造 Context/TaskPrompt、传入输出约束和外层 cancellation。它不调用供应商或解释业务结果。唯一 LLMTaskRunner 的 invoke 返回 TaskResult 或可组合的 LLMInvocationFailure，run 在相同管线上增加 Runtime bridge，供 Phase1/2 使用。生成 Action 保留容量恢复和业务提交边界；Search 的有界 selector 使用局部容量反馈，由调用方缩小范围。
 
-业务参数继续使用 PromptBlock 和 reference_links。目标与参考链接在所属 Action 内通过 owner 服务读取，正文只进入该任务的临时提示。Workspace compose 接受生成文本后在写入前校验完整工件上限，成功只返回 Link 和必要元数据。结构化结果经 ActionTaskOutput 处理模型协议失败后，仍由具体 executor 校验业务字段。取消和 deadline 沿同一 Action control 传播，迟返工件不能在取消后提交；不另设模型专属 Action 超时。
+业务参数继续使用 PromptBlock 和 references。目标与参考链接在所属 Action 内通过 owner 服务读取，正文只进入该任务的临时提示。Workspace compose 接受生成文本后在写入前校验完整工件上限，成功只返回 引用 和必要元数据。结构化结果经 ActionTaskOutput 处理模型协议失败后，仍由具体 executor 校验业务字段。取消和 deadline 沿同一 Action control 传播，迟返工件不能在取消后提交；不另设模型专属 Action 超时。
 
 `max_output_tokens` 属于 model-use binding；工件字符上限属于真实提交 owner。生成 Action 在 catalog 的 runtime 中显式保留有效时限。core.answer 成功只结束当前 User Turn，可以交付成果或提出进一步问题，不宣告多轮目标或全部 todos 完成。
 

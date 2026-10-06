@@ -4,6 +4,7 @@ from fastapi import FastAPI, Query
 
 from tinysoul.infra.paging import PageOptions
 from tinysoul.infra.time import CalendarDay
+from tinysoul.kernel.identity import TurnIdentity
 
 from ...engine import EndpointEngine
 from ..schemas import (
@@ -44,28 +45,28 @@ def register_inspection_routes(app: FastAPI, engine: EndpointEngine) -> None:
         return await engine.inspection.expand_refresh(server_id)
 
     @app.get(
-        "/v2/turns/{turn_id}/jobs/{job_id}",
+        "/v2/requests/{request_id}/jobs/{job_id}",
         response_model=JobDetailResponse,
         response_model_exclude_none=True,
         response_model_exclude_unset=True,
     )
-    async def job(turn_id: str, job_id: str):
-        return await engine.inspection.job_detail(turn_id, job_id)
+    async def job(request_id: str, job_id: str):
+        return await engine.inspection.job_detail(request_id, job_id)
 
     @app.get(
-        "/v2/turns/{turn_id}/jobs/{job_id}/output",
+        "/v2/requests/{request_id}/jobs/{job_id}/output",
         response_model=JobOutputResponse,
         response_model_exclude_none=True,
         response_model_exclude_unset=True,
     )
     async def output(
-        turn_id: str,
+        request_id: str,
         job_id: str,
         continuation: str | None = None,
         max_chars: int = 16000,
     ):
         return await engine.inspection.job_output(
-            turn_id, job_id, PageOptions(continuation, max_chars=max_chars)
+            request_id, job_id, PageOptions(continuation, max_chars=max_chars)
         )
 
     @app.get("/v2/days")
@@ -75,83 +76,85 @@ def register_inspection_routes(app: FastAPI, engine: EndpointEngine) -> None:
         )
 
     @app.get(
-        "/v2/turns/{turn_id}/interactions",
+        "/v2/requests/{request_id}/interactions",
         response_model=InteractionPageResponse,
         response_model_exclude_unset=True,
     )
     async def interactions(
-        turn_id: str,
+        request_id: str,
         continuation: str | None = None,
         limit: int = 30,
         max_chars: int = 16000,
     ):
         return await engine.inspection.turn_interactions(
-            turn_id, PageOptions(continuation, limit, max_chars)
+            request_id, PageOptions(continuation, limit, max_chars)
         )
 
     @app.get(
-        "/v2/turns/{turn_id}/context",
+        "/v2/requests/{request_id}/context",
         response_model=ContextOverviewResponse,
         response_model_exclude_none=True,
         response_model_exclude_unset=True,
     )
-    async def context(turn_id: str):
-        return await engine.inspection.context_overview(turn_id)
+    async def context(request_id: str):
+        return await engine.inspection.context_overview(request_id)
 
     @app.get(
-        "/v2/turns/{turn_id}/context/segments/{segment_id}",
+        "/v2/requests/{request_id}/context/segments/{segment_id}",
         response_model=ContextMessagesResponse,
         response_model_exclude_none=True,
         response_model_exclude_unset=True,
     )
     async def segment(
-        turn_id: str,
+        request_id: str,
         segment_id: str,
         continuation: str | None = None,
         max_chars: int = 16000,
     ):
         return await engine.inspection.context_segment(
-            turn_id, segment_id, PageOptions(continuation, max_chars=max_chars)
+            request_id, segment_id, PageOptions(continuation, max_chars=max_chars)
         )
 
     @app.get(
-        "/v2/turns/{turn_id}/context/inspect",
+        "/v2/requests/{request_id}/context/inspect",
         response_model=PageResponse,
         response_model_exclude_none=True,
         response_model_exclude_unset=True,
     )
     async def inspect_context(
-        turn_id: str,
+        request_id: str,
         ref: str,
         query: str | None = None,
         continuation: str | None = None,
     ):
         return await engine.inspection.context_inspect(
-            turn_id, ref, query=query, continuation=continuation
+            request_id, ref, query=query, continuation=continuation
         )
 
     @app.get(
-        "/v2/turns/{turn_id}/context/background",
+        "/v2/requests/{request_id}/context/background",
         response_model=PageResponse,
         response_model_exclude_unset=True,
     )
     async def context_background(
-        turn_id: str, continuation: str | None = None, max_chars: int = 16000
+        request_id: str, continuation: str | None = None, max_chars: int = 16000
     ):
         return await engine.inspection.context_background(
-            turn_id, PageOptions(continuation, max_chars=max_chars)
+            request_id, PageOptions(continuation, max_chars=max_chars)
         )
 
     @app.get(
-        "/v2/session/turns/{turn_id}/background",
+        "/v2/session/turns/{day}/{sequence}/background",
         response_model=PageResponse,
         response_model_exclude_unset=True,
     )
     async def session_background(
-        turn_id: str, day: str, continuation: str | None = None, max_chars: int = 16000
+        day: str, sequence: int, continuation: str | None = None, max_chars: int = 16000
     ):
         return await engine.inspection.session_background(
-            turn_id, CalendarDay.parse(day), PageOptions(continuation, max_chars=max_chars)
+            str(TurnIdentity(CalendarDay.parse(day), sequence)),
+            CalendarDay.parse(day),
+            PageOptions(continuation, max_chars=max_chars),
         )
 
     @app.get("/v2/session/turns")
@@ -167,15 +170,15 @@ def register_inspection_routes(app: FastAPI, engine: EndpointEngine) -> None:
         )
 
     @app.get(
-        "/v2/session/turns/{turn_id}",
+        "/v2/session/turns/{day}/{sequence}",
         response_model=InteractionPageResponse,
         response_model_exclude_unset=True,
     )
     async def session_turn(
-        turn_id: str, day: str, continuation: str | None = None, max_chars: int = 16000
+        day: str, sequence: int, continuation: str | None = None, max_chars: int = 16000
     ):
         return await engine.inspection.session_interactions(
-            turn_id,
+            str(TurnIdentity(CalendarDay.parse(day), sequence)),
             CalendarDay.parse(day),
             PageOptions(continuation, max_chars=max_chars),
         )
