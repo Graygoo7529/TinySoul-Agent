@@ -76,12 +76,12 @@
 | 目标格式 | 语义 |
 | --- | --- |
 | `turn:trace/<turn-id>` | 活动 Turn 的 Trace 根 |
-| `turn:trace/<turn-id>#input/<input-id>` | 已接受且达到相应可见边界的输入位置 |
+| `turn:trace/<turn-id>#input/0` | 已接受且达到相应可见边界的第一个输入位置 |
 | `turn:trace/<turn-id>#action/0` | 按原始请求顺序确定的 Action occurrence |
 | `turn:trace/<turn-id>#entry/<entry-id>` | Trace 中的具体条目 |
 | `turn:trace/<turn-id>#node/<node-id>` | Trace 压缩层级中的节点 |
 
-所有内部位置共用同一个根。`action/0` 为 0 起始事实索引；不能在抽取部分 Action、排序、失败或压缩后重新编号。其余身份的具体短编码仍在分析，本文不把 UUID 长度固定为公共语法。
+所有内部位置共用同一个根。`<turn-id>` 为 `YYYY-MM-DD/<sequence>`，日内序号从 1 开始，例如 `turn:trace/2026-10-06/42#entry/17`。input/action 是从 0 开始的事实 occurrence；entry/node 各自在所属 Turn 内从 1 分配固定序号。不能在抽取部分事实、排序、失败或压缩后重新编号。外部 input_id、问题关联及 action call/result 身份继续服务原协议，不因引用简短化而一并改成 occurrence。
 
 压缩只改变可见投影，已发出的入口仍能定位所保留的事实。引用不会因为压缩节点移动而改指别处。活动 Trace 不提供裸 `turn:trace` 别名，也不让新 Turn 读取旧活动 Trace；User Turn 完成后通过 Session 的持久事实位置回忆。
 
@@ -101,9 +101,11 @@ Action fact 引用可以读取本轮已结算、仍由 Trace 持有的实际 Act
 | `session:turn/<turn-id>#output`、`#working` | 正式回答或已保存 Working 事实 |
 | `session:turn/<turn-id>#note/0` | 已保存的 note 事实 |
 | `session:turn/<turn-id>#resource/0` | “这一轮引用过某资源”的出现位置 |
-| `session:node/<id>`、`session:edge/<id>` | Organize 持有的解释节点与关系 |
+| `session:node/2026-10-06/7`、`session:edge/2026-10-06/12` | Organize 持有的解释节点与关系，分别在所属日从 1 分配固定序号 |
 
 片段的简写示例继承同一 Turn 根。资源出现位置的 ref 与被引用资源的 target_ref 保持区别。thread/note 的名称和解释可修订，稳定节点身份不随标题重命名。
+
+Turn 示例为 `session:turn/2026-10-06/42`，与活动 Trace 使用同一个 Turn 身份。Agent 在启动时依据活动日分配；排队请求另有 request_id，不能拿请求接受日期充当 Turn 日期。User/Reflection 共用日内序列，Session 只收录 User Turn，因此编号不要求连续。日期仍不授予跨日模型读取能力。
 
 线性历史以 Turn 分隔，保留有价值的交互和 Action 结果；map 提供解释关系和导航。Session 只保存实际提交的事实，历史 Action 引用只能恢复已经保存的结果，不能凭资源引用推导当时未保存的文件全文。
 
@@ -154,7 +156,7 @@ continuation 是“在同一读取接口继续取得后续内容”的不透明�
 
 已确认 request_id 与 Turn 身份分工：request_id 定位排队请求及其控制；正式 Turn 身份服务执行、Trace 和 Session 定位。正式 Turn 身份在活动日确定后分配，排队时不伪造已有 Turn 编号。模型侧正式引用保留日期，不支持省略日期的短格式或另一套显示 alias。
 
-日期 + 日内序号是当前目标方向，例如 `turn:trace/2026-10-06/42#entry/17`、`session:turn/2026-10-06/42#action/2`。日期表示所属 CalendarDay，不是请求接收日或 Reflection 来源日。Turn 内条目利用已有作用域分配不可重编号的局部身份。分配 owner、跨午夜排队、重启高水位及 request/Turn 消费者的具体修改记录在引用统一计划第 4.8 节；本文表格用 `<turn-id>` 表示正式身份整体，不宣告新编码已经实现。
+日期 + 日内序号是目标编码，例如 `turn:trace/2026-10-06/42#entry/17`、`session:turn/2026-10-06/42#action/2`。日期表示所属 CalendarDay，不是请求接收日或 Reflection 来源日。Turn 内条目利用已有作用域分配不可重编号的局部身份。分配 owner、跨午夜排队、重启高水位及 request/Turn 消费者的具体修改记录在引用统一计划第 4.8、5.3 节；本文表格用 `<turn-id>` 表示正式身份整体，不宣告新编码已经实现。
 
 时间由真实 received_at/started_at 等事实解释，可以显示在引用旁，不由序号推算。时间戳方案的比较保留在执行计划，不再与正式引用省略日期混为一个选择。标题/说明与精确引用仍一起显示和折叠。
 
