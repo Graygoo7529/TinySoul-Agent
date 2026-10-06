@@ -14,6 +14,7 @@ from tinysoul.llm.protocol.messages import (
     ImagePart,
     ImageUrlPart,
     JsonPart,
+    Message,
     MessageStack,
     SystemMessage,
     TextPart,
@@ -47,6 +48,7 @@ from tinysoul.llm.protocol.responses import AnswerFormat, ResponseStopReason
 from tinysoul.llm.protocol.tools import (
     ToolCallRecord,
     ToolKind,
+    ToolResultStatus,
     ToolScope,
     ToolSelection,
     ToolSpec,
@@ -730,7 +732,91 @@ async def test_openai_responses_adapter_maps_dotted_tool_names_round_trip() -> N
     assert response.tool_calls[0].name == "workspace.list"
 
 
-async def test_openai_responses_adapter_omits_incomplete_tool_exchange_history() -> (
+@pytest.mark.parametrize("api_style", ("responses", "chat"))
+@pytest.mark.parametrize("exchange", ("partial", "interleaved", "mismatched", "orphan"))
+async def test_adapter_preserves_non_native_tool_history(
+    api_style: str, exchange: str
+) -> None:
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            output_text="done",
+            output=[],
+            choices=[
+                SimpleNamespace(message=SimpleNamespace(content="done", tool_calls=[]))
+            ],
+            usage={},
+        )
+    )
+    provider_id = "openai" if api_style == "responses" else "compatible"
+    adapter = (
+        OpenAIProviderAdapter(
+            provider=_provider(provider_id), api_key="key", responses=client
+        )
+        if api_style == "responses"
+        else OpenAICompatibleChatAdapter(
+            provider=_provider(provider_id), api_key="key", completions=client
+        )
+    )
+    call = ToolCallRecord(
+        id="call_inspect", name="core.context.inspect", arguments={"ref": "target-ref"}
+    )
+    pending = ToolCallRecord(
+        id="call_pending", name="workspace.list", arguments={"query": "pending-query"}
+    )
+    history: list[Message] = []
+    if exchange != "orphan":
+        calls = (call, pending) if exchange == "partial" else (call,)
+        history.append(AssistantMessage.from_text("read intent", tool_calls=calls))
+    if exchange == "interleaved":
+        history.append(UserMessage.from_text("accepted append"))
+    result_name = "different.tool" if exchange == "mismatched" else call.name
+    history.append(
+        ToolResultMessage.from_parts(
+            call_id=call.id,
+            tool_name=result_name,
+            parts=(
+                TextPart("actual result text"),
+                JsonPart({"detail": "actual result data"}),
+            ),
+            status=ToolResultStatus.ERROR,
+        )
+    )
+    history.append(UserMessage.from_text("next task"))
+    await adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id=provider_id, provider_model="model"),
+            messages=MessageStack.of(*history),
+            answer_format=AnswerFormat.TEXT,
+            tool_scope=ToolScope(tools=(_tool(),)),
+            tool_use=ToolUse.OPTIONAL,
+        )
+    )
+    wire = _message_payloads(
+        client.calls[0]["input" if api_style == "responses" else "messages"]
+    )
+    assert len(wire) == len(history)
+    assert all("type" not in item and "tool_calls" not in item for item in wire)
+    assert [item["role"] for item in wire] == [
+        "assistant" if isinstance(item, AssistantMessage) else "user" for item in history
+    ]
+    if exchange != "orphan":
+        assert all(
+            value in str(wire[0])
+            for value in ("read intent", call.id, call.name, "target-ref")
+        )
+    if exchange == "partial":
+        assert pending.id in str(wire[0]) and "pending-query" in str(wire[0])
+        assert pending.id not in str(wire[1:])  # No fabricated result for the pending call.
+    if exchange == "interleaved":
+        assert "accepted append" in str(wire[1])
+    assert all(
+        value in str(wire[-2])
+        for value in (call.id, result_name, "actual result text", "actual result data", "error")
+    )
+    assert "next task" in str(wire[-1])
+
+
+async def test_openai_responses_adapter_preserves_pending_call_as_context() -> (
     None
 ):
     client = FakeCreateClient(
@@ -761,14 +847,11 @@ async def test_openai_responses_adapter_omits_incomplete_tool_exchange_history()
         )
     )
 
-    assert client.calls[0]["input"] == [
-        {
-            "role": "user",
-            "content": [
-                {"type": "input_text", "text": "Return the final answer as JSON."}
-            ],
-        }
-    ]
+    items = _message_payloads(client.calls[0]["input"])
+    assert [item["role"] for item in items] == ["assistant", "user"]
+    assert unresolved_call.id in str(items[0])
+    assert unresolved_call.name in str(items[0])
+    assert "Return the final answer as JSON." in str(items[1])
     assert "tools" not in client.calls[0]
 
 
@@ -808,25 +891,12 @@ async def test_openai_responses_adapter_renders_tool_result_as_disabled_context(
         )
     )
 
-    assert client.calls[0]["input"] == [
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "input_text",
-                    "text": (
-                        "Tool result for core.answer:\n" '```json\n{"ok":true}\n```'
-                    ),
-                }
-            ],
-        },
-        {
-            "role": "user",
-            "content": [
-                {"type": "input_text", "text": "Return the final answer as JSON."}
-            ],
-        },
-    ]
+    items = _message_payloads(client.calls[0]["input"])
+    assert [item["role"] for item in items] == ["assistant", "user", "user"]
+    assert all(completed_call.id in str(item) for item in items[:2])
+    assert completed_call.name in str(items[1])
+    assert '{"ok":true}' in str(items[1])
+    assert "Return the final answer as JSON." in str(items[2])
     assert "tools" not in client.calls[0]
 
 
@@ -871,128 +941,11 @@ async def test_openai_responses_adapter_drops_reasoning_with_suppressed_tool_tur
         )
     )
 
-    assert client.calls[0]["input"] == [
-        {
-            "role": "user",
-            "content": [{"type": "input_text", "text": "Return JSON."}],
-        }
-    ]
-
-
-async def test_openai_responses_adapter_replays_only_complete_tool_turns() -> None:
-    client = FakeCreateClient(
-        response=SimpleNamespace(output_text='{"text":"hello"}', output=[], usage={})
-    )
-    adapter = OpenAIProviderAdapter(
-        provider=_provider("openai"),
-        api_key="key",
-        responses=client,
-    )
-    first_call = ToolCallRecord(id="call_first", name="workspace.list", arguments={})
-    second_call = ToolCallRecord(id="call_second", name="workspace.read", arguments={})
-
-    (
-        await adapter.invoke(
-            ProviderRequest(
-                model=_model(provider_id="openai", provider_model="gpt-5.5"),
-                messages=MessageStack.of(
-                    UserMessage.from_text("first"),
-                    AssistantMessage.from_tool_calls(first_call, second_call),
-                    ToolResultMessage.from_json(
-                        call_id=first_call.id,
-                        tool_name=first_call.name,
-                        value={"ok": True},
-                    ),
-                    UserMessage.from_text("second"),
-                ),
-                answer_format=AnswerFormat.TEXT,
-                tool_use=ToolUse.OPTIONAL,
-                tool_scope=ToolScope(
-                    tools=(
-                        ToolSpec(
-                            name="workspace.list",
-                            description="Scan",
-                            parameters={"type": "object"},
-                            kind=ToolKind.ACTION,
-                        ),
-                        ToolSpec(
-                            name="workspace.read",
-                            description="Read",
-                            parameters={"type": "object"},
-                            kind=ToolKind.ACTION,
-                        ),
-                    )
-                ),
-            )
-        )
-    )
-
-    assert client.calls[0]["input"] == [
-        {
-            "role": "user",
-            "content": [{"type": "input_text", "text": "first"}],
-        },
-        {
-            "role": "user",
-            "content": [{"type": "input_text", "text": "second"}],
-        },
-    ]
-
-
-async def test_chat_adapter_rejects_partial_or_mismatched_native_tool_turn() -> None:
-    message = SimpleNamespace(content="done", tool_calls=[])
-    client = FakeCreateClient(
-        response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
-    )
-    adapter = KimiProviderAdapter(
-        provider=_provider("kimi_coding"),
-        api_key="key",
-        completions=client,
-    )
-    first_call = ToolCallRecord(id="call_first", name="workspace.list", arguments={})
-    second_call = ToolCallRecord(id="call_second", name="workspace.read", arguments={})
-
-    (
-        await adapter.invoke(
-            ProviderRequest(
-                model=_model(
-                    provider_id="kimi_coding",
-                    provider_model="kimi-for-coding-highspeed",
-                ),
-                messages=MessageStack.of(
-                    AssistantMessage.from_tool_calls(first_call, second_call),
-                    ToolResultMessage.from_json(
-                        call_id=first_call.id,
-                        tool_name="workspace.read",
-                        value={"wrong": True},
-                    ),
-                    UserMessage.from_text("continue"),
-                ),
-                answer_format=AnswerFormat.TEXT,
-                tool_use=ToolUse.OPTIONAL,
-                tool_scope=ToolScope(
-                    tools=(
-                        ToolSpec(
-                            name="workspace.list",
-                            description="Scan",
-                            parameters={"type": "object"},
-                            kind=ToolKind.ACTION,
-                        ),
-                        ToolSpec(
-                            name="workspace.read",
-                            description="Read",
-                            parameters={"type": "object"},
-                            kind=ToolKind.ACTION,
-                        ),
-                    )
-                ),
-            )
-        )
-    )
-
-    assert client.calls[0]["messages"] == [
-        {"role": "user", "content": "continue"},
-    ]
+    items = _message_payloads(client.calls[0]["input"])
+    assert [item["role"] for item in items] == ["assistant", "user"]
+    assert unresolved_call.id in str(items[0])
+    assert "opaque-state" not in str(items)
+    assert "Return JSON." in str(items[1])
 
 
 async def test_openai_responses_adapter_rejects_malformed_tool_call() -> None:
@@ -1473,7 +1426,7 @@ async def test_kimi_k3_adapter_replays_reasoning_with_tool_calls_and_results() -
     assert client.calls[0]["reasoning_effort"] == "max"
 
 
-async def test_kimi_adapter_omits_unresolved_tool_call_but_keeps_reasoning() -> None:
+async def test_kimi_adapter_preserves_pending_call_without_native_reasoning() -> None:
     message = SimpleNamespace(
         content='{"text":"\u4f60\u597d"}',
         reasoning_content="answer reasoning",
@@ -1517,9 +1470,14 @@ async def test_kimi_adapter_omits_unresolved_tool_call_but_keeps_reasoning() -> 
         )
     )
 
-    assert client.calls[0]["messages"] == [
-        {"role": "user", "content": "Return the final answer as JSON."},
-    ]
+    items = _message_payloads(client.calls[0]["messages"])
+    assert [item["role"] for item in items] == ["assistant", "user"]
+    assert unresolved_call.id in str(items[0])
+    assert "Answer the user." in str(items[0])
+    assert "decision reasoning" not in str(items)
+    assert all(
+        "tool_calls" not in item and "reasoning_content" not in item for item in items
+    )
     assert "tools" not in client.calls[0]
 
 
@@ -1566,13 +1524,12 @@ async def test_kimi_adapter_renders_tool_result_as_disabled_context() -> None:
         )
     )
 
-    assert client.calls[0]["messages"] == [
-        {
-            "role": "user",
-            "content": ("Tool result for core.answer:\n" '```json\n{"ok":true}\n```'),
-        },
-        {"role": "user", "content": "Return the final answer as JSON."},
-    ]
+    items = _message_payloads(client.calls[0]["messages"])
+    assert [item["role"] for item in items] == ["assistant", "user", "user"]
+    assert all(completed_call.id in str(item) for item in items[:2])
+    assert completed_call.name in str(items[1])
+    assert '{"ok":true}' in str(items[1])
+    assert "Return the final answer as JSON." in str(items[2])
     assert "tools" not in client.calls[0]
 
 
@@ -1734,13 +1691,10 @@ async def test_chat_adapters_project_disabled_tool_history(
     )
 
     messages = _message_payloads(client.calls[0]["messages"])
-    assert messages == [
-        {
-            "role": "user",
-            "content": 'Tool result for workspace.list:\n```json\n{"ok":true}\n```',
-        },
-        {"role": "user", "content": "continue"},
-    ]
+    assert [item["role"] for item in messages] == ["assistant", "user", "user"]
+    assert all(call.id in str(item) for item in messages[:2])
+    assert call.name in str(messages[1]) and '{"ok":true}' in str(messages[1])
+    assert all("tool_calls" not in item for item in messages)
     assert "tools" not in client.calls[0]
 
 

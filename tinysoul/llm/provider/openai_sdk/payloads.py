@@ -21,7 +21,9 @@ from tinysoul.llm.execution.message_rendering import (
 from tinysoul.llm.protocol.messages import (
     AssistantMessage,
     Message,
+    MessagePart,
     SystemMessage,
+    TextPart,
     ToolResultMessage,
     UserMessage,
 )
@@ -81,7 +83,10 @@ def to_responses_input(
     replay_plan = _tool_replay_plan(request.messages.messages)
     for index, message in enumerate(request.messages.messages):
         if isinstance(message, ToolResultMessage):
-            if request.tool_use is ToolUse.DISABLED:
+            if (
+                request.tool_use is ToolUse.DISABLED
+                or index not in replay_plan.result_indices
+            ):
                 items.append(
                     {
                         "role": "user",
@@ -96,8 +101,6 @@ def to_responses_input(
                         ],
                     }
                 )
-                continue
-            if index not in replay_plan.result_indices:
                 continue
             items.append(
                 to_responses_tool_result(
@@ -120,8 +123,11 @@ def to_responses_input(
                     request.model.adapter_options.values,
                 ):
                     items.append({key: value for key, value in reasoning_item.items()})
-            rendered = renderer.render(message.parts)
-            if message.parts:
+            parts = _assistant_context_parts(
+                message, native_calls=bool(replayed_tool_calls)
+            )
+            rendered = renderer.render(parts)
+            if parts:
                 items.append(
                     {
                         "role": "assistant",
@@ -165,7 +171,10 @@ def to_chat_messages(
     replay_plan = _tool_replay_plan(request.messages.messages)
     for index, message in enumerate(request.messages.messages):
         if isinstance(message, ToolResultMessage):
-            if request.tool_use is ToolUse.DISABLED:
+            if (
+                request.tool_use is ToolUse.DISABLED
+                or index not in replay_plan.result_indices
+            ):
                 items.append(
                     {
                         "role": "user",
@@ -175,8 +184,6 @@ def to_chat_messages(
                         ),
                     }
                 )
-                continue
-            if index not in replay_plan.result_indices:
                 continue
             items.append(
                 to_chat_tool_result(
@@ -188,7 +195,7 @@ def to_chat_messages(
                 )
             )
             continue
-        rendered = renderer.render(message.parts)
+        parts = message.parts
         reasoning_content = None
         replayed_tool_calls: tuple[ToolCallRecord, ...] = ()
         if isinstance(message, AssistantMessage):
@@ -204,12 +211,16 @@ def to_chat_messages(
             )
             if message.tool_calls and not replayed_tool_calls:
                 reasoning_content = None
+            parts = _assistant_context_parts(
+                message, native_calls=bool(replayed_tool_calls)
+            )
             if (
-                not message.parts
+                not parts
                 and reasoning_content is None
                 and not replayed_tool_calls
             ):
                 continue
+        rendered = renderer.render(parts)
         item: dict[str, object] = {
             "role": chat_role(message),
             "content": to_chat_content(rendered),
@@ -439,11 +450,35 @@ def tool_result_text(
     *,
     renderer: MessageContentRenderer,
 ) -> str:
-    """Render a tool result as ordinary context when native tools are disabled."""
+    """Preserve a result when its exchange cannot use native tool replay."""
 
     return prompt_text.tool_result_context(
         tool_name=message.tool_name,
+        call_id=message.call_id,
         content=tool_result_content(message, renderer=renderer),
+    )
+
+
+def _assistant_context_parts(
+    message: AssistantMessage, *, native_calls: bool
+) -> tuple[MessagePart, ...]:
+    """Keep requested calls as context without claiming they were executed."""
+    if native_calls:
+        return message.parts
+    return (
+        *message.parts,
+        *(
+            TextPart(
+                prompt_text.tool_call_context(
+                    tool_name=call.name,
+                    call_id=call.id,
+                    arguments=json.dumps(
+                        call.arguments, ensure_ascii=False, separators=(",", ":")
+                    ),
+                )
+            )
+            for call in message.tool_calls
+        ),
     )
 
 

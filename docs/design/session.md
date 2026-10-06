@@ -65,7 +65,7 @@ Session 仅在自身超过 80% 水位时回收到半预算，最低保留目录�
 
 语义节点声明的直接 Turn 来源覆盖该 Turn 的完整事实范围；声明的输入、Action、note、resource、output 或 working 叶子只覆盖对应叶子。Turn inspect 返回的子 ref 可以继续逐级 inspect，分页只展开当前页面的直接内容，不切断渐进读取链。
 
-分页绑定日、固定来源集合、过滤条件和实际读取内容。解释正文、关系或该范围查询结果变化使旧 token 局部失效；无关注释变化和背景折叠不使未变页面失效。事实正文页不混入可变话题标签。inspect 不修改 Background，不常驻展开集合；完整反馈先进入一次实际决策模型请求，之后才按 Trace 规则折叠。
+分页绑定日、固定来源集合、过滤条件和实际读取内容。解释正文、关系或该范围查询结果变化使旧 token 局部失效；无关注释变化和背景折叠不使未变页面失效。事实正文页不混入可变话题标签。inspect 不修改 Background，不常驻展开集合；本次完整返回页先进入一次取得响应的主循环 Phase1/Phase2 LLM 请求，之后才允许按 Trace 规则折叠，Action 内部模型调用不解除保护。读取历史 Action 不修改其已保存结果，本次 Inspect 自身的结果独立折叠。
 
 `core.context.search` 通过段的来源入口查询固定 prior-Turn 事实和已安装解释，支持 `query`、`directory`、`refs`、`backlinks` 及显式 filter/select/rerank 管道；不以已压缩 Background 作为搜索语料。查询命中保留可 Inspect 的原始 ref，解释及其来源关系与原始事实分开。SDK SessionService.search 使用独立的日级 SearchSession 和只读快照，没有活动 Context。辅助选择调用不 seal Trace、不提前记录 Turn，也不解除 Inspect 展示保护。
 

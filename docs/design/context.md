@@ -71,7 +71,9 @@ Trace 的根同时提供冷节点与热记录线索，分支给出直接子节�
 
 统一披露页以有序 items 交付详情、child 线索、关系或来源。continuation 绑定 owner、ref、query 和当前读取视图；视图变化使旧 token 明确失效，不静默混页。内部绑定信息只在 opaque token 中由基础设施解释。
 
-inspect 的完整可见结果必须先进入一次实际返回的 Phase1/Phase2 模型请求，之后才允许压力回收其 overlay。compose 纯渲染、Action 内部模型调用以及容量拒绝都不能解除保护；受保护结果所在区间也不能被折入冷节点。折叠后保留 origin ref，可由 inspect 重新读取；context search 从固定原始事实/解释来源发现内容，不提前 seal 或 completion。
+inspect 本次返回的完整页面必须先进入一次取得响应的主循环 Phase1/Phase2 LLM 请求，之后才允许压力回收其 overlay；解除保护本身不删除正文。compose 纯渲染、Action 内部的 LLM/JEV/Embedding 调用以及容量拒绝都不能解除保护；受保护结果所在区间也不能被折入冷节点。折叠后保留 origin ref，可由 inspect 重新读取 owner 当前保留的内容；context search 从固定原始事实/解释来源发现内容，不提前 seal 或 completion。continuation 只负责所属接口的续页，不触发模型调用或解除展示保护，也不额外保证容量折叠后仍能取得旧令牌。
+
+活动 Action fact 可读取当前 Trace 持有的实际结果，Entry 则读取条目保留的叙事内容。读取行动 A 的 Inspect B 产生独立结果；B 的展开正文可折叠为读取事实，不删改 A。Session completion 按各行动自身的保留契约提交结果，不能从活动 Turn 的读取能力推导未保存正文的跨 Turn 恢复能力。
 
 ## Turn Completion
 

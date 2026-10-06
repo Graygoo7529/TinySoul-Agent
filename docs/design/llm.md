@@ -68,7 +68,9 @@ LLM 模块只负责模型侧工具定义、工具调用和工具结果在 TinySo
 
 工具名称同样以 TinySoul 内部稳定 identity 为准，可以保留 Action Catalog 使用的 dotted namespace，不受某个供应商 function name 字符集或长度约束反向塑形。OpenAI SDK 形态适配器为每个请求从当前可见工具、assistant tool-call 历史和 tool-result 历史建立无碰撞名称表：已经满足公共安全子集的名称保持不变，其余名称映射为最长 64 字符的可读临时别名。工具定义、历史调用和需要名称的结果回放必须使用同一张表，供应商响应在构造 `ToolCallRecord` 前解码回 TinySoul identity；无法在本次映射中识别的响应名称保持原值，继续由任务解释层按 ToolScope 形成局部失败，而不猜测映射。provider 临时别名不得进入 ToolScope、ActionCall、Context 或 trace。
 
-MessageStack 可以在 Phase3 action-internal LLM task 构造时包含当前 Phase2 decision 的 assistant tool call，而对应 ActionResult 只有外层 action 执行完成后才会产生；这是真实的 TinySoul trace 状态，但不是一个已经完成、可以回放的供应商多轮工具交换。OpenAI SDK 形态适配器按有序 assistant turn 原子判断 provider-native replay：只有同一 AssistantMessage 的全部 tool calls 都在其后的连续 ToolResultMessage 中以唯一 call_id 和匹配 tool_name 完成时，才回放整个 call/result 集合；缺少结果、名称不匹配、重复 ID 或顺序不属于该 turn 时，整个 native exchange 都不发送。Context/trace 不删除或改写这些未完成记录，嵌套任务通过自身 action prompt 接收当前执行参数。当 `tool_use=disabled` 时，适配器不发送任何 provider-native tool call/result；带 tool call 的 assistant turn 连同其 provider-native reasoning 一并跳过，ToolResultMessage 则降级为带有工具名的普通 user context，以便嵌套任务保留执行反馈而不重新打开供应商工具协议。
+MessageStack 可以在 Phase3 action-internal LLM task 构造时包含当前 Phase2 decision 的 assistant tool call，而对应 ActionResult 只有外层 action 执行完成后才会产生；调用与结果之间也可能插入已接受输入或环境消息。这些均为真实的 TinySoul trace 状态。OpenAI SDK 形态适配器按有序 assistant turn 原子判断 provider-native replay：只有同一 AssistantMessage 的全部 tool calls 都在其后的连续 ToolResultMessage 中以唯一 call_id 和匹配 tool_name 完成时，才原生回放整个 call/result 集合。
+
+无法原生回放的调用意图与真实结果仍按原 MessageStack 顺序进入模型：助手消息保留已有正文，并以可读文本表达请求的工具名、内部 call_id 与参数；结果以普通 user context 保留工具名、call_id、状态及全部文本/JSON 内容。缺少结果不补造执行反馈，名称或 ID 不匹配不强行配对，不挪动输入/事件以拼出原生交换。当 `tool_use=disabled` 时，同样使用该普通上下文投影，任何 provider-native tool call/result 均不发送；被抑制工具交换的 provider-native reasoning 仍不回放，也不伪装成正文。固定包装文案由 `prompts/llm.py` 管理，适配层不解释 Action 的业务状态或持久化策略。
 
 支持原生工具调用的供应商可以由适配层映射到对应协议。若某个任务不使用供应商原生工具调用，也可以由上层把工具意图设计为普通 JSON 对象回答；这属于任务语义设计，而不是 LLM 模块的模型侧工具主链路。不同供应商之间切换时，应以 TinySoul 内部工具调用结构作为规范历史，供应商原生工具历史只存在于适配层映射过程。
 

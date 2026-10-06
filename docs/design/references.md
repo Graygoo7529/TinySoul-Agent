@@ -67,9 +67,9 @@
 
 读取方向是 `workspace.inspect`：无内部模型调用，按引用返回真实、有界的资源内容及覆盖说明。该 Action 尚在设计中，文本/目录、分页和 Action 结果保留契约见引用统一计划；现有 `workspace.read` 的后续去留不由本文提前决定。Working 仍只显示资源说明和引用，Inspect 正文通过实际 ActionResult 进入 Trace。
 
-该读取结果采用有界折叠：实际返回的正文页先进入一次取得响应的决策模型请求，随后才可按容量移除正文展示层，保留资源说明、精确引用、请求/实际范围与执行状态。解除保护不立即触发折叠，也不表示模型已经理解或完成使用。Session 在 completion 时直接保存这一读取事实，与活动 Trace 是否曾折叠无关。回忆 Action 能理解当时读了什么；需要内容时再次 Inspect 当前资源。行范围或标题可能随文件更新而改变，不承诺恢复旧页，也不建立资源版本库。
+该读取结果采用有界折叠：实际返回的正文页先进入一次取得响应的主循环 Phase1/Phase2 的 LLM 请求，随后才可按容量移除正文展示层，保留资源说明、精确引用、请求/实际范围与执行状态。解除保护不立即触发折叠，也不表示模型已经理解或完成使用。Session 在 completion 时直接保存这一读取事实，与活动 Trace 是否曾折叠无关。回忆 Action 能理解当时读了什么；需要内容时再次 Inspect 当前资源。行范围或标题可能随文件更新而改变，不承诺恢复旧页，也不建立资源版本库。
 
-按 ref 选段、可选 continuation 和单页预算继续成立。“完整结果”指本次实际返回的有界页面，不要求整份文档或整个请求范围一次进入模型。选段决定读哪里，页面预算决定这次返回多少，展示保护决定这次返回页何时可以移出直接可见语境。每次续页是新的读取结果，分别遵守展示保护。续页令牌的折叠后可获得性与保留边界见引用统一计划第 4.9 节，不把令牌当作持久回忆引用。
+按 ref 选段、可选 continuation 和单页预算继续成立。“完整结果”指本次实际返回的有界页面，不要求整份文档或整个请求范围一次进入模型。选段决定读哪里，页面预算决定这次返回多少，展示保护决定这次返回页何时可以移出直接可见语境。每次续页是新的读取结果，分别遵守展示保护。这里的主循环 LLM 明确指 Phase1/Phase2；Action 内部的 LLM、JEV 和 Embedding 不解除展示保护。
 
 ## 活动 TurnTrace
 
@@ -84,6 +84,8 @@
 所有内部位置共用同一个根。`action/0` 为 0 起始事实索引；不能在抽取部分 Action、排序、失败或压缩后重新编号。其余身份的具体短编码仍在分析，本文不把 UUID 长度固定为公共语法。
 
 压缩只改变可见投影，已发出的入口仍能定位所保留的事实。引用不会因为压缩节点移动而改指别处。活动 Trace 不提供裸 `turn:trace` 别名，也不让新 Turn 读取旧活动 Trace；User Turn 完成后通过 Session 的持久事实位置回忆。
+
+Action fact 引用可以读取本轮已结算、仍由 Trace 持有的实际 ActionResult；Entry 引用读取相应叙事条目保留的内容。读取 Action A 的 Inspect B 会产生自己的结果，B 的正文可以折叠为读取意图、目标引用与覆盖信息，不因此删改 A 或限制其它 Action 的可读取结果。Session 按 A 自身的保留契约提交事实，不能把活动 Turn 的可读性推导成跨 Turn 保存旧正文的承诺。
 
 ## 当日 Session
 
@@ -127,6 +129,24 @@ Markdown 中的 `../guide.md#section`、`#section` 依赖来源文档解析。ow
 Search result_handle 指向最终保留的完整集合，不只指当前页面，也不包含已筛掉的候选。它与 continuation 都可能随所属生命周期或容量回收失效；不能保存为长期内容引用或交给普通 Inspect。
 
 scope 中的 all/trace/session 等选择器，以及 question_id/job_id/call_id 等业务身份，不因为字符串可指代某物就自动获得 ref + Inspect 语义。
+
+## continuation 的共同语义
+
+continuation 是“在同一读取接口继续取得后续内容”的不透明令牌，与 LLM 续写、JEV 判断或主循环的展示保护标记无关。调用者使用所属接口返回的令牌，owner 校验目标、读取条件及适用生命周期；不能在不同接口间交换令牌，也不能根据其编码拼造位置。
+
+当前已有以下使用者，语义相近而绑定方式各有职责：
+
+| 读取场景 | 现有机制与绑定 |
+| --- | --- |
+| Trace / Session Inspect | DisclosurePage 复用 infra 的 OpaqueContinuationCodec，绑定目标和实际披露内容/查询 |
+| Home / Memory Inspect | inspect_document 复用同一基础 codec，按正文或 direct refs 视图校验内容绑定 |
+| Workspace 文本浏览及 SDK/Endpoint 目录浏览 | Workspace reader 与 PageOptions 复用基础 codec，按相应内容及读取参数续页 |
+| Search | SearchViews 持有有界结果视图，以临时 token 定位下一页；续页不重新执行检索或模型评估，受 Turn/profile 或 SDK lease 生命周期及容量约束 |
+| Job 输出 | JobOutputPosition 复用基础 codec，绑定 Job 与输出通道位置；读取可继续增长的输出，不采用固定文档快照的含义 |
+
+因此统一的是续读的理解和用法，当前并非所有接口都采用同一种 token 编码或状态存储。Search 的 result_handle 定位整个保留集合，continuation 定位该集合的下一页，二者也不合并。新 Workspace Inspect 复用已有读取/分页设施，不建设全局令牌服务。
+
+已确认不为容量折叠额外保留旧续页令牌：令牌可取得且仍有效时直接续页；否则沿保留的目标及范围重新读取当前内容，重新取得分页入口。折叠不等于令牌失效，但不保证旧令牌仍在模型可见上下文中；重新读取也不冒充恢复原分页链。
 
 ## 身份长度与叙事
 

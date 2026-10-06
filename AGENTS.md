@@ -48,7 +48,7 @@ Context 只属于一个活动 Turn。Kernel 按 Background、Trace、Working 三
 
 持久化是 owner 保存的长期或跨 Turn 事实，内存是运行状态，模型反馈是两者的有界投影。三者须可相互解释，不能互相替代。revision、digest、cursor 等仅在确有消费者的 owner 协议中使用，不因内部存在就自动暴露给模型。
 
-渐进披露以稳定 ref、标题、线索和直接入口引导按需读取。Trace 与 Session 共用 DisclosurePage/continuation；`core.context.inspect` 只读，query 在指定范围做确定性定位，不调用额外模型或永久展开 Background。完整 inspect 结果进入一次实际返回的决策模型请求后才允许折叠；容量拒绝不能解除保护。分页绑定实际读取内容，单纯背景折叠及无关注释变化不使未变页面失效。
+渐进披露以稳定 ref、标题、线索和直接入口引导按需读取。Trace 与 Session 共用 DisclosurePage/continuation；`core.context.inspect` 只读，query 在指定范围做确定性定位，不调用额外模型或永久展开 Background。本次 inspect 实际返回的完整页面进入一次取得响应的主循环 Phase1/Phase2 LLM 请求后，才允许按容量折叠；解除保护不立即移除正文，容量拒绝不能解除保护，Action 内部的 LLM/JEV/Embedding 调用不解除保护。continuation 是所属读取接口的续页令牌，与模型调用或续写无关；分页绑定由 owner 校验，单纯背景折叠及无关注释变化不使未变页面失效，但不额外保证折叠后仍能取得旧令牌。
 
 Search 以 query、backlinks、directory 三种候选来源和 select、rerank、filter 三种约束操作组成有限函数管道；Stage2 选择这些已登记操作的组合、业务参数和 page 选项，操作内部的模型实现与 provider 由用途配置决定。source.where 只定义来源资格，filter 只处理当前候选集合；refs 不做隐藏 lexical/Embedding 预筛，select 可以排除并返回空集，rerank 保留全部候选。反链必须来自真实引用边，边归来源 owner，目标身份归目标 owner。Search 结果分页绑定 Turn/profile 或 SDK 服务 lease，辅助模型调用不解除 Inspect 展示保护。
 
