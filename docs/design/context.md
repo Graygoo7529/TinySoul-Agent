@@ -89,7 +89,7 @@ Heap 段快照保留本轮实际安装的资源正文、身份与加载来源。
 
 `end_turn()` 产生 typed immutable `ContextTurnCompletion`，包含 Turn identity、有序输入文本与原始接收时间、plan 终态、Background refs、按 id 标识的段快照和 `SealedTurnTrace`。Sealed trace 保存 canonical entries、类型化 Action 执行事实和只存引用的时间线，不携带 heap topology。输入保留 Inbox 的受理顺序，时间线另记安装和合并可见位置；Action 请求、开始和结算按实际回调记录，不能从批次结果排序反推。环境/Job 交付、必要 phase note 与已安装 plan patch 通过现有 Signal 批次记录。
 
-该对象只在唯一 Loop completion pipeline 中传递。Session 在自身边界投影为 v10 业务记录：输入与行动正文各存一处，时间线引用它们，必要语义 note 单独保存；不从消息布局猜测 call/result 配对。时间线表达 owner 观察与提交顺序，不声称外部因果时间。Context 不生成持久 Summary、平行日志或崩溃续跑协议。
+该对象只在唯一 Loop completion pipeline 中传递。Session 在自身边界投影为持久业务记录：输入与行动正文各存一处，时间线引用它们，必要语义 note 单独保存；不从消息布局猜测 call/result 配对。时间线表达 owner 观察与提交顺序，不声称外部因果时间。Context 不生成持久 Summary、平行日志或崩溃续跑协议。
 
 ## 失败边界
 
