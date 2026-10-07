@@ -6,7 +6,10 @@ from dataclasses import dataclass, replace
 
 from tinysoul.infra.json import JsonObject, JsonValue, dumps_json, to_json_object
 from tinysoul.kernel.interaction import QuestionContent
-from tinysoul.kernel.retrieval.disclosure import render_recollection
+from tinysoul.kernel.retrieval.disclosure import (
+    compact_recollection,
+    render_recollection,
+)
 from tinysoul.prompts.plugins import session as prompt_text
 
 from ..errors import SessionContractError, SessionInvariantError
@@ -130,6 +133,19 @@ def _compact_turn(content: JsonObject) -> JsonObject:
             value["text"] = text[:240]
             value["excerpted"] = True
         if value.get("role") in {"agent.action", "agent.reason"}:
+            if _is_inspect(value):
+                result = value["result"]
+                assert isinstance(result, dict)
+                value["result"] = compact_recollection(result, max_chars=400)
+                request = value.get("request")
+                if isinstance(request, dict):
+                    value["request"] = {
+                        key: body
+                        for key, body in request.items()
+                        if key != "continuation"
+                    }
+                values.append(value)
+                continue
             for key in ("request", "result"):
                 body = _action_fields(
                     value.get(key, {}),

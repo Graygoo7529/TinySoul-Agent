@@ -19,7 +19,7 @@ from tinysoul.kernel.loop.outcomes import TurnFailure, TurnOutcomeStatus
 
 from ..errors import SessionContractError
 
-SESSION_RECORD_SCHEMA_VERSION = 11
+SESSION_RECORD_SCHEMA_VERSION = 12
 SESSION_MANIFEST_SCHEMA_VERSION = 3
 _TURN_REF = re.compile(r"^session:turn/([0-9]{4}-[0-9]{2}-[0-9]{2}/[1-9][0-9]*)$")
 

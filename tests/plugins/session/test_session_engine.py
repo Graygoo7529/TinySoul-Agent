@@ -593,6 +593,66 @@ async def test_session_reclaim_is_governed_by_its_own_watermark(tmp_path: Path) 
     )
 
 
+def test_inspect_history_compacts_whole_reading_facts_and_preserves_intent(
+    tmp_path: Path,
+) -> None:
+    from tinysoul.kernel.retrieval.disclosure import DisclosureUnit, InspectPage
+
+    ref = "workspace:docs"
+    units = tuple(
+        DisclosureUnit(f"{ref}/chapter-{i}.md", f"Chapter {i}", "Evidence " * 10)
+        for i in range(25)
+    )
+    page = InspectPage(
+        ref,
+        "Audit documentation",
+        "directory",
+        tuple(unit.select(0, len(unit.text)) for unit in units),
+        "old-token",
+    )
+    canonical = page.canonical_payload
+    session = _session(tmp_path)
+    session.record_turn(
+        completion(
+            "2026-07-25/1010",
+            actions=(
+                SyntheticAction(
+                    "workspace.inspect",
+                    request={
+                        "ref": ref,
+                        "view": "directory",
+                        "continuation": "old-token",
+                    },
+                    result=canonical,
+                    references=(ref,),
+                ),
+            ),
+        ),
+        day=DAY,
+        output=None,
+        status=TurnOutcomeStatus.STOPPED,
+        exhausted=False,
+    )
+    original = session.background_snapshot(DAY)
+    budget = sum(len(item.render()) for item in original.items) - 1
+    compact = original.fit(budget)
+    turn = next(item for item in compact.items if item.item_id.endswith("/1010"))
+    interactions = _json_object_list(turn.content["interactions"])
+    action = interactions[-1]
+    reduced = _json_object(action["result"])
+    assert action["request"] == {"ref": ref, "view": "directory"}
+    assert "result_excerpt" not in action and "request_excerpt" not in action
+    assert reduced["item_count"] == 25 and reduced["has_more"] is True
+    assert len(_json_object_list(reduced["coverage"])) < len(
+        _json_object_list(canonical["coverage"])
+    )
+    assert ref in turn.render() and "Audit documentation" in turn.render()
+    assert "old-token" not in turn.render()
+    assert sum(len(item.render()) for item in compact.items) <= budget
+    saved = session.inspect("session:turn/2026-07-25/1010#action/0").items[0].unit.data
+    assert saved["result"] == canonical
+
+
 def _session(
     tmp_path: Path,
     *,

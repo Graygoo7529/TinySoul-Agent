@@ -2,29 +2,29 @@
 
 日期：2026-10-07
 
-状态：`pending`（分析与方案讨论；已建立计划，业务代码尚未实施）
+状态：`done`（实施、文档同步、完整门禁及逐项核对已完成）
 
-代码基线：`164e4ba refactor(context): unify semantic inspect pages and structured ask narratives`。
+实施起点：`0583945 docs: plan reply pagination and inspect recollection improvements`；其业务代码基线为 `164e4ba refactor(context): unify semantic inspect pages and structured ask narratives`。
 
 本计划承接以下三份计划的实施复核，记录新发现的投影缺口与本轮讨论，不改写归档记录的历史结论：
 
-- [模型上下文叙事投影与引用语义统一执行计划](<done/20261006-done- 模型上下文叙事投影与引用语义统一执行计划.md>)。
-- [引用体系梳理与统一执行计划](<done/20261006-done- 引用体系梳理与统一执行计划.md>)。
-- [Context 叙事与 Inspect 披露收尾及问答卡片修正执行计划](<done/20261007-done- Context 叙事与 Inspect 披露收尾及问答卡片修正执行计划.md>)。
+- [模型上下文叙事投影与引用语义统一执行计划](<20261006-done- 模型上下文叙事投影与引用语义统一执行计划.md>)。
+- [引用体系梳理与统一执行计划](<20261006-done- 引用体系梳理与统一执行计划.md>)。
+- [Context 叙事与 Inspect 披露收尾及问答卡片修正执行计划](<20261007-done- Context 叙事与 Inspect 披露收尾及问答卡片修正执行计划.md>)。
 
-依据：[AGENTS.md](../../AGENTS.md)、[Context](../design/context.md)、[Session](../design/session.md)、[引用设计](../design/references.md)。
+依据：[AGENTS.md](../../../AGENTS.md)、[Context](../../design/context.md)、[Session](../../design/session.md)、[引用设计](../../design/references.md)。
 
 ## 1. 目标与当前授权范围
 
 保留现有事实 owner、Action 执行和折叠体系，让同一条回复在直接语境、独立读取、查询导航和长正文续页中都能辨认问题、回答及当前段落。读取行动的回忆应说明当时读了什么、实际执行到哪里；需要资源内容时，再使用该资源的读取入口。
 
-维护者当前要求先建立新计划、说明现状和变化、继续讨论确认；本计划不表示已经授权实施下面的业务改动。前一轮明确授权的文档修复已完成：`docs/design/context.md` 移除过时的 Session v10 表述，改为“持久业务记录”，版本协议继续由 Session 代码维护。
+维护者已确认并授权实施：通过 input_id 取得输入事实，只用于统一读取投影，不删除 Trace 正文；Inspect 回忆围绕读取目标、意图和有限反馈，不要求恢复旧页面、完整子项列表或旧续页链；活动 Trace `#action/N` 保留现有行为。前置文档修复已完成：`docs/design/context.md` 移除过时的 Session v10 表述，改为“持久业务记录”，版本协议继续由 Session 代码维护。
 
 保留路线 A、U0、日期/日内序号、request/Turn 分工、唯一输入和 Action 事实。问答仍是结构化 core.ask，details 与 question 组成完整 text；选项、comment、自由回答和等待生命周期保持现有语义。Workspace 全文流式化继续暂缓。
 
 不新增 typed related/source 关系、通用引用网关、问答持久副本、旧正文库、分页令牌保管服务或跨日模型读取能力。固定包装继续放在相应 owner 的 prompts；模型无需学习新的回复或引用协议。
 
-## 2. 当前事实与复核证据
+## 2. 实施前事实与复核证据
 
 ### 2.1 用户事实、Trace 叙事和 Session 叙事
 
@@ -108,7 +108,7 @@ Session 正常线性历史仍以 Turn 为单位保留完整顺序；本次分页
 | Session `#action/N`，对应已完成 foldable Inspect | request、状态和 canonical_payload | 不承诺恢复未保存的正文 |
 | 活动 Trace `#action/N` | 当前运行中仍保存的实际 ActionResult；折叠 overlay 后这条读取路径仍存在 | 这是既有能力，不能描述为已经只返回输入，也不是本计划新增的回忆能力 |
 
-最后一项此前已讨论并允许，本轮“无需恢复正文”是否还要求收窄这一既有入口，见第 6 节。未确认前不改变其行为，也不新增由显示折叠触发的结果释放状态机。
+最后一项已明确保留。原 Action 的结果保留策略与本次 Inspect 的 foldable 投影分开，不新增由显示折叠触发的结果释放状态机。
 
 ### 4.3 “父引用”的准确范围
 
@@ -118,20 +118,19 @@ Session 正常线性历史仍以 Turn 为单位保留完整顺序；本次分页
 
 来源入口用于再次读取 owner 当前内容；行动位置用于回忆读取事实。两者都遵守原有生命周期，不因保存了入口就承诺旧页可恢复。
 
-### 4.4 当前候选方案与建议
+### 4.4 已确认方案与实际预算
 
 确定应改进的是读取事实的模型显示缩减：按完整语义单元保留目标解释、精确 ref、必要实际覆盖和后续状态；替代 Session 对 Inspect 结果字符串的直接截断。进一步放不下时，交给已有 Action/Turn/Trace 的外层折叠。
 
-上一轮建议暂时保留 canonical_payload 中已有的逐项覆盖，仅限制回忆文字。本轮继续区分两个选择：
+最低回忆契约已确认为“当时读了什么、实际读到哪里”，不要求保留完整旧子项列表。共享 InspectPage 的 canonical 投影采用 1,200 字符整体目标预算，同时衡量 JSON 和回忆文字；保留目标 ref/title、view/query、真实返回项数 item_count、部分项数 partial_count、has_more，以及能容纳的完整条目说明/覆盖。coverage 不再保证枚举每一个返回项；模型文字明确说明省略数量，并指向原读取入口。
 
-- **显示缩减**：保留当前有界持久字段，改进 Trace canonical model_text 与 Session 的精简显示。保留这些字段不意味着新增“恢复原读取结果”的需求，也不要求模型把每个子项重新读一遍。
-- **读取事实进一步收敛**：若维护者希望连逐项覆盖/短摘录也不作为回忆内容，canonical 只保留目标与请求语义、有限状态及足够解释实际读取的范围/数量等事实。这会调整读取行动的持久结果投影，应与消费者、文档和测试一起设计，不以拼接字符串截断代替。
+缩减以条目为单位，优先保留短线索，空间不足时可去掉摘录，但标题、精确 ref 和实际范围作为一组保留或省略。唯一正文项的实际范围属于最低事实，必须保留。目标、意图和最低事实不做字符串截断；最低事实本身超过目标预算时，由现有外层容量机制折叠，不伪称硬字符上限。
 
-本轮建议先明确最低回忆契约为“当时读了什么、实际读到哪里”，不将恢复正文或恢复全部子项列为需求。是否继续保留已有逐项 canonical 字段为实施前确认项；不单凭压缩比例增加有损存储变换。
+Session 压力缩减复用同一个语义投影，目标预算为 400 字符，保持请求字段及实际反馈完整，只去掉不保证保留的 continuation。放不下时沿原有规则折叠整 Turn。普通业务 Action 的保留规则与活动 `#action/N` 的实际结果读取不变。
 
 需要缩减多项说明时，少量保留项必须连同解释和完整 ref 一起显示；其余可以用本页项数、部分/完整覆盖及原读取入口说明。对于单个文件，保留具体实际范围，不能泛化为只有“读过某文件”。所有数量和覆盖来自实际页面，不由额外模型总结。
 
-预算由现有显示消费者明确提供或沿共享投影的内部策略确定；不新增模型需要设置的参数，不建立全局预算服务。具体阈值在确认事实保留范围后用代表性输出核对，不以固定若干条替代字符预算。
+预算沿共享投影内部策略及 Session 显示消费者明确提供，不新增模型参数或预算服务。新增计数字段使已保存读取事实可解释省略范围，Session record schema 升为 12；不保留旧 canonical 格式兼容层。公开 Inspect 页面字段不变，历史 Action result 的消费说明同步至 Endpoint 文档。
 
 ## 5. 预计改动范围与实施顺序
 
@@ -144,36 +143,57 @@ Session 正常线性历史仍以 Turn 为单位保留完整顺序；本次分页
 | Inspect Action 消费者、Session completion | 核对两份结果的事实来源；只在选择调整 canonical 契约时修改必要消费者 |
 | 文档与测试 | 同步 Context/Session/引用说明及本计划；如公开页面字段改变，同步 Endpoint 和实际前端消费者 |
 
-先完成第 6 节确认，再实施 reply 投影，随后实施读取回忆缩减，最后同步文档和验证。保持现有错误分层与取消/结束边界；本计划不设计新的恢复流程。
+第 6 节已确认；实施顺序为 reply 投影、读取回忆缩减、文档同步与验证。保持现有错误分层与取消/结束边界；本计划不设计新的恢复流程。
 
 默认复用现有文件和披露结构。页面包装可能变化，但 question/details/options、typed answer、request/Turn 身份和引用格式不因这次改进重新迁移。若确认需要改变持久投影字段，先补齐明确契约，不保留语义模糊的兼容层。
 
-## 6. 待确认点
+## 6. 已确认决策
 
-- [ ] Reply：确认普通语境继续显示完整问答；仅统一披露投影并补强长正文续页定位，input_id 关联是内部取事实方式，不是让模型按 ID 拼装问题。
-- [ ] Inspect 回忆：确认最低需要的是请求/目标解释与有限执行反馈，不要求再次 Inspect 恢复旧返回页；是否保留已有逐项 canonical 覆盖/短摘录，或收敛为读取意图及总体覆盖。
-- [ ] 活动 Action 入口：本轮“无需恢复正文”是“不新增该要求”，还是同时要求活动 Trace `#action/N` 对 foldable Inspect 也只展示有限读取事实。前者沿既有能力；后者涉及当前 Action Inspect/Search 投影，应明确后实施，避免与之前允许读取运行中 ActionResult 的决定混淆。
-
-未确认的事项不得写入设计文档作为已实现能力，也不得在编码时通过隐藏分支自行决定。
+- [x] Reply：普通语境继续显示完整问答；统一披露投影并补强长正文续页定位，input_id 只在内部关联事实，模型直接读正文。
+- [x] Inspect 回忆：围绕读取目标、意图和有限反馈，不要求恢复旧返回页、完整子项列表或旧续页链。
+- [x] 活动 Action 入口：保留活动 Trace `#action/N` 的既有行为；Inspect 的可折叠结果与原 Action 的事实保留策略分开。
 
 ## 7. 验证与完成条件
 
-- [ ] 同一 choice reply 的当前 input、Trace Entry、活动 Session evidence、历史 input/整轮投影具有一致的问题与选择语义；自由回答验证对应路径。
-- [ ] 代表性长 details、选项描述、comment 的分页可还原完整正文；后页保留问题定位、当前段落及真实范围；必要包装计入预算，不重复计入正文。
-- [ ] 普通不分页的 Trace 和 Session 问答内容完整、顺序一致；持久输入只保存原有用户事实，ask 不新增重复 Entry。
-- [ ] 查询与目录线索能够辨认回复所对应的问题，不仅命中冗长说明开头。
-- [ ] Inspect 首次真实返回、展示保护、foldable canonical 保存保持已确认边界；不把未返回的请求范围标为已读。
-- [ ] 精简读取叙事不截断 ref 或单元语义；少项、多项、单个部分正文及 Session 再次缩减均保留正确的读取目标和反馈。
-- [ ] 查看已折叠读取行动只承诺所确认的读取事实；再次读取资源取得现态，不把旧正文重放列为成功条件。
-- [ ] 公共消费者、文档和持久字段若变化，逐项核对；不得通过放宽稳定契约断言换取测试通过。
-- [ ] 实施后运行聚焦测试、Fast、Full 和 typecheck；若改变前端公共契约，运行相应前端测试与构建。
-- [ ] 实现、文档和验证逐项完成后更新本计划、加入 done 标记并归档。
+- [x] 同一 choice reply 的当前 input、Trace Entry、活动 Session evidence、历史 input/整轮投影具有一致的问题与选择语义；自由回答验证对应路径。
+- [x] 代表性长 details、选项描述、comment 的分页可还原完整正文；后页保留问题定位、当前段落及真实范围；必要包装计入预算，不重复计入正文。
+- [x] 普通不分页的 Trace 和 Session 问答内容完整、顺序一致；持久输入只保存原有用户事实，ask 不新增重复 Entry。
+- [x] 查询与目录线索能够辨认回复所对应的问题，不仅命中冗长说明开头。
+- [x] Inspect 首次真实返回、展示保护、foldable canonical 保存保持已确认边界；不把未返回的请求范围标为已读。
+- [x] 精简读取叙事不截断 ref 或单元语义；少项、多项、单个部分正文及 Session 再次缩减均保留正确的读取目标和反馈。
+- [x] 查看已折叠读取行动只承诺所确认的读取事实；再次读取资源取得现态，不把旧正文重放列为成功条件。
+- [x] 公共消费者、文档和持久字段若变化，逐项核对；不得通过放宽稳定契约断言换取测试通过。
+- [x] 实施后运行聚焦测试、Fast、Full 和 typecheck；若改变前端公共契约，运行相应前端测试与构建。
+- [x] 实现、文档和验证逐项完成后更新本计划、加入 done 标记并归档。
 
 ## 8. 当前进展
 
 - [x] 结合三份归档计划重新核对相关实现，记录实际可见内容、分页差异和 Action 读取边界。
 - [x] 完成前轮授权的 Context 设计文档版本残留修复，`git diff --check` 通过。
 - [x] 建立本执行计划，明确当前方案与待确认项。
-- [ ] 实施业务修改。
+- [x] 实施业务修改：InteractionNarrative 复用完整正文及分段；Trace 通过已有 input_id 只读关联；活动/历史 Session 复用；Inspect 及 Session 压力缩减采用整体语义预算。
 
-前次只读复核在代码基线执行过 Full（1265 passed / 25 deselected）、ty、前端测试（806 passed）及构建；它们是基线验证，不代表本计划尚未实施的改动已经通过验收。本次仅维护文档，进行差异与本地链接检查。
+前次只读复核的测试仅是基线记录；本轮验证单独记录于收尾核对，不沿用基线结果宣告完成。
+
+## 9. 实施核对与验证证据
+
+| 目标 | 实际实现与核对 |
+| --- | --- |
+| 同源回复语境 | `QuestionContent.reply_projection` 生成 `InteractionNarrative`，`reply_narrative` 复用其完整正文；固定段落标签仍在 prompts。已有输入/问题事实、问答等待流程与 Trace 写入顺序不变。 |
+| 当前 Trace 披露 | Context 给 TraceSegment 注入只读 input_id 投影访问；current input 与 Entry 的 Inspect 使用同一正文/分段。原 Entry 正文继续保存，不从字符串逆向解析问题，不新增事实表。 |
+| Session 各读取路径 | completed record、active evidence、Turn interaction 从各自原事实调用同一回复投影；query/Search/目录标题也保留问题和回答线索。 |
+| 语义分页 | `DisclosureUnit.sections` 继续记录真实正文偏移；部分页附当前段落标题，完整页保持完整交互标题。机器与模型页共同受预算约束，分页正文可无损拼回。 |
+| Inspect 回忆与缩减 | `compact_recollection` 由公共 InspectPage 和 Session 压力缩减共同使用；实际页面保持原协议，canonical 计数覆盖全部实际返回项，详细 coverage 只保存预算内容。原目标及最低范围不截断。 |
+| Action 边界 | 核对当前 `#action/N` 构造逻辑，仍使用原 ActionResult envelope/model_text；本次 Inspect 自己的 trace_projection 独立缩减。原展示保护、主循环消费标记与 completion 事实选择流程保持原设计。 |
+| 持久与公开消费者 | Session record schema 12 对应新增读取计数契约；Context/Home/Memory/Workspace Inspect executor 沿共享 InspectPage 自动取得一致投影，completion 沿原 canonical 选择持久化。前端没有针对旧 canonical coverage 全量列表的专门消费者；无前端源码改动。 |
+| 文档 | 同步 Context、Session、引用设计及 Endpoint inspection；AGENTS.md 已有对应 owner/投影规约，本次无需添加重复条款。 |
+
+代表性目录核对：80 个候选子项、8,000 字符实际页预算，本次返回 19 项，模型页 3,713 字符；canonical JSON 1,137 字符、回忆文字 968 字符，保留 5 项详情，仍明确总数 19 和 has_more。Session 再次缩减为 352 字符、1 项详情，保持读取入口、总数与后续状态。这是具体样例，不是固定压缩率承诺。
+
+新增回归覆盖：
+
+- `tests/plugins/session/test_organize.py`：choice/free reply 经当前 input、Trace Entry、活动 evidence、历史 input 和整 Turn 五条真实路径读取；长说明、选项说明和回答/comment 的范围连续且可完整还原，各页标题包含核心问题及回答线索；原输入仍仅是用户事实。
+- `tests/kernel/context/test_disclosure.py`：多项读取的整体预算及真实计数；单项部分正文的实际行/字符范围；最低事实超小预算时保持完整而不截断。
+- `tests/plugins/session/test_session_engine.py`：经过实际 Background.fit 压力缩减的读取事实保留意图及计数，不生成半截 request/result；保存的 canonical 结果不被显示缩减改写。
+
+验证记录：聚焦 Context 78 passed；聚焦 Session 56 passed；Fast 1264 passed / 30 deselected；Full 1269 passed / 25 deselected（含 wheel 安装及资源验收）；ty 通过；前端 90 个文件、806 项通过，构建通过。前端测试仍输出已有 jsdom/storage/act 提示，构建有既有 chunk 体积提示。最终差异、引用链接和实施条目核对通过，计划归档至 done。

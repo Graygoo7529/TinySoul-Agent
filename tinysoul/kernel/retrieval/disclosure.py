@@ -84,6 +84,8 @@ class DisclosureSlice:
 
     @property
     def title(self) -> str:
+        if self.start == 0 and self.end == len(self.unit.text):
+            return self.unit.title
         section = next(
             (
                 title
@@ -189,15 +191,47 @@ class InspectPage:
             "title": self.title,
             "view": self.view,
             "coverage": [item.recollection() for item in self.items],
+            "item_count": len(self.items),
+            "partial_count": sum(not item.coverage["complete"] for item in self.items),
             "has_more": self.next_continuation is not None,
         }
         if self.query is not None:
             value["query"] = self.query
-        return value
+        return compact_recollection(value)
 
     @property
     def recollection_text(self) -> str:
         return render_recollection(self.canonical_payload)
+
+
+def compact_recollection(value: JsonObject, *, max_chars: int = 1200) -> JsonObject:
+    """Keep whole reading facts within a display budget, with an indivisible minimum.
+
+    The target, intent and summary are never sliced. A sole item's actual range
+    is also mandatory; if that minimum exceeds the budget the outer owner folds
+    the Action/Turn. Omitted children remain discoverable through the read target.
+    """
+    entries = value.get("coverage", [])
+    assert isinstance(entries, list)
+    selected: list[JsonObject] = []
+    result = {**value, "coverage": selected}
+    count = int(str(value["item_count"]))
+    for item in entries:
+        assert isinstance(item, dict)
+        for candidate in (
+            item,
+            {key: body for key, body in item.items() if key != "clue"},
+        ):
+            proposed = to_json_object({**result, "coverage": [*selected, candidate]})
+            if (
+                max(len(dumps_json(proposed)), len(render_recollection(proposed)))
+                <= max_chars
+                or count == 1
+                and "clue" not in candidate
+            ):
+                selected.append(candidate)
+                break
+    return to_json_object({**result, "coverage": selected})
 
 
 def render_recollection(value: JsonObject) -> str:
@@ -222,6 +256,9 @@ def render_recollection(value: JsonObject) -> str:
         view=str(value.get("view", "content")),
         query=str(value.get("query", "")),
         coverage="\n".join(coverage),
+        item_count=int(str(value["item_count"])),
+        partial_count=int(str(value["partial_count"])),
+        omitted_count=int(str(value["item_count"])) - len(coverage),
         has_more=bool(value.get("has_more")),
     )
 

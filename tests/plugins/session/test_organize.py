@@ -571,6 +571,193 @@ async def test_active_action_evidence_matches_completed_inspect_and_query(
     assert [item["ref"] for item in hits] == [leaf_ref]
 
 
+@pytest.mark.parametrize("choice", [True, False])
+async def test_long_reply_has_the_same_context_through_all_reading_routes(
+    tmp_path: Path,
+    choice: bool,
+) -> None:
+    from tinysoul.infra.json import dumps_json
+    from tinysoul.kernel.action.planning.rendering import ActionResultRenderer
+    from tinysoul.kernel.context.signals import build_trace_action_result_signal
+    from tinysoul.kernel.interaction import AnswerKind, QuestionAnswer, QuestionContent
+    from tinysoul.kernel.retrieval.contracts import DirectorySource
+    from tinysoul.plugins.session.views.background import render_background
+
+    session = _session(tmp_path, page=2048, budget=64000)
+    _record(session)
+    context = (
+        ContextEngineBuilder(system_text="identity")
+        .with_trace_inspect_max_chars(2048)
+        .build()
+    )
+    turn_id = "2026-09-21/1010"
+    context.begin_turn("review evidence", turn_id=turn_id)
+    await context.open_segments(DAY.value)
+    question = QuestionContent.from_json(
+        {
+            "question": "Keep the document?",
+            "details": "Evidence context. " * 100,
+            "options": [
+                {
+                    "id": "keep",
+                    "label": "Keep full text",
+                    "description": "Retain examples. " * 90,
+                }
+            ],
+        }
+    )
+    answer = (
+        QuestionAnswer(
+            AnswerKind.CHOICE, option_id="keep", comment="Citation detail. " * 220
+        )
+        if choice
+        else QuestionAnswer(AnswerKind.TEXT, text="Keep annotated text. " * 220)
+    )
+    user_text = question.answer_text(answer)
+    call = ActionCall("ask", "core.ask", question.to_json(), 1)
+    context.register_action_calls((call,), cycle_id="c")
+    result = ActionResult.success(
+        call_id="ask",
+        invoke_id="ask",
+        batch_id="batch",
+        action_name="core.ask",
+        sequence=1,
+        payload=question.to_json(),
+        model_text=question.narrative(),
+    )
+    context.record_action_result(result, cycle_id="c")
+    scope = RunScope().push(RunLevel.TURN, turn_id)
+    bus = SignalBus()
+    bus.emit(
+        build_trace_action_result_signal(
+            ActionResultRenderer().render_tool_result(result).visible_message,
+            scope=scope,
+            source="test",
+            cycle_id="c",
+        )
+    )
+    bus.emit(
+        build_input_append_signal(
+            user_text,
+            scope=scope,
+            source="test",
+            reply_to=result.result_id,
+            answer=answer,
+        )
+    )
+    await context.consume_signals(bus)
+    context.merge_pending_inputs()
+    root = f"turn:trace/{turn_id}"
+    query = "Citation detail." if choice else "Keep annotated text."
+    hits = (await context.inspect(root, query=query)).items
+    assert len(hits) == 1
+    entry_ref = hits[0].unit.ref
+    expected = question.reply_projection(answer)
+
+    def check_reply(pages, target):
+        parts = [
+            part
+            for page in pages
+            for part in page.items
+            if part.unit.ref == target and part.unit.data.get("kind") != "child"
+        ]
+        assert len(parts) > 2
+        assert (
+            "".join(part.unit.text[part.start : part.end] for part in parts)
+            == expected.text
+        )
+        assert parts[0].start == 0 and parts[-1].end == len(expected.text)
+        assert all(left.end == right.start for left, right in zip(parts, parts[1:]))
+        late_start = expected.text.index("User comment:" if choice else "User answer:")
+        assert any(part.start > late_start for part in parts)
+        for part in parts:
+            assert question.question in part.title
+            assert (
+                "Keep full text" if choice else "Keep annotated text."
+            ) in part.title
+            if part.start >= late_start:
+                assert ("User comment" if choice else "User answer") in part.title
+        for page in pages:
+            assert len(dumps_json(page.to_json())) <= 2048
+            assert len(page.model_text) <= 2048
+
+    for ref in (f"{root}#input/1", entry_ref):
+        pages, token = [], None
+        while True:
+            page = await context.inspect(ref, continuation=token)
+            pages.append(page)
+            token = page.next_continuation
+            if token is None:
+                break
+        check_reply(pages, ref)
+
+    corpus = await context.search_corpus(
+        RetrievalRequest(DirectorySource("trace")),
+        references=ReferenceResolver(),
+    )
+    assert all(
+        expected.title == item.title
+        for item in corpus.candidates
+        if item.ref in {entry_ref, f"{root}#input/1"}
+    )
+    facts = context.current_facts()
+    organized = session.organize(
+        OrganizeChange(
+            (PRIOR,),
+            nodes=(
+                _node("local:reply", source=f"{root}#input/1", body="Reading decision"),
+            ),
+        ),
+        facts,
+    )
+    assert organized.failure is None
+    view = replace(session.snapshot_view(DAY), evidence=SessionEvidence(facts))
+    target = f"session:turn/{turn_id}#input/1"
+    pages, token = [], None
+    while True:
+        page = view.inspect(target, continuation=token)
+        pages.append(page)
+        token = page.next_continuation
+        if token is None:
+            break
+    check_reply(pages, target)
+    assert expected.title in view.inspect(target, query=query).model_text
+    assert view.search_entries((target,))[0].title == expected.title
+
+    session.record_turn(
+        context.end_turn(),
+        day=DAY,
+        output=None,
+        status=TurnOutcomeStatus.STOPPED,
+        exhausted=False,
+    )
+    await context.close_segments()
+    view = session.snapshot_view(DAY)
+    for ref in (target, f"session:turn/{turn_id}"):
+        pages, token = [], None
+        while True:
+            page = view.inspect(ref, continuation=token)
+            pages.append(page)
+            token = page.next_continuation
+            if token is None:
+                break
+        check_reply(pages, target)
+    history = session.background_snapshot(DAY)
+    turn = next(
+        item for item in history.items if item.item_id == f"session:turn/{turn_id}"
+    )
+    assert question.narrative() in render_background(turn.content)
+    assert expected.text in render_background(turn.content)
+    interactions = turn.content["interactions"]
+    assert isinstance(interactions, list)
+    assert [item["role"] for item in interactions if isinstance(item, dict)] == [
+        "user.input",
+        "agent.question",
+        "user.reply",
+    ]
+    assert isinstance(interactions[-1], dict) and interactions[-1]["text"] == user_text
+
+
 async def test_multiple_complete_dialogues_share_background_and_inspection(
     tmp_path: Path,
 ) -> None:

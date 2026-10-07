@@ -17,13 +17,12 @@ from tinysoul.infra.paging import PageOptions
 from tinysoul.infra.references import ReferenceResolver
 from tinysoul.kernel.action.call import ActionCall, ExecutionFact, ExecutionState
 from tinysoul.kernel.action.result import ActionResult
-from tinysoul.kernel.context.disclosure import fact_unit
 from tinysoul.kernel.identity import TurnIdentity, TurnIdentityError
 from tinysoul.kernel.interaction import (
+    InteractionNarrative,
     QuestionAnswer,
     QuestionContent,
-    input_narrative,
-    input_title,
+    input_projection,
 )
 from tinysoul.kernel.retrieval.contracts import RefsSource, RetrievalRequest
 from tinysoul.kernel.retrieval.disclosure import DisclosurePage, InspectPage
@@ -253,7 +252,9 @@ class ContextEngine:
         self._normalizer = ControlCallNormalizer()
         self._plan_segment = PlanSegment()
         self._trace_segment = TraceSegment(
-            compressor.new_trace("detached"), inspect_max_chars=trace_inspect_max_chars
+            compressor.new_trace("detached"),
+            inspect_max_chars=trace_inspect_max_chars,
+            input_projection=self._input_projection,
         )
         self._inputs_segment = InputsSegment()
         self._turn_id = ""
@@ -386,6 +387,7 @@ class ContextEngine:
         self._trace_segment = TraceSegment(
             self._compressor.new_trace(self._turn_id),
             inspect_max_chars=self._trace_inspect_max_chars,
+            input_projection=self._input_projection,
         )
         self._inputs_segment = InputsSegment(user_input)
         initial = self._inputs.all()[0]
@@ -750,9 +752,7 @@ class ContextEngine:
             (item for item in self._current_search_facts() if item.ref == ref), None
         )
         if fact is not None:
-            page = DisclosurePage(
-                ref, "context_fact", content=(fact_unit(fact.content, ref, fact.title),)
-            )
+            page = DisclosurePage(ref, "context_fact", content=(fact.unit(),))
             if query is not None:
                 hint = query_hint(ref, fact.title, fact.content, query)
                 page = DisclosurePage(
@@ -799,38 +799,45 @@ class ContextEngine:
         )
         return disclosure_corpus((*entries, *selected), request, references)
 
+    def _input_projection(self, input_id: str) -> InteractionNarrative:
+        index, item = next(
+            (index, item)
+            for index, item in enumerate(self._inputs.all())
+            if item.input_id == input_id
+        )
+        if item.answer is not None:
+            question = next(
+                fact.result
+                for fact in self._trace.actions()
+                if fact.result is not None and fact.result.result_id == item.reply_to
+            )
+            return QuestionContent.from_json(question.payload).reply_projection(
+                item.answer
+            )
+        return input_projection(item.text, initial=index == 0)
+
     def _current_search_facts(self) -> tuple[DisclosureSearchEntry, ...]:
         # This is a pure current-fact read. It never seals, settles or renumbers
         # actions, including requested actions preceding a terminal subset.
         result = []
         day = self._search_day
-        questions = {
-            fact.result.result_id: QuestionContent.from_json(fact.result.payload)
-            for fact in self._trace.actions()
-            if fact.result is not None
-            and fact.call.action_name == "core.ask"
-            and fact.result.status.value == "success"
-        }
-        for index, item in enumerate(self._inputs.all()):
+        for item in self._inputs.all():
             ref = self._input_ref(item.input_id)
-            narrative = input_narrative(item.text, initial=index == 0)
-            if item.answer is not None and item.reply_to in questions:
-                narrative = questions[item.reply_to].reply_narrative(item.answer)
+            projection = self._input_projection(item.input_id)
             result.append(
                 DisclosureSearchEntry(
                     ref,
-                    questions[item.reply_to].reply_title(item.text)
-                    if item.reply_to in questions
-                    else input_title(initial=index == 0),
+                    projection.title,
                     {
                         "kind": "input",
                         "text": item.text,
                         "reply_to": item.reply_to,
                         "answer": item.answer.to_json() if item.answer else None,
-                        "narrative": narrative,
+                        "narrative": projection.text,
                     },
                     "trace",
                     day=day,
+                    interaction=projection,
                 )
             )
         for action in self._trace.actions():

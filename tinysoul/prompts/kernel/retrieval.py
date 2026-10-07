@@ -422,12 +422,27 @@ def inspect_page(
 
 
 def inspect_recollection(
-    *, title: str, ref: str, view: str, query: str, coverage: str, has_more: bool
+    *,
+    title: str,
+    ref: str,
+    view: str,
+    query: str,
+    coverage: str,
+    item_count: int,
+    partial_count: int,
+    omitted_count: int,
+    has_more: bool,
 ) -> str:
     return (
         f"Inspected {title} ({view})\nReference: {ref}\n"
         + (f"Query: {query}\n" if query else "")
-        + f"Read coverage: {coverage}\n"
+        + f"Returned {item_count} items ({partial_count} partial).\n"
+        + (f"Read coverage:\n{coverage}\n" if coverage else "")
+        + (
+            f"{omitted_count} item details omitted; revisit the read target if needed.\n"
+            if omitted_count
+            else ""
+        )
         + (
             "Further content was available."
             if has_more

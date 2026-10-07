@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from tinysoul.infra.json import JsonObject, JsonValue, dumps_json, to_json_object
-from tinysoul.kernel.interaction import QuestionContent
+from tinysoul.kernel.interaction import InteractionNarrative, QuestionContent
 from tinysoul.kernel.retrieval.disclosure import (
     DisclosureHint,
     DisclosureUnit,
@@ -16,7 +16,11 @@ from .errors import ContextContractError
 
 
 def fact_unit(
-    content: Mapping[str, JsonValue], ref: str, title: str = ""
+    content: Mapping[str, JsonValue],
+    ref: str,
+    title: str = "",
+    *,
+    interaction: InteractionNarrative | None = None,
 ) -> DisclosureUnit:
     """Project Context-owned input, Trace and Action facts before pagination."""
     title = title or str(
@@ -35,10 +39,12 @@ def fact_unit(
     )
     sections: list[tuple[int, str]] = []
     if question is not None:
-        title = question.title
+        interaction = InteractionNarrative(question.title, question.narrative_parts())
+    if interaction is not None:
+        title = interaction.title
         bodies = []
         offset = 0
-        for heading, body in question.narrative_parts():
+        for heading, body in interaction.parts:
             sections.append((offset, heading))
             bodies.append(body)
             offset += len(body) + 1
@@ -112,6 +118,12 @@ class DisclosureSearchEntry:
     basis: str = "fact"
     references: tuple[DisclosureReference, ...] = ()
     day: date | None = None
+    interaction: InteractionNarrative | None = None
+
+    def unit(self) -> DisclosureUnit:
+        return fact_unit(
+            self.content, self.ref, self.title, interaction=self.interaction
+        )
 
     def __post_init__(self) -> None:
         if (
@@ -131,10 +143,11 @@ def query_hint(
     query: str,
 ) -> DisclosureHint | None:
     """Deterministic local lookup over owner-supplied semantic content."""
-    text = " ".join(fact_unit(content, ref, title).text.split())
+    unit = fact_unit(content, ref, title)
+    text = " ".join(unit.text.split())
     query = " ".join(query.split())
     position = text.casefold().find(query.casefold())
     if position < 0:
         return None
     start = max(0, position - 80)
-    return DisclosureHint(ref, title, text[start : position + len(query) + 160])
+    return DisclosureHint(ref, unit.title, text[start : position + len(query) + 160])

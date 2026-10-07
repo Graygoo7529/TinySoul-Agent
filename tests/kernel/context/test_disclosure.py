@@ -73,6 +73,67 @@ def test_semantic_pages_preserve_long_question_and_business_content_with_real_co
     assert "".join(bodies) == question.text + business.text
 
 
+def test_inspect_recollection_has_an_overall_budget_and_truthful_summary():
+    from tinysoul.infra.continuation import OpaqueContinuationCodec
+    from tinysoul.infra.json import dumps_json
+    from tinysoul.kernel.retrieval.disclosure import (
+        DisclosureHint,
+        DisclosurePage,
+        DisclosureUnit,
+        compact_recollection,
+        render_recollection,
+    )
+
+    source = DisclosurePage(
+        "workspace:docs",
+        "directory",
+        title="Documentation",
+        children=tuple(
+            DisclosureHint(
+                f"workspace:docs/chapter-{index}.md",
+                f"Chapter {index}",
+                "Technical details " * 4,
+            )
+            for index in range(80)
+        ),
+    )
+    codec = OpaqueContinuationCodec(owner="test", operation="inspect")
+    page = source.render(codec=codec, max_chars=8000)
+    canonical = page.canonical_payload
+    assert canonical["item_count"] == len(page.items) > 10
+    assert canonical["partial_count"] == 0
+    assert canonical["has_more"] is True
+    assert max(len(dumps_json(canonical)), len(page.recollection_text)) <= 1200
+    coverage = canonical["coverage"]
+    assert isinstance(coverage, list) and 0 < len(coverage) < len(page.items)
+    original = [item.recollection() for item in page.items]
+    assert all(item in original for item in coverage)
+    reduced = compact_recollection(canonical, max_chars=400)
+    assert reduced["item_count"] == canonical["item_count"]
+    assert reduced["has_more"] is True and reduced["ref"] == source.ref
+    assert len(render_recollection(reduced)) <= 400
+    assert page.next_continuation is not None
+    assert page.next_continuation not in dumps_json(canonical)
+
+    unit = DisclosureUnit(
+        "workspace:book.md#L40-L400",
+        "Chapter on citations",
+        "evidence\n" * 600,
+        first_line=40,
+    )
+    page = DisclosurePage(unit.ref, "content", content=(unit,)).render(
+        codec=codec, max_chars=2048
+    )
+    reduced = compact_recollection(page.canonical_payload, max_chars=100)
+    spans = reduced["coverage"]
+    assert isinstance(spans, list) and len(spans) == 1 and isinstance(spans[0], dict)
+    assert spans[0]["ref"] == unit.ref and spans[0]["title"] == unit.title
+    assert spans[0]["coverage"] == page.items[0].coverage
+    assert reduced["item_count"] == reduced["partial_count"] == 1
+    # An indivisible target and actual range outrank this intentionally tiny budget.
+    assert len(render_recollection(reduced)) > 100
+
+
 def test_context_date_filter_uses_installed_fact_dates():
     from tinysoul.kernel.context.disclosure import DisclosureSearchEntry
     from tinysoul.kernel.context.search import disclosure_corpus

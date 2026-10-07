@@ -36,7 +36,7 @@ CONTEXT_SEARCH_FILTERS = AttributeFilters(
         AttributeField("day", AttributeKind.DATE),
     )
 )
-from .disclosure import DisclosureReference, DisclosureSearchEntry, fact_unit
+from .disclosure import DisclosureReference, DisclosureSearchEntry
 
 
 def disclosure_corpus(
@@ -94,7 +94,7 @@ def disclosure_corpus(
             ContentUnit(
                 entry.ref,
                 entry.ref,
-                fact_unit(entry.content, entry.ref, entry.title).text,
+                entry.unit().text,
             ),
         )
         evidence: tuple[SearchEvidence, ...] = ()

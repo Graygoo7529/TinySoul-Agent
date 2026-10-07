@@ -38,24 +38,24 @@ def question_parts(
     return tuple(parts)
 
 
-def reply(
+def reply_parts(
     *,
     question: str,
     text: str,
     selected: str = "",
     description: str = "",
     comment: str = "",
-) -> str:
-    lines = [f"In reply to: {question}"]
+) -> tuple[tuple[str, str], ...]:
+    parts = [("Associated question", f"In reply to: {question}")]
     if selected:
-        lines.append(f"User selected: {selected}")
+        parts.append(("User selection", f"User selected: {selected}"))
         if description:
-            lines.append(description)
+            parts.append(("Selected option description", description))
         if comment:
-            lines.append(f"User comment: {comment}")
+            parts.append(("User comment", f"User comment: {comment}"))
     else:
-        lines.append(f"User answer: {text}")
-    return "\n".join(lines)
+        parts.append(("User answer", f"User answer: {text}"))
+    return tuple(parts)
 
 
 def input_text(*, text: str, initial: bool) -> str:

@@ -29,6 +29,10 @@ Context/Session Inspect、Session map、Home content/diff、Memory document/acti
 
 导航项使用 `kind=child` 和 ref/title/clue，来源为真实名称、Markdown label 或摘录；长导航说明也可返回 source_kind=child 的正文片段。Home/Memory 直接引用在 items 中随正文后分页，或由模型 Inspect 的 direct_refs 视图单独读取；metadata 不再包含重复的 direct_refs 列表。前端将这些项展示为引用入口，不能把它们拼入文档正文。折叠只影响模型 Context；宿主只读查看不标记模型已消费页面，也不改变 Background。
 
+Reply 的 title 在各读取入口中保留核心问题及回答线索；部分正文页还标明当前段落（关联提问、选择、选项说明、comment 或自由回答），完整项不附加分页段落标签。narrative/text 和 coverage 的原有字段语义不变。
+
+历史 Inspect Action 的 result 是精简读取事实，不是旧返回页：`inspected/ref/title/view/query?/item_count/partial_count/coverage/has_more`。item_count/partial_count 统计本次实际返回项及其中的部分项；coverage 仅列预算内保留的条目 ref/title、实际字符或行范围和可选 clue，不能用它的长度代替返回总数。其余条目由原读取入口再次发现；不提供旧正文和旧续页链恢复。活动 Turn 的 Action fact 仍可读取其当前保留的实际结果；读取该事实的 Inspect 自身独立折叠。
+
 ## Turn、Context 与 Session
 
 | GET 路径 | 参数 | 响应来源与内容 |

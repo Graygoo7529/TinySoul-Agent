@@ -23,6 +23,7 @@ from tinysoul.kernel.context.disclosure import (
 from tinysoul.kernel.retrieval.disclosure import (
     DisclosureHint,
     DisclosurePage,
+    DisclosureUnit,
     InspectPage,
 )
 from tinysoul.prompts.plugins import session as prompt_text
@@ -63,6 +64,8 @@ from .navigation import (
     project_relations,
     resource_refs,
     session_input_narrative,
+    session_input_projection,
+    session_input_title,
 )
 
 
@@ -300,7 +303,7 @@ class SessionView:
             result.append(
                 DisclosureSearchEntry(
                     ref,
-                    title,
+                    fact_unit(content, ref, title).title,
                     content,
                     "session",
                     "interpretation" if annotation else "fact",
@@ -382,6 +385,21 @@ class SessionView:
             ref=ref,
         )
 
+    def _fact_unit(self, value: JsonObject, ref: str) -> DisclosureUnit:
+        target = str(value.get("ref") or ref)
+        root, _, suffix = target.partition("#")
+        projection = None
+        if suffix.startswith("input/"):
+            index = int(suffix.removeprefix("input/"))
+            if root in self.manifest.refs:
+                projection = session_input_projection(self._record(root), index)
+            elif (
+                self.evidence is not None
+                and root == f"session:turn/{self.evidence.facts.turn_id}"
+            ):
+                projection = self.evidence.input_projection(index)
+        return fact_unit(value, ref, interaction=projection)
+
     def _disclose(self, ref: str, *, action: str | None) -> DisclosurePage:
         if ref == "session:map":
             return DisclosurePage(
@@ -448,7 +466,7 @@ class SessionView:
                 return DisclosurePage(
                     ref,
                     "session_evidence",
-                    content=tuple(fact_unit(value, ref) for value in (resolved[1],)),
+                    content=(self._fact_unit(resolved[1], ref),),
                 )
         turn_ref, _, suffix = ref.partition("#")
         if turn_ref not in self.manifest.refs and ref in self._source_refs():
@@ -471,7 +489,7 @@ class SessionView:
             children = [
                 DisclosureHint(
                     f"{turn_ref}#input/{index}",
-                    "User reply" if item.reply_to else "User input",
+                    session_input_title(record, index),
                     session_input_narrative(record, index)[:240],
                 )
                 for index, item in enumerate(record.inputs)
@@ -521,7 +539,7 @@ class SessionView:
                 ref,
                 "session_turn",
                 content=tuple(
-                    fact_unit(value, ref)
+                    self._fact_unit(value, ref)
                     for value in (
                         interaction_header(record),
                         *(item.to_json() for item in project_interactions(record)),
@@ -561,7 +579,7 @@ class SessionView:
             ref,
             "session_detail",
             content=tuple(
-                fact_unit(value, ref) for value in (self._detail(record, ref),)
+                self._fact_unit(value, ref) for value in (self._detail(record, ref),)
             ),
         )
 

@@ -9,7 +9,11 @@ from enum import StrEnum
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.kernel.action.call import ExecutionState
 from tinysoul.kernel.context import ContextTurnFacts
-from tinysoul.kernel.interaction import QuestionContent, input_narrative, input_title
+from tinysoul.kernel.interaction import (
+    InteractionNarrative,
+    QuestionContent,
+    input_projection,
+)
 
 from ..annotations.models import (
     AnnotationStatus,
@@ -194,24 +198,24 @@ def project_occurrence(record: SessionTurnRecord, suffix: str) -> JsonObject:
 
 
 def session_input_title(record: SessionTurnRecord, index: int) -> str:
+    return session_input_projection(record, index).title
+
+
+def session_input_projection(
+    record: SessionTurnRecord, index: int
+) -> InteractionNarrative:
     item = record.inputs[index]
-    if item.reply_to:
+    if item.answer is not None:
         action = next(
             action for action in record.actions if action.result_id == item.reply_to
         )
         question = QuestionContent.from_json(action.result)
-        return question.reply_title(item.text)
-    return input_title(initial=index == 0)
+        return question.reply_projection(item.answer)
+    return input_projection(item.text, initial=index == 0)
 
 
 def session_input_narrative(record: SessionTurnRecord, index: int) -> str:
-    item = record.inputs[index]
-    if item.answer is not None and item.reply_to:
-        question = next(
-            action for action in record.actions if action.result_id == item.reply_to
-        )
-        return QuestionContent.from_json(question.result).reply_narrative(item.answer)
-    return input_narrative(item.text, initial=index == 0)
+    return session_input_projection(record, index).text
 
 
 @dataclass(frozen=True)
@@ -290,13 +294,15 @@ class SessionEvidence:
         root = f"session:turn/{self.facts.turn_id}"
         for index, item in enumerate(self.facts.inputs):
             if target == f"{root}#input/{index}":
+                projection = self.input_projection(index)
                 return target, {
                     "kind": "session_input",
                     "ref": target,
                     "text": item.text,
                     "reply_to": item.reply_to,
                     "answer": item.answer.to_json() if item.answer else None,
-                    "narrative": self._input_narrative(index),
+                    "narrative": projection.text,
+                    "title": projection.title,
                     "source_state": "active_turn",
                 }
         for index, item in enumerate(self.facts.actions):
@@ -310,7 +316,7 @@ class SessionEvidence:
                 }
         return None
 
-    def _input_narrative(self, index: int) -> str:
+    def input_projection(self, index: int) -> InteractionNarrative:
         item = self.facts.inputs[index]
         question = next(
             (
@@ -321,10 +327,10 @@ class SessionEvidence:
             None,
         )
         if question is not None and item.answer is not None:
-            return QuestionContent.from_json(question.payload).reply_narrative(
+            return QuestionContent.from_json(question.payload).reply_projection(
                 item.answer
             )
-        return input_narrative(item.text, initial=index == 0)
+        return input_projection(item.text, initial=index == 0)
 
 
 def _require_turn_ref(ref: str) -> None:

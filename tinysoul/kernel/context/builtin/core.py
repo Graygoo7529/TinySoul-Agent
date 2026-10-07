@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
 
@@ -11,9 +12,11 @@ from tinysoul.infra.continuation import (
 )
 from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.context.disclosure import fact_unit
+from tinysoul.kernel.interaction import InteractionNarrative
 from tinysoul.kernel.retrieval.disclosure import (
     DisclosureHint,
     DisclosurePage,
+    DisclosureUnit,
     InspectPage,
 )
 from tinysoul.llm.protocol.messages import (
@@ -164,8 +167,15 @@ class PlanSegment:
 
 
 class TraceSegment:
-    def __init__(self, trace: TurnTraceHeap, *, inspect_max_chars: int) -> None:
+    def __init__(
+        self,
+        trace: TurnTraceHeap,
+        *,
+        inspect_max_chars: int,
+        input_projection: Callable[[str], InteractionNarrative],
+    ) -> None:
         self.state = trace
+        self._input_projection = input_projection
         self._trace_inspect_max_chars = inspect_max_chars
         self._trace_continuations = OpaqueContinuationCodec(
             owner="context", operation="inspect"
@@ -218,6 +228,9 @@ class TraceSegment:
 
     def _entry_content(self, entry: TraceEntry) -> JsonObject:
         content = entry.to_semantic()
+        if entry.input_id:
+            projection = self._input_projection(entry.input_id)
+            content.update(title=projection.title, narrative=projection.text)
         message = entry.message
         if isinstance(message, ToolResultMessage) and message.tool_name == "core.ask":
             fact = next(
@@ -232,6 +245,16 @@ class TraceSegment:
             if fact is not None and fact.result is not None:
                 content["result"] = fact.result.payload
         return content
+
+    def _entry_unit(self, entry: TraceEntry) -> DisclosureUnit:
+        return fact_unit(
+            self._entry_content(entry),
+            self.state.entry_ref(entry.entry_id),
+            f"{entry.kind.value}: {entry.clue[:140]}",
+            interaction=self._input_projection(entry.input_id)
+            if entry.input_id
+            else None,
+        )
 
     async def search_entries(
         self, seed_refs: tuple[str, ...] = ()
@@ -262,13 +285,14 @@ class TraceSegment:
         return tuple(
             DisclosureSearchEntry(
                 self.state.entry_ref(entry.entry_id),
-                entry.kind.value,
-                self._entry_content(entry),
+                unit.title,
+                unit.data,
                 "trace",
                 references=tuple(DisclosureReference(ref) for ref in entry.origin_refs),
             )
             for entry in entries
             if not _inspect_interaction(entry)
+            for unit in (self._entry_unit(entry),)
         )
 
     async def inspect(
@@ -297,14 +321,7 @@ class TraceSegment:
             page = DisclosurePage(
                 ref,
                 "context_trace_entry",
-                content=tuple(
-                    fact_unit(
-                        self._entry_content(item),
-                        ref,
-                        f"{item.kind.value}: {item.clue[:140]}",
-                    )
-                    for item in entries
-                ),
+                content=tuple(self._entry_unit(item) for item in entries),
                 sources=tuple(
                     dict.fromkeys(
                         source for item in entries for source in item.origin_refs
@@ -330,7 +347,7 @@ class TraceSegment:
             children.extend(
                 DisclosureHint(
                     self.state.entry_ref(item.entry_id),
-                    item.kind.value,
+                    self._entry_unit(item).title,
                     item.clue,
                 )
                 for item in entries

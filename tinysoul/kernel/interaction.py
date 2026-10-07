@@ -13,6 +13,22 @@ class QuestionError(Exception):
     """Invalid question content or an answer that cannot satisfy it."""
 
 
+@dataclass(frozen=True)
+class InteractionNarrative:
+    """A derived reading projection, never a second interaction fact."""
+
+    title: str
+    parts: tuple[tuple[str, str], ...]
+
+    def __post_init__(self) -> None:
+        if not self.title or not self.parts:
+            raise QuestionError("Interaction narrative requires a title and content")
+
+    @property
+    def text(self) -> str:
+        return "\n".join(body for _, body in self.parts)
+
+
 def _text(value: object, *, maximum: int, empty: bool = False) -> str:
     if (
         not isinstance(value, str)
@@ -68,9 +84,6 @@ class QuestionContent:
     @property
     def title(self) -> str:
         return prompt_text.question_title(self.question[:160])
-
-    def reply_title(self, text: str) -> str:
-        return prompt_text.reply_title(self.question[:100], text.splitlines()[0][:80])
 
     def to_json(self) -> JsonObject:
         return {
@@ -149,16 +162,25 @@ class QuestionContent:
         )
 
     def reply_narrative(self, answer: QuestionAnswer) -> str:
+        return self.reply_projection(answer).text
+
+    def reply_projection(self, answer: QuestionAnswer) -> InteractionNarrative:
         self.answer_text(answer)  # Validate the answer against this question.
         option = next(
             (item for item in self.options if item.id == answer.option_id), None
         )
-        return prompt_text.reply(
-            question=self.text,
-            text=answer.text,
-            selected=option.label if option else "",
-            description=option.description if option else "",
-            comment=answer.comment,
+        return InteractionNarrative(
+            prompt_text.reply_title(
+                " ".join(self.question.split())[:100],
+                " ".join((option.label if option else answer.text).split())[:80],
+            ),
+            prompt_text.reply_parts(
+                question=self.text,
+                text=answer.text,
+                selected=option.label if option else "",
+                description=option.description if option else "",
+                comment=answer.comment,
+            ),
         )
 
 
@@ -168,6 +190,13 @@ def input_narrative(text: str, *, initial: bool) -> str:
 
 def input_title(*, initial: bool) -> str:
     return prompt_text.input_title(initial)
+
+
+def input_projection(text: str, *, initial: bool) -> InteractionNarrative:
+    title = input_title(initial=initial)
+    return InteractionNarrative(
+        title, ((title, input_narrative(text, initial=initial)),)
+    )
 
 
 class AnswerKind(StrEnum):
