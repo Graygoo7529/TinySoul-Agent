@@ -10,16 +10,16 @@ from uuid import uuid4
 
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.infra.time import CalendarDay, CalendarDayError
-from tinysoul.kernel.identity import TurnIdentity, TurnIdentityError
 from tinysoul.kernel.action import ActionInvariantError, ActionLocalFailure
 from tinysoul.kernel.context.builtin.trace import TraceFactKind
+from tinysoul.kernel.identity import TurnIdentity, TurnIdentityError
 from tinysoul.kernel.interaction import QuestionAnswer, QuestionError
 from tinysoul.kernel.loop.errors import LoopContractError
 from tinysoul.kernel.loop.outcomes import TurnFailure, TurnOutcomeStatus
 
 from ..errors import SessionContractError
 
-SESSION_RECORD_SCHEMA_VERSION = 10
+SESSION_RECORD_SCHEMA_VERSION = 11
 SESSION_MANIFEST_SCHEMA_VERSION = 3
 _TURN_REF = re.compile(r"^session:turn/([0-9]{4}-[0-9]{2}-[0-9]{2}/[1-9][0-9]*)$")
 
@@ -253,14 +253,6 @@ class SessionActionRecord:
         except (TypeError, ValueError) as exc:
             raise SessionContractError("Session Action outcome is invalid") from exc
         result = _optional_object(item, "result")
-        options = result.get("options")
-        if (
-            item.get("action") == "core.ask"
-            and isinstance(options, list)
-            and options
-            and all(isinstance(option, str) for option in options)
-        ):
-            result = {**result, "options": [], "legacy_options": options}
         return cls(
             action=_required_text(item, "action"),
             result_id=_optional_text(item, "result_id"),

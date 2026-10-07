@@ -36,7 +36,7 @@ import "./blocks/builtinBlocks";
  * `$$display$$`, `\(...\)` / `\[...\]`).
  *
  * Fenced code blocks go through the CodeBlockRegistry (plan §21.1): a
- * registered language (mermaid/flowchart/tikz, tinysoul-question, …) mounts
+ * registered language (mermaid/flowchart/tikz, …) mounts
  * its renderer with the fence source, the page theme and this instance's
  * origin; unknown languages keep the default code rendering. A fence that is
  * still the open tail of a streaming document renders as plain source until

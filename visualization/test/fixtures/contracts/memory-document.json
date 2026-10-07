@@ -1,10 +1,21 @@
 {
   "ref": "memory:entity/project",
+  "kind": "content",
   "view": "content",
   "items": [
     {
-      "ref": "memory:entity/project#L1-L13",
-      "text": "---\nschema_version: 2\nkind: entity\ncite: project\nstatus: active\ncreated_on: '2026-09-29'\nupdated_on: '2026-09-29'\nrelations: []\nevidence: []\nredirect_to: null\n---\n\nProject notes\n"
+      "text": "---\nschema_version: 2\nkind: entity\ncite: project\nstatus: active\ncreated_on: '2026-09-29'\nupdated_on: '2026-09-29'\nrelations: []\nevidence: []\nredirect_to: null\n---\n\nProject notes\n",
+      "narrative": "---\nschema_version: 2\nkind: entity\ncite: project\nstatus: active\ncreated_on: '2026-09-29'\nupdated_on: '2026-09-29'\nrelations: []\nevidence: []\nredirect_to: null\n---\n\nProject notes\n",
+      "ref": "memory:entity/project",
+      "title": "project",
+      "coverage": {
+        "start": 0,
+        "end": 178,
+        "total": 178,
+        "complete": true,
+        "start_line": 1,
+        "end_line": 13
+      }
     }
   ],
   "metadata": {
@@ -16,7 +27,7 @@
     ],
     "locator": {
       "ref": "memory:entity/project"
-    },
-    "direct_refs": []
-  }
+    }
+  },
+  "title": "project"
 }

@@ -7,7 +7,6 @@ from datetime import date
 from pathlib import Path
 from threading import RLock
 
-from tinysoul.prompts.plugins import memory as prompt_text
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.paging import PageOptions
 from tinysoul.infra.references import (
@@ -34,6 +33,8 @@ from tinysoul.kernel.retrieval.contracts import (
     SearchFailureKind,
 )
 from tinysoul.kernel.retrieval.disclosure import (
+    DisclosureHint,
+    InspectPage,
     content_units,
     fragment_range,
     inspect_document,
@@ -41,6 +42,7 @@ from tinysoul.kernel.retrieval.disclosure import (
 )
 from tinysoul.kernel.retrieval.engine import VectorSource
 from tinysoul.kernel.retrieval.operations import SearchCorpus
+from tinysoul.prompts.plugins import memory as prompt_text
 
 from .config import MemorySettings
 from .documents import (
@@ -249,7 +251,12 @@ class MemoryEngine:
             ref=f"memory:current@{day}",
             text=document.content,
             direct_refs=tuple(
-                item.target for item in markdown_references(document.content)
+                DisclosureHint(
+                    item.target,
+                    item.label or "Referenced resource",
+                    f"Line {item.line}",
+                )
+                for item in markdown_references(document.content)
             ),
             continuation=page.continuation,
             max_chars=page.max_chars,
@@ -257,7 +264,7 @@ class MemoryEngine:
                 "day": str(day),
                 "locator": {"ref": "memory:current", "day": str(day)},
             },
-        )
+        ).to_json()
 
     def canonical_reference(
         self, resource: str, fragment: str = "", source_day: date | None = None
@@ -288,7 +295,7 @@ class MemoryEngine:
         view: str = "content",
         continuation: str | None = None,
         max_chars: int | None = None,
-    ) -> JsonObject:
+    ) -> InspectPage:
         resource, _, fragment = ref.partition("#")
         resource = MemoryRef.from_resource(resource)
         stored = self._store.read(resource)
@@ -299,14 +306,13 @@ class MemoryEngine:
         )
         if max_chars is not None and (type(max_chars) is not int or max_chars < 512):
             raise MemoryContractError("Inspect max_chars must be at least 512")
-        direct_refs = tuple(
-            dict.fromkeys(
-                target
-                for target, _, _ in self._navigation_refs(
-                    self._catalog.snapshot.require(resource)
-                )
-            )
-        )
+        navigation: dict[str, DisclosureHint] = {}
+        for target, kind, title, evidence in self._navigation_refs(
+            self._catalog.snapshot.require(resource)
+        ):
+            if target not in navigation or kind == "markdown_reference":
+                navigation[target] = DisclosureHint(target, title, evidence[:240])
+        direct_refs = tuple(navigation.values())
         return inspect_document(
             owner="memory",
             ref=ref,
@@ -324,7 +330,6 @@ class MemoryEngine:
                 "display": stored.document.display,
                 "resolution_chain": [str(item) for item in chain],
                 "locator": {"ref": str(resource)},
-                "direct_refs": list(direct_refs),
             },
         )
 
@@ -419,7 +424,7 @@ class MemoryEngine:
             units = content_units(ref, text)
             evidence: list[SearchEvidence] = []
             if anchor is not None:
-                for target, relation, _ in self._navigation_refs(entry):
+                for target, relation, _, _ in self._navigation_refs(entry):
                     try:
                         actual = references.resolve(target, source_day=entry.updated_on)
                     except ReferenceError:
@@ -452,11 +457,18 @@ class MemoryEngine:
 
     def _navigation_refs(
         self, entry: MemoryCatalogEntry
-    ) -> tuple[tuple[str, str, str], ...]:
+    ) -> tuple[tuple[str, str, str, str], ...]:
         from .retrieval.query import _structured_refs
 
         result = [
-            (str(target), "memory_reference", f"{entry.ref} references {target}")
+            (
+                str(target),
+                "memory_reference",
+                self._catalog.snapshot.entries[target].display
+                if target in self._catalog.snapshot.entries
+                else target.kind.value,
+                f"{entry.ref} references {target}",
+            )
             for target in _structured_refs(self._store.read(entry.ref).document)
         ]
         lines = entry.content.splitlines()
@@ -478,6 +490,7 @@ class MemoryEngine:
                 (
                     target,
                     "markdown_reference",
+                    reference.label or target.partition("#")[0].rsplit("/", 1)[-1],
                     lines[reference.line - 1]
                     if reference.line <= len(lines)
                     else reference.label,

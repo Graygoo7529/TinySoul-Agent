@@ -745,7 +745,7 @@ async def test_repeated_cancellation_joins_session_commit_once(
         await running
     assert committed == ["session"]
     ref = session.background_snapshot(DAY).refs[0]
-    output = session.inspect(f"{ref}#output")["items"]
+    output = (session.inspect(f"{ref}#output")).to_json()["items"]
     assert isinstance(output, list)
     assert any(isinstance(item, dict) and item.get("text") == "done" for item in output)
     assert runner.active_scope is None

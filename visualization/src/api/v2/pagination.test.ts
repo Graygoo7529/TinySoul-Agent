@@ -126,21 +126,14 @@ describe("canonical_json fragment decoder", () => {
     expect(decoder.pending).toBe(false);
   });
 
-  it("fixture first+last fragments are not adjacent pages", () => {
-    // home-fragment / home-fragment-end are the first and final pages of one
-    // long item; the backend contract test consumes the intermediate pages.
-    // The fixtures cannot stand in for a real sequence: the first chunk ends
-    // mid-word ("…Long content L") and the final chunk starts with "ent …",
-    // so a naive first+last join decodes to corrupted text ("Lent") that no
-    // genuine assembly of this item would contain.
+  it("semantic first and last pages expose their separate coverage immediately", () => {
     const assembler = createPageAssembler();
-    assembler.push(homeFragment);
-    const delivered = assembler.push(homeFragmentEnd);
-    expect(homeFragment.content_fragment.text.endsWith("L")).toBe(true);
-    expect(homeFragmentEnd.content_fragment.text.startsWith("ent ")).toBe(true);
-    const decoded = delivered[0] as { text: string };
-    expect(decoded.text).toContain("Lent");
+    expect(assembler.push(homeFragment)).toEqual(homeFragment.items);
+    expect(assembler.push(homeFragmentEnd)).toEqual(homeFragmentEnd.items);
+    expect(homeFragment.items[0].coverage.end).toBeLessThan(homeFragmentEnd.items[0].coverage.start);
+    expect(assembler.fragmentPending).toBe(false);
   });
+
 });
 
 describe("continuation primitives", () => {

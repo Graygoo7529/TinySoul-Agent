@@ -104,9 +104,9 @@ describe("OwnerResourcePanel", () => {
 
   it("uses the overview-resolved locator for dynamic memory refs without re-resolving", async () => {
     const memory = structuredClone(memoryFixture) as {
-      metadata: { direct_refs: string[] };
+      items: Array<{ ref: string; [key: string]: unknown }>;
     };
-    memory.metadata.direct_refs = ["memory:concept/tinysoul"];
+    memory.items.push({ kind: "child", ref: "memory:concept/tinysoul", title: "TinySoul", text: "Project concept" });
     endpoint.get("/v2/memory/document", () => jsonResponse(memory));
     act(() => {
       root.render(

@@ -9,6 +9,7 @@ from enum import StrEnum
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.kernel.action.call import ExecutionState
 from tinysoul.kernel.context import ContextTurnFacts
+from tinysoul.kernel.interaction import QuestionContent, input_narrative, input_title
 
 from ..annotations.models import (
     AnnotationStatus,
@@ -182,12 +183,35 @@ def project_occurrence(record: SessionTurnRecord, suffix: str) -> JsonObject:
             return {
                 "kind": "session_input",
                 "ref": input_ref(record.ref, index),
-                "text": record.inputs[index].text,
+                **record.inputs[index].to_json(),
+                "narrative": session_input_narrative(record, index),
+                "title": session_input_title(record, index),
             }
         refs = resource_refs(record)
         if match.group(1) == "resource" and index < len(refs):
             return resource_locator(record, refs[index])
     raise SessionContractError("Unknown Session occurrence")
+
+
+def session_input_title(record: SessionTurnRecord, index: int) -> str:
+    item = record.inputs[index]
+    if item.reply_to:
+        action = next(
+            action for action in record.actions if action.result_id == item.reply_to
+        )
+        question = QuestionContent.from_json(action.result)
+        return question.reply_title(item.text)
+    return input_title(initial=index == 0)
+
+
+def session_input_narrative(record: SessionTurnRecord, index: int) -> str:
+    item = record.inputs[index]
+    if item.answer is not None and item.reply_to:
+        question = next(
+            action for action in record.actions if action.result_id == item.reply_to
+        )
+        return QuestionContent.from_json(question.result).reply_narrative(item.answer)
+    return input_narrative(item.text, initial=index == 0)
 
 
 @dataclass(frozen=True)
@@ -271,6 +295,8 @@ class SessionEvidence:
                     "ref": target,
                     "text": item.text,
                     "reply_to": item.reply_to,
+                    "answer": item.answer.to_json() if item.answer else None,
+                    "narrative": self._input_narrative(index),
                     "source_state": "active_turn",
                 }
         for index, item in enumerate(self.facts.actions):
@@ -283,6 +309,22 @@ class SessionEvidence:
                     "source_state": "active_turn",
                 }
         return None
+
+    def _input_narrative(self, index: int) -> str:
+        item = self.facts.inputs[index]
+        question = next(
+            (
+                fact.result
+                for fact in self.facts.actions
+                if fact.result is not None and fact.result.result_id == item.reply_to
+            ),
+            None,
+        )
+        if question is not None and item.answer is not None:
+            return QuestionContent.from_json(question.payload).reply_narrative(
+                item.answer
+            )
+        return input_narrative(item.text, initial=index == 0)
 
 
 def _require_turn_ref(ref: str) -> None:

@@ -18,7 +18,6 @@ export interface HomeContentItem {
 /** Home content page metadata (home-effective example). */
 export interface HomeContentMetadata {
   locator: ResourceLocator;
-  direct_refs: string[];
   [key: string]: unknown;
 }
 

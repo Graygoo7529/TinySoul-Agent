@@ -50,6 +50,6 @@ describe("MemoryClient", () => {
     })) as MemoryDocumentPage;
     expect(page.metadata?.status).toBe("merged");
     expect(page.metadata?.resolution_chain).toHaveLength(2);
-    expect(page.metadata?.direct_refs).toContain("memory:entity/project");
+    expect(page.items.some((item) => item.kind === "child" && item.ref === "memory:entity/project")).toBe(true);
   });
 });

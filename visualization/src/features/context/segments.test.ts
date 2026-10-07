@@ -84,7 +84,7 @@ describe("classifyRef", () => {
     expect(classifyRef("home:top/agent/AGENT")).toBe("home");
     expect(classifyRef("memory:current")).toBe("memory");
     expect(classifyRef("session:map")).toBe("session");
-    expect(classifyRef("turn:trace@contract-turn")).toBe("trace");
+    expect(classifyRef("turn:trace/contract-turn")).toBe("trace");
     expect(classifyRef("workspace:job.py")).toBe("workspace");
     expect(classifyRef("https://example.com")).toBe("web");
     expect(classifyRef("something-else")).toBe("other");

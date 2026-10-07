@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 from collections.abc import Callable
 from datetime import date as CalendarDate
 from pathlib import Path
@@ -9,7 +8,7 @@ import pytest
 
 from tests.support.model_uses import action_tasks
 from tinysoul.infra.config import ConfigError
-from tinysoul.infra.json import JsonObject
+from tinysoul.infra.json import JsonObject, dumps_json
 from tinysoul.infra.references import ReferenceResolver
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.action.call import ActionCall, ActionExecution
@@ -56,11 +55,11 @@ from tinysoul.plugins.workspace import (
     WorkspaceAnalysisSettings,
     WorkspaceContractError,
     WorkspaceEngineBuilder,
-    WorkspaceRef,
     WorkspaceManifest,
     WorkspacePromptInput,
     WorkspacePromptReferenceResolver,
     WorkspaceReconcileStatus,
+    WorkspaceRef,
     WorkspaceResourceKind,
     WorkspaceSearchSettings,
     WorkspaceSettings,
@@ -1138,39 +1137,40 @@ async def test_inspect_pages_selected_text_and_keeps_only_read_facts(
 
     engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
     engine.initialize_day(CalendarDay.parse("2026-10-06"))
-    section = "# Selected\n" + "detail " * 200 + "\n"
+    section = "# Selected\n" + "detail " * 1000 + "\n"
     engine.write_text(
         "workspace:notes.md", "# Intro\nintro\n" + section + "# Other\nother\n"
     )
-    params: JsonObject = {"ref": "workspace:notes.md#selected", "max_chars": 512}
+    params: JsonObject = {"ref": "workspace:notes.md#selected", "max_chars": 2048}
     result = await _executor(engine).execute(
         _execution("workspace.inspect", params), ActionExecutionContext()
     )
     assert result.status.value == "success"
-    assert result.payload["text"] == section[:512]
-    assert result.model_text is not None and section[:512] in result.model_text
     assert result.trace_projection is not None
     canonical = result.trace_projection.canonical_payload
-    assert canonical["requested_ref"] == params["ref"] and canonical["coverage"]
-    assert "text" not in canonical and section[:512] not in str(canonical)
-    continuation = result.payload["next_continuation"]
-    assert isinstance(continuation, str)
-    texts = [str(result.payload["text"])]
+    assert canonical["ref"] == params["ref"] and canonical["coverage"]
+    assert "text" not in canonical and section not in str(canonical)
+    first = engine.inspect(str(params["ref"]), max_chars=2048)
+    assert first.model_text == result.model_text
+    texts = [item.unit.text[item.start : item.end] for item in first.items]
+    continuation = first.next_continuation
+    assert continuation is not None
     while continuation:
         page = engine.inspect(
-            str(params["ref"]), continuation=continuation, max_chars=512
+            str(params["ref"]), continuation=continuation, max_chars=2048
         )
-        texts.append(str(page["text"]))
-        token = page["next_continuation"]
-        assert token is None or isinstance(token, str)
-        continuation = token
+        assert len(dumps_json(page.to_json())) <= 2048
+        assert len(page.model_text) <= 2048
+        texts.extend(item.unit.text[item.start : item.end] for item in page.items)
+        continuation = page.next_continuation
     assert "".join(texts) == section
-    old_token = result.payload["next_continuation"]
-    assert isinstance(old_token, str)
     engine.write_text("workspace:notes.md", "# Selected\nUpdated.\n", overwrite=True)
-    assert engine.inspect(str(params["ref"]))["text"] == "# Selected\nUpdated.\n"
+    assert (
+        engine.inspect(str(params["ref"])).items[0].unit.text
+        == "# Selected\nUpdated.\n"
+    )
     with pytest.raises(ContinuationError):
-        engine.inspect(str(params["ref"]), continuation=old_token)
+        engine.inspect(str(params["ref"]), continuation=first.next_continuation)
 
 
 async def test_inspect_directory_and_nontext_describe_current_resources(
@@ -1180,11 +1180,11 @@ async def test_inspect_directory_and_nontext_describe_current_resources(
     engine.initialize_day(CalendarDay.parse("2026-10-06"))
     engine.write_text("workspace:docs/note.md", "hello")
     engine.set_description("workspace:docs/note.md", "Meeting notes")
-    page = engine.inspect("workspace:docs")
+    page = (engine.inspect("workspace:docs")).to_json()
     assert "workspace:docs/note.md" in str(page["items"])
     assert "Meeting notes" in str(page["items"])
     (tmp_path / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n")
-    page = engine.inspect("workspace:image.png")
+    page = (engine.inspect("workspace:image.png")).to_json()
     assert page["view"] == "metadata" and "text" not in page
     executor = _executor(engine)
     metadata = await executor.execute(
@@ -1199,7 +1199,7 @@ async def test_inspect_directory_and_nontext_describe_current_resources(
         ActionExecutionContext(),
     )
     assert directory.trace_projection is not None
-    assert directory.trace_projection.canonical_payload["coverage"] == {
-        "returned_refs": ["workspace:docs/note.md"],
-        "partial_item": False,
-    }
+    coverage = directory.trace_projection.canonical_payload["coverage"]
+    assert isinstance(coverage, list) and isinstance(coverage[0], dict)
+    assert coverage[0]["ref"] == "workspace:docs/note.md"
+    assert coverage[0]["title"] and coverage[0]["clue"]

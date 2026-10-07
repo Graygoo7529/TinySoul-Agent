@@ -148,7 +148,7 @@
         "search"
       ],
       "root_refs": [
-        "turn:trace@contract-turn"
+        "turn:trace/contract-turn"
       ],
       "chars": 1784,
       "image_bytes": 0,

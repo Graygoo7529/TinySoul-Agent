@@ -44,7 +44,7 @@ describe/compose/analyze 的固定引导、输出说明及资源包装由 `promp
 
 WorkspaceReader 提供 owner 绑定的文本分页、全文可编辑读取和 blob 流式 Range。Text continuation 绑定实际文件 digest 以识别内容变化，但不形成 CAS；full 读取超过写入上限拒绝，归档视图 editable=false。Agent SDK 负责 generation/day lease，HTTP 不直接打开任意路径。
 
-`stat` 提供元数据；`workspace.inspect` 与 SDK Inspect 读取当前资源，没有内部模型调用。引用可指定行或 Markdown 标题；小文本完整返回，大文本按 continuation 续读，并报告实际覆盖与 has_more。正文预算由 max_chars 控制，目录页按公共有界序列协议返回直接子项，非文本只返回元数据与读取说明。续页绑定选定内容，内容变化后旧令牌拒绝续读；这不锁定文件、不构成 CAS 或资源版本库。编码、图像真实格式、字节大小和模型图像能力在各自入口校验。
+`stat` 提供元数据；`workspace.inspect` 与 SDK Inspect 读取当前资源，没有内部模型调用。引用可指定行或 Markdown 标题；小文本完整返回，大文本按 continuation 续读，并报告实际行/字符覆盖。文本、目录与元数据复用语义披露页，max_chars 同时约束机器页面和模型文字，包含引用、说明及续页开销；长正文只切正文，目录返回直接子项。非文本明确只读取元数据，并提示可用的读取或转换方式。续页绑定选定内容，内容变化后旧令牌拒绝续读；这不锁定文件、不构成 CAS 或资源版本库。当前文本 Inspect 仍可能全文读取和扫描，返回页有界不代表内部内存有界。编码、图像真实格式、字节大小和模型图像能力在各自入口校验。
 
 search 明确区分文件、目录前缀和整个 Workspace。来源字符预算、共享候选快照预算、模型输入及页面预算各自归其 owner；实际文件读取经 joined owner 边界执行。原生 matcher 在原始正文逐行做 literal/regex 匹配，跨内容单元的文本不丢失，casefold 后的命中仍映射回原文行列。正则共享一次 0.2 秒匹配预算；超时或来源超预算返回 scope_required，不能当作零命中。SDK 与 Action 只使用同一 search 服务，不在 matcher 内按展示数量提前截掉候选。
 

@@ -6,7 +6,9 @@ from dataclasses import dataclass, replace
 
 from tinysoul.infra.json import JsonObject, JsonValue, dumps_json, to_json_object
 from tinysoul.kernel.interaction import QuestionContent
+from tinysoul.kernel.retrieval.disclosure import render_recollection
 from tinysoul.prompts.plugins import session as prompt_text
+
 from ..errors import SessionContractError, SessionInvariantError
 
 
@@ -129,7 +131,10 @@ def _compact_turn(content: JsonObject) -> JsonObject:
             value["excerpted"] = True
         if value.get("role") in {"agent.action", "agent.reason"}:
             for key in ("request", "result"):
-                body = _action_fields(value.get(key, {}))
+                body = _action_fields(
+                    value.get(key, {}),
+                    omit_continuation=key == "request" and _is_inspect(value),
+                )
                 if len(body) > 400:
                     value.pop(key, None)
                     value[f"{key}_excerpt"] = body[:400]
@@ -219,17 +224,16 @@ def render_background(content: JsonObject) -> str:
                 continue
             role = str(item.get("role", ""))
             if role == "agent.question":
-                explanation = item.get("explanation", "")
-                body = QuestionContent.from_json(item).narrative(
-                    explanation=explanation if isinstance(explanation, str) else ""
-                )
+                body = QuestionContent.from_json(item).narrative()
             elif role in {"agent.action", "agent.reason"}:
                 body = prompt_text.action_result(
                     action=str(item.get("action", "")),
                     outcome=str(item.get("outcome", "")),
                     request=str(item["request_excerpt"])
                     if "request_excerpt" in item
-                    else _action_fields(item.get("request", {})),
+                    else _action_fields(
+                        item.get("request", {}), omit_continuation=_is_inspect(item)
+                    ),
                     result=str(item["result_excerpt"])
                     if "result_excerpt" in item
                     else _action_fields(item.get("result", {})),
@@ -262,11 +266,19 @@ def render_background(content: JsonObject) -> str:
     return "\n\n".join(lines)
 
 
-def _action_fields(value: JsonValue) -> str:
+def _is_inspect(value: JsonObject) -> bool:
+    result = value.get("result")
+    return isinstance(result, dict) and result.get("inspected") is True
+
+
+def _action_fields(value: JsonValue, *, omit_continuation: bool = False) -> str:
     """Expose natural-language values directly while retaining named result fields."""
     if not isinstance(value, dict):
         return dumps_json(value)
+    if value.get("inspected") is True:
+        return render_recollection(value)
     return "\n".join(
         f"{key}:\n{body}" if isinstance(body, str) else f"{key}: {dumps_json(body)}"
         for key, body in value.items()
+        if not (omit_continuation and key == "continuation")
     )

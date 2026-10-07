@@ -4,17 +4,15 @@ from __future__ import annotations
 
 import os
 import re
-from hashlib import sha256
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
 from threading import RLock
 
-from tinysoul.prompts.plugins import workspace as prompt_text
-from tinysoul.infra.continuation import OpaqueContinuationCodec, continue_json_sequence
+from tinysoul.infra.continuation import OpaqueContinuationCodec
 from tinysoul.infra.filesystem import atomic_write_text, read_text_prefix
-from tinysoul.infra.json import JsonObject, JsonValue, dumps_json
+from tinysoul.infra.json import JsonObject
 from tinysoul.infra.paging import PageOptions
 from tinysoul.infra.references import (
     ReferenceError,
@@ -45,11 +43,15 @@ from tinysoul.kernel.retrieval.contracts import (
     TextQuery,
 )
 from tinysoul.kernel.retrieval.disclosure import (
+    DisclosurePage,
+    DisclosureUnit,
+    InspectPage,
     content_units,
     fragment_range,
     range_evidence,
 )
 from tinysoul.kernel.retrieval.operations import SearchCorpus
+from tinysoul.prompts.plugins import workspace as prompt_text
 from tinysoul.runtime import NullObservationEmitter, ObservationEmitter
 
 from .config import WorkspaceSettings
@@ -310,7 +312,7 @@ class WorkspaceEngine:
 
     def inspect(
         self, ref: str, *, continuation: str | None = None, max_chars: int | None = None
-    ) -> JsonObject:
+    ) -> InspectPage:
         """Disclose the current resource through a bounded, model-free read."""
         limit = self._settings.max_read_chars if max_chars is None else max_chars
         if type(limit) is not int or limit < 512:
@@ -331,23 +333,17 @@ class WorkspaceEngine:
                 "size": record.size,
             }
             if record.kind is WorkspaceResourceKind.TEXT:
-                page = self._reader.inspect_text(
-                    ref, day=day, continuation=continuation, max_chars=limit
+                return self._reader.inspect_text(
+                    ref,
+                    day=day,
+                    continuation=continuation,
+                    max_chars=limit,
+                    metadata=base,
                 )
-                body = page["text"]
-                assert isinstance(body, str)
-                direct: list[JsonValue] = []
-                for item in markdown_references(body):
-                    try:
-                        target = self.resolve_relative(item.target, resource)
-                    except ReferenceError:
-                        continue
-                    direct.append({"ref": target, "title": item.label or target})
-                return {**base, **page, "direct_refs": direct}
             if fragment:
                 raise WorkspaceContractError("This resource has no text fragment")
             if record.kind is WorkspaceResourceKind.DIRECTORY:
-                children: list[JsonValue] = []
+                children: list[DisclosureUnit] = []
                 for path in sorted(
                     self.path_for(resource).iterdir(), key=lambda item: item.name
                 ):
@@ -355,33 +351,59 @@ class WorkspaceEngine:
                         continue
                     child = self.stat(f"{resource}/{path.name}")
                     children.append(
-                        {
-                            "ref": child.ref,
-                            "title": path.name,
-                            "summary": child.context_summary,
-                            "kind": child.kind.value,
-                        }
+                        DisclosureUnit(
+                            child.ref,
+                            path.name,
+                            child.context_summary,
+                            {
+                                "ref": child.ref,
+                                "title": path.name,
+                                "summary": child.context_summary,
+                                "kind": child.kind.value,
+                            },
+                        )
                     )
-                page = continue_json_sequence(
-                    tuple(children),
-                    base={**base, "view": "children"},
-                    item_field="items",
-                    continuation=continuation,
+                return DisclosurePage(
+                    ref,
+                    "children",
+                    title=record.relative_path or "Workspace",
+                    content=tuple(children),
+                    metadata=base,
+                ).render(
                     codec=OpaqueContinuationCodec(
                         owner="workspace", operation="inspect_directory"
                     ),
-                    ref=ref,
                     max_chars=limit,
-                    binding={
-                        "day": day,
-                        "content": sha256(dumps_json(children).encode()).hexdigest(),
-                    },
+                    continuation=continuation,
+                    binding={"day": day},
                 )
-                page["has_more"] = bool(page.get("next_continuation"))
-                return page
             if continuation is not None:
                 raise WorkspaceContractError("Metadata has no continuation")
-            return {**base, "view": "metadata", "has_more": False}
+            return DisclosurePage(
+                ref,
+                "metadata",
+                title=record.relative_path,
+                metadata=base,
+                content=(
+                    DisclosureUnit(
+                        ref,
+                        record.relative_path,
+                        prompt_text.inspect_metadata(
+                            str(base["kind"]),
+                            str(base["media_type"]),
+                            str(base["size"]),
+                        )
+                        + "\n"
+                        + prompt_text.INSPECT_METADATA_ONLY,
+                    ),
+                ),
+            ).render(
+                codec=OpaqueContinuationCodec(
+                    owner="workspace", operation="inspect_metadata"
+                ),
+                max_chars=limit,
+                binding={"day": day},
+            )
 
     def write_target_exists(self, ref: str) -> bool:
         with self._lock:

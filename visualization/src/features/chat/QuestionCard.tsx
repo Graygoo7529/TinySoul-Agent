@@ -166,7 +166,6 @@ function StatefulQuestionCard({
       error={error}
       groupName={questionId !== null ? `question-${questionId}` : undefined}
       onSubmit={(draft) => void onSubmit(draft)}
-      showReplyComment={false}
     />
   );
 }

@@ -57,3 +57,5 @@ export interface PageEnvelope extends ContinuationPage {
 
 /** Disclosure pages (context/session inspect, trace pages) share page.json. */
 export type DisclosurePage = PageEnvelope;
+
+export interface DirectReference { ref: string; title: string; clue: string; }

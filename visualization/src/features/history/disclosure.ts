@@ -17,6 +17,13 @@
 
 import type { JsonObject, JsonValue } from "../../api/v2/json";
 
+export function coverageDescription(value: JsonValue | undefined): string | null {
+  if (value === undefined || !isRecord(value) || typeof value.start !== "number" || typeof value.end !== "number" || typeof value.total !== "number") return null;
+  const lines = typeof value.start_line === "number" && typeof value.end_line === "number"
+    ? `Lines ${value.start_line}–${value.end_line}; ` : "";
+  return `${lines}characters ${value.start}–${value.end} of ${value.total} (${value.complete ? "complete" : "partial"})`;
+}
+
 /** A navigation hint (`{kind:"child"}`) — opens its ref's own page. */
 export interface DisclosureChild {
   ref: string;
@@ -48,12 +55,12 @@ export function parseDisclosureItems(items: JsonValue[]): ParsedDisclosureItems 
   const sources: string[] = [];
   for (const item of items) {
     if (!isRecord(item)) continue;
-    if (item.kind === "child") {
+    if (item.kind === "child" || item.source_kind === "child") {
       if (typeof item.ref === "string" && typeof item.title === "string") {
         children.push({
           ref: item.ref,
           title: item.title,
-          clue: typeof item.clue === "string" ? item.clue : "",
+          clue: typeof item.clue === "string" ? item.clue : typeof item.text === "string" ? item.text : "",
         });
       }
       continue;

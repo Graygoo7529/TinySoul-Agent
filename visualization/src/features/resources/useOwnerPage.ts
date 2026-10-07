@@ -3,7 +3,7 @@
  * active/document) that also exposes the page-level `metadata` — locator,
  * direct refs, redirect chain, diff facts. The item semantics mirror the
  * history usePagedSequence hook: a page is exhausted iff it carries no next
- * token, canonical_json fragment items decode in place, and an invalidated
+ * token, readable body slices pass through, machine fragments decode when present, and an invalidated
  * continuation restarts from the first page, replacing the shown list only
  * when the fresh sequence has caught up (plan §3.5).
  */

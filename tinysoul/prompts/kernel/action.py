@@ -95,8 +95,8 @@ DOMAIN_NAMES_DESCRIPTION = "Action domain names to expose in Phase2."
 DOMAIN_INTENT_DESCRIPTION = "Brief reason for the selected action domains."
 # Local model feedback. Used by kernel/action/builtins/core/actions.py:execute.
 INVALID_QUESTION = (
-    "Provide one question with unique option IDs, labels and a positive optional "
-    "timeout. Do not combine conflicting explicit choices and question blocks."
+    "Provide question and any needed details, with unique option IDs and labels. "
+    "Allow a free response or provide options; an optional waiting timeout must be positive."
 )
 
 # Local model feedback. Used by kernel/action/builtins/core/actions.py:execute.

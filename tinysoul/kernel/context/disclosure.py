@@ -1,13 +1,99 @@
 """Bounded navigation shared by Trace and Session, without owning their facts."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
-from hashlib import sha256
 
-from tinysoul.infra.continuation import OpaqueContinuationCodec, continue_json_sequence
-from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
+from tinysoul.infra.json import JsonObject, JsonValue, dumps_json, to_json_object
+from tinysoul.kernel.interaction import QuestionContent
+from tinysoul.kernel.retrieval.disclosure import (
+    DisclosureHint,
+    DisclosureUnit,
+    render_recollection,
+)
 
 from .errors import ContextContractError
+
+
+def fact_unit(
+    content: Mapping[str, JsonValue], ref: str, title: str = ""
+) -> DisclosureUnit:
+    """Project Context-owned input, Trace and Action facts before pagination."""
+    title = title or str(
+        content.get("role") or content.get("action") or content.get("kind") or "Context"
+    )
+    narrative = content.get("narrative")
+    result = content.get("result", {})
+    payload = result.get("payload", result) if isinstance(result, dict) else {}
+    payload = payload if isinstance(payload, dict) else {}
+    question = (
+        QuestionContent.from_json(payload)
+        if content.get("action") == "core.ask"
+        and isinstance(payload, dict)
+        and "question" in payload
+        else None
+    )
+    sections: list[tuple[int, str]] = []
+    if question is not None:
+        title = question.title
+        bodies = []
+        offset = 0
+        for heading, body in question.narrative_parts():
+            sections.append((offset, heading))
+            bodies.append(body)
+            offset += len(body) + 1
+        text = "\n".join(bodies)
+    elif isinstance(narrative, str):
+        header = "\n".join(
+            f"{key}: {dumps_json(content[key])}"
+            for key in ("action", "state", "outcome", "request")
+            if key in content
+        )
+        text = f"{header}\n\n{narrative}" if header else narrative
+    else:
+        parts = []
+        for key, value in content.items():
+            if key in {
+                "ref",
+                "kind",
+                "role",
+                "turn_ref",
+                "id",
+                "reply_to",
+                "answer",
+                "source_state",
+                "delivery",
+            }:
+                continue
+            if (
+                key == "result"
+                and isinstance(value, dict)
+                and value.get("inspected") is True
+            ):
+                body = render_recollection(value)
+            elif (
+                key == "request"
+                and isinstance(value, dict)
+                and payload.get("inspected") is True
+            ):
+                body = dumps_json(
+                    {
+                        name: item
+                        for name, item in value.items()
+                        if name != "continuation"
+                    }
+                )
+            else:
+                body = value if isinstance(value, str) else dumps_json(value)
+            parts.append(body if key in {"text", "content"} else f"{key}: {body}")
+        text = "\n\n".join(parts)
+    return DisclosureUnit(
+        str(content.get("ref") or ref),
+        str(content.get("title") or title),
+        text,
+        to_json_object(content),
+        sections=tuple(sections),
+    )
 
 
 @dataclass(frozen=True)
@@ -38,69 +124,6 @@ class DisclosureSearchEntry:
             )
 
 
-@dataclass(frozen=True)
-class DisclosureHint:
-    ref: str
-    title: str
-    clue: str = ""
-
-    def __post_init__(self) -> None:
-        if not self.ref or not self.title:
-            raise ContextContractError("Disclosure hint requires reference and title")
-
-    def to_json(self) -> JsonObject:
-        return {"ref": self.ref, "title": self.title, "clue": self.clue}
-
-
-@dataclass(frozen=True)
-class DisclosurePage:
-    """Owner-selected direct content; pagination never expands child bodies."""
-
-    ref: str
-    kind: str
-    content: tuple[JsonObject, ...] = ()
-    children: tuple[DisclosureHint, ...] = ()
-    related: tuple[JsonObject, ...] = ()
-    sources: tuple[str, ...] = ()
-
-    def __post_init__(self) -> None:
-        if not self.ref or not self.kind:
-            raise ContextContractError("Disclosure page requires reference and kind")
-
-    def render(
-        self,
-        *,
-        codec: OpaqueContinuationCodec,
-        max_chars: int,
-        continuation: str | None = None,
-        binding: JsonObject | None = None,
-    ) -> JsonObject:
-        items = (
-            *self.content,
-            *(
-                to_json_object({"kind": "child", **item.to_json()})
-                for item in self.children
-            ),
-            *self.related,
-            *({"kind": "source", "ref": ref} for ref in self.sources),
-        )
-        return continue_json_sequence(
-            tuple(to_json_object(item) for item in items),
-            base={"kind": self.kind, "ref": self.ref},
-            item_field="items",
-            codec=codec,
-            ref=self.ref,
-            continuation=continuation,
-            binding={
-                **(binding or {}),
-                "view": sha256(
-                    dumps_json(to_json_object({"items": items})).encode("utf-8")
-                ).hexdigest(),
-            },
-            max_chars=max_chars,
-        )
-
-
 def query_hint(
     ref: str,
     title: str,
@@ -108,15 +131,7 @@ def query_hint(
     query: str,
 ) -> DisclosureHint | None:
     """Deterministic local lookup over owner-supplied semantic content."""
-    text = " ".join(
-        dumps_json(
-            {
-                key: value
-                for key, value in content.items()
-                if key not in {"ref", "kind", "turn_ref"}
-            }
-        ).split()
-    )
+    text = " ".join(fact_unit(content, ref, title).text.split())
     query = " ".join(query.split())
     position = text.casefold().find(query.casefold())
     if position < 0:

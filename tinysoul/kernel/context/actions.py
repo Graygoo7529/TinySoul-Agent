@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from tinysoul.kernel.retrieval.disclosure import inspect_recollection
-from tinysoul.prompts.kernel import context as prompt_text
+from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.action import (
     ActionEngineBuilder,
     ActionExecution,
@@ -15,17 +14,16 @@ from tinysoul.kernel.action import (
     ActionResultStage,
     ActionTraceProjection,
 )
-from tinysoul.infra.json import JsonObject
-from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
 from tinysoul.kernel.action.tasks import ActionTaskFactory
+from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
+from tinysoul.kernel.retrieval.contracts import (
+    ModelStep,
+    SearchContext,
+    SearchFailure,
+)
 from tinysoul.kernel.retrieval.operations import SearchSession
 from tinysoul.kernel.retrieval.requests import parse_retrieval_request
-from tinysoul.kernel.retrieval.contracts import (
-    SearchFailure,
-    SearchContext,
-    RetrievalRequest,
-    ModelStep,
-)
+from tinysoul.prompts.kernel import context as prompt_text
 
 from .engine import ContextEngine
 from .errors import (
@@ -151,13 +149,15 @@ class ContextInspectExecutor(ActionExecutor):
             return _failed_request(execution, exc)
         except ContextError as exc:
             raise self._runtime_bridge.from_context_error(exc) from exc
-        canonical_payload = inspect_recollection(payload, query=query)
+        canonical_payload = payload.canonical_payload
         return _success(
             execution,
-            payload,
+            payload.to_json(),
+            model_text=payload.model_text,
             trace_projection=ActionTraceProjection(
                 origin_refs=(ref,),
                 canonical_payload=canonical_payload,
+                model_text=payload.recollection_text,
             ),
         )
 
@@ -171,6 +171,7 @@ def _success(
     execution: ActionExecution,
     payload: JsonObject,
     *,
+    model_text: str | None = None,
     trace_projection: ActionTraceProjection | None = None,
 ) -> ActionResult:
     return ActionResult.success(
@@ -182,6 +183,7 @@ def _success(
         domain=execution.framework.domain,
         payload=payload,
         trace_projection=trace_projection,
+        model_text=model_text,
     )
 
 

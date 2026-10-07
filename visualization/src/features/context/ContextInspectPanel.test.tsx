@@ -22,7 +22,7 @@ import tracePageFixture from "../../../test/fixtures/contracts/context-trace-pag
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
 const TURN_ID = "contract-turn";
-const TRACE_REF = `turn:trace@${TURN_ID}`;
+const TRACE_REF = `turn:trace/${TURN_ID}`;
 
 let container: HTMLDivElement;
 let root: Root;

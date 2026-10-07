@@ -23,8 +23,8 @@ from ..errors import (
     AgentHomeIOError,
     AgentHomeNotFoundError,
 )
-from ..refs import HomeTopRef
 from ..overlay import HomeOverlayManager, HomeOverlayRecord, HomeOverlayState
+from ..refs import HomeTopRef
 from ..skills.metadata import parse_home_skill_metadata
 from .models import (
     HomeReviewChange,
@@ -234,7 +234,7 @@ class HomeReviewService:
                     "actual_chars": len(before),
                     "effective_chars": len(after),
                 },
-            )
+            ).to_json()
 
     def _clean_deterministic_records(self) -> tuple[int, int, int]:
         copied_cleaned = 0

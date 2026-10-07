@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from tinysoul.prompts.plugins import session as prompt_text
 from tinysoul.infra.continuation import (
     ContinuationError,
     ContinuationFailureReason,
@@ -16,12 +15,17 @@ from tinysoul.infra.paging import PageOptions
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.context.background import background_projection
 from tinysoul.kernel.context.disclosure import (
-    DisclosureHint,
-    DisclosurePage,
     DisclosureReference,
     DisclosureSearchEntry,
+    fact_unit,
     query_hint,
 )
+from tinysoul.kernel.retrieval.disclosure import (
+    DisclosureHint,
+    DisclosurePage,
+    InspectPage,
+)
+from tinysoul.prompts.plugins import session as prompt_text
 
 from ..annotations.models import (
     AnnotationKind,
@@ -58,6 +62,7 @@ from .navigation import (
     project_occurrence,
     project_relations,
     resource_refs,
+    session_input_narrative,
 )
 
 
@@ -313,7 +318,7 @@ class SessionView:
         query: str | None = None,
         continuation: str | None = None,
         expected_revision: int | None = None,
-    ) -> JsonObject:
+    ) -> InspectPage:
         if (
             expected_revision is not None
             and expected_revision != self.manifest.revision
@@ -347,7 +352,6 @@ class SessionView:
                 continuation=continuation,
                 binding={
                     "day": self.manifest.day,
-                    "revision": self.manifest.revision,
                     "query": query,
                     "action": action,
                 },
@@ -441,18 +445,25 @@ class SessionView:
         if self.evidence is not None:
             resolved = self.evidence.resolve(ref)
             if resolved is not None and ref in self._source_refs():
-                return DisclosurePage(ref, "session_evidence", content=(resolved[1],))
+                return DisclosurePage(
+                    ref,
+                    "session_evidence",
+                    content=tuple(fact_unit(value, ref) for value in (resolved[1],)),
+                )
         turn_ref, _, suffix = ref.partition("#")
         if turn_ref not in self.manifest.refs and ref in self._source_refs():
             return DisclosurePage(
                 ref,
                 "session_evidence",
-                content=(
-                    {
-                        "ref": ref,
-                        "source_state": "unavailable",
-                        "message": "This source has no available completed record in this view",
-                    },
+                content=tuple(
+                    fact_unit(value, ref)
+                    for value in (
+                        {
+                            "ref": ref,
+                            "source_state": "unavailable",
+                            "message": "This source has no available completed record in this view",
+                        },
+                    )
                 ),
             )
         record = self._requested_record(turn_ref)
@@ -461,7 +472,7 @@ class SessionView:
                 DisclosureHint(
                     f"{turn_ref}#input/{index}",
                     "User reply" if item.reply_to else "User input",
-                    item.text[:240],
+                    session_input_narrative(record, index)[:240],
                 )
                 for index, item in enumerate(record.inputs)
             ]
@@ -509,9 +520,12 @@ class SessionView:
             return DisclosurePage(
                 ref,
                 "session_turn",
-                content=(
-                    interaction_header(record),
-                    *(item.to_json() for item in project_interactions(record)),
+                content=tuple(
+                    fact_unit(value, ref)
+                    for value in (
+                        interaction_header(record),
+                        *(item.to_json() for item in project_interactions(record)),
+                    )
                 ),
                 children=tuple(children),
                 related=relations,
@@ -521,8 +535,11 @@ class SessionView:
                 ref,
                 "session_timeline",
                 content=tuple(
-                    {"kind": item.kind.value, "ref": item.ref}
-                    for item in record.timeline
+                    fact_unit(value, ref)
+                    for value in tuple(
+                        {"kind": item.kind.value, "ref": item.ref}
+                        for item in record.timeline
+                    )
                 ),
             )
         parsed = parse_action_ref(ref)
@@ -541,7 +558,11 @@ class SessionView:
                 ),
             )
         return DisclosurePage(
-            ref, "session_detail", content=(self._detail(record, ref),)
+            ref,
+            "session_detail",
+            content=tuple(
+                fact_unit(value, ref) for value in (self._detail(record, ref),)
+            ),
         )
 
     def _detail(self, record: SessionTurnRecord, ref: str) -> JsonObject:
@@ -586,7 +607,9 @@ class SessionView:
             ("session:node/", "session:edge/")
         ):
             page = self._annotation_page(ref)
-            values = [(ref, "Session interpretation", item) for item in page.content]
+            values = [
+                (ref, "Session interpretation", item.data) for item in page.content
+            ]
             if ref in {"session:topics", "session:annotations"}:
                 for hint in page.children:
                     item = self.annotations.get(hint.ref)
@@ -631,7 +654,7 @@ class SessionView:
                 self._record(root), suffix=suffix, action=None
             )
         detail = self._disclose(ref, action=None)
-        return tuple((ref, "Session evidence", item) for item in detail.content)
+        return tuple((ref, "Session evidence", item.data) for item in detail.content)
 
     def _record_fact_scope(
         self,
@@ -733,7 +756,9 @@ class SessionView:
         return DisclosurePage(
             ref,
             "session_annotation",
-            content=(annotation_content(item),),
+            content=tuple(
+                fact_unit(value, ref) for value in (annotation_content(item),)
+            ),
             children=children,
             related=tuple(annotation_content(edge) for edge in relations),
             sources=item.source_refs,

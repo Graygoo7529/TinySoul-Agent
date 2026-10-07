@@ -28,6 +28,8 @@ export type TurnKind =
 /** TurnSnapshot.question (turn-waiting example). */
 export interface TurnQuestion {
   question_id: string;
+  details: string;
+  question: string;
   text: string;
   options: QuestionOption[];
   allow_other: boolean;

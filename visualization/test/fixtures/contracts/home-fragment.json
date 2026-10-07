@@ -1,17 +1,30 @@
 {
   "ref": "home:top/agent/long-contract",
+  "kind": "content",
   "view": "content",
-  "items": [],
-  "next_continuation": "continuation_1",
-  "content_fragment": {
-    "encoding": "canonical_json",
-    "text": "{\"ref\":\"home:top/agent/long-contract#L1-L1\",\"text\":\"Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content L"
-  },
+  "items": [
+    {
+      "kind": "content_slice",
+      "text": "Long content Long content Long content Long content Long content Long content Long ",
+      "ref": "home:top/agent/long-contract",
+      "title": "long-contract.md",
+      "coverage": {
+        "start": 0,
+        "end": 83,
+        "total": 1820,
+        "complete": false,
+        "start_line": 1,
+        "end_line": 1
+      }
+    }
+  ],
+  "next_continuation": "v1.eyJiaW5kaW5nIjp7Im1vZGUiOiJjb250ZW50IiwidmlldyI6IjUyMzRkYWQzM2RkMzhjMmMyNmM0NmJkMzJhNGFjZTNlYjQ3NGExMDhlMDIwYTNjZDllODBmOGRmN2ZmMTk5NDEifSwib3BlcmF0aW9uIjoiaW5zcGVjdCIsIm93bmVyIjoiaG9tZS5lZmZlY3RpdmUiLCJwb3NpdGlvbiI6eyJjaGFyX29mZnNldCI6ODMsIml0ZW1fZGlnZXN0Ijoic2hhMjU2OmFiMDU0Nzk4Y2MyZjI0ODMyN2VmMmZmOTNiNTI2YTI2YmVjMjIxZTBiZjgxOWM5OWEzZWE1YzNjNjYzNTU1ZjMiLCJpdGVtX2luZGV4IjowfSwicmVmIjoiaG9tZTp0b3AvYWdlbnQvbG9uZy1jb250cmFjdCIsInZlcnNpb24iOjF9.e40387005a6257a14559778bdf45c360108fbf5d8094543a97422532e8d9a008",
   "metadata": {
     "locator": {
       "ref": "home:top/agent/long-contract",
       "view": "effective"
     },
-    "direct_refs": []
-  }
+    "title": "long-contract.md"
+  },
+  "title": "long-contract.md"
 }

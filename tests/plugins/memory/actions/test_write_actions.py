@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
+from tests.support.catalog import builtin_action_catalog_root
+from tinysoul.infra.json import JsonObject
+from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.action import (
     ActionCall,
     ActionExecution,
@@ -11,18 +14,14 @@ from tinysoul.kernel.action import (
     ActionResultStatus,
 )
 from tinysoul.kernel.action.catalog.loader import ActionCatalogLoader
-from tinysoul.infra.json import JsonObject
-from tinysoul.infra.time import CalendarDay
-from tinysoul.plugins.memory.actions import MemoryWriteSession
-from tinysoul.plugins.memory.actions import MemoryWriteExecutor
-from tests.support.catalog import builtin_action_catalog_root
-from tinysoul.plugins.memory.services import MemoryKnowledgeService
 from tinysoul.plugins.memory import (
+    EntityMemoryDocument,
     MemoryEngine,
     MemorySettings,
-    EntityMemoryDocument,
     MemoryStatus,
 )
+from tinysoul.plugins.memory.actions import MemoryWriteExecutor, MemoryWriteSession
+from tinysoul.plugins.memory.services import MemoryKnowledgeService
 from tinysoul.runtime import RunLevel, RunScope
 
 DAY = CalendarDay.parse("2026-08-05")
@@ -105,7 +104,7 @@ async def test_reflection_writes_target_before_redirect_and_rejects_redirect_cyc
         content="Merged into memory:entity/source.",
     )
     assert (await write(cycle)).status is ActionResultStatus.FAILED
-    metadata = memory.inspect(str(source.ref))["metadata"]
+    metadata = (memory.inspect(str(source.ref))).to_json()["metadata"]
     assert isinstance(metadata, dict)
     assert metadata["resolution_chain"] == [
         str(source.ref),

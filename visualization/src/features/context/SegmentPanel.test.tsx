@@ -279,19 +279,19 @@ describe("SegmentPanel shapes", () => {
 
   it("stack: root refs open the live inspect route for this turn", async () => {
     await renderSegment("trace");
-    clickText(`turn:trace@${TURN_ID}`);
+    clickText(`turn:trace/${TURN_ID}`);
     const entries = useInspectorStore.getState().entries;
     const top = entries[entries.length - 1];
-    expect(top?.key).toContain(`context:inspect:${TURN_ID}:turn:trace@${TURN_ID}`);
-    expect(top?.copyText).toBe(`turn:trace@${TURN_ID}`);
+    expect(top?.key).toContain(`context:inspect:${TURN_ID}:turn:trace/${TURN_ID}`);
+    expect(top?.copyText).toBe(`turn:trace/${TURN_ID}`);
   });
 
   it("stack: the inspect route offers locate-in-scope from the query capability", async () => {
     endpoint.get(`/v2/requests/${TURN_ID}/context/inspect`, () =>
-      jsonResponse({ ref: `turn:trace@${TURN_ID}`, kind: "context_trace", items: [] }),
+      jsonResponse({ ref: `turn:trace/${TURN_ID}`, kind: "context_trace", items: [] }),
     );
     await renderSegment("trace");
-    clickText(`turn:trace@${TURN_ID}`);
+    clickText(`turn:trace/${TURN_ID}`);
     const pushed = useInspectorStore.getState().entries;
     const top = pushed[pushed.length - 1]!;
     act(() => {
@@ -304,7 +304,7 @@ describe("SegmentPanel shapes", () => {
 
   it("stack: a segment without the query capability hides locate-in-scope", async () => {
     endpoint.get(`/v2/requests/${TURN_ID}/context/inspect`, () =>
-      jsonResponse({ ref: `turn:trace@${TURN_ID}`, kind: "context_trace", items: [] }),
+      jsonResponse({ ref: `turn:trace/${TURN_ID}`, kind: "context_trace", items: [] }),
     );
     serveSegment("trace", structuredClone(messagesFixture));
     const segment: SegmentView = { ...segmentOf("trace"), capabilities: ["inspect"] };
@@ -319,7 +319,7 @@ describe("SegmentPanel shapes", () => {
       );
     });
     await flush();
-    clickText(`turn:trace@${TURN_ID}`);
+    clickText(`turn:trace/${TURN_ID}`);
     const pushedEntries = useInspectorStore.getState().entries;
     const top = pushedEntries[pushedEntries.length - 1]!;
     act(() => {

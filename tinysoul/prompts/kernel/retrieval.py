@@ -382,3 +382,74 @@ INVALID_RANKING_IDENTITIES = (
 NON_TEXT_CONTEXT_UNSUPPORTED = (
     "Current Context includes non-text input unsupported by this selector"
 )
+
+# Readable pages and persisted reading facts: kernel/retrieval/disclosure.py.
+INSPECT_SOURCE = "Source evidence"
+INSPECT_DOCUMENT = "Document"
+INSPECT_RELATION = "Relation"
+INSPECT_POSITIVE_LIMIT = "Inspect character limit must be positive"
+INSPECT_CONTINUATION_OUTSIDE = "Inspect continuation is outside this content"
+INSPECT_OFFSET_OUTSIDE = "Inspect offset is outside this content"
+INSPECT_BUDGET_TOO_SMALL = (
+    "Inspect budget cannot fit the reference, coverage and content"
+)
+INSPECT_METADATA_TOO_LARGE = "Inspect page metadata exceeds its budget"
+
+
+def inspect_relation(*, source: str, relation: str, target: str) -> str:
+    return f"{source} — {relation} → {target}"
+
+
+def inspect_page(
+    *,
+    title: str,
+    ref: str,
+    view: str,
+    items: tuple[tuple[str, str, str, str], ...],
+    continuation: str | None,
+) -> str:
+    parts = [f"{title} · {view}\nReference: {ref}"]
+    parts.extend(
+        f"{name}\nReference: {target}\nCoverage: {coverage}\n\n{text}"
+        for name, target, text, coverage in items
+    )
+    parts.append(
+        f"More content; continue with: {continuation}"
+        if continuation
+        else "End of this selection."
+    )
+    return "\n\n".join(parts)
+
+
+def inspect_recollection(
+    *, title: str, ref: str, view: str, query: str, coverage: str, has_more: bool
+) -> str:
+    return (
+        f"Inspected {title} ({view})\nReference: {ref}\n"
+        + (f"Query: {query}\n" if query else "")
+        + f"Read coverage: {coverage}\n"
+        + (
+            "Further content was available."
+            if has_more
+            else "Reached the end of the selection."
+        )
+    )
+
+
+def inspect_read_item(*, title: str, ref: str, clue: str, coverage: str) -> str:
+    return f"- {title} ({ref}): {clue} — {coverage}"
+
+
+def inspect_range(
+    *,
+    start: int,
+    end: int,
+    total: int,
+    complete: bool,
+    first_line: int | None,
+    last_line: int | None,
+) -> str:
+    lines = f"lines {first_line}–{last_line}; " if first_line is not None else ""
+    return f"{lines}characters {start}–{end} of {total}; " + (
+        "complete item" if complete else "partial item"
+    )

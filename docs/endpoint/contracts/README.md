@@ -38,10 +38,13 @@ tokens are normalized for readability, without removing fields or nulls.
 Example tokens are illustrative and cannot be sent to a running server.
 
 `home-fragment` and `home-fragment-end` show the first and final pages of one
-long item, not adjacent pages; the test consumes all intermediate pages and
-decodes the assembled canonical JSON. Always consume the current items and
-fragment before checking `next_continuation`. A final fragment may have no
-next token. Job output tokens instead support polling after an empty read.
+long item, not adjacent pages; the test consumes every intermediate page and
+checks the exact body and coverage. Inspect slices contain readable `text`
+with `ref/title/coverage`, not serialized framework JSON. Direct references
+are paged `child` items with labels and clues. Raw machine data endpoints
+still support canonical JSON fragments. Consume current content before
+checking `next_continuation`; Job output tokens instead support polling after
+an empty read.
 
 `config-views` and `preset` come from a minimal local ConfigController to keep
 the full source and field serialization small; absent model settings remain

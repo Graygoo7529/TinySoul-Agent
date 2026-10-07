@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import re
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from hashlib import sha256
 
 from markdown_it import MarkdownIt
 
+from tinysoul.infra.continuation import (
+    ContinuationError,
+    ContinuationFailureReason,
+    ContinuationPosition,
+    OpaqueContinuationCodec,
+)
+from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
 from tinysoul.prompts.kernel import retrieval as prompt_text
-from tinysoul.infra.continuation import OpaqueContinuationCodec, continue_json_sequence
-from tinysoul.infra.json import JsonObject, JsonValue, to_json_object
 
 from .contracts import (
     CandidatePreview,
@@ -25,17 +30,384 @@ from .contracts import (
 )
 
 
+@dataclass(frozen=True)
+class DisclosureHint:
+    ref: str
+    title: str
+    clue: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.ref or not self.title:
+            raise SearchFailure(
+                SearchFailureKind.INVALID_REQUEST,
+                "Disclosure needs a reference and title",
+            )
+
+    def to_json(self) -> JsonObject:
+        return {"ref": self.ref, "title": self.title, "clue": self.clue}
+
+
+@dataclass(frozen=True)
+class DisclosureUnit:
+    """Owner-projected narrative and its original machine facts, before paging."""
+
+    ref: str
+    title: str
+    text: str
+    data: JsonObject = field(default_factory=dict)
+    first_line: int | None = None
+    sections: tuple[tuple[int, str], ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.ref or not self.title:
+            raise SearchFailure(
+                SearchFailureKind.INVALID_REQUEST,
+                "Disclosure needs a reference and title",
+            )
+
+    def select(self, start: int, end: int) -> DisclosureSlice:
+        return DisclosureSlice(self, start, end)
+
+
+@dataclass(frozen=True)
+class DisclosureSlice:
+    unit: DisclosureUnit
+    start: int
+    end: int
+
+    def __post_init__(self) -> None:
+        if not 0 <= self.start <= self.end <= len(self.unit.text):
+            raise SearchFailure(
+                SearchFailureKind.INVALID_REQUEST,
+                "Disclosure range is outside its content",
+            )
+
+    @property
+    def title(self) -> str:
+        section = next(
+            (
+                title
+                for offset, title in reversed(self.unit.sections)
+                if offset <= self.start
+            ),
+            "",
+        )
+        return self.unit.title + (f" · {section}" if section else "")
+
+    @property
+    def coverage(self) -> JsonObject:
+        value: JsonObject = {
+            "start": self.start,
+            "end": self.end,
+            "total": len(self.unit.text),
+            "complete": self.start == 0 and self.end == len(self.unit.text),
+        }
+        if self.unit.first_line is not None:
+            value["start_line"] = self.unit.first_line + self.unit.text[
+                : self.start
+            ].count("\n")
+            value["end_line"] = (
+                self.unit.first_line
+                + self.unit.text[: self.end].count("\n")
+                - int(self.end > self.start and self.unit.text[self.end - 1] == "\n")
+            )
+        return value
+
+    def to_json(self) -> JsonObject:
+        if self.coverage["complete"]:
+            value = {**self.unit.data, "narrative": self.unit.text}
+        else:
+            value = {
+                "kind": "content_slice",
+                "text": self.unit.text[self.start : self.end],
+            }
+            if "kind" in self.unit.data:
+                value["source_kind"] = self.unit.data["kind"]
+            if "role" in self.unit.data:
+                value["role"] = self.unit.data["role"]
+        return {
+            **value,
+            "ref": self.unit.ref,
+            "title": self.title,
+            "coverage": self.coverage,
+        }
+
+    def recollection(self) -> JsonObject:
+        return {
+            "ref": self.unit.ref,
+            "title": self.title,
+            "clue": " ".join(self.unit.text[self.start : self.end].split())[:160],
+            "coverage": self.coverage,
+        }
+
+
+@dataclass(frozen=True)
+class InspectPage:
+    """One selection supplies the public page, model text and bounded recollection."""
+
+    ref: str
+    title: str
+    view: str
+    items: tuple[DisclosureSlice, ...]
+    next_continuation: str | None = None
+    metadata: JsonObject = field(default_factory=dict)
+    query: str | None = None
+
+    def to_json(self) -> JsonObject:
+        return {
+            **self.metadata,
+            "ref": self.ref,
+            "title": self.title,
+            "view": self.view,
+            "items": [item.to_json() for item in self.items],
+            "next_continuation": self.next_continuation,
+        }
+
+    @property
+    def model_text(self) -> str:
+        return prompt_text.inspect_page(
+            title=self.title,
+            ref=self.ref,
+            view=self.view,
+            items=tuple(
+                (
+                    item.title,
+                    item.unit.ref,
+                    item.unit.text[item.start : item.end],
+                    coverage_text(item.coverage),
+                )
+                for item in self.items
+            ),
+            continuation=self.next_continuation,
+        )
+
+    @property
+    def canonical_payload(self) -> JsonObject:
+        value: JsonObject = {
+            "inspected": True,
+            "ref": self.ref,
+            "title": self.title,
+            "view": self.view,
+            "coverage": [item.recollection() for item in self.items],
+            "has_more": self.next_continuation is not None,
+        }
+        if self.query is not None:
+            value["query"] = self.query
+        return value
+
+    @property
+    def recollection_text(self) -> str:
+        return render_recollection(self.canonical_payload)
+
+
+def render_recollection(value: JsonObject) -> str:
+    """Render persisted reading facts; never imply a saved body or old token."""
+    entries = value.get("coverage", [])
+    coverage = []
+    if isinstance(entries, list):
+        for item in entries:
+            if isinstance(item, dict):
+                span = item.get("coverage", {})
+                coverage.append(
+                    prompt_text.inspect_read_item(
+                        title=str(item.get("title", "")),
+                        ref=str(item.get("ref", "")),
+                        clue=str(item.get("clue", "")),
+                        coverage=coverage_text(span) if isinstance(span, dict) else "",
+                    )
+                )
+    return prompt_text.inspect_recollection(
+        title=str(value.get("title", "")),
+        ref=str(value.get("ref", "")),
+        view=str(value.get("view", "content")),
+        query=str(value.get("query", "")),
+        coverage="\n".join(coverage),
+        has_more=bool(value.get("has_more")),
+    )
+
+
+def coverage_text(value: JsonObject) -> str:
+    return prompt_text.inspect_range(
+        start=int(str(value["start"])),
+        end=int(str(value["end"])),
+        total=int(str(value["total"])),
+        complete=value["complete"] is True,
+        first_line=int(str(value["start_line"])) if "start_line" in value else None,
+        last_line=int(str(value["end_line"])) if "end_line" in value else None,
+    )
+
+
+@dataclass(frozen=True)
+class DisclosurePage:
+    ref: str
+    kind: str
+    content: tuple[DisclosureUnit, ...] = ()
+    children: tuple[DisclosureHint, ...] = ()
+    related: tuple[JsonObject, ...] = ()
+    sources: tuple[str, ...] = ()
+    title: str = ""
+    metadata: JsonObject = field(default_factory=dict)
+
+    def render(
+        self,
+        *,
+        codec: OpaqueContinuationCodec,
+        max_chars: int,
+        continuation: str | None = None,
+        binding: JsonObject | None = None,
+    ) -> InspectPage:
+        units = (
+            *self.content,
+            *(
+                DisclosureUnit(
+                    h.ref,
+                    h.title,
+                    h.clue,
+                    {"kind": "child", "text": h.clue, **h.to_json()},
+                )
+                for h in self.children
+            ),
+            *(
+                DisclosureUnit(
+                    self.ref,
+                    str(r.get("relation", prompt_text.INSPECT_RELATION)),
+                    prompt_text.inspect_relation(
+                        source=str(r.get("source", "")),
+                        relation=str(r.get("relation", "")),
+                        target=str(r.get("target", "")),
+                    ),
+                    r,
+                )
+                for r in self.related
+            ),
+            *(
+                DisclosureUnit(
+                    ref,
+                    prompt_text.INSPECT_SOURCE,
+                    prompt_text.INSPECT_SOURCE,
+                    {"kind": "source", "ref": ref},
+                )
+                for ref in self.sources
+            ),
+        )
+        fingerprint = dumps_json(
+            to_json_object(
+                {
+                    "items": [
+                        {
+                            "ref": u.ref,
+                            "title": u.title,
+                            "text": u.text,
+                            "data": u.data,
+                            "line": u.first_line,
+                            "sections": [
+                                [offset, title] for offset, title in u.sections
+                            ],
+                        }
+                        for u in units
+                    ],
+                    "metadata": self.metadata,
+                }
+            )
+        )
+        bound = {**(binding or {}), "view": sha256(fingerprint.encode()).hexdigest()}
+        position = codec.decode(continuation, ref=self.ref, binding=bound)
+        if type(max_chars) is not int or max_chars <= 0:
+            raise ContinuationError(
+                ContinuationFailureReason.INVALID_LIMIT,
+                prompt_text.INSPECT_POSITIVE_LIMIT,
+            )
+        if position.item_index > len(units) or (
+            continuation and position.item_index == len(units)
+        ):
+            raise ContinuationError(
+                ContinuationFailureReason.OUT_OF_RANGE,
+                prompt_text.INSPECT_CONTINUATION_OUTSIDE,
+            )
+        title = self.title or (units[0].title if units else self.kind)
+
+        def page(
+            parts: tuple[DisclosureSlice, ...], index: int, offset: int = 0
+        ) -> InspectPage:
+            token = None
+            if index < len(units):
+                token = codec.encode(
+                    ContinuationPosition(
+                        index,
+                        offset,
+                        "sha256:" + sha256(units[index].text.encode()).hexdigest()
+                        if offset
+                        else "",
+                    ),
+                    ref=self.ref,
+                    binding=bound,
+                )
+            return InspectPage(
+                self.ref,
+                title,
+                self.kind,
+                parts,
+                token,
+                {"kind": self.kind, **self.metadata},
+                str(bound["query"]) if bound.get("query") is not None else None,
+            )
+
+        def fits(value: InspectPage) -> bool:
+            return (
+                len(dumps_json(value.to_json())) <= max_chars
+                and len(value.model_text) <= max_chars
+            )
+
+        selected: tuple[DisclosureSlice, ...] = ()
+        index, offset = position.item_index, position.char_offset
+        while index < len(units):
+            unit = units[index]
+            if offset > len(unit.text):
+                raise ContinuationError(
+                    ContinuationFailureReason.OUT_OF_RANGE,
+                    prompt_text.INSPECT_OFFSET_OUTSIDE,
+                )
+            whole = (*selected, unit.select(offset, len(unit.text)))
+            candidate = page(whole, index + 1)
+            if fits(candidate):
+                selected, index, offset = whole, index + 1, 0
+                continue
+            if selected:
+                return page(selected, index, offset)
+            low, high, best = offset + 1, len(unit.text) - 1, None
+            while low <= high:
+                end = (low + high) // 2
+                candidate = page((unit.select(offset, end),), index, end)
+                if fits(candidate):
+                    best, low = candidate, end + 1
+                else:
+                    high = end - 1
+            if best is not None:
+                return best
+            raise ContinuationError(
+                ContinuationFailureReason.BUDGET_TOO_SMALL,
+                prompt_text.INSPECT_BUDGET_TOO_SMALL,
+            )
+        result = page(selected, index)
+        if not fits(result):
+            raise ContinuationError(
+                ContinuationFailureReason.BUDGET_TOO_SMALL,
+                prompt_text.INSPECT_METADATA_TOO_LARGE,
+            )
+        return result
+
+
 def inspect_document(
     *,
     owner: str,
     ref: str,
     text: str,
-    direct_refs: tuple[str, ...],
+    direct_refs: tuple[DisclosureHint, ...],
     view: str = "content",
     continuation: str | None = None,
     max_chars: int = 8_000,
     metadata: JsonObject | None = None,
-) -> JsonObject:
+) -> InspectPage:
     if view not in {"content", "direct_refs"}:
         raise SearchFailure(
             SearchFailureKind.INVALID_REQUEST,
@@ -46,67 +418,28 @@ def inspect_document(
             SearchFailureKind.INVALID_REQUEST,
             prompt_text.INSPECT_PAGE_BUDGET_MUST_BE_AT_LEAST_CHARACTERS,
         )
-    resource, _, fragment = ref.partition("#")
+    metadata = metadata or {}
+    title = str(
+        metadata.get("title") or metadata.get("display") or prompt_text.INSPECT_DOCUMENT
+    )
+    content = ()
     if view == "content":
-        first, last = fragment_range(text, fragment)
+        first, last = fragment_range(text, ref.partition("#")[2])
         selected = "".join(text.splitlines(keepends=True)[first - 1 : last])
-        values: tuple[JsonValue, ...] = tuple(
-            {"ref": item.ref, "text": item.text}
-            for item in content_units(resource, selected, first_line=first)
-        )
-    else:
-        values = tuple(to_json_object({"ref": target}) for target in direct_refs)
-    binding = {
-        "digest": sha256(
-            (text if view == "content" else "\n".join(direct_refs)).encode()
-        ).hexdigest(),
-        "view": view,
-        "max_chars": max_chars,
-    }
-    return continue_json_sequence(
-        values,
-        base={"ref": ref, "view": view, "metadata": metadata or {}},
-        item_field="items",
-        continuation=continuation,
+        content = (DisclosureUnit(ref, title, selected, {"text": selected}, first),)
+    return DisclosurePage(
+        ref,
+        view,
+        content=content,
+        children=direct_refs,
+        title=title,
+        metadata={"metadata": metadata},
+    ).render(
         codec=OpaqueContinuationCodec(owner=owner, operation="inspect"),
-        ref=ref,
+        continuation=continuation,
         max_chars=max_chars,
-        binding=binding,
+        binding={"mode": view},
     )
-
-
-def inspect_recollection(page: JsonObject, *, query: str | None = None) -> JsonObject:
-    """Keep target explanation and actual page coverage without retaining its body."""
-    metadata = page.get("metadata")
-    metadata = metadata if isinstance(metadata, dict) else {}
-    title = (
-        metadata.get("title")
-        or metadata.get("display")
-        or page.get("title")
-        or page.get("ref")
-    )
-    items = page.get("items")
-    covered = (
-        [
-            item["ref"]
-            for item in items
-            if isinstance(item, dict) and isinstance(item.get("ref"), str)
-        ]
-        if isinstance(items, list)
-        else []
-    )
-    result: JsonObject = {
-        "ref": page.get("ref"),
-        "title": title,
-        "view": page.get("view", "content"),
-        "returned_refs": covered,
-        "has_more": bool(page.get("next_continuation")),
-        "partial_item": isinstance(page.get("content_fragment"), dict),
-        "inspected": True,
-    }
-    if query is not None:
-        result["query"] = query
-    return result
 
 
 def content_units(

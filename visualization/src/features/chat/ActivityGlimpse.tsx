@@ -94,7 +94,7 @@ export function glimpseBody(data: ActionGlimpseData) {
 }
 
 function WriteResultGlimpse({ actionId, payload }: { actionId: string; payload: Record<string, unknown> }) {
-  const link = asString(payload.ref) ?? asString(payload.ref) ?? asString(payload.path);
+  const link = asString(payload.ref) ?? asString(payload.path);
   const changed = typeof payload.changed === "boolean" ? payload.changed : null;
   const written = asNumber(payload.written);
   const isHome = actionId.startsWith("home.");

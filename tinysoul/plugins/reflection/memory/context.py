@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from threading import RLock
 from datetime import date
+from threading import RLock
 
-from tinysoul.infra.json import JsonObject
 from tinysoul.infra.time import CalendarDay
+from tinysoul.kernel.retrieval.disclosure import InspectPage
+from tinysoul.plugins.memory import ActiveMemoryDocument
 from tinysoul.plugins.session import SessionView
 from tinysoul.plugins.session.views.background import SessionBackgroundSnapshot
 from tinysoul.plugins.workspace import WorkspaceArchiveView
-from tinysoul.plugins.memory import ActiveMemoryDocument
 
 from ..errors import ReflectionContractError, ReflectionInvariantError
 
@@ -101,7 +101,7 @@ class MemoryReflectionContext:
         query: str | None = None,
         continuation: str | None = None,
         expected_revision: int | None = None,
-    ) -> JsonObject:
+    ) -> InspectPage:
         with self._lock:
             _target_day, session, _workspace = self._require_binding()
         return session.inspect(

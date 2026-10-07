@@ -1,20 +1,21 @@
 """Read-only Session projection, without record or day lifecycle operations."""
 
+from typing import Protocol, Self
+
 from tinysoul.infra.services import ScopedService, ServiceScope
-from typing import Protocol
 from tinysoul.infra.time import CalendarDay
-from tinysoul.infra.json import JsonObject
-from .views.background import SessionBackgroundSnapshot
-from .views import SessionView
-from .engine import SessionEngine
-from typing import Self
-from tinysoul.kernel.retrieval.operations import SearchSession
 from tinysoul.kernel.retrieval.contracts import (
     RetrievalRequest,
-    SearchPage,
     SearchFailure,
     SearchFailureKind,
+    SearchPage,
 )
+from tinysoul.kernel.retrieval.disclosure import InspectPage
+from tinysoul.kernel.retrieval.operations import SearchSession
+
+from .engine import SessionEngine
+from .views import SessionView
+from .views.background import SessionBackgroundSnapshot
 
 
 class SessionOrganizeService(ScopedService[SessionEngine]):
@@ -41,7 +42,7 @@ class SessionViewSource(Protocol):
         query: str | None = None,
         continuation: str | None = None,
         expected_revision: int | None = None,
-    ) -> JsonObject: ...
+    ) -> InspectPage: ...
 
 
 class SessionService(ScopedService[SessionViewSource]):

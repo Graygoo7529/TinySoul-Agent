@@ -1,26 +1,64 @@
 {
   "home_diff": {
-    "ref": "home:top/agent/contract",
-    "view": "content",
+    "kind": "content",
     "metadata": {
       "baseline_diverged": false,
       "actual_chars": 0,
       "effective_chars": 19
     },
-    "items": [
-      {
-        "ref": "home:top/agent/contract#L1-L4",
-        "text": "--- actual:home:top/agent/contract\n+++ effective:home:top/agent/contract\n@@ -0,0 +1 @@\n+Workspace guidance\n"
-      }
-    ]
-  },
-  "memory_redirect": {
-    "ref": "memory:entity/old-project",
+    "ref": "home:top/agent/contract",
+    "title": "Document",
     "view": "content",
     "items": [
       {
-        "ref": "memory:entity/old-project#L1-L13",
-        "text": "---\nschema_version: 2\nkind: entity\ncite: old-project\nstatus: merged\ncreated_on: '2026-09-29'\nupdated_on: '2026-09-29'\nrelations: []\nevidence: []\nredirect_to: memory:entity/project\n---\n\nProject notes\n"
+        "text": "--- actual:home:top/agent/contract\n+++ effective:home:top/agent/contract\n@@ -0,0 +1 @@\n+Workspace guidance\n",
+        "narrative": "--- actual:home:top/agent/contract\n+++ effective:home:top/agent/contract\n@@ -0,0 +1 @@\n+Workspace guidance\n",
+        "ref": "home:top/agent/contract",
+        "title": "Document",
+        "coverage": {
+          "start": 0,
+          "end": 107,
+          "total": 107,
+          "complete": true,
+          "start_line": 1,
+          "end_line": 4
+        }
+      }
+    ],
+    "next_continuation": null
+  },
+  "memory_redirect": {
+    "ref": "memory:entity/old-project",
+    "kind": "content",
+    "view": "content",
+    "items": [
+      {
+        "text": "---\nschema_version: 2\nkind: entity\ncite: old-project\nstatus: merged\ncreated_on: '2026-09-29'\nupdated_on: '2026-09-29'\nrelations: []\nevidence: []\nredirect_to: memory:entity/project\n---\n\nProject notes\n",
+        "narrative": "---\nschema_version: 2\nkind: entity\ncite: old-project\nstatus: merged\ncreated_on: '2026-09-29'\nupdated_on: '2026-09-29'\nrelations: []\nevidence: []\nredirect_to: memory:entity/project\n---\n\nProject notes\n",
+        "ref": "memory:entity/old-project",
+        "title": "old-project",
+        "coverage": {
+          "start": 0,
+          "end": 199,
+          "total": 199,
+          "complete": true,
+          "start_line": 1,
+          "end_line": 13
+        }
+      },
+      {
+        "kind": "child",
+        "text": "memory:entity/old-project references memory:entity/project",
+        "ref": "memory:entity/project",
+        "title": "project",
+        "clue": "memory:entity/old-project references memory:entity/project",
+        "narrative": "memory:entity/old-project references memory:entity/project",
+        "coverage": {
+          "start": 0,
+          "end": 58,
+          "total": 58,
+          "complete": true
+        }
       }
     ],
     "metadata": {
@@ -33,10 +71,8 @@
       ],
       "locator": {
         "ref": "memory:entity/old-project"
-      },
-      "direct_refs": [
-        "memory:entity/project"
-      ]
-    }
+      }
+    },
+    "title": "old-project"
   }
 }

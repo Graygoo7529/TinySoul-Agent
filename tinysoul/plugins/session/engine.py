@@ -6,14 +6,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
 
-from tinysoul.prompts.plugins import session as prompt_text
-from tinysoul.infra.json import JsonObject
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.context import (
     ContextTurnCompletion,
     ContextTurnFacts,
 )
 from tinysoul.kernel.loop.outcomes import TurnFailure, TurnOutcomeStatus
+from tinysoul.kernel.retrieval.disclosure import InspectPage
+from tinysoul.prompts.plugins import session as prompt_text
 
 from .annotations.models import (
     OrganizeChange,
@@ -339,7 +339,7 @@ class SessionEngine:
         query: str | None = None,
         continuation: str | None = None,
         expected_revision: int | None = None,
-    ) -> JsonObject:
+    ) -> InspectPage:
         with self._lock:
             view = SessionView(
                 self._require_manifest(),

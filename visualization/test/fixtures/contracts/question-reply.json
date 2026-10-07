@@ -16,7 +16,9 @@
     ],
     "allow_other": true,
     "question_id": "action_result_1",
-    "answered": true
+    "answered": true,
+    "question": "Choose a direction",
+    "details": ""
   },
   "reply": {
     "kind": "interaction",

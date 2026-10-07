@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from tinysoul.infra.json import JsonObject, dumps_json
+from tinysoul.infra.json import JsonObject
 from tinysoul.infra.references import ReferenceResolver
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.action import (
@@ -155,7 +155,7 @@ async def test_context_search_uses_session_originals_and_interpretations_after_f
             source=source,
         ).search(request)
         assert expected in {item.ref for item in page.items}
-        assert query in str(await context.inspect(expected))
+        assert query in str((await context.inspect(expected)).to_json())
     assert session.background_snapshot(DAY).refs == (PRIOR,)
     await context.close_segments()
 
@@ -164,7 +164,7 @@ def test_atomic_annotations_preserve_facts_and_stable_refs(tmp_path: Path) -> No
     session = _session(tmp_path)
     _record(session)
     _record(session, "2026-09-21/1005")
-    history = session.inspect(PRIOR)
+    history = (session.inspect(PRIOR)).to_json()
     result = session.organize(
         OrganizeChange(
             (PRIOR,),
@@ -185,13 +185,13 @@ def test_atomic_annotations_preserve_facts_and_stable_refs(tmp_path: Path) -> No
     assert result.failure is None
     refs = dict(result.created)
     assert len(result.changed_refs) == 5
-    assert session.inspect(PRIOR) == history
+    assert (session.inspect(PRIOR)).to_json() == history
     assert [
         item["ref"]
-        for item in _items(session.inspect("session:unclassified"))
+        for item in _items((session.inspect("session:unclassified")).to_json())
         if item.get("kind") == "child"
     ] == ["session:turn/2026-09-21/1005"]
-    assert refs["local:branch"] in str(session.inspect(refs["local:topic"]))
+    assert refs["local:branch"] in str((session.inspect(refs["local:topic"])).to_json())
     assert (
         str(session.background_snapshot(DAY).items).count("answer for 2026-09-21/1005")
         == 1
@@ -228,7 +228,7 @@ def test_atomic_annotations_preserve_facts_and_stable_refs(tmp_path: Path) -> No
         _facts(),
     )
     assert merge.failure is None
-    assert session.inspect(PRIOR) == history
+    assert (session.inspect(PRIOR)).to_json() == history
     # Explicitly retract every incident relation when removing a branch.
     edge_refs = tuple(
         item.ref
@@ -242,13 +242,13 @@ def test_atomic_annotations_preserve_facts_and_stable_refs(tmp_path: Path) -> No
     assert result.failure is None
     removed = session.annotation_snapshot().get(refs["local:topic"])
     assert removed is not None and removed.status is AnnotationStatus.RETRACTED
-    assert "retracted" in str(session.inspect(refs["local:topic"]))
+    assert "retracted" in str((session.inspect(refs["local:topic"])).to_json())
     archive = tmp_path / "archive" / "session"
     session.archive_day(DAY, target=archive)
     session.initialize_day(CalendarDay.parse("2026-09-22"))
     assert session.annotation_snapshot().nodes == ()
     assert "retracted" in str(
-        session.archive_view(DAY, root=archive).inspect(refs["local:topic"])
+        (session.archive_view(DAY, root=archive).inspect(refs["local:topic"])).to_json()
     )
 
 
@@ -334,7 +334,7 @@ async def test_current_evidence_keeps_occurrence_without_sealing_and_resolves_af
                 replace(
                     _node(),
                     source_refs=(
-                        f"turn:trace/2026-09-21/1000#input/0",
+                        "turn:trace/2026-09-21/1000#input/0",
                         "turn:trace/2026-09-21/1000#action/1",
                     ),
                 ),
@@ -362,8 +362,10 @@ async def test_current_evidence_keeps_occurrence_without_sealing_and_resolves_af
         is OrganizeFailureReason.INVALID_SOURCE
     )
     live = replace(session.snapshot_view(DAY), evidence=SessionEvidence(facts))
-    assert "active_turn" in str(live.inspect(node.source_refs[1]))
-    assert "accepted" in str(live.inspect(node.source_refs[1], query="accepted"))
+    assert "active_turn" in str((live.inspect(node.source_refs[1])).to_json())
+    assert "accepted" in str(
+        (live.inspect(node.source_refs[1], query="accepted")).to_json()
+    )
     assert live.background_snapshot(DAY).refs == (PRIOR,)
     context.record_execution(
         ExecutionFact(calls[0], framework, ExecutionState.CANCELLED)
@@ -377,7 +379,7 @@ async def test_current_evidence_keeps_occurrence_without_sealing_and_resolves_af
         status=TurnOutcomeStatus.CANCELLED,
         exhausted=False,
     )
-    resolved = _items(session.inspect(node.source_refs[1]))[0]
+    resolved = _items((session.inspect(node.source_refs[1])).to_json())[0]
     assert resolved["result"] == {"decision": "accepted"}
     assert "source_state" not in resolved
 
@@ -401,12 +403,12 @@ async def test_update_is_prepared_then_installed_without_expanding_history(
     prepared = await segment.prepare((SessionRefresh(),))
     assert segment.render() == original
     with pytest.raises(ContextInspectRequestError):
-        await segment.inspect(ref)
+        (await segment.inspect(ref)).to_json()
     segment.install(prepared)
     assert "installed interpretation" in str(segment.render())
     assert segment.seal()["refs"] == [PRIOR]
     assert "session:turn/2026-09-21/1003" not in str(
-        await segment.inspect("session:history")
+        (await segment.inspect("session:history")).to_json()
     )
     assert not hasattr(SessionService(session), "organize")
 
@@ -463,17 +465,24 @@ def test_annotation_query_uses_turn_scope_and_leaf_scope(tmp_path: Path) -> None
         ("working-marker", "working"),
         ("user-only-marker", "input/0"),
     ):
-        turn_hits = _items(session.inspect(refs["local:turn-topic"], query=query))
+        turn_hits = _items(
+            (session.inspect(refs["local:turn-topic"], query=query)).to_json()
+        )
         assert [item["ref"] for item in turn_hits] == [f"{PRIOR}#{suffix}"]
-        assert turn_hits == _items(session.inspect(PRIOR, query=query))
-        assert _items(session.inspect(str(turn_hits[0]["ref"])))
+        assert turn_hits == _items((session.inspect(PRIOR, query=query)).to_json())
+        assert _items((session.inspect(str(turn_hits[0]["ref"]))).to_json())
 
     leaf_hits = _items(
-        session.inspect(refs["local:action-topic"], query="action-result-marker")
+        (
+            session.inspect(refs["local:action-topic"], query="action-result-marker")
+        ).to_json()
     )
     assert [item["ref"] for item in leaf_hits] == [f"{PRIOR}#action/0"]
     for query in ("user-only-marker", "source_unavailable", "working-marker"):
-        assert _items(session.inspect(refs["local:action-topic"], query=query)) == []
+        assert (
+            _items((session.inspect(refs["local:action-topic"], query=query)).to_json())
+            == []
+        )
 
 
 @pytest.mark.parametrize("status", list(ActionResultStatus))
@@ -525,7 +534,7 @@ async def test_active_action_evidence_matches_completed_inspect_and_query(
     ref = dict(result.created)["local:evidence"]
     segment.install(await segment.prepare((SessionRefresh(),)))
     leaf_ref = "session:turn/2026-09-21/1000#action/0"
-    active = _items(await segment.inspect(leaf_ref))[0]
+    active = _items((await segment.inspect(leaf_ref)).to_json())[0]
     assert active["source_state"] == "active_turn"
     assert active["outcome"] == status.value
     if success:
@@ -536,14 +545,14 @@ async def test_active_action_evidence_matches_completed_inspect_and_query(
         assert active["failure"] == action.result.failure.to_json()
     query = "workspace:report.md" if success else "source_unavailable"
     for target in (ref, leaf_ref):
-        hits = _items(await segment.inspect(target, query=query))
+        hits = _items((await segment.inspect(target, query=query)).to_json())
         assert [item["ref"] for item in hits] == [leaf_ref]
     assert segment.seal()["refs"] == [PRIOR]
     assert "session:turn/2026-09-21/1000" not in str(
-        await segment.inspect("session:history")
+        (await segment.inspect("session:history")).to_json()
     )
     with pytest.raises(ContextInspectRequestError):
-        await segment.inspect("session:turn/2026-09-21/1000")
+        (await segment.inspect("session:turn/2026-09-21/1000")).to_json()
     assert context.current_facts() == facts
     completed = context.end_turn()
     await segment.close()
@@ -555,10 +564,10 @@ async def test_active_action_evidence_matches_completed_inspect_and_query(
         status=TurnOutcomeStatus.STOPPED,
         exhausted=False,
     )
-    historical = _items(session.inspect(leaf_ref))[0]
+    historical = _items((session.inspect(leaf_ref)).to_json())[0]
     assert active.pop("source_state") == "active_turn"
     assert active == historical
-    hits = _items(session.inspect(ref, query=query))
+    hits = _items((session.inspect(ref, query=query)).to_json())
     assert [item["ref"] for item in hits] == [leaf_ref]
 
 
@@ -603,7 +612,7 @@ async def test_multiple_complete_dialogues_share_background_and_inspection(
             action_name="core.ask",
             sequence=2,
             payload={
-                "text": "Which strategy?",
+                "question": "Which strategy?",
                 "options": [
                     {"id": "a", "label": "scheduled"},
                     {
@@ -637,7 +646,7 @@ async def test_multiple_complete_dialogues_share_background_and_inspection(
             action_name="core.ask",
             sequence=1,
             payload={
-                "text": "Apply now?",
+                "question": "Apply now?",
                 "options": [
                     {"id": "a", "label": "yes"},
                     {"id": "b", "label": "no"},
@@ -700,11 +709,16 @@ async def test_multiple_complete_dialogues_share_background_and_inspection(
         assert "reply_to" not in projected[6]
         assert projected[7]["reply_to"] == projected[5]["ref"]
         assert projected[1]["result"] == {"decision": "use the existing timer"}
-        assert projected == [
+        inspected = [
             value
-            for value in _items(session.inspect(item.item_id))
+            for value in _items((session.inspect(item.item_id)).to_json())
             if value.get("kind") == "interaction"
         ]
+        assert len(projected) == len(inspected)
+        for original, displayed in zip(projected, inspected):
+            assert all(displayed[key] == value for key, value in original.items())
+            assert displayed["narrative"]
+
     context.register_segment(session_segment_registration(SessionService(session)))
     context.begin_turn("review prior dialogues", turn_id="2026-09-21/683")
     await context.open_segments(DAY.value)
@@ -740,7 +754,10 @@ async def test_multiple_complete_dialogues_share_background_and_inspection(
     )
     assert giant.content["folded"] is True
     assert "excerpted" in str(giant.content)
-    assert "next_continuation" in session.inspect("session:turn/2026-09-21/1002")
+    assert (
+        "next_continuation"
+        in (session.inspect("session:turn/2026-09-21/1002")).to_json()
+    )
 
 
 def test_pagination_depends_on_read_content_and_query_scope(tmp_path: Path) -> None:
@@ -767,28 +784,28 @@ def test_pagination_depends_on_read_content_and_query_scope(tmp_path: Path) -> N
     refs = dict(result.created)
     target, other = refs["local:topic"], refs["local:other"]
     frozen = session.snapshot_view(DAY)
-    token = frozen.inspect(target)["next_continuation"]
-    factual = frozen.inspect(PRIOR)["next_continuation"]
+    token = (frozen.inspect(target)).to_json()["next_continuation"]
+    factual = (frozen.inspect(PRIOR)).to_json()["next_continuation"]
     assert isinstance(token, str) and isinstance(factual, str)
     session.organize(
         OrganizeChange((other,), nodes=(_node(other, body="independent change"),)),
         _facts(),
     )
-    assert session.inspect(target, continuation=token) == frozen.inspect(
-        target, continuation=token
-    )
+    assert (session.inspect(target, continuation=token)).to_json() == (
+        frozen.inspect(target, continuation=token)
+    ).to_json()
     session.organize(
         OrganizeChange((target,), nodes=(_node(target, body="new understanding"),)),
         _facts(),
     )
     with pytest.raises(SessionInspectRequestError):
-        session.inspect(target, continuation=token)
-    assert session.inspect(PRIOR, continuation=factual) == frozen.inspect(
-        PRIOR, continuation=factual
-    )
-    assert session.inspect(target, query="independent")["items"] == []
+        (session.inspect(target, continuation=token)).to_json()
+    assert (session.inspect(PRIOR, continuation=factual)).to_json() == (
+        frozen.inspect(PRIOR, continuation=factual)
+    ).to_json()
+    assert (session.inspect(target, query="independent")).to_json()["items"] == []
     assert "session:turn/2026-09-21/1004#input/0" in str(
-        session.inspect("session:map", query="evidence")
+        (session.inspect("session:map", query="evidence")).to_json()
     )
 
 
@@ -830,4 +847,4 @@ async def test_map_and_interactions_share_budget_and_reclaim_stays_folded_after_
     segment.install(await segment.prepare((SessionRefresh(),)))
     assert len(str(segment.render())) < len(str(original))
     assert "session:topics" in str(segment.render())
-    assert "user 0" in str(await segment.inspect(prior))
+    assert "user 0" in str((await segment.inspect(prior)).to_json())

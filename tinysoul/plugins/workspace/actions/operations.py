@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from tinysoul.prompts.plugins import workspace as prompt_text
-from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.infra.continuation import ContinuationError, ContinuationFailureReason
+from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.kernel.action import (
     ActionExecution,
     ActionExecutionContext,
@@ -22,6 +21,7 @@ from tinysoul.kernel.retrieval.contracts import (
 )
 from tinysoul.kernel.retrieval.requests import parse_retrieval_request
 from tinysoul.llm.protocol.responses import AnswerFormat
+from tinysoul.prompts.plugins import workspace as prompt_text
 
 from ..errors import WorkspaceContractError, WorkspaceError
 from ..inspection.models import WorkspaceTextRangeResult
@@ -95,97 +95,14 @@ class WorkspaceExecutor(ActionExecutor):
                 continuation=continuation,
                 max_chars=_integer(params, "max_chars", workspace.max_read_chars),
             )
-            canonical = {
-                key: value
-                for key, value in page.items()
-                if key
-                in {
-                    "ref",
-                    "title",
-                    "summary",
-                    "kind",
-                    "media_type",
-                    "size",
-                    "view",
-                    "requested_ref",
-                    "coverage",
-                    "has_more",
-                }
-            }
-            canonical["status"] = "inspected"
-            title = str(page["title"])
-            summary = str(page["summary"])
-            details: list[str] = []
-            coverage = page.get("coverage")
-            coverage_text = prompt_text.INSPECT_METADATA_ONLY
-            if isinstance(coverage, dict):
-                coverage_text = prompt_text.inspect_coverage(
-                    str(coverage["ref"]),
-                    str(coverage["start_offset"]),
-                    str(coverage["end_offset"]),
-                )
-                details.append(coverage_text)
-            body = page.get("text")
-            if isinstance(body, str):
-                details.append(body)
-            items = page.get("items", [])
-            if isinstance(items, list):
-                details.extend(
-                    f"- {item['title']}: {item['summary']} ({item['ref']})"
-                    for item in items
-                    if isinstance(item, dict)
-                )
-            fragment = page.get("content_fragment")
-            fragment_text = fragment.get("text") if isinstance(fragment, dict) else None
-            if isinstance(fragment_text, str):
-                details.append(fragment_text)
-            direct = page.get("direct_refs", [])
-            if isinstance(direct, list):
-                details.extend(
-                    f"- {item['title']} ({item['ref']})"
-                    for item in direct
-                    if isinstance(item, dict)
-                )
-            if page.get("view") == "children":
-                returned_refs = (
-                    tuple(str(item["ref"]) for item in items if isinstance(item, dict))
-                    if isinstance(items, list)
-                    else ()
-                )
-                canonical["coverage"] = {
-                    "returned_refs": list(returned_refs),
-                    "partial_item": isinstance(fragment_text, str),
-                }
-                coverage_text = prompt_text.inspect_directory_coverage(
-                    returned_refs, isinstance(fragment_text, str)
-                )
-            if page.get("view") == "metadata":
-                details.append(
-                    prompt_text.inspect_metadata(
-                        str(page["kind"]), str(page["media_type"]), str(page["size"])
-                    )
-                )
-                details.append(prompt_text.INSPECT_METADATA_ONLY)
-            next_page = page.get("next_continuation")
-            if isinstance(next_page, str):
-                details.append(prompt_text.inspect_continuation(next_page))
             return _success(
                 execution,
-                page,
-                model_text=prompt_text.inspect_result(
-                    title, ref, summary, "\n".join(details)
-                ),
+                page.to_json(),
+                model_text=page.model_text,
                 trace_projection=ActionTraceProjection(
                     origin_refs=(ref,),
-                    canonical_payload=canonical,
-                    model_text=prompt_text.inspect_recollection(
-                        title,
-                        ref,
-                        summary,
-                        coverage_text,
-                        bool(page.get("has_more")),
-                        page.get("view") != "metadata",
-                    ),
+                    canonical_payload=page.canonical_payload,
+                    model_text=page.recollection_text,
                 ),
             )
         if action == "workspace.list":

@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-from tinysoul.kernel.loop.outcomes import TurnOutcomeStatus
-
 from dataclasses import replace
 
 import pytest
 
+from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.action import ActionResultStatus
 from tinysoul.kernel.action.call import ExecutionState
 from tinysoul.kernel.context.builtin.trace import SealedTurnTrace
-from tinysoul.infra.time import CalendarDay
+from tinysoul.kernel.loop.outcomes import TurnOutcomeStatus
 from tinysoul.plugins.session.completion import project_turn_record
 from tinysoul.plugins.session.records.models import (
     SessionActionOutcome,
@@ -19,6 +18,62 @@ from tinysoul.plugins.session.records.models import (
 from .synthetic import SyntheticAction, completion
 
 DAY = CalendarDay.parse("2026-07-25")
+
+
+@pytest.mark.parametrize(
+    "status",
+    [ActionResultStatus.SUCCESS, ActionResultStatus.FAILED, ActionResultStatus.TIMEOUT],
+)
+@pytest.mark.parametrize("published", [False, True])
+def test_answer_interaction_only_deduplicates_published_success(status, published):
+    from tinysoul.plugins.session.views.interaction import (
+        InteractionRole,
+        project_interactions,
+    )
+
+    facts = completion(
+        "2026-07-25/10",
+        actions=(
+            SyntheticAction("core.answer", result={"text": "answer"}, status=status),
+        ),
+    )
+    record = project_turn_record(
+        facts,
+        day=DAY,
+        output=SessionOutputRecord("answer") if published else None,
+        exhausted=False,
+        status=TurnOutcomeStatus.ANSWERED if published else TurnOutcomeStatus.CANCELLED,
+    )
+    interactions = project_interactions(record)
+    actions = [item for item in interactions if item.role is InteractionRole.ACTION]
+    assert bool(actions) == (not published or status is not ActionResultStatus.SUCCESS)
+    if status is not ActionResultStatus.SUCCESS:
+        assert actions[0].content["failure"]
+
+
+@pytest.mark.parametrize(
+    "state",
+    [ExecutionState.CANCELLED, ExecutionState.NOT_EXECUTED, ExecutionState.UNKNOWN],
+)
+def test_unsettled_answer_keeps_execution_fact_without_inventing_result(state):
+    from tinysoul.plugins.session.views.interaction import (
+        InteractionRole,
+        project_interactions,
+    )
+
+    facts = completion("2026-07-25/10", actions=(SyntheticAction("core.answer"),))
+    fact = replace(facts.trace.actions[0], state=state, result=None)
+    facts = replace(facts, trace=replace(facts.trace, actions=(fact,)))
+    record = project_turn_record(
+        facts, day=DAY, output=None, exhausted=False, status=TurnOutcomeStatus.CANCELLED
+    )
+    action = next(
+        item
+        for item in project_interactions(record)
+        if item.role is InteractionRole.ACTION
+    )
+    assert action.content["outcome"] == state.value
+    assert action.content["result"] == {}
 
 
 async def test_ordered_facts_survive_parallel_completion_and_session_reopen(
@@ -146,16 +201,18 @@ async def test_ordered_facts_survive_parallel_completion_and_session_reopen(
     assert all(not item.result for item in stored.actions[2:])
     assert len(stored.notes) == 1 and "job-1" in str(stored.notes[0])
     assert "done" not in str(stored.notes)  # No second copy of Action results.
-    assert session.inspect("session:turn/2026-07-25/1000#timeline")["items"]
-    assert session.inspect("session:turn/2026-07-25/1000#timeline", query="job-1")[
-        "items"
-    ]
-    assert session.inspect("session:turn/2026-07-25/1000", query="final-answer-marker")[
-        "items"
-    ]
-    assert not session.inspect(
-        "session:turn/2026-07-25/1000#timeline", query="final-answer-marker"
-    )["items"]
+    assert (session.inspect("session:turn/2026-07-25/1000#timeline")).to_json()["items"]
+    assert (
+        session.inspect("session:turn/2026-07-25/1000#timeline", query="job-1")
+    ).to_json()["items"]
+    assert (
+        session.inspect("session:turn/2026-07-25/1000", query="final-answer-marker")
+    ).to_json()["items"]
+    assert not (
+        session.inspect(
+            "session:turn/2026-07-25/1000#timeline", query="final-answer-marker"
+        )
+    ).to_json()["items"]
 
 
 def test_completion_projects_typed_action_business_facts() -> None:

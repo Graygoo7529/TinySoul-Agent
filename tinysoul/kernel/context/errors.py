@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
+from tinysoul.infra.continuation import ContinuationError, ContinuationFailureReason
 from tinysoul.infra.json import JsonObject, to_json_object
 
 
@@ -65,3 +66,37 @@ class ContextBudgetError(ContextError):
         self.estimated_image_bytes = estimated_image_bytes
         self.max_image_bytes = max_image_bytes
         self.section_usage = to_json_object(section_usage or {})
+
+
+def inspect_continuation_error(
+    error: ContinuationError,
+    *,
+    ref: str,
+) -> ContextInspectRequestError:
+    reason_map = {
+        ContinuationFailureReason.INVALID: (
+            ContextInspectFailureReason.INVALID_CONTINUATION
+        ),
+        ContinuationFailureReason.MISMATCH: (
+            ContextInspectFailureReason.INVALID_CONTINUATION
+        ),
+        ContinuationFailureReason.OUT_OF_RANGE: (
+            ContextInspectFailureReason.INVALID_CONTINUATION
+        ),
+        ContinuationFailureReason.CONTENT_CHANGED: (
+            ContextInspectFailureReason.INVALID_CONTINUATION
+        ),
+        ContinuationFailureReason.BUDGET_TOO_SMALL: (
+            ContextInspectFailureReason.PAGE_BUDGET_TOO_SMALL
+        ),
+    }
+    reason = reason_map.get(error.reason)
+    if reason is None:
+        raise ContextInvariantError(
+            "Unexpected Context continuation failure"
+        ) from error
+    return ContextInspectRequestError(
+        reason,
+        str(error),
+        constraint={"ref": ref},
+    )

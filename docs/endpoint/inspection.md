@@ -25,6 +25,10 @@ rather than being copied into another business model.
 
 普通列表参数为 continuation、limit（默认 30，1–100）、max_chars（默认 16000，1024–64000），具体支持项见 OpenAPI。结果为 `items` 与可选 `next_continuation`。单项超预算使用公共 JSON fragment 协议，沿 continuation 顺序拼接同一项的 `content_fragment.text`，按 `encoding=canonical_json` 解码。先消费本页内容，再由 `next_continuation` 判断是否续读；空 `items` 可能仍带正文 fragment，最后一个 fragment 也可能没有续页 token。continuation 绑定实际读取内容，变化返回 409 invalid_continuation/continuation_mismatch/continuation_content_changed/continuation_out_of_range；无效容量为 422 invalid_limit/page_budget_too_small。SearchPage/DisclosurePage 保留各自协议，不再套一层分页。
 
+Context/Session Inspect、Session map、Home content/diff、Memory document/active 使用语义披露页：`ref/title/view/items/next_continuation`，保留 owner metadata。完整项保留原有机器字段并提供 narrative；超长正文直接返回 `kind=content_slice`、`text`、`ref/title/coverage`，可有 source_kind/role。coverage 的 start/end 是所选正文中从零开始、右端不含的字符范围，total 为该项正文长度，complete 表示本页完整覆盖该项；文档另给从一开始的 start_line/end_line。每页可立即展示，不需要等待拼接框架 JSON。末页续页字段为空或省略；只由该字段判断结束。
+
+导航项使用 `kind=child` 和 ref/title/clue，来源为真实名称、Markdown label 或摘录；长导航说明也可返回 source_kind=child 的正文片段。Home/Memory 直接引用在 items 中随正文后分页，或由模型 Inspect 的 direct_refs 视图单独读取；metadata 不再包含重复的 direct_refs 列表。前端将这些项展示为引用入口，不能把它们拼入文档正文。折叠只影响模型 Context；宿主只读查看不标记模型已消费页面，也不改变 Background。
+
 ## Turn、Context 与 Session
 
 | GET 路径 | 参数 | 响应来源与内容 |

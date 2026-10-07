@@ -13,12 +13,30 @@ import { useEffect, useMemo, useRef, type ReactElement } from "react";
 
 import { Markdown } from "../../components/markdown/Markdown";
 import type { MarkdownOrigin } from "../../components/markdown/codeBlockRegistry";
+import type { DirectReference } from "../../api/v2/common";
 import type { JsonValue } from "../../api/v2/json";
 import { parseLineFragment, splitFragment } from "./reference";
 
 export interface ContentChunk {
   ref: string;
   text: string;
+  coverage?: { start_line?: number; end_line?: number };
+}
+
+export function isReferenceItem(item: Record<string, unknown>): boolean {
+  return item.kind === "child" || item.source_kind === "child";
+}
+
+export function directReferences(items: Array<{ ref: string; [key: string]: unknown }>): DirectReference[] {
+  const result = new Map<string, DirectReference>();
+  for (const item of items.filter(isReferenceItem)) {
+    const text = typeof item.text === "string" ? item.text : "";
+    const previous = result.get(item.ref);
+    result.set(item.ref, { ref: item.ref,
+      title: typeof item.title === "string" ? item.title : "Referenced resource",
+      clue: (previous?.clue ?? "") + text });
+  }
+  return [...result.values()];
 }
 
 /**
@@ -32,15 +50,19 @@ export function decodeContentChunk(value: JsonValue): ContentChunk | null {
     return null;
   }
   const record = value as Record<string, unknown>;
+  if (isReferenceItem(record)) return null;
   if (typeof record.ref !== "string" || typeof record.text !== "string") {
     return null;
   }
-  return { ref: record.ref, text: record.text };
+  const span = record.coverage as { start_line?: number; end_line?: number } | undefined;
+  return { ref: record.ref, text: record.text, coverage: span };
 }
 
 /** True when the target fragment intersects the chunk's own line range. */
-function fragmentHits(chunkRef: string, target: { startLine: number; endLine: number }): boolean {
-  const own = parseLineFragment(splitFragment(chunkRef).fragment);
+function fragmentHits(chunk: ContentChunk, target: { startLine: number; endLine: number }): boolean {
+  const own = typeof chunk.coverage?.start_line === "number" && typeof chunk.coverage.end_line === "number"
+    ? { startLine: chunk.coverage.start_line, endLine: chunk.coverage.end_line }
+    : parseLineFragment(splitFragment(chunk.ref).fragment);
   if (own === null) return false;
   return own.startLine <= target.endLine && target.startLine <= own.endLine;
 }
@@ -58,7 +80,7 @@ export function ChunkedMarkdown({
   const target = useMemo(() => parseLineFragment(fragment), [fragment]);
   const hitIndex = useMemo(() => {
     if (target === null) return -1;
-    return items.findIndex((item) => fragmentHits(item.ref, target));
+    return items.findIndex((item) => fragmentHits(item, target));
   }, [items, target]);
   const groups = useMemo(() => {
     const result: Array<{ base: string; items: ContentChunk[]; start: number; end: number }> = [];
@@ -100,7 +122,7 @@ export function ChunkedMarkdown({
           >
             {group.items.slice(1).map((item, offset) => {
               const itemIndex = group.start + offset + 1;
-              return <div key={item.ref} data-chunk-ref={item.ref}
+              return <div key={`${item.ref}:${offset}`} data-chunk-ref={item.ref}
                 className={itemIndex === hitIndex ? "sr-only ring-1 ring-accent" : "sr-only"}
                 aria-hidden="true">{item.text}</div>;
             })}

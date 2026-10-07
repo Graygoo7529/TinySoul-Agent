@@ -23,7 +23,6 @@ export interface MemoryDocumentMetadata {
   display: string;
   resolution_chain: string[];
   locator: ResourceLocator;
-  direct_refs: string[];
   [key: string]: unknown;
 }
 
@@ -31,7 +30,7 @@ export type MemoryContentItem = HomeContentItem;
 
 /**
  * GET /v2/memory/document page. A `redirect_to` in the document front matter
- * is expressed through status/resolution_chain/direct_refs; the page still
+ * is expressed through status/resolution_chain and paged child items; the page still
  * carries the original document identity.
  */
 export interface MemoryDocumentPage extends ContinuationPage {

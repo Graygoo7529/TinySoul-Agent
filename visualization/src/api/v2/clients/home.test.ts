@@ -40,7 +40,8 @@ describe("HomeClient", () => {
       view: "effective",
     });
     expect(page.metadata?.locator.ref).toBe("home:top/agent/contract");
-    expect(page.items[0]?.ref).toBe("home:top/agent/contract#L1-L1");
+    expect(page.items[0]?.ref).toBe("home:top/agent/contract");
+    expect(page.items[0]?.coverage).toMatchObject({ start_line: 1, end_line: 1 });
     expect(queryOf(requests[0]!, "ref")).toBe("home:top/agent/contract");
     expect(queryOf(requests[0]!, "view")).toBe("effective");
   });
@@ -64,9 +65,9 @@ describe("HomeClient", () => {
     ]);
   });
 
-  it("drains a fragmented item across pages with the fixture chunks", async () => {
-    // The fixtures are the first and final chunk of one long item; a real
-    // sequence has intermediate pages, so decode expectations stay loose.
+  it("passes readable body pages through in returned order", async () => {
+    // These representative slices are independently readable; the reader
+    // retains their coverage and does not assemble serialized framework JSON.
     const sequence = [homeFragment, homeFragmentEnd];
     const { transport, requests } = createTestTransport((request) =>
       jsonResponse(
@@ -84,7 +85,6 @@ describe("HomeClient", () => {
     );
     expect(requests).toHaveLength(2);
     expect(result.incomplete).toBe(false);
-    expect(result.items).toHaveLength(1);
-    expect(result.items[0]?.ref).toBe("home:top/agent/long-contract#L1-L1");
+    expect(result.items).toEqual([...homeFragment.items, ...homeFragmentEnd.items]);
   });
 });

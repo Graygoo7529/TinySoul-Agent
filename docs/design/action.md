@@ -175,6 +175,10 @@ Phase2 的模型侧 action tool call 即使无法归一化，也必须产出局�
 
 ### 输出
 
+core.ask 的问题来源是结构化说明、核心问题、选项与回答约束。QuestionContent 从说明和核心问题派生完整 text，ActionResult 的可读叙事直接呈现完整正文与有序选项；正式待答、Endpoint 卡片和 Session 复用同一问题值。回复叙事关联完整正文，输入事实只记录用户回答。默认等待没有截止时间，显式等待期限与创建问题的 Action 执行时限分别处理。普通 answer 输出 Markdown 正文，不从代码块解析交互问题。
+
+Inspect 的 ActionResult 从同一语义页面取得实际 payload/model_text 与精简 Trace projection。页面预算包括标题、引用、覆盖和续页说明；超长正文按实际范围分页。精简事实保存读了什么及实际覆盖，不保存旧全文或额外续页令牌。活动 Action 事实仍可读取实际结果，本次回忆 Action 的结果独立参与折叠。
+
 Action result 需要同时表达三类信息：
 
 1. 给模型看的反馈

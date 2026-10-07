@@ -67,7 +67,9 @@ TurnTraceHeap 是当前 Turn 的 append-only 运行事实：
 
 ### 渐进检查
 
-模型通过 `core.context.inspect` 检查段声明的 ref。Stack、Map、State 表达不同内容语义；渐进披露是访问方式，不把它们强行改成同一种数据形状。Trace 与 Session 共用 `DisclosureHint`、`DisclosurePage` 和既有 continuation 基础设施；owner 决定分组、关系和事实内容，公共构件只负责有界投影与分页。
+模型通过 `core.context.inspect` 检查段声明的 ref。Stack、Map、State 表达不同内容语义；渐进披露是访问方式，不把它们强行改成同一种数据形状。Trace、Session 与资源文档读取共用 retrieval 的语义披露构件和既有 continuation 基础设施。owner 提供标题、引用、正文及机器事实；公共构件优先保留完整项，长项只切正文，标明实际字符或文档行范围。同一次页选择生成 SDK/Endpoint 页面、模型文字及可持久化的精简读取事实，不让模型拼接序列化框架 JSON。
+
+引用的 Markdown label、目录说明或命中摘录与 ref 一起计入预算。资源正文与直接引用均可续页；目录不会在 metadata 中无界复制。折叠记录保存本次所读目标、短线索、实际覆盖和后续状态，不承诺重读旧正文。通用机器数据接口仍可使用 JSON 传输分片，独立于 Inspect 的可读正文分页。
 
 Trace 的根同时提供冷节点与热记录线索，分支给出直接子节点，叶组给出稳定 entry ref，再沿 entry ref 读取语义详情。折叠和父节点合并不改变已返回引用。根、分支、关系和长叶子均分页；正文不会被静默裁掉。公开内容只表达决策、行动、结果、必要反馈和来源，不要求模型理解内部序号、存储版本或完整性校验。
 

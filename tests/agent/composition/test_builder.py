@@ -397,7 +397,7 @@ async def test_three_scenarios_have_independent_policies_and_owner_services(
             )
             assert page.items[0].ref == "home:resource/agent/search-proof.md"
             assert "uniqueoverlayevidence" in str(
-                await service.inspect(page.items[0].ref)
+                (await service.inspect(page.items[0].ref)).to_json()
             )
         for profile, denied in (
             (user, HomeReviewService),

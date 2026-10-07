@@ -94,18 +94,18 @@ function documentPage(
   chunks: { ref: string; text: string }[] = [
     { ref: `${ref}#L1-L2`, text: "Document body.\n" },
   ],
+  references: string[] = [],
 ): JsonObject {
   return {
     ref: ref,
     view: "content",
-    items: chunks,
+    items: [...chunks, ...references.map((target) => ({ kind: "child", ref: target, title: "Project", text: "Related project" }))],
     metadata: {
       kind: "entity",
       status: "active",
       display: ref.split("/").pop() ?? ref,
       resolution_chain: [ref],
       locator: { ref },
-      direct_refs: [],
       ...metadata,
     },
   };
@@ -336,8 +336,7 @@ describe("MemoryPage documents", () => {
               status: "merged",
               display: "old-project",
               resolution_chain: ["memory:entity/old-project", "memory:entity/project"],
-              direct_refs: ["memory:entity/project"],
-            }),
+            }, undefined, ["memory:entity/project"]),
           )
         : jsonResponse(documentPage("memory:entity/project")),
     );
@@ -407,8 +406,7 @@ describe("MemoryPage documents", () => {
           status: "merged",
           display: "old-project",
           resolution_chain: ["memory:entity/old-project", "memory:entity/project"],
-          direct_refs: ["memory:entity/project"],
-        }),
+        }, undefined, ["memory:entity/project"]),
       ),
     );
     endpoint.get("/v2/config/actions", () =>

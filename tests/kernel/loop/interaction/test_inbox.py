@@ -1,6 +1,35 @@
 from __future__ import annotations
 
-from tinysoul.kernel.interaction import QuestionOption
+import asyncio
+from dataclasses import replace
+from time import monotonic
+
+import pytest
+
+from tinysoul.infra.json import to_json_object
+from tinysoul.kernel.interaction import (
+    AnswerKind,
+    QuestionAnswer,
+    QuestionContent,
+    QuestionError,
+    QuestionOption,
+)
+from tinysoul.kernel.loop.interaction.events import TurnEventSubscription
+from tinysoul.kernel.loop.interaction.inbox import (
+    InboxCapacityError,
+    InboxClosedError,
+    InboxError,
+    InboxKind,
+    InboxLimits,
+    InboxRecord,
+    QuestionRequest,
+    TurnInbox,
+    WaitCondition,
+    WaitReason,
+    WakeReason,
+)
+from tinysoul.runtime.events import EnvironmentEvent, EventFilter, EventKind
+from tinysoul.runtime.sources import SourceState, SourceStatus
 
 
 async def test_choice_reply_preserves_option_content_and_pending_reads_do_not_consume() -> (
@@ -28,29 +57,36 @@ async def test_choice_reply_preserves_option_content_and_pending_reads_do_not_co
     assert batch.records[0][1].payload["text"] != "not owner state"
 
 
-import asyncio
-from dataclasses import replace
-from time import monotonic
-
-import pytest
-
-from tinysoul.kernel.interaction import AnswerKind, QuestionAnswer, QuestionContent
-from tinysoul.kernel.loop.interaction.events import TurnEventSubscription
-from tinysoul.kernel.loop.interaction.inbox import (
-    InboxCapacityError,
-    InboxClosedError,
-    InboxError,
-    InboxKind,
-    InboxLimits,
-    InboxRecord,
-    QuestionRequest,
-    TurnInbox,
-    WaitCondition,
-    WaitReason,
-    WakeReason,
-)
-from tinysoul.runtime.events import EnvironmentEvent, EventFilter, EventKind
-from tinysoul.runtime.sources import SourceState, SourceStatus
+def test_question_sources_preserve_complete_body_and_do_not_pollute_answers() -> None:
+    question = QuestionContent.from_json(
+        {
+            "details": "Keeping the source preserves the audit evidence.",
+            "question": "Which version should we keep?",
+            "options": [
+                {"id": "full", "label": "Full source", "description": "Retain examples"}
+            ],
+        }
+    )
+    assert question.text == question.details + "\n\n" + question.question
+    assert question.display()["text"] == question.text
+    assert "text" not in question.to_json()
+    assert QuestionContent.from_json(question.to_json()) == question
+    answer = QuestionAnswer(
+        AnswerKind.CHOICE, option_id="full", comment="Add citations"
+    )
+    assert question.text in question.reply_narrative(answer)
+    assert question.details not in question.answer_text(answer)
+    assert question.allow_other
+    assert (
+        question.answer_text(QuestionAnswer(AnswerKind.TEXT, text="Another approach"))
+        == "Another approach"
+    )
+    for value in (
+        {"text": "Legacy question"},
+        {"question": "Choose", "allow_other": False},
+    ):
+        with pytest.raises(QuestionError):
+            QuestionContent.from_json(to_json_object(value))
 
 
 async def test_state_notifications_preserve_capture_input_order_and_receipt_time() -> (

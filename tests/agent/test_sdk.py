@@ -486,7 +486,7 @@ async def test_v2_turn_admission_question_budget_and_result_share_sdk_owner(
                 "ask",
                 "core.ask",
                 {
-                    "text": "Choose a direction",
+                    "question": "Choose a direction",
                     "options": [
                         {
                             "id": "a",
@@ -801,7 +801,9 @@ async def test_v2_job_stop_uses_turn_owner_and_sdk_projection(tmp_path: Path) ->
                 {"domains": ["core"]},
                 ToolKind.CONTROL,
             ),
-            ToolCallRecord("ask", "core.ask", {"text": "Continue?"}, ToolKind.ACTION),
+            ToolCallRecord(
+                "ask", "core.ask", {"question": "Continue?"}, ToolKind.ACTION
+            ),
         )
     ):
         llm.results.appendleft(
@@ -1216,10 +1218,14 @@ async def test_session_organize_updates_next_cycle_and_survives_restart_until_da
             assert isinstance(organize, dict)
             assert organize["granted"] is (scenario == "user")
             assert organize["available"] is (scenario == "user")
-        assert "Shared topic" in str(await service.inspect("session:topics"))
+        assert "Shared topic" in str(
+            (await service.inspect("session:topics")).to_json()
+        )
         await agent.restart()
         service = agent.services.get(SessionService)
-        assert "Shared topic" in str(await service.inspect("session:topics"))
+        assert "Shared topic" in str(
+            (await service.inspect("session:topics")).to_json()
+        )
         clock.value = datetime(2026, 9, 16, 12, tzinfo=ZoneInfo("Asia/Shanghai"))
         llm.results.extend(_LLM().results)
         next_day = await agent.submit_turn(UserTurnRequest("new day"))
@@ -1227,7 +1233,9 @@ async def test_session_organize_updates_next_cycle_and_survives_restart_until_da
             await asyncio.wait_for(next_day.wait(), 5)
         ).status is TurnOutcomeStatus.ANSWERED
         assert "Shared topic" not in str(
-            await agent.services.get(SessionService).inspect("session:topics")
+            (
+                await agent.services.get(SessionService).inspect("session:topics")
+            ).to_json()
         )
         from tinysoul.plugins.session.annotations.store import AnnotationStore
 
@@ -1637,7 +1645,7 @@ async def test_question_reply_resumes_same_turn_and_keeps_new_root_queued(
                 "ask",
                 "core.ask",
                 {
-                    "text": "Choose a direction",
+                    "question": "Choose a direction",
                     "options": [
                         {"id": "A", "label": "Direction A"},
                         {"id": "B", "label": "Direction B"},
@@ -1772,7 +1780,7 @@ async def test_execution_is_stopped_before_queued_next_day_work_can_archive(
                 ToolKind.CONTROL,
             ),
             ToolCallRecord(
-                "ask", "core.ask", {"text": "Continue this job?"}, ToolKind.ACTION
+                "ask", "core.ask", {"question": "Continue this job?"}, ToolKind.ACTION
             ),
         )
     ):
@@ -1867,7 +1875,10 @@ async def test_home_reflection_waits_and_retains_full_turn_without_user_session(
                 ToolKind.CONTROL,
             ),
             ToolCallRecord(
-                "ask", "core.ask", {"text": "Keep this preference?"}, ToolKind.ACTION
+                "ask",
+                "core.ask",
+                {"question": "Keep this preference?"},
+                ToolKind.ACTION,
             ),
         )
     ):
@@ -1935,7 +1946,7 @@ async def test_append_resumes_unified_wait_on_same_turn(
     llm = _LLM()
     action = "core.ask" if wait_kind == "question" else "core.wait"
     params: JsonObject = (
-        {"text": "Choose"}
+        {"question": "Choose"}
         if wait_kind == "question"
         else (
             {"event_kind": "event", "event_id": "matching"}

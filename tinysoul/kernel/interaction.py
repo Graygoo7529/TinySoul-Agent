@@ -40,12 +40,14 @@ class QuestionOption:
 
 @dataclass(frozen=True)
 class QuestionContent:
-    text: str
+    question: str
     options: tuple[QuestionOption, ...] = ()
     allow_other: bool = True
+    details: str = ""
 
     def __post_init__(self) -> None:
-        _text(self.text, maximum=16000)
+        _text(self.question, maximum=16000)
+        _text(self.details, maximum=16000, empty=True)
         if type(self.allow_other) is not bool or len(self.options) > 8:
             raise QuestionError("Question options or other-answer policy is invalid")
         if any(not isinstance(item, QuestionOption) for item in self.options) or len(
@@ -53,10 +55,27 @@ class QuestionContent:
         ) != len(self.options):
             raise QuestionError("Question options require unique identities")
         object.__setattr__(self, "options", tuple(self.options))
+        if not self.options and not self.allow_other:
+            raise QuestionError("Question must allow an answer")
+
+    @property
+    def text(self) -> str:
+        return f"{self.details}\n\n{self.question}" if self.details else self.question
+
+    def display(self) -> JsonObject:
+        return {**self.to_json(), "text": self.text}
+
+    @property
+    def title(self) -> str:
+        return prompt_text.question_title(self.question[:160])
+
+    def reply_title(self, text: str) -> str:
+        return prompt_text.reply_title(self.question[:100], text.splitlines()[0][:80])
 
     def to_json(self) -> JsonObject:
         return {
-            "text": self.text,
+            "question": self.question,
+            "details": self.details,
             "options": [item.to_json() for item in self.options],
             "allow_other": self.allow_other,
         }
@@ -84,7 +103,12 @@ class QuestionContent:
         other = value.get("allow_other", True)
         if type(other) is not bool:
             raise QuestionError("Question other-answer policy must be boolean")
-        return cls(_text(value.get("text"), maximum=16000), tuple(options), other)
+        return cls(
+            question=_text(value.get("question"), maximum=16000),
+            details=_text(value.get("details", ""), maximum=16000, empty=True),
+            options=tuple(options),
+            allow_other=other,
+        )
 
     def answer_text(self, answer: QuestionAnswer) -> str:
         if answer.kind is AnswerKind.TEXT:
@@ -106,14 +130,22 @@ class QuestionContent:
             if part
         )
 
-    def narrative(self, *, explanation: str = "") -> str:
+    def narrative(self) -> str:
         return prompt_text.question(
             text=self.text,
             options=tuple(
                 (item.id, item.label, item.description) for item in self.options
             ),
             allow_other=self.allow_other,
-            explanation=explanation,
+        )
+
+    def narrative_parts(self) -> tuple[tuple[str, str], ...]:
+        return prompt_text.question_parts(
+            text=self.text,
+            options=tuple(
+                (item.id, item.label, item.description) for item in self.options
+            ),
+            allow_other=self.allow_other,
         )
 
     def reply_narrative(self, answer: QuestionAnswer) -> str:
@@ -132,6 +164,10 @@ class QuestionContent:
 
 def input_narrative(text: str, *, initial: bool) -> str:
     return prompt_text.input_text(text=text, initial=initial)
+
+
+def input_title(*, initial: bool) -> str:
+    return prompt_text.input_title(initial)
 
 
 class AnswerKind(StrEnum):

@@ -1,16 +1,29 @@
 {
   "ref": "home:top/agent/long-contract",
+  "kind": "content",
   "view": "content",
-  "items": [],
-  "content_fragment": {
-    "encoding": "canonical_json",
-    "text": " Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content \"}"
-  },
+  "items": [
+    {
+      "kind": "content_slice",
+      "text": "tent Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content Long content ",
+      "ref": "home:top/agent/long-contract",
+      "title": "long-contract.md",
+      "coverage": {
+        "start": 1243,
+        "end": 1820,
+        "total": 1820,
+        "complete": false,
+        "start_line": 1,
+        "end_line": 1
+      }
+    }
+  ],
   "metadata": {
     "locator": {
       "ref": "home:top/agent/long-contract",
       "view": "effective"
     },
-    "direct_refs": []
-  }
+    "title": "long-contract.md"
+  },
+  "title": "long-contract.md"
 }

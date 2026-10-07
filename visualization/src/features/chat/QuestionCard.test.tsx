@@ -95,7 +95,12 @@ function typeInto(input: HTMLInputElement, value: string): void {
 
 describe("QuestionCard: live question", () => {
   it("renders the waiting question with options and the Other entry", () => {
-    renderLive();
+    const details = "The implementation plan is ready for execution.";
+    act(() => root.render(<QuestionCard epoch={epoch} turnId="contract-turn"
+      item={QUESTION_ITEM} live={{...LIVE_QUESTION, details, text: `${details}\n\n${LIVE_QUESTION.question}`}}
+      reply={null} />));
+    expect(container.textContent?.split(details)).toHaveLength(2);
+    expect(container.textContent?.split(LIVE_QUESTION.question)).toHaveLength(2);
     expect(container.textContent).toContain("Choose a direction");
     expect(container.textContent).toContain("Execute");
     expect(container.textContent).toContain("Use the approved plan");

@@ -47,8 +47,8 @@ from tinysoul.plugins.home.background import (
     ActualHomeBackgroundEntryProvider,
     home_segment_registration,
 )
-from tinysoul.plugins.home.failures import HOME_RUNTIME_COPY_REQUIRED
 from tinysoul.plugins.home.errors import AgentHomeNotFoundError
+from tinysoul.plugins.home.failures import HOME_RUNTIME_COPY_REQUIRED
 from tinysoul.plugins.home.refs import parse_home_ref
 from tinysoul.plugins.home.services import HomeService
 from tinysoul.runtime import (
@@ -481,12 +481,11 @@ async def test_home_resource_read_executor_returns_bounded_text(tmp_path: Path) 
     with_runtime_copy = await executor.execute(execution, ActionExecutionContext())
 
     assert with_runtime_copy.status is ActionResultStatus.SUCCESS
-    assert with_runtime_copy.payload["items"] == [
-        {
-            "ref": "home:resource/skills/refactor/references/checklist.md#L1-L1",
-            "text": "abcdef",
-        }
-    ]
+    items = with_runtime_copy.payload["items"]
+    assert isinstance(items, list) and isinstance(items[0], dict)
+    assert items[0]["text"] == "abcdef"
+    assert items[0]["ref"] == execution.call.params["ref"]
+    assert with_runtime_copy.model_text and "abcdef" in with_runtime_copy.model_text
 
 
 async def test_home_resource_read_rejects_prompt_mount_spaces(tmp_path: Path) -> None:
@@ -838,7 +837,7 @@ def test_home_browser_separates_actual_and_materialized_effective_views(
         home.browse_content("home:top/agent/AGENT")
     actual = home.browse_content("home:top/agent/AGENT", view="actual")
     assert "Original" in str(actual["items"])
-    assert "home:top/agent/guide" in str(actual["metadata"])
+    assert "home:top/agent/guide" in str(actual["items"])
     actual_items = cast(list[JsonObject], home.browse_catalog(view="actual")["items"])
     assert any(item["ref"] == "home:top/agent/AGENT" for item in actual_items)
     effective_items = cast(list[JsonObject], home.browse_catalog()["items"])

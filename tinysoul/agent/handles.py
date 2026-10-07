@@ -195,7 +195,7 @@ class TurnSnapshot:
             "question": (
                 {
                     "question_id": question.question_id,
-                    **question.content.to_json(),
+                    **question.content.display(),
                     "timeout_seconds": question.timeout_seconds,
                 }
                 if question is not None

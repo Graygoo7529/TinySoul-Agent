@@ -1,3 +1,5 @@
+import { coverageDescription } from "../history/disclosure";
+import { Markdown } from "../../components/markdown/Markdown";
 import { requestIdForTurn } from "../../store/turnStore";
 /**
  * Live disclosure reading for Context refs (plan §8, API-09 context/inspect).
@@ -73,12 +75,12 @@ export function parseContextDisclosure(items: JsonValue[]): ParsedDisclosure {
   const sources: string[] = [];
   for (const item of items) {
     if (!isRecord(item)) continue;
-    if (item.kind === "child") {
+    if (item.kind === "child" || item.source_kind === "child") {
       if (typeof item.ref === "string" && typeof item.title === "string") {
         children.push({
           ref: item.ref,
           title: item.title,
-          clue: typeof item.clue === "string" ? item.clue : "",
+          clue: typeof item.clue === "string" ? item.clue : typeof item.text === "string" ? item.text : "",
         });
       }
       continue;
@@ -215,16 +217,23 @@ export function ContextInspectPanel({
       {parsed.content.length > 0 && (
         <section className="space-y-2">
           {parsed.content.map((item, index) => (
-            <JsonTree key={index} value={item} defaultExpanded={false} />
+            <div key={index} className="rounded-lg border border-line p-3">
+              <div className="font-medium">{String(item.title ?? item.kind ?? "Content")}</div>
+              <div className="text-xs text-fg-muted">{String(item.ref ?? targetRef)}</div>
+              {typeof item.narrative === "string" || typeof item.text === "string"
+                ? <Markdown origin={{ref: String(item.ref ?? targetRef)}}>{String(item.narrative ?? item.text)}</Markdown>
+                : <JsonTree value={item} defaultExpanded={false} />}
+              {item.kind === "content_slice" && <div className="text-xs text-fg-muted">{coverageDescription(item.coverage)}</div>}
+            </div>
           ))}
         </section>
       )}
 
       {parsed.children.length > 0 && (
         <section className="space-y-1.5">
-          {parsed.children.map((child) => (
+          {parsed.children.map((child, index) => (
             <button
-              key={child.ref}
+              key={`${child.ref}:${index}`}
               type="button"
               onClick={() =>
                 pushContextInspect(epoch, turnId, child.ref, {

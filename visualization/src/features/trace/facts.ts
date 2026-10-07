@@ -65,7 +65,7 @@ export function actionResultSummary(payload: JsonObject | null): string | undefi
   if (items) return `${items.length} results`;
   const code = asNumber(payload.exit_code);
   if (code !== null) return `Exit ${code}`;
-  return asString(payload.summary) ?? asString(payload.ref) ?? asString(payload.ref) ?? undefined;
+  return asString(payload.summary) ?? asString(payload.ref) ?? undefined;
 }
 
 export function taskSkillRefs(payload: JsonObject): string[] {

@@ -9,7 +9,7 @@
  * itself never saves persistent Memory.
  */
 
-import { useEffect, type ReactElement } from "react";
+import { useEffect, useMemo, type ReactElement } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -32,7 +32,7 @@ import { Badge } from "../../components/ui/Badge";
 import { Button, IconButton } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { useConnectionStore } from "../../store/connectionStore";
-import { ChunkedMarkdown } from "../resources/ChunkedMarkdown";
+import { ChunkedMarkdown, directReferences, isReferenceItem } from "../resources/ChunkedMarkdown";
 import { copyReference, quoteReference } from "../resources/router";
 import { useOwnerPage } from "../resources/useOwnerPage";
 import { useMemoryPage } from "./store";
@@ -70,7 +70,6 @@ export function MemoryDocumentView({
         display: ref,
         resolution_chain: [ref],
         locator: { ref },
-        direct_refs: [],
       },
     [epoch, ref],
   );
@@ -78,15 +77,16 @@ export function MemoryDocumentView({
   // The References panel and redirect banner read the document facts from
   // the page store.
   const metadata = page.metadata;
+  const directRefs = useMemo(() => directReferences(page.items), [page.items]);
   useEffect(() => {
     if (metadata === null) return;
-    useMemoryPage.getState().setCurrentDocument(metadata.direct_refs ?? [], {
+    useMemoryPage.getState().setCurrentDocument(directRefs, {
       kind: metadata.kind,
       status: metadata.status,
       display: metadata.display,
       resolutionChain: metadata.resolution_chain ?? [],
     });
-  }, [metadata]);
+  }, [metadata, directRefs]);
 
   const redirectTarget =
     metadata !== null && metadata.resolution_chain.length > 1
@@ -209,7 +209,7 @@ export function MemoryDocumentView({
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
           <div className="reading-column mx-auto w-full max-w-[76ch]">
-            <ChunkedMarkdown items={page.items} fragment={fragment} origin={{ ref }} />
+            <ChunkedMarkdown items={page.items.filter((item) => !isReferenceItem(item))} fragment={fragment} origin={{ ref }} />
           </div>
         </div>
       )}

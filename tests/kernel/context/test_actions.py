@@ -1,18 +1,15 @@
 from datetime import date as CalendarDate
 
-from pathlib import Path
-
 from tinysoul.kernel.action import (
     ActionCall,
     ActionExecution,
     ActionExecutionContext,
     ActionFramework,
 )
-from tinysoul.kernel.action.catalog.loader import ActionCatalogLoader
 from tinysoul.kernel.context import ContextEngineBuilder, build_trace_phase_note_signal
 from tinysoul.kernel.context.actions import ContextInspectExecutor
-from tinysoul.runtime import RunLevel, RunScope, SignalBus
 from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
+from tinysoul.runtime import RunLevel, RunScope, SignalBus
 
 
 async def test_context_inspect_continuation_is_visible_only() -> None:
@@ -23,7 +20,7 @@ async def test_context_inspect_continuation_is_visible_only() -> None:
             branch_factor=4,
             min_hot_entries=0,
         )
-        .with_trace_inspect_max_chars(1024)
+        .with_trace_inspect_max_chars(2048)
         .build()
     )
     turn_id = context.begin_turn("inspect", turn_id="2026-10-06/29")
@@ -40,14 +37,20 @@ async def test_context_inspect_continuation_is_visible_only() -> None:
     )
     await context.consume_signals(bus)
     context.compress()
-    nodes = (await context.inspect(f"turn:trace/{turn_id}"))["items"]
+    nodes = ((await context.inspect(f"turn:trace/{turn_id}")).to_json())["items"]
     assert isinstance(nodes, list)
     root = nodes[0]
     assert isinstance(root, dict)
     ref = root["ref"]
     assert isinstance(ref, str)
-    children = (await context.inspect(ref))["items"]
-    assert isinstance(children, list) and isinstance(children[0], dict)
+    children = []
+    token = None
+    while True:
+        page = await context.inspect(ref, continuation=token)
+        children.extend(item.to_json() for item in page.items)
+        token = page.next_continuation
+        if token is None:
+            break
     ref = next(
         child["ref"]
         for child in children

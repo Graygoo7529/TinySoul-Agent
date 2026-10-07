@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 import asyncio
 from dataclasses import dataclass, field
 from datetime import date
@@ -14,17 +13,17 @@ import pytest
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.json import to_json_object
 from tinysoul.kernel.context import (
-    BackgroundCatalog,
-    BackgroundCatalogItem,
     CONTROL_LOAD_BACKGROUND,
     CONTROL_REMOVE_TODO,
     CONTROL_SET_MILESTONE,
     CONTROL_SET_TODO,
     SIGNAL_BACKGROUND_PATCH,
     SIGNAL_TRACE_APPEND,
+    BackgroundCatalog,
+    BackgroundCatalogItem,
     ContextContractError,
-    ContextInvariantError,
     ContextEngineBuilder,
+    ContextInvariantError,
     ContextSignalBatch,
     ContextTurnCompletion,
     ContextTurnInput,
@@ -36,6 +35,8 @@ from tinysoul.kernel.context import (
     build_trace_phase_note_signal,
 )
 from tinysoul.kernel.context.background import heap_segment_registration
+from tinysoul.kernel.context.builtin.trace import SealedTurnTrace, TraceKind
+from tinysoul.kernel.context.builtin.working import Milestone, WorkingPatch
 from tinysoul.kernel.context.providers import BackgroundEntryProvider
 from tinysoul.kernel.context.segments import (
     SegmentCapability,
@@ -43,9 +44,7 @@ from tinysoul.kernel.context.segments import (
     SegmentShape,
     SegmentSlot,
 )
-from tinysoul.kernel.context.builtin.trace import SealedTurnTrace, TraceKind
 from tinysoul.kernel.context.signals import build_working_patch_signal
-from tinysoul.kernel.context.builtin.working import Milestone, WorkingPatch
 from tinysoul.llm.protocol.messages import (
     AssistantMessage,
     JsonPart,
@@ -180,7 +179,7 @@ async def test_installed_overview_exposes_owner_navigation_root_for_inspect() ->
     overview = engine.installed_overview()
     trace = next(item for item in overview["segments"] if item["id"] == "trace")
     assert trace["root_refs"] == [f"turn:trace/{turn_id}"]
-    page = await engine.inspect(trace["root_refs"][0])
+    page = (await engine.inspect(trace["root_refs"][0])).to_json()
     assert page["ref"] == trace["root_refs"][0]
 
 
@@ -957,13 +956,13 @@ async def test_compress_via_engine() -> None:
     assert report.changed is True
     assert report.compacted_count == 4
     assert engine.trace_kinds() == (TraceKind.INPUT,) + (TraceKind.PHASE_NOTE,) * 3
-    nodes = (await engine.inspect(f"turn:trace/{turn_id}"))["items"]
+    nodes = ((await engine.inspect(f"turn:trace/{turn_id}")).to_json())["items"]
     assert isinstance(nodes, list) and nodes
     root = nodes[0]
     assert isinstance(root, dict)
     ref = root["ref"]
     assert isinstance(ref, str)
-    page = await engine.inspect(ref)
+    page = (await engine.inspect(ref)).to_json()
     assert page["kind"] == "context_trace"
     assert page["ref"] == ref
     interactions = page["items"]
@@ -972,22 +971,22 @@ async def test_compress_via_engine() -> None:
     for item in interactions:
         assert isinstance(item, dict)
         assert item["kind"] == "child"
-        detail = await engine.inspect(str(item["ref"]))
+        detail = (await engine.inspect(str(item["ref"]))).to_json()
         assert "phase_note" in str(detail) or "User input" in str(detail)
     assert "source" not in page
     assert "cursor" not in page
 
 
 async def test_question_and_choice_reply_are_readable_trace_facts() -> None:
+    from tests.action_helpers import builtin_catalog
+    from tinysoul.infra.time import CalendarDay
     from tinysoul.kernel.action import ActionCall, ActionExecution, ActionFramework
     from tinysoul.kernel.action.builtins.core.actions import CoreAskActionExecutor
-    from tests.action_helpers import builtin_catalog
     from tinysoul.kernel.action.execution.executor import ActionExecutionContext
     from tinysoul.kernel.action.planning.rendering import ActionResultRenderer
     from tinysoul.kernel.interaction import AnswerKind, QuestionAnswer
-    from tinysoul.plugins.session.completion import project_turn_record
     from tinysoul.kernel.loop.outcomes import TurnOutcomeStatus
-    from tinysoul.infra.time import CalendarDay
+    from tinysoul.plugins.session.completion import project_turn_record
 
     context = _engine()
     turn_id = context.begin_turn("review the document", turn_id="2026-07-14/990")
@@ -997,7 +996,8 @@ async def test_question_and_choice_reply_are_readable_trace_facts() -> None:
         "ask",
         "core.ask",
         {
-            "text": "Keep the document?",
+            "question": "Keep the document?",
+            "details": "The full text preserves the audit evidence.",
             "options": [
                 {
                     "id": "a",
@@ -1053,6 +1053,7 @@ async def test_question_and_choice_reply_are_readable_trace_facts() -> None:
     assert all(
         text in reply
         for text in (
+            "The full text preserves the audit evidence.",
             "Keep the document?",
             "Keep the full text",
             "Retain examples",
@@ -1060,7 +1061,11 @@ async def test_question_and_choice_reply_are_readable_trace_facts() -> None:
         )
     )
     root = f"turn:trace/{turn_id}"
-    hits = (await context.inspect(root, query="Add citations"))["items"]
+    direct = await context.inspect(f"{root}#input/1")
+    assert "The full text preserves the audit evidence." in direct.model_text
+    assert "Add citations" in direct.model_text
+    assert direct.items[0].unit.data["text"] == "a"
+    hits = ((await context.inspect(root, query="Add citations")).to_json())["items"]
     assert isinstance(hits, list) and hits
     completed = context.end_turn()
     record = project_turn_record(
@@ -1071,6 +1076,11 @@ async def test_question_and_choice_reply_are_readable_trace_facts() -> None:
         status=TurnOutcomeStatus.AWAITING_USER,
     )
     assert len(record.inputs) == 2 and len(record.actions) == 1 and not record.notes
+    from tinysoul.plugins.session.views.navigation import project_occurrence
+
+    historical = project_occurrence(record, "input/1")
+    assert historical["narrative"] == direct.items[0].unit.text
+    assert record.inputs[1].text == "a"
     await context.close_segments()
 
 

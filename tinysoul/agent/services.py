@@ -262,7 +262,7 @@ class AgentRuntimeServices:
             context = self._context_for(generation, turn_id)
             result = await context.inspect(ref, query=query, continuation=continuation)
             self._context_for(generation, turn_id)
-            return result
+            return result.to_json()
 
     async def days(
         self, *, before: CalendarDay | None = None, limit: int = 30
@@ -453,7 +453,10 @@ class AgentRuntimeServices:
         continuation: str | None = None,
     ) -> JsonObject:
         return await self._session_read(
-            lambda view: view.inspect(ref, query=query, continuation=continuation), day
+            lambda view: view.inspect(
+                ref, query=query, continuation=continuation
+            ).to_json(),
+            day,
         )
 
     async def turn_interactions(

@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
-from tinysoul.prompts.kernel import context as prompt_text
 from tinysoul.infra.concurrency import AsyncResourceScope, CleanupDiagnostic
 from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.kernel.retrieval.disclosure import InspectPage
+from tinysoul.prompts.kernel import context as prompt_text
 from tinysoul.runtime import (
     RunLevel,
     RuntimeException,
@@ -333,7 +334,7 @@ class TurnSegments:
 
     async def inspect(
         self, ref: str, *, query: str | None = None, continuation: str | None = None
-    ) -> JsonObject:
+    ) -> InspectPage:
         self._require_ready()
         for item in self._opened:
             if any(ref.startswith(prefix) for prefix in item.descriptor.ref_prefixes):
@@ -348,10 +349,8 @@ class TurnSegments:
                         constraint={"ref": ref},
                     )
                 try:
-                    return to_json_object(
-                        await item.segment.inspect(
-                            ref, query=query, continuation=continuation
-                        )
+                    return await item.segment.inspect(
+                        ref, query=query, continuation=continuation
                     )
                 except (ContextError, RuntimeException, RuntimeTransferInterrupt):
                     raise

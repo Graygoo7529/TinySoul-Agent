@@ -1,3 +1,4 @@
+import type { DirectReference } from "../../api/v2/common";
 /**
  * The shared reference detail panel for owner pages (plan §11/§12).
  *
@@ -51,8 +52,8 @@ export interface ReferencesPanelProps {
   actionId: string;
   /** Current document ref — the backlinks anchor. */
   anchor: string;
-  /** Direct refs of the current document (from its page metadata). */
-  directRefs: string[];
+  /** Direct refs already read from paged child items. */
+  directRefs: DirectReference[];
   /** Quote origin for copy/quote operations (view or day). */
   origin: ResourceOrigin;
   /** Run one owner search request. */
@@ -163,7 +164,7 @@ export function ReferencesPanel(props: ReferencesPanelProps): ReactElement {
             </p>
           ) : (
             <div className="mt-1.5 space-y-1">
-              {directRefs.map((ref) => (
+              {directRefs.map(({ref, title, clue}) => (
                 <div
                   key={ref}
                   className="flex items-center gap-1 rounded-lg border border-line bg-bg-elev px-2 py-1.5"
@@ -174,6 +175,8 @@ export function ReferencesPanel(props: ReferencesPanelProps): ReactElement {
                     title={ref}
                     className="min-w-0 flex-1 truncate text-left font-mono text-[11.5px] text-accent hover:underline"
                   >
+                    <span className="block font-medium">{title}</span>
+                    <span className="block text-fg-muted">{clue}</span>
                     {ref}
                   </button>
                   <IconButton

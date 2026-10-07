@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import cast
 
-from tinysoul.kernel.retrieval.disclosure import inspect_recollection
-from tinysoul.prompts.plugins import memory as prompt_text
+from tinysoul.infra.continuation import ContinuationError
+from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.kernel.action import (
     ActionEngineBuilder,
     ActionExecution,
@@ -18,25 +18,22 @@ from tinysoul.kernel.action import (
     ActionResultStage,
     ActionTraceProjection,
 )
-from tinysoul.infra.json import JsonObject, to_json_object
-from tinysoul.plugins.memory.runtime_bridge import RuntimeMemoryBridge
-from tinysoul.runtime import Signal
-
-from ..storage.active import MemoryPatchOperation
-from ..background import MEMORY_CONTEXT_UPDATE
-from tinysoul.infra.continuation import ContinuationError
 from tinysoul.kernel.action.tasks import ActionTaskFactory
 from tinysoul.kernel.retrieval.contracts import (
+    ModelStep,
     SearchContext,
     SearchFailure,
-    RetrievalRequest,
-    ModelStep,
 )
 from tinysoul.kernel.retrieval.operations import SelectionInput
 from tinysoul.kernel.retrieval.requests import parse_retrieval_request
+from tinysoul.plugins.memory.runtime_bridge import RuntimeMemoryBridge
+from tinysoul.prompts.plugins import memory as prompt_text
+from tinysoul.runtime import Signal
+
+from ..background import MEMORY_CONTEXT_UPDATE
+from ..errors import MemoryContractError, MemoryError
 from ..services import MemoryReadService, MemoryService
-from ..errors import MemoryContractError, MemoryError, MemoryInvariantError
-from ..refs import MemoryKind, MemoryRef
+from ..storage.active import MemoryPatchOperation
 
 
 def register_memory_actions(
@@ -197,10 +194,12 @@ class MemoryInspectExecutor(ActionExecutor):
             raise self._runtime_bridge.from_memory_error(exc) from exc
         return _success(
             execution,
-            result,
+            result.to_json(),
+            model_text=result.model_text,
             trace_projection=ActionTraceProjection(
                 origin_refs=(ref,),
-                canonical_payload=inspect_recollection(result),
+                canonical_payload=result.canonical_payload,
+                model_text=result.recollection_text,
             ),
         )
 
@@ -209,6 +208,7 @@ def _success(
     execution: ActionExecution,
     payload: JsonObject,
     *,
+    model_text: str | None = None,
     trace_projection: ActionTraceProjection | None = None,
 ) -> ActionResult:
     return ActionResult.success(
@@ -220,6 +220,7 @@ def _success(
         domain=execution.framework.domain,
         payload=payload,
         trace_projection=trace_projection,
+        model_text=model_text,
     )
 
 

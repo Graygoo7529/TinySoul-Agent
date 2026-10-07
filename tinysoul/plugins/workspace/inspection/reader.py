@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from hashlib import sha256
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -11,7 +10,12 @@ from tinysoul.infra.continuation import ContinuationPosition, OpaqueContinuation
 from tinysoul.infra.filesystem import file_digest, read_text_prefix
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.paging import PageOptions
-from tinysoul.kernel.retrieval.disclosure import fragment_range
+from tinysoul.kernel.retrieval.disclosure import (
+    DisclosurePage,
+    DisclosureUnit,
+    InspectPage,
+    fragment_range,
+)
 
 from ..config import WorkspaceSettings
 from ..errors import (
@@ -50,8 +54,14 @@ class WorkspaceReader:
         self._settings, self._stat, self._path_for = settings, stat, path_for
 
     def inspect_text(
-        self, ref: str, *, day: str, continuation: str | None, max_chars: int
-    ) -> JsonObject:
+        self,
+        ref: str,
+        *,
+        day: str,
+        continuation: str | None,
+        max_chars: int,
+        metadata: JsonObject,
+    ) -> InspectPage:
         """Return a content-bound page, without retaining a second copy of the file."""
         resource, _, fragment = ref.partition("#")
         path = self._path_for(resource)
@@ -65,44 +75,19 @@ class WorkspaceReader:
             raise WorkspaceIOError("Workspace text cannot be read") from exc
         first, last = fragment_range(text, unquote(fragment))
         selected = "".join(text.splitlines(keepends=True)[first - 1 : last])
-        codec = OpaqueContinuationCodec(owner="workspace", operation="inspect")
-        binding: JsonObject = {
-            "day": day,
-            "content": sha256(selected.encode()).hexdigest(),
-        }
-        position = codec.decode(continuation, ref=ref, binding=binding)
-        offset = position.char_offset
-        if offset > len(selected):
-            raise WorkspaceContractError(
-                "Workspace continuation exceeds the selected content"
-            )
-        body = selected[offset : offset + max_chars]
-        stop = offset + len(body)
-        start_line = first + selected[:offset].count("\n")
-        end_line = start_line + body.rstrip("\r\n").count("\n")
-        has_more = stop < len(selected)
-        return {
-            "text": body,
-            "requested_ref": ref,
-            "coverage": {
-                "ref": f"{resource}#L{start_line}-L{end_line}" if body else resource,
-                "start_offset": offset,
-                "end_offset": stop,
-                "selected_start_line": first,
-                "selected_end_line": last,
-            },
-            "has_more": has_more,
-            "next_continuation": codec.encode(
-                ContinuationPosition(
-                    char_offset=stop,
-                    item_digest="sha256:" + sha256(selected.encode()).hexdigest(),
-                ),
-                ref=ref,
-                binding=binding,
-            )
-            if has_more
-            else None,
-        }
+        title = str(metadata["title"])
+        return DisclosurePage(
+            ref,
+            "content",
+            title=title,
+            metadata=metadata,
+            content=(DisclosureUnit(ref, title, selected, {"text": selected}, first),),
+        ).render(
+            codec=OpaqueContinuationCodec(owner="workspace", operation="inspect"),
+            max_chars=max_chars,
+            continuation=continuation,
+            binding={"day": day},
+        )
 
     def read_text(self, ref: str, *, max_chars: int | None = None) -> WorkspaceTextRead:
         limit = self._settings.max_read_chars if max_chars is None else max_chars

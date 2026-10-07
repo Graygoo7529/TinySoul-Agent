@@ -138,7 +138,8 @@ class _ContractLLM:
                 (
                     "core.ask",
                     {
-                        "text": "Choose a direction",
+                        "question": "Choose a direction",
+                        "details": "The implementation plan is ready for execution.",
                         "options": [
                             {
                                 "id": "a",
@@ -332,13 +333,16 @@ async def collect_contract_responses(root: Path) -> dict[str, JsonObject]:
                 "/v2/home/content", ref="home:top/agent/long-contract", max_chars=1024
             )
             samples["home-fragment"] = page
-            assert page["items"] == [] and "next_continuation" in page
+            assert page["items"] and "next_continuation" in page
+            assert "content_fragment" not in page
             fragments = []
             for _ in range(100):
-                fragment = page.get("content_fragment")
-                if isinstance(fragment, dict):
-                    fragments.append(str(fragment["text"]))
-                    samples["home-fragment-end"] = page
+                items = page["items"]
+                assert isinstance(items, list)
+                fragments.extend(
+                    str(item["text"]) for item in items if isinstance(item, dict)
+                )
+                samples["home-fragment-end"] = page
                 token = page.get("next_continuation")
                 if not isinstance(token, str):
                     break
@@ -350,7 +354,7 @@ async def collect_contract_responses(root: Path) -> dict[str, JsonObject]:
                 )
             else:
                 pytest.fail("Home fragment did not finish")
-            assert json.loads("".join(fragments))["text"] == "Long content " * 140
+            assert "".join(fragments) == "Long content " * 140
             samples["memory-document"] = await get(
                 "/v2/memory/document", ref="memory:entity/project"
             )
@@ -573,10 +577,10 @@ async def test_real_owner_http_responses_match_handoff(tmp_path: Path) -> None:
         assert isinstance(collection["turn-waiting"]["budget_request"], dict)
         result = collection["turn-finished"]["result"]
         assert isinstance(result, dict) and result["status"] == "answered"
-        assert collection["home-fragment"]["items"] == []
+        assert collection["home-fragment"]["items"]
         assert "next_continuation" in collection["home-fragment"]
-        assert "content_fragment" in collection["home-fragment-end"]
-        assert "next_continuation" not in collection["home-fragment-end"]
+        assert "content_fragment" not in collection["home-fragment-end"]
+        assert collection["home-fragment-end"].get("next_continuation") is None
         assert collection["config-apply"]["state"] == "active"
         assert collection["config-apply"]["pending_reload"] is False
         assert collection["model-observation"]["name"] == "retrieval.model.invoked"

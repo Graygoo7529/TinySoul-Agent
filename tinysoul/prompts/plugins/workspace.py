@@ -205,35 +205,6 @@ INSPECT_CONTINUATION_INVALID = (
 INSPECT_METADATA_ONLY = "Metadata only; the body has not been read. Choose a compatible resource reading or conversion action from the available capabilities."
 
 
-def inspect_result(title: str, ref: str, summary: str, content: str) -> str:
-    """Consumer: plugins/workspace/actions/operations.py."""
-    return f"Read {title} ({ref})\n{summary}\n\n{content}"
-
-
-def inspect_continuation(token: str) -> str:
-    """Consumer: plugins/workspace/actions/operations.py."""
-    return (
-        f"More content is available. Continue this Inspect with continuation: {token}"
-    )
-
-
-def inspect_recollection(
-    title: str,
-    ref: str,
-    summary: str,
-    coverage: str,
-    has_more: bool,
-    content_read: bool,
-) -> str:
-    """Consumer: plugins/workspace/actions/operations.py."""
-    state = (
-        "The returned content has been folded; inspect the resource again for its current content."
-        if content_read
-        else "The resource body was not read."
-    )
-    return f"Inspected {title} ({ref}). {summary}\n{coverage}\nMore content: {has_more}. {state}"
-
-
 def workspace_directory(entries: tuple[tuple[str, str], ...]) -> str:
     """Consumer: plugins/workspace/projection.py."""
     return "Current Workspace resources\n" + (
@@ -241,19 +212,14 @@ def workspace_directory(entries: tuple[tuple[str, str], ...]) -> str:
     )
 
 
-def inspect_coverage(ref: str, start: str, end: str) -> str:
-    """Consumer: plugins/workspace/actions/operations.py."""
-    return f"Returned range: {ref}; characters {start} to {end} within the selected section."
+def archived_text_title(title: str, truncated: bool) -> str:
+    """Consumer: plugins/workspace/projection.py archive disclosure."""
+    return f"{title} (available excerpt; resource continues)" if truncated else title
 
 
 def inspect_metadata(kind: str, media_type: str, size: str) -> str:
     """Consumer: plugins/workspace/actions/operations.py."""
     return f"Resource type: {kind}; media type: {media_type}; size: {size} bytes."
-
-
-def inspect_directory_coverage(refs: tuple[str, ...], partial_item: bool) -> str:
-    """Consumer: plugins/workspace/actions/operations.py."""
-    return f"Returned directory entries: {', '.join(refs) or 'none complete'}. Partial entry: {partial_item}."
 
 
 def inspect_page_budget(max_chars: int) -> str:

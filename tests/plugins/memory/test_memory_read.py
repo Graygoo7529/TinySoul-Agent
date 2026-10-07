@@ -27,9 +27,9 @@ from tinysoul.plugins.memory import (
     MemoryContractError,
     MemoryEngine,
     MemoryKind,
-    MemoryRef,
     MemoryPatchKind,
     MemoryPatchOperation,
+    MemoryRef,
     MemorySettings,
     MemoryStatus,
     NoteMemoryDocument,
@@ -130,7 +130,7 @@ def test_single_document_write_requires_existing_references(tmp_path: Path) -> N
     )
     with pytest.raises(MemoryContractError, match="references"):
         memory.write_document(missing)
-    metadata = memory.inspect(str(note.ref))["metadata"]
+    metadata = (memory.inspect(str(note.ref))).to_json()["metadata"]
     assert isinstance(metadata, dict)
     assert metadata["display"] == "Memory systems"
     assert memory.read_document(concept.ref).document == concept
@@ -222,13 +222,14 @@ def test_memory_backlinks_combine_real_edges_and_preserve_workspace_source_day(
         == ()
     )
     direct = memory.inspect(str(source.ref), view="direct_refs")
-    assert direct["items"] == [
-        {"ref": str(target.ref)},
-        {"ref": "workspace:report.md"},
+    assert [item.unit.ref for item in direct.items] == [
+        str(target.ref),
+        "workspace:report.md",
     ]
-    assert memory.inspect(str(target.ref))["ref"] == str(target.ref)
+    assert all(item.unit.title and item.unit.text for item in direct.items)
+    assert (memory.inspect(str(target.ref))).to_json()["ref"] == str(target.ref)
     with pytest.raises(SearchFailure):
-        memory.inspect(str(source.ref), view="backlinks")
+        (memory.inspect(str(source.ref), view="backlinks")).to_json()
 
 
 def _memory(

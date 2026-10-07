@@ -10,6 +10,7 @@ from typing import Protocol, runtime_checkable
 
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.references import ResourceLocator
+from tinysoul.kernel.retrieval.disclosure import InspectPage
 from tinysoul.llm.protocol.messages import Message
 
 from ..disclosure import DisclosureSearchEntry
@@ -148,7 +149,7 @@ class SegmentProvider[S: ContextSegment](Protocol):
 class InspectableSegment(Protocol):
     async def inspect(
         self, ref: str, *, query: str | None = None, continuation: str | None = None
-    ) -> JsonObject: ...
+    ) -> InspectPage: ...
 
 
 @runtime_checkable

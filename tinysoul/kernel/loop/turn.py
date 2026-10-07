@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from threading import Lock
 from typing import Callable, Protocol
 
-from tinysoul.prompts.kernel import loop as prompt_text
 from tinysoul.infra.concurrency import CleanupDiagnostic
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.infra.time import CalendarDay
@@ -22,6 +21,7 @@ from tinysoul.kernel.context.errors import ContextError
 from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
 from tinysoul.kernel.interaction import QuestionAnswer
 from tinysoul.kernel.loop.runtime_bridge import RuntimeLoopBridge
+from tinysoul.prompts.kernel import loop as prompt_text
 from tinysoul.runtime import (
     RUNTIME_TURN_END,
     NullObservationEmitter,
@@ -493,7 +493,7 @@ class TurnRunner:
                             question.content.text,
                             {
                                 "question_id": question.question_id,
-                                **question.content.to_json(),
+                                **question.content.display(),
                             },
                         )
                         if inbox is None:

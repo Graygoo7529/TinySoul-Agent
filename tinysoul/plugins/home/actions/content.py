@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from tinysoul.kernel.retrieval.disclosure import inspect_recollection
-from tinysoul.prompts.plugins import home as prompt_text
+from tinysoul.infra.continuation import ContinuationError
+from tinysoul.infra.json import JsonObject
+from tinysoul.infra.references import ReferenceError
 from tinysoul.kernel.action import (
     ActionEngineBuilder,
     ActionExecution,
@@ -13,31 +14,27 @@ from tinysoul.kernel.action import (
     ActionLocalFailure,
     ActionResult,
     ActionResultStage,
-)
-from tinysoul.infra.json import JsonObject
-from tinysoul.runtime import Signal
-from ..background import HOME_CONTEXT_UPDATE
-from tinysoul.plugins.home.runtime_bridge import RuntimeAgentHomeBridge
-
-from ..services import HomeService
-from ..errors import (
-    AgentHomeError,
-    AgentHomeContractError,
-    AgentHomeInvariantError,
-    AgentHomeRuntimeCopyRequired,
+    ActionTraceProjection,
 )
 from tinysoul.kernel.action.tasks import ActionTaskFactory
-from tinysoul.kernel.action import ActionTraceProjection
-from tinysoul.kernel.retrieval.requests import parse_retrieval_request
-from tinysoul.kernel.retrieval.operations import SelectionInput
 from tinysoul.kernel.retrieval.contracts import (
-    SearchFailure,
-    SearchContext,
-    RetrievalRequest,
     ModelStep,
+    SearchContext,
+    SearchFailure,
 )
-from tinysoul.infra.continuation import ContinuationError
-from tinysoul.infra.references import ReferenceError
+from tinysoul.kernel.retrieval.operations import SelectionInput
+from tinysoul.kernel.retrieval.requests import parse_retrieval_request
+from tinysoul.plugins.home.runtime_bridge import RuntimeAgentHomeBridge
+from tinysoul.prompts.plugins import home as prompt_text
+from tinysoul.runtime import Signal
+
+from ..background import HOME_CONTEXT_UPDATE
+from ..errors import (
+    AgentHomeContractError,
+    AgentHomeError,
+    AgentHomeInvariantError,
+)
+from ..services import HomeService
 
 
 def register_home_actions(
@@ -196,9 +193,12 @@ class HomeInspectExecutor(ActionExecutor):
             action_name=execution.call.action_name,
             sequence=execution.call.sequence,
             domain=execution.framework.domain,
-            payload=page,
+            payload=page.to_json(),
+            model_text=page.model_text,
             trace_projection=ActionTraceProjection(
-                origin_refs=(ref,), canonical_payload=inspect_recollection(page)
+                origin_refs=(ref,),
+                canonical_payload=page.canonical_payload,
+                model_text=page.recollection_text,
             ),
         )
 

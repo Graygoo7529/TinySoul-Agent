@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from tinysoul.prompts.kernel import context as prompt_text
-from tinysoul.infra.json import JsonObject, JsonValue, dumps_json
+from tinysoul.infra.json import JsonObject, JsonValue
 from tinysoul.infra.references import (
     ReferenceError,
     ReferenceResolver,
@@ -27,6 +26,7 @@ from tinysoul.kernel.retrieval.contracts import (
     SearchFailureKind,
 )
 from tinysoul.kernel.retrieval.operations import SearchCorpus
+from tinysoul.prompts.kernel import context as prompt_text
 
 CONTEXT_SEARCH_FILTERS = AttributeFilters(
     (
@@ -36,7 +36,7 @@ CONTEXT_SEARCH_FILTERS = AttributeFilters(
         AttributeField("day", AttributeKind.DATE),
     )
 )
-from .disclosure import DisclosureReference, DisclosureSearchEntry
+from .disclosure import DisclosureReference, DisclosureSearchEntry, fact_unit
 
 
 def disclosure_corpus(
@@ -91,7 +91,11 @@ def disclosure_corpus(
         } or not all(predicate.matches(attributes) for predicate in predicates):
             continue
         units = (
-            ContentUnit(entry.ref, entry.ref, dumps_json(entry.content), "structured"),
+            ContentUnit(
+                entry.ref,
+                entry.ref,
+                fact_unit(entry.content, entry.ref, entry.title).text,
+            ),
         )
         evidence: tuple[SearchEvidence, ...] = ()
         if anchor is not None:

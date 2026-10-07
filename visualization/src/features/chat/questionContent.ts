@@ -1,12 +1,9 @@
 import type { Interaction, QuestionOption, TurnQuestion } from "../../api/v2/types";
 
-/**
- * The §6 question protocol shape, normalized. The `tinysoul-question` fence
- * carries `question`; the snapshot/interaction projections carry `text` —
- * both land here so QuestionForm never cares which source produced it.
- */
+/** Formal question content shared by waiting and historical cards. */
 export interface QuestionContent {
-  text: string;
+  details: string;
+  question: string;
   /** ≤ 8 entries, unique ids (submission uses the stable option id). */
   options: QuestionOption[];
   allowOther: boolean;
@@ -31,36 +28,6 @@ export interface QuestionReplyView {
 }
 
 const MAX_OPTIONS = 8;
-
-/**
- * Parse a `tinysoul-question` fence body: JSON
- * `{question, options?: [{id,label,description?}] (≤8), allow_other?}`.
- * Anything malformed returns null — the fence falls back to a readable code
- * block and never manufactures a waiting state.
- */
-export function parseQuestionFence(source: string): QuestionContent | null {
-  let value: unknown;
-  try {
-    value = JSON.parse(source);
-  } catch {
-    return null;
-  }
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return null;
-  }
-  const record = value as Record<string, unknown>;
-  const question = record.question;
-  if (typeof question !== "string" || question.trim().length === 0) {
-    return null;
-  }
-  const options = parseOptions(record.options);
-  if (options === null) return null;
-  return {
-    text: question,
-    options,
-    allowOther: record.allow_other !== false,
-  };
-}
 
 function parseOptions(raw: unknown): QuestionOption[] | null {
   if (raw === undefined) return [];
@@ -89,7 +56,8 @@ function parseOptions(raw: unknown): QuestionOption[] | null {
 /** The snapshot's waiting question, normalized. */
 export function questionContentFromTurn(question: TurnQuestion): QuestionContent {
   return {
-    text: question.text,
+    details: question.details,
+    question: question.question,
     options: question.options,
     allowOther: question.allow_other !== false,
   };
@@ -106,7 +74,8 @@ export function questionContentFromInteraction(
   const raw = (item as { options?: unknown }).options;
   const options = parseOptions(raw) ?? [];
   return {
-    text: item.text ?? "",
+    details: typeof item.details === "string" ? item.details : "",
+    question: typeof item.question === "string" ? item.question : "",
     options,
     allowOther: (item as { allow_other?: unknown }).allow_other !== false,
   };

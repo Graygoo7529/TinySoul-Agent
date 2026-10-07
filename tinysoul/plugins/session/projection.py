@@ -5,41 +5,42 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
+from tinysoul.infra.concurrency import JoinedOperations
+from tinysoul.infra.json import JsonObject
+from tinysoul.infra.time import CalendarDay
+from tinysoul.kernel.context import ContextTurnFacts
+from tinysoul.kernel.context.disclosure import DisclosureSearchEntry
+from tinysoul.kernel.context.errors import (
+    ContextContractError,
+    ContextInspectFailureReason,
+    ContextInspectRequestError,
+)
 from tinysoul.kernel.context.segments import (
     ReadOnlySegmentRegistration,
     SegmentCapability,
     SegmentDescriptor,
+    SegmentReclaim,
+    SegmentRegistration,
     SegmentShape,
     SegmentSlot,
     TurnInfo,
-    SegmentReclaim,
-    SegmentRegistration,
 )
-from tinysoul.kernel.context.errors import (
-    ContextInspectFailureReason,
-    ContextInspectRequestError,
-    ContextContractError,
-)
-from tinysoul.kernel.context import ContextTurnFacts
-from tinysoul.kernel.context.disclosure import DisclosureSearchEntry
-from tinysoul.runtime import Signal
-from tinysoul.infra.json import JsonObject, dumps_json
-from tinysoul.infra.time import CalendarDay
-from tinysoul.llm.protocol.messages import Message, UserMessage
-from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.kernel.loop.lifecycle.completion import TurnCompletion
 from tinysoul.kernel.loop.outcomes import TurnOutcomeStatus
+from tinysoul.kernel.retrieval.disclosure import InspectPage
+from tinysoul.llm.protocol.messages import Message, UserMessage
 from tinysoul.plugins.session.runtime_bridge import RuntimeSessionBridge
+from tinysoul.runtime import Signal
 
 from .engine import SessionEngine
-from .services import SessionService, SessionOrganizeService
-from .views import SessionView
-from .views.navigation import SessionEvidence
 from .errors import SessionError, SessionInspectRequestError
 from .records.models import SessionOutputRecord
+from .services import SessionOrganizeService, SessionService
+from .views import SessionView
 from .views.background import (
     SessionBackgroundSnapshot,
 )
+from .views.navigation import SessionEvidence
 
 SESSION_CONTEXT_UPDATE = "context.session.update"
 
@@ -128,7 +129,7 @@ class SessionSegment:
         *,
         query: str | None = None,
         continuation: str | None = None,
-    ) -> JsonObject:
+    ) -> InspectPage:
         try:
             value = await self._source.inspect(
                 ref,

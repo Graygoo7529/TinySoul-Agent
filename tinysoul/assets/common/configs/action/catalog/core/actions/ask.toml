@@ -6,12 +6,17 @@ description = "Ask for a decision or missing information and pause this Turn unt
 
 [tool.schema]
 type = "object"
-required = ["text"]
+required = ["question"]
 additionalProperties = false
 
-[tool.schema.properties.text]
+[tool.schema.properties.question]
 type = "string"
-description = "Question text, optionally containing one tinysoul-question JSON fence with question, options and allow_other. Ordinary Markdown fences outside core.ask are display-only."
+description = "The core question the user should answer. Together with details, this forms the complete question body."
+maxLength = 16000
+
+[tool.schema.properties.details]
+type = "string"
+description = "The explanation needed to understand and answer the question: relevant findings, choices, tradeoffs or advice. Supports Markdown; may be omitted for a self-explanatory question."
 maxLength = 16000
 
 [tool.schema.properties.options]

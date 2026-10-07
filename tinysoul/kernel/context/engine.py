@@ -6,10 +6,10 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from uuid import uuid4
 
-from tinysoul.prompts.kernel import context as prompt_text
 from tinysoul.infra.concurrency import CleanupDiagnostic
 from tinysoul.infra.continuation import (
     MIN_CONTINUATION_PAGE_CHARS,
+    ContinuationError,
     OpaqueContinuationCodec,
 )
 from tinysoul.infra.json import JsonObject, to_json_object
@@ -17,13 +17,21 @@ from tinysoul.infra.paging import PageOptions
 from tinysoul.infra.references import ReferenceResolver
 from tinysoul.kernel.action.call import ActionCall, ExecutionFact, ExecutionState
 from tinysoul.kernel.action.result import ActionResult
+from tinysoul.kernel.context.disclosure import fact_unit
 from tinysoul.kernel.identity import TurnIdentity, TurnIdentityError
-from tinysoul.kernel.interaction import QuestionAnswer
+from tinysoul.kernel.interaction import (
+    QuestionAnswer,
+    QuestionContent,
+    input_narrative,
+    input_title,
+)
 from tinysoul.kernel.retrieval.contracts import RefsSource, RetrievalRequest
+from tinysoul.kernel.retrieval.disclosure import DisclosurePage, InspectPage
 from tinysoul.kernel.retrieval.operations import SearchCorpus
 from tinysoul.llm.protocol.messages import MessageStack
 from tinysoul.llm.protocol.projection import message_projection
 from tinysoul.llm.protocol.tools import ToolCallRecord, ToolScope
+from tinysoul.prompts.kernel import context as prompt_text
 from tinysoul.runtime import (
     NullObservationEmitter,
     ObservationEmitter,
@@ -65,19 +73,20 @@ from .compress import ContextCompressor, ContextPressureReport
 from .config import ContextSettings
 from .control.tools import (
     CONTROL_SIGNAL_SOURCE,
-    applied_control_payload,
     ContextControlScopeBuilder,
     ControlCallNormalizer,
     ControlNormalization,
     ControlResult,
     ControlResultStage,
+    applied_control_payload,
 )
-from .disclosure import DisclosurePage, DisclosureReference, DisclosureSearchEntry
+from .disclosure import DisclosureReference, DisclosureSearchEntry, query_hint
 from .errors import (
     ContextContractError,
     ContextInspectFailureReason,
     ContextInspectRequestError,
     ContextInvariantError,
+    inspect_continuation_error,
 )
 from .projection.composer import (
     ContextBudget,
@@ -726,7 +735,7 @@ class ContextEngine:
         *,
         query: str | None = None,
         continuation: str | None = None,
-    ) -> JsonObject:
+    ) -> InspectPage:
         self._require_turn()
         if self._segments is None:
             raise ContextContractError(
@@ -741,13 +750,25 @@ class ContextEngine:
             (item for item in self._current_search_facts() if item.ref == ref), None
         )
         if fact is not None:
-            return DisclosurePage(ref, "context_fact", content=(fact.content,)).render(
-                codec=OpaqueContinuationCodec(
-                    owner="context", operation="inspect_fact"
-                ),
-                max_chars=self._trace_inspect_max_chars,
-                continuation=continuation,
+            page = DisclosurePage(
+                ref, "context_fact", content=(fact_unit(fact.content, ref, fact.title),)
             )
+            if query is not None:
+                hint = query_hint(ref, fact.title, fact.content, query)
+                page = DisclosurePage(
+                    ref, "context_query", children=(hint,) if hint else ()
+                )
+            try:
+                return page.render(
+                    codec=OpaqueContinuationCodec(
+                        owner="context", operation="inspect_fact"
+                    ),
+                    max_chars=self._trace_inspect_max_chars,
+                    continuation=continuation,
+                    binding={"query": query},
+                )
+            except ContinuationError as exc:
+                raise inspect_continuation_error(exc, ref=ref) from exc
         return await self._segments.inspect(ref, query=query, continuation=continuation)
 
     async def search_corpus(
@@ -783,13 +804,31 @@ class ContextEngine:
         # actions, including requested actions preceding a terminal subset.
         result = []
         day = self._search_day
-        for item in self._inputs.all():
+        questions = {
+            fact.result.result_id: QuestionContent.from_json(fact.result.payload)
+            for fact in self._trace.actions()
+            if fact.result is not None
+            and fact.call.action_name == "core.ask"
+            and fact.result.status.value == "success"
+        }
+        for index, item in enumerate(self._inputs.all()):
             ref = self._input_ref(item.input_id)
+            narrative = input_narrative(item.text, initial=index == 0)
+            if item.answer is not None and item.reply_to in questions:
+                narrative = questions[item.reply_to].reply_narrative(item.answer)
             result.append(
                 DisclosureSearchEntry(
                     ref,
-                    "User input",
-                    {"kind": "input", "text": item.text, "reply_to": item.reply_to},
+                    questions[item.reply_to].reply_title(item.text)
+                    if item.reply_to in questions
+                    else input_title(initial=index == 0),
+                    {
+                        "kind": "input",
+                        "text": item.text,
+                        "reply_to": item.reply_to,
+                        "answer": item.answer.to_json() if item.answer else None,
+                        "narrative": narrative,
+                    },
                     "trace",
                     day=day,
                 )
@@ -807,6 +846,8 @@ class ContextEngine:
             refs = ()
             if action.result is not None:
                 content["result"] = action.result.envelope().to_json()
+                if action.result.model_text:
+                    content["narrative"] = action.result.model_text
                 if action.result.trace_projection:
                     refs = tuple(
                         DisclosureReference(target, source_day=day)

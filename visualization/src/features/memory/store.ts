@@ -1,3 +1,4 @@
+import type { DirectReference } from "../../api/v2/common";
 /**
  * Memory page state (plan §12/P08).
  *
@@ -38,7 +39,7 @@ interface MemoryPageState {
   /** Fragment waiting to be located in the selected document. */
   fragment: string | null;
   /** Direct refs of the currently read document (from its page metadata). */
-  currentDirectRefs: string[];
+  currentDirectRefs: DirectReference[];
   /** Kind/status/display/redirect chain of the currently read document. */
   currentMeta: MemoryDocMeta | null;
   rightPanel: MemoryRightPanel;
@@ -50,7 +51,7 @@ interface MemoryPageState {
   select: (ref: string | null, fragment?: string | null) => void;
   setRightPanel: (panel: MemoryRightPanel) => void;
   /** Document reader installs the current document's facts. */
-  setCurrentDocument: (refs: string[], meta: MemoryDocMeta | null) => void;
+  setCurrentDocument: (refs: DirectReference[], meta: MemoryDocMeta | null) => void;
   /** Router entry: open the pending target recorded by the ResourceRouter. */
   openTarget: (target: MemoryTarget) => void;
 }

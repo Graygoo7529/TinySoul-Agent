@@ -57,9 +57,11 @@ class EndpointResourcesEngine:
         )
 
     async def memory_document(self, ref: str, page: PageOptions) -> JsonObject:
-        return await self._context.services.registry.get(MemoryService).inspect(
-            ref, continuation=page.continuation, max_chars=page.max_chars
-        )
+        return (
+            await self._context.services.registry.get(MemoryService).inspect(
+                ref, continuation=page.continuation, max_chars=page.max_chars
+            )
+        ).to_json()
 
     async def search(self, space: SearchSpace, parameters: JsonObject) -> JsonObject:
         registry = self._context.services.registry

@@ -7,10 +7,15 @@ from dataclasses import dataclass
 
 from tinysoul.infra.continuation import (
     ContinuationError,
-    ContinuationFailureReason,
     OpaqueContinuationCodec,
 )
-from tinysoul.infra.json import JsonObject, dumps_json
+from tinysoul.infra.json import JsonObject
+from tinysoul.kernel.context.disclosure import fact_unit
+from tinysoul.kernel.retrieval.disclosure import (
+    DisclosureHint,
+    DisclosurePage,
+    InspectPage,
+)
 from tinysoul.llm.protocol.messages import (
     AssistantMessage,
     Message,
@@ -20,17 +25,9 @@ from tinysoul.llm.protocol.messages import (
 )
 from tinysoul.runtime import Signal
 
-from ..disclosure import (
-    DisclosureHint,
-    DisclosurePage,
-    DisclosureReference,
-    DisclosureSearchEntry,
-    query_hint,
-)
+from ..disclosure import DisclosureReference, DisclosureSearchEntry, query_hint
 from ..errors import (
-    ContextInspectFailureReason,
-    ContextInspectRequestError,
-    ContextInvariantError,
+    inspect_continuation_error,
 )
 from ..segments import (
     ContextSegment,
@@ -219,6 +216,23 @@ class TraceSegment:
             self.state.compact(required_chars=required_chars).reclaimed_chars
         )
 
+    def _entry_content(self, entry: TraceEntry) -> JsonObject:
+        content = entry.to_semantic()
+        message = entry.message
+        if isinstance(message, ToolResultMessage) and message.tool_name == "core.ask":
+            fact = next(
+                (
+                    fact
+                    for fact in self.state.actions()
+                    if fact.cycle_id == entry.cycle_id
+                    and fact.call.call_id == message.call_id
+                ),
+                None,
+            )
+            if fact is not None and fact.result is not None:
+                content["result"] = fact.result.payload
+        return content
+
     async def search_entries(
         self, seed_refs: tuple[str, ...] = ()
     ) -> tuple[DisclosureSearchEntry, ...]:
@@ -249,7 +263,7 @@ class TraceSegment:
             DisclosureSearchEntry(
                 self.state.entry_ref(entry.entry_id),
                 entry.kind.value,
-                entry.to_semantic(),
+                self._entry_content(entry),
                 "trace",
                 references=tuple(DisclosureReference(ref) for ref in entry.origin_refs),
             )
@@ -263,7 +277,7 @@ class TraceSegment:
         *,
         query: str | None = None,
         continuation: str | None = None,
-    ) -> JsonObject:
+    ) -> InspectPage:
         entries = self.state.entries_for_ref(ref)
         if query is not None:
             matches = []
@@ -273,7 +287,7 @@ class TraceSegment:
                 hint = query_hint(
                     self.state.entry_ref(entry.entry_id),
                     entry.kind.value,
-                    entry.to_semantic(),
+                    self._entry_content(entry),
                     query,
                 )
                 if hint is not None:
@@ -283,7 +297,14 @@ class TraceSegment:
             page = DisclosurePage(
                 ref,
                 "context_trace_entry",
-                content=tuple(item.to_semantic() for item in entries),
+                content=tuple(
+                    fact_unit(
+                        self._entry_content(item),
+                        ref,
+                        f"{item.kind.value}: {item.clue[:140]}",
+                    )
+                    for item in entries
+                ),
                 sources=tuple(
                     dict.fromkeys(
                         source for item in entries for source in item.origin_refs
@@ -323,7 +344,7 @@ class TraceSegment:
                 binding={"query": query},
             )
         except ContinuationError as exc:
-            raise _context_continuation_error(exc, ref=ref) from exc
+            raise inspect_continuation_error(exc, ref=ref) from exc
 
     async def close(self) -> None:
         pass
@@ -369,40 +390,6 @@ def core_registrations(
             TraceAppend,
             parse_trace_append_signal,
         ),
-    )
-
-
-def _context_continuation_error(
-    error: ContinuationError,
-    *,
-    ref: str,
-) -> ContextInspectRequestError:
-    reason_map = {
-        ContinuationFailureReason.INVALID: (
-            ContextInspectFailureReason.INVALID_CONTINUATION
-        ),
-        ContinuationFailureReason.MISMATCH: (
-            ContextInspectFailureReason.INVALID_CONTINUATION
-        ),
-        ContinuationFailureReason.OUT_OF_RANGE: (
-            ContextInspectFailureReason.INVALID_CONTINUATION
-        ),
-        ContinuationFailureReason.CONTENT_CHANGED: (
-            ContextInspectFailureReason.INVALID_CONTINUATION
-        ),
-        ContinuationFailureReason.BUDGET_TOO_SMALL: (
-            ContextInspectFailureReason.PAGE_BUDGET_TOO_SMALL
-        ),
-    }
-    reason = reason_map.get(error.reason)
-    if reason is None:
-        raise ContextInvariantError(
-            "Unexpected Context continuation failure"
-        ) from error
-    return ContextInspectRequestError(
-        reason,
-        str(error),
-        constraint={"ref": ref},
     )
 
 

@@ -115,19 +115,21 @@ def test_backlinks_preserve_actual_source_cross_space_and_fragment(tmp_path: Pat
 
 def test_home_inspect_reads_fragments_without_model(tmp_path: Path):
     owner, _ = _home(tmp_path)
-    page = owner.inspect("home:resource/skills/design/ref/deep.md#L2")
-    assert page["items"] == [
-        {
-            "ref": "home:resource/skills/design/ref/deep.md#L2-L2",
-            "text": "Rare persistence detail: zephyr\n",
-        }
+    page = (owner.inspect("home:resource/skills/design/ref/deep.md#L2")).to_json()
+    items = page["items"]
+    assert isinstance(items, list) and isinstance(items[0], dict)
+    assert items[0]["text"] == "Rare persistence detail: zephyr\n"
+    assert items[0]["coverage"]["start_line"] == 2
+    assert (owner.inspect("home:top/skills/design")).to_json()[
+        "ref"
+    ] == "home:top/skills/design"
+    direct = owner.inspect("home:resource/agent/AGENT.md", view="direct_refs")
+    assert [item.unit.ref for item in direct.items] == [
+        "home:resource/skills/design/ref/deep.md"
     ]
-    assert owner.inspect("home:top/skills/design")["ref"] == "home:top/skills/design"
-    assert owner.inspect("home:resource/agent/AGENT.md", view="direct_refs")[
-        "items"
-    ] == [{"ref": "home:resource/skills/design/ref/deep.md"}]
+    assert direct.items[0].unit.title
     with pytest.raises(SearchFailure):
-        owner.inspect("home:resource/agent/AGENT.md", view="backlinks")
+        (owner.inspect("home:resource/agent/AGENT.md", view="backlinks")).to_json()
 
 
 def test_timeless_home_links_use_workspace_owner_day(tmp_path: Path):

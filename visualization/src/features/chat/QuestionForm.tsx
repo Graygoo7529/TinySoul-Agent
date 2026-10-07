@@ -8,23 +8,9 @@ import type {
   QuestionReplyView,
 } from "./questionContent";
 
-/**
- * The one question form (plan §6.1) shared by the snapshot-driven
- * QuestionCard and the `tinysoul-question` fence renderer:
- *
- * - active: the turn's waiting question — radio options with A/B/C visual
- *   numbering (submission uses the stable option id), an optional comment,
- *   an Other free-text entry when allowed, and an explicit Reply submit.
- * - compose: a question block inside a normal model answer — clicking an
- *   option (or confirming an Other text) places that text into the Composer
- *   draft; nothing is sent from the card.
- * - readonly: an answered or historical question — the actual question, the
- *   chosen option label and the comment stay visible.
- * - expired: the wait lapsed without a formal reply — the card says so and
- *   preserves the user's unsubmitted draft (read-only).
- */
+/** Formal waiting, answered and expired questions share one form. */
 
-export type QuestionFormMode = "active" | "compose" | "readonly" | "expired";
+export type QuestionFormMode = "active" | "readonly" | "expired";
 
 export function QuestionForm({
   question,
@@ -32,32 +18,25 @@ export function QuestionForm({
   reply = null,
   submitting = false,
   error = null,
-  showReplyComment = true,
   groupName,
   onSubmit,
-  onCompose,
 }: {
   question: QuestionContent;
   mode: QuestionFormMode;
   reply?: QuestionReplyView | null;
   submitting?: boolean;
   error?: string | null;
-  /** Read-only cards can move the optional comment into a user bubble. */
-  showReplyComment?: boolean;
   /** Radio group name; defaults to a per-instance id. */
   groupName?: string;
   onSubmit?: (draft: QuestionDraft) => void;
-  onCompose?: (text: string) => void;
 }): ReactElement {
   const autoName = useId();
   const name = groupName ?? `question-${autoName}`;
   const [selected, setSelected] = useState<string | null>(null);
   const [otherText, setOtherText] = useState("");
   const [comment, setComment] = useState("");
-  /** compose feedback: the option id last copied, "other", or null. */
-  const [picked, setPicked] = useState<string | null>(null);
 
-  const interactive = mode === "active" || mode === "compose";
+  const interactive = mode === "active";
   const canSubmit =
     mode === "active" &&
     !submitting &&
@@ -78,21 +57,9 @@ export function QuestionForm({
     }
   };
 
-  const compose = (text: string, pickedId: string) => {
-    if (onCompose === undefined || text.trim().length === 0) return;
-    onCompose(text);
-    setPicked(pickedId);
-  };
-
-  /** Form submission routes by mode: Enter confirms a reply in active mode
-      and copies an Other text in compose mode. */
   const handleFormSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    if (mode === "active") {
-      submit();
-    } else if (mode === "compose" && otherText.trim().length > 0) {
-      compose(otherText.trim(), "other");
-    }
+    submit();
   };
 
   return (
@@ -111,12 +78,13 @@ export function QuestionForm({
             className={`mt-0.5 shrink-0 ${mode === "active" ? "text-accent" : "text-fg-faint"}`}
           />
           <div className="min-w-0 flex-1">
+            {question.details && <Markdown origin={{ ref: "" }} className="mb-3 text-[13px]">{question.details}</Markdown>}
             <div className="text-[13px] font-medium">
               <Markdown
                 className="md-inline-question"
                 origin={{ ref: "" }}
               >
-                {question.text}
+                {question.question}
               </Markdown>
             </div>
             {question.options.length > 0 && (
@@ -130,9 +98,7 @@ export function QuestionForm({
                     mode={mode}
                     selected={selected === option.id}
                     chosen={reply?.optionId === option.id}
-                    picked={picked === option.id}
                     onSelect={() => setSelected(option.id)}
-                    onCompose={() => compose(option.label, option.id)}
                   />
                 ))}
               </div>
@@ -165,17 +131,6 @@ export function QuestionForm({
             {mode === "expired" && (
               <div className="mt-2 text-[12px] text-fg-faint">
                 This question is no longer awaiting a reply.
-              </div>
-            )}
-            {mode === "compose" && picked !== null && (
-              <div className="mt-2 flex items-center gap-1 text-[12px] text-fg-faint">
-                <Check size={11} className="text-success" />
-                Added to the composer draft — review and send it there.
-              </div>
-            )}
-            {showReplyComment && reply?.comment && (
-              <div className="mt-2 text-[12px] break-words whitespace-pre-wrap text-fg-muted">
-                {reply.comment}
               </div>
             )}
             {/* Readonly: 自行输入的选项（带字母编号） */}
@@ -222,7 +177,7 @@ export function QuestionForm({
   );
 }
 
-/** One option row: radio card in active mode, pick button in compose mode,
+/** One option row: radio card in active mode,
     static row otherwise. The letter is a visual index only — submissions
     carry the stable option id. */
 function OptionRow({
@@ -232,9 +187,7 @@ function OptionRow({
   mode,
   selected,
   chosen,
-  picked,
   onSelect,
-  onCompose,
 }: {
   name: string;
   letter: string;
@@ -242,9 +195,7 @@ function OptionRow({
   mode: QuestionFormMode;
   selected: boolean;
   chosen: boolean;
-  picked: boolean;
   onSelect: () => void;
-  onCompose: () => void;
 }): ReactElement {
   const chip = (
     <span
@@ -291,23 +242,6 @@ function OptionRow({
     );
   }
 
-  if (mode === "compose") {
-    return (
-      <button
-        type="button"
-        onClick={onCompose}
-        className={`flex w-full items-start gap-2 rounded-lg border px-3 py-2 text-left text-[13px] transition-colors ${
-          picked
-            ? "border-accent/60 bg-accent-soft/60"
-            : "border-line bg-bg-elev hover:border-line-strong hover:bg-hover"
-        }`}
-      >
-        {chip}
-        {body}
-        {picked && <Check size={13} className="mt-0.5 ml-auto shrink-0 text-success" />}
-      </button>
-    );
-  }
 
   return (
     <div

@@ -1,10 +1,21 @@
 {
   "ref": "home:top/agent/contract",
+  "kind": "content",
   "view": "content",
   "items": [
     {
-      "ref": "home:top/agent/contract#L1-L1",
-      "text": "Workspace guidance\n"
+      "text": "Workspace guidance\n",
+      "narrative": "Workspace guidance\n",
+      "ref": "home:top/agent/contract",
+      "title": "contract.md",
+      "coverage": {
+        "start": 0,
+        "end": 19,
+        "total": 19,
+        "complete": true,
+        "start_line": 1,
+        "end_line": 1
+      }
     }
   ],
   "metadata": {
@@ -12,6 +23,7 @@
       "ref": "home:top/agent/contract",
       "view": "effective"
     },
-    "direct_refs": []
-  }
+    "title": "contract.md"
+  },
+  "title": "contract.md"
 }

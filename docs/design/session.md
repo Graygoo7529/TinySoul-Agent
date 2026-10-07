@@ -24,11 +24,11 @@ Turn record 与 manifest 使用当前严格协议。正式身份为 `YYYY-MM-DD/
 
 同批新对象以局部 key 互相引用，owner 分配稳定 ref；修订使用原 ref 和完整语义字段，来源可以纠正。撤回保留原身份和状态，必须同时处理该节点仍活动的关系。合流建立新解释入口，旧分支与历史 ref 保持可读；不移动事实以制造唯一父节点。变更历史沿原有 Action 记录追溯，不再保存对象版本链。
 
-整批候选经来源、对象与关系校验后，在 Session 锁内一次原子替换 map.json，再发布内存快照。缺少该文件表示尚无注释，合法 R6 Session 可直接打开；损坏文件不能降为空图。没有 CAS、图数据库或跨文件事务。
+整批候选经来源、对象与关系校验后，在 Session 锁内一次原子替换 map.json，再发布内存快照。缺少该文件表示尚无注释；损坏文件不能降为空图。没有 CAS、图数据库或跨文件事务。
 
 ### 当前轮证据
 
-活动 Turn 只读 facts 与 Inbox pending 分离呈现，queued 根请求不是已安装输入；完成后以 Session record 替换活动 projection。QuestionContent/QuestionAnswer 是 Action、Inbox、Session codec 和 Endpoint 共用类型；历史旧 option 文本仅在 codec 边界转换为 display-only legacy_options。动态资源 locator 只采用记录的真实 binding。
+活动 Turn 只读 facts 与 Inbox pending 分离呈现，queued 根请求不是已安装输入；完成后以 Session record 替换活动 projection。QuestionContent/QuestionAnswer 是 Action、Inbox、Session codec 和 Endpoint 共用类型。问题保存说明、核心问题、完整选项及回答约束，完整 text 在读取时派生；回复保留用户选择/comment 或自由回答。Trace、Session 单项读取与线性历史从对应问题补全回复叙事，不改写输入原文。动态资源 locator 只采用记录的真实 binding。
 
 Context 提供只读 ContextTurnFacts，Action 在事件循环取得快照后交给 joined owner 操作。Session 共用完成时的引用映射，把当前已接受输入、已结算 Action 转成最终 Session occurrence；不 seal 活动 Trace、不对已结算子集重新编号。
 
@@ -40,7 +40,7 @@ Context 提供只读 ContextTurnFacts，Action 在事件循环取得快照后交
 
 Background 先展示语义地图，再展示按历史顺序排列的线性交互。地图只包含解释、关系和 refs；正文从同一 Turn records 投影，每个 Turn 只出现一次，未归类 Turn 也在候选中。
 
-交互流按 Turn 包装，保留初始输入、追加、问题、完整有序选项与说明、回答和 comment、显式 core.reason 产物、Action 请求与实际结果、正式 output。reason 的产物保留其实际结构，不称为统一结论，也不包含供应商隐藏 reasoning；core.answer 的正式 output 不重复呈现。行动结果按结算位置呈现，不能提前到开始位置，使中途追加与执行反馈的顺序保持准确。
+交互流按 Turn 包装，保留初始输入、追加、问题、完整有序选项与说明、回答和 comment、显式 core.reason 产物、Action 请求与实际结果、正式 output。reason 的产物保留其实际结构，不称为统一结论，也不包含供应商隐藏 reasoning。只有正式 output 已表达的成功 core.answer 才去重；失败、超时、取消、未执行和结果未知保留实际事实，无 output 不伪称已发布回答。行动结果按结算位置呈现，不能提前到开始位置，使中途追加与执行反馈的顺序保持准确。
 
 输入 Trace Entry 在 completion 时映射回原 input occurrence，不再保存为 note。Session 资源出现位置使用 ref，目标资源使用 target_ref。foldable Action 持久化其精简事实：Inspect 记住目标解释、返回范围和后续页状态，不保存已读取资源的旧全文；Search 可保留真实命中摘录。预算衡量实际渲染文字，先保留完整交互，超限再摘录长结果或折叠整轮；问题与回复共同保留或折叠，不产生孤立选择。
 
@@ -63,7 +63,7 @@ Session 仅在自身超过 80% 水位时回收到半预算，最低保留目录�
 - Turn 返回与 Background 相同的完整交互流，另给 Action、timeline、输入、输出、Working、note 和资源入口。
 - 行动集合按请求顺序列 occurrence，事实叶子返回原始请求、已知结果或中断事实。资源引用保留来源日，不读取今日同名文件。
 
-所有层级复用 DisclosureHint/Page 和 opaque continuation。query 在地图范围搜索事实与解释，在 Turn 范围搜索其事实，在语义节点范围搜索自身与直接事实来源；不沿任意横向关系递归检索。精确 ref 读取不依赖 query。
+所有层级复用语义披露页和 opaque continuation。owner 先构造可读交互、关系或导航项，再按完整项分页；长正文切片保留角色、标题、引用与覆盖，问题的长选项说明保留对应选项身份。模型直接阅读页面，宿主保留完整项的结构化事实；部分正文不能冒充完整问题或注释对象。query 在地图范围搜索事实与解释，在 Turn 范围搜索其事实，在语义节点范围搜索自身与直接事实来源；不沿任意横向关系递归检索。精确 ref 读取不依赖 query。
 
 语义节点声明的直接 Turn 来源覆盖该 Turn 的完整事实范围；声明的输入、Action、note、resource、output 或 working 叶子只覆盖对应叶子。Turn inspect 返回的子 ref 可以继续逐级 inspect，分页只展开当前页面的直接内容，不切断渐进读取链。
 

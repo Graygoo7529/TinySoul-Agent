@@ -1,3 +1,4 @@
+import type { DirectReference } from "../../api/v2/common";
 /**
  * Home page state (plan §11/P07).
  *
@@ -31,7 +32,7 @@ interface HomePageState {
   /** Change kind (created/modified/deleted) of the shown diff, if known. */
   diffKind: string | null;
   /** Direct refs of the currently read document (from its page metadata). */
-  currentDirectRefs: string[];
+  currentDirectRefs: DirectReference[];
   rightPanel: HomeRightPanel;
 
   setView: (view: HomeView) => void;
@@ -42,7 +43,7 @@ interface HomePageState {
   closeDiff: () => void;
   setRightPanel: (panel: HomeRightPanel) => void;
   /** Content reader installs the current document's direct refs. */
-  setCurrentDirectRefs: (refs: string[]) => void;
+  setCurrentDirectRefs: (refs: DirectReference[]) => void;
   /** Router entry: open the pending target recorded by the ResourceRouter. */
   openTarget: (target: HomeTarget) => void;
 }

@@ -2,7 +2,7 @@
  * API-10: Home reading. The default view is effective (what the next run
  * uses); actual is the accepted baseline. All reads are page.json envelopes;
  * content/diff items carry {ref, text} plus owner metadata (locator,
- * direct_refs, baseline_diverged).
+ * paged reference hints, baseline_diverged).
  */
 
 import type {

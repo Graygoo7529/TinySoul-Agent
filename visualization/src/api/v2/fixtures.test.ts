@@ -162,14 +162,15 @@ describe("contract fixtures: resource pages", () => {
   it("home-effective is a content page with locator metadata", () => {
     const page = checkPageEnvelope(homeEffective) as HomeContentPage;
     expect(page.metadata?.locator.ref).toBe("home:top/agent/contract");
-    expect(Array.isArray(page.metadata?.direct_refs)).toBe(true);
+    expect(page.items[0].coverage).toMatchObject({ complete: true });
   });
 
-  it("home fragments carry canonical_json chunks", () => {
+  it("home fragments carry readable text and actual coverage", () => {
     for (const fixture of [homeFragment, homeFragmentEnd]) {
       const page = checkPageEnvelope(fixture);
-      expect(page.content_fragment?.encoding).toBe("canonical_json");
-      expect(typeof page.content_fragment?.text).toBe("string");
+      expect(page.content_fragment).toBeUndefined();
+      expect(page.items[0]).toMatchObject({ kind: "content_slice", coverage: { complete: false } });
+      expect(typeof (page.items[0] as Record<string, unknown>).text).toBe("string");
     }
     // First page continues, last page has no token.
     expect(typeof homeFragment.next_continuation).toBe("string");
@@ -198,9 +199,7 @@ describe("contract fixtures: resource pages", () => {
     expect(bundle.home_diff.metadata?.baseline_diverged).toBe(false);
     expect(bundle.memory_redirect.metadata?.status).toBe("merged");
     expect(bundle.memory_redirect.metadata?.resolution_chain).toHaveLength(2);
-    expect(bundle.memory_redirect.metadata?.direct_refs).toContain(
-      "memory:entity/project",
-    );
+    expect(bundle.memory_redirect.items).toEqual(expect.arrayContaining([expect.objectContaining({kind: "child", ref: "memory:entity/project"})]));
   });
 
   it("empty-page is a valid page with no items", () => {

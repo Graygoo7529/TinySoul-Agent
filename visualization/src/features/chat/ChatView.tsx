@@ -60,7 +60,6 @@ import { Button } from "../../components/ui/Button";
 import { conversationOrigin } from "../../components/markdown/origin";
 import { Composer } from "./Composer";
 import { AgentRow, BudgetCard, InteractionRow, TurnFooter, UserBubble } from "./ConversationRows";
-import { registerQuestionBlock } from "./questionBlock";
 import { LiveStatus } from "./LiveStatus";
 import { useTurnPresentation } from "./useTurnPresentation";
 import { ChatFollowContext, useConversationScroll } from "./useConversationScroll";
@@ -71,7 +70,6 @@ import { WaitingResponseDock } from "./WaitingResponseDock";
 
 // The chat feature's assembly: the question fence protocol joins the
 // CodeBlockRegistry (plan §21.1 explicit composition).
-registerQuestionBlock();
 
 type ChatViewMode = "live" | "history";
 

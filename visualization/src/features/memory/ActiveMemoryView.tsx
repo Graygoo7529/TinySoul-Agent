@@ -89,7 +89,7 @@ export function ActiveMemoryView({ epoch }: { epoch: number }): ReactElement {
       );
       return {
         // Undecodable chunks are dropped, as in the owner catalogs; an
-        // oversized single chunk still arrives through content_fragment.
+        // oversized bodies arrive as readable slices with coverage.
         items: envelope.items
           .map((item: JsonValue) => decodeContentChunk(item))
           .filter((item): item is HomeContentItem => item !== null),

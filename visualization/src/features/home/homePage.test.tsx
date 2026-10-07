@@ -86,8 +86,8 @@ function contentPage(
   return {
     ref: ref,
     view: "content",
-    items: chunks,
-    metadata: { locator: { ref, view: "effective" }, direct_refs: directRefs },
+    items: [...chunks, ...directRefs.map((target) => ({ kind: "child", ref: target, title: "Related guidance", text: "Referenced in this document" }))],
+    metadata: { locator: { ref, view: "effective" } },
   };
 }
 

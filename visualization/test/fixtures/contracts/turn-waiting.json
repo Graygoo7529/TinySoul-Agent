@@ -15,7 +15,9 @@
       }
     ],
     "allow_other": true,
-    "timeout_seconds": null
+    "timeout_seconds": null,
+    "question": "Choose a direction",
+    "details": ""
   },
   "budget_request": {
     "request_id": "budget_1",

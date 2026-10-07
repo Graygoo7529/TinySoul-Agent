@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
-from tinysoul.prompts.plugins import workspace as prompt_text
+from tinysoul.infra.concurrency import JoinedOperations
+from tinysoul.infra.continuation import ContinuationError, OpaqueContinuationCodec
+from tinysoul.infra.json import JsonObject, JsonValue, to_json_object
+from tinysoul.kernel.context.errors import (
+    ContextInspectFailureReason,
+    ContextInspectRequestError,
+    inspect_continuation_error,
+)
 from tinysoul.kernel.context.segments import (
     ReadOnlySegmentRegistration,
     SegmentCapability,
@@ -16,19 +23,20 @@ from tinysoul.kernel.context.segments import (
     SegmentSlot,
     TurnInfo,
 )
-from tinysoul.kernel.context.errors import (
-    ContextInspectFailureReason,
-    ContextInspectRequestError,
+from tinysoul.kernel.retrieval.disclosure import (
+    DisclosureHint,
+    DisclosurePage,
+    DisclosureUnit,
+    InspectPage,
 )
 from tinysoul.llm.protocol.messages import Message, UserMessage
-from tinysoul.infra.json import JsonObject, JsonValue, to_json_object
-from tinysoul.infra.concurrency import JoinedOperations
+from tinysoul.prompts.plugins import workspace as prompt_text
 from tinysoul.runtime import RunScope, RuntimeException, Signal
 
 from .engine import WorkspaceArchiveView, WorkspaceEngine
 from .errors import WorkspaceContractError, WorkspaceError
-from .runtime_bridge import RuntimeWorkspaceBridge
 from .failures import WorkspaceFailureKind
+from .runtime_bridge import RuntimeWorkspaceBridge
 from .storage.manifest import WorkspaceManifest
 
 if TYPE_CHECKING:
@@ -210,7 +218,7 @@ class ArchivedWorkspaceSegment:
 
     async def inspect(
         self, ref: str, *, query: str | None = None, continuation: str | None = None
-    ) -> JsonObject:
+    ) -> InspectPage:
         if query is not None:
             raise ContextInspectRequestError(
                 ContextInspectFailureReason.QUERY_UNSUPPORTED,
@@ -224,19 +232,19 @@ class ArchivedWorkspaceSegment:
             )
         root = f"workspace_archive:{view.day}"
         if ref == root:
-            offset = 0
-            if continuation is not None:
-                if (
-                    not continuation.isascii()
-                    or not continuation.isdigit()
-                    or len(continuation) > 9
-                ):
-                    raise ContextInspectRequestError(
-                        ContextInspectFailureReason.UNKNOWN_REF,
-                        prompt_text.INVALID_ARCHIVE_CONTINUATION,
+            page = DisclosurePage(
+                ref,
+                "archive_directory",
+                children=tuple(
+                    DisclosureHint(
+                        f"{root}/{item.relative_path}",
+                        item.relative_path,
+                        item.context_summary,
                     )
-                offset = int(continuation)
-            return self._page(offset)
+                    for item in view.manifest.resources
+                ),
+            )
+            return self._render_page(page, continuation)
         record = next(
             (
                 item
@@ -245,7 +253,7 @@ class ArchivedWorkspaceSegment:
             ),
             None,
         )
-        if record is None or continuation is not None:
+        if record is None:
             raise ContextInspectRequestError(
                 ContextInspectFailureReason.UNKNOWN_REF,
                 prompt_text.UNKNOWN_ARCHIVED_WORKSPACE_REFERENCE,
@@ -261,12 +269,38 @@ class ArchivedWorkspaceSegment:
             ) from exc
         except WorkspaceError as exc:
             raise RuntimeWorkspaceBridge().from_workspace_error(exc) from exc
-        return {
-            "ref": ref,
-            "source_day": view.day,
-            "text": read.text,
-            "truncated": read.truncated,
-        }
+        page = DisclosurePage(
+            ref,
+            "archive_text",
+            content=(
+                DisclosureUnit(
+                    ref,
+                    prompt_text.archived_text_title(
+                        record.relative_path, read.truncated
+                    ),
+                    read.text,
+                    {
+                        "source_day": view.day,
+                        "text": read.text,
+                        "truncated": read.truncated,
+                    },
+                ),
+            ),
+        )
+        return self._render_page(page, continuation)
+
+    @staticmethod
+    def _render_page(page: DisclosurePage, continuation: str | None) -> InspectPage:
+        try:
+            return page.render(
+                codec=OpaqueContinuationCodec(
+                    owner="workspace_archive", operation="inspect"
+                ),
+                max_chars=8000,
+                continuation=continuation,
+            )
+        except ContinuationError as exc:
+            raise inspect_continuation_error(exc, ref=page.ref) from exc
 
     async def close(self) -> None:
         self._view = None

@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path, PurePosixPath
 
-from tinysoul.prompts.plugins import home as prompt_text
 from tinysoul.infra.filesystem import TextPrefixRead, file_digest, read_text_prefix
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.paging import PageOptions
@@ -37,12 +36,15 @@ from tinysoul.kernel.retrieval.contracts import (
     TextQuery,
 )
 from tinysoul.kernel.retrieval.disclosure import (
+    DisclosureHint,
+    InspectPage,
     content_units,
     fragment_range,
     inspect_document,
     range_evidence,
 )
 from tinysoul.kernel.retrieval.operations import SearchCorpus
+from tinysoul.prompts.plugins import home as prompt_text
 
 HOME_SEARCH_FILTERS = AttributeFilters(
     (
@@ -61,14 +63,14 @@ from .errors import (
     AgentHomeNotFoundError,
     AgentHomeRuntimeCopyRequired,
 )
+from .overlay import HomeOverlayManager, HomeOverlayRecord, HomeOverlayState
 from .refs import (
-    HomeRef,
     HomePromptMountRef,
+    HomeRef,
     HomeResourceRef,
     HomeTopRef,
     parse_home_ref,
 )
-from .overlay import HomeOverlayManager, HomeOverlayRecord, HomeOverlayState
 from .review import (
     HomeReviewPending,
     HomeReviewResolution,
@@ -477,15 +479,22 @@ class AgentHomeEngine:
             max_chars=page.max_chars,
             metadata={
                 "locator": {"ref": resource, "view": view},
-                "direct_refs": list(self._direct_refs(text, relative)),
+                "title": paths[relative].name,
             },
-        )
+        ).to_json()
 
-    def _direct_refs(self, text: str, relative: str) -> tuple[str, ...]:
-        refs: list[str] = []
+    def _direct_refs(self, text: str, relative: str) -> tuple[DisclosureHint, ...]:
+        refs: list[DisclosureHint] = []
         for item in markdown_references(text):
             try:
-                refs.append(self._canonical_markdown_reference(item.target, relative))
+                target = self._canonical_markdown_reference(item.target, relative)
+                refs.append(
+                    DisclosureHint(
+                        target,
+                        item.label or Path(item.target).name,
+                        f"Line {item.line}",
+                    )
+                )
             except ReferenceError:
                 continue
         return tuple(dict.fromkeys(refs))
@@ -516,7 +525,7 @@ class AgentHomeEngine:
         continuation: str | None = None,
         max_chars: int | None = None,
         actual: bool = False,
-    ) -> JsonObject:
+    ) -> InspectPage:
         resource, _, fragment = ref.partition("#")
         identity = self.canonical_reference(resource)
         relative = identity.resource.removeprefix("home:resource/")

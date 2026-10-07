@@ -10,7 +10,12 @@ from tinysoul.kernel.interaction import QuestionContent, QuestionError
 
 from ..errors import SessionInvariantError
 from ..records.models import SessionActionOutcome, SessionTurnRecord
-from .navigation import action_leaf_ref, input_ref, resource_locator
+from .navigation import (
+    action_leaf_ref,
+    input_ref,
+    resource_locator,
+    session_input_title,
+)
 
 
 class InteractionRole(StrEnum):
@@ -85,6 +90,7 @@ def project_interactions(record: SessionTurnRecord) -> tuple[SessionInteraction,
         visible = (ref, TraceFactKind.INPUT_VISIBLE) in positions
         content: JsonObject = {
             "text": item.text,
+            "title": session_input_title(record, index),
             "delivery": "visible" if visible else "installed",
         }
         if item.reply_to:
@@ -103,7 +109,11 @@ def project_interactions(record: SessionTurnRecord) -> tuple[SessionInteraction,
         )
     for index, action in enumerate(record.actions):
         ref = action_leaf_ref(record.ref, index)
-        if action.action == "core.answer":
+        if (
+            action.action == "core.answer"
+            and action.outcome is SessionActionOutcome.SUCCESS
+            and record.output is not None
+        ):
             continue
         content = {
             "action": action.action,
@@ -126,14 +136,11 @@ def project_interactions(record: SessionTurnRecord) -> tuple[SessionInteraction,
         ):
             role = InteractionRole.QUESTION
             try:
-                content.update(QuestionContent.from_json(action.result).to_json())
+                content.update(QuestionContent.from_json(action.result).display())
             except QuestionError as exc:
                 raise SessionInvariantError(
                     "Stored question has invalid canonical content"
                 ) from exc
-            explanation = action.result.get("explanation", "")
-            if isinstance(explanation, str) and explanation:
-                content["explanation"] = explanation
             content["question_id"] = action.result_id
             content["answered"] = any(
                 item.reply_to == action.result_id for item in record.inputs
@@ -246,6 +253,11 @@ def project_current_interactions(
         }
         if result is not None:
             positions[ref] = settled.get(ref, positions.get(ref, len(facts.timeline)))
+            if result.failure is not None:
+                content["failure"] = {
+                    "reason": result.failure.reason,
+                    "feedback": result.failure.feedback,
+                }
             content["outcome"] = result.status.value
             content["result"] = (
                 result.trace_projection.canonical_payload
@@ -254,9 +266,7 @@ def project_current_interactions(
             )
             if action == "core.ask" and result.status.value == "success":
                 role = InteractionRole.QUESTION
-                content.update(QuestionContent.from_json(result.payload).to_json())
-                if isinstance(result.payload.get("explanation"), str):
-                    content["explanation"] = result.payload["explanation"]
+                content.update(QuestionContent.from_json(result.payload).display())
                 content["question_id"] = result.result_id
                 content["answered"] = any(
                     item.reply_to == result.result_id for item in facts.inputs

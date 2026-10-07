@@ -8,6 +8,7 @@
  * locates within the scope — it never widens it.
  */
 
+import { coverageDescription } from "./disclosure";
 import { useMemo, useState, type ReactElement } from "react";
 import {
   AlertTriangle,
@@ -244,6 +245,21 @@ function ContentCard({
       </div>
     );
   }
+  if (item.kind === "content_slice") {
+    return <FactCard label={String(item.title ?? "Content")}>
+      <div className="text-xs text-fg-muted">{String(item.ref)} · {coverageDescription(item.coverage)}</div>
+      <FactText text={String(item.text ?? "")} />
+    </FactCard>;
+  }
+  if (typeof item.narrative === "string" && item.kind !== "session_turn") {
+    return <FactCard label={String(item.title ?? item.role ?? item.kind ?? "Content")}>
+      <FactText text={item.narrative} />
+      <div className="text-xs text-fg-muted">{coverageDescription(item.coverage)}</div>
+      <Collapsible title="Facts" tone="sunken">
+        <JsonTree value={item} defaultExpanded={false} />
+      </Collapsible>
+    </FactCard>;
+  }
   switch (item.kind) {
     case "session_turn":
       return <TurnHeaderCard item={item} />;
@@ -252,13 +268,13 @@ function ContentCard({
     case "session_input":
       return (
         <FactCard label="User input">
-          <FactText text={typeof item.text === "string" ? item.text : ""} />
+          <FactText text={typeof item.narrative === "string" ? item.narrative : typeof item.text === "string" ? item.text : ""} />
         </FactCard>
       );
     case "session_output":
       return (
         <FactCard label="Answer">
-          <FactText text={typeof item.text === "string" ? item.text : ""} />
+          <FactText text={typeof item.narrative === "string" ? item.narrative : typeof item.text === "string" ? item.text : ""} />
           <ReferenceList value={item.references} />
         </FactCard>
       );
@@ -353,7 +369,7 @@ function InteractionCard({ item }: { item: JsonObject }) {
   const options = Array.isArray(item.options) ? item.options : [];
   return (
     <FactCard label={INTERACTION_ROLE_LABEL[role] ?? (role || "Interaction")}>
-      <FactText text={typeof item.text === "string" ? item.text : ""} />
+      <FactText text={typeof item.narrative === "string" ? item.narrative : typeof item.text === "string" ? item.text : ""} />
       {typeof item.action === "string" && role === "agent.action" && (
         <div className="mt-0.5 text-[11px] text-fg-faint">
           {item.action}

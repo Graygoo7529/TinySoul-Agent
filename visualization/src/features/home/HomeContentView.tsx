@@ -9,7 +9,7 @@
  * supported operations (copy, quote, references), never a fake download.
  */
 
-import { useEffect, type ReactElement } from "react";
+import { useEffect, useMemo, type ReactElement } from "react";
 import {
   AlertTriangle,
   Copy,
@@ -32,7 +32,7 @@ import { Badge } from "../../components/ui/Badge";
 import { Button, IconButton } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { useConnectionStore } from "../../store/connectionStore";
-import { ChunkedMarkdown } from "../resources/ChunkedMarkdown";
+import { ChunkedMarkdown, directReferences, isReferenceItem } from "../resources/ChunkedMarkdown";
 import { copyReference, quoteReference } from "../resources/router";
 import { useOwnerPage } from "../resources/useOwnerPage";
 import { useHomePage } from "./store";
@@ -62,17 +62,17 @@ export function HomeContentView({
     },
     nextContinuation,
     (page) =>
-      page.metadata ?? { locator: { ref, view }, direct_refs: [] },
+      page.metadata ?? { locator: { ref, view } },
     [epoch, ref, view],
   );
 
   // The References panel reads the current document's direct refs from here.
-  const directRefs = page.metadata?.direct_refs ?? [];
+  const directRefs = useMemo(() => directReferences(page.items), [page.items]);
   useEffect(() => {
     if (page.metadata === null) return;
     useHomePage.getState().setCurrentDirectRefs(directRefs);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page.metadata]);
+  }, [page.metadata, directRefs]);
 
   const errorCode = apiErrorCode(page.error);
   const errorMessage =
@@ -188,7 +188,7 @@ export function HomeContentView({
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
           <div className="reading-column mx-auto w-full max-w-[76ch]">
           <ChunkedMarkdown
-            items={page.items}
+            items={page.items.filter((item) => !isReferenceItem(item))}
             fragment={fragment}
             origin={{ ref, homeView: view }}
           />

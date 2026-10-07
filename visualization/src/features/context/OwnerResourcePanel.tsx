@@ -1,3 +1,4 @@
+import { directReferences, isReferenceItem } from "../resources/ChunkedMarkdown";
 /**
  * Owner-side reading of a Home/Memory resource opened from the Context
  * drawer (plan §8 reading routes).
@@ -164,7 +165,6 @@ function OwnerContentReader({
   day: string | null;
   target: ResolvedTarget;
 }): ReactElement {
-  const [directRefs, setDirectRefs] = useState<string[]>([]);
   const [memoryMeta, setMemoryMeta] = useState<{
     kind: string;
     status: string;
@@ -189,9 +189,6 @@ function OwnerContentReader({
               { signal },
             );
       const metadata = page.metadata;
-      if (metadata && Array.isArray(metadata.direct_refs)) {
-        setDirectRefs(metadata.direct_refs);
-      }
       if (target.owner === "memory" && metadata) {
         const meta = metadata as MemoryDocumentPage["metadata"];
         if (meta) {
@@ -214,6 +211,8 @@ function OwnerContentReader({
     HomeContentPage | MemoryDocumentPage
   >(fetchPage, (page) => nextContinuation(page), [epoch, target.ref, target.view]);
 
+  const directRefs = directReferences(seq.items);
+
   return (
     <div className="space-y-3">
       <div className="rounded-lg border border-line bg-bg-sunken px-3 py-2 text-[12px] text-fg-muted">
@@ -232,9 +231,9 @@ function OwnerContentReader({
       )}
 
       <section className="space-y-2">
-        {seq.items.map((item) => (
+        {seq.items.filter((item) => !isReferenceItem(item)).map((item, index) => (
           <div
-            key={item.ref}
+            key={`${item.ref}:${index}`}
             className="rounded-lg border border-line bg-bg-elev px-3 py-2.5"
           >
             <div className="mb-1 truncate font-mono text-[11px] text-fg-faint">
@@ -262,10 +261,11 @@ function OwnerContentReader({
           <h3 className="px-1 text-[11px] font-semibold tracking-wide text-fg-faint uppercase">
             Referenced from here
           </h3>
-          {directRefs.map((ref) => (
+          {directRefs.map(({ref, title, clue}) => (
             <RefRow
               key={ref}
               reference={ref}
+              hint={`${title}: ${clue}`}
               onOpen={() => pushOwnerResource(epoch, ref, { turnId, day })}
             />
           ))}
