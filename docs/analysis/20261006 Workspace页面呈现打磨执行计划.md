@@ -18,8 +18,8 @@ Workspace 是当日可操作资源空间。功能底子扎实，但文件树是"
 
 ### 现状分析
 
-- 树中所有文件用同一个通用 File 图标（`Sidebar.tsx:372`），不按类型区分；
-- tag 配色两处不一致：树行里一律灰色 Badge（目录行 `Sidebar.tsx:344`、文件行 `:381`），而 FilePanel 头部有语义三色 `TAG_TONES = { pinned: accent, tmp: yellow, library: teal }`（`FilePanel.tsx:51-55`）——同一标签两种颜色语言。
+- 树中所有文件用同一个通用 File 图标（`Sidebar.tsx:374` 文件行），不按类型区分；
+- tag 配色两处不一致：树行里一律灰色 Badge（目录行 `Sidebar.tsx:346`、文件行 `:384`），而 FilePanel 头部有语义三色 `TAG_TONES = { pinned: accent, tmp: yellow, library: teal }`（`FilePanel.tsx:51-55`）——同一标签两种颜色语言。
 
 ### 修改范围与内容
 

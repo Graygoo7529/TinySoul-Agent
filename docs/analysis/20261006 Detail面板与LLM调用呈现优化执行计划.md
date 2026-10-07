@@ -16,7 +16,7 @@ Detail 面板（Inspector 抽屉中的 Process / Action / Model call 三个视�
 
 ### 现状分析
 
-- Phase 卡片标题行右侧并列显示裸 `phase1`/`phase2`/`phase3` 标签（`features/trace/ProcessPanel.tsx:407`）；语义标题（`ProcessPanel.tsx:398` 的 "Context maintenance / Action planning / Execution"）与 `features/chat/presentation.ts:118` 的 `PHASE_META`（title/running）是**两套并存的命名**，互不统一；
+- Phase 卡片标题行右侧并列显示裸 `phase1`/`phase2`/`phase3` 标签（`features/trace/ProcessPanel.tsx:409`）；语义标题（`ProcessPanel.tsx:398` 的 "Context maintenance / Action planning / Execution"）与 `features/chat/presentation.ts:118` 的 `PHASE_META`（title/running）是**两套并存的命名**，互不统一；
 - Action 详情的位置行显示 `cycle cycle_2 · phase3` 原文（`ActionDetailPanel.tsx:130-137`，cycle 前缀未剥离；而 Cycle 标题在 `ProcessPanel.tsx:240` 已做 `cycle_(\d+)` 剥离——同一面板两种写法）；
 - 全长 `call_id`/`invoke_id`/`task_id`/`searchId` 以等宽字体直出（`ActionDetailPanel.tsx:141-153`、`ModelCallPanel.tsx:315`、`ProcessPanel.tsx:324`），占据视觉重心却无法整体阅读；
 - 语义 chip 库 `components/trace/semantic.tsx` 已有 domain 色调、状态徽章、action 图标的统一映射，但没有 phase 命名与 id 呈现的规则。
@@ -136,7 +136,7 @@ ResponseView（:703-776）：answer 是纯文本块（:729 `whitespace-pre-wrap`
 
 `ModelCallPanel.tsx` ResponseView：
 
-- answer 改用共享 `Markdown` 组件（`md-calm` 变体）渲染，origin 传 `{ link: "" }`（与问答卡片相同做法）；
+- answer 改用共享 `Markdown` 组件（`md-calm` 变体）渲染，origin 传 `{ ref: "" }`（与问答卡片相同做法；注意 `MarkdownOrigin` 的字段名是 `ref`，不是 `link`）；
 - tool calls 按 `kind` 着色：control 类用中性灰边框、action 类用对应 domain 色左边条（复用 `domainHueClasses`）；kind 文本保留；
 - usage 行追加合计 `in 3.2k · out 412 · 合计 3.6k`；
 - response 区块头部（Collapsible title 旁 meta）补模型名（attempt.providerModel，已在父级解析，props 传入）。

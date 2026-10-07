@@ -71,7 +71,7 @@ Home 持有身份、偏好、Skill 与行动指导；Memory 持有活动记忆�
 
 `ReferencesPanel.tsx`（Home 与 Memory 共用此面板，改动两处同时受益）：
 
-- ref 行升级为 LinkChip 风格：按 ref 命名空间给图标（workspace→FileText、home→Home、memory→MemoryStick，memory 再按路径段细分五类图标——复用改进点 1 的 kindMeta）；显示文本为语义名（取 ref 末段，如 `entity/tinysoul` → `tinysoul`），完整 ref 收 title；
+- ref 行升级为 LinkChip 风格：按 ref 命名空间给图标（workspace→FileText、home→Home、memory→MemoryStick，memory 再按路径段细分五类图标——复用改进点 1 的 kindMeta）；显示文本为语义名（取 ref 末段，如 `memory:entity/tinysoul` → `tinysoul`），完整 ref 收 title。注意 `components/trace/semantic.tsx` 的 `LinkChip` 现有 prop 名为 `resourceRef`（引用统一后已改名），复用或扩展时按此签名；
 - copy/quote 图标按钮保留在行尾；
 - backlinks 区同样处理；空态文案中文化（"暂无引用"）。
 
@@ -85,7 +85,7 @@ Home 持有身份、偏好、Skill 与行动指导；Memory 持有活动记忆�
 
 ### 现状分析
 
-- 哪些条目被 overlay 改过，只能切到 Changes 面板对照；header 的 "Changes" 按钮（`HomePage.tsx:126-135`）**无计数徽标**——用户无法一眼知道有待审改动（数量只在 ReflectionDialog 里出现）；
+- 哪些条目被 overlay 改过，只能切到 Changes 面板对照；header 的 "Changes" 按钮（`HomePage.tsx:127-135`）**无计数徽标**——用户无法一眼知道有待审改动（数量只在 ReflectionDialog 里出现）；
 - HomeChanges 面板每行已有 created/modified/deleted 三色徽标与 diverged 标记（`HomeChanges.tsx`，KIND_TONES green/yellow/red）——数据通道是现成的 `/v2/home/changes`。
 
 ### 修改范围与内容
@@ -103,15 +103,15 @@ Home 持有身份、偏好、Skill 与行动指导；Memory 持有活动记忆�
 
 ### 现状分析
 
-`HomeContentView.tsx:85-91`：标题是 `link.replace(/^home:/,"")`，下一行又放完整等宽 link——两行几乎同一字符串，raw link 对读者是噪声。
+`HomeContentView.tsx:86-91`：标题是 `ref.replace(/^home:/,"")`，下一行又放完整等宽 ref——两行几乎同一字符串，raw ref 对读者是噪声。（2026-10-07 核实：引用统一后 Home ref 形态为 `home:top/<space>/<name>`、`home:resource/<space>/<path>`、`home:mount/domain/<d>`、`home:mount/action/<d>/<a>`，origin/link 字段已统一改名 `ref`。）
 
 ### 修改范围与内容
 
 `HomeContentView.tsx` 头部：
 
-- 标题只保留语义名（`home:agent@identity` → `agent · identity`；`home:skills_domain:workspace` → `域指导 · workspace`；解析函数放 `home/catalogModel.ts` 或组件内小函数）；
-- 完整 link 收进头部右侧的 ref chip（等宽小字 + 复制按钮，复用 copyReference）；view 徽标（effective/actual）保留；
-- MemoryDocumentView 头部同样检查：`display` + 等宽 link 两行是否重复，重复则同样收口。
+- 标题只保留语义名（`home:top/agent/identity` → `agent · identity`；`home:mount/domain/workspace` → `域指导 · workspace`；`home:mount/action/workspace/edit` → `动作指导 · workspace/edit`；解析函数放 `home/catalogModel.ts` 或组件内小函数）；
+- 完整 ref 收进头部右侧的 ref chip（等宽小字 + 复制按钮，复用 copyReference）；view 徽标（effective/actual）保留；
+- MemoryDocumentView 头部同样检查：`display` + 等宽 ref 两行是否重复，重复则同样收口。
 
 ### 预期效果
 
