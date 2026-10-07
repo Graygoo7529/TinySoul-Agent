@@ -109,6 +109,9 @@ describe("ModelCallPanel directed reads (plan §9.3)", () => {
     expect(container.textContent).toContain("action");
     expect(container.textContent).toContain("loop.phase2");
     expect(container.textContent).toContain("已完成");
+    // Head metrics: elapsed derives from the retained events' timestamps.
+    expect(container.textContent).toContain("耗时");
+    expect(container.textContent).toContain("30s");
   });
 
   it("reads a dedicated model call by call_id", async () => {
@@ -238,6 +241,10 @@ describe("ModelCallPanel directed reads (plan §9.3)", () => {
     expect(container.textContent).toContain("trace");
     // Only the recorded reasoning summary is shown — never raw digests.
     expect(container.textContent).not.toContain("a".repeat(64));
+    // Head metrics: model from the attempt, elapsed and token totals surface.
+    expect(container.textContent).toContain("prov / pm-1");
+    expect(container.textContent).toContain("100 → 5");
+    expect(container.textContent).toContain("105");
   });
 
   it("says when the request was not recorded instead of inventing one", async () => {

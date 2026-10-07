@@ -90,26 +90,27 @@ Phase 卡片标题行一眼读到的是内容（"已选择 2 个域"），`phase
 
 ---
 
-## 改进点 4：LLM Task 头部指标带
+## 改进点 4：LLM Task 头部增补模型 / 耗时 / tokens（2026-10-07 与维护者定稿：保留列表布局）
+
+状态：**已实施**（2026-10-07，tsc + trace 测试 76 例通过，含新增行为断言）
 
 ### 现状分析
 
-`ModelCallPanel.tsx` 的 LlmTaskView（:310-386）头部是一个 dl（task/profile/consumer/target/status），**没有耗时与时间戳**：事件流中每条 ObservationEvent 都带 `created_at`，专用模型调用（DedicatedCallView :888）已显示 `elapsedSeconds`，唯独最重要的 LLM task/attempt 不显示——诊断"哪个模型慢"这一最常见诉求缺位。token 只在 Response 深处以 "in N / out N" 出现（:759-766），无合计、不进头部。
+`ModelCallPanel.tsx` 的 LlmTaskView（:310-386）头部是一个 dl（任务/用途/调用方/目标/状态——改进点 1 已中文化并换 IdChip），**没有耗时与时间戳**：事件流中每条 ObservationEvent 都带 `created_at`，专用模型调用（DedicatedCallView :888）已显示 `elapsedSeconds`，唯独最重要的 LLM task/attempt 不显示——诊断"哪个模型慢"这一最常见诉求缺位。token 只在 Response 深处以 "in N / out N" 出现（:759-766），无合计、不进头部。
 
 ### 修改范围与内容
 
-`ModelCallPanel.tsx` LlmTaskView：
+`ModelCallPanel.tsx` LlmTaskView：**保留现有 dl 列表布局**，在"任务"行后、"状态"行前新增三行——
 
-- 头部 dl 改为**指标带**（标题行 + 一排指标）：
-  - 第一行：consumer/目标语义名（大字）+ 状态徽章；
-  - 第二行指标：`模型 claude-…（取首个 attempt 的 providerModel）· profile action · ⏱ 6.2s（14:32:05 → 14:32:11）· tokens 3.2k → 412（合计 3.6k）`；
-  - 耗时推导：task 级 = 窗口内该 task 首个事件到终态事件的 `created_at` 差；attempt 级同理（attempt 分组已有，见 :219-304）；事件不足时省略耗时，不显示占位；
-  - token 合计：从各 attempt response 的 `usage` 汇总（现有解析逻辑不变，仅上提）。
-- 原 dl 中的全长 taskId 改用改进点 1 的 `IdChip`，收进指标带末尾。
+- **模型**：`anthropic / claude-sonnet-4`（取首个 attempt 的 providerId/providerModel，mono 字体）；
+- **耗时**：`6.2s（14:32:05 → 14:32:11）`——task 级 = 窗口内该 task 首个事件到终态事件的 `created_at` 差；事件不足时该行整体省略，不显示占位；
+- **tokens**：`3.2k → 412（合计 3.6k）`——从各 attempt response 的 `usage` 汇总（现有解析逻辑不变，仅上提）；全部 attempt 都无 usage 时省略该行。
+
+新增行样式与现有行一致（dt 灰标签 + dd 内容），耗时与 token 数值用 mono 突出、说明文字用小号灰字。
 
 ### 预期效果
 
-每次 LLM 调用的"谁调的、用的哪个模型、多快、多少 token、成败"在头部一行读完；慢调用不用展开任何内容就能定位。
+每次 LLM 调用的"谁调的、用的哪个模型、多快、多少 token、成败"在头部列表直接读完；慢调用不用展开任何内容就能定位；布局与专用模型调用视图保持一致，无新视觉语言。
 
 ---
 

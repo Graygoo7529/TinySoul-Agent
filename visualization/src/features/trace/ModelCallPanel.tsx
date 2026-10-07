@@ -15,6 +15,7 @@
 import { useRef, type ReactElement } from "react";
 import { Download } from "lucide-react";
 import { downloadJson } from "../../utils/download";
+import { formatDuration } from "../../utils/format";
 
 import type { JsonObject } from "../../api/v2/types";
 import { Badge, type BadgeTone } from "../../components/ui/Badge";
@@ -188,6 +189,14 @@ interface ModelLifecycleEntry {
   errorType: string | null;
 }
 
+function formatClock(seconds: number): string {
+  return new Date(seconds * 1000).toLocaleTimeString([], { hour12: false });
+}
+
+function formatTokens(value: number): string {
+  return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(value);
+}
+
 function LlmTaskView({
   taskId,
   window,
@@ -304,6 +313,32 @@ function LlmTaskView({
     (a, b) => a.attempt - b.attempt,
   );
 
+  // Head metrics: model from the first identified attempt, elapsed from the
+  // first-to-last retained event, tokens summed over recorded usages. Rows
+  // without data are omitted entirely — never placeholder text.
+  const modelAttempt =
+    orderedAttempts.find(
+      (attempt) => attempt.providerModel !== null || attempt.providerId !== null,
+    ) ?? null;
+  const eventTimes = window.events.map((event) => event.created_at);
+  const startedAt = eventTimes.length > 0 ? Math.min(...eventTimes) : null;
+  const finishedAt = eventTimes.length > 0 ? Math.max(...eventTimes) : null;
+  const elapsed =
+    startedAt !== null && finishedAt !== null && finishedAt > startedAt
+      ? { started: startedAt, finished: finishedAt }
+      : null;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let hasUsage = false;
+  for (const attempt of orderedAttempts) {
+    const usage = asObject(attempt.response?.usage);
+    if (usage === null) continue;
+    const input = asNumber(usage.input_tokens);
+    const output = asNumber(usage.output_tokens);
+    if (input !== null) { inputTokens += input; hasUsage = true; }
+    if (output !== null) { outputTokens += output; hasUsage = true; }
+  }
+
   if (task === null && lifecycle.length === 0 && orderedAttempts.length === 0) {
     return <MissingRecord what={`Model task ${taskId}`} />;
   }
@@ -316,6 +351,16 @@ function LlmTaskView({
           <dd>
             <IdChip id={task.taskId} />
           </dd>
+          {modelAttempt !== null && (
+            <>
+              <dt className="text-fg-faint">模型</dt>
+              <dd className="font-mono text-[11px] text-fg-muted">
+                {[modelAttempt.providerId, modelAttempt.providerModel]
+                  .filter((part) => part !== null)
+                  .join(" / ")}
+              </dd>
+            </>
+          )}
           {task.profile !== "" && (
             <>
               <dt className="text-fg-faint">用途</dt>
@@ -332,6 +377,32 @@ function LlmTaskView({
             <>
               <dt className="text-fg-faint">目标</dt>
               <dd className="text-fg-muted">{task.target}</dd>
+            </>
+          )}
+          {elapsed !== null && (
+            <>
+              <dt className="text-fg-faint">耗时</dt>
+              <dd className="text-fg-muted">
+                <span className="font-mono">{formatDuration(elapsed.started, elapsed.finished)}</span>
+                {" "}
+                <span className="text-fg-faint">
+                  （{formatClock(elapsed.started)} → {formatClock(elapsed.finished)}）
+                </span>
+              </dd>
+            </>
+          )}
+          {hasUsage && (
+            <>
+              <dt className="text-fg-faint">tokens</dt>
+              <dd className="text-fg-muted">
+                <span className="font-mono">
+                  {formatTokens(inputTokens)} → {formatTokens(outputTokens)}
+                </span>
+                {" "}
+                <span className="text-fg-faint">
+                  （合计 {formatTokens(inputTokens + outputTokens)}）
+                </span>
+              </dd>
             </>
           )}
           {task.status !== null && (
