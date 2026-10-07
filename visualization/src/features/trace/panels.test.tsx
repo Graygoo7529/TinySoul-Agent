@@ -107,6 +107,15 @@ function clickButton(text: string) {
   });
 }
 
+/** Expand one phase card by its phase token (rendered as a row-end marker). */
+function clickPhase(phase: string) {
+  const target = container.querySelector(`button[data-phase="${phase}"]`);
+  if (target === null) throw new Error(`phase "${phase}" not found`);
+  act(() => {
+    target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+}
+
 // ---------------------------------------------------------------------------
 // ProcessPanel
 // ---------------------------------------------------------------------------
@@ -208,7 +217,7 @@ describe("ProcessPanel", () => {
 
     expect(queryOf(endpoint.calls("/v2/events")[0]!, "turn_id")).toBe(TURN_ID);
     expect(queryOf(endpoint.calls("/v2/events")[0]!, "mode")).toBe("model");
-    clickButton("phase3");
+    clickPhase("phase3");
     const text = container.textContent ?? "";
     expect(text).toContain("Cycle 1");
     expect(text).toContain("workspace.read");
@@ -222,7 +231,7 @@ describe("ProcessPanel", () => {
     serveEvents(processEvents);
     render(<ProcessPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29" />);
     await flush();
-    clickButton("phase3");
+    clickPhase("phase3");
     clickButton("workspace.read");
     const entries = useInspectorStore.getState().entries;
     expect(entries).toHaveLength(1);

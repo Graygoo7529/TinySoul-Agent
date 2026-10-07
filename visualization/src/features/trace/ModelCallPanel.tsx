@@ -32,6 +32,7 @@ import {
 } from "./facts";
 import { readEventWindow, type EventWindow } from "./eventWindow";
 import type { ModelCallTarget } from "./registry";
+import { IdChip } from "../../components/trace/semantic";
 import { makeTraceNavigation } from "./entries";
 import {
   AsyncStatus,
@@ -311,32 +312,34 @@ function LlmTaskView({
     <div className="space-y-3">
       {task !== null && (
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
-          <dt className="text-fg-faint">task</dt>
-          <dd className="font-mono text-[11px] text-fg-muted">{task.taskId}</dd>
+          <dt className="text-fg-faint">任务</dt>
+          <dd>
+            <IdChip id={task.taskId} />
+          </dd>
           {task.profile !== "" && (
             <>
-              <dt className="text-fg-faint">profile</dt>
+              <dt className="text-fg-faint">用途</dt>
               <dd className="text-fg-muted">{task.profile}</dd>
             </>
           )}
           {task.consumer !== "" && (
             <>
-              <dt className="text-fg-faint">consumer</dt>
+              <dt className="text-fg-faint">调用方</dt>
               <dd className="text-fg-muted">{task.consumer}</dd>
             </>
           )}
           {task.target !== "" && (
             <>
-              <dt className="text-fg-faint">target</dt>
+              <dt className="text-fg-faint">目标</dt>
               <dd className="text-fg-muted">{task.target}</dd>
             </>
           )}
           {task.status !== null && (
             <>
-              <dt className="text-fg-faint">status</dt>
+              <dt className="text-fg-faint">状态</dt>
               <dd>
                 <Badge tone={task.status === "failed" ? "red" : "green"}>
-                  {task.status}
+                  {task.status === "failed" ? "失败" : "已完成"}
                 </Badge>
                 {task.errorType !== null && (
                   <span className="ml-1.5 text-fg-muted">{task.errorType}</span>

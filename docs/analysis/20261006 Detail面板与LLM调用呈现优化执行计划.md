@@ -12,29 +12,36 @@ Detail 面板（Inspector 抽屉中的 Process / Action / Model call 三个视�
 
 ---
 
-## 改进点 1：语义命名与标识符呈现统一
+## 改进点 1：标识符呈现统一与 phase 标记降级（2026-10-07 与维护者定稿）
+
+状态：**已实施**（2026-10-07，tsc + 全部 806 前端测试通过）
 
 ### 现状分析
 
-- Phase 卡片标题行右侧并列显示裸 `phase1`/`phase2`/`phase3` 标签（`features/trace/ProcessPanel.tsx:409`）；语义标题（`ProcessPanel.tsx:398` 的 "Context maintenance / Action planning / Execution"）与 `features/chat/presentation.ts:118` 的 `PHASE_META`（title/running）是**两套并存的命名**，互不统一；
+- Phase 卡片标题行在 headline 后并列挂裸 `phase1` 标签（`features/trace/ProcessPanel.tsx:409`），位置在行中部、与内容争抢视觉重心；phase 命名存在三套并存：`features/chat/presentation.ts:118` 的 `PHASE_META`（LiveStatus headline 消费，**不在本改进点范围内、保持不变**）、`ProcessPanel.tsx:398` 的英文兜底标题（"Context maintenance / Action planning / Execution"）、以及裸枚举本身；
 - Action 详情的位置行显示 `cycle cycle_2 · phase3` 原文（`ActionDetailPanel.tsx:130-137`，cycle 前缀未剥离；而 Cycle 标题在 `ProcessPanel.tsx:240` 已做 `cycle_(\d+)` 剥离——同一面板两种写法）；
 - 全长 `call_id`/`invoke_id`/`task_id`/`searchId` 以等宽字体直出（`ActionDetailPanel.tsx:141-153`、`ModelCallPanel.tsx:315`、`ProcessPanel.tsx:324`），占据视觉重心却无法整体阅读；
-- 语义 chip 库 `components/trace/semantic.tsx` 已有 domain 色调、状态徽章、action 图标的统一映射，但没有 phase 命名与 id 呈现的规则。
+- 语义 chip 库 `components/trace/semantic.tsx` 已有 domain 色调、状态徽章、action 图标的统一映射，但没有 cycle/id 呈现与 phase 释义的规则。
+
+**设计决定（维护者确认）**：`phase1/2/3` 是简洁明确的协议标识，**不翻译为中文**；它的问题不是"看不懂"，而是摆放位置与命名分裂。标题行让位给真实内容（选择了哪些域、几个动作），phase 标记降级为行尾弱化 token。
 
 ### 修改范围与内容
 
-- `components/trace/semantic.tsx`：新增三个纯函数与一个组件——
-  - `phaseLabel(phase: string): string`：phase1→"语境与域"、phase2→"动作决策"、phase3→"执行与反馈"，未知值原样返回；作为唯一 phase 命名来源；
+- `components/trace/semantic.tsx`：新增——
+  - `phaseHint(phase: string): string`：phase1→"更新语境并选择行动域"、phase2→"在已选域内生成动作"、phase3→"组装并执行动作批次"，未知值原样返回；**仅用于 tooltip 与组头释义**，是唯一释义来源；
   - `cycleLabel(cycleId: string): string`：`cycle_2`→"Cycle 2"（剥离下划线前缀，未知格式原样）；
   - `shortId(id: string): string`：保留前 8 位；
   - `IdChip({ id }: { id: string })`：等宽短 id + 点击复制全值（复用现有 CopyButton 语义），title 显示全值。
-- `ProcessPanel.tsx`：PhaseCard 标题行的裸标签（:407）改为 `phaseLabel()` 文本徽标（灰色小字，不再裸出枚举原值）；Cycle 标题改用 `cycleLabel()`；headline 的 phase 命名统一到 `phaseLabel`（消除 :398 的第三套命名，`PHASE_META` 的 title 语义并入）。
-- `ActionDetailPanel.tsx`：position 行（:130-137）改用 `cycleLabel()` + `phaseLabel()`；call/invoke 两行（:141-153）改用 `IdChip`。
-- `ProcessPanel.tsx` 的 search 行（:324）与 orphan task 行（:353）、`ModelCallPanel.tsx` 的 task id（:315）同样改用 `IdChip`。
+- `ProcessPanel.tsx` PhaseCard：
+  - headline 保持内容优先（现有逻辑：已选域数 / 动作数 / 兜底描述）；`:398` 的英文兜底标题改为中文内容短名——"更新语境"/"规划动作"/"执行动作"（它们出现在 headline 位置本身就是内容描述，不是前缀）；
+  - 裸 phase 标签（:409）从行中部移到**行尾**（耗时与 context 芯片之后），10px mono `text-fg-faint`，`title={phaseHint(phase)}`——可见但不抢眼，需要释义时悬停；
+  - search 行（:324）与 orphan task 行（:353）的 id 换 `IdChip`。
+- `ActionDetailPanel.tsx`：position 行（:130-137）改为 `Cycle 2 · phase3`（cycle 用 `cycleLabel` 剥离，phase **保留原样**并加 `title={phaseHint}` 释义）；call/invoke 两行（:141-153）改用 `IdChip`。
+- `ModelCallPanel.tsx`：task id（:315）改用 `IdChip`。
 
 ### 预期效果
 
-用户读到的是"Cycle 2 · 执行与反馈"、"语境与域"而非 `cycle_2`、`phase1`；id 不再刷屏，需要时一键复制全值。全应用 phase 命名只有一份来源，后续新增 phase 语义只改一处。
+Phase 卡片标题行一眼读到的是内容（"已选择 2 个域"），`phase1` 退居行尾小字、悬停得释义；位置行与 Cycle 标题写法一致（"Cycle 2 · phase3"）；id 全部短码化、悬停见全值、点击即复制。phase 释义全局只有 `phaseHint` 一份来源，LiveStatus 运行中 headline 完全不变。
 
 ---
 
@@ -176,7 +183,7 @@ ResponseView（:703-776）：answer 是纯文本块（:729 `whitespace-pre-wrap`
 
 `ProcessPanel.tsx` ActivityTimeline：
 
-- 每组增加组头：`phaseLabel(phase) + 组内条数 + 组起止时间`（小字徽标行），颜色保留；
+- 每组增加组头：`phaseN` 小徽章 + `phaseHint(phase)` 中文释义 + 组内条数 + 组起止时间（如"phase1 · 更新语境 · 6 条 · 14:32:01–05"），颜色保留；
 - 时间戳保留绝对时刻，title 追加相对 turn 开始的偏移（`+12.4s`），数据从 `item.timestamp` 与组首事件推导；
 - 时序方向维持现状（最新在前），在 Collapsible 的 meta 处加一行说明文字"最新在前"，避免与 ProcessTree 正序的阅读预期冲突（不强行翻转已有交互习惯）。
 
@@ -209,7 +216,7 @@ ResponseView（:703-776）：answer 是纯文本块（:729 `whitespace-pre-wrap`
 
 验收标准（逐改进点）：
 
-1. 界面任何位置不再出现裸 `phaseN`、`cycle_N`、全长 id；phase 命名全局只有 `phaseLabel` 一份来源；
+1. Phase 卡片标题行内容优先，phase 标记退居行尾弱化小字、悬停显示中文释义；`cycle_N` 写法全局统一剥离；id 全部短码化可复制；phase 释义全局只有 `phaseHint` 一份来源（LiveStatus headline 不变）；
 2. Overview 显示总耗时/平均耗时/token 合计；有失败时出现红色计数；
 3. Phase 三态循环展开；ActionRow 显示耗时/摘要/语义计数；select_action_domains 渲染为语义行；
 4. LLM task 头部显示模型、耗时、起止时间、token 合计；

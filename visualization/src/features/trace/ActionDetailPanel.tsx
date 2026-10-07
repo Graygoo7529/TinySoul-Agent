@@ -24,6 +24,7 @@ import {
 } from "./facts";
 import { readEventWindow } from "./eventWindow";
 import { actionFamily } from "./registry";
+import { cycleLabel, IdChip, phaseHint } from "../../components/trace/semantic";
 import { FAMILY_VIEWS } from "./resultViews";
 import { makeTraceNavigation } from "./entries";
 import {
@@ -129,32 +130,37 @@ function ActionDetail({
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
         {trace.cycleId !== null && (
           <>
-            <dt className="text-fg-faint">position</dt>
+            <dt className="text-fg-faint">位置</dt>
             <dd className="text-fg-muted">
-              cycle {trace.cycleId}
-              {trace.phase !== null ? ` · ${trace.phase}` : ""}
+              {cycleLabel(trace.cycleId)}
+              {trace.phase !== null && (
+                <>
+                  {" · "}
+                  <span title={phaseHint(trace.phase)}>{trace.phase}</span>
+                </>
+              )}
             </dd>
           </>
         )}
         {trace.call !== null && (
           <>
-            <dt className="text-fg-faint">call</dt>
-            <dd className="font-mono text-[11px] text-fg-muted">
-              {trace.call.callId}
+            <dt className="text-fg-faint">调用</dt>
+            <dd>
+              <IdChip id={trace.call.callId} />
             </dd>
           </>
         )}
         {trace.invokeId !== null && (
           <>
-            <dt className="text-fg-faint">invoke</dt>
-            <dd className="font-mono text-[11px] text-fg-muted">
-              {trace.invokeId}
+            <dt className="text-fg-faint">执行 ID</dt>
+            <dd>
+              <IdChip id={trace.invokeId} />
             </dd>
           </>
         )}
         {executionChain !== "" && (
           <>
-            <dt className="text-fg-faint">execution</dt>
+            <dt className="text-fg-faint">执行链</dt>
             <dd className="text-fg-muted">{executionChain}</dd>
           </>
         )}

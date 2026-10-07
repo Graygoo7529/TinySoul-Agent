@@ -33,6 +33,7 @@ import {
 } from "./facts";
 import { readEventWindow } from "./eventWindow";
 import { domainTextClass } from "./registry";
+import { cycleLabel, phaseHint, shortId } from "../../components/trace/semantic";
 import { makeTraceNavigation, pushActionDetail } from "./entries";
 import {
   AsyncStatus,
@@ -239,7 +240,7 @@ function ProcessTree({
       {process.cycles.map((cycle) => (
         <Collapsible
           key={cycle.cycleId}
-          title={`Cycle ${cycle.cycleId.replace(/^cycle_(\d+)$/, "$1")}`}
+          title={cycleLabel(cycle.cycleId)}
           meta={<CycleMeta phases={cycle.phases} />}
           className="overflow-hidden rounded-xl shadow-card"
           defaultOpen={cycle === process.cycles[process.cycles.length - 1]}
@@ -268,8 +269,11 @@ function ProcessTree({
                       className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[12px] hover:bg-hover"
                     >
                       <ChevronRight size={11} className="shrink-0 text-fg-faint" />
-                      <span className="min-w-0 flex-1 truncate text-fg-muted">
-                        decision · {task.profile || task.taskId}
+                      <span
+                        className="min-w-0 flex-1 truncate text-fg-muted"
+                        title={task.profile === "" ? task.taskId : undefined}
+                      >
+                        decision · {task.profile || shortId(task.taskId)}
                       </span>
                       {task.status !== null && (
                         <Badge tone={task.status === "failed" ? "red" : "green"}>
@@ -322,8 +326,11 @@ function ProcessTree({
               className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[12px] hover:bg-hover"
             >
               <ChevronRight size={11} className="shrink-0 text-fg-faint" />
-              <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-fg-muted">
-                {search.searchId}
+              <span
+                className="min-w-0 flex-1 truncate font-mono text-[11px] text-fg-muted"
+                title={search.searchId}
+              >
+                {shortId(search.searchId)}
               </span>
               <span className="text-fg-faint">
                 {search.steps.length} steps
@@ -351,8 +358,11 @@ function ProcessTree({
               className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[12px] hover:bg-hover"
             >
               <ChevronRight size={11} className="shrink-0 text-fg-faint" />
-              <span className="min-w-0 flex-1 truncate text-fg-muted">
-                {task.consumer || task.taskId}
+              <span
+                className="min-w-0 flex-1 truncate text-fg-muted"
+                title={task.consumer === "" ? task.taskId : undefined}
+              >
+                {task.consumer || shortId(task.taskId)}
               </span>
               {task.status !== null && (
                 <Badge tone={task.status === "failed" ? "red" : "green"}>
@@ -395,18 +405,17 @@ function PhaseCard({ phase, onOpenTask, children }: {
   useNow(running, 1000);
   const StateIcon = running ? Loader2 : phase.status === "completed" ? CheckCircle2 : phase.status === "failed" || phase.status === "cancelled" ? XCircle : CircleDashed;
   const preview = asString(selection?.arguments.intent) ?? reasoning;
-  const headline = domains.length > 0 ? `Selected ${domains.length} domain${domains.length > 1 ? "s" : ""}`
-    : phase.actions.length > 0 ? `${phase.actions.length} action${phase.actions.length > 1 ? "s" : ""}`
-    : phase.phase === "phase1" ? "Context maintenance" : phase.phase === "phase2" ? "Action planning" : "Execution";
+  const headline = domains.length > 0 ? `已选择 ${domains.length} 个域`
+    : phase.actions.length > 0 ? `${phase.actions.length} 个动作`
+    : phase.phase === "phase1" ? "更新语境" : phase.phase === "phase2" ? "规划动作" : "执行动作";
   return (
     <div className={`overflow-hidden rounded-lg border ${running ? "border-accent/40" : "border-line"}`}>
       <div className={`flex items-center gap-2 px-2.5 py-2 ${running ? "bg-accent-soft/50" : "bg-bg-sunken"}`}>
-        <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}
+        <button type="button" aria-expanded={open} data-phase={phase.phase} onClick={() => setOpen(!open)}
           className="flex min-w-0 flex-1 items-center gap-2 text-left">
           <ChevronRight size={13} className={`shrink-0 text-fg-faint transition-transform ${open ? "rotate-90" : ""}`} />
           <StateIcon size={12} className={running ? "animate-spin-slow text-accent" : "text-fg-faint"} />
           <span className={`min-w-0 flex-1 truncate text-[12.5px] font-medium ${running ? "text-shine" : ""}`}>{headline}</span>
-          <span className="text-[10px] text-fg-faint">{phase.phase}</span>
         </button>
         {domains.map((domain) => <Badge key={domain}>{domain}</Badge>)}
         {phase.startedAt !== null && (phase.finishedAt !== null || running) && <span className="font-mono text-[10px] text-fg-faint">
@@ -416,6 +425,7 @@ function PhaseCard({ phase, onOpenTask, children }: {
           className="inline-flex h-5.5 shrink-0 items-center gap-1 rounded-full border border-accent/30 bg-accent-soft px-2 text-[10px] font-medium text-accent transition-colors hover:bg-accent hover:text-white">
           <Brain size={10} /> context
         </button>}
+        <span title={phaseHint(phase.phase)} className="shrink-0 font-mono text-[10px] text-fg-faint/70">{phase.phase}</span>
       </div>
       {!open && preview && <div className="truncate bg-bg-sunken px-3 pb-2 pl-8 text-[11px] text-fg-faint italic">{preview}</div>}
       {!open && phase.actions.length > 0 && <div className="flex flex-wrap gap-1 bg-bg-sunken px-3 pb-2 pl-8">

@@ -8,9 +8,11 @@ import {
   BookOpen,
   BookOpenText,
   Brain,
+  Check,
   CheckCircle2,
   AlertTriangle,
   Compass,
+  Copy,
   Eye,
   FileEdit,
   FilePlus2,
@@ -32,7 +34,10 @@ import {
   Wrench,
 } from "lucide-react";
 import { Badge, type BadgeTone } from "../ui/Badge";
+import { useState } from "react";
 import type { ActivityStepType } from "../../features/chat/presentation";
+
+/* ------------------------------ domains ------------------------------ */
 
 /* ------------------------------ domains ------------------------------ */
 
@@ -87,8 +92,71 @@ export function DomainChip({ domain }: { domain: string }) {
   );
 }
 
-/* ------------------------------ links -------------------------------- */
+/* ------------------------- phase & identity -------------------------- */
 
+/**
+ * Chinese gloss for a loop phase, for tooltips and group headers only — the
+ * `phaseN` token itself stays untranslated wherever it appears.
+ */
+export function phaseHint(phase: string): string {
+  switch (phase) {
+    case "phase1":
+      return "更新语境并选择行动域";
+    case "phase2":
+      return "在已选域内生成动作";
+    case "phase3":
+      return "组装并执行动作批次";
+    default:
+      return phase;
+  }
+}
+
+/** `cycle_2` → "Cycle 2"; unknown formats pass through unchanged. */
+export function cycleLabel(cycleId: string): string {
+  const match = /^cycle_(\d+)$/.exec(cycleId);
+  return match ? `Cycle ${match[1]}` : cycleId;
+}
+
+/** Compact id rendering: long internal ids collapse to a 12-char prefix. */
+export function shortId(id: string): string {
+  return id.length > 14 ? `${id.slice(0, 12)}…` : id;
+}
+
+/**
+ * Short id chip with click-to-copy. Only for non-button contexts (definition
+ * lists, headers) — inside a button row, render `{shortId(id)}` with
+ * `title={id}` instead so the markup stays valid.
+ */
+export function IdChip({ id, className = "" }: { id: string; className?: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(id);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard may be unavailable; fail quietly.
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      title={id}
+      aria-label={`Copy ${id}`}
+      className={`inline-flex items-center gap-1 rounded-md bg-hover px-1.5 py-0.5 font-mono text-[10.5px] text-fg-muted transition-colors hover:text-fg ${className}`}
+    >
+      {shortId(id)}
+      {copied ? (
+        <Check size={10} className="text-success" />
+      ) : (
+        <Copy size={10} className="opacity-50" />
+      )}
+    </button>
+  );
+}
+
+/* ------------------------------ links -------------------------------- */
 export function linkNamespace(resourceRef: string): string {
   const colon = resourceRef.indexOf(":");
   return colon > 0 ? resourceRef.slice(0, colon) : "";

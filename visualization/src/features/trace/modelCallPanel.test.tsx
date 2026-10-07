@@ -108,7 +108,7 @@ describe("ModelCallPanel directed reads (plan §9.3)", () => {
     expect(queryOf(request, "through")).toBe(String(HEAD));
     expect(container.textContent).toContain("action");
     expect(container.textContent).toContain("loop.phase2");
-    expect(container.textContent).toContain("completed");
+    expect(container.textContent).toContain("已完成");
   });
 
   it("reads a dedicated model call by call_id", async () => {
