@@ -2,7 +2,7 @@
 
 日期：2026-10-07
 
-状态：`pending`（业务代码尚未实施；P2/P3 分页与引用解释方案、P5 暂缓及保留 allow_other 已确认；P6 单一结构化问答契约待本次方案审阅）
+状态：`pending`（业务代码尚未实施；P2/P3、P5 暂缓、P6 单一结构化输入及回答约束已确认；本次补充讨论结构化来源与完整 text 投影）
 
 基线：`d56aff3 refactor(context): improve narrative context and unify references`。
 
@@ -16,7 +16,7 @@
 
 保留已经确认的路线 A、U0、日期/日内序号和 request/Turn 分工。ask 仍使用自己的唯一 ActionResult Entry；input/append/reply 仍是独立输入 Entry。Inspect 属于各 owner，不引入统一工具网关，不扩大跨日 Session/Workspace 访问，不引入摘要模型、正文版本库、平行日志或额外续页令牌保存服务。
 
-本轮拟实施 P1、P2、P3、P4、P6 和清理项。维护者已认可 P2/P3 的分页与引用解释方案，并确认本轮暂缓 P5 的 Workspace 完整流式化；后者是现有性能限制，不记为已修复。P6 按最新讨论改为单一结构化 core.ask：text 表达说明，question 表达问题，options 表达候选项；保留 allow_other（缺省 true），移除 Markdown 问题块协议及普通回答内卡片。原先保留两种问答输入并补 explanation 的建议由第 6 节新方案替代。当前阶段只修订计划，不修改业务代码、默认资源或测试实例。
+本轮拟实施 P1、P2、P3、P4、P6 和清理项。维护者已认可 P2/P3 的分页与引用解释方案，并确认本轮暂缓 P5 的 Workspace 完整流式化；后者是现有性能限制，不记为已修复。P6 已确认单一结构化 core.ask、问题必填、说明/选项可省略、保留 allow_other（缺省 true）、拒绝无回答入口的组合，并移除 Markdown 问题块协议及普通回答内卡片。本次进一步推荐：explanation/question 是结构化来源，text 是两者组成的完整可读投影；不再把 text 定义为仅有说明。当前阶段只修订计划，不修改业务代码、默认资源或测试实例。
 
 ## 2. 已确认的问题与成因
 
@@ -49,7 +49,7 @@ P1/P2/P3 是同一事实的不同读取和展示路径没有共同完成语义�
 
 用当前生产解析器验证：普通 json fence 加 kind 字段会成为无选项问题；正确 tinysoul-question fence 会得到真实选项；仅修改 fence 名称但保留 kind 会触发未知字段错误。修正必须同时处理两处格式错误。
 
-进一步发现：正确 fence 外的说明被保存为 ActionResult.explanation，Trace/Session 有该字段；`QuestionRequest` 经 QuestionContent 取得的问题内容及 snapshot 不携带它，前端 QuestionContent/QuestionCard 也不消费 explanation。这里专指独立 explanation，不表示写在 text 中的说明无法显示；该缺口在 `272f1f7` 已存在。最新方案不继续补充旧 explanation 分支，而是在第 6 节以统一的 text 说明字段贯通全部消费者。
+进一步发现：正确 fence 外的说明被保存为 ActionResult.explanation，Trace/Session 有该字段；`QuestionRequest` 经 QuestionContent 取得的问题内容及 snapshot 不携带它，前端 QuestionContent/QuestionCard 也不消费 explanation。这里专指独立 explanation，不表示写在 text 中的说明无法显示；该缺口在 `272f1f7` 已存在。最新方案不继续维护散落的 explanation 抄写分支，而是在第 6 节由统一问题内容值维护来源和完整 text 投影。
 
 ### 2.2 最新复验与上一轮改动对照
 
@@ -249,23 +249,34 @@ Inspect request 中的旧 continuation 可继续作为原调用事实存在；�
 
 core.ask 继续负责生成问题事实并暂停当前 Turn，core.answer 继续负责普通用户回答及正常结束本轮。core.answer 可以在自然语言中请求下一轮输入，但不再渲染交互式问题卡片；这不改变两种 Action 的生命周期语义。普通 Markdown、代码块及其它可视化块继续正常渲染。
 
-### 6.2 预计参数与规范问题内容
+### 6.2 结构化来源与完整 text 的职责
 
-Phase2 模型在工具调用中一次生成以下字段；后端校验并构造 QuestionContent，不为补说明或标题增加内部 LLM 调用：
+当前前端已有问题正文展示：QuestionForm 的 Markdown 区域读取 `question.text`；TurnQuestion 本身只有 text/options/allow_other，没有独立的 question 字段。变量名 question 是问题对象，不表示其内部已具备同名字段。结构化输入的 text 中既有说明又有提问时都会显示，旧 fence 解析拆出的 explanation 则没有进入此显示路径。
+
+维护者提出继续以完整 text 服务运行列表、事件摘要和模型叙事，这一目标合理。实现需要明确它是源文字还是派生文字：
+
+| 选择 | 优点 | 限制 |
+| --- | --- | --- |
+| 模型只生成完整 text，加 options | 输入最简单，现有通用显示直接可用 | 无法可靠区分说明与实际问题；内部/前端若要拆分就需要约定标记、猜测或额外模型 |
+| 模型生成 explanation/question，加 options；owner 派生完整 text | 卡片可以分别展示，通用入口继续读取完整正文；无反向解析 | 需在问题 owner 明确事实序列化与显示投影，输入名称相较上一版方案有所调整 |
+
+推荐第二种。源字段只生成一次，text 是确定性组合：有说明时为 `explanation + 两个换行 + question`，无说明时就是 question。该组合放在现有 QuestionContent 的纯读取属性/投影中，保持一处定义；不新增模板系统、不调用模型、不在前端重复拼接。不建议让模型同时生成完整 text、explanation、question 三份文字，也不让同名 text 在输入表示说明、输出却表示完整正文。
+
+Phase2 模型在工具调用中一次生成以下来源字段；后端校验并构造 QuestionContent，不为补说明或标题增加内部 LLM 调用：
 
 | 字段 | 含义 | 建议约束 |
 | --- | --- | --- |
-| text | 提问前的背景、理由、建议等说明，可用 Markdown | 可选，缺省空字符串；避免为短问题强造说明 |
+| explanation | 提问前的背景、理由、建议等说明，可用 Markdown | 可选，缺省空字符串；避免为短问题强造说明 |
 | question | 用户需要回答的实际问题，可含简单 Markdown | 必填，非空；不是从 text 猜出来的标题 |
 | options | 单选候选项，每项 id/label/可选 description | 可选，缺省空列表；沿用最多 8 项、ID 唯一及既有长度约束 |
 | allow_other | 有选项时是否仍允许自由回答 | 保留可选参数，缺省 true；false 时仍可选择后追加 comment |
-| timeout_seconds | 本次等待的可选期限 | 沿用既有参数，缺省等待至回复或取消；属于 QuestionRequest，不属于问题内容 |
+| timeout_seconds | 本次等待的可选期限 | 沿用既有参数，缺省没有截止时间；属于 QuestionRequest，不属于问题内容。与 Action 的执行时限分开 |
 
 示例（省略默认 allow_other）：
 
 ```json
 {
-  "text": "两种处理方式都可行。为了保留可追溯依据，我建议保留完整正文。",
+  "explanation": "两种处理方式都可行。为了保留可追溯依据，我建议保留完整正文。",
   "question": "你希望如何保留这份文档？",
   "options": [
     {"id": "keep", "label": "保留完整正文", "description": "保留示例与来源。"},
@@ -274,19 +285,23 @@ Phase2 模型在工具调用中一次生成以下字段；后端校验并构造 
 }
 ```
 
-无选项时仍支持开放提问，例如 `{"question":"你使用的是哪一种运行环境？"}`。建议将 options 为空且 allow_other=false 视为可修正局部失败，避免生成没有任何回答入口的卡片；不静默改写为 true。当前后台在无选项时接受自由回答、前端却按 false 隐藏输入，单一契约应消除这一实际不一致。text 与 question 保持有界，复用现有文本校验方式，不另建内容识别器。
+无选项时仍支持开放提问，例如 `{"question":"你使用的是哪一种运行环境？"}`。维护者已确认 options 为空且 allow_other=false 时返回可修正局部失败，避免没有任何回答入口；不静默改写为 true。当前后台在无选项时接受自由回答、前端却按 false 隐藏输入，单一契约应消除这一实际不一致。来源文字与组合后的完整正文都保持有界，沿用现有容量约束，不引入无界派生正文。
 
-QuestionContent 直接持有 text/question/options/allow_other，to_json/from_json 在 ActionResult、QuestionRequest、snapshot、interaction 和 Session 中表达相同含义。输入可省略的 text/options/allow_other 在规范结果中输出明确的空值或默认值（空字符串、空数组、布尔值，不混用 null）。删除旧 explanation 字段及独立参数，不同时保留 text/explanation 两个说明来源。旧 text-only 请求缺少必填 question，沿已有 Action 参数失败流程反馈；不把说明偷偷兼容成问题。
+QuestionContent 直接持有 explanation/question/options/allow_other；text 是只读派生属性，不另存可修改副本。规范事实序列化只包含来源字段，ActionResult.payload 与 Session Action.result 使用这份事实；不借用 foldable Action 的 canonical_projection 来完成普通问答格式转换。QuestionRequest 持同一个值。可省略的来源字段在规范结果中变为明确的空字符串、空数组及默认布尔值。
+
+SDK/Endpoint 的问题显示投影在来源字段外提供派生 text，因此可以同时满足普通阅读与专用卡片。当前/历史 interaction 使用同一投影；事件摘要直接读取 `content.text`。从记录解码时只读取结构化来源，不从派生 text 解析问题，也不再独立保存一份完整显示正文。旧 text-only 请求缺少必填 question，沿既有参数失败反馈；不增加兼容推断。
 
 ### 6.3 唯一数据流与模型投影
 
 ```text
-Phase2 工具参数 {text, question, options, allow_other}
+Phase2 工具参数 {explanation, question, options, allow_other}
   → CoreAskActionExecutor 校验 → QuestionContent
-  → ActionResult.payload
-      ├→ model_text：说明 → 问题 → 完整选项 → 回答方式
-      ├→ QuestionRequest → TurnSnapshot.question → 正式待答卡片
-      └→ 当前 interaction / Session 持久结果 → 历史卡片及 Context 叙事
+      ├→ ActionResult.payload / Session 持久结果：规范来源字段
+      ├→ text：说明 + 问题（派生，只读）
+      │    ├→ 运行列表、事件摘要、通用阅读
+      │    └→ model_text：完整 text + 选项 + 回答方式
+      └→ QuestionRequest / snapshot / interaction：正式内容与显示投影
+           → 卡片分别展示 explanation、question、options
 
 用户 reply {kind=choice, option_id, comment} 或 {kind=text, text}
   → 既有 Inbox 校验/接受 → 输入事实 → 补全后的 reply 叙事
@@ -294,11 +309,13 @@ Phase2 工具参数 {text, question, options, allow_other}
 
 model_text 继续是执行后给模型看的结果投影，不增加模型输入参数，也不负责前端渲染。问答内容只保存一份规范事实，各消费者从中正向投影。ask 仍只有一个 ActionResult Entry；不添加独立的第二条问题历史。
 
-QuestionAnswer、question_id、reply_to、request_id、等待/恢复及取消规则保持原语义。回复补全使用新的 question 字段，保留选择标签、选项说明和 comment；独立 Inspect 输入/回复时也可呈现关联提问说明 text，不能因更名变成“用户在回答说明文字”。Session 线性历史按原顺序显示完整说明、问题、选项和回复；压缩沿既有问答整体语义处理，P1/P2/P3 共用这一事实来源。
+QuestionAnswer、question_id、reply_to、request_id、等待/恢复及取消规则保持原语义。Trace 的 ask model_text 与 Session 线性历史直接使用完整 text，追加完整选项及回答方式，不要求模型读取多个 JSON 字段重组问题。回复叙事复用所关联问题的完整 text，随后呈现选择标签、选项说明及 comment；P1/P2/P3 各入口共用这个来源。
+
+用户原始输入和接受后的 reply.text 仍是用户回答事实，不把 Agent 的说明与问题写回用户原文。User Inputs/Trace/Inspect 中的补全叙事可以重复关联问题，这属于显示投影，不新增一条输入或另一份问答记录。
 
 ### 6.4 前端展示与删除范围
 
-正式卡片按“说明（若有）→ 问题 → 选项 → 自由回答/选择后 comment → 明确回复按钮”呈现。text 与 question 均来自后端对应字段，缺省说明不占空区域；question 不由前端提取或兜底为 text。活动快照、当前 interaction、已完成历史使用同一内容模型，避免等待时有说明、进入历史后消失。
+正式卡片按“说明（若有）→ 问题 → 选项 → 自由回答/选择后 comment → 明确回复按钮”呈现，分别读取 explanation/question/options。通用阅读组件使用完整 text；卡片不同时再渲染 text，否则会重复说明和问题。缺省说明不占空区域，question 不由前端从 text 提取。活动快照、当前 interaction、已完成历史使用同一内容模型。
 
 保留 active/readonly/expired 三种既有状态、提交失败保留草稿以及等待结束后的身份处理。只读状态显示原问题、选中标签和 comment；自由回答仍是文本回答，不追加为事实上的新 option。
 
@@ -308,27 +325,55 @@ QuestionAnswer、question_id、reply_to、request_id、等待/恢复及取消规
 
 | 层次 / 代码 | 预计改动 |
 | --- | --- |
-| ask Catalog、core/actions.py | question 必填、text 为可选说明；删除 fence/JSON/冲突解析路径，保留结构化局部失败及 timeout 校验 |
-| kernel.interaction、所属 prompts | QuestionContent 添加 question、明确 text；统一问答叙事，移除 explanation 参数；保留 QuestionAnswer |
+| ask Catalog、core/actions.py | question 必填、explanation 为可选说明；text 不由模型额外填写。删除 fence/JSON/冲突解析路径，保留结构化局部失败及 timeout 校验 |
+| kernel.interaction、所属 prompts | QuestionContent 维护 explanation/question，派生完整 text；区分事实序列化与显示投影；叙事包装组合完整正文与选项；保留 QuestionAnswer |
 | loop completion/inbox、Agent handles | 经同一 QuestionContent 传递完整内容；不新建等待状态机或问题 owner |
-| loop 的 turn.question Observation | 消息摘要使用 question，payload 同时携带说明和问题；避免旧 content.text 变成错误标题 |
-| Trace、Session interaction/background/navigation | 读取新问题字段；删除单独抄写 explanation 的分支；查询、Inspect、回复补全、折叠和历史均使用新语义 |
-| SDK/Endpoint 与契约样例 | 原路由、外层 snapshot.question、question_id 和 reply 请求保持；问题对象变为 text/question/options/allow_other，更新实际导出的契约与样例 |
+| loop 的 turn.question Observation | 消息摘要继续使用 content.text，含完整说明和问题；payload 使用统一显示投影，不重复拼接 |
+| Trace、Session interaction/background/navigation | 从规范来源派生完整 text；删除外围单独抄写 explanation 的分支；查询、Inspect、回复补全、折叠和历史均使用同一正文 |
+| SDK/Endpoint 与契约样例 | 原路由、外层 snapshot.question、question_id 和 reply 请求保持；text 继续为可读正文，显示投影增加来源 explanation/question；更新实际契约与样例 |
 | 前端 API 类型、questionContent、QuestionCard/QuestionForm | 同时消费说明和问题，删除 fence/compose 分支，保留正式待答与回复数据流 |
-| adapters/presentation、runtime/executionTab、WaitingResponseDock | 摘要/紧凑标题读取 question，完整卡片显示 text；核对所有旧 snapshot.question.text 读取点 |
+| adapters/presentation、runtime/executionTab、WaitingResponseDock | 通用摘要继续读 text，无需批量改为 question；专用卡片读取细分字段。列表依照既有 UI 截断，完整 text 仍可读取 |
 | 默认资源、文档与测试 | Catalog 改为唯一协议；移除活跃文档的 Markdown 卡片指导和旧合法输入用例，保留通用 Markdown 行为与正式 question/reply 用例 |
 
-字段变更贯穿新请求、公开返回及新持久记录，不只在前端加一个 question 展示别名。沿项目无兼容层的约定，不保留旧 question→text/fence/explanation 适配，不迁移或重置 my-agent-dev；测试夹具与仓库默认资源同步更新。历史分析记录可以解释旧协议，活跃设计和 Endpoint 文档只能描述落地后的当前协议。
+字段变更贯穿新请求、公开返回及新持久记录。原来泛用显示只能取得 text，现在仍可取得完整 text，因而这类消费者不需要改读 question；正式卡片和事实解码器则必须使用新来源字段。沿项目无兼容层的约定，不保留旧 text-only/fence 适配，不迁移或重置 my-agent-dev；测试夹具与仓库默认资源同步更新。历史分析记录可以解释旧协议，活跃设计和 Endpoint 文档只能描述落地后的当前协议。
 
-变更限定在问题内容，不能全局改名所有 text：用户输入、QuestionAnswer.text、core.answer 的正文及普通 interaction 的 text 继续保留其原有语义。对 agent.question 的摘要和叙事应按明确角色读取 question，而不是依赖通用 text fallback。
+这里“同步仓库消费者”指修改实际读取这些字段的代码、类型、样例和测试，不是迁移用户实例数据或建立第二套 Session 格式。变更限定在问题内容：用户输入、QuestionAnswer.text、core.answer 正文及普通 interaction 的 text 保持原有语义。
 
 ### 6.6 指导与验证
 
-Phase2 仍只自动挂载选中域的 domain Skill 和 Action ToolSpec；ask 没有内部模型任务，所以新增 ask Action Skill 不会指导本次参数生成。新的字段契约直接在 Catalog 中分别说明 text/question/options/allow_other，删除旧 fence 描述；固定结果包装及有限失败反馈放所属 prompts。无需新增 core domain Skill、修改全局 Skill 挂载或堆叠“禁止 json/kind”规则，也不对普通 Markdown 内容做语义猜测。
+Phase2 仍只自动挂载选中域的 domain Skill 和 Action ToolSpec；ask 没有内部模型任务，所以新增 ask Action Skill 不会指导本次参数生成。新的字段契约直接在 Catalog 中分别说明 explanation/question/options/allow_other，删除旧 fence 描述；模型无需知道 text 的派生细节。固定结果包装及有限失败反馈放所属 prompts。无需新增 core domain Skill、修改全局 Skill 挂载或堆叠“禁止 json/kind”规则，也不对普通 Markdown 内容做语义猜测。
 
 此处已是维护者提出的协议简化，不再维持旧双输入协议等待模型复测；实现后仍应先做确定性契约验证，再用不含旧示例的语境验证真实生成。前者覆盖：有/无说明、有/无选项、默认自由回答、限制为候选项、choice+comment、无可回答路径的局部失败、等待到历史的内容一致、普通回答/代码块不生成卡片。跨模块测试验证一条真实数据流，不重复所有参数矩阵，不锁定自然语言文案。
 
 原来的前端 17 项及生产解析复现只证明旧基线，不能验收新协议。尚未实施新代码、调用真实模型或重置实例；本节是待审阅方案。
+
+### 6.7 默认等待与两种 timeout
+
+代码现状已有默认无限等待，不需移除 Action 的执行时限：
+
+- Catalog `[runtime].timeout_seconds = 5` 只限制 core.ask 的执行器完成参数解析并返回问题事实。Phase3 执行 ActionBatch 后才提取 QuestionRequest，等待发生在 Action 完成之后。
+- 调用参数 `timeout_seconds` 是可选的用户回复等待期限。省略时 executor 返回 null，QuestionRequest.timeout_seconds 与 WaitCondition.deadline 均为 None，Inbox 的 wait_for 不设置截止时间。此处沿用无截止时间默认值，不复制 Catalog 的 5 秒作为等待期限。
+- 保留显式设置等待期限的能力，不要求模型填写默认值；取消、关闭及已有根 work 生命周期仍能结束等待。
+
+“默认无限”准确指不会自行到时，不表示只允许 reply 唤醒。当前普通 append 会打断等待，清除活动问题并留下 unanswered_question_id，然后按追加输入继续执行；它不会被伪造为 question reply。此行为由 `test_append_interrupts_wait_but_does_not_grant_budget` 覆盖。本次问答内容契约不改变这一等待策略，也不承诺进程结束后恢复未完成的等待。
+
+### 6.8 answer 卡片移除与格式变化的区别
+
+两项影响应分开解释：
+
+1. 删除 answer 中的特殊卡片，只失去“渲染 tinysoul-question 块并点击候选项填入 Composer 草稿”的前端能力。core.answer 的正文/引用输出、自然语言请求后续输入、Turn 结束、Markdown 展示及 Session output 记录不变；旧问题块按普通代码显示。该删除本身不要求改写 core.answer 或 Session output 的持久格式。
+2. 问题对象格式变化来自 core.ask 的来源字段重设：原先 text 承担问题正文，今后规范事实保存 explanation/question，并由 owner 生成完整 text。需要同步的是 ask 的调用配置、事实编解码、公开问题投影、专用卡片及测试，不能把此迁移说成移除 answer 卡片的必然后果。
+
+预计使用效果：
+
+| 位置 | 预计内容 |
+| --- | --- |
+| 正式问答卡片 | 说明区 explanation、明确的问题 question、完整选项、允许时的自由回答、选择后的 comment |
+| 运行列表/事件摘要 | 继续读 text，包含说明与问题；列表可以沿现有视觉规则截断，数据不丢正文 |
+| Trace ask / Session 线性历史 | 完整 text 及选项的可读叙事，不再次要求模型重组 JSON |
+| Inputs/reply/Inspect 的模型投影 | 用户回答事实加对应完整提问语境；原始用户输入不被改写 |
+| Session 持久 Action 事实 | 原请求及规范来源结果，按需派生 text；不存另一份可独立修改的显示正文 |
+| core.answer | 普通 Markdown 回答或自然语言交接，不产生问题卡片 |
 
 ## 7. 预计改动范围、实施顺序与验收
 
@@ -336,21 +381,21 @@ Phase2 仍只自动挂载选中域的 domain Skill 和 Action ToolSpec；ask 没
 
 | owner / 入口 | 预计改动 |
 | --- | --- |
-| kernel.interaction、context/engine、builtin/trace | 复用输入/回复叙事，补齐当前 input occurrence 和证据读取；规范问题采用 text/question/options/allow_other |
+| kernel.interaction、context/engine、builtin/trace | 复用输入/回复叙事，补齐当前 input occurrence 和证据读取；问题来源为 explanation/question/options/allow_other，派生完整 text |
 | kernel/context/disclosure、kernel/retrieval/disclosure | owner 语义单位、页面选择、可读渲染、覆盖与精简事实；必要的共同值集中一处 |
 | context segments、ContextInspectExecutor | 传递同一次读取结果；保持现有路由、局部失败与展示保护 |
 | plugins/session/views、completion、records | 历史输入语境、Action 失败可见性、Inspect 叙事、canonical 结果可读性、移除无效兼容；不改为第二份历史 |
 | Home/Memory Inspect、Workspace 目录 Inspect | 接入正文/导航分页与同页精简事实；direct_refs 保留解释；Workspace 文本读取算法暂缓 |
-| core.ask、loop QuestionRequest、Agent snapshot/Observation | 迁移单一结构化问题；删除 fence 解析和 explanation 分支，完整传递说明与问题；不修改等待/恢复状态机 |
+| core.ask、loop QuestionRequest、Agent snapshot/Observation | 迁移单一结构化问题；删除 fence 解析和散落的说明抄写，统一来源与 text 投影；保留默认无等待期限及现有唤醒策略 |
 | Catalog、Skill、prompts | Catalog 声明唯一 ask 字段契约，删除失效的卡片协议指导；固定包装归所属 owner。不新增 core domain/ask Skill |
-| SDK/Endpoint | Context/Session/Home/Memory Inspect 页面的标题/覆盖/正文片段契约；TurnQuestion.text/question 的新语义；文档及契约样例同步 |
-| visualization | 消费 Inspect 正文片段；正式卡片及摘要使用新问题字段，删除问题 fence 与 compose 分支；修正旧引用测试和重复 fallback。只处理本计划的接口消费者 |
+| SDK/Endpoint | Context/Session/Home/Memory Inspect 页面的标题/覆盖/正文片段契约；TurnQuestion 的 text 为完整正文，提供 explanation/question 来源；文档及契约样例同步 |
+| visualization | 消费 Inspect 正文片段；正式卡片读取 explanation/question，通用摘要继续读取完整 text；删除问题 fence 与 compose 分支，修正旧引用测试和重复 fallback。只处理本计划的接口消费者 |
 
-公共接口预览：Inspect 不新增读取路由或模型参数，ref/continuation 和各域入口保留；相关页由 canonical_json 碎片改为语义明确的部分正文项，通用 interaction/原始数据分页保持现有用途。core.ask 新增必填 question、text 改为可选说明；ActionResult/TurnSnapshot.question/agent.question interaction/Session 共用这些字段，删除 explanation 和 Markdown 问题块协议。reply 路由和 choice/text answer 不变。无历史格式兼容要求，不自动修改 my-agent-dev。
+公共接口预览：Inspect 不新增读取路由或模型参数，ref/continuation 和各域入口保留；相关页由 canonical_json 碎片改为语义明确的部分正文项，通用 interaction/原始数据分页保持现有用途。core.ask 输入采用必填 question、可选 explanation/options/allow_other；规范 ActionResult/Session 结果保存这些来源。TurnSnapshot.question 和 role=agent.question 的 interaction 显示投影提供相同来源及派生完整 text。删除 Markdown 问题块协议。reply 路由和 choice/text answer 不变。无历史格式兼容要求，不自动修改 my-agent-dev。
 
 ### 7.2 执行顺序
 
-1. 审阅第 6 节问答字段及删除范围，固定已认可的 P2/P3 页面样例与最少的 owner 返回值；建立能复现当前缺口的行为用例。P5 暂缓和保留 allow_other 不再重复确认。
+1. 审阅第 6 节结构化来源与完整 text 投影，固定已认可的 P2/P3 页面样例与最少的 owner 返回值；建立能复现当前缺口的行为用例。P5 暂缓、单一问答协议及已确认参数约束不再重复确认。
 2. 先完成 P1、P4、清理和 P6 的问答闭环，让直接用户交互恢复可靠反馈；同步相关 Endpoint/前端消费者。
 3. 从一条回复和一段文档验证完整页/部分页/续页的共同设计，再扩展 Trace、Session、Home、Memory 与 Workspace 目录；不留下旧、新并行的模型 Inspect 路径。
 4. 从实际页生成精简事实，验证折叠和 Session completion 后仍有解释与精确范围；复核引用与说明共同折叠、无关注释不使续页失效。
@@ -366,10 +411,12 @@ Phase2 仍只自动挂载选中域的 domain Skill 和 Action ToolSpec；ask 没
 - [ ] 折叠保留目标、短解释、实际完整/部分覆盖和有无后续；不保存全文或额外 token，不把请求范围当实际已读范围。
 - [ ] 主循环展示保护、活动 #action 实际结果读取、canonical Session 保存保持既有边界。
 - [ ] 普通背景压缩或无关 map 更新不使未变目标续页失效；内容变化按 owner 契约反馈，不静默重启。
-- [ ] core.ask 仅接受新的结构化字段；必填 question、可选 text/options、allow_other 默认 true、限制选择及 choice+comment 均符合契约；无可回答路径为局部失败。
-- [ ] 正式卡片的说明、问题、完整选项、comment 在 snapshot → interaction → 历史之间一致；运行标题和事件摘要读取 question。
+- [ ] core.ask 仅接受新的结构化来源；必填 question、可选 explanation/options、allow_other 默认 true、限制选择及 choice+comment 均符合契约；无可回答路径为局部失败。
+- [ ] 正式卡片的说明、问题、完整选项、comment 在 snapshot → interaction → 历史之间一致；通用入口的 text 始终含说明和问题，专用卡片不重复显示组合正文。
+- [ ] text 由唯一来源值派生，事实解码不反解析显示文字；Session 不新增完整显示正文副本，用户原始输入不被问题投影改写。
+- [ ] 默认等待无截止时间；Action 执行时限不成为回复期限，显式期限与已有 append/cancel 唤醒保持清晰区分。
 - [ ] 删除前后端问题 fence 协议及 compose 分支，普通 answer/代码块不再生成卡片；Markdown 其它块及共享 Composer 草稿消费者保持正常。
-- [ ] Phase2 实际 ToolSpec 提供唯一问答契约；不新增未挂载的 ask Action Skill 或重复细则；旧 text-only/explanation 不作兼容别名。
+- [ ] Phase2 实际 ToolSpec 提供唯一问答契约；不新增未挂载的 ask Action Skill 或重复细则；旧 text-only/fence 不作兼容输入。
 - [ ] 旧 Trace 形式的合法测试、legacy_options 和过时文档已清理；拒绝旧格式的测试仍保留。
 - [ ] 聚焦测试、Fast、Full、ty，以及受影响前端测试和 TypeScript/build 通过；Endpoint 真实契约样例对齐。
 - [ ] 完成逐项核对后才改为 done 并归档；接受暂缓的性能限制明确列出。
@@ -379,11 +426,11 @@ Phase2 仍只自动挂载选中域的 domain Skill 和 Action ToolSpec；ask 没
 ## 8. 待审阅选择
 
 1. **P2/P3 已认可**：owner 在分页前提供语义单位，实际页面与精简事实使用同一次选择；按第 4.6 节对齐已有读取消费者。保持 U0，不增加通用读取 Action。
-2. **P6 具体方案待本次审阅**：仅保留 core.ask 结构化输入；question 必填、text 为可选说明、options 可省略。删除 fence/explanation/普通回答卡片并同步公开字段消费者。建议拒绝 options 为空且 allow_other=false 的不可回答问题，其余沿既有回复与生命周期。
+2. **P6 已确认方向及本次审阅点**：仅保留 core.ask 结构化输入，问题必填、说明/选项可省略；拒绝无选项且 allow_other=false。本次推荐来源字段 explanation/question 与派生完整 text 分开，由 owner 为通用读取提供 text、为卡片提供细分内容；不让模型重复生成两套文字。该字段命名/投影设计待讨论，其余已确认内容不重开。
 3. **allow_other 已确认**：保留可选策略，缺省 true；模型可以按需要设为 false，选择后仍允许 comment。
 4. **P5 已确认**：本轮暂缓 Workspace 完整流式化，记录限制；不再设确认点。
 
-剩余问答方案继续讨论，不阻塞当前文档交付。用户已确认 P1/P4/清理方向、P2/P3 方案、P5 暂缓和保留 allow_other；本计划不再为这些方向重复设置批准点。当前请求是分析与计划修订，不视为本轮业务代码实施授权。
+完整 text 的具体来源与投影方式继续讨论，不阻塞当前文档交付。其余确认项不重复设置批准点。当前请求是分析与计划修订，不视为本轮业务代码实施授权。
 
 ## 9. 本次调查与文档交付记录
 
@@ -403,8 +450,16 @@ Phase2 仍只自动挂载选中域的 domain Skill 和 Action ToolSpec；ask 没
 ### 9.2 单一结构化问答方案复核
 
 - 维护者已提交上一轮计划修订为 `afc6864`。本次核对唯一事实类型、ask executor、QuestionRequest/snapshot、Session 双投影、前端卡片/Markdown 注册及运行摘要的真实消费者。
-- 明确 text/question 的字段语义变更与 explanation 删除同时进行，不能只增一个前端标题字段；模型反馈保留 model_text。
+- 当轮方案曾建议 text 表达说明、question 表达问题并删除旧 explanation；本次完整正文讨论已由第 6.2 节替代该字段方案。模型反馈仍保留 model_text。
 - 确认 composerDraft 仍有 Composer、资源引用、ACP/MCP 消费者，只删除问题块专用 compose 路径；确认 core.answer 自然语言交接能力不受卡片移除影响。
 - 仅修订本计划并检查本地链接及 diff；未修改业务/前端代码或默认配置，没有重跑与文档修改无关的测试。
 
-本次建议提交文本：`docs: design a single structured core.ask contract`。
+### 9.3 完整正文投影与等待语义复核
+
+- 维护者已提交上一轮计划修订为 `d823be8`，并确认单一结构化输入及两个回答约束。本轮继续讨论派生 text；没有修改业务代码。
+- 确认 QuestionForm 读取问题对象的 text，当前没有独立 question 字段；运行列表也读取 text。将其保持为完整正文可减少通用读取消费者的语义变更。
+- 沿 Catalog → ActionFramework/Executor → Phase3 → QuestionRequest → WaitCondition/Inbox 检查执行与等待期限，确认默认等待 deadline=None，5 秒属于 Action 执行。核对 append 唤醒代码及既有测试，不将默认无限等待误述为只可能由 reply 解除。
+- 明确 answer 卡片删除仅影响 Markdown 问题块交互；ask 的新来源格式与其无直接因果关系。计划对两项影响分别说明。
+- 仅修订此文档，核对本地链接及 diff；未修改测试实例、未运行真实模型、未重复无关测试。
+
+本次建议提交文本：`docs: clarify question text projections and ask waiting semantics`。
