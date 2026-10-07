@@ -2,7 +2,7 @@
 
 日期：2026-10-07
 
-状态：`pending`（业务代码尚未实施；P2/P3、P5 暂缓、P6 顶层并列字段及完整 text 语义已确认；本次明确旧路径问题边界、reply 分层及新字段命名）
+状态：`pending`（准备实施：目标、owner 边界和实施顺序已核对；新说明字段按 details 准备，业务代码尚未修改）
 
 基线：`d56aff3 refactor(context): improve narrative context and unify references`。
 
@@ -16,7 +16,7 @@
 
 保留已经确认的路线 A、U0、日期/日内序号和 request/Turn 分工。ask 仍使用自己的唯一 ActionResult Entry；input/append/reply 仍是独立输入 Entry。Inspect 属于各 owner，不引入统一工具网关，不扩大跨日 Session/Workspace 访问，不引入摘要模型、正文版本库、平行日志或额外续页令牌保存服务。
 
-本轮拟实施 P1、P2、P3、P4、P6 和清理项。维护者已认可 P2/P3 的分页与引用解释方案，并确认本轮暂缓 P5 的 Workspace 完整流式化；后者是现有性能限制，不记为已修复。P6 已确认单一结构化 core.ask、顶层并列字段、问题必填、说明/选项可省略、保留 allow_other（缺省 true）、拒绝无回答入口的组合，并移除 Markdown 问题块协议及普通回答内卡片。text 继续表达说明与问题共同组成的完整正文，包括回复叙事中关联提问的模型投影；新增 question 不能把正文缩减为孤立问句。当前显式 text/options 路径不存在独立说明丢失，新结构是正文组织与展示改进。新说明字段推荐命名 details，与 question/options 并列，并派生字符串 text；旧 fence 的 explanation 随解析路径删除。当前阶段只修订计划，不修改业务代码、默认资源或测试实例。
+本轮拟实施 P1、P2、P3、P4、P6 和清理项。维护者已认可 P2/P3 的分页与引用解释方案，并确认本轮暂缓 P5 的 Workspace 完整流式化；后者是现有性能限制，不记为已修复。P6 已确认单一结构化 core.ask、顶层并列字段、问题必填、说明/选项可省略、保留 allow_other（缺省 true）、拒绝无回答入口的组合，并移除 Markdown 问题块协议及普通回答内卡片。text 继续表达说明与问题共同组成的完整正文，包括回复叙事中关联提问的模型投影；新增 question 不能把正文缩减为孤立问句。当前显式 text/options 路径不存在独立说明丢失，新结构是正文组织与展示改进。新说明字段按 details 准备，与 question/options 并列，并派生字符串 text；旧 fence 的 explanation 随解析路径删除。当前阶段只修订计划，不修改业务代码、默认资源或测试实例。
 
 ## 2. 已确认的问题与成因
 
@@ -47,7 +47,7 @@ P1/P2/P3 是同一事实的不同读取和展示路径没有共同完成语义�
 
 仓库与实例的 ask schema 一致。对 `272f1f7 → d56aff3` 的检查表明，ask 的 schema 和 `_question_content()` 没有在上一轮改动，新增的是 `model_text=question.narrative(...)`。model_text 不用于 TurnQuestion 或前端 QuestionCard 的事实构造。因此证据支持“模型输出格式不符合既有卡片协议且未得到针对性反馈”，不支持“上一轮把正确的卡片数据改成了 JSON”。
 
-用当前生产解析器验证：普通 json fence 加 kind 字段会成为无选项问题；正确 tinysoul-question fence 会得到真实选项；仅修改 fence 名称但保留 kind 会触发未知字段错误。修正必须同时处理两处格式错误。
+用当前生产解析器验证：普通 json fence 加 kind 字段会成为无选项问题；正确 tinysoul-question fence 会得到真实选项；仅修改 fence 名称但保留 kind 会触发未知字段错误。这说明旧格式有两处不匹配；当前方案直接删除特殊 fence 路线，不继续修补其输入格式。
 
 进一步发现：正确 fence 外的说明被保存为 ActionResult.explanation，Trace/Session 有该字段；`QuestionRequest` 经 QuestionContent 取得的问题内容及 snapshot 不携带它，前端 QuestionContent/QuestionCard 也不消费 explanation。这里专指独立 explanation，不表示写在 text 中的说明无法显示；该缺口在 `272f1f7` 已存在。最新方案不继续维护散落的 explanation 抄写分支，而是在第 6 节由统一问题内容值维护来源和完整 text 投影。
 
@@ -87,7 +87,7 @@ P1/P2/P3 是同一事实的不同读取和展示路径没有共同完成语义�
 
 - 删除 SessionActionRecord decoder 的 legacy_options 转换及失去消费者的说明；当前版本只接受 typed options。不升级旧实例记录，不增加兼容解析。
 - 替换前端测试中作为合法输入使用的 `turn:trace@…`，保留明确用于拒绝旧格式的测试。
-- 清除 `ActivityGlimpse` 中重复的 payload.ref fallback；按真实消费者检查相邻字段，避免再次机械替换。
+- 清除 `ActivityGlimpse` 和 `features/trace/facts.ts` 中重复的 payload.ref fallback；按真实消费者检查相邻字段，避免再次机械替换。
 - 修正 `docs/design/session.md` 中 R6/legacy_options 的历史措辞；修正 `docs/endpoint/frontend-integration.md` 中创建请求后保存 turn_id 用于控制的过时表述，明确 request_id 与可空 turn_id。
 - 保持清理有明确范围，不借机重构无关前端页面或所有浏览接口。
 
@@ -266,7 +266,7 @@ core.ask 继续负责生成问题事实并暂停当前 Turn，core.answer 继续
 
 顶层并列已获认可。这里保持的是完整正文的语义与读取方式，工具输入仍会由原 text 字符串调整为两个来源字段；不能声称模型调用参数完全未变。源字段只生成一次，text 是确定性组合：有说明时为 `details + 两个换行 + question`，无说明时就是 question。该组合放在现有 QuestionContent 的纯读取属性/投影中，保持一处定义；不新增模板系统、不调用模型、不在前端重复拼接。不建议让模型同时生成完整 text、details、question 三份文字，也不让同名 text 在输入表示说明、输出却表示完整正文。
 
-本次推荐将新说明字段命名为 details：它容纳面向用户的背景、发现、取舍、建议等正文，语义比 background 更完整，也避免 context 与项目 Context 概念混用、body 与完整 text 职责重叠。它与 question 一起组成完整正文，不表示短摘要或隐藏附注。旧 explanation 是 fence 外文字的解析产物，将连同解析、抄写分支和独立叙事参数删除；不将旧字段更名为新字段作为兼容输入，不迁移旧实例数据。新字段名称待本次审阅。
+实施采用新说明字段 details：它容纳面向用户的背景、发现、取舍、建议等正文，语义比 background 更完整，也避免 context 与项目 Context 概念混用、body 与完整 text 职责重叠。它与 question 一起组成完整正文，不表示短摘要或隐藏附注。旧 explanation 是 fence 外文字的解析产物，将连同解析、抄写分支和独立叙事参数删除；不将旧字段更名为新字段作为兼容输入，不迁移旧实例数据。该命名是本次准备依据既定语义收敛的实施选择。
 
 Phase2 模型在工具调用中一次生成以下来源字段；后端校验并构造 QuestionContent，不为补说明或标题增加内部 LLM 调用：
 
@@ -365,7 +365,7 @@ Phase2 仍只自动挂载选中域的 domain Skill 和 Action ToolSpec；ask 没
 
 此处已是维护者提出的协议简化，不再维持旧双输入协议等待模型复测；实现后仍应先做确定性契约验证，再用不含旧示例的语境验证真实生成。前者覆盖：有/无说明、有/无选项、默认自由回答、限制为候选项、choice+comment、无可回答路径的局部失败、等待到历史的内容一致、普通回答/代码块不生成卡片。跨模块测试验证一条真实数据流，不重复所有参数矩阵，不锁定自然语言文案。
 
-原来的前端 17 项及生产解析复现只证明旧基线，不能验收新协议。尚未实施新代码、调用真实模型或重置实例；本节是待审阅方案。
+原来的前端 17 项及生产解析复现只证明旧基线，不能验收新协议。尚未实施新代码、调用真实模型或重置实例；本节方案已完成实施准备。
 
 ### 6.7 默认等待与两种 timeout
 
@@ -415,8 +415,8 @@ Phase2 仍只自动挂载选中域的 domain Skill 和 Action ToolSpec；ask 没
 
 ### 7.2 执行顺序
 
-1. 审阅第 6 节结构化来源与完整 text 投影，固定已认可的 P2/P3 页面样例与最少的 owner 返回值；建立能复现当前缺口的行为用例。P5 暂缓、单一问答协议及已确认参数约束不再重复确认。
-2. 先完成 P1、P4、清理和 P6 的问答闭环，让直接用户交互恢复可靠反馈；同步相关 Endpoint/前端消费者。
+1. 按第 6 节 details/question/options 和派生 text 收敛 P6，删除旧 fence；同步问答 Endpoint/前端消费者。以新的唯一问题值作为 P1 关联补全的来源，避免重复迁移。
+2. 完成 P1、P4 和对应清理；验证当前回复、单独 Inspect 及 Session 完成后的叙事。固定短回复完整页、长回复续页、文档选段、目录及精简读取事实的样例，再落定共同页值。
 3. 从一条回复和一段文档验证完整页/部分页/续页的共同设计，再扩展 Trace、Session、Home、Memory 与 Workspace 目录；不留下旧、新并行的模型 Inspect 路径。
 4. 从实际页生成精简事实，验证折叠和 Session completion 后仍有解释与精确范围；复核引用与说明共同折叠、无关注释不使续页失效。
 5. 同步 AGENTS 必要的稳定语义、设计、Endpoint、默认资源和本计划进度；完成门禁后逐项核对。P5 明确标为暂缓限制，不计入“已修复”。
@@ -444,14 +444,14 @@ Phase2 仍只自动挂载选中域的 domain Skill 和 Action ToolSpec；ask 没
 
 测试以 owner 行为与真实边界为中心：关键问答矩阵由 typed question/Action owner 覆盖，SDK/Endpoint/前端各保留一条真实往返；页面测试验证正文覆盖和可读信息，不锁死可编辑文案。`continue_json_sequence` 的真实机器分片测试保留，Inspect 测试不继续固化模型必须消费 JSON 碎片的旧假设。若确有默认资源改动，生成资源用例验证其实际装配；不新增只断言某个提示词句子的测试。
 
-## 8. 待审阅选择
+## 8. 已收敛决策与实施边界
 
 1. **P2/P3 已认可**：owner 在分页前提供语义单位，实际页面与精简事实使用同一次选择；按第 4.6 节对齐已有读取消费者。保持 U0，不增加通用读取 Action。
-2. **P6 已确认方向及本次审阅点**：仅保留 core.ask 顶层并列的结构化输入，问题必填、说明/选项可省略；拒绝无选项且 allow_other=false。完整 text 包含说明与问题，回复叙事的关联提问也保留该正文；用户回答事实仍单独保存。本次建议新说明字段命名 details，旧 fence 的 explanation 随旧路线删除，不作为别名保留。仅新名称待本次审阅，其余已确认内容不重开。
+2. **P6 已确认方向与实施命名**：仅保留 core.ask 顶层并列的结构化输入，问题必填、说明/选项可省略；拒绝无选项且 allow_other=false。完整 text 包含说明与问题，回复叙事的关联提问也保留该正文；用户回答事实仍单独保存。按 details 命名新说明字段，旧 fence 的 explanation 随旧路线删除，不作为别名保留。
 3. **allow_other 已确认**：保留可选策略，缺省 true；模型可以按需要设为 false，选择后仍允许 comment。
 4. **P5 已确认**：本轮暂缓 Workspace 完整流式化，记录限制；不再设确认点。
 
-本次明确两条旧路径和回复事实/叙事的区别，并讨论新说明字段名称。顶层并列、完整正文与回复语境要求已明确。其余确认项不重复设置批准点。当前请求是分析与计划修订，不视为本轮业务代码实施授权。
+目标、边界及常规实现选择已清楚，没有阻塞实施的业务或架构决策。当前请求是复核并进入准备实施状态，本轮只更新计划与验证现有基线，尚未开始业务代码修改。
 
 ## 9. 本次调查与文档交付记录
 
@@ -497,4 +497,29 @@ Phase2 仍只自动挂载选中域的 domain Skill 和 Action ToolSpec；ask 没
 - 新方案采用已认可的顶层层级，推荐 details/question/options，旧 explanation 只保留于历史问题说明与待删除代码的分析。区分新功能与旧缺陷，不把删除旧路线描述为修补显式路径。
 - 仅修订本计划并检查本地链接及 diff；未修改业务/前端代码、配置或测试实例，未调用真实模型，也未执行完整测试门禁。
 
-本次建议提交文本：`docs: distinguish ask input paths and reply facts`。
+### 9.6 实施准备核对
+
+维护者已提交上一轮计划为 `b6a8408`，相对 `d56aff3` 的业务代码、前端与测试没有新改动。重新读取 AGENTS.md 并沿当前代码核对后，计划与现有 owner 边界一致，可以按以下顺序实施：
+
+1. **先收敛 core.ask 内容模型**：在 `kernel.interaction` 让问题值拥有 details/question/options/allow_other，提供只读完整 `text`；Catalog 与 Action executor 删除旧 fence 解析和 `explanation` 附加结果。ActionResult、QuestionRequest、TurnSnapshot、Trace/Session 均从同一值正向投影，reply 继续使用完整 `text` 作为关联提问。
+2. **再修正输入与 Session 叙事**：沿 `reply_to` 建立一次 Turn 内的问题索引，使当前 Search、Trace input occurrence、Session interaction/navigation 和历史 Inspect 使用相同的回答补全。QuestionAnswer、PendingInput、SessionInputRecord 仍只保存用户选择/comment 或自由回答；不把 Agent 正文写回输入事实。Session 仅在正式 output 已表达成功回答时去重 core.answer，失败、超时、取消和未执行事实保留。
+3. **随后迁移 Inspect 语义页**：在现有 `DisclosurePage`/retrieval disclosure 协议上增加 owner 构造的可读语义单位和实际覆盖，按单位分页，长正文才切正文；由同一页分别生成 SDK/Endpoint 机器页面、ActionResult.model_text 和 foldable canonical recollection。先验证 Context/Session 问答页，再对齐 Home/Memory 文档页与 Workspace 目录页；保留各 owner 路由、ref 和 continuation，不新增通用网关或摘要存储。
+4. **最后同步消费者和清理**：更新 Endpoint 契约、前端问题卡片与 Inspect 页面消费者、默认 Catalog/Skill 指导、Session legacy_options、旧 ref 测试及重复 fallback；不迁移测试实例，不为 P5 的 Workspace 全文流式读取增加实现。
+
+预计主要修改区域：`kernel/interaction.py`、core.ask Catalog/executor、loop QuestionRequest/Agent snapshot、Context Trace/Search/Inspect、Session views/completion/records、`kernel/retrieval/disclosure.py`、Home/Memory/Workspace inspect Action 及其 Endpoint/前端契约消费者；不新增第二套事实日志、等待状态机、跨日访问或正文版本库。
+
+预期效果：模型在 ask 结果、reply 叙事、TurnTrace、Session 线性历史和 Inspect 页面中看到同一份包含说明与核心问题的完整正文；选项、选择标签、comment/自由回答保持角色；折叠后仍有目标、解释和实际范围；前端卡片可以突出核心问题但不重复正文；失败 Action 和普通 answer 的生命周期事实不再从历史叙事中消失。默认等待仍无截止时间，Action 执行 5 秒与用户回复等待继续分离。
+
+准备核对中明确的实现约束：
+
+- `InspectableSegment`、段集合及 owner Service 当前传递 JsonObject；应沿现有单一路径传递明确的页结果，在公开 JSON 边界序列化。迁移其真实实现与消费者，不用字典隐藏文本/折叠数据，也不新增一套平行 inspect 调用链。共同页值保持在已有 retrieval disclosure 模块，业务叙事由 owner 构造，不把 Search 的评分结构搬入 Inspect。
+- `inspect_recollection` 当前从任意 dict 猜测标题和子 ref；迁移后由页选择直接提供目标解释和覆盖。Session completion 现有 canonical_payload 保存职责可复用；补全其读取投影即可，不引入另一份持久正文。未知 Action 的实际业务 JSON 仍可作为正文显示。
+- `SessionView.inspect` 的全局 manifest.revision 不应成为未变正文续页的失效因素；收窄令牌绑定时保留日、来源集合、实际内容与 query/action 条件。段的 expected_revision 是已安装视图一致性检查，不能因为修改令牌就机械删除。Trace 根导航结构真的变化时令牌可以失效，叶子内容未变时引用及正文保持可读，不建立旧令牌保管机制。
+- Home/Memory 的 MarkdownReference 已有 label，无需新增解析器或读取目标全文补标题。direct_refs 的说明复用来源 label 和已有目录信息，返回预算包括导航项；检查现有 metadata.direct_refs 与正文页的重复输出，并同步其 References 面板消费者。
+- Workspace 文本已有实际范围与可读 ActionResult，沿用选段和读取算法；需要时调整页面包装/预算以符合共同返回契约。暂缓的是全文扫描与内存性能优化，不能把有界输出描述为有界内部读取。目录页迁移到语义分页，非文本继续为元数据读取。
+- Session 当前 interaction 的普通失败结果未统一投影 failure 摘要；P4 同步活动与完成后的既有 failure/reason/feedback，复用事实，不合成取消或未执行的工具结果。成功回答去重依据正式 output 契约，不通过字符串相等性猜测。
+- 继续使用现有三层失败处理：模型可修正的参数、引用和分页错误由 owner 转局部结果，存储/I/O/内部不变量走原模块 bridge；取消和必要完成沿原生命周期。不新增分层重试、补偿提交或防御状态机。
+
+准备验证：通过标准测试脚本运行问答 Trace、披露导航、主循环展示保护及 Session completion 的 12 项聚焦基线测试，全部通过；它们验证可复用的现有边界，不代表本计划已实现。后续修改后按第 7.3 节运行聚焦/Fast/Full/ty 及受影响前端测试与构建，更新 Endpoint/设计文档，并逐项核对后才归档。本轮仅修改本文，另检查 Markdown 本地链接和 git diff。
+
+本次建议提交文本：`docs: finalize context disclosure implementation preparation`。
