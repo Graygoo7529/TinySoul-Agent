@@ -51,6 +51,7 @@ function event(
 
 const TURN = { level: "turn", name: TURN_ID };
 const CYCLE = { level: "cycle", name: "cycle_1" };
+const PHASE1 = { level: "phase", name: "phase1" };
 const PHASE2 = { level: "phase", name: "phase2" };
 const PHASE3 = { level: "phase", name: "phase3" };
 
@@ -225,6 +226,34 @@ describe("ProcessPanel", () => {
     expect(text).toContain("execution.run_shell");
     // A not-executed action is shown as such — never as a tool answer.
     expect(text).toContain("not executed");
+  });
+
+  it("renders the overview metric band (elapsed, tokens, failure jump)", async () => {
+    serveEvents([
+      event("loop.phase.started", 10, { phase: "phase1" }, [TURN, CYCLE, PHASE1]),
+      event("llm.task.started", 20, { task_id: "t1", consumer: "loop.phase1", target: "default", profile: "control" }, [TURN, CYCLE, PHASE1]),
+      event("llm.model.response", 30, { task_id: "t1", usage: { input_tokens: 100, output_tokens: 5 } }, [TURN, CYCLE, PHASE1]),
+      event("action.result", 40, {
+        result_id: "r1", call_id: "c1", action: "workspace.read", status: "failed",
+        stage: "execution", sequence: 1, domain: "workspace", invoke_id: "invoke_c1",
+        batch_id: "b1", failure: { reason: "execution_failed", feedback: "boom" }, payload: null,
+      }, [TURN, CYCLE, PHASE3]),
+      event("loop.phase.completed", 60, { phase: "phase1" }, [TURN, CYCLE, PHASE1]),
+    ]);
+    render(<ProcessPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29" />);
+    await flush();
+    // Elapsed from first phase start to last finish (10 → 60).
+    expect(container.textContent).toContain("总耗时");
+    expect(container.textContent).toContain("50s");
+    // Tokens summed over retained usages (100 + 5).
+    expect(container.textContent).toContain("105");
+    const failButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("1 个失败"),
+    );
+    expect(failButton).toBeDefined();
+    act(() => {
+      failButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
   });
 
   it("pushes the action detail from a process row", async () => {

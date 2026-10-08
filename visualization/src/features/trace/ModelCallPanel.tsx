@@ -15,7 +15,7 @@
 import { useRef, useState, type ReactElement } from "react";
 import { Check, ChevronRight, Copy, Download } from "lucide-react";
 import { downloadJson } from "../../utils/download";
-import { formatDuration } from "../../utils/format";
+import { formatDuration, formatTokens } from "../../utils/format";
 
 import type { JsonObject } from "../../api/v2/types";
 import { Badge, type BadgeTone } from "../../components/ui/Badge";
@@ -192,10 +192,6 @@ interface ModelLifecycleEntry {
 
 function formatClock(seconds: number): string {
   return new Date(seconds * 1000).toLocaleTimeString([], { hour12: false });
-}
-
-function formatTokens(value: number): string {
-  return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(value);
 }
 
 function LlmTaskView({

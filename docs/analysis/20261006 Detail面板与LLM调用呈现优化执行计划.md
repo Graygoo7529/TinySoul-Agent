@@ -47,6 +47,8 @@ Phase 卡片标题行一眼读到的是内容（"已选择 2 个域"），`phase
 
 ## 改进点 2：Overview 指标带
 
+状态：**已实施**（2026-10-08，tsc + 全部 807 前端测试通过，含新增行为用例）
+
 ### 现状分析
 
 `ProcessPanel.tsx:192-206` 的 Overview 只有四个计数格（Cycles/LLM calls/Actions/Searches）加一行 token 合计。没有总耗时、没有每 cycle 耗时——而 `CycleMeta`（:369-381）其实已经计算了 cycle 级耗时，只是藏在折叠头的小字里；LLM task 级别也没有耗时汇总。

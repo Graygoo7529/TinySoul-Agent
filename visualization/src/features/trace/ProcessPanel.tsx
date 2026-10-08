@@ -9,7 +9,7 @@ import { findRequestIdForTurn } from "../../store/turnStore";
 
 import { useState, type ReactElement, type ReactNode } from "react";
 import { Brain, ChevronRight, Wrench, Download, Loader2, CheckCircle2, CircleDashed, XCircle } from "lucide-react";
-import { formatDuration } from "../../utils/format";
+import { formatDuration, formatTokens } from "../../utils/format";
 import { useNow } from "../../hooks/useNow";
 import { selectActiveTurnId, useConnectionStore } from "../../store/connectionStore";
 import { useThrottledValue } from "../../hooks/useThrottledValue";
@@ -191,6 +191,52 @@ function OverviewCard({ process }: { process: TurnProcess }): ReactElement {
   const llmTasksCount = process.llmTasks.length;
   const searchesCount = process.searches.length;
   const tokenTasks = process.llmTasks.filter((task) => task.tokens !== null);
+  const tokensTotal = tokenTasks.reduce((sum, task) => sum + (task.tokens ?? 0), 0);
+
+  // Elapsed: first observed phase start to the last finish (now while running).
+  const phases = process.cycles.flatMap((cycle) => cycle.phases);
+  const starts = phases.flatMap((phase) => (phase.startedAt === null ? [] : [phase.startedAt]));
+  const ends = phases.flatMap((phase) => (phase.finishedAt === null ? [] : [phase.finishedAt]));
+  const anyRunning = phases.some((phase) => phase.status === "running");
+  const elapsed =
+    starts.length > 0 && (ends.length > 0 || anyRunning)
+      ? {
+          from: Math.min(...starts),
+          to: anyRunning ? Date.now() / 1000 : Math.max(...ends),
+        }
+      : null;
+
+  // Failures: failed/timeout actions plus failed model tasks.
+  const allTraces = [
+    ...phases.flatMap((phase) => phase.actions),
+    ...process.unscopedActions,
+  ];
+  const failures =
+    allTraces.filter((trace) => {
+      const kind = actionTraceStatus(trace).kind;
+      return kind === "failed" || kind === "timeout";
+    }).length + process.llmTasks.filter((task) => task.status === "failed").length;
+  const firstFailedKey = (() => {
+    for (const cycle of process.cycles) {
+      for (const phase of cycle.phases) {
+        const failed =
+          phase.status === "failed" ||
+          phase.actions.some((trace) => {
+            const kind = actionTraceStatus(trace).kind;
+            return kind === "failed" || kind === "timeout";
+          }) ||
+          phase.llmTasks.some((task) => task.status === "failed");
+        if (failed) return `${cycle.cycleId}:${phase.phase}`;
+      }
+    }
+    return null;
+  })();
+  const scrollToFailure = () => {
+    if (firstFailedKey === null) return;
+    document
+      .querySelector(`[data-phase-key="${CSS.escape(firstFailedKey)}"]`)
+      ?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+  };
 
   return (
     <SectionCard title="Overview">
@@ -202,9 +248,43 @@ function OverviewCard({ process }: { process: TurnProcess }): ReactElement {
           </div>
         ))}
       </div>
-      {tokenTasks.length > 0 && <div className="mt-2 text-[11px] text-fg-faint" title="Usage of retained model responses; unavailable responses are excluded">
-        {tokenTasks.reduce((sum, task) => sum + (task.tokens ?? 0), 0).toLocaleString()} tokens / {tokenTasks.length} recorded tasks
-      </div>}
+      {(elapsed !== null || tokenTasks.length > 0 || failures > 0) && (
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-3.5 gap-y-1 border-t border-line/60 pt-2 text-[11px] text-fg-muted">
+          {elapsed !== null && (
+            <span>
+              <span className="text-fg-faint">总耗时 </span>
+              <span className="font-mono font-medium text-fg">
+                {formatDuration(elapsed.from, elapsed.to)}
+              </span>
+            </span>
+          )}
+          {elapsed !== null && cyclesCount > 0 && (
+            <span>
+              <span className="text-fg-faint">平均每 Cycle </span>
+              <span className="font-mono font-medium text-fg">
+                {formatDuration(0, (elapsed.to - elapsed.from) / cyclesCount)}
+              </span>
+            </span>
+          )}
+          {tokenTasks.length > 0 && (
+            <span title="Usage of retained model responses; unavailable responses are excluded">
+              <span className="text-fg-faint">tokens </span>
+              <span className="font-mono font-medium text-fg">{formatTokens(tokensTotal)}</span>
+              <span className="text-fg-faint">（{tokenTasks.length} 次调用）</span>
+            </span>
+          )}
+          {failures > 0 && (
+            <button
+              type="button"
+              onClick={scrollToFailure}
+              title="滚动到第一个失败的 phase"
+              className="font-medium text-danger hover:underline"
+            >
+              ● {failures} 个失败
+            </button>
+          )}
+        </div>
+      )}
     </SectionCard>
   );
 }
@@ -247,48 +327,50 @@ function ProcessTree({
         >
           <div className="space-y-2.5">
             {cycle.phases.map((phase) => (
-              <PhaseCard key={phase.phase} phase={phase}
-                onOpenTask={(taskId) => nav.openModelCall({ kind: "llm", taskId })}>
-                <div className="space-y-0.5">
-                  {phase.actions.map((trace, index) => (
-                    <ActionRow
-                      key={index}
-                      epoch={epoch}
-                      turnId={turnId}
-                      day={day}
-                      trace={trace}
-                    />
-                  ))}
-                  {phase.llmTasks.map((task) => (
-                    <button
-                      key={task.taskId}
-                      type="button"
-                      onClick={() =>
-                        nav.openModelCall({ kind: "llm", taskId: task.taskId })
-                      }
-                      className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[12px] hover:bg-hover"
-                    >
-                      <ChevronRight size={11} className="shrink-0 text-fg-faint" />
-                      <span
-                        className="min-w-0 flex-1 truncate text-fg-muted"
-                        title={task.profile === "" ? task.taskId : undefined}
+              <div key={phase.phase} data-phase-key={`${cycle.cycleId}:${phase.phase}`}>
+                <PhaseCard phase={phase}
+                  onOpenTask={(taskId) => nav.openModelCall({ kind: "llm", taskId })}>
+                  <div className="space-y-0.5">
+                    {phase.actions.map((trace, index) => (
+                      <ActionRow
+                        key={index}
+                        epoch={epoch}
+                        turnId={turnId}
+                        day={day}
+                        trace={trace}
+                      />
+                    ))}
+                    {phase.llmTasks.map((task) => (
+                      <button
+                        key={task.taskId}
+                        type="button"
+                        onClick={() =>
+                          nav.openModelCall({ kind: "llm", taskId: task.taskId })
+                        }
+                        className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[12px] hover:bg-hover"
                       >
-                        decision · {task.profile || shortId(task.taskId)}
-                      </span>
-                      {task.status !== null && (
-                        <Badge tone={task.status === "failed" ? "red" : "green"}>
-                          {task.status}
-                        </Badge>
-                      )}
-                    </button>
-                  ))}
-                  {phase.actions.length === 0 && phase.llmTasks.length === 0 && (
-                    <div className="px-1.5 text-[12px] text-fg-faint">
-                      No retained records in this phase.
-                    </div>
-                  )}
-                </div>
-              </PhaseCard>
+                        <ChevronRight size={11} className="shrink-0 text-fg-faint" />
+                        <span
+                          className="min-w-0 flex-1 truncate text-fg-muted"
+                          title={task.profile === "" ? task.taskId : undefined}
+                        >
+                          decision · {task.profile || shortId(task.taskId)}
+                        </span>
+                        {task.status !== null && (
+                          <Badge tone={task.status === "failed" ? "red" : "green"}>
+                            {task.status}
+                          </Badge>
+                        )}
+                      </button>
+                    ))}
+                    {phase.actions.length === 0 && phase.llmTasks.length === 0 && (
+                      <div className="px-1.5 text-[12px] text-fg-faint">
+                        No retained records in this phase.
+                      </div>
+                    )}
+                  </div>
+                </PhaseCard>
+              </div>
             ))}
           </div>
         </Collapsible>
