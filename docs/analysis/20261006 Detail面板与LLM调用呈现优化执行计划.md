@@ -140,7 +140,7 @@ RequestView（:479-588）把消息全文铺开：text part 是 12px `whitespace-
 
 ## 改进点 6：Request/Response 结构与可读性（2026-10-08 按维护者反馈扩展，含改进点 5 锚轨修订）
 
-状态：**已实施**（2026-10-08，tsc + 全部 806 前端测试通过；同日二次反馈优化：Attempt 折叠头移除（单 attempt 直渲、多 attempt 细分隔行）、工具定义单开切换、JsonTree 新增 defaultDepth 并默认两层、Response 头部小字移除、思考过程改 Fold、工具调用参数美化（字符串数组→chips/DomainChip）、去除一次性流光并强化折叠态可点边框）
+状态：**已实施**（2026-10-08，tsc + 全部 806 前端测试通过；同日二次反馈优化：Attempt 折叠头移除、工具定义单开切换、JsonTree 新增 defaultDepth 并默认两层、Response 头部小字移除、思考过程改 Fold、工具调用参数美化、去除一次性流光并强化折叠态可点边框；三次反馈落地：Tools 胶囊选中五态、Context 光轨紧凑 sticky、segmentIds 中文化、slot 段级复制按钮、lifecycle 并入头部"模型"行——后者同时消化改进点 7）
 
 ### 现状分析
 
@@ -176,20 +176,23 @@ RequestView（:479-588）把消息全文铺开：text part 是 12px `whitespace-
 
 ## 改进点 7：调用链合并（lifecycle + attempts）
 
+状态：**已实施**（2026-10-08，随改进点 6 后续优化以更简形态落地，见下）
+
 ### 现状分析
 
 "Model lifecycle"（:354-380）与 "Attempts"（:381-383）是两个并列区块：前者列 `llm.model.started/completed/failed` 的模型级事实，后者是按 attempt 分组的 provider 级记录。术语面向开发者，两个列表语义重叠（同一模型链拆成两处）。
 
-### 修改范围与内容
+### 实际落地（2026-10-08，随改进点 6 二次优化）
 
-`ModelCallPanel.tsx` LlmTaskView：
+Attempt 折叠头在改进点 6 优化中已移除（单 attempt 直渲、多 attempt 细分隔行），独立的 "Model lifecycle" 区块随之失去存在意义，最终形态比原设计更简：
 
-- 合并为单一"调用链"区块：按时间顺序渲染每次 attempt 一行——`provider / providerModel · 状态徽章 · 耗时`；模型级 lifecycle 事实（无 attempt 号的 started/completed/failed）作为该行的附属徽标（如"模型级失败：provider_timeout"），不再单独成区；
-- Attempt 详情（request/response）仍在行内展开（现有 Collapsible 结构保留，只改标题行呈现）。
+- lifecycle 区块删除；模型级状态并入头部 dl "模型"行（`provider / model · completed`，失败同行红字原因）；
+- 多 attempt 时"模型"行附重试摘要（"第 1 次 failed → 第 2 次 completed"），尝试详情由细分隔行承担；
+- 同步落地：Tools 胶囊选中态五态、Context 光轨紧凑 sticky、消息头 segmentIds 中文化（`segmentLabel`）、slot 段级复制按钮（hover 显现）。
 
 ### 预期效果
 
-重试链路一眼可见（"第 1 次失败 timeout → 第 2 次成功 6.2s"）；减少一个概念（不再有 lifecycle/attempt 双列表）。
+无 lifecycle/attempt 双列表、无开发者术语；模型级成败与重试在头部一行读完。
 
 ---
 

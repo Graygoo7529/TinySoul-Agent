@@ -13,7 +13,7 @@
  */
 
 import { useRef, useState, type ReactElement } from "react";
-import { ChevronRight, Download } from "lucide-react";
+import { Check, ChevronRight, Copy, Download } from "lucide-react";
 import { downloadJson } from "../../utils/download";
 import { formatDuration } from "../../utils/format";
 
@@ -33,7 +33,7 @@ import {
 } from "./facts";
 import { readEventWindow, type EventWindow } from "./eventWindow";
 import type { ModelCallTarget } from "./registry";
-import { domainBorderClass, DomainChip, IdChip, isKnownDomain } from "../../components/trace/semantic";
+import { domainBorderClass, DomainChip, IdChip, isKnownDomain, segmentLabel } from "../../components/trace/semantic";
 import { Markdown } from "../../components/markdown/Markdown";
 import { makeTraceNavigation } from "./entries";
 import {
@@ -321,6 +321,17 @@ function LlmTaskView({
     orderedAttempts.find(
       (attempt) => attempt.providerModel !== null || attempt.providerId !== null,
     ) ?? null;
+  // Model-level lifecycle folds into the head model row: no separate block.
+  const lifecycleModel =
+    lifecycle.map((entry) => entry.modelId).find((id) => id !== null) ?? null;
+  const modelStatus =
+    [...lifecycle].reverse().find((entry) => entry.status !== null) ?? null;
+  const modelLabel =
+    modelAttempt !== null
+      ? [modelAttempt.providerId, modelAttempt.providerModel]
+          .filter((part) => part !== null)
+          .join(" / ")
+      : lifecycleModel;
   const eventTimes = window.events.map((event) => event.created_at);
   const startedAt = eventTimes.length > 0 ? Math.min(...eventTimes) : null;
   const finishedAt = eventTimes.length > 0 ? Math.max(...eventTimes) : null;
@@ -352,13 +363,33 @@ function LlmTaskView({
           <dd>
             <IdChip id={task.taskId} />
           </dd>
-          {modelAttempt !== null && (
+          {modelLabel !== null && (
             <>
               <dt className="text-fg-faint">模型</dt>
-              <dd className="font-mono text-[11px] text-fg-muted">
-                {[modelAttempt.providerId, modelAttempt.providerModel]
-                  .filter((part) => part !== null)
-                  .join(" / ")}
+              <dd className="text-fg-muted">
+                <span className="font-mono text-[11px]">{modelLabel}</span>
+                {modelStatus !== null && (
+                  <>
+                    {" "}
+                    <Badge tone={modelStatus.status === "failed" ? "red" : "green"}>
+                      {modelStatus.status}
+                    </Badge>
+                    {modelStatus.errorType !== null && (
+                      <span className="ml-1.5 text-danger">{modelStatus.errorType}</span>
+                    )}
+                  </>
+                )}
+                {orderedAttempts.length > 1 && (
+                  <span className="ml-1.5 text-[11px] text-fg-faint">
+                    （{orderedAttempts
+                      .map((attempt, index) => {
+                        const label = attempt.status ?? "进行中";
+                        return `${index === 0 ? "" : " → "}第 ${attempt.attempt} 次 ${label}`;
+                      })
+                      .join("")}
+                    ）
+                  </span>
+                )}
               </dd>
             </>
           )}
@@ -424,33 +455,6 @@ function LlmTaskView({
       {task === null && (
         <div className="text-[12px] text-fg-faint">
           No task header was retained; the attempts below are all the record holds.
-        </div>
-      )}
-      {lifecycle.length > 0 && (
-        <div className="space-y-1">
-          <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-            Model lifecycle
-          </div>
-          {lifecycle.map((entry, index) => (
-            <div
-              key={index}
-              className="flex flex-wrap items-center gap-1.5 text-[12px]"
-            >
-              <span className="font-mono text-[11px] text-fg-muted">
-                {entry.modelId ?? "model"}
-              </span>
-              {entry.status !== null ? (
-                <Badge tone={entry.status === "failed" ? "red" : "green"}>
-                  {entry.status}
-                </Badge>
-              ) : (
-                <Badge tone="blue">started</Badge>
-              )}
-              {entry.errorType !== null && (
-                <span className="text-danger">{entry.errorType}</span>
-              )}
-            </div>
-          ))}
         </div>
       )}
       {orderedAttempts.map((attempt, index) => (
@@ -563,8 +567,31 @@ function messageChars(message: unknown): number {
   return total;
 }
 
-/** First non-empty line of the first text part, bounded — the collapsed preview. */
-function messagePreview(message: unknown, limit = 80): string | null {
+/** Plain text of one message for section copy: text parts, JSON parts stringified. */
+function messageText(message: unknown): string {
+  const entry = asObject(message);
+  if (entry === null) return "";
+  const parts = Array.isArray(entry.parts) ? entry.parts : [];
+  return parts
+    .map((part) => {
+      const record = asObject(part);
+      if (record === null) return "";
+      const text = asString(record.text);
+      if (text !== null) return text;
+      if (record.value !== undefined) {
+        try {
+          return JSON.stringify(record.value, null, 2);
+        } catch {
+          return "";
+        }
+      }
+      return "";
+    })
+    .filter((chunk) => chunk !== "")
+    .join("\n");
+}
+
+/** First non-empty line of the first text part, bounded — the collapsed preview. */function messagePreview(message: unknown, limit = 80): string | null {
   const entry = asObject(message);
   if (entry === null) return null;
   const parts = Array.isArray(entry.parts) ? entry.parts : [];
@@ -617,6 +644,7 @@ function Fold({
   onToggle,
   title,
   small = false,
+  actions,
   children,
 }: {
   name: string;
@@ -625,42 +653,80 @@ function Fold({
   onToggle: () => void;
   title?: string;
   small?: boolean;
+  actions?: React.ReactNode;
   children?: React.ReactNode;
 }): ReactElement {
   return (
     <div
-      className={`overflow-hidden rounded-lg border transition-all ${
+      className={`group overflow-hidden rounded-lg border transition-all ${
         open ? "border-accent/35" : "border-line-strong"
       } ${small ? "" : "bg-bg-sunken"}`}
     >
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={onToggle}
-        className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-all ${
+      <div
+        className={`flex items-center transition-all ${
           open
             ? "bg-accent-soft/50 shadow-[inset_2px_0_0_var(--accent)]"
             : "bg-bg-elev/60 hover:border-accent/40 hover:bg-hover hover:shadow-[0_0_10px_var(--accent-soft)]"
         }`}
       >
-        <ChevronRight
-          size={12}
-          className={`shrink-0 transition-transform ${
-            open ? "rotate-90 text-accent" : "text-fg-muted"
-          }`}
-        />
-        <span
-          title={title}
-          className={`${small ? "text-[12px]" : "text-[12.5px]"} font-medium text-fg`}
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={onToggle}
+          className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-1.5 text-left"
         >
-          {name}
-        </span>
-        {meta !== undefined && (
-          <span className="ml-auto font-mono text-[10px] text-fg-faint">{meta}</span>
+          <ChevronRight
+            size={12}
+            className={`shrink-0 transition-transform ${
+              open ? "rotate-90 text-accent" : "text-fg-muted"
+            }`}
+          />
+          <span
+            title={title}
+            className={`${small ? "text-[12px]" : "text-[12.5px]"} font-medium text-fg`}
+          >
+            {name}
+          </span>
+          {meta !== undefined && (
+            <span className="ml-auto font-mono text-[10px] text-fg-faint">{meta}</span>
+          )}
+        </button>
+        {actions !== undefined && (
+          <div className="flex shrink-0 items-center pr-1.5">{actions}</div>
         )}
-      </button>
+      </div>
       {open && <div className="border-t border-line/60 px-2 py-2">{children}</div>}
     </div>
+  );
+}
+
+/** Hover-revealed copy button for one fold section's full text. */
+function SectionCopyButton({
+  getText,
+  title,
+}: {
+  getText: () => string;
+  title: string;
+}): ReactElement {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(getText());
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        } catch {
+          // Clipboard may be unavailable; fail quietly.
+        }
+      }}
+      className="rounded p-0.5 text-fg-faint opacity-0 transition-opacity group-hover:opacity-60 hover:!opacity-100 hover:text-accent"
+    >
+      {copied ? <Check size={11} className="text-success" /> : <Copy size={11} />}
+    </button>
   );
 }
 
@@ -731,7 +797,7 @@ function RequestView({ request }: { request: JsonObject }): ReactElement {
           <div className="flex gap-2">
             {groups.length > 1 && (
               <div
-                className="flex w-3 shrink-0 flex-col items-start justify-around py-1"
+                className="sticky top-2 flex w-3 shrink-0 flex-col items-start gap-[5px] self-start py-1"
                 aria-hidden="true"
               >
                 {groups.map(({ slot, indices }) => (
@@ -767,6 +833,17 @@ function RequestView({ request }: { request: JsonObject }): ReactElement {
                       meta={`${indices.length} 条 · ${formatChars(groupChars(indices))} 字符`}
                       open={open}
                       onToggle={() => toggleSlot(slot)}
+                      actions={
+                        <SectionCopyButton
+                          title="复制该段全部消息文本"
+                          getText={() =>
+                            indices
+                              .map((index) => messageText(messages[index]))
+                              .filter((text) => text !== "")
+                              .join("\n\n")
+                          }
+                        />
+                      }
                     >
                       <div className="space-y-1.5">
                         {indices.map((index) => (
@@ -816,6 +893,13 @@ function RequestView({ request }: { request: JsonObject }): ReactElement {
               if (entry === null || name === null) return null;
               const isForced = forced === name;
               const defOpen = openToolDef === name;
+              const stateClass = isForced
+                ? defOpen
+                  ? "border border-accent/60 bg-accent-soft text-accent shadow-[0_0_8px_var(--accent-soft),inset_0_0_6px_var(--accent-soft)]"
+                  : "border border-accent/45 text-accent shadow-[0_0_8px_var(--accent-soft)]"
+                : defOpen
+                  ? "border border-accent/50 bg-accent-soft text-accent shadow-[inset_0_0_6px_var(--accent-soft)]"
+                  : "border border-transparent bg-hover text-fg-muted hover:text-fg";
               return (
                 <button
                   key={index}
@@ -827,11 +911,7 @@ function RequestView({ request }: { request: JsonObject }): ReactElement {
                       ? "本次强制"
                       : (asString(entry.kind) ?? undefined)
                   }
-                  className={`rounded-md px-1.5 py-0.5 font-mono text-[11px] transition-all ${
-                    isForced
-                      ? "border border-accent/45 bg-accent-soft text-accent shadow-[0_0_8px_var(--accent-soft)]"
-                      : "bg-hover text-fg-muted hover:text-fg"
-                  }`}
+                  className={`rounded-md px-1.5 py-0.5 font-mono text-[11px] transition-all ${stateClass}`}
                 >
                   {name}
                 </button>
@@ -921,8 +1001,8 @@ function MessageView({
         {callId !== null && (
           <span className="font-mono text-[10px] text-fg-faint">{callId}</span>
         )}
-        <span className="ml-auto text-[10px] text-fg-faint/70">
-          {[...segmentIds, `${formatChars(chars)} 字符`].join(" · ")}
+        <span className="ml-auto text-[10px] text-fg-faint/70" title={segmentIds.join(" · ")}>
+          {[...segmentIds.map(segmentLabel), `${formatChars(chars)} 字符`].join(" · ")}
         </span>
       </button>
       {!expanded && preview !== null && (

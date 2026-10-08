@@ -148,6 +148,24 @@ export function cycleLabel(cycleId: string): string {
   return match ? `Cycle ${match[1]}` : cycleId;
 }
 
+const SEGMENT_LABELS: Record<string, string> = {
+  "agent/identity": "身份",
+  identity: "身份",
+  session: "会话",
+  inputs: "输入",
+  turn_trace: "轨迹",
+  home: "Home",
+  memory: "记忆",
+  plan: "计划",
+  workspace: "工作区",
+  task_prompt: "任务提示",
+};
+
+/** Chinese gloss for a context segment id; raw value stays in the tooltip. */
+export function segmentLabel(segmentId: string): string {
+  return SEGMENT_LABELS[segmentId] ?? segmentId;
+}
+
 /** Compact id rendering: long internal ids collapse to a 12-char prefix. */
 export function shortId(id: string): string {
   return id.length > 14 ? `${id.slice(0, 12)}…` : id;

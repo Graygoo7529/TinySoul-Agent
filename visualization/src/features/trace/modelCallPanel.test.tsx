@@ -287,8 +287,9 @@ describe("ModelCallPanel directed reads (plan §9.3)", () => {
     expect(container.textContent).toContain("was not recorded");
     // No attempt-less event ever lands in a misleading "Attempt ?" group.
     expect(container.textContent).not.toContain("Attempt ?");
-    // The lifecycle row carries the model-level head/tail instead.
-    expect(container.textContent).toContain("Model lifecycle");
+    // Model-level lifecycle folds into the head model row — no separate block.
+    expect(container.textContent).not.toContain("Model lifecycle");
+    expect(container.textContent).toContain("prov / pm-1 completed");
     // A single attempt renders inline without an attempt fold header.
     expect(container.textContent).not.toContain("第 1 次调用");
   });
