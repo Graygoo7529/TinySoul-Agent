@@ -58,9 +58,7 @@ export function ActivityStep({
   return (
     <div className="flex min-w-0 items-start gap-2">
       {rail ? (
-        <span className={`flex w-[11px] shrink-0 justify-center ${color}`}>
-          <span className={`mt-[5px] block h-[7px] w-[7px] rounded-full bg-current`} />
-        </span>
+        <Icon size={12} className={`mt-[2px] shrink-0 ${color}`} />
       ) : item.content.type === "action_plan" ? (
         <ActionStepStatusIcon status={item.content.glimpse.executionState} animate={animate} />
       ) : animate ? (

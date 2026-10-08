@@ -162,9 +162,9 @@ export function ActivityTimeline({
       <div className="max-h-80 overflow-y-auto rounded-lg">
         {groups.map((group) => {
           const times = group.items.map((item) => new Date(item.timestamp).getTime());
-          const range = times.length > 0
-            ? `${formatClockMs(Math.min(...times))}–${formatClockMs(Math.max(...times))}`
-            : "";
+          // Group header carries the group's elapsed span, not a time range.
+          const spanSeconds =
+            times.length > 1 ? (Math.max(...times) - Math.min(...times)) / 1000 : null;
           return <div key={group.id} data-activity-phase={group.phase ?? "unknown"}
             className={group.phase ? PHASE_META[group.phase].tint : "bg-bg-sunken/40"}>
             {/* Group headers only in the unfiltered view — a filtered list is one phase by construction. */}
@@ -172,17 +172,23 @@ export function ActivityTimeline({
               <div className="flex items-center gap-2 px-2.5 pt-1.5 text-[10px]">
                 <span className="rounded bg-hover px-1 py-px font-mono text-fg-muted">{group.phase}</span>
                 <span className="font-medium text-fg-muted">{phaseShort(group.phase)}</span>
-                <span className="ml-auto font-mono text-fg-faint">{group.items.length} 条 · {range}</span>
+                <span className="ml-auto font-mono text-fg-faint">
+                  {spanSeconds !== null ? formatDuration(0, spanSeconds) : ""}
+                </span>
               </div>
             )}
             {group.items.map((item) => {
               const glimpse = item.content.type === "action_plan" || item.content.type === "action_result" ? item.content.glimpse : null;
               const offsetSeconds = (new Date(item.timestamp).getTime() - startMs) / 1000;
               return <div key={item.id} className="flex gap-2 px-2.5 py-2">
-                <div className="min-w-0 flex-1"><ActivityStepComponent item={item} rail /></div>
+                {/* The open-detail chevron sits at the content's right edge so it
+                    aligns with steps' own expand chevrons. */}
+                <div className="flex min-w-0 flex-1 items-start gap-1">
+                  <div className="min-w-0 flex-1"><ActivityStepComponent item={item} rail /></div>
+                  {glimpse?.callId && <button title="Open action" aria-label={`Open ${glimpse.actionId}`} className="mt-[3px] shrink-0 rounded p-0.5 text-fg-faint hover:bg-hover hover:text-accent"
+                    onClick={() => pushActionDetail(epoch, turnId, day, { callId: glimpse.callId ?? null, action: glimpse.actionId, ordinal: 0 })}><ChevronRight size={12} /></button>}
+                </div>
                 <time className="shrink-0 pt-0.5 font-mono text-[10px] text-fg-faint" title={`+${offsetSeconds.toFixed(1)}s`}>{new Date(item.timestamp).toLocaleTimeString([], { hour12: false })}</time>
-                {glimpse?.callId && <button title="Open action" aria-label={`Open ${glimpse.actionId}`} className="self-start rounded p-0.5 text-fg-faint hover:bg-hover hover:text-accent"
-                  onClick={() => pushActionDetail(epoch, turnId, day, { callId: glimpse.callId ?? null, action: glimpse.actionId, ordinal: 0 })}><ChevronRight size={12} /></button>}
               </div>;
             })}
           </div>;
@@ -191,10 +197,6 @@ export function ActivityTimeline({
       </div>
     </Collapsible>
   );
-}
-
-function formatClockMs(ms: number): string {
-  return new Date(ms).toLocaleTimeString([], { hour12: false });
 }
 
 function OverviewCard({ process }: { process: TurnProcess }): ReactElement {
