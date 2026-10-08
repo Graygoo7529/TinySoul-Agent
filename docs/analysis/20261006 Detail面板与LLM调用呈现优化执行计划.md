@@ -118,6 +118,8 @@ Phase 卡片标题行一眼读到的是内容（"已选择 2 个域"），`phase
 
 状态：**已实施**（2026-10-08，tsc + 全部 806 前端测试通过）
 
+> 后续修订（2026-10-08 维护者反馈，并入改进点 6）：顶部英文解释行删除；四段收编进 Context 一级折叠组；左侧文字锚轨改为垂直光轨；`resolved_references` 降级为 Context 内"引用解析"小折叠行。
+
 ### 现状分析
 
 RequestView（:479-588）把消息全文铺开：text part 是 12px `whitespace-pre-wrap` 全文（`MessagePart` :675-683），长 system/session 段形成数千字文字墙。左侧已有 slot 锚轨（background/trace/working/task_prompt，:489-558）但只能跳转，不能折叠；单条消息无折叠、无字符数提示。
@@ -136,24 +138,39 @@ RequestView（:479-588）把消息全文铺开：text part 是 12px `whitespace-
 
 ---
 
-## 改进点 6：Response 渲染增强
+## 改进点 6：Request/Response 结构与可读性（2026-10-08 按维护者反馈扩展，含改进点 5 锚轨修订）
+
+状态：**已实施**（2026-10-08，tsc + 全部 806 前端测试通过；同日二次反馈优化：Attempt 折叠头移除（单 attempt 直渲、多 attempt 细分隔行）、工具定义单开切换、JsonTree 新增 defaultDepth 并默认两层、Response 头部小字移除、思考过程改 Fold、工具调用参数美化（字符串数组→chips/DomainChip）、去除一次性流光并强化折叠态可点边框）
 
 ### 现状分析
 
-ResponseView（:703-776）：answer 是纯文本块（:729 `whitespace-pre-wrap`，不渲染 Markdown）；reasoning summary 斜体已有；tool calls 的 kind 仅以 "· kind" 小字出现（:748-750），控制类与动作类无视觉区分；usage 只有 "in N / out N" 无合计；模型名不在 response 区。
+- 改进点 5 落地后，Request 顶部仍有一行英文解释（"TinySoul provider-neutral request — not a raw provider HTTP exchange"）占位无信息量；
+- 四个 slot 段与 Tools、Resolved references、Response 平铺，缺少一层 Context 收编；左侧锚轨是文字+条数的宽轨，偏重；
+- Tools 区内 forced 工具用一行 `forced: xxx` 文字表达；工具只显示名字胶囊，看不到模型可见的定义（description/parameters 其实就在 request payload 里）；
+- `resolved_references` 是 owner 校验过的 `ref → 资源定位` 映射（后端 `kernel/context/segments/collection.py` 的 ReferenceBindingSegment 收集），服务回放审计（"这次调用时模型看到的 ref 指向什么"），有保留价值但不值一级分组；
+- Response 区：answer 是纯文本块（不渲染 Markdown）；tool calls 参数是 JsonTree 文字墙，kind 仅以 "· kind" 小字区分。
 
-### 修改范围与内容
+### 修改范围与内容（`ModelCallPanel.tsx`：RequestView/ResponseView/AttemptView）
 
-`ModelCallPanel.tsx` ResponseView：
+**Request 区**
+1. 删除顶部英文解释行（语义留在代码注释）；
+2. 新增 **Context 一级折叠组**（默认折叠，头部 `Context · N 条消息 · Xk 字符`），四个 slot 段收编其中；顺序为 Context → Tools → Response；
+3. `resolved_references` 降级为 Context 内末尾小折叠行"引用解析（N 条）"（title 解释：owner 校验的引用→定位映射，用于回放审计）；
+4. 左侧文字锚轨改为**垂直光轨**：Context 区块左缘一列细刻线（每段一条），展开态刻线变长、变亮并带 accent 光晕，hover 显示段名与规模 tooltip——无文字纯光效导航；
+5. Tools 区：删除 `forced:` 文字行，forced 工具胶囊改 accent 描边 + 淡光泽（title="本次强制"）；**点击胶囊内联展开该工具的模型可见定义**（description 正文 + parameters 折叠 JsonTree），再点收起。
 
-- answer 改用共享 `Markdown` 组件（`md-calm` 变体）渲染，origin 传 `{ ref: "" }`（与问答卡片相同做法；注意 `MarkdownOrigin` 的字段名是 `ref`，不是 `link`）；
-- tool calls 按 `kind` 着色：control 类用中性灰边框、action 类用对应 domain 色左边条（复用 `domainHueClasses`）；kind 文本保留；
-- usage 行追加合计 `in 3.2k · out 412 · 合计 3.6k`；
-- response 区块头部（Collapsible title 旁 meta）补模型名（attempt.providerModel，已在父级解析，props 传入）。
+**Response 区**
+6. 分三个小分组（与 Request slot 段同一视觉语言）：**思考过程**（reasoning summary，保持现有斜体块）、**工具调用 (N)**、**模型回答**；
+7. answer 改用共享 `Markdown` 组件（`md-calm`）渲染，origin 传 `{ ref: "" }`；
+8. 工具调用改**通用可读卡片**：头部 = 工具名 + kind chip（control 中性灰 / action 用 `domainHueClasses` 色调）；参数按通用规则渲染——原始值内联键值行、嵌套值才用折叠 JsonTree，**不做任何 per-tool 特殊渲染**；
+9. usage 行追加合计；response 头部 meta 补模型名。
+
+**光泽与交互**
+10. 折叠头状态色：关闭=中性，打开=`bg-accent-soft/20` + 左侧 2px accent 细条；打开瞬间一次性流光扫过（`text-shine` 同族，reduced-motion 降级为静态）。
 
 ### 预期效果
 
-模型回答以排版后的 Markdown 呈现（标题、列表、代码块可读）；动作调用一眼分出"控制意图"与"业务动作"；token 消耗有总数概念。
+一次 LLM 调用的默认视图是 "Context（规模摘要）→ Tools → Response（三分组）" 三层结构，一屏读完这次调用的构成；想看哪层点哪层，工具定义、引用解析、完整消息、原始 JSON 各就其位；forced 工具与展开状态有克制的光泽引导。
 
 ---
 

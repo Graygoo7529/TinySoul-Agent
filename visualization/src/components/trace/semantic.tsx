@@ -58,6 +58,11 @@ export function domainTone(domain: string): BadgeTone {
   return domainTones[domain] ?? "gray";
 }
 
+/** True when the value names a registered action domain. */
+export function isKnownDomain(value: string): boolean {
+  return value in domainTones;
+}
+
 /**
  * Static soft-bg + text classes in the domain's hue (icon boxes, chips).
  * Kept as literal class names so Tailwind can see them.
@@ -90,6 +95,32 @@ export function DomainChip({ domain }: { domain: string }) {
       {domain}
     </Badge>
   );
+}
+
+/**
+ * Left-border hue per action domain (tool-call cards). Kept as literal class
+ * names so Tailwind can see them.
+ */
+export function domainBorderClass(domain: string): string {
+  switch (domain) {
+    case "workspace":
+      return "border-l-domain-workspace";
+    case "execution":
+    case "shell":
+    case "script":
+    case "supervised_process":
+      return "border-l-domain-execution";
+    case "web":
+      return "border-l-domain-web";
+    case "home":
+      return "border-l-domain-home";
+    case "memory":
+      return "border-l-domain-memory";
+    case "core":
+      return "border-l-accent";
+    default:
+      return "border-l-line-strong";
+  }
 }
 
 /* ------------------------- phase & identity -------------------------- */

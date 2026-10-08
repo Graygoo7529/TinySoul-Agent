@@ -217,24 +217,26 @@ describe("ModelCallPanel directed reads (plan §9.3)", () => {
     ]);
     await renderPanel({ kind: "llm", taskId: "task_1" });
 
-    expect(container.textContent).toContain("provider-neutral request");
-    // Message stack sections are collapsed by default: scale hints only.
-    expect(container.textContent).toContain("背景");
-    expect(container.textContent).toContain("过程");
+    // The attempt renders Context / Tools / Response folds, all closed except
+    // the response groups: no explanation line, no message text up front.
+    expect(container.textContent).not.toContain("provider-neutral request");
+    expect(container.textContent).toContain("Context");
     expect(container.textContent).not.toContain("You are TinySoul.");
-    // Expanding a section reveals its messages (header + first-line preview).
-    const sectionButton = (label: string) => {
+    // Expanding Context reveals the slot sections; expanding a section reveals
+    // its messages (header + first-line preview).
+    const foldButton = (label: string) => {
       const target = Array.from(container.querySelectorAll("button")).find(
         (button) =>
           button.hasAttribute("aria-expanded") && button.textContent?.includes(label),
       );
-      if (target === undefined) throw new Error(`section "${label}" not found`);
+      if (target === undefined) throw new Error(`fold "${label}" not found`);
       act(() => {
         target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       });
     };
-    sectionButton("背景");
-    sectionButton("过程");
+    foldButton("Context");
+    foldButton("背景");
+    foldButton("过程");
     expect(container.textContent).toContain("You are TinySoul.");
     expect(container.textContent).toContain("read the file");
     // Message order is the real stack order: system identity before user.
@@ -242,15 +244,8 @@ describe("ModelCallPanel directed reads (plan §9.3)", () => {
     const user = container.textContent?.indexOf("read the file") ?? -1;
     expect(identity).toBeGreaterThanOrEqual(0);
     expect(user).toBeGreaterThan(identity);
-    // The tool scope is one collapsed section away.
-    expect(container.textContent).toContain("Tools (1)");
-    const toolsButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Tools (1)"),
-    );
-    act(() => {
-      toolsButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-    await flush();
+    // The tool scope sits behind the Tools fold; a chip expands its definition.
+    foldButton("Tools");
     expect(container.textContent).toContain("core.answer");
     expect(container.textContent).toContain("Done.");
     expect(container.textContent).toContain("short plan");
@@ -294,7 +289,8 @@ describe("ModelCallPanel directed reads (plan §9.3)", () => {
     expect(container.textContent).not.toContain("Attempt ?");
     // The lifecycle row carries the model-level head/tail instead.
     expect(container.textContent).toContain("Model lifecycle");
-    expect(container.textContent).toContain("Attempt 1");
+    // A single attempt renders inline without an attempt fold header.
+    expect(container.textContent).not.toContain("第 1 次调用");
   });
 
   it("shows provider failures by provider_error_kind, model failures at task level", async () => {

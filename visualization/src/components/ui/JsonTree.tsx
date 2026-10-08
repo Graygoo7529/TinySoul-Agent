@@ -4,15 +4,19 @@ import { useState } from "react";
  * Collapsible, syntax-colored JSON tree. Colors come from the `.json-tree`
  * classes in the global stylesheet (semantic tokens, theme aware). Nested
  * levels get a left indent guide; `defaultExpanded` expands the whole tree
- * (pass false for deliberately collapsed raw/diagnostic views).
+ * (pass false for deliberately collapsed raw/diagnostic views). `defaultDepth`
+ * auto-opens nodes shallower than it (1 = root only), so bounded views can
+ * show the first levels without a click.
  */
 export function JsonTree({
   value,
   defaultExpanded = true,
+  defaultDepth = 1,
   maxStringLength = 240,
 }: {
   value: unknown;
   defaultExpanded?: boolean;
+  defaultDepth?: number;
   maxStringLength?: number;
 }) {
   return (
@@ -22,6 +26,7 @@ export function JsonTree({
         value={value}
         depth={0}
         defaultExpanded={defaultExpanded}
+        defaultDepth={defaultDepth}
         maxStringLength={maxStringLength}
       />
     </div>
@@ -33,11 +38,12 @@ interface NodeProps {
   value: unknown;
   depth: number;
   defaultExpanded: boolean;
+  defaultDepth: number;
   maxStringLength: number;
 }
 
-function JsonNode({ name, value, depth, defaultExpanded, maxStringLength }: NodeProps) {
-  const [open, setOpen] = useState(defaultExpanded || depth < 1);
+function JsonNode({ name, value, depth, defaultExpanded, defaultDepth, maxStringLength }: NodeProps) {
+  const [open, setOpen] = useState(defaultExpanded || depth < defaultDepth);
   const isObject = value !== null && typeof value === "object";
   const entries = isObject
     ? Array.isArray(value)
@@ -85,6 +91,7 @@ function JsonNode({ name, value, depth, defaultExpanded, maxStringLength }: Node
                 value={v}
                 depth={depth + 1}
                 defaultExpanded={defaultExpanded}
+                defaultDepth={defaultDepth}
                 maxStringLength={maxStringLength}
               />
             ))}
