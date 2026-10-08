@@ -94,7 +94,8 @@ describe("parseActionCall / parseActionResult / parseActionExecution", () => {
     const execution = parseActionExecution(
       event("action.execution", { invoke_id: "invoke_c1", call_id: "c1", state: "started" }),
     );
-    expect(execution).toEqual({ invokeId: "invoke_c1", callId: "c1", state: "started" });
+    expect(execution).toMatchObject({ invokeId: "invoke_c1", callId: "c1", state: "started" });
+    expect(typeof execution?.at).toBe("number");
 
     expect(parseActionCall(event("llm.task.started", {}))).toBeNull();
     expect(parseActionResult(event("action.call", { call_id: "c", action: "a" }))).toBeNull();

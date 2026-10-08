@@ -224,6 +224,8 @@ describe("ProcessPanel", () => {
     expect(text).toContain("workspace.read");
     expect(text).toContain("success");
     expect(text).toContain("execution.run_shell");
+    // The expanded phase shows the action's result gist inline (payload text).
+    expect(text).toContain("hi");
     // A not-executed action is shown as such — never as a tool answer.
     expect(text).toContain("not executed");
   });

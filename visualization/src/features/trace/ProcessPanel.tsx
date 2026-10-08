@@ -8,7 +8,7 @@ import { findRequestIdForTurn } from "../../store/turnStore";
  */
 
 import { useState, type ReactElement, type ReactNode } from "react";
-import { Brain, ChevronRight, Wrench, Download, Loader2, CheckCircle2, CircleDashed, XCircle } from "lucide-react";
+import { Brain, ChevronRight, Download, Loader2, CheckCircle2, CircleDashed, XCircle, AlertTriangle } from "lucide-react";
 import { formatDuration, formatTokens } from "../../utils/format";
 import { useNow } from "../../hooks/useNow";
 import { selectActiveTurnId, useConnectionStore } from "../../store/connectionStore";
@@ -33,7 +33,8 @@ import {
 } from "./facts";
 import { readEventWindow } from "./eventWindow";
 import { domainTextClass } from "./registry";
-import { cycleLabel, phaseHint, shortId } from "../../components/trace/semantic";
+import { cycleLabel, phaseHint, shortId, actionSummary } from "../../components/trace/semantic";
+import { glimpseBody } from "../chat/ActivityGlimpse";
 import { makeTraceNavigation, pushActionDetail } from "./entries";
 import {
   AsyncStatus,
@@ -340,29 +341,6 @@ function ProcessTree({
                         trace={trace}
                       />
                     ))}
-                    {phase.llmTasks.map((task) => (
-                      <button
-                        key={task.taskId}
-                        type="button"
-                        onClick={() =>
-                          nav.openModelCall({ kind: "llm", taskId: task.taskId })
-                        }
-                        className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[12px] hover:bg-hover"
-                      >
-                        <ChevronRight size={11} className="shrink-0 text-fg-faint" />
-                        <span
-                          className="min-w-0 flex-1 truncate text-fg-muted"
-                          title={task.profile === "" ? task.taskId : undefined}
-                        >
-                          decision · {task.profile || shortId(task.taskId)}
-                        </span>
-                        {task.status !== null && (
-                          <Badge tone={task.status === "failed" ? "red" : "green"}>
-                            {task.status}
-                          </Badge>
-                        )}
-                      </button>
-                    ))}
                     {phase.actions.length === 0 && phase.llmTasks.length === 0 && (
                       <div className="px-1.5 text-[12px] text-fg-faint">
                         No retained records in this phase.
@@ -478,6 +456,7 @@ function PhaseCard({ phase, onOpenTask, children }: {
   phase: PhaseProcess; onOpenTask: (taskId: string) => void; children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const [reasoningFull, setReasoningFull] = useState(false);
   const lastTask = phase.llmTasks[phase.llmTasks.length - 1]?.taskId;
   const reasoning = phase.llmTasks.map((task) => task.reasoning).find(Boolean);
   const controls = phase.llmTasks.flatMap((task) => task.controls);
@@ -509,7 +488,8 @@ function PhaseCard({ phase, onOpenTask, children }: {
         </button>}
         <span title={phaseHint(phase.phase)} className="shrink-0 font-mono text-[10px] text-fg-faint/70">{phase.phase}</span>
       </div>
-      {!open && preview && <div className="truncate bg-bg-sunken px-3 pb-2 pl-8 text-[11px] text-fg-faint italic">{preview}</div>}
+      {/* The intent line stays visible in both states — expanding never shrinks the card. */}
+      {preview && <div className="truncate bg-bg-sunken px-3 pb-2 pl-8 text-[11px] text-fg-faint italic">{preview}</div>}
       {!open && phase.actions.length > 0 && <div className="flex flex-wrap gap-1 bg-bg-sunken px-3 pb-2 pl-8">
         {phase.actions.map((action) => <Badge key={action.firstSequence} tone={STATUS_TONES[actionTraceStatus(action).kind]}>
           {action.call?.action ?? action.result?.action} {actionTraceStatus(action).label}
@@ -518,20 +498,51 @@ function PhaseCard({ phase, onOpenTask, children }: {
       {open && <div className="space-y-3 border-t border-line bg-bg-elev px-3 py-3">
         {reasoning && <div className="rounded-r-lg border-l-2 border-accent/40 bg-bg-sunken/60 px-3 py-2">
           <div className="mb-0.5 flex items-center gap-1 text-[10px] font-semibold tracking-wide text-accent uppercase"><Brain size={10} /> Reasoning</div>
-          <Markdown className="md-calm text-[12px] text-fg-muted">{reasoning}</Markdown>
+          <div className={reasoningFull ? undefined : "line-clamp-3"}>
+            <Markdown className="md-calm text-[12px] text-fg-muted">{reasoning}</Markdown>
+          </div>
+          <button type="button" onClick={() => setReasoningFull(!reasoningFull)}
+            className="mt-0.5 text-[10.5px] text-fg-faint transition-colors hover:text-fg-muted">
+            {reasoningFull ? "收起" : "展开全文"}
+          </button>
         </div>}
-        {controls.length > 0 && <Collapsible title="Control requests">
+        {controls.length > 0 && <div className="space-y-1">
+          <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">控制请求</div>
           {controls.map((call, index) => <div key={index} className="space-y-1 py-1 text-[12px]">
             <span className="font-mono text-accent">{call.name}</span>
             {Object.entries(call.arguments).map(([key, value]) => <div key={key} className="break-words text-fg-muted">
               <span className="text-fg-faint">{key}: </span>{typeof value === "string" ? value : JSON.stringify(value)}
             </div>)}
           </div>)}
-        </Collapsible>}
+        </div>}
         {children}
       </div>}
     </div>
   );
+}
+
+/** Per-action duration from execution lifecycle timestamps; null when absent. */
+function actionDuration(trace: ActionTrace): number | null {
+  const start = trace.executions.find(
+    (entry) => entry.state === "started" && entry.at !== null,
+  )?.at;
+  const end = [...trace.executions]
+    .reverse()
+    .find(
+      (entry) =>
+        (entry.state === "settled" || entry.state === "cancelled") &&
+        entry.at !== null,
+    )?.at;
+  if (start == null || end == null || end <= start) return null;
+  return end - start;
+}
+
+function ActionStatusIcon({ kind }: { kind: string }): ReactElement {
+  if (kind === "success") return <CheckCircle2 size={11} className="shrink-0 text-success" />;
+  if (kind === "failed") return <XCircle size={11} className="shrink-0 text-danger" />;
+  if (kind === "timeout") return <AlertTriangle size={11} className="shrink-0 text-warning" />;
+  if (kind === "running") return <Loader2 size={11} className="shrink-0 animate-spin-slow text-accent" />;
+  return <CircleDashed size={11} className="shrink-0 text-fg-faint" />;
 }
 
 function ActionRow({
@@ -548,33 +559,76 @@ function ActionRow({
   const action = trace.call?.action ?? trace.result?.action ?? "action";
   const status = actionTraceStatus(trace);
   const domain = action.split(".")[0] ?? "";
+  const summary = actionSummary(trace.call?.params ?? {});
+  const duration = actionDuration(trace);
+  // Static gist preview reusing the chat trail renderer: plan for phase2,
+  // result for phase3, best-effort by available facts otherwise.
+  const stage =
+    trace.phase === "phase2"
+      ? ("plan" as const)
+      : trace.phase === "phase3"
+        ? ("result" as const)
+        : trace.result !== null
+          ? ("result" as const)
+          : ("plan" as const);
+  const gist = glimpseBody({
+    callId: trace.call?.callId,
+    actionId: action,
+    domain,
+    stage,
+    params: trace.call?.params ?? {},
+    payload: trace.result?.payload ?? null,
+    failure: trace.result?.failure ?? null,
+    result:
+      trace.result !== null
+        ? {
+            status:
+              trace.result.status === "success"
+                ? "success"
+                : trace.result.status === "timeout"
+                  ? "timeout"
+                  : "failure",
+          }
+        : undefined,
+  });
   return (
-    <button
-      type="button"
-      onClick={() =>
-        pushActionDetail(epoch, turnId, day, {
-          callId: trace.call?.callId ?? null,
-          action,
-          ordinal: 0,
-        })
-      }
-      className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[12px] hover:bg-hover"
-    >
-      <Wrench size={11} className="shrink-0 text-fg-faint" />
-      <span className={`shrink-0 font-medium ${domainTextClass(domain)}`}>
-        {action}
-      </span>
-      <Badge tone={STATUS_TONES[status.kind] ?? "gray"}>{status.label}</Badge>
-      {trace.llmTaskIds.length > 0 && (
-        <span className="text-[11px] text-fg-faint">
-          {trace.llmTaskIds.length} model
+    <div>
+      <button
+        type="button"
+        onClick={() =>
+          pushActionDetail(epoch, turnId, day, {
+            callId: trace.call?.callId ?? null,
+            action,
+            ordinal: 0,
+          })
+        }
+        className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[12px] hover:bg-hover"
+      >
+        <ActionStatusIcon kind={status.kind} />
+        <span className={`shrink-0 font-medium ${domainTextClass(domain)}`}>
+          {action}
         </span>
-      )}
-      {trace.searchIds.length > 0 && (
-        <span className="text-[11px] text-fg-faint">
-          {trace.searchIds.length} search
+        <Badge tone={STATUS_TONES[status.kind] ?? "gray"}>{status.label}</Badge>
+        {summary !== null && (
+          <span className="min-w-0 flex-1 truncate text-[11px] text-fg-faint">
+            {summary}
+          </span>
+        )}
+        <span className="ml-auto flex shrink-0 items-center gap-2.5 font-mono text-[10.5px] text-fg-faint">
+          {trace.llmTaskIds.length > 0 && (
+            <span title="model calls">{trace.llmTaskIds.length} 次模型</span>
+          )}
+          {trace.searchIds.length > 0 && (
+            <span title="searches">{trace.searchIds.length} 次检索</span>
+          )}
+          {duration !== null && <span>{formatDuration(0, duration)}</span>}
         </span>
+      </button>
+      {gist !== null && (
+        <div className="mb-1 ml-7 rounded-lg border border-line/70 bg-bg-sunken/70 px-2.5 py-1.5">
+          {gist}
+        </div>
       )}
-    </button>
+    </div>
   );
 }

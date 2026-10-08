@@ -127,6 +127,8 @@ export interface ActionExecutionFact {
   callId: string;
   /** requested | started | settled | cancelled | not_executed | unknown */
   state: string;
+  /** Event timestamp (epoch seconds); powers per-action duration display. */
+  at?: number | null;
 }
 
 export function parseActionCall(event: ObservationEvent): ActionCallFact | null {
@@ -180,6 +182,7 @@ export function parseActionExecution(
     invokeId: asString(payload.invoke_id) ?? "",
     callId,
     state,
+    at: event.created_at,
   };
 }
 

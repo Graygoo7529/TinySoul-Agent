@@ -279,6 +279,32 @@ export function ActionStatusBadge({ status }: { status: string }) {
 /* --------------------------- action icons ---------------------------- */
 
 /**
+ * One-line human summary of an action call's params: the resource tail for
+ * read/write actions, the command for execution, the query for search.
+ * Returns null when nothing meaningful can be said.
+ */
+export function actionSummary(
+  params: Record<string, unknown>,
+): string | null {
+  const ref =
+    typeof params.target_link === "string" ? params.target_link
+    : typeof params.ref === "string" ? params.ref
+    : typeof params.path === "string" ? params.path
+    : null;
+  if (ref !== null && ref !== "") return ref.split("/").pop() ?? ref;
+  const command =
+    typeof params.command === "string" ? params.command
+    : typeof params.source_link === "string" ? params.source_link
+    : null;
+  if (command !== null && command !== "") {
+    return command.length > 40 ? `${command.slice(0, 40)}…` : command;
+  }
+  const query = typeof params.query === "string" ? params.query : null;
+  if (query !== null && query !== "") {
+    return query.length > 40 ? `${query.slice(0, 40)}…` : query;
+  }
+  return null;
+}/**
  * Icon per action presentation family (see features/trace/registry.ts).
  * The domain color comes from DomainChip; the icon carries the action kind.
  */
