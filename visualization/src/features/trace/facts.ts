@@ -28,6 +28,19 @@ export function modelControlRequests(payload: JsonObject): ControlRequest[] {
   });
 }
 
+/** Action-kind tool calls of a model response — the phase2 动作规划 record. */
+export function modelActionCalls(
+  payload: JsonObject,
+): { name: string; arguments: JsonObject }[] {
+  return (Array.isArray(payload.tool_calls) ? payload.tool_calls : []).flatMap((value) => {
+    const call = asObject(value);
+    const name = asString(call?.name);
+    return call?.kind === "action" && name !== null
+      ? [{ name, arguments: asObject(call.arguments) ?? {} }]
+      : [];
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Small narrowing helpers (dynamic payload boundary → typed fields)
 // ---------------------------------------------------------------------------
@@ -385,6 +398,8 @@ export interface LlmTaskTrace extends LlmTaskFact {
   tokens: number | null;
   reasoning: string | null;
   controls: { name: string; arguments: JsonObject }[];
+  /** Action-kind tool calls the decision selected (phase2 动作规划). */
+  actionCalls: { name: string; arguments: JsonObject }[];
   cycleId: string | null;
   phase: string | null;
   /** Module frame == the owning action's invoke_id, when scoped to an action. */
@@ -515,6 +530,7 @@ export function buildTurnProcess(events: ObservationEvent[]): TurnProcess {
         tokens: null,
         reasoning: null,
         controls: [],
+        actionCalls: [],
         cycleId: scopeValue(event, "cycle"),
         phase: scopeValue(event, "phase"),
         invokeId: scopeValue(event, "module"),
@@ -572,6 +588,7 @@ export function buildTurnProcess(events: ObservationEvent[]): TurnProcess {
     const total = asNumber(usage?.total_tokens) ?? (inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens : null);
     if (total !== null) task.tokens = (task.tokens ?? 0) + total;
     task.controls = modelControlRequests(event.payload);
+    task.actionCalls = modelActionCalls(event.payload);
   }
 
   // Link searches and LLM tasks into their owning action via the module frame.

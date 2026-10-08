@@ -26,6 +26,7 @@ export function Collapsible({
     >
       <button
         onClick={() => setOpen(!open)}
+        aria-expanded={open}
         className="flex w-full items-center gap-2 px-3 py-2 text-left"
       >
         <ChevronRight

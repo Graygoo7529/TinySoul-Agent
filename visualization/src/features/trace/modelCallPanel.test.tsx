@@ -247,7 +247,14 @@ describe("ModelCallPanel directed reads (plan §9.3)", () => {
     // The tool scope sits behind the Tools fold; a chip expands its definition.
     foldButton("Tools");
     expect(container.textContent).toContain("core.answer");
+    // Response and its sub-groups default collapsed; expand to read the answer.
+    expect(container.textContent).not.toContain("Done.");
+    foldButton("Response");
+    foldButton("模型回答");
     expect(container.textContent).toContain("Done.");
+    // Reasoning/calls groups default collapsed.
+    expect(container.textContent).not.toContain("short plan");
+    foldButton("思考过程");
     expect(container.textContent).toContain("short plan");
     // Only the recorded reasoning summary is shown — never raw digests.
     expect(container.textContent).not.toContain("a".repeat(64));

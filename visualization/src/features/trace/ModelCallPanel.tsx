@@ -1082,12 +1082,13 @@ function ResponseView({ response }: { response: JsonObject }): ReactElement {
   const reasoningSummary = reasoning !== null ? asString(reasoning.summary) : null;
   const inputTokens = usage !== null ? asNumber(usage.input_tokens) : null;
   const outputTokens = usage !== null ? asNumber(usage.output_tokens) : null;
-  const [reasoningOpen, setReasoningOpen] = useState(true);
-  const [callsOpen, setCallsOpen] = useState(true);
-  const [answerOpen, setAnswerOpen] = useState(true);
+  // 思考过程/工具调用/模型回答默认折叠（带规模摘要）；Response 整体默认折叠。
+  const [reasoningOpen, setReasoningOpen] = useState(false);
+  const [callsOpen, setCallsOpen] = useState(false);
+  const [answerOpen, setAnswerOpen] = useState(false);
 
   return (
-    <Collapsible title="Response" defaultOpen>
+    <Collapsible title="Response">
       <div className="space-y-2">
         {reasoningSummary !== null && reasoningSummary !== "" && (
           <Fold

@@ -330,7 +330,10 @@ function ProcessTree({
             {cycle.phases.map((phase) => (
               <div key={phase.phase} data-phase-key={`${cycle.cycleId}:${phase.phase}`}>
                 <PhaseCard phase={phase}
-                  onOpenTask={(taskId) => nav.openModelCall({ kind: "llm", taskId })}>
+                  onOpenTask={(taskId) => nav.openModelCall({ kind: "llm", taskId })}
+                  onOpenAction={(action, ordinal) =>
+                    pushActionDetail(epoch, turnId, day, { callId: null, action, ordinal })
+                  }>
                   <div className="space-y-0.5">
                     {phase.actions.map((trace, index) => (
                       <ActionRow
@@ -452,8 +455,9 @@ function CycleMeta({ phases }: { phases: PhaseProcess[] }) {
   </span>;
 }
 
-function PhaseCard({ phase, onOpenTask, children }: {
-  phase: PhaseProcess; onOpenTask: (taskId: string) => void; children: ReactNode;
+function PhaseCard({ phase, onOpenTask, onOpenAction, children }: {
+  phase: PhaseProcess; onOpenTask: (taskId: string) => void;
+  onOpenAction: (action: string, ordinal: number) => void; children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [reasoningFull, setReasoningFull] = useState(false);
@@ -466,6 +470,12 @@ function PhaseCard({ phase, onOpenTask, children }: {
   useNow(running, 1000);
   const StateIcon = running ? Loader2 : phase.status === "completed" ? CheckCircle2 : phase.status === "failed" || phase.status === "cancelled" ? XCircle : CircleDashed;
   const preview = asString(selection?.arguments.intent) ?? reasoning;
+  // phase2 的动作规划来自该 phase LLM 响应的 action 类 tool_calls（ActionCall
+  // 事实在执行期归 phase3，规划内容只能从决策响应取得）。
+  const plannedActions =
+    phase.phase === "phase2"
+      ? phase.llmTasks.flatMap((task) => task.actionCalls)
+      : [];
   const headline = domains.length > 0 ? `已选择 ${domains.length} 个域`
     : phase.actions.length > 0 ? `${phase.actions.length} 个动作`
     : phase.phase === "phase1" ? "更新语境" : phase.phase === "phase2" ? "规划动作" : "执行动作";
@@ -488,9 +498,10 @@ function PhaseCard({ phase, onOpenTask, children }: {
         </button>}
         <span title={phaseHint(phase.phase)} className="shrink-0 font-mono text-[10px] text-fg-faint/70">{phase.phase}</span>
       </div>
-      {/* The intent line stays visible in both states — expanding never shrinks the card. */}
+      {/* The intent line and the action summary badges stay visible in both
+          states — expanding only adds, never shrinks the card. */}
       {preview && <div className="truncate bg-bg-sunken px-3 pb-2 pl-8 text-[11px] text-fg-faint italic">{preview}</div>}
-      {!open && phase.actions.length > 0 && <div className="flex flex-wrap gap-1 bg-bg-sunken px-3 pb-2 pl-8">
+      {phase.actions.length > 0 && <div className="flex flex-wrap gap-1 bg-bg-sunken px-3 pb-2 pl-8">
         {phase.actions.map((action) => <Badge key={action.firstSequence} tone={STATUS_TONES[actionTraceStatus(action).kind]}>
           {action.call?.action ?? action.result?.action} {actionTraceStatus(action).label}
         </Badge>)}
@@ -515,6 +526,45 @@ function PhaseCard({ phase, onOpenTask, children }: {
             </div>)}
           </div>)}
         </div>}
+        {plannedActions.length > 0 && (
+          <div className="space-y-1">
+            <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">动作规划</div>
+            {(() => {
+              const ordinals = new Map<string, number>();
+              return plannedActions.map((call, index) => {
+                const ordinal = ordinals.get(call.name) ?? 0;
+                ordinals.set(call.name, ordinal + 1);
+                const planDomain = call.name.split(".")[0] ?? "";
+                const planSummary = actionSummary(call.arguments);
+                const planGist = glimpseBody({
+                  actionId: call.name,
+                  domain: planDomain,
+                  stage: "plan",
+                  params: call.arguments,
+                });
+                return (
+                  <div key={index}>
+                    <button
+                      type="button"
+                      onClick={() => onOpenAction(call.name, ordinal)}
+                      className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[12px] hover:bg-hover"
+                    >
+                      <span className={`font-medium ${domainTextClass(planDomain)}`}>{call.name}</span>
+                      {planSummary !== null && (
+                        <span className="min-w-0 flex-1 truncate text-[11px] text-fg-faint">{planSummary}</span>
+                      )}
+                    </button>
+                    {planGist !== null && (
+                      <div className="mb-1 ml-7 rounded-lg border border-line/70 bg-bg-sunken/70 px-2.5 py-1.5">
+                        {planGist}
+                      </div>
+                    )}
+                  </div>
+                );
+              });
+            })()}
+          </div>
+        )}
         {children}
       </div>}
     </div>

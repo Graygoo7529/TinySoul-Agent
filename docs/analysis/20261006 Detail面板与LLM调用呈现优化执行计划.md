@@ -77,18 +77,17 @@ Phase 卡片标题行一眼读到的是内容（"已选择 2 个域"），`phase
 - ActionRow 只有 图标+动作名+状态徽章+"N model / N search"（语义不自明），无耗时、无目标摘要；
 - phase body 里的 `decision · …` LLM 链接行与头部 🧠 context 芯片功能重复。
 
-### 修改范围与内容（`ProcessPanel.tsx` PhaseCard/ActionRow；`facts.ts` 一处纯增量）
+### 修改范围与内容（`ProcessPanel.tsx` PhaseCard/ActionRow；`facts.ts` 两处纯增量）
 
-1. **单次展开（取消三级）**：点击 Phase 头只切换 折叠 ↔ 展开；意图预览行在折叠与展开**两种状态都常显**（展开不再变矮，高度稳定）；动作徽章行仅折叠态显示（展开态由动作行承担）——徽章行只在有动作的 phase 出现（phase1 只选域、无动作，折叠态只有意图行）；
+1. **单次展开（取消三级）**：点击 Phase 头只切换 折叠 ↔ 展开；意图预览行在折叠与展开**两种状态都常显**；动作徽章行**两种状态都显示**（展开态作为紧凑摘要置于详细动作行之上——展开只增不减，杜绝高度回跳）；徽章行只在有动作的 phase 出现（phase1 只选域、无动作，无徽章行）；
 2. **Reasoning 默认预览**：Reasoning 块默认显示前 3 行（超出渐隐截断），底部"展开全文/收起"按钮。
 3. **控制请求平铺**：去掉 "Control requests" 折叠包装，直接平铺现有键值行（**内容形态完全保持现状**，不做语义行转换）；
 4. **删除 phase body 的 LLM 链接行**（`decision · …`）——头部 context 芯片已承担跳转。
-5. **动作 gist 预览（核心新增）**：展开态下每个动作行下方内联 gist 预览卡，复用 `features/chat/ActivityGlimpse.tsx` 的 `glimpseBody()`：
-   - phase2 的动作显示 **plan 阶段** gist（`{ actionId, stage: "plan", params }`——diff 预览/终端命令/指令摘要）；
-   - phase3 的动作显示 **result 阶段** gist（`{ actionId, stage: "result", payload, failure, result }`——diff 统计/终端输出/搜索命中）；
-   - 由 `ActionTrace`（call.params + result.payload/failure）构造 `ActionGlimpseData`，静态渲染（无 live 动效）。
-6. **ActionRow 增强**：状态图标 + 动作名（**保持 `memory.search` 点分形式**）+ 状态徽章 + 目标摘要 + 耗时 + 语义化计数（`2 次模型调用 · 1 次检索`，悬停 title 英文原义）；目标摘要按 family 提取（write/edit→ref 末段、execution→命令截断、search→query），提取函数 `actionSummary()` 放 `components/trace/semantic.tsx`；点击仍跳 Action 详情。
-7. **耗时数据（facts.ts 纯增量）**：`ActionExecutionFact` 增加可选 `at: number | null`（记录事件的 created_at），ActionRow 耗时 = 同一 invoke 的 started→settled 时间差；无数据则省略。
+5. **动作 gist 预览（phase3/执行）**：展开态下每个动作行下方内联 result 阶段 gist（复用 `glimpseBody()`：diff 统计/终端输出/搜索命中），由 `ActionTrace`（call.params + result.payload/failure）构造 `ActionGlimpseData`，静态渲染（无 live 动效）。
+
+   **5b. 动作规划预览（phase2/规划，2026-10-08 运行时修正）**：`action.call` 事件由后端 phase2 发出（`kernel/loop/phases/phase2.py`），但 `buildTurnProcess` 合并同一 callId 时 result 事件的 phase3 scope 后写覆盖——动作行落在 phase3，phase2 看不到"选择了什么动作"。phase2 的规划信息须来自该 phase LLM 响应的 action 类 tool_calls：`facts.ts` 增量——`LlmTaskTrace` 增加 `actionCalls: { name: string; arguments: JsonObject }[]`（仿 `modelControlRequests`，捕获 kind === "action"）；PhaseCard 在 phase2 展开时渲染"动作规划"区：每个动作 名称（domain 色调）+ 参数一行摘要 + plan 阶段 gist。
+6. **ActionRow 增强**：状态图标 + 动作名（**保持 `memory.search` 点分形式**）+ 状态徽章 + 目标摘要 + 耗时 + 语义化计数（`2 次模型 · 1 次检索`，悬停 title 英文原义）；目标摘要按 family 提取（write/edit→ref 末段、execution→命令截断、search→query），提取函数 `actionSummary()` 放 `components/trace/semantic.tsx`；点击仍跳 Action 详情。
+7. **耗时数据（facts.ts 纯增量，已确认）**：`ActionExecutionFact` 增加可选 `at?: number | null`（事件 created_at），耗时 = 同一 invoke 的 started→settled 差；无数据则省略。
 
 ### 预期效果
 
@@ -166,7 +165,7 @@ RequestView（:479-588）把消息全文铺开：text part 是 12px `whitespace-
 5. Tools 区：删除 `forced:` 文字行，forced 工具胶囊改 accent 描边 + 淡光泽（title="本次强制"）；**点击胶囊内联展开该工具的模型可见定义**（description 正文 + parameters 折叠 JsonTree），再点收起。
 
 **Response 区**
-6. 分三个小分组（与 Request slot 段同一视觉语言）：**思考过程**（reasoning summary，保持现有斜体块）、**工具调用 (N)**、**模型回答**；
+6. 分三个小分组（与 Request slot 段同一视觉语言）：**思考过程**（reasoning summary，保持斜体风格）、**工具调用 (N)**、**模型回答**；默认折叠策略（2026-10-08 运行时反馈定稿）：思考过程与工具调用默认折叠（带规模摘要），模型回答默认展开；
 7. answer 改用共享 `Markdown` 组件（`md-calm`）渲染，origin 传 `{ ref: "" }`；
 8. 工具调用改**通用可读卡片**：头部 = 工具名 + kind chip（control 中性灰 / action 用 `domainHueClasses` 色调）；参数按通用规则渲染——原始值内联键值行、嵌套值才用折叠 JsonTree，**不做任何 per-tool 特殊渲染**；
 9. usage 行追加合计；response 头部 meta 补模型名。
