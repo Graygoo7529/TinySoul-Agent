@@ -218,6 +218,23 @@ describe("ModelCallPanel directed reads (plan §9.3)", () => {
     await renderPanel({ kind: "llm", taskId: "task_1" });
 
     expect(container.textContent).toContain("provider-neutral request");
+    // Message stack sections are collapsed by default: scale hints only.
+    expect(container.textContent).toContain("背景");
+    expect(container.textContent).toContain("过程");
+    expect(container.textContent).not.toContain("You are TinySoul.");
+    // Expanding a section reveals its messages (header + first-line preview).
+    const sectionButton = (label: string) => {
+      const target = Array.from(container.querySelectorAll("button")).find(
+        (button) =>
+          button.hasAttribute("aria-expanded") && button.textContent?.includes(label),
+      );
+      if (target === undefined) throw new Error(`section "${label}" not found`);
+      act(() => {
+        target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    };
+    sectionButton("背景");
+    sectionButton("过程");
     expect(container.textContent).toContain("You are TinySoul.");
     expect(container.textContent).toContain("read the file");
     // Message order is the real stack order: system identity before user.
@@ -237,8 +254,6 @@ describe("ModelCallPanel directed reads (plan §9.3)", () => {
     expect(container.textContent).toContain("core.answer");
     expect(container.textContent).toContain("Done.");
     expect(container.textContent).toContain("short plan");
-    expect(container.textContent).toContain("background");
-    expect(container.textContent).toContain("trace");
     // Only the recorded reasoning summary is shown — never raw digests.
     expect(container.textContent).not.toContain("a".repeat(64));
     // Head metrics: model from the attempt, elapsed and token totals surface.

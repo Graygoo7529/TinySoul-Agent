@@ -116,6 +116,8 @@ Phase 卡片标题行一眼读到的是内容（"已选择 2 个域"），`phase
 
 ## 改进点 5：Request 消息栈分段折叠
 
+状态：**已实施**（2026-10-08，tsc + 全部 806 前端测试通过）
+
 ### 现状分析
 
 RequestView（:479-588）把消息全文铺开：text part 是 12px `whitespace-pre-wrap` 全文（`MessagePart` :675-683），长 system/session 段形成数千字文字墙。左侧已有 slot 锚轨（background/trace/working/task_prompt，:489-558）但只能跳转，不能折叠；单条消息无折叠、无字符数提示。

@@ -12,8 +12,8 @@
  * bounds, with the truncation flag — not a reconstructed history.
  */
 
-import { useRef, type ReactElement } from "react";
-import { Download } from "lucide-react";
+import { useRef, useState, type ReactElement } from "react";
+import { ChevronRight, Download } from "lucide-react";
 import { downloadJson } from "../../utils/download";
 import { formatDuration } from "../../utils/format";
 
@@ -513,12 +513,64 @@ function AttemptView({ attempt }: { attempt: LlmAttempt }): ReactElement {
 // ---------------------------------------------------------------------------
 
 const SLOT_ORDER = ["background", "trace", "working", "task_prompt"];
+const SLOT_LABELS: Record<string, string> = {
+  background: "背景",
+  trace: "过程",
+  working: "现态",
+  task_prompt: "任务提示",
+};
 const ROLE_TONES: Record<string, BadgeTone> = {
   system: "accent",
   user: "blue",
   assistant: "green",
   tool_result: "gray",
 };
+
+/** Compact size rendering shared by slot headers and message headers. */
+function formatChars(count: number): string {
+  return count >= 1000 ? `${(count / 1000).toFixed(1)}k` : `${count}`;
+}
+
+/** Total text/json size of one message — the scale hint in section headers. */
+function messageChars(message: unknown): number {
+  const entry = asObject(message);
+  if (entry === null) return 0;
+  const parts = Array.isArray(entry.parts) ? entry.parts : [];
+  let total = 0;
+  for (const part of parts) {
+    const record = asObject(part);
+    if (record === null) continue;
+    const text = asString(record.text);
+    if (text !== null) {
+      total += text.length;
+      continue;
+    }
+    if (record.value !== undefined) {
+      try {
+        total += JSON.stringify(record.value).length;
+      } catch {
+        // Unstringifiable values simply do not contribute to the size hint.
+      }
+    }
+  }
+  return total;
+}
+
+/** First non-empty line of the first text part, bounded — the collapsed preview. */
+function messagePreview(message: unknown, limit = 80): string | null {
+  const entry = asObject(message);
+  if (entry === null) return null;
+  const parts = Array.isArray(entry.parts) ? entry.parts : [];
+  for (const part of parts) {
+    const record = asObject(part);
+    if (record === null) continue;
+    const text = asString(record.text);
+    if (text === null) continue;
+    const line = text.split("\n").map((item) => item.trim()).find((item) => item.length > 0);
+    if (line !== undefined) return line.length > limit ? `${line.slice(0, limit)}…` : line;
+  }
+  return null;
+}
 
 interface ProvenanceEntry {
   segmentId: string;
@@ -551,7 +603,7 @@ function parseProvenance(request: JsonObject): ProvenanceEntry[] {
 }
 
 function RequestView({ request }: { request: JsonObject }): ReactElement {
-  const messageRefs = useRef(new Map<number, HTMLDivElement>());
+  const slotRefs = useRef(new Map<string, HTMLDivElement>());
   const messages = Array.isArray(request.messages) ? request.messages : [];
   const provenance = parseProvenance(request);
   const tools = Array.isArray(request.tools) ? request.tools : [];
@@ -559,22 +611,43 @@ function RequestView({ request }: { request: JsonObject }): ReactElement {
   const allowed = selection !== null ? asStringArray(selection.allowed_names) : [];
   const forced = selection !== null ? asString(selection.forced_name) : null;
 
-  // Slot navigation: message indices per slot, in stack order.
-  const slotAnchors = SLOT_ORDER.map((slot) => {
-    const indices = provenance
-      .filter((entry) => entry.slot === slot)
-      .flatMap((entry) => entry.indices)
-      .sort((a, b) => a - b);
-    return { slot, indices };
-  }).filter((entry) => entry.indices.length > 0);
-
   const slotsOf = (index: number): ProvenanceEntry[] =>
     provenance.filter((entry) => entry.indices.includes(index));
+  // A message belongs to its first slot in stack order; unslotted messages
+  // fall into a trailing "other" group.
+  const slotOf = (index: number): string => {
+    const origins = slotsOf(index);
+    for (const slot of SLOT_ORDER) {
+      if (origins.some((entry) => entry.slot === slot)) return slot;
+    }
+    return "other";
+  };
+  const groups = [...SLOT_ORDER, "other"]
+    .map((slot) => ({
+      slot,
+      indices: messages.map((_, index) => index).filter((index) => slotOf(index) === slot),
+    }))
+    .filter((group) => group.indices.length > 0);
+  const groupChars = (indices: number[]) =>
+    indices.reduce((sum, index) => sum + messageChars(messages[index]), 0);
 
-  const scrollTo = (index: number) => {
-    messageRefs.current
-      .get(index)
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const [openSlots, setOpenSlots] = useState<ReadonlySet<string>>(new Set());
+  const toggleSlot = (slot: string) => {
+    setOpenSlots((current) => {
+      const next = new Set(current);
+      if (next.has(slot)) next.delete(slot);
+      else next.add(slot);
+      return next;
+    });
+  };
+  const openAndScroll = (slot: string) => {
+    setOpenSlots((current) => new Set(current).add(slot));
+    window.setTimeout(() => {
+      // jsdom lacks scrollIntoView; the guard keeps tests truthful.
+      slotRefs.current
+        .get(slot)
+        ?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    }, 0);
   };
 
   return (
@@ -612,17 +685,17 @@ function RequestView({ request }: { request: JsonObject }): ReactElement {
         </Collapsible>
       )}
       <div className="flex gap-2">
-        {slotAnchors.length > 0 && (
+        {groups.length > 1 && (
           <div className="w-24 shrink-0 space-y-1 border-r border-line/60 pr-2">
-            {slotAnchors.map(({ slot, indices }) => (
+            {groups.map(({ slot, indices }) => (
               <button
                 key={slot}
                 type="button"
-                onClick={() => scrollTo(indices[0]!)}
+                onClick={() => openAndScroll(slot)}
                 className="block w-full truncate text-left text-[11px] text-fg-faint hover:text-accent"
-                title={`messages ${indices[0]}–${indices[indices.length - 1]}`}
+                title={slot}
               >
-                {slot}
+                {SLOT_LABELS[slot] ?? slot}
                 <span className="block text-[10px] text-fg-faint/70">
                   {indices.length} msg
                 </span>
@@ -631,16 +704,47 @@ function RequestView({ request }: { request: JsonObject }): ReactElement {
           </div>
         )}
         <div className="min-w-0 flex-1 space-y-1.5">
-          {messages.map((message, index) => (
-            <MessageView
-              key={index}
-              message={message}
-              origins={slotsOf(index)}
-              anchorRef={(node) => {
-                if (node !== null) messageRefs.current.set(index, node);
-              }}
-            />
-          ))}
+          {groups.map(({ slot, indices }) => {
+            const open = openSlots.has(slot);
+            return (
+              <div
+                key={slot}
+                ref={(node) => {
+                  if (node !== null) slotRefs.current.set(slot, node);
+                }}
+                className="overflow-hidden rounded-lg border border-line bg-bg-sunken"
+              >
+                <button
+                  type="button"
+                  aria-expanded={open}
+                  onClick={() => toggleSlot(slot)}
+                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-hover"
+                >
+                  <ChevronRight
+                    size={12}
+                    className={`shrink-0 text-fg-faint transition-transform ${open ? "rotate-90" : ""}`}
+                  />
+                  <span className="text-[12px] font-medium text-fg" title={slot}>
+                    {SLOT_LABELS[slot] ?? slot}
+                  </span>
+                  <span className="ml-auto font-mono text-[10px] text-fg-faint">
+                    {indices.length} 条消息 · {formatChars(groupChars(indices))} 字符
+                  </span>
+                </button>
+                {open && (
+                  <div className="space-y-1.5 border-t border-line/60 px-2 py-2">
+                    {indices.map((index) => (
+                      <MessageView
+                        key={index}
+                        message={messages[index]}
+                        origins={slotsOf(index)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
           {messages.length === 0 && (
             <div className="text-[12px] text-fg-faint">
               The request carried no recorded messages.
@@ -664,12 +768,11 @@ function RequestView({ request }: { request: JsonObject }): ReactElement {
 function MessageView({
   message,
   origins,
-  anchorRef,
 }: {
   message: unknown;
   origins: ProvenanceEntry[];
-  anchorRef: (node: HTMLDivElement | null) => void;
 }): ReactElement | null {
+  const [expanded, setExpanded] = useState(false);
   const entry = asObject(message);
   if (entry === null) return null;
   const role = asString(entry.role) ?? "message";
@@ -685,13 +788,21 @@ function MessageView({
   const segmentIds = [
     ...new Set(origins.map((origin) => origin.segmentId).filter((id) => id !== "")),
   ];
+  const preview = messagePreview(message);
+  const chars = messageChars(message);
 
   return (
-    <div
-      ref={anchorRef}
-      className="rounded-md border border-line/60 bg-bg-elev px-2.5 py-1.5"
-    >
-      <div className="mb-1 flex flex-wrap items-center gap-1.5">
+    <div className="rounded-md border border-line/60 bg-bg-elev px-2.5 py-1.5">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full flex-wrap items-center gap-1.5 text-left"
+      >
+        <ChevronRight
+          size={11}
+          className={`shrink-0 text-fg-faint transition-transform ${expanded ? "rotate-90" : ""}`}
+        />
         <Badge tone={ROLE_TONES[role] ?? "gray"}>{role}</Badge>
         {label !== null && (
           <span className="text-[11px] text-fg-faint">{label}</span>
@@ -703,40 +814,45 @@ function MessageView({
         {callId !== null && (
           <span className="font-mono text-[10px] text-fg-faint">{callId}</span>
         )}
-        {segmentIds.length > 0 && (
-          <span className="ml-auto text-[10px] text-fg-faint/70">
-            {segmentIds.join(" · ")}
-          </span>
-        )}
-      </div>
+        <span className="ml-auto text-[10px] text-fg-faint/70">
+          {[...segmentIds, `${formatChars(chars)} 字符`].join(" · ")}
+        </span>
+      </button>
+      {!expanded && preview !== null && (
+        <div className="mt-0.5 truncate pl-5 text-[11px] text-fg-faint">{preview}</div>
+      )}
       {reasoningSummary !== null && reasoningSummary !== "" && (
-        <div className="mb-1 text-[11px] text-fg-faint italic">
+        <div className="mb-1 mt-1 text-[11px] text-fg-faint italic">
           recorded reasoning summary: {reasoningSummary}
         </div>
       )}
-      <div className="space-y-1">
-        {parts.map((part, partIndex) => (
-          <MessagePart key={partIndex} part={part} />
-        ))}
-      </div>
-      {toolCalls.length > 0 && (
-        <div className="mt-1 space-y-1">
-          {toolCalls.map((call, callIndex) => {
-            const record = asObject(call);
-            if (record === null) return null;
-            return (
-              <div
-                key={callIndex}
-                className="rounded border border-line/50 bg-bg-sunken px-2 py-1"
-              >
-                <span className="font-mono text-[11px] text-fg-muted">
-                  → {asString(record.name) ?? "tool"}
-                </span>
-                <JsonTree value={record.arguments ?? null} defaultExpanded={false} />
-              </div>
-            );
-          })}
-        </div>
+      {expanded && (
+        <>
+          <div className="space-y-1">
+            {parts.map((part, partIndex) => (
+              <MessagePart key={partIndex} part={part} />
+            ))}
+          </div>
+          {toolCalls.length > 0 && (
+            <div className="mt-1 space-y-1">
+              {toolCalls.map((call, callIndex) => {
+                const record = asObject(call);
+                if (record === null) return null;
+                return (
+                  <div
+                    key={callIndex}
+                    className="rounded border border-line/50 bg-bg-sunken px-2 py-1"
+                  >
+                    <span className="font-mono text-[11px] text-fg-muted">
+                      → {asString(record.name) ?? "tool"}
+                    </span>
+                    <JsonTree value={record.arguments ?? null} defaultExpanded={false} />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
