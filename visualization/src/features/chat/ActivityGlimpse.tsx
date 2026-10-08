@@ -154,7 +154,7 @@ function TerminalGlimpse({ payload }: { payload: Record<string, unknown> }) {
 
 /** Compact change list with a +N/−M stat; `statOnly` hides the line rows.
     Beyond the preview cap the row list expands on demand. */
-function DiffGlimpse({
+export function DiffGlimpse({
   oldText,
   newText,
   statOnly = false,

@@ -2,7 +2,7 @@
 
 日期：2026-10-06
 
-状态：待逐项确认与实施
+状态：**done**（2026-10-08 全部 9 个改进点逐项与维护者确认并实施完成，每步 tsc + 全量测试通过）
 
 范围：`visualization/src/features/trace/`（ProcessPanel.tsx、ModelCallPanel.tsx、ActionDetailPanel.tsx、facts.ts）与 `visualization/src/components/trace/semantic.tsx`。只改呈现层，不改事件读取（eventWindow）、数据关联（buildTurnProcess）与 Inspector 抽屉机制。
 
@@ -224,6 +224,8 @@ Attempt 折叠头在改进点 6 优化中已移除（单 attempt 直渲、多 at
 ---
 
 ## 改进点 9：Action 详情与 gist 能力对齐
+
+状态：**已实施**（2026-10-08，tsc + 全部 807 前端测试通过）
 
 ### 现状分析
 

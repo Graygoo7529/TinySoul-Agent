@@ -17,6 +17,7 @@ import { Badge } from "../../components/ui/Badge";
 import { Collapsible } from "../../components/ui/Collapsible";
 import { JsonTree } from "../../components/ui/JsonTree";
 import { asNumber, asObject, asString, asStringArray } from "./facts";
+import { DiffGlimpse } from "../chat/ActivityGlimpse";
 import { openExternal } from "../resources/router";
 import type { ActionFamily, ResultViewProps } from "./registry";
 import { isSearchPage, SearchResultView } from "./SearchResultView";
@@ -345,6 +346,14 @@ function WriteView({ result, params, nav }: ResultViewProps) {
   if (result === null) return <EmptyResult />;
   const operation = asString(result.operation) ?? asString(result.action);
   const links = referenceFields(result);
+  // When the call carried before/after text, show the recorded diff — the
+  // detail view is never weaker than the gist.
+  const patches =
+    params !== null && Array.isArray(params.edits)
+      ? params.edits.map(asObject).filter((entry) => entry !== null)
+      : params !== null && asString(params.old_text) !== null
+        ? [params]
+        : [];
   return (
     <div className="space-y-2">
       <FactGrid>
@@ -359,6 +368,17 @@ function WriteView({ result, params, nav }: ResultViewProps) {
           <FactRow label="instruction" value={asString(params.instruction)} />
         )}
       </FactGrid>
+      {patches.length > 0 && (
+        <div className="space-y-1">
+          {patches.map((patch, index) => (
+            <DiffGlimpse
+              key={index}
+              oldText={asString(patch.old_text) ?? ""}
+              newText={asString(patch.new_text) ?? ""}
+            />
+          ))}
+        </div>
+      )}
       {links.length > 0 ? (
         <div className="space-y-1">
           {links.map(({ key, value }) => (
@@ -1034,6 +1054,9 @@ export function GenericView({ result, params }: ResultViewProps) {
   if (result === null && params === null) return <EmptyResult />;
   return (
     <div className="space-y-2">
+      <div className="rounded-lg border border-dashed border-line px-2.5 py-1.5 text-[11px] text-fg-faint">
+        未识别的动作类型，以下为原始数据。
+      </div>
       {result !== null && (
         <div className="space-y-1">
           <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
