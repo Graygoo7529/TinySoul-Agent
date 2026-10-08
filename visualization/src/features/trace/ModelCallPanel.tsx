@@ -1086,9 +1086,15 @@ function ResponseView({ response }: { response: JsonObject }): ReactElement {
   const [reasoningOpen, setReasoningOpen] = useState(false);
   const [callsOpen, setCallsOpen] = useState(false);
   const [answerOpen, setAnswerOpen] = useState(false);
+  const [responseOpen, setResponseOpen] = useState(false);
+  const [metadataOpen, setMetadataOpen] = useState(false);
 
   return (
-    <Collapsible title="Response">
+    <Fold
+      name="Response"
+      open={responseOpen}
+      onToggle={() => setResponseOpen(!responseOpen)}
+    >
       <div className="space-y-2">
         {reasoningSummary !== null && reasoningSummary !== "" && (
           <Fold
@@ -1174,12 +1180,17 @@ function ResponseView({ response }: { response: JsonObject }): ReactElement {
           </div>
         )}
         {metadata !== null && Object.keys(metadata).length > 0 && (
-          <Collapsible title="Response metadata">
+          <Fold
+            small
+            name="Response metadata"
+            open={metadataOpen}
+            onToggle={() => setMetadataOpen(!metadataOpen)}
+          >
             <JsonTree value={metadata} defaultExpanded={false} defaultDepth={2} />
-          </Collapsible>
+          </Fold>
         )}
       </div>
-    </Collapsible>
+    </Fold>
   );
 }
 

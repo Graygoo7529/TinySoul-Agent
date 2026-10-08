@@ -33,7 +33,7 @@ import {
 } from "./facts";
 import { readEventWindow } from "./eventWindow";
 import { domainTextClass } from "./registry";
-import { cycleLabel, phaseHint, shortId, actionSummary } from "../../components/trace/semantic";
+import { cycleLabel, phaseHint, phaseShort, shortId, actionSummary } from "../../components/trace/semantic";
 import { glimpseBody } from "../chat/ActivityGlimpse";
 import { makeTraceNavigation, pushActionDetail } from "./entries";
 import {
@@ -142,6 +142,7 @@ export function ActivityTimeline({
   const buffer = new ActivityBuffer(turnId);
   buffer.loadEvents(events);
   const startedAt = new Date((events[0]?.created_at ?? 0) * 1000).toISOString();
+  const startMs = new Date(startedAt).getTime();
   const activity = buffer.toPresentation(startedAt);
   if (activity.trail.length === 0) return null;
   const groups = activityGroups(activity.trail, filter);
@@ -159,22 +160,41 @@ export function ActivityTimeline({
           className={`rounded-full border px-2 py-0.5 text-[11px] transition-colors ${filter === value ? "border-accent/40 bg-accent-soft text-accent" : "border-line text-fg-muted hover:bg-hover"}`}>{value}</button>)}
       </div>
       <div className="max-h-80 overflow-y-auto rounded-lg">
-        {groups.map((group) => <div key={group.id} data-activity-phase={group.phase ?? "unknown"}
-          className={group.phase ? PHASE_META[group.phase].tint : "bg-bg-sunken/40"}>
-          {group.items.map((item) => {
-            const glimpse = item.content.type === "action_plan" || item.content.type === "action_result" ? item.content.glimpse : null;
-            return <div key={item.id} className="flex gap-2 px-2.5 py-2">
-              <div className="min-w-0 flex-1"><ActivityStepComponent item={item} rail /></div>
-              <time className="shrink-0 pt-0.5 font-mono text-[10px] text-fg-faint" title={item.timestamp}>{new Date(item.timestamp).toLocaleTimeString([], { hour12: false })}</time>
-              {glimpse?.callId && <button title="Open action" aria-label={`Open ${glimpse.actionId}`} className="self-start rounded p-0.5 text-fg-faint hover:bg-hover hover:text-accent"
-                onClick={() => pushActionDetail(epoch, turnId, day, { callId: glimpse.callId ?? null, action: glimpse.actionId, ordinal: 0 })}><ChevronRight size={12} /></button>}
-            </div>;
-          })}
-        </div>)}
+        {groups.map((group) => {
+          const times = group.items.map((item) => new Date(item.timestamp).getTime());
+          const range = times.length > 0
+            ? `${formatClockMs(Math.min(...times))}–${formatClockMs(Math.max(...times))}`
+            : "";
+          return <div key={group.id} data-activity-phase={group.phase ?? "unknown"}
+            className={group.phase ? PHASE_META[group.phase].tint : "bg-bg-sunken/40"}>
+            {/* Group headers only in the unfiltered view — a filtered list is one phase by construction. */}
+            {filter === "All" && group.phase && (
+              <div className="flex items-center gap-2 px-2.5 pt-1.5 text-[10px]">
+                <span className="rounded bg-hover px-1 py-px font-mono text-fg-muted">{group.phase}</span>
+                <span className="font-medium text-fg-muted">{phaseShort(group.phase)}</span>
+                <span className="ml-auto font-mono text-fg-faint">{group.items.length} 条 · {range}</span>
+              </div>
+            )}
+            {group.items.map((item) => {
+              const glimpse = item.content.type === "action_plan" || item.content.type === "action_result" ? item.content.glimpse : null;
+              const offsetSeconds = (new Date(item.timestamp).getTime() - startMs) / 1000;
+              return <div key={item.id} className="flex gap-2 px-2.5 py-2">
+                <div className="min-w-0 flex-1"><ActivityStepComponent item={item} rail /></div>
+                <time className="shrink-0 pt-0.5 font-mono text-[10px] text-fg-faint" title={`+${offsetSeconds.toFixed(1)}s`}>{new Date(item.timestamp).toLocaleTimeString([], { hour12: false })}</time>
+                {glimpse?.callId && <button title="Open action" aria-label={`Open ${glimpse.actionId}`} className="self-start rounded p-0.5 text-fg-faint hover:bg-hover hover:text-accent"
+                  onClick={() => pushActionDetail(epoch, turnId, day, { callId: glimpse.callId ?? null, action: glimpse.actionId, ordinal: 0 })}><ChevronRight size={12} /></button>}
+              </div>;
+            })}
+          </div>;
+        })}
         {groups.length === 0 && <div className="px-2 py-3 text-[12px] text-fg-faint">No matching activity.</div>}
       </div>
     </Collapsible>
   );
+}
+
+function formatClockMs(ms: number): string {
+  return new Date(ms).toLocaleTimeString([], { hour12: false });
 }
 
 function OverviewCard({ process }: { process: TurnProcess }): ReactElement {
@@ -478,7 +498,7 @@ function PhaseCard({ phase, onOpenTask, onOpenAction, children }: {
       : [];
   const headline = domains.length > 0 ? `已选择 ${domains.length} 个域`
     : phase.actions.length > 0 ? `${phase.actions.length} 个动作`
-    : phase.phase === "phase1" ? "更新语境" : phase.phase === "phase2" ? "规划动作" : "执行动作";
+    : phaseShort(phase.phase);
   return (
     <div className={`overflow-hidden rounded-lg border ${running ? "border-accent/40" : "border-line"}`}>
       <div className={`flex items-center gap-2 px-2.5 py-2 ${running ? "bg-accent-soft/50" : "bg-bg-sunken"}`}>

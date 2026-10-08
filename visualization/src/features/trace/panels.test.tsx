@@ -143,7 +143,12 @@ describe("ActivityTimeline", () => {
     render(<ActivityTimeline events={events} turnId={TURN_ID} epoch={epoch} day={null} />);
     clickButton("Activity");
     expect(container.textContent).toContain("Selected domains");
+    // Phase group headers show in the unfiltered view…
+    expect(container.textContent).toContain("更新语境");
+    expect(container.textContent).toContain("规划动作");
     clickButton("Thinking");
+    // …and disappear under a single-kind filter.
+    expect(container.textContent).not.toContain("更新语境");
     expect(container.textContent).toContain("First intent");
     expect(container.textContent).not.toContain("Task guidance");
     const nextCycle = { level: "cycle", name: "cycle_2" };

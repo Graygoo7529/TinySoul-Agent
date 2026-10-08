@@ -142,6 +142,20 @@ export function phaseHint(phase: string): string {
   }
 }
 
+/** Short phase name for headlines and group headers. */
+export function phaseShort(phase: string): string {
+  switch (phase) {
+    case "phase1":
+      return "更新语境";
+    case "phase2":
+      return "规划动作";
+    case "phase3":
+      return "执行动作";
+    default:
+      return phase;
+  }
+}
+
 /** `cycle_2` → "Cycle 2"; unknown formats pass through unchanged. */
 export function cycleLabel(cycleId: string): string {
   const match = /^cycle_(\d+)$/.exec(cycleId);

@@ -203,6 +203,8 @@ Attempt 折叠头在改进点 6 优化中已移除（单 attempt 直渲、多 at
 
 ## 改进点 8：Activity 时间线组头与时序
 
+状态：**已实施**（2026-10-08，按维护者定稿：组头只在 All 过滤视图出现；不加时序方向说明；组头用短名）
+
 ### 现状分析
 
 `ProcessPanel.tsx` ActivityTimeline（:125-174）：按 phase 分组染色（PHASE_META tint，:159）但**无组头文字、无图例**——用户无法知道颜色含义；时间戳为绝对时刻（:164）；与上方 ProcessTree 的语义标题命名不一致。
@@ -211,13 +213,13 @@ Attempt 折叠头在改进点 6 优化中已移除（单 attempt 直渲、多 at
 
 `ProcessPanel.tsx` ActivityTimeline：
 
-- 每组增加组头：`phaseN` 小徽章 + `phaseHint(phase)` 中文释义 + 组内条数 + 组起止时间（如"phase1 · 更新语境 · 6 条 · 14:32:01–05"），颜色保留；
+- 每组增加组头（**仅在 All 过滤视图**；过滤视图天然单类，不需要组头）：`phaseN` 小徽章 + `phaseShort(phase)` 中文短名 + 组内条数 + 组起止时间（如"phase1 · 更新语境 · 6 条 · 14:32:01–05"），颜色保留；`phaseShort`（更新语境/规划动作/执行动作）加入 `semantic.tsx`，PhaseCard 兜底 headline 复用同一来源；
 - 时间戳保留绝对时刻，title 追加相对 turn 开始的偏移（`+12.4s`），数据从 `item.timestamp` 与组首事件推导；
-- 时序方向维持现状（最新在前），在 Collapsible 的 meta 处加一行说明文字"最新在前"，避免与 ProcessTree 正序的阅读预期冲突（不强行翻转已有交互习惯）。
+- 时序方向维持现状（最新在前），**不加**方向说明文字。
 
 ### 预期效果
 
-时间线分组可读懂（"语境与域 · 6 条 · 14:32:01–14:32:05"）；两种时序各有明示，不再困惑。
+时间线分组可读懂（"phase1 · 更新语境 · 6 条 · 14:32:01–05"）；时刻有相对偏移可查。
 
 ---
 
@@ -251,7 +253,7 @@ Attempt 折叠头在改进点 6 优化中已移除（单 attempt 直渲、多 at
 5. request 默认只显示四个 slot 段的规模摘要，逐段/逐条可展开；
 6. response 的 answer 渲染 Markdown；tool call 按 kind 着色；usage 有合计；
 7. lifecycle 与 attempts 合并为一个调用链区块；
-8. 时间线有组头与"最新在前"说明；
+8. 时间线在 All 视图有组头（phase 徽章 + 短名 + 条数 + 时间范围），时刻悬停有相对偏移；
 9. write family 详情可见 diff；GenericView 有说明行。
 
 边界：不改动 `facts.ts` 的解析逻辑与 `eventWindow.ts` 的读取机制；不新增后端端点；不影响现有 `ProcessPanel.test` 等测试的行为断言（需要同步更新的断言随改动一并修改）。
