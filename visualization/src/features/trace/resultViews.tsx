@@ -354,31 +354,48 @@ function WriteView({ result, params, nav }: ResultViewProps) {
       : params !== null && asString(params.old_text) !== null
         ? [params]
         : [];
+  const instruction = params !== null ? asString(params.instruction) : null;
+  const hasPlanZone = patches.length > 0 || instruction !== null;
   return (
     <div className="space-y-2">
-      <FactGrid>
-        {operation !== null && <FactRow label="operation" value={operation} />}
-        {result.written === true && <FactRow label="written" value="yes" />}
-        {asNumber(result.chars) !== null && (
-          <FactRow label="chars" value={asNumber(result.chars)} />
-        )}
-        {result.changed === true && <FactRow label="changed" value="yes" />}
-        {result.cleared === true && <FactRow label="cleared" value="yes" />}
-        {params !== null && asString(params.instruction) !== null && (
-          <FactRow label="instruction" value={asString(params.instruction)} />
-        )}
-      </FactGrid>
-      {patches.length > 0 && (
-        <div className="space-y-1">
-          {patches.map((patch, index) => (
-            <DiffGlimpse
-              key={index}
-              oldText={asString(patch.old_text) ?? ""}
-              newText={asString(patch.new_text) ?? ""}
-            />
-          ))}
+      {hasPlanZone && (
+        <div>
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-accent">
+            规划输入
+          </div>
+          {instruction !== null && (
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
+              <dt className="text-fg-faint">instruction</dt>
+              <dd className="min-w-0 break-words text-fg-muted">{instruction}</dd>
+            </dl>
+          )}
+          {patches.length > 0 && (
+            <div className="mt-1 space-y-1">
+              {patches.map((patch, index) => (
+                <DiffGlimpse
+                  key={index}
+                  oldText={asString(patch.old_text) ?? ""}
+                  newText={asString(patch.new_text) ?? ""}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
+      <div className={hasPlanZone ? "border-t border-line/60 pt-2" : ""}>
+        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-success">
+          执行结果
+        </div>
+        <FactGrid>
+          {operation !== null && <FactRow label="operation" value={operation} />}
+          {result.written === true && <FactRow label="written" value="yes" />}
+          {asNumber(result.chars) !== null && (
+            <FactRow label="chars" value={asNumber(result.chars)} />
+          )}
+          {result.changed === true && <FactRow label="changed" value="yes" />}
+          {result.cleared === true && <FactRow label="cleared" value="yes" />}
+        </FactGrid>
+      </div>
       {links.length > 0 ? (
         <div className="space-y-1">
           {links.map(({ key, value }) => (
