@@ -141,7 +141,6 @@ describe("ActivityTimeline", () => {
       } }, [TURN, CYCLE, phase]),
     ];
     render(<ActivityTimeline events={events} turnId={TURN_ID} epoch={epoch} day={null} />);
-    clickButton("Activity");
     expect(container.textContent).toContain("Selected domains");
     // Phase group headers show in the unfiltered view…
     expect(container.textContent).toContain("更新语境");
@@ -220,6 +219,8 @@ describe("ProcessPanel", () => {
     serveEvents(processEvents);
     render(<ProcessPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29" />);
     await flush();
+    // The process tree lives on the 过程 tab.
+    clickButton("过程");
 
     expect(queryOf(endpoint.calls("/v2/events")[0]!, "turn_id")).toBe(TURN_ID);
     expect(queryOf(endpoint.calls("/v2/events")[0]!, "mode")).toBe("model");
@@ -267,6 +268,7 @@ describe("ProcessPanel", () => {
     serveEvents(processEvents);
     render(<ProcessPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29" />);
     await flush();
+    clickButton("过程");
     clickPhase("phase3");
     clickButton("workspace.read");
     const entries = useInspectorStore.getState().entries;

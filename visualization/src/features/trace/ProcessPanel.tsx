@@ -17,11 +17,12 @@ import { downloadJson } from "../../utils/download";
 import { workingFromMessages } from "../chat/useActivityDetails";
 import { WorkingZone } from "../chat/LiveStatus";
 import { SectionCard } from "../../components/ui/Card";
-import { asString, type PhaseProcess } from "./facts";
+import { asString, type CycleProcess, type PhaseProcess } from "./facts";
 import { Markdown } from "../../components/markdown/Markdown";
 
 import { Badge, type BadgeTone } from "../../components/ui/Badge";
 import { Collapsible } from "../../components/ui/Collapsible";
+import { Tabs } from "../../components/ui/Tabs";
 import { ActivityStep as ActivityStepComponent } from "../chat/ActivityStep";
 import { ACTIVITY_FILTERS, ActivityBuffer, activityGroups, type ActivityFilter } from "../chat/activityBuffer";
 import { PHASE_META } from "../chat/presentation";
@@ -56,6 +57,7 @@ export function ProcessPanel({
   const activeTurnId = useConnectionStore(selectActiveTurnId);
   const cursor = useConnectionStore((state) => state.eventCursor);
   const revision = useThrottledValue(activeTurnId === turnId ? cursor : 0, 1200);
+  const [tab, setTab] = useState<"overview" | "process">("overview");
   const read = useAsyncRead(
     async (signal) => {
       const window = await readEventWindow(
@@ -87,20 +89,34 @@ export function ProcessPanel({
   return (
     <div className="space-y-3">
       {window.truncated && <TruncationNotice />}
-      <div className="flex items-center justify-between gap-2 text-[11px] text-fg-faint">
+      <div className="flex items-center gap-2 text-[11px] text-fg-faint">
         <span>{snapshot?.state ?? "Captured trace"}{activeTurnId === turnId && <span className="ml-2 animate-pulse-dot text-accent">live</span>}</span>
-        <button className="inline-flex items-center gap-1 text-accent hover:underline" onClick={() => downloadJson(`trace-${turnId}.json`, { turn_id: turnId, day, ...window })}>
-          <Download size={12} /> Export trace…
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          <Tabs
+            items={[
+              { value: "overview", label: "概览" },
+              { value: "process", label: "过程" },
+            ]}
+            value={tab}
+            onChange={setTab}
+          />
+          <button className="inline-flex items-center gap-1 text-accent hover:underline" onClick={() => downloadJson(`trace-${turnId}.json`, { turn_id: turnId, day, ...window })}>
+            <Download size={12} /> Export trace…
+          </button>
+        </div>
       </div>
       {empty ? (
         <MissingRecord what={`Process records of turn ${turnId}`} />
-      ) : (
+      ) : tab === "overview" ? (
         <>
           <OverviewCard process={process} />
           {(working.todos.length > 0 || working.milestones.length > 0) && <SectionCard title="Working Context" description="Captured before the last recorded model task.">
             <WorkingZone working={working} />
           </SectionCard>}
+          <ActivityTimeline events={window.events} turnId={turnId} epoch={epoch} day={day} />
+        </>
+      ) : (
+        <>
           <ProcessTree
             epoch={epoch}
             turnId={turnId}
@@ -113,7 +129,6 @@ export function ProcessPanel({
               <span className="flex-1 truncate">{job.summary || job.kind}</span><Badge>{job.state}</Badge>
             </button>)}
           </Collapsible>}
-          <ActivityTimeline events={window.events} turnId={turnId} epoch={epoch} day={day} />
         </>
       )}
     </div>
@@ -138,6 +153,7 @@ export function ActivityTimeline({
   day: string | null;
 }): ReactElement | null {
   const [filter, setFilter] = useState<ActivityFilter>("All");
+  const [full, setFull] = useState(false);
   if (events.length === 0) return null;
   const buffer = new ActivityBuffer(turnId);
   buffer.loadEvents(events);
@@ -147,11 +163,19 @@ export function ActivityTimeline({
   if (activity.trail.length === 0) return null;
   const groups = activityGroups(activity.trail, filter);
   return (
-    <Collapsible
+    <SectionCard
       title="Activity"
-      meta={
-        <span className="text-[10px] text-fg-faint">
-          {activity.trail.length} steps
+      description="与过程记录共用同一事件流"
+      actions={
+        <span className="flex items-center gap-2 text-[10px] text-fg-faint">
+          <span>{activity.trail.length} steps</span>
+          <button
+            type="button"
+            onClick={() => setFull(!full)}
+            className="text-fg-faint transition-colors hover:text-fg-muted"
+          >
+            {full ? "收起" : `展开全部`}
+          </button>
         </span>
       }
     >
@@ -159,7 +183,7 @@ export function ActivityTimeline({
         {ACTIVITY_FILTERS.map((value) => <button key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}
           className={`rounded-full border px-2 py-0.5 text-[11px] transition-colors ${filter === value ? "border-accent/40 bg-accent-soft text-accent" : "border-line text-fg-muted hover:bg-hover"}`}>{value}</button>)}
       </div>
-      <div className="max-h-80 overflow-y-auto rounded-lg">
+      <div className={full ? "rounded-lg" : "max-h-80 overflow-y-auto rounded-lg"}>
         {groups.map((group) => {
           const times = group.items.map((item) => new Date(item.timestamp).getTime());
           // Group header carries the group's elapsed span, not a time range.
@@ -195,7 +219,7 @@ export function ActivityTimeline({
         })}
         {groups.length === 0 && <div className="px-2 py-3 text-[12px] text-fg-faint">No matching activity.</div>}
       </div>
-    </Collapsible>
+    </SectionCard>
   );
 }
 
@@ -341,11 +365,9 @@ function ProcessTree({
   return (
     <div className="space-y-2">
       {process.cycles.map((cycle) => (
-        <Collapsible
+        <CycleCard
           key={cycle.cycleId}
-          title={cycleLabel(cycle.cycleId)}
-          meta={<CycleMeta phases={cycle.phases} />}
-          className="overflow-hidden rounded-xl shadow-card"
+          cycle={cycle}
           defaultOpen={cycle === process.cycles[process.cycles.length - 1]}
         >
           <div className="space-y-2.5">
@@ -376,7 +398,7 @@ function ProcessTree({
               </div>
             ))}
           </div>
-        </Collapsible>
+        </CycleCard>
       ))}
 
       {process.unscopedActions.length > 0 && (
@@ -462,8 +484,104 @@ function ProcessTree({
   );
 }
 
-/** c479ca0 phase disclosure and direct model-context chip, fed by v2 task IDs. */
-function CycleMeta({ phases }: { phases: PhaseProcess[] }) {
+/**
+ * One cycle in the process tree: the collapsed card answers "what this cycle
+ * did" — an intent row (phase1 select intent, else phase1 reasoning's first
+ * line; the row keeps its height when neither exists) and a status row of
+ * three phase dots plus up to two key actions.
+ */
+function CycleCard({
+  cycle,
+  defaultOpen,
+  children,
+}: {
+  cycle: CycleProcess;
+  defaultOpen: boolean;
+  children: ReactNode;
+}): ReactElement {
+  const [open, setOpen] = useState(defaultOpen);
+  const phaseOf = (name: string) => cycle.phases.find((p) => p.phase === name);
+  const phase1 = phaseOf("phase1");
+  const selectIntent = phase1?.llmTasks
+    .flatMap((task) => task.controls)
+    .find((call) => call.name === "select_action_domains");
+  const intent =
+    asString(selectIntent?.arguments.intent) ??
+    phase1?.llmTasks
+      .map((task) => task.reasoning)
+      .find(Boolean)
+      ?.split("\n")
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ??
+    null;
+  const keyActions = cycle.phases.flatMap((phase) => phase.actions).slice(0, 2);
+  return (
+    <div className="overflow-hidden rounded-xl border border-line bg-bg-elev shadow-card">
+      <div className="flex items-center gap-2 px-3 py-2">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        >
+          <ChevronRight
+            size={13}
+            className={`shrink-0 text-fg-faint transition-transform ${open ? "rotate-90" : ""}`}
+          />
+          <span className="text-[13px] font-medium">{cycleLabel(cycle.cycleId)}</span>
+        </button>
+        <CycleMeta phases={cycle.phases} />
+      </div>
+      <div className="min-h-[18px] truncate px-3 pb-1.5 pl-8 text-[11px] italic text-fg-faint">
+        {intent ?? ""}
+      </div>
+      <div className="flex items-center gap-2.5 px-3 pb-2 pl-8">
+        <span className="flex items-center gap-1">
+          {["phase1", "phase2", "phase3"].map((name) => (
+            <PhaseDot key={name} name={name} phase={phaseOf(name)} />
+          ))}
+        </span>
+        {keyActions.map((trace) => (
+          <span
+            key={trace.firstSequence}
+            className="flex items-center gap-1 font-mono text-[10px] text-fg-muted"
+          >
+            <ActionStatusIcon kind={actionTraceStatus(trace).kind} />
+            {trace.call?.action ?? trace.result?.action}
+          </span>
+        ))}
+      </div>
+      {open && <div className="border-t border-line px-3 py-2.5">{children}</div>}
+    </div>
+  );
+}
+
+/** One phase status dot: success green / failed red / running accent / absent gray. */
+function PhaseDot({
+  name,
+  phase,
+}: {
+  name: string;
+  phase: PhaseProcess | undefined;
+}): ReactElement {
+  const status = phase?.status ?? "absent";
+  const cls =
+    status === "completed"
+      ? "bg-success shadow-[0_0_4px_var(--success)]"
+      : status === "failed" || status === "cancelled"
+        ? "bg-danger shadow-[0_0_4px_var(--danger)]"
+        : status === "running"
+          ? "bg-accent animate-pulse-dot"
+          : "bg-line-strong";
+  return (
+    <span
+      title={`${name} · ${phaseHint(name)}${phase === undefined ? "（未运行）" : ""}`}
+      className={`block h-1.5 w-1.5 rounded-full ${cls}`}
+    />
+  );
+}
+
+/** c479ca0 phase disclosure and direct model-context chip, fed by v2 task IDs. */function CycleMeta({ phases }: { phases: PhaseProcess[] }) {
   const running = phases.some((phase) => phase.status === "running");
   useNow(running, 1000);
   const starts = phases.flatMap((phase) => phase.startedAt === null ? [] : [phase.startedAt]);
