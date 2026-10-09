@@ -355,7 +355,25 @@ function WriteView({ result, params, nav }: ResultViewProps) {
         ? [params]
         : [];
   const instruction = params !== null ? asString(params.instruction) : null;
-  const hasPlanZone = patches.length > 0 || instruction !== null;
+  // write/append carry full content rather than patches: show target + preview.
+  const writeText = params !== null ? asString(params.text) : null;
+  const targetRef =
+    params !== null
+      ? (asString(params.target_ref) ?? asString(params.ref))
+      : null;
+  const sourceRef = params !== null ? asString(params.source_ref) : null;
+  const trashRef = params !== null ? asString(params.trash_ref) : null;
+  const tags = params !== null ? asStringArray(params.tags) : [];
+  const memorizeOps =
+    params !== null && Array.isArray(params.operations)
+      ? params.operations.map(asObject).filter((entry) => entry !== null)
+      : [];
+  const hasPlanZone =
+    patches.length > 0 ||
+    instruction !== null ||
+    writeText !== null ||
+    targetRef !== null ||
+    memorizeOps.length > 0;
   return (
     <div className="space-y-2">
       {hasPlanZone && (
@@ -369,6 +387,37 @@ function WriteView({ result, params, nav }: ResultViewProps) {
               <dd className="min-w-0 break-words text-fg-muted">{instruction}</dd>
             </dl>
           )}
+          {(targetRef !== null || sourceRef !== null || trashRef !== null) && (
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
+              {sourceRef !== null && (
+                <>
+                  <dt className="text-fg-faint">source</dt>
+                  <dd className="min-w-0 break-words font-mono text-[11px] text-fg-muted">{sourceRef}</dd>
+                </>
+              )}
+              {targetRef !== null && (
+                <>
+                  <dt className="text-fg-faint">target</dt>
+                  <dd className="min-w-0 break-words font-mono text-[11px] text-fg-muted">{targetRef}</dd>
+                </>
+              )}
+              {trashRef !== null && (
+                <>
+                  <dt className="text-fg-faint">trash</dt>
+                  <dd className="min-w-0 break-words font-mono text-[11px] text-fg-muted">{trashRef}</dd>
+                </>
+              )}
+            </dl>
+          )}
+          {tags.length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {tags.map((tag) => (
+                <span key={tag} className="rounded bg-hover px-1.5 py-0.5 font-mono text-[10px] text-fg-muted">
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
           {patches.length > 0 && (
             <div className="mt-1 space-y-1">
               {patches.map((patch, index) => (
@@ -378,6 +427,39 @@ function WriteView({ result, params, nav }: ResultViewProps) {
                   newText={asString(patch.new_text) ?? ""}
                 />
               ))}
+            </div>
+          )}
+          {writeText !== null && (
+            <div className="mt-1">
+              <div className="mb-0.5 text-[10px] text-fg-faint">
+                写入内容（{writeText.length} 字符）
+              </div>
+              <Excerpt text={writeText} max={600} />
+            </div>
+          )}
+          {memorizeOps.length > 0 && (
+            <div className="mt-1 space-y-1">
+              {memorizeOps.map((op, index) => {
+                const kind = asString(op.kind) ?? "?";
+                const oldText = asString(op.old_text);
+                const newText = asString(op.new_text) ?? asString(op.text);
+                return (
+                  <div key={index} className="flex items-start gap-2 text-[11.5px]">
+                    <span className="mt-px rounded bg-hover px-1.5 py-0.5 font-mono text-[10px] text-fg-muted">
+                      {kind}
+                    </span>
+                    {oldText !== null && newText !== null ? (
+                      <span className="min-w-0 flex-1">
+                        <DiffGlimpse oldText={oldText} newText={newText} />
+                      </span>
+                    ) : (
+                      <span className="min-w-0 flex-1 break-words text-fg-muted">
+                        {newText ?? ""}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
