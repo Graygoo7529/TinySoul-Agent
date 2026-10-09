@@ -536,7 +536,7 @@ function CycleCard({
         {intent ?? ""}
       </div>
       <div className="flex items-center gap-2.5 px-3 pb-2 pl-8">
-        <span className="flex items-center gap-1">
+        <span className="flex items-end gap-[3px]">
           {["phase1", "phase2", "phase3"].map((name) => (
             <PhaseDot key={name} name={name} phase={phaseOf(name)} />
           ))}
@@ -556,7 +556,7 @@ function CycleCard({
   );
 }
 
-/** One phase status dot: success green / failed red / running accent / absent gray. */
+/** One phase status tick: a small slash, muted color, no glow. */
 function PhaseDot({
   name,
   phase,
@@ -567,16 +567,16 @@ function PhaseDot({
   const status = phase?.status ?? "absent";
   const cls =
     status === "completed"
-      ? "bg-success shadow-[0_0_4px_var(--success)]"
+      ? "bg-success/80"
       : status === "failed" || status === "cancelled"
-        ? "bg-danger shadow-[0_0_4px_var(--danger)]"
+        ? "bg-danger/80"
         : status === "running"
-          ? "bg-accent animate-pulse-dot"
-          : "bg-line-strong";
+          ? "bg-accent/80"
+          : "bg-line-strong/60";
   return (
     <span
       title={`${name} · ${phaseHint(name)}${phase === undefined ? "（未运行）" : ""}`}
-      className={`block h-1.5 w-1.5 rounded-full ${cls}`}
+      className={`block h-2 w-[2px] rotate-[24deg] rounded-full ${cls}`}
     />
   );
 }
