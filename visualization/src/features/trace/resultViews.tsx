@@ -770,51 +770,117 @@ function AnalysisView({ result, params, nav }: ResultViewProps) {
 // execution / job-control / acp / mcp
 // ---------------------------------------------------------------------------
 
-function ExecutionView({ result, nav }: ResultViewProps) {
+/** The Job identity chip — one visual token in both the plan and result zones. */
+function JobChip({ id }: { id: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded border border-accent/40 bg-accent-soft px-1.5 py-px font-mono text-[10px] text-accent">
+      Job · {id}
+    </span>
+  );
+}
+
+function ExecutionView({ result, params, nav }: ResultViewProps) {
   if (result === null) return <EmptyResult />;
   const jobId = asString(result.job_id);
+  const paramJobId = params !== null ? asString(params.job_id) : null;
+  const command = params !== null ? asString(params.command) : null;
+  const sourceRef = params !== null ? asString(params.source_ref) : null;
+  const args = params !== null ? asStringArray(params.args) : [];
+  const cwdRef = params !== null ? asString(params.cwd_ref) : null;
+  const stdinText = params !== null ? asString(params.text) : null;
+  const stdinClose = params !== null && params.close === true;
+  const interactive = params !== null && params.interactive === true;
   const stdout = asString(result.stdout);
   const stderr = asString(result.stderr);
+
+  // The planned invocation in terminal language: cwd comment + `$ command`,
+  // or a Job chip line for stdin/collect job interactions.
+  const commandLine =
+    command !== null
+      ? `${command}${args.length > 0 ? ` ${args.join(" ")}` : ""}`
+      : sourceRef !== null
+        ? `${sourceRef}${args.length > 0 ? ` ${args.join(" ")}` : ""}`
+        : null;
+  const isStdin = stdinText !== null;
+  const isCollect =
+    !isStdin && commandLine === null && paramJobId !== null && stdinText === null;
+  const hasPlanZone = commandLine !== null || isStdin || isCollect;
+
   return (
     <div className="space-y-2">
-      <FactGrid>
-        {jobId !== null && (
-          <FactRow
-            label="job"
-            value={
-              <button
-                type="button"
-                className="text-accent hover:underline"
-                onClick={() => nav.openJob(jobId)}
-              >
-                {jobId}
-              </button>
-            }
-          />
-        )}
-        {asString(result.kind) !== null && (
-          <FactRow label="kind" value={asString(result.kind)} />
-        )}
-        {asString(result.state) !== null && (
-          <FactRow
-            label="state"
-            value={<JobStateBadge state={asString(result.state)!} />}
-          />
-        )}
-        {asNumber(result.exit_code) !== null && (
-          <FactRow label="exit code" value={asNumber(result.exit_code)} />
-        )}
-      </FactGrid>
-      {stdout !== null && stdout !== "" && (
-        <Collapsible title={`stdout (${stdout.length} chars)`} defaultOpen={stdout.length <= 1500}>
-          <Excerpt text={stdout} max={6000} />
-        </Collapsible>
+      {hasPlanZone && (
+        <div>
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-accent">
+            规划输入
+          </div>
+          <div className="term-block">
+            {cwdRef !== null && <div className="opacity-50"># {cwdRef}</div>}
+            {commandLine !== null && (
+              <div>
+                <span className="term-cmd">$ {commandLine}</span>
+                {interactive && <span className="opacity-50">（interactive）</span>}
+              </div>
+            )}
+            {isStdin && paramJobId !== null && (
+              <div>
+                <JobChip id={paramJobId} /> 输入{" "}
+                <span className="text-success">"{stdinText}"</span>
+                {stdinClose && <span className="opacity-50">（并关闭）</span>}
+              </div>
+            )}
+            {isCollect && paramJobId !== null && (
+              <div>
+                <JobChip id={paramJobId} />
+                <br />
+                读取输出
+              </div>
+            )}
+          </div>
+        </div>
       )}
-      {stderr !== null && stderr !== "" && (
-        <Collapsible title={`stderr (${stderr.length} chars)`} defaultOpen>
-          <Excerpt text={stderr} max={6000} />
-        </Collapsible>
-      )}
+      <div className={hasPlanZone ? "border-t border-line/60 pt-2" : ""}>
+        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-success">
+          执行结果
+        </div>
+        <FactGrid>
+          {jobId !== null && (
+            <FactRow
+              label="job"
+              value={
+                <button
+                  type="button"
+                  className="text-accent hover:underline"
+                  onClick={() => nav.openJob(jobId)}
+                >
+                  {jobId}
+                </button>
+              }
+            />
+          )}
+          {asString(result.kind) !== null && (
+            <FactRow label="kind" value={asString(result.kind)} />
+          )}
+          {asString(result.state) !== null && (
+            <FactRow
+              label="state"
+              value={<JobStateBadge state={asString(result.state)!} />}
+            />
+          )}
+          {asNumber(result.exit_code) !== null && (
+            <FactRow label="exit code" value={asNumber(result.exit_code)} />
+          )}
+        </FactGrid>
+        {stdout !== null && stdout !== "" && (
+          <Collapsible title={`stdout (${stdout.length} chars)`} defaultOpen={stdout.length <= 1500}>
+            <div className="term-block">{stdout}</div>
+          </Collapsible>
+        )}
+        {stderr !== null && stderr !== "" && (
+          <Collapsible title={`stderr (${stderr.length} chars)`} defaultOpen>
+            <div className="term-block"><span className="term-stderr">{stderr}</span></div>
+          </Collapsible>
+        )}
+      </div>
       {(result.stdout_truncated === true || result.stderr_truncated === true) && (
         <div className="text-[11px] text-fg-faint">
           Bounded read — the full output stays on the Job.

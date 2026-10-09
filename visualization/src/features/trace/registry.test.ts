@@ -82,6 +82,7 @@ const CANONICAL_ACTION_IDS = [
   "workspace.write",
   "workspace.append",
   "workspace.edit",
+  "workspace.inspect",
   "workspace.mkdir",
   "workspace.move",
   "workspace.delete",
@@ -94,7 +95,7 @@ describe("ACTION_FAMILY registration", () => {
     expect(Object.keys(ACTION_FAMILY).sort()).toEqual(
       [...CANONICAL_ACTION_IDS].sort(),
     );
-    expect(CANONICAL_ACTION_IDS).toHaveLength(63);
+    expect(CANONICAL_ACTION_IDS).toHaveLength(64);
   });
 
   it("maps every canonical ID to a family with a real view", () => {

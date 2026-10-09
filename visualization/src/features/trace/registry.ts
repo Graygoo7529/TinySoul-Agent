@@ -92,6 +92,7 @@ export const ACTION_FAMILY: Readonly<Record<string, ActionFamily>> = {
   // workspace
   "workspace.search": "search",
   "workspace.read": "inspect",
+  "workspace.inspect": "inspect",
   "workspace.list": "inspect",
   "workspace.trash_list": "inspect",
   "workspace.analyze": "analysis",
