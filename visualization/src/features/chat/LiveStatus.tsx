@@ -37,6 +37,7 @@ import { useOverflowing } from "../../hooks/useOverflowing";
 import { useTruncated } from "../../hooks/useTruncated";
 import { Crossfade } from "../../components/ui/Crossfade";
 import { Markdown } from "../../components/markdown/Markdown";
+import { turnStatusText } from "../../components/trace/semantic";
 import { formatDuration } from "../../utils/format";
 import { EASE_CALM, FOLD_DELAY_MS, LIVE_FOLD_MS } from "../../utils/motion";
 
@@ -642,16 +643,16 @@ function settledHeadline(status: TurnStatus | undefined): {
   Icon: typeof CheckCircle2;
   tone: string;
 } | undefined {
-  if (status === "failed") return { text: "Failed", Icon: AlertTriangle, tone: "text-danger" };
-  if (status === "cancelled" || status === "stopped") return { text: "Stopped", Icon: XCircle, tone: "text-fg-muted" };
-  if (status === "waiting_question" || status === "waiting_budget") return { text: "Waiting for you", Icon: Circle, tone: "text-warning" };
-  if (status === "skipped") return { text: "无需整理", Icon: Circle, tone: "text-fg-muted" };
-  if (status === "partial") return { text: "部分完成", Icon: Circle, tone: "text-warning" };
-  if (status === "awaiting_user") return { text: "需要进一步指示", Icon: Circle, tone: "text-warning" };
-  if (status === "exhausted") return { text: "预算已耗尽", Icon: Circle, tone: "text-warning" };
-  if (status === "finished") return { text: "已结束", Icon: Circle, tone: "text-fg-muted" };
+  if (status === "failed") return { text: turnStatusText(status), Icon: AlertTriangle, tone: "text-danger" };
+  if (status === "cancelled" || status === "stopped") return { text: turnStatusText(status), Icon: XCircle, tone: "text-fg-muted" };
+  if (status === "waiting_question" || status === "waiting_budget") return { text: turnStatusText(status), Icon: Circle, tone: "text-warning" };
+  if (status === "skipped") return { text: turnStatusText(status), Icon: Circle, tone: "text-fg-muted" };
+  if (status === "partial") return { text: turnStatusText(status), Icon: Circle, tone: "text-warning" };
+  if (status === "awaiting_user") return { text: turnStatusText(status), Icon: Circle, tone: "text-warning" };
+  if (status === "exhausted") return { text: turnStatusText(status), Icon: Circle, tone: "text-warning" };
+  if (status === "finished") return { text: turnStatusText(status), Icon: Circle, tone: "text-fg-muted" };
   return {
-    text: "Completed",
+    text: turnStatusText("completed"),
     Icon: CheckCircle2,
     tone: "text-fg-muted",
   };

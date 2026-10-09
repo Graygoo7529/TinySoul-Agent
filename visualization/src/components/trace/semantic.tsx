@@ -248,26 +248,57 @@ export function LinkChip({ resourceRef, className = "" }: { resourceRef: string;
 
 /* ------------------------------ status ------------------------------- */
 
+/**
+ * The single source of turn status wording (Chinese, terse). Used by the
+ * settled LiveStatus headline, the conversation footer badge, and
+ * TurnStatusBadge — unknown values pass through unchanged.
+ */
+export function turnStatusText(status: string): string {
+  switch (status) {
+    case "answered":
+    case "completed":
+      return "已完成";
+    case "failed":
+      return "失败";
+    case "cancelled":
+    case "stopped":
+      return "停止";
+    case "waiting_question":
+    case "waiting_budget":
+    case "awaiting_user":
+      return "等待";
+    case "exhausted":
+      return "耗尽";
+    case "partial":
+      return "部分完成";
+    case "skipped":
+      return "无需整理";
+    case "finished":
+      return "已结束";
+    default:
+      return status;
+  }
+}
+
 export function TurnStatusBadge({ status }: { status: string }) {
   switch (status) {
     case "answered":
-      return <Badge tone="green">answered</Badge>;
     case "completed":
-      return <Badge tone="green">completed</Badge>;
+      return <Badge tone="green">{turnStatusText(status)}</Badge>;
     case "failed":
-      return <Badge tone="red">failed</Badge>;
+      return <Badge tone="red">{turnStatusText(status)}</Badge>;
     case "stopped":
-      return <Badge tone="yellow">stopped</Badge>;
+      return <Badge tone="yellow">{turnStatusText(status)}</Badge>;
     case "exhausted":
-      return <Badge tone="yellow">exhausted</Badge>;
+      return <Badge tone="yellow">{turnStatusText(status)}</Badge>;
     case "running":
       return (
         <Badge tone="accent">
-          <span className="animate-pulse-dot">●</span> running
+          <span className="animate-pulse-dot">●</span> 运行中
         </Badge>
       );
     default:
-      return <Badge tone="gray">{status}</Badge>;
+      return <Badge tone="gray">{turnStatusText(status)}</Badge>;
   }
 }
 

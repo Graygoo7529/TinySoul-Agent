@@ -4,6 +4,7 @@ import { motion, useReducedMotion } from "motion/react";
 import { Bot, Check, Loader2, PanelRightOpen } from "lucide-react";
 import type { Interaction, TurnQuestion, TurnSnapshot } from "../../api/v2/types";
 import { Badge, type BadgeTone } from "../../components/ui/Badge";
+import { turnStatusText } from "../../components/trace/semantic";
 import { Button } from "../../components/ui/Button";
 import { formatDuration } from "../../utils/format";
 import { openTurnProcess } from "../trace/entries";
@@ -42,17 +43,16 @@ export function TurnFooter({ epoch, turnId, day, status, items, elapsedMs }: {
   const failed = outcomes.filter((item) => item.outcome === "failed" || item.outcome === "failure").length;
   const timeout = outcomes.filter((item) => item.outcome === "timeout").length;
   const tone: BadgeTone = status === "failed" ? "red" : status === "answered" || status === "completed" ? "green" : "gray";
-  const label = status === "answered" || status === "completed" ? "Completed" : status === "failed" ? "Failed" : status;
   return (
     <div className="flex flex-wrap items-center gap-2 px-1 text-[11px] text-fg-faint">
       {status !== null && <>
-        <Badge tone={tone}>{label}</Badge>
+        <Badge tone={tone}>{turnStatusText(status)}</Badge>
         {elapsedMs !== undefined && <span title="Elapsed time of the captured activity">{formatDuration(0, elapsedMs / 1000)}</span>}
         {outcomes.length > 0 && <span title="Actions represented in the retained interaction record">
-          {outcomes.length} recorded actions{failed > 0 ? ` / ${failed} failed` : ""}{timeout > 0 ? ` / ${timeout} timeout` : ""}
+          {outcomes.length} 个动作{failed > 0 ? ` ${failed} 失败` : ""}{timeout > 0 ? ` ${timeout} 超时` : ""}
         </span>}
       </>}
-      <Button variant="ghost" size="xs" className="ml-auto" onClick={() => openTurnProcess(epoch, turnId, day)}>
+      <Button variant="outline" size="xs" className="ml-auto" onClick={() => openTurnProcess(epoch, turnId, day)}>
         <PanelRightOpen size={12} /> Details
       </Button>
     </div>
