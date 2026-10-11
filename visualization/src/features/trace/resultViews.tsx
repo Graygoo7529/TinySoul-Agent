@@ -790,6 +790,7 @@ function ExecutionView({ result, params, nav }: ResultViewProps) {
   const stdinText = params !== null ? asString(params.text) : null;
   const stdinClose = params !== null && params.close === true;
   const interactive = params !== null && params.interactive === true;
+  const interpreter = params !== null ? asString(params.interpreter) : null;
   const stdout = asString(result.stdout);
   const stderr = asString(result.stderr);
 
@@ -813,7 +814,12 @@ function ExecutionView({ result, params, nav }: ResultViewProps) {
           <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-accent">
             规划输入
           </div>
-          <div className="term-block">
+          <div className="term-block relative">
+            {interpreter !== null && (
+              <span className="absolute right-1.5 top-1 rounded border border-accent/40 bg-accent-soft px-1 font-mono text-[10px] text-accent">
+                {interpreter}
+              </span>
+            )}
             {cwdRef !== null && <div className="opacity-50"># {cwdRef}</div>}
             {commandLine !== null && (
               <div>

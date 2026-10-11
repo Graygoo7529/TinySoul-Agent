@@ -54,7 +54,9 @@ export function glimpseBody(data: ActionGlimpseData) {
     if (family === "execution") {
       const command = asString(params.command) ?? asString(params.source_ref);
       if (!command) return null;
-      return <div className="term-block">
+      const interpreter = asString(params.interpreter);
+      return <div className="term-block relative">
+        {interpreter && <span className="absolute right-1.5 top-1 rounded border border-accent/40 bg-accent-soft px-1 font-mono text-[10px] text-accent">{interpreter}</span>}
         {asString(params.cwd_ref) && <div className="opacity-50"># {asString(params.cwd_ref)}</div>}
         <span className="term-cmd">$ {command}</span>
       </div>;
