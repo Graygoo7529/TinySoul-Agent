@@ -79,7 +79,7 @@ test("live trail inserts above stable plan/result cards and clips their bottom e
       const result = i % 2 === 1;
       const type = result ? "action_result" : "action_plan";
       trail.push({ id: `row-${i}`, type, timestamp: startedAt, cycleId: "c", phase: result ? "phase3" : "phase2", autoExpandGist: true,
-        content: { type, glimpse: { actionId: "execution.run_shell", callId: `call-${i}`, domain: "execution", stage: result ? "result" : "plan",
+        content: { type, glimpse: { actionId: "execution.run", callId: `call-${i}`, domain: "execution", stage: result ? "result" : "plan",
           params: { command: `echo resource ${i}` }, executionState: result ? "executed" : "planned",
           ...(result ? { payload: { stdout: `resource ${i}\nchecked\nready`, stderr: "", exit_code: 0 }, result: { status: "success", preview: "Resource checked" } } : {}),
         } } });

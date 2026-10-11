@@ -14,7 +14,7 @@ afterEach(() => { act(() => root.unmount()); host.remove(); });
 const result = (patch: Partial<ActionGlimpseData>): ActionGlimpseData => ({ actionId: "workspace.read", domain: "workspace", stage: "result", result: { status: "success" }, ...patch });
 
 it("keeps terminal output compact and reveals the earlier lines on request", () => {
-  act(() => root.render(glimpseBody(result({ actionId: "execution.run_shell", payload: { exit_code: 0, stdout: "one\ntwo\nthree\nfour\n" } }))));
+  act(() => root.render(glimpseBody(result({ actionId: "execution.run", payload: { exit_code: 0, stdout: "one\ntwo\nthree\nfour\n" } }))));
   expect(host.textContent).toContain("three\nfour");
   expect(host.textContent).not.toContain("one\ntwo");
   act(() => host.querySelector("button")!.click());

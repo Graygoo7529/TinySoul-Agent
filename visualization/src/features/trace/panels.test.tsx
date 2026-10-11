@@ -203,7 +203,7 @@ describe("ProcessPanel", () => {
     }, [TURN, CYCLE, PHASE3]),
     event("action.call", 30, {
       call_id: "c2",
-      action: "execution.run_shell",
+      action: "execution.run",
       domain: "execution",
       sequence: 2,
       params: { command: "ls" },
@@ -229,7 +229,7 @@ describe("ProcessPanel", () => {
     expect(text).toContain("Cycle 1");
     expect(text).toContain("workspace.read");
     expect(text).toContain("success");
-    expect(text).toContain("execution.run_shell");
+    expect(text).toContain("execution.run");
     // The expanded phase shows the action's result gist inline (payload text).
     expect(text).toContain("hi");
     // A not-executed action is shown as such — never as a tool answer.

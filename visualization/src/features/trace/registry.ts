@@ -42,15 +42,13 @@ export const ACTION_FAMILY: Readonly<Record<string, ActionFamily>> = {
   "core.reason": "core-dialog",
   "core.wait": "job-control",
   "core.job.status": "job-control",
-  "core.job.wait": "job-control",
   "core.job.stop": "job-control",
   "core.session.organize": "session-organize",
   "core.context.inspect": "inspect",
   "core.context.search": "search",
   // execution
   "execution.start": "execution",
-  "execution.run_shell": "execution",
-  "execution.run_script": "execution",
+  "execution.run": "execution",
   "execution.stdin": "execution",
   "execution.collect": "execution",
   // expand (MCP)

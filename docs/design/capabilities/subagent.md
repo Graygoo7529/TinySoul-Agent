@@ -4,7 +4,7 @@ subagent 把外部 ACP Agent 接入同一个 TinySoul Turn。SubagentEngine 拥�
 
 ## 使用与语境
 
-模型先通过 `subagent.agents` 发现配置的目标，再 connect 准备连接，delegate 创建本 Turn 的 Job。公共 `core.job.status/wait/stop` 监督执行，collect 有界读取输出，respond 选择真实权限选项，disconnect 关闭空闲连接。有活 Job 的连接不能直接断开。没有绕过 connect 的 start，也没有可能隐式开始新工作的 send/steering。
+模型先通过 `subagent.agents` 发现配置的目标，再 connect 准备连接，delegate 创建本 Turn 的 Job。`core.wait(event_kind="job")` 等待任意 Job 的终态或待答事实，`core.job.status/stop` 监督具体 Job，collect 有界读取输出，respond 选择真实权限选项，disconnect 关闭空闲连接。有活 Job 的连接不能直接断开。没有绕过 connect 的 start，也没有可能隐式开始新工作的 send/steering。
 
 同一连接同时只运行一个 prompt Job；其后同 Turn 的新 delegate 延续同一 session，但获得新的 Job 身份。新根 Turn 使用新 session。同日、同世代且相同 profile 的空闲连接，在成功释放旧 session 后可以复用；不支持或无法完成 session 释放时关闭连接。
 

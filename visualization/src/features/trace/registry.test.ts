@@ -22,15 +22,13 @@ const CANONICAL_ACTION_IDS = [
   "core.reason",
   "core.wait",
   "core.job.status",
-  "core.job.wait",
   "core.job.stop",
   "core.session.organize",
   "core.context.inspect",
   "core.context.search",
   // execution
   "execution.start",
-  "execution.run_shell",
-  "execution.run_script",
+  "execution.run",
   "execution.stdin",
   "execution.collect",
   // expand (MCP)
@@ -95,7 +93,7 @@ describe("ACTION_FAMILY registration", () => {
     expect(Object.keys(ACTION_FAMILY).sort()).toEqual(
       [...CANONICAL_ACTION_IDS].sort(),
     );
-    expect(CANONICAL_ACTION_IDS).toHaveLength(64);
+    expect(CANONICAL_ACTION_IDS).toHaveLength(62);
   });
 
   it("maps every canonical ID to a family with a real view", () => {

@@ -28,7 +28,7 @@ describe("ActivityBuffer v2 event projection", () => {
   it("updates execution icons without inventing a result for interrupted actions", () => {
     const buffer = new ActivityBuffer("turn-1");
     buffer.loadEvents([
-      event("action.call", { call_id: "c", action: "execution.run_shell" }, 1),
+      event("action.call", { call_id: "c", action: "execution.run" }, 1),
       event("action.execution", { call_id: "c", state: "started" }, 2),
     ]);
     expect(buffer.toPresentation(new Date().toISOString())?.trail[0]?.content)

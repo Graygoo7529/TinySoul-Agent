@@ -152,3 +152,16 @@ Job backend 终态/待答
 ### 效果与结论
 
 模型只需学习统一的前台/后台执行请求和一个等待 Action。Job 完成时，等待以短小且可定位的原因与 Job 身份恢复；随后由既有 jobs 投影提供状态和结果。方案与实现保持一致，没有遗留设计裁决项。
+
+### 提交后集成层复核
+
+提交后按 AGENTS.md 重新核对时发现，后端计划虽已完成，但 Visualization 的 ActionRenderer canonical registry、覆盖矩阵和测试 fixture 仍保留已删除的 `core.job.wait`、`execution.run_shell`、`execution.run_script`，且没有登记 `execution.run`。这属于动作合并后必须同步的前端协议映射，而不是旧数据兼容层。
+
+已补齐以下同步：
+
+- `visualization/src/features/trace/registry.ts` 与 registry 快照改为当前 62 个 catalog action，删除旧动作并登记 `execution.run`；
+- trace 覆盖矩阵、Activity/Process 测试和 E2E fixture 改用 `execution.run`；
+- execution 与 subagent 的模型可见技能文案改用 `core.wait(event_kind="job")`，不再引用删除的 `core.job.wait`；
+- Visualization Vitest 通过（89 files / 795 tests），TypeScript/Vite build 通过。
+
+后端负向 catalog 测试中仍保留旧名称，是为了明确断言它们不存在，不是活动接口引用。

@@ -1,6 +1,6 @@
 # Action 渲染器覆盖矩阵（F4-B，计划 §9/§21.3）
 
-本文档记录 `src/features/trace/` 的 ActionRenderer 注册与覆盖情况。Action ID 以当前 Action Catalog 的 canonical 名称为准（`tinysoul/assets/common/configs/action/catalog/*/actions/*.toml` 的 `name`，共 63 个），注册表是 `registry.ts` 的 `ACTION_FAMILY` 显式映射：精确 Action ID → 一个主结果族 → 通用结构视图兜底。无别名、无旧名兼容映射。
+本文档记录 `src/features/trace/` 的 ActionRenderer 注册与覆盖情况。Action ID 以当前 Action Catalog 的 canonical 名称为准（`tinysoul/assets/common/configs/action/catalog/*/actions/*.toml` 的 `name`，共 62 个），注册表是 `registry.ts` 的 `ACTION_FAMILY` 显式映射：精确 Action ID → 一个主结果族 → 通用结构视图兜底。无别名、无旧名兼容映射。
 
 `registry.test.ts` 把下表 ID 全集作为快照断言：后端增删 Action 时，注册表、本矩阵与测试一起更新，不存在静默漂移。
 
@@ -9,7 +9,7 @@
 - 一个 Action 只选一个主结果族；族之间复用共享组件（引用按钮、事实行、Search 卡片、有界文本），不为每个 Action 复制组件。
 - 渲染器只处理呈现与导航，不执行后端动作；摘要行与展开内容全部来自该次调用真实记录的 payload/params，缺字段就少显示，不猜。
 - 事件是过程详情的定向读取来源；正式状态以 owner 投影为准。失败、未执行、取消、结果未知按正式执行状态分别展示，不压平成"工具返回文本"。
-- 未知 Action（例如更新后端的新动作）落入通用结构视图：保留可读 JSON（结果与调用参数），不吞掉结果。当前 Catalog 中没有任何已知 Action 以通用视图验收——全部 63 个 ID 都有明确族归属，见下表。
+- 未知 Action（例如更新后端的新动作）落入通用结构视图：保留可读 JSON（结果与调用参数），不吞掉结果。当前 Catalog 中没有任何已知 Action 以通用视图验收——全部 62 个 ID 都有明确族归属，见下表。
 
 ### 不虚构原则（全部渲染器共享）
 
@@ -34,14 +34,12 @@
 | core.reason | core-dialog | 推理摘录 | 实际披露的推理文本 | — |
 | core.wait | job-control | 等待条件（event_kind/topic） | 超时、条件、实际等待结果 | — |
 | core.job.status | job-control | job_id · state | Job snapshot 描述 | Job 面板 |
-| core.job.wait | job-control | job_id · ready/timeout | 等待结果与超时事实 | Job 面板 |
 | core.job.stop | job-control | job_id · 停止意图 | 停止回执（不冒充已结束） | Job 面板 |
 | core.session.organize | session-organize | N 个解释 ref 更新 | changed/created refs、不可变事实注记 | ref → Session 历史 |
 | core.context.inspect | inspect | 所读 ref/范围 | DisclosurePage 内容、范围 | ref → Context/资源 |
 | core.context.search | search | 结果数 · source | Search 卡片（§9.2） | item ref → 资源路由；search_id → 模型 Inspector |
 | execution.start | execution | job_id · state / exit | JobSnapshot、启动事实 | Job 面板；产物链接 |
-| execution.run_shell | execution | exit N | stdout/stderr 尾部、截断注记 | Job 面板；产物链接 |
-| execution.run_script | execution | exit N | 同上 | Job 面板；产物链接 |
+| execution.run | execution | exit N | stdout/stderr 尾部、截断注记 | Job 面板；产物链接 |
 | execution.stdin | execution | job_id · state | 写入事实与 Job 状态 | Job 面板 |
 | execution.collect | execution | job_id · exit N | 终态、输出尾部 | Job 面板；产物链接 |
 | expand.call | mcp | 内容摘录 | 参数、返回内容、is_error | — |
