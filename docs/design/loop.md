@@ -36,7 +36,7 @@ Phase 固定指引和局部反馈由 `prompts/kernel/loop.py` 提供，User 情�
 
 TurnInbox 从请求受理到收尾持续接收。固定批次经 Context prepare/install 成功后 ack；准备期间到达的记录留在后批。inputs 保存正文，Trace 只引用输入身份与顺序。等待只观察就绪，不能抢走消费者记录。
 
-core.ask、core.wait、core.job.wait 都先以 ActionResult 收敛，再由 Loop 在 Cycle 边界等待。ask、wait、answer 等互斥意图在批次执行前检查，冲突形成 PhaseFailure，不先执行部分副作用。ask 无默认超时，显式超时以 awaiting_user 结束；普通追加作为新指示恢复并记录原问题未答，过期问题拒绝迟到回复。
+core.ask 与 core.wait 先以 ActionResult 收敛，再由 Loop 在 Cycle 边界等待。`core.wait(event_kind="job")` 等待任意所属 Job 的终态或待答事实，也可以同时设置 timeout_seconds；用户输入和环境事件可以中断等待。可选的 event_id/topic/source 只筛选环境事件中断，不限制 Job 唤醒。Job 唤醒以 `reason=job` 和触发的 `job_id` 写入 wait_resumed Trace note，Job 详情仍从 jobs Working 投影读取。ask、wait、answer 等互斥意图在批次执行前检查，冲突形成 PhaseFailure，不先执行部分副作用。ask 无默认超时，显式超时以 awaiting_user 结束；普通追加作为新指示恢复并记录原问题未答，过期问题拒绝迟到回复。
 
 带 Inbox 的 Turn 在下一 Cycle 开始前检查预算；不足时经 Loop-owned reason 和 Trap SUSPEND 当前 Turn frame。next_cycle_index 保留，事件就绪不能越过预算，grant 绑定请求身份且幂等。模型不见剩余 Cycle，不得自动补额。不带 Inbox 的单次内核调用以有限预算终态收敛。
 
@@ -50,7 +50,7 @@ EVENT 还可按 topic/source 等待。文件状态通知只唤醒匹配的 EVENT
 
 ## Job 与完成策略
 
-Kernel JobRegistry 管身份、配额、监督、终态预留和 Turn 收尾；具体 backend 管进程及输出资源。Job 可跨 Cycle，不跨所属 Turn。通用 core.job.status/stop/wait 查询、停止或构造等待条件，进程 manager 不管理下一 Cycle 节拍。后台 monitor 在 Turn 等待期间仍更新 owner 状态和终态，段视图在正常边界刷新，不由 monitor 并发修改 Context。
+Kernel JobRegistry 管身份、配额、监督、终态预留和 Turn 收尾；具体 backend 管进程及输出资源。Job 可跨 Cycle，不跨所属 Turn。`core.job.status/stop` 查询或停止具体 Job；通用 `core.wait` 构造 timer、environment event 或任意 Job 的等待条件，进程 manager 不管理下一 Cycle 节拍。后台 monitor 在 Turn 等待期间仍更新 owner 状态和终态，段视图在正常边界刷新，不由 monitor 并发修改 Context。
 
 User 的 core.answer 经 profile 映射为正式用户输出，由 Session 保存 schema v9 完成事实。Home/Memory Reflection 复用同一完成检测和内核，core.answer 表示维护总结，不写 User Session；各自专属 Action 权限由装配决定，内核不按 profile 字符串分支解释业务。
 

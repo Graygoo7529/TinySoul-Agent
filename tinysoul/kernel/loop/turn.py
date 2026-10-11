@@ -357,7 +357,6 @@ class TurnRunner:
                 cycle_limit = self._settings.max_cycles
                 phase_feedback: list[str] = []
                 pending_wait: WaitCondition | None = None
-                job_ready = False
                 while True:
                     request = None
                     if cycle_index > cycle_limit:
@@ -402,7 +401,7 @@ class TurnRunner:
                         pending_wait is not None or request is not None
                     ):
                         readiness = await inbox.wait_for_cycle(
-                            pending_wait, budget=request, job_ready=job_ready
+                            pending_wait, budget=request
                         )
                         cycle_limit += readiness.granted_cycles
                         if pending_wait is not None:
@@ -420,7 +419,7 @@ class TurnRunner:
                                 (
                                     build_trace_phase_note_signal(
                                         {
-                                            "kind": "wait_resumed",
+                                            "kind": LoopTraceNoteKind.WAIT_RESUMED.value,
                                             "reason": (
                                                 readiness.reason.value
                                                 if readiness.reason
@@ -429,6 +428,11 @@ class TurnRunner:
                                             "sequence": readiness.sequence,
                                             "topic": pending_wait.topic,
                                             "source": pending_wait.source,
+                                            **(
+                                                {"job_id": readiness.wake_job_id}
+                                                if readiness.wake_job_id is not None
+                                                else {}
+                                            ),
                                             **(
                                                 {
                                                     "feedback": prompt_text.ENVIRONMENT_SOURCE_UNAVAILABLE
@@ -451,7 +455,6 @@ class TurnRunner:
                                 scope=turn_scope,
                             )
                         pending_wait = None
-                        job_ready = False
                     await self._consume_inbox(inbox, turn_scope)
                     if self._activity_controller is not None:
                         self._activity_controller.sync(
@@ -521,7 +524,6 @@ class TurnRunner:
                                 "Wait action requires a Turn Inbox"
                             )
                         pending_wait = cycle.wait.condition(cycle_cursor)
-                        job_ready = cycle.wait.ready
                         cycle_index += 1
                         continue
                     if cycle.completion is not None:

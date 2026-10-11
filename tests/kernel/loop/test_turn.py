@@ -34,6 +34,7 @@ from tinysoul.kernel.loop.interaction.inbox import (
     TurnInbox,
     WaitReason,
 )
+from tinysoul.kernel.loop.lifecycle.completion import WaitRequest
 from tinysoul.kernel.loop.trap_handlers import (
     BudgetSuspendTrapHandler,
     EndFrameTrapHandler,
@@ -65,6 +66,7 @@ from tinysoul.runtime import (
     SignalBus,
     TrapHandlerRegistry,
 )
+from tinysoul.llm.protocol.messages import JsonPart
 
 DAY = CalendarDay.parse("2026-07-12")
 
@@ -1059,6 +1061,64 @@ async def test_budget_suspend_preserves_next_cycle_and_ignores_progress_as_grant
         "question",
         "additional",
     ]
+
+
+async def test_job_wake_reason_and_identity_are_recorded_in_trace() -> None:
+    inbox = TurnInbox()
+    context = ContextEngineBuilder(system_text="sys").build()
+
+    class Cycles:
+        calls = 0
+
+        async def run(self, **kwargs: object) -> CycleOutcome:
+            self.calls += 1
+            if self.calls == 1:
+                await inbox.reserve_terminal("job_1")
+                await inbox.deliver_terminal(
+                    "job_1", {"job_id": "job_1", "state": "succeeded"}
+                )
+                return CycleOutcome(
+                    cycle_id="cycle_1",
+                    wait=WaitRequest(event_kind=InboxKind.JOB),
+                )
+            return CycleOutcome(cycle_id="cycle_2", completion={"kind": "complete"})
+
+    cycles = Cycles()
+    runner = TurnRunner(
+        context=context,
+        bus=SignalBus(),
+        trap=_trap(),
+        cycle_runner=cast(CycleRunner, cycles),
+        settings=TurnSettings(max_cycles=2),
+    )
+
+    outcome = await runner.run(
+        "check background work",
+        turn_id=f"{DAY}/997",
+        active_day=DAY,
+        scope=_agent_scope(),
+        inbox=inbox,
+    )
+
+    assert outcome.context_completion is not None
+    assert cycles.calls == 2
+    notes = [
+        entry
+        for entry in outcome.context_completion.trace.entries
+        if entry.kind.value == "phase_note"
+    ]
+    assert notes, [
+        (entry.kind.value, entry.visible_message.parts)
+        for entry in outcome.context_completion.trace.entries
+    ]
+    wait_note = next(
+        entry.visible_message.parts[0].value
+        for entry in notes
+        if isinstance(entry.visible_message.parts[0], JsonPart)
+        and entry.visible_message.parts[0].value.get("kind") == "wait_resumed"
+    )
+    assert wait_note["reason"] == "job"
+    assert wait_note["job_id"] == "job_1"
 
 
 async def test_question_timeout_records_waiting_terminal_without_user_answer() -> None:

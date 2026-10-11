@@ -94,7 +94,6 @@ class Phase3Unit:
                 "core.answer",
                 "core.ask",
                 "core.wait",
-                "core.job.wait",
             }
         ]
         if len(intents) > 1:

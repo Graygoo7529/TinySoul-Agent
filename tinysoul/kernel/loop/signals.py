@@ -28,6 +28,7 @@ class LoopTraceNoteKind(StrEnum):
     PHASE2_TASK_FAILED = "phase2_task_failed"
     ACTION_PHASE_RESULT = "action_phase_result"
     TURN_CYCLE_LIMIT_REACHED = "turn_cycle_limit_reached"
+    WAIT_RESUMED = "wait_resumed"
 
 
 @dataclass(frozen=True)

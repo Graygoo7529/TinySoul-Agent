@@ -2,9 +2,9 @@
 
 `plugins/execution` 将显式 script/shell 请求转换为受控进程；`kernel/jobs` 拥有 Job 受理、Turn 隔离、监视、终态通知与有界结果保留；`infra/process` 提供无业务依赖的进程组、标准输入输出和有界停止。Agent 组合根每个运行世代创建一个 JobRegistry，User、Home Reflection 与 Memory Reflection 复用该对象，各自按所属 Turn 访问。
 
-`execution.run_script`、`execution.run_shell` 等待当前 Job 完成；`execution.start` 返回 Job 身份，由后续 Cycle 通过 `core.job.status/wait/stop` 监督。两条路径使用同一 ProcessJobBackend。普通文件或长期脚本的编辑仍属于 Workspace/Home。Action catalog 位于公共 assets；`execution` 配置解释器与执行上限，`jobs` 配置容量，动作可见性由 catalog 的情景策略解释。
+`execution.run` 和 `execution.start` 接受同一组 command/source 请求：command 使用 bash、powershell 或 cmd；脚本 source_ref 还可使用 python。静态 enum 描述受支持的解释器身份，当前 generation 是否启用该解释器由 execution 配置决定，未启用时返回简短的可修正 Action 反馈。run 在当前 Action 等待完成并返回结果；start 返回 Job 身份，后续 Cycle 使用 `core.job.status/stop` 和 execution 的 stdin/collect 操作监督。两条路径使用同一 ProcessJobBackend。普通文件或长期脚本的编辑仍属于 Workspace/Home。Action catalog 位于公共 assets；`execution` 配置解释器与执行上限，`jobs` 配置容量，动作可见性由 catalog 的情景策略解释。
 
-JobBackend 的受理、poll、stop、execution close、describe 和 cleanup 统一为可等待边界；只读取内存的 snapshot 仍是同步投影。短 shell/script Action 仍在当前 Action 内等待最终结果，只有 `execution.start` 和外部 ACP delegate 作为 Job 返回身份。异步契约允许收尾期间接收权限请求、取消和外部事件，不把一次性前台命令改造成模型需要自行轮询的后台任务。
+JobBackend 的受理、poll、stop、execution close、describe 和 cleanup 统一为可等待边界；只读取内存的 snapshot 仍是同步投影。短 shell/script 请求仍在 `execution.run` 当前 Action 内等待最终结果，只有 `execution.start` 和外部 ACP delegate 作为 Job 返回身份。异步契约允许收尾期间接收权限请求、取消和外部事件，不把一次性前台命令改造成模型需要自行轮询的后台任务。
 
 进程直接操作当天 Workspace。默认 cwd 是该 Job 独立的 `workspace:jobs/<job_id>`；显式 `cwd_ref` 可以选择已有 Workspace 目录，`workspace:` 在此参数中表示当天根目录。Workspace owner 校验并解析物理位置，脚本源码读取为一次有界快照，随后放入 Job 目录运行。这个目录不是操作系统沙箱。文件写入即时生效；失败、停止或取消不回滚已写文件，也没有 apply/discard 提交路径。
 
@@ -20,6 +20,6 @@ Job 终态为 succeeded、failed 或 cancelled，超时与输出上限作为失�
 
 有界 run 遇到 Action 取消或超时，在退出等待边界前停止并 join 所属 Job。Turn 收尾通过 Agent 的 activity 组合先清理共享 Jobs，再释放能力 owner 的本轮 session/引用，最后让 Workspace reconcile 并同步最终投影，随后才释放日级执行位置。跨午夜的活动 Turn 始终使用其原日 Workspace。日志句柄或临时文件的附属清理失败保留有界诊断；持续无法停止的受控进程由 Jobs bridge 保留必要运行转移，不能伪造成功或移除仍活动的条目。
 
-ACP 与进程 Job 共享同一 Registry、live/retained 容量和 answer guard。待答快照承载有界请求种类、问题、真实选项身份与结果 引用；`core.job.wait` 在终态或待答时返回可处理状态。Inbox 的 Job 保留位置可靠传递已接受请求与终态，普通输出不强制新增 Cycle。协议 future、session id 和 RPC id 留在 ACP owner 内。
+ACP 与进程 Job 共享同一 Registry、live/retained 容量和 answer guard。待答快照承载有界请求种类、问题、真实选项身份与结果引用。`core.wait(event_kind="job")` 在任意 Job 进入终态或出现待答请求时恢复 Turn；等待恢复 note 只标出 `reason=job` 和触发的 `job_id`，详细状态继续由 jobs Working 投影提供。用户输入和环境事件也能中断等待；`event_id`、`topic`、`source` 只筛选环境事件，不限制 Job 唤醒。Inbox 的 Job 保留位置可靠传递已接受请求与终态，普通输出不强制新增 Cycle。协议 future、session id 和 RPC id 留在 ACP owner 内。
 
 未知 Job、已关闭 stdin、无效参数与启动失败属于可修正的 Action 结果。Job 监督、Workspace/Home IO 或模块不变量失败经各自 owner bridge 转换；模型反馈不包含原始异常文本、绝对路径或 traceback。通用 answer guard 只阻止存在尚未关闭执行的 Job，未 collect 的终态结果本身不阻止回答。

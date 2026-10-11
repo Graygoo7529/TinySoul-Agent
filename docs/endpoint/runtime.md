@@ -49,7 +49,7 @@ question 为 `question_id, details, question, text, options[{id,label,descriptio
 
 `core.ask` 只接受结构化 details/question/options/allow_other 及可选 timeout_seconds，旧 text-only 和 Markdown 问题代码块不再作为协议解析。只有正式 ask 创建问题卡片和待答身份；普通 answer 与任意 Markdown 代码块不产生交互卡片。用户等待默认无截止时间；显式 timeout_seconds 限制本次等待，Catalog 中 Action 的执行时限只约束创建问题的行动，不是用户回答期限。append 可唤醒执行，但不冒充该问题的明确 reply；取消仍沿 Turn 生命周期处理。
 
-Job 查询和停止经 Agent 服务进入 Job owner；返回 job_id、kind、state、summary、reason，以及有界 `pending_inputs` 和 `result_refs`。待答项包含 request_id、question 和 option_id/label 选项；`waiting_input` 表示父 Agent 有待处理请求，`core.job.wait` 会在该状态唤醒。`result_refs` 指向 owner 已写入的 Workspace 材料。停止等待受控执行收敛，不等于取消 Turn；Job 在所属 Turn 收尾后被回收，列表为空，不另建历史表。停止与收尾由同一 owner 串行处理；错误只暴露有限分类。跨 Turn 或已回收 Job 返回 404 turn.resource_not_found。Job 应答不提供通用 Gateway 路由；父 Agent 经 `subagent.respond` 回应 ACP 原生请求，需要人判断时复用 ask/reply。
+Job 查询和停止经 Agent 服务进入 Job owner；返回 job_id、kind、state、summary、reason，以及有界 `pending_inputs` 和 `result_refs`。待答项包含 request_id、question 和 option_id/label 选项；`waiting_input` 表示父 Agent 有待处理请求，`core.wait(event_kind="job")` 会在该状态唤醒，并在恢复 Trace 中指出触发的 job_id。`result_refs` 指向 owner 已写入的 Workspace 材料。停止等待受控执行收敛，不等于取消 Turn；Job 在所属 Turn 收尾后被回收，列表为空，不另建历史表。停止与收尾由同一 owner 串行处理；错误只暴露有限分类。跨 Turn 或已回收 Job 返回 404 turn.resource_not_found。Job 应答不提供通用 Gateway 路由；父 Agent 经 `subagent.respond` 回应 ACP 原生请求，需要人判断时复用 ask/reply。
 
 待答项的 `kind` 当前为 `permission`。客户端应使用 `request_id` 和选项身份解释请求，不从问题文本推断权限种类；协议 session/RPC id 不进入此投影。
 

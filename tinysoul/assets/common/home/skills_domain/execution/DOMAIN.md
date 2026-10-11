@@ -1,6 +1,6 @@
 # Execution
 
-Use execution for deterministic local processing. Write and edit scripts through Workspace or Home, then run the explicit script reference with its configured interpreter. Use run_script/run_shell for bounded work, or start for a Job that needs supervision across Cycles.
+Use execution for deterministic local processing. Write and edit scripts through Workspace or Home, then run the explicit script reference with its configured interpreter. Use run for bounded work that can finish in the current Action, or start for a Job that needs supervision across Cycles. For run and start, provide either command or source_ref; command accepts bash, powershell, or cmd, while scripts also accept python.
 
 The process writes directly to the daily Workspace. Its default working directory is its own jobs/<job_id> directory; use cwd_ref to select an existing Workspace directory, or workspace: for the root. File effects remain after failure, cancellation or stopping. There is no apply/discard step.
 

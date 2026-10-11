@@ -74,18 +74,24 @@ class ExecutionEngine:
         try:
             selected = Interpreter(interpreter)
         except ValueError as exc:
-            raise ExecutionRequestError("Unknown interpreter") from exc
+            raise ExecutionRequestError(
+                "Use one of the declared interpreter names: python, bash, powershell, or cmd."
+            ) from exc
         executable = self._executables.get(selected)
         if executable is None:
-            raise ExecutionRequestError("Interpreter is disabled")
+            raise ExecutionRequestError(
+                f"The {selected.value} interpreter is not enabled in this runtime."
+            )
         if (command is None) == (source_ref is None):
             raise ExecutionRequestError(
-                "Provide exactly one command or script reference"
+                "Provide exactly one of command or source_ref."
             )
         if len(args) > self.settings.max_args or any(
             len(arg) > self.settings.max_arg_chars or "\x00" in arg for arg in args
         ):
-            raise ExecutionRequestError("Script arguments exceed execution limits")
+            raise ExecutionRequestError(
+                "Reduce the script arguments to the configured count and length limits."
+            )
         source: str | None = None
         if source_ref is not None:
             if source_ref.startswith("workspace:"):
@@ -100,11 +106,11 @@ class ExecutionEngine:
                 )
             else:
                 raise ExecutionRequestError(
-                    "Script source must be a Home or Workspace reference"
+                    "Use a Home or Workspace ref for script source."
                 )
             if read.truncated:
                 raise ExecutionRequestError(
-                    "Script source exceeds the configured limit"
+                    "The script source exceeds the configured size limit; shorten it or split the work."
                 )
             source = read.text
         elif command is not None:
@@ -115,7 +121,9 @@ class ExecutionEngine:
                 or "\x00" in command
                 or args
             ):
-                raise ExecutionRequestError("Shell command is invalid")
+                raise ExecutionRequestError(
+                    "For a shell command, use bash, powershell, or cmd with a non-empty command and no script args."
+                )
         operations.check_cancelled()
 
         def factory(job_id: str) -> ProcessJobBackend:

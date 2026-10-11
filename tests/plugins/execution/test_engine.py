@@ -224,6 +224,28 @@ async def test_interactive_input_reports_accepted_utf8_bytes_and_no_silence_infe
         await jobs.cleanup_turn("2026-10-06/1000")
 
 
+async def test_disabled_interpreter_has_bounded_corrective_feedback(
+    tmp_path: Path,
+) -> None:
+    engine, jobs, workspace, home = _owners(tmp_path)
+    with pytest.raises(ExecutionRequestError) as raised:
+        await engine.start(
+            turn_id="2026-10-06/1000",
+            interpreter="bash",
+            command="echo unavailable",
+            source_ref=None,
+            args=(),
+            cwd_ref="",
+            interactive=False,
+            home=home,
+            operations=JoinedOperations(),
+        )
+
+    assert "bash interpreter is not enabled" in raised.value.feedback
+    assert len(raised.value.feedback) <= 240
+    assert not jobs.ids("2026-10-06/1000")
+
+
 @pytest.mark.parametrize("reason", ["timeout", "output_limit"])
 async def test_execution_limits_are_failed_job_reasons(
     tmp_path: Path, reason: str

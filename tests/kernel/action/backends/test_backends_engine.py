@@ -366,7 +366,6 @@ async def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
             "core.wait",
             "core.job.status",
             "core.job.stop",
-            "core.job.wait",
             *EXECUTION_ACTIONS,
             "workspace.write",
             "workspace.move",

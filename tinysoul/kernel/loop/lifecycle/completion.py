@@ -126,8 +126,6 @@ class WaitRequest:
     timeout_seconds: float | None = None
     event_kind: InboxKind | None = None
     event_id: str | None = None
-    job_id: str | None = None
-    ready: bool = False
     topic: str | None = None
     source: str | None = None
 
@@ -142,19 +140,16 @@ class WaitRequest:
         if (
             self.timeout_seconds is None
             and self.event_kind is None
-            and self.job_id is None
         ):
-            raise LoopContractError("Wait requires an event, Job or deadline")
+            raise LoopContractError("Wait requires an event or deadline")
         if self.event_id is not None and self.event_kind is None:
             raise LoopContractError("Event identity requires an event kind")
-        if type(self.ready) is not bool:
-            raise LoopContractError("Wait readiness must be boolean")
 
     def condition(self, after_sequence: int) -> WaitCondition:
         return WaitCondition(
             (
                 WaitReason.EVENT
-                if self.event_kind is not None or self.job_id is not None
+                if self.event_kind is not None
                 else WaitReason.TIMER
             ),
             after_sequence,
@@ -165,7 +160,6 @@ class WaitRequest:
             ),
             self.event_kind,
             self.event_id,
-            self.job_id,
             topic=self.topic,
             source=self.source,
         )
@@ -175,7 +169,7 @@ def wait_from_results(results: tuple[ActionResult, ...]) -> WaitRequest | None:
     waits = [
         result
         for result in results
-        if result.action_name in {"core.wait", "core.job.wait"}
+        if result.action_name == "core.wait"
         and result.status is ActionResultStatus.SUCCESS
     ]
     if not waits:
@@ -184,19 +178,14 @@ def wait_from_results(results: tuple[ActionResult, ...]) -> WaitRequest | None:
         raise LoopContractError("Wait detection requires one validated intent")
     payload = waits[0].payload
     timeout, kind = payload.get("timeout_seconds"), payload.get("event_kind")
-    event_id, job_id, ready = (
-        payload.get("event_id"),
-        payload.get("job_id"),
-        payload.get("ready", False),
-    )
+    event_id = payload.get("event_id")
     topic, source = payload.get("topic"), payload.get("source")
     if (
         (timeout is not None and type(timeout) not in (int, float))
         or any(
             value is not None and not isinstance(value, str)
-            for value in (kind, event_id, job_id, topic, source)
+            for value in (kind, event_id, topic, source)
         )
-        or not isinstance(ready, bool)
     ):
         raise LoopContractError("Successful wait result violated its contract")
     try:
@@ -204,8 +193,6 @@ def wait_from_results(results: tuple[ActionResult, ...]) -> WaitRequest | None:
             float(timeout) if isinstance(timeout, (int, float)) else None,
             InboxKind(kind) if isinstance(kind, str) else None,
             event_id if isinstance(event_id, str) else None,
-            job_id if isinstance(job_id, str) else None,
-            ready,
             topic if isinstance(topic, str) else None,
             source if isinstance(source, str) else None,
         )

@@ -1,0 +1,42 @@
+name = "execution.run"
+domain = "execution"
+
+[tool]
+description = "Run one bounded process and wait for its result. Set exactly one of command or source_ref; commands use bash, powershell, or cmd, while scripts also support python."
+
+[tool.schema]
+type = "object"
+required = ["interpreter"]
+additionalProperties = false
+oneOf = [
+  { type = "object", required = ["interpreter", "command"], additionalProperties = false, properties = { interpreter = { type = "string", enum = ["bash", "powershell", "cmd"] }, command = { type = "string" }, cwd_ref = { type = "string" } } },
+  { type = "object", required = ["interpreter", "source_ref"], additionalProperties = false, properties = { interpreter = { type = "string", enum = ["python", "bash", "powershell", "cmd"] }, source_ref = { type = "string" }, args = { type = "array", items = { type = "string" } }, cwd_ref = { type = "string" } } }
+]
+
+[tool.schema.properties.interpreter]
+type = "string"
+enum = ["python", "bash", "powershell", "cmd"]
+description = "Choose the interpreter for this command or script; python is only valid with source_ref."
+[tool.schema.properties.command]
+type = "string"
+description = "One shell command, mutually exclusive with source_ref."
+[tool.schema.properties.source_ref]
+type = "string"
+description = "Reference to an existing Home or Workspace script, mutually exclusive with command."
+[tool.schema.properties.args]
+type = "array"
+items = { type = "string" }
+description = "Arguments passed to the script interpreter; only use with source_ref."
+[tool.schema.properties.cwd_ref]
+type = "string"
+description = "Optional existing Workspace directory; omit to use the Job's default directory."
+
+[semantic]
+use_when = ["A bounded deterministic shell command or known script should finish in the current Action"]
+effects = ["modifying"]
+
+[runtime]
+parallel_policy = "serial"
+
+[execution]
+executor = "execution.run"

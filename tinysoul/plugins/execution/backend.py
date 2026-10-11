@@ -203,21 +203,21 @@ class ProcessJobBackend:
 
     def write_stdin(self, text: str, *, close: bool = False) -> int:
         if not isinstance(text, str) or not isinstance(close, bool):
-            raise ExecutionRequestError("Process input requires text and a close flag")
+            raise ExecutionRequestError("Provide stdin text and a boolean close flag.")
         try:
             data = text.encode("utf-8")
         except UnicodeError as exc:
-            raise ExecutionRequestError("Process input must be valid UTF-8") from exc
+            raise ExecutionRequestError("Provide valid UTF-8 stdin text.") from exc
         if len(data) > 4096:
             raise ExecutionRequestError(
-                "Process input must not exceed 4096 UTF-8 bytes"
+                "Limit stdin to 4096 UTF-8 bytes."
             )
         with self._lock:
             try:
                 return self._process.write_stdin(data, close=close)
             except ProcessContractError as exc:
                 raise ExecutionRequestError(
-                    "Process stdin is no longer writable"
+                    "This Job's stdin is already closed; use a live Job for further input."
                 ) from exc
 
     def collect(
@@ -235,7 +235,9 @@ class ProcessJobBackend:
             or type(limit) is not int
             or not 0 < limit <= self._settings.max_collect_chars
         ):
-            raise ExecutionRequestError("Process output boundaries are invalid")
+            raise ExecutionRequestError(
+                "Use non-negative output cursors and a max_chars within the configured collect limit."
+            )
         with self._lock:
             try:
                 stdout = self._process.read_stdout(

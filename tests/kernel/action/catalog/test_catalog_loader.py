@@ -29,8 +29,7 @@ def test_load_builtin_catalog() -> None:
         catalog = ActionCatalogLoader().load(root)
 
     for identity in (
-        "execution.run_script",
-        "execution.run_shell",
+        "execution.run",
         "execution.start",
         "execution.stdin",
         "execution.collect",
@@ -41,12 +40,55 @@ def test_load_builtin_catalog() -> None:
         assert catalog.has_domain(action.domain)
         assert action.execution.executor == identity
         assert action.tool.schema["type"] == "object"
-    assert catalog.get_action("execution.run_script").tool.schema["required"] == [
-        "interpreter",
-        "source_ref",
+    run = catalog.get_action("execution.run")
+    start = catalog.get_action("execution.start")
+    properties = run.tool.schema.get("properties")
+    assert isinstance(properties, dict)
+    interpreter_schema = properties.get("interpreter")
+    assert isinstance(interpreter_schema, dict)
+    assert interpreter_schema.get("enum") == [
+        "python",
+        "bash",
+        "powershell",
+        "cmd",
     ]
-    assert catalog.has_action("core.job.wait")
+    start_properties = start.tool.schema.get("properties")
+    assert isinstance(start_properties, dict)
+    start_interpreter_schema = start_properties.get("interpreter")
+    assert isinstance(start_interpreter_schema, dict)
+    assert start_interpreter_schema.get("enum") == interpreter_schema.get("enum")
+    run_variants = run.tool.schema.get("oneOf")
+    start_variants = start.tool.schema.get("oneOf")
+    assert isinstance(run_variants, list) and len(run_variants) == 2
+    assert isinstance(start_variants, list) and len(start_variants) == 2
+    assert not catalog.has_action("execution.run_script")
+    assert not catalog.has_action("execution.run_shell")
+    assert not catalog.has_action("core.job.wait")
     assert catalog.has_action("core.job.stop")
+
+    for params in (
+        {"interpreter": "bash", "command": "echo ok"},
+        {"interpreter": "python", "source_ref": "workspace:script.py", "args": ["x"]},
+    ):
+        validate_action_params(to_json_object(params), schema=run.tool.schema)
+    for params in (
+        {"interpreter": "python", "command": "print(1)"},
+        {"interpreter": "bash", "command": "echo ok", "source_ref": "workspace:x"},
+        {"interpreter": "bash", "command": "echo ok", "args": ["x"]},
+    ):
+        with pytest.raises(ActionSchemaValidationError):
+            validate_action_params(to_json_object(params), schema=run.tool.schema)
+    validate_action_params(
+        to_json_object(
+            {"interpreter": "cmd", "command": "echo ok", "interactive": True}
+        ),
+        schema=start.tool.schema,
+    )
+    with pytest.raises(ActionSchemaValidationError):
+        validate_action_params(
+            to_json_object({"interpreter": "python", "command": "print(1)"}),
+            schema=start.tool.schema,
+        )
 
 
 def test_load_project_documents_preserves_sources_and_timeout_provenance(

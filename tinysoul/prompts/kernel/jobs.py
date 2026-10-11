@@ -7,9 +7,6 @@ Consumers listed below decide visibility, role, data and failure semantics.
 PROVIDE_AN_ACTIVE_JOB_IDENTITY = "Provide an active Job identity."
 
 # Local model feedback. Used by kernel/jobs/actions.py:execute.
-WAIT_TIMEOUT_MUST_BE_POSITIVE = "Wait timeout must be positive."
-
-# Local model feedback. Used by kernel/jobs/actions.py:execute.
 JOB_IS_NOT_AVAILABLE_IN_THIS_TURN = "Job is not available in this Turn."
 
 # Local model feedback. Used by kernel/jobs/actions.py:check.

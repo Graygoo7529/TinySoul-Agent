@@ -40,8 +40,8 @@ Workspace/Home contract、Job supervision 和进程启动失败继续使用各�
 ## 实施顺序
 
 1. 先确定最终的 `execution.run`/`execution.start` command/source 联合 schema 和静态 interpreter enum，同时移除 `run_shell`/`run_script` 的旧 catalog 身份。
-2. 抽取共享的 execution request normalizer，接入前台等待和后台 Job 启动两条返回路径。
-3. 更新 `ExecutionRequestError` 的有界反馈映射，确认未声明值和错误请求在 normalize 阶段形成模型可见局部失败，且不会创建 Job。
+2. 复用现有 Action 参数读取与 `ExecutionEngine.start` 公共启动路径，分别接入前台等待和后台 Job 返回；不增加重复的 request normalizer。
+3. 更新 `ExecutionRequestError` 的有界反馈，确认未声明值和错误请求在接受 Job 前形成模型可见局部失败，且不会创建 Job。
 4. 按第 4、5 节移除 `core.job.wait` 并修正 Job 唤醒原因与来源表达。
 5. 更新 catalog、executor、Trace、文档和测试，运行定向测试、类型检查及相关完整测试。
 
@@ -61,7 +61,7 @@ Workspace/Home contract、Job supervision 和进程启动失败继续使用各�
 
 `run_shell` 与 `run_script` 的差异来自请求形状，而不是进程后端差异。收敛后用一个明确的 command/source 联合 schema 表达二者：command 分支只接受 shell command，source 分支接受 source_ref 与脚本参数；interpreter 仍使用静态 enum，分支中只声明实际允许的值。`interactive` 只属于后台启动请求，避免把前台终态结果和 Job 身份混在同一个返回协议中。
 
-实现上保留 `ExecutionEngine` 的单一启动路径，新增共享的 execution request normalizer，让 `run` 与 `start` 只在等待策略和返回结果上分叉。移除 `run_shell`、`run_script` 的 catalog、注册和旧测试，更新 executor、提示目录及协作文档；开发阶段不为现有测试数据目录、历史 trace 或旧 Action 名称保留兼容层。该项与前两项一起作为 execution contract 的重构计划，实施时同步调整测试以保护新的可观察行为。
+实现上复用 `ExecutionEngine.start` 单一启动路径，以及 `ExecutionActionExecutor` 已有的参数提取和校验；`run` 与 `start` 只在等待策略和返回结果上分叉。代码中没有再增加共享 request normalizer，因为现有边界已经完成这项复用，再加一层只会重复表达同一职责。移除 `run_shell`、`run_script` 的 catalog、注册和旧测试，更新 executor、提示目录及协作文档；开发阶段不为测试数据目录、历史 trace 或旧 Action 名称保留兼容层。该项与前两项一起作为 execution contract 重构的一部分，测试保护新的可观察行为。
 
 ## 4. 移除冗余的 `core.job.wait`
 
@@ -70,6 +70,7 @@ Workspace/Home contract、Job supervision 和进程启动失败继续使用各�
 等待是订阅 Turn 的下一次可处理唤醒，Job 身份是状态查询、停止、输入和结果收集所需要的资源身份。两者职责不同：
 
 - `core.wait` 是唯一的等待 Action；`event_kind = "job"` 表示等待本 Turn 内任意 Job 产生可处理事实；
+- 用户输入和环境事件也可中断 Job 等待并启动下一 Cycle；Wait note 按实际唤醒原因表达，不将中断伪装为 Job 完成。`event_id`、`topic`、`source` 只筛选环境事件中断，不限制 Job 唤醒；
 - 可处理事实包括 Job 进入终态，或出现需要父 Agent 回应的 `waiting_input`；普通运行进度不强制唤醒；
 - 任意 Job 唤醒后，下一 Cycle 继续使用已有的 `jobs` Working 投影处理当前任务；等待语义本身不复制 Job 操作清单；
 - 不增加 `and/or` 或 Job 集合参数。等待全部 Job 是 Agent 在每次任意唤醒后检查剩余活动 Job 的循环策略；
@@ -95,7 +96,7 @@ Job 终态和待答事实已经通过 `deliver_terminal`、`deliver_job_inputs` 
 - 给 `CycleReadiness` 增加一个可选的 `wake_job_id`。它只承载匹配 Job 记录中的稳定 Job 身份，不携带终态正文、原始异常或完整输入。
 - `TurnRunner` 继续发布已有的等待恢复 Trace note，并增加一个简单的 `job_id` 字段：`reason = "job"`，`job_id = ...`。Job 的其他状态和内容仍由随后刷新到模型的 `jobs` 投影提供，不在唤醒 note 中复制。
 - 将硬编码的 `"wait_resumed"` 纳入 `LoopTraceNoteKind`，保持 Trace note 类型稳定；事件、定时器、用户输入和来源不可用的既有表达不改变。
-- Job 记录本身已经包含 `job_id`，不新增 JobRegistry 状态、不建立第二个通知通道，也不把 EnvironmentEvent 伪装成 Job 完成。EnvironmentEvent 仍只匹配 event/timer；外部事件若提示 Job 可能变化，Agent 再通过 Job 状态 Action 检查。
+- Job 记录本身已经包含 `job_id`，不新增 JobRegistry 状态、不建立第二个通知通道，也不把 EnvironmentEvent 伪装成 Job 完成。Job 唤醒只由 `event_kind="job"` 选择；环境事件可以独立中断，并仍以 `WakeReason.EVENT`（或 timer deadline 的 `WakeReason.TIMER`）表达。
 
 ### 设计删减结论
 
@@ -126,10 +127,28 @@ Job backend 终态/待答
 - `tests/`：删除旧 Action/catalog 断言和指定 Job wait 测试，改为验证统一 `core.wait`；保留输入、预算、timer、event、source unavailable 和 Job 收尾测试。
 - 验证顺序为 catalog 加载、Inbox/JobRegistry 定向测试、Phase/Turn 协作测试，再运行 `ty` 类型检查和相关完整测试集。开发阶段不维护旧测试数据、旧 trace 或旧 Action 名称的兼容。
 
-## 实施状态与可行性评估
+## 实施结果与计划核对
 
-**状态：准备实施。**
+**状态：实施完成；按当前代码、测试和 AGENTS.md 核对通过。**
 
-方案只删除一条重复的模型入口，并复用现有 JobInbox、Turn 等待和 `jobs` Context 投影。唤醒原因使用已经存在的 `WakeReason.JOB`，只把匹配到的 Job 身份带入已有 Trace note，不引入新的 Job 状态机、事件总线或恢复协议。正常路径的改动集中在 catalog、Action 归一化、Inbox 匹配和 Trace note，范围清晰，预计可通过定向测试验证。
+### 实际改动
 
-预期效果是：模型只需要理解一个等待动作——“等待定时器、环境事件或任意 Job 就绪”——醒来后看到简短的 `reason=job` 与 `job_id` 提示，再使用已有上下文决定下一步；模型仍使用 Job 身份操作具体任务，但不再为了等待某个任务学习一套重复的 `core.job.wait` 语义。当前没有需要维护者额外裁决的设计项。
+- `execution.run` 与 `execution.start` 使用严格的 command/source `oneOf` schema；静态 enum 将 command 限定为 bash/powershell/cmd，将 source 限定为 python/bash/powershell/cmd。参数说明补充在 catalog 中；当前 runtime 未启用的 interpreter 由 execution 返回可修正反馈。
+- 删除 `run_shell`、`run_script` catalog 身份并新增统一 `execution.run`。前后台 Action 共用既有参数校验和 `ExecutionEngine.start`，未增加单独的 normalizer。
+- `ExecutionRequestError` 通过既有 Action 局部失败结果反馈 execution 自己生成的自然语言，最多 240 字符；保留原 `reason`、`scope`、`disposition`，不传原始异常或 traceback。
+- 删除 `core.job.wait` 和 WAIT executor 分支。`core.wait(event_kind="job")` 由任意 Job 终态或待答记录唤醒；用户输入也可中断，环境事件可按可选 event filters 中断，但 filters 不限制 Job 唤醒。Job 唤醒以 `WakeReason.JOB` 和 `wake_job_id` 写入 `wait_resumed` note，Job 详情继续走原有 Working 投影。
+
+### 按 AGENTS.md 核对
+
+- 所有权清楚：execution 解释执行请求并产生局部反馈，kernel/jobs 继续拥有 Job 监督，Loop/Inbox 拥有等待与唤醒；没有平行状态机或重复 Job 通知通道。
+- 模型协议保持有限：catalog 明示字段和 enum；失败走现有 ActionResult 渲染链，仅增加有界自然语言，不暴露实现异常；Trace 只记录唤醒原因和必要的 Job 身份。
+- 控制流和结束边界沿用现有 Turn/Job 生命周期；移除重复等待 Action，保留 status/stop/collect/stdin 等实际资源操作。
+- 未引入 schema 动态重写、复杂失败类型、通用 normalizer 抽象或兼容层，符合“先保证正常主线、避免重复设计”的规约。
+
+### 验证
+
+已覆盖 catalog schema、ExecutionRequestError 反馈、JobRegistry/Inbox 唤醒、前后台执行 Action 及 TurnRunner 模型可见 Trace 的测试。`scripts/typecheck.ps1` 的 `ty check` 通过；`scripts/test.ps1 -Suite Full` 通过，结果为 **1273 passed, 25 deselected**，耗时 244.25 秒。随后将环境事件测试加强为“等待已挂起后再由 EnvironmentEvent 唤醒”，Inbox 与 JobRegistry 定向测试再次通过（29 passed）。
+
+### 效果与结论
+
+模型只需学习统一的前台/后台执行请求和一个等待 Action。Job 完成时，等待以短小且可定位的原因与 Job 身份恢复；随后由既有 jobs 投影提供状态和结果。方案与实现保持一致，没有遗留设计裁决项。

@@ -162,6 +162,30 @@ async def test_topic_source_wait_and_source_failure_still_require_budget() -> No
     assert (await asyncio.wait_for(waiter, 1)).reason is WakeReason.SOURCE_UNAVAILABLE
 
 
+async def test_job_wait_can_be_interrupted_by_an_environment_event() -> None:
+    inbox = TurnInbox()
+    waiter = asyncio.create_task(
+        inbox.wait_for_cycle(
+            WaitCondition(WaitReason.EVENT, 0, event_kind=InboxKind.JOB)
+        )
+    )
+    await asyncio.sleep(0)
+    await inbox.accept_event(
+        EnvironmentEvent(
+            EventKind.EVENT,
+            {"refresh": True},
+            topic="workspace.changed",
+            source="workspace.owner",
+        )
+    )
+
+    readiness = await asyncio.wait_for(waiter, 1)
+
+    assert readiness.reason is WakeReason.EVENT
+    assert readiness.sequence == 1
+    assert readiness.wake_job_id is None
+
+
 async def test_fixed_batch_retries_exclude_new_arrivals_and_ack_preserves_identity() -> (
     None
 ):

@@ -31,8 +31,7 @@ from .failures import ExecutionRequestError, ExecutionStartError
 
 
 class ExecutionOperation(StrEnum):
-    RUN_SCRIPT = "run_script"
-    RUN_SHELL = "run_shell"
+    RUN = "run"
     START = "start"
     STDIN = "stdin"
     COLLECT = "collect"
@@ -58,8 +57,13 @@ class ExecutionActionExecutor:
     ) -> ActionResult:
         try:
             result = await self._execute(execution, context)
+        except ExecutionRequestError as exc:
+            return _failed(
+                execution,
+                exc.feedback,
+                "invalid_request",
+            )
         except (
-            ExecutionRequestError,
             JobRequestError,
             WorkspaceContractError,
             AgentHomeContractError,
@@ -97,12 +101,14 @@ class ExecutionActionExecutor:
         if operation in {ExecutionOperation.STDIN, ExecutionOperation.COLLECT}:
             job_id = params.get("job_id")
             if not isinstance(job_id, str) or not job_id:
-                raise ExecutionRequestError("Job identity is required")
+                raise ExecutionRequestError("Provide the target Job's job_id.")
             backend = jobs.backend(turn_id, job_id, ProcessJobBackend)
             if operation is ExecutionOperation.STDIN:
                 text, close = params.get("text", ""), params.get("close", False)
                 if not isinstance(text, str) or not isinstance(close, bool):
-                    raise ExecutionRequestError("Invalid stdin request")
+                    raise ExecutionRequestError(
+                        "Provide stdin text as a string and close as a boolean."
+                    )
                 accepted = await context.owner_operations.run(
                     lambda: backend.write_stdin(text, close=close)
                 )
@@ -122,7 +128,9 @@ class ExecutionActionExecutor:
                     or type(stderr) is not int
                     or (limit is not None and type(limit) is not int)
                 ):
-                    raise ExecutionRequestError("Invalid collect request")
+                    raise ExecutionRequestError(
+                        "Provide integer output cursors and an integer max_chars value."
+                    )
                 payload = await context.owner_operations.run(
                     lambda: backend.collect(
                         stdout_cursor=stdout, stderr_cursor=stderr, max_chars=limit
@@ -149,21 +157,16 @@ class ExecutionActionExecutor:
                 or not isinstance(args, list)
                 or any(not isinstance(item, str) for item in args)
             ):
-                raise ExecutionRequestError("Invalid execution request")
+                raise ExecutionRequestError(
+                    "Provide a declared interpreter, string command/source_ref and args, a string cwd_ref, and a boolean interactive value."
+                )
             arguments = tuple(item for item in args if isinstance(item, str))
             if (
-                (
-                    operation is ExecutionOperation.RUN_SCRIPT
-                    and (source is None or command is not None)
-                )
-                or (
-                    operation is ExecutionOperation.RUN_SHELL
-                    and (command is None or source is not None)
-                )
+                (command is None) == (source is None)
                 or (operation is not ExecutionOperation.START and interactive)
             ):
                 raise ExecutionRequestError(
-                    "Request does not match the execution Action"
+                    "Provide exactly one of command or source_ref; interactive is only supported by execution.start."
                 )
             backend = await self._engine.start(
                 turn_id=turn_id,
@@ -197,7 +200,7 @@ class ExecutionActionExecutor:
 
         await context.owner_operations.finish(sync)
         if (
-            operation in {ExecutionOperation.RUN_SCRIPT, ExecutionOperation.RUN_SHELL}
+            operation is ExecutionOperation.RUN
             and payload.get("state") == JobState.FAILED.value
         ):
             return _failed(
@@ -226,10 +229,6 @@ def register_execution_actions(
 ) -> ActionEngineBuilder:
     for operation in ExecutionOperation:
         supported = engine.script_available or engine.shell_available
-        if operation is ExecutionOperation.RUN_SCRIPT:
-            supported = engine.script_available
-        elif operation is ExecutionOperation.RUN_SHELL:
-            supported = engine.shell_available
         identity = f"execution.{operation}"
         if not supported:
             builder.mark_actions_unsupported(identity)

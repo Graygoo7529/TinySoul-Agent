@@ -1,6 +1,5 @@
 """Backend-independent, convergent Job operations and wait intents."""
 
-from math import isfinite
 from enum import StrEnum
 from tinysoul.prompts.kernel import jobs as prompt_text
 from tinysoul.infra.json import JsonObject
@@ -25,7 +24,6 @@ from .runtime_bridge import RuntimeJobsBridge
 class JobOperation(StrEnum):
     STATUS = "status"
     STOP = "stop"
-    WAIT = "wait"
 
 
 class JobActionExecutor:
@@ -46,27 +44,6 @@ class JobActionExecutor:
         turn_id = execution.framework.turn_id
         try:
             snapshot = self._registry.snapshot(turn_id, job_id)
-            if self._operation is JobOperation.WAIT:
-                timeout = execution.call.params.get("timeout_seconds")
-                if timeout is not None and (
-                    isinstance(timeout, bool)
-                    or not isinstance(timeout, (int, float))
-                    or not isfinite(timeout)
-                    or timeout <= 0
-                ):
-                    return _failed(
-                        execution,
-                        prompt_text.WAIT_TIMEOUT_MUST_BE_POSITIVE,
-                        reason="invalid_wait",
-                    )
-                return _success(
-                    execution,
-                    {
-                        "job_id": job_id,
-                        "timeout_seconds": timeout,
-                        "ready": snapshot.ready,
-                    },
-                )
             if self._operation is JobOperation.STOP:
                 snapshot = await self._registry.stop(
                     turn_id, job_id, operations=context.owner_operations

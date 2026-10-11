@@ -14,7 +14,7 @@ subagent 把外部 ACP Agent 接入同一个 TinySoul Turn。SubagentEngine 拥�
 
 ## 权限与完成
 
-原生 permission callback 进入有界 Job 待答投影，每个请求拥有稳定身份、问题和原始 option_id。`core.job.wait` 在待答时唤醒父 Turn；父用 respond 回应，需要人的判断时复用 `core.ask`。INPUT/BUDGET 暂停期间只积累请求，不另起模型代答。子 Agent 最终文本中的问句仍是完成结果，可由下一次 delegate 继续。
+原生 permission callback 进入有界 Job 待答投影，每个请求拥有稳定身份、问题和原始 option_id。`core.wait(event_kind="job")` 在任意 Job 待答时唤醒父 Turn，并在恢复 note 中指出触发的 `job_id`；父用 respond 回应，需要人的判断时复用 `core.ask`。INPUT/BUDGET 暂停期间只积累请求，不另起模型代答。子 Agent 最终文本中的问句仍是完成结果，可由下一次 delegate 继续。
 
 prompt 的 StopReason 决定委派执行结果，不根据输出文本或 idle 猜测完成，也不把正常结束解释为父任务目标已完成。权限过期、busy、无效目标属于局部结果。断流不重发 prompt；配置与必要进程停止失败进入所属 bridge，Workspace 失败仍由 Workspace bridge 解释。
 

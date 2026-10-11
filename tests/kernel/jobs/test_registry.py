@@ -189,7 +189,7 @@ async def test_failed_poll_reclaims_backend_and_reports_supervision_failure() ->
 
 
 @pytest.mark.parametrize("finished_before_wait", [False, True])
-async def test_job_wait_observes_terminal_before_or_after_registration(
+async def test_core_wait_job_kind_observes_terminal_before_or_after_registration(
     finished_before_wait: bool,
 ) -> None:
     registry, inbox = JobRegistry(), TurnInbox()
@@ -202,15 +202,16 @@ async def test_job_wait_observes_terminal_before_or_after_registration(
                 await asyncio.sleep(0.01)
     waiter = asyncio.create_task(
         inbox.wait_for_cycle(
-            WaitCondition(WaitReason.EVENT, 0, job_id=backend.job_id),
-            job_ready=registry.snapshot("turn", backend.job_id).state.terminal,
+            WaitCondition(WaitReason.EVENT, 0, event_kind=InboxKind.JOB),
         )
     )
     if not finished_before_wait:
         await asyncio.sleep(0)
         assert not waiter.done()
         backend.finished.set()
-    assert (await asyncio.wait_for(waiter, 2)).reason is WakeReason.JOB
+    readiness = await asyncio.wait_for(waiter, 2)
+    assert readiness.reason is WakeReason.JOB
+    assert readiness.wake_job_id == backend.job_id
     first = await registry.stop("turn", backend.job_id, operations=JoinedOperations())
     assert (
         await registry.stop("turn", backend.job_id, operations=JoinedOperations())
@@ -220,6 +221,32 @@ async def test_job_wait_observes_terminal_before_or_after_registration(
     await registry.release("turn", backend.job_id)
     batch = await inbox.capture()
     assert len(batch.records) == 1 and batch.records[0][1].kind is InboxKind.JOB
+
+
+async def test_core_wait_job_kind_wakes_for_any_job_that_finishes_first() -> None:
+    registry, inbox = JobRegistry(per_turn_capacity=2), TurnInbox()
+    registry.bind_inbox("turn", inbox)
+    first = await registry.start("turn", "test", _Backend.create)
+    second = await registry.start("turn", "test", _Backend.create)
+    waiter = asyncio.create_task(
+        inbox.wait_for_cycle(
+            WaitCondition(
+                WaitReason.EVENT,
+                0,
+                event_kind=InboxKind.JOB,
+                event_id="unrelated-event",
+                topic="workspace.changed",
+                source="workspace.owner",
+            )
+        )
+    )
+    await asyncio.sleep(0)
+    second.finished.set()
+    readiness = await asyncio.wait_for(waiter, 2)
+    assert readiness.reason is WakeReason.JOB
+    assert readiness.wake_job_id == second.job_id
+    assert registry.snapshot("turn", first.job_id).state is JobState.RUNNING
+    await registry.cleanup_turn("turn")
 
 
 async def test_close_failure_preserves_published_terminal_state() -> None:
@@ -235,7 +262,7 @@ async def test_close_failure_preserves_published_terminal_state() -> None:
     backend.finished.set()
     await asyncio.wait_for(
         inbox.wait_for_cycle(
-            WaitCondition(WaitReason.EVENT, 0, job_id=backend.job_id),
+            WaitCondition(WaitReason.EVENT, 0, event_kind=InboxKind.JOB),
         ),
         2,
     )
@@ -310,14 +337,21 @@ async def test_waiting_request_wakes_parent_with_full_inbox_and_is_delivered_onc
     registry = JobRegistry(per_turn_capacity=2)
     inbox = TurnInbox(InboxLimits(capacity=1))
     registry.bind_inbox("turn", inbox)
-    await inbox.accept(InboxRecord(InboxKind.EVENT, {"ordinary": True}))
+    ordinary = await inbox.accept(InboxRecord(InboxKind.EVENT, {"ordinary": True}))
     backend = await registry.start("turn", "test", WaitingBackend.create)
     other = await registry.start("turn", "test", _Backend.create)
     ready = await asyncio.wait_for(
-        inbox.wait_for_cycle(WaitCondition(WaitReason.EVENT, 0, job_id=backend.job_id)),
+        inbox.wait_for_cycle(
+            WaitCondition(
+                WaitReason.EVENT,
+                ordinary.sequence,
+                event_kind=InboxKind.JOB,
+            )
+        ),
         2,
     )
     assert ready.reason is WakeReason.JOB
+    assert ready.wake_job_id == backend.job_id
     assert registry.snapshot("turn", backend.job_id).ready
     batch = await inbox.capture()
     inputs = [record for _, record in batch.records if record.kind is InboxKind.JOB]

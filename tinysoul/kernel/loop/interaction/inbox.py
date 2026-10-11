@@ -61,7 +61,6 @@ class WaitCondition:
     deadline: float | None = None
     event_kind: InboxKind | None = None
     event_id: str | None = None
-    job_id: str | None = None
     question: QuestionRequest | None = None
     topic: str | None = None
     source: str | None = None
@@ -82,9 +81,8 @@ class WaitCondition:
         if (
             self.reason is WaitReason.EVENT
             and self.event_kind is None
-            and self.job_id is None
         ):
-            raise InboxError("Event wait requires an explicit event or Job filter")
+            raise InboxError("Event wait requires an explicit event kind")
         if self.event_kind is not None and self.event_kind not in {
             InboxKind.EVENT,
             InboxKind.TIMER,
@@ -93,7 +91,7 @@ class WaitCondition:
             raise InboxError("Wait event kind is invalid")
         if any(
             value is not None and (not isinstance(value, str) or not value)
-            for value in (self.event_id, self.job_id, self.topic, self.source)
+            for value in (self.event_id, self.topic, self.source)
         ):
             raise InboxError("Wait identities must be non-empty")
 
@@ -103,6 +101,7 @@ class CycleReadiness:
     granted_cycles: int = 0
     reason: WakeReason | None = None
     sequence: int | None = None
+    wake_job_id: str | None = None
 
     def __post_init__(self) -> None:
         if type(self.granted_cycles) is not int or self.granted_cycles < 0:
@@ -113,6 +112,12 @@ class CycleReadiness:
             type(self.sequence) is not int or self.sequence <= 0
         ):
             raise InboxError("Wake sequence must be positive")
+        if self.wake_job_id is not None and (
+            not isinstance(self.wake_job_id, str) or not self.wake_job_id
+        ):
+            raise InboxError("Wake Job identity must be non-empty")
+        if (self.reason is WakeReason.JOB) != (self.wake_job_id is not None):
+            raise InboxError("Job wake reason and identity must agree")
 
 
 @dataclass(frozen=True)
@@ -673,7 +678,6 @@ class TurnInbox:
         condition: WaitCondition | None = None,
         *,
         budget: BudgetRequest | None = None,
-        job_ready: bool = False,
     ) -> CycleReadiness:
         """Observe ordinary readiness and budget together, without consuming facts."""
         loop = asyncio.get_running_loop()
@@ -686,16 +690,14 @@ class TurnInbox:
                 and condition.question is not self._question
             ):
                 raise InboxError("Wait requires the active question")
-            wake: tuple[WakeReason, int | None] | None = None
+            wake: tuple[WakeReason, int | None, str | None] | None = None
             self._waiting = condition
             try:
                 while True:
                     if self._closed:
                         raise InboxClosedError("Turn ended while waiting")
                     if condition is not None and wake is None:
-                        wake = self._ready(
-                            condition, job_ready=job_ready, now=loop.time()
-                        )
+                        wake = self._ready(condition, now=loop.time())
                         if wake is not None and condition.question is not None:
                             self._question = None
                     budget_ready = budget is None or self._grant is not None
@@ -716,7 +718,10 @@ class TurnInbox:
                             self._budget_request = None
                             self._grant = None
                         return CycleReadiness(
-                            count, wake[0] if wake else None, wake[1] if wake else None
+                            count,
+                            wake[0] if wake else None,
+                            wake[1] if wake else None,
+                            wake[2] if wake else None,
                         )
                     self._wait_reason = (
                         WaitReason.BUDGET
@@ -743,8 +748,8 @@ class TurnInbox:
                     self._question = None
 
     def _ready(
-        self, condition: WaitCondition, *, job_ready: bool, now: float
-    ) -> tuple[WakeReason, int | None] | None:
+        self, condition: WaitCondition, *, now: float
+    ) -> tuple[WakeReason, int | None, str | None] | None:
         pending = [
             *self._records,
             *([self._reply] if self._reply is not None else []),
@@ -755,25 +760,22 @@ class TurnInbox:
             if seq <= condition.after_sequence:
                 continue
             if record.kind is InboxKind.INPUT:
-                return WakeReason.INPUT, seq
+                return WakeReason.INPUT, seq, None
             if condition.question is not None and record.kind is InboxKind.REPLY:
-                return WakeReason.REPLY, seq
-            if (
-                condition.job_id is not None
-                and record.kind is InboxKind.JOB
-                and record.payload.get("job_id") == condition.job_id
-            ):
-                return WakeReason.JOB, seq
+                return WakeReason.REPLY, seq, None
             if self._matches_event(
                 condition, record.kind, record.record_id, record.topic, record.source
             ):
-                return WakeReason.EVENT, seq
-        if condition.job_id is not None and job_ready:
-            return WakeReason.JOB, None
+                if record.kind is InboxKind.JOB:
+                    job_id = record.payload.get("job_id")
+                    if not isinstance(job_id, str) or not job_id:
+                        raise InboxError("Job event requires a Job identity")
+                    return WakeReason.JOB, seq, job_id
+                return WakeReason.EVENT, seq, None
         if self._unavailable_source(condition) is not None:
-            return WakeReason.SOURCE_UNAVAILABLE, None
+            return WakeReason.SOURCE_UNAVAILABLE, None, None
         if condition.deadline is not None and now >= condition.deadline:
-            return WakeReason.TIMER, None
+            return WakeReason.TIMER, None, None
         return None
 
     @staticmethod
@@ -784,9 +786,19 @@ class TurnInbox:
         topic: str,
         source: str,
     ) -> bool:
+        if (
+            condition.reason is WaitReason.EVENT
+            and condition.event_kind is InboxKind.JOB
+            and kind is InboxKind.JOB
+        ):
+            return True
+        kind_matches = condition.event_kind is kind or (
+            condition.event_kind is InboxKind.JOB
+            and kind in {InboxKind.EVENT, InboxKind.TIMER}
+        )
         return (
             condition.reason is WaitReason.EVENT
-            and condition.event_kind is kind
+            and kind_matches
             and (condition.event_id is None or condition.event_id == identity)
             and (condition.topic is None or condition.topic == topic)
             and (condition.source is None or condition.source == source)

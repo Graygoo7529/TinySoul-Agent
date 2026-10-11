@@ -5,7 +5,13 @@ import pytest
 
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.kernel.jobs import JobRegistry, JobState
-from tinysoul.kernel.loop.interaction.inbox import TurnInbox, WaitCondition, WaitReason
+from tinysoul.kernel.loop.interaction.inbox import (
+    InboxKind,
+    TurnInbox,
+    WaitCondition,
+    WaitReason,
+    WakeReason,
+)
 from tinysoul.plugins.capabilities.subagent.config import AgentTarget, SubagentSettings
 from tinysoul.plugins.capabilities.subagent.engine import SubagentEngine
 from tinysoul.plugins.capabilities.subagent.failures import SubagentFailure, SubagentRequestError
@@ -67,9 +73,14 @@ async def test_real_acp_permission_same_turn_reuse_and_new_turn_isolation(
         await segment.close()
         assert connection in str(engine.connections("turn"))
         first = await engine.delegate("turn", connection, "permission background")
-        await asyncio.wait_for(
-            inbox.wait_for_cycle(WaitCondition(WaitReason.EVENT, 0, job_id=first)), 5
+        readiness = await asyncio.wait_for(
+            inbox.wait_for_cycle(
+                WaitCondition(WaitReason.EVENT, 0, event_kind=InboxKind.JOB)
+            ),
+            5,
         )
+        assert readiness.reason is WakeReason.JOB
+        assert readiness.wake_job_id == first
         snapshot = jobs.snapshot("turn", first)
         assert snapshot.state is JobState.WAITING_INPUT
         assert snapshot.pending_inputs[0].to_json()["kind"] == "permission"
