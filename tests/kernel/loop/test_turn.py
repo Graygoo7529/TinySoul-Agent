@@ -1066,6 +1066,7 @@ async def test_budget_suspend_preserves_next_cycle_and_ignores_progress_as_grant
 async def test_job_wake_reason_and_identity_are_recorded_in_trace() -> None:
     inbox = TurnInbox()
     context = ContextEngineBuilder(system_text="sys").build()
+    job_id = "20260712-997-1"
 
     class Cycles:
         calls = 0
@@ -1073,9 +1074,9 @@ async def test_job_wake_reason_and_identity_are_recorded_in_trace() -> None:
         async def run(self, **kwargs: object) -> CycleOutcome:
             self.calls += 1
             if self.calls == 1:
-                await inbox.reserve_terminal("job_1")
+                await inbox.reserve_terminal(job_id)
                 await inbox.deliver_terminal(
-                    "job_1", {"job_id": "job_1", "state": "succeeded"}
+                    job_id, {"job_id": job_id, "state": "succeeded"}
                 )
                 return CycleOutcome(
                     cycle_id="cycle_1",
@@ -1118,7 +1119,7 @@ async def test_job_wake_reason_and_identity_are_recorded_in_trace() -> None:
         and entry.visible_message.parts[0].value.get("kind") == "wait_resumed"
     )
     assert wait_note["reason"] == "job"
-    assert wait_note["job_id"] == "job_1"
+    assert wait_note["job_id"] == job_id
 
 
 async def test_question_timeout_records_waiting_terminal_without_user_answer() -> None:

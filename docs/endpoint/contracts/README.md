@@ -54,6 +54,10 @@ unconfigured ACP/MCP directory, not a simulated live connection.
 `model-observation` is a real retrieval invocation event linking the consumer,
 Search step and model task; it is not a page response.
 
+Job IDs are opaque strings such as `20261007-1-1`. Job detail `result_refs` and
+output `result_locators` point to concrete output files; the Job directory is
+available through the owner `workspace_refs` projection.
+
 HTTP errors keep the existing `{error: {code, message, details}}` shape and are covered
 by `schemas/error.json`. The frontend
 should branch on `code`, preserve the structured `details`, and avoid parsing

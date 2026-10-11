@@ -1,6 +1,6 @@
 name = "execution"
-description = "Bounded local script and shell execution against the actual daily Workspace."
-selection_hint = "Use when deterministic local code or an immediate command should process Workspace resources or run as a bounded longer task."
+description = "Bounded local command and script execution against the actual daily Workspace. Immediate runs return in the current Action; started work is a Turn-owned Job that later Cycles can supervise and collect."
+selection_hint = "Use for deterministic local processing: execution.run waits for a bounded result, execution.start returns a Job for core.wait and core.job.status/stop, execution.collect reads output, and execution.stdin serves interactive Jobs."
 
 [visibility]
 default = true

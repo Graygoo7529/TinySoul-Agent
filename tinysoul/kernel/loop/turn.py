@@ -426,8 +426,8 @@ class TurnRunner:
                                                 else None
                                             ),
                                             "sequence": readiness.sequence,
-                                            "topic": pending_wait.topic,
-                                            "source": pending_wait.source,
+                                            "topic": readiness.wake_topic,
+                                            "source": readiness.wake_source,
                                             **(
                                                 {"job_id": readiness.wake_job_id}
                                                 if readiness.wake_job_id is not None

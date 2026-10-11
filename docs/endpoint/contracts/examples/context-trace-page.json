@@ -33,11 +33,11 @@
     },
     {
       "kind": "child",
-      "text": "execution.start {\"exit_code\":null,\"job_id\":\"job_7e76e56e4bce4f2c9462d80747929fe2\",\"kind\":\"execution.process\",\"pending_inputs\":[],\"reason\":\"\",\"result_refs\":[],\"state\":\"starting\",\"stderr\":\"\",\"stderr_bytes\":0,\"stderr_cursor\":0,\"stderr_truncate",
+      "text": "execution.start {\"exit_code\":null,\"job_id\":\"20261007-1-1\",\"kind\":\"execution.process\",\"pending_inputs\":[],\"reason\":\"\",\"result_refs\":[],\"state\":\"starting\",\"stderr\":\"\",\"stderr_bytes\":0,\"stderr_cursor\":0,\"stderr_truncate",
       "ref": "turn:trace/2026-10-07/1#entry/3",
       "title": "action_result",
-      "clue": "execution.start {\"exit_code\":null,\"job_id\":\"job_7e76e56e4bce4f2c9462d80747929fe2\",\"kind\":\"execution.process\",\"pending_inputs\":[],\"reason\":\"\",\"result_refs\":[],\"state\":\"starting\",\"stderr\":\"\",\"stderr_bytes\":0,\"stderr_cursor\":0,\"stderr_truncate",
-      "narrative": "execution.start {\"exit_code\":null,\"job_id\":\"job_7e76e56e4bce4f2c9462d80747929fe2\",\"kind\":\"execution.process\",\"pending_inputs\":[],\"reason\":\"\",\"result_refs\":[],\"state\":\"starting\",\"stderr\":\"\",\"stderr_bytes\":0,\"stderr_cursor\":0,\"stderr_truncate",
+      "clue": "execution.start {\"exit_code\":null,\"job_id\":\"20261007-1-1\",\"kind\":\"execution.process\",\"pending_inputs\":[],\"reason\":\"\",\"result_refs\":[],\"state\":\"starting\",\"stderr\":\"\",\"stderr_bytes\":0,\"stderr_cursor\":0,\"stderr_truncate",
+      "narrative": "execution.start {\"exit_code\":null,\"job_id\":\"20261007-1-1\",\"kind\":\"execution.process\",\"pending_inputs\":[],\"reason\":\"\",\"result_refs\":[],\"state\":\"starting\",\"stderr\":\"\",\"stderr_bytes\":0,\"stderr_cursor\":0,\"stderr_truncate",
       "coverage": {
         "start": 0,
         "end": 240,
@@ -47,11 +47,11 @@
     },
     {
       "kind": "child",
-      "text": "{\"event_id\":\"event_a634609c84234fee9536d97e703b817b\",\"event_kind\":\"event\",\"kind\":\"environment_event\",\"payload\":{\"changed_count\":6,\"day\":\"2026-10-07\",\"operation\":\"reconcile\",\"refs\":[\"workspace:jobs\",\"workspace:jobs/job_7e76e56e4bce4f2c9462d8",
+      "text": "{\"event_id\":\"event_a634609c84234fee9536d97e703b817b\",\"event_kind\":\"event\",\"kind\":\"environment_event\",\"payload\":{\"changed_count\":6,\"day\":\"2026-10-07\",\"operation\":\"reconcile\",\"refs\":[\"workspace:jobs\",\"workspace:jobs/20261007-1-1",
       "ref": "turn:trace/2026-10-07/1#entry/4",
       "title": "phase_note",
-      "clue": "{\"event_id\":\"event_a634609c84234fee9536d97e703b817b\",\"event_kind\":\"event\",\"kind\":\"environment_event\",\"payload\":{\"changed_count\":6,\"day\":\"2026-10-07\",\"operation\":\"reconcile\",\"refs\":[\"workspace:jobs\",\"workspace:jobs/job_7e76e56e4bce4f2c9462d8",
-      "narrative": "{\"event_id\":\"event_a634609c84234fee9536d97e703b817b\",\"event_kind\":\"event\",\"kind\":\"environment_event\",\"payload\":{\"changed_count\":6,\"day\":\"2026-10-07\",\"operation\":\"reconcile\",\"refs\":[\"workspace:jobs\",\"workspace:jobs/job_7e76e56e4bce4f2c9462d8",
+      "clue": "{\"event_id\":\"event_a634609c84234fee9536d97e703b817b\",\"event_kind\":\"event\",\"kind\":\"environment_event\",\"payload\":{\"changed_count\":6,\"day\":\"2026-10-07\",\"operation\":\"reconcile\",\"refs\":[\"workspace:jobs\",\"workspace:jobs/20261007-1-1",
+      "narrative": "{\"event_id\":\"event_a634609c84234fee9536d97e703b817b\",\"event_kind\":\"event\",\"kind\":\"environment_event\",\"payload\":{\"changed_count\":6,\"day\":\"2026-10-07\",\"operation\":\"reconcile\",\"refs\":[\"workspace:jobs\",\"workspace:jobs/20261007-1-1",
       "coverage": {
         "start": 0,
         "end": 240,

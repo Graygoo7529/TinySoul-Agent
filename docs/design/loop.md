@@ -36,7 +36,7 @@ Phase 固定指引和局部反馈由 `prompts/kernel/loop.py` 提供，User 情�
 
 TurnInbox 从请求受理到收尾持续接收。固定批次经 Context prepare/install 成功后 ack；准备期间到达的记录留在后批。inputs 保存正文，Trace 只引用输入身份与顺序。等待只观察就绪，不能抢走消费者记录。
 
-core.ask 与 core.wait 先以 ActionResult 收敛，再由 Loop 在 Cycle 边界等待。`core.wait(event_kind="job")` 等待任意所属 Job 的终态或待答事实，也可以同时设置 timeout_seconds；用户输入和环境事件可以中断等待。可选的 event_id/topic/source 只筛选环境事件中断，不限制 Job 唤醒。Job 唤醒以 `reason=job` 和触发的 `job_id` 写入 wait_resumed Trace note，Job 详情仍从 jobs Working 投影读取。ask、wait、answer 等互斥意图在批次执行前检查，冲突形成 PhaseFailure，不先执行部分副作用。ask 无默认超时，显式超时以 awaiting_user 结束；普通追加作为新指示恢复并记录原问题未答，过期问题拒绝迟到回复。
+core.ask 与 core.wait 先以 ActionResult 收敛，再由 Loop 在 Cycle 边界等待。`core.wait(event_kind="job")` 等待任意所属 Job 的终态或待答事实，也可以同时设置 timeout_seconds；用户输入和需要决策的环境事件可以中断等待，纯状态刷新只有在显式 event_id/topic/source 筛选时才中断。Job 唤醒以 `reason=job` 和触发的 `job_id` 写入 wait_resumed Trace note；环境事件唤醒使用实际匹配事件的 topic/source，Job 详情仍从 jobs Working 投影读取。ask、wait、answer 等互斥意图在批次执行前检查，冲突形成 PhaseFailure，不先执行部分副作用。ask 无默认超时，显式超时以 awaiting_user 结束；普通追加作为新指示恢复并记录原问题未答，过期问题拒绝迟到回复。
 
 带 Inbox 的 Turn 在下一 Cycle 开始前检查预算；不足时经 Loop-owned reason 和 Trap SUSPEND 当前 Turn frame。next_cycle_index 保留，事件就绪不能越过预算，grant 绑定请求身份且幂等。模型不见剩余 Cycle，不得自动补额。不带 Inbox 的单次内核调用以有限预算终态收敛。
 
@@ -44,7 +44,7 @@ INPUT、EVENT、TIMER 和 BUDGET 共用 TurnInbox.wait_for_cycle。事件使用�
 
 EVENT 还可按 topic/source 等待。文件状态通知只唤醒匹配的 EVENT，不伪造 INPUT 回复、不提前满足 TIMER、不越过 BUDGET。相关来源不可用时保留独立恢复原因并给出有限反馈，不伪造文件变化。插件订阅将规范事件适配为更新 Signal，同批 prepare/install 成功后才 ack；接收时间在受理和捕获副本间保持不变。
 
-声明了固定 topic/source 的状态订阅可合并尚未捕获的通知，替换记录位于新的受理位置；已捕获批次、输入、回复和 Job 终态不受合并影响。每个声明只保留当前捕获和下一批两个状态槽，正文受单条大小限制，普通队列容量独立。requires_decision 区分新指示与纯状态刷新，使持续文件变化不会无限撤回答案。
+声明了固定 topic/source 的状态订阅可合并尚未捕获的通知，替换记录位于新的受理位置；已捕获批次、输入、回复和 Job 终态不受合并影响。每个声明只保留当前捕获和下一批两个状态槽，正文受单条大小限制，普通队列容量独立。`requires_decision` 区分新指示与纯状态刷新：持续文件变化仍会进入 Inbox 和下一正常语境刷新，但不会在普通 Job wait 中无限撤回答案；显式监听时仍可作为唤醒事实。
 
 正常完成前复查 Inbox 与活 Job。已接受输入使候选失效并继续推理；活 Job 由模型等待或停止。取消独立于队列容量，停止普通受理后仍接收内部清理终态，消费并 seal 后才注销目标。
 

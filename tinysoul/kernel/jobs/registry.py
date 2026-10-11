@@ -5,11 +5,11 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from uuid import uuid4
 
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.continuation import ContinuationError
 from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.kernel.identity import TurnIdentity, TurnIdentityError
 from tinysoul.kernel.loop.interaction.inbox import InboxError, TurnInbox
 from tinysoul.runtime import RunScope, RuntimeException, Signal, SignalBus
 from tinysoul.runtime.control.exception import RUNTIME_AGENT_END
@@ -45,6 +45,7 @@ class JobRegistry:
         self._jobs: dict[str, _Job] = {}
         self._inboxes: dict[str, TurnInbox] = {}
         self._diagnostics: dict[str, list[CleanupDiagnostic]] = {}
+        self._next_job_sequences: dict[str, int] = {}
 
     def bind_inbox(self, turn_id: str, inbox: TurnInbox | None) -> None:
         if not isinstance(turn_id, str) or not turn_id:
@@ -59,6 +60,12 @@ class JobRegistry:
     ) -> B:
         if not isinstance(turn_id, str) or not turn_id:
             raise JobRequestError("Job requires an owner Turn")
+        try:
+            identity = TurnIdentity.parse(turn_id)
+        except TurnIdentityError as exc:
+            raise JobRequestError(
+                "Job requires a canonical owner Turn identity"
+            ) from exc
         active = tuple(job for job in self._jobs.values() if not job.execution_closed)
         if sum(job.turn_id == turn_id for job in active) >= self._per_turn_capacity:
             raise JobRequestError("Turn already owns its maximum live Jobs")
@@ -66,7 +73,9 @@ class JobRegistry:
             raise JobRequestError(
                 "Retained Job result capacity is full; finish this Turn before starting more work"
             )
-        job_id = f"job_{uuid4().hex}"
+        job_sequence = self._next_job_sequences.get(turn_id, 0) + 1
+        self._next_job_sequences[turn_id] = job_sequence
+        job_id = f"{str(identity.day).replace('-', '')}-{identity.sequence}-{job_sequence}"
         job = _Job(turn_id, JobSnapshot(job_id, kind, JobState.STARTING))
         self._jobs[job_id] = job
         inbox = self._inboxes.get(turn_id)
@@ -369,6 +378,7 @@ class JobRegistry:
                     failure = exc
         if not self.ids(turn_id):
             self._inboxes.pop(turn_id, None)
+            self._next_job_sequences.pop(turn_id, None)
         if failure is not None:
             raise failure
         return tuple(self._diagnostics.pop(turn_id, ()))

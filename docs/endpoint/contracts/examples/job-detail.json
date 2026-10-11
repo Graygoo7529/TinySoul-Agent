@@ -1,23 +1,22 @@
 {
-  "job_id": "job_2b6040352ffc4954a8e6565b2c1ace8f",
+  "job_id": "20261007-1-1",
   "kind": "execution.process",
   "state": "running",
   "summary": "",
   "reason": "",
   "pending_inputs": [],
   "result_refs": [
-    "workspace:jobs/job_2b6040352ffc4954a8e6565b2c1ace8f",
-    "workspace:jobs/job_2b6040352ffc4954a8e6565b2c1ace8f/logs/stdout.log",
-    "workspace:jobs/job_2b6040352ffc4954a8e6565b2c1ace8f/logs/stderr.log"
+    "workspace:jobs/20261007-1-1/logs/stdout.log",
+    "workspace:jobs/20261007-1-1/logs/stderr.log"
   ],
   "details": {
     "exit_code": null,
     "stdout_bytes": 7,
     "stderr_bytes": 8,
     "workspace_refs": [
-      "workspace:jobs/job_2b6040352ffc4954a8e6565b2c1ace8f",
-      "workspace:jobs/job_2b6040352ffc4954a8e6565b2c1ace8f/logs/stdout.log",
-      "workspace:jobs/job_2b6040352ffc4954a8e6565b2c1ace8f/logs/stderr.log"
+      "workspace:jobs/20261007-1-1",
+      "workspace:jobs/20261007-1-1/logs/stdout.log",
+      "workspace:jobs/20261007-1-1/logs/stderr.log"
     ]
   }
 }

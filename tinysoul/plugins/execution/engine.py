@@ -150,7 +150,11 @@ class ExecutionEngine:
             except ManagedProcessStartError as exc:
                 raise ExecutionStartError("Requested process could not start") from exc
             return ProcessJobBackend(
-                job_id, process, settings=self.settings, workspace_refs=location.refs
+                job_id,
+                process,
+                settings=self.settings,
+                workspace_refs=location.workspace_refs,
+                result_refs=location.result_refs,
             )
 
         async def launch(job_id: str) -> ProcessJobBackend:

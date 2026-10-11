@@ -34,16 +34,15 @@
   "result": null,
   "jobs": [
     {
-      "job_id": "job_7e76e56e4bce4f2c9462d80747929fe2",
+      "job_id": "20261007-1-1",
       "kind": "execution.process",
       "state": "running",
       "summary": "",
       "reason": "",
       "pending_inputs": [],
       "result_refs": [
-        "workspace:jobs/job_7e76e56e4bce4f2c9462d80747929fe2",
-        "workspace:jobs/job_7e76e56e4bce4f2c9462d80747929fe2/logs/stdout.log",
-        "workspace:jobs/job_7e76e56e4bce4f2c9462d80747929fe2/logs/stderr.log"
+        "workspace:jobs/20261007-1-1/logs/stdout.log",
+        "workspace:jobs/20261007-1-1/logs/stderr.log"
       ]
     }
   ]

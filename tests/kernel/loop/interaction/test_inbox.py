@@ -162,8 +162,18 @@ async def test_topic_source_wait_and_source_failure_still_require_budget() -> No
     assert (await asyncio.wait_for(waiter, 1)).reason is WakeReason.SOURCE_UNAVAILABLE
 
 
-async def test_job_wait_can_be_interrupted_by_an_environment_event() -> None:
+async def test_job_wait_ignores_passive_refresh_until_an_event_needs_decision() -> None:
     inbox = TurnInbox()
+    inbox.subscribe_events(
+        (
+            TurnEventSubscription(
+                EventFilter(topic="workspace.changed", source="workspace.owner"),
+                lambda event, scope: (),
+                coalesce=True,
+                requires_decision=False,
+            ),
+        )
+    )
     waiter = asyncio.create_task(
         inbox.wait_for_cycle(
             WaitCondition(WaitReason.EVENT, 0, event_kind=InboxKind.JOB)
@@ -178,12 +188,62 @@ async def test_job_wait_can_be_interrupted_by_an_environment_event() -> None:
             source="workspace.owner",
         )
     )
+    await asyncio.sleep(0)
+    assert not waiter.done()
+    await inbox.accept_event(
+        EnvironmentEvent(
+            EventKind.EVENT,
+            {"attention": True},
+            topic="host.attention",
+            source="host",
+        )
+    )
 
     readiness = await asyncio.wait_for(waiter, 1)
 
     assert readiness.reason is WakeReason.EVENT
-    assert readiness.sequence == 1
+    assert readiness.sequence == 2
     assert readiness.wake_job_id is None
+    assert readiness.wake_topic == "host.attention"
+    assert readiness.wake_source == "host"
+
+
+async def test_job_wait_with_explicit_event_filter_accepts_passive_refresh() -> None:
+    inbox = TurnInbox()
+    inbox.subscribe_events(
+        (
+            TurnEventSubscription(
+                EventFilter(topic="workspace.changed", source="workspace.owner"),
+                lambda event, scope: (),
+                coalesce=True,
+                requires_decision=False,
+            ),
+        )
+    )
+    waiter = asyncio.create_task(
+        inbox.wait_for_cycle(
+            WaitCondition(
+                WaitReason.EVENT,
+                0,
+                event_kind=InboxKind.JOB,
+                topic="workspace.changed",
+                source="workspace.owner",
+            )
+        )
+    )
+    await asyncio.sleep(0)
+    await inbox.accept_event(
+        EnvironmentEvent(
+            EventKind.EVENT,
+            {"refresh": True},
+            topic="workspace.changed",
+            source="workspace.owner",
+        )
+    )
+    readiness = await asyncio.wait_for(waiter, 1)
+    assert readiness.reason is WakeReason.EVENT
+    assert readiness.wake_topic == "workspace.changed"
+    assert readiness.wake_source == "workspace.owner"
 
 
 async def test_fixed_batch_retries_exclude_new_arrivals_and_ack_preserves_identity() -> (

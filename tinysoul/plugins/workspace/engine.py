@@ -112,7 +112,8 @@ class WorkspaceExecutionLocation:
     cwd: Path
     capture_root: Path
     script_path: Path | None
-    refs: tuple[str, ...]
+    workspace_refs: tuple[str, ...]
+    result_refs: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -440,9 +441,9 @@ class WorkspaceEngine:
         """Create one Job's output area in the actual daily Workspace."""
         if (
             not isinstance(job_id, str)
-            or re.fullmatch(r"job_[0-9a-f]{32}", job_id) is None
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", job_id) is None
         ):
-            raise WorkspaceContractError("Execution requires a valid Job identity")
+            raise WorkspaceContractError("Execution requires a safe Job identity")
         if not isinstance(cwd_ref, str):
             raise WorkspaceContractError("Execution cwd must be a Workspace reference")
         if source_text is not None and (
@@ -493,8 +494,12 @@ class WorkspaceEngine:
                 cwd=cwd,
                 capture_root=job_root / "logs",
                 script_path=script_path,
-                refs=(
+                workspace_refs=(
                     prefix,
+                    f"{prefix}/logs/stdout.log",
+                    f"{prefix}/logs/stderr.log",
+                ),
+                result_refs=(
                     f"{prefix}/logs/stdout.log",
                     f"{prefix}/logs/stderr.log",
                 ),

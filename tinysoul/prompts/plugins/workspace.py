@@ -188,6 +188,14 @@ def reference_requires_conversion(*, ref: str) -> str:
 
 
 # Local model feedback. Used by plugins/workspace/prompts.py:_resolve.
+def unsupported_directory_reference(*, ref: str) -> str:
+    return (
+        f"Workspace directory has no prompt body: {ref}. "
+        "Inspect the directory and choose a specific file."
+    )
+
+
+# Local model feedback. Used by plugins/workspace/prompts.py:_resolve.
 def unsupported_binary_reference(*, ref: str) -> str:
     return f"Workspace binary resource cannot be loaded into a prompt: {ref}"
 

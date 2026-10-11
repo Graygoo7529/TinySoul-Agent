@@ -4,6 +4,6 @@ Use execution for deterministic local processing. Write and edit scripts through
 
 The process writes directly to the daily Workspace. Its default working directory is its own jobs/<job_id> directory; use cwd_ref to select an existing Workspace directory, or workspace: for the root. File effects remain after failure, cancellation or stopping. There is no apply/discard step.
 
-Use core.wait to pause until any Job produces a terminal or pending-input fact, and use core.job.status/stop for lifecycle control. Use execution.collect for bounded stdout/stderr pages and result references. Reuse the returned cursors to continue reading. Collect does not execute again and does not release or commit resources. For interactive input, execution.stdin reports accepted UTF-8 bytes; resend only the unaccepted suffix.
+Use core.wait to pause until any Job produces a terminal or pending-input fact. Passive Workspace refreshes do not interrupt this ordinary Job wait; add an explicit event filter when the current Workspace must be monitored. Use core.job.status/stop for lifecycle control and execution.collect for bounded stdout/stderr pages and result references. Reuse the returned cursors to continue reading. Collect does not execute again and does not release or commit resources. For interactive input, execution.stdin reports accepted UTF-8 bytes; resend only the unaccepted suffix.
 
 A silent process is still running unless explicit process facts prove otherwise. Finish or stop live Jobs before answering. Completed Jobs do not require a special finalization Action.

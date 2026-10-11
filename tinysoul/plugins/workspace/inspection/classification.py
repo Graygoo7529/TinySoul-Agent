@@ -26,6 +26,7 @@ TEXT_MEDIA_TYPES: dict[str, str] = {
     ".sql": "application/sql",
     ".sh": "text/x-shellscript",
     ".ps1": "text/x-powershell",
+    ".log": "text/plain",
 }
 
 IMAGE_MEDIA_TYPES: dict[str, str] = {
@@ -124,5 +125,6 @@ def _text_label(suffix: str) -> str:
         ".sql": "SQL text",
         ".sh": "Shell source text",
         ".ps1": "PowerShell source text",
+        ".log": "Plain text log",
     }
     return labels.get(suffix, "Plain text")

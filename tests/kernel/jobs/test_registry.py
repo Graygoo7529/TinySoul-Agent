@@ -28,6 +28,10 @@ from tinysoul.kernel.loop.interaction.inbox import (
 from tinysoul.runtime import RuntimeException
 
 
+OWNER_TURN = "2026-07-12/1"
+TURN_ID = "2026-07-12/2"
+
+
 class _Backend:
     def __init__(self, job_id: str) -> None:
         self.job_id = job_id
@@ -91,14 +95,14 @@ async def test_external_stop_and_turn_cleanup_join_one_owner_operation() -> None
             return ()
 
     registry = JobRegistry()
-    backend = await registry.start("owner", "test", Backend.create)
+    backend = await registry.start(OWNER_TURN, "test", Backend.create)
     stopping = asyncio.create_task(
-        registry.stop("owner", backend.job_id, operations=JoinedOperations())
+        registry.stop(OWNER_TURN, backend.job_id, operations=JoinedOperations())
     )
     async with asyncio.timeout(3):
         while not entered.is_set():
             await asyncio.sleep(0.01)
-    cleanup = asyncio.create_task(registry.cleanup_turn("owner"))
+    cleanup = asyncio.create_task(registry.cleanup_turn(OWNER_TURN))
     await asyncio.sleep(0)
     assert not cleanup.done()
     release.set()
@@ -106,14 +110,15 @@ async def test_external_stop_and_turn_cleanup_join_one_owner_operation() -> None
     await asyncio.wait_for(cleanup, 3)
     assert result.state.terminal
     assert backend.stops == 1 and backend.cleanups == 1
-    assert not registry.snapshots("owner")
+    assert not registry.snapshots(OWNER_TURN)
 
 
 async def test_terminal_reservation_survives_full_and_closed_ordinary_ingress() -> None:
     inbox = TurnInbox(InboxLimits(capacity=1, max_bytes=500, max_record_bytes=400))
     registry = JobRegistry()
-    registry.bind_inbox("turn", inbox)
-    backend = await registry.start("turn", "test", _Backend.create)
+    registry.bind_inbox(TURN_ID, inbox)
+    backend = await registry.start(TURN_ID, "test", _Backend.create)
+    assert backend.job_id == "20260712-2-1"
     await inbox.accept(InboxRecord(InboxKind.EVENT, {"progress": 1}))
     await inbox.close()
     backend.finished.set()
@@ -122,7 +127,7 @@ async def test_terminal_reservation_survives_full_and_closed_ordinary_ingress() 
             await asyncio.sleep(0.01)
     # Closing the execution handle does not delete owner output or candidates.
     assert not backend.cleaned.is_set()
-    await registry.cleanup_turn("turn")
+    await registry.cleanup_turn(TURN_ID)
     batch = await inbox.capture()
     assert [record.kind for _, record in batch.records] == [
         InboxKind.EVENT,
@@ -131,12 +136,12 @@ async def test_terminal_reservation_survives_full_and_closed_ordinary_ingress() 
     assert batch.records[-1][1].payload["state"] == "succeeded"
     await inbox.ack(batch)
     assert await inbox.close_if_empty()
-    assert backend.cleaned.is_set() and not registry.has_unresolved("turn")
+    assert backend.cleaned.is_set() and not registry.has_unresolved(TURN_ID)
 
 
 async def test_terminal_bytes_are_reserved_before_backend_launch() -> None:
     registry = JobRegistry()
-    registry.bind_inbox("turn", TurnInbox(InboxLimits(max_terminal_bytes=100)))
+    registry.bind_inbox(TURN_ID, TurnInbox(InboxLimits(max_terminal_bytes=100)))
     launched: list[str] = []
 
     async def launch(job_id: str) -> _Backend:
@@ -144,8 +149,8 @@ async def test_terminal_bytes_are_reserved_before_backend_launch() -> None:
         return _Backend(job_id)
 
     with pytest.raises(JobError):
-        await registry.start("turn", "test", launch)
-    assert not launched and not registry.has_unresolved("turn")
+        await registry.start(TURN_ID, "test", launch)
+    assert not launched and not registry.has_unresolved(TURN_ID)
 
 
 async def test_launch_cancellation_joins_owner_then_cleans_created_backend() -> None:
@@ -161,7 +166,7 @@ async def test_launch_cancellation_joins_owner_then_cleans_created_backend() -> 
         return backend
 
     registry = JobRegistry()
-    launch = asyncio.create_task(registry.start("turn", "test", factory))
+    launch = asyncio.create_task(registry.start(TURN_ID, "test", factory))
     async with asyncio.timeout(2):
         while not entered.is_set():
             await asyncio.sleep(0.01)
@@ -171,7 +176,7 @@ async def test_launch_cancellation_joins_owner_then_cleans_created_backend() -> 
     release.set()
     with pytest.raises(asyncio.CancelledError):
         await launch
-    assert backends[0].cleaned.is_set() and not registry.has_unresolved("turn")
+    assert backends[0].cleaned.is_set() and not registry.has_unresolved(TURN_ID)
 
 
 async def test_failed_poll_reclaims_backend_and_reports_supervision_failure() -> None:
@@ -180,9 +185,9 @@ async def test_failed_poll_reclaims_backend_and_reports_supervision_failure() ->
             raise OSError("private owner path")
 
     registry = JobRegistry()
-    backend = await registry.start("turn", "test", FailingBackend.create)
+    backend = await registry.start(TURN_ID, "test", FailingBackend.create)
     with pytest.raises(RuntimeException) as raised:
-        await registry.cleanup_turn("turn")
+        await registry.cleanup_turn(TURN_ID)
     assert backend.cleaned.is_set()
     assert raised.value.payload["kind"] == "jobs.supervision_failed"
     assert "private" not in repr(raised.value.payload)
@@ -193,12 +198,12 @@ async def test_core_wait_job_kind_observes_terminal_before_or_after_registration
     finished_before_wait: bool,
 ) -> None:
     registry, inbox = JobRegistry(), TurnInbox()
-    registry.bind_inbox("turn", inbox)
-    backend = await registry.start("turn", "test", _Backend.create)
+    registry.bind_inbox(TURN_ID, inbox)
+    backend = await registry.start(TURN_ID, "test", _Backend.create)
     if finished_before_wait:
         backend.finished.set()
         async with asyncio.timeout(2):
-            while not registry.snapshot("turn", backend.job_id).state.terminal:
+            while not registry.snapshot(TURN_ID, backend.job_id).state.terminal:
                 await asyncio.sleep(0.01)
     waiter = asyncio.create_task(
         inbox.wait_for_cycle(
@@ -212,22 +217,24 @@ async def test_core_wait_job_kind_observes_terminal_before_or_after_registration
     readiness = await asyncio.wait_for(waiter, 2)
     assert readiness.reason is WakeReason.JOB
     assert readiness.wake_job_id == backend.job_id
-    first = await registry.stop("turn", backend.job_id, operations=JoinedOperations())
+    first = await registry.stop(TURN_ID, backend.job_id, operations=JoinedOperations())
     assert (
-        await registry.stop("turn", backend.job_id, operations=JoinedOperations())
+        await registry.stop(TURN_ID, backend.job_id, operations=JoinedOperations())
         == first
     )
-    await registry.release("turn", backend.job_id)
-    await registry.release("turn", backend.job_id)
+    await registry.release(TURN_ID, backend.job_id)
+    await registry.release(TURN_ID, backend.job_id)
     batch = await inbox.capture()
     assert len(batch.records) == 1 and batch.records[0][1].kind is InboxKind.JOB
 
 
 async def test_core_wait_job_kind_wakes_for_any_job_that_finishes_first() -> None:
     registry, inbox = JobRegistry(per_turn_capacity=2), TurnInbox()
-    registry.bind_inbox("turn", inbox)
-    first = await registry.start("turn", "test", _Backend.create)
-    second = await registry.start("turn", "test", _Backend.create)
+    registry.bind_inbox(TURN_ID, inbox)
+    first = await registry.start(TURN_ID, "test", _Backend.create)
+    second = await registry.start(TURN_ID, "test", _Backend.create)
+    assert first.job_id == "20260712-2-1"
+    assert second.job_id == "20260712-2-2"
     waiter = asyncio.create_task(
         inbox.wait_for_cycle(
             WaitCondition(
@@ -245,8 +252,8 @@ async def test_core_wait_job_kind_wakes_for_any_job_that_finishes_first() -> Non
     readiness = await asyncio.wait_for(waiter, 2)
     assert readiness.reason is WakeReason.JOB
     assert readiness.wake_job_id == second.job_id
-    assert registry.snapshot("turn", first.job_id).state is JobState.RUNNING
-    await registry.cleanup_turn("turn")
+    assert registry.snapshot(TURN_ID, first.job_id).state is JobState.RUNNING
+    await registry.cleanup_turn(TURN_ID)
 
 
 async def test_close_failure_preserves_published_terminal_state() -> None:
@@ -257,8 +264,8 @@ async def test_close_failure_preserves_published_terminal_state() -> None:
             return (CleanupDiagnostic("test.output", "OSError"),)
 
     registry, inbox = JobRegistry(), TurnInbox()
-    registry.bind_inbox("turn", inbox)
-    backend = await registry.start("turn", "test", CloseFailure.create)
+    registry.bind_inbox(TURN_ID, inbox)
+    backend = await registry.start(TURN_ID, "test", CloseFailure.create)
     backend.finished.set()
     await asyncio.wait_for(
         inbox.wait_for_cycle(
@@ -266,9 +273,9 @@ async def test_close_failure_preserves_published_terminal_state() -> None:
         ),
         2,
     )
-    assert registry.snapshot("turn", backend.job_id).state is JobState.SUCCEEDED
+    assert registry.snapshot(TURN_ID, backend.job_id).state is JobState.SUCCEEDED
     assert (await inbox.capture()).records[0][1].payload["state"] == "succeeded"
-    diagnostics = await registry.cleanup_turn("turn")
+    diagnostics = await registry.cleanup_turn(TURN_ID)
     assert diagnostics and all("private" not in repr(item) for item in diagnostics)
 
 
@@ -284,34 +291,34 @@ async def test_live_execution_close_failure_is_not_released_or_reported_stopped(
             return await super().close_execution()
 
     registry = JobRegistry()
-    backend = await registry.start("turn", "test", LiveBackend.create)
+    backend = await registry.start(TURN_ID, "test", LiveBackend.create)
     with pytest.raises(RuntimeException) as raised:
-        await registry.cleanup_turn("turn")
+        await registry.cleanup_turn(TURN_ID)
     assert raised.value.reason == "runtime.agent_end"
-    assert registry.has_unresolved("turn")
-    assert not registry.snapshots("turn")[0].state.terminal
+    assert registry.has_unresolved(TURN_ID)
+    assert not registry.snapshots(TURN_ID)[0].state.terminal
     assert not backend.cleaned.is_set()
     backend.cannot_stop = False
-    await registry.cleanup_turn("turn")
-    assert not registry.ids("turn") and backend.cleaned.is_set()
+    await registry.cleanup_turn(TURN_ID)
+    assert not registry.ids(TURN_ID) and backend.cleaned.is_set()
 
 
 async def test_terminal_results_are_bounded_without_consuming_live_capacity() -> None:
     registry = JobRegistry(capacity=2, per_turn_capacity=1)
     backends = []
     for _ in range(2):
-        backend = await registry.start("turn", "test", _Backend.create)
+        backend = await registry.start(TURN_ID, "test", _Backend.create)
         backends.append(backend)
         backend.finished.set()
         async with asyncio.timeout(2):
-            while registry.has_unresolved("turn"):
+            while registry.has_unresolved(TURN_ID):
                 await asyncio.sleep(0.01)
-    assert len(registry.ids("turn")) == 2
+    assert len(registry.ids(TURN_ID)) == 2
     with pytest.raises(JobRequestError, match="capacity"):
-        await registry.start("turn", "test", _Backend.create)
+        await registry.start(TURN_ID, "test", _Backend.create)
     assert not backends[0].cleaned.is_set()
-    assert registry.snapshot("turn", backends[-1].job_id).state is JobState.SUCCEEDED
-    await registry.cleanup_turn("turn")
+    assert registry.snapshot(TURN_ID, backends[-1].job_id).state is JobState.SUCCEEDED
+    await registry.cleanup_turn(TURN_ID)
 
 
 async def test_waiting_request_wakes_parent_with_full_inbox_and_is_delivered_once() -> (
@@ -336,10 +343,10 @@ async def test_waiting_request_wakes_parent_with_full_inbox_and_is_delivered_onc
 
     registry = JobRegistry(per_turn_capacity=2)
     inbox = TurnInbox(InboxLimits(capacity=1))
-    registry.bind_inbox("turn", inbox)
+    registry.bind_inbox(TURN_ID, inbox)
     ordinary = await inbox.accept(InboxRecord(InboxKind.EVENT, {"ordinary": True}))
-    backend = await registry.start("turn", "test", WaitingBackend.create)
-    other = await registry.start("turn", "test", _Backend.create)
+    backend = await registry.start(TURN_ID, "test", WaitingBackend.create)
+    other = await registry.start(TURN_ID, "test", _Backend.create)
     ready = await asyncio.wait_for(
         inbox.wait_for_cycle(
             WaitCondition(
@@ -352,7 +359,7 @@ async def test_waiting_request_wakes_parent_with_full_inbox_and_is_delivered_onc
     )
     assert ready.reason is WakeReason.JOB
     assert ready.wake_job_id == backend.job_id
-    assert registry.snapshot("turn", backend.job_id).ready
+    assert registry.snapshot(TURN_ID, backend.job_id).ready
     batch = await inbox.capture()
     inputs = [record for _, record in batch.records if record.kind is InboxKind.JOB]
     assert len(inputs) == 1
@@ -362,6 +369,6 @@ async def test_waiting_request_wakes_parent_with_full_inbox_and_is_delivered_onc
     await asyncio.sleep(0.1)
     assert not (await inbox.capture()).records
     with pytest.raises(JobRequestError):
-        registry.backend("turn", other.job_id, WaitingBackend)
+        registry.backend(TURN_ID, other.job_id, WaitingBackend)
     await inbox.ack(await inbox.capture())
-    await registry.cleanup_turn("turn")
+    await registry.cleanup_turn(TURN_ID)

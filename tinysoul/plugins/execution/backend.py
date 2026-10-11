@@ -38,11 +38,13 @@ class ProcessJobBackend:
         *,
         settings: ExecutionSettings,
         workspace_refs: tuple[str, ...],
+        result_refs: tuple[str, ...],
     ) -> None:
         self.job_id = job_id
         self._process = process
         self._settings = settings
         self._workspace_refs = workspace_refs
+        self._result_refs = result_refs
         self._deadline = monotonic() + settings.max_runtime_seconds
         self._stop_reason: _StopReason | None = None
         self._lock = RLock()
@@ -72,7 +74,7 @@ class ProcessJobBackend:
                         self.job_id,
                         self.kind,
                         JobState.RUNNING,
-                        result_refs=self._workspace_refs,
+                        result_refs=self._result_refs,
                     )
             if self._stop_reason is _StopReason.CANCELLED:
                 state, reason, summary = (
@@ -104,7 +106,7 @@ class ProcessJobBackend:
                 state,
                 summary,
                 reason,
-                result_refs=self._workspace_refs,
+                result_refs=self._result_refs,
             )
 
     def _stop(self, reason: _StopReason) -> None:
@@ -182,7 +184,7 @@ class ProcessJobBackend:
                 job_id=self.job_id, channels=channels
             ),
             "truncated": bool(value["stdout_truncated"] or value["stderr_truncated"]),
-            "result_locators": [{"ref": ref} for ref in self._workspace_refs],
+            "result_locators": [{"ref": ref} for ref in self._result_refs],
         }
 
     def _describe(self) -> JsonObject:

@@ -225,6 +225,7 @@ def test_workspace_classifies_prompt_access_kinds(tmp_path: Path) -> None:
     (tmp_path / "a.md").write_text("hello", encoding="utf-8")
     (tmp_path / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n")
     (tmp_path / "report.pdf").write_bytes(b"%PDF")
+    (tmp_path / "run.log").write_text("completed\n", encoding="utf-8")
     (tmp_path / "archive.bin").write_bytes(b"\x00\x01")
     engine = WorkspaceEngineBuilder(
         WorkspaceSettings(
@@ -238,6 +239,7 @@ def test_workspace_classifies_prompt_access_kinds(tmp_path: Path) -> None:
     assert records["workspace:a.md"].kind is WorkspaceResourceKind.TEXT
     assert records["workspace:image.png"].kind is WorkspaceResourceKind.IMAGE
     assert records["workspace:report.pdf"].kind is WorkspaceResourceKind.DOCUMENT
+    assert records["workspace:run.log"].kind is WorkspaceResourceKind.TEXT
     assert records["workspace:archive.bin"].kind is WorkspaceResourceKind.BINARY
 
 
@@ -260,6 +262,26 @@ async def test_workspace_prompt_resolver_loads_images_and_rejects_documents(
     with pytest.raises(PromptReferenceError) as raised:
         await resolver.resolve_reference("workspace:report.pdf")
     assert raised.value.reason == "conversion_required"
+
+
+async def test_workspace_prompt_resolver_explains_directory_reference(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "logs").mkdir()
+    (tmp_path / "logs" / "run.log").write_text("completed\n", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    resolver = WorkspacePromptReferenceResolver(WorkspaceService(engine))
+
+    with pytest.raises(PromptReferenceError) as raised:
+        await resolver.resolve_reference("workspace:logs")
+
+    assert raised.value.reason == "directory_requires_inspection"
+    assert "inspect" in str(raised.value).lower()
 
 
 async def test_workspace_prompt_resolver_rejects_image_with_invalid_signature(

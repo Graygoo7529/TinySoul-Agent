@@ -152,6 +152,12 @@ class WorkspacePromptReferenceResolver(PromptReferenceResolver):
                         ),
                     ),
                 )
+            if record.kind is WorkspaceResourceKind.DIRECTORY:
+                raise PromptReferenceError(
+                    prompt_text.unsupported_directory_reference(ref=ref),
+                    reason="directory_requires_inspection",
+                    payload={"ref": ref, "kind": record.kind.value},
+                )
             if record.kind is WorkspaceResourceKind.DOCUMENT:
                 raise PromptReferenceError(
                     prompt_text.reference_requires_conversion(ref=ref),

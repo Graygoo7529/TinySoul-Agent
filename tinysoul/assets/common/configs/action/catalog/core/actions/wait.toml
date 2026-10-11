@@ -2,7 +2,7 @@ name = "core.wait"
 domain = "core"
 
 [tool]
-description = "Pause before the next Cycle until a timer expires or an explicitly selected event arrives. event_kind=job waits for any Job terminal result or request needing your response; user instructions and environment events can interrupt. event_id/topic/source filters apply to environment event interruptions, not Job wakeups. Waiting never grants Cycle budget."
+description = "Pause before the next Cycle until a timer expires or an explicitly selected event arrives. event_kind=job waits for any Job terminal result or request needing your response; passive state refreshes do not interrupt unless an event filter is explicit. User instructions and decision-required environment events can interrupt. Waiting never grants Cycle budget."
 
 [tool.schema]
 type = "object"
@@ -23,11 +23,11 @@ description = "Optional exact environment event identity; does not restrict Job 
 
 [tool.schema.properties.topic]
 type = "string"
-description = "Optional topic for environment event interruptions. workspace.changed reports committed current Workspace changes; topic alone implies event_kind=event."
+description = "Optional topic for environment event interruptions. workspace.changed reports committed current Workspace changes; an explicit topic selects even passive refreshes and implies event_kind=event."
 
 [tool.schema.properties.source]
 type = "string"
-description = "Optional source for environment event interruptions. workspace.fswatch senses external file edits; workspace.owner reports formal owner writes. Source unavailability resumes this wait with explicit feedback."
+description = "Optional source for environment event interruptions. workspace.fswatch senses external file edits; workspace.owner reports formal owner writes. An explicit source selects passive refreshes; source unavailability resumes this wait with explicit feedback."
 
 [semantic]
 use_when = ["Further work needs an environment event or an explicit delay"]
