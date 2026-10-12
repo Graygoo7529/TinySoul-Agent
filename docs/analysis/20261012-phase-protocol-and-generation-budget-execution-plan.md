@@ -47,7 +47,7 @@ Phase1 合并 Context 的 set/remove milestone、set/remove todo、按需 load/e
 
 ## 方案一：放宽生成预算，分清实际限制
 
-建议三个默认 task 和任务创建模板统一以 **32768 output tokens** 作为讨论起点，保持现有模型优先级及 reasoning 设置。这个数字是建议的配置默认值，不是供应商能力结论；实施时核对绑定模型/端点可接受的额度，确有更低上限时用已有 model.request_overrides 表达，不新增能力注册平台或失败后逐层减半机制。必要的模型特殊覆盖仍是显式配置。
+按最新讨论，三个默认 task 和任务创建模板以 **65536 output tokens（64 × 1024）** 作为实施候选，保持现有模型优先级及 reasoning 设置。这个数字是项目配置默认值，不是供应商能力结论；实施时核对绑定模型/端点可接受的额度，确有更低上限时用已有 model.request_overrides 表达，不新增能力注册平台或失败后逐层减半机制。必要的模型特殊覆盖仍是显式配置。
 
 预算流继续为：task 默认 → 单次调用/Action binding 覆盖 → 模型固定覆盖 → 同一个有效值进入 provider 与 Context 输出预留。移除 `ActionTaskCallBuilder.create(max_output_chars=...)` 将字符数当成 token 上限的转换；Workspace 继续在 TaskPrompt 和 ActionTaskOutput/提交 owner 校验工件字符限制。这样提高生成额度不会被字符数悄悄覆盖，也不会令长 reasoning 被等同于长文件。
 
@@ -59,13 +59,13 @@ Phase1 合并 Context 的 set/remove milestone、set/remove todo、按需 load/e
 
 ## 方案二：Phase1 的两条可选路线
 
-### A：保留当前多工具协议
+### A：保留当前多工具协议（当前倾向）
 
-继续要求 select_action_domains，可同批返回其它 Context 工具。保留通用 required 适配和解释器校验，改进下节的效果反馈。扩大预算后再观察正常任务中的遗漏情况。
+继续要求 `select_action_domains`，可同批返回其它 Context 工具。`domains` 是域选择工具的必填参数；set/remove todo、milestone、load/evict background 仍是各自独立工具，模型可以不调用它们。也就是说，“域选择必选、其它控制可选”已经由多个工具的 scope 加上 `forced_name` 表达，不需要把不同参数和意图塞进一个联合工具。保留通用 required 适配和解释器校验，改进下节的效果反馈。扩大预算后再观察正常任务中的遗漏情况。
 
-优点是工具定义、控制归一化、provider-neutral 协议均延续现有设计。限制也明确：provider 的 required 只能保证“至少某个工具”，不能保证“指定工具必含”；当前提示已表达要求，继续重复或加重措辞不能构成结构性保证。这条路线接受偶发缺项造成一个失败 Cycle，不能宣称已从协议结构上消除问题。
+优点是每个工具仍保留自己的参数 schema、模型意图和 Context owner，工具调用顺序及多调用结果也保持现有模型侧语义。限制也明确：provider 的 required 只能保证“至少某个工具”，不能保证“指定工具必含”；当前提示已表达要求，继续重复或加重措辞不能构成结构性保证。这条路线接受偶发缺项造成一个失败 Cycle，不能宣称已从协议结构上消除问题。`ResponseInterpreter` 的本地 forced 校验仍是最终协议边界。
 
-### B：Phase1 一次提交完整阶段意图（倾向推荐，需确认）
+### B：Phase1 一次提交完整阶段意图（备选，不作为当前推荐）
 
 由 Loop 组装一个 Phase1 专用 Control Tool，例如 `submit_phase1`。模型一次返回必需的 domains、可选 intent 和可选 controls 列表；controls 可为空，也可包含多个更新。概念示例：
 
@@ -89,7 +89,7 @@ Phase1 合并 Context 的 set/remove milestone、set/remove todo、按需 load/e
 4. 解包后复用现有 Context normalization/signal 路径，嵌套控制通过父调用 id 与位置建立可追踪关联，不能伪造成额外的 provider 原生 tool calls。
 5. 通用 LLM ToolSelection 仍保留“必含但非排他”的语义。这个方案只调整 Phase1 的业务输出形态，不改成所有 LLM 任务都使用阶段信封。
 
-成本是修改 Phase1 组装、Action 域选择的门面输入、控制投影关联以及相应测试和设计文档。嵌套参数 schema 需要核对当前适配器支持，不强制启用供应商 strict 模式，也不建立通用 schema 编译器。名称、参数形式和控制失败后的继续语义均需在实施前确定。
+成本是修改 Phase1 组装、Action 域选择的门面输入、控制投影关联以及相应测试和设计文档。嵌套参数 schema 需要核对当前适配器支持，不强制启用供应商 strict 模式，也不建立通用 schema 编译器。它把不同控制意图压入一个联合参数，模型生成和错误定位可能比多个独立工具更差；除非真实运行继续证明当前多工具协议无法接受，否则不采用这条路线。
 
 不推荐把 Phase1 拆成“更新 Context”与“域选择”两个模型调用：每个 Cycle 增加一次大语境请求，还引入两个 Task 之间的提交边界。也不建议自动为缺失域选择补默认域、从 raw_response 挑部分工具强行执行，或把每次更新计划都变成一个独立 Cycle。
 
@@ -147,7 +147,7 @@ AGENTS.md 的预算原则已按本轮授权补充。其它设计文档在代码�
 
 ## 待讨论的决定
 
-1. 是否采用 32768 作为三个 task 的共同默认输出额度，并保持当前模型顺序与 reasoning 强度？若希望更高，可以提高默认，但需核对模型/端点实际接受值和 Context 预留。
-2. Phase1 是否采用 B 的“单次完整阶段提交”，还是选 A 保留现有多工具结果并接受偶发局部失败？倾向 B，因为它将阶段的必需部分放回同一结构，保留可选控制的能力；它是协议调整，需要维护者确认，不作为 Trace 修复顺带实施。
+1. 是否采用 65536（64 × 1024）作为三个 task 的共同默认输出额度，并保持当前模型顺序与 reasoning 强度？需核对模型/端点实际接受值和 Context 预留。
+2. Phase1 目前倾向 A：保留独立 `select_action_domains` 与其它独立控制工具；B 只作为后续证据充分时的备选。这样 `domains` 必选、其它 control 可选，且不牺牲各工具独立参数和意图。
 
 预算与反馈改动的边界已经明确，Phase1 输出形态仍待选择。本计划保持 pending，不把方案讨论或配置建议标为完成。

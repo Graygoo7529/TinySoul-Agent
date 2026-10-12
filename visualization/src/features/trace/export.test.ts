@@ -221,7 +221,7 @@ describe("buildTraceExport", () => {
     expect(narrative).toContain("Summarize the job output.");
     expect(narrative).toContain("Choose domains.");
     expect(narrative).toContain("Requested tool: set");
-    expect(narrative).toContain('"status": "failure"');
+    expect(narrative).toContain("LLM task failure");
     expect(narrative).toContain("Action result");
     expect(narrative).toContain("Job succeeded; output available.");
     expect(narrative.match(/wait_resumed/g)).toHaveLength(1);
@@ -248,5 +248,51 @@ describe("buildTraceExport", () => {
     const empty = buildTraceExport("empty", null, window([]));
     expect(empty.manifest.cycle_count).toBe(0);
     expect(file(empty, "/turn.md")).toContain("No LLM request is retained");
+  });
+
+  it("keeps a large turn overview compact while retaining navigation evidence", () => {
+    const events: ObservationEvent[] = [];
+    let sequence = 1;
+    for (let index = 1; index <= 120; index += 1) {
+      const cycle = `cycle_${index}`;
+      const phase = "phase2";
+      const task = `task_${index}`;
+      events.push(
+        event("loop.phase.started", sequence++, { phase }, phase, cycle),
+        event("llm.task.started", sequence++, { task_id: task, profile: "action" }, phase, cycle),
+        event("llm.provider.started", sequence++, { task_id: task, attempt: 1, provider_id: "provider-a" }, phase, cycle),
+        event("llm.model.request", sequence++, {
+          task_id: task,
+          attempt: 1,
+          messages: [{ role: "user", label: "phase_note", parts: [{ type: "text", text: "Choose the next action." }] }],
+          tools: [{ name: "execution.collect" }],
+        }, phase, cycle),
+        event("llm.provider.completed", sequence++, { task_id: task, attempt: 1, provider_id: "provider-a" }, phase, cycle),
+        event("llm.model.response", sequence++, {
+          task_id: task,
+          attempt: 1,
+          model_id: "model-a",
+          provider_id: "provider-a",
+          stop_reason: "complete",
+          answer_text: `Cycle ${index} is ready.`,
+          tool_calls: [],
+        }, phase, cycle),
+        event("llm.task.completed", sequence++, { task_id: task, status: "completed" }, phase, cycle),
+        event("loop.phase.completed", sequence++, { phase }, phase, cycle),
+      );
+      if (index === 60) events.push(event("llm.provider.retry", sequence++, { task_id: task, attempt: 2, reason: "temporary" }, phase, cycle));
+    }
+    const bundle = buildTraceExport("large-turn", null, window(events));
+    const narrative = file(bundle, "/turn.md");
+    expect(narrative.length).toBeLessThan(200_000);
+    expect(narrative).toContain("Cycle overview");
+    expect(narrative).toContain("LLM request");
+    expect(narrative).toContain("LLM response");
+    expect(narrative).toContain("LLM task completed");
+    expect(narrative).toContain("Provider retry");
+    expect(narrative).not.toContain("llm.provider.started");
+    expect(narrative).not.toContain("llm.provider.completed");
+    expect(bundle.files.some((entry) => entry.path.endsWith("/request.json"))).toBe(true);
+    expect(bundle.files.some((entry) => entry.path.endsWith("/response.json"))).toBe(true);
   });
 });

@@ -104,4 +104,4 @@
 - Action 参数只存在于 verbose 事件流；保留窗口截断后详情面板标注 truncated，不从别处拼补。
 - Observation level 为 normal 时 model 级 request/response 不记录，模型 Inspector 如实显示"未记录"。
 - Detail 的 Trace 导出生成 ZIP 目录包。LLM request/response 按 cycle/phase/task/attempt 保存；相同 task request 只保留一份，attempt 通过引用关联。Phase3 的 LLM 调用按实际 scope 导出，辅助模型调用放在所属 phase，Phase2 的 action.call 与 Phase3 的 action.result 分开保存并由索引关联。
-- 所有文件共用一个包根和同一套 cycles 目录；根目录 `turn.md` 按观测顺序提供带证据链接的阶段、模型返回和行动概览。ActionResult 的模型可见正文以实际后续模型 request 为准；缺失的反馈和未记录的事件不由概览补造。
+- 所有文件共用一个包根和同一套 cycles 目录；根目录 `turn.md` 按观测顺序提供带证据链接的阶段、模型返回和行动概览。概览是有界的导航投影：合并重复的 provider/task 生命周期，只保留有限模型、上下文和失败摘录；完整 request/response、attempt 和 action 文件提供细节证据。ActionResult 的模型可见正文以实际后续模型 request 为准；缺失的反馈和未记录的事件不由概览补造。
