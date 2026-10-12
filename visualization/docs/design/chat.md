@@ -44,7 +44,7 @@ Phase 边界只驱动抬头与计时，不添加 Understanding/Planning/Executin
 
 `ProcessPanel` 按真实 scope 顺序组织 Cycle/Phase，首个 Action 产生前也能显示模型任务。Action 执行按 execution/result 所属阶段定位。阶段卡片保留推理预览、控制请求和模型 context 按钮；模型详情在同一 Inspector 导航栈中向左展开，窄屏覆盖显示。活动 Turn 定期刷新有界 Trace，历史读取明确显示留存窗口与缺失情况。
 
-Working Context 显示最后一次留存模型请求中的 plan 快照，并标明捕获时点。Job 状态由 Turn snapshot 提供；历史 Activity 复用 `ActivityBuffer`。Trace 导出当前读取窗口的 JSON，保留窗口边界与截断标记，不承诺未留存的历史记录。
+Working Context 显示最后一次留存模型请求中的 plan 快照，并标明捕获时点。Job 状态由 Turn snapshot 提供；历史 Activity 复用 `ActivityBuffer`。Trace 导出通过桌面保存对话框生成 ZIP 目录包，按 turn/cycle/phase/task/attempt 定位模型请求与响应；request 使用 provider-neutral messages、tools 和 tool selection 投影，保留固定窗口边界与截断标记，不承诺未留存的历史记录。
 
 Details 的 Activity 恢复倒序、时间、All/Thinking/Actions/Context/Errors 筛选及行动详情入口。先按连续 Cycle/Phase 分组再筛选，阶段淡底色绘制在组容器上，组内行间无底色间隙；缺少阶段归属时使用中性色。此底色仅用于 Details，不改变 LiveStatus。旧事件缺少 applied 事实时不把控制请求推测为成功。
 

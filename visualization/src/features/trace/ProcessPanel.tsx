@@ -13,7 +13,7 @@ import { formatDuration, formatTokens } from "../../utils/format";
 import { useNow } from "../../hooks/useNow";
 import { selectActiveTurnId, useConnectionStore } from "../../store/connectionStore";
 import { useThrottledValue } from "../../hooks/useThrottledValue";
-import { downloadJson } from "../../utils/download";
+import { useAppStore } from "../../store/appStore";
 import { workingFromMessages } from "../chat/useActivityDetails";
 import { WorkingZone } from "../chat/LiveStatus";
 import { SectionCard } from "../../components/ui/Card";
@@ -33,6 +33,8 @@ import {
   type TurnProcess,
 } from "./facts";
 import { readEventWindow } from "./eventWindow";
+import { buildTraceExport } from "./export";
+import { saveTraceExport } from "./exportArchive";
 import { domainTextClass } from "./registry";
 import { cycleLabel, phaseHint, phaseShort, shortId, actionSummary } from "../../components/trace/semantic";
 import { glimpseBody } from "../chat/ActivityGlimpse";
@@ -41,6 +43,7 @@ import {
   AsyncStatus,
   MissingRecord,
   TruncationNotice,
+  errorMessage,
   traceClients,
   useAsyncRead,
 } from "./panelShared";
@@ -58,6 +61,7 @@ export function ProcessPanel({
   const cursor = useConnectionStore((state) => state.eventCursor);
   const revision = useThrottledValue(activeTurnId === turnId ? cursor : 0, 1200);
   const [tab, setTab] = useState<"overview" | "process">("overview");
+  const [exporting, setExporting] = useState(false);
   const read = useAsyncRead(
     async (signal) => {
       const window = await readEventWindow(
@@ -77,6 +81,23 @@ export function ProcessPanel({
   if (status !== null) return status;
   if (read.kind !== "ready" || read.value.turnId !== turnId) return <></>;
   const { window, process, snapshot } = read.value;
+  const exportTrace = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const bundle = buildTraceExport(turnId, day, window);
+      const result = await saveTraceExport(bundle);
+      if (result.status === "saved") {
+        useAppStore.getState().pushToast("success", `Trace exported to ${result.path}.`);
+      } else if (result.status === "downloaded") {
+        useAppStore.getState().pushToast("success", `Trace export downloaded as ${result.filename}.`);
+      }
+    } catch (error) {
+      useAppStore.getState().pushToast("error", `Trace export failed: ${errorMessage(error)}`);
+    } finally {
+      setExporting(false);
+    }
+  };
   const lastRequest = [...window.events].reverse().find((event) => event.name === "llm.model.request");
   const working = workingFromMessages((Array.isArray(lastRequest?.payload.messages) ? lastRequest.payload.messages : [])
     .map((message, message_index) => ({ message, message_index })));
@@ -100,8 +121,12 @@ export function ProcessPanel({
             value={tab}
             onChange={setTab}
           />
-          <button className="inline-flex items-center gap-1 text-accent hover:underline" onClick={() => downloadJson(`trace-${turnId}.json`, { turn_id: turnId, day, ...window })}>
-            <Download size={12} /> Export trace…
+          <button
+            className="inline-flex items-center gap-1 text-accent hover:underline disabled:cursor-wait disabled:opacity-60"
+            disabled={exporting}
+            onClick={() => void exportTrace()}
+          >
+            <Download size={12} /> {exporting ? "Exporting…" : "Export trace…"}
           </button>
         </div>
       </div>

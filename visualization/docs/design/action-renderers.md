@@ -103,3 +103,4 @@
 - 历史轮（Session 投影）的 agent.action 只携带 action/outcome/failure/references，无 result payload——历史内联卡展开时族视图以"无记录 payload"呈现，详情面板经事件定向读取补齐（保留窗口内）。
 - Action 参数只存在于 verbose 事件流；保留窗口截断后详情面板标注 truncated，不从别处拼补。
 - Observation level 为 normal 时 model 级 request/response 不记录，模型 Inspector 如实显示"未记录"。
+- Detail 的 Trace 导出生成 ZIP 目录包。LLM request/response 按 cycle/phase/task/attempt 保存；相同 task request 只保留一份，attempt 通过引用关联。Phase3 的 LLM 调用按实际 scope 导出，辅助模型调用放在所属 phase，Phase2 的 action.call 与 Phase3 的 action.result 分开保存并由索引关联。
