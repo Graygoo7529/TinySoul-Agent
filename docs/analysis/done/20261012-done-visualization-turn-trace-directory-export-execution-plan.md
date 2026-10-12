@@ -1,6 +1,6 @@
 # Turn Trace 目录包导出执行计划
 
-状态：已实施并完成核对
+状态：`done`。桌面目录包导出已完成；提交后真实 ZIP 暴露的根路径缺陷已修复，Turn 概览已补齐。补充实施见 [Trace 包根与 Turn 叙事计划](20261012-done-trace-package-root-and-turn-narrative-execution-plan.md)。2026-10-12 已核对实现、设计文档和必要验证，归档本计划。
 
 ## 目标
 
@@ -26,6 +26,7 @@
 turn-trace-20261012-5/
 ├── manifest.json
 ├── index.json
+├── turn.md
 └── cycles/
     └── 001/
         ├── cycle.json
@@ -85,7 +86,7 @@ turn-trace-20261012-5/
 以 task 作为逻辑容器，以 attempt 保存每次实际调用结果：
 
 - `task.json` 保存 task_id、scope、consumer、target/profile、task 生命周期状态和 attempt 数量；
-- `request.json` 保存经过导出投影的逻辑 request：`messages`、`tools`、`tool_selection` 以及必要的 task 级调用约束；
+- `request.json` 保存经过导出投影的逻辑 request：`messages`、`tools`、`tool_selection`；不声称包含 provider HTTP 报文的全部参数；
 - 每个 attempt 的 `meta.json` 保存 attempt、model、provider、provider_model、adapter、时间和状态；
 - 每个 attempt 的 `response.json` 保存该次真实模型 response；
 - 如果某个 attempt 的逻辑 request 与 task 级 request 不同，则该 attempt 自己保存 `request.json`，并在 `meta.json` 中使用本地 request 引用；
@@ -137,13 +138,13 @@ Action 记录保持现有执行语义：
 
 1. 用专用 `write_export_archive` 命令替换当前未接入的目录文件写入命令。
 2. 命令接收用户选定的 archive path 和相对路径文件集合，校验相对路径不能逃逸包根目录。
-3. 使用 Rust ZIP writer 生成归档，先写临时文件后原子替换目标文件，避免留下半成品。
+3. 使用 Rust ZIP writer 生成归档，先完成临时文件后替换目标文件；当前覆盖已有目标时先删除再 rename，不宣称原子覆盖。
 4. 写入命令只负责文件归档，不解释 turn、cycle、LLM 或 Action 语义。
 5. 删除未使用的旧 `write_export_files` 命令和对应死路径，避免保留两套导出写入协议。
 
 ### 后端事件协议
 
-本计划第一版不修改后端 Observation 事件结构。原因是 `provenance` 和 `resolved_references` 当前仍被 Model Call Detail 面板用于解释消息来源；导出层过滤它们即可满足“实际 model request”语义，避免为导出需求扩大后端协议变更范围。
+本计划不修改后端 Observation 事件结构。原因是 `provenance` 和 `resolved_references` 当前仍被 Model Call Detail 面板用于解释消息来源；导出层过滤它们即可满足“实际 model request”语义，避免为导出需求扩大后端协议变更范围。
 
 如果以后要收窄 `llm.model.request` 事件本身，应另行更新事件契约、Detail 面板和相关测试，不在本次导出改造中顺带完成。
 
@@ -218,3 +219,20 @@ Action 记录保持现有执行语义：
 ### 实施后边界
 
 浏览器 fallback 仍下载包含 manifest、index 和文件内容的 JSON；只有桌面 Tauri 路径生成 ZIP。导出总大小仍由完整 messages 和 response 决定，目录层级负责定位和分步读取，不承担内容去重以外的压缩协议。
+
+### 提交后真实导出复核
+
+`reference/traces/turn-trace-2026-10-11-7/turn-trace-2026-10-11-7.zip` 包含 17 个真实 Cycle、30 个 LLM task/attempt 和 18 条 Action 记录。旧 manifest 的 18 包含一个 unscoped 分组，不代表 18 个 Cycle；本次已修正计数。`unscoped/cycle.json` 继续保留没有 cycle scope 的 Turn 级事件范围。
+
+发现的缺陷是 `addActionFiles` 漏加包根，造成两个顶层目录。现已改为所有构造器只产生包内相对路径，最终统一添加一次包根；测试核对每个文件、index、attempt request_ref 和 turn.md 的证据链接均可解析到同一包内。
+
+根目录已增加 turn.md，使用同一事件窗口生成阶段、模型返回、行动和请求语境摘录，明确首次捕获时点与缺失边界。Phase 协议和输出预算改进另列独立 pending 计划，不属于本次导出完成范围。
+
+### 最终验证（2026-10-12）
+
+- 导出器及保存桥接定向测试：7 项通过，覆盖统一根、证据链接、阶段失败与请求语境、Phase3 LLM、截断、request/response 缺失，以及保存对话框调用、取消/失败和浏览器 fallback。
+- 前端全量 Vitest：91 文件、802 项通过；TypeScript `--noEmit`、Vite build 通过。使用安装包的 Node CLI 执行，与 package scripts 相同工具；当前 pnpm exec 的命令解析失败不作为测试结果。
+- Tauri `cargo test --offline`：ZIP 写入/读取和路径拒绝测试通过。
+- `scripts/test.ps1 -Suite Fast`：1270 passed、30 deselected。
+- `scripts/test.ps1 -Suite Full`：1275 passed、25 deselected；`scripts/typecheck.ps1`：通过。
+- 设计文档已同步。真实旧 ZIP 仅用作诊断依据，未改写，也未把它宣称为修复后重新导出的文件。保存对话框沿用原实现，本次未手工运行桌面 GUI。

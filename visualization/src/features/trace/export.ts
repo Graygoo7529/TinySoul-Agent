@@ -1,6 +1,7 @@
 import type { JsonObject, JsonValue, ObservationEvent } from "../../api/v2/types";
 import { scopeValue } from "./facts";
 import type { EventWindow } from "./eventWindow";
+import { buildTurnNarrative } from "./exportNarrative";
 
 export interface TraceExportFile {
   path: string;
@@ -287,6 +288,7 @@ function actionProjection(event: ObservationEvent): JsonObject {
 function addActionFiles(
   files: TraceExportFile[],
   indexActions: JsonValue[],
+  evidencePaths: Map<number, string[]>,
   events: ObservationEvent[],
   cyclePaths: Map<string, string>,
   phasePaths: Map<string, string>,
@@ -302,6 +304,7 @@ function addActionFiles(
     counters.set(key, index);
     const kind = event.name === ACTION_CALL ? "calls" : "results";
     const path = actionPath(location, kind, index);
+    evidencePaths.set(event.sequence, [path]);
     addFile(files, path, {
       event: event.name,
       sequence: event.sequence,
@@ -331,8 +334,8 @@ export function buildTraceExport(
   const { cycles: cyclePaths, phases: phasePaths } = cycleAndPhasePaths(events);
   const files: TraceExportFile[] = [];
   const root = rootName(turnId);
-  const scopedPath = (path: string): string => `${root}/${path}`;
-  const addRootFile = (path: string, value: JsonValue) => addFile(files, scopedPath(path), value);
+  // All producers use package-relative paths. Add the archive root once, below.
+  const evidencePaths = new Map<number, string[]>();
 
   const tasks = taskGroups(events, cyclePaths, phasePaths);
   const auxiliary = auxiliaryGroups(events, cyclePaths, phasePaths);
@@ -369,11 +372,22 @@ export function buildTraceExport(
       path,
       ...rangeValue(phaseEvents),
     }));
-    addRootFile(cycleFile, {
+    const lifecycle = entry.events.filter((event) => event.name.startsWith("loop.phase.")).map((event) => ({
+      event: event.name,
+      sequence: event.sequence,
+      created_at: event.created_at,
+      phase: scopeValue(event, "phase"),
+      payload: event.payload,
+    }));
+    for (const event of entry.events) {
+      if (event.name.startsWith("loop.phase.")) evidencePaths.set(event.sequence, [cycleFile]);
+    }
+    addFile(files, cycleFile, {
       cycle_id: cycleName === undefined ? null : scopeValue(cycleName, "cycle"),
       path: cyclePath,
       ...rangeValue(entry.events),
       phases,
+      lifecycle,
     });
     indexCycles.push(indexEntry({
       cycle_id: cycleName === undefined ? null : scopeValue(cycleName, "cycle"),
@@ -403,8 +417,9 @@ export function buildTraceExport(
     const shared = [...requestSignatures.values()][0];
     const sharedRequest = shared !== undefined && [...requestSignatures.values()].every((item) => item.signature === shared.signature);
     const requestPath = sharedRequest && shared !== undefined ? `${taskRoot}/request.json` : null;
-    if (sharedRequest && shared !== undefined) addFile(files, scopedPath(requestPath!), shared.payload);
-    addFile(files, scopedPath(`${taskRoot}/task.json`), {
+    if (sharedRequest && shared !== undefined) addFile(files, requestPath!, shared.payload);
+    for (const event of taskEvents) evidencePaths.set(event.sequence, [`${taskRoot}/task.json`]);
+    addFile(files, `${taskRoot}/task.json`, {
       task_id: group.taskId,
       cycle_id: group.location.cycleName,
       phase: group.location.phaseName,
@@ -436,14 +451,17 @@ export function buildTraceExport(
           requestRef = requestPath;
         } else {
           const path = `${attemptRoot}/request.json`;
-          addFile(files, scopedPath(path), requestInfo.payload);
+          addFile(files, path, requestInfo.payload);
           requestRef = path;
         }
       }
       const responsePath = attempt.response === null ? null : `${attemptRoot}/response.json`;
-      if (responsePath !== null) addFile(files, scopedPath(responsePath), responseProjection(attempt.response!.payload));
+      if (responsePath !== null) addFile(files, responsePath, responseProjection(attempt.response!.payload));
       const metaPath = `${attemptRoot}/meta.json`;
-      addFile(files, scopedPath(metaPath), {
+      for (const event of attemptEvents(attempt)) {
+        evidencePaths.set(event.sequence, [metaPath, requestRef, responsePath].filter((path): path is string => path !== null));
+      }
+      addFile(files, metaPath, {
         task_id: group.taskId,
         attempt: attemptNumber,
         model_id: asNonEmptyString(latestPayloadValue(attemptEvents(attempt), "model_id")),
@@ -478,9 +496,10 @@ export function buildTraceExport(
       ["started", "retry", "completed", "failed", "cancelled"].includes(event.name.slice(AUXILIARY_PREFIX.length)),
     );
     const detailPath = group.detail === null ? null : `${base}/detail.json`;
-    if (detailPath !== null) addFile(files, scopedPath(detailPath), group.detail!.payload.detail ?? {});
+    if (detailPath !== null) addFile(files, detailPath, group.detail!.payload.detail ?? {});
     const metaPath = `${base}/meta.json`;
-    addFile(files, scopedPath(metaPath), {
+    for (const event of group.events) evidencePaths.set(event.sequence, [metaPath, ...(detailPath === null ? [] : [detailPath])]);
+    addFile(files, metaPath, {
       call_id: group.callId,
       search_id: asNonEmptyString(latestPayloadValue(group.events, "search_id")),
       consumer: asNonEmptyString(latestPayloadValue(group.events, "consumer")),
@@ -498,10 +517,11 @@ export function buildTraceExport(
     indexAuxiliary.push(indexEntry({ call_id: group.callId, phase: group.location.phaseName, meta_path: metaPath, detail_path: detailPath }));
   }
 
-  addActionFiles(files, indexActions, events, cyclePaths, phasePaths);
+  addActionFiles(files, indexActions, evidencePaths, events, cyclePaths, phasePaths);
 
   const manifest: JsonObject = {
-    schema_version: 1,
+    schema_version: 2,
+    narrative_path: "turn.md",
     turn_id: turnId,
     day,
     exported_at: new Date().toISOString(),
@@ -509,7 +529,7 @@ export function buildTraceExport(
     through: window.through,
     truncated: window.truncated,
     event_count: events.length,
-    cycle_count: cycleEntries.size,
+    cycle_count: cyclePaths.size,
     phase_count: [...cycleEntries.values()].reduce((sum, entry) => sum + entry.phases.size, 0),
     task_count: indexTasks.length,
     attempt_count: [...tasks.values()].reduce((sum, group) => sum + group.attempts.size, 0),
@@ -518,16 +538,18 @@ export function buildTraceExport(
     source: "retained_observation_window",
   };
   const index: JsonObject = {
-    schema_version: 1,
+    schema_version: 2,
+    narrative_path: "turn.md",
     turn_id: turnId,
     cycles: indexCycles,
     tasks: indexTasks,
     auxiliary_model_calls: indexAuxiliary,
     actions: indexActions,
   };
-  addRootFile("manifest.json", manifest);
-  addRootFile("index.json", index);
-  return { root, files, manifest, index };
+  addFile(files, "manifest.json", manifest);
+  addFile(files, "index.json", index);
+  files.push({ path: "turn.md", contents: buildTurnNarrative(turnId, { ...window, events }, evidencePaths, cyclePaths) });
+  return { root, files: files.map((file) => ({ ...file, path: `${root}/${file.path}` })), manifest, index };
 }
 
 function attemptEvents(attempt: TaskAttempt): ObservationEvent[] {

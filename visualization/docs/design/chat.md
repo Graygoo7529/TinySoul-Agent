@@ -46,6 +46,10 @@ Phase 边界只驱动抬头与计时，不添加 Understanding/Planning/Executin
 
 Working Context 显示最后一次留存模型请求中的 plan 快照，并标明捕获时点。Job 状态由 Turn snapshot 提供；历史 Activity 复用 `ActivityBuffer`。Trace 导出通过桌面保存对话框生成 ZIP 目录包，按 turn/cycle/phase/task/attempt 定位模型请求与响应；request 使用 provider-neutral messages、tools 和 tool selection 投影，保留固定窗口边界与截断标记，不承诺未留存的历史记录。
 
+目录包只有一个 `turn-trace-<turn-id>/` 根目录，所有索引路径均相对此根目录。入口 `turn.md` 先给出 Cycle/Phase 状态及 Action 结果总览表，再从同一固定事件窗口按 sequence 生成可读时间线：展示 Phase1–3 的已观测状态、模型文本与工具意图摘录、task/provider 结果、Action 准备和执行状态及 Turn 输出，并链接完整证据。`cycle.json` 保留阶段生命周期事件；无 cycle scope 的事件不计入 cycle 数量。
+
+概览从模型请求中摘录首次可见的输入、TaskPrompt、Trace 反馈及变化的 plan/jobs；反复出现的相同语境省略，长内容标记摘录并链接原请求。等待唤醒或失败反馈可能仅在后续请求中可见，此时只说明捕获位置，不推算原始发生时点。模型提出调用、task 接受、Phase 成功与 Action 执行分别呈现，不相互推断。导出不读取 Session 补齐历史，也不重新调用模型生成总结。
+
 Details 的 Activity 恢复倒序、时间、All/Thinking/Actions/Context/Errors 筛选及行动详情入口。先按连续 Cycle/Phase 分组再筛选，阶段淡底色绘制在组容器上，组内行间无底色间隙；缺少阶段归属时使用中性色。此底色仅用于 Details，不改变 LiveStatus。旧事件缺少 applied 事实时不把控制请求推测为成功。
 
 ## Context Inspector

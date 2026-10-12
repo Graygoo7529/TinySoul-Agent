@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { JsonObject, ObservationEvent } from "../../api/v2/types";
+import type { JsonObject, JsonValue, ObservationEvent } from "../../api/v2/types";
 import { buildTraceExport } from "./export";
 
 function event(
@@ -39,6 +39,24 @@ function file(bundle: ReturnType<typeof buildTraceExport>, suffix: string): stri
   const item = bundle.files.find((entry) => entry.path.endsWith(suffix));
   if (item === undefined) throw new Error(`Missing export file ${suffix}`);
   return item.contents;
+}
+
+function expectLinksToResolve(bundle: ReturnType<typeof buildTraceExport>): void {
+  const paths = new Set(bundle.files.map((entry) => entry.path));
+  expect(paths.size).toBe(bundle.files.length);
+  expect(bundle.files.every((entry) => entry.path.startsWith(`${bundle.root}/`))).toBe(true);
+  const check = (value: JsonValue): void => {
+    if (Array.isArray(value)) value.forEach(check);
+    else if (value !== null && typeof value === "object") Object.values(value).forEach(check);
+    else if (typeof value === "string" && /\.(json|md)$/.test(value)) expect(paths.has(`${bundle.root}/${value}`), value).toBe(true);
+  };
+  check(bundle.index);
+  for (const entry of bundle.files.filter((entry) => entry.path.endsWith("/meta.json"))) {
+    check(JSON.parse(entry.contents) as JsonValue);
+  }
+  for (const match of file(bundle, "/turn.md").matchAll(/\]\(([^)]+)\)/g)) {
+    expect(paths.has(`${bundle.root}/${match[1]}`), match[1]).toBe(true);
+  }
 }
 
 describe("buildTraceExport", () => {
@@ -130,6 +148,7 @@ describe("buildTraceExport", () => {
     expect(bundle.manifest.truncated).toBe(false);
     expect(bundle.manifest.task_count).toBe(2);
     expect(bundle.manifest.attempt_count).toBe(3);
+    expectLinksToResolve(bundle);
     expect(bundle.files.some((entry) => entry.path.includes("cycles/001/phase3/llm/tasks"))).toBe(true);
     expect(bundle.files.some((entry) => entry.path.includes("phase3/auxiliary-model"))).toBe(true);
     expect(bundle.files.some((entry) => entry.path.includes("phase2/actions/calls"))).toBe(true);
@@ -166,5 +185,68 @@ describe("buildTraceExport", () => {
     const bundle = buildTraceExport("turn", null, window(events));
     expect(bundle.files.some((entry) => entry.path.endsWith("/tasks/001/request.json"))).toBe(false);
     expect(bundle.files.filter((entry) => entry.path.includes("/attempts/") && entry.path.endsWith("/request.json"))).toHaveLength(2);
+    expectLinksToResolve(bundle);
+  });
+
+  it("narrates observed phases, intentions, execution and first-seen context without inventing success", () => {
+    const note = { role: "user", label: "phase_note", parts: [{ type: "json", value: { kind: "wait_resumed", reason: "job", job_id: "20261012-5-1" } }] };
+    const events = [
+      event("loop.phase.started", 1, { phase: "phase1" }, "phase1"),
+      event("llm.model.request", 2, { task_id: "task_1", attempt: 1, messages: [
+        { role: "user", label: "user_input", parts: [{ type: "text", text: "Summarize the job output." }] },
+        { role: "user", label: "task_prompt:guide:phase1", parts: [{ type: "text", text: "Choose domains." }] },
+      ] }, "phase1"),
+      event("llm.model.response", 3, { task_id: "task_1", attempt: 1, answer_text: "", tool_calls: [{ id: "control-1", name: "set_todo", arguments: { title: "Check job" } }] }, "phase1"),
+      event("llm.task.completed", 4, { task_id: "task_1", status: "failure" }, "phase1"),
+      event("loop.phase.completed", 5, { phase: "phase1", failed: true }, "phase1"),
+      event("llm.model.request", 6, { task_id: "task_2", attempt: 1, messages: [note] }, "phase1", "cycle_2"),
+      event("llm.model.request", 7, { task_id: "task_3", attempt: 1, messages: [note] }, "phase2", "cycle_2"),
+      event("action.call", 8, { action: "execution.collect", call_id: "action-1", params: { job_id: "20261012-5-1" } }, "phase2", "cycle_2"),
+      event("loop.phase.started", 9, { phase: "phase3" }, "phase3", "cycle_2"),
+      event("action.result", 10, { action: "execution.collect", call_id: "action-1", status: "ok" }, "phase3", "cycle_2"),
+      event("llm.model.request", 11, { task_id: "task_4", attempt: 1, messages: [
+        note,
+        { role: "tool_result", label: "action_result", call_id: "action-1", parts: [{ type: "text", text: "Job succeeded; output available." }] },
+      ] }, "phase3", "cycle_2"),
+      event("llm.model.response", 12, { task_id: "task_4", attempt: 1, answer_text: "A long answer. ".repeat(600), tool_calls: [] }, "phase3", "cycle_2"),
+      { ...event("turn.completed", 13, { status: "completed" }, "phase3"), scope: [{ level: "turn", name: "20261012/5" }] },
+    ];
+    const bundle = buildTraceExport("20261012/5", null, { ...window([...events].reverse()), truncated: true });
+    const narrative = file(bundle, "/turn.md");
+    expect(bundle.manifest.cycle_count).toBe(2);
+    expect(narrative).toContain("Partial export");
+    expect(narrative).toContain("Cycle overview");
+    expect(narrative).toContain("| failed | Not observed | Not observed |");
+    expect(narrative).toContain("Phase failed");
+    expect(narrative).toContain("Summarize the job output.");
+    expect(narrative).toContain("Choose domains.");
+    expect(narrative).toContain("Requested tool: set");
+    expect(narrative).toContain('"status": "failure"');
+    expect(narrative).toContain("Action result");
+    expect(narrative).toContain("Job succeeded; output available.");
+    expect(narrative.match(/wait_resumed/g)).toHaveLength(1);
+    expect(narrative).toContain("first observed");
+    expect(narrative).toContain("excerpt truncated");
+    expect(narrative.indexOf("### #5 ")).toBeLessThan(narrative.indexOf("### #6 "));
+    expect(narrative.indexOf("### #8 ")).toBeLessThan(narrative.indexOf("### #10 "));
+    const cycle = JSON.parse(file(bundle, "/cycles/001/cycle.json")) as JsonObject;
+    expect(cycle.lifecycle).toEqual(expect.arrayContaining([expect.objectContaining({ sequence: 5, payload: { phase: "phase1", failed: true } })]));
+    expectLinksToResolve(bundle);
+  });
+
+  it("preserves missing request/response and task failure without manufacturing evidence", () => {
+    const bundle = buildTraceExport("partial", null, window([
+      event("llm.model.response", 1, { task_id: "response_only", attempt: 1, answer_text: "retained response", tool_calls: [] }, "phase1"),
+      event("llm.task.failed", 2, { task_id: "response_only", error_type: "LLMFailure" }, "phase1"),
+      event("llm.model.request", 3, { task_id: "request_only", attempt: 1, messages: [] }, "phase2"),
+    ]));
+    expect(JSON.parse(file(bundle, "/phase1/llm/tasks/001/task.json")).status).toBe("failed");
+    expect(JSON.parse(file(bundle, "/phase1/llm/tasks/001/attempts/001/meta.json")).request_ref).toBeNull();
+    expect(JSON.parse(file(bundle, "/phase2/llm/tasks/001/attempts/001/meta.json")).response_path).toBeNull();
+    expectLinksToResolve(bundle);
+
+    const empty = buildTraceExport("empty", null, window([]));
+    expect(empty.manifest.cycle_count).toBe(0);
+    expect(file(empty, "/turn.md")).toContain("No LLM request is retained");
   });
 });
