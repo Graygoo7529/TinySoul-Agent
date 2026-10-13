@@ -282,13 +282,18 @@ def unknown_action_tool(*, name: str) -> str:
 
 
 # Local model feedback. Used by kernel/action/planning/scope.py:normalize_selection.
-DOMAIN_SELECTION_REQUIRED = "Phase1 must call select_action_domains."
+DOMAIN_SELECTION_REQUIRED = (
+    "Phase1 must include one select_action_domains call with at least one valid domain; "
+    "other context control calls remain optional."
+)
 
 # Local model feedback. Used by kernel/action/planning/scope.py:normalize_selection.
 DUPLICATE_DOMAIN_SELECTION = "Phase1 must call select_action_domains only once."
 
 # Local model feedback. Used by kernel/action/planning/scope.py:normalize_selection.
-DOMAIN_LIST_REQUIRED = "select_action_domains.domains must be a non-empty string list."
+DOMAIN_LIST_REQUIRED = (
+    "select_action_domains.domains must be a non-empty list of valid domain names."
+)
 
 # Local model feedback. Used by kernel/action/planning/scope.py:prepare.
 ACTION_SCOPE_PREPARATION_FAILED = "Action scope preparation failed."
@@ -305,5 +310,5 @@ def missing_text_answer(*, subject: str) -> str:
 
 
 # Local model feedback. Used by kernel/action/tasks.py:text.
-def artifact_limit_exceeded(*, subject: str) -> str:
-    return f"{subject} exceeded its artifact limit."
+def artifact_limit_exceeded(*, subject: str, max_chars: int) -> str:
+    return f"{subject} exceeded its {max_chars}-character artifact limit."

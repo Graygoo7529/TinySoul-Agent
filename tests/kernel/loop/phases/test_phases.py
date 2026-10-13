@@ -29,6 +29,11 @@ import pytest
 from tinysoul.kernel.action import (
     ActionEngine,
     ActionNormalization,
+    ActionPhaseResult,
+    ActionPhaseResultStage,
+    ActionLocalFailure,
+    ActionFailureDisposition,
+    ActionScopePreparation,
 )
 from tests.support.model_uses import action_tasks
 from tinysoul.plugins.execution.actions import EXECUTION_ACTIONS
@@ -774,7 +779,17 @@ async def test_phase1_invalid_selection_returns_local_failure() -> None:
                     name="select_action_domains",
                     arguments={"domains": ["missing"]},
                     kind=ToolKind.CONTROL,
-                )
+                ),
+                ToolCallRecord(
+                    id="set_todo",
+                    name="set_todo",
+                    arguments={
+                        "key": "should_not_apply",
+                        "content": "Invalid domain response",
+                        "status": "in_progress",
+                    },
+                    kind=ToolKind.CONTROL,
+                ),
             ),
             _tool_result(
                 ToolCallRecord(
@@ -809,6 +824,7 @@ async def test_phase1_invalid_selection_returns_local_failure() -> None:
     assert outcome.failure.feedback
     assert len(llm.calls) == 1
     assert context.trace_kinds() == (TraceKind.INPUT, TraceKind.PHASE_NOTE)
+    assert context.working_snapshot()["todos"] == []
 
 
 async def test_phase1_applies_working_reconciliation_before_returning() -> None:
@@ -957,6 +973,53 @@ async def test_phase2_returns_framework_failure_for_next_cycle() -> None:
     assert outcome.failure.reason == "framework_task_failure"
     assert len(llm.calls) == 1
     assert context.trace_kinds() == (TraceKind.INPUT, TraceKind.PHASE_NOTE)
+
+
+async def test_phase2_scope_failure_stops_before_task_generation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("run the selected action", turn_id="2026-10-06/930")
+    await context.open_segments(CalendarDate(2026, 7, 12))
+    action = _action_engine()
+    phase_result = ActionPhaseResult.failed(
+        phase=CyclePhase.PHASE2,
+        stage=ActionPhaseResultStage.SCOPE,
+        failure=ActionLocalFailure(
+            reason="scope_preparation_failed",
+            scope="action.scope",
+            disposition=ActionFailureDisposition.STOP,
+            feedback="No actions are available for the selected domain.",
+        ),
+    )
+    monkeypatch.setattr(ActionEngine, "phase2_scope", lambda *args, **kwargs: ActionScopePreparation(
+        tool_scope=None,
+        phase_results=(phase_result,),
+    ))
+    llm = FakeLLM(())
+    scope = (
+        RunScope()
+        .push(RunLevel.TURN, turn_id)
+        .push(RunLevel.PHASE, CyclePhase.PHASE2.value)
+    )
+
+    outcome = await Phase2Unit(
+        context=context,
+        action=action,
+        llm=llm,
+        bus=SignalBus(),
+        task_profile="framework",
+    ).run(
+        selected_domains=("core",),
+        scope=scope,
+        cycle_id="cycle_1",
+        turn_id=turn_id,
+    )
+
+    assert outcome.failure is not None
+    assert outcome.failure.reason == "action_scope_preparation_failed"
+    assert outcome.failure.phase is CyclePhase.PHASE2
+    assert llm.calls == []
 
 
 async def test_cycle_stops_after_phase2_failure_without_running_phase3() -> None:

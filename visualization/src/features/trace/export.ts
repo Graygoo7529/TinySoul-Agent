@@ -144,6 +144,20 @@ function responseProjection(payload: JsonObject): JsonObject {
   return result;
 }
 
+function taskFailureProjection(events: ObservationEvent[]): JsonValue | null {
+  const completed = [...events].reverse().find((event) =>
+    event.name === "llm.task.completed" && event.payload.status === "failure"
+  );
+  const failed = completed ?? [...events].reverse().find((event) => event.name === "llm.task.failed");
+  if (failed === undefined) return null;
+  const result: JsonObject = {};
+  for (const key of ["reason", "scope", "constraint", "feedback", "error_type"]) {
+    const value = failed.payload[key];
+    if (value !== undefined) result[key] = value;
+  }
+  return Object.keys(result).length > 0 ? result : { status: "failure" };
+}
+
 function addFile(files: TraceExportFile[], path: string, value: JsonValue): void {
   files.push({ path, contents: json(value) });
 }
@@ -429,6 +443,7 @@ export function buildTraceExport(
       profile: asNonEmptyString(latestPayloadValue(taskEvents, "profile")) ?? "",
       status: group.taskStatus,
       error_type: group.taskErrorType,
+      failure: taskFailureProjection(taskEvents),
       attempt_count: attemptNumbers.length,
       event_range: rangeValue(taskEvents),
     });
@@ -468,6 +483,7 @@ export function buildTraceExport(
         provider_id: asNonEmptyString(latestPayloadValue(attemptEvents(attempt), "provider_id")),
         provider_model: asNonEmptyString(latestPayloadValue(attemptEvents(attempt), "provider_model")),
         adapter: asNonEmptyString(latestPayloadValue(attemptEvents(attempt), "adapter")),
+        max_output_tokens: latestPayloadValue(attemptEvents(attempt), "max_output_tokens"),
         status,
         provider_failure_kind: attemptFailure === undefined ? null : asNonEmptyString(attemptFailure.payload.provider_error_kind),
         event_range: rangeValue(attemptEvents(attempt)),

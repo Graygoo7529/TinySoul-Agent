@@ -132,7 +132,6 @@ class ActionTaskFactory:
         answer_format: AnswerFormat = AnswerFormat.JSON_OBJECT,
         control: ActionExecutionControl | None = None,
         include_context: bool = True,
-        max_output_chars: int | None = None,
         context_overflow_policy: ModelContextOverflowPolicy = ModelContextOverflowPolicy.REQUEST_RECOVERY,
     ) -> TaskCall:
         if control is not None:
@@ -160,13 +159,6 @@ class ActionTaskFactory:
             )
         except ContextError as exc:
             raise RuntimeContextBridge().from_context_error(exc) from exc
-        tokens = binding.max_output_tokens
-        if max_output_chars is not None:
-            tokens = (
-                min(tokens, max(256, max_output_chars))
-                if tokens
-                else max(256, max_output_chars)
-            )
         return TaskCall(
             profile=binding.task_profile,
             messages=messages,
@@ -174,7 +166,7 @@ class ActionTaskFactory:
             settings=CallSettings(
                 answer_format=answer_format,
                 tool_use=ToolUse.DISABLED,
-                max_output_tokens=tokens,
+                max_output_tokens=binding.max_output_tokens,
             ),
             scope=execution.framework.scope,
             context_overflow_policy=context_overflow_policy,
@@ -227,7 +219,9 @@ class ActionTaskOutput:
         if len(text) > max_chars:
             return _failure(
                 execution,
-                feedback=prompt_text.artifact_limit_exceeded(subject=subject),
+                feedback=prompt_text.artifact_limit_exceeded(
+                    subject=subject, max_chars=max_chars
+                ),
                 reason="artifact_too_large",
                 scope="action.artifact",
                 disposition=ActionFailureDisposition.CHANGE_REQUEST,

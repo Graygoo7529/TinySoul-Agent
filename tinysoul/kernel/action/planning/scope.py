@@ -53,6 +53,7 @@ class Phase1DomainScopeBuilder:
                 "properties": {
                     "domains": {
                         "type": "array",
+                        "minItems": 1,
                         "items": {
                             "type": "string",
                             "enum": [domain.name for domain in domains],

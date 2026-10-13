@@ -109,10 +109,25 @@ class Phase1Unit:
                 scope=scope,
                 cycle_id=cycle_id,
                 reason="framework_task_failure",
-                feedback=(_task_result_feedback(result),),
+                feedback=(
+                    prompt_text.phase1_task_failure(
+                        feedback=_task_result_feedback(result)
+                    ),
+                ),
             )
 
         selection = self._action.normalize_domain_selection(result.tool_calls)
+        if selection.feedback or not selection.selected_domains:
+            feedback = tuple(
+                prompt_text.phase1_domain_failure(feedback=item)
+                for item in (selection.feedback or (prompt_text.NO_DOMAIN_SELECTED,))
+            )
+            return await self._failed(
+                scope=scope,
+                cycle_id=cycle_id,
+                reason="invalid_domain_selection",
+                feedback=tuple(feedback),
+            )
         control_calls = tuple(
             call
             for call in result.tool_calls
@@ -143,17 +158,6 @@ class Phase1Unit:
                     scope=scope,
                     cycle_id=cycle_id,
                 )
-            )
-        feedback = selection.feedback or (
-            (prompt_text.NO_DOMAIN_SELECTED,) if not selection.selected_domains else ()
-        )
-        if feedback:
-            return await self._failed(
-                scope=scope,
-                cycle_id=cycle_id,
-                reason="invalid_domain_selection",
-                feedback=tuple(feedback),
-                control_results=control_results,
             )
         return Phase1Outcome(
             selected_domains=selection.selected_domains,

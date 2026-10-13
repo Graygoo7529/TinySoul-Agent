@@ -478,10 +478,9 @@ class TurnRunner:
                             phase=cycle.phase_failure.phase.value,
                             reason=cycle.phase_failure.reason,
                         )
-                        for item in cycle.phase_failure.feedback:
-                            feedback = prefix + item
-                            if feedback not in phase_feedback:
-                                phase_feedback.append(feedback)
+                        phase_feedback[:] = [
+                            prefix + item for item in cycle.phase_failure.feedback
+                        ]
                         cycle_index += 1
                         continue
                     phase_feedback.clear()

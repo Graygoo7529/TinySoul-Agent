@@ -812,7 +812,7 @@ async def test_turn_cycle_limit_reports_exhausted_at_normal_level() -> None:
     assert exhausted.level is ObservationLevel.NORMAL
 
 
-async def test_repeated_phase_failure_carries_accumulated_feedback_until_cycle_limit() -> (
+async def test_repeated_phase_failure_carries_only_recent_feedback_until_cycle_limit() -> (
     None
 ):
     observations = _RecordingObservations([], [])
@@ -840,20 +840,14 @@ async def test_repeated_phase_failure_carries_accumulated_feedback_until_cycle_l
         ),
         (
             "Previous cycle phase1 failure (framework_task_failure): shared feedback",
-            "Previous cycle phase1 failure (framework_task_failure): attempt 1 feedback",
             "Previous cycle phase1 failure (framework_task_failure): attempt 2 feedback",
         ),
         (
             "Previous cycle phase1 failure (framework_task_failure): shared feedback",
-            "Previous cycle phase1 failure (framework_task_failure): attempt 1 feedback",
-            "Previous cycle phase1 failure (framework_task_failure): attempt 2 feedback",
             "Previous cycle phase1 failure (framework_task_failure): attempt 3 feedback",
         ),
         (
             "Previous cycle phase1 failure (framework_task_failure): shared feedback",
-            "Previous cycle phase1 failure (framework_task_failure): attempt 1 feedback",
-            "Previous cycle phase1 failure (framework_task_failure): attempt 2 feedback",
-            "Previous cycle phase1 failure (framework_task_failure): attempt 3 feedback",
             "Previous cycle phase1 failure (framework_task_failure): attempt 4 feedback",
         ),
     ]

@@ -315,6 +315,16 @@ class CycleRunner:
                 }
                 for item in result.value.control_results
             ]
+        phase_failure = (
+            result.value.failure
+            if isinstance(result.value, (Phase1Outcome, Phase2Outcome, Phase3Outcome))
+            else None
+        )
+        if phase_failure is not None:
+            selection["failure"] = {
+                "reason": phase_failure.reason,
+                "feedback": list(phase_failure.feedback),
+            }
         self._emit_phase(
             scope,
             phase,

@@ -20,9 +20,13 @@ INPUT_CAPACITY_EXCEEDED = (
 )
 
 # Local model feedback. Used by llm/execution/task.py:_completion_failure.
-MODEL_GENERATION_REACHED_ITS_OUTPUT_TOKEN_LIMIT = (
-    "Model generation reached its output token limit."
-)
+def model_generation_reached_output_limit(*, max_output_tokens: int | None) -> str:
+    if max_output_tokens is None:
+        return "Model generation reached its output token limit."
+    return (
+        "Model generation reached its output token limit of "
+        f"{max_output_tokens} tokens."
+    )
 
 # Local model feedback. Used by llm/execution/task.py:_completion_failure.
 MODEL_GENERATION_WAS_STOPPED_BY_A_CONTENT_FILTER = (

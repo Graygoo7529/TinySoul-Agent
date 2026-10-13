@@ -400,7 +400,6 @@ class WorkspaceExecutor(ActionExecutor):
                     execution=execution,
                     prompt=prompt,
                     control=context.control,
-                    max_output_chars=workspace.max_write_chars,
                     consumer=f"{execution.call.action_name}.generate",
                     answer_format=AnswerFormat.TEXT,
                 )

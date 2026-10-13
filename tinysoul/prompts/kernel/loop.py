@@ -84,6 +84,37 @@ NO_DOMAIN_SELECTED = "Phase1 did not select any action domain."
 # Model instruction or presentation. Used by kernel/loop/phases/tasks.py:_task_result_feedback.
 INVALID_PHASE_OUTPUT = "LLM task output did not satisfy the phase protocol."
 
+# Model context feedback. Used by kernel/loop/phases/phase1.py.
+def phase1_task_failure(*, feedback: str) -> str:
+    return (
+        "Phase1 did not complete: the required domain selection was not accepted; "
+        "this response's Context controls were not applied. "
+        f"Cause: {feedback}"
+    )
+
+
+# Model context feedback. Used by kernel/loop/phases/phase1.py.
+def phase1_domain_failure(*, feedback: str) -> str:
+    return (
+        "Phase1 did not complete: a valid select_action_domains call is required; "
+        "this response's Context controls were not applied. "
+        f"Cause: {feedback}"
+    )
+
+
+# Model context feedback. Used by kernel/loop/phases/phase2.py.
+def phase2_task_failure(*, feedback: str) -> str:
+    return (
+        "Phase2 did not complete: no Action from this response was accepted or "
+        f"executed. Cause: {feedback}"
+    )
+
+
+# Model context feedback. Used by kernel/loop/phases/phase2.py.
+PHASE2_SCOPE_NOT_AVAILABLE = (
+    "Phase2 could not prepare an Action scope; no Action from this response was executed."
+)
+
 
 # Model context presentation or local feedback. Used by kernel/loop/turn.py:run.
 def previous_cycle_failure(*, phase: str, reason: str) -> str:

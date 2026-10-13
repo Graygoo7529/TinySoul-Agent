@@ -2,7 +2,7 @@
 root = "home"
 runtime_root = "runtime/home"
 max_read_chars = 4000
-max_write_chars = 16000
+max_write_chars = 65536
 skill_catalog_max_chars = 8000
 
 [home.search]

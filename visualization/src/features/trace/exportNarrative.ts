@@ -177,6 +177,12 @@ class TurnNarrative {
       const status = event.name === "llm.task.failed" ? "failed" : text(payload.status) || "completed";
       content.push(`LLM task ${status} · ${inline(text(payload.task_id))}`);
       if (event.name === "llm.task.failed") content.push(`Failure: ${inline(text(payload.error_type) || "task failure")}`);
+      if (event.name === "llm.task.completed" && payload.status === "failure") {
+        const reason = text(payload.reason);
+        const feedback = text(payload.feedback);
+        if (reason) content.push(`Reason: ${inline(reason)}`);
+        if (feedback) content.push(`Feedback: ${excerpt(feedback, ACTION_EXCERPT_LIMIT)}`);
+      }
     } else if (event.name === "llm.provider.started" || event.name === "llm.provider.completed") {
       return;
     } else if (event.name === "llm.provider.retry" || event.name === "llm.provider.failed" || event.name === "llm.provider.cancelled") {

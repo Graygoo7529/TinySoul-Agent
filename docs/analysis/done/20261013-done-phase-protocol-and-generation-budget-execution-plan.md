@@ -1,6 +1,6 @@
 # Phase 协议、模型生成预算与失败反馈执行计划
 
-状态：`pending`，2026-10-13 按当前代码重新核对；新增设计项待讨论确认，未修改运行代码或配置。
+状态：`done`，2026-10-13 已实施并完成 AGENTS.md 复核与全量验证。
 
 本计划独立于已完成的 Trace 导出工作。AGENTS.md 已有“项目更关注 agent 能力和灵活性”的原则；本次落实到生成额度、阶段提交和失败反馈，不增加新的执行内核或恢复状态机。
 
@@ -169,7 +169,7 @@ Task/Phase 失败不复制整个结果、raw response 或异常正文。provider
 
 ## 实施与验收
 
-1. 确认下方两项新增决策，再实施代码；65536 token 默认值沿用维护者要求。
+1. 已确认两项决策：Phase1 独立工具并先校验域选择；Workspace/Home 完整文本额度均为 65536 字符。
 2. 更新 task/template 与确认的内容额度，移除字符/token 混用。验证 task 继承、binding 覆盖、model 覆盖，以及 provider/Context 使用同一有效值。
 3. 实施 Phase1 校验顺序、Phase2 scope 失败结束边界与最新失败反馈。正常域选择加多个控制、无控制、控制局部失败均保持清晰行为。
 4. 更新短反馈与 Observation；后端协议文档和前端消费分别落实。验证失败发生位置即可定位原因，输出额度来自实际 attempt。
@@ -178,9 +178,20 @@ Task/Phase 失败不复制整个结果、raw response 或异常正文。provider
 7. 按 AGENTS 执行聚焦测试、Fast、完整 Full 和 ty；前端消费修改另跑对应测试与构建。真实 provider 行为只用明确授权的代表调用验证，本地测试不承诺模型遗漏概率已经下降。
 8. 核对实际运行实例的显式配置；package assets 更新不会自动改写已有实例。代码、文档、验证及前端消费逐项完成后才标记 done 并归档。
 
-## 本轮待确认项
+## 决策与实施核对
 
-1. **Phase1 推荐独立工具 + 必需域选择先校验再提交控制。** 这保留多工具表达能力，但接受 provider 没有原生“必含且可选其它”的保证；相较旧计划，新增的是无效域也不提交本次控制。是否采用这一完整语义？
-2. **Workspace/Home 完整文本额度均建议 65536 字符。** 其它常驻记忆、持久 Memory 文档和分页/分析额度按上表保留，不随 token 默认值一起改大。是否按此范围放宽？
+1. **Phase1 独立工具 + 必需域选择先校验再提交控制：已确认并实施。** `select_action_domains` 保持独立工具，schema 要求非空域列表；Phase1 在消费其它 Context 控制前完成域选择归一化，域选择无效时本次控制不提交，Cycle 以局部失败结束。该语义保留多工具表达能力，也明确接受 provider 可能遗漏域选择的协议边界。
+2. **Workspace/Home 完整文本额度 65536 字符：已确认并实施。** 三类 LLM Task 默认输出额度为 65536 tokens；LLM 生成预算与 Workspace/Home 内容 owner 的字符提交边界分离。Memory、分页和分析额度维持原有语义。
+3. **Phase2 scope 失败边界：已实施。** Action scope 无法准备时返回 PhaseFailure，发出已有局部结果并结束当前 Cycle，不生成 Phase2 Task，也不进入 Phase3。
+4. **反馈与证据：已实施。** 下一 Cycle 只携带最近失败 Cycle 的短反馈；完整事实仍进入 TurnTrace。LLM task、phase completed 和 model request Observation 分别记录失败摘要、阶段原因和有效输出额度；前端导出保留 task failure 与 attempt budget。
 
-可行性结论：推荐方案复用现有结果类型、owner、配置优先级与 Cycle 生命周期，主要是调整配置、校验顺序和结果投影。可以实施；其明确限制是多工具协议仍可能遗漏域选择，输出上限提高会占用更多 Context 预留。上述取舍确认前维持 pending，本次分析不视为代码实施完成。
+## 验收结果
+
+- 后端聚焦回归：通过。
+- 后端 Full：`1276 passed, 25 deselected`。
+- `ty` 类型检查：通过。
+- 前端 Vitest：`91` 个文件、`805` 个测试通过。
+- 前端生产构建：通过。
+- `git diff --check`：通过（仅报告既有 CRLF/LF 转换提示）。
+
+可行性核对：实现复用了现有结果类型、owner、配置优先级和 Cycle 生命周期，没有新增执行内核、联合工具包装或平行失败状态机。实现与 AGENTS.md 的 Phase 失败、模型反馈、owner 边界和可观察性规约一致；多工具协议仍可能遗漏域选择，且 65536 token 预算会增加 Context 预留，这是已确认的正常设计取舍。

@@ -197,8 +197,8 @@ describe("buildTraceExport", () => {
         { role: "user", label: "task_prompt:guide:phase1", parts: [{ type: "text", text: "Choose domains." }] },
       ] }, "phase1"),
       event("llm.model.response", 3, { task_id: "task_1", attempt: 1, answer_text: "", tool_calls: [{ id: "control-1", name: "set_todo", arguments: { title: "Check job" } }] }, "phase1"),
-      event("llm.task.completed", 4, { task_id: "task_1", status: "failure" }, "phase1"),
-      event("loop.phase.completed", 5, { phase: "phase1", failed: true }, "phase1"),
+      event("llm.task.completed", 4, { task_id: "task_1", status: "failure", reason: "output_limit_reached", feedback: "Generation reached 65536 tokens." }, "phase1"),
+      event("loop.phase.completed", 5, { phase: "phase1", failed: true, failure: { reason: "framework_task_failure", feedback: ["Phase1 did not complete."] } }, "phase1"),
       event("llm.model.request", 6, { task_id: "task_2", attempt: 1, messages: [note] }, "phase1", "cycle_2"),
       event("llm.model.request", 7, { task_id: "task_3", attempt: 1, messages: [note] }, "phase2", "cycle_2"),
       event("action.call", 8, { action: "execution.collect", call_id: "action-1", params: { job_id: "20261012-5-1" } }, "phase2", "cycle_2"),
@@ -222,6 +222,7 @@ describe("buildTraceExport", () => {
     expect(narrative).toContain("Choose domains.");
     expect(narrative).toContain("Requested tool: set");
     expect(narrative).toContain("LLM task failure");
+    expect(narrative).toContain("Generation reached 65536 tokens.");
     expect(narrative).toContain("Action result");
     expect(narrative).toContain("Job succeeded; output available.");
     expect(narrative.match(/wait_resumed/g)).toHaveLength(1);
@@ -230,7 +231,10 @@ describe("buildTraceExport", () => {
     expect(narrative.indexOf("### #5 ")).toBeLessThan(narrative.indexOf("### #6 "));
     expect(narrative.indexOf("### #8 ")).toBeLessThan(narrative.indexOf("### #10 "));
     const cycle = JSON.parse(file(bundle, "/cycles/001/cycle.json")) as JsonObject;
-    expect(cycle.lifecycle).toEqual(expect.arrayContaining([expect.objectContaining({ sequence: 5, payload: { phase: "phase1", failed: true } })]));
+    expect(cycle.lifecycle).toEqual(expect.arrayContaining([expect.objectContaining({
+      sequence: 5,
+      payload: expect.objectContaining({ phase: "phase1", failed: true }),
+    })]));
     expectLinksToResolve(bundle);
   });
 

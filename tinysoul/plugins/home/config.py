@@ -10,7 +10,7 @@ from typing import cast
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
 
 DEFAULT_MAX_READ_CHARS = 4000
-DEFAULT_MAX_WRITE_CHARS = 16000
+DEFAULT_MAX_WRITE_CHARS = 65536
 DEFAULT_SKILL_CATALOG_MAX_CHARS = 8000
 
 

@@ -260,15 +260,25 @@ class LLMTaskRunner:
                 },
             )
             raise
+        completion_payload: JsonObject = {
+            "profile": call.profile,
+            "status": result.status.value,
+        }
+        if result.failure is not None:
+            completion_payload.update(
+                {
+                    "reason": result.failure.reason.value,
+                    "scope": result.failure.scope.value,
+                    "constraint": result.failure.constraint,
+                    "feedback": result.failure.model_feedback,
+                }
+            )
         self._emit(
             call,
             "llm.task.completed",
             ObservationLevel.VERBOSE,
             "LLM task completed.",
-            {
-                "profile": call.profile,
-                "status": result.status.value,
-            },
+            completion_payload,
         )
         return result
 
@@ -554,6 +564,7 @@ class LLMTaskRunner:
                         "provider_model": binding.provider_model,
                         "adapter": model.adapter.value,
                         "attempt": attempt + 1,
+                        "max_output_tokens": max_output_tokens,
                     }
                 )
                 self._emit(
@@ -879,7 +890,9 @@ def _completion_failure(
         if max_output_tokens is not None:
             constraint["max_output_tokens"] = max_output_tokens
         return TaskFailure(
-            model_feedback=prompt_text.MODEL_GENERATION_REACHED_ITS_OUTPUT_TOKEN_LIMIT,
+            model_feedback=prompt_text.model_generation_reached_output_limit(
+                max_output_tokens=max_output_tokens
+            ),
             reason=TaskFailureReason.OUTPUT_LIMIT_REACHED,
             scope=TaskFailureScope.OUTPUT,
             constraint=constraint,

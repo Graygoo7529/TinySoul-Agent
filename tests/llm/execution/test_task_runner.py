@@ -1474,6 +1474,7 @@ async def test_runner_reports_output_limit_before_interpreting_partial_json() ->
             )
 
     provider = TruncatedProvider(provider_id="fake")
+    observations = RecordingObservations()
     runner = LLMTaskRunner(
         models=_models("a"),
         providers=ProviderRegistry([provider]),
@@ -1481,6 +1482,7 @@ async def test_runner_reports_output_limit_before_interpreting_partial_json() ->
             ModelChain(profile="framework", model_ids=("a",)),
             max_output_tokens=2048,
         ),
+        observations=observations,
     )
 
     result = await runner.run(
@@ -1496,6 +1498,13 @@ async def test_runner_reports_output_limit_before_interpreting_partial_json() ->
     assert result.failure.scope is TaskFailureScope.OUTPUT
     assert result.failure.constraint == {"max_output_tokens": 2048}
     assert result.failure.frame_data == {}
+    request = next(event for event in observations.events if event.name == "llm.model.request")
+    assert request.payload["max_output_tokens"] == 2048
+    completed = next(event for event in observations.events if event.name == "llm.task.completed")
+    assert completed.payload["reason"] == "output_limit_reached"
+    assert completed.payload["scope"] == "llm.output"
+    assert completed.payload["constraint"] == {"max_output_tokens": 2048}
+    assert completed.payload["feedback"] == result.failure.model_feedback
 
 
 async def test_model_chain_exhaustion_becomes_runtime_reason() -> None:

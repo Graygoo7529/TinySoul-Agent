@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tinysoul.prompts.kernel import loop as prompt_text
 
 from tinysoul.kernel.action.call import ActionCall
 from tinysoul.kernel.action import (
@@ -100,9 +101,19 @@ class Phase2Unit:
                     preparation.phase_results, scope=scope, cycle_id=cycle_id
                 )
             )
+            feedback = tuple(
+                result.failure.feedback for result in preparation.phase_results
+            )
+            if not feedback:
+                feedback = (prompt_text.PHASE2_SCOPE_NOT_AVAILABLE,)
             return Phase2Outcome(
                 normalization=ActionNormalization(),
                 phase_results=preparation.phase_results,
+                failure=PhaseFailure(
+                    phase=CyclePhase.PHASE2,
+                    reason="action_scope_preparation_failed",
+                    feedback=feedback,
+                ),
             )
 
         try:
@@ -132,7 +143,11 @@ class Phase2Unit:
         if result.raw_response is not None:
             self._context.mark_model_consumed(messages)
         if result.status is TaskResultStatus.FAILURE:
-            feedback = (_task_result_feedback(result),)
+            feedback = (
+                prompt_text.phase2_task_failure(
+                    feedback=_task_result_feedback(result)
+                ),
+            )
             (
                 await self._emit_note(
                     {
