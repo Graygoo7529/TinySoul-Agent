@@ -1,153 +1,186 @@
 # Phase 协议、模型生成预算与失败反馈执行计划
 
-状态：`pending`，分析及设计草案，等待讨论确认。2026-10-12。
+状态：`pending`，2026-10-13 按当前代码重新核对；新增设计项待讨论确认，未修改运行代码或配置。
 
-本计划独立于已经归档的 Trace 导出工作。目前仅将“生成预算服务能力与灵活性”的原则补入 AGENTS.md；下述配置、LLM、Loop 和 Observation 改动均未实施。
+本计划独立于已完成的 Trace 导出工作。AGENTS.md 已有“项目更关注 agent 能力和灵活性”的原则；本次落实到生成额度、阶段提交和失败反馈，不增加新的执行内核或恢复状态机。
 
-## 目标和设计依据
+## 目标与已确认方向
 
-给正常推理、工具参数和完整回答留下充足生成空间，让 Phase 的输出协议更容易正确表达，并让失败反馈准确说明原因和已经发生的效果。保持 Agent → Turn → Cycle → Phase 的唯一运行内核；LLM 解释模型输出，业务 owner 提交控制或执行 Action。局部协议失败结束当前 Cycle，下一完整 Cycle 读取反馈，不新增 Phase 内重试、自动补全 Action 或并行状态机。
+1. frame_stage1、frame_stage2、llm_action 的默认输出额度采用维护者提出的 **65536 tokens（64 × 1024）**。保留现有模型选择和 reasoning 设置。
+2. 生成 token 预算与文件字符限制分开：前者由 LLM 配置及调用设置决定，后者由内容 owner 决定。
+3. Phase1 必须选择行动域，可以同时进行多个独立 Context 控制；不同工具保留自己的意图与参数定义。推荐继续采用独立工具协议，不把 controls 包入一个联合工具。
+4. 局部协议失败结束当前 Cycle，下一完整 Cycle 读取反馈；不在 Phase 内重试，不以不完整输出继续执行。
+5. 模型反馈只说明失败原因、实际效果和必要修正信息；结构化诊断供框架与轨迹研究使用。
 
-需要分别解决两个问题：生成空间不足会使模型尚未形成有效输出就停止；Phase1 的多工具结果则需要同时表达必需的域选择和可选的 Context 控制。提高 token 上限有助于前者，但不能保证后者不再遗漏域选择。
+## 当前实施核对
 
-## 已核对的现状
-
-### 生成预算
-
-| 位置 | 当前事实 | 影响 |
+| 位置 | 当前事实 | 需要解决的问题 |
 | --- | --- | --- |
-| standard/development `configs/llm/tasks.toml` | frame_stage1、frame_stage2、llm_action 均为 2048 | 理解、工具选择和 Action 内生成均继承偏小默认值 |
-| `infra/config/catalog/models.toml` task 创建模板 | 2048 | 新建任务仍会恢复小额度 |
-| Action model-use bindings | 标准绑定未另设额度，通常继承 llm_action | core.answer/reason、Workspace 生成、检索模型任务都会受影响 |
-| `ActionTaskCallBuilder.create` | 把 max_output_chars 转为 token 数，并与 binding token 值取小 | 工件字符限制混入生成预算；workspace.compose 无显式 binding 时用 12000 覆盖 profile，调高 profile 仍可能被它压低 |
-| `LLMTaskRunner` | model.request_overrides 优先于合并后的 task/单次调用设置 | 实施时须核对模型覆盖，不能只改任务文件 |
-| Context window guard | 有效 max_output_tokens 同时计入输出预留；None 按 0 预留 | 直接删除上限并不等于语义完整的“自由生成” |
-| Web 的供应商生成额度 | 默认 8192，属于独立 capability 用途 | 需要独立评估，不能靠调 llm_action 顺带改变 |
-| Workspace max_write_chars | 默认 12000，是文件提交/工件边界 | 与 Inspect 页、Trace 摘录、LLM reasoning token 分别属于不同职责 |
+| standard/development 的 `configs/llm/tasks.toml` | 三类 task 均为 2048 | 推理、工具参数和正式输出共享的生成空间偏小 |
+| `infra/config/catalog/models.toml` | task 创建模板同样是 2048 | 只修改已有模板实例，仍会使新建 task 使用旧额度 |
+| `kernel/action/tasks.py` 的 `ActionTaskFactory.create` | 将 max_output_chars 当作 token 数；有 binding 值时取小，否则作为调用覆盖 | workspace.compose 的 12000 字符额度会覆盖 task 预算；它目前可以高于 2048，调高 profile 后又会压低 65536 |
+| `llm/execution/task.py` | task/调用设置合并后，model.request_overrides 优先；有效额度同时传给 provider 和 Context guard | 应保持同一有效值，不能只改 provider 参数 |
+| 内置模型配置 | 本次核对未设置 max_output_tokens 模型覆盖；配置的 context window 为 262144、1000000 或 1048576 | window 足够大不代表 endpoint 接受同样大的输出上限，部署额度仍需核对 |
+| `llm/protocol/responses.py` | forced_name 要求结果包含一个指定工具，允许其它可见工具 | 这是本地协议约束，不是 provider 原生必含保证 |
+| `kernel/loop/phases/phase1.py` | 缺域选择在 LLM 解释阶段失败；域选择参数错误却在消费其它控制之后返回失败 | 两种相近的无效阶段输出，目前有不同的提交效果 |
+| `kernel/loop/turn.py` | 连续失败的反馈去重累积，直到一个完整 Cycle 成功才清空 | 旧失败仍被称为“Previous cycle”，可能与后续已经生效的状态混淆 |
+| `kernel/loop/phases/phase2.py` | TaskFailure 会停止 Cycle；scope 准备失败只返回 phase_results 和空 normalization | 后一种路径仍会进入 Phase3，与 AGENTS 的阶段失败语义不一致 |
+| LLM/Phase completed Observation | task 仅记录 status；phase 记录 failed 等状态及控制结果 | 失败发生处缺少短原因，要到后续 Context 才容易解释 |
+| `docs/design/llm.md` | 仍描述 Phase 内有界重试、临时收窄 scope | 与当前规约和主要实现冲突 |
 
-真实记录中 Phase2 有四次 output_limit，completion 均为 2048，reasoning 分别为 2048、2048、2033、2048。它证明该运行的生成空间确实被耗尽，不能据此断言模型本身不适合工具调用，更不应默认降低推理强度或更换首选模型。
+此前真实记录中，四次 Phase2 output_limit 的 completion 均为 2048，其中 reasoning 分别为 2048、2048、2033、2048；五次 Phase1 返回了计划控制却缺少 select_action_domains。前者支持扩大生成空间，后者支持澄清多工具输出协议及未提交效果。它们是问题证据，不是代码分支、测试数据或预算选值的唯一依据。
 
-### Phase1 工具语义
+## 一、生成预算与内容长度各归其主
 
-`ToolSelection.allowed_names` 是可见工具筛选；`forced_name` 是“返回结果必须包含这个工具，仍允许同批其它工具”的内部约束。目前只有一个必需名称，不存在必需名称列表。`ResponseInterpreter` 在返回 TaskResult 前统一校验该约束。
+### 生成额度
 
-Phase1 合并 Context 的 set/remove milestone、set/remove todo、按需 load/evict background，以及 Action 的 select_action_domains。TaskPrompt 已明确要求域选择及同批控制，不是完全没有提示。当前 OpenAI SDK behavior 对 required 输出 `tool_choice=required`，保留其它可见工具；DeepSeek thinking 分支甚至不发送 required 参数，仍由本地解释器校验。这些是仓库当前适配事实，不把它们推断为供应商所有版本的能力承诺。
+更新 standard/development 三类 task 和配置编辑器的 task 创建模板为 65536。调用仍可通过已有 Action model binding 显式选择不同额度，模型固定要求仍通过已有 request_overrides 表达。
 
-因此，不能把 `forced_name` 改为供应商“只能调用这个函数”的 named choice。那会把 TinySoul 的“必含且允许其它”改成“只能选它”。此前混合草案提出这种映射是不成立的，本独立方案撤回该建议。
+预算流保持为：
 
-真实记录中五次 Phase1 只返回计划控制，没有域选择；解释器返回 invalid_output_protocol，Loop 尚未进入 normalize_controls，因此那些计划更新没有应用。下一 Cycle 再提出相似更新并不必然是忘记之前已执行的操作。
-
-### 当前失败反馈
-
-- LLM 已有 TaskFailure.reason/scope/constraint/model_feedback，输出上限也保存了实际 max_output_tokens；反馈文本目前只说达到 token 上限。
-- Phase1/2 只提取 model_feedback，使用统一的 framework_task_failure 记录；反馈没有说明本次控制或 Action 是否已生效。
-- task 的 Observation completed 只有 status，Phase completed 只有 failed 等阶段事实，没有失败原因和短反馈。研究轨迹常需到下一次请求的 phase_note 中寻找解释。
-- Phase1 的 task failure 在任何控制提交前发生；但域名参数归一化失败路径可能已经消费合法 Context 控制。两条路径不能都说“本阶段所有变更均未应用”。
-- `docs/design/llm.md` 仍有允许 Phase 内有界重试、临时收窄工具的旧句，与当前 AGENTS、Phase1/2 代码和测试冲突，需要修正文档。
-
-## 方案一：放宽生成预算，分清实际限制
-
-按最新讨论，三个默认 task 和任务创建模板以 **65536 output tokens（64 × 1024）** 作为实施候选，保持现有模型优先级及 reasoning 设置。这个数字是项目配置默认值，不是供应商能力结论；实施时核对绑定模型/端点可接受的额度，确有更低上限时用已有 model.request_overrides 表达，不新增能力注册平台或失败后逐层减半机制。必要的模型特殊覆盖仍是显式配置。
-
-预算流继续为：task 默认 → 单次调用/Action binding 覆盖 → 模型固定覆盖 → 同一个有效值进入 provider 与 Context 输出预留。移除 `ActionTaskCallBuilder.create(max_output_chars=...)` 将字符数当成 token 上限的转换；Workspace 继续在 TaskPrompt 和 ActionTaskOutput/提交 owner 校验工件字符限制。这样提高生成额度不会被字符数悄悄覆盖，也不会令长 reasoning 被等同于长文件。
-
-本计划不统一放大 Inspect 页、Trace 摘录或持久工件尺寸。它们与模型生成能力是不同边界。Workspace 12000 字符的真实文件额度、Web 8192 的用途额度在本次清单中明确暴露，若维护者希望同时放宽，分别按文件/搜索用途决定数值，不借生成预算改动隐含更改其它资源契约。
-
-不建议直接设置所有 task 为 None：当前它同时表示不发送 provider 上限、Context 预留为零。若将来选择 provider 自动上限，应先明确输出预留来源；目前显式宽裕值更一致，也无需引入独立自适应预算系统。
-
-提高预留可能使长语境更早触发现有 Context 回收，这属于同一容量账本的正常结果。验证应同时检查正常长输出和长 Context，不以“配置数值成功解析”代替可用性验证。
-
-## 方案二：Phase1 的两条可选路线
-
-### A：保留当前多工具协议（当前倾向）
-
-继续要求 `select_action_domains`，可同批返回其它 Context 工具。`domains` 是域选择工具的必填参数；set/remove todo、milestone、load/evict background 仍是各自独立工具，模型可以不调用它们。也就是说，“域选择必选、其它控制可选”已经由多个工具的 scope 加上 `forced_name` 表达，不需要把不同参数和意图塞进一个联合工具。保留通用 required 适配和解释器校验，改进下节的效果反馈。扩大预算后再观察正常任务中的遗漏情况。
-
-优点是每个工具仍保留自己的参数 schema、模型意图和 Context owner，工具调用顺序及多调用结果也保持现有模型侧语义。限制也明确：provider 的 required 只能保证“至少某个工具”，不能保证“指定工具必含”；当前提示已表达要求，继续重复或加重措辞不能构成结构性保证。这条路线接受偶发缺项造成一个失败 Cycle，不能宣称已从协议结构上消除问题。`ResponseInterpreter` 的本地 forced 校验仍是最终协议边界。
-
-### B：Phase1 一次提交完整阶段意图（备选，不作为当前推荐）
-
-由 Loop 组装一个 Phase1 专用 Control Tool，例如 `submit_phase1`。模型一次返回必需的 domains、可选 intent 和可选 controls 列表；controls 可为空，也可包含多个更新。概念示例：
-
-```json
-{
-  "domains": ["execution"],
-  "intent": "Collect finished work",
-  "controls": [
-    {"name": "set_todo", "arguments": {"key": "run", "content": "Run background work", "status": "done"}}
-  ]
-}
+```text
+task 默认额度
+  → 单次调用 / Action binding 覆盖
+  → model.request_overrides 覆盖
+  → 有效 max_output_tokens
+      ├─ provider 请求参数
+      └─ Context 容量核算的 reserved_output_tokens
 ```
 
-模型仍能选择全部现有 Context 能力，但“域选择”成为同一次阶段结果的必需字段，不再需要在多个独立 tool call 中额外记住一次必需调用。只暴露这个阶段工具时，供应商 required 与 TinySoul 单一阶段提交更加接近；仍不要求所有 provider 原生支持 required，也不假定模型必然返回合法参数。
+删除 `ActionTaskFactory.create(max_output_chars=...)` 参数及其字符转 token 逻辑，调整 workspace.compose 调用。ActionTaskOutput.text 和 Workspace 提交 owner 继续按字符校验完整工件，TaskPrompt 继续动态说明实际字符上限。无需另建预算服务或引入隐式换算系数。
 
-所有权和数据流：
+“保持 Context 输出预留与实际生成额度一致”指与本次请求**允许的最大生成量**一致，不是提前知道模型最终会生成多少。当前核算是：估计输入 token + 有效输出额度，不超过 window × compression_trigger_ratio。工具定义也属于输入。
 
-1. Loop 只拥有阶段结果的组合结构；domains 枚举和解释继续来自 Action 门面，controls 的可用名称、说明和参数 schema 继续来自 Context 门面。由这些现有声明组合嵌套 schema，不在 Loop 复制业务字段说明。
-2. controls 是当前 Context 提供的有限操作集合，参数与名称在 schema 中关联；不能退化为任意 name 加无约束 JSON 的万能工具入口。按现有顺序归一化并 prepare/install，不扩展到 Action 或 Job 调度。
-3. 外层必需字段、重复阶段提交及域选择先校验；阶段结构不成立时不提交其中控制。合法阶段结果内的控制错误继续由现有 ControlResult 表达；不把单个控制失败扩大为新事务或整轮回滚。
-4. 解包后复用现有 Context normalization/signal 路径，嵌套控制通过父调用 id 与位置建立可追踪关联，不能伪造成额外的 provider 原生 tool calls。
-5. 通用 LLM ToolSelection 仍保留“必含但非排他”的语义。这个方案只调整 Phase1 的业务输出形态，不改成所有 LLM 任务都使用阶段信封。
+例如当前 262144 window 和 0.8 阈值，65536 输出预留之后，估计输入约有 144179 tokens 的空间；实际输入估算还包括消息/工具包装。上限宽裕不要求模型每次用满，但长 Context 会更早进入既有容量恢复。
 
-成本是修改 Phase1 组装、Action 域选择的门面输入、控制投影关联以及相应测试和设计文档。嵌套参数 schema 需要核对当前适配器支持，不强制启用供应商 strict 模式，也不建立通用 schema 编译器。它把不同控制意图压入一个联合参数，模型生成和错误定位可能比多个独立工具更差；除非真实运行继续证明当前多工具协议无法接受，否则不采用这条路线。
+当前估算器以 UTF-8 字节数作保守 token 估计，未按实际 tokenizer 计数。因此它可能比供应商实际用量更早触发回收。扩大输出预算时验证这条正常路径；本计划不同时更换 token 估算算法，也不通过缩小输出预留隐瞒压力。
 
-不推荐把 Phase1 拆成“更新 Context”与“域选择”两个模型调用：每个 Cycle 增加一次大语境请求，还引入两个 Task 之间的提交边界。也不建议自动为缺失域选择补默认域、从 raw_response 挑部分工具强行执行，或把每次更新计划都变成一个独立 Cycle。
+不采用 None 作为本轮默认：当前 None 会同时省略 provider 上限并按零预留，无法表达这里需要的容量语义。配置额度不宣称是模型能力；实施时核对目标 endpoint，确有更低上限则显式配置，不建立自动减半重试链。
 
-## 方案三：短反馈明确失败原因和实际效果
+### 文件与其它字符限制
 
-复用现有 TaskFailure、PhaseFailure 和 ControlResult，不引入新的失败分类树。分层表达：
+本次按真实消费者区分如下，数字单位均为字符，token 项单独注明。新建议的字符额度仍待维护者确认。
 
-- LLM 的反馈负责本次调用为何不合格；输出上限反馈包含 owner 已知的有效额度，必需工具缺失反馈明确“需包含该调用，允许同批其它可见工具”。数据从现有约束输入，不靠匹配异常字符串猜测原因。
-- Loop 根据失败发生的位置补充效果。例如 TaskFailure 导致 Phase1 提前返回时：本次 Context 控制未应用；Phase2 TaskFailure 时：未接受/执行本次 Action。合法控制已经提交后的域选择错误按实际 ControlResult 描述，不能套用“全部未应用”。
-- 反馈沿现有 phase_note 与下一 Cycle 路径进入 Context，不复制模型返回的大段文本，也不携带 traceback。模型无需阅读内部的 constraint/frame_data JSON 才能理解失败。
-- 保留 framework_task_failure 作为阶段原因，不为每种 LLM reason 新增 Loop 原因；机器诊断通过所属 LLM 事件保存已有稳定字段。
-
-示意反馈（最终英文固定文案由所属 prompts owner 维护）：
-
-> Phase1 未完成：本次输出需要包含域选择；本次 Context 控制尚未应用。
-
-> Phase2 的生成达到 32768 token 上限，本次没有 Action 被执行。
-
-它们说明可核对的事实，不强令模型减少思考、只执行一个 Action 或必须把任务拆成固定步骤。配置不足由配置解决，业务参数错误由现有局部反馈修正。
-
-## 方案四：让现有观察事件能说明失败
-
-为了在失败发生处就能定位原因，扩展原有事件的有限投影，而不是新增日志链路：
-
-- `llm.task.completed` 在 TaskResult 失败时投影已有 reason、scope、constraint 和短 feedback。成功仍只是成功，不把 provider.completed 当 task 成功。
-- `loop.phase.completed` 在有 PhaseFailure 时附已有 reason 和短 feedback；控制效果仍使用已有 control_results。
-- `llm.model.request` 记录本次计算后的有效 max_output_tokens；导出 attempt meta 展示它，避免只凭 completion usage 猜配置。模型覆盖可能随 attempt 变化，所以它属于调用元数据，不混入共享 messages。
-- 消费这些字段的前端导出器将 task 失败投影到 task.json，概览可直接在该事件位置显示反馈；没有字段的旧窗口仍保留缺失事实。Endpoint/Observation 设计同步记录新增字段。
-
-这些字段是研究本次问题的真实消费者所需，不增加重试建议枚举、诊断树、原始 provider 报文或第二套持久事实。导出计划已经完成的语义仍是“导出当前确实留存的数据”；这里是后续业务事件解释能力的改进。
-
-## 预计改动范围
-
-| 所属模块 | 改动 | 预期效果 |
+| 约束 | 当前值 | 本次建议及语义 |
 | --- | --- | --- |
-| assets / infra config catalog | 三类 task 及创建模板预算；检查模型覆盖 | 新实例和新建任务不再继承 2048 |
-| kernel/action/tasks、Workspace 调用处 | 删除字符额度转 token 额度，保留 owner 工件校验 | 推理空间与文件长度相互独立 |
-| llm / prompts.llm | 有效预算和有限失败反馈的投影 | 失败时可直接看到真正的限制 |
-| kernel/loop / prompts.kernel.loop | 效果反馈；若选 B 则调整阶段结果组装与解包 | 清楚区分未执行与已提交，并减少必需调用遗漏 |
-| Context / Action 门面（仅 B） | 复用定义和归一化，提供组合所需的明确输入 | 同一业务语义保持唯一 owner |
-| Observation / visualization | 消费已有事件上的新增诊断摘要 | 失败不必等下一次请求才能解释 |
-| docs/design、docs/endpoint、tests | 当前协议、预算、失败路径和协作契约 | 文档与代码一致 |
+| Workspace 完整文本写入/compose | 12000 | **65536**；支持更完整的脚本、报告和文档 |
+| Home 内容写入/改写 | 16000 | **65536**；支持完整 Skill/指导文档，仍遵守 overlay/review 所有权 |
+| 活动 Memory.md | 12000 | 保留；它是常驻工作记忆的容量，不是通用生成额度 |
+| 持久 Memory 文档 | daily 32000；entity/concept 16000；fact 4000；note 24000 | 本次保留；不同文档的内容组织语义独立于 Phase 输出预算 |
+| Workspace/Home 一页读取 | 4000 | 保留分页；大文件不应自动全部常驻 Context |
+| Memory/Trace/Session Inspect 一页读取 | 8000 | 保留渐进披露语义 |
+| Workspace analyze | source 24000；每参考 12000；answer 4000 | 属于有界分析输入/反馈，列入核对，不随通用生成额度隐式改变 |
+| Web | 专用供应商生成 8192 tokens；落盘输出 1000000 字符 | 独立 capability 配置，本次不顺带修改 |
 
-AGENTS.md 的预算原则已按本轮授权补充。其它设计文档在代码实施时同步；尤其移除 llm.md 的 Phase 内重试旧描述，不保留与现行规约矛盾的兼容语义。
+Workspace/Home 的 Python 默认值、standard/development 配置须同步；相关动态 TaskPrompt/校验读取 owner 的值，不在固定文案复制 65536。Workspace compose 继续通过 ActionTaskOutput.text 检查字符数，在其现有超限反馈中带上实际额度，例如“生成文本超过 65536 字符，文件未写入”；不借本次额度调整重构其它 owner 的全部异常协议。
 
-## 实施与验证顺序
+Workspace 的 max_write_chars 约束其正式文本操作，并非工作区磁盘文件的通用大小限制；execution 直接写入的文件不因此获得同一额度限制。更大的文件上限也不保证任意文档都能放入单次模型输入，读取和生成仍遵守各自容量协议。
 
-1. 确认预算默认值和 Phase1 路线；选 B 时核对当前所有 provider adapter 能否传递对应嵌套 schema，先完成正常数据流的类型与门面设计。
-2. 更新 task/template 预算，分离 Action 字符/token 约束；验证继承、调用覆盖、模型覆盖与 Context 输出预留使用同一有效值。
-3. 实施确认的 Phase1 路线和短反馈；保持 PhaseFailure 结束 Cycle，验证失败前未提交与合法控制已提交的区别。
-4. 同步 Observation 有限诊断、前端导出投影及设计/Endpoint 文档。测试既有工具定义和真实数据流，不固定可编辑提示词全文。
-5. 定向覆盖：域选择加多个控制、无控制、缺域/无效域、控制局部失败；输出上限不能放行不完整 Action；Phase2 多 Action 和 Phase3 LLM 仍正常。
-6. 测试正常长脚本/回答生成，以及较长 Context 下的容量恢复；保留 provider/model fallback 现有语义，不把 protocol failure 改为供应商重试。
-7. 完整本地 Fast/Full/ty 与受影响前端测试/build。真实 provider 验证使用显式授权的代表任务；本地测试不能证明实际模型遗漏率已经降低。实际生效配置应核对到运行实例，不能把 package assets 更新误认为已修改所有用户实例。
+## 二、Phase1 保留独立工具，统一必需意图的校验边界
 
-## 待讨论的决定
+### 多工具输出
 
-1. 是否采用 65536（64 × 1024）作为三个 task 的共同默认输出额度，并保持当前模型顺序与 reasoning 强度？需核对模型/端点实际接受值和 Context 预留。
-2. Phase1 目前倾向 A：保留独立 `select_action_domains` 与其它独立控制工具；B 只作为后续证据充分时的备选。这样 `domains` 必选、其它 control 可选，且不牺牲各工具独立参数和意图。
+继续提供独立工具：select_action_domains 必需，set/remove milestone、set/remove todo、load/evict background 按需调用。合法示意：
 
-预算与反馈改动的边界已经明确，Phase1 输出形态仍待选择。本计划保持 pending，不把方案讨论或配置建议标为完成。
+```text
+select_action_domains(domains=["execution"])
+set_todo(key="run", status="in_progress", ...)
+set_milestone(key="input", ...)
+```
+
+模型可只返回第一项，也可返回包含它的一组调用。这里展示的是意图组合，不要求 provider 按展示顺序返回工具。域选择 schema 补齐 minItems=1，与现有“至少一个有效域”校验一致；工具定义仍由 Action/Context owner 提供。
+
+OpenAI 官方文档区分 generic required（调用一个或多个函数）与 forced function（只调用一个指定函数）；allowed tools 只是缩小可选集合，不能同时表达“必含域选择且可选其它控制”。本次核对的仓库 behavior 已使用 generic required，并非错误地把 Phase1 锁成单个域选择工具。因此不修改成 named forced choice。[官方工具选择语义](https://developers.openai.com/api/docs/guides/function-calling#tool-choice)
+
+保留 ToolSelection 的“指定工具必含但不排他”含义、各 provider 的现有映射和 ResponseInterpreter 最终校验。已有正常 TaskPrompt 已表达域选择要求，本次不靠追加反复提醒来假装获得协议保证。扩大预算和改进失败反馈之后，仍可能有遗漏并产生一个失败 Cycle，这是选择多工具方案的明确取舍。
+
+若要求从输出结构上更强地约束 domains，只能另选输出形态或增加调用。单个 submit_phase1(domains, controls) 可以把 domains 变成必填字段，但把不同工具参数嵌套在联合 schema 中；拆成两个模型调用则增加每个 Cycle 的大语境请求与提交边界。本次均不推荐，不预先实现兼容分支。
+
+### 提交顺序（本轮新增建议，待确认）
+
+将完整域选择校验移动到消费本次 Context 控制之前：
+
+```text
+LLM 输出解释及域选择校验
+  ├─ 失败 → 本次控制未提交 → PhaseFailure → 下一 Cycle
+  └─ 通过 → Context 控制归一化及 prepare/install → Phase2
+```
+
+缺少调用、重复域选择调用、空域列表、无效域，都在提交本次控制之前收敛。LLM 解释器拥有工具作用域/必含约束，Action 拥有域选择有效性，Loop 只安排顺序，Context 继续拥有控制更新。
+
+域选择成立后，单个可修正控制问题仍由已有 ControlResult 表达，合法控制遵循现有 prepare/install 规则；不把每个可选控制错误扩大成整个阶段回滚。Phase2 后续失败也不回滚已经完成的 Phase1 控制。
+
+这改变了当前“无效域参数仍可能更新计划”的行为。依据是 Phase1 必需意图未成立时，该阶段响应尚不具备提交条件；移动校验即可保持两种域选择失败的一致性，不需要事务快照或补偿逻辑。若维护者希望保留独立提交控制的语义，应保留当前顺序并逐项说明效果，不能使用统一的“未应用”反馈。
+
+## 三、局部失败明确原因、效果和下一次读取边界
+
+复用 TaskFailure、PhaseFailure、ControlResult、ActionPhaseResult，不新增失败分类树。
+
+| 失败位置 | 反馈与执行效果 |
+| --- | --- |
+| LLM 达到输出上限 | LLM 短反馈包含有效 max_output_tokens；不接受截断输出中的工具作为成功结果 |
+| Phase1 缺少或无效域选择 | 说明需包含有效域选择、允许其它控制；按推荐提交顺序说明本次控制未应用 |
+| Phase2 TaskFailure | 说明本次 Action 意图未接受/执行；不暗示之前完成的 Phase1 被回滚 |
+| Phase2 无可用 Action scope | 保留 Action owner 的 scope 失败事实，同时返回 PhaseFailure，停止本 Cycle，不调用 Phase3 |
+| 已进入业务 owner 的控制/Action 局部失败 | 继续使用所属结果及 disposition，不改造成 LLM 或全局 Runtime 异常 |
+
+Phase2 scope 分支是对现有规约的落实：ActionScopePreparation 继续负责准备结果，Loop 从已有失败结果取得短反馈并返回 PhaseFailure；不重新定义一套 scope 失败协议，不制造 Action 执行结果。不要将这个修正扩展为“所有 normalization 局部拒绝都必须全批失败”。
+
+模型可见示意（实施时英文固定文案由所属 prompts owner 管理）：
+
+> Phase1 未完成：输出需要包含有效的 select_action_domains，仍可同时调用其它控制工具。本次 Context 控制未应用。
+
+> Phase2 生成达到 65536 token 上限，本次 Action 未执行；已完成的 Phase1 更新保留。
+
+额度由 LLM owner 传入文案函数；域选择原因由 Action owner 提供；提交效果由 Loop 按真实路径添加。Phase 仍可使用 framework_task_failure 作为粗粒度原因，LLM 的细分 reason 保留在 TaskFailure 与 Observation，不重复建立 Loop 枚举。
+
+下一 Cycle 的临时 TaskPrompt **只携带最近一个失败 Cycle 的反馈**，替换当前“连续失败累积直到完整成功”的行为。每次失败仍按发生顺序写入 TurnTrace，历史可以回看；TaskPrompt 不再建立一份无 Cycle 归属的失败历史。阶段名称与短原因足以指导修正，Working 表达当前实际状态。其它已有 Turn 完成阻塞反馈继续按其真实边界生成，不把反馈管理泛化成新模块。
+
+## 四、失败发生处即可定位的 Observation
+
+扩展现有事件，所有字段直接投影既有类型化结果或当前有效配置：
+
+| 事件 | 增加的信息 | 研究用途 |
+| --- | --- | --- |
+| llm.task.completed | 失败时提供 reason、scope、constraint 和短 feedback | 区分供应商正常返回与 Task 协议通过 |
+| loop.phase.completed | PhaseFailure 的 reason、feedback | 当场解释哪个 Phase 未完成；控制结果继续使用现有 control_results |
+| llm.model.request | 本 attempt 有效 max_output_tokens | 核对实际请求额度及模型覆盖，不依赖 usage 反推 |
+
+Task/Phase 失败不复制整个结果、raw response 或异常正文。provider.completed 仍只表示供应商调用完成，不能当作阶段成功。
+
+前端配套范围仅为消费这些摘要：task.json 保存任务失败原因；attempt/meta.json 保存有效额度（不同 attempt 可以不同）；turn.md 显示短原因和效果并链接原证据。共享 request 的 messages/tools 去重策略保持其职责，完整 response 仍留在 cycles 证据。主线故障一次可读解释即可，不把重复 completed 事件和 constraint JSON 再扩成模型叙事。
+
+后端先更新 `docs/endpoint/events.md` 及相关契约示例；前端消费按前后端协作规约单独对接，不另开日志或查询协议，也不以客户端推测填补未记录的原因。
+
+## 改动范围与预期效果
+
+| 所属模块 | 预计改动 | 预期效果 |
+| --- | --- | --- |
+| assets / infra config catalog | 三类 task 和新建模板 65536；确认后更新 Workspace/Home 字符默认值 | 新实例与新建任务使用宽裕额度，资源限制可独立配置 |
+| kernel/action/tasks、Workspace compose | 移除字符到 token 的覆盖；保留并解释字符校验 | 模型可以充分推理，最终文件仍符合 owner 约束 |
+| Action scope、Loop Phase1 | domains 非空 schema；域选择先校验再提交控制 | 工具意图独立，域选择失败的提交效果一致 |
+| Loop Phase2、Cycle | scope 失败返回 PhaseFailure | 失败停在实际发生的 Phase，不经过空 Phase3 |
+| Loop Turn、prompts | 最近失败的临时反馈；原因与效果的短文案 | 下一 Cycle 能明确修正，不反复混入已经过时的失败指令 |
+| LLM、Loop Observation | 失败摘要、实际生成额度 | 轨迹在失败位置就有证据 |
+| visualization 对接 | task/attempt 元数据及 turn.md 短反馈 | 从概览定位到完整调用，不膨胀大规模 Turn 的叙事 |
+| docs/design、docs/endpoint、tests | 当前协议与协作行为同步 | 文档、测试和运行语义一致 |
+
+预计主要修改已有文件，不需要新增业务模块、通用预算平台或联合工具包装。设计文档重点同步 llm、loop、action-model-retrieval、workspace、agent_home；删除 llm.md 中 Phase 内重试的旧描述。AGENTS 已有相应原则，无需再加入具体预算数字或每个反馈字段。
+
+## 实施与验收
+
+1. 确认下方两项新增决策，再实施代码；65536 token 默认值沿用维护者要求。
+2. 更新 task/template 与确认的内容额度，移除字符/token 混用。验证 task 继承、binding 覆盖、model 覆盖，以及 provider/Context 使用同一有效值。
+3. 实施 Phase1 校验顺序、Phase2 scope 失败结束边界与最新失败反馈。正常域选择加多个控制、无控制、控制局部失败均保持清晰行为。
+4. 更新短反馈与 Observation；后端协议文档和前端消费分别落实。验证失败发生位置即可定位原因，输出额度来自实际 attempt。
+5. 核心行为测试：缺域/无效域时不提交控制；有效域且局部控制失败的现有语义；Phase2 Task/scope 失败不进入 Phase3；Phase1 已提交状态不因 Phase2 失败消失；连续失败只在临时 TaskPrompt 保留最近反馈、Trace 保留完整事实。
+6. 预算测试覆盖长生成与文件长度分别失败的路径、显式模型覆盖、较长 Context 的容量恢复；不以配置解析成功代替协作验证，不固定可编辑文案全文或真实轨迹中的 Cycle 次数。
+7. 按 AGENTS 执行聚焦测试、Fast、完整 Full 和 ty；前端消费修改另跑对应测试与构建。真实 provider 行为只用明确授权的代表调用验证，本地测试不承诺模型遗漏概率已经下降。
+8. 核对实际运行实例的显式配置；package assets 更新不会自动改写已有实例。代码、文档、验证及前端消费逐项完成后才标记 done 并归档。
+
+## 本轮待确认项
+
+1. **Phase1 推荐独立工具 + 必需域选择先校验再提交控制。** 这保留多工具表达能力，但接受 provider 没有原生“必含且可选其它”的保证；相较旧计划，新增的是无效域也不提交本次控制。是否采用这一完整语义？
+2. **Workspace/Home 完整文本额度均建议 65536 字符。** 其它常驻记忆、持久 Memory 文档和分页/分析额度按上表保留，不随 token 默认值一起改大。是否按此范围放宽？
+
+可行性结论：推荐方案复用现有结果类型、owner、配置优先级与 Cycle 生命周期，主要是调整配置、校验顺序和结果投影。可以实施；其明确限制是多工具协议仍可能遗漏域选择，输出上限提高会占用更多 Context 预留。上述取舍确认前维持 pending，本次分析不视为代码实施完成。
