@@ -1,4 +1,5 @@
 import type { JsonObject, JsonValue, ObservationEvent } from "../../api/v2/types";
+import { diffLines } from "../../utils/diff";
 import type { EventWindow } from "./eventWindow";
 import { scopeValue } from "./facts";
 
@@ -35,6 +36,18 @@ function messageBody(message: JsonObject): string {
   }).join("\n");
 }
 
+function changedExcerpt(previous: string, current: string): string[] {
+  const rows = diffLines(previous, current);
+  const removed = rows.filter((row) => row.type === "del").map((row) => `${row.oldLine}: ${row.text}`).join("\n");
+  const added = rows.filter((row) => row.type === "add").map((row) => `${row.newLine}: ${row.text}`).join("\n");
+  const limit = removed && added ? TASK_PROMPT_EXCERPT_LIMIT / 2 : TASK_PROMPT_EXCERPT_LIMIT;
+  const lines: string[] = [];
+  if (removed) lines.push("Removed lines (previous request):", excerpt(removed, limit));
+  if (added) lines.push("Added lines (current request):", excerpt(added, limit));
+  if (!removed && !added) lines.push("Only the trailing newline changed; see request evidence.", "");
+  return lines;
+}
+
 const CONTEXT_LABELS = new Set(["user_input", "trace_input", "phase_note", "action_result", "plan", "jobs"]);
 const WORKING_LABELS = new Set(["plan", "jobs"]);
 const CONTEXT_EXCERPT_LIMIT = 900;
@@ -63,7 +76,7 @@ class TurnNarrative {
   private readonly lines: string[] = [];
   private readonly observedMessages = new Map<string, number>();
   private readonly workingMessages = new Map<string, string>();
-  private readonly taskPromptLabels = new Set<string>();
+  private readonly taskPrompts = new Map<string, { body: string; sequence: number }>();
   private previousLocation = "";
   private hasRequest = false;
 
@@ -82,6 +95,7 @@ class TurnNarrative {
       `${this.cycles.size} observed cycles; ${tasks.size} LLM tasks; ${failures.length} observed failed phases.`, "",
       "Read this timeline first, then follow the links to full request/response and action evidence. Excerpts have fixed limits so the overview stays readable for large Turns; model responses are intentions until accepted and executed. Provider completion and task/phase success are reported separately.", "",
       "Context excerpts are labelled by the request in which they are first observed (or changed). Their capture sequence is not the original occurrence time. Repeated context is omitted; no missing event is inferred.", "",
+      "TaskPrompt updates show added/removed lines against the previous retained request with the same label; unchanged lines are omitted.", "",
       "[Index](index.json) · [Manifest](manifest.json)", "",
     );
     this.overview(window.events);
@@ -125,7 +139,7 @@ class TurnNarrative {
         content.push("Context inventory (first retained request):", excerpt(labels.join(", "), CONTEXT_EXCERPT_LIMIT));
       }
       this.hasRequest = true;
-      content.push(...this.context(messages));
+      content.push(...this.context(messages, event.sequence));
     } else if (event.name === "llm.model.response") {
       content.push(`LLM response · ${inline(text(payload.task_id))} · attempt ${text(payload.attempt) || "?"}`, "",
         `Model: ${inline(text(payload.model_id))}; provider: ${inline(text(payload.provider_id))}; stop: ${inline(text(payload.stop_reason))}.`, "",
@@ -199,14 +213,30 @@ class TurnNarrative {
     }).join(" · "), "");
   }
 
-  private context(messages: JsonObject[]): string[] {
+  private context(messages: JsonObject[], sequence: number): string[] {
     const lines: string[] = [];
     const occurrences = new Map<string, number>();
     for (const message of messages) {
       const label = text(message.label);
       if (!CONTEXT_LABELS.has(label) && message.role !== "tool_result" && !label.startsWith("task_prompt:")) continue;
+      const heading = `${inline(label || text(message.role))}${message.call_id ? ` · ${inline(text(message.call_id))}` : ""}`;
+      if (label.startsWith("task_prompt:")) {
+        const body = messageBody(message);
+        const previous = this.taskPrompts.get(label);
+        this.taskPrompts.set(label, { body, sequence });
+        if (previous?.body === body) continue;
+        if (previous === undefined) {
+          lines.push(`Context excerpt · ${heading}`, excerpt(body, TASK_PROMPT_EXCERPT_LIMIT));
+        } else {
+          const path = this.evidence.get(previous.sequence)?.find((entry) => entry.endsWith("/request.json"));
+          const source = `request #${previous.sequence}`;
+          lines.push(`Context update · ${heading}`, "",
+            `Compared with ${path === undefined ? source : `[${source}](${path})`} (same label):`, "",
+            ...changedExcerpt(previous.body, body));
+        }
+        continue;
+      }
       const serialized = JSON.stringify(message);
-      const isTaskPrompt = label.startsWith("task_prompt:");
       if (WORKING_LABELS.has(label)) {
         if (this.workingMessages.get(label) === serialized) continue;
         this.workingMessages.set(label, serialized);
@@ -215,9 +245,7 @@ class TurnNarrative {
         occurrences.set(serialized, count);
         if ((this.observedMessages.get(serialized) ?? 0) >= count) continue;
       }
-      const heading = isTaskPrompt && this.taskPromptLabels.has(label) ? "Context update" : "Context excerpt";
-      if (isTaskPrompt) this.taskPromptLabels.add(label);
-      lines.push(`${heading} · ${inline(label || text(message.role))}${message.call_id ? ` · ${inline(text(message.call_id))}` : ""}`, excerpt(messageBody(message), isTaskPrompt ? TASK_PROMPT_EXCERPT_LIMIT : CONTEXT_EXCERPT_LIMIT));
+      lines.push(`Context excerpt · ${heading}`, excerpt(messageBody(message), CONTEXT_EXCERPT_LIMIT));
     }
     for (const [message, count] of occurrences) {
       this.observedMessages.set(message, Math.max(count, this.observedMessages.get(message) ?? 0));

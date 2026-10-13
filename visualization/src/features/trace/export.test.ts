@@ -250,6 +250,62 @@ describe("buildTraceExport", () => {
     expect(file(empty, "/turn.md")).toContain("No LLM request is retained");
   });
 
+  it("shows prompt tail changes against the last observed version, including reversions", () => {
+    const guide = "# Review guide\n" + "Stable instruction.\n".repeat(100);
+    const feedback = "Review feedback: check the missing reference.";
+    const bodies = [guide, guide + feedback, guide + feedback, guide, guide + feedback];
+    const events = bodies.map((body, index) => event("llm.model.request", index + 1, {
+      task_id: `review_${index}`,
+      attempt: 1,
+      messages: [{ role: "user", label: "task_prompt:guide:review", parts: [{ type: "text", text: body }] }],
+    }, "phase3", `cycle_${index + 1}`));
+    const bundle = buildTraceExport("prompt-updates", null, window(events));
+    const narrative = file(bundle, "/turn.md");
+    const section = (sequence: number): string => narrative.split(`### #${sequence} `)[1]!.split("### #")[0]!;
+    expect(narrative.match(/> # Review guide/g)).toHaveLength(1);
+    expect(section(2)).toContain(feedback);
+    expect(section(2)).toContain("Added lines");
+    expect(section(2)).not.toContain("Stable instruction.");
+    expect(section(3)).not.toContain("Context update");
+    expect(section(4)).toContain("Removed lines");
+    expect(section(4)).toContain(feedback);
+    expect(section(4)).toContain("[request #3](cycles/003/phase3/llm/tasks/001/request.json)");
+    expect(section(5)).toContain("Added lines");
+    expect(section(5)).toContain(feedback);
+    expect(section(5)).toContain("[request #4](cycles/004/phase3/llm/tasks/001/request.json)");
+    for (const [index, body] of bodies.entries()) {
+      const path = `/cycles/${String(index + 1).padStart(3, "0")}/phase3/llm/tasks/001/request.json`;
+      expect(JSON.parse(file(bundle, path)).messages[0].parts[0].text).toBe(body);
+    }
+    expectLinksToResolve(bundle);
+  });
+
+  it("bounds both sides of prompt replacements without repeating unchanged lines or mixing labels", () => {
+    const messages = (value: string): JsonObject[] => [
+      { role: "user", label: "task_prompt:input:document", parts: [{ type: "text", text: value }] },
+      { role: "user", label: "task_prompt:output:format", parts: [{ type: "text", text: "Unchanged output rule." }] },
+    ];
+    const oldBody = "Shared heading\nRemoved content. ".concat("x".repeat(4000), "\nShared footer");
+    const newBody = "Shared heading\nAdded content. ".concat("y".repeat(4000), "\nShared footer");
+    const bundle = buildTraceExport("replacement", null, window([oldBody, newBody, ""].map((body, index) =>
+      event("llm.model.request", index + 1, { task_id: "task", attempt: index + 1, messages: messages(body) }, "phase2"),
+    )));
+    const narrative = file(bundle, "/turn.md");
+    const update = narrative.split("### #2 ")[1]!.split("### #3 ")[0]!;
+    expect(update).toContain("Removed content.");
+    expect(update).toContain("Added content.");
+    expect(update).not.toContain("Shared heading");
+    expect(update).not.toContain("Shared footer");
+    expect(update).not.toContain("Unchanged output rule.");
+    expect(update).toContain("excerpt truncated");
+    expect(update.length).toBeLessThan(2000);
+    const emptied = narrative.split("### #3 ")[1]!;
+    expect(emptied).toContain("Removed lines");
+    expect(emptied).not.toContain("Added lines");
+    expect(emptied).toContain("[request #2](cycles/001/phase2/llm/tasks/001/attempts/002/request.json)");
+    expectLinksToResolve(bundle);
+  });
+
   it("keeps a large turn overview compact while retaining navigation evidence", () => {
     const events: ObservationEvent[] = [];
     let sequence = 1;
