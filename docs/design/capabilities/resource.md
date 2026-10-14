@@ -100,7 +100,7 @@ Resource executor 在 source staging 前、worker 返回后以及 Workspace comm
 ```toml
 [capabilities.resource]
 max_source_bytes = 20971520
-max_output_chars = 1000000
+max_output_chars = 1048576
 max_assets = 64
 max_total_asset_bytes = 52428800
 max_pdf_pages = 300

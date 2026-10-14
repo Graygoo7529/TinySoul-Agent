@@ -4,7 +4,12 @@ import { settingsText } from "../i18n";
 import type { ContextOverview } from "../../../api/v2/context";
 import { requestIdForTurn } from "../../../store/turnStore";
 import { useConnectionStore } from "../../../store/connectionStore";
-import { contextClients } from "../../context/panelShared";
+import {
+  ClosedBanner,
+  contextClients,
+  RefreshNotice,
+} from "../../context/panelShared";
+import { useTurnActivity } from "../../context/activity";
 
 import { FieldSection, SettingsPageBody } from "./controls";
 import { SettingsDisclosure } from "../SettingsDisclosure";
@@ -108,36 +113,130 @@ function RelatedContextLinks() {
 function ContextUsageCard() {
   const clients = useConnectionStore((s) => s.clients);
   const epoch = useConnectionStore((s) => s.epoch);
-  const turnId = useConnectionStore((s) => s.status?.runtime.active_turn_id ?? null);
+  const liveTurnId = useConnectionStore(
+    (s) => s.status?.runtime.active_turn_id ?? null,
+  );
+  const [boundTurnId, setBoundTurnId] = useState<string | null>(liveTurnId);
   const [overview, setOverview] = useState<ContextOverview | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { closed, stale, markFresh } = useTurnActivity(
+    boundTurnId ?? "__no_context_turn__",
+  );
+
+  useEffect(() => {
+    if (liveTurnId === null || liveTurnId === boundTurnId) return;
+    setBoundTurnId(liveTurnId);
+    setOverview(null);
+    setError(null);
+  }, [boundTurnId, liveTurnId]);
+
   const refresh = useCallback(() => {
-    if (clients === null || turnId === null) {
-      setOverview(null);
+    if (
+      clients === null ||
+      boundTurnId === null ||
+      closed
+    ) {
       return;
     }
     setLoading(true);
-    void contextClients(epoch).context.overview(requestIdForTurn(turnId))
-      .then((next) => { setOverview(next); setError(null); })
-      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)))
+    void Promise.resolve()
+      .then(() => requestIdForTurn(boundTurnId))
+      .then((requestId) => contextClients(epoch).context.overview(requestId))
+      .then((next) => {
+        setOverview(next);
+        setError(null);
+        markFresh();
+      })
+      .catch((reason: unknown) =>
+        setError(reason instanceof Error ? reason.message : String(reason)),
+      )
       .finally(() => setLoading(false));
-  }, [clients, epoch, turnId]);
-  useEffect(() => { refresh(); }, [refresh]);
+  }, [boundTurnId, clients, closed, epoch, markFresh]);
+
+  useEffect(() => {
+    if (boundTurnId !== null && liveTurnId === boundTurnId) refresh();
+    // The overview is read once for a bound Turn; later installs are exposed
+    // through the stale marker and an explicit refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boundTurnId, epoch]);
 
   const chars = overview?.segments.reduce((sum, segment) => sum + segment.chars, 0) ?? 0;
   const imageBytes = overview?.segments.reduce((sum, segment) => sum + segment.image_bytes, 0) ?? 0;
+  const slotRows = slotUsage(overview);
   return (
-    <SectionCard title={settingsText("Current Context usage")} description={settingsText("Read-only installed segment sizes from the active Turn; this is character and image-byte usage, not provider token accounting.")} actions={turnId !== null ? <button type="button" className="inline-flex items-center gap-1 text-[11px] text-accent disabled:opacity-50" onClick={refresh} disabled={loading}><RotateCw size={12} />{settingsText("Refresh")}</button> : undefined}>
-      {overview ? (
-        <div className="grid grid-cols-3 gap-2 text-[12px]">
-          <UsageMetric label="Segments" value={String(overview.segments.length)} />
-          <UsageMetric label="Characters" value={chars.toLocaleString()} />
-          <UsageMetric label="Images" value={`${(imageBytes / (1024 * 1024)).toFixed(2)} MiB`} />
-        </div>
-      ) : <div className="text-[12px] text-fg-faint">{error ?? (turnId === null ? settingsText("No active Turn; the rail below shows the installed structure.") : settingsText("Reading the active Context…"))}</div>}
-    </SectionCard>
+    <div className="space-y-2">
+      {overview !== null && closed && <ClosedBanner />}
+      {overview !== null && !closed && stale && (
+        <RefreshNotice onRefresh={refresh} refreshing={loading} />
+      )}
+      <SectionCard
+        title={settingsText("Current Context usage")}
+        description={settingsText("Read-only installed segment sizes from the bound Turn; this is character and image-byte usage, not provider token accounting.")}
+        actions={
+          boundTurnId !== null && !closed ? (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-[11px] text-accent disabled:opacity-50"
+              onClick={refresh}
+              disabled={loading}
+            >
+              <RotateCw size={12} />
+              {settingsText("Refresh")}
+            </button>
+          ) : undefined
+        }
+      >
+        {overview ? (
+          <>
+            <div className="grid grid-cols-3 gap-2 text-[12px]">
+              <UsageMetric label="Segments" value={String(overview.segments.length)} />
+              <UsageMetric label="Characters" value={chars.toLocaleString()} />
+              <UsageMetric label="Images" value={`${(imageBytes / (1024 * 1024)).toFixed(2)} MiB`} />
+            </div>
+            <div className="mt-3 divide-y divide-line rounded-md border border-line bg-bg-sunken">
+              {slotRows.map((row) => (
+                <div key={row.slot} className="flex items-center gap-3 px-3 py-2 text-[11px]">
+                  <span className="w-20 shrink-0 font-semibold uppercase tracking-wide text-fg-muted">{row.slot}</span>
+                  <span className="min-w-0 flex-1 text-fg-faint">{row.count} segments</span>
+                  <span className="font-mono text-fg-muted">{row.chars.toLocaleString()} chars</span>
+                  {row.imageBytes > 0 && <span className="font-mono text-fg-faint">{(row.imageBytes / (1024 * 1024)).toFixed(2)} MiB</span>}
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="text-[12px] text-fg-faint">
+            {error ??
+              (boundTurnId === null
+                ? settingsText("No active Turn; the rail below shows the installed structure.")
+                : settingsText("Reading the active Context…"))}
+          </div>
+        )}
+      </SectionCard>
+    </div>
   );
+}
+
+function slotUsage(overview: ContextOverview | null): Array<{
+  slot: string;
+  count: number;
+  chars: number;
+  imageBytes: number;
+}> {
+  if (overview === null) return [];
+  const rows = new Map<string, { count: number; chars: number; imageBytes: number; order: number }>();
+  for (const [index, segment] of overview.segments.entries()) {
+    const current = rows.get(segment.slot) ?? { count: 0, chars: 0, imageBytes: 0, order: segment.order || index };
+    current.count += 1;
+    current.chars += segment.chars;
+    current.imageBytes += segment.image_bytes;
+    current.order = Math.min(current.order, segment.order || index);
+    rows.set(segment.slot, current);
+  }
+  return [...rows.entries()]
+    .sort(([, left], [, right]) => left.order - right.order)
+    .map(([slot, row]) => ({ slot, ...row }));
 }
 
 function UsageMetric({ label, value }: { label: string; value: string }) {

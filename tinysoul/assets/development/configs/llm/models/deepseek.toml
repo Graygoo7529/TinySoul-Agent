@@ -6,7 +6,7 @@ providers = [
   { provider = "orca", provider_model = "deepseek/deepseek-v4-pro" },
   { provider = "deepseek", provider_model = "deepseek-v4-pro" },
 ]
-context_window_tokens = 1000000
+context_window_tokens = 1048576
 capabilities = [
   "text_input",
   "json_object_output",
@@ -27,7 +27,7 @@ providers = [
   { provider = "orca", provider_model = "deepseek/deepseek-v4-flash-vision-exp" },
   { provider = "deepseek", provider_model = "deepseek-flash" },
 ]
-context_window_tokens = 1000000
+context_window_tokens = 1048576
 capabilities = [
   "text_input",
   "image_input",

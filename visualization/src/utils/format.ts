@@ -41,9 +41,11 @@ export function formatNumber(value: number): string {
 
 /** Compact token count, e.g. 12.4k. */
 export function formatTokens(value: number): string {
-  if (value < 1000) return `${value}`;
-  if (value < 1_000_000) return `${(value / 1000).toFixed(1)}k`;
-  return `${(value / 1_000_000).toFixed(2)}M`;
+  const KIBI = 1024;
+  const MEBI = 1024 * 1024;
+  if (value < KIBI) return `${value}`;
+  if (value < MEBI) return `${(value / KIBI).toFixed(1)}k`;
+  return `${(value / MEBI).toFixed(2)}M`;
 }
 
 export function shorten(digest: string, limit = 12): string {

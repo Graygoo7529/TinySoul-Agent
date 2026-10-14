@@ -409,7 +409,7 @@ function TaskChainEditor({
           value={
             typeof object.value.max_output_tokens === "number"
               ? object.value.max_output_tokens
-              : 2048
+              : 32768
           }
           onCommit={(value) =>
             setObjectField(ROOT, object, "max_output_tokens", value, createSource)

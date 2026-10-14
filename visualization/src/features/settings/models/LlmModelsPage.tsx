@@ -1078,7 +1078,7 @@ function RequestOverridesSection({
     fallback: number;
   }[] = [
     { key: "temperature", integer: false, fallback: 0.3 },
-    { key: "max_output_tokens", integer: true, fallback: 2048 },
+    { key: "max_output_tokens", integer: true, fallback: 32768 },
   ];
   return (
     <SettingsDisclosure title="请求参数覆盖" className="m-3" paths={[`${ROOT}.${object.id}.request_overrides`]}>

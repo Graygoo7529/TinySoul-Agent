@@ -77,7 +77,7 @@ PATCH 的 `path` 不表示任意深的 TOML 树路径：
 | `.required_capabilities` | string_list，链内每个模型须满足 | `["text_input"]` | 候选过滤 |
 | `.answer_format` | enum：none / text / json_object | json_object | 输出协议 |
 | `.tool_use` | enum：disabled / optional / required | disabled | 工具调用策略 |
-| `.temperature` / `.max_output_tokens` | number / integer | 0.3 / 2048 | 采样与输出上限 |
+| `.temperature` / `.max_output_tokens` | number / integer | 0.3 / 32768 | 采样与输出上限 |
 | `.max_retries_per_provider` / `.retry_wait_seconds` / `.provider_switch_wait_seconds` / `.model_switch_wait_seconds` | 重试与切换等待五项 | 1 / 1.0 / 0.0 / 2.0 | 失败恢复节奏 |
 | `.max_cycles` | integer | 10 | 单链内模型-Provider 轮次；**与 Turn 级 `loop.user.max_cycles` 是不同控件** |
 | `.prefer_successful_provider_seconds` / `.prefer_successful_model_seconds` | number | 600 | 成功备份偏好窗口 |
@@ -203,7 +203,7 @@ catalog value_kind = object，**整张 map 原子提交**；source_id 为 `proje
 
 | 路径 | 类型 | 默认 | 影响 |
 | --- | --- | --- | --- |
-| `max_source_bytes` / `max_output_chars` / `max_excerpt_chars` | integer（advanced 部分） | 5242880 / 1000000 / 600 | 共享下载/存储/摘录上限 |
+| `max_source_bytes` / `max_output_chars` / `max_excerpt_chars` | integer（advanced 部分） | 5242880 / 1048576 / 600 | 共享下载/存储/摘录上限 |
 | `request_timeout_seconds` / `max_redirects` / `user_agent` | number / integer / string | 30 / 5 / TinySoul-Agent/0.1 | 共享请求行为 |
 | `search_by_kimi.enabled` / `.base_url` / `.api_key_env` / `.model` | boolean / string / credential_reference / enum | false / api.moonshot.cn / KIMI_SEARCH_API_KEY / kimi-k2.6 | Kimi 网页搜索 Action 注册；choices 为 kimi-k2.5、kimi-k2.6 |
 | `search_by_kimi.max_query_chars` / `.max_result_chars` / `.max_inline_chars` / `.max_tool_rounds` / `.max_search_tokens` / `.max_output_tokens` | integer（advanced） | 4096 / 102400 / 12288 / 6 / 100000 / 8192 | 搜索边界 |
@@ -214,7 +214,7 @@ catalog value_kind = object，**整张 map 原子提交**；source_id 为 `proje
 
 | 路径 | 类型 | 默认 | 影响 |
 | --- | --- | --- | --- |
-| `max_source_bytes` / `max_output_chars` / `max_assets` / `max_total_asset_bytes` / `max_pdf_pages` | integer | 20MB / 1M / 64 / 50MB / 300 | 转换边界 |
+| `max_source_bytes` / `max_output_chars` / `max_assets` / `max_total_asset_bytes` / `max_pdf_pages` | integer | 20971520 / 1048576 / 64 / 52428800 / 300 | 转换边界 |
 | `render_pdf_pages` | enum | on_no_text | choices 为 disabled/on_no_text |
 | `convert_with_markitdown.enabled` / `.formats` / `.extract_images` / `.extract_attachments` | boolean / string_list ⊂ {pdf,docx} 非空 / boolean / boolean | true / [pdf,docx] / true / true | MarkItDown 转换 Action |
 | `convert_with_pypdf.enabled` / `.extract_images` / `.extract_attachments` | boolean | true / true / true | PyPDF 转换 Action |
@@ -237,7 +237,7 @@ catalog value_kind = object，**整张 map 原子提交**；source_id 为 `proje
 
 | 路径 | 类型 | 默认 | 影响 |
 | --- | --- | --- | --- |
-| `max_connections` / `connect_timeout_seconds` / `max_runtime_seconds` / `stop_timeout_seconds` / `max_output_chars` / `max_collect_chars` / `max_brief_chars` | integer / number | 4 / 30 / 3600 / 10 / 1M / 12288 / 24576 | 连接与委派边界 |
+| `max_connections` / `connect_timeout_seconds` / `max_runtime_seconds` / `stop_timeout_seconds` / `max_output_chars` / `max_collect_chars` / `max_brief_chars` | integer / number | 4 / 30 / 3600 / 10 / 1048576 / 12288 / 24576 | 连接与委派边界 |
 | `capabilities.subagent.agents.<id>` | collection；create_source `project:configs/capabilities/subagent.toml`；新条目 enabled=false | — | ACP 目标 |
 | `agents.*.enabled` / `.description` / `.command` / `.args` / `.env` / `.env_refs` / `.auto_approve` | 按 catalog（env/env_refs 为 object 原子值，env_refs 是 credential_reference） | — | 目标定义；auto_approve 使用适配器自动批准，否则请求回到父 Agent |
 
@@ -249,10 +249,10 @@ catalog value_kind = object，**整张 map 原子提交**；source_id 为 `proje
 | --- | --- | --- | --- |
 | `workspace.root` | string（advanced） | runtime/workspace | 当日工作区根；日切归档语义不变 |
 | `workspace.max_files` | integer | 100 | manifest 跟踪上限 |
-| `workspace.max_read_chars` / `max_write_chars` / `max_image_bytes` | integer | 8192 / 32768 / 5MB | 读写/图片边界 |
+| `workspace.max_read_chars` / `max_write_chars` / `max_image_bytes` | integer | 8192 / 32768 / 5242880 | 读写/图片边界 |
 | `workspace.ignore_dirs` | string_list（advanced） | .git 等 8 项 | 调和忽略目录 |
 | `workspace.watch.enabled` / `.debounce_ms` | boolean / integer（advanced） | true / 200 | 文件监听；正式操作不依赖监听 |
-| `workspace.search.max_query_chars` / `.max_scan_chars` | integer | 256 / 1M | 词法搜索边界 |
+| `workspace.search.max_query_chars` / `.max_scan_chars` | integer | 256 / 1048576 | 词法搜索边界 |
 | `workspace.analysis.max_intent_chars` / `.max_reference_links` / `.max_source_chars` / `.max_chars_per_reference` / `.max_answer_chars` | integer | 2048 / 8 / 24576 / 12288 / 4096 | analyze Action 边界 |
 
 ### 5.2 Session
@@ -270,7 +270,7 @@ catalog value_kind = object，**整张 map 原子提交**；source_id 为 `proje
 | `home.root` / `home.runtime_root` | string（advanced） | home / runtime/home | actual Home 与跨日 overlay 根 |
 | `home.max_read_chars` / `home.max_write_chars` | integer | 8192 / 32768 | 渐进读取/单次写入上限 |
 | `home.max_skill_catalog_chars` | integer（advanced） | 8192 | Skill 目录投影 |
-| `home.search.scan_limit` / `.max_resource_chars` / `.max_embedding_cache_chars` | integer | 1000 / 131072 / 16M | 搜索与可重建向量缓存 |
+| `home.search.scan_limit` / `.max_resource_chars` / `.max_embedding_cache_chars` | integer | 1000 / 131072 / 16777216 | 搜索与可重建向量缓存 |
 | `home.search.embedding_use` | string，引用 `infra.model_services.uses`（embedding kind），可空 | 模板未设置 | 主编辑入口在 Home 设置；专用用途页仅显示被谁使用并跳转 |
 
 ### 5.4 Memory
@@ -282,7 +282,7 @@ catalog value_kind = object，**整张 map 原子提交**；source_id 为 `proje
 | `memory.documents.max_{daily,entity,concept,fact,note}_chars` | integer | 32768/16384/16384/4096/24576 | 五类持久文档上限 |
 | `memory.documents.redirect_max_hops` | integer（advanced） | 8 | redirect 链上限 |
 | `memory.inspect.max_page_chars` | integer（advanced） | 8192 | inspect 单页上限 |
-| `memory.search.max_embedding_cache_chars` | integer（advanced） | 16M | 可重建向量缓存 |
+| `memory.search.max_embedding_cache_chars` | integer（advanced） | 16777216 | 可重建向量缓存 |
 | `memory.search.embedding_use` | 同 Home | 模板未设置 | 主编辑入口在 Memory 设置 |
 
 ## 6. Action catalog 文档编辑面
@@ -305,7 +305,7 @@ catalog value_kind = object，**整张 map 原子提交**；source_id 为 `proje
 | `agent.interactive` | true | 进程独有（CLI 交互模式） |
 | `agent.exit_commands` / `agent.stop_turn_commands` | ["exit","quit"] / ["stop","cancel"] | 进程独有 |
 | `agent.retained_outcomes` | 32 | 进程独有 |
-| `agent.output.mode` / `agent.output.max_model_detail_chars` | normal / 20000 | 进程独有 |
+| `agent.output.mode` / `agent.output.max_model_detail_chars` | normal / 20480 | 进程独有 |
 | `config.include` / `config.env_file` / `config.document_sets` | 主文件声明 | 配置来源自身，进程独有 |
 | environment / overrides 两个 source | — | 进程环境与 CLI 覆盖不可经 endpoint 改写 |
 | `process_shell{host, port, instance_id}` | 当前监听 | Endpoint 监听不走配置文件；只读投影 |

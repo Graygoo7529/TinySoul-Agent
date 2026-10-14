@@ -49,7 +49,7 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     assert kimi.request_overrides.temperature == pytest.approx(1.0)
 
     deepseek_pro = config.models.get("deepseek_pro")
-    assert deepseek_pro.context_window_tokens == 1_000_000
+    assert deepseek_pro.context_window_tokens == 1_048_576
     deepseek_flash = config.models.get("deepseek_flash")
     assert deepseek_flash.supports(ModelCapability.IMAGE_INPUT)
     assert deepseek_flash.supports(ModelCapability.IMAGE_REMOTE_URL)
