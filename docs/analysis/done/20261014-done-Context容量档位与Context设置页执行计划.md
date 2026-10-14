@@ -288,3 +288,14 @@ Data & Knowledge / Context                 当前 Turn · 采集时间 · 刷新
 
 本计划依据 AGENTS.md 的 owner、配置单一事实、前后端边界和文档归档规约完成归档。
 
+## 10. 提交后复核补充（2026-10-14）
+
+提交后的交叉核对发现少量同步遗漏，已在当前实现中补齐：
+
+- `visualization/docs/design/config-coverage.md` 中任务链默认输出、Agent 模型细节、Web/Resource/ACP/Workspace/缓存容量的旧约数已与资产和 owner 默认同步；Resource 设计示例也改为 `1048576`。
+- DeepSeek standard/development 模型窗口由约数 `1000000` 统一为精确的 `1048576`；前端任务链及模型覆盖控件的默认填充值同步为 `32768`，避免 UI 在缺少显式值时回退到旧的 `2048`。
+- Context 设置页复用 Context drawer 的 stale/closed 语义，保留已读 Turn 的占用快照；占用卡按后端 segment 的 slot/order 汇总 Background、Trace、Working 字符和图片字节，仍明确不把它伪装成 provider token 统计。
+- 前端 token 紧凑显示改用 1024 基数，与配置值及 Context 容量显示一致；其它非模型窗口的 `1000000` 测试/时间换算值不作无关替换。
+
+复核验证：LLM 配置测试 17 项通过，前端完整 Vitest 91 文件/805 测试通过，Vite `tsc` 与 production build 通过，generation/release 测试通过，`git diff --check` 无错误。当前模型窗口只保留 `262144`（256 Ki）和 `1048576`（1 Mi）两档实际资产值。
+

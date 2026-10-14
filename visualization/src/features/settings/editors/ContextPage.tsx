@@ -45,10 +45,18 @@ export function ContextPage() {
       <FieldSection
         title={settingsText("Background")}
         description={settingsText("The stable identity, Session history projection, Home catalog and Memory views assembled before the current turn trace.")}
-        paths={["session.max_background_chars", "home.max_skill_catalog_chars", "context.max_image_bytes"]}
+        paths={["session.max_background_chars", "home.max_skill_catalog_chars"]}
         overrides={{
           "session.max_background_chars": { min: 512, slider: { min: 1024, max: 128 * 1024, step: 1024 } },
           "home.max_skill_catalog_chars": { min: 1, slider: { min: 1024, max: 64 * 1024, step: 1024 } },
+        }}
+      />
+
+      <FieldSection
+        title={settingsText("Context input budget")}
+        description={settingsText("The combined inline image byte limit for one constructed MessageStack; it applies across Background, Trace and Working.")}
+        paths={["context.max_image_bytes"]}
+        overrides={{
           "context.max_image_bytes": { min: 1, slider: { min: MEBIBYTE, max: 64 * MEBIBYTE, step: MEBIBYTE } },
         }}
       />
