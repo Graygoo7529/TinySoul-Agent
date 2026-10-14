@@ -231,13 +231,13 @@ describe("budgetSummary", () => {
       values: {
         "loop.user.max_cycles": 12,
         "reflection.home.max_cycles": null as never,
-        "session.background_max_chars": 64000,
+        "session.max_background_chars": 64000,
         "context.compression_target_ratio": 0.6,
       },
     });
     expect(budgetSummary(withBudgets)).toEqual([
       { path: "loop.user.max_cycles", value: 12 },
-      { path: "session.background_max_chars", value: 64000 },
+      { path: "session.max_background_chars", value: 64000 },
       { path: "context.compression_target_ratio", value: 0.6 },
     ]);
   });

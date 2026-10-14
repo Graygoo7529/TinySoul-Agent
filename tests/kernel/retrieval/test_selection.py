@@ -274,7 +274,7 @@ async def test_llm_selection_accepts_only_known_unique_subset_and_rank_requires_
             query=query,
             candidates=candidates(rows),
             operation=OperationKind.SELECT,
-            input_max_chars=1,
+            max_input_chars=1,
         )
     assert failure.value.kind is SearchFailureKind.SCOPE_REQUIRED
     await services.close()
@@ -318,7 +318,7 @@ async def test_llm_basis_can_only_reference_actual_input_and_preserves_snapshot(
     assert evaluation and evaluation.input_coverage is ContentCoverage.EXCERPT
     assert (
         evaluation.basis[0].kind is EvidenceKind.MODEL
-        and evaluation.basis[0].end == 4000
+            and evaluation.basis[0].end == 4096
     )
     answer["items"] = [{"id": "c0", "basis_ids": ["body"]}]
     with pytest.raises(SearchFailure) as failure:

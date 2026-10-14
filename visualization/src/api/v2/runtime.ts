@@ -84,7 +84,7 @@ export interface ReflectionStatusResponse {
 /**
  * POST /v2/reflection body (ReflectionRequest). `kind=memory` must carry an
  * explicit target_day; `kind=home` must not. instructions are bounded
- * server-side (16000 chars). Acceptance returns a TurnCreateReceipt.
+ * server-side (16384 chars). Acceptance returns a TurnCreateReceipt.
  */
 export type ReflectionRequestBody =
   | {

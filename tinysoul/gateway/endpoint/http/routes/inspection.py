@@ -2,7 +2,7 @@
 
 from fastapi import FastAPI, Query
 
-from tinysoul.infra.paging import PageOptions
+from tinysoul.infra.paging import DEFAULT_PAGE_CHARS, PageOptions
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.identity import TurnIdentity
 
@@ -32,7 +32,7 @@ def register_inspection_routes(app: FastAPI, engine: EndpointEngine) -> None:
         tool_name: str | None = None,
         continuation: str | None = None,
         limit: int = 30,
-        max_chars: int = 16000,
+        max_chars: int = DEFAULT_PAGE_CHARS,
     ):
         return await engine.inspection.expand_tools(
             server_id,
@@ -63,7 +63,7 @@ def register_inspection_routes(app: FastAPI, engine: EndpointEngine) -> None:
         request_id: str,
         job_id: str,
         continuation: str | None = None,
-        max_chars: int = 16000,
+        max_chars: int = DEFAULT_PAGE_CHARS,
     ):
         return await engine.inspection.job_output(
             request_id, job_id, PageOptions(continuation, max_chars=max_chars)
@@ -84,7 +84,7 @@ def register_inspection_routes(app: FastAPI, engine: EndpointEngine) -> None:
         request_id: str,
         continuation: str | None = None,
         limit: int = 30,
-        max_chars: int = 16000,
+        max_chars: int = DEFAULT_PAGE_CHARS,
     ):
         return await engine.inspection.turn_interactions(
             request_id, PageOptions(continuation, limit, max_chars)
@@ -109,7 +109,7 @@ def register_inspection_routes(app: FastAPI, engine: EndpointEngine) -> None:
         request_id: str,
         segment_id: str,
         continuation: str | None = None,
-        max_chars: int = 16000,
+        max_chars: int = DEFAULT_PAGE_CHARS,
     ):
         return await engine.inspection.context_segment(
             request_id, segment_id, PageOptions(continuation, max_chars=max_chars)
@@ -137,7 +137,7 @@ def register_inspection_routes(app: FastAPI, engine: EndpointEngine) -> None:
         response_model_exclude_unset=True,
     )
     async def context_background(
-        request_id: str, continuation: str | None = None, max_chars: int = 16000
+        request_id: str, continuation: str | None = None, max_chars: int = DEFAULT_PAGE_CHARS
     ):
         return await engine.inspection.context_background(
             request_id, PageOptions(continuation, max_chars=max_chars)
@@ -149,7 +149,7 @@ def register_inspection_routes(app: FastAPI, engine: EndpointEngine) -> None:
         response_model_exclude_unset=True,
     )
     async def session_background(
-        day: str, sequence: int, continuation: str | None = None, max_chars: int = 16000
+        day: str, sequence: int, continuation: str | None = None, max_chars: int = DEFAULT_PAGE_CHARS
     ):
         return await engine.inspection.session_background(
             str(TurnIdentity(CalendarDay.parse(day), sequence)),
@@ -162,7 +162,7 @@ def register_inspection_routes(app: FastAPI, engine: EndpointEngine) -> None:
         day: str | None = None,
         continuation: str | None = None,
         limit: int = 30,
-        max_chars: int = 16000,
+        max_chars: int = DEFAULT_PAGE_CHARS,
     ):
         return await engine.inspection.session_turns(
             CalendarDay.parse(day) if day else None,
@@ -175,7 +175,7 @@ def register_inspection_routes(app: FastAPI, engine: EndpointEngine) -> None:
         response_model_exclude_unset=True,
     )
     async def session_turn(
-        day: str, sequence: int, continuation: str | None = None, max_chars: int = 16000
+        day: str, sequence: int, continuation: str | None = None, max_chars: int = DEFAULT_PAGE_CHARS
     ):
         return await engine.inspection.session_interactions(
             str(TurnIdentity(CalendarDay.parse(day), sequence)),

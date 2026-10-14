@@ -43,11 +43,11 @@ class ExecutionSettings:
     )
     max_runtime_seconds: int = 1800
     max_output_bytes: int = 2 * 1024 * 1024
-    max_collect_chars: int = 4000
-    max_source_chars: int = 100_000
-    max_command_chars: int = 20_000
+    max_collect_chars: int = 4096
+    max_source_chars: int = 102400
+    max_command_chars: int = 20480
     max_args: int = 64
-    max_arg_chars: int = 4000
+    max_arg_chars: int = 4096
 
     def __post_init__(self) -> None:
         if not isinstance(self.enabled, bool):

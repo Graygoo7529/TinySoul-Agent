@@ -21,13 +21,13 @@ class ContextCompressor:
     def __init__(
         self,
         *,
-        chunk_max_chars: int,
+        chunk_chars: int,
         branch_factor: int,
         min_hot_entries: int,
     ) -> None:
-        if chunk_max_chars <= 0:
+        if chunk_chars <= 0:
             raise ContextInvariantError(
-                "ContextCompressor.chunk_max_chars must be positive"
+                "ContextCompressor.chunk_chars must be positive"
             )
         if branch_factor < 2:
             raise ContextInvariantError(
@@ -37,14 +37,14 @@ class ContextCompressor:
             raise ContextInvariantError(
                 "ContextCompressor.min_hot_entries cannot be negative"
             )
-        self._chunk_max_chars = chunk_max_chars
+        self._chunk_chars = chunk_chars
         self._branch_factor = branch_factor
         self._min_hot_entries = min_hot_entries
 
     def new_trace(self, turn_id: str) -> TurnTraceHeap:
         return TurnTraceHeap(
             turn_id=turn_id,
-            chunk_max_chars=self._chunk_max_chars,
+            chunk_chars=self._chunk_chars,
             branch_factor=self._branch_factor,
             min_hot_entries=self._min_hot_entries,
         )

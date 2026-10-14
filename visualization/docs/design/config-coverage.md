@@ -147,33 +147,33 @@ catalog value_kind = object，**整张 map 原子提交**；source_id 为 `proje
 | `max_steps` | 1..32 | 8 |
 | `query.channels` | lexical / embedding 子集；embedding 通道依赖 owner `embedding_use` | `["lexical"]` |
 | `select.allowed_context` / `rerank.allowed_context` | none / current 子集 | 见上表 |
-| `select.input_max_chars` / `rerank.input_max_chars` | integer | 64000 |
+| `select.max_input_chars` / `rerank.max_input_chars` | integer | 65536 |
 | `filter.*` | 属性契约由 owner typed 声明生成，无模型选择器 | — |
-| `snapshot_max_chars` | integer | （未在模板显式设置，用 owner 默认） |
-| `page.max_items` / `page.max_chars` | integer | 50 / 8000 |
+| `max_snapshot_chars` | integer | 4194304 |
+| `page.max_items` / `page.max_chars` | integer | 50 / 8192 |
 
 规则：可用 search action 必须有 policy；policy 不得超出代码声明能力。不 PATCH `action.retrieval.home.search.page` 等子路径。
 
-### 3.4 预算与 Reflection
+### 3.4 Cycle 与 Reflection
 
 | 路径 | 类型 | 默认（模板） | 归属页 |
 | --- | --- | --- | --- |
 | `loop.user.max_cycles` | integer | 20 | 行为与调用 → 预算 |
 | `reflection.home.max_cycles` | integer | 20 | 行为与调用 → 预算 |
 | `reflection.memory.max_cycles` | integer | 20 | 行为与调用 → 预算 |
-| `context.budget_max_image_bytes` | integer | 10485760 | 行为与调用 → Context 预算 |
+| `context.max_image_bytes` | integer | 10485760 | 数据与知识 → Context |
 | `context.compression_trigger_ratio` | number | 0.8 | 同上 |
 | `context.compression_target_ratio` | number | 0.5 | 同上 |
-| `context.trace_chunk_max_chars` | integer | 12000 | 同上 |
+| `context.trace_chunk_chars` | integer | 12288 | 同上 |
 | `context.trace_branch_factor` | integer | 4 | 同上 |
 | `context.trace_min_hot_entries` | integer | 2 | 同上 |
-| `context.trace_inspect_max_chars` | integer | 8000 | 同上 |
-| `session.background_max_chars` | integer | 24000 | 数据与知识 → Session（亦属方案可选预算） |
+| `context.max_trace_inspect_chars` | integer | 8192 | 同上 |
+| `session.max_background_chars` | integer | 24576 | 数据与知识 → Context |
 | `reflection.timezone` | string | Asia/Shanghai | 行为与调用 → Reflection 调度 |
 | `reflection.archive_root` | string | archive | 同上 |
 | `reflection.schedule.enabled` | boolean | true | 同上 |
 | `reflection.schedule.daily_time` | string（HH:MM） | 00:15 | 同上 |
-| `context.system_text` | string | "You are TinySoul." | 系统与诊断（稳定身份文本，advanced 语义） |
+| `context.system_text` | string | "You are TinySoul." | 数据与知识 → Context（稳定身份文本） |
 | `context.journal` | string | ""（advanced） | 同上 |
 
 ## 4. 工具与连接（计划 §18 / P13 前半）
@@ -187,10 +187,10 @@ catalog value_kind = object，**整张 map 原子提交**；source_id 为 `proje
 | `execution.interpreters.<id>.executable` | string | 同名命令 | 实际可执行文件 |
 | `execution.max_runtime_seconds` | integer | 1800 | 单次执行总时限 |
 | `execution.max_output_bytes` | integer | 2097152 | 输出上限 |
-| `execution.max_collect_chars` | integer | 4000 | Action 结果内联输出 |
-| `execution.max_source_chars` | integer | 100000 | 脚本源码上限 |
-| `execution.max_command_chars` | integer | 20000 | 命令行上限 |
-| `execution.max_args` / `max_arg_chars` | integer | 64 / 4000 | 参数数量/长度 |
+| `execution.max_collect_chars` | integer | 4096 | Action 结果内联输出 |
+| `execution.max_source_chars` | integer | 102400 | 脚本源码上限 |
+| `execution.max_command_chars` | integer | 20480 | 命令行上限 |
+| `execution.max_args` / `max_arg_chars` | integer | 64 / 4096 | 参数数量/长度 |
 
 ### 4.2 jobs
 
@@ -206,8 +206,8 @@ catalog value_kind = object，**整张 map 原子提交**；source_id 为 `proje
 | `max_source_bytes` / `max_output_chars` / `max_excerpt_chars` | integer（advanced 部分） | 5242880 / 1000000 / 600 | 共享下载/存储/摘录上限 |
 | `request_timeout_seconds` / `max_redirects` / `user_agent` | number / integer / string | 30 / 5 / TinySoul-Agent/0.1 | 共享请求行为 |
 | `search_by_kimi.enabled` / `.base_url` / `.api_key_env` / `.model` | boolean / string / credential_reference / enum | false / api.moonshot.cn / KIMI_SEARCH_API_KEY / kimi-k2.6 | Kimi 网页搜索 Action 注册；choices 为 kimi-k2.5、kimi-k2.6 |
-| `search_by_kimi.max_query_chars` / `.max_result_chars` / `.max_inline_chars` / `.max_tool_rounds` / `.max_search_tokens` / `.max_output_tokens` | integer（advanced） | 4000 / 100000 / 12000 / 6 / 100000 / 8192 | 搜索边界 |
-| `discover_pages.enabled` 及 `max_visit_depth` / `max_pages` / `max_candidates` / `max_links_per_page` / `max_result_chars` / `max_inline_chars` / `max_concurrency` / `max_tasks_per_minute` / `max_request_retries` / `max_crawl_seconds` / `allow_query_links` | 按 catalog | false / 1 / 20 / 100 / 200 / 100000 / 12000 / 2 / 30 / 1 / 90 / false | 页面发现 Action 注册与边界（concurrency ≤ pages 等由代码校验） |
+| `search_by_kimi.max_query_chars` / `.max_result_chars` / `.max_inline_chars` / `.max_tool_rounds` / `.max_search_tokens` / `.max_output_tokens` | integer（advanced） | 4096 / 102400 / 12288 / 6 / 100000 / 8192 | 搜索边界 |
+| `discover_pages.enabled` 及 `max_visit_depth` / `max_pages` / `max_candidates` / `max_links_per_page` / `max_result_chars` / `max_inline_chars` / `max_concurrency` / `max_tasks_per_minute` / `max_request_retries` / `max_crawl_seconds` / `allow_query_links` | 按 catalog | false / 1 / 20 / 100 / 200 / 102400 / 12288 / 2 / 30 / 1 / 90 / false | 页面发现 Action 注册与边界（concurrency ≤ pages 等由代码校验） |
 | `fetch_with_defuddle.enabled` / `fetch_with_trafilatura.enabled` | boolean | false / true | 抓取实现注册 |
 
 ### 4.4 资源转换 —— `capabilities.resource`
@@ -223,7 +223,7 @@ catalog value_kind = object，**整张 map 原子提交**；source_id 为 `proje
 
 | 路径 | 类型 | 默认 | 影响 |
 | --- | --- | --- | --- |
-| `timeout_seconds` / `max_tools` / `max_catalog_bytes` / `max_result_bytes` / `max_inline_chars` / `search_max_chars` / `page_size` | number / integer | 45 / 2000 / 4M / 8M / 16000 / 60000 / 30 | 共享目录与调用边界 |
+| `timeout_seconds` / `max_tools` / `max_catalog_bytes` / `max_result_bytes` / `max_inline_chars` / `max_search_chars` / `page_size` | number / integer | 45 / 2000 / 4M / 8M / 16384 / 61440 / 30 | 共享目录与调用边界 |
 | `capabilities.expand.servers.<id>` | collection；create_source `project:configs/capabilities/expand.toml`；新条目 enabled=false | — | MCP 服务 |
 | `servers.*.enabled` / `.description` | boolean / string | — | 注册与说明 |
 | `servers.*.transport` | enum：stdio / streamable_http | stdio | 传输 |
@@ -237,7 +237,7 @@ catalog value_kind = object，**整张 map 原子提交**；source_id 为 `proje
 
 | 路径 | 类型 | 默认 | 影响 |
 | --- | --- | --- | --- |
-| `max_connections` / `connect_timeout_seconds` / `max_runtime_seconds` / `stop_timeout_seconds` / `max_output_chars` / `max_collect_chars` / `max_brief_chars` | integer / number | 4 / 30 / 3600 / 10 / 1M / 12000 / 24000 | 连接与委派边界 |
+| `max_connections` / `connect_timeout_seconds` / `max_runtime_seconds` / `stop_timeout_seconds` / `max_output_chars` / `max_collect_chars` / `max_brief_chars` | integer / number | 4 / 30 / 3600 / 10 / 1M / 12288 / 24576 | 连接与委派边界 |
 | `capabilities.subagent.agents.<id>` | collection；create_source `project:configs/capabilities/subagent.toml`；新条目 enabled=false | — | ACP 目标 |
 | `agents.*.enabled` / `.description` / `.command` / `.args` / `.env` / `.env_refs` / `.auto_approve` | 按 catalog（env/env_refs 为 object 原子值，env_refs 是 credential_reference） | — | 目标定义；auto_approve 使用适配器自动批准，否则请求回到父 Agent |
 
@@ -249,28 +249,28 @@ catalog value_kind = object，**整张 map 原子提交**；source_id 为 `proje
 | --- | --- | --- | --- |
 | `workspace.root` | string（advanced） | runtime/workspace | 当日工作区根；日切归档语义不变 |
 | `workspace.max_files` | integer | 100 | manifest 跟踪上限 |
-| `workspace.max_read_chars` / `max_write_chars` / `max_image_bytes` | integer | 4000 / 12000 / 5MB | 读写/图片边界 |
+| `workspace.max_read_chars` / `max_write_chars` / `max_image_bytes` | integer | 8192 / 32768 / 5MB | 读写/图片边界 |
 | `workspace.ignore_dirs` | string_list（advanced） | .git 等 8 项 | 调和忽略目录 |
 | `workspace.watch.enabled` / `.debounce_ms` | boolean / integer（advanced） | true / 200 | 文件监听；正式操作不依赖监听 |
 | `workspace.search.max_query_chars` / `.max_scan_chars` | integer | 256 / 1M | 词法搜索边界 |
-| `workspace.analysis.max_intent_chars` / `.max_reference_links` / `.max_source_chars` / `.max_chars_per_reference` / `.max_answer_chars` | integer | 2000 / 8 / 24000 / 12000 / 4000 | analyze Action 边界 |
+| `workspace.analysis.max_intent_chars` / `.max_reference_links` / `.max_source_chars` / `.max_chars_per_reference` / `.max_answer_chars` | integer | 2048 / 8 / 24576 / 12288 / 4096 | analyze Action 边界 |
 
 ### 5.2 Session
 
 | 路径 | 类型 | 默认 | 备注 |
 | --- | --- | --- | --- |
 | `session.root` | string（advanced） | runtime/session | 当日 Session 根 |
-| `session.background_max_chars` | integer | 24000 | 背景预算（方案可选预算） |
-| `session.inspect_max_chars` | integer（advanced） | 8000 | inspect 单页上限 |
+| `session.max_background_chars` | integer | 24576 | Context 背景投影预算 |
+| `session.max_inspect_chars` | integer（advanced） | 8192 | inspect 单页上限 |
 
 ### 5.3 Home
 
 | 路径 | 类型 | 默认 | 备注 |
 | --- | --- | --- | --- |
 | `home.root` / `home.runtime_root` | string（advanced） | home / runtime/home | actual Home 与跨日 overlay 根 |
-| `home.max_read_chars` / `home.max_write_chars` | integer | 4000 / 16000 | 渐进读取/单次写入上限 |
-| `home.skill_catalog_max_chars` | integer（advanced） | 8000 | Skill 目录投影 |
-| `home.search.scan_limit` / `.resource_max_chars` / `.embedding_cache_max_chars` | integer | 1000 / 128000 / 16M | 搜索与可重建向量缓存 |
+| `home.max_read_chars` / `home.max_write_chars` | integer | 8192 / 32768 | 渐进读取/单次写入上限 |
+| `home.max_skill_catalog_chars` | integer（advanced） | 8192 | Skill 目录投影 |
+| `home.search.scan_limit` / `.max_resource_chars` / `.max_embedding_cache_chars` | integer | 1000 / 131072 / 16M | 搜索与可重建向量缓存 |
 | `home.search.embedding_use` | string，引用 `infra.model_services.uses`（embedding kind），可空 | 模板未设置 | 主编辑入口在 Home 设置；专用用途页仅显示被谁使用并跳转 |
 
 ### 5.4 Memory
@@ -278,11 +278,11 @@ catalog value_kind = object，**整张 map 原子提交**；source_id 为 `proje
 | 路径 | 类型 | 默认 | 备注 |
 | --- | --- | --- | --- |
 | `memory.root` | string（advanced） | memory | 持久文档与派生缓存根 |
-| `memory.max_active_chars` | integer | 12000 | 活动 Memory.md 上限 |
-| `memory.documents.{daily,entity,concept,fact,note}_max_chars` | integer | 32000/16000/16000/4000/24000 | 五类持久文档上限 |
+| `memory.max_active_chars` | integer | 12288 | 活动 Memory.md 上限 |
+| `memory.documents.max_{daily,entity,concept,fact,note}_chars` | integer | 32768/16384/16384/4096/24576 | 五类持久文档上限 |
 | `memory.documents.redirect_max_hops` | integer（advanced） | 8 | redirect 链上限 |
-| `memory.inspect.page_max_chars` | integer（advanced） | 8000 | inspect 单页上限 |
-| `memory.search.embedding_cache_max_chars` | integer（advanced） | 16M | 可重建向量缓存 |
+| `memory.inspect.max_page_chars` | integer（advanced） | 8192 | inspect 单页上限 |
+| `memory.search.max_embedding_cache_chars` | integer（advanced） | 16M | 可重建向量缓存 |
 | `memory.search.embedding_use` | 同 Home | 模板未设置 | 主编辑入口在 Memory 设置 |
 
 ## 6. Action catalog 文档编辑面
@@ -305,14 +305,14 @@ catalog value_kind = object，**整张 map 原子提交**；source_id 为 `proje
 | `agent.interactive` | true | 进程独有（CLI 交互模式） |
 | `agent.exit_commands` / `agent.stop_turn_commands` | ["exit","quit"] / ["stop","cancel"] | 进程独有 |
 | `agent.retained_outcomes` | 32 | 进程独有 |
-| `agent.output.mode` / `agent.output.model_max_chars` | normal / 20000 | 进程独有 |
+| `agent.output.mode` / `agent.output.max_model_detail_chars` | normal / 20000 | 进程独有 |
 | `config.include` / `config.env_file` / `config.document_sets` | 主文件声明 | 配置来源自身，进程独有 |
 | environment / overrides 两个 source | — | 进程环境与 CLI 覆盖不可经 endpoint 改写 |
 | `process_shell{host, port, instance_id}` | 当前监听 | Endpoint 监听不走配置文件；只读投影 |
 
 ### 7.2 可写系统项
 
-`context.system_text`、`context.journal`（§3.4）；`reflection.timezone` / `archive_root` / `schedule.*` 归行为设置的 Reflection 调度。
+`context.system_text`、`context.journal` 及 Context 容量字段在“数据与知识 → Context”页集中编辑；`reflection.timezone` / `archive_root` / `schedule.*` 归行为设置的 Reflection 调度。
 
 ## 8. 运行方案（presets）捕获范围
 
@@ -328,9 +328,9 @@ Endpoint：`GET/POST /v2/config/presets`、`GET/PUT/DELETE /v2/config/presets/{i
 
 **可选 budgets**（`include_budgets`）：
 
-- `loop.user.max_cycles`、`reflection.home.max_cycles`、`reflection.memory.max_cycles`、`session.background_max_chars`
-- `context.budget_max_image_bytes`、`context.compression_trigger_ratio`、`context.compression_target_ratio`、`context.trace_chunk_max_chars`、`context.trace_branch_factor`、`context.trace_min_hot_entries`、`context.trace_inspect_max_chars`
-- 每个 retrieval policy 的 `max_steps`、`snapshot_max_chars`、`page.max_items`、`page.max_chars`，以及已开放 select/rerank 的 `input_max_chars`
+- `loop.user.max_cycles`、`reflection.home.max_cycles`、`reflection.memory.max_cycles`、`session.max_background_chars`
+- `context.max_image_bytes`、`context.compression_trigger_ratio`、`context.compression_target_ratio`、`context.trace_chunk_chars`、`context.trace_branch_factor`、`context.trace_min_hot_entries`、`context.max_trace_inspect_chars`
+- 每个 retrieval policy 的 `max_steps`、`max_snapshot_chars`、`page.max_items`、`page.max_chars`，以及已开放 select/rerank 的 `max_input_chars`
 
 **不包含**：Provider 连接与凭据、`infra.model_services.*`、Home/Memory `embedding_use`、各类路径、`system_text`、Reflection 调度、visibility、retrieval 的 sources/operations/allowed_context、知识正文、本地外观。方案内的 `null` 表示恢复 owner 默认，不是 `set(null)`（PATCH 协议禁止 null 值）。
 
@@ -342,7 +342,7 @@ Endpoint：`GET/POST /v2/config/presets`、`GET/PUT/DELETE /v2/config/presets/{i
 4. **`agent.*` 在 catalog runtime.toml 中有字段声明但全部进程独有只读**；系统页只读项须以 config 读取投影的 `writable:false` 为准，不凭 catalog 存在性做成可写控件。
 5. **Kimi 搜索 model 已声明 choices**：后端 catalog 提供 kimi-k2.5/kimi-k2.6；表单应消费 choices，不开放自由文本。
 6. **LLM Provider 无 `proxy` 字段，专用 Provider（`infra.model_services.providers`）有**；两个表单可复用控件但协议不同（复数 `adapters`/`api_key_envs` vs 单数 `adapter`/`api_key_env`），不做假统一字段映射（与计划 §16.5 一致）。
-7. **计划 §19 的简写键名**（`compression_trigger/target_ratio`、`trace_chunk_max_chars/branch_factor/min_hot_entries/inspect_max_chars`）对应真实完整键 `context.compression_trigger_ratio` 等（见 §8），语义一致，仅书写省略。
+7. **计划 §19 的简写键名**（`compression_trigger/target_ratio`、`trace_chunk_chars/branch_factor/min_hot_entries/max_inspect_chars`）对应真实完整键 `context.compression_trigger_ratio` 等（见 §8），语义一致，仅书写省略。
 8. **模板中 expand.search 无 backlinks source**（其余四个 search action 有）；MCP 配置面不显示反链入口，与计划 §17.3 “MCP 不自动获得 Embedding”一致。
 
 以上均不改变计划语义；实施时以本清单与 catalog 为准。
@@ -353,7 +353,7 @@ Endpoint：`GET/POST /v2/config/presets`、`GET/PUT/DELETE /v2/config/presets/{i
 
 - 对话页的交互行为（新轮/追加/回复/补额/取消）由 API-02 与 TurnSnapshot 状态驱动，无配置项；`agent.interactive`、`exit_commands`、`stop_turn_commands` 等终端行为键是进程独有只读，不进入设置表单。
 - 问题卡片协议（选项数上限 8、choice/text answer）由后端固定协议决定，不可配置。
-- 历史/Session 页只有读取分页；相关预算键 `session.background_max_chars`、`session.inspect_max_chars` 归属“数据与知识 → Session”设置页（§5.2），对话页自身不暴露。
+- 历史/Session 页只有读取分页；`session.max_background_chars` 在“数据与知识 → Context”编辑，`session.max_inspect_chars` 仍归“数据与知识 → Session”（§5.2），对话页自身不暴露。
 - 对话页唯一与配置相关的入口是运行方案快捷选择器（§19 / API-06/07），方案内容本身在设置中管理。
 
 即：P01–P03 的实现不依赖任何新增设置控件，只需消费运行方案列表/应用与 Turn 状态。
@@ -369,7 +369,8 @@ Endpoint：`GET/POST /v2/config/presets`、`GET/PUT/DELETE /v2/config/presets/{i
 | `home/memory.search.embedding_use` | 数据与知识 → Home / Memory（§5.3/§5.4） | 专用用途页显示绑定并跳转 |
 | MCP servers / ACP agents | 工具与连接 → MCP / ACP（§4.5/§4.6） | 运行观察只读实际连接/目录 |
 | 凭据值 | 模型与服务 → 凭据（§2.5），统一 dotenv 草稿 | Provider/工具页引用同一编辑流程 |
-| 预算与 Reflection 键 | 行为与调用 → 预算与 Reflection（§3.4） | 概览/方案显示摘要 |
+| Cycle 与 Reflection 键 | 行为与调用 → Budgets/Reflection（§3.4） | 概览/方案显示摘要 |
+| Context 组合与容量键 | 数据与知识 → Context | Session/Home 页面显示只读归属与跳转 |
 | Workspace/Session/Home/Memory owner 键 | 数据与知识各页（§5） | — |
 | Action catalog 文档字段 | 行为与调用 → Actions 协议详情（§6） | 契约字段只读展示 |
 | 进程独有只读项 | 系统与诊断（§7） | 显示只读归属 |

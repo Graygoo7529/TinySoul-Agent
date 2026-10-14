@@ -6,6 +6,7 @@ from enum import StrEnum
 from threading import RLock
 from time import monotonic
 
+from tinysoul.infra.paging import DEFAULT_PAGE_CHARS
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.process import (
@@ -158,7 +159,7 @@ class ProcessJobBackend:
         return result
 
     async def read_output(
-        self, *, continuation: str | None = None, max_chars: int = 16000
+        self, *, continuation: str | None = None, max_chars: int = DEFAULT_PAGE_CHARS
     ) -> JsonObject:
         channels = ("stdout", "stderr")
         position = JobOutputPosition.decode(

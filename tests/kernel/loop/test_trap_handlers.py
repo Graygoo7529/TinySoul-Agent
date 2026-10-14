@@ -40,7 +40,7 @@ async def test_context_pressure_trap_retries_current_phase_when_trace_changes(
     context = (
         ContextEngineBuilder(system_text="sys")
         .with_trace_heap(
-            chunk_max_chars=12000,
+            chunk_chars=12000,
             branch_factor=4,
             min_hot_entries=0,
         )

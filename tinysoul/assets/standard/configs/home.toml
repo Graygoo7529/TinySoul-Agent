@@ -1,11 +1,11 @@
 [home]
 root = "home"
 runtime_root = "runtime/home"
-max_read_chars = 4000
-max_write_chars = 65536
-skill_catalog_max_chars = 8000
+max_read_chars = 8192
+max_write_chars = 32768
+max_skill_catalog_chars = 8192
 
 [home.search]
 scan_limit = 1000
-resource_max_chars = 128000
-embedding_cache_max_chars = 16000000
+max_resource_chars = 131072
+max_embedding_cache_chars = 16777216

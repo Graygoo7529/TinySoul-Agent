@@ -51,7 +51,7 @@ const OTHER_DETAIL: Preset = {
       "loop.cycle.phase1_task_profile": "frame_stage1",
       "loop.cycle.phase2_task_profile": "frame_stage2",
       "loop.user.max_cycles": 16,
-      "session.background_max_chars": 48000,
+      "session.max_background_chars": 48000,
     },
     retrieval: {},
     include_budgets: true,

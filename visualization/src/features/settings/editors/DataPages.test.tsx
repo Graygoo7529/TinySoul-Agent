@@ -35,7 +35,7 @@ function makeCatalog(): Record<string, unknown> {
     fields: [
       field("home.search.embedding_use", "string"),
       field("home.search.scan_limit", "integer"),
-      field("session.inspect_max_chars", "integer"),
+      field("session.max_inspect_chars", "integer"),
     ],
     document_fields: [],
   };
@@ -49,8 +49,8 @@ function makeSaved(): Configuration {
   const fields: Record<string, { value: JsonValue; source: string }> = {
     "infra.model_services.uses": { value: uses, source: MAIN_SOURCE },
     "home.search.scan_limit": { value: 1000, source: MAIN_SOURCE },
-    "session.background_max_chars": { value: 24000, source: MAIN_SOURCE },
-    "session.inspect_max_chars": { value: 8000, source: MAIN_SOURCE },
+    "session.max_background_chars": { value: 24000, source: MAIN_SOURCE },
+    "session.max_inspect_chars": { value: 8000, source: MAIN_SOURCE },
   };
   return {
     view: "saved",
@@ -67,8 +67,8 @@ function makeSaved(): Configuration {
         values: {
           "infra.model_services.uses": uses,
           "home.search.scan_limit": 1000,
-          "session.background_max_chars": 24000,
-          "session.inspect_max_chars": 8000,
+          "session.max_background_chars": 24000,
+          "session.max_inspect_chars": 8000,
         },
       },
     ],
@@ -180,28 +180,28 @@ describe("HomePage embedding_use picker", () => {
 });
 
 describe("SessionPage background budget", () => {
-  it("shows the saved value read-only and jumps to the owning Budgets page", async () => {
+  it("shows the saved value read-only and jumps to the owning Context page", async () => {
     await act(async () => {
       root.render(<SessionPage />);
     });
     await flush();
 
-    expect(container.textContent).toContain("session.background_max_chars");
+    expect(container.textContent).toContain("session.max_background_chars");
     expect(container.textContent).toContain("24000");
     expect(
-      container.querySelector('[data-field-path="session.background_max_chars"]'),
+      container.querySelector('[data-field-path="session.max_background_chars"]'),
     ).toBeNull();
 
     const jump = [...container.querySelectorAll("button")].find((item) =>
-      item.textContent?.includes("前往预算设置"),
+      item.textContent?.includes("Edit in Context") || item.textContent?.includes("前往 Context"),
     );
     expect(jump).toBeDefined();
     await act(async () => {
       jump!.click();
     });
-    expect(useSettingsUiStore.getState().page).toBe("budgets");
+    expect(useSettingsUiStore.getState().page).toBe("context");
     expect(useSettingsUiStore.getState().focusPath).toBe(
-      "session.background_max_chars",
+      "session.max_background_chars",
     );
   });
 });

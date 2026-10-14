@@ -321,8 +321,8 @@ class MemoryEngine:
             view=view,
             continuation=continuation,
             max_chars=min(
-                max_chars or self._settings.inspect.page_max_chars,
-                self._settings.inspect.page_max_chars,
+                max_chars or self._settings.inspect.max_page_chars,
+                self._settings.inspect.max_page_chars,
             ),
             metadata={
                 "kind": resource.kind.value,

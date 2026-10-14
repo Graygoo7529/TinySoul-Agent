@@ -39,6 +39,7 @@ import { SessionPage } from "./editors/SessionPage";
 import { SystemPage } from "./editors/SystemPage";
 import { WebPage } from "./editors/WebPage";
 import { WorkspacePage } from "./editors/WorkspacePage";
+import { ContextPage } from "./editors/ContextPage";
 import { CredentialsPage } from "./models/CredentialsPage";
 import { DedicatedModelsPage } from "./models/DedicatedModelsPage";
 import { DedicatedProvidersPage } from "./models/DedicatedProvidersPage";
@@ -70,6 +71,7 @@ const PAGE_COMPONENTS: Partial<Record<SettingsPageId, ComponentType>> = {
   acp: AcpPage,
   mcp: McpPage,
   workspace: WorkspacePage,
+  context: ContextPage,
   session: SessionPage,
   home: HomePage,
   memory: MemoryPage,

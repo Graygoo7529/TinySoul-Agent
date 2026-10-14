@@ -254,7 +254,7 @@ describe("retrieval map atom", () => {
       sources: ["query", "refs"],
       operations: ["select"],
       maxSteps: 4,
-      snapshotMaxChars: 4_000_000,
+      snapshotMaxChars: 4 * 1024 * 1024,
       pageMaxItems: 10,
       pageMaxChars: 1000,
     });

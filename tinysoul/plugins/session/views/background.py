@@ -34,12 +34,12 @@ class SessionBackgroundSnapshot:
     revision: int
     items: tuple[SessionBackgroundItem, ...] = ()
     refs: tuple[str, ...] = ()
-    max_chars: int = 24000
+    max_chars: int = 24576
     day: str = ""
     navigation: tuple[JsonObject, ...] = ()
     candidates: tuple[SessionBackgroundItem, ...] = ()
     priority: tuple[str, ...] = ()
-    budget_chars: int = 24000
+    budget_chars: int = 24576
 
     def __post_init__(self) -> None:
         if type(self.revision) is not int or self.revision < 0 or self.max_chars <= 0:

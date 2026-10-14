@@ -91,10 +91,10 @@ function makeView(): JsonObject {
           operations: ["select"],
           query: { channels: ["lexical"] },
           steps: {
-            select: { allowed_context: ["none", "current"], input_max_chars: 100 },
+            select: { allowed_context: ["none", "current"], max_input_chars: 100 },
           },
           max_steps: 8,
-          snapshot_max_chars: 4000000,
+          max_snapshot_chars: 4000000,
           page: { max_items: 50, max_chars: 8000 },
         },
         visibility: { default: null, scenarios: {} },

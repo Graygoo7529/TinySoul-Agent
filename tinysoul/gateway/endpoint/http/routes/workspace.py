@@ -11,7 +11,7 @@ from starlette.responses import Response, StreamingResponse
 from starlette.types import Receive, Scope, Send
 
 from tinysoul.infra.json import JsonObject
-from tinysoul.infra.paging import PageOptions
+from tinysoul.infra.paging import DEFAULT_PAGE_CHARS, PageOptions
 from tinysoul.infra.time import CalendarDay
 from tinysoul.plugins.workspace import WorkspaceTextEdit
 from tinysoul.plugins.workspace.inspection.models import WorkspaceBlobRead
@@ -68,7 +68,7 @@ def register_workspace_routes(app: FastAPI, engine: EndpointEngine) -> None:
         ref: str = Query(min_length=1),
         day: str | None = None,
         continuation: str | None = None,
-        max_chars: int = 16000,
+        max_chars: int = DEFAULT_PAGE_CHARS,
         full: bool = False,
     ) -> JsonObject:
         return await engine.inspection.workspace_text(

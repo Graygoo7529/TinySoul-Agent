@@ -10,7 +10,7 @@ from tinysoul.infra.config import ConfigError, reject_unknown_keys
 
 
 DEFAULT_MAX_SOURCE_BYTES = 5 * 1024 * 1024
-DEFAULT_MAX_OUTPUT_CHARS = 1_000_000
+DEFAULT_MAX_OUTPUT_CHARS = 1048576
 DEFAULT_MAX_EXCERPT_CHARS = 600
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 30
 DEFAULT_MAX_REDIRECTS = 5
@@ -33,9 +33,9 @@ class KimiSearchSettings:
     base_url: str = "https://api.moonshot.cn/v1"
     api_key_env: str = "KIMI_SEARCH_API_KEY"
     model: str = DEFAULT_KIMI_SEARCH_MODEL
-    max_query_chars: int = 4_000
-    max_result_chars: int = 100_000
-    max_inline_chars: int = 12_000
+    max_query_chars: int = 4096
+    max_result_chars: int = 102400
+    max_inline_chars: int = 12288
     max_tool_rounds: int = 6
     max_search_tokens: int = 100_000
     max_output_tokens: int = 8_192
@@ -89,8 +89,8 @@ class WebDiscoverySettings:
     max_pages: int = 20
     max_candidates: int = 100
     max_links_per_page: int = 200
-    max_result_chars: int = 100_000
-    max_inline_chars: int = 12_000
+    max_result_chars: int = 102400
+    max_inline_chars: int = 12288
     max_concurrency: int = 2
     max_tasks_per_minute: int = 30
     max_request_retries: int = 1

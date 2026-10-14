@@ -99,7 +99,7 @@ async def test_capacity_recovery_rebuilds_task_or_ends_without_replaying_complet
 ) -> None:
     context = (
         ContextEngineBuilder(system_text="system")
-        .with_trace_heap(chunk_max_chars=12000, branch_factor=4, min_hot_entries=0)
+        .with_trace_heap(chunk_chars=12000, branch_factor=4, min_hot_entries=0)
         .build()
     )
     turn_id = context.begin_turn("continue", turn_id="2026-10-06/105")

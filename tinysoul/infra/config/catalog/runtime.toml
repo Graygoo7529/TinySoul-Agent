@@ -127,7 +127,7 @@ choices = [
 ]
 
 [[field]]
-path = "agent.output.model_max_chars"
+path = "agent.output.max_model_detail_chars"
 surface = "behavior"
 group = "behavior.output"
 title = "Model Output Display Length"

@@ -134,14 +134,14 @@ class AgentHomeEngine:
         overlay: HomeOverlayManager,
         max_read_chars: int,
         max_write_chars: int,
-        skill_catalog_max_chars: int,
+        max_skill_catalog_chars: int,
         search_settings: HomeSearchSettings,
     ) -> None:
         self._layout = layout
         self._overlay = overlay
         self._max_read_chars = max_read_chars
         self._max_write_chars = max_write_chars
-        self._skill_catalog_max_chars = skill_catalog_max_chars
+        self._max_skill_catalog_chars = max_skill_catalog_chars
         self._prompt_mount_refs: frozenset[HomePromptMountRef] | None = None
         self._review = HomeReviewService(
             layout=layout,
@@ -674,7 +674,7 @@ class AgentHomeEngine:
                 path, resource = paths[relative], "home:resource/" + relative
                 try:
                     read = read_text_prefix(
-                        path, max_chars=self._search_settings.resource_max_chars
+                        path, max_chars=self._search_settings.max_resource_chars
                     )
                     text = read.text
                     if ref.startswith("home:top/") and relative.endswith("/SKILL.md"):
@@ -1275,10 +1275,10 @@ class AgentHomeEngine:
         items: tuple[HomeSkillMetadata, ...],
     ) -> None:
         total = sum(item.catalog_chars for item in items)
-        if total > self._skill_catalog_max_chars:
+        if total > self._max_skill_catalog_chars:
             raise AgentHomeContractError(
                 "General skill metadata catalog exceeds "
-                f"{self._skill_catalog_max_chars} characters"
+                f"{self._max_skill_catalog_chars} characters"
             )
 
     def _validate_actual_special_files(self) -> None:
@@ -1334,7 +1334,7 @@ class AgentHomeEngineBuilder:
             overlay=overlay,
             max_read_chars=self._settings.max_read_chars,
             max_write_chars=self._settings.max_write_chars,
-            skill_catalog_max_chars=self._settings.skill_catalog_max_chars,
+            max_skill_catalog_chars=self._settings.max_skill_catalog_chars,
             search_settings=self._settings.search,
         )
         engine.reconcile()

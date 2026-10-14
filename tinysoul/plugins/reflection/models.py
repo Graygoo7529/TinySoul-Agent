@@ -86,9 +86,9 @@ class ReflectionRequest:
             )
         if not isinstance(self.source, str):
             raise ReflectionContractError("Reflection request source must be text")
-        if not isinstance(self.instructions, str) or len(self.instructions) > 16000:
+        if not isinstance(self.instructions, str) or len(self.instructions) > 16384:
             raise ReflectionContractError(
-                "Reflection instructions must be text of at most 16000 characters"
+                "Reflection instructions must be text of at most 16384 characters"
             )
         if (
             self.trigger is ReflectionTrigger.MANUAL

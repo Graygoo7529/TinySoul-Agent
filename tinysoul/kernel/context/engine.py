@@ -232,7 +232,7 @@ class ContextEngine:
         compressor: ContextCompressor,
         journal: str,
         registrations: tuple[RegisteredSegment, ...],
-        trace_inspect_max_chars: int,
+        max_trace_inspect_chars: int,
         compression_trigger_ratio: float,
         compression_target_ratio: float,
         observations: ObservationEmitter | None = None,
@@ -244,7 +244,7 @@ class ContextEngine:
         self._segments: TurnSegments | None = None
         self._compressor = compressor
         self._journal = journal
-        self._trace_inspect_max_chars = trace_inspect_max_chars
+        self._max_trace_inspect_chars = max_trace_inspect_chars
         self._compression_trigger_ratio = compression_trigger_ratio
         self._compression_target_ratio = compression_target_ratio
         self._observations = observations or NullObservationEmitter()
@@ -253,7 +253,7 @@ class ContextEngine:
         self._plan_segment = PlanSegment()
         self._trace_segment = TraceSegment(
             compressor.new_trace("detached"),
-            inspect_max_chars=trace_inspect_max_chars,
+            max_inspect_chars=max_trace_inspect_chars,
             input_projection=self._input_projection,
         )
         self._inputs_segment = InputsSegment()
@@ -386,7 +386,7 @@ class ContextEngine:
         self._plan_segment = PlanSegment()
         self._trace_segment = TraceSegment(
             self._compressor.new_trace(self._turn_id),
-            inspect_max_chars=self._trace_inspect_max_chars,
+            max_inspect_chars=self._max_trace_inspect_chars,
             input_projection=self._input_projection,
         )
         self._inputs_segment = InputsSegment(user_input)
@@ -763,7 +763,7 @@ class ContextEngine:
                     codec=OpaqueContinuationCodec(
                         owner="context", operation="inspect_fact"
                     ),
-                    max_chars=self._trace_inspect_max_chars,
+                    max_chars=self._max_trace_inspect_chars,
                     continuation=continuation,
                     binding={"query": query},
                 )
@@ -1089,13 +1089,13 @@ class ContextEngineBuilder:
         return (
             cls(system_text=settings.system_text)
             .with_journal(settings.journal)
-            .with_budget_max_image_bytes(settings.budget_max_image_bytes)
+            .with_max_image_bytes(settings.max_image_bytes)
             .with_trace_heap(
-                chunk_max_chars=settings.trace_chunk_max_chars,
+                chunk_chars=settings.trace_chunk_chars,
                 branch_factor=settings.trace_branch_factor,
                 min_hot_entries=settings.trace_min_hot_entries,
             )
-            .with_trace_inspect_max_chars(settings.trace_inspect_max_chars)
+            .with_max_trace_inspect_chars(settings.max_trace_inspect_chars)
             .with_compression_trigger_ratio(settings.compression_trigger_ratio)
             .with_compression_target_ratio(settings.compression_target_ratio)
         )
@@ -1108,10 +1108,10 @@ class ContextEngineBuilder:
         self._system_text = system_text
         self._journal = ""
         self._max_image_bytes: int | None = None
-        self._trace_chunk_max_chars = 12000
+        self._trace_chunk_chars = 12288
         self._trace_branch_factor = 4
         self._trace_min_hot_entries = 2
-        self._trace_inspect_max_chars = 8000
+        self._max_trace_inspect_chars = 8192
         self._compression_trigger_ratio = 0.80
         self._compression_target_ratio = 0.50
         self._registrations: list[RegisteredSegment] = []
@@ -1132,7 +1132,7 @@ class ContextEngineBuilder:
         self._observations = observations
         return self
 
-    def with_budget_max_image_bytes(
+    def with_max_image_bytes(
         self,
         max_image_bytes: int | None,
     ) -> "ContextEngineBuilder":
@@ -1144,22 +1144,22 @@ class ContextEngineBuilder:
     def with_trace_heap(
         self,
         *,
-        chunk_max_chars: int,
+        chunk_chars: int,
         branch_factor: int,
         min_hot_entries: int,
     ) -> "ContextEngineBuilder":
-        if chunk_max_chars <= 0:
-            raise ContextContractError("Trace chunk_max_chars must be positive")
+        if chunk_chars <= 0:
+            raise ContextContractError("Trace chunk_chars must be positive")
         if branch_factor < 2:
             raise ContextContractError("Trace branch_factor must be at least 2")
         if min_hot_entries < 0:
             raise ContextContractError("Trace min_hot_entries cannot be negative")
-        self._trace_chunk_max_chars = chunk_max_chars
+        self._trace_chunk_chars = chunk_chars
         self._trace_branch_factor = branch_factor
         self._trace_min_hot_entries = min_hot_entries
         return self
 
-    def with_trace_inspect_max_chars(
+    def with_max_trace_inspect_chars(
         self,
         max_chars: int,
     ) -> "ContextEngineBuilder":
@@ -1171,7 +1171,7 @@ class ContextEngineBuilder:
             raise ContextContractError(
                 "Trace inspect max_chars must leave room for response metadata"
             )
-        self._trace_inspect_max_chars = max_chars
+        self._max_trace_inspect_chars = max_chars
         return self
 
     def with_compression_target_ratio(
@@ -1213,13 +1213,13 @@ class ContextEngineBuilder:
                 ),
             ),
             compressor=ContextCompressor(
-                chunk_max_chars=self._trace_chunk_max_chars,
+                chunk_chars=self._trace_chunk_chars,
                 branch_factor=self._trace_branch_factor,
                 min_hot_entries=self._trace_min_hot_entries,
             ),
             journal=self._journal,
             registrations=tuple(self._registrations),
-            trace_inspect_max_chars=self._trace_inspect_max_chars,
+            max_trace_inspect_chars=self._max_trace_inspect_chars,
             compression_trigger_ratio=self._compression_trigger_ratio,
             compression_target_ratio=self._compression_target_ratio,
             observations=self._observations,

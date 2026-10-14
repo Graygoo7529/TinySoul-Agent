@@ -164,11 +164,11 @@ class MemoryStore:
 
     def max_chars(self, kind: MemoryKind) -> int:
         return {
-            MemoryKind.DAILY: self._settings.daily_max_chars,
-            MemoryKind.ENTITY: self._settings.entity_max_chars,
-            MemoryKind.CONCEPT: self._settings.concept_max_chars,
-            MemoryKind.FACT: self._settings.fact_max_chars,
-            MemoryKind.NOTE: self._settings.note_max_chars,
+            MemoryKind.DAILY: self._settings.max_daily_chars,
+            MemoryKind.ENTITY: self._settings.max_entity_chars,
+            MemoryKind.CONCEPT: self._settings.max_concept_chars,
+            MemoryKind.FACT: self._settings.max_fact_chars,
+            MemoryKind.NOTE: self._settings.max_note_chars,
         }[kind]
 
     def _validate_root(self) -> None:

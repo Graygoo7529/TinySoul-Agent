@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
 
+from tinysoul.infra.paging import DEFAULT_PAGE_CHARS
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.json import JsonObject, dumps_json
 
@@ -186,7 +187,7 @@ class JobBackend(Protocol):
     async def describe(self) -> JsonObject: ...
 
     async def read_output(
-        self, *, continuation: str | None = None, max_chars: int = 16000
+        self, *, continuation: str | None = None, max_chars: int = DEFAULT_PAGE_CHARS
     ) -> JsonObject: ...
 
 

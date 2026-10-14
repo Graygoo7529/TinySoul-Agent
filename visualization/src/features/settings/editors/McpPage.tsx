@@ -44,7 +44,7 @@ export function McpPage() {
             "capabilities.expand.max_catalog_bytes",
             "capabilities.expand.max_result_bytes",
             "capabilities.expand.max_inline_chars",
-            "capabilities.expand.search_max_chars",
+            "capabilities.expand.max_search_chars",
             "capabilities.expand.page_size",
           ]}
           overrides={{
@@ -53,7 +53,7 @@ export function McpPage() {
             "capabilities.expand.max_catalog_bytes": { min: 1 },
             "capabilities.expand.max_result_bytes": { min: 1 },
             "capabilities.expand.max_inline_chars": { min: 1 },
-            "capabilities.expand.search_max_chars": { min: 1 },
+            "capabilities.expand.max_search_chars": { min: 1 },
             "capabilities.expand.page_size": { min: 1 },
           }}
         />

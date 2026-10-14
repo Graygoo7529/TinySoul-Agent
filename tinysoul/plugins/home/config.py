@@ -9,9 +9,9 @@ from typing import cast
 
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
 
-DEFAULT_MAX_READ_CHARS = 4000
-DEFAULT_MAX_WRITE_CHARS = 65536
-DEFAULT_SKILL_CATALOG_MAX_CHARS = 8000
+DEFAULT_MAX_READ_CHARS = 8192
+DEFAULT_MAX_WRITE_CHARS = 32768
+DEFAULT_MAX_SKILL_CATALOG_CHARS = 8192
 
 
 @dataclass(frozen=True)
@@ -19,12 +19,12 @@ class HomeSearchSettings:
     """Owner source budgets and its optional shared vector dependency."""
 
     scan_limit: int = 1_000
-    resource_max_chars: int = 128_000
+    max_resource_chars: int = 131072
     embedding_use: str | None = None
-    embedding_cache_max_chars: int = 16_000_000
+    max_embedding_cache_chars: int = 16777216
 
     def __post_init__(self) -> None:
-        for name in ("scan_limit", "resource_max_chars", "embedding_cache_max_chars"):
+        for name in ("scan_limit", "max_resource_chars", "max_embedding_cache_chars"):
             value = getattr(self, name)
             if type(value) is not int or value < 1:
                 raise ConfigError(
@@ -47,7 +47,7 @@ class AgentHomeSettings:
     runtime_root: Path
     max_read_chars: int = DEFAULT_MAX_READ_CHARS
     max_write_chars: int = DEFAULT_MAX_WRITE_CHARS
-    skill_catalog_max_chars: int = DEFAULT_SKILL_CATALOG_MAX_CHARS
+    max_skill_catalog_chars: int = DEFAULT_MAX_SKILL_CATALOG_CHARS
     search: HomeSearchSettings = field(default_factory=HomeSearchSettings)
 
     def __post_init__(self) -> None:
@@ -108,14 +108,14 @@ class AgentHomeSettings:
                 expected="positive int",
             )
         if (
-            isinstance(self.skill_catalog_max_chars, bool)
-            or not isinstance(self.skill_catalog_max_chars, int)
-            or self.skill_catalog_max_chars <= 0
+            isinstance(self.max_skill_catalog_chars, bool)
+            or not isinstance(self.max_skill_catalog_chars, int)
+            or self.max_skill_catalog_chars <= 0
         ):
             raise ConfigError(
-                "Agent Home skill_catalog_max_chars must be positive",
-                key="home.skill_catalog_max_chars",
-                value=self.skill_catalog_max_chars,
+                "Agent Home max_skill_catalog_chars must be positive",
+                key="home.max_skill_catalog_chars",
+                value=self.max_skill_catalog_chars,
                 expected="positive int",
             )
 
@@ -132,7 +132,7 @@ def parse_agent_home_settings(
             "runtime_root",
             "max_read_chars",
             "max_write_chars",
-            "skill_catalog_max_chars",
+            "max_skill_catalog_chars",
             "search",
         },
         key="home",
@@ -161,10 +161,10 @@ def parse_agent_home_settings(
             "max_write_chars",
             default=DEFAULT_MAX_WRITE_CHARS,
         ),
-        skill_catalog_max_chars=_optional_int(
+        max_skill_catalog_chars=_optional_int(
             tree,
-            "skill_catalog_max_chars",
-            default=DEFAULT_SKILL_CATALOG_MAX_CHARS,
+            "max_skill_catalog_chars",
+            default=DEFAULT_MAX_SKILL_CATALOG_CHARS,
         ),
         search=_parse_search_settings(tree.get("search")),
     )
@@ -180,9 +180,9 @@ def _parse_search_settings(value: object) -> HomeSearchSettings:
         tree,
         {
             "scan_limit",
-            "resource_max_chars",
+            "max_resource_chars",
             "embedding_use",
-            "embedding_cache_max_chars",
+            "max_embedding_cache_chars",
         },
         key="home.search",
     )
@@ -193,10 +193,10 @@ def _parse_search_settings(value: object) -> HomeSearchSettings:
         )
     return HomeSearchSettings(
         scan_limit=_optional_int(tree, "scan_limit", default=1_000),
-        resource_max_chars=_optional_int(tree, "resource_max_chars", default=128_000),
+        max_resource_chars=_optional_int(tree, "max_resource_chars", default=131072),
         embedding_use=use,
-        embedding_cache_max_chars=_optional_int(
-            tree, "embedding_cache_max_chars", default=16_000_000
+        max_embedding_cache_chars=_optional_int(
+            tree, "max_embedding_cache_chars", default=16777216
         ),
     )
 

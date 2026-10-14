@@ -182,7 +182,7 @@ def _start(argv: Sequence[str]) -> int:
                     .with_config_environment(config)
                     .with_agent_settings(agent_settings)
                     .with_output_sink(
-                        ConsoleOutputSink(max_chars=agent_settings.output.model_max_chars)
+                        ConsoleOutputSink(max_chars=agent_settings.output.max_model_detail_chars)
                     )
             )
             if args.once is None:

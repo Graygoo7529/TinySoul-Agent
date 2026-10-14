@@ -23,7 +23,7 @@ export function BackgroundPanel({ epoch, turnId, day, active, committed, reflect
     const controller = new AbortController();
     const clients = contextClients(epoch);
     void drainPages<BackgroundResource, BackgroundPage>((continuation) => {
-      const params = { max_chars: 64000, ...(continuation ? { continuation } : {}) };
+      const params = { max_chars: 65536, ...(continuation ? { continuation } : {}) };
       return active ? clients.context.background(requestIdForTurn(turnId), params, { signal: controller.signal })
         : clients.session.background(turnId, { ...params, day }, { signal: controller.signal });
     }, { signal: controller.signal }).then((result) => {

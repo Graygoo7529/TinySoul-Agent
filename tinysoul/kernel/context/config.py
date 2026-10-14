@@ -15,13 +15,13 @@ class ContextSettings:
 
     system_text: str = "You are TinySoul."
     journal: str = ""
-    budget_max_image_bytes: int | None = None
+    max_image_bytes: int | None = None
     compression_trigger_ratio: float = 0.80
     compression_target_ratio: float = 0.50
-    trace_chunk_max_chars: int = 12000
+    trace_chunk_chars: int = 12288
     trace_branch_factor: int = 4
     trace_min_hot_entries: int = 2
-    trace_inspect_max_chars: int = 8000
+    max_trace_inspect_chars: int = 8192
 
     def __post_init__(self) -> None:
         if not self.system_text:
@@ -32,13 +32,13 @@ class ContextSettings:
                 expected="non-empty str",
             )
         if (
-            self.budget_max_image_bytes is not None
-            and self.budget_max_image_bytes <= 0
+            self.max_image_bytes is not None
+            and self.max_image_bytes <= 0
         ):
             raise ConfigError(
-                "Context budget_max_image_bytes must be positive",
-                key="context.budget_max_image_bytes",
-                value=self.budget_max_image_bytes,
+                "Context max_image_bytes must be positive",
+                key="context.max_image_bytes",
+                value=self.max_image_bytes,
                 expected="positive int",
             )
         if not 0 < self.compression_trigger_ratio < 1:
@@ -55,7 +55,7 @@ class ContextSettings:
                 value=self.compression_target_ratio,
                 expected="float between 0 and compression_trigger_ratio",
             )
-        _require_positive(self.trace_chunk_max_chars, "trace_chunk_max_chars")
+        _require_positive(self.trace_chunk_chars, "trace_chunk_chars")
         if self.trace_branch_factor < 2:
             raise ConfigError(
                 "Context trace_branch_factor must be at least 2",
@@ -70,12 +70,12 @@ class ContextSettings:
                 value=self.trace_min_hot_entries,
                 expected="non-negative int",
             )
-        _require_positive(self.trace_inspect_max_chars, "trace_inspect_max_chars")
-        if self.trace_inspect_max_chars < MIN_CONTINUATION_PAGE_CHARS:
+        _require_positive(self.max_trace_inspect_chars, "max_trace_inspect_chars")
+        if self.max_trace_inspect_chars < MIN_CONTINUATION_PAGE_CHARS:
             raise ConfigError(
-                "Context trace_inspect_max_chars must leave room for response metadata",
-                key="context.trace_inspect_max_chars",
-                value=self.trace_inspect_max_chars,
+                "Context max_trace_inspect_chars must leave room for response metadata",
+                key="context.max_trace_inspect_chars",
+                value=self.max_trace_inspect_chars,
                 expected=f"int >= {MIN_CONTINUATION_PAGE_CHARS}",
             )
 
@@ -86,13 +86,13 @@ def parse_context_settings(tree: Mapping[str, object]) -> ContextSettings:
         {
             "system_text",
             "journal",
-            "budget_max_image_bytes",
+            "max_image_bytes",
             "compression_trigger_ratio",
             "compression_target_ratio",
-            "trace_chunk_max_chars",
+            "trace_chunk_chars",
             "trace_branch_factor",
             "trace_min_hot_entries",
-            "trace_inspect_max_chars",
+            "max_trace_inspect_chars",
         },
         key="context",
     )
@@ -103,9 +103,9 @@ def parse_context_settings(tree: Mapping[str, object]) -> ContextSettings:
             default=ContextSettings.system_text,
         ),
         journal=_optional_str(tree, "journal", default="", allow_empty=True),
-        budget_max_image_bytes=_optional_int(
+        max_image_bytes=_optional_int(
             tree,
-            "budget_max_image_bytes",
+            "max_image_bytes",
             default=None,
         ),
         compression_trigger_ratio=_optional_float(
@@ -118,10 +118,10 @@ def parse_context_settings(tree: Mapping[str, object]) -> ContextSettings:
             "compression_target_ratio",
             default=ContextSettings.compression_target_ratio,
         ),
-        trace_chunk_max_chars=_required_optional_int(
+        trace_chunk_chars=_required_optional_int(
             tree,
-            "trace_chunk_max_chars",
-            default=ContextSettings.trace_chunk_max_chars,
+            "trace_chunk_chars",
+            default=ContextSettings.trace_chunk_chars,
         ),
         trace_branch_factor=_required_optional_int(
             tree,
@@ -133,10 +133,10 @@ def parse_context_settings(tree: Mapping[str, object]) -> ContextSettings:
             "trace_min_hot_entries",
             default=ContextSettings.trace_min_hot_entries,
         ),
-        trace_inspect_max_chars=_required_optional_int(
+        max_trace_inspect_chars=_required_optional_int(
             tree,
-            "trace_inspect_max_chars",
-            default=ContextSettings.trace_inspect_max_chars,
+            "max_trace_inspect_chars",
+            default=ContextSettings.max_trace_inspect_chars,
         ),
     )
 

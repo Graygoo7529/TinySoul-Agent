@@ -1,10 +1,10 @@
 [context]
 system_text = "You are TinySoul."
 journal = ""
-budget_max_image_bytes = 10485760
+max_image_bytes = 10485760
 compression_trigger_ratio = 0.8
 compression_target_ratio = 0.5
-trace_chunk_max_chars = 12000
+trace_chunk_chars = 12288
 trace_branch_factor = 4
 trace_min_hot_entries = 2
-trace_inspect_max_chars = 8000
+max_trace_inspect_chars = 8192

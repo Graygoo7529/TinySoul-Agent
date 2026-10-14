@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Configuration, JsonValue } from "../../../api/v2/types";
 import { draftOperations, useConfigDraftStore } from "../draft/store";
 import { SystemPage } from "./SystemPage";
+import { ContextPage } from "./ContextPage";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -153,7 +154,7 @@ describe("SystemPage", () => {
 
   it("edits context.system_text through the shared draft", async () => {
     await act(async () => {
-      root.render(<SystemPage />);
+      root.render(<ContextPage />);
     });
     await flush();
     const row = container.querySelector(

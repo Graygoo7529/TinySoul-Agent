@@ -14,6 +14,6 @@ class ReflectionRequest(BaseModel):
 
     kind: Literal["home", "memory"]
     target_day: str = ""
-    instructions: str = Field(default="", max_length=16000)
+    instructions: str = Field(default="", max_length=16384)
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
     command_id: str = Field(default="", max_length=128)

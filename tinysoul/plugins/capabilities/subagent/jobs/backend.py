@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from uuid import uuid4
 
+from tinysoul.infra.paging import DEFAULT_PAGE_CHARS
 from tinysoul.prompts.plugins.capabilities import subagent as prompt_text
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.json import JsonObject
@@ -237,7 +238,7 @@ class ACPJobBackend:
         }
 
     async def read_output(
-        self, *, continuation: str | None = None, max_chars: int = 16000
+        self, *, continuation: str | None = None, max_chars: int = DEFAULT_PAGE_CHARS
     ) -> JsonObject:
         channels = ("text",)
         cursor = JobOutputPosition.decode(

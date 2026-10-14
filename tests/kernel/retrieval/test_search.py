@@ -345,7 +345,7 @@ async def test_filter_validation_and_snapshot_capacity_do_not_depend_on_result_c
             RetrievalRequest(DirectorySource("all")),
             corpus=CandidateSet((candidate("a", "large " * 100),), 1),
             page_max_chars=8000,
-            snapshot_max_chars=100,
+            max_snapshot_chars=100,
             apply_operation=unused,
         )
     assert failure.value.kind is SearchFailureKind.SCOPE_REQUIRED

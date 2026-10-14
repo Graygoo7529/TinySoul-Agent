@@ -1,6 +1,6 @@
-# Context 容量、配置命名与设置页执行计划
+﻿# Context 容量、配置命名与设置页执行计划
 
-状态：`pending`（设计与代码核对完成，等待本轮方案及 Task 额度单位确认；尚未实施）
+状态：`done`（实现、文档同步与验证已完成）
 
 ## 1. 目标与范围
 
@@ -117,7 +117,7 @@ Workspace 分析保留 12k 单引用、24k 总来源、4k 回答：它是有界�
 
 | 配置 / 范围 | 当前 → 建议 | 说明 |
 | --- | --- | --- |
-| llm.tasks.frame_stage1/frame_stage2/llm_action.max_output_tokens | 各 65536 → 建议 32768（32k tokens，单位待确认） | 承接此前“32k”的讨论；三类任务没有字符生成预算，不新增 32k 字符截断 |
+| llm.tasks.frame_stage1/frame_stage2/llm_action.max_output_tokens | 各 65536 → 建议 32768（32k tokens，已确认） | 承接此前“32k”的讨论；三类任务没有字符生成预算，不新增 32k 字符截断 |
 | llm.tasks 新建模板 | 65536 → 跟随上述确认值 | 模板与默认资产一致 |
 | llm.models.*.context_window_tokens | 保留各模型现值 | 当前资产有 262144、1000000、1048576 等；是模型配置事实，不为二进制风格更改服务能力 |
 | llm.models.*.request_overrides.max_output_tokens | 无通用默认，保持显式值 | 模型级覆盖，Context 页只读提示并跳转 Models |
@@ -127,7 +127,7 @@ Workspace 分析保留 12k 单引用、24k 总来源、4k 回答：它是有界�
 | action.retrieval.<action>.page.max_chars | 8000 → 8192（8k chars） | 返回页 |
 | action.retrieval.<action>.max_steps、page.max_items | 8、50 → 不变 | 数量限制，保持独立 |
 
-Task 最大输出和文件最大字符不绑定。若最终选择保持 64k tokens，仅保留当前三个 task/template 的值，其他计划不受影响。等待单位确认期间不修改代码或任务配置。
+Task 最大输出和文件最大字符不绑定。用户已确认三类 Task 默认 32768 tokens，Home/Workspace 完整文本写入上限 32768 chars。
 
 完整请求仍由 LLM 的既有预检估算：输入（含工具定义和 TaskPrompt）+ 本次有效生成预留，与模型 window × trigger_ratio 比较；本次没有新建 token/chars 换算系数或自适应预算。页面说明这种关系即可，不用段字符数推算 provider 剩余 token。当前保守 UTF-8 输入估算与图片估算的局限已知，保留为独立议题。
 
@@ -247,7 +247,7 @@ Data & Knowledge / Context                 当前 Turn · 采集时间 · 刷新
 ## 6. 实施步骤与边界
 
 1. **配置契约与文案**：按第 3 节改名，校验错误 key、catalog 说明与真实计量范围同步；避免继续把 Trace 目标/缓存 JSON 写成硬上限/原文容量。沿消费者同步 prompts 的动态值，保留现有短失败类型与处理流程。
-2. **默认值**：按第 4 节同步 Python 默认、Builder、standard/development 资产、SDK 页默认和必要 Endpoint schema；不更改旧 traces/归档文档，不把测试中代表小预算的任意数字批量改掉。三类 Task 等待单位确认。
+2. **默认值**：按第 4 节同步 Python 默认、Builder、standard/development 资产、SDK 页默认和必要 Endpoint schema；不更改旧 traces/归档文档，不把测试中代表小预算的任意数字批量改掉。三类 Task 采用已确认的 32768 tokens。
 3. **配置编辑**：更新 config catalog、preset whitelist/快照路径及前端读取方；移动页面不改变 preset 的业务范围，不把 Context 页所有相关字段自动加入 preset。
 4. **前端页面**：注册 Context、迁移主编辑入口、修正统一归属/reset；复用 Context overview 展示运行组成，接入单位格式/只读跳转和中英文本。
 5. **文档**：实现时同步 docs/design/context.md、session.md、memory.md、agent_home.md、workspace.md、llm.md、action-model-retrieval.md 及相关 capability/config 设计；按 Endpoint 改动同步 docs/endpoint，前端设计记录在 visualization 对应文档。
@@ -274,6 +274,17 @@ Data & Knowledge / Context                 当前 Turn · 采集时间 · 刷新
 
 本次重新核对修正了旧稿的遗漏与不准确处：外围 collect/inline 与语境有关；Trace chunk 是目标；缓存限制的是 JSON；page.max_chars 已经是正确配置键；字符/token 不能写成 KiB；System 的 context 字段也要迁移；Session Inspect 保持原 owner 页；页面 reset 需要遵守唯一归属。
 
-页面迁移和 1024 基数已有授权，不重复作为待决定项。待确认的是本轮具体改名/默认值范围，以及三类 Task 的“32k”应按 32768 tokens 实施还是继续保留 65536 tokens。后一项已单独提出单位澄清；此前已实施的 64k tokens 不能被当作 64k 字符来缩减。
+全部方案已获确认；Task 默认输出为 32768 tokens，文件完整写入为 32768 chars。按此实施并核对。
 
-当前交付仅为本执行计划；实施尚未开始。
+## 9. 实施核对（2026-10-14）
+
+已按本计划完成并核对：
+
+- 配置字段已按 owner 语义改名，旧键不保留兼容别名；Python parser/dataclass、消费者、catalog、preset、standard/development 资产和当前文档保持一致。
+- 三类主循环 Task 与模板默认 `max_output_tokens = 32768`；Home/Workspace 完整文本写入默认 `32768` 字符；读取、Session、Memory、Retrieval、Execution、Web、ACP、MCP、缓存和分页边界按计划采用 1024 基数档位。Provider 窗口、事件 envelope、短反馈和数量限制仍保留原语义。
+- Context 配置编辑入口已注册在 Data & Knowledge → Context。页面以 Background → Trace → Working 横条说明装配顺序，显示当前活动 Turn 的只读字符/图片占用，并提供 owner 导航；Session/Home 保留只读跳转，Budgets/System 移除重复编辑控件，草稿 reset 使用唯一页面归属。
+- Context catalog 已修正 Trace 分块是目标、Embedding cache 是序列化 JSON、Session background 是投影预算等说明；Endpoint 分页和 Reflection 输入文档同步到 16384/65536 的新默认范围。
+- 验证通过：受影响 Python 测试、完整本地 Python 门禁 `scripts/test.ps1 -Suite Full`（1276 passed, 25 deselected）、配置 generation/release 测试、`scripts/typecheck.ps1`、前端 Vitest（91 文件/805 测试）和 Vite production build；`git diff --check` 无错误。
+
+本计划依据 AGENTS.md 的 owner、配置单一事实、前后端边界和文档归档规约完成归档。
+

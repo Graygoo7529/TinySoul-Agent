@@ -31,11 +31,11 @@ export const QUERY_CHANNELS = ["lexical", "embedding"];
 export const RETRIEVAL_DEFAULTS = {
   queryChannels: ["lexical"],
   allowedContext: ["none"],
-  inputMaxChars: 64_000,
+  inputMaxChars: 65_536,
   maxSteps: 8,
-  snapshotMaxChars: 4_000_000,
+  snapshotMaxChars: 4 * 1024 * 1024,
   pageMaxItems: 50,
-  pageMaxChars: 8_000,
+  pageMaxChars: 8 * 1024,
 };
 
 export interface SearchCapabilityInfo {
@@ -169,7 +169,7 @@ export function decodePolicyDraft(value: unknown): RetrievalPolicyDraft {
           ? stringList(raw.allowed_context)
           : [...RETRIEVAL_DEFAULTS.allowedContext],
       inputMaxChars: positiveInt(
-        raw.input_max_chars,
+        raw.max_input_chars,
         RETRIEVAL_DEFAULTS.inputMaxChars,
       ),
     };
@@ -184,7 +184,7 @@ export function decodePolicyDraft(value: unknown): RetrievalPolicyDraft {
     steps,
     maxSteps: positiveInt(table.max_steps, RETRIEVAL_DEFAULTS.maxSteps),
     snapshotMaxChars: positiveInt(
-      table.snapshot_max_chars,
+      table.max_snapshot_chars,
       RETRIEVAL_DEFAULTS.snapshotMaxChars,
     ),
     pageMaxItems: positiveInt(page.max_items, RETRIEVAL_DEFAULTS.pageMaxItems),
@@ -199,7 +199,7 @@ export function encodePolicy(draft: RetrievalPolicyDraft): Record<string, JsonVa
     operations: [...draft.operations],
     max_steps: draft.maxSteps,
     query: { channels: [...draft.queryChannels] },
-    snapshot_max_chars: draft.snapshotMaxChars,
+    max_snapshot_chars: draft.snapshotMaxChars,
     page: {
       max_items: draft.pageMaxItems,
       max_chars: draft.pageMaxChars,
@@ -208,7 +208,7 @@ export function encodePolicy(draft: RetrievalPolicyDraft): Record<string, JsonVa
   for (const [operation, step] of Object.entries(draft.steps)) {
     entry[operation] = {
       allowed_context: [...step.allowedContext],
-      input_max_chars: step.inputMaxChars,
+      max_input_chars: step.inputMaxChars,
     };
   }
   return entry;

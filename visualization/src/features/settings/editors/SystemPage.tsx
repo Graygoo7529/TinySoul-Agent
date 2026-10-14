@@ -2,8 +2,8 @@ import { settingsText } from "../i18n";
 /**
  * System & Diagnostics settings (config-coverage §7): read-only process items
  * (endpoint listener, agent/config process fields) with their ownership
- * reason, the configuration source list, and the few genuinely writable
- * system fields (context.system_text / context.journal).
+ * reason and the configuration source list. Context composition fields are
+ * edited on Data & Knowledge → Context.
  */
 
 import type { JsonObject } from "../../../api/v2/types";
@@ -11,7 +11,6 @@ import { Badge } from "../../../components/ui/Badge";
 import { SectionCard } from "../../../components/ui/Card";
 import { useConfigDraftStore } from "../draft/store";
 import {
-  FieldSection,
   ReadOnlyValue,
   SettingsPageBody,
 } from "./controls";
@@ -22,7 +21,7 @@ const PROCESS_FIELDS = [
   "agent.stop_turn_commands",
   "agent.retained_outcomes",
   "agent.output.mode",
-  "agent.output.model_max_chars",
+  "agent.output.max_model_detail_chars",
   "config.include",
   "config.env_file",
   "config.document_sets",
@@ -43,12 +42,6 @@ export function SystemPage() {
           ))}
         </div>
       </SectionCard>
-      <FieldSection
-        title={settingsText("Writable system fields")}
-        description={settingsText("Fixed system identity text and the optional Context journal content.")}
-        paths={["context.system_text", "context.journal"]}
-        forceAdvanced={["context.journal"]}
-      />
     </SettingsPageBody>
   );
 }

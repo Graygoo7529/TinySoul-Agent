@@ -114,7 +114,7 @@ class MemoryPlugin:
                 path=settings.root / ".tinysoul" / "embeddings",
                 services=models,
                 use=use,
-                max_chars=settings.search.embedding_cache_max_chars,
+                max_chars=settings.search.max_embedding_cache_chars,
             )
             if use
             else None

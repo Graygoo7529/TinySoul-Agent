@@ -191,7 +191,7 @@ class SearchSession:
         else:
             corpus = corpus_value
         corpus = replace(corpus, candidates=deduplicate(corpus.candidates))
-        if snapshot_size(corpus.candidates) > policy.snapshot_max_chars:
+        if snapshot_size(corpus.candidates) > policy.max_snapshot_chars:
             raise SearchFailure(
                 SearchFailureKind.SCOPE_REQUIRED,
                 prompt_text.SOURCE_SNAPSHOT_BUDGET_EXCEEDED,
@@ -330,7 +330,7 @@ class SearchSession:
                 scope=inputs.scope,
                 cancellation=inputs.cancellation,
                 embedding=self._engine.embedding,
-                input_max_chars=operation_policy.input_max_chars,
+                max_input_chars=operation_policy.max_input_chars,
                 observer=lambda event: observe(event, index),
                 observe_task=observe_task,
             )
@@ -340,7 +340,7 @@ class SearchSession:
             request,
             corpus=corpus,
             page_max_chars=min(page_chars, policy.page_max_chars),
-            snapshot_max_chars=policy.snapshot_max_chars,
+            max_snapshot_chars=policy.max_snapshot_chars,
             apply_operation=apply_operation,
             observe_step=observe_step,
             filters=filters,

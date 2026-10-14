@@ -339,7 +339,7 @@ class ExpandEngine:
                     prompt_text.MCP_REF_IS_NOT_AVAILABLE_IN_THE_TOOL_DIRECTORY,
                 )
             candidates.sort(key=lambda item: order[item.ref])
-        if total_input > self.settings.search_max_chars:
+        if total_input > self.settings.max_search_chars:
             raise SearchFailure(
                 SearchFailureKind.SCOPE_REQUIRED,
                 prompt_text.DIRECTORY_CAPACITY_EXCEEDED,

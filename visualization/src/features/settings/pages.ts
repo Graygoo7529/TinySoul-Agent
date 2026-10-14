@@ -6,8 +6,8 @@
  *
  * Ownership rules that later workflows rely on:
  * - `pathPrefixes` name the config paths a page is primarily responsible for;
- *   the longest matching prefix wins, so `session.background_max_chars` lands
- *   on Budgets while the rest of `session.` stays with the Session page.
+ *   the longest matching prefix wins, so `session.max_background_chars` lands
+ *   on Context while the rest of `session.` stays with the Session page.
  * - `draftSources` name whole sources whose drafts belong to a page: dotenv
  *   drafts carry a bare variable name as their path, so the Credentials page
  *   claims them by source instead of by prefix.
@@ -52,6 +52,7 @@ export type SettingsPageId =
   | "acp"
   | "mcp"
   | "workspace"
+  | "context"
   | "session"
   | "home"
   | "memory"
@@ -169,16 +170,11 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     id: "budgets",
     group: "behavior",
     title: "Budgets",
-    description: "Turn/reflection cycles and context/session budgets.",
-    surfaces: ["context_rules"],
+    description: "Turn and reflection cycle budgets.",
     pathPrefixes: [
       "loop.user",
       "reflection.home",
       "reflection.memory",
-      "context.budget_",
-      "context.compression_",
-      "context.trace_",
-      "session.background_max_chars",
     ],
   },
   reflection: {
@@ -233,6 +229,14 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     surfaces: ["workspace"],
     pathPrefixes: ["workspace"],
   },
+  context: {
+    id: "context",
+    group: "data",
+    title: "Context",
+    description: "Background, Trace and Working composition and capacity.",
+    surfaces: ["context_rules"],
+    pathPrefixes: ["context", "session.max_background_chars", "home.max_skill_catalog_chars"],
+  },
   session: {
     id: "session",
     group: "data",
@@ -263,7 +267,7 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     title: "Endpoint & Sources",
     description: "Read-only process items, config sources and observation.",
     surfaces: ["infrastructure"],
-    pathPrefixes: ["agent", "config", "context.system_text", "context.journal"],
+    pathPrefixes: ["agent", "config"],
   },
   interface: {
     id: "interface",
@@ -301,7 +305,7 @@ export const SETTINGS_GROUPS: SettingsGroupDef[] = [
   {
     id: "data",
     title: "Data & Knowledge",
-    pages: ["workspace", "session", "home", "memory"],
+    pages: ["workspace", "context", "session", "home", "memory"],
   },
   { id: "system", title: "System & Diagnostics", pages: ["system"] },
   { id: "interface", title: "Interface", pages: ["interface"] },
@@ -361,7 +365,7 @@ export function pageDraftKeys(
     .filter(
       (entry) =>
         sources.includes(entry.sourceId) ||
-        prefixes.some((prefix) => pathUnder(entry.path, prefix)),
+        pageForDraft(entry)?.id === page,
     )
     .map((entry) => entry.key);
 }

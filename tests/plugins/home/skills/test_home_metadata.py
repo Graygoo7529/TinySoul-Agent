@@ -109,7 +109,7 @@ def test_skill_catalog_budget_fails_without_creating_runtime_skill(
         AgentHomeSettings(
             original_root=home_root,
             runtime_root=tmp_path / "runtime" / "home",
-            skill_catalog_max_chars=40,
+            max_skill_catalog_chars=40,
         )
     ).build()
 

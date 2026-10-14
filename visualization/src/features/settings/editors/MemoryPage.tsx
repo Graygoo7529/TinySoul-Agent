@@ -21,19 +21,19 @@ export function MemoryPage() {
         title={settingsText("Persistent Documents")}
         description={settingsText("Size limits of the five persistent Markdown kinds and the redirect chain.")}
         paths={[
-          "memory.documents.daily_max_chars",
-          "memory.documents.entity_max_chars",
-          "memory.documents.concept_max_chars",
-          "memory.documents.fact_max_chars",
-          "memory.documents.note_max_chars",
+          "memory.documents.max_daily_chars",
+          "memory.documents.max_entity_chars",
+          "memory.documents.max_concept_chars",
+          "memory.documents.max_fact_chars",
+          "memory.documents.max_note_chars",
           "memory.documents.redirect_max_hops",
         ]}
         overrides={{
-          "memory.documents.daily_max_chars": { min: 1 },
-          "memory.documents.entity_max_chars": { min: 1 },
-          "memory.documents.concept_max_chars": { min: 1 },
-          "memory.documents.fact_max_chars": { min: 1 },
-          "memory.documents.note_max_chars": { min: 1 },
+          "memory.documents.max_daily_chars": { min: 1 },
+          "memory.documents.max_entity_chars": { min: 1 },
+          "memory.documents.max_concept_chars": { min: 1 },
+          "memory.documents.max_fact_chars": { min: 1 },
+          "memory.documents.max_note_chars": { min: 1 },
           "memory.documents.redirect_max_hops": { min: 0 },
         }}
       />
@@ -41,13 +41,13 @@ export function MemoryPage() {
         title={settingsText("Inspect & Search")}
         description={settingsText("Single-page inspect bounds and the logical embedding use shared by Memory search.")}
         paths={[
-          "memory.inspect.page_max_chars",
-          "memory.search.embedding_cache_max_chars",
+          "memory.inspect.max_page_chars",
+          "memory.search.max_embedding_cache_chars",
           "memory.search.embedding_use",
         ]}
         overrides={{
-          "memory.inspect.page_max_chars": { min: 1 },
-          "memory.search.embedding_cache_max_chars": { min: 1 },
+          "memory.inspect.max_page_chars": { min: 1 },
+          "memory.search.max_embedding_cache_chars": { min: 1 },
           "memory.search.embedding_use": {
             render: (api) => <EmbeddingUseControl api={api} />,
           },

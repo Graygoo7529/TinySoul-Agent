@@ -19,7 +19,7 @@ ZONE = ZoneInfo("Asia/Shanghai")
 def test_memory_projection_uses_chronological_turn_facts(
     tmp_path: Path,
 ) -> None:
-    session = _session(tmp_path, background_max_chars=512)
+    session = _session(tmp_path, max_background_chars=512)
     starts = (
         datetime(2026, 7, 12, 20, 0, tzinfo=ZONE),
         datetime(2026, 7, 12, 9, 0, tzinfo=ZONE),
@@ -70,11 +70,11 @@ def test_memory_projection_for_empty_archive_has_no_facts(tmp_path: Path) -> Non
     assert projection.facts == ()
 
 
-def _session(tmp_path: Path, *, background_max_chars: int = 24000) -> SessionEngine:
+def _session(tmp_path: Path, *, max_background_chars: int = 24000) -> SessionEngine:
     session = SessionEngine(
         SessionSettings(
             root=tmp_path / "runtime" / "session",
-            background_max_chars=background_max_chars,
+            max_background_chars=max_background_chars,
         )
     )
     session.initialize_day(DAY)

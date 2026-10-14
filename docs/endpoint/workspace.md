@@ -15,7 +15,7 @@ Workspace endpoint 使用 `workspace:` ref 和受约束 async WorkspaceService�
 - `GET/POST /v2/workspace/trash`
 - `POST /v2/workspace/restore`
 
-四个 GET 接受可选 `day=YYYY-MM-DD`；省略时读取活动日，归档只读且不回退今天。manifest GET 只读已提交索引，不触发 reconcile。resource 接受 `continuation, max_chars=16000`（1024–64000），返回 ref、locator/day、text、size、media_type、editable、truncated、complete 和 next_continuation。正文变化使续接失效。`full=true` 明确请求完整可编辑文本，超 owner 写入上限则拒绝，不能把分页首屏保存为全文。
+四个 GET 接受可选 `day=YYYY-MM-DD`；省略时读取活动日，归档只读且不回退今天。manifest GET 只读已提交索引，不触发 reconcile。resource 接受 `continuation, max_chars=16384`（1024–65536），返回 ref、locator/day、text、size、media_type、editable、truncated、complete 和 next_continuation。正文变化使续接失效。`full=true` 明确请求完整可编辑文本，超 owner 写入上限则拒绝，不能把分页首屏保存为全文。
 
 blob 流式读取，支持标准单 `Range: bytes=start-end`、`bytes=start-` 或 `bytes=-suffix`。部分响应 206 带 Content-Range，非法/不可满足范围 416；完整响应 200。Content-Length、Content-Type 来自实际打开文件；连接期间持有 day/generation lease。trash 为有界 items 页，接受 continuation/limit。所有写入路由仅操作活动日，不接受 day。
 

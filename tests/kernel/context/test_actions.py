@@ -16,11 +16,11 @@ async def test_context_inspect_continuation_is_visible_only() -> None:
     context = (
         ContextEngineBuilder(system_text="test")
         .with_trace_heap(
-            chunk_max_chars=12000,
+            chunk_chars=12000,
             branch_factor=4,
             min_hot_entries=0,
         )
-        .with_trace_inspect_max_chars(2048)
+        .with_max_trace_inspect_chars(2048)
         .build()
     )
     turn_id = context.begin_turn("inspect", turn_id="2026-10-06/29")

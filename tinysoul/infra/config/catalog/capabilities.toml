@@ -642,7 +642,7 @@ description = "Inline Response Characters applied by the capability owner."
 value_kind = "integer"
 
 [[field]]
-path = "capabilities.expand.search_max_chars"
+path = "capabilities.expand.max_search_chars"
 surface = "capabilities.expand"
 group = "capabilities.expand.limits"
 title = "Search Candidate Characters"

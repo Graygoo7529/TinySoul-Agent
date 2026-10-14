@@ -5,7 +5,7 @@ from typing import Literal
 from fastapi import Body, FastAPI
 
 from tinysoul.infra.json import JsonObject
-from tinysoul.infra.paging import PageOptions
+from tinysoul.infra.paging import DEFAULT_PAGE_CHARS, PageOptions
 from tinysoul.infra.time import CalendarDay
 
 from ...engine import EndpointEngine
@@ -47,7 +47,7 @@ def register_resource_routes(app: FastAPI, engine: EndpointEngine) -> None:
         query: str | None = None,
         continuation: str | None = None,
         limit: int = 30,
-        max_chars: int = 16000,
+        max_chars: int = DEFAULT_PAGE_CHARS,
     ):
         return await engine.resources.home_catalog(
             view=view,
@@ -66,7 +66,7 @@ def register_resource_routes(app: FastAPI, engine: EndpointEngine) -> None:
         ref: str,
         view: Literal["actual", "effective"] = "effective",
         continuation: str | None = None,
-        max_chars: int = 16000,
+        max_chars: int = DEFAULT_PAGE_CHARS,
     ):
         return await engine.resources.home_content(
             ref, view=view, page=PageOptions(continuation, max_chars=max_chars)
@@ -74,7 +74,7 @@ def register_resource_routes(app: FastAPI, engine: EndpointEngine) -> None:
 
     @app.get("/v2/home/changes")
     async def home_changes(
-        continuation: str | None = None, limit: int = 30, max_chars: int = 16000
+        continuation: str | None = None, limit: int = 30, max_chars: int = DEFAULT_PAGE_CHARS
     ):
         return await engine.resources.home_changes(
             PageOptions(continuation, limit, max_chars)
@@ -82,7 +82,7 @@ def register_resource_routes(app: FastAPI, engine: EndpointEngine) -> None:
 
     @app.get("/v2/home/diff")
     async def home_diff(
-        ref: str, continuation: str | None = None, max_chars: int = 16000
+        ref: str, continuation: str | None = None, max_chars: int = DEFAULT_PAGE_CHARS
     ):
         return await engine.resources.home_diff(
             ref, PageOptions(continuation, max_chars=max_chars)
@@ -99,7 +99,7 @@ def register_resource_routes(app: FastAPI, engine: EndpointEngine) -> None:
         query: str | None = None,
         continuation: str | None = None,
         limit: int = 30,
-        max_chars: int = 16000,
+        max_chars: int = DEFAULT_PAGE_CHARS,
     ):
         return await engine.resources.memory_catalog(
             kind=kind, query=query, page=PageOptions(continuation, limit, max_chars)
@@ -112,7 +112,7 @@ def register_resource_routes(app: FastAPI, engine: EndpointEngine) -> None:
         response_model_exclude_unset=True,
     )
     async def memory_document(
-        ref: str, continuation: str | None = None, max_chars: int = 16000
+        ref: str, continuation: str | None = None, max_chars: int = DEFAULT_PAGE_CHARS
     ):
         return await engine.resources.memory_document(
             ref, PageOptions(continuation, max_chars=max_chars)
@@ -120,7 +120,7 @@ def register_resource_routes(app: FastAPI, engine: EndpointEngine) -> None:
 
     @app.get("/v2/memory/active")
     async def memory_active(
-        day: str | None = None, continuation: str | None = None, max_chars: int = 16000
+        day: str | None = None, continuation: str | None = None, max_chars: int = DEFAULT_PAGE_CHARS
     ):
         return await engine.inspection.memory_active(
             CalendarDay.parse(day) if day else None,

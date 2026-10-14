@@ -252,7 +252,7 @@ function decodeRetrieval(value: unknown): RetrievalView | null {
       if (!isPlainRecord(step)) continue;
       steps[name] = {
         allowedContext: textList(step.allowed_context),
-        inputMaxChars: numberOrNull(step.input_max_chars) ?? 0,
+        inputMaxChars: numberOrNull(step.max_input_chars) ?? 0,
       };
     }
   }
@@ -266,7 +266,7 @@ function decodeRetrieval(value: unknown): RetrievalView | null {
     queryChannels: textList(query.channels),
     steps,
     maxSteps: numberOrNull(value.max_steps) ?? 0,
-    snapshotMaxChars: numberOrNull(value.snapshot_max_chars) ?? 0,
+    snapshotMaxChars: numberOrNull(value.max_snapshot_chars) ?? 0,
     page: {
       maxItems: numberOrNull(page.max_items) ?? 0,
       maxChars: numberOrNull(page.max_chars) ?? 0,

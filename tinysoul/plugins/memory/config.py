@@ -12,20 +12,20 @@ from tinysoul.infra.config import ConfigError, reject_unknown_keys
 
 @dataclass(frozen=True)
 class MemoryDocumentSettings:
-    daily_max_chars: int = 32_000
-    entity_max_chars: int = 16_000
-    concept_max_chars: int = 16_000
-    fact_max_chars: int = 4_000
-    note_max_chars: int = 24_000
+    max_daily_chars: int = 32768
+    max_entity_chars: int = 16384
+    max_concept_chars: int = 16384
+    max_fact_chars: int = 4096
+    max_note_chars: int = 24576
     redirect_max_hops: int = 8
 
     def __post_init__(self) -> None:
         for name in (
-            "daily_max_chars",
-            "entity_max_chars",
-            "concept_max_chars",
-            "fact_max_chars",
-            "note_max_chars",
+            "max_daily_chars",
+            "max_entity_chars",
+            "max_concept_chars",
+            "max_fact_chars",
+            "max_note_chars",
             "redirect_max_hops",
         ):
             _positive(getattr(self, name), f"memory.documents.{name}")
@@ -33,28 +33,28 @@ class MemoryDocumentSettings:
 
 @dataclass(frozen=True)
 class MemoryInspectSettings:
-    page_max_chars: int = 8_000
+    max_page_chars: int = 8192
 
     def __post_init__(self) -> None:
-        _positive(self.page_max_chars, "memory.inspect.page_max_chars")
+        _positive(self.max_page_chars, "memory.inspect.max_page_chars")
 
 
 @dataclass(frozen=True)
 class MemorySearchSettings:
     embedding_use: str | None = None
-    embedding_cache_max_chars: int = 16_000_000
+    max_embedding_cache_chars: int = 16777216
 
     def __post_init__(self) -> None:
         _positive(
-            self.embedding_cache_max_chars,
-            "memory.search.embedding_cache_max_chars",
+            self.max_embedding_cache_chars,
+            "memory.search.max_embedding_cache_chars",
         )
 
 
 @dataclass(frozen=True)
 class MemorySettings:
     root: Path
-    max_active_chars: int = 12_000
+    max_active_chars: int = 12288
     documents: MemoryDocumentSettings = field(default_factory=MemoryDocumentSettings)
     inspect: MemoryInspectSettings = field(default_factory=MemoryInspectSettings)
     search: MemorySearchSettings = field(
@@ -98,7 +98,7 @@ def parse_memory_settings(
     )
     return MemorySettings(
         root=_path(tree.get("root"), project_root=project_root),
-        max_active_chars=_int(tree, "max_active_chars", 12_000, "memory"),
+        max_active_chars=_int(tree, "max_active_chars", 12288, "memory"),
         documents=_parse_documents(tree.get("documents")),
         inspect=_parse_inspect(tree.get("inspect")),
         search=_parse_search(tree.get("search")),
@@ -108,11 +108,11 @@ def parse_memory_settings(
 def _parse_documents(value: object) -> MemoryDocumentSettings:
     tree = _table(value, "memory.documents")
     names = {
-        "daily_max_chars",
-        "entity_max_chars",
-        "concept_max_chars",
-        "fact_max_chars",
-        "note_max_chars",
+        "max_daily_chars",
+        "max_entity_chars",
+        "max_concept_chars",
+        "max_fact_chars",
+        "max_note_chars",
         "redirect_max_hops",
     }
     reject_unknown_keys(tree, names, key="memory.documents")
@@ -127,15 +127,15 @@ def _parse_documents(value: object) -> MemoryDocumentSettings:
 
 def _parse_inspect(value: object) -> MemoryInspectSettings:
     tree = _table(value, "memory.inspect")
-    reject_unknown_keys(tree, {"page_max_chars"}, key="memory.inspect")
-    return MemoryInspectSettings(_int(tree, "page_max_chars", 8_000, "memory.inspect"))
+    reject_unknown_keys(tree, {"max_page_chars"}, key="memory.inspect")
+    return MemoryInspectSettings(_int(tree, "max_page_chars", 8192, "memory.inspect"))
 
 
 def _parse_search(value: object) -> MemorySearchSettings:
     tree = _table(value, "memory.search")
     reject_unknown_keys(
         tree,
-        {"embedding_cache_max_chars", "embedding_use"},
+        {"max_embedding_cache_chars", "embedding_use"},
         key="memory.search",
     )
     defaults = MemorySearchSettings()
@@ -147,10 +147,10 @@ def _parse_search(value: object) -> MemorySearchSettings:
         )
     return MemorySearchSettings(
         embedding_use=use,
-        embedding_cache_max_chars=_int(
+        max_embedding_cache_chars=_int(
             tree,
-            "embedding_cache_max_chars",
-            defaults.embedding_cache_max_chars,
+            "max_embedding_cache_chars",
+            defaults.max_embedding_cache_chars,
             "memory.search",
         ),
     )

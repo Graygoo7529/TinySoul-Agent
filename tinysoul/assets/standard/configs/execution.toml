@@ -2,11 +2,11 @@
 enabled = false
 max_runtime_seconds = 1800
 max_output_bytes = 2097152
-max_collect_chars = 4000
-max_source_chars = 100000
-max_command_chars = 20000
+max_collect_chars = 4096
+max_source_chars = 102400
+max_command_chars = 20480
 max_args = 64
-max_arg_chars = 4000
+max_arg_chars = 4096
 
 [execution.interpreters.python]
 enabled = true

@@ -234,12 +234,12 @@ class SessionView:
         return SessionBackgroundSnapshot(
             revision=self.manifest.revision,
             refs=self.manifest.refs,
-            max_chars=self.settings.background_max_chars,
+            max_chars=self.settings.max_background_chars,
             day=self.manifest.day,
             navigation=navigation,
             candidates=projected,
             priority=priority,
-        ).fit(self.settings.background_max_chars)
+        ).fit(self.settings.max_background_chars)
 
     def fact_ref(self, ref: str, allow_current: bool) -> str:
         if allow_current and self.evidence is not None:
@@ -351,7 +351,7 @@ class SessionView:
         try:
             return page.render(
                 codec=self._continuations,
-                max_chars=self.settings.inspect_max_chars,
+                max_chars=self.settings.max_inspect_chars,
                 continuation=continuation,
                 binding={
                     "day": self.manifest.day,

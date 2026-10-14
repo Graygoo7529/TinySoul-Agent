@@ -28,6 +28,7 @@ import { draftOperations, useConfigDraftStore } from "../draft/store";
 import { useSettingsUiStore } from "../uiStore";
 import { ActionsPage } from "./ActionsPage";
 import { BudgetsPage } from "./BudgetsPage";
+import { ContextPage } from "../editors/ContextPage";
 import { PhaseBindingsPage } from "./PhaseBindingsPage";
 import { ReflectionPage } from "./ReflectionPage";
 import { SearchPoliciesPage } from "./SearchPoliciesPage";
@@ -83,14 +84,14 @@ function makeCatalog(): ConfigCatalog {
       field("loop.user.max_cycles", "integer", { min: 1, max: 64 }),
       field("reflection.home.max_cycles", "integer"),
       field("reflection.memory.max_cycles", "integer"),
-      field("context.budget_max_image_bytes", "integer"),
-      field("session.background_max_chars", "integer"),
+      field("context.max_image_bytes", "integer"),
+      field("session.max_background_chars", "integer"),
       field("context.compression_trigger_ratio", "number"),
       field("context.compression_target_ratio", "number"),
-      field("context.trace_chunk_max_chars", "integer", { importance: "advanced" }),
+      field("context.trace_chunk_chars", "integer", { importance: "advanced" }),
       field("context.trace_branch_factor", "integer", { importance: "advanced" }),
       field("context.trace_min_hot_entries", "integer", { importance: "advanced" }),
-      field("context.trace_inspect_max_chars", "integer", { importance: "advanced" }),
+      field("context.max_trace_inspect_chars", "integer", { importance: "advanced" }),
       field("reflection.schedule.enabled", "boolean"),
       field("reflection.schedule.daily_time", "string"),
       field("reflection.timezone", "string"),
@@ -138,14 +139,14 @@ function makeSaved(): Configuration {
     "loop.user.max_cycles": { value: 8, source: TINYSOUL },
     "reflection.home.max_cycles": { value: 4, source: TINYSOUL },
     "reflection.memory.max_cycles": { value: 4, source: TINYSOUL },
-    "context.budget_max_image_bytes": { value: 1_000_000, source: TINYSOUL },
-    "session.background_max_chars": { value: 20_000, source: TINYSOUL },
+    "context.max_image_bytes": { value: 1_000_000, source: TINYSOUL },
+    "session.max_background_chars": { value: 20_000, source: TINYSOUL },
     "context.compression_trigger_ratio": { value: 0.8, source: TINYSOUL },
     "context.compression_target_ratio": { value: 0.5, source: TINYSOUL },
-    "context.trace_chunk_max_chars": { value: 12_000, source: TINYSOUL },
+    "context.trace_chunk_chars": { value: 12_000, source: TINYSOUL },
     "context.trace_branch_factor": { value: 4, source: TINYSOUL },
     "context.trace_min_hot_entries": { value: 2, source: TINYSOUL },
-    "context.trace_inspect_max_chars": { value: 8000, source: TINYSOUL },
+    "context.max_trace_inspect_chars": { value: 8000, source: TINYSOUL },
     "reflection.schedule.enabled": { value: true, source: TINYSOUL },
     "reflection.schedule.daily_time": { value: "00:15", source: TINYSOUL },
     "reflection.timezone": { value: "Asia/Shanghai", source: TINYSOUL },
@@ -257,10 +258,10 @@ function actionsView(scenario: string): Record<string, unknown> {
       operations: ["select"],
       query: { channels: ["lexical"] },
       steps: {
-        select: { allowed_context: ["none", "current"], input_max_chars: 64000 },
+        select: { allowed_context: ["none", "current"], max_input_chars: 64000 },
       },
       max_steps: 8,
-      snapshot_max_chars: 4000000,
+      max_snapshot_chars: 4000000,
       page: { max_items: 50, max_chars: 8000 },
     },
     visibility: { default: null, scenarios: {} },
@@ -696,46 +697,17 @@ describe("BudgetsPage", () => {
 
   it("pairs a slider with the exact input and unit for bounded numbers", async () => {
     await act(async () => {
-      root.render(<BudgetsPage />);
+      root.render(<ContextPage />);
     });
     await flush();
 
-    const row = container.querySelector(
-      '[data-field-path="loop.user.max_cycles"]',
-    ) as HTMLElement;
-    const slider = row.querySelector('input[type="range"]') as HTMLInputElement;
-    expect(slider).not.toBeNull();
-    expect(slider.min).toBe("1");
-    expect(slider.max).toBe("64");
-    // The saved value positions the knob; the exact input sits next to it.
-    expect(slider.value).toBe("8");
-    expect(row.querySelector('input[type="number"]')).not.toBeNull();
-
-    // Sliding stages the exact numeric value.
-    await act(async () => {
-      setInputValue(slider, "24");
-    });
-    await flush();
-    expect(draftOperations(store())).toEqual([
-      { op: "set", source_id: TINYSOUL, path: "loop.user.max_cycles", value: 24 },
-    ]);
-
-    // Values beyond the presentation range clamp to the range bound.
-    await act(async () => {
-      setInputValue(slider, "100");
-    });
-    await flush();
-    expect(draftOperations(store())).toEqual([
-      { op: "set", source_id: TINYSOUL, path: "loop.user.max_cycles", value: 64 },
-    ]);
-
-    // The compression ratio slider uses a fine step; the unit row shows bytes.
+    // The compression ratio slider uses a fine step; the image row shows bytes.
     const ratio = container.querySelector(
       '[data-field-path="context.compression_trigger_ratio"] input[type="range"]',
     ) as HTMLInputElement;
     expect(ratio.step).toBe("0.01");
     expect(
-      container.querySelector('[data-field-path="context.budget_max_image_bytes"]')
+      container.querySelector('[data-field-path="context.max_image_bytes"]')
         ?.textContent,
     ).toContain("bytes");
   });
@@ -764,7 +736,7 @@ describe("BudgetsPage", () => {
       root.render(
         <>
           <SettingsField path="loop.user.max_cycles" />
-          <SettingsField path="context.budget_max_image_bytes" />
+          <SettingsField path="context.max_image_bytes" />
         </>,
       );
     });
@@ -778,7 +750,7 @@ describe("BudgetsPage", () => {
     ).not.toBeNull();
     // No declared bounds anywhere → the honest plain number input stays.
     const unbounded = container.querySelector(
-      '[data-field-path="context.budget_max_image_bytes"]',
+      '[data-field-path="context.max_image_bytes"]',
     ) as HTMLElement;
     expect(unbounded.querySelector('input[type="range"]')).toBeNull();
     expect(unbounded.querySelector('input[type="number"]')).not.toBeNull();

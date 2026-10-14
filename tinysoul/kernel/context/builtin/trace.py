@@ -276,14 +276,14 @@ class TurnTraceHeap:
         self,
         *,
         turn_id: str,
-        chunk_max_chars: int = 12000,
+        chunk_chars: int = 12288,
         branch_factor: int = 4,
         min_hot_entries: int = 2,
     ) -> None:
         if not turn_id:
             raise ContextContractError("TurnTraceHeap.turn_id must be non-empty")
-        if chunk_max_chars <= 0:
-            raise ContextContractError("TurnTraceHeap.chunk_max_chars must be positive")
+        if chunk_chars <= 0:
+            raise ContextContractError("TurnTraceHeap.chunk_chars must be positive")
         if branch_factor < 2:
             raise ContextContractError("TurnTraceHeap.branch_factor must be at least 2")
         if min_hot_entries < 0:
@@ -291,7 +291,7 @@ class TurnTraceHeap:
                 "TurnTraceHeap.min_hot_entries cannot be negative"
             )
         self._turn_id = turn_id
-        self._chunk_max_chars = chunk_max_chars
+        self._chunk_chars = chunk_chars
         self._branch_factor = branch_factor
         self._min_hot_entries = min_hot_entries
         self._entries: list[TraceEntry] = []
@@ -713,7 +713,7 @@ class TurnTraceHeap:
         by_id = {entry.entry_id: entry for entry in self._entries}
         selected_ids: list[str] = []
         selected_chars = 0
-        target_chars = max(required_chars, self._chunk_max_chars)
+        target_chars = max(required_chars, self._chunk_chars)
         index = 0
         while index < len(self._hot_entry_ids):
             cycle_id = by_id[self._hot_entry_ids[index]].cycle_id
@@ -746,7 +746,7 @@ class TurnTraceHeap:
         current_chars = 0
         for entry in entries:
             size = _message_chars(entry.message)
-            if current and current_chars + size > self._chunk_max_chars:
+            if current and current_chars + size > self._chunk_chars:
                 self._append_leaf(current)
                 current = []
                 current_chars = 0

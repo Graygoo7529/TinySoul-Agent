@@ -24,7 +24,7 @@ class EmbeddingIndex:
         path: Path,
         services: ModelServices,
         use: str,
-        max_chars: int = 16_000_000,
+        max_chars: int = 16777216,
         extraction: str = "content-units-v2",
     ) -> None:
         self._path, self._services, self._use = path, services, use

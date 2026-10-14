@@ -4,8 +4,8 @@ max_connections = 4
 connect_timeout_seconds = 30
 max_runtime_seconds = 3600
 stop_timeout_seconds = 10
-max_output_chars = 1000000
-max_collect_chars = 12000
-max_brief_chars = 24000
+max_output_chars = 1048576
+max_collect_chars = 12288
+max_brief_chars = 24576
 
 [capabilities.subagent.agents]

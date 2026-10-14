@@ -44,7 +44,7 @@ function workspaceSearchAction(options: { lexical: boolean }): JsonObject {
       sources: ["query", "backlinks", "directory", "refs", "result"],
       operations: ["select", "rerank", "filter"],
       query: { channels: ["lexical", "embedding"] },
-      steps: { select: { allowed_context: ["none"], input_max_chars: 4000 } },
+      steps: { select: { allowed_context: ["none"], max_input_chars: 4000 } },
       max_steps: 2,
       page: { max_items: 50, max_chars: 40000 },
     },

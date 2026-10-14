@@ -124,7 +124,7 @@ JSON Schema 不属于当前核心回答格式。严格 schema 支持涉及供应
 
 ## 模型上下文窗口
 
-每个已配置模型必须声明正整数 `context_window_tokens`。LLM 在每次候选模型调用前，以完整 MessageStack、可见工具 schema、选择约束、reasoning/tool replay、图片、请求结构开销和有效 `max_output_tokens` 预留估算窗口占用。当前 provider-neutral estimator 使用序列化 UTF-8 字节作为确定性的保守 token 上界；供应商明确返回 context-limit 错误时，适配层以 `ProviderErrorKind.CONTEXT_LIMIT` 进入同一容量失败路径，作为本地估算的权威兜底。
+每个已配置模型必须声明正整数 `context_window_tokens`。LLM 在每次候选模型调用前，以完整 MessageStack、可见工具 schema、选择约束、reasoning/tool replay、图片、请求结构开销和有效 `max_output_tokens` 预留估算窗口占用。当前 provider-neutral estimator 使用序列化 UTF-8 字节作为确定性的保守 token 上界；供应商明确返回 context-limit 错误时，适配层以 `ProviderErrorKind.CONTEXT_LIMIT` 进入同一容量失败路径，作为本地估算的权威兜底。三类主循环 Task 的默认生成额度为 32768 tokens；它与文件写入字符上限分别由 LLM 与资源 owner 管理。
 
 `max_output_tokens` 始终是本次 provider 生成的 token 上限，同时参与上下文窗口输出预留；它不是 ActionResult、TurnTrace 或 Session 的字符预算。具体调用方可以显式覆盖 task profile 的该值，例如完整文档或脚本生成使用动作级 generation budget。生成成功后的业务工件大小、ActionResult 投影和 Context trace 生命周期分别由拥有该工件的 action/capability、Action Catalog 和 Context 负责，不能共用一个 `max_output_tokens` 假装表达三种边界。
 

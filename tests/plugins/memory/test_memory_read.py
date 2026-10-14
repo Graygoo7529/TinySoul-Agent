@@ -143,14 +143,14 @@ def test_memory_config_uses_current_sections_and_rejects_old_names(
         {
             "root": "memory",
             "max_active_chars": 1000,
-            "inspect": {"page_max_chars": 4096},
-            "search": {"embedding_cache_max_chars": 123456},
+            "inspect": {"max_page_chars": 4096},
+            "search": {"max_embedding_cache_chars": 123456},
         },
         project_root=tmp_path,
     )
     assert settings.root == (tmp_path / "memory").resolve()
-    assert settings.inspect.page_max_chars == 4096
-    assert settings.search.embedding_cache_max_chars == 123456
+    assert settings.inspect.max_page_chars == 4096
+    assert settings.search.max_embedding_cache_chars == 123456
     with pytest.raises(Exception):
         parse_memory_settings({"semantic_search": {}}, project_root=tmp_path)
 

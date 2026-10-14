@@ -27,7 +27,7 @@ class OutputSettings:
     """Observation filtering and bounded model-detail rendering settings."""
 
     mode: ObservationLevel = ObservationLevel.NORMAL
-    model_max_chars: int = 20000
+    max_model_detail_chars: int = 20480
 
     def __post_init__(self) -> None:
         if not isinstance(self.mode, ObservationLevel):
@@ -38,14 +38,14 @@ class OutputSettings:
                 expected="normal | verbose | model",
             )
         if (
-            isinstance(self.model_max_chars, bool)
-            or not isinstance(self.model_max_chars, int)
-            or self.model_max_chars <= 0
+            isinstance(self.max_model_detail_chars, bool)
+            or not isinstance(self.max_model_detail_chars, int)
+            or self.max_model_detail_chars <= 0
         ):
             raise ConfigError(
-                "App output model_max_chars must be positive",
-                key="agent.output.model_max_chars",
-                value=self.model_max_chars,
+                "App output max_model_detail_chars must be positive",
+                key="agent.output.max_model_detail_chars",
+                value=self.max_model_detail_chars,
                 expected="positive int",
             )
 
@@ -139,7 +139,7 @@ def _parse_output_settings(value: object) -> OutputSettings:
             expected="table",
         )
     table = cast(Mapping[str, object], value)
-    reject_unknown_keys(table, {"mode", "model_max_chars"}, key="agent.output")
+    reject_unknown_keys(table, {"mode", "max_model_detail_chars"}, key="agent.output")
     raw_mode = table.get("mode", ObservationLevel.NORMAL.value)
     if not isinstance(raw_mode, str):
         raise ConfigError(
@@ -159,10 +159,10 @@ def _parse_output_settings(value: object) -> OutputSettings:
         ) from exc
     return OutputSettings(
         mode=mode,
-        model_max_chars=_optional_int(
+        max_model_detail_chars=_optional_int(
             table,
-            "model_max_chars",
-            default=OutputSettings.model_max_chars,
+            "max_model_detail_chars",
+            default=OutputSettings.max_model_detail_chars,
             key_prefix="agent.output",
         ),
     )

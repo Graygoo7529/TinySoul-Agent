@@ -118,7 +118,7 @@ def test_background_is_clean_and_inspect_expands_turn_actions(tmp_path: Path) ->
 def test_inspect_uses_opaque_continuation_for_oversized_content(
     tmp_path: Path,
 ) -> None:
-    session = _session(tmp_path, inspect_max_chars=1024)
+    session = _session(tmp_path, max_inspect_chars=1024)
     session.record_turn(
         completion("2026-07-25/1012", ask="q" * 3000),
         day=DAY,
@@ -150,7 +150,7 @@ def test_inspect_uses_opaque_continuation_for_oversized_content(
 def test_paginated_turn_retains_readable_children_and_action_leaves(
     tmp_path: Path,
 ) -> None:
-    session = _session(tmp_path, inspect_max_chars=1024)
+    session = _session(tmp_path, max_inspect_chars=1024)
     session.record_turn(
         completion(
             "2026-07-25/1005",
@@ -212,7 +212,7 @@ def test_paginated_turn_retains_readable_children_and_action_leaves(
 def test_map_preserves_all_facts_when_background_is_bounded(
     tmp_path: Path,
 ) -> None:
-    session = _session(tmp_path, background_max_chars=512)
+    session = _session(tmp_path, max_background_chars=512)
     for index in range(3):
         session.record_turn(
             completion(f"2026-07-25/{index + 1}", ask=f"question {index}"),
@@ -296,7 +296,7 @@ def test_inspect_rejects_record_outside_authoritative_graph(tmp_path: Path) -> N
 async def test_session_inspect_executor_returns_foldable_origin(
     tmp_path: Path,
 ) -> None:
-    session = _session(tmp_path, inspect_max_chars=1024)
+    session = _session(tmp_path, max_inspect_chars=1024)
     session.record_turn(
         completion("2026-07-25/1011", ask="q" * 3000),
         day=DAY,
@@ -517,7 +517,7 @@ def test_archive_snapshot_contains_only_validated_roots(tmp_path: Path) -> None:
 def test_hierarchical_map_query_is_scoped_and_continuation_bound(
     tmp_path: Path,
 ) -> None:
-    session = _session(tmp_path, inspect_max_chars=2048)
+    session = _session(tmp_path, max_inspect_chars=2048)
     for index in range(35):
         session.record_turn(
             completion(
@@ -571,7 +571,7 @@ async def test_session_reclaim_is_governed_by_its_own_watermark(tmp_path: Path) 
     from tinysoul.kernel.context.segments import TurnInfo
     from tinysoul.plugins.session.projection import SessionSegmentProvider
 
-    session = _session(tmp_path, background_max_chars=4000)
+    session = _session(tmp_path, max_background_chars=4000)
     provider = SessionSegmentProvider(SessionService(session))
     minimal = await provider.open(TurnInfo("empty", DAY.value))
     assert minimal.reclaim(100000).reclaimed_chars == 0
@@ -656,14 +656,14 @@ def test_inspect_history_compacts_whole_reading_facts_and_preserves_intent(
 def _session(
     tmp_path: Path,
     *,
-    background_max_chars: int = 24000,
-    inspect_max_chars: int = 8000,
+    max_background_chars: int = 24000,
+    max_inspect_chars: int = 8000,
 ) -> SessionEngine:
     session = SessionEngine(
         SessionSettings(
             root=tmp_path / "runtime" / "session",
-            background_max_chars=background_max_chars,
-            inspect_max_chars=inspect_max_chars,
+            max_background_chars=max_background_chars,
+            max_inspect_chars=max_inspect_chars,
         )
     )
     session.initialize_day(DAY)

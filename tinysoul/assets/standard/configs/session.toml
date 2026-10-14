@@ -1,4 +1,4 @@
 [session]
 root = "runtime/session"
-background_max_chars = 24000
-inspect_max_chars = 8000
+max_background_chars = 24576
+max_inspect_chars = 8192

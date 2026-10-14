@@ -188,8 +188,8 @@ def test_disclosure_blank_lines_keep_actual_source_range_and_small_budget_fails(
 async def test_trace_navigation_query_and_stable_refs_across_folding() -> None:
     context = (
         ContextEngineBuilder(system_text="test")
-        .with_trace_heap(chunk_max_chars=150, branch_factor=2, min_hot_entries=0)
-        .with_trace_inspect_max_chars(2048)
+        .with_trace_heap(chunk_chars=150, branch_factor=2, min_hot_entries=0)
+        .with_max_trace_inspect_chars(2048)
         .build()
     )
     turn_id = context.begin_turn("follow clues", turn_id="2026-10-06/55")

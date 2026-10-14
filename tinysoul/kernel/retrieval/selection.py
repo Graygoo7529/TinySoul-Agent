@@ -87,7 +87,7 @@ class CandidateSelector:
         scope: RunScope | None = None,
         cancellation: TaskCancellation | None = None,
         embedding: VectorSource | None = None,
-        input_max_chars: int = 64_000,
+        max_input_chars: int = 65536,
         observer: Callable[[ModelCallEvent], None] | None = None,
         observe_task: Callable[[str], None] | None = None,
     ) -> tuple[SearchCandidate, ...]:
@@ -119,7 +119,7 @@ class CandidateSelector:
                         for item in candidates
                         for unit in item.content_units
                     )
-                    > input_max_chars
+                    > max_input_chars
                 ):
                     raise SearchFailure(
                         SearchFailureKind.SCOPE_REQUIRED,
@@ -154,7 +154,7 @@ class CandidateSelector:
                     SearchFailureKind.OPERATION_FAILED,
                     prompt_text.SIMILARITY_RANKING_IS_TEMPORARILY_UNAVAILABLE,
                 ) from exc
-        prepared = tuple(project_candidate(item, 4_000) for item in candidates)
+        prepared = tuple(project_candidate(item, 4096) for item in candidates)
         state: JsonObject = {
             "query": query,
             "candidates": [
@@ -202,7 +202,7 @@ class CandidateSelector:
                         ensure_ascii=False,
                     )
                 )
-                > input_max_chars
+                > max_input_chars
             ):
                 raise SearchFailure(
                     SearchFailureKind.SCOPE_REQUIRED,
@@ -276,7 +276,7 @@ class CandidateSelector:
         )
         if (
             len(json.dumps(context_state(messages), ensure_ascii=False))
-            > input_max_chars
+            > max_input_chars
         ):
             raise SearchFailure(
                 SearchFailureKind.SCOPE_REQUIRED,

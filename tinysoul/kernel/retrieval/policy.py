@@ -81,7 +81,7 @@ class SearchCapability:
 class RetrievalOperationPolicy:
     operation: OperationKind
     allowed_context: tuple[SearchContext, ...] = (SearchContext.NONE,)
-    input_max_chars: int = 64_000
+    max_input_chars: int = 65536
 
     def __post_init__(self) -> None:
         if not self.allowed_context or len(set(self.allowed_context)) != len(
@@ -90,7 +90,7 @@ class RetrievalOperationPolicy:
             raise ConfigError(
                 "Operation contexts must be unique", key=self.operation.value
             )
-        if type(self.input_max_chars) is not int or self.input_max_chars < 1:
+        if type(self.max_input_chars) is not int or self.max_input_chars < 1:
             raise ConfigError(
                 "Operation input budget must be positive", key=self.operation.value
             )
@@ -98,7 +98,7 @@ class RetrievalOperationPolicy:
     def projection(self) -> JsonObject:
         return {
             "allowed_context": [item.value for item in self.allowed_context],
-            "input_max_chars": self.input_max_chars,
+            "max_input_chars": self.max_input_chars,
         }
 
 
@@ -110,9 +110,9 @@ class RetrievalPolicy:
     query_channels: tuple[QueryChannel, ...] = (QueryChannel.LEXICAL,)
     operation_policies: tuple[RetrievalOperationPolicy, ...] = ()
     max_steps: int = 8
-    snapshot_max_chars: int = 4_000_000
+    max_snapshot_chars: int = 4194304
     page_max_items: int = 50
-    page_max_chars: int = 8_000
+    page_max_chars: int = 8192
     capability: SearchCapability | None = None
 
     def __post_init__(self) -> None:
@@ -136,7 +136,7 @@ class RetrievalPolicy:
             raise ConfigError(
                 "max_steps must be between one and 32", key=self.action_id
             )
-        for name in ("snapshot_max_chars", "page_max_items", "page_max_chars"):
+        for name in ("max_snapshot_chars", "page_max_items", "page_max_chars"):
             if type(getattr(self, name)) is not int or getattr(self, name) < 1:
                 raise ConfigError(
                     "Retrieval budgets must be positive", key=f"{self.action_id}.{name}"
@@ -250,7 +250,7 @@ class RetrievalPolicy:
                 for item in self.operation_policies
             },
             "max_steps": self.max_steps,
-            "snapshot_max_chars": self.snapshot_max_chars,
+            "max_snapshot_chars": self.max_snapshot_chars,
             "page": {
                 "max_items": self.page_max_items,
                 "max_chars": self.page_max_chars,
@@ -281,7 +281,7 @@ def parse_retrieval_policies(value: object) -> tuple[RetrievalPolicy, ...]:
                 "rerank",
                 "filter",
                 "max_steps",
-                "snapshot_max_chars",
+                "max_snapshot_chars",
                 "page",
             },
             key=f"action.retrieval.{action_id}",
@@ -310,7 +310,7 @@ def parse_retrieval_policies(value: object) -> tuple[RetrievalPolicy, ...]:
             )
             reject_unknown_keys(
                 raw_op,
-                {"allowed_context", "input_max_chars"},
+                {"allowed_context", "max_input_chars"},
                 key=f"{action_id}.{operation.value}",
             )
             contexts = _new_choices(
@@ -323,8 +323,8 @@ def parse_retrieval_policies(value: object) -> tuple[RetrievalPolicy, ...]:
                     operation,
                     contexts,
                     _new_int(
-                        raw_op.get("input_max_chars", 64_000),
-                        key=f"{action_id}.{operation.value}.input_max_chars",
+                        raw_op.get("max_input_chars", 65536),
+                        key=f"{action_id}.{operation.value}.max_input_chars",
                     ),
                 )
             )
@@ -339,12 +339,12 @@ def parse_retrieval_policies(value: object) -> tuple[RetrievalPolicy, ...]:
                 tuple(op_policies),
                 _new_int(table.get("max_steps", 8), key=f"{action_id}.max_steps"),
                 _new_int(
-                    table.get("snapshot_max_chars", 4_000_000),
-                    key=f"{action_id}.snapshot_max_chars",
+                    table.get("max_snapshot_chars", 4194304),
+                    key=f"{action_id}.max_snapshot_chars",
                 ),
                 _new_int(page.get("max_items", 50), key=f"{action_id}.page.max_items"),
                 _new_int(
-                    page.get("max_chars", 8_000), key=f"{action_id}.page.max_chars"
+                    page.get("max_chars", 8192), key=f"{action_id}.page.max_chars"
                 ),
             )
         )

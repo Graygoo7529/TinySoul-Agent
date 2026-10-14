@@ -65,7 +65,7 @@ class _SearchView:
 class SearchViews:
     """Owned by a Turn/profile or leased SDK query scope, never a persistent index."""
 
-    def __init__(self, *, max_views: int = 16, max_chars: int = 16_000_000) -> None:
+    def __init__(self, *, max_views: int = 16, max_chars: int = 16777216) -> None:
         self._max_views, self._max_chars = max_views, max_chars
         self._views: OrderedDict[str, _SearchView] = OrderedDict()
         self._positions: dict[str, tuple[str, int]] = {}
@@ -149,7 +149,7 @@ class SearchViews:
         items: list[CandidatePreview] = []
         for original in view.candidates[offset:]:
             candidate = project_candidate(
-                original, min(2_000, view.page_max_chars // 3)
+                original, min(2048, view.page_max_chars // 3)
             )
             if view.page_max_items is not None and len(items) >= view.page_max_items:
                 break
@@ -213,7 +213,7 @@ class SearchEngine:
         *,
         corpus: CandidateSet,
         page_max_chars: int,
-        snapshot_max_chars: int = 4_000_000,
+        max_snapshot_chars: int = 4194304,
         apply_operation: Callable[
             [int, ModelStep, tuple[SearchCandidate, ...]],
             Awaitable[tuple[SearchCandidate, ...]],
@@ -299,7 +299,7 @@ class SearchEngine:
                 observe_step({**stats[-1], "elapsed_seconds": monotonic() - started})
         final_count = len(candidates)
         selected = final_count
-        if snapshot_size(candidates) > snapshot_max_chars:
+        if snapshot_size(candidates) > max_snapshot_chars:
             raise SearchFailure(
                 SearchFailureKind.SCOPE_REQUIRED,
                 prompt_text.RESULT_SNAPSHOT_BUDGET_EXCEEDED,

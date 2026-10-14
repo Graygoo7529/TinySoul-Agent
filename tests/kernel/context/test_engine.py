@@ -931,7 +931,7 @@ async def test_compress_via_engine() -> None:
     engine = (
         ContextEngineBuilder(system_text="sys")
         .with_trace_heap(
-            chunk_max_chars=12000,
+            chunk_chars=12000,
             branch_factor=4,
             min_hot_entries=0,
         )
@@ -1195,7 +1195,7 @@ def test_engine_exposes_snapshots_not_mutable_context_holders() -> None:
 def test_builder_validates_background_configuration() -> None:
     with pytest.raises(ContextContractError):
         ContextEngineBuilder(system_text="sys").with_trace_heap(
-            chunk_max_chars=1,
+            chunk_chars=1,
             branch_factor=1,
             min_hot_entries=0,
         )

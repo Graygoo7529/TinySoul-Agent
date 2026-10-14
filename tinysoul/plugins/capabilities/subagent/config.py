@@ -52,9 +52,9 @@ class SubagentSettings:
     connect_timeout_seconds: float = 30.0
     max_runtime_seconds: float = 3600.0
     stop_timeout_seconds: float = 10.0
-    max_output_chars: int = 1_000_000
-    max_collect_chars: int = 12000
-    max_brief_chars: int = 24000
+    max_output_chars: int = 1048576
+    max_collect_chars: int = 12288
+    max_brief_chars: int = 24576
 
     def __post_init__(self) -> None:
         for name in (

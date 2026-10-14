@@ -70,8 +70,8 @@ def _session(tmp_path: Path, *, budget: int = 24000, page: int = 8000) -> Sessio
     result = SessionEngine(
         SessionSettings(
             root=tmp_path / "session",
-            background_max_chars=budget,
-            inspect_max_chars=page,
+            max_background_chars=budget,
+            max_inspect_chars=page,
         )
     )
     result.initialize_day(DAY)
@@ -587,7 +587,7 @@ async def test_long_reply_has_the_same_context_through_all_reading_routes(
     _record(session)
     context = (
         ContextEngineBuilder(system_text="identity")
-        .with_trace_inspect_max_chars(2048)
+        .with_max_trace_inspect_chars(2048)
         .build()
     )
     turn_id = "2026-09-21/1010"

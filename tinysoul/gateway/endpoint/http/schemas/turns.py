@@ -14,9 +14,9 @@ class TurnCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["user", "home", "memory"] = "user"
-    text: str = Field(default="", max_length=16000)
+    text: str = Field(default="", max_length=16384)
     target_day: str = ""
-    instructions: str = Field(default="", max_length=16000)
+    instructions: str = Field(default="", max_length=16384)
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
     command_id: str = Field(default="", max_length=128)
 
@@ -32,7 +32,7 @@ class ChoiceAnswerRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     kind: Literal["choice"]
     option_id: str = Field(min_length=1, max_length=128)
-    comment: str = Field(default="", max_length=16000)
+    comment: str = Field(default="", max_length=16384)
 
     def to_answer(self) -> QuestionAnswer:
         return QuestionAnswer(
@@ -43,7 +43,7 @@ class ChoiceAnswerRequest(BaseModel):
 class TextAnswerRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     kind: Literal["text"]
-    text: str = Field(min_length=1, max_length=16000)
+    text: str = Field(min_length=1, max_length=16384)
 
     def to_answer(self) -> QuestionAnswer:
         return QuestionAnswer(AnswerKind.TEXT, text=self.text)

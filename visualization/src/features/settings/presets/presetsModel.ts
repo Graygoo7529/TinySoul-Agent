@@ -290,7 +290,7 @@ export const KEY_BUDGET_PATHS = [
   "loop.user.max_cycles",
   "reflection.home.max_cycles",
   "reflection.memory.max_cycles",
-  "session.background_max_chars",
+  "session.max_background_chars",
   "context.compression_trigger_ratio",
   "context.compression_target_ratio",
 ] as const;

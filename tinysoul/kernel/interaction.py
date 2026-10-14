@@ -213,12 +213,12 @@ class QuestionAnswer:
 
     def __post_init__(self) -> None:
         if self.kind is AnswerKind.TEXT:
-            _text(self.text, maximum=16000)
+            _text(self.text, maximum=16384)
             if self.option_id or self.comment:
                 raise QuestionError("Text answer cannot carry a choice")
         elif self.kind is AnswerKind.CHOICE:
             _text(self.option_id, maximum=128)
-            _text(self.comment, maximum=16000, empty=True)
+            _text(self.comment, maximum=16384, empty=True)
             if self.text:
                 raise QuestionError("Choice answer cannot carry free text")
         else:
@@ -238,7 +238,7 @@ class QuestionAnswer:
         if not isinstance(value, dict):
             raise QuestionError("Answer must be an object")
         if value.get("kind") == "text" and not set(value) - {"kind", "text"}:
-            return cls(AnswerKind.TEXT, text=_text(value.get("text"), maximum=16000))
+            return cls(AnswerKind.TEXT, text=_text(value.get("text"), maximum=16384))
         if value.get("kind") == "choice" and not set(value) - {
             "kind",
             "option_id",
@@ -247,6 +247,6 @@ class QuestionAnswer:
             return cls(
                 AnswerKind.CHOICE,
                 option_id=_text(value.get("option_id"), maximum=128),
-                comment=_text(value.get("comment", ""), maximum=16000, empty=True),
+                comment=_text(value.get("comment", ""), maximum=16384, empty=True),
             )
         raise QuestionError("Answer does not match the choice/text protocol")

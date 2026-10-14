@@ -19,7 +19,7 @@ class _FakeConfig:
             interactive=False,
             output=OutputSettings(
                 mode=ObservationLevel.MODEL,
-                model_max_chars=321,
+                max_model_detail_chars=321,
             ),
         )
 

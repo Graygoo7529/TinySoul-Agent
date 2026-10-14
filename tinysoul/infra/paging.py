@@ -12,18 +12,23 @@ from .continuation import (
 from .json import JsonObject, JsonValue, dumps_json
 
 
+DEFAULT_PAGE_CHARS = 16 * 1024
+MIN_PAGE_CHARS = 1024
+MAX_PAGE_CHARS = 64 * 1024
+
+
 @dataclass(frozen=True)
 class PageOptions:
     continuation: str | None = None
     limit: int = 30
-    max_chars: int = 16000
+    max_chars: int = DEFAULT_PAGE_CHARS
 
     def __post_init__(self) -> None:
         if (
             type(self.limit) is not int
             or not 1 <= self.limit <= 100
             or type(self.max_chars) is not int
-            or not 1024 <= self.max_chars <= 64000
+            or not MIN_PAGE_CHARS <= self.max_chars <= MAX_PAGE_CHARS
         ):
             raise ContinuationError(
                 ContinuationFailureReason.INVALID_LIMIT,

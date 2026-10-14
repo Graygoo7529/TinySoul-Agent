@@ -72,10 +72,10 @@ class ExpandSettings:
     servers: tuple[MCPServerSettings, ...] = ()
     timeout_seconds: float = 45.0
     max_tools: int = 2000
-    max_catalog_bytes: int = 4_000_000
-    max_result_bytes: int = 8_000_000
-    max_inline_chars: int = 16000
-    search_max_chars: int = 60000
+    max_catalog_bytes: int = 4194304
+    max_result_bytes: int = 8388608
+    max_inline_chars: int = 16384
+    max_search_chars: int = 61440
     page_size: int = 30
 
     def __post_init__(self) -> None:
@@ -93,7 +93,7 @@ class ExpandSettings:
             "max_catalog_bytes",
             "max_result_bytes",
             "max_inline_chars",
-            "search_max_chars",
+            "max_search_chars",
             "page_size",
         ):
             if type(getattr(self, name)) is not int or getattr(self, name) <= 0:
@@ -115,7 +115,7 @@ def parse_expand_settings(tree: Mapping[str, object]) -> ExpandSettings:
         "max_catalog_bytes",
         "max_result_bytes",
         "max_inline_chars",
-        "search_max_chars",
+        "max_search_chars",
         "page_size",
     )
     reject_unknown_keys(

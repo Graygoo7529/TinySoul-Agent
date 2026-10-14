@@ -160,7 +160,7 @@ description = "Maximum characters accepted by one Home content write or rewrite.
 value_kind = "integer"
 
 [[field]]
-path = "home.skill_catalog_max_chars"
+path = "home.max_skill_catalog_chars"
 surface = "home"
 group = "home.resources"
 title = "Skill Catalog Length"
@@ -178,15 +178,15 @@ value_kind = "string"
 importance = "advanced"
 
 [[field]]
-path = "session.background_max_chars"
+path = "session.max_background_chars"
 surface = "session"
 group = "session.background"
 title = "Session Background Length"
-description = "Maximum completed-turn history characters included as fixed Session Background."
+description = "Shared character budget for the Session map and completed-turn history projection; folds history without changing stored facts."
 value_kind = "integer"
 
 [[field]]
-path = "session.inspect_max_chars"
+path = "session.max_inspect_chars"
 surface = "session"
 group = "session.inspection"
 title = "Inspection Length"
@@ -212,7 +212,7 @@ description = "Maximum characters stored in the current business-day active Memo
 value_kind = "integer"
 
 [[field]]
-path = "memory.documents.daily_max_chars"
+path = "memory.documents.max_daily_chars"
 surface = "memory"
 group = "memory.documents"
 title = "Daily Memory Length"
@@ -220,7 +220,7 @@ description = "Maximum characters allowed in one persistent daily Memory documen
 value_kind = "integer"
 
 [[field]]
-path = "memory.documents.entity_max_chars"
+path = "memory.documents.max_entity_chars"
 surface = "memory"
 group = "memory.documents"
 title = "Entity Memory Length"
@@ -228,7 +228,7 @@ description = "Maximum characters allowed in one persistent entity Memory docume
 value_kind = "integer"
 
 [[field]]
-path = "memory.documents.concept_max_chars"
+path = "memory.documents.max_concept_chars"
 surface = "memory"
 group = "memory.documents"
 title = "Concept Memory Length"
@@ -236,7 +236,7 @@ description = "Maximum characters allowed in one persistent concept Memory docum
 value_kind = "integer"
 
 [[field]]
-path = "memory.documents.fact_max_chars"
+path = "memory.documents.max_fact_chars"
 surface = "memory"
 group = "memory.documents"
 title = "Fact Memory Length"
@@ -244,7 +244,7 @@ description = "Maximum characters allowed in one persistent fact Memory document
 value_kind = "integer"
 
 [[field]]
-path = "memory.documents.note_max_chars"
+path = "memory.documents.max_note_chars"
 surface = "memory"
 group = "memory.documents"
 title = "Note Memory Length"
@@ -261,7 +261,7 @@ value_kind = "integer"
 importance = "advanced"
 
 [[field]]
-path = "memory.inspect.page_max_chars"
+path = "memory.inspect.max_page_chars"
 surface = "memory"
 group = "memory.inspection"
 title = "Inspection Page Length"
@@ -270,11 +270,11 @@ value_kind = "integer"
 importance = "advanced"
 
 [[field]]
-path = "memory.search.embedding_cache_max_chars"
+path = "memory.search.max_embedding_cache_chars"
 surface = "memory"
 group = "memory.search"
 title = "Embedding Cache Text"
-description = "Maximum source text characters retained in the rebuildable semantic-search embedding cache."
+description = "Maximum serialized JSON characters retained in the rebuildable embedding cache."
 value_kind = "integer"
 importance = "advanced"
 
@@ -422,11 +422,11 @@ value_kind = "string"
 importance = "advanced"
 
 [[field]]
-path = "context.budget_max_image_bytes"
+path = "context.max_image_bytes"
 surface = "context_rules"
 group = "context_rules.budget"
 title = "Image Context Budget"
-description = "Maximum combined image bytes accepted by one constructed model context."
+description = "Maximum combined inline image bytes accepted by one constructed MessageStack; separate from provider token capacity."
 value_kind = "integer"
 
 [[field]]
@@ -446,11 +446,11 @@ description = "Target usage ratio after Context recomposition."
 value_kind = "number"
 
 [[field]]
-path = "context.trace_chunk_max_chars"
+path = "context.trace_chunk_chars"
 surface = "context_rules"
 group = "context_rules.trace"
-title = "Trace Chunk Length"
-description = "Maximum characters in one TurnTrace heap chunk before it branches."
+title = "Trace Chunk Target"
+description = "Target characters per TurnTrace compression chunk; complete entries may exceed the target."
 value_kind = "integer"
 importance = "advanced"
 
@@ -473,7 +473,7 @@ value_kind = "integer"
 importance = "advanced"
 
 [[field]]
-path = "context.trace_inspect_max_chars"
+path = "context.max_trace_inspect_chars"
 surface = "context_rules"
 group = "context_rules.trace"
 title = "Trace Inspection Length"
@@ -490,7 +490,7 @@ description = "Maximum readable Home resources in one source scan."
 value_kind = "integer"
 
 [[field]]
-path = "home.search.resource_max_chars"
+path = "home.search.max_resource_chars"
 surface = "home"
 group = "home.search"
 title = "Home Resource Length"
@@ -498,11 +498,11 @@ description = "Maximum text read from each Home source resource."
 value_kind = "integer"
 
 [[field]]
-path = "home.search.embedding_cache_max_chars"
+path = "home.search.max_embedding_cache_chars"
 surface = "home"
 group = "home.search"
 title = "Home Embedding Cache"
-description = "Maximum characters retained in the rebuildable Home vector cache."
+description = "Maximum serialized JSON characters retained in the rebuildable Home vector cache."
 value_kind = "integer"
 
 [[field]]

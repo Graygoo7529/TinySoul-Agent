@@ -21,6 +21,7 @@ const PAGE_LABELS: Record<SettingsPageId, { title: string; description: string }
   acp: { title: "ACP 子智能体", description: "委派目标、命令、环境和限制。" },
   mcp: { title: "MCP 服务", description: "外部工具服务、传输方式和环境引用。" },
   workspace: { title: "Workspace", description: "当日工作区根目录、读写限制和监听。" },
+  context: { title: "Context", description: "Background、Trace、Working 的组合与容量。" },
   session: { title: "Session", description: "Session 根目录、背景预算和 Inspect 限制。" },
   home: { title: "Home", description: "Home 根目录、读写限制和 Embedding 用途。" },
   memory: { title: "Memory", description: "活动/持久记忆限制和 Embedding 用途。" },

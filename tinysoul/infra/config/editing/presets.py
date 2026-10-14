@@ -21,18 +21,18 @@ _BUDGETS = (
     "loop.user.max_cycles",
     "reflection.home.max_cycles",
     "reflection.memory.max_cycles",
-    "session.background_max_chars",
-    "context.budget_max_image_bytes",
+    "session.max_background_chars",
+    "context.max_image_bytes",
     "context.compression_trigger_ratio",
     "context.compression_target_ratio",
-    "context.trace_chunk_max_chars",
+    "context.trace_chunk_chars",
     "context.trace_branch_factor",
     "context.trace_min_hot_entries",
-    "context.trace_inspect_max_chars",
+    "context.max_trace_inspect_chars",
 )
 _RETRIEVAL_BUDGETS = (
     "max_steps",
-    "snapshot_max_chars",
+    "max_snapshot_chars",
     "page.max_items",
     "page.max_chars",
 )
@@ -88,8 +88,8 @@ class PresetSnapshot:
                 allowed.update(
                     (
                         *_RETRIEVAL_BUDGETS,
-                        "select.input_max_chars",
-                        "rerank.input_max_chars",
+                        "select.max_input_chars",
+                        "rerank.max_input_chars",
                     )
                 )
             if set(fields) - allowed:
@@ -126,7 +126,7 @@ class PresetSnapshot:
                 operations = policy.get("operations", [])
                 for op in ("select", "rerank"):
                     if isinstance(operations, list) and op in operations:
-                        paths.append(f"{op}.input_max_chars")
+                        paths.append(f"{op}.max_input_chars")
             retrieval[consumer] = {path: _get(policy, path) for path in paths}
         return cls(values, retrieval, include_budgets)
 

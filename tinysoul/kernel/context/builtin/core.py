@@ -171,12 +171,12 @@ class TraceSegment:
         self,
         trace: TurnTraceHeap,
         *,
-        inspect_max_chars: int,
+        max_inspect_chars: int,
         input_projection: Callable[[str], InteractionNarrative],
     ) -> None:
         self.state = trace
         self._input_projection = input_projection
-        self._trace_inspect_max_chars = inspect_max_chars
+        self._max_trace_inspect_chars = max_inspect_chars
         self._trace_continuations = OpaqueContinuationCodec(
             owner="context", operation="inspect"
         )
@@ -356,7 +356,7 @@ class TraceSegment:
         try:
             return page.render(
                 codec=self._trace_continuations,
-                max_chars=self._trace_inspect_max_chars,
+                max_chars=self._max_trace_inspect_chars,
                 continuation=continuation,
                 binding={"query": query},
             )

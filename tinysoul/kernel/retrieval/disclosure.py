@@ -442,7 +442,7 @@ def inspect_document(
     direct_refs: tuple[DisclosureHint, ...],
     view: str = "content",
     continuation: str | None = None,
-    max_chars: int = 8_000,
+    max_chars: int = 8192,
     metadata: JsonObject | None = None,
 ) -> InspectPage:
     if view not in {"content", "direct_refs"}:
@@ -480,7 +480,7 @@ def inspect_document(
 
 
 def content_units(
-    ref: str, text: str, *, max_chars: int = 2_000, first_line: int = 1
+    ref: str, text: str, *, max_chars: int = 2048, first_line: int = 1
 ) -> tuple[ContentUnit, ...]:
     """Partition exact text without inserting separators, retaining line and column."""
     result: list[ContentUnit] = []

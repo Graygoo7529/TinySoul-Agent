@@ -13,8 +13,8 @@ from tinysoul.infra.continuation import MIN_CONTINUATION_PAGE_CHARS
 @dataclass(frozen=True)
 class SessionSettings:
     root: Path
-    background_max_chars: int = 24000
-    inspect_max_chars: int = 8000
+    max_background_chars: int = 24576
+    max_inspect_chars: int = 8192
 
     def __post_init__(self) -> None:
         if not isinstance(self.root, Path):
@@ -25,8 +25,8 @@ class SessionSettings:
                 expected="path",
             )
         for name in {
-            "background_max_chars",
-            "inspect_max_chars",
+            "max_background_chars",
+            "max_inspect_chars",
         }:
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
@@ -36,18 +36,18 @@ class SessionSettings:
                     value=value,
                     expected="positive int",
                 )
-        if self.background_max_chars < 512:
+        if self.max_background_chars < 512:
             raise ConfigError(
-                "Session background_max_chars must leave room for a recovery head",
-                key="session.background_max_chars",
-                value=self.background_max_chars,
+                "Session max_background_chars must leave room for a recovery head",
+                key="session.max_background_chars",
+                value=self.max_background_chars,
                 expected="int >= 512",
             )
-        if self.inspect_max_chars < MIN_CONTINUATION_PAGE_CHARS:
+        if self.max_inspect_chars < MIN_CONTINUATION_PAGE_CHARS:
             raise ConfigError(
-                "Session inspect_max_chars must leave room for response metadata",
-                key="session.inspect_max_chars",
-                value=self.inspect_max_chars,
+                "Session max_inspect_chars must leave room for response metadata",
+                key="session.max_inspect_chars",
+                value=self.max_inspect_chars,
                 expected=f"int >= {MIN_CONTINUATION_PAGE_CHARS}",
             )
 
@@ -61,15 +61,15 @@ def parse_session_settings(
         tree,
         {
             "root",
-            "background_max_chars",
-            "inspect_max_chars",
+            "max_background_chars",
+            "max_inspect_chars",
         },
         key="session",
     )
     return SessionSettings(
         root=_path(tree, "root", project_root / "runtime" / "session", project_root),
-        background_max_chars=_int(tree, "background_max_chars", 24000),
-        inspect_max_chars=_int(tree, "inspect_max_chars", 8000),
+        max_background_chars=_int(tree, "max_background_chars", 24576),
+        max_inspect_chars=_int(tree, "max_inspect_chars", 8192),
     )
 
 

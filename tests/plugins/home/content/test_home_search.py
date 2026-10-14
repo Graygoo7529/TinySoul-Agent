@@ -220,7 +220,7 @@ def test_home_excludes_before_consuming_source_read_budget(tmp_path: Path):
         AgentHomeSettings(
             original_root=root,
             runtime_root=tmp_path / "runtime/home",
-            search=HomeSearchSettings(scan_limit=1, resource_max_chars=20),
+            search=HomeSearchSettings(scan_limit=1, max_resource_chars=20),
         )
     ).build()
     corpus = owner.search_corpus(
