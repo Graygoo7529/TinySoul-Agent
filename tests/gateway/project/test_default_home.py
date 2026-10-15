@@ -30,6 +30,7 @@ _REQUIRED_TOP_LINKS = {
     "home:top/agent/AGENT",
     "home:top/agent/identity/identity",
     "home:top/agent/identity/soul",
+    "home:top/agent/context/using-context",
     "home:top/agent/user/user",
 }
 
@@ -55,6 +56,9 @@ async def test_packaged_default_home_exposes_only_context_visible_load_targets(
     catalog = await provider.catalog(date(2026, 7, 15))
 
     assert _REQUIRED_TOP_LINKS <= set(catalog.default_refs)
+    assert catalog.default_refs.index(
+        "home:top/agent/context/using-context"
+    ) < catalog.default_refs.index("home:top/agent/context/background")
     assert catalog.evictable_default_refs == ()
     assert catalog.items
 

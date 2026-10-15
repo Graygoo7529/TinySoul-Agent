@@ -88,6 +88,7 @@ _DEFAULT_BACKGROUND_TOP_REFS = (
     HomeTopRef("agent", "AGENT"),
     HomeTopRef("agent", "identity/identity"),
     HomeTopRef("agent", "identity/soul"),
+    HomeTopRef("agent", "context/using-context"),
     HomeTopRef("agent", "context/background"),
     HomeTopRef("agent", "context/turn-trace"),
     HomeTopRef("agent", "context/working"),

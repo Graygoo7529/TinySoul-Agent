@@ -100,6 +100,7 @@ def test_home_top_links_use_extensionless_identity_and_markdown_mapping(
         "home:top/agent/AGENT": "agent/AGENT.md",
         "home:top/agent/identity/identity": "agent/identity/identity.md",
         "home:top/agent/identity/soul": "agent/identity/soul.md",
+        "home:top/agent/context/using-context": "agent/context/using-context.md",
         "home:top/agent/context/turn-trace": "agent/context/turn-trace.md",
         "home:top/agent/user/user": "agent/user/user.md",
         "home:top/skills/python-refactor": "skills/python-refactor/SKILL.md",
