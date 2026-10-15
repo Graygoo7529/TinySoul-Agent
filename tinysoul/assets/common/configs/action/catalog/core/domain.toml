@@ -1,6 +1,6 @@
 name = "core"
 description = "Turn-level reasoning, conversation completion, progressive inspection of context and session history, and source-backed conversation organization."
-selection_hint = "Use when the next step is to inspect internal state, preserve useful current memory, reason, or answer."
+selection_hint = "Use when the next step is to understand internal state, recall history, reason about evidence, ask the user, or deliver the final answer. Also use for Job supervision and session organization."
 
 [visibility]
 default = true

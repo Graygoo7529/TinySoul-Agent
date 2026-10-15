@@ -5,41 +5,34 @@ Consumers listed below decide visibility, role, data and failure semantics.
 
 # Phase TaskPrompt guide. Used by kernel/loop/prompts.py:phase1_task_prompt.
 PHASE1_GUIDANCE = (
-    "You are in TinySoul Phase1.",
+    "You are in TinySoul Phase1: understand the current state and choose action domains.",
     (
-        "Before selecting action domains, reconcile existing WorkingContext "
-        "milestones and todos with authoritative ActionResults already "
-        "visible in the current Context."
+        "First, reconcile existing milestones and todos with authoritative ActionResults in Context. "
+        "Update completed todos, record valuable facts to milestones (computed values, refs, decisions, "
+        "failure causes), and remove stale entries. Milestones are factual registers, not todo mirrors."
     ),
     (
-        "When real task state changed, call the relevant set/remove milestone"
-        " or todo control tools in this same Phase1 response; do not leave "
-        "completed work pending or in_progress, and do not mark a failed or "
-        "merely attempted action done."
+        "Then, consider: what does the current goal need? What evidence is missing? What actions would "
+        "materially advance progress? Select action domains that address these needs."
     ),
     (
-        "Treat milestones as concise factual register entries that remain "
-        "useful for later cycles. Record valuable completed work, attempts, "
-        "failures, blocked conditions, concrete refs, versions, values, "
-        "decisions, or digests with their status made explicit. Do not use a "
-        "milestone as a todo mirror or describe an attempt as completed work."
+        "If the Turn is ready to deliver a result or request user input, select core for core.answer. "
+        "Selecting core does not require all todos to be done; keep their status honest."
     ),
     (
-        "Useful milestone examples: a computed value such as an average, a "
-        "workspace document reference with its current section and digest, an "
-        "authoritative URL used for the task, or a write attempt that failed "
-        "at a known boundary and was changed to a patch workflow."
+        "If one approach has been blocked, reflect on the limiting condition before selecting domains. "
+        "Consider different execution paths or capabilities rather than repeating the same attempt."
     ),
     (
-        "Selecting core does not require every current-goal todo to be done "
-        "or cancelled. When core.answer requests user input, unresolved todos"
-        " may remain pending or in_progress; keep their status honest."
+        "For complex tasks, work in small steps across multiple Cycles: each Cycle should make bounded, "
+        "verifiable progress—inspect one part, modify one section, test one change—rather than attempting "
+        "everything at once. Small steps enable verification and adjustment."
+    ),
+    (
+        "Phase1 only updates Context and selects action domains. Phase2 generates action calls for those "
+        "domains; Phase3 executes accepted calls and returns results to the next Cycle."
     ),
     "The action domain selection is mandatory for this phase.",
-    (
-        "Phase1 does not complete the Turn or produce final user output. It "
-        "only updates Context and selects action domains."
-    ),
 )
 
 # Phase TaskPrompt output. Used by kernel/loop/prompts.py:phase1_task_prompt.
@@ -53,8 +46,24 @@ PHASE1_EXPECTED_OUTPUT = (
 
 # Phase TaskPrompt guide. Used by kernel/loop/prompts.py:phase2_task_prompt.
 PHASE2_GUIDANCE = (
-    "You are in TinySoul Phase2.",
-    "Generate concrete action tool calls for the selected domains.",
+    "You are in TinySoul Phase2: construct concrete actions for the selected domains.",
+    (
+        "Choose actions that materially advance the current goal: obtain missing evidence, "
+        "resolve an uncertainty, perform necessary work, verify results, or produce the final answer."
+    ),
+    (
+        "When constructing action parameters, use exact references from Context (workspace:path, "
+        "memory:entity/name, etc.) rather than inventing new ones. Check Context for the actual refs."
+    ),
+    (
+        "If a previous attempt failed, adjust the limiting condition: change parameters that were "
+        "rejected, use different capabilities, or alter the execution path. Understand why it failed."
+    ),
+    (
+        "For complex operations, break them into small, bounded steps: read one section first, then edit it; "
+        "search for one pattern, inspect results, then search for the next; modify one file, verify it, "
+        "then move to the next. Each action should produce verifiable results before continuing."
+    ),
     "Only call actions that are useful for the current cycle.",
 )
 

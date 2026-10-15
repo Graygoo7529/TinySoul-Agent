@@ -35,10 +35,27 @@ minimum = 0.001
 description = "Optional waiting limit. Omit to wait until reply or cancellation."
 
 [semantic]
-use_when = ["Continuing needs the user's decision or information"]
-avoid_when = ["The information can be investigated independently"]
+use_when = [
+    "Continuing needs the user's decision among consequential alternatives",
+    "Missing information cannot be investigated with available actions",
+    "Need explicit permission for a significant or irreversible action",
+    "Multiple feasible routes exist and user preference matters",
+    "A difficulty or unclear meaning needs the user's assistance",
+    "A candidate direction or solution needs the user's view before continuing"
+]
+avoid_when = [
+    "The information can be investigated with inspect/search/read actions",
+    "The decision is technical and can be made from Context evidence",
+    "Would interrupt flow for a minor clarification that can be deferred"
+]
 effects = ["read_only"]
-examples = ["Ask the user to choose a project direction, then continue in this Turn"]
+examples = [
+    "Ask the user to choose between two refactoring approaches after explaining tradeoffs",
+    "Request missing API credentials that cannot be found in Context",
+    "Confirm deletion of important resources before proceeding",
+    "Ask whether to continue a long-running process that will consume significant time",
+    "Present two plausible interpretations of an unclear requirement and ask which direction to pursue"
+]
 
 [runtime]
 timeout_seconds = 5
