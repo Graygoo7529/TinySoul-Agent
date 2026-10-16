@@ -35,9 +35,9 @@ avoid_when = [
 effects = ["read_only"]
 examples = [
     "Analyze test and source files with intent 'What test cases are missing?'",
-    "Extract API endpoints from workspace:src/routes.py"
+    "Extract API endpoints from workspace:src/routes.py",
+    "Analyze selected Action and Context implementation files for result lifecycle behavior"
 ]
-examples = ["Analyze selected Action and Context implementation files for result lifecycle behavior"]
 
 [runtime]
 timeout_seconds = 600

@@ -38,9 +38,9 @@ examples = [
     "Search workspace for 'TODO' items",
     "Find backlinks to workspace:docs/api.md",
     "Discover Python files about 'authentication' in workspace:src",
-    "List all Markdown files in workspace"
+    "List all Markdown files in workspace",
+    "Search the workspace:tinysoul/workspace/ directory for WorkspaceContractError"
 ]
-examples = ["Search the workspace:tinysoul/workspace/ directory for WorkspaceContractError"]
 
 [runtime]
 parallel_policy = "serial"

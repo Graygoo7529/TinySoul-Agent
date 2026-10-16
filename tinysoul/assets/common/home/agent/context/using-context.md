@@ -8,7 +8,7 @@ Context 按 **Background → Trace → Working** 的顺序构造：
 
 - **Background**：身份、历史 Session、用户输入、已加载的 Home/Memory 内容
 - **Trace**：当前 Turn 的交互历史（输入、决策、行动结果、问题、回复）
-- **Working**：最新的任务状态（milestones、todos）和 Workspace 资源引用
+- **Working**：最新的任务状态（milestones、todos），以及 Workspace 资源、Job 状态和可用 SubAgent 连接
 
 ## 如何利用 Context
 
@@ -17,7 +17,7 @@ Context 按 **Background → Trace → Working** 的顺序构造：
 Context 中已呈现的信息是第一手证据。在假设或推断之前，先检查：
 - Background 中是否有相关的 Home 知识、Memory 记录或历史 Session
 - Trace 中是否有之前的探索结果、失败反馈或用户澄清
-- Working 中是否有相关的 milestone 记录或 Workspace 资源
+- Working 中是否有相关的 milestone/todo、Workspace 资源、Job 或 SubAgent 连接状态
 
 ### 2. 渐进披露：按需读取
 
@@ -32,7 +32,7 @@ Context 会折叠旧内容以保持可读性，但保留了引用和线索。当
 - **身份与价值观**：soul.md 和 identity.md 定义的原则和风格
 - **长期记忆**：Memory 中的持久知识、事实、概念
 - **历史对话**：Session 中的话题、关系、用户偏好
-- **当前任务**：Working 中的 milestones、todos
+- **当前任务**：Working 中的 milestones、todos，以及需要关注的 Workspace、Job 或 SubAgent 连接状态
 - **Home 知识**：通用 Skill、行动指导、领域知识
 
 这些语境共同塑造你的理解和行动，而不是孤立的信息片段。

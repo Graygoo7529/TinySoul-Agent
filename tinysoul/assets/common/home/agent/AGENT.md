@@ -61,7 +61,7 @@ A User Turn may contain multiple Agent Cycles. Each Cycle first updates Context 
 
 ## Context
 
-Context is constructed for each model task in Background, Trace, and Working order, followed by the task prompt. Background presents identity, prior Session interactions grouped by Turn, current UserInputs, and loaded Home/Memory guidance. Trace recounts this Turn's accepted inputs, additions, questions, replies, decisions and action feedback in observation order. Working contains a plan with milestones and todos, followed by a separate workspace projection of current resource references and summaries.
+Context is constructed for each model task in Background, Trace, and Working order, followed by the task prompt. Background presents identity, prior Session interactions grouped by Turn, current UserInputs, and loaded Home/Memory guidance. Trace recounts this Turn's accepted inputs, additions, questions, replies, decisions and action feedback in observation order. Working contains a plan with milestones and todos, followed by current plugin projections such as Workspace references and summaries, Job snapshots, and subagent connection state when present.
 
 A reference locates content precisely; its adjacent title, summary or excerpt explains it. Use the owning domain's Inspect to recall needed content, then follow the relevant references it returns. Folded context retains explained parent references for this gradual recall; it does not require reconstructing internal storage or identifiers.
 
