@@ -1,6 +1,6 @@
 name = "expand"
-description = "Discover and call configured MCP tools on demand."
-selection_hint = "Discover and call configured MCP tools on demand."
+description = "Discover and call configured MCP (Model Context Protocol) tools on demand."
+selection_hint = "Use to discover available MCP servers and tools, search for relevant tools, or call MCP tools with bounded parameters."
 
 [visibility]
 default = true

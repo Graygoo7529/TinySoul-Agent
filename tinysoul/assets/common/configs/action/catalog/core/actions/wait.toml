@@ -30,9 +30,22 @@ type = "string"
 description = "Optional source for environment event interruptions. workspace.fswatch senses external file edits; workspace.owner reports formal owner writes. An explicit source selects passive refreshes; source unavailability resumes this wait with explicit feedback."
 
 [semantic]
-use_when = ["Further work needs an environment event or an explicit delay"]
-avoid_when = ["Useful independent work remains"]
+use_when = [
+    "Waiting for a Job to complete (event_kind=job)",
+    "Need to delay for an external process to finish",
+    "Monitoring for workspace changes from an external source"
+]
+avoid_when = [
+    "Useful independent work can proceed in parallel",
+    "Could use core.job.status for immediate Job state check",
+    "External process is not actually running yet"
+]
 effects = ["read_only"]
+examples = [
+    "Wait for a started Job to complete or request input",
+    "Wait 30 seconds for an external build process",
+    "Monitor workspace for external file changes (source=workspace.fswatch)"
+]
 
 [runtime]
 timeout_seconds = 5

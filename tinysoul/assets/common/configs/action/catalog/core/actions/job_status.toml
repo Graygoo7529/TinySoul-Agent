@@ -14,9 +14,19 @@ type = "string"
 description = "Job identity returned by a start action in this Turn."
 
 [semantic]
-use_when = ["Supervising work already started in this Turn"]
-avoid_when = ["No matching Job exists"]
+use_when = [
+    "Need to check current state of a running or completed Job",
+    "Determining whether to wait, collect output, or stop a Job"
+]
+avoid_when = [
+    "No Jobs are active in this Turn",
+    "Should use core.wait to pause until Job completion"
+]
 effects = ["read_only"]
+examples = [
+    "Check status of a started execution Job",
+    "Determine if Job has produced output ready to collect"
+]
 
 [runtime]
 timeout_seconds = 10

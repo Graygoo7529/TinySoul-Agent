@@ -1,6 +1,6 @@
 name = "web"
 description = "Search the public Web and extract readable pages into Workspace Markdown."
-selection_hint = "Use for current public information, source discovery, or a readable local copy of a public Web page."
+selection_hint = "Use to search for current public information, discover sources, or fetch readable Web pages into Workspace for analysis and reference."
 
 [visibility]
 default = true

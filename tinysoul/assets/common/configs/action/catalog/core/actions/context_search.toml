@@ -6,9 +6,22 @@ description = "Compose query, backlinks, directory, refs, result, filter, select
 schema = { type = "object", properties = { source = { type = "object" }, steps = { type = "array" }, exclude_refs = { type = "array", items = { type = "string" } }, page = { type = "object" } }, required = ["source"], additionalProperties = false }
 
 [semantic]
-use_when = ["Useful raw Turn or Session evidence is not yet in the visible Context"]
-avoid_when = ["Changing resource content"]
+use_when = [
+    "Need to discover relevant Turn or Session evidence not yet visible",
+    "Search for patterns across current Turn or historical Sessions",
+    "Find backlinks or related interactions in session history"
+]
+avoid_when = [
+    "The needed content is already visible in Context",
+    "Should use home/memory/workspace search for those resources",
+    "Exact reference is known; use core.context.inspect instead"
+]
 effects = ["read_only"]
+examples = [
+    "Search Session for prior discussions about 'authentication'",
+    "Find Turns that reference a specific workspace file",
+    "Discover related topics in session map"
+]
 
 [runtime]
 timeout_seconds = 600

@@ -22,10 +22,22 @@ type = "string"
 description = "Optional text to find within this reference's facts. Omit to navigate clues and child references."
 
 [semantic]
-use_when = ["A needed decision, Action result or prior-Turn fact is behind a visible Context reference"]
-avoid_when = ["The needed fact is already visible"]
+use_when = [
+    "Need to recall folded Trace nodes or Session Turn details",
+    "A reference in Context needs its content to proceed",
+    "Session map shows relevant topics but history is folded"
+]
+avoid_when = [
+    "The needed content is already visible in Context",
+    "Should use home/memory/workspace inspect for those owners",
+    "General discovery is needed; use core.context.search instead"
+]
 effects = ["read_only"]
-examples = ["Inspect a visible branch ref, then inspect one returned leaf ref"]
+examples = [
+    "Inspect turn:trace/2026-10-14/5#entry/12 to recall a folded action result",
+    "Inspect session:turn/2026-10-14/3 to recall prior Turn interactions",
+    "Inspect session:map to navigate topics and their relationships"
+]
 
 [runtime]
 timeout_seconds = 5

@@ -34,9 +34,22 @@ items = { type = "string", maxLength = 240 }
 description = "Existing semantic refs to retract, preserving their identity. When retracting a node, retract or redirect its active relations in this same call."
 
 [semantic]
-use_when = ["New evidence changes the understanding of prior conversation", "Related Turns need topics, branches, shared references or corrected relationships"]
-avoid_when = ["There is no completed history", "Only display expansion or exact reading is needed; use core.context.inspect"]
+use_when = [
+    "New evidence changes understanding of topics or relationships",
+    "Need to create or update threads, notes, or topic connections",
+    "Session organization would help future recall"
+]
+avoid_when = [
+    "No completed Turns exist yet to organize",
+    "Current Turn facts should not become history yet",
+    "Organization would only be cosmetic without improving recall"
+]
 effects = ["modifying"]
+examples = [
+    "Create a thread linking related Turns about API design",
+    "Add a note explaining why an approach was rejected",
+    "Update topic relationships after discovering a connection"
+]
 
 [visibility]
 default = false

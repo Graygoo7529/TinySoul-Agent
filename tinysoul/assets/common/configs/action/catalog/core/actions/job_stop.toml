@@ -14,9 +14,19 @@ type = "string"
 description = "Job identity returned by a start action in this Turn."
 
 [semantic]
-use_when = ["Supervising work already started in this Turn"]
-avoid_when = ["No matching Job exists"]
+use_when = [
+    "A running Job should be terminated early",
+    "Job is no longer needed for current goal"
+]
+avoid_when = [
+    "Job is already completed or not started",
+    "Should wait for Job completion instead"
+]
 effects = ["modifying"]
+examples = [
+    "Stop a long-running execution Job that is no longer needed",
+    "Cancel a Job after receiving enough output"
+]
 
 [runtime]
 timeout_seconds = 10

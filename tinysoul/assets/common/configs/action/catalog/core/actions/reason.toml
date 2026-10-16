@@ -69,10 +69,22 @@ type = "string"
 description = "Expected output instructions for the reasoning task."
 
 [semantic]
-use_when = ["Need a bounded internal reasoning step before choosing the next action or final answer"]
-avoid_when = ["A direct final answer is already ready", "A concrete workspace or home action is required instead"]
+use_when = [
+    "Need a focused reasoning step to synthesize evidence before deciding",
+    "Must analyze multiple sources and return a structured decision",
+    "Complex tradeoff analysis requires explicit reasoning before core.answer"
+]
+avoid_when = [
+    "A direct final answer is ready from existing Context",
+    "A concrete workspace, home, or memory action is more appropriate",
+    "Reasoning would only delay without adding clarity"
+]
 effects = ["read_only"]
-examples = ["Analyze read-only references and return a JSON decision object"]
+examples = [
+    "Analyze workspace references to decide which approach fits the requirements",
+    "Synthesize memory and session evidence to identify a pattern",
+    "Evaluate tradeoffs and return a JSON decision object with recommendations"
+]
 
 [runtime]
 timeout_seconds = 600
