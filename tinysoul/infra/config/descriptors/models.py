@@ -19,7 +19,6 @@ class ConfigFieldImportance(StrEnum):
 
 class ConfigCollectionDeletePolicy(StrEnum):
     ALL = "all"
-    CREATE_SOURCE_ONLY = "create_source_only"
     NONE = "none"
 
 

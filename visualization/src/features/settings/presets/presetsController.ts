@@ -9,7 +9,7 @@
  * Applying a plan is the shared §15 flow: it submits exactly
  * `{preset_id}` (never `operations` alongside). Success (`state=active`)
  * clears only the draft entries the user explicitly agreed to discard and
- * re-reads the formal snapshots; every failure keeps the draft. The draft
+ * re-reads the formal definitions; every failure keeps the draft. The draft
  * conflict dialog (PresetDraftConfirm) is the only path that supplies
  * discard keys.
  */
@@ -62,7 +62,7 @@ export async function createPreset(
   }
 }
 
-/** Rename a plan; the stored snapshot is never re-captured by a rename. */
+/** Rename a plan; the stored definition is never re-captured by a rename. */
 export async function renamePreset(
   clients: V2Clients,
   presetId: string,
@@ -84,8 +84,8 @@ export async function renamePreset(
 }
 
 /**
- * The explicit overwrite capture: replaces the stored snapshot from the
- * chosen source. This is the only flow that updates a plan's snapshot.
+ * The explicit overwrite capture: replaces the stored definition from the
+ * chosen source. This is the only flow that updates a plan's definition.
  */
 export async function recapturePreset(
   clients: V2Clients,
@@ -104,7 +104,7 @@ export async function recapturePreset(
     await loadConfig(clients);
     useAppStore
       .getState()
-      .pushToast("success", "Plan snapshot overwritten from the chosen source.");
+      .pushToast("success", "Plan definition overwritten from the chosen source.");
     return true;
   } catch (error) {
     useAppStore

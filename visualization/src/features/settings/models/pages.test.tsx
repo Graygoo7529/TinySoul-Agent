@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Configuration, JsonValue } from "../../../api/v2/types";
 import type { ConfigCatalog } from "../../../api/v2/types";
 import { draftOperations, useConfigDraftStore } from "../draft/store";
+import { pageForDraft } from "../pages";
 import { LlmModelsPage } from "./LlmModelsPage";
 import { LlmProvidersPage } from "./LlmProvidersPage";
 import { LlmTaskChainsPage } from "./LlmTaskChainsPage";
@@ -22,9 +23,21 @@ import { moveItem } from "./collectionDrafts";
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
 const PROVIDERS = "project:configs/llm/providers.toml";
-const MODELS_BUILTIN = "project:configs/llm.models/kimi.toml";
-const MODELS_CUSTOM = "project:configs/llm/models/custom.toml";
+const MODELS_KIMI_SOURCE = "project:configs/llm/models/kimi.toml";
+const MODELS_UNGROUPED_SOURCE = "project:configs/llm/models/ungrouped.toml";
 const TASKS = "project:configs/llm/tasks.toml";
+
+describe("settings draft routing", () => {
+  it("routes a new model source draft to the LLM models page", () => {
+    expect(
+      pageForDraft({
+        key: "source:project:configs/llm/models/glm.toml",
+        sourceId: "project:configs/llm/models/glm.toml",
+        op: { op: "create_source" },
+      })?.id,
+    ).toBe("llm-models");
+  });
+});
 
 function makeCatalog(): ConfigCatalog {
   const field = (
@@ -62,10 +75,10 @@ function makeCatalog(): ConfigCatalog {
         root: "llm.models",
         title: "Model",
         description: "",
-        create_source: MODELS_CUSTOM,
+        create_source: MODELS_UNGROUPED_SOURCE,
         create_template: {},
         allow_create: true,
-        delete_policy: "create_source_only",
+        delete_policy: "all",
       },
       {
         id: "llm.tasks",
@@ -104,17 +117,17 @@ function makeSaved(): Configuration {
     "llm.providers.kimi.adapters": { value: ["kimi"], source: PROVIDERS },
     "llm.providers.kimi.base_url": { value: "https://api.moonshot.cn/v1", source: PROVIDERS },
     "llm.providers.kimi.api_key_envs": { value: ["KIMI_API_KEY"], source: PROVIDERS },
-    "llm.models.kimi-k2.adapter": { value: "kimi", source: MODELS_BUILTIN },
+    "llm.models.kimi-k2.adapter": { value: "kimi", source: MODELS_KIMI_SOURCE },
     "llm.models.kimi-k2.providers": {
       value: [{ provider: "kimi", provider_model: "kimi-k2" }],
-      source: MODELS_BUILTIN,
+      source: MODELS_KIMI_SOURCE,
     },
-    "llm.models.custom-1.adapter": { value: "kimi", source: MODELS_CUSTOM },
-    "llm.models.custom-1.providers": {
-      value: [{ provider: "kimi", provider_model: "custom-1" }],
-      source: MODELS_CUSTOM,
+    "llm.models.qwen-latest.adapter": { value: "kimi", source: MODELS_UNGROUPED_SOURCE },
+    "llm.models.qwen-latest.providers": {
+      value: [{ provider: "kimi", provider_model: "qwen-latest" }],
+      source: MODELS_UNGROUPED_SOURCE,
     },
-    "llm.tasks.default.models": { value: ["kimi-k2", "custom-1"], source: TASKS },
+    "llm.tasks.default.models": { value: ["kimi-k2", "qwen-latest"], source: TASKS },
   };
   const sourceIds = [...new Set(Object.values(fields).map((field) => field.source))];
   return {
@@ -229,7 +242,7 @@ describe("LlmProvidersPage", () => {
 
     // The modal names the referencing model chains before anything is staged.
     expect(container.textContent).toContain("llm.models.kimi-k2.providers");
-    expect(container.textContent).toContain("llm.models.custom-1.providers");
+    expect(container.textContent).toContain("llm.models.qwen-latest.providers");
     expect(draftOperations(store())).toEqual([]);
 
     const modal = container.querySelector(".fixed.inset-0");
@@ -318,7 +331,7 @@ describe("LlmModelsPage", () => {
   });
 
   it("rename with references stages the move and rewrites the task chain", async () => {
-    await renderSelected("custom-1");
+    await renderSelected("qwen-latest");
     await act(async () => {
       buttonByText("重命名").click();
     });
@@ -330,7 +343,7 @@ describe("LlmModelsPage", () => {
       'input[aria-label="New id"]',
     ) as HTMLInputElement;
     await act(async () => {
-      setInputValue(input, "custom-2");
+      setInputValue(input, "qwen-latest-2");
     });
     const rename = [...container.querySelectorAll(".fixed.inset-0 button")].find(
       (item) => item.textContent?.trim() === "重命名",
@@ -343,18 +356,18 @@ describe("LlmModelsPage", () => {
     const operations = draftOperations(store());
     expect(operations).toContainEqual({
       op: "delete",
-      source_id: MODELS_CUSTOM,
-      path: "llm.models.custom-1",
+      source_id: MODELS_UNGROUPED_SOURCE,
+      path: "llm.models.qwen-latest",
     });
     expect(operations).toContainEqual({
       op: "set",
       source_id: TASKS,
       path: "llm.tasks.default.models",
-      value: ["kimi-k2", "custom-2"],
+      value: ["kimi-k2", "qwen-latest-2"],
     });
     const create = operations.find(
       (operation) =>
-        operation.op === "set" && operation.path === "llm.models.custom-2",
+        operation.op === "set" && operation.path === "llm.models.qwen-latest-2",
     );
     expect(create).toBeDefined();
     expect(create?.op === "set" && create.value).toMatchObject({
@@ -362,12 +375,12 @@ describe("LlmModelsPage", () => {
     });
   });
 
-  it("built-in models cannot be deleted or renamed", async () => {
+  it("models can be deleted or renamed according to the collection policy", async () => {
     await renderSelected("kimi-k2");
     const deleteButton = buttonByText("删除");
     const renameButton = buttonByText("重命名");
-    expect(deleteButton.disabled).toBe(true);
-    expect(renameButton.disabled).toBe(true);
+    expect(deleteButton.disabled).toBe(false);
+    expect(renameButton.disabled).toBe(false);
   });
 
   it("labels the capabilities field distinctly from its section heading", async () => {
@@ -408,7 +421,7 @@ describe("LlmTaskChainsPage", () => {
         op: "set",
         source_id: TASKS,
         path: "llm.tasks.default.models",
-        value: ["custom-1", "kimi-k2"],
+        value: ["qwen-latest", "kimi-k2"],
       },
     ]);
   });

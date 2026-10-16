@@ -2,6 +2,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { draftIssues, useConfigDraftStore } from "./draft/store";
+import { isFieldDraft } from "./draft/model";
 import { useSettingsUiStore } from "./uiStore";
 
 /** Native disclosure keeps editors mounted, and reveals errors/search targets. */
@@ -12,7 +13,7 @@ export function SettingsDisclosure({ title, paths = [], children, meta, classNam
   const state = useConfigDraftStore();
   const focusPath = useSettingsUiStore((s) => s.focusPath);
   const owns = (path: string) => paths.some((prefix) => path === prefix || path.startsWith(`${prefix}.`));
-  const dirty = Object.values(state.drafts).some((entry) => owns(entry.path));
+  const dirty = Object.values(state.drafts).some((entry) => isFieldDraft(entry) && owns(entry.path));
   const issues = draftIssues(state).filter((issue) => owns(issue.path));
   const failureKey = state.applyFailure?.kind === "config-invalid" ? state.applyFailure.key : null;
   const errorCount = issues.length + (failureKey !== null && owns(failureKey) ? 1 : 0);

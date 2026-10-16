@@ -237,7 +237,7 @@ Catalog 的 `execution.executor` 是显式注册的实现身份；`runtime` 管�
 
 ### 模型用途
 
-代码通过 ModelUseDescriptor 声明真实 consumer、所属 Action、操作语义和支持的实现。项目 `action.models.bindings` 为 consumer 选择 `llm_task`、`structured_decision` 或允许的 `embedding_similarity`，并引用 LLM task profile 或专用 model use；ActionCall 不能指定 provider/model。用途、配置绑定和实际调用 Observation 分离。
+代码通过 ModelUseDescriptor 声明真实 consumer、所属 Action、操作语义和支持的实现。项目 `action.models.bindings` 为 consumer 选择 `llm_task`、`decision` 或允许的 `embedding_similarity`，并引用 LLM task profile 或专用 model use；ActionCall 不能指定 provider/model。用途、配置绑定和实际调用 Observation 分离。
 
 core.reason/core.answer 与 Workspace compose/describe/analyze 各自拥有 generate 用途。ActionTaskFactory 只准备 TaskCall：挂载 domain/action Skill、按 executor 选择构造 Context/TaskPrompt、传入输出约束和外层 cancellation。它不调用供应商或解释业务结果。唯一 LLMTaskRunner 的 invoke 返回 TaskResult 或可组合的 LLMInvocationFailure，run 在相同管线上增加 Runtime bridge，供 Phase1/2 使用。生成 Action 保留容量恢复和业务提交边界；Search 的有界 selector 使用局部容量反馈，由调用方缩小范围。
 

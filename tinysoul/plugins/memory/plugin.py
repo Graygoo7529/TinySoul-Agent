@@ -73,7 +73,7 @@ class MemoryPlugin:
             "memory.search.select",
             "memory.search",
             ModelOperation.SELECT,
-            (ModelImplementation.LLM_TASK, ModelImplementation.STRUCTURED_DECISION),
+            (ModelImplementation.LLM_TASK, ModelImplementation.DECISION),
         ),
         ModelUseDescriptor(
             "memory.search.rerank",
@@ -82,7 +82,7 @@ class MemoryPlugin:
             (
                 *(
                     ModelImplementation.LLM_TASK,
-                    ModelImplementation.STRUCTURED_DECISION,
+                    ModelImplementation.DECISION,
                 ),
                 ModelImplementation.EMBEDDING_SIMILARITY,
             ),

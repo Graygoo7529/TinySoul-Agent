@@ -10,9 +10,11 @@
 
 import type { ConfigCatalog, JsonValue } from "../../../api/v2/types";
 import {
+  isFieldDraft,
   isPlainRecord,
   jsonContainsNull,
   type DraftEntry,
+  type FieldDraftEntry,
 } from "./model";
 
 export type ConfigValueKind =
@@ -424,7 +426,7 @@ export function validateDrafts(
 ): FieldIssue[] {
   const issues: FieldIssue[] = [];
   for (const entry of Object.values(drafts)) {
-    if (entry.op.op !== "set") continue;
+    if (!isFieldDraft(entry) || entry.op.op !== "set") continue;
     const value = entry.op.value;
     if (jsonContainsNull(value)) {
       issues.push({
@@ -444,7 +446,7 @@ export function validateDrafts(
 }
 
 function validateValueShape(
-  entry: DraftEntry,
+  entry: FieldDraftEntry,
   field: CatalogField,
   value: JsonValue,
 ): FieldIssue[] {
@@ -513,7 +515,7 @@ function validateValueShape(
 
 function validateReference(
   catalog: SettingsCatalog,
-  entry: DraftEntry,
+  entry: FieldDraftEntry,
   field: CatalogField,
   value: JsonValue,
   projectedKeys: ReadonlySet<string>,

@@ -335,8 +335,8 @@ function ModelOperationRow({
       ? "no binding"
       : entry.implementation === "llm_task"
         ? `llm_task → ${entry.taskProfile ?? "?"}`
-        : entry.implementation === "structured_decision"
-          ? `structured_decision → ${entry.use ?? "?"}`
+        : entry.implementation === "decision"
+          ? `decision → ${entry.use ?? "?"}`
           : "embedding_similarity";
   return (
     <FieldRow

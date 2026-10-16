@@ -4,11 +4,11 @@ import { settingsText } from "../i18n";
  * "Overview & Plans" group.
  *
  * Left: the named plan list with match state and dependency issues. Right:
- * the selected plan's managed scope (fixed by the backend), the leaf-level
- * difference against the running configuration, and the stored snapshot as a
+ * the selected plan's managed scope (fixed by the backend) and a compact
+ * strategy summary. The stored definition is a
  * read model — never an apply request body. Capture has exactly three
  * sources (running / saved / current draft); re-capture is the only action
- * that overwrites a snapshot, rename never re-captures, and there is no
+ * that overwrites a definition, rename never re-captures, and there is no
  * "copy an old plan" button because the API has no from_preset write.
  * Applying submits only `{preset_id}` and shares the §15 draft guard.
  */
@@ -31,9 +31,7 @@ import type { Preset, PresetSummary } from "../../../api/v2/types";
 import { Badge } from "../../../components/ui/Badge";
 import { Button, IconButton } from "../../../components/ui/Button";
 import { SectionCard } from "../../../components/ui/Card";
-import { Collapsible } from "../../../components/ui/Collapsible";
 import { EmptyState } from "../../../components/ui/EmptyState";
-import { JsonTree } from "../../../components/ui/JsonTree";
 import { Modal } from "../../../components/ui/Modal";
 import { useConnectionStore } from "../../../store/connectionStore";
 import {
@@ -42,6 +40,7 @@ import {
   useConfigDraftStore,
 } from "../draft/store";
 import { valuePreview } from "../editors/controls";
+import { isPlainRecord } from "../draft/model";
 import { pageForPath } from "../pages";
 import { useSettingsUiStore } from "../uiStore";
 import {
@@ -53,15 +52,13 @@ import {
 import { usePresetApplyFlow } from "./PresetDraftConfirm";
 import {
   budgetSummary,
-  decodePresetSnapshot,
+  decodePresetDefinition,
   parseValidationIssues,
   PRESET_EXCLUDED_NOTE,
   presetScopes,
-  snapshotDiff,
   type CaptureInput,
   type CaptureSource,
-  type PresetSnapshotView,
-  type SnapshotDiffRow,
+  type PresetDefinitionView,
 } from "./presetsModel";
 
 function describeError(error: unknown): string {
@@ -188,7 +185,6 @@ export function PlanListRow({
 
 function PlanDetail({ preset }: { preset: PresetSummary }) {
   const clients = useConnectionStore((s) => s.clients);
-  const active = useConfigDraftStore((s) => s.active);
   const blocker = useConfigDraftStore(activationBlocker);
   const navigateTo = useSettingsUiStore((s) => s.navigateTo);
 
@@ -198,7 +194,7 @@ function PlanDetail({ preset }: { preset: PresetSummary }) {
   const [recapturing, setRecapturing] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  // The snapshot ships only with the detail read; re-keyed on updated_at so
+  // The definition ships only with the detail read; re-keyed on updated_at so
   // a mutation's refreshed summary re-reads it.
   useEffect(() => {
     if (clients === null) return;
@@ -220,13 +216,9 @@ function PlanDetail({ preset }: { preset: PresetSummary }) {
     onReview: () => navigateTo("overview"),
   });
 
-  const snapshot = useMemo(
-    () => decodePresetSnapshot(detail?.snapshot ?? null),
+  const definition = useMemo(
+    () => decodePresetDefinition(detail?.definition ?? null),
     [detail],
-  );
-  const diff = useMemo(
-    () => (snapshot === null ? [] : snapshotDiff(snapshot, active)),
-    [snapshot, active],
   );
   const issues = parseValidationIssues(preset.validation_issues);
 
@@ -246,7 +238,7 @@ function PlanDetail({ preset }: { preset: PresetSummary }) {
             </IconButton>
             <IconButton
               label="Overwrite capture"
-              title="Replace the stored snapshot from a chosen source"
+              title="Replace the stored definition from a chosen source"
               onClick={() => setRecapturing(true)}
             >
               <Camera size={13} />
@@ -350,37 +342,25 @@ function PlanDetail({ preset }: { preset: PresetSummary }) {
       </SectionCard>
 
       <SectionCard
-        title={settingsText("Difference from the running configuration")}
-        description={settingsText("Leaf-level comparison of the stored snapshot against the running values, restricted to the managed scope.")}
+        title={settingsText("Plan strategy")}
+        description={settingsText("The plan stores task chains, routing and optional budgets by stable model references. Provider details remain in the current model catalog.")}
       >
         {detailError !== null ? (
-          <div className="text-[12px] text-danger">{settingsText("The stored snapshot could not be read:")}{detailError}
-          </div>
+          <div className="text-[12px] text-danger">{settingsText("The plan definition could not be read:")} {detailError}</div>
         ) : detail === null ? (
-          <div className="text-[12px] text-fg-muted">{settingsText("Loading the stored snapshot…")}</div>
-        ) : snapshot === null ? (
-          <div className="text-[12px] text-fg-muted">{settingsText("The stored snapshot could not be decoded; the match badges above still come from the backend.")}</div>
-        ) : preset.active_match ? (
-          <div className="flex items-center gap-1.5 text-[12px] text-success">
-            <CheckCircle2 size={13} />{settingsText("The plan matches the running configuration.")}</div>
-        ) : diff.length === 0 ? (
-          <div className="text-[12px] text-fg-muted">{settingsText("No managed value differs, but the plan's budgets or retrieval channels are outside this comparison — check the stored snapshot below.")}</div>
+          <div className="text-[12px] text-fg-muted">{settingsText("Loading the plan definition…")}</div>
+        ) : definition === null ? (
+          <div className="text-[12px] text-fg-muted">{settingsText("The plan definition is unavailable; match badges still come from the backend.")}</div>
         ) : (
-          <DiffTable rows={diff} />
-        )}
-        {snapshot !== null && (
-          <SnapshotExtras snapshot={snapshot} />
+          <>
+            <div className="text-[12px] text-fg-muted">
+              {Object.keys(definition.values).length} {settingsText("strategy groups captured")}
+              {definition.includeBudgets ? ` · ${settingsText("budgets included")}` : ` · ${settingsText("current budgets preserved")}`}
+            </div>
+            <DefinitionExtras definition={definition} />
+          </>
         )}
       </SectionCard>
-
-      {detail !== null && (
-        <Collapsible
-          title={settingsText("Stored snapshot")}
-          meta={<Badge tone="gray">只读快照，不作为应用请求</Badge>}
-        >
-          <JsonTree value={detail.snapshot} defaultExpanded={false} />
-        </Collapsible>
-      )}
 
       {renaming && (
         <RenameDialog preset={preset} onClose={() => setRenaming(false)} />
@@ -400,64 +380,66 @@ function PlanDetail({ preset }: { preset: PresetSummary }) {
   );
 }
 
-function SnapshotExtras({ snapshot }: { snapshot: PresetSnapshotView }) {
-  const budgets = budgetSummary(snapshot);
-  if (budgets.length === 0) return null;
+function DefinitionExtras({ definition }: { definition: PresetDefinitionView }) {
+  const budgets = budgetSummary(definition);
+  const tasks = taskModelSummary(definition);
+  const routingCount = Object.keys(definition.values).filter((path) =>
+    path.startsWith("loop.cycle.") || path === "action.models.bindings",
+  ).length;
+  const retrievalCount = Object.keys(definition.retrieval).length;
+  if (budgets.length === 0 && tasks.length === 0 && routingCount === 0 && retrievalCount === 0) return null;
   return (
     <div className="mt-3 border-t border-line pt-2.5">
-      <div className="mb-1 text-[11px] font-semibold tracking-wide text-fg-muted uppercase">{settingsText("Key budgets in this plan")}</div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1">
-        {budgets.map((row) => (
-          <span key={row.path} className="font-mono text-[11px] text-fg-muted">
-            {row.path} = {valuePreview(row.value, 20)}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-const DIFF_KIND_LABEL: Record<SnapshotDiffRow["kind"], { label: string; tone: "yellow" | "blue" | "red" | "gray" }> = {
-  change: { label: "change", tone: "yellow" },
-  add: { label: "add", tone: "blue" },
-  remove: { label: "remove", tone: "red" },
-  default: { label: "default", tone: "gray" },
-};
-
-function DiffTable({ rows }: { rows: SnapshotDiffRow[] }) {
-  const shown = rows.slice(0, 12);
-  return (
-    <div>
-      <div className="space-y-1">
-        {shown.map((row) => {
-          const kind = DIFF_KIND_LABEL[row.kind];
-          return (
-            <div key={`${row.kind}:${row.path}`} className="flex items-center gap-2 text-[12px]">
-              <Badge tone={kind.tone} className="w-16 justify-center">
-                {kind.label}
-              </Badge>
-              <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-fg">
-                {row.path}
+      {tasks.length > 0 && (
+        <div className="mb-2">
+          <div className="mb-1 text-[11px] font-semibold tracking-wide text-fg-muted uppercase">{settingsText("Task model routes")}</div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {tasks.map((row) => (
+              <span key={row.task} className="font-mono text-[11px] text-fg-muted">
+                {row.task}: {row.models.join(" → ") || settingsText("default")}
               </span>
-              {row.kind !== "default" && (
-                <span className="hidden max-w-[260px] truncate font-mono text-[11px] text-fg-faint md:block">
-                  {valuePreview(row.active, 24)} → {valuePreview(row.snapshot, 24)}
-                </span>
-              )}
-              {row.kind === "default" && (
-                <span className="text-[11px] text-fg-faint">恢复为 owner 默认值</span>
-              )}
-            </div>
-          );
-        })}
-      </div>
-      {rows.length > shown.length && (
-        <div className="mt-1.5 text-[11px] text-fg-faint">
-          +{rows.length - shown.length} more difference(s)
+            ))}
+          </div>
+        </div>
+      )}
+      {routingCount > 0 && (
+        <div className="mb-2 text-[11px] text-fg-muted">
+          {routingCount} {settingsText("routing groups captured")}
+        </div>
+      )}
+      {retrievalCount > 0 && (
+        <div className="mb-2 text-[11px] text-fg-muted">
+          {retrievalCount} {settingsText("retrieval policies captured")}
+        </div>
+      )}
+      {budgets.length > 0 && (
+        <div>
+          <div className="mb-1 text-[11px] font-semibold tracking-wide text-fg-muted uppercase">{settingsText("Key budgets in this plan")}</div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {budgets.map((row) => (
+              <span key={row.path} className="font-mono text-[11px] text-fg-muted">
+                {row.path} = {valuePreview(row.value, 20)}
+              </span>
+            ))}
+          </div>
         </div>
       )}
     </div>
   );
+}
+
+function taskModelSummary(
+  definition: PresetDefinitionView,
+): { task: string; models: string[] }[] {
+  const raw = definition.values["llm.tasks"];
+  if (!isPlainRecord(raw)) return [];
+  return Object.entries(raw).flatMap(([task, value]) => {
+    if (!isPlainRecord(value) || !Array.isArray(value.models)) return [];
+    return [{
+      task,
+      models: value.models.filter((model): model is string => typeof model === "string"),
+    }];
+  });
 }
 
 function formatTimestamp(value: string): string {
@@ -610,7 +592,7 @@ function CaptureDialog({
             loading={busy}
             onClick={() => void submit()}
           >
-            {settingsText(creating ? "Capture plan" : "Overwrite snapshot")}
+            {settingsText(creating ? "Capture plan" : "Overwrite definition")}
           </Button>
         </div>
       </div>
@@ -637,6 +619,7 @@ function RenameDialog({
         <label className="flex flex-col gap-1 text-[12px] text-fg-muted">{settingsText("Name")}<input
             type="text"
             autoFocus
+            aria-label="Plan name"
             className="h-8 rounded-md border border-line bg-bg px-2 text-[12.5px] text-fg outline-none focus:border-accent"
             value={name}
             onChange={(event) => setName(event.target.value)}
@@ -650,7 +633,7 @@ function RenameDialog({
             onChange={(event) => setDescription(event.target.value)}
           />
         </label>
-        <div className="text-[11px] leading-4 text-fg-faint">{settingsText("Renaming never re-captures: the stored snapshot stays as it is.")}</div>
+        <div className="text-[11px] leading-4 text-fg-faint">{settingsText("Renaming never re-captures: the stored definition stays as it is.")}</div>
         <div className="mt-1 flex justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={onClose}>{settingsText("Cancel")}</Button>
           <Button

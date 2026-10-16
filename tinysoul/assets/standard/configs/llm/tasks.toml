@@ -1,5 +1,5 @@
-[llm.tasks.frame_stage1]
-models = ["gpt_5_6_terra", "deepseek_flash"]
+[llm.tasks.frame-stage1]
+models = ["gpt-terra", "deepseek-flash"]
 required_capabilities = ["text_input"]
 # Profile defaults only.
 # Loop Phase1/Phase2 override:
@@ -17,8 +17,8 @@ max_cycles = 10
 prefer_successful_provider_seconds = 600
 prefer_successful_model_seconds = 600
 
-[llm.tasks.frame_stage2]
-models = ["deepseek_flash", "gpt_5_6_terra"]
+[llm.tasks.frame-stage2]
+models = ["deepseek-flash", "gpt-terra"]
 required_capabilities = ["text_input"]
 answer_format = "json_object"
 tool_use = "disabled"
@@ -32,8 +32,8 @@ max_cycles = 10
 prefer_successful_provider_seconds = 600
 prefer_successful_model_seconds = 600
 
-[llm.tasks.llm_action]
-models = ["deepseek_pro", "gpt_5_6_sol", "kimi_k3"]
+[llm.tasks.llm-action]
+models = ["deepseek-pro", "gpt-sol", "kimi-latest"]
 required_capabilities = ["text_input"]
 answer_format = "json_object"
 tool_use = "disabled"

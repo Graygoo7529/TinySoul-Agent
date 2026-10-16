@@ -71,7 +71,7 @@
       "title": "Included Scopes",
       "type": "array"
     },
-    "snapshot": {
+    "definition": {
       "anyOf": [
         {
           "$ref": "#/$defs/JsonObject"

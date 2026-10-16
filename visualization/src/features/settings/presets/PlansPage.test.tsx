@@ -51,13 +51,12 @@ const PRESET_OTHER = {
 
 const OTHER_DETAIL: Preset = {
   ...PRESET_OTHER,
-  snapshot: {
+  definition: {
     values: {
-      "llm.models": { missing_model: { adapter: "responses" } },
-      "llm.tasks": null,
+      "llm.tasks": { missing_task: { models: ["missing_model"] } },
       "action.models.bindings": [],
-      "loop.cycle.phase1_task_profile": "frame_stage1",
-      "loop.cycle.phase2_task_profile": "deep_stage2",
+      "loop.cycle.phase1_task_profile": "frame-stage1",
+      "loop.cycle.phase2_task_profile": "deep-stage2",
     },
     retrieval: { "home.search": { "query.channels": ["lexical"] } },
     include_budgets: false,
@@ -115,7 +114,7 @@ beforeEach(async () => {
   );
   endpoint.get("/v2/config/presets/", (request) => {
     const id = new URL(request.url).pathname.split("/").pop();
-    return jsonResponse(id === "id-2" ? OTHER_DETAIL : { ...PRESET_ACTIVE, snapshot: null });
+    return jsonResponse(id === "id-2" ? OTHER_DETAIL : { ...PRESET_ACTIVE, definition: null });
   });
   const views = configViews as { saved: unknown; active: unknown };
   endpoint.get("/v2/config", (request) =>
@@ -167,9 +166,9 @@ describe("PlansPage list & detail", () => {
     expect(text()).toContain("任务链");
     expect(text()).toContain("依赖问题");
     expect(text()).toContain("Model 'missing_model' is not defined");
-    // Snapshot detail was fetched and diffed against the running values.
-    expect(text()).toContain("loop.cycle.phase2_task_profile");
-    expect(text()).toContain("已保存快照");
+    // The definition is shown as strategy groups; raw model/provider details stay outside plans.
+    expect(text()).toContain("strategy groups captured");
+    expect(text()).toContain("current budgets preserved");
   });
 
   it("routes a dependency issue to its owning settings page", async () => {
@@ -318,7 +317,10 @@ describe("PlansPage capture & records", () => {
     const nameInput = container.querySelector(
       "input[placeholder='e.g. Thorough, Economical']",
     ) as HTMLInputElement;
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    const inputWindow = nameInput.ownerDocument.defaultView;
+    const setter = inputWindow === null
+      ? undefined
+      : Object.getOwnPropertyDescriptor(inputWindow.HTMLInputElement.prototype, "value")?.set;
     await act(async () => {
       setter?.call(nameInput, "Live");
       nameInput.dispatchEvent(new Event("input", { bubbles: true }));
@@ -344,10 +346,13 @@ describe("PlansPage capture & records", () => {
 
     await click(container.querySelector("button[aria-label='重命名']") as HTMLElement);
     await flush();
-    const nameInput = [...container.querySelectorAll("input")].find(
+    const nameInput = [...container.querySelectorAll<HTMLInputElement>("input[type='text']")].find(
       (input) => input.value === "Balanced",
     ) as HTMLInputElement;
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    const inputWindow = nameInput.ownerDocument.defaultView;
+    const setter = inputWindow === null
+      ? undefined
+      : Object.getOwnPropertyDescriptor(inputWindow.HTMLInputElement.prototype, "value")?.set;
     await act(async () => {
       setter?.call(nameInput, "Renamed");
       nameInput.dispatchEvent(new Event("input", { bubbles: true }));
@@ -362,7 +367,7 @@ describe("PlansPage capture & records", () => {
 
     await click(container.querySelector("button[aria-label='Overwrite capture']") as HTMLElement);
     await flush();
-    await click(button("覆盖快照"));
+    await click(button("覆盖定义"));
     await flush();
     const recaptureBody = bodyJson(
       endpoint.calls("/v2/config/presets/id-1", "PUT")[1],

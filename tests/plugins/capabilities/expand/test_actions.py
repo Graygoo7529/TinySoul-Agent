@@ -121,7 +121,7 @@ async def test_four_actions_share_exact_definitions_scope_and_bounded_selection(
             ModelUseBinding(
                 "expand.search.select",
                 ModelImplementation.LLM_TASK,
-                task_profile="llm_action",
+                task_profile="llm-action",
             ),
         ),
     )

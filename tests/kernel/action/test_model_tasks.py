@@ -281,7 +281,7 @@ async def test_task_factory_has_no_invocation_side_effects_and_uses_binding() ->
         consumer="core.reason.generate",
         prompt=TaskPrompt(guide_blocks=(PromptBlock.from_text("guide", "reason"),)),
     )
-    assert call.profile == "llm_action"
+    assert call.profile == "llm-action"
     assert call.settings.max_output_tokens == 2048
     assert call.settings.answer_format is AnswerFormat.JSON_OBJECT
 

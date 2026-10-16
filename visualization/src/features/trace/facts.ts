@@ -226,7 +226,7 @@ export interface RetrievalStepFact {
   elapsedSeconds: number | null;
 }
 
-/** model.call.* payloads (Embedding/JEV via retrieval). */
+/** model.call.* payloads (Embedding/decision model via retrieval). */
 export interface ModelCallFact {
   callId: string;
   searchId: string | null;

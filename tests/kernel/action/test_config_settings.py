@@ -53,7 +53,7 @@ def test_binding_resolves_only_declared_consumer_and_task() -> None:
     "override",
     [
         {"consumer": "unknown"},
-        {"implementation": "structured_decision", "target": {"use": "jev"}},
+        {"implementation": "decision", "target": {"use": "decision"}},
     ],
 )
 def test_registry_rejects_unknown_consumer_or_implementation(override) -> None:
@@ -84,7 +84,7 @@ def test_binding_rejects_wrong_target_and_options(override) -> None:
 
 def test_old_routing_and_duplicate_bindings_are_rejected() -> None:
     with pytest.raises(ConfigError):
-        parse_action_settings({"llm_action": {}})
+        parse_action_settings({"llm-action": {}})
     value = {
         "consumer": "core.answer.generate",
         "implementation": "llm_task",
@@ -99,7 +99,7 @@ def test_same_consumer_can_bind_decision_without_changing_action_identity() -> N
         "home.search.select",
         "home.search",
         ModelOperation.SELECT,
-        (ModelImplementation.LLM_TASK, ModelImplementation.STRUCTURED_DECISION),
+        (ModelImplementation.LLM_TASK, ModelImplementation.DECISION),
     )
     settings = parse_action_settings(
         {
@@ -107,7 +107,7 @@ def test_same_consumer_can_bind_decision_without_changing_action_identity() -> N
                 "bindings": [
                     {
                         "consumer": descriptor.consumer,
-                        "implementation": "structured_decision",
+                        "implementation": "decision",
                         "target": {"use": "decision"},
                     }
                 ]

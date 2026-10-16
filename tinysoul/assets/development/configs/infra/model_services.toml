@@ -17,23 +17,23 @@ timeout_seconds = 30
 max_retries = 2
 
 [[infra.model_services.models]]
-id = "embedding_main"
+id = "embedding-main"
 kind = "embedding"
 dimensions = 1024
 batch_size = 64
 provider_bindings = [{ provider_id = "bigmodel", model = "embedding-3" }]
 
 [[infra.model_services.models]]
-id = "decision_main"
-kind = "structured_decision"
+id = "decision-main"
+kind = "decision"
 provider_bindings = [{ provider_id = "typesafe", model = "jev-latest" }]
 
 [[infra.model_services.uses]]
-id = "embedding_main"
+id = "embedding-main"
 kind = "embedding"
-model_id = "embedding_main"
+model_id = "embedding-main"
 
 [[infra.model_services.uses]]
-id = "decision_main"
-kind = "structured_decision"
-model_id = "decision_main"
+id = "decision-main"
+kind = "decision"
+model_id = "decision-main"

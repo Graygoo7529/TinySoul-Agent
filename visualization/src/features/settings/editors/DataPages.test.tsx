@@ -44,7 +44,7 @@ function makeCatalog(): Record<string, unknown> {
 function makeSaved(): Configuration {
   const uses = [
     { id: "emb-main", kind: "embedding", model_id: "m1" },
-    { id: "jev-1", kind: "structured_decision", model_id: "m2" },
+    { id: "decision-1", kind: "decision", model_id: "m2" },
   ];
   const fields: Record<string, { value: JsonValue; source: string }> = {
     "infra.model_services.uses": { value: uses, source: MAIN_SOURCE },
@@ -134,7 +134,7 @@ describe("HomePage embedding_use picker", () => {
     const select = useSelect();
     const labels = [...select.options].map((option) => option.textContent);
     expect(labels.some((label) => label?.includes("emb-main"))).toBe(true);
-    expect(labels.some((label) => label?.includes("jev-1"))).toBe(false);
+    expect(labels.some((label) => label?.includes("decision-1"))).toBe(false);
 
     const setter = Object.getOwnPropertyDescriptor(
       HTMLSelectElement.prototype,

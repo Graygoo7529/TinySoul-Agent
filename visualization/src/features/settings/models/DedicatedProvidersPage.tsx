@@ -2,7 +2,7 @@ import { settingsText } from "../i18n";
 /**
  * Dedicated Providers settings page (plan §16.4): the
  * `infra.model_services.providers` object_list atom — embedding and
- * structured-decision endpoints. The whole array is one draft atom; entries
+ * decision model endpoints. The whole array is one draft atom; entries
  * are addressed by their stable `id`, never by position. Deleting an entry
  * reports the specialized models that still bind it.
  */
@@ -43,7 +43,7 @@ export const MODEL_SERVICES_SOURCE = "project:configs/infra/model_services.toml"
 
 const ADAPTER_OPTIONS = [
   { value: "openai_embedding", label: "OpenAI-compatible Embedding" },
-  { value: "typesafe_system_one", label: "Typesafe System One (structured decision)" },
+  { value: "typesafe_system_one", label: "Typesafe System One (decision model)" },
 ];
 
 export function DedicatedProvidersPage() {
@@ -99,7 +99,7 @@ export function DedicatedProvidersPage() {
     <>
       <ObjectEditorLayout
         title={settingsText("Dedicated providers")}
-        description={settingsText("Connections and credentials for specialized inference (embedding and structured decision).")}
+        description={settingsText("Connections and credentials for specialized inference (embedding and decision model).")}
         items={[
           ...effective.map((entry) => ({
             id: entry.id,
@@ -269,7 +269,7 @@ function DedicatedProviderEditor({
       >
         <FieldRow
           title={settingsText("Adapter")}
-          description={settingsText("Embedding providers serve vector models; structured-decision providers serve evaluation calls.")}
+          description={settingsText("Embedding providers serve vector models; decision model providers serve evaluation calls.")}
         >
           <SelectInput
             ariaLabel="Adapter"

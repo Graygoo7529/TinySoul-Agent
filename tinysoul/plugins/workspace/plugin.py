@@ -116,13 +116,13 @@ class WorkspacePlugin:
             "workspace.search.select",
             "workspace.search",
             ModelOperation.SELECT,
-            (ModelImplementation.LLM_TASK, ModelImplementation.STRUCTURED_DECISION),
+            (ModelImplementation.LLM_TASK, ModelImplementation.DECISION),
         ),
         ModelUseDescriptor(
             "workspace.search.rerank",
             "workspace.search",
             ModelOperation.RERANK,
-            (ModelImplementation.LLM_TASK, ModelImplementation.STRUCTURED_DECISION),
+            (ModelImplementation.LLM_TASK, ModelImplementation.DECISION),
         ),
         ModelUseDescriptor(
             "workspace.compose.generate", "workspace.compose", ModelOperation.GENERATE

@@ -1,10 +1,10 @@
 import { settingsText } from "../i18n";
 /**
- * LLM Task Chains settings page (plan §16.3): ordered model chains with call
+ * LLM Task Chains settings page: ordered model chains with call
  * and recovery parameters. The model order editor picks from the projected
  * model collection (draft-created models included); the read-only "used by"
  * section locates framework phase bindings and Action model-use consumers and
- * links to the pages that own them. Nothing here applies — edits stage drafts.
+ * links to the pages that own them. Nothing here applies edits; changes stage drafts.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -19,6 +19,7 @@ import {
   fieldLockReason,
   moveItem,
   projectCollection,
+  stringField,
   stringListField,
   taskChainUsage,
   type ObjectReference,
@@ -95,7 +96,8 @@ export function LlmTaskChainsPage() {
   const [firstModel, setFirstModel] = useState("");
   useEffect(() => {
     if (!models.some((item) => item.id === firstModel)) {
-      setFirstModel(models[0]?.id ?? "");
+      const preferred = models.find((item) => item.value.collapsed !== true) ?? models[0];
+      setFirstModel(preferred?.id ?? "");
     }
   }, [models, firstModel]);
 
@@ -127,8 +129,8 @@ export function LlmTaskChainsPage() {
         headerBadges={
           current !== null && (
             <>
-              {current.isNew && <Badge tone="accent">草稿新增</Badge>}
-              {!current.isNew && current.dirty && <Badge tone="accent">已修改</Badge>}
+              {current.isNew && <Badge tone="accent">New</Badge>}
+              {!current.isNew && current.dirty && <Badge tone="accent">Modified</Badge>}
             </>
           )
         }
@@ -167,21 +169,12 @@ export function LlmTaskChainsPage() {
           setCreating(false);
         }}
       >
-        <label className="block">
-          <span className="mb-1.5 block text-[11px] font-medium text-fg-muted">{settingsText("First model")}</span>
-          <select
-            aria-label="First model"
-            value={firstModel}
-            onChange={(event) => setFirstModel(event.target.value)}
-            className={selectClass}
-          >
-            {models.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.id}
-              </option>
-            ))}
-          </select>
-        </label>
+        <ModelChoicePicker
+          models={models}
+          value={firstModel}
+          onChange={setFirstModel}
+          ariaLabel="First model"
+        />
       </CreateObjectModal>
 
       <DeleteObjectModal
@@ -199,6 +192,11 @@ export function LlmTaskChainsPage() {
   );
 }
 
+function modelLabel(item: ProjectedObject): string {
+  const family = stringField(item.value, "family");
+  return family === "" ? item.id : `${family} 路 ${item.id}`;
+}
+
 function chainSummary(object: ProjectedObject, state: ReturnType<typeof useConfigDraftStore.getState>): string {
   const count = stringListField(object.value, "models").length;
   const parts = [`${count} ${count === 1 ? "model" : "models"}`];
@@ -209,7 +207,93 @@ function chainSummary(object: ProjectedObject, state: ReturnType<typeof useConfi
       `${usage.consumers.length} ${usage.consumers.length === 1 ? "consumer" : "consumers"}`,
     );
   }
-  return parts.join(" · ");
+  return parts.join(" 路 ");
+}
+
+function ModelChoicePicker({
+  models,
+  value,
+  onChange,
+  ariaLabel,
+}: {
+  models: ProjectedObject[];
+  value: string;
+  onChange: (value: string) => void;
+  ariaLabel: string;
+}) {
+  const [query, setQuery] = useState("");
+  const [familyFilter, setFamilyFilter] = useState("all");
+  const [showCollapsed, setShowCollapsed] = useState(false);
+  const families = [...new Set(models.map((item) => stringField(item.value, "family")).filter(Boolean))].sort();
+  const needle = query.trim().toLowerCase();
+  const visible = models.filter((item) => {
+    const family = stringField(item.value, "family");
+    if (familyFilter !== "all" && family !== familyFilter) return false;
+    if (needle !== "" && !`${item.id} ${family}`.toLowerCase().includes(needle)) return false;
+    return needle !== "" || showCollapsed || item.value.collapsed !== true || item.id === value;
+  });
+
+  return (
+    <div className="space-y-1.5">
+      <span className="mb-1.5 block text-[11px] font-medium text-fg-muted">{settingsText(ariaLabel)}</span>
+      <input
+        aria-label={`${ariaLabel} search`}
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="Search models or family"
+        className={selectClass}
+      />
+      <div className="flex flex-wrap gap-1">
+        {["all", ...families].map((family) => (
+          <button
+            key={family}
+            type="button"
+            onClick={() => setFamilyFilter(family)}
+            className={`rounded-full border px-2 py-0.5 text-[10px] ${familyFilter === family ? "border-accent bg-accent-soft text-accent" : "border-line text-fg-muted hover:bg-hover"}`}
+          >
+            {family === "all" ? "All families" : family}
+          </button>
+        ))}
+      </div>
+      <label className="flex items-center gap-1 text-[10px] text-fg-muted">
+        <input
+          type="checkbox"
+          checked={showCollapsed}
+          onChange={(event) => setShowCollapsed(event.target.checked)}
+          className="accent-accent"
+        />
+        Show collapsed
+      </label>
+      <select
+        aria-label={ariaLabel}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className={selectClass}
+      >
+        {visible.length === 0 && <option value="">No matching models</option>}
+        {groupModels(visible).map(([family, familyModels]) => (
+          <optgroup key={family} label={family}>
+            {familyModels.map((item) => (
+              <option key={item.id} value={item.id}>
+                {modelLabel(item)}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function groupModels(models: ProjectedObject[]): [string, ProjectedObject[]][] {
+  const groups = new Map<string, ProjectedObject[]>();
+  for (const model of models) {
+    const family = stringField(model.value, "family") || "No family";
+    const group = groups.get(family) ?? [];
+    group.push(model);
+    groups.set(family, group);
+  }
+  return [...groups.entries()];
 }
 
 /** Delete-modal references: framework phase bindings and Action consumers. */
@@ -257,13 +341,24 @@ function TaskChainEditor({
 
   const modelIds = stringListField(object.value, "models");
   const knownModelIds = new Set(models.map((item) => item.id));
-  const addableModels = models.filter((item) => !modelIds.includes(item.id));
+  const [modelQuery, setModelQuery] = useState("");
+  const [showCollapsed, setShowCollapsed] = useState(false);
+  const [familyFilter, setFamilyFilter] = useState("all");
+  const families = [...new Set(models.map((item) => stringField(item.value, "family")).filter(Boolean))].sort();
+  const visibleModels = models.filter((item) => {
+    const family = stringField(item.value, "family");
+    const query = modelQuery.trim().toLowerCase();
+    if (familyFilter !== "all" && family !== familyFilter) return false;
+    if (query !== "" && !`${item.id} ${family}`.toLowerCase().includes(query)) return false;
+    return query !== "" || showCollapsed || item.value.collapsed !== true || modelIds.includes(item.id);
+  });
+  const visibleAddableModels = visibleModels.filter((item) => !modelIds.includes(item.id));
   const [modelToAdd, setModelToAdd] = useState("");
   useEffect(() => {
-    if (!addableModels.some((item) => item.id === modelToAdd)) {
-      setModelToAdd(addableModels[0]?.id ?? "");
+    if (!visibleAddableModels.some((item) => item.id === modelToAdd)) {
+      setModelToAdd(visibleAddableModels[0]?.id ?? "");
     }
-  }, [addableModels, modelToAdd]);
+  }, [visibleAddableModels, modelToAdd]);
 
   const commitModels = (next: string[]) => {
     if (next.length === 0) return; // a chain always keeps at least one model
@@ -284,6 +379,17 @@ function TaskChainEditor({
         meta={<Badge>{modelIds.length}</Badge>}
       >
         <div className="space-y-1.5 px-5 py-3">
+          <div className="flex items-center gap-2">
+            <input aria-label="Search models" value={modelQuery} onChange={(event) => setModelQuery(event.target.value)} placeholder="Search models or family" className={`${selectClass} min-w-0 flex-1`} />
+            <label className="flex items-center gap-1 text-[10px] text-fg-muted"><input type="checkbox" checked={showCollapsed} onChange={(event) => setShowCollapsed(event.target.checked)} className="accent-accent" />Show collapsed</label>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {["all", ...families].map((family) => (
+              <button key={family} type="button" onClick={() => setFamilyFilter(family)} className={`rounded-full border px-2 py-0.5 text-[10px] ${familyFilter === family ? "border-accent bg-accent-soft text-accent" : "border-line text-fg-muted hover:bg-hover"}`}>
+                {family === "all" ? "All families" : family}
+              </button>
+            ))}
+          </div>
           {modelIds.map((id, index) => (
             <OrderableRow
               key={`${id}-${index}`}
@@ -307,9 +413,9 @@ function TaskChainEditor({
                   ...(knownModelIds.has(id)
                     ? []
                     : [{ value: id, label: `${id} (missing)` }]),
-                  ...models.map((model) => ({
+                  ...visibleModels.map((model) => ({
                     value: model.id,
-                    label: model.id,
+                    label: modelLabel(model),
                     disabled: modelIds.some(
                       (item, itemIndex) => itemIndex !== index && item === model.id,
                     ),
@@ -329,14 +435,14 @@ function TaskChainEditor({
             <select
               aria-label="Model to add"
               value={modelToAdd}
-              disabled={field("models").lock !== null || addableModels.length === 0}
+              disabled={field("models").lock !== null || visibleAddableModels.length === 0}
               onChange={(event) => setModelToAdd(event.target.value)}
               className={`${selectClass} min-w-0 flex-1`}
             >
-              {addableModels.length === 0 && <option value="">没有更多模型</option>}
-              {addableModels.map((item) => (
+              {visibleAddableModels.length === 0 && <option value="">No matching models</option>}
+              {visibleAddableModels.map((item) => (
                 <option key={item.id} value={item.id}>
-                  {item.id}
+                  {modelLabel(item)}
                 </option>
               ))}
             </select>
@@ -374,7 +480,7 @@ function TaskChainEditor({
       <FieldSection
         title={settingsText("Call")}
         description={settingsText("Default request shape for model calls in this chain.")}
-        meta={<Badge tone="gray">高级</Badge>}
+        meta={<Badge tone="gray">楂樼骇</Badge>}
       >
         <EnumRow
           label="Answer Format"
@@ -420,7 +526,7 @@ function TaskChainEditor({
       <FieldSection
         title={settingsText("Recovery")}
         description={settingsText("Retry and switching behavior inside this chain. Chain cycles bound passes over the model list of one task call; they are separate from the user-turn cycle budget on the Budgets page.")}
-        meta={<Badge tone="gray">高级</Badge>}
+        meta={<Badge tone="gray">楂樼骇</Badge>}
       >
         <NumberRow
           label="Retries Per Provider"

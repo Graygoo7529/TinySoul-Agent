@@ -118,7 +118,7 @@ export const fieldText: Record<string, FieldText> = {
   "llm.tasks.*.max_cycles": ["任务链遍历次数", "一次任务最多完整尝试此模型链的次数。"],
   "llm.tasks.*.prefer_successful_model_seconds": ["成功模型优先时长", "最近成功的模型在任务链中保持优先的秒数。"],
   "llm.tasks.*.prefer_successful_provider_seconds": ["成功提供方优先时长", "最近成功的备用提供方保持优先的秒数。"],
-  "infra.model_services.providers": ["专用模型提供方", "Embedding 与 JEV 的端点和连接配置。"],
+  "infra.model_services.providers": ["专用模型提供方", "Embedding 与 decision model 的端点和连接配置。"],
   "infra.model_services.models": ["专用模型", "模型能力及其有序提供方绑定。"],
   "infra.model_services.uses": ["专用模型用途", "将业务使用的逻辑用途绑定到模型。"],
   "action.models.bindings": ["模型用途绑定", "将代码声明的使用方绑定到 LLM 任务链或专用模型用途。"],
@@ -143,7 +143,7 @@ const specializedFields: Record<string, Record<string, FieldText>> = {
   },
   models: {
     id: ["模型 ID", "被逻辑用途引用的稳定模型标识。"],
-    kind: ["模型类型", "模型提供 Embedding 或 JEV 能力。"],
+    kind: ["模型类型", "模型提供 Embedding 或 decision model 能力。"],
     dimensions: ["向量维数", "Embedding 模型输出的向量维度。"],
     batch_size: ["批处理大小", "一次批量模型请求包含的最大条目数。"],
     provider_bindings: ["提供方顺序", "调用此模型时依次使用的提供方及其模型 ID。"],

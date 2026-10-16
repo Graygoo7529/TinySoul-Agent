@@ -19,7 +19,7 @@
  */
 
 import type { JsonValue } from "../../../api/v2/types";
-import { isPlainRecord, jsonDeepEqual } from "../draft/model";
+import { isFieldDraft, isPlainRecord, jsonDeepEqual } from "../draft/model";
 import { matchField, type SettingsCatalog } from "../draft/catalog";
 import type { ConfigDraftState } from "../draft/store";
 
@@ -40,10 +40,11 @@ export function projectedFields(state: ConfigDraftState): Map<string, JsonValue>
   for (const [path, field] of Object.entries(state.saved?.fields ?? {})) {
     result.set(path, field.value);
   }
-  const ordered = Object.values(state.drafts).sort(
+  const ordered = Object.values(state.drafts).filter(isFieldDraft).sort(
     (a, b) => a.sourceId.localeCompare(b.sourceId) || a.path.localeCompare(b.path),
   );
   for (const entry of ordered) {
+    if (!isFieldDraft(entry)) continue;
     if (entry.op.op === "delete") {
       for (const key of [...result.keys()]) {
         if (key !== entry.path && !key.startsWith(`${entry.path}.`)) continue;
@@ -123,14 +124,16 @@ export function projectCollection(
     const id = path.slice(prefix.length).split(".", 1)[0];
     if (id === undefined || id === "") continue;
     const record = savedIds.get(id) ?? { dirty: false, ownerSources: new Set<string>() };
-    record.ownerSources.add(field.source);
+    const source = state.saved?.sources.find((item) => item.id === field.source);
+    if (source?.kind === "project_toml") record.ownerSources.add(field.source);
     savedIds.set(id, record);
   }
 
   // Whole-object deletes hide the object entirely; whole-object sets seed it.
   const deleted = new Set<string>();
-  const draftCreates = new Map<string, Record<string, JsonValue>>();
+  const draftCreates = new Map<string, { value: Record<string, JsonValue>; sourceId: string }>();
   for (const entry of Object.values(state.drafts)) {
+    if (!isFieldDraft(entry)) continue;
     if (!entry.path.startsWith(prefix)) continue;
     const rest = entry.path.slice(prefix.length);
     const id = rest.split(".", 1)[0];
@@ -138,8 +141,8 @@ export function projectCollection(
     if (rest === id) {
       if (entry.op.op === "delete") {
         deleted.add(id);
-      } else if (isPlainRecord(entry.op.value)) {
-        draftCreates.set(id, entry.op.value);
+      } else if (entry.op.op === "set" && isPlainRecord(entry.op.value)) {
+        draftCreates.set(id, { value: entry.op.value, sourceId: entry.sourceId });
       }
     }
   }
@@ -162,14 +165,17 @@ export function projectCollection(
     }
     const saved = savedIds.get(id);
     const dirty = Object.values(state.drafts).some(
-      (entry) => entry.path === `${prefix}${id}` || entry.path.startsWith(`${prefix}${id}.`),
+      (entry) => isFieldDraft(entry) && (entry.path === `${prefix}${id}` || entry.path.startsWith(`${prefix}${id}.`)),
     );
     objects.push({
       id,
       value,
       isNew: saved === undefined,
       dirty,
-      ownerSources: [...(saved?.ownerSources ?? [])].sort(),
+      ownerSources: [
+        ...(saved?.ownerSources ?? []),
+        ...(draftCreates.has(id) ? [draftCreates.get(id)!.sourceId] : []),
+      ].filter((source, index, values) => values.indexOf(source) === index).sort(),
     });
   }
   return objects;
@@ -215,21 +221,13 @@ export function deleteDeepValue(target: Record<string, JsonValue>, path: string)
   }
 }
 
-/**
- * Whether the collection's delete policy allows deleting this object.
- * `create_source_only` restricts deletion to objects owned exclusively by the
- * declared create source (built-in models keep their definitions).
- */
-export function objectDeletable(
-  object: ProjectedObject | null,
-  deletePolicy: string,
-  createSource: string,
-): boolean {
+/** Whether the collection's delete policy allows deleting this object. */
+export function objectDeletable(object: ProjectedObject | null, deletePolicy: string): boolean {
   if (object === null) return false;
   if (object.isNew) return true;
   if (deletePolicy === "none") return false;
   if (deletePolicy === "all") return true;
-  return object.ownerSources.length === 1 && object.ownerSources[0] === createSource;
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -254,7 +252,9 @@ export function projectArrayAtom(
   state: ConfigDraftState,
   path: string,
 ): ProjectedArrayAtom {
-  const draft = Object.values(state.drafts).find((entry) => entry.path === path);
+  const draft = Object.values(state.drafts).find(
+    (entry) => isFieldDraft(entry) && entry.path === path,
+  );
   const savedField = state.saved?.fields[path];
   const raw = draft?.op.op === "set" ? draft.op.value : savedField?.value;
   const entries = Array.isArray(raw) ? raw.filter(isPlainRecord) : [];
@@ -632,6 +632,7 @@ export function deriveCredentials(state: ConfigDraftState): CredentialEntry[] {
     if (!references.has(name)) references.set(name, []);
   }
   for (const entry of Object.values(state.drafts)) {
+    if (!isFieldDraft(entry)) continue;
     if (entry.sourceId === (dotenv?.id ?? "dotenv") && !references.has(entry.path)) {
       references.set(entry.path, []);
     }
@@ -641,7 +642,7 @@ export function deriveCredentials(state: ConfigDraftState): CredentialEntry[] {
   return [...references.entries()]
     .map(([name, sites]) => {
       const draft = Object.values(state.drafts).find(
-        (entry) => entry.sourceId === dotenvId && entry.path === name,
+        (entry) => isFieldDraft(entry) && entry.sourceId === dotenvId && entry.path === name,
       );
       return {
         name,

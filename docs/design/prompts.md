@@ -12,7 +12,7 @@
 
 业务 owner 决定可见时机、消息 role、顺序、label、refs、工具范围和输出约束。Context 继续定义 TaskPrompt 与来源协议，Loop 组合 Phase 提示，Action 与领域 Builder 准备局部输入并解析资源；Reflection 选择情景指引。模型请求中的 MessageOrigin 仍指向实际业务来源，源码路径不成为模型资源身份。
 
-retrieval/JEV 的选择指令和问题、Web worker 的供应商 system 提示、ACP 引用包装、LLM 的工具结果包装也在内容包中管理，但它们保留各自请求出口，不统一套入 TaskPrompt。
+retrieval/decision model 的选择指令和问题、Web worker 的供应商 system 提示、ACP 引用包装、LLM 的工具结果包装也在内容包中管理，但它们保留各自请求出口，不统一套入 TaskPrompt。
 
 问答叙事、Session 的 Turn 分隔和交互标签、引用目录及 Inspect 的读取范围说明也由所属文案模块维护。`kernel.interaction` 从类型化问题和回答补全选项正文、说明与 comment；Session 从同一组事实生成历史叙事。ActionResult 的可读文字独立于结构化 payload；foldable 结果还可提供精简投影的文字。文字不能反向成为事实解析来源，也不能替代应保留的动态反馈、完整问题选项或实际读取范围。
 

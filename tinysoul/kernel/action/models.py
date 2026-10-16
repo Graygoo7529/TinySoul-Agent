@@ -19,7 +19,7 @@ from tinysoul.kernel.retrieval.contracts import (
 
 class ModelImplementation(StrEnum):
     LLM_TASK = "llm_task"
-    STRUCTURED_DECISION = "structured_decision"
+    DECISION = "decision"
     EMBEDDING_SIMILARITY = "embedding_similarity"
 
 
@@ -65,7 +65,7 @@ class ModelUseBinding:
             bool(self.task_profile) and self.use is None
             if self.implementation is ModelImplementation.LLM_TASK
             else bool(self.use) and self.task_profile is None
-            if self.implementation is ModelImplementation.STRUCTURED_DECISION
+            if self.implementation is ModelImplementation.DECISION
             else self.task_profile is None and self.use is None
         )
         if not self.consumer or not valid_target:
@@ -100,7 +100,7 @@ class ModelUseBinding:
         options: JsonObject = {}
         if self.max_output_tokens is not None:
             options["max_output_tokens"] = self.max_output_tokens
-        if self.implementation is ModelImplementation.STRUCTURED_DECISION:
+        if self.implementation is ModelImplementation.DECISION:
             options["relevance_threshold"] = self.relevance_threshold
         return {
             "consumer": self.consumer,
@@ -160,7 +160,7 @@ class ModelUseRegistry:
         decisions = {
             use.id
             for use in services.uses
-            if use.kind is ModelCapability.STRUCTURED_DECISION
+            if use.kind is ModelCapability.DECISION
         }
         for binding in self._bindings.values():
             if (
@@ -173,11 +173,11 @@ class ModelUseRegistry:
                     value=binding.task_profile,
                 )
             if (
-                binding.implementation is ModelImplementation.STRUCTURED_DECISION
+                binding.implementation is ModelImplementation.DECISION
                 and binding.use not in decisions
             ):
                 raise ConfigError(
-                    "Unknown or incompatible structured decision use",
+                    "Unknown or incompatible decision model use",
                     key=binding.consumer,
                     value=binding.use,
                 )
@@ -239,9 +239,9 @@ class ModelUseRegistry:
                 services.resolve(use, ModelCapability.EMBEDDING, env)
         for consumer in selected:
             binding = self.binding(consumer)
-            if binding.implementation is ModelImplementation.STRUCTURED_DECISION:
+            if binding.implementation is ModelImplementation.DECISION:
                 assert binding.use is not None
-                services.resolve(binding.use, ModelCapability.STRUCTURED_DECISION, env)
+                services.resolve(binding.use, ModelCapability.DECISION, env)
             elif binding.implementation is ModelImplementation.EMBEDDING_SIMILARITY:
                 owner = self.descriptor(consumer).embedding_owner
                 use = embedding_uses.get(owner or "")
@@ -276,7 +276,7 @@ class ModelUseRegistry:
                                 "maximum": 3,
                             }
                         }
-                        if implementation is ModelImplementation.STRUCTURED_DECISION
+                        if implementation is ModelImplementation.DECISION
                         else {}
                     )
                     for implementation in item.implementations

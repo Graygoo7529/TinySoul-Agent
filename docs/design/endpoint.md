@@ -57,7 +57,7 @@ HTTP route 只做路径参数/schema 转换和 engine 调用，不直接访问�
 
 WebSocket 在首帧完成 token、cursor 和 mode 认证；HTTP replay 与 WebSocket 都使用实例身份和序号续传。实例变化、超前游标或已淘汰区间通过 gap 明确呈现；客户端重新获取 owner 状态，不能把事件丢失当作业务丢失。Observation 不参与业务提交和 Runtime 控制流。
 
-Search 的 verbose 观测按 search_id 与 step_index 关联各步骤；LLM 调用通过 retrieval.model.invoked 连接既有 task_id，JEV/Embedding 的 model.call 连接 call_id，query 通道标为 source 阶段。重复 rerank 仍可区分，无需 Endpoint 另存评估历史。SearchPage 中来源覆盖、内容快照覆盖、模型实际输入覆盖和页面覆盖各有含义，客户端不能把“页面摘录”显示为“来源不完整”。真实片段保留资源 ref、位置和代表性命中；模型依据 ID 不是跨 Turn 链接。
+Search 的 verbose 观测按 search_id 与 step_index 关联各步骤；LLM 调用通过 retrieval.model.invoked 连接既有 task_id，decision model/Embedding 的 model.call 连接 call_id，query 通道标为 source 阶段。重复 rerank 仍可区分，无需 Endpoint 另存评估历史。SearchPage 中来源覆盖、内容快照覆盖、模型实际输入覆盖和页面覆盖各有含义，客户端不能把“页面摘录”显示为“来源不完整”。真实片段保留资源 ref、位置和代表性命中；模型依据 ID 不是跨 Turn 链接。
 
 ## 配置与 Action projection
 

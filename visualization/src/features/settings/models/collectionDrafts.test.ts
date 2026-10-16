@@ -30,8 +30,8 @@ import {
 
 const MAIN = "project:tinysoul.toml";
 const PROVIDERS = "project:configs/llm/providers.toml";
-const MODELS_CUSTOM = "project:configs/llm/models/custom.toml";
-const MODELS_BUILTIN = "project:configs/llm.models/kimi.toml";
+const MODELS_UNGROUPED_SOURCE = "project:configs/llm/models/ungrouped.toml";
+const MODELS_KIMI_SOURCE = "project:configs/llm/models/kimi.toml";
 const TASKS = "project:configs/llm/tasks.toml";
 const SERVICES = "project:configs/infra/model_services.toml";
 
@@ -73,10 +73,10 @@ function makeCatalog(): ConfigCatalog {
         root: "llm.models",
         title: "Model",
         description: "",
-        create_source: MODELS_CUSTOM,
+        create_source: MODELS_UNGROUPED_SOURCE,
         create_template: {},
         allow_create: true,
-        delete_policy: "create_source_only",
+        delete_policy: "all",
       },
       {
         id: "llm.tasks",
@@ -181,14 +181,14 @@ describe("projectedFields", () => {
   it("overlays whole-object creates by flattening, stopping at catalog object boundaries", () => {
     install(
       makeSaved({
-        "llm.models.kimi-k2.adapter": { value: "kimi", source: MODELS_BUILTIN },
+        "llm.models.kimi-k2.adapter": { value: "kimi", source: MODELS_KIMI_SOURCE },
         "llm.models.kimi-k2.providers": {
           value: [{ provider: "kimi", provider_model: "k2" }],
-          source: MODELS_BUILTIN,
+          source: MODELS_KIMI_SOURCE,
         },
       }),
     );
-    store().setValue(MODELS_CUSTOM, "llm.models.my-model", {
+    store().setValue(MODELS_UNGROUPED_SOURCE, "llm.models.my-model", {
       adapter: "openai",
       providers: [{ provider: "openai", provider_model: "my-model" }],
       adapter_options: { thinking: { type: "enabled" }, reasoning_effort: "high" },
@@ -213,23 +213,23 @@ describe("projectedFields", () => {
   it("a set replaces the subtree; a delete removes only the keys the draft source owns", () => {
     install(
       makeSaved({
-        "llm.models.m.adapter": { value: "kimi", source: MODELS_BUILTIN },
-        "llm.models.m.family": { value: "kimi", source: MODELS_BUILTIN },
-        "llm.models.m.context_window_tokens": { value: 262144, source: MODELS_CUSTOM },
+        "llm.models.m.adapter": { value: "kimi", source: MODELS_KIMI_SOURCE },
+        "llm.models.m.family": { value: "kimi", source: MODELS_KIMI_SOURCE },
+        "llm.models.m.context_window_tokens": { value: 262144, source: MODELS_UNGROUPED_SOURCE },
       }),
     );
     // A set below the object replaces exactly that subtree. `adapter_options`
     // is not a catalog object boundary, so the object flattens to leaf keys.
-    store().setValue(MODELS_BUILTIN, "llm.models.m.adapter_options", { protocol: "k3" });
+    store().setValue(MODELS_KIMI_SOURCE, "llm.models.m.adapter_options", { protocol: "k3" });
     let fields = projectedFields(store());
     expect(fields.get("llm.models.m.adapter_options.protocol")).toBe("k3");
 
     // Delete at the object root removes only keys owned by that source.
-    store().deleteValue(MODELS_BUILTIN, "llm.models.m");
+    store().deleteValue(MODELS_KIMI_SOURCE, "llm.models.m");
     fields = projectedFields(store());
     expect(fields.get("llm.models.m.adapter")).toBeUndefined();
     expect(fields.get("llm.models.m.family")).toBeUndefined();
-    // The custom source's override survives the builtin-source delete.
+    // The ungrouped source's override survives the Kimi-source delete.
     expect(fields.get("llm.models.m.context_window_tokens")).toBe(262144);
   });
 });
@@ -283,13 +283,13 @@ describe("projectCollection", () => {
   it("collects owner sources across files for multi-source objects", () => {
     install(
       makeSaved({
-        "llm.models.kimi-k2.adapter": { value: "kimi", source: MODELS_BUILTIN },
-        "llm.models.kimi-k2.collapsed": { value: true, source: MODELS_CUSTOM },
+        "llm.models.kimi-k2.adapter": { value: "kimi", source: MODELS_KIMI_SOURCE },
+        "llm.models.kimi-k2.collapsed": { value: true, source: MODELS_UNGROUPED_SOURCE },
       }),
     );
     const objects = projectCollection(store(), "llm.models");
     expect(objects).toHaveLength(1);
-    expect(objects[0]?.ownerSources).toEqual([MODELS_BUILTIN, MODELS_CUSTOM].sort());
+    expect(objects[0]?.ownerSources).toEqual([MODELS_KIMI_SOURCE, MODELS_UNGROUPED_SOURCE].sort());
   });
 });
 
@@ -298,20 +298,19 @@ describe("projectCollection", () => {
 // ---------------------------------------------------------------------------
 
 describe("objectDeletable", () => {
-  it("create_source_only restricts deletion to custom-owned objects", () => {
+  it("follows the collection policy for saved and draft objects", () => {
     install(
       makeSaved({
-        "llm.models.kimi-k2.adapter": { value: "kimi", source: MODELS_BUILTIN },
-        "llm.models.mine.adapter": { value: "openai", source: MODELS_CUSTOM },
+        "llm.models.kimi-k2.adapter": { value: "kimi", source: MODELS_KIMI_SOURCE },
+        "llm.models.mine.adapter": { value: "openai", source: MODELS_UNGROUPED_SOURCE },
       }),
     );
     const objects = projectCollection(store(), "llm.models");
-    const builtin = objects.find((item) => item.id === "kimi-k2") ?? null;
-    const custom = objects.find((item) => item.id === "mine") ?? null;
-    expect(objectDeletable(builtin, "create_source_only", MODELS_CUSTOM)).toBe(false);
-    expect(objectDeletable(custom, "create_source_only", MODELS_CUSTOM)).toBe(true);
-    expect(objectDeletable(builtin, "all", MODELS_CUSTOM)).toBe(true);
-    expect(objectDeletable(custom, "none", MODELS_CUSTOM)).toBe(false);
+    const kimi = objects.find((item) => item.id === "kimi-k2") ?? null;
+    const mine = objects.find((item) => item.id === "mine") ?? null;
+    expect(objectDeletable(kimi, "all")).toBe(true);
+    expect(objectDeletable(mine, "all")).toBe(true);
+    expect(objectDeletable(kimi, "none")).toBe(false);
   });
 });
 
@@ -322,7 +321,7 @@ describe("objectDeletable", () => {
 describe("projectAtomEntries", () => {
   const savedUses = [
     { id: "emb-main", kind: "embedding", model_id: "m1" },
-    { id: "jev-1", kind: "structured_decision", model_id: "m2" },
+    { id: "decision-1", kind: "decision", model_id: "m2" },
   ];
 
   it("reports new / modified / deleted entries against the saved atom", () => {
@@ -340,9 +339,9 @@ describe("projectAtomEntries", () => {
     const byId = new Map(atom.entries.map((entry) => [entry.id, entry]));
     expect(byId.get("emb-main")?.status).toBe("modified");
     expect(byId.get("emb-new")?.status).toBe("new");
-    expect(byId.get("jev-1")?.status).toBe("deleted");
+    expect(byId.get("decision-1")?.status).toBe("deleted");
     // The deleted entry keeps the saved value for a restore affordance.
-    expect(byId.get("jev-1")?.value.model_id).toBe("m2");
+    expect(byId.get("decision-1")?.value.model_id).toBe("m2");
     expect(atom.dirty).toBe(true);
   });
 
@@ -362,7 +361,7 @@ describe("projectAtomEntries", () => {
       .map((entry) => entry.value);
     store().setValue(SERVICES, "infra.model_services.uses", [
       ...current,
-      { id: "jev-2", kind: "structured_decision", model_id: "m2" },
+      { id: "decision-2", kind: "decision", model_id: "m2" },
     ]);
 
     const operations = draftOperations(store());
@@ -371,7 +370,7 @@ describe("projectAtomEntries", () => {
       op: "set",
       source_id: SERVICES,
       path: "infra.model_services.uses",
-      value: [...savedUses.slice(0, 2), { id: "emb-new", kind: "embedding", model_id: "m9" }, { id: "jev-2", kind: "structured_decision", model_id: "m2" }].map(
+      value: [...savedUses.slice(0, 2), { id: "emb-new", kind: "embedding", model_id: "m9" }, { id: "decision-2", kind: "decision", model_id: "m2" }].map(
         (entry) => entry,
       ),
     });
@@ -388,11 +387,11 @@ describe("reference finders", () => {
       makeSaved({
         "llm.models.kimi-k2.providers": {
           value: [{ provider: "kimi", provider_model: "k2" }],
-          source: MODELS_BUILTIN,
+          source: MODELS_KIMI_SOURCE,
         },
       }),
     );
-    store().setValue(MODELS_CUSTOM, "llm.models.drafty", {
+    store().setValue(MODELS_UNGROUPED_SOURCE, "llm.models.drafty", {
       providers: [
         { provider: "kimi", provider_model: "k2" },
         { provider: "openai", provider_model: "g" },
@@ -429,7 +428,7 @@ describe("reference finders", () => {
         "action.models.bindings": {
           value: [
             { consumer: "core.answer.generate", target: { task_profile: "default" } },
-            { consumer: "memory.search.select", target: { use: "jev-1" } },
+            { consumer: "memory.search.select", target: { use: "decision-1" } },
           ],
           source: MAIN,
         },
@@ -439,7 +438,7 @@ describe("reference finders", () => {
     expect(usage.phases).toEqual(["Phase1"]);
     expect(usage.consumers).toEqual(["core.answer.generate"]);
 
-    const consumers = useConsumers(store(), "jev-1");
+    const consumers = useConsumers(store(), "decision-1");
     expect(consumers.consumers).toEqual(["memory.search.select"]);
     expect(consumers.ownerRefs).toEqual([]);
   });

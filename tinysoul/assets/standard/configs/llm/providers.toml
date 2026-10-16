@@ -16,7 +16,7 @@ adapters = ["openai"]
 base_url = "https://api.wenrugouai.com/v1"
 api_key_envs = ["WENRUGOU_API_KEY"]
 
-[llm.providers.sublyx_proxy]
+[llm.providers.sublyx-proxy]
 enabled = false
 adapters = ["openai"]
 base_url = "https://api.sublyx.org/v1"

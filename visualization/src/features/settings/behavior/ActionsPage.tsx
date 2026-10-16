@@ -22,7 +22,7 @@ import type { ConfigScenario } from "../../../api/v2/types";
 import { Badge } from "../../../components/ui/Badge";
 import { Button, IconButton } from "../../../components/ui/Button";
 import { EmptyState } from "../../../components/ui/EmptyState";
-import { isPlainRecord, jsonDeepEqual } from "../draft/model";
+import { isFieldDraft, isPlainRecord, jsonDeepEqual } from "../draft/model";
 import { useConfigDraftStore, type ConfigDraftState } from "../draft/store";
 import { projectCollection } from "../models/collectionDrafts";
 import {
@@ -419,13 +419,13 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
               taskProfile:
                 next === "llm_task" ? (taskProfile ?? undefined) : undefined,
               use:
-                next === "structured_decision"
+                next === "decision"
                   ? (logicalUse ?? undefined)
                   : undefined,
               maxOutputTokens:
                 next === "llm_task" ? (maxOutputTokens ?? undefined) : undefined,
               relevanceThreshold:
-                next === "structured_decision" ? relevanceThreshold : undefined,
+                next === "decision" ? relevanceThreshold : undefined,
             });
           }}
         />
@@ -438,7 +438,7 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
             onCommit={(next) => commitPatch({ taskProfile: next })}
           />
         )}
-        {implementation === "structured_decision" && (
+        {implementation === "decision" && (
           <StructuredDecisionTarget
             consumer={modelUse.consumer}
             value={logicalUse}
@@ -463,7 +463,7 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
               }
             />
           )}
-        {implementation === "structured_decision" &&
+        {implementation === "decision" &&
           optionRules.relevance_threshold !== undefined && (
             <>
               <span className="text-[11px] text-fg-muted">{settingsText("Relevance threshold")}</span>
@@ -555,7 +555,7 @@ function LlmTaskTarget({
   );
 }
 
-/** Logical-use picker for a structured_decision binding (kind-filtered, draft-aware). */
+/** Logical-use picker for a decision binding (kind-filtered, draft-aware). */
 function StructuredDecisionTarget({
   consumer,
   value,
@@ -570,14 +570,14 @@ function StructuredDecisionTarget({
   const navigateTo = useSettingsUiStore((s) => s.navigateTo);
   const usesValue = useConfigDraftStore((s) => {
     const draft = Object.values(s.drafts).find(
-      (entry) => entry.path === "infra.model_services.uses",
+      (entry) => isFieldDraft(entry) && entry.path === "infra.model_services.uses",
     );
     if (draft?.op.op === "set") return draft.op.value;
     return s.saved?.fields["infra.model_services.uses"]?.value;
   });
   const uses = (Array.isArray(usesValue) ? usesValue : []).flatMap((item) => {
     if (!isPlainRecord(item)) return [];
-    if (item.kind !== "structured_decision" || typeof item.id !== "string") {
+    if (item.kind !== "decision" || typeof item.id !== "string") {
       return [];
     }
     return [{ id: item.id, modelId: typeof item.model_id === "string" ? item.model_id : "" }];
@@ -589,7 +589,7 @@ function StructuredDecisionTarget({
       <span className="text-[11px] text-fg-muted">逻辑用途</span>
       <span className="flex items-center gap-1.5">
         <SelectInput
-          ariaLabel={`${consumer} structured decision use`}
+          ariaLabel={`${consumer} decision model use`}
           value={current}
           disabled={disabled || uses.length === 0}
           options={[
@@ -602,7 +602,7 @@ function StructuredDecisionTarget({
             })),
           ]}
           emptyLabel={
-            uses.length === 0 ? "Create a structured-decision use first" : "Select…"
+            uses.length === 0 ? "Create a decision model use first" : "Select…"
           }
           onChange={(next) => {
             if (next !== "") onCommit(next);
@@ -625,7 +625,7 @@ function EmbeddingSimilarityTarget({ owner }: { owner: string | null }) {
   const path = owner !== null ? embeddingOwnerUsePath(owner) : null;
   const useValue = useConfigDraftStore((s) => {
     if (path === null) return undefined;
-    const draft = Object.values(s.drafts).find((entry) => entry.path === path);
+    const draft = Object.values(s.drafts).find((entry) => isFieldDraft(entry) && entry.path === path);
     if (draft?.op.op === "set") return draft.op.value;
     return s.saved?.fields[path]?.value;
   });

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
-from tinysoul.infra.config import ConfigController, ConfigMutation
+from tinysoul.infra.config import ConfigController, ConfigOperation
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.interaction import QuestionAnswer
@@ -282,7 +282,7 @@ class Agent:
     async def stop_job(self, request_id: str, job_id: str) -> JobSnapshot:
         return await self._running_runtime().service_access.stop_job(request_id, job_id)
 
-    async def patch_config(self, mutations: tuple[ConfigMutation, ...]) -> JsonObject:
+    async def patch_config(self, mutations: tuple[ConfigOperation, ...]) -> JsonObject:
         return await self._configuration().patch(mutations)
 
     async def reload_config(self) -> JsonObject:

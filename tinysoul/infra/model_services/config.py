@@ -13,7 +13,7 @@ from tinysoul.infra.config import ConfigError, reject_unknown_keys
 
 class ModelCapability(StrEnum):
     EMBEDDING = "embedding"
-    STRUCTURED_DECISION = "structured_decision"
+    DECISION = "decision"
 
 
 class ModelAdapter(StrEnum):

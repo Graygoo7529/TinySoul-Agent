@@ -1,4 +1,4 @@
-"""Named, source-independent snapshots of the configured model/routing scopes."""
+"""Named, source-independent definitions of the configured model/routing scopes."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from tinysoul.infra.json import JsonObject, JsonValue, to_json_object
 from ..environment import ConfigEnvironment
 from ..errors import ConfigError
 
-_GROUPS = ("llm.models", "llm.tasks", "action.models.bindings")
+_GROUPS = ("llm.tasks", "action.models.bindings")
 _ROUTING = ("loop.cycle.phase1_task_profile", "loop.cycle.phase2_task_profile")
 _BUDGETS = (
     "loop.user.max_cycles",
@@ -67,7 +67,7 @@ def _set(tree: JsonObject, path: str, value: JsonValue) -> None:
 
 
 @dataclass(frozen=True)
-class PresetSnapshot:
+class PresetDefinition:
     """Null represents the owner default, never a TOML null assignment."""
 
     values: JsonObject
@@ -77,7 +77,7 @@ class PresetSnapshot:
     def __post_init__(self) -> None:
         expected = {*_GROUPS, *_ROUTING, *(_BUDGETS if self.include_budgets else ())}
         if set(self.values) != expected:
-            raise ConfigError("Preset scopes are invalid", key="preset.snapshot")
+            raise ConfigError("Preset scopes are invalid", key="preset.definition")
         for consumer, fields in self.retrieval.items():
             if not isinstance(fields, dict):
                 raise ConfigError(
@@ -102,7 +102,7 @@ class PresetSnapshot:
     @classmethod
     def capture(
         cls, environment: ConfigEnvironment, *, include_budgets: bool = True
-    ) -> PresetSnapshot:
+    ) -> PresetDefinition:
         sections = {
             key: to_json_object(environment.section_tree(key))
             for key in ("llm", "action", "loop", "reflection", "session", "context")
@@ -165,13 +165,13 @@ class PresetSnapshot:
         }
 
     @classmethod
-    def from_json(cls, value: JsonValue) -> PresetSnapshot:
+    def from_json(cls, value: JsonValue) -> PresetDefinition:
         if not isinstance(value, dict) or set(value) != {
             "values",
             "retrieval",
             "include_budgets",
         }:
-            raise ConfigError("Preset snapshot is invalid", key="preset.snapshot")
+            raise ConfigError("Preset definition is invalid", key="preset.definition")
         values, retrieval, budgets = (
             value["values"],
             value["retrieval"],
@@ -182,7 +182,7 @@ class PresetSnapshot:
             or not isinstance(retrieval, dict)
             or type(budgets) is not bool
         ):
-            raise ConfigError("Preset snapshot is invalid", key="preset.snapshot")
+            raise ConfigError("Preset definition is invalid", key="preset.definition")
         return cls(values, retrieval, budgets)
 
 
@@ -191,7 +191,7 @@ class ConfigPreset:
     id: str
     name: str
     description: str
-    snapshot: PresetSnapshot
+    definition: PresetDefinition
     created_at: str
     updated_at: str
 
@@ -209,13 +209,13 @@ class ConfigPreset:
 
     def to_json(self) -> JsonObject:
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "id": self.id,
             "name": self.name,
             "description": self.description,
-            "included_scopes": ["models", "tasks", "routing", "retrieval"]
-            + (["budgets"] if self.snapshot.include_budgets else []),
-            "snapshot": self.snapshot.to_json(),
+            "included_scopes": ["tasks", "routing", "retrieval"]
+            + (["budgets"] if self.definition.include_budgets else []),
+            "definition": self.definition.to_json(),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -243,7 +243,7 @@ class ConfigPresetStore:
                 for key in ("id", "name", "description", "created_at", "updated_at")
             ]
             if (
-                value.get("schema_version") != 1
+                value.get("schema_version") != 2
                 or any(not isinstance(item, str) for item in fields)
                 or value.get("id") != identity
             ):
@@ -259,7 +259,7 @@ class ConfigPresetStore:
                 record_id,
                 name,
                 description,
-                PresetSnapshot.from_json(value.get("snapshot")),
+                PresetDefinition.from_json(value.get("definition")),
                 created_at,
                 updated_at,
             )
@@ -274,7 +274,7 @@ class ConfigPresetStore:
         *,
         name: str,
         description: str,
-        snapshot: PresetSnapshot,
+        definition: PresetDefinition,
         previous: ConfigPreset | None = None,
     ) -> ConfigPreset:
         now = datetime.now(timezone.utc).isoformat()
@@ -282,7 +282,7 @@ class ConfigPresetStore:
             previous.id if previous else uuid4().hex,
             name,
             description,
-            snapshot,
+            definition,
             previous.created_at if previous else now,
             now,
         )

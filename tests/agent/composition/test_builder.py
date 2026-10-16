@@ -1339,8 +1339,8 @@ async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_i
     await app.activate()
     client = TestClient(create_endpoint_app(endpoint, endpoint.settings))
     headers = {"Authorization": f"Bearer {'x' * 32}"}
-    source_id = "project:configs/llm/models/openai.toml"
-    model_path = project_root / "configs" / "llm" / "models" / "openai.toml"
+    source_id = "project:configs/llm/models/gpt.toml"
+    model_path = project_root / "configs" / "llm" / "models" / "gpt.toml"
 
     overrides = client.patch(
         "/v2/config",
@@ -1349,7 +1349,7 @@ async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_i
             "operations": [
                 {
                     "source_id": source_id,
-                    "path": "llm.models.gpt_5_5.request_overrides.temperature",
+                    "path": "llm.models.gpt-sol.request_overrides.temperature",
                     "op": "set",
                     "value": 0.4,
                 }
@@ -1365,7 +1365,7 @@ async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_i
             "operations": [
                 {
                     "source_id": source_id,
-                    "path": "llm.models.gpt_5_5.providers",
+                    "path": "llm.models.gpt-sol.providers",
                     "op": "set",
                     "value": [
                         {"provider": "openai_proxy", "provider_model": "gpt-5.5"}
@@ -1380,9 +1380,9 @@ async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_i
     switched_generation = reloaded.json()["generation_id"]
     switched_source = model_path.read_text(encoding="utf-8")
     assert 'provider = "openai_proxy"' in switched_source
-    assert "[llm.models.gpt_5_5.adapter_options]" in switched_source
+    assert "[llm.models.gpt-sol.adapter_options]" in switched_source
     assert 'reasoning_keep = "encrypted"' in switched_source
-    assert "[llm.models.gpt_5_5.request_overrides]" in switched_source
+    assert "[llm.models.gpt-sol.request_overrides]" in switched_source
     assert "temperature = 0.4" in switched_source
 
     incompatible = client.patch(
@@ -1392,7 +1392,7 @@ async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_i
             "operations": [
                 {
                     "source_id": source_id,
-                    "path": "llm.models.gpt_5_5.providers",
+                    "path": "llm.models.gpt-sol.providers",
                     "op": "set",
                     "value": [{"provider": "kimi", "provider_model": "gpt-5.5"}],
                 }

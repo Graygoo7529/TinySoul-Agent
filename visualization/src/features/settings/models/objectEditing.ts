@@ -7,7 +7,7 @@
  */
 
 import type { JsonValue } from "../../../api/v2/types";
-import { isPlainRecord } from "../draft/model";
+import { isFieldDraft, isPlainRecord } from "../draft/model";
 import { useConfigDraftStore } from "../draft/store";
 import {
   cloneJsonValue,
@@ -21,7 +21,7 @@ import {
 function wholeObjectKey(root: string, id: string): string | null {
   const state = useConfigDraftStore.getState();
   for (const entry of Object.values(state.drafts)) {
-    if (entry.path === `${root}.${id}` && entry.op.op === "set") return entry.key;
+    if (isFieldDraft(entry) && entry.path === `${root}.${id}` && entry.op.op === "set") return entry.key;
   }
   return null;
 }
@@ -38,7 +38,7 @@ export function setObjectField(
   const wholeKey = wholeObjectKey(root, obj.id);
   if (wholeKey !== null) {
     const entry = state.drafts[wholeKey];
-    if (entry?.op.op === "set" && isPlainRecord(entry.op.value)) {
+    if (entry !== undefined && isFieldDraft(entry) && entry.op.op === "set" && isPlainRecord(entry.op.value)) {
       const next = cloneJsonValue(entry.op.value);
       setDeepValue(next, subpath, value);
       state.setValue(entry.sourceId, entry.path, next);
@@ -61,7 +61,7 @@ export function clearObjectField(
   const wholeKey = wholeObjectKey(root, obj.id);
   if (wholeKey !== null) {
     const entry = state.drafts[wholeKey];
-    if (entry?.op.op === "set" && isPlainRecord(entry.op.value)) {
+    if (entry !== undefined && isFieldDraft(entry) && entry.op.op === "set" && isPlainRecord(entry.op.value)) {
       const next = cloneJsonValue(entry.op.value);
       deleteDeepValue(next, subpath);
       state.setValue(entry.sourceId, entry.path, next);
@@ -92,7 +92,7 @@ export function stageObjectDelete(root: string, obj: ProjectedObject): void {
   const state = useConfigDraftStore.getState();
   const prefix = `${root}.${obj.id}`;
   const draftKeys = Object.values(state.drafts)
-    .filter((entry) => entry.path === prefix || entry.path.startsWith(`${prefix}.`))
+    .filter((entry) => isFieldDraft(entry) && (entry.path === prefix || entry.path.startsWith(`${prefix}.`)))
     .map((entry) => entry.key);
   if (draftKeys.length > 0) state.resetEntries(draftKeys);
   for (const sourceId of obj.ownerSources) {
@@ -108,7 +108,7 @@ export function objectFieldDirty(
 ): boolean {
   const state = useConfigDraftStore.getState();
   return Object.values(state.drafts).some(
-    (entry) => entry.path === `${root}.${id}.${subpath}`,
+    (entry) => isFieldDraft(entry) && entry.path === `${root}.${id}.${subpath}`,
   );
 }
 
@@ -128,11 +128,12 @@ export function stageObjectRename(
   const oldPrefix = `${root}.${obj.id}`;
   const oldDraftKeys = Object.values(state.drafts)
     .filter(
-      (entry) => entry.path === oldPrefix || entry.path.startsWith(`${oldPrefix}.`),
+      (entry) => isFieldDraft(entry) && (entry.path === oldPrefix || entry.path.startsWith(`${oldPrefix}.`)),
     )
     .map((entry) => entry.key);
   if (oldDraftKeys.length > 0) state.resetEntries(oldDraftKeys);
-  state.setValue(createSource, `${root}.${newId}`, cloneJsonValue(obj.value));
+  const targetSource = obj.ownerSources[0] ?? createSource;
+  state.setValue(targetSource, `${root}.${newId}`, cloneJsonValue(obj.value));
   if (!obj.isNew) {
     for (const sourceId of obj.ownerSources) {
       state.deleteValue(sourceId, oldPrefix);

@@ -33,7 +33,7 @@ def relevance_question(*, index: int) -> str:
     )
 
 
-# Ordered labels for JEV relevance questions. Used by kernel/retrieval/selection.py:apply.
+# Ordered labels for decision model relevance questions. Used by kernel/retrieval/selection.py:apply.
 RELEVANCE_LEVELS = (
     "Unrelated",
     "Background only",

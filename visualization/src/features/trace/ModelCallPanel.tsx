@@ -2,7 +2,7 @@
  * Model-call Inspector (plan §9.3).
  *
  * One directed read per record — LLM task by task_id, dedicated model call
- * (JEV/Embedding) by call_id, search evaluation by search_id/step_index —
+ * (decision model/Embedding) by call_id, search evaluation by search_id/step_index —
  * pinned at open time (`through`) so a late event never leaks into an open
  * view. Missing records are reported as unavailable/truncated, never
  * stitched from another call. The LLM request rendering is TinySoul's
@@ -1246,7 +1246,7 @@ function ToolArg({ name, value }: { name: string; value: unknown }): ReactElemen
 }
 
 // ---------------------------------------------------------------------------
-// Dedicated model call (JEV/Embedding, call_id)
+// Dedicated model call (decision model/Embedding, call_id)
 // ---------------------------------------------------------------------------
 
 function DedicatedCallView({

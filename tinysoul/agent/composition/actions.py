@@ -86,13 +86,13 @@ class CorePlugin:
             "core.context.search.select",
             "core.context.search",
             ModelOperation.SELECT,
-            (ModelImplementation.LLM_TASK, ModelImplementation.STRUCTURED_DECISION),
+            (ModelImplementation.LLM_TASK, ModelImplementation.DECISION),
         ),
         ModelUseDescriptor(
             "core.context.search.rerank",
             "core.context.search",
             ModelOperation.RERANK,
-            (ModelImplementation.LLM_TASK, ModelImplementation.STRUCTURED_DECISION),
+            (ModelImplementation.LLM_TASK, ModelImplementation.DECISION),
         ),
     )
     provides = (JobRegistry, StagingDirectoryManager)

@@ -22,6 +22,7 @@ import {
   type ApplyFailure,
 } from "./draft/store";
 import {
+  isFieldDraft,
   isRedactedValue,
   pendingActivationChanges,
   type DraftEntry,
@@ -74,7 +75,10 @@ export function SettingsOverviewPage() {
       {draftCount > 0 && <SectionCard title="本地修改" description="这些修改尚未保存；在底部一次应用全部修改。"
         actions={issueCount > 0 ? <Badge tone="yellow">{issueCount} 项字段问题</Badge> : <Badge tone="accent">{draftCount} 项</Badge>}>
         <DraftList drafts={drafts} stale={stale} onResolveStale={resolveStale}
-          onLocate={(entry) => { const owner = pageForDraft(entry); if (owner !== null) navigateTo(owner.id, entry.path); }} />
+          onLocate={(entry) => {
+            const owner = pageForDraft(entry);
+            if (owner !== null) navigateTo(owner.id, isFieldDraft(entry) ? entry.path : null);
+          }} />
       </SectionCard>}
 
       {saved.pending_reload && <SectionCard title="已保存待激活" description="保存值与运行值的差异，应用或重载后生效。">
@@ -136,7 +140,8 @@ function DraftList({
   onResolveStale: (key: string, action: "adopt" | "keep") => void;
 }) {
   const entries = Object.values(drafts).sort(
-    (a, b) => a.sourceId.localeCompare(b.sourceId) || a.path.localeCompare(b.path),
+    (a, b) => a.sourceId.localeCompare(b.sourceId) ||
+      (isFieldDraft(a) ? a.path : "").localeCompare(isFieldDraft(b) ? b.path : ""),
   );
   return (
     <div className="space-y-1">
@@ -155,7 +160,7 @@ function DraftList({
               onClick={() => onLocate(entry)}
               title={entry.sourceId}
             >
-              {entry.path}
+              {isFieldDraft(entry) ? entry.path : entry.sourceId}
             </button>
             {entry.op.op === "set" && (
               <span className="hidden max-w-[200px] truncate font-mono text-[11px] text-fg-faint md:block">

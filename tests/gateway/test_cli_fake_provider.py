@@ -287,9 +287,9 @@ def _configure_fake_provider(root: Path, *, port: int) -> None:
     (root / "configs" / "llm" / "tasks.toml").write_text(
         "\n".join(
             (
-                _task_config("frame_stage1"),
-                _task_config("frame_stage2"),
-                _task_config("llm_action"),
+                _task_config("frame-stage1"),
+                _task_config("frame-stage2"),
+                _task_config("llm-action"),
             )
         ),
         encoding="utf-8",

@@ -42,13 +42,13 @@ SearchPage 是 Action/SDK 结果；页面 POST search 直接返回同一契约�
 | evidence[].matches | 相对片段 text 的零起始 start、尾后 end，保留代表性命中种类和可选真实关系；不承诺列举全文全部出现位置 |
 | coverage | 来源扫描与通道覆盖、本次步骤统计及最终成员数；分页不删候选 |
 
-LLM 的 basis 为实际输入片段指认，Embedding 为真实向量贡献，JEV Score 不产生片段指认；不能把任何普通预览称作模型理由。result 派生保留来源内容及覆盖，清除旧模型评估后执行本次步骤，原视图仍保持旧评估。内部单元 ID 和模型短 ID 不暴露为持久资源身份。全文深读使用所属 owner 的 Inspect/read/describe。
+LLM 的 basis 为实际输入片段指认，Embedding 为真实向量贡献，decision model Score 不产生片段指认；不能把任何普通预览称作模型理由。result 派生保留来源内容及覆盖，清除旧模型评估后执行本次步骤，原视图仍保持旧评估。内部单元 ID 和模型短 ID 不暴露为持久资源身份。全文深读使用所属 owner 的 Inspect/read/describe。
 
 ## Mutation
 
 `POST /v2/config/apply` 接受非空 `operations` 或 `preset_id`，必须且只能提供其中一种。候选统一校验并 prepare generation 后，原子保存文件并发布；发布前失败恢复此次事务触及的文件，保留调用前已经存在的 pending 配置。只有 idle 且没有排队根 work 时可激活。成功响应为 `state=active`、`generation_id`、`pending_reload=false`，并带 `changed_fields`、`changed_sources`、`matching_presets`。`reload` 沿同一发布流程激活已保存配置。
 
-`GET/POST /v2/config/presets`、`GET/PUT/DELETE /v2/config/presets/{id}` 管理运行方案。创建请求为 `name, description?, source=active|saved, operations?, include_budgets=true`；operations 只用于内存捕获。PUT 默认只改名称/说明，提供 `capture`（source/operations/include_budgets）才重新捕获。列表为 presets 数组；记录返回 id/name/description/included_scopes/active_match/saved_match/validation_issues/created_at/updated_at，详情含 snapshot；DELETE 只删方案文件。未知方案为 404 config.preset_not_found，当前不可激活为 409 config.activation_unavailable，其余配置问题为 422 config.invalid。
+`GET/POST /v2/config/presets`、`GET/PUT/DELETE /v2/config/presets/{id}` 管理运行方案。创建请求为 `name, description?, source=active|saved, operations?, include_budgets=true`；operations 只用于内存捕获。PUT 默认只改名称/说明，提供 `capture`（source/operations/include_budgets）才重新捕获。列表为 presets 数组；记录返回 id/name/description/included_scopes/active_match/saved_match/validation_issues/created_at/updated_at，详情含 definition；DELETE 只删方案文件。未知方案为 404 config.preset_not_found，当前不可激活为 409 config.activation_unavailable，其余配置问题为 422 config.invalid。
 
 方案完整替换 llm.models、llm.tasks、action.models.bindings、Phase1/2 路由，管理已登记检索策略的 query.channels，可选管理执行计划限定的预算。能力授权、Provider 连接及凭据、专用模型目录、知识库 embedding_use、路径和内容均不捕获。方案不新增配置 source 或运行时覆盖层；保存于 configs/presets。只读来源或缺失依赖导致不能实现精确替换时拒绝应用。
 
@@ -57,16 +57,22 @@ LLM model 的 `family`（默认空）与 `collapsed`（默认 false）只提供�
 `PATCH /v2/config` 接受 `operations` 数组。每项是：
 
 ```json
-{"op":"set","source_id":"project:configs/llm/models.toml","path":"llm.models.primary.providers","value":[{"provider":"openai","provider_model":"gpt-5.5"},{"provider":"openai_proxy","provider_model":"gpt-5.5"}]}
+{"op":"create_source","source_id":"project:configs/llm/models/qwen.toml"}
 ```
 
 或：
 
 ```json
-{"op":"delete","source_id":"project:configs/llm/models/custom.toml","path":"llm.models.custom.adapter_options"}
+{"op":"set","source_id":"project:configs/llm/models/gpt.toml","path":"llm.models.gpt-sol.providers","value":[{"provider":"openai","provider_model":"gpt-5.6-sol"}]}
 ```
 
-`set` 的 value 是不含 null 的递归 TOML/JSON value；`delete` 不携带 value。未知 op、缺失/多余字段和 `set(null)` 返回 `422 request.invalid`。PATCH 与 SDK 的 `patch_config()` 都只校验并保存候选，返回 `state=saved, pending_reload=true`，不替换当前 Generation。随后调用 `POST /v2/config/reload`（无请求体）或 SDK `reload_config()` 激活；成功返回 `state=active, pending_reload=false`。活动或等待中的 Turn、Reflection、daily transition 或既有 activation 使 reload 返回 `409 config.activation_unavailable`；候选保存仍可用。不要求 revision。
+或：
+
+```json
+{"op":"delete","source_id":"project:configs/llm/models/deepseek.toml","path":"llm.models.deepseek-pro.adapter_options"}
+```
+
+`create_source` 只声明一个尚不存在、位于项目 `configs/` 下且可由 include 图加载的 TOML 来源；同一批次随后用 `set` 写入模型。`set` 的 value 是不含 null 的递归 TOML/JSON value；`delete` 不携带 value。未知 op、缺失/多余字段和 `set(null)` 返回 `422 request.invalid`。PATCH 与 SDK 的 `patch_config()` 都只校验并保存候选，返回 `state=saved, pending_reload=true`，不替换当前 Generation。随后调用 `POST /v2/config/reload`（无请求体）或 SDK `reload_config()` 激活；成功返回 `state=active, pending_reload=false`。活动或等待中的 Turn、Reflection、daily transition 或既有 activation 使 reload 返回 `409 config.activation_unavailable`；候选保存仍可用。不要求 revision。
 
 Provider 使用 `llm.providers.<id>.adapters` 声明一个非空、无重复的 Adapter 列表；Model 使用 `llm.models.<id>.adapter` 选择统一 Adapter，并以 `llm.models.<id>.providers` 的有序对象列表配置 Provider Chain。`api_style` 是 Adapter 的静态属性，不是可写的 Provider 字段；通用兼容端点使用 `openai_compatible_chat`，Responses 由 `openai` Adapter 提供。Provider Chain、Adapter 列表和 Adapter options 均以完整值提交，候选配置校验失败时整批 mutation 不持久化。
 

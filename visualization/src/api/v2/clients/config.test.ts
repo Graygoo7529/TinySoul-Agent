@@ -60,8 +60,8 @@ describe("ConfigClient", () => {
       },
       {
         op: "delete",
-        source_id: "project:configs/llm/models/custom.toml",
-        path: "llm.models.custom.adapter_options",
+        source_id: "project:configs/llm/models/ungrouped.toml",
+        path: "llm.models.qwen-latest.adapter_options",
       },
     ];
     const result = await new ConfigClient(transport).patch(operations);
@@ -137,14 +137,14 @@ describe("ConfigClient", () => {
       operations: [
         {
           op: "set",
-          source_id: "project:configs/llm/models.toml",
-          path: "llm.models.primary.providers",
-          value: [{ provider: "primary", provider_model: "model-name" }],
+          source_id: "project:configs/llm/models/gpt.toml",
+          path: "llm.models.gpt-sol.providers",
+          value: [{ provider: "openai", provider_model: "gpt-5.6-sol" }],
         },
       ],
       include_budgets: true,
     });
-    expect(created.snapshot).not.toBeNull();
+    expect(created.definition).not.toBeNull();
     expect(bodyJson(requests[1]!)).toMatchObject({
       name: "Balanced",
       source: "saved",
@@ -152,7 +152,7 @@ describe("ConfigClient", () => {
     });
 
     const detail = await client.getPreset("id-1");
-    expect(detail.included_scopes).toContain("models");
+    expect(detail.included_scopes).toContain("tasks");
 
     await client.updatePreset("id-1", { description: "更新说明" });
     expect(requests[3]?.method).toBe("PUT");

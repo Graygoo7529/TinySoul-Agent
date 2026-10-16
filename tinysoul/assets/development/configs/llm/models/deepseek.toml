@@ -1,5 +1,5 @@
-[llm.models.deepseek_pro]
-family = "deepseek"
+[llm.models.deepseek-pro]
+family = "DeepSeek"
 collapsed = false
 adapter = "deepseek"
 providers = [
@@ -14,13 +14,13 @@ capabilities = [
   "tool_calling",
 ]
 
-[llm.models.deepseek_pro.adapter_options]
+[llm.models.deepseek-pro.adapter_options]
 thinking = "enabled"
 reasoning_effort = "high"
 reasoning_keep = "content"
 
-[llm.models.deepseek_flash]
-family = "deepseek"
+[llm.models.deepseek-flash]
+family = "DeepSeek"
 collapsed = false
 adapter = "deepseek"
 providers = [
@@ -37,7 +37,7 @@ capabilities = [
   "tool_calling",
 ]
 
-[llm.models.deepseek_flash.adapter_options]
+[llm.models.deepseek-flash.adapter_options]
 thinking = "enabled"
 reasoning_effort = "high"
 reasoning_keep = "content"

@@ -67,7 +67,7 @@ class HomePlugin:
             "home.search.select",
             "home.search",
             ModelOperation.SELECT,
-            (ModelImplementation.LLM_TASK, ModelImplementation.STRUCTURED_DECISION),
+            (ModelImplementation.LLM_TASK, ModelImplementation.DECISION),
         ),
         ModelUseDescriptor(
             "home.search.rerank",
@@ -76,7 +76,7 @@ class HomePlugin:
             (
                 *(
                     ModelImplementation.LLM_TASK,
-                    ModelImplementation.STRUCTURED_DECISION,
+                    ModelImplementation.DECISION,
                 ),
                 ModelImplementation.EMBEDDING_SIMILARITY,
             ),

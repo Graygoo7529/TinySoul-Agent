@@ -67,7 +67,7 @@ def test_directory_validates_structure_without_connecting_unselected_models():
     assert [provider.id for provider, _ in routes] == ["p0", "p1"]
     with pytest.raises(ConfigError, match="capability"):
         config.resolve(
-            "use", ModelCapability.STRUCTURED_DECISION, {"TEST_KEY": "secret"}
+            "use", ModelCapability.DECISION, {"TEST_KEY": "secret"}
         )
     with pytest.raises(ConfigError):
         replace(config, uses=(ServiceUse("bad", ModelCapability.EMBEDDING, "missing"),))
@@ -101,7 +101,7 @@ def mixed_request():
 def mixed_response():
     return to_json_object(
         {
-            "model": "jev-test",
+            "model": "decision-test",
             "answers": {
                 "yes": {"type": "noul", "noul": 0.9},
                 "which": {
@@ -163,7 +163,7 @@ async def test_provider_fallback_and_observation_are_bounded_and_secret_free():
 
     events = []
     services = ModelServices(
-        settings(ModelCapability.STRUCTURED_DECISION),
+        settings(ModelCapability.DECISION),
         env={"TEST_KEY": "secret"},
         transport=httpx.MockTransport(respond),
     )
@@ -209,7 +209,7 @@ async def test_nonrecoverable_http_failures_do_not_switch_provider(status, kind)
         return httpx.Response(status, text="private provider detail")
 
     services = ModelServices(
-        settings(ModelCapability.STRUCTURED_DECISION),
+        settings(ModelCapability.DECISION),
         env={"TEST_KEY": "secret"},
         transport=httpx.MockTransport(respond),
     )

@@ -30,7 +30,7 @@ message 是 owner 提供的有限说明，不再透传原始 Python 异常文本
 
 ## 模型用途观察
 
-LLM 继续使用现有 task_id 关联一次调用，Action 内部任务增加 consumer、implementation 和 target，实际 provider/model 与尝试沿现有 LLM 事件报告，不增加重复调用身份。Embedding/JEV 使用 `model.call.started/retry/completed/failed/cancelled`，verbose payload 包括 call_id、consumer、implementation、target、provider、model、attempt/retry、elapsed_seconds、usage 和有限 failure；Embedding 另外报告 input_count/dimensions，不返回向量。
+LLM 继续使用现有 task_id 关联一次调用，Action 内部任务增加 consumer、implementation 和 target，实际 provider/model 与尝试沿现有 LLM 事件报告，不增加重复调用身份。Embedding/decision model 使用 `model.call.started/retry/completed/failed/cancelled`，verbose payload 包括 call_id、consumer、implementation、target、provider、model、attempt/retry、elapsed_seconds、usage 和有限 failure；Embedding 另外报告 input_count/dimensions，不返回向量。
 
 LLM 请求 detail 的 provenance 包含 `segment_id, owner, slot, shape, message_indices, refs`，索引为零起始，对应同 payload 的实际 messages。TaskPrompt/guidance 单独标识，Home refs 来自 owner。resolved_references 保存该次消息实际绑定的动态资源定位。它们不是提示正文，不影响供应商请求；这里展示的是 provider-neutral MessageStack，不是原始 HTTP 包。
 

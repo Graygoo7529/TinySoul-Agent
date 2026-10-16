@@ -6,7 +6,7 @@ from typing import Literal
 
 from fastapi import FastAPI
 
-from tinysoul.infra.config import ConfigError, ConfigMutation
+from tinysoul.infra.config import ConfigError, ConfigMutation, ConfigCreateSource, ConfigOperation
 from tinysoul.infra.json import JsonObject
 
 from ...engine import EndpointEngine
@@ -16,6 +16,7 @@ from ..schemas import (
     ConfigApplyRequest,
     ConfigCatalogResponse,
     ConfigDeleteMutationRequest,
+    ConfigCreateSourceMutationRequest,
     ConfigMutationRequest,
     ConfigMutationResponse,
     ConfigPatchRequest,
@@ -149,7 +150,7 @@ def register_configuration_routes(app: FastAPI, engine: EndpointEngine) -> None:
 
 def _config_mutations(
     operations: list[ConfigMutationRequest],
-) -> tuple[ConfigMutation, ...]:
+) -> tuple[ConfigOperation, ...]:
     try:
         return tuple(_config_mutation(operation) for operation in operations)
     except ConfigError as exc:
@@ -167,7 +168,7 @@ def _config_mutations(
 
 def _config_mutation(
     operation: ConfigMutationRequest,
-) -> ConfigMutation:
+) -> ConfigOperation:
     if isinstance(operation, ConfigSetMutationRequest):
         return ConfigMutation(
             source_id=operation.source_id,
@@ -181,6 +182,8 @@ def _config_mutation(
             path=operation.path,
             op="delete",
         )
+    if isinstance(operation, ConfigCreateSourceMutationRequest):
+        return ConfigCreateSource(source_id=operation.source_id)
     raise EndpointRequestError(
         status_code=422,
         code="config.invalid",

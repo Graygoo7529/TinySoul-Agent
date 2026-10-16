@@ -19,7 +19,7 @@ def test_config_toml_round_trips_inline_table_arrays(tmp_path: Path) -> None:
         {
             "consumer": "workspace.describe.generate",
             "implementation": "llm_task",
-            "target": {"task_profile": "llm_action"},
+            "target": {"task_profile": "llm-action"},
         },
     ]
     document.set_value("action.models.bindings", bindings)

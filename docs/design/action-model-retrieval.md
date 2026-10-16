@@ -4,7 +4,7 @@
 
 Action catalog 的 execution.executor 只表示业务执行器注册键。Action runner 统一负责批次、deadline、hook、取消和执行事实；executor 解释参数并调用所属 owner。模型调用是 executor 内部的一次 typed input → configured model/use → typed output，不形成另一套 Action 调度器。
 
-代码贡献 ModelUseDescriptor，配置以 ModelUseBinding 绑定实现和逻辑用途。LLM 使用 task profile，JEV 使用结构化决策用途，Embedding 相似度引用 Home、Memory owner 已绑定的向量用途。模型服务负责 provider 顺序、协议、重试和关闭；输入、输出、候选语义与 Context 由调用 owner 决定。Stage1、Stage2 使用 LLM，Action 内部操作按其声明选择实现。
+代码贡献 ModelUseDescriptor，配置以 ModelUseBinding 绑定实现和逻辑用途。LLM 使用 task profile，decision model 使用结构化决策用途，Embedding 相似度引用 Home、Memory owner 已绑定的向量用途。模型服务负责 provider 顺序、协议、重试和关闭；输入、输出、候选语义与 Context 由调用 owner 决定。Stage1、Stage2 使用 LLM，Action 内部操作按其声明选择实现。
 
 ModelServices 按 generation 共享客户端，按 provider → logical model → use 装配。Home 与 Memory 各自拥有可重建向量索引，缓存按 provider/model/use、抽取规则和实际内容身份隔离；缓存不拥有业务事实。显式 select/rerank 失败不会跨实现降级成另一个操作；query 的可选通道失败则保留已完成通道并报告缺失。
 
@@ -29,19 +29,19 @@ source.where 定义来源资格，filter 只处理当前集合。各 owner 的 A
 
 ## 内容、命中和判断
 
-选择/排序指令、JEV 问题及其有序自然语言等级由 `prompts/kernel/retrieval.py` 管理。候选投影、预算、输出 schema、解释与排序仍由 retrieval owner 决定，模型请求保留既有出口，见[固定模型文案设计](prompts.md)。
+选择/排序指令、decision model 问题及其有序自然语言等级由 `prompts/kernel/retrieval.py` 管理。候选投影、预算、输出 schema、解释与排序仍由 retrieval owner 决定，模型请求保留既有出口，见[固定模型文案设计](prompts.md)。
 
 ContentUnit 保存一次来源读取的真实正文、稳定资源 ref 与位置；SearchEvidence 只引用其中的范围，表示词法命中、向量贡献、真实关系或模型指认。SearchCandidate 组合身份、属性与内容；CandidateSet 表达有序集合及来源处理事实。两者均为查询生命周期内快照，不是另一套持久内容。
 
 共享投影为模型输入与 SearchPage 生成 CandidatePreview。片段保存到 ContentUnit 的子范围映射，长行的起始列与实际匹配位置保持原文含义；匹配先在原始内容进行，不在拼接的展示摘录中查找。页面的 matches 定位本片段中的代表性命中，不保证列出全部出现位置。内部单元 ID 和模型短 ID 不成为可跨 Turn 使用的资源身份。
 
-来源处理完整性、快照内容覆盖、实际模型输入覆盖、页面预览覆盖分别表达。全文、摘录和 metadata 使用同一有限覆盖语义；页面摘录不会改写快照，JEV/LLM 的有界输入也不会冒称读过全文。非文本资源可提供 metadata，但不能因此声明已理解正文。
+来源处理完整性、快照内容覆盖、实际模型输入覆盖、页面预览覆盖分别表达。全文、摘录和 metadata 使用同一有限覆盖语义；页面摘录不会改写快照，decision model/LLM 的有界输入也不会冒称读过全文。非文本资源可提供 metadata，但不能因此声明已理解正文。
 
 LLM 同一次生成返回候选 ID 与 basis_ids。非空依据必须属于实际送入该候选的片段，框架据此引用原文，不接受模型重写正文或指向未给出的范围；空依据合法，属性判断、语境判断和低相关候选不必制造正向理由。select 按输入顺序返回选中成员；rerank 校验完整排列。依据证明的是引用合法性，不证明模型判断正确。
 
-JEV 对每个候选做 Score，select 以用途阈值选择，rerank 以评分排序；不增加 Choice 调用，不宣称 JEV 指认了某段。Embedding 使用实际参与向量计算的内容单元，保留相似度贡献及其真实覆盖。模型评估不覆盖来源命中，结果只保存本请求最近模型步骤的评估及逐步数量统计，不累积评估历史。
+decision model 对每个候选做 Score，select 以用途阈值选择，rerank 以评分排序；不增加 Choice 调用，不宣称 decision model 指认了某段。Embedding 使用实际参与向量计算的内容单元，保留相似度贡献及其真实覆盖。模型评估不覆盖来源命中，结果只保存本请求最近模型步骤的评估及逐步数量统计，不累积评估历史。
 
-投影优先安排当前模型指认，再为来源各通道保留片段空间，最后补充普通原文。lexical 命中不能吞掉 Embedding 深层命中的全部展示空间。LLM/JEV 对每个成员使用有界真实摘录，操作总预算包括 criterion、Context、指导、协议/问题及序列化材料；Embedding 按实际全文输入计量。所有成员都参与，超预算反馈 scope_required，不隐藏 top-k、不自动摘要或增加内部搜索循环。
+投影优先安排当前模型指认，再为来源各通道保留片段空间，最后补充普通原文。lexical 命中不能吞掉 Embedding 深层命中的全部展示空间。LLM/decision model 对每个成员使用有界真实摘录，操作总预算包括 criterion、Context、指导、协议/问题及序列化材料；Embedding 按实际全文输入计量。所有成员都参与，超预算反馈 scope_required，不隐藏 top-k、不自动摘要或增加内部搜索循环。
 
 ## 来源 owner
 
@@ -67,4 +67,4 @@ SearchViews 冻结完整最终集合。page 的数量与字符预算仅控制展
 
 action.retrieval 是整体 object，内部含点 Action ID 是原子 map key。加载、生成、PATCH、保存重载共用该形状；修改某 Action 时提交完整 map，不提供点路径转义或多层 wildcard 补偿。
 
-Observation 通过 search_id 和 step_index 关联步骤，LLM 调用同时关联既有 task_id，JEV/Embedding 关联既有 call_id；query 通道标为来源阶段。沿现有 verbose/model 级别输出，不新增审计存储。SearchFailure 表达有限可修正失败，owner 契约/I/O 与不可恢复模型失败仍在所属模块边界处理，取消继续服从 Action 总期限和生命周期。
+Observation 通过 search_id 和 step_index 关联步骤，LLM 调用同时关联既有 task_id，decision model/Embedding 关联既有 call_id；query 通道标为来源阶段。沿现有 verbose/model 级别输出，不新增审计存储。SearchFailure 表达有限可修正失败，owner 契约/I/O 与不可恢复模型失败仍在所属模块边界处理，取消继续服从 Action 总期限和生命周期。

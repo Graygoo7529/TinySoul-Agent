@@ -64,7 +64,7 @@ export interface ModelUseBindingView {
   implementation: string;
   /** llm_task target. */
   taskProfile: string | null;
-  /** structured_decision target (logical use id). */
+  /** decision target (logical use id). */
   use: string | null;
   maxOutputTokens: number | null;
   relevanceThreshold: number | null;
@@ -74,7 +74,7 @@ export interface ModelUseView {
   consumer: string;
   /** generate | select | rerank */
   operation: string;
-  /** Allowed implementations, e.g. llm_task / structured_decision / embedding_similarity. */
+  /** Allowed implementations, e.g. llm_task / decision / embedding_similarity. */
   implementations: string[];
   /** Option constraints keyed by implementation (only declared ones appear). */
   options: Record<string, Record<string, ModelUseOptionRule>>;

@@ -1,5 +1,5 @@
-[llm.models.kimi_k2_7]
-family = "kimi"
+[llm.models.kimi-coding-latest]
+family = "Kimi"
 collapsed = false
 adapter = "kimi"
 providers = [
@@ -16,16 +16,16 @@ capabilities = [
   "prompt_cache",
 ]
 
-[llm.models.kimi_k2_7.adapter_options]
+[llm.models.kimi-coding-latest.adapter_options]
 protocol = "k2"
 reasoning_keep = "content"
 thinking = "enabled"
 
-[llm.models.kimi_k2_7.request_overrides]
+[llm.models.kimi-coding-latest.request_overrides]
 temperature = 1.0
 
-[llm.models.kimi_k3]
-family = "kimi"
+[llm.models.kimi-latest]
+family = "Kimi"
 collapsed = false
 adapter = "kimi"
 providers = [
@@ -42,10 +42,10 @@ capabilities = [
   "prompt_cache",
 ]
 
-[llm.models.kimi_k3.adapter_options]
+[llm.models.kimi-latest.adapter_options]
 protocol = "k3"
 reasoning_keep = "content"
 reasoning_effort = "max"
 
-[llm.models.kimi_k3.request_overrides]
+[llm.models.kimi-latest.request_overrides]
 temperature = 1.0

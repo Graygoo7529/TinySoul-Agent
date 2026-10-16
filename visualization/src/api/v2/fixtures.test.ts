@@ -271,14 +271,14 @@ describe("contract fixtures: configuration family", () => {
     expect(result.changed_fields).toContain("execution.enabled");
   });
 
-  it("preset carries summary fields and a snapshot", () => {
+  it("preset carries summary fields and a definition", () => {
     const record = preset as Preset;
     expect(record.id).toBe("id-1");
-    expect(record.included_scopes).toContain("models");
+    expect(record.included_scopes).toContain("tasks");
     expect(typeof record.active_match).toBe("boolean");
     expect(typeof record.saved_match).toBe("boolean");
     expect(Array.isArray(record.validation_issues)).toBe(true);
-    expect(isRecord(record.snapshot)).toBe(true);
+    expect(isRecord(record.definition)).toBe(true);
   });
 });
 

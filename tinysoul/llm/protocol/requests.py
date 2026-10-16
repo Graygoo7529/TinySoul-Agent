@@ -20,9 +20,9 @@ from .tools import ToolScope, ToolUse
 class TaskProfile(StrEnum):
     """Built-in LLM task profiles."""
 
-    FRAME_STAGE1 = "frame_stage1"
-    FRAME_STAGE2 = "frame_stage2"
-    LLM_ACTION = "llm_action"
+    FRAME_STAGE1 = "frame-stage1"
+    FRAME_STAGE2 = "frame-stage2"
+    LLM_ACTION = "llm-action"
 
 
 class ModelContextOverflowPolicy(StrEnum):

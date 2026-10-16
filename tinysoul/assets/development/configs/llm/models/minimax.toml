@@ -1,5 +1,5 @@
-[llm.models.minimax_m3]
-family = "minimax"
+[llm.models.minimax-latest]
+family = "MiniMax"
 collapsed = false
 adapter = "minimax"
 providers = [
@@ -15,7 +15,7 @@ capabilities = [
   "reasoning_output",
 ]
 
-[llm.models.minimax_m3.adapter_options]
+[llm.models.minimax-latest.adapter_options]
 reasoning_keep = "content"
 thinking = "adaptive"
 reasoning_split = true

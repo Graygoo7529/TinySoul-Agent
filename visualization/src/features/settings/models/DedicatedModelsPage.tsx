@@ -49,7 +49,7 @@ const USES_PATH = "infra.model_services.uses";
 
 const KIND_OPTIONS = [
   { value: "embedding", label: "Embedding" },
-  { value: "structured_decision", label: "Structured decision" },
+  { value: "decision", label: "Decision model" },
 ];
 
 /** The provider adapter a model of the given kind may bind. */
@@ -301,7 +301,7 @@ function ServiceModelEditor({
       >
         <FieldRow
           title={settingsText("Kind")}
-          description={settingsText("Embedding models bind OpenAI-compatible embedding providers; structured-decision models bind Typesafe System One providers.")}
+          description={settingsText("Embedding models bind OpenAI-compatible embedding providers; decision models bind Typesafe System One providers.")}
         >
           <SelectInput
             ariaLabel="Kind"

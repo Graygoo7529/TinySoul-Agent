@@ -95,7 +95,7 @@ export class ConfigClient {
     });
   }
 
-  /** GET /v2/config/presets/{id} — detail including the snapshot. */
+  /** GET /v2/config/presets/{id} — detail including the definition. */
   getPreset(presetId: string, options?: RequestOptions): Promise<Preset> {
     return this.transport.get<Preset>(
       `/config/presets/${encodeURIComponent(presetId)}`,

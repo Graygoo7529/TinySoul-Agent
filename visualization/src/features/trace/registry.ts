@@ -151,7 +151,7 @@ export interface TraceNavigation {
   day: string | null;
   /** Follow a resource reference through the shared ResourceRouter. */
   openReference: (reference: string) => void;
-  /** Push the model-call Inspector for one LLM/JEV/Embedding/Search record. */
+  /** Push the model-call Inspector for one LLM/decision model/Embedding/Search record. */
   openModelCall: (target: ModelCallTarget) => void;
   /** Push the Job detail panel. */
   openJob: (jobId: string) => void;

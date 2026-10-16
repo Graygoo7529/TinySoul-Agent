@@ -43,8 +43,8 @@ const SAVED_BINDINGS: Record<string, JsonValue>[] = [
   },
   {
     consumer: "home.search.rerank",
-    implementation: "structured_decision",
-    target: { use: "jev_default" },
+    implementation: "decision",
+    target: { use: "decision_default" },
     options: { relevance_threshold: 1 },
   },
 ];
@@ -165,8 +165,8 @@ describe("bindings atom", () => {
 
   it("appends a consumer that has no saved entry and marks it new", () => {
     stageBinding("memory.search.select", {
-      implementation: "structured_decision",
-      use: "jev_default",
+      implementation: "decision",
+      use: "decision_default",
       relevanceThreshold: 2,
     });
 
@@ -175,8 +175,8 @@ describe("bindings atom", () => {
     const value = operation?.op === "set" ? operation.value : [];
     expect(Array.isArray(value) ? value.length : 0).toBe(4);
     expect(bindingEntry(store(), "memory.search.select")).toMatchObject({
-      implementation: "structured_decision",
-      use: "jev_default",
+      implementation: "decision",
+      use: "decision_default",
       relevanceThreshold: 2,
       status: "new",
     });
@@ -228,10 +228,10 @@ describe("bindings atom", () => {
       options: { max_output_tokens: 8 },
     });
     expect(
-      encodeBinding("a.b", { implementation: "structured_decision", use: "u", relevanceThreshold: 3 }),
+      encodeBinding("a.b", { implementation: "decision", use: "u", relevanceThreshold: 3 }),
     ).toEqual({
       consumer: "a.b",
-      implementation: "structured_decision",
+      implementation: "decision",
       target: { use: "u" },
       options: { relevance_threshold: 3 },
     });

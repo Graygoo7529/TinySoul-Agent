@@ -8,7 +8,7 @@ const PAGE_LABELS: Record<SettingsPageId, { title: string; description: string }
   "llm-models": { title: "LLM 模型", description: "模型能力与提供方顺序。" },
   "llm-tasks": { title: "LLM 任务链", description: "有序模型链和任务参数。" },
   "dedicated-providers": { title: "专用模型提供方", description: "Embedding 与结构化评估端点。" },
-  "dedicated-models": { title: "专用模型与用途", description: "Embedding/JEV 模型及其业务用途。" },
+  "dedicated-models": { title: "专用模型与用途", description: "Embedding/decision model 模型及其业务用途。" },
   credentials: { title: "凭据", description: "配置引用的项目 dotenv 值。" },
   "image-generation": { title: "图像生成", description: "后端暂未提供图像配置项。" },
   "phase-bindings": { title: "阶段绑定", description: "Phase 1 和 Phase 2 使用的任务链。" },

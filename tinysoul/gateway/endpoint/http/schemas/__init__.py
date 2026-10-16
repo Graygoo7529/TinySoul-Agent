@@ -3,6 +3,7 @@
 from .configuration import (
     ConfigApplyRequest,
     ConfigDeleteMutationRequest,
+    ConfigCreateSourceMutationRequest,
     ConfigMutationRequest,
     ConfigPatchRequest,
     ConfigSetMutationRequest,

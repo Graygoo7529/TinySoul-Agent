@@ -33,6 +33,7 @@ import { settingsText, translatedField as matchField } from "../i18n";
 import { SettingsDisclosure } from "../SettingsDisclosure";
 import {
   draftKey,
+  isFieldDraft,
   isRedactedValue,
   jsonDeepEqual,
   savedValue,
@@ -67,6 +68,7 @@ export function atomDisplayValue(
   path: string,
 ): JsonValue | undefined {
   for (const entry of Object.values(state.drafts)) {
+    if (!isFieldDraft(entry)) continue;
     if (entry.path !== path) continue;
     if (entry.op.op === "set") return entry.op.value;
   }

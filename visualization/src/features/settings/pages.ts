@@ -8,9 +8,9 @@
  * - `pathPrefixes` name the config paths a page is primarily responsible for;
  *   the longest matching prefix wins, so `session.max_background_chars` lands
  *   on Context while the rest of `session.` stays with the Session page.
- * - `draftSources` name whole sources whose drafts belong to a page: dotenv
- *   drafts carry a bare variable name as their path, so the Credentials page
- *   claims them by source instead of by prefix.
+ * - `draftSources` and `draftSourcePrefixes` name whole sources whose drafts
+ *   belong to a page. Dotenv fields route by exact source; model source drafts
+ *   route by the model directory because source operations have no field path.
  * - `surfaces` route catalog field/document declarations (their paths are
  *   document-local, e.g. action catalog `visibility.default`).
  * - A page's "reset this page" scope defaults to drafts whose path starts
@@ -18,7 +18,7 @@
  *   via `resetEntriesWithin` (see draft/store.ts).
  */
 
-import type { DraftEntry } from "./draft/model";
+import { isFieldDraft, type DraftEntry } from "./draft/model";
 import type { SettingsCatalog } from "./draft/catalog";
 import { DOTENV_SOURCE_ID } from "./draft/fields";
 import { localizeDocument, localizeField, settingsText } from "./i18n";
@@ -70,6 +70,8 @@ export interface SettingsPageDef {
   pathPrefixes?: string[];
   /** Source ids whose drafts this page owns (bare-name paths, e.g. dotenv). */
   draftSources?: string[];
+  /** Source id prefixes owned by this page (used by source-only operations). */
+  draftSourcePrefixes?: string[];
 }
 
 export interface SettingsGroupDef {
@@ -106,6 +108,7 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     description: "Model capabilities and ordered provider chains.",
     surfaces: ["models"],
     pathPrefixes: ["llm.models"],
+    draftSourcePrefixes: ["project:configs/llm/models/"],
   },
   "llm-tasks": {
     id: "llm-tasks",
@@ -119,14 +122,14 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     id: "dedicated-providers",
     group: "models",
     title: "Dedicated Providers",
-    description: "Embedding and structured-evaluation endpoints.",
+    description: "Embedding and decision model endpoints.",
     pathPrefixes: ["infra.model_services.providers"],
   },
   "dedicated-models": {
     id: "dedicated-models",
     group: "models",
     title: "Dedicated Models & Uses",
-    description: "Embedding/JEV models and the logical uses bound to them.",
+    description: "Embedding/decision models and the logical uses bound to them.",
     surfaces: ["model_services"],
     pathPrefixes: ["infra.model_services.models", "infra.model_services.uses"],
   },
@@ -335,11 +338,14 @@ export function pageForPath(path: string): SettingsPageDef | null {
  * Route one draft entry to its owning page: whole-source ownership first
  * (dotenv drafts carry bare variable names), then the longest path prefix.
  */
-export function pageForDraft(
-  entry: Pick<DraftEntry, "sourceId" | "path">,
-): SettingsPageDef | null {
+export function pageForDraft(entry: DraftEntry): SettingsPageDef | null {
   for (const page of Object.values(SETTINGS_PAGES)) {
     if (page.draftSources?.includes(entry.sourceId)) return page;
+  }
+  if (!isFieldDraft(entry)) {
+    return Object.values(SETTINGS_PAGES).find((page) =>
+      page.draftSourcePrefixes?.some((prefix) => entry.sourceId.startsWith(prefix)),
+    ) ?? null;
   }
   return pageForPath(entry.path);
 }

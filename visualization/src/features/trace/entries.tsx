@@ -97,7 +97,7 @@ export function pushActionDetail(
   });
 }
 
-/** Push the model-call Inspector for one LLM/JEV/Embedding/Search record. */
+/** Push the model-call Inspector for one LLM/decision model/Embedding/Search record. */
 export function pushModelCall(
   epoch: number,
   turnId: string,

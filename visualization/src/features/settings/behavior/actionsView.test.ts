@@ -57,12 +57,12 @@ function makeView(): JsonObject {
           {
             consumer: "home.search.select",
             operation: "select",
-            implementations: ["llm_task", "structured_decision"],
+            implementations: ["llm_task", "decision"],
             options: {
               llm_task: {
                 max_output_tokens: { type: "integer", minimum: 1 },
               },
-              structured_decision: {
+              decision: {
                 relevance_threshold: { type: "integer", minimum: 0, maximum: 3 },
               },
             },
@@ -147,7 +147,7 @@ describe("decodeActionsView", () => {
     expect(search?.modelUses[0]?.binding?.taskProfile).toBe("default");
     expect(search?.modelUses[0]?.binding?.maxOutputTokens).toBe(512);
     expect(
-      search?.modelUses[0]?.options.structured_decision?.relevance_threshold
+      search?.modelUses[0]?.options.decision?.relevance_threshold
         ?.maximum,
     ).toBe(3);
     expect(search?.modelUses[1]?.embeddingOwner).toBe("home");

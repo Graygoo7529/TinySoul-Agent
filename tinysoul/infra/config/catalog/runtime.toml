@@ -16,7 +16,7 @@ description = "External foundational services, project configuration sources, an
 [[surface]]
 id = "model_services"
 title = "Specialized Models"
-description = "Embedding and structured decision providers, models, and logical uses."
+description = "Embedding and decision model providers, models, and logical uses."
 
 [[field_group]]
 id = "behavior.application"
@@ -197,7 +197,7 @@ path = "infra.model_services.providers"
 surface = "model_services"
 group = "model_services.providers"
 title = "Specialized Providers"
-description = "Ordered external providers for Embedding and structured decision capabilities."
+description = "Ordered external providers for Embedding and decision model capabilities."
 value_kind = "object_list"
 
 [[field]]

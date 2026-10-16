@@ -202,7 +202,7 @@ def test_environment_runtime_env_merges_dotenv_and_process_env(
 def test_environment_section_tree_uses_all_sources(local_tmp: Path) -> None:
     (local_tmp / "tinysoul.toml").write_text(
         """
-        [llm.models.kimi_k2_7]
+        [llm.models.kimi-coding-latest]
         adapter = "kimi"
         providers = [{ provider = "kimi", provider_model = "kimi-k2.7-code" }]
         """,
@@ -211,14 +211,14 @@ def test_environment_section_tree_uses_all_sources(local_tmp: Path) -> None:
 
     environment = ConfigEnvironment.from_project_root(
         local_tmp,
-        overrides={"llm.models.kimi_k2_7.providers.0.provider_model": "kimi-k2.7"},
+        overrides={"llm.models.kimi-coding-latest.providers.0.provider_model": "kimi-k2.7"},
     )
 
     tree = environment.section_tree("llm")
     models = tree["models"]
     assert isinstance(models, dict)
     typed_models = cast(dict[str, object], models)
-    kimi = typed_models["kimi_k2_7"]
+    kimi = typed_models["kimi-coding-latest"]
     assert isinstance(kimi, dict)
     typed_kimi = cast(dict[str, object], kimi)
 

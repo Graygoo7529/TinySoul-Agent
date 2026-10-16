@@ -64,6 +64,37 @@ beforeEach(() => {
   store().reset();
 });
 
+describe("project TOML source drafts", () => {
+  it("stages source creation without a field path", () => {
+    const sourceId = "project:configs/llm/models/qwen.toml";
+    installSnapshots(makeConfig({}));
+
+    store().createSource(sourceId);
+
+    expect(store().drafts[JSON.stringify(["source", sourceId])]).toEqual({
+      key: JSON.stringify(["source", sourceId]),
+      sourceId,
+      op: { op: "create_source" },
+    });
+    expect(draftOperations(store())).toEqual([
+      { op: "create_source", source_id: sourceId },
+    ]);
+  });
+
+  it("withdraws a new source when its last field draft is reset", () => {
+    const sourceId = "project:configs/llm/models/qwen.toml";
+    installSnapshots(makeConfig({}));
+    store().createSource(sourceId);
+    store().setValue(sourceId, "llm.models.qwen-latest", { family: "Qwen" });
+
+    const fieldKey = JSON.stringify([sourceId, "llm.models.qwen-latest"]);
+    store().resetEntries([fieldKey]);
+
+    expect(store().drafts).toEqual({});
+    expect(draftOperations(store())).toEqual([]);
+  });
+});
+
 describe("shared atomic objects across pages", () => {
   const atom = {
     sourceId: "project:configs/action/routing.toml",
@@ -85,7 +116,7 @@ describe("shared atomic objects across pages", () => {
     const current = displayValue(store(), atom) as JsonValue[];
     store().setValue(atom.sourceId, atom.path, [
       current[0],
-      { consumer: "home.search.select", target: { use: "jev-1" } },
+      { consumer: "home.search.select", target: { use: "decision-1" } },
     ]);
 
     expect(selectDraftCount(store())).toBe(1);
@@ -97,7 +128,7 @@ describe("shared atomic objects across pages", () => {
       path: atom.path,
       value: [
         { consumer: "core.answer.generate", target: { task_profile: "z" } },
-        { consumer: "home.search.select", target: { use: "jev-1" } },
+        { consumer: "home.search.select", target: { use: "decision-1" } },
       ],
     });
   });
@@ -122,7 +153,7 @@ describe("shared atomic objects across pages", () => {
     installSnapshots(makeConfig({ [atom.path]: { value: baseline, source: atom.sourceId } }));
     store().setValue(atom.sourceId, atom.path, [
       { consumer: "core.answer.generate", target: { task_profile: "z" } },
-      { consumer: "home.search.select", target: { use: "jev-1" } },
+      { consumer: "home.search.select", target: { use: "decision-1" } },
     ]);
     store().resetEntriesWithin(atom.sourceId, atom.path, {
       entryKey: (entry) =>
@@ -133,7 +164,7 @@ describe("shared atomic objects across pages", () => {
     });
     expect(store().drafts[draftKey(atom)]?.op).toEqual({
       op: "set",
-      value: [baseline[0], { consumer: "home.search.select", target: { use: "jev-1" } }],
+      value: [baseline[0], { consumer: "home.search.select", target: { use: "decision-1" } }],
     });
   });
 });

@@ -20,7 +20,7 @@ Reflection Turn：同一个 Agent 的专门执行情景，与 User Turn 同级�
 2. Phase2 在已选域内生成并归一化 ActionCall；模型只看到这些域内的 Action Tools。
 3. Phase3 组装并执行 ActionBatch，把结构化结果反馈到当前 Turn。
 
-LLM Task：一次独立生成模型调用。上层提供已经构造好的 MessageStack、TaskPrompt、模型工具作用域和输出约束；LLM 负责模型选择、供应商适配、重试与解释，不选择或执行业务 Action、不修改 Context。LLMTaskRunner.invoke 提供可组合结果与模块失败，run 复用相同调用并增加 Runtime bridge。Embedding/JEV 使用 infra.model_services 的 typed 输入输出；业务 owner 决定模型用途、Context 和候选语义。
+LLM Task：一次独立生成模型调用。上层提供已经构造好的 MessageStack、TaskPrompt、模型工具作用域和输出约束；LLM 负责模型选择、供应商适配、重试与解释，不选择或执行业务 Action、不修改 Context。LLMTaskRunner.invoke 提供可组合结果与模块失败，run 复用相同调用并增加 Runtime bridge。Embedding/decision model 使用 infra.model_services 的 typed 输入输出；业务 owner 决定模型用途、Context 和候选语义。
 
 TaskPrompt：只服务当前 LLM Task 的临时提示层，包含引导、输入和期望输出。Phase2 可挂载 domain Skill；Action 内部任务可同时挂载 domain/action Skill。目标与参考资源在所属 Action 内局部解析，不自动进入通用 Context。
 
@@ -48,11 +48,11 @@ Context 只属于一个活动 Turn。Kernel 按 Background、Trace、Working 三
 
 持久化是 owner 保存的长期或跨 Turn 事实，内存是运行状态，模型反馈是两者的有界投影。三者须可相互解释，不能互相替代。revision、digest、cursor 等仅在确有消费者的 owner 协议中使用，不因内部存在就自动暴露给模型。
 
-渐进披露以稳定 ref、标题、线索和直接入口引导按需读取。Trace 与 Session 共用 DisclosurePage/continuation；`core.context.inspect` 只读，query 在指定范围做确定性定位，不调用额外模型或永久展开 Background。本次 inspect 实际返回的完整页面进入一次取得响应的主循环 Phase1/Phase2 LLM 请求后，才允许按容量折叠；解除保护不立即移除正文，容量拒绝不能解除保护，Action 内部的 LLM/JEV/Embedding 调用不解除保护。continuation 是所属读取接口的续页令牌，与模型调用或续写无关；分页绑定由 owner 校验，单纯背景折叠及无关注释变化不使未变页面失效，但不额外保证折叠后仍能取得旧令牌。
+渐进披露以稳定 ref、标题、线索和直接入口引导按需读取。Trace 与 Session 共用 DisclosurePage/continuation；`core.context.inspect` 只读，query 在指定范围做确定性定位，不调用额外模型或永久展开 Background。本次 inspect 实际返回的完整页面进入一次取得响应的主循环 Phase1/Phase2 LLM 请求后，才允许按容量折叠；解除保护不立即移除正文，容量拒绝不能解除保护，Action 内部的 LLM/decision model/Embedding 调用不解除保护。continuation 是所属读取接口的续页令牌，与模型调用或续写无关；分页绑定由 owner 校验，单纯背景折叠及无关注释变化不使未变页面失效，但不额外保证折叠后仍能取得旧令牌。
 
 Search 以 query、backlinks、directory 三种候选来源和 select、rerank、filter 三种约束操作组成有限函数管道；Stage2 选择这些已登记操作的组合、业务参数和 page 选项，操作内部的模型实现与 provider 由用途配置决定。source.where 只定义来源资格，filter 只处理当前候选集合；refs 不做隐藏 lexical/Embedding 预筛，select 可以排除并返回空集，rerank 保留全部候选。反链必须来自真实引用边，边归来源 owner，目标身份归目标 owner。Search 结果分页绑定 Turn/profile 或 SDK 服务 lease，辅助模型调用不解除 Inspect 展示保护。
 
-Search 的真实内容快照、命中依据、模型判断和页面摘录各有单一职责：依据引用实际内容范围，模型输入与页面复用投影但分别表达覆盖。LLM 同次指认可为空的已给出片段，JEV 只承诺实际 Score，Embedding 保留真实贡献单元；不编造通用理由。refs 精确读取并保序，Home top 不隐式扩成全部深层资源；result 复用完整快照与来源覆盖，重新建立本请求评估。资格与显式排除先于正文读取，属性比较由 owner 的有限声明统一生成与解释。
+Search 的真实内容快照、命中依据、模型判断和页面摘录各有单一职责：依据引用实际内容范围，模型输入与页面复用投影但分别表达覆盖。LLM 同次指认可为空的已给出片段，决策模型只承诺实际 Score，Embedding 保留真实贡献单元；不编造通用理由。refs 精确读取并保序，Home top 不隐式扩成全部深层资源；result 复用完整快照与来源覆盖，重新建立本请求评估。资格与显式排除先于正文读取，属性比较由 owner 的有限声明统一生成与解释。
 
 Session 的地图和交互正文共用一个背景预算，只在自身高水位响应回收。先保留完整多轮交互，超限才明确摘录/折叠；问题、完整选项和关联回复不能被拆成孤立选择。最低投影保留事实与解释目录，同一轮刷新沿用已缩减预算。
 

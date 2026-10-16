@@ -8,7 +8,7 @@ ExpandEngine 是 MCP 服务绑定、运行期目录、原始工具定义和结�
 |---|---|
 | `expand.describe_servers` | 按需取得允许服务及工具摘要，支持服务范围和有界分页 |
 | `expand.describe_tools` | 按结构化工具身份列表或完整服务范围取得原始定义，二选一，支持分页 |
-| `expand.search` | 以词法 query 或 directory/refs/result 形成候选，组合 filter 与已配置 LLM/JEV select/rerank |
+| `expand.search` | 以词法 query 或 directory/refs/result 形成候选，组合 filter 与已配置 LLM/decision model select/rerank |
 | `expand.call` | 对指定 server_id、tool_name 和 arguments 校验并调用一次 |
 
 工具身份固定为配置 server_id 与远端原始 tool_name，不把不同服务的同名工具混同。服务目录不常驻挂载。已知身份可直接 describe_tools；search 已返回完整定义时可直接 call，不要求走完四个动作。单个服务不可用时返回其有限状态，其它服务结果继续可用。
@@ -23,7 +23,7 @@ MCP 页面 GET 只读取 ExpandEngine 已发现目录和连接状态，不 conne
 
 来源由 ExpandEngine 的真实 server/tool directory 提供，先应用服务启用、工具选择和显式属性/排除，再构造包含完整原始定义的内容快照。query 在名称、描述和参数定义上做 literal/regex 匹配；directory 直接形成候选，供自然语言 select/rerank 使用，不经过词法初筛。没有 MCP 向量索引或递归内部搜索。
 
-公共 SearchSession 使用 query、directory、refs、result 来源和 filter/select/rerank 管道；refs 保持显式顺序。ActionTaskFactory 提供局部 Skill 与可选 Context，MCP 默认 context=none。模型输入和页面使用共享真实内容投影并标明覆盖；摘录不足以确定参数时，通过 describe_tools 读取完整定义再 call。不能把 Search 的 schema 摘录当作完整工具定义。LLM 指认依据、JEV Score 与完整结果分页遵循 [公共检索契约](../action-model-retrieval.md)。
+公共 SearchSession 使用 query、directory、refs、result 来源和 filter/select/rerank 管道；refs 保持显式顺序。ActionTaskFactory 提供局部 Skill 与可选 Context，MCP 默认 context=none。模型输入和页面使用共享真实内容投影并标明覆盖；摘录不足以确定参数时，通过 describe_tools 读取完整定义再 call。不能把 Search 的 schema 摘录当作完整工具定义。LLM 指认依据、decision model Score 与完整结果分页遵循 [公共检索契约](../action-model-retrieval.md)。
 
 候选内容或模型总输入超预算返回 scope_required，由父 Agent 缩小服务范围；显式模型步骤失败不冒充空结果。指定来源中有服务器不可用时返回 source_unavailable，父 Agent 可选择可用服务重试，不把缺失服务的范围说成完整。describe_servers 仍可列出各服务的有限状态。Search 翻页只读冻结结果，目录缓存仍归 MCP owner。
 

@@ -2375,7 +2375,7 @@ async def test_minimax_adapter_maps_thinking_and_reasoning_split() -> None:
     response = await adapter.invoke(
         ProviderRequest(
             model=ModelSpec(
-                id="minimax_m3",
+                id="minimax-latest",
                 providers=(ModelProviderBinding("minimax", "MiniMax-M3"),),
                 context_window_tokens=262_144,
                 adapter=AdapterKind.MINIMAX,

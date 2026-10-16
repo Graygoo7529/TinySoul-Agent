@@ -464,7 +464,7 @@ async def test_process_owned_configuration_is_read_only(tmp_path: Path) -> None:
     assert isinstance(status, dict)
     assert isinstance(status["fields"], dict)
     assert isinstance(status["fields"]["config.include"], dict)
-    assert status["fields"]["config.include"]["writable"] is False
+    assert status["fields"]["config.include"]["writable"] is True
     for mutation in (
         ConfigMutation(
             source_id="project:tinysoul.toml",

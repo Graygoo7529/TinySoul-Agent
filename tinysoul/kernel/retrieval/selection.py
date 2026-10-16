@@ -1,4 +1,4 @@
-"""Candidate-specific LLM/JEV inputs and strict rank/select interpretation."""
+"""Candidate-specific LLM/decision model inputs and strict rank/select interpretation."""
 
 from __future__ import annotations
 
@@ -173,7 +173,7 @@ class CandidateSelector:
             ],
             "guidance": [item.text for item in guidance],
         }
-        if binding.implementation is ModelImplementation.STRUCTURED_DECISION:
+        if binding.implementation is ModelImplementation.DECISION:
             if context is not None:
                 state["context"] = context_state(context)
             assert binding.use is not None
@@ -241,7 +241,7 @@ class CandidateSelector:
                     evaluation=ModelEvaluation(
                         operation,
                         prepared[index].coverage,
-                        score_kind="jev_relevance",
+                        score_kind="decision_relevance",
                         score=scores[f"c{index}"],
                     ),
                 )

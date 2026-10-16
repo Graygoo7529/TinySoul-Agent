@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from tinysoul.agent.errors import AgentContractError
 from tinysoul.infra.concurrency import JoinedOperations
-from tinysoul.infra.config import ConfigError, ConfigMutation
+from tinysoul.infra.config import ConfigError, ConfigOperation
 from tinysoul.infra.json import JsonObject
 from tinysoul.runtime import RuntimeException
 
@@ -38,7 +38,7 @@ class EndpointConfigurationEngine:
 
     async def apply(
         self,
-        mutations: tuple[ConfigMutation, ...] = (),
+        mutations: tuple[ConfigOperation, ...] = (),
         *,
         preset_id: str | None = None,
     ) -> JsonObject:
@@ -72,7 +72,7 @@ class EndpointConfigurationEngine:
         description: str = "",
         source: str = "saved",
         include_budgets: bool = True,
-        mutations: tuple[ConfigMutation, ...] = (),
+        mutations: tuple[ConfigOperation, ...] = (),
     ) -> JsonObject:
         try:
             return await self._context.config_controller().save_preset(
@@ -92,7 +92,7 @@ class EndpointConfigurationEngine:
         name: str | None = None,
         description: str | None = None,
         capture_source: str | None = None,
-        mutations: tuple[ConfigMutation, ...] = (),
+        mutations: tuple[ConfigOperation, ...] = (),
         include_budgets: bool = True,
     ) -> JsonObject:
         try:
@@ -127,7 +127,7 @@ class EndpointConfigurationEngine:
                 message="Unknown Action scenario.",
             ) from exc
 
-    async def patch(self, mutations: tuple[ConfigMutation, ...]) -> JsonObject:
+    async def patch(self, mutations: tuple[ConfigOperation, ...]) -> JsonObject:
         try:
             return await self._context.config_controller().patch(mutations)
         except ConfigError as exc:

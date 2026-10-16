@@ -19,9 +19,21 @@ from ..validation import reject_unknown_keys
 class ProjectConfig:
     """Merged project configuration tree from a main TOML file and includes."""
 
-    def __init__(self, root: Path, main_file_name: str = "tinysoul.toml") -> None:
+    def __init__(
+        self,
+        root: Path,
+        main_file_name: str = "tinysoul.toml",
+        *,
+        documents: Mapping[Path, Mapping[str, object]] | None = None,
+        include_disk: bool = True,
+    ) -> None:
         self.root = root
         self.main_path = root / main_file_name
+        self._documents = {
+            path.resolve(): deep_copy_mapping(data)
+            for path, data in (documents or {}).items()
+        }
+        self._include_disk = include_disk
         self._catalog = load_config_catalog()
         self._data, self._sources, self._document_sets = self._load()
 
@@ -71,7 +83,7 @@ class ProjectConfig:
         tuple[ConfigSource, ...],
         tuple[ConfigDocumentSet, ...],
     ]:
-        main_file = ConfigFileToml(self.main_path)
+        main_file = self._file(self.main_path)
         main = main_file.data
         _validate_config_table(main, source=str(self.main_path))
         result = deep_copy_mapping(main)
@@ -85,9 +97,11 @@ class ProjectConfig:
             _get_config_string_list(main, "include"),
             source=str(self.main_path),
             key="config.include",
+            staged=self._documents,
+            include_disk=self._include_disk,
         )
         for include_path in include_paths:
-            include_file = ConfigFileToml(include_path)
+            include_file = self._file(include_path)
             include_data = include_file.data
             _validate_config_table(include_data, source=str(include_path))
             if _get_config_string_list(include_data, "include"):
@@ -118,8 +132,14 @@ class ProjectConfig:
                 *(path.resolve() for path in include_paths),
             },
             source=str(self.main_path),
+            staged=self._documents,
+            include_disk=self._include_disk,
         )
         return result, tuple(sources), document_sets
+
+    def _file(self, path: Path) -> ConfigFileToml:
+        data = self._documents.get(path.resolve())
+        return ConfigFileToml(path, data=data) if data is not None else ConfigFileToml(path)
 
 
 def _validate_config_table(data: Mapping[str, object], *, source: str) -> None:
@@ -165,11 +185,16 @@ def _expand_include_paths(
     *,
     source: str,
     key: str,
+    staged: Mapping[Path, Mapping[str, object]] | None = None,
+    include_disk: bool = True,
 ) -> list[Path]:
     result: list[Path] = []
     seen: set[Path] = set()
     for include in includes:
-        matches = _include_matches(root, include, source=source, key=key)
+        matches = _include_matches(
+            root, include, source=source, key=key, staged=staged,
+            include_disk=include_disk,
+        )
         for path in matches:
             normalized = path.resolve()
             if normalized in seen:
@@ -202,6 +227,8 @@ def _include_matches(
     *,
     source: str,
     key: str,
+    staged: Mapping[Path, Mapping[str, object]] | None = None,
+    include_disk: bool = True,
 ) -> list[Path]:
     _validate_relative_project_path(
         include,
@@ -209,7 +236,14 @@ def _include_matches(
         source=source,
     )
     if _has_glob_pattern(include):
-        matches = sorted(root.glob(include), key=lambda path: path.as_posix())
+        matches = {path.resolve(): path for path in root.glob(include)} if include_disk else {}
+        for path in staged or {}:
+            try:
+                if path.is_relative_to(root.resolve()) and path.match(include):
+                    matches[path.resolve()] = path
+            except ValueError:
+                continue
+        matches = sorted(matches.values(), key=lambda path: path.as_posix())
         if not matches:
             raise ConfigError(
                 "Configuration include pattern did not match any files",
@@ -225,7 +259,7 @@ def _include_matches(
             key=key,
             source=source,
         )
-        if not path.exists():
+        if (not include_disk or not path.exists()) and path.resolve() not in (staged or {}):
             raise ConfigError(
                 "Included configuration file does not exist",
                 key=key,
@@ -241,7 +275,7 @@ def _include_matches(
             key=key,
             source=source,
         )
-        if not path.is_file():
+        if include_disk and not path.is_file() and path.resolve() not in (staged or {}):
             raise ConfigError(
                 "Configuration include must reference TOML files",
                 key=key,
@@ -257,6 +291,8 @@ def _load_document_sets(
     *,
     merged_paths: set[Path],
     source: str,
+    staged: Mapping[Path, Mapping[str, object]] | None = None,
+    include_disk: bool = True,
 ) -> tuple[ConfigDocumentSet, ...]:
     result: list[ConfigDocumentSet] = []
     owned_paths = set(merged_paths)
@@ -265,7 +301,7 @@ def _load_document_sets(
         seen: set[Path] = set()
         key = f"config.document_sets.{spec.set_id}.include"
         for include in spec.includes:
-            for path in _include_matches(root, include, source=source, key=key):
+            for path in _include_matches(root, include, source=source, key=key, staged=staged, include_disk=include_disk):
                 normalized = path.resolve()
                 if normalized in seen:
                     continue
@@ -278,12 +314,18 @@ def _load_document_sets(
                     )
                 seen.add(normalized)
                 relative = normalized.relative_to(root.resolve()).as_posix()
+                staged_data = (staged or {}).get(normalized)
+                data = (
+                    deep_copy_mapping(staged_data)
+                    if staged_data is not None
+                    else ConfigFileToml(path).data
+                )
                 documents.append(
                     ConfigDocument(
                         set_id=spec.set_id,
                         source_id=f"project-document:{spec.set_id}:{relative}",
                         path=path,
-                        data=ConfigFileToml(path).data,
+                        data=data,
                     )
                 )
         owned_paths.update(seen)

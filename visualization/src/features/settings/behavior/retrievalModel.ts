@@ -13,7 +13,7 @@
  */
 
 import type { JsonValue } from "../../../api/v2/types";
-import { isPlainRecord, jsonDeepEqual } from "../draft/model";
+import { isFieldDraft, isPlainRecord, jsonDeepEqual } from "../draft/model";
 import type { ConfigDraftState } from "../draft/store";
 import { useConfigDraftStore } from "../draft/store";
 import { atomWriteSource } from "../models/objectEditing";
@@ -221,7 +221,7 @@ export function encodePolicy(draft: RetrievalPolicyDraft): Record<string, JsonVa
 /** The effective policy map (draft over saved), action id → sparse entry. */
 export function retrievalMap(state: ConfigDraftState): Record<string, JsonValue> {
   const draft = Object.values(state.drafts).find(
-    (entry) => entry.path === RETRIEVAL_PATH,
+    (entry) => isFieldDraft(entry) && entry.path === RETRIEVAL_PATH,
   );
   const raw =
     draft?.op.op === "set"

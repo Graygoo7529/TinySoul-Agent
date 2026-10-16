@@ -61,13 +61,13 @@ class ExpandPlugin:
             "expand.search.select",
             "expand.search",
             ModelOperation.SELECT,
-            (ModelImplementation.LLM_TASK, ModelImplementation.STRUCTURED_DECISION),
+            (ModelImplementation.LLM_TASK, ModelImplementation.DECISION),
         ),
         ModelUseDescriptor(
             "expand.search.rerank",
             "expand.search",
             ModelOperation.RERANK,
-            (ModelImplementation.LLM_TASK, ModelImplementation.STRUCTURED_DECISION),
+            (ModelImplementation.LLM_TASK, ModelImplementation.DECISION),
         ),
     )
     provides = (ExpandEngine,)

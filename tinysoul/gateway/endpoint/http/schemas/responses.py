@@ -232,7 +232,7 @@ class PresetResponse(ContractResponse):
     name: str
     description: str
     included_scopes: list[str]
-    snapshot: JsonObject | None = None
+    definition: JsonObject | None = None
     active_match: bool
     saved_match: bool
     validation_issues: list[JsonValue]

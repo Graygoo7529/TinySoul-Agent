@@ -332,7 +332,7 @@ class TurnTraceHeap:
         return f"{self.head_ref()}#input/{occurrence}"
 
     def mark_consumed(self, messages: tuple[Message, ...]) -> None:
-        """Release only overlays present in a completed decision-model request."""
+        """Release only overlays present in a completed decision model request."""
         for entry in self.hot_entries():
             if entry.visible_overlay is not None and entry.visible_overlay in messages:
                 self._protected_overlays.discard(entry.entry_id)

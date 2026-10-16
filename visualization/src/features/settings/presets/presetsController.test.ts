@@ -71,7 +71,7 @@ function makeClients(overrides: {
 const store = () => useConfigDraftStore.getState();
 const preset = () => presetFixture as unknown as PresetSummary;
 
-/** Load snapshots and seed one dirty draft entry. */
+/** Load definitions and seed one dirty draft entry. */
 async function seedDraft(clients: V2Clients): Promise<string> {
   expect(await loadConfig(clients)).toBe(true);
   store().setValue("project:tinysoul.toml", "execution.enabled", false);
@@ -197,7 +197,7 @@ describe("update / delete", () => {
 });
 
 describe("applyPreset", () => {
-  it("submits exactly {preset_id}, clears only the agreed drafts and re-reads snapshots", async () => {
+  it("submits exactly {preset_id}, clears only the agreed drafts and re-reads definitions", async () => {
     const { clients, requests } = makeClients({});
     const key = await seedDraft(clients);
     const otherKey = (() => {

@@ -23,6 +23,7 @@ import {
   rebaseOnSaved,
   resetAtomEntries,
   savedValue,
+  isFieldDraft,
   type DraftEntry,
   type DraftRef,
 } from "./model";
@@ -80,6 +81,8 @@ export interface ConfigDraftState {
 
   // --- draft editing -------------------------------------------------------
   setValue: (sourceId: string, path: string, value: JsonValue) => void;
+  /** Stage creation of a new project TOML source before its model values. */
+  createSource: (sourceId: string) => void;
   deleteValue: (sourceId: string, path: string) => void;
   /**
    * Record delete drafts for refs whose ownership the caller has already
@@ -156,6 +159,19 @@ export const useConfigDraftStore = create<ConfigDraftState>()((set) => ({
       return { drafts, stale };
     }),
 
+  createSource: (sourceId) =>
+    set((state) => {
+      const key = JSON.stringify(["source", sourceId]);
+      if (state.saved?.sources.some((source) => source.id === sourceId)) return state;
+      if (state.drafts[key]?.op.op === "create_source") return state;
+      return {
+        drafts: {
+          ...state.drafts,
+          [key]: { key, sourceId, op: { op: "create_source" } },
+        },
+      };
+    }),
+
   deleteValue: (sourceId, path) =>
     set((state) => {
       const drafts = applyDelete(state.drafts, state.saved, { sourceId, path });
@@ -185,7 +201,17 @@ export const useConfigDraftStore = create<ConfigDraftState>()((set) => ({
       const drop = new Set(keys);
       const drafts = Object.fromEntries(
         Object.entries(state.drafts).filter(([key]) => !drop.has(key)),
+      ) as Record<string, DraftEntry>;
+      const fieldSources = new Set(
+        Object.values(drafts)
+          .filter(isFieldDraft)
+          .map((entry) => entry.sourceId),
       );
+      for (const entry of Object.values(drafts)) {
+        if (entry.op.op === "create_source" && !fieldSources.has(entry.sourceId)) {
+          delete drafts[entry.key];
+        }
+      }
       const stale = Object.fromEntries(
         Object.entries(state.stale).filter(([key]) => !drop.has(key)),
       );
@@ -327,6 +353,7 @@ export function displayValue(state: ConfigDraftState, ref: DraftRef): JsonValue 
 export function projectedKeys(state: ConfigDraftState): Set<string> {
   const keys = new Set(Object.keys(state.saved?.fields ?? {}));
   for (const entry of Object.values(state.drafts)) {
+    if (!isFieldDraft(entry)) continue;
     if (entry.op.op === "set") {
       keys.add(entry.path);
     } else {

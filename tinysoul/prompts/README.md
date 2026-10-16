@@ -13,7 +13,7 @@
 | [kernel/context.py](kernel/context.py) | Phase1 Control Tool 描述、参数说明，以及 Context 操作反馈 | `kernel/context/control/tools.py`、`engine.py`、`actions.py`、段 owner |
 | [kernel/interaction.py](kernel/interaction.py) | 输入、问题、完整选项、回复与补充说明的叙事包装 | `kernel/interaction.py` → Trace、ask ActionResult、Session 投影 |
 | [kernel/action.py](kernel/action.py) | 域选择工具说明、域与 Action 语义包装、Action 内部任务和局部结果反馈 | `kernel/action/planning/`、`tasks.py`、`builtins/core/actions.py`、参数归一化与执行边界 |
-| [kernel/retrieval.py](kernel/retrieval.py) | 选择/排序 LLM 请求、JEV 问题及有序等级、检索工具说明和局部反馈 | `kernel/retrieval/selection.py`、请求与管道 owner |
+| [kernel/retrieval.py](kernel/retrieval.py) | 选择/排序 LLM 请求、decision model 问题及有序等级、检索工具说明和局部反馈 | `kernel/retrieval/selection.py`、请求与管道 owner |
 | [kernel/jobs.py](kernel/jobs.py) | Job Action 的修正反馈 | `kernel/jobs/actions.py` |
 | [plugins/reflection.py](plugins/reflection.py) | Reflection 初始输入、Phase 情景指引和该情景的 answer 语义 | `plugins/reflection/{home,memory}/task.py`、`turn/prompts.py`、`actions.py` |
 | [plugins/workspace.py](plugins/workspace.py) | Workspace describe/compose/analyze 的 TaskPrompt、资源包装、资源状态说明和局部反馈 | `plugins/workspace/prompts.py`、`actions/`、`projection.py` |
@@ -27,7 +27,7 @@
 | [plugins/capabilities/expand.py](plugins/capabilities/expand.py) | MCP expand 本地请求、连接和能力范围反馈 | `plugins/capabilities/expand/actions.py`、`engine.py`、`mcp/client.py` |
 | [llm.py](llm.py) | 输出解释的可修正反馈；禁用原生工具时的工具结果 user context 包装 | `llm/protocol/responses.py`、`execution/task.py`、`provider/openai_sdk/payloads.py` |
 
-TaskPrompt 的 guide/input/output 使用既有 user role；角色和实际消息由消费端设置。retrieval/JEV、Web worker、ACP 委派和 provider 包装各有真实出口，不都经过 TaskPrompt。
+TaskPrompt 的 guide/input/output 使用既有 user role；角色和实际消息由消费端设置。retrieval/decision model、Web worker、ACP 委派和 provider 包装各有真实出口，不都经过 TaskPrompt。
 
 ## 修改方式与边界
 

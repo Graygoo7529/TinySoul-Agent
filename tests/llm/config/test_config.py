@@ -28,7 +28,7 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     kimi_provider = config.provider("kimi")
     assert kimi_provider.adapters == (AdapterKind.KIMI,)
     assert kimi_provider.enabled is True
-    assert config.provider("sublyx_proxy").adapters == (AdapterKind.OPENAI,)
+    assert config.provider("sublyx-proxy").adapters == (AdapterKind.OPENAI,)
     assert config.provider("orca").adapters == (
         AdapterKind.DEEPSEEK,
         AdapterKind.OPENAI,
@@ -39,23 +39,23 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     assert config.provider("wenrugou").adapters == (AdapterKind.OPENAI,)
     assert config.provider("openai").enabled is False
 
-    model = config.models.get("gpt_5_5")
+    model = config.models.get("gpt-sol")
     assert model.supports(ModelCapability.TOOL_CALLING)
     assert model.adapter_options.reasoning_keep() is ReasoningKeep.ENCRYPTED
 
-    kimi = config.models.get("kimi_k2_7")
+    kimi = config.models.get("kimi-coding-latest")
     assert kimi.adapter is AdapterKind.KIMI
     assert kimi.adapter_options.values["protocol"] == "k2"
     assert kimi.request_overrides.temperature == pytest.approx(1.0)
 
-    deepseek_pro = config.models.get("deepseek_pro")
+    deepseek_pro = config.models.get("deepseek-pro")
     assert deepseek_pro.context_window_tokens == 1_048_576
-    deepseek_flash = config.models.get("deepseek_flash")
+    deepseek_flash = config.models.get("deepseek-flash")
     assert deepseek_flash.supports(ModelCapability.IMAGE_INPUT)
     assert deepseek_flash.supports(ModelCapability.IMAGE_REMOTE_URL)
 
-    frame_stage1 = config.tasks.get("frame_stage1").chain
-    config.tasks.get("frame_stage2")
+    frame_stage1 = config.tasks.get("frame-stage1").chain
+    config.tasks.get("frame-stage2")
     assert not config.tasks.has("memory_daily")
     policy = frame_stage1.retry_policy
     assert policy.max_retries_per_provider == 1

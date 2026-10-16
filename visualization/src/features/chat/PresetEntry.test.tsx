@@ -43,20 +43,20 @@ const PRESET_OTHER = {
 
 const OTHER_DETAIL: Preset = {
   ...PRESET_OTHER,
-  snapshot: {
+  definition: {
     values: {
       "llm.models": null,
       "llm.tasks": null,
       "action.models.bindings": [],
-      "loop.cycle.phase1_task_profile": "frame_stage1",
-      "loop.cycle.phase2_task_profile": "frame_stage2",
+      "loop.cycle.phase1_task_profile": "frame-stage1",
+      "loop.cycle.phase2_task_profile": "frame-stage2",
       "loop.user.max_cycles": 16,
       "session.max_background_chars": 48000,
     },
     retrieval: {},
     include_budgets: true,
   },
-  included_scopes: ["models", "tasks", "routing", "retrieval", "budgets"],
+  included_scopes: ["tasks", "routing", "retrieval", "budgets"],
 } as unknown as Preset;
 
 let container: HTMLDivElement;

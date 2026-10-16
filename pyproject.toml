@@ -60,10 +60,9 @@ include = ["tinysoul*"]
 "tinysoul.assets" = [
     "common/**/*",
     "common/.gitignore",
+    "common/.env.example",
     "standard/**/*",
-    "standard/.env.example",
     "development/**/*",
-    "development/.env.example",
 ]
 
 [tool.pytest.ini_options]

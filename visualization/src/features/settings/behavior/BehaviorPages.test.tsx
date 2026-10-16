@@ -155,7 +155,7 @@ function makeSaved(): Configuration {
     "llm.tasks.vision.models": { value: ["m1"], source: TASKS },
     "infra.model_services.uses": {
       value: [
-        { id: "jev_default", kind: "structured_decision", model_id: "jev" },
+        { id: "decision_default", kind: "decision", model_id: "decision" },
         { id: "embed_default", kind: "embedding", model_id: "embed" },
       ],
       source: SERVICES,
@@ -218,10 +218,10 @@ function actionsView(scenario: string): Record<string, unknown> {
       {
         consumer: "home.search.select",
         operation: "select",
-        implementations: ["llm_task", "structured_decision"],
+        implementations: ["llm_task", "decision"],
         options: {
           llm_task: { max_output_tokens: { type: "integer", minimum: 1 } },
-          structured_decision: {
+          decision: {
             relevance_threshold: { type: "integer", minimum: 0, maximum: 3 },
           },
         },
@@ -238,7 +238,7 @@ function actionsView(scenario: string): Record<string, unknown> {
         operation: "rerank",
         implementations: [
           "llm_task",
-          "structured_decision",
+          "decision",
           "embedding_similarity",
         ],
         options: {},
@@ -530,34 +530,34 @@ describe("ActionsPage", () => {
     expect(draftOperations(store())).toEqual([]);
   });
 
-  it("a structured-decision binding picks from the kind-filtered uses", async () => {
+  it("a decision model binding picks from the kind-filtered uses", async () => {
     await renderAndSelect("home.search");
 
     const implementation = container.querySelector(
       'select[aria-label="home.search.select implementation"]',
     ) as HTMLSelectElement;
     await act(async () => {
-      setSelectValue(implementation, "structured_decision");
+      setSelectValue(implementation, "decision");
     });
     await flush();
 
     const use = container.querySelector(
-      'select[aria-label="home.search.select structured decision use"]',
+      'select[aria-label="home.search.select decision model use"]',
     ) as HTMLSelectElement;
     const labels = [...use.options].map((option) => option.value);
-    expect(labels).toContain("jev_default");
+    expect(labels).toContain("decision_default");
     expect(labels).not.toContain("embed_default");
 
     await act(async () => {
-      setSelectValue(use, "jev_default");
+      setSelectValue(use, "decision_default");
     });
     await flush();
     const operations = draftOperations(store());
     const value = operations[0]?.op === "set" ? operations[0].value : [];
     expect(Array.isArray(value) ? value[0] : null).toEqual({
       consumer: "home.search.select",
-      implementation: "structured_decision",
-      target: { use: "jev_default" },
+      implementation: "decision",
+      target: { use: "decision_default" },
       options: { relevance_threshold: 2 },
     });
   });

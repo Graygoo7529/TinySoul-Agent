@@ -23,7 +23,7 @@ export const BINDINGS_FALLBACK_SOURCE = "project:configs/action/routing.toml";
 
 export type BindingImplementation =
   | "llm_task"
-  | "structured_decision"
+  | "decision"
   | "embedding_similarity";
 
 /** The wire shape staged for one consumer. */
@@ -31,11 +31,11 @@ export interface BindingDraftValue {
   implementation: BindingImplementation;
   /** llm_task target (task chain id). */
   taskProfile?: string;
-  /** structured_decision target (logical use id). */
+  /** decision target (logical use id). */
   use?: string;
   /** llm_task option. */
   maxOutputTokens?: number;
-  /** structured_decision option (0..3). */
+  /** decision option (0..3). */
   relevanceThreshold?: number;
 }
 
@@ -134,7 +134,7 @@ export function encodeBinding(
   if (draft.implementation === "llm_task" && draft.taskProfile !== undefined) {
     target.task_profile = draft.taskProfile;
   }
-  if (draft.implementation === "structured_decision" && draft.use !== undefined) {
+  if (draft.implementation === "decision" && draft.use !== undefined) {
     target.use = draft.use;
   }
   if (Object.keys(target).length > 0) entry.target = target;

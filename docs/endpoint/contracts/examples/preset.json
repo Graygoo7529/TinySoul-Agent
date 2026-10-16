@@ -1,17 +1,15 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "id": "2cc770115e8749f58e201abb7c485eca",
   "name": "Balanced",
   "description": "",
   "included_scopes": [
-    "models",
     "tasks",
     "routing",
     "retrieval"
   ],
-  "snapshot": {
+  "definition": {
     "values": {
-      "llm.models": null,
       "llm.tasks": null,
       "action.models.bindings": null,
       "loop.cycle.phase1_task_profile": null,

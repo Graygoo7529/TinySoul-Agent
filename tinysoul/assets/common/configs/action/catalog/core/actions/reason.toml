@@ -71,7 +71,7 @@ description = "Expected output instructions for the reasoning task."
 [semantic]
 use_when = [
     "Need a focused reasoning step to synthesize evidence before deciding",
-    "Must analyze multiple sources and return a structured decision",
+    "Must analyze multiple sources and return a decision",
     "Complex tradeoff analysis requires explicit reasoning before core.answer"
 ]
 avoid_when = [

@@ -404,7 +404,7 @@ it("keeps requested domains distinct from accepted phase outcomes and totals ret
   const started = event("loop.phase.started", {}, scope);
   const requested = event("llm.model.response", { task_id: "task", usage: { input_tokens: 10, output_tokens: 4 },
     tool_calls: [{ kind: "control", name: "select_action_domains", arguments: { domains: ["home"] } }] }, scope);
-  const events = [started, event("llm.task.started", { task_id: "task", profile: "frame_stage1" }, scope), requested];
+  const events = [started, event("llm.task.started", { task_id: "task", profile: "frame-stage1" }, scope), requested];
   expect(buildTurnProcess(events).cycles[0].phases[0]).toMatchObject({ status: "running", selectedDomains: [], startedAt: started.created_at });
   const completed = event("loop.phase.completed", { failed: true }, scope);
   const process = buildTurnProcess([...events, completed]);

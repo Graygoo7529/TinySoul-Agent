@@ -19,6 +19,8 @@ from .editing.transaction import (
 from .editing.controller import (
     ConfigController,
     ConfigMutation,
+    ConfigCreateSource,
+    ConfigOperation,
     ConfigValue,
     PreparedConfigActivation,
 )
@@ -42,6 +44,8 @@ __all__ = [
     "ConfigDocumentSet",
     "ConfigDocumentSetSpec",
     "ConfigMutation",
+    "ConfigCreateSource",
+    "ConfigOperation",
     "ConfigValue",
     "PreparedConfigActivation",
     "DotenvDocument",

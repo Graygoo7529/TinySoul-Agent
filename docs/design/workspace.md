@@ -50,7 +50,7 @@ search 明确区分文件、目录前缀和整个 Workspace。来源字符预算
 
 Inspect 的实际正文页进入正式 ActionResult，并以可读文字进入当前 Trace；收到一次主循环模型响应后才允许容量折叠。精简投影保留资源说明、精确引用、请求和实际覆盖、执行状态及是否有后续，不保存旧正文或续页令牌。Session completion 使用该精简投影，重读文件沿现态进行。原有 read 保留行范围与 cursor 接口。Search 折叠保留引用、标题和真实命中摘录。正文不进入 Working；LLM 内部任务继续通过 target_ref/references 局部读取。
 
-`workspace.search` 使用 `query`、`directory`、`refs`、`backlinks`、`result` 来源，并可组合 `filter`、LLM/JEV `select` 与 `rerank`。query 保留 literal/regex 与文件/目录范围；backlinks 扫描当前 Workspace Markdown 的真实链接，可接收跨 owner anchor，返回源文件和行证据。文件资格由标签/类型/日期筛选，与 exclude_refs 一起在正文读取前处理；Workspace 不建立隐式 Embedding 索引。共享 SearchSession 保存完整结果快照，按 Turn 或 SDK 日 lease 隔离。
+`workspace.search` 使用 `query`、`directory`、`refs`、`backlinks`、`result` 来源，并可组合 `filter`、LLM/decision model `select` 与 `rerank`。query 保留 literal/regex 与文件/目录范围；backlinks 扫描当前 Workspace Markdown 的真实链接，可接收跨 owner anchor，返回源文件和行证据。文件资格由标签/类型/日期筛选，与 exclude_refs 一起在正文读取前处理；Workspace 不建立隐式 Embedding 索引。共享 SearchSession 保存完整结果快照，按 Turn 或 SDK 日 lease 隔离。
 
 compose 合并新建与替换生成。已有目标必须完整读入允许的写入预算；目标截断时在调用模型前失败，引导改用 edit/append。模型输出不完整、超限或取消时不提交。完整文本在 Action 内存中交给 owner，成功只返回元数据。生成期间不持文件锁，最终也不比较来源版本。analyze 消费明确有界来源，结论通过所属结果协议校验。
 

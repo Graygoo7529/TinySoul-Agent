@@ -8,7 +8,7 @@
 
 配置由四类 source 合并，**后列优先**（后者覆盖前者）：
 
-1. **project TOML**：项目 `tinysoul.toml` 主文件 + `config.include` 声明的 include 文件；唯一的主体可写来源，按文件给出 source_id（如 `project:configs/llm/models.toml`）。
+1. **project TOML**：项目 `tinysoul.toml` 主文件 + `config.include` 声明的 include 文件；唯一的主体可写来源，按文件给出 source_id（如 `project:configs/llm/models/gpt.toml`）。模型 family 可通过 `create_source` 增加新的 `configs/llm/models/<family>.toml` 文件，并沿同一 include 图加载。
 2. **dotenv**：项目 `.env` 文件；可写（path 为原始变量名，值必须是字符串）。被 `credential_reference` 字段引用的凭据值在读取投影中脱敏为字符串 `"<redacted>"`（fields 项另带 `redacted: true`）。
 3. **environment**：进程环境变量，仅 `TINYSOUL_` 前缀的变量参与映射（可映射为 dotted 配置键）；只读。
 4. **overrides**：CLI 启动覆盖；只读。
@@ -52,7 +52,7 @@ PATCH 的 `path` 不表示任意深的 TOML 树路径：
 
 | 路径 | 类型/约束 | 可改性 | 影响 |
 | --- | --- | --- | --- |
-| `llm.models.<id>` 键 | 同上 ID 规则；用户新建模型写入 `project:configs/llm/models/custom.toml` | 可增删改 | 任务链与用途引用的对象 |
+| `llm.models.<id>` 键 | 同上 ID 规则；用户新建模型写入 `project:configs/llm/models/ungrouped.toml` | 可增删改 | 任务链与用途引用的对象 |
 | `.adapter` | enum，同 §2.1 adapter 集合（单选） | 可写 | 该模型的请求行为；其 providers 链中每个 Provider 必须声明此 adapter |
 | `.family` | string（默认空），仅显示元数据 | 可写 | 列表分组，不影响可用性 |
 | `.collapsed` | boolean（默认 false），仅显示元数据 | 可写 | 列表默认折叠，不影响可用性 |
@@ -90,8 +90,8 @@ catalog value_kind 为 object_list，三个数组**各自整体提交**；UI 按
 
 | 路径 | 条目字段 | 约束 | 影响 |
 | --- | --- | --- | --- |
-| `infra.model_services.providers` | `id`、`adapter`、`base_url`、`api_key_env`、`enabled`、`timeout_seconds`、`max_retries`、`proxy` | adapter：openai_embedding / typesafe_system_one；max_retries 0..5；**单数** `api_key_env`（区别于 LLM 复数 `api_key_envs`）；有 `proxy` | Embedding/JEV 连接、代理与凭据 |
-| `infra.model_services.models` | `id`、`kind`、`provider_bindings[{provider_id, model}]`、`dimensions`、`batch_size` | kind：embedding / structured_decision；embedding 必填 dimensions>0、decision 禁止 dimensions；batch_size 1..256；provider_bindings 有序 | 专用模型与 Provider 路由 |
+| `infra.model_services.providers` | `id`、`adapter`、`base_url`、`api_key_env`、`enabled`、`timeout_seconds`、`max_retries`、`proxy` | adapter：openai_embedding / typesafe_system_one；max_retries 0..5；**单数** `api_key_env`（区别于 LLM 复数 `api_key_envs`）；有 `proxy` | Embedding/decision model 连接、代理与凭据 |
+| `infra.model_services.models` | `id`、`kind`、`provider_bindings[{provider_id, model}]`、`dimensions`、`batch_size` | kind：embedding / decision；embedding 必填 dimensions>0、decision 禁止 dimensions；batch_size 1..256；provider_bindings 有序 | 专用模型与 Provider 路由 |
 | `infra.model_services.uses` | `id`、`kind`、`model_id` | 一对一绑定一个模型；序列化字段是 `id` 不是 `use_id` | 上层引用的稳定逻辑用途 |
 
 被 `home.search.embedding_use` / `memory.search.embedding_use`（§5.3/§5.4）和 Action 的 `embedding_similarity` binding target 引用。模板含 bigmodel（GLM embedding-3）与 typesafe 两个示例 Provider，均 `enabled=false`。
@@ -113,16 +113,16 @@ catalog value_kind 为 object_list，三个数组**各自整体提交**；UI 按
 | `loop.cycle.phase1_task_profile` | reference → `llm.tasks` | frame_stage1 | Phase1（更新语境、选择行动域）所用任务链 |
 | `loop.cycle.phase2_task_profile` | reference → `llm.tasks` | frame_stage2 | Phase2（域内生成 ActionCall）所用任务链 |
 
-不存在 JEV Phase 切换；框架 Phase 与 Action 内部用途是两层配置。
+不存在 decision model Phase 切换；框架 Phase 与 Action 内部用途是两层配置。
 
 ### 3.2 Action 模型用途 —— `action.models.bindings`
 
 catalog value_kind = object_list，**整数组提交**；source_id 为 `project:configs/action/routing.toml`。每条绑定：
 
 - `consumer`：代码声明的固定集合，模板共 15 个：`core.reason.generate`、`core.answer.generate`、`workspace.compose.generate`、`workspace.describe.generate`、`workspace.analyze.generate`，以及五个 Search Action（home/memory/core.context/expand/workspace）各自的 `.search.select` 与 `.search.rerank`。
-- `implementation`：llm_task / structured_decision / embedding_similarity。各 consumer 允许的集合由代码声明：LLM 生成类仅 llm_task；select/rerank 支持 llm_task 与 structured_decision；home/memory 的 rerank 额外支持 embedding_similarity。
+- `implementation`：llm_task / decision / embedding_similarity。各 consumer 允许的集合由代码声明：LLM 生成类仅 llm_task；select/rerank 支持 llm_task 与 decision；home/memory 的 rerank 额外支持 embedding_similarity。
 - `target`：`{task_profile = <llm.tasks id>}` 或 `{use = <infra.model_services.uses id>}`。
-- `options`：按实现类型，`max_output_tokens`（LLM）或 `relevance_threshold` 0..3（JEV select）。
+- `options`：按实现类型，`max_output_tokens`（LLM）或 `relevance_threshold` 0..3（decision model select）。
 
 每 consumer 的实际 implementations/options 约束/embedding_owner/当前 binding 从 `GET /v2/config/actions` 的 `model_uses` 读取；scenario 切换只改能力视图，同一 consumer 只有一份草稿。
 

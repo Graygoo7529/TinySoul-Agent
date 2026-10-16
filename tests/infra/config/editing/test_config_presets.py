@@ -7,9 +7,10 @@ from tinysoul.infra.config import (
     ConfigEnvironment,
     ConfigError,
     ConfigMutation,
+    ConfigCreateSource,
     PreparedConfigActivation,
 )
-from tinysoul.infra.config.editing.presets import PresetSnapshot
+from tinysoul.infra.config.editing.presets import PresetDefinition
 
 
 def project(root: Path) -> ConfigEnvironment:
@@ -88,7 +89,7 @@ async def test_apply_prepare_write_publish_and_rollback(tmp_path: Path) -> None:
     assert controller.status(view="active")["fields"] != controller.status()["fields"]
 
 
-async def test_preset_replaces_groups_preserves_capabilities_and_optional_budgets(
+async def test_preset_replaces_strategy_groups_preserves_models_and_optional_budgets(
     tmp_path: Path,
 ) -> None:
     environment = project(tmp_path)
@@ -132,7 +133,7 @@ async def test_preset_replaces_groups_preserves_capabilities_and_optional_budget
     assert result["pending_reload"] is False
     assert values["loop.user.max_cycles"] == 100
     models = controller.environment.section_tree("llm")["models"]
-    assert isinstance(models, dict) and "b" not in models
+    assert isinstance(models, dict) and "b" in models
     policies = controller.environment.section_tree("action")["retrieval"]
     assert isinstance(policies, dict)
     assert policies["home.search"]["max_steps"] == 20
@@ -144,7 +145,7 @@ async def test_preset_replaces_groups_preserves_capabilities_and_optional_budget
     assert controller.environment.effective_values() == values
 
 
-async def test_active_capture_and_draft_do_not_read_saved_models(
+async def test_active_capture_and_draft_do_not_store_model_catalog(
     tmp_path: Path,
 ) -> None:
     environment = project(tmp_path)
@@ -165,13 +166,67 @@ async def test_active_capture_and_draft_do_not_read_saved_models(
             ),
         ),
     )
-    snapshot = PresetSnapshot.from_json(preset["snapshot"])
-    assert snapshot.values["llm.models"] == {
-        "a": {"family": "family-a", "collapsed": False}
-    }
+    definition = PresetDefinition.from_json(preset["definition"])
+    assert "llm.models" not in definition.values
+    assert "llm.models" not in (tmp_path / "configs/presets" / f"{preset['id']}.json").read_text(encoding="utf-8")
     models = controller.environment.section_tree("llm")["models"]
     assert isinstance(models, dict)
     assert models["a"]["family"] == "saved"
+
+
+async def test_create_model_source_and_definition_in_one_patch(tmp_path: Path) -> None:
+    (tmp_path / "configs/llm/models").mkdir(parents=True)
+    (tmp_path / "tinysoul.toml").write_text(
+        '[config]\ninclude = ["configs/llm/models/*.toml"]\n', encoding="utf-8"
+    )
+    (tmp_path / "configs/llm/models/base.toml").write_text(
+        '[llm.models.base]\nfamily = "Base"\n', encoding="utf-8"
+    )
+    environment = ConfigEnvironment.from_project_root(tmp_path, env={})
+    controller = ConfigController(root=tmp_path, environment=environment)
+    source_id = "project:configs/llm/models/qwen.toml"
+    await controller.patch(
+        (
+            ConfigCreateSource(source_id),
+            ConfigMutation(
+                source_id,
+                "llm.models.qwen-latest",
+                "set",
+                {"family": "Qwen", "adapter": "openai"},
+            ),
+        )
+    )
+    assert (tmp_path / "configs/llm/models/qwen.toml").is_file()
+    assert controller.environment.effective_values()["llm.models.qwen-latest.family"] == "Qwen"
+
+
+async def test_create_family_source_and_include_in_one_patch(tmp_path: Path) -> None:
+    (tmp_path / "configs/llm/models").mkdir(parents=True)
+    (tmp_path / "tinysoul.toml").write_text(
+        '[config]\ninclude = []\n', encoding="utf-8"
+    )
+    environment = ConfigEnvironment.from_project_root(tmp_path, env={})
+    controller = ConfigController(root=tmp_path, environment=environment)
+    source_id = "project:configs/llm/models/qwen.toml"
+    await controller.patch(
+        (
+            ConfigCreateSource(source_id),
+            ConfigMutation(
+                "project:tinysoul.toml",
+                "config.include",
+                "set",
+                ["configs/llm/models/*.toml"],
+            ),
+            ConfigMutation(
+                source_id,
+                "llm.models.qwen-latest",
+                "set",
+                {"family": "Qwen", "adapter": "openai"},
+            ),
+        )
+    )
+    assert (tmp_path / "configs/llm/models/qwen.toml").is_file()
+    assert controller.environment.effective_values()["llm.models.qwen-latest.adapter"] == "openai"
 
 
 @pytest.mark.parametrize(
@@ -205,7 +260,7 @@ async def test_readonly_source_conflict_does_not_approximate_preset(
 ) -> None:
     project(tmp_path)
     environment = ConfigEnvironment.from_project_root(
-        tmp_path, env={}, overrides={"llm.models.a.family": "fixed"}
+        tmp_path, env={}, overrides={"llm.tasks.main.temperature": 0.2}
     )
     controller = ConfigController(
         root=tmp_path, environment=environment, activator=activated
@@ -215,7 +270,7 @@ async def test_readonly_source_conflict_does_not_approximate_preset(
     assert isinstance(identity, str)
     # Reusing the project with a different read-only binding invalidates this capture.
     changed = ConfigEnvironment.from_project_root(
-        tmp_path, env={}, overrides={"llm.models.a.family": "different"}
+        tmp_path, env={}, overrides={"llm.tasks.main.temperature": 0.8}
     )
     controller = ConfigController(
         root=tmp_path, environment=changed, activator=activated

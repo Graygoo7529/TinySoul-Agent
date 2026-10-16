@@ -76,10 +76,10 @@ describe("error classification", () => {
     expect(
       configErrorKey(
         new TinySoulApiError(422, "config.invalid", "bad", {
-          key: "llm.models.primary",
+          key: "llm.models.gpt-sol",
         }),
       ),
-    ).toBe("llm.models.primary");
+    ).toBe("llm.models.gpt-sol");
     // Generic request.invalid has no field location even if the message
     // mentions one; callers must show a form-level error.
     expect(
@@ -87,7 +87,7 @@ describe("error classification", () => {
         new TinySoulApiError(
           422,
           "request.invalid",
-          "field llm.models.primary is wrong",
+          "field llm.models.gpt-sol is wrong",
         ),
       ),
     ).toBeNull();

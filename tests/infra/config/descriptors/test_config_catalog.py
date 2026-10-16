@@ -65,14 +65,14 @@ def test_config_catalog_declares_controlled_model_creation_source() -> None:
         item for item in catalog.collections if item.id == "llm.models"
     )
 
-    assert model_collection.create_source == "project:configs/llm/models/custom.toml"
+    assert model_collection.create_source == "project:configs/llm/models/ungrouped.toml"
     assert (
         model_collection.delete_policy
-        is ConfigCollectionDeletePolicy.CREATE_SOURCE_ONLY
+        is ConfigCollectionDeletePolicy.ALL
     )
     assert model_collection.root == "llm.models"
     assert model_collection.identity.title == "Model ID"
-    assert model_collection.to_json()["delete_policy"] == "create_source_only"
+    assert model_collection.to_json()["delete_policy"] == "all"
 
 
 def test_config_catalog_owns_field_group_presentation() -> None:

@@ -4,14 +4,14 @@
  * Collapsed it shows only the plan matching the running configuration, or
  * "Custom" when there is none or the running configuration has diverged.
  * The popover lists every plan with its match state and, on demand, the
- * managed groups and key budget summary from the stored snapshot; "Manage
+ * managed groups and key budget summary from the stored definition; "Manage
  * plans" routes to the settings plans page.
  *
  * Activation is allowed only while the backend declares the configuration
  * reloadable (`activity.can_reload`) — a busy Agent keeps the list readable
  * but the apply action disabled with the real reason, and no optimistic
  * "switched" state is ever shown: the active badge only comes from the
- * re-read snapshots after a successful apply. Switching a plan and starting
+ * re-read definitions after a successful apply. Switching a plan and starting
  * a turn stay two explicit operations. The apply shares the §15 draft guard
  * through usePresetApplyFlow.
  */
@@ -42,7 +42,7 @@ import { useSettingsUiStore } from "../settings/uiStore";
 import { usePresetApplyFlow } from "../settings/presets/PresetDraftConfirm";
 import {
   budgetSummary,
-  decodePresetSnapshot,
+  decodePresetDefinition,
   parseValidationIssues,
   presetScopes,
 } from "../settings/presets/presetsModel";
@@ -57,7 +57,7 @@ export function PresetEntry() {
   const presets = useConfigDraftStore((s) => s.presets);
   const [open, setOpen] = useState(false);
 
-  // Lazy config snapshots shared with the settings pages; one load per
+  // Lazy config definitions shared with the settings pages; one load per
   // connection (see ensureConfigLoaded).
   useEffect(() => {
     if (clients !== null) ensureConfigLoaded(clients);
@@ -286,7 +286,7 @@ function PresetPopoverRow({
   );
 }
 
-/** Managed groups + key budget summary from the stored snapshot (lazy read). */
+/** Managed groups + key budget summary from the stored definition (lazy read). */
 function PresetRowDetail({ preset }: { preset: PresetSummary }) {
   const clients = useConnectionStore((s) => s.clients);
   const [detail, setDetail] = useState<Preset | null>(null);
@@ -311,19 +311,19 @@ function PresetRowDetail({ preset }: { preset: PresetSummary }) {
   if (error !== null) {
     return (
       <div className="mt-1.5 pl-5 text-[11px] text-danger">
-        The stored snapshot could not be read: {error}
+        The stored definition could not be read: {error}
       </div>
     );
   }
   if (detail === null) {
     return (
       <div className="mt-1.5 flex items-center gap-1.5 pl-5 text-[11px] text-fg-faint">
-        <Loader2 size={11} className="animate-spin-slow" /> Loading the stored snapshot…
+        <Loader2 size={11} className="animate-spin-slow" /> Loading the stored definition…
       </div>
     );
   }
-  const snapshot = decodePresetSnapshot(detail.snapshot);
-  const budgets = snapshot === null ? [] : budgetSummary(snapshot);
+  const definition = decodePresetDefinition(detail.definition);
+  const budgets = definition === null ? [] : budgetSummary(definition);
   return (
     <div className="mt-1.5 space-y-1.5 pl-5 text-[11px] leading-4 text-fg-muted">
       <div>

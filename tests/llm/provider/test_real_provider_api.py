@@ -49,29 +49,27 @@ pytestmark = [
 ]
 
 PRIMARY_MODEL_IDS = (
-    "gpt_5_6_sol",
-    "gpt_5_6_terra",
-    "gpt_5_6_luna",
-    "gpt_5_5",
-    "kimi_k3",
-    "kimi_k2_7",
-    "deepseek_pro",
-    "deepseek_flash",
-    "glm_5_1",
-    "minimax_m3",
+    "gpt-sol",
+    "gpt-terra",
+    "gpt-luna",
+    "kimi-latest",
+    "kimi-coding-latest",
+    "deepseek-pro",
+    "deepseek-flash",
+    "glm-latest",
+    "minimax-latest",
 )
 
 TOOL_MODEL_IDS = (
-    "gpt_5_6_sol",
-    "gpt_5_6_terra",
-    "gpt_5_6_luna",
-    "gpt_5_5",
-    "kimi_k3",
-    "kimi_k2_7",
-    "deepseek_pro",
-    "deepseek_flash",
-    "glm_5_1",
-    "minimax_m3",
+    "gpt-sol",
+    "gpt-terra",
+    "gpt-luna",
+    "kimi-latest",
+    "kimi-coding-latest",
+    "deepseek-pro",
+    "deepseek-flash",
+    "glm-latest",
+    "minimax-latest",
 )
 
 

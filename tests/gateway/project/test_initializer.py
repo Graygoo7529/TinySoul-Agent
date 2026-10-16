@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 import tomllib
@@ -62,7 +62,7 @@ def test_cli_init_copies_editable_project_without_provider_selection(
     assert providers
     assert all(spec["enabled"] is False for spec in providers.values())
     assert (root / "configs" / "llm" / "models" / "kimi.toml").is_file()
-    assert (root / "configs" / "llm" / "models" / "openai.toml").is_file()
+    assert (root / "configs" / "llm" / "models" / "gpt.toml").is_file()
     execution = tomllib.loads(
         (root / "configs" / "execution.toml").read_text(encoding="utf-8")
     )["execution"]
@@ -82,7 +82,7 @@ def test_cli_init_development_profile_copies_enabled_development_config(
         (root / "configs" / "llm" / "providers.toml").read_text(encoding="utf-8")
     )["llm"]["providers"]
     assert any(spec["enabled"] is True for spec in providers.values())
-    assert (root / "configs" / "llm" / "models" / "openai.toml").is_file()
+    assert (root / "configs" / "llm" / "models" / "gpt.toml").is_file()
     execution = tomllib.loads(
         (root / "configs" / "execution.toml").read_text(encoding="utf-8")
     )["execution"]

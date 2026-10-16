@@ -120,11 +120,14 @@ describe("applySet", () => {
 });
 
 describe("applyDelete", () => {
-  const ref = { sourceId: "project:configs/llm/models.toml", path: "llm.models.custom.adapter_options" };
+  const ref = {
+    sourceId: "project:configs/llm/models/ungrouped.toml",
+    path: "llm.models.qwen-latest.adapter_options",
+  };
 
   it("records a delete only when the source actually holds the path", () => {
     const saved = makeConfig(
-      { "llm.models.custom.adapter_options": { value: { thinking: true }, source: ref.sourceId } },
+      { "llm.models.qwen-latest.adapter_options": { value: { thinking: true }, source: ref.sourceId } },
       [{ id: ref.sourceId, values: { [ref.path]: { thinking: true } } }],
     );
     const drafts = applyDelete({}, saved, ref);
@@ -188,7 +191,7 @@ describe("resetAtomEntries — shared collection atoms", () => {
     ] as never);
     drafts = applySet(drafts, saved, ref, [
       { consumer: "core.answer.generate", implementation: "llm_task", target: { task_profile: "chain-z" } },
-      { consumer: "home.search.select", implementation: "structured_decision", target: { use: "jev-1" } },
+      { consumer: "home.search.select", implementation: "decision", target: { use: "decision-1" } },
     ] as never);
 
     const next = resetAtomEntries(drafts, saved, ref, {
@@ -201,7 +204,7 @@ describe("resetAtomEntries — shared collection atoms", () => {
       op: "set",
       value: [
         baselineBindings[0],
-        { consumer: "home.search.select", implementation: "structured_decision", target: { use: "jev-1" } },
+        { consumer: "home.search.select", implementation: "decision", target: { use: "decision-1" } },
       ],
     });
   });
@@ -370,6 +373,6 @@ describe("draftEntry shape", () => {
     const drafts = applySet({}, saved, REF, false);
     const entry: DraftEntry | undefined = drafts[draftKey(REF)];
     expect(entry?.sourceId).toBe(REF.sourceId);
-    expect(entry?.path).toBe(REF.path);
+    expect(entry !== undefined && "path" in entry ? entry.path : undefined).toBe(REF.path);
   });
 });

@@ -29,9 +29,19 @@ export interface DraftRef {
 }
 
 /** One recorded local change. */
-export interface DraftEntry extends DraftRef {
+export interface FieldDraftEntry extends DraftRef {
   key: string;
   op: { op: "set"; value: JsonValue } | { op: "delete" };
+}
+export interface SourceDraftEntry {
+  key: string;
+  sourceId: string;
+  op: { op: "create_source" };
+}
+export type DraftEntry = FieldDraftEntry | SourceDraftEntry;
+
+export function isFieldDraft(entry: DraftEntry): entry is FieldDraftEntry {
+  return entry.op.op !== "create_source";
 }
 
 /** Canonical string form of a DraftRef; used as record key and React key. */
@@ -206,21 +216,26 @@ export function applyDelete(
 export function buildOperations(
   drafts: Record<string, DraftEntry>,
 ): ConfigOperation[] {
-  return Object.values(drafts)
-    .sort(
-      (a, b) =>
-        a.sourceId.localeCompare(b.sourceId) || a.path.localeCompare(b.path),
-    )
-    .map((entry) =>
+  const entries = Object.values(drafts);
+  const sources = entries
+    .filter((entry): entry is SourceDraftEntry => entry.op.op === "create_source")
+    .sort((a, b) => a.sourceId.localeCompare(b.sourceId));
+  const fields = entries
+    .filter(isFieldDraft)
+    .sort((a, b) => a.sourceId.localeCompare(b.sourceId) || a.path.localeCompare(b.path));
+  return [
+    ...sources.map((entry) => ({ op: "create_source" as const, source_id: entry.sourceId })),
+    ...fields.map((entry) =>
       entry.op.op === "set"
         ? {
-            op: "set",
+            op: "set" as const,
             source_id: entry.sourceId,
             path: entry.path,
             value: entry.op.value,
           }
-        : { op: "delete", source_id: entry.sourceId, path: entry.path },
-    );
+        : { op: "delete" as const, source_id: entry.sourceId, path: entry.path },
+    ),
+  ];
 }
 
 /**
@@ -229,6 +244,9 @@ export function buildOperations(
  * as the source's own value so a changed override also counts).
  */
 function baselineOf(saved: Configuration | null, entry: DraftEntry): unknown {
+  if (!isFieldDraft(entry)) {
+    return saved?.sources.some((source) => source.id === entry.sourceId) ?? false;
+  }
   if (entry.op.op === "delete") {
     const source = saved?.sources.find((item) => item.id === entry.sourceId);
     return source && Object.prototype.hasOwnProperty.call(source.values, entry.path)

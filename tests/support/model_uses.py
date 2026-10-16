@@ -35,7 +35,7 @@ def action_tasks(
         ModelUseBinding(
             item.consumer,
             ModelImplementation.LLM_TASK,
-            task_profile="llm_action",
+            task_profile="llm-action",
             max_output_tokens=max_output_tokens,
         )
         for item in descriptors

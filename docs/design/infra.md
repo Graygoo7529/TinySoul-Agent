@@ -36,10 +36,9 @@ TOML 展开在 catalog 声明的 object 字段处停止，以整个映射作为�
 一次配置状态查询共用同一份 effective values 和由其派生的凭据名称集合，统一用于各 source 与有效字段的脱敏。中间结果仅在本次请求内使用，后续查询重新计算，因而 patch/reload 后的配置引用无需缓存失效协议即可生效。catalog 仍拒绝同一路径匹配多个 descriptor。
 
 Collection 的 `delete_policy` 只表达设置页是否提供删除命令：`all` 允许删除任意对象，
-`create_source_only` 只允许删除全部 project TOML 定义都来自 collection `create_source` 的对象，
 `none` 不提供删除命令。该策略不进入 `ConfigController` 的写入权限判断；Endpoint 仍可对任意可写
-project TOML 执行 source-aware mutation。Custom Model 因此不增加重复配置字段，而由其是否完全归属
-`configs/llm/models/custom.toml` 派生；带其它 source 定义或覆盖的 Model 不由设置页删除。
+project TOML 执行 source-aware mutation。模型是否来自哪个 TOML 文件只影响来源展示和实际写入位置，
+不再派生内置/自定义的删除权限类别。
 
 例如，Infra 可以提供读取配置、合并来源、类型转换、配置树访问和错误报告的机制，但不应把 LLM provider catalog、Action 策略、Loop 语义或 Workspace 规则集中放进 Infra。
 
@@ -82,11 +81,11 @@ ServiceScope 的短操作可显式附带异步提交后回调，并在同一 lea
 
 项目配置文件用于可读、可写、可提交的非敏感配置。本地环境文件用于密钥、本机差异和开发环境临时值。系统环境变量用于部署、持续集成和命令行覆盖。显式传入覆盖用于测试或上层调用。
 
-项目配置由 `tinysoul.toml` 作为入口，显式 include `configs/*.toml`、`configs/action/*.toml`、`configs/capabilities/*.toml`、`configs/infra/*.toml`、`configs/llm/*.toml` 与 `configs/llm/models/*.toml`。Action routing 位于 `configs/action/routing.toml`；独立 Action 定义位于 `configs/action/catalog`，由 `action.catalog` document set 管理而不参与 merged include。单一业务 owner 的 agent/reflection/context/home/memory/loop/workspace/execution/jobs 等配置保留在 `configs/` 根部；独立 capability 配置位于 `configs/capabilities/`；Infra-owned 外部基础能力位于 `configs/infra/`；LLM provider/task 与按模型族拆分的 model 配置位于 `configs/llm/`。文件层次只表达维护归属，不改变 TOML section identity。Memory 使用独立 `[memory]`，Embedding/JEV 使用 `[infra.model_services]`，Home parser 不接受旧 `[home.memory]`。include/document-set pattern 必须是项目根内的相对路径：绝对路径与含 `..` 的路径在展开前拒绝，每个 glob 命中项在解析真实路径后还必须位于项目根内。glob 展开顺序稳定；主文件和每个 include 作为独立有序 source 保留，后加载文件覆盖前文件时仍可定位最终值来自哪个实际路径。ConfigEnvironment 只负责读取、合并或携带文档快照；各业务模块在自己的 parser/loader 边界解释内容。
+项目配置由 `tinysoul.toml` 作为入口，显式 include `configs/*.toml`、`configs/action/*.toml`、`configs/capabilities/*.toml`、`configs/infra/*.toml`、`configs/llm/*.toml` 与 `configs/llm/models/*.toml`。Action routing 位于 `configs/action/routing.toml`；独立 Action 定义位于 `configs/action/catalog`，由 `action.catalog` document set 管理而不参与 merged include。单一业务 owner 的 agent/reflection/context/home/memory/loop/workspace/execution/jobs 等配置保留在 `configs/` 根部；独立 capability 配置位于 `configs/capabilities/`；Infra-owned 外部基础能力位于 `configs/infra/`；LLM provider/task 与按模型族拆分的 model 配置位于 `configs/llm/`。文件层次只表达维护归属，不改变 TOML section identity。Memory 使用独立 `[memory]`，Embedding/decision model 使用 `[infra.model_services]`，Home parser 不接受旧 `[home.memory]`。include/document-set pattern 必须是项目根内的相对路径：绝对路径与含 `..` 的路径在展开前拒绝，每个 glob 命中项在解析真实路径后还必须位于项目根内。glob 展开顺序稳定；主文件和每个 include 作为独立有序 source 保留，后加载文件覆盖前文件时仍可定位最终值来自哪个实际路径。ConfigEnvironment 只负责读取、合并或携带文档快照；各业务模块在自己的 parser/loader 边界解释内容。
 
 `tinysoul init --config-profile` 与 `tinysoul reset --config-profile` 属于 Gateway-owned 的项目模板物化期文件选择，不是新的配置来源。standard/development profile 各自提供一套完整配置，initializer/resetter 只物化其中一套为普通 `configs/` 与 `.env.example`；resetter 只把旧项目的普通 `.env` 作为不解释内容的保留文件复制进新项目。生成项目不保存 profile identity，Infra 也不读取 package profile、执行 profile overlay 或自动同步模板更新。运行时配置优先级仍只有代码默认值、项目文件、本地环境文件、系统环境变量和显式覆盖。
 
-公共文件位于 assets/common，预设文件位于 assets/standard 或 assets/development；生成时复制 common 与选中预设并拒绝重复目标。profile 文件由 package assets 拥有，但其中各 section 的语义仍归对应业务模块。模块新增、删除、重命名配置键或拆分 TOML 文件时，开发者必须同步审查 `assets/standard/configs` 与 `assets/development/configs`：两者保持相同相对文件集合、相同 section/schema 形状并各自通过模块 parser，值差异只能表达已确认的初始化策略。代码默认值不通过复制 profile 推导，profile 也不能替代模块默认值或校验。profile 引用的 credential/专用环境变量名必须出现在同 profile 的 `.env.example` 中，但真实值永不进入模板。该同步责任属于源码维护与发布验收，不属于 ConfigEnvironment 运行时。
+公共文件位于 assets/common，预设文件位于 assets/standard 或 assets/development；生成时复制 common 与选中预设并拒绝重复目标。profile 配置由 package assets 拥有，但其中各 section 的语义仍归对应业务模块。模块新增、删除、重命名配置键或拆分 TOML 文件时，开发者必须同步审查 `assets/standard/configs` 与 `assets/development/configs`：两者保持相同相对文件集合、相同 section/schema 形状并各自通过模块 parser，值差异只能表达已确认的初始化策略。代码默认值不通过复制 profile 推导，profile 也不能替代模块默认值或校验。profile 引用的 credential/专用环境变量名必须出现在 `assets/common/.env.example` 中，但真实值永不进入模板。该同步责任属于源码维护与发布验收，不属于 ConfigEnvironment 运行时。
 
 ## 可写配置
 
@@ -128,9 +127,9 @@ JSON 值类型、JSON 对象校验和稳定序列化属于 Infra 的公共基础
 
 ## 专用模型服务
 
-`InfraSettings` 通过 `[infra.model_services]` 解释 provider、logical model 和 use。`ModelServices`、`EmbeddingSession`、JEV typed decision adapter 和 `EmbeddingBatch` 只表达外部能力，不表达 Memory 引用、候选排序或缓存语义。凭据只能由 `ConfigEnvironment.runtime_env` 按显式变量名解析；Home/Memory 的派生缓存大小归各自 owner。
+`InfraSettings` 通过 `[infra.model_services]` 解释 provider、logical model 和 use。`ModelServices`、`EmbeddingSession`、decision model typed decision adapter 和 `EmbeddingBatch` 只表达外部能力，不表达 Memory 引用、候选排序或缓存语义。凭据只能由 `ConfigEnvironment.runtime_env` 按显式变量名解析；Home/Memory 的派生缓存大小归各自 owner。
 
-模型服务使用共享 generation-owned async clients，generation 关闭一次；注入 transport 为借用对象。取消直接传播到网络任务。Embedding 的文档/query 阶段固定 provider，切换时完整重算；JEV adapter 严格校验问题身份、类型、等级、候选和概率。Infra 不持久化向量、不执行 cosine、不决定业务降级。
+模型服务使用共享 generation-owned async clients，generation 关闭一次；注入 transport 为借用对象。取消直接传播到网络任务。Embedding 的文档/query 阶段固定 provider，切换时完整重算；decision model adapter 严格校验问题身份、类型、等级、候选和概率。Infra 不持久化向量、不执行 cosine、不决定业务降级。
 
 ## 使用方式
 

@@ -114,7 +114,7 @@ def parse_action_settings(tree: Mapping[str, object]) -> ActionSettings:
             {"task_profile"}
             if implementation is ModelImplementation.LLM_TASK
             else {"use"}
-            if implementation is ModelImplementation.STRUCTURED_DECISION
+            if implementation is ModelImplementation.DECISION
             else set()
         )
         reject_unknown_keys(target, allowed, key=f"{key}.target")
@@ -123,7 +123,7 @@ def parse_action_settings(tree: Mapping[str, object]) -> ActionSettings:
             {"max_output_tokens"}
             if implementation is ModelImplementation.LLM_TASK
             else {"relevance_threshold"}
-            if implementation is ModelImplementation.STRUCTURED_DECISION
+            if implementation is ModelImplementation.DECISION
             else set()
         )
         reject_unknown_keys(options, option_names, key=f"{key}.options")

@@ -69,7 +69,8 @@ export interface ConfigMutationResult {
 /** PATCH /v2/config operation (docs/endpoint/configuration.md). */
 export type ConfigOperation =
   | { op: "set"; source_id: string; path: string; value: JsonValue }
-  | { op: "delete"; source_id: string; path: string };
+  | { op: "delete"; source_id: string; path: string }
+  | { op: "create_source"; source_id: string };
 
 /** POST /v2/config/apply body: exactly one of operations / preset_id. */
 export type ConfigApplyRequest =
@@ -79,7 +80,7 @@ export type ConfigApplyRequest =
 /**
  * Preset record fields shared by list entries and detail (preset.json).
  * The list (preset-list.json) carries the same records, possibly without
- * `snapshot`; detail includes it.
+ * `definition`; detail includes it.
  */
 export interface PresetSummary {
   schema_version: number;
@@ -97,7 +98,7 @@ export interface PresetSummary {
 
 /** Schema: preset.json (GET /v2/config/presets/{id}). */
 export interface Preset extends PresetSummary {
-  snapshot: JsonObject | null;
+  definition: JsonObject | null;
 }
 
 /** Schema: preset-list.json (GET /v2/config/presets). */
@@ -133,7 +134,7 @@ export interface PresetCreateBody extends PresetCaptureBody {
 
 /**
  * PUT /v2/config/presets/{id} body (PresetUpdateRequest). Without `capture`
- * only name/description change; a present capture replaces the snapshot.
+ * only name/description change; a present capture replaces the definition.
  */
 export interface PresetUpdateBody {
   name?: string;

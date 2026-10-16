@@ -106,7 +106,7 @@ def registry(action, implementation):
                 if implementation is ModelImplementation.LLM_TASK
                 else None,
                 use="decision"
-                if implementation is ModelImplementation.STRUCTURED_DECISION
+                if implementation is ModelImplementation.DECISION
                 else None,
             )
             for operation in (ModelOperation.SELECT, ModelOperation.RERANK)
@@ -127,17 +127,17 @@ def decision_settings():
         ),
         (
             ServiceModel(
-                "jev",
-                ModelCapability.STRUCTURED_DECISION,
-                (ServiceProviderBinding("typesafe", "jev-latest"),),
+                "decision",
+                ModelCapability.DECISION,
+                (ServiceProviderBinding("typesafe", "decision-latest"),),
             ),
         ),
-        (ServiceUse("decision", ModelCapability.STRUCTURED_DECISION, "jev"),),
+        (ServiceUse("decision", ModelCapability.DECISION, "decision"),),
     )
 
 
 async def unused_invoke(call):
-    raise AssertionError("A structured decision binding must not invoke LLM")
+    raise AssertionError("A decision model binding must not invoke LLM")
 
 
 async def test_repeated_model_steps_link_search_observations_to_distinct_tasks():
@@ -376,7 +376,7 @@ async def test_embedding_step_retains_its_contribution_and_actual_full_input():
 
 
 @pytest.mark.parametrize("action,query,rows", SAMPLES)
-async def test_jev_uses_candidate_specific_questions_and_preserves_rank_membership(
+async def test_decision_uses_candidate_specific_questions_and_preserves_rank_membership(
     action, query, rows
 ):
     def respond(request):
@@ -397,7 +397,7 @@ async def test_jev_uses_candidate_specific_questions_and_preserves_rank_membersh
                 "probabilities": {str(i): int(i == score) for i in range(4)},
                 "confidence": 1,
             }
-        return httpx.Response(200, json={"model": "jev-test", "answers": answers})
+        return httpx.Response(200, json={"model": "decision-test", "answers": answers})
 
     services = ModelServices(
         decision_settings(),
@@ -405,7 +405,7 @@ async def test_jev_uses_candidate_specific_questions_and_preserves_rank_membersh
         transport=httpx.MockTransport(respond),
     )
     selector = CandidateSelector(
-        models=registry(action, ModelImplementation.STRUCTURED_DECISION),
+        models=registry(action, ModelImplementation.DECISION),
         invoke=unused_invoke,
         services=services,
     )
@@ -428,16 +428,16 @@ async def test_jev_uses_candidate_specific_questions_and_preserves_rank_membersh
 
 @pytest.mark.external
 @pytest.mark.skipif(
-    os.environ.get("TINYSOUL_EXTERNAL_JEV") != "1"
+    os.environ.get("TINYSOUL_EXTERNAL_DECISION") != "1"
     or not os.environ.get("TYPESAFE_API_KEY"),
-    reason="Explicit JEV external switch and credential required",
+    reason="Explicit decision model external switch and credential required",
 )
-async def test_real_jev_representative_retrieval_quality():
+async def test_real_decision_representative_retrieval_quality():
     services = ModelServices(decision_settings(), env=os.environ)
     try:
         for action, query, rows in SAMPLES:
             selector = CandidateSelector(
-                models=registry(action, ModelImplementation.STRUCTURED_DECISION),
+                models=registry(action, ModelImplementation.DECISION),
                 invoke=unused_invoke,
                 services=services,
             )
@@ -492,7 +492,7 @@ async def test_real_llm_representative_retrieval_quality(tmp_path: Path):
     environment = ConfigEnvironment.from_project_root(root, env=env)
     config = LLMConfigParser().parse(environment.section_tree("llm"))
     model = config.models.get(
-        os.environ.get("TINYSOUL_RETRIEVAL_MODEL", "deepseek_flash")
+        os.environ.get("TINYSOUL_RETRIEVAL_MODEL", "deepseek-flash")
     )
     provider_id = os.environ.get("TINYSOUL_RETRIEVAL_PROVIDER", "deepseek")
     binding = next(item for item in model.providers if item.provider_id == provider_id)

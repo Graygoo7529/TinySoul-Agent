@@ -31,12 +31,12 @@ export function PhaseBindingsPage() {
         overrides={{
           [PHASE1_PATH]: {
             render: (api) => (
-              <TaskChainRefControl api={api} ownerDefault="frame_stage1" />
+              <TaskChainRefControl api={api} ownerDefault="frame-stage1" />
             ),
           },
           [PHASE2_PATH]: {
             render: (api) => (
-              <TaskChainRefControl api={api} ownerDefault="frame_stage2" />
+              <TaskChainRefControl api={api} ownerDefault="frame-stage2" />
             ),
           },
         }}

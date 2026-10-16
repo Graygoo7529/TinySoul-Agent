@@ -18,7 +18,7 @@ import { SectionCard } from "../../../components/ui/Card";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { type CatalogCollection } from "../draft/catalog";
 import { translatedField as matchField } from "../i18n";
-import { draftKey, isPlainRecord } from "../draft/model";
+import { draftKey, isFieldDraft, isPlainRecord } from "../draft/model";
 import {
   objectBaseline,
   objectDraftClears,
@@ -123,6 +123,7 @@ function useCollectionIds(root: string): string[] {
     if (id !== "") ids.add(id);
   }
   for (const entry of Object.values(drafts)) {
+    if (!isFieldDraft(entry)) continue;
     if (!entry.path.startsWith(prefix)) continue;
     const rest = entry.path.slice(prefix.length);
     if (rest.includes(".")) continue; // whole-object drafts only
@@ -222,7 +223,7 @@ function CollectionListRow({
 }) {
   const rootPath = `${collection.root}.${id}`;
   const draft = useConfigDraftStore((s) =>
-    Object.values(s.drafts).find((entry) => entry.path === rootPath),
+    Object.values(s.drafts).find((entry) => isFieldDraft(entry) && entry.path === rootPath),
   );
   const saved = useConfigDraftStore((s) => s.saved);
   const baseline = objectBaseline(saved, rootPath);
@@ -264,7 +265,7 @@ function useObjectContext(
   const resetEntries = useConfigDraftStore((s) => s.resetEntries);
   const rootPath = `${collection.root}.${id}`;
   const draft = useConfigDraftStore((s) =>
-    Object.values(s.drafts).find((entry) => entry.path === rootPath),
+    Object.values(s.drafts).find((entry) => isFieldDraft(entry) && entry.path === rootPath),
   );
 
   const baseline = objectBaseline(saved, rootPath);
@@ -297,7 +298,7 @@ function useObjectContext(
         const keys = Object.values(
           useConfigDraftStore.getState().drafts,
         )
-          .filter((entry) => entry.path === rootPath)
+          .filter((entry) => isFieldDraft(entry) && entry.path === rootPath)
           .map((entry) => entry.key);
         resetEntries(keys);
         return;
@@ -328,7 +329,7 @@ function CollectionObjectDetail({
     // Withdraw any local draft at the object root, then record one delete per
     // owning project source (no-op for draft-only objects).
     const keys = Object.values(useConfigDraftStore.getState().drafts)
-      .filter((entry) => entry.path === rootPath)
+      .filter((entry) => isFieldDraft(entry) && entry.path === rootPath)
       .map((entry) => entry.key);
     if (keys.length > 0) resetEntries(keys);
     const refs = subtreeDeleteRefs(saved, rootPath);

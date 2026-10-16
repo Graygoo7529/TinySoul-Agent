@@ -1,21 +1,16 @@
 /**
  * Pure run-plan (preset) model (implementation plan §19/P14).
  *
- * A preset is a named, source-independent snapshot of the backend-defined
- * managed scopes — the full llm.models/llm.tasks, the Phase 1/2 chain
- * bindings, the full Action implementation/target/options and every
- * retrieval policy's query.channels, plus an optional budgets group. The
- * frontend never invents its own capture keys: capture/apply semantics stay
- * with the backend (POST /config/presets, PUT /config/presets/{id},
- * POST /config/apply {preset_id}); this module only decodes the stored
- * snapshot for display, builds the documented request bodies and diffs the
- * snapshot against the running configuration.
+ * A preset is a named, source-independent definition of the strategy
+ * used by the Agent: task chains, phase/action routing, retrieval choices and
+ * optional budgets. Model/provider definitions stay in the current TOML catalog
+ * and are referenced by their stable model IDs.
  *
- * The snapshot is a read model — it is never a POST body.
+ * The definition is a read model; it is never a POST body.
  */
 
+
 import type {
-  Configuration,
   JsonObject,
   JsonValue,
   PresetCaptureBody,
@@ -23,7 +18,7 @@ import type {
   PresetSummary,
   PresetUpdateBody,
 } from "../../../api/v2/types";
-import { isPlainRecord, jsonDeepEqual } from "../draft/model";
+import { isPlainRecord } from "../draft/model";
 import { settingsText } from "../i18n";
 
 // ---------------------------------------------------------------------------
@@ -31,7 +26,7 @@ import { settingsText } from "../i18n";
 // tinysoul/infra/config/editing/presets.py)
 // ---------------------------------------------------------------------------
 
-export type PresetScopeId = "models" | "tasks" | "routing" | "retrieval" | "budgets";
+export type PresetScopeId = "tasks" | "routing" | "retrieval" | "budgets";
 
 export interface PresetScopeInfo {
   id: PresetScopeId;
@@ -41,15 +36,10 @@ export interface PresetScopeInfo {
 }
 
 /**
- * The five scope labels the backend reports in `included_scopes`; `budgets`
- * appears only when the snapshot was captured with the budgets group.
+ * The four scope labels the backend reports in `included_scopes`; `budgets`
+ * appears only when the definition was captured with the budgets group.
  */
 export const PRESET_SCOPES: Record<PresetScopeId, PresetScopeInfo> = {
-  models: {
-    id: "models",
-    title: "LLM models",
-    description: "The complete llm.models catalog, families and collapsed flags included.",
-  },
   tasks: {
     id: "tasks",
     title: "Task chains",
@@ -129,7 +119,7 @@ export function buildCreateBody(
 
 /**
  * A rename carries only name/description — never a `capture` key, so the
- * stored snapshot stays untouched (re-capture is always the explicit action).
+ * stored definition stays untouched (re-capture is always the explicit action).
  */
 export function buildRenameBody(name: string, description: string): PresetUpdateBody {
   return { name: name.trim(), description: description.trim() };
@@ -140,10 +130,10 @@ export function buildRecaptureBody(capture: CaptureInput): PresetUpdateBody {
 }
 
 // ---------------------------------------------------------------------------
-// Snapshot decoding (read model)
+// Definition decoding (read model)
 // ---------------------------------------------------------------------------
 
-export interface PresetSnapshotView {
+export interface PresetDefinitionView {
   /** Managed group path → captured subtree, or null for "owner default". */
   values: Record<string, JsonValue>;
   /** consumer → managed retrieval field → captured value (null = default). */
@@ -151,8 +141,8 @@ export interface PresetSnapshotView {
   includeBudgets: boolean;
 }
 
-/** Tolerant decode of the stored snapshot; null when the shape is foreign. */
-export function decodePresetSnapshot(raw: JsonObject | null): PresetSnapshotView | null {
+/** Tolerant decode of the stored definition; null when the shape is foreign. */
+export function decodePresetDefinition(raw: JsonObject | null): PresetDefinitionView | null {
   if (raw === null) return null;
   const values = raw.values;
   const retrieval = raw.retrieval;
@@ -166,119 +156,6 @@ export function decodePresetSnapshot(raw: JsonObject | null): PresetSnapshotView
     retrievalView[consumer] = fields;
   }
   return { values, retrieval: retrievalView, includeBudgets };
-}
-
-// ---------------------------------------------------------------------------
-// Difference against the running configuration
-// ---------------------------------------------------------------------------
-
-export type SnapshotDiffKind =
-  /** The group resets to the owner default (snapshot stores null). */
-  | "default"
-  /** Both sides have the leaf and the values differ. */
-  | "change"
-  /** The leaf exists only in the snapshot (applying adds it). */
-  | "add"
-  /** The leaf exists only in the running group (applying removes it). */
-  | "remove";
-
-export interface SnapshotDiffRow {
-  path: string;
-  kind: SnapshotDiffKind;
-  snapshot: JsonValue | undefined;
-  active: JsonValue | undefined;
-}
-
-/**
- * Flatten a captured subtree into dotted leaf paths, matching the backend's
- * field flattening: plain objects recurse, everything else (arrays, scalars)
- * is an atomic leaf.
- */
-export function flattenTree(
-  value: JsonValue,
-  prefix: string,
-  into: Record<string, JsonValue> = {},
-): Record<string, JsonValue> {
-  if (isPlainRecord(value)) {
-    for (const [key, child] of Object.entries(value)) {
-      flattenTree(child, `${prefix}.${key}`, into);
-    }
-    return into;
-  }
-  into[prefix] = value;
-  return into;
-}
-
-/**
- * The leaf-level difference between a stored snapshot and the running
- * (active) configuration, bounded to the managed scopes:
- * - `values` groups replace the whole group, so both directions are reported
- *   (add/change/remove); a null group is one "default" row (the leaves the
- *   owner default would supply are not enumerable from the snapshot).
- * - retrieval fields are compared one managed field at a time; unmanaged
- *   policy fields (sources, operations, allowed_context…) are never
- *   reported, because a plan does not manage them.
- * Sorted by path; empty when the plan matches the running configuration.
- */
-/** The running configuration's flattened leaves at or below a path. */
-function activeLeavesAt(active: Configuration | null, groupPath: string): Record<string, JsonValue> {
-  const leaves: Record<string, JsonValue> = {};
-  const prefix = `${groupPath}.`;
-  for (const [key, field] of Object.entries(active?.fields ?? {})) {
-    if (key === groupPath || key.startsWith(prefix)) {
-      leaves[key] = field.value;
-    }
-  }
-  return leaves;
-}
-
-export function snapshotDiff(
-  snapshot: PresetSnapshotView,
-  active: Configuration | null,
-): SnapshotDiffRow[] {
-  const activeValue = (path: string): JsonValue | undefined =>
-    active?.fields[path]?.value;
-  const rows: SnapshotDiffRow[] = [];
-
-  for (const [groupPath, value] of Object.entries(snapshot.values)) {
-    if (value === null) {
-      rows.push({ path: groupPath, kind: "default", snapshot: null, active: undefined });
-      continue;
-    }
-    const snapshotLeaves = flattenTree(value, groupPath);
-    const activeLeaves = activeLeavesAt(active, groupPath);
-    for (const [path, leaf] of Object.entries(snapshotLeaves)) {
-      const current = activeLeaves[path];
-      if (current === undefined) {
-        rows.push({ path, kind: "add", snapshot: leaf, active: undefined });
-      } else if (!jsonDeepEqual(leaf, current)) {
-        rows.push({ path, kind: "change", snapshot: leaf, active: current });
-      }
-    }
-    for (const [path, leaf] of Object.entries(activeLeaves)) {
-      if (!(path in snapshotLeaves)) {
-        rows.push({ path, kind: "remove", snapshot: undefined, active: leaf });
-      }
-    }
-  }
-
-  for (const [consumer, fields] of Object.entries(snapshot.retrieval)) {
-    for (const [field, value] of Object.entries(fields)) {
-      const path = `action.retrieval.${consumer}.${field}`;
-      if (value === null) {
-        rows.push({ path, kind: "default", snapshot: null, active: activeValue(path) });
-        continue;
-      }
-      const current = activeValue(path);
-      if (current === undefined) {
-        rows.push({ path, kind: "add", snapshot: value, active: undefined });
-      } else if (!jsonDeepEqual(value, current)) {
-        rows.push({ path, kind: "change", snapshot: value, active: current });
-      }
-    }
-  }
-
-  return rows.sort((a, b) => a.path.localeCompare(b.path));
 }
 
 // ---------------------------------------------------------------------------
@@ -305,12 +182,12 @@ export interface BudgetSummaryRow {
  * summary. Empty when the plan was captured without the budgets group —
  * applying such a plan leaves the current budgets untouched.
  */
-export function budgetSummary(snapshot: PresetSnapshotView): BudgetSummaryRow[] {
-  if (!snapshot.includeBudgets) return [];
+export function budgetSummary(definition: PresetDefinitionView): BudgetSummaryRow[] {
+  if (!definition.includeBudgets) return [];
   const rows: BudgetSummaryRow[] = [];
   for (const path of KEY_BUDGET_PATHS) {
-    if (path in snapshot.values) {
-      const value = snapshot.values[path];
+    if (path in definition.values) {
+      const value = definition.values[path];
       if (value !== null) rows.push({ path, value });
     }
   }

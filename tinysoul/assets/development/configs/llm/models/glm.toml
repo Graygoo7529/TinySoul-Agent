@@ -1,5 +1,5 @@
-[llm.models.glm_5_1]
-family = "glm"
+[llm.models.glm-latest]
+family = "GLM"
 collapsed = false
 adapter = "glm"
 providers = [
@@ -14,6 +14,6 @@ capabilities = [
   "reasoning_output",
 ]
 
-[llm.models.glm_5_1.adapter_options]
+[llm.models.glm-latest.adapter_options]
 reasoning_keep = "content"
 thinking = "enabled"

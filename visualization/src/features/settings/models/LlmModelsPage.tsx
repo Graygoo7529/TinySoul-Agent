@@ -10,7 +10,7 @@ import { SettingsDisclosure } from "../SettingsDisclosure";
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowRightLeft, Copy, Pencil, Trash2, X } from "lucide-react";
+import { AlertTriangle, ArrowRightLeft, Pencil, Trash2, X } from "lucide-react";
 
 import type { JsonValue } from "../../../api/v2/types";
 import { Badge } from "../../../components/ui/Badge";
@@ -31,6 +31,7 @@ import {
   fieldLockReason,
   modelReferences,
   moveItem,
+  objectIdError,
   objectDeletable,
   projectCollection,
   stringField,
@@ -54,7 +55,6 @@ import {
 } from "./controls";
 import { MODEL_CAPABILITIES } from "./capabilities";
 import {
-  CreateObjectModal,
   DeleteObjectModal,
   ObjectEditorLayout,
   RenameObjectModal,
@@ -97,15 +97,14 @@ export function LlmModelsPage() {
   const createSourceAvailable =
     createSource !== "" &&
     (state.saved?.sources.some(
-      (source) => source.id === createSource && source.writable,
-    ) ??
-      false);
+      (source) => source.kind === "project_toml" && source.writable,
+    ) ?? false);
 
   const [selected, setSelected] = useState<string | null>(null);
   const [showCollapsed, setShowCollapsed] = useState(false);
   const [query, setQuery] = useState("");
+  const [familyFilter, setFamilyFilter] = useState("all");
   const [creating, setCreating] = useState(false);
-  const [template, setTemplate] = useState("");
   const [renaming, setRenaming] = useState<ProjectedObject | null>(null);
   const [deleting, setDeleting] = useState<ProjectedObject | null>(null);
 
@@ -122,17 +121,21 @@ export function LlmModelsPage() {
   }, [focusPath]);
   useEffect(() => {
     if (selected === null || !objects.some((item) => item.id === selected)) {
-      setSelected(objects[0]?.id ?? null);
+      setSelected(
+        objects.find((item) => item.value.collapsed !== true)?.id ?? objects[0]?.id ?? null,
+      );
     }
   }, [objects, selected]);
 
   const current = objects.find((item) => item.id === selected) ?? null;
-  const currentCustom = isCustomObject(current, createSource);
-  const currentDeletable = objectDeletable(current, deletePolicy, createSource);
+  const currentDeletable = objectDeletable(current, deletePolicy);
+  const families = [...new Set(objects.map((item) => stringField(item.value, "family")).filter(Boolean))].sort();
 
   const needle = query.trim().toLowerCase();
   const visible = objects.filter((item) => {
-    if (needle !== "") return item.id.toLowerCase().includes(needle);
+    const family = stringField(item.value, "family");
+    if (familyFilter !== "all" && family !== familyFilter) return false;
+    if (needle !== "") return `${item.id} ${family}`.toLowerCase().includes(needle);
     if (item.id === selected) return true;
     return showCollapsed || item.value.collapsed !== true;
   });
@@ -166,14 +169,13 @@ export function LlmModelsPage() {
         selected={selected}
         onSelect={setSelected}
         onAdd={() => {
-          setTemplate("");
           setCreating(true);
         }}
         addDisabled={!createSourceAvailable}
         addTitle={
           createSourceAvailable
             ? "New model"
-            : "The custom models include file is missing or read-only"
+            : "The model source declared by the catalog is missing or read-only"
         }
         searchable={false}
         listHeader={
@@ -185,6 +187,18 @@ export function LlmModelsPage() {
               onChange={(event) => setQuery(event.target.value)}
               className={`${inputClass} h-7 text-[11px]`}
             />
+            <div className="flex flex-wrap gap-1">
+              {["all", ...families].map((family) => (
+                <button
+                  key={family}
+                  type="button"
+                  className={`rounded-full border px-2 py-0.5 text-[10px] ${familyFilter === family ? "border-accent bg-accent-soft text-accent" : "border-line text-fg-muted hover:bg-hover"}`}
+                  onClick={() => setFamilyFilter(family)}
+                >
+                  {family === "all" ? settingsText("All families") : family}
+                </button>
+              ))}
+            </div>
             <label className="flex items-center gap-1.5 text-[10px] text-fg-muted">
               <input
                 type="checkbox"
@@ -199,9 +213,6 @@ export function LlmModelsPage() {
             <>
               {current.isNew && <Badge tone="accent">草稿新增</Badge>}
               {!current.isNew && current.dirty && <Badge tone="accent">已修改</Badge>}
-              <Badge tone={currentCustom ? "accent" : "gray"}>
-                {settingsText(currentCustom ? "Custom" : "Built-in")}
-              </Badge>
               {current.value.collapsed === true && <Badge tone="gray">已折叠</Badge>}
             </>
           )
@@ -212,21 +223,11 @@ export function LlmModelsPage() {
               <Button
                 size="xs"
                 variant="outline"
-                disabled={!createSourceAvailable}
-                onClick={() => {
-                  setTemplate(current.id);
-                  setCreating(true);
-                }}
-              >
-                <Copy size={13} />{settingsText("Duplicate")}</Button>
-              <Button
-                size="xs"
-                variant="outline"
                 disabled={!currentDeletable}
                 title={
                   currentDeletable
                     ? "Rename this model"
-                    : "Built-in models cannot be renamed; duplicate it to create a custom variant"
+                    : "This model cannot be renamed from its current source"
                 }
                 onClick={() => setRenaming(current)}
               >
@@ -238,7 +239,7 @@ export function LlmModelsPage() {
                 title={
                   currentDeletable
                     ? "Delete this model"
-                    : "Only models owned by the custom models file can be deleted"
+                    : "This model cannot be deleted from its current source"
                 }
                 onClick={() => setDeleting(current)}
               >
@@ -252,47 +253,51 @@ export function LlmModelsPage() {
             object={current}
             providers={providers}
             createSource={createSource}
-            custom={currentCustom}
           />
         )}
       </ObjectEditorLayout>
 
-      <CreateObjectModal
-        title={template === "" ? "New model" : `Duplicate model ${template}`}
-        idTitle={settingsText("Model ID")}
-        idDescription="Stable identifier referenced by task chains; dots, outer whitespace and numeric-only ids are not allowed."
-        existing={objects.map((item) => item.id)}
+      <NewModelModal
         open={creating}
         onClose={() => setCreating(false)}
-        valid={createSourceAvailable}
-        validHint="The custom models include file declared by the catalog is missing or read-only; create configs/llm/models/custom.toml first."
-        onCreate={(id) => {
-          const source = objects.find((item) => item.id === template);
-          const value = source
-            ? cloneJsonValue(source.value)
-            : blankModelValue(id, providers, collection?.createTemplate ?? {}, state.catalog);
-          stageObjectCreate(ROOT, id, value, createSource);
+        existing={objects.map((item) => item.id)}
+        families={families}
+        familySources={new Map(objects.flatMap((item) => {
+          const family = stringField(item.value, "family");
+          const source = item.ownerSources.find((id) => state.saved?.sources.find((candidate) => candidate.id === id)?.writable);
+          return family !== "" && source !== undefined ? [[family, source] as const] : [];
+        }))}
+        providers={providers}
+        sourceIds={(state.saved?.sources ?? []).map((source) => source.id)}
+        defaultSource={createSource}
+        template={collection?.createTemplate ?? {}}
+        catalog={state.catalog}
+        onCreate={(id, value, sourceId, createSourceId) => {
+          const draft = useConfigDraftStore.getState();
+          if (createSourceId !== null) {
+            draft.createSource(createSourceId);
+            const include = state.saved?.fields["config.include"]?.value;
+            const includes = Array.isArray(include)
+              ? include.filter((item): item is string => typeof item === "string")
+              : [];
+            const relative = createSourceId.replace(/^project:/, "");
+            const covered = includes.some((item) =>
+              item.includes("*") && relative.startsWith(item.split("*")[0] ?? ""),
+            );
+            if (!covered) {
+              const main = state.saved?.sources.find(
+                (source) => source.id === "project:tinysoul.toml" && source.writable,
+              );
+              if (main !== undefined) {
+                draft.setValue(main.id, "config.include", [...includes, relative]);
+              }
+            }
+          }
+          stageObjectCreate(ROOT, id, value, sourceId);
           setSelected(id);
           setCreating(false);
         }}
-      >
-        <label className="block">
-          <span className="mb-1.5 block text-[11px] font-medium text-fg-muted">{settingsText("Model template")}</span>
-          <select
-            aria-label="Model template"
-            value={template}
-            onChange={(event) => setTemplate(event.target.value)}
-            className={selectClass}
-          >
-            <option value="">空白模型</option>
-            {objects.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.id}
-              </option>
-            ))}
-          </select>
-        </label>
-      </CreateObjectModal>
+      />
 
       <RenameObjectModal
         title="Rename model"
@@ -335,17 +340,6 @@ export function LlmModelsPage() {
   );
 }
 
-function isCustomObject(
-  object: ProjectedObject | null,
-  createSource: string,
-): boolean {
-  if (object === null) return false;
-  return (
-    object.isNew ||
-    (object.ownerSources.length === 1 && object.ownerSources[0] === createSource)
-  );
-}
-
 function modelSummary(object: ProjectedObject): string {
   const adapter = stringField(object.value, "adapter");
   const bindings = Array.isArray(object.value.providers) ? object.value.providers : [];
@@ -357,23 +351,120 @@ function modelSummary(object: ProjectedObject): string {
   return adapter === "" ? chain : `${adapter} · ${chain}`;
 }
 
+function NewModelModal({
+  open,
+  onClose,
+  existing,
+  families,
+  familySources,
+  providers,
+  sourceIds,
+  defaultSource,
+  template,
+  catalog,
+  onCreate,
+}: {
+  open: boolean;
+  onClose: () => void;
+  existing: string[];
+  families: string[];
+  familySources: Map<string, string>;
+  providers: ProjectedObject[];
+  sourceIds: string[];
+  defaultSource: string;
+  template: Record<string, JsonValue>;
+  catalog: SettingsCatalog | null;
+  onCreate: (id: string, value: Record<string, JsonValue>, sourceId: string, createdSourceId: string | null) => void;
+}) {
+  const [id, setId] = useState("");
+  const [family, setFamily] = useState("");
+  const [newFamily, setNewFamily] = useState("");
+  const [newFamilyFile, setNewFamilyFile] = useState("");
+  const [adapter, setAdapter] = useState("openai_compatible_chat");
+  const [providerId, setProviderId] = useState(providers[0]?.id ?? "");
+  const [providerModel, setProviderModel] = useState("");
+  useEffect(() => {
+    if (open) return;
+    setId(""); setFamily(""); setNewFamily(""); setNewFamilyFile(""); setProviderModel("");
+  }, [open]);
+  useEffect(() => {
+    const provider = providers.find((item) => item.id === providerId) ?? providers[0];
+    if (provider === undefined) return;
+    if (provider.id !== providerId) setProviderId(provider.id);
+    const supported = stringListField(provider.value, "adapters");
+    if (!supported.includes(adapter)) setAdapter(supported[0] ?? "");
+  }, [providers, providerId, adapter]);
+  if (!open) return null;
+  const chosenFamily = family === "__new__" ? newFamily.trim() : family;
+  const idError = objectIdError(id);
+  const familyError = chosenFamily === "" ? "Choose an existing family or enter a new one." : null;
+  const provider = providers.find((item) => item.id === providerId);
+  const adapters = stringListField(provider?.value ?? {}, "adapters");
+  const adapterChoices = (matchField(catalog, "llm.models.*.adapter")?.choices ?? []).map((choice) => ({
+    value: choice.value,
+    label: choice.label,
+    disabled: !adapters.includes(choice.value),
+  }));
+  const familyFile = newFamilyFile.trim() || familySlug(chosenFamily);
+  const familyFileError = family === "__new__" && !/^[a-z0-9][a-z0-9-]*$/.test(familyFile)
+    ? "Use a lowercase TOML file name such as qwen or qwen-vision."
+    : null;
+  const sourceForFamily = family === "__new__"
+    ? `project:configs/llm/models/${familyFile}.toml`
+    : familySources.get(chosenFamily) ?? defaultSource;
+  const createsSource = family === "__new__" && !sourceIds.includes(sourceForFamily);
+  const sourceCollision = family === "__new__" && sourceIds.includes(sourceForFamily);
+  const valid = id !== "" && idError === null && !existing.includes(id) && familyError === null &&
+    providerId !== "" && providerModel.trim() !== "" && adapter !== "" && !sourceCollision && familyFileError === null;
+  return (
+    <Modal title="New model" onClose={onClose}>
+      <div className="space-y-3">
+        <TextInput ariaLabel="Model ID" value={id} onCommit={setId} placeholder="gpt-latest" mono />
+        {idError !== null && <div className="text-[10px] text-danger">{idError}</div>}
+        <SelectInput ariaLabel="Family" value={family} options={[{ value: "", label: "Choose existing family" }, ...families.map((item) => ({ value: item, label: item })), { value: "__new__", label: "New family?" }]} onChange={setFamily} />
+        {family === "__new__" && <TextInput ariaLabel="New family" value={newFamily} onCommit={setNewFamily} placeholder="Qwen" />}
+        {family === "__new__" && <TextInput ariaLabel="Family TOML file" value={newFamilyFile} onCommit={setNewFamilyFile} placeholder="qwen" mono />}
+        {familyFileError !== null && <div className="text-[10px] text-danger">{familyFileError}</div>}
+        {sourceCollision && <div className="text-[10px] text-danger">A family TOML file with this name already exists; choose another file name.</div>}
+        {familyError !== null && <div className="text-[10px] text-danger">{familyError}</div>}
+        <SelectInput ariaLabel="Adapter" value={adapter} options={adapterChoices} onChange={setAdapter} />
+        <SelectInput ariaLabel="Provider" value={providerId} options={providers.map((item) => ({ value: item.id, label: item.id }))} onChange={setProviderId} />
+        <TextInput ariaLabel="Provider model" value={providerModel} onCommit={setProviderModel} placeholder="Remote model name" mono />
+        <div className="text-[11px] text-fg-faint">
+          {createsSource ? `New family source: ${sourceForFamily}` : `Model source: ${sourceForFamily}`}
+        </div>
+        <div className="flex justify-end gap-2 border-t border-line pt-3">
+          <Button size="xs" variant="ghost" onClick={onClose}>{settingsText("Cancel")}</Button>
+          <Button size="xs" variant="primary" disabled={!valid} onClick={() => {
+            const value = blankModelValue(adapter, providerId, template, catalog);
+            value.family = chosenFamily;
+            value.adapter = adapter;
+            value.providers = [{ provider: providerId, provider_model: providerModel.trim() }];
+            onCreate(id, value, sourceForFamily, createsSource ? sourceForFamily : null);
+          }}>Create</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function familySlug(family: string): string {
+  const slug = family.trim().toLocaleLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return slug === "" ? "family" : slug;
+}
+
 /** The starting value of a blank model created in the draft. */
 function blankModelValue(
-  id: string,
-  providers: ProjectedObject[],
+  adapter: string,
+  providerId: string,
   template: Record<string, JsonValue>,
   catalog: SettingsCatalog | null,
 ): Record<string, JsonValue> {
-  const firstProvider = providers[0];
-  const providerAdapters = firstProvider
-    ? stringListField(firstProvider.value, "adapters")
-    : [];
-  const adapter = providerAdapters[0] ?? "openai_compatible_chat";
   const value: Record<string, JsonValue> = {
     ...cloneJsonValue(template),
     adapter,
     providers: [
-      { provider: firstProvider?.id ?? "", provider_model: id },
+      { provider: providerId, provider_model: "" },
     ],
   };
   const rule = adapterRule(catalog, adapter);
@@ -392,12 +483,10 @@ function ModelEditor({
   object,
   providers,
   createSource,
-  custom,
 }: {
   object: ProjectedObject;
   providers: ProjectedObject[];
   createSource: string;
-  custom: boolean;
 }) {
   const state = useConfigDraftStore();
   const catalog = state.catalog;
@@ -430,7 +519,7 @@ function ModelEditor({
       disabled: !providerAdapters.has(choice.value),
     }),
   );
-  const adapterLocked = adapterField.lock !== null || !custom;
+  const adapterLocked = adapterField.lock !== null;
 
   const onAdapterSelect = (next: string) => {
     if (next === adapter) return;
@@ -456,9 +545,7 @@ function ModelEditor({
           title={adapterField.meta?.title ?? "Adapter"}
           description={
             adapterField.lock ??
-            (!custom
-              ? "Built-in model adapters are fixed. Duplicate the model to use a different adapter."
-              : adapterField.meta?.description)
+            adapterField.meta?.description
           }
           dirty={adapterField.dirty}
         >
@@ -618,7 +705,7 @@ function activateAdapter(
         provider_model:
           typeof existing?.provider_model === "string"
             ? existing.provider_model
-            : object.id,
+            : "",
       },
     ],
     createSource,
@@ -682,7 +769,7 @@ function ProviderChainSection({
     if (provider === undefined) return;
     commit([
       ...rows,
-      { provider: provider.id, provider_model: rows[0]?.provider_model ?? object.id },
+      { provider: provider.id, provider_model: "" },
     ]);
   };
 
@@ -741,7 +828,6 @@ function ProviderChainSection({
               disabled={lock !== null}
               onCommit={(value) => {
                 const trimmed = value.trim();
-                if (trimmed === "") return;
                 commit(
                   rows.map((item, itemIndex) =>
                     itemIndex === index

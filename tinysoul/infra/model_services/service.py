@@ -241,7 +241,7 @@ class ModelServices:
         observer: ModelObserver | None = None,
     ) -> DecisionResult:
         model, routes = self.settings.resolve(
-            use, ModelCapability.STRUCTURED_DECISION, self._env
+            use, ModelCapability.DECISION, self._env
         )
         last: ModelServiceError | None = None
         call_id = uuid4().hex

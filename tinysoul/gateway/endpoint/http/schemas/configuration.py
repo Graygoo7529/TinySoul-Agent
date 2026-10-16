@@ -27,8 +27,17 @@ class ConfigDeleteMutationRequest(BaseModel):
     op: Literal["delete"]
 
 
+class ConfigCreateSourceMutationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_id: str = Field(min_length=1)
+    op: Literal["create_source"]
+
+
 ConfigMutationRequest = Annotated[
-    ConfigSetMutationRequest | ConfigDeleteMutationRequest,
+    ConfigSetMutationRequest
+    | ConfigDeleteMutationRequest
+    | ConfigCreateSourceMutationRequest,
     Field(discriminator="op"),
 ]
 
