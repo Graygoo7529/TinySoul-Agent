@@ -6,9 +6,22 @@ description = "Read a known persistent Memory document in pages, or enumerate it
 schema = { type = "object", properties = { ref = { type = "string", minLength = 1 }, view = { type = "string", enum = ["content", "direct_refs"] }, continuation = { type = "string" }, max_chars = { type = "integer", minimum = 1024 } }, required = ["ref"], additionalProperties = false }
 
 [semantic]
-use_when = ["An exact Memory reference should be opened"]
-avoid_when = ["Changing resource content"]
+use_when = [
+    "Read content of a known Memory document",
+    "Inspect memory:daily/YYYY-MM-DD, memory:entity/name, etc.",
+    "Follow memory: references found in search or context"
+]
+avoid_when = [
+    "Memory document is not known; use memory.search first",
+    "Current Memory.md is sufficient (visible in Context)",
+    "Should inspect workspace or home resources instead"
+]
 effects = ["read_only"]
+examples = [
+    "Inspect memory:entity/tinysoul",
+    "Inspect memory:daily/2026-10-13",
+    "Inspect memory:concept/agent-design"
+]
 
 [runtime]
 timeout_seconds = 600

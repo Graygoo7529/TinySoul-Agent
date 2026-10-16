@@ -6,10 +6,22 @@ description = "Patch today's explicit memory:current. Preserve useful canonical 
 schema = { type = "object", properties = { operations = { type = "array", items = { type = "object", properties = { kind = { type = "string", enum = ["append", "replace", "remove", "clear"] }, text = { type = "string" }, old_text = { type = "string" }, new_text = { type = "string" } }, required = ["kind"], additionalProperties = false } } }, required = ["operations"], additionalProperties = false }
 
 [semantic]
-use_when = ["A preference, decision, open thread, or useful Memory reference should remain explicit across later turns today", "The user explicitly asks to remember or forget something"]
-avoid_when = ["Creating or changing daily/entity/concept/fact/note persistent documents", "The information is already represented clearly in current memory"]
+use_when = [
+    "A preference, decision, open thread, or useful Memory ref should persist across Turns today",
+    "User explicitly asks to remember or forget something temporary",
+    "Preserve canonical memory: refs that Context already shows for later recall"
+]
+avoid_when = [
+    "Creating or changing persistent Memory documents (daily/entity/concept/fact/note); that's Memory Reflection only",
+    "Information is already clear in current Memory.md",
+    "Should record as milestone instead (task-specific, not cross-Turn)"
+]
 effects = ["modifying"]
-examples = ["Append a durable decision and include <memory:concept/agent-design> when that known reference is relevant", "Remove a completed temporary reminder"]
+examples = [
+    "Append today's decision: 'Use FastAPI for new API' with reference memory:concept/api-design",
+    "Remove completed reminder from current Memory",
+    "Preserve useful memory:entity/project-x reference for later Turns"
+]
 
 [runtime]
 parallel_policy = "serial"

@@ -6,9 +6,22 @@ description = "Compose registered query, backlinks, directory, refs, result, fil
 schema = { type = "object", properties = { source = { type = "object" }, steps = { type = "array" }, exclude_refs = { type = "array", items = { type = "string" } }, page = { type = "object" } }, required = ["source"], additionalProperties = false }
 
 [semantic]
-use_when = ["Relevant Home agent or Skill resources should be discovered"]
-avoid_when = ["Changing resource content"]
+use_when = [
+    "Discover relevant Home agent or Skill resources",
+    "Find Home knowledge not yet exposed in Context",
+    "Search for topics across Home skills"
+]
+avoid_when = [
+    "Exact home:top/path reference is already known; use home.inspect",
+    "Should use load_background for top-level content instead",
+    "Searching workspace or memory; use those domains"
+]
 effects = ["read_only"]
+examples = [
+    "Search Home for skills about 'context usage'",
+    "Find Home resources referencing home:top/agent/identity/soul",
+    "Discover agent guidance on 'working principles'"
+]
 
 [runtime]
 timeout_seconds = 600

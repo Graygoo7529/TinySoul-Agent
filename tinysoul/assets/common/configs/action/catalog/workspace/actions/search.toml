@@ -22,9 +22,24 @@ type = "object"
 type = "string"
 
 [semantic]
-use_when = ["Discover Workspace resources with literal/regex query, directory, or real backlinks", "Select or rerank real candidate content using a criterion and optional Context"]
-avoid_when = ["Read a known exact text range without candidate operations; use workspace.read"]
+use_when = [
+    "Discover resources by content pattern (literal text or regex)",
+    "Find incoming Markdown references to a resource (backlinks)",
+    "Explore directory structure with semantic discovery",
+    "Locate resources before deeper reading or mutation"
+]
+avoid_when = [
+    "The exact reference is already known; use workspace.inspect",
+    "Need to change resource content; search then mutate",
+    "Pattern is too broad; narrow the scope first"
+]
 effects = ["read_only"]
+examples = [
+    "Search workspace for 'TODO' items",
+    "Find backlinks to workspace:docs/api.md",
+    "Discover Python files about 'authentication' in workspace:src",
+    "List all Markdown files in workspace"
+]
 examples = ["Search the workspace:tinysoul/workspace/ directory for WorkspaceContractError"]
 
 [runtime]

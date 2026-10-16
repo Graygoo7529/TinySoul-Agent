@@ -32,8 +32,22 @@ type = "string"
 description = "Optional existing Workspace directory; omit to use the Job's default directory."
 
 [semantic]
-use_when = ["A bounded deterministic shell command or known script should finish in the current Action"]
+use_when = [
+    "A bounded shell command or script should finish within the action timeout",
+    "Deterministic local processing with known completion time",
+    "Quick scripts that don't need Job supervision"
+]
+avoid_when = [
+    "Command might take longer than action timeout; use execution.start",
+    "Interactive input is needed during execution",
+    "Process is already running as a Job"
+]
 effects = ["modifying"]
+examples = [
+    "Run ls command to list workspace files",
+    "Execute python script with known quick completion",
+    "Run bash command 'grep pattern file.txt'"
+]
 
 [runtime]
 parallel_policy = "serial"

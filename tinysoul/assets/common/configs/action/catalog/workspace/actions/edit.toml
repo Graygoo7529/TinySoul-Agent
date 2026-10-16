@@ -31,7 +31,21 @@ type = "string"
 type = "string"
 
 [semantic]
+use_when = [
+    "Apply precise text replacements to an existing file",
+    "Multiple exact string replacements in one atomic operation",
+    "Preserve most of the file while changing specific parts"
+]
+avoid_when = [
+    "Creating a new file; use workspace.write",
+    "Old_text doesn't occur exactly once in the file",
+    "Need to generate new content; consider workspace.compose"
+]
 effects = ["modifying"]
+examples = [
+    "Replace 'old_function_name' with 'new_function_name' in workspace:src/main.py",
+    "Apply multiple edits atomically to workspace:config.yaml"
+]
 
 [runtime]
 parallel_policy = "serial"

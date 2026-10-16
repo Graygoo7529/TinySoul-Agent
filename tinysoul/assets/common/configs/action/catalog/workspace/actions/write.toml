@@ -21,7 +21,21 @@ type = "string"
 type = "boolean"
 
 [semantic]
+use_when = [
+    "Create a new file with complete UTF-8 content",
+    "Overwrite an existing file completely (with overwrite=true)",
+    "Write generated or composed content to workspace"
+]
+avoid_when = [
+    "File already exists and should be preserved; use workspace.edit",
+    "Only appending content; use workspace.append",
+    "Content needs LLM generation; use workspace.compose"
+]
 effects = ["modifying"]
+examples = [
+    "Write complete content to workspace:output/result.md",
+    "Overwrite workspace:config.json with new configuration (overwrite=true)"
+]
 
 [runtime]
 parallel_policy = "serial"

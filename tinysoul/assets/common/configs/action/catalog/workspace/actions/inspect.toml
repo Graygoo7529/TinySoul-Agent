@@ -23,10 +23,24 @@ minimum = 512
 description = "Optional page budget, capped by the Workspace read limit."
 
 [semantic]
-use_when = ["Read a known resource or follow a reference", "Continue a previous text or directory page"]
-avoid_when = ["Discover an unknown resource; use search", "Modify resource content"]
+use_when = [
+    "Read a known Workspace reference returned by search or another action",
+    "Follow a workspace: reference with optional line range or heading",
+    "Continue a previous text or directory page with continuation",
+    "List direct children of a known directory"
+]
+avoid_when = [
+    "Discovering unknown resources; use workspace.search",
+    "Modifying resource content; use write/edit/append",
+    "Need deeper analysis; consider workspace.analyze"
+]
 effects = ["read_only"]
-examples = ["Inspect workspace:notes/plan.md#next-steps"]
+examples = [
+    "Inspect workspace:notes/plan.md to read the file",
+    "Inspect workspace:notes/plan.md#L10-L50 to read specific lines",
+    "Inspect workspace:src to list direct children of the directory",
+    "Continue reading with the returned continuation token"
+]
 
 [runtime]
 parallel_policy = "serial"

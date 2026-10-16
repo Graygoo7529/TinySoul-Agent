@@ -6,9 +6,21 @@ description = "Read a known Home top or resource with content-bound pagination, 
 schema = { type = "object", properties = { ref = { type = "string", minLength = 1 }, view = { type = "string", enum = ["content", "direct_refs"] }, continuation = { type = "string" }, max_chars = { type = "integer", minimum = 1024 } }, required = ["ref"], additionalProperties = false }
 
 [semantic]
-use_when = ["A known Home reference needs deterministic disclosure"]
-avoid_when = ["Changing resource content"]
+use_when = [
+    "Read a known Home resource progressively",
+    "Inspect home:resource/path or home:top/path references",
+    "Continue reading with continuation from previous inspect"
+]
+avoid_when = [
+    "Top-level content should be loaded into Background; use load_background",
+    "Home resource is not known; use home.search first",
+    "Should inspect workspace or memory instead"
+]
 effects = ["read_only"]
+examples = [
+    "Inspect home:resource/skills/tinysoul-docs/references/guide.md",
+    "Continue reading Home resource with continuation token"
+]
 
 [runtime]
 timeout_seconds = 600

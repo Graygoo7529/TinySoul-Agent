@@ -6,9 +6,22 @@ description = "Compose registered query, backlinks, directory, refs, result, fil
 schema = { type = "object", properties = { source = { type = "object" }, steps = { type = "array" }, exclude_refs = { type = "array", items = { type = "string" } }, page = { type = "object" } }, required = ["source"], additionalProperties = false }
 
 [semantic]
-use_when = ["Persistent Memory evidence or relevant document refs should be discovered"]
-avoid_when = ["Changing resource content"]
+use_when = [
+    "Need to discover persistent Memory documents (daily/entity/concept/fact/note)",
+    "Search for patterns across Memory knowledge base",
+    "Find backlinks or related Memory documents"
+]
+avoid_when = [
+    "Exact memory:entity/name reference is already known; use memory.inspect",
+    "Current Memory.md is sufficient; memory.search is for persistent docs",
+    "Should search workspace or session instead"
+]
 effects = ["read_only"]
+examples = [
+    "Search Memory for entity 'TinySoul'",
+    "Find Memory documents referencing memory:concept/context-model",
+    "Discover facts about 'agent architecture'"
+]
 
 [runtime]
 timeout_seconds = 600

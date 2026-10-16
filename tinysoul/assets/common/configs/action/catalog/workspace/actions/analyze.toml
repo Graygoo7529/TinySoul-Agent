@@ -22,9 +22,21 @@ type = "string"
 description = "Exact Workspace text resource reference."
 
 [semantic]
-use_when = ["Phase2 has selected exact Workspace text Links that should be analyzed into one grounded result", "A fixed intent and bounded answer are sufficient"]
-avoid_when = ["Relevant files are not yet known", "A literal occurrence should first be located", "A selected file exceeds analysis budgets", "The Workspace should be modified"]
+use_when = [
+    "Need LLM to analyze specific workspace references and answer a bounded question",
+    "Synthesize information from multiple workspace files",
+    "Extract structured information from workspace content"
+]
+avoid_when = [
+    "References are not known; use workspace.search first",
+    "Only need to read content; use workspace.inspect",
+    "Analysis would exceed reference budget; narrow scope or use search"
+]
 effects = ["read_only"]
+examples = [
+    "Analyze test and source files with intent 'What test cases are missing?'",
+    "Extract API endpoints from workspace:src/routes.py"
+]
 examples = ["Analyze selected Action and Context implementation files for result lifecycle behavior"]
 
 [runtime]
