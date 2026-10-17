@@ -11,6 +11,7 @@ from tinysoul.runtime import ObservationLevel
 
 from tinysoul.infra.json import JsonObject
 from tinysoul.gateway.endpoint.runtime_bridge import RuntimeEndpointBridge
+from tinysoul.gateway.presentation import PresentationService
 
 from .config import EndpointSettings
 from .engine import EndpointEngine, EndpointLifecycle
@@ -119,6 +120,7 @@ class EndpointHost:
                 gateway=runtime.gateway,
                 services=runtime.service_access,
                 config=runtime.configuration,
+                presentation=PresentationService(runtime.project_root),
                 available=self._is_available,
             )
             self._route = ObservationRoute(

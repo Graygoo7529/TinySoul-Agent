@@ -11,6 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from tinysoul.gateway.presentation import InterfaceDensity, MonoFont, SansFont, ThemeMode
 from tinysoul.infra.json import JsonObject, JsonValue
 
 
@@ -20,6 +21,34 @@ class ContractResponse(BaseModel):
 
 class HealthResponse(ContractResponse):
     ok: bool
+
+
+class InterfaceSettingsResponse(ContractResponse):
+    theme: ThemeMode
+    font_sans: SansFont
+    font_mono: MonoFont
+    font_size: int
+    line_height: float
+    density: InterfaceDensity
+    reduced_motion: bool
+
+
+class PresentationConfigResponse(ContractResponse):
+    id: Literal["interface"]
+    path: str
+    exists: bool
+    values: InterfaceSettingsResponse
+    defaults: InterfaceSettingsResponse
+
+
+class PresentationAssetResponse(ContractResponse):
+    path: str
+    media_type: str
+    size: int
+
+
+class PresentationAssetsResponse(ContractResponse):
+    items: list[PresentationAssetResponse]
 
 
 class CommandReceiptResponse(ContractResponse):

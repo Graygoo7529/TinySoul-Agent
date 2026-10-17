@@ -276,7 +276,7 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     id: "interface",
     group: "interface",
     title: "Interface",
-    description: "Theme, typography and density — local, applied immediately.",
+    description: "Shared project theme, typography, density and presentation assets.",
   },
 };
 

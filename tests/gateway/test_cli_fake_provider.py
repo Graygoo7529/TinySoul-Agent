@@ -111,6 +111,10 @@ async def test_cli_host_survives_http_restart_failure_and_uses_current_commands(
                 assert refused.status_code == 409
                 assert refused.json()["error"]["code"] == "service.unavailable"
                 assert (await client.get("/v2/config")).status_code == 409
+                saved_interface = await client.patch(
+                    "/v2/presentation/configs/interface", json={"changes": {"theme": "dark"}}
+                )
+                assert saved_interface.status_code == 200
                 assert (await client.get("/v2/health")).status_code == 200
                 second = asyncio.create_task(client.post("/v2/restart"))
                 await asyncio.wait_for(second_entered.wait(), 5)
@@ -131,6 +135,8 @@ async def test_cli_host_survives_http_restart_failure_and_uses_current_commands(
                 after["runtime"]["generation_id"] != before["runtime"]["generation_id"]
             )
             assert after["instance_id"] == before["instance_id"]
+            shared_interface = (await client.get("/v2/presentation/configs/interface")).json()
+            assert shared_interface["values"]["theme"] == "dark"
             assert host.engine is engine and len(handshakes) == 1
             assert not application.done()
             with pytest.raises(AgentClosedError):

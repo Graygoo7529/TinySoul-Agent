@@ -56,6 +56,7 @@ from tinysoul.gateway.project.initializer import (
     ProjectInitializer,
 )
 from tinysoul.infra.config import ConfigEnvironment
+from tinysoul.gateway.presentation import PresentationService
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.llm.protocol.messages import MessageStack, TextPart
 from tinysoul.llm.execution.observation_payloads import (
@@ -198,7 +199,7 @@ class ScriptedLLM:
             if ASK_TRIGGER in text:
                 controls = (
                     ToolCallRecord("select", "select_action_domains", {"domains": ["core", "workspace"], "intent": "Inspect the working copy before asking for a choice."}, ToolKind.CONTROL),
-                    ToolCallRecord("load", "load_background", {"links": ["home:skills@review"]}, ToolKind.CONTROL),
+                    ToolCallRecord("load", "load_background", {"links": ["home:top/skills/review"]}, ToolKind.CONTROL),
                     ToolCallRecord("todo", "set_todo", {"key": "review", "content": "Verify the working copy", "status": "pending"}, ToolKind.CONTROL),
                     ToolCallRecord("milestone", "set_milestone", {"key": "baseline", "content": "The baseline review is in progress"}, ToolKind.CONTROL),
                 )
@@ -301,7 +302,7 @@ async def _serve(args: argparse.Namespace) -> int:
     )
     await agent.start()
     await agent.services.get(HomeService).write_top(
-        "home:skills@review",
+        "home:top/skills/review",
         "---\ntitle: Review baseline\ndescription: Inspect baseline behavior.\n---\n\n"
         "# Review baseline\n\nKeep the original visual rhythm and verify real owner facts.\n\n"
         + "Further reading: preserve the user’s reading position and inspect actual results.\n" * 15,
@@ -312,6 +313,7 @@ async def _serve(args: argparse.Namespace) -> int:
     )
     runtime = agent.runtime
     engine = EndpointEngine(
+        presentation=PresentationService(runtime.project_root),
         settings=settings,
         events=events,
         gateway=runtime.gateway,

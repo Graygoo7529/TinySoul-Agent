@@ -4,14 +4,7 @@ import { normalizePersistedActiveTab, useAppStore } from "./appStore";
 
 describe("appStore", () => {
   beforeEach(() => {
-    useAppStore.setState({ theme: "light", activeTab: "chat", toasts: [] });
-  });
-
-  it("toggles the theme", () => {
-    useAppStore.getState().toggleTheme();
-    expect(useAppStore.getState().theme).toBe("dark");
-    useAppStore.getState().toggleTheme();
-    expect(useAppStore.getState().theme).toBe("light");
+    useAppStore.setState({ activeTab: "chat", toasts: [] });
   });
 
   it("switches the active tab", () => {

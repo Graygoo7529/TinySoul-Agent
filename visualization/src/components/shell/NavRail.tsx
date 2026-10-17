@@ -11,6 +11,8 @@ import {
 } from "lucide-react";
 import { useAppStore } from "../../store/appStore";
 import { useConnectionStore } from "../../store/connectionStore";
+import { useUiPrefs, useUiPrefsStore } from "../../store/uiPrefsStore";
+import { setInterfacePref } from "../../features/settings/presentationController";
 import type { AppTab } from "../../types";
 
 const navItems: { tab: AppTab; label: string; icon: typeof MessageSquareText }[] = [
@@ -24,8 +26,9 @@ const navItems: { tab: AppTab; label: string; icon: typeof MessageSquareText }[]
 export function NavRail() {
   const activeTab = useAppStore((s) => s.activeTab);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
-  const theme = useAppStore((s) => s.theme);
-  const toggleTheme = useAppStore((s) => s.toggleTheme);
+  const { theme } = useUiPrefs();
+  const prefsReady = useUiPrefsStore((s) => s.phase === "ready");
+  const unreachable = useConnectionStore((s) => s.unreachable);
   const connected = useConnectionStore((s) => s.phase === "connected");
 
   return (
@@ -55,9 +58,10 @@ export function NavRail() {
       </div>
       <div className="mt-auto flex flex-col gap-1">
         <button
-          onClick={toggleTheme}
+          onClick={() => setInterfacePref("theme", theme === "dark" ? "light" : "dark")}
+          disabled={!connected || unreachable || !prefsReady}
           title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-          className="flex h-9 w-9 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-hover hover:text-fg"
+          className="flex h-9 w-9 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-35"
         >
           {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
         </button>

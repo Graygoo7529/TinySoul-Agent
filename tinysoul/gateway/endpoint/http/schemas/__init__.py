@@ -11,6 +11,7 @@ from .configuration import (
     PresetUpdateRequest,
 )
 from .reflection import ReflectionRequest
+from .presentation import PresentationPatchRequest
 from .responses import (
     ActionCatalogResponse,
     CommandReceiptResponse,
@@ -25,6 +26,8 @@ from .responses import (
     JobListResponse,
     JobOutputResponse,
     PageResponse,
+    PresentationConfigResponse,
+    PresentationAssetsResponse,
     PresetDeleteResponse,
     PresetListResponse,
     PresetResponse,
@@ -48,6 +51,9 @@ from .workspace import (
 )
 
 __all__ = [
+    "PresentationPatchRequest",
+    "PresentationConfigResponse",
+    "PresentationAssetsResponse",
     "ConfigDeleteMutationRequest",
     "ConfigApplyRequest",
     "ConfigMutationRequest",

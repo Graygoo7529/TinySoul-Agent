@@ -124,7 +124,7 @@ export function SettingsPage() {
             <PageContent pageId={page} />
           )}
         </div>
-        {connected && <SettingsBottomBar />}
+        {connected && page !== "interface" && <SettingsBottomBar />}
       </div>
     </div></div>
   );
@@ -142,15 +142,9 @@ function PageContent({ pageId }: { pageId: keyof typeof SETTINGS_PAGES }) {
     </div>
   );
 
-  // Interface preferences are client-local; they render without a connection
-  // and never read the configuration store.
+  // Project presentation has its own loading and save flow, independent of Agent activation.
   if (pageId === "interface") {
-    return (
-      <>
-        {banners}
-        <InterfacePage />
-      </>
-    );
+    return <InterfacePage />;
   }
   const PageComponent = PAGE_COMPONENTS[pageId];
   if (PageComponent === undefined) {
@@ -205,7 +199,7 @@ function SettingsHeader({ connected }: { connected: boolean }) {
           {settingsDescription(def)}
         </div>
       </div>
-      {connected && (
+      {connected && page !== "interface" && (
         <div className="ml-auto flex items-center gap-2">
           {blocker !== null && (
             <span

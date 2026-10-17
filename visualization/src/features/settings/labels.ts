@@ -26,7 +26,7 @@ const PAGE_LABELS: Record<SettingsPageId, { title: string; description: string }
   home: { title: "Home", description: "Home 根目录、读写限制和 Embedding 用途。" },
   memory: { title: "Memory", description: "活动/持久记忆限制和 Embedding 用途。" },
   system: { title: "端点与来源", description: "进程状态、配置来源和 Observation。" },
-  interface: { title: "界面", description: "主题、字体和密度；仅保存在本地并立即生效。" },
+  interface: { title: "界面", description: "保存在项目中的共享主题、字体、密度与展示资产。" },
 };
 
 const GROUP_LABELS: Record<SettingsGroupDef["id"], string> = {
@@ -50,4 +50,3 @@ export function settingsDescription(page: SettingsPageDef): string {
 export function settingsGroupTitle(group: SettingsGroupDef): string {
   return GROUP_LABELS[group.id] ?? group.title;
 }
-

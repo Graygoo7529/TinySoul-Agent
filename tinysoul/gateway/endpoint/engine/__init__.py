@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from tinysoul.gateway.presentation import PresentationService
+
 from ..config import EndpointSettings
 from ..events import EndpointEventBuffer
 from .configuration import EndpointConfigurationEngine
@@ -15,6 +17,7 @@ from .contracts import (
     EndpointServices,
 )
 from .events import EndpointEventsEngine
+from .presentation import EndpointPresentationEngine
 from .reflection import EndpointReflectionEngine
 from .resources import EndpointResourcesEngine
 from .runtime import EndpointControlKind, EndpointRuntimeEngine
@@ -32,6 +35,7 @@ class EndpointEngine:
         gateway: EndpointAgentIngress,
         services: EndpointServices,
         config: EndpointConfigController,
+        presentation: PresentationService,
         available: Callable[[], bool],
         lifecycle: EndpointLifecycle | None = None,
     ) -> None:
@@ -52,6 +56,9 @@ class EndpointEngine:
         self.configuration = EndpointConfigurationEngine(context)
         self.workspace = EndpointWorkspaceEngine(context)
         self.resources = EndpointResourcesEngine(context)
+        self.presentation = EndpointPresentationEngine(
+            presentation, max_resource_bytes=settings.max_resource_bytes
+        )
 
     def bind(
         self,

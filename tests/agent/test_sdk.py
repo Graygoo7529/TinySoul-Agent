@@ -36,6 +36,7 @@ from tinysoul.gateway.endpoint import (
     EndpointSettings,
 )
 from tinysoul.gateway.endpoint.http import create_endpoint_app
+from tinysoul.gateway.presentation import PresentationService
 from tinysoul.infra.clock import CalendarClock
 from tinysoul.infra.config import ConfigEnvironment, ConfigError, ConfigMutation
 from tinysoul.infra.json import JsonObject, to_json_object
@@ -330,6 +331,7 @@ async def _create(
         runtime = agent.runtime
         endpoints.append(
             EndpointEngine(
+                presentation=PresentationService(runtime.project_root),
                 settings=EndpointSettings(token="x" * 32),
                 events=EndpointEventBuffer(capacity=32, max_bytes=100000),
                 gateway=runtime.gateway,

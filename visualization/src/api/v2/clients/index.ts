@@ -20,8 +20,10 @@ import { SearchClient } from "./search";
 import { SessionClient } from "./session";
 import { TurnsClient } from "./turns";
 import { WorkspaceClient } from "./workspace";
+import { PresentationClient } from "./presentation";
 
 export { CapabilitiesClient } from "./capabilities";
+export { PresentationClient } from "./presentation";
 export { ConfigClient } from "./config";
 export { ContextClient } from "./context";
 export {
@@ -64,6 +66,7 @@ export type { ByteRange } from "./workspace";
 
 /** All owner clients over one shared transport. */
 export interface V2Clients {
+  presentation: PresentationClient;
   health: HealthClient;
   turns: TurnsClient;
   reflection: ReflectionClient;
@@ -82,6 +85,7 @@ export interface V2Clients {
 
 export function createV2Clients(transport: V2Transport): V2Clients {
   return {
+    presentation: new PresentationClient(transport),
     health: new HealthClient(transport),
     turns: new TurnsClient(transport),
     reflection: new ReflectionClient(transport),

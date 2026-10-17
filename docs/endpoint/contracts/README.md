@@ -5,7 +5,7 @@ visualization. They are a contract projection at the HTTP boundary; the
 runtime owner remains responsible for the full JSON value and may add owner
 fields through `additionalProperties`.
 
-The current protocol is v2. A response is scoped to the generation and, when a
+The current protocol is v2. An Agent service response is scoped to the generation and, when a
 day or Turn is present, to that lease. The frontend must keep the returned
 `generation_id`, `day`, `turn_id`, `ref`, and continuation together. Live control
 uses the separate `request_id` through `/v2/requests`; a queued request may
@@ -13,6 +13,11 @@ have no allocated Turn yet. Session history uses the formal date/sequence
 identity through `/v2/session/turns/{day}/{sequence}`. The frontend should
 discard a continuation after a generation/day change or when the server
 returns an invalid-continuation error.
+
+Presentation configuration and assets are project-scoped. They carry no
+generation/day lease and remain available while the Endpoint is running,
+including Agent generation rebinding. Their source is the project's
+`presentation/` directory, managed by the independent Gateway owner.
 
 Fixed envelopes are defined by the public Pydantic response models in
 `tinysoul/gateway/endpoint/http/schemas/responses.py`. `schemas/` exports their
@@ -28,6 +33,7 @@ OpenAPI field definitions. Owner content remains JSON-safe dynamic data.
 | Search result | `search-page.json` | `search-evidence` |
 | Job detail/output | `job.json`, `job-output.json` | `job-detail`, `job-output` |
 | Configuration and presets | `configuration.json`, `config-mutation.json`, `preset.json` | `config-views`, `config-apply`, `preset` |
+| Project presentation | `presentation-config.json`, `presentation-assets.json` | `presentation-config`, `presentation-assets` |
 | Navigation and runtime | `context-overview.json`, `resource-resolve.json`, `runtime-status.json` | `context-overview`, `memory-fragment`, `runtime-status` |
 
 `tests/gateway/endpoint/test_contracts.py::collect_contract_responses` runs the

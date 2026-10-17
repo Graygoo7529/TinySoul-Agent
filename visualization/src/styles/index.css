@@ -1341,7 +1341,7 @@ pre.cb-frame-source {
   border-color: rgba(129, 140, 248, 0.45);
 }
 
-/* ---- local interface preferences (Interface settings page) ----
+/* ---- shared project interface preferences (Interface settings page) ----
    App.tsx sets --font-sans/--font-mono/--ui-font-size/--ui-line-height/
    --ui-density on <html> from the persisted ui prefs; the fallbacks below are
    exactly the base theme, so an untouched client renders identically. */
@@ -1507,4 +1507,3 @@ body {
               0 0 0 1px rgba(var(--accent-rgb), 0.4),
               0 0 16px rgba(var(--accent-rgb), 0.15);
 }
-

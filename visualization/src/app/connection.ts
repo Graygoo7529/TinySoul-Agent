@@ -30,6 +30,7 @@ import {
   syncFromStatus,
 } from "../features/chat/turnController";
 import { presentationStore } from "../features/chat/presentationStore";
+import { refreshInterface, resetPresentation } from "../features/settings/presentationController";
 import {
   discoverLocalLease,
   isTauriShell,
@@ -110,6 +111,7 @@ export async function connect(
   cancelTimers();
   const store = useConnectionStore.getState();
   const epoch = store.beginConnect();
+  resetPresentation();
 
   const address = parseEndpointAddress(target.address);
   if (address === null) {
@@ -162,6 +164,7 @@ export async function connect(
   }
 
   lastTarget = target;
+  void refreshInterface();
   storeBrowserTarget(target);
   // A fresh connection never carries over the previous backend's
   // conversation state, drafts-in-flight or read epochs.
@@ -206,6 +209,7 @@ export function disconnect(): void {
   teardownStream();
   cancelTimers();
   useConnectionStore.getState().reset();
+  resetPresentation();
   resetTurnController();
 }
 
@@ -410,6 +414,7 @@ async function reconnectOnce(epoch: number): Promise<void> {
     return;
   }
   await syncFromStatus(epoch);
+  void refreshInterface();
   const latest = useConnectionStore.getState();
   if (latest.epoch === epoch) openStream(epoch);
 }
@@ -505,6 +510,7 @@ async function runStatusRefresh(epoch: number): Promise<void> {
 
 /** Test hook: drop all module-level timers and handles. */
 export function resetConnectionManager(): void {
+  resetPresentation();
   teardownStream();
   cancelTimers();
   injectedDeps = {};

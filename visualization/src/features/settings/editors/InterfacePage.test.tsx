@@ -1,144 +1,93 @@
 // @vitest-environment jsdom
-/**
- * Interface preferences: the page edits the persisted local prefs store, the
- * theme stays in appStore, and applyUiPrefsToDocument pushes the values onto
- * the document element that index.css consumes.
- */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it } from "vitest";
 
-import { useAppStore } from "../../../store/appStore";
+import { FakeEndpoint, jsonResponse, makeStatus, resetAppStores, wireConnectedStores } from "../../../app/testing";
+import type { InterfaceSettings, PresentationConfig } from "../../../api/v2/presentation";
 import {
-  applyUiPrefsToDocument,
-  REDUCED_MOTION_CLASS,
-  UI_PREFS_DEFAULTS,
-  useUiPrefsStore,
+  applyUiPrefsToDocument, REDUCED_MOTION_CLASS, UI_PREFS_DEFAULTS, useUiPrefsStore,
 } from "../../../store/uiPrefsStore";
+import { resetPresentation } from "../presentationController";
 import { InterfacePage } from "./InterfacePage";
+import fixture from "../../../../test/fixtures/contracts/presentation-config.json";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
-
-const prefs = () => useUiPrefsStore.getState();
-
+const route = "/v2/presentation/configs/interface";
 let container: HTMLDivElement;
 let root: Root;
-
-async function flush(): Promise<void> {
-  await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-}
+let endpoint: FakeEndpoint;
+let config: PresentationConfig;
 
 beforeEach(() => {
   localStorage.clear();
-  useUiPrefsStore.setState({ ...UI_PREFS_DEFAULTS });
-  useAppStore.setState({ theme: "light" });
+  resetPresentation();
+  resetAppStores();
+  config = structuredClone(fixture) as PresentationConfig;
+  config.values = { ...config.defaults };
+  endpoint = new FakeEndpoint();
+  endpoint.get(route, () => jsonResponse(config));
+  endpoint.on("PATCH", route, (request) => {
+    const { changes } = JSON.parse(request.bodyText!) as { changes: Partial<InterfaceSettings> };
+    config = { ...config, values: { ...config.values, ...changes } };
+    return jsonResponse(config);
+  });
+  wireConnectedStores(endpoint, makeStatus());
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
 });
 
 afterEach(async () => {
-  await act(async () => {
-    root.unmount();
-  });
+  await act(async () => root.unmount());
   container.remove();
+  resetPresentation();
+  resetAppStores();
 });
 
-describe("applyUiPrefsToDocument", () => {
-  it("sets the CSS variables and the reduced-motion class", () => {
-    const target = document.createElement("html");
-    applyUiPrefsToDocument(
-      { ...UI_PREFS_DEFAULTS, fontSize: 16, density: "compact", reducedMotion: true },
-      target,
-    );
-    expect(target.style.getPropertyValue("--ui-font-size")).toBe("16px");
-    expect(target.style.getPropertyValue("--ui-line-height")).toBe("1.5");
-    expect(target.style.getPropertyValue("--ui-density")).toBe("0.85");
-    expect(target.style.getPropertyValue("--font-sans")).toContain("Inter");
-    expect(target.classList.contains(REDUCED_MOTION_CLASS)).toBe(true);
+async function click(text: string) {
+  const button = [...container.querySelectorAll("button")].find((item) => item.textContent === text);
+  expect(button).toBeDefined();
+  await act(async () => button!.click());
+}
 
-    applyUiPrefsToDocument(
-      { ...UI_PREFS_DEFAULTS, fontMono: "cascadia" },
-      target,
-    );
-    expect(target.style.getPropertyValue("--font-mono")).toContain(
-      "Cascadia Code",
-    );
-    expect(target.classList.contains(REDUCED_MOTION_CLASS)).toBe(false);
-  });
+it("projects shared typography and motion into the document", () => {
+  const target = document.createElement("html");
+  applyUiPrefsToDocument({ ...UI_PREFS_DEFAULTS, fontSize: 16, density: "compact", reducedMotion: true }, target);
+  expect(target.style.getPropertyValue("--ui-font-size")).toBe("16px");
+  expect(target.style.getPropertyValue("--ui-density")).toBe("0.85");
+  expect(target.classList.contains(REDUCED_MOTION_CLASS)).toBe(true);
+  applyUiPrefsToDocument({ ...UI_PREFS_DEFAULTS, fontMono: "cascadia" }, target);
+  expect(target.style.getPropertyValue("--font-mono")).toContain("Cascadia Code");
+  expect(target.classList.contains(REDUCED_MOTION_CLASS)).toBe(false);
 });
 
-describe("useUiPrefsStore", () => {
-  it("clamps numeric ranges and resets to defaults", () => {
-    prefs().setPref("fontSize", 99);
-    expect(prefs().fontSize).toBe(18);
-    prefs().setPref("lineHeight", 0.1);
-    expect(prefs().lineHeight).toBe(1.3);
-    prefs().setPref("density", "compact");
-    prefs().resetDefaults();
-    expect(prefs().fontSize).toBe(UI_PREFS_DEFAULTS.fontSize);
-    expect(prefs().lineHeight).toBe(UI_PREFS_DEFAULTS.lineHeight);
-    expect(prefs().density).toBe("comfortable");
+it("saves theme, typography and motion through the project client and restores shared defaults", async () => {
+  await act(async () => root.render(<InterfacePage />));
+  await click("深色");
+  expect(config.values.theme).toBe("dark");
+  await click("紧凑");
+  const select = container.querySelector("select")!;
+  await act(async () => {
+    select.value = "serif";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    (container.querySelector("[role='switch']") as HTMLButtonElement).click();
   });
-
-  it("persists under tinysoul-ui-prefs", () => {
-    prefs().setPref("fontSize", 15);
-    const stored = localStorage.getItem("tinysoul-ui-prefs");
-    expect(stored).not.toBeNull();
-    expect(
-      (JSON.parse(stored!) as { state: { fontSize: number } }).state.fontSize,
-    ).toBe(15);
-  });
+  expect(config.values.font_sans).toBe("serif");
+  expect(config.values.reduced_motion).toBe(true);
+  expect(container.textContent).toContain("已保存到项目");
+  expect(localStorage.getItem("tinysoul-ui-prefs")).toBeNull();
+  expect(endpoint.calls("/v2/config/apply", "POST")).toHaveLength(0);
+  await click("恢复项目界面默认");
+  expect(config.values).toEqual(config.defaults);
+  expect(useUiPrefsStore.getState().pending).toEqual({});
 });
 
-describe("InterfacePage", () => {
-  it("edits prefs immediately and resets everything including the theme", async () => {
-    await act(async () => {
-      root.render(<InterfacePage />);
-    });
-    await flush();
-
-    // Theme stays in appStore.
-    const dark = [...container.querySelectorAll("button")].find(
-      (item) => item.textContent === "深色",
-    );
-    await act(async () => {
-      dark!.click();
-    });
-    expect(useAppStore.getState().theme).toBe("dark");
-
-    // Density segmented control.
-    const compact = [...container.querySelectorAll("button")].find(
-      (item) => item.textContent === "紧凑",
-    );
-    await act(async () => {
-      compact!.click();
-    });
-    expect(prefs().density).toBe("compact");
-
-    // Reduced motion switch.
-    const motionSwitch = container.querySelector("[role='switch']");
-    await act(async () => {
-      (motionSwitch as HTMLElement).click();
-    });
-    expect(prefs().reducedMotion).toBe(true);
-
-    // No fake toggles for prefs without consumers.
-    expect(container.textContent).not.toContain("auto-follow");
-    expect(container.textContent).not.toContain("Notification");
-
-    // Reset restores prefs and the theme.
-    const reset = [...container.querySelectorAll("button")].find((item) =>
-      item.textContent?.includes("恢复界面默认设置"),
-    );
-    await act(async () => {
-      reset!.click();
-    });
-    expect(prefs().density).toBe("comfortable");
-    expect(prefs().reducedMotion).toBe(false);
-    expect(useAppStore.getState().theme).toBe("light");
-  });
+it("keeps disconnected controls disabled and does not upload rendering defaults", async () => {
+  resetAppStores();
+  await act(async () => root.render(<InterfacePage />));
+  expect(container.querySelector("fieldset")?.disabled).toBe(true);
+  await click("深色");
+  expect(endpoint.calls(route, "PATCH")).toHaveLength(0);
+  expect(container.textContent).toContain("连接项目后");
 });

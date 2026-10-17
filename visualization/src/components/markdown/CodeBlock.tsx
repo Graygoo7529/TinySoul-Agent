@@ -1,5 +1,5 @@
 import { useMemo, type ReactElement } from "react";
-import { useAppStore } from "../../store/appStore";
+import { useUiPrefs } from "../../store/uiPrefsStore";
 import type {
   CodeBlockFallbackProps,
   CodeBlockRegistration,
@@ -45,7 +45,7 @@ export function RegisteredCodeBlock({
   streaming: boolean;
   origin: MarkdownOrigin;
 }): ReactElement {
-  const theme = useAppStore((s) => s.theme);
+  const { theme } = useUiPrefs();
   const parsed = useMemo(() => {
     if (registration.parse === undefined) return source;
     try {

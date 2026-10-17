@@ -13,9 +13,12 @@ endpoint.engine.events
 endpoint.engine.configuration
 endpoint.engine.workspace
 endpoint.engine.resources
+endpoint.engine.presentation
 ```
 
 各领域 engine 通过 EndpointEngineContext 使用 Agent ingress、ConfigController、受约束服务和 Observation source。Context 不持有 raw generation、完整 owner 或底层 lease 工厂；服务调用自行完成世代/日准入。Generation 重建时，EndpointHost、进程外壳、事件 buffer、实例锁和连接信息保持稳定。
+
+presentation engine 直接接收独立的 [PresentationService](presentation.md)，服务由 Host 绑定项目目录并跨 generation 保留。其配置保存与资产读取不通过 Agent 可用性门禁，也不激活 generation；接口见 [presentation](../endpoint/presentation.md)。其它领域仍遵循上述 Context 与 lease 边界。
 
 现行外部协议为 v2，旧 v1 路由已删除。结构化 Turn 请求直接使用 ingress 提供的 AgentCommands；终端式文本入口保留 parser 语义。两者使用同一根队列与 Inbox，但新建、追加和等待决定的输入意图明确区分。项目 init/reset/start 继续属于 CLI；HTTP 通过独立 restart 路由请求宿主重建 generation，EndpointHost、事件 buffer、journal 和 instance identity 保持进程级稳定。
 

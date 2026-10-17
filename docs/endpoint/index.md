@@ -29,6 +29,8 @@ Endpoint 是 loopback 本地协议。除 `GET /v2/health` 外，HTTP 请求都�
 | Configuration | `GET /v2/config/actions` | 当前 Generation Action 配置投影 |
 | Configuration | `PATCH /v2/config` | 校验并保存配置候选 |
 | Configuration | `POST /v2/config/reload` | 在 idle 边界显式激活候选 |
+| Presentation | `GET/PATCH /v2/presentation/configs/{document_id}` | 项目共享界面配置读取与即时保存 |
+| Presentation | `GET /v2/presentation/assets`、`/v2/presentation/assets/content` | 项目展示资产列表和鉴权字节读取 |
 | Workspace | `/v2/workspace/*` | 当前/归档浏览，活动日编辑 |
 | Configuration | `POST /v2/config/apply`、`/v2/config/presets` | 整批发布、命名方案 |
 | Inspection | `/v2/days`、`/v2/session/*`、`/v2/requests/{id}/context*`、`/v2/requests/{id}/interactions` | 已提交历史、已安装 Context、活动交互与已安装 Heap 正文快照 |
@@ -56,3 +58,5 @@ Action 目录以 execution.executor、model_uses、retrieval 和有效工具 sch
 v1 路由不再存在；HTTP 不提供项目 reset，初始化仍由 CLI 提供。`POST /v2/restart` 只请求宿主重建 Agent generation，不迁移 Turn/Job；失败和重启期间通过 status 读取当前服务状态。ACP Job 应答不属于通用 Gateway 协议。
 
 详细协议见 [runtime](runtime.md)、[reflection](reflection.md)、[events](events.md)、[configuration](configuration.md)、[workspace](workspace.md)、[inspection](inspection.md) 和 [frontend integration](frontend-integration.md)。
+
+项目共享展示接口见 [presentation](presentation.md)，其项目范围与 Agent generation/day 服务门禁独立。

@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "InterfaceDensity": {
+      "enum": [
+        "compact",
+        "comfortable",
+        "roomy"
+      ],
+      "title": "InterfaceDensity",
+      "type": "string"
+    },
+    "InterfaceSettingsResponse": {
+      "additionalProperties": true,
+      "properties": {
+        "theme": {
+          "$ref": "#/$defs/ThemeMode"
+        },
+        "font_sans": {
+          "$ref": "#/$defs/SansFont"
+        },
+        "font_mono": {
+          "$ref": "#/$defs/MonoFont"
+        },
+        "font_size": {
+          "title": "Font Size",
+          "type": "integer"
+        },
+        "line_height": {
+          "title": "Line Height",
+          "type": "number"
+        },
+        "density": {
+          "$ref": "#/$defs/InterfaceDensity"
+        },
+        "reduced_motion": {
+          "title": "Reduced Motion",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "theme",
+        "font_sans",
+        "font_mono",
+        "font_size",
+        "line_height",
+        "density",
+        "reduced_motion"
+      ],
+      "title": "InterfaceSettingsResponse",
+      "type": "object"
+    },
+    "MonoFont": {
+      "enum": [
+        "jetbrains",
+        "system",
+        "cascadia"
+      ],
+      "title": "MonoFont",
+      "type": "string"
+    },
+    "SansFont": {
+      "enum": [
+        "inter",
+        "system",
+        "serif"
+      ],
+      "title": "SansFont",
+      "type": "string"
+    },
+    "ThemeMode": {
+      "enum": [
+        "light",
+        "dark"
+      ],
+      "title": "ThemeMode",
+      "type": "string"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "id": {
+      "const": "interface",
+      "title": "Id",
+      "type": "string"
+    },
+    "path": {
+      "title": "Path",
+      "type": "string"
+    },
+    "exists": {
+      "title": "Exists",
+      "type": "boolean"
+    },
+    "values": {
+      "$ref": "#/$defs/InterfaceSettingsResponse"
+    },
+    "defaults": {
+      "$ref": "#/$defs/InterfaceSettingsResponse"
+    }
+  },
+  "required": [
+    "id",
+    "path",
+    "exists",
+    "values",
+    "defaults"
+  ],
+  "title": "PresentationConfigResponse",
+  "type": "object"
+}

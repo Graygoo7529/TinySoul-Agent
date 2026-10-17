@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "PresentationAssetResponse": {
+      "additionalProperties": true,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "media_type": {
+          "title": "Media Type",
+          "type": "string"
+        },
+        "size": {
+          "title": "Size",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "media_type",
+        "size"
+      ],
+      "title": "PresentationAssetResponse",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/PresentationAssetResponse"
+      },
+      "title": "Items",
+      "type": "array"
+    }
+  },
+  "required": [
+    "items"
+  ],
+  "title": "PresentationAssetsResponse",
+  "type": "object"
+}

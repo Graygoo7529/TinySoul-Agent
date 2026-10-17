@@ -2,6 +2,10 @@
 
 This is an editable TinySoul project created from a packaged config profile. Its configuration, Home, Memory, runtime state, and archives are project-owned.
 
+`presentation/configs/interface.toml` stores shared interface preferences;
+`presentation/assets/` holds optional shared presentation files. See
+[project presentation](presentation/README.md) for saving, reading, and reset behavior.
+
 ## Standard
 
 The standard profile starts with every LLM provider disabled, so the backend and frontend can run before credentials are configured:

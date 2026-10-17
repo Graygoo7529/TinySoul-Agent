@@ -1,33 +1,26 @@
-/**
- * Local interface preferences (implementation plan §20): typography, density
- * and motion. These are client-local — persisted under `tinysoul-ui-prefs`,
- * applied to the document immediately, and never part of the Agent
- * configuration draft. The theme stays in appStore (the shell already
- * consumes it).
- *
- * Only preferences with a real consumer live here: there is no auto-follow,
- * notification or width toggle until a consumer exists.
- */
-
+/** Shared project interface values and their unconfirmed local edits. */
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { useShallow } from "zustand/react/shallow";
+import type { InterfaceSettings } from "../api/v2/presentation";
 
-export type SansFontChoice = "inter" | "system" | "serif";
-export type MonoFontChoice = "jetbrains" | "system" | "cascadia";
-export type DensityChoice = "compact" | "comfortable" | "roomy";
+export type ThemeMode = InterfaceSettings["theme"];
+export type SansFontChoice = InterfaceSettings["font_sans"];
+export type MonoFontChoice = InterfaceSettings["font_mono"];
+export type DensityChoice = InterfaceSettings["density"];
 
 export interface UiPrefs {
+  theme: ThemeMode;
   fontSans: SansFontChoice;
   fontMono: MonoFontChoice;
-  /** Base font size in px (12–18, default 14). */
   fontSize: number;
-  /** Base line height (1.3–1.9, default 1.5). */
   lineHeight: number;
   density: DensityChoice;
   reducedMotion: boolean;
 }
 
+/** Rendering defaults before connecting; never automatically uploaded. */
 export const UI_PREFS_DEFAULTS: UiPrefs = {
+  theme: "light",
   fontSans: "inter",
   fontMono: "jetbrains",
   fontSize: 14,
@@ -35,78 +28,59 @@ export const UI_PREFS_DEFAULTS: UiPrefs = {
   density: "comfortable",
   reducedMotion: false,
 };
-
 export const FONT_SIZE_RANGE = { min: 12, max: 18 } as const;
 export const LINE_HEIGHT_RANGE = { min: 1.3, max: 1.9 } as const;
 
-export interface UiPrefsState extends UiPrefs {
-  setPref: <K extends keyof UiPrefs>(key: K, value: UiPrefs[K]) => void;
-  resetDefaults: () => void;
+export interface UiPrefsState {
+  saved: UiPrefs;
+  defaults: UiPrefs;
+  pending: Partial<UiPrefs>;
+  phase: "idle" | "loading" | "ready" | "error";
+  loadError: string | null;
+  saving: boolean;
+  saveError: string | null;
 }
 
-function clamp(value: number, range: { min: number; max: number }): number {
-  return Math.min(range.max, Math.max(range.min, value));
+export function initialUiPrefsState(): UiPrefsState {
+  return {
+    saved: { ...UI_PREFS_DEFAULTS },
+    defaults: { ...UI_PREFS_DEFAULTS },
+    pending: {},
+    phase: "idle",
+    loadError: null,
+    saving: false,
+    saveError: null,
+  };
 }
 
-export const useUiPrefsStore = create<UiPrefsState>()(
-  persist(
-    (set) => ({
-      ...UI_PREFS_DEFAULTS,
-      setPref: (key, value) =>
-        set(() => {
-          if (key === "fontSize" && typeof value === "number") {
-            return { fontSize: clamp(value, FONT_SIZE_RANGE) };
-          }
-          if (key === "lineHeight" && typeof value === "number") {
-            return { lineHeight: clamp(value, LINE_HEIGHT_RANGE) };
-          }
-          return { [key]: value };
-        }),
-      resetDefaults: () => set({ ...UI_PREFS_DEFAULTS }),
-    }),
-    {
-      name: "tinysoul-ui-prefs",
-      merge: (persistedState, currentState) => {
-        const persisted =
-          persistedState !== null && typeof persistedState === "object"
-            ? (persistedState as Record<string, unknown>)
-            : {};
-        return {
-          ...currentState,
-          fontSans: isSansFont(persisted.fontSans)
-            ? persisted.fontSans
-            : currentState.fontSans,
-          fontMono: isMonoFont(persisted.fontMono)
-            ? persisted.fontMono
-            : currentState.fontMono,
-          fontSize:
-            typeof persisted.fontSize === "number"
-              ? clamp(persisted.fontSize, FONT_SIZE_RANGE)
-              : currentState.fontSize,
-          lineHeight:
-            typeof persisted.lineHeight === "number"
-              ? clamp(persisted.lineHeight, LINE_HEIGHT_RANGE)
-              : currentState.lineHeight,
-          density: isDensity(persisted.density)
-            ? persisted.density
-            : currentState.density,
-          reducedMotion: persisted.reducedMotion === true,
-        };
-      },
-    },
-  ),
-);
+export const useUiPrefsStore = create<UiPrefsState>()(initialUiPrefsState);
 
-function isSansFont(value: unknown): value is SansFontChoice {
-  return value === "inter" || value === "system" || value === "serif";
+export function useUiPrefs(): UiPrefs {
+  return useUiPrefsStore(useShallow((state) => ({ ...state.saved, ...state.pending })));
 }
 
-function isMonoFont(value: unknown): value is MonoFontChoice {
-  return value === "jetbrains" || value === "system" || value === "cascadia";
+export function prefsFromApi(values: InterfaceSettings): UiPrefs {
+  return {
+    theme: values.theme,
+    fontSans: values.font_sans,
+    fontMono: values.font_mono,
+    fontSize: values.font_size,
+    lineHeight: values.line_height,
+    density: values.density,
+    reducedMotion: values.reduced_motion,
+  };
 }
 
-function isDensity(value: unknown): value is DensityChoice {
-  return value === "compact" || value === "comfortable" || value === "roomy";
+export function prefsPatchToApi(patch: Partial<UiPrefs>): Partial<InterfaceSettings> {
+  return {
+    ...(patch.theme !== undefined && { theme: patch.theme }),
+    ...(patch.fontSans !== undefined && { font_sans: patch.fontSans }),
+    ...(patch.fontMono !== undefined && { font_mono: patch.fontMono }),
+    ...(patch.fontSize !== undefined && { font_size: patch.fontSize }),
+    ...(patch.lineHeight !== undefined && { line_height: patch.lineHeight }),
+    ...(patch.density !== undefined && { density: patch.density }),
+    ...(patch.reducedMotion !== undefined && { reduced_motion: patch.reducedMotion }),
+  };
 }
 
 // ---------------------------------------------------------------------------

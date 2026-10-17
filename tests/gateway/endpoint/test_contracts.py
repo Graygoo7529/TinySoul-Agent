@@ -26,6 +26,7 @@ from tinysoul.gateway.endpoint import (
     EndpointSettings,
 )
 from tinysoul.gateway.endpoint.http import create_endpoint_app
+from tinysoul.gateway.presentation import PresentationService
 from tinysoul.gateway.endpoint.http.schemas import responses
 from tinysoul.infra.config import ConfigController, ConfigEnvironment
 from tinysoul.infra.json import JsonObject, to_json_object
@@ -58,6 +59,8 @@ CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "job": responses.JobDetailResponse,
     "job-list": responses.JobListResponse,
     "job-output": responses.JobOutputResponse,
+    "presentation-config": responses.PresentationConfigResponse,
+    "presentation-assets": responses.PresentationAssetsResponse,
 }
 EXAMPLE_SCHEMAS = {
     "runtime-status": "runtime-status",
@@ -78,6 +81,8 @@ EXAMPLE_SCHEMAS = {
     "preset": "preset",
     "job-detail": "job",
     "job-output": "job-output",
+    "presentation-config": "presentation-config",
+    "presentation-assets": "presentation-assets",
 }
 
 
@@ -87,7 +92,7 @@ def _load(path: Path) -> JsonObject:
 
 def _validate(name: str, value: JsonObject) -> None:
     Draft202012Validator(_load(ROOT / "schemas" / f"{name}.json")).validate(value)
-    model = CONTRACT_MODELS[name].model_validate(value, strict=True)
+    model = CONTRACT_MODELS[name].model_validate_json(json.dumps(value), strict=True)
     assert model.model_dump(mode="json", exclude_unset=True) == value
 
 
@@ -229,6 +234,7 @@ async def collect_contract_responses(root: Path) -> dict[str, JsonObject]:
     await agent.start()
     runtime = agent.runtime
     endpoint = EndpointEngine(
+        presentation=PresentationService(runtime.project_root),
         settings=EndpointSettings(token="x" * 32),
         events=events,
         gateway=runtime.gateway,
@@ -254,6 +260,9 @@ async def collect_contract_responses(root: Path) -> dict[str, JsonObject]:
                 response = await client.post(path, json=body)
                 assert response.status_code in {200, 202}, response.text
                 return to_json_object(response.json())
+
+            samples["presentation-config"] = await get("/v2/presentation/configs/interface")
+            samples["presentation-assets"] = await get("/v2/presentation/assets")
 
             applied = await post(
                 "/v2/config/apply",

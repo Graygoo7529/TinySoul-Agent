@@ -18,7 +18,7 @@
 - Home：切换 actual 基线与 runtime Home 内容，只读浏览不会调用 Agent 的 `read_top`。
 - Memory：浏览活动记忆、持久文档与真实引用关系。
 - Runtime：查看环境事件、Job、MCP、ACP 和运行状态；Trace 通过统一 Inspector 展开。
-- Settings：编辑后端 ConfigDraft 和前端连接偏好，批量应用后重新加载 generation。
+- Settings：Agent 配置通过 ConfigDraft 批量应用并加载 generation；项目共享界面偏好独立自动保存，详见 [Settings 设计](settings.md)。
 
 Chat 右上角的 Context Inspector 以子页展示当前 Context、Session map、已加载 Home 和已加载 Memory。它们都是读取投影；实际 owner 的读写仍由 Agent/Action 完成。
 

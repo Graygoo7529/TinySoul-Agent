@@ -26,6 +26,7 @@ from tinysoul.gateway.endpoint import (
     EndpointSettings,
 )
 from tinysoul.gateway.endpoint.http import EndpointASGIServer, create_endpoint_app
+from tinysoul.gateway.presentation import PresentationService
 from tinysoul.gateway.endpoint.http.schemas import (
     ConfigCatalogResponse,
     ConfigMutationResponse,
@@ -833,6 +834,7 @@ def _engine(
         websocket_heartbeat_seconds=websocket_heartbeat_seconds,
     )
     engine = EndpointEngine(
+        presentation=PresentationService(tmp_path),
         settings=settings,
         events=events,
         gateway=gateway,

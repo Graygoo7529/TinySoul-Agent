@@ -5,6 +5,8 @@ import type { RuntimeStatus } from "../api/v2/types";
 import { selectGenerationId, useConnectionStore } from "../store/connectionStore";
 import { useTurnStore } from "../store/turnStore";
 import { useAppStore } from "../store/appStore";
+import { useUiPrefsStore } from "../store/uiPrefsStore";
+import presentationFixture from "../../test/fixtures/contracts/presentation-config.json";
 import { resetTurnController } from "../features/chat/turnController";
 import {
   connect,
@@ -30,6 +32,7 @@ import {
 const TARGET = { address: "127.0.0.1:1430", token: "test-token" };
 
 function installBaseRoutes(endpoint: FakeEndpoint, status: RuntimeStatus): void {
+  endpoint.get("/v2/presentation/configs/interface", () => jsonResponse(presentationFixture));
   endpoint.get("/v2/health", () => jsonResponse({ ok: true }));
   endpoint.get("/v2/status", () => jsonResponse(status));
   endpoint.get("/v2/session/turns", () =>
@@ -465,6 +468,17 @@ describe("event invalidation", () => {
 });
 
 describe("ready polling", () => {
+  it("loads project presentation while Agent is unavailable and clears it on disconnect", async () => {
+    const { endpoint, ok } = await connectIdle(makeStatus({ ready: false }));
+    expect(ok).toBe(true);
+    await vi.waitFor(() => expect(useUiPrefsStore.getState().phase).toBe("ready"));
+    expect(useUiPrefsStore.getState().saved.theme).toBe("dark");
+    expect(endpoint.calls("/v2/config/reload", "POST")).toHaveLength(0);
+    disconnect();
+    expect(useUiPrefsStore.getState().phase).toBe("idle");
+    expect(useUiPrefsStore.getState().saved.theme).toBe("light");
+  });
+
   it("polls status while ready=false and syncs once it becomes ready", async () => {
     const endpoint = new FakeEndpoint();
     let ready = false;

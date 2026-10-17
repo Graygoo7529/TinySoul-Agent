@@ -1,0 +1,7 @@
+theme = "light"
+font_sans = "inter"
+font_mono = "jetbrains"
+font_size = 14
+line_height = 1.5
+density = "comfortable"
+reduced_motion = false

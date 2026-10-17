@@ -172,6 +172,8 @@ raise SystemExit(main(["reset", {str(development)!r}]))
     assert (initialized / "memory").is_dir()
     assert any((initialized / "home").rglob("*.md"))
     assert any((initialized / "configs").rglob("*.toml"))
+    assert (initialized / "presentation/configs/interface.toml").is_file()
+    assert (development / "presentation/configs/interface.toml").is_file()
     assert (development / ".env").read_bytes() == b"SUBLYX_API_KEY=wheel-secret\n"
     assert not (development / "runtime").exists()
     assert not (development / "config_profiles").exists()

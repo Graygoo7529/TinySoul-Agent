@@ -51,6 +51,7 @@ from .routes.events import register_event_routes
 from .routes.health import register_health_routes
 from .routes.inspection import register_inspection_routes
 from .routes.reflection import register_reflection_routes
+from .routes.presentation import register_presentation_routes
 from .routes.resources import register_resource_routes
 from .routes.runtime import register_runtime_routes
 from .routes.turns import register_turn_routes
@@ -272,6 +273,7 @@ def create_endpoint_app(
     register_reflection_routes(app, engine)
     register_event_routes(app, engine, settings)
     register_configuration_routes(app, engine)
+    register_presentation_routes(app, engine)
     register_workspace_routes(app, engine)
     register_inspection_routes(app, engine)
     register_resource_routes(app, engine)

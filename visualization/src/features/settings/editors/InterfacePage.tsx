@@ -1,25 +1,28 @@
 import { settingsText } from "../i18n";
-/**
- * Interface settings (implementation plan §20): local reading-experience
- * preferences — theme, typography, density, reduced motion. They apply to
- * this client immediately, persist locally, and never touch the Agent
- * configuration. Preferences without a real consumer (auto-follow,
- * notifications, panel widths) are intentionally absent.
- */
+/** Shared project interface settings, saved independently of Agent configuration. */
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { SectionCard } from "../../../components/ui/Card";
-import { useAppStore, type ThemeMode } from "../../../store/appStore";
+import { useConnectionStore } from "../../../store/connectionStore";
 import {
   FONT_SIZE_RANGE,
   LINE_HEIGHT_RANGE,
   useUiPrefsStore,
+  useUiPrefs,
+  type ThemeMode,
   type DensityChoice,
   type MonoFontChoice,
   type SansFontChoice,
 } from "../../../store/uiPrefsStore";
 import { SettingsPageBody } from "./controls";
+import {
+  refreshInterface,
+  resetInterfaceDefaults,
+  retryInterfaceSave,
+  setInterfacePref,
+} from "../presentationController";
+import { PresentationAssets } from "./PresentationAssets";
 
 const SANS_OPTIONS: { value: SansFontChoice; label: string }[] = [
   { value: "inter", label: "Inter (default)" },
@@ -45,106 +48,124 @@ const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
 ];
 
 export function InterfacePage() {
-  const theme = useAppStore((s) => s.theme);
-  const setTheme = useAppStore((s) => s.setTheme);
-  const prefs = useUiPrefsStore();
-  const resetDefaults = useUiPrefsStore((s) => s.resetDefaults);
-
-  const resetAll = () => {
-    resetDefaults();
-    setTheme("light");
-  };
+  const prefs = useUiPrefs();
+  const state = useUiPrefsStore();
+  const connected = useConnectionStore((s) => s.phase === "connected" && !s.unreachable);
+  const epoch = useConnectionStore((s) => s.epoch);
+  useEffect(() => { if (connected) void refreshInterface(); }, [connected, epoch]);
+  const disabled = !connected || state.phase !== "ready";
 
   return (
     <SettingsPageBody>
-      <div className="rounded-lg border border-line bg-bg-elev px-3.5 py-2.5 text-[12px] leading-5 text-fg-muted">{settingsText("These preferences apply to this client immediately and are stored locally. They never change the Agent&apos;s configuration or other clients.")}</div>
-
-      <SectionCard title={settingsText("Appearance")} description={settingsText("Theme of the whole interface.")}>
-        <PrefRow label={settingsText("Theme")}>
-          <Segmented
-            options={THEME_OPTIONS}
-            value={theme}
-            onChange={(next) => setTheme(next)}
-          />
-        </PrefRow>
-      </SectionCard>
-
-      <SectionCard
-        title={settingsText("Typography")}
-        description={settingsText("Reading fonts, size and line height across the app.")}
-      >
-        <PrefRow
-          label={settingsText("Interface font")}
-          preview={<FontPreview family="var(--font-sans)" mono={false} />}
-        >
-          <SelectControl
-            options={SANS_OPTIONS}
-            value={prefs.fontSans}
-            onChange={(next) => prefs.setPref("fontSans", next as SansFontChoice)}
-          />
-        </PrefRow>
-        <PrefRow label={settingsText("Font size")} description={`${FONT_SIZE_RANGE.min}–${FONT_SIZE_RANGE.max}px`}>
-          <NumberControl
-            value={prefs.fontSize}
-            min={FONT_SIZE_RANGE.min}
-            max={FONT_SIZE_RANGE.max}
-            unit="px"
-            onChange={(next) => prefs.setPref("fontSize", next)}
-          />
-        </PrefRow>
-        <PrefRow
-          label={settingsText("Line height")}
-          description={`${LINE_HEIGHT_RANGE.min}–${LINE_HEIGHT_RANGE.max}`}
-        >
-          <NumberControl
-            value={prefs.lineHeight}
-            min={LINE_HEIGHT_RANGE.min}
-            max={LINE_HEIGHT_RANGE.max}
-            step={0.05}
-            onChange={(next) => prefs.setPref("lineHeight", next)}
-          />
-        </PrefRow>
-        <PrefRow
-          label={settingsText("Code font")}
-          preview={<FontPreview family="var(--font-mono)" mono />}
-        >
-          <SelectControl
-            options={MONO_OPTIONS}
-            value={prefs.fontMono}
-            onChange={(next) => prefs.setPref("fontMono", next as MonoFontChoice)}
-          />
-        </PrefRow>
-      </SectionCard>
-
-      <SectionCard
-        title={settingsText("Layout & Motion")}
-        description={settingsText("Spacing density and animation behavior.")}
-      >
-        <PrefRow label={settingsText("Density")}>
-          <Segmented
-            options={DENSITY_OPTIONS}
-            value={prefs.density}
-            onChange={(next) => prefs.setPref("density", next)}
-          />
-        </PrefRow>
-        <PrefRow
-          label={settingsText("Reduce motion")}
-          description={settingsText("Minimizes animations and transitions across the interface.")}
-        >
-          <LocalSwitch
-            on={prefs.reducedMotion}
-            onChange={(next) => prefs.setPref("reducedMotion", next)}
-          />
-        </PrefRow>
-      </SectionCard>
-
-      <div className="flex justify-end">
-        <button
-          type="button"
-          className="h-8 rounded-lg border border-line bg-bg-elev px-3 text-[13px] font-medium text-fg hover:border-line-strong hover:bg-hover"
-          onClick={resetAll}
-        >{settingsText("Reset interface defaults")}</button>
+      <div className="rounded-lg border border-line bg-bg-elev px-3.5 py-2.5 text-[12px] leading-5 text-fg-muted">
+        {settingsText("Saved in this project. This interface updates immediately; other clients update when they read the settings again.")}
+        <div className="mt-2 flex flex-wrap items-center gap-3" aria-live="polite">
+          <span>{settingsText(!connected ? "Connect to edit shared interface settings."
+            : state.phase === "loading" ? "Loading interface settings…"
+            : state.loadError ? "Interface settings could not be loaded."
+            : state.saving ? "Saving interface settings…"
+            : state.saveError ? "Interface settings could not be saved."
+            : state.phase === "ready" ? "Saved to project" : "Waiting for interface settings…")}</span>
+          <button type="button" className="text-accent disabled:opacity-40" disabled={!connected || state.saving || state.phase === "loading"}
+            onClick={() => void refreshInterface(Object.keys(state.pending).length > 0)}>
+            {settingsText(Object.keys(state.pending).length > 0 ? "Discard changes and reload" : "Refresh")}
+          </button>
+          {state.saveError && <button type="button" className="text-accent disabled:opacity-40" disabled={disabled || state.saving}
+            onClick={() => void retryInterfaceSave()}>{settingsText("Retry saving")}</button>}
+        </div>
+        {(state.loadError || state.saveError) && <p className="mt-1 text-danger" role="alert">{state.loadError ?? state.saveError}</p>}
       </div>
+
+      <fieldset disabled={disabled} className="m-0 flex min-w-0 flex-col gap-4 border-0 p-0 disabled:opacity-50">
+
+        <SectionCard title={settingsText("Appearance")} description={settingsText("Theme of the whole interface.")}>
+          <PrefRow label={settingsText("Theme")}>
+            <Segmented
+              options={THEME_OPTIONS}
+              value={prefs.theme}
+              onChange={(next) => setInterfacePref("theme", next)}
+            />
+          </PrefRow>
+        </SectionCard>
+
+        <SectionCard
+          title={settingsText("Typography")}
+          description={settingsText("Reading fonts, size and line height across the app.")}
+        >
+          <PrefRow
+            label={settingsText("Interface font")}
+            preview={<FontPreview family="var(--font-sans)" mono={false} />}
+          >
+            <SelectControl
+              options={SANS_OPTIONS}
+              value={prefs.fontSans}
+              onChange={(next) => setInterfacePref("fontSans", next as SansFontChoice)}
+            />
+          </PrefRow>
+          <PrefRow label={settingsText("Font size")} description={`${FONT_SIZE_RANGE.min}–${FONT_SIZE_RANGE.max}px`}>
+            <NumberControl
+              value={prefs.fontSize}
+              min={FONT_SIZE_RANGE.min}
+              max={FONT_SIZE_RANGE.max}
+              unit="px"
+              onChange={(next) => setInterfacePref("fontSize", next)}
+            />
+          </PrefRow>
+          <PrefRow
+            label={settingsText("Line height")}
+            description={`${LINE_HEIGHT_RANGE.min}–${LINE_HEIGHT_RANGE.max}`}
+          >
+            <NumberControl
+              value={prefs.lineHeight}
+              min={LINE_HEIGHT_RANGE.min}
+              max={LINE_HEIGHT_RANGE.max}
+              step={0.05}
+              onChange={(next) => setInterfacePref("lineHeight", next)}
+            />
+          </PrefRow>
+          <PrefRow
+            label={settingsText("Code font")}
+            preview={<FontPreview family="var(--font-mono)" mono />}
+          >
+            <SelectControl
+              options={MONO_OPTIONS}
+              value={prefs.fontMono}
+              onChange={(next) => setInterfacePref("fontMono", next as MonoFontChoice)}
+            />
+          </PrefRow>
+        </SectionCard>
+
+        <SectionCard
+          title={settingsText("Layout & Motion")}
+          description={settingsText("Spacing density and animation behavior.")}
+        >
+          <PrefRow label={settingsText("Density")}>
+            <Segmented
+              options={DENSITY_OPTIONS}
+              value={prefs.density}
+              onChange={(next) => setInterfacePref("density", next)}
+            />
+          </PrefRow>
+          <PrefRow
+            label={settingsText("Reduce motion")}
+            description={settingsText("Minimizes animations and transitions across the interface.")}
+          >
+            <PreferenceSwitch
+              on={prefs.reducedMotion}
+              onChange={(next) => setInterfacePref("reducedMotion", next)}
+            />
+          </PrefRow>
+        </SectionCard>
+
+        <div className="flex justify-end">
+          <button
+            type="button"
+            className="h-8 rounded-lg border border-line bg-bg-elev px-3 text-[13px] font-medium text-fg hover:border-line-strong hover:bg-hover"
+            onClick={resetInterfaceDefaults}
+          >{settingsText("Reset project interface defaults")}</button>
+        </div>
+      </fieldset>
+      <PresentationAssets />
     </SettingsPageBody>
   );
 }
@@ -253,18 +274,32 @@ function NumberControl({
   unit?: string;
   onChange: (next: number) => void;
 }) {
+  const [text, setText] = useState(String(value));
+  useEffect(() => setText(String(value)), [value]);
+  const commit = () => {
+    const parsed = Number(text);
+    if (!text.trim() || !Number.isFinite(parsed)) {
+      setText(String(value));
+      return;
+    }
+    const next = Math.min(max, Math.max(min, step === 1 ? Math.round(parsed) : parsed));
+    setText(String(next));
+    if (next !== value) onChange(next);
+  };
   return (
     <span className="flex items-center gap-1.5">
       <input
         type="number"
         className="h-8 w-24 rounded-md border border-line bg-bg px-2 text-right text-[12.5px] text-fg outline-none focus:border-accent"
-        value={value}
+        value={text}
         min={min}
         max={max}
         step={step}
-        onChange={(event) => {
-          const next = Number(event.target.value);
-          if (Number.isFinite(next)) onChange(next);
+        onChange={(event) => setText(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+          if (event.key === "Escape") { setText(String(value)); }
         }}
       />
       {unit !== undefined && (
@@ -274,7 +309,7 @@ function NumberControl({
   );
 }
 
-function LocalSwitch({
+function PreferenceSwitch({
   on,
   onChange,
 }: {

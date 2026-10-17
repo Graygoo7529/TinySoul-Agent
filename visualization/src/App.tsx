@@ -5,21 +5,20 @@ import { AppShell } from "./components/shell/AppShell";
 import { useAppStore } from "./store/appStore";
 import {
   applyUiPrefsToDocument,
-  useUiPrefsStore,
+  useUiPrefs,
 } from "./store/uiPrefsStore";
 
 export default function App() {
-  const theme = useAppStore((s) => s.theme);
   const projectRoot = useAppStore((s) => s.projectRoot);
-  const uiPrefs = useUiPrefsStore();
+  const uiPrefs = useUiPrefs();
+  const theme = uiPrefs.theme;
 
   // Theme is applied at the document root so every token flips together.
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
   }, [theme]);
 
-  // Local interface preferences (fonts, size, density, motion) are applied
-  // to the document as CSS variables/classes; they are client-local.
+  // Project interface values and pending edits share the same CSS projection.
   useEffect(() => {
     applyUiPrefsToDocument(uiPrefs);
   }, [uiPrefs]);

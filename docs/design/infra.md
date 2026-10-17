@@ -18,6 +18,8 @@ Infra 当前负责配置环境、JSON 动态边界、受控文件系统读写、
 
 外部协议见 [配置 Endpoint](../endpoint/configuration.md)，前端草稿与应用交互见 [Settings 设计](../../visualization/docs/design/settings.md)。
 
+[项目展示配置](presentation.md) 同样复用 TOML 与原子写入设施，由 Gateway 的 PresentationService 校验和保存；它不进入 Agent 配置环境，保存后由前端直接消费，无需 generation 激活。
+
 ### 配置展示与语义
 
 Infra 同时拥有 package 内的配置展示目录，但不拥有业务配置语义。目录位于
