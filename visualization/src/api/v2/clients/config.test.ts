@@ -60,7 +60,7 @@ describe("ConfigClient", () => {
       },
       {
         op: "delete",
-        source_id: "project:configs/llm/models/ungrouped.toml",
+        source_id: "project:configs/llm/models/qwen.toml",
         path: "llm.models.qwen-latest.adapter_options",
       },
     ];

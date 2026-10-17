@@ -59,13 +59,17 @@ def test_config_catalog_declares_capability_choices_supported_by_owners() -> Non
     }
 
 
-def test_config_catalog_declares_controlled_model_creation_source() -> None:
+def test_config_catalog_allows_models_to_choose_family_sources() -> None:
     catalog = load_config_catalog()
     model_collection = next(
         item for item in catalog.collections if item.id == "llm.models"
     )
 
-    assert model_collection.create_source == "project:configs/llm/models/ungrouped.toml"
+    assert model_collection.create_source is None
+    assert "create_source" not in model_collection.to_json()
+    provider_collection = next(item for item in catalog.collections if item.id == "llm.providers")
+    assert provider_collection.to_json()["create_source"] == provider_collection.create_source
+    assert provider_collection.create_source is not None
     assert (
         model_collection.delete_policy
         is ConfigCollectionDeletePolicy.ALL

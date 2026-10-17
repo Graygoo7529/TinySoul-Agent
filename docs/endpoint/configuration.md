@@ -8,6 +8,8 @@
 
 Action catalog 是配置页面的运行时投影，不是聊天 Action API；它由当前 Generation 的 ActionEngine 生成，Endpoint 不缓存。
 
+`GET /v2/config/catalog` 的 collection 条目中，`create_source` 是可选字符串；未声明时省略该字段。Provider、任务链等保留固定创建来源；`llm.models` 不声明默认文件，由前端根据 family 与当前 saved + draft 来源选择目标。`allow_create` 独立表达是否允许创建，不能以缺少固定来源判断集合不可创建。新文件使用 `create_source` 操作，已加载空文件直接使用 `set`；同批向一个新文件添加多个模型只声明一次创建。PATCH 操作始终携带明确的 source_id。
+
 selection 的 enabled/source 表示按“动作情景→域情景→动作 default→域 default→true”解析出的值与来源。unavailable_reason 为 not_granted、executor_unavailable、hidden 或 null。用户通过同一 PATCH 文档事务编辑 visibility.default 或 visibility.scenarios 对象；runtime.enabled 和 loop/reflection 的旧动作开关表不再接受。三个情景共用候选校验，显式启用未授权动作时拒绝保存，单纯域默认选择不增加授权。
 
 `execution` 只含 executor 身份与 options，不再包含 backend kind/handler。`model_uses` 按 consumer 返回 operation、implementations、各实现的 options 约束、embedding_owner 和当前 binding；binding 含 consumer、implementation、target、options。`retrieval` 返回已登记的 source、operation、属性范围、Context 选项和分页/输入预算；tool.schema 由同一 retrieval policy 编译。模型侧 ActionCall 选择六个操作函数的组合、抽象语义和业务参数；操作内部的 implementation/provider/model 由用途配置透明绑定，Search 请求不携带这些内部实现选择。

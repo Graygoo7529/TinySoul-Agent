@@ -17,6 +17,7 @@ import { Badge } from "../../../components/ui/Badge";
 import { Button, IconButton } from "../../../components/ui/Button";
 import { Modal } from "../../../components/ui/Modal";
 import { isPlainRecord } from "../draft/model";
+import { objectSourceFor } from "../draft/fields";
 import { useConfigDraftStore } from "../draft/store";
 import {
   adapterRule,
@@ -29,13 +30,17 @@ import { useSettingsUiStore } from "../uiStore";
 import {
   cloneJsonValue,
   fieldLockReason,
+  familyFileName,
   modelReferences,
   moveItem,
   objectIdError,
   objectDeletable,
   projectCollection,
+  resolveFamilySource,
   stringField,
   stringListField,
+  writableProjectSource,
+  type FamilySourceTarget,
   type ProjectedObject,
 } from "./collectionDrafts";
 import {
@@ -91,14 +96,10 @@ export function LlmModelsPage() {
   const tasksCollection = state.catalog?.collections.find(
     (item) => item.root === "llm.tasks",
   );
-  const createSource = collection?.createSource ?? "";
   const tasksCreateSource = tasksCollection?.createSource ?? "";
   const deletePolicy = collection?.deletePolicy ?? "all";
   const createSourceAvailable =
-    createSource !== "" &&
-    (state.saved?.sources.some(
-      (source) => source.kind === "project_toml" && source.writable,
-    ) ?? false);
+    collection?.allowCreate === true && state.saved?.activity.can_write === true;
 
   const [selected, setSelected] = useState<string | null>(null);
   const [showCollapsed, setShowCollapsed] = useState(false);
@@ -128,7 +129,12 @@ export function LlmModelsPage() {
   }, [objects, selected]);
 
   const current = objects.find((item) => item.id === selected) ?? null;
-  const currentDeletable = objectDeletable(current, deletePolicy);
+  const objectSource = (object: ProjectedObject) => {
+    const source = objectSourceFor(state.saved, `${ROOT}.${object.id}`, object.ownerSources[0] ?? null);
+    return source !== null && writableProjectSource(state, source) ? source : null;
+  };
+  const writeSource = current === null ? null : objectSource(current);
+  const currentDeletable = objectDeletable(current, deletePolicy) && writeSource !== null;
   const families = [...new Set(objects.map((item) => stringField(item.value, "family")).filter(Boolean))].sort();
 
   const needle = query.trim().toLowerCase();
@@ -175,7 +181,7 @@ export function LlmModelsPage() {
         addTitle={
           createSourceAvailable
             ? "New model"
-            : "The model source declared by the catalog is missing or read-only"
+            : "Model configuration is currently read-only"
         }
         searchable={false}
         listHeader={
@@ -249,11 +255,10 @@ export function LlmModelsPage() {
         }
       >
         {current !== null && (
-          <ModelEditor
-            object={current}
-            providers={providers}
-            createSource={createSource}
-          />
+          <fieldset disabled={writeSource === null}>
+            {writeSource === null && <p className="p-3 text-xs text-fg-muted">{settingsText("No writable project source holds this model.")}</p>}
+            <ModelEditor object={current} providers={providers} writeSource={writeSource} />
+          </fieldset>
         )}
       </ObjectEditorLayout>
 
@@ -262,38 +267,16 @@ export function LlmModelsPage() {
         onClose={() => setCreating(false)}
         existing={objects.map((item) => item.id)}
         families={families}
-        familySources={new Map(objects.flatMap((item) => {
-          const family = stringField(item.value, "family");
-          const source = item.ownerSources.find((id) => state.saved?.sources.find((candidate) => candidate.id === id)?.writable);
-          return family !== "" && source !== undefined ? [[family, source] as const] : [];
-        }))}
+        models={objects}
         providers={providers}
-        sourceIds={(state.saved?.sources ?? []).map((source) => source.id)}
-        defaultSource={createSource}
         template={collection?.createTemplate ?? {}}
         catalog={state.catalog}
-        onCreate={(id, value, sourceId, createSourceId) => {
+        onCreate={(id, value, target) => {
           const draft = useConfigDraftStore.getState();
-          if (createSourceId !== null) {
-            draft.createSource(createSourceId);
-            const include = state.saved?.fields["config.include"]?.value;
-            const includes = Array.isArray(include)
-              ? include.filter((item): item is string => typeof item === "string")
-              : [];
-            const relative = createSourceId.replace(/^project:/, "");
-            const covered = includes.some((item) =>
-              item.includes("*") && relative.startsWith(item.split("*")[0] ?? ""),
-            );
-            if (!covered) {
-              const main = state.saved?.sources.find(
-                (source) => source.id === "project:tinysoul.toml" && source.writable,
-              );
-              if (main !== undefined) {
-                draft.setValue(main.id, "config.include", [...includes, relative]);
-              }
-            }
+          if (target.create) {
+            draft.createSource(target.sourceId, target.includeSourceId);
           }
-          stageObjectCreate(ROOT, id, value, sourceId);
+          stageObjectCreate(ROOT, id, value, target.sourceId);
           setSelected(id);
           setCreating(false);
         }}
@@ -310,7 +293,7 @@ export function LlmModelsPage() {
         onRename={(newId, updateReferences) => {
           if (renaming === null) return;
           const references = modelReferences(tasks, renaming.id);
-          stageObjectRename(ROOT, renaming, newId, createSource);
+          stageObjectRename(ROOT, renaming, newId, objectSource(renaming));
           if (updateReferences) {
             for (const reference of references) {
               const task = tasks.find((item) => item.id === reference.owner);
@@ -356,10 +339,8 @@ function NewModelModal({
   onClose,
   existing,
   families,
-  familySources,
+  models,
   providers,
-  sourceIds,
-  defaultSource,
   template,
   catalog,
   onCreate,
@@ -368,89 +349,71 @@ function NewModelModal({
   onClose: () => void;
   existing: string[];
   families: string[];
-  familySources: Map<string, string>;
+  models: ProjectedObject[];
   providers: ProjectedObject[];
-  sourceIds: string[];
-  defaultSource: string;
   template: Record<string, JsonValue>;
   catalog: SettingsCatalog | null;
-  onCreate: (id: string, value: Record<string, JsonValue>, sourceId: string, createdSourceId: string | null) => void;
+  onCreate: (id: string, value: Record<string, JsonValue>, target: Extract<FamilySourceTarget, { kind: "ready" }>) => void;
 }) {
+  const state = useConfigDraftStore();
   const [id, setId] = useState("");
   const [family, setFamily] = useState("");
   const [newFamily, setNewFamily] = useState("");
   const [newFamilyFile, setNewFamilyFile] = useState("");
-  const [adapter, setAdapter] = useState("openai_compatible_chat");
-  const [providerId, setProviderId] = useState(providers[0]?.id ?? "");
+  const [adapter, setAdapter] = useState("");
+  const [providerId, setProviderId] = useState("");
   const [providerModel, setProviderModel] = useState("");
   useEffect(() => {
     if (open) return;
     setId(""); setFamily(""); setNewFamily(""); setNewFamilyFile(""); setProviderModel("");
+    setAdapter(""); setProviderId("");
   }, [open]);
   useEffect(() => {
-    const provider = providers.find((item) => item.id === providerId) ?? providers[0];
-    if (provider === undefined) return;
-    if (provider.id !== providerId) setProviderId(provider.id);
-    const supported = stringListField(provider.value, "adapters");
-    if (!supported.includes(adapter)) setAdapter(supported[0] ?? "");
+    const matching = providers.filter((item) => stringListField(item.value, "adapters").includes(adapter));
+    if (matching.some((item) => item.id === providerId)) return;
+    setProviderId(matching[0]?.id ?? "");
+    setProviderModel("");
   }, [providers, providerId, adapter]);
   if (!open) return null;
   const chosenFamily = family === "__new__" ? newFamily.trim() : family;
   const idError = objectIdError(id);
-  const familyError = chosenFamily === "" ? "Choose an existing family or enter a new one." : null;
-  const provider = providers.find((item) => item.id === providerId);
-  const adapters = stringListField(provider?.value ?? {}, "adapters");
+  const target = resolveFamilySource(state, models, chosenFamily, newFamilyFile);
+  const matchingProviders = providers.filter((item) => stringListField(item.value, "adapters").includes(adapter));
   const adapterChoices = (matchField(catalog, "llm.models.*.adapter")?.choices ?? []).map((choice) => ({
     value: choice.value,
     label: choice.label,
-    disabled: !adapters.includes(choice.value),
   }));
-  const familyFile = newFamilyFile.trim() || familySlug(chosenFamily);
-  const familyFileError = family === "__new__" && !/^[a-z0-9][a-z0-9-]*$/.test(familyFile)
-    ? "Use a lowercase TOML file name such as qwen or qwen-vision."
-    : null;
-  const sourceForFamily = family === "__new__"
-    ? `project:configs/llm/models/${familyFile}.toml`
-    : familySources.get(chosenFamily) ?? defaultSource;
-  const createsSource = family === "__new__" && !sourceIds.includes(sourceForFamily);
-  const sourceCollision = family === "__new__" && sourceIds.includes(sourceForFamily);
-  const valid = id !== "" && idError === null && !existing.includes(id) && familyError === null &&
-    providerId !== "" && providerModel.trim() !== "" && adapter !== "" && !sourceCollision && familyFileError === null;
+  const valid = id !== "" && idError === null && !existing.includes(id) && target.kind === "ready" &&
+    matchingProviders.some((item) => item.id === providerId) && providerModel.trim() !== "" &&
+    adapterChoices.some((choice) => choice.value === adapter);
   return (
     <Modal title="New model" onClose={onClose}>
       <div className="space-y-3">
         <TextInput ariaLabel="Model ID" value={id} onCommit={setId} placeholder="gpt-latest" mono />
         {idError !== null && <div className="text-[10px] text-danger">{idError}</div>}
-        <SelectInput ariaLabel="Family" value={family} options={[{ value: "", label: "Choose existing family" }, ...families.map((item) => ({ value: item, label: item })), { value: "__new__", label: "New family?" }]} onChange={setFamily} />
+        <SelectInput ariaLabel="Family" value={family} options={[{ value: "", label: settingsText("Choose existing family") }, ...families.map((item) => ({ value: item, label: item })), { value: "__new__", label: settingsText("New family?") }]} onChange={(value) => { setFamily(value); setNewFamilyFile(""); }} />
         {family === "__new__" && <TextInput ariaLabel="New family" value={newFamily} onCommit={setNewFamily} placeholder="Qwen" />}
-        {family === "__new__" && <TextInput ariaLabel="Family TOML file" value={newFamilyFile} onCommit={setNewFamilyFile} placeholder="qwen" mono />}
-        {familyFileError !== null && <div className="text-[10px] text-danger">{familyFileError}</div>}
-        {sourceCollision && <div className="text-[10px] text-danger">A family TOML file with this name already exists; choose another file name.</div>}
-        {familyError !== null && <div className="text-[10px] text-danger">{familyError}</div>}
-        <SelectInput ariaLabel="Adapter" value={adapter} options={adapterChoices} onChange={setAdapter} />
-        <SelectInput ariaLabel="Provider" value={providerId} options={providers.map((item) => ({ value: item.id, label: item.id }))} onChange={setProviderId} />
+        {target.usesFileName && <TextInput ariaLabel="Family TOML file" value={newFamilyFile} onCommit={setNewFamilyFile} placeholder={familyFileName(chosenFamily) || "qwen"} mono />}
+        {target.kind === "invalid" && <div className="text-[10px] text-danger">{settingsText(target.message)}</div>}
+        <SelectInput ariaLabel="Adapter" value={adapter} options={[{ value: "", label: settingsText("Choose adapter") }, ...adapterChoices]} onChange={setAdapter} />
+        <SelectInput ariaLabel="Provider" value={providerId} options={[{ value: "", label: settingsText("Choose provider") }, ...matchingProviders.map((item) => ({ value: item.id, label: item.id }))]} onChange={(value) => { setProviderId(value); setProviderModel(""); }} />
+        {adapter !== "" && matchingProviders.length === 0 && <div className="text-[10px] text-fg-muted">{settingsText("Add a compatible provider on the Providers page.")}</div>}
         <TextInput ariaLabel="Provider model" value={providerModel} onCommit={setProviderModel} placeholder="Remote model name" mono />
-        <div className="text-[11px] text-fg-faint">
-          {createsSource ? `New family source: ${sourceForFamily}` : `Model source: ${sourceForFamily}`}
-        </div>
+        {target.kind === "ready" && <div className="text-[11px] text-fg-faint">配置文件：{target.sourceId.replace(/^project:/, "")}</div>}
         <div className="flex justify-end gap-2 border-t border-line pt-3">
           <Button size="xs" variant="ghost" onClick={onClose}>{settingsText("Cancel")}</Button>
           <Button size="xs" variant="primary" disabled={!valid} onClick={() => {
+            if (target.kind !== "ready") return;
             const value = blankModelValue(adapter, providerId, template, catalog);
             value.family = chosenFamily;
             value.adapter = adapter;
             value.providers = [{ provider: providerId, provider_model: providerModel.trim() }];
-            onCreate(id, value, sourceForFamily, createsSource ? sourceForFamily : null);
+            onCreate(id, value, target);
           }}>Create</Button>
         </div>
       </div>
     </Modal>
   );
-}
-
-function familySlug(family: string): string {
-  const slug = family.trim().toLocaleLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  return slug === "" ? "family" : slug;
 }
 
 /** The starting value of a blank model created in the draft. */
@@ -482,11 +445,11 @@ function blankModelValue(
 function ModelEditor({
   object,
   providers,
-  createSource,
+  writeSource,
 }: {
   object: ProjectedObject;
   providers: ProjectedObject[];
-  createSource: string;
+  writeSource: string | null;
 }) {
   const state = useConfigDraftStore();
   const catalog = state.catalog;
@@ -532,7 +495,7 @@ function ModelEditor({
       setAdapterChange({ adapter: next, providerId: first.id });
       return;
     }
-    activateAdapter(object, next, first.id, createSource, state.catalog);
+    activateAdapter(object, next, first.id, writeSource, state.catalog);
   };
 
   return (
@@ -568,7 +531,7 @@ function ModelEditor({
         object={object}
         providers={providers}
         adapter={adapter}
-        createSource={createSource}
+        writeSource={writeSource}
       />
 
       <FieldSection
@@ -597,7 +560,7 @@ function ModelEditor({
                 object,
                 "context_window_tokens",
                 value,
-                createSource,
+                writeSource,
               )
             }
           />
@@ -612,7 +575,7 @@ function ModelEditor({
             values={stringListField(object.value, "capabilities")}
             disabled={field("capabilities").lock !== null}
             onCommit={(values) =>
-              setObjectField(ROOT, object, "capabilities", values, createSource)
+              setObjectField(ROOT, object, "capabilities", values, writeSource)
             }
           />
         </FieldRow>
@@ -620,7 +583,7 @@ function ModelEditor({
 
       <AdapterOptionsSection
         object={object}
-        createSource={createSource}
+        writeSource={writeSource}
         adapter={adapter}
       />
       <SettingsDisclosure title="列表显示" className="m-3" paths={[`${ROOT}.${object.id}.family`, `${ROOT}.${object.id}.collapsed`]}>
@@ -635,7 +598,7 @@ function ModelEditor({
             placeholder="Optional display group"
             disabled={field("family").lock !== null}
             onCommit={(value) =>
-              setObjectField(ROOT, object, "family", value.trim(), createSource)
+              setObjectField(ROOT, object, "family", value.trim(), writeSource)
             }
           />
         </FieldRow>
@@ -649,12 +612,12 @@ function ModelEditor({
             checked={object.value.collapsed === true}
             disabled={field("collapsed").lock !== null}
             onChange={(next) =>
-              setObjectField(ROOT, object, "collapsed", next, createSource)
+              setObjectField(ROOT, object, "collapsed", next, writeSource)
             }
           />
         </FieldRow>
       </SettingsDisclosure>
-      <RequestOverridesSection object={object} createSource={createSource} />
+      <RequestOverridesSection object={object} writeSource={writeSource} />
 
       {adapterChange !== null && (
         <AdapterChangeModal
@@ -668,7 +631,7 @@ function ModelEditor({
               object,
               adapterChange.adapter,
               providerId,
-              createSource,
+              writeSource,
               state.catalog,
             );
             setAdapterChange(null);
@@ -684,7 +647,7 @@ function activateAdapter(
   object: ProjectedObject,
   adapter: string,
   providerId: string,
-  createSource: string,
+  writeSource: string | null,
   catalog: SettingsCatalog | null,
 ): void {
   const bindings = Array.isArray(object.value.providers) ? object.value.providers : [];
@@ -694,7 +657,7 @@ function activateAdapter(
   );
   const rule = adapterRule(catalog, adapter);
   const firstProtocol = rule?.protocols[0]?.id;
-  setObjectField(ROOT, object, "adapter", adapter, createSource);
+  setObjectField(ROOT, object, "adapter", adapter, writeSource);
   setObjectField(
     ROOT,
     object,
@@ -708,14 +671,14 @@ function activateAdapter(
             : "",
       },
     ],
-    createSource,
+    writeSource,
   );
   setObjectField(
     ROOT,
     object,
     "adapter_options",
     firstProtocol !== undefined ? { protocol: firstProtocol } : {},
-    createSource,
+    writeSource,
   );
 }
 
@@ -744,12 +707,12 @@ function ProviderChainSection({
   object,
   providers,
   adapter,
-  createSource,
+  writeSource,
 }: {
   object: ProjectedObject;
   providers: ProjectedObject[];
   adapter: string;
-  createSource: string;
+  writeSource: string | null;
 }) {
   const state = useConfigDraftStore();
   const meta = matchField(state.catalog, `${ROOT}.*.providers`);
@@ -761,7 +724,7 @@ function ProviderChainSection({
   const knownIds = new Set(providers.map((provider) => provider.id));
 
   const commit = (next: ProviderBinding[]) =>
-    setObjectField(ROOT, object, "providers", next, createSource);
+    setObjectField(ROOT, object, "providers", next, writeSource);
   const addRow = () => {
     const provider = available.find(
       (item) => !rows.some((row) => row.provider === item.id),
@@ -868,11 +831,11 @@ function ProviderChainSection({
 
 function AdapterOptionsSection({
   object,
-  createSource,
+  writeSource,
   adapter,
 }: {
   object: ProjectedObject;
-  createSource: string;
+  writeSource: string | null;
   adapter: string;
 }) {
   const state = useConfigDraftStore();
@@ -908,10 +871,10 @@ function AdapterOptionsSection({
     ]);
     for (const key of Object.keys(adapterOptions)) {
       if (!keep.has(key)) {
-        clearObjectField(ROOT, object, `adapter_options.${key}`, createSource);
+        clearObjectField(ROOT, object, `adapter_options.${key}`, writeSource);
       }
     }
-    setObjectField(ROOT, object, "adapter_options.protocol", next, createSource);
+    setObjectField(ROOT, object, "adapter_options.protocol", next, writeSource);
   };
 
   return (
@@ -950,7 +913,7 @@ function AdapterOptionsSection({
             <AdapterOptionRow
               key={key}
               object={object}
-              createSource={createSource}
+              writeSource={writeSource}
               optionKey={key}
               rule={allowed.get(key) ?? null}
               meta={optionMeta(key)}
@@ -976,7 +939,7 @@ function AdapterOptionsSection({
                       meta?.valueKind ?? option?.valueKind ?? "string",
                       meta?.choices ?? [],
                     ),
-                    createSource,
+                    writeSource,
                   );
                 }}
                 className={`${selectClass} max-w-56`}
@@ -999,14 +962,14 @@ function AdapterOptionsSection({
 
 function AdapterOptionRow({
   object,
-  createSource,
+  writeSource,
   optionKey,
   rule,
   meta,
   unknown,
 }: {
   object: ProjectedObject;
-  createSource: string;
+  writeSource: string | null;
   optionKey: string;
   rule: AdapterOptionRule | null;
   meta: CatalogField | null;
@@ -1033,7 +996,7 @@ function AdapterOptionRow({
       actions={
         <IconButton
           label={`Clear ${meta?.title ?? optionKey}`}
-          onClick={() => clearObjectField(ROOT, object, subpath, createSource)}
+          onClick={() => clearObjectField(ROOT, object, subpath, writeSource)}
         >
           <X size={13} />
         </IconButton>
@@ -1050,7 +1013,7 @@ function AdapterOptionRow({
           }))
         }
         onCommit={(next) =>
-          setObjectField(ROOT, object, subpath, next, createSource)
+          setObjectField(ROOT, object, subpath, next, writeSource)
         }
       />
     </FieldRow>
@@ -1149,10 +1112,10 @@ function defaultOptionValue(
 
 function RequestOverridesSection({
   object,
-  createSource,
+  writeSource,
 }: {
   object: ProjectedObject;
-  createSource: string;
+  writeSource: string | null;
 }) {
   const state = useConfigDraftStore();
   const overrides = isPlainRecord(object.value.request_overrides)
@@ -1182,7 +1145,7 @@ function RequestOverridesSection({
               set ? (
                 <IconButton
                   label={`Clear ${meta?.title ?? key}`}
-                  onClick={() => clearObjectField(ROOT, object, subpath, createSource)}
+                  onClick={() => clearObjectField(ROOT, object, subpath, writeSource)}
                 >
                   <X size={13} />
                 </IconButton>
@@ -1196,7 +1159,7 @@ function RequestOverridesSection({
                 min={integer ? 1 : 0}
                 value={typeof overrides[key] === "number" ? overrides[key] : fallback}
                 onCommit={(value) =>
-                  setObjectField(ROOT, object, subpath, value, createSource)
+                  setObjectField(ROOT, object, subpath, value, writeSource)
                 }
               />
             ) : (
@@ -1206,7 +1169,7 @@ function RequestOverridesSection({
                   size="xs"
                   variant="outline"
                   onClick={() =>
-                    setObjectField(ROOT, object, subpath, fallback, createSource)
+                    setObjectField(ROOT, object, subpath, fallback, writeSource)
                   }
                 >{settingsText("Set override")}</Button>
               </div>

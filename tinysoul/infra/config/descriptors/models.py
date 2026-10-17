@@ -246,7 +246,7 @@ class ConfigCollectionDescriptor:
     title: str
     description: str
     identity: ConfigCollectionIdentityDescriptor
-    create_source: str
+    create_source: str | None
     create_template: JsonObject
     allow_create: bool = True
     delete_policy: ConfigCollectionDeletePolicy = ConfigCollectionDeletePolicy.ALL
@@ -263,7 +263,8 @@ class ConfigCollectionDescriptor:
         _require_text(self.description, "collection.description")
         if not isinstance(self.identity, ConfigCollectionIdentityDescriptor):
             raise ConfigCatalogError("Configuration collection identity is invalid")
-        _require_identifier(self.create_source, "collection.create_source")
+        if self.create_source is not None:
+            _require_identifier(self.create_source, "collection.create_source")
         if not isinstance(self.allow_create, bool):
             raise ConfigCatalogError(
                 "Configuration collection allow_create must be boolean"
@@ -275,18 +276,20 @@ class ConfigCollectionDescriptor:
         object.__setattr__(self, "create_template", dict(self.create_template))
 
     def to_json(self) -> JsonObject:
-        return {
+        result: JsonObject = {
             "id": self.id,
             "surface": self.surface,
             "root": self.root,
             "title": self.title,
             "description": self.description,
             "identity": self.identity.to_json(),
-            "create_source": self.create_source,
             "create_template": dict(self.create_template),
             "allow_create": self.allow_create,
             "delete_policy": self.delete_policy.value,
         }
+        if self.create_source is not None:
+            result["create_source"] = self.create_source
+        return result
 
 
 @dataclass(frozen=True)

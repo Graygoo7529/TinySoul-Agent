@@ -37,6 +37,8 @@ export interface SourceDraftEntry {
   key: string;
   sourceId: string;
   op: { op: "create_source" };
+  /** Owns only the include path automatically appended for this new file. */
+  includeSourceId?: string;
 }
 export type DraftEntry = FieldDraftEntry | SourceDraftEntry;
 
@@ -210,6 +212,33 @@ export function applyDelete(
   }
   next[key] = { key, ...ref, op: { op: "delete" } };
   return next;
+}
+
+/** Withdraw changes and release source declarations with no remaining fields. */
+export function resetDraftEntries(
+  current: Record<string, DraftEntry>,
+  saved: Configuration | null,
+  keys: string[],
+): Record<string, DraftEntry> {
+  const drop = new Set(keys);
+  const sources = Object.values(current).filter((entry): entry is SourceDraftEntry => !isFieldDraft(entry));
+  const droppedSources = new Set(sources.filter((entry) => drop.has(entry.key)).map((entry) => entry.sourceId));
+  let drafts = Object.fromEntries(Object.entries(current).filter(
+    ([key, entry]) => !drop.has(key) && !droppedSources.has(entry.sourceId),
+  ));
+  const fieldSources = new Set(Object.values(drafts).filter(isFieldDraft).map((entry) => entry.sourceId));
+  for (const source of sources) {
+    if (drafts[source.key] !== undefined && fieldSources.has(source.sourceId)) continue;
+    delete drafts[source.key];
+    if (source.includeSourceId === undefined) continue;
+    const ref = { sourceId: source.includeSourceId, path: "config.include" };
+    const includeDraft = drafts[draftKey(ref)];
+    const include = includeDraft?.op.op === "set" ? includeDraft.op.value : savedValue(saved, ref.path);
+    if (!Array.isArray(include)) continue;
+    const relative = source.sourceId.replace(/^project:/, "");
+    drafts = applySet(drafts, saved, ref, include.filter((path) => path !== relative));
+  }
+  return drafts;
 }
 
 /** Deterministic operation list for apply / preset capture. */

@@ -61,7 +61,7 @@ export interface CatalogCollection {
   root: string;
   title: string;
   description: string;
-  createSource: string;
+  createSource: string | null;
   createTemplate: Record<string, JsonValue>;
   allowCreate: boolean;
   deletePolicy: string;
@@ -201,7 +201,7 @@ export function decodeCatalog(raw: ConfigCatalog): SettingsCatalog {
       surface === null ||
       root === null ||
       title === null ||
-      createSource === null
+      (item.create_source !== undefined && createSource === null)
     ) {
       continue;
     }

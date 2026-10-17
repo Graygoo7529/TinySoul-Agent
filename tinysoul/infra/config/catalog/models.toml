@@ -131,7 +131,6 @@ root = "llm.models"
 title = "Model"
 description = "A provider model with TinySoul-visible capabilities and request options."
 identity = { title = "Model ID", description = "Stable TinySoul model identifier referenced by task chains; dots, outer whitespace, and numeric-only IDs are not allowed." }
-create_source = "project:configs/llm/models/ungrouped.toml"
 create_template = { adapter = "openai_compatible_chat", providers = [{ provider = "", provider_model = "" }], context_window_tokens = 262144, capabilities = ["text_input"], adapter_options = {}, request_overrides = {}, family = "", collapsed = false }
 delete_policy = "all"
 

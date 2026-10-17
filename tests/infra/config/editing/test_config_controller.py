@@ -6,14 +6,17 @@ from typing import cast
 
 import pytest
 
+from tests.support.project import copy_initialized_project
 from tinysoul.infra.config import (
     ConfigController,
+    ConfigCreateSource,
     ConfigEnvironment,
     ConfigError,
     ConfigMutation,
     PreparedConfigActivation,
 )
 from tinysoul.infra.json import JsonObject
+from tinysoul.llm.config.loader import LLMConfigParser
 
 
 def _project(root: Path) -> ConfigEnvironment:
@@ -28,6 +31,70 @@ def _project(root: Path) -> ConfigEnvironment:
         encoding="utf-8",
     )
     return ConfigEnvironment.from_project_root(root, env={})
+
+
+async def test_family_models_and_task_references_save_and_reload_together(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "project"
+    copy_initialized_project(root)
+    environment = ConfigEnvironment.from_project_root(root, env={})
+    source_id = "project:configs/llm/models/qwen.toml"
+    model_ids = ["qwen-pro", "qwen-flash"]
+    activated_models: list[str] = []
+
+    def validate(candidate: ConfigEnvironment) -> None:
+        LLMConfigParser().parse(candidate.section_tree("llm"))
+
+    async def activate(candidate: ConfigEnvironment) -> PreparedConfigActivation:
+        parsed = LLMConfigParser().parse(candidate.section_tree("llm"))
+
+        async def commit() -> None:
+            activated_models.extend(
+                parsed.models.get(model_id).id for model_id in model_ids
+            )
+
+        return PreparedConfigActivation(commit)
+
+    controller = ConfigController(
+        root=root,
+        environment=environment,
+        validator=validate,
+        activator=activate,
+    )
+    definitions = tuple(
+        ConfigMutation(source_id, f"llm.models.{model_id}", "set", {
+            "family": "Qwen",
+            "adapter": "openai",
+            "providers": [{"provider": "openai", "provider_model": f"remote-{model_id}"}],
+            "context_window_tokens": 32768,
+            "capabilities": ["text_input", "json_object_output"],
+        })
+        for model_id in model_ids
+    )
+    saved = await controller.patch(
+        (
+            ConfigCreateSource(source_id),
+            *definitions,
+            ConfigMutation(
+                "project:configs/llm/tasks.toml",
+                "llm.tasks.llm-action.models",
+                "set",
+                [model_id for model_id in model_ids],
+            ),
+        )
+    )
+
+    assert saved["state"] == "saved"
+    assert activated_models == []
+    disk = ConfigEnvironment.from_project_root(root, env={})
+    parsed = LLMConfigParser().parse(disk.section_tree("llm"))
+    assert [parsed.models.get(model_id).family for model_id in model_ids] == ["Qwen", "Qwen"]
+    assert disk.effective_values()["llm.tasks.llm-action.models"] == model_ids
+    assert {item.source_id for item in disk.sources if item.source_id == source_id} == {source_id}
+    active = await controller.reload()
+    assert active["state"] == "active"
+    assert activated_models == model_ids
 
 
 def _project_with_document(root: Path) -> ConfigEnvironment:

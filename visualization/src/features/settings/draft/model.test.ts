@@ -121,7 +121,7 @@ describe("applySet", () => {
 
 describe("applyDelete", () => {
   const ref = {
-    sourceId: "project:configs/llm/models/ungrouped.toml",
+    sourceId: "project:configs/llm/models/qwen.toml",
     path: "llm.models.qwen-latest.adapter_options",
   };
 

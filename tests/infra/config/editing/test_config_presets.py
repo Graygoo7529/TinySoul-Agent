@@ -174,32 +174,6 @@ async def test_active_capture_and_draft_do_not_store_model_catalog(
     assert models["a"]["family"] == "saved"
 
 
-async def test_create_model_source_and_definition_in_one_patch(tmp_path: Path) -> None:
-    (tmp_path / "configs/llm/models").mkdir(parents=True)
-    (tmp_path / "tinysoul.toml").write_text(
-        '[config]\ninclude = ["configs/llm/models/*.toml"]\n', encoding="utf-8"
-    )
-    (tmp_path / "configs/llm/models/base.toml").write_text(
-        '[llm.models.base]\nfamily = "Base"\n', encoding="utf-8"
-    )
-    environment = ConfigEnvironment.from_project_root(tmp_path, env={})
-    controller = ConfigController(root=tmp_path, environment=environment)
-    source_id = "project:configs/llm/models/qwen.toml"
-    await controller.patch(
-        (
-            ConfigCreateSource(source_id),
-            ConfigMutation(
-                source_id,
-                "llm.models.qwen-latest",
-                "set",
-                {"family": "Qwen", "adapter": "openai"},
-            ),
-        )
-    )
-    assert (tmp_path / "configs/llm/models/qwen.toml").is_file()
-    assert controller.environment.effective_values()["llm.models.qwen-latest.family"] == "Qwen"
-
-
 async def test_create_family_source_and_include_in_one_patch(tmp_path: Path) -> None:
     (tmp_path / "configs/llm/models").mkdir(parents=True)
     (tmp_path / "tinysoul.toml").write_text(

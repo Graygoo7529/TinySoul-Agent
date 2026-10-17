@@ -374,16 +374,77 @@ export function fieldWriteSource(
   state: ConfigDraftState,
   path: string,
   ownerSources: string[],
-  createSource: string,
-): string {
-  const exact = state.saved?.sources.find(
-    (source) =>
-      source.kind === "project_toml" &&
-      Object.prototype.hasOwnProperty.call(source.values, path),
+  createSource: string | null,
+): string | null {
+  const exact = state.saved?.fields[path]?.source;
+  if (exact !== undefined && writableProjectSource(state, exact)) return exact;
+  if (ownerSources.length === 1 && writableProjectSource(state, ownerSources[0]!)) {
+    return ownerSources[0]!;
+  }
+  return createSource !== null && writableProjectSource(state, createSource) ? createSource : null;
+}
+
+/** Saved files and files declared in this draft share one writable-source view. */
+export function writableProjectSource(state: ConfigDraftState, sourceId: string): boolean {
+  const saved = state.saved?.sources.find((source) => source.id === sourceId);
+  if (saved !== undefined) return saved.kind === "project_toml" && saved.writable;
+  return Object.values(state.drafts).some(
+    (entry) => entry.op.op === "create_source" && entry.sourceId === sourceId,
   );
-  if (exact !== undefined) return exact.id;
-  if (ownerSources.length === 1) return ownerSources[0] as string;
-  return createSource;
+}
+
+export type FamilySourceTarget =
+  | { kind: "ready"; sourceId: string; create: boolean; includeSourceId: string | null; usesFileName: boolean }
+  | { kind: "invalid"; message: string; usesFileName: boolean };
+
+export function familyFileName(family: string): string {
+  return family.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+/** Resolve a new model's file from the same saved + draft view as its family. */
+export function resolveFamilySource(
+  state: ConfigDraftState,
+  models: ProjectedObject[],
+  family: string,
+  fileName = "",
+): FamilySourceTarget {
+  if (family === "") {
+    return { kind: "invalid", message: "Choose an existing family or enter a new one.", usesFileName: false };
+  }
+  const owners = [...new Set(models
+    .filter((model) => stringField(model.value, "family") === family)
+    .flatMap((model) => model.ownerSources))];
+  if (owners.length === 1) {
+    const sourceId = owners[0]!;
+    return writableProjectSource(state, sourceId)
+      ? { kind: "ready", sourceId, create: false, includeSourceId: null, usesFileName: false }
+      : { kind: "invalid", message: "This family's model file is read-only.", usesFileName: false };
+  }
+  const name = fileName.trim() || familyFileName(family);
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) {
+    return { kind: "invalid", message: "Enter a lowercase TOML file name such as qwen or qwen-vision.", usesFileName: true };
+  }
+  const relative = `configs/llm/models/${name}.toml`;
+  const sourceId = `project:${relative}`;
+  if (models.some((model) => model.ownerSources.includes(sourceId) && stringField(model.value, "family") !== family)) {
+    return { kind: "invalid", message: "This file contains another family's models; choose another file name.", usesFileName: true };
+  }
+  if (writableProjectSource(state, sourceId)) {
+    return { kind: "ready", sourceId, create: false, includeSourceId: null, usesFileName: true };
+  }
+  if (state.saved?.sources.some((source) => source.id === sourceId)) {
+    return { kind: "invalid", message: "This model file is read-only.", usesFileName: true };
+  }
+  const include = projectedValue(state, "config.include");
+  const includes = Array.isArray(include) ? include : [];
+  // The packaged family glob needs no change. Other include patterns are
+  // validated by the backend; an explicit path is safe alongside them.
+  const covered = includes.includes(relative) || includes.includes("configs/llm/models/*.toml");
+  const includeSourceId = state.saved?.fields["config.include"]?.source ?? "project:tinysoul.toml";
+  if (!covered && !writableProjectSource(state, includeSourceId)) {
+    return { kind: "invalid", message: "A writable project include list is required to add this family.", usesFileName: true };
+  }
+  return { kind: "ready", sourceId, create: true, includeSourceId: covered ? null : includeSourceId, usesFileName: true };
 }
 
 /**

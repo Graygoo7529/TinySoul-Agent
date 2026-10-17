@@ -169,7 +169,11 @@ def _parse_collections(value: object, source: str) -> list[ConfigCollectionDescr
                 title=_string(item, "title", source),
                 description=_string(item, "description", source),
                 identity=_parse_collection_identity(item.get("identity"), source),
-                create_source=_string(item, "create_source", source),
+                create_source=(
+                    _string(item, "create_source", source)
+                    if "create_source" in item
+                    else None
+                ),
                 create_template=cast(JsonObject, to_json_value(template)),
                 allow_create=_boolean(item, "allow_create", True, source),
                 delete_policy=delete_policy,

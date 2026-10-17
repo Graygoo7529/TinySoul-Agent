@@ -1,5 +1,17 @@
 /** Authored UI copy only. Never apply this dictionary to user/configuration values. */
 export const uiText: Record<string, string> = {
+  "Choose an existing family or enter a new one.": "请选择已有模型族，或填写新的模型族。",
+  "This family's model file is read-only.": "此模型族的配置文件只读。",
+  "Enter a lowercase TOML file name such as qwen or qwen-vision.": "请填写小写字母、数字或连字符组成的文件名，例如 qwen 或 qwen-vision。",
+  "This file contains another family's models; choose another file name.": "此文件已用于其它模型族，请换一个文件名。",
+  "This model file is read-only.": "此模型配置文件只读。",
+  "A writable project include list is required to add this family.": "项目配置的 include 列表不可写，无法添加此模型族文件。",
+  "No writable project source holds this model.": "此模型没有可写的项目配置来源。",
+  "Choose existing family": "选择已有模型族",
+  "New family?": "新建模型族",
+  "Choose adapter": "选择适配器",
+  "Choose provider": "选择供应商",
+  "Add a compatible provider on the Providers page.": "请先到供应商页面添加支持此适配器的供应商。",
   "User turns": "用户对话",
   "Home reflection": "Home 整理",
   "Memory reflection": "Memory 整理",

@@ -22,6 +22,7 @@ import {
   draftKey,
   rebaseOnSaved,
   resetAtomEntries,
+  resetDraftEntries,
   savedValue,
   isFieldDraft,
   type DraftEntry,
@@ -82,7 +83,7 @@ export interface ConfigDraftState {
   // --- draft editing -------------------------------------------------------
   setValue: (sourceId: string, path: string, value: JsonValue) => void;
   /** Stage creation of a new project TOML source before its model values. */
-  createSource: (sourceId: string) => void;
+  createSource: (sourceId: string, includeSourceId?: string | null) => void;
   deleteValue: (sourceId: string, path: string) => void;
   /**
    * Record delete drafts for refs whose ownership the caller has already
@@ -159,17 +160,29 @@ export const useConfigDraftStore = create<ConfigDraftState>()((set) => ({
       return { drafts, stale };
     }),
 
-  createSource: (sourceId) =>
+  createSource: (sourceId, includeSourceId = null) =>
     set((state) => {
       const key = JSON.stringify(["source", sourceId]);
       if (state.saved?.sources.some((source) => source.id === sourceId)) return state;
       if (state.drafts[key]?.op.op === "create_source") return state;
-      return {
-        drafts: {
-          ...state.drafts,
-          [key]: { key, sourceId, op: { op: "create_source" } },
-        },
+      let drafts = { ...state.drafts };
+      let appendedInclude = false;
+      if (includeSourceId !== null) {
+        const ref = { sourceId: includeSourceId, path: "config.include" };
+        const existing = drafts[draftKey(ref)];
+        const include = existing?.op.op === "set" ? existing.op.value : savedValue(state.saved, ref.path);
+        const paths = Array.isArray(include) ? include : [];
+        const relative = sourceId.replace(/^project:/, "");
+        if (!paths.includes(relative)) {
+          drafts = applySet(drafts, state.saved, ref, [...paths, relative]);
+          appendedInclude = true;
+        }
+      }
+      drafts[key] = {
+        key, sourceId, op: { op: "create_source" },
+        ...(appendedInclude && includeSourceId !== null ? { includeSourceId } : {}),
       };
+      return { drafts };
     }),
 
   deleteValue: (sourceId, path) =>
@@ -198,22 +211,9 @@ export const useConfigDraftStore = create<ConfigDraftState>()((set) => ({
 
   resetEntries: (keys) =>
     set((state) => {
-      const drop = new Set(keys);
-      const drafts = Object.fromEntries(
-        Object.entries(state.drafts).filter(([key]) => !drop.has(key)),
-      ) as Record<string, DraftEntry>;
-      const fieldSources = new Set(
-        Object.values(drafts)
-          .filter(isFieldDraft)
-          .map((entry) => entry.sourceId),
-      );
-      for (const entry of Object.values(drafts)) {
-        if (entry.op.op === "create_source" && !fieldSources.has(entry.sourceId)) {
-          delete drafts[entry.key];
-        }
-      }
+      const drafts = resetDraftEntries(state.drafts, state.saved, keys);
       const stale = Object.fromEntries(
-        Object.entries(state.stale).filter(([key]) => !drop.has(key)),
+        Object.entries(state.stale).filter(([key]) => drafts[key] !== undefined),
       );
       return { drafts, stale };
     }),
@@ -240,9 +240,8 @@ export const useConfigDraftStore = create<ConfigDraftState>()((set) => ({
       const stale = { ...state.stale };
       delete stale[key];
       if (action === "keep") return { stale };
-      const drafts = { ...state.drafts };
-      delete drafts[key];
-      return { drafts, stale };
+      const drafts = resetDraftEntries(state.drafts, state.saved, [key]);
+      return { drafts, stale: Object.fromEntries(Object.entries(stale).filter(([id]) => drafts[id] !== undefined)) };
     }),
 
   setLoading: () => set({ loadPhase: "loading", loadError: null }),

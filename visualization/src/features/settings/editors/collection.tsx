@@ -149,6 +149,7 @@ function CollectionList({
   const setValue = useConfigDraftStore((s) => s.setValue);
 
   const create = () => {
+    if (collection.createSource === null) return;
     const id = newId.trim();
     const issue = objectIdIssue(id);
     if (issue !== null) return setError(issue);
@@ -177,7 +178,7 @@ function CollectionList({
       {ids.length === 0 && (
         <div className="py-2 text-[11px] text-fg-faint">暂无条目。</div>
       )}
-      {collection.allowCreate && (
+      {collection.allowCreate && collection.createSource !== null && (
         <div className="mt-1 border-t border-line pt-2">
           <input
             type="text"

@@ -65,6 +65,25 @@ beforeEach(() => {
 });
 
 describe("project TOML source drafts", () => {
+  it("merges explicit includes and removes only paths owned by withdrawn sources", () => {
+    const main = "project:tinysoul.toml";
+    const first = "project:configs/llm/models/qwen.toml";
+    const second = "project:configs/llm/models/gemma.toml";
+    const ref = { sourceId: main, path: "config.include" };
+    installSnapshots(makeConfig({ "config.include": { value: ["configs/base.toml"], source: main } }));
+    store().createSource(first, main);
+    store().setValue(first, "llm.models.qwen-latest", { family: "Qwen" });
+    store().createSource(second, main);
+    store().setValue(second, "llm.models.gemma-latest", { family: "Gemma" });
+    expect(displayValue(store(), ref)).toEqual(["configs/base.toml", "configs/llm/models/qwen.toml", "configs/llm/models/gemma.toml"]);
+
+    store().resetEntries([draftKey({ sourceId: first, path: "llm.models.qwen-latest" })]);
+    expect(displayValue(store(), ref)).toEqual(["configs/base.toml", "configs/llm/models/gemma.toml"]);
+    expect(draftOperations(store()).filter((op) => op.op === "create_source")).toEqual([{ op: "create_source", source_id: second }]);
+
+    store().resetEntries([draftKey({ sourceId: second, path: "llm.models.gemma-latest" })]);
+    expect(draftOperations(store())).toEqual([]);
+  });
   it("stages source creation without a field path", () => {
     const sourceId = "project:configs/llm/models/qwen.toml";
     installSnapshots(makeConfig({}));

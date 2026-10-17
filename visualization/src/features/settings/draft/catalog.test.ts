@@ -94,6 +94,13 @@ const RAW_CATALOG = {
 };
 
 describe("decodeCatalog", () => {
+  it("keeps collections that select their source during creation", () => {
+    const { create_source: _, ...collection } = RAW_CATALOG.collections[0]!;
+    const catalog = decodeCatalog({ ...RAW_CATALOG, collections: [collection] } as unknown as ConfigCatalog);
+    expect(catalog.collections).toHaveLength(1);
+    expect(catalog.collections[0]?.createSource).toBeNull();
+    expect(catalog.collections[0]?.allowCreate).toBe(true);
+  });
   it("decodes the wire projection into typed declarations", () => {
     const catalog = decodeCatalog(RAW_CATALOG as unknown as ConfigCatalog);
     expect(catalog.surfaces).toHaveLength(2);

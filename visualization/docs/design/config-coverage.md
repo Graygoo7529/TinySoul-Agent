@@ -21,7 +21,7 @@ PATCH 的 `path` 不表示任意深的 TOML 树路径：
 
 - catalog 中 `value_kind = "object"` 的字段是**原子值**：`action.retrieval` 整张 map、MCP server 的 `tools`/`env`/`env_refs`/`headers`/`header_refs`、`adapter_options.thinking`（object 形态）、ACP agent 的 `env`/`env_refs` 都按整对象提交；含点的远端工具名/Action ID 是 map 原子键，不展开为子路径。
 - `value_kind = "object_list"` / 数组字段整体提交：`action.models.bindings`、`infra.model_services.providers/models/uses` 三个数组、`llm.models.<id>.providers`、`llm.providers.<id>.adapters` 等。前端按稳定 id/consumer 识别条目，编辑后提交整个数组。
-- collection（`llm.providers`、`llm.models`、`llm.tasks`、`capabilities.expand.servers`、`capabilities.subagent.agents`）按 key 逐对象展开；新增对象用 catalog 声明的 `create_source` 与 `create_template`，删除受 `delete_policy` 约束。
+- collection（`llm.providers`、`llm.models`、`llm.tasks`、`capabilities.expand.servers`、`capabilities.subagent.agents`）按 key 逐对象展开；新增对象用 `create_template` 作为表单起点。catalog 的 `create_source` 可选：Provider、任务链等使用固定来源，LLM 模型按 family 从 saved + draft 来源中解析目标。删除受 `delete_policy` 约束。
 
 ### 1.3 编辑与激活流程
 
@@ -52,7 +52,7 @@ PATCH 的 `path` 不表示任意深的 TOML 树路径：
 
 | 路径 | 类型/约束 | 可改性 | 影响 |
 | --- | --- | --- | --- |
-| `llm.models.<id>` 键 | 同上 ID 规则；用户新建模型写入 `project:configs/llm/models/ungrouped.toml` | 可增删改 | 任务链与用途引用的对象 |
+| `llm.models.<id>` 键 | 同上 ID 规则；新模型写入所选 family 的实际来源，新 family 创建 `configs/llm/models/<family-name>.toml` | 可增删改 | 任务链与用途引用的对象 |
 | `.adapter` | enum，同 §2.1 adapter 集合（单选） | 可写 | 该模型的请求行为；其 providers 链中每个 Provider 必须声明此 adapter |
 | `.family` | string（默认空），仅显示元数据 | 可写 | 列表分组，不影响可用性 |
 | `.collapsed` | boolean（默认 false），仅显示元数据 | 可写 | 列表默认折叠，不影响可用性 |

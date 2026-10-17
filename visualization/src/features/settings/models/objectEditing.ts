@@ -32,7 +32,7 @@ export function setObjectField(
   obj: ProjectedObject,
   subpath: string,
   value: JsonValue,
-  createSource: string,
+  createSource: string | null,
 ): void {
   const state = useConfigDraftStore.getState();
   const wholeKey = wholeObjectKey(root, obj.id);
@@ -47,6 +47,7 @@ export function setObjectField(
   }
   const path = `${root}.${obj.id}.${subpath}`;
   const sourceId = fieldWriteSource(state, path, obj.ownerSources, createSource);
+  if (sourceId === null) return;
   state.setValue(sourceId, path, value);
 }
 
@@ -55,7 +56,7 @@ export function clearObjectField(
   root: string,
   obj: ProjectedObject,
   subpath: string,
-  createSource: string,
+  createSource: string | null,
 ): void {
   const state = useConfigDraftStore.getState();
   const wholeKey = wholeObjectKey(root, obj.id);
@@ -70,6 +71,7 @@ export function clearObjectField(
   }
   const path = `${root}.${obj.id}.${subpath}`;
   const sourceId = fieldWriteSource(state, path, obj.ownerSources, createSource);
+  if (sourceId === null) return;
   state.deleteValue(sourceId, path);
 }
 
@@ -122,7 +124,7 @@ export function stageObjectRename(
   root: string,
   obj: ProjectedObject,
   newId: string,
-  createSource: string,
+  createSource: string | null,
 ): void {
   const state = useConfigDraftStore.getState();
   const oldPrefix = `${root}.${obj.id}`;
@@ -131,9 +133,12 @@ export function stageObjectRename(
       (entry) => isFieldDraft(entry) && (entry.path === oldPrefix || entry.path.startsWith(`${oldPrefix}.`)),
     )
     .map((entry) => entry.key);
-  if (oldDraftKeys.length > 0) state.resetEntries(oldDraftKeys);
-  const targetSource = obj.ownerSources[0] ?? createSource;
+  const targetSource = fieldWriteSource(state, oldPrefix, obj.ownerSources, createSource);
+  if (targetSource === null) return;
+  // Keep the source referenced throughout a draft-only rename, so resetting
+  // the old id cannot withdraw its pending file creation.
   state.setValue(targetSource, `${root}.${newId}`, cloneJsonValue(obj.value));
+  if (oldDraftKeys.length > 0) state.resetEntries(oldDraftKeys);
   if (!obj.isNew) {
     for (const sourceId of obj.ownerSources) {
       state.deleteValue(sourceId, oldPrefix);

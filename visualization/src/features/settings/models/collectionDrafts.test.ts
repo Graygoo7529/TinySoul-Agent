@@ -22,6 +22,7 @@ import {
   projectedFields,
   providerCredentialStates,
   providerReferences,
+  resolveFamilySource,
   serviceModelReferences,
   serviceProviderReferences,
   taskChainUsage,
@@ -30,7 +31,7 @@ import {
 
 const MAIN = "project:tinysoul.toml";
 const PROVIDERS = "project:configs/llm/providers.toml";
-const MODELS_UNGROUPED_SOURCE = "project:configs/llm/models/ungrouped.toml";
+const MODELS_GLM_SOURCE = "project:configs/llm/models/glm.toml";
 const MODELS_KIMI_SOURCE = "project:configs/llm/models/kimi.toml";
 const TASKS = "project:configs/llm/tasks.toml";
 const SERVICES = "project:configs/infra/model_services.toml";
@@ -73,7 +74,6 @@ function makeCatalog(): ConfigCatalog {
         root: "llm.models",
         title: "Model",
         description: "",
-        create_source: MODELS_UNGROUPED_SOURCE,
         create_template: {},
         allow_create: true,
         delete_policy: "all",
@@ -173,6 +173,44 @@ beforeEach(() => {
   store().reset();
 });
 
+describe("family model sources", () => {
+  it("reuses a saved family's actual file and accepts an empty canonical file", () => {
+    install(makeSaved({
+      "llm.models.gpt-sol.family": { value: "GPT", source: "project:configs/llm/models/gpt.toml" },
+    }, [{ id: "project:configs/llm/models/qwen.toml", kind: "project_toml", values: {} }]));
+    const models = projectCollection(store(), "llm.models");
+    expect(resolveFamilySource(store(), models, "GPT")).toMatchObject({
+      kind: "ready", sourceId: "project:configs/llm/models/gpt.toml", create: false,
+    });
+    expect(resolveFamilySource(store(), models, "Qwen")).toMatchObject({
+      kind: "ready", sourceId: "project:configs/llm/models/qwen.toml", create: false,
+    });
+  });
+
+  it("uses the canonical file for a family split across files, independent of model order", () => {
+    install(makeSaved({
+      "config.include": { value: ["configs/llm/models/*.toml"], source: MAIN },
+      "llm.models.a.family": { value: "Qwen", source: "project:configs/llm/models/qwen-text.toml" },
+      "llm.models.b.family": { value: "Qwen", source: "project:configs/llm/models/qwen-code.toml" },
+    }));
+    const models = projectCollection(store(), "llm.models");
+    const target = resolveFamilySource(store(), models, "Qwen");
+    expect(target).toMatchObject({ kind: "ready", sourceId: "project:configs/llm/models/qwen.toml", create: true });
+    expect(resolveFamilySource(store(), models.reverse(), "Qwen")).toEqual(target);
+  });
+
+  it("rejects another family's occupied file and requires a usable filename", () => {
+    install(makeSaved({
+      "config.include": { value: ["configs/llm/models/*.toml"], source: MAIN },
+      "llm.models.a.family": { value: "Existing", source: "project:configs/llm/models/qwen.toml" },
+    }));
+    const models = projectCollection(store(), "llm.models");
+    expect(resolveFamilySource(store(), models, "Qwen").kind).toBe("invalid");
+    expect(resolveFamilySource(store(), models, "通义").kind).toBe("invalid");
+    expect(resolveFamilySource(store(), models, "通义", "qwen-code")).toMatchObject({ kind: "ready", create: true });
+  });
+});
+
 // ---------------------------------------------------------------------------
 // projectedFields
 // ---------------------------------------------------------------------------
@@ -188,7 +226,7 @@ describe("projectedFields", () => {
         },
       }),
     );
-    store().setValue(MODELS_UNGROUPED_SOURCE, "llm.models.my-model", {
+    store().setValue(MODELS_GLM_SOURCE, "llm.models.my-model", {
       adapter: "openai",
       providers: [{ provider: "openai", provider_model: "my-model" }],
       adapter_options: { thinking: { type: "enabled" }, reasoning_effort: "high" },
@@ -215,7 +253,7 @@ describe("projectedFields", () => {
       makeSaved({
         "llm.models.m.adapter": { value: "kimi", source: MODELS_KIMI_SOURCE },
         "llm.models.m.family": { value: "kimi", source: MODELS_KIMI_SOURCE },
-        "llm.models.m.context_window_tokens": { value: 262144, source: MODELS_UNGROUPED_SOURCE },
+        "llm.models.m.context_window_tokens": { value: 262144, source: MODELS_GLM_SOURCE },
       }),
     );
     // A set below the object replaces exactly that subtree. `adapter_options`
@@ -229,7 +267,7 @@ describe("projectedFields", () => {
     fields = projectedFields(store());
     expect(fields.get("llm.models.m.adapter")).toBeUndefined();
     expect(fields.get("llm.models.m.family")).toBeUndefined();
-    // The ungrouped source's override survives the Kimi-source delete.
+    // The GLM source's override survives the Kimi-source delete.
     expect(fields.get("llm.models.m.context_window_tokens")).toBe(262144);
   });
 });
@@ -284,12 +322,12 @@ describe("projectCollection", () => {
     install(
       makeSaved({
         "llm.models.kimi-k2.adapter": { value: "kimi", source: MODELS_KIMI_SOURCE },
-        "llm.models.kimi-k2.collapsed": { value: true, source: MODELS_UNGROUPED_SOURCE },
+        "llm.models.kimi-k2.collapsed": { value: true, source: MODELS_GLM_SOURCE },
       }),
     );
     const objects = projectCollection(store(), "llm.models");
     expect(objects).toHaveLength(1);
-    expect(objects[0]?.ownerSources).toEqual([MODELS_KIMI_SOURCE, MODELS_UNGROUPED_SOURCE].sort());
+    expect(objects[0]?.ownerSources).toEqual([MODELS_KIMI_SOURCE, MODELS_GLM_SOURCE].sort());
   });
 });
 
@@ -302,7 +340,7 @@ describe("objectDeletable", () => {
     install(
       makeSaved({
         "llm.models.kimi-k2.adapter": { value: "kimi", source: MODELS_KIMI_SOURCE },
-        "llm.models.mine.adapter": { value: "openai", source: MODELS_UNGROUPED_SOURCE },
+        "llm.models.mine.adapter": { value: "openai", source: MODELS_GLM_SOURCE },
       }),
     );
     const objects = projectCollection(store(), "llm.models");
@@ -391,7 +429,7 @@ describe("reference finders", () => {
         },
       }),
     );
-    store().setValue(MODELS_UNGROUPED_SOURCE, "llm.models.drafty", {
+    store().setValue(MODELS_GLM_SOURCE, "llm.models.drafty", {
       providers: [
         { provider: "kimi", provider_model: "k2" },
         { provider: "openai", provider_model: "g" },

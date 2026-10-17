@@ -24,7 +24,7 @@ import { moveItem } from "./collectionDrafts";
 
 const PROVIDERS = "project:configs/llm/providers.toml";
 const MODELS_KIMI_SOURCE = "project:configs/llm/models/kimi.toml";
-const MODELS_UNGROUPED_SOURCE = "project:configs/llm/models/ungrouped.toml";
+const MODELS_GLM_SOURCE = "project:configs/llm/models/glm.toml";
 const TASKS = "project:configs/llm/tasks.toml";
 
 describe("settings draft routing", () => {
@@ -75,7 +75,6 @@ function makeCatalog(): ConfigCatalog {
         root: "llm.models",
         title: "Model",
         description: "",
-        create_source: MODELS_UNGROUPED_SOURCE,
         create_template: {},
         allow_create: true,
         delete_policy: "all",
@@ -99,7 +98,10 @@ function makeCatalog(): ConfigCatalog {
       field("llm.providers.*.api_key_envs", "string_list", {
         credential_reference: true,
       }),
-      field("llm.models.*.adapter", "enum"),
+      field("llm.models.*.adapter", "enum", { choices: [
+        { value: "kimi", label: "Kimi" },
+        { value: "openai_compatible_chat", label: "OpenAI Compatible Chat" },
+      ] }),
       field("llm.models.*.providers", "object_list"),
       field("llm.models.*.capabilities", "string_list"),
       field("llm.models.*.collapsed", "boolean"),
@@ -113,21 +115,23 @@ function makeCatalog(): ConfigCatalog {
 
 function makeSaved(): Configuration {
   const fields: Record<string, { value: JsonValue; source: string }> = {
+    "config.include": { value: ["configs/llm/models/*.toml"], source: "project:tinysoul.toml" },
     "llm.providers.kimi.enabled": { value: true, source: PROVIDERS },
     "llm.providers.kimi.adapters": { value: ["kimi"], source: PROVIDERS },
     "llm.providers.kimi.base_url": { value: "https://api.moonshot.cn/v1", source: PROVIDERS },
     "llm.providers.kimi.api_key_envs": { value: ["KIMI_API_KEY"], source: PROVIDERS },
     "llm.models.kimi-k2.adapter": { value: "kimi", source: MODELS_KIMI_SOURCE },
+    "llm.models.kimi-k2.family": { value: "Kimi", source: MODELS_KIMI_SOURCE },
     "llm.models.kimi-k2.providers": {
       value: [{ provider: "kimi", provider_model: "kimi-k2" }],
       source: MODELS_KIMI_SOURCE,
     },
-    "llm.models.qwen-latest.adapter": { value: "kimi", source: MODELS_UNGROUPED_SOURCE },
-    "llm.models.qwen-latest.providers": {
-      value: [{ provider: "kimi", provider_model: "qwen-latest" }],
-      source: MODELS_UNGROUPED_SOURCE,
+    "llm.models.glm-latest.adapter": { value: "kimi", source: MODELS_GLM_SOURCE },
+    "llm.models.glm-latest.providers": {
+      value: [{ provider: "kimi", provider_model: "glm-latest" }],
+      source: MODELS_GLM_SOURCE,
     },
-    "llm.tasks.default.models": { value: ["kimi-k2", "qwen-latest"], source: TASKS },
+    "llm.tasks.default.models": { value: ["kimi-k2", "glm-latest"], source: TASKS },
   };
   const sourceIds = [...new Set(Object.values(fields).map((field) => field.source))];
   return {
@@ -242,7 +246,7 @@ describe("LlmProvidersPage", () => {
 
     // The modal names the referencing model chains before anything is staged.
     expect(container.textContent).toContain("llm.models.kimi-k2.providers");
-    expect(container.textContent).toContain("llm.models.qwen-latest.providers");
+    expect(container.textContent).toContain("llm.models.glm-latest.providers");
     expect(draftOperations(store())).toEqual([]);
 
     const modal = container.querySelector(".fixed.inset-0");
@@ -299,6 +303,91 @@ describe("LlmProvidersPage", () => {
 // ---------------------------------------------------------------------------
 
 describe("LlmModelsPage", () => {
+  async function choose(label: string, value: string): Promise<void> {
+    const select = container.querySelector(`.fixed select[aria-label="${label}"]`) as HTMLSelectElement;
+    expect(select).not.toBeNull();
+    await act(async () => { select.value = value; select.dispatchEvent(new Event("change", { bubbles: true })); });
+  }
+
+  async function fill(label: string, value: string): Promise<void> {
+    const input = container.querySelector(`.fixed input[aria-label="${label}"]`) as HTMLInputElement;
+    expect(input).not.toBeNull();
+    await act(async () => setInputValue(input, value));
+    await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  }
+
+  async function confirm(text: string): Promise<void> {
+    const button = [...container.querySelectorAll<HTMLButtonElement>(".fixed button")].find((item) => item.textContent?.trim() === text);
+    expect(button).toBeDefined();
+    expect(button!.disabled).toBe(false);
+    await act(async () => button!.click());
+  }
+
+  async function createModel(id: string, family: string, isNew = false): Promise<void> {
+    await act(async () => (container.querySelector('button[aria-label="New model"]') as HTMLButtonElement).click());
+    await fill("Model ID", id);
+    await choose("Family", isNew ? "__new__" : family);
+    if (isNew) await fill("New family", family);
+    await choose("Adapter", "kimi");
+    await fill("Provider model", `remote-${id}`);
+    await confirm("Create");
+  }
+
+  it("creates a family, renames its first draft model, and shares the file until its last model is removed", async () => {
+    await act(async () => root.render(<LlmModelsPage />));
+    const source = "project:configs/llm/models/qwen.toml";
+    await createModel("qwen-latest", "Qwen", true);
+    await act(async () => buttonByText("重命名").click());
+    await fill("New id", "qwen-pro");
+    await confirm("重命名");
+    expect(draftOperations(store())).toContainEqual({ op: "create_source", source_id: source });
+    expect(draftOperations(store()).some((op) => "path" in op && op.path.includes("qwen-latest"))).toBe(false);
+
+    await createModel("qwen-flash", "Qwen");
+    const operations = draftOperations(store());
+    expect(operations.filter((op) => op.op === "create_source")).toEqual([{ op: "create_source", source_id: source }]);
+    expect(operations.filter((op) => op.op === "set").map((op) => [op.source_id, op.path])).toEqual([
+      [source, "llm.models.qwen-flash"], [source, "llm.models.qwen-pro"],
+    ]);
+    await act(async () => buttonByText("删除").click());
+    await confirm("删除");
+    expect(draftOperations(store())).toContainEqual({ op: "create_source", source_id: source });
+    await renderSelected("qwen-pro");
+    await act(async () => buttonByText("删除").click());
+    await confirm("删除");
+    expect(draftOperations(store())).toEqual([]);
+  });
+
+  it("appends to an existing family and reuses an empty model file without creating it", async () => {
+    const saved = makeSaved();
+    const source = "project:configs/llm/models/qwen.toml";
+    saved.sources.push({ id: source, kind: "project_toml", path: "configs/llm/models/qwen.toml", exists: true, writable: true, values: {} });
+    store().applySnapshots({ saved, active: saved, catalogRaw: makeCatalog(), presets: [] });
+    await act(async () => root.render(<LlmModelsPage />));
+    await createModel("kimi-new", "Kimi");
+    await createModel("qwen-latest", "Qwen", true);
+    const operations = draftOperations(store());
+    expect(operations.every((op) => op.op === "set")).toBe(true);
+    expect(operations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source_id: MODELS_KIMI_SOURCE, path: "llm.models.kimi-new" }),
+      expect.objectContaining({ source_id: source, path: "llm.models.qwen-latest" }),
+    ]));
+  });
+
+  it("selects adapters independently and offers only compatible providers", async () => {
+    store().setValue(PROVIDERS, "llm.providers.chat", { adapters: ["openai_compatible_chat"] });
+    await act(async () => root.render(<LlmModelsPage />));
+    await act(async () => (container.querySelector('button[aria-label="New model"]') as HTMLButtonElement).click());
+    await choose("Adapter", "openai_compatible_chat");
+    const provider = container.querySelector('.fixed select[aria-label="Provider"]') as HTMLSelectElement;
+    expect([...provider.options].filter((option) => option.value !== "").map((option) => option.value)).toEqual(["chat"]);
+    await choose("Adapter", "kimi");
+    expect(provider.value).toBe("kimi");
+    expect((container.querySelector('.fixed select[aria-label="Adapter"]') as HTMLSelectElement).value).toBe("kimi");
+    await confirm("取消");
+    expect(draftOperations(store()).every((op) => op.op === "set" && op.path.startsWith("llm.providers."))).toBe(true);
+  });
+
   async function renderSelected(id: string): Promise<void> {
     await act(async () => {
       root.render(<LlmModelsPage />);
@@ -331,7 +420,7 @@ describe("LlmModelsPage", () => {
   });
 
   it("rename with references stages the move and rewrites the task chain", async () => {
-    await renderSelected("qwen-latest");
+    await renderSelected("glm-latest");
     await act(async () => {
       buttonByText("重命名").click();
     });
@@ -343,7 +432,7 @@ describe("LlmModelsPage", () => {
       'input[aria-label="New id"]',
     ) as HTMLInputElement;
     await act(async () => {
-      setInputValue(input, "qwen-latest-2");
+      setInputValue(input, "glm-latest-2");
     });
     const rename = [...container.querySelectorAll(".fixed.inset-0 button")].find(
       (item) => item.textContent?.trim() === "重命名",
@@ -356,18 +445,18 @@ describe("LlmModelsPage", () => {
     const operations = draftOperations(store());
     expect(operations).toContainEqual({
       op: "delete",
-      source_id: MODELS_UNGROUPED_SOURCE,
-      path: "llm.models.qwen-latest",
+      source_id: MODELS_GLM_SOURCE,
+      path: "llm.models.glm-latest",
     });
     expect(operations).toContainEqual({
       op: "set",
       source_id: TASKS,
       path: "llm.tasks.default.models",
-      value: ["kimi-k2", "qwen-latest-2"],
+      value: ["kimi-k2", "glm-latest-2"],
     });
     const create = operations.find(
       (operation) =>
-        operation.op === "set" && operation.path === "llm.models.qwen-latest-2",
+        operation.op === "set" && operation.path === "llm.models.glm-latest-2",
     );
     expect(create).toBeDefined();
     expect(create?.op === "set" && create.value).toMatchObject({
@@ -421,7 +510,7 @@ describe("LlmTaskChainsPage", () => {
         op: "set",
         source_id: TASKS,
         path: "llm.tasks.default.models",
-        value: ["qwen-latest", "kimi-k2"],
+        value: ["glm-latest", "kimi-k2"],
       },
     ]);
   });

@@ -46,6 +46,8 @@ project TOML 执行 source-aware mutation。模型是否来自哪个 TOML 文件
 
 ## 配置来源
 
+配置目录的 collection 可以声明固定创建来源，也可以由编辑器根据对象信息选择来源。固定来源是可选的编辑提示；每次实际写入仍明确携带 source_id。LLM 模型按 family 选择已有或新建的普通 TOML，候选文件与磁盘文件通过同一 include 图加载，配置设施不维护 family 注册表。
+
 运行时配置控制仍由 Infra 提供 source-aware 的无业务控制面：`ConfigSource` 带有
 `PROJECT_TOML`、`DOTENV`、`ENVIRONMENT` 和 `OVERRIDE` 类型、稳定 `source_id` 与项目相对路径。
 `ConfigFileToml` 和 `DotenvDocument` 在临时文档上执行结构化 set/delete；`ConfigFileTransaction`
