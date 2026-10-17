@@ -12,6 +12,14 @@ Infra 当前负责配置环境、JSON 动态边界、受控文件系统读写、
 
 配置加载机制属于 Infra；具体配置项属于使用它的模块。
 
+### 统一配置链路
+
+项目配置以 TOML 为主要持久来源，Infra 负责来源加载、结构化编辑和文件写回，各 owner 解释并校验自己的配置。Endpoint 返回配置值、来源和展示描述；前端消费这些投影，将编辑保留为本地草稿，提交后由后端构造候选、校验并保存。新增 TOML 必须进入对应的受管加载范围，前端不直接操作服务器文件。当前 Agent 配置通过 PATCH 仅保存候选，通过 apply 保存并激活，或通过 reload 激活已保存配置；其它消费者的生效方式由其 owner 定义。package assets 只在 init/reset 时物化为项目文件，运行期间读取和编辑项目副本。
+
+外部协议见 [配置 Endpoint](../endpoint/configuration.md)，前端草稿与应用交互见 [Settings 设计](../../visualization/docs/design/settings.md)。
+
+### 配置展示与语义
+
 Infra 同时拥有 package 内的配置展示目录，但不拥有业务配置语义。目录位于
 `tinysoul/infra/config/catalog/*.toml`，集中维护稳定 surface、collection identity、field group、
 字段标题、说明、输入类型、primary/advanced 层级、静态 choices、正向引用、credential reference

@@ -106,6 +106,7 @@ SDK 服务绑定运行世代，日级服务同时绑定 CalendarDay；切换后�
 - 依赖方向为 `infra → runtime/llm → kernel → plugins/environment → agent → gateway`。上层通过稳定门面、服务、provider、snapshot 或 signal 协作，不绕过 owner 操作私有状态。
 - `prompts` 是无业务依赖的固定模型文案包；实际消费者只导入所属 owner 的文案。内容依赖不改变业务依赖方向，也不转移消息装配、协议、状态或失败处理职责。
 - 每项持久事实只有一个 owner；运行状态、模型投影和持久内容分层，不复制状态、不建立平行日志、不保留语义不清的兼容别名。
+- 项目持久配置通过 Infra 的配置设施加载与写入，具体字段和校验语义归所属 owner。Endpoint 提供结构化查询和修改协议，前端消费配置投影并维护编辑草稿。配置保存后的生效方式由消费者决定；影响 Agent 运行的配置通过既有 apply/reload 流程激活。完整链路见 [Infra 配置设计](docs/design/infra.md#统一配置链路)。
 - 显式 PluginProfileExtension 贡献服务、段、动作、preparation/completion 和事件适配；PluginGeneration 持有代级 owner、来源与永久 close。只有具有仓库内真实消费者的 SPI 才加入协议，不构建动态发现平台。
 
 ### 模块职责

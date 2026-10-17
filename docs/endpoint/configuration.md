@@ -1,5 +1,7 @@
 # Configuration
 
+本页描述 Agent 配置的结构化查询、编辑和激活协议。前端读取后端投影、维护本地草稿并提交修改；配置 owner 校验候选并经 Infra 写回项目文件，Endpoint 只映射协议。新增文件须进入受管加载范围，保存与生效遵循下述 PATCH/apply/reload 语义。整体职责见 [统一配置链路](../design/infra.md#统一配置链路)。
+
 ## Read
 
 - `GET /v2/config?view=saved|active`：默认 saved；active 来自最后成功发布的配置快照，saved 读取当前配置文件。两者都包含 activity、sources、effective fields、Runtime generation/activation、LLM Provider 凭据就绪状态和 process shell projection。pending_reload 比较保存值与活动值。
