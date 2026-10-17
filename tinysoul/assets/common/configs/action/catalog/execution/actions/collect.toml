@@ -15,8 +15,22 @@ type = "integer"
 [tool.schema.properties.max_chars]
 type = "integer"
 [semantic]
-use_when = ["A process output page or terminal fact is needed"]
+use_when = [
+    "Need to read new output from a running or completed Job",
+    "Check Job status and collect stdout/stderr incrementally",
+    "Verify Job completion and read terminal facts"
+]
+avoid_when = [
+    "Job has not been started yet; use execution.start first",
+    "Should wait without collecting; use core.wait",
+    "Should stop the Job; use core.job.stop"
+]
 effects = ["read_only"]
+examples = [
+    "Collect new output from test Job",
+    "Read exit code and final output after Job completes",
+    "Check progress of long-running Job"
+]
 [runtime]
 parallel_policy = "serial"
 [execution]

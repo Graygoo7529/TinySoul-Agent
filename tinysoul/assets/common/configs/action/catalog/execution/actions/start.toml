@@ -31,8 +31,21 @@ description = "Optional existing Workspace directory; omit to use the Job's defa
 type = "boolean"
 description = "Keep stdin available for execution.stdin while this Job runs."
 [semantic]
-use_when = ["A process must be supervised across Cycles"]
+use_when = [
+    "Command or script needs supervision across multiple Cycles",
+    "Long-running process that exceeds action timeout",
+    "Interactive process requiring execution.stdin later"
+]
+avoid_when = [
+    "Process completes quickly within action timeout; use execution.run",
+    "Previous Job is still running for same task"
+]
 effects = ["modifying"]
+examples = [
+    "Start long test suite as supervised Job",
+    "Start interactive shell for multi-step commands",
+    "Launch server process that runs across Cycles"
+]
 [runtime]
 parallel_policy = "serial"
 [execution]

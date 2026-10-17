@@ -22,10 +22,21 @@ type = "boolean"
 description = "Whether to replace an existing target. Defaults to false."
 
 [semantic]
-use_when = ["Need a readable copy of a known public Web page", "Defuddle is disabled, unavailable, or did not extract the page successfully"]
-avoid_when = ["Need source discovery instead of reading a known URL", "The preferred Defuddle action is enabled and suitable"]
+use_when = [
+    "Fetch a known public web page to readable Workspace Markdown",
+    "Defuddle is unavailable or didn't extract successfully",
+    "Need fallback extractor for web content"
+]
+avoid_when = [
+    "Should discover sources first; use web.search_by_kimi",
+    "Defuddle is preferred and working (use web.fetch_with_defuddle)",
+    "URL is not a public HTTPS page"
+]
 effects = ["modifying"]
-examples = ["Fetch an article to workspace:web/pages/article.md with the fallback extractor"]
+examples = [
+    "Fetch article from https://example.com/post to workspace:web/article.md",
+    "Extract web page when Defuddle is disabled"
+]
 
 [runtime]
 parallel_policy = "serial"

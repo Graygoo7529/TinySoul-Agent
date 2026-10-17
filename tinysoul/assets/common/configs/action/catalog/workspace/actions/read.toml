@@ -30,10 +30,22 @@ type = "integer"
 description = "Optional 0-based continuation cursor within the requested line range."
 
 [semantic]
-use_when = ["An exact Workspace text reference and relevant line range are known", "A previous bounded read should be continued"]
-avoid_when = ["The relevant file or line range is unknown", "A document requires conversion", "The resource should be modified"]
+use_when = [
+    "Read a specific line range from a known workspace text file",
+    "Continue reading with cursor from previous read",
+    "Extract bounded section from exact workspace reference"
+]
+avoid_when = [
+    "File or line range is unknown; use workspace.search first",
+    "Need full file inspection with disclosure; use workspace.inspect",
+    "Document needs conversion; use convert actions first",
+    "Should modify content; use workspace.edit"
+]
 effects = ["read_only"]
-examples = ["Read lines 120 through 180 from workspace:src/service.py"]
+examples = [
+    "Read lines 120-180 from workspace:src/service.py",
+    "Read first 50 lines of workspace:README.md"
+]
 
 [runtime]
 parallel_policy = "serial"

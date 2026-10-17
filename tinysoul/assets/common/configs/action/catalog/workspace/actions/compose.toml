@@ -27,7 +27,21 @@ type = "array"
 type = "string"
 
 [semantic]
+use_when = [
+    "Generate complete file content using LLM with bounded references",
+    "Synthesize new document from existing workspace resources",
+    "Create artifact from instruction and reference materials"
+]
+avoid_when = [
+    "Content is already prepared; use workspace.write",
+    "Only need to modify existing file; use workspace.edit or append",
+    "References exceed LLM context budget; break down task"
+]
 effects = ["modifying"]
+examples = [
+    "Compose workspace:summary.md from instruction and workspace:data/*.json refs",
+    "Generate report by synthesizing workspace:results/ content"
+]
 
 [runtime]
 parallel_policy = "serial"

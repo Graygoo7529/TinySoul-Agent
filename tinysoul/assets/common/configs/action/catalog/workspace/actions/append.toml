@@ -18,10 +18,22 @@ type = "string"
 description = "Exact text to append, including any required separator or newline."
 
 [semantic]
-use_when = ["Need to add content to the end of an existing text resource"]
-avoid_when = ["A precise local replacement is needed", "The target does not exist", "The target is not a UTF-8 text resource"]
+use_when = [
+    "Add content to the end of an existing text file",
+    "Incrementally build up file content",
+    "Append a section, log entry, or data to an existing resource"
+]
+avoid_when = [
+    "Need to replace specific text; use workspace.edit",
+    "Target file doesn't exist; use workspace.write",
+    "Target is not a UTF-8 text file",
+    "Need to insert in the middle; use workspace.edit"
+]
 effects = ["modifying"]
-examples = ["Append a verified findings section to workspace:docs/report.md"]
+examples = [
+    "Append findings section to workspace:docs/report.md",
+    "Add new log entry to workspace:logs/activity.log"
+]
 
 [runtime]
 parallel_policy = "serial"
