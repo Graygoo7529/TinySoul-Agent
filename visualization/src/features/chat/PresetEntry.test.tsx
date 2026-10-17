@@ -26,8 +26,7 @@ const PRESET_ACTIVE = {
   ...presetFixture,
   id: "id-1",
   name: "Balanced",
-  active_match: true,
-  saved_match: true,
+  matches_current: true,
   validation_issues: [],
 } as unknown as PresetSummary;
 
@@ -36,13 +35,13 @@ const PRESET_OTHER = {
   id: "id-2",
   name: "Thorough",
   description: "Slower but better",
-  active_match: false,
-  saved_match: false,
+  matches_current: false,
   validation_issues: [],
 } as unknown as PresetSummary;
 
 const OTHER_DETAIL: Preset = {
   ...PRESET_OTHER,
+  changes: [{ path: ["loop", "user", "max_cycles"], before: 8, after: 16 }],
   definition: {
     values: {
       "llm.models": null,
@@ -142,115 +141,49 @@ async function render(): Promise<void> {
   await flush();
 }
 
-describe("PresetEntry collapsed state", () => {
-  it("shows the plan matching the running configuration", async () => {
+describe("PresetEntry", () => {
+  it("uses a stable title and shows matching marks in the list", async () => {
     await render();
-    const toggle = container.querySelector("[data-slot='preset-entry'] > button");
-    expect(toggle?.textContent).toContain("Balanced");
+    expect(container.querySelector("[data-slot='preset-entry'] > button")?.textContent).toContain("运行方案");
+    await openPopover();
+    expect(text()).toContain("匹配当前配置");
+    await click(button("Thorough"));
+    expect(text()).toContain("loop.user.max_cycles");
+    expect(text()).toContain("16");
   });
 
-  it("shows Custom when no plan matches (or none exist)", async () => {
-    listedPresets = [{ ...PRESET_ACTIVE, active_match: false, saved_match: false }];
-    await render();
-    const toggle = container.querySelector("[data-slot='preset-entry'] > button");
-    expect(toggle?.textContent).toContain("Custom");
-  });
-});
-
-describe("PresetEntry popover", () => {
-  it("shows an empty state and the manage entry without plans", async () => {
+  it("shows an empty state with a route to manage plans", async () => {
     listedPresets = [];
     await render();
     await openPopover();
-    expect(text()).toContain("No run plans yet");
-
-    await click(button("Manage plans"));
+    expect(text()).toContain("尚未创建运行方案");
+    await click(button("管理方案"));
     expect(useAppStore.getState().activeTab).toBe("settings");
     expect(useSettingsUiStore.getState().page).toBe("plans");
   });
 
-  it("expands a row to the managed groups and key budgets", async () => {
+  it("uses the shared preview before sending a single apply request", async () => {
     await render();
     await openPopover();
-    await click(button("Thorough"));
-    await flush();
-    expect(text()).toContain("Manages:");
-    expect(text()).toContain("loop.user.max_cycles=16");
-  });
-
-  it("applies a plan with a single {preset_id} request and refreshes the label", async () => {
-    await render();
-    await openPopover();
-
-    // The post-apply refresh re-reads the list; it now reports the plan active.
-    listedPresets = [
-      { ...PRESET_ACTIVE, active_match: false },
-      { ...PRESET_OTHER, active_match: true, saved_match: true },
-    ];
-    await click(button("Apply"));
-    await flush();
-
-    const calls = endpoint.calls("/v2/config/apply", "POST");
-    expect(calls).toHaveLength(1);
-    expect(bodyJson(calls[0])).toEqual({ preset_id: "id-2" });
-    const toggle = container.querySelector("[data-slot='preset-entry'] > button");
-    expect(toggle?.textContent).toContain("Thorough");
-  });
-
-  it("disables apply with the real reason while the Agent is busy", async () => {
-    const views = configViews as { saved: Record<string, unknown>; active: Record<string, unknown> };
-    const busySaved = {
-      ...views.saved,
-      activity: { state: "turn_active", can_write: true, can_reload: false, reason: "turn_active" },
-    };
-    endpoint.get("/v2/config", (request) =>
-      jsonResponse(
-        new URL(request.url).searchParams.get("view") === "active"
-          ? views.active
-          : busySaved,
-      ),
-    );
-    await render();
-    await openPopover();
-
-    const apply = button("Apply");
-    expect(apply?.disabled).toBe(true);
-    expect(text()).toContain("Switching is unavailable");
-  });
-
-  it("with unapplied changes the shared guard asks before switching", async () => {
-    await render();
-    useConfigDraftStore
-      .getState()
-      .setValue("project:tinysoul.toml", "execution.enabled", false);
-    await openPopover();
-    await click(button("Apply"));
-    await flush();
-
-    expect(text()).toContain("有未应用的配置修改");
+    const applyButtons = [...container.querySelectorAll<HTMLButtonElement>("button")].filter((item) => item.textContent?.trim() === "应用");
+    await click(applyButtons[1]);
+    expect(text()).toContain("当前值");
     expect(endpoint.calls("/v2/config/apply", "POST")).toHaveLength(0);
+    await click(button("应用方案"));
+    expect(endpoint.calls("/v2/config/apply", "POST")).toHaveLength(1);
+    expect(bodyJson(endpoint.calls("/v2/config/apply", "POST")[0])).toEqual({ preset_id: "id-2" });
+  });
 
-    // "Review first" routes to the settings overview and keeps the draft.
-    await click(button("先查看未应用修改"));
+  it("review from the shared draft dialog opens configuration and preserves drafts", async () => {
+    await render();
+    await act(async () => useConfigDraftStore.getState().setValue("project:tinysoul.toml", "execution.enabled", false));
+    await openPopover();
+    await click(button("应用"));
+    expect(text()).toContain("不包含在以上比较中");
+    await click(button("先处理草稿"));
     expect(useAppStore.getState().activeTab).toBe("settings");
     expect(useSettingsUiStore.getState().page).toBe("overview");
     expect(Object.keys(useConfigDraftStore.getState().drafts)).toHaveLength(1);
-  });
-
-  it("discard-and-switch from chat clears the draft only after success", async () => {
-    await render();
-    useConfigDraftStore
-      .getState()
-      .setValue("project:tinysoul.toml", "execution.enabled", false);
-    await openPopover();
-    await click(button("Apply"));
-    await flush();
-    await click(button("丢弃修改并切换到"));
-    await flush();
-
-    const calls = endpoint.calls("/v2/config/apply", "POST");
-    expect(calls).toHaveLength(1);
-    expect(bodyJson(calls[0])).toEqual({ preset_id: "id-2" });
-    expect(Object.keys(useConfigDraftStore.getState().drafts)).toHaveLength(0);
+    expect(endpoint.calls("/v2/config/apply", "POST")).toHaveLength(0);
   });
 });

@@ -71,7 +71,7 @@ PATCH 的 `path` 不表示任意深的 TOML 树路径：
 
 ### 2.3 LLM 任务链 —— collection `llm.tasks`
 
-| 路径 | 类型/约束 | 默认（模板 frame_stage1/2/llm_action） | 影响 |
+| 路径 | 类型/约束 | 默认（模板 frame-stage1/2/llm-action） | 影响 |
 | --- | --- | --- | --- |
 | `llm.tasks.<id>.models` | 非空引用列表，指向 `llm.models` | 按模板 | 依次尝试的模型 |
 | `.required_capabilities` | string_list，链内每个模型须满足 | `["text_input"]` | 候选过滤 |
@@ -110,8 +110,8 @@ catalog value_kind 为 object_list，三个数组**各自整体提交**；UI 按
 
 | 路径 | 类型 | 默认 | 影响 |
 | --- | --- | --- | --- |
-| `loop.cycle.phase1_task_profile` | reference → `llm.tasks` | frame_stage1 | Phase1（更新语境、选择行动域）所用任务链 |
-| `loop.cycle.phase2_task_profile` | reference → `llm.tasks` | frame_stage2 | Phase2（域内生成 ActionCall）所用任务链 |
+| `loop.cycle.phase1_task_profile` | reference → `llm.tasks` | frame-stage1 | Phase1（更新语境、选择行动域）所用任务链 |
+| `loop.cycle.phase2_task_profile` | reference → `llm.tasks` | frame-stage2 | Phase2（域内生成 ActionCall）所用任务链 |
 
 不存在 decision model Phase 切换；框架 Phase 与 Action 内部用途是两层配置。
 
@@ -320,9 +320,8 @@ Endpoint：`GET/POST /v2/config/presets`、`GET/PUT/DELETE /v2/config/presets/{i
 
 **必选**：
 
-- `llm.models`（完整，含 family/collapsed）
-- `llm.tasks`（完整）
-- `action.models.bindings`（完整 implementation/target/options）
+- `llm.tasks` 中捕获时的各 profile（每条完整配置，按 ID 更新）
+- `action.models.bindings` 中捕获时的各 consumer（完整 implementation/target/options，按 consumer 更新）
 - `loop.cycle.phase1_task_profile`、`loop.cycle.phase2_task_profile`
 - 每个已登记 retrieval policy 的 `query.channels`
 
@@ -332,7 +331,13 @@ Endpoint：`GET/POST /v2/config/presets`、`GET/PUT/DELETE /v2/config/presets/{i
 - `context.max_image_bytes`、`context.compression_trigger_ratio`、`context.compression_target_ratio`、`context.trace_chunk_chars`、`context.trace_branch_factor`、`context.trace_min_hot_entries`、`context.max_trace_inspect_chars`
 - 每个 retrieval policy 的 `max_steps`、`max_snapshot_chars`、`page.max_items`、`page.max_chars`，以及已开放 select/rerank 的 `max_input_chars`
 
-**不包含**：Provider 连接与凭据、`infra.model_services.*`、Home/Memory `embedding_use`、各类路径、`system_text`、Reflection 调度、visibility、retrieval 的 sources/operations/allowed_context、知识正文、本地外观。方案内的 `null` 表示恢复 owner 默认，不是 `set(null)`（PATCH 协议禁止 null 值）。
+**不包含**：LLM 模型目录（含 family/collapsed）、Provider 连接与凭据、`infra.model_services.*`、Home/Memory `embedding_use`、各类路径、`system_text`、Reflection 调度、visibility、retrieval 的 sources/operations/allowed_context、知识正文、本地外观。方案内的 `null` 表示恢复 owner 默认，不是 `set(null)`（PATCH 协议禁止 null 值）。
+
+创建表单只有名称、说明和包含预算；重新保存只选择是否包含预算。捕获统一读取当前配置文件，不提供 active/saved/draft 来源选择。未应用草稿不进入方案，也不因捕获而丢失。
+
+方案详情分“方案内容 / 应用变化”两页：内容直接呈现有序模型链、参数、路由与全部声明预算；变化由后端按声明范围返回当前值→方案值。`matches_current` 表达当前配置是否满足声明，不推断唯一运行中方案。设置和聊天共用 `PresetApplyDialog`，每次应用先重新读取差异，只提交 `{preset_id}`；空差异仍可应用。存在草稿时在同一弹窗明确处理，失败保留，成功后清理。后来新增的任务/consumer 不参与旧方案差异，应用仍保留它们。待激活状态由全局配置状态页管理。
+
+模型管理页与任务首模型、追加、替换共用 `ModelSelectionList`；任务行通过 `ModelPicker` 弹出候选。family 胶囊、搜索和折叠开关只过滤列表，任务行保持实际模型 ID。默认隐藏 collapsed 候选，搜索可找到并显示折叠标记；未分组也是可筛选项。首模型须明确选择；追加去重、单行替换保持其它位置及顺序。编辑均进入既有共享草稿，新 family 文件、模型和任务引用可同批提交，不额外建立模型选择提交流程。
 
 ## 9. 与计划及现有前端文档的不一致点
 

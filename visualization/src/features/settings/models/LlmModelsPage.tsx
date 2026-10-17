@@ -1,3 +1,4 @@
+import { ModelSelectionList } from "./ModelPicker";
 import { settingsText } from "../i18n";
 import { SettingsDisclosure } from "../SettingsDisclosure";
 /**
@@ -54,7 +55,6 @@ import {
   SelectInput,
   TextInput,
   Toggle,
-  inputClass,
   selectClass,
   type SelectOption,
 } from "./controls";
@@ -102,9 +102,6 @@ export function LlmModelsPage() {
     collection?.allowCreate === true && state.saved?.activity.can_write === true;
 
   const [selected, setSelected] = useState<string | null>(null);
-  const [showCollapsed, setShowCollapsed] = useState(false);
-  const [query, setQuery] = useState("");
-  const [familyFilter, setFamilyFilter] = useState("all");
   const [creating, setCreating] = useState(false);
   const [renaming, setRenaming] = useState<ProjectedObject | null>(null);
   const [deleting, setDeleting] = useState<ProjectedObject | null>(null);
@@ -116,7 +113,6 @@ export function LlmModelsPage() {
       const id = focusPath.slice(ROOT.length + 1).split(".", 1)[0];
       if (id !== undefined && id !== "") {
         setSelected(id);
-        setShowCollapsed(true);
       }
     }
   }, [focusPath]);
@@ -137,31 +133,7 @@ export function LlmModelsPage() {
   const currentDeletable = objectDeletable(current, deletePolicy) && writeSource !== null;
   const families = [...new Set(objects.map((item) => stringField(item.value, "family")).filter(Boolean))].sort();
 
-  const needle = query.trim().toLowerCase();
-  const visible = objects.filter((item) => {
-    const family = stringField(item.value, "family");
-    if (familyFilter !== "all" && family !== familyFilter) return false;
-    if (needle !== "") return `${item.id} ${family}`.toLowerCase().includes(needle);
-    if (item.id === selected) return true;
-    return showCollapsed || item.value.collapsed !== true;
-  });
-  const sorted = [...visible].sort((a, b) => {
-    const familyA = stringField(a.value, "family");
-    const familyB = stringField(b.value, "family");
-    if (familyA !== familyB) {
-      if (familyA === "") return 1;
-      if (familyB === "") return -1;
-      return familyA.localeCompare(familyB);
-    }
-    return a.id.localeCompare(b.id);
-  });
-  const items = sorted.map((item) => ({
-    id: item.id,
-    dirty: item.dirty,
-    isNew: item.isNew,
-    group: stringField(item.value, "family") || "No family",
-    summary: modelSummary(item),
-  }));
+  const items = objects.map((item) => ({ id: item.id, dirty: item.dirty, isNew: item.isNew }));
 
   return (
     <>
@@ -183,37 +155,7 @@ export function LlmModelsPage() {
             ? "New model"
             : "Model configuration is currently read-only"
         }
-        searchable={false}
-        listHeader={
-          <div className="space-y-1.5 border-b border-line px-3 py-2">
-            <input
-              aria-label="Filter models"
-              value={query}
-              placeholder={settingsText("Filter models…")}
-              onChange={(event) => setQuery(event.target.value)}
-              className={`${inputClass} h-7 text-[11px]`}
-            />
-            <div className="flex flex-wrap gap-1">
-              {["all", ...families].map((family) => (
-                <button
-                  key={family}
-                  type="button"
-                  className={`rounded-full border px-2 py-0.5 text-[10px] ${familyFilter === family ? "border-accent bg-accent-soft text-accent" : "border-line text-fg-muted hover:bg-hover"}`}
-                  onClick={() => setFamilyFilter(family)}
-                >
-                  {family === "all" ? settingsText("All families") : family}
-                </button>
-              ))}
-            </div>
-            <label className="flex items-center gap-1.5 text-[10px] text-fg-muted">
-              <input
-                type="checkbox"
-                checked={showCollapsed}
-                onChange={(event) => setShowCollapsed(event.target.checked)}
-                className="accent-accent"
-              />{settingsText("Show collapsed models")}</label>
-          </div>
-        }
+        renderList={(select) => <ModelSelectionList models={objects} value={selected} onSelect={select} />}
         headerBadges={
           current !== null && (
             <>
@@ -321,17 +263,6 @@ export function LlmModelsPage() {
       />
     </>
   );
-}
-
-function modelSummary(object: ProjectedObject): string {
-  const adapter = stringField(object.value, "adapter");
-  const bindings = Array.isArray(object.value.providers) ? object.value.providers : [];
-  const first = bindings.find(isPlainRecord);
-  const chain =
-    first !== undefined && typeof first.provider === "string"
-      ? `${first.provider} · ${typeof first.provider_model === "string" ? first.provider_model : "?"}`
-      : "no provider";
-  return adapter === "" ? chain : `${adapter} · ${chain}`;
 }
 
 function NewModelModal({

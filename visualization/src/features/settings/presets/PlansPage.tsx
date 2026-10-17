@@ -1,603 +1,147 @@
-import { settingsText } from "../i18n";
-/**
- * The run-plan management page (implementation plan §19/P14), mounted in the
- * "Overview & Plans" group.
- *
- * Left: the named plan list with match state and dependency issues. Right:
- * the selected plan's managed scope (fixed by the backend) and a compact
- * strategy summary. The stored definition is a
- * read model — never an apply request body. Capture has exactly three
- * sources (running / saved / current draft); re-capture is the only action
- * that overwrites a definition, rename never re-captures, and there is no
- * "copy an old plan" button because the API has no from_preset write.
- * Applying submits only `{preset_id}` and shares the §15 draft guard.
- */
-
-import { useEffect, useMemo, useState } from "react";
-import {
-  AlertTriangle,
-  Camera,
-  CheckCircle2,
-  CircleDashed,
-  Layers,
-  Pencil,
-  Plus,
-  Trash2,
-  UploadCloud,
-} from "lucide-react";
-
+import { useEffect, useState } from "react";
+import { Pencil, Plus, Trash2, UploadCloud } from "lucide-react";
 import { isTinySoulApiError } from "../../../api/v2/errors";
 import type { Preset, PresetSummary } from "../../../api/v2/types";
 import { Badge } from "../../../components/ui/Badge";
 import { Button, IconButton } from "../../../components/ui/Button";
 import { SectionCard } from "../../../components/ui/Card";
-import { EmptyState } from "../../../components/ui/EmptyState";
 import { Modal } from "../../../components/ui/Modal";
 import { useConnectionStore } from "../../../store/connectionStore";
-import {
-  activationBlocker,
-  selectDraftCount,
-  useConfigDraftStore,
-} from "../draft/store";
-import { valuePreview } from "../editors/controls";
-import { isPlainRecord } from "../draft/model";
-import { pageForPath } from "../pages";
+import { activationBlocker, selectDraftCount, useConfigDraftStore } from "../draft/store";
 import { useSettingsUiStore } from "../uiStore";
-import {
-  createPreset,
-  deletePreset,
-  recapturePreset,
-  renamePreset,
-} from "./presetsController";
-import { usePresetApplyFlow } from "./PresetDraftConfirm";
-import {
-  budgetSummary,
-  decodePresetDefinition,
-  parseValidationIssues,
-  PRESET_EXCLUDED_NOTE,
-  presetScopes,
-  type CaptureInput,
-  type CaptureSource,
-  type PresetDefinitionView,
-} from "./presetsModel";
+import { pageForPath } from "../pages";
+import { settingsText } from "../i18n";
+import { createPreset, deletePreset, recapturePreset, renamePreset } from "./presetsController";
+import { usePresetApplyFlow } from "./PresetApplyDialog";
+import { PresetChanges, PresetContent } from "./PresetChanges";
+import { decodePresetDefinition, parseValidationIssues, presetScopes } from "./presetsModel";
 
 function describeError(error: unknown): string {
   if (isTinySoulApiError(error)) return `${error.code}: ${error.message}`;
-  if (error instanceof Error) return error.message;
-  return String(error);
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function PlansPage() {
-  const presets = useConfigDraftStore((s) => s.presets);
+  const presets = useConfigDraftStore((state) => state.presets);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const selected = presets?.find((preset) => preset.id === selectedId) ?? presets?.[0] ?? null;
+  return <div className="mx-auto flex max-w-5xl flex-col items-start gap-4 p-5 md:flex-row">
+    <SectionCard title="运行方案" description="保存任务链、路由与预算的常用组合。" className="w-full shrink-0 md:w-64"
+      actions={<Button variant="outline" size="xs" onClick={() => setCreating(true)}><Plus size={12} />新建方案</Button>}>
+      {!presets?.length ? <p className="text-[12px] text-fg-muted">尚未创建运行方案。</p> : <div className="space-y-2">
+        {presets.map((preset) => <PlanListRow key={preset.id} preset={preset} selected={selected?.id === preset.id} onSelect={() => setSelectedId(preset.id)} />)}
+      </div>}
+    </SectionCard>
+    <div className="w-full min-w-0 flex-1">{selected ? <PlanDetail key={selected.id} preset={selected} /> : <p>新建方案，保存当前任务链、路由与预算。</p>}</div>
+    {creating && <CaptureDialog title="新建方案" onClose={() => setCreating(false)} onCreated={(preset) => setSelectedId(preset.id)} />}
+  </div>;
+}
 
-  const selected = useMemo(
-    () => presets?.find((preset) => preset.id === selectedId) ?? presets?.[0] ?? null,
-    [presets, selectedId],
-  );
-
-  return (
-    <div className="mx-auto flex max-w-5xl items-start gap-4 p-5">
-      <SectionCard
-        title="运行方案"
-        description="保存模型路由与预算的命名方案，便于快速切换。"
-        className="w-80 shrink-0"
-        actions={
-          <Button variant="outline" size="xs" onClick={() => setCreating(true)}>
-            <Plus size={12} /> 新建方案
-          </Button>
-        }
-      >
-        {presets === null || presets.length === 0 ? (
-          <EmptyState
-            icon={<CircleDashed size={20} />}
-            title="还没有运行方案"
-            description="将当前模型路由保存为命名方案，方便切换调用策略。"
-          />
-        ) : (
-          <div className="space-y-1.5">
-            {presets.map((preset) => (
-              <PlanListRow
-                key={preset.id}
-                preset={preset}
-                selected={selected?.id === preset.id}
-                onSelect={() => setSelectedId(preset.id)}
-              />
-            ))}
-          </div>
-        )}
-      </SectionCard>
-
-      <div className="min-w-0 flex-1">
-        {selected === null ? (
-          <EmptyState
-            icon={<Layers size={22} />}
-            title="选择一个方案"
-            description="从运行中、已保存或当前草稿创建方案后，可在此查看范围。"
-          />
-        ) : (
-          <PlanDetail key={`${selected.id}:${selected.updated_at}`} preset={selected} />
-        )}
-      </div>
-
-      {creating && (
-        <CaptureDialog
-          title="New run plan"
-          onClose={() => setCreating(false)}
-          onCreated={(preset) => setSelectedId(preset.id)}
-        />
-      )}
+export function PlanListRow({ preset, selected, onSelect }: { preset: PresetSummary; selected: boolean; onSelect: () => void }) {
+  return <button type="button" onClick={onSelect} className={`w-full rounded-md border p-3 text-left ${selected ? "border-accent bg-accent-soft" : "border-line hover:bg-hover"}`}>
+    <div className="flex flex-wrap items-center gap-2 text-[13px] font-medium">{preset.name}
+      {preset.matches_current && <Badge tone="green">匹配当前配置</Badge>}
+      {preset.validation_issues.length > 0 && <Badge tone="yellow">依赖问题</Badge>}
     </div>
-  );
+    {preset.description && <p className="mt-1 text-[11px] text-fg-muted">{preset.description}</p>}
+    <p className="mt-1 text-[10px] text-fg-faint">{presetScopes(preset).map((scope) => scope.title).join(" · ")}</p>
+  </button>;
 }
-
-// ---------------------------------------------------------------------------
-// List
-// ---------------------------------------------------------------------------
-
-export function PlanListRow({
-  preset,
-  selected,
-  onSelect,
-}: {
-  preset: PresetSummary;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  const issues = parseValidationIssues(preset.validation_issues);
-  return (
-    <button
-      className={`w-full rounded-md border px-3 py-2 text-left transition-colors ${
-        selected ? "border-accent bg-accent-soft" : "border-line hover:bg-hover"
-      }`}
-      onClick={onSelect}
-    >
-      <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-fg">
-          {preset.name}
-        </span>
-        {preset.active_match ? (
-          <Badge tone="green">运行中</Badge>
-        ) : preset.saved_match ? (
-          <Badge tone="blue">匹配已保存</Badge>
-        ) : null}
-        {issues.length > 0 && (
-          <Badge tone="yellow" title="Dependencies of this plan are currently missing">
-            <AlertTriangle size={10} />
-            {issues.length}
-          </Badge>
-        )}
-      </div>
-      {preset.description !== "" && (
-        <div className="mt-0.5 truncate text-[11px] text-fg-muted">{preset.description}</div>
-      )}
-      <div className="mt-1 text-[10px] text-fg-faint">
-        {presetScopes(preset).map((scope) => scope.title).join(" · ")}
-      </div>
-    </button>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Detail
-// ---------------------------------------------------------------------------
 
 function PlanDetail({ preset }: { preset: PresetSummary }) {
-  const clients = useConnectionStore((s) => s.clients);
+  const clients = useConnectionStore((state) => state.clients);
+  const current = useConfigDraftStore((state) => state.saved);
   const blocker = useConfigDraftStore(activationBlocker);
-  const navigateTo = useSettingsUiStore((s) => s.navigateTo);
-
+  const navigateTo = useSettingsUiStore((state) => state.navigateTo);
   const [detail, setDetail] = useState<Preset | null>(null);
-  const [detailError, setDetailError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<"content" | "changes">("content");
   const [renaming, setRenaming] = useState(false);
   const [recapturing, setRecapturing] = useState(false);
   const [deleting, setDeleting] = useState(false);
-
-  // The definition ships only with the detail read; re-keyed on updated_at so
-  // a mutation's refreshed summary re-reads it.
   useEffect(() => {
-    if (clients === null) return;
+    if (!clients) return;
     let cancelled = false;
+    setDetail(null); setError(null);
     clients.config.getPreset(preset.id).then(
-      (value) => {
-        if (!cancelled) setDetail(value);
-      },
-      (error: unknown) => {
-        if (!cancelled) setDetailError(describeError(error));
-      },
+      (value) => { if (!cancelled) setDetail(value); },
+      (cause: unknown) => { if (!cancelled) setError(describeError(cause)); },
     );
-    return () => {
-      cancelled = true;
-    };
-  }, [clients, preset.id, preset.updated_at]);
-
-  const { requestApply, confirmDialog, applying } = usePresetApplyFlow({
-    onReview: () => navigateTo("overview"),
-  });
-
-  const definition = useMemo(
-    () => decodePresetDefinition(detail?.definition ?? null),
-    [detail],
-  );
-  const issues = parseValidationIssues(preset.validation_issues);
-
-  return (
-    <div className="flex flex-col gap-4">
-      <SectionCard
-        title={preset.name}
-        description={
-          preset.description !== ""
-            ? preset.description
-            : "No description."
-        }
-        actions={
-          <>
-            <IconButton label={settingsText("Rename")} onClick={() => setRenaming(true)}>
-              <Pencil size={13} />
-            </IconButton>
-            <IconButton
-              label="Overwrite capture"
-              title="Replace the stored definition from a chosen source"
-              onClick={() => setRecapturing(true)}
-            >
-              <Camera size={13} />
-            </IconButton>
-            <IconButton label={settingsText("Delete plan")} onClick={() => setDeleting(true)}>
-              <Trash2 size={13} />
-            </IconButton>
-          </>
-        }
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="primary"
-            size="sm"
-            disabled={clients === null || blocker !== null || preset.active_match}
-            loading={applying}
-            title={
-              preset.active_match
-                ? "This plan already matches the running configuration"
-                : (blocker ?? "Apply this plan")
-            }
-            onClick={() => requestApply(preset)}
-          >
-            <UploadCloud size={13} />{settingsText("Apply plan")}</Button>
-          {preset.active_match ? (
-            <Badge tone="green">
-              <CheckCircle2 size={11} />{settingsText("matches the running configuration")}</Badge>
-          ) : preset.saved_match ? (
-            <Badge tone="blue">匹配已保存配置</Badge>
-          ) : (
-            <Badge tone="gray">运行配置已发生变化</Badge>
-          )}
-          {blocker !== null && !preset.active_match && (
-            <span className="text-[11px] text-warning">{settingsText(blocker)}</span>
-          )}
-        </div>
-        <div className="mt-3 border-t border-line pt-3 text-[11px] text-fg-faint">
-          Captured {formatTimestamp(preset.created_at)} · updated{" "}
-          {formatTimestamp(preset.updated_at)}
-        </div>
-      </SectionCard>
-
-      {issues.length > 0 && (
-        <SectionCard
-          title={settingsText("Dependency issues")}
-          description={settingsText("The backend reports missing targets this plan references. Plans are never auto-repaired; fix the target and the plan applies.")}
-        >
-          <div className="space-y-1.5">
-            {issues.map((issue, index) => {
-              const owner = issue.key !== null ? pageForPath(issue.key) : null;
-              return (
-                <div
-                  key={index}
-                  className="flex items-center gap-2 rounded-md bg-warning-soft px-2.5 py-1.5 text-[12px] text-warning"
-                >
-                  <AlertTriangle size={12} className="shrink-0" />
-                  <span className="min-w-0 flex-1 break-words">
-                    {issue.message}
-                    {issue.key !== null && (
-                      <span className="ml-1.5 font-mono text-[11px] opacity-80">
-                        {issue.key}
-                      </span>
-                    )}
-                  </span>
-                  {owner !== null && issue.key !== null && (
-                    <Button
-                      variant="outline"
-                      size="xs"
-                      onClick={() => navigateTo(owner.id, issue.key)}
-                    >
-                      Open {owner.title}
-                    </Button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </SectionCard>
-      )}
-
-      <SectionCard
-        title={settingsText("Managed scope")}
-        description={settingsText("Fixed by the backend; a capture always covers these whole groups — the frontend does not pick individual fields.")}
-      >
-        <div className="space-y-2">
-          {presetScopes(preset).map((scope) => (
-            <div key={scope.id} className="flex items-start gap-2 text-[12px]">
-              <Badge tone="accent" className="mt-0.5 shrink-0">
-                {scope.title}
-              </Badge>
-              <span className="min-w-0 text-fg-muted">{scope.description}</span>
-            </div>
-          ))}
-          {!preset.included_scopes.includes("budgets") && (
-            <div className="text-[11px] text-fg-faint">{settingsText("Budgets are not part of this plan — applying it leaves the current budgets untouched.")}</div>
-          )}
-          <div className="border-t border-line pt-2 text-[11px] leading-4 text-fg-faint">
-            {settingsText(PRESET_EXCLUDED_NOTE)}
-          </div>
-        </div>
-      </SectionCard>
-
-      <SectionCard
-        title={settingsText("Plan strategy")}
-        description={settingsText("The plan stores task chains, routing and optional budgets by stable model references. Provider details remain in the current model catalog.")}
-      >
-        {detailError !== null ? (
-          <div className="text-[12px] text-danger">{settingsText("The plan definition could not be read:")} {detailError}</div>
-        ) : detail === null ? (
-          <div className="text-[12px] text-fg-muted">{settingsText("Loading the plan definition…")}</div>
-        ) : definition === null ? (
-          <div className="text-[12px] text-fg-muted">{settingsText("The plan definition is unavailable; match badges still come from the backend.")}</div>
-        ) : (
-          <>
-            <div className="text-[12px] text-fg-muted">
-              {Object.keys(definition.values).length} {settingsText("strategy groups captured")}
-              {definition.includeBudgets ? ` · ${settingsText("budgets included")}` : ` · ${settingsText("current budgets preserved")}`}
-            </div>
-            <DefinitionExtras definition={definition} />
-          </>
-        )}
-      </SectionCard>
-
-      {renaming && (
-        <RenameDialog preset={preset} onClose={() => setRenaming(false)} />
-      )}
-      {recapturing && (
-        <CaptureDialog
-          title={`Overwrite capture — ${preset.name}`}
-          presetId={preset.id}
-          onClose={() => setRecapturing(false)}
-        />
-      )}
-      {deleting && (
-        <DeleteDialog preset={preset} onClose={() => setDeleting(false)} />
-      )}
-      {confirmDialog}
-    </div>
-  );
+    return () => { cancelled = true; };
+  }, [clients, preset.id, preset.updated_at, current, tab]);
+  const { requestApply, confirmDialog, applying } = usePresetApplyFlow({ onReview: () => navigateTo("overview") });
+  const definition = decodePresetDefinition(detail?.definition ?? null);
+  const issues = parseValidationIssues(detail?.validation_issues ?? preset.validation_issues);
+  return <div className="space-y-4">
+    <SectionCard title={preset.name} description={preset.description} actions={<>
+      <IconButton label="重命名" onClick={() => setRenaming(true)}><Pencil size={13} /></IconButton>
+      <Button variant="outline" size="xs" onClick={() => setRecapturing(true)}>重新保存</Button>
+      <IconButton label="删除方案" onClick={() => setDeleting(true)}><Trash2 size={13} /></IconButton>
+    </>}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="primary" size="sm" disabled={!clients || blocker !== null || applying} loading={applying} onClick={() => requestApply(preset)}><UploadCloud size={13} />应用方案</Button>
+        {preset.matches_current && <Badge tone="green">匹配当前配置</Badge>}
+        {blocker && <span className="text-[11px] text-warning">{settingsText(blocker)}</span>}
+      </div>
+      {issues.map((issue, index) => {
+        const owner = issue.key ? pageForPath(issue.key) : null;
+        return <div key={index} className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-warning">
+          <span>{issue.message}{issue.key && `（${issue.key}）`}</span>
+          {owner && <Button size="xs" variant="ghost" onClick={() => navigateTo(owner.id, issue.key)}>查看配置</Button>}
+        </div>;
+      })}
+    </SectionCard>
+    <SectionCard title="方案">
+      <div role="tablist" aria-label="方案详情" className="mb-4 flex gap-2 border-b border-line pb-2">
+        <Button role="tab" aria-selected={tab === "content"} variant={tab === "content" ? "primary" : "ghost"} size="sm" onClick={() => setTab("content")}>方案内容</Button>
+        <Button role="tab" aria-selected={tab === "changes"} variant={tab === "changes" ? "primary" : "ghost"} size="sm" onClick={() => setTab("changes")}>应用变化</Button>
+      </div>
+      {error ? <p className="text-danger">{error}</p> : !detail ? <p>正在读取方案…</p> : tab === "changes" ? <PresetChanges changes={detail.changes} />
+        : definition ? <PresetContent definition={definition} /> : <p>无法读取方案内容。</p>}
+    </SectionCard>
+    {renaming && <RenameDialog preset={preset} onClose={() => setRenaming(false)} />}
+    {recapturing && <CaptureDialog title={`重新保存方案 · ${preset.name}`} presetId={preset.id} initialIncludeBudgets={preset.included_scopes.includes("budgets")} onClose={() => setRecapturing(false)} />}
+    {deleting && <DeleteDialog preset={preset} onClose={() => setDeleting(false)} />}
+    {confirmDialog}
+  </div>;
 }
 
-function DefinitionExtras({ definition }: { definition: PresetDefinitionView }) {
-  const budgets = budgetSummary(definition);
-  const tasks = taskModelSummary(definition);
-  const routingCount = Object.keys(definition.values).filter((path) =>
-    path.startsWith("loop.cycle.") || path === "action.models.bindings",
-  ).length;
-  const retrievalCount = Object.keys(definition.retrieval).length;
-  if (budgets.length === 0 && tasks.length === 0 && routingCount === 0 && retrievalCount === 0) return null;
-  return (
-    <div className="mt-3 border-t border-line pt-2.5">
-      {tasks.length > 0 && (
-        <div className="mb-2">
-          <div className="mb-1 text-[11px] font-semibold tracking-wide text-fg-muted uppercase">{settingsText("Task model routes")}</div>
-          <div className="flex flex-wrap gap-x-4 gap-y-1">
-            {tasks.map((row) => (
-              <span key={row.task} className="font-mono text-[11px] text-fg-muted">
-                {row.task}: {row.models.join(" → ") || settingsText("default")}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-      {routingCount > 0 && (
-        <div className="mb-2 text-[11px] text-fg-muted">
-          {routingCount} {settingsText("routing groups captured")}
-        </div>
-      )}
-      {retrievalCount > 0 && (
-        <div className="mb-2 text-[11px] text-fg-muted">
-          {retrievalCount} {settingsText("retrieval policies captured")}
-        </div>
-      )}
-      {budgets.length > 0 && (
-        <div>
-          <div className="mb-1 text-[11px] font-semibold tracking-wide text-fg-muted uppercase">{settingsText("Key budgets in this plan")}</div>
-          <div className="flex flex-wrap gap-x-4 gap-y-1">
-            {budgets.map((row) => (
-              <span key={row.path} className="font-mono text-[11px] text-fg-muted">
-                {row.path} = {valuePreview(row.value, 20)}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function taskModelSummary(
-  definition: PresetDefinitionView,
-): { task: string; models: string[] }[] {
-  const raw = definition.values["llm.tasks"];
-  if (!isPlainRecord(raw)) return [];
-  return Object.entries(raw).flatMap(([task, value]) => {
-    if (!isPlainRecord(value) || !Array.isArray(value.models)) return [];
-    return [{
-      task,
-      models: value.models.filter((model): model is string => typeof model === "string"),
-    }];
-  });
-}
-
-function formatTimestamp(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
-}
-
-// ---------------------------------------------------------------------------
-// Dialogs
-// ---------------------------------------------------------------------------
-
-const SOURCE_OPTIONS: { id: CaptureSource; title: string; hint: string }[] = [
-  {
-    id: "active",
-    title: "Current running values",
-    hint: "Capture what the Agent is using right now.",
-  },
-  {
-    id: "saved",
-    title: "Saved values",
-    hint: "Capture the saved configuration, including changes not yet activated.",
-  },
-  {
-    id: "draft",
-    title: "Current draft",
-    hint: "Capture saved values overlaid with your local draft. Only saves the plan — the configuration is not applied and the draft is kept.",
-  },
-];
-
-/** Name/description + capture source fields, shared by create and overwrite. */
-function CaptureDialog({
-  title,
-  presetId,
-  onClose,
-  onCreated,
-}: {
-  title: string;
-  /** Set for overwrite-capture of an existing plan; unset for create. */
-  presetId?: string;
-  onClose: () => void;
-  onCreated?: (preset: PresetSummary) => void;
+function CaptureDialog({ title, presetId, initialIncludeBudgets = true, onClose, onCreated }: {
+  title: string; presetId?: string; initialIncludeBudgets?: boolean; onClose: () => void; onCreated?: (preset: PresetSummary) => void;
 }) {
-  const clients = useConnectionStore((s) => s.clients);
+  const clients = useConnectionStore((state) => state.clients);
   const draftCount = useConfigDraftStore(selectDraftCount);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [source, setSource] = useState<CaptureSource>("active");
-  const [includeBudgets, setIncludeBudgets] = useState(true);
+  const [includeBudgets, setIncludeBudgets] = useState(initialIncludeBudgets);
   const [busy, setBusy] = useState(false);
-
   const creating = presetId === undefined;
-  const nameValid = creating ? name.trim() !== "" : true;
-  const sourceValid = source !== "draft" || draftCount > 0;
-  const canSubmit = clients !== null && nameValid && sourceValid && !busy;
-
+  const canSubmit = clients !== null && (!creating || name.trim() !== "") && !busy;
   const submit = async () => {
-    if (clients === null || !canSubmit) return;
+    if (!clients || !canSubmit) return;
     setBusy(true);
-    const capture: CaptureInput = { source, includeBudgets };
     try {
       if (creating) {
-        const preset = await createPreset(clients, { name, description, capture });
-        if (preset !== null) {
-          onCreated?.(preset);
-          onClose();
-        }
-      } else {
-        if (await recapturePreset(clients, presetId, capture)) onClose();
-      }
-    } finally {
-      setBusy(false);
-    }
+        const result = await createPreset(clients, { name, description, capture: { includeBudgets } });
+        if (result) { onCreated?.(result); onClose(); }
+      } else if (await recapturePreset(clients, presetId, { includeBudgets })) onClose();
+    } finally { setBusy(false); }
   };
-
-  return (
-    <Modal title={title} onClose={onClose}>
-      <div className="flex flex-col gap-3">
-        {creating && (
-          <>
-            <label className="flex flex-col gap-1 text-[12px] text-fg-muted">{settingsText("Name")}<input
-                type="text"
-                autoFocus
-                className="h-8 rounded-md border border-line bg-bg px-2 text-[12.5px] text-fg outline-none focus:border-accent"
-                placeholder="e.g. Thorough, Economical"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-[12px] text-fg-muted">{settingsText("Description")}<span className="text-fg-faint">{settingsText("(optional)")}</span>
-              <input
-                type="text"
-                className="h-8 rounded-md border border-line bg-bg px-2 text-[12.5px] text-fg outline-none focus:border-accent"
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-              />
-            </label>
-          </>
-        )}
-
-        <div className="text-[12px] font-medium text-fg">捕获来源</div>
-        <div className="flex flex-col gap-1.5">
-          {SOURCE_OPTIONS.map((option) => {
-            const disabled = option.id === "draft" && draftCount === 0;
-            return (
-              <label
-                key={option.id}
-                className={`flex items-start gap-2 rounded-md border px-2.5 py-2 text-[12px] transition-colors ${
-                  source === option.id ? "border-accent bg-accent-soft" : "border-line"
-                } ${disabled ? "opacity-50" : "cursor-pointer"}`}
-              >
-                <input
-                  type="radio"
-                  name="capture-source"
-                  className="mt-0.5 accent-accent"
-                  checked={source === option.id}
-                  disabled={disabled}
-                  onChange={() => setSource(option.id)}
-                />
-                <span>
-                  <span className="font-medium text-fg">
-                    {settingsText(option.title)}
-                    {option.id === "draft" && `（${draftCount} 项修改）`}
-                  </span>
-                  <span className="mt-0.5 block leading-4 text-fg-muted">
-                    {settingsText(disabled
-                      ? "No local changes to capture. Edit settings first, or pick another source."
-                      : option.hint)}
-                  </span>
-                </span>
-              </label>
-            );
-          })}
-        </div>
-
-        <label className="flex cursor-pointer items-center gap-2 text-[12px] text-fg">
-          <input
-            type="checkbox"
-            className="accent-accent"
-            checked={includeBudgets}
-            onChange={(event) => setIncludeBudgets(event.target.checked)}
-          />{settingsText("Include budgets")}<span className="text-fg-faint">{settingsText("(cycle limits and context/session/retrieval budgets)")}</span>
-        </label>
-
-        <div className="mt-1 flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={onClose}>{settingsText("Cancel")}</Button>
-          <Button
-            variant="primary"
-            size="sm"
-            disabled={!canSubmit}
-            loading={busy}
-            onClick={() => void submit()}
-          >
-            {settingsText(creating ? "Capture plan" : "Overwrite definition")}
-          </Button>
-        </div>
+  return <Modal title={title} onClose={onClose}>
+    <div className="space-y-3 text-[12px]">
+      {creating && <>
+        <label className="flex flex-col gap-1">名称<input autoFocus aria-label="方案名称" value={name} onChange={(event) => setName(event.target.value)} className="rounded border border-line bg-bg p-2" /></label>
+        <label className="flex flex-col gap-1">说明（可选）<input value={description} onChange={(event) => setDescription(event.target.value)} className="rounded border border-line bg-bg p-2" /></label>
+      </>}
+      {draftCount > 0 && <p className="text-warning">未应用的修改不包含在方案中，现有草稿将保留。</p>}
+      <label className="flex items-center gap-2"><input type="checkbox" checked={includeBudgets} onChange={(event) => setIncludeBudgets(event.target.checked)} />包含预算</label>
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" size="sm" onClick={onClose}>取消</Button>
+        <Button variant="primary" size="sm" disabled={!canSubmit} loading={busy} onClick={() => void submit()}>{creating ? "保存方案" : "重新保存"}</Button>
       </div>
-    </Modal>
-  );
+    </div>
+  </Modal>;
 }
 
 function RenameDialog({
@@ -614,7 +158,7 @@ function RenameDialog({
   const canSubmit = clients !== null && name.trim() !== "" && !busy;
 
   return (
-    <Modal title={`Rename — ${preset.name}`} onClose={onClose}>
+    <Modal title={`重命名 · ${preset.name}`} onClose={onClose}>
       <div className="flex flex-col gap-3">
         <label className="flex flex-col gap-1 text-[12px] text-fg-muted">{settingsText("Name")}<input
             type="text"
@@ -669,10 +213,9 @@ function DeleteDialog({
   const [busy, setBusy] = useState(false);
 
   return (
-    <Modal title={`Delete — ${preset.name}`} onClose={onClose}>
+    <Modal title={`删除方案 · ${preset.name}`} onClose={onClose}>
       <div className="text-[13px] leading-5 text-fg">
-        Delete the plan “{preset.name}”? This only removes the named plan
-        record — the running and saved configuration stay unchanged.
+        确认删除方案“{preset.name}”？此操作只删除方案记录。
       </div>
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={onClose}>{settingsText("Cancel")}</Button>

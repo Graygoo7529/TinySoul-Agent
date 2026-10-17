@@ -1,7 +1,7 @@
 /**
  * Shared object-editor chrome for the Models & Services pages (plan §16):
  * the left list / right editor layout retained from the original settings
- * pages, plus create / duplicate / delete / rename modals. All actions only
+ * pages, plus create / delete / rename modals. All actions only
  * stage ConfigDraft entries — nothing here talks to the backend.
  */
 
@@ -44,6 +44,7 @@ export function ObjectEditorLayout({
   headerActions,
   children,
   listHeader,
+  renderList,
   searchable = true,
 }: {
   title: string;
@@ -56,11 +57,13 @@ export function ObjectEditorLayout({
   addTitle?: string;
   /** Extra content rendered in the selected object's header. */
   headerBadges?: ReactNode;
-  /** Action buttons (duplicate/rename/delete) for the selected object. */
+  /** Action buttons (rename/delete) for the selected object. */
   headerActions?: ReactNode;
   children: ReactNode;
   /** Optional content rendered between the list header and the items. */
   listHeader?: ReactNode;
+  /** A specialized candidate list can replace the default object navigation. */
+  renderList?: (select: (id: string) => void) => ReactNode;
   /** Pages with a specialized search control supply it in listHeader. */
   searchable?: boolean;
 }) {
@@ -102,6 +105,7 @@ export function ObjectEditorLayout({
             </IconButton>
           )}
         </div>
+        {renderList ? renderList((id) => { onSelect(id); close(); }) : <>
         {listHeader}
         {searchable && <label className="mx-2 mt-2 flex items-center gap-1.5 rounded-md border border-line bg-bg px-2 py-1.5 text-fg-faint">
           <Search size={12} /><input aria-label="搜索配置对象" placeholder="搜索…" value={query} onChange={(event) => setQuery(event.target.value)}
@@ -149,6 +153,7 @@ export function ObjectEditorLayout({
             </div>
           )}
         </div>
+        </>}
       </aside>}</SettingsPicker>
       <main ref={editor} className="settings-form min-w-0">
         {selected === null ? (

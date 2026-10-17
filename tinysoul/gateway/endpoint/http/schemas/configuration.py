@@ -65,8 +65,6 @@ class ConfigApplyRequest(BaseModel):
 class PresetCaptureRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    source: Literal["saved", "active"] = "saved"
-    operations: list[ConfigMutationRequest] = Field(default_factory=list)
     include_budgets: bool = True
 
 

@@ -303,10 +303,7 @@ class ConfigController:
                 self._validator(candidate)
             if (
                 preset is not None
-                and PresetDefinition.capture(
-                    candidate, include_budgets=preset.definition.include_budgets
-                )
-                != preset.definition
+                and not preset.definition.matches(candidate)
             ):
                 raise ConfigError(
                     "Read-only configuration prevents the requested preset",
@@ -316,10 +313,7 @@ class ConfigController:
             matching_presets = [
                 item.id
                 for item in self._presets.list()
-                if PresetDefinition.capture(
-                    candidate, include_budgets=item.definition.include_budgets
-                )
-                == item.definition
+                if item.definition.matches(candidate)
             ]
             assert self._activator is not None
             prepared = await self._activator(candidate)
@@ -382,25 +376,39 @@ class ConfigController:
                     key == path or key.startswith(path + ".") for key in source.values
                 )
             )
-            # Delete the group at every writable source so stale members cannot
-            # survive in an earlier include. Then replace at its existing owner.
+            # Clear only this declared unit. Atomic binding/retrieval values
+            # already include the current undeclared members.
             for source in owners:
                 result.append(ConfigMutation(source.source_id, path, "delete"))
             if value is not None:
-                target = owners[-1] if owners else writable[-1]
+                target = owners[-1] if owners else self._preset_source(path, writable)
                 result.append(
                     ConfigMutation(target.source_id, path, "set", _config_value(value))
                 )
         return tuple(result)
 
+    def _preset_source(self, path: str, writable: tuple[ConfigSource, ...]) -> ConfigSource:
+        collection = next(
+            (item for item in self._catalog.collections if path.startswith(item.root + ".")),
+            None,
+        )
+        if collection is not None and collection.create_source is not None:
+            target = next((source for source in writable if source.source_id == collection.create_source), None)
+            if target is not None:
+                return target
+        # Restore missing units beside the same collection/section, falling
+        # back to the main project TOML instead of an arbitrary final include.
+        prefix = collection.root if collection is not None else path.split(".", 1)[0]
+        return next(
+            (source for source in reversed(writable) if any(key.startswith(prefix + ".") for key in source.values)),
+            writable[0],
+        )
+
     def presets(self) -> tuple[JsonObject, ...]:
         saved = self._environment.reload()
         return tuple(
-            {
-                key: value
-                for key, value in self._preset_projection(item, saved).items()
-                if key != "definition"
-            }
+            {key: value for key, value in self._preset_projection(item, saved).items()
+             if key not in {"definition", "changes"}}
             for item in self._presets.list()
         )
 
@@ -413,69 +421,42 @@ class ConfigController:
         self, preset: ConfigPreset, saved: ConfigEnvironment
     ) -> JsonObject:
         issues: list[JsonValue] = []
+        changes: list[JsonValue] | None = None
         try:
             mutations = self._preset_mutations(saved, preset.definition)
             candidate, _ = self._candidate(mutations, saved)
             if self._validator is not None:
                 self._validator(candidate)
-            if (
-                PresetDefinition.capture(
-                    candidate, include_budgets=preset.definition.include_budgets
-                )
-                != preset.definition
-            ):
+            if not preset.definition.matches(candidate):
                 raise ConfigError(
                     "Read-only source prevents preset", key="preset.source_conflict"
                 )
+            changes = [change.to_json() for change in preset.definition.changes(saved)]
         except ConfigError as exc:
-            issues.append(
-                {"key": exc.key, "source": exc.source, "message": exc.message}
-            )
+            issues.append({"key": exc.key, "source": exc.source, "message": exc.message})
         return {
             **preset.to_json(),
-            "active_match": PresetDefinition.capture(
-                self._active_environment,
-                include_budgets=preset.definition.include_budgets,
-            )
-            == preset.definition,
-            "saved_match": PresetDefinition.capture(
-                saved, include_budgets=preset.definition.include_budgets
-            )
-            == preset.definition,
+            "matches_current": preset.definition.matches(saved),
             "validation_issues": issues,
+            **({"changes": changes} if changes is not None else {}),
         }
 
-    def _capture_preset(
-        self, source: str, mutations: tuple[ConfigOperation, ...], include_budgets: bool
-    ) -> PresetDefinition:
-        if source not in {"saved", "active"}:
-            raise ConfigError("Preset source is invalid", key="source")
-        environment = (
-            self._active_environment
-            if source == "active"
-            else self._environment.reload()
-        )
-        candidate, _ = (
-            self._candidate(mutations, environment, from_snapshot=source == "active")
-            if mutations
-            else (environment, [])
-        )
+    def _capture_preset(self, include_budgets: bool) -> PresetDefinition:
+        environment = self._environment.reload()
         if self._validator is not None:
-            self._validator(candidate)
-        return PresetDefinition.capture(candidate, include_budgets=include_budgets)
+            self._validator(environment)
+        return PresetDefinition.capture(environment, include_budgets=include_budgets)
 
     async def save_preset(
         self,
         *,
         name: str,
         description: str = "",
-        source: str = "saved",
-        mutations: tuple[ConfigOperation, ...] = (),
         include_budgets: bool = True,
     ) -> JsonObject:
         async with self._lock:
             self._require_open()
-            definition = self._capture_preset(source, mutations, include_budgets)
+            definition = self._capture_preset(include_budgets)
             record = self._presets.save(
                 name=name, description=description, definition=definition
             )
@@ -487,16 +468,15 @@ class ConfigController:
         *,
         name: str | None = None,
         description: str | None = None,
-        capture_source: str | None = None,
-        mutations: tuple[ConfigOperation, ...] = (),
+        recapture: bool = False,
         include_budgets: bool = True,
     ) -> JsonObject:
         async with self._lock:
             self._require_open()
             previous = self._presets.get(preset_id)
             definition = (
-                self._capture_preset(capture_source, mutations, include_budgets)
-                if capture_source is not None
+                self._capture_preset(include_budgets)
+                if recapture
                 else previous.definition
             )
             record = self._presets.save(
@@ -551,8 +531,6 @@ class ConfigController:
         self,
         mutations: tuple[ConfigOperation, ...],
         environment: ConfigEnvironment,
-        *,
-        from_snapshot: bool = False,
     ) -> tuple[ConfigEnvironment, list[ConfigDocumentWrite]]:
         documents: dict[Path, ConfigFileToml | DotenvDocument] = {}
         source_by_id: dict[str, ConfigSource | ConfigDocument] = {
@@ -597,13 +575,7 @@ class ConfigController:
                 and source.kind is ConfigSourceKind.DOTENV
             ):
                 if dotenv_path not in documents:
-                    document = DotenvDocument(
-                        dotenv_path, text="" if from_snapshot else None
-                    )
-                    if from_snapshot:
-                        for key, value in environment.dotenv_values.items():
-                            document.set_value(key, value)
-                    documents[dotenv_path] = document
+                    documents[dotenv_path] = DotenvDocument(dotenv_path)
                 document = documents[dotenv_path]
                 if not isinstance(document, DotenvDocument):
                     raise ConfigError("Dotenv source document collision")
@@ -624,16 +596,7 @@ class ConfigController:
                     "Project source has no file path", key=mutation.source_id
                 )
             if source.path not in documents:
-                data = (
-                    (
-                        source.data
-                        if isinstance(source, ConfigDocument)
-                        else _project_tree_from_sources([source])
-                    )
-                    if from_snapshot
-                    else None
-                )
-                documents[source.path] = ConfigFileToml(source.path, data=data)
+                documents[source.path] = ConfigFileToml(source.path)
             document = documents[source.path]
             if not isinstance(document, ConfigFileToml):
                 raise ConfigError("Project source document collision")
@@ -658,7 +621,6 @@ class ConfigController:
             self.root,
             main_file_name=environment.project.main_path.relative_to(self.root).as_posix(),
             documents=staged_project,
-            include_disk=not from_snapshot,
         )
         included = {source.source_id for source in project.sources}
         for source in created_sources:

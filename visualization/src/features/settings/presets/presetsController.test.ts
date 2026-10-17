@@ -89,63 +89,17 @@ beforeEach(() => {
   useAppStore.setState({ toasts: [] });
 });
 
-describe("createPreset capture sources", () => {
-  it("captures the running values (source=active)", async () => {
+describe("createPreset", () => {
+  it("captures current configuration without including or clearing local drafts", async () => {
     const { clients, requests } = makeClients({});
+    const key = await seedDraft(clients);
     const created = await createPreset(clients, {
-      name: "Live",
-      description: "",
-      capture: { source: "active", includeBudgets: true },
+      name: "Current", description: "", capture: { includeBudgets: true },
     });
     expect(created?.name).toBe("Balanced");
     expect(bodyJson(requestsTo(requests, "POST", "/v2/config/presets")[0])).toEqual({
-      name: "Live",
-      source: "active",
-      include_budgets: true,
+      name: "Current", include_budgets: true,
     });
-    // Capturing never applies configuration.
-    expect(requestsTo(requests, "POST", "/v2/config/apply")).toEqual([]);
-  });
-
-  it("captures the saved values (source=saved) without operations", async () => {
-    const { clients, requests } = makeClients({});
-    await createPreset(clients, {
-      name: "Saved",
-      description: "from saved",
-      capture: { source: "saved", includeBudgets: false },
-    });
-    expect(bodyJson(requestsTo(requests, "POST", "/v2/config/presets")[0])).toEqual({
-      name: "Saved",
-      description: "from saved",
-      source: "saved",
-      include_budgets: false,
-    });
-  });
-
-  it("captures the draft as source=saved + operations, and keeps the draft", async () => {
-    const { clients, requests } = makeClients({});
-    const key = await seedDraft(clients);
-
-    await createPreset(clients, {
-      name: "Drafted",
-      description: "",
-      capture: { source: "draft", includeBudgets: true },
-    });
-
-    expect(bodyJson(requestsTo(requests, "POST", "/v2/config/presets")[0])).toEqual({
-      name: "Drafted",
-      source: "saved",
-      operations: [
-        {
-          op: "set",
-          source_id: "project:tinysoul.toml",
-          path: "execution.enabled",
-          value: false,
-        },
-      ],
-      include_budgets: true,
-    });
-    // The draft survives a plan capture, and nothing was applied.
     expect(store().drafts[key]).toBeDefined();
     expect(requestsTo(requests, "POST", "/v2/config/apply")).toEqual([]);
   });
@@ -164,21 +118,12 @@ describe("update / delete", () => {
     const { clients, requests } = makeClients({});
     await seedDraft(clients);
     expect(
-      await recapturePreset(clients, "id-1", { source: "draft", includeBudgets: true }),
+      await recapturePreset(clients, "id-1", { includeBudgets: true }),
     ).toBe(true);
     expect(
       bodyJson(requestsTo(requests, "PUT", "/v2/config/presets/id-1")[0]),
     ).toEqual({
       capture: {
-        source: "saved",
-        operations: [
-          {
-            op: "set",
-            source_id: "project:tinysoul.toml",
-            path: "execution.enabled",
-            value: false,
-          },
-        ],
         include_budgets: true,
       },
     });

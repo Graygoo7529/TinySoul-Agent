@@ -133,21 +133,11 @@ describe("ConfigClient", () => {
 
     const created = await client.createPreset({
       name: "Balanced",
-      source: "saved",
-      operations: [
-        {
-          op: "set",
-          source_id: "project:configs/llm/models/gpt.toml",
-          path: "llm.models.gpt-sol.providers",
-          value: [{ provider: "openai", provider_model: "gpt-5.6-sol" }],
-        },
-      ],
       include_budgets: true,
     });
     expect(created.definition).not.toBeNull();
     expect(bodyJson(requests[1]!)).toMatchObject({
       name: "Balanced",
-      source: "saved",
       include_budgets: true,
     });
 

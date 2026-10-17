@@ -226,6 +226,12 @@ class PresetListResponse(ContractResponse):
     presets: list[JsonValue]
 
 
+class PresetChangeResponse(ContractResponse):
+    path: list[str]
+    before: JsonValue
+    after: JsonValue
+
+
 class PresetResponse(ContractResponse):
     schema_version: int
     id: str
@@ -233,8 +239,8 @@ class PresetResponse(ContractResponse):
     description: str
     included_scopes: list[str]
     definition: JsonObject | None = None
-    active_match: bool
-    saved_match: bool
+    matches_current: bool
+    changes: list[PresetChangeResponse] | None = None
     validation_issues: list[JsonValue]
     created_at: str
     updated_at: str

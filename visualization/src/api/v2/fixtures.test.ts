@@ -275,8 +275,8 @@ describe("contract fixtures: configuration family", () => {
     const record = preset as Preset;
     expect(record.id).toBe("id-1");
     expect(record.included_scopes).toContain("tasks");
-    expect(typeof record.active_match).toBe("boolean");
-    expect(typeof record.saved_match).toBe("boolean");
+    expect(typeof record.matches_current).toBe("boolean");
+    expect(Array.isArray(record.changes)).toBe(true);
     expect(Array.isArray(record.validation_issues)).toBe(true);
     expect(isRecord(record.definition)).toBe(true);
   });

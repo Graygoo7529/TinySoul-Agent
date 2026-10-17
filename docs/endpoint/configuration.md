@@ -50,11 +50,22 @@ LLM 的 basis 为实际输入片段指认，Embedding 为真实向量贡献，de
 
 `POST /v2/config/apply` 接受非空 `operations` 或 `preset_id`，必须且只能提供其中一种。候选统一校验并 prepare generation 后，原子保存文件并发布；发布前失败恢复此次事务触及的文件，保留调用前已经存在的 pending 配置。只有 idle 且没有排队根 work 时可激活。成功响应为 `state=active`、`generation_id`、`pending_reload=false`，并带 `changed_fields`、`changed_sources`、`matching_presets`。`reload` 沿同一发布流程激活已保存配置。
 
-`GET/POST /v2/config/presets`、`GET/PUT/DELETE /v2/config/presets/{id}` 管理运行方案。创建请求为 `name, description?, source=active|saved, operations?, include_budgets=true`；operations 只用于内存捕获。PUT 默认只改名称/说明，提供 `capture`（source/operations/include_budgets）才重新捕获。列表为 presets 数组；记录返回 id/name/description/included_scopes/active_match/saved_match/validation_issues/created_at/updated_at，详情含 definition；DELETE 只删方案文件。未知方案为 404 config.preset_not_found，当前不可激活为 409 config.activation_unavailable，其余配置问题为 422 config.invalid。
+`GET/POST /v2/config/presets`、`GET/PUT/DELETE /v2/config/presets/{id}` 管理运行方案，方案记录存于 `configs/presets/`。
 
-方案完整替换 llm.models、llm.tasks、action.models.bindings、Phase1/2 路由，管理已登记检索策略的 query.channels，可选管理执行计划限定的预算。能力授权、Provider 连接及凭据、专用模型目录、知识库 embedding_use、路径和内容均不捕获。方案不新增配置 source 或运行时覆盖层；保存于 configs/presets。只读来源或缺失依赖导致不能实现精确替换时拒绝应用。
+- 创建请求为 `name, description?, include_budgets=true`。从当前配置文件捕获，不接收来源选择或草稿操作；保存方案只写方案文件。
+- PUT 默认只修改名称/说明；提供 `capture: {include_budgets: true|false}` 时从当前配置重新保存定义。DELETE 只删除方案文件。
+- 列表返回 `presets` 数组，摘要包含 `id/name/description/included_scopes/matches_current/validation_issues/created_at/updated_at/schema_version`；详情另含 `definition` 和可用时的 `changes`。
+- `matches_current` 只比较方案声明项与当前配置文件。有效方案的 `changes=[]` 表示声明项一致；其它配置不参与匹配。
+- `changes` 每项为 `{path: string[], before: JsonValue, after: JsonValue}`。path 是分段路径，含点 consumer ID 保持为一个段；模型顺序用完整有序数组表达，binding 按 consumer 对齐。before 为 null 表示未设置，after 为 null 表示恢复默认；响应保留这些 null，默认值由业务 owner 解释，不展开为猜测值。
+- 无法构造或校验候选时返回 `validation_issues`，省略 `changes`。客户端应显示不可比较并禁止确认应用，不能把缺失字段当成空差异。
 
-LLM model 的 `family`（默认空）与 `collapsed`（默认 false）只提供显示元数据，不改变链顺序或模型可用性。
+方案声明每条任务 profile 的完整配置、每个已捕获 Action consumer 的完整 binding、Phase1/2 路由，以及检索策略的 query.channels；可选包含执行与语境预算。应用时把这些声明项写回当前配置：任务按 profile、binding 按 consumer 更新，检索和预算只覆盖声明字段。任务中未声明的可选参数恢复默认；后来新增的任务、binding、检索 consumer 及未声明字段保留。空任务/绑定声明不表示清空整个集合。
+
+方案只通过稳定 ID 引用模型，不捕获 `llm.models`、Provider 连接及凭据、专用模型目录、知识库 embedding_use、能力授权、路径或内容。只读来源或缺失依赖使候选不能符合声明时拒绝应用。预览与应用共用配置候选构造、校验和声明比较；读取详情不写文件。应用请求仍是 `{preset_id}`，服务端重新读取当前文件并沿既有流程保存和加载；差异为空也可应用。不提供预览 token 或第二套运行态 diff，文件与运行态的差异由全局配置状态负责呈现。
+
+设置页与聊天入口共用应用预览弹窗。有本地草稿时在同一弹窗中选择先处理、丢弃后应用或取消；预览与捕获均不包含草稿。应用成功后才清除明确同意放弃的草稿。未知方案为 404 config.preset_not_found，当前不可激活为 409 config.activation_unavailable，其余配置问题为 422 config.invalid。
+
+LLM model 的 `family`（默认空）与 `collapsed`（默认 false）只提供显示元数据，不改变链顺序或模型可用性。模型管理、任务首模型及追加/替换共用带 family 胶囊、搜索和折叠开关的候选列表；明确点选才产生模型 ID 草稿。
 
 `PATCH /v2/config` 接受 `operations` 数组。每项是：
 

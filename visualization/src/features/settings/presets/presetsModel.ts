@@ -19,7 +19,6 @@ import type {
   PresetUpdateBody,
 } from "../../../api/v2/types";
 import { isPlainRecord } from "../draft/model";
-import { settingsText } from "../i18n";
 
 // ---------------------------------------------------------------------------
 // Managed scope registry (fixed by the backend; see §19 and
@@ -28,80 +27,18 @@ import { settingsText } from "../i18n";
 
 export type PresetScopeId = "tasks" | "routing" | "retrieval" | "budgets";
 
-export interface PresetScopeInfo {
-  id: PresetScopeId;
-  title: string;
-  /** What the scope actually captures (config keys the backend manages). */
-  description: string;
-}
-
-/**
- * The four scope labels the backend reports in `included_scopes`; `budgets`
- * appears only when the definition was captured with the budgets group.
- */
-export const PRESET_SCOPES: Record<PresetScopeId, PresetScopeInfo> = {
-  tasks: {
-    id: "tasks",
-    title: "Task chains",
-    description: "The complete llm.tasks chains with their model order and parameters.",
-  },
-  routing: {
-    id: "routing",
-    title: "Routing & action bindings",
-    description:
-      "Phase 1/2 chain bindings (loop.cycle.phase1/2_task_profile) and every Action's full implementation/target/options (action.models.bindings).",
-  },
-  retrieval: {
-    id: "retrieval",
-    title: "Retrieval channels",
-    description: "query.channels of every registered retrieval policy (action.retrieval).",
-  },
-  budgets: {
-    id: "budgets",
-    title: "Budgets",
-    description:
-      "Turn/reflection cycle limits, context/session character budgets and retrieval step/page budgets. Plans without this group leave the current budgets untouched.",
-  },
+export interface PresetScopeInfo { id: PresetScopeId; title: string }
+const SCOPE_TITLES: Record<PresetScopeId, string> = {
+  tasks: "任务链", routing: "路由", retrieval: "检索", budgets: "预算",
 };
-
 export function presetScopes(preset: PresetSummary): PresetScopeInfo[] {
-  return preset.included_scopes
-    .filter((scope): scope is PresetScopeId => scope in PRESET_SCOPES)
-    .map((scope) => ({ ...PRESET_SCOPES[scope], title: settingsText(PRESET_SCOPES[scope].title), description: settingsText(PRESET_SCOPES[scope].description) }));
+  return preset.included_scopes.filter((scope): scope is PresetScopeId => scope in SCOPE_TITLES)
+    .map((id) => ({ id, title: SCOPE_TITLES[id] }));
 }
 
-/** One-line summary of what a plan deliberately does not capture (§19). */
-export const PRESET_EXCLUDED_NOTE =
-  "Provider connections and credentials, dedicated models and uses, embedding uses, paths, scheduling, visibility, retrieval sources/operations and knowledge content are never captured.";
-
-// ---------------------------------------------------------------------------
-// Capture request bodies
-// ---------------------------------------------------------------------------
-
-/** The three capture sources offered in the create/re-capture dialogs. */
-export type CaptureSource = "active" | "saved" | "draft";
-
-export interface CaptureInput {
-  source: CaptureSource;
-  includeBudgets: boolean;
-  /** Draft operations — required and only used when source === "draft". */
-  draftOperations?: PresetCaptureBody["operations"];
-}
-
-/**
- * The capture half of a create/re-capture body. A draft capture is
- * `source=saved + operations` (the draft overlaid on the saved baseline,
- * captured in memory): it saves only the plan and neither applies the
- * configuration nor clears the draft.
- */
+export interface CaptureInput { includeBudgets: boolean }
 export function buildCaptureBody(input: CaptureInput): PresetCaptureBody {
-  const operations =
-    input.source === "draft" ? (input.draftOperations ?? []) : [];
-  return {
-    source: input.source === "active" ? "active" : "saved",
-    ...(operations.length > 0 ? { operations } : {}),
-    include_budgets: input.includeBudgets,
-  };
+  return { include_budgets: input.includeBudgets };
 }
 
 export function buildCreateBody(
@@ -159,39 +96,22 @@ export function decodePresetDefinition(raw: JsonObject | null): PresetDefinition
 }
 
 // ---------------------------------------------------------------------------
-// Key budgets summary (quick entry / detail)
+// Declared budgets (quick entry / detail)
 // ---------------------------------------------------------------------------
 
-/** The budget keys shown in compact summaries, in display order. */
-export const KEY_BUDGET_PATHS = [
-  "loop.user.max_cycles",
-  "reflection.home.max_cycles",
-  "reflection.memory.max_cycles",
-  "session.max_background_chars",
-  "context.compression_trigger_ratio",
-  "context.compression_target_ratio",
-] as const;
+export interface BudgetSummaryRow { path: string; value: JsonValue }
 
-export interface BudgetSummaryRow {
-  path: string;
-  value: JsonValue;
-}
-
-/**
- * The budgets a plan carries, restricted to the keys worth a one-line
- * summary. Empty when the plan was captured without the budgets group —
- * applying such a plan leaves the current budgets untouched.
- */
+/** Every declared budget, including explicit resets to the owner's default. */
 export function budgetSummary(definition: PresetDefinitionView): BudgetSummaryRow[] {
   if (!definition.includeBudgets) return [];
-  const rows: BudgetSummaryRow[] = [];
-  for (const path of KEY_BUDGET_PATHS) {
-    if (path in definition.values) {
-      const value = definition.values[path];
-      if (value !== null) rows.push({ path, value });
-    }
-  }
-  return rows;
+  return [
+    ...Object.entries(definition.values)
+      .filter(([path]) => !["llm.tasks", "action.models.bindings", "loop.cycle.phase1_task_profile", "loop.cycle.phase2_task_profile"].includes(path))
+      .map(([path, value]) => ({ path, value })),
+    ...Object.entries(definition.retrieval).flatMap(([consumer, fields]) => Object.entries(fields)
+      .filter(([path]) => path !== "query.channels")
+      .map(([path, value]) => ({ path: `action.retrieval.${consumer}.${path}`, value }))),
+  ];
 }
 
 // ---------------------------------------------------------------------------

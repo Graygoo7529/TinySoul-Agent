@@ -1,25 +1,10 @@
-/**
- * Async run-plan flows (implementation plan §19/P14, §15, §5.2).
- *
- * Capture flows (create / re-capture) save only the named plan — they never
- * apply configuration and never clear the ConfigDraft; a draft capture rides
- * on `source=saved + operations`. Plan records stay editable while the Agent
- * is busy; only activation is gated by the formal `activity.can_reload`.
- *
- * Applying a plan is the shared §15 flow: it submits exactly
- * `{preset_id}` (never `operations` alongside). Success (`state=active`)
- * clears only the draft entries the user explicitly agreed to discard and
- * re-reads the formal definitions; every failure keeps the draft. The draft
- * conflict dialog (PresetDraftConfirm) is the only path that supplies
- * discard keys.
- */
-
+/** Saving a plan captures current configuration; application uses the shared config publication boundary. */
 import type { V2Clients } from "../../../api/v2/clients";
 import { isTinySoulApiError } from "../../../api/v2/errors";
 import type { PresetSummary } from "../../../api/v2/types";
 import { useAppStore } from "../../../store/appStore";
 import { classifyApplyError, loadConfig } from "../applyController";
-import { draftOperations, useConfigDraftStore } from "../draft/store";
+import { useConfigDraftStore } from "../draft/store";
 import {
   buildCreateBody,
   buildRecaptureBody,
@@ -33,17 +18,12 @@ function describeError(error: unknown): string {
   return String(error);
 }
 
-/** Create a named plan; a draft source captures saved+draft in memory only. */
+/** Save current configuration as a plan without touching local drafts. */
 export async function createPreset(
   clients: V2Clients,
   input: { name: string; description: string; capture: CaptureInput },
 ): Promise<PresetSummary | null> {
-  const state = useConfigDraftStore.getState();
-  const body = buildCreateBody(input.name, input.description, {
-    ...input.capture,
-    draftOperations:
-      input.capture.source === "draft" ? draftOperations(state) : undefined,
-  });
+  const body = buildCreateBody(input.name, input.description, input.capture);
   try {
     const preset = await clients.config.createPreset(body);
     await loadConfig(clients);
@@ -85,26 +65,20 @@ export async function renamePreset(
 
 /**
  * The explicit overwrite capture: replaces the stored definition from the
- * chosen source. This is the only flow that updates a plan's definition.
+ * current configuration. This is the only flow that updates a plan's definition.
  */
 export async function recapturePreset(
   clients: V2Clients,
   presetId: string,
   capture: CaptureInput,
 ): Promise<boolean> {
-  const body = buildRecaptureBody({
-    ...capture,
-    draftOperations:
-      capture.source === "draft"
-        ? draftOperations(useConfigDraftStore.getState())
-        : undefined,
-  });
+  const body = buildRecaptureBody(capture);
   try {
     await clients.config.updatePreset(presetId, body);
     await loadConfig(clients);
     useAppStore
       .getState()
-      .pushToast("success", "Plan definition overwritten from the chosen source.");
+      .pushToast("success", "Plan definition overwritten from the current configuration.");
     return true;
   } catch (error) {
     useAppStore
@@ -114,7 +88,7 @@ export async function recapturePreset(
   }
 }
 
-/** Delete a plan record; the running and saved configuration are untouched. */
+/** Delete only the named plan record. */
 export async function deletePreset(
   clients: V2Clients,
   preset: PresetSummary,

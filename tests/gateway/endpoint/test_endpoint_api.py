@@ -760,6 +760,37 @@ def test_config_activation_failure_uses_config_error_and_keeps_file(
     assert reload_response.json()["error"]["code"] == "config.activation_failed"
 
 
+def test_preset_http_changes_preserve_default_reset_and_recapture(tmp_path: Path) -> None:
+    (tmp_path / "tinysoul.toml").write_text(
+        '[llm.tasks.main]\nmodels = ["model-a"]\n', encoding="utf-8"
+    )
+    engine, _, _ = _engine(tmp_path)
+    client = TestClient(create_endpoint_app(engine, engine.settings))
+    created = client.post(
+        "/v2/config/presets", headers=_auth(),
+        json={"name": "Current", "include_budgets": False},
+    )
+    assert created.status_code == 200
+    record = created.json()
+    assert record["matches_current"] is True and record["changes"] == []
+    assert record["definition"]["values"]["loop.cycle.phase1_task_profile"] is None
+    changed = client.patch("/v2/config", headers=_auth(), json={"operations": [{
+        "op": "set", "source_id": "project:tinysoul.toml",
+        "path": "llm.tasks.main.temperature", "value": 0.8,
+    }]})
+    assert changed.status_code == 200
+    path = f"/v2/config/presets/{record['id']}"
+    detail = client.get(path, headers=_auth()).json()
+    assert detail["matches_current"] is False
+    assert detail["changes"] == [{
+        "path": ["llm", "tasks", "main", "temperature"], "before": 0.8, "after": None,
+    }]
+    updated = client.put(path, headers=_auth(), json={"capture": {"include_budgets": False}})
+    assert updated.status_code == 200
+    assert updated.json()["changes"] == []
+    assert updated.json()["definition"]["values"]["llm.tasks"]["main"]["temperature"] == 0.8
+
+
 def _engine(
     tmp_path: Path,
     *,

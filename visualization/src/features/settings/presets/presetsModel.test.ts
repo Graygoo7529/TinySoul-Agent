@@ -15,26 +15,15 @@ import {
 
 describe("preset strategy model", () => {
   it("builds capture, create, rename and recapture requests", () => {
-    const operations = [{
-      op: "set" as const,
-      source_id: "project:configs/llm/tasks.toml",
-      path: "llm.tasks.main.models",
-      value: ["gpt-sol"],
-    }];
-    expect(buildCaptureBody({ source: "draft", includeBudgets: true, draftOperations: operations })).toEqual({
-      source: "saved",
-      operations,
-      include_budgets: true,
-    });
-    expect(buildCreateBody("  Daily  ", "  stable  ", { source: "active", includeBudgets: false })).toEqual({
+    expect(buildCaptureBody({ includeBudgets: true })).toEqual({ include_budgets: true });
+    expect(buildCreateBody("  Daily  ", "  stable  ", { includeBudgets: false })).toEqual({
       name: "Daily",
       description: "stable",
-      source: "active",
       include_budgets: false,
     });
     expect(buildRenameBody("New", "Description")).toEqual({ name: "New", description: "Description" });
-    expect(buildRecaptureBody({ source: "saved", includeBudgets: true })).toEqual({
-      capture: { source: "saved", include_budgets: true },
+    expect(buildRecaptureBody({ includeBudgets: true })).toEqual({
+      capture: { include_budgets: true },
     });
   });
 

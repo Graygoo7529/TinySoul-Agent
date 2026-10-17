@@ -18,9 +18,9 @@
     "retrieval": {},
     "include_budgets": false
   },
-  "created_at": "2026-09-29T08:00:00+00:00",
-  "updated_at": "2026-09-29T08:00:00+00:00",
-  "active_match": true,
-  "saved_match": true,
-  "validation_issues": []
+  "created_at": "2026-10-06T15:04:16.648296+00:00",
+  "updated_at": "2026-10-06T15:04:16.648296+00:00",
+  "validation_issues": [],
+  "matches_current": true,
+  "changes": []
 }

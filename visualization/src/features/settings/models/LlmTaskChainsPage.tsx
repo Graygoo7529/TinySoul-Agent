@@ -1,4 +1,3 @@
-import { settingsText } from "../i18n";
 /**
  * LLM Task Chains settings page: ordered model chains with call
  * and recovery parameters. The model order editor picks from the projected
@@ -8,18 +7,18 @@ import { settingsText } from "../i18n";
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 
 import { Badge } from "../../../components/ui/Badge";
 import { Button } from "../../../components/ui/Button";
 import { useConfigDraftStore } from "../draft/store";
-import { translatedField as matchField } from "../i18n";
+import { ModelPicker, ModelSelectionList } from "./ModelPicker";
+import { settingsText, translatedField as matchField } from "../i18n";
 import { useSettingsUiStore } from "../uiStore";
 import {
   fieldLockReason,
   moveItem,
   projectCollection,
-  stringField,
   stringListField,
   taskChainUsage,
   type ObjectReference,
@@ -33,7 +32,6 @@ import {
   OrderableListFooter,
   OrderableRow,
   SelectInput,
-  selectClass,
   type SelectOption,
 } from "./controls";
 import {
@@ -94,12 +92,6 @@ export function LlmTaskChainsPage() {
 
   const current = objects.find((item) => item.id === selected) ?? null;
   const [firstModel, setFirstModel] = useState("");
-  useEffect(() => {
-    if (!models.some((item) => item.id === firstModel)) {
-      const preferred = models.find((item) => item.value.collapsed !== true) ?? models[0];
-      setFirstModel(preferred?.id ?? "");
-    }
-  }, [models, firstModel]);
 
   return (
     <>
@@ -117,7 +109,7 @@ export function LlmTaskChainsPage() {
         }))}
         selected={selected}
         onSelect={setSelected}
-        onAdd={() => setCreating(true)}
+        onAdd={() => { setFirstModel(""); setCreating(true); }}
         addDisabled={!createSourceAvailable || models.length === 0}
         addTitle={
           !createSourceAvailable
@@ -157,8 +149,8 @@ export function LlmTaskChainsPage() {
         existing={objects.map((item) => item.id)}
         open={creating}
         onClose={() => setCreating(false)}
-        valid={createSourceAvailable && firstModel !== ""}
-        validHint="Task chains need at least one model; create a model first."
+        valid={createSourceAvailable && models.some((model) => model.id === firstModel)}
+        validHint="请先选择一个模型。"
         onCreate={(id) => {
           const template = {
             ...(collection?.createTemplate ?? {}),
@@ -169,12 +161,8 @@ export function LlmTaskChainsPage() {
           setCreating(false);
         }}
       >
-        <ModelChoicePicker
-          models={models}
-          value={firstModel}
-          onChange={setFirstModel}
-          ariaLabel="First model"
-        />
+        <p className="text-[12px] text-fg-muted">首模型：<span className="font-mono">{firstModel || "尚未选择"}</span></p>
+        <ModelSelectionList models={models} value={firstModel} onSelect={setFirstModel} />
       </CreateObjectModal>
 
       <DeleteObjectModal
@@ -192,11 +180,6 @@ export function LlmTaskChainsPage() {
   );
 }
 
-function modelLabel(item: ProjectedObject): string {
-  const family = stringField(item.value, "family");
-  return family === "" ? item.id : `${family} 路 ${item.id}`;
-}
-
 function chainSummary(object: ProjectedObject, state: ReturnType<typeof useConfigDraftStore.getState>): string {
   const count = stringListField(object.value, "models").length;
   const parts = [`${count} ${count === 1 ? "model" : "models"}`];
@@ -207,96 +190,9 @@ function chainSummary(object: ProjectedObject, state: ReturnType<typeof useConfi
       `${usage.consumers.length} ${usage.consumers.length === 1 ? "consumer" : "consumers"}`,
     );
   }
-  return parts.join(" 路 ");
+  return parts.join(" · ");
 }
 
-function ModelChoicePicker({
-  models,
-  value,
-  onChange,
-  ariaLabel,
-}: {
-  models: ProjectedObject[];
-  value: string;
-  onChange: (value: string) => void;
-  ariaLabel: string;
-}) {
-  const [query, setQuery] = useState("");
-  const [familyFilter, setFamilyFilter] = useState("all");
-  const [showCollapsed, setShowCollapsed] = useState(false);
-  const families = [...new Set(models.map((item) => stringField(item.value, "family")).filter(Boolean))].sort();
-  const needle = query.trim().toLowerCase();
-  const visible = models.filter((item) => {
-    const family = stringField(item.value, "family");
-    if (familyFilter !== "all" && family !== familyFilter) return false;
-    if (needle !== "" && !`${item.id} ${family}`.toLowerCase().includes(needle)) return false;
-    return needle !== "" || showCollapsed || item.value.collapsed !== true || item.id === value;
-  });
-
-  return (
-    <div className="space-y-1.5">
-      <span className="mb-1.5 block text-[11px] font-medium text-fg-muted">{settingsText(ariaLabel)}</span>
-      <input
-        aria-label={`${ariaLabel} search`}
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        placeholder="Search models or family"
-        className={selectClass}
-      />
-      <div className="flex flex-wrap gap-1">
-        {["all", ...families].map((family) => (
-          <button
-            key={family}
-            type="button"
-            onClick={() => setFamilyFilter(family)}
-            className={`rounded-full border px-2 py-0.5 text-[10px] ${familyFilter === family ? "border-accent bg-accent-soft text-accent" : "border-line text-fg-muted hover:bg-hover"}`}
-          >
-            {family === "all" ? "All families" : family}
-          </button>
-        ))}
-      </div>
-      <label className="flex items-center gap-1 text-[10px] text-fg-muted">
-        <input
-          type="checkbox"
-          checked={showCollapsed}
-          onChange={(event) => setShowCollapsed(event.target.checked)}
-          className="accent-accent"
-        />
-        Show collapsed
-      </label>
-      <select
-        aria-label={ariaLabel}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className={selectClass}
-      >
-        {visible.length === 0 && <option value="">No matching models</option>}
-        {groupModels(visible).map(([family, familyModels]) => (
-          <optgroup key={family} label={family}>
-            {familyModels.map((item) => (
-              <option key={item.id} value={item.id}>
-                {modelLabel(item)}
-              </option>
-            ))}
-          </optgroup>
-        ))}
-      </select>
-    </div>
-  );
-}
-
-function groupModels(models: ProjectedObject[]): [string, ProjectedObject[]][] {
-  const groups = new Map<string, ProjectedObject[]>();
-  for (const model of models) {
-    const family = stringField(model.value, "family") || "No family";
-    const group = groups.get(family) ?? [];
-    group.push(model);
-    groups.set(family, group);
-  }
-  return [...groups.entries()];
-}
-
-/** Delete-modal references: framework phase bindings and Action consumers. */
 function usageReferences(
   state: ReturnType<typeof useConfigDraftStore.getState>,
   chainId: string,
@@ -315,10 +211,6 @@ function usageReferences(
     })),
   ];
 }
-
-// ---------------------------------------------------------------------------
-// Chain editor
-// ---------------------------------------------------------------------------
 
 function TaskChainEditor({
   object,
@@ -340,26 +232,6 @@ function TaskChainEditor({
   });
 
   const modelIds = stringListField(object.value, "models");
-  const knownModelIds = new Set(models.map((item) => item.id));
-  const [modelQuery, setModelQuery] = useState("");
-  const [showCollapsed, setShowCollapsed] = useState(false);
-  const [familyFilter, setFamilyFilter] = useState("all");
-  const families = [...new Set(models.map((item) => stringField(item.value, "family")).filter(Boolean))].sort();
-  const visibleModels = models.filter((item) => {
-    const family = stringField(item.value, "family");
-    const query = modelQuery.trim().toLowerCase();
-    if (familyFilter !== "all" && family !== familyFilter) return false;
-    if (query !== "" && !`${item.id} ${family}`.toLowerCase().includes(query)) return false;
-    return query !== "" || showCollapsed || item.value.collapsed !== true || modelIds.includes(item.id);
-  });
-  const visibleAddableModels = visibleModels.filter((item) => !modelIds.includes(item.id));
-  const [modelToAdd, setModelToAdd] = useState("");
-  useEffect(() => {
-    if (!visibleAddableModels.some((item) => item.id === modelToAdd)) {
-      setModelToAdd(visibleAddableModels[0]?.id ?? "");
-    }
-  }, [visibleAddableModels, modelToAdd]);
-
   const commitModels = (next: string[]) => {
     if (next.length === 0) return; // a chain always keeps at least one model
     setObjectField(ROOT, object, "models", next, createSource);
@@ -379,17 +251,6 @@ function TaskChainEditor({
         meta={<Badge>{modelIds.length}</Badge>}
       >
         <div className="space-y-1.5 px-5 py-3">
-          <div className="flex items-center gap-2">
-            <input aria-label="Search models" value={modelQuery} onChange={(event) => setModelQuery(event.target.value)} placeholder="Search models or family" className={`${selectClass} min-w-0 flex-1`} />
-            <label className="flex items-center gap-1 text-[10px] text-fg-muted"><input type="checkbox" checked={showCollapsed} onChange={(event) => setShowCollapsed(event.target.checked)} className="accent-accent" />Show collapsed</label>
-          </div>
-          <div className="flex flex-wrap gap-1">
-            {["all", ...families].map((family) => (
-              <button key={family} type="button" onClick={() => setFamilyFilter(family)} className={`rounded-full border px-2 py-0.5 text-[10px] ${familyFilter === family ? "border-accent bg-accent-soft text-accent" : "border-line text-fg-muted hover:bg-hover"}`}>
-                {family === "all" ? "All families" : family}
-              </button>
-            ))}
-          </div>
           {modelIds.map((id, index) => (
             <OrderableRow
               key={`${id}-${index}`}
@@ -405,54 +266,16 @@ function TaskChainEditor({
                   : null
               }
             >
-              <SelectInput
-                ariaLabel={`Model ${index + 1}`}
-                value={id}
+              <ModelPicker label={`Model ${index + 1}`} models={models} value={id}
                 disabled={field("models").lock !== null}
-                options={[
-                  ...(knownModelIds.has(id)
-                    ? []
-                    : [{ value: id, label: `${id} (missing)` }]),
-                  ...visibleModels.map((model) => ({
-                    value: model.id,
-                    label: modelLabel(model),
-                    disabled: modelIds.some(
-                      (item, itemIndex) => itemIndex !== index && item === model.id,
-                    ),
-                  })),
-                ]}
-                onChange={(value) =>
-                  commitModels(
-                    modelIds.map((item, itemIndex) =>
-                      itemIndex === index ? value : item,
-                    ),
-                  )
-                }
-              />
+                disabledIds={modelIds.filter((_, itemIndex) => itemIndex !== index)}
+                onSelect={(value) => commitModels(modelIds.map((item, itemIndex) => itemIndex === index ? value : item))} />
             </OrderableRow>
           ))}
           <OrderableListFooter>
-            <select
-              aria-label="Model to add"
-              value={modelToAdd}
-              disabled={field("models").lock !== null || visibleAddableModels.length === 0}
-              onChange={(event) => setModelToAdd(event.target.value)}
-              className={`${selectClass} min-w-0 flex-1`}
-            >
-              {visibleAddableModels.length === 0 && <option value="">No matching models</option>}
-              {visibleAddableModels.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {modelLabel(item)}
-                </option>
-              ))}
-            </select>
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={field("models").lock !== null || modelToAdd === ""}
-              onClick={() => commitModels([...modelIds, modelToAdd])}
-            >
-              <Plus size={13} />{settingsText("Add model")}</Button>
+            <ModelPicker label="添加模型" models={models} value={null} adding disabledIds={modelIds}
+              disabled={field("models").lock !== null}
+              onSelect={(value) => commitModels([...modelIds, value])} />
           </OrderableListFooter>
         </div>
       </FieldSection>
@@ -480,7 +303,7 @@ function TaskChainEditor({
       <FieldSection
         title={settingsText("Call")}
         description={settingsText("Default request shape for model calls in this chain.")}
-        meta={<Badge tone="gray">楂樼骇</Badge>}
+        meta={<Badge tone="gray">高级</Badge>}
       >
         <EnumRow
           label="Answer Format"
@@ -526,7 +349,7 @@ function TaskChainEditor({
       <FieldSection
         title={settingsText("Recovery")}
         description={settingsText("Retry and switching behavior inside this chain. Chain cycles bound passes over the model list of one task call; they are separate from the user-turn cycle budget on the Budgets page.")}
-        meta={<Badge tone="gray">楂樼骇</Badge>}
+        meta={<Badge tone="gray">高级</Badge>}
       >
         <NumberRow
           label="Retries Per Provider"

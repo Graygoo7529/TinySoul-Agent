@@ -70,17 +70,13 @@ class EndpointConfigurationEngine:
         *,
         name: str,
         description: str = "",
-        source: str = "saved",
         include_budgets: bool = True,
-        mutations: tuple[ConfigOperation, ...] = (),
     ) -> JsonObject:
         try:
             return await self._context.config_controller().save_preset(
                 name=name,
                 description=description,
-                source=source,
                 include_budgets=include_budgets,
-                mutations=mutations,
             )
         except ConfigError as exc:
             raise _config_error(exc) from exc
@@ -91,8 +87,7 @@ class EndpointConfigurationEngine:
         *,
         name: str | None = None,
         description: str | None = None,
-        capture_source: str | None = None,
-        mutations: tuple[ConfigOperation, ...] = (),
+        recapture: bool = False,
         include_budgets: bool = True,
     ) -> JsonObject:
         try:
@@ -100,8 +95,7 @@ class EndpointConfigurationEngine:
                 preset_id,
                 name=name,
                 description=description,
-                capture_source=capture_source,
-                mutations=mutations,
+                recapture=recapture,
                 include_budgets=include_budgets,
             )
         except ConfigError as exc:

@@ -226,8 +226,6 @@ class EndpointConfigController(Protocol):
         *,
         name: str,
         description: str = "",
-        source: str = "saved",
-        mutations: tuple[ConfigOperation, ...] = (),
         include_budgets: bool = True,
     ) -> JsonObject: ...
 
@@ -237,8 +235,7 @@ class EndpointConfigController(Protocol):
         *,
         name: str | None = None,
         description: str | None = None,
-        capture_source: str | None = None,
-        mutations: tuple[ConfigOperation, ...] = (),
+        recapture: bool = False,
         include_budgets: bool = True,
     ) -> JsonObject: ...
 

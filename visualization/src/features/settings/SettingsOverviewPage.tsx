@@ -211,10 +211,7 @@ function PresetRow({
           <span className="truncate text-[13px] font-medium text-fg">
             {preset.name}
           </span>
-          {preset.active_match && <Badge tone="green">运行中</Badge>}
-          {!preset.active_match && preset.saved_match && (
-            <Badge tone="blue">匹配已保存</Badge>
-          )}
+          {preset.matches_current && <Badge tone="green">匹配当前配置</Badge>}
           {issueCount > 0 && (
             <Badge
               tone="yellow"

@@ -276,7 +276,6 @@ async def collect_contract_responses(root: Path) -> dict[str, JsonObject]:
                 "/v2/config/presets",
                 {
                     "name": "Balanced",
-                    "source": "active",
                     "include_budgets": False,
                 },
             )

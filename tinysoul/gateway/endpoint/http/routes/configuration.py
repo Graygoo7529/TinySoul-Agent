@@ -91,7 +91,6 @@ def register_configuration_routes(app: FastAPI, engine: EndpointEngine) -> None:
     @app.get(
         "/v2/config/presets",
         response_model=PresetListResponse,
-        response_model_exclude_none=True,
         response_model_exclude_unset=True,
     )
     def presets() -> JsonObject:
@@ -100,22 +99,18 @@ def register_configuration_routes(app: FastAPI, engine: EndpointEngine) -> None:
     @app.post(
         "/v2/config/presets",
         response_model=PresetResponse,
-        response_model_exclude_none=True,
         response_model_exclude_unset=True,
     )
     async def create_preset(body: PresetCreateRequest) -> JsonObject:
         return await engine.configuration.save_preset(
             name=body.name,
             description=body.description,
-            source=body.source,
             include_budgets=body.include_budgets,
-            mutations=_config_mutations(body.operations),
         )
 
     @app.get(
         "/v2/config/presets/{preset_id}",
         response_model=PresetResponse,
-        response_model_exclude_none=True,
         response_model_exclude_unset=True,
     )
     def get_preset(preset_id: str) -> JsonObject:
@@ -124,7 +119,6 @@ def register_configuration_routes(app: FastAPI, engine: EndpointEngine) -> None:
     @app.put(
         "/v2/config/presets/{preset_id}",
         response_model=PresetResponse,
-        response_model_exclude_none=True,
         response_model_exclude_unset=True,
     )
     async def update_preset(preset_id: str, body: PresetUpdateRequest) -> JsonObject:
@@ -133,8 +127,7 @@ def register_configuration_routes(app: FastAPI, engine: EndpointEngine) -> None:
             preset_id,
             name=body.name,
             description=body.description,
-            capture_source=capture.source if capture else None,
-            mutations=_config_mutations(capture.operations) if capture else (),
+            recapture=capture is not None,
             include_budgets=capture.include_budgets if capture else True,
         )
 

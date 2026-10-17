@@ -83,7 +83,7 @@ export const fieldText: Record<string, FieldText> = {
   "llm.providers.*.api_key_envs": ["凭据变量", "按顺序查找 API Key 的 dotenv 变量名。"],
   "llm.models.*.adapter": ["适配器", "此模型及其提供方连接需要的协议实现。"],
   "llm.models.*.family": ["模型分组", "仅用于列表显示，不影响模型路由或可用性。"],
-  "llm.models.*.collapsed": ["默认折叠", "在模型列表中默认收起；被任务引用时仍可选择。"],
+  "llm.models.*.collapsed": ["默认折叠", "候选列表中默认收起，搜索或展开后可选择；不影响已有任务调用。"],
   "llm.models.*.providers": ["提供方顺序", "调用此模型时按顺序尝试的提供方连接。"],
   "llm.models.*.providers.*.provider": ["提供方", "此位置使用的提供方连接。"],
   "llm.models.*.providers.*.provider_model": ["提供方模型 ID", "发送给提供方 API 的模型标识。"],

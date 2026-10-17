@@ -1,31 +1,19 @@
 /**
  * The Composer run-plan quick entry (implementation plan §5.2).
  *
- * Collapsed it shows only the plan matching the running configuration, or
- * "Custom" when there is none or the running configuration has diverged.
- * The popover lists every plan with its match state and, on demand, the
- * managed groups and key budget summary from the stored definition; "Manage
- * plans" routes to the settings plans page.
- *
- * Activation is allowed only while the backend declares the configuration
- * reloadable (`activity.can_reload`) — a busy Agent keeps the list readable
- * but the apply action disabled with the real reason, and no optimistic
- * "switched" state is ever shown: the active badge only comes from the
- * re-read definitions after a successful apply. Switching a plan and starting
- * a turn stay two explicit operations. The apply shares the §15 draft guard
- * through usePresetApplyFlow.
+ * Lists every plan with its current declaration match and stored content.
+ * Settings and chat share the same comparison and draft confirmation flow.
+ * Applying a plan and starting a turn remain separate actions.
  */
 
 import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
-  CheckCircle2,
   ChevronDown,
   ChevronUp,
   Layers,
   Loader2,
   Settings2,
-  X,
 } from "lucide-react";
 
 import type { Preset, PresetSummary } from "../../api/v2/types";
@@ -33,20 +21,19 @@ import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { useAppStore } from "../../store/appStore";
 import { useConnectionStore } from "../../store/connectionStore";
+import { settingsText } from "../settings/i18n";
 import { ensureConfigLoaded } from "../settings/applyController";
 import {
   activationBlocker,
   useConfigDraftStore,
 } from "../settings/draft/store";
 import { useSettingsUiStore } from "../settings/uiStore";
-import { usePresetApplyFlow } from "../settings/presets/PresetDraftConfirm";
+import { usePresetApplyFlow } from "../settings/presets/PresetApplyDialog";
 import {
-  budgetSummary,
   decodePresetDefinition,
   parseValidationIssues,
-  presetScopes,
 } from "../settings/presets/presetsModel";
-import { valuePreview } from "../settings/editors/controls";
+import { PresetContent } from "../settings/presets/PresetChanges";
 
 export function PresetEntry() {
   const phase = useConnectionStore((s) => s.phase);
@@ -65,21 +52,11 @@ export function PresetEntry() {
 
   if (!connected) return null;
 
-  const activePreset = presets?.find((preset) => preset.active_match) ?? null;
-  const label =
-    loadPhase !== "ready" && presets === null
-      ? "Run plans"
-      : (activePreset?.name ?? "Custom");
-
   return (
     <div data-slot="preset-entry" className="relative">
       <button
         type="button"
-        title={
-          activePreset !== null
-            ? `Running plan: ${activePreset.name}`
-            : "No plan matches the running configuration (custom)"
-        }
+        title="运行方案"
         onClick={() => setOpen((value) => !value)}
         className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line bg-bg-elev px-2.5 text-[11.5px] font-medium text-fg-muted transition-colors hover:border-line-strong hover:text-fg"
       >
@@ -88,7 +65,7 @@ export function PresetEntry() {
         ) : (
           <Layers size={12} />
         )}
-        <span className="max-w-28 truncate">{label}</span>
+        <span className="max-w-28 truncate">运行方案</span>
         <ChevronUp size={11} className={open ? "rotate-180 transition-transform" : "transition-transform"} />
       </button>
       {open && (
@@ -112,12 +89,10 @@ function PresetPopover({
   onClose: () => void;
 }) {
   const blocker = useConfigDraftStore(activationBlocker);
-  const applyFailure = useConfigDraftStore((s) => s.applyFailure);
-  const clearApplyFailure = useConfigDraftStore((s) => s.clearApplyFailure);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  const { requestApply, confirmDialog, applying } = usePresetApplyFlow({
+  const { requestApply, confirmDialog, applying, previewing } = usePresetApplyFlow({
     onReview: () => goToSettings("overview"),
   });
 
@@ -129,6 +104,7 @@ function PresetPopover({
 
   // Dismiss on Escape and on outside pointer-down.
   useEffect(() => {
+    if (previewing) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
@@ -144,53 +120,37 @@ function PresetPopover({
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("mousedown", onPointer);
     };
-  }, [onClose]);
+  }, [onClose, previewing]);
 
   return (
     <div
       ref={rootRef}
-      className="absolute right-0 bottom-full z-(--z-drawer) mb-2 w-84 rounded-xl border border-line bg-bg-elev shadow-pop"
+      className="absolute right-0 bottom-full z-(--z-drawer) mb-2 w-84 max-w-[calc(100vw-2rem)] rounded-xl border border-line bg-bg-elev shadow-pop"
     >
       <div className="flex items-center gap-2 border-b border-line px-3.5 py-2.5">
         <span className="min-w-0 flex-1 text-[12.5px] font-semibold">
-          Run plans
+          运行方案
         </span>
         <Button variant="ghost" size="xs" onClick={() => goToSettings("plans")}>
-          <Settings2 size={12} /> Manage plans
+          <Settings2 size={12} /> 管理方案
         </Button>
       </div>
 
-      {applyFailure !== null && (
-        <div className="flex items-start gap-2 border-b border-line bg-danger-soft px-3.5 py-2 text-[11.5px] leading-4 text-danger">
-          <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-          <span className="min-w-0 flex-1 break-words">
-            The plan was not applied; your changes are kept.{" "}
-            {applyFailure.message}
-          </span>
-          <button
-            className="shrink-0 opacity-70 hover:opacity-100"
-            onClick={() => clearApplyFailure()}
-          >
-            <X size={12} />
-          </button>
-        </div>
-      )}
-
       {blocker !== null && (
         <div className="border-b border-line px-3.5 py-2 text-[11px] leading-4 text-fg-faint">
-          Switching is unavailable right now: {blocker}
+          暂时无法应用方案：{settingsText(blocker)}
         </div>
       )}
       {loadError !== null && (
         <div className="border-b border-line px-3.5 py-2 text-[11px] leading-4 text-warning">
-          The configuration state could not be refreshed: {loadError}
+          无法刷新配置状态： {loadError}
         </div>
       )}
 
       <div className="max-h-72 overflow-y-auto p-1.5">
         {presets.length === 0 ? (
           <div className="px-2.5 py-3 text-[12px] text-fg-muted">
-            No run plans yet. Capture one from the settings plans page.
+            尚未创建运行方案，可前往设置保存当前配置。
           </div>
         ) : (
           presets.map((preset) => (
@@ -231,7 +191,7 @@ function PresetPopoverRow({
   onApply: () => void;
 }) {
   const issueCount = parseValidationIssues(preset.validation_issues).length;
-  const applicable = applyDisabledReason === null && !preset.active_match;
+  const applicable = applyDisabledReason === null && issueCount === 0;
 
   return (
     <div className="rounded-lg px-2 py-1.5 transition-colors hover:bg-hover">
@@ -240,7 +200,7 @@ function PresetPopoverRow({
           type="button"
           className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
           onClick={onToggle}
-          title={expanded ? "Hide details" : "Managed groups and budgets"}
+          title={expanded ? "收起详情" : "方案内容"}
         >
           {expanded ? (
             <ChevronDown size={12} className="shrink-0 text-fg-faint" />
@@ -251,28 +211,24 @@ function PresetPopoverRow({
             {preset.name}
           </span>
         </button>
-        {preset.active_match ? (
-          <Badge tone="green">active</Badge>
-        ) : preset.saved_match ? (
-          <Badge tone="blue">matches saved</Badge>
-        ) : null}
+        {preset.matches_current && <Badge tone="green">匹配当前配置</Badge>}
         {issueCount > 0 && (
-          <Badge tone="yellow" title="Dependencies of this plan are currently missing">
+          <Badge tone="yellow" title="此方案引用的配置存在问题">
             <AlertTriangle size={10} /> {issueCount}
           </Badge>
         )}
-        {!preset.active_match && (
+        {(
           <Button
             variant="outline"
             size="xs"
             disabled={!applicable}
             loading={applying}
             title={
-              applyDisabledReason ?? "Apply this plan (the draft guard may ask first)"
+              applyDisabledReason ?? "查看变化并应用方案"
             }
             onClick={onApply}
           >
-            Apply
+            应用
           </Button>
         )}
       </div>
@@ -286,9 +242,10 @@ function PresetPopoverRow({
   );
 }
 
-/** Managed groups + key budget summary from the stored definition (lazy read). */
+/** Stored declarations, loaded when a row is expanded. */
 function PresetRowDetail({ preset }: { preset: PresetSummary }) {
   const clients = useConnectionStore((s) => s.clients);
+  const current = useConfigDraftStore((state) => state.saved);
   const [detail, setDetail] = useState<Preset | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -306,46 +263,24 @@ function PresetRowDetail({ preset }: { preset: PresetSummary }) {
     return () => {
       cancelled = true;
     };
-  }, [clients, preset.id, preset.updated_at]);
+  }, [clients, preset.id, preset.updated_at, current]);
 
   if (error !== null) {
     return (
       <div className="mt-1.5 pl-5 text-[11px] text-danger">
-        The stored definition could not be read: {error}
+        无法读取方案内容： {error}
       </div>
     );
   }
   if (detail === null) {
     return (
       <div className="mt-1.5 flex items-center gap-1.5 pl-5 text-[11px] text-fg-faint">
-        <Loader2 size={11} className="animate-spin-slow" /> Loading the stored definition…
+        <Loader2 size={11} className="animate-spin-slow" /> 正在读取方案内容…
       </div>
     );
   }
   const definition = decodePresetDefinition(detail.definition);
-  const budgets = definition === null ? [] : budgetSummary(definition);
-  return (
-    <div className="mt-1.5 space-y-1.5 pl-5 text-[11px] leading-4 text-fg-muted">
-      <div>
-        Manages:{" "}
-        {presetScopes(preset).map((scope) => scope.title).join(" · ")}
-        {!preset.included_scopes.includes("budgets") &&
-          " — budgets stay as they are."}
-      </div>
-      {budgets.length > 0 && (
-        <div className="flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[10.5px] text-fg-faint">
-          {budgets.map((row) => (
-            <span key={row.path}>
-              {row.path}={valuePreview(row.value, 16)}
-            </span>
-          ))}
-        </div>
-      )}
-      {preset.active_match && (
-        <div className="flex items-center gap-1 text-success">
-          <CheckCircle2 size={11} /> Matches the running configuration.
-        </div>
-      )}
-    </div>
-  );
+  return <div className="mt-2 max-h-80 overflow-y-auto pl-5">
+    {definition ? <PresetContent definition={definition} /> : <p>无法读取方案内容。</p>}
+  </div>;
 }

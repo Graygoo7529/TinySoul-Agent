@@ -79,8 +79,8 @@ export type ConfigApplyRequest =
 
 /**
  * Preset record fields shared by list entries and detail (preset.json).
- * The list (preset-list.json) carries the same records, possibly without
- * `definition`; detail includes it.
+ * List entries omit definition/changes; detail includes the definition and
+ * declaration changes when its candidate is valid.
  */
 export interface PresetSummary {
   schema_version: number;
@@ -88,17 +88,24 @@ export interface PresetSummary {
   name: string;
   description: string;
   included_scopes: string[];
-  active_match: boolean;
-  saved_match: boolean;
+  matches_current: boolean;
   validation_issues: JsonValue[];
   created_at: string;
   updated_at: string;
   [key: string]: unknown;
 }
 
+/** Atomic path segments; null denotes an absent value or an owner default. */
+export interface PresetChange {
+  path: string[];
+  before: JsonValue;
+  after: JsonValue;
+}
+
 /** Schema: preset.json (GET /v2/config/presets/{id}). */
 export interface Preset extends PresetSummary {
   definition: JsonObject | null;
+  changes?: PresetChange[];
 }
 
 /** Schema: preset-list.json (GET /v2/config/presets). */
@@ -115,14 +122,8 @@ export type ConfigActionsView = JsonObject;
 
 export type ConfigScenario = "user" | "home_reflection" | "memory_reflection";
 
-/**
- * Preset capture selector (PresetCaptureRequest). `source` defaults to
- * "saved" server-side; `operations` apply on top of an in-memory saved
- * capture (draft capture) and never touch the active configuration.
- */
+/** Capture current configuration; local drafts are not submitted. */
 export interface PresetCaptureBody {
-  source?: "active" | "saved";
-  operations?: ConfigOperation[];
   include_budgets?: boolean;
 }
 

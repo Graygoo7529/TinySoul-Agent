@@ -136,7 +136,8 @@ describe("SettingsPage shell", () => {
     });
     await flush();
     expect(text()).toContain("新建方案");
-    expect(text()).toContain("方案范围");
+    expect(text()).toContain("方案内容");
+    expect(text()).toContain("应用变化");
     expect(text()).toContain("Balanced");
   });
 

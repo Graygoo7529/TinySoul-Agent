@@ -9,7 +9,7 @@
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Configuration, JsonValue } from "../../../api/v2/types";
 import type { ConfigCatalog } from "../../../api/v2/types";
@@ -17,8 +17,9 @@ import { draftOperations, useConfigDraftStore } from "../draft/store";
 import { pageForDraft } from "../pages";
 import { LlmModelsPage } from "./LlmModelsPage";
 import { LlmProvidersPage } from "./LlmProvidersPage";
+import { ModelSelectionList } from "./ModelPicker";
 import { LlmTaskChainsPage } from "./LlmTaskChainsPage";
-import { moveItem } from "./collectionDrafts";
+import { moveItem, projectCollection } from "./collectionDrafts";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -489,6 +490,71 @@ describe("LlmModelsPage", () => {
 // ---------------------------------------------------------------------------
 
 describe("LlmTaskChainsPage", () => {
+  function modalModel(id: string) {
+    const row = [...container.querySelectorAll<HTMLButtonElement>(".fixed [data-slot='model-selection-list'] button")].find((item) => item.querySelector(".font-mono")?.textContent === id);
+    expect(row).toBeDefined();
+    return row!;
+  }
+
+  it("filters and cancels without edits; replacing one row preserves the other rows", async () => {
+    store().setValue(MODELS_KIMI_SOURCE, "llm.models.kimi-k2.collapsed", true);
+    store().setValue(MODELS_KIMI_SOURCE, "llm.models.kimi-next", { family: "Kimi", adapter: "kimi", providers: [] });
+    const prior = draftOperations(store());
+    await act(async () => root.render(<LlmTaskChainsPage />));
+    const trigger = container.querySelector<HTMLButtonElement>('button[aria-label="Model 1"]')!;
+    expect(trigger.textContent).toBe("kimi-k2");
+    expect(container.querySelector('[aria-label="模型 family"]')).toBeNull();
+    await act(async () => trigger.click());
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("搜索模型");
+    await act(async () => buttonByText("未分组").click());
+    expect(modalModel("glm-latest").disabled).toBe(true);
+    expect(draftOperations(store())).toEqual(prior);
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+    expect(document.activeElement).toBe(trigger);
+    expect(draftOperations(store())).toEqual(prior);
+    await act(async () => trigger.click());
+    await act(async () => modalModel("kimi-next").click());
+    expect(container.querySelector(".fixed")).toBeNull();
+    expect(draftOperations(store()).filter((op) => "path" in op && op.path.startsWith("llm.tasks"))).toEqual([
+      { op: "set", source_id: TASKS, path: "llm.tasks.default.models", value: ["kimi-next", "glm-latest"] },
+    ]);
+  });
+
+  it("appends a draft model once and stages its family file and task reference together", async () => {
+    const source = "project:configs/llm/models/qwen.toml";
+    store().createSource(source);
+    store().setValue(source, "llm.models.qwen-latest", { family: "Qwen", adapter: "kimi", providers: [{ provider: "kimi", provider_model: "remote-qwen" }] });
+    await act(async () => root.render(<LlmTaskChainsPage />));
+    await act(async () => buttonByText("添加模型").click());
+    expect(modalModel("kimi-k2").disabled).toBe(true);
+    await act(async () => modalModel("qwen-latest").click());
+    expect(container.querySelector('button[aria-label="Model 3"]')?.textContent).toBe("qwen-latest");
+    const operations = draftOperations(store());
+    expect(operations[0]).toEqual({ op: "create_source", source_id: source });
+    expect(operations).toContainEqual({ op: "set", source_id: TASKS, path: "llm.tasks.default.models", value: ["kimi-k2", "glm-latest", "qwen-latest"] });
+    expect(operations.filter((op) => "path" in op && op.path === "llm.models.qwen-latest")).toHaveLength(1);
+    await act(async () => buttonByText("添加模型").click());
+    expect(modalModel("qwen-latest").disabled).toBe(true);
+  });
+
+  it("requires an explicit first model and keeps it selected when filtering candidates", async () => {
+    await act(async () => root.render(<LlmTaskChainsPage />));
+    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="New task chain"]')!.click());
+    const id = container.querySelector<HTMLInputElement>(".fixed input:not([aria-label='搜索模型'])")!;
+    await act(async () => setInputValue(id, "new-task"));
+    const create = [...container.querySelectorAll<HTMLButtonElement>(".fixed button")].find((item) => item.textContent?.trim() === "创建")!;
+    expect(create.disabled).toBe(true);
+    await act(async () => buttonByText("未分组").click());
+    expect(create.disabled).toBe(true);
+    expect(draftOperations(store())).toEqual([]);
+    await act(async () => modalModel("glm-latest").click());
+    await act(async () => buttonByText("Kimi").click());
+    expect(container.querySelector(".fixed")?.textContent).toContain("首模型：glm-latest");
+    expect(create.disabled).toBe(false);
+    await act(async () => create.click());
+    expect(draftOperations(store())).toEqual([{ op: "set", source_id: TASKS, path: "llm.tasks.new-task", value: { models: ["glm-latest"] } }]);
+  });
+
   it("move buttons reorder the chain and stage one models draft", async () => {
     await act(async () => {
       root.render(<LlmTaskChainsPage />);
@@ -535,5 +601,27 @@ describe("moveItem", () => {
     expect(moveItem([1, 2, 3], 0, 1)).toEqual([2, 1, 3]);
     expect(moveItem([1, 2, 3], 2, 0)).toEqual([3, 1, 2]);
     expect(moveItem([1, 2, 3], 0, 3)).toEqual([1, 2, 3]);
+  });
+});
+
+
+describe("shared model candidate list", () => {
+  it("groups all candidates and exposes collapsed entries through search or the switch without choosing", async () => {
+    store().setValue(MODELS_KIMI_SOURCE, "llm.models.kimi-old", { family: "Kimi", collapsed: true });
+    const select = vi.fn();
+    await act(async () => root.render(<ModelSelectionList models={projectCollection(store(), "llm.models")} value="kimi-old" onSelect={select} />));
+    expect(container.textContent).not.toContain("kimi-old");
+    expect(container.textContent).toContain("未分组");
+    const search = container.querySelector<HTMLInputElement>('input[aria-label="搜索模型"]')!;
+    await act(async () => setInputValue(search, "kimi-old"));
+    expect(container.textContent).toContain("kimi-old");
+    expect(container.textContent).toContain("默认折叠");
+    await act(async () => buttonByText("未分组").click());
+    expect(container.textContent).toContain("没有匹配的模型");
+    expect(select).not.toHaveBeenCalled();
+    await act(async () => { setInputValue(search, ""); buttonByText("全部").click(); });
+    await act(async () => container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+    await act(async () => buttonByText("kimi-old").click());
+    expect(select).toHaveBeenCalledExactlyOnceWith("kimi-old");
   });
 });
