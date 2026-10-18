@@ -13,8 +13,22 @@ type = "string"
 [tool.schema.properties.close]
 type = "boolean"
 [semantic]
-use_when = ["An interactive process is waiting for input"]
+use_when = [
+    "Send input to an interactive Job waiting for stdin",
+    "Respond to interactive process prompts",
+    "Feed bounded UTF-8 text to running Job"
+]
+avoid_when = [
+    "Job is not interactive or not waiting for input",
+    "Need to start a new Job; use execution.start first",
+    "Process doesn't need input; use execution.collect to get output"
+]
 effects = ["modifying"]
+examples = [
+    "Send 'yes\\n' to interactive Job waiting for confirmation",
+    "Provide input text to running interactive script",
+    "Respond to Job prompt with execution.stdin(job_id, text, close=False)"
+]
 [runtime]
 parallel_policy = "serial"
 [execution]

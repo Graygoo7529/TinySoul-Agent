@@ -22,7 +22,21 @@ type = "string"
 enum = ["pinned","tmp","library"]
 
 [semantic]
+use_when = [
+    "Mark workspace resource with owner-maintained tags (pinned/tmp/library)",
+    "Pin important resources to prevent auto-cleanup",
+    "Mark temporary files for easier identification"
+]
+avoid_when = [
+    "Tags are already correct",
+    "Need custom metadata; consider workspace.describe"
+]
 effects = ["modifying"]
+examples = [
+    "Tag workspace:important.md as pinned to preserve across days",
+    "Tag workspace:temp.json as tmp to indicate temporary status",
+    "Tag workspace:reference.md as library for long-term storage"
+]
 
 [runtime]
 parallel_policy = "serial"

@@ -6,8 +6,22 @@ description = "Inspect pending effective Home changes. Omit paths to list Home L
 schema = { type = "object", properties = { paths = { type = "array", items = { type = "string" } } }, required = [], additionalProperties = false }
 
 [semantic]
-use_when = ["Relevant sources and existing owner content have been inspected"]
+use_when = [
+    "Inspect pending effective Home changes during Home Reflection",
+    "List Home Links with pending changes (omit paths parameter)",
+    "Review baseline and candidate details for specific paths"
+]
+avoid_when = [
+    "Not in Home Reflection Turn (visibility restricted)",
+    "No pending Home changes to inspect",
+    "Need to apply changes; use home.review after inspection"
+]
 effects = ["read_only"]
+examples = [
+    "List all pending Home Links with home.diff (no paths)",
+    "Inspect specific Home changes: home.diff with paths=[\"home:top/agent/identity\"]",
+    "Review baseline vs candidate for Home resources before accepting"
+]
 
 [visibility]
 default = false

@@ -22,10 +22,22 @@ type = "boolean"
 description = "Whether to replace the target and its owned asset bundle. Defaults to false."
 
 [semantic]
-use_when = ["Need PDF-specific page-level text and visual resource extraction", "Need PDF attachments or image-heavy pages preserved for later inspection"]
-avoid_when = ["The source is not PDF", "An ordinary document should use the preferred MarkItDown conversion path"]
+use_when = [
+    "Convert PDF to page-oriented Markdown with page-level detail",
+    "Need PDF attachments, images, and scanned pages preserved",
+    "Extract content from image-heavy or complex PDF documents"
+]
+avoid_when = [
+    "Source is not PDF",
+    "Ordinary document should use workspace.convert_with_markitdown",
+    "PDF is already readable text; inspect or use simpler conversion"
+]
 effects = ["modifying"]
-examples = ["Convert workspace:incoming/scanned.pdf to workspace:converted/scanned.md"]
+examples = [
+    "Convert workspace:incoming/scanned.pdf to workspace:converted/scanned.md",
+    "Extract page-level content from workspace:docs/complex.pdf",
+    "Process image-heavy workspace:reports/visual.pdf with attachment extraction"
+]
 
 [runtime]
 timeout_seconds = 90

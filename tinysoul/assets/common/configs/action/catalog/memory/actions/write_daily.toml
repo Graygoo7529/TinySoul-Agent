@@ -6,8 +6,21 @@ description = "Write the complete Markdown body for this Reflection target daily
 schema = { type = "object", properties = { markdown = { type = "string" } }, required = ["markdown"], additionalProperties = false }
 
 [semantic]
-use_when = ["Relevant sources and existing owner content have been inspected"]
+use_when = [
+    "Write complete Markdown body for Memory Reflection target daily",
+    "Commit today's Reflection synthesis to Memory (Reflection Turn only)",
+    "Update daily Memory entry with owner-supplied heading"
+]
+avoid_when = [
+    "Haven't inspected existing Memory content first",
+    "Not in Memory Reflection Turn (visibility restricted)",
+    "Need to write entity/concept/fact/note; use memory.write"
+]
 effects = ["modifying"]
+examples = [
+    "Write today's daily Memory Markdown body during Memory Reflection",
+    "Commit Reflection synthesis for current calendar day"
+]
 
 [visibility]
 default = false

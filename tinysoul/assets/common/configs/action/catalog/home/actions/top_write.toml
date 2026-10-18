@@ -6,10 +6,22 @@ description = "Create or replace one top-level entry in the active Agent Home ov
 schema = { type = "object", properties = { ref = { type = "string", description = "Canonical home:top/<space>/<name> reference; top names have no file extension." }, text = { type = "string", description = "Complete UTF-8 text content." }, overwrite = { type = "boolean", description = "Whether an existing effective entry may be replaced." }, expected_digest = { type = "string", description = "Optional current effective digest precondition." } }, required = ["ref", "text"], additionalProperties = false }
 
 [semantic]
-use_when = ["A top-level AGENT or skill entry should be created or fully replaced"]
-avoid_when = ["A progressive resource or automatic prompt mount should change", "A long-term Memory should change"]
+use_when = [
+    "Create or replace top-level Agent Home entry (home:top/<space>/<name>)",
+    "Write new skill definition to Agent Home",
+    "Replace existing top-level AGENT or skill entry"
+]
+avoid_when = [
+    "Need to write progressive resource; use home.resource.write",
+    "Should modify persistent Memory; use memory actions",
+    "Target is automatic prompt mount; use home.prompt_mount.write"
+]
 effects = ["modifying"]
-examples = ["Create home:top/skills/refactor"]
+examples = [
+    "Create home:top/skills/refactor (new skill)",
+    "Replace home:top/agent/identity with updated content",
+    "Write home:top/skills/custom_tool skill definition"
+]
 
 [runtime]
 parallel_policy = "serial"

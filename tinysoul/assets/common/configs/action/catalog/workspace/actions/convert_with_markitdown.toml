@@ -22,10 +22,22 @@ type = "boolean"
 description = "Whether to replace the target and its owned asset bundle. Defaults to false."
 
 [semantic]
-use_when = ["Need structured Markdown from an ordinary PDF or DOCX", "Need embedded document resources preserved as Workspace refs"]
-avoid_when = ["Need PDF-specific page-by-page extraction or low-level PDF fallback", "The source is already a readable Workspace text resource"]
+use_when = [
+    "Convert supported document (PDF, DOCX, etc.) to Markdown with MarkItDown",
+    "Need structured Markdown with embedded resources preserved as refs",
+    "Extract document content for analysis or modification"
+]
+avoid_when = [
+    "Need PDF-specific page-level extraction; use workspace.convert_with_pypdf",
+    "Source is already readable text; use workspace.inspect",
+    "Source format is not supported by MarkItDown"
+]
 effects = ["modifying"]
-examples = ["Convert workspace:incoming/report.docx to workspace:converted/report.md"]
+examples = [
+    "Convert workspace:incoming/report.docx to workspace:converted/report.md",
+    "Convert workspace:documents/presentation.pptx to Markdown",
+    "Extract content from workspace:files/data.pdf to readable format"
+]
 
 [runtime]
 timeout_seconds = 90

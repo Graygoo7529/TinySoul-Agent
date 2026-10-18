@@ -6,10 +6,22 @@ description = "Replace one unique text fragment in a progressive Agent Home reso
 schema = { type = "object", properties = { ref = { type = "string" }, old_text = { type = "string" }, new_text = { type = "string" }, expected_digest = { type = "string" } }, required = ["ref", "old_text", "new_text"], additionalProperties = false }
 
 [semantic]
-use_when = ["A small exact change is needed in a progressive Home resource"]
-avoid_when = ["The old text is ambiguous", "A top-level or long-term Memory entry should change"]
+use_when = [
+    "Apply small exact text replacement to progressive Home resource",
+    "Patch one command or section in progressive content",
+    "Make precise change when old text occurs exactly once"
+]
+avoid_when = [
+    "Old text is ambiguous or occurs multiple times",
+    "Need to modify top-level or Memory; use appropriate action",
+    "Need full rewrite; use home.resource.write"
+]
 effects = ["modifying"]
-examples = ["Patch one command in home:resource/skills/refactor/references/checklist.md"]
+examples = [
+    "Patch one command in home:resource/skills/refactor/references/checklist.md",
+    "Replace specific instruction in progressive resource",
+    "Make exact string replacement in home:resource content"
+]
 
 [runtime]
 parallel_policy = "serial"

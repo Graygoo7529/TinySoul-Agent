@@ -6,10 +6,22 @@ description = "Replace one unique text fragment in a top-level Agent Home entry.
 schema = { type = "object", properties = { ref = { type = "string", description = "Stable home:top/<space>/<name> reference." }, old_text = { type = "string" }, new_text = { type = "string" }, expected_digest = { type = "string" } }, required = ["ref", "old_text", "new_text"], additionalProperties = false }
 
 [semantic]
-use_when = ["A small exact change is needed in a top-level AGENT or skill entry"]
-avoid_when = ["A long-term Memory should change", "The old text is ambiguous"]
+use_when = [
+    "Apply small exact text replacement to top-level AGENT or skill entry",
+    "Patch one rule or constraint in home:top content",
+    "Make precise change when old text occurs exactly once"
+]
+avoid_when = [
+    "Old text is ambiguous or occurs multiple times",
+    "Should modify persistent Memory; use memory actions",
+    "Need full rewrite; use home.top.write"
+]
 effects = ["modifying"]
-examples = ["Patch one rule in home:top/agent/AGENT"]
+examples = [
+    "Patch one rule in home:top/agent/AGENT",
+    "Replace specific phrase in home:top/skills/custom",
+    "Make exact string replacement in top-level entry"
+]
 
 [runtime]
 parallel_policy = "serial"

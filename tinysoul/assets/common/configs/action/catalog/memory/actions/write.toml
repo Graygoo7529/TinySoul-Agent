@@ -6,8 +6,22 @@ description = "Replace one entity/concept/fact/note Markdown document. Search or
 schema = { type = "object", properties = { ref = { type = "string" }, markdown = { type = "string" } }, required = ["ref", "markdown"], additionalProperties = false }
 
 [semantic]
-use_when = ["Relevant sources and existing owner content have been inspected"]
+use_when = [
+    "Replace entity/concept/fact/note Markdown document in Memory",
+    "Update existing Memory content after inspection",
+    "Commit structured knowledge to persistent Memory (Reflection Turn only)"
+]
+avoid_when = [
+    "Haven't inspected existing Memory content first",
+    "Not in Memory Reflection Turn (visibility restricted)",
+    "Need to write daily content; use memory.write_daily"
+]
 effects = ["modifying"]
+examples = [
+    "Write memory:entity/project_name with complete YAML frontmatter and body",
+    "Update memory:concept/architecture with new understanding",
+    "Replace memory:fact/key_decision with corrected information"
+]
 
 [visibility]
 default = false

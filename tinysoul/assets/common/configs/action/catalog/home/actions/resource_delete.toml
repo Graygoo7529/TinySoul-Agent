@@ -6,10 +6,21 @@ description = "Hide one progressive Agent Home resource using an active overlay 
 schema = { type = "object", properties = { ref = { type = "string" }, expected_digest = { type = "string" } }, required = ["ref"], additionalProperties = false }
 
 [semantic]
-use_when = ["A progressive Home resource should be removed from the effective view"]
-avoid_when = ["A top-level or long-term Memory entry should be deleted"]
+use_when = [
+    "Remove progressive Home resource from effective view",
+    "Delete obsolete generated reference from active Home overlay",
+    "Hide resource without permanent deletion (uses tombstone)"
+]
+avoid_when = [
+    "Need to delete top-level entry; use home.top.delete",
+    "Should modify persistent Memory; use memory actions"
+]
 effects = ["modifying"]
-examples = ["Delete an obsolete generated reference from the active Home overlay"]
+examples = [
+    "Delete home:resource/skills/old/deprecated.md",
+    "Remove obsolete home:resource/templates/old_pattern.md",
+    "Hide progressive resource with home:resource:delete"
+]
 
 [runtime]
 parallel_policy = "serial"

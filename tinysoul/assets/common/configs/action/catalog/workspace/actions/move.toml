@@ -18,7 +18,22 @@ type = "string"
 type = "string"
 
 [semantic]
+use_when = [
+    "Rename or move a workspace file or directory",
+    "Reorganize workspace structure",
+    "Move resource to different location (target must not exist)"
+]
+avoid_when = [
+    "Target already exists; check first or use overwrite-capable action",
+    "Only need to modify content; use workspace.edit",
+    "Should delete instead; use workspace.delete"
+]
 effects = ["modifying"]
+examples = [
+    "Move workspace:draft.md to workspace:docs/final.md",
+    "Rename workspace:old_name.py to workspace:new_name.py",
+    "Move workspace:src/temp to workspace:archive/temp"
+]
 
 [runtime]
 parallel_policy = "serial"

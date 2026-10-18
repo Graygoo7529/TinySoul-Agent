@@ -24,7 +24,21 @@ minimum = 1
 maximum = 64
 
 [semantic]
+use_when = [
+    "List available Workspace resources with pagination",
+    "Browse Workspace contents without specific search criteria",
+    "Get overview of tags and resource counts"
+]
+avoid_when = [
+    "Know what resource to find; use workspace.search or direct reference",
+    "Need to read resource content; use workspace.inspect after locating"
+]
 effects = ["read_only"]
+examples = [
+    "List all Workspace resources",
+    "List resources in workspace:docs with pagination",
+    "List Workspace tags"
+]
 
 [runtime]
 parallel_policy = "serial"

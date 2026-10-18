@@ -14,10 +14,21 @@ type = "string"
 description = "A trash:workspace reference returned by workspace.delete."
 
 [semantic]
-use_when = ["A resource removed from the active Workspace is needed again"]
-avoid_when = ["An active resource already exists at the original path"]
+use_when = [
+    "Restore a deleted resource from Workspace Trash",
+    "Recover a file that was mistakenly deleted",
+    "Need a previously deleted resource again"
+]
+avoid_when = [
+    "Active resource already exists at the target path",
+    "Don't have the trash_ref; use workspace.trash_list first",
+    "Resource was permanently deleted (not in Trash)"
+]
 effects = ["modifying"]
-examples = ["Restore trash:workspace/trash_abcd after discovering the draft is needed"]
+examples = [
+    "Restore trash:workspace/trash_abcd after discovering draft is needed",
+    "Recover workspace:docs/important.md from Trash"
+]
 
 [runtime]
 parallel_policy = "serial"

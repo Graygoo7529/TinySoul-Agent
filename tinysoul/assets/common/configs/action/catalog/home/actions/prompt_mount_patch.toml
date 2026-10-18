@@ -6,10 +6,22 @@ description = "Replace one unique text fragment in an Action Catalog-defined pro
 schema = { type = "object", properties = { ref = { type = "string", description = "home:mount/domain/<domain> or home:mount/action/<domain>/<action>." }, old_text = { type = "string" }, new_text = { type = "string" }, expected_digest = { type = "string" } }, required = ["ref", "old_text", "new_text"], additionalProperties = false }
 
 [semantic]
-use_when = ["A small exact change is needed in a framework-defined domain or action skill mount"]
-avoid_when = ["The logical mount does not exist in the Action Catalog", "The old text is ambiguous"]
+use_when = [
+    "Apply small exact text replacement to Action Catalog prompt mount",
+    "Patch one constraint in domain or action skill mount",
+    "Make precise change to framework-defined mount when old text is unique"
+]
+avoid_when = [
+    "Logical mount does not exist in Action Catalog",
+    "Old text is ambiguous or occurs multiple times",
+    "Need full rewrite; use home.prompt_mount.write"
+]
 effects = ["modifying"]
-examples = ["Patch one constraint in home:mount/action/workspace/rewrite"]
+examples = [
+    "Patch one constraint in home:mount/action/workspace/rewrite",
+    "Replace specific phrase in home:mount/domain/memory",
+    "Make exact string replacement in prompt mount"
+]
 
 [runtime]
 parallel_policy = "serial"

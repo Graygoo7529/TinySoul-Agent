@@ -6,10 +6,21 @@ description = "Create or replace one Action Catalog-defined domain/action skill 
 schema = { type = "object", properties = { ref = { type = "string", description = "home:mount/domain/<domain> or home:mount/action/<domain>/<action>." }, text = { type = "string" }, overwrite = { type = "boolean" }, expected_digest = { type = "string" } }, required = ["ref", "text"], additionalProperties = false }
 
 [semantic]
-use_when = ["A framework-defined domain or action skill mount should be created or fully replaced"]
-avoid_when = ["The model would need to create or delete a logical mount", "A general skill should change"]
+use_when = [
+    "Create or replace Action Catalog-defined prompt mount",
+    "Write guidance to home:mount/domain/<domain>",
+    "Replace skill mount for specific action: home:mount/action/<domain>/<action>"
+]
+avoid_when = [
+    "Logical mount does not exist in Action Catalog",
+    "Need to modify general skill; use top or resource actions"
+]
 effects = ["modifying"]
-examples = ["Write guidance to home:mount/domain/workspace"]
+examples = [
+    "Write home:mount/domain/workspace with domain-level guidance",
+    "Create home:mount/action/workspace/edit with action-specific skill",
+    "Replace prompt mount for framework-defined action"
+]
 
 [runtime]
 parallel_policy = "serial"

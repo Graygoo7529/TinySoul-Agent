@@ -15,7 +15,20 @@ additionalProperties = false
 type = "string"
 
 [semantic]
+use_when = [
+    "Create a new directory in Workspace",
+    "Organize workspace structure before writing files",
+    "Prepare directory hierarchy for output"
+]
+avoid_when = [
+    "Directory already exists (will reject)",
+    "Only need to write files; workspace.write creates parent directories automatically"
+]
 effects = ["modifying"]
+examples = [
+    "Create workspace:output directory",
+    "Create workspace:docs/api directory structure"
+]
 
 [runtime]
 parallel_policy = "serial"

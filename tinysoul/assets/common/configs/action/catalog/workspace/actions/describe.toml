@@ -6,10 +6,22 @@ description = "Generate and store a concise semantic description for a directly 
 schema = { type = "object", properties = { target_ref = { type = "string", description = "A directly readable text or image workspace ref." }, instruction = { type = "string", description = "Optional description focus." } }, required = ["target_ref"], additionalProperties = false }
 
 [semantic]
-use_when = ["A workspace text or image resource needs a semantic description in the manifest"]
-avoid_when = ["The resource is a document that requires conversion", "Only deterministic file metadata is needed"]
+use_when = [
+    "Generate semantic description for workspace text or image resource",
+    "Enrich resource manifest for later Turn discovery",
+    "Add searchable description to workspace files"
+]
+avoid_when = [
+    "Resource requires conversion first (use convert actions)",
+    "Only deterministic file metadata is needed (use inspect)",
+    "Resource is not directly readable text or image"
+]
 effects = ["read_only"]
-examples = ["Describe workspace:docs/task.md for later Turn discovery"]
+examples = [
+    "Describe workspace:docs/task.md for later semantic search",
+    "Describe workspace:diagrams/arch.png with optional instruction",
+    "Generate description for workspace:notes/meeting.md"
+]
 
 [runtime]
 timeout_seconds = 600

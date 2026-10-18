@@ -19,10 +19,21 @@ minimum = 1
 maximum = 64
 
 [semantic]
-use_when = ["Need to find a trash_ref before restoring a removed Workspace resource"]
-avoid_when = ["The active Workspace manifest already contains the resource"]
+use_when = [
+    "Find trash_ref before restoring a deleted Workspace resource",
+    "Browse recoverable Trash items",
+    "Check what deleted resources are available for restore"
+]
+avoid_when = [
+    "Resource is still in active Workspace; use workspace.list or search",
+    "Already have the trash_ref; call workspace.restore directly"
+]
 effects = ["read_only"]
-examples = ["List Trash, select the matching ref, then call workspace.restore"]
+examples = [
+    "List Trash to find deleted file's trash_ref",
+    "List Trash with pagination (offset and limit)",
+    "Browse recoverable resources before calling workspace.restore"
+]
 
 [runtime]
 parallel_policy = "serial"

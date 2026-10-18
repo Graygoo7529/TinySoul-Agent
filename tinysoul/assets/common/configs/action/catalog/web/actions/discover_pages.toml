@@ -28,10 +28,22 @@ description = "Optional same-origin URL path globs that candidates must not matc
 items = { type = "string" }
 
 [semantic]
-use_when = ["Need links or page metadata from a known page before deciding which pages deserve full fetch", "Need bounded recursive same-origin page discovery"]
-avoid_when = ["A known page should be converted directly to Workspace Markdown", "Need current source discovery across the public Web rather than links from a known site"]
+use_when = [
+    "Discover same-origin pages from known seed URL",
+    "Get links and page metadata before deciding which pages to fetch fully",
+    "Explore site structure with bounded recursive depth"
+]
+avoid_when = [
+    "Known page should be converted directly; use web.fetch_* actions",
+    "Need current Web source discovery; use web.search_by_kimi",
+    "Only need single page; use fetch actions directly"
+]
 effects = ["additive"]
-examples = ["Discover direct documentation pages linked from https://example.com/docs/ with max_visit_depth 0"]
+examples = [
+    "Discover pages from https://example.com/docs/ with depth 0 (seed only)",
+    "Explore documentation structure with max_visit_depth 2",
+    "Get bounded page list with include_globs and exclude_globs filters"
+]
 
 [runtime]
 timeout_seconds = 180
