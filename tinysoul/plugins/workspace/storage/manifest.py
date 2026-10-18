@@ -25,7 +25,7 @@ class WorkspaceResourceKind(StrEnum):
 class WorkspaceTag(StrEnum):
     PINNED = "pinned"
     TMP = "tmp"
-    LIBRARY = "library"
+    IMPORTANT = "important"
 
 
 @dataclass(frozen=True)

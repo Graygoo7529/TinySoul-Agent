@@ -69,7 +69,7 @@ Session 的地图和交互正文共用一个背景预算，只在自身高水位
 
 标题、摘要或实际命中摘录与引用一起呈现、一起折叠。Inspect 是各 owner 共用的读取抽象，不建立万能工具门面。`result_handle` 是搜索结果集合的临时句柄，continuation 是续页令牌，二者不冒充持久内容引用。Session 资源出现位置的 `ref` 与所指资源的 `target_ref` 分开。
 
-Workspace 是当日可操作资源空间。磁盘是内容事实，manifest 是索引、说明和标签；pinned/tmp/library 标签不改变日生命周期。短 owner 操作串行、单文件原子提交；不维护内容 CAS、来源 read-set 或提交前复验。execution 直接操作真实当天 Workspace，取消不回滚已写文件，外部共写可能覆盖内容。Trash 由显式操作维护，不因 Context 压力删除文件。
+Workspace 是当日可操作资源空间。磁盘是内容事实，manifest 是索引、说明和标签；pinned/tmp/important 标签不改变日生命周期。短 owner 操作串行、单文件原子提交；不维护内容 CAS、来源 read-set 或提交前复验。execution 直接操作真实当天 Workspace，取消不回滚已写文件，外部共写可能覆盖内容。Trash 由显式操作维护，不因 Context 压力删除文件。
 
 Home 持有身份规约、用户偏好、通用 Skill 和行动指导。actual Home 是已接受基线；普通 Turn 的修改写入跨日 runtime overlay，形成 effective Home，只有 Home Reflection 的受约束 review 服务能接受回 actual Home。审核来源 token 保护真正的 review 语义，与 Workspace 不使用 CAS 不冲突。
 

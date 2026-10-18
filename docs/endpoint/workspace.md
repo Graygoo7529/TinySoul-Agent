@@ -9,7 +9,7 @@ Workspace endpoint 使用 `workspace:` ref 和受约束 async WorkspaceService�
 - `PUT /v2/workspace/blob`：通过 owner 写入有界二进制资源，文件内容是唯一事实
 - `POST /v2/workspace/directory`：`{ref}`，创建目录
 - `POST /v2/workspace/move`：`{source_ref, target_ref}`，移动文件或目录，目标存在时拒绝
-- `PUT /v2/workspace/tags`：`{ref, tags}`，替换标签集合；标签为 `pinned/tmp/library`，空列表清空
+- `PUT /v2/workspace/tags`：`{ref, tags}`，替换标签集合；标签为 `pinned/tmp/important`，空列表清空
 - `POST /v2/workspace/edit`：`{ref, edits: [{old_text, new_text}]}`，顺序验证 1–64 项唯一匹配后一次提交
 - `POST /v2/workspace/append`：`{ref, text}`，追加明确文本
 - `GET/POST /v2/workspace/trash`

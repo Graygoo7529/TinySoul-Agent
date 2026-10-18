@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.support.catalog import builtin_action_catalog_root
 from tests.support.model_uses import action_tasks
 from tinysoul.infra.config import ConfigError
 from tinysoul.infra.json import JsonObject, dumps_json
@@ -13,6 +14,8 @@ from tinysoul.infra.references import ReferenceResolver
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.action.call import ActionCall, ActionExecution
 from tinysoul.kernel.action.catalog.catalog import ActionCatalog
+from tinysoul.kernel.action.catalog.loader import ActionCatalogLoader
+from tinysoul.kernel.action.catalog.schema import validate_action_params
 from tinysoul.kernel.action.catalog.specs import (
     ActionDomainSpec,
     ActionExecutionSpec,
@@ -63,6 +66,7 @@ from tinysoul.plugins.workspace import (
     WorkspaceResourceKind,
     WorkspaceSearchSettings,
     WorkspaceSettings,
+    WorkspaceTag,
     WorkspaceTextSlice,
     parse_workspace_settings,
 )
@@ -967,6 +971,38 @@ def _executor(engine: WorkspaceEngine) -> WorkspaceExecutor:
         action_tasks(ContextEngineBuilder(system_text="sys").build()),
         FakeLLMRunner(),
         RuntimeWorkspaceBridge(),
+    )
+
+
+async def test_catalog_tags_execute_and_persist(tmp_path: Path) -> None:
+    with builtin_action_catalog_root() as root:
+        catalog = ActionCatalogLoader().load(root)
+    params: JsonObject = {
+        "target_ref": "workspace:notes.md",
+        "tags": ["pinned", "tmp", "important"],
+    }
+    validate_action_params(params, schema=catalog.get_action("workspace.tag").tool.schema)
+    preparation = ActionExecutionBuilder().prepare_batch(
+        (ActionCall("tag_1", "workspace.tag", params, 1),),
+        catalog=catalog,
+        scope=RunScope().push(RunLevel.PHASE, "phase3"),
+        batch_id="batch_1",
+    )
+    settings = WorkspaceSettings(root=tmp_path)
+    engine = WorkspaceEngineBuilder(settings).build()
+    engine.write_text("workspace:notes.md", "notes")
+
+    result = await _executor(engine).execute(
+        preparation.batch.executions[0], ActionExecutionContext()
+    )
+
+    assert result.status.value == "success"
+    assert result.payload["tags"] == params["tags"]
+    reopened = WorkspaceEngineBuilder(settings).build()
+    assert reopened.stat("workspace:notes.md").tags == (
+        WorkspaceTag.PINNED,
+        WorkspaceTag.TMP,
+        WorkspaceTag.IMPORTANT,
     )
 
 

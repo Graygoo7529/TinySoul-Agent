@@ -426,9 +426,10 @@ def test_endpoint_workspace_directory_edit_move_tags_and_rejects_old_guards(
     tagged = client.put(
         "/v2/workspace/tags",
         headers=_auth(),
-        json={"ref": "workspace:notes/a.md", "tags": ["pinned", "library"]},
+        json={"ref": "workspace:notes/a.md", "tags": ["pinned", "important"]},
     )
     assert tagged.status_code == 200
+    assert tagged.json()["record"]["tags"] == ["pinned", "important"]
     edited = client.post(
         "/v2/workspace/edit",
         headers=_auth(),

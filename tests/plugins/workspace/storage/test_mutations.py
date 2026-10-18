@@ -70,7 +70,7 @@ def test_directory_move_and_trash_restore_preserve_tags_and_description(
     engine.mkdir("workspace:notes")
     engine.write_text("workspace:notes/a.md", "old")
     engine.tag("workspace:notes", (WorkspaceTag.PINNED,))
-    engine.tag("workspace:notes/a.md", (WorkspaceTag.TMP, WorkspaceTag.LIBRARY))
+    engine.tag("workspace:notes/a.md", (WorkspaceTag.TMP, WorkspaceTag.IMPORTANT))
     engine.set_description("workspace:notes/a.md", "A retained description")
     (engine.root / "notes" / "a.md").write_text("external update", encoding="utf-8")
     engine.reconcile()
@@ -82,7 +82,7 @@ def test_directory_move_and_trash_restore_preserve_tags_and_description(
     assert engine.trash_items() == ()
     assert engine.stat("workspace:moved").tags == (WorkspaceTag.PINNED,)
     child = engine.stat("workspace:moved/a.md")
-    assert child.tags == (WorkspaceTag.TMP, WorkspaceTag.LIBRARY)
+    assert child.tags == (WorkspaceTag.TMP, WorkspaceTag.IMPORTANT)
     assert child.description == "A retained description"
     assert engine.read_text(child.ref).text == "external update"
 

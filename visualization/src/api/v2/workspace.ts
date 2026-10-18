@@ -7,7 +7,7 @@
 
 import type { ContentFragment, ContinuationPage, ResourceLocator } from "./common";
 
-export type WorkspaceTag = "pinned" | "tmp" | "library" | (string & {});
+export type WorkspaceTag = "pinned" | "tmp" | "important" | (string & {});
 
 /** Manifest resource record (WorkspaceManifest record to_json). */
 export interface WorkspaceResourceRecord {

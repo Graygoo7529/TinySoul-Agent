@@ -51,7 +51,7 @@ type PanelModal = "move" | "tags" | "append" | "replace" | "trash" | null;
 const TAG_TONES: Record<string, BadgeTone> = {
   pinned: "accent",
   tmp: "yellow",
-  library: "teal",
+  important: "teal",
 };
 
 export function FilePanel({

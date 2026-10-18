@@ -10,7 +10,7 @@ Workspace 是当前 CalendarDay 的文件、目录、索引与 Trash owner。磁
 
 ## 文件与轻量索引
 
-资源身份使用 `workspace:<relative-path>`。owner 拒绝绝对路径、越界、内部元数据目录以及 symlink/junction 跳转。目录也是可列举、标记、移动和删除的资源。pinned/tmp/library 标签只表达使用意图，不影响日生命周期，也不授予自动删除或跨日保留权。
+资源身份使用 `workspace:<relative-path>`。owner 拒绝绝对路径、越界、内部元数据目录以及 symlink/junction 跳转。目录也是可列举、标记、移动和删除的资源。pinned/tmp/important 标签只表达使用意图，不影响日生命周期，也不授予自动删除或跨日保留权。
 
 Manifest schema v4 严格校验字段与版本，不接受旧 CAS 格式。reconcile 根据磁盘更新派生字段，保留同一 引用 的说明与标签；外部程序改写内容不会抹去人工元数据。扫描受数量上限约束并返回覆盖情况；未完整扫描时保留原 manifest，不能把未访问资源当作删除。不能解释的存储数据作为 owner 不变量失败报告，不自动清空或迁移。
 

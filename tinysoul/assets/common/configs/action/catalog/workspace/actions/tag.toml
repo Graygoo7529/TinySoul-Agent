@@ -2,7 +2,7 @@ name = "workspace.tag"
 domain = "workspace"
 
 [tool]
-description = "Replace owner-maintained resource tags. Tags do not extend the daily lifecycle."
+description = "Tag workspace resources as pinned, temporary, or important."
 
 [tool.schema]
 type = "object"

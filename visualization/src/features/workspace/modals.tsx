@@ -72,7 +72,7 @@ export function PathInputModal({
 const KNOWN_TAGS: { tag: WorkspaceTag; label: string }[] = [
   { tag: "pinned", label: "pinned" },
   { tag: "tmp", label: "tmp" },
-  { tag: "library", label: "library" },
+  { tag: "important", label: "important" },
 ];
 
 /** Replace the tag set; tags outside the known three are preserved. */
