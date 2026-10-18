@@ -59,7 +59,7 @@
 - 考虑将 home/memory 作为与 user turn 类似，区别只有新增 home/memory maintenance domain 和一条表示需求的 turn input
 - tinysoul\maintenance\catalog\maintenance 没有区分 home/memory
 - maintenance action 没有类似通用 action 的可配置性，包括模型链：memory_daily；检查 home_search，不要硬编码 home_search 的模型链：若 home_search 是通用 action，应通过通用 action 配置，若 home_search 是 maintenance action，应通过 maintenance action 设置模型链；；初始配置应提供通用 maintenance action 模型链，或直接复用 llm action 模型链，配置界面应区分，但初始配置项可共用
-- 阐述 memory-note，加入 home-library
+- 阐述 memory-note，加入 home-library/knowledge：思考，利用 home 能够在 reflection 期间组织和优化，但如何避免 search 和 skill/agent 混淆？检查当前 search 工具的范围筛选、标签过滤、属性过滤能力；以及检查标签和属性添加的时机
 - 工作区提出加入 library
 - library 检索和拉取到工作区
 - 检查会话上下文中 memory target 的出现
