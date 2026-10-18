@@ -214,7 +214,7 @@ MiniMax 采用兼容 OpenAI Chat Completions 的接口形态。其思考模式�
 
 供应商密钥按配置中的环境变量顺序读取第一个非空值。若同一供应商配置了多个可选环境变量，靠前名称具有更高优先级。
 
-模型配置描述 TinySoul 内部模型标识、有序 Provider Chain、必填的 `context_window_tokens` 和模型能力。任务配置只引用 TinySoul 内部模型标识，不直接引用供应商模型名。内部模型标识应使用小写和下划线，避免点号等容易与配置路径混淆的字符。
+模型配置描述 TinySoul 内部模型标识、有序 Provider Chain、必填的 `context_window_tokens` 和模型能力。任务配置只引用 TinySoul 内部模型标识，不直接引用供应商模型名。内部模型 ID 是任务链引用的稳定逻辑名称。预设采用小写字母与连字符，例如 gpt-sol；配置字段名继续使用下划线。远端模型名称由各 Provider Binding 的 provider_model 明确声明。
 
 Model 以四项边界清晰的事实参与调用：`providers` 按顺序保存 Provider 与 `provider_model`，形成当前 Model 的 Provider Chain；`adapter` 选择整个模型所需的 Adapter；capabilities 表达路由可依赖的能力；`adapter_options` 与 `request_overrides` 是两个同级对象。`AdapterOptions` 只承载由所选 Adapter 解释的模型级选项，例如推理协议、缓存和供应商扩展参数。`RequestOverrides` 只承载模型对通用调用参数的固定覆盖，当前包括 `temperature` 与 `max_output_tokens`，由 TaskRunner 在构造 `ProviderRequest` 前覆盖任务和单次调用设置，Provider Adapter 不解析该配置容器。所有 Provider Binding 必须满足相同的 Model 能力与 Adapter 契约；如果上下文窗口或能力不同，应建立另一个 Model。
 
