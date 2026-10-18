@@ -8,7 +8,7 @@ schema = { type = "object", properties = { paths = { type = "array", items = { t
 [semantic]
 use_when = [
     "Accept or reject selected effective Home changes during Home Reflection",
-    "Commit inspected Home changes to runtime after review",
+    "Commit inspected Home changes to actual home after review",
     "Discard unwanted Home changes (reject decision)"
 ]
 avoid_when = [
@@ -37,4 +37,3 @@ execute = []
 
 [execution]
 executor = "home.review"
-

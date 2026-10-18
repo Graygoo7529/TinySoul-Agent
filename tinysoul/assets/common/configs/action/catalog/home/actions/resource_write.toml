@@ -19,8 +19,7 @@ avoid_when = [
 effects = ["modifying"]
 examples = [
     "Create home:resource/skills/refactor/references/checklist.md",
-    "Write home:resource/guides/api_usage.md for skill reference",
-    "Replace home:resource/templates/pattern.md with updated content"
+    "Replace home:resource/skills/refactor/references/pattern.md with updated content"
 ]
 
 [runtime]

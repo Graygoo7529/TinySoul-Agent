@@ -17,9 +17,8 @@ avoid_when = [
 ]
 effects = ["modifying"]
 examples = [
-    "Delete home:resource/skills/old/deprecated.md",
-    "Remove obsolete home:resource/templates/old_pattern.md",
-    "Hide progressive resource with home:resource:delete"
+    "Remove obsolete home:resource/skills/<skill>/references/old_pattern.md",
+    "Hide progressive resource with home.resource.delete"
 ]
 
 [runtime]

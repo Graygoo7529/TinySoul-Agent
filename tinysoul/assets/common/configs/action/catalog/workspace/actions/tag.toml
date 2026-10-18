@@ -19,13 +19,13 @@ type = "array"
 
 [tool.schema.properties.tags.items]
 type = "string"
-enum = ["pinned","tmp","library"]
+enum = ["pinned","tmp","important"]
 
 [semantic]
 use_when = [
-    "Mark workspace resource with owner-maintained tags (pinned/tmp/library)",
+    "Mark workspace resource with tags (pinned/tmp/important)",
     "Pin important resources to prevent auto-cleanup",
-    "Mark temporary files for easier identification"
+    "Mark temporary files for easier identification or long-term storage"
 ]
 avoid_when = [
     "Tags are already correct",
@@ -35,7 +35,7 @@ effects = ["modifying"]
 examples = [
     "Tag workspace:important.md as pinned to preserve across days",
     "Tag workspace:temp.json as tmp to indicate temporary status",
-    "Tag workspace:reference.md as library for long-term storage"
+    "Tag workspace:reference.md as important for long-term storage"
 ]
 
 [runtime]

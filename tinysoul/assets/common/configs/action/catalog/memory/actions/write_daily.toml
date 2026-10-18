@@ -8,7 +8,7 @@ schema = { type = "object", properties = { markdown = { type = "string" } }, req
 [semantic]
 use_when = [
     "Write complete Markdown body for Memory Reflection target daily",
-    "Commit today's Reflection synthesis to Memory (Reflection Turn only)",
+    "Commit target day's Reflection synthesis to Memory (Reflection Turn only)",
     "Update daily Memory entry with owner-supplied heading"
 ]
 avoid_when = [
@@ -18,8 +18,8 @@ avoid_when = [
 ]
 effects = ["modifying"]
 examples = [
-    "Write today's daily Memory Markdown body during Memory Reflection",
-    "Commit Reflection synthesis for current calendar day"
+    "Write target day's daily Memory Markdown body during Memory Reflection",
+    "Commit Reflection synthesis for target calendar day"
 ]
 
 [visibility]
@@ -36,5 +36,3 @@ execute = []
 
 [execution]
 executor = "memory.write_daily"
-
-
