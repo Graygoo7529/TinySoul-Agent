@@ -212,7 +212,7 @@ describe("ModelCallPanel directed reads (plan §9.3)", () => {
         tool_calls: [],
         usage: { input_tokens: 100, output_tokens: 5 },
         metadata: {},
-        reasoning: { summary: "short plan", encrypted_item_digests: ["a".repeat(64)] },
+        reasoning: { summary: "short plan", native_part_digests: ["a".repeat(64)] },
       }),
     ]);
     await renderPanel({ kind: "llm", taskId: "task_1" });

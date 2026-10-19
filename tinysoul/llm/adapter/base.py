@@ -6,12 +6,11 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Protocol
 
-from tinysoul.llm.protocol.cache import PromptCache
-from tinysoul.llm.protocol.adapter_types import AdapterKind, ProviderApiStyle
 from tinysoul.llm.errors import LLMContractError
+from tinysoul.llm.protocol.adapter_types import AdapterKind, ApiMode
+from tinysoul.llm.protocol.cache import PromptCache
 from tinysoul.llm.protocol.messages import MessageStack
-from tinysoul.llm.protocol.models import ModelSpec
-from tinysoul.llm.protocol.models import ModelProviderBinding
+from tinysoul.llm.protocol.models import ModelProviderBinding, ModelSpec
 from tinysoul.llm.protocol.responses import AnswerFormat, RawResponse
 from tinysoul.llm.protocol.tools import ToolScope, ToolUse
 
@@ -66,6 +65,7 @@ class ProviderRequest:
     tool_scope: ToolScope = field(default_factory=ToolScope)
     prompt_cache: PromptCache | None = None
     temperature: float | None = None
+    top_p: float | None = None
     max_output_tokens: int | None = None
     timeout_seconds: float | None = None
 
@@ -103,6 +103,12 @@ class ProviderRequest:
             raise LLMContractError(
                 "ProviderRequest.temperature must be a number or None"
             )
+        if self.top_p is not None and (
+            isinstance(self.top_p, bool)
+            or not isinstance(self.top_p, (int, float))
+            or not 0 <= float(self.top_p) <= 1
+        ):
+            raise LLMContractError("ProviderRequest.top_p must be between 0 and 1")
         if self.max_output_tokens is not None and (
             isinstance(self.max_output_tokens, bool)
             or not isinstance(self.max_output_tokens, int)
@@ -128,7 +134,7 @@ class ProviderAdapter(Protocol):
     adapter_kind: AdapterKind
 
     @property
-    def api_style(self) -> ProviderApiStyle:
+    def api_mode(self) -> ApiMode:
         """Wire style fixed by the adapter kind."""
         ...
 

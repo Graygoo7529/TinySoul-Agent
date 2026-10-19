@@ -4,12 +4,12 @@ Consumers listed below decide visibility, role, data and failure semantics.
 """
 
 
-# Model task text or feedback. Used by llm/provider/openai_sdk/payloads.py:tool_result_text.
+# Model task text or feedback. Used by llm/adapter/openai/payloads.py:tool_result_text.
 def tool_result_context(*, tool_name: str, call_id: str, content: str) -> str:
     return f"Tool result for {tool_name} (call {call_id}):\n{content}"
 
 
-# History projection. Used by llm/provider/openai_sdk/payloads.py:_assistant_context_parts.
+# History projection. Used by llm/adapter/openai/payloads.py:_assistant_context_parts.
 def tool_call_context(*, tool_name: str, call_id: str, arguments: str) -> str:
     return f"Requested tool call {tool_name} (call {call_id}):\nArguments: {arguments}"
 

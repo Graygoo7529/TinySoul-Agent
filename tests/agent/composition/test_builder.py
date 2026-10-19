@@ -1320,11 +1320,11 @@ async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_i
     providers_path = project_root / "configs" / "llm" / "providers.toml"
     with providers_path.open("a", encoding="utf-8") as providers:
         providers.write(
-            "\n[llm.providers.openai_proxy]\n"
+            "\n[llm.providers.openai-proxy]\n"
             "enabled = true\n"
-            'adapters = ["openai"]\n'
-            'base_url = "https://proxy.example/v1"\n'
             'api_key_envs = ["OPENAI_PROXY_API_KEY"]\n'
+            '[llm.providers.openai-proxy.endpoints.openai-responses]\n'
+            'base_url = "https://proxy.example/v1"\n'
         )
     app = (
         await standard_agent(root=project_root)
@@ -1368,7 +1368,7 @@ async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_i
                     "path": "llm.models.gpt-sol.providers",
                     "op": "set",
                     "value": [
-                        {"provider": "openai_proxy", "provider_model": "gpt-5.5"}
+                        {"provider": "openai-proxy", "provider_model": "gpt-5.5"}
                     ],
                 }
             ]
@@ -1379,7 +1379,7 @@ async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_i
     assert reloaded.status_code == 200
     switched_generation = reloaded.json()["generation_id"]
     switched_source = model_path.read_text(encoding="utf-8")
-    assert 'provider = "openai_proxy"' in switched_source
+    assert 'provider = "openai-proxy"' in switched_source
     assert "[llm.models.gpt-sol.adapter_options]" in switched_source
     assert 'reasoning_keep = "encrypted"' in switched_source
     assert "[llm.models.gpt-sol.request_overrides]" in switched_source

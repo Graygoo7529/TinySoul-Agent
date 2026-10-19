@@ -28,7 +28,8 @@ from tinysoul.llm.protocol.messages import (
     ToolResultMessage,
     UserMessage,
 )
-from tinysoul.llm.protocol.reasoning import Reasoning
+from tinysoul.llm.protocol.reasoning import Reasoning, NativeReplay
+from tinysoul.llm.protocol.adapter_types import ApiMode, AdapterKind
 from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind
 
 
@@ -190,7 +191,7 @@ def test_estimate_counts_assistant_reasoning() -> None:
             reasoning=Reasoning(
                 content="thinking content",
                 summary="thinking summary",
-                encrypted_items=({"type": "reasoning", "encrypted_content": "state"},),
+                native_replay=NativeReplay(ApiMode.OPENAI_RESPONSES, AdapterKind.GPT, "provider", "remote", ({"type": "reasoning", "encrypted_content": "state"},)),
             ),
         ),
     )

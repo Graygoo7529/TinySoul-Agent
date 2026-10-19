@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from tinysoul.infra.concurrency import AsyncResourceScope, CleanupDiagnostic
 from tinysoul.llm.errors import LLMContractError, LLMInvariantError
 from tinysoul.llm.protocol.adapter_types import AdapterKind
-from tinysoul.infra.concurrency import AsyncResourceScope, CleanupDiagnostic
 
 from .base import ProviderAdapter
+from .openai.clients import ClosableClient
 
 
 class ProviderRegistry:
@@ -44,6 +45,9 @@ class ProviderRegistry:
 
     def has(self, provider_id: str, adapter_kind: AdapterKind) -> bool:
         return (provider_id, adapter_kind) in self._adapters
+
+    def own_client(self, name: str, client: ClosableClient) -> None:
+        self._resources.register(name, client.close)
 
     async def close(self) -> tuple[CleanupDiagnostic, ...]:
         """Close every adapter even when one client's cleanup fails."""

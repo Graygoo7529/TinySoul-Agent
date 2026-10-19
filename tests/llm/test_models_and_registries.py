@@ -5,8 +5,8 @@ from typing import cast
 
 import pytest
 
-from tinysoul.llm.protocol.adapter_types import AdapterKind
-from tinysoul.llm.protocol.adapter import adapter_spec
+from tinysoul.llm.protocol.adapter_types import AdapterKind, ApiMode
+from tinysoul.llm.adapter.catalog import adapter_spec
 from tinysoul.llm.errors import LLMContractError, LLMInvariantError
 from tinysoul.llm.protocol.messages import MessageStack, UserMessage
 from tinysoul.llm.protocol.models import (
@@ -15,8 +15,8 @@ from tinysoul.llm.protocol.models import (
     ModelSpec,
 )
 from tinysoul.llm.execution.registry import ModelRegistry
-from tinysoul.llm.provider import ProviderRequest
-from tinysoul.llm.provider.registry import ProviderRegistry
+from tinysoul.llm.adapter import ProviderRequest
+from tinysoul.llm.adapter.registry import ProviderRegistry
 from tinysoul.llm.protocol.reasoning import ReasoningKeep
 from tinysoul.llm.protocol.models import AdapterOptions, RequestOverrides
 from tinysoul.llm.protocol.responses import AnswerFormat, RawResponse
@@ -45,14 +45,14 @@ def test_model_spec_rejects_invalid_identity_capabilities_and_provider_chain() -
             id="",
             providers=(ModelProviderBinding("fake", "model"),),
             context_window_tokens=262_144,
-            adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+            adapter=AdapterKind.OPENAI_CHAT,
         )
     with pytest.raises(LLMContractError):
         ModelSpec(
             id="model",
             providers=(ModelProviderBinding("fake", "model"),),
             context_window_tokens=0,
-            adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+            adapter=AdapterKind.OPENAI_CHAT,
         )
     with pytest.raises(LLMContractError):
         ModelSpec(
@@ -62,28 +62,26 @@ def test_model_spec_rejects_invalid_identity_capabilities_and_provider_chain() -
                 ModelProviderBinding("fake", "two"),
             ),
             context_window_tokens=262_144,
-            adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+            adapter=AdapterKind.OPENAI_CHAT,
         )
 
 
 def test_provider_spec_rejects_empty_or_duplicate_adapters() -> None:
-    from tinysoul.llm.config.types import ProviderSpec
+    from tinysoul.llm.config.types import ProviderEndpoint, ProviderSpec
 
     with pytest.raises(LLMContractError):
         ProviderSpec(
             id="fake",
-            adapters=(),
-            base_url="https://example.test/v1",
+            endpoints=(),
             api_key_envs=("API_KEY",),
         )
     with pytest.raises(LLMContractError):
         ProviderSpec(
             id="fake",
-            adapters=(
-                AdapterKind.OPENAI_COMPATIBLE_CHAT,
-                AdapterKind.OPENAI_COMPATIBLE_CHAT,
+            endpoints=(
+                ProviderEndpoint(ApiMode.OPENAI_CHAT, "https://example.test/v1"),
+                ProviderEndpoint(ApiMode.OPENAI_CHAT, "https://example.test/v1"),
             ),
-            base_url="https://example.test/v1",
             api_key_envs=("API_KEY",),
         )
 
@@ -107,7 +105,7 @@ def test_registries_use_llm_errors_and_compound_provider_key() -> None:
         models.register(model)
     with pytest.raises(LLMContractError):
         models.get("missing")
-    chat = FakeProvider("proxy", AdapterKind.OPENAI_COMPATIBLE_CHAT)
+    chat = FakeProvider("proxy", AdapterKind.OPENAI_CHAT)
     kimi = FakeProvider("proxy", AdapterKind.KIMI)
     providers = ProviderRegistry([chat, kimi])
     assert providers.get("proxy", AdapterKind.KIMI) is kimi
@@ -138,14 +136,14 @@ def test_provider_request_requires_model_binding() -> None:
 @dataclass
 class FakeProvider:
     provider_id: str
-    adapter_kind: AdapterKind = AdapterKind.OPENAI_COMPATIBLE_CHAT
+    adapter_kind: AdapterKind = AdapterKind.OPENAI_CHAT
 
     async def close(self) -> None:
         pass
 
     @property
-    def api_style(self):
-        return adapter_spec(self.adapter_kind).api_style
+    def api_mode(self):
+        return adapter_spec(self.adapter_kind).api_mode
 
     async def invoke(self, request: ProviderRequest) -> RawResponse:
         return RawResponse(
@@ -158,5 +156,5 @@ def _model(model_id: str) -> ModelSpec:
         id=model_id,
         providers=(ModelProviderBinding("fake", model_id),),
         context_window_tokens=262_144,
-        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+        adapter=AdapterKind.OPENAI_CHAT,
     )

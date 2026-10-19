@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import re
 
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
 from tinysoul.llm.protocol.routing import ModelChain, RetryPolicy, TaskSpec
@@ -10,8 +11,8 @@ from tinysoul.llm.protocol.routing import ModelChain, RetryPolicy, TaskSpec
 from ..errors import LLMContractError
 from ..execution.model_chain import TaskSpecTable
 from ..execution.registry import ModelRegistry
-from ..protocol.adapter import adapter_spec
-from ..protocol.adapter_types import AdapterKind
+from ..adapter.catalog import adapter_spec
+from ..protocol.adapter_types import AdapterKind, ApiMode
 from ..protocol.models import ModelCapability, ModelProviderBinding, ModelSpec
 from ..protocol.requests import CallSettings
 from ..protocol.responses import AnswerFormat
@@ -33,17 +34,37 @@ from .helpers import (
     required_str,
     required_str_list,
 )
-from .types import ProviderSpec
+from .types import ProviderEndpoint, ProviderSpec
 
 
 def _validate_object_id(value: str, *, key: str) -> None:
-    if not value or value != value.strip() or "." in value or value.isdigit():
+    if re.fullmatch(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*", value) is None:
         raise ConfigError(
-            "LLM configuration object ID must not contain dots or outer whitespace or be purely numeric",
+            "LLM configuration object ID must use lower-kebab-case",
             key=key,
             value=value,
-            expected="non-empty identifier without '.', outer whitespace, or only digits",
+            expected="lower-kebab-case",
         )
+
+
+def _string_mapping(value: object, *, key: str) -> dict[str, str]:
+    if not isinstance(value, Mapping):
+        raise ConfigError(
+            "Configuration value must be a string mapping", key=key, value=value
+        )
+    result: dict[str, str] = {}
+    for name, item in value.items():
+        if (
+            not isinstance(name, str)
+            or not name
+            or not isinstance(item, str)
+            or not item
+        ):
+            raise ConfigError(
+                "Configuration value must be a string mapping", key=key, value=value
+            )
+        result[name] = item
+    return result
 
 
 class ProviderConfigParser:
@@ -56,9 +77,44 @@ class ProviderConfigParser:
             provider_table = as_table(value, key=f"llm.providers.{provider_id}")
             reject_unknown_keys(
                 provider_table,
-                {"enabled", "adapters", "base_url", "api_key_envs"},
+                {"enabled", "endpoints", "api_key_envs", "headers", "header_refs"},
                 key=f"llm.providers.{provider_id}",
             )
+            endpoints_table = as_table(
+                provider_table.get("endpoints"),
+                key=f"llm.providers.{provider_id}.endpoints",
+            )
+            endpoints: list[ProviderEndpoint] = []
+            for mode_id, endpoint_value in endpoints_table.items():
+                mode = enum_value(
+                    ApiMode, mode_id, key=f"llm.providers.{provider_id}.endpoints"
+                )
+                endpoint_key = f"llm.providers.{provider_id}.endpoints.{mode_id}"
+                endpoint_table = as_table(endpoint_value, key=endpoint_key)
+                reject_unknown_keys(
+                    endpoint_table,
+                    {"base_url", "headers", "header_refs"},
+                    key=endpoint_key,
+                )
+                try:
+                    endpoints.append(
+                        ProviderEndpoint(
+                            api_mode=mode,
+                            base_url=required_str(
+                                endpoint_table, "base_url", key=endpoint_key
+                            ),
+                            headers=_string_mapping(
+                                endpoint_table.get("headers", {}),
+                                key=f"{endpoint_key}.headers",
+                            ),
+                            header_refs=_string_mapping(
+                                endpoint_table.get("header_refs", {}),
+                                key=f"{endpoint_key}.header_refs",
+                            ),
+                        )
+                    )
+                except LLMContractError as exc:
+                    raise ConfigError(str(exc), key=endpoint_key) from exc
             try:
                 providers.append(
                     ProviderSpec(
@@ -68,24 +124,7 @@ class ProviderConfigParser:
                             "enabled",
                             key=f"llm.providers.{provider_id}",
                         ),
-                        adapters=tuple(
-                            enum_value(
-                                AdapterKind,
-                                adapter,
-                                key=f"llm.providers.{provider_id}.adapters",
-                            )
-                            for adapter in required_str_list(
-                                provider_table,
-                                "adapters",
-                                key=f"llm.providers.{provider_id}",
-                                non_empty=True,
-                            )
-                        ),
-                        base_url=required_str(
-                            provider_table,
-                            "base_url",
-                            key=f"llm.providers.{provider_id}",
-                        ),
+                        endpoints=tuple(endpoints),
                         api_key_envs=tuple(
                             required_str_list(
                                 provider_table,
@@ -93,6 +132,14 @@ class ProviderConfigParser:
                                 key=f"llm.providers.{provider_id}",
                                 non_empty=True,
                             )
+                        ),
+                        headers=_string_mapping(
+                            provider_table.get("headers", {}),
+                            key=f"llm.providers.{provider_id}.headers",
+                        ),
+                        header_refs=_string_mapping(
+                            provider_table.get("header_refs", {}),
+                            key=f"llm.providers.{provider_id}.header_refs",
                         ),
                     )
                 )
@@ -131,6 +178,7 @@ class ModelConfigParser:
                     "capabilities",
                     "adapter_options",
                     "request_overrides",
+                    "reasoning_effort",
                     "family",
                     "collapsed",
                 },
@@ -181,6 +229,15 @@ class ModelConfigParser:
                         ),
                         adapter_options=adapter_options,
                         request_overrides=request_overrides,
+                        reasoning_effort=(
+                            required_str(
+                                model_table,
+                                "reasoning_effort",
+                                key=f"llm.models.{model_id}",
+                            )
+                            if "reasoning_effort" in model_table
+                            else None
+                        ),
                         family=family,
                         collapsed=required_bool(
                             {"collapsed": model_table.get("collapsed", False)},
@@ -222,12 +279,12 @@ class ModelConfigParser:
                     key=f"{key}.provider",
                     value=provider_id,
                 )
-            if adapter not in provider.adapters:
+            if not provider.supports_adapter(adapter):
                 raise ConfigError(
-                    "Model adapter is not declared by provider",
+                    "Provider does not expose the API mode required by the model adapter",
                     key=f"llm.models.{model_id}.adapter",
                     value=adapter.value,
-                    expected=f"provider {provider_id} adapters",
+                    expected=f"provider {provider_id} endpoints",
                 )
             try:
                 bindings.append(
@@ -269,6 +326,7 @@ class TaskConfigParser:
                     "answer_format",
                     "tool_use",
                     "temperature",
+                    "top_p",
                     "max_output_tokens",
                     "max_retries_per_provider",
                     "retry_wait_seconds",
@@ -310,51 +368,60 @@ class TaskConfigParser:
                 task_table,
                 key=f"llm.tasks.{profile}",
             )
-            tasks.register(
-                TaskSpec(
-                    profile=profile,
-                    chain=self._parse_model_chain(
+            try:
+                tasks.register(
+                    TaskSpec(
                         profile=profile,
-                        model_ids=model_ids,
-                        retry_policy=retry_policy,
-                    ),
-                    settings=CallSettings(
-                        answer_format=enum_value(
-                            AnswerFormat,
-                            optional_str(
+                        chain=self._parse_model_chain(
+                            profile=profile,
+                            model_ids=model_ids,
+                            retry_policy=retry_policy,
+                        ),
+                        settings=CallSettings(
+                            answer_format=enum_value(
+                                AnswerFormat,
+                                optional_str(
+                                    task_table,
+                                    "answer_format",
+                                    default=AnswerFormat.JSON_OBJECT.value,
+                                    key=f"llm.tasks.{profile}",
+                                ),
+                                key=f"llm.tasks.{profile}.answer_format",
+                            ),
+                            tool_use=enum_value(
+                                ToolUse,
+                                optional_str(
+                                    task_table,
+                                    "tool_use",
+                                    default=ToolUse.DISABLED.value,
+                                    key=f"llm.tasks.{profile}",
+                                ),
+                                key=f"llm.tasks.{profile}.tool_use",
+                            ),
+                            temperature=optional_float_or_none(
                                 task_table,
-                                "answer_format",
-                                default=AnswerFormat.JSON_OBJECT.value,
+                                "temperature",
+                                default=None,
                                 key=f"llm.tasks.{profile}",
                             ),
-                            key=f"llm.tasks.{profile}.answer_format",
-                        ),
-                        tool_use=enum_value(
-                            ToolUse,
-                            optional_str(
+                            top_p=optional_float_or_none(
                                 task_table,
-                                "tool_use",
-                                default=ToolUse.DISABLED.value,
+                                "top_p",
+                                default=None,
                                 key=f"llm.tasks.{profile}",
                             ),
-                            key=f"llm.tasks.{profile}.tool_use",
+                            max_output_tokens=optional_int_or_none(
+                                task_table,
+                                "max_output_tokens",
+                                default=None,
+                                key=f"llm.tasks.{profile}",
+                            ),
+                            required_capabilities=required_capabilities,
                         ),
-                        temperature=optional_float_or_none(
-                            task_table,
-                            "temperature",
-                            default=None,
-                            key=f"llm.tasks.{profile}",
-                        ),
-                        max_output_tokens=optional_int_or_none(
-                            task_table,
-                            "max_output_tokens",
-                            default=None,
-                            key=f"llm.tasks.{profile}",
-                        ),
-                        required_capabilities=required_capabilities,
-                    ),
+                    )
                 )
-            )
+            except LLMContractError as exc:
+                raise ConfigError(str(exc), key=f"llm.tasks.{profile}") from exc
         return tasks
 
     def _parse_retry_policy(

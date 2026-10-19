@@ -38,7 +38,7 @@ def test_config_catalog_covers_every_packaged_project_toml_leaf(
 def test_config_catalog_static_choices_match_business_enums() -> None:
     catalog = load_config_catalog()
 
-    assert _choices(catalog, "llm.providers.*.adapters") == {
+    assert _choices(catalog, "llm.models.*.adapter") == {
         item.value for item in AdapterKind
     }
     assert _choices(catalog, "llm.tasks.*.answer_format") == {

@@ -1,22 +1,30 @@
-"""Prompt cache intent model."""
-
-from __future__ import annotations
+"""Provider-neutral prompt cache intent."""
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 from ..errors import LLMContractError
 
 
+class PromptCacheMode(StrEnum):
+    IMPLICIT = "implicit"
+    EXPLICIT = "explicit"
+
+
+class PromptCacheTTL(StrEnum):
+    THIRTY_MINUTES = "30m"
+
+
 @dataclass(frozen=True)
 class PromptCache:
-    """Provider-neutral prompt cache intent.
-
-    The key identifies a stable prompt prefix for providers that support
-    cache routing or cache retention hints.
-    """
-
-    key: str
+    key: str | None = None
+    mode: PromptCacheMode = PromptCacheMode.IMPLICIT
+    ttl: PromptCacheTTL | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.key, str) or not self.key:
-            raise LLMContractError("PromptCache.key must be non-empty")
+        if self.key is not None and (not isinstance(self.key, str) or not self.key):
+            raise LLMContractError("PromptCache.key must be non-empty when supplied")
+        if not isinstance(self.mode, PromptCacheMode):
+            raise LLMContractError("PromptCache.mode must be PromptCacheMode")
+        if self.ttl is not None and not isinstance(self.ttl, PromptCacheTTL):
+            raise LLMContractError("PromptCache.ttl must be PromptCacheTTL or None")

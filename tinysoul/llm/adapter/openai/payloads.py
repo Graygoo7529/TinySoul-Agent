@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import base64
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-import json
 from typing import Protocol
 
-from tinysoul.prompts import llm as prompt_text
 from tinysoul.infra.json import JsonObject
-from tinysoul.llm.protocol.adapter_types import ProviderApiStyle
 from tinysoul.llm.execution.message_rendering import (
     MessageContentRenderer,
     RenderedContentPart,
@@ -18,6 +16,7 @@ from tinysoul.llm.execution.message_rendering import (
     RenderedImageUrl,
     RenderedText,
 )
+from tinysoul.llm.protocol.adapter_types import ApiMode
 from tinysoul.llm.protocol.messages import (
     AssistantMessage,
     Message,
@@ -34,26 +33,28 @@ from tinysoul.llm.protocol.tools import (
     ToolSpec,
     ToolUse,
 )
+from tinysoul.prompts import llm as prompt_text
 
 from ..base import ProviderError, ProviderErrorKind, ProviderRequest
+from .replay import message_fingerprint
 from .tool_names import ProviderToolNameMap
 
 
-class OpenAIAdapterBehaviorProtocol(Protocol):
+class OpenAIPayloadHooks(Protocol):
     """Behavior surface needed while mapping SDK request payloads."""
 
     def tool_payload(
         self,
         tool: ToolSpec,
         *,
-        api_style: ProviderApiStyle,
+        api_mode: ApiMode,
     ) -> dict[str, object]: ...
 
     def tool_choice_payload(
         self,
         request: ProviderRequest,
         *,
-        api_style: ProviderApiStyle,
+        api_mode: ApiMode,
     ) -> object | None: ...
 
     def include_chat_tool_result_name(self) -> bool: ...
@@ -62,19 +63,23 @@ class OpenAIAdapterBehaviorProtocol(Protocol):
         self,
         message: Message,
         options: Mapping[str, object] | None,
+        *,
+        request: ProviderRequest | None = None,
     ) -> str | None: ...
 
     def responses_input_reasoning(
         self,
         message: Message,
         options: Mapping[str, object] | None,
+        *,
+        request: ProviderRequest | None = None,
     ) -> tuple[JsonObject, ...]: ...
 
 
 def to_responses_input(
     request: ProviderRequest,
     *,
-    behavior: OpenAIAdapterBehaviorProtocol,
+    adapter: OpenAIPayloadHooks,
     renderer: MessageContentRenderer,
     id_mapper: ToolCallIdMapper,
     name_map: ProviderToolNameMap,
@@ -118,11 +123,25 @@ def to_responses_input(
                 else message.tool_calls
             )
             if not message.tool_calls or replayed_tool_calls:
-                for reasoning_item in behavior.responses_input_reasoning(
+                native = adapter.responses_input_reasoning(
                     message,
                     request.model.adapter_options.values,
-                ):
-                    items.append({key: value for key, value in reasoning_item.items()})
+                    request=request,
+                )
+                expected_calls = {
+                    id_mapper.to_provider_id(call.id): name_map.to_provider_name(
+                        call.name
+                    )
+                    for call in replayed_tool_calls
+                }
+                native_calls = {
+                    item.get("call_id"): item.get("name")
+                    for item in native
+                    if item.get("type") == "function_call"
+                }
+                if native and native_calls == expected_calls:
+                    items.extend(dict(item) for item in native)
+                    continue
             parts = _assistant_context_parts(
                 message, native_calls=bool(replayed_tool_calls)
             )
@@ -162,7 +181,7 @@ def to_responses_input(
 def to_chat_messages(
     request: ProviderRequest,
     *,
-    behavior: OpenAIAdapterBehaviorProtocol,
+    adapter: OpenAIPayloadHooks,
     renderer: MessageContentRenderer,
     id_mapper: ToolCallIdMapper,
     name_map: ProviderToolNameMap,
@@ -188,7 +207,7 @@ def to_chat_messages(
             items.append(
                 to_chat_tool_result(
                     message,
-                    behavior=behavior,
+                    adapter=adapter,
                     renderer=renderer,
                     id_mapper=id_mapper,
                     name_map=name_map,
@@ -199,9 +218,10 @@ def to_chat_messages(
         reasoning_content = None
         replayed_tool_calls: tuple[ToolCallRecord, ...] = ()
         if isinstance(message, AssistantMessage):
-            reasoning_content = behavior.chat_input_reasoning(
+            reasoning_content = adapter.chat_input_reasoning(
                 message,
                 request.model.adapter_options.values,
+                request=request,
             )
             replayed_tool_calls = (
                 ()
@@ -209,16 +229,31 @@ def to_chat_messages(
                 or index not in replay_plan.assistant_indices
                 else message.tool_calls
             )
+            replay = message.reasoning.native_replay if message.reasoning else None
+            if replay is not None and (
+                replay.message_fingerprint != message_fingerprint(message)
+                or (
+                    replay.api_mode,
+                    replay.adapter,
+                    replay.provider_id,
+                    replay.provider_model,
+                    replay.variant,
+                )
+                != (
+                    ApiMode.OPENAI_CHAT,
+                    request.model.adapter,
+                    request.binding.provider_id,
+                    request.binding.provider_model,
+                    request.model.adapter_options.values.get("variant"),
+                )
+            ):
+                reasoning_content = None
             if message.tool_calls and not replayed_tool_calls:
                 reasoning_content = None
             parts = _assistant_context_parts(
                 message, native_calls=bool(replayed_tool_calls)
             )
-            if (
-                not parts
-                and reasoning_content is None
-                and not replayed_tool_calls
-            ):
+            if not parts and reasoning_content is None and not replayed_tool_calls:
                 continue
         rendered = renderer.render(parts)
         item: dict[str, object] = {
@@ -297,8 +332,8 @@ def apply_tools_kwargs(
     kwargs: dict[str, object],
     request: ProviderRequest,
     *,
-    api_style: ProviderApiStyle,
-    behavior: OpenAIAdapterBehaviorProtocol,
+    api_mode: ApiMode,
+    adapter: OpenAIPayloadHooks,
     name_map: ProviderToolNameMap,
 ) -> None:
     if (
@@ -315,13 +350,13 @@ def apply_tools_kwargs(
     if not tools:
         return
     kwargs["tools"] = [
-        behavior.tool_payload(
+        adapter.tool_payload(
             name_map.to_provider_tool(tool),
-            api_style=api_style,
+            api_mode=api_mode,
         )
         for tool in tools
     ]
-    tool_choice = behavior.tool_choice_payload(request, api_style=api_style)
+    tool_choice = adapter.tool_choice_payload(request, api_mode=api_mode)
     if tool_choice is not None:
         kwargs["tool_choice"] = tool_choice
 
@@ -374,7 +409,7 @@ def to_chat_tool_call(
 def to_chat_tool_result(
     message: ToolResultMessage,
     *,
-    behavior: OpenAIAdapterBehaviorProtocol,
+    adapter: OpenAIPayloadHooks,
     renderer: MessageContentRenderer,
     id_mapper: ToolCallIdMapper,
     name_map: ProviderToolNameMap,
@@ -384,7 +419,7 @@ def to_chat_tool_result(
         "tool_call_id": id_mapper.to_provider_id(message.call_id),
         "content": tool_result_content(message, renderer=renderer),
     }
-    if behavior.include_chat_tool_result_name():
+    if adapter.include_chat_tool_result_name():
         item["name"] = name_map.to_provider_name(message.tool_name)
     return item
 
@@ -570,7 +605,7 @@ def image_data_url(part: RenderedImage) -> str:
 
 
 __all__ = [
-    "OpenAIAdapterBehaviorProtocol",
+    "OpenAIPayloadHooks",
     "apply_tools_kwargs",
     "chat_role",
     "function_payload",

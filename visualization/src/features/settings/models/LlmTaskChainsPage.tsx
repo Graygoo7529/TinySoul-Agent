@@ -17,6 +17,7 @@ import { settingsText, translatedField as matchField } from "../i18n";
 import { useSettingsUiStore } from "../uiStore";
 import {
   fieldLockReason,
+  llmObjectIdError,
   moveItem,
   projectCollection,
   stringListField,
@@ -142,7 +143,7 @@ export function LlmTaskChainsPage() {
         )}
       </ObjectEditorLayout>
 
-      <CreateObjectModal
+      <CreateObjectModal validateId={llmObjectIdError}
         title="New task chain"
         idTitle={settingsText("Task Chain ID")}
         idDescription="Stable task profile identifier used by framework tasks and Action routes; dots, outer whitespace and numeric-only ids are not allowed."
@@ -344,6 +345,9 @@ function TaskChainEditor({
             setObjectField(ROOT, object, "max_output_tokens", value, createSource)
           }
         />
+        <NumberRow label="Top P" field={field("top_p")} min={0}
+          value={typeof object.value.top_p === "number" ? object.value.top_p : 1}
+          onCommit={(value) => setObjectField(ROOT, object, "top_p", value, createSource)} />
       </FieldSection>
 
       <FieldSection

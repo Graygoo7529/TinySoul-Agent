@@ -17,7 +17,7 @@ capabilities = [
 ]
 
 [llm.models.kimi-coding-latest.adapter_options]
-protocol = "k2"
+variant = "k2"
 reasoning_keep = "content"
 thinking = "enabled"
 
@@ -25,6 +25,7 @@ thinking = "enabled"
 temperature = 1.0
 
 [llm.models.kimi-latest]
+reasoning_effort = "max"
 family = "Kimi"
 collapsed = false
 adapter = "kimi"
@@ -43,9 +44,9 @@ capabilities = [
 ]
 
 [llm.models.kimi-latest.adapter_options]
-protocol = "k3"
+variant = "k3"
 reasoning_keep = "content"
-reasoning_effort = "max"
+reasoning_efforts = ["max"]
 
 [llm.models.kimi-latest.request_overrides]
 temperature = 1.0

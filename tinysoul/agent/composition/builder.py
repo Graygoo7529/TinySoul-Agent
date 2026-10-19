@@ -38,9 +38,9 @@ from tinysoul.infra import parse_infra_settings
 from tinysoul.infra.concurrency import AsyncResourceScope, CleanupDiagnostic
 from tinysoul.llm.config.loader import LLMConfigParser
 from tinysoul.llm.config.types import LLMConfig
-from tinysoul.llm.protocol.adapter import adapter_specs_json
-from tinysoul.llm.provider import ProviderError
-from tinysoul.llm.provider.factory import build_provider_registry
+from tinysoul.llm.adapter.catalog import adapter_specs_json, api_modes_json
+from tinysoul.llm.adapter import ProviderError
+from tinysoul.llm.adapter.factory import build_provider_registry
 from tinysoul.llm.execution.task import LLMTaskRunner
 from tinysoul.kernel.loop.config import (
     LoopSettings,
@@ -423,7 +423,12 @@ class AgentBuilder:
                     )
                 ),
                 catalog=load_config_catalog().with_rules(
-                    {"llm": {"adapters": adapter_specs_json()}}
+                    {
+                        "llm": {
+                            "api_modes": api_modes_json(),
+                            "adapters": adapter_specs_json(),
+                        }
+                    }
                 ),
             )
             return AgentRuntime(
@@ -934,7 +939,7 @@ class AgentBuilder:
         env: Mapping[str, str],
         context_trigger_ratio: float,
     ) -> LLMTaskRunner:
-        providers = await build_provider_registry(llm_config.providers, env=env)
+        providers = await build_provider_registry(llm_config.providers, models=llm_config.models, env=env)
         try:
             return LLMTaskRunner(
                 models=llm_config.models,

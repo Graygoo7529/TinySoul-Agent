@@ -307,7 +307,7 @@ export const uiText: Record<string, string> = {
   "How this model is reached and where it appears in the model list.": "模型的调用协议与列表分组方式。",
   "What TinySoul may rely on when routing tasks to this model.": "TinySoul 将任务路由到此模型时可依赖的能力。",
   "Try providers in order for this model. A successful backup provider is preferred temporarily before returning to the chain head.": "按顺序尝试提供方；成功的备用提供方会暂时优先使用。",
-  "Adapter-specific request behavior. Only options the selected adapter and protocol understand are offered; unset options keep the adapter default.": "仅显示所选适配器与协议支持的选项；未设置时使用适配器默认值。",
+  "Adapter-specific request behavior. Only options the selected adapter and variant understand are offered; unset options keep the adapter default.": "按 API 模式、专属适配器和变体显示有效选项；未设置时使用适配器默认值。",
   "Optional per-model overrides of the task-chain request values; unset rows inherit the chain.": "为此模型覆盖任务链的调用参数；未设置时继承任务链。",
   "Default request shape for model calls in this chain.": "此任务链的默认模型调用参数。",
   "Every model used by this task profile must provide all of these.": "此任务链使用的每个模型都必须提供这些能力。",

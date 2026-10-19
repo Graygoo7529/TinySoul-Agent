@@ -30,14 +30,14 @@ from tinysoul.llm.protocol.models import (
 )
 from tinysoul.llm.execution.registry import ModelRegistry
 from tinysoul.llm.protocol.adapter_types import AdapterKind
-from tinysoul.llm.protocol.adapter import adapter_spec
-from tinysoul.llm.provider import (
+from tinysoul.llm.adapter.catalog import adapter_spec
+from tinysoul.llm.adapter import (
     ProviderError,
     ProviderErrorKind,
     ProviderFailureScope,
     ProviderRequest,
 )
-from tinysoul.llm.provider.registry import ProviderRegistry
+from tinysoul.llm.adapter.registry import ProviderRegistry
 from tinysoul.llm.protocol.requests import (
     CallSettings,
     ModelContextOverflowPolicy,
@@ -80,7 +80,7 @@ from tinysoul.llm.protocol.tools import (
 @dataclass
 class FakeProvider:
     provider_id: str
-    adapter_kind: AdapterKind = AdapterKind.OPENAI_COMPATIBLE_CHAT
+    adapter_kind: AdapterKind = AdapterKind.OPENAI_CHAT
     failures: dict[str, int] = field(default_factory=dict)
     calls: list[str] = field(default_factory=list)
     requests: list[ProviderRequest] = field(default_factory=list)
@@ -89,8 +89,8 @@ class FakeProvider:
         pass
 
     @property
-    def api_style(self):
-        return adapter_spec(self.adapter_kind).api_style
+    def api_mode(self):
+        return adapter_spec(self.adapter_kind).api_mode
 
     async def invoke(self, request: ProviderRequest) -> RawResponse:
         model_id = request.model.id
@@ -162,7 +162,7 @@ async def test_runner_retries_provider_before_switching_to_next_provider() -> No
             ModelProviderBinding("backup", "backup-model"),
         ),
         context_window_tokens=262_144,
-        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+        adapter=AdapterKind.OPENAI_CHAT,
         capabilities=frozenset({ModelCapability.TEXT_INPUT}),
     )
     runner = LLMTaskRunner(
@@ -200,7 +200,7 @@ async def test_backup_provider_preference_expires_back_to_chain_head() -> None:
             ModelProviderBinding("backup", "backup-model"),
         ),
         context_window_tokens=262_144,
-        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+        adapter=AdapterKind.OPENAI_CHAT,
         capabilities=frozenset({ModelCapability.TEXT_INPUT}),
     )
     clock = FakeClock()
@@ -820,7 +820,7 @@ def test_runner_reports_chain_head_capabilities_by_default() -> None:
         id="vision",
         providers=(ModelProviderBinding("fake", "vision-model"),),
         context_window_tokens=262_144,
-        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+        adapter=AdapterKind.OPENAI_CHAT,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -849,7 +849,7 @@ async def test_runner_skips_models_without_a_registered_provider() -> None:
         id="unavailable",
         providers=(ModelProviderBinding("disabled", "remote-a"),),
         context_window_tokens=262_144,
-        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+        adapter=AdapterKind.OPENAI_CHAT,
         capabilities=frozenset(
             {ModelCapability.TEXT_INPUT, ModelCapability.JSON_OBJECT_OUTPUT}
         ),
@@ -858,7 +858,7 @@ async def test_runner_skips_models_without_a_registered_provider() -> None:
         id="available",
         providers=(ModelProviderBinding("fake", "remote-b"),),
         context_window_tokens=262_144,
-        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+        adapter=AdapterKind.OPENAI_CHAT,
         capabilities=frozenset(
             {ModelCapability.TEXT_INPUT, ModelCapability.JSON_OBJECT_OUTPUT}
         ),
@@ -979,7 +979,7 @@ async def test_json_object_contract_does_not_require_native_json_capability() ->
         id="a",
         providers=(ModelProviderBinding("fake", "a"),),
         context_window_tokens=262_144,
-        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+        adapter=AdapterKind.OPENAI_CHAT,
         capabilities=frozenset({ModelCapability.TEXT_INPUT}),
     )
     runner = LLMTaskRunner(
@@ -1024,14 +1024,14 @@ async def test_runner_skips_model_missing_call_capability() -> None:
         id="text",
         providers=(ModelProviderBinding("fake", "text"),),
         context_window_tokens=262_144,
-        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+        adapter=AdapterKind.OPENAI_CHAT,
         capabilities=frozenset({ModelCapability.TEXT_INPUT}),
     )
     vision_model = ModelSpec(
         id="vision",
         providers=(ModelProviderBinding("fake", "vision"),),
         context_window_tokens=262_144,
-        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+        adapter=AdapterKind.OPENAI_CHAT,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -1104,7 +1104,7 @@ async def test_runner_resolves_task_settings_and_call_overrides() -> None:
         id="a",
         providers=(ModelProviderBinding("fake", "a"),),
         context_window_tokens=262_144,
-        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+        adapter=AdapterKind.OPENAI_CHAT,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -1124,7 +1124,7 @@ async def test_runner_resolves_task_settings_and_call_overrides() -> None:
                     settings=CallSettings(
                         answer_format=AnswerFormat.JSON_OBJECT,
                         tool_use=ToolUse.DISABLED,
-                        temperature=0.6,
+                        temperature=0.6, top_p=0.9,
                         max_output_tokens=4096,
                     ),
                 )
@@ -1137,13 +1137,14 @@ async def test_runner_resolves_task_settings_and_call_overrides() -> None:
             TaskCall(
                 profile="framework",
                 messages=MessageStack.of(UserMessage.from_text("hello")),
-                settings=CallSettings(max_output_tokens=1024),
+                settings=CallSettings(top_p=0.8, max_output_tokens=1024),
             )
         )
     )
 
     request = provider.requests[0]
     assert request.temperature == pytest.approx(0.6)
+    assert request.top_p == pytest.approx(0.8)
     assert request.max_output_tokens == 1024
     assert request.model.adapter_options.values == {"thinking": "enabled"}
 
@@ -1154,7 +1155,7 @@ async def test_runner_applies_model_request_overrides_after_call_settings() -> N
         id="a",
         providers=(ModelProviderBinding("fake", "a"),),
         context_window_tokens=262_144,
-        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+        adapter=AdapterKind.OPENAI_CHAT,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -1162,7 +1163,7 @@ async def test_runner_applies_model_request_overrides_after_call_settings() -> N
             }
         ),
         request_overrides=RequestOverrides(
-            temperature=1.0,
+            temperature=1.0, top_p=0.7,
             max_output_tokens=128,
         ),
     )
@@ -1177,7 +1178,7 @@ async def test_runner_applies_model_request_overrides_after_call_settings() -> N
                     settings=CallSettings(
                         answer_format=AnswerFormat.JSON_OBJECT,
                         tool_use=ToolUse.DISABLED,
-                        temperature=0.6,
+                        temperature=0.6, top_p=0.9,
                         max_output_tokens=4096,
                     ),
                 )
@@ -1190,13 +1191,14 @@ async def test_runner_applies_model_request_overrides_after_call_settings() -> N
             TaskCall(
                 profile="framework",
                 messages=MessageStack.of(UserMessage.from_text("hello")),
-                settings=CallSettings(temperature=0.2, max_output_tokens=1024),
+                settings=CallSettings(temperature=0.2, top_p=0.8, max_output_tokens=1024),
             )
         )
     )
 
     request = provider.requests[0]
     assert request.temperature == pytest.approx(1.0)
+    assert request.top_p == pytest.approx(0.7)
     assert request.max_output_tokens == 128
 
 
@@ -1232,7 +1234,7 @@ async def test_runner_rejects_tool_scope_when_tool_use_is_disabled() -> None:
         id="tool_model",
         providers=(ModelProviderBinding("fake", "tool-model"),),
         context_window_tokens=262_144,
-        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+        adapter=AdapterKind.OPENAI_CHAT,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -1266,7 +1268,7 @@ async def test_runner_rejects_enabled_tool_use_without_visible_tools() -> None:
         id="tool_model",
         providers=(ModelProviderBinding("fake", "tool-model"),),
         context_window_tokens=262_144,
-        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+        adapter=AdapterKind.OPENAI_CHAT,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -1310,7 +1312,7 @@ async def test_runner_rejects_forced_tool_selection_without_required_tool_use() 
         id="tool_model",
         providers=(ModelProviderBinding("fake", "tool-model"),),
         context_window_tokens=262_144,
-        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+        adapter=AdapterKind.OPENAI_CHAT,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -1376,7 +1378,7 @@ async def test_runner_interprets_tool_call_output(kind: ToolKind) -> None:
         id="tool_model",
         providers=(ModelProviderBinding("fake", "tool-model"),),
         context_window_tokens=262_144,
-        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+        adapter=AdapterKind.OPENAI_CHAT,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -1705,14 +1707,13 @@ async def test_runner_reports_unknown_model_as_contract_violation() -> None:
     assert exc_info.value.payload["kind"] == LLMFailureKind.CONTRACT_VIOLATION
 
 
-async def test_runner_reports_model_chain_exhaustion_without_routable_provider() -> (
-    None
-):
+@pytest.mark.parametrize("adapter", [AdapterKind.OPENAI_CHAT, AdapterKind.ANTHROPIC_MESSAGES, AdapterKind.GOOGLE_GENERATE_CONTENT])
+async def test_runner_reports_model_chain_exhaustion_without_routable_provider(adapter: AdapterKind) -> None:
     model = ModelSpec(
         id="model_a",
         providers=(ModelProviderBinding("missing", "model-a"),),
         context_window_tokens=262_144,
-        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+        adapter=adapter,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -1739,6 +1740,8 @@ async def test_runner_reports_model_chain_exhaustion_without_routable_provider()
     assert exc_info.value.reason == RUNTIME_TURN_END
     assert exc_info.value.payload["kind"] == LLMFailureKind.MODEL_CHAIN_EXHAUSTED
 
+    assert exc_info.value.payload["provider_error_kind"] == "config"
+
 
 def _models(*ids: str) -> ModelRegistry:
     capabilities = frozenset(
@@ -1753,7 +1756,7 @@ def _models(*ids: str) -> ModelRegistry:
                 id=model_id,
                 providers=(ModelProviderBinding("fake", model_id),),
                 context_window_tokens=262_144,
-                adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+                adapter=AdapterKind.OPENAI_CHAT,
                 capabilities=capabilities,
             )
             for model_id in ids
@@ -1774,7 +1777,7 @@ def _window_models(*items: tuple[str, int]) -> ModelRegistry:
                 id=model_id,
                 providers=(ModelProviderBinding("fake", model_id),),
                 context_window_tokens=window,
-                adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+                adapter=AdapterKind.OPENAI_CHAT,
                 capabilities=capabilities,
             )
             for model_id, window in items

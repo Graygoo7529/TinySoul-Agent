@@ -94,14 +94,14 @@ function makeCatalog(): ConfigCatalog {
     ],
     fields: [
       field("llm.providers.*.enabled", "boolean"),
-      field("llm.providers.*.adapters", "enum_list"),
-      field("llm.providers.*.base_url", "string"),
+      field("llm.providers.*.endpoints", "object"),
+      field("llm.providers.*.endpoints.*.base_url", "string"),
       field("llm.providers.*.api_key_envs", "string_list", {
         credential_reference: true,
       }),
       field("llm.models.*.adapter", "enum", { choices: [
         { value: "kimi", label: "Kimi" },
-        { value: "openai_compatible_chat", label: "OpenAI Compatible Chat" },
+        { value: "openai-chat", label: "OpenAI Compatible Chat" },
       ] }),
       field("llm.models.*.providers", "object_list"),
       field("llm.models.*.capabilities", "string_list"),
@@ -110,7 +110,13 @@ function makeCatalog(): ConfigCatalog {
       field("llm.tasks.*.models", "reference_list"),
     ],
     document_fields: [],
-    rules: { llm: { adapters: [] } },
+    rules: { llm: {
+      api_modes: ["openai-chat", "openai-responses"].map((id) => ({ id, runtime_available: true })),
+      adapters: ["kimi", "openai-chat"].map((id) => ({
+        id, api_mode: "openai-chat", runtime_available: true,
+        common_options: [{ id: "reasoning_efforts", value_kind: "string_list", choices: [], source: "api-mode" }], variants: [],
+      })),
+    } },
   } as unknown as ConfigCatalog;
 }
 
@@ -118,8 +124,7 @@ function makeSaved(): Configuration {
   const fields: Record<string, { value: JsonValue; source: string }> = {
     "config.include": { value: ["configs/llm/models/*.toml"], source: "project:tinysoul.toml" },
     "llm.providers.kimi.enabled": { value: true, source: PROVIDERS },
-    "llm.providers.kimi.adapters": { value: ["kimi"], source: PROVIDERS },
-    "llm.providers.kimi.base_url": { value: "https://api.moonshot.cn/v1", source: PROVIDERS },
+    "llm.providers.kimi.endpoints.openai-chat.base_url": { value: "https://api.moonshot.cn/v1", source: PROVIDERS },
     "llm.providers.kimi.api_key_envs": { value: ["KIMI_API_KEY"], source: PROVIDERS },
     "llm.models.kimi-k2.adapter": { value: "kimi", source: MODELS_KIMI_SOURCE },
     "llm.models.kimi-k2.family": { value: "Kimi", source: MODELS_KIMI_SOURCE },
@@ -225,6 +230,21 @@ afterEach(async () => {
 // ---------------------------------------------------------------------------
 
 describe("LlmProvidersPage", () => {
+  it("adds an API endpoint while preserving the shared credential and existing endpoint", async () => {
+    await act(async () => root.render(<LlmProvidersPage />));
+    const mode = container.querySelector<HTMLSelectElement>('select[aria-label="Add API mode"]')!;
+    await act(async () => { mode.value = "openai-responses"; mode.dispatchEvent(new Event("change", { bubbles: true })); });
+    const url = container.querySelector<HTMLInputElement>('input[aria-label="openai-responses Base URL"]')!;
+    await act(async () => setInputValue(url, "https://example.test/responses"));
+    await act(async () => url.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    const provider = projectCollection(store(), "llm.providers").find((item) => item.id === "kimi")!;
+    expect(provider.value.api_key_envs).toEqual(["KIMI_API_KEY"]);
+    expect(provider.value.endpoints).toEqual({
+      "openai-chat": { base_url: "https://api.moonshot.cn/v1" },
+      "openai-responses": { base_url: "https://example.test/responses" },
+    });
+    expect(draftOperations(store())).toHaveLength(1);
+  });
   it("delete modal lists referencing models and confirm stages the subtree delete", async () => {
     await act(async () => {
       root.render(<LlmProvidersPage />);
@@ -304,6 +324,37 @@ describe("LlmProvidersPage", () => {
 // ---------------------------------------------------------------------------
 
 describe("LlmModelsPage", () => {
+  it("edits effort candidates independently and requires an explicit selection after removal", async () => {
+    store().setValue(MODELS_KIMI_SOURCE, "llm.models.kimi-k2.adapter", "openai-chat");
+    store().setValue(MODELS_KIMI_SOURCE, "llm.models.kimi-k2.adapter_options", { reasoning_efforts: ["high"] });
+    store().setValue(MODELS_KIMI_SOURCE, "llm.models.kimi-k2.reasoning_effort", "high");
+    await renderSelected("kimi-k2");
+    const candidates = container.querySelector<HTMLInputElement>('input[aria-label="reasoning_efforts"]')!;
+    await act(async () => setInputValue(candidates, "xhigh, max, xhigh"));
+    await act(async () => candidates.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(container.textContent).toContain("当前档位不在候选列表中");
+    const choice = container.querySelector<HTMLSelectElement>('select[aria-label="Reasoning effort"]')!;
+    await act(async () => { choice.value = "max"; choice.dispatchEvent(new Event("change", { bubbles: true })); });
+    const model = projectCollection(store(), "llm.models").find((item) => item.id === "kimi-k2")!;
+    expect(model.value.adapter_options).toEqual({ reasoning_efforts: ["xhigh", "max"] });
+    expect(model.value.reasoning_effort).toBe("max");
+    expect(container.textContent).not.toContain("当前档位不在候选列表中");
+  });
+
+  it("keeps configured-only models editable behind the availability filter", async () => {
+    const raw = makeCatalog();
+    const llm = (raw.rules as Record<string, JsonValue>).llm as Record<string, JsonValue>;
+    (llm.adapters as JsonValue[]).push({ id: "anthropic-messages", api_mode: "anthropic-messages", runtime_available: false, common_options: [], variants: [] });
+    store().applySnapshots({ saved: makeSaved(), active: makeSaved(), catalogRaw: raw, presets: [] });
+    store().setValue(MODELS_KIMI_SOURCE, "llm.models.claude-latest", { family: "Claude", adapter: "anthropic-messages", providers: [] });
+    const select = vi.fn();
+    await act(async () => root.render(<ModelSelectionList models={projectCollection(store(), "llm.models")} value={null} onSelect={select} />));
+    expect(container.textContent).not.toContain("claude-latest");
+    const toggle = [...container.querySelectorAll("label")].find((label) => label.textContent?.includes("尚未接入调用"))!.querySelector("input")!;
+    await act(async () => toggle.click());
+    await act(async () => buttonByText("claude-latest").click());
+    expect(select).toHaveBeenCalledWith("claude-latest");
+  });
   async function choose(label: string, value: string): Promise<void> {
     const select = container.querySelector(`.fixed select[aria-label="${label}"]`) as HTMLSelectElement;
     expect(select).not.toBeNull();
@@ -376,14 +427,14 @@ describe("LlmModelsPage", () => {
   });
 
   it("selects adapters independently and offers only compatible providers", async () => {
-    store().setValue(PROVIDERS, "llm.providers.chat", { adapters: ["openai_compatible_chat"] });
+    store().setValue(PROVIDERS, "llm.providers.chat", { endpoints: { "openai-chat": { base_url: "https://example.test/v1" } } });
     await act(async () => root.render(<LlmModelsPage />));
     await act(async () => (container.querySelector('button[aria-label="New model"]') as HTMLButtonElement).click());
-    await choose("Adapter", "openai_compatible_chat");
+    await choose("Adapter", "openai-chat");
     const provider = container.querySelector('.fixed select[aria-label="Provider"]') as HTMLSelectElement;
-    expect([...provider.options].filter((option) => option.value !== "").map((option) => option.value)).toEqual(["chat"]);
+    expect([...provider.options].filter((option) => option.value !== "").map((option) => option.value)).toEqual(["chat", "kimi"]);
     await choose("Adapter", "kimi");
-    expect(provider.value).toBe("kimi");
+    expect(provider.value).toBe("chat");
     expect((container.querySelector('.fixed select[aria-label="Adapter"]') as HTMLSelectElement).value).toBe("kimi");
     await confirm("取消");
     expect(draftOperations(store()).every((op) => op.op === "set" && op.path.startsWith("llm.providers."))).toBe(true);
@@ -407,7 +458,7 @@ describe("LlmModelsPage", () => {
   it("the provider chain picker includes providers created in the same draft", async () => {
     store().setValue(PROVIDERS, "llm.providers.drafty", {
       enabled: false,
-      adapters: ["kimi"],
+      endpoints: { "openai-chat": { base_url: "https://example.test/v1" } },
       base_url: "https://draft.example.com/v1",
       api_key_envs: ["DRAFTY_API_KEY"],
     });

@@ -2,13 +2,13 @@
 
 日期：2026-10-18。
 
-状态：`pending / ready-to-implement`。设计已根据官方 API 文档和当前代码重新核对，等待依赖安装后逐阶段实施；本文件描述目标结构、迁移步骤和验收门槛，尚未把任何实现标记为完成。
+状态：`done`。2026-10-19 已按 AGENTS.md 核对阶段 A–F、对应实现、文档与必要验证并归档；逐项实施证据见第 15 节。历史问题保留在第 1 节，目标设计已按实际实现校准。
 
 目标：以 API 模式组织模型接入，明确 provider、adapter、model 的关系；复用现有调用、配置保存和前端草稿机制，消除重复规则及 SDK 隐藏行为。无需旧配置兼容层。Anthropic Messages 与 Google GenerateContent 本轮先完成模式契约、规则目录、配置投影和通用 adapter 装配边界，真实 SDK 请求在后续阶段接入；本轮仍提供完整的配置与前端编辑能力。
 
 已确认方向：候选思考档位数组与顶层选定值分离；通用 adapter 允许未占用字段的 `extra_body`；OpenAI 采用较新模型的 `prompt_cache_options`，删除旧 `prompt_cache_retention`；provider 以 API 模式 endpoint 组织；专属 adapter 是通用 API adapter 的子类或明确行为实现；Anthropic 与 Google 的 API 模式和 adapter options 本轮同步进入后端 catalog 与前端配置。Anthropic/Google 本轮建立完整配置与 adapter contract，但真实 SDK 网络调用留到下一轮，配置页面不会隐藏它们。
 
-## 1. 已核对事实
+## 1. 实施前已核对事实
 
 | 位置 | 当前行为 | 需要改进的原因 |
 | --- | --- | --- |
@@ -26,7 +26,7 @@
 
 现有异常主线合理：ConfigError → 配置边界；ProviderError → LLM 局部重试/切换；TaskFailure → 已完成调用的协议反馈；LLMInvocationFailure → 无法继续的模块失败；`run` 通过 RuntimeLLMBridge 进入 Runtime，`invoke` 保持可组合。重构继续遵循此分层。
 
-本地环境已安装 `openai==2.36.0`，未安装 `anthropic`、`google-genai`；没有真实远端调用验证。参考材料在 `reference/api_mode/`，该目录被现有 `.gitignore` 忽略；本文件独立记录需要版本管理的设计结论。
+实施前环境为 `openai==2.36.0`，未安装另外两套 SDK。实施时已核对用户安装的 `openai==3.35.1`、`anthropic==1.15.0`、`google-genai==2.31.0`；项目声明相应最低版本与下一主版本上界。没有发起真实远端调用。参考材料在 `reference/api_mode/`，该目录被现有 `.gitignore` 忽略；本文件独立记录需要版本管理的设计结论。
 
 ## 2. 术语与所有权
 
@@ -104,12 +104,13 @@ llm/
   protocol/                 # 内部调用、消息和响应值对象；只留必要身份类型
   config/                   # TOML 边界、provider/model/task 解析
   adapter/
-    base.py                 # ModelAdapter / AdapterRequest / 供应商失败分类
+    base.py                 # ProviderAdapter / ProviderRequest / 供应商失败分类
     catalog.py              # API 与 adapter 选项规则，组合与前端投影
     factory.py              # 显式装配，公共入口
     registry.py             # 唯一 client 与绑定 adapter 生命周期 owner
     openai/
-      client.py             # AsyncOpenAI 装配、SDK 异常边界
+      clients.py            # 可注入 SDK client 协议；装配归 factory
+      base.py               # OpenAIAdapter 公共映射钩子
       chat.py               # OpenAIChatAdapter
       responses.py          # OpenAIResponsesAdapter
       ...                   # 复用现有 payload、response、tool-name helpers
@@ -128,7 +129,7 @@ llm/
 
 后续真实接入 Anthropic / Google 时，按同一边界完成 invoke 和 SDK 生命周期。本轮会建立它们的配置定义与可编辑选项，但不把未接通 SDK 的模式伪装成可执行 adapter。
 
-本轮建立四种模式的定义和前端可编辑规则。`runtime_available` 与简短原因是由已注册 factory、SDK 安装状态和当前配置派生的投影，不写入 TOML，也不建立 `configuration_status/runtime_status` 两套状态机。配置解析、TOML 编辑和 catalog 展示接受四种模式；Generation 只为有实际 factory 的 binding 建立调用 adapter。任务链可以保存尚未接通的模型，但真正调用到该 binding 时返回明确的 LLM configuration failure，不发起请求；保存无关模型或 apply generation 不因它提前失败。等真实 SDK 接入，只需注册 factory 并更新投影。
+本轮建立四种模式的定义和前端可编辑规则。`runtime_available` 与简短原因由已注册 factory 派生；SDK 作为已声明依赖安装，provider 启用和凭据就绪另行判断，不做 SDK/远端健康探测，不写入 TOML，也不建立第二套状态机。配置解析、TOML 编辑和 catalog 展示接受四种模式；Generation 只为有实际 factory 的 binding 建立调用 adapter。任务链可以保存尚未接通的模型，运行时先筛选已装配路由，完全没有可用路由才形成带 provider configuration 原因的模型链耗尽，不发起请求。`invoke` 返回模块失败，`run` 沿现有 bridge 结束当前 Turn，不使用启动失败；保存无关模型或 apply generation 不因它提前失败。等真实 SDK 接入，只需注册 factory 并更新投影。
 
 Client 按 `(provider_id, api_mode)` 创建并复用；绑定 adapter 按 `(provider_id, adapter_id)` 取得相应 client，由实际 Model 引用推导需要的组合。Registry 唯一拥有 client，adapter 借用；generation 结束或装配失败时关闭一次。保留单一公开装配门面，不新增第二套 provider 服务或动态插件发现平台。
 
@@ -138,7 +139,7 @@ Client 按 `(provider_id, api_mode)` 创建并复用；绑定 adapter 按 `(prov
 
 - `ApiModeSpec` 提供该模式通用 adapter 的规则；它不承诺所有兼容服务支持所有选项。
 - `AdapterSpec` 指向唯一 api_mode，声明新增、替换或禁用规则；variant 仍只是有限命名分支。
-- adapter 配置解析后成为明确 typed options，运行期不用多个模块反复从宽泛 dict 解析同一值。具体 dataclass 归对应 adapter，不把所有供应商字段塞进一个万能类型。
+- adapter 配置在 catalog 校验后由现有 frozen `AdapterOptions` 承载，运行 mapper 使用所属 API/专属 adapter 的 TypedDict view，不重复解析或复制一套 dataclass 参数树。未接 SDK 的模式只保留有效配置规则，不创建没有消费者的请求对象。
 - catalog 暴露已组合的选项、类型、可选值/建议值、适用变体与来源。服务端校验是权威边界，前端只做即时编辑检查。
 
 需要区分真实协议限制与模型易变的可选档位。缓存模式、thinking 对象形状等可以有固定校验；某个模型支持哪些 effort 不应永久硬编码在全局 adapter 枚举里。
@@ -213,7 +214,7 @@ extra_body 能解决请求扩展，不能描述任意响应解析、签名回放
 2. `reasoning_efforts` 是候选能力声明，`reasoning_effort` 是当前选值；Google 的 budget、Anthropic 的 manual budget 等无法自然表示为档位时保留专属 typed number，不强行换算。
 3. `reasoning_keep` 只在 adapter 已实现相应回放时进入可运行配置；Anthropic 的 signature、Google 的 thoughtSignature 先由规则目录描述为 opaque replay，运行 adapter 完成后再接入 `Reasoning` envelope。
 4. 缓存 `mode`、TTL、breakpoint 或 cached-content 名称不得合并成一个跨 API 的布尔值。没有真实内部资源 owner 的 Google explicit cache 只允许保存声明，不触发创建、刷新或删除。
-5. 前端从组合后的 `effective_options` 渲染控件，并显示派生的 `runtime_available`/reason；不在页面内硬编码另一份供应商参数表。
+5. 前端从组合后的 `common_options` 或所选 `variants[].options` 渲染控件，并显示派生的 `runtime_available`/reason；后端 `effective_options()` 负责组合，不在页面内硬编码另一份供应商参数表。
 
 ## 7. 推理状态、缓存与内部协议
 
@@ -227,7 +228,7 @@ extra_body 能解决请求扩展，不能描述任意响应解析、签名回放
 
 状态仍附着在已有 AssistantMessage/Trace，不新增 provider 私有会话历史。Kernel 只运输 typed envelope，不解析供应商字段。Context 的投影、容量统计和安全 Observation 同步消费它，可读界面不显示加密正文。
 
-PromptCache 改为一次调用的 typed intent（可选 key、implicit/explicit、TTL、最终消息边界），OpenAI 模型选项映射为 `prompt_cache_options = { mode = "implicit", ttl = "30m" }`，不再接受 `prompt_cache_retention`。`prompt_cache_key` 只是路由/统计提示，不是跨 API 缓存资源句柄。OpenAI explicit breakpoint、Anthropic 内容断点和 Google 显式缓存资源需要各自的 typed 边界；本轮不创建没有真实消费者的缓存管理器。
+PromptCache 改为一次调用的 typed intent（可选 key、implicit/explicit、TTL），OpenAI 模型选项映射为 `prompt_cache_options = { mode = "implicit", ttl = "30m" }`，不再接受 `prompt_cache_retention`。`prompt_cache_key` 只是路由/统计提示，不是跨 API 缓存资源句柄。Explicit 调用返回明确配置错误，不开放前端选项。最终消息断点字段待真实映射时再加入；Anthropic 内容断点和 Google 显式缓存资源各自需要真实消费者，本轮不创建空字段或缓存管理器。
 
 ## 8. 调用与错误处理主线
 
@@ -267,7 +268,7 @@ Provider 页面：顶部编辑 ID、启用状态和共享凭据；下方为“AP
 
 ## 10. 拟改动范围与验证
 
-以下是后续执行清单，均为 `pending`；本轮只修改本计划与调研资料，没有修改这些实现。
+以下为本轮改动清单；实现与文档已经完成，核对结果和验证记录见第 15 节。
 
 | 改动面 | 文件/目录 | 预期结果与验收 |
 | --- | --- | --- |
@@ -324,9 +325,9 @@ python -c "import importlib.metadata as m; print('openai', m.version('openai'));
 
 若 shell 未激活环境，使用 `C:/Anaconda3/envs/TinySoul/python.exe -m pip ...`。用户安装完成后，阶段 C 会重新检查三套 SDK 的实际 signatures，并将项目最低版本设为本轮真正使用的稳定接口。`google-genai`、`anthropic`、`openai` 分别是三个安装包名称。
 
-### 阶段 A：建立身份、模式和规则正典
+### 阶段 A：建立身份、模式和规则正典 — done
 
-1. 在 `llm/protocol/` 增加稳定 `ApiMode`、`AdapterKind` 和派生的 `runtime_available` projection；明确 `openai-chat`、`openai-responses`、`anthropic-messages`、`google-generate-content` 四种模式。若保留 Interactions 预留，只进入设计说明，不进入本轮可编辑模式，避免与用户指定的 GenerateContent 混淆。
+1. 在 `llm/protocol/` 增加稳定 `ApiMode`、`AdapterKind`，在 adapter catalog 提供派生的 `runtime_available` projection；明确 `openai-chat`、`openai-responses`、`anthropic-messages`、`google-generate-content` 四种模式。Interactions 只进入设计说明，不进入本轮可编辑模式，避免与用户指定的 GenerateContent 混淆。
 2. 将当前 `ProviderApiStyle` 语义改为 API 模式；通用 adapter 与专属 adapter 使用一对多关系：一个 adapter 只指向一个 mode，一个 mode 可以有通用和专属 adapter。
 3. 将 `protocol/adapter.py` 的规则拆为 API mode rule、adapter rule、variant rule，迁移 Kimi `protocol` 为 `variant`。删除旧 ID 和字段，不添加 alias。
 4. 建立四种模式的 option catalog：字段类型、候选值、是否模型声明、是否请求覆盖、runtime availability、来源说明。规则包含 Anthropic thinking/effort/budget/cache 和 Google thinking level/budget/include thoughts/cache 声明，但不生成未实现的调用代码。
@@ -334,7 +335,7 @@ python -c "import importlib.metadata as m; print('openai', m.version('openai'));
 
 验收：后端可生成一份包含四种模式和当前 adapter/variant 的稳定 catalog；未知 option、错误 variant、effort 不在候选列表均成为 ConfigError；前端可以仅依赖 catalog 渲染，不读取 Python 常量。
 
-### 阶段 B：重构 Provider 和 Model 配置
+### 阶段 B：重构 Provider 和 Model 配置 — done
 
 1. `ProviderSpec` 从 `adapters/base_url` 改为 `endpoints`：endpoint key 就是 `api_mode`，每个 endpoint 有 `base_url`、可选 `headers`、`header_refs`。provider 保留 `enabled`、`api_key_envs` 和共享 headers。
 2. 解析时合并 provider 与 endpoint headers，endpoint 同名项覆盖 provider 项；敏感 header 只保存环境变量引用。禁止把 API key 或 header secret 写回 TOML。
@@ -345,30 +346,30 @@ python -c "import importlib.metadata as m; print('openai', m.version('openai'));
 
 验收：一个 provider 可有 Chat 与 Responses endpoint，共用一份凭据；新增 DeepSeek 或自定义 Chat 模型无需修改 provider 的 adapter 列表；现有 gpt/kimi/deepseek/glm/minimax 逻辑模型 ID 和任务链引用保持稳定。
 
-### 阶段 C：统一 Adapter 目录和生命周期
+### 阶段 C：统一 Adapter 目录和生命周期 — done
 
 1. 将 `tinysoul/llm/provider/` 重组为 `tinysoul/llm/adapter/`，按 `openai/chat.py`、`openai/responses.py` 和 `models/*` 组织；同步 imports、公开 exports、prompts 注释和测试路径。
-2. 抽取 `ApiModeAdapter`、`OpenAIChatAdapter`、`OpenAIResponsesAdapter` 公共边界；专属 adapter 只覆写 options、请求约束和响应推理解析。保留可注入 client protocol，删除同职责的重复 behavior 层。
+2. 复用 `ProviderAdapter` 调用协议，抽取 `OpenAIAdapter`、`OpenAIChatAdapter`、`OpenAIResponsesAdapter` 公共边界；专属 adapter 只覆写 options、请求约束和响应推理解析。保留可注入 client protocol，删除同职责的重复 behavior 层，不新增空的 ApiModeAdapter。
 3. Registry 以 `(provider_id, api_mode)` 复用 SDK client，adapter 借用 client，Registry/generation 负责一次 close。运行 adapter 以 `(provider_id, adapter_kind)` 取得 mode client。
 4. OpenAI client 显式 `max_retries=0`；任务层是唯一重试 owner。先在 TinySoul Conda 环境升级 OpenAI、Anthropic、Google GenAI SDK，再以实际安装版本检查 signatures，并把 `pyproject.toml` 最低版本设为本轮实际使用的稳定接口；不把会变化的最新 patch 版本写成设计语义。
-5. 增加 `AnthropicMessagesAdapter`、`GoogleGenerateContentAdapter` 的配置定义和 adapter contract；在没有 runtime factory 时 projection 标记 `runtime_available=false`，调用边界转换为明确的 configuration failure。不创建伪造的 HTTP 请求或 SDK 自动函数调用流程；后续 SDK 接入只需注册同一 base contract。
+5. 增加 Anthropic Messages、Google GenerateContent 的配置定义，复用同一 adapter contract；没有 runtime factory 时 projection 标记 `runtime_available=false`，任务无可运行路由时以 configuration 原因形成模型链耗尽。不创建空壳运行类、伪造的 HTTP 请求或 SDK 自动函数调用流程；后续 SDK 接入只需实现同一 contract 并注册 factory。
 
 验收：公开 factory 只装配已注册 runtime adapter；未注册模式不会发送请求；client 创建/关闭、取消、ProviderError 映射和任务重试次数可由 mock client 验证。
 
-### 阶段 D：重构消息、推理状态和缓存边界
+### 阶段 D：重构消息、推理状态和缓存边界 — done
 
 1. 将 `Reasoning` 的不透明载荷从只命名 `encrypted_items` 改为带 `api_mode/adapter/variant/provider/provider_model` 来源的 ordered `NativeReplay` envelope；它必须保留 Responses item、Anthropic block 或 Google part 的原始顺序及 tool 关联，不能把各块拼成一段普通文本。
 2. kernel signal、Trace、projection、context window 和 observation 同步迁移 envelope；展示只保留摘要与 digest，不显示签名、加密正文或完整 provider payload。只有来源完全匹配且中间没有删改、重排或合并时才回放；不满足条件时丢弃 envelope，工具回合无法安全降级则返回局部协议/配置失败。
 3. 在 OpenAI Responses mapper 中支持最新 `reasoning.context` 的固定模型配置（默认不额外改写历史）；本轮不做 TaskCall 级动态 `configuration_update`，不改变已有 Context 组装。
-4. `PromptCache` 改成调用级 typed intent（key、implicit/explicit、TTL、最终消息边界）；OpenAI adapter 映射 `prompt_cache_options`，TTL 当前只接受 `30m`，不再读取旧 retention。Anthropic 的 `cache_control` 绑定内容块，Google 的 `cachedContent` 只保存外部引用；本轮不创建、续期或删除外部缓存资源。
+4. `PromptCache` 改成调用级 typed intent（key、implicit/explicit、TTL）；OpenAI adapter 映射 `prompt_cache_options`，TTL 当前只接受 `30m`，不再读取旧 retention。没有断点消费者，不保存最终消息边界。Anthropic 的 `cache_control` 将随真实 mapper 绑定内容块，Google 的 `cachedContent` 只保存外部引用；本轮不创建、续期或删除外部缓存资源。
 5. 保持消息堆栈由 Kernel/Context 生成，adapter 不保存第二份会话。遇到不能安全回放的跨 mode 状态，按既有文本事实投影或返回明确配置失败。
 
 验收：OpenAI 加密 reasoning 可以在同一来源的后续工具调用中回放；不同 mode 不会误传签名；Trace/Observation 不暴露原始不透明载荷；cache 选项在请求 payload 中只出现一次。
 
-### 阶段 E：Endpoint、Catalog 与前端配置交互
+### 阶段 E：Endpoint、Catalog 与前端配置交互 — done
 
 1. 更新 `infra/config/catalog/models.toml` 和配置 projection：provider 显示 endpoints、URL、headers/header_refs；adapter 显示 API mode、派生 runtime availability 和组合 options；删除旧 adapters 字段说明。
-2. 扩展 endpoint contract/schema/examples，保持 Endpoint 只提供结构化配置 mutation，不开放任意文件接口；同步 `docs/endpoint/configuration.md`。
+2. 核对 endpoint contract/schema/examples，保持 Endpoint 只提供结构化配置 mutation，不开放任意文件接口；同步 `docs/endpoint/configuration.md`。现有 schema 的 rules/配置值为 JSON object，无需新增专属字段或改写与本轮无关的 examples。
 3. 更新 `draft/catalog.ts`：解码 mode、adapter、variant、option source/runtime availability；集中提供 `providersForAdapter()` 和 `optionsForAdapter()`，页面不再使用 `adapters.includes`。
 4. `LlmProvidersPage` 把 adapter 多选改为 API endpoint 编辑器；支持共享凭据、endpoint URL、普通 header 和 header reference 的增删。
 5. `LlmModelsPage` 按 API mode 展示通用/专属 adapter；模型详情增加候选 effort 文本输入、当前 effort 选择、top_p、OpenAI 最新缓存选项、Anthropic/Google 预配置选项和 runtime availability。未注册模式可编辑但明确标记“尚未可运行”。
@@ -377,7 +378,7 @@ python -c "import importlib.metadata as m; print('openai', m.version('openai'));
 
 验收：新增 endpoint、model 或 family 可由前端完成 TOML mutation；四种模式选项从后端 catalog 展示；pending runtime 配置有清楚状态；应用失败保留草稿且不部分提交。
 
-### 阶段 F：文档、测试和门禁
+### 阶段 F：文档、测试和门禁 — done
 
 1. 更新 `docs/design/llm.md`、`docs/design/infra.md`、`docs/endpoint/configuration.md`、contracts schemas/examples、README 及受影响注释，清除旧 provider.adapters、`openai_compatible_chat`、Kimi protocol 和 retention 的当前事实表述。
 2. 更新配置测试、adapter mapper 测试、TaskRunner 测试、generation builder 测试、endpoint contract 测试和 frontend settings tests；旧断言按新契约修改或删除，不建立兼容层。
@@ -426,3 +427,31 @@ max_output_tokens = 32768
 完成后，配置者看到的是“一个 provider 提供哪些 API 入口、一个 model 选择哪种 adapter、该 adapter 可配置哪些选项”；运行时看到的是“TaskCall → stable model → adapter/api mode → provider endpoint → provider_model → SDK request”。这条链路不再要求 provider 逐项登记 kimi、deepseek 等模型 adapter，也不会把缓存、思考状态或 SDK 名称混为一谈。
 
 主要风险是一次性重命名范围较大，尤其是测试、文档和前端 catalog 引用；通过分阶段迁移、每阶段聚焦检查和最终 Full/typecheck 控制风险。主要功能不依赖真实网络凭据，只有 OpenAI mapper 的实际请求和后续 Anthropic/Google SDK 接入需要外部验证。
+
+## 15. 实施核对记录（2026-10-19）
+
+以下按规约核对实际 owner、主线、异常边界与可观察行为，不以测试数量替代功能验收。
+
+| 阶段 / 状态 | 实际落点与核对结论 | 验证证据 |
+| --- | --- | --- |
+| A / done | `adapter/catalog.py` 组合四种 API 模式、九种 adapter 与 Kimi variant；`protocol/adapter_types.py` 只维护稳定身份。有效选项携带类型、候选、数值下限和来源；前端不维护第二份规则。 | `tests/llm/adapter/test_api_modes.py` 的四模式校验、组合约束和受约束 extra_body；`tests/llm/config/test_config.py` 的 effort 候选及未来模式配置解析。 |
+| B / done | `config/types.py`、sections/helpers/loader 统一解析 endpoint map；普通 header 与环境引用分层合并。model/provider/task ID 为 lower-kebab-case，远端 model 和 Python 字段不改写；model effort 单独保存，top_p 贯穿 task/call/model override。 | 配置拒绝未知字段和非法 ID/effort；`test_config_controller.py` 实际保存双模式 provider 与新 family 文件、重新加载；TaskRunner 验证覆盖优先级。 |
+| C / done | 旧 `llm/provider/` 删除，通用 Chat/Responses 与五个专属子类归 `llm/adapter/`；删除 behavior 双层定制。Registry 唯一持有 `(provider, mode)` client，按实际 binding 装配、一次 close；SDK retries=0。 | 新目录 `tests/llm/adapter/` 镜像实现；同 provider 两模式、同模式多 adapter、无 runtime 模式跳过、header 覆盖、client 关闭与现有取消/重试测试。真实安装 SDK 配合 MockTransport 验证 Chat/Responses/GLM 请求序列化。 |
+| D / done | `NativeReplay` 绑定 mode、adapter/variant、provider、远端 model 和助手消息指纹；Responses 保留原始有序 items；Context 只运输，Observation 只投影 digest。PromptCache 只持有实际消费的 key/mode/TTL；明确拒绝尚未接入的 explicit。 | 同来源工具回放、provider/model/内容变化与关闭回放；既有不完整工具事实投影、图片及工具名称映射；Context/LLM 容量与观察投影测试。 |
+| E / done | catalog 投影驱动 endpoint 编辑、adapter/variant 切换、provider 筛选和按需选项；逗号候选数组与顶层 effort 下拉分开；共享 ModelPicker 保留 family/搜索/折叠并可显式显示不可运行模型；任务 top_p。 | settings 页面交互、family 文件创建、追加/替换、草稿保存失败保留、endpoint 增加、候选编辑和不可运行模型筛选；前端全量 94 个文件、810 项测试通过，TypeScript 与 Vite 生产构建通过。 |
+| F / done | `docs/design/llm.md`、infra 配置段、Endpoint 文档、README、配置元数据及注释同步；schema/examples 现有通用 JSON 结构无需改动。standard/development 模板迁移且保留稳定 ID、family 文件组织与各自启用状态。 | 最终 `scripts/test.ps1 -Suite Full`：1307 passed、23 deselected，302.64 秒；`scripts/typecheck.ps1` 通过。前端 TypeScript、全量 810 项、整理后设置页 199 项及 Vite 生产构建通过。`git diff --check` 与 adapter 静态检查通过。 |
+
+实现细化均保持已确认语义，没有引入兼容层：
+
+1. 使用既有 `ProviderAdapter` / `ProviderRequest` 表示已经绑定 provider 的调用；没有为了目录改名额外引入同职责协议。API 通用实现基类为 `OpenAIAdapter`，专属类直接复用 Chat/Responses。
+2. Typed options 采用已校验的 `AdapterOptions` 加所属 adapter 的 TypedDict view，避免一套配置值在多棵 dataclass 树之间往返。API 与 variant 的规则只在 catalog 定义一次。
+3. runtime_available 只表示存在运行 factory，provider 的 enabled/凭据另行判定。全部候选不可路由时复用模型链耗尽，携带 CONFIG 原因；不让普通调用走启动失败，也不因保存未来模式而拒绝整个配置。
+4. 暂无真实消费者的最终消息断点字段、空 Anthropic/Google 运行类均未添加；四模式的选项、校验、TOML 和前端编辑已经完成，真实 SDK mapper 仍是确认过的后续范围。
+5. 额外核对最新专属文档：Kimi 与 MiniMax 使用 max_completion_tokens；DeepSeek/GLM 使用 max_tokens；GLM 扩展放入 SDK extra_body。DeepSeek 思考模式省略 temperature，top_p 由模型/服务处理，避免将一个模型的限制硬编码到整个 family。MiniMax 的 effort 候选可编辑声明，既有模型未选择时仍使用远端默认。[Kimi](https://platform.kimi.com/docs/api/chat)、[DeepSeek](https://api-docs.deepseek.com/guides/thinking_mode/)、[GLM](https://docs.z.ai/api-reference/llm/chat-completion)、[MiniMax](https://platform.minimax.io/docs/api-reference/text-chat-openai)
+6. Responses 回放保留有序内容、工具关联与 phase 等有效字段，但 SDK 补入的可选空字段不重新发送。真实 AsyncOpenAI + MockTransport 已覆盖生成、内部运输及下一次请求的序列化，避免只用字典 mock 遗漏 SDK 默认值的影响。
+
+首轮 Full 曾发现两处旧配置 fixture 和一次 SDK 场景 3 秒等待超时：fixture 按新契约迁移，超时场景独立复跑和第二轮 Full 均通过，未放宽等待时间或业务断言。没有隐藏、跳过失败用例；23 个 deselected 是 Full 原本排除的 external 测试。
+
+验证范围：本地真实 SDK 的序列化验证不发送网络请求，不能替代真实 provider 连通性、模型权限或代理扩展支持验证。本轮没有使用密钥发起真实模型调用；Anthropic/Google 的 SDK 请求映射、签名回放和缓存资源生命周期留到后续接入，不计为本轮已实现能力。Vite 提示已有大体积 bundle，构建成功，未扩展本轮范围去拆分无关图表资源。
+
+规约核对结论：配置仍由 Infra 加载/保存、LLM 解释；Endpoint 投影、前端草稿和 apply/reload 共用原链路。adapter 不拥有 Context 或 Action 执行，Registry 独占 client 生命周期，TaskRunner 独占重试，原有局部结果/模块失败/Runtime bridge 分层保持。未添加兼容别名、私有会话、平行配置状态机、空壳 SDK adapter 或缓存资源 owner。当前已确认范围全部完成。

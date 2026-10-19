@@ -4,6 +4,8 @@ import { Badge } from "../../../components/ui/Badge";
 import { Modal } from "../../../components/ui/Modal";
 import { stringField, type ProjectedObject } from "./collectionDrafts";
 import { inputClass } from "./controls";
+import { useConfigDraftStore } from "../draft/store";
+import { adapterRule } from "../draft/catalog";
 
 /** The same candidate list is used for model navigation and task selection. */
 export function ModelSelectionList({ models, value, onSelect, disabledIds = [] }: {
@@ -16,11 +18,14 @@ export function ModelSelectionList({ models, value, onSelect, disabledIds = [] }
   // null = all; empty string = models without a family.
   const [family, setFamily] = useState<string | null>(null);
   const [showCollapsed, setShowCollapsed] = useState(false);
+  const [showUnavailable, setShowUnavailable] = useState(false);
+  const catalog = useConfigDraftStore((state) => state.catalog);
+  const available = (model: ProjectedObject) => adapterRule(catalog, stringField(model.value, "adapter"))?.runtimeAvailable !== false;
   const families = [...new Set(models.map((model) => stringField(model.value, "family")))].sort(familyOrder);
   const needle = query.trim().toLocaleLowerCase();
   const visible = models.filter((model) => {
     const group = stringField(model.value, "family");
-    return (family === null || family === group)
+    return (showUnavailable || available(model)) && (family === null || family === group)
       && (needle !== "" ? `${model.id} ${group}`.toLocaleLowerCase().includes(needle)
         : showCollapsed || model.value.collapsed !== true);
   }).sort((a, b) => familyOrder(stringField(a.value, "family"), stringField(b.value, "family")) || a.id.localeCompare(b.id));
@@ -39,6 +44,9 @@ export function ModelSelectionList({ models, value, onSelect, disabledIds = [] }
       <label className="flex items-center gap-1.5 text-[11px] text-fg-muted">
         <input type="checkbox" checked={showCollapsed} onChange={(event) => setShowCollapsed(event.target.checked)} />显示折叠模型
       </label>
+      <label className="flex items-center gap-1.5 text-[11px] text-fg-muted">
+        <input type="checkbox" checked={showUnavailable} onChange={(event) => setShowUnavailable(event.target.checked)} />显示尚未接入调用的模型
+      </label>
     </div>
     <div className="max-h-80 space-y-1 overflow-y-auto p-2">
       {visible.map((model, index) => {
@@ -53,6 +61,7 @@ export function ModelSelectionList({ models, value, onSelect, disabledIds = [] }
             {value === model.id && <Check size={12} />}
             <span className="min-w-0 flex-1 break-all font-mono">{model.id}</span>
             {model.value.collapsed === true && <Badge tone="gray">默认折叠</Badge>}
+            {!available(model) && <Badge tone="yellow">尚未接入调用</Badge>}
             {model.isNew ? <Badge tone="accent">新增</Badge> : model.dirty && <Badge tone="accent">已修改</Badge>}
             {disabled && <span className="text-[10px]">已在任务链中</span>}
           </button>

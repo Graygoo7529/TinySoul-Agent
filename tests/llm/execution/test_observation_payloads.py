@@ -12,7 +12,8 @@ from tinysoul.llm.execution.observation_payloads import (
     task_request_observation,
     task_response_observation,
 )
-from tinysoul.llm.protocol.reasoning import Reasoning
+from tinysoul.llm.protocol.reasoning import Reasoning, NativeReplay
+from tinysoul.llm.protocol.adapter_types import ApiMode, AdapterKind
 from tinysoul.llm.protocol.responses import RawResponse
 from tinysoul.llm.protocol.tools import ToolKind, ToolScope, ToolSpec
 
@@ -30,7 +31,7 @@ def test_model_request_observation_redacts_binary_and_reasoning_payloads() -> No
             reasoning=Reasoning(
                 content="private chain of thought",
                 summary="safe summary",
-                encrypted_items=({"ciphertext": "encrypted-secret"},),
+                native_replay=NativeReplay(ApiMode.OPENAI_RESPONSES, AdapterKind.GPT, "provider", "remote", ({"ciphertext": "encrypted-secret"},)),
             ),
         ),
     )
@@ -64,7 +65,7 @@ def test_model_response_observation_omits_provider_payload_and_raw_reasoning() -
         reasoning=Reasoning(
             content="private chain of thought",
             summary="safe summary",
-            encrypted_items=({"ciphertext": "encrypted-secret"},),
+            native_replay=NativeReplay(ApiMode.OPENAI_RESPONSES, AdapterKind.GPT, "provider", "remote", ({"ciphertext": "encrypted-secret"},)),
         ),
         usage={"input_tokens": 12},
         metadata={"opaque": object()},

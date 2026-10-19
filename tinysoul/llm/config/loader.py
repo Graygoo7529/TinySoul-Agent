@@ -8,12 +8,13 @@ from tinysoul.infra.config import reject_unknown_keys
 
 from .helpers import required_table
 from .sections import ModelConfigParser, ProviderConfigParser, TaskConfigParser
-from ..protocol.adapter_types import AdapterKind, ProviderApiStyle
+from ..protocol.adapter_types import AdapterKind, ApiMode
 from .types import (
     LLMConfig,
     ProviderCredentialState,
     ProviderCredentialStatus,
     ProviderSpec,
+    ProviderEndpoint,
 )
 
 
@@ -57,10 +58,11 @@ __all__ = [
     "LLMConfigParser",
     "ModelConfigParser",
     "AdapterKind",
-    "ProviderApiStyle",
+    "ApiMode",
     "ProviderConfigParser",
     "ProviderCredentialState",
     "ProviderCredentialStatus",
     "ProviderSpec",
+    "ProviderEndpoint",
     "TaskConfigParser",
 ]

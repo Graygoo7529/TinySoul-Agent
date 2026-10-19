@@ -1,0 +1,1 @@
+"""OpenAI API mode adapters."""

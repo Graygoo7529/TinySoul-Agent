@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from math import isfinite
+
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -72,6 +74,7 @@ class CallSettings:
     answer_format: AnswerFormat | None = None
     tool_use: ToolUse | None = None
     temperature: float | None = None
+    top_p: float | None = None
     max_output_tokens: int | None = None
     required_capabilities: frozenset[ModelCapability] = field(default_factory=frozenset)
 
@@ -87,8 +90,18 @@ class CallSettings:
         if self.temperature is not None and (
             isinstance(self.temperature, bool)
             or not isinstance(self.temperature, (int, float))
+            or not isfinite(self.temperature)
+            or not 0 <= self.temperature <= 2
         ):
-            raise LLMContractError("CallSettings.temperature must be a number or None")
+            raise LLMContractError(
+                "CallSettings.temperature must be a finite number between 0 and 2"
+            )
+        if self.top_p is not None and (
+            isinstance(self.top_p, bool)
+            or not isinstance(self.top_p, (int, float))
+            or not 0 <= float(self.top_p) <= 1
+        ):
+            raise LLMContractError("CallSettings.top_p must be between 0 and 1")
         if self.max_output_tokens is not None and (
             isinstance(self.max_output_tokens, bool)
             or not isinstance(self.max_output_tokens, int)
@@ -121,6 +134,7 @@ class CallSettings:
             temperature=(
                 other.temperature if other.temperature is not None else self.temperature
             ),
+            top_p=other.top_p if other.top_p is not None else self.top_p,
             max_output_tokens=(
                 other.max_output_tokens
                 if other.max_output_tokens is not None

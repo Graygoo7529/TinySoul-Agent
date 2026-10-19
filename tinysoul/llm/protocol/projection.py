@@ -40,9 +40,9 @@ def message_projection(message: Message) -> JsonObject:
         if message.reasoning is not None:
             payload["reasoning"] = {
                 "summary": message.reasoning.summary,
-                "encrypted_item_digests": [
+                "native_part_digests": [
                     sha256(dumps_json(item).encode("utf-8")).hexdigest()
-                    for item in message.reasoning.encrypted_items
+                    for item in message.reasoning.native_parts
                 ],
             }
     if isinstance(message, ToolResultMessage):

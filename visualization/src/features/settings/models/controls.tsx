@@ -238,6 +238,7 @@ export interface SelectOption {
   value: string;
   label: string;
   disabled?: boolean;
+  group?: string;
 }
 
 export function SelectInput({
@@ -265,11 +266,11 @@ export function SelectInput({
       className={selectClass}
     >
       {emptyLabel !== undefined && <option value="">{emptyLabel}</option>}
-      {options.map((option) => (
-        <option key={option.value} value={option.value} disabled={option.disabled}>
-          {option.label}
-        </option>
-      ))}
+      {[...new Set(options.map((option) => option.group ?? ""))].map((group) => {
+        const rows = options.filter((option) => (option.group ?? "") === group).map((option) =>
+          <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>);
+        return group ? <optgroup key={group} label={group}>{rows}</optgroup> : rows;
+      })}
     </select>
   );
 }

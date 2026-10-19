@@ -155,7 +155,7 @@ class ConservativeRequestTokenEstimator:
                         chars, tokens = _text_size(value)
                         message_chars += chars
                         message_tokens += tokens
-                    for item in reasoning.encrypted_items:
+                    for item in reasoning.native_parts:
                         chars, tokens = _text_size(dumps_json(item))
                         message_chars += chars
                         message_tokens += tokens

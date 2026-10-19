@@ -4,7 +4,7 @@ import { searchConfig } from "../pages";
 import { localizeField, translatedField } from ".";
 
 const catalog = decodeCatalog({ fields: [{
-  path: "llm.models.*.adapter_options.reasoning_effort",
+  path: "llm.models.*.reasoning_effort",
   surface: "models", group: "models.adapter_options",
   title: "Reasoning Effort", description: "Reasoning preference.", value_kind: "enum",
   choices: [{ value: "high", label: "High" }],
@@ -12,8 +12,8 @@ const catalog = decodeCatalog({ fields: [{
 
 describe("settings presentation localization", () => {
   it("localizes catalog metadata after wildcard matching without changing values or the catalog", () => {
-    const field = translatedField(catalog, "llm.models.my-model.adapter_options.reasoning_effort");
-    expect(field?.title).toBe("推理强度");
+    const field = translatedField(catalog, "llm.models.my-model.reasoning_effort");
+    expect(field?.title).toBe("思考强度");
     expect(field?.choices).toEqual([{ value: "high", label: "高" }]);
     expect(field?.path).toBe(catalog.fields[0].path);
     expect(catalog.fields[0].title).toBe("Reasoning Effort");
@@ -21,7 +21,7 @@ describe("settings presentation localization", () => {
   });
 
   it("routes both Chinese and source-language searches to the same stable field", () => {
-    const localized = searchConfig(catalog, "推理强度");
+    const localized = searchConfig(catalog, "思考强度");
     expect(localized).toHaveLength(1);
     expect(localized[0].page).toBe("llm-models");
     expect(searchConfig(catalog, "reasoning_effort")[0].id).toBe(localized[0].id);

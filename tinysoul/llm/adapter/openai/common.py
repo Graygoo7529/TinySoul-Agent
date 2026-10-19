@@ -23,10 +23,15 @@ def common_create_kwargs(request: ProviderRequest) -> dict[str, object]:
     kwargs: dict[str, object] = {"model": request.binding.provider_model}
     if request.temperature is not None:
         kwargs["temperature"] = request.temperature
+    if request.top_p is not None:
+        kwargs["top_p"] = request.top_p
     if request.max_output_tokens is not None:
         kwargs["max_output_tokens"] = request.max_output_tokens
     if request.timeout_seconds is not None:
         kwargs["timeout"] = request.timeout_seconds
+    extra_body = request.model.adapter_options.extra_body()
+    if extra_body:
+        kwargs["extra_body"] = dict(extra_body)
     return kwargs
 
 
@@ -117,14 +122,22 @@ def response_metadata(response: object) -> dict[str, object]:
     return result
 
 
-def model_dump_mapping(value: object) -> dict[str, object]:
+def model_dump_mapping(
+    value: object, *, exclude_none: bool = False
+) -> dict[str, object]:
     if value is None:
         return {}
     if isinstance(value, Mapping):
-        return {str(key): item for key, item in value.items()}
+        return {
+            str(key): item
+            for key, item in value.items()
+            if not exclude_none or item is not None
+        }
     model_dump = get_attr(value, "model_dump")
     if callable(model_dump):
-        dumped = cast(ModelDumpable, value).model_dump(mode="json")
+        dumped = cast(ModelDumpable, value).model_dump(
+            mode="json", exclude_none=exclude_none
+        )
         if isinstance(dumped, Mapping):
             return {str(key): item for key, item in dumped.items()}
     return {}

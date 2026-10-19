@@ -5,25 +5,26 @@ from __future__ import annotations
 from typing import Protocol
 
 
+class ClosableClient(Protocol):
+    async def close(self) -> None: ...
+
+
 class OpenAIResponsesClient(Protocol):
     """Narrow SDK surface used by the Responses adapter."""
 
-    async def create(self, **kwargs: object) -> object:
-        ...
+    async def create(self, **kwargs: object) -> object: ...
 
 
 class OpenAIChatCompletionsClient(Protocol):
     """Narrow SDK surface used by the Chat Completions adapter."""
 
-    async def create(self, **kwargs: object) -> object:
-        ...
+    async def create(self, **kwargs: object) -> object: ...
 
 
 class ModelDumpable(Protocol):
     """Object that can expose a JSON-safe mapping."""
 
-    def model_dump(self, *, mode: str) -> object:
-        ...
+    def model_dump(self, *, mode: str, exclude_none: bool = False) -> object: ...
 
 
 __all__ = [

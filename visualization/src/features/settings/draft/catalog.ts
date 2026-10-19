@@ -94,29 +94,30 @@ export interface CatalogDocumentField {
 /**
  * One adapter-owned model option rule (`rules.llm.adapters[].*_options[]`).
  * `valueKind` follows the adapter contract: string / boolean / number / enum /
- * object; `choices` constrains enum-like options; `validator` names special
- * object shapes (e.g. thinking_deepseek / thinking_glm).
+ * object; `choices` and `minimum` carry API-specific value constraints.
  */
 export interface AdapterOptionRule {
   id: string;
   valueKind: string;
   choices: string[];
-  validator: string | null;
+  minimum: number | null;
+  source: string;
 }
 
-/** One protocol branch of an adapter (e.g. Kimi k2/k3). */
-export interface AdapterProtocolRule {
+/** One variant branch of an adapter (e.g. Kimi k2/k3). */
+export interface AdapterVariantRule {
   id: string;
-  optionKeys: string[];
   options: AdapterOptionRule[];
 }
 
 /** Machine rules for one LLM provider adapter (catalog `rules.llm.adapters`). */
 export interface AdapterRule {
   id: string;
-  apiStyle: string;
+  apiMode: string;
+  runtimeAvailable: boolean;
+  runtimeReason: string;
   commonOptions: AdapterOptionRule[];
-  protocols: AdapterProtocolRule[];
+  variants: AdapterVariantRule[];
 }
 
 export interface SettingsCatalog {
@@ -126,6 +127,7 @@ export interface SettingsCatalog {
   fields: CatalogField[];
   documentFields: CatalogDocumentField[];
   adapterRules: AdapterRule[];
+  apiModes: { id: string; runtimeAvailable: boolean }[];
 }
 
 const VALUE_KINDS = new Set<string>([
@@ -262,6 +264,8 @@ export function decodeCatalog(raw: ConfigCatalog): SettingsCatalog {
     fields,
     documentFields,
     adapterRules: decodeAdapterRules(raw.rules),
+    apiModes: isPlainRecord(raw.rules) && isPlainRecord(raw.rules.llm)
+      ? arrayOf(raw.rules.llm.api_modes).flatMap((item) => typeof item.id === "string" ? [{ id: item.id, runtimeAvailable: item.runtime_available === true }] : []) : [],
   };
 }
 
@@ -277,22 +281,19 @@ function decodeAdapterRules(rules: unknown): AdapterRule[] {
     if (id === null) continue;
     result.push({
       id,
-      apiStyle: typeof item.api_style === "string" ? item.api_style : "",
+      apiMode: typeof item.api_mode === "string" ? item.api_mode : "",
+      runtimeAvailable: item.runtime_available === true,
+      runtimeReason: typeof item.runtime_reason === "string" ? item.runtime_reason : "",
       commonOptions: decodeOptionRules(item.common_options),
-      protocols: Array.isArray(item.protocols)
-        ? item.protocols.flatMap((protocol) => {
-            if (!isPlainRecord(protocol)) return [];
-            const protocolId = text(protocol.id);
-            if (protocolId === null) return [];
+      variants: Array.isArray(item.variants)
+        ? item.variants.flatMap((variant) => {
+            if (!isPlainRecord(variant)) return [];
+            const variantId = text(variant.id);
+            if (variantId === null) return [];
             return [
               {
-                id: protocolId,
-                optionKeys: Array.isArray(protocol.option_keys)
-                  ? protocol.option_keys.filter(
-                      (key): key is string => typeof key === "string",
-                    )
-                  : [],
-                options: decodeOptionRules(protocol.options),
+                id: variantId,
+                options: decodeOptionRules(variant.options),
               },
             ];
           })
@@ -316,7 +317,8 @@ function decodeOptionRules(value: unknown): AdapterOptionRule[] {
       choices: Array.isArray(item.choices)
         ? item.choices.filter((choice): choice is string => typeof choice === "string")
         : [],
-      validator: typeof item.validator === "string" ? item.validator : null,
+      minimum: typeof item.minimum === "number" ? item.minimum : null,
+      source: typeof item.source === "string" ? item.source : "adapter",
     });
   }
   return result;
@@ -554,4 +556,17 @@ function isStringArray(value: JsonValue): value is string[] {
 
 function choiceList(field: CatalogField): string {
   return field.choices.map((choice) => choice.value).join(", ");
+}
+
+/** Endpoint mode is the single compatibility rule for creation and editing. */
+export function providersForAdapter<T extends { value: Record<string, JsonValue> }>(
+  catalog: SettingsCatalog | null, providers: T[], adapter: string,
+): T[] {
+  const mode = adapterRule(catalog, adapter)?.apiMode;
+  return mode ? providers.filter((provider) => isPlainRecord(provider.value.endpoints) && Object.prototype.hasOwnProperty.call(provider.value.endpoints, mode)) : [];
+}
+
+export function optionsForAdapter(catalog: SettingsCatalog | null, adapter: string, variant?: string): AdapterOptionRule[] {
+  const rule = adapterRule(catalog, adapter);
+  return rule?.variants.find((branch) => branch.id === variant)?.options ?? rule?.commonOptions ?? [];
 }

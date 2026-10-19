@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
+from math import isfinite
 
 from ..errors import LLMContractError
 from .adapter_types import AdapterKind
@@ -28,17 +29,29 @@ class RequestOverrides:
     """Model-level overrides for provider-neutral request settings."""
 
     temperature: float | None = None
+    top_p: float | None = None
     max_output_tokens: int | None = None
 
     def __post_init__(self) -> None:
         if self.temperature is not None:
-            if isinstance(self.temperature, bool) or not isinstance(
-                self.temperature, (int, float)
+            if (
+                isinstance(self.temperature, bool)
+                or not isinstance(self.temperature, (int, float))
+                or not isfinite(self.temperature)
+                or not 0 <= self.temperature <= 2
             ):
                 raise LLMContractError(
-                    "RequestOverrides.temperature must be a number or None"
+                    "RequestOverrides.temperature must be a finite number between 0 and 2"
                 )
             object.__setattr__(self, "temperature", float(self.temperature))
+        if self.top_p is not None:
+            if (
+                isinstance(self.top_p, bool)
+                or not isinstance(self.top_p, (int, float))
+                or not 0 <= float(self.top_p) <= 1
+            ):
+                raise LLMContractError("RequestOverrides.top_p must be between 0 and 1")
+            object.__setattr__(self, "top_p", float(self.top_p))
         if self.max_output_tokens is not None and (
             isinstance(self.max_output_tokens, bool)
             or not isinstance(self.max_output_tokens, int)
@@ -76,6 +89,19 @@ class AdapterOptions:
                 ) from exc
         raise LLMContractError("reasoning_keep must be a string")
 
+    @property
+    def variant(self) -> str | None:
+        value = self.values.get("variant")
+        return value if isinstance(value, str) else None
+
+    def extra_body(self) -> Mapping[str, object] | None:
+        value = self.values.get("extra_body")
+        if value is None:
+            return None
+        if not isinstance(value, Mapping):
+            raise LLMContractError("extra_body must be a JSON object")
+        return value
+
 
 @dataclass(frozen=True)
 class ModelProviderBinding:
@@ -106,6 +132,7 @@ class ModelSpec:
     )
     adapter_options: AdapterOptions = field(default_factory=AdapterOptions)
     request_overrides: RequestOverrides = field(default_factory=RequestOverrides)
+    reasoning_effort: str | None = None
     family: str = ""
     collapsed: bool = False
 
@@ -165,6 +192,21 @@ class ModelSpec:
             raise LLMContractError(
                 "ModelSpec.request_overrides must be a RequestOverrides value"
             )
+        if self.reasoning_effort is not None and (
+            not isinstance(self.reasoning_effort, str) or not self.reasoning_effort
+        ):
+            raise LLMContractError(
+                "ModelSpec.reasoning_effort must be a non-empty string or None"
+            )
+        if self.reasoning_effort is not None:
+            candidates = self.adapter_options.values.get("reasoning_efforts", ())
+            if (
+                not isinstance(candidates, (tuple, list))
+                or self.reasoning_effort not in candidates
+            ):
+                raise LLMContractError(
+                    "reasoning_effort must belong to adapter_options.reasoning_efforts"
+                )
 
     def supports(self, capability: ModelCapability) -> bool:
         return capability in self.capabilities

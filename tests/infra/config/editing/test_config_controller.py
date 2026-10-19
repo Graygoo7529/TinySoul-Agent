@@ -65,8 +65,8 @@ async def test_family_models_and_task_references_save_and_reload_together(
     definitions = tuple(
         ConfigMutation(source_id, f"llm.models.{model_id}", "set", {
             "family": "Qwen",
-            "adapter": "openai",
-            "providers": [{"provider": "openai", "provider_model": f"remote-{model_id}"}],
+            "adapter": "openai-responses",
+            "providers": [{"provider": "multi-mode", "provider_model": f"remote-{model_id}"}],
             "context_window_tokens": 32768,
             "capabilities": ["text_input", "json_object_output"],
         })
@@ -74,6 +74,14 @@ async def test_family_models_and_task_references_save_and_reload_together(
     )
     saved = await controller.patch(
         (
+            ConfigMutation("project:configs/llm/providers.toml", "llm.providers.multi-mode", "set", {
+                "enabled": False, "api_key_envs": ["MULTI_MODE_KEY"],
+                "headers": {"X-Client": "TinySoul"},
+                "endpoints": {
+                    "openai-chat": {"base_url": "https://example.test/chat"},
+                    "openai-responses": {"base_url": "https://example.test/responses", "header_refs": {"X-Route": "ROUTE_TOKEN"}},
+                },
+            }),
             ConfigCreateSource(source_id),
             *definitions,
             ConfigMutation(
@@ -89,6 +97,8 @@ async def test_family_models_and_task_references_save_and_reload_together(
     assert activated_models == []
     disk = ConfigEnvironment.from_project_root(root, env={})
     parsed = LLMConfigParser().parse(disk.section_tree("llm"))
+    assert len(parsed.provider("multi-mode").endpoints) == 2
+    assert parsed.provider("multi-mode").api_key_envs == ("MULTI_MODE_KEY",)
     assert [parsed.models.get(model_id).family for model_id in model_ids] == ["Qwen", "Qwen"]
     assert disk.effective_values()["llm.tasks.llm-action.models"] == model_ids
     assert {item.source_id for item in disk.sources if item.source_id == source_id} == {source_id}
@@ -611,7 +621,7 @@ async def test_controller_rejects_purely_numeric_mapping_path_segment(
                     source_id="project:configs/infra.toml",
                     path="llm.models.1233",
                     op="set",
-                    value={"adapter": "openai_compatible_chat"},
+                    value={"adapter": "openai-chat"},
                 ),
             )
         )

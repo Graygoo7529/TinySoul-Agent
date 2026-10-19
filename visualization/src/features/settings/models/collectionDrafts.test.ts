@@ -258,9 +258,9 @@ describe("projectedFields", () => {
     );
     // A set below the object replaces exactly that subtree. `adapter_options`
     // is not a catalog object boundary, so the object flattens to leaf keys.
-    store().setValue(MODELS_KIMI_SOURCE, "llm.models.m.adapter_options", { protocol: "k3" });
+    store().setValue(MODELS_KIMI_SOURCE, "llm.models.m.adapter_options", { variant: "k3" });
     let fields = projectedFields(store());
-    expect(fields.get("llm.models.m.adapter_options.protocol")).toBe("k3");
+    expect(fields.get("llm.models.m.adapter_options.variant")).toBe("k3");
 
     // Delete at the object root removes only keys owned by that source.
     store().deleteValue(MODELS_KIMI_SOURCE, "llm.models.m");

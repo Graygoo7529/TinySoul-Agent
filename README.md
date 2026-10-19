@@ -115,3 +115,5 @@ $env:TINYSOUL_PYTHON=(Get-Command python).Source
 If repository-local file operations are disrupted by the host environment, use `-ArtifactRoot <scratch-directory>` to place isolated runs elsewhere. Relative paths resolve against the repository. The script creates and cleans only its own `runs/<uuid>` directory; failed runs retain their artifacts. The selected suite and its assertions remain the same.
 
 Architecture and module contracts are under `docs/design/`; the desktop frontend is documented in `visualization/README.md`.
+
+LLM providers declare API-mode endpoints with shared credentials; models choose one generic or specialized adapter and use stable IDs. OpenAI Chat/Responses are executable; Anthropic Messages/Google GenerateContent currently support configuration and UI editing. See [LLM configuration and adapters](docs/design/llm.md#api-模式与-adapter).

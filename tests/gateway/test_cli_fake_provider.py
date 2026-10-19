@@ -270,17 +270,17 @@ def _configure_fake_provider(root: Path, *, port: int) -> None:
     (root / "configs" / "llm" / "providers.toml").write_text(
         "[llm.providers.fake]\n"
         "enabled = true\n"
-        'adapters = ["openai_compatible_chat"]\n'
-        f'base_url = "http://127.0.0.1:{port}/v1"\n'
-        'api_key_envs = ["FAKE_API_KEY"]\n',
+        'api_key_envs = ["FAKE_API_KEY"]\n'
+        '[llm.providers.fake.endpoints.openai-chat]\n'
+        f'base_url = "http://127.0.0.1:{port}/v1"\n',
         encoding="utf-8",
     )
     model_root = root / "configs" / "llm" / "models"
     for path in model_root.glob("*.toml"):
         path.unlink()
     (model_root / "fake.toml").write_text(
-        "[llm.models.fake_model]\n"
-        'adapter = "openai_compatible_chat"\n'
+        "[llm.models.fake-model]\n"
+        'adapter = "openai-chat"\n'
         'providers = [{ provider = "fake", provider_model = "fake-model" }]\n'
         "context_window_tokens = 262144\n"
         "capabilities = [\n"
@@ -305,7 +305,7 @@ def _configure_fake_provider(root: Path, *, port: int) -> None:
 def _task_config(profile: str) -> str:
     return (
         f"[llm.tasks.{profile}]\n"
-        'models = ["fake_model"]\n'
+        'models = ["fake-model"]\n'
         'required_capabilities = ["text_input"]\n'
         'answer_format = "json_object"\n'
         'tool_use = "disabled"\n'

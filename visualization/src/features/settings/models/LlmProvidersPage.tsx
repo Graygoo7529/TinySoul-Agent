@@ -14,12 +14,14 @@ import { AlertTriangle, Copy, Trash2 } from "lucide-react";
 import type { JsonValue } from "../../../api/v2/types";
 import { Badge } from "../../../components/ui/Badge";
 import { Button } from "../../../components/ui/Button";
+import { isPlainRecord } from "../draft/model";
 import { useConfigDraftStore } from "../draft/store";
 import { translatedField as matchField } from "../i18n";
 import { useSettingsUiStore } from "../uiStore";
 import {
   cloneJsonValue,
   fieldLockReason,
+  llmObjectIdError,
   projectCollection,
   providerCredentialStates,
   providerReferences,
@@ -30,7 +32,7 @@ import {
 import {
   FieldRow,
   FieldSection,
-  SelectInput,
+  JsonObjectInput,
   StringListEditor,
   TextInput,
   Toggle,
@@ -170,6 +172,7 @@ export function LlmProvidersPage() {
       </ObjectEditorLayout>
 
       <CreateObjectModal
+        validateId={llmObjectIdError}
         title="New provider"
         idTitle={settingsText("Provider ID")}
         idDescription="Stable identifier referenced by model provider chains; dots, outer whitespace and numeric-only ids are not allowed."
@@ -184,8 +187,7 @@ export function LlmProvidersPage() {
           );
           const value: Record<string, JsonValue> = {
             enabled: false,
-            adapters: ["openai_compatible_chat"],
-            base_url: "",
+            endpoints: { "openai-chat": { base_url: "" } },
             api_key_envs: [defaultApiKeyEnv(id)],
             ...template,
           };
@@ -197,6 +199,7 @@ export function LlmProvidersPage() {
         }}
       />
       <CreateObjectModal
+        validateId={llmObjectIdError}
         title={`Duplicate provider ${duplicateFrom?.id ?? ""}`}
         idTitle="New provider ID"
         idDescription="The copy starts disabled; adjust its endpoint and credentials before enabling."
@@ -233,10 +236,12 @@ function providerSummary(
     | { credentialState: "configured" | "missing" | "unknown" }
     | undefined,
 ): string {
-  const adapters = stringListField(object.value, "adapters");
+  const modes = isPlainRecord(object.value.endpoints)
+    ? Object.keys(object.value.endpoints)
+    : [];
   const parts: string[] = [];
   parts.push(object.value.enabled === true ? "enabled" : "disabled");
-  if (adapters.length > 0) parts.push(adapters.join(", "));
+  if (modes.length > 0) parts.push(modes.join(", "));
   if (credential !== undefined && credential.credentialState !== "unknown") {
     parts.push(
       credential.credentialState === "configured"
@@ -321,38 +326,32 @@ function ProviderEditor({
         description={settingsText("Request behavior and endpoint of this provider.")}
       >
         <FieldRow
-          title={field("adapters").meta?.title ?? "Adapters"}
-          description={field("adapters").meta?.description}
-          dirty={field("adapters").dirty}
+          title="API 入口"
+          description="每个 API 模式配置一个入口，共用提供方凭据。"
+          dirty={field("endpoints").dirty}
         >
-          <AdapterListEditor
-            values={stringListField(object.value, "adapters")}
-            choices={(field("adapters").meta?.choices ?? []).map((choice) => ({
-              value: choice.value,
-              label: choice.label,
-            }))}
-            disabled={field("adapters").lock !== null}
-            onCommit={(values) =>
-              setObjectField(ROOT, object, "adapters", values, createSource)
-            }
+          <EndpointEditor
+            value={isPlainRecord(object.value.endpoints) ? object.value.endpoints : {}}
+            modes={(catalog?.apiModes ?? []).map((mode) => mode.id)}
+            disabled={field("endpoints").lock !== null}
+            onCommit={(value) => setObjectField(ROOT, object, "endpoints", value, createSource)}
           />
         </FieldRow>
-        <FieldRow
-          title={field("base_url").meta?.title ?? "Base URL"}
-          description={field("base_url").meta?.description}
-          dirty={field("base_url").dirty}
-        >
-          <TextInput
-            ariaLabel="Base URL"
-            value={stringField(object.value, "base_url")}
-            placeholder="https://api.example.com/v1"
-            mono
-            disabled={field("base_url").lock !== null}
-            onCommit={(value) =>
-              setObjectField(ROOT, object, "base_url", value, createSource)
-            }
-          />
-        </FieldRow>
+        {(["headers", "header_refs"] as const).map((key) => (
+          <FieldRow
+            key={key}
+            title={key === "headers" ? "共享附加请求头" : "共享请求头凭据引用"}
+            description={key === "headers" ? "普通请求头；认证密钥请使用环境变量引用。" : "请求头名称 → 环境变量名称。"}
+            dirty={field(key).dirty}
+          >
+            <JsonObjectInput
+              ariaLabel={key}
+              value={isPlainRecord(object.value[key]) ? object.value[key] : {}}
+              disabled={field(key).lock !== null}
+              onCommit={(value) => setObjectField(ROOT, object, key, value, createSource)}
+            />
+          </FieldRow>
+        ))}
       </FieldSection>
 
       <FieldSection
@@ -395,66 +394,83 @@ function ProviderEditor({
   );
 }
 
-/** Ordered enum_list editor for provider adapters (no duplicates). */
-function AdapterListEditor({
-  values,
-  choices,
+/** One endpoint per mode, sharing the provider credential. */
+function EndpointEditor({
+  value,
+  modes,
   disabled,
   onCommit,
 }: {
-  values: string[];
-  choices: { value: string; label: string }[];
+  value: Record<string, JsonValue>;
+  modes: string[];
   disabled: boolean;
-  onCommit: (values: string[]) => void;
+  onCommit: (value: Record<string, JsonValue>) => void;
 }) {
-  const remaining = choices.filter((choice) => !values.includes(choice.value));
+  const update = (mode: string, patch: Record<string, JsonValue>) => {
+    const current = isPlainRecord(value[mode]) ? value[mode] : {};
+    onCommit({ ...value, [mode]: { ...current, ...patch } });
+  };
   return (
-    <div className="space-y-1.5">
-      {values.map((adapter, index) => (
-        <div key={`${adapter}-${index}`} className="flex items-center gap-1.5">
-          <SelectInput
-            ariaLabel={`Adapter ${index + 1}`}
-            value={adapter}
-            disabled={disabled}
-            options={choices.map((choice) => ({
-              ...choice,
-              disabled: values.some(
-                (item, itemIndex) => itemIndex !== index && item === choice.value,
-              ),
-            }))}
-            onChange={(value) =>
-              onCommit(values.map((item, itemIndex) => (itemIndex === index ? value : item)))
-            }
-          />
-          <Button
-            size="xs"
-            variant="ghost"
-            aria-label="Remove adapter"
-            disabled={disabled || values.length <= 1}
-            onClick={() => onCommit(values.filter((_, itemIndex) => itemIndex !== index))}
-          >
-            ×
-          </Button>
-        </div>
-      ))}
-      <div className="flex items-center gap-1.5">
-        <select
-          aria-label="Add adapter"
-          value=""
-          disabled={disabled || remaining.length === 0}
-          onChange={(event) => {
-            if (event.target.value !== "") onCommit([...values, event.target.value]);
-          }}
-          className={selectClass}
-        >
-          <option value="">{settingsText("Add adapter…")}</option>
-          {remaining.map((choice) => (
-            <option key={choice.value} value={choice.value}>
-              {choice.label}
-            </option>
-          ))}
-        </select>
-      </div>
+    <div className="w-full space-y-3">
+      {Object.entries(value).map(([mode, raw]) => {
+        const endpoint = isPlainRecord(raw) ? raw : {};
+        return (
+          <div key={mode} className="space-y-2 rounded-md border border-line p-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono text-xs">{mode}</span>
+              <Button
+                size="xs"
+                variant="ghost"
+                disabled={disabled || Object.keys(value).length < 2}
+                aria-label={`Remove ${mode}`}
+                onClick={() => {
+                  const next = { ...value };
+                  delete next[mode];
+                  onCommit(next);
+                }}
+              >移除</Button>
+            </div>
+            <TextInput
+              ariaLabel={`${mode} Base URL`}
+              value={stringField(endpoint, "base_url")}
+              mono
+              placeholder="https://api.example.com/v1"
+              disabled={disabled}
+              onCommit={(base_url) => update(mode, { base_url })}
+            />
+            <details>
+              <summary className="cursor-pointer text-xs text-fg-muted">附加请求头</summary>
+              {(["headers", "header_refs"] as const).map((key) => (
+                <label key={key} className="mt-2 block text-xs text-fg-muted">
+                  {key === "headers" ? "普通请求头" : "请求头 → 环境变量引用"}
+                  <JsonObjectInput
+                    ariaLabel={`${mode} ${key}`}
+                    value={isPlainRecord(endpoint[key]) ? endpoint[key] : {}}
+                    disabled={disabled}
+                    onCommit={(headers) => update(mode, { [key]: headers })}
+                  />
+                </label>
+              ))}
+            </details>
+          </div>
+        );
+      })}
+      <select
+        aria-label="Add API mode"
+        value=""
+        className={selectClass}
+        disabled={disabled}
+        onChange={(event) => {
+          if (event.target.value) {
+            onCommit({ ...value, [event.target.value]: { base_url: "" } });
+          }
+        }}
+      >
+        <option value="">添加 API 模式…</option>
+        {modes.filter((mode) => !Object.prototype.hasOwnProperty.call(value, mode)).map((mode) => (
+          <option key={mode} value={mode}>{mode}</option>
+        ))}
+      </select>
     </div>
   );
 }

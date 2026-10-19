@@ -47,14 +47,14 @@ from .model_chain import (
 from ..protocol.models import ModelCapability, ModelProviderBinding, ModelSpec
 from .registry import ModelRegistry
 from .observation_payloads import task_request_observation, task_response_observation
-from ..provider import (
+from ..adapter import (
     ProviderError,
     ProviderErrorKind,
     ProviderFailureScope,
     ProviderRegistry,
     ProviderRequest,
 )
-from ..provider.base import ProviderAdapter
+from ..adapter.base import ProviderAdapter
 from ..protocol.requests import (
     CallSettings,
     ModelContextOverflowPolicy,
@@ -438,6 +438,7 @@ class LLMTaskRunner:
             self._capability_policy.required_capabilities(call, settings=settings),
         )
         temperature = _effective_temperature(model, settings)
+        top_p = _effective_top_p(model, settings)
         max_output_tokens = _effective_max_output_tokens(model, settings)
         reserved_output_tokens = max_output_tokens or 0
         context_usage = self._context_policy.usage(
@@ -482,6 +483,7 @@ class LLMTaskRunner:
                     answer_format=answer_format,
                     tool_use=tool_use,
                     temperature=temperature,
+                    top_p=top_p,
                     max_output_tokens=max_output_tokens,
                 )
             except ProviderError as exc:
@@ -530,6 +532,7 @@ class LLMTaskRunner:
         answer_format: AnswerFormat,
         tool_use: ToolUse,
         temperature: float | None,
+        top_p: float | None,
         max_output_tokens: int | None,
     ) -> TaskResult:
         for attempt in range(task.chain.retry_policy.max_retries_per_provider + 1):
@@ -600,6 +603,7 @@ class LLMTaskRunner:
                         tool_scope=call.tool_scope,
                         prompt_cache=call.prompt_cache,
                         temperature=temperature,
+                        top_p=top_p,
                         max_output_tokens=max_output_tokens,
                         timeout_seconds=_remaining_seconds(call),
                     ),
@@ -856,7 +860,8 @@ class LLMTaskRunner:
         )
         if not model_ids:
             raise ModelChainExhaustedError(
-                f"Task '{task.profile}' has no model with an enabled provider"
+                f"Task '{task.profile}' has no model with a registered runtime route",
+                last_error=ProviderError("No executable provider route", kind=ProviderErrorKind.CONFIG)
             )
         return ModelChain(
             profile=task.chain.profile,
@@ -930,6 +935,13 @@ def _effective_temperature(
     if override is not None:
         return override
     return settings.temperature
+
+
+def _effective_top_p(model: ModelSpec, settings: CallSettings) -> float | None:
+    override = model.request_overrides.top_p
+    if override is not None:
+        return override
+    return settings.top_p
 
 
 def _check_cancellation(call: TaskCall) -> None:

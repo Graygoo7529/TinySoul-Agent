@@ -1,47 +1,58 @@
 [llm.providers.openai]
 enabled = false
-adapters = ["openai"]
-base_url = "https://api.openai.com/v1"
 api_key_envs = ["OPENAI_API_KEY"]
+
+[llm.providers.openai.endpoints.openai-responses]
+base_url = "https://api.openai.com/v1"
 
 [llm.providers.orca]
 enabled = false
-adapters = ["deepseek", "openai", "kimi", "glm", "minimax"]
-base_url = "https://api.orcarouter.ai/v1"
 api_key_envs = ["ORCA_API_KEY"]
+
+[llm.providers.orca.endpoints.openai-chat]
+base_url = "https://api.orcarouter.ai/v1"
+
+[llm.providers.orca.endpoints.openai-responses]
+base_url = "https://api.orcarouter.ai/v1"
 
 [llm.providers.wenrugou]
 enabled = false
-adapters = ["openai"]
-base_url = "https://api.wenrugouai.com/v1"
 api_key_envs = ["WENRUGOU_API_KEY"]
+
+[llm.providers.wenrugou.endpoints.openai-responses]
+base_url = "https://api.wenrugouai.com/v1"
 
 [llm.providers.sublyx-proxy]
 enabled = false
-adapters = ["openai"]
-base_url = "https://api.sublyx.org/v1"
 api_key_envs = ["SUBLYX_API_KEY"]
+
+[llm.providers.sublyx-proxy.endpoints.openai-responses]
+base_url = "https://api.sublyx.org/v1"
 
 [llm.providers.deepseek]
 enabled = false
-adapters = ["deepseek"]
-base_url = "https://api.deepseek.com"
 api_key_envs = ["DEEPSEEK_API_KEY"]
+
+[llm.providers.deepseek.endpoints.openai-chat]
+base_url = "https://api.deepseek.com"
 
 [llm.providers.kimi]
 enabled = false
-adapters = ["kimi"]
-base_url = "https://api.moonshot.cn/v1"
 api_key_envs = ["MOONSHOT_API_KEY"]
+
+[llm.providers.kimi.endpoints.openai-chat]
+base_url = "https://api.moonshot.cn/v1"
 
 [llm.providers.glm]
 enabled = false
-adapters = ["glm"]
-base_url = "https://open.bigmodel.cn/api/paas/v4"
 api_key_envs = ["GLM_API_KEY"]
+
+[llm.providers.glm.endpoints.openai-chat]
+base_url = "https://open.bigmodel.cn/api/paas/v4"
 
 [llm.providers.minimax]
 enabled = false
-adapters = ["minimax"]
-base_url = "https://api.minimaxi.com/v1"
 api_key_envs = ["MINIMAX_API_KEY"]
+
+[llm.providers.minimax.endpoints.openai-chat]
+base_url = "https://api.minimaxi.com/v1"

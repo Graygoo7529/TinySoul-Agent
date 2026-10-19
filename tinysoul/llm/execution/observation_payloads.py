@@ -61,9 +61,9 @@ def task_response_observation(response: RawResponse, tools: ToolScope) -> JsonOb
     if response.reasoning is not None:
         payload["reasoning"] = {
             "summary": response.reasoning.summary,
-            "encrypted_item_digests": [
+            "native_part_digests": [
                 sha256(dumps_json(item).encode("utf-8")).hexdigest()
-                for item in response.reasoning.encrypted_items
+                for item in response.reasoning.native_parts
             ],
         }
     return payload

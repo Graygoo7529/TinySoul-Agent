@@ -22,6 +22,8 @@ import { objectSourceFor } from "../draft/fields";
 import { useConfigDraftStore } from "../draft/store";
 import {
   adapterRule,
+  providersForAdapter,
+  optionsForAdapter,
   type AdapterOptionRule,
   type CatalogField,
   type SettingsCatalog,
@@ -34,7 +36,7 @@ import {
   familyFileName,
   modelReferences,
   moveItem,
-  objectIdError,
+  llmObjectIdError,
   objectDeletable,
   projectCollection,
   resolveFamilySource,
@@ -224,7 +226,7 @@ export function LlmModelsPage() {
         }}
       />
 
-      <RenameObjectModal
+      <RenameObjectModal validateId={llmObjectIdError}
         title="Rename model"
         objectId={renaming?.id ?? ""}
         existing={objects.map((item) => item.id)}
@@ -300,19 +302,20 @@ function NewModelModal({
     setAdapter(""); setProviderId("");
   }, [open]);
   useEffect(() => {
-    const matching = providers.filter((item) => stringListField(item.value, "adapters").includes(adapter));
+    const matching = providersForAdapter(catalog, providers, adapter);
     if (matching.some((item) => item.id === providerId)) return;
     setProviderId(matching[0]?.id ?? "");
     setProviderModel("");
-  }, [providers, providerId, adapter]);
+  }, [providers, providerId, adapter, catalog]);
   if (!open) return null;
   const chosenFamily = family === "__new__" ? newFamily.trim() : family;
-  const idError = objectIdError(id);
+  const idError = llmObjectIdError(id);
   const target = resolveFamilySource(state, models, chosenFamily, newFamilyFile);
-  const matchingProviders = providers.filter((item) => stringListField(item.value, "adapters").includes(adapter));
+  const matchingProviders = providersForAdapter(catalog, providers, adapter);
   const adapterChoices = (matchField(catalog, "llm.models.*.adapter")?.choices ?? []).map((choice) => ({
     value: choice.value,
     label: choice.label,
+    group: adapterRule(catalog, choice.value)?.apiMode,
   }));
   const valid = id !== "" && idError === null && !existing.includes(id) && target.kind === "ready" &&
     matchingProviders.some((item) => item.id === providerId) && providerModel.trim() !== "" &&
@@ -362,9 +365,9 @@ function blankModelValue(
     ],
   };
   const rule = adapterRule(catalog, adapter);
-  const firstProtocol = rule?.protocols[0]?.id;
-  if (firstProtocol !== undefined) {
-    value.adapter_options = { protocol: firstProtocol };
+  const firstVariant = rule?.variants[0]?.id;
+  if (firstVariant !== undefined) {
+    value.adapter_options = { variant: firstVariant };
   }
   return value;
 }
@@ -400,16 +403,15 @@ function ModelEditor({
     ? object.value.adapter_options
     : {};
   const configuredOptionCount = Object.keys(adapterOptions).filter(
-    (key) => key !== "protocol",
+    (key) => key !== "variant",
   ).length;
-  const providerAdapters = new Set(
-    providers.flatMap((provider) => stringListField(provider.value, "adapters")),
-  );
+  const providerAdapters = new Set((catalog?.adapterRules ?? []).filter((rule) => providersForAdapter(catalog, providers, rule.id).length > 0).map((rule) => rule.id));
   const adapterField = field("adapter");
   const adapterChoices: SelectOption[] = (adapterField.meta?.choices ?? []).map(
     (choice) => ({
       value: choice.value,
       label: choice.label,
+      group: adapterRule(catalog, choice.value)?.apiMode,
       disabled: !providerAdapters.has(choice.value),
     }),
   );
@@ -417,9 +419,7 @@ function ModelEditor({
 
   const onAdapterSelect = (next: string) => {
     if (next === adapter) return;
-    const matching = providers.filter((provider) =>
-      stringListField(provider.value, "adapters").includes(next),
-    );
+    const matching = providersForAdapter(catalog, providers, next);
     const first = matching[0];
     if (first === undefined) return; // the disabled option cannot be chosen
     if (configuredOptionCount > 0 || matching.length > 1) {
@@ -456,6 +456,18 @@ function ModelEditor({
             )}
           </div>
         </FieldRow>
+        <FieldRow title="API 模式">
+          <span className="font-mono text-xs">{adapterRule(catalog, adapter)?.apiMode}</span>
+          {adapterRule(catalog, adapter)?.runtimeAvailable === false && <Badge tone="yellow">尚未接入调用</Badge>}
+        </FieldRow>
+        {optionsForAdapter(catalog, adapter, stringField(adapterOptions, "variant")).some((option) => option.id === "reasoning_efforts") &&
+          <FieldRow title="思考强度" description="使用高级选项中的候选档位；留空使用远端默认值。" dirty={field("reasoning_effort").dirty}>
+            <SelectInput ariaLabel="Reasoning effort" value={stringField(object.value, "reasoning_effort")}
+              emptyLabel="远端默认" options={stringListField(adapterOptions, "reasoning_efforts").map((value) => ({value, label: value}))}
+              onChange={(value) => value === "" ? clearObjectField(ROOT, object, "reasoning_effort", writeSource) : setObjectField(ROOT, object, "reasoning_effort", value, writeSource)} />
+            {typeof object.value.reasoning_effort === "string" && !stringListField(adapterOptions, "reasoning_efforts").includes(object.value.reasoning_effort) &&
+              <span className="text-xs text-danger">当前档位不在候选列表中，请重新选择或清空。</span>}
+          </FieldRow>}
       </FieldSection>
 
       <ProviderChainSection
@@ -573,7 +585,7 @@ function ModelEditor({
   );
 }
 
-/** Stage the adapter switch: new adapter, a fresh one-binding chain, options reset. */
+/** Retain compatible bindings and options in the same adapter-switch draft. */
 function activateAdapter(
   object: ProjectedObject,
   adapter: string,
@@ -581,36 +593,42 @@ function activateAdapter(
   writeSource: string | null,
   catalog: SettingsCatalog | null,
 ): void {
-  const bindings = Array.isArray(object.value.providers) ? object.value.providers : [];
-  const existing = bindings.find(
-    (binding): binding is Record<string, JsonValue> =>
-      isPlainRecord(binding) && binding.provider === providerId,
+  const bindings = readBindings(object.value.providers);
+  const compatible = new Set(
+    providersForAdapter(
+      catalog,
+      projectCollection(useConfigDraftStore.getState(), "llm.providers"),
+      adapter,
+    ).map((item) => item.id),
   );
+  const retained = bindings.filter((binding) => compatible.has(binding.provider));
   const rule = adapterRule(catalog, adapter);
-  const firstProtocol = rule?.protocols[0]?.id;
+  const oldOptions = isPlainRecord(object.value.adapter_options)
+    ? object.value.adapter_options
+    : {};
+  const variant = rule?.variants.find((item) => item.id === oldOptions.variant)?.id
+    ?? rule?.variants[0]?.id;
+  const specs = optionsForAdapter(catalog, adapter, variant);
+  const options: Record<string, JsonValue> = {};
+  for (const spec of specs) {
+    const value = oldOptions[spec.id];
+    if (value !== undefined && (
+      spec.choices.length === 0 || typeof value === "string" && spec.choices.includes(value)
+    )) {
+      options[spec.id] = value;
+    }
+  }
+  if (variant) options.variant = variant;
   setObjectField(ROOT, object, "adapter", adapter, writeSource);
   setObjectField(
-    ROOT,
-    object,
-    "providers",
-    [
-      {
-        provider: providerId,
-        provider_model:
-          typeof existing?.provider_model === "string"
-            ? existing.provider_model
-            : "",
-      },
-    ],
+    ROOT, object, "providers",
+    retained.length > 0 ? retained : [{ provider: providerId, provider_model: "" }],
     writeSource,
   );
-  setObjectField(
-    ROOT,
-    object,
-    "adapter_options",
-    firstProtocol !== undefined ? { protocol: firstProtocol } : {},
-    writeSource,
-  );
+  setObjectField(ROOT, object, "adapter_options", options, writeSource);
+  if (!Array.isArray(options.reasoning_efforts) || !options.reasoning_efforts.includes(object.value.reasoning_effort)) {
+    clearObjectField(ROOT, object, "reasoning_effort", writeSource);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -649,9 +667,7 @@ function ProviderChainSection({
   const meta = matchField(state.catalog, `${ROOT}.*.providers`);
   const lock = fieldLockReason(state, `${ROOT}.${object.id}.providers`);
   const rows = readBindings(object.value.providers);
-  const available = providers.filter((provider) =>
-    stringListField(provider.value, "adapters").includes(adapter),
-  );
+  const available = providersForAdapter(state.catalog, providers, adapter);
   const knownIds = new Set(providers.map((provider) => provider.id));
 
   const commit = (next: ProviderBinding[]) =>
@@ -775,43 +791,40 @@ function AdapterOptionsSection({
   const adapterOptions = isPlainRecord(object.value.adapter_options)
     ? object.value.adapter_options
     : {};
-  const protocol =
-    typeof adapterOptions.protocol === "string" && adapterOptions.protocol !== ""
-      ? adapterOptions.protocol
-      : (rule?.protocols[0]?.id ?? "");
-  const branch = rule?.protocols.find((item) => item.id === protocol);
+  const variant =
+    typeof adapterOptions.variant === "string" && adapterOptions.variant !== ""
+      ? adapterOptions.variant
+      : (rule?.variants[0]?.id ?? "");
   const allowed = new Map<string, AdapterOptionRule>();
-  for (const option of rule?.commonOptions ?? []) allowed.set(option.id, option);
-  for (const option of branch?.options ?? []) allowed.set(option.id, option);
+  for (const option of optionsForAdapter(catalog, adapter, variant)) allowed.set(option.id, option);
 
-  const setKeys = Object.keys(adapterOptions).filter((key) => key !== "protocol");
+  const setKeys = Object.keys(adapterOptions).filter((key) => key !== "variant");
   const addable = [...allowed.keys()].filter(
     (key) => !Object.prototype.hasOwnProperty.call(adapterOptions, key),
   );
   const optionMeta = (key: string) =>
     matchField(catalog, `${ROOT}.*.adapter_options.${key}`);
 
-  const onProtocolChange = (next: string) => {
-    const nextBranch = rule?.protocols.find((item) => item.id === next);
-    // Keep protocol + common options + the target branch's options; drop
+  const onVariantChange = (next: string) => {
+    // Keep variant + common options + the target branch's options; drop
     // options that belong only to the old branch.
     const keep = new Set<string>([
-      "protocol",
-      ...(rule?.commonOptions ?? []).map((option) => option.id),
-      ...(nextBranch?.options ?? []).map((option) => option.id),
+      "variant",
+      ...optionsForAdapter(catalog, adapter, next).map((option) => option.id),
     ]);
     for (const key of Object.keys(adapterOptions)) {
       if (!keep.has(key)) {
         clearObjectField(ROOT, object, `adapter_options.${key}`, writeSource);
       }
     }
-    setObjectField(ROOT, object, "adapter_options.protocol", next, writeSource);
+    if (!keep.has("reasoning_efforts")) clearObjectField(ROOT, object, "reasoning_effort", writeSource);
+    setObjectField(ROOT, object, "adapter_options.variant", next, writeSource);
   };
 
   return (
     <FieldSection
       title={settingsText("Adapter Options")}
-      description={settingsText("Adapter-specific request behavior. Only options the selected adapter and protocol understand are offered; unset options keep the adapter default.")}
+      description={settingsText("Adapter-specific request behavior. Only options the selected adapter and variant understand are offered; unset options keep the adapter default.")}
     >
       {rule === null ? (
         <div className="px-5 py-3 text-[11px] text-fg-faint">
@@ -819,23 +832,23 @@ function AdapterOptionsSection({
         </div>
       ) : (
         <>
-          {rule.protocols.length > 0 && (
+          {rule.variants.length > 0 && (
             <FieldRow
-              title={optionMeta("protocol")?.title ?? "Adapter Protocol"}
-              description={optionMeta("protocol")?.description}
-              dirty={objectFieldDirty(ROOT, object.id, "adapter_options.protocol")}
+              title={optionMeta("variant")?.title ?? "Adapter Variant"}
+              description={optionMeta("variant")?.description}
+              dirty={objectFieldDirty(ROOT, object.id, "adapter_options.variant")}
             >
               <SelectInput
-                ariaLabel="Adapter protocol"
-                value={protocol}
-                options={rule.protocols.map((item) => ({
+                ariaLabel="Adapter variant"
+                value={variant}
+                options={rule.variants.map((item) => ({
                   value: item.id,
                   label:
-                    optionMeta("protocol")?.choices.find(
+                    optionMeta("variant")?.choices.find(
                       (choice) => choice.value === item.id,
                     )?.label ?? item.id,
                 }))}
-                onChange={onProtocolChange}
+                onChange={onVariantChange}
               />
             </FieldRow>
           )}
@@ -867,8 +880,9 @@ function AdapterOptionsSection({
                     object,
                     `adapter_options.${key}`,
                     defaultOptionValue(
-                      meta?.valueKind ?? option?.valueKind ?? "string",
-                      meta?.choices ?? [],
+                      option?.valueKind ?? meta?.valueKind ?? "string",
+                      (option?.choices ?? []).map((value) => ({value})),
+                      option?.minimum ?? undefined,
                     ),
                     writeSource,
                   );
@@ -917,8 +931,9 @@ function AdapterOptionRow({
       title={
         <span className="flex items-center gap-1.5">
           {meta?.title ?? optionKey}
+          {rule && <Badge tone="gray">{rule.source === "api-mode" ? "API" : rule.source === "variant" ? "变体" : "专属"}</Badge>}
           {unknown && (
-            <Badge tone="yellow" title="Not used by the current adapter/protocol">{settingsText("unused")}</Badge>
+            <Badge tone="yellow" title="Not used by the current adapter/variant">{settingsText("unused")}</Badge>
           )}
         </span>
       }
@@ -935,10 +950,11 @@ function AdapterOptionRow({
     >
       <AdapterOptionControl
         optionKey={optionKey}
+        minimum={rule?.minimum ?? undefined}
         value={value}
-        valueKind={meta?.valueKind ?? rule?.valueKind ?? "string"}
+        valueKind={rule?.valueKind ?? meta?.valueKind ?? "string"}
         choices={
-          meta?.choices ?? (rule?.choices ?? []).map((choice) => ({
+          (rule?.choices ?? []).map((choice) => ({
             value: choice,
             label: choice,
           }))
@@ -955,16 +971,21 @@ function AdapterOptionControl({
   optionKey,
   value,
   valueKind,
+  minimum,
   choices,
   onCommit,
 }: {
   optionKey: string;
   value: JsonValue | undefined;
   valueKind: string;
+  minimum?: number;
   choices: { value: string; label: string }[];
   onCommit: (value: JsonValue) => void;
 }) {
   switch (valueKind) {
+    case "string_list":
+      return <TextInput ariaLabel={optionKey} value={Array.isArray(value) ? value.join(", ") : ""}
+        placeholder="high, xhigh, max" onCommit={(text) => onCommit([...new Set(text.split(",").map((item) => item.trim()).filter(Boolean))])} />;
     case "boolean":
       return (
         <Toggle
@@ -978,6 +999,7 @@ function AdapterOptionControl({
         <NumberInput
           ariaLabel={optionKey}
           integer
+          min={minimum}
           value={typeof value === "number" ? value : 0}
           onCommit={onCommit}
         />
@@ -1021,13 +1043,16 @@ function AdapterOptionControl({
 function defaultOptionValue(
   valueKind: string,
   choices: { value: string }[],
+  minimum = 0,
 ): JsonValue {
   switch (valueKind) {
+    case "string_list":
+      return [];
     case "boolean":
       return false;
     case "integer":
     case "number":
-      return 0;
+      return minimum;
     case "object":
       return {};
     case "enum":
@@ -1053,11 +1078,12 @@ function RequestOverridesSection({
     ? object.value.request_overrides
     : {};
   const rows: {
-    key: "temperature" | "max_output_tokens";
+    key: "temperature" | "top_p" | "max_output_tokens";
     integer: boolean;
     fallback: number;
   }[] = [
     { key: "temperature", integer: false, fallback: 0.3 },
+    { key: "top_p", integer: false, fallback: 1 },
     { key: "max_output_tokens", integer: true, fallback: 32768 },
   ];
   return (
@@ -1132,9 +1158,7 @@ function AdapterChangeModal({
   onConfirm: (providerId: string) => void;
 }) {
   const [providerId, setProviderId] = useState(change.providerId);
-  const matching = providers.filter((provider) =>
-    stringListField(provider.value, "adapters").includes(change.adapter),
-  );
+  const matching = providersForAdapter(useConfigDraftStore.getState().catalog, providers, change.adapter);
   return (
     <Modal title="Change model adapter" onClose={onClose}>
       <div className="space-y-4">
@@ -1155,9 +1179,7 @@ function AdapterChangeModal({
           <div className="flex gap-2 rounded-md border border-warning/30 bg-warning-soft px-3 py-2.5 text-[11px] leading-4 text-warning">
             <AlertTriangle size={14} className="mt-0.5 shrink-0" />
             <div>
-              Switching clears {configuredOptionCount} adapter option
-              {configuredOptionCount === 1 ? "" : "s"} that the new adapter does not
-              understand, and replaces the provider chain with the provider below.
+              保留兼容的提供方绑定和选项，移除不适用的选项。没有可保留的绑定时，使用下方选择的提供方。
             </div>
           </div>
         )}
@@ -1185,7 +1207,7 @@ function AdapterChangeModal({
             onClick={() => onConfirm(providerId)}
           >
             <ArrowRightLeft size={13} />
-            {configuredOptionCount > 0 ? "Clear options and switch" : "Switch adapter"}
+            切换适配器
           </Button>
         </div>
       </div>

@@ -1,21 +1,26 @@
-"""Stable adapter identity types."""
+"""Stable API mode and adapter identity types."""
 
 from enum import StrEnum
 
 
-class AdapterKind(StrEnum):
-    """Provider/model behavior implementation independent of endpoint identity."""
+class ApiMode(StrEnum):
+    """Supported external model API contracts."""
 
-    OPENAI_COMPATIBLE_CHAT = "openai_compatible_chat"
-    OPENAI = "openai"
+    OPENAI_CHAT = "openai-chat"
+    OPENAI_RESPONSES = "openai-responses"
+    ANTHROPIC_MESSAGES = "anthropic-messages"
+    GOOGLE_GENERATE_CONTENT = "google-generate-content"
+
+
+class AdapterKind(StrEnum):
+    """Stable model adapter identity."""
+
+    OPENAI_CHAT = "openai-chat"
+    OPENAI_RESPONSES = "openai-responses"
+    GPT = "gpt"
     KIMI = "kimi"
     DEEPSEEK = "deepseek"
     GLM = "glm"
     MINIMAX = "minimax"
-
-
-class ProviderApiStyle(StrEnum):
-    """Wire protocol shape required by a provider adapter."""
-
-    OPENAI_CHAT = "openai_chat"
-    OPENAI_RESPONSES = "openai_responses"
+    ANTHROPIC_MESSAGES = "anthropic-messages"
+    GOOGLE_GENERATE_CONTENT = "google-generate-content"

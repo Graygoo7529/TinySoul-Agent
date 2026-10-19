@@ -1013,7 +1013,7 @@ def _message_chars(message: Message) -> int:
             total += len(message.reasoning.content or "")
             total += len(message.reasoning.summary or "")
             total += sum(
-                len(dumps_json(item)) for item in message.reasoning.encrypted_items
+                len(dumps_json(item)) for item in message.reasoning.native_parts
             )
     elif isinstance(message, ToolResultMessage):
         total += (

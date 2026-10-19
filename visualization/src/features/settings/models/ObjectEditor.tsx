@@ -193,6 +193,7 @@ export function ObjectEditorLayout({
 
 export function CreateObjectModal({
   title,
+  validateId = objectIdError,
   idTitle,
   idDescription,
   existing,
@@ -204,6 +205,7 @@ export function CreateObjectModal({
   children,
 }: {
   title: string;
+  validateId?: (id: string) => string | null;
   idTitle: string;
   idDescription: string;
   existing: string[];
@@ -219,7 +221,7 @@ export function CreateObjectModal({
     if (!open) setId("");
   }, [open]);
   if (!open) return null;
-  const validation = objectIdError(id);
+  const validation = validateId(id);
   const available = id !== "" && validation === null && !existing.includes(id);
   return (
     <Modal title={title} onClose={onClose}>
@@ -328,6 +330,7 @@ export function DeleteObjectModal({
 
 export function RenameObjectModal({
   title,
+  validateId = objectIdError,
   objectId,
   existing,
   references,
@@ -337,6 +340,7 @@ export function RenameObjectModal({
   onRename,
 }: {
   title: string;
+  validateId?: (id: string) => string | null;
   objectId: string;
   existing: string[];
   references: ObjectReference[];
@@ -356,7 +360,7 @@ export function RenameObjectModal({
     }
   }, [open, objectId]);
   if (!open) return null;
-  const validation = objectIdError(id);
+  const validation = validateId(id);
   const available =
     id !== objectId && validation === null && !existing.includes(id);
   return (

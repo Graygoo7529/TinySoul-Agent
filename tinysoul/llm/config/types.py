@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 from tinysoul.infra.config import ConfigError
 
 from ..errors import LLMContractError
-from ..protocol.adapter_types import AdapterKind
+from ..adapter.catalog import adapter_spec
+from ..protocol.adapter_types import AdapterKind, ApiMode
 from ..execution.model_chain import TaskSpecTable
 from ..execution.registry import ModelRegistry
 
@@ -52,67 +53,112 @@ class ProviderCredentialStatus:
 
 
 @dataclass(frozen=True)
+class ProviderEndpoint:
+    """One provider endpoint for one API mode."""
+
+    api_mode: ApiMode
+    base_url: str
+    headers: Mapping[str, str] = field(default_factory=dict)
+    header_refs: Mapping[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.api_mode, ApiMode)
+            or not isinstance(self.base_url, str)
+            or not self.base_url
+        ):
+            raise LLMContractError("ProviderEndpoint requires an API mode and base URL")
+        if any(
+            not isinstance(name, str)
+            or not name
+            or not isinstance(value, str)
+            or not value
+            for name, value in (*self.headers.items(), *self.header_refs.items())
+        ):
+            raise LLMContractError(
+                "Provider endpoint headers must be non-empty strings"
+            )
+        if set(self.headers) & set(self.header_refs):
+            raise LLMContractError(
+                "Provider endpoint header cannot be literal and referenced"
+            )
+
+    def resolved_headers(self, values: Mapping[str, str]) -> dict[str, str]:
+        result = dict(self.headers)
+        for header, env_name in self.header_refs.items():
+            if values.get(env_name):
+                result[header] = values[env_name]
+        return result
+
+
+@dataclass(frozen=True)
 class ProviderSpec:
-    """Configured provider API endpoint."""
+    """Configured provider credentials shared by API-mode endpoints."""
 
     id: str
-    adapters: tuple[AdapterKind, ...]
-    base_url: str
+    endpoints: tuple[ProviderEndpoint, ...]
     api_key_envs: tuple[str, ...]
     enabled: bool = True
+    headers: Mapping[str, str] = field(default_factory=dict)
+    header_refs: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, str) or not self.id:
             raise LLMContractError("ProviderSpec.id must be non-empty")
-        try:
-            adapters = tuple(self.adapters)
-        except TypeError as exc:
+        endpoints = tuple(self.endpoints)
+        if not endpoints or any(
+            not isinstance(item, ProviderEndpoint) for item in endpoints
+        ):
             raise LLMContractError(
-                "ProviderSpec.adapters must be an iterable of AdapterKind values"
-            ) from exc
-        if not adapters:
-            raise LLMContractError("ProviderSpec.adapters must be non-empty")
-        if any(not isinstance(adapter, AdapterKind) for adapter in adapters):
-            raise LLMContractError(
-                "ProviderSpec.adapters must contain AdapterKind values"
+                "ProviderSpec.endpoints must contain ProviderEndpoint values"
             )
-        if len(set(adapters)) != len(adapters):
-            raise LLMContractError("ProviderSpec.adapters must be unique")
-        object.__setattr__(self, "adapters", adapters)
+        if len({item.api_mode for item in endpoints}) != len(endpoints):
+            raise LLMContractError("ProviderSpec.endpoints must use unique API modes")
+        object.__setattr__(self, "endpoints", endpoints)
         if not isinstance(self.enabled, bool):
             raise LLMContractError("ProviderSpec.enabled must be a boolean")
-        if not isinstance(self.base_url, str) or not self.base_url:
-            raise LLMContractError("ProviderSpec.base_url must be non-empty")
-        try:
-            api_key_envs = tuple(self.api_key_envs)
-        except TypeError as exc:
+        if any(
+            not isinstance(name, str)
+            or not name
+            or not isinstance(value, str)
+            or not value
+            for name, value in (*self.headers.items(), *self.header_refs.items())
+        ):
+            raise LLMContractError("Provider headers must be non-empty strings")
+        if set(self.headers) & set(self.header_refs):
+            raise LLMContractError("Provider header cannot be literal and referenced")
+        api_key_envs = tuple(self.api_key_envs)
+        if not api_key_envs or any(
+            not isinstance(name, str) or not name for name in api_key_envs
+        ):
             raise LLMContractError(
-                "ProviderSpec.api_key_envs must be an iterable of strings"
-            ) from exc
-        if not api_key_envs:
-            raise LLMContractError("ProviderSpec.api_key_envs must be non-empty")
-        for name in api_key_envs:
-            if not isinstance(name, str) or not name:
-                raise LLMContractError(
-                    "ProviderSpec.api_key_envs must contain non-empty strings"
-                )
+                "ProviderSpec.api_key_envs must contain non-empty strings"
+            )
         object.__setattr__(self, "api_key_envs", api_key_envs)
 
-    def configured_api_key(self, values: Mapping[str, str]) -> str | None:
-        """Return the first configured key without retaining its source name."""
+    def endpoint(self, api_mode: ApiMode) -> ProviderEndpoint:
+        for endpoint in self.endpoints:
+            if endpoint.api_mode is api_mode:
+                return endpoint
+        raise ConfigError(
+            f"Provider '{self.id}' does not expose '{api_mode.value}'",
+            key=f"llm.providers.{self.id}.endpoints",
+            value=api_mode.value,
+        )
 
+    def supports_adapter(self, adapter: AdapterKind) -> bool:
+        return adapter_spec(adapter).api_mode in {
+            endpoint.api_mode for endpoint in self.endpoints
+        }
+
+    def configured_api_key(self, values: Mapping[str, str]) -> str | None:
         for name in self.api_key_envs:
             value = values.get(name)
             if isinstance(value, str) and value.strip():
                 return value.strip()
         return None
 
-    def credential_status(
-        self,
-        values: Mapping[str, str],
-    ) -> ProviderCredentialStatus:
-        """Project credential readiness without exposing credential values."""
-
+    def credential_status(self, values: Mapping[str, str]) -> ProviderCredentialStatus:
         return ProviderCredentialStatus(
             provider_id=self.id,
             state=(
@@ -129,11 +175,20 @@ class ProviderSpec:
             return value
         names = ", ".join(self.api_key_envs)
         raise ConfigError(
-            f"Provider '{self.id}' cannot be enabled until one of its credentials "
-            f"is configured: {names}",
+            f"Provider '{self.id}' cannot be enabled until one of its credentials is configured: {names}",
             key=f"llm.providers.{self.id}.api_key_envs",
             expected="at least one non-empty runtime environment variable",
         )
+
+    def resolved_headers(
+        self, api_mode: ApiMode, values: Mapping[str, str]
+    ) -> dict[str, str]:
+        result = dict(self.headers)
+        for header, env_name in self.header_refs.items():
+            if values.get(env_name):
+                result[header] = values[env_name]
+        result.update(self.endpoint(api_mode).resolved_headers(values))
+        return result
 
 
 @dataclass(frozen=True)

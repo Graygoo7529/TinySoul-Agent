@@ -157,7 +157,7 @@ def optional_request_overrides(
     overrides_table = as_table(value, key=f"{key}.request_overrides")
     reject_unknown_keys(
         overrides_table,
-        {"temperature", "max_output_tokens"},
+        {"temperature", "top_p", "max_output_tokens"},
         key=f"{key}.request_overrides",
     )
     try:
@@ -167,6 +167,9 @@ def optional_request_overrides(
                 "temperature",
                 default=None,
                 key=f"{key}.request_overrides",
+            ),
+            top_p=optional_float_or_none(
+                overrides_table, "top_p", default=None, key=f"{key}.request_overrides"
             ),
             max_output_tokens=optional_int_or_none(
                 overrides_table,

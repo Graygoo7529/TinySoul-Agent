@@ -19,8 +19,8 @@ from tinysoul.kernel.context import (
 )
 from tinysoul.kernel.context.prompts import PromptBlock, TaskPrompt
 from tinysoul.plugins.home import AgentHomeEngineBuilder, AgentHomeSettings
-from tinysoul.llm.protocol.adapter import adapter_spec
-from tinysoul.llm.protocol.adapter_types import AdapterKind, ProviderApiStyle
+from tinysoul.llm.adapter.catalog import adapter_spec
+from tinysoul.llm.protocol.adapter_types import AdapterKind, ApiMode
 from tinysoul.llm.protocol.routing import ModelChain, TaskSpec
 from tinysoul.llm.execution.model_chain import TaskSpecTable
 from tinysoul.llm.protocol.models import (
@@ -29,8 +29,8 @@ from tinysoul.llm.protocol.models import (
     ModelSpec,
 )
 from tinysoul.llm.execution.registry import ModelRegistry
-from tinysoul.llm.provider import ProviderError, ProviderErrorKind, ProviderRequest
-from tinysoul.llm.provider.registry import ProviderRegistry
+from tinysoul.llm.adapter import ProviderError, ProviderErrorKind, ProviderRequest
+from tinysoul.llm.adapter.registry import ProviderRegistry
 from tinysoul.llm.protocol.requests import (
     CallSettings,
     ModelContextOverflowPolicy,
@@ -67,15 +67,15 @@ from tinysoul.plugins.workspace import (
 @dataclass
 class _CapacityProvider:
     provider_id: str = "capacity"
-    adapter_kind: AdapterKind = AdapterKind.OPENAI_COMPATIBLE_CHAT
+    adapter_kind: AdapterKind = AdapterKind.OPENAI_CHAT
     requests: list[ProviderRequest] = field(default_factory=list)
 
     async def close(self) -> None:
         pass
 
     @property
-    def api_style(self) -> ProviderApiStyle:
-        return adapter_spec(self.adapter_kind).api_style
+    def api_mode(self) -> ApiMode:
+        return adapter_spec(self.adapter_kind).api_mode
 
     async def invoke(self, request: ProviderRequest) -> RawResponse:
         self.requests.append(request)

@@ -20,7 +20,9 @@ from tinysoul.llm.protocol.messages import (
     TextPart,
     ToolResultMessage,
 )
-from tinysoul.llm.protocol.reasoning import Reasoning
+from tinysoul.llm.errors import LLMContractError
+from tinysoul.llm.protocol.reasoning import NativeReplay, Reasoning
+from tinysoul.llm.protocol.adapter_types import AdapterKind, ApiMode
 from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind, ToolResultStatus
 from tinysoul.runtime import CyclePhase, RunScope, Signal
 
@@ -502,10 +504,17 @@ def _reasoning_to_json(reasoning: Reasoning | None) -> JsonObject | None:
         result["content"] = reasoning.content
     if reasoning.summary is not None:
         result["summary"] = reasoning.summary
-    if reasoning.encrypted_items:
-        result["encrypted_items"] = [
-            to_json_object(item) for item in reasoning.encrypted_items
-        ]
+    if reasoning.native_replay is not None:
+        replay = reasoning.native_replay
+        result["native_replay"] = {
+            "api_mode": replay.api_mode.value,
+            "adapter": replay.adapter.value,
+            "provider_id": replay.provider_id,
+            "provider_model": replay.provider_model,
+            "variant": replay.variant,
+            "message_fingerprint": replay.message_fingerprint,
+            "ordered_parts": [to_json_object(item) for item in replay.ordered_parts],
+        }
     if not result:
         return None
     return result
@@ -519,14 +528,27 @@ def _optional_reasoning(value: JsonObject) -> Reasoning | None:
         raise ContextContractError("Trace reasoning must be an object")
     content = _optional_nullable_str(raw, "content")
     summary = _optional_nullable_str(raw, "summary")
-    encrypted_items = _object_list(raw, "encrypted_items")
-    if content is None and summary is None and not encrypted_items:
+    replay_raw = raw.get("native_replay")
+    replay = None
+    if replay_raw is not None:
+        if not isinstance(replay_raw, dict):
+            raise ContextContractError("Trace native replay must be an object")
+        try:
+            replay = NativeReplay(
+                api_mode=ApiMode(_required_str(replay_raw, "api_mode")),
+                adapter=AdapterKind(_required_str(replay_raw, "adapter")),
+                provider_id=_required_str(replay_raw, "provider_id"),
+                provider_model=_required_str(replay_raw, "provider_model"),
+                variant=_optional_nullable_str(replay_raw, "variant"),
+                message_fingerprint=_optional_nullable_str(replay_raw, "message_fingerprint") or "",
+                ordered_parts=_object_list(replay_raw, "ordered_parts"),
+            )
+        except (ValueError, LLMContractError) as exc:
+            raise ContextContractError("Invalid native reasoning replay") from exc
+
+    if content is None and summary is None and replay is None:
         return None
-    return Reasoning(
-        content=content,
-        summary=summary,
-        encrypted_items=encrypted_items,
-    )
+    return Reasoning(content=content, summary=summary, native_replay=replay)
 
 
 def _required_str(value: JsonObject, name: str) -> str:

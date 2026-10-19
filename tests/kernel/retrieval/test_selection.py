@@ -480,7 +480,7 @@ async def test_real_llm_representative_retrieval_quality(tmp_path: Path):
     from tinysoul.llm.execution.registry import ModelRegistry
     from tinysoul.llm.execution.task import LLMTaskRunner
     from tinysoul.llm.protocol.routing import ModelChain, RetryPolicy, TaskSpec
-    from tinysoul.llm.provider.factory import build_provider_registry
+    from tinysoul.llm.adapter.factory import build_provider_registry
 
     root = tmp_path / "project"
     ProjectInitializer().initialize(root)
@@ -498,7 +498,7 @@ async def test_real_llm_representative_retrieval_quality(tmp_path: Path):
     binding = next(item for item in model.providers if item.provider_id == provider_id)
     provider = replace(config.provider(binding.provider_id), enabled=True)
     assert provider.configured_api_key(env), "The selected provider needs a credential"
-    providers = await build_provider_registry((provider,), env=env)
+    providers = await build_provider_registry((provider,), models=ModelRegistry([replace(model, providers=(binding,))]), env=env)
     runner = LLMTaskRunner(
         models=ModelRegistry([replace(model, providers=(binding,))]),
         providers=providers,

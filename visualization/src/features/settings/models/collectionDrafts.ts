@@ -344,6 +344,12 @@ export function objectIdError(id: string): string | null {
   return null;
 }
 
+/** LLM object identities follow the backend's stable lower-kebab-case rule. */
+export function llmObjectIdError(id: string): string | null {
+  return /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(id)
+    ? null : "Use lowercase letters and digits separated by hyphens, starting with a letter.";
+}
+
 export function cloneJsonValue<T extends JsonValue>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
