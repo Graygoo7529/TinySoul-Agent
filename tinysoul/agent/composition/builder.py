@@ -4,44 +4,45 @@ from __future__ import annotations
 
 import asyncio
 import copy
-from dataclasses import replace
-from types import MappingProxyType
-from tinysoul.infra.concurrency import JoinedOperations
-from tinysoul.runtime import RunLevel, RunScope
 from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import replace
 from pathlib import Path
+from types import MappingProxyType
 
-from tinysoul.kernel.action import ActionCatalogLoader
-from tinysoul.kernel.action.models import ModelUseRegistry
-from tinysoul.kernel.action.config import ActionSettings
-from tinysoul.kernel.action.catalog.catalog import ActionCatalog
-from tinysoul.kernel.retrieval.policy import (
-    retrieval_schema,
-    resolve_retrieval_policies,
+from tinysoul.agent.dispatch.scheduler import RootScheduler
+from tinysoul.agent.runtime_bridge import RuntimeAgentBridge
+from tinysoul.agent.user import UserTurnBuilder
+from tinysoul.environment.inputs import InputSource
+from tinysoul.environment.sources.fswatch import FileWatcher
+from tinysoul.environment.sources.scheduler import DeadlineTimer
+from tinysoul.infra import InfraSettings, parse_infra_settings
+from tinysoul.infra.clock import CalendarClock, IanaCalendarClock
+from tinysoul.infra.concurrency import (
+    AsyncResourceScope,
+    CleanupDiagnostic,
+    JoinedOperations,
 )
-from tinysoul.kernel.action.config import (
-    parse_action_settings,
-)
-from tinysoul.kernel.context import parse_context_settings
-from tinysoul.plugins.home import AgentHomeEngine
-from tinysoul.plugins.home.errors import AgentHomeError
-from tinysoul.plugins.memory import MemoryEngine
 from tinysoul.infra.config import (
-    ConfigController,
     ConfigCatalogError,
+    ConfigController,
     ConfigEnvironment,
     ConfigError,
-    load_config_catalog,
     PreparedConfigActivation,
+    load_config_catalog,
 )
-from tinysoul.infra import parse_infra_settings
-from tinysoul.infra.concurrency import AsyncResourceScope, CleanupDiagnostic
-from tinysoul.llm.config.loader import LLMConfigParser
-from tinysoul.llm.config.types import LLMConfig
-from tinysoul.llm.adapter.catalog import adapter_specs_json, api_modes_json
-from tinysoul.llm.adapter import ProviderError
-from tinysoul.llm.adapter.factory import build_provider_registry
-from tinysoul.llm.execution.task import LLMTaskRunner
+from tinysoul.infra.model_services import ModelServices
+from tinysoul.infra.references import ReferenceResolver
+from tinysoul.kernel.action import ActionCatalogLoader
+from tinysoul.kernel.action.catalog.catalog import ActionCatalog
+from tinysoul.kernel.action.config import (
+    ActionSettings,
+    parse_action_settings,
+)
+from tinysoul.kernel.action.models import ModelUseRegistry
+from tinysoul.kernel.action.runtime_bridge import RuntimeActionBridge
+from tinysoul.kernel.context import parse_context_settings
+from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
+from tinysoul.kernel.jobs import JobRegistry
 from tinysoul.kernel.loop.config import (
     LoopSettings,
     parse_loop_settings,
@@ -50,86 +51,85 @@ from tinysoul.kernel.loop.config import (
 from tinysoul.kernel.loop.lifecycle.completion import TurnCompletionHandler
 from tinysoul.kernel.loop.phases import LLMRunner
 from tinysoul.kernel.loop.prompts import DomainSkillProvider
-from tinysoul.agent.user import UserTurnBuilder
-from .actions import CorePlugin, ProfileAssembly
-from tinysoul.infra.clock import CalendarClock
+from tinysoul.kernel.loop.runtime_bridge import RuntimeLoopBridge
+from tinysoul.kernel.registration import (
+    AgentPlugin,
+    GenerationBuildContext,
+    PluginDefinitions,
+    PluginGeneration,
+    RegistrationError,
+    Service,
+    ServiceRegistry,
+)
+from tinysoul.kernel.retrieval.policy import (
+    resolve_retrieval_policies,
+    retrieval_schema,
+)
+from tinysoul.llm.adapter import ProviderError
+from tinysoul.llm.adapter.catalog import adapter_specs_json, api_modes_json
+from tinysoul.llm.adapter.factory import build_provider_registry
+from tinysoul.llm.config.loader import LLMConfigParser
+from tinysoul.llm.config.types import LLMConfig
+from tinysoul.llm.execution.task import LLMTaskRunner
+from tinysoul.llm.runtime_bridge import RuntimeLLMBridge
+from tinysoul.plugins.archive import DailyLifecycleCoordinator
+from tinysoul.plugins.capabilities.expand.plugin import ExpandPlugin
+from tinysoul.plugins.capabilities.resource.plugin import ResourcePlugin
+from tinysoul.plugins.capabilities.subagent.plugin import SubagentPlugin
+from tinysoul.plugins.capabilities.web.plugin import WebPlugin
+from tinysoul.plugins.execution.plugin import ExecutionPlugin
+from tinysoul.plugins.home import AgentHomeEngine
+from tinysoul.plugins.home.errors import AgentHomeError
+from tinysoul.plugins.home.plugin import HomePlugin
+from tinysoul.plugins.home.runtime_bridge import RuntimeAgentHomeBridge
+from tinysoul.plugins.home.services import HomeService
+from tinysoul.plugins.memory import MemoryEngine
+from tinysoul.plugins.memory.actions import MemoryWriteSession
+from tinysoul.plugins.memory.plugin import MemoryPlugin
 from tinysoul.plugins.reflection import (
     ReflectionBuilder,
+    ReflectionRequest,
     ReflectionRuntimeBridge,
     ReflectionSettings,
-    ReflectionRequest,
     parse_reflection_settings,
 )
-from tinysoul.runtime import (
-    ObservationEmitter,
-    ObservationEvent,
-    ObservationLevel,
-    RuntimeException,
-    RuntimeHandle,
-    RuntimeGenerationError,
-    SignalBus,
-)
-from tinysoul.kernel.action.runtime_bridge import RuntimeActionBridge
-from tinysoul.plugins.home.runtime_bridge import RuntimeAgentHomeBridge
-from tinysoul.agent.runtime_bridge import RuntimeAgentBridge
-from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
-from tinysoul.llm.runtime_bridge import RuntimeLLMBridge
-from tinysoul.kernel.loop.runtime_bridge import RuntimeLoopBridge
-from tinysoul.plugins.session import SessionEngine
-from tinysoul.plugins.workspace import WorkspaceEngine
-
-from ..config import AgentSettings, parse_agent_settings
-from ..errors import (
-    AgentError,
-    AgentInvariantError,
-    AgentClosedError,
-    AgentQueueFullError,
-)
-from ..dispatch.ingress import AgentIngress
-from ..dispatch.inputs import InputCommandParser, InputDispatcher
-from tinysoul.environment.inputs import InputSource
-from ..observation.outputs import ObservationRoute, ObservationRouter, OutputSink
-from tinysoul.agent.dispatch.scheduler import RootScheduler
-from .assembly import AgentAssembly, AgentRuntime
-from ..lifecycle.generation import AgentConfigPlan, AgentGeneration
-from ..lifecycle.day import AgentDayCoordinator
-from tinysoul.plugins.archive import DailyLifecycleCoordinator
-from tinysoul.infra.clock import IanaCalendarClock
-from ..lifecycle.runtime_policy import build_agent_trap
-from tinysoul.environment.sources.scheduler import DeadlineTimer
 from tinysoul.plugins.reflection.schedule import (
     ReflectionSchedulePlugin,
     ReflectionSubmission,
 )
-from tinysoul.kernel.registration import (
-    AgentPlugin,
-    GenerationBuildContext,
-    PluginGeneration,
-    RegistrationError,
-    PluginDefinitions,
-    Service,
-    ServiceRegistry,
-)
-from tinysoul.environment.sources.fswatch import FileWatcher
-from tinysoul.runtime.sources import RuntimeTimer, RuntimeWatcher
-from ..lifecycle.sources import GenerationSources
-
-from tinysoul.plugins.home.plugin import HomePlugin
-from tinysoul.plugins.home.services import HomeService
+from tinysoul.plugins.session import SessionEngine
 from tinysoul.plugins.session.plugin import SessionPlugin
-from tinysoul.plugins.memory.plugin import MemoryPlugin
-from tinysoul.plugins.memory.actions import MemoryWriteSession
+from tinysoul.plugins.workspace import WorkspaceEngine
 from tinysoul.plugins.workspace.plugin import WorkspacePlugin
-from tinysoul.plugins.execution.plugin import ExecutionPlugin
-from tinysoul.plugins.capabilities.expand.plugin import ExpandPlugin
-from tinysoul.plugins.capabilities.subagent.plugin import SubagentPlugin
-from tinysoul.plugins.capabilities.web.plugin import WebPlugin
-from tinysoul.plugins.capabilities.resource.plugin import ResourcePlugin
-from tinysoul.kernel.jobs import JobRegistry
-from tinysoul.infra import InfraSettings
-from tinysoul.infra.model_services import ModelServices
-from tinysoul.infra.references import ReferenceResolver
+from tinysoul.runtime import (
+    ObservationEmitter,
+    ObservationEvent,
+    ObservationLevel,
+    RunLevel,
+    RunScope,
+    RuntimeException,
+    RuntimeGenerationError,
+    RuntimeHandle,
+    SignalBus,
+)
+from tinysoul.runtime.sources import RuntimeTimer, RuntimeWatcher
 
+from ..config import AgentSettings, parse_agent_settings
+from ..dispatch.ingress import AgentIngress
+from ..dispatch.inputs import InputCommandParser, InputDispatcher
+from ..errors import (
+    AgentClosedError,
+    AgentError,
+    AgentInvariantError,
+    AgentQueueFullError,
+)
+from ..lifecycle.day import AgentDayCoordinator
+from ..lifecycle.generation import AgentConfigPlan, AgentGeneration
+from ..lifecycle.runtime_policy import build_agent_trap
+from ..lifecycle.sources import GenerationSources
+from ..observation.outputs import ObservationRoute, ObservationRouter, OutputSink
+from .actions import CorePlugin, ProfileAssembly
+from .assembly import AgentAssembly, AgentRuntime
 
 _HARNESS_CONFIGURATION_SECTIONS = (
     "config",
