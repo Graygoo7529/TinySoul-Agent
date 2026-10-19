@@ -8,11 +8,11 @@ from enum import StrEnum
 
 from tinysoul.infra.config import ConfigError
 
-from ..errors import LLMContractError
 from ..adapter.catalog import adapter_spec
-from ..protocol.adapter_types import AdapterKind, ApiMode
+from ..errors import LLMContractError
 from ..execution.model_chain import TaskSpecTable
 from ..execution.registry import ModelRegistry
+from ..protocol.adapter_types import AdapterKind, ApiMode
 
 
 class ProviderCredentialState(StrEnum):

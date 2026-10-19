@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .protocol.cache import PromptCache
-from .protocol.adapter_types import AdapterKind
 from .errors import LLMContractError, LLMError, LLMInvariantError, TaskCancelled
+from .execution.registry import ModelRegistry
+from .protocol.adapter_types import AdapterKind
+from .protocol.cache import PromptCache
 from .protocol.messages import (
     AssistantMessage,
     ImagePart,
@@ -27,7 +28,6 @@ from .protocol.models import (
     ModelSpec,
     RequestOverrides,
 )
-from .execution.registry import ModelRegistry
 from .protocol.reasoning import Reasoning, ReasoningKeep
 from .protocol.requests import (
     CallSettings,
@@ -100,6 +100,7 @@ __all__ = [
     "LLMInvariantError",
     "LLMTaskError",
     "LLMTaskRunner",
+    "ModelContextOverflowPolicy",
     "Message",
     "MessagePart",
     "MessageStack",
@@ -118,6 +119,7 @@ __all__ = [
     "TaskCall",
     "TaskCancellation",
     "TaskCallValidator",
+    "TaskCancelled",
     "TaskFailure",
     "TaskFailureReason",
     "TaskFailureScope",

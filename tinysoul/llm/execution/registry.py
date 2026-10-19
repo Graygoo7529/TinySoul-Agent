@@ -1,7 +1,8 @@
 """Runtime registry of explicitly configured model descriptions."""
 
 from __future__ import annotations
-from ..errors import LLMInvariantError, LLMContractError
+
+from ..errors import LLMContractError, LLMInvariantError
 from ..protocol.models import ModelSpec
 
 

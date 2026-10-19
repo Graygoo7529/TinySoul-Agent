@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-from math import isfinite
-
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
+from math import isfinite
 from uuid import uuid4
 
 from tinysoul.runtime import RunScope
 
-from ..protocol.cache import PromptCache
 from ..errors import LLMContractError, TaskCancelled
+from ..protocol.cache import PromptCache
 from .messages import MessageStack
 from .models import ModelCapability
 from .responses import AnswerFormat

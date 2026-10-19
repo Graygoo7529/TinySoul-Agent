@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 import re
+from collections.abc import Mapping
 
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
 from tinysoul.llm.protocol.routing import ModelChain, RetryPolicy, TaskSpec
 
+from ..adapter.catalog import adapter_spec
 from ..errors import LLMContractError
 from ..execution.model_chain import TaskSpecTable
 from ..execution.registry import ModelRegistry
-from ..adapter.catalog import adapter_spec
 from ..protocol.adapter_types import AdapterKind, ApiMode
 from ..protocol.models import ModelCapability, ModelProviderBinding, ModelSpec
 from ..protocol.requests import CallSettings

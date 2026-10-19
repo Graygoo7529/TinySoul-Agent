@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import asyncio
+from dataclasses import dataclass
 
-from tinysoul.prompts import llm as prompt_text
-from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.infra.concurrency import CleanupDiagnostic
+from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.llm.protocol.routing import ChainErrorDisposition, ModelChain, TaskSpec
+from tinysoul.llm.runtime_bridge import RuntimeLLMBridge
+from tinysoul.prompts import llm as prompt_text
 from tinysoul.runtime import (
     NullObservationEmitter,
     ObservationEmitter,
@@ -18,35 +20,7 @@ from tinysoul.runtime import (
     emit_observation,
     observation_enabled,
 )
-from tinysoul.llm.runtime_bridge import RuntimeLLMBridge
 
-from ..errors import (
-    LLMContractError,
-    LLMError,
-    LLMInvariantError,
-    LLMInvocationFailure,
-    TaskCancelled,
-)
-from ..failures import LLMFailureKind
-from .context_window import (
-    ModelContextPolicy,
-    ModelContextPressureError,
-    RequestTokenEstimator,
-)
-from ..protocol.messages import ImagePart, ImageUrlPart
-from tinysoul.llm.protocol.routing import ChainErrorDisposition, ModelChain, TaskSpec
-from .model_chain import (
-    Clock,
-    ModelChainExhaustedError,
-    ModelChainPlanner,
-    ModelChainRunner,
-    LLMRouteState,
-    Sleeper,
-    TaskSpecTable,
-)
-from ..protocol.models import ModelCapability, ModelProviderBinding, ModelSpec
-from .registry import ModelRegistry
-from .observation_payloads import task_request_observation, task_response_observation
 from ..adapter import (
     ProviderError,
     ProviderErrorKind,
@@ -55,6 +29,16 @@ from ..adapter import (
     ProviderRequest,
 )
 from ..adapter.base import ProviderAdapter
+from ..errors import (
+    LLMContractError,
+    LLMError,
+    LLMInvariantError,
+    LLMInvocationFailure,
+    TaskCancelled,
+)
+from ..failures import LLMFailureKind
+from ..protocol.messages import ImagePart, ImageUrlPart
+from ..protocol.models import ModelCapability, ModelProviderBinding, ModelSpec
 from ..protocol.requests import (
     CallSettings,
     ModelContextOverflowPolicy,
@@ -64,9 +48,9 @@ from ..protocol.requests import (
 from ..protocol.responses import (
     AnswerFormat,
     RawResponse,
+    ResponseInterpreter,
     ResponseInterpretError,
     ResponseStopReason,
-    ResponseInterpreter,
     TaskFailure,
     TaskFailureReason,
     TaskFailureScope,
@@ -74,6 +58,22 @@ from ..protocol.responses import (
     TaskResultStatus,
 )
 from ..protocol.tools import ToolUse
+from .context_window import (
+    ModelContextPolicy,
+    ModelContextPressureError,
+    RequestTokenEstimator,
+)
+from .model_chain import (
+    Clock,
+    LLMRouteState,
+    ModelChainExhaustedError,
+    ModelChainPlanner,
+    ModelChainRunner,
+    Sleeper,
+    TaskSpecTable,
+)
+from .observation_payloads import task_request_observation, task_response_observation
+from .registry import ModelRegistry
 
 
 class LLMTaskError(LLMContractError):

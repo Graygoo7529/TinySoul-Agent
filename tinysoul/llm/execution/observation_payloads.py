@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from hashlib import sha256
 
-from tinysoul.infra.json import JsonObject, JsonTypeError, JsonValue, dumps_json, to_json_object
+from tinysoul.infra.json import (
+    JsonObject,
+    JsonTypeError,
+    JsonValue,
+    dumps_json,
+    to_json_object,
+)
 
 from ..protocol.messages import (
     MessageStack,

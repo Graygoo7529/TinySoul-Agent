@@ -7,8 +7,8 @@ from enum import StrEnum
 
 from tinysoul.infra.json import JsonObject, JsonTypeError, to_json_object
 
-from .adapter_types import AdapterKind, ApiMode
 from ..errors import LLMContractError
+from .adapter_types import AdapterKind, ApiMode
 
 
 class ReasoningKeep(StrEnum):

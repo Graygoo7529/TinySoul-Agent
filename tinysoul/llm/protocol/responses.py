@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
-from enum import StrEnum
 import json
 from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
+from enum import StrEnum
 
-from tinysoul.prompts import llm as prompt_text
 from tinysoul.infra.json import JsonObject, JsonTypeError, to_json_object
+from tinysoul.prompts import llm as prompt_text
 
 from ..errors import LLMContractError
 from .reasoning import Reasoning

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from tinysoul.infra.json import JsonObject, to_json_object
+
 from .failures import LLMFailureKind
 
 

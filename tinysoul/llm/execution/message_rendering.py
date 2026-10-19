@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from tinysoul.infra.json import dumps_json
 
-from ..protocol.messages import ImagePart, ImageUrlPart, JsonPart, MessagePart, TextPart
+from ..protocol.messages import ImagePart, JsonPart, MessagePart, TextPart
 
 
 @dataclass(frozen=True)

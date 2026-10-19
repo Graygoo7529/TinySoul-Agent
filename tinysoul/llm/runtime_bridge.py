@@ -9,6 +9,7 @@ from tinysoul.infra.config.errors import config_error_payload
 from tinysoul.infra.json import JsonObject
 from tinysoul.runtime import RUNTIME_STARTUP_FAILED, RUNTIME_TURN_END, RuntimeException
 from tinysoul.runtime.failures import exception_payload, runtime_exception
+
 from .failures import LLM_CONTEXT_CAPACITY_EXCEEDED, LLMFailureKind
 
 LLM_RUNTIME_REASON_MAP: dict[LLMFailureKind, str] = {

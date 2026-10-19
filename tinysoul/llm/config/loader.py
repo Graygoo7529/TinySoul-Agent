@@ -6,15 +6,15 @@ from collections.abc import Mapping
 
 from tinysoul.infra.config import reject_unknown_keys
 
+from ..protocol.adapter_types import AdapterKind, ApiMode
 from .helpers import required_table
 from .sections import ModelConfigParser, ProviderConfigParser, TaskConfigParser
-from ..protocol.adapter_types import AdapterKind, ApiMode
 from .types import (
     LLMConfig,
     ProviderCredentialState,
     ProviderCredentialStatus,
-    ProviderSpec,
     ProviderEndpoint,
+    ProviderSpec,
 )
 
 
