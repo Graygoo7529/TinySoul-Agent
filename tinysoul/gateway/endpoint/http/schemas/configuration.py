@@ -1,4 +1,4 @@
-"""Configuration mutation request schemas."""
+"""Configuration mutation and capability lookup schemas."""
 
 from __future__ import annotations
 
@@ -46,6 +46,33 @@ class ConfigPatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     operations: list[ConfigMutationRequest] = Field(min_length=1)
+
+
+class ModelCapabilityLookupRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider_id: str = Field(min_length=1)
+    model_id: str = Field(min_length=1)
+
+
+class ModelCapabilityChoicesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    supported: bool
+    choices: list[str]
+
+
+class ModelCapabilityLookupResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider_id: str
+    model_id: str
+    display_name: str | None = None
+    lifecycle: str | None = None
+    max_input_tokens: int | None = None
+    max_tokens: int | None = None
+    thinking: ModelCapabilityChoicesResponse | None = None
+    reasoning_effort: ModelCapabilityChoicesResponse | None = None
 
 
 class ConfigApplyRequest(BaseModel):

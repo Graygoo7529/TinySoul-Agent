@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from .errors import LLMContractError, LLMError, LLMInvariantError, TaskCancelled
 from .execution.registry import ModelRegistry
 from .protocol.adapter_types import AdapterKind
-from .protocol.cache import PromptCache
+from .protocol.cache import PromptCache, PromptCacheBreakpoint
 from .protocol.messages import (
     AssistantMessage,
     ImagePart,
@@ -113,6 +113,7 @@ __all__ = [
     "NativeReplay",
     "NativeReplayMode",
     "PromptCache",
+    "PromptCacheBreakpoint",
     "RawResponse",
     "Reasoning",
     "RequestOverrides",

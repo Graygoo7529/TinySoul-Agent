@@ -39,6 +39,7 @@ class NativeReplay:
     ordered_items: tuple[JsonObject, ...]
     message_fingerprint: str
     variant: str | None = None
+    prefix_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         if self.mode is NativeReplayMode.NONE or not isinstance(
@@ -58,6 +59,10 @@ class NativeReplay:
             or not self.message_fingerprint
         ):
             raise LLMContractError("NativeReplay.message_fingerprint must be non-empty")
+        if self.prefix_fingerprint is not None and (
+            not isinstance(self.prefix_fingerprint, str) or not self.prefix_fingerprint
+        ):
+            raise LLMContractError("NativeReplay prefix fingerprint must be non-empty")
         try:
             parts = tuple(to_json_object(item) for item in self.ordered_items)
         except JsonTypeError as exc:

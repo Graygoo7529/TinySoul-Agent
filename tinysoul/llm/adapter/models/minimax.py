@@ -15,12 +15,6 @@ from ..base import (
 )
 from ..openai.chat import OpenAIChatAdapter
 from ..openai.clients import OpenAIChatCompletionsClient
-from ..openai.options import ChatOptions
-
-
-class MiniMaxOptions(ChatOptions, total=False):
-    thinking: str
-    reasoning_split: bool
 
 
 class MiniMaxAdapter(OpenAIChatAdapter):
@@ -43,7 +37,7 @@ class MiniMaxAdapter(OpenAIChatAdapter):
                     "MiniMax tool parameters root type must be object",
                     kind=ProviderErrorKind.CONFIG,
                 )
-            if tool.strict is not None:
+            if tool.strict:
                 raise ProviderError(
                     "MiniMax does not support strict tool calling",
                     kind=ProviderErrorKind.CONFIG,
@@ -57,14 +51,17 @@ class MiniMaxAdapter(OpenAIChatAdapter):
         request: ProviderRequest,
     ) -> None:
         super().apply_options(kwargs, options, request=request)
-        values = cast(MiniMaxOptions, options or {})
-        extra_body: dict[str, object] = dict(values.get("extra_body", {}))
-        if "thinking" in values:
-            extra_body["thinking"] = {"type": values["thinking"]}
-        if "reasoning_split" in values:
-            extra_body["reasoning_split"] = values["reasoning_split"]
-        if extra_body:
-            kwargs["extra_body"] = extra_body
+        extra_body: dict[str, object] = dict(
+            cast(Mapping[str, object], kwargs.get("extra_body", {}))
+        )
+        extra_body["reasoning_split"] = True
+        kwargs["extra_body"] = extra_body
+
+    def normalize_sampling(
+        self, kwargs: dict[str, object], request: ProviderRequest
+    ) -> None:
+        kwargs.pop("temperature", None)
+        kwargs.pop("top_p", None)
 
     def __init__(
         self,

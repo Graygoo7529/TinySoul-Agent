@@ -1,6 +1,7 @@
 import { ModelSelectionList } from "./ModelPicker";
 import { settingsText } from "../i18n";
 import { SettingsDisclosure } from "../SettingsDisclosure";
+import { useConnectionStore } from "../../../store/connectionStore";
 /**
  * LLM Models settings page (plan §16.2): the model collection with family
  * grouping, collapsed-by-default list hygiene, ordered provider chains and
@@ -13,7 +14,7 @@ import { SettingsDisclosure } from "../SettingsDisclosure";
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowRightLeft, Pencil, Trash2, X } from "lucide-react";
 
-import type { JsonValue } from "../../../api/v2/types";
+import type { JsonValue, ModelCapabilityLookup } from "../../../api/v2/types";
 import { Badge } from "../../../components/ui/Badge";
 import { Button, IconButton } from "../../../components/ui/Button";
 import { Modal } from "../../../components/ui/Modal";
@@ -25,6 +26,8 @@ import {
   providersForAdapter,
   optionsForAdapter,
   adapterOptionAvailable,
+  modelOptionChoices,
+  normalizeAdapterOptions,
   type AdapterOptionRule,
   type CatalogField,
   type SettingsCatalog,
@@ -461,12 +464,12 @@ function ModelEditor({
           <span className="font-mono text-xs">{adapterRule(catalog, adapter)?.apiMode}</span>
           {adapterRule(catalog, adapter)?.runtimeAvailable === false && <Badge tone="yellow">尚未接入调用</Badge>}
         </FieldRow>
-        {optionsForAdapter(catalog, adapter, stringField(adapterOptions, "variant")).some((option) => option.id === "reasoning_efforts") &&
+        {optionsForAdapter(catalog, adapter, stringField(adapterOptions, "variant")).some((option) => option.id === "reasoning_effort") &&
           <FieldRow title="思考强度" description="使用高级选项中的候选档位；留空使用远端默认值。" dirty={field("reasoning_effort").dirty}>
             <SelectInput ariaLabel="Reasoning effort" value={stringField(object.value, "reasoning_effort")}
-              emptyLabel="远端默认" options={stringListField(adapterOptions, "reasoning_efforts").map((value) => ({value, label: value}))}
-              onChange={(value) => value === "" ? clearObjectField(ROOT, object, "reasoning_effort", writeSource) : setObjectField(ROOT, object, "reasoning_effort", value, writeSource)} />
-            {typeof object.value.reasoning_effort === "string" && !stringListField(adapterOptions, "reasoning_efforts").includes(object.value.reasoning_effort) &&
+              emptyLabel="远端默认" options={modelOptionChoices("reasoning_effort", adapterOptions, [], object.value.reasoning_effort).map((value) => ({value, label: value}))}
+              onChange={(value) => commitAdapterOption(object, writeSource, "reasoning_effort", value || undefined)} />
+            {typeof object.value.reasoning_effort === "string" && !modelOptionChoices("reasoning_effort", adapterOptions, [], object.value.reasoning_effort).includes(object.value.reasoning_effort) &&
               <span className="text-xs text-danger">当前档位不在候选列表中，请重新选择或清空。</span>}
           </FieldRow>}
       </FieldSection>
@@ -529,6 +532,7 @@ function ModelEditor({
         object={object}
         writeSource={writeSource}
         adapter={adapter}
+        bindings={readBindings(object.value.providers)}
       />
       <SettingsDisclosure title="列表显示" className="m-3" paths={[`${ROOT}.${object.id}.family`, `${ROOT}.${object.id}.collapsed`]}>
         <FieldRow
@@ -619,15 +623,19 @@ function activateAdapter(
       options[spec.id] = value;
     }
   }
+  if (isPlainRecord(oldOptions.choices)) options.choices = Object.fromEntries(
+    Object.entries(oldOptions.choices).filter(([key]) => specs.some((spec) => spec.id === key)),
+  );
   if (variant) options.variant = variant;
+  const normalized = normalizeAdapterOptions(specs, options, object.value.reasoning_effort);
   setObjectField(ROOT, object, "adapter", adapter, writeSource);
   setObjectField(
     ROOT, object, "providers",
     retained.length > 0 ? retained : [{ provider: providerId, provider_model: "" }],
     writeSource,
   );
-  setObjectField(ROOT, object, "adapter_options", options, writeSource);
-  if (!Array.isArray(options.reasoning_efforts) || !options.reasoning_efforts.includes(object.value.reasoning_effort)) {
+  setObjectField(ROOT, object, "adapter_options", normalized.options, writeSource);
+  if (object.value.reasoning_effort !== undefined && normalized.effort === undefined) {
     clearObjectField(ROOT, object, "reasoning_effort", writeSource);
   }
 }
@@ -781,12 +789,25 @@ function AdapterOptionsSection({
   object,
   writeSource,
   adapter,
+  bindings,
 }: {
   object: ProjectedObject;
   writeSource: string | null;
   adapter: string;
+  bindings: ProviderBinding[];
 }) {
   const state = useConfigDraftStore();
+  const clients = useConnectionStore((connection) => connection.clients);
+  const [capabilityLoading, setCapabilityLoading] = useState(false);
+  const [capabilityError, setCapabilityError] = useState<string | null>(null);
+  const [capabilitySuggestion, setCapabilitySuggestion] = useState<ModelCapabilityLookup | null>(null);
+  const [capabilityBinding, setCapabilityBinding] = useState(0);
+  const bindingIdentity = JSON.stringify(bindings);
+  useEffect(() => {
+    setCapabilitySuggestion(null);
+    setCapabilityError(null);
+    setCapabilityBinding(0);
+  }, [object.id, bindingIdentity]);
   const catalog = state.catalog;
   const rule = adapterRule(catalog, adapter);
   const adapterOptions = isPlainRecord(object.value.adapter_options)
@@ -799,27 +820,16 @@ function AdapterOptionsSection({
   const allowed = new Map<string, AdapterOptionRule>();
   for (const option of optionsForAdapter(catalog, adapter, variant)) allowed.set(option.id, option);
 
-  const setKeys = Object.keys(adapterOptions).filter((key) => key !== "variant");
+  const setKeys = Object.keys(adapterOptions).filter((key) => key !== "variant" && key !== "choices" && key !== "choice_rules");
   const addable = [...allowed.keys()].filter(
-    (key) => !Object.prototype.hasOwnProperty.call(adapterOptions, key) && adapterOptionAvailable(allowed.get(key)!, adapterOptions),
+    (key) => key !== "reasoning_effort" && !allowed.get(key)?.fixed && !Object.prototype.hasOwnProperty.call(adapterOptions, key) && adapterOptionAvailable(allowed.get(key)!, adapterOptions) &&
+      (allowed.get(key)?.valueKind !== "enum" || modelOptionChoices(key, adapterOptions, allowed.get(key)!.choices, object.value.reasoning_effort).length > 0),
   );
   const optionMeta = (key: string) =>
     matchField(catalog, `${ROOT}.*.adapter_options.${key}`);
 
   const onVariantChange = (next: string) => {
-    // Keep variant + common options + the target branch's options; drop
-    // options that belong only to the old branch.
-    const keep = new Set<string>([
-      "variant",
-      ...optionsForAdapter(catalog, adapter, next).map((option) => option.id),
-    ]);
-    for (const key of Object.keys(adapterOptions)) {
-      if (!keep.has(key)) {
-        clearObjectField(ROOT, object, `adapter_options.${key}`, writeSource);
-      }
-    }
-    if (!keep.has("reasoning_efforts")) clearObjectField(ROOT, object, "reasoning_effort", writeSource);
-    setObjectField(ROOT, object, "adapter_options.variant", next, writeSource);
+    commitAdapterOption(object, writeSource, "variant", next);
   };
 
   return (
@@ -833,6 +843,37 @@ function AdapterOptionsSection({
         </div>
       ) : (
         <>
+          {rule.apiMode === "anthropic-messages" && bindings[capabilityBinding]?.provider && bindings[capabilityBinding]?.provider_model && (
+            <div className="m-3 border-b border-border px-2 pb-3">
+              {bindings.length > 1 && <SelectInput ariaLabel="Capability binding" value={String(capabilityBinding)}
+                options={bindings.map((binding, index) => ({ value: String(index), label: `${binding.provider} / ${binding.provider_model}` }))}
+                disabled={capabilityLoading}
+                onChange={(value) => { setCapabilityBinding(Number(value)); setCapabilitySuggestion(null); }} />}
+              <Button size="sm" variant="secondary" disabled={!clients || capabilityLoading} loading={capabilityLoading} onClick={() => {
+                if (!clients) return;
+                setCapabilityLoading(true);
+                setCapabilityError(null);
+                setCapabilitySuggestion(null);
+                void clients.config.anthropicModelCapabilities(bindings[capabilityBinding]!.provider, bindings[capabilityBinding]!.provider_model)
+                  .then(setCapabilitySuggestion, () => setCapabilityError("读取失败；请检查 provider、凭据及远端 Models API。"))
+                  .finally(() => setCapabilityLoading(false));
+              }}>读取 Anthropic 模型能力</Button>
+              {capabilityError && <p className="mt-2 text-xs text-danger">{capabilityError}</p>}
+              {capabilitySuggestion !== null && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                <span>{anthropicSuggestionLabel(capabilitySuggestion)}</span>
+                <Button size="sm" variant="ghost" onClick={() => {
+                  const choices = { ...(isPlainRecord(adapterOptions.choices) ? adapterOptions.choices : {}) };
+                  for (const key of ["thinking", "reasoning_effort"] as const) {
+                    const capability = capabilitySuggestion[key];
+                    if (capability !== null) {
+                      choices[key] = capability.choices;
+                    }
+                  }
+                  commitAdapterOption(object, writeSource, "choices", choices);
+                }}>采纳候选建议</Button>
+              </div>}
+            </div>
+          )}
           {rule.variants.length > 0 && (
             <FieldRow
               title={optionMeta("variant")?.title ?? "Adapter Variant"}
@@ -853,8 +894,17 @@ function AdapterOptionsSection({
               />
             </FieldRow>
           )}
+          {setKeys.filter((key) => ["thinking", "native_replay", "prompt_cache_mode"].includes(key)).map((key) => (
+            <AdapterOptionRow key={key} object={object} writeSource={writeSource} optionKey={key}
+              rule={allowed.get(key) ?? null} meta={optionMeta(key)} unknown={!allowed.has(key)} />
+          ))}
           <SettingsDisclosure title="适配器扩展选项" className="m-3" paths={[`${ROOT}.${object.id}.adapter_options`]}>
-          {setKeys.map((key) => (
+          {[...allowed.values()].filter((option) => option.fixed && adapterOptions[option.id] === undefined).map((option) => (
+            <FieldRow key={option.id} title={optionMeta(option.id)?.title ?? option.id} description="适配器固定行为">
+              <span className="text-xs">{String(option.default)}</span>
+            </FieldRow>
+          ))}
+          {setKeys.filter((key) => !["thinking", "native_replay", "prompt_cache_mode"].includes(key)).map((key) => (
             <AdapterOptionRow
               key={key}
               object={object}
@@ -865,6 +915,26 @@ function AdapterOptionsSection({
               unknown={!allowed.has(key)}
             />
           ))}
+          <SettingsDisclosure title="模型可用候选" className="m-3" paths={[`${ROOT}.${object.id}.adapter_options.choices`]}>
+            {[...allowed.values()].filter((option) => !option.fixed && (option.valueKind === "enum" || option.id === "reasoning_effort")).map((option) => {
+              const candidates = isPlainRecord(adapterOptions.choices) ? adapterOptions.choices : {};
+              const values = candidates[option.id];
+              return <FieldRow key={option.id} title={option.id} description="逗号分隔；空数组表示不支持；清除声明后使用 API 或适配器的候选。" actions={
+                <IconButton label={`Clear choices.${option.id}`} onClick={() => {
+                  const next = {...candidates}; delete next[option.id];
+                  commitAdapterOption(object, writeSource, "choices", next);
+                }}><X size={13} /></IconButton>
+              }><TextInput ariaLabel={`choices.${option.id}`} value={Array.isArray(values) ? values.join(", ") : ""}
+                placeholder={option.choices.join(", ") || "high, xhigh, max"}
+                onCommit={(text) => commitAdapterOption(object, writeSource, "choices", {
+                  ...candidates, [option.id]: [...new Set(text.split(",").map((item) => item.trim()).filter(Boolean))],
+                })} /></FieldRow>;
+            })}
+            <FieldRow title="条件候选规则" description="when 指定等值条件；choices 收窄条件成立时的可用候选。">
+              <JsonObjectInput ariaLabel="Choice rules" value={{rules: adapterOptions.choice_rules ?? []}}
+                onCommit={(value) => commitAdapterOption(object, writeSource, "choice_rules", value.rules ?? [])} />
+            </FieldRow>
+          </SettingsDisclosure>
           {addable.length > 0 && (
             <div className="flex items-center justify-between gap-2 px-5 py-2.5">
               <span className="text-[11px] text-fg-faint">添加适配器选项</span>
@@ -882,7 +952,7 @@ function AdapterOptionsSection({
                     key,
                     defaultOptionValue(
                       option?.valueKind ?? meta?.valueKind ?? "string",
-                      (option?.choices ?? []).map((value) => ({value})),
+                      modelOptionChoices(key, adapterOptions, option?.choices ?? [], object.value.reasoning_effort).map((value) => ({value})),
                       option?.minimum ?? undefined,
                     ),
                   );
@@ -905,23 +975,33 @@ function AdapterOptionsSection({
   );
 }
 
+function anthropicSuggestionLabel(value: ModelCapabilityLookup): string {
+  const thinking = value.thinking !== null
+    ? value.thinking.choices.join(", ")
+    : "未提供 thinking 能力";
+  const effort = value.reasoning_effort !== null
+    ? value.reasoning_effort.choices.join(", ")
+    : "未提供 effort 能力";
+  return `建议值：thinking ${thinking}；effort ${effort}`;
+}
+
 function commitAdapterOption(object: ProjectedObject, source: string | null, key: string, value: JsonValue | undefined) {
   const options = { ...(isPlainRecord(object.value.adapter_options) ? object.value.adapter_options : {}) };
-  if (value === undefined) {
-    delete options[key];
-    clearObjectField(ROOT, object, `adapter_options.${key}`, source);
-  } else {
-    options[key] = value;
-    setObjectField(ROOT, object, `adapter_options.${key}`, value, source);
+  let effort = key === "reasoning_effort" ? value : object.value.reasoning_effort;
+  if (key !== "reasoning_effort") {
+    if (value === undefined) delete options[key]; else options[key] = value;
   }
-  const rules = optionsForAdapter(useConfigDraftStore.getState().catalog, String(object.value.adapter), typeof options.variant === "string" ? options.variant : undefined);
-  for (const rule of rules) {
-    if (options[rule.id] !== undefined && !adapterOptionAvailable(rule, options)) {
-      delete options[rule.id];
-      clearObjectField(ROOT, object, `adapter_options.${rule.id}`, source);
-    }
+  const catalog = useConfigDraftStore.getState().catalog;
+  if (adapterRule(catalog, String(object.value.adapter))?.apiMode === "google-generate-content" && value !== undefined) {
+    if (key === "thinking_budget_tokens") effort = undefined;
+    if (key === "reasoning_effort") delete options.thinking_budget_tokens;
   }
-  if (options.reasoning_efforts === undefined) {
+  const rules = optionsForAdapter(catalog, String(object.value.adapter), typeof options.variant === "string" ? options.variant : undefined);
+  const normalized = normalizeAdapterOptions(rules, options, effort);
+  setObjectField(ROOT, object, "adapter_options", normalized.options, source);
+  if (normalized.effort !== undefined) {
+    setObjectField(ROOT, object, "reasoning_effort", normalized.effort, source);
+  } else if (object.value.reasoning_effort !== undefined) {
     clearObjectField(ROOT, object, "reasoning_effort", source);
   }
 }
@@ -969,13 +1049,13 @@ function AdapterOptionRow({
         </IconButton>
       }
     >
-      <AdapterOptionControl
+      {rule?.fixed ? <span className="text-xs">{String(rule.default)} · 适配器固定行为</span> : <AdapterOptionControl
         optionKey={optionKey}
         minimum={rule?.minimum ?? undefined}
         value={value}
         valueKind={rule?.valueKind ?? meta?.valueKind ?? "string"}
         choices={
-          (rule?.choices ?? []).map((choice) => ({
+          modelOptionChoices(optionKey, adapterOptions, rule?.choices ?? [], object.value.reasoning_effort).map((choice) => ({
             value: choice,
             label: choice,
           }))
@@ -983,7 +1063,7 @@ function AdapterOptionRow({
         onCommit={(next) =>
           commitAdapterOption(object, writeSource, optionKey, next)
         }
-      />
+      />}
     </FieldRow>
   );
 }

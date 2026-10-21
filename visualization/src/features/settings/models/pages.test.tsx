@@ -13,6 +13,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Configuration, JsonValue } from "../../../api/v2/types";
 import type { ConfigCatalog } from "../../../api/v2/types";
+import { createV2Clients } from "../../../api/v2/clients";
+import { parseEndpointAddress } from "../../../api/v2/connection";
+import { V2Transport } from "../../../api/v2/transport";
+import { useConnectionStore } from "../../../store/connectionStore";
 import { draftOperations, useConfigDraftStore } from "../draft/store";
 import { pageForDraft } from "../pages";
 import { LlmModelsPage } from "./LlmModelsPage";
@@ -114,7 +118,7 @@ function makeCatalog(): ConfigCatalog {
       api_modes: ["openai-chat", "openai-responses"].map((id) => ({ id, runtime_available: true })),
       adapters: ["kimi", "openai-chat"].map((id) => ({
         id, api_mode: "openai-chat", runtime_available: true,
-        common_options: [{ id: "reasoning_efforts", value_kind: "string_list", choices: [], source: "api-mode" }], variants: [],
+        common_options: [{ id: "reasoning_effort", value_kind: "string", choices: [], source: "api-mode" }], variants: [],
       })),
     } },
   } as unknown as ConfigCatalog;
@@ -223,6 +227,52 @@ afterEach(async () => {
     root.unmount();
   });
   container.remove();
+  useConnectionStore.setState({ clients: null });
+});
+
+async function renderSelected(id: string): Promise<void> {
+  await act(async () => root.render(<LlmModelsPage />));
+  await flush();
+  const item = [...container.querySelectorAll<HTMLButtonElement>("aside button")].find((button) =>
+    button.textContent?.includes(id),
+  );
+  expect(item, `list item ${id}`).toBeDefined();
+  await act(async () => item!.click());
+  await flush();
+}
+
+it("only applies retrieved Anthropic candidates after explicit adoption", async () => {
+  const catalog = makeCatalog();
+  const llm = (catalog.rules as Record<string, JsonValue>).llm as Record<string, JsonValue>;
+  (llm.adapters as JsonValue[]).push({ id: "anthropic-messages", api_mode: "anthropic-messages", runtime_available: true, variants: [], common_options: [
+    { id: "thinking", value_kind: "enum", choices: ["adaptive", "enabled", "disabled", "between_tools"] },
+    { id: "reasoning_effort", value_kind: "string", choices: [] },
+  ] });
+  store().applySnapshots({ saved: makeSaved(), active: makeSaved(), catalogRaw: catalog, presets: [] });
+  store().setValue(MODELS_KIMI_SOURCE, "llm.models.kimi-k2.adapter", "anthropic-messages");
+  store().setValue(MODELS_KIMI_SOURCE, "llm.models.kimi-k2.adapter_options", { choices: { reasoning_effort: ["max"] } });
+  store().setValue(MODELS_KIMI_SOURCE, "llm.models.kimi-k2.reasoning_effort", "max");
+  const address = parseEndpointAddress("http://127.0.0.1:1430");
+  if (address === null) throw new Error("Invalid fixture address");
+  const fetchImpl = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({
+    provider_id: "kimi", model_id: "kimi-k2", display_name: null, lifecycle: null,
+    max_input_tokens: null, max_tokens: null,
+    thinking: { supported: true, choices: ["adaptive"] },
+    reasoning_effort: { supported: true, choices: ["high"] },
+  }), { status: 200, headers: { "content-type": "application/json" } }));
+  useConnectionStore.setState({ clients: createV2Clients(new V2Transport({
+    connection: { address, token: "test" }, fetchImpl,
+  })) });
+  await renderSelected("kimi-k2");
+  expect(fetchImpl).not.toHaveBeenCalled();
+  const before = draftOperations(store());
+  await act(async () => buttonByText("读取 Anthropic 模型能力").click());
+  expect(fetchImpl).toHaveBeenCalledOnce();
+  expect(draftOperations(store())).toEqual(before);
+  await act(async () => buttonByText("采纳候选建议").click());
+  const model = projectCollection(store(), "llm.models").find((item) => item.id === "kimi-k2")!;
+  expect(model.value.reasoning_effort).toBeUndefined();
+  expect(model.value.adapter_options).toEqual({ choices: { thinking: ["adaptive"], reasoning_effort: ["high"] } });
 });
 
 // ---------------------------------------------------------------------------
@@ -326,17 +376,18 @@ describe("LlmProvidersPage", () => {
 describe("LlmModelsPage", () => {
   it("edits effort candidates independently and requires an explicit selection after removal", async () => {
     store().setValue(MODELS_KIMI_SOURCE, "llm.models.kimi-k2.adapter", "openai-chat");
-    store().setValue(MODELS_KIMI_SOURCE, "llm.models.kimi-k2.adapter_options", { reasoning_efforts: ["high"] });
+    store().setValue(MODELS_KIMI_SOURCE, "llm.models.kimi-k2.adapter_options", { choices: { reasoning_effort: ["high"] } });
     store().setValue(MODELS_KIMI_SOURCE, "llm.models.kimi-k2.reasoning_effort", "high");
     await renderSelected("kimi-k2");
-    const candidates = container.querySelector<HTMLInputElement>('input[aria-label="reasoning_efforts"]')!;
+    const candidates = container.querySelector<HTMLInputElement>('input[aria-label="choices.reasoning_effort"]')!;
     await act(async () => setInputValue(candidates, "xhigh, max, xhigh"));
     await act(async () => candidates.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
-    expect(container.textContent).toContain("当前档位不在候选列表中");
+    expect(container.textContent).not.toContain("invalid selected effort");
+    expect(projectCollection(store(), "llm.models").find((item) => item.id === "kimi-k2")!.value.reasoning_effort).toBeUndefined();
     const choice = container.querySelector<HTMLSelectElement>('select[aria-label="Reasoning effort"]')!;
     await act(async () => { choice.value = "max"; choice.dispatchEvent(new Event("change", { bubbles: true })); });
     const model = projectCollection(store(), "llm.models").find((item) => item.id === "kimi-k2")!;
-    expect(model.value.adapter_options).toEqual({ reasoning_efforts: ["xhigh", "max"] });
+    expect(model.value.adapter_options).toEqual({ choices: { reasoning_effort: ["xhigh", "max"] } });
     expect(model.value.reasoning_effort).toBe("max");
     expect(container.textContent).not.toContain("当前档位不在候选列表中");
   });
@@ -462,21 +513,6 @@ describe("LlmModelsPage", () => {
     await confirm("取消");
     expect(draftOperations(store()).every((op) => op.op === "set" && op.path.startsWith("llm.providers."))).toBe(true);
   });
-
-  async function renderSelected(id: string): Promise<void> {
-    await act(async () => {
-      root.render(<LlmModelsPage />);
-    });
-    await flush();
-    const item = [...container.querySelectorAll("aside button")].find((button) =>
-      button.textContent?.includes(id),
-    );
-    expect(item, `list item ${id}`).toBeDefined();
-    await act(async () => {
-      (item as HTMLButtonElement).click();
-    });
-    await flush();
-  }
 
   it("the provider chain picker includes providers created in the same draft", async () => {
     store().setValue(PROVIDERS, "llm.providers.drafty", {

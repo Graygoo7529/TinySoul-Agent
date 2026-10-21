@@ -62,32 +62,22 @@ class GoogleGenerateContentAdapter:
         if options.get("sampling") != "omit":
             config.temperature = request.temperature
             config.top_p = request.top_p
-        thinking: dict[str, object] = {}
-        if request.model.reasoning_effort is not None:
-            thinking["thinking_level"] = request.model.reasoning_effort
-        for option, field in (
-            ("thinking_budget_tokens", "thinking_budget"),
-            ("include_thoughts", "include_thoughts"),
-        ):
-            if option in options:
-                thinking[field] = options[option]
-        if thinking:
-            # google-genai 2.31 passes this nested config through its generated
-            # transformer unchanged; use wire aliases at this SDK boundary.
-            wire_thinking: dict[str, object] = {}
-            if "thinking_level" in thinking:
-                wire_thinking["thinkingLevel"] = str(thinking["thinking_level"]).upper()
-            if "thinking_budget" in thinking:
-                wire_thinking["thinkingBudget"] = thinking["thinking_budget"]
-            if "include_thoughts" in thinking:
-                wire_thinking["includeThoughts"] = thinking["include_thoughts"]
-            # The SDK's nested transformer currently leaves a raw mapping's
-            # wire aliases intact, while a pydantic ThinkingConfig is emitted
-            # with snake_case keys. Keep the concrete SDK field type at this
-            # boundary and let the SDK serializer preserve Google's aliases.
-            config.thinking_config = cast(types.ThinkingConfig, wire_thinking)
-        if request.answer_format is AnswerFormat.JSON_OBJECT and request.model.supports(
-            ModelCapability.JSON_OBJECT_OUTPUT
+        thinking = types.ThinkingConfig(
+            thinking_level=request.model.reasoning_effort.upper()
+            if request.model.reasoning_effort
+            else None,
+            thinking_budget=cast(int | None, options.get("thinking_budget_tokens")),
+            include_thoughts=cast(bool | None, options.get("include_thoughts")),
+        )
+        if thinking.model_dump(exclude_none=True):
+            config.thinking_config = _wire_thinking(thinking)
+        if (
+            request.answer_format is AnswerFormat.JSON_OBJECT
+            and request.model.supports(ModelCapability.JSON_OBJECT_OUTPUT)
+            and not (
+                request.tool_scope.visible_tools()
+                and options.get("json_output_with_tools") == "prompt"
+            )
         ):
             config.response_mime_type = "application/json"
         if request.tool_use is not ToolUse.DISABLED:
@@ -107,11 +97,9 @@ class GoogleGenerateContentAdapter:
             config.tool_config = types.ToolConfig(
                 function_calling_config=types.FunctionCallingConfig(
                     mode="ANY"
-                    if forced or request.tool_use is ToolUse.REQUIRED
+                    if options.get("tool_choice_policy", "native") == "native"
+                    and (forced or request.tool_use is ToolUse.REQUIRED)
                     else "AUTO",
-                    allowed_function_names=[names.to_provider_name(forced)]
-                    if forced
-                    else None,
                 )
             )
         cached_name: str | None = None
@@ -119,12 +107,8 @@ class GoogleGenerateContentAdapter:
             if (
                 request.model.supports(ModelCapability.PROMPT_CACHE)
                 and options.get("prompt_cache_mode") == "explicit"
+                and 0 < prefix_count < len(contents)
             ):
-                if prefix_count >= len(contents):
-                    raise ProviderError(
-                        "Google explicit cache requires an uncached task suffix",
-                        kind=ProviderErrorKind.CONFIG,
-                    )
                 cached_name = await self._cache.get_or_create(
                     request.binding.provider_model,
                     types.CreateCachedContentConfig(
@@ -133,7 +117,11 @@ class GoogleGenerateContentAdapter:
                         tools=config.tools,
                         tool_config=config.tool_config,
                         ttl=f"{options.get('prompt_cache_ttl', 600)}s",
-                        http_options=config.http_options,
+                        http_options=types.HttpOptions(
+                            timeout=config.http_options.timeout
+                            if config.http_options
+                            else None
+                        ),
                     ),
                 )
                 config.cached_content = cached_name
@@ -149,6 +137,9 @@ class GoogleGenerateContentAdapter:
         except errors.APIError as exc:
             if exc.code == 404 and cached_name:
                 self._cache.invalidate(cached_name)
+                raise ProviderError(
+                    "Google cached prefix expired", kind=ProviderErrorKind.TRANSIENT
+                ) from exc
             raise status_error(exc.code, str(exc)) from exc
         except (httpx.TransportError, TimeoutError) as exc:
             raise ProviderError(
@@ -249,3 +240,12 @@ class GoogleGenerateContentAdapter:
                 "adapter": self.adapter_kind.value,
             },
         )
+
+
+def _wire_thinking(value: types.ThinkingConfig) -> types.ThinkingConfig:
+    # google-genai 2.31.0's nested transformer forwards ThinkingConfig fields
+    # without aliases. Keep the workaround at this single SDK boundary.
+    return cast(
+        types.ThinkingConfig,
+        value.model_dump(mode="json", by_alias=True, exclude_none=True),
+    )

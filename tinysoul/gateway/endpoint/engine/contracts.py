@@ -7,7 +7,7 @@ from typing import Protocol
 
 from tinysoul.agent.handles import TurnHandle, TurnSnapshot
 from tinysoul.agent.requests import UserTurnRequest
-from tinysoul.infra.config import ConfigOperation
+from tinysoul.infra.config import ConfigEnvironment, ConfigOperation
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.paging import PageOptions
 from tinysoul.infra.time import CalendarDay
@@ -205,6 +205,9 @@ class EndpointConfigController(Protocol):
     def status(self, *, view: str = "saved") -> JsonObject: ...
 
     def catalog(self) -> JsonObject: ...
+
+    @property
+    def environment(self) -> ConfigEnvironment: ...
 
     async def patch(self, mutations: tuple[ConfigOperation, ...]) -> JsonObject: ...
 

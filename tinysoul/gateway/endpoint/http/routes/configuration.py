@@ -6,7 +6,12 @@ from typing import Literal
 
 from fastapi import FastAPI
 
-from tinysoul.infra.config import ConfigError, ConfigMutation, ConfigCreateSource, ConfigOperation
+from tinysoul.infra.config import (
+    ConfigCreateSource,
+    ConfigError,
+    ConfigMutation,
+    ConfigOperation,
+)
 from tinysoul.infra.json import JsonObject
 
 from ...engine import EndpointEngine
@@ -15,13 +20,15 @@ from ..schemas import (
     ActionCatalogResponse,
     ConfigApplyRequest,
     ConfigCatalogResponse,
-    ConfigDeleteMutationRequest,
     ConfigCreateSourceMutationRequest,
+    ConfigDeleteMutationRequest,
     ConfigMutationRequest,
     ConfigMutationResponse,
     ConfigPatchRequest,
     ConfigResponse,
     ConfigSetMutationRequest,
+    ModelCapabilityLookupRequest,
+    ModelCapabilityLookupResponse,
     PresetCreateRequest,
     PresetDeleteResponse,
     PresetListResponse,
@@ -48,6 +55,20 @@ def register_configuration_routes(app: FastAPI, engine: EndpointEngine) -> None:
     )
     def config_catalog() -> JsonObject:
         return engine.configuration.catalog()
+
+    @app.post(
+        "/v2/config/models/anthropic-capabilities",
+        response_model=ModelCapabilityLookupResponse,
+        response_model_exclude_none=True,
+    )
+    async def anthropic_model_capabilities(
+        body: ModelCapabilityLookupRequest,
+    ) -> ModelCapabilityLookupResponse:
+        result = await engine.configuration.anthropic_model_capabilities(
+            provider_id=body.provider_id,
+            model_id=body.model_id,
+        )
+        return ModelCapabilityLookupResponse.model_validate(result)
 
     @app.get(
         "/v2/config/actions",

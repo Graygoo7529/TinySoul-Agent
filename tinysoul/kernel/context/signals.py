@@ -512,6 +512,7 @@ def _reasoning_to_json(reasoning: Reasoning | None) -> JsonObject | None:
             "provider_model": replay.provider_model,
             "variant": replay.variant,
             "message_fingerprint": replay.message_fingerprint,
+            "prefix_fingerprint": replay.prefix_fingerprint,
             "ordered_items": [to_json_object(item) for item in replay.ordered_items],
         }
     if not result:
@@ -539,6 +540,8 @@ def _optional_reasoning(value: JsonObject) -> Reasoning | None:
                 provider_id=_required_str(replay_raw, "provider_id"),
                 provider_model=_required_str(replay_raw, "provider_model"),
                 message_fingerprint=_required_str(replay_raw, "message_fingerprint"),
+                prefix_fingerprint=_optional_str(replay_raw, "prefix_fingerprint")
+                or None,
                 variant=_optional_nullable_str(replay_raw, "variant"),
                 ordered_items=_object_list(replay_raw, "ordered_items"),
             )

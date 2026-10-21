@@ -56,3 +56,10 @@ api_key_envs = ["MINIMAX_API_KEY"]
 
 [llm.providers.minimax.endpoints.openai-chat]
 base_url = "https://api.minimaxi.com/v1"
+
+[llm.providers.anthropic]
+enabled = false
+api_key_envs = ["ANTHROPIC_API_KEY"]
+
+[llm.providers.anthropic.endpoints.anthropic-messages]
+base_url = "https://api.anthropic.com"

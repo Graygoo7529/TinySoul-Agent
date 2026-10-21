@@ -37,6 +37,8 @@ def capture_replay(
     items: tuple[JsonObject, ...],
     text: str,
     calls: tuple[ToolCallRecord, ...],
+    *,
+    prefix_fingerprint: str | None = None,
 ) -> NativeReplay:
     return NativeReplay(
         mode=mode,
@@ -47,6 +49,7 @@ def capture_replay(
         variant=request.model.adapter_options.variant,
         ordered_items=items,
         message_fingerprint=response_fingerprint(text, calls),
+        prefix_fingerprint=prefix_fingerprint,
     )
 
 

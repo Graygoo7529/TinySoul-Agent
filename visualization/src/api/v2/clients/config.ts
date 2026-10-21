@@ -14,6 +14,7 @@ import type {
   ConfigScenario,
   Configuration,
   ConfigView,
+  ModelCapabilityLookup,
   Preset,
   PresetCreateBody,
   PresetDeleteResult,
@@ -39,6 +40,18 @@ export class ConfigClient {
   /** GET /v2/config/catalog — Infra-owned field/collection declarations. */
   catalog(options?: RequestOptions): Promise<ConfigCatalog> {
     return this.transport.get<ConfigCatalog>("/config/catalog", options);
+  }
+
+  /** Explicitly read Anthropic Models API capabilities as a draft suggestion. */
+  anthropicModelCapabilities(
+    providerId: string,
+    modelId: string,
+    options?: RequestOptions,
+  ): Promise<ModelCapabilityLookup> {
+    return this.transport.post<ModelCapabilityLookup>("/config/models/anthropic-capabilities", {
+      ...options,
+      body: { provider_id: providerId, model_id: modelId },
+    });
   }
 
   /** GET /v2/config/actions?scenario= — generation ActionEngine projection. */

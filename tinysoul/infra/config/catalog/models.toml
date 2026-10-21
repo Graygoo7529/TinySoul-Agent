@@ -325,7 +325,7 @@ path = "llm.models.*.adapter_options.prompt_cache_mode"
 surface = "models"
 group = "models.adapter_options"
 title = "Prompt Cache Mode"
-description = "Cache policy for this API mode; explicit mode uses the task-owned prefix boundary."
+description = "Cache policy for this API mode; explicit markers select task-owned prefix boundaries."
 value_kind = "string"
 importance = "advanced"
 
@@ -375,15 +375,6 @@ value_kind = "boolean"
 importance = "advanced"
 
 [[field]]
-path = "llm.models.*.adapter_options.request_id"
-surface = "models"
-group = "models.adapter_options"
-title = "Request ID"
-description = "Optional provider request identifier override."
-value_kind = "string"
-importance = "advanced"
-
-[[field]]
 path = "llm.models.*.adapter_options.user_id"
 surface = "models"
 group = "models.adapter_options"
@@ -402,7 +393,7 @@ value_kind = "string"
 importance = "advanced"
 
 [[field]]
-path = "llm.models.*.adapter_options.reasoning_efforts"
+path = "llm.models.*.adapter_options.choices.reasoning_effort"
 surface = "models"
 group = "models.adapter_options"
 title = "Reasoning Effort Candidates"
@@ -703,3 +694,66 @@ group = "providers.connection"
 title = "API version"
 description = "Google API version, default v1beta. Base URL is the service root."
 value_kind = "string"
+
+[[field]]
+path = "llm.models.*.adapter_options.choices"
+surface = "models"
+group = "models.adapter_options"
+title = "Model Option Choices"
+description = "Model-supported candidates; empty lists disable an option. These declarations are not sent to the API."
+value_kind = "object"
+importance = "advanced"
+
+[[field]]
+path = "llm.models.*.adapter_options.choice_rules"
+surface = "models"
+group = "models.adapter_options"
+title = "Conditional Choices"
+description = "Equality conditions narrow the declared choices; they never assign request values."
+value_kind = "object_list"
+importance = "advanced"
+
+[[field]]
+path = "llm.models.*.adapter_options.prompt_cache_boundaries"
+surface = "models"
+group = "models.adapter_options"
+title = "Cache Prefix Boundaries"
+description = "Choose named cumulative prefixes such as background, trace and working. Google explicit caching selects one prefix."
+value_kind = "string_list"
+importance = "advanced"
+
+[[field]]
+path = "llm.models.*.adapter_options.prompt_cache_ttls"
+surface = "models"
+group = "models.adapter_options"
+title = "Cache Boundary TTLs"
+description = "Override TTL by boundary name for Responses or Anthropic; Anthropic longer lifetimes must precede shorter ones."
+value_kind = "object"
+importance = "advanced"
+
+[[field]]
+path = "llm.models.*.adapter_options.replay_prefix_binding"
+surface = "models"
+group = "models.adapter_options"
+title = "Bind Replay to Input Prefix"
+description = "Anthropic prefix binding: changed prefixes discard stale thinking and keep text and tool facts."
+value_kind = "boolean"
+importance = "advanced"
+
+[[field]]
+path = "llm.models.*.adapter_options.tool_choice_policy"
+surface = "models"
+group = "models.adapter_options"
+title = "Tool Choice Mapping"
+description = "Native enforcement or automatic selection; TinySoul still validates required tool results."
+value_kind = "string"
+importance = "advanced"
+
+[[field]]
+path = "llm.models.*.adapter_options.json_output_with_tools"
+surface = "models"
+group = "models.adapter_options"
+title = "JSON with Tools"
+description = "Native JSON parameters or prompt constraints when tools are present; local JSON validation remains unchanged."
+value_kind = "string"
+importance = "advanced"

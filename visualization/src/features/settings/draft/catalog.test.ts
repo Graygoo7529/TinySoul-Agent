@@ -5,9 +5,45 @@ import {
   decodeCatalog,
   matchField,
   validateDrafts,
+  normalizeAdapterOptions,
+  modelOptionChoices,
 } from "./catalog";
 import { applySet, type DraftEntry } from "./model";
 import type { Configuration } from "../../../api/v2/types";
+
+it("narrows conditional choices and clears dependent values without changing the declarations", () => {
+  const specs = decodeCatalog({ ...RAW_CATALOG, rules: { llm: { adapters: [{
+    id: "anthropic-messages", api_mode: "anthropic-messages", variants: [], common_options: [
+      { id: "thinking", value_kind: "enum", choices: ["adaptive", "between_tools"] },
+      { id: "thinking_display", value_kind: "enum", choices: ["omitted"], requires: { thinking: ["adaptive"] } },
+      { id: "reasoning_effort", value_kind: "string", choices: [] },
+    ],
+  }] } } } as unknown as ConfigCatalog).adapterRules[0]!.commonOptions;
+  const choices = { reasoning_effort: ["high", "max"] };
+  const choice_rules = [{ when: { thinking: "between_tools" }, choices: { reasoning_effort: ["high"] } }];
+  const result = normalizeAdapterOptions(specs, { thinking: "between_tools", thinking_display: "omitted", choices, choice_rules }, "max");
+  expect(result.effort).toBeUndefined();
+  expect(result.options.thinking_display).toBeUndefined();
+  expect(result.options.choices).toEqual(choices);
+  expect(modelOptionChoices("reasoning_effort", result.options)).toEqual(["high"]);
+});
+
+it("uses the top-level effort when narrowing other model options", () => {
+  const options = {
+    thinking_display: "updates",
+    choices: { reasoning_effort: ["high", "max"] },
+    choice_rules: [{ when: { reasoning_effort: "high" }, choices: { thinking_display: ["omitted"] } }],
+  };
+  const specs = [
+    { id: "thinking_display", valueKind: "enum", choices: ["omitted", "updates"], minimum: null, source: "api-mode" },
+    { id: "reasoning_effort", valueKind: "string", choices: [], minimum: null, source: "api-mode" },
+  ];
+  expect(modelOptionChoices("thinking_display", options, ["omitted", "updates"], "max")).toEqual(["omitted", "updates"]);
+  const normalized = normalizeAdapterOptions(specs, options, "high");
+  expect(normalized.effort).toBe("high");
+  expect(normalized.options.thinking_display).toBeUndefined();
+  expect(normalized.options.choice_rules).toEqual(options.choice_rules);
+});
 
 const RAW_CATALOG = {
   surfaces: [

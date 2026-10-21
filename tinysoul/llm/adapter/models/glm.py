@@ -20,9 +20,7 @@ from ..openai.options import ChatOptions
 
 
 class GlmOptions(ChatOptions, total=False):
-    thinking: str
     do_sample: bool
-    request_id: str
     user_id: str
 
 
@@ -40,7 +38,7 @@ class GlmAdapter(OpenAIChatAdapter):
                     "GLM tool parameters root type must be object",
                     kind=ProviderErrorKind.CONFIG,
                 )
-            if tool.strict is not None:
+            if tool.strict:
                 raise ProviderError(
                     "GLM does not support strict tool calling",
                     kind=ProviderErrorKind.CONFIG,
@@ -65,11 +63,11 @@ class GlmAdapter(OpenAIChatAdapter):
     ) -> None:
         super().apply_options(kwargs, options, request=request)
         values = cast(GlmOptions, options or {})
-        extra_body: dict[str, object] = dict(values.get("extra_body", {}))
+        extra_body: dict[str, object] = dict(
+            cast(Mapping[str, object], kwargs.get("extra_body", {}))
+        )
         if "do_sample" in values:
             extra_body["do_sample"] = values["do_sample"]
-        if "request_id" in values:
-            extra_body["request_id"] = values["request_id"]
         if "user_id" in values:
             extra_body["user_id"] = values["user_id"]
         replay_mode = values.get("native_replay", "none")

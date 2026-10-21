@@ -1,6 +1,6 @@
 # LLM API 模式回放、缓存与专用 Adapter 复核改进执行计划
 
-- 状态：`pending`（分析与方案修订完成；等待本次设计确认，尚未实施）
+- 状态：`done`（P1–P6 实现、文档、AGENTS 规约与初始目标逐项核对完成；本地门禁通过）
 - 日期：2026-10-21
 - 复核基线：`a276417`；主要实现来自 `6638280`。
 - 范围：四类 API mode、通用/专用 adapter、模型配置与前端编辑、Context 缓存边界，以及真实 SDK 请求验证。
@@ -19,7 +19,7 @@
 5. prewarm 明确排除；不增加预热入口、后台任务或额外模型调用。
 6. 用户已经允许必要的真实调用，不再增加“重新确认额度”的授权前置条件。真实服务测试与本地测试分开记录，不用兼容网关的结果定义官方 API。
 
-本轮只修订本计划；不将尚未实施的方案写成 `docs/design/` 当前事实。上一轮归档计划保留历史验证记录，新发现的能力缺口以本计划跟踪。
+上一轮归档计划保留历史验证记录。本计划已经获准实施；下文保留问题基线和已确认设计，第14节记录对应实现、验证及范围取舍。
 
 ## 2. 当前链路的实际检查
 
@@ -137,7 +137,7 @@ when = { thinking = "between_tools" }
 choices = { reasoning_effort = ["low", "medium", "high"] }
 ```
 
-这是待实现的配置结构示例，不是可直接写进当前版本的配置。实际模板候选必须在实施时与对应 model binding/官方能力核实；`updates` 所需 beta header 由选项映射统一添加。
+这是已支持的配置结构示例，不代表所有型号都支持所列候选。实际模板按对应 binding 声明能力；`updates` 所需 beta header 由选项映射统一添加。
 
 ### 4.2 规则保持有限
 
@@ -199,7 +199,7 @@ OpenAI encrypted、Google signed、Chat content 不增加全 Context 指纹。Go
 
 官方 `thinking.block_binding.prefix_mismatch_behavior=drop_block` 是另一条可行路径，且能返回 input_transformations；但 between_tools 不接受 block_binding，兼容 Messages endpoint 也不一定实现 beta。为避免一套请求同时做本地与服务端两份失配判断，本计划推荐统一用上面的 Anthropic 局部检查，不额外加入 server-drop 配置。若维护者希望优先使用官方 drop_block，应替换这一策略并讨论 between_tools 的合法路径，不叠加两个默认机制。
 
-**待确认 D1：接受“按真实前缀有效性回放、失效时继续普通工具/文本事实”，还是要求改变 Context 为 Claude 保留 append-only 原始上下文。后者会改变 TaskPrompt 和 Context 的核心语义，不能在 adapter 内偷偷另存会话实现。** 本计划按前者设计。
+**D1 已确认：保持现有构造式 Context，Claude 推理前缀有效时回放，失效时丢弃失效 thinking、保留文本和工具事实继续调用。** 不改变 TaskPrompt 所有权，也不在 adapter 内另存 append-only 会话。
 
 ### 5.3 工具与 JSON 的正常主线
 
@@ -232,7 +232,7 @@ Context 拥有这些名字和边界的语义；LLM 只理解命名的消息前�
 - 边界随当前 MessageStack 重算，不跨 compose 保存 index，不建立 Context 缓存服务。
 - 同一个消息位置合并；不存在的槽位不产生边界。Background 是通常复用较多的前缀，并非不可变内容；修正现有“整个 Turn 稳定”的注释。
 - 模型 `prompt_cache_boundaries` 可选择候选名字，未设置时使用该 API 的默认策略；显式空数组表示只使用服务端自动/隐式缓存。不会为了模型配置要求而补造缺失的上下文。
-- 无可用边界时照常生成：OpenAI explicit 不写显式缓存；Anthropic explicit 不写 marker；Google 不创建 resource。通过有限诊断说明“本次无可用前缀”，不把可选增强变成任务失败。
+- 无可用边界时照常生成：OpenAI explicit 不写显式缓存；Anthropic explicit 不写 marker；Google 不创建 resource。不把可选增强变成任务失败，也不从配置选值伪造命中观察值。
 - 选定边界是最大前缀位置。adapter 在该位置或之前寻找合法的实际 wire block；不能越界把 TaskPrompt 纳入缓存，不能往签名 thinking 或不支持的 function_call 上强加 marker。
 - 断点是累计前缀，不是独立段缓存；tools 或 Background 改变可能使后续所有缓存失效。模型窗口计算仍包含完整逻辑输入，不把缓存命中当作节省上下文窗口。
 
@@ -247,7 +247,7 @@ Context 拥有这些名字和边界的语义；LLM 只理解命名的消息前�
 
 OpenAI/Anthropic 默认映射 Context 的至多三个候选，为自动断点保留一个槽位；显式 SDK 请求超过 API 上限应在 adapter 边界给出有限配置错误。按映射后实际位置去重；Anthropic 自动末尾与显式末尾的重复位置、TTL 冲突必须在发送前合并为合法请求。
 
-模型设置保留 `prompt_cache_ttl` 作为默认寿命；增加 `prompt_cache_ttls` 按断点名字覆盖。只校验当前 API 支持的值，Anthropic 还校验实际前缀中长 TTL 不位于短 TTL 之后。
+模型设置保留 `prompt_cache_ttl` 作为默认寿命；Responses/Anthropic 支持 `prompt_cache_ttls` 按断点名字覆盖。Chat 只支持请求级 `30m`，其 marker 不携带 TTL；Google 为单资源秒数。Anthropic 还校验实际前缀中长 TTL 不位于短 TTL 之后。
 
 例如 Responses：
 
@@ -322,68 +322,68 @@ PromptCache.key 由实际调用者按共享前缀需要提供；通用 OpenAI �
 
 ## 10. 执行步骤、文件范围与验收
 
-下面步骤均未实施。每一步完成时补充修改位置和证据，不用测试数量代替功能验收。
+下面按实际职责核对；文件列表代表需修改或检查的所有权范围，已存在且满足契约的组件直接复用。具体证据见第14节。
 
 ### P1：选项定义与解析
 
-- [ ] `tinysoul/llm/adapter/catalog.py`：有效选项解析、choices/choice_rules、固定策略、通用 Chat thinking、tool choice/JSON 增强策略、各 API 缓存选项；将 API 固有依赖与模型限制分开。
-- [ ] `tinysoul/llm/protocol/models.py`、`config/helpers.py`、`config/sections.py`：typed 模型候选声明、选定值检查、迁移 reasoning_efforts；直接构造和 TOML 入口保持同一不变量。
-- [ ] `tinysoul/infra/config/catalog/models.toml` 及现有 LLM descriptor 投影：新的模型选项协议和字段文案，不在 Infra 复制 LLM 判断。
-- [ ] `tests/llm/test_models_and_registries.py`、`tests/llm/config/test_config.py`、`tests/infra/config/descriptors/test_config_catalog.py`：只覆盖候选收窄、固定值、真实条件组合和结构化错误。
+- [x] `tinysoul/llm/adapter/catalog.py`：有效选项解析、choices/choice_rules、固定策略、通用 Chat thinking、tool choice/JSON 增强策略、各 API 缓存选项；将 API 固有依赖与模型限制分开。
+- [x] `tinysoul/llm/protocol/models.py`、`config/helpers.py`、`config/sections.py`：模型候选声明、选定值检查、迁移 reasoning_efforts；复用原 helpers 的动态边界转换。
+- [x] `tinysoul/infra/config/catalog/models.toml` 及现有 LLM descriptor 投影：新的模型选项协议和字段文案，不在 Infra 复制 LLM 判断。
+- [x] `tests/llm/test_models_and_registries.py`、`tests/llm/config/test_config.py`、`tests/infra/config/descriptors/test_config_catalog.py`：新增 owner 契约覆盖，复用原 descriptor 协作检查。
 
 验收：新增普通 family 可只用通用 adapter 配置；候选/选值不一致在保存边界报明确 ConfigError；元数据不进入 SDK 请求。
 
 ### P2：回放与工具主线
 
-- [ ] `protocol/reasoning.py`、`adapter/replay.py`：保留消息指纹，增加仅有实际消费者的可选 Anthropic 前缀摘要；不添加全模式 context_fingerprint。
-- [ ] `adapter/anthropic/messages.py`、`payloads.py`：前缀绑定、思考类型/display、auto tool choice 和普通工具映射；有效签名完整回放，失效只处理本次发送投影。
-- [ ] `adapter/google/payloads.py`、`adapter/history.py`、`adapter/openai/payloads.py`：统一完整工具交换判断；普通工具事实与 signed 附件的边界，保持跨 provider fallback 可解释。
-- [ ] `kernel/context/signals.py`、Trace/Phase 消费点、`llm/execution/observation_payloads.py`：传输新增内部摘要字段；不把它变成 Context 状态机或可见提示。
-- [ ] `tests/llm/adapter/test_messages_and_generate_content.py`、`test_provider_openai_sdk.py`、Context/Phase 协作测试：增加真实 compose → phase decision → trace → 下一次 SDK 请求的代表性路径。
+- [x] `protocol/reasoning.py`、`adapter/replay.py`：保留消息指纹，增加仅有实际消费者的可选 Anthropic 前缀摘要；不添加全模式 context_fingerprint。
+- [x] `adapter/anthropic/messages.py`、`payloads.py`：前缀绑定、思考类型/display、auto tool choice 和普通工具映射；有效签名完整回放，失效只处理本次发送投影。
+- [x] `adapter/google/payloads.py`、`adapter/history.py`、`adapter/openai/payloads.py`：复用既有完整工具交换判断，补普通工具事实映射，不复制 history planner。
+- [x] `kernel/context/signals.py`、Trace/Phase 消费点、`llm/execution/observation_payloads.py`：signal 往返内部摘要；既有 Phase/Trace 可直接携带该附件，Observation 不暴露摘要/签名。
+- [x] `tests/llm/adapter/test_messages_and_generate_content.py`、`test_provider_openai_sdk.py`、Context/Phase 协作测试：实际 composer、Trace 决策记录与下一次 adapter 请求联动；Phase 信号协作复用原有 owner 测试。
 
 验收：manual/adaptive Claude 能参加 REQUIRED 工具任务；当前模型/消息一致但前缀改变时不发送失效 thinking；Responses/Google 不因无关 Context 更新被过度禁用回放；未完成 Action 仍不被伪造成原生工具结果。
 
 ### P3：多缓存断点与生命周期
 
-- [ ] `protocol/cache.py`、`adapter/common.py`：命名的多断点意图、无前缀的可选增强语义、有效索引检查。
-- [ ] `kernel/context/engine.py`、`projection/composer.py`：复用 provenance 生成三个候选；检查 `kernel/loop/phases/phase1.py`、`phase2.py` 和 `kernel/action` 内部模型调用均传递当前 stack 对应意图。
-- [ ] `adapter/openai/payloads.py`、`common.py`、`options.py`、`chat.py`、`responses.py`：marker 合法位置、Responses output block、implicit + explicit、Responses12h、TTL 覆盖与 key；避免分散重复组装。
-- [ ] `adapter/anthropic/messages.py`、`payloads.py`：automatic + 多显式断点、TTL 顺序/去重，禁止向 thinking block 加 marker。
-- [ ] `adapter/google/cache.py`、`generate_content.py`、`payloads.py`：单缓存前缀选择、分离 create/generate 选项、TTL、使用中资源404交还既有重试。
-- [ ] 对应 adapter、`tests/llm/execution/test_task_runner.py`、Context provenance 测试：测试真实发送边界、同一任务缓存失效恢复及 close；不添加本地 KV 实现。
+- [x] `protocol/cache.py`、`adapter/common.py`：命名的多断点意图、无前缀的可选增强语义、有效索引检查。
+- [x] `kernel/context/engine.py`、`projection/composer.py`：复用 provenance 生成三个候选；Phase1/Phase2 沿原 stack/cache 数据流传递，独立 Action 任务无共享前缀时正常调用。
+- [x] `adapter/openai/payloads.py`、`common.py`、`options.py`、`chat.py`、`responses.py`：改共用 mapper，Chat/Responses 复用；支持 marker 合法位置、Responses output、implicit + explicit、Responses12h、TTL 覆盖与 key。
+- [x] `adapter/anthropic/messages.py`、`payloads.py`：automatic + 多显式断点、TTL 顺序/去重，禁止向 thinking block 加 marker。
+- [x] `adapter/google/cache.py`、`generate_content.py`、`payloads.py`：单缓存前缀选择、分离 create/generate 选项、TTL、使用中资源404交还既有重试；复用原资源 store。
+- [x] 对应 adapter、TaskRunner、Context provenance 测试：同一任务404恢复验证放在现有真实 SDK transport 测试中，直接调用 LLMTaskRunner；复用 expiry/close 覆盖，不复制 fixture。
 
 验收：三个累计前缀正确映射，Context 改动后 indices 重算；无边界任务正常调用；自动缓存并未被显式 marker 意外关闭；Google 同一前缀只创建一个资源。
 
 ### P4：专用模型与 SDK 边界
 
-- [ ] `adapter/models/{gpt,kimi,deepseek,glm,minimax}.py`：按7节移除冗余映射/死字段/过时约束；typed options 与 catalog 同步。
-- [ ] `adapter/google/generate_content.py` 及必要的同包转换函数：集中真实 SDK alias 转换；复用已有文件，只有职责确实无法容纳才新增文件。
-- [ ] `adapter/factory.py`、`protocol/adapter_types.py`：仅在真实 adapter 构造需要时修改；不为 Claude 空壳而扩枚举。
-- [ ] `tinysoul/assets/{development,standard}/configs/llm/models/*.toml`：统一候选结构、模型实际能力、固定行为和缓存策略；保留稳定 ID，不擅自升级用户 binding。
-- [ ] provider 模板和 `.env.example`：仅为实际新 Claude 使用补必要 endpoint/key 说明；若尚无可用 binding，提供明确的配置范例，不塞进默认任务链。
-- [ ] `tests/llm/adapter/test_api_modes.py` 及既有 SDK transport 测试：逐类 options → wire → response/replay 的小型矩阵，清除固化旧误解的断言。
+- [x] `adapter/models/{gpt,kimi,deepseek,glm,minimax}.py`：移除重复 thinking 映射、无消费者类型和 GLM 静态 request_id；MiniMax 固定 split/采样，DeepSeek strict 按 beta endpoint；GPT 原有真实约束已满足，保持复用。
+- [x] `adapter/google/generate_content.py`：集中真实 SDK alias 转换，复用已有文件。
+- [x] `adapter/factory.py`、`protocol/adapter_types.py`：核对后无需增加构造分支或 Claude 空壳枚举。
+- [x] `tinysoul/assets/{development,standard}/configs/llm/models/*.toml`：统一候选结构、固定行为与缓存策略；旧稳定 ID/binding 保留；新增 Claude 模板。
+- [x] provider 模板和 `.env.example`：新增默认禁用的 anthropic endpoint、ANTHROPIC_API_KEY 与 Claude Opus/Fable 模板，不加入任务链。
+- [x] `tests/llm/adapter/test_api_modes.py` 及既有 SDK transport 测试：options → wire → response/replay 代表性矩阵，清除旧字段断言。
 
 验收：每个保留的可编辑字段有消费者；Kimi 固定策略可见，GLM 清理与生成语义分开，MiniMax reasoning 结构稳定；Google 最终 wire 正确。
 
 ### P5：Endpoint 与前端
 
-- [ ] 现有配置 catalog/LLM 门面与 `gateway/endpoint/engine/configuration.py`：投影模型有效选项；增加按一个 provider binding 读取 Anthropic 能力的只读操作。
-- [ ] `gateway/endpoint/http/{schemas,routes}/configuration.py`：结构化入参和响应，复用已有凭据解析和请求错误流程，不创建任意 URL/文件操作接口。
-- [ ] `visualization/src/features/settings/models/LlmModelsPage.tsx`、`controls.tsx`、`ObjectEditor.tsx`、`objectEditing.ts`、`collectionDrafts.ts`：复用候选编辑组件、固定值、依赖清理、断点配置及能力建议采纳。
-- [ ] `visualization/src/features/settings/draft/catalog.ts`、相关 API types/client、i18n：共享 catalog 协议的前端消费；不按 family 写另一套选项判断。
-- [ ] 既有 `pages.test.tsx`、draft/catalog 与 object editing 测试：候选输入、切模式清理、保存后的 TOML 投影和重新载入。
+- [x] 现有配置 catalog/LLM 门面与 `gateway/endpoint/engine/configuration.py`：增加一次 binding 的能力读取；SDK 与能力解释归 `llm/adapter/anthropic/models.py`，Endpoint 仅转发。
+- [x] `gateway/endpoint/http/{schemas,routes}/configuration.py`：结构化请求/响应，复用凭据解析和有限请求错误，不创建任意 URL/文件操作接口。
+- [x] `LlmModelsPage.tsx`：复用既有 TextInput/SelectInput/JsonEditor/FieldRow 及同一个 AdapterOptionRow；常用值、候选、固定值、依赖清理、断点配置及能力建议均走原草稿机制。其它 object editing 设施核对后直接复用。
+- [x] `draft/catalog.ts`、API types/client、i18n：统一消费规则、候选交集与依赖清理；不按 family 特判。
+- [x] `pages.test.tsx`、draft/catalog、Endpoint 与 Infra ConfigController 测试：候选输入、模式切换、显式读取/采纳、同批 TOML 保存和重新载入。
 
 验收：新增 Claude family 与新增其它 family 走同一流程；更改候选和选中值后可以一次保存；能力读取失败不丢草稿；用户能区分“配置策略”与“实际使用结果”。
 
 ### P6：文档与最终核对
 
-- [ ] `docs/design/llm.md`：统一选项、回放有效性、增强能力和各 API 差异；只描述已经落地的事实。
-- [ ] `docs/design/context.md`：候选缓存前缀来自现有投影、累计前缀限制、无平行历史。
-- [ ] `docs/endpoint/configuration.md`、`events.md`：有效模型选项、能力读取和新增有限观察字段；与 Endpoint 同步提交。
-- [ ] `reference/api_mode/{README,api-modes,sdk-and-current-code,implementation-notes}.md`：官方来源、SDK 版本、具体字段、已验证与未验证边界。
-- [ ] `visualization/docs/design/config-coverage.md`：新的编辑覆盖与运行语义。
-- [ ] 聚焦测试 → Fast → Full → typecheck；前端测试/build；改动 Python 文件 Ruff/import 和 `git diff --check`。失败按 owner 修正，不用兼容层或放宽断言通过。
-- [ ] 逐项对照本计划及用户最初目标；实现、文档与必要验证全部完成后才标 done 并归档。
+- [x] `docs/design/llm.md`：统一选项、回放有效性、增强能力和各 API 差异；只描述已经落地的事实。
+- [x] `docs/design/context.md`：候选缓存前缀来自现有投影、累计前缀限制、无平行历史。
+- [x] `docs/endpoint/configuration.md`：有效选项与能力读取同步。既有 usage/replay 安全投影已满足展示，不新增观察事件，`events.md` 无需改协议。
+- [x] `reference/api_mode/{README,api-modes,sdk-and-current-code,implementation-notes}.md`：最新复核说明与历史调查区分，来源与未验证边界明确；初始 SDK 调查保留历史事实。
+- [x] `visualization/docs/design/config-coverage.md`：新的编辑覆盖与运行语义。
+- [x] 聚焦测试 → Fast → Full → typecheck；前端测试/build；改动 Python 文件 Ruff/import 和 `git diff --check`。失败按 owner 修正，不用兼容层或放宽断言通过；Ruff 既有诊断范围见14.3。
+- [x] 逐项对照本计划及用户最初目标；实现、文档与必要验证全部完成，已标 done 并归档。
 
 ## 11. 验证设计
 
@@ -417,7 +417,7 @@ PromptCache.key 由实际调用者按共享前缀需要提供；通用 OpenAI �
 
 必须诚实保留一个能力限制：构造式 Context 与新 Claude 的 append-only preserved thinking 存在实际张力。按 D1 推荐方案，正确调用和上下文事实优先，无法承诺跨 Phase 保留所有旧 thinking。提高这部分复用率需要另一轮讨论 Context/TaskPrompt，不属于偷偷扩展 adapter 的理由。
 
-建议确认以下设计预览后实施：
+已确认并实施以下设计：
 
 - 统一 `choices` 替换单独 `reasoning_efforts` 字段，保留顶层选定 effort；有条件候选用有限规则。
 - family 与 adapter 解耦；Claude 默认用 Messages 通用 adapter，不增加空壳类。
@@ -425,7 +425,7 @@ PromptCache.key 由实际调用者按共享前缀需要提供；通用 OpenAI �
 - 多个 Context 候选断点按 API 映射；只有 Google explicit 管远端资源索引。
 - prewarm、全自动能力发现、Google Interactions、图片生成和第二套原生会话不在范围。
 
-本稿为可实施方案，D1 尚待维护者确认；本轮不启动重构代码。D1 确认的是 Context 与回放的行为取舍；具体推荐实现为5.2节的本地前缀检查，不要求兼容 endpoint 实现 beta drop_block。
+D1 已获明确确认并实施5.2节的本地前缀检查，不要求兼容 endpoint 实现 beta drop_block。本轮没有未解决的设计决策项；以最终门禁和第14节逐项审计决定完成状态。
 
 ## 13. 官方依据
 
@@ -444,3 +444,42 @@ PromptCache.key 由实际调用者按共享前缀需要提供；通用 OpenAI �
 - [DeepSeek Thinking](https://api-docs.deepseek.com/guides/thinking_mode/)：tools、reasoning_content 与按型号不同的 sampling。
 - [GLM Chat Completion](https://docs.z.ai/api-reference/llm/chat-completion)：thinking、clear_thinking、effort、请求字段。
 - [MiniMax OpenAI SDK](https://platform.minimax.io/docs/api-reference/text-openai-api)：thinking、reasoning_split、sampling 与型号差异。
+
+## 14. 实施核对与验证记录
+
+### 14.1 与最初目标逐项核对
+
+| 目标 | 实施位置与可观察效果 | 验证依据 |
+| --- | --- | --- |
+| API mode → 通用 adapter → 专用差异 | `adapter/catalog.py` 组合 API、adapter、variant；通用 Chat 可配置 thinking、tool/JSON 增强策略；其它通用模式复用同一 options 契约 | `test_api_modes.py` 检查通用 options 的真实 SDK HTTP JSON；registry 共用 client/关闭契约沿用 |
+| 模型候选与实际选值统一 | `AdapterOptions` 校验 choices 和有限 choice_rules；顶层 effort 与其它选值一起参与条件判断；候选元数据不进入请求 | `test_config.py::test_model_choice_rules_intersect_selected_values` 覆盖有效组合、条件交集、空候选和顶层 effort 条件；前端 `catalog.test.ts` 验证同样的清理行为 |
+| 干净统一的回放协议 | 同一 `NativeReplay` 承载 content/encrypted/signed；消息指纹检查保留；只有配置了绑定的 Anthropic 附可选 prefix_fingerprint | composer/Trace 协作测试证明：追加且前缀一致时保留完整签名；重新构造 Context 后丢失效 thinking，文本和真实工具交换继续；原附件不变 |
+| 四 API 的思考/工具映射 | Anthropic 默认 auto 保留 thinking，内部 REQUIRED 仍由 interpreter 检查；enabled budget、adaptive omitted/updates、between_tools effort、disabled 都有 SDK 路径 | `test_messages_and_generate_content.py` 的真实 SDK MockTransport；updates header、选定 effort、空摘要签名与 tools 往返均有断言 |
+| Context 多缓存前缀 | `ContextEngine.prompt_cache` 每次根据 provenance 产生 background/trace/working；Phase1/Phase2 和 Action-owned tasks 继续沿原入口传递 | `test_composer.py` 覆盖三个当前 index；无 TaskPrompt 默认断点，无新 Context 状态或缓存服务 |
+| OpenAI 缓存真实落点 | Chat marker 只有 mode；Responses 支持12h和逐断点 TTL，function_call_output.output 转成合法 input_text；implicit 可叠显式标记，向前寻找合法位置并去重 | `test_provider_openai_sdk.py` 与 `test_api_modes.py`；回放内容在标记前复制，不修改保存的原生附件 |
+| Anthropic 缓存组合 | automatic 与多个显式 markers 复用实际 block 顺序；不标记 thinking；重合末尾显式 TTL 优先；总位置数与长短 TTL 顺序校验 | 真实 SDK 测试证明显式1h + 自动5m、重合末尾合并、反向 TTL 在发请求前形成 CONFIG |
+| Google typed mapping 与资源生命周期 | typed Content/Part/ThinkingConfig；仅 SDK2.31 alias 差异在一处转换；create 不复用 generation extra_body；TTL/404/close 沿原资源 owner | 真实 SDK 测试覆盖 bytes/signature 往返、工具交换不断开、create/reuse/expiry、同一 TaskRunner 内404重建、implicit 不创建资源 |
+| 专用 adapter 清理 | Kimi 固定采样、k3 content replay；DeepSeek 共用 thinking、保留 top_p、beta strict；GLM 清历史从 replay 派生，删除静态 request_id；MiniMax adaptive/disabled、固定 split=true、固定采样/工具策略；GPT 保留真实采样差异 | 既有各专用 adapter 测试更新到现行语义；新增 DeepSeek beta strict 正例；无 family 名称猜测或空壳 ClaudeAdapter |
+| TOML、Endpoint、前端共同落地 | development/standard 迁移 choices；新增 `claude.toml` 和禁用的 anthropic provider；能力读取经 LLM owner 后由 Endpoint 返回，采纳进入既有草稿 | Endpoint 验证能力查询协议；`test_config_controller.py::test_family_models_and_task_references_save_and_reload_together` 验证候选、规则、选值、family 文件及任务引用同批保存/重新加载；前端验证打开页不触网、显式读取不改草稿、采纳后清理无效选值 |
+
+### 14.2 实施取舍与未扩展范围
+
+- 没有修改 AGENTS 的核心定义：LLM 仍只解释调用，Context 仍纯构造，Trace 仍拥有事实，TaskRunner 仍独占重试。模块失败经 ProviderError 及既有 bridge/Endpoint 请求错误处理；本轮没有新增 Trap 原因。
+- `adapter/history.py`、factory、adapter enum、Google cache store、Phase/Action task 传递、前端对象保存设施已经满足职责，核对后直接复用。计划中列出的这些文件不必为了产生 diff 而修改。
+- Anthropic Models API 的 SDK 读取新增在 `llm/adapter/anthropic/models.py`，职责为一次显式能力查询；通过现有 LLM 配置门面暴露。Endpoint 不解释远端 capability，也不持有第二套长生命周期客户端。
+- 条件规则始终是等值条件和候选交集，不做字段赋值或自动挑选下一档。前端 effort 编辑与其它 options 共用归一化，Google level/budget 只清实际冲突选值，保留候选定义。
+- 未增加新的 Observation 事件或回放日志。现有 safe replay 摘要和真实 usage 继续供界面观察；配置 signed/explicit 不展示为“已经复用/命中”。没有实际消费者的逐断点运行统计不进入本轮。
+- Claude 模板使用稳定 ID `claude-opus`/`claude-fable`，binding 为官方文档核对的 `claude-opus-5-5`/`claude-fable-5-1`。默认 provider 禁用，不写入任务链；保守声明 adaptive/high，额外候选可手工配置或从指定 binding 读取后采纳。
+- prewarm、Interactions、图片生成、全局 context_fingerprint、后台续租、本地 KV、崩溃缓存恢复和新的原生会话历史均未引入。图像输入沿现有 typed message/SDK mapper 保留。
+- 全文检索确认当前源码、模板、测试、设计与 Endpoint 文档不再使用 `reasoning_efforts`、单一 `breakpoint_message_index` 或 `ReasoningKeep`；历史归档保留当时表述，不提供兼容别名。
+
+### 14.3 验证结果与实际边界
+
+- SDK 环境：OpenAI3.35.1、Anthropic1.15.0、google-genai2.31.0；真实 SDK 通过本地 HTTP MockTransport 验证最终请求，使用假 key，不发送真实付费请求。
+- Fast：1319 passed、28 deselected；后续新增代表性条件/SDK 测试另行聚焦验证37 passed；family TOML 与配置激活协作测试15 passed。
+- Full：`scripts/test.ps1 -Suite Full`，1332 passed、23 deselected，228.09s；包含项目生成与 wheel 安装验收，不包含 external。
+- `scripts/typecheck.ps1`：通过（Python3.13.12、ty0.0.84）。前端 `pnpm test`：94 files、814 passed；`pnpm build`：TypeScript 与 Vite 构建通过，仅有现存 chunk 体积提示。
+- Python 改动文件 import 检查和 `git diff --check` 已通过；改动的 LLM 代码 Ruff 通过。Ruff 对照 HEAD 无新增诊断，既有 PageOptions 默认参数和测试 helper 等诊断未混入本轮清理；未宣称整个仓库 Ruff 零诊断。`agent/composition/builder.py` import 排序已合规，无需再次修改。
+- 本轮没有远端 provider 实测结论。已证明本地选择、序列化、响应读取、资源生命周期和重试协作；不把模拟 usage 当成真实缓存命中，不宣称每个兼容服务都接受全部官方能力。Google 官方资源阈值、Claude 真实签名校验与具体代理能力仍以所选端点实际返回为准。
+
+最终核对：本轮已确认范围全部完成；无遗留设计决策或待实施主线。真实 provider 结果属于上述明确的外部验证边界，不以本地 SDK 测试代替实测结论。

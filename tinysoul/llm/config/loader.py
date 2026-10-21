@@ -6,6 +6,7 @@ from collections.abc import Mapping
 
 from tinysoul.infra.config import reject_unknown_keys
 
+from ..adapter.anthropic.models import read_anthropic_model_capabilities
 from ..protocol.adapter_types import AdapterKind, ApiMode
 from .helpers import required_table
 from .sections import ModelConfigParser, ProviderConfigParser, TaskConfigParser
@@ -65,4 +66,5 @@ __all__ = [
     "ProviderEndpoint",
     "ProviderSpec",
     "TaskConfigParser",
+    "read_anthropic_model_capabilities",
 ]

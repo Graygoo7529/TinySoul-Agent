@@ -8,7 +8,6 @@ from anthropic.types import Message
 from tinysoul.infra.json import to_json_object
 from tinysoul.llm.config.types import ProviderSpec
 from tinysoul.llm.protocol.adapter_types import AdapterKind, ApiMode
-from tinysoul.llm.protocol.models import ModelCapability
 from tinysoul.llm.protocol.reasoning import NativeReplayMode, Reasoning
 from tinysoul.llm.protocol.responses import RawResponse, ResponseStopReason
 from tinysoul.llm.protocol.tools import ToolCallRecord, ToolUse
@@ -18,7 +17,12 @@ from ..base import ProviderError, ProviderErrorKind, ProviderRequest
 from ..common import status_error, validate_request
 from ..replay import capture_replay
 from ..tool_names import ProviderToolNameMap
-from .payloads import message_payload
+from .payloads import (
+    automatic_cache_control,
+    message_payload,
+    prefix_fingerprint,
+    tools_payload,
+)
 
 
 class MessagesClient(Protocol):
@@ -73,35 +77,27 @@ class AnthropicMessagesAdapter:
         if request.model.reasoning_effort is not None:
             kwargs["output_config"] = {"effort": request.model.reasoning_effort}
         if request.tool_use is not ToolUse.DISABLED:
-            tools = request.tool_scope.visible_tools()
-            kwargs["tools"] = [
-                {
-                    "name": names.to_provider_name(tool.name),
-                    "description": tool.description,
-                    "input_schema": tool.parameters,
-                    **({"strict": True} if tool.strict else {}),
-                }
-                for tool in tools
-            ]
+            kwargs["tools"] = tools_payload(request, names)
             forced = request.tool_scope.selection.forced_name
             choice: dict[str, object] = {
                 "type": "any" if request.tool_use is ToolUse.REQUIRED else "auto"
             }
             if forced:
-                choice = {"type": "tool", "name": names.to_provider_name(forced)}
+                choice = {"type": "any"}
+            if options.get("tool_choice_policy", "auto") == "auto":
+                choice = {"type": "auto"}
             if thinking == "enabled" and choice["type"] != "auto":
                 raise ProviderError(
                     "Manual thinking requires automatic tool choice",
                     kind=ProviderErrorKind.CONFIG,
                 )
             kwargs["tool_choice"] = choice
-        if (
-            request.model.supports(ModelCapability.PROMPT_CACHE)
-            and options.get("prompt_cache_mode") == "automatic"
-        ):
-            kwargs["cache_control"] = {
-                "type": "ephemeral",
-                "ttl": options.get("prompt_cache_ttl", "5m"),
+        automatic = automatic_cache_control(request, system, messages)
+        if automatic is not None:
+            kwargs["cache_control"] = automatic
+        if options.get("thinking_display") == "updates":
+            kwargs["extra_headers"] = {
+                "anthropic-beta": "thinking-display-updates-2026-08-18"
             }
         extra = request.model.adapter_options.extra_body()
         if extra:
@@ -147,7 +143,16 @@ class AnthropicMessagesAdapter:
         cached = usage.cache_read_input_tokens
         created = usage.cache_creation_input_tokens
         replay = (
-            capture_replay(request, NativeReplayMode.SIGNED, items, text, calls)
+            capture_replay(
+                request,
+                NativeReplayMode.SIGNED,
+                items,
+                text,
+                calls,
+                prefix_fingerprint=prefix_fingerprint(system, messages, request, names)
+                if options.get("replay_prefix_binding") is True
+                else None,
+            )
             if request.model.adapter_options.native_replay_mode()
             is NativeReplayMode.SIGNED
             and any(

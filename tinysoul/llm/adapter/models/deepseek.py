@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import cast
 
 from tinysoul.llm.config.loader import ProviderSpec
 from tinysoul.llm.protocol.adapter_types import AdapterKind, ApiMode
@@ -23,11 +22,6 @@ from ..base import (
 )
 from ..openai.chat import OpenAIChatAdapter
 from ..openai.clients import OpenAIChatCompletionsClient
-from ..openai.options import ChatOptions
-
-
-class DeepSeekOptions(ChatOptions, total=False):
-    thinking: str
 
 
 class DeepSeekAdapter(OpenAIChatAdapter):
@@ -37,10 +31,24 @@ class DeepSeekAdapter(OpenAIChatAdapter):
 
     supports_prompt_cache_key = False
 
+    def __init__(
+        self,
+        *,
+        provider: ProviderSpec,
+        completions: OpenAIChatCompletionsClient,
+    ) -> None:
+        endpoint = provider.endpoint(ApiMode.OPENAI_CHAT)
+        self._supports_strict_tools = endpoint.base_url.rstrip("/").endswith("/beta")
+        super().__init__(
+            provider=provider,
+            adapter_kind=AdapterKind.DEEPSEEK,
+            completions=completions,
+        )
+
     def validate_request(self, request: ProviderRequest) -> None:
         _validate_image_messages(request)
         tools = request.tool_scope.visible_tools()
-        _validate_deepseek_tools(tools)
+        _validate_deepseek_tools(tools, supports_strict=self._supports_strict_tools)
         _validate_thinking_tool_replay(request, has_tools=bool(tools))
 
     def tool_choice_payload(
@@ -71,26 +79,8 @@ class DeepSeekAdapter(OpenAIChatAdapter):
         request: ProviderRequest,
     ) -> None:
         super().apply_options(kwargs, options, request=request)
-        values = cast(DeepSeekOptions, options or {})
         if _deepseek_thinking_enabled(options):
             kwargs.pop("temperature", None)
-        extra_body: dict[str, object] = dict(values.get("extra_body", {}))
-        if "thinking" in values:
-            extra_body["thinking"] = {"type": values["thinking"]}
-        if extra_body:
-            kwargs["extra_body"] = extra_body
-
-    def __init__(
-        self,
-        *,
-        provider: ProviderSpec,
-        completions: OpenAIChatCompletionsClient,
-    ) -> None:
-        super().__init__(
-            provider=provider,
-            adapter_kind=AdapterKind.DEEPSEEK,
-            completions=completions,
-        )
 
 
 def _deepseek_thinking_enabled(options: Mapping[str, object] | None) -> bool:
@@ -108,18 +98,19 @@ def _validate_image_messages(request: ProviderRequest) -> None:
             )
 
 
-def _validate_deepseek_tools(tools: tuple[ToolSpec, ...]) -> None:
+def _validate_deepseek_tools(
+    tools: tuple[ToolSpec, ...], *, supports_strict: bool
+) -> None:
     if len(tools) > 128:
         raise ProviderError(
             "DeepSeek supports at most 128 tools",
             kind=ProviderErrorKind.CONFIG,
         )
-    for tool in tools:
-        if tool.strict:
-            raise ProviderError(
-                "DeepSeek adapter does not support strict tool calling",
-                kind=ProviderErrorKind.CONFIG,
-            )
+    if not supports_strict and any(tool.strict for tool in tools):
+        raise ProviderError(
+            "DeepSeek strict tools require the beta endpoint",
+            kind=ProviderErrorKind.CONFIG,
+        )
 
 
 def _validate_thinking_tool_replay(

@@ -11,7 +11,6 @@ from tinysoul.infra.json import JsonObject
 
 class OpenAIOptions(TypedDict, total=False):
     sampling: str
-    reasoning_efforts: list[str]
     native_replay: str
     extra_body: JsonObject
     prompt_cache_mode: str
@@ -19,10 +18,12 @@ class OpenAIOptions(TypedDict, total=False):
 
 
 class ChatOptions(OpenAIOptions, total=False):
+    thinking: str
     output_token_field: str
 
 
 class ResponsesOptions(OpenAIOptions, total=False):
+    reasoning_mode: str
     reasoning_summary: str
     reasoning_context: str
     verbosity: str

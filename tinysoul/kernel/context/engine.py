@@ -27,7 +27,7 @@ from tinysoul.kernel.interaction import (
 from tinysoul.kernel.retrieval.contracts import RefsSource, RetrievalRequest
 from tinysoul.kernel.retrieval.disclosure import DisclosurePage, InspectPage
 from tinysoul.kernel.retrieval.operations import SearchCorpus
-from tinysoul.llm.protocol.cache import PromptCache
+from tinysoul.llm.protocol.cache import PromptCache, PromptCacheBreakpoint
 from tinysoul.llm.protocol.messages import MessageStack
 from tinysoul.llm.protocol.projection import message_projection
 from tinysoul.llm.protocol.tools import ToolCallRecord, ToolScope
@@ -443,14 +443,18 @@ class ContextEngine:
 
     @staticmethod
     def prompt_cache(messages: MessageStack) -> PromptCache | None:
-        """The composed Background prefix is stable across tasks in a Turn."""
-        indices = [
-            index
-            for origin in messages.provenance
-            if origin.slot == "background"
-            for index in origin.message_indices
-        ]
-        return PromptCache(breakpoint_message_index=max(indices)) if indices else None
+        """Describe cumulative prefixes of this composition, without storing cache state."""
+        boundaries: list[PromptCacheBreakpoint] = []
+        for slot in ("background", "trace", "working"):
+            indices = [
+                index
+                for origin in messages.provenance
+                if origin.slot == slot
+                for index in origin.message_indices
+            ]
+            if indices:
+                boundaries.append(PromptCacheBreakpoint(slot, max(indices)))
+        return PromptCache(breakpoints=tuple(boundaries)) if boundaries else None
 
     def compose(self, task_prompt: TaskPrompt) -> MessageStack:
         self._require_turn()

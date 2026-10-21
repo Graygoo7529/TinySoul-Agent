@@ -6,6 +6,11 @@ from tinysoul.agent.errors import AgentContractError
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.config import ConfigError, ConfigOperation
 from tinysoul.infra.json import JsonObject
+from tinysoul.llm.adapter.base import ProviderError
+from tinysoul.llm.config.loader import (
+    LLMConfigParser,
+    read_anthropic_model_capabilities,
+)
 from tinysoul.runtime import RuntimeException
 
 from ..errors import EndpointRequestError
@@ -110,6 +115,26 @@ class EndpointConfigurationEngine:
 
     def catalog(self) -> JsonObject:
         return self._context.config_controller().catalog()
+
+    async def anthropic_model_capabilities(
+        self, *, provider_id: str, model_id: str
+    ) -> JsonObject:
+        try:
+            environment = self._context.config_controller().environment.reload()
+            config = LLMConfigParser().parse(environment.section_tree("llm"))
+            provider = config.provider(provider_id)
+            return await read_anthropic_model_capabilities(
+                provider, model_id, env=environment.runtime_env
+            )
+        except ConfigError as exc:
+            raise _config_error(exc) from exc
+        except ProviderError as exc:
+            raise EndpointRequestError(
+                status_code=502,
+                code="config.model_capability_lookup_failed",
+                message="The Anthropic-compatible model capability lookup failed.",
+                details={"kind": exc.kind.value},
+            ) from exc
 
     async def actions(self, *, scenario: str = "user") -> JsonObject:
         try:

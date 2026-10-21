@@ -102,6 +102,8 @@ export interface AdapterOptionRule {
   choices: string[];
   minimum: number | null;
   source: string;
+  default?: JsonValue;
+  fixed?: boolean;
   requires?: Record<string, string[]>;
   excludes?: string[];
 }
@@ -321,6 +323,8 @@ function decodeOptionRules(value: unknown): AdapterOptionRule[] {
         : [],
       minimum: typeof item.minimum === "number" ? item.minimum : null,
       source: typeof item.source === "string" ? item.source : "adapter",
+      default: typeof item.default === "string" || typeof item.default === "boolean" ? item.default : undefined,
+      fixed: item.fixed === true,
       requires: isPlainRecord(item.requires) ? Object.fromEntries(
         Object.entries(item.requires).map(([key, values]) => [key, Array.isArray(values) ? values.filter((v): v is string => typeof v === "string") : []]),
       ) : {},
@@ -581,4 +585,53 @@ export function optionsForAdapter(catalog: SettingsCatalog | null, adapter: stri
 export function adapterOptionAvailable(rule: AdapterOptionRule, values: Record<string, JsonValue>): boolean {
   return Object.entries(rule.requires ?? {}).every(([key, choices]) => choices.includes(String(values[key] ?? "")))
     && (rule.excludes ?? []).every((key) => values[key] === undefined);
+}
+
+
+/** Model declarations narrow the API catalog; rules intersect without mutating candidates. */
+export function modelOptionChoices(name: string, options: Record<string, JsonValue>, defaults: string[] = [], effort?: JsonValue): string[] {
+  const declared = isPlainRecord(options.choices) ? options.choices[name] : undefined;
+  let constrained = Array.isArray(declared) || defaults.length > 0;
+  let result = Array.isArray(declared) ? declared.filter((value): value is string => typeof value === "string") : defaults;
+  const rules = Array.isArray(options.choice_rules) ? options.choice_rules : [];
+  for (const rule of rules) {
+    if (!isPlainRecord(rule) || !isPlainRecord(rule.when) || !isPlainRecord(rule.choices)) continue;
+    if (!Object.entries(rule.when).every(([key, value]) => (key === "reasoning_effort" ? effort : options[key]) === value)) continue;
+    const limit = rule.choices[name];
+    if (Array.isArray(limit)) {
+      result = constrained ? result.filter((value) => limit.includes(value)) : limit.filter((value): value is string => typeof value === "string");
+      constrained = true;
+    }
+  }
+  return result;
+}
+
+/** Keep declaration metadata and selected values consistent in one model edit. */
+export function normalizeAdapterOptions(
+  specs: AdapterOptionRule[], values: Record<string, JsonValue>, effort: JsonValue | undefined,
+): { options: Record<string, JsonValue>; effort: string | undefined } {
+  const supported = new Map(specs.map((spec) => [spec.id, spec]));
+  const options = Object.fromEntries(Object.entries(values).filter(([key]) =>
+    ["variant", "choices", "choice_rules"].includes(key) || supported.has(key),
+  ));
+  if (isPlainRecord(options.choices)) options.choices = Object.fromEntries(
+    Object.entries(options.choices).filter(([name]) => supported.has(name)),
+  );
+  if (Array.isArray(options.choice_rules)) options.choice_rules = options.choice_rules.filter((rule) =>
+    isPlainRecord(rule) && isPlainRecord(rule.when) && isPlainRecord(rule.choices) &&
+    [...Object.keys(rule.when), ...Object.keys(rule.choices)].every((key) => supported.has(key)),
+  );
+  for (const spec of specs) {
+    const selected = options[spec.id];
+    if (spec.fixed) { delete options[spec.id]; continue; }
+    const declared = isPlainRecord(options.choices) && Array.isArray(options.choices[spec.id]);
+    const candidates = modelOptionChoices(spec.id, options, spec.choices, effort);
+    if (selected !== undefined && (!adapterOptionAvailable(spec, options) ||
+      (typeof selected === "string" && (declared || spec.choices.length > 0) && !candidates.includes(selected)))) {
+      delete options[spec.id];
+    }
+  }
+  const selectedEffort = typeof effort === "string" && supported.has("reasoning_effort") &&
+    modelOptionChoices("reasoning_effort", options, [], effort).includes(effort) ? effort : undefined;
+  return { options, effort: selectedEffort };
 }

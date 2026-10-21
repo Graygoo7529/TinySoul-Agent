@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Self
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -26,12 +27,13 @@ from tinysoul.gateway.endpoint import (
     EndpointSettings,
 )
 from tinysoul.gateway.endpoint.http import EndpointASGIServer, create_endpoint_app
-from tinysoul.gateway.presentation import PresentationService
 from tinysoul.gateway.endpoint.http.schemas import (
     ConfigCatalogResponse,
     ConfigMutationResponse,
     ConfigResponse,
+    ModelCapabilityLookupResponse,
 )
+from tinysoul.gateway.presentation import PresentationService
 from tinysoul.infra.config import ConfigController, ConfigEnvironment
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.paging import PageOptions
@@ -762,35 +764,165 @@ def test_config_activation_failure_uses_config_error_and_keeps_file(
     assert reload_response.json()["error"]["code"] == "config.activation_failed"
 
 
-def test_preset_http_changes_preserve_default_reset_and_recapture(tmp_path: Path) -> None:
+def test_anthropic_model_capability_lookup_uses_saved_binding_without_exposing_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    from tinysoul.gateway.endpoint.engine import configuration as configuration_module
+    from tinysoul.llm.adapter.anthropic import models as model_module
+
+    captured: dict[str, object] = {}
+
+    class FakeProvider:
+        id = "anthropic"
+
+        def endpoint(self, _mode: object) -> object:
+            return SimpleNamespace(base_url="https://anthropic.example/v1")
+
+        def resolve_api_key(self, _environment: object) -> str:
+            return "secret-test-key"
+
+        def resolved_headers(
+            self, _mode: object, _environment: object
+        ) -> dict[str, str]:
+            return {"X-Route": "test-route"}
+
+    class FakeClient:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+            self.models = self
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def retrieve(self, model_id: str) -> object:
+            captured["model_id"] = model_id
+            return SimpleNamespace(
+                id=model_id,
+                display_name="Claude Example",
+                lifecycle="active",
+                max_input_tokens=200_000,
+                max_tokens=32_000,
+                capabilities=SimpleNamespace(
+                    thinking=SimpleNamespace(
+                        supported=True,
+                        types=SimpleNamespace(
+                            adaptive=SimpleNamespace(supported=True),
+                            enabled=SimpleNamespace(supported=True),
+                            between_tools=SimpleNamespace(supported=False),
+                            disabled=SimpleNamespace(supported=True),
+                        ),
+                    ),
+                    effort=SimpleNamespace(
+                        supported=True,
+                        low=SimpleNamespace(supported=True),
+                        medium=SimpleNamespace(supported=True),
+                        high=SimpleNamespace(supported=True),
+                        xhigh=None,
+                        max=None,
+                    ),
+                ),
+            )
+
+    class FakeParser:
+        def parse(self, _tree: object) -> object:
+            return SimpleNamespace(provider=lambda _provider_id: FakeProvider())
+
+    monkeypatch.setattr(configuration_module, "LLMConfigParser", FakeParser)
+    monkeypatch.setattr(model_module, "AsyncAnthropic", FakeClient)
+
+    engine, _, _events = _engine(tmp_path)
+    client = TestClient(create_endpoint_app(engine, engine.settings))
+    response = client.post(
+        "/v2/config/models/anthropic-capabilities",
+        headers=_auth(),
+        json={"provider_id": "anthropic", "model_id": "claude-sonnet-latest"},
+    )
+
+    assert response.status_code == 200
+    ModelCapabilityLookupResponse.model_validate(response.json())
+    assert response.json() == {
+        "provider_id": "anthropic",
+        "model_id": "claude-sonnet-latest",
+        "display_name": "Claude Example",
+        "lifecycle": "active",
+        "max_input_tokens": 200_000,
+        "max_tokens": 32_000,
+        "thinking": {
+            "supported": True,
+            "choices": ["adaptive", "enabled", "disabled"],
+        },
+        "reasoning_effort": {
+            "supported": True,
+            "choices": ["low", "medium", "high"],
+        },
+    }
+    assert captured == {
+        "api_key": "secret-test-key",
+        "base_url": "https://anthropic.example/v1",
+        "default_headers": {"X-Route": "test-route"},
+        "max_retries": 0,
+        "timeout": 30,
+        "model_id": "claude-sonnet-latest",
+    }
+    assert "secret-test-key" not in response.text
+
+
+def test_preset_http_changes_preserve_default_reset_and_recapture(
+    tmp_path: Path,
+) -> None:
     (tmp_path / "tinysoul.toml").write_text(
         '[llm.tasks.main]\nmodels = ["model-a"]\n', encoding="utf-8"
     )
     engine, _, _ = _engine(tmp_path)
     client = TestClient(create_endpoint_app(engine, engine.settings))
     created = client.post(
-        "/v2/config/presets", headers=_auth(),
+        "/v2/config/presets",
+        headers=_auth(),
         json={"name": "Current", "include_budgets": False},
     )
     assert created.status_code == 200
     record = created.json()
     assert record["matches_current"] is True and record["changes"] == []
     assert record["definition"]["values"]["loop.cycle.phase1_task_profile"] is None
-    changed = client.patch("/v2/config", headers=_auth(), json={"operations": [{
-        "op": "set", "source_id": "project:tinysoul.toml",
-        "path": "llm.tasks.main.temperature", "value": 0.8,
-    }]})
+    changed = client.patch(
+        "/v2/config",
+        headers=_auth(),
+        json={
+            "operations": [
+                {
+                    "op": "set",
+                    "source_id": "project:tinysoul.toml",
+                    "path": "llm.tasks.main.temperature",
+                    "value": 0.8,
+                }
+            ]
+        },
+    )
     assert changed.status_code == 200
     path = f"/v2/config/presets/{record['id']}"
     detail = client.get(path, headers=_auth()).json()
     assert detail["matches_current"] is False
-    assert detail["changes"] == [{
-        "path": ["llm", "tasks", "main", "temperature"], "before": 0.8, "after": None,
-    }]
-    updated = client.put(path, headers=_auth(), json={"capture": {"include_budgets": False}})
+    assert detail["changes"] == [
+        {
+            "path": ["llm", "tasks", "main", "temperature"],
+            "before": 0.8,
+            "after": None,
+        }
+    ]
+    updated = client.put(
+        path, headers=_auth(), json={"capture": {"include_budgets": False}}
+    )
     assert updated.status_code == 200
     assert updated.json()["changes"] == []
-    assert updated.json()["definition"]["values"]["llm.tasks"]["main"]["temperature"] == 0.8
+    assert (
+        updated.json()["definition"]["values"]["llm.tasks"]["main"]["temperature"]
+        == 0.8
+    )
 
 
 def _engine(

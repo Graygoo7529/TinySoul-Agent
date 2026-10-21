@@ -13,6 +13,18 @@ import type { JsonObject, JsonValue } from "./json";
 /** Configuration view selector for GET /v2/config?view=. */
 export type ConfigView = "saved" | "active";
 
+/** Explicit read from one saved Anthropic-compatible provider endpoint. */
+export type ModelCapabilityLookup = {
+  provider_id: string;
+  model_id: string;
+  display_name: string | null;
+  lifecycle: string | null;
+  max_input_tokens: number | null;
+  max_tokens: number | null;
+  thinking: { supported: boolean; choices: string[] } | null;
+  reasoning_effort: { supported: boolean; choices: string[] } | null;
+};
+
 /** Configuration.sources[] entry (config-views example). */
 export interface ConfigSource {
   id: string;

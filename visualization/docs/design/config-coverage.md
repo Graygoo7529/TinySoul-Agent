@@ -62,17 +62,21 @@ LLM Provider 按 API mode 提供入口，共用凭据；不枚举专属 adapter�
 | `.capabilities` | string_list：`text_input/image_input/image_remote_url/json_object_output/tool_calling/reasoning_output/prompt_cache` | 可写 | 任务链 `required_capabilities` 的满足判断 |
 | `.adapter_options.variant` | enum：k2 / k3（advanced） | 按 adapter descriptor 显示 | Kimi 专属变体 |
 | `.adapter_options.thinking` | enum，候选来自 API mode / adapter | 可写 | 思考模式 |
-| `.adapter_options.reasoning_efforts` | string_list，逗号分隔输入 | 可写 | 模型声明的候选档位；Google 映射 thinking level |
+| `.adapter_options.choices.reasoning_effort` | string_list，逗号分隔输入 | 可写 | 模型声明的候选档位；Google 映射 thinking level |
+| `.adapter_options.choices` / `.choice_rules` | 字符串候选与有限条件收窄 | 可写 | 模型候选、固定值及选项组合由后端 catalog 统一校验 |
 | `.reasoning_effort` | 候选中的单一值，可清空 | 主面板选择 | 删除已选档位后提示重新选择或清空，不静默换档 |
 | `.adapter_options.native_replay` | enum：none / content / encrypted / signed（advanced） | 可写 | 供应商原生回放模式 |
 | `.adapter_options.reasoning_summary` | enum：auto / concise / detailed（advanced） | 可写 | 推理摘要 |
 | `.adapter_options.verbosity` | enum：low / medium / high（advanced） | 可写 | 输出详略 |
-| `.adapter_options.prompt_cache_mode` / `.prompt_cache_ttl` | API mode 对应的模式与 TTL | 按有效 catalog 显示 | OpenAI 隐式/显式、Anthropic 自动/显式/关闭、Google 隐式/显式 |
+| `.adapter_options.prompt_cache_mode` / `.prompt_cache_ttl` | API mode 对应的模式与 TTL | 按有效 catalog 显示 | OpenAI Chat `30m`、Responses `30m/12h`；Anthropic `5m/1h`；Google 秒数 TTL |
+| `.adapter_options.prompt_cache_boundaries` / `.prompt_cache_ttls` | Context 名称列表 / 名称到 TTL 的映射 | 按有效 catalog 显示 | Background、Trace、Working 前缀；Google 只选一个显式资源前缀 |
 | `.adapter_options.thinking_budget_tokens` / `.thinking_display` / `.include_thoughts` | number / enum / boolean | 按 requires/excludes 显示 | 思考预算或摘要展示；Google budget 与候选档位互斥 |
-| `.adapter_options.reasoning_mode` / `.reasoning_context` / `.reasoning_split` / `.store` / `.do_sample` / `.request_id` / `.user_id` | 各按 catalog 类型 | 按 API mode、adapter、variant 显示 | 模式或供应商特有行为 |
+| `.adapter_options.reasoning_mode` / `.reasoning_context` / `.reasoning_split` / `.store` / `.do_sample` / `.user_id` | 各按 catalog 类型 | 按 API mode、adapter、variant 显示 | 模式或供应商特有行为 |
 | `.request_overrides.temperature` / `.top_p` / `.max_output_tokens` | number / number / integer | 可写 | 覆盖任务级采样与输出预算 |
 
 选项规则由后端组合 API mode → adapter → variant，并提供 `source`、`requires`、`excludes`。切换模式清理失效的依赖选项；父对象草稿内的子字段修改仍写回同一草稿，替换父对象同时撤销旧子字段操作。Google 远端缓存名由后端 generation 内资源管理器持有，不进入模型表单或 TOML。
+
+Anthropic 模型能力读取是显式的只读请求，前端只呈现所选 provider binding 返回的建议；只有维护者采纳后才修改本地草稿，仍经原配置 PATCH 与 reload 链路保存和生效。
 
 ### 2.3 LLM 任务链 —— collection `llm.tasks`
 

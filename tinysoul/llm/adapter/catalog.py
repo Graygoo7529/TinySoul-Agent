@@ -13,6 +13,7 @@ from tinysoul.infra.config import ConfigError, reject_unknown_keys
 from tinysoul.infra.json import JsonObject, to_json_object
 
 from ..protocol.adapter_types import AdapterKind, ApiMode
+from ..protocol.models import AdapterOptions
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,8 @@ class AdapterOptionSpec:
     choices: tuple[str, ...] = ()
     minimum: int | None = None
     source: str = "api-mode"
+    default: str | bool | None = None
+    fixed: bool = False
     requires: tuple[tuple[str, tuple[str, ...]], ...] = ()
     excludes: tuple[str, ...] = ()
 
@@ -32,6 +35,8 @@ class AdapterOptionSpec:
             "choices": list(self.choices),
             "minimum": self.minimum,
             "source": self.source,
+            "default": self.default,
+            "fixed": self.fixed,
             "requires": {name: list(values) for name, values in self.requires},
             "excludes": list(self.excludes),
         }
@@ -90,7 +95,13 @@ class AdapterSpec:
             )
         return tuple(result.values())
 
-    def validate_options(self, options: Mapping[str, object], *, key: str) -> None:
+    def validate_options(
+        self,
+        options: Mapping[str, object],
+        *,
+        key: str,
+        reasoning_effort: str | None = None,
+    ) -> None:
         variant = options.get("variant")
         if self.variants:
             if not isinstance(variant, str) or variant not in {
@@ -111,11 +122,20 @@ class AdapterSpec:
                 variant if isinstance(variant, str) else None
             )
         }
+        if reasoning_effort is not None and "reasoning_effort" not in specs:
+            raise ConfigError("Adapter does not support reasoning effort", key=key)
         reject_unknown_keys(
-            options, {*specs, *(("variant",) if self.variants else ())}, key=key
+            options,
+            {
+                *specs.keys() - {"reasoning_effort"},
+                "choices",
+                "choice_rules",
+                *(("variant",) if self.variants else ()),
+            },
+            key=key,
         )
         for name, value in options.items():
-            if name != "variant":
+            if name not in {"variant", "choices", "choice_rules"}:
                 _validate_option(specs[name], value, key=f"{key}.{name}")
                 spec = specs[name]
                 if any(
@@ -129,6 +149,53 @@ class AdapterSpec:
                     raise ConfigError(
                         "Choose one option, not both", key=f"{key}.{name}"
                     )
+        declaration = AdapterOptions(options)
+        selected = {**options, "reasoning_effort": reasoning_effort}
+        for name, candidates in declaration.choices.items():
+            self._validate_candidates(specs, name, candidates, key=key)
+        for rule in declaration.choice_rules:
+            when = rule["when"]
+            limits = rule["choices"]
+            assert isinstance(when, Mapping) and isinstance(limits, Mapping)
+            for name, value in when.items():
+                self._validate_candidates(specs, name, [value], key=key)
+            for name, candidates in limits.items():
+                self._validate_candidates(specs, name, candidates, key=key)
+        for name, spec in specs.items():
+            value = selected.get(name)
+            if spec.fixed and value is not None and value != spec.default:
+                raise ConfigError(
+                    "Adapter option has a fixed value", key=f"{key}.{name}"
+                )
+            candidates = declaration.available_choices(
+                name, selected=selected, defaults=spec.choices or None
+            )
+            if value is not None and candidates is not None and value not in candidates:
+                raise ConfigError(
+                    "Selected value is not available for this model",
+                    key=f"{key}.{name}",
+                )
+        if (
+            self.api_mode is ApiMode.GOOGLE_GENERATE_CONTENT
+            and reasoning_effort is not None
+            and "thinking_budget_tokens" in options
+        ):
+            raise ConfigError("Choose reasoning effort or thinking budget", key=key)
+        if self.api_mode is ApiMode.GOOGLE_GENERATE_CONTENT:
+            boundaries = options.get("prompt_cache_boundaries", ())
+            assert isinstance(boundaries, (tuple, list))
+            if len(boundaries) > 1:
+                raise ConfigError("Google explicit caching selects one prefix", key=key)
+        if "prompt_cache_ttls" in options:
+            ttls = options["prompt_cache_ttls"]
+            assert isinstance(ttls, Mapping)
+            ttl_spec = specs["prompt_cache_ttl"]
+            for name, ttl in ttls.items():
+                if not isinstance(name, str) or not name:
+                    raise ConfigError(
+                        "Cache TTL overrides require named boundaries", key=key
+                    )
+                _validate_option(ttl_spec, ttl, key=f"{key}.prompt_cache_ttls.{name}")
         if "extra_body" in options:
             _validate_extra_body(
                 options["extra_body"], key=f"{key}.extra_body", occupied=set(specs)
@@ -149,6 +216,25 @@ class AdapterSpec:
                 raise ConfigError(
                     "Thinking budget requires manual enabled mode", key=key
                 )
+
+    @staticmethod
+    def _validate_candidates(
+        specs: Mapping[str, AdapterOptionSpec],
+        name: object,
+        candidates: object,
+        *,
+        key: str,
+    ) -> None:
+        if (
+            not isinstance(name, str)
+            or name not in specs
+            or specs[name].value_kind not in {"enum", "string"}
+        ):
+            raise ConfigError("Choices require a supported string option", key=key)
+        if not isinstance(candidates, (list, tuple)):
+            raise ConfigError("Choices must be lists", key=key)
+        for value in candidates:
+            _validate_option(specs[name], value, key=f"{key}.choices.{name}")
 
     def to_json(self) -> JsonObject:
         from .factory import runtime_adapter_kinds
@@ -184,7 +270,11 @@ _BASE = (
     option("sampling", "enum", "pass-through", "omit"),
     option("extra_body", "object"),
 )
-_EFFORT = (option("reasoning_efforts", "string_list"),)
+_EFFORT = (option("reasoning_effort"),)
+_CACHE_BOUNDARIES = (
+    option("prompt_cache_boundaries", "string_list"),
+    option("prompt_cache_ttls", "object"),
+)
 _CACHE = (
     option("prompt_cache_mode", "enum", "implicit", "explicit"),
     replace(
@@ -198,7 +288,11 @@ _CHAT = ApiModeSpec(
         *_BASE,
         *_EFFORT,
         *_CACHE,
+        option("prompt_cache_boundaries", "string_list"),
         option("native_replay", "enum", "none", "content"),
+        option("thinking", "enum", "enabled", "disabled", "adaptive"),
+        option("tool_choice_policy", "enum", "native", "auto", "omit"),
+        option("json_output_with_tools", "enum", "native", "prompt"),
         option("output_token_field", "enum", "max_completion_tokens", "max_tokens"),
     ),
 )
@@ -207,8 +301,15 @@ _RESPONSES = ApiModeSpec(
     (
         *_BASE,
         *_EFFORT,
-        *_CACHE,
+        option("prompt_cache_mode", "enum", "implicit", "explicit"),
+        replace(
+            option("prompt_cache_ttl", "enum", "30m", "12h"),
+            requires=(("prompt_cache_mode", ("implicit", "explicit")),),
+        ),
+        *_CACHE_BOUNDARIES,
         option("native_replay", "enum", "none", "encrypted"),
+        option("tool_choice_policy", "enum", "native", "auto"),
+        option("json_output_with_tools", "enum", "native", "prompt"),
         option("reasoning_summary", "enum", "auto", "concise", "detailed"),
         option("reasoning_mode", "enum", "standard", "pro"),
         option("reasoning_context", "enum", "auto", "current_turn", "all_turns"),
@@ -223,14 +324,17 @@ _ANTHROPIC = ApiModeSpec(
         *_EFFORT,
         option("native_replay", "enum", "none", "signed"),
         option("thinking", "enum", "adaptive", "enabled", "disabled", "between_tools"),
+        option("replay_prefix_binding", "boolean"),
+        replace(option("tool_choice_policy", "enum", "native", "auto"), default="auto"),
         replace(
             option("thinking_budget_tokens", "integer", minimum=1024),
             requires=(("thinking", ("enabled",)),),
         ),
         replace(
-            option("thinking_display", "enum", "summarized", "omitted"),
+            option("thinking_display", "enum", "summarized", "omitted", "updates"),
             requires=(("thinking", ("adaptive", "enabled")),),
         ),
+        *_CACHE_BOUNDARIES,
         option("prompt_cache_mode", "enum", "automatic", "explicit", "disabled"),
         replace(
             option("prompt_cache_ttl", "enum", "5m", "1h"),
@@ -242,10 +346,12 @@ _GOOGLE = ApiModeSpec(
     ApiMode.GOOGLE_GENERATE_CONTENT,
     (
         *_BASE,
-        replace(_EFFORT[0], excludes=("thinking_budget_tokens",)),
+        *_EFFORT,
+        option("prompt_cache_boundaries", "string_list"),
+        option("tool_choice_policy", "enum", "native", "auto"),
+        option("json_output_with_tools", "enum", "native", "prompt"),
         replace(
             option("thinking_budget_tokens", "integer", minimum=-1),
-            excludes=("reasoning_efforts",),
         ),
         option("native_replay", "enum", "none", "signed"),
         option("include_thoughts", "boolean"),
@@ -264,21 +370,42 @@ _SPECS = (
     AdapterSpec(
         AdapterKind.KIMI,
         _CHAT,
+        overrides=(replace(option("sampling", "enum", "omit"), default="omit", fixed=True),),
         variants=(
             AdapterVariantSpec(
                 "k2",
                 (option("thinking", "enum", "enabled", "disabled"),),
-                ("reasoning_efforts",),
+                ("reasoning_effort",),
             ),
-            AdapterVariantSpec("k3", (), ("native_replay",)),
+            AdapterVariantSpec(
+                "k3",
+                (
+                    replace(
+                        option("native_replay", "enum", "content"),
+                        default="content",
+                        fixed=True,
+                    ),
+                ),
+                ("thinking",),
+            ),
         ),
-        disabled_options=("prompt_cache_mode", "prompt_cache_ttl"),
+        disabled_options=(
+            "prompt_cache_mode",
+            "prompt_cache_ttl",
+            "prompt_cache_boundaries",
+            "prompt_cache_ttls",
+        ),
     ),
     AdapterSpec(
         AdapterKind.DEEPSEEK,
         _CHAT,
         (option("thinking", "enum", "enabled", "disabled"),),
-        disabled_options=("prompt_cache_mode", "prompt_cache_ttl"),
+        disabled_options=(
+            "prompt_cache_mode",
+            "prompt_cache_ttl",
+            "prompt_cache_boundaries",
+            "prompt_cache_ttls",
+        ),
     ),
     AdapterSpec(
         AdapterKind.GLM,
@@ -286,19 +413,30 @@ _SPECS = (
         (
             option("thinking", "enum", "enabled", "disabled"),
             option("do_sample", "boolean"),
-            option("request_id"),
             option("user_id"),
         ),
-        disabled_options=("prompt_cache_mode", "prompt_cache_ttl"),
+        disabled_options=(
+            "prompt_cache_mode",
+            "prompt_cache_ttl",
+            "prompt_cache_boundaries",
+            "prompt_cache_ttls",
+        ),
     ),
     AdapterSpec(
         AdapterKind.MINIMAX,
         _CHAT,
         (
-            option("thinking", "enum", "enabled", "disabled", "adaptive"),
-            option("reasoning_split", "boolean"),
+            option("thinking", "enum", "disabled", "adaptive"),
+            replace(option("reasoning_split", "boolean"), default=True, fixed=True),
+            replace(option("sampling", "enum", "omit"), default="omit", fixed=True),
+            replace(option("tool_choice_policy", "enum", "omit"), default="omit", fixed=True),
         ),
-        disabled_options=("prompt_cache_mode", "prompt_cache_ttl"),
+        disabled_options=(
+            "prompt_cache_mode",
+            "prompt_cache_ttl",
+            "prompt_cache_boundaries",
+            "prompt_cache_ttls",
+        ),
     ),
     AdapterSpec(AdapterKind.ANTHROPIC_MESSAGES, _ANTHROPIC),
     AdapterSpec(AdapterKind.GOOGLE_GENERATE_CONTENT, _GOOGLE),
@@ -333,13 +471,8 @@ def _validate_option(spec: AdapterOptionSpec, value: object, *, key: str) -> Non
             and (not spec.choices or value in spec.choices)
         )
     elif spec.value_kind == "string_list":
-        valid = (
-            isinstance(value, (list, tuple))
-            and bool(value)
-            and all(
-                isinstance(item, str) and item == item.strip() and item
-                for item in value
-            )
+        valid = isinstance(value, (list, tuple)) and all(
+            isinstance(item, str) and item == item.strip() and item for item in value
         )
         if valid:
             valid = len(set(value)) == len(value)

@@ -22,7 +22,6 @@ from ..openai.options import ChatOptions
 
 class KimiOptions(ChatOptions, total=False):
     variant: str
-    thinking: str
 
 
 class KimiAdapter(OpenAIChatAdapter):
@@ -67,15 +66,11 @@ class KimiAdapter(OpenAIChatAdapter):
     ) -> None:
         super().apply_options(kwargs, options, request=request)
         values = cast(KimiOptions, options or {})
-        extra_body: dict[str, object] = dict(values.get("extra_body", {}))
-        thinking: dict[str, object] = {}
-        if "thinking" in values:
-            thinking["type"] = values["thinking"]
         if values.get("variant") == "k2" and values.get("native_replay") == "content":
+            extra_body = dict(cast(Mapping[str, object], kwargs.get("extra_body", {})))
+            thinking = dict(cast(Mapping[str, object], extra_body.get("thinking", {})))
             thinking["keep"] = "all"
-        if thinking:
             extra_body["thinking"] = thinking
-        if extra_body:
             kwargs["extra_body"] = extra_body
 
     def normalize_sampling(

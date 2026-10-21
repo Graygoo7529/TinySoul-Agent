@@ -22,6 +22,8 @@ Composer 只接收带段描述的消息投影，按 Background → Trace → Wor
 
 除 system identity 外，框架构造的语境使用 user role；TinySoul ToolResult 仍按内部工具消息语义表达，并由 provider adapter 决定供应商协议映射。前端在 model Observation 中看到的 MessageStack 就是实际交给 LLM 层的构造结果，不另建 Context REST snapshot。MessageOrigin 记录 segment、owner、slot、shape、实际 message indices 与 refs；resolved_references 保留动态绑定。
 
+Prompt cache 意图由当前 MessageStack 的 provenance 派生：Context 为实际存在的 Background、Trace、Working 前缀提供命名位置，TaskPrompt 不属于可缓存 Context 前缀。每次 compose 都重新计算索引，不保存本地 cache state 或独立摘要。adapter 按模型的 cache policy 选取可用位置；各 API 可使用的断点数量与资源生命周期仍归各自 adapter，Google cachedContents 名称不进入 Context 或持久配置。
+
 ## Background 与 Working
 
 Session provider 在段 open 时读取固定的历史事实集合；模型投影只在 Session 自身超过水位时折叠，保留地图入口与全部事实引用，Context 不能任意削减它。通用 Background 每 Turn 重建；默认 Home 条目、按需加载的 Top 引用 和 Memory 动态投影都属于当前 Turn。User/Home Reflection 装配不可逐出的 `memory:current + optional memory:latest`，Memory Reflection 装配不可逐出的 `memory:target + optional memory:latest`；latest 是严格早于 Context 活动日期的最近 daily，缺失时省略。Background catalog 只提供有界 引用、title 和 description，不等同于已加载正文。

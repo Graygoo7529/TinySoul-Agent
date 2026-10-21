@@ -100,7 +100,11 @@ class ProviderConfigParser:
                     endpoints.append(
                         ProviderEndpoint(
                             api_mode=mode,
-                            api_version=required_str(endpoint_table, "api_version", key=endpoint_key) if "api_version" in endpoint_table else None,
+                            api_version=required_str(
+                                endpoint_table, "api_version", key=endpoint_key
+                            )
+                            if "api_version" in endpoint_table
+                            else None,
                             base_url=required_str(
                                 endpoint_table, "base_url", key=endpoint_key
                             ),
@@ -209,9 +213,17 @@ class ModelConfigParser:
                     model_table,
                     key=f"llm.models.{model_id}",
                 )
+                reasoning_effort = (
+                    required_str(
+                        model_table, "reasoning_effort", key=f"llm.models.{model_id}"
+                    )
+                    if "reasoning_effort" in model_table
+                    else None
+                )
                 adapter_spec(adapter).validate_options(
                     adapter_options.values,
                     key=f"llm.models.{model_id}.adapter_options",
+                    reasoning_effort=reasoning_effort,
                 )
                 registry.register(
                     ModelSpec(
@@ -230,15 +242,7 @@ class ModelConfigParser:
                         ),
                         adapter_options=adapter_options,
                         request_overrides=request_overrides,
-                        reasoning_effort=(
-                            required_str(
-                                model_table,
-                                "reasoning_effort",
-                                key=f"llm.models.{model_id}",
-                            )
-                            if "reasoning_effort" in model_table
-                            else None
-                        ),
+                        reasoning_effort=reasoning_effort,
                         family=family,
                         collapsed=required_bool(
                             {"collapsed": model_table.get("collapsed", False)},

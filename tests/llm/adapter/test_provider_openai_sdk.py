@@ -28,7 +28,7 @@ from tinysoul.llm.config.loader import (
     ProviderEndpoint,
     ProviderSpec,
 )
-from tinysoul.llm.protocol.cache import PromptCache
+from tinysoul.llm.protocol.cache import PromptCache, PromptCacheBreakpoint
 from tinysoul.llm.protocol.messages import (
     AssistantMessage,
     ImagePart,
@@ -221,7 +221,7 @@ async def test_openai_responses_adapter_maps_request_payload() -> None:
                 options={
                     "prompt_cache_mode": "implicit",
                     "prompt_cache_ttl": "30m",
-                    "reasoning_efforts": ["high"],
+                    "choices": {"reasoning_effort": ["high"]},
                     "reasoning_summary": "auto",
                     "native_replay": "encrypted",
                     "verbosity": "medium",
@@ -243,7 +243,7 @@ async def test_openai_responses_adapter_maps_request_payload() -> None:
             adapter_options={
                 "prompt_cache_mode": "implicit",
                 "prompt_cache_ttl": "30m",
-                "reasoning_efforts": ["high"],
+                "choices": {"reasoning_effort": ["high"]},
                 "reasoning_summary": "auto",
                 "native_replay": "encrypted",
                 "verbosity": "medium",
@@ -310,7 +310,7 @@ async def test_openai_responses_adapter_keeps_sampling_without_active_reasoning(
                 answer_format=AnswerFormat.TEXT,
                 temperature=1.0,
                 max_output_tokens=128,
-                adapter_options={"reasoning_efforts": ["none"]},
+                adapter_options={"choices": {"reasoning_effort": ["none"]}},
                 reasoning_effort="none",
                 top_p=0.8,
             )
@@ -974,7 +974,7 @@ async def test_kimi_k3_adapter_maps_reasoning_without_k2_thinking() -> None:
                 provider_model="k3",
                 options={
                     "variant": "k3",
-                    "reasoning_efforts": ["max"],
+                    "choices": {"reasoning_effort": ["max"]},
                 },
                 reasoning_effort="max",
             ),
@@ -991,7 +991,7 @@ async def test_kimi_k3_adapter_maps_reasoning_without_k2_thinking() -> None:
             max_output_tokens=128,
             adapter_options={
                 "variant": "k3",
-                "reasoning_efforts": ["max"],
+                "choices": {"reasoning_effort": ["max"]},
             },
             reasoning_effort="max",
         )
@@ -1144,6 +1144,90 @@ async def test_chat_adapter_maps_tools_and_tool_results() -> None:
     assert response.tool_calls[0].arguments == {"path": "workspace:next.md"}
 
 
+async def test_openai_responses_marks_tool_output_cache_boundary_with_override_ttl() -> (
+    None
+):
+    client = FakeCreateClient(response=SimpleNamespace(output=[], usage={}))
+    adapter = GptAdapter(provider=_provider("openai"), responses=client)
+    call = ToolCallRecord(id="call_1", name="read_file", arguments={"path": "a.md"})
+
+    await adapter.invoke(
+        ProviderRequest(
+            model=_model(
+                provider_id="openai",
+                provider_model="gpt-6.1",
+                options={
+                    "prompt_cache_mode": "explicit",
+                    "prompt_cache_ttl": "30m",
+                    "prompt_cache_ttls": {"trace": "12h"},
+                },
+            ),
+            messages=MessageStack.of(
+                UserMessage.from_text("Stable prefix"),
+                AssistantMessage.from_tool_calls(call),
+                ToolResultMessage.from_json(
+                    call_id="call_1", tool_name="read_file", value={"ok": True}
+                ),
+            ),
+            answer_format=AnswerFormat.TEXT,
+            prompt_cache=PromptCache(breakpoints=(PromptCacheBreakpoint("trace", 2),)),
+            tool_scope=ToolScope(tools=(_tool(),)),
+            tool_use=ToolUse.REQUIRED,
+        )
+    )
+
+    output = _message_payloads(_message_payloads(client.calls[0]["input"])[-1]["output"])
+    assert output[-1]["prompt_cache_breakpoint"] == {
+        "mode": "explicit",
+        "ttl": "12h",
+    }
+
+
+async def test_openai_chat_marks_multiple_named_cache_boundaries() -> None:
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))],
+            usage={},
+        )
+    )
+    adapter = OpenAIChatAdapter(provider=_provider("compatible"), completions=client)
+
+    await adapter.invoke(
+        ProviderRequest(
+            model=_model(
+                provider_id="compatible",
+                provider_model="gpt-5.6",
+                options={
+                    "prompt_cache_mode": "explicit",
+                    "prompt_cache_ttl": "30m",
+                    "prompt_cache_boundaries": ["background", "working"],
+                },
+            ),
+            messages=MessageStack.of(
+                SystemMessage.from_text("Identity"),
+                UserMessage.from_text("Stable background"),
+                UserMessage.from_text("Working state"),
+                UserMessage.from_text("Task"),
+            ),
+            answer_format=AnswerFormat.TEXT,
+            prompt_cache=PromptCache(
+                breakpoints=(
+                    PromptCacheBreakpoint("background", 1),
+                    PromptCacheBreakpoint("working", 2),
+                )
+            ),
+        )
+    )
+
+    messages = _message_payloads(client.calls[0]["messages"])
+    assert _message_payloads(messages[1]["content"])[-1]["prompt_cache_breakpoint"] == {
+        "mode": "explicit",
+    }
+    assert _message_payloads(messages[2]["content"])[-1]["prompt_cache_breakpoint"] == {
+        "mode": "explicit",
+    }
+
+
 async def test_chat_adapter_rejects_unsupported_tool_call_type() -> None:
     message = SimpleNamespace(
         content="",
@@ -1220,7 +1304,7 @@ async def test_kimi_k3_adapter_replays_reasoning_with_tool_calls_and_results() -
                 tool_use=ToolUse.OPTIONAL,
                 adapter_options={
                     "variant": "k3",
-                    "reasoning_efforts": ["max"],
+                    "choices": {"reasoning_effort": ["max"]},
                 },
                 reasoning_effort="max",
             )
@@ -1677,7 +1761,10 @@ async def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
             model=_model(
                 provider_id="deepseek",
                 provider_model="deepseek-v4-pro",
-                options={"thinking": "enabled", "reasoning_efforts": ["low"]},
+                options={
+                    "thinking": "enabled",
+                    "choices": {"reasoning_effort": ["low"]},
+                },
                 reasoning_effort="low",
             ),
             messages=MessageStack.of(
@@ -1692,7 +1779,7 @@ async def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
             max_output_tokens=128,
             adapter_options={
                 "thinking": "enabled",
-                "reasoning_efforts": ["low"],
+                "choices": {"reasoning_effort": ["low"]},
                 "native_replay": "content",
             },
             reasoning_effort="low",
@@ -1868,7 +1955,7 @@ async def test_deepseek_adapter_omits_tool_choice_with_thinking() -> None:
                 tool_use=ToolUse.REQUIRED,
                 adapter_options={
                     "thinking": "enabled",
-                    "reasoning_efforts": ["high"],
+                    "choices": {"reasoning_effort": ["high"]},
                     "native_replay": "content",
                 },
                 reasoning_effort="high",
@@ -2162,7 +2249,7 @@ async def test_glm_adapter_maps_reasoning_effort_provider_option() -> None:
                 model=_model(provider_id="glm", provider_model="glm-5.2"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
                 answer_format=AnswerFormat.TEXT,
-                adapter_options={"reasoning_efforts": ["max"]},
+                adapter_options={"choices": {"reasoning_effort": ["max"]}},
                 reasoning_effort="max",
             )
         )
@@ -2544,11 +2631,52 @@ async def test_deepseek_adapter_rejects_strict_tools() -> None:
                             ),
                         ),
                     ),
+                    tool_use=ToolUse.OPTIONAL,
                 )
             )
         )
 
     assert exc.value.kind is ProviderErrorKind.CONFIG
+
+
+async def test_deepseek_beta_endpoint_maps_strict_tools() -> None:
+    message = SimpleNamespace(content="ok", tool_calls=[])
+    client = FakeCreateClient(
+        response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
+    )
+    beta_provider = replace(
+        _provider("deepseek"),
+        endpoints=(
+            ProviderEndpoint(ApiMode.OPENAI_CHAT, "https://api.deepseek.com/beta"),
+        ),
+    )
+    adapter = DeepSeekAdapter(provider=beta_provider, completions=client)
+
+    await adapter.invoke(
+        ProviderRequest(
+            model=_model(
+                provider_id="deepseek",
+                provider_model="deepseek-v4-pro",
+                options={"native_replay": "content"},
+            ),
+            messages=MessageStack.of(UserMessage.from_text("hello")),
+            answer_format=AnswerFormat.TEXT,
+            tool_scope=ToolScope(
+                tools=(
+                    ToolSpec(
+                        name="read_file",
+                        description="Read",
+                        parameters={"type": "object"},
+                        kind=ToolKind.ACTION,
+                        strict=True,
+                    ),
+                ),
+            ),
+            tool_use=ToolUse.OPTIONAL,
+        )
+    )
+
+    assert _mapping_payload(_message_payloads(client.calls[0]["tools"])[0]["function"])["strict"] is True
 
 
 async def test_deepseek_adapter_validates_only_visible_tools() -> None:

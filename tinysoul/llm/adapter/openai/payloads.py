@@ -6,7 +6,7 @@ import base64
 import json
 from typing import Protocol
 
-from tinysoul.infra.json import JsonObject
+from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.llm.execution.message_rendering import (
     MessageContentRenderer,
     RenderedContentPart,
@@ -30,7 +30,7 @@ from tinysoul.llm.protocol.tools import (
 )
 
 from ..base import ProviderError, ProviderErrorKind, ProviderRequest
-from ..common import cache_boundary
+from ..common import cache_boundaries, cache_ttl
 from ..history import (
     assistant_context_parts,
     tool_replay_plan,
@@ -122,7 +122,8 @@ def to_responses_input(
             )
             if not message.tool_calls or replayed_tool_calls:
                 native = adapter.responses_input_reasoning(
-                    message, request,
+                    message,
+                    request,
                 )
                 expected_calls = {
                     id_mapper.to_provider_id(call.id): name_map.to_provider_name(
@@ -136,7 +137,7 @@ def to_responses_input(
                     if item.get("type") == "function_call"
                 }
                 if native and native_calls == expected_calls:
-                    items.extend(dict(item) for item in native)
+                    items.extend(dict(to_json_object(item)) for item in native)
                     continue
             parts = assistant_context_parts(
                 message, native_calls=bool(replayed_tool_calls)
@@ -172,7 +173,7 @@ def to_responses_input(
             }
         )
     cuts.append(len(items))
-    _mark_cache_boundary(items, cuts, request)
+    _mark_cache_boundary(items, cuts, request, api_mode=ApiMode.OPENAI_RESPONSES)
     return items
 
 
@@ -219,7 +220,8 @@ def to_chat_messages(
         replayed_tool_calls: tuple[ToolCallRecord, ...] = ()
         if isinstance(message, AssistantMessage):
             reasoning_content = adapter.chat_input_reasoning(
-                message, request,
+                message,
+                request,
             )
             replayed_tool_calls = (
                 ()
@@ -253,7 +255,7 @@ def to_chat_messages(
                 ]
         items.append(item)
     cuts.append(len(items))
-    _mark_cache_boundary(items, cuts, request)
+    _mark_cache_boundary(items, cuts, request, api_mode=ApiMode.OPENAI_CHAT)
     return items
 
 
@@ -338,6 +340,11 @@ def apply_tools_kwargs(
         for tool in tools
     ]
     tool_choice = adapter.tool_choice_payload(request, api_mode=api_mode)
+    policy = request.model.adapter_options.values.get("tool_choice_policy")
+    if policy == "auto":
+        tool_choice = "auto"
+    elif policy == "omit":
+        tool_choice = None
     if tool_choice is not None:
         kwargs["tool_choice"] = tool_choice
 
@@ -491,21 +498,59 @@ __all__ = [
 ]
 
 
-def _mark_cache_boundary(items: list[dict[str, object]], cuts: list[int], request: ProviderRequest) -> None:
-    index = cache_boundary(request)
-    if (
-        index is None
-        or request.model.adapter_options.values.get("prompt_cache_mode") != "explicit"
-    ):
-        return
-    if cuts[index + 1] <= cuts[index]:
-        raise ProviderError("Cache boundary has no provider content", kind=ProviderErrorKind.CONFIG)
-    item = items[cuts[index + 1] - 1]
-    content = item.get("content")
-    if isinstance(content, str):
-        block: dict[str, object] = {"type": "text", "text": content}
-        content = [block]
-        item["content"] = content
-    if not isinstance(content, list) or not content or not isinstance(content[-1], dict):
-        raise ProviderError("Cache boundary requires a message content block", kind=ProviderErrorKind.CONFIG)
-    content[-1]["prompt_cache_breakpoint"] = {"mode": "explicit"}
+def _mark_cache_boundary(
+    items: list[dict[str, object]],
+    cuts: list[int],
+    request: ProviderRequest,
+    *,
+    api_mode: ApiMode,
+) -> None:
+    marked: set[int] = set()
+    for point in cache_boundaries(request):
+        for item in reversed(items[: cuts[point.message_index + 1]]):
+            responses_output = item.get("type") == "function_call_output"
+            field = "output" if responses_output else "content"
+            content = item.get(field)
+            if isinstance(content, str) and content:
+                text_block: dict[str, object] = {
+                    "type": "input_text" if responses_output else "text",
+                    "text": content,
+                }
+                content = [text_block]
+                item[field] = content
+            if not isinstance(content, list):
+                continue
+            block = next(
+                (
+                    part
+                    for part in reversed(content)
+                    if isinstance(part, dict)
+                    and part.get("type")
+                    in {
+                        "text",
+                        "image_url",
+                        "input_text",
+                        "input_image",
+                        "input_file",
+                        "output_text",
+                    }
+                ),
+                None,
+            )
+            if block is None:
+                continue
+            marker: dict[str, object] = {"mode": "explicit"}
+            if api_mode is ApiMode.OPENAI_RESPONSES:
+                marker["ttl"] = cache_ttl(request, point, "30m")
+            block["prompt_cache_breakpoint"] = marker
+            marked.add(id(block))
+            break
+    limit = (
+        3
+        if request.model.adapter_options.values.get("prompt_cache_mode") == "implicit"
+        else 4
+    )
+    if len(marked) > limit:
+        raise ProviderError(
+            "Too many explicit OpenAI cache boundaries", kind=ProviderErrorKind.CONFIG
+        )

@@ -62,6 +62,12 @@ def common_create_kwargs(request: ProviderRequest) -> dict[str, object]:
 
 
 def uses_native_json_output(request: ProviderRequest) -> bool:
+    if (
+        request.tool_scope.visible_tools()
+        and request.model.adapter_options.values.get("json_output_with_tools")
+        == "prompt"
+    ):
+        return False
     return request.answer_format is AnswerFormat.JSON_OBJECT and request.model.supports(
         ModelCapability.JSON_OBJECT_OUTPUT
     )

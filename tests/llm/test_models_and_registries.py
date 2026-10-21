@@ -54,6 +54,17 @@ def test_request_overrides_reject_invalid_values() -> None:
         RequestOverrides(max_output_tokens=0)
 
 
+def test_explicit_model_cache_options_require_declared_capability() -> None:
+    with pytest.raises(LLMContractError, match="prompt_cache capability"):
+        ModelSpec(
+            id="text-model",
+            providers=(ModelProviderBinding("fake", "model"),),
+            context_window_tokens=10000,
+            adapter=AdapterKind.OPENAI_RESPONSES,
+            adapter_options=AdapterOptions({"prompt_cache_mode": "implicit"}),
+        )
+
+
 def test_model_spec_rejects_invalid_identity_capabilities_and_provider_chain() -> None:
     with pytest.raises(LLMContractError):
         ModelSpec(

@@ -150,9 +150,9 @@ Context 配置的 `compression_trigger_ratio` 是硬运行水位。占用严格�
 
 ## 提示缓存
 
-提示缓存应表达为一次请求的缓存意图、路由提示或稳定前缀身份，而不是由 LLM 模块维护完整缓存生命周期。
+提示缓存表达为一次请求的可选路由提示与累计前缀边界。OpenAI/Anthropic 的服务端管理缓存；Google 显式缓存的资源索引由 adapter 持有，远端 TTL 负责回收。
 
-缓存意图包含稳定上下文身份。供应商支持显式缓存键、缓存路由提示或缓存保留参数时，适配层可以映射为对应请求字段；不支持时可以忽略。对于自动前缀缓存的供应商，缓存意图可用于帮助上层保持稳定消息前缀。具体是否发送请求侧缓存字段由供应商适配层决定，不由通用 OpenAI-compatible 调用层决定。
+缓存 key 是可选提示，不是 Context 指纹，也不保证命中。Task 可以提供缓存意图供支持的模型使用；模型自身显式配置缓存选项时必须声明对应 capability，防止控件可编辑却没有消费者。
 
 缓存范围由上层语境模块决定。角色只用于供应商对话结构，LLM 模块不在消息内维护缓存范围。
 
@@ -206,15 +206,21 @@ LLM 为每个 Runtime Generation 投影只读、无 secret 的 Provider 凭据�
 
 `adapter/catalog.py` 组合 API 模式 → 专属 adapter → variant 的有效选项，统一验证并投影字段类型、候选值和来源。动态配置在 adapter 调用边界经同一规则校验后，映射器使用所属 API/专属 adapter 的 typed option view；不重复维护一份供应商参数校验表。Kimi `variant=k2/k3` 表示适配变体，不从模型名推断。k2 映射 thinking 与可选 thinking.keep；k3 使用顶层选定 effort，不生成 k2 的 thinking 参数。工具约束、DeepSeek 图片角色限制与资源不足错误等仍由专属 adapter 解释。
 
-通用 temperature、top_p、max_output_tokens 按任务默认 → 单次调用 → model.request_overrides 合并；adapter 最后执行必要的协议归一化。通用 `sampling=omit` 显式省略温度和 top_p，Chat 的 `output_token_field` 选择外部 token 上限字段；DeepSeek/GLM 默认 max_tokens。GPT 选定非 none effort 时省略温度和 top_p。DeepSeek 思考模式省略温度，top_p 按模型实际支持传递；带工具时必须声明 `native_replay=content`。GLM 的 do_sample/request_id/user_id 和 thinking，以及 MiniMax 的 thinking/reasoning_split 通过 SDK extra_body 发送。Kimi K2/K3 的固定采样参数由专用 adapter 省略；Kimi K2 以 `native_replay=content` 请求 reasoning_content，K3 始终按 provider 约定回放 reasoning_content。MiniMax 使用当前 API 的 reasoning_content 与通用 Chat 回放；不将旧 reasoning_details 的可读摘要拼成原始状态。
+通用 temperature、top_p、max_output_tokens 按任务默认 → 单次调用 → model.request_overrides 合并；adapter 最后执行必要的协议归一化。通用 `sampling=omit` 显式省略温度和 top_p，Chat 的 `output_token_field` 选择外部 token 上限字段；DeepSeek/GLM 默认 max_tokens。GPT 选定非 none effort 时省略温度和 top_p。DeepSeek 思考模式省略 temperature，top_p 按模型实际支持传递；带工具时必须声明 `native_replay=content`。DeepSeek `strict` tools 仅在 provider endpoint 配置为 `/beta` 时发送，常规 endpoint 会以配置错误拒绝，避免把 beta 字段静默漏掉或误发。GLM 的 do_sample/user_id 和 thinking，以及 MiniMax 的 thinking/reasoning_split 通过 SDK extra_body 发送；GLM 不复用静态 `request_id`。Kimi K2/K3 的固定采样参数由专用 adapter 省略；Kimi K2 以 `native_replay=content` 请求 reasoning_content，K3 始终按 provider 约定回放 reasoning_content。MiniMax 使用当前 API 的 reasoning_content 与通用 Chat 回放；不将旧 reasoning_details 的可读摘要拼成原始状态。
 
-`adapter_options.reasoning_efforts` 是模型可用档位数组，顶层 `reasoning_effort` 是可选的唯一选定值，必须在该数组内；只发送选定值。候选档位不在 Python 全局枚举中固定。前端用逗号分隔输入维护候选数组，主面板下拉选择当前值；清空表示服务默认，字符串 none 是模型声明的实际档位。删除已选档位须重新选择或清空。选项依赖与互斥由后端 catalog 声明，前端使用同一规则按需呈现，模式变更时同步清理不再适用的依赖项。
+`adapter_options.choices` 声明模型允许使用的候选字符串值；顶层 `reasoning_effort` 保存选定强度，其它已选值仍属于 adapter_options。候选只参与配置，API 只收到选定值。前端逗号输入保存数组，常用面板选择当前值；清空选值表示服务默认，字符串 `none` 是模型声明的实际档位。`choice_rules` 按等值条件收窄候选，例如 Claude `between_tools` 的 effort。专用适配器的固定行为由 catalog 显式标注默认值，与 mapper 保持一致，无须重复写入 TOML。模型单值候选仍需对应的实际选值，不因隐藏控件而暗设默认。候选或模式变更后失效选值随同一次草稿清理；后端最终校验。
 
 `extra_body` 只扩展未占用的顶层请求字段，不能覆盖 model、消息/工具、reasoning/thinking 等保留容器、认证或已映射的参数。它不承担自定义响应解析或状态回放。
 
-OpenAI 当前缓存配置使用 `prompt_cache_mode=implicit|explicit` 与新模型支持的 `prompt_cache_ttl=30m`，映射到 `prompt_cache_options`；请求边界由 `PromptCache.breakpoint_message_index` 映射为 `prompt_cache_breakpoint`，`key` 映射为 `prompt_cache_key`。Responses 的 reasoning context、摘要、verbosity、store 与 encrypted 回放属于该 API mode 的 adapter options。Responses `prewarm` 暂不接入，因为当前没有只建立缓存而不产生 Task 结果的独立 owner。[OpenAI 缓存](https://developers.openai.com/api/docs/guides/prompt-caching)
+`PromptCache` 是当前 `MessageStack` 的无状态缓存意图，持有可选 key 与命名的累计前缀位置。Context 根据 provenance 每次提供 background、trace、working；SDK 调用方也可命名自己的边界。OpenAI adapter 映射 mode、key 与内容块标记，边界落点无可缓存块时向前寻找，不跨入 TaskPrompt。Chat 使用请求级 `30m` TTL；Responses 可使用 `30m/12h` 及逐断点覆盖。TinySoul 显式模式最多映射四个位置，implicit 模式为自动断点保留一位；服务端负责实际命中和过期，不建立本地缓存索引。[OpenAI 缓存](https://developers.openai.com/api/docs/guides/prompt-caching)
+
+Anthropic 可组合 automatic 与显式断点，TTL 为 `5m/1h`，最多四个实际位置。mapper 不标记 thinking，重合末尾由显式 TTL 决定并省略重复 automatic，长 TTL 必须在短 TTL 前。Google explicit 默认选择最早的可复用前缀，也可显式选择一个命名边界；切分保留完整工具交换。generation 内按真实模型、前缀、system/tools 与资源选项复用 cachedContents，create 不继承 generation extra_body；远端 TTL 回收资源，close 清本地索引。使用中的资源返回 404 时由既有任务重试预算重建；无合适前缀则普通生成。缓存命中以实际 usage 为证，不能从配置开关推定。[Anthropic 缓存](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)、[Google 缓存](https://ai.google.dev/gemini-api/docs/generate-content/caching)
 
 Anthropic Messages 与 Google GenerateContent 均由真实 SDK adapter 处理。Anthropic 映射 system/messages/tools/thinking/output_config/cache_control，保留 thinking、redacted thinking、tool_use 等 block 的有序回放；JSON object 继续由 TinySoul 现有提示与解释器校验，不伪造空 schema。Google 映射 systemInstruction/contents/tools/toolConfig/thinkingConfig/JSON output，保留 thought、functionCall、thought_signature 等 Part，并由 generation 内的 `GooglePromptCacheStore` 创建、复用和按 TTL 失效显式缓存；运行配置只保存 cache policy，不保存远端资源名。[Anthropic 思考](https://platform.claude.com/docs/en/build-with-claude/thinking)、[Google 思考](https://ai.google.dev/gemini-api/docs/generate-content/thinking)
+
+Anthropic 的 signed replay 还可按模型配置绑定到实际已发送前缀。再次发送时前缀摘要不匹配，则只从该次请求投影中丢弃失效的 thinking/redacted-thinking block；可读文本、完整工具调用及结果事实继续按正常 Messages 结构传递。Trace 中的历史事实不被改写，也不尝试隐藏重试。该摘要仅服务 Anthropic 的前缀约束，不是跨 API 的通用 Context fingerprint。
+
+模型配置页的 Anthropic “读取能力”只查询当前保存的 provider endpoint 和凭据，并针对一个远端 model ID 读取 Models API 声明的类型、effort 和 token limit。结果作为草稿建议展示，由维护者选择采纳；不会自动覆盖手工 TOML，也不代表兼容代理一定支持相同能力。GPT adapter 继承 Responses mapper，但保留有依据的模型采样规则；Claude family 直接使用 Anthropic Messages adapter，无需仅为 family 增加空壳 adapter。
 
 Generation 根据实际模型 binding 创建 adapter；Registry 按 (provider_id, api_mode) 唯一持有 SDK client，adapter 借用并无会话历史。不同专属 adapter 共用同一模式 client，结束或装配失败时关闭一次。SDK max_retries=0，TaskRunner 独占重试。SDK 失败在适配边界归类，内部 TypeError 不伪装成供应商瞬时错误。
 
@@ -238,10 +244,12 @@ capabilities = ["text_input", "tool_calling", "reasoning_output"]
 reasoning_effort = "high"
 
 [llm.models.example-latest.adapter_options]
-reasoning_efforts = ["high", "xhigh", "max"]
 native_replay = "encrypted"
 store = false
 sampling = "omit"
+
+[llm.models.example-latest.adapter_options.choices]
+reasoning_effort = ["high", "xhigh", "max"]
 ```
 
 供应商密钥按配置中的环境变量顺序读取第一个非空值。若同一供应商配置了多个可选环境变量，靠前名称具有更高优先级。

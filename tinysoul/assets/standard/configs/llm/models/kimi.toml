@@ -20,6 +20,8 @@ capabilities = [
 variant = "k2"
 native_replay = "content"
 thinking = "enabled"
+choices.thinking = ["enabled"]
+choices.native_replay = ["content"]
 
 
 [llm.models.kimi-latest]
@@ -43,4 +45,4 @@ capabilities = [
 
 [llm.models.kimi-latest.adapter_options]
 variant = "k3"
-reasoning_efforts = ["max"]
+choices.reasoning_effort = ["max"]

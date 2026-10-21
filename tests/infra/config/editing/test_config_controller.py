@@ -69,6 +69,14 @@ async def test_family_models_and_task_references_save_and_reload_together(
             "providers": [{"provider": "multi-mode", "provider_model": f"remote-{model_id}"}],
             "context_window_tokens": 32768,
             "capabilities": ["text_input", "json_object_output"],
+            "reasoning_effort": "high",
+            "adapter_options": {
+                "verbosity": "low",
+                "choices": {"reasoning_effort": ["high", "max"]},
+                "choice_rules": [
+                    {"when": {"reasoning_effort": "high"}, "choices": {"verbosity": ["low"]}},
+                ],
+            },
         })
         for model_id in model_ids
     )
@@ -100,6 +108,13 @@ async def test_family_models_and_task_references_save_and_reload_together(
     assert len(parsed.provider("multi-mode").endpoints) == 2
     assert parsed.provider("multi-mode").api_key_envs == ("MULTI_MODE_KEY",)
     assert [parsed.models.get(model_id).family for model_id in model_ids] == ["Qwen", "Qwen"]
+    for model_id in model_ids:
+        model = parsed.models.get(model_id)
+        assert model.reasoning_effort == "high"
+        assert model.adapter_options.choices == {"reasoning_effort": ["high", "max"]}
+        assert model.adapter_options.available_choices(
+            "verbosity", selected={"reasoning_effort": model.reasoning_effort}
+        ) == ("low",)
     assert disk.effective_values()["llm.tasks.llm-action.models"] == model_ids
     assert {item.source_id for item in disk.sources if item.source_id == source_id} == {source_id}
     active = await controller.reload()

@@ -17,9 +17,13 @@ from tinysoul.llm.adapter.anthropic.messages import (
 )
 from tinysoul.llm.adapter.base import ProviderError, ProviderErrorKind, ProviderRequest
 from tinysoul.llm.adapter.google.generate_content import GoogleGenerateContentAdapter
+from tinysoul.llm.adapter.registry import ProviderRegistry
 from tinysoul.llm.config.types import ProviderEndpoint, ProviderSpec
+from tinysoul.llm.execution.model_chain import TaskSpecTable
+from tinysoul.llm.execution.registry import ModelRegistry
+from tinysoul.llm.execution.task import LLMTaskRunner
 from tinysoul.llm.protocol.adapter_types import AdapterKind, ApiMode
-from tinysoul.llm.protocol.cache import PromptCache
+from tinysoul.llm.protocol.cache import PromptCache, PromptCacheBreakpoint
 from tinysoul.llm.protocol.messages import (
     AssistantMessage,
     MessageStack,
@@ -33,7 +37,9 @@ from tinysoul.llm.protocol.models import (
     ModelProviderBinding,
     ModelSpec,
 )
+from tinysoul.llm.protocol.requests import CallSettings, TaskCall
 from tinysoul.llm.protocol.responses import AnswerFormat
+from tinysoul.llm.protocol.routing import ModelChain, RetryPolicy, TaskSpec
 from tinysoul.llm.protocol.tools import ToolKind, ToolScope, ToolSpec, ToolUse
 
 pytestmark = pytest.mark.anyio
@@ -130,14 +136,21 @@ async def test_anthropic_sdk_signed_tool_roundtrip_and_cache(summary: str) -> No
             prompt_cache_mode="explicit",
             prompt_cache_ttl="1h",
         )
-        first = replace(first, prompt_cache=PromptCache(breakpoint_message_index=1))
+        first = replace(
+            first,
+            prompt_cache=PromptCache(
+                breakpoints=(PromptCacheBreakpoint("background", 1),)
+            ),
+        )
         response = await adapter.invoke(first)
         assert response.usage.input_tokens == 145
         assert response.reasoning is not None
         assert response.reasoning.native_replay is not None
         assert response.reasoning.summary == (summary or None)
         assert response.reasoning.native_replay.ordered_items == tuple(blocks)
-        assert bodies[0]["messages"][0]["content"][0]["cache_control"] == {
+        messages = bodies[0]["messages"]
+        assert isinstance(messages, list)
+        assert messages[0]["content"][0]["cache_control"] == {
             "type": "ephemeral",
             "ttl": "1h",
         }
@@ -182,9 +195,9 @@ async def test_anthropic_sdk_signed_tool_roundtrip_and_cache(summary: str) -> No
         )
         await adapter.invoke(edited)
         assert bodies[2]["messages"][1]["content"][0]["text"].startswith("Changed")
-        assert bodies[2]["messages"][2]["content"][0]["text"].endswith("Result")
+        assert bodies[2]["messages"][2]["content"][0]["type"] == "tool_result"
         # A later edited response may reuse a provider call ID. Its result must
-        # not attach to an earlier, valid native exchange with the same ID.
+        # retain the new text and attach its result to the new tool exchange.
         repeated = replace(
             continuation,
             messages=MessageStack.of(
@@ -194,7 +207,7 @@ async def test_anthropic_sdk_signed_tool_roundtrip_and_cache(summary: str) -> No
         )
         await adapter.invoke(repeated)
         assert bodies[-1]["messages"][3]["content"][0]["type"] == "text"
-        assert bodies[-1]["messages"][4]["content"][0]["type"] == "text"
+        assert bodies[-1]["messages"][4]["content"][0]["type"] == "tool_result"
         alias_conflict = replace(
             continuation,
             tool_scope=ToolScope(
@@ -210,8 +223,9 @@ async def test_anthropic_sdk_signed_tool_roundtrip_and_cache(summary: str) -> No
             ),
         )
         await adapter.invoke(alias_conflict)
-        assert bodies[-1]["messages"][1]["content"][0]["type"] == "text"
-        assert bodies[-1]["messages"][2]["content"][0]["type"] == "text"
+        assert bodies[-1]["messages"][1]["content"][0]["type"] == "tool_use"
+        assert bodies[-1]["messages"][1]["content"][0]["name"] != "core_inspect"
+        assert bodies[-1]["messages"][2]["content"][0]["type"] == "tool_result"
 
 
 @pytest.mark.parametrize("summary", ["Plan", ""])
@@ -272,7 +286,7 @@ async def test_google_sdk_signature_parts_cache_and_usage(summary: str) -> None:
     try:
         first = request(
             ApiMode.GOOGLE_GENERATE_CONTENT,
-            reasoning_efforts=["high"],
+            choices={"reasoning_effort": ["high"]},
             include_thoughts=True,
             native_replay="signed",
             prompt_cache_mode="explicit",
@@ -281,7 +295,9 @@ async def test_google_sdk_signature_parts_cache_and_usage(summary: str) -> None:
         first = replace(
             first,
             model=replace(first.model, reasoning_effort="high"),
-            prompt_cache=PromptCache(breakpoint_message_index=1),
+            prompt_cache=PromptCache(
+                breakpoints=(PromptCacheBreakpoint("background", 1),)
+            ),
         )
         response = await adapter.invoke(first)
         await adapter.invoke(first)
@@ -332,6 +348,26 @@ async def test_google_sdk_signature_parts_cache_and_usage(summary: str) -> None:
         assert actual[1]["parts"] == parts
         assert "id" not in actual[2]["parts"][0]["functionResponse"]
         assert actual[2]["parts"][0]["functionResponse"]["name"] == "core_inspect"
+        # A boundary at the assistant call retreats before the exchange, so the
+        # signed call and its result both remain in the generation suffix.
+        split = replace(
+            continuation,
+            model=replace(
+                continuation.model,
+                adapter_options=AdapterOptions(
+                    {
+                        **continuation.model.adapter_options.values,
+                        "prompt_cache_mode": "explicit",
+                        "prompt_cache_boundaries": ["trace"],
+                    }
+                ),
+            ),
+            prompt_cache=PromptCache(breakpoints=(PromptCacheBreakpoint("trace", 1),)),
+        )
+        await adapter.invoke(split)
+        assert bodies[-2][0].endswith("/cachedContents")
+        assert bodies[-2][1]["contents"] == actual[:1]
+        assert bodies[-1][1]["contents"] == actual[1:]
         repeated = replace(
             continuation,
             messages=MessageStack.of(
@@ -431,14 +467,41 @@ async def test_google_cache_rebuilds_after_expiry_and_remote_eviction() -> None:
     )
     invocation = replace(
         request(ApiMode.GOOGLE_GENERATE_CONTENT, prompt_cache_mode="explicit"),
-        prompt_cache=PromptCache(breakpoint_message_index=1),
+        prompt_cache=PromptCache(breakpoints=(PromptCacheBreakpoint("background", 1),)),
     )
     try:
         await adapter.invoke(invocation)
         await adapter.invoke(invocation)
-        with pytest.raises(ProviderError):
-            await adapter.invoke(invocation)
-        await adapter.invoke(invocation)
+        runner = LLMTaskRunner(
+            models=ModelRegistry([invocation.model]),
+            providers=ProviderRegistry([adapter]),
+            tasks=TaskSpecTable(
+                [
+                    TaskSpec(
+                        profile="cache-test",
+                        chain=ModelChain(
+                            "cache-test",
+                            (invocation.model.id,),
+                            RetryPolicy(max_cycles=1),
+                        ),
+                        settings=CallSettings(
+                            answer_format=AnswerFormat.TEXT,
+                            tool_use=ToolUse.OPTIONAL,
+                            max_output_tokens=4096,
+                        ),
+                    )
+                ]
+            ),
+        )
+        result = await runner.invoke(
+            TaskCall(
+                profile="cache-test",
+                messages=invocation.messages,
+                tool_scope=invocation.tool_scope,
+                prompt_cache=invocation.prompt_cache,
+            )
+        )
+        assert result.answer is not None
         assert used == [
             "cachedContents/1",
             "cachedContents/2",
@@ -488,17 +551,28 @@ async def test_anthropic_manual_thinking_and_automatic_cache_use_sdk_fields() ->
                 thinking_budget_tokens=1024,
                 prompt_cache_mode="automatic",
                 prompt_cache_ttl="5m",
+                prompt_cache_boundaries=["background"],
+                prompt_cache_ttls={"background": "1h"},
                 sampling="omit",
             ),
             answer_format=AnswerFormat.JSON_OBJECT,
             temperature=0.7,
             top_p=0.9,
-            prompt_cache=PromptCache(key="task-key"),
+            prompt_cache=PromptCache(
+                key="task-key",
+                breakpoints=(PromptCacheBreakpoint("background", 1),),
+            ),
         )
         response = await adapter.invoke(invocation)
         assert response.answer_text == '{"ok":true}'
         assert bodies[0]["thinking"] == {"type": "enabled", "budget_tokens": 1024}
         assert bodies[0]["cache_control"] == {"type": "ephemeral", "ttl": "5m"}
+        messages = bodies[0]["messages"]
+        assert isinstance(messages, list)
+        assert messages[0]["content"][0]["cache_control"] == {
+            "type": "ephemeral",
+            "ttl": "1h",
+        }
         assert not {
             "prompt_cache_key",
             "temperature",
@@ -507,16 +581,117 @@ async def test_anthropic_manual_thinking_and_automatic_cache_use_sdk_fields() ->
         }.intersection(bodies[0])
         # No unconstrained JSON schema is invented; the task's prompt and
         # ResponseInterpreter retain the JSON-object contract.
+        coincident = replace(
+            invocation,
+            prompt_cache=PromptCache(
+                breakpoints=(PromptCacheBreakpoint("background", 2),)
+            ),
+        )
+        await adapter.invoke(coincident)
+        assert "cache_control" not in bodies[-1]
+        merged_messages = bodies[-1]["messages"]
+        assert isinstance(merged_messages, list)
+        assert merged_messages[-1]["content"][-1]["cache_control"] == {
+            "type": "ephemeral",
+            "ttl": "1h",
+        }
+        inverted_ttls = replace(
+            invocation,
+            model=replace(
+                invocation.model,
+                adapter_options=AdapterOptions(
+                    {
+                        **invocation.model.adapter_options.values,
+                        "prompt_cache_ttl": "1h",
+                        "prompt_cache_ttls": {"background": "5m"},
+                    }
+                ),
+            ),
+        )
+        before = len(bodies)
+        with pytest.raises(ProviderError) as invalid:
+            await adapter.invoke(inverted_ttls)
+        assert invalid.value.kind is ProviderErrorKind.CONFIG
+        assert len(bodies) == before
         no_cache = replace(
             invocation,
             model=replace(
                 invocation.model,
                 capabilities=invocation.model.capabilities
                 - {ModelCapability.PROMPT_CACHE},
+                adapter_options=AdapterOptions(
+                    {
+                        key: value
+                        for key, value in invocation.model.adapter_options.values.items()
+                        if not key.startswith("prompt_cache_")
+                    }
+                ),
             ),
         )
         await adapter.invoke(no_cache)
         assert "cache_control" not in bodies[-1]
+
+
+@pytest.mark.parametrize(
+    ("thinking", "display", "effort"),
+    [
+        ("adaptive", "updates", "high"),
+        ("between_tools", None, "high"),
+        ("disabled", None, None),
+    ],
+)
+async def test_anthropic_sdk_thinking_modes_and_display_header(
+    thinking: str, display: str | None, effort: str | None
+) -> None:
+    captured: list[httpx2.Request] = []
+
+    def respond(incoming: httpx2.Request) -> httpx2.Response:
+        captured.append(incoming)
+        return httpx2.Response(
+            200,
+            json={
+                "id": "msg_1",
+                "type": "message",
+                "role": "assistant",
+                "model": "model-latest",
+                "content": [{"type": "text", "text": "ok"}],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            },
+        )
+
+    options: dict[str, object] = {"thinking": thinking}
+    if display is not None:
+        options["thinking_display"] = display
+    if effort is not None:
+        options["choices"] = {"reasoning_effort": [effort]}
+    invocation = request(ApiMode.ANTHROPIC_MESSAGES, **options)
+    invocation = replace(
+        invocation,
+        model=replace(invocation.model, reasoning_effort=effort),
+        tool_use=ToolUse.REQUIRED,
+    )
+    async with AsyncAnthropic(
+        api_key="test",
+        max_retries=0,
+        http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(respond)),
+    ) as sdk:
+        adapter = AnthropicMessagesAdapter(
+            provider=provider(ApiMode.ANTHROPIC_MESSAGES),
+            messages=cast(MessagesClient, sdk.messages),
+        )
+        await adapter.invoke(invocation)
+    body = json.loads(captured[0].content)
+    assert body["thinking"] == {
+        "type": thinking,
+        **({"display": display} if display else {}),
+    }
+    assert body["tool_choice"] == {"type": "auto"}
+    assert body.get("output_config") == ({"effort": effort} if effort else None)
+    assert not {"choices", "choice_rules"}.intersection(body)
+    assert captured[0].headers.get("anthropic-beta") == (
+        "thinking-display-updates-2026-08-18" if display == "updates" else None
+    )
 
 
 async def test_google_implicit_cache_budget_and_json_do_not_create_resources() -> None:

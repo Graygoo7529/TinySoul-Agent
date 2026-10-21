@@ -1,0 +1,37 @@
+# Optional family: enable the anthropic provider and select a task chain to use it.
+# Read capabilities from the selected binding before expanding these candidates.
+[llm.models.claude-opus]
+family = "Claude"
+adapter = "anthropic-messages"
+providers = [{ provider = "anthropic", provider_model = "claude-opus-5-5" }]
+context_window_tokens = 1000000
+capabilities = ["text_input", "image_input", "image_remote_url", "json_object_output", "tool_calling", "reasoning_output", "prompt_cache"]
+reasoning_effort = "high"
+
+[llm.models.claude-opus.adapter_options]
+thinking = "adaptive"
+native_replay = "signed"
+replay_prefix_binding = true
+tool_choice_policy = "auto"
+prompt_cache_mode = "automatic"
+prompt_cache_ttl = "5m"
+choices.thinking = ["adaptive"]
+choices.reasoning_effort = ["high"]
+
+[llm.models.claude-fable]
+family = "Claude"
+adapter = "anthropic-messages"
+providers = [{ provider = "anthropic", provider_model = "claude-fable-5-1" }]
+context_window_tokens = 1000000
+capabilities = ["text_input", "image_input", "image_remote_url", "json_object_output", "tool_calling", "reasoning_output", "prompt_cache"]
+reasoning_effort = "high"
+
+[llm.models.claude-fable.adapter_options]
+thinking = "adaptive"
+native_replay = "signed"
+replay_prefix_binding = true
+tool_choice_policy = "auto"
+prompt_cache_mode = "automatic"
+prompt_cache_ttl = "5m"
+choices.thinking = ["adaptive"]
+choices.reasoning_effort = ["high"]

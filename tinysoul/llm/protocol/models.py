@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from math import isfinite
+from typing import cast
 
 from ..errors import LLMContractError
 from .adapter_types import AdapterKind
@@ -74,7 +75,75 @@ class AdapterOptions:
             if not isinstance(key, str):
                 raise LLMContractError("adapter option keys must be strings")
             items[key] = value
+        choices = items.get("choices", {})
+        self._validate_choices(choices)
+        rules = items.get("choice_rules", ())
+        if not isinstance(rules, (list, tuple)):
+            raise LLMContractError("choice_rules must be a list")
+        for rule in rules:
+            if not isinstance(rule, Mapping) or set(rule) != {"when", "choices"}:
+                raise LLMContractError("A choice rule requires when and choices")
+            when = rule["when"]
+            if (
+                not isinstance(when, Mapping)
+                or not when
+                or any(
+                    not isinstance(name, str) or not isinstance(value, str)
+                    for name, value in when.items()
+                )
+            ):
+                raise LLMContractError("Choice rule conditions must be string values")
+            self._validate_choices(rule["choices"])
         object.__setattr__(self, "values", items)
+
+    @staticmethod
+    def _validate_choices(value: object) -> None:
+        if not isinstance(value, Mapping):
+            raise LLMContractError("Model choices must be a mapping")
+        for name, candidates in value.items():
+            if not isinstance(name, str) or not isinstance(candidates, (list, tuple)):
+                raise LLMContractError("Model choices must contain named lists")
+            if any(
+                not isinstance(item, str) or not item or item != item.strip()
+                for item in candidates
+            ):
+                raise LLMContractError("Model choices must contain non-empty strings")
+            if len(set(candidates)) != len(candidates):
+                raise LLMContractError("Model choices must be unique")
+
+    @property
+    def choices(self) -> Mapping[str, list[str]]:
+        return cast(Mapping[str, list[str]], self.values.get("choices", {}))
+
+    @property
+    def choice_rules(self) -> tuple[Mapping[str, object], ...]:
+        return tuple(
+            cast(list[Mapping[str, object]], self.values.get("choice_rules", []))
+        )
+
+    def available_choices(
+        self,
+        name: str,
+        *,
+        selected: Mapping[str, object] | None = None,
+        defaults: tuple[str, ...] | None = None,
+    ) -> tuple[str, ...] | None:
+        """Intersect declared candidates with applicable, non-mutating rules."""
+        result = tuple(self.choices[name]) if name in self.choices else defaults
+        values = selected if selected is not None else self.values
+        for rule in self.choice_rules:
+            when = cast(Mapping[str, str], rule["when"])
+            limits = cast(Mapping[str, list[str]], rule["choices"])
+            if name in limits and all(
+                values.get(key) == value for key, value in when.items()
+            ):
+                allowed = limits[name]
+                result = (
+                    tuple(value for value in result if value in allowed)
+                    if result is not None
+                    else tuple(allowed)
+                )
+        return result
 
     def native_replay_mode(self) -> NativeReplayMode:
         value = self.values.get("native_replay")
@@ -188,6 +257,12 @@ class ModelSpec:
             raise LLMContractError(
                 "ModelSpec.adapter_options must be an AdapterOptions value"
             )
+        if ModelCapability.PROMPT_CACHE not in self.capabilities and any(
+            name.startswith("prompt_cache_") for name in self.adapter_options.values
+        ):
+            raise LLMContractError(
+                "Prompt cache options require the prompt_cache capability"
+            )
         if not isinstance(self.request_overrides, RequestOverrides):
             raise LLMContractError(
                 "ModelSpec.request_overrides must be a RequestOverrides value"
@@ -199,13 +274,22 @@ class ModelSpec:
                 "ModelSpec.reasoning_effort must be a non-empty string or None"
             )
         if self.reasoning_effort is not None:
-            candidates = self.adapter_options.values.get("reasoning_efforts", ())
+            candidates = (
+                self.adapter_options.available_choices(
+                    "reasoning_effort",
+                    selected={
+                        **self.adapter_options.values,
+                        "reasoning_effort": self.reasoning_effort,
+                    },
+                )
+                or ()
+            )
             if (
                 not isinstance(candidates, (tuple, list))
                 or self.reasoning_effort not in candidates
             ):
                 raise LLMContractError(
-                    "reasoning_effort must belong to adapter_options.reasoning_efforts"
+                    "reasoning_effort must belong to adapter_options.choices.reasoning_effort"
                 )
 
     def supports(self, capability: ModelCapability) -> bool:

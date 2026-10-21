@@ -17,7 +17,7 @@ capabilities = [
 
 [llm.models.deepseek-pro.adapter_options]
 thinking = "enabled"
-reasoning_efforts = ["low", "high", "max"]
+choices.reasoning_effort = ["low", "high", "max"]
 native_replay = "content"
 
 [llm.models.deepseek-flash]
@@ -41,5 +41,5 @@ capabilities = [
 
 [llm.models.deepseek-flash.adapter_options]
 thinking = "enabled"
-reasoning_efforts = ["low", "high", "max"]
+choices.reasoning_effort = ["low", "high", "max"]
 native_replay = "content"

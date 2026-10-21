@@ -26,11 +26,20 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     )
 
     kimi_provider = config.provider("kimi")
-    assert tuple(endpoint.api_mode for endpoint in kimi_provider.endpoints) == (ApiMode.OPENAI_CHAT,)
+    assert tuple(endpoint.api_mode for endpoint in kimi_provider.endpoints) == (
+        ApiMode.OPENAI_CHAT,
+    )
     assert kimi_provider.enabled is True
-    assert tuple(endpoint.api_mode for endpoint in config.provider("sublyx-proxy").endpoints) == (ApiMode.OPENAI_RESPONSES,)
-    assert {endpoint.api_mode for endpoint in config.provider("orca").endpoints} == {ApiMode.OPENAI_CHAT, ApiMode.OPENAI_RESPONSES}
-    assert tuple(endpoint.api_mode for endpoint in config.provider("wenrugou").endpoints) == (ApiMode.OPENAI_RESPONSES,)
+    assert tuple(
+        endpoint.api_mode for endpoint in config.provider("sublyx-proxy").endpoints
+    ) == (ApiMode.OPENAI_RESPONSES,)
+    assert {endpoint.api_mode for endpoint in config.provider("orca").endpoints} == {
+        ApiMode.OPENAI_CHAT,
+        ApiMode.OPENAI_RESPONSES,
+    }
+    assert tuple(
+        endpoint.api_mode for endpoint in config.provider("wenrugou").endpoints
+    ) == (ApiMode.OPENAI_RESPONSES,)
     assert config.provider("openai").enabled is False
 
     model = config.models.get("gpt-sol")
@@ -63,7 +72,10 @@ def test_model_provider_chain_matches_api_mode() -> None:
         providers={
             "proxy": {
                 "enabled": True,
-                "endpoints": {"openai-chat": {"base_url": "https://example.test/v1"}, "openai-responses": {"base_url": "https://example.test/v1"}},
+                "endpoints": {
+                    "openai-chat": {"base_url": "https://example.test/v1"},
+                    "openai-responses": {"base_url": "https://example.test/v1"},
+                },
                 "api_key_envs": ["API_KEY"],
             }
         },
@@ -79,8 +91,13 @@ def test_model_provider_chain_matches_api_mode() -> None:
     assert model.providers[0].provider_model == "chat-model"
 
     cast(dict[str, dict[str, object]], tree["models"])["model"]["adapter"] = "deepseek"
-    assert LLMConfigParser().parse(tree).models.get("model").adapter is AdapterKind.DEEPSEEK
-    cast(dict[str, dict[str, object]], tree["models"])["model"]["adapter"] = "anthropic-messages"
+    assert (
+        LLMConfigParser().parse(tree).models.get("model").adapter
+        is AdapterKind.DEEPSEEK
+    )
+    cast(dict[str, dict[str, object]], tree["models"])["model"]["adapter"] = (
+        "anthropic-messages"
+    )
     with pytest.raises(ConfigError, match="API mode"):
         LLMConfigParser().parse(tree)
 
@@ -208,7 +225,7 @@ def test_deepseek_adapter_options_accept_low_reasoning_effort() -> None:
             "providers": [
                 {"provider": "deepseek", "provider_model": "deepseek-v4-flash"}
             ],
-            "adapter_options": {"reasoning_efforts": ["low", "high"]},
+            "adapter_options": {"choices": {"reasoning_effort": ["low", "high"]}},
             "reasoning_effort": "low",
         },
     )
@@ -336,38 +353,108 @@ async def test_disabled_provider_stays_in_task_chain_without_requiring_credentia
         models=config.models,
         env={"ENABLED_KEY": "configured"},
     )
-    assert (
-        registry.get("enabled", AdapterKind.OPENAI_CHAT).provider_id
-        == "enabled"
-    )
+    assert registry.get("enabled", AdapterKind.OPENAI_CHAT).provider_id == "enabled"
     await registry.close()
 
 
 @pytest.mark.parametrize("adapter", ["anthropic-messages", "google-generate-content"])
 async def test_configured_modes_load_with_runtime_clients(adapter: str) -> None:
-    config = LLMConfigParser().parse(_tree(providers={"future": {
-        "enabled": True, "api_key_envs": ["FUTURE_KEY"],
-        "endpoints": {adapter: {"base_url": "https://example.test"}},
-    }}, model={
-        "adapter": adapter,
-        "providers": [{"provider": "future", "provider_model": "vendor/latest"}],
-        "adapter_options": {"thinking": "adaptive"} if adapter == "anthropic-messages" else {"reasoning_efforts": ["high"]},
-    }))
-    registry = await build_provider_registry(config.providers, models=config.models, env={"FUTURE_KEY": "test"})
+    config = LLMConfigParser().parse(
+        _tree(
+            providers={
+                "future": {
+                    "enabled": True,
+                    "api_key_envs": ["FUTURE_KEY"],
+                    "endpoints": {adapter: {"base_url": "https://example.test"}},
+                }
+            },
+            model={
+                "adapter": adapter,
+                "providers": [
+                    {"provider": "future", "provider_model": "vendor/latest"}
+                ],
+                "adapter_options": {"thinking": "adaptive"}
+                if adapter == "anthropic-messages"
+                else {"choices": {"reasoning_effort": ["high"]}},
+            },
+        )
+    )
+    registry = await build_provider_registry(
+        config.providers, models=config.models, env={"FUTURE_KEY": "test"}
+    )
     assert registry.has("future", AdapterKind(adapter))
     assert config.tasks.get("framework").chain.model_ids == ("model",)
     await registry.close()
 
 
 def test_selected_effort_must_belong_to_model_candidates() -> None:
-    tree = _tree(providers={"proxy": _provider()}, model={
-        "adapter": "openai-chat",
-        "providers": [{"provider": "proxy", "provider_model": "remote"}],
-        "adapter_options": {"reasoning_efforts": ["custom-high", "custom-max"]},
-        "reasoning_effort": "high",
-    })
-    with pytest.raises(ConfigError, match="reasoning_efforts"):
+    tree = _tree(
+        providers={"proxy": _provider()},
+        model={
+            "adapter": "openai-chat",
+            "providers": [{"provider": "proxy", "provider_model": "remote"}],
+            "adapter_options": {
+                "choices": {"reasoning_effort": ["custom-high", "custom-max"]}
+            },
+            "reasoning_effort": "high",
+        },
+    )
+    with pytest.raises(ConfigError, match="reasoning_effort"):
         LLMConfigParser().parse(tree)
+
+
+@pytest.mark.parametrize(
+    ("thinking", "effort", "display", "valid"),
+    [
+        ("adaptive", "max", "updates", True),
+        ("between_tools", "high", None, True),
+        ("between_tools", "max", None, False),
+        ("adaptive", "high", "updates", False),
+        ("disabled", "high", None, False),
+    ],
+)
+def test_model_choice_rules_intersect_selected_values(
+    thinking: str, effort: str, display: str | None, valid: bool
+) -> None:
+    options: dict[str, object] = {
+        "thinking": thinking,
+        "choices": {"reasoning_effort": ["high", "max"]},
+        "choice_rules": [
+            {
+                "when": {"thinking": "between_tools"},
+                "choices": {"reasoning_effort": ["high"]},
+            },
+            {
+                "when": {"reasoning_effort": "high"},
+                "choices": {"thinking_display": ["omitted"]},
+            },
+            {"when": {"thinking": "disabled"}, "choices": {"reasoning_effort": []}},
+        ],
+    }
+    if display is not None:
+        options["thinking_display"] = display
+    tree = _tree(
+        providers={
+            "proxy": {
+                **_provider(),
+                "endpoints": {
+                    "anthropic-messages": {"base_url": "https://example.test"}
+                },
+            }
+        },
+        model={
+            "adapter": "anthropic-messages",
+            "providers": [{"provider": "proxy", "provider_model": "remote"}],
+            "adapter_options": options,
+            "reasoning_effort": effort,
+        },
+    )
+    if valid:
+        config = LLMConfigParser().parse(tree)
+        assert config.models.get("model").reasoning_effort == effort
+    else:
+        with pytest.raises(ConfigError, match="not available"):
+            LLMConfigParser().parse(tree)
 
 
 def _provider() -> dict[str, object]:

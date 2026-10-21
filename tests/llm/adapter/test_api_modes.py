@@ -155,7 +155,7 @@ async def test_generic_adapters_map_effort_sampling_and_extensions(
         model(
             kind,
             {
-                "reasoning_efforts": ["high", "xhigh"],
+                "choices": {"reasoning_effort": ["high", "xhigh"]},
                 "extra_body": {"vendor_mode": "agent"},
             },
         ),
@@ -170,9 +170,16 @@ async def test_generic_adapters_map_effort_sampling_and_extensions(
     await adapter.invoke(replace(request(spec), top_p=0.8, max_output_tokens=128))
     sent = client.calls[-1]
     assert sent["model"] == "vendor/version"
-    assert sent["top_p"] == 0.8
-    assert sent["extra_body"] == {"vendor_mode": "agent"}
-    assert "reasoning_efforts" not in sent
+    if kind is AdapterKind.MINIMAX:
+        assert "top_p" not in sent
+    else:
+        assert sent["top_p"] == 0.8
+    extra = sent["extra_body"]
+    assert isinstance(extra, dict)
+    assert extra["vendor_mode"] == "agent"
+    if kind is AdapterKind.MINIMAX:
+        assert extra["reasoning_split"] is True
+    assert not {"choices", "choice_rules"}.intersection(sent)
     if kind is not AdapterKind.OPENAI_RESPONSES:
         assert sent["reasoning_effort"] == "xhigh"
         assert sent["max_completion_tokens"] == 128
@@ -204,7 +211,7 @@ def test_four_modes_have_composed_rules_and_truthful_runtime_support() -> None:
     anthropic.validate_options(
         {
             "thinking": "adaptive",
-            "reasoning_efforts": ["high", "max"],
+            "choices": {"reasoning_effort": ["high", "max"]},
             "thinking_display": "omitted",
             "prompt_cache_mode": "automatic",
             "prompt_cache_ttl": "1h",
@@ -223,10 +230,11 @@ def test_four_modes_have_composed_rules_and_truthful_runtime_support() -> None:
         },
         key="options",
     )
-    with pytest.raises(ConfigError, match="not both"):
+    with pytest.raises(ConfigError, match="effort or thinking budget"):
         google.validate_options(
-            {"thinking_budget_tokens": 1024, "reasoning_efforts": ["high"]},
+            {"thinking_budget_tokens": 1024, "choices": {"reasoning_effort": ["high"]}},
             key="options",
+            reasoning_effort="high",
         )
     with pytest.raises(ConfigError, match="requires"):
         google.validate_options(
@@ -312,7 +320,6 @@ async def test_installed_sdk_serializes_adapter_requests_without_network(
             options = {
                 "thinking": "enabled",
                 "do_sample": False,
-                "request_id": "request-1",
                 "user_id": "user-1",
             }
         elif kind is AdapterKind.OPENAI_CHAT:
@@ -326,9 +333,10 @@ async def test_installed_sdk_serializes_adapter_requests_without_network(
                 responses=cast(OpenAIResponsesClient, sdk.responses),
             )
             options["native_replay"] = "encrypted"
-        spec = model(kind, options)
+        spec = model(kind)
         spec = replace(
-            spec, capabilities=spec.capabilities | {ModelCapability.PROMPT_CACHE}
+            spec, capabilities=spec.capabilities | {ModelCapability.PROMPT_CACHE},
+            adapter_options=AdapterOptions(options),
         )
         outgoing = replace(request(spec), max_output_tokens=128)
         first = await adapter.invoke(outgoing)

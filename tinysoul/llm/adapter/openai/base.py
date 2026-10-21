@@ -73,6 +73,8 @@ class OpenAIAdapter:
                 kwargs["store"] = responses["store"]
         else:
             chat = cast(ChatOptions, options or {})
+            if "thinking" in chat:
+                _merge(kwargs, "extra_body", "thinking", {"type": chat["thinking"]})
             if effort is not None:
                 kwargs["reasoning_effort"] = effort
             limit = kwargs.pop("max_completion_tokens", None)
