@@ -93,13 +93,14 @@ class ProviderConfigParser:
                 endpoint_table = as_table(endpoint_value, key=endpoint_key)
                 reject_unknown_keys(
                     endpoint_table,
-                    {"base_url", "headers", "header_refs"},
+                    {"base_url", "api_version", "headers", "header_refs"},
                     key=endpoint_key,
                 )
                 try:
                     endpoints.append(
                         ProviderEndpoint(
                             api_mode=mode,
+                            api_version=required_str(endpoint_table, "api_version", key=endpoint_key) if "api_version" in endpoint_table else None,
                             base_url=required_str(
                                 endpoint_table, "base_url", key=endpoint_key
                             ),

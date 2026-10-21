@@ -143,7 +143,7 @@ def _parse_probe_settings(tree: Mapping[str, object], root: Path) -> _ProbeSetti
 
 class _ProbeService:
     def __init__(
-        self, owner: "_ProbeOwner", scope: ServiceScope = ServiceScope()
+        self, owner: _ProbeOwner, scope: ServiceScope = ServiceScope()
     ) -> None:
         self.read = scope.local(owner.read)
 
@@ -1381,7 +1381,7 @@ async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_i
     switched_source = model_path.read_text(encoding="utf-8")
     assert 'provider = "openai-proxy"' in switched_source
     assert "[llm.models.gpt-sol.adapter_options]" in switched_source
-    assert 'reasoning_keep = "encrypted"' in switched_source
+    assert 'native_replay = "encrypted"' in switched_source
     assert "[llm.models.gpt-sol.request_overrides]" in switched_source
     assert "temperature = 0.4" in switched_source
 

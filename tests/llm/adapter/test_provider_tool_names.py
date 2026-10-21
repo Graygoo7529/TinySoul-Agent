@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from tinysoul.llm.adapter.openai.tool_names import ProviderToolNameMap
+from tinysoul.llm.adapter.tool_names import ProviderToolNameMap
 
 
 def test_provider_tool_name_map_keeps_safe_names_and_maps_dotted_names() -> None:

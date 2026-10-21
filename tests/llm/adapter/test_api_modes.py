@@ -28,7 +28,12 @@ from tinysoul.llm.protocol.messages import (
     ToolResultMessage,
     UserMessage,
 )
-from tinysoul.llm.protocol.models import AdapterOptions, ModelProviderBinding, ModelSpec
+from tinysoul.llm.protocol.models import (
+    AdapterOptions,
+    ModelCapability,
+    ModelProviderBinding,
+    ModelSpec,
+)
 from tinysoul.llm.protocol.responses import AnswerFormat
 from tinysoul.llm.protocol.tools import ToolKind, ToolScope, ToolSpec, ToolUse
 
@@ -127,7 +132,7 @@ async def test_registry_reuses_mode_clients_and_owns_close_once(monkeypatch) -> 
     assert registry.has("gateway", AdapterKind.GPT)
     assert registry.has("gateway", AdapterKind.DEEPSEEK)
     assert not registry.has("gateway", AdapterKind.KIMI)
-    assert not registry.has("gateway", AdapterKind.ANTHROPIC_MESSAGES)
+    assert registry.has("gateway", AdapterKind.ANTHROPIC_MESSAGES)
     await registry.close()
     await registry.close()
     assert len(closed) == 2
@@ -193,7 +198,7 @@ def test_four_modes_have_composed_rules_and_truthful_runtime_support() -> None:
             next(item for item in rules if item["id"] == kind.value)[
                 "runtime_available"
             ]
-            is False
+            is True
         )
     anthropic = adapter_spec(AdapterKind.ANTHROPIC_MESSAGES)
     anthropic.validate_options(
@@ -214,13 +219,18 @@ def test_four_modes_have_composed_rules_and_truthful_runtime_support() -> None:
             "thinking_budget_tokens": -1,
             "include_thoughts": True,
             "prompt_cache_mode": "explicit",
-            "cached_content": "cachedContents/example",
+            "prompt_cache_ttl": 600,
         },
         key="options",
     )
     with pytest.raises(ConfigError, match="not both"):
         google.validate_options(
-            {"thinking_budget_tokens": 1024, "thinking_level": "high"}, key="options"
+            {"thinking_budget_tokens": 1024, "reasoning_efforts": ["high"]},
+            key="options",
+        )
+    with pytest.raises(ConfigError, match="requires"):
+        google.validate_options(
+            {"prompt_cache_mode": "implicit", "prompt_cache_ttl": 600}, key="options"
         )
 
 
@@ -239,6 +249,14 @@ async def test_installed_sdk_serializes_adapter_requests_without_network(
             "object": "chat.completion",
             "created": 0,
             "model": "vendor/version",
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 20,
+                "prompt_tokens_details": {
+                    "cached_tokens": 60,
+                    "cache_write_tokens": 30,
+                },
+            },
             "choices": [
                 {
                     "index": 0,
@@ -264,6 +282,14 @@ async def test_installed_sdk_serializes_adapter_requests_without_network(
                     }
                 ],
                 "status": "completed",
+                "usage": {
+                    "input_tokens": 100,
+                    "output_tokens": 20,
+                    "input_tokens_details": {
+                        "cached_tokens": 60,
+                        "cache_write_tokens": 30,
+                    },
+                },
             }
         return httpx.Response(200, json=payload)
 
@@ -299,9 +325,15 @@ async def test_installed_sdk_serializes_adapter_requests_without_network(
                 provider=provider(),
                 responses=cast(OpenAIResponsesClient, sdk.responses),
             )
-            options["reasoning_keep"] = "encrypted"
-        outgoing = replace(request(model(kind, options)), max_output_tokens=128)
+            options["native_replay"] = "encrypted"
+        spec = model(kind, options)
+        spec = replace(
+            spec, capabilities=spec.capabilities | {ModelCapability.PROMPT_CACHE}
+        )
+        outgoing = replace(request(spec), max_output_tokens=128)
         first = await adapter.invoke(outgoing)
+        assert first.usage.cached_input_tokens == 60
+        assert first.usage.cache_creation_input_tokens == 30
         if kind is AdapterKind.OPENAI_RESPONSES:
             await adapter.invoke(
                 replace(
@@ -360,7 +392,7 @@ async def test_native_responses_replay_preserves_order_and_requires_matching_sou
         },
     ]
     client = Client(SimpleNamespace(output=output, output_text="working"))
-    spec = model(AdapterKind.OPENAI_RESPONSES, {"reasoning_keep": "encrypted"})
+    spec = model(AdapterKind.OPENAI_RESPONSES, {"native_replay": "encrypted"})
     adapter = OpenAIResponsesAdapter(provider=provider(), responses=client)
     tools = ToolScope(
         tools=(

@@ -145,3 +145,7 @@ class ProviderAdapter(Protocol):
     async def close(self) -> None:
         """Release resources owned by this adapter; leave borrowed clients open."""
         ...
+
+
+class ClosableClient(Protocol):
+    async def close(self) -> None: ...

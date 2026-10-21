@@ -1,4 +1,4 @@
-# LLM 设计
+﻿# LLM 设计
 
 内部 `protocol/` 保存消息、工具、模型、请求及响应契约；`config/` 解释 TOML；`adapter/` 持有 API 模式规则和供应商映射；`execution/` 维护模型注册、任务运行与模型链现态。内部协议不创建客户端，LLMTaskRunner 是唯一调用与重试协调者。
 
@@ -48,7 +48,7 @@ TinySoul 内部使用自己的消息栈表达模型输入，而不是直接使�
 
 消息内容可以包含由上层构造的结构化 JSON 内容。结构化内容在 TinySoul 内部保留为 JSON 语义，进入供应商请求前先渲染为模型可见文本。文本内容与结构化 JSON 内容可以合并为普通文本输入，JSON 以可读代码块呈现；包含图像内容时，再由供应商适配层映射为对应接口接受的多模态内容。这样上层动作层可以把动作结果、观察信息和结构化上下文交给 LLM 模块，而不需要手写 JSON 字符串。
 
-助手历史消息可以携带推理内容和模型侧工具调用记录。推理内容不是可见回答，也不是动作结果；它用于上层在构造后续上下文时保留模型推理轨迹。工具调用记录表达模型曾经生成的工具调用意图，它属于助手消息的附带项。支持 Chat 形态推理回放的供应商可以把推理内容映射为对应的历史推理字段；不支持这种回放语义的供应商不应把它伪装成普通回答内容。
+助手历史消息可以携带有限推理摘要和模型侧工具调用记录。签名、加密推理和 thought signature 只存在 adapter-owned NativeReplay，不进入通用可见回答。工具调用记录表达模型曾经生成的工具调用意图，它属于助手消息的附带项。支持 Chat 形态推理回放的供应商可以把推理内容映射为对应的历史推理字段；不支持这种回放语义的供应商不应把它伪装成普通回答内容。
 
 TinySoul 不把供应商原生工具调用结构作为通用消息语义。TinySoul 可以在 LLM 模块中定义自己的模型侧工具消息，用于表达工具调用意图和工具结果回放；供应商原生 `tool_calls`、`tool_call_id`、`tool` role 或 Responses `function_call` 只由适配层映射。工具调用记录保存在助手消息中；工具结果以独立的工具结果消息进入 MessageStack。工具、技能或外部动作的业务选择与执行属于上层模块，LLM 模块只返回归一化后的工具调用结构，不直接执行工具，也不修改语境。
 
@@ -142,11 +142,11 @@ Context 配置的 `compression_trigger_ratio` 是硬运行水位。占用严格�
 
 推理内容主要用于调试、日志、分析和上层构造后续上下文。TinySoul 将推理内容理解为与助手消息相关的推理轨迹：它可以是文本形式的推理内容，也可以是供应商返回的结构化推理项，还可以包含给人或框架观察的摘要。调用方应以正式回答和工具调用作为业务判断依据，不应把推理摘要当作正式输出。
 
-模型可以在额外选项中声明推理轨迹保留方式。该声明表达 TinySoul 对历史推理内容的上层保留意图，例如不保留、保留文本推理内容，或保留供应商返回的加密推理项。具体供应商是否支持、如何映射和何时传回，由供应商适配层按各自协议处理。
+模型可以在额外选项中声明推理轨迹保留方式。该声明表达 TinySoul 对历史推理内容的上层保留意图，例如不保留、保留文本推理内容，或保留供应商返回的加密/签名状态。具体供应商是否支持、如何映射和何时传回，由供应商适配层按各自协议处理。
 
-Reasoning 的 `content` 是 Chat 兼容扩展可回放的文本，`summary` 是可读摘要，`native_replay` 是带来源的原生状态。NativeReplay 保存 api_mode、adapter/variant、provider、远端模型以及有序 JSON parts；Responses 保留 reasoning、message、function_call 的原始顺序。回放要求来源和对应助手消息一致；消息内容/工具被改写、来源切换或工具交换不完整时，沿用普通消息与工具事实投影，不发送失配的原生状态。请求内工具别名也必须匹配，不能重复追加同一条工具调用。
+`Reasoning.summary` 是可读的有限摘要，`native_replay` 是带来源的原生状态。`NativeReplayMode` 同时是 model adapter option 和响应状态的 mode：`content` 表示 OpenAI-compatible Chat 的 reasoning_content，`encrypted` 表示 Responses 的 encrypted reasoning，`signed` 表示 Anthropic thinking block 或 Google thought signature，`none` 只作为配置中的关闭值，不会构造空回放。NativeReplay 保存 mode、api_mode、adapter/variant、provider、远端模型以及有序 JSON items；Responses 保存 output items，Anthropic 保存 content blocks，Google 保存 model parts，专用 Chat adapter 保存实际需要回放的 provider-native reasoning payload。回放要求来源、路由、对应助手消息和内容指纹一致；路由切换、消息改写或工具交换不完整时，适配器回退到普通 TinySoul 消息/工具事实投影，不发送失配的原生状态。请求内工具别名也必须匹配，不能重复追加同一条工具调用。
 
-`reasoning_keep` 按 adapter 支持选择 none/content/encrypted；Chat 显式 content 才传 reasoning_content，Responses 显式 encrypted 才回放原生 items。状态附着于已有 AssistantMessage/Trace；Kernel 只运输，不解释供应商字段。容量统计包含原生状态，可读 Observation 只给出摘要及 native_part_digests，不暴露不透明正文。
+配置使用 `adapter_options.native_replay` 选择适配器实际支持的 mode，响应只在确实捕获到可回放状态时附着 NativeReplay。四类模式共用 `none`、`content`、`encrypted`、`signed` 这组枚举：OpenAI Chat/专用 Chat adapter 使用 `content`，Responses 使用 `encrypted`，Anthropic thinking block 与 Google thought signature 使用 `signed`。Anthropic/Google 默认不保留原生状态，模型需要多轮工具回放时显式选择 `signed`；选择 `none` 时适配器退回普通 TinySoul 文本/工具事实，不伪造不完整原生续接。配置策略和响应数据使用同一枚举，但职责仍分层：配置决定是否保留，NativeReplay 保存实际状态。状态附着于已有 AssistantMessage/Trace；Kernel 只运输，不解释供应商字段。容量统计包含原生状态，可读 Observation 只给出摘要及“可回放/来源”状态，不暴露不透明正文、signature 或原始 provider payload。
 
 ## 提示缓存
 
@@ -192,7 +192,7 @@ LLM 配置属于 LLM 模块。Infra 只负责读取和合并配置文件，LLM �
 
 `LLMConfigParser` 是配置解析公共门面，保持上层输入边界稳定；内部按 provider、model、task 三类 section parser 拆分。provider parser 只解释供应商接入形态，model parser 负责模型能力与供应商引用，task parser 负责任务模型链、调用设置和 retry policy。共享的动态值读取与 enum/list/number 校验由配置 helper 承担，所有配置问题都收敛为 `ConfigError`。
 
-Provider 表示可独立启停的一组服务入口与共享凭据。`endpoints.<api-mode>` 声明该模式的 SDK 根地址及可选 headers/header_refs；provider 级 headers/header_refs 共享，endpoint 同名项覆盖。`api_key_envs` 依序选择首个非空凭据；敏感请求头保存环境变量名，密钥值仍由 Infra credentials 管理。Model 选择唯一 adapter，其静态 api_mode 必须出现在目标 provider.endpoints 中。Provider 无须逐项声明 Kimi/DeepSeek 等 adapter；模式匹配只证明接口形态兼容，不证明远端模型或全部扩展可用。`enabled=false` 可保留绑定且无需当前凭据；启用要求本地凭据就绪，不进行远端健康探测。
+Provider 表示可独立启停的一组服务入口与共享凭据。`endpoints.<api-mode>` 声明该模式的 SDK 根地址及可选 headers/header_refs；Google endpoint 还可选 `api_version`，它是连接参数，不是模型 adapter option；provider 级 headers/header_refs 共享，endpoint 同名项覆盖。`api_key_envs` 依序选择首个非空凭据；敏感请求头保存环境变量名，密钥值仍由 Infra credentials 管理。Model 选择唯一 adapter，其静态 api_mode 必须出现在目标 provider.endpoints 中。Provider 无须逐项声明 Kimi/DeepSeek 等 adapter；模式匹配只证明接口形态兼容，不证明远端模型或全部扩展可用。`enabled=false` 可保留绑定且无需当前凭据；启用要求本地凭据就绪，不进行远端健康探测。
 
 LLM 为每个 Runtime Generation 投影只读、无 secret 的 Provider 凭据状态，只包含 Provider identity、声明的环境变量名和 `configured | missing`。Endpoint 可以把该状态提供给设置界面，用于在提交 enable 前给出明确引导；配置中的 `enabled` 仍是唯一启用事实，后端候选校验仍是权威边界。零 enabled Provider 是合法的可配置状态，服务可以启动并接受配置；此时若某项 LLM Task 没有任何可路由模型，沿模型链耗尽边界返回并附带 provider configuration 原因，结束当前 Turn；Agent 仍可接受后续配置修改。
 
@@ -206,15 +206,15 @@ LLM 为每个 Runtime Generation 投影只读、无 secret 的 Provider 凭据�
 
 `adapter/catalog.py` 组合 API 模式 → 专属 adapter → variant 的有效选项，统一验证并投影字段类型、候选值和来源。动态配置在 adapter 调用边界经同一规则校验后，映射器使用所属 API/专属 adapter 的 typed option view；不重复维护一份供应商参数校验表。Kimi `variant=k2/k3` 表示适配变体，不从模型名推断。k2 映射 thinking 与可选 thinking.keep；k3 使用顶层选定 effort，不生成 k2 的 thinking 参数。工具约束、DeepSeek 图片角色限制与资源不足错误等仍由专属 adapter 解释。
 
-通用 temperature、top_p、max_output_tokens 按任务默认 → 单次调用 → model.request_overrides 合并；adapter 最后执行必要的协议归一化。通用 `sampling=omit` 显式省略温度和 top_p，Chat 的 `output_token_field` 选择外部 token 上限字段；DeepSeek/GLM 默认 max_tokens。GPT 选定非 none effort 时省略温度和 top_p。DeepSeek 思考模式省略温度，top_p 按模型实际支持传递；带工具时必须声明 reasoning_keep=content。GLM 的 do_sample/request_id/user_id 和 thinking，以及 MiniMax 的 thinking/reasoning_split 通过 SDK extra_body 发送。MiniMax reasoning_details 当前只提取可读文本，不宣称完整结构回放。
+通用 temperature、top_p、max_output_tokens 按任务默认 → 单次调用 → model.request_overrides 合并；adapter 最后执行必要的协议归一化。通用 `sampling=omit` 显式省略温度和 top_p，Chat 的 `output_token_field` 选择外部 token 上限字段；DeepSeek/GLM 默认 max_tokens。GPT 选定非 none effort 时省略温度和 top_p。DeepSeek 思考模式省略温度，top_p 按模型实际支持传递；带工具时必须声明 `native_replay=content`。GLM 的 do_sample/request_id/user_id 和 thinking，以及 MiniMax 的 thinking/reasoning_split 通过 SDK extra_body 发送。Kimi K2/K3 的固定采样参数由专用 adapter 省略；Kimi K2 以 `native_replay=content` 请求 reasoning_content，K3 始终按 provider 约定回放 reasoning_content。MiniMax 使用当前 API 的 reasoning_content 与通用 Chat 回放；不将旧 reasoning_details 的可读摘要拼成原始状态。
 
-`adapter_options.reasoning_efforts` 是模型可用档位数组，顶层 `reasoning_effort` 是可选的唯一选定值，必须在该数组内；只发送选定值。候选档位不在 Python 全局枚举中固定。前端用逗号分隔输入维护候选数组，主面板下拉选择当前值；清空表示服务默认，字符串 none 是模型声明的实际档位。删除已选档位须重新选择或清空。
+`adapter_options.reasoning_efforts` 是模型可用档位数组，顶层 `reasoning_effort` 是可选的唯一选定值，必须在该数组内；只发送选定值。候选档位不在 Python 全局枚举中固定。前端用逗号分隔输入维护候选数组，主面板下拉选择当前值；清空表示服务默认，字符串 none 是模型声明的实际档位。删除已选档位须重新选择或清空。选项依赖与互斥由后端 catalog 声明，前端使用同一规则按需呈现，模式变更时同步清理不再适用的依赖项。
 
 `extra_body` 只扩展未占用的顶层请求字段，不能覆盖 model、消息/工具、reasoning/thinking 等保留容器、认证或已映射的参数。它不承担自定义响应解析或状态回放。
 
-OpenAI 当前缓存配置使用 `prompt_cache_mode=implicit` 与 `prompt_cache_ttl=30m`，映射到 prompt_cache_options。PromptCache 表示一次调用的可选 key、模式和 TTL；key 不是缓存资源句柄。Explicit breakpoint 尚未接入，不开放配置也不发送伪造断点。思考上下文 reasoning_context、摘要、verbosity、store 与 encrypted 回放属于通用 Responses 能力。请求缓存策略与原生推理状态分别管理。[OpenAI 缓存](https://developers.openai.com/api/docs/guides/prompt-caching)
+OpenAI 当前缓存配置使用 `prompt_cache_mode=implicit|explicit` 与新模型支持的 `prompt_cache_ttl=30m`，映射到 `prompt_cache_options`；请求边界由 `PromptCache.breakpoint_message_index` 映射为 `prompt_cache_breakpoint`，`key` 映射为 `prompt_cache_key`。Responses 的 reasoning context、摘要、verbosity、store 与 encrypted 回放属于该 API mode 的 adapter options。Responses `prewarm` 暂不接入，因为当前没有只建立缓存而不产生 Task 结果的独立 owner。[OpenAI 缓存](https://developers.openai.com/api/docs/guides/prompt-caching)
 
-Anthropic/Google 本轮提供配置校验、规则目录和前端编辑；尚无真实请求 mapper，catalog 的 runtime_available=false。Anthropic 可声明 thinking adaptive/enabled/disabled、手动 budget、effort 候选、thinking_display、自动缓存/TTL；Google 可声明 thinking_level 或 budget、include_thoughts、隐式缓存或已有 cached_content 引用。它们当前只接受 reasoning_keep=none，待真实 mapper 接入完整签名回放。Google 的显式缓存引用不会创建、刷新或删除远端资源。[Anthropic 思考](https://platform.claude.com/docs/en/build-with-claude/thinking)、[Google 思考](https://ai.google.dev/gemini-api/docs/generate-content/thinking)
+Anthropic Messages 与 Google GenerateContent 均由真实 SDK adapter 处理。Anthropic 映射 system/messages/tools/thinking/output_config/cache_control，保留 thinking、redacted thinking、tool_use 等 block 的有序回放；JSON object 继续由 TinySoul 现有提示与解释器校验，不伪造空 schema。Google 映射 systemInstruction/contents/tools/toolConfig/thinkingConfig/JSON output，保留 thought、functionCall、thought_signature 等 Part，并由 generation 内的 `GooglePromptCacheStore` 创建、复用和按 TTL 失效显式缓存；运行配置只保存 cache policy，不保存远端资源名。[Anthropic 思考](https://platform.claude.com/docs/en/build-with-claude/thinking)、[Google 思考](https://ai.google.dev/gemini-api/docs/generate-content/thinking)
 
 Generation 根据实际模型 binding 创建 adapter；Registry 按 (provider_id, api_mode) 唯一持有 SDK client，adapter 借用并无会话历史。不同专属 adapter 共用同一模式 client，结束或装配失败时关闭一次。SDK max_retries=0，TaskRunner 独占重试。SDK 失败在适配边界归类，内部 TypeError 不伪装成供应商瞬时错误。
 
@@ -239,7 +239,7 @@ reasoning_effort = "high"
 
 [llm.models.example-latest.adapter_options]
 reasoning_efforts = ["high", "xhigh", "max"]
-reasoning_keep = "encrypted"
+native_replay = "encrypted"
 store = false
 sampling = "omit"
 ```

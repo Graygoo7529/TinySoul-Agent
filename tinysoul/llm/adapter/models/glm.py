@@ -72,12 +72,12 @@ class GlmAdapter(OpenAIChatAdapter):
             extra_body["request_id"] = values["request_id"]
         if "user_id" in values:
             extra_body["user_id"] = values["user_id"]
-        keep = values.get("reasoning_keep", "none")
-        thinking = values.get("thinking", "enabled" if keep != "none" else None)
+        replay_mode = values.get("native_replay", "none")
+        thinking = values.get("thinking", "enabled" if replay_mode != "none" else None)
         if thinking is not None:
             extra_body["thinking"] = {
                 "type": thinking,
-                "clear_thinking": keep != "content",
+                "clear_thinking": replay_mode != "content",
             }
         if extra_body:
             kwargs["extra_body"] = extra_body

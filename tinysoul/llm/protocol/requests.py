@@ -122,7 +122,7 @@ class CallSettings:
                 )
         object.__setattr__(self, "required_capabilities", capabilities)
 
-    def override_with(self, other: "CallSettings") -> "CallSettings":
+    def override_with(self, other: CallSettings) -> CallSettings:
         return CallSettings(
             answer_format=(
                 other.answer_format

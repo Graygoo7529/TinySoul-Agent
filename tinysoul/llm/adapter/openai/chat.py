@@ -9,25 +9,28 @@ from tinysoul.llm.adapter.catalog import adapter_spec
 from tinysoul.llm.config.loader import ProviderSpec
 from tinysoul.llm.execution.message_rendering import MessageContentRenderer
 from tinysoul.llm.protocol.adapter_types import AdapterKind
-from tinysoul.llm.protocol.reasoning import NativeReplay, Reasoning
+from tinysoul.llm.protocol.reasoning import NativeReplayMode, Reasoning
 from tinysoul.llm.protocol.responses import RawResponse
 from tinysoul.llm.protocol.tools import DefaultToolCallIdMapper, ToolCallIdMapper
 
 from ..base import (
     ProviderRequest,
 )
+from ..common import validate_request
+from ..replay import capture_replay
+from ..tool_names import ProviderToolNameMap
 from .base import OpenAIAdapter
 from .clients import OpenAIChatCompletionsClient
 from .common import (
     common_create_kwargs,
     get_attr,
     model_dump_mapping,
+    openai_usage,
     provider_error,
     response_metadata,
     uses_native_json_output,
 )
 from .payloads import apply_tools_kwargs, to_chat_messages
-from .replay import response_fingerprint
 from .response_parsing import (
     chat_finish_reason,
     chat_stop_reason,
@@ -35,7 +38,6 @@ from .response_parsing import (
     first_choice_message,
     message_text,
 )
-from .tool_names import ProviderToolNameMap
 
 
 class OpenAIChatAdapter(OpenAIAdapter):
@@ -58,8 +60,7 @@ class OpenAIChatAdapter(OpenAIAdapter):
         self._renderer = MessageContentRenderer()
 
     async def invoke(self, request: ProviderRequest) -> RawResponse:
-        self.validate_identity(request)
-        self.validate_options(request)
+        validate_request(request, self.provider_id, self.adapter_kind)
         self.validate_request(request)
         configured_options = request.model.adapter_options.values
         name_map = ProviderToolNameMap.from_request(request)
@@ -97,19 +98,21 @@ class OpenAIChatAdapter(OpenAIAdapter):
         calls = chat_tool_calls(message, id_mapper=self._id_mapper, name_map=name_map)
         answer = message_text(message)
         reasoning = self.chat_output_reasoning(message)
-        if reasoning is not None and reasoning.content:
+        if reasoning is not None and reasoning.summary:
+            replay = (
+                capture_replay(
+                    request,
+                    NativeReplayMode.CONTENT,
+                    ({"reasoning_content": reasoning.summary},),
+                    answer,
+                    calls,
+                )
+                if self.replay_mode(request) is NativeReplayMode.CONTENT
+                else None
+            )
             reasoning = Reasoning(
-                content=reasoning.content,
                 summary=reasoning.summary,
-                native_replay=NativeReplay(
-                    api_mode=self.api_mode,
-                    adapter=self.adapter_kind,
-                    provider_id=self.provider_id,
-                    provider_model=request.binding.provider_model,
-                    variant=request.model.adapter_options.variant,
-                    ordered_parts=({"reasoning_content": reasoning.content},),
-                    message_fingerprint=response_fingerprint(answer, calls),
-                ),
+                native_replay=replay,
             )
         return RawResponse(
             answer_text=answer,
@@ -118,7 +121,7 @@ class OpenAIChatAdapter(OpenAIAdapter):
             tool_calls=calls,
             reasoning=reasoning,
             stop_reason=chat_stop_reason(response),
-            usage=model_dump_mapping(get_attr(response, "usage")),
+            usage=openai_usage(get_attr(response, "usage")),
             metadata=response_metadata(response),
             provider_payload=to_json_object(model_dump_mapping(response)),
         )

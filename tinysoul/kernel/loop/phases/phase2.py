@@ -2,49 +2,47 @@
 
 from __future__ import annotations
 
-from tinysoul.prompts.kernel import loop as prompt_text
-
-from tinysoul.kernel.action.call import ActionCall
+from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.action import (
     ActionEngine,
     ActionError,
     ActionNormalization,
     ActionPhaseResult,
 )
+from tinysoul.kernel.action.call import ActionCall
+from tinysoul.kernel.action.runtime_bridge import RuntimeActionBridge
 from tinysoul.kernel.context import (
     ContextEngine,
     build_trace_decision_signal,
     build_trace_phase_note_signal,
 )
 from tinysoul.kernel.context.errors import ContextError
-from tinysoul.infra.json import JsonObject
+from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
 from tinysoul.llm.protocol.messages import AssistantMessage, TextPart
 from tinysoul.llm.protocol.requests import ModelContextOverflowPolicy, TaskCall
 from tinysoul.llm.protocol.responses import TaskResult, TaskResultStatus
+from tinysoul.prompts.kernel import loop as prompt_text
 from tinysoul.runtime import (
     CyclePhase,
-    RunScope,
-    SignalBus,
     NullObservationEmitter,
     ObservationEmitter,
     ObservationEvent,
     ObservationLevel,
+    RunScope,
+    SignalBus,
     emit_observation,
     observation_enabled,
 )
-from tinysoul.kernel.action.runtime_bridge import RuntimeActionBridge
-from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
 
-from ..interaction.cancellation import TurnCancellation
 from ..context_signals import ContextSignalConsumer
+from ..interaction.cancellation import TurnCancellation
 from ..prompts import DomainSkillProvider, EmptyDomainSkillProvider, phase2_task_prompt
 from ..signals import LoopTraceNoteKind
-
-from .contracts import LLMRunner, PhaseFailure, Phase2Outcome
+from .contracts import LLMRunner, Phase2Outcome, PhaseFailure
 from .tasks import (
     _required_tool_settings,
-    _turn_task_cancellation,
     _task_result_feedback,
+    _turn_task_cancellation,
 )
 
 
@@ -133,6 +131,7 @@ class Phase2Unit:
             TaskCall(
                 profile=self._task_profile,
                 messages=messages,
+                prompt_cache=ContextEngine.prompt_cache(messages),
                 tool_scope=preparation.tool_scope,
                 settings=_required_tool_settings(),
                 scope=scope,

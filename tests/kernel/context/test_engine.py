@@ -856,7 +856,7 @@ async def test_consume_trace_and_input_signals() -> None:
             AssistantMessage.from_parts(
                 TextPart("choose tools"),
                 JsonPart({"hint": "scan first"}),
-                reasoning=Reasoning(content="private trace", summary="scan plan"),
+                reasoning=Reasoning(summary="scan plan"),
                 tool_calls=(
                     ToolCallRecord(id="a1", name="workspace.list", arguments={}),
                 ),

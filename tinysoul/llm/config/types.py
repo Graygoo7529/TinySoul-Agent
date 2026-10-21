@@ -58,6 +58,7 @@ class ProviderEndpoint:
 
     api_mode: ApiMode
     base_url: str
+    api_version: str | None = None
     headers: Mapping[str, str] = field(default_factory=dict)
     header_refs: Mapping[str, str] = field(default_factory=dict)
 
@@ -68,6 +69,11 @@ class ProviderEndpoint:
             or not self.base_url
         ):
             raise LLMContractError("ProviderEndpoint requires an API mode and base URL")
+        if self.api_version is not None and (
+            self.api_mode is not ApiMode.GOOGLE_GENERATE_CONTENT
+            or not isinstance(self.api_version, str) or not self.api_version.strip()
+        ):
+            raise LLMContractError("api_version is only supported by Google endpoints")
         if any(
             not isinstance(name, str)
             or not name

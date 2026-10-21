@@ -9,7 +9,7 @@ from math import isfinite
 
 from ..errors import LLMContractError
 from .adapter_types import AdapterKind
-from .reasoning import ReasoningKeep
+from .reasoning import NativeReplayMode
 
 
 class ModelCapability(StrEnum):
@@ -76,18 +76,18 @@ class AdapterOptions:
             items[key] = value
         object.__setattr__(self, "values", items)
 
-    def reasoning_keep(self) -> ReasoningKeep:
-        value = self.values.get("reasoning_keep")
+    def native_replay_mode(self) -> NativeReplayMode:
+        value = self.values.get("native_replay")
         if value is None:
-            return ReasoningKeep.NONE
+            return NativeReplayMode.NONE
         if isinstance(value, str):
             try:
-                return ReasoningKeep(value)
+                return NativeReplayMode(value)
             except ValueError as exc:
                 raise LLMContractError(
-                    "reasoning_keep must be 'none', 'content', or 'encrypted'"
+                    "native_replay must be 'none', 'content', 'encrypted', or 'signed'"
                 ) from exc
-        raise LLMContractError("reasoning_keep must be a string")
+        raise LLMContractError("native_replay must be a string")
 
     @property
     def variant(self) -> str | None:

@@ -452,6 +452,16 @@ function EndpointEditor({
                 </label>
               ))}
             </details>
+            {mode === "google-generate-content" && <label className="block text-xs text-fg-muted">
+              API 版本（默认 v1beta；Base URL 使用服务根地址）
+              <TextInput ariaLabel="Google API version" value={stringField(endpoint, "api_version")}
+                placeholder="v1beta" disabled={disabled} onCommit={(api_version) => {
+                  const next = { ...endpoint };
+                  if (api_version.trim()) next.api_version = api_version.trim();
+                  else delete next.api_version;
+                  onCommit({ ...value, [mode]: next });
+                }} />
+            </label>}
           </div>
         );
       })}

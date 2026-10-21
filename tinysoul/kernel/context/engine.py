@@ -27,6 +27,7 @@ from tinysoul.kernel.interaction import (
 from tinysoul.kernel.retrieval.contracts import RefsSource, RetrievalRequest
 from tinysoul.kernel.retrieval.disclosure import DisclosurePage, InspectPage
 from tinysoul.kernel.retrieval.operations import SearchCorpus
+from tinysoul.llm.protocol.cache import PromptCache
 from tinysoul.llm.protocol.messages import MessageStack
 from tinysoul.llm.protocol.projection import message_projection
 from tinysoul.llm.protocol.tools import ToolCallRecord, ToolScope
@@ -439,6 +440,17 @@ class ContextEngine:
             if self._segments is not None
             else SegmentSelectionView()
         )
+
+    @staticmethod
+    def prompt_cache(messages: MessageStack) -> PromptCache | None:
+        """The composed Background prefix is stable across tasks in a Turn."""
+        indices = [
+            index
+            for origin in messages.provenance
+            if origin.slot == "background"
+            for index in origin.message_indices
+        ]
+        return PromptCache(breakpoint_message_index=max(indices)) if indices else None
 
     def compose(self, task_prompt: TaskPrompt) -> MessageStack:
         self._require_turn()
@@ -1085,7 +1097,7 @@ class ContextEngineBuilder:
     """Assemble a ContextEngine from configuration."""
 
     @classmethod
-    def from_settings(cls, settings: ContextSettings) -> "ContextEngineBuilder":
+    def from_settings(cls, settings: ContextSettings) -> ContextEngineBuilder:
         return (
             cls(system_text=settings.system_text)
             .with_journal(settings.journal)
@@ -1117,14 +1129,14 @@ class ContextEngineBuilder:
         self._registrations: list[RegisteredSegment] = []
         self._observations: ObservationEmitter = NullObservationEmitter()
 
-    def with_journal(self, journal: str) -> "ContextEngineBuilder":
+    def with_journal(self, journal: str) -> ContextEngineBuilder:
         self._journal = journal
         return self
 
     def with_observations(
         self,
         observations: ObservationEmitter,
-    ) -> "ContextEngineBuilder":
+    ) -> ContextEngineBuilder:
         if not hasattr(observations, "enabled") or not hasattr(observations, "emit"):
             raise ContextContractError(
                 "Context observations must provide enabled() and emit()"
@@ -1135,7 +1147,7 @@ class ContextEngineBuilder:
     def with_max_image_bytes(
         self,
         max_image_bytes: int | None,
-    ) -> "ContextEngineBuilder":
+    ) -> ContextEngineBuilder:
         if max_image_bytes is not None and max_image_bytes <= 0:
             raise ContextContractError("Context image byte budget must be positive")
         self._max_image_bytes = max_image_bytes
@@ -1147,7 +1159,7 @@ class ContextEngineBuilder:
         chunk_chars: int,
         branch_factor: int,
         min_hot_entries: int,
-    ) -> "ContextEngineBuilder":
+    ) -> ContextEngineBuilder:
         if chunk_chars <= 0:
             raise ContextContractError("Trace chunk_chars must be positive")
         if branch_factor < 2:
@@ -1162,7 +1174,7 @@ class ContextEngineBuilder:
     def with_max_trace_inspect_chars(
         self,
         max_chars: int,
-    ) -> "ContextEngineBuilder":
+    ) -> ContextEngineBuilder:
         if (
             isinstance(max_chars, bool)
             or not isinstance(max_chars, int)
@@ -1177,7 +1189,7 @@ class ContextEngineBuilder:
     def with_compression_target_ratio(
         self,
         ratio: float,
-    ) -> "ContextEngineBuilder":
+    ) -> ContextEngineBuilder:
         if not 0 < ratio < 1:
             raise ContextContractError(
                 "Context compression target ratio must be between 0 and 1"
@@ -1188,7 +1200,7 @@ class ContextEngineBuilder:
     def with_compression_trigger_ratio(
         self,
         ratio: float,
-    ) -> "ContextEngineBuilder":
+    ) -> ContextEngineBuilder:
         if not 0 < ratio < 1:
             raise ContextContractError(
                 "Context compression trigger ratio must be between 0 and 1"
@@ -1196,7 +1208,7 @@ class ContextEngineBuilder:
         self._compression_trigger_ratio = ratio
         return self
 
-    def with_segment(self, registration: RegisteredSegment) -> "ContextEngineBuilder":
+    def with_segment(self, registration: RegisteredSegment) -> ContextEngineBuilder:
         self._registrations.append(registration)
         return self
 

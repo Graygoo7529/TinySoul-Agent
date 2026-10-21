@@ -149,13 +149,13 @@ class ConservativeRequestTokenEstimator:
                         message_tokens += tokens
                 reasoning = message.reasoning
                 if reasoning is not None:
-                    for value in (reasoning.content, reasoning.summary):
+                    for value in (reasoning.summary,):
                         if value is None:
                             continue
                         chars, tokens = _text_size(value)
                         message_chars += chars
                         message_tokens += tokens
-                    for item in reasoning.native_parts:
+                    for item in reasoning.native_items:
                         chars, tokens = _text_size(dumps_json(item))
                         message_chars += chars
                         message_tokens += tokens

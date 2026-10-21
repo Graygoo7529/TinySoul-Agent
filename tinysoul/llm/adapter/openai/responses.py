@@ -9,32 +9,33 @@ from tinysoul.llm.adapter.catalog import adapter_spec
 from tinysoul.llm.config.loader import ProviderSpec
 from tinysoul.llm.execution.message_rendering import MessageContentRenderer
 from tinysoul.llm.protocol.adapter_types import AdapterKind
-from tinysoul.llm.protocol.reasoning import NativeReplay, Reasoning
+from tinysoul.llm.protocol.reasoning import NativeReplayMode, Reasoning
 from tinysoul.llm.protocol.responses import RawResponse
 from tinysoul.llm.protocol.tools import DefaultToolCallIdMapper, ToolCallIdMapper
 
 from ..base import (
     ProviderRequest,
 )
+from ..common import validate_request
+from ..replay import capture_replay
+from ..tool_names import ProviderToolNameMap
 from .base import OpenAIAdapter
 from .clients import OpenAIResponsesClient
 from .common import (
     common_create_kwargs,
     get_attr,
     model_dump_mapping,
+    openai_usage,
     provider_error,
     response_metadata,
     uses_native_json_output,
 )
 from .payloads import apply_tools_kwargs, to_responses_input
-from .replay import response_fingerprint
 from .response_parsing import (
-    responses_encrypted_reasoning_items,
     responses_stop_reason,
     responses_text,
     responses_tool_calls,
 )
-from .tool_names import ProviderToolNameMap
 
 
 class OpenAIResponsesAdapter(OpenAIAdapter):
@@ -57,8 +58,7 @@ class OpenAIResponsesAdapter(OpenAIAdapter):
         self._renderer = MessageContentRenderer()
 
     async def invoke(self, request: ProviderRequest) -> RawResponse:
-        self.validate_identity(request)
-        self.validate_options(request)
+        validate_request(request, self.provider_id, self.adapter_kind)
         self.validate_request(request)
         configured_options = request.model.adapter_options.values
         name_map = ProviderToolNameMap.from_request(request)
@@ -96,25 +96,29 @@ class OpenAIResponsesAdapter(OpenAIAdapter):
                 for part in output
             )
             if isinstance(output, list)
-            and responses_encrypted_reasoning_items(response)
             else ()
         )
         calls = responses_tool_calls(
             response, id_mapper=self._id_mapper, name_map=name_map
         )
         answer = responses_text(response)
-        if reasoning is not None and replay_parts:
+        if (
+            replay_parts
+            and self.replay_mode(request) is NativeReplayMode.ENCRYPTED
+            and any(
+                item.get("type") == "reasoning"
+                and isinstance(item.get("encrypted_content"), str)
+                for item in replay_parts
+            )
+        ):
             reasoning = Reasoning(
-                content=reasoning.content,
-                summary=reasoning.summary,
-                native_replay=NativeReplay(
-                    api_mode=self.api_mode,
-                    adapter=self.adapter_kind,
-                    provider_id=self.provider_id,
-                    provider_model=request.binding.provider_model,
-                    ordered_parts=replay_parts,
-                    variant=request.model.adapter_options.variant,
-                    message_fingerprint=response_fingerprint(answer, calls),
+                summary=reasoning.summary if reasoning is not None else None,
+                native_replay=capture_replay(
+                    request,
+                    NativeReplayMode.ENCRYPTED,
+                    replay_parts,
+                    answer,
+                    calls,
                 ),
             )
         return RawResponse(
@@ -124,7 +128,7 @@ class OpenAIResponsesAdapter(OpenAIAdapter):
             tool_calls=calls,
             reasoning=reasoning,
             stop_reason=responses_stop_reason(response),
-            usage=model_dump_mapping(get_attr(response, "usage")),
+            usage=openai_usage(get_attr(response, "usage")),
             metadata=response_metadata(response),
             provider_payload=to_json_object(model_dump_mapping(response)),
         )

@@ -5,10 +5,6 @@ from __future__ import annotations
 from typing import Protocol
 
 
-class ClosableClient(Protocol):
-    async def close(self) -> None: ...
-
-
 class OpenAIResponsesClient(Protocol):
     """Narrow SDK surface used by the Responses adapter."""
 

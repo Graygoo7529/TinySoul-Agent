@@ -5,31 +5,46 @@ from typing import cast
 
 import pytest
 
-from tinysoul.llm.protocol.adapter_types import AdapterKind, ApiMode
+from tinysoul.llm.adapter import ProviderRequest
 from tinysoul.llm.adapter.catalog import adapter_spec
+from tinysoul.llm.adapter.registry import ProviderRegistry
 from tinysoul.llm.errors import LLMContractError, LLMInvariantError
+from tinysoul.llm.execution.registry import ModelRegistry
+from tinysoul.llm.protocol.adapter_types import AdapterKind, ApiMode
 from tinysoul.llm.protocol.messages import MessageStack, UserMessage
 from tinysoul.llm.protocol.models import (
-    ModelCapability,
+    AdapterOptions,
     ModelProviderBinding,
     ModelSpec,
+    RequestOverrides,
 )
-from tinysoul.llm.execution.registry import ModelRegistry
-from tinysoul.llm.adapter import ProviderRequest
-from tinysoul.llm.adapter.registry import ProviderRegistry
-from tinysoul.llm.protocol.reasoning import ReasoningKeep
-from tinysoul.llm.protocol.models import AdapterOptions, RequestOverrides
+from tinysoul.llm.protocol.reasoning import NativeReplay, NativeReplayMode
 from tinysoul.llm.protocol.responses import AnswerFormat, RawResponse
-from tinysoul.llm.protocol.tools import ToolCallRecord, ToolUse
+from tinysoul.llm.protocol.tools import ToolCallRecord
 
 
-def test_adapter_options_contract_and_reasoning_keep() -> None:
+def test_adapter_options_contract_and_native_replay() -> None:
     with pytest.raises(LLMContractError):
-        AdapterOptions({"reasoning_keep": "forever"}).reasoning_keep()
+        AdapterOptions({"native_replay": "forever"}).native_replay_mode()
     assert (
-        AdapterOptions({"reasoning_keep": "encrypted"}).reasoning_keep()
-        is ReasoningKeep.ENCRYPTED
+        AdapterOptions({"native_replay": "encrypted"}).native_replay_mode()
+        is NativeReplayMode.ENCRYPTED
     )
+
+
+def test_native_replay_requires_a_message_fingerprint() -> None:
+    with pytest.raises(LLMContractError, match="fingerprint"):
+        NativeReplay(
+            mode=NativeReplayMode.ENCRYPTED,
+            api_mode=ApiMode.OPENAI_RESPONSES,
+            adapter=AdapterKind.GPT,
+            provider_id="provider",
+            provider_model="model",
+            ordered_items=(
+                {"type": "reasoning", "encrypted_content": "opaque"},
+            ),
+            message_fingerprint="",
+        )
 
 
 def test_request_overrides_reject_invalid_values() -> None:

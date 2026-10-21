@@ -2,35 +2,34 @@
 
 from __future__ import annotations
 
-from tinysoul.prompts.kernel import loop as prompt_text
+from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.action import ActionEngine, ActionError
+from tinysoul.kernel.action.runtime_bridge import RuntimeActionBridge
 from tinysoul.kernel.context import (
     ContextEngine,
     ControlResult,
     build_trace_phase_note_signal,
 )
 from tinysoul.kernel.context.errors import ContextError
-from tinysoul.infra.json import JsonObject
-from tinysoul.llm.protocol.requests import ModelContextOverflowPolicy, TaskCall
-from tinysoul.llm.protocol.responses import TaskResultStatus
-from tinysoul.runtime import CyclePhase, RunScope, SignalBus
-from tinysoul.kernel.action.runtime_bridge import RuntimeActionBridge
 from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
 from tinysoul.kernel.loop.runtime_bridge import RuntimeLoopBridge
+from tinysoul.llm.protocol.requests import ModelContextOverflowPolicy, TaskCall
+from tinysoul.llm.protocol.responses import TaskResultStatus
+from tinysoul.prompts.kernel import loop as prompt_text
+from tinysoul.runtime import CyclePhase, RunScope, SignalBus
 
-from ..interaction.cancellation import TurnCancellation
 from ..context_signals import ContextSignalConsumer
 from ..errors import LoopError
+from ..interaction.cancellation import TurnCancellation
 from ..prompts import phase1_task_prompt
 from ..signals import LoopTraceNoteKind
-
-from .contracts import LLMRunner, PhaseFailure, Phase1Outcome
+from .contracts import LLMRunner, Phase1Outcome, PhaseFailure
 from .tasks import (
+    _control_result_payload,
     _merge_tool_scopes,
     _required_tool_settings,
-    _turn_task_cancellation,
     _task_result_feedback,
-    _control_result_payload,
+    _turn_task_cancellation,
 )
 
 
@@ -95,6 +94,7 @@ class Phase1Unit:
             TaskCall(
                 profile=self._task_profile,
                 messages=messages,
+                prompt_cache=ContextEngine.prompt_cache(messages),
                 tool_scope=tool_scope,
                 settings=_required_tool_settings(),
                 scope=scope,

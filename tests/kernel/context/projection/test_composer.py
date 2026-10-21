@@ -19,6 +19,7 @@ from tinysoul.kernel.context.segments import (
     SegmentProjection,
     SegmentSlot,
 )
+from tinysoul.llm.protocol.adapter_types import AdapterKind, ApiMode
 from tinysoul.llm.protocol.messages import (
     AssistantMessage,
     ImagePart,
@@ -28,8 +29,7 @@ from tinysoul.llm.protocol.messages import (
     ToolResultMessage,
     UserMessage,
 )
-from tinysoul.llm.protocol.reasoning import Reasoning, NativeReplay
-from tinysoul.llm.protocol.adapter_types import ApiMode, AdapterKind
+from tinysoul.llm.protocol.reasoning import NativeReplay, NativeReplayMode, Reasoning
 from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind
 
 
@@ -189,9 +189,8 @@ def test_estimate_counts_assistant_reasoning() -> None:
         AssistantMessage.from_text(
             "answer",
             reasoning=Reasoning(
-                content="thinking content",
                 summary="thinking summary",
-                native_replay=NativeReplay(ApiMode.OPENAI_RESPONSES, AdapterKind.GPT, "provider", "remote", ({"type": "reasoning", "encrypted_content": "state"},)),
+                native_replay=NativeReplay(NativeReplayMode.ENCRYPTED, ApiMode.OPENAI_RESPONSES, AdapterKind.GPT, "provider", "remote", ({"type": "reasoning", "encrypted_content": "state"},), "fingerprint"),
             ),
         ),
     )

@@ -28,7 +28,7 @@ from .protocol.models import (
     ModelSpec,
     RequestOverrides,
 )
-from .protocol.reasoning import Reasoning, ReasoningKeep
+from .protocol.reasoning import NativeReplay, NativeReplayMode, Reasoning
 from .protocol.requests import (
     CallSettings,
     ModelContextOverflowPolicy,
@@ -60,6 +60,7 @@ from .protocol.tools import (
     ToolSpec,
     ToolUse,
 )
+from .protocol.usage import TokenUsage
 
 if TYPE_CHECKING:
     from .execution.task import (
@@ -82,10 +83,10 @@ _TASK_EXPORTS = {
 }
 
 __all__ = [
+    "AdapterKind",
+    "AdapterOptions",
     "Answer",
     "AnswerFormat",
-    "AdapterOptions",
-    "AdapterKind",
     "AssistantMessage",
     "CallSettings",
     "CapabilityPolicy",
@@ -100,25 +101,26 @@ __all__ = [
     "LLMInvariantError",
     "LLMTaskError",
     "LLMTaskRunner",
-    "ModelContextOverflowPolicy",
     "Message",
     "MessagePart",
     "MessageStack",
     "ModelCapability",
     "ModelCapabilityError",
-    "ModelRegistry",
+    "ModelContextOverflowPolicy",
     "ModelProviderBinding",
+    "ModelRegistry",
     "ModelSpec",
+    "NativeReplay",
+    "NativeReplayMode",
     "PromptCache",
-    "RequestOverrides",
     "RawResponse",
-    "ResponseStopReason",
     "Reasoning",
-    "ReasoningKeep",
+    "RequestOverrides",
+    "ResponseStopReason",
     "SystemMessage",
     "TaskCall",
-    "TaskCancellation",
     "TaskCallValidator",
+    "TaskCancellation",
     "TaskCancelled",
     "TaskFailure",
     "TaskFailureReason",
@@ -128,6 +130,7 @@ __all__ = [
     "TaskResultStatus",
     "TextAnswer",
     "TextPart",
+    "TokenUsage",
     "ToolCallIdMapper",
     "ToolCallRecord",
     "ToolKind",

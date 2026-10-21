@@ -7,6 +7,7 @@ from typing import cast
 
 from tinysoul.llm.config.loader import ProviderSpec
 from tinysoul.llm.protocol.adapter_types import AdapterKind, ApiMode
+from tinysoul.llm.protocol.reasoning import NativeReplayMode
 from tinysoul.llm.protocol.tools import ToolUse
 
 from ..base import (
@@ -70,12 +71,26 @@ class KimiAdapter(OpenAIChatAdapter):
         thinking: dict[str, object] = {}
         if "thinking" in values:
             thinking["type"] = values["thinking"]
-        if values.get("variant") == "k2" and values.get("reasoning_keep") == "content":
+        if values.get("variant") == "k2" and values.get("native_replay") == "content":
             thinking["keep"] = "all"
         if thinking:
             extra_body["thinking"] = thinking
         if extra_body:
             kwargs["extra_body"] = extra_body
+
+    def normalize_sampling(
+        self, kwargs: dict[str, object], request: ProviderRequest
+    ) -> None:
+        """K2.x and K3 fix sampling parameters in the provider API."""
+
+        kwargs.pop("temperature", None)
+        kwargs.pop("top_p", None)
+
+    def replay_mode(self, request: ProviderRequest) -> NativeReplayMode:
+        # K3 preserves reasoning_content across continuations by contract.
+        if _uses_k3_variant(request):
+            return NativeReplayMode.CONTENT
+        return super().replay_mode(request)
 
     def __init__(
         self,

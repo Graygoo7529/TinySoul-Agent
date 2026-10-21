@@ -21,7 +21,7 @@ capabilities = [
 ]
 
 [llm.models.gpt-sol.adapter_options]
-reasoning_keep = "encrypted"
+native_replay = "encrypted"
 prompt_cache_mode = "implicit"
 prompt_cache_ttl = "30m"
 verbosity = "medium"
@@ -51,7 +51,7 @@ capabilities = [
 ]
 
 [llm.models.gpt-terra.adapter_options]
-reasoning_keep = "encrypted"
+native_replay = "encrypted"
 prompt_cache_mode = "implicit"
 prompt_cache_ttl = "30m"
 verbosity = "medium"
@@ -81,7 +81,7 @@ capabilities = [
 ]
 
 [llm.models.gpt-luna.adapter_options]
-reasoning_keep = "encrypted"
+native_replay = "encrypted"
 prompt_cache_mode = "implicit"
 prompt_cache_ttl = "30m"
 verbosity = "medium"

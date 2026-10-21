@@ -355,6 +355,29 @@ describe("LlmModelsPage", () => {
     await act(async () => buttonByText("claude-latest").click());
     expect(select).toHaveBeenCalledWith("claude-latest");
   });
+  it("clears dependent adapter options when the user changes their required mode", async () => {
+    const raw = makeCatalog();
+    const llm = (raw.rules as Record<string, JsonValue>).llm as Record<string, JsonValue>;
+    (llm.adapters as JsonValue[]).push({
+      id: "anthropic-messages", api_mode: "anthropic-messages", runtime_available: true,
+      common_options: [
+        { id: "thinking", value_kind: "enum", choices: ["enabled", "disabled"], source: "api-mode" },
+        { id: "thinking_budget_tokens", value_kind: "integer", minimum: 1024, source: "api-mode", requires: { thinking: ["enabled"] } },
+      ], variants: [],
+    });
+    store().applySnapshots({ saved: makeSaved(), active: makeSaved(), catalogRaw: raw, presets: [] });
+    store().setValue(MODELS_KIMI_SOURCE, "llm.models.kimi-k2.adapter", "anthropic-messages");
+    store().setValue(MODELS_KIMI_SOURCE, "llm.models.kimi-k2.adapter_options", { thinking: "enabled", thinking_budget_tokens: 2048 });
+    await renderSelected("kimi-k2");
+    const mode = container.querySelector<HTMLSelectElement>('select[aria-label="thinking"]')!;
+    await act(async () => {
+      mode.value = "disabled";
+      mode.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const model = projectCollection(store(), "llm.models").find((item) => item.id === "kimi-k2")!;
+    expect(model.value.adapter_options).toEqual({ thinking: "disabled" });
+    expect(container.querySelector('input[aria-label="thinking_budget_tokens"]')).toBeNull();
+  });
   async function choose(label: string, value: string): Promise<void> {
     const select = container.querySelector(`.fixed select[aria-label="${label}"]`) as HTMLSelectElement;
     expect(select).not.toBeNull();

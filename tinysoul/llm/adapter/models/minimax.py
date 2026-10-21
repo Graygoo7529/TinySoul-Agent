@@ -7,7 +7,6 @@ from typing import cast
 
 from tinysoul.llm.config.loader import ProviderSpec
 from tinysoul.llm.protocol.adapter_types import AdapterKind, ApiMode
-from tinysoul.llm.protocol.reasoning import Reasoning
 
 from ..base import (
     ProviderError,
@@ -50,12 +49,6 @@ class MiniMaxAdapter(OpenAIChatAdapter):
                     kind=ProviderErrorKind.CONFIG,
                 )
 
-    def chat_output_reasoning(self, message: object) -> Reasoning | None:
-        content = _reasoning_text(message)
-        if content is None:
-            return None
-        return Reasoning(content=content, summary=content)
-
     def apply_options(
         self,
         kwargs: dict[str, object],
@@ -84,25 +77,3 @@ class MiniMaxAdapter(OpenAIChatAdapter):
             adapter_kind=AdapterKind.MINIMAX,
             completions=completions,
         )
-
-
-def _reasoning_text(message: object) -> str | None:
-    content = _get_attr(message, "reasoning_content")
-    if isinstance(content, str) and content:
-        return content
-
-    details = _get_attr(message, "reasoning_details")
-    if not isinstance(details, list):
-        return None
-    texts: list[str] = []
-    for detail in details:
-        text = _get_attr(detail, "text")
-        if isinstance(text, str) and text:
-            texts.append(text)
-    return "\n".join(texts) if texts else None
-
-
-def _get_attr(value: object, name: str) -> object:
-    if isinstance(value, Mapping):
-        return value.get(name)
-    return getattr(value, name, None)

@@ -32,6 +32,8 @@ message 是 owner 提供的有限说明，不再透传原始 Python 异常文本
 
 LLM 继续使用现有 task_id 关联一次调用，Action 内部任务增加 consumer、implementation 和 target，实际 provider/model 与尝试沿现有 LLM 事件报告，不增加重复调用身份。Embedding/decision model 使用 `model.call.started/retry/completed/failed/cancelled`，verbose payload 包括 call_id、consumer、implementation、target、provider、model、attempt/retry、elapsed_seconds、usage 和有限 failure；Embedding 另外报告 input_count/dimensions，不返回向量。
 
+`llm.model.response` 的 `usage` 统一为可选的 input_tokens、output_tokens、reasoning_tokens、cached_input_tokens、cache_creation_input_tokens；没有提供的统计不伪造为零，不同 API 的计费含义不因此等同。`reasoning.summary` 是可读摘要，`reasoning.native_replay` 只投影 mode、api_mode、adapter、provider_id、provider_model；不发送 ordered_items、signature 或 encrypted_content。请求历史中的 reasoning 使用同一安全投影。
+
 LLM 请求 detail 的 provenance 包含 `segment_id, owner, slot, shape, message_indices, refs`，索引为零起始，对应同 payload 的实际 messages。TaskPrompt/guidance 单独标识，Home refs 来自 owner。resolved_references 保存该次消息实际绑定的动态资源定位。它们不是提示正文，不影响供应商请求；这里展示的是 provider-neutral MessageStack，不是原始 HTTP 包。
 
 `llm.model.request` 还报告该次 attempt 的 `max_output_tokens`，即经过 task、单次调用和 model override 合并后的有效生成额度。`llm.task.completed` 在 status 为 `failure` 时投影已有 `reason, scope, constraint, feedback`；`loop.phase.completed` 在 failed 时投影 PhaseFailure 的 `failure.reason` 与有限 `failure.feedback`。这些字段是定位失败的摘要，不替代完整 model response，也不表示 provider completed 就代表 Task 或 Phase 成功。

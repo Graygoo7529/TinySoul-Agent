@@ -6,8 +6,7 @@ from tinysoul.infra.concurrency import AsyncResourceScope, CleanupDiagnostic
 from tinysoul.llm.errors import LLMContractError, LLMInvariantError
 from tinysoul.llm.protocol.adapter_types import AdapterKind
 
-from .base import ProviderAdapter
-from .openai.clients import ClosableClient
+from .base import ClosableClient, ProviderAdapter
 
 
 class ProviderRegistry:

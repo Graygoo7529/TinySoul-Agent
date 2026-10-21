@@ -10,8 +10,8 @@ from tinysoul.llm.protocol.responses import ResponseStopReason
 from tinysoul.llm.protocol.tools import ToolCallIdMapper, ToolCallRecord
 
 from ..base import ProviderError, ProviderErrorKind
+from ..tool_names import ProviderToolNameMap
 from .common import get_attr, model_dump_mapping
-from .tool_names import ProviderToolNameMap
 
 
 def responses_text(response: object) -> str:

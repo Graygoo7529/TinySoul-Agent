@@ -1,4 +1,4 @@
-# Configuration
+﻿# Configuration
 
 本页描述 Agent 配置的结构化查询、编辑和激活协议。前端读取后端投影、维护本地草稿并提交修改；配置 owner 校验候选并经 Infra 写回项目文件，Endpoint 只映射协议。新增文件须进入受管加载范围，保存与生效遵循下述 PATCH/apply/reload 语义。整体职责见 [统一配置链路](../design/infra.md#统一配置链路)。
 
@@ -89,7 +89,9 @@ LLM model 的 `family`（默认空）与 `collapsed`（默认 false）只提供�
 
 `create_source` 只声明一个尚不存在、位于项目 `configs/` 下且可由 include 图加载的 TOML 来源；同一批次随后用 `set` 写入模型。`set` 的 value 是不含 null 的递归 TOML/JSON value；`delete` 不携带 value。未知 op、缺失/多余字段和 `set(null)` 返回 `422 request.invalid`。PATCH 与 SDK 的 `patch_config()` 都只校验并保存候选，返回 `state=saved, pending_reload=true`，不替换当前 Generation。随后调用 `POST /v2/config/reload`（无请求体）或 SDK `reload_config()` 激活；成功返回 `state=active, pending_reload=false`。活动或等待中的 Turn、Reflection、daily transition 或既有 activation 使 reload 返回 `409 config.activation_unavailable`；候选保存仍可用。不要求 revision。
 
-Provider 在 `llm.providers.<id>.endpoints.<api-mode>` 配置 base_url、headers/header_refs，共用 provider 的 api_key_envs 和可选请求头。Model 只选择一个 adapter，按该 adapter 的 api_mode 筛选兼容 Provider，并用有序 providers 数组保存 provider/provider_model。`GET /v2/config/catalog` 的 `rules.llm.api_modes/adapters` 返回四种模式、组合后的 common_options/variants、选项 source 和 runtime_available/reason；前端不另存供应商规则。通用 Chat/Responses 可执行，Anthropic Messages/Google GenerateContent 当前可编辑但未接入 SDK 调用。Model 顶层 reasoning_effort 从 adapter_options.reasoning_efforts 声明中选择；request_overrides 和 task settings 支持 top_p。Endpoint table、Provider Chain 和选项沿原有草稿/diff/PATCH 提交，候选配置失败整批不持久化。
+Provider 在 `llm.providers.<id>.endpoints.<api-mode>` 配置 base_url、headers/header_refs，共用 provider 的 api_key_envs 和可选请求头；Google GenerateContent endpoint 可选 `api_version`（默认由 SDK 使用 v1beta），该字段属于连接配置，不属于 model adapter option。Model 只选择一个 adapter，按该 adapter 的 api_mode 筛选兼容 Provider，并用有序 providers 数组保存 provider/provider_model。`GET /v2/config/catalog` 的 `rules.llm.api_modes/adapters` 返回四种模式、组合后的 common_options/variants、选项 source 和 runtime_available/reason；前端不另存供应商规则。四种 API mode 均可由 Registry 创建真实 SDK adapter；Anthropic/Google 的请求、工具、推理状态回放和缓存行为由 adapter 负责。Model 顶层 reasoning_effort 从 adapter_options.reasoning_efforts 声明中选择；request_overrides 和 task settings 支持 top_p。Endpoint table、Provider Chain 和选项沿原有草稿/diff/PATCH 提交，候选配置失败整批不持久化。
+
+每个 option 的 `requires` 是「其它选项名 → 允许值数组」，`excludes` 是互斥选项名数组；后端使用同一规则校验，前端据此筛选可添加项并清理模式变更后失效的依赖项。`native_replay` 的候选按模式收窄为 none/content、none/encrypted 或 none/signed；Google explicit cache 的远端资源名不属于配置字段。候选档位编辑与顶层选定值分开，移除已选档位后必须重新选择或清空。
 
 disabled Provider 可以在没有凭据时长期保存。把 Provider 改为 enabled 时，候选配置必须能从其 `api_key_envs` 中解析到至少一个非空值；否则 PATCH 返回 `422 config.invalid`，`details.key` 指向 `llm.providers.<id>.api_key_envs`，配置文件和当前 Generation 均保持不变。该校验只表示本地装配就绪，不探测远端服务。
 

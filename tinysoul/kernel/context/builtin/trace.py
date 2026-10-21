@@ -7,7 +7,6 @@ from enum import StrEnum
 from time import time
 from uuid import uuid4
 
-from tinysoul.prompts.kernel import context as prompt_text
 from tinysoul.infra.json import JsonObject, JsonValue, dumps_json, to_json_object
 from tinysoul.kernel.action.call import ActionCall, ExecutionFact, ExecutionState
 from tinysoul.kernel.action.result import ActionResult
@@ -22,6 +21,7 @@ from tinysoul.llm.protocol.messages import (
     UserMessage,
 )
 from tinysoul.llm.protocol.tools import ToolKind
+from tinysoul.prompts.kernel import context as prompt_text
 from tinysoul.runtime import CyclePhase
 
 from ..errors import (
@@ -844,7 +844,7 @@ class PendingInputs:
         reply_to: str = "",
         received_at: float | None = None,
         answer: QuestionAnswer | None = None,
-    ) -> "PendingInput":
+    ) -> PendingInput:
         if not text:
             raise ContextContractError("Pending input text must be non-empty")
         item = PendingInput(
@@ -858,7 +858,7 @@ class PendingInputs:
         self._inputs.append(item)
         return item
 
-    def unmerged(self) -> tuple["PendingInput", ...]:
+    def unmerged(self) -> tuple[PendingInput, ...]:
         return tuple(item for item in self._inputs if not item.merged)
 
     def mark_merged(self, input_ids: tuple[str, ...]) -> None:
@@ -873,7 +873,7 @@ class PendingInputs:
             for item in self._inputs
         ]
 
-    def all(self) -> tuple["PendingInput", ...]:
+    def all(self) -> tuple[PendingInput, ...]:
         return tuple(self._inputs)
 
     def render_messages(self) -> tuple[Message, ...]:
@@ -1010,10 +1010,9 @@ def _message_chars(message: Message) -> int:
         for call in message.tool_calls:
             total += len(call.id) + len(call.name) + len(dumps_json(call.arguments))
         if message.reasoning is not None:
-            total += len(message.reasoning.content or "")
             total += len(message.reasoning.summary or "")
             total += sum(
-                len(dumps_json(item)) for item in message.reasoning.native_parts
+                len(dumps_json(item)) for item in message.reasoning.native_items
             )
     elif isinstance(message, ToolResultMessage):
         total += (

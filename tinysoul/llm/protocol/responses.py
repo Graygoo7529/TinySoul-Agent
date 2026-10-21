@@ -13,6 +13,7 @@ from tinysoul.prompts import llm as prompt_text
 from ..errors import LLMContractError
 from .reasoning import Reasoning
 from .tools import ToolCallRecord, ToolScope, ToolUse
+from .usage import TokenUsage
 
 
 class AnswerFormat(StrEnum):
@@ -44,7 +45,7 @@ class RawResponse:
     tool_calls: tuple[ToolCallRecord, ...] = field(default_factory=tuple)
     reasoning: Reasoning | None = None
     stop_reason: ResponseStopReason = ResponseStopReason.UNKNOWN
-    usage: dict[str, object] = field(default_factory=dict)
+    usage: TokenUsage = field(default_factory=TokenUsage)
     metadata: dict[str, object] = field(default_factory=dict)
     provider_payload: JsonObject | None = None
 
@@ -66,11 +67,8 @@ class RawResponse:
             raise LLMContractError(
                 "RawResponse.stop_reason must be a ResponseStopReason"
             )
-        object.__setattr__(
-            self,
-            "usage",
-            _string_key_mapping(self.usage, field="RawResponse.usage"),
-        )
+        if not isinstance(self.usage, TokenUsage):
+            raise LLMContractError("RawResponse.usage must be TokenUsage")
         object.__setattr__(
             self,
             "metadata",
@@ -210,7 +208,7 @@ class TaskResult:
         raw_response: RawResponse,
         answer: Answer | None,
         tool_calls: tuple[ToolCallRecord, ...],
-    ) -> "TaskResult":
+    ) -> TaskResult:
         return cls(
             status=TaskResultStatus.SUCCESS,
             raw_response=raw_response,
@@ -226,7 +224,7 @@ class TaskResult:
         failure: TaskFailure,
         answer: Answer | None = None,
         tool_calls: tuple[ToolCallRecord, ...] = (),
-    ) -> "TaskResult":
+    ) -> TaskResult:
         return cls(
             status=TaskResultStatus.FAILURE,
             raw_response=raw_response,

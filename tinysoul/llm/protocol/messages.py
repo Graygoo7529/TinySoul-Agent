@@ -79,11 +79,11 @@ class SystemMessage:
         _require_label(self.label, field="SystemMessage.label")
 
     @classmethod
-    def from_text(cls, text: str, *, label: str = "") -> "SystemMessage":
+    def from_text(cls, text: str, *, label: str = "") -> SystemMessage:
         return cls(parts=(TextPart(text),), label=label)
 
     @classmethod
-    def from_json(cls, value: object, *, label: str = "") -> "SystemMessage":
+    def from_json(cls, value: object, *, label: str = "") -> SystemMessage:
         return cls(
             parts=(_json_part(value, field="SystemMessage.value"),),
             label=label,
@@ -94,13 +94,13 @@ class SystemMessage:
         cls,
         *parts: MessagePart,
         label: str = "",
-    ) -> "SystemMessage":
+    ) -> SystemMessage:
         return cls(parts=tuple(parts), label=label)
 
-    def add_part(self, part: MessagePart) -> "SystemMessage":
+    def add_part(self, part: MessagePart) -> SystemMessage:
         return self.add_parts(part)
 
-    def add_parts(self, *parts: MessagePart) -> "SystemMessage":
+    def add_parts(self, *parts: MessagePart) -> SystemMessage:
         return SystemMessage(parts=(*self.parts, *parts), label=self.label)
 
 
@@ -120,11 +120,11 @@ class UserMessage:
         _require_label(self.label, field="UserMessage.label")
 
     @classmethod
-    def from_text(cls, text: str, *, label: str = "") -> "UserMessage":
+    def from_text(cls, text: str, *, label: str = "") -> UserMessage:
         return cls(parts=(TextPart(text),), label=label)
 
     @classmethod
-    def from_json(cls, value: object, *, label: str = "") -> "UserMessage":
+    def from_json(cls, value: object, *, label: str = "") -> UserMessage:
         return cls(
             parts=(_json_part(value, field="UserMessage.value"),),
             label=label,
@@ -135,13 +135,13 @@ class UserMessage:
         cls,
         *parts: MessagePart,
         label: str = "",
-    ) -> "UserMessage":
+    ) -> UserMessage:
         return cls(parts=tuple(parts), label=label)
 
-    def add_part(self, part: MessagePart) -> "UserMessage":
+    def add_part(self, part: MessagePart) -> UserMessage:
         return self.add_parts(part)
 
-    def add_parts(self, *parts: MessagePart) -> "UserMessage":
+    def add_parts(self, *parts: MessagePart) -> UserMessage:
         return UserMessage(parts=(*self.parts, *parts), label=self.label)
 
 
@@ -179,7 +179,7 @@ class AssistantMessage:
         *,
         tool_calls: tuple[ToolCallRecord, ...] = (),
         label: str = "",
-    ) -> "AssistantMessage":
+    ) -> AssistantMessage:
         return cls(
             parts=(TextPart(text),),
             reasoning=_reasoning(reasoning),
@@ -195,7 +195,7 @@ class AssistantMessage:
         *,
         tool_calls: tuple[ToolCallRecord, ...] = (),
         label: str = "",
-    ) -> "AssistantMessage":
+    ) -> AssistantMessage:
         return cls(
             parts=(_json_part(value, field="AssistantMessage.value"),),
             reasoning=_reasoning(reasoning),
@@ -210,7 +210,7 @@ class AssistantMessage:
         reasoning: str | Reasoning | None = None,
         tool_calls: tuple[ToolCallRecord, ...] = (),
         label: str = "",
-    ) -> "AssistantMessage":
+    ) -> AssistantMessage:
         return cls(
             parts=tuple(parts),
             reasoning=_reasoning(reasoning),
@@ -223,13 +223,13 @@ class AssistantMessage:
         cls,
         *tool_calls: ToolCallRecord,
         label: str = "",
-    ) -> "AssistantMessage":
+    ) -> AssistantMessage:
         return cls(tool_calls=tuple(tool_calls), label=label)
 
-    def add_part(self, part: MessagePart) -> "AssistantMessage":
+    def add_part(self, part: MessagePart) -> AssistantMessage:
         return self.add_parts(part)
 
-    def add_parts(self, *parts: MessagePart) -> "AssistantMessage":
+    def add_parts(self, *parts: MessagePart) -> AssistantMessage:
         return AssistantMessage(
             parts=(*self.parts, *parts),
             reasoning=self.reasoning,
@@ -237,7 +237,7 @@ class AssistantMessage:
             label=self.label,
         )
 
-    def add_tool_calls(self, *tool_calls: ToolCallRecord) -> "AssistantMessage":
+    def add_tool_calls(self, *tool_calls: ToolCallRecord) -> AssistantMessage:
         return AssistantMessage(
             parts=self.parts,
             reasoning=self.reasoning,
@@ -287,7 +287,7 @@ class ToolResultMessage:
         text: str,
         status: ToolResultStatus = ToolResultStatus.OK,
         label: str = "",
-    ) -> "ToolResultMessage":
+    ) -> ToolResultMessage:
         return cls(
             call_id=call_id,
             tool_name=tool_name,
@@ -305,7 +305,7 @@ class ToolResultMessage:
         value: object,
         status: ToolResultStatus = ToolResultStatus.OK,
         label: str = "",
-    ) -> "ToolResultMessage":
+    ) -> ToolResultMessage:
         return cls(
             call_id=call_id,
             tool_name=tool_name,
@@ -323,7 +323,7 @@ class ToolResultMessage:
         parts: tuple[MessagePart, ...],
         status: ToolResultStatus = ToolResultStatus.OK,
         label: str = "",
-    ) -> "ToolResultMessage":
+    ) -> ToolResultMessage:
         return cls(
             call_id=call_id,
             tool_name=tool_name,
@@ -404,7 +404,7 @@ class MessageStack:
 
     def append(
         self, message: Message, *, origin: MessageOrigin | None = None
-    ) -> "MessageStack":
+    ) -> MessageStack:
         return MessageStack(
             messages=(*self.messages, message),
             provenance=(*self.provenance, origin) if origin else self.provenance,
@@ -412,14 +412,14 @@ class MessageStack:
         )
 
     @classmethod
-    def of(cls, *messages: Message) -> "MessageStack":
+    def of(cls, *messages: Message) -> MessageStack:
         return cls(messages=tuple(messages))
 
 
 def _reasoning(value: str | Reasoning | None) -> Reasoning | None:
     if value is None or isinstance(value, Reasoning):
         return value
-    return Reasoning.text(value)
+    return Reasoning(summary=value)
 
 
 def _json_object(value: object, *, field: str) -> JsonObject:

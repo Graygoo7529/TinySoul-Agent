@@ -18,11 +18,9 @@ capabilities = [
 
 [llm.models.kimi-coding-latest.adapter_options]
 variant = "k2"
-reasoning_keep = "content"
+native_replay = "content"
 thinking = "enabled"
 
-[llm.models.kimi-coding-latest.request_overrides]
-temperature = 1.0
 
 [llm.models.kimi-latest]
 reasoning_effort = "max"
@@ -45,8 +43,4 @@ capabilities = [
 
 [llm.models.kimi-latest.adapter_options]
 variant = "k3"
-reasoning_keep = "content"
 reasoning_efforts = ["max"]
-
-[llm.models.kimi-latest.request_overrides]
-temperature = 1.0

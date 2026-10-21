@@ -155,11 +155,9 @@ def estimate_chars(messages: tuple[Message, ...]) -> int:
                     total += len(call.kind.value)
             if message.reasoning is not None:
                 reasoning = message.reasoning
-                if reasoning.content is not None:
-                    total += len(reasoning.content)
                 if reasoning.summary is not None:
                     total += len(reasoning.summary)
-                for item in reasoning.native_parts:
+                for item in reasoning.native_items:
                     total += len(dumps_json(item))
         elif isinstance(message, ToolResultMessage):
             total += len(message.call_id)

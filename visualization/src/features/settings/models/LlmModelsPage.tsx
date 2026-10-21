@@ -24,6 +24,7 @@ import {
   adapterRule,
   providersForAdapter,
   optionsForAdapter,
+  adapterOptionAvailable,
   type AdapterOptionRule,
   type CatalogField,
   type SettingsCatalog,
@@ -800,7 +801,7 @@ function AdapterOptionsSection({
 
   const setKeys = Object.keys(adapterOptions).filter((key) => key !== "variant");
   const addable = [...allowed.keys()].filter(
-    (key) => !Object.prototype.hasOwnProperty.call(adapterOptions, key),
+    (key) => !Object.prototype.hasOwnProperty.call(adapterOptions, key) && adapterOptionAvailable(allowed.get(key)!, adapterOptions),
   );
   const optionMeta = (key: string) =>
     matchField(catalog, `${ROOT}.*.adapter_options.${key}`);
@@ -875,16 +876,15 @@ function AdapterOptionsSection({
                   if (key === "") return;
                   const option = allowed.get(key);
                   const meta = optionMeta(key);
-                  setObjectField(
-                    ROOT,
+                  commitAdapterOption(
                     object,
-                    `adapter_options.${key}`,
+                    writeSource,
+                    key,
                     defaultOptionValue(
                       option?.valueKind ?? meta?.valueKind ?? "string",
                       (option?.choices ?? []).map((value) => ({value})),
                       option?.minimum ?? undefined,
                     ),
-                    writeSource,
                   );
                 }}
                 className={`${selectClass} max-w-56`}
@@ -903,6 +903,27 @@ function AdapterOptionsSection({
       )}
     </FieldSection>
   );
+}
+
+function commitAdapterOption(object: ProjectedObject, source: string | null, key: string, value: JsonValue | undefined) {
+  const options = { ...(isPlainRecord(object.value.adapter_options) ? object.value.adapter_options : {}) };
+  if (value === undefined) {
+    delete options[key];
+    clearObjectField(ROOT, object, `adapter_options.${key}`, source);
+  } else {
+    options[key] = value;
+    setObjectField(ROOT, object, `adapter_options.${key}`, value, source);
+  }
+  const rules = optionsForAdapter(useConfigDraftStore.getState().catalog, String(object.value.adapter), typeof options.variant === "string" ? options.variant : undefined);
+  for (const rule of rules) {
+    if (options[rule.id] !== undefined && !adapterOptionAvailable(rule, options)) {
+      delete options[rule.id];
+      clearObjectField(ROOT, object, `adapter_options.${rule.id}`, source);
+    }
+  }
+  if (options.reasoning_efforts === undefined) {
+    clearObjectField(ROOT, object, "reasoning_effort", source);
+  }
 }
 
 function AdapterOptionRow({
@@ -942,7 +963,7 @@ function AdapterOptionRow({
       actions={
         <IconButton
           label={`Clear ${meta?.title ?? optionKey}`}
-          onClick={() => clearObjectField(ROOT, object, subpath, writeSource)}
+          onClick={() => commitAdapterOption(object, writeSource, optionKey, undefined)}
         >
           <X size={13} />
         </IconButton>
@@ -960,7 +981,7 @@ function AdapterOptionRow({
           }))
         }
         onCommit={(next) =>
-          setObjectField(ROOT, object, subpath, next, writeSource)
+          commitAdapterOption(object, writeSource, optionKey, next)
         }
       />
     </FieldRow>

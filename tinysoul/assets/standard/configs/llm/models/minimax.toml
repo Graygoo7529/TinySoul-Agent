@@ -16,6 +16,6 @@ capabilities = [
 ]
 
 [llm.models.minimax-latest.adapter_options]
-reasoning_keep = "content"
+native_replay = "content"
 thinking = "adaptive"
 reasoning_split = true

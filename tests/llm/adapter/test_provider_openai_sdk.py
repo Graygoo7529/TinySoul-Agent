@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import SimpleNamespace
 
 import pytest
@@ -21,6 +21,7 @@ from tinysoul.llm.adapter.models.gpt import GptAdapter
 from tinysoul.llm.adapter.models.kimi import KimiAdapter
 from tinysoul.llm.adapter.models.minimax import MiniMaxAdapter
 from tinysoul.llm.adapter.openai.chat import OpenAIChatAdapter
+from tinysoul.llm.adapter.replay import message_fingerprint
 from tinysoul.llm.config.loader import (
     AdapterKind,
     ApiMode,
@@ -47,6 +48,7 @@ from tinysoul.llm.protocol.models import (
     ModelSpec,
     RequestOverrides,
 )
+from tinysoul.llm.protocol.reasoning import NativeReplay, NativeReplayMode, Reasoning
 from tinysoul.llm.protocol.responses import AnswerFormat, ResponseStopReason
 from tinysoul.llm.protocol.tools import (
     ToolCallRecord,
@@ -92,6 +94,38 @@ def ProviderRequest(
             reasoning_effort=reasoning_effort,
             request_overrides=model.request_overrides,
         )
+    # These adapter fixtures provide a native chat trace from the configured route.
+    native_messages = []
+    for message in messages.messages:
+        if (
+            isinstance(message, AssistantMessage)
+            and message.reasoning is not None
+            and message.reasoning.summary
+            and message.reasoning.native_replay is None
+            and model.adapter not in {AdapterKind.GPT, AdapterKind.OPENAI_RESPONSES}
+        ):
+            fingerprint = message_fingerprint(message)
+            if fingerprint is not None:
+                message = replace(
+                    message,
+                    reasoning=Reasoning(
+                        summary=message.reasoning.summary,
+                        native_replay=NativeReplay(
+                            mode=NativeReplayMode.CONTENT,
+                            api_mode=ApiMode.OPENAI_CHAT,
+                            adapter=model.adapter,
+                            provider_id=model.providers[0].provider_id,
+                            provider_model=model.providers[0].provider_model,
+                            variant=model.adapter_options.variant,
+                            message_fingerprint=fingerprint,
+                            ordered_items=(
+                                {"reasoning_content": message.reasoning.summary},
+                            ),
+                        ),
+                    ),
+                )
+        native_messages.append(message)
+    messages = MessageStack.of(*native_messages)
     return ProviderRequestModel(
         model=model,
         binding=model.providers[0],
@@ -185,10 +219,11 @@ async def test_openai_responses_adapter_maps_request_payload() -> None:
                 provider_id="openai",
                 provider_model="gpt-5.5",
                 options={
+                    "prompt_cache_mode": "implicit",
                     "prompt_cache_ttl": "30m",
                     "reasoning_efforts": ["high"],
                     "reasoning_summary": "auto",
-                    "reasoning_keep": "encrypted",
+                    "native_replay": "encrypted",
                     "verbosity": "medium",
                 },
                 reasoning_effort="high",
@@ -206,10 +241,11 @@ async def test_openai_responses_adapter_maps_request_payload() -> None:
             temperature=0.2,
             max_output_tokens=256,
             adapter_options={
+                "prompt_cache_mode": "implicit",
                 "prompt_cache_ttl": "30m",
                 "reasoning_efforts": ["high"],
                 "reasoning_summary": "auto",
-                "reasoning_keep": "encrypted",
+                "native_replay": "encrypted",
                 "verbosity": "medium",
             },
             reasoning_effort="high",
@@ -232,7 +268,7 @@ async def test_openai_responses_adapter_maps_request_payload() -> None:
     }
     assert "reasoning_effort" not in call
     assert response.answer_text == '{"ok": true}'
-    assert response.usage == {"input_tokens": 10, "output_tokens": 3}
+    assert response.usage.input_tokens == 10 and response.usage.output_tokens == 3
 
 
 async def test_openai_provider_rejects_raw_reasoning_table() -> None:
@@ -252,7 +288,6 @@ async def test_openai_provider_rejects_raw_reasoning_table() -> None:
                 )
             )
         )
-
     assert exc.value.kind is ProviderErrorKind.CONFIG
 
 
@@ -310,7 +345,11 @@ async def test_openai_responses_adapter_extracts_reasoning_content() -> None:
 
     response = await adapter.invoke(
         ProviderRequest(
-            model=_model(provider_id="openai", provider_model="gpt-5.5"),
+            model=_model(
+                provider_id="openai",
+                provider_model="gpt-5.5",
+                options={"native_replay": "encrypted"},
+            ),
             messages=MessageStack.of(UserMessage.from_text("hello")),
             answer_format=AnswerFormat.TEXT,
         )
@@ -343,7 +382,11 @@ async def test_openai_responses_adapter_extracts_encrypted_reasoning_items() -> 
 
     response = await adapter.invoke(
         ProviderRequest(
-            model=_model(provider_id="openai", provider_model="gpt-5.5"),
+            model=_model(
+                provider_id="openai",
+                provider_model="gpt-5.5",
+                options={"native_replay": "encrypted"},
+            ),
             messages=MessageStack.of(UserMessage.from_text("hello")),
             answer_format=AnswerFormat.TEXT,
         )
@@ -351,13 +394,12 @@ async def test_openai_responses_adapter_extracts_encrypted_reasoning_items() -> 
 
     assert response.reasoning is not None
     assert response.reasoning.summary == "summary"
-    assert response.reasoning.content is None
-    assert response.reasoning.native_parts == (
+    assert response.reasoning.native_items == (
         {key: value for key, value in provider_item.items() if key != "status"},
     )
 
 
-async def test_openai_responses_adapter_rejects_text_reasoning_keep() -> None:
+async def test_openai_responses_adapter_rejects_text_native_replay() -> None:
     adapter = GptAdapter(
         provider=_provider("openai"),
         responses=FakeCreateClient(response=object()),
@@ -370,12 +412,45 @@ async def test_openai_responses_adapter_rejects_text_reasoning_keep() -> None:
                     model=_model(provider_id="openai", provider_model="gpt-5.5"),
                     messages=MessageStack.of(UserMessage.from_text("hello")),
                     answer_format=AnswerFormat.TEXT,
-                    adapter_options={"reasoning_keep": "content"},
+                    adapter_options={"native_replay": "content"},
                 )
             )
         )
-
     assert exc.value.kind is ProviderErrorKind.CONFIG
+
+
+async def test_openai_responses_keeps_encrypted_replay_without_summary() -> None:
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            output_text="done",
+            output=[
+                {
+                    "type": "reasoning",
+                    "summary": [],
+                    "content": [],
+                    "encrypted_content": "opaque-state",
+                }
+            ],
+            usage={},
+        )
+    )
+    adapter = GptAdapter(provider=_provider("openai"), responses=client)
+
+    response = await adapter.invoke(
+        ProviderRequest(
+            model=_model(
+                provider_id="openai",
+                provider_model="gpt-5.5",
+                options={"native_replay": "encrypted"},
+            ),
+            messages=MessageStack.of(UserMessage.from_text("hello")),
+            answer_format=AnswerFormat.TEXT,
+        )
+    )
+
+    assert response.reasoning is not None
+    assert response.reasoning.summary is None
+    assert response.reasoning.native_replay is not None
 
 
 async def test_openai_adapter_rejects_invalid_reasoning_summary() -> None:
@@ -850,14 +925,14 @@ async def test_kimi_k2_7_adapter_maps_coding_plan_request_payload() -> None:
             max_output_tokens=128,
             adapter_options={
                 "thinking": "enabled",
-                "reasoning_keep": "content",
+                "native_replay": "content",
             },
         )
     )
 
     call = client.calls[0]
     assert call["model"] == "kimi-for-coding-highspeed"
-    assert call["temperature"] == pytest.approx(0.2)
+    assert "temperature" not in call
     assert call["messages"] == [
         {"role": "user", "content": "hello"},
         {
@@ -873,7 +948,7 @@ async def test_kimi_k2_7_adapter_maps_coding_plan_request_payload() -> None:
     assert call["extra_body"] == {"thinking": {"type": "enabled", "keep": "all"}}
     assert response.answer_text == '{"ok": true}'
     assert response.reasoning is not None
-    assert response.reasoning.content == "thinking"
+    assert response.reasoning.summary == "thinking"
     assert response.reasoning.summary == "thinking"
 
 
@@ -899,7 +974,6 @@ async def test_kimi_k3_adapter_maps_reasoning_without_k2_thinking() -> None:
                 provider_model="k3",
                 options={
                     "variant": "k3",
-                    "reasoning_keep": "content",
                     "reasoning_efforts": ["max"],
                 },
                 reasoning_effort="max",
@@ -917,7 +991,6 @@ async def test_kimi_k3_adapter_maps_reasoning_without_k2_thinking() -> None:
             max_output_tokens=128,
             adapter_options={
                 "variant": "k3",
-                "reasoning_keep": "content",
                 "reasoning_efforts": ["max"],
             },
             reasoning_effort="max",
@@ -926,7 +999,7 @@ async def test_kimi_k3_adapter_maps_reasoning_without_k2_thinking() -> None:
 
     call = client.calls[0]
     assert call["model"] == "k3"
-    assert call["temperature"] == pytest.approx(0.2)
+    assert "temperature" not in call
     assert call["reasoning_effort"] == "max"
     assert call["messages"] == [
         {"role": "user", "content": "hello"},
@@ -942,7 +1015,7 @@ async def test_kimi_k3_adapter_maps_reasoning_without_k2_thinking() -> None:
     assert "extra_body" not in call
     assert response.answer_text == '{"ok": true}'
     assert response.reasoning is not None
-    assert response.reasoning.content == "thinking"
+    assert response.reasoning.summary == "thinking"
 
 
 async def test_chat_adapter_forwards_request_timeout_to_sdk() -> None:
@@ -1147,7 +1220,6 @@ async def test_kimi_k3_adapter_replays_reasoning_with_tool_calls_and_results() -
                 tool_use=ToolUse.OPTIONAL,
                 adapter_options={
                     "variant": "k3",
-                    "reasoning_keep": "content",
                     "reasoning_efforts": ["max"],
                 },
                 reasoning_effort="max",
@@ -1228,7 +1300,7 @@ async def test_kimi_adapter_preserves_pending_call_without_native_reasoning() ->
                 tool_use=ToolUse.DISABLED,
                 adapter_options={
                     "thinking": "enabled",
-                    "reasoning_keep": "content",
+                    "native_replay": "content",
                 },
             )
         )
@@ -1379,7 +1451,7 @@ async def test_chat_adapters_replay_multiple_complete_tool_turns(
                 tool_scope=ToolScope(tools=tools),
                 tool_use=ToolUse.OPTIONAL,
                 adapter_options=(
-                    {"reasoning_keep": "content"} if provider_id == "deepseek" else None
+                    {"native_replay": "content"} if provider_id == "deepseek" else None
                 ),
             )
         )
@@ -1621,7 +1693,7 @@ async def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
             adapter_options={
                 "thinking": "enabled",
                 "reasoning_efforts": ["low"],
-                "reasoning_keep": "content",
+                "native_replay": "content",
             },
             reasoning_effort="low",
         )
@@ -1639,12 +1711,9 @@ async def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
     assert "temperature" not in call
     assert "prompt_cache_key" not in call
     assert response.reasoning is not None
-    assert response.reasoning.content == "reasoning"
     assert response.reasoning.summary == "reasoning"
-    assert response.usage == {
-        "prompt_cache_hit_tokens": 8,
-        "prompt_cache_miss_tokens": 2,
-    }
+    assert response.reasoning.summary == "reasoning"
+    assert response.usage.cached_input_tokens == 8
 
 
 async def test_deepseek_adapter_maps_user_images() -> None:
@@ -1800,7 +1869,7 @@ async def test_deepseek_adapter_omits_tool_choice_with_thinking() -> None:
                 adapter_options={
                     "thinking": "enabled",
                     "reasoning_efforts": ["high"],
-                    "reasoning_keep": "content",
+                    "native_replay": "content",
                 },
                 reasoning_effort="high",
             )
@@ -1909,7 +1978,7 @@ async def test_glm_adapter_maps_required_tool_choice_to_auto() -> None:
                     selection=ToolSelection(forced_name="read_file"),
                 ),
                 tool_use=ToolUse.REQUIRED,
-                adapter_options={"thinking": "enabled", "reasoning_keep": "content"},
+                adapter_options={"thinking": "enabled", "native_replay": "content"},
             )
         )
     )
@@ -1982,7 +2051,7 @@ async def test_glm_adapter_maps_thinking_and_max_tokens() -> None:
             ),
             answer_format=AnswerFormat.JSON_OBJECT,
             max_output_tokens=128,
-            adapter_options={"thinking": "enabled", "reasoning_keep": "content"},
+            adapter_options={"thinking": "enabled", "native_replay": "content"},
         )
     )
 
@@ -1997,12 +2066,12 @@ async def test_glm_adapter_maps_thinking_and_max_tokens() -> None:
     assert call["max_tokens"] == 128
     assert "max_completion_tokens" not in call
     assert response.reasoning is not None
-    assert response.reasoning.content == "reasoning"
     assert response.reasoning.summary == "reasoning"
-    assert response.usage == {"prompt_tokens": 10, "completion_tokens": 4}
+    assert response.reasoning.summary == "reasoning"
+    assert response.usage.input_tokens == 10 and response.usage.output_tokens == 4
 
 
-async def test_kimi_adapter_skips_message_reasoning_without_reasoning_keep() -> None:
+async def test_kimi_adapter_skips_message_reasoning_without_native_replay() -> None:
     message = SimpleNamespace(content="ok")
     client = FakeCreateClient(
         response=SimpleNamespace(
@@ -2037,7 +2106,7 @@ async def test_kimi_adapter_skips_message_reasoning_without_reasoning_keep() -> 
     assert client.calls[0]["extra_body"] == {"thinking": {"type": "enabled"}}
 
 
-async def test_glm_adapter_skips_message_reasoning_without_reasoning_keep() -> None:
+async def test_glm_adapter_skips_message_reasoning_without_native_replay() -> None:
     message = SimpleNamespace(content="ok")
     client = FakeCreateClient(
         response=SimpleNamespace(
@@ -2148,7 +2217,7 @@ async def test_minimax_adapter_maps_thinking_and_reasoning_split() -> None:
             adapter_options={
                 "thinking": "adaptive",
                 "reasoning_split": True,
-                "reasoning_keep": "content",
+                "native_replay": "content",
             },
         )
     )
@@ -2165,7 +2234,7 @@ async def test_minimax_adapter_maps_thinking_and_reasoning_split() -> None:
     }
     assert response.answer_text == '{"ok": true}'
     assert response.reasoning is not None
-    assert response.reasoning.content == "reasoning"
+    assert response.reasoning.summary == "reasoning"
     assert response.reasoning.summary == "reasoning"
 
 
@@ -2208,7 +2277,7 @@ async def test_minimax_adapter_removes_required_tool_choice() -> None:
                 adapter_options={
                     "thinking": "adaptive",
                     "reasoning_split": True,
-                    "reasoning_keep": "content",
+                    "native_replay": "content",
                 },
             )
         )
@@ -2251,43 +2320,7 @@ async def test_minimax_adapter_rejects_strict_tool_calling() -> None:
     assert exc.value.kind is ProviderErrorKind.CONFIG
 
 
-async def test_minimax_adapter_extracts_reasoning_details() -> None:
-    message = SimpleNamespace(
-        content="ok",
-        reasoning_details=[
-            {"text": "step 1"},
-            SimpleNamespace(text="step 2"),
-        ],
-    )
-    client = FakeCreateClient(
-        response=SimpleNamespace(
-            choices=[SimpleNamespace(message=message)],
-            usage={},
-        )
-    )
-    adapter = MiniMaxAdapter(
-        provider=_provider("minimax"),
-        completions=client,
-    )
-
-    response = await adapter.invoke(
-        ProviderRequest(
-            model=_model(provider_id="minimax", provider_model="MiniMax-M3"),
-            messages=MessageStack.of(UserMessage.from_text("hello")),
-            answer_format=AnswerFormat.TEXT,
-            adapter_options={
-                "thinking": "adaptive",
-                "reasoning_split": True,
-            },
-        )
-    )
-
-    assert response.reasoning is not None
-    assert response.reasoning.content == "step 1\nstep 2"
-    assert response.reasoning.summary == "step 1\nstep 2"
-
-
-async def test_chat_providers_report_invalid_reasoning_keep_as_provider_error() -> None:
+async def test_chat_providers_report_invalid_native_replay_as_provider_error() -> None:
     for adapter, provider_id, provider_model in (
         (
             KimiAdapter(
@@ -2337,7 +2370,7 @@ async def test_chat_providers_report_invalid_reasoning_keep_as_provider_error() 
                             )
                         ),
                         answer_format=AnswerFormat.TEXT,
-                        adapter_options={"reasoning_keep": "forever"},
+                        adapter_options={"native_replay": "forever"},
                     )
                 )
             )
@@ -2551,7 +2584,7 @@ async def test_deepseek_adapter_validates_only_visible_tools() -> None:
                     selection=ToolSelection(("read_file",)),
                 ),
                 tool_use=ToolUse.OPTIONAL,
-                adapter_options={"reasoning_keep": "content"},
+                adapter_options={"native_replay": "content"},
             )
         )
     )
@@ -2587,7 +2620,7 @@ async def test_deepseek_adapter_rejects_more_than_128_tools() -> None:
                     answer_format=AnswerFormat.TEXT,
                     tool_scope=ToolScope(tools=tools),
                     tool_use=ToolUse.OPTIONAL,
-                    adapter_options={"reasoning_keep": "content"},
+                    adapter_options={"native_replay": "content"},
                 )
             )
         )

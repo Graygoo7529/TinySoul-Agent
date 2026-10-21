@@ -5,10 +5,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import cast
 
-from openai import APIConnectionError, APIError, APIStatusError
+from openai import APIStatusError
 
 from tinysoul.llm.protocol.models import ModelCapability
 from tinysoul.llm.protocol.responses import AnswerFormat
+from tinysoul.llm.protocol.usage import TokenUsage
 
 from ..base import (
     ProviderError,
@@ -16,7 +17,32 @@ from ..base import (
     ProviderFailureScope,
     ProviderRequest,
 )
+from ..common import status_error
 from .clients import ModelDumpable
+
+
+def openai_usage(value: object) -> TokenUsage:
+    def number(obj: object, key: str) -> int | None:
+        item = get_attr(obj, key)
+        return item if type(item) is int else None
+
+    chat = get_attr(value, "prompt_tokens") is not None
+    input_detail = get_attr(
+        value, "prompt_tokens_details" if chat else "input_tokens_details"
+    )
+    output_detail = get_attr(
+        value, "completion_tokens_details" if chat else "output_tokens_details"
+    )
+    cached = number(input_detail, "cached_tokens")
+    if cached is None:
+        cached = number(value, "prompt_cache_hit_tokens")
+    return TokenUsage(
+        input_tokens=number(value, "prompt_tokens" if chat else "input_tokens"),
+        output_tokens=number(value, "completion_tokens" if chat else "output_tokens"),
+        cached_input_tokens=cached,
+        cache_creation_input_tokens=number(input_detail, "cache_write_tokens"),
+        reasoning_tokens=number(output_detail, "reasoning_tokens"),
+    )
 
 
 def common_create_kwargs(request: ProviderRequest) -> dict[str, object]:
@@ -45,71 +71,11 @@ def provider_error(error: Exception) -> ProviderError:
     if isinstance(error, ProviderError):
         return error
     if isinstance(error, APIStatusError):
-        if error.status_code in {401, 403}:
-            return ProviderError(
-                str(error),
-                kind=ProviderErrorKind.AUTH,
-                scope=ProviderFailureScope.PROVIDER,
-            )
-        if error.status_code in {408, 409, 429, 500, 502, 503, 504}:
-            return ProviderError(
-                str(error),
-                kind=ProviderErrorKind.TRANSIENT,
-                scope=ProviderFailureScope.PROVIDER,
-            )
-        if error.status_code == 400:
-            if _is_context_limit_error(error):
-                return ProviderError(
-                    str(error),
-                    kind=ProviderErrorKind.CONTEXT_LIMIT,
-                    scope=ProviderFailureScope.PROVIDER,
-                )
-            return ProviderError(
-                str(error),
-                kind=ProviderErrorKind.CONFIG,
-                scope=ProviderFailureScope.PROVIDER,
-            )
-        return ProviderError(
-            str(error),
-            kind=ProviderErrorKind.UNKNOWN,
-            scope=ProviderFailureScope.PROVIDER,
-        )
-    if isinstance(error, (APIConnectionError, APIError, TimeoutError)):
-        return ProviderError(
-            str(error),
-            kind=ProviderErrorKind.TRANSIENT,
-            scope=ProviderFailureScope.PROVIDER,
-        )
+        return status_error(error.status_code, str(error))
     return ProviderError(
-        str(error), kind=ProviderErrorKind.UNKNOWN, scope=ProviderFailureScope.PROVIDER
-    )
-
-
-def _is_context_limit_error(error: APIStatusError) -> bool:
-    values = [str(error)]
-    body = getattr(error, "body", None)
-    if isinstance(body, Mapping):
-        pending: list[object] = [body]
-        while pending:
-            item = pending.pop()
-            if isinstance(item, Mapping):
-                pending.extend(item.values())
-            elif isinstance(item, list):
-                pending.extend(item)
-            elif isinstance(item, str):
-                values.append(item)
-    normalized = " ".join(values).lower()
-    return any(
-        marker in normalized
-        for marker in (
-            "context_length_exceeded",
-            "context window",
-            "context length",
-            "context limit",
-            "model token limit",
-            "maximum context",
-            "too many tokens",
-        )
+        "Provider transport request failed",
+        kind=ProviderErrorKind.TRANSIENT,
+        scope=ProviderFailureScope.PROVIDER,
     )
 
 

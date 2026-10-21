@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import base64
 import json
-from collections.abc import Mapping
-from dataclasses import dataclass
 from typing import Protocol
 
 from tinysoul.infra.json import JsonObject
@@ -20,24 +18,26 @@ from tinysoul.llm.protocol.adapter_types import ApiMode
 from tinysoul.llm.protocol.messages import (
     AssistantMessage,
     Message,
-    MessagePart,
     SystemMessage,
-    TextPart,
     ToolResultMessage,
     UserMessage,
 )
 from tinysoul.llm.protocol.tools import (
     ToolCallIdMapper,
     ToolCallRecord,
-    ToolResultStatus,
     ToolSpec,
     ToolUse,
 )
-from tinysoul.prompts import llm as prompt_text
 
 from ..base import ProviderError, ProviderErrorKind, ProviderRequest
-from .replay import message_fingerprint
-from .tool_names import ProviderToolNameMap
+from ..common import cache_boundary
+from ..history import (
+    assistant_context_parts,
+    tool_replay_plan,
+    tool_result_content,
+    tool_result_text,
+)
+from ..tool_names import ProviderToolNameMap
 
 
 class OpenAIPayloadHooks(Protocol):
@@ -62,17 +62,13 @@ class OpenAIPayloadHooks(Protocol):
     def chat_input_reasoning(
         self,
         message: Message,
-        options: Mapping[str, object] | None,
-        *,
-        request: ProviderRequest | None = None,
+        request: ProviderRequest,
     ) -> str | None: ...
 
     def responses_input_reasoning(
         self,
         message: Message,
-        options: Mapping[str, object] | None,
-        *,
-        request: ProviderRequest | None = None,
+        request: ProviderRequest,
     ) -> tuple[JsonObject, ...]: ...
 
 
@@ -85,8 +81,10 @@ def to_responses_input(
     name_map: ProviderToolNameMap,
 ) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
-    replay_plan = _tool_replay_plan(request.messages.messages)
+    cuts: list[int] = []
+    replay_plan = tool_replay_plan(request.messages.messages)
     for index, message in enumerate(request.messages.messages):
+        cuts.append(len(items))
         if isinstance(message, ToolResultMessage):
             if (
                 request.tool_use is ToolUse.DISABLED
@@ -124,9 +122,7 @@ def to_responses_input(
             )
             if not message.tool_calls or replayed_tool_calls:
                 native = adapter.responses_input_reasoning(
-                    message,
-                    request.model.adapter_options.values,
-                    request=request,
+                    message, request,
                 )
                 expected_calls = {
                     id_mapper.to_provider_id(call.id): name_map.to_provider_name(
@@ -142,7 +138,7 @@ def to_responses_input(
                 if native and native_calls == expected_calls:
                     items.extend(dict(item) for item in native)
                     continue
-            parts = _assistant_context_parts(
+            parts = assistant_context_parts(
                 message, native_calls=bool(replayed_tool_calls)
             )
             rendered = renderer.render(parts)
@@ -175,6 +171,8 @@ def to_responses_input(
                 ),
             }
         )
+    cuts.append(len(items))
+    _mark_cache_boundary(items, cuts, request)
     return items
 
 
@@ -187,8 +185,10 @@ def to_chat_messages(
     name_map: ProviderToolNameMap,
 ) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
-    replay_plan = _tool_replay_plan(request.messages.messages)
+    cuts: list[int] = []
+    replay_plan = tool_replay_plan(request.messages.messages)
     for index, message in enumerate(request.messages.messages):
+        cuts.append(len(items))
         if isinstance(message, ToolResultMessage):
             if (
                 request.tool_use is ToolUse.DISABLED
@@ -219,9 +219,7 @@ def to_chat_messages(
         replayed_tool_calls: tuple[ToolCallRecord, ...] = ()
         if isinstance(message, AssistantMessage):
             reasoning_content = adapter.chat_input_reasoning(
-                message,
-                request.model.adapter_options.values,
-                request=request,
+                message, request,
             )
             replayed_tool_calls = (
                 ()
@@ -229,28 +227,9 @@ def to_chat_messages(
                 or index not in replay_plan.assistant_indices
                 else message.tool_calls
             )
-            replay = message.reasoning.native_replay if message.reasoning else None
-            if replay is not None and (
-                replay.message_fingerprint != message_fingerprint(message)
-                or (
-                    replay.api_mode,
-                    replay.adapter,
-                    replay.provider_id,
-                    replay.provider_model,
-                    replay.variant,
-                )
-                != (
-                    ApiMode.OPENAI_CHAT,
-                    request.model.adapter,
-                    request.binding.provider_id,
-                    request.binding.provider_model,
-                    request.model.adapter_options.values.get("variant"),
-                )
-            ):
-                reasoning_content = None
             if message.tool_calls and not replayed_tool_calls:
                 reasoning_content = None
-            parts = _assistant_context_parts(
+            parts = assistant_context_parts(
                 message, native_calls=bool(replayed_tool_calls)
             )
             if not parts and reasoning_content is None and not replayed_tool_calls:
@@ -273,6 +252,8 @@ def to_chat_messages(
                     for tool_call in replayed_tool_calls
                 ]
         items.append(item)
+    cuts.append(len(items))
+    _mark_cache_boundary(items, cuts, request)
     return items
 
 
@@ -455,124 +436,6 @@ def to_responses_tool_result(
     }
 
 
-def tool_result_content(
-    message: ToolResultMessage,
-    *,
-    renderer: MessageContentRenderer,
-) -> str:
-    rendered = renderer.render(message.parts)
-    if isinstance(rendered, str):
-        if message.status is ToolResultStatus.OK:
-            return rendered
-        return f"status: {message.status.value}\n\n{rendered}"
-    text_parts: list[str] = []
-    for part in rendered:
-        if isinstance(part, RenderedText):
-            text_parts.append(part.text)
-            continue
-        raise ProviderError(
-            "ToolResultMessage can only be rendered as text content",
-            kind=ProviderErrorKind.CONFIG,
-        )
-    text = "\n\n".join(text_parts)
-    if message.status is ToolResultStatus.OK:
-        return text
-    return f"status: {message.status.value}\n\n{text}"
-
-
-def tool_result_text(
-    message: ToolResultMessage,
-    *,
-    renderer: MessageContentRenderer,
-) -> str:
-    """Preserve a result when its exchange cannot use native tool replay."""
-
-    return prompt_text.tool_result_context(
-        tool_name=message.tool_name,
-        call_id=message.call_id,
-        content=tool_result_content(message, renderer=renderer),
-    )
-
-
-def _assistant_context_parts(
-    message: AssistantMessage, *, native_calls: bool
-) -> tuple[MessagePart, ...]:
-    """Keep requested calls as context without claiming they were executed."""
-    if native_calls:
-        return message.parts
-    return (
-        *message.parts,
-        *(
-            TextPart(
-                prompt_text.tool_call_context(
-                    tool_name=call.name,
-                    call_id=call.id,
-                    arguments=json.dumps(
-                        call.arguments, ensure_ascii=False, separators=(",", ":")
-                    ),
-                )
-            )
-            for call in message.tool_calls
-        ),
-    )
-
-
-@dataclass(frozen=True)
-class _ToolReplayPlan:
-    """Indices of complete, ordered provider-native tool turns."""
-
-    assistant_indices: frozenset[int]
-    result_indices: frozenset[int]
-
-
-def _tool_replay_plan(messages: tuple[Message, ...]) -> _ToolReplayPlan:
-    assistant_indices: set[int] = set()
-    result_indices: set[int] = set()
-    for index, message in enumerate(messages):
-        if not isinstance(message, AssistantMessage) or not message.tool_calls:
-            continue
-        calls_by_id: dict[str, ToolCallRecord] = {}
-        duplicate_call_id = False
-        for call in message.tool_calls:
-            if call.id in calls_by_id:
-                duplicate_call_id = True
-                break
-            calls_by_id[call.id] = call
-        if duplicate_call_id:
-            continue
-
-        candidate_results: list[tuple[int, ToolResultMessage]] = []
-        cursor = index + 1
-        while cursor < len(messages):
-            candidate = messages[cursor]
-            if not isinstance(candidate, ToolResultMessage):
-                break
-            candidate_results.append((cursor, candidate))
-            cursor += 1
-        if len(candidate_results) != len(calls_by_id):
-            continue
-        result_by_id: dict[str, tuple[int, ToolResultMessage]] = {}
-        for result_index, result in candidate_results:
-            if result.call_id in result_by_id:
-                break
-            result_by_id[result.call_id] = (result_index, result)
-        if len(result_by_id) != len(calls_by_id):
-            continue
-        if set(result_by_id) != set(calls_by_id):
-            continue
-        if any(
-            calls_by_id[call_id].name != result.tool_name
-            for call_id, (_, result) in result_by_id.items()
-        ):
-            continue
-        assistant_indices.add(index)
-        result_indices.update(result_index for result_index, _ in candidate_results)
-    return _ToolReplayPlan(
-        assistant_indices=frozenset(assistant_indices),
-        result_indices=frozenset(result_indices),
-    )
-
-
 def responses_role(message: Message) -> str:
     if isinstance(message, SystemMessage):
         return "system"
@@ -626,3 +489,23 @@ __all__ = [
     "to_responses_tool_result",
     "tool_result_content",
 ]
+
+
+def _mark_cache_boundary(items: list[dict[str, object]], cuts: list[int], request: ProviderRequest) -> None:
+    index = cache_boundary(request)
+    if (
+        index is None
+        or request.model.adapter_options.values.get("prompt_cache_mode") != "explicit"
+    ):
+        return
+    if cuts[index + 1] <= cuts[index]:
+        raise ProviderError("Cache boundary has no provider content", kind=ProviderErrorKind.CONFIG)
+    item = items[cuts[index + 1] - 1]
+    content = item.get("content")
+    if isinstance(content, str):
+        block: dict[str, object] = {"type": "text", "text": content}
+        content = [block]
+        item["content"] = content
+    if not isinstance(content, list) or not content or not isinstance(content[-1], dict):
+        raise ProviderError("Cache boundary requires a message content block", kind=ProviderErrorKind.CONFIG)
+    content[-1]["prompt_cache_breakpoint"] = {"mode": "explicit"}

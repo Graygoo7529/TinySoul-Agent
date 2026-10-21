@@ -17,13 +17,28 @@ import {
   type ProjectedObject,
 } from "./collectionDrafts";
 
-/** The draft key of a whole-object create (draft-new object). */
-function wholeObjectKey(root: string, id: string): string | null {
+/** An object draft owns edits to its children, including adapter option groups. */
+function containingObjectKey(root: string, id: string, subpath: string): string | null {
   const state = useConfigDraftStore.getState();
+  const objectPath = `${root}.${id}`;
+  const path = `${objectPath}.${subpath}`;
   for (const entry of Object.values(state.drafts)) {
-    if (isFieldDraft(entry) && entry.path === `${root}.${id}` && entry.op.op === "set") return entry.key;
+    if (
+      isFieldDraft(entry) && entry.op.op === "set" && isPlainRecord(entry.op.value)
+      && (entry.path === objectPath || entry.path.startsWith(`${objectPath}.`))
+      && path.startsWith(`${entry.path}.`)
+    ) return entry.key;
   }
   return null;
+}
+
+/** Replacing a subtree also replaces any previously staged child operations. */
+function resetChildDrafts(path: string): void {
+  const state = useConfigDraftStore.getState();
+  const keys = Object.values(state.drafts)
+    .filter((entry) => isFieldDraft(entry) && entry.path.startsWith(`${path}.`))
+    .map((entry) => entry.key);
+  if (keys.length > 0) state.resetEntries(keys);
 }
 
 /** Stage one field value of a collection object. */
@@ -34,18 +49,19 @@ export function setObjectField(
   value: JsonValue,
   createSource: string | null,
 ): void {
+  const path = `${root}.${obj.id}.${subpath}`;
+  resetChildDrafts(path);
   const state = useConfigDraftStore.getState();
-  const wholeKey = wholeObjectKey(root, obj.id);
+  const wholeKey = containingObjectKey(root, obj.id, subpath);
   if (wholeKey !== null) {
     const entry = state.drafts[wholeKey];
     if (entry !== undefined && isFieldDraft(entry) && entry.op.op === "set" && isPlainRecord(entry.op.value)) {
       const next = cloneJsonValue(entry.op.value);
-      setDeepValue(next, subpath, value);
+      setDeepValue(next, path.slice(entry.path.length + 1), value);
       state.setValue(entry.sourceId, entry.path, next);
       return;
     }
   }
-  const path = `${root}.${obj.id}.${subpath}`;
   const sourceId = fieldWriteSource(state, path, obj.ownerSources, createSource);
   if (sourceId === null) return;
   state.setValue(sourceId, path, value);
@@ -58,18 +74,19 @@ export function clearObjectField(
   subpath: string,
   createSource: string | null,
 ): void {
+  const path = `${root}.${obj.id}.${subpath}`;
+  resetChildDrafts(path);
   const state = useConfigDraftStore.getState();
-  const wholeKey = wholeObjectKey(root, obj.id);
+  const wholeKey = containingObjectKey(root, obj.id, subpath);
   if (wholeKey !== null) {
     const entry = state.drafts[wholeKey];
     if (entry !== undefined && isFieldDraft(entry) && entry.op.op === "set" && isPlainRecord(entry.op.value)) {
       const next = cloneJsonValue(entry.op.value);
-      deleteDeepValue(next, subpath);
+      deleteDeepValue(next, path.slice(entry.path.length + 1));
       state.setValue(entry.sourceId, entry.path, next);
       return;
     }
   }
-  const path = `${root}.${obj.id}.${subpath}`;
   const sourceId = fieldWriteSource(state, path, obj.ownerSources, createSource);
   if (sourceId === null) return;
   state.deleteValue(sourceId, path);

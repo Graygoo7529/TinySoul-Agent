@@ -545,10 +545,10 @@ def _reasoning_summary(reasoning: object) -> dict[str, object]:
         return {"present": False}
     content = getattr(reasoning, "content", None)
     summary = getattr(reasoning, "summary", None)
-    native_parts = getattr(reasoning, "native_parts", ())
+    native_items = getattr(reasoning, "native_items", ())
     return {
         "present": True,
         "content_len": len(content) if isinstance(content, str) else 0,
         "summary_len": len(summary) if isinstance(summary, str) else 0,
-        "native_parts": len(native_parts),
+        "native_items": len(native_items),
     }

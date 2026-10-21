@@ -1,4 +1,4 @@
-"""Request-local tool name mapping for OpenAI SDK shaped providers."""
+"""Request-local tool name mapping for provider APIs."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from types import MappingProxyType
 from tinysoul.llm.protocol.messages import AssistantMessage, ToolResultMessage
 from tinysoul.llm.protocol.tools import ToolSpec
 
-from ..base import ProviderError, ProviderErrorKind, ProviderRequest
+from .base import ProviderError, ProviderErrorKind, ProviderRequest
 
 _MAX_PROVIDER_TOOL_NAME_LENGTH = 64
 
@@ -22,7 +22,7 @@ class ProviderToolNameMap:
     _tinysoul_by_provider: Mapping[str, str]
 
     @classmethod
-    def from_request(cls, request: ProviderRequest) -> "ProviderToolNameMap":
+    def from_request(cls, request: ProviderRequest) -> ProviderToolNameMap:
         names = [tool.name for tool in request.tool_scope.visible_tools()]
         for message in request.messages.messages:
             if isinstance(message, AssistantMessage):
@@ -32,7 +32,7 @@ class ProviderToolNameMap:
         return cls.from_names(names)
 
     @classmethod
-    def from_names(cls, names: Iterable[str]) -> "ProviderToolNameMap":
+    def from_names(cls, names: Iterable[str]) -> ProviderToolNameMap:
         unique_names = sorted(set(names))
         provider_by_tinysoul = {
             name: name for name in unique_names if _is_provider_safe_name(name)

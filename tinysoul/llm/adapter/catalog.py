@@ -22,6 +22,8 @@ class AdapterOptionSpec:
     choices: tuple[str, ...] = ()
     minimum: int | None = None
     source: str = "api-mode"
+    requires: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    excludes: tuple[str, ...] = ()
 
     def to_json(self) -> JsonObject:
         return {
@@ -30,6 +32,8 @@ class AdapterOptionSpec:
             "choices": list(self.choices),
             "minimum": self.minimum,
             "source": self.source,
+            "requires": {name: list(values) for name, values in self.requires},
+            "excludes": list(self.excludes),
         }
 
 
@@ -113,22 +117,32 @@ class AdapterSpec:
         for name, value in options.items():
             if name != "variant":
                 _validate_option(specs[name], value, key=f"{key}.{name}")
+                spec = specs[name]
+                if any(
+                    options.get(other) not in choices
+                    for other, choices in spec.requires
+                ):
+                    raise ConfigError(
+                        "Adapter option requires a different mode", key=f"{key}.{name}"
+                    )
+                if any(other in options for other in spec.excludes):
+                    raise ConfigError(
+                        "Choose one option, not both", key=f"{key}.{name}"
+                    )
         if "extra_body" in options:
             _validate_extra_body(
                 options["extra_body"], key=f"{key}.extra_body", occupied=set(specs)
             )
-        if self.api_mode is ApiMode.GOOGLE_GENERATE_CONTENT:
-            if "thinking_level" in options and "thinking_budget_tokens" in options:
-                raise ConfigError("Choose thinking level or budget, not both", key=key)
-            if options.get("prompt_cache_mode") == "explicit" and not options.get(
-                "cached_content"
-            ):
-                raise ConfigError(
-                    "Explicit Google cache requires cached_content", key=key
-                )
         if self.api_mode is ApiMode.ANTHROPIC_MESSAGES:
             thinking = options.get("thinking")
             budget = options.get("thinking_budget_tokens")
+            if "thinking_display" in options and thinking not in {
+                "adaptive",
+                "enabled",
+            }:
+                raise ConfigError(
+                    "Thinking display requires adaptive or enabled mode", key=key
+                )
             if thinking == "enabled" and budget is None:
                 raise ConfigError("Manual thinking requires a token budget", key=key)
             if budget is not None and thinking != "enabled":
@@ -172,8 +186,11 @@ _BASE = (
 )
 _EFFORT = (option("reasoning_efforts", "string_list"),)
 _CACHE = (
-    option("prompt_cache_mode", "enum", "implicit"),
-    option("prompt_cache_ttl", "enum", "30m"),
+    option("prompt_cache_mode", "enum", "implicit", "explicit"),
+    replace(
+        option("prompt_cache_ttl", "enum", "30m"),
+        requires=(("prompt_cache_mode", ("implicit", "explicit")),),
+    ),
 )
 _CHAT = ApiModeSpec(
     ApiMode.OPENAI_CHAT,
@@ -181,7 +198,7 @@ _CHAT = ApiModeSpec(
         *_BASE,
         *_EFFORT,
         *_CACHE,
-        option("reasoning_keep", "enum", "none", "content"),
+        option("native_replay", "enum", "none", "content"),
         option("output_token_field", "enum", "max_completion_tokens", "max_tokens"),
     ),
 )
@@ -191,8 +208,9 @@ _RESPONSES = ApiModeSpec(
         *_BASE,
         *_EFFORT,
         *_CACHE,
-        option("reasoning_keep", "enum", "none", "encrypted"),
+        option("native_replay", "enum", "none", "encrypted"),
         option("reasoning_summary", "enum", "auto", "concise", "detailed"),
+        option("reasoning_mode", "enum", "standard", "pro"),
         option("reasoning_context", "enum", "auto", "current_turn", "all_turns"),
         option("verbosity", "enum", "low", "medium", "high"),
         option("store", "boolean"),
@@ -203,24 +221,39 @@ _ANTHROPIC = ApiModeSpec(
     (
         *_BASE,
         *_EFFORT,
-        option("thinking", "enum", "adaptive", "enabled", "disabled"),
-        option("thinking_budget_tokens", "integer", minimum=1024),
-        option("thinking_display", "enum", "summarized", "omitted"),
-        option("reasoning_keep", "enum", "none"),
-        option("prompt_cache_mode", "enum", "automatic", "disabled"),
-        option("prompt_cache_ttl", "enum", "5m", "1h"),
+        option("native_replay", "enum", "none", "signed"),
+        option("thinking", "enum", "adaptive", "enabled", "disabled", "between_tools"),
+        replace(
+            option("thinking_budget_tokens", "integer", minimum=1024),
+            requires=(("thinking", ("enabled",)),),
+        ),
+        replace(
+            option("thinking_display", "enum", "summarized", "omitted"),
+            requires=(("thinking", ("adaptive", "enabled")),),
+        ),
+        option("prompt_cache_mode", "enum", "automatic", "explicit", "disabled"),
+        replace(
+            option("prompt_cache_ttl", "enum", "5m", "1h"),
+            requires=(("prompt_cache_mode", ("automatic", "explicit")),),
+        ),
     ),
 )
 _GOOGLE = ApiModeSpec(
     ApiMode.GOOGLE_GENERATE_CONTENT,
     (
         *_BASE,
-        option("thinking_level", "enum", "minimal", "low", "medium", "high"),
-        option("thinking_budget_tokens", "integer", minimum=-1),
+        replace(_EFFORT[0], excludes=("thinking_budget_tokens",)),
+        replace(
+            option("thinking_budget_tokens", "integer", minimum=-1),
+            excludes=("reasoning_efforts",),
+        ),
+        option("native_replay", "enum", "none", "signed"),
         option("include_thoughts", "boolean"),
-        option("reasoning_keep", "enum", "none"),
         option("prompt_cache_mode", "enum", "implicit", "explicit"),
-        option("cached_content"),
+        replace(
+            option("prompt_cache_ttl", "integer", minimum=1),
+            requires=(("prompt_cache_mode", ("explicit",)),),
+        ),
     ),
 )
 
@@ -237,7 +270,7 @@ _SPECS = (
                 (option("thinking", "enum", "enabled", "disabled"),),
                 ("reasoning_efforts",),
             ),
-            AdapterVariantSpec("k3", ()),
+            AdapterVariantSpec("k3", (), ("native_replay",)),
         ),
         disabled_options=("prompt_cache_mode", "prompt_cache_ttl"),
     ),
@@ -337,6 +370,7 @@ def _validate_extra_body(value: object, *, key: str, occupied: set[str]) -> None
         "contents",
         "system",
         "system_instruction",
+        "systemInstruction",
         "tools",
         "tool_choice",
         "tool_config",
@@ -361,6 +395,9 @@ def _validate_extra_body(value: object, *, key: str, occupied: set[str]) -> None
         "prompt_cache_retention",
         "cache_control",
         "cachedContent",
+        "cached_content",
+        "thinkingConfig",
+        "thinking_config",
         "api_key",
         "authorization",
         "headers",

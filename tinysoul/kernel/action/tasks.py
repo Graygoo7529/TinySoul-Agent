@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from tinysoul.prompts.kernel import action as prompt_text
 from tinysoul.infra.config import ConfigError
 from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.context import ContextEngine, PromptBlock, TaskPrompt
@@ -26,6 +25,7 @@ from tinysoul.llm.protocol.responses import (
     TextAnswer,
 )
 from tinysoul.llm.protocol.tools import ToolUse
+from tinysoul.prompts.kernel import action as prompt_text
 
 from .call import ActionExecution
 from .execution.executor import ActionExecutionControl
@@ -162,6 +162,7 @@ class ActionTaskFactory:
         return TaskCall(
             profile=binding.task_profile,
             messages=messages,
+            prompt_cache=ContextEngine.prompt_cache(messages),
             consumer=consumer,
             settings=CallSettings(
                 answer_format=answer_format,

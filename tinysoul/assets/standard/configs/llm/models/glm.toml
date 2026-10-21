@@ -15,5 +15,5 @@ capabilities = [
 ]
 
 [llm.models.glm-latest.adapter_options]
-reasoning_keep = "content"
+native_replay = "content"
 thinking = "enabled"

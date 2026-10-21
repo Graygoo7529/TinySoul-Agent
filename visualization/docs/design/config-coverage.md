@@ -19,8 +19,8 @@
 
 PATCH 的 `path` 不表示任意深的 TOML 树路径：
 
-- catalog 中 `value_kind = "object"` 的字段是**原子值**：`action.retrieval` 整张 map、MCP server 的 `tools`/`env`/`env_refs`/`headers`/`header_refs`、`adapter_options.thinking`（object 形态）、ACP agent 的 `env`/`env_refs` 都按整对象提交；含点的远端工具名/Action ID 是 map 原子键，不展开为子路径。
-- `value_kind = "object_list"` / 数组字段整体提交：`action.models.bindings`、`infra.model_services.providers/models/uses` 三个数组、`llm.models.<id>.providers`、`llm.providers.<id>.adapters` 等。前端按稳定 id/consumer 识别条目，编辑后提交整个数组。
+- catalog 中 `value_kind = "object"` 的字段是**原子值**：`action.retrieval` 整张 map、MCP server 的 `tools`/`env`/`env_refs`/`headers`/`header_refs`、LLM `adapter_options.extra_body`、ACP agent 的 `env`/`env_refs` 都按整对象提交；含点的远端工具名/Action ID 是 map 原子键，不展开为子路径。
+- `value_kind = "object_list"` / 数组字段整体提交：`action.models.bindings`、`infra.model_services.providers/models/uses` 三个数组、`llm.models.<id>.providers` 等。前端按稳定 id/consumer 识别条目，编辑后提交整个数组。
 - collection（`llm.providers`、`llm.models`、`llm.tasks`、`capabilities.expand.servers`、`capabilities.subagent.agents`）按 key 逐对象展开；新增对象用 `create_template` 作为表单起点。catalog 的 `create_source` 可选：Provider、任务链等使用固定来源，LLM 模型按 family 从 saved + draft 来源中解析目标。删除受 `delete_policy` 约束。
 
 ### 1.3 编辑与激活流程
@@ -42,32 +42,37 @@ PATCH 的 `path` 不表示任意深的 TOML 树路径：
 | --- | --- | --- | --- | --- |
 | `llm.providers.<id>` 键 | 稳定 ID；禁点、禁首尾空白、禁纯数字 | openai/kimi/deepseek/glm/minimax/orca/… 均 `enabled=false` | 可增删改（`create_source: project:configs/llm/providers.toml`） | 模型 providers 链的可用端点 |
 | `.enabled` | boolean | false | 可写；启用时凭据必须可解析，否则 422 | 该 Provider 是否参与装配 |
-| `.adapters` | enum_list，非空无重复；choices：openai_compatible_chat / openai / kimi / deepseek / glm / minimax | 按模板各 1–5 项 | 整体提交 | 该端点支持的请求行为 |
-| `.base_url` | string（HTTPS API 根） | 按模板 | 可写 | 请求目标 |
+| `.endpoints.<api-mode>.base_url` | string；模式来自 `rules.llm.api_modes` | 按模板 | endpoint 表格编辑 | 各 API 模式的 SDK 根地址 |
+| `.endpoints.google-generate-content.api_version` | 可选 string | SDK 默认值 | 可写 | Google 连接版本，不属于 model option |
+| `.headers` / `.header_refs` 及 endpoint 下同名项 | 请求头 map；refs 的值为环境变量名 | 空 | 整体提交 | 共享请求头与入口覆盖 |
 | `.api_key_envs` | string_list，`credential_reference` | 按模板 | 可写；编辑的是**环境变量名**，凭据值走 dotenv 草稿 | 凭据解析 |
 
-注意：LLM Provider **没有** `proxy` 字段（专用 Provider 才有）；`api_style` 是 adapter 静态属性，不是可写字段。凭据就绪状态从 config 读取的 `runtime.llm.providers` 投影获得（configured/missing），配置启用 ≠ 远端可调用。
+LLM Provider 按 API mode 提供入口，共用凭据；不枚举专属 adapter。模型 adapter 的 API mode 来自后端 catalog，支持相同模式的 Provider 才进入候选。四类 API 的 SDK 均已接入。凭据就绪状态从 `runtime.llm.providers` 投影获得（configured/missing），配置启用不表示远端连通性已验证。
 
 ### 2.2 LLM 模型 —— collection `llm.models`
 
 | 路径 | 类型/约束 | 可改性 | 影响 |
 | --- | --- | --- | --- |
 | `llm.models.<id>` 键 | 同上 ID 规则；新模型写入所选 family 的实际来源，新 family 创建 `configs/llm/models/<family-name>.toml` | 可增删改 | 任务链与用途引用的对象 |
-| `.adapter` | enum，同 §2.1 adapter 集合（单选） | 可写 | 该模型的请求行为；其 providers 链中每个 Provider 必须声明此 adapter |
+| `.adapter` | 单选，来自 `rules.llm.adapters` | 可写 | 通用 API adapter 或专属 adapter；Provider 只需支持其 API mode |
 | `.family` | string（默认空），仅显示元数据 | 可写 | 列表分组，不影响可用性 |
 | `.collapsed` | boolean（默认 false），仅显示元数据 | 可写 | 列表默认折叠，不影响可用性 |
 | `.providers` | 有序 `{provider, provider_model}` 列表，非空 | 整体提交；`provider_model` 是远端模型名，非 Provider ID | Provider Chain 顺序 |
 | `.context_window_tokens` | integer | 可写 | Context 压缩比例的分母 |
 | `.capabilities` | string_list：`text_input/image_input/image_remote_url/json_object_output/tool_calling/reasoning_output/prompt_cache` | 可写 | 任务链 `required_capabilities` 的满足判断 |
-| `.adapter_options.protocol` | enum：k2 / k3（advanced） | 可写，按 adapter descriptor 条件显示 | Kimi 协议分支 |
-| `.adapter_options.thinking` | object 原子值（advanced） | 整体提交 | 隐式推理开关 |
-| `.adapter_options.reasoning_effort` | string（advanced） | 可写 | 推理强度 |
-| `.adapter_options.reasoning_keep` | enum：none / content / encrypted（advanced） | 可写 | 推理状态保留 |
+| `.adapter_options.variant` | enum：k2 / k3（advanced） | 按 adapter descriptor 显示 | Kimi 专属变体 |
+| `.adapter_options.thinking` | enum，候选来自 API mode / adapter | 可写 | 思考模式 |
+| `.adapter_options.reasoning_efforts` | string_list，逗号分隔输入 | 可写 | 模型声明的候选档位；Google 映射 thinking level |
+| `.reasoning_effort` | 候选中的单一值，可清空 | 主面板选择 | 删除已选档位后提示重新选择或清空，不静默换档 |
+| `.adapter_options.native_replay` | enum：none / content / encrypted / signed（advanced） | 可写 | 供应商原生回放模式 |
 | `.adapter_options.reasoning_summary` | enum：auto / concise / detailed（advanced） | 可写 | 推理摘要 |
 | `.adapter_options.verbosity` | enum：low / medium / high（advanced） | 可写 | 输出详略 |
-| `.adapter_options.prompt_cache_retention` | string_list（advanced） | 可写 | 提示缓存保留 |
-| `.adapter_options.reasoning_split` / `.top_p` / `.service_tier` / `.store` / `.do_sample` / `.request_id` / `.user_id` | 各按 catalog 类型（advanced） | 可写，按 adapter descriptor 条件显示 | 供应商特定行为 |
-| `.request_overrides.temperature` / `.max_output_tokens` | number / integer | 可写 | 覆盖链级默认采样/输出上限 |
+| `.adapter_options.prompt_cache_mode` / `.prompt_cache_ttl` | API mode 对应的模式与 TTL | 按有效 catalog 显示 | OpenAI 隐式/显式、Anthropic 自动/显式/关闭、Google 隐式/显式 |
+| `.adapter_options.thinking_budget_tokens` / `.thinking_display` / `.include_thoughts` | number / enum / boolean | 按 requires/excludes 显示 | 思考预算或摘要展示；Google budget 与候选档位互斥 |
+| `.adapter_options.reasoning_mode` / `.reasoning_context` / `.reasoning_split` / `.store` / `.do_sample` / `.request_id` / `.user_id` | 各按 catalog 类型 | 按 API mode、adapter、variant 显示 | 模式或供应商特有行为 |
+| `.request_overrides.temperature` / `.top_p` / `.max_output_tokens` | number / number / integer | 可写 | 覆盖任务级采样与输出预算 |
+
+选项规则由后端组合 API mode → adapter → variant，并提供 `source`、`requires`、`excludes`。切换模式清理失效的依赖选项；父对象草稿内的子字段修改仍写回同一草稿，替换父对象同时撤销旧子字段操作。Google 远端缓存名由后端 generation 内资源管理器持有，不进入模型表单或 TOML。
 
 ### 2.3 LLM 任务链 —— collection `llm.tasks`
 
@@ -77,7 +82,7 @@ PATCH 的 `path` 不表示任意深的 TOML 树路径：
 | `.required_capabilities` | string_list，链内每个模型须满足 | `["text_input"]` | 候选过滤 |
 | `.answer_format` | enum：none / text / json_object | json_object | 输出协议 |
 | `.tool_use` | enum：disabled / optional / required | disabled | 工具调用策略 |
-| `.temperature` / `.max_output_tokens` | number / integer | 0.3 / 32768 | 采样与输出上限 |
+| `.temperature` / `.top_p` / `.max_output_tokens` | number / number / integer | 以项目当前 TOML 为准 | 采样与输出上限 |
 | `.max_retries_per_provider` / `.retry_wait_seconds` / `.provider_switch_wait_seconds` / `.model_switch_wait_seconds` | 重试与切换等待五项 | 1 / 1.0 / 0.0 / 2.0 | 失败恢复节奏 |
 | `.max_cycles` | integer | 10 | 单链内模型-Provider 轮次；**与 Turn 级 `loop.user.max_cycles` 是不同控件** |
 | `.prefer_successful_provider_seconds` / `.prefer_successful_model_seconds` | number | 600 | 成功备份偏好窗口 |
@@ -346,7 +351,7 @@ Endpoint：`GET/POST /v2/config/presets`、`GET/PUT/DELETE /v2/config/presets/{i
 3. 工具与连接分组覆盖 Web、资源、Execution/Job、ACP 与 MCP；字段可写性仍由实际 source 和 catalog 决定。
 4. **`agent.*` 在 catalog runtime.toml 中有字段声明但全部进程独有只读**；系统页只读项须以 config 读取投影的 `writable:false` 为准，不凭 catalog 存在性做成可写控件。
 5. **Kimi 搜索 model 已声明 choices**：后端 catalog 提供 kimi-k2.5/kimi-k2.6；表单应消费 choices，不开放自由文本。
-6. **LLM Provider 无 `proxy` 字段，专用 Provider（`infra.model_services.providers`）有**；两个表单可复用控件但协议不同（复数 `adapters`/`api_key_envs` vs 单数 `adapter`/`api_key_env`），不做假统一字段映射（与计划 §16.5 一致）。
+6. **LLM Provider 无 `proxy` 字段，专用 Provider（`infra.model_services.providers`）有**；两个表单可复用控件，但 LLM 使用 `endpoints`/`api_key_envs`，专用服务使用 `adapter`/`api_key_env`，不强行合并协议。
 7. **计划 §19 的简写键名**（`compression_trigger/target_ratio`、`trace_chunk_chars/branch_factor/min_hot_entries/max_inspect_chars`）对应真实完整键 `context.compression_trigger_ratio` 等（见 §8），语义一致，仅书写省略。
 8. **模板中 expand.search 无 backlinks source**（其余四个 search action 有）；MCP 配置面不显示反链入口，与计划 §17.3 “MCP 不自动获得 Embedding”一致。
 

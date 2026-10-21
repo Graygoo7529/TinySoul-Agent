@@ -269,17 +269,18 @@ value_kind = "string"
 importance = "advanced"
 
 [[field]]
-path = "llm.models.*.adapter_options.reasoning_keep"
+path = "llm.models.*.adapter_options.native_replay"
 surface = "models"
 group = "models.adapter_options"
-title = "Reasoning Retention"
-description = "Controls whether reasoning state is omitted, retained as content, or retained in encrypted form."
+title = "Native Replay Mode"
+description = "Controls which provider-native assistant state this model keeps for a later continuation."
 value_kind = "enum"
 importance = "advanced"
 choices = [
   { value = "none", label = "Do not retain" },
   { value = "content", label = "Retain content" },
   { value = "encrypted", label = "Retain encrypted state" },
+  { value = "signed", label = "Retain signed provider state" },
 ]
 
 [[field]]
@@ -324,19 +325,9 @@ path = "llm.models.*.adapter_options.prompt_cache_mode"
 surface = "models"
 group = "models.adapter_options"
 title = "Prompt Cache Mode"
-description = "OpenAI prompt cache mode for this model."
+description = "Cache policy for this API mode; explicit mode uses the task-owned prefix boundary."
 value_kind = "string"
 importance = "advanced"
-
-[[field]]
-path = "llm.models.*.adapter_options.thinking_level"
-surface = "models"
-group = "models.adapter_options"
-title = "Google Thinking Level"
-description = "Google GenerateContent thinking level."
-value_kind = "enum"
-importance = "advanced"
-choices = [{ value = "minimal", label = "Minimal" }, { value = "low", label = "Low" }, { value = "medium", label = "Medium" }, { value = "high", label = "High" }]
 
 [[field]]
 path = "llm.models.*.adapter_options.thinking_budget_tokens"
@@ -696,10 +687,19 @@ title = "Thinking display"
 description = "Thinking display. API-specific constraints are provided by adapter rules."
 value_kind = "string"
 
+
 [[field]]
-path = "llm.models.*.adapter_options.cached_content"
+path = "llm.models.*.adapter_options.reasoning_mode"
 surface = "models"
 group = "models.adapter_options"
-title = "External cached content"
-description = "External cached content. API-specific constraints are provided by adapter rules."
+title = "Reasoning mode"
+description = "OpenAI Responses reasoning mode, independent from effort."
+value_kind = "string"
+
+[[field]]
+path = "llm.providers.*.endpoints.*.api_version"
+surface = "providers"
+group = "providers.connection"
+title = "API version"
+description = "Google API version, default v1beta. Base URL is the service root."
 value_kind = "string"

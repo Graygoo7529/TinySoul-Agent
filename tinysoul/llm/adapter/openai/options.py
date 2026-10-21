@@ -12,7 +12,7 @@ from tinysoul.infra.json import JsonObject
 class OpenAIOptions(TypedDict, total=False):
     sampling: str
     reasoning_efforts: list[str]
-    reasoning_keep: str
+    native_replay: str
     extra_body: JsonObject
     prompt_cache_mode: str
     prompt_cache_ttl: str

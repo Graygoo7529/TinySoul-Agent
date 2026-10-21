@@ -12,7 +12,7 @@ from tinysoul.llm.protocol.messages import (
     ImageUrlPart,
     UserMessage,
 )
-from tinysoul.llm.protocol.reasoning import ReasoningKeep
+from tinysoul.llm.protocol.reasoning import NativeReplayMode
 from tinysoul.llm.protocol.tools import ToolSpec, ToolUse
 
 from ..base import (
@@ -21,7 +21,6 @@ from ..base import (
     ProviderFailureScope,
     ProviderRequest,
 )
-from ..openai.base import adapter_reasoning_keep
 from ..openai.chat import OpenAIChatAdapter
 from ..openai.clients import OpenAIChatCompletionsClient
 from ..openai.options import ChatOptions
@@ -132,13 +131,10 @@ def _validate_thinking_tool_replay(
         request.tool_use is not ToolUse.DISABLED
         and has_tools
         and _deepseek_thinking_enabled(request.model.adapter_options.values)
-        and adapter_reasoning_keep(
-            request.model.adapter_options.values,
-            adapter="DeepSeek",
-        )
-        is not ReasoningKeep.CONTENT
+        and request.model.adapter_options.native_replay_mode()
+        is not NativeReplayMode.CONTENT
     ):
         raise ProviderError(
-            "DeepSeek thinking with tools requires reasoning_keep='content'",
+            "DeepSeek thinking with tools requires native_replay='content'",
             kind=ProviderErrorKind.CONFIG,
         )

@@ -8,11 +8,11 @@ import pytest
 from tests.support.project import copy_initialized_project
 from tinysoul.gateway.project.initializer import ProjectConfigProfile
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
+from tinysoul.llm.adapter.factory import build_provider_registry
 from tinysoul.llm.config.loader import LLMConfigParser, ProviderCredentialState
 from tinysoul.llm.protocol.adapter_types import AdapterKind, ApiMode
 from tinysoul.llm.protocol.models import ModelCapability
-from tinysoul.llm.protocol.reasoning import ReasoningKeep
-from tinysoul.llm.adapter.factory import build_provider_registry
+from tinysoul.llm.protocol.reasoning import NativeReplayMode
 
 
 def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
@@ -35,12 +35,12 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
 
     model = config.models.get("gpt-sol")
     assert model.supports(ModelCapability.TOOL_CALLING)
-    assert model.adapter_options.reasoning_keep() is ReasoningKeep.ENCRYPTED
+    assert model.adapter_options.native_replay_mode() is NativeReplayMode.ENCRYPTED
 
     kimi = config.models.get("kimi-coding-latest")
     assert kimi.adapter is AdapterKind.KIMI
     assert kimi.adapter_options.values["variant"] == "k2"
-    assert kimi.request_overrides.temperature == pytest.approx(1.0)
+    assert kimi.request_overrides.temperature is None
 
     deepseek_pro = config.models.get("deepseek-pro")
     assert deepseek_pro.context_window_tokens == 1_048_576
@@ -344,17 +344,17 @@ async def test_disabled_provider_stays_in_task_chain_without_requiring_credentia
 
 
 @pytest.mark.parametrize("adapter", ["anthropic-messages", "google-generate-content"])
-async def test_configured_only_modes_load_without_runtime_clients(adapter: str) -> None:
+async def test_configured_modes_load_with_runtime_clients(adapter: str) -> None:
     config = LLMConfigParser().parse(_tree(providers={"future": {
         "enabled": True, "api_key_envs": ["FUTURE_KEY"],
         "endpoints": {adapter: {"base_url": "https://example.test"}},
     }}, model={
         "adapter": adapter,
         "providers": [{"provider": "future", "provider_model": "vendor/latest"}],
-        "adapter_options": {"thinking": "adaptive"} if adapter == "anthropic-messages" else {"thinking_level": "high"},
+        "adapter_options": {"thinking": "adaptive"} if adapter == "anthropic-messages" else {"reasoning_efforts": ["high"]},
     }))
     registry = await build_provider_registry(config.providers, models=config.models, env={"FUTURE_KEY": "test"})
-    assert not registry.has("future", AdapterKind(adapter))
+    assert registry.has("future", AdapterKind(adapter))
     assert config.tasks.get("framework").chain.model_ids == ("model",)
     await registry.close()
 

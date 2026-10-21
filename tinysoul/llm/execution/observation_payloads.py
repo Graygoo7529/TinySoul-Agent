@@ -2,20 +2,21 @@
 
 from __future__ import annotations
 
-from hashlib import sha256
-
 from tinysoul.infra.json import (
     JsonObject,
     JsonTypeError,
     JsonValue,
-    dumps_json,
     to_json_object,
 )
 
 from ..protocol.messages import (
     MessageStack,
 )
-from ..protocol.projection import _tool_call_payload, message_projection
+from ..protocol.projection import (
+    _tool_call_payload,
+    message_projection,
+    reasoning_projection,
+)
 from ..protocol.responses import RawResponse
 from ..protocol.tools import ToolScope
 
@@ -62,16 +63,10 @@ def task_response_observation(response: RawResponse, tools: ToolScope) -> JsonOb
         "answer_text": response.answer_text,
         "tool_calls": calls,
     }
-    payload["usage"] = _safe_mapping(response.usage)
+    payload["usage"] = response.usage.to_json()
     payload["metadata"] = _safe_mapping(response.metadata)
     if response.reasoning is not None:
-        payload["reasoning"] = {
-            "summary": response.reasoning.summary,
-            "native_part_digests": [
-                sha256(dumps_json(item).encode("utf-8")).hexdigest()
-                for item in response.reasoning.native_parts
-            ],
-        }
+        payload["reasoning"] = reasoning_projection(response.reasoning)
     return payload
 
 

@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 from tinysoul.infra.json import dumps_json
+from tinysoul.llm.execution.observation_payloads import (
+    task_request_observation,
+    task_response_observation,
+)
+from tinysoul.llm.protocol.adapter_types import AdapterKind, ApiMode
 from tinysoul.llm.protocol.messages import (
     AssistantMessage,
     ImagePart,
@@ -8,14 +13,10 @@ from tinysoul.llm.protocol.messages import (
     MessageStack,
     UserMessage,
 )
-from tinysoul.llm.execution.observation_payloads import (
-    task_request_observation,
-    task_response_observation,
-)
-from tinysoul.llm.protocol.reasoning import Reasoning, NativeReplay
-from tinysoul.llm.protocol.adapter_types import ApiMode, AdapterKind
+from tinysoul.llm.protocol.reasoning import NativeReplay, NativeReplayMode, Reasoning
 from tinysoul.llm.protocol.responses import RawResponse
 from tinysoul.llm.protocol.tools import ToolKind, ToolScope, ToolSpec
+from tinysoul.llm.protocol.usage import TokenUsage
 
 
 def test_model_request_observation_redacts_binary_and_reasoning_payloads() -> None:
@@ -29,9 +30,16 @@ def test_model_request_observation_redacts_binary_and_reasoning_payloads() -> No
         AssistantMessage.from_text(
             "visible answer",
             reasoning=Reasoning(
-                content="private chain of thought",
                 summary="safe summary",
-                native_replay=NativeReplay(ApiMode.OPENAI_RESPONSES, AdapterKind.GPT, "provider", "remote", ({"ciphertext": "encrypted-secret"},)),
+                native_replay=NativeReplay(
+                    NativeReplayMode.ENCRYPTED,
+                    ApiMode.OPENAI_RESPONSES,
+                    AdapterKind.GPT,
+                    "provider",
+                    "remote",
+                    ({"ciphertext": "encrypted-secret"},),
+                    "fingerprint",
+                ),
             ),
         ),
     )
@@ -63,11 +71,18 @@ def test_model_response_observation_omits_provider_payload_and_raw_reasoning() -
         model_id="model_a",
         provider_id="provider_a",
         reasoning=Reasoning(
-            content="private chain of thought",
             summary="safe summary",
-            native_replay=NativeReplay(ApiMode.OPENAI_RESPONSES, AdapterKind.GPT, "provider", "remote", ({"ciphertext": "encrypted-secret"},)),
+            native_replay=NativeReplay(
+                NativeReplayMode.ENCRYPTED,
+                ApiMode.OPENAI_RESPONSES,
+                AdapterKind.GPT,
+                "provider",
+                "remote",
+                ({"ciphertext": "encrypted-secret"},),
+                "fingerprint",
+            ),
         ),
-        usage={"input_tokens": 12},
+        usage=TokenUsage(input_tokens=12),
         metadata={"opaque": object()},
         provider_payload={"provider_secret": "must-not-appear"},
     )

@@ -5,7 +5,7 @@ from __future__ import annotations
 from hashlib import sha256
 from urllib.parse import urlsplit, urlunsplit
 
-from tinysoul.infra.json import JsonObject, dumps_json
+from tinysoul.infra.json import JsonObject
 
 from .messages import (
     AssistantMessage,
@@ -17,6 +17,7 @@ from .messages import (
     TextPart,
     ToolResultMessage,
 )
+from .reasoning import Reasoning
 from .tools import ToolCallRecord
 
 
@@ -38,13 +39,7 @@ def message_projection(message: Message) -> JsonObject:
             _tool_call_payload(call) for call in message.tool_calls
         ]
         if message.reasoning is not None:
-            payload["reasoning"] = {
-                "summary": message.reasoning.summary,
-                "native_part_digests": [
-                    sha256(dumps_json(item).encode("utf-8")).hexdigest()
-                    for item in message.reasoning.native_parts
-                ],
-            }
+            payload["reasoning"] = reasoning_projection(message.reasoning)
     if isinstance(message, ToolResultMessage):
         payload["call_id"] = message.call_id
         payload["tool_name"] = message.tool_name
@@ -85,3 +80,17 @@ def _safe_image_url(value: str) -> str:
         return "data:<redacted>"
     netloc = parsed.netloc.rsplit("@", 1)[-1]
     return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
+
+
+def reasoning_projection(reasoning: Reasoning) -> JsonObject:
+    replay = reasoning.native_replay
+    return {
+        "summary": reasoning.summary,
+        "native_replay": None if replay is None else {
+            "mode": replay.mode.value,
+            "api_mode": replay.api_mode.value,
+            "adapter": replay.adapter.value,
+            "provider_id": replay.provider_id,
+            "provider_model": replay.provider_model,
+        },
+    }

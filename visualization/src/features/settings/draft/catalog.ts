@@ -102,6 +102,8 @@ export interface AdapterOptionRule {
   choices: string[];
   minimum: number | null;
   source: string;
+  requires?: Record<string, string[]>;
+  excludes?: string[];
 }
 
 /** One variant branch of an adapter (e.g. Kimi k2/k3). */
@@ -319,6 +321,10 @@ function decodeOptionRules(value: unknown): AdapterOptionRule[] {
         : [],
       minimum: typeof item.minimum === "number" ? item.minimum : null,
       source: typeof item.source === "string" ? item.source : "adapter",
+      requires: isPlainRecord(item.requires) ? Object.fromEntries(
+        Object.entries(item.requires).map(([key, values]) => [key, Array.isArray(values) ? values.filter((v): v is string => typeof v === "string") : []]),
+      ) : {},
+      excludes: Array.isArray(item.excludes) ? item.excludes.filter((v): v is string => typeof v === "string") : [],
     });
   }
   return result;
@@ -569,4 +575,10 @@ export function providersForAdapter<T extends { value: Record<string, JsonValue>
 export function optionsForAdapter(catalog: SettingsCatalog | null, adapter: string, variant?: string): AdapterOptionRule[] {
   const rule = adapterRule(catalog, adapter);
   return rule?.variants.find((branch) => branch.id === variant)?.options ?? rule?.commonOptions ?? [];
+}
+
+/** API dependencies come from the backend's effective option catalog. */
+export function adapterOptionAvailable(rule: AdapterOptionRule, values: Record<string, JsonValue>): boolean {
+  return Object.entries(rule.requires ?? {}).every(([key, choices]) => choices.includes(String(values[key] ?? "")))
+    && (rule.excludes ?? []).every((key) => values[key] === undefined);
 }
