@@ -37,6 +37,8 @@ from tinysoul.kernel.retrieval.contracts import (
     SearchFailureKind,
 )
 from tinysoul.kernel.retrieval.selection import CandidateSelector
+from tinysoul.llm.protocol.cache import PromptCache, PromptCacheBreakpoint
+from tinysoul.llm.protocol.messages import MessageStack, UserMessage
 from tinysoul.llm.protocol.responses import JsonAnswer, RawResponse, TaskResult
 
 SAMPLES = (
@@ -145,10 +147,15 @@ async def test_repeated_model_steps_link_search_observations_to_distinct_tasks()
         DirectorySource,
         ModelStep,
         RetrievalRequest,
+        SearchContext,
         SourceKind,
     )
-    from tinysoul.kernel.retrieval.operations import SearchCorpus, SearchSession
-    from tinysoul.kernel.retrieval.policy import RetrievalPolicy
+    from tinysoul.kernel.retrieval.operations import (
+        SearchCorpus,
+        SearchSession,
+        SelectionInput,
+    )
+    from tinysoul.kernel.retrieval.policy import RetrievalOperationPolicy, RetrievalPolicy
     from tinysoul.runtime import ObservationEvent, ObservationLevel
 
     class Observations:
@@ -179,7 +186,14 @@ async def test_repeated_model_steps_link_search_observations_to_distinct_tasks()
     session = SearchSession(
         action_id="home.search",
         retrieval_policies=(
-            RetrievalPolicy("home.search", tuple(SourceKind), tuple(OperationKind)),
+            RetrievalPolicy(
+                "home.search",
+                tuple(SourceKind),
+                tuple(OperationKind),
+                operation_policies=(
+                    RetrievalOperationPolicy(OperationKind.RERANK, tuple(SearchContext)),
+                ),
+            ),
         ),
         source=source,
         selector=CandidateSelector(
@@ -189,15 +203,29 @@ async def test_repeated_model_steps_link_search_observations_to_distinct_tasks()
         ),
         observations=observations,
     )
+    cache = PromptCache(
+        key="2026-10-22/1",
+        breakpoints=(PromptCacheBreakpoint("background", 0),),
+    )
+    context = MessageStack.of(UserMessage.from_text("Shared context"))
     page = await session.search(
         RetrievalRequest(
             DirectorySource("all"),
             (
-                ModelStep(OperationKind.RERANK, "first criterion"),
+                ModelStep(
+                    OperationKind.RERANK,
+                    "first criterion",
+                    context=SearchContext.CURRENT,
+                ),
                 ModelStep(OperationKind.RERANK, "new criterion"),
             ),
-        )
+        ),
+        inputs=SelectionInput(context=context, prompt_cache=cache),
     )
+    assert calls[0].prompt_cache == cache
+    assert calls[0].messages.messages[0] == context.messages[0]
+    assert calls[1].prompt_cache == PromptCache(key=cache.key)
+    assert context.messages[0] not in calls[1].messages.messages
     invoked = [
         event.payload
         for event in observations.events

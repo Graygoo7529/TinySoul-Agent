@@ -181,6 +181,7 @@ async def test_runner_retries_provider_before_switching_to_next_provider() -> No
         TaskCall(
             profile="framework",
             messages=MessageStack.of(UserMessage.from_text("hello")),
+            prompt_cache=PromptCache(key="2026-10-22/1"),
         )
     )
 
@@ -188,6 +189,10 @@ async def test_runner_retries_provider_before_switching_to_next_provider() -> No
     assert primary.calls == ["shared", "shared"]
     assert backup.calls == ["shared"]
     assert backup.requests[0].binding.provider_model == "backup-model"
+    assert all(
+        request.prompt_cache == PromptCache(key="2026-10-22/1")
+        for request in (*primary.requests, *backup.requests)
+    )
 
 
 async def test_backup_provider_preference_expires_back_to_chain_head() -> None:

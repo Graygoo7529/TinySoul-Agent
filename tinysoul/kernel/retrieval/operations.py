@@ -13,6 +13,7 @@ from tinysoul.infra.json import JsonObject
 from tinysoul.infra.model_services.protocol import ModelServiceError
 from tinysoul.infra.model_services.service import ModelCallEvent
 from tinysoul.infra.references import ReferenceError
+from tinysoul.llm.protocol.cache import PromptCache
 from tinysoul.llm.protocol.messages import MessageStack
 from tinysoul.llm.protocol.requests import TaskCancellation
 from tinysoul.runtime import (
@@ -70,6 +71,7 @@ class SearchCorpus:
 @dataclass(frozen=True)
 class SelectionInput:
     context: MessageStack | None = None
+    prompt_cache: PromptCache | None = None
     guidance: tuple[PromptGuidance, ...] = ()
     scope: RunScope | None = None
     cancellation: TaskCancellation | None = None
@@ -327,6 +329,7 @@ class SearchSession:
                 if step.context is SearchContext.CURRENT
                 else None,
                 guidance=inputs.guidance,
+                prompt_cache=inputs.prompt_cache,
                 scope=inputs.scope,
                 cancellation=inputs.cancellation,
                 embedding=self._engine.embedding,

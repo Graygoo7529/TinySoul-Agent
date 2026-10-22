@@ -125,13 +125,14 @@ class Phase2Unit:
                     turn_guidance=self._turn_guidance,
                 )
             )
+            prompt_cache = self._context.prompt_cache(messages)
         except ContextError as exc:
             raise self._context_bridge.from_context_error(exc) from exc
         result = await self._llm.run(
             TaskCall(
                 profile=self._task_profile,
                 messages=messages,
-                prompt_cache=ContextEngine.prompt_cache(messages),
+                prompt_cache=prompt_cache,
                 tool_scope=preparation.tool_scope,
                 settings=_required_tool_settings(),
                 scope=scope,

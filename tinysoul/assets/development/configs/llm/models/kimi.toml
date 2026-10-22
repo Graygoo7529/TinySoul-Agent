@@ -46,3 +46,5 @@ capabilities = [
 [llm.models.kimi-latest.adapter_options]
 variant = "k3"
 choices.reasoning_effort = ["max"]
+prompt_cache_mode = "implicit"
+prompt_cache_ttl = "5m"

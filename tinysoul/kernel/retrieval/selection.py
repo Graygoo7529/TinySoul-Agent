@@ -25,6 +25,7 @@ from tinysoul.llm.errors import LLMInvocationFailure
 if TYPE_CHECKING:
     from tinysoul.kernel.context.prompts import PromptGuidance
 from tinysoul.llm.failures import LLMFailureKind
+from tinysoul.llm.protocol.cache import PromptCache
 from tinysoul.llm.protocol.messages import (
     AssistantMessage,
     JsonPart,
@@ -83,6 +84,7 @@ class CandidateSelector:
         candidates: tuple[SearchCandidate, ...],
         operation: OperationKind,
         context: MessageStack | None = None,
+        prompt_cache: PromptCache | None = None,
         guidance: tuple[PromptGuidance, ...] = (),
         scope: RunScope | None = None,
         cancellation: TaskCancellation | None = None,
@@ -282,9 +284,12 @@ class CandidateSelector:
                 SearchFailureKind.SCOPE_REQUIRED,
                 prompt_text.SELECTION_INPUT_BUDGET_EXCEEDED,
             )
+        if prompt_cache is not None and context is None:
+            prompt_cache = PromptCache(key=prompt_cache.key)
         call = TaskCall(
             profile=binding.task_profile,
             messages=messages,
+            prompt_cache=prompt_cache,
             consumer=consumer,
             scope=scope or RunScope(),
             cancellation=cancellation,

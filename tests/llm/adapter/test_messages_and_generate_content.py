@@ -694,7 +694,10 @@ async def test_anthropic_sdk_thinking_modes_and_display_header(
     )
 
 
-async def test_google_implicit_cache_budget_and_json_do_not_create_resources() -> None:
+@pytest.mark.parametrize("cache_mode", [None, "implicit"])
+async def test_google_implicit_cache_budget_and_json_do_not_create_resources(
+    cache_mode: str | None,
+) -> None:
     bodies: list[dict[str, object]] = []
 
     def respond(req: httpx.Request) -> httpx.Response:
@@ -733,10 +736,13 @@ async def test_google_implicit_cache_budget_and_json_do_not_create_resources() -
                 ApiMode.GOOGLE_GENERATE_CONTENT,
                 thinking_budget_tokens=-1,
                 include_thoughts=False,
-                prompt_cache_mode="implicit",
+                **({"prompt_cache_mode": cache_mode} if cache_mode else {}),
             ),
             answer_format=AnswerFormat.JSON_OBJECT,
-            prompt_cache=PromptCache(key="ignored"),
+            prompt_cache=PromptCache(
+                key="ignored",
+                breakpoints=(PromptCacheBreakpoint("background", 1),),
+            ),
         )
         await adapter.invoke(invocation)
         assert bodies[0]["generationConfig"] == {
@@ -745,6 +751,8 @@ async def test_google_implicit_cache_budget_and_json_do_not_create_resources() -
             "thinkingConfig": {"thinkingBudget": -1, "includeThoughts": False},
         }
         assert "cachedContent" not in bodies[0]
+        assert "Stable background" in json.dumps(bodies[0]["contents"])
+        assert "Task" in json.dumps(bodies[0]["contents"])
     finally:
         await adapter.close()
         await sdk.aio.aclose()

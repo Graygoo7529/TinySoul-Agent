@@ -12,6 +12,7 @@ from tinysoul.llm.adapter.base import ProviderRequest
 from tinysoul.llm.adapter.catalog import adapter_spec, adapter_specs_json
 from tinysoul.llm.adapter.factory import build_provider_registry
 from tinysoul.llm.adapter.models.glm import GlmAdapter
+from tinysoul.llm.adapter.models.kimi import KimiAdapter
 from tinysoul.llm.adapter.models.minimax import MiniMaxAdapter
 from tinysoul.llm.adapter.openai.chat import OpenAIChatAdapter
 from tinysoul.llm.adapter.openai.clients import (
@@ -22,6 +23,7 @@ from tinysoul.llm.adapter.openai.responses import OpenAIResponsesAdapter
 from tinysoul.llm.config.types import ProviderEndpoint, ProviderSpec
 from tinysoul.llm.execution.registry import ModelRegistry
 from tinysoul.llm.protocol.adapter_types import AdapterKind, ApiMode
+from tinysoul.llm.protocol.cache import PromptCache, PromptCacheBreakpoint
 from tinysoul.llm.protocol.messages import (
     AssistantMessage,
     MessageStack,
@@ -243,10 +245,20 @@ def test_four_modes_have_composed_rules_and_truthful_runtime_support() -> None:
 
 
 @pytest.mark.parametrize(
-    "kind", [AdapterKind.OPENAI_CHAT, AdapterKind.OPENAI_RESPONSES, AdapterKind.GLM]
+    ("kind", "variant", "cache_ttl"),
+    [
+        (AdapterKind.OPENAI_CHAT, None, "30m"),
+        (AdapterKind.OPENAI_RESPONSES, None, "30m"),
+        (AdapterKind.GLM, None, None),
+        (AdapterKind.KIMI, "k2", None),
+        (AdapterKind.KIMI, "k3", "5m"),
+        (AdapterKind.KIMI, "k3", "1h"),
+    ],
 )
 async def test_installed_sdk_serializes_adapter_requests_without_network(
     kind: AdapterKind,
+    variant: str | None,
+    cache_ttl: str | None,
 ) -> None:
     captured: list[httpx.Request] = []
 
@@ -308,11 +320,18 @@ async def test_installed_sdk_serializes_adapter_requests_without_network(
         default_headers={"X-Route": "test"},
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(respond)),
     ) as sdk:
-        options: dict[str, object] = {
-            "prompt_cache_mode": "implicit",
-            "prompt_cache_ttl": "30m",
-        }
-        if kind is AdapterKind.GLM:
+        options: dict[str, object] = (
+            {"prompt_cache_mode": "implicit", "prompt_cache_ttl": cache_ttl}
+            if cache_ttl
+            else {}
+        )
+        if kind is AdapterKind.KIMI:
+            adapter = KimiAdapter(
+                provider=provider(),
+                completions=cast(OpenAIChatCompletionsClient, sdk.chat.completions),
+            )
+            options["variant"] = variant
+        elif kind is AdapterKind.GLM:
             adapter = GlmAdapter(
                 provider=provider(),
                 completions=cast(OpenAIChatCompletionsClient, sdk.chat.completions),
@@ -335,10 +354,18 @@ async def test_installed_sdk_serializes_adapter_requests_without_network(
             options["native_replay"] = "encrypted"
         spec = model(kind)
         spec = replace(
-            spec, capabilities=spec.capabilities | {ModelCapability.PROMPT_CACHE},
+            spec,
+            capabilities=spec.capabilities | {ModelCapability.PROMPT_CACHE},
             adapter_options=AdapterOptions(options),
         )
-        outgoing = replace(request(spec), max_output_tokens=128)
+        outgoing = replace(
+            request(spec),
+            max_output_tokens=128,
+            prompt_cache=PromptCache(
+                key="2026-10-22/1",
+                breakpoints=(PromptCacheBreakpoint("background", 0),),
+            ),
+        )
         first = await adapter.invoke(outgoing)
         assert first.usage.cached_input_tokens == 60
         assert first.usage.cache_creation_input_tokens == 30
@@ -370,8 +397,18 @@ async def test_installed_sdk_serializes_adapter_requests_without_network(
         assert body["do_sample"] is False
         assert body["thinking"] == {"type": "enabled", "clear_thinking": True}
         assert body["max_tokens"] == 128
+        assert "prompt_cache_key" not in body
     else:
-        assert body["prompt_cache_options"] == {"mode": "implicit", "ttl": "30m"}
+        assert body["prompt_cache_key"] == "2026-10-22/1"
+        if cache_ttl:
+            assert body["prompt_cache_options"] == {
+                "mode": "implicit",
+                "ttl": cache_ttl,
+            }
+        else:
+            assert "prompt_cache_options" not in body
+    if kind is AdapterKind.KIMI:
+        assert "prompt_cache_breakpoint" not in captured[0].content.decode()
 
 
 @pytest.mark.parametrize("change", ["none", "provider", "model", "content", "omit"])

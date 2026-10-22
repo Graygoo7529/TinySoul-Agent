@@ -441,9 +441,9 @@ class ContextEngine:
             else SegmentSelectionView()
         )
 
-    @staticmethod
-    def prompt_cache(messages: MessageStack) -> PromptCache | None:
-        """Describe cumulative prefixes of this composition, without storing cache state."""
+    def prompt_cache(self, messages: MessageStack) -> PromptCache:
+        """Describe this Turn's routing key and the composition's prefix candidates."""
+        self._require_turn()
         boundaries: list[PromptCacheBreakpoint] = []
         for slot in ("background", "trace", "working"):
             indices = [
@@ -454,7 +454,7 @@ class ContextEngine:
             ]
             if indices:
                 boundaries.append(PromptCacheBreakpoint(slot, max(indices)))
-        return PromptCache(breakpoints=tuple(boundaries)) if boundaries else None
+        return PromptCache(key=self._turn_id, breakpoints=tuple(boundaries))
 
     def compose(self, task_prompt: TaskPrompt) -> MessageStack:
         self._require_turn()

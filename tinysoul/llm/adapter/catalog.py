@@ -355,7 +355,10 @@ _GOOGLE = ApiModeSpec(
         ),
         option("native_replay", "enum", "none", "signed"),
         option("include_thoughts", "boolean"),
-        option("prompt_cache_mode", "enum", "implicit", "explicit"),
+        replace(
+            option("prompt_cache_mode", "enum", "implicit", "explicit"),
+            default="implicit",
+        ),
         replace(
             option("prompt_cache_ttl", "integer", minimum=1),
             requires=(("prompt_cache_mode", ("explicit",)),),
@@ -380,6 +383,14 @@ _SPECS = (
             AdapterVariantSpec(
                 "k3",
                 (
+                    replace(
+                        option("prompt_cache_mode", "enum", "implicit"),
+                        default="implicit",
+                    ),
+                    replace(
+                        option("prompt_cache_ttl", "enum", "5m", "1h"),
+                        requires=(("prompt_cache_mode", ("implicit",)),),
+                    ),
                     replace(
                         option("native_replay", "enum", "content"),
                         default="content",

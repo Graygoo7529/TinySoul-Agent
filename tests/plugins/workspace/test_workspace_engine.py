@@ -966,9 +966,11 @@ def _execution(action_name: str, params: JsonObject) -> ActionExecution:
 
 
 def _executor(engine: WorkspaceEngine) -> WorkspaceExecutor:
+    context = ContextEngineBuilder(system_text="sys").build()
+    context.begin_turn("workspace operation", turn_id="2026-10-22/1")
     return WorkspaceExecutor(
         _search_service(engine),
-        action_tasks(ContextEngineBuilder(system_text="sys").build()),
+        action_tasks(context),
         FakeLLMRunner(),
         RuntimeWorkspaceBridge(),
     )

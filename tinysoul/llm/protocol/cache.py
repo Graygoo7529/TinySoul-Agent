@@ -21,7 +21,11 @@ class PromptCacheBreakpoint:
 
 @dataclass(frozen=True)
 class PromptCache:
-    """Task-owned candidate prefixes; mode, selection and TTL belong to the model."""
+    """Caller-owned routing key and candidate prefixes for this message stack.
+
+    Callers reuse a key across related tasks; it does not identify cached content.
+    Mode, prefix selection and TTL belong to the model configuration.
+    """
 
     key: str | None = None
     breakpoints: tuple[PromptCacheBreakpoint, ...] = ()

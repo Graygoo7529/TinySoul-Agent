@@ -345,6 +345,10 @@ async def test_phase_units_use_independent_task_profiles() -> None:
         "cycle_planner",
         "cycle_executor",
     ]
+    assert all(
+        call.prompt_cache is not None and call.prompt_cache.key == turn_id
+        for call in llm.calls
+    )
 
 
 async def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the_turn() -> (

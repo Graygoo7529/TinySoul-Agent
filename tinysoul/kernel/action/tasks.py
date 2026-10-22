@@ -11,6 +11,7 @@ from tinysoul.kernel.context import ContextEngine, PromptBlock, TaskPrompt
 from tinysoul.kernel.context.errors import ContextError
 from tinysoul.kernel.context.prompts import PromptGuidance
 from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
+from tinysoul.llm.protocol.messages import MessageStack
 from tinysoul.llm.protocol.requests import (
     CallSettings,
     ModelContextOverflowPolicy,
@@ -108,10 +109,12 @@ class ActionTaskFactory:
                 if include_context
                 else None
             )
+            prompt_cache = self._context.prompt_cache(context or MessageStack())
         except ContextError as exc:
             raise RuntimeContextBridge().from_context_error(exc) from exc
         return SelectionInput(
             context=context,
+            prompt_cache=prompt_cache,
             guidance=(*guidance.domain, *guidance.action),
             scope=execution.framework.scope,
             cancellation=TaskCancellation(
@@ -157,12 +160,13 @@ class ActionTaskFactory:
                 if include_context
                 else prompt.message_stack()
             )
+            prompt_cache = self._context.prompt_cache(messages)
         except ContextError as exc:
             raise RuntimeContextBridge().from_context_error(exc) from exc
         return TaskCall(
             profile=binding.task_profile,
             messages=messages,
-            prompt_cache=ContextEngine.prompt_cache(messages),
+            prompt_cache=prompt_cache,
             consumer=consumer,
             settings=CallSettings(
                 answer_format=answer_format,

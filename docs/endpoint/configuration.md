@@ -95,7 +95,7 @@ Provider 在 `llm.providers.<id>.endpoints.<api-mode>` 配置 base_url、headers
 
 请求为 `{ "provider_id": "anthropic", "model_id": "claude-opus-5-5" }`。响应包含 provider_id/model_id、可空的 display_name/lifecycle/max_input_tokens/max_tokens，以及可空的 thinking/reasoning_effort；后两项在已提供时为 `{supported: boolean, choices: string[]}`。缺失能力保持 null；空 choices 不推断支持任何档位。无效本地配置沿 `422 config.invalid`；远端查询失败为 `502 config.model_capability_lookup_failed`，details 仅含稳定 kind。多 binding 由用户明确选择一次查询对象。
 
-每个 option 的 `requires` 是「其它选项名 → 允许值数组」，`excludes` 是互斥选项名数组；后端使用同一规则校验，前端据此筛选可添加项并清理模式变更后失效的依赖项。`choices` 声明模型可用的选项候选，`choice_rules` 只按已有选项值（包含顶层 reasoning_effort）收窄候选；两者均由同一配置草稿保存。catalog 的 fixed/default 表达适配器固定行为，前端直接展示，不提供无效开关。`native_replay` 的候选按模式收窄为 none/content、none/encrypted 或 none/signed；Google explicit cache 的远端资源名不属于配置字段。候选档位编辑与顶层选定值分开，移除已选档位后清空失效值，用户按需重新选择。
+每个 option 的 `requires` 是「其它选项名 → 允许值数组」，`excludes` 是互斥选项名数组；后端使用同一规则校验，前端据此筛选可添加项并清理模式变更后失效的依赖项。`choices` 声明模型可用的选项候选，`choice_rules` 只按已有选项值（包含顶层 reasoning_effort）收窄候选；两者均由同一配置草稿保存。catalog 的 default 表达适配器默认行为，fixed 为 true 时前端直接展示，不提供无效开关。Kimi k3 的 variant 选项提供 implicit 与 5m/1h TTL；k2 不提供这组缓存选项。`native_replay` 的候选按模式收窄为 none/content、none/encrypted 或 none/signed；Google explicit cache 的远端资源名不属于配置字段。候选档位编辑与顶层选定值分开，移除已选档位后清空失效值，用户按需重新选择。
 
 disabled Provider 可以在没有凭据时长期保存。把 Provider 改为 enabled 时，候选配置必须能从其 `api_key_envs` 中解析到至少一个非空值；否则 PATCH 返回 `422 config.invalid`，`details.key` 指向 `llm.providers.<id>.api_key_envs`，配置文件和当前 Generation 均保持不变。该校验只表示本地装配就绪，不探测远端服务。
 

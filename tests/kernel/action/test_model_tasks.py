@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import date as CalendarDate
 
+import pytest
+
 from tests.support.model_uses import action_tasks
 from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.action.builtins.core import (
@@ -272,7 +274,10 @@ async def test_answer_executor_uses_reference_links_and_returns_answer_payload()
     assert "task_prompt:input:test-ref" in labels
 
 
-async def test_task_factory_has_no_invocation_side_effects_and_uses_binding() -> None:
+@pytest.mark.parametrize("include_context", [True, False])
+async def test_task_factory_has_no_invocation_side_effects_and_uses_binding(
+    include_context: bool,
+) -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("question", turn_id="2026-10-06/277")
     await context.open_segments(CalendarDate(2026, 7, 12))
@@ -280,10 +285,14 @@ async def test_task_factory_has_no_invocation_side_effects_and_uses_binding() ->
         execution=_execution("core.reason", {}),
         consumer="core.reason.generate",
         prompt=TaskPrompt(guide_blocks=(PromptBlock.from_text("guide", "reason"),)),
+        include_context=include_context,
     )
     assert call.profile == "llm-action"
     assert call.settings.max_output_tokens == 2048
     assert call.settings.answer_format is AnswerFormat.JSON_OBJECT
+    assert call.prompt_cache is not None
+    assert call.prompt_cache.key == "2026-10-06/277"
+    assert bool(call.prompt_cache.breakpoints) is include_context
 
 
 async def test_task_output_keeps_owner_artifact_limit_and_task_failure() -> None:
@@ -325,8 +334,10 @@ async def test_task_output_keeps_owner_artifact_limit_and_task_failure() -> None
     assert output.failure.constraint == {"max_output_tokens": 2048}
 
 
+@pytest.mark.parametrize("include_context", [True, False])
 async def test_auxiliary_selection_input_does_not_mark_inspect_consumed(
     monkeypatch,
+    include_context: bool,
 ) -> None:
     context = ContextEngineBuilder(system_text="identity").build()
     context.begin_turn("select relevant links", turn_id="2026-10-06/332")
@@ -339,9 +350,12 @@ async def test_auxiliary_selection_input_does_not_mark_inspect_consumed(
 
     monkeypatch.setattr(context, "mark_model_consumed", forbidden)
     selection = await action_tasks(context).selection_input(
-        _execution("core.reason", {}), include_context=True
+        _execution("core.reason", {}), include_context=include_context
     )
-    assert selection.context is not None
+    assert (selection.context is not None) is include_context
+    assert selection.prompt_cache is not None
+    assert selection.prompt_cache.key == "2026-10-06/332"
+    assert bool(selection.prompt_cache.breakpoints) is include_context
     await context.close_segments()
 
 

@@ -10,7 +10,7 @@ from anthropic.types import Message as AnthropicMessage
 from tinysoul.kernel.context.background import BackgroundContext, BackgroundEntry
 from tinysoul.kernel.context.builtin.trace import PendingInputs, TurnTraceHeap
 from tinysoul.kernel.context.builtin.working import WorkingContext
-from tinysoul.kernel.context.engine import ContextEngine
+from tinysoul.kernel.context import ContextEngineBuilder
 from tinysoul.kernel.context.errors import ContextBudgetError
 from tinysoul.kernel.context.projection.composer import (
     ContextBudget,
@@ -104,6 +104,8 @@ def test_provenance_uses_actual_positions_and_guidance_refs() -> None:
 
 
 def test_prompt_cache_candidates_follow_context_provenance_not_task_prompt() -> None:
+    context = ContextEngineBuilder(system_text="identity").build()
+    turn_id = context.begin_turn("question", turn_id="2026-10-22/1")
     stack = MessageStackComposer().compose(
         segments=_sections(),
         task_prompt=TaskPrompt(
@@ -112,13 +114,22 @@ def test_prompt_cache_candidates_follow_context_provenance_not_task_prompt() -> 
         ),
     )
 
-    assert ContextEngine.prompt_cache(stack) == PromptCache(
+    assert context.prompt_cache(stack) == PromptCache(
+        key=turn_id,
         breakpoints=(
             PromptCacheBreakpoint("background", 3),
             PromptCacheBreakpoint("trace", 4),
             PromptCacheBreakpoint("working", 5),
         )
     )
+    prompt_only = TaskPrompt(
+        guide_blocks=(PromptBlock.from_text("guide", "next task"),),
+    ).message_stack()
+    assert context.prompt_cache(prompt_only) == PromptCache(key=turn_id)
+    assert turn_id not in str(stack.messages)
+    context.end_turn()
+    next_turn_id = context.begin_turn("new question", turn_id="2026-10-22/2")
+    assert context.prompt_cache(stack).key == next_turn_id
 
 
 @pytest.mark.anyio
