@@ -19,8 +19,24 @@ type = "array"
 type = "object"
 
 [semantic]
-use_when = ["Locate known tool names or parameters with literal/regex query", "Discover tools semantically with directory and explicit select/rerank steps; narrow server scope when requested"]
+use_when = [
+    "Find MCP tools semantically when the exact name is unknown",
+    "Use literal/regex query to search tool names, descriptions, and parameter definitions",
+    "Use directory source with select/rerank steps to discover tools by capability",
+    "Narrow search to specific servers using source server_ids when relevant"
+]
+avoid_when = [
+    "Already know the exact server_id and tool_name; use expand.call directly",
+    "Need to browse all tools from a server; use expand.describe_tools instead",
+    "Source scope is too broad causing budget issues; narrow to specific servers first"
+]
 effects = ["read_only"]
+examples = [
+    "Search for tools related to 'note taking' using directory source with select step",
+    "Find tools with literal query matching 'search' in tool names across all servers",
+    "Discover authentication tools by searching 'login|auth' regex in 'notes' server only",
+    "Use directory + rerank to find the most relevant tool for a specific task description"
+]
 
 [execution]
 executor = "expand.search"

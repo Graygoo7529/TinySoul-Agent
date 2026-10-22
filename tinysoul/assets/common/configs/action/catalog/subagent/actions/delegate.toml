@@ -20,8 +20,23 @@ type = "array"
 items = { type = "string" }
 
 [semantic]
-use_when = ["Delegate a bounded task on a ready connection and return a Turn-owned Job. Use core.job controls and collect the result."]
+use_when = [
+    "Submit a specific task prompt to a connected external Agent",
+    "Request code analysis, modification, or investigation from the subagent",
+    "Start a Job that runs asynchronously; use core.wait or core.job.status to supervise",
+    "Provide Workspace references (up to 8) for the subagent to use as context"
+]
+avoid_when = [
+    "Connection is not ready; call subagent.connect first",
+    "Previous Job on this connection is still running; wait for completion or stop it",
+    "Task can be accomplished with local TinySoul actions; avoid unnecessary delegation"
+]
 effects = ["modifying"]
+examples = [
+    "Delegate 'Analyze error patterns in logs/' to coder Agent with references=['workspace:logs/app.log']",
+    "Ask subagent to 'Refactor the auth module for better testability' with code references",
+    "Submit 'Find all TODO comments and summarize them' to a connected Agent"
+]
 
 [execution]
 executor = "subagent.delegate"

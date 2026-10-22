@@ -10,8 +10,20 @@ required = []
 additionalProperties = false
 
 [semantic]
-use_when = ["List configured external Agent targets."]
+use_when = [
+    "Check which external ACP Agents are configured before delegating",
+    "Discover available subagents and their capabilities",
+    "Verify a specific Agent target exists before connecting"
+]
+avoid_when = [
+    "Already know which Agent to use and it's confirmed available",
+    "No delegation is needed; work can be done with local actions"
+]
 effects = ["read_only"]
+examples = [
+    "List all configured ACP Agents to see available targets",
+    "Check if 'coder' Agent is configured before delegating code analysis"
+]
 
 [execution]
 executor = "subagent.agents"

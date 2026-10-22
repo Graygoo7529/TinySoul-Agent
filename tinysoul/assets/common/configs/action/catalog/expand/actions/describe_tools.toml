@@ -21,8 +21,24 @@ items = { type = "string" }
 type = "string"
 
 [semantic]
-use_when = ["Read complete definitions for tools or server_ids (exactly one selector), with bounded pages."]
+use_when = [
+    "Read complete inputSchema and outputSchema for specific tools before calling them",
+    "Get full parameter definitions when expand.search excerpts are insufficient",
+    "Browse all tools from one or more servers in detail",
+    "Verify exact argument structure before constructing expand.call parameters"
+]
+avoid_when = [
+    "Only need a high-level overview; use expand.describe_servers instead",
+    "Want to find tools semantically; use expand.search with directory or query",
+    "Already have the complete definition from a previous search result"
+]
 effects = ["read_only"]
+examples = [
+    "Read complete definition for tools=[{'server_id': 'notes', 'tool_name': 'search'}]",
+    "Get all tool definitions from 'docs' server using server_ids=['docs']",
+    "Verify inputSchema for a tool discovered via expand.search before calling it",
+    "Browse paginated tool definitions for multiple servers to understand capabilities"
+]
 
 [execution]
 executor = "expand.describe_tools"

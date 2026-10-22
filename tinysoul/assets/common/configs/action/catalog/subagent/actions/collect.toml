@@ -17,8 +17,22 @@ type = "integer"
 minimum = 0
 
 [semantic]
-use_when = ["Read bounded delegation output without executing the task again."]
+use_when = [
+    "Read the text output from a completed or running delegation Job",
+    "Retrieve subagent results in bounded chunks using optional cursor",
+    "Check what the subagent has produced so far without re-running the task"
+]
+avoid_when = [
+    "Job has not been created yet; delegate first",
+    "Need to know Job status or stop it; use core.job.status or core.job.stop instead",
+    "Job output was already collected and no new content is expected"
+]
 effects = ["read_only"]
+examples = [
+    "Collect output from job_id after core.wait indicates completion",
+    "Read partial output from a long-running delegation using cursor=0",
+    "Retrieve final results from a finished subagent task"
+]
 
 [execution]
 executor = "subagent.collect"

@@ -20,8 +20,24 @@ type = "object"
 additionalProperties = true
 
 [semantic]
-use_when = ["Call one explicitly named MCP tool. Results may refer to Workspace artifacts. Unknown results must be inspected before retrying."]
+use_when = [
+    "Call a specific MCP tool when server_id and tool_name are already known",
+    "Execute a tool after obtaining its definition via expand.describe_tools or expand.search",
+    "Invoke an MCP capability with validated arguments according to its inputSchema",
+    "Access external services or data through configured MCP servers"
+]
+avoid_when = [
+    "Tool identity is unknown; use expand.search or expand.describe_tools first",
+    "Arguments don't match the tool's inputSchema; verify the schema before calling",
+    "Server is unavailable or disabled; check expand.describe_servers first"
+]
 effects = ["modifying"]
+examples = [
+    "Call 'notes.search' tool on 'notes' server with arguments={'query': 'meeting notes'}",
+    "Invoke 'docs.read' tool after verifying its parameters via expand.describe_tools",
+    "Execute a filesystem tool discovered through expand.search with validated arguments",
+    "Call an MCP tool that writes results to Workspace, then inspect the output reference"
+]
 
 [execution]
 executor = "expand.call"

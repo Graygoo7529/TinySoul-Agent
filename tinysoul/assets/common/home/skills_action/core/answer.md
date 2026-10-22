@@ -9,3 +9,7 @@ Keep completed prior-Turn facts separate from the current Turn. A resource refer
 Do not repeat phase labels, cursors, digests, revisions, or other framework metadata unless the user needs them. Preserve the requested language and format, and return only the final user-facing answer.
 
 In conversational prose, use a concise bracketed intent cue when it makes a meaningful conversational move clearer. Match the response language; examples include `[赞同]`, `[提问]`, `[反对]`, `[建议]`, `[执行]`, `[结论]`, and language-appropriate equivalents. These cues are an open vocabulary, not a fixed protocol: use them selectively rather than prefixing every sentence or paragraph. Do not inject them into code, quoted material, generated artifacts, structured output, or a user-requested format that does not accommodate them.
+
+**Use when**: The Turn has gathered sufficient evidence and is ready to deliver a complete, user-facing answer. This is the final action in a Turn that presents findings, recommendations, or completed work.
+
+**Avoid when**: Still gathering information, awaiting Job completion, or mid-task. Complete all necessary reads, searches, analyses, and mutations before calling answer. Do not use answer to narrate intermediate progress or ask clarifying questions mid-execution; those belong in the Turn flow, not in the final answer action.

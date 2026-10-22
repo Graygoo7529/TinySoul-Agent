@@ -19,8 +19,23 @@ type = "string"
 type = "string"
 
 [semantic]
-use_when = ["Answer one current external Agent permission request using its exact option_id. Use core.ask if the decision requires the user."]
+use_when = [
+    "Reply to a subagent's permission callback with a chosen option_id",
+    "Approve or deny a specific action that the subagent requested permission for",
+    "Use after core.wait indicates a Job has pending permission requests",
+    "Delegate permission decisions to the user via core.ask when human judgment is needed"
+]
+avoid_when = [
+    "No permission request is pending; check Job status first",
+    "Using an option_id that doesn't match the actual request options",
+    "Making a consequential decision without consulting the user via core.ask"
+]
 effects = ["modifying"]
+examples = [
+    "Respond to a file deletion permission request by selecting 'approve' option_id",
+    "Deny a network access request by choosing the 'deny' option_id",
+    "Use core.ask to present the permission request to the user, then respond with their choice"
+]
 
 [execution]
 executor = "subagent.respond"

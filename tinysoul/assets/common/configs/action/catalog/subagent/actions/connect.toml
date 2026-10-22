@@ -16,8 +16,21 @@ type = "string"
 type = "string"
 
 [semantic]
-use_when = ["Prepare an ACP session for this Turn; optional cwd_ref names an existing daily Workspace directory."]
+use_when = [
+    "Prepare to delegate work to an external ACP Agent for the first time this Turn",
+    "Establish a session before using delegate with a configured agent_id",
+    "Specify a working directory by providing cwd_ref to an existing Workspace directory"
+]
+avoid_when = [
+    "Connection already exists; delegate reuses the same session",
+    "Agent target is unavailable or unconfigured; check with subagent.agents first"
+]
 effects = ["modifying"]
+examples = [
+    "Connect to 'coder' Agent using the default daily Workspace directory",
+    "Connect to 'coder' Agent with cwd_ref pointing to 'workspace:projects/myapp'",
+    "Prepare session before delegating code analysis tasks"
+]
 
 [execution]
 executor = "subagent.connect"
