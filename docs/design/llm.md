@@ -220,6 +220,8 @@ Anthropic 可组合 automatic 与显式断点，TTL 为 `5m/1h`，最多四个�
 
 Anthropic Messages 与 Google GenerateContent 均由真实 SDK adapter 处理。Anthropic 映射 system/messages/tools/thinking/output_config/cache_control，保留 thinking、redacted thinking、tool_use 等 block 的有序回放；JSON object 继续由 TinySoul 现有提示与解释器校验，不伪造空 schema。Google 映射 systemInstruction/contents/tools/toolConfig/thinkingConfig/JSON output，保留 thought、functionCall、thought_signature 等 Part，并由 generation 内的 `GooglePromptCacheStore` 创建、复用和按 TTL 失效显式缓存；运行配置只保存 cache policy，不保存远端资源名。[Anthropic 思考](https://platform.claude.com/docs/en/build-with-claude/thinking)、[Google 思考](https://ai.google.dev/gemini-api/docs/generate-content/thinking)
 
+Anthropic adapter 使用 SDK 流式传输并聚合完整 Message，再转换为单次 `RawResponse`，以支持较大的输出预算。SDK 负责文本、工具参数与签名分片聚合；adapter 读取最终累计 usage，仅在响应有结束原因时交付结果。每次调用持有并关闭自己的响应流，取消、时限与重试继续由 TaskRunner 管理；HTTP 成功后的流内错误仍在 adapter 边界归类。采样配置由 adapter 通过 SDK extra_body 映射，用户扩展字段不能覆盖这些框架参数。[Anthropic 流式聚合](https://platform.claude.com/docs/en/build-with-claude/streaming)
+
 Anthropic 的 signed replay 还可按模型配置绑定到实际已发送前缀。再次发送时前缀摘要不匹配，则只从该次请求投影中丢弃失效的 thinking/redacted-thinking block；可读文本、完整工具调用及结果事实继续按正常 Messages 结构传递。Trace 中的历史事实不被改写，也不尝试隐藏重试。该摘要仅服务 Anthropic 的前缀约束，不是跨 API 的通用 Context fingerprint。
 
 模型配置页的 Anthropic “读取能力”只查询当前保存的 provider endpoint 和凭据，并针对一个远端 model ID 读取 Models API 声明的类型、effort 和 token limit。结果作为草稿建议展示，由维护者选择采纳；不会自动覆盖手工 TOML，也不代表兼容代理一定支持相同能力。GPT adapter 继承 Responses mapper，但保留有依据的模型采样规则；Claude family 直接使用 Anthropic Messages adapter，无需仅为 family 增加空壳 adapter。
@@ -286,4 +288,4 @@ MODEL response 投影依据本次可见 ToolScope 补齐供应商未提供的工
 
 LLM 模块聚焦文本输入、图像输入、JSON 对象输出、模型侧工具语义、推理输出保留、提示缓存意图、模型链重试切换。
 
-LLM 模块承担模型侧工具语义与供应商工具协议的映射，但不承担工具执行、动作调度、状态提交、严格 JSON Schema、文件附件输入、长期文件资源管理、跨供应商文件复用和复杂企业级可靠性机制。流式输出不属于当前核心范围；这些能力若进入项目，应在清楚的模块边界内设计。
+LLM 模块承担模型侧工具语义与供应商工具协议的映射，但不承担工具执行、动作调度、状态提交、严格 JSON Schema、文件附件输入、长期文件资源管理、跨供应商文件复用和复杂企业级可靠性机制。adapter 可在内部使用流式传输并聚合单次响应；面向调用方和前端的增量输出协议不属于当前核心范围。这些能力若进入项目，应在清楚的模块边界内设计。

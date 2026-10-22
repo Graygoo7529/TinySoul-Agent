@@ -11,6 +11,7 @@ from anthropic import AsyncAnthropic
 from google import genai
 from google.genai import types
 
+from tests.support.anthropic import anthropic_sse_response
 from tinysoul.llm.adapter.anthropic.messages import (
     AnthropicMessagesAdapter,
     MessagesClient,
@@ -38,7 +39,7 @@ from tinysoul.llm.protocol.models import (
     ModelSpec,
 )
 from tinysoul.llm.protocol.requests import CallSettings, TaskCall
-from tinysoul.llm.protocol.responses import AnswerFormat
+from tinysoul.llm.protocol.responses import AnswerFormat, ResponseStopReason
 from tinysoul.llm.protocol.routing import ModelChain, RetryPolicy, TaskSpec
 from tinysoul.llm.protocol.tools import ToolKind, ToolScope, ToolSpec, ToolUse
 
@@ -93,15 +94,19 @@ async def test_anthropic_sdk_signed_tool_roundtrip_and_cache(summary: str) -> No
     bodies: list[dict] = []
     blocks = [
         {"type": "thinking", "thinking": summary, "signature": "opaque-signature"},
-        {"type": "tool_use", "id": "call_1", "name": "core_inspect", "input": {}},
+        {
+            "type": "tool_use",
+            "id": "call_1",
+            "name": "core_inspect",
+            "input": {"ref": "test"},
+        },
     ]
 
     def respond(req: httpx2.Request) -> httpx2.Response:
         bodies.append(json.loads(req.content))
         assert req.headers["x-api-key"] == "test-key"
-        return httpx2.Response(
-            200,
-            json={
+        return anthropic_sse_response(
+            {
                 "id": "msg_1",
                 "type": "message",
                 "role": "assistant",
@@ -115,7 +120,7 @@ async def test_anthropic_sdk_signed_tool_roundtrip_and_cache(summary: str) -> No
                     "cache_read_input_tokens": 100,
                     "cache_creation_input_tokens": 40,
                 },
-            },
+            }
         )
 
     async with AsyncAnthropic(
@@ -143,7 +148,12 @@ async def test_anthropic_sdk_signed_tool_roundtrip_and_cache(summary: str) -> No
             ),
         )
         response = await adapter.invoke(first)
+        assert response.stop_reason is ResponseStopReason.TOOL_CALLS
+        assert response.tool_calls[0].arguments == {"ref": "test"}
         assert response.usage.input_tokens == 145
+        assert response.usage.output_tokens == 20
+        assert response.usage.cached_input_tokens == 100
+        assert response.usage.cache_creation_input_tokens == 40
         assert response.reasoning is not None
         assert response.reasoning.native_replay is not None
         assert response.reasoning.summary == (summary or None)
@@ -522,9 +532,8 @@ async def test_anthropic_manual_thinking_and_automatic_cache_use_sdk_fields() ->
 
     def respond(req: httpx2.Request) -> httpx2.Response:
         bodies.append(json.loads(req.content))
-        return httpx2.Response(
-            200,
-            json={
+        return anthropic_sse_response(
+            {
                 "id": "msg_1",
                 "type": "message",
                 "role": "assistant",
@@ -532,7 +541,7 @@ async def test_anthropic_manual_thinking_and_automatic_cache_use_sdk_fields() ->
                 "content": [{"type": "text", "text": '{"ok":true}'}],
                 "stop_reason": "end_turn",
                 "usage": {"input_tokens": 1, "output_tokens": 1},
-            },
+            }
         )
 
     async with AsyncAnthropic(
@@ -641,15 +650,16 @@ async def test_anthropic_manual_thinking_and_automatic_cache_use_sdk_fields() ->
     ],
 )
 async def test_anthropic_sdk_thinking_modes_and_display_header(
-    thinking: str, display: str | None, effort: str | None
+    thinking: str,
+    display: str | None,
+    effort: str | None,
 ) -> None:
     captured: list[httpx2.Request] = []
 
     def respond(incoming: httpx2.Request) -> httpx2.Response:
         captured.append(incoming)
-        return httpx2.Response(
-            200,
-            json={
+        return anthropic_sse_response(
+            {
                 "id": "msg_1",
                 "type": "message",
                 "role": "assistant",
@@ -657,7 +667,7 @@ async def test_anthropic_sdk_thinking_modes_and_display_header(
                 "content": [{"type": "text", "text": "ok"}],
                 "stop_reason": "end_turn",
                 "usage": {"input_tokens": 1, "output_tokens": 1},
-            },
+            }
         )
 
     options: dict[str, object] = {"thinking": thinking}

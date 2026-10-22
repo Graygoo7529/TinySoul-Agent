@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
+from typing import cast
 
+import httpx2
 import pytest
-from anthropic.types import Message as AnthropicMessage
+from anthropic import AsyncAnthropic
 
+from tests.support.anthropic import anthropic_sse_response
+from tinysoul.kernel.context import ContextEngineBuilder
 from tinysoul.kernel.context.background import BackgroundContext, BackgroundEntry
 from tinysoul.kernel.context.builtin.trace import PendingInputs, TurnTraceHeap
 from tinysoul.kernel.context.builtin.working import WorkingContext
-from tinysoul.kernel.context import ContextEngineBuilder
 from tinysoul.kernel.context.errors import ContextBudgetError
 from tinysoul.kernel.context.projection.composer import (
     ContextBudget,
@@ -23,7 +27,10 @@ from tinysoul.kernel.context.segments import (
     SegmentProjection,
     SegmentSlot,
 )
-from tinysoul.llm.adapter.anthropic.messages import AnthropicMessagesAdapter
+from tinysoul.llm.adapter.anthropic.messages import (
+    AnthropicMessagesAdapter,
+    MessagesClient,
+)
 from tinysoul.llm.adapter.base import ProviderRequest
 from tinysoul.llm.config.types import ProviderEndpoint, ProviderSpec
 from tinysoul.llm.protocol.adapter_types import AdapterKind, ApiMode
@@ -120,7 +127,7 @@ def test_prompt_cache_candidates_follow_context_provenance_not_task_prompt() -> 
             PromptCacheBreakpoint("background", 3),
             PromptCacheBreakpoint("trace", 4),
             PromptCacheBreakpoint("working", 5),
-        )
+        ),
     )
     prompt_only = TaskPrompt(
         guide_blocks=(PromptBlock.from_text("guide", "next task"),),
@@ -136,64 +143,143 @@ def test_prompt_cache_candidates_follow_context_provenance_not_task_prompt() -> 
 async def test_anthropic_replay_handles_constructed_context_and_trace() -> None:
     sent: list[dict[str, object]] = []
 
-    class Client:
-        async def create(self, **kwargs: object) -> AnthropicMessage:
-            sent.append(kwargs)
-            return AnthropicMessage.model_validate({
-                "id": "msg_1", "type": "message", "role": "assistant", "model": "claude",
+    def respond(request: httpx2.Request) -> httpx2.Response:
+        sent.append(json.loads(request.content))
+        return anthropic_sse_response(
+            {
+                "id": "msg_1",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude",
                 "content": [
                     {"type": "thinking", "thinking": "Plan", "signature": "opaque"},
-                    {"type": "tool_use", "id": "call_1", "name": "inspect", "input": {}},
+                    {
+                        "type": "tool_use",
+                        "id": "call_1",
+                        "name": "inspect",
+                        "input": {},
+                    },
                 ],
-                "stop_reason": "tool_use", "stop_sequence": None,
+                "stop_reason": "tool_use",
+                "stop_sequence": None,
                 "usage": {"input_tokens": 10, "output_tokens": 10},
-            })
+            }
+        )
 
-    trace = TurnTraceHeap(turn_id="2026-10-21/1")
-    composer = MessageStackComposer()
-    def compose(identity: str, prompt: TaskPrompt):
-        return composer.compose(segments=(
-            SegmentProjection(SegmentDescriptor("identity", "test", SegmentSlot.BACKGROUND, 0), (SystemMessage.from_text(identity),)),
-            SegmentProjection(SegmentDescriptor("trace", "context", SegmentSlot.TRACE, 0), trace.render_messages()),
-        ), task_prompt=prompt)
+    async with AsyncAnthropic(
+        api_key="test",
+        max_retries=0,
+        http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(respond)),
+    ) as sdk:
+        trace = TurnTraceHeap(turn_id="2026-10-21/1")
+        composer = MessageStackComposer()
 
-    binding = ModelProviderBinding("anthropic", "claude")
-    model = ModelSpec("claude-test", (binding,), 100000, AdapterKind.ANTHROPIC_MESSAGES,
-        adapter_options=AdapterOptions({"native_replay": "signed", "replay_prefix_binding": True}))
-    adapter = AnthropicMessagesAdapter(
-        provider=ProviderSpec("anthropic", (ProviderEndpoint(ApiMode.ANTHROPIC_MESSAGES, "https://example.test"),), ("KEY",)),
-        messages=Client(),
-    )
-    invocation = ProviderRequest(model=model, binding=binding, messages=compose("Identity", TaskPrompt(
-        guide_blocks=(PromptBlock.from_text("guide", "Use available tools"),),
-        input_blocks=(PromptBlock.from_text("task", "Temporary task"),),
-    )), answer_format=AnswerFormat.TEXT, tool_scope=ToolScope(tools=(
-        ToolSpec("inspect", "Read", {"type": "object"}, ToolKind.CONTROL),
-    )), tool_use=ToolUse.REQUIRED)
-    result = await adapter.invoke(invocation)
-    assert result.reasoning is not None and result.reasoning.native_replay is not None
-    original = result.reasoning.native_replay
-    decision = AssistantMessage.from_text(result.answer_text, reasoning=result.reasoning, tool_calls=result.tool_calls)
-    trace.append_decision(decision)
-    trace.append_action_result(ToolResultMessage.from_text(call_id="call_1", tool_name="inspect", text="Fact"))
+        def compose(identity: str, prompt: TaskPrompt):
+            return composer.compose(
+                segments=(
+                    SegmentProjection(
+                        SegmentDescriptor(
+                            "identity", "test", SegmentSlot.BACKGROUND, 0
+                        ),
+                        (SystemMessage.from_text(identity),),
+                    ),
+                    SegmentProjection(
+                        SegmentDescriptor("trace", "context", SegmentSlot.TRACE, 0),
+                        trace.render_messages(),
+                    ),
+                ),
+                task_prompt=prompt,
+            )
 
-    # An unchanged append-only prefix can replay signed state.
-    await adapter.invoke(replace(invocation, messages=invocation.messages.append(decision).append(
-        ToolResultMessage.from_text(call_id="call_1", tool_name="inspect", text="Fact"))))
-    valid_messages = sent[-1]["messages"]
-    assert isinstance(valid_messages, list)
-    assert valid_messages[1]["content"][0]["signature"] == "opaque"
+        binding = ModelProviderBinding("anthropic", "claude")
+        model = ModelSpec(
+            "claude-test",
+            (binding,),
+            100000,
+            AdapterKind.ANTHROPIC_MESSAGES,
+            adapter_options=AdapterOptions(
+                {"native_replay": "signed", "replay_prefix_binding": True}
+            ),
+        )
+        adapter = AnthropicMessagesAdapter(
+            provider=ProviderSpec(
+                "anthropic",
+                (ProviderEndpoint(ApiMode.ANTHROPIC_MESSAGES, "https://example.test"),),
+                ("KEY",),
+            ),
+            messages=cast(MessagesClient, sdk.messages),
+        )
+        invocation = ProviderRequest(
+            model=model,
+            binding=binding,
+            messages=compose(
+                "Identity",
+                TaskPrompt(
+                    guide_blocks=(
+                        PromptBlock.from_text("guide", "Use available tools"),
+                    ),
+                    input_blocks=(PromptBlock.from_text("task", "Temporary task"),),
+                ),
+            ),
+            answer_format=AnswerFormat.TEXT,
+            tool_scope=ToolScope(
+                tools=(
+                    ToolSpec("inspect", "Read", {"type": "object"}, ToolKind.CONTROL),
+                )
+            ),
+            tool_use=ToolUse.REQUIRED,
+        )
+        result = await adapter.invoke(invocation)
+        assert (
+            result.reasoning is not None and result.reasoning.native_replay is not None
+        )
+        original = result.reasoning.native_replay
+        decision = AssistantMessage.from_text(
+            result.answer_text, reasoning=result.reasoning, tool_calls=result.tool_calls
+        )
+        trace.append_decision(decision)
+        trace.append_action_result(
+            ToolResultMessage.from_text(
+                call_id="call_1", tool_name="inspect", text="Fact"
+            )
+        )
 
-    # The real next compose moves the Trace before the new temporary TaskPrompt.
-    next_stack = compose("Updated identity", TaskPrompt(guide_blocks=(PromptBlock.from_text("guide", "Use available tools"),), input_blocks=(PromptBlock.from_text("task", "Next task"),)))
-    await adapter.invoke(replace(invocation, messages=next_stack))
-    mapped = sent[-1]["messages"]
-    assert isinstance(mapped, list)
-    blocks = [block for message in mapped for block in message["content"]]
-    assert not any(block["type"] in {"thinking", "redacted_thinking"} for block in blocks)
-    assert any(block["type"] == "tool_use" for block in blocks)
-    assert any(block["type"] == "tool_result" for block in blocks)
-    assert decision.reasoning is not None and decision.reasoning.native_replay is original
+        # An unchanged append-only prefix can replay signed state.
+        await adapter.invoke(
+            replace(
+                invocation,
+                messages=invocation.messages.append(decision).append(
+                    ToolResultMessage.from_text(
+                        call_id="call_1", tool_name="inspect", text="Fact"
+                    )
+                ),
+            )
+        )
+        valid_messages = sent[-1]["messages"]
+        assert isinstance(valid_messages, list)
+        assert valid_messages[1]["content"][0]["signature"] == "opaque"
+
+        # The real next compose moves the Trace before the new temporary TaskPrompt.
+        next_stack = compose(
+            "Updated identity",
+            TaskPrompt(
+                guide_blocks=(PromptBlock.from_text("guide", "Use available tools"),),
+                input_blocks=(PromptBlock.from_text("task", "Next task"),),
+            ),
+        )
+        await adapter.invoke(replace(invocation, messages=next_stack))
+        mapped = sent[-1]["messages"]
+        assert isinstance(mapped, list)
+        blocks = [block for message in mapped for block in message["content"]]
+        assert not any(
+            block["type"] in {"thinking", "redacted_thinking"} for block in blocks
+        )
+        assert any(block["type"] == "tool_use" for block in blocks)
+        assert any(block["type"] == "tool_result" for block in blocks)
+        assert (
+            decision.reasoning is not None
+            and decision.reasoning.native_replay is original
+        )
 
 
 def test_compose_section_order_and_labels() -> None:

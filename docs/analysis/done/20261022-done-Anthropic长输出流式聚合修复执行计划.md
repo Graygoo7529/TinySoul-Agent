@@ -1,6 +1,6 @@
 # Anthropic 长输出流式聚合修复执行计划
 
-状态：pending；设计已核对，可进入准备实施。2026-10-22 本轮只实施前端两个字段名称，后端修复按本计划待实施。
+状态：done。2026-10-22 完成内部流式聚合、真实 SDK 测试迁移、设计文档同步和本地/代理验证，并基于 AGENTS.md 与实施情况逐项核对归档。前端两个字段名称在前一轮已完成。
 
 ## 目标与范围
 
@@ -8,7 +8,7 @@
 
 这属于供应商适配边界的传输实现。LLM Task 继续获得一次完整结果，Context、工具执行、推理回放、Endpoint 和前端不增加增量消息协议。输出预算仍由任务、单次调用与模型覆盖配置确定；不通过降低预算、强设超长 timeout 或新增重试层绕开 SDK 检查。
 
-前端命名同步澄清两种不同配置：
+前一轮已完成前端命名，澄清两种不同配置：
 
 | 配置 | 原名称 | 本轮修改 | 实际语义 |
 | --- | --- | --- | --- |
@@ -85,7 +85,7 @@ TaskRunner 仍拥有总时限、取消、重试与 provider/model 切换；`requ
 
 实施后修改 `docs/design/llm.md` 的 Anthropic 调用与“设计范围”段落：说明 adapter 可使用内部流式传输并聚合单次响应；面向调用方/前端的增量输出协议仍不在当前范围。简述流资源由单次调用持有、重试由 TaskRunner 持有即可，不把 SDK 事件字段清单写入长期设计文档。
 
-本轮只在执行计划记录待实施设计，避免提前将 `docs/design/` 写成已完成。
+实施后已同步 `docs/design/llm.md`，描述实际聚合与生命周期边界。
 
 ## 文件范围与执行顺序
 
@@ -95,7 +95,9 @@ TaskRunner 仍拥有总时限、取消、重试与 provider/model 切换；`requ
 | `tinysoul/llm/adapter/anthropic/messages.py` | 修改模块说明及客户端协议；内部 stream 聚合；采样 SDK 映射；必要的流失败归类与最终完成检查；复用 RawResponse 映射 |
 | `tinysoul/llm/adapter/factory.py` | 核对注入的 SDK messages 对象满足新协议，仅按类型检查结果调整必要注解；保留 Registry 所有权与 max_retries=0 |
 | `tests/llm/adapter/test_messages_and_generate_content.py` | 现有 Anthropic 真实 SDK 测试改用 SSE fixture，继续覆盖回放、缓存、思考模式和 header；保留 Google 测试行为 |
-| `tests/llm/adapter/test_anthropic_streaming.py` | 集中覆盖长预算无 timeout、采样透传、流异常和取消关闭等新增行为；若需跨两文件复用 SSE fixture，放在 `tests/llm/adapter/conftest.py`，不创建生产通用层 |
+| `tests/llm/adapter/test_anthropic_streaming.py` | 集中覆盖长预算无 timeout、采样透传、流异常和取消关闭等新增行为 |
+| `tests/support/anthropic.py` | 为 adapter 与 Context 的真实 SDK 测试共用 SSE 响应生成器；由于实际消费者跨测试目录，采用已有 tests/support 约定，未保留局部 conftest 或第二份 fixture |
+| `tests/kernel/context/projection/test_composer.py` | 将旧 create 替身迁移到真实 SDK + 同一 SSE helper，继续验证构造式 Context 的有效/失效签名回放 |
 | `tinysoul/llm/execution/task.py` 与现有 task runner 测试 | 核对取消 join、重试和失败 scope 的既有契约；复用现有机制，预期不修改生产控制流 |
 | `docs/design/llm.md`、本执行计划 | 实施后同步实际设计并记录验证证据，逐项核对后归档 |
 
@@ -103,18 +105,18 @@ TaskRunner 仍拥有总时限、取消、重试与 provider/model 切换；`requ
 
 - [x] A. 重读规约、核对 SDK 和现有 owner，完成设计与本地 SDK 探查。
 - [x] B. 实施两个前端名称修改，复用现有界面与保存链路。
-- [ ] C. 改造 Anthropic 客户端协议和单次流聚合，补齐采样参数映射。
-- [ ] D. 完成必要的错误归类、结束检查与取消释放验证。
-- [ ] E. 迁移真实 SDK fixture，执行聚焦测试并确认回放、缓存统计和输出解释保持可用。
-- [ ] F. 同步设计文档，运行完整门禁；按实际远端条件进行独立的代理冒烟检查。
-- [ ] G. 基于 AGENTS.md、计划和最终 diff 逐项核对，完成后加 `-done-` 并移动至 `docs/analysis/done/`。
+- [x] C. 改造 Anthropic 客户端协议和单次流聚合，补齐采样参数映射。
+- [x] D. 完成必要的错误归类、结束检查与取消释放验证。
+- [x] E. 迁移真实 SDK fixture，执行聚焦测试并确认回放、缓存统计和输出解释保持可用。
+- [x] F. 同步设计文档，运行完整门禁；按实际远端条件进行独立的代理冒烟检查。
+- [x] G. 基于 AGENTS.md、计划和最终 diff 逐项核对，完成后加 `-done-` 并移动至 `docs/analysis/done/`。
 
 ## 验证要求
 
 沿用真实 SDK + 本地 HTTP transport，不只以 stub 返回最终 Message：
 
 1. 请求预算为 32768、没有显式 timeout，断言实际发出 `stream=true` 且预算未被改写；该用例应能直接区分旧实现与修复。
-2. 一条代表性响应包含分段文本、thinking/signature、工具 JSON 分片及最终 usage；验证工具参数完整、原生块有序、可回放，缓存计数读取最终累计值。复用现有回放测试，不重复建立一整套协议测试。
+2. 代表性响应覆盖分段文本、thinking/signature、工具 JSON 分片及最终 usage；验证工具参数完整、原生块有序、可回放，缓存计数读取最终累计值。复用现有回放测试，不重复建立一整套协议测试。
 3. 在现有测试中保持 automatic/explicit cache 与 thinking/display/effort/header 的请求体断言；新增 sampling pass-through 验证，与已有 omit 用例形成区分。
 4. 代表性 stop reason 覆盖 `max_tokens` 与正常工具/文本结束，保证输出预算耗尽不被误当传输失败。
 5. 覆盖一次 HTTP 错误、HTTP 200 中的 overloaded SSE、读取中断、空/明显未完成流。错误不泄露供应商正文；SDK 不自行重试。
@@ -122,20 +124,53 @@ TaskRunner 仍拥有总时限、取消、重试与 provider/model 切换；`requ
 7. 聚焦 adapter 测试后运行 Fast；交付前按规约运行 `scripts/test.ps1 -Suite Full` 与 `scripts/typecheck.ps1`。新增错误分支核对 `ProviderError`、TaskRunner 与 Runtime bridge 的既有协作。
 8. 代理冒烟与本地门禁分开记录：使用用户已授权的开发配置和独立的简短合成提示，预算可保持 32768，但要求只回答短文本；需要回放验证时仅使用合成工具。不要将归档 Trace、真实 Action Catalog 或其它私有正文外发。记录是否支持 SSE、是否完成及失败摘要，不记录密钥；代理特有失败不改变通用 Anthropic 协议设计。
 
-## 本轮进展与可行性
+## 验证与实施核对
 
-已完成字段名称修改；本轮验证结果如下：
+### 设计轮基线
+
+字段名称修改时的验证：
 
 - 前端现有测试：94 文件、820 用例通过；`pnpm build` 通过。
 - `scripts/test.ps1 -Suite Full`：1343 passed，23 deselected；耗时 302.25 秒。
 - `scripts/typecheck.ps1`：通过；`git diff --check`：通过。
 - 真实 SDK + 本地 MockTransport 探查：长预算流式聚合、采样发送、流内错误与未完成响应行为均已核对；未调用远端 provider。
 
-以上是前端名称修改与现有代码基线的验证，不代表后端修复已完成。后端 adapter 本轮未修改，SSE fixture 与修复后的验收尚待实施。
+以上属于设计轮的前端修改及后端基线验证，修复后的证据单独记录如下。
 
-方案合理可行：官方推荐的完整消息聚合能力已存在于当前依赖，本地探查确认能绕开原非流式长请求限制；内部请求/响应、缓存与推理回放协议均可复用。实际变更集中于一个 adapter、对应测试与一份设计文档，附带两个已完成的界面名称。
+### 实施轮验证
 
-没有需要新增产品语义的决策项。远端代理能否完整支持 SSE 需要实际验收，不预设自动降级到非流式或修改模型预算；若验证暴露与当前主线不同的代理契约，再单独讨论。
+- Adapter 聚焦：132 passed，18 deselected。
+- Adapter 与 Context projection 联合聚焦：140 passed，18 deselected。
+- `scripts/typecheck.ps1`：通过；改动 Python 文件的 Ruff imports/unused 检查与格式检查通过。
+- `scripts/test.ps1 -Suite Fast`：1350 passed，28 deselected；336.53 秒。
+- `scripts/test.ps1 -Suite Full`：1355 passed，23 deselected；353.13 秒。
+- 最终 `scripts/typecheck.ps1`、`git diff --check`：通过。
+
+真实代理验证通过仓库的 `build_provider_registry` 装配当前 adapter，使用用户已授权开发目录的 endpoint 与凭据，仅发送合成提示和合成工具，没有写入开发目录配置：
+
+| 验证 | 结果与解释 |
+| --- | --- |
+| 当前已保存 `claude-haiku` → `claude-haiku-5-5` | HTTP 404，进入现有 provider 失败分类；已实际发出请求，不再是 HTTP 前的长请求 ValueError。该 binding 的可用性需要维护者确认 |
+| 临时内存 binding 改为此前可用的 `claude-haiku-4-5`，保持其余配置；预算 32768，不覆盖 SDK timeout | COMPLETE，回答 `OK`，input 2516、output 1；证实代理支持本次流式聚合 |
+| 临时 Haiku 4.5、enabled thinking/budget 1024、signed replay/prefix binding；两轮合成 `echo_probe` 工具交互，每轮预算 32768 | 第一轮 TOOL_CALLS、1 个完整工具调用、取得 NativeReplay；第二轮携带回放与合成工具结果成功 COMPLETE 并回答 `OK`。两轮 output 分别 99、1 |
+
+上述请求有独立的 60 秒冒烟总时限，`ProviderRequest.timeout_seconds` 保持 None；没有以 SDK timeout 覆盖绕过原问题。短回答验证的是请求允许较大输出预算，不代表测试生成了 32768 token 或持续了 10 分钟。代理测试只证明这条兼容路由的实际表现，官方协议语义仍以 SDK/官方文档为准。
+
+### AGENTS.md 与计划核对
+
+| 核对项 | 实施情况 |
+| --- | --- |
+| 单一 owner 与生命周期 | SDK 客户端继续由 Registry 持有；本次流由 invoke 的 async with 关闭；factory 无需修改 |
+| 三层失败语义 | SDK/传输失败在 adapter 转为已有 ProviderError；未新增失败类型，TaskRunner/Runtime bridge 未增加特殊分支 |
+| 取消、重试、时限 | 复用 TaskRunner 的取消 join、重试/切换与剩余时限；测试验证取消释放及共享 client 再次调用；SDK max_retries=0 |
+| 内部协议与业务职责 | RawResponse、NativeReplay、PromptCache、工具映射继续复用；无 SSE 执行状态机、自动工具执行或部分结果提交 |
+| 配置与前端 | 无新 adapter option、TOML 字段或 Endpoint 协议；前轮两个中文字段名称已核对 |
+| 测试与复用 | 现有 Anthropic 请求/回放/缓存用例迁移到 SSE；跨模块测试复用 tests/support；没有保留 create 兼容替身 |
+| 设计文档 | llm.md 已说明内部聚合与对外单次响应的边界；只有修复实际落地后才同步 |
+
+执行计划已完成：实际生产改动集中于一个 adapter，配套迁移测试与同步设计文档。内部请求/响应、缓存和推理回放协议复用现有设计；本地 SDK 测试及真实代理冒烟均证明修复可以保留较大输出预算并完成调用。
+
+没有需要新增产品语义的决策项。远端代理的 SSE 与签名工具回放已完成代表性验收；当前保存的 Haiku 5.5 binding 返回 404 是独立配置发现，未通过自动降级或修改 TOML 掩盖。
 
 ## 参考依据
 

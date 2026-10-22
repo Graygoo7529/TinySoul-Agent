@@ -1,9 +1,10 @@
-"""Non-streaming Anthropic SDK adapter; tools are returned, never executed."""
+"""Aggregate Anthropic SDK streams; tools are returned, never executed."""
 
 from typing import Protocol
 
 from anthropic import APIConnectionError, APIError, APIStatusError
-from anthropic.types import Message
+from anthropic.lib.streaming import AsyncMessageStreamManager
+from httpx2 import TransportError
 
 from tinysoul.infra.json import to_json_object
 from tinysoul.llm.config.types import ProviderSpec
@@ -26,7 +27,7 @@ from .payloads import (
 
 
 class MessagesClient(Protocol):
-    async def create(self, **kwargs: object) -> Message: ...
+    def stream(self, **kwargs: object) -> AsyncMessageStreamManager[None]: ...
 
 
 class AnthropicMessagesAdapter:
@@ -55,11 +56,6 @@ class AnthropicMessagesAdapter:
             kwargs["system"] = system
         if request.timeout_seconds is not None:
             kwargs["timeout"] = request.timeout_seconds
-        if options.get("sampling") != "omit":
-            if request.temperature is not None:
-                kwargs["temperature"] = request.temperature
-            if request.top_p is not None:
-                kwargs["top_p"] = request.top_p
         thinking = options.get("thinking")
         if thinking is not None:
             value: dict[str, object] = {"type": thinking}
@@ -99,14 +95,29 @@ class AnthropicMessagesAdapter:
             kwargs["extra_headers"] = {
                 "anthropic-beta": "thinking-display-updates-2026-08-18"
             }
-        extra = request.model.adapter_options.extra_body()
+        extra = dict(request.model.adapter_options.extra_body() or {})
+        # The SDK has no sampling keyword arguments; the adapter still owns
+        # these request fields, independently of user-supplied extra_body.
+        if options.get("sampling") != "omit":
+            if request.temperature is not None:
+                extra["temperature"] = request.temperature
+            if request.top_p is not None:
+                extra["top_p"] = request.top_p
         if extra:
-            kwargs["extra_body"] = dict(extra)
+            kwargs["extra_body"] = extra
         try:
-            response = await self._messages.create(**kwargs)
+            async with self._messages.stream(**kwargs) as stream:
+                try:
+                    response = await stream.get_final_message()
+                except (ValueError, AssertionError) as exc:
+                    # The SDK raises for malformed deltas or an empty stream.
+                    raise ProviderError(
+                        "Invalid Anthropic response stream",
+                        kind=ProviderErrorKind.PARSE,
+                    ) from exc
         except APIStatusError as exc:
-            raise status_error(exc.status_code, str(exc)) from exc
-        except (APIConnectionError, TimeoutError) as exc:
+            raise _status_error(exc) from exc
+        except (APIConnectionError, TransportError, TimeoutError) as exc:
             raise ProviderError(
                 "Anthropic transport request failed", kind=ProviderErrorKind.TRANSIENT
             ) from exc
@@ -114,6 +125,11 @@ class AnthropicMessagesAdapter:
             raise ProviderError(
                 "Anthropic response could not be read", kind=ProviderErrorKind.PARSE
             ) from exc
+        if response.stop_reason is None:
+            raise ProviderError(
+                "Anthropic response stream ended before completion",
+                kind=ProviderErrorKind.TRANSIENT,
+            )
         text = "".join(block.text for block in response.content if block.type == "text")
         summary = (
             "\n".join(
@@ -190,3 +206,33 @@ class AnthropicMessagesAdapter:
                 "adapter": self.adapter_kind.value,
             },
         )
+
+
+def _status_error(exc: APIStatusError) -> ProviderError:
+    if not 200 <= exc.status_code < 300:
+        return status_error(exc.status_code, str(exc))
+    # SSE errors arrive after the HTTP success headers. The SDK keeps that
+    # status, so classification must use the error envelope instead.
+    body = exc.body
+    error = body.get("error") if isinstance(body, dict) else None
+    error_type = error.get("type") if isinstance(error, dict) else None
+    status = (
+        {
+            "overloaded_error": 529,
+            "api_error": 500,
+            "rate_limit_error": 429,
+            "timeout_error": 408,
+            "authentication_error": 401,
+            "permission_error": 403,
+            "invalid_request_error": 400,
+            "request_too_large": 413,
+        }.get(error_type)
+        if isinstance(error_type, str)
+        else None
+    )
+    classified = status_error(status, str(exc))
+    return ProviderError(
+        f"Anthropic stream failed ({classified.kind.value})",
+        kind=classified.kind,
+        scope=classified.scope,
+    )
