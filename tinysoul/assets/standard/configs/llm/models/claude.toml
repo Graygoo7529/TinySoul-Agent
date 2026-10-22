@@ -15,6 +15,7 @@ replay_prefix_binding = true
 tool_choice_policy = "auto"
 prompt_cache_mode = "automatic"
 prompt_cache_ttl = "5m"
+prompt_cache_boundaries = ["background", "trace"]
 choices.thinking = ["adaptive"]
 choices.reasoning_effort = ["high"]
 
@@ -33,5 +34,6 @@ replay_prefix_binding = true
 tool_choice_policy = "auto"
 prompt_cache_mode = "automatic"
 prompt_cache_ttl = "5m"
+prompt_cache_boundaries = ["background", "trace"]
 choices.thinking = ["adaptive"]
 choices.reasoning_effort = ["high"]
