@@ -1,0 +1,71 @@
+# Optional family: configure QWEN_API_KEY, enable qwen, then select a task model.
+# Official Qwen 3.8 Anthropic-compatible API reviewed on 2026-10-22.
+# Omitted thinking uses Qwen's default enabled mode; effort controls depth.
+# Explicit enabled in the generic adapter requires a token budget; leave it unset
+# to use Qwen's current effort-based default without the deprecated budget field.
+# Replay preserves native blocks (Qwen signatures are empty), without Claude's
+# prefix binding. JSON objects use TinySoul's prompt and response interpreter.
+# Explicit cache uses Context boundaries, not Anthropic top-level automatic mode.
+# Removing the explicit cache settings leaves Qwen's implicit caching in effect.
+
+[llm.models.qwen-max]
+family = "Qwen"
+collapsed = false
+adapter = "anthropic-messages"
+providers = [{ provider = "qwen", provider_model = "qwen3.8-max" }]
+context_window_tokens = 1000000
+capabilities = [
+  "text_input",
+  "image_input",
+  "json_object_output",
+  "tool_calling",
+  "reasoning_output",
+  "prompt_cache",
+]
+reasoning_effort = "xhigh"
+
+[llm.models.qwen-max.adapter_options]
+sampling = "omit"
+native_replay = "signed"
+replay_prefix_binding = false
+tool_choice_policy = "auto"
+prompt_cache_mode = "explicit"
+prompt_cache_ttl = "5m"
+prompt_cache_boundaries = ["background", "trace"]
+choices.thinking = ["enabled", "disabled"]
+choices.thinking_display = []
+choices.reasoning_effort = ["low", "medium", "xhigh"]
+choices.tool_choice_policy = ["auto"]
+choices.prompt_cache_mode = ["explicit"]
+choices.prompt_cache_ttl = ["5m"]
+
+[llm.models.qwen-flash]
+family = "Qwen"
+collapsed = false
+adapter = "anthropic-messages"
+providers = [{ provider = "qwen", provider_model = "qwen3.8-flash" }]
+context_window_tokens = 1000000
+capabilities = [
+  "text_input",
+  "image_input",
+  "json_object_output",
+  "tool_calling",
+  "reasoning_output",
+  "prompt_cache",
+]
+reasoning_effort = "xhigh"
+
+[llm.models.qwen-flash.adapter_options]
+sampling = "omit"
+native_replay = "signed"
+replay_prefix_binding = false
+tool_choice_policy = "auto"
+prompt_cache_mode = "explicit"
+prompt_cache_ttl = "5m"
+prompt_cache_boundaries = ["background", "trace"]
+choices.thinking = ["enabled", "disabled"]
+choices.thinking_display = []
+choices.reasoning_effort = ["low", "medium", "xhigh"]
+choices.tool_choice_policy = ["auto"]
+choices.prompt_cache_mode = ["explicit"]
+choices.prompt_cache_ttl = ["5m"]

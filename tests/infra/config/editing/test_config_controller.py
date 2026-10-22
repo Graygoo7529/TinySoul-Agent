@@ -39,8 +39,8 @@ async def test_family_models_and_task_references_save_and_reload_together(
     root = tmp_path / "project"
     copy_initialized_project(root)
     environment = ConfigEnvironment.from_project_root(root, env={})
-    source_id = "project:configs/llm/models/qwen.toml"
-    model_ids = ["qwen-pro", "qwen-flash"]
+    source_id = "project:configs/llm/models/test-family.toml"
+    model_ids = ["test-family-pro", "test-family-flash"]
     activated_models: list[str] = []
 
     def validate(candidate: ConfigEnvironment) -> None:
@@ -64,7 +64,7 @@ async def test_family_models_and_task_references_save_and_reload_together(
     )
     definitions = tuple(
         ConfigMutation(source_id, f"llm.models.{model_id}", "set", {
-            "family": "Qwen",
+            "family": "Test Family",
             "adapter": "openai-responses",
             "providers": [{"provider": "multi-mode", "provider_model": f"remote-{model_id}"}],
             "context_window_tokens": 32768,
@@ -107,7 +107,7 @@ async def test_family_models_and_task_references_save_and_reload_together(
     parsed = LLMConfigParser().parse(disk.section_tree("llm"))
     assert len(parsed.provider("multi-mode").endpoints) == 2
     assert parsed.provider("multi-mode").api_key_envs == ("MULTI_MODE_KEY",)
-    assert [parsed.models.get(model_id).family for model_id in model_ids] == ["Qwen", "Qwen"]
+    assert [parsed.models.get(model_id).family for model_id in model_ids] == ["Test Family", "Test Family"]
     for model_id in model_ids:
         model = parsed.models.get(model_id)
         assert model.reasoning_effort == "high"

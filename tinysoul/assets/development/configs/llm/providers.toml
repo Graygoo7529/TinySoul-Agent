@@ -57,6 +57,16 @@ api_key_envs = ["MINIMAX_API_KEY"]
 [llm.providers.minimax.endpoints.openai-chat]
 base_url = "https://api.minimaxi.com/v1"
 
+[llm.providers.qwen]
+enabled = false
+api_key_envs = ["QWEN_API_KEY"]
+
+[llm.providers.qwen.endpoints.openai-chat]
+base_url = "https://maas.qianwenaiapi.com/compatible-mode/v1"
+
+[llm.providers.qwen.endpoints.anthropic-messages]
+base_url = "https://maas.qianwenaiapi.com/apps/anthropic"
+
 [llm.providers.anthropic]
 enabled = false
 api_key_envs = ["ANTHROPIC_API_KEY"]
