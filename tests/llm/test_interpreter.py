@@ -74,7 +74,7 @@ def test_interpreter_rejects_json_array_for_json_object_contract() -> None:
         provider_id="provider-a",
     )
 
-    with pytest.raises(ResponseInterpretError):
+    with pytest.raises(ResponseInterpretError, match="JSON object, got an array"):
         ResponseInterpreter().interpret(
             response,
             AnswerFormat.JSON_OBJECT,

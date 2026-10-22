@@ -540,8 +540,9 @@ def _optional_reasoning(value: JsonObject) -> Reasoning | None:
                 provider_id=_required_str(replay_raw, "provider_id"),
                 provider_model=_required_str(replay_raw, "provider_model"),
                 message_fingerprint=_required_str(replay_raw, "message_fingerprint"),
-                prefix_fingerprint=_optional_str(replay_raw, "prefix_fingerprint")
-                or None,
+                prefix_fingerprint=_optional_nullable_str(
+                    replay_raw, "prefix_fingerprint"
+                ),
                 variant=_optional_nullable_str(replay_raw, "variant"),
                 ordered_items=_object_list(replay_raw, "ordered_items"),
             )

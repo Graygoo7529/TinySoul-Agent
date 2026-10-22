@@ -21,6 +21,7 @@ from tinysoul.llm.protocol.requests import (
 from tinysoul.llm.protocol.responses import (
     AnswerFormat,
     JsonAnswer,
+    TaskFailureReason,
     TaskResult,
     TaskResultStatus,
     TextAnswer,
@@ -243,10 +244,16 @@ class ActionTaskOutput:
             return None
         failure = result.failure
         reason = failure.reason.value if failure else "task_failure"
+        feedback = failure.model_feedback if failure else None
+        if (
+            failure
+            and failure.reason is TaskFailureReason.INVALID_OUTPUT_PROTOCOL
+            and feedback
+        ):
+            feedback = prompt_text.invalid_task_result(subject=subject, detail=feedback)
         return _failure(
             execution,
-            feedback=(failure.model_feedback if failure else None)
-            or prompt_text.task_failed(subject=subject),
+            feedback=feedback or prompt_text.task_failed(subject=subject),
             reason=reason,
             scope=failure.scope.value if failure else "llm.task",
             disposition=ActionFailureDisposition.CHANGE_REQUEST

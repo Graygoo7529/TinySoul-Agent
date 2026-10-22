@@ -76,4 +76,12 @@ def invalid_json_response(*, detail: str) -> str:
 
 # Local model feedback. Used by llm/protocol/responses.py:_parse_json_object.
 def expected_json_object(*, type_name: str) -> str:
-    return f"Expected JSON object, got {type_name}"
+    actual = {
+        "list": "an array",
+        "str": "a string",
+        "int": "a number",
+        "float": "a number",
+        "bool": "a boolean",
+        "NoneType": "null",
+    }.get(type_name, type_name)
+    return f"Expected a JSON object, got {actual}."

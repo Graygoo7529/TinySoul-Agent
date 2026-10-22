@@ -27,7 +27,11 @@ from tinysoul.kernel.action.execution.executor import (
     ActionExecutionControl,
 )
 from tinysoul.kernel.action.execution.preparation import ActionExecutionBuilder
-from tinysoul.kernel.action.result import ActionResult, ActionResultStatus
+from tinysoul.kernel.action.result import (
+    ActionFailureDisposition,
+    ActionResult,
+    ActionResultStatus,
+)
 from tinysoul.kernel.action.tasks import ActionSkillGuidance, ActionTaskOutput
 from tinysoul.kernel.context import ContextEngineBuilder, PromptBlock, TaskPrompt
 from tinysoul.kernel.context.prompts import PromptGuidance
@@ -272,6 +276,39 @@ async def test_answer_executor_uses_reference_links_and_returns_answer_payload()
     assert result.payload == {"text": "done", "references": ["workspace:a.md"]}
     labels = tuple(message.label for message in llm.calls[0].messages.messages)
     assert "task_prompt:input:test-ref" in labels
+
+
+async def test_answer_executor_identifies_invalid_task_output() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    context.begin_turn("question", turn_id="2026-10-22/1")
+    await context.open_segments(CalendarDate(2026, 10, 22))
+    feedback = "Expected a JSON object, got an array."
+    failure = TaskFailure(
+        reason=TaskFailureReason.INVALID_OUTPUT_PROTOCOL,
+        scope=TaskFailureScope.OUTPUT_PROTOCOL,
+        model_feedback=feedback,
+    )
+    llm = FakeLLMRunner(failure=failure)
+    executor = CoreAnswerActionExecutor(tasks=action_tasks(context), llm=llm)
+
+    result = await executor.execute(
+        _execution(
+            "core.answer",
+            {"guide_blocks": [{"text": "answer"}]},
+            executor_id="core.answer",
+        ),
+        ActionExecutionContext(),
+    )
+
+    assert result.status is ActionResultStatus.FAILED
+    assert result.failure is not None
+    assert result.failure.reason == failure.reason.value
+    assert result.failure.scope == failure.scope.value
+    assert result.failure.disposition is ActionFailureDisposition.RETRY_SAME
+    assert "Answer LLM task" in result.failure.feedback
+    assert feedback in result.failure.feedback
+    assert len(llm.calls) == 1
+    await context.close_segments()
 
 
 @pytest.mark.parametrize("include_context", [True, False])

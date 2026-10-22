@@ -83,6 +83,11 @@ def task_failed(*, subject: str) -> str:
     return f"{subject} failed."
 
 
+# Local model feedback. Used by kernel/action/tasks.py:failure.
+def invalid_task_result(*, subject: str, detail: str) -> str:
+    return f"{subject} returned an invalid result: {detail}"
+
+
 # Model task text or feedback. Used by kernel/action/builtins/core/actions.py:_parse_block_item.
 def task_block(*, heading: str, text: str) -> str:
     return f"# {heading}\n{text}"

@@ -45,13 +45,14 @@ from tinysoul.kernel.context.segments import (
     SegmentSlot,
 )
 from tinysoul.kernel.context.signals import build_working_patch_signal
+from tinysoul.llm.protocol.adapter_types import AdapterKind, ApiMode
 from tinysoul.llm.protocol.messages import (
     AssistantMessage,
     JsonPart,
     TextPart,
     ToolResultMessage,
 )
-from tinysoul.llm.protocol.reasoning import Reasoning
+from tinysoul.llm.protocol.reasoning import NativeReplay, NativeReplayMode, Reasoning
 from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind
 from tinysoul.runtime import (
     CyclePhase,
@@ -925,6 +926,71 @@ async def test_consume_trace_and_input_signals() -> None:
         TraceKind.INPUT,
     )
     assert engine.merge_pending_inputs() == 0
+
+
+@pytest.mark.parametrize(
+    ("mode", "api_mode", "adapter", "prefix_fingerprint"),
+    [
+        (NativeReplayMode.CONTENT, ApiMode.OPENAI_CHAT, AdapterKind.DEEPSEEK, None),
+        (NativeReplayMode.ENCRYPTED, ApiMode.OPENAI_RESPONSES, AdapterKind.GPT, None),
+        (
+            NativeReplayMode.SIGNED,
+            ApiMode.ANTHROPIC_MESSAGES,
+            AdapterKind.ANTHROPIC_MESSAGES,
+            "prefix-fingerprint",
+        ),
+    ],
+)
+async def test_trace_signal_preserves_native_replay_in_next_message_stack(
+    mode: NativeReplayMode,
+    api_mode: ApiMode,
+    adapter: AdapterKind,
+    prefix_fingerprint: str | None,
+) -> None:
+    engine = _engine()
+    turn_id = engine.begin_turn("hi", turn_id="2026-10-22/1")
+    await engine.open_segments(date(2026, 10, 22))
+    reasoning = Reasoning(
+        summary="choose an action",
+        native_replay=NativeReplay(
+            mode=mode,
+            api_mode=api_mode,
+            adapter=adapter,
+            provider_id="test-provider",
+            provider_model="test-model",
+            message_fingerprint="message-fingerprint",
+            prefix_fingerprint=prefix_fingerprint,
+            ordered_items=({"opaque": "provider-owned replay"},),
+        ),
+    )
+    bus = SignalBus()
+    bus.emit(
+        build_trace_decision_signal(
+            AssistantMessage.from_parts(
+                TextPart("choose tools"),
+                reasoning=reasoning,
+                tool_calls=(
+                    ToolCallRecord(id="a1", name="workspace.list", arguments={}),
+                ),
+                label="decision",
+            ),
+            scope=_scope(turn_id),
+            source="loop.phase2",
+            cycle_id="c1",
+            phase=CyclePhase.PHASE2,
+        )
+    )
+
+    assert await engine.consume_signals(bus) == ()
+    assert len(bus) == 0
+    decision = next(
+        message
+        for message in engine.compose(_prompt()).messages
+        if message.label == "decision"
+    )
+    assert isinstance(decision, AssistantMessage)
+    assert decision.reasoning == reasoning
+    await engine.close_segments()
 
 
 async def test_compress_via_engine() -> None:

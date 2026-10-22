@@ -1437,12 +1437,21 @@ async def test_runner_interprets_tool_call_output(kind: ToolKind) -> None:
     assert result.raw_response.tool_calls[0].kind is None
 
 
-async def test_runner_returns_failure_result_for_json_parse_error() -> None:
+@pytest.mark.parametrize(
+    ("answer_text", "feedback"),
+    [
+        ("{bad json", "Failed to parse model response as JSON object"),
+        ("[]", "JSON object, got an array"),
+    ],
+)
+async def test_runner_returns_failure_result_for_invalid_json_object(
+    answer_text: str, feedback: str
+) -> None:
     class BadJsonProvider(FakeProvider):
         async def invoke(self, request: ProviderRequest) -> RawResponse:
             self.requests.append(request)
             return RawResponse(
-                answer_text="{bad json",
+                answer_text=answer_text,
                 model_id=request.model.id,
                 provider_id=self.provider_id,
             )
@@ -1463,10 +1472,11 @@ async def test_runner_returns_failure_result_for_json_parse_error() -> None:
 
     assert result.status is TaskResultStatus.FAILURE
     assert result.failure is not None
+    assert result.failure.reason is TaskFailureReason.INVALID_OUTPUT_PROTOCOL
+    assert result.failure.scope is TaskFailureScope.OUTPUT_PROTOCOL
     assert result.failure.model_feedback is not None
-    assert (
-        "Failed to parse model response as JSON object" in result.failure.model_feedback
-    )
+    assert feedback in result.failure.model_feedback
+    assert len(provider.requests) == 1
 
 
 async def test_runner_reports_output_limit_before_interpreting_partial_json() -> None:
