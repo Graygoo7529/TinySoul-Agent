@@ -76,7 +76,9 @@ LLM Provider 按 API mode 提供入口，共用凭据；不枚举专属 adapter�
 
 选项规则由后端组合 API mode → adapter → variant，并提供 `source`、`requires`、`excludes`。切换模式清理失效的依赖选项；父对象草稿内的子字段修改仍写回同一草稿，替换父对象同时撤销旧子字段操作。Google 远端缓存名由后端 generation 内资源管理器持有，不进入模型表单或 TOML。
 
-Anthropic 模型能力读取是显式的只读请求，前端只呈现所选 provider binding 返回的建议；只有维护者采纳后才修改本地草稿，仍经原配置 PATCH 与 reload 链路保存和生效。
+切换 adapter 先确认，默认勾选“保留目标 adapter 支持的选项”。前端按目标有效 catalog 保留兼容的普通值、筛选候选，并保留整条仍适用的条件规则；不通过删除规则条件扩大适用范围。无效选值（含顶层 effort）清除，不自动换档。显式空候选仍表示不支持；原候选全部不适用时移除旧声明。固定选项使用目标 adapter 的定义；extra_body、断点 TTL 覆盖等对象选项需要重新配置。取消勾选则重置选项、候选、规则和 effort，仅建立目标必需的 variant。切换 variant 复用同一整理逻辑。兼容的 provider bindings 沿既有规则保留，所有改动仍作为草稿提交，后端承担最终校验。
+
+Anthropic 模型能力读取是显式的只读请求，前端只呈现所选 provider binding 返回的建议；只有维护者采纳后才修改本地草稿，仍经原配置 PATCH 与 reload 链路保存和生效。查询结果属于发起请求时的模型、adapter、binding 和连接；这些对象切换或组件退出后，旧请求的成功、失败和结束回调均失效，不修改当前建议、错误或加载状态。
 
 ### 2.3 LLM 任务链 —— collection `llm.tasks`
 

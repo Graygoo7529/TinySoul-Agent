@@ -11,7 +11,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Configuration, JsonValue } from "../../../api/v2/types";
+import type { Configuration, JsonObject, JsonValue } from "../../../api/v2/types";
 import type { ConfigCatalog } from "../../../api/v2/types";
 import { createV2Clients } from "../../../api/v2/clients";
 import { parseEndpointAddress } from "../../../api/v2/connection";
@@ -241,13 +241,18 @@ async function renderSelected(id: string): Promise<void> {
   await flush();
 }
 
-it("only applies retrieved Anthropic candidates after explicit adoption", async () => {
+function anthropicCatalog(): ConfigCatalog {
   const catalog = makeCatalog();
   const llm = (catalog.rules as Record<string, JsonValue>).llm as Record<string, JsonValue>;
   (llm.adapters as JsonValue[]).push({ id: "anthropic-messages", api_mode: "anthropic-messages", runtime_available: true, variants: [], common_options: [
     { id: "thinking", value_kind: "enum", choices: ["adaptive", "enabled", "disabled", "between_tools"] },
     { id: "reasoning_effort", value_kind: "string", choices: [] },
   ] });
+  return catalog;
+}
+
+it("only applies retrieved Anthropic candidates after explicit adoption", async () => {
+  const catalog = anthropicCatalog();
   store().applySnapshots({ saved: makeSaved(), active: makeSaved(), catalogRaw: catalog, presets: [] });
   store().setValue(MODELS_KIMI_SOURCE, "llm.models.kimi-k2.adapter", "anthropic-messages");
   store().setValue(MODELS_KIMI_SOURCE, "llm.models.kimi-k2.adapter_options", { choices: { reasoning_effort: ["max"] } });
@@ -273,6 +278,54 @@ it("only applies retrieved Anthropic candidates after explicit adoption", async 
   const model = projectCollection(store(), "llm.models").find((item) => item.id === "kimi-k2")!;
   expect(model.value.reasoning_effort).toBeUndefined();
   expect(model.value.adapter_options).toEqual({ choices: { thinking: ["adaptive"], reasoning_effort: ["high"] } });
+});
+
+it.each([
+  { change: "model", oldFailure: false },
+  { change: "binding", oldFailure: true },
+])("ignores late capability completion after changing $change", async ({ change, oldFailure }) => {
+  store().applySnapshots({ saved: makeSaved(), active: makeSaved(), catalogRaw: anthropicCatalog(), presets: [] });
+  for (const [id, source] of [["kimi-k2", MODELS_KIMI_SOURCE], ["glm-latest", MODELS_GLM_SOURCE]] as const) {
+    store().setValue(source, `llm.models.${id}.adapter`, "anthropic-messages");
+  }
+  const address = parseEndpointAddress("http://127.0.0.1:1430");
+  if (address === null) throw new Error("Invalid fixture address");
+  const pending: { resolve: (value: Response) => void; reject: (error: Error) => void }[] = [];
+  const fetchImpl = vi.fn<typeof fetch>(() => new Promise<Response>((resolve, reject) => pending.push({ resolve, reject })));
+  useConnectionStore.setState({ clients: createV2Clients(new V2Transport({ connection: { address, token: "test" }, fetchImpl })) });
+  const response = (model: string, effort: string) => new Response(JSON.stringify({
+    provider_id: "kimi", model_id: model, display_name: null, lifecycle: null,
+    max_input_tokens: null, max_tokens: null,
+    thinking: { supported: true, choices: ["adaptive"] },
+    reasoning_effort: { supported: true, choices: [effort] },
+  }), { status: 200, headers: { "content-type": "application/json" } });
+
+  await renderSelected("kimi-k2");
+  await act(async () => buttonByText("读取 Anthropic 模型能力").click());
+  if (change === "model") {
+    await renderSelected("glm-latest");
+  } else {
+    await act(async () => store().setValue(MODELS_KIMI_SOURCE, "llm.models.kimi-k2.providers", [{ provider: "kimi", provider_model: "new-model" }]));
+  }
+  expect(buttonByText("读取 Anthropic 模型能力").disabled).toBe(false);
+  await act(async () => buttonByText("读取 Anthropic 模型能力").click());
+  const before = draftOperations(store());
+  await act(async () => {
+    if (oldFailure) pending[0]!.reject(new Error("old request failed"));
+    else pending[0]!.resolve(response("kimi-k2", "max"));
+  });
+  expect(container.textContent).not.toContain("采纳候选建议");
+  expect(container.textContent).not.toContain("读取失败");
+  expect(buttonByText("读取 Anthropic 模型能力").disabled).toBe(true);
+  expect(draftOperations(store())).toEqual(before);
+
+  const selected = change === "model" ? "glm-latest" : "kimi-k2";
+  await act(async () => pending[1]!.resolve(response(change === "model" ? selected : "new-model", "high")));
+  expect(buttonByText("读取 Anthropic 模型能力").disabled).toBe(false);
+  await act(async () => buttonByText("采纳候选建议").click());
+  expect(projectCollection(store(), "llm.models").find((model) => model.id === selected)!.value.adapter_options).toEqual({
+    choices: { thinking: ["adaptive"], reasoning_effort: ["high"] },
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -374,6 +427,40 @@ describe("LlmProvidersPage", () => {
 // ---------------------------------------------------------------------------
 
 describe("LlmModelsPage", () => {
+  it.each([true, false])("confirms adapter switching with retain=%s before staging the result", async (retain) => {
+    const raw = makeCatalog();
+    const llm = (raw.rules as Record<string, JsonValue>).llm as Record<string, JsonValue>;
+    (llm.adapters as JsonValue[]).push({
+      id: "minimax", api_mode: "openai-chat", runtime_available: true, variants: [], common_options: [
+        { id: "thinking", value_kind: "enum", choices: ["adaptive", "disabled"] },
+        { id: "reasoning_effort", value_kind: "string", choices: [] },
+        { id: "extra_body", value_kind: "object", choices: [] },
+      ],
+    });
+    const adapterField = (raw.fields as JsonObject[]).find((field) => field.path === "llm.models.*.adapter")!;
+    (adapterField.choices as JsonValue[]).push({ value: "minimax", label: "MiniMax" });
+    store().applySnapshots({ saved: makeSaved(), active: makeSaved(), catalogRaw: raw, presets: [] });
+    store().setValue(MODELS_KIMI_SOURCE, "llm.models.kimi-k2.adapter_options", {
+      thinking: "enabled", choices: { thinking: ["enabled", "disabled"], reasoning_effort: ["high"] },
+      extra_body: { extension: true },
+    });
+    store().setValue(MODELS_KIMI_SOURCE, "llm.models.kimi-k2.reasoning_effort", "high");
+    await renderSelected("kimi-k2");
+    const before = draftOperations(store());
+    const adapter = container.querySelector<HTMLSelectElement>('select[aria-label="Adapter"]')!;
+    await act(async () => { adapter.value = "minimax"; adapter.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(draftOperations(store())).toEqual(before);
+    const checkbox = [...container.querySelectorAll("label")].find((label) => label.textContent?.includes("保留目标 adapter"))!.querySelector("input")!;
+    expect(checkbox.checked).toBe(true);
+    if (!retain) await act(async () => checkbox.click());
+    await act(async () => buttonByText("切换适配器").click());
+    const model = projectCollection(store(), "llm.models").find((item) => item.id === "kimi-k2")!;
+    expect(model.value.adapter).toBe("minimax");
+    expect(model.value.adapter_options).toEqual(retain ? { choices: { thinking: ["disabled"], reasoning_effort: ["high"] } } : undefined);
+    expect(model.value.reasoning_effort).toBe(retain ? "high" : undefined);
+    expect(model.value.providers).toEqual([{ provider: "kimi", provider_model: "kimi-k2" }]);
+  });
+
   it("edits effort candidates independently and requires an explicit selection after removal", async () => {
     store().setValue(MODELS_KIMI_SOURCE, "llm.models.kimi-k2.adapter", "openai-chat");
     store().setValue(MODELS_KIMI_SOURCE, "llm.models.kimi-k2.adapter_options", { choices: { reasoning_effort: ["high"] } });

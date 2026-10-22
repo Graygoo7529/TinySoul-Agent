@@ -7,6 +7,8 @@ import {
   validateDrafts,
   normalizeAdapterOptions,
   modelOptionChoices,
+  retainAdapterOptions,
+  type AdapterOptionRule,
 } from "./catalog";
 import { applySet, type DraftEntry } from "./model";
 import type { Configuration } from "../../../api/v2/types";
@@ -43,6 +45,51 @@ it("uses the top-level effort when narrowing other model options", () => {
   expect(normalized.effort).toBe("high");
   expect(normalized.options.thinking_display).toBeUndefined();
   expect(normalized.options.choice_rules).toEqual(options.choice_rules);
+});
+
+it("retains supported adapter values and whole rules while discarding incompatible declarations", () => {
+  const option = (id: string, valueKind: string, extra: Partial<AdapterOptionRule> = {}): AdapterOptionRule =>
+    ({ id, valueKind, choices: [], minimum: null, source: "api-mode", ...extra });
+  const specs = [
+    option("thinking", "enum", { choices: ["adaptive", "disabled"] }),
+    option("thinking_display", "enum", { choices: ["omitted"], requires: { thinking: ["adaptive"] } }),
+    option("reasoning_effort", "string"),
+    option("include_thoughts", "boolean"),
+    option("thinking_budget_tokens", "integer", { minimum: 1024 }),
+    option("sampling", "enum", { choices: ["omit"], fixed: true, default: "omit" }),
+    option("extra_body", "object"),
+    option("prompt_cache_ttls", "object"),
+  ];
+  const validRule = { when: { thinking: "disabled" }, choices: { reasoning_effort: ["high"] } };
+  const values = {
+    variant: "current", thinking: "enabled", thinking_display: "omitted", include_thoughts: true,
+    thinking_budget_tokens: 512, sampling: "pass-through", extra_body: { extension: true },
+    prompt_cache_ttls: { background: "12h" }, unknown: "old",
+    choices: { thinking: ["enabled", "disabled"], reasoning_effort: ["high"], thinking_display: ["updates"], sampling: ["omit"] },
+    choice_rules: [
+      validRule,
+      { when: { thinking: "enabled" }, choices: { reasoning_effort: ["high"] } },
+      { when: { thinking: "disabled" }, choices: { thinking_display: ["updates"] } },
+    ],
+  };
+  expect(retainAdapterOptions(specs, values, "high")).toEqual({
+    options: {
+      variant: "current", include_thoughts: true,
+      choices: { thinking: ["disabled"], reasoning_effort: ["high"] },
+      choice_rules: [validRule],
+    },
+    effort: "high",
+  });
+  expect(values.choices.thinking).toEqual(["enabled", "disabled"]);
+});
+
+it("keeps explicit unsupported choices and clears their selected effort", () => {
+  const specs: AdapterOptionRule[] = [
+    { id: "reasoning_effort", valueKind: "string", choices: [], minimum: null, source: "api-mode" },
+  ];
+  expect(retainAdapterOptions(specs, { choices: { reasoning_effort: [] } }, "high")).toEqual({
+    options: { choices: { reasoning_effort: [] } }, effort: undefined,
+  });
 });
 
 const RAW_CATALOG = {

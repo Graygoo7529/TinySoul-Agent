@@ -635,3 +635,63 @@ export function normalizeAdapterOptions(
     modelOptionChoices("reasoning_effort", options, [], effort).includes(effort) ? effort : undefined;
   return { options, effort: selectedEffort };
 }
+
+/** Carry editable values across adapters; opaque extension objects need reconfiguration. */
+export function retainAdapterOptions(
+  specs: AdapterOptionRule[], values: Record<string, JsonValue>, effort: JsonValue | undefined,
+): ReturnType<typeof normalizeAdapterOptions> {
+  const supported = new Map(specs.filter((spec) => !spec.fixed).map((spec) => [spec.id, spec]));
+  const options = Object.fromEntries(Object.entries(values).filter(([name, value]) => {
+    const spec = supported.get(name);
+    return spec !== undefined && adapterOptionAccepts(spec, value);
+  }));
+  if (typeof values.variant === "string") options.variant = values.variant;
+
+  const acceptsCandidate = (name: string, value: JsonValue): boolean => {
+    const spec = supported.get(name);
+    return spec !== undefined && ["string", "enum"].includes(spec.valueKind) && adapterOptionAccepts(spec, value);
+  };
+  if (isPlainRecord(values.choices)) {
+    const choices: Record<string, JsonValue> = {};
+    for (const [name, candidates] of Object.entries(values.choices)) {
+      const spec = supported.get(name);
+      if (!spec || !["string", "enum"].includes(spec.valueKind) || !Array.isArray(candidates)) continue;
+      const retained = candidates.filter((value) => acceptsCandidate(name, value));
+      // An explicit empty declaration means unsupported; a discarded declaration does not.
+      if (retained.length > 0 || candidates.length === 0) choices[name] = retained;
+    }
+    if (Object.keys(choices).length > 0) options.choices = choices;
+  }
+  if (Array.isArray(values.choice_rules)) {
+    const rules = values.choice_rules.filter((rule) => {
+      if (!isPlainRecord(rule) || !isPlainRecord(rule.when) || !isPlainRecord(rule.choices)) return false;
+      // Keep a whole rule or discard it: removing a condition would broaden its meaning.
+      return Object.entries(rule.when).every(([name, value]) => acceptsCandidate(name, value)) &&
+        Object.entries(rule.choices).every(([name, candidates]) => {
+          const spec = supported.get(name);
+          return spec !== undefined && ["string", "enum"].includes(spec.valueKind) &&
+            Array.isArray(candidates) && candidates.every((value) => acceptsCandidate(name, value));
+        });
+    });
+    if (rules.length > 0) options.choice_rules = rules;
+  }
+  return normalizeAdapterOptions(specs, options, effort);
+}
+
+function adapterOptionAccepts(spec: AdapterOptionRule, value: JsonValue): boolean {
+  switch (spec.valueKind) {
+    case "string":
+    case "enum":
+      return typeof value === "string" && value.trim() !== "" &&
+        (spec.choices.length === 0 || spec.choices.includes(value));
+    case "boolean":
+      return typeof value === "boolean";
+    case "integer":
+      return typeof value === "number" && Number.isInteger(value) &&
+        (spec.minimum === null || value >= spec.minimum);
+    case "string_list":
+      return Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim() !== "");
+    default:
+      return false;
+  }
+}

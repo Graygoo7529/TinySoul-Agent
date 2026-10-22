@@ -1,6 +1,6 @@
 # LLM API 模式回放、缓存与专用 Adapter 复核改进执行计划
 
-- 状态：`done`（P1–P6 实现、文档、AGENTS 规约与初始目标逐项核对完成；本地门禁通过）
+- 状态：`done`（P1–P6 及2026-10-22前端交互复核修复完成；实现、文档、AGENTS 规约与必要验证已核对）
 - 日期：2026-10-21
 - 复核基线：`a276417`；主要实现来自 `6638280`。
 - 范围：四类 API mode、通用/专用 adapter、模型配置与前端编辑、Context 缓存边界，以及真实 SDK 请求验证。
@@ -372,6 +372,7 @@ PromptCache.key 由实际调用者按共享前缀需要提供；通用 OpenAI �
 - [x] `LlmModelsPage.tsx`：复用既有 TextInput/SelectInput/JsonEditor/FieldRow 及同一个 AdapterOptionRow；常用值、候选、固定值、依赖清理、断点配置及能力建议均走原草稿机制。其它 object editing 设施核对后直接复用。
 - [x] `draft/catalog.ts`、API types/client、i18n：统一消费规则、候选交集与依赖清理；不按 family 特判。
 - [x] `pages.test.tsx`、draft/catalog、Endpoint 与 Infra ConfigController 测试：候选输入、模式切换、显式读取/采纳、同批 TOML 保存和重新载入。
+- [x] 2026-10-22 复核修复：adapter 切换确认提供保留兼容选项或重置；候选按目标规则整理；能力查询的迟到成功/失败/结束回调不能影响其它编辑对象。实施及验证见14.4。
 
 验收：新增 Claude family 与新增其它 family 走同一流程；更改候选和选中值后可以一次保存；能力读取失败不丢草稿；用户能区分“配置策略”与“实际使用结果”。
 
@@ -482,4 +483,18 @@ D1 已获明确确认并实施5.2节的本地前缀检查，不要求兼容 endp
 - Python 改动文件 import 检查和 `git diff --check` 已通过；改动的 LLM 代码 Ruff 通过。Ruff 对照 HEAD 无新增诊断，既有 PageOptions 默认参数和测试 helper 等诊断未混入本轮清理；未宣称整个仓库 Ruff 零诊断。`agent/composition/builder.py` import 排序已合规，无需再次修改。
 - 本轮没有远端 provider 实测结论。已证明本地选择、序列化、响应读取、资源生命周期和重试协作；不把模拟 usage 当成真实缓存命中，不宣称每个兼容服务都接受全部官方能力。Google 官方资源阈值、Claude 真实签名校验与具体代理能力仍以所选端点实际返回为准。
 
-最终核对：本轮已确认范围全部完成；无遗留设计决策或待实施主线。真实 provider 结果属于上述明确的外部验证边界，不以本地 SDK 测试代替实测结论。
+2026-10-21 实施核对：当时已确认范围完成；后续复核发现并补充修复的前端交互缺口见14.4。真实 provider 结果属于上述明确的外部验证边界，不以本地 SDK 测试代替实测结论。
+
+### 14.4 2026-10-22 前端交互复核与修复
+
+复核 `73ca07e` 时独立复现两项 P5 缺口：切换 adapter 只按字段名保留候选，可能留下目标不支持的值并导致保存失败；查询模型 A 的能力期间切换到模型 B，A 的迟到结果仍可被采纳到 B。维护者确认复用现有切换弹窗、允许选择保留兼容选项或重置，并用组件内请求有效性处理异步结果。本次修改基于包含提示词工作提交的 `266ee45`，没有修改提示词及后端业务实现。
+
+- `draft/catalog.ts::retainAdapterOptions` 负责切换时的整理，然后复用 `normalizeAdapterOptions` 处理当前选值和依赖。普通值按目标 catalog 类型、候选及下界筛选；候选保留交集；条件规则整条保留或丢弃，不删条件扩大作用范围；固定字段使用目标定义。显式空候选仍表示不支持，原候选全部不适用时移除旧声明。extra_body、断点 TTL 覆盖等对象选项清除后重新配置。
+- `LlmModelsPage.tsx` 每次切换 adapter 都先确认，默认勾选保留兼容选项；取消勾选时清除旧选项、候选、规则与顶层 effort，仅建立目标所需 variant。无效选值清除，不自动选择其它档位。切换 variant 复用整理逻辑，兼容 provider bindings 和配置草稿保存流程沿用既有实现。
+- 能力查询只增加组件内请求序号；模型、adapter、binding、连接变更及退出组件使旧请求失效。旧请求的成功、失败与 finally 均不修改当前页面状态；不增加后端接口、请求重试或全局状态机。
+- `catalog.test.ts` 覆盖候选交集、整条规则、固定/对象选项清理、显式空候选与 effort；`pages.test.tsx` 覆盖确认前不写草稿、保留/重置两种路径，以及切换模型后的迟到成功、修改 binding 后的迟到失败不干扰正在进行的新查询。
+- `visualization/docs/design/config-coverage.md` 同步实际编辑语义。按 AGENTS 核对，配置 owner 与最终校验仍在后端，前端只管理编辑草稿和查询展示；本轮不改变 API mode、NativeReplay、Context 或缓存生命周期。
+
+验证：聚焦前端 41 passed；前端完整 94 files、820 passed；`pnpm build` 与 Python typecheck 通过。`scripts/test.ps1 -Suite Full`：1332 passed、23 deselected，298.21s；包含上一轮复核曾偶发失败的 execution UTF-8 用例，本次通过。`git diff --check` 通过。前端测试既有 jsdom/act 提示与构建 chunk 大小提示不影响通过结果；本次没有真实 provider 调用。
+
+最终核对：本次确认的两项交互缺口已关闭，P5/P6 的补充验收完成；无需新增设计决策、配置协议或后端状态机。四类 API 模式的远端验证范围仍按14.3说明。

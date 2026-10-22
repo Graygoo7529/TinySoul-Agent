@@ -11,7 +11,7 @@ import { useConnectionStore } from "../../../store/connectionStore";
  * referencing chains in the same draft.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowRightLeft, Pencil, Trash2, X } from "lucide-react";
 
 import type { JsonValue, ModelCapabilityLookup } from "../../../api/v2/types";
@@ -28,6 +28,7 @@ import {
   adapterOptionAvailable,
   modelOptionChoices,
   normalizeAdapterOptions,
+  retainAdapterOptions,
   type AdapterOptionRule,
   type CatalogField,
   type SettingsCatalog,
@@ -406,9 +407,6 @@ function ModelEditor({
   const adapterOptions = isPlainRecord(object.value.adapter_options)
     ? object.value.adapter_options
     : {};
-  const configuredOptionCount = Object.keys(adapterOptions).filter(
-    (key) => key !== "variant",
-  ).length;
   const providerAdapters = new Set((catalog?.adapterRules ?? []).filter((rule) => providersForAdapter(catalog, providers, rule.id).length > 0).map((rule) => rule.id));
   const adapterField = field("adapter");
   const adapterChoices: SelectOption[] = (adapterField.meta?.choices ?? []).map(
@@ -426,11 +424,7 @@ function ModelEditor({
     const matching = providersForAdapter(catalog, providers, next);
     const first = matching[0];
     if (first === undefined) return; // the disabled option cannot be chosen
-    if (configuredOptionCount > 0 || matching.length > 1) {
-      setAdapterChange({ adapter: next, providerId: first.id });
-      return;
-    }
-    activateAdapter(object, next, first.id, writeSource, state.catalog);
+    setAdapterChange({ adapter: next, providerId: first.id });
   };
 
   return (
@@ -572,15 +566,15 @@ function ModelEditor({
           object={object}
           change={adapterChange}
           providers={providers}
-          configuredOptionCount={configuredOptionCount}
           onClose={() => setAdapterChange(null)}
-          onConfirm={(providerId) => {
+          onConfirm={(providerId, retainOptions) => {
             activateAdapter(
               object,
               adapterChange.adapter,
               providerId,
               writeSource,
               state.catalog,
+              retainOptions,
             );
             setAdapterChange(null);
           }}
@@ -597,6 +591,7 @@ function activateAdapter(
   providerId: string,
   writeSource: string | null,
   catalog: SettingsCatalog | null,
+  retainOptions: boolean,
 ): void {
   const bindings = readBindings(object.value.providers);
   const compatible = new Set(
@@ -608,26 +603,15 @@ function activateAdapter(
   );
   const retained = bindings.filter((binding) => compatible.has(binding.provider));
   const rule = adapterRule(catalog, adapter);
-  const oldOptions = isPlainRecord(object.value.adapter_options)
+  const oldOptions = retainOptions && isPlainRecord(object.value.adapter_options)
     ? object.value.adapter_options
     : {};
   const variant = rule?.variants.find((item) => item.id === oldOptions.variant)?.id
     ?? rule?.variants[0]?.id;
   const specs = optionsForAdapter(catalog, adapter, variant);
-  const options: Record<string, JsonValue> = {};
-  for (const spec of specs) {
-    const value = oldOptions[spec.id];
-    if (value !== undefined && (
-      spec.choices.length === 0 || typeof value === "string" && spec.choices.includes(value)
-    )) {
-      options[spec.id] = value;
-    }
-  }
-  if (isPlainRecord(oldOptions.choices)) options.choices = Object.fromEntries(
-    Object.entries(oldOptions.choices).filter(([key]) => specs.some((spec) => spec.id === key)),
-  );
-  if (variant) options.variant = variant;
-  const normalized = normalizeAdapterOptions(specs, options, object.value.reasoning_effort);
+  const options = { ...oldOptions };
+  if (variant) options.variant = variant; else delete options.variant;
+  const normalized = retainAdapterOptions(specs, options, retainOptions ? object.value.reasoning_effort : undefined);
   setObjectField(ROOT, object, "adapter", adapter, writeSource);
   setObjectField(
     ROOT, object, "providers",
@@ -802,12 +786,17 @@ function AdapterOptionsSection({
   const [capabilityError, setCapabilityError] = useState<string | null>(null);
   const [capabilitySuggestion, setCapabilitySuggestion] = useState<ModelCapabilityLookup | null>(null);
   const [capabilityBinding, setCapabilityBinding] = useState(0);
+  const capabilityRequest = useRef(0);
   const bindingIdentity = JSON.stringify(bindings);
   useEffect(() => {
-    setCapabilitySuggestion(null);
-    setCapabilityError(null);
     setCapabilityBinding(0);
   }, [object.id, bindingIdentity]);
+  useEffect(() => {
+    setCapabilityLoading(false);
+    setCapabilitySuggestion(null);
+    setCapabilityError(null);
+    return () => { capabilityRequest.current += 1; };
+  }, [object.id, adapter, bindingIdentity, capabilityBinding, clients]);
   const catalog = state.catalog;
   const rule = adapterRule(catalog, adapter);
   const adapterOptions = isPlainRecord(object.value.adapter_options)
@@ -848,15 +837,19 @@ function AdapterOptionsSection({
               {bindings.length > 1 && <SelectInput ariaLabel="Capability binding" value={String(capabilityBinding)}
                 options={bindings.map((binding, index) => ({ value: String(index), label: `${binding.provider} / ${binding.provider_model}` }))}
                 disabled={capabilityLoading}
-                onChange={(value) => { setCapabilityBinding(Number(value)); setCapabilitySuggestion(null); }} />}
+                onChange={(value) => setCapabilityBinding(Number(value))} />}
               <Button size="sm" variant="secondary" disabled={!clients || capabilityLoading} loading={capabilityLoading} onClick={() => {
                 if (!clients) return;
+                const request = ++capabilityRequest.current;
                 setCapabilityLoading(true);
                 setCapabilityError(null);
                 setCapabilitySuggestion(null);
                 void clients.config.anthropicModelCapabilities(bindings[capabilityBinding]!.provider, bindings[capabilityBinding]!.provider_model)
-                  .then(setCapabilitySuggestion, () => setCapabilityError("读取失败；请检查 provider、凭据及远端 Models API。"))
-                  .finally(() => setCapabilityLoading(false));
+                  .then(
+                    (value) => { if (request === capabilityRequest.current) setCapabilitySuggestion(value); },
+                    () => { if (request === capabilityRequest.current) setCapabilityError("读取失败；请检查 provider、凭据及远端 Models API。"); },
+                  )
+                  .finally(() => { if (request === capabilityRequest.current) setCapabilityLoading(false); });
               }}>读取 Anthropic 模型能力</Button>
               {capabilityError && <p className="mt-2 text-xs text-danger">{capabilityError}</p>}
               {capabilitySuggestion !== null && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
@@ -997,7 +990,9 @@ function commitAdapterOption(object: ProjectedObject, source: string | null, key
     if (key === "reasoning_effort") delete options.thinking_budget_tokens;
   }
   const rules = optionsForAdapter(catalog, String(object.value.adapter), typeof options.variant === "string" ? options.variant : undefined);
-  const normalized = normalizeAdapterOptions(rules, options, effort);
+  const normalized = key === "variant"
+    ? retainAdapterOptions(rules, options, effort)
+    : normalizeAdapterOptions(rules, options, effort);
   setObjectField(ROOT, object, "adapter_options", normalized.options, source);
   if (normalized.effort !== undefined) {
     setObjectField(ROOT, object, "reasoning_effort", normalized.effort, source);
@@ -1247,18 +1242,17 @@ function AdapterChangeModal({
   object,
   change,
   providers,
-  configuredOptionCount,
   onClose,
   onConfirm,
 }: {
   object: ProjectedObject;
   change: { adapter: string; providerId: string };
   providers: ProjectedObject[];
-  configuredOptionCount: number;
   onClose: () => void;
-  onConfirm: (providerId: string) => void;
+  onConfirm: (providerId: string, retainOptions: boolean) => void;
 }) {
   const [providerId, setProviderId] = useState(change.providerId);
+  const [retainOptions, setRetainOptions] = useState(true);
   const matching = providersForAdapter(useConfigDraftStore.getState().catalog, providers, change.adapter);
   return (
     <Modal title="Change model adapter" onClose={onClose}>
@@ -1276,14 +1270,15 @@ function AdapterChangeModal({
             <div className="mt-0.5 font-mono text-[12px] text-fg">{change.adapter}</div>
           </div>
         </div>
-        {configuredOptionCount > 0 && (
-          <div className="flex gap-2 rounded-md border border-warning/30 bg-warning-soft px-3 py-2.5 text-[11px] leading-4 text-warning">
-            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-            <div>
-              保留兼容的提供方绑定和选项，移除不适用的选项。没有可保留的绑定时，使用下方选择的提供方。
-            </div>
-          </div>
-        )}
+        <label className="flex items-center gap-2 text-[12px]">
+          <input type="checkbox" checked={retainOptions} onChange={(event) => setRetainOptions(event.target.checked)} />
+          保留目标 adapter 支持的选项
+        </label>
+        <p className="text-[11px] leading-4 text-fg-muted">
+          不适用的配置将被清除；取消勾选则重置适配器选项、候选和思考强度。
+          extra_body、断点 TTL 覆盖等对象选项需要按目标 adapter 重新配置。
+          兼容的提供方绑定会保留；没有可保留的绑定时，使用下方选择的提供方。
+        </p>
         <label className="block">
           <span className="mb-1.5 block text-[11px] font-medium text-fg-muted">{settingsText("Provider")}</span>
           <select
@@ -1305,7 +1300,7 @@ function AdapterChangeModal({
             size="xs"
             variant="primary"
             disabled={providerId === ""}
-            onClick={() => onConfirm(providerId)}
+            onClick={() => onConfirm(providerId, retainOptions)}
           >
             <ArrowRightLeft size={13} />
             切换适配器
