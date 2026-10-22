@@ -20,7 +20,7 @@ type = "string"
 use_when = [
     "Discover which MCP servers are available and their high-level capabilities",
     "Get a quick overview of tools provided by configured servers before detailed lookup",
-    "Check server availability status (ready, unavailable, error)",
+    "Check server availability and reasons for unavailable services",
     "Narrow down which servers to investigate further with describe_tools or search"
 ]
 avoid_when = [
@@ -31,7 +31,7 @@ avoid_when = [
 effects = ["read_only"]
 examples = [
     "List all configured MCP servers to understand available external capabilities",
-    "Check which servers are ready before attempting tool discovery",
+    "Check which services are available before attempting tool discovery",
     "Get tool count and descriptions for 'notes' and 'docs' servers",
     "Browse server summaries then use expand.search to find specific tools semantically"
 ]

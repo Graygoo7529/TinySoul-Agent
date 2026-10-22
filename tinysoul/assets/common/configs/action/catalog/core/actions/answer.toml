@@ -53,12 +53,13 @@ description = "Read-only resource reference, for example workspace:docs/task.md.
 
 [semantic]
 use_when = [
-    "The current Turn should deliver a result to the user",
-    "Further progress requires user input: a focused question, confirmation, instruction, or choice among feasible routes",
+    "The current Turn is ready to report results after the necessary reading, analysis, changes, and checks",
+    "Further progress depends on user input, and this Turn should end with a focused question, confirmation, request for direction, or choice among feasible routes",
     "Useful work is complete and no unresolved actions or jobs remain"
 ]
 avoid_when = [
-    "Available actions can still resolve the uncertainty or advance the Turn",
+    "Necessary reading, analysis, changes, or checks can still be completed without further user input",
+    "The Turn should continue after a reply; prefer core.ask to pause and wait",
     "The response would only be hidden reasoning without delivering value",
     "Active Jobs or unresolved actions need attention first"
 ]

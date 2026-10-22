@@ -15,19 +15,19 @@ type = "string"
 [semantic]
 use_when = [
     "Close an idle external Agent connection after all work is complete",
-    "Release resources when no further delegation is needed this Turn",
+    "Release resources when no further delegation is expected",
     "Free a connection after stopping its active Job"
 ]
 avoid_when = [
     "The connection still has a running Job; stop it with core.job.stop first",
     "Planning to delegate more work on the same connection this Turn",
-    "Connection will be automatically released when the Turn ends"
+    "You want to keep the idle connection for later reuse"
 ]
 effects = ["modifying"]
 examples = [
     "Disconnect 'coder' connection after completing all delegated analysis",
     "Close the connection after collecting final results and stopping the Job",
-    "Release idle connection before answering the user"
+    "Release an idle connection that is no longer needed"
 ]
 
 [execution]

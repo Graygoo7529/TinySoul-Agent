@@ -1,9 +1,3 @@
 # Workspace Search
 
-Use source + steps + page. A query finds original-text literal matches by default; regex=true enables a bounded regular expression. A query must be a non-empty single line. Scope is {kind: "file", ref: "workspace:..."} for one file, {kind: "directory", ref: "workspace:path"} for a directory, or {kind: "workspace"} for the daily Workspace.
-
-Use directory to discover resources, refs for exact known entries or line fragments, backlinks for real incoming Markdown refs, and result to reuse a complete previous result. Optional filter, select and rerank steps constrain or order these candidates; directory → select supports semantic discovery without requiring literal overlap. Each model step has its own criterion and declared Context option. Models and providers are configured internally.
-
-Results include refs and real content previews with locations and coverage. A page contains only some members; continuation reads the remaining frozen members, while result_handle refers to the complete result. Use workspace.read or workspace.inspect for deeper text. Metadata for a non-text resource does not mean its body was read. A scope_required failure calls for a narrower scope or simpler pattern and is not evidence of absence. Explicit exclude_refs and source.where apply before content reading; a later filter only constrains the current snapshot.
-
-**Hint**: When facing reference budget failure in analyze, first use search with directory source and select step to semantically locate relevant files, then read chosen files to gather bounded evidence before analyze. This staged approach ensures only pertinent materials enter analyze's reference set.
+Judge the supplied candidates against the current selection or ranking criterion and any included Context. Use their content and coverage to distinguish direct evidence from a promising lead; a matching title or path alone does not establish what an unread file contains.

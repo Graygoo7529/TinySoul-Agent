@@ -34,13 +34,14 @@ use_when = [
 ]
 avoid_when = [
     "Content is already prepared; use workspace.write",
-    "Only need to modify existing file; use workspace.edit or append",
+    "Only a specific part of the file needs changing; use workspace.edit or workspace.append",
+    "The complete existing target exceeds the artifact budget; read relevant sections and use workspace.edit or workspace.append",
     "References exceed LLM context budget; break down task"
 ]
 effects = ["modifying"]
 examples = [
-    "Compose workspace:summary.md from instruction and workspace:data/*.json refs",
-    "Generate report by synthesizing workspace:results/ content"
+    "Compose workspace:summary.md from workspace:data/run-a.json and workspace:data/run-b.json",
+    "Generate a report from workspace:results/measurements.md and workspace:results/findings.md"
 ]
 
 [runtime]
