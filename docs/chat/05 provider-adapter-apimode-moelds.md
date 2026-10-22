@@ -18,3 +18,16 @@
 （4）在模型配置方面，进一步理解 adapter option、request override 的含义，一是当前 采样温度 似乎放在 request override，你觉得采样概率概率也放在 request override 更合理？另一方面，adapter option 可能也需要重构或进一步设计并同步前端：具体来说，model 使用唯一 adapter，adapter 可以是一个通用 adapter，也可以是一个具体 adapter，如 kimi，但它们都属于一个 API 模式；有就是说，adapter option 由 API 模式或更专用的 adapter 内部带来，这一点也可以分层使配置中可用的 adapter option 来源在设计上更统一一致；同一种 API 模式一般会带来类似的可配置项，如思考模式或思考强度、推理状态、提示词缓存等方面，而具体 adapter 又可能增加更多可配置内容；这些可配置项应该根据 API 模式和 adapter 选择合理呈现；此外，当前 adapter option 思考强度建议调整为输入一串以 , 分隔的字符，如 (high,xhigh,max)，同时在模型顶层选项根据字符选择一个思考强度如 xhigh；
 
 请进一步分析和设计干净、一致的模型配置和接入方案，本轮重构可以先以改造现有 provider/model 为目标，但整体架构和理念必须基于 API 模式重新设计；你可先对于 OpenAI Chat / OpenAI Responses /  Anthropic Messages / Google GenAI 这四中 API 模式进行充分的探索和理解，特别是他们所支持对于模型思考强度、推理状态和提示词缓存的配置和调用思路；你可以安装所需 python sdk，也可以把对于 API 模式的调研分析写到 reference\api_mode
+
+
+## 20261022
+
+专属 adapter kimi/deepseek/gpt/minimax/glm 与四大 API 模式的关系和配置项设置，尽量考虑干净一致、内部协议和通用适配器统一抽象不冗余、不并行的完整重构实现；可以结合检索 kimi/deepseek/gpt/minimax/glm 等最新官方文档；检查当前 ReasoningKeep 和 NativeReplay；
+
+请以 API 模式出发，自顶而下地分析和设计通用和专用 adapter 的配置和 tinysoul 内部协议支持；tinysoul 内部协议干净统一、并尽可能支持和利用 API 模式 / 各类 adapter 的特性和能力；请进一步分析和设计重构方案，继续按执行计划实施，实施完成后基于 AGENTS.md 和实施情况核对该执行计划
+
+思考强度的配置，可以在 model adapter option 里由用户显式 [high,xhigh,max] 这样显式指定可用档，然后在 model 上层设置里选择一档；如果你有更好的动态强度获取方案，也可以考虑；
+
+重点是 API 模式、通用 adapter、专用 adapter 和 tinysoul 内部协议的推理回放和提示词缓存（涉及 API/ adpater 所支持的各类不同的推理回放和提示词缓存策略的配置和支持）。
+
+需要设计和实施好，各类 reasoning 回放 / prompt cache / key / breakpoint / explicit / implicit / 缓存生命周期等相关的最新 API 特性和功能在 tinysoul 内部协议的支持和使用 ，以及相应的 model toml 配置项设计和前端配置项呈现
