@@ -63,3 +63,11 @@ api_key_envs = ["ANTHROPIC_API_KEY"]
 
 [llm.providers.anthropic.endpoints.anthropic-messages]
 base_url = "https://api.anthropic.com"
+
+[llm.providers.google]
+enabled = false
+api_key_envs = ["GEMINI_API_KEY"]
+
+[llm.providers.google.endpoints.google-generate-content]
+base_url = "https://generativelanguage.googleapis.com"
+api_version = "v1beta"

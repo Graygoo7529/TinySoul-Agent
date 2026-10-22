@@ -1,0 +1,83 @@
+# Optional family: enable google and select these models in a task chain.
+# Bindings and supported choices reviewed against official docs on 2026-10-22.
+# Image input uses prepared bytes; arbitrary remote image URLs are not advertised.
+
+[llm.models.gemini-argon]
+family = "Gemini"
+collapsed = false
+adapter = "google-generate-content"
+providers = [{ provider = "google", provider_model = "gemini-4-argon" }]
+context_window_tokens = 1048576
+capabilities = [
+  "text_input",
+  "image_input",
+  "json_object_output",
+  "tool_calling",
+  "reasoning_output",
+  "prompt_cache",
+]
+reasoning_effort = "medium"
+
+[llm.models.gemini-argon.adapter_options]
+sampling = "omit"
+include_thoughts = true
+native_replay = "signed"
+tool_choice_policy = "native"
+json_output_with_tools = "native"
+prompt_cache_mode = "implicit"
+choices.reasoning_effort = ["low", "medium", "high"]
+# Argon ignores sampling parameters and does not support explicit cache resources.
+choices.sampling = ["omit"]
+choices.prompt_cache_mode = ["implicit"]
+
+[llm.models.gemini-pro]
+family = "Gemini"
+collapsed = false
+adapter = "google-generate-content"
+providers = [{ provider = "google", provider_model = "gemini-3.1-pro-preview" }]
+context_window_tokens = 1048576
+capabilities = [
+  "text_input",
+  "image_input",
+  "json_object_output",
+  "tool_calling",
+  "reasoning_output",
+  "prompt_cache",
+]
+reasoning_effort = "high"
+
+[llm.models.gemini-pro.adapter_options]
+sampling = "omit"
+include_thoughts = true
+native_replay = "signed"
+tool_choice_policy = "native"
+json_output_with_tools = "native"
+prompt_cache_mode = "implicit"
+choices.reasoning_effort = ["low", "medium", "high"]
+choices.prompt_cache_mode = ["implicit", "explicit"]
+
+[llm.models.gemini-flash]
+family = "Gemini"
+collapsed = false
+adapter = "google-generate-content"
+providers = [{ provider = "google", provider_model = "gemini-3.8-flash" }]
+context_window_tokens = 1048576
+capabilities = [
+  "text_input",
+  "image_input",
+  "json_object_output",
+  "tool_calling",
+  "reasoning_output",
+  "prompt_cache",
+]
+reasoning_effort = "medium"
+
+[llm.models.gemini-flash.adapter_options]
+sampling = "omit"
+include_thoughts = true
+native_replay = "signed"
+tool_choice_policy = "native"
+json_output_with_tools = "native"
+prompt_cache_mode = "implicit"
+choices.reasoning_effort = ["low", "medium", "high"]
+choices.prompt_cache_mode = ["implicit", "explicit"]
