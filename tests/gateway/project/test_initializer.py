@@ -1,21 +1,22 @@
 from __future__ import annotations
 
-from pathlib import Path
 import tomllib
+from pathlib import Path
 
 import pytest
 
-
-from tinysoul.gateway.errors import ProjectInitializationError
-from tinysoul.gateway.project.initializer import ProjectConfigProfile
-from tinysoul.gateway.project.initializer import ProjectInitializer
-from tinysoul.gateway.project.instance import ProjectInstanceLease
-from tinysoul.gateway.project.initializer import ProjectResetter
-from tinysoul.gateway import cli
-from tinysoul.gateway.presentation import InterfaceSettings
 from tests.support.catalog import builtin_action_catalog_root
-from tinysoul.infra.config import parse_dotenv
 from tests.support.project import copy_initialized_project
+from tinysoul.gateway import cli
+from tinysoul.gateway.errors import ProjectInitializationError
+from tinysoul.gateway.presentation import InterfaceSettings
+from tinysoul.gateway.project.initializer import (
+    ProjectConfigProfile,
+    ProjectInitializer,
+    ProjectResetter,
+)
+from tinysoul.gateway.project.instance import ProjectInstanceLease
+from tinysoul.infra.config import parse_dotenv
 
 
 @pytest.mark.generation
@@ -123,7 +124,12 @@ def test_project_config_profiles_share_core_home_and_customize_user_profile(
     )
     for root in (standard, development):
         interface = root / "presentation/configs/interface.toml"
-        assert InterfaceSettings.from_mapping(tomllib.loads(interface.read_text(encoding="utf-8"))) == InterfaceSettings()
+        assert (
+            InterfaceSettings.from_mapping(
+                tomllib.loads(interface.read_text(encoding="utf-8"))
+            )
+            == InterfaceSettings()
+        )
         assert (root / "presentation/README.md").is_file()
         example = parse_dotenv((root / ".env.example").read_text(encoding="utf-8"))
         assert example
@@ -199,7 +205,12 @@ def test_cli_reset_recreates_development_project_and_preserves_env(
         expected_development / "home" / "agent" / "user" / "user.md"
     ).read_bytes()
     assert action_domain.read_bytes() == original_action_domain
-    assert InterfaceSettings.from_mapping(tomllib.loads(interface.read_text(encoding="utf-8"))) == InterfaceSettings()
+    assert (
+        InterfaceSettings.from_mapping(
+            tomllib.loads(interface.read_text(encoding="utf-8"))
+        )
+        == InterfaceSettings()
+    )
     assert not (root / "runtime").exists()
     assert not (root / "archive").exists()
     assert not (root / "memory" / "2026-07-26.md").exists()

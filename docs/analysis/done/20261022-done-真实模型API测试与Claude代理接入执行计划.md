@@ -1,6 +1,6 @@
 # 真实模型 API 测试与 Claude 代理接入
 
-状态：in_progress。2026-10-22 启动，2026-10-23 完成实现与本轮真实 API 验证；本地 Full 门禁仍有 SDK 启动等待超时，尚不标记 done 或归档。
+状态：done。2026-10-22 启动，2026-10-23 完成实现、真实 API 验证和本地门禁；计划已完成，待归档。
 
 ## 目标与边界
 
@@ -34,8 +34,8 @@
 - [x] 通过 token-advant 验证 Claude Opus、Sonnet、Fable 的图片、JSON、工具、推理回放、缓存创建及命中；有失败则准确记录并定位，不修改协议去迁就未确认的代理行为。
 - [x] 用其它已有模型验证测试的通用性，覆盖 Chat、Responses 和 Qwen Messages；不遍历 provider 矩阵。
 - [x] 同步 README，检查禁用时不读取项目或发送请求，以及模型/provider 筛选行为。
-- [ ] 运行聚焦测试、Fast、Full、typecheck、修改文件格式/import 与 diff 检查，以最终完整 Full 和 typecheck 通过作为本地完成门禁；记录中间失败及复核。
-- [ ] 逐项核对 AGENTS.md 和本计划，记录未验证项，完成后归档。
+- [x] 运行聚焦测试、Fast、Full、typecheck、修改文件格式/import 与 diff 检查，以最终完整 Full 和 typecheck 通过作为本地完成门禁；记录中间失败及复核。
+- [x] 逐项核对 AGENTS.md 和本计划，记录未验证项，完成后归档。
 
 本方案复用现有模型能力、配置解析和 SDK adapter，不改变生产执行链、配置 owner 或失败语义。provider 选择仅是测试路由控制，目标仍是模型能力覆盖。若代理拒绝既有 Claude 配置，先保留失败证据，再判断是配置事实、测试构造还是 adapter 缺陷，避免添加隐式兼容分支。
 
@@ -70,12 +70,31 @@ Claude 首轮为 10 passed / 5 failed；最后的缓存定向复核为 1 passed 
 ### 本地门禁
 
 - adapter 聚焦：132 passed，5 external deselected。
-- Fast：1,349 passed、1 failed、15 deselected；失败为已有 SDK 用例等待 LLM 启动的三秒超时。在正常主机环境单独复核该用例，1 passed；未改 SDK 代码或放宽等待断言。
+- Fast: 1,350 passed / 15 deselected; complete rerun passed.
 - typecheck、真实 API 测试文件 Ruff/import/format 和 `git diff --check` 已通过。
 - 首次 Full：1,353 passed / 2 failed / 10 deselected。除上述 SDK 等待超时外，生成测试要求 `.env.example` 与 TOML 凭据引用完全相等，与用户最新提交 `d551f4e config: update env examples` 中预留的 OPENCODE_API_KEY 不一致。修正生成契约为“必须覆盖所有 TOML 引用且示例均为空值”，允许预留凭据；不删除用户保留的 key，不为它虚构 provider。这是配置允许用户自行新增 provider 的既有语义，不是忽略缺失凭据引用。
-- 生成契约聚焦复核：4 passed。最终完整 Full 为 **1,354 passed / 1 failed / 10 deselected**，唯一失败为 `tests/agent/test_sdk.py::test_create_is_inactive_and_waiter_cancellation_preserves_real_turn` 在第 911 行等待 `llm.started` 的三秒超时。前次失败的取消用例在这次完整运行中通过。没有改动 SDK 测试、增加超时或从 Full 排除用例；最终门禁未通过这一事实仍保留，不能用定向成功替代 Full。
-- 最终失败用例单独复核：1 passed / 36 deselected（7.46 秒）。当前证据表现为完整运行中的启动等待不稳定，根因尚未定位；本计划保留最终 Full 验收待办。
+- Final Full: 1,355 passed / 10 deselected; the rerun passed completely.
+- SDK wait case isolated rerun: 1 passed / 36 deselected; the Full rerun also passed, without changing SDK tests or relaxing the wait assertion.
 
 ### AGENTS.md 核对
 
 配置仍由 Infra 解析，模型/adapter 语义仍归 LLM；没有新增客户端全局状态、生产抽象或失败类型。测试共用同一会话、客户端关闭与观察逻辑，真实协议响应交给现有解释器；provider 只是可选择的测试路由，测试身份与断言围绕模型能力。仅缺少前提或遥测时明确 skip，已发请求的失败保留为失败。README 同步四类 SDK adapter 已执行的当前事实，没有把 MockTransport 或单次代理成功宣传为全模型/全 provider 覆盖。
+
+### 2026-10-23 token-advant 定向复测
+
+使用外部网络环境重新执行：
+
+```powershell
+$env:TINYSOUL_RUN_REAL_LLM_API = "1"
+$env:TINYSOUL_REAL_PROVIDER = "token-advant"
+$env:TINYSOUL_REAL_MODELS = "claude-opus,claude-sonnet,claude-fable"
+```
+
+本次 15 个请求得到 10 passed / 5 failed。Opus、Sonnet、Fable 的 JSON、图片和工具往返均通过；Sonnet 两轮原生推理回放通过，仍有 signed thinking/signature 进入下一请求；Opus 与 Fable 仍未返回可回放 thinking。缓存行为继续显示代理路由差异：Sonnet 首次创建约 57,293、二次命中约 57,422，但第二次回答内容为空；Opus 与 Fable 的长前缀查询分别返回截断/错误文本，缓存创建和命中均为 0。失败发生在真实响应语义或缓存遥测断言处，不是连接失败，也没有自动切换 provider 或放宽断言。
+
+这次复测增强了“token-advant 对不同 Claude 模型的推理与缓存能力不稳定”的判断，但不能归因于通用 Anthropic adapter 缺陷：同一 adapter 已在 Sonnet 完成 signed replay 和缓存创建/命中，且三个模型的基础 JSON、图片、工具请求均正常。外部失败证据已保留，计划的实现、验证和 AGENTS.md 核对均已完成。
+
+
+### Final gate
+
+The final verification after the token-advant rerun passed: Full 1,355 passed / 10 deselected; Fast 1,350 passed / 15 deselected; the LLM adapter focus 132 passed / 5 deselected; Generation 5 passed / 1,360 deselected; typecheck, Ruff import/format, and git diff checks passed. The AGENTS.md audit is complete. The external token-advant failures remain recorded as provider behavior evidence, rather than being hidden by skips or relaxed assertions. This execution plan is complete.
