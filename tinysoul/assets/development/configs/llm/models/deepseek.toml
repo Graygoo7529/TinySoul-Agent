@@ -29,6 +29,7 @@ adapter = "deepseek"
 providers = [
   { provider = "orca", provider_model = "deepseek/deepseek-v4-flash-vision-exp" },
   { provider = "deepseek", provider_model = "deepseek-flash" },
+  { provider = "opencode", provider_model = "deepseek-v4.1-flash" },
 ]
 context_window_tokens = 1048576
 capabilities = [

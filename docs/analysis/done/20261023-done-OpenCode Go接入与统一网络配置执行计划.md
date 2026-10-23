@@ -2,7 +2,7 @@
 
 日期：2026-10-23。
 
-状态：`in_progress`。本轮实现已完成主要代码、配置、文档和前端接入；真实 OpenCode 的 DeepSeek 缓存仍受上游 503 阻塞，因此按规约保留本计划，未归档为 done。
+状态：`done`。实现、配置、文档、前端接入及本地门禁已逐项核对；按维护者确认，以 DeepSeek V4.1 Flash 完成本轮 DeepSeek 代表模型验收，四类 API 的图片、JSON、工具、回放和缓存检查均有成功实测记录。首次远端验证及连接失败保留为历史证据，不宣称 DeepSeek Pro 已恢复稳定。最新核对与验证见第 14 节。
 
 依据：重新阅读根目录 `AGENTS.md`，对照 `docs/design/infra.md`、`llm.md`、`execution.md`、各 capability 设计，以及当前配置、装配、SDK、worker 和进程调用路径。
 
@@ -19,9 +19,9 @@
 7. 正常路径优先；不新增代理健康检查、代理自动切换、故障后静默直连、系统代理修改、会话数据库、任意 header 模板引擎或第二套重试流程。
 8. 不保留历史兼容别名。已有专用模型 provider 的单字段 `proxy` 改用统一 `network` 结构，代码、模板、文档和测试一并更新。
 
-## 2. 当前实现与已有验证
+## 2. 实施前基线与已有验证
 
-| 范围 | 当前实现 | 本轮需要补齐的实际缺口 |
+| 范围 | 实施前实现 | 本轮需要补齐的实际缺口 |
 | --- | --- | --- |
 | 配置来源 | `ConfigEnvironment` 合并 TOML、dotenv、进程环境与显式覆盖；不修改 `os.environ` | dotenv 中常规代理变量不会自动进入 SDK 的环境读取或 execution 子进程 |
 | Infra | `InfraSettings` 目前只承载 model_services | 增加统一网络策略、解析与连接设施 |
@@ -266,6 +266,7 @@ Anthropic base URL 不额外带 `/v1`，SDK 自行追加 `/v1/messages`；Google
 | family 文件 | 稳定内部 ID | adapter | 新增 OpenCode provider_model |
 | --- | --- | --- | --- |
 | deepseek.toml | deepseek-pro | deepseek | deepseek-v4-pro |
+| deepseek.toml | deepseek-flash | deepseek | deepseek-v4.1-flash |
 | gpt.toml | gpt-luna | gpt | gpt-6-luna |
 | claude.toml | claude-haiku | anthropic-messages | claude-haiku-5-5 |
 | gemini.toml | gemini-argon | google-generate-content | gemini-4-argon-contributor |
@@ -274,6 +275,7 @@ Anthropic base URL 不额外带 `/v1`，SDK 自行追加 `/v1/messages`；Google
 具体实施要求：
 
 - 已有模型在 provider chain 尾部添加 binding，不自动调整用户任务链或抢占已有 provider 顺序。
+- 维护者确认本轮 DeepSeek 实测可用 V4.1 Flash 替代不稳定的 V4 Pro；在已有 `deepseek-flash` 链尾添加 OpenCode binding，复用已有视觉和推理配置，保留 Pro 原 binding。本次验收调整不表示 Pro 服务恢复。
 - Grok 使用通用 Responses。不得复制 GPT 的采样约束、effort 候选、缓存 TTL 或 encrypted 回放假设；根据该部署的官方说明和真实请求确认配置。
 - Grok 的 context_window_tokens 必须找到可依据的部署说明；未证实的能力不写入 capabilities。选项、回放方式与缓存模式的确认是 P5 的实施检查项，不依据模型名称推断。
 - GPT Luna 的现有 binding 指向 5.6，新 binding 指向 6。稳定 ID 可以绑定该角色的不同部署版本，但共享模型能力、上下文及选项必须适用于整条配置链；不自动把全部旧 binding 改名，不扩大未核对的共享规格。
@@ -380,7 +382,7 @@ Anthropic base URL 不额外带 `/v1`，SDK 自行追加 `/v1/messages`；Google
 - [x] Web 使用公共 User-Agent 默认值，清理两个 profile 中固定旧版本的默认项，保留显式覆盖能力。
 - [x] 同步 Web 设计和真实网络测试的配置方式。
 
-### P5：OpenCode 模板与模型验证（in_progress）
+### P5：OpenCode 模板与模型验证（done）
 
 - [x] 添加 provider 四 endpoints、cache_key_header 和五个模型 binding/定义。
 - [x] 查证 Grok 部署规格，核对 GPT Luna 新 binding 的共享选项；未知能力不宣称支持。
@@ -388,7 +390,7 @@ Anthropic base URL 不额外带 `/v1`，SDK 自行追加 `/v1/messages`；Google
 - [x] 核对请求最终 URL、User-Agent、x-opencode-session；模型实际能力按下面验证矩阵记录。
 - [x] 对 DeepSeek 503 做最小对照复测并保留结果；不静默关闭 thinking、删除 options 或伪造通过。
 - [x] 同步模型配置说明和本计划验证表，记录凭据变量名而非值。
-- [ ] DeepSeek 的 prompt-cache 首次/后续调用仍需远端恢复后复测；当前 JSON 直连调用成功，cache 请求分别经代理和直连返回上游 503。
+- [x] 按维护者确认改用 DeepSeek V4.1 Flash 做代表模型验收；JSON、图片、工具、推理回放、prompt-cache 首次/后续调用通过。Pro 旧 503 记录保留，未降低缓存断言。
 
 ### P6：Endpoint 和前端对接（done）
 
@@ -397,13 +399,14 @@ Anthropic base URL 不额外带 `/v1`，SDK 自行追加 `/v1/messages`；Google
 - [x] 两个 profile 加载、配置保存/激活、新建 provider/family 后网络设置均可使用。
 - [x] 前后端在同一工作区完成，未把前端接入当作未完成的交接项。
 
-### P7：规约复核与交付（in_progress）
+### P7：规约复核与交付（done）
 
 - [x] 对照第 1 节目标及文件表逐项检查真实消费者、所有权、错误层次和客户端关闭。
 - [x] 删除旧 proxy 表达、未消费参数及重复 User-Agent 默认值；无新增兼容别名。
 - [x] 完成聚焦、Fast、Full、typecheck；前端实际改动完成相应测试和 build。
 - [x] 区分实现缺陷、已完成验证、未验证能力与远端阻塞；更新执行记录。
-- [ ] DeepSeek prompt-cache 远端验证恢复后重新执行 external；完成后才可将计划改为 done 并按 AGENTS.md 归档。
+- [x] 重新执行四个代表模型的 external；Flash 缓存命中通过，Claude 首次 JSON 连接失败后单项复测通过，保留两次结果。
+- [x] 完成本次最终 Full 和 typecheck；加强真实缓存断言后，四个模型的缓存用例再次通过。逐项核对并按 AGENTS.md 归档。
 
 ## 10. 验证设计
 
@@ -434,7 +437,7 @@ Anthropic base URL 不额外带 `/v1`，SDK 自行追加 `/v1/messages`；Google
 - 文本/JSON、工具调用、工具结果后续调用、原生推理状态回放、缓存首次/后续调用分别按现有稳定行为断言。
 - 图片只对已声明能力的模型验证；DeepSeek Pro 不因 provider 支持其它多模态模型而被加上图片能力。
 - 显式缓存资源生命周期只对实际提供该能力的模型/endpoint 验证。Gemini Argon implicit 不创建 cachedContent；OpenCode session header 本身不算 cache hit。
-- 只有真实返回的 usage 计数才作为创建/命中证据；缺失计数不能伪造为命中。已声明且要求验证的能力失败仍记录失败，不因代理不稳定改为成功或 skip。
+- 只有真实返回的 usage 计数才作为创建/命中证据；缺失计数不能伪造为命中。唯一合成长前缀的后续命中量须超过首次基线，避免只验证到远端固定前缀的已有命中。已声明且要求验证的能力失败仍记录失败，不因代理不稳定改为成功或 skip。
 - 远端服务持续不可用时，保留 external 验证未完成状态与错误摘要；本地门禁可独立完成，但不把整个计划虚报为全部验收通过。
 
 执行示例（项目路径由实施时选定；不在文档中写入凭据）：
@@ -444,7 +447,7 @@ conda activate TinySoul
 $env:TINYSOUL_RUN_REAL_LLM_API = "1"
 $env:TINYSOUL_REAL_PROJECT_ROOT = "<隔离测试项目绝对路径>"
 $env:TINYSOUL_REAL_PROVIDER = "opencode"
-$env:TINYSOUL_REAL_MODELS = "deepseek-pro,gpt-luna,grok-latest,claude-haiku,gemini-argon"
+$env:TINYSOUL_REAL_MODELS = "deepseek-flash,grok-latest,claude-haiku,gemini-argon"
 .\scripts\test.ps1 -Suite External -TestPath tests/llm/adapter/test_real_provider_api.py
 ```
 
@@ -458,7 +461,7 @@ $env:TINYSOUL_REAL_MODELS = "deepseek-pro,gpt-luna,grok-latest,claude-haiku,gemi
 .\scripts\typecheck.ps1
 ```
 
-### 本轮实际验证记录
+### 首次实施验证记录（后续核对见第 14 节）
 
 | 验证 | 结果 |
 | --- | --- |
@@ -478,7 +481,7 @@ $env:TINYSOUL_REAL_MODELS = "deepseek-pro,gpt-luna,grok-latest,claude-haiku,gemi
 
 ## 11. 可行性、边界与准备状态
 
-结论：设计合理可行，主要实现已落地。底层 SDK 均已有显式 HTTP client 或请求头入口；项目也已有配置写入、generation 资源释放、typed 进程环境和公共缓存 key。无需新增调度器、会话 owner 或 provider 专用 adapter。计划仍为 in_progress 的唯一原因是远端 DeepSeek prompt-cache 验证，不是本地实现缺口。
+结论：设计合理可行，实现已落地。底层 SDK 均已有显式 HTTP client 或请求头入口；项目也已有配置写入、generation 资源释放、typed 进程环境和公共缓存 key。无需新增调度器、会话 owner 或 provider 专用 adapter。维护者确认使用 DeepSeek V4.1 Flash 完成代表模型验收后，原远端缓存阻塞已有成功验证；最终本地门禁通过，按完成状态归档。
 
 需要特别落实的正常路径：
 
@@ -508,6 +511,7 @@ $env:TINYSOUL_REAL_MODELS = "deepseek-pro,gpt-luna,grok-latest,claude-haiku,gemi
 | 2026-10-23 | P0–P4、P6 | 配置、Infra、四类 SDK、专用模型、MCP/ACP、Web、execution、Endpoint 与前端已实现；新增测试与设计文档同步 | done |
 | 2026-10-23 | P5 | GPT Luna、Grok、Claude Haiku、Gemini Argon 五项能力通过真实代理路径；DeepSeek JSON 直连通过，缓存请求代理/直连均为上游 503 | in_progress |
 | 2026-10-23 | P7 | Fast/Full/typecheck 与前端 95 suites/822 tests/build 通过；保留远端缓存复测项 | in_progress |
+| 2026-10-23 | 提交后核对 P5/P7 | 按确认以 DeepSeek Flash 替代 Pro 验收；四类 API 的 20 个检查均有通过记录，缓存断言加强后四模型再测通过；Fast 1373、Full 1378、typecheck 通过，完成归档 | done |
 
 ## 13. 根代理默认与网络状态概览补充
 
@@ -531,6 +535,52 @@ $env:TINYSOUL_REAL_MODELS = "deepseek-pro,gpt-luna,grok-latest,claude-haiku,gemi
 - Fast：最终 1373 passed，15 deselected；按 owner 覆盖原则删去一个重复 HTTP/SDK 参数分支。
 - typecheck：`ty 0.0.84` 通过；前端全量：96 suites / 824 tests passed；生产 build 通过，保留原有大 chunk 提示。
 - standard/development 隔离生成与投影检查：两种项目各列出 42 个消费者，根配置分别为 inherit / 本机 HTTP+HTTPS 7897 override，无需凭据或外部请求。
-- 完整 Full：最终 1378 passed、10 deselected，343.23 秒；在默认仓库隔离工件目录运行通过。此前 SDK 启动等待超时触发取消后，暴露 Context 收尾读取未赋值 `ordered` 的真实缺陷，现已修复并扩展 owner 回归。SDK/Endpoint 使用最小 Home，watcher 按需开启，三个 HTTP 装配用例改用同循环异步客户端；没有放宽业务断言或增加 skip。首次 Endpoint `workspace.io_failed` 在后续聚焦、Fast、Full 均未复现，保留工件与不确定性说明。详见[测试修复与耗时记录](done/20261023-done-本地测试失败修复与耗时收敛执行计划.md)。
+- 完整 Full：最终 1378 passed、10 deselected，343.23 秒；在默认仓库隔离工件目录运行通过。此前 SDK 启动等待超时触发取消后，暴露 Context 收尾读取未赋值 `ordered` 的真实缺陷，现已修复并扩展 owner 回归。SDK/Endpoint 使用最小 Home，watcher 按需开启，三个 HTTP 装配用例改用同循环异步客户端；没有放宽业务断言或增加 skip。首次 Endpoint `workspace.io_failed` 在后续聚焦、Fast、Full 均未复现，保留工件与不确定性说明。详见[测试修复与耗时记录](20261023-done-本地测试失败修复与耗时收敛执行计划.md)。
 
-本补充不改变上一阶段真实 DeepSeek prompt-cache 的验收结论；主计划仍保留 external 验证未完成状态，不把本地门禁通过等同于上游缓存已恢复。
+本补充阶段未改变上一阶段真实 DeepSeek Pro prompt-cache 的验收结论。本次后续核对按维护者确认改用 Flash，具体证据见第 14 节；不把本地门禁通过等同于 Pro 上游缓存已恢复。
+
+## 14. 提交后逐项核对与四类 API 实测
+
+日期：2026-10-23。基线提交：`9455f90f`。重新阅读 AGENTS.md，对照第 1、8、9 节检查实际 owner、消费者、异常处理、配置编辑和资源释放。
+
+### 14.1 实现核对
+
+| 计划语义 | 实际落点与核对结论 |
+| --- | --- |
+| Infra 统一网络根配置 | `infra/network.py` 解析 NetworkPolicy/ResolvedNetwork；`agent/composition/builder.py` 显式传递。inherit 解析环境快照，override 完整覆盖，direct 不再被 SDK 的 trust_env 或子进程 ALL_PROXY 反向覆盖。 |
+| 所有连接消费者使用同一策略 | LLM provider/endpoint、ModelServices、MCP HTTP/stdio、ACP、Web/worker/Kimi、execution/interpreter 均消费公共策略。Anthropic 模型能力查询也消费保存的网络配置；HTTP 客户端和进程仍由各原 owner 关闭。 |
+| 统一请求身份 | `infra/http.py` 提供 TinySoul User-Agent；SDK 连接头和 Web 默认值复用。Google 在实际请求边界保留配置身份，避免 SDK 覆盖。四类真实请求均观察到 `TinySoul-Agent/0.1.0`。 |
+| Turn key 到请求头 | `kernel/context/engine.py` 以 Turn ID 生成 PromptCache.key；主调用、辅助任务和重试复用。`llm/adapter/common.py` 只生成本次请求的头映射，四类 adapter 消费 provider.cache_key_header；没有新增 OpenCode session owner，也没有修改共享 client 的默认头。 |
+| SDK 特有协作 | Anthropic 保留内部 stream/get_final_message 与 thinking beta 请求头；Google generate 和 explicit cache create 都接收请求级头，路由头不进入缓存内容索引。现有本地测试保护并发 key 隔离和 cache create 协作。 |
+| 配置和前端一致 | provider 只声明四个 endpoint 和 key header；模型复用现有 adapter。共享 NetworkPolicyEditor 经原草稿保存/激活链路写回。网络概览读取 owner 解析结果，显示保存路由和编辑入口，不另算代理规则，也不探测远端。 |
+| 类型与失败分层 | 动态网络配置在 owner parser 转成明确类型；沿 ConfigError/现有 Endpoint 失败反馈。SDK 连接错误仍由 adapter 归类为 ProviderError，复用 LLM 的重试和 Runtime bridge；无 OpenCode 专属错误恢复或静默直连分支。 |
+
+未发现明显违反整体设计语义的实现缺口。本次补充两个 profile 的 `deepseek-flash → opencode/deepseek-v4.1-flash` 链尾 binding，修正 `docs/design/llm.md` 中“模板 provider 默认关闭”的旧表述为 standard 关闭、development 启用并继承根代理，并加强已有真实测试的缓存命中断言。未增加兼容接口、重复测试矩阵或模型专用网络逻辑。
+
+官方依据：[OpenCode Go](https://dev.opencode.ai/v2/docs/console/go/) 和 [Harnesses](https://dev.opencode.ai/v2/docs/console/harnesses/) 说明四种 API 路径、自有 User-Agent 与稳定 x-opencode-session；[DeepSeek V4.1 Flash 公告](https://api-docs.deepseek.com/news/news260910/) 说明 Flash 视觉能力及 OpenCode 接入。模型实际支持以下实测结果为准。
+
+### 14.2 真实验证范围与结果
+
+复用 `tests/llm/adapter/test_real_provider_api.py` 的动态模型/provider 选择，没有为本次供应商复制测试。隔离项目位于 `B:/tmp/tinysoul-opencode-audit-5a2c718c`；凭据仅从仓库 `.env` 读取 `OPENCODE_API_KEY` 后注入测试进程，未保存密钥到隔离 TOML、日志或文档。HTTP/HTTPS 均显式使用 `http://127.0.0.1:7897`。保留首次完整日志 `external-matrix.log`、Claude 单项复测日志 `external-json-recheck.log` 和加强断言后的缓存日志 `external-results.log`。
+
+| 内部模型 / OpenCode 名称 | API mode | JSON | 图片输入 | 工具及结果往返 | 原生推理回放 | 长前缀缓存 |
+| --- | --- | --- | --- | --- | --- | --- |
+| claude-haiku / claude-haiku-5-5 | anthropic-messages | 单项复测通过 | 通过 | 通过 | signed：签名和 thinking 实际进入后续请求并被接受 | 首次创建 14,466；后续命中 14,466 tokens |
+| gemini-argon / gemini-4-argon-contributor | google-generate-content | 通过 | 通过 | 通过 | signed：thoughtSignature 实际回放并被接受 | implicit，后续命中 13,041 tokens |
+| deepseek-flash / deepseek-v4.1-flash | openai-chat | 通过 | 通过 | 通过 | content：reasoning_content 实际回放并被接受 | 自动隐式缓存，后续命中 10,752 tokens |
+| grok-latest / grok-4.7 | openai-responses | 通过 | 通过 | 通过 | encrypted：encrypted_content 实际回放并被接受 | 后续命中 12,032 tokens |
+
+- 首次 20 项运行：19 passed、1 failed，180.91 秒。失败为 Claude JSON 首次传输连接错误，归类 transient/provider，cause 为 APIConnectionError；没有收到可用于判断 JSON 映射的响应。同轮 Claude 的其余四项均通过。只复测该失败项：1 passed、19 deselected，8.08 秒。没有添加自动重试或放宽断言；现有证据不能进一步确定首次失败发生在本机代理还是远端。
+- 四类请求最终 URL 均与 Go 官方路径一致；User-Agent 正确，同一多步用例的 x-opencode-session 始终等于其 PromptCache.key。签名/加密正文只在测试内存中比较是否进入后续 SDK 请求，日志只输出模式和计数。
+- 缓存以响应 usage 为证据，不以请求带了 session header 或耗时下降判定。Claude 显示明确的创建与读取计数；Gemini Argon 保持 implicit，没有创建 cachedContent 资源；DeepSeek/Grok 的自动缓存没有独立资源创建计数，因此只确认长前缀后续真实命中。
+- 首次实测发现 Grok 第一调用已有 1,152 cached tokens，原测试只要求第二次命中大于零，不能排除远端固定前缀命中的干扰。因此改为要求第二次命中量超过第一次基线。仅重跑四个模型的缓存用例：4 passed、16 deselected，29.29 秒；Claude 0 → 14,467（首次创建 14,467）、Gemini 未报告 → 13,043、DeepSeek 0 → 10,752、Grok 1,152 → 12,032。按此次更严格断言均通过；没有将缺失计数补报为命中，也未增加等待或重试。
+- DeepSeek Flash 沿已有配置使用推理、视觉及通用请求映射，没有为 OpenCode 关闭 thinking 或删减 options。Pro 原 binding 保留，其先前 503 未在本轮重新验证。GPT Luna 已在首次实施覆盖，本次不重复；本轮四个模型分别覆盖四类 API mode。
+- 本轮覆盖图片输入，不包含图片生成。Google explicit cache 资源生命周期继续由已有本地 SDK 契约测试覆盖，不把 Argon implicit 的成功扩大为 OpenCode 支持 explicit 资源。
+
+### 14.3 本地验证与收尾
+
+- 聚焦 Infra 网络、四类 SDK 映射和 Endpoint：76 passed，18.46 秒。
+- Fast：1373 passed、15 deselected，306.24 秒。
+- typecheck：通过，`ty 0.0.84`。
+- Full：1378 passed、10 deselected，330.65 秒；随后仅修改默认 suite 不运行的 external 缓存断言，对应四项真实调用及再次 typecheck 均通过。
+- 本次没有前端实现变更；第 13 节已完成的 96 suites / 824 tests 和生产 build 记录继续适用。本次不为新增 binding 重复执行前端全量测试。

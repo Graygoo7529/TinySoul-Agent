@@ -509,8 +509,10 @@ async def test_real_model_prompt_cache(real_model: RealModel) -> None:
     assert second.usage.cached_input_tokens is not None, (
         "Remote usage does not report cache reads; cache hit remains unverified"
     )
-    assert second.usage.cached_input_tokens > 0, (
-        "Repeated long prefix did not report a cache hit"
+    # A provider can already report hits for its own fixed prefix on the first
+    # call. The unique synthetic prefix must add hits beyond that baseline.
+    assert second.usage.cached_input_tokens > (first.usage.cached_input_tokens or 0), (
+        "Repeated long prefix did not increase cache hits beyond the first-call baseline"
     )
 
 

@@ -20,7 +20,7 @@ SDK 出站连接消费 Infra 显式解析的网络配置：根设置 → provide
 
 `provider.cache_key_header` 把已有 `PromptCache.key` 映射为当前请求的 HTTP header。它是 provider 的传输选项，不是新的内部 session 协议或 model adapter option。有 key 才发送，不依赖模型是否启用提示缓存；同一 Turn 已有 key 自然贯穿主调用、辅助调用与重试。动态头逐请求构造，不改共享客户端；与同名静态 headers/header_refs 的冲突按大小写无关方式校验。Google explicit cache 创建也接收此头，但它不改变缓存内容身份。头只提示路由，不保证命中或保存会话。
 
-OpenCode Go 复用现有四类 API mode；模板只定义四个 endpoint、`x-opencode-session` 的 key 映射及模型 binding，不新增 provider 专属 adapter。Grok family 使用通用 Responses 与 encrypted replay；已有 DeepSeek、GPT、Claude、Gemini 保持各自模型配置。模板 provider 默认关闭，启用、凭据与网络路径由项目配置决定。
+OpenCode Go 复用现有四类 API mode；模板只定义四个 endpoint、`x-opencode-session` 的 key 映射及模型 binding，不新增 provider 专属 adapter。Grok family 使用通用 Responses 与 encrypted replay；已有 DeepSeek、GPT、Claude、Gemini 保持各自模型配置。standard 默认关闭 OpenCode，development 默认启用并继承根代理；凭据与实际网络路径由项目配置决定。
 
 模型定义统一来自项目 TOML；前端新增的模型与模板模型使用同一配置解析和注册入口。family 是模型的显示分组，也是创建模型时组织文件的依据；文件名不决定 Adapter、Provider 或可用性。新 family 与首个模型共同保存，后续模型复用该组实际来源；没有 family 的模型显示为未分组，不需要专用的 ungrouped 文件。既有模型的字段编辑和重命名保留来源，调整 family 不自动搬迁文件。
 
