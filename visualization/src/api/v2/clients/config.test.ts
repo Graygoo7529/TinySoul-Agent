@@ -42,6 +42,24 @@ describe("ConfigClient", () => {
     expect(queryOf(requests[1]!, "scenario")).toBe("memory_reflection");
   });
 
+  it("reads the network route projection without adding a second mutation path", async () => {
+    const { transport, requests } = createTestTransport(() =>
+      jsonResponse({
+        root: {
+          path: "infra.network",
+          mode: "direct",
+          source: "project:configs/infra/network.toml",
+          parent_path: null,
+          effective: { http_proxy: null, https_proxy: null, no_proxy: [] },
+        },
+        consumers: [],
+      }),
+    );
+    const status = await new ConfigClient(transport).network();
+    expect(status.root.path).toBe("infra.network");
+    expect(new URL(requests[0]!.url).pathname).toBe("/v2/config/network");
+  });
+
   it("patch sends the operations array and parses the saved receipt", async () => {
     const { transport, requests } = createTestTransport(() =>
       jsonResponse({

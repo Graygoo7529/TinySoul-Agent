@@ -226,6 +226,31 @@ class ConfigResponse(ContractResponse):
     process_shell: JsonObject | None = None
 
 
+class NetworkProxyResponse(ContractResponse):
+    scheme: str
+    host: str
+    port: int | None
+
+
+class NetworkEffectiveResponse(ContractResponse):
+    http_proxy: NetworkProxyResponse | None
+    https_proxy: NetworkProxyResponse | None
+    no_proxy: list[str]
+
+
+class NetworkRouteResponse(ContractResponse):
+    path: str
+    mode: Literal["inherit", "direct", "override"]
+    source: str
+    parent_path: str | None
+    effective: NetworkEffectiveResponse
+
+
+class NetworkStatusResponse(ContractResponse):
+    root: NetworkRouteResponse
+    consumers: list[NetworkRouteResponse]
+
+
 class ConfigCatalogResponse(ContractResponse):
     surfaces: list[JsonValue] = Field(default_factory=list)
     field_groups: list[JsonValue] = Field(default_factory=list)

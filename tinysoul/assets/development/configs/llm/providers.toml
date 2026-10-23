@@ -90,7 +90,7 @@ base_url = "https://generativelanguage.googleapis.com"
 api_version = "v1beta"
 
 [llm.providers.opencode]
-enabled = false
+enabled = true
 api_key_envs = ["OPENCODE_API_KEY"]
 cache_key_header = "x-opencode-session"
 

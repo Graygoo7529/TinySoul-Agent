@@ -1,5 +1,3 @@
-import { NetworkPolicyField } from "./NetworkPolicyEditor";
-import { settingsText } from "../i18n";
 /**
  * System & Diagnostics settings (config-coverage §7): read-only process items
  * (endpoint listener, agent/config process fields) with their ownership
@@ -10,11 +8,11 @@ import { settingsText } from "../i18n";
 import type { JsonObject } from "../../../api/v2/types";
 import { Badge } from "../../../components/ui/Badge";
 import { SectionCard } from "../../../components/ui/Card";
+import { isPlainRecord, savedValue } from "../draft/model";
 import { useConfigDraftStore } from "../draft/store";
-import {
-  ReadOnlyValue,
-  SettingsPageBody,
-} from "./controls";
+import { settingsText } from "../i18n";
+import { useSettingsUiStore } from "../uiStore";
+import { ReadOnlyValue, SettingsPageBody } from "./controls";
 
 const PROCESS_FIELDS = [
   "agent.interactive",
@@ -29,9 +27,23 @@ const PROCESS_FIELDS = [
 ];
 
 export function SystemPage() {
+  const navigateTo = useSettingsUiStore((state) => state.navigateTo);
+  const policy = useConfigDraftStore((state) => savedValue(state.saved, "infra.network"));
+  const mode = isPlainRecord(policy) ? policy.mode : "inherit";
+  const proxySummary = mode === "override" ? "已指定根代理" : mode === "direct" ? "根代理已关闭" : "继承环境代理";
   return (
     <SettingsPageBody>
-      <NetworkPolicyField path="infra.network" title="网络默认配置" parentLabel="项目与进程的 HTTP_PROXY / HTTPS_PROXY / NO_PROXY" />
+      <SectionCard
+        title={settingsText("Network proxy")}
+        description={settingsText("Edit the root policy and inspect effective routes on the dedicated network page.")}
+        actions={
+          <button type="button" className="rounded-md bg-hover px-2 py-1 text-xs text-accent hover:bg-line-strong/60" onClick={() => navigateTo("network")}>
+            {settingsText("Open network settings")}
+          </button>
+        }
+      >
+        <p className="text-xs text-fg-muted">{proxySummary}。模型、Web、MCP、ACP 与执行环境可单独设置。</p>
+      </SectionCard>
       <ProcessShellCard />
       <SourcesCard />
       <SectionCard

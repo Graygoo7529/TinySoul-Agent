@@ -10,6 +10,7 @@ from enum import StrEnum
 from pathlib import Path
 from time import monotonic
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from pypdf import PdfWriter
@@ -725,96 +726,107 @@ async def test_standard_project_starts_without_credentials_and_rejects_provider_
     endpoint = mount_endpoint(app, EndpointSettings(token="x" * 32))
     endpoint_runtimes.append(app)
     await app.activate()
-    client = TestClient(create_endpoint_app(endpoint, endpoint.settings))
-    headers = {"Authorization": f"Bearer {'x' * 32}"}
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(
+            app=create_endpoint_app(endpoint, endpoint.settings)
+        ),
+        base_url="http://test",
+    ) as client:
+        headers = {"Authorization": f"Bearer {'x' * 32}"}
 
-    runtime_before = _json_object(
-        client.get("/v2/config", headers=headers).json()["runtime"]
-    )
-    llm_status = _json_object(runtime_before["llm"])
-    providers = llm_status["providers"]
-    assert isinstance(providers, list)
-    deepseek = next(
-        item
-        for item in providers
-        if isinstance(item, dict) and item.get("id") == "deepseek"
-    )
-    assert deepseek == {
-        "id": "deepseek",
-        "credential_state": "missing",
-        "api_key_envs": ["DEEPSEEK_API_KEY"],
-    }
-
-    response = client.patch(
-        "/v2/config",
-        headers=headers,
-        json={
-            "operations": [
-                {
-                    "source_id": "project:configs/llm/providers.toml",
-                    "path": "llm.providers.deepseek.enabled",
-                    "op": "set",
-                    "value": True,
-                }
-            ]
-        },
-    )
-
-    assert response.status_code == 422
-    error = response.json()["error"]
-    assert error["code"] == "config.invalid"
-    assert "DEEPSEEK_API_KEY" in error["message"]
-    assert error["details"]["key"] == "llm.providers.deepseek.api_key_envs"
-    runtime_after = client.get("/v2/config", headers=headers).json()["runtime"]
-    assert runtime_after["generation_id"] == runtime_before["generation_id"]
-    providers_path = project_root / "configs" / "llm" / "providers.toml"
-    assert "enabled = true" not in providers_path.read_text(encoding="utf-8")
-
-    credential_response = client.patch(
-        "/v2/config",
-        headers=headers,
-        json={
-            "operations": [
-                {
-                    "source_id": "dotenv",
-                    "path": "DEEPSEEK_API_KEY",
-                    "op": "set",
-                    "value": "configured",
-                }
-            ]
-        },
-    )
-    assert credential_response.status_code == 200
-    assert client.post("/v2/config/reload", headers=headers).status_code == 200
-    configured_runtime = client.get("/v2/config", headers=headers).json()["runtime"]
-    configured_llm = _json_object(configured_runtime["llm"])
-    configured_providers = configured_llm["providers"]
-    assert isinstance(configured_providers, list)
-    assert (
-        next(
+        runtime_before = _json_object(
+            (await client.get("/v2/config", headers=headers)).json()["runtime"]
+        )
+        llm_status = _json_object(runtime_before["llm"])
+        providers = llm_status["providers"]
+        assert isinstance(providers, list)
+        deepseek = next(
             item
-            for item in configured_providers
+            for item in providers
             if isinstance(item, dict) and item.get("id") == "deepseek"
-        )["credential_state"]
-        == "configured"
-    )
+        )
+        assert deepseek == {
+            "id": "deepseek",
+            "credential_state": "missing",
+            "api_key_envs": ["DEEPSEEK_API_KEY"],
+        }
 
-    enabled_response = client.patch(
-        "/v2/config",
-        headers=headers,
-        json={
-            "operations": [
-                {
-                    "source_id": "project:configs/llm/providers.toml",
-                    "path": "llm.providers.deepseek.enabled",
-                    "op": "set",
-                    "value": True,
-                }
-            ]
-        },
-    )
-    assert enabled_response.status_code == 200
-    assert "enabled = true" in providers_path.read_text(encoding="utf-8")
+        response = await client.patch(
+            "/v2/config",
+            headers=headers,
+            json={
+                "operations": [
+                    {
+                        "source_id": "project:configs/llm/providers.toml",
+                        "path": "llm.providers.deepseek.enabled",
+                        "op": "set",
+                        "value": True,
+                    }
+                ]
+            },
+        )
+
+        assert response.status_code == 422
+        error = response.json()["error"]
+        assert error["code"] == "config.invalid"
+        assert "DEEPSEEK_API_KEY" in error["message"]
+        assert error["details"]["key"] == "llm.providers.deepseek.api_key_envs"
+        runtime_after = (await client.get("/v2/config", headers=headers)).json()[
+            "runtime"
+        ]
+        assert runtime_after["generation_id"] == runtime_before["generation_id"]
+        providers_path = project_root / "configs" / "llm" / "providers.toml"
+        assert "enabled = true" not in providers_path.read_text(encoding="utf-8")
+
+        credential_response = await client.patch(
+            "/v2/config",
+            headers=headers,
+            json={
+                "operations": [
+                    {
+                        "source_id": "dotenv",
+                        "path": "DEEPSEEK_API_KEY",
+                        "op": "set",
+                        "value": "configured",
+                    }
+                ]
+            },
+        )
+        assert credential_response.status_code == 200
+        assert (
+            await client.post("/v2/config/reload", headers=headers)
+        ).status_code == 200
+        configured_runtime = (await client.get("/v2/config", headers=headers)).json()[
+            "runtime"
+        ]
+        configured_llm = _json_object(configured_runtime["llm"])
+        configured_providers = configured_llm["providers"]
+        assert isinstance(configured_providers, list)
+        assert (
+            next(
+                item
+                for item in configured_providers
+                if isinstance(item, dict) and item.get("id") == "deepseek"
+            )["credential_state"]
+            == "configured"
+        )
+
+        enabled_response = await client.patch(
+            "/v2/config",
+            headers=headers,
+            json={
+                "operations": [
+                    {
+                        "source_id": "project:configs/llm/providers.toml",
+                        "path": "llm.providers.deepseek.enabled",
+                        "op": "set",
+                        "value": True,
+                    }
+                ]
+            },
+        )
+        assert enabled_response.status_code == 200
+        assert "enabled = true" in providers_path.read_text(encoding="utf-8")
 
 
 async def test_development_project_requires_credentials_for_enabled_providers(
@@ -1103,212 +1115,238 @@ async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
     endpoint = mount_endpoint(app, EndpointSettings(token="x" * 32))
     endpoint_runtimes.append(app)
     await app.activate()
-    client = TestClient(create_endpoint_app(endpoint, endpoint.settings))
-    headers = {"Authorization": f"Bearer {'x' * 32}"}
-    domain_source = (
-        "project-document:action.catalog:configs/action/catalog/workspace/domain.toml"
-    )
-    action_source = (
-        "project-document:action.catalog:"
-        "configs/action/catalog/workspace/actions/read.toml"
-    )
-    domain_path = (
-        project_root / "configs" / "action" / "catalog" / "workspace" / "domain.toml"
-    )
-
-    runtime_before = _json_object((await endpoint.configuration.status())["runtime"])
-    generation_before = runtime_before["generation_id"]
-    invalid = client.patch(
-        "/v2/config",
-        headers=headers,
-        json={
-            "operations": [
-                {
-                    "source_id": domain_source,
-                    "path": "visibility.default",
-                    "op": "set",
-                    "value": "false",
-                }
-            ]
-        },
-    )
-    assert invalid.status_code == 422
-    runtime_after_invalid = _json_object(
-        (await endpoint.configuration.status())["runtime"]
-    )
-    assert runtime_after_invalid["generation_id"] == generation_before
-    assert "default = true" in domain_path.read_text(encoding="utf-8")
-
-    routed = client.patch(
-        "/v2/config",
-        headers=headers,
-        json={
-            "operations": [
-                {
-                    "source_id": "project:configs/action/routing.toml",
-                    "path": "action.models.bindings",
-                    "op": "set",
-                    "value": tomllib.loads(
-                        (project_root / "configs/action/routing.toml").read_text(
-                            encoding="utf-8"
-                        )
-                    )["action"]["models"]["bindings"],
-                }
-            ]
-        },
-    )
-    assert routed.status_code == 200
-
-    retrieval_path = project_root / "configs/action/retrieval.toml"
-    retrieval = tomllib.loads(retrieval_path.read_text(encoding="utf-8"))["action"][
-        "retrieval"
-    ]
-    retrieval["home.search"]["page"]["max_items"] = 7
-    retrieval["core.context.search"]["page"]["max_items"] = 9
-    saved_retrieval = client.patch(
-        "/v2/config",
-        headers=headers,
-        json={
-            "operations": [
-                {
-                    "source_id": "project:configs/action/retrieval.toml",
-                    "path": "action.retrieval",
-                    "op": "set",
-                    "value": retrieval,
-                }
-            ],
-        },
-    )
-    assert saved_retrieval.status_code == 200
-    assert (
-        tomllib.loads(retrieval_path.read_text(encoding="utf-8"))["action"]["retrieval"]
-        == retrieval
-    )
-
-    domain_disabled = client.patch(
-        "/v2/config",
-        headers=headers,
-        json={
-            "operations": [
-                {
-                    "source_id": domain_source,
-                    "path": "visibility.default",
-                    "op": "set",
-                    "value": False,
-                }
-            ]
-        },
-    )
-    assert domain_disabled.status_code == 200
-    assert client.post("/v2/config/reload", headers=headers).status_code == 200
-    for action_id, limit in (("home.search", 7), ("core.context.search", 9)):
-        projection = _json_object(
-            _action_catalog_item(client, headers, action_id)["retrieval"]
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(
+            app=create_endpoint_app(endpoint, endpoint.settings)
+        ),
+        base_url="http://test",
+    ) as client:
+        headers = {"Authorization": f"Bearer {'x' * 32}"}
+        domain_source = "project-document:action.catalog:configs/action/catalog/workspace/domain.toml"
+        action_source = (
+            "project-document:action.catalog:"
+            "configs/action/catalog/workspace/actions/read.toml"
         )
-        assert _json_object(projection["page"])["max_items"] == limit
-    disabled_read = _action_catalog_item(client, headers, "workspace.read")
-    disabled_analysis = _action_catalog_item(client, headers, "workspace.analyze")
-    disabled_runtime = _json_object(disabled_read["selection"])
-    assert disabled_runtime["enabled"] is False
-    assert disabled_runtime["source"] == "domain.visibility.default"
-    assert disabled_read["supported"] is True
-    assert disabled_read["available"] is False
-    assert disabled_analysis["available"] is False
-    assert "workspace.analyze" in (
-        project_root / "configs" / "action" / "routing.toml"
-    ).read_text(encoding="utf-8")
+        domain_path = (
+            project_root
+            / "configs"
+            / "action"
+            / "catalog"
+            / "workspace"
+            / "domain.toml"
+        )
 
-    action_enabled = client.patch(
-        "/v2/config",
-        headers=headers,
-        json={
-            "operations": [
-                {
-                    "source_id": action_source,
-                    "path": "visibility.default",
-                    "op": "set",
-                    "value": True,
-                }
-            ]
-        },
-    )
-    assert action_enabled.status_code == 200
-    assert client.post("/v2/config/reload", headers=headers).status_code == 200
-    enabled_read = _action_catalog_item(client, headers, "workspace.read")
-    enabled_runtime = _json_object(enabled_read["selection"])
-    assert enabled_runtime["enabled"] is True
-    assert enabled_runtime["source"] == "action.visibility.default"
-    assert enabled_read["available"] is True
+        runtime_before = _json_object(
+            (await endpoint.configuration.status())["runtime"]
+        )
+        generation_before = runtime_before["generation_id"]
+        invalid = await client.patch(
+            "/v2/config",
+            headers=headers,
+            json={
+                "operations": [
+                    {
+                        "source_id": domain_source,
+                        "path": "visibility.default",
+                        "op": "set",
+                        "value": "false",
+                    }
+                ]
+            },
+        )
+        assert invalid.status_code == 422
+        runtime_after_invalid = _json_object(
+            (await endpoint.configuration.status())["runtime"]
+        )
+        assert runtime_after_invalid["generation_id"] == generation_before
+        assert "default = true" in domain_path.read_text(encoding="utf-8")
 
-    action_inherited = client.patch(
-        "/v2/config",
-        headers=headers,
-        json={
-            "operations": [
-                {
-                    "source_id": action_source,
-                    "path": "visibility.default",
-                    "op": "delete",
-                }
-            ]
-        },
-    )
-    assert action_inherited.status_code == 200
-    assert client.post("/v2/config/reload", headers=headers).status_code == 200
-    inherited_read = _action_catalog_item(client, headers, "workspace.read")
-    inherited_runtime = _json_object(inherited_read["selection"])
-    assert inherited_runtime["enabled"] is False
-    assert inherited_runtime["source"] == "domain.visibility.default"
-    assert inherited_read["available"] is False
+        routed = await client.patch(
+            "/v2/config",
+            headers=headers,
+            json={
+                "operations": [
+                    {
+                        "source_id": "project:configs/action/routing.toml",
+                        "path": "action.models.bindings",
+                        "op": "set",
+                        "value": tomllib.loads(
+                            (project_root / "configs/action/routing.toml").read_text(
+                                encoding="utf-8"
+                            )
+                        )["action"]["models"]["bindings"],
+                    }
+                ]
+            },
+        )
+        assert routed.status_code == 200
 
-    domain_default = client.patch(
-        "/v2/config",
-        headers=headers,
-        json={
-            "operations": [
-                {
-                    "source_id": domain_source,
-                    "path": "visibility.default",
-                    "op": "delete",
-                }
+        retrieval_path = project_root / "configs/action/retrieval.toml"
+        retrieval = tomllib.loads(retrieval_path.read_text(encoding="utf-8"))["action"][
+            "retrieval"
+        ]
+        retrieval["home.search"]["page"]["max_items"] = 7
+        retrieval["core.context.search"]["page"]["max_items"] = 9
+        saved_retrieval = await client.patch(
+            "/v2/config",
+            headers=headers,
+            json={
+                "operations": [
+                    {
+                        "source_id": "project:configs/action/retrieval.toml",
+                        "path": "action.retrieval",
+                        "op": "set",
+                        "value": retrieval,
+                    }
+                ],
+            },
+        )
+        assert saved_retrieval.status_code == 200
+        assert (
+            tomllib.loads(retrieval_path.read_text(encoding="utf-8"))["action"][
+                "retrieval"
             ]
-        },
-    )
-    assert domain_default.status_code == 200
-    assert client.post("/v2/config/reload", headers=headers).status_code == 200
-    restored_read = _action_catalog_item(client, headers, "workspace.read")
-    restored_analysis = _action_catalog_item(client, headers, "workspace.analyze")
-    restored_runtime = _json_object(restored_read["selection"])
-    assert restored_runtime["enabled"] is True
-    assert restored_runtime["source"] == "default"
-    assert restored_read["available"] is True
-    assert restored_analysis["available"] is True
-    assert "default =" not in domain_path.read_text(encoding="utf-8")
+            == retrieval
+        )
 
-    answer_disabled = client.patch(
-        "/v2/config",
-        headers=headers,
-        json={
-            "operations": [
-                {
-                    "source_id": (
-                        "project-document:action.catalog:"
-                        "configs/action/catalog/core/actions/answer.toml"
-                    ),
-                    "path": "visibility.default",
-                    "op": "set",
-                    "value": False,
-                }
-            ]
-        },
-    )
-    assert answer_disabled.status_code == 200
-    assert client.post("/v2/config/reload", headers=headers).status_code == 200
-    disabled_answer = _action_catalog_item(client, headers, "core.answer")
-    disabled_answer_runtime = _json_object(disabled_answer["selection"])
-    assert disabled_answer_runtime["enabled"] is False
-    assert disabled_answer["supported"] is True
-    assert disabled_answer["available"] is False
+        domain_disabled = await client.patch(
+            "/v2/config",
+            headers=headers,
+            json={
+                "operations": [
+                    {
+                        "source_id": domain_source,
+                        "path": "visibility.default",
+                        "op": "set",
+                        "value": False,
+                    }
+                ]
+            },
+        )
+        assert domain_disabled.status_code == 200
+        assert (
+            await client.post("/v2/config/reload", headers=headers)
+        ).status_code == 200
+        for action_id, limit in (("home.search", 7), ("core.context.search", 9)):
+            projection = _json_object(
+                (await _action_catalog_item(client, headers, action_id))["retrieval"]
+            )
+            assert _json_object(projection["page"])["max_items"] == limit
+        disabled_read = await _action_catalog_item(client, headers, "workspace.read")
+        disabled_analysis = await _action_catalog_item(
+            client, headers, "workspace.analyze"
+        )
+        disabled_runtime = _json_object(disabled_read["selection"])
+        assert disabled_runtime["enabled"] is False
+        assert disabled_runtime["source"] == "domain.visibility.default"
+        assert disabled_read["supported"] is True
+        assert disabled_read["available"] is False
+        assert disabled_analysis["available"] is False
+        assert "workspace.analyze" in (
+            project_root / "configs" / "action" / "routing.toml"
+        ).read_text(encoding="utf-8")
+
+        action_enabled = await client.patch(
+            "/v2/config",
+            headers=headers,
+            json={
+                "operations": [
+                    {
+                        "source_id": action_source,
+                        "path": "visibility.default",
+                        "op": "set",
+                        "value": True,
+                    }
+                ]
+            },
+        )
+        assert action_enabled.status_code == 200
+        assert (
+            await client.post("/v2/config/reload", headers=headers)
+        ).status_code == 200
+        enabled_read = await _action_catalog_item(client, headers, "workspace.read")
+        enabled_runtime = _json_object(enabled_read["selection"])
+        assert enabled_runtime["enabled"] is True
+        assert enabled_runtime["source"] == "action.visibility.default"
+        assert enabled_read["available"] is True
+
+        action_inherited = await client.patch(
+            "/v2/config",
+            headers=headers,
+            json={
+                "operations": [
+                    {
+                        "source_id": action_source,
+                        "path": "visibility.default",
+                        "op": "delete",
+                    }
+                ]
+            },
+        )
+        assert action_inherited.status_code == 200
+        assert (
+            await client.post("/v2/config/reload", headers=headers)
+        ).status_code == 200
+        inherited_read = await _action_catalog_item(client, headers, "workspace.read")
+        inherited_runtime = _json_object(inherited_read["selection"])
+        assert inherited_runtime["enabled"] is False
+        assert inherited_runtime["source"] == "domain.visibility.default"
+        assert inherited_read["available"] is False
+
+        domain_default = await client.patch(
+            "/v2/config",
+            headers=headers,
+            json={
+                "operations": [
+                    {
+                        "source_id": domain_source,
+                        "path": "visibility.default",
+                        "op": "delete",
+                    }
+                ]
+            },
+        )
+        assert domain_default.status_code == 200
+        assert (
+            await client.post("/v2/config/reload", headers=headers)
+        ).status_code == 200
+        restored_read = await _action_catalog_item(client, headers, "workspace.read")
+        restored_analysis = await _action_catalog_item(
+            client, headers, "workspace.analyze"
+        )
+        restored_runtime = _json_object(restored_read["selection"])
+        assert restored_runtime["enabled"] is True
+        assert restored_runtime["source"] == "default"
+        assert restored_read["available"] is True
+        assert restored_analysis["available"] is True
+        assert "default =" not in domain_path.read_text(encoding="utf-8")
+
+        answer_disabled = await client.patch(
+            "/v2/config",
+            headers=headers,
+            json={
+                "operations": [
+                    {
+                        "source_id": (
+                            "project-document:action.catalog:"
+                            "configs/action/catalog/core/actions/answer.toml"
+                        ),
+                        "path": "visibility.default",
+                        "op": "set",
+                        "value": False,
+                    }
+                ]
+            },
+        )
+        assert answer_disabled.status_code == 200
+        assert (
+            await client.post("/v2/config/reload", headers=headers)
+        ).status_code == 200
+        disabled_answer = await _action_catalog_item(client, headers, "core.answer")
+        disabled_answer_runtime = _json_object(disabled_answer["selection"])
+        assert disabled_answer_runtime["enabled"] is False
+        assert disabled_answer["supported"] is True
+        assert disabled_answer["available"] is False
 
 
 async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_incompatible_adapter(
@@ -1323,7 +1361,7 @@ async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_i
             "\n[llm.providers.openai-proxy]\n"
             "enabled = true\n"
             'api_key_envs = ["OPENAI_PROXY_API_KEY"]\n'
-            '[llm.providers.openai-proxy.endpoints.openai-responses]\n'
+            "[llm.providers.openai-proxy.endpoints.openai-responses]\n"
             'base_url = "https://proxy.example/v1"\n'
         )
     app = (
@@ -1337,75 +1375,80 @@ async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_i
     endpoint = mount_endpoint(app, EndpointSettings(token="x" * 32))
     endpoint_runtimes.append(app)
     await app.activate()
-    client = TestClient(create_endpoint_app(endpoint, endpoint.settings))
-    headers = {"Authorization": f"Bearer {'x' * 32}"}
-    source_id = "project:configs/llm/models/gpt.toml"
-    model_path = project_root / "configs" / "llm" / "models" / "gpt.toml"
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(
+            app=create_endpoint_app(endpoint, endpoint.settings)
+        ),
+        base_url="http://test",
+    ) as client:
+        headers = {"Authorization": f"Bearer {'x' * 32}"}
+        source_id = "project:configs/llm/models/gpt.toml"
+        model_path = project_root / "configs" / "llm" / "models" / "gpt.toml"
 
-    overrides = client.patch(
-        "/v2/config",
-        headers=headers,
-        json={
-            "operations": [
-                {
-                    "source_id": source_id,
-                    "path": "llm.models.gpt-sol.request_overrides.temperature",
-                    "op": "set",
-                    "value": 0.4,
-                }
-            ]
-        },
-    )
-    assert overrides.status_code == 200
+        overrides = await client.patch(
+            "/v2/config",
+            headers=headers,
+            json={
+                "operations": [
+                    {
+                        "source_id": source_id,
+                        "path": "llm.models.gpt-sol.request_overrides.temperature",
+                        "op": "set",
+                        "value": 0.4,
+                    }
+                ]
+            },
+        )
+        assert overrides.status_code == 200
 
-    switched = client.patch(
-        "/v2/config",
-        headers=headers,
-        json={
-            "operations": [
-                {
-                    "source_id": source_id,
-                    "path": "llm.models.gpt-sol.providers",
-                    "op": "set",
-                    "value": [
-                        {"provider": "openai-proxy", "provider_model": "gpt-5.5"}
-                    ],
-                }
-            ]
-        },
-    )
-    assert switched.status_code == 200
-    reloaded = client.post("/v2/config/reload", headers=headers)
-    assert reloaded.status_code == 200
-    switched_generation = reloaded.json()["generation_id"]
-    switched_source = model_path.read_text(encoding="utf-8")
-    assert 'provider = "openai-proxy"' in switched_source
-    assert "[llm.models.gpt-sol.adapter_options]" in switched_source
-    assert 'native_replay = "encrypted"' in switched_source
-    assert "[llm.models.gpt-sol.request_overrides]" in switched_source
-    assert "temperature = 0.4" in switched_source
+        switched = await client.patch(
+            "/v2/config",
+            headers=headers,
+            json={
+                "operations": [
+                    {
+                        "source_id": source_id,
+                        "path": "llm.models.gpt-sol.providers",
+                        "op": "set",
+                        "value": [
+                            {"provider": "openai-proxy", "provider_model": "gpt-5.5"}
+                        ],
+                    }
+                ]
+            },
+        )
+        assert switched.status_code == 200
+        reloaded = await client.post("/v2/config/reload", headers=headers)
+        assert reloaded.status_code == 200
+        switched_generation = reloaded.json()["generation_id"]
+        switched_source = model_path.read_text(encoding="utf-8")
+        assert 'provider = "openai-proxy"' in switched_source
+        assert "[llm.models.gpt-sol.adapter_options]" in switched_source
+        assert 'native_replay = "encrypted"' in switched_source
+        assert "[llm.models.gpt-sol.request_overrides]" in switched_source
+        assert "temperature = 0.4" in switched_source
 
-    incompatible = client.patch(
-        "/v2/config",
-        headers=headers,
-        json={
-            "operations": [
-                {
-                    "source_id": source_id,
-                    "path": "llm.models.gpt-sol.providers",
-                    "op": "set",
-                    "value": [{"provider": "kimi", "provider_model": "gpt-5.5"}],
-                }
-            ]
-        },
-    )
+        incompatible = await client.patch(
+            "/v2/config",
+            headers=headers,
+            json={
+                "operations": [
+                    {
+                        "source_id": source_id,
+                        "path": "llm.models.gpt-sol.providers",
+                        "op": "set",
+                        "value": [{"provider": "kimi", "provider_model": "gpt-5.5"}],
+                    }
+                ]
+            },
+        )
 
-    assert incompatible.status_code == 422
-    assert incompatible.json()["error"]["code"] == "config.invalid"
-    assert model_path.read_text(encoding="utf-8") == switched_source
-    runtime = (await endpoint.configuration.status())["runtime"]
-    assert isinstance(runtime, dict)
-    assert runtime["generation_id"] == switched_generation
+        assert incompatible.status_code == 422
+        assert incompatible.json()["error"]["code"] == "config.invalid"
+        assert model_path.read_text(encoding="utf-8") == switched_source
+        runtime = (await endpoint.configuration.status())["runtime"]
+        assert isinstance(runtime, dict)
+        assert runtime["generation_id"] == switched_generation
 
 
 async def test_agent_workspace_mutation_reaches_endpoint_event_stream(
@@ -1948,12 +1991,12 @@ async def test_agent_builder_llm_config_error_is_llm_startup_failure(
     assert exc.payload["key"] == "llm.tasks.framework.models"
 
 
-def _action_catalog_item(
-    client: TestClient,
+async def _action_catalog_item(
+    client: httpx.AsyncClient,
     headers: dict[str, str],
     action_id: str,
 ) -> JsonObject:
-    response = client.get("/v2/config/actions", headers=headers)
+    response = await client.get("/v2/config/actions", headers=headers)
     assert response.status_code == 200
     payload = response.json()
     assert isinstance(payload, dict)

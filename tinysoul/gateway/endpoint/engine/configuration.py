@@ -17,6 +17,7 @@ from tinysoul.runtime import RuntimeException
 
 from ..errors import EndpointRequestError
 from .context import EndpointEngineContext
+from .network import EndpointNetworkProjection
 
 
 class EndpointConfigurationEngine:
@@ -117,6 +118,15 @@ class EndpointConfigurationEngine:
 
     def catalog(self) -> JsonObject:
         return self._context.config_controller().catalog()
+
+    def network_status(self) -> JsonObject:
+        """Return the saved root and consumer network route projection."""
+
+        try:
+            environment = self._context.config_controller().environment.reload()
+            return EndpointNetworkProjection(environment).project()
+        except ConfigError as exc:
+            raise _config_error(exc) from exc
 
     async def anthropic_model_capabilities(
         self, *, provider_id: str, model_id: str

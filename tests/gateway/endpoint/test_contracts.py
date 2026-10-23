@@ -191,7 +191,7 @@ class _ContractLLM:
 
 async def collect_contract_responses(root: Path) -> dict[str, JsonObject]:
     """Capture normal paths for handoff examples without provider/network calls."""
-    copy_initialized_project(root)
+    copy_initialized_project(root, minimal_home=True)
     seed = MemoryEngine(settings=MemorySettings(root=root / "memory"))
     for cite, status, redirect in (
         ("project", MemoryStatus.ACTIVE, None),

@@ -25,6 +25,7 @@ Endpoint 是 loopback 本地协议。除 `GET /v2/health` 外，HTTP 请求都�
 | Events | `GET /v2/events` | Observation replay |
 | Events | `WS /v2/events/ws` | Observation stream |
 | Configuration | `GET /v2/config` | 配置源/effective fields/runtime 状态 |
+| Configuration | `GET /v2/config/network` | 根网络策略与消费者有效路由的脱敏概览 |
 | Configuration | `GET /v2/config/catalog` | Infra 配置展示 catalog |
 | Configuration | `GET /v2/config/actions` | 当前 Generation Action 配置投影 |
 | Configuration | `PATCH /v2/config` | 校验并保存配置候选 |

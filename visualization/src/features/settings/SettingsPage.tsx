@@ -35,6 +35,7 @@ import { HomePage } from "./editors/HomePage";
 import { InterfacePage } from "./editors/InterfacePage";
 import { McpPage } from "./editors/McpPage";
 import { MemoryPage } from "./editors/MemoryPage";
+import { NetworkPage } from "./editors/NetworkPage";
 import { SessionPage } from "./editors/SessionPage";
 import { SystemPage } from "./editors/SystemPage";
 import { WebPage } from "./editors/WebPage";
@@ -76,6 +77,7 @@ const PAGE_COMPONENTS: Partial<Record<SettingsPageId, ComponentType>> = {
   home: HomePage,
   memory: MemoryPage,
   system: SystemPage,
+  network: NetworkPage,
 };
 
 /**

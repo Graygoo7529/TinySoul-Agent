@@ -615,6 +615,7 @@ class ContextEngine:
                     for update in self._segments.selection_signals(patch, signal)
                 )
 
+        ordered: tuple[Signal, ...] = ()
         if self._segments is not None:
             ordered = tuple(
                 signal

@@ -33,6 +33,7 @@ from tinysoul.gateway.endpoint.http.schemas import (
     ConfigMutationResponse,
     ConfigResponse,
     ModelCapabilityLookupResponse,
+    NetworkStatusResponse,
 )
 from tinysoul.gateway.presentation import PresentationService
 from tinysoul.infra.config import ConfigController, ConfigEnvironment
@@ -713,6 +714,164 @@ def test_config_routes_read_and_patch_project_source(tmp_path: Path) -> None:
     ConfigMutationResponse.model_validate(patched.json())
     assert patched.json()["state"] == "saved"
     assert "timeout_seconds = 30.0" in target.read_text(encoding="utf-8")
+
+
+def test_network_status_projects_root_and_consumer_routes(tmp_path: Path) -> None:
+    (tmp_path / "tinysoul.toml").write_text(
+        """
+[infra.network]
+mode = "override"
+http_proxy = "http://127.0.0.1:7897"
+https_proxy = "http://user:secret@127.0.0.1:7897"
+
+[llm.providers.demo]
+enabled = true
+api_key_envs = ["DEMO_API_KEY"]
+
+[llm.providers.demo.network]
+mode = "direct"
+
+[llm.providers.demo.endpoints.openai-chat]
+base_url = "https://example.invalid/v1"
+
+[llm.providers.demo.endpoints.anthropic-messages]
+base_url = "https://example.invalid/anthropic"
+[llm.providers.demo.endpoints.anthropic-messages.network]
+mode = "override"
+https_proxy = "http://endpoint:8000"
+
+[[infra.model_services.providers]]
+id = "embedding"
+adapter = "openai_embedding"
+base_url = "https://example.invalid/v1"
+api_key_env = "EMBEDDING_API_KEY"
+
+[capabilities.expand.network]
+mode = "override"
+https_proxy = "http://mcp:8000"
+[capabilities.expand.servers.example]
+enabled = false
+
+[capabilities.subagent.network]
+mode = "direct"
+[capabilities.subagent.agents.example]
+enabled = false
+
+[capabilities.web.network]
+mode = "override"
+https_proxy = "http://web:8000"
+
+[execution.network]
+mode = "direct"
+[execution.interpreters.cmd.network]
+mode = "override"
+https_proxy = "http://terminal:8000"
+""",
+        encoding="utf-8",
+    )
+    engine, _gateway, _events = _engine(tmp_path)
+    client = TestClient(create_endpoint_app(engine, engine.settings))
+
+    response = client.get("/v2/config/network", headers=_auth())
+
+    assert response.status_code == 200
+    NetworkStatusResponse.model_validate(response.json())
+    body = response.json()
+    assert body["root"]["mode"] == "override"
+    assert body["root"]["effective"]["https_proxy"] == {
+        "scheme": "http",
+        "host": "127.0.0.1",
+        "port": 7897,
+    }
+    consumer = next(
+        item
+        for item in body["consumers"]
+        if item["path"] == "llm.providers.demo.network"
+    )
+    assert consumer["mode"] == "direct"
+    assert consumer["effective"]["http_proxy"] is None
+    assert body["root"]["parent_path"] is None
+    assert "secret" not in response.text and "user:" not in response.text
+    routes = {item["path"]: item for item in body["consumers"]}
+    for path, parent, host in (
+        (
+            "llm.providers.demo.endpoints.openai-chat.network",
+            "llm.providers.demo.network",
+            None,
+        ),
+        (
+            "llm.providers.demo.endpoints.anthropic-messages.network",
+            "llm.providers.demo.network",
+            "endpoint",
+        ),
+        (
+            "infra.model_services.providers.embedding.network",
+            "infra.network",
+            "127.0.0.1",
+        ),
+        (
+            "capabilities.expand.servers.example.network",
+            "capabilities.expand.network",
+            "mcp",
+        ),
+        (
+            "capabilities.subagent.agents.example.network",
+            "capabilities.subagent.network",
+            None,
+        ),
+        ("capabilities.web.search_by_kimi.network", "capabilities.web.network", "web"),
+        ("execution.interpreters.python.network", "execution.network", None),
+        ("execution.interpreters.cmd.network", "execution.network", "terminal"),
+    ):
+        route = routes[path]
+        assert route["parent_path"] == parent
+        proxy = route["effective"]["https_proxy"]
+        assert (proxy["host"] if proxy else None) == host
+    assert (
+        routes["infra.model_services.providers.embedding.network"]["source"]
+        == "project:tinysoul.toml"
+    )
+
+
+def test_network_status_uses_saved_settings_and_environment(tmp_path: Path) -> None:
+    config_file = tmp_path / "tinysoul.toml"
+    config_file.write_text('[infra.network]\nmode = "inherit"\n', encoding="utf-8")
+    (tmp_path / ".env").write_text(
+        "https_proxy=http://project:8000\nhttp_proxy=http://project:8000\n",
+        encoding="utf-8",
+    )
+    controller = ConfigController(
+        root=tmp_path,
+        environment=ConfigEnvironment.from_project_root(
+            tmp_path, env={"HTTPS_PROXY": "http://process:9000"}
+        ),
+    )
+    engine, _gateway, _events = _engine(tmp_path, config=controller)
+    client = TestClient(create_endpoint_app(engine, engine.settings))
+    response = client.get("/v2/config/network", headers=_auth())
+    assert response.status_code == 200
+    effective = response.json()["root"]["effective"]
+    assert effective["http_proxy"]["host"] == "project"
+    assert effective["https_proxy"]["host"] == "process"
+
+    config_file.write_text('[infra.network]\nmode = "direct"\n', encoding="utf-8")
+    response = client.get("/v2/config/network", headers=_auth())
+    assert response.json()["root"]["effective"]["https_proxy"] is None
+    assert controller.environment.section_tree("infra")["network"] == {
+        "mode": "inherit"
+    }
+
+
+def test_network_status_uses_configuration_failure_contract(tmp_path: Path) -> None:
+    (tmp_path / "tinysoul.toml").write_text(
+        '[execution.network]\nmode = "unknown"\n', encoding="utf-8"
+    )
+    engine, _gateway, _events = _engine(tmp_path)
+    client = TestClient(create_endpoint_app(engine, engine.settings))
+    response = client.get("/v2/config/network", headers=_auth())
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "config.invalid"
+    assert response.json()["error"]["details"]["key"] == "execution.network.mode"
 
 
 def test_config_activation_failure_uses_config_error_and_keeps_file(

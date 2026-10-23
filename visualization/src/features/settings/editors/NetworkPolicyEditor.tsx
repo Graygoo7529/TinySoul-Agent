@@ -6,11 +6,12 @@ import { FieldRow, useDraftField } from "./controls";
 
 /** One policy object; changing mode removes addresses that no longer apply. */
 export function NetworkPolicyEditor({
-  value, parentLabel, disabled = false, onChange,
+  value, parentLabel, disabled = false, root = false, onChange,
 }: {
   value: JsonValue | undefined;
   parentLabel: string;
   disabled?: boolean;
+  root?: boolean;
   onChange: (value: Record<string, JsonValue>) => void;
 }) {
   const policy = isPlainRecord(value) ? value : {};
@@ -19,9 +20,9 @@ export function NetworkPolicyEditor({
     <div className="w-full space-y-2 text-xs">
       <select aria-label="代理模式" className={selectClass} value={mode} disabled={disabled}
         onChange={(event) => onChange({ mode: event.target.value })}>
-        <option value="inherit">继承上级</option>
-        <option value="direct">直接连接</option>
-        <option value="override">使用覆盖配置</option>
+        <option value="inherit">{root ? "继承环境代理" : "继承上级"}</option>
+        <option value="direct">{root ? "关闭代理" : "直接连接"}</option>
+        <option value="override">{root ? "开启并指定代理" : "使用覆盖配置"}</option>
       </select>
       {mode === "inherit" && <p className="text-fg-muted">继承：{parentLabel}</p>}
       {mode === "direct" && <p className="text-fg-muted">不使用代理；子进程清除继承的代理变量。</p>}
@@ -46,14 +47,14 @@ export function NetworkPolicyEditor({
 }
 
 /** Bind an atomic policy to the existing saved-configuration draft lifecycle. */
-export function NetworkPolicyField({ path, title = "网络配置", parentLabel = "系统网络默认配置" }: {
-  path: string; title?: string; parentLabel?: string;
+export function NetworkPolicyField({ path, title = "网络配置", parentLabel = "系统网络默认配置", root = false }: {
+  path: string; title?: string; parentLabel?: string; root?: boolean;
 }) {
   const api = useDraftField(path);
   return (
     <SectionCard title={title}>
       <FieldRow path={path} api={api} titleOverride="代理设置">
-        <NetworkPolicyEditor value={api.value} disabled={api.readOnly !== null}
+        <NetworkPolicyEditor value={api.value} disabled={api.readOnly !== null} root={root}
           parentLabel={parentLabel} onChange={api.set} />
       </FieldRow>
     </SectionCard>

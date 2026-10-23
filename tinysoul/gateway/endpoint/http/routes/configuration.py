@@ -29,6 +29,7 @@ from ..schemas import (
     ConfigSetMutationRequest,
     ModelCapabilityLookupRequest,
     ModelCapabilityLookupResponse,
+    NetworkStatusResponse,
     PresetCreateRequest,
     PresetDeleteResponse,
     PresetListResponse,
@@ -55,6 +56,13 @@ def register_configuration_routes(app: FastAPI, engine: EndpointEngine) -> None:
     )
     def config_catalog() -> JsonObject:
         return engine.configuration.catalog()
+
+    @app.get(
+        "/v2/config/network",
+        response_model=NetworkStatusResponse,
+    )
+    def network_status() -> JsonObject:
+        return engine.configuration.network_status()
 
     @app.post(
         "/v2/config/models/anthropic-capabilities",

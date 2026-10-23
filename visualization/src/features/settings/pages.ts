@@ -57,6 +57,7 @@ export type SettingsPageId =
   | "home"
   | "memory"
   | "system"
+  | "network"
   | "interface";
 
 export interface SettingsPageDef {
@@ -269,8 +270,16 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     group: "system",
     title: "Endpoint & Sources",
     description: "Read-only process items, config sources and observation.",
-    surfaces: ["infrastructure", "network"],
-    pathPrefixes: ["infra.network", "agent", "config"],
+    surfaces: ["infrastructure"],
+    pathPrefixes: ["agent", "config"],
+  },
+  network: {
+    id: "network",
+    group: "system",
+    title: "Network Proxy",
+    description: "Root proxy policy and effective routes for network consumers.",
+    surfaces: ["network"],
+    pathPrefixes: ["infra.network"],
   },
   interface: {
     id: "interface",
@@ -310,7 +319,7 @@ export const SETTINGS_GROUPS: SettingsGroupDef[] = [
     title: "Data & Knowledge",
     pages: ["workspace", "context", "session", "home", "memory"],
   },
-  { id: "system", title: "System & Diagnostics", pages: ["system"] },
+  { id: "system", title: "System & Diagnostics", pages: ["system", "network"] },
   { id: "interface", title: "Interface", pages: ["interface"] },
 ];
 

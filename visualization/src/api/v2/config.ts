@@ -66,6 +66,31 @@ export interface Configuration {
   [key: string]: unknown;
 }
 
+export interface NetworkProxyAddress {
+  scheme: string;
+  host: string;
+  port: number | null;
+}
+
+export interface NetworkRouteStatus {
+  path: string;
+  mode: "inherit" | "direct" | "override";
+  source: string;
+  parent_path: string | null;
+  effective: {
+    http_proxy: NetworkProxyAddress | null;
+    https_proxy: NetworkProxyAddress | null;
+    no_proxy: string[];
+  };
+  [key: string]: unknown;
+}
+
+export interface NetworkStatus {
+  root: NetworkRouteStatus;
+  consumers: NetworkRouteStatus[];
+  [key: string]: unknown;
+}
+
 /** Schema: config-mutation.json (PATCH /config, POST /config/apply|reload). */
 export interface ConfigMutationResult {
   state: ConfigView;

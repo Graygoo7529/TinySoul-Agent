@@ -12,6 +12,8 @@ Infra 当前负责配置环境、JSON 动态边界、受控文件系统读写、
 
 ### 出站网络与 HTTP 身份
 
+Endpoint 复用各 owner 的配置解析和 Infra 的网络解析，向设置页提供已保存配置对应的脱敏路由概览，包含默认继承的条目。概览不表示运行世代状态或连通性；运行修改继续沿统一 apply/reload 链路激活。
+
 Infra 统一解释根网络设置和常规代理环境快照，产出不可变的 `ResolvedNetwork`。各连接 owner 使用同一 `NetworkPolicy` 选择继承、直连或完整覆盖；覆盖中未填写的协议直接连接。根继承时进程环境优先于项目 dotenv，同一来源的小写变量优先；`ALL_PROXY` 只补未声明的协议。未声明绕过地址时默认绕过本机，显式空值则不绕过。字段与示例见 [配置 Endpoint](../endpoint/configuration.md#出站网络配置)。
 
 装配将解析结果显式传入 SDK/HTTP 客户端。公共 HTTP helper 通过公开 transport/mounts 按目标协议和 no_proxy 路由，重定向重新选择路径；客户端不再隐式读取环境代理。TLS 验证保持开启，timeout、连接限制、重试和关闭继续属于实际客户端 owner。HTTP/HTTPS 代理及域名、IP、端口和通配全部绕过可配置；不解释 PAC、CIDR 或 SOCKS。

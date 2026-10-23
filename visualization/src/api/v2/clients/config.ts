@@ -15,6 +15,7 @@ import type {
   Configuration,
   ConfigView,
   ModelCapabilityLookup,
+  NetworkStatus,
   Preset,
   PresetCreateBody,
   PresetDeleteResult,
@@ -40,6 +41,11 @@ export class ConfigClient {
   /** GET /v2/config/catalog — Infra-owned field/collection declarations. */
   catalog(options?: RequestOptions): Promise<ConfigCatalog> {
     return this.transport.get<ConfigCatalog>("/config/catalog", options);
+  }
+
+  /** GET /v2/config/network — saved root and consumer route projection. */
+  network(options?: RequestOptions): Promise<NetworkStatus> {
+    return this.transport.get<NetworkStatus>("/config/network", options);
   }
 
   /** Explicitly read Anthropic Models API capabilities as a draft suggestion. */

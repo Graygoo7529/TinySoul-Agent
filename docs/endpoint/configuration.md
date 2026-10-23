@@ -4,7 +4,7 @@
 
 ## 出站网络配置
 
-网络设置复用配置 catalog、草稿、PATCH/apply/reload，没有独立网络服务接口。`network` 是一个原子 object；选择另一模式时整体替换，避免 direct/inherit 残留旧地址。支持 `mode = inherit | direct | override`；仅 override 接受 `http_proxy`、`https_proxy`、`no_proxy`，至少填写一个代理地址。override 完整替换父配置，未填协议直连；no_proxy 未填写默认绕过 localhost/127.0.0.1/::1，空字符串不绕过。
+网络设置复用配置 catalog、草稿、PATCH/apply/reload，并由 `GET /v2/config/network` 提供只读的脱敏路由概览。`network` 是一个原子 object；选择另一模式时整体替换，避免 direct/inherit 残留旧地址。支持 `mode = inherit | direct | override`；仅 override 接受 `http_proxy`、`https_proxy`、`no_proxy`，至少填写一个代理地址。override 完整替换父配置，未填协议直连；no_proxy 未填写默认绕过 localhost/127.0.0.1/::1，空字符串不绕过。
 
 | 配置路径 | 上级 |
 | --- | --- |
@@ -28,11 +28,28 @@ api_key_envs = ["OPENCODE_API_KEY"]
 cache_key_header = "x-opencode-session"
 ```
 
-两个 profile 的根配置位于 `configs/infra/network.toml`，发布默认 inherit。普通代理变量由 Infra 显式解释，不通过 SDK 隐式环境发现；进程来源优先于 dotenv。同一来源小写变量优先；`ALL_PROXY` 仅补未声明协议。TOML/TINYSOUL_ 的普通配置来源优先级保持不变。配置校验不探测网络；影响运行的修改在 apply/reload 激活。保存后的 Anthropic 能力查询立即使用保存配置自己的网络设置。
+两个 profile 的根配置位于 `configs/infra/network.toml`；standard 默认 inherit，development 默认使用本机 `127.0.0.1:7897` 的 override。发布模板仍可按项目需求修改。普通代理变量由 Infra 显式解释，不通过 SDK 隐式环境发现；进程来源优先于 dotenv。同一来源小写变量优先；`ALL_PROXY` 仅补未声明协议。TOML/TINYSOUL_ 的普通配置来源优先级保持不变。配置校验不探测网络；影响运行的修改在 apply/reload 激活。保存后的 Anthropic 能力查询立即使用保存配置自己的网络设置。
 
 Provider/endpoint 等嵌套对象编辑保留其它字段；专用 provider 仍按原有数组整体提交，保持顺序。不存在旧的专用 provider.proxy。MCP/ACP 的 env/env_refs 不接受代理变量，使用所属 network。前端共用 NetworkPolicyEditor，继承提示显示上级位置，不模拟后端路由或隐含环境值。运行方案默认范围不增加网络字段。
 
 `cache_key_header` 是通用 provider 的可选字符串。它仅把当前请求已有的 PromptCache.key 写到指定头，无 key 时省略。与 provider/endpoint 的同名静态 headers/header_refs 冲突时校验失败，头名称忽略大小写；不允许插值模板。普通 User-Agent 可在现有 headers 中覆盖；默认身份为 TinySoul。上述字段不进入 model options 或模型上下文。
+
+## 网络状态概览
+
+`GET /v2/config/network` 返回 `{root, consumers}`，根据当前已保存配置和环境快照计算网络路由。Endpoint 复用各 owner 的解析器，列出已配置 provider/endpoint、专用模型 provider、MCP/ACP 模块与条目、Web/Kimi Search、execution/解释器。未填写 `network` 时也返回默认继承；未启用的条目仍列出，不表示已经建立连接。每次查询重新读取保存配置，不激活运行世代、不探测网络、不修改配置。
+
+每个条目的结构为：
+
+| 字段 | 含义 |
+| --- | --- |
+| `path` | 网络策略的逻辑配置路径，用于前端定位对应页面；专用 provider 数组项使用稳定 id |
+| `mode` | `inherit`、`direct` 或 `override` |
+| `source` | 声明该策略的配置来源 id；默认策略无声明时为空，数组项使用所属数组来源 |
+| `parent_path` | 直接上级策略路径；根为 null，继承环境变量 |
+| `effective.http_proxy` / `https_proxy` | `{scheme, host, port}` 或 null（直连）；未指定端口为 null；不包含用户名、密码 |
+| `effective.no_proxy` | 绕过地址列表，对上述协议代理继续生效 |
+
+该投影不含密钥或完整环境；配置错误沿现有 422 `config.invalid` 返回。前端分别呈现 HTTP/HTTPS 路由，根编辑仍提交 `infra.network` 原子草稿，消费者覆盖仍在原页面编辑。保存/应用/重新读取配置后刷新概览；尚未激活的差异由全局配置状态呈现。
 
 ## 查询
 

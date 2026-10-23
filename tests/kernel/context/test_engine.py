@@ -206,8 +206,10 @@ async def test_cancelled_background_prepare_joins_read_without_installing_view()
             operations.check_cancelled()
             return "Rules"
 
+    observations = RecordingObservations()
     engine = (
         ContextEngineBuilder(system_text="sys")
+        .with_observations(observations)
         .with_segment(_registration(Provider()))
         .build()
     )
@@ -224,6 +226,10 @@ async def test_cancelled_background_prepare_joins_read_without_installing_view()
         await preparing
     with pytest.raises(ContextContractError, match="opened"):
         engine.compose(_prompt())
+
+    # Turn finalization still drains signals after preparation was cancelled.
+    assert await engine.consume_signals(SignalBus()) == ()
+    assert not any(event.name == "context.installed" for event in observations.events)
 
 
 async def test_background_batch_retry_keeps_new_input_outside_prepared_batch() -> None:

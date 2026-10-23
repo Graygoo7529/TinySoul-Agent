@@ -26,6 +26,7 @@ const PAGE_LABELS: Record<SettingsPageId, { title: string; description: string }
   home: { title: "Home", description: "Home 根目录、读写限制和 Embedding 用途。" },
   memory: { title: "Memory", description: "活动/持久记忆限制和 Embedding 用途。" },
   system: { title: "端点与来源", description: "进程状态、配置来源和 Observation。" },
+  network: { title: "网络代理", description: "根代理设置与各模块已保存配置的路由概览。" },
   interface: { title: "界面", description: "保存在项目中的共享主题、字体、密度与展示资产。" },
 };
 

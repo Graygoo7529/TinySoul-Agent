@@ -6,7 +6,9 @@ Settings 页面维护 Agent 配置草稿、后端配置视图与项目共享界�
 
 ## 草稿与应用
 
-系统网络、LLM/专用 provider、MCP、ACP、Web 和 execution 复用 `NetworkPolicyEditor`。编辑器只表达继承、直连和完整覆盖；切换 mode 写入完整原子对象并移除不适用的地址，仍由原有草稿执行 diff/apply。Endpoint/interpreter 的覆盖放在所属对象高级设置；provider 可编辑缓存 key 请求头。前端不推算代理环境、不测连通性，也不把网络设置加入模型选择或运行方案。
+系统网络、LLM/专用 provider、MCP、ACP、Web 和 execution 复用 `NetworkPolicyEditor`。编辑器只表达继承、直连和完整覆盖；切换 mode 写入完整原子对象并移除不适用的地址，仍由原有草稿执行 diff/apply。Endpoint/interpreter 的覆盖放在所属对象高级设置；provider 可编辑缓存 key 请求头。
+
+系统与诊断中的网络代理页编辑 `infra.network`，根选项呈现为继承环境、关闭代理、开启并指定代理。下方消费 `GET /v2/config/network` 的脱敏已保存路由，分别显示 HTTP/HTTPS、绕过地址、配置来源和直接上级，包含默认继承和未启用条目；这些是配置解析结果，不是连通性或运行状态。概览复用页面路径路由跳转到对应配置项，专用 provider 数组以 id 定位。保存、应用或全局刷新后，随保存快照重新读取；本地草稿不改变概览。Endpoint 与来源页面保留根模式摘要和跳转入口。前端不推算代理环境、不测连通性，也不把网络设置加入模型选择或运行方案。
 
 用户可以先批量修改本地 ConfigDraft，主应用入口通过 `POST /v2/config/apply` 一次保存并发布；`POST /v2/config/reload` 激活已保存候选。后端还提供仅保存候选的 `PATCH /v2/config`，页面编辑控件不会逐项调用它。发布前失败保留草稿，用户可修正或放弃；已发布后的清理诊断不反转成功结果。
 

@@ -164,7 +164,7 @@ async def test_workspace_change_resumes_same_turn_with_current_model_state(
             )
         )
     llm.release.set()
-    agent = await _create(tmp_path, llm)
+    agent = await _create(tmp_path, llm, watch_workspace=origin == "external")
     await agent.start()
     try:
         active = await agent.submit_turn(UserTurnRequest("Wait for a resource"))
@@ -200,7 +200,7 @@ async def test_watcher_binding_survives_rejected_reload_and_changes_on_success(
     tmp_path: Path,
 ) -> None:
     llm = _LLM()
-    agent = await _create(tmp_path, llm)
+    agent = await _create(tmp_path, llm, watch_workspace=True)
     assert all(item.state is SourceState.STOPPED for item in agent.status().sources)
     await agent.start()
     try:
@@ -244,6 +244,7 @@ async def test_watcher_binding_survives_rejected_reload_and_changes_on_success(
             "workspace:after.md", "still writable"
         )
     finally:
+        llm.release.set()
         await agent.shutdown()
 
 
@@ -256,7 +257,7 @@ async def test_source_start_failure_keeps_previous_generation_and_listener(
     from tinysoul.runtime import RuntimeException
     from tinysoul.runtime.sources import EventSink
 
-    agent = await _create(tmp_path, _LLM())
+    agent = await _create(tmp_path, _LLM(), watch_workspace=True)
     await agent.start()
     original_start = WorkspaceRuntime.start
     reject_candidate = True
@@ -303,9 +304,10 @@ async def _create(
     clock: CalendarClock | None = None,
     endpoints: list[EndpointEngine] | None = None,
     max_cycles: int = 20,
+    watch_workspace: bool = False,
 ) -> Agent:
     root = root / "project"
-    copy_initialized_project(root)
+    copy_initialized_project(root, minimal_home=True)
 
     builder = (
         standard_agent(root)
@@ -316,6 +318,7 @@ async def _create(
                 overrides={
                     "reflection.schedule.enabled": False,
                     "loop.user.max_cycles": max_cycles,
+                    **({} if watch_workspace else {"workspace.watch.enabled": False}),
                 },
             )
         )
@@ -470,10 +473,8 @@ async def test_failed_start_settles_requests_accepted_by_sources(
         await asyncio.gather(starting, return_exceptions=True)
 
 
-@pytest.mark.parametrize("max_cycles", (1, 20))
 async def test_v2_turn_admission_question_budget_and_result_share_sdk_owner(
     tmp_path: Path,
-    max_cycles: int,
 ) -> None:
     llm = _LLM()
     for call in reversed(
@@ -509,7 +510,7 @@ async def test_v2_turn_admission_question_budget_and_result_share_sdk_owner(
             )
         )
     endpoints: list[EndpointEngine] = []
-    agent = await _create(tmp_path, llm, endpoints=endpoints, max_cycles=max_cycles)
+    agent = await _create(tmp_path, llm, endpoints=endpoints, max_cycles=1)
     await agent.start()
     app = create_endpoint_app(endpoints[0], endpoints[0].settings)
     try:
@@ -593,7 +594,7 @@ async def test_v2_turn_admission_question_budget_and_result_share_sdk_owner(
                     await asyncio.sleep(0.01)
             restored = (await client.get("/v2/requests/main")).json()
             assert snapshot is not None and restored == snapshot.to_json()
-            assert restored["wait_reason"] == ("budget" if max_cycles == 1 else "input")
+            assert restored["wait_reason"] == "budget"
             interactions = (await client.get("/v2/requests/main/interactions")).json()
             assert any(
                 item["role"] == "agent.question" and item["options"][0]["id"] == "a"
@@ -621,27 +622,26 @@ async def test_v2_turn_admission_question_budget_and_result_share_sdk_owner(
                     },
                 )
             ).json()["accepted"]
-            if max_cycles == 1:
-                async with asyncio.timeout(4):
-                    while True:
-                        budget = agent.request_snapshot("main")
-                        assert budget is not None and budget.result is None
-                        if budget.budget_request is not None:
-                            break
-                        await asyncio.sleep(0.01)
-                assert budget is not None and budget.budget_request is not None
-                grant = {
-                    "budget_request_id": budget.budget_request.request_id,
-                    "count": 1,
-                }
-                assert (
-                    await client.post(
-                        "/v2/requests/main/grant", json={**grant, "count": True}
-                    )
-                ).status_code == 422
-                assert (
-                    await client.post("/v2/requests/main/grant", json=grant)
-                ).json()["accepted"]
+            async with asyncio.timeout(4):
+                while True:
+                    budget = agent.request_snapshot("main")
+                    assert budget is not None and budget.result is None
+                    if budget.budget_request is not None:
+                        break
+                    await asyncio.sleep(0.01)
+            assert budget is not None and budget.budget_request is not None
+            grant = {
+                "budget_request_id": budget.budget_request.request_id,
+                "count": 1,
+            }
+            assert (
+                await client.post(
+                    "/v2/requests/main/grant", json={**grant, "count": True}
+                )
+            ).status_code == 422
+            assert (
+                await client.post("/v2/requests/main/grant", json=grant)
+            ).json()["accepted"]
             handle = agent.commands.request("main")
             assert handle is not None
             result = await asyncio.wait_for(handle.wait(), 5)

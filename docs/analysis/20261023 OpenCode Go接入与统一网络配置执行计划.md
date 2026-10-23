@@ -6,7 +6,7 @@
 
 依据：重新阅读根目录 `AGENTS.md`，对照 `docs/design/infra.md`、`llm.md`、`execution.md`、各 capability 设计，以及当前配置、装配、SDK、worker 和进程调用路径。
 
-本次交付范围：OpenCode Go 接入、统一出站网络配置、请求身份和配置编辑链路。真实测试使用隔离项目，未修改运行项目的凭据或启用默认 provider。
+本次交付范围：OpenCode Go 接入、统一出站网络配置、请求身份和配置编辑链路。真实测试使用隔离项目，未修改运行项目的凭据；后续确认 development 模板启用 OpenCode 和根代理，standard 保持原默认。
 
 ## 1. 目标与已确认方向
 
@@ -74,7 +74,7 @@ https_proxy = "http://127.0.0.1:7897"
 no_proxy = "localhost,127.0.0.1,::1"
 ```
 
-发布模板使用 `mode="inherit"`，将上述本机地址保留为注释示例，不把 7897 作为所有用户必需的运行依赖。
+standard 模板使用 `mode="inherit"`，本机地址只作注释示例；development 按后续确认使用上述 `override`，默认开启本机 7897 代理。
 
 ### 3.2 根配置和环境来源
 
@@ -236,7 +236,7 @@ cache_key_header = "x-opencode-session"
 
 ## 6. OpenCode provider 与模型模板
 
-development/standard 的 `configs/llm/providers.toml` 增加相同结构：
+development/standard 的 `configs/llm/providers.toml` 使用相同结构；下例为 standard，development 的 `enabled = true`：
 
 ```toml
 [llm.providers.opencode]
@@ -279,13 +279,14 @@ Anthropic base URL 不额外带 `/v1`，SDK 自行追加 `/v1/messages`；Google
 - GPT Luna 的现有 binding 指向 5.6，新 binding 指向 6。稳定 ID 可以绑定该角色的不同部署版本，但共享模型能力、上下文及选项必须适用于整条配置链；不自动把全部旧 binding 改名，不扩大未核对的共享规格。
 - Gemini Argon 保持 implicit；不因为 OpenCode 有 Google endpoint 就宣称支持 explicit cache 资源。Haiku 继续采用 Anthropic adapter 的现有可配置约束，必要调整须有接口证据。
 - 模型 family 和 collapsed 仍仅影响显示；不新增“OpenCode 内置模型”分类。
-- `.env.example` 已有 OPENCODE_API_KEY，核对存在即可；新增网络说明只放变量名和空/注释示例，不复制真实 key。
+- `.env.example` 保留 OPENCODE_API_KEY，不再放代理地址或覆盖变量示例；网络默认配置统一放在 Infra TOML。
 
 ## 7. Endpoint、前端呈现与配置编辑
 
 ### 7.1 后端配置协议
 
 - 沿 `/v2/config/catalog`、现有 saved/active 投影、PATCH、create_source、apply/reload 提供能力，不新增代理开关专用 HTTP API。
+- 新增只读 `GET /v2/config/network`，复用各 owner parser 与 Infra 解析，呈现保存路由、来源及直接父级，包含默认继承的消费者；不探测网络。
 - 根 network 和各覆盖位置都登记 catalog 字段/模式；provider 的 cache_key_header 在连接设置中登记。
 - endpoint 已是对象编辑边界；修改 endpoint.network 时提交完整 endpoints 对象，保留其它模式、headers 和 api_version。
 - model_services.providers 是数组编辑边界；修改其中 network 时提交完整数组并保留其它 provider 项，不把数组序号变成持久身份。
@@ -297,7 +298,7 @@ Anthropic base URL 不额外带 `/v1`，SDK 自行追加 `/v1/messages`；Google
 
 按 AGENTS.md，后端实施负责 owner 语义、catalog、Endpoint 文档与验证；visualization 改动由前端工作落实。本计划同时列出对接任务，不能把尚未完成的界面称为已交付。
 
-- System 设置中增加“网络默认配置”，展示模式、HTTP 代理、HTTPS 代理、不使用代理的地址。
+- 系统与诊断新增“网络代理”页，编辑根代理模式、HTTP/HTTPS 和绕过地址，呈现已保存路由及对应配置页跳转；原 Endpoint 与来源页保留根模式摘要。
 - LLM provider、专用模型 provider、MCP、ACP、Web、execution 复用一个 NetworkPolicyEditor，显示“继承上级 / 直接连接 / 使用覆盖配置”。仅 override 时编辑地址。
 - Endpoint 和 interpreter 的局部策略放在对应对象的高级设置，不为每个覆盖位置新增页面。
 - 继承提示标明父设置位置；前端不自建 HTTPX/no_proxy 路由计算器，也不虚构常规环境变量的实际值或远端连通状态。
@@ -329,9 +330,9 @@ Anthropic base URL 不额外带 `/v1`，SDK 自行追加 `/v1/messages`；Google
 | 进程设施 | 检查 `infra/process/managed.py`、`stdio.py`、`kernel/action/backends/subprocess.py` | 原则上只复用完整 env/inherit_env，不加入业务策略；仅真实缺口才修改 |
 | Gateway | `gateway/endpoint/engine/configuration.py` | 能力查询取得当前保存网络配置；复用现有失败响应 |
 | Catalog | 新增 `infra/config/catalog/network.toml`；更新 `models.toml`、`runtime.toml`、`capabilities.toml`、`execution.toml` | 根字段与各 owner 覆盖、移除旧 proxy 字段；不复制校验实现 |
-| 模板 | 两个 profile 的 `configs/infra/network.toml`、`infra/model_services.toml`、`llm/providers.toml`、相关 family TOML | 默认继承、OpenCode、Grok 和 binding；两个 profile 结构同步 |
+| 模板 | 两个 profile 的 `configs/infra/network.toml`、`infra/model_services.toml`、`llm/providers.toml`、相关 family TOML | standard 默认继承、development 根代理覆盖且启用 OpenCode；Grok 和 binding、两个 profile 结构同步 |
 | 模板局部策略 | 两个 profile 的 `execution.toml`、`capabilities/{web,expand,subagent}.toml` | 必要默认/注释与实际 schema 一致；Web 不再固定旧 User-Agent 版本 |
-| 环境示例 | `assets/common/.env.example` | OPENCODE 引用、常规代理与 TINYSOUL_ 覆盖示例及优先关系 |
+| 环境示例 | `assets/common/.env.example` | OPENCODE 引用、网络配置指向 Infra TOML；不放代理变量示例 |
 | 设计文档 | `docs/design/{infra,llm,execution,agent}.md`、`docs/design/capabilities/{web,expand,subagent}.md` | 只在相应实现落地后同步职责、连接生效和进程边界 |
 | Endpoint 文档 | `docs/endpoint/configuration.md`、受影响的 contracts examples | 配置路径、对象/数组提交边界和前端消费说明 |
 | 前端公共编辑 | 拟新增 `visualization/src/features/settings/editors/NetworkPolicyEditor.tsx`；复用既有 controls/draft | 一个可复用编辑器，不在每页重写模式转换 |
@@ -507,3 +508,29 @@ $env:TINYSOUL_REAL_MODELS = "deepseek-pro,gpt-luna,grok-latest,claude-haiku,gemi
 | 2026-10-23 | P0–P4、P6 | 配置、Infra、四类 SDK、专用模型、MCP/ACP、Web、execution、Endpoint 与前端已实现；新增测试与设计文档同步 | done |
 | 2026-10-23 | P5 | GPT Luna、Grok、Claude Haiku、Gemini Argon 五项能力通过真实代理路径；DeepSeek JSON 直连通过，缓存请求代理/直连均为上游 503 | in_progress |
 | 2026-10-23 | P7 | Fast/Full/typecheck 与前端 95 suites/822 tests/build 通过；保留远端缓存复测项 | in_progress |
+
+## 13. 根代理默认与网络状态概览补充
+
+状态：`done`；模板、Endpoint、页面与完整本地门禁均已完成。
+
+### 确认语义与落点
+
+- [x] development 的 `configs/llm/providers.toml` 启用 OpenCode；`configs/infra/network.toml` 使用本机 HTTP/HTTPS 7897 override；standard 继续 inherit、OpenCode disabled。
+- [x] `assets/common/.env.example` 删除 Optional outbound proxy defaults，只指向网络 TOML；不复制或修改运行项目凭据。
+- [x] 保留单一 NetworkPolicy：根选项呈现继承环境、关闭代理、开启并指定代理；消费者继续继承/直连/覆盖，不增加 enabled 或第二套代理环境状态。
+- [x] `gateway/endpoint/engine/network.py` 从 ConfigEnvironment 读取 owner 配置解析结果，按实际装配关系逐级调用 NetworkPolicy.resolve。Infra 不反向了解业务配置路径。不用递归搜索任意名为 network 的对象代替 owner 解析。
+- [x] 新增只读 `GET /v2/config/network`，通过类型化响应明确 null/列表和路径；包含 provider/endpoint、专用 provider、MCP/ACP、Web/Kimi、execution/解释器，未写 network 也显示默认继承。返回代理 scheme/host/port、no_proxy、配置来源和直接父级，不返回代理凭据或完整环境，不发请求或激活 generation；错误沿 ConfigError → EndpointRequestError 返回。
+- [x] visualization 的 NetworkPage 与 API client 消费该投影，HTTP/HTTPS 分别呈现，说明包含尚未启用条目。根编辑使用共享 NetworkPolicyEditor/配置草稿；概览随保存快照刷新。SystemPage 保留根模式摘要和跳转。
+- [x] 复用 pageForPath 跳转消费者编辑页；DedicatedProvidersPage 按稳定 id 定位数组项，其它 owner 继续使用原有定位机制。
+- [x] 同步 `docs/design/infra.md`、`docs/endpoint/configuration.md` / index、`visualization/docs/design/settings.md` 与本计划的默认配置、归属和交互说明。
+
+### 核对与验证
+
+- 后端 Endpoint 聚焦：23 passed，覆盖 root/provider/endpoint 和模块/条目继承、默认项、dotenv/process 优先级、重新读取保存值而不激活、凭据脱敏、配置错误协议。
+- 前端页面聚焦：3 suites / 6 tests passed，覆盖草稿原子替换、保存快照刷新、路由分协议展示、跳转并选中特定专用 provider。
+- Fast：最终 1373 passed，15 deselected；按 owner 覆盖原则删去一个重复 HTTP/SDK 参数分支。
+- typecheck：`ty 0.0.84` 通过；前端全量：96 suites / 824 tests passed；生产 build 通过，保留原有大 chunk 提示。
+- standard/development 隔离生成与投影检查：两种项目各列出 42 个消费者，根配置分别为 inherit / 本机 HTTP+HTTPS 7897 override，无需凭据或外部请求。
+- 完整 Full：最终 1378 passed、10 deselected，343.23 秒；在默认仓库隔离工件目录运行通过。此前 SDK 启动等待超时触发取消后，暴露 Context 收尾读取未赋值 `ordered` 的真实缺陷，现已修复并扩展 owner 回归。SDK/Endpoint 使用最小 Home，watcher 按需开启，三个 HTTP 装配用例改用同循环异步客户端；没有放宽业务断言或增加 skip。首次 Endpoint `workspace.io_failed` 在后续聚焦、Fast、Full 均未复现，保留工件与不确定性说明。详见[测试修复与耗时记录](done/20261023-done-本地测试失败修复与耗时收敛执行计划.md)。
+
+本补充不改变上一阶段真实 DeepSeek prompt-cache 的验收结论；主计划仍保留 external 验证未完成状态，不把本地门禁通过等同于上游缓存已恢复。

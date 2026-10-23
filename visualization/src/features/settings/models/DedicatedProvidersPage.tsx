@@ -1,5 +1,3 @@
-import { NetworkPolicyEditor } from "../editors/NetworkPolicyEditor";
-import { settingsText } from "../i18n";
 /**
  * Dedicated Providers settings page (plan §16.4): the
  * `infra.model_services.providers` object_list atom — embedding and
@@ -16,6 +14,10 @@ import { Badge } from "../../../components/ui/Badge";
 import { Button } from "../../../components/ui/Button";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { useConfigDraftStore } from "../draft/store";
+import { CredentialValueEditor } from "../editors/controls";
+import { NetworkPolicyEditor } from "../editors/NetworkPolicyEditor";
+import { settingsText } from "../i18n";
+import { useSettingsUiStore } from "../uiStore";
 import {
   cloneJsonValue,
   projectArrayAtom,
@@ -31,7 +33,6 @@ import {
   TextInput,
   Toggle,
 } from "./controls";
-import { CredentialValueEditor } from "../editors/controls";
 import { atomWriteSource, setAtomEntries } from "./objectEditing";
 import {
   CreateObjectModal,
@@ -66,11 +67,21 @@ export function DedicatedProvidersPage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const focusPath = useSettingsUiStore((state) => state.focusPath);
+  const clearFocus = useSettingsUiStore((state) => state.clearFocus);
   useEffect(() => {
+    const target = focusPath?.startsWith(`${PROVIDERS_PATH}.`)
+      ? focusPath.slice(PROVIDERS_PATH.length + 1).split(".")[0]
+      : null;
+    if (target && effective.some((entry) => entry.id === target)) {
+      setSelected(target);
+      clearFocus();
+      return;
+    }
     if (selected === null || !effective.some((entry) => entry.id === selected)) {
       setSelected(effective[0]?.id ?? null);
     }
-  }, [effective, selected]);
+  }, [effective, selected, focusPath, clearFocus]);
 
   const current = effective.find((entry) => entry.id === selected) ?? null;
 
