@@ -1,0 +1,15 @@
+# https://docs.x.ai/developers/models/grok-4.7 (2026-10-23)
+# Uses the common Responses adapter and locally replayed encrypted reasoning.
+[llm.models.grok-latest]
+family = "Grok"
+collapsed = false
+adapter = "openai-responses"
+providers = [{ provider = "opencode", provider_model = "grok-4.7" }]
+context_window_tokens = 500000
+capabilities = ["text_input", "image_input", "image_remote_url", "json_object_output", "tool_calling", "reasoning_output", "prompt_cache"]
+reasoning_effort = "high"
+
+[llm.models.grok-latest.adapter_options]
+native_replay = "encrypted"
+prompt_cache_mode = "implicit"
+choices.reasoning_effort = ["low", "medium", "high", "xhigh"]

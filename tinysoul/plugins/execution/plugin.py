@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from functools import partial
 
+from tinysoul.infra.network import ResolvedNetwork
 from tinysoul.kernel.jobs import JobRegistry
 from tinysoul.kernel.registration import (
     GenerationBuildContext,
@@ -18,9 +19,9 @@ from tinysoul.plugins.workspace.services import (
     WorkspaceService,
 )
 
+from .actions import register_execution_actions
 from .config import ExecutionSettings, parse_execution_settings
 from .engine import ExecutionEngine
-from .actions import register_execution_actions
 from .runtime_bridge import RuntimeExecutionBridge
 
 
@@ -30,7 +31,13 @@ class ExecutionPlugin:
     model_uses = ()
     search_capabilities = ()
     provides = ()
-    requires = (JobRegistry, WorkspaceExecutionService, WorkspaceService, HomeService)
+    requires = (
+        ResolvedNetwork,
+        JobRegistry,
+        WorkspaceExecutionService,
+        WorkspaceService,
+        HomeService,
+    )
     configuration = (
         PluginConfig(
             "execution",
@@ -45,6 +52,7 @@ class ExecutionPlugin:
     ) -> PluginGeneration:
         engine = ExecutionEngine(
             settings=context.settings.get(ExecutionSettings),
+            network=context.services.get(ResolvedNetwork),
             jobs=context.services.get(JobRegistry),
             workspace=context.services.get(WorkspaceExecutionService),
         )

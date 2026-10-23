@@ -2,32 +2,32 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 import json
-from pathlib import Path
 import shutil
 import sys
+from collections.abc import Mapping
+from pathlib import Path
 
-from tinysoul.kernel.action import ActionExecutionControl
-from tinysoul.kernel.action.execution.executor import ActionExecutionCancelled
-from tinysoul.kernel.action.backends import (
-    ControlledProcessRunner,
-    ProcessRequest,
-    ProcessStatus,
-)
 from tinysoul.infra import (
     JsonObject,
     StagingDirectoryManager,
     dumps_json,
     to_json_object,
 )
+from tinysoul.infra.concurrency import JoinedOperations
+from tinysoul.infra.network import ResolvedNetwork
+from tinysoul.kernel.action import ActionExecutionControl
+from tinysoul.kernel.action.backends import (
+    ControlledProcessRunner,
+    ProcessRequest,
+    ProcessStatus,
+)
+from tinysoul.kernel.action.execution.executor import ActionExecutionCancelled
 from tinysoul.plugins.workspace import (
     WorkspaceBundleWrite,
     WorkspaceRef,
 )
-
 from tinysoul.plugins.workspace.services import WorkspaceService
-from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.prompts.plugins.capabilities import web as prompt_text
 
 from .config import WebSettings
@@ -65,27 +65,27 @@ _SAFE_WORKER_ENV = (
 )
 
 
-from .operations.protocol import (
-    _require_active,
-    _worker_failure_facts,
-    _worker_response,
-    _required_string,
-    _optional_string,
-    _optional_object,
-    _required_non_negative_int,
-    _warning_codes,
-)
-from .operations.search import (
-    _search_results,
-    _search_workspace_ref,
-    _search_markdown,
-    _search_preview_payload,
-)
 from .operations.discovery import (
-    _discovery_workspace_ref,
     _discovery_payload,
     _discovery_preview_payload,
+    _discovery_workspace_ref,
     _validate_discovery_globs,
+)
+from .operations.protocol import (
+    _optional_object,
+    _optional_string,
+    _require_active,
+    _required_non_negative_int,
+    _required_string,
+    _warning_codes,
+    _worker_failure_facts,
+    _worker_response,
+)
+from .operations.search import (
+    _search_markdown,
+    _search_preview_payload,
+    _search_results,
+    _search_workspace_ref,
 )
 
 
@@ -100,10 +100,13 @@ class WebCapabilityService:
         runtime_env: Mapping[str, str],
         staging: StagingDirectoryManager,
         kimi_api_key: str = "",
+        network: ResolvedNetwork = ResolvedNetwork(),
         process_runner: ControlledProcessRunner | None = None,
     ) -> None:
         self._workspace = workspace
         self._settings = settings
+        self._network = settings.network.resolve(network)
+        self._search_network = settings.search_by_kimi.network.resolve(self._network)
         self._runtime_env = dict(runtime_env)
         self._staging = staging
         self._kimi_api_key = kimi_api_key
@@ -424,6 +427,8 @@ class WebCapabilityService:
         env["PYTHONIOENCODING"] = "utf-8"
         if include_kimi_key:
             env["TINYSOUL_KIMI_SEARCH_API_KEY"] = self._kimi_api_key
+        network = self._search_network if include_kimi_key else self._network
+        env = network.process_environment(env)
         outcome = self._process_runner.run(
             ProcessRequest(
                 argv=(

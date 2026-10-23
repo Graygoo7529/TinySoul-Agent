@@ -1,9 +1,12 @@
 import asyncio
-from pathlib import Path
 import sys
+from pathlib import Path
+
 import pytest
 
 from tinysoul.infra.concurrency import JoinedOperations
+from tinysoul.infra.network import NetworkMode, NetworkPolicy
+from tinysoul.infra.process import ManagedProcessRequest, StdioProcess
 from tinysoul.kernel.jobs import JobRegistry, JobState
 from tinysoul.kernel.loop.interaction.inbox import (
     InboxKind,
@@ -14,13 +17,16 @@ from tinysoul.kernel.loop.interaction.inbox import (
 )
 from tinysoul.plugins.capabilities.subagent.config import AgentTarget, SubagentSettings
 from tinysoul.plugins.capabilities.subagent.engine import SubagentEngine
-from tinysoul.plugins.capabilities.subagent.failures import SubagentFailure, SubagentRequestError
-from tinysoul.plugins.capabilities.subagent.segments.connections import (
-    ConnectionsSegment,
-    ConnectionsRefresh,
+from tinysoul.plugins.capabilities.subagent.failures import (
+    SubagentFailure,
+    SubagentRequestError,
 )
-from tinysoul.runtime.events import EnvironmentEvent, EventReceipt
+from tinysoul.plugins.capabilities.subagent.segments.connections import (
+    ConnectionsRefresh,
+    ConnectionsSegment,
+)
 from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
+from tinysoul.runtime.events import EnvironmentEvent, EventReceipt
 
 TURN_ID = "2026-07-12/1"
 NEXT_TURN_ID = "2026-07-12/2"
@@ -37,7 +43,22 @@ async def _settled(jobs: JobRegistry, turn: str, identity: str) -> None:
 
 async def test_real_acp_permission_same_turn_reuse_and_new_turn_isolation(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("ALL_PROXY", "http://host:8000")
+    start = StdioProcess.start
+
+    async def capture_start(
+        request: ManagedProcessRequest, *, max_message_bytes: int = 8_000_000
+    ) -> StdioProcess:
+        assert request.inherit_env is False and request.env is not None
+        env = {key.lower(): value for key, value in request.env.items()}
+        assert env["path"] and env["explicit_token"] == "test-key"
+        assert env["https_proxy"] == "http://project:9000"
+        assert "all_proxy" not in env and "http_proxy" not in env
+        return await start(request, max_message_bytes=max_message_bytes)
+
+    monkeypatch.setattr(StdioProcess, "start", capture_start)
     workspace = WorkspaceEngineBuilder(
         WorkspaceSettings(root=tmp_path / "workspace")
     ).build()
@@ -46,18 +67,22 @@ async def test_real_acp_permission_same_turn_reuse_and_new_turn_isolation(
     engine = SubagentEngine(
         SubagentSettings(
             stop_timeout_seconds=0.2,
+            network=NetworkPolicy(
+                NetworkMode.OVERRIDE, https_proxy="http://project:9000"
+            ),
             agents=(
                 AgentTarget(
                     "local",
                     enabled=True,
                     command=sys.executable,
+                    env_refs=(("EXPLICIT_TOKEN", "ACP_TEST_KEY"),),
                     args=(str(Path(__file__).with_name("fixture_agent.py")),),
                 ),
             ),
         ),
         jobs=jobs,
         workspace=workspace,
-        environment={},
+        environment={"ACP_TEST_KEY": "test-key"},
     )
     events: list[EnvironmentEvent] = []
 

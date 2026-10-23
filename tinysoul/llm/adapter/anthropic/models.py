@@ -2,9 +2,17 @@
 
 from collections.abc import Mapping
 
-from anthropic import APIConnectionError, APIError, APIStatusError, AsyncAnthropic
+from anthropic import (
+    APIConnectionError,
+    APIError,
+    APIStatusError,
+    AsyncAnthropic,
+    DefaultAsyncHttpxClient,
+)
 
+from tinysoul.infra.http import httpx2_mounts
 from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.network import ResolvedNetwork
 from tinysoul.llm.config.types import ProviderSpec
 from tinysoul.llm.protocol.adapter_types import ApiMode
 
@@ -13,10 +21,20 @@ from ..common import status_error
 
 
 async def read_anthropic_model_capabilities(
-    provider: ProviderSpec, model_id: str, *, env: Mapping[str, str]
+    provider: ProviderSpec,
+    model_id: str,
+    *,
+    env: Mapping[str, str],
+    network: ResolvedNetwork = ResolvedNetwork(),
 ) -> JsonObject:
     endpoint = provider.endpoint(ApiMode.ANTHROPIC_MESSAGES)
     client = AsyncAnthropic(
+        http_client=DefaultAsyncHttpxClient(
+            trust_env=False,
+            mounts=httpx2_mounts(
+                provider.resolved_network(ApiMode.ANTHROPIC_MESSAGES, network)
+            ),
+        ),
         api_key=provider.resolve_api_key(env),
         base_url=endpoint.base_url,
         default_headers=provider.resolved_headers(ApiMode.ANTHROPIC_MESSAGES, env),

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import AsyncIterator, Mapping
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
@@ -19,11 +20,13 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.message import SessionMessage
 from mcp.types import ServerNotification, jsonrpc_message_adapter
 
-from tinysoul.prompts.plugins.capabilities import expand as prompt_text
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.config.validation import resolve_references
+from tinysoul.infra.http import client_headers, httpx2_mounts
 from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.network import ResolvedNetwork
 from tinysoul.infra.process import ManagedProcessRequest, StdioProcess
+from tinysoul.prompts.plugins.capabilities import expand as prompt_text
 
 from ..config import ExpandSettings, MCPServerSettings, MCPTransport
 from ..failures import ExpandFailure, ExpandRequestError
@@ -89,12 +92,15 @@ class MCPConnection:
         *,
         root: Path,
         environment: Mapping[str, str],
+        network: ResolvedNetwork = ResolvedNetwork(),
     ) -> None:
         self.server, self._settings, self._root = server, settings, root
         key = f"capabilities.expand.servers.{server.server_id}"
         self._env = resolve_references(
             server.env, server.env_refs, environment, key=f"{key}.env_refs"
         )
+        self._network = network
+        self._env = network.process_environment({**os.environ, **self._env})
         self._headers = resolve_references(
             server.headers, server.header_refs, environment, key=f"{key}.header_refs"
         )
@@ -142,6 +148,7 @@ class MCPConnection:
                             (self.server.command, *self.server.args),
                             cwd=str(cwd),
                             env=self._env,
+                            inherit_env=False,
                         ),
                         max_message_bytes=self._settings.max_result_bytes,
                     )
@@ -149,7 +156,9 @@ class MCPConnection:
                 else:
                     http = await stack.enter_async_context(
                         httpx2.AsyncClient(
-                            headers=self._headers,
+                            headers=client_headers(self._headers),
+                            trust_env=False,
+                            mounts=httpx2_mounts(self._network),
                             timeout=self._settings.timeout_seconds,
                         )
                     )

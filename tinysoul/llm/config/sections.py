@@ -6,6 +6,7 @@ import re
 from collections.abc import Mapping
 
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
+from tinysoul.infra.network import parse_network
 from tinysoul.llm.protocol.routing import ModelChain, RetryPolicy, TaskSpec
 
 from ..adapter.catalog import adapter_spec
@@ -77,7 +78,15 @@ class ProviderConfigParser:
             provider_table = as_table(value, key=f"llm.providers.{provider_id}")
             reject_unknown_keys(
                 provider_table,
-                {"enabled", "endpoints", "api_key_envs", "headers", "header_refs"},
+                {
+                    "enabled",
+                    "endpoints",
+                    "api_key_envs",
+                    "headers",
+                    "header_refs",
+                    "network",
+                    "cache_key_header",
+                },
                 key=f"llm.providers.{provider_id}",
             )
             endpoints_table = as_table(
@@ -93,13 +102,17 @@ class ProviderConfigParser:
                 endpoint_table = as_table(endpoint_value, key=endpoint_key)
                 reject_unknown_keys(
                     endpoint_table,
-                    {"base_url", "api_version", "headers", "header_refs"},
+                    {"base_url", "api_version", "headers", "header_refs", "network"},
                     key=endpoint_key,
                 )
                 try:
                     endpoints.append(
                         ProviderEndpoint(
                             api_mode=mode,
+                            network=parse_network(
+                                endpoint_table.get("network", {}),
+                                key=f"{endpoint_key}.network",
+                            ),
                             api_version=required_str(
                                 endpoint_table, "api_version", key=endpoint_key
                             )
@@ -124,6 +137,17 @@ class ProviderConfigParser:
                 providers.append(
                     ProviderSpec(
                         id=provider_id,
+                        network=parse_network(
+                            provider_table.get("network", {}),
+                            key=f"llm.providers.{provider_id}.network",
+                        ),
+                        cache_key_header=required_str(
+                            provider_table,
+                            "cache_key_header",
+                            key=f"llm.providers.{provider_id}",
+                        )
+                        if "cache_key_header" in provider_table
+                        else None,
                         enabled=required_bool(
                             provider_table,
                             "enabled",

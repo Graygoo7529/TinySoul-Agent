@@ -1,10 +1,11 @@
 """Explicit interpreter adapters and bounded process execution settings."""
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
+from tinysoul.infra.network import NetworkPolicy, parse_network
 
 
 class Interpreter(StrEnum):
@@ -19,6 +20,7 @@ class InterpreterSpec:
     name: Interpreter
     executable: str
     enabled: bool = True
+    network: NetworkPolicy = field(default_factory=NetworkPolicy)
 
     def __post_init__(self) -> None:
         if (
@@ -48,6 +50,7 @@ class ExecutionSettings:
     max_command_chars: int = 20480
     max_args: int = 64
     max_arg_chars: int = 4096
+    network: NetworkPolicy = field(default_factory=NetworkPolicy)
 
     def __post_init__(self) -> None:
         if not isinstance(self.enabled, bool):
@@ -84,7 +87,9 @@ _LIMITS = (
 
 
 def parse_execution_settings(tree: Mapping[str, object]) -> ExecutionSettings:
-    reject_unknown_keys(tree, {"enabled", "interpreters", *_LIMITS}, key="execution")
+    reject_unknown_keys(
+        tree, {"enabled", "interpreters", "network", *_LIMITS}, key="execution"
+    )
     defaults = ExecutionSettings()
     enabled = tree.get("enabled", defaults.enabled)
     if not isinstance(enabled, bool):
@@ -108,12 +113,29 @@ def parse_execution_settings(tree: Mapping[str, object]) -> ExecutionSettings:
     for default in defaults.interpreters:
         raw = adapters.get(default.name.value, {})
         key = f"execution.interpreters.{default.name}"
-        if not isinstance(raw, Mapping) or set(raw) - {"enabled", "executable"}:
+        if not isinstance(raw, Mapping) or set(raw) - {
+            "enabled",
+            "executable",
+            "network",
+        }:
             raise ConfigError("Invalid interpreter configuration", key=key)
-        executable, selected = raw.get("executable", default.executable), raw.get(
-            "enabled", default.enabled
+        executable, selected = (
+            raw.get("executable", default.executable),
+            raw.get("enabled", default.enabled),
         )
         if not isinstance(executable, str) or not isinstance(selected, bool):
             raise ConfigError("Invalid interpreter fields", key=key)
-        parsed.append(InterpreterSpec(default.name, executable, selected))
-    return ExecutionSettings(enabled=enabled, interpreters=tuple(parsed), **limits)
+        parsed.append(
+            InterpreterSpec(
+                default.name,
+                executable,
+                selected,
+                parse_network(raw.get("network", {}), key=f"{key}.network"),
+            )
+        )
+    return ExecutionSettings(
+        network=parse_network(tree.get("network", {}), key="execution.network"),
+        enabled=enabled,
+        interpreters=tuple(parsed),
+        **limits,
+    )

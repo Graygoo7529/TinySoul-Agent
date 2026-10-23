@@ -1,3 +1,4 @@
+import { NetworkPolicyEditor } from "../editors/NetworkPolicyEditor";
 import { settingsText } from "../i18n";
 /**
  * LLM Providers settings page (plan §16.1): the provider collection with the
@@ -45,6 +46,7 @@ import {
   ObjectEditorLayout,
 } from "./ObjectEditor";
 import {
+  clearObjectField,
   objectFieldDirty,
   setObjectField,
   stageObjectCreate,
@@ -337,6 +339,18 @@ function ProviderEditor({
             onCommit={(value) => setObjectField(ROOT, object, "endpoints", value, createSource)}
           />
         </FieldRow>
+        <FieldRow title="代理设置" dirty={field("network").dirty}>
+          <NetworkPolicyEditor value={object.value.network} parentLabel="系统网络默认配置"
+            disabled={field("network").lock !== null}
+            onChange={(network) => setObjectField(ROOT, object, "network", network, createSource)} />
+        </FieldRow>
+        <FieldRow title="缓存路由 key 请求头" description="将本次调用的缓存路由 key 写入指定请求头，例如 x-opencode-session。" dirty={field("cache_key_header").dirty}>
+          <TextInput ariaLabel="缓存路由 key 请求头" value={stringField(object.value, "cache_key_header")}
+            placeholder="x-opencode-session" disabled={field("cache_key_header").lock !== null}
+            onCommit={(name) => name.trim()
+              ? setObjectField(ROOT, object, "cache_key_header", name.trim(), createSource)
+              : clearObjectField(ROOT, object, "cache_key_header", createSource)} />
+        </FieldRow>
         {(["headers", "header_refs"] as const).map((key) => (
           <FieldRow
             key={key}
@@ -438,6 +452,11 @@ function EndpointEditor({
               disabled={disabled}
               onCommit={(base_url) => update(mode, { base_url })}
             />
+            <details>
+              <summary className="cursor-pointer text-xs text-fg-muted">入口代理覆盖</summary>
+              <NetworkPolicyEditor value={endpoint.network} parentLabel="当前提供方代理" disabled={disabled}
+                onChange={(network) => update(mode, { network })} />
+            </details>
             <details>
               <summary className="cursor-pointer text-xs text-fg-muted">附加请求头</summary>
               {(["headers", "header_refs"] as const).map((key) => (

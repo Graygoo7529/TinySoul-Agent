@@ -21,7 +21,7 @@ from tinysoul.llm.protocol.tools import DefaultToolCallIdMapper, ToolCallRecord,
 from tinysoul.llm.protocol.usage import TokenUsage
 
 from ..base import ProviderError, ProviderErrorKind, ProviderRequest
-from ..common import status_error, validate_request
+from ..common import cache_key_headers, status_error, validate_request
 from ..replay import capture_replay
 from ..tool_names import ProviderToolNameMap
 from .cache import GooglePromptCacheStore
@@ -35,6 +35,7 @@ class GoogleGenerateContentAdapter:
     def __init__(self, *, provider: ProviderSpec, client: AsyncClient) -> None:
         provider.endpoint(self.api_mode)
         self.provider_id = provider.id
+        self._cache_key_header = provider.cache_key_header
         self._client = client
         self._cache = GooglePromptCacheStore(client)
 
@@ -53,6 +54,7 @@ class GoogleGenerateContentAdapter:
                 disable=True
             ),
             http_options=types.HttpOptions(
+                headers=cache_key_headers(self._cache_key_header, request),
                 timeout=int(request.timeout_seconds * 1000)
                 if request.timeout_seconds
                 else None,
@@ -118,9 +120,10 @@ class GoogleGenerateContentAdapter:
                         tool_config=config.tool_config,
                         ttl=f"{options.get('prompt_cache_ttl', 600)}s",
                         http_options=types.HttpOptions(
+                            headers=cache_key_headers(self._cache_key_header, request),
                             timeout=config.http_options.timeout
                             if config.http_options
-                            else None
+                            else None,
                         ),
                     ),
                 )

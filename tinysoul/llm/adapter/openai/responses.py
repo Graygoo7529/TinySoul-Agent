@@ -16,7 +16,7 @@ from tinysoul.llm.protocol.tools import DefaultToolCallIdMapper, ToolCallIdMappe
 from ..base import (
     ProviderRequest,
 )
-from ..common import validate_request
+from ..common import cache_key_headers, validate_request
 from ..replay import capture_replay
 from ..tool_names import ProviderToolNameMap
 from .base import OpenAIAdapter
@@ -51,6 +51,7 @@ class OpenAIResponsesAdapter(OpenAIAdapter):
     ) -> None:
         provider.endpoint(adapter_spec(adapter_kind).api_mode)
         self.provider_id = provider.id
+        self._cache_key_header = provider.cache_key_header
         self.adapter_kind = adapter_kind
         self._api_mode = adapter_spec(adapter_kind).api_mode
         self._id_mapper = id_mapper or DefaultToolCallIdMapper()
@@ -63,6 +64,9 @@ class OpenAIResponsesAdapter(OpenAIAdapter):
         configured_options = request.model.adapter_options.values
         name_map = ProviderToolNameMap.from_request(request)
         kwargs = common_create_kwargs(request)
+        headers = cache_key_headers(self._cache_key_header, request)
+        if headers:
+            kwargs["extra_headers"] = headers
         self.apply_prompt_cache(kwargs, request)
         kwargs["input"] = to_responses_input(
             request,

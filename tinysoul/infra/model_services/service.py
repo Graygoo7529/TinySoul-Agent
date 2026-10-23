@@ -5,28 +5,31 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from hashlib import sha256
 from math import isfinite
-from uuid import uuid4
-from enum import StrEnum
 from time import monotonic
+from uuid import uuid4
 
 import httpx
 
+from tinysoul.infra.http import client_headers, httpx_mounts
 from tinysoul.infra.json import JsonObject, JsonTypeError, to_json_object
+from tinysoul.infra.network import ResolvedNetwork
+
 from .config import (
-    ModelServicesSettings,
     ModelCapability,
+    ModelServicesSettings,
     ServiceModel,
     ServiceProvider,
     ServiceProviderBinding,
 )
 from .protocol import (
-    EmbeddingBatch,
     DecisionRequest,
     DecisionResult,
-    ModelServiceError,
+    EmbeddingBatch,
     ModelFailureKind,
+    ModelServiceError,
     parse_decision_response,
 )
 
@@ -219,8 +222,10 @@ class ModelServices:
         *,
         env: Mapping[str, str],
         transport: httpx.AsyncBaseTransport | None = None,
+        network: ResolvedNetwork = ResolvedNetwork(),
     ) -> None:
         self.settings, self._env, self._transport = settings, dict(env), transport
+        self._network = network
         self._clients: dict[str, httpx.AsyncClient] = {}
         self._closed = False
 
@@ -240,9 +245,7 @@ class ModelServices:
         consumer: str,
         observer: ModelObserver | None = None,
     ) -> DecisionResult:
-        model, routes = self.settings.resolve(
-            use, ModelCapability.DECISION, self._env
-        )
+        model, routes = self.settings.resolve(use, ModelCapability.DECISION, self._env)
         last: ModelServiceError | None = None
         call_id = uuid4().hex
         for attempt, (provider, binding) in enumerate(routes, 1):
@@ -326,9 +329,14 @@ class ModelServices:
             self._clients[provider.id] = httpx.AsyncClient(
                 base_url=provider.base_url.rstrip("/") + "/",
                 timeout=provider.timeout_seconds,
-                headers={"Authorization": f"Bearer {self._env[provider.api_key_env]}"},
+                headers=client_headers(
+                    {"Authorization": f"Bearer {self._env[provider.api_key_env]}"}
+                ),
                 transport=self._transport,
-                proxy=provider.proxy,
+                trust_env=False,
+                mounts=httpx_mounts(provider.network.resolve(self._network))
+                if self._transport is None
+                else {},
             )
         client = self._clients[provider.id]
         for attempt in range(provider.max_retries + 1):

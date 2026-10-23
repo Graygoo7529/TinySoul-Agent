@@ -118,7 +118,10 @@ choices.reasoning_effort = ["low", "medium", "high"]
 family = "Claude"
 collapsed = false
 adapter = "anthropic-messages"
-providers = [{ provider = "anthropic", provider_model = "claude-haiku-5-5" }]
+providers = [
+  { provider = "anthropic", provider_model = "claude-haiku-5-5" },
+  { provider = "opencode", provider_model = "claude-haiku-5-5" },
+]
 context_window_tokens = 1000000
 capabilities = [
   "text_input",

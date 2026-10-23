@@ -1,14 +1,15 @@
 """Real process ownership, output retention and daily Workspace effects."""
 
 import asyncio
-from dataclasses import replace
-from pathlib import Path
 import socket
 import sys
+from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
 from tinysoul.infra.concurrency import JoinedOperations
+from tinysoul.infra.network import NetworkMode, NetworkPolicy
 from tinysoul.kernel.jobs import JobRegistry, JobRequestError, JobState
 from tinysoul.plugins.execution import (
     ExecutionSettings,
@@ -98,6 +99,43 @@ async def test_real_workspace_effects_and_repeated_output_collection(
         await jobs.cleanup_turn("2026-10-06/1000")
     assert result_path.exists()
     assert (result_path.parent / "logs" / "stdout.log").exists()
+
+
+@pytest.mark.parametrize("direct", [False, True])
+async def test_interpreter_network_replaces_inherited_process_proxies(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    direct: bool,
+) -> None:
+    monkeypatch.setenv("ALL_PROXY", "http://host:8000")
+    monkeypatch.setenv("HTTP_PROXY", "http://host:8000")
+    policy = NetworkPolicy(NetworkMode.DIRECT) if direct else NetworkPolicy()
+    settings = ExecutionSettings(
+        enabled=True,
+        network=NetworkPolicy(NetworkMode.OVERRIDE, https_proxy="http://project:9000"),
+        interpreters=(
+            InterpreterSpec(Interpreter.PYTHON, sys.executable, network=policy),
+        ),
+    )
+    engine, jobs, workspace, home = _owners(tmp_path, settings=settings)
+    expected = None if direct else "http://project:9000"
+    backend = await _start(
+        engine,
+        workspace,
+        home,
+        "import os\ne = {k.lower(): v for k, v in os.environ.items()}\n"
+        "assert e.get('path')\nassert 'all_proxy' not in e and 'http_proxy' not in e\n"
+        f"assert e.get('https_proxy') == {expected!r}\nprint('network-ok')\n",
+    )
+    try:
+        async with asyncio.timeout(10):
+            await engine.wait("2026-10-06/1000", backend.job_id)
+        assert (
+            jobs.snapshot("2026-10-06/1000", backend.job_id).state is JobState.SUCCEEDED
+        )
+        assert "network-ok" in backend.collect()["stdout"]
+    finally:
+        await jobs.cleanup_turn("2026-10-06/1000")
 
 
 async def test_successful_root_closes_children_before_job_becomes_resolved(

@@ -6,6 +6,8 @@ from tinysoul.agent.errors import AgentContractError
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.config import ConfigError, ConfigOperation
 from tinysoul.infra.json import JsonObject
+from tinysoul.infra.network import resolve_project_network
+from tinysoul.infra.settings import parse_infra_settings
 from tinysoul.llm.adapter.base import ProviderError
 from tinysoul.llm.config.loader import (
     LLMConfigParser,
@@ -124,7 +126,13 @@ class EndpointConfigurationEngine:
             config = LLMConfigParser().parse(environment.section_tree("llm"))
             provider = config.provider(provider_id)
             return await read_anthropic_model_capabilities(
-                provider, model_id, env=environment.runtime_env
+                provider,
+                model_id,
+                env=environment.runtime_env,
+                network=resolve_project_network(
+                    environment.parse_section("infra", parse_infra_settings).network,
+                    environment,
+                ),
             )
         except ConfigError as exc:
             raise _config_error(exc) from exc

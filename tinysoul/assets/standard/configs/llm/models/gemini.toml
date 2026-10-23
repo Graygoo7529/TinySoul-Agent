@@ -6,7 +6,10 @@
 family = "Gemini"
 collapsed = false
 adapter = "google-generate-content"
-providers = [{ provider = "google", provider_model = "gemini-4-argon" }]
+providers = [
+  { provider = "google", provider_model = "gemini-4-argon" },
+  { provider = "opencode", provider_model = "gemini-4-argon-contributor" },
+]
 context_window_tokens = 1048576
 capabilities = [
   "text_input",

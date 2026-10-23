@@ -12,6 +12,7 @@ from tinysoul.infra import (
     StagingDirectoryManager,
     StagingError,
 )
+from tinysoul.infra.network import ResolvedNetwork
 from tinysoul.kernel.action import (
     ActionEngineBuilder,
     ActionExecution,
@@ -259,6 +260,7 @@ def register_web_actions(
     *,
     settings: WebSettings,
     runtime_env: Mapping[str, str],
+    network: ResolvedNetwork = ResolvedNetwork(),
     workspace: WorkspaceService,
     staging: StagingDirectoryManager,
     runtime_bridge: RuntimeWorkspaceBridge | None = None,
@@ -290,6 +292,7 @@ def register_web_actions(
         workspace=workspace,
         settings=settings,
         runtime_env=runtime_env,
+        network=network,
         staging=staging,
         kimi_api_key=kimi_search_api_key(settings, runtime_env),
     )

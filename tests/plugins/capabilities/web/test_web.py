@@ -1,26 +1,36 @@
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import replace
 from pathlib import Path
-import shutil
 from time import monotonic
 from typing import cast
 
-import pytest
 import httpx
+import pytest
 
+from tests.support.catalog import builtin_action_catalog_root
+from tinysoul.infra import (
+    DependencyCheck,
+    DependencyChecker,
+    JsonValue,
+    StagingDirectoryManager,
+    dumps_json,
+    to_json_object,
+)
+from tinysoul.infra.config import ConfigError
+from tinysoul.infra.network import NetworkMode, NetworkPolicy
 from tinysoul.kernel.action import (
     ActionCall,
     ActionEngineBuilder,
     ActionExecution,
     ActionExecutionContext,
     ActionExecutionControl,
+    ActionFailureDisposition,
     ActionFramework,
     ActionResultStatus,
-    ActionFailureDisposition,
 )
-from tests.support.catalog import builtin_action_catalog_root
 from tinysoul.kernel.action.backends import (
     ControlledProcessRunner,
     ProcessOutcome,
@@ -28,15 +38,29 @@ from tinysoul.kernel.action.backends import (
     ProcessStatus,
 )
 from tinysoul.kernel.action.catalog.loader import ActionCatalogLoader
-from tinysoul.plugins.capabilities import parse_capabilities_settings
-from tinysoul.kernel.action.planning.rendering import ActionResultRenderer
 from tinysoul.kernel.action.execution.executor import ActionExecutionCancelled
+from tinysoul.kernel.action.planning.rendering import ActionResultRenderer
+from tinysoul.plugins.capabilities import parse_capabilities_settings
 from tinysoul.plugins.capabilities.web.actions import (
     WEB_FETCH_TRAFILATURA_ACTION,
     WEB_SEARCH_KIMI_ACTION,
     KimiSearchExecutor,
     WebFetchExecutor,
     register_web_actions,
+)
+from tinysoul.plugins.capabilities.web.backends import network
+from tinysoul.plugins.capabilities.web.backends.network import (
+    FetchedPage,
+    fetch_public_page,
+    validate_public_https_url,
+)
+from tinysoul.plugins.capabilities.web.backends.worker import (
+    _extract_with_defuddle,
+    _failure,
+    _kimi_search_request_options,
+    _normalize_search_result,
+    _parse_kimi_tool_round,
+    _read_bounded_json_file,
 )
 from tinysoul.plugins.capabilities.web.config import (
     KimiSearchSettings,
@@ -49,36 +73,13 @@ from tinysoul.plugins.capabilities.web.errors import (
     web_failure_disposition,
 )
 from tinysoul.plugins.capabilities.web.models import WebExtractor
-from tinysoul.plugins.capabilities.web.backends.network import (
-    FetchedPage,
-    fetch_public_page,
-    validate_public_https_url,
-)
-from tinysoul.plugins.capabilities.web.backends import network
 from tinysoul.plugins.capabilities.web.service import (
     WebCapabilityService,
     _worker_failure_facts,
 )
-from tinysoul.plugins.capabilities.web.backends.worker import (
-    _extract_with_defuddle,
-    _kimi_search_request_options,
-    _normalize_search_result,
-    _parse_kimi_tool_round,
-    _read_bounded_json_file,
-    _failure,
-)
-from tinysoul.infra.config import ConfigError
-from tinysoul.infra import (
-    DependencyCheck,
-    DependencyChecker,
-    JsonValue,
-    StagingDirectoryManager,
-    dumps_json,
-    to_json_object,
-)
-from tinysoul.runtime import RunScope, SignalBus
-from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
+from tinysoul.plugins.workspace.services import WorkspaceService
+from tinysoul.runtime import RunScope, SignalBus
 
 
 def test_web_config_parses_independent_kimi_search_and_fetch_actions() -> None:
@@ -433,11 +434,23 @@ async def test_kimi_search_returns_answer_and_results_without_mode(
     workspace = _workspace(local_tmp)
     service = WebCapabilityService(
         workspace=WorkspaceService(workspace),
-        settings=WebSettings(search_by_kimi=KimiSearchSettings(enabled=True)),
-        runtime_env={"PATH": "test-path"},
+        settings=WebSettings(
+            network=NetworkPolicy(
+                NetworkMode.OVERRIDE, http_proxy="http://parent:8000"
+            ),
+            search_by_kimi=KimiSearchSettings(
+                enabled=True,
+                network=NetworkPolicy(
+                    NetworkMode.OVERRIDE, https_proxy="http://search:9000"
+                ),
+            ),
+        ),
+        runtime_env={"PATH": "test-path", "ALL_PROXY": "http://host:8000"},
         staging=_staging(local_tmp),
         kimi_api_key="search-secret",
-        process_runner=_SearchRunner(answer="Current answer", result_count=2),
+        process_runner=_SearchRunner(
+            answer="Current answer", result_count=2, proxy="http://search:9000"
+        ),
     )
     executor = KimiSearchExecutor(service=service)
 
@@ -895,10 +908,12 @@ class _SearchRunner(ControlledProcessRunner):
         answer: str,
         result_count: int,
         snippet_chars: int = 0,
+        proxy: str | None = None,
     ) -> None:
         self._answer = answer
         self._result_count = result_count
         self._snippet_chars = snippet_chars
+        self._proxy = proxy
 
     def run(
         self,
@@ -911,6 +926,9 @@ class _SearchRunner(ControlledProcessRunner):
         assert request.env["TINYSOUL_KIMI_SEARCH_API_KEY"] == "search-secret"
         assert request.env["PYTHONIOENCODING"] == "utf-8"
         assert "KIMI_API_KEY" not in request.env
+        env = {name.lower(): value for name, value in request.env.items()}
+        assert env.get("https_proxy") == self._proxy
+        assert "all_proxy" not in env and "http_proxy" not in env
         results = [
             {
                 "title": f"Source {index}",

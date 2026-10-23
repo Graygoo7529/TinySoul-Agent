@@ -1,3 +1,4 @@
+import { NetworkPolicyField } from "./NetworkPolicyEditor";
 import { settingsText } from "../i18n";
 /**
  * Execution & Jobs settings (config-coverage §4.1/§4.2): the running
@@ -16,6 +17,11 @@ const INTERPRETERS = ["python", "bash", "powershell", "cmd"] as const;
 export function ExecutionPage() {
   return (
     <SettingsPageBody>
+      <NetworkPolicyField path="execution.network" title="执行环境代理" />
+      <details><summary className="cursor-pointer text-sm text-fg-muted">解释器代理覆盖</summary>
+        {INTERPRETERS.map((id) => <NetworkPolicyField key={id} path={`execution.interpreters.${id}.network`} title={id} parentLabel="执行环境代理" />)}
+        <p className="p-3 text-xs text-fg-muted">代理通过环境变量传入。PowerShell HTTP 命令需使用 PowerShell 7；其它程序依其自身支持情况使用代理。</p>
+      </details>
       <RunningStrip />
       <FieldSection
         title={settingsText("Interpreters")}

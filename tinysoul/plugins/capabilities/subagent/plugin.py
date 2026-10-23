@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from functools import partial
 
 from tinysoul.infra.concurrency import CleanupDiagnostic
+from tinysoul.infra.network import ResolvedNetwork
 from tinysoul.infra.process import ManagedProcessCloseError
 from tinysoul.kernel.jobs import JobRegistry
 from tinysoul.kernel.loop.interaction.events import TurnEventSubscription
@@ -48,7 +49,7 @@ class SubagentPlugin:
     model_uses = ()
     search_capabilities = ()
     provides = (SubagentEngine,)
-    requires = (JobRegistry, WorkspaceExecutionService)
+    requires = (ResolvedNetwork, JobRegistry, WorkspaceExecutionService)
     configuration = (
         PluginConfig(
             "capabilities.subagent",
@@ -67,6 +68,7 @@ class SubagentPlugin:
             jobs=context.services.get(JobRegistry),
             workspace=context.services.get(WorkspaceExecutionService),
             environment=context.runtime_env,
+            network=context.services.get(ResolvedNetwork),
         )
 
         def extend(

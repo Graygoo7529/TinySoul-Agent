@@ -1,3 +1,4 @@
+import { NetworkPolicyEditor, NetworkPolicyField } from "./NetworkPolicyEditor";
 import { settingsText } from "../i18n";
 /**
  * ACP Subagents settings (config-coverage §4.6): delegation targets are
@@ -32,7 +33,8 @@ export function AcpPage() {
       collectionId="capabilities.subagent.agents"
       runtimeSummary={<AcpRuntimeSummary />}
       renderFields={(ctx) => <AcpTargetFields ctx={ctx} />}
-      limits={
+      limits={<>
+        <NetworkPolicyField path="capabilities.subagent.network" title="默认代理" />
         <FieldSection
           title={settingsText("Delegation Limits")}
           description={settingsText("Connection and delegation bounds shared by all targets.")}
@@ -52,7 +54,7 @@ export function AcpPage() {
             "capabilities.subagent.stop_timeout_seconds": { min: 1 },
           }}
         />
-      }
+      </>}
     />
   );
 }
@@ -78,6 +80,9 @@ function AcpTargetFields({ ctx }: { ctx: ObjectEditContext }) {
 
   return (
     <>
+      <ObjRow path={at("network")} label="代理设置">
+        <NetworkPolicyEditor value={ctx.object.network} parentLabel="模块默认代理" disabled={disabled} onChange={(network) => ctx.update({ network })} />
+      </ObjRow>
       <ObjRow path={at("enabled")}>
         <ObjBoolean
           value={bool("enabled")}

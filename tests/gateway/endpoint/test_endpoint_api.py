@@ -9,6 +9,7 @@ from typing import Self
 from zoneinfo import ZoneInfo
 
 import httpx
+import httpx2
 import pytest
 from fastapi.testclient import TestClient
 
@@ -770,6 +771,7 @@ def test_anthropic_model_capability_lookup_uses_saved_binding_without_exposing_k
     from types import SimpleNamespace
 
     from tinysoul.gateway.endpoint.engine import configuration as configuration_module
+    from tinysoul.infra.network import ResolvedNetwork
     from tinysoul.llm.adapter.anthropic import models as model_module
 
     captured: dict[str, object] = {}
@@ -788,6 +790,12 @@ def test_anthropic_model_capability_lookup_uses_saved_binding_without_exposing_k
         ) -> dict[str, str]:
             return {"X-Route": "test-route"}
 
+        def resolved_network(
+            self, _mode: object, parent: ResolvedNetwork
+        ) -> ResolvedNetwork:
+            captured["network"] = parent
+            return parent
+
     class FakeClient:
         def __init__(self, **kwargs: object) -> None:
             captured.update(kwargs)
@@ -797,7 +805,9 @@ def test_anthropic_model_capability_lookup_uses_saved_binding_without_exposing_k
             return self
 
         async def __aexit__(self, *_args: object) -> None:
-            return None
+            transport = captured["http_client"]
+            assert isinstance(transport, httpx2.AsyncClient)
+            await transport.aclose()
 
         async def retrieve(self, model_id: str) -> object:
             captured["model_id"] = model_id
@@ -835,6 +845,9 @@ def test_anthropic_model_capability_lookup_uses_saved_binding_without_exposing_k
     monkeypatch.setattr(configuration_module, "LLMConfigParser", FakeParser)
     monkeypatch.setattr(model_module, "AsyncAnthropic", FakeClient)
 
+    (tmp_path / "tinysoul.toml").write_text(
+        '[infra.network]\nmode = "direct"\n', encoding="utf-8"
+    )
     engine, _, _events = _engine(tmp_path)
     client = TestClient(create_endpoint_app(engine, engine.settings))
     response = client.post(
@@ -861,6 +874,10 @@ def test_anthropic_model_capability_lookup_uses_saved_binding_without_exposing_k
             "choices": ["low", "medium", "high"],
         },
     }
+    assert captured.pop("network") == ResolvedNetwork()
+    transport = captured.pop("http_client")
+    assert isinstance(transport, httpx2.AsyncClient)
+    assert transport.is_closed
     assert captured == {
         "api_key": "secret-test-key",
         "base_url": "https://anthropic.example/v1",

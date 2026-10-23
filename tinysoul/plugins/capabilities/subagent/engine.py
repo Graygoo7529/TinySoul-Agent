@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
@@ -10,12 +11,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from tinysoul.prompts.plugins.capabilities import subagent as prompt_text
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.json import JsonObject
+from tinysoul.infra.network import ResolvedNetwork
 from tinysoul.infra.process import ManagedProcessCloseError
 from tinysoul.kernel.jobs import JobRegistry
 from tinysoul.plugins.workspace.services import WorkspaceExecutionPort
+from tinysoul.prompts.plugins.capabilities import subagent as prompt_text
 from tinysoul.runtime.events import EnvironmentEvent, EventKind
 from tinysoul.runtime.sources import EventSink, SourceState, SourceStatus
 
@@ -53,13 +55,20 @@ class SubagentEngine:
         jobs: JobRegistry,
         workspace: WorkspaceExecutionPort,
         environment: Mapping[str, str],
+        network: ResolvedNetwork = ResolvedNetwork(),
     ) -> None:
         self.settings, self.jobs, self._workspace = settings, jobs, workspace
         self._targets = {
             target.agent_id: target for target in settings.agents if target.enabled
         }
         self._connections: dict[str, _Connection] = {}
-        self._environments = validate_subagent_bindings(settings, environment)
+        environments = validate_subagent_bindings(settings, environment)
+        self._environments = {
+            identity: self._targets[identity]
+            .network.resolve(settings.network.resolve(network))
+            .process_environment({**os.environ, **values})
+            for identity, values in environments.items()
+        }
         self._lock = asyncio.Lock()
         self._publish: EventSink | None = None
 

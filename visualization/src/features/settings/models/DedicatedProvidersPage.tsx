@@ -1,3 +1,4 @@
+import { NetworkPolicyEditor } from "../editors/NetworkPolicyEditor";
 import { settingsText } from "../i18n";
 /**
  * Dedicated Providers settings page (plan §16.4): the
@@ -145,13 +146,6 @@ export function DedicatedProvidersPage() {
           <DedicatedProviderEditor
             entry={current.value}
             onPatch={(patch) => patchEntry(current.id, patch)}
-            onReplace={(value) =>
-              commit(
-                effectiveValues().map((item) =>
-                  item.id === current.id ? value : item,
-                ),
-              )
-            }
           />
         )}
         {current === null && deletedEntries.length > 0 && (
@@ -242,11 +236,9 @@ export function defaultServiceApiKeyEnv(providerId: string): string {
 function DedicatedProviderEditor({
   entry,
   onPatch,
-  onReplace,
 }: {
   entry: Record<string, JsonValue>;
   onPatch: (patch: Record<string, JsonValue>) => void;
-  onReplace: (value: Record<string, JsonValue>) => void;
 }) {
   const apiKeyEnv = stringField(entry, "api_key_env");
   return (
@@ -312,26 +304,9 @@ function DedicatedProviderEditor({
             onCommit={(value) => onPatch({ max_retries: value })}
           />
         </FieldRow>
-        <FieldRow
-          title={settingsText("Proxy")}
-          description={settingsText("Optional http/https/socks5 proxy URL; clear the text to remove it.")}
-        >
-          <TextInput
-            ariaLabel="Proxy"
-            value={stringField(entry, "proxy")}
-            placeholder="http://localhost:8080"
-            mono
-            onCommit={(value) => {
-              const trimmed = value.trim();
-              if (trimmed === "") {
-                const next = { ...entry };
-                delete next.proxy;
-                onReplace(next);
-                return;
-              }
-              onPatch({ proxy: trimmed });
-            }}
-          />
+        <FieldRow title="代理设置">
+          <NetworkPolicyEditor value={entry.network} parentLabel="系统网络默认配置"
+            onChange={(network) => onPatch({ network })} />
         </FieldRow>
       </FieldSection>
       <FieldSection

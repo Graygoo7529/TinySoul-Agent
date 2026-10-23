@@ -8,7 +8,8 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
-from acp import Agent as AcpAgent, Client, connect_to_agent
+from acp import Agent as AcpAgent
+from acp import Client, connect_to_agent
 from acp.exceptions import RequestError
 from acp.schema import (
     ClientCapabilities,
@@ -25,10 +26,11 @@ from acp.schema import (
     WriteTextFileResponse,
 )
 
-from tinysoul.prompts.plugins.capabilities import subagent as prompt_text
 from tinysoul.infra.concurrency import CleanupDiagnostic
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.infra.process import ManagedProcessRequest, StdioProcess
+from tinysoul.prompts.plugins.capabilities import subagent as prompt_text
+
 from ..config import AgentTarget, SubagentSettings
 from ..failures import SubagentFailure, SubagentRequestError
 
@@ -197,6 +199,7 @@ class ACPConnection:
             ManagedProcessRequest(
                 (target.command, *target.args),
                 cwd=str(cwd),
+                inherit_env=False,
                 env={
                     **environment,
                     "NO_BROWSER": "1",

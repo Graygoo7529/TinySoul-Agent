@@ -2,11 +2,11 @@
 
 日期：2026-10-23。
 
-状态：`pending`，设计复核完成，准备实施。本文是待实施方案；不表示配置、网络设施或界面已落地。
+状态：`in_progress`。本轮实现已完成主要代码、配置、文档和前端接入；真实 OpenCode 的 DeepSeek 缓存仍受上游 503 阻塞，因此按规约保留本计划，未归档为 done。
 
 依据：重新阅读根目录 `AGENTS.md`，对照 `docs/design/infra.md`、`llm.md`、`execution.md`、各 capability 设计，以及当前配置、装配、SDK、worker 和进程调用路径。
 
-本次交付范围：分析、设计和执行计划。后续按本计划实施；不因计划写完而修改生产配置、启用 provider 或切换任务链。
+本次交付范围：OpenCode Go 接入、统一出站网络配置、请求身份和配置编辑链路。真实测试使用隔离项目，未修改运行项目的凭据或启用默认 provider。
 
 ## 1. 目标与已确认方向
 
@@ -340,68 +340,69 @@ Anthropic base URL 不额外带 `/v1`，SDK 自行追加 `/v1/messages`；Google
 
 ## 9. 分步实施与验收
 
-### P0：配置语义与基线（pending）
+### P0：配置语义与基线（done）
 
-- [ ] 核对本计划与当前 AGENTS.md；记录工作区并避开其它任务的修改。
-- [ ] 固定三种 mode、完整覆盖、环境来源、适用范围和 PowerShell 边界。
-- [ ] 检索所有旧专用 provider.proxy 使用处，确定一次性迁移清单；不实现兼容 alias。
+- [x] 核对本计划与当前 AGENTS.md；记录工作区并避开其它任务的修改。
+- [x] 固定三种 mode、完整覆盖、环境来源、适用范围和 PowerShell 边界。
+- [x] 检索所有旧专用 provider.proxy 使用处，确定一次性迁移清单；不实现兼容 alias。
 
-### P1：Infra 及配置装配（pending）
+### P1：Infra 及配置装配（done）
 
-- [ ] 实现 NetworkPolicy/ResolvedNetwork 与 HTTP helper，类型与 owner 明确。
-- [ ] 核对并声明 HTTP helper 实际使用的直接依赖，保持 SDK 版本约束相容。
-- [ ] 根配置进入 InfraSettings 和候选编译；实现 provider/endpoint、专用模型、MCP/ACP/Web/execution 的共用解析。
-- [ ] 正式建立直连、按协议代理、no_proxy 和完整进程环境的契约测试。
-- [ ] 新增两个 profile 的 network.toml，更新 catalog 与网络设计文档对应部分。
+- [x] 实现 NetworkPolicy/ResolvedNetwork 与 HTTP helper，类型与 owner 明确。
+- [x] 核对并声明 HTTP helper 实际使用的直接依赖，保持 SDK 版本约束相容。
+- [x] 根配置进入 InfraSettings 和候选编译；实现 provider/endpoint、专用模型、MCP/ACP/Web/execution 的共用解析。
+- [x] 正式建立直连、按协议代理、no_proxy 和完整进程环境的契约测试。
+- [x] 新增两个 profile 的 network.toml，更新 catalog 与网络设计文档对应部分。
 
-### P2：LLM 网络与请求身份（pending）
+### P2：LLM 网络与请求身份（done）
 
-- [ ] 四类 SDK client 以及 Anthropic Models 查询接入网络配置与公共 User-Agent。
-- [ ] provider.cache_key_header 解析与请求映射；保留静态 headers/header_refs 用途。
-- [ ] Anthropic beta 头合并；Google 生成和 cache create 请求头一致。
-- [ ] 验证共享客户端并发请求不同 key 不串号，重试同 key；不修改现有回放协议。
-- [ ] 同步 LLM 设计与 Endpoint 配置说明。
+- [x] 四类 SDK client 以及 Anthropic Models 查询接入网络配置与公共 User-Agent。
+- [x] provider.cache_key_header 解析与请求映射；保留静态 headers/header_refs 用途。
+- [x] Anthropic beta 头合并；Google 生成和 cache create 请求头一致。
+- [x] 验证共享客户端并发请求不同 key 不串号，重试同 key；不修改现有回放协议。
+- [x] 同步 LLM 设计与 Endpoint 配置说明。
 
-### P3：专用模型、MCP/ACP 和 execution（pending）
+### P3：专用模型、MCP/ACP 和 execution（done）
 
-- [ ] 专用 provider 移除旧 proxy，Embedding/decision 调用共用 ResolvedNetwork。
-- [ ] MCP HTTP/stdio 和 ACP target 完成继承、禁用、覆盖；原有延迟连接和关闭流程保留。
-- [ ] execution 的 Python/bash/PowerShell/cmd 接收统一环境；interpreter 可以覆盖。
-- [ ] 验证 direct 不重新继承宿主代理，PATH 和明确授权的凭据环境仍保留；项目 dotenv 不整体外泄。
-- [ ] 同步相应 owner 设计文档。
+- [x] 专用 provider 移除旧 proxy，Embedding/decision 调用共用 ResolvedNetwork。
+- [x] MCP HTTP/stdio 和 ACP target 完成继承、禁用、覆盖；原有延迟连接和关闭流程保留。
+- [x] execution 的 Python/bash/PowerShell/cmd 接收统一环境；interpreter 可以覆盖。
+- [x] 验证 direct 不重新继承宿主代理，PATH 和明确授权的凭据环境仍保留；项目 dotenv 不整体外泄。
+- [x] 同步相应 owner 设计文档。
 
-### P4：Web 与 worker（pending）
+### P4：Web 与 worker（done）
 
-- [ ] Web 服务选择默认或 Kimi 专用策略，以现有隔离 worker 的环境边界传递。
-- [ ] worker 将传入环境解析成明确网络对象，再显式构造同步 SDK/HTTP client；不靠 trust_env 隐式补齐。
-- [ ] 页面、robots、跳转和发现请求沿同一网络能力；保持现有 URL/输出/进程预算与校验。
-- [ ] Defuddle/Trafilatura 继续处理已下载内容，不引入第二条隐藏下载路径。
-- [ ] Web 使用公共 User-Agent 默认值，清理两个 profile 中固定旧版本的默认项，保留显式覆盖能力。
-- [ ] 同步 Web 设计和真实网络测试的配置方式。
+- [x] Web 服务选择默认或 Kimi 专用策略，以现有隔离 worker 的环境边界传递。
+- [x] worker 将传入环境解析成明确网络对象，再显式构造同步 SDK/HTTP client；不靠 trust_env 隐式补齐。
+- [x] 页面、robots、跳转和发现请求沿同一网络能力；保持现有 URL/输出/进程预算与校验。
+- [x] Defuddle/Trafilatura 继续处理已下载内容，不引入第二条隐藏下载路径。
+- [x] Web 使用公共 User-Agent 默认值，清理两个 profile 中固定旧版本的默认项，保留显式覆盖能力。
+- [x] 同步 Web 设计和真实网络测试的配置方式。
 
-### P5：OpenCode 模板与模型验证（pending）
+### P5：OpenCode 模板与模型验证（in_progress）
 
-- [ ] 添加 provider 四 endpoints、cache_key_header 和五个模型 binding/定义。
-- [ ] 查证 Grok 部署规格，核对 GPT Luna 新 binding 的共享选项；未知能力不宣称支持。
-- [ ] 用隔离的真实测试项目选择 `TINYSOUL_REAL_PROVIDER=opencode`，覆盖五个模型。
-- [ ] 核对请求最终 URL、User-Agent、x-opencode-session；模型实际能力按下面验证矩阵记录。
-- [ ] 对 DeepSeek 503 做最小对照复测并保留结果；不静默关闭 thinking、删除 options 或伪造通过。
-- [ ] 同步模型配置说明和本计划验证表，记录凭据变量名而非值。
+- [x] 添加 provider 四 endpoints、cache_key_header 和五个模型 binding/定义。
+- [x] 查证 Grok 部署规格，核对 GPT Luna 新 binding 的共享选项；未知能力不宣称支持。
+- [x] 用隔离的真实测试项目选择 `TINYSOUL_REAL_PROVIDER=opencode`，覆盖五个模型。
+- [x] 核对请求最终 URL、User-Agent、x-opencode-session；模型实际能力按下面验证矩阵记录。
+- [x] 对 DeepSeek 503 做最小对照复测并保留结果；不静默关闭 thinking、删除 options 或伪造通过。
+- [x] 同步模型配置说明和本计划验证表，记录凭据变量名而非值。
+- [ ] DeepSeek 的 prompt-cache 首次/后续调用仍需远端恢复后复测；当前 JSON 直连调用成功，cache 请求分别经代理和直连返回上游 503。
 
-### P6：Endpoint 和前端对接（pending）
+### P6：Endpoint 和前端对接（done）
 
-- [ ] 后端 catalog/配置编辑/能力查询完整覆盖网络字段和 header 字段，更新 Endpoint 文档。
-- [ ] 前端工作实现复用编辑器和各页接入；mode 转换、对象/数组编辑、diff/apply 均走现有草稿链路。
-- [ ] 两个 profile 加载、配置保存/激活、新建 provider/family 后网络设置均可使用。
-- [ ] 若前端另行执行，记录交接与未完成状态；不能仅凭后端测试将本计划整体标为 done。
+- [x] 后端 catalog/配置编辑/能力查询完整覆盖网络字段和 header 字段，更新 Endpoint 文档。
+- [x] 前端工作实现复用编辑器和各页接入；mode 转换、对象/数组编辑、diff/apply 均走现有草稿链路。
+- [x] 两个 profile 加载、配置保存/激活、新建 provider/family 后网络设置均可使用。
+- [x] 前后端在同一工作区完成，未把前端接入当作未完成的交接项。
 
-### P7：规约复核与交付（pending）
+### P7：规约复核与交付（in_progress）
 
-- [ ] 对照第 1 节目标及文件表逐项检查真实消费者、所有权、错误层次和客户端关闭。
-- [ ] 删除旧 proxy 表达、未消费参数及重复 User-Agent 默认值；无新增兼容别名。
-- [ ] 完成聚焦、Fast、Full、typecheck；前端实际改动完成相应测试和 build。
-- [ ] 区分实现缺陷、已完成验证、未验证能力与远端阻塞；更新执行记录。
-- [ ] 所有计划条目、文档同步和必要验证核对后，才改为 done 并按 AGENTS.md 重命名、移动到 `docs/analysis/done/`。
+- [x] 对照第 1 节目标及文件表逐项检查真实消费者、所有权、错误层次和客户端关闭。
+- [x] 删除旧 proxy 表达、未消费参数及重复 User-Agent 默认值；无新增兼容别名。
+- [x] 完成聚焦、Fast、Full、typecheck；前端实际改动完成相应测试和 build。
+- [x] 区分实现缺陷、已完成验证、未验证能力与远端阻塞；更新执行记录。
+- [ ] DeepSeek prompt-cache 远端验证恢复后重新执行 external；完成后才可将计划改为 done 并按 AGENTS.md 归档。
 
 ## 10. 验证设计
 
@@ -409,7 +410,7 @@ Anthropic base URL 不额外带 `/v1`，SDK 自行追加 `/v1/messages`；Google
 
 | owner | 需要保护的行为 | 主要测试位置 |
 | --- | --- | --- |
-| Infra 网络 | inherit/direct/override；完整覆盖；不同协议代理；no_proxy 域名边界、IP、端口、重定向；环境优先级和不修改 os.environ | 新增 `tests/infra/test_network.py`、`test_http.py`，保持有限参数化 |
+| Infra 网络 | inherit/direct/override；完整覆盖；不同协议代理；no_proxy 域名边界、IP、端口、重定向；环境优先级和不修改 os.environ | 新增 `tests/infra/test_network.py`（覆盖 HTTPX/HTTPX2 与同步/异步路径） |
 | 进程环境 | 宿主 ALL_PROXY 不抵消 direct；override 未设置协议不继承；完整基础环境保留；两个 Agent 实例互不污染 | Infra 环境 helper 测试 + execution/MCP/ACP 各一条组装协作路径 |
 | LLM 配置/请求 | 静态与动态头冲突、头大小写；各 SDK 的最终 URL/header；无 key 时不造 key；不要求 prompt_cache capability | `tests/llm/config/test_config.py`、`adapter/test_api_modes.py` |
 | OpenAI/Anthropic/Google | 请求级头、并发隔离；Anthropic beta 保留和流式聚合；Google cache create 传头且不改变资源内容索引 | 现有 `test_provider_openai_sdk.py`、`test_messages_and_generate_content.py`、`test_anthropic_streaming.py` |
@@ -456,11 +457,27 @@ $env:TINYSOUL_REAL_MODELS = "deepseek-pro,gpt-luna,grok-latest,claude-haiku,gemi
 .\scripts\typecheck.ps1
 ```
 
-前端实施完成后在 visualization 目录运行现有 `npm test` 与 `npm run build`。本次仅编写计划，不运行与文档修改无关的模型计费测试或代码门禁。
+### 本轮实际验证记录
+
+| 验证 | 结果 |
+| --- | --- |
+| 后端聚焦（网络、ModelServices、LLM SDK、Endpoint、Web、MCP、ACP、execution） | 116 passed |
+| Fast | 1371 passed, 15 deselected；标准 Fast suite 完成 |
+| Full | 1376 passed, 10 deselected；标准 Full suite 完成 |
+| `typecheck.ps1` | passed（`ty 0.0.84`） |
+| 前端 `npm.cmd test` | 95 suites, 822 tests passed |
+| 前端 `npm.cmd run build` | passed；保留 Vite 大 chunk warning |
+| OpenCode 真实测试（隔离项目、代理） | GPT Luna、Grok、Claude Haiku、Gemini Argon 的 JSON/图片/工具/推理回放/缓存路径按模型声明通过；DeepSeek JSON 与推理调用有成功记录 |
+| OpenCode 真实测试（DeepSeek cache） | 未通过：代理和直连均收到上游 503 `Endpoint is unavailable`；保留 external 阻塞，不降低断言 |
+| OpenCode 真实测试（GPT Luna 直连） | 403 `unsupported_country_region_territory`；此前代理路径成功，说明网络策略确实生效 |
+
+真实测试使用隔离目录 `B:/tmp/tinysoul-opencode-network-1cd4977d`，只读取 `OPENCODE_API_KEY`，不在文档或日志保存密钥。Gemini 的通过项为 implicit 长前缀复用，不宣称创建 explicit cachedContent；OpenCode session header 是路由头，不被当作服务端 cache hit 证据。
+
+前端实施完成后在 visualization 目录运行现有 `npm test` 与 `npm run build`。已执行本地聚焦测试、Fast、Full、typecheck、前端全量测试和 build；真实 external 结果按下表记录。
 
 ## 11. 可行性、边界与准备状态
 
-结论：设计合理可行，准备实施。底层 SDK 均已有显式 HTTP client 或请求头入口；项目也已有配置写入、generation 资源释放、typed 进程环境和公共缓存 key。无需新增调度器、会话 owner 或 provider 专用 adapter。
+结论：设计合理可行，主要实现已落地。底层 SDK 均已有显式 HTTP client 或请求头入口；项目也已有配置写入、generation 资源释放、typed 进程环境和公共缓存 key。无需新增调度器、会话 owner 或 provider 专用 adapter。计划仍为 in_progress 的唯一原因是远端 DeepSeek prompt-cache 验证，不是本地实现缺口。
 
 需要特别落实的正常路径：
 
@@ -487,4 +504,6 @@ $env:TINYSOUL_REAL_MODELS = "deepseek-pro,gpt-luna,grok-latest,claude-haiku,gemi
 | 日期 | 阶段 | 事实 | 状态 |
 | --- | --- | --- | --- |
 | 2026-10-23 | 设计 | 重新阅读规约与实现，完成网络消费者清单、配置语义、header 归属、文件清单与验收设计 | done |
-| 待实施 | P0–P7 | 按阶段补充实际文件、命令、结果与剩余项 | pending |
+| 2026-10-23 | P0–P4、P6 | 配置、Infra、四类 SDK、专用模型、MCP/ACP、Web、execution、Endpoint 与前端已实现；新增测试与设计文档同步 | done |
+| 2026-10-23 | P5 | GPT Luna、Grok、Claude Haiku、Gemini Argon 五项能力通过真实代理路径；DeepSeek JSON 直连通过，缓存请求代理/直连均为上游 503 | in_progress |
+| 2026-10-23 | P7 | Fast/Full/typecheck 与前端 95 suites/822 tests/build 通过；保留远端缓存复测项 | in_progress |

@@ -37,6 +37,8 @@ isError、参数不符、服务不可用和协议能力不足为局部结果；W
 
 ## 用户配置与生命周期
 
+模块默认和单个 server 的网络策略继承 Infra 设置。Streamable HTTP 使用显式 HTTP client 和公共 TinySoul User-Agent；stdio 使用相同策略生成完整进程环境。配置中的普通 env/env_refs 继续承载程序参数与凭据，代理统一由 network 表达，不允许两套入口相互覆盖。连接仍延迟创建并归 MCP owner 关闭；网络设置不触发后台探活或自动切换。
+
 安装 TinySoul 的 `.[external-tools]` extra，使用 MCP SDK 2.2.0 和 jsonschema 4.26 系列以上的支持范围。用户自行安装本地服务或准备远程 URL，然后通过正常配置 include、候选 PATCH 与空闲 reload 加入服务：
 
 ```toml

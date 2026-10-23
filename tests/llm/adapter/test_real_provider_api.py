@@ -20,6 +20,8 @@ import pytest
 
 from tinysoul.infra.config import ConfigEnvironment
 from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.network import resolve_project_network
+from tinysoul.infra.settings import parse_infra_settings
 from tinysoul.llm.adapter import ProviderAdapter, ProviderError, ProviderRequest
 from tinysoul.llm.adapter.catalog import adapter_spec
 from tinysoul.llm.adapter.factory import build_provider_registry
@@ -96,6 +98,7 @@ class RequestCapture:
     """Observe serialized JSON bodies without retaining credentials or replacing I/O."""
 
     bodies: list[JsonObject] = field(default_factory=list, repr=False)
+    connections: list[dict[str, str]] = field(default_factory=list)
 
     def record(self, method: str, content_type: str, content: bytes) -> None:
         if method == "POST" and "application/json" in content_type:
@@ -112,7 +115,18 @@ class RequestCapture:
             self.record(
                 request.method, request.headers.get("content-type", ""), request.content
             )
-            return await send(client, request, **kwargs)
+            response = await send(client, request, **kwargs)
+            self.connections.append(
+                {
+                    "url": str(request.url),
+                    **{
+                        name: request.headers[name]
+                        for name in ("user-agent", "x-opencode-session")
+                        if name in request.headers
+                    },
+                }
+            )
+            return response
 
         async def observe2(
             client: httpx2.AsyncClient, request: httpx2.Request, **kwargs: Any
@@ -120,7 +134,18 @@ class RequestCapture:
             self.record(
                 request.method, request.headers.get("content-type", ""), request.content
             )
-            return await send2(client, request, **kwargs)
+            response = await send2(client, request, **kwargs)
+            self.connections.append(
+                {
+                    "url": str(request.url),
+                    **{
+                        name: request.headers[name]
+                        for name in ("user-agent", "x-opencode-session")
+                        if name in request.headers
+                    },
+                }
+            )
+            return response
 
         monkeypatch.setattr(httpx.AsyncClient, "send", observe)
         monkeypatch.setattr(httpx2.AsyncClient, "send", observe2)
@@ -132,6 +157,7 @@ class RealModel:
     binding: ModelProviderBinding
     adapter: ProviderAdapter
     capture: RequestCapture
+    cache_key: str = field(default_factory=lambda: f"real-api:{uuid4().hex}")
 
     def require(self, capability: ModelCapability) -> None:
         if not self.model.supports(capability):
@@ -145,6 +171,7 @@ class RealModel:
             answer_format=AnswerFormat.TEXT,
             max_output_tokens=8192,
             timeout_seconds=120,
+            prompt_cache=PromptCache(key=self.cache_key),
         )
 
     async def invoke(self, request: ProviderRequest, step: str) -> RawResponse:
@@ -156,10 +183,15 @@ class RealModel:
             # Remote failures must not become successful/skipped checks.
             pytest.fail(
                 f"{self.model.id}/{self.binding.provider_id} {step}: "
-                f"{exc.kind.value} ({exc.scope.value}): {exc}",
+                f"{exc.kind.value} ({exc.scope.value}): {exc}; cause={type(exc.__cause__).__name__}",
                 pytrace=False,
             )
         assert len(self.capture.bodies) > count, "No real SDK JSON request observed"
+        connection = self.capture.connections[-1]
+        assert connection["user-agent"].startswith("TinySoul-Agent")
+        if self.binding.provider_id == "opencode":
+            assert request.prompt_cache is not None
+            assert connection["x-opencode-session"] == request.prompt_cache.key
         assert response.stop_reason in {
             ResponseStopReason.COMPLETE,
             ResponseStopReason.TOOL_CALLS,
@@ -172,6 +204,7 @@ class RealModel:
                     "model": self.model.id,
                     "provider": self.binding.provider_id,
                     "step": step,
+                    "connection": connection,
                     "stop": response.stop_reason.value,
                     "replay_mode": native.mode.value if native else None,
                     "replay_values": len(_replay_values(native.ordered_items))
@@ -229,7 +262,13 @@ async def real_model(
     capture = RequestCapture()
     capture.install(monkeypatch)
     registry = await build_provider_registry(
-        (provider,), models=ModelRegistry([model]), env=environment.runtime_env
+        (provider,),
+        models=ModelRegistry([model]),
+        env=environment.runtime_env,
+        network=resolve_project_network(
+            environment.parse_section("infra", parse_infra_settings).network,
+            environment,
+        ),
     )
     try:
         yield RealModel(
@@ -467,10 +506,9 @@ async def test_real_model_prompt_cache(real_model: RealModel) -> None:
         assert (first.usage.cache_creation_input_tokens or 0) > 0, (
             "No explicit cache creation reported"
         )
-    if second.usage.cached_input_tokens is None:
-        pytest.skip(
-            "Remote usage does not report cache reads; cache hit remains unverified"
-        )
+    assert second.usage.cached_input_tokens is not None, (
+        "Remote usage does not report cache reads; cache hit remains unverified"
+    )
     assert second.usage.cached_input_tokens > 0, (
         "Repeated long prefix did not report a cache hit"
     )

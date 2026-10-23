@@ -333,6 +333,28 @@ it.each([
 // ---------------------------------------------------------------------------
 
 describe("LlmProvidersPage", () => {
+  it("changes an endpoint proxy in the shared draft while preserving connection fields", async () => {
+    const endpoint = {
+      base_url: "https://example.test/v1", headers: { "X-Route": "static" },
+      network: { mode: "override", https_proxy: "http://proxy:8000" },
+    };
+    store().setValue(PROVIDERS, "llm.providers.kimi.endpoints", { "openai-chat": endpoint });
+    await act(async () => root.render(<LlmProvidersPage />));
+    const disclosure = [...container.querySelectorAll("summary")].find((node) => node.textContent === "入口代理覆盖")!;
+    const mode = disclosure.parentElement!.querySelector<HTMLSelectElement>("select")!;
+    await act(async () => {
+      mode.value = "direct";
+      mode.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const provider = projectCollection(store(), "llm.providers").find((item) => item.id === "kimi")!;
+    expect(provider.value.api_key_envs).toEqual(["KIMI_API_KEY"]);
+    expect(provider.value.endpoints).toEqual({ "openai-chat": { ...endpoint, network: { mode: "direct" } } });
+    expect(draftOperations(store())).toEqual([{
+      op: "set", source_id: PROVIDERS, path: "llm.providers.kimi.endpoints",
+      value: provider.value.endpoints,
+    }]);
+  });
+
   it("adds an API endpoint while preserving the shared credential and existing endpoint", async () => {
     await act(async () => root.render(<LlmProvidersPage />));
     const mode = container.querySelector<HTMLSelectElement>('select[aria-label="Add API mode"]')!;

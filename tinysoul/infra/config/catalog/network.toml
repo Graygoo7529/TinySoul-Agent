@@ -1,0 +1,106 @@
+[[surface]]
+id = "network"
+title = "Network"
+description = "Explicit outbound proxy defaults and consumer overrides."
+
+[[field_group]]
+id = "network.connection"
+surface = "network"
+title = "Connection policy"
+description = "Inherit, connect directly, or replace HTTP/HTTPS proxy settings."
+
+[[field]]
+path = "infra.network"
+surface = "network"
+group = "network.connection"
+title = "Network policy"
+description = "mode: inherit/direct/override; override uses http_proxy, https_proxy and comma-separated no_proxy. Unspecified protocols connect directly."
+value_kind = "object"
+
+[[field]]
+path = "llm.providers.*.network"
+surface = "network"
+group = "network.connection"
+title = "Network policy"
+description = "mode: inherit/direct/override; override uses http_proxy, https_proxy and comma-separated no_proxy. Unspecified protocols connect directly."
+value_kind = "object"
+
+[[field]]
+path = "llm.providers.*.endpoints.*.network"
+surface = "network"
+group = "network.connection"
+title = "Network policy"
+description = "mode: inherit/direct/override; override uses http_proxy, https_proxy and comma-separated no_proxy. Unspecified protocols connect directly."
+value_kind = "object"
+
+[[field]]
+path = "infra.model_services.providers.*.network"
+surface = "network"
+group = "network.connection"
+title = "Network policy"
+description = "mode: inherit/direct/override; override uses http_proxy, https_proxy and comma-separated no_proxy. Unspecified protocols connect directly."
+value_kind = "object"
+
+[[field]]
+path = "capabilities.expand.network"
+surface = "network"
+group = "network.connection"
+title = "Network policy"
+description = "mode: inherit/direct/override; override uses http_proxy, https_proxy and comma-separated no_proxy. Unspecified protocols connect directly."
+value_kind = "object"
+
+[[field]]
+path = "capabilities.expand.servers.*.network"
+surface = "network"
+group = "network.connection"
+title = "Network policy"
+description = "mode: inherit/direct/override; override uses http_proxy, https_proxy and comma-separated no_proxy. Unspecified protocols connect directly."
+value_kind = "object"
+
+[[field]]
+path = "capabilities.subagent.network"
+surface = "network"
+group = "network.connection"
+title = "Network policy"
+description = "mode: inherit/direct/override; override uses http_proxy, https_proxy and comma-separated no_proxy. Unspecified protocols connect directly."
+value_kind = "object"
+
+[[field]]
+path = "capabilities.subagent.agents.*.network"
+surface = "network"
+group = "network.connection"
+title = "Network policy"
+description = "mode: inherit/direct/override; override uses http_proxy, https_proxy and comma-separated no_proxy. Unspecified protocols connect directly."
+value_kind = "object"
+
+[[field]]
+path = "capabilities.web.network"
+surface = "network"
+group = "network.connection"
+title = "Network policy"
+description = "mode: inherit/direct/override; override uses http_proxy, https_proxy and comma-separated no_proxy. Unspecified protocols connect directly."
+value_kind = "object"
+
+[[field]]
+path = "capabilities.web.search_by_kimi.network"
+surface = "network"
+group = "network.connection"
+title = "Network policy"
+description = "mode: inherit/direct/override; override uses http_proxy, https_proxy and comma-separated no_proxy. Unspecified protocols connect directly."
+value_kind = "object"
+
+[[field]]
+path = "execution.network"
+surface = "network"
+group = "network.connection"
+title = "Network policy"
+description = "mode: inherit/direct/override; override uses http_proxy, https_proxy and comma-separated no_proxy. Unspecified protocols connect directly."
+value_kind = "object"
+
+[[field]]
+path = "execution.interpreters.*.network"
+surface = "network"
+group = "network.connection"
+title = "Network policy"
+description = "mode: inherit/direct/override; override uses http_proxy, https_proxy and comma-separated no_proxy. Unspecified protocols connect directly."
+value_kind = "object"

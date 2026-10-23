@@ -70,6 +70,7 @@ providers = [
   { provider = "openai", provider_model = "gpt-5.6-luna" },
   { provider = "wenrugou", provider_model = "gpt-5.6-luna" },
   { provider = "sublyx-proxy", provider_model = "gpt-5.6-luna" },
+  { provider = "opencode", provider_model = "gpt-6-luna" },
 ]
 context_window_tokens = 262144
 capabilities = [

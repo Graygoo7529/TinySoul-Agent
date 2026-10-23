@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from functools import partial
 
 from tinysoul.infra import StagingDirectoryManager
+from tinysoul.infra.network import ResolvedNetwork
 from tinysoul.kernel.action.runtime_bridge import RuntimeActionBridge
 from tinysoul.kernel.registration import (
     GenerationBuildContext,
@@ -13,11 +14,11 @@ from tinysoul.kernel.registration import (
     ProfileBuildContext,
     ProfileKind,
 )
-from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.workspace.runtime_bridge import RuntimeWorkspaceBridge
+from tinysoul.plugins.workspace.services import WorkspaceService
 
-from .config import WebSettings, parse_web_settings
 from .actions import register_web_actions
+from .config import WebSettings, parse_web_settings
 
 
 @dataclass(frozen=True)
@@ -26,7 +27,7 @@ class WebPlugin:
     model_uses = ()
     search_capabilities = ()
     provides = ()
-    requires = (WorkspaceService, StagingDirectoryManager)
+    requires = (ResolvedNetwork, WorkspaceService, StagingDirectoryManager)
     configuration = (
         PluginConfig(
             "capabilities.web",
@@ -54,6 +55,7 @@ class WebPlugin:
                     workspace=workspace,
                     staging=staging,
                     settings=settings,
+                    network=context.services.get(ResolvedNetwork),
                     runtime_bridge=RuntimeWorkspaceBridge(),
                     runtime_env=dict(context.runtime_env),
                 ),

@@ -59,7 +59,7 @@ Fetch action 接收 `url`、显式 `.md` `target_ref`、显式 overwrite。宿�
 
 - 只接受公开 HTTPS URL，拒绝 userinfo、localhost 以及解析到非 public IP 的目标；
 - 每次跳转重新解析和校验，跳转次数、请求时长、响应 bytes、输出 chars 都有硬上限；
-- HTTP client 禁用环境代理、cookie、认证和自动跳转，只接受 HTML/XHTML/plain text；
+- HTTP client 使用显式网络配置，禁用隐式环境代理、cookie、认证和自动跳转，只接受 HTML/XHTML/plain text；
 - HTML 进入 extractor 前把相对 link/image URL 规范化为远程绝对 URL；
 - Defuddle 只读取已下载的本地 HTML，不能自行 fetch URL；Trafilatura 也只处理同一 staged HTML；
 - Defuddle JSON 在解析前先经过 staged file bytes 上限检查和有界 UTF-8 读取，最终 Markdown 再检查 output chars 上限；
@@ -79,5 +79,7 @@ worker 超时或 Runtime transfer 通过 `ControlledProcessRunner` 终止进程�
 Playwright/browser rendering、跨域 discovery、sitemap loader、持久 RequestQueue、缓存、跨重启 resume、WARC 和自动整站正文提交不属于首版 Page Discovery。它们不能通过扩大 `web.discover_pages` 参数隐式加入，也不要求新增 backend kind；出现真实场景时应增加清晰 action 或独立设计长期状态边界。
 
 ## 内部组织
+
+Web 默认网络继承 Infra；Kimi 搜索可独立覆盖。宿主只把解析后的代理值加入既有 worker 白名单环境，Kimi 凭据仍单独传递。worker 边界读取这些明确变量并装配同步 SDK/HTTP 客户端；页面、robots、重定向与发现共用该配置，提取器只消费已下载内容。HTTP 身份默认来自 Infra，Web 显式 User-Agent 可覆盖。worker/client 关闭与局部失败沿原有边界处理。
 
 Service 协调有界 worker、输出投影与 Workspace 提交；operations 内聚 search/discover 的结果规范化，backends 提供网络、发现算法和受控 worker。worker 使用固定模块入口，隔离安装后同样运行，不访问 Agent 私有状态。Workspace bundle 在单文件原子边界提交，后续失败保留已产生的文件事实，没有提交前来源 CAS 或 mirror。

@@ -16,6 +16,12 @@ from .base import (
 from .catalog import adapter_spec
 
 
+def cache_key_headers(header: str | None, request: ProviderRequest) -> dict[str, str]:
+    """Map the existing per-call cache key without mutating a shared client."""
+    key = request.prompt_cache.key if request.prompt_cache else None
+    return {header: key} if header and key else {}
+
+
 def validate_request(
     request: ProviderRequest, provider_id: str, kind: AdapterKind
 ) -> None:

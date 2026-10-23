@@ -28,8 +28,9 @@ from tinysoul.infra.model_services.protocol import (
     QuestionKind,
     parse_decision_response,
 )
-from tinysoul.infra.model_services.service import ModelServices, ModelCallStatus
+from tinysoul.infra.model_services.service import ModelCallStatus, ModelServices
 from tinysoul.infra.model_services.vectors import EmbeddingIndex
+from tinysoul.infra.network import NetworkMode, NetworkPolicy, ResolvedNetwork
 from tinysoul.infra.settings import parse_infra_settings
 
 
@@ -66,15 +67,55 @@ def test_directory_validates_structure_without_connecting_unselected_models():
     _, routes = config.resolve("use", ModelCapability.EMBEDDING, {"TEST_KEY": "secret"})
     assert [provider.id for provider, _ in routes] == ["p0", "p1"]
     with pytest.raises(ConfigError, match="capability"):
-        config.resolve(
-            "use", ModelCapability.DECISION, {"TEST_KEY": "secret"}
-        )
+        config.resolve("use", ModelCapability.DECISION, {"TEST_KEY": "secret"})
     with pytest.raises(ConfigError):
         replace(config, uses=(ServiceUse("bad", ModelCapability.EMBEDDING, "missing"),))
     with pytest.raises(ConfigError):
         parse_model_services({"providers": [{"api_key": "secret"}]})
     with pytest.raises(ConfigError):
         parse_infra_settings({"embedding": {"enabled": True}})
+
+
+async def test_provider_network_consumed_by_shared_client_owner(monkeypatch):
+    from tinysoul.infra.model_services import service as module
+
+    resolved = []
+    closed = []
+
+    class Transport(httpx.MockTransport):
+        async def aclose(self):
+            closed.append(True)
+            await super().aclose()
+
+    def mounts(network):
+        resolved.append(network)
+
+        def respond(request):
+            assert request.headers["user-agent"].startswith("TinySoul-Agent")
+            return httpx.Response(
+                200, json={"data": [{"index": 0, "embedding": [1.0, 0.0]}]}
+            )
+
+        return {"all://": Transport(respond)}
+
+    monkeypatch.setattr(module, "httpx_mounts", mounts)
+    config = settings()
+    config = replace(
+        config,
+        providers=(
+            config.providers[0],
+            replace(config.providers[1], network=NetworkPolicy(NetworkMode.DIRECT)),
+        ),
+    )
+    parent = ResolvedNetwork(https_proxy="http://project:9000")
+    services = ModelServices(config, env={"TEST_KEY": "secret"}, network=parent)
+    try:
+        for session in services.embedding_sessions("use"):
+            await session.embed(("hello",), consumer="test.network")
+    finally:
+        await services.close()
+    assert resolved == [parent, ResolvedNetwork()]
+    assert len(closed) == 2
 
 
 def mixed_request():
@@ -308,25 +349,43 @@ async def test_cancellation_never_switches_provider_and_shared_client_closes_onc
     with pytest.raises(ModelServiceError):
         services.embedding_sessions("use")
 
-async def test_vector_cache_merges_disjoint_scopes_and_reuses_text_across_candidate_ids(tmp_path: Path):
+
+async def test_vector_cache_merges_disjoint_scopes_and_reuses_text_across_candidate_ids(
+    tmp_path: Path,
+):
     calls = []
+
     def respond(request):
         texts = json.loads(request.content)["input"]
         calls.append(tuple(texts))
-        return httpx.Response(200, json={"data": [
-            {"index": index, "embedding": [1, 0]} for index, _ in enumerate(texts)
-        ]})
-    services = ModelServices(settings(routes=1), env={"TEST_KEY": "secret"},
-                             transport=httpx.MockTransport(respond))
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"index": index, "embedding": [1, 0]}
+                    for index, _ in enumerate(texts)
+                ]
+            },
+        )
+
+    services = ModelServices(
+        settings(routes=1),
+        env={"TEST_KEY": "secret"},
+        transport=httpx.MockTransport(respond),
+    )
     try:
         index = EmbeddingIndex(path=tmp_path / "cache", services=services, use="use")
         await index.similarities("q", {"a": "first content"})
         await index.similarities("q", {"b": "second content"})
         calls.clear()
-        await index.similarities("q", {"new-id": "first content", "b": "second content"})
+        await index.similarities(
+            "q", {"new-id": "first content", "b": "second content"}
+        )
         assert calls == [("q",)]
         # A different extraction scheme is a different content representation.
-        other = EmbeddingIndex(path=tmp_path / "cache", services=services, use="use", extraction="other")
+        other = EmbeddingIndex(
+            path=tmp_path / "cache", services=services, use="use", extraction="other"
+        )
         calls.clear()
         await other.similarities("q", {"a": "first content"})
         assert calls == [("first content",), ("q",)]

@@ -15,7 +15,7 @@ from tinysoul.llm.protocol.tools import ToolCallRecord, ToolUse
 from tinysoul.llm.protocol.usage import TokenUsage
 
 from ..base import ProviderError, ProviderErrorKind, ProviderRequest
-from ..common import status_error, validate_request
+from ..common import cache_key_headers, status_error, validate_request
 from ..replay import capture_replay
 from ..tool_names import ProviderToolNameMap
 from .payloads import (
@@ -37,6 +37,7 @@ class AnthropicMessagesAdapter:
     def __init__(self, *, provider: ProviderSpec, messages: MessagesClient) -> None:
         provider.endpoint(self.api_mode)
         self.provider_id = provider.id
+        self._cache_key_header = provider.cache_key_header
         self._messages = messages
 
     async def close(self) -> None:
@@ -91,10 +92,11 @@ class AnthropicMessagesAdapter:
         automatic = automatic_cache_control(request, system, messages)
         if automatic is not None:
             kwargs["cache_control"] = automatic
+        headers = cache_key_headers(self._cache_key_header, request)
         if options.get("thinking_display") == "updates":
-            kwargs["extra_headers"] = {
-                "anthropic-beta": "thinking-display-updates-2026-08-18"
-            }
+            headers["anthropic-beta"] = "thinking-display-updates-2026-08-18"
+        if headers:
+            kwargs["extra_headers"] = headers
         extra = dict(request.model.adapter_options.extra_body() or {})
         # The SDK has no sampling keyword arguments; the adapter still owns
         # these request fields, independently of user-supplied extra_body.

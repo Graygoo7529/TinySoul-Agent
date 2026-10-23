@@ -5,6 +5,7 @@ from functools import partial
 
 from tinysoul.infra.concurrency import CleanupDiagnostic
 from tinysoul.infra.model_services import ModelServices
+from tinysoul.infra.network import ResolvedNetwork
 from tinysoul.infra.process import ManagedProcessCloseError
 from tinysoul.kernel.action.config import ActionSettings
 from tinysoul.kernel.action.models import (
@@ -71,7 +72,7 @@ class ExpandPlugin:
         ),
     )
     provides = (ExpandEngine,)
-    requires = (WorkspaceExecutionService, ModelServices)
+    requires = (ResolvedNetwork, WorkspaceExecutionService, ModelServices)
     configuration = (
         PluginConfig(
             "capabilities.expand",
@@ -90,6 +91,7 @@ class ExpandPlugin:
             root=context.root,
             workspace=context.services.get(WorkspaceExecutionService),
             environment=context.runtime_env,
+            network=context.services.get(ResolvedNetwork),
             observations=context.observations,
         )
 

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from math import isfinite
 from typing import cast
 
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
+from tinysoul.infra.network import NetworkPolicy, parse_network
 
 
 class ModelCapability(StrEnum):
@@ -30,7 +31,7 @@ class ServiceProvider:
     enabled: bool = True
     timeout_seconds: float = 30.0
     max_retries: int = 2
-    proxy: str | None = None
+    network: NetworkPolicy = field(default_factory=NetworkPolicy)
 
     def __post_init__(self) -> None:
         if (
@@ -52,10 +53,6 @@ class ServiceProvider:
             raise ConfigError(
                 "Invalid model provider retry/timeout limits", key=self.id
             )
-        if self.proxy is not None and not self.proxy.startswith(
-            ("http://", "https://", "socks5://")
-        ):
-            raise ConfigError("Invalid model provider proxy", key=self.id)
 
 
 @dataclass(frozen=True)
@@ -190,7 +187,7 @@ def parse_model_services(tree: Mapping[str, object]) -> ModelServicesSettings:
                 "enabled",
                 "timeout_seconds",
                 "max_retries",
-                "proxy",
+                "network",
             },
             key="infra.model_services.providers",
         )
@@ -203,7 +200,10 @@ def parse_model_services(tree: Mapping[str, object]) -> ModelServicesSettings:
                 boolean(t.get("enabled", True)),
                 number(t.get("timeout_seconds", 30)),
                 integer(t.get("max_retries", 2)),
-                text(t, "proxy") if "proxy" in t else None,
+                parse_network(
+                    t.get("network", {}),
+                    key=f"infra.model_services.providers.{t.get('id')}.network",
+                ),
             )
         )
     models = []

@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
 import ipaddress
 import socket
+from collections.abc import Callable
+from dataclasses import dataclass
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import httpx
 from lxml import html
 
+from tinysoul.infra.http import httpx_sync_mounts
+from tinysoul.infra.network import ResolvedNetwork
 from tinysoul.prompts.plugins.capabilities import web as prompt_text
 
 from ..errors import WebProcessingError
@@ -46,6 +48,7 @@ def fetch_public_page(
     timeout_seconds: int,
     max_redirects: int,
     user_agent: str,
+    network: ResolvedNetwork = ResolvedNetwork(),
 ) -> FetchedPage:
     """Fetch one public HTTPS page with bounded body and explicit redirects."""
 
@@ -55,6 +58,7 @@ def fetch_public_page(
         timeout_seconds=timeout_seconds,
         max_redirects=max_redirects,
         user_agent=user_agent,
+        network=network,
         allowed_content_types=_ALLOWED_CONTENT_TYPES,
     )
     normalized = normalize_html_links(fetched.text, base_url=fetched.final_url)
@@ -72,6 +76,7 @@ def fetch_public_robots(
     timeout_seconds: int,
     max_redirects: int,
     user_agent: str,
+    network: ResolvedNetwork = ResolvedNetwork(),
 ) -> str:
     """Return one origin's robots.txt through the public HTTPS boundary."""
 
@@ -83,6 +88,7 @@ def fetch_public_robots(
         timeout_seconds=timeout_seconds,
         max_redirects=max_redirects,
         user_agent=user_agent,
+        network=network,
         allowed_content_types=_ALLOWED_CONTENT_TYPES,
         empty_statuses=frozenset({404, 410}),
     )
@@ -96,6 +102,7 @@ def _fetch_public_text(
     timeout_seconds: int,
     max_redirects: int,
     user_agent: str,
+    network: ResolvedNetwork = ResolvedNetwork(),
     allowed_content_types: frozenset[str],
     empty_statuses: frozenset[int] = frozenset(),
 ) -> _FetchedText:
@@ -109,6 +116,7 @@ def _fetch_public_text(
             timeout=float(timeout_seconds),
             follow_redirects=False,
             trust_env=False,
+            mounts=httpx_sync_mounts(network),
             headers=headers,
         ) as client:
             for redirect_count in range(max_redirects + 1):

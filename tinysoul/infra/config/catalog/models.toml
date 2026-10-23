@@ -757,3 +757,11 @@ title = "JSON with Tools"
 description = "Native JSON parameters or prompt constraints when tools are present; local JSON validation remains unchanged."
 value_kind = "string"
 importance = "advanced"
+
+[[field]]
+path = "llm.providers.*.cache_key_header"
+surface = "providers"
+group = "providers.connection"
+title = "Cache routing key header"
+description = "Optional HTTP header receiving the current call's PromptCache.key, for example x-opencode-session."
+value_kind = "string"

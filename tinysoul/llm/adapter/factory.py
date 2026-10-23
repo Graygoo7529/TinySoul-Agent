@@ -5,9 +5,15 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import cast
 
+from anthropic import DEFAULT_CONNECTION_LIMITS as ANTHROPIC_LIMITS
 from anthropic import AsyncAnthropic
+from anthropic import DefaultAsyncHttpxClient as AnthropicHttpClient
+from openai import DEFAULT_CONNECTION_LIMITS as OPENAI_LIMITS
 from openai import AsyncOpenAI
+from openai import DefaultAsyncHttpxClient as OpenAIHttpClient
 
+from tinysoul.infra.http import httpx2_mounts
+from tinysoul.infra.network import ResolvedNetwork
 from tinysoul.llm.config.types import ProviderSpec
 from tinysoul.llm.execution.registry import ModelRegistry
 from tinysoul.llm.protocol.adapter_types import AdapterKind, ApiMode
@@ -56,6 +62,7 @@ async def build_provider_registry(
     *,
     models: ModelRegistry,
     env: Mapping[str, str],
+    network: ResolvedNetwork = ResolvedNetwork(),
 ) -> ProviderRegistry:
     registry = ProviderRegistry()
     referenced = {
@@ -75,8 +82,13 @@ async def build_provider_registry(
             clients: dict[ApiMode, AsyncOpenAI] = {}
             for kind in sorted(kinds, key=lambda item: item.value):
                 mode = adapter_spec(kind).api_mode
+                connection = provider.resolved_network(mode, network)
                 if kind is AdapterKind.ANTHROPIC_MESSAGES:
                     anthropic_client = AsyncAnthropic(
+                        http_client=AnthropicHttpClient(
+                            trust_env=False,
+                            mounts=httpx2_mounts(connection, limits=ANTHROPIC_LIMITS),
+                        ),
                         api_key=provider.resolve_api_key(env),
                         base_url=provider.endpoint(mode).base_url,
                         default_headers=provider.resolved_headers(mode, env),
@@ -95,6 +107,7 @@ async def build_provider_registry(
                 if kind is AdapterKind.GOOGLE_GENERATE_CONTENT:
                     endpoint = provider.endpoint(mode)
                     google_client = GoogleClient(
+                        network=connection,
                         api_key=provider.resolve_api_key(env),
                         base_url=endpoint.base_url,
                         api_version=endpoint.api_version,
@@ -111,6 +124,10 @@ async def build_provider_registry(
                     continue
                 if mode not in clients:
                     client = AsyncOpenAI(
+                        http_client=OpenAIHttpClient(
+                            trust_env=False,
+                            mounts=httpx2_mounts(connection, limits=OPENAI_LIMITS),
+                        ),
                         api_key=provider.resolve_api_key(env),
                         base_url=provider.endpoint(mode).base_url,
                         default_headers=provider.resolved_headers(mode, env),

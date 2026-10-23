@@ -2,6 +2,7 @@
 export type FieldText = readonly [title: string, description: string];
 
 export const fieldText: Record<string, FieldText> = {
+  "llm.providers.*.cache_key_header": ["缓存路由 key 请求头", "把当前调用的 PromptCache.key 写入指定 HTTP 请求头；无 key 时省略。"],
   "agent.interactive": ["终端交互", "未启用 Endpoint 时，是否接收终端输入。"],
   "agent.exit_commands": ["退出命令", "在终端输入这些命令可退出 Agent。"],
   "agent.stop_turn_commands": ["停止本轮命令", "在终端输入这些命令可取消当前 Turn。"],
@@ -158,7 +159,6 @@ const specializedFields: Record<string, Record<string, FieldText>> = {
     enabled: ["启用提供方", "允许此提供方参与模型调用。"],
     timeout_seconds: ["请求超时", "一次请求的最长等待秒数。"],
     max_retries: ["请求重试次数", "请求失败后允许的额外尝试次数。"],
-    proxy: ["代理地址", "此提供方请求使用的代理地址。"],
   },
   models: {
     id: ["模型 ID", "被逻辑用途引用的稳定模型标识。"],
@@ -173,6 +173,16 @@ const specializedFields: Record<string, Record<string, FieldText>> = {
     model_id: ["绑定模型", "此用途实际调用的模型 ID。"],
   },
 };
+
+for (const path of [
+  "infra.network", "llm.providers.*.network", "llm.providers.*.endpoints.*.network",
+  "infra.model_services.providers.*.network", "capabilities.expand.network",
+  "capabilities.expand.servers.*.network", "capabilities.subagent.network",
+  "capabilities.subagent.agents.*.network", "capabilities.web.network",
+  "capabilities.web.search_by_kimi.network", "execution.network", "execution.interpreters.*.network",
+]) {
+  fieldText[path] = ["代理设置", "继承上级、直接连接，或完整覆盖 HTTP/HTTPS 代理与绕过地址。"];
+}
 for (const [collection, fields] of Object.entries(specializedFields)) {
   for (const [field, text] of Object.entries(fields)) fieldText[`infra.model_services.${collection}.*.${field}`] = text;
 }

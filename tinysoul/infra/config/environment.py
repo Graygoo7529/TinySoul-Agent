@@ -15,7 +15,7 @@ from .errors import ConfigError
 from .sources.dotenv import DotenvSource, _env_mapping_to_dotted
 from .sources.project import ProjectConfig
 from .sources.source import ConfigSource, ConfigSourceKind
-from .sources.toml_file import deep_copy_mapping
+from .sources.toml_file import deep_copy_mapping, flatten_mapping
 
 T = TypeVar("T")
 
@@ -160,10 +160,13 @@ class ConfigEnvironment:
     def effective_values(self) -> dict[str, object]:
         """Return the flattened values after source precedence is applied."""
 
-        values: dict[str, object] = {}
+        tree: dict[str, object] = {}
         for source in self._sources:
-            values.update(source.values)
-        return values
+            for key, value in source.values.items():
+                _set_dotted_value(tree, key, value, source=source.name)
+        # Environment overrides may address a child of a catalog object. Use
+        # the same merge as section_tree before projecting atomic edit values.
+        return flatten_mapping(tree)
 
     def source_id_for(self, key: str) -> str:
         """Return the winning source identity for a dotted key."""

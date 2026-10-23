@@ -4,7 +4,6 @@ max_output_chars = 1048576
 max_excerpt_chars = 600
 request_timeout_seconds = 30
 max_redirects = 5
-user_agent = "TinySoul-Agent/0.1"
 
 [capabilities.web.search_by_kimi]
 enabled = false

@@ -2,7 +2,39 @@
 
 本页描述 Agent 配置的结构化查询、编辑和激活协议。前端读取后端投影、维护本地草稿并提交修改；配置 owner 校验候选并经 Infra 写回项目文件，Endpoint 只映射协议。新增文件须进入受管加载范围，保存与生效遵循下述 PATCH/apply/reload 语义。整体职责见 [统一配置链路](../design/infra.md#统一配置链路)。
 
-## Read
+## 出站网络配置
+
+网络设置复用配置 catalog、草稿、PATCH/apply/reload，没有独立网络服务接口。`network` 是一个原子 object；选择另一模式时整体替换，避免 direct/inherit 残留旧地址。支持 `mode = inherit | direct | override`；仅 override 接受 `http_proxy`、`https_proxy`、`no_proxy`，至少填写一个代理地址。override 完整替换父配置，未填协议直连；no_proxy 未填写默认绕过 localhost/127.0.0.1/::1，空字符串不绕过。
+
+| 配置路径 | 上级 |
+| --- | --- |
+| `infra.network` | Infra 读取的 dotenv/process 常规代理环境 |
+| `llm.providers.<id>.network` | infra.network |
+| `llm.providers.<id>.endpoints.<mode>.network` | provider.network |
+| `infra.model_services.providers` 数组项的 network | infra.network |
+| `capabilities.expand/subagent/web.network`、`execution.network` | infra.network |
+| MCP server / ACP agent / Web search_by_kimi / execution interpreter 内的 network | 所属模块 network |
+
+```toml
+[infra.network]
+mode = "override"
+http_proxy = "http://127.0.0.1:7897"
+https_proxy = "http://127.0.0.1:7897"
+no_proxy = "localhost,127.0.0.1,::1"
+
+[llm.providers.opencode]
+enabled = false
+api_key_envs = ["OPENCODE_API_KEY"]
+cache_key_header = "x-opencode-session"
+```
+
+两个 profile 的根配置位于 `configs/infra/network.toml`，发布默认 inherit。普通代理变量由 Infra 显式解释，不通过 SDK 隐式环境发现；进程来源优先于 dotenv。同一来源小写变量优先；`ALL_PROXY` 仅补未声明协议。TOML/TINYSOUL_ 的普通配置来源优先级保持不变。配置校验不探测网络；影响运行的修改在 apply/reload 激活。保存后的 Anthropic 能力查询立即使用保存配置自己的网络设置。
+
+Provider/endpoint 等嵌套对象编辑保留其它字段；专用 provider 仍按原有数组整体提交，保持顺序。不存在旧的专用 provider.proxy。MCP/ACP 的 env/env_refs 不接受代理变量，使用所属 network。前端共用 NetworkPolicyEditor，继承提示显示上级位置，不模拟后端路由或隐含环境值。运行方案默认范围不增加网络字段。
+
+`cache_key_header` 是通用 provider 的可选字符串。它仅把当前请求已有的 PromptCache.key 写到指定头，无 key 时省略。与 provider/endpoint 的同名静态 headers/header_refs 冲突时校验失败，头名称忽略大小写；不允许插值模板。普通 User-Agent 可在现有 headers 中覆盖；默认身份为 TinySoul。上述字段不进入 model options 或模型上下文。
+
+## 查询
 
 - `GET /v2/config?view=saved|active`：默认 saved；active 来自最后成功发布的配置快照，saved 读取当前配置文件。两者都包含 activity、sources、effective fields、Runtime generation/activation、LLM Provider 凭据就绪状态和 process shell projection。pending_reload 比较保存值与活动值。
 - `GET /v2/config/catalog`：Infra 维护的 surfaces、field groups、collections、field/document descriptors、choices 和 references。

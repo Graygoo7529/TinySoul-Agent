@@ -7,14 +7,14 @@ from dataclasses import dataclass, field
 from typing import cast
 
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
-
+from tinysoul.infra.http import user_agent
+from tinysoul.infra.network import NetworkPolicy, parse_network
 
 DEFAULT_MAX_SOURCE_BYTES = 5 * 1024 * 1024
 DEFAULT_MAX_OUTPUT_CHARS = 1048576
 DEFAULT_MAX_EXCERPT_CHARS = 600
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 30
 DEFAULT_MAX_REDIRECTS = 5
-DEFAULT_USER_AGENT = "TinySoul-Agent/0.1"
 DEFAULT_KIMI_SEARCH_MODEL = "kimi-k2.6"
 _KIMI_SEARCH_NO_THINKING_MODELS = frozenset({"kimi-k2.5", "kimi-k2.6"})
 
@@ -39,6 +39,7 @@ class KimiSearchSettings:
     max_tool_rounds: int = 6
     max_search_tokens: int = 100_000
     max_output_tokens: int = 8_192
+    network: NetworkPolicy = field(default_factory=NetworkPolicy)
 
     def __post_init__(self) -> None:
         _bool(self.enabled, key="capabilities.web.search_by_kimi.enabled")
@@ -144,7 +145,8 @@ class WebSettings:
     max_excerpt_chars: int = DEFAULT_MAX_EXCERPT_CHARS
     request_timeout_seconds: int = DEFAULT_REQUEST_TIMEOUT_SECONDS
     max_redirects: int = DEFAULT_MAX_REDIRECTS
-    user_agent: str = DEFAULT_USER_AGENT
+    user_agent: str = field(default_factory=user_agent)
+    network: NetworkPolicy = field(default_factory=NetworkPolicy)
     search_by_kimi: KimiSearchSettings = field(default_factory=KimiSearchSettings)
     discover_pages: WebDiscoverySettings = field(default_factory=WebDiscoverySettings)
     fetch_with_defuddle: WebFetchSettings = field(
@@ -192,6 +194,7 @@ def parse_web_settings(tree: Mapping[str, object]) -> WebSettings:
             "request_timeout_seconds",
             "max_redirects",
             "user_agent",
+            "network",
             "search_by_kimi",
             "discover_pages",
             "fetch_with_defuddle",
@@ -200,6 +203,7 @@ def parse_web_settings(tree: Mapping[str, object]) -> WebSettings:
         key="capabilities.web",
     )
     return WebSettings(
+        network=parse_network(tree.get("network", {}), key="capabilities.web.network"),
         max_source_bytes=_int(tree, "max_source_bytes", DEFAULT_MAX_SOURCE_BYTES),
         max_output_chars=_int(tree, "max_output_chars", DEFAULT_MAX_OUTPUT_CHARS),
         max_excerpt_chars=_int(
@@ -213,7 +217,7 @@ def parse_web_settings(tree: Mapping[str, object]) -> WebSettings:
             DEFAULT_REQUEST_TIMEOUT_SECONDS,
         ),
         max_redirects=_int(tree, "max_redirects", DEFAULT_MAX_REDIRECTS),
-        user_agent=_string(tree, "user_agent", DEFAULT_USER_AGENT),
+        user_agent=_string(tree, "user_agent", user_agent()),
         search_by_kimi=_parse_kimi_search(tree.get("search_by_kimi")),
         discover_pages=_parse_discovery(tree.get("discover_pages")),
         fetch_with_defuddle=_parse_fetch(
@@ -245,16 +249,20 @@ def _parse_kimi_search(value: object) -> KimiSearchSettings:
             "max_tool_rounds",
             "max_search_tokens",
             "max_output_tokens",
+            "network",
         },
         key=key,
     )
     defaults = KimiSearchSettings()
     return KimiSearchSettings(
+        network=parse_network(tree.get("network", {}), key=f"{key}.network"),
         enabled=_bool_value(tree, "enabled", defaults.enabled, key=f"{key}.enabled"),
         base_url=_string(tree, "base_url", defaults.base_url, key=key),
         api_key_env=_string(tree, "api_key_env", defaults.api_key_env, key=key),
         model=_string(tree, "model", defaults.model, key=key),
-        max_query_chars=_int(tree, "max_query_chars", defaults.max_query_chars, key=key),
+        max_query_chars=_int(
+            tree, "max_query_chars", defaults.max_query_chars, key=key
+        ),
         max_result_chars=_int(
             tree,
             "max_result_chars",
@@ -325,9 +333,7 @@ def _parse_discovery(value: object) -> WebDiscoverySettings:
             tree, "max_visit_depth", defaults.max_visit_depth, key=key
         ),
         max_pages=_int(tree, "max_pages", defaults.max_pages, key=key),
-        max_candidates=_int(
-            tree, "max_candidates", defaults.max_candidates, key=key
-        ),
+        max_candidates=_int(tree, "max_candidates", defaults.max_candidates, key=key),
         max_links_per_page=_int(
             tree, "max_links_per_page", defaults.max_links_per_page, key=key
         ),

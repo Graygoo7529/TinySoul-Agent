@@ -1,3 +1,4 @@
+import asyncio
 import json
 from dataclasses import dataclass, field, replace
 from types import SimpleNamespace
@@ -89,6 +90,36 @@ def request(spec: ModelSpec, messages: MessageStack | None = None) -> ProviderRe
     )
 
 
+async def test_cache_header_is_per_request_without_cache_capability() -> None:
+    client = Client(SimpleNamespace(output=[], output_text="ok"))
+    adapter = OpenAIResponsesAdapter(
+        provider=replace(provider(), cache_key_header="x-session"),
+        responses=cast(OpenAIResponsesClient, client),
+    )
+    base = request(model(AdapterKind.OPENAI_RESPONSES))
+    await asyncio.gather(
+        *(
+            adapter.invoke(
+                replace(base, prompt_cache=PromptCache(key=key) if key else None)
+            )
+            for key in ("turn-one", "turn-two", None, "turn-one")
+        )
+    )
+    assert [call.get("extra_headers") for call in client.calls] == [
+        {"x-session": "turn-one"},
+        {"x-session": "turn-two"},
+        None,
+        {"x-session": "turn-one"},
+    ]
+
+
+def test_dynamic_header_rejects_case_insensitive_static_collision() -> None:
+    from tinysoul.llm.errors import LLMContractError
+
+    with pytest.raises(LLMContractError, match="conflicts"):
+        replace(provider(), cache_key_header="x-ROUTE")
+
+
 async def test_registry_reuses_mode_clients_and_owns_close_once(monkeypatch) -> None:
     created: list[dict[str, object]] = []
     closed: list[object] = []
@@ -124,13 +155,14 @@ async def test_registry_reuses_mode_clients_and_owns_close_once(monkeypatch) -> 
     assert all(
         item["max_retries"] == 0 and item["api_key"] == "api-secret" for item in created
     )
-    assert next(
+    headers = next(
         item for item in created if item["base_url"] == "https://example.test/responses"
-    )["default_headers"] == {
-        "X-Route": "responses",
-        "X-App": "TinySoul",
-        "X-Secret": "route-secret",
-    }
+    )["default_headers"]
+    assert isinstance(headers, dict)
+    assert headers["x-route"] == "responses"
+    assert headers["x-app"] == "TinySoul"
+    assert headers["x-secret"] == "route-secret"
+    assert headers["user-agent"].startswith("TinySoul-Agent")
     assert registry.has("gateway", AdapterKind.GPT)
     assert registry.has("gateway", AdapterKind.DEEPSEEK)
     assert not registry.has("gateway", AdapterKind.KIMI)
@@ -327,13 +359,13 @@ async def test_installed_sdk_serializes_adapter_requests_without_network(
         )
         if kind is AdapterKind.KIMI:
             adapter = KimiAdapter(
-                provider=provider(),
+                provider=replace(provider(), cache_key_header="x-session"),
                 completions=cast(OpenAIChatCompletionsClient, sdk.chat.completions),
             )
             options["variant"] = variant
         elif kind is AdapterKind.GLM:
             adapter = GlmAdapter(
-                provider=provider(),
+                provider=replace(provider(), cache_key_header="x-session"),
                 completions=cast(OpenAIChatCompletionsClient, sdk.chat.completions),
             )
             options = {
@@ -343,12 +375,12 @@ async def test_installed_sdk_serializes_adapter_requests_without_network(
             }
         elif kind is AdapterKind.OPENAI_CHAT:
             adapter = OpenAIChatAdapter(
-                provider=provider(),
+                provider=replace(provider(), cache_key_header="x-session"),
                 completions=cast(OpenAIChatCompletionsClient, sdk.chat.completions),
             )
         else:
             adapter = OpenAIResponsesAdapter(
-                provider=provider(),
+                provider=replace(provider(), cache_key_header="x-session"),
                 responses=cast(OpenAIResponsesClient, sdk.responses),
             )
             options["native_replay"] = "encrypted"
@@ -392,6 +424,7 @@ async def test_installed_sdk_serializes_adapter_requests_without_network(
         }
     body = json.loads(captured[0].content)
     assert captured[0].headers["X-Route"] == "test"
+    assert all(item.headers["x-session"] == "2026-10-22/1" for item in captured)
     assert body["model"] == "vendor/version"
     if kind is AdapterKind.GLM:
         assert body["do_sample"] is False

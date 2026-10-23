@@ -1,0 +1,7 @@
+# inherit: resolve HTTP_PROXY/HTTPS_PROXY/NO_PROXY from project/process inputs.
+# direct: no proxy. override: use only the addresses declared here.
+[infra.network]
+mode = "inherit"
+# http_proxy = "http://127.0.0.1:7897"
+# https_proxy = "http://127.0.0.1:7897"
+# no_proxy = "localhost,127.0.0.1,::1"

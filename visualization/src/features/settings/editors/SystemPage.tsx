@@ -1,3 +1,4 @@
+import { NetworkPolicyField } from "./NetworkPolicyEditor";
 import { settingsText } from "../i18n";
 /**
  * System & Diagnostics settings (config-coverage §7): read-only process items
@@ -30,6 +31,7 @@ const PROCESS_FIELDS = [
 export function SystemPage() {
   return (
     <SettingsPageBody>
+      <NetworkPolicyField path="infra.network" title="网络默认配置" parentLabel="项目与进程的 HTTP_PROXY / HTTPS_PROXY / NO_PROXY" />
       <ProcessShellCard />
       <SourcesCard />
       <SectionCard

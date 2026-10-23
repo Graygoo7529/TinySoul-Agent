@@ -1,3 +1,4 @@
+import { NetworkPolicyField } from "./NetworkPolicyEditor";
 import { settingsText } from "../i18n";
 /**
  * Web & Resource Fetching settings (config-coverage §4.3/§4.4). The external
@@ -16,6 +17,8 @@ const KIMI_MODEL_CHOICES = [
 export function WebPage() {
   return (
     <SettingsPageBody>
+      <NetworkPolicyField path="capabilities.web.network" title="Web 默认代理" />
+      <NetworkPolicyField path="capabilities.web.search_by_kimi.network" title="Kimi 联网检索代理" parentLabel="Web 默认代理" />
       <div className="rounded-lg border border-line bg-bg-elev px-3.5 py-2.5 text-[12px] leading-5 text-fg-muted">{settingsText("This page configures the external web search, page discovery and fetching providers. The internal Search pipelines (query/backlinks/ directory, select/rerank/filter) are edited under")}{" "}
         <span className="font-medium text-fg">{settingsText("Behavior → Search Policies")}</span>.
       </div>

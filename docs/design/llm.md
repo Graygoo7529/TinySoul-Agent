@@ -16,6 +16,12 @@ LLM 模块可以表达 TinySoul 自己的模型侧工具语义，并负责将其
 
 ## 边界
 
+SDK 出站连接消费 Infra 显式解析的网络配置：根设置 → provider → API endpoint，各层可继承、直连或完整覆盖。四类 API mode 以及独立 Anthropic 模型能力查询使用同一连接语义与公共 TinySoul User-Agent；模型和任务不另设网络配置。能力查询使用当前保存配置，生成客户端随 generation 装配和关闭。Google 生成与缓存资源请求共用所拥有的异步客户端，其公开请求 hook 保留显式 TinySoul 身份，避免 SDK 前置自身标签遮蔽身份。
+
+`provider.cache_key_header` 把已有 `PromptCache.key` 映射为当前请求的 HTTP header。它是 provider 的传输选项，不是新的内部 session 协议或 model adapter option。有 key 才发送，不依赖模型是否启用提示缓存；同一 Turn 已有 key 自然贯穿主调用、辅助调用与重试。动态头逐请求构造，不改共享客户端；与同名静态 headers/header_refs 的冲突按大小写无关方式校验。Google explicit cache 创建也接收此头，但它不改变缓存内容身份。头只提示路由，不保证命中或保存会话。
+
+OpenCode Go 复用现有四类 API mode；模板只定义四个 endpoint、`x-opencode-session` 的 key 映射及模型 binding，不新增 provider 专属 adapter。Grok family 使用通用 Responses 与 encrypted replay；已有 DeepSeek、GPT、Claude、Gemini 保持各自模型配置。模板 provider 默认关闭，启用、凭据与网络路径由项目配置决定。
+
 模型定义统一来自项目 TOML；前端新增的模型与模板模型使用同一配置解析和注册入口。family 是模型的显示分组，也是创建模型时组织文件的依据；文件名不决定 Adapter、Provider 或可用性。新 family 与首个模型共同保存，后续模型复用该组实际来源；没有 family 的模型显示为未分组，不需要专用的 ungrouped 文件。既有模型的字段编辑和重命名保留来源，调整 family 不自动搬迁文件。
 
 逻辑模型以稳定 ID 被任务链引用，版本和远端名称由当前 TOML 中的 Provider binding 定义。family 和 collapsed 只控制前端候选展示；搜索或展开旧模型后仍可正常选用，运行层不据此排除模型。前端的任务首模型、追加和单行替换共用模型管理页的候选列表，筛选不改变已经配置的链，只有明确选择才写入共享草稿。

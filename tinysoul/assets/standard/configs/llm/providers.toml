@@ -88,3 +88,21 @@ api_key_envs = ["GEMINI_API_KEY"]
 [llm.providers.google.endpoints.google-generate-content]
 base_url = "https://generativelanguage.googleapis.com"
 api_version = "v1beta"
+
+[llm.providers.opencode]
+enabled = false
+api_key_envs = ["OPENCODE_API_KEY"]
+cache_key_header = "x-opencode-session"
+
+[llm.providers.opencode.endpoints.openai-chat]
+base_url = "https://opencode.ai/inference/go/openai/v1"
+
+[llm.providers.opencode.endpoints.openai-responses]
+base_url = "https://opencode.ai/inference/go/openai/v1"
+
+[llm.providers.opencode.endpoints.anthropic-messages]
+base_url = "https://opencode.ai/inference/go/anthropic"
+
+[llm.providers.opencode.endpoints.google-generate-content]
+base_url = "https://opencode.ai/inference/go/google"
+api_version = "v1beta"

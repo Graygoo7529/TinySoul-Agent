@@ -1,7 +1,7 @@
 """Configured ACP targets and finite connection / delegation bounds."""
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import isfinite
 from typing import cast
 
@@ -9,8 +9,13 @@ from tinysoul.infra import DependencyChecker, DependencyRequirement
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
 from tinysoul.infra.config.validation import (
     config_table,
-    string_mapping,
     resolve_references,
+    string_mapping,
+)
+from tinysoul.infra.network import (
+    NetworkPolicy,
+    parse_network,
+    reject_proxy_environment,
 )
 
 
@@ -24,8 +29,13 @@ class AgentTarget:
     env: tuple[tuple[str, str], ...] = ()
     env_refs: tuple[tuple[str, str], ...] = ()
     auto_approve: bool = False
+    network: NetworkPolicy = field(default_factory=NetworkPolicy)
 
     def __post_init__(self) -> None:
+        reject_proxy_environment(
+            dict((*self.env, *self.env_refs)),
+            key=f"capabilities.subagent.agents.{self.agent_id}",
+        )
         if (
             not self.agent_id
             or "." in self.agent_id
@@ -55,6 +65,7 @@ class SubagentSettings:
     max_output_chars: int = 1048576
     max_collect_chars: int = 12288
     max_brief_chars: int = 24576
+    network: NetworkPolicy = field(default_factory=NetworkPolicy)
 
     def __post_init__(self) -> None:
         for name in (
@@ -99,7 +110,7 @@ def parse_subagent_settings(tree: Mapping[str, object]) -> SubagentSettings:
         "stop_timeout_seconds",
     )
     reject_unknown_keys(
-        tree, {"agents", *limits, *timeouts}, key="capabilities.subagent"
+        tree, {"agents", "network", *limits, *timeouts}, key="capabilities.subagent"
     )
     targets: list[AgentTarget] = []
     for identity, raw in config_table(
@@ -116,6 +127,7 @@ def parse_subagent_settings(tree: Mapping[str, object]) -> SubagentSettings:
                 "args",
                 "env",
                 "env_refs",
+                "network",
                 "auto_approve",
             },
             key=key,
@@ -145,6 +157,7 @@ def parse_subagent_settings(tree: Mapping[str, object]) -> SubagentSettings:
                 string_mapping(row.get("env", {}), key=f"{key}.env"),
                 string_mapping(row.get("env_refs", {}), key=f"{key}.env_refs"),
                 auto,
+                parse_network(row.get("network", {}), key=f"{key}.network"),
             )
         )
     defaults = SubagentSettings()
@@ -164,7 +177,14 @@ def parse_subagent_settings(tree: Mapping[str, object]) -> SubagentSettings:
                 "Subagent timeout must be numeric", key=f"capabilities.subagent.{name}"
             )
         durations[name] = cast(float, value)
-    return SubagentSettings(tuple(targets), **numbers, **durations)
+    return SubagentSettings(
+        tuple(targets),
+        network=parse_network(
+            tree.get("network", {}), key="capabilities.subagent.network"
+        ),
+        **numbers,
+        **durations,
+    )
 
 
 def validate_subagent_bindings(

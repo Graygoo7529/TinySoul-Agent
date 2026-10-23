@@ -2,23 +2,26 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import UTC, datetime
 import asyncio
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
 import sys
 from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from functools import partial
+from pathlib import Path
 from typing import cast
 from urllib.parse import urlsplit
 
 from lxml import html
 
-from tinysoul.prompts.plugins.capabilities import web as prompt_text
 from tinysoul.infra import JsonObject, dumps_json, to_json_object
+from tinysoul.infra.http import client_headers, httpx2_sync_mounts
+from tinysoul.infra.network import network_from_environment
+from tinysoul.prompts.plugins.capabilities import web as prompt_text
 
 from ..errors import WebProcessingError
 from .network import FetchedPage, fetch_public_page
@@ -65,7 +68,7 @@ def main() -> int:
 
 
 def _search_by_kimi(request: JsonObject) -> JsonObject:
-    from openai import OpenAI, OpenAIError
+    from openai import DefaultHttpxClient, OpenAI, OpenAIError
     from openai.types.chat import ChatCompletion
 
     query = _required_string(request, "query")
@@ -81,107 +84,115 @@ def _search_by_kimi(request: JsonObject) -> JsonObject:
             prompt_text.KIMI_SEARCH_CREDENTIAL_IS_UNAVAILABLE,
             reason="credential_unavailable",
         )
-    client = OpenAI(api_key=api_key, base_url=base_url)
-    messages: list[object] = [
-        {
-            "role": "system",
-            "content": prompt_text.SEARCH_SYSTEM_GUIDE,
-        },
-        {"role": "user", "content": query},
-    ]
-    tools = [
-        {
-            "type": "builtin_function",
-            "function": {"name": _KIMI_SEARCH_TOOL_NAME},
-        }
-    ]
-    prompt_tokens = 0
-    completion_tokens = 0
-    search_tokens = 0
-    tool_calls = 0
-    create_completion = cast(
-        Callable[..., ChatCompletion],
-        client.chat.completions.create,
-    )
-    for _round in range(max_tool_rounds + 1):
-        try:
-            completion = create_completion(
-                model=model,
-                messages=messages,
-                tools=tools,
-                response_format={"type": "json_object"},
-                max_tokens=max_output_tokens,
-                **_kimi_search_request_options(),
-            )
-        except OpenAIError as exc:
-            raise WebProcessingError(
-                prompt_text.KIMI_SEARCH_PROVIDER_REQUEST_FAILED,
-                reason="provider_request_failed",
-                payload={"error_type": type(exc).__name__},
-            ) from exc
-        if completion.usage is not None:
-            prompt_tokens += completion.usage.prompt_tokens
-            completion_tokens += completion.usage.completion_tokens
-        if not completion.choices:
-            raise WebProcessingError(
-                prompt_text.KIMI_SEARCH_RETURNED_NO_COMPLETION_CHOICE,
-                reason="provider_protocol_invalid",
-            )
-        choice = completion.choices[0]
-        message = choice.message
-        if choice.finish_reason == "tool_calls":
-            assistant_message = to_json_object(
-                message.model_dump(mode="json", exclude_none=True)
-            )
-            tool_round = _parse_kimi_tool_round(assistant_message)
-            if _round >= max_tool_rounds:
-                raise WebProcessingError(
-                    prompt_text.search_round_limit(limit=max_tool_rounds),
-                    reason="tool_round_limit_exceeded",
-                )
-            search_tokens += tool_round.search_tokens
-            if search_tokens > max_search_tokens:
-                raise WebProcessingError(
-                    prompt_text.search_token_limit(
-                        actual=search_tokens, limit=max_search_tokens
-                    ),
-                    reason="search_token_limit_exceeded",
-                )
-            tool_calls += len(tool_round.tool_messages)
-            messages.append(tool_round.assistant_message)
-            messages.extend(tool_round.tool_messages)
-            continue
-        if choice.finish_reason != "stop" or not message.content:
-            raise WebProcessingError(
-                prompt_text.KIMI_SEARCH_DID_NOT_RETURN_A_COMPLETE_RESULT,
-                reason="provider_output_incomplete",
-            )
-        try:
-            provider_result = _json_object(message.content)
-        except (json.JSONDecodeError, TypeError, ValueError) as exc:
-            raise WebProcessingError(
-                prompt_text.KIMI_SEARCH_RETURNED_INVALID_JSON,
-                reason="provider_protocol_invalid",
-            ) from exc
-        normalized = _normalize_search_result(provider_result)
-        normalized["usage"] = to_json_object(
+    with OpenAI(
+        api_key=api_key,
+        base_url=base_url,
+        default_headers=client_headers(),
+        http_client=DefaultHttpxClient(
+            trust_env=False,
+            mounts=httpx2_sync_mounts(network_from_environment(os.environ)),
+        ),
+    ) as client:
+        messages: list[object] = [
             {
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-                "search_tokens": search_tokens,
-                "tool_calls": tool_calls,
+                "role": "system",
+                "content": prompt_text.SEARCH_SYSTEM_GUIDE,
+            },
+            {"role": "user", "content": query},
+        ]
+        tools = [
+            {
+                "type": "builtin_function",
+                "function": {"name": _KIMI_SEARCH_TOOL_NAME},
             }
+        ]
+        prompt_tokens = 0
+        completion_tokens = 0
+        search_tokens = 0
+        tool_calls = 0
+        create_completion = cast(
+            Callable[..., ChatCompletion],
+            client.chat.completions.create,
         )
-        if len(dumps_json(normalized)) > max_result_chars:
-            raise WebProcessingError(
-                prompt_text.search_result_too_large(limit=max_result_chars),
-                reason="result_chars_limit_exceeded",
+        for _round in range(max_tool_rounds + 1):
+            try:
+                completion = create_completion(
+                    model=model,
+                    messages=messages,
+                    tools=tools,
+                    response_format={"type": "json_object"},
+                    max_tokens=max_output_tokens,
+                    **_kimi_search_request_options(),
+                )
+            except OpenAIError as exc:
+                raise WebProcessingError(
+                    prompt_text.KIMI_SEARCH_PROVIDER_REQUEST_FAILED,
+                    reason="provider_request_failed",
+                    payload={"error_type": type(exc).__name__},
+                ) from exc
+            if completion.usage is not None:
+                prompt_tokens += completion.usage.prompt_tokens
+                completion_tokens += completion.usage.completion_tokens
+            if not completion.choices:
+                raise WebProcessingError(
+                    prompt_text.KIMI_SEARCH_RETURNED_NO_COMPLETION_CHOICE,
+                    reason="provider_protocol_invalid",
+                )
+            choice = completion.choices[0]
+            message = choice.message
+            if choice.finish_reason == "tool_calls":
+                assistant_message = to_json_object(
+                    message.model_dump(mode="json", exclude_none=True)
+                )
+                tool_round = _parse_kimi_tool_round(assistant_message)
+                if _round >= max_tool_rounds:
+                    raise WebProcessingError(
+                        prompt_text.search_round_limit(limit=max_tool_rounds),
+                        reason="tool_round_limit_exceeded",
+                    )
+                search_tokens += tool_round.search_tokens
+                if search_tokens > max_search_tokens:
+                    raise WebProcessingError(
+                        prompt_text.search_token_limit(
+                            actual=search_tokens, limit=max_search_tokens
+                        ),
+                        reason="search_token_limit_exceeded",
+                    )
+                tool_calls += len(tool_round.tool_messages)
+                messages.append(tool_round.assistant_message)
+                messages.extend(tool_round.tool_messages)
+                continue
+            if choice.finish_reason != "stop" or not message.content:
+                raise WebProcessingError(
+                    prompt_text.KIMI_SEARCH_DID_NOT_RETURN_A_COMPLETE_RESULT,
+                    reason="provider_output_incomplete",
+                )
+            try:
+                provider_result = _json_object(message.content)
+            except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                raise WebProcessingError(
+                    prompt_text.KIMI_SEARCH_RETURNED_INVALID_JSON,
+                    reason="provider_protocol_invalid",
+                ) from exc
+            normalized = _normalize_search_result(provider_result)
+            normalized["usage"] = to_json_object(
+                {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "search_tokens": search_tokens,
+                    "tool_calls": tool_calls,
+                }
             )
-        return {"ok": True, **normalized}
-    raise WebProcessingError(
-        prompt_text.KIMI_SEARCH_ENDED_WITHOUT_A_RESULT,
-        reason="provider_protocol_invalid",
-    )
+            if len(dumps_json(normalized)) > max_result_chars:
+                raise WebProcessingError(
+                    prompt_text.search_result_too_large(limit=max_result_chars),
+                    reason="result_chars_limit_exceeded",
+                )
+            return {"ok": True, **normalized}
+        raise WebProcessingError(
+            prompt_text.KIMI_SEARCH_ENDED_WITHOUT_A_RESULT,
+            reason="provider_protocol_invalid",
+        )
 
 
 def _parse_kimi_tool_round(assistant_message: JsonObject) -> _KimiToolRound:
@@ -304,6 +315,9 @@ def _kimi_call_shape_facts(
 
 def _discover_pages(request: JsonObject) -> JsonObject:
     from .discovery import DiscoveryRequest, discover_pages
+    from .network import fetch_public_robots
+
+    network = network_from_environment(os.environ)
 
     max_result_chars = _required_positive_int(request, "max_result_chars")
     result = asyncio.run(
@@ -349,7 +363,9 @@ def _discover_pages(request: JsonObject) -> JsonObject:
                 max_redirects=_required_positive_int(request, "max_redirects"),
                 user_agent=_required_string(request, "user_agent"),
                 allow_query_links=_required_bool(request, "allow_query_links"),
-            )
+            ),
+            page_fetcher=partial(fetch_public_page, network=network),
+            robots_fetcher=partial(fetch_public_robots, network=network),
         )
     )
     if len(dumps_json(result)) > max_result_chars:
@@ -365,6 +381,7 @@ def _fetch(request: JsonObject, *, operation: str) -> JsonObject:
     output_path.mkdir(parents=True, exist_ok=True)
     page = fetch_public_page(
         _required_string(request, "url"),
+        network=network_from_environment(os.environ),
         max_bytes=_required_positive_int(request, "max_source_bytes"),
         timeout_seconds=_required_positive_int(request, "request_timeout_seconds"),
         max_redirects=_required_positive_int(request, "max_redirects"),

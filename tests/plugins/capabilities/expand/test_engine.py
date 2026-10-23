@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from tinysoul.infra.concurrency import JoinedOperations
+from tinysoul.infra.network import NetworkMode, NetworkPolicy
 from tinysoul.infra.process import ManagedProcessRequest, StdioProcess
 from tinysoul.plugins.capabilities.expand.config import (
     ExpandSettings,
@@ -26,12 +27,19 @@ async def test_real_sdk_stdio_discovery_validation_and_resource_output(
 ) -> None:
     processes: list[StdioProcess] = []
     start = StdioProcess.start
+    monkeypatch.setenv("ALL_PROXY", "http://host:8000")
 
     async def capture_start(
         request: ManagedProcessRequest,
         *,
         max_message_bytes: int = 8_000_000,
     ) -> StdioProcess:
+        assert request.inherit_env is False
+        assert request.env is not None
+        names = {name.lower() for name in request.env}
+        assert (
+            "path" in names and not {"http_proxy", "https_proxy", "all_proxy"} & names
+        )
         process = await start(request, max_message_bytes=max_message_bytes)
         processes.append(process)
         return process
@@ -43,11 +51,15 @@ async def test_real_sdk_stdio_discovery_validation_and_resource_output(
     engine = ExpandEngine(
         ExpandSettings(
             page_size=1,
+            network=NetworkPolicy(
+                NetworkMode.OVERRIDE, http_proxy="http://parent:8000"
+            ),
             servers=(
                 MCPServerSettings(
                     "local",
                     enabled=True,
                     command=sys.executable,
+                    network=NetworkPolicy(NetworkMode.DIRECT),
                     args=(str(Path(__file__).with_name("fixture_server.py")),),
                 ),
             ),

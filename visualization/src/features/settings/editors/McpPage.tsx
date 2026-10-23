@@ -1,3 +1,4 @@
+import { NetworkPolicyEditor, NetworkPolicyField } from "./NetworkPolicyEditor";
 import { settingsText } from "../i18n";
 /**
  * MCP Servers settings (config-coverage §4.5): configured servers are
@@ -34,7 +35,8 @@ export function McpPage() {
       collectionId="capabilities.expand.servers"
       runtimeSummary={<McpRuntimeSummary />}
       renderFields={(ctx) => <McpServerFields ctx={ctx} />}
-      limits={
+      limits={<>
+        <NetworkPolicyField path="capabilities.expand.network" title="默认代理" />
         <FieldSection
           title={settingsText("Shared MCP Limits")}
           description={settingsText("Directory and call bounds shared by all servers.")}
@@ -57,7 +59,7 @@ export function McpPage() {
             "capabilities.expand.page_size": { min: 1 },
           }}
         />
-      }
+      </>}
     />
   );
 }
@@ -86,6 +88,9 @@ function McpServerFields({ ctx }: { ctx: ObjectEditContext }) {
 
   return (
     <>
+      <ObjRow path={at("network")} label="代理设置">
+        <NetworkPolicyEditor value={ctx.object.network} parentLabel="模块默认代理" disabled={disabled} onChange={(network) => ctx.update({ network })} />
+      </ObjRow>
       <ObjRow path={at("enabled")}>
         <ObjBoolean
           value={bool("enabled", false)}

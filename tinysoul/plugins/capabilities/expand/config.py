@@ -1,7 +1,7 @@
 """Explicit MCP servers; availability and tool policy belong to this owner."""
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from math import isfinite
 from typing import cast
@@ -11,8 +11,13 @@ from tinysoul.infra import DependencyChecker, DependencyRequirement
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
 from tinysoul.infra.config.validation import (
     config_table,
-    string_mapping,
     resolve_references,
+    string_mapping,
+)
+from tinysoul.infra.network import (
+    NetworkPolicy,
+    parse_network,
+    reject_proxy_environment,
 )
 
 
@@ -37,9 +42,11 @@ class MCPServerSettings:
     header_refs: tuple[tuple[str, str], ...] = ()
     tools_default: bool = True
     tools: tuple[tuple[str, bool], ...] = ()
+    network: NetworkPolicy = field(default_factory=NetworkPolicy)
 
     def __post_init__(self) -> None:
         key = f"capabilities.expand.servers.{self.server_id}"
+        reject_proxy_environment(dict((*self.env, *self.env_refs)), key=key)
         if (
             not self.server_id
             or "." in self.server_id
@@ -77,6 +84,7 @@ class ExpandSettings:
     max_inline_chars: int = 16384
     max_search_chars: int = 61440
     page_size: int = 30
+    network: NetworkPolicy = field(default_factory=NetworkPolicy)
 
     def __post_init__(self) -> None:
         if (
@@ -119,7 +127,9 @@ def parse_expand_settings(tree: Mapping[str, object]) -> ExpandSettings:
         "page_size",
     )
     reject_unknown_keys(
-        tree, {"servers", "timeout_seconds", *limits}, key="capabilities.expand"
+        tree,
+        {"servers", "timeout_seconds", "network", *limits},
+        key="capabilities.expand",
     )
     parsed: list[MCPServerSettings] = []
     for identity, raw in config_table(
@@ -138,6 +148,7 @@ def parse_expand_settings(tree: Mapping[str, object]) -> ExpandSettings:
                 "cwd",
                 "env",
                 "env_refs",
+                "network",
                 "url",
                 "headers",
                 "header_refs",
@@ -170,6 +181,7 @@ def parse_expand_settings(tree: Mapping[str, object]) -> ExpandSettings:
         parsed.append(
             MCPServerSettings(
                 identity,
+                network=parse_network(row.get("network", {}), key=f"{key}.network"),
                 enabled=enabled,
                 transport=transport,
                 args=tuple(cast(list[str], args)),
@@ -197,6 +209,9 @@ def parse_expand_settings(tree: Mapping[str, object]) -> ExpandSettings:
         )
     return ExpandSettings(
         tuple(parsed),
+        network=parse_network(
+            tree.get("network", {}), key="capabilities.expand.network"
+        ),
         timeout_seconds=cast(float, timeout),
         **cast(dict[str, int], numbers),
     )

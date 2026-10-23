@@ -11,6 +11,7 @@ from tinysoul.infra.concurrency import (
     CleanupDiagnostic,
 )
 from tinysoul.infra.config import ConfigEnvironment
+from tinysoul.infra.network import ResolvedNetwork
 from tinysoul.kernel.action import LoadedActionCatalog
 from tinysoul.kernel.action.config import ActionSettings
 from tinysoul.kernel.action.models import ModelUseRegistry
@@ -40,6 +41,7 @@ class AgentConfigPlan:
 
     environment: ConfigEnvironment
     infra: InfraSettings
+    network: ResolvedNetwork
     agent: AgentSettings
     action: ActionSettings
     model_uses: ModelUseRegistry

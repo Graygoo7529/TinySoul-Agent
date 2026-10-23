@@ -301,14 +301,6 @@ description = "Typed specialized model providers field: max_retries."
 value_kind = "integer"
 
 [[field]]
-path = "infra.model_services.providers.*.proxy"
-surface = "model_services"
-group = "model_services.providers"
-title = "proxy"
-description = "Typed specialized model providers field: proxy."
-value_kind = "string"
-
-[[field]]
 path = "infra.model_services.models.*.id"
 surface = "model_services"
 group = "model_services.models"

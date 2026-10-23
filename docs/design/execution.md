@@ -1,5 +1,7 @@
 # Execution 与 Job
 
+Execution 接收 Infra 出站网络设置，先解析模块策略，再解析具体 interpreter 的覆盖。Python、bash、PowerShell 和 cmd 共用完整进程环境构造：保留普通宿主变量，移除继承的代理提示后写入有效值，不把项目 dotenv 整体导出。选择 direct 后不会通过进程继承补回 ALL_PROXY。PowerShell 7 HTTP cmdlet 可读取代理环境变量；Windows PowerShell 5.1 需要命令显式使用 `-Proxy`，或在解释器配置中选择 `pwsh`。此能力不修改系统代理或重写用户脚本。
+
 `plugins/execution` 将显式 script/shell 请求转换为受控进程；`kernel/jobs` 拥有 Job 受理、Turn 隔离、监视、终态通知与有界结果保留；`infra/process` 提供无业务依赖的进程组、标准输入输出和有界停止。Agent 组合根每个运行世代创建一个 JobRegistry，User、Home Reflection 与 Memory Reflection 复用该对象，各自按所属 Turn 访问。
 
 `execution.run` 和 `execution.start` 接受同一组 command/source 请求：command 使用 bash、powershell 或 cmd；脚本 source_ref 还可使用 python。静态 enum 描述受支持的解释器身份，当前 generation 是否启用该解释器由 execution 配置决定，未启用时返回简短的可修正 Action 反馈。run 在当前 Action 等待完成并返回结果；start 返回 Job 身份，后续 Cycle 使用 `core.job.status/stop` 和 execution 的 stdin/collect 操作监督。两条路径使用同一 ProcessJobBackend。普通文件或长期脚本的编辑仍属于 Workspace/Home。Action catalog 位于公共 assets；`execution` 配置解释器与执行上限，`jobs` 配置容量，动作可见性由 catalog 的情景策略解释。

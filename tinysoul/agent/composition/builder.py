@@ -31,6 +31,7 @@ from tinysoul.infra.config import (
     load_config_catalog,
 )
 from tinysoul.infra.model_services import ModelServices
+from tinysoul.infra.network import ResolvedNetwork, resolve_project_network
 from tinysoul.infra.references import ReferenceResolver
 from tinysoul.kernel.action import ActionCatalogLoader
 from tinysoul.kernel.action.catalog.catalog import ActionCatalog
@@ -244,6 +245,7 @@ class AgentBuilder:
                 RuntimeTimer,
                 RuntimeWatcher,
                 ModelServices,
+                ResolvedNetwork,
                 ReferenceResolver,
             ),
             reserved_configuration_sections=_HARNESS_CONFIGURATION_SECTIONS,
@@ -547,12 +549,13 @@ class AgentBuilder:
                     RuntimeLLMBridge(),
                     observations,
                     env=config.runtime_env,
+                    network=plan.network,
                     context_trigger_ratio=context_settings.compression_trigger_ratio,
                 )
                 resources.register("llm", owned_llm.close)
                 llm = owned_llm
             model_services = ModelServices(
-                plan.infra.model_services, env=config.runtime_env
+                plan.infra.model_services, env=config.runtime_env, network=plan.network
             )
             references = ReferenceResolver()
             resources.register("model_services", model_services.close)
@@ -580,6 +583,7 @@ class AgentBuilder:
                 resources,
                 host_services=(
                     Service(ModelServices, model_services),
+                    Service(ResolvedNetwork, plan.network),
                     Service(ReferenceResolver, references),
                     Service(
                         ReflectionSubmission, ReflectionSubmission(submit_reflection)
@@ -844,9 +848,11 @@ class AgentBuilder:
                 ),
             ),
         )
+        infra = config.parse_section("infra", parse_infra_settings)
         plan = AgentConfigPlan(
             environment=config,
-            infra=config.parse_section("infra", parse_infra_settings),
+            infra=infra,
+            network=resolve_project_network(infra.network, config),
             agent=(
                 self._agent_settings
                 if self._agent_settings is not None
@@ -938,8 +944,11 @@ class AgentBuilder:
         *,
         env: Mapping[str, str],
         context_trigger_ratio: float,
+        network: ResolvedNetwork,
     ) -> LLMTaskRunner:
-        providers = await build_provider_registry(llm_config.providers, models=llm_config.models, env=env)
+        providers = await build_provider_registry(
+            llm_config.providers, models=llm_config.models, env=env, network=network
+        )
         try:
             return LLMTaskRunner(
                 models=llm_config.models,

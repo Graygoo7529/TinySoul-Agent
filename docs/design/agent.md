@@ -2,6 +2,8 @@
 
 ## 定位与依赖
 
+AgentBuilder 在候选编译时通过 Infra 解析根出站网络，装配 LLM/ModelServices 时显式传递，并通过既有 host services 向声明依赖的插件提供同一不可变结果。候选校验不探测代理或远端服务；apply/reload 创建新客户端，旧 generation 仍按原生命周期释放。网络策略不增加根调度状态、重试流程或 Kernel 职责。
+
 `tinysoul.agent` 是嵌入式 SDK 与进程装配层，拥有唯一根队列、环境事件路由、运行世代和日协调。它通过显式 Plugin 声明装配真实 owner，通过 TurnProfile 调用同一套异步 Turn/Cycle/Phase 内核，不实现另一套推理或 Action 状态机。
 
 内部 composition 负责跨 owner 装配，dispatch 负责根队列、输入与事件路由，lifecycle 负责世代/日边界与运行策略，observation 负责输出旁路。SDK、请求和受约束服务保持公开入口；内部子包不各自创建 Agent 生命周期或 Job 表。

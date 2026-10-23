@@ -11,9 +11,9 @@ from time import monotonic
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from tinysoul.prompts.plugins.capabilities import expand as prompt_text
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
 from tinysoul.infra.json import JsonObject, JsonValue, dumps_json
+from tinysoul.infra.network import ResolvedNetwork
 from tinysoul.infra.paging import PageOptions
 from tinysoul.kernel.retrieval.contracts import (
     AttributeField,
@@ -31,6 +31,7 @@ from tinysoul.kernel.retrieval.contracts import (
 from tinysoul.kernel.retrieval.operations import SearchCorpus
 from tinysoul.plugins.workspace.inspection.models import WorkspaceBundleWrite
 from tinysoul.plugins.workspace.services import WorkspaceExecutionPort
+from tinysoul.prompts.plugins.capabilities import expand as prompt_text
 from tinysoul.runtime import (
     ObservationEmitter,
     ObservationEvent,
@@ -103,6 +104,7 @@ class ExpandEngine:
         workspace: WorkspaceExecutionPort,
         environment: Mapping[str, str],
         observations: ObservationEmitter | None = None,
+        network: ResolvedNetwork = ResolvedNetwork(),
     ) -> None:
         self.settings, self._workspace = settings, workspace
         self._observations = observations
@@ -119,7 +121,11 @@ class ExpandEngine:
 
             for server in enabled:
                 self._connections[server.server_id] = MCPConnection(
-                    server, settings, root=root, environment=environment
+                    server,
+                    settings,
+                    root=root,
+                    environment=environment,
+                    network=server.network.resolve(settings.network.resolve(network)),
                 )
 
     @property

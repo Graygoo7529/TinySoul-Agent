@@ -6,6 +6,7 @@ adapter = "deepseek"
 providers = [
   { provider = "orca", provider_model = "deepseek/deepseek-v4-pro" },
   { provider = "deepseek", provider_model = "deepseek-v4-pro" },
+  { provider = "opencode", provider_model = "deepseek-v4-pro" },
 ]
 context_window_tokens = 1048576
 capabilities = [

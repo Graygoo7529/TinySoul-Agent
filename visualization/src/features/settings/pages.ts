@@ -269,8 +269,8 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     group: "system",
     title: "Endpoint & Sources",
     description: "Read-only process items, config sources and observation.",
-    surfaces: ["infrastructure"],
-    pathPrefixes: ["agent", "config"],
+    surfaces: ["infrastructure", "network"],
+    pathPrefixes: ["infra.network", "agent", "config"],
   },
   interface: {
     id: "interface",

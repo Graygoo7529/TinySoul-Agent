@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 
 from tinysoul.infra.config import ConfigError
+from tinysoul.infra.http import client_headers, merge_headers
+from tinysoul.infra.network import NetworkPolicy, ResolvedNetwork
 
 from ..adapter.catalog import adapter_spec
 from ..errors import LLMContractError
@@ -61,6 +64,7 @@ class ProviderEndpoint:
     api_version: str | None = None
     headers: Mapping[str, str] = field(default_factory=dict)
     header_refs: Mapping[str, str] = field(default_factory=dict)
+    network: NetworkPolicy = field(default_factory=NetworkPolicy)
 
     def __post_init__(self) -> None:
         if (
@@ -71,7 +75,8 @@ class ProviderEndpoint:
             raise LLMContractError("ProviderEndpoint requires an API mode and base URL")
         if self.api_version is not None and (
             self.api_mode is not ApiMode.GOOGLE_GENERATE_CONTENT
-            or not isinstance(self.api_version, str) or not self.api_version.strip()
+            or not isinstance(self.api_version, str)
+            or not self.api_version.strip()
         ):
             raise LLMContractError("api_version is only supported by Google endpoints")
         if any(
@@ -84,10 +89,14 @@ class ProviderEndpoint:
             raise LLMContractError(
                 "Provider endpoint headers must be non-empty strings"
             )
-        if set(self.headers) & set(self.header_refs):
+        if {name.lower() for name in self.headers} & {
+            name.lower() for name in self.header_refs
+        }:
             raise LLMContractError(
                 "Provider endpoint header cannot be literal and referenced"
             )
+        if not isinstance(self.network, NetworkPolicy):
+            raise LLMContractError("Provider endpoint network must be NetworkPolicy")
 
     def resolved_headers(self, values: Mapping[str, str]) -> dict[str, str]:
         result = dict(self.headers)
@@ -107,6 +116,8 @@ class ProviderSpec:
     enabled: bool = True
     headers: Mapping[str, str] = field(default_factory=dict)
     header_refs: Mapping[str, str] = field(default_factory=dict)
+    network: NetworkPolicy = field(default_factory=NetworkPolicy)
+    cache_key_header: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, str) or not self.id:
@@ -131,8 +142,24 @@ class ProviderSpec:
             for name, value in (*self.headers.items(), *self.header_refs.items())
         ):
             raise LLMContractError("Provider headers must be non-empty strings")
-        if set(self.headers) & set(self.header_refs):
+        if {name.lower() for name in self.headers} & {
+            name.lower() for name in self.header_refs
+        }:
             raise LLMContractError("Provider header cannot be literal and referenced")
+        if not isinstance(self.network, NetworkPolicy):
+            raise LLMContractError("Provider network must be NetworkPolicy")
+        if self.cache_key_header is not None:
+            if not isinstance(self.cache_key_header, str) or not re.fullmatch(
+                r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", self.cache_key_header
+            ):
+                raise LLMContractError("cache_key_header must be an HTTP header name")
+            names = [*self.headers, *self.header_refs]
+            for endpoint in self.endpoints:
+                names.extend((*endpoint.headers, *endpoint.header_refs))
+            if self.cache_key_header.lower() in {name.lower() for name in names}:
+                raise LLMContractError(
+                    "cache_key_header conflicts with a static header"
+                )
         api_key_envs = tuple(self.api_key_envs)
         if not api_key_envs or any(
             not isinstance(name, str) or not name for name in api_key_envs
@@ -193,8 +220,14 @@ class ProviderSpec:
         for header, env_name in self.header_refs.items():
             if values.get(env_name):
                 result[header] = values[env_name]
-        result.update(self.endpoint(api_mode).resolved_headers(values))
-        return result
+        return client_headers(
+            merge_headers(result, self.endpoint(api_mode).resolved_headers(values))
+        )
+
+    def resolved_network(
+        self, api_mode: ApiMode, parent: ResolvedNetwork
+    ) -> ResolvedNetwork:
+        return self.endpoint(api_mode).network.resolve(self.network.resolve(parent))
 
 
 @dataclass(frozen=True)

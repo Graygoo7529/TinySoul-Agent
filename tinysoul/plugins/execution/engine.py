@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import shutil
 from base64 import b64encode
 from pathlib import Path
-import shutil
 
-from tinysoul.infra.config import ConfigError
 from tinysoul.infra.concurrency import JoinedOperations
+from tinysoul.infra.config import ConfigError
+from tinysoul.infra.network import ResolvedNetwork
 from tinysoul.infra.process import (
     ManagedProcessRequest,
     ManagedProcessRunner,
@@ -33,8 +35,13 @@ class ExecutionEngine:
         jobs: JobRegistry,
         workspace: WorkspaceExecutionPort,
         runner: ManagedProcessRunner | None = None,
+        network: ResolvedNetwork = ResolvedNetwork(),
     ) -> None:
         self.settings = settings
+        self._networks = {
+            item.name: item.network.resolve(settings.network.resolve(network))
+            for item in settings.interpreters
+        }
         self.jobs = jobs
         self._workspace = workspace
         self._runner = runner or ManagedProcessRunner()
@@ -83,9 +90,7 @@ class ExecutionEngine:
                 f"The {selected.value} interpreter is not enabled in this runtime."
             )
         if (command is None) == (source_ref is None):
-            raise ExecutionRequestError(
-                "Provide exactly one of command or source_ref."
-            )
+            raise ExecutionRequestError("Provide exactly one of command or source_ref.")
         if len(args) > self.settings.max_args or any(
             len(arg) > self.settings.max_arg_chars or "\x00" in arg for arg in args
         ):
@@ -143,7 +148,14 @@ class ExecutionEngine:
                         argv=argv,
                         cwd=str(location.cwd),
                         interactive=interactive,
-                        env={"PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"},
+                        env=self._networks[selected].process_environment(
+                            {
+                                **os.environ,
+                                "PYTHONIOENCODING": "utf-8",
+                                "PYTHONUNBUFFERED": "1",
+                            }
+                        ),
+                        inherit_env=False,
                     ),
                     capture_root=location.capture_root,
                 )

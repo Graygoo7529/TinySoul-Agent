@@ -17,6 +17,7 @@ from tinysoul.llm.adapter.anthropic.messages import (
     MessagesClient,
 )
 from tinysoul.llm.adapter.base import ProviderError, ProviderErrorKind, ProviderRequest
+from tinysoul.llm.adapter.google.client import GoogleClient
 from tinysoul.llm.adapter.google.generate_content import GoogleGenerateContentAdapter
 from tinysoul.llm.adapter.registry import ProviderRegistry
 from tinysoul.llm.config.types import ProviderEndpoint, ProviderSpec
@@ -44,6 +45,38 @@ from tinysoul.llm.protocol.routing import ModelChain, RetryPolicy, TaskSpec
 from tinysoul.llm.protocol.tools import ToolKind, ToolScope, ToolSpec, ToolUse
 
 pytestmark = pytest.mark.anyio
+
+
+@pytest.mark.parametrize("identity", [None, "Explicit-Agent/1"])
+async def test_google_owned_client_preserves_http_identity(monkeypatch, identity):
+    seen = []
+
+    async def respond(_transport, request):
+        seen.append(request.headers["user-agent"])
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {"content": {"parts": [{"text": "ok"}]}, "finishReason": "STOP"}
+                ]
+            },
+        )
+
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", respond)
+    client = GoogleClient(
+        api_key="test",
+        base_url="https://google.test",
+        api_version="v1beta",
+        headers={"User-Agent": identity} if identity else {},
+    )
+    try:
+        response = await client.sdk.aio.models.generate_content(
+            model="model", contents="Hello"
+        )
+        assert response.text == "ok"
+        assert seen[0] == identity if identity else seen[0].startswith("TinySoul-Agent")
+    finally:
+        await client.close()
 
 
 def provider(mode: ApiMode) -> ProviderSpec:
@@ -92,6 +125,7 @@ def request(mode: ApiMode, **options: object) -> ProviderRequest:
 @pytest.mark.parametrize("summary", ["Plan", ""])
 async def test_anthropic_sdk_signed_tool_roundtrip_and_cache(summary: str) -> None:
     bodies: list[dict] = []
+    headers: list[str | None] = []
     blocks = [
         {"type": "thinking", "thinking": summary, "signature": "opaque-signature"},
         {
@@ -104,6 +138,7 @@ async def test_anthropic_sdk_signed_tool_roundtrip_and_cache(summary: str) -> No
 
     def respond(req: httpx2.Request) -> httpx2.Response:
         bodies.append(json.loads(req.content))
+        headers.append(req.headers.get("x-session"))
         assert req.headers["x-api-key"] == "test-key"
         return anthropic_sse_response(
             {
@@ -130,7 +165,9 @@ async def test_anthropic_sdk_signed_tool_roundtrip_and_cache(summary: str) -> No
         http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(respond)),
     ) as sdk:
         adapter = AnthropicMessagesAdapter(
-            provider=provider(ApiMode.ANTHROPIC_MESSAGES),
+            provider=replace(
+                provider(ApiMode.ANTHROPIC_MESSAGES), cache_key_header="x-session"
+            ),
             messages=cast(MessagesClient, sdk.messages),
         )
         first = request(
@@ -144,10 +181,11 @@ async def test_anthropic_sdk_signed_tool_roundtrip_and_cache(summary: str) -> No
         first = replace(
             first,
             prompt_cache=PromptCache(
-                breakpoints=(PromptCacheBreakpoint("background", 1),)
+                key="turn-key", breakpoints=(PromptCacheBreakpoint("background", 1),)
             ),
         )
         response = await adapter.invoke(first)
+        assert headers[0] == "turn-key"
         assert response.stop_reason is ResponseStopReason.TOOL_CALLS
         assert response.tool_calls[0].arguments == {"ref": "test"}
         assert response.usage.input_tokens == 145
@@ -252,6 +290,8 @@ async def test_google_sdk_signature_parts_cache_and_usage(summary: str) -> None:
         body = json.loads(req.content)
         bodies.append((req.url.path, body))
         assert req.headers["x-goog-api-key"] == "test-key"
+        if len(bodies) <= 3:
+            assert req.headers["x-session"] == "turn-key"
         if req.url.path.endswith("/cachedContents"):
             return httpx.Response(
                 200,
@@ -291,7 +331,10 @@ async def test_google_sdk_signature_parts_cache_and_usage(summary: str) -> None:
         ),
     )
     adapter = GoogleGenerateContentAdapter(
-        provider=provider(ApiMode.GOOGLE_GENERATE_CONTENT), client=sdk.aio
+        provider=replace(
+            provider(ApiMode.GOOGLE_GENERATE_CONTENT), cache_key_header="x-session"
+        ),
+        client=sdk.aio,
     )
     try:
         first = request(
@@ -306,7 +349,7 @@ async def test_google_sdk_signature_parts_cache_and_usage(summary: str) -> None:
             first,
             model=replace(first.model, reasoning_effort="high"),
             prompt_cache=PromptCache(
-                breakpoints=(PromptCacheBreakpoint("background", 1),)
+                key="turn-key", breakpoints=(PromptCacheBreakpoint("background", 1),)
             ),
         )
         response = await adapter.invoke(first)
