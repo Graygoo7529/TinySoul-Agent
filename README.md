@@ -114,6 +114,20 @@ $env:TINYSOUL_PYTHON=(Get-Command python).Source
 
 If repository-local file operations are disrupted by the host environment, use `-ArtifactRoot <scratch-directory>` to place isolated runs elsewhere. Relative paths resolve against the repository. The script creates and cleans only its own `runs/<uuid>` directory; failed runs retain their artifacts. The selected suite and its assertions remain the same.
 
+Real model API checks load models and credentials from an initialized project's TOML and `.env`:
+
+```powershell
+$env:TINYSOUL_RUN_REAL_LLM_API = "1"
+$env:TINYSOUL_REAL_PROJECT_ROOT = "C:\TinySoul\my-project"
+$env:TINYSOUL_REAL_MODELS = "claude-opus,claude-sonnet,claude-fable"
+$env:TINYSOUL_REAL_PROVIDER = "token-advant"
+.\scripts\test.ps1 -Suite External -TestPath tests/llm/adapter/test_real_provider_api.py
+```
+
+`TINYSOUL_REAL_MODELS` is optional; omitting it selects all models in that project. `TINYSOUL_REAL_PROVIDER` is also optional: by default each model uses its first enabled binding with credentials. An explicit provider selects only its existing bindings and enables it within the test process, without editing TOML. Remove that environment variable to return to normal binding selection. Missing bindings/credentials and undeclared capabilities are reported as skipped; request failures remain failures and do not trigger provider switching. To see safe route and usage summaries for passing tests, set `PYTEST_ADDOPTS="-s -ra --tb=short"` for the invocation.
+
+The checks validate JSON values, image content, tool arguments and returned results, non-empty native reasoning actually sent in a continuation, and cache hits from repeated long prefixes. Anthropic explicit/automatic caching also checks creation counts. Missing cache-read telemetry is reported as unverified, not a successful hit; these checks do not establish cache expiry or Google cache-resource lifecycle behavior. The optional `token-advant` provider uses `TOKEN_ADVANT_API_KEY` and binds Claude Opus, Sonnet and Fable; Haiku is not bound to that provider. Existing projects need these provider/model TOML entries before selecting it.
+
 Architecture and module contracts are under `docs/design/`; the desktop frontend is documented in `visualization/README.md`.
 
-LLM providers declare API-mode endpoints with shared credentials; models choose one generic or specialized adapter and use stable IDs. OpenAI Chat/Responses are executable; Anthropic Messages/Google GenerateContent currently support configuration and UI editing. See [LLM configuration and adapters](docs/design/llm.md#api-模式与-adapter).
+LLM providers declare API-mode endpoints with shared credentials; models choose one generic or specialized adapter and use stable IDs. OpenAI Chat/Responses, Anthropic Messages and Google GenerateContent have executable SDK adapters; remote model availability depends on the configured binding and credentials. See [LLM configuration and adapters](docs/design/llm.md#api-模式与-adapter).

@@ -1,11 +1,14 @@
-# Optional family: enable anthropic and select these models in a task chain.
+# Optional family: enable a bound provider and select models in a task chain.
 # Bindings and supported choices reviewed against official docs on 2026-10-22.
 
 [llm.models.claude-fable]
 family = "Claude"
 collapsed = false
 adapter = "anthropic-messages"
-providers = [{ provider = "anthropic", provider_model = "claude-fable-5-1" }]
+providers = [
+  { provider = "anthropic", provider_model = "claude-fable-5-1" },
+  { provider = "token-advant", provider_model = "claude-fable-5-1" },
+]
 context_window_tokens = 1000000
 capabilities = [
   "text_input",
@@ -38,7 +41,10 @@ choices.reasoning_effort = ["low", "medium", "high", "xhigh", "max"]
 family = "Claude"
 collapsed = false
 adapter = "anthropic-messages"
-providers = [{ provider = "anthropic", provider_model = "claude-opus-5-5" }]
+providers = [
+  { provider = "anthropic", provider_model = "claude-opus-5-5" },
+  { provider = "token-advant", provider_model = "claude-opus-5-5" },
+]
 context_window_tokens = 1000000
 capabilities = [
   "text_input",
@@ -71,7 +77,10 @@ choices.reasoning_effort = ["low", "medium", "high", "xhigh", "max"]
 family = "Claude"
 collapsed = false
 adapter = "anthropic-messages"
-providers = [{ provider = "anthropic", provider_model = "claude-sonnet-5-5" }]
+providers = [
+  { provider = "anthropic", provider_model = "claude-sonnet-5-5" },
+  { provider = "token-advant", provider_model = "claude-sonnet-5-5" },
+]
 context_window_tokens = 1000000
 capabilities = [
   "text_input",

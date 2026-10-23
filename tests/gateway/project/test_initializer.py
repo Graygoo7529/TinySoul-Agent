@@ -128,7 +128,9 @@ def test_project_config_profiles_share_core_home_and_customize_user_profile(
         example = parse_dotenv((root / ".env.example").read_text(encoding="utf-8"))
         assert example
         assert set(example.values()) == {""}
-        assert set(example) == _config_environment_references(root / "configs")
+        # Examples cover every configured reference and may reserve keys for
+        # optional providers that users add to their project's TOML later.
+        assert _config_environment_references(root / "configs") <= set(example)
 
 
 @pytest.mark.generation

@@ -1,554 +1,494 @@
+"""Opt-in model capability checks through real adapters and remote SDK requests."""
+
 from __future__ import annotations
 
+import asyncio
+import json
 import os
+import re
 import struct
 import zlib
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Iterator
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Any
+from uuid import uuid4
 
+import httpx
+import httpx2
 import pytest
 
-from tinysoul.infra.config import ConfigEnvironment, ConfigError
-from tinysoul.llm.adapter import (
-    ProviderAdapter,
-    ProviderError,
-    ProviderErrorKind,
-    ProviderRequest,
-)
+from tinysoul.infra.config import ConfigEnvironment
+from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.llm.adapter import ProviderAdapter, ProviderError, ProviderRequest
 from tinysoul.llm.adapter.catalog import adapter_spec
 from tinysoul.llm.adapter.factory import build_provider_registry
 from tinysoul.llm.config.loader import LLMConfigParser, ProviderSpec
 from tinysoul.llm.execution.registry import ModelRegistry
-from tinysoul.llm.protocol.cache import PromptCache
+from tinysoul.llm.protocol.adapter_types import AdapterKind, ApiMode
+from tinysoul.llm.protocol.cache import PromptCache, PromptCacheBreakpoint
 from tinysoul.llm.protocol.messages import (
     AssistantMessage,
     ImagePart,
-    JsonPart,
-    Message,
     MessageStack,
     SystemMessage,
     TextPart,
     ToolResultMessage,
     UserMessage,
 )
-from tinysoul.llm.protocol.models import ModelCapability, ModelSpec
-from tinysoul.llm.protocol.responses import AnswerFormat, RawResponse
-from tinysoul.llm.protocol.tools import (
-    ToolCallRecord,
-    ToolKind,
-    ToolScope,
-    ToolSelection,
-    ToolSpec,
-    ToolUse,
+from tinysoul.llm.protocol.models import (
+    ModelCapability,
+    ModelProviderBinding,
+    ModelSpec,
 )
-
-pytestmark = [
-    pytest.mark.external,
-    pytest.mark.skipif(
-        os.environ.get("TINYSOUL_RUN_REAL_LLM_API") != "1",
-        reason="real LLM API integration test is disabled",
-    ),
-]
-
-PRIMARY_MODEL_IDS = (
-    "gpt-sol",
-    "gpt-terra",
-    "gpt-luna",
-    "kimi-latest",
-    "kimi-coding-latest",
-    "deepseek-pro",
-    "deepseek-flash",
-    "glm-latest",
-    "minimax-latest",
+from tinysoul.llm.protocol.reasoning import NativeReplayMode
+from tinysoul.llm.protocol.responses import (
+    AnswerFormat,
+    JsonAnswer,
+    RawResponse,
+    ResponseInterpreter,
+    ResponseStopReason,
 )
+from tinysoul.llm.protocol.tools import ToolKind, ToolScope, ToolSpec, ToolUse
 
-TOOL_MODEL_IDS = (
-    "gpt-sol",
-    "gpt-terra",
-    "gpt-luna",
-    "kimi-latest",
-    "kimi-coding-latest",
-    "deepseek-pro",
-    "deepseek-flash",
-    "glm-latest",
-    "minimax-latest",
-)
+pytestmark = pytest.mark.external
 
 
-@pytest.mark.parametrize("model_id", PRIMARY_MODEL_IDS)
-async def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
-    async with _load_model_adapter(model_id) as (model, provider, adapter):
-        messages = MessageStack.of(
-            SystemMessage.from_text(
-                "Return only a compact JSON object. Do not include markdown. "
-                "When the user provides an expected JSON object, copy the requested "
-                "keys into your answer and do not replace them with a summary."
-            ),
-            _first_user_message(model),
-        )
-        prompt_cache = PromptCache(key=f"real-api:{model.id}:stable-context")
-        max_output_tokens = _test_max_output_tokens(model)
-        _print_run_header(model, provider)
-
-        first_response = await _invoke_real_provider(
-            adapter,
-            ProviderRequest(
-                model=model,
-                binding=model.providers[0],
-                messages=messages,
-                answer_format=AnswerFormat.JSON_OBJECT,
-                prompt_cache=prompt_cache,
-                temperature=0.2,
-                max_output_tokens=max_output_tokens,
-            ),
-            provider_id=provider.id,
-            model_id=model.id,
-            label="primary round 1",
-        )
-        _assert_provider_returned(
-            first_response.answer_text,
-            provider_id=provider.id,
-            model_id=model.id,
-            round_number=1,
-        )
-        _print_response_summary(
-            round_number=1, answer=first_response.answer_text, response=first_response
-        )
-
-        messages = messages.append(
-            AssistantMessage.from_text(
-                first_response.answer_text,
-                reasoning=first_response.reasoning,
-            )
-        ).append(
-            UserMessage.from_parts(
-                TextPart(
-                    "Continue the same task. Return only a JSON object that includes "
-                    "the keys provider, model, round, must_return_json_object, and "
-                    "uses_previous_reasoning_when_available."
-                ),
-                JsonPart(
-                    {
-                        "provider": provider.id,
-                        "model": model.id,
-                        "round": 2,
-                        "must_return_json_object": True,
-                        "uses_previous_reasoning_when_available": (
-                            first_response.reasoning is not None
-                        ),
-                    }
-                ),
-            )
-        )
-
-        second_response = await _invoke_real_provider(
-            adapter,
-            ProviderRequest(
-                model=model,
-                binding=model.providers[0],
-                messages=messages,
-                answer_format=AnswerFormat.JSON_OBJECT,
-                prompt_cache=prompt_cache,
-                temperature=0.2,
-                max_output_tokens=max_output_tokens,
-            ),
-            provider_id=provider.id,
-            model_id=model.id,
-            label="primary round 2",
-        )
-        _assert_provider_returned(
-            second_response.answer_text,
-            provider_id=provider.id,
-            model_id=model.id,
-            round_number=2,
-        )
-        _print_response_summary(
-            round_number=2, answer=second_response.answer_text, response=second_response
-        )
+def _environment() -> ConfigEnvironment:
+    root = os.environ.get("TINYSOUL_REAL_PROJECT_ROOT", "").strip()
+    if not root:
+        pytest.fail("TINYSOUL_REAL_PROJECT_ROOT must name a configured project")
+    return ConfigEnvironment.from_project_root(Path(root).expanduser().resolve())
 
 
-@pytest.mark.parametrize("model_id", TOOL_MODEL_IDS)
-async def test_real_provider_model_two_tool_rounds(model_id: str) -> None:
-    async with _load_model_adapter(model_id) as (model, provider, adapter):
-        if not model.supports(ModelCapability.TOOL_CALLING):
-            pytest.skip(f"{model.id} does not declare tool calling capability")
-        prompt_cache = PromptCache(key=f"real-api:{model.id}:tool-context")
-        max_output_tokens = _test_max_output_tokens(model)
-        tool_scope = ToolScope(
-            tools=(_lookup_tool(), _summarize_tool()),
-            selection=ToolSelection(forced_name="lookup_workspace_note"),
-        )
-        messages = MessageStack.of(
-            SystemMessage.from_text(
-                "Use the provided tools. Return concise responses and do not invent tool results."
-            ),
-            UserMessage.from_parts(
-                TextPart(
-                    "First call lookup_workspace_note for note_id alpha. "
-                    "Then wait for the tool result."
-                ),
-                JsonPart(
-                    {"expected_tool": "lookup_workspace_note", "note_id": "alpha"}
-                ),
-            ),
-        )
-        _print_run_header(model, provider)
-
-        first_response = await _invoke_real_provider(
-            adapter,
-            ProviderRequest(
-                model=model,
-                binding=model.providers[0],
-                messages=messages,
-                answer_format=AnswerFormat.NONE,
-                tool_use=ToolUse.REQUIRED,
-                tool_scope=tool_scope,
-                prompt_cache=prompt_cache,
-                temperature=0.2,
-                max_output_tokens=max_output_tokens,
-            ),
-            provider_id=provider.id,
-            model_id=model.id,
-            label="tool round 1",
-        )
-        _assert_tool_call_returned(
-            first_response.tool_calls,
-            expected_name="lookup_workspace_note",
-            provider_id=provider.id,
-            model_id=model.id,
-            round_number=1,
-        )
-        first_call = _tool_call_by_name(
-            first_response.tool_calls,
-            "lookup_workspace_note",
-        )
-        _print_tool_response_summary(
-            round_number=1,
-            response=first_response,
-            tool_calls=first_response.tool_calls,
-        )
-
-        messages = (
-            messages.append(
-                AssistantMessage.from_parts(
-                    reasoning=first_response.reasoning,
-                    tool_calls=(first_call,),
+def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
+    if "model_id" not in metafunc.fixturenames:
+        return
+    if os.environ.get("TINYSOUL_RUN_REAL_LLM_API") != "1":
+        metafunc.parametrize(
+            "model_id",
+            [
+                pytest.param(
+                    "disabled", marks=pytest.mark.skip(reason="real API disabled")
                 )
-            )
-            .append(
-                ToolResultMessage.from_json(
-                    call_id=first_call.id,
-                    tool_name="lookup_workspace_note",
-                    value={
-                        "note_id": "alpha",
-                        "workspace_link": "workspace:notes/alpha.md",
-                        "summary": "Alpha note says the release checklist has three items.",
-                        "status": "ok",
-                    },
-                )
-            )
-            .append(
-                UserMessage.from_parts(
-                    TextPart(
-                        "Now call summarize_workspace_note using the workspace link "
-                        "from the tool result."
-                    ),
-                    JsonPart(
-                        {
-                            "expected_tool": "summarize_workspace_note",
-                            "workspace_link": "workspace:notes/alpha.md",
-                        }
-                    ),
-                )
-            )
+            ],
         )
-
-        second_response = await _invoke_real_provider(
-            adapter,
-            ProviderRequest(
-                model=model,
-                binding=model.providers[0],
-                messages=messages,
-                answer_format=AnswerFormat.NONE,
-                tool_use=ToolUse.REQUIRED,
-                tool_scope=ToolScope(
-                    tools=(_lookup_tool(), _summarize_tool()),
-                    selection=ToolSelection(forced_name="summarize_workspace_note"),
-                ),
-                prompt_cache=prompt_cache,
-                temperature=0.2,
-                max_output_tokens=max_output_tokens,
-            ),
-            provider_id=provider.id,
-            model_id=model.id,
-            label="tool round 2",
+        return
+    config = LLMConfigParser().parse(_environment().section_tree("llm"))
+    selected = tuple(
+        dict.fromkeys(
+            item.strip()
+            for item in os.environ.get("TINYSOUL_REAL_MODELS", "").split(",")
+            if item.strip()
         )
-        _assert_tool_call_returned(
-            second_response.tool_calls,
-            expected_name="summarize_workspace_note",
-            provider_id=provider.id,
-            model_id=model.id,
-            round_number=2,
-        )
-        _print_tool_response_summary(
-            round_number=2,
-            response=second_response,
-            tool_calls=second_response.tool_calls,
-        )
-
-
-@asynccontextmanager
-async def _load_model_adapter(
-    model_id: str,
-) -> AsyncIterator[tuple[ModelSpec, ProviderSpec, ProviderAdapter]]:
-    configured_root = os.environ.get("TINYSOUL_REAL_PROJECT_ROOT", "")
-    if not configured_root:
-        pytest.fail(
-            "TINYSOUL_REAL_PROJECT_ROOT must name an initialized, configured project"
-        )
-    environment = ConfigEnvironment.from_project_root(
-        Path(configured_root).expanduser().resolve()
     )
+    unknown = set(selected) - set(config.models.ids())
+    if unknown:
+        raise pytest.UsageError(f"Unknown real API model IDs: {sorted(unknown)}")
+    provider_id = os.environ.get("TINYSOUL_REAL_PROVIDER", "").strip()
+    if provider_id and provider_id not in {item.id for item in config.providers}:
+        raise pytest.UsageError(f"Unknown real API provider: {provider_id}")
+    metafunc.parametrize("model_id", selected or config.models.ids())
+
+
+@dataclass
+class RequestCapture:
+    """Observe serialized JSON bodies without retaining credentials or replacing I/O."""
+
+    bodies: list[JsonObject] = field(default_factory=list, repr=False)
+
+    def record(self, method: str, content_type: str, content: bytes) -> None:
+        if method == "POST" and "application/json" in content_type:
+            self.bodies.append(to_json_object(json.loads(content)))
+
+    def install(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Any is confined to the two SDK transports' public send kwargs.
+        send = httpx.AsyncClient.send
+        send2 = httpx2.AsyncClient.send
+
+        async def observe(
+            client: httpx.AsyncClient, request: httpx.Request, **kwargs: Any
+        ) -> httpx.Response:
+            self.record(
+                request.method, request.headers.get("content-type", ""), request.content
+            )
+            return await send(client, request, **kwargs)
+
+        async def observe2(
+            client: httpx2.AsyncClient, request: httpx2.Request, **kwargs: Any
+        ) -> httpx2.Response:
+            self.record(
+                request.method, request.headers.get("content-type", ""), request.content
+            )
+            return await send2(client, request, **kwargs)
+
+        monkeypatch.setattr(httpx.AsyncClient, "send", observe)
+        monkeypatch.setattr(httpx2.AsyncClient, "send", observe2)
+
+
+@dataclass(frozen=True)
+class RealModel:
+    model: ModelSpec
+    binding: ModelProviderBinding
+    adapter: ProviderAdapter
+    capture: RequestCapture
+
+    def require(self, capability: ModelCapability) -> None:
+        if not self.model.supports(capability):
+            pytest.skip(f"{self.model.id} does not declare {capability.value}")
+
+    def request(self, messages: MessageStack) -> ProviderRequest:
+        return ProviderRequest(
+            model=self.model,
+            binding=self.binding,
+            messages=messages,
+            answer_format=AnswerFormat.TEXT,
+            max_output_tokens=8192,
+            timeout_seconds=120,
+        )
+
+    async def invoke(self, request: ProviderRequest, step: str) -> RawResponse:
+        count = len(self.capture.bodies)
+        try:
+            async with asyncio.timeout(150):
+                response = await self.adapter.invoke(request)
+        except ProviderError as exc:
+            # Remote failures must not become successful/skipped checks.
+            pytest.fail(
+                f"{self.model.id}/{self.binding.provider_id} {step}: "
+                f"{exc.kind.value} ({exc.scope.value}): {exc}",
+                pytrace=False,
+            )
+        assert len(self.capture.bodies) > count, "No real SDK JSON request observed"
+        assert response.stop_reason in {
+            ResponseStopReason.COMPLETE,
+            ResponseStopReason.TOOL_CALLS,
+        }, f"{step}: incomplete response ({response.stop_reason.value})"
+        native = response.reasoning.native_replay if response.reasoning else None
+        print(
+            "[real-llm] "
+            + json.dumps(
+                {
+                    "model": self.model.id,
+                    "provider": self.binding.provider_id,
+                    "step": step,
+                    "stop": response.stop_reason.value,
+                    "replay_mode": native.mode.value if native else None,
+                    "replay_values": len(_replay_values(native.ordered_items))
+                    if native
+                    else 0,
+                    "usage": response.usage.to_json(),
+                }
+            )
+        )
+        return response
+
+
+@pytest.fixture
+async def real_model(
+    model_id: str, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator[RealModel]:
+    environment = _environment()
     config = LLMConfigParser().parse(environment.section_tree("llm"))
     model = config.models.get(model_id)
-    binding = model.providers[0]
-    provider = config.provider(binding.provider_id)
-    try:
-        registry = await build_provider_registry(
-            (provider,), models=ModelRegistry([model]), env=environment.runtime_env
+    selected_provider = os.environ.get("TINYSOUL_REAL_PROVIDER", "").strip()
+    provider: ProviderSpec | None = None
+    binding: ModelProviderBinding | None = None
+    for candidate in model.providers:
+        current = config.provider(candidate.provider_id)
+        if selected_provider:
+            if current.id != selected_provider:
+                continue
+        elif not current.enabled:
+            continue
+        if current.configured_api_key(environment.runtime_env):
+            provider, binding = replace(current, enabled=True), candidate
+            break
+    if provider is None or binding is None:
+        pytest.skip(
+            f"{model_id}: no credentialed binding for "
+            f"{selected_provider or 'enabled providers'}"
         )
-    except ConfigError as exc:
-        pytest.skip(f"{provider.id} API key is not configured: {exc}")
+    key_env = next(
+        name
+        for name in provider.api_key_envs
+        if environment.runtime_env.get(name, "").strip()
+    )
+    print(
+        "[real-llm] "
+        + json.dumps(
+            {
+                "model": model.id,
+                "provider": provider.id,
+                "provider_model": binding.provider_model,
+                "api_mode": adapter_spec(model.adapter).api_mode.value,
+                "key_env": key_env,
+            }
+        )
+    )
+    capture = RequestCapture()
+    capture.install(monkeypatch)
+    registry = await build_provider_registry(
+        (provider,), models=ModelRegistry([model]), env=environment.runtime_env
+    )
     try:
-        yield model, provider, registry.get(provider.id, model.adapter)
+        yield RealModel(
+            model, binding, registry.get(provider.id, model.adapter), capture
+        )
     finally:
         await registry.close()
 
 
-async def _invoke_real_provider(
-    adapter: ProviderAdapter,
-    request: ProviderRequest,
-    *,
-    provider_id: str,
-    model_id: str,
-    label: str,
-) -> RawResponse:
-    try:
-        return await adapter.invoke(request)
-    except ProviderError as exc:
-        if exc.kind is ProviderErrorKind.TRANSIENT:
-            pytest.skip(
-                f"{provider_id}/{model_id} {label} transient provider failure: {exc}"
+def _json_answer(response: RawResponse) -> JsonObject:
+    result = ResponseInterpreter().interpret(
+        response, AnswerFormat.JSON_OBJECT, ToolUse.DISABLED
+    )
+    assert isinstance(result.answer, JsonAnswer)
+    return result.answer.value
+
+
+def _assistant(response: RawResponse) -> AssistantMessage:
+    return AssistantMessage.from_text(
+        response.answer_text,
+        reasoning=response.reasoning,
+        tool_calls=response.tool_calls,
+    )
+
+
+def _objects(value: object) -> Iterator[dict[str, object]]:
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from _objects(child)
+    elif isinstance(value, (tuple, list)):
+        for child in value:
+            yield from _objects(child)
+
+
+def _replay_values(value: object) -> set[tuple[str, str]]:
+    """Compare opaque values in memory; never print them in diagnostics."""
+    values: set[tuple[str, str]] = set()
+    for item in _objects(value):
+        for key in (
+            "reasoning_content",
+            "encrypted_content",
+            "signature",
+            "thought_signature",
+            "thoughtSignature",
+        ):
+            content = item.get(key)
+            if isinstance(content, str) and content:
+                values.add(
+                    (key.replace("thought_signature", "thoughtSignature"), content)
+                )
+        if item.get("type") in {"thinking", "redacted_thinking"}:
+            for key in ("thinking", "data"):
+                content = item.get(key)
+                if isinstance(content, str) and content:
+                    values.add((key, content))
+    return values
+
+
+async def test_real_model_json(real_model: RealModel) -> None:
+    real_model.require(ModelCapability.JSON_OBJECT_OUTPUT)
+    request = replace(
+        real_model.request(
+            MessageStack.of(
+                SystemMessage.from_text("Return only a JSON object without markdown."),
+                UserMessage.from_text(
+                    'Compute 137*249+89*61. Put the integer under "value".'
+                ),
             )
-        raise
+        ),
+        answer_format=AnswerFormat.JSON_OBJECT,
+    )
+    response = await real_model.invoke(request, "json")
+    assert _json_answer(response).get("value") == 39542
 
 
-def _first_user_message(model: ModelSpec) -> Message:
-    text = TextPart(
-        "Return only a JSON object that includes the keys model, round, "
-        "must_return_json_object, contains_json_part, and contains_image_part. "
-        "Use the values from the supplied JSON object."
-    )
-    payload = JsonPart(
-        {
-            "model": model.id,
-            "round": 1,
-            "must_return_json_object": True,
-            "contains_json_part": True,
-            "contains_image_part": model.supports(ModelCapability.IMAGE_INPUT),
-        }
-    )
-    if model.supports(ModelCapability.IMAGE_INPUT):
-        return UserMessage.from_parts(
-            text,
-            ImagePart(data=_sample_png(), mime_type="image/png"),
-            payload,
+async def test_real_model_image(real_model: RealModel) -> None:
+    real_model.require(ModelCapability.IMAGE_INPUT)
+    request = real_model.request(
+        MessageStack.of(
+            UserMessage.from_parts(
+                TextPart(
+                    "Identify the dominant color in the image. Return only a JSON object "
+                    'with key "color". Choose exactly one basic color: red, green, blue, '
+                    "yellow, black, white. Do not add shade adjectives."
+                ),
+                ImagePart(data=_sample_png(), mime_type="image/png"),
+            ),
         )
-    return UserMessage.from_parts(text, payload)
+    )
+    response = await real_model.invoke(request, "image")
+    assert any(
+        item.get("type") in {"image", "image_url", "input_image"}
+        or "inlineData" in item
+        or "inline_data" in item
+        for item in _objects(real_model.capture.bodies[-1])
+    ), "The SDK request did not contain the image"
+    assert str(_json_answer(response).get("color", "")).lower() == "red"
 
 
-def _test_max_output_tokens(model: ModelSpec) -> int:
-    provider_id = model.providers[0].provider_id
-    if provider_id == "glm":
-        return 4096
-    if provider_id in {"deepseek", "minimax"}:
-        return 2048
-    return 512
+async def test_real_model_tools(real_model: RealModel) -> None:
+    real_model.require(ModelCapability.TOOL_CALLING)
+    tool = ToolSpec(
+        name="lookup_record",
+        description="Look up a synthetic record by its id.",
+        parameters={
+            "type": "object",
+            "properties": {"id": {"type": "string"}},
+            "required": ["id"],
+            "additionalProperties": False,
+        },
+        kind=ToolKind.ACTION,
+    )
+    request = replace(
+        real_model.request(
+            MessageStack.of(
+                SystemMessage.from_text(
+                    "Use lookup_record when asked. After its result arrives, return only a JSON "
+                    'object with its value under "value". Do not invent tool results.'
+                ),
+                UserMessage.from_text("Call lookup_record with id alpha."),
+            )
+        ),
+        tool_use=ToolUse.OPTIONAL,
+        tool_scope=ToolScope(tools=(tool,)),
+    )
+    first = await real_model.invoke(request, "tool")
+    assert len(first.tool_calls) == 1
+    call = first.tool_calls[0]
+    assert call.name == "lookup_record" and call.arguments == {"id": "alpha"}
+    messages = request.messages.append(_assistant(first)).append(
+        ToolResultMessage.from_json(
+            call_id=call.id, tool_name=call.name, value={"id": "alpha", "value": 42}
+        )
+    )
+    second = await real_model.invoke(replace(request, messages=messages), "tool-result")
+    assert _json_answer(second).get("value") == 42
+
+
+async def test_real_model_reasoning_replay(real_model: RealModel) -> None:
+    model = real_model.model
+    mode = model.adapter_options.native_replay_mode()
+    # K3's adapter always replays content even without an explicit option.
+    if mode is NativeReplayMode.NONE and not (
+        model.adapter is AdapterKind.KIMI and model.adapter_options.variant == "k3"
+    ):
+        pytest.skip("Native replay is not configured for this model")
+    request = real_model.request(
+        MessageStack.of(
+            SystemMessage.from_text(
+                "Think carefully. Return only a JSON object without markdown."
+            ),
+            UserMessage.from_text(
+                'Compute 137*249+89*61. Put the integer under "value".'
+            ),
+        )
+    )
+    first = await real_model.invoke(request, "reasoning-first")
+    assert _json_answer(first).get("value") == 39542
+    replay = first.reasoning.native_replay if first.reasoning else None
+    assert replay is not None, "No native reasoning state returned"
+    values = _replay_values(replay.ordered_items)
+    assert values, "NativeReplay has no non-empty replay content/signature"
+    messages = request.messages.append(_assistant(first)).append(
+        UserMessage.from_text(
+            'Multiply that result by 13. Return the new integer under "value".'
+        )
+    )
+    second = await real_model.invoke(
+        replace(request, messages=messages), "reasoning-replay"
+    )
+    sent = _replay_values(real_model.capture.bodies[-1])
+    if not values.issubset(sent):
+        pytest.fail(
+            "Retained native state was not sent in the continuation", pytrace=False
+        )
+    assert _json_answer(second).get("value") == 514046
+
+
+async def test_real_model_prompt_cache(real_model: RealModel) -> None:
+    # Implicit caches may work without a configurable prompt_cache capability.
+    identity = uuid4().hex
+    codes = [100000 + uuid4().int % 900000 for _ in range(600)]
+    prefix = (
+        f"Synthetic cache audit {identity}. Look up the requested record's code.\n"
+        + "\n".join(
+            f"Record {index:04d}: reference code {code}; this synthetic library item is available."
+            for index, code in enumerate(codes)
+        )
+    )
+    cache = PromptCache(
+        key=f"real-api:{identity}",
+        breakpoints=(
+            PromptCacheBreakpoint("background", 0),
+            PromptCacheBreakpoint("trace", 1),
+        ),
+    )
+    request = replace(
+        real_model.request(
+            MessageStack.of(
+                SystemMessage.from_text(prefix),
+                UserMessage.from_text(
+                    "Find the reference code of record 0121. Reply with that code."
+                ),
+            )
+        ),
+        prompt_cache=cache,
+    )
+    first = await real_model.invoke(request, "cache-first")
+    assert re.search(rf"\b{codes[121]}\b", first.answer_text), (
+        "Cached prefix was not used"
+    )
+    first_body = real_model.capture.bodies[-1]
+    messages = request.messages.append(_assistant(first)).append(
+        UserMessage.from_text(
+            "Now find the reference code of record 0459. Reply with that code."
+        )
+    )
+    second = await real_model.invoke(replace(request, messages=messages), "cache-reuse")
+    assert re.search(rf"\b{codes[459]}\b", second.answer_text), (
+        "Cached prefix was not reused"
+    )
+    second_body = real_model.capture.bodies[-1]
+    if "prompt_cache_key" in first_body:
+        assert (
+            first_body["prompt_cache_key"]
+            == second_body.get("prompt_cache_key")
+            == cache.key
+        )
+    mode = real_model.model.adapter_options.values.get("prompt_cache_mode")
+    if adapter_spec(
+        real_model.model.adapter
+    ).api_mode is ApiMode.ANTHROPIC_MESSAGES and mode in {"explicit", "automatic"}:
+        assert any("cache_control" in item for item in _objects(first_body))
+        assert (first.usage.cache_creation_input_tokens or 0) > 0, (
+            "No explicit cache creation reported"
+        )
+    if second.usage.cached_input_tokens is None:
+        pytest.skip(
+            "Remote usage does not report cache reads; cache hit remains unverified"
+        )
+    assert second.usage.cached_input_tokens > 0, (
+        "Repeated long prefix did not report a cache hit"
+    )
 
 
 def _sample_png() -> bytes:
-    width = 64
-    height = 64
-    rows = bytearray()
-    for y in range(height):
-        rows.append(0)
-        for x in range(width):
-            rows.extend(((x * 4) % 256, (y * 4) % 256, 160))
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + kind
+            + data
+            + struct.pack(">I", zlib.crc32(kind + data))
+        )
+
+    pixels = (b"\x00" + b"\xff\x00\x00" * 64) * 64
     return (
         b"\x89PNG\r\n\x1a\n"
-        + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
-        + _png_chunk(b"IDAT", zlib.compress(bytes(rows)))
-        + _png_chunk(b"IEND", b"")
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", 64, 64, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(pixels))
+        + chunk(b"IEND", b"")
     )
-
-
-def _png_chunk(kind: bytes, data: bytes) -> bytes:
-    return (
-        struct.pack(">I", len(data))
-        + kind
-        + data
-        + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
-    )
-
-
-def _assert_provider_returned(
-    answer: str,
-    *,
-    provider_id: str,
-    model_id: str,
-    round_number: int,
-) -> None:
-    assert isinstance(answer, str), (
-        f"{provider_id}/{model_id} round {round_number} returned non-string answer"
-    )
-
-
-def _assert_tool_call_returned(
-    tool_calls: tuple[ToolCallRecord, ...],
-    *,
-    expected_name: str,
-    provider_id: str,
-    model_id: str,
-    round_number: int,
-) -> None:
-    assert tool_calls, (
-        f"{provider_id}/{model_id} round {round_number} returned no tool calls"
-    )
-    assert any(tool_call.name == expected_name for tool_call in tool_calls), (
-        f"{provider_id}/{model_id} round {round_number} did not return "
-        f"expected tool {expected_name}; got {[call.name for call in tool_calls]}"
-    )
-
-
-def _tool_call_by_name(
-    tool_calls: tuple[ToolCallRecord, ...],
-    name: str,
-) -> ToolCallRecord:
-    for tool_call in tool_calls:
-        if tool_call.name == name:
-            return tool_call
-    raise AssertionError(f"Missing tool call: {name}")
-
-
-def _lookup_tool() -> ToolSpec:
-    return ToolSpec(
-        name="lookup_workspace_note",
-        description="Look up a TinySoul workspace note by id.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "note_id": {
-                    "type": "string",
-                    "description": "Workspace note id to look up.",
-                }
-            },
-            "required": ["note_id"],
-        },
-        kind=ToolKind.ACTION,
-    )
-
-
-def _summarize_tool() -> ToolSpec:
-    return ToolSpec(
-        name="summarize_workspace_note",
-        description="Summarize a TinySoul workspace note from a workspace link.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "workspace_link": {
-                    "type": "string",
-                    "description": "Workspace link returned by lookup_workspace_note.",
-                },
-                "focus": {
-                    "type": "string",
-                    "description": "Optional summary focus.",
-                },
-            },
-            "required": ["workspace_link"],
-        },
-        kind=ToolKind.ACTION,
-    )
-
-
-def _print_run_header(model: ModelSpec, provider: ProviderSpec) -> None:
-    capabilities = ", ".join(
-        sorted(capability.value for capability in model.capabilities)
-    )
-    print(
-        "\n"
-        f"[real-llm] provider={provider.id} "
-        f"api_mode={adapter_spec(model.adapter).api_mode.value} "
-        f"model_id={model.id} provider_model={model.providers[0].provider_model}"
-    )
-    print(f"[real-llm] capabilities={capabilities}")
-    print(f"[real-llm] adapter_options={dict(model.adapter_options.values)}")
-
-
-def _print_response_summary(
-    *,
-    round_number: int,
-    answer: str,
-    response: object,
-) -> None:
-    reasoning = getattr(response, "reasoning", None)
-    usage = getattr(response, "usage", {})
-    metadata = getattr(response, "metadata", {})
-    print(
-        f"[real-llm] round={round_number} answer_len={len(answer)} "
-        f"answer_preview={_preview(answer)!r}"
-    )
-    print(f"[real-llm] round={round_number} reasoning={_reasoning_summary(reasoning)}")
-    print(f"[real-llm] round={round_number} usage={usage}")
-    print(f"[real-llm] round={round_number} metadata={metadata}")
-
-
-def _print_tool_response_summary(
-    *,
-    round_number: int,
-    response: object,
-    tool_calls: tuple[ToolCallRecord, ...],
-) -> None:
-    usage = getattr(response, "usage", {})
-    metadata = getattr(response, "metadata", {})
-    print(
-        f"[real-llm] tool_round={round_number} calls="
-        f"{[(call.id, call.name, call.arguments) for call in tool_calls]}"
-    )
-    print(
-        f"[real-llm] tool_round={round_number} "
-        f"reasoning={_reasoning_summary(getattr(response, 'reasoning', None))}"
-    )
-    print(f"[real-llm] tool_round={round_number} usage={usage}")
-    print(f"[real-llm] tool_round={round_number} metadata={metadata}")
-
-
-def _preview(text: str, limit: int = 180) -> str:
-    normalized = " ".join(text.split())
-    if len(normalized) <= limit:
-        return normalized
-    return normalized[: limit - 3] + "..."
-
-
-def _reasoning_summary(reasoning: object) -> dict[str, object]:
-    if reasoning is None:
-        return {"present": False}
-    content = getattr(reasoning, "content", None)
-    summary = getattr(reasoning, "summary", None)
-    native_items = getattr(reasoning, "native_items", ())
-    return {
-        "present": True,
-        "content_len": len(content) if isinstance(content, str) else 0,
-        "summary_len": len(summary) if isinstance(summary, str) else 0,
-        "native_items": len(native_items),
-    }

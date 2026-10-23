@@ -74,6 +74,13 @@ api_key_envs = ["ANTHROPIC_API_KEY"]
 [llm.providers.anthropic.endpoints.anthropic-messages]
 base_url = "https://api.anthropic.com"
 
+[llm.providers.token-advant]
+enabled = false
+api_key_envs = ["TOKEN_ADVANT_API_KEY"]
+
+[llm.providers.token-advant.endpoints.anthropic-messages]
+base_url = "https://tokenadvent.com"
+
 [llm.providers.google]
 enabled = false
 api_key_envs = ["GEMINI_API_KEY"]
