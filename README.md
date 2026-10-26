@@ -1,138 +1,91 @@
 # TinySoul
 
-TinySoul is a local, provider-neutral LLM agent runtime built around explicit Context, Action, Session, Workspace, Agent Home, Memory, and daily lifecycle boundaries.
+TinySoul is a personal agent backend with explicit Context, Actions, Session, Home, Memory, Workspace and daily lifecycle boundaries. Use it through the desktop frontend, terminal or Python SDK.
 
-Python 3.13 or newer is required.
+## Setup
 
-## Standard
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/), clone this repository and run the commands below from its root. Conda is not required. uv uses `.python-version` to select Python 3.13 and creates the project's isolated `.venv`.
 
-Install TinySoul and create a backend project:
-
-```powershell
-python -m pip install .
-tinysoul init my-agent
+```sh
+uv python install
 ```
 
-The standard profile starts with every LLM provider disabled, so the backend and frontend can run before credentials are configured:
+`uv.lock` is committed so each machine installs the same resolved dependencies for its platform. The commands below use `--locked`: changes to dependency declarations require an explicit `uv lock` before installation. No environment activation is needed.
 
-```powershell
-tinysoul start --root my-agent --mode normal
+## Standard installation
+
+Install the base runtime as a non-editable package and initialize a separate Agent data directory:
+
+```sh
+uv sync --locked --no-editable
+uv run --locked --no-editable tinysoul init ../my-agent
+uv run --locked --no-editable tinysoul start --root ../my-agent --mode normal
 ```
 
-Use the frontend settings to add a credential and enable its provider, or edit `my-agent/.env` and `my-agent/configs/llm/providers.toml`. Enabling a provider without any non-empty declared credential is invalid and startup or configuration activation will fail with a configuration error.
+The standard profile starts with LLM providers disabled. Configure credentials and enable providers in the frontend settings, or edit `../my-agent/.env` and its `configs/llm/providers.toml`. Every enabled provider needs its declared credentials.
 
-For one non-interactive turn:
+For one non-interactive turn, replace `--mode normal` with `--once "Summarize today's work"`. Optional capabilities use the `external-tools` and `web-crawl` extras; add the required `--extra` flags to both sync and run commands.
 
-```powershell
-tinysoul start --root my-agent --once "Summarize today's work"
+## Source development
+
+Install the development extra, including tests, type checking and optional Python capabilities:
+
+```sh
+uv sync --locked --extra dev
+uv run --locked --extra dev tinysoul init ../my-agent-dev --config-profile development
 ```
 
-## SDK
+The development profile enables maintainer provider/capability settings and a local proxy. Adjust its configuration for your machine and fill in the required credentials in `../my-agent-dev/.env`, then start:
 
-The same project can be embedded through the asynchronous SDK:
-
-```python
-import asyncio
-from tinysoul.agent import Agent, UserTurnRequest
-
-async def main():
-    agent = await Agent.create("my-agent")
-    try:
-        await agent.start()
-        handle = await agent.submit_turn(UserTurnRequest("Summarize today's work"))
-        result = await handle.wait()
-        print(result.status)
-    finally:
-        await agent.shutdown()
-
-asyncio.run(main())
+```sh
+uv run --locked --extra dev tinysoul start --root ../my-agent-dev --mode normal
 ```
 
-SDK creation does not open a terminal or HTTP listener. Question replies, Cycle grants, cancellation and observations use the same Turn identity; see [Agent design](docs/design/agent.md). Configuration PATCH saves a candidate; call reload explicitly to activate it when idle.
+Installation and initialization profiles are independent: the same development environment can use `tinysoul init ../my-agent` to start with standard configuration. The `dev` extra is an optional dependency set, not a uv dependency group.
 
-Session presents a topic map with source references and chronological interaction text. The Agent can organize earlier conversation through `core.session.organize` during a User Turn; SDK Session access remains read-only. Facts stay immutable, annotations share their day archive, and a new day starts with an empty map. See [Session design](docs/design/session.md).
+uv installs the checkout in editable mode by default. Python source edits are available to the next process without reinstalling; restart a running backend to load them. This also supports running a source checkout on a separate host. For the non-editable standard installation, rebuild after source changes with `uv sync --locked --no-editable --reinstall-package tinysoul`.
 
-The architecture refactor is complete within its agreed scope. See the [main plan](docs/analysis/done/20260915-done-agent-architecture-refactor-plan.md) and [R7 implementation and acceptance record](docs/analysis/done/20260921-done-Agent重构第七轮子计划-会话整理与架构收口.md#13-实施结果与最终核对).
+After changing dependencies, run `uv lock`, review and commit the lockfile, then sync the chosen environment. Use `uv lock --upgrade-package <package>` for an intentional dependency upgrade. Do not commit `.venv` or copy it between machines; recreate it with uv.
 
-R7 keeps the R6 Turn/manifest format and adds optional `runtime/session/map.json`; a missing map means no annotations. Existing projects must explicitly add the new `core/actions/session_organize.toml` catalog document from an initialized project's `configs/action/catalog` before using this version. Do not use `reset` to update a project with data.
+### Checks
 
-Use `agent.services.get(WorkspaceService)` to obtain a scoped owner service and await its I/O methods. Reacquire services after reload/restart or a CalendarDay switch; writes are not retried automatically. A `ReflectionRequest` authorizes one independent Home or dated Memory Reflection Turn on the same Agent.
-
-Projects use `configs/agent.toml`, `configs/reflection.toml`, and `configs/execution.toml`. Domain/action TOML files live under `configs/action/catalog`; scenario visibility is editable, while service permissions are enforced by assembly. The R3 changes also update Workspace and Session formats and the [Endpoint protocol](docs/endpoint/index.md). Existing projects require explicit migration into a separately initialized project; `reset` is not a data migration tool. See the [R3 implementation record](docs/analysis/done/20260917-done-Agent重构第三轮子计划-领域语义与能力组织.md#133-格式变化与部署边界).
-
-## Development
-
-The development profile enables the repository maintainer's providers and capability settings, including Kimi search, but contains no credentials. Its enabled providers must have their declared credentials before the backend starts.
-
-### Backend
-
-Install TinySoul and create a development project:
-
-```powershell
-python -m pip install -e ".[dev]"
-tinysoul init my-agent-dev --config-profile development
+```sh
+uv run --locked --extra dev python scripts/test.py                         # fast
+uv run --locked --extra dev python scripts/test.py --suite full            # all local tests
+uv run --locked --extra dev python scripts/test.py tests/kernel/action     # focused fast
+uv run --locked --extra dev python scripts/test.py --suite full tests/agent
+uv run --locked --extra dev ty check
 ```
 
-Add the required credentials to `my-agent-dev/.env`, then start the backend:
+Fast excludes integration, packaging and external tests. Full includes all local tests and is required with type checking before completing a change. A focused path still follows the selected suite. On Windows, `scripts/test.ps1 -Suite Fast/Full` and `scripts/typecheck.ps1` invoke these same uv commands.
 
-```powershell
-tinysoul start --root my-agent-dev --mode normal
+Local tests need no model credentials. Reports and temporary files stay under the ignored `.local-test/` directory. See [test conventions, diagnostics and external checks](tests/README.md).
+
+### Reset a disposable project
+
+```sh
+uv run --locked --extra dev tinysoul reset ../my-agent-dev
 ```
 
-To rebuild the development project from the packaged Home and configuration templates:
+Run this from outside the target directory. **Reset preserves `.env` and replaces everything else**, including conversations, Memory, runtime data, archives and `.git`. Updating source code does not replace an initialized project's configuration or Home; reset is not a data migration command.
 
-```powershell
-tinysoul reset my-agent-dev
-```
+## Desktop frontend
 
-Run `reset` from outside the target directory. It preserves `.env` and replaces everything else, including runtime data, conversations, Memory, archives, and `.git`.
+The frontend uses Node.js 20+, pnpm and Rust 1.97+. Start the backend separately, then:
 
-### Frontend
-
-Keep the backend running, then start the desktop frontend in another terminal. The frontend requires Node.js 20+, pnpm, and Rust 1.97+.
-
-```powershell
+```sh
 cd visualization
 pnpm install
 pnpm tauri dev
 ```
 
-The frontend discovers the running TinySoul project automatically and does not manage the backend process.
+The frontend connects to a backend and does not own its process. See [frontend setup and connection details](visualization/README.md).
 
-### Checks
+## SDK and design
 
-Run these commands from an environment installed with `python -m pip install -e ".[dev]"`:
+The Python SDK uses `Agent.create(...)`, `Agent.start()`, `Agent.submit_turn(UserTurnRequest(...))` and `Agent.shutdown()`. SDK creation does not open a terminal or HTTP listener. See [Agent design](docs/design/agent.md) for lifecycle and service ownership.
 
-```shell
-python scripts/test.py                                      # Fast: everyday feedback
-python scripts/test.py tests/kernel/action/execution        # Focused Fast checks
-python scripts/test.py --suite full                         # All local tests
-python scripts/test.py --suite full tests/agent/lifecycle    # Focused integration checks
-python -m ty check                                          # Completion type check
-```
-
-`fast` excludes `integration`, `packaging` and `external` tests. `full` includes every local test, including real Agent/service/process collaboration and wheel installation. Use `--suite integration` or `--suite packaging` to select those groups alone; `--suite external` additionally requires the relevant opt-in environment switches. A focused path still follows the selected suite, so use `--suite full` when checking an integration or packaging file. `-k`, `--collect-only` and other pytest options are passed through.
-
-On Windows, `.\scripts\test.ps1 -Suite Fast` / `-Suite Full` call the same Python entry. The wrapper selects `TINYSOUL_PYTHON` when set, otherwise `python` on PATH. Direct `python -m pytest` uses the same suite defaults and isolation. If PowerShell blocks scripts, use the Python entry or `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1`. `.\scripts\typecheck.ps1` checks with the selected interpreter.
-
-Each invocation isolates temporary files, instance records and pytest cache in `.local-test/runs/<uuid>`. Successful runs clean that directory; failures retain it, and `--keep-artifacts` retains successful runs too. JUnit results, timings and failure details remain in `.local-test/reports/<uuid>`; `latest-fast.json` and `latest-full.json` locate the latest summaries. These directories are ignored by Git. `--artifact-root <directory>` (PowerShell: `-ArtifactRoot`) is an optional diagnostic override; relative paths resolve against the repository. Tests use asyncio explicitly and do not require personal model credentials for Fast/Full.
-
-Tests mirror their owner under `tests/`; fixtures in `tests/fixtures/` and helpers in `tests/support/` own their inputs. Ordinary policy/parser tests must not assert the current packaged model IDs, provider list or prose. Packaging tests validate the actual resources and their references. See [test conventions](tests/README.md).
-
-Real model API checks load models and credentials from an initialized project's TOML and `.env`:
-
-```powershell
-$env:TINYSOUL_RUN_REAL_LLM_API = "1"
-$env:TINYSOUL_REAL_PROJECT_ROOT = "C:\TinySoul\my-project"
-$env:TINYSOUL_REAL_MODELS = "claude-opus,claude-sonnet,claude-fable"
-$env:TINYSOUL_REAL_PROVIDER = "token-advant"
-.\scripts\test.ps1 -Suite External -TestPath tests/llm/adapter/test_real_provider_api.py
-```
-
-`TINYSOUL_REAL_MODELS` is optional; omitting it selects all models in that project. `TINYSOUL_REAL_PROVIDER` is also optional: by default each model uses its first enabled binding with credentials. An explicit provider selects only its existing bindings and enables it within the test process, without editing TOML. Remove that environment variable to return to normal binding selection. Missing bindings/credentials and undeclared capabilities are reported as skipped; request failures remain failures and do not trigger provider switching. To see safe route and usage summaries for passing tests, set `PYTEST_ADDOPTS="-s -ra --tb=short"` for the invocation.
-
-The checks validate JSON values, image content, tool arguments and returned results, non-empty native reasoning actually sent in a continuation, and cache hits from repeated long prefixes. Anthropic explicit/automatic caching also checks creation counts. Missing cache-read telemetry is reported as unverified, not a successful hit; these checks do not establish cache expiry or Google cache-resource lifecycle behavior. The optional `token-advant` provider uses `TOKEN_ADVANT_API_KEY` and binds Claude Opus, Sonnet and Fable; Haiku is not bound to that provider. Existing projects need these provider/model TOML entries before selecting it.
-
-Architecture and module contracts are under `docs/design/`; the desktop frontend is documented in `visualization/README.md`.
-
-LLM providers declare API-mode endpoints with shared credentials; models choose one generic or specialized adapter and use stable IDs. OpenAI Chat/Responses, Anthropic Messages and Google GenerateContent have executable SDK adapters; remote model availability depends on the configured binding and credentials. See [LLM configuration and adapters](docs/design/llm.md#api-模式与-adapter).
+- [Architecture and module contracts](docs/design/)
+- [LLM configuration and adapters](docs/design/llm.md)
+- [Endpoint protocol](docs/endpoint/index.md)
+- [Contribution rules](AGENTS.md)

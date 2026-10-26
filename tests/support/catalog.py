@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from importlib.resources import files
 from importlib.resources.abc import Traversable
@@ -32,7 +32,7 @@ def builtin_action_catalog_files() -> tuple[tuple[PurePosixPath, Traversable], .
 
 
 @contextmanager
-def builtin_action_catalog_root() -> Iterator[Path]:
+def builtin_action_catalog_root() -> Generator[Path]:
     """Materialize a test-owned copy without modifying package assets."""
     with TemporaryDirectory(prefix="tinysoul-catalog-") as directory:
         root = Path(directory)

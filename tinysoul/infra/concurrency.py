@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 from collections.abc import Awaitable, Callable
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TypeVar
@@ -27,7 +27,7 @@ class AsyncReadWriteLock:
         self._changed = asyncio.Event()
 
     @asynccontextmanager
-    async def read_locked(self) -> AsyncIterator[None]:
+    async def read_locked(self) -> AsyncGenerator[None]:
         while self._writer or self._waiting_writers:
             self._changed.clear()
             await self._changed.wait()
@@ -39,7 +39,7 @@ class AsyncReadWriteLock:
             self._changed.set()
 
     @asynccontextmanager
-    async def write_locked(self) -> AsyncIterator[None]:
+    async def write_locked(self) -> AsyncGenerator[None]:
         self._waiting_writers += 1
         try:
             while self._writer or self._readers:

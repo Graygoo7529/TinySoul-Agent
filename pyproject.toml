@@ -83,5 +83,5 @@ markers = [
 
 [tool.ty.environment]
 # Keep machine-specific Python paths out of shared config.
-# Use scripts/typecheck.ps1 with TINYSOUL_PYTHON, or pass ty --python manually.
+# Use uv run --locked --extra dev ty check, or scripts/typecheck.ps1.
 root = ["."]

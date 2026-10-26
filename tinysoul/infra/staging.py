@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator, AsyncIterator
+from collections.abc import AsyncGenerator, Generator
 from contextlib import contextmanager, asynccontextmanager
 from pathlib import Path
 import re
@@ -62,7 +62,7 @@ class StagingDirectoryManager:
                 raise StagingError("Project staging root could not be prepared") from exc
 
     @contextmanager
-    def allocate(self, prefix: str) -> Iterator[Path]:
+    def allocate(self, prefix: str) -> Generator[Path]:
         """Yield one unique action directory and remove it on scope exit."""
 
         directory = self.create(prefix)
@@ -72,7 +72,7 @@ class StagingDirectoryManager:
             self.cleanup(directory)
 
     @asynccontextmanager
-    async def allocate_async(self, prefix: str, operations: JoinedOperations) -> AsyncIterator[Path]:
+    async def allocate_async(self, prefix: str, operations: JoinedOperations) -> AsyncGenerator[Path]:
         directory = await operations.run(lambda: self.create(prefix))
         try:
             operations.check_cancelled()

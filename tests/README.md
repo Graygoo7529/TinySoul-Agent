@@ -1,17 +1,17 @@
 # Running and maintaining tests
 
-Use the project's Python with `.[dev]` installed. No model credentials are needed for local checks.
+From the repository root, install the locked development environment with `uv sync --locked --extra dev`. uv selects Python 3.13 from `.python-version`; activation is not required. No model credentials are needed for local checks.
 
 ```sh
-python scripts/test.py                                  # fast
-python scripts/test.py --suite full                     # completion gate
-python scripts/test.py tests/kernel/action -k normalize # focused fast
-python scripts/test.py --suite full tests/agent          # focused integration
-python scripts/test.py --suite packaging                # templates and wheel
-python -m ty check
+uv run --locked --extra dev python scripts/test.py                                  # fast
+uv run --locked --extra dev python scripts/test.py --suite full                     # completion gate
+uv run --locked --extra dev python scripts/test.py tests/kernel/action -k normalize # focused fast
+uv run --locked --extra dev python scripts/test.py --suite full tests/agent          # focused integration
+uv run --locked --extra dev python scripts/test.py --suite packaging                # templates and wheel
+uv run --locked --extra dev ty check
 ```
 
-`scripts/test.ps1 -Suite Fast/Full` and direct `python -m pytest --suite fast/full` share the same pytest hooks. The Python entry uses its own interpreter; the PowerShell wrapper accepts `TINYSOUL_PYTHON`. A path or `-k` filter narrows the selected suite; it never implicitly opts into integration, packaging or external work.
+`scripts/test.ps1 -Suite Fast/Full` and `scripts/typecheck.ps1` use the repository's locked uv environment from any working directory. They do not select a system Python or read `TINYSOUL_PYTHON`. If PowerShell blocks scripts, use the uv commands above or `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1`. Direct `uv run --locked --extra dev python -m pytest --suite fast/full` shares the same pytest hooks. In an activated project `.venv`, the uv prefix can be omitted. A path or `-k` filter narrows the selected suite; it never implicitly opts into integration, packaging or external work.
 
 ## Ownership and selection
 
@@ -32,3 +32,19 @@ Use an event or a ready/completion message to coordinate concurrency. A watchdog
 The terminal prints both the interpreter and artifact paths. JUnit, per-test durations and failure details remain in `.local-test/reports/<uuid>`. `latest-fast.json` and `latest-full.json` identify the most recent reports. Successful runs remove their large temporary directory; failed runs retain it. Use `--keep-artifacts` or the explicit `--artifact-root` override for diagnosis. No local results are committed.
 
 An installed wheel check verifies the distribution separately from the source checkout. It does not resolve all dependencies in a fresh environment on every run; install the declared development dependencies before invoking the local gates.
+
+## External checks
+
+External checks contact real services or use extra executables. Select the suite and enable the relevant switch explicitly. For real model API checks, point to an initialized project's TOML and `.env`:
+
+```powershell
+$env:TINYSOUL_RUN_REAL_LLM_API = "1"
+$env:TINYSOUL_REAL_PROJECT_ROOT = (Resolve-Path ../my-agent-dev).Path
+uv run --locked --extra dev python scripts/test.py --suite external tests/llm/adapter/test_real_provider_api.py -s -ra --tb=short
+```
+
+Optionally set `TINYSOUL_REAL_MODELS` to comma-separated model IDs from that project and `TINYSOUL_REAL_PROVIDER` to an existing provider ID. Omitting models selects all configured models. Omitting the provider selects each model's first enabled binding with credentials. An explicit provider selects only its existing bindings and enables it inside the test process without editing TOML. Remove that variable to return to normal binding selection.
+
+Missing bindings/credentials and undeclared capabilities are skipped; request failures remain failures and do not switch providers. The checks cover JSON, images, tool calls, reasoning continuation and cache telemetry. A missing cache-read measurement is unverified, not a cache hit; these checks do not establish cache expiry or Google cache-resource lifecycle behavior. The `-s -ra --tb=short` options show safe route/usage summaries.
+
+Other external tests declare their opt-in switch in their `test_real_*.py` module. For checks of installed non-Python tools, set `TINYSOUL_RUN_EXTERNAL_TOOLS=1` and install the executables required by the chosen test. Reset external environment switches after use; Fast/Full independently clear them before collection.

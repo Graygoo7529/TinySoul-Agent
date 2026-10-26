@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -106,7 +106,7 @@ class AgentRuntimeServices:
         day_bound: bool = False,
     ) -> ServiceScope:
         @asynccontextmanager
-        async def lease() -> AsyncIterator[None]:
+        async def lease() -> AsyncGenerator[None]:
             self._require_open()
             try:
                 async with self._handle.read() as generation:
@@ -348,7 +348,7 @@ class AgentRuntimeServices:
     @asynccontextmanager
     async def _workspace_view(
         self, day: CalendarDay | None
-    ) -> AsyncIterator[WorkspaceEngine | WorkspaceArchiveView]:
+    ) -> AsyncGenerator[WorkspaceEngine | WorkspaceArchiveView]:
         self._require_open()
         async with self._handle.read() as generation:
             async with generation.day.active_day_lease() as current:
@@ -420,7 +420,7 @@ class AgentRuntimeServices:
     @asynccontextmanager
     async def workspace_blob(
         self, ref: str, day: CalendarDay | None = None
-    ) -> AsyncIterator[WorkspaceBlobRead]:
+    ) -> AsyncGenerator[WorkspaceBlobRead]:
         async with self._workspace_view(day) as view:
             operations = JoinedOperations()
             blob = await operations.run(lambda: view.open_blob(ref))

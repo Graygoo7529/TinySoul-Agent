@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 import json
 from pathlib import Path
@@ -106,7 +106,7 @@ class AgentDayCoordinator:
         return self._archive.archived_days(before=before, limit=limit)
 
     @asynccontextmanager
-    async def active_day_lease(self) -> AsyncIterator[CalendarDay]:
+    async def active_day_lease(self) -> AsyncGenerator[CalendarDay]:
         async with self._lock.read_locked():
             if self._active_day is None:
                 raise AgentInvariantError(

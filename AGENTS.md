@@ -236,23 +236,23 @@ SDK 服务绑定运行世代，日级服务同时绑定 CalendarDay；切换后�
 
 ## 运行环境与验证
 
-- 默认运行环境为 Conda 环境 `TinySoul`。
-- 需要运行 Python、测试或开发命令前，优先使用：
+- 默认使用 uv 管理仓库 `.venv`，`.python-version` 选择 Python 3.13，`uv.lock` 固定各平台的依赖解析结果。新 checkout 安装 [uv](https://docs.astral.sh/uv/getting-started/installation/) 后，在仓库根目录执行：
 
 ```powershell
-conda activate TinySoul
+uv python install
+uv sync --locked --extra dev
 ```
 
 - 修改代码后的日常反馈使用 Fast 测试；声明任务完成前，必须运行并通过完整本地门禁：
 
 ```powershell
-.\scripts\test.ps1 -Suite Full
-.\scripts\typecheck.ps1
+uv run --locked --extra dev python scripts/test.py --suite full
+uv run --locked --extra dev ty check
 ```
 
-跨平台标准入口为 `python scripts/test.py`，默认 Fast；`python scripts/test.py --suite full` 是完整本地门禁。PowerShell 的 `scripts/test.ps1 -Suite Fast/Full` 仅选择解释器并转交；直接 `python -m pytest` 使用相同的 suite、隔离与报告规则。Fast 排除 `integration`、`packaging` 和 `external`；Full 包含全部非 external 测试。`--suite integration` / `--suite packaging` 分别选择本机集成或资源/安装验收；`--suite external` 选择真实 provider、公网或额外工具测试，仍需显式环境开关和凭据。若 PowerShell 禁止脚本执行，优先使用 Python 入口，也可使用 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1`。
+跨平台标准入口为 `uv run --locked --extra dev python scripts/test.py`，默认 Fast；追加 `--suite full` 是完整本地门禁。PowerShell 的 `scripts/test.ps1 -Suite Fast/Full` 和 `scripts/typecheck.ps1` 固定仓库目录并调用相同 uv 环境，不从 PATH 选择 Python，不读取 `TINYSOUL_PYTHON`。直接 `uv run --locked --extra dev python -m pytest` 使用相同的 suite、隔离与报告规则。Fast 排除 `integration`、`packaging` 和 `external`；Full 包含全部非 external 测试。`--suite integration` / `--suite packaging` 分别选择本机集成或资源/安装验收；`--suite external` 选择真实 provider、公网或额外工具测试，仍需显式环境开关和凭据。若 PowerShell 禁止脚本执行，优先使用跨平台 uv 命令，也可使用 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1`。
 
-标准工作流为：先按修改模块运行聚焦路径，再运行默认 Fast；完成前运行 Full 和 typecheck。聚焦路径仍受 suite 筛选：检查 Agent 集成或资源验收时使用 `python scripts/test.py --suite full tests/<模块>`，不能把零选中当作通过。`-k`、`--collect-only` 等 pytest 参数可直接使用。日常开发通过 `conda activate TinySoul` 选择 Python，使用 `python -m pip install -e ".[dev]"` 安装声明依赖；PowerShell wrapper 也支持 `TINYSOUL_PYTHON`。Python 入口始终使用当前解释器，类型检查可用 `python -m ty check`。
+标准工作流为：先按修改模块运行聚焦路径，再运行默认 Fast；完成前运行 Full 和 typecheck。聚焦路径仍受 suite 筛选：检查 Agent 集成或资源验收时使用 `uv run --locked --extra dev python scripts/test.py --suite full tests/<模块>`，不能把零选中当作通过。`-k`、`--collect-only` 等 pytest 参数可直接使用。Python 入口始终使用当前解释器；在已激活项目 `.venv` 后可省略 uv 前缀。依赖声明变化后显式执行 `uv lock` 并审阅、提交锁文件；日常命令使用 `--locked`，不手改锁文件或提交个人路径。开发安装默认 editable，源码变化由新进程读取，正在运行的后端需重启。
 
 运行准备和工件生命周期统一由 `tests/conftest.py` 管理。每次运行以 `.local-test/runs/<uuid>` 隔离临时文件、`TINYSOUL_INSTANCE_DIR` 和 pytest cache，固定 AnyIO 的 asyncio backend。本地 suite 清除宿主 `TINYSOUL_*` 覆盖；External 保留其显式开关和项目设置。成功清理运行目录，失败保留；`--keep-artifacts` 可保留成功工件。JUnit、耗时摘要及失败详情保存于 `.local-test/reports/<uuid>`，`latest-fast.json` / `latest-full.json` 指向最近摘要。所有产物都在 Git 忽略目录内，不在共享配置中写入个人解释器或临时路径。
 

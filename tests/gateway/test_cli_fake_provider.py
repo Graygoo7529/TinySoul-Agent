@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -258,7 +258,7 @@ def test_initialized_project_runs_cli_through_fake_openai_provider(
 
 
 @contextmanager
-def _fake_provider() -> Iterator[_FakeProviderServer]:
+def _fake_provider() -> Generator[_FakeProviderServer]:
     server = _FakeProviderServer()
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()

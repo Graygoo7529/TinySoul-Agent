@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from typing import cast
@@ -51,7 +51,7 @@ def invocation() -> ProviderRequest:
 @asynccontextmanager
 async def adapter_for(
     respond: Callable[[httpx2.Request], httpx2.Response],
-) -> AsyncIterator[AnthropicMessagesAdapter]:
+) -> AsyncGenerator[AnthropicMessagesAdapter]:
     async with AsyncAnthropic(
         api_key="test-key",
         base_url="https://provider.test",

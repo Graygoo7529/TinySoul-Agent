@@ -11,11 +11,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$pythonPath = if ($env:TINYSOUL_PYTHON) {
-    $env:TINYSOUL_PYTHON
-} else {
-    (Get-Command python -ErrorAction Stop).Source
-}
+$projectRoot = Split-Path -Parent $PSScriptRoot
 $testArguments = @(
     (Join-Path $PSScriptRoot "test.py")
     "--suite"
@@ -27,5 +23,5 @@ $testArguments = @(
 ) + $TestPath
 if ($Filter) { $testArguments += @("-k", $Filter) }
 if ($KeepArtifacts) { $testArguments += "--keep-artifacts" }
-& $pythonPath @testArguments
+& uv run --directory $projectRoot --locked --extra dev python @testArguments
 exit $LASTEXITCODE

@@ -12,7 +12,6 @@ htmlcov/
 venv/
 env/
 ENV/
-.conda/
 
 # Local secrets
 .env

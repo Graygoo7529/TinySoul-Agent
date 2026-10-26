@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 import socket
 
@@ -17,7 +17,7 @@ from .app import create_endpoint_app
 
 class _EmbeddedServer(uvicorn.Server):
     @contextmanager
-    def capture_signals(self) -> Iterator[None]:
+    def capture_signals(self) -> Generator[None]:
         # The embedding process owns Ctrl-C and shutdown policy.
         yield
 

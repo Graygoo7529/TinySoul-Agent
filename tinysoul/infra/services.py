@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from functools import partial, wraps
 from typing import Self
@@ -15,7 +15,7 @@ class ServiceScopeClosedError(Exception):
 
 
 @asynccontextmanager
-async def _local_scope() -> AsyncIterator[None]:
+async def _local_scope() -> AsyncGenerator[None]:
     yield
 
 
@@ -34,12 +34,12 @@ class ServiceScope:
         return ServiceScope(self._lease, operations)
 
     @asynccontextmanager
-    async def operation(self) -> AsyncIterator[ServiceScope]:
+    async def operation(self) -> AsyncGenerator[ServiceScope]:
         async with self._lease():
             active = True
 
             @asynccontextmanager
-            async def entered() -> AsyncIterator[None]:
+            async def entered() -> AsyncGenerator[None]:
                 if not active:
                     raise ServiceScopeClosedError("Service operation scope is closed")
                 yield
@@ -97,7 +97,7 @@ class ScopedService[T]:
         return type(self)(self._owner, scope)
 
     @asynccontextmanager
-    async def operation(self) -> AsyncIterator[Self]:
+    async def operation(self) -> AsyncGenerator[Self]:
         """Hold one admission boundary across a compound owner operation."""
         async with self._scope.operation() as scope:
             yield self._bind(scope)

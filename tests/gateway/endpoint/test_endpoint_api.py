@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -325,7 +325,7 @@ def test_endpoint_workspace_preserves_sdk_service_failure(
     client = TestClient(create_endpoint_app(engine, engine.settings))
 
     @asynccontextmanager
-    async def unavailable(self: WorkspaceService) -> AsyncIterator[WorkspaceService]:
+    async def unavailable(self: WorkspaceService) -> AsyncGenerator[WorkspaceService]:
         raise failure
         yield self
 
