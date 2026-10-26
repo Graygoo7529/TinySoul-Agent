@@ -58,7 +58,7 @@ async def test_context_inspect_continuation_is_visible_only() -> None:
     )
     assert isinstance(ref, str)
 
-    action = builtin_catalog().get_action("core.context.inspect")
+    action = sample_catalog().get_action("core.context.inspect")
     result = await ContextInspectExecutor(
         context,
         runtime_bridge=RuntimeContextBridge(),
@@ -86,4 +86,4 @@ async def test_context_inspect_continuation_is_visible_only() -> None:
     assert "next_continuation" not in result.trace_projection.canonical_payload
 
 
-from tests.action_helpers import builtin_catalog
+from tests.support.actions import sample_catalog

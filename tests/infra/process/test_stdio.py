@@ -7,6 +7,7 @@ import pytest
 from tinysoul.infra.process import ManagedProcessRequest, StdioProcess
 
 
+@pytest.mark.integration
 async def test_protocol_pipe_round_trip_and_idempotent_tree_close() -> None:
     process = await StdioProcess.start(
         ManagedProcessRequest(
@@ -27,6 +28,7 @@ async def test_protocol_pipe_round_trip_and_idempotent_tree_close() -> None:
     assert await process.close() == ()
 
 
+@pytest.mark.integration
 @pytest.mark.parametrize("root_exits", [False, True])
 async def test_protocol_close_reaps_descendant_after_root_exit(
     root_exits: bool,

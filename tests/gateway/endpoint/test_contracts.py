@@ -16,7 +16,7 @@ from fastapi.encoders import jsonable_encoder
 from jsonschema import Draft202012Validator
 from pydantic import BaseModel
 
-from tests.support.project import copy_initialized_project
+from tests.support.project import create_test_project
 from tinysoul.agent import Agent, HomeService
 from tinysoul.agent.composition.builder import standard_agent
 from tinysoul.agent.config import AgentSettings, OutputSettings
@@ -191,7 +191,7 @@ class _ContractLLM:
 
 async def collect_contract_responses(root: Path) -> dict[str, JsonObject]:
     """Capture normal paths for handoff examples without provider/network calls."""
-    copy_initialized_project(root, minimal_home=True)
+    create_test_project(root)
     seed = MemoryEngine(settings=MemorySettings(root=root / "memory"))
     for cite, status, redirect in (
         ("project", MemoryStatus.ACTIVE, None),
@@ -261,7 +261,9 @@ async def collect_contract_responses(root: Path) -> dict[str, JsonObject]:
                 assert response.status_code in {200, 202}, response.text
                 return to_json_object(response.json())
 
-            samples["presentation-config"] = await get("/v2/presentation/configs/interface")
+            samples["presentation-config"] = await get(
+                "/v2/presentation/configs/interface"
+            )
             samples["presentation-assets"] = await get("/v2/presentation/assets")
 
             applied = await post(
@@ -568,6 +570,7 @@ async def collect_contract_responses(root: Path) -> dict[str, JsonObject]:
     return samples
 
 
+@pytest.mark.integration
 async def test_real_owner_http_responses_match_handoff(tmp_path: Path) -> None:
     samples = await collect_contract_responses(tmp_path / "project")
     examples = {name: _load(ROOT / "examples" / f"{name}.json") for name in samples}

@@ -173,7 +173,7 @@ runtime mutation 按链接类别拆分：
 
 后一种入口用于保持与 Runtime 的 OS 风格陷入设计一致，尤其适合在 Phase 或 action 执行边界处理缺页式副本准备。
 
-当前实现由 `HomeOverlayManager` 统一承担 copy、write、patch、delete 和 reconciliation。Manifest schema v2 不含 CalendarDay；每条记录包含 relative path、`copied/created/modified/deleted` state、actual baseline digest、runtime digest、size 与 mtime。Builder 在构建 Home 时恢复 operation、迁移 schema v1 并初始化或收养现有 runtime 文件。修改先写入 `.tinysoul/operations/<operation-id>` intent 和 staged bytes，再替换目标、提交 Manifest、清理 operation；若在替换后、Manifest 前退出，下次 initialization/reconciliation 按 digest 前滚。
+当前实现由 `HomeOverlayManager` 统一承担 copy、write、patch、delete 和 reconciliation。Manifest 只接受不含 CalendarDay 的 schema v2；每条记录包含 relative path、`copied/created/modified/deleted` state、actual baseline digest、runtime digest、size 与 mtime。Builder 在构建 Home 时恢复 operation、初始化 manifest，并通过 reconciliation 核对现有 runtime 文件。修改先写入 `.tinysoul/operations/<operation-id>` intent 和 staged bytes，再替换目标、提交 Manifest、清理 operation；若在替换后、Manifest 前退出，下次 initialization/reconciliation 按 digest 前滚。
 
 Home overlay 的存在本身就是尚未提交的事实，不建立第二份 pending/workset/store。每日 Session/Workspace rollover 已保证不移动、清空或重新初始化 `runtime/home`。
 

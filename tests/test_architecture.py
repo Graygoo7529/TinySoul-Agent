@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import ast
+from functools import cache
 from enum import StrEnum
 import importlib.util
 from pathlib import Path
-import subprocess
-import sys
 
 import pytest
 
@@ -87,7 +86,7 @@ def test_foundation_imports_follow_ownership(owner: str, allowed: set[str]) -> N
     violations: list[str] = []
     for path in (root / "tinysoul" / owner).rglob("*.py"):
         package = ".".join(path.relative_to(root).parts[:-1])
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8-sig"))):
+        for node in ast.walk(_source_tree(path)):
             names: list[str] = []
             if isinstance(node, ast.Import):
                 names = [alias.name for alias in node.names]
@@ -126,7 +125,7 @@ def test_model_text_imports_preserve_business_ownership() -> None:
         owner = ".".join(relative.parts[:owner_depth])
         if relative.parts[0] == "llm":
             owner = "llm"
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8-sig"))):
+        for node in ast.walk(_source_tree(path)):
             names: list[str] = []
             if isinstance(node, ast.Import):
                 names = [alias.name for alias in node.names]
@@ -154,29 +153,9 @@ def test_model_text_imports_preserve_business_ownership() -> None:
     assert not violations, "\n".join(violations)
 
 
-def test_package_imports_in_fresh_process() -> None:
-    script = """
-import importlib
-import pkgutil
-import tinysoul
-
-for module in pkgutil.walk_packages(tinysoul.__path__, tinysoul.__name__ + '.'):
-    importlib.import_module(module.name)
-try:
-    importlib.import_module('tinysoul.runtime.bridge.action')
-except ModuleNotFoundError:
-    pass
-else:
-    raise AssertionError('legacy bridge is still importable')
-"""
-    result = subprocess.run(
-        [sys.executable, "-c", script],
-        cwd=Path(__file__).resolve().parents[1],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    assert result.returncode == 0, result.stderr
+@cache
+def _source_tree(path: Path) -> ast.Module:
+    return ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
 
 
 PROJECT_ROOT = Path(__file__).parents[1]
@@ -195,7 +174,7 @@ def test_mainline_and_kernel_packages_do_not_import_reflection() -> None:
     for package in MAINLINE_PACKAGES:
         assert (PROJECT_ROOT / "tinysoul" / package).is_dir()
         for path in (PROJECT_ROOT / "tinysoul" / package).rglob("*.py"):
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            tree = _source_tree(path)
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
                     modules = tuple(alias.name for alias in node.names)
@@ -213,26 +192,31 @@ def test_mainline_and_kernel_packages_do_not_import_reflection() -> None:
 
 
 def test_agent_builder_does_not_assemble_turn_kernel_details() -> None:
-    source = (
+    tree = _source_tree(
         PROJECT_ROOT / "tinysoul" / "agent" / "composition" / "builder.py"
-    ).read_text(encoding="utf-8")
-    forbidden = (
+    )
+    forbidden = {
         "Phase1Unit",
         "Phase2Unit",
         "Phase3Unit",
         "CycleRunner",
         "ContextSignalConsumer",
-        "HomeReflectionActionController",
-        "MemoryReflectionActionController",
-    )
-    assert [name for name in forbidden if name in source] == []
+    }
+    used = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+    imported = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+    }
+    assert not forbidden.intersection(used | imported)
 
 
 def test_infra_config_does_not_raise_builtin_configuration_errors() -> None:
     violations: list[str] = []
     config_root = PROJECT_ROOT / "tinysoul" / "infra" / "config"
     for path in config_root.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        tree = _source_tree(path)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Raise) or node.exc is None:
                 continue

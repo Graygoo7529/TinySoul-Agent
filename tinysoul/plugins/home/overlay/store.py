@@ -29,8 +29,6 @@ class HomeOverlayStore:
             raise AgentHomeInvariantError(
                 f"Persisted Home overlay manifest is invalid: {exc}"
             ) from exc
-        if value.get("schema_version") == 1:
-            self.save(manifest)
         return manifest
 
     def save(self, manifest: HomeOverlayManifest) -> None:

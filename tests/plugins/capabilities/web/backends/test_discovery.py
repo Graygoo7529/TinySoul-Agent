@@ -37,7 +37,7 @@ from tinysoul.plugins.capabilities.web.backends.discovery import (
 from tinysoul.plugins.capabilities.web.backends.network import FetchedPage
 from tinysoul.plugins.capabilities.web.service import WebCapabilityService
 from tinysoul.infra import JsonValue, StagingDirectoryManager, dumps_json
-from tinysoul.runtime import RunScope, SignalBus
+from tinysoul.runtime import RunScope
 from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
 
@@ -154,16 +154,16 @@ async def test_crawlee_discovery_returns_direct_candidates_and_recursive_metadat
 
 
 async def test_discovery_service_returns_complete_inline_result(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    workspace = _workspace(local_tmp)
+    workspace = _workspace(tmp_path)
     service = WebCapabilityService(
         workspace=WorkspaceService(workspace),
         settings=WebSettings(
             discover_pages=WebDiscoverySettings(enabled=True),
         ),
         runtime_env={},
-        staging=_staging(local_tmp),
+        staging=_staging(tmp_path),
         process_runner=_DiscoveryRunner(page_count=2),
     )
 
@@ -226,9 +226,9 @@ def test_discovery_page_budget_is_hard_and_any_followable_reference_can_visit() 
 
 
 async def test_oversized_discovery_spills_complete_json_and_emits_signal(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    workspace = _workspace(local_tmp)
+    workspace = _workspace(tmp_path)
     service = WebCapabilityService(
         workspace=WorkspaceService(workspace),
         settings=WebSettings(
@@ -239,7 +239,7 @@ async def test_oversized_discovery_spills_complete_json_and_emits_signal(
             ),
         ),
         runtime_env={},
-        staging=_staging(local_tmp),
+        staging=_staging(tmp_path),
         process_runner=_DiscoveryRunner(page_count=20, anchor_chars=400),
     )
     executor = WebDiscoveryExecutor(service=service)

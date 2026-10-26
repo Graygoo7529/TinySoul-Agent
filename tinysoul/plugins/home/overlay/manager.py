@@ -43,8 +43,7 @@ class HomeOverlayManager:
             manifest = self._store.load()
             if manifest is not None:
                 return self._reconcile(manifest)
-            records = self._legacy_records()
-            manifest = HomeOverlayManifest(records=records)
+            manifest = HomeOverlayManifest()
             self._store.save(manifest)
             return self._reconcile(manifest)
 
@@ -535,21 +534,6 @@ class HomeOverlayManager:
             return _file_digest(source)
         return ""
 
-    def _legacy_records(self) -> tuple[HomeOverlayRecord, ...]:
-        return tuple(
-            _record_for_path(
-                relative,
-                path,
-                baseline_digest=(
-                    _file_digest(source)
-                    if (source := self._source_path(relative)).is_file()
-                    and not source.is_symlink()
-                    else ""
-                ),
-            )
-            for relative, path in sorted(self._runtime_files().items())
-        )
-
     def _runtime_files(self) -> dict[str, Path]:
         if not self._runtime_root.exists():
             return {}
@@ -606,7 +590,9 @@ def _record_from_content(
     state = (
         HomeOverlayState.COPIED
         if baseline_digest and runtime_digest == baseline_digest
-        else HomeOverlayState.MODIFIED if baseline_digest else HomeOverlayState.CREATED
+        else HomeOverlayState.MODIFIED
+        if baseline_digest
+        else HomeOverlayState.CREATED
     )
     return HomeOverlayRecord(
         relative_path=relative_path,
@@ -636,7 +622,9 @@ def _record_for_path(
     state = (
         HomeOverlayState.COPIED
         if baseline_digest and digest == baseline_digest
-        else HomeOverlayState.MODIFIED if baseline_digest else HomeOverlayState.CREATED
+        else HomeOverlayState.MODIFIED
+        if baseline_digest
+        else HomeOverlayState.CREATED
     )
     return HomeOverlayRecord(
         relative_path=relative_path,

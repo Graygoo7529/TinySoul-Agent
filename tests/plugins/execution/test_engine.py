@@ -66,6 +66,7 @@ async def _start(
     )
 
 
+@pytest.mark.integration
 async def test_real_workspace_effects_and_repeated_output_collection(
     tmp_path: Path,
 ) -> None:
@@ -101,6 +102,7 @@ async def test_real_workspace_effects_and_repeated_output_collection(
     assert (result_path.parent / "logs" / "stdout.log").exists()
 
 
+@pytest.mark.integration
 @pytest.mark.parametrize("direct", [False, True])
 async def test_interpreter_network_replaces_inherited_process_proxies(
     tmp_path: Path,
@@ -138,6 +140,7 @@ async def test_interpreter_network_replaces_inherited_process_proxies(
         await jobs.cleanup_turn("2026-10-06/1000")
 
 
+@pytest.mark.integration
 async def test_successful_root_closes_children_before_job_becomes_resolved(
     tmp_path: Path,
 ) -> None:
@@ -187,6 +190,7 @@ async def test_successful_root_closes_children_before_job_becomes_resolved(
         ).read_text() == "kept"
 
 
+@pytest.mark.integration
 async def test_terminal_results_do_not_occupy_live_slot_but_capacity_is_retained(
     tmp_path: Path,
 ) -> None:
@@ -205,6 +209,7 @@ async def test_terminal_results_do_not_occupy_live_slot_but_capacity_is_retained
         await jobs.cleanup_turn("2026-10-06/1000")
 
 
+@pytest.mark.integration
 async def test_cancelled_bounded_run_stops_process_and_keeps_written_files(
     tmp_path: Path,
 ) -> None:
@@ -242,6 +247,7 @@ async def test_cancelled_bounded_run_stops_process_and_keeps_written_files(
         await jobs.cleanup_turn("2026-10-06/1000")
 
 
+@pytest.mark.integration
 async def test_interactive_input_reports_accepted_utf8_bytes_and_no_silence_inference(
     tmp_path: Path,
 ) -> None:
@@ -284,6 +290,7 @@ async def test_disabled_interpreter_has_bounded_corrective_feedback(
     assert not jobs.ids("2026-10-06/1000")
 
 
+@pytest.mark.integration
 @pytest.mark.parametrize("reason", ["timeout", "output_limit"])
 async def test_execution_limits_are_failed_job_reasons(
     tmp_path: Path, reason: str

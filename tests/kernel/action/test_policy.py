@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from tests.action_helpers import FunctionActionEngineBuilder
+from tests.support.actions import FunctionActionEngineBuilder
 from tinysoul.infra.config import ConfigError
 from tinysoul.kernel.action.config import ActionPolicy
 from tinysoul.kernel.action.catalog.catalog import ActionCatalog

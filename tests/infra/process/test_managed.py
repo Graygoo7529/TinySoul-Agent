@@ -18,6 +18,8 @@ from tinysoul.infra.process import (
     ProcessContractError,
 )
 
+
+@pytest.mark.integration
 def test_managed_process_preserves_caller_owned_capture_directory(
     tmp_path: Path,
 ) -> None:
@@ -153,6 +155,7 @@ def test_failed_stop_keeps_execution_retryable_and_ancillary_failure_is_diagnost
 
 
 @pytest.mark.parametrize("root_exits", [False, True])
+@pytest.mark.integration
 def test_close_stops_descendants_even_after_the_root_exits(
     tmp_path: Path,
     root_exits: bool,
@@ -195,6 +198,7 @@ def test_close_stops_descendants_even_after_the_root_exits(
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows suspended startup")
+@pytest.mark.integration
 def test_failed_assignment_reaps_root_without_running_user_code(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -217,17 +221,20 @@ def test_failed_assignment_reaps_root_without_running_user_code(
     monkeypatch.setattr(WindowsProcessJob, "attach", reject)
     with pytest.raises(ManagedProcessStartError) as raised:
         ManagedProcessRunner().start(
-            ManagedProcessRequest((
-                sys.executable,
-                "-c",
-                f"from pathlib import Path; Path({str(marker)!r}).touch()",
-            ))
+            ManagedProcessRequest(
+                (
+                    sys.executable,
+                    "-c",
+                    f"from pathlib import Path; Path({str(marker)!r}).touch()",
+                )
+            )
         )
     assert len(children) == 1 and children[0].poll() is not None
     assert not marker.exists()
     assert "private" not in str(raised.value)
 
 
+@pytest.mark.integration
 def test_interactive_input_and_fixed_large_input_do_not_block_start(
     tmp_path: Path,
 ) -> None:

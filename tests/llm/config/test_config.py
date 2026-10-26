@@ -1,70 +1,13 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import cast
 
 import pytest
 
-from tests.support.project import copy_initialized_project
-from tinysoul.gateway.project.initializer import ProjectConfigProfile
-from tinysoul.infra.config import ConfigEnvironment, ConfigError
+from tinysoul.infra.config import ConfigError
 from tinysoul.llm.adapter.factory import build_provider_registry
 from tinysoul.llm.config.loader import LLMConfigParser, ProviderCredentialState
-from tinysoul.llm.protocol.adapter_types import AdapterKind, ApiMode
-from tinysoul.llm.protocol.models import ModelCapability
-from tinysoul.llm.protocol.reasoning import NativeReplayMode
-
-
-def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
-    root = tmp_path / "development-project"
-    copy_initialized_project(
-        root,
-        config_profile=ProjectConfigProfile.DEVELOPMENT,
-    )
-    config = LLMConfigParser().parse(
-        ConfigEnvironment.from_project_root(root).section_tree("llm")
-    )
-
-    kimi_provider = config.provider("kimi")
-    assert tuple(endpoint.api_mode for endpoint in kimi_provider.endpoints) == (
-        ApiMode.OPENAI_CHAT,
-    )
-    assert kimi_provider.enabled is True
-    assert tuple(
-        endpoint.api_mode for endpoint in config.provider("sublyx-proxy").endpoints
-    ) == (ApiMode.OPENAI_RESPONSES,)
-    assert {endpoint.api_mode for endpoint in config.provider("orca").endpoints} == {
-        ApiMode.OPENAI_CHAT,
-        ApiMode.OPENAI_RESPONSES,
-    }
-    assert tuple(
-        endpoint.api_mode for endpoint in config.provider("wenrugou").endpoints
-    ) == (ApiMode.OPENAI_RESPONSES,)
-    assert config.provider("openai").enabled is False
-
-    model = config.models.get("gpt-sol")
-    assert model.supports(ModelCapability.TOOL_CALLING)
-    assert model.adapter_options.native_replay_mode() is NativeReplayMode.ENCRYPTED
-
-    kimi = config.models.get("kimi-coding-latest")
-    assert kimi.adapter is AdapterKind.KIMI
-    assert kimi.adapter_options.values["variant"] == "k2"
-    assert kimi.request_overrides.temperature is None
-
-    deepseek_pro = config.models.get("deepseek-pro")
-    assert deepseek_pro.context_window_tokens == 1_048_576
-    deepseek_flash = config.models.get("deepseek-flash")
-    assert deepseek_flash.supports(ModelCapability.IMAGE_INPUT)
-    assert deepseek_flash.supports(ModelCapability.IMAGE_REMOTE_URL)
-
-    frame_stage1 = config.tasks.get("frame-stage1").chain
-    config.tasks.get("frame-stage2")
-    assert not config.tasks.has("memory_daily")
-    policy = frame_stage1.retry_policy
-    assert policy.max_retries_per_provider == 1
-    assert policy.provider_switch_wait_seconds == pytest.approx(0.0)
-    assert policy.model_switch_wait_seconds == pytest.approx(2.0)
-    assert policy.prefer_successful_provider_seconds == pytest.approx(600.0)
+from tinysoul.llm.protocol.adapter_types import AdapterKind
 
 
 def test_model_provider_chain_matches_api_mode() -> None:

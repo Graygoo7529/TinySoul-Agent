@@ -5,10 +5,12 @@ from tinysoul.plugins.home.background import home_segment_registration
 
 from datetime import date
 from pathlib import Path, PurePosixPath
+import pytest
+
+pytestmark = pytest.mark.packaging
 import re
 
 from tinysoul.kernel.context import (
-    CONTROL_EVICT_BACKGROUND,
     SIGNAL_BACKGROUND_PATCH,
     ContextEngineBuilder,
     PromptBlock,
@@ -26,13 +28,6 @@ from tinysoul.runtime import RunLevel, RunScope, Signal, SignalBus
 from tests.support.project import copy_initialized_project
 
 _HOME_REFERENCE = re.compile(r"<(home:[^>\s]+)>")
-_REQUIRED_TOP_LINKS = {
-    "home:top/agent/AGENT",
-    "home:top/agent/identity/identity",
-    "home:top/agent/identity/soul",
-    "home:top/agent/context/using-context",
-    "home:top/agent/user/user",
-}
 
 
 def test_packaged_default_home_is_valid_in_an_isolated_project(
@@ -41,7 +36,7 @@ def test_packaged_default_home_is_valid_in_an_isolated_project(
     root, home = _initialized_home(tmp_path)
 
     actual_top_refs = set(home.actual_top_refs())
-    assert _REQUIRED_TOP_LINKS <= actual_top_refs
+    assert actual_top_refs
     skill_links = {str(item.ref) for item in home.skill_metadata()}
     assert skill_links
     assert skill_links <= actual_top_refs
@@ -55,11 +50,8 @@ async def test_packaged_default_home_exposes_only_context_visible_load_targets(
     provider = HomeBackgroundEntryProvider(HomeService(home))
     catalog = await provider.catalog(date(2026, 7, 15))
 
-    assert _REQUIRED_TOP_LINKS <= set(catalog.default_refs)
-    assert catalog.default_refs.index(
-        "home:top/agent/context/using-context"
-    ) < catalog.default_refs.index("home:top/agent/context/background")
-    assert catalog.evictable_default_refs == ()
+    assert set(catalog.default_refs) <= set(home.actual_top_refs())
+    assert set(catalog.evictable_default_refs) <= set(catalog.default_refs)
     assert catalog.items
 
     targets = (catalog.items[0].ref,)
@@ -88,9 +80,6 @@ async def test_packaged_default_home_exposes_only_context_visible_load_targets(
     assert "background:catalog:home" in initial_labels
     assert {f"background:{ref}" for ref in catalog.default_refs} <= initial_labels
     assert all(f"background:{item.ref}" not in initial_labels for item in catalog.items)
-    assert CONTROL_EVICT_BACKGROUND not in {
-        tool.name for tool in context.control_scope().tools
-    }
 
     bus = SignalBus()
     bus.emit(

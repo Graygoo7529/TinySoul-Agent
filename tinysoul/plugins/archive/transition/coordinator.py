@@ -409,11 +409,6 @@ class DailyLifecycleCoordinator:
     ) -> Path:
         from_day = CalendarDay.parse(journal.from_day)
         to_day = CalendarDay.parse(journal.to_day)
-        if (pending / "home").exists():
-            raise ArchiveInvariantError(
-                "Pending Daily transition contains forbidden Home data; "
-                "manual recovery is required"
-            )
 
         if not journal.completed(DailyTransitionStep.SESSION_ARCHIVED):
             if (pending / "session").exists() and self._session.active_day is None:
@@ -479,7 +474,7 @@ class DailyLifecycleCoordinator:
         )
         for path in pending:
             if not (path / "transition.json").exists():
-                participant_names = {"session", "workspace", "home", "trash"}
+                participant_names = {"session", "workspace", "trash"}
                 if any((path / name).exists() for name in participant_names):
                     raise ArchiveInvariantError(
                         "Pending Daily transition has participant data but no journal"

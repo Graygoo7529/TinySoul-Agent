@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.integration
+
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.network import NetworkMode, NetworkPolicy
 from tinysoul.infra.process import ManagedProcessRequest, StdioProcess
@@ -37,6 +39,14 @@ async def _settled(jobs: JobRegistry, turn: str, identity: str) -> None:
     async with asyncio.timeout(5):
         while not jobs.snapshot(turn, identity).state.terminal or jobs.has_unresolved(
             turn
+        ):
+            await asyncio.sleep(0.01)
+
+
+async def _prompt_ready(engine: SubagentEngine, identity: str, prompt: str) -> None:
+    async with asyncio.timeout(5):
+        while f"ready:{prompt}" not in str(
+            await engine.backend(DAY_TURN_ID, identity).collect()
         ):
             await asyncio.sleep(0.01)
 
@@ -149,11 +159,11 @@ async def test_real_acp_permission_same_turn_reuse_and_new_turn_isolation(
             await engine.backend(DAY_TURN_ID, fresh).collect()
         )
         fourth = await engine.delegate(DAY_TURN_ID, connection, "wait_forever")
-        await asyncio.sleep(0.1)
+        await _prompt_ready(engine, fourth, "wait_forever")
         stopped = await jobs.stop(DAY_TURN_ID, fourth, operations=JoinedOperations())
         assert stopped.state is JobState.CANCELLED
         fifth = await engine.delegate(DAY_TURN_ID, connection, "ignore_cancel")
-        await asyncio.sleep(0.1)
+        await _prompt_ready(engine, fifth, "ignore_cancel")
         await jobs.stop(DAY_TURN_ID, fifth, operations=JoinedOperations())
         assert not jobs.has_unresolved(DAY_TURN_ID)
         assert "unavailable" in str(engine.connections(DAY_TURN_ID))

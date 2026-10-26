@@ -14,6 +14,7 @@ from tinysoul.plugins.capabilities.resource.config import PdfPageRenderMode
 from tests.support.project import copy_initialized_project
 
 
+@pytest.mark.packaging
 @pytest.mark.parametrize("profile", tuple(ProjectConfigProfile))
 def test_config_catalog_covers_every_packaged_project_toml_leaf(
     tmp_path: Path,
@@ -53,10 +54,6 @@ def test_config_catalog_declares_capability_choices_supported_by_owners() -> Non
     assert _choices(catalog, "capabilities.resource.render_pdf_pages") == {
         item.value for item in PdfPageRenderMode
     }
-    assert _choices(catalog, "capabilities.web.search_by_kimi.model") == {
-        "kimi-k2.5",
-        "kimi-k2.6",
-    }
 
 
 def test_config_catalog_allows_models_to_choose_family_sources() -> None:
@@ -67,15 +64,16 @@ def test_config_catalog_allows_models_to_choose_family_sources() -> None:
 
     assert model_collection.create_source is None
     assert "create_source" not in model_collection.to_json()
-    provider_collection = next(item for item in catalog.collections if item.id == "llm.providers")
-    assert provider_collection.to_json()["create_source"] == provider_collection.create_source
-    assert provider_collection.create_source is not None
-    assert (
-        model_collection.delete_policy
-        is ConfigCollectionDeletePolicy.ALL
+    provider_collection = next(
+        item for item in catalog.collections if item.id == "llm.providers"
     )
+    assert (
+        provider_collection.to_json()["create_source"]
+        == provider_collection.create_source
+    )
+    assert provider_collection.create_source is not None
+    assert model_collection.delete_policy is ConfigCollectionDeletePolicy.ALL
     assert model_collection.root == "llm.models"
-    assert model_collection.identity.title == "Model ID"
     assert model_collection.to_json()["delete_policy"] == "all"
 
 

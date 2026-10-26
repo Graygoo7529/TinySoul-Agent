@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.integration
+
 from tests.support.model_uses import action_tasks
 from tinysoul.infra.json import JsonObject, dumps_json
 from tinysoul.infra.model_services import ModelServices

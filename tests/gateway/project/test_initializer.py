@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import tomllib
 from pathlib import Path
+from importlib.resources import files
+from importlib.resources.abc import Traversable
+from tinysoul.infra.config import ConfigEnvironment
+from tinysoul.llm.config.loader import LLMConfigParser
 
 import pytest
 
-from tests.support.catalog import builtin_action_catalog_root
+pytestmark = pytest.mark.packaging
+
 from tests.support.project import copy_initialized_project
 from tinysoul.gateway import cli
 from tinysoul.gateway.errors import ProjectInitializationError
@@ -19,127 +24,47 @@ from tinysoul.gateway.project.instance import ProjectInstanceLease
 from tinysoul.infra.config import parse_dotenv
 
 
-@pytest.mark.generation
-def test_cli_init_copies_editable_project_without_provider_selection(
+@pytest.mark.parametrize("profile", tuple(ProjectConfigProfile))
+def test_cli_init_preserves_packaged_resources_and_valid_configuration(
     tmp_path: Path,
+    profile: ProjectConfigProfile,
 ) -> None:
-    root = tmp_path / "agent"
-
-    result = cli.main(["init", str(root)])
-
-    assert result == 0
-    assert (root / "tinysoul.toml").is_file()
-    assert (root / "configs" / "home.toml").is_file()
-    assert (root / "configs" / "action" / "routing.toml").is_file()
-    assert (root / "configs" / "action" / "catalog" / "core" / "domain.toml").is_file()
-    with builtin_action_catalog_root() as package_catalog:
-        assert _tree_snapshot(root / "configs" / "action" / "catalog") == (
-            _tree_snapshot(package_catalog)
-        )
-    assert (root / "configs" / "infra" / "model_services.toml").is_file()
-    assert not (root / "tinysoul" / "action" / "catalog").exists()
-    assert (root / ".env.example").is_file()
-    assert (root / "README.md").is_file()
-    assert (root / "memory").is_dir()
-    assert not (root / "config_profiles").exists()
-    skill = root / "home" / "skills" / "tinysoul-docs" / "SKILL.md"
-    assert skill.read_text(encoding="utf-8").startswith("---\ntitle:")
-    identity = root / "home" / "agent" / "identity"
-    assert (identity / "identity.md").is_file()
-    assert (identity / "soul.md").is_file()
-    assert (root / "home" / "agent" / "user" / "user.md").is_file()
-    assert (root / "home" / "skills_action" / "core" / "answer.md").is_file()
-    assert (
-        root
-        / "home"
-        / "skills"
-        / "tinysoul-docs"
-        / "references"
-        / "use-tinysoul-context-and-ref.md"
-    ).is_file()
-
-    providers = tomllib.loads(
-        (root / "configs" / "llm" / "providers.toml").read_text(encoding="utf-8")
-    )["llm"]["providers"]
-    assert providers
-    assert all(spec["enabled"] is False for spec in providers.values())
-    assert (root / "configs" / "llm" / "models" / "kimi.toml").is_file()
-    assert (root / "configs" / "llm" / "models" / "gpt.toml").is_file()
-    execution = tomllib.loads(
-        (root / "configs" / "execution.toml").read_text(encoding="utf-8")
-    )["execution"]
-    assert execution["enabled"] is False
-
-
-@pytest.mark.generation
-def test_cli_init_development_profile_copies_enabled_development_config(
-    tmp_path: Path,
-) -> None:
-    root = tmp_path / "agent"
-
-    result = cli.main(["init", str(root), "--config-profile", "development"])
-
-    assert result == 0
-    providers = tomllib.loads(
-        (root / "configs" / "llm" / "providers.toml").read_text(encoding="utf-8")
-    )["llm"]["providers"]
-    assert any(spec["enabled"] is True for spec in providers.values())
-    assert (root / "configs" / "llm" / "models" / "gpt.toml").is_file()
-    execution = tomllib.loads(
-        (root / "configs" / "execution.toml").read_text(encoding="utf-8")
-    )["execution"]
-    assert execution["enabled"] is True
-    assert (root / "home" / "agent" / "user" / "user.md").is_file()
-    assert not (root / "config_profiles").exists()
-
-
-@pytest.mark.generation
-def test_project_config_profiles_share_core_home_and_customize_user_profile(
-    tmp_path: Path,
-) -> None:
-    standard = tmp_path / "standard"
-    development = tmp_path / "development"
-
-    standard_outcome = ProjectInitializer().initialize(standard)
-    development_outcome = ProjectInitializer().initialize(
-        development,
-        config_profile=ProjectConfigProfile.DEVELOPMENT,
-    )
-
-    assert standard_outcome.config_profile is ProjectConfigProfile.STANDARD
-    assert development_outcome.config_profile is ProjectConfigProfile.DEVELOPMENT
-    standard_home = _tree_snapshot(standard / "home")
-    development_home = _tree_snapshot(development / "home")
-    user_path = "agent/user/user.md"
-    assert set(standard_home) == set(development_home)
-    assert {
-        path: content for path, content in standard_home.items() if path != user_path
-    } == {
-        path: content for path, content in development_home.items() if path != user_path
+    root = tmp_path / "project"
+    assert cli.main(["init", str(root), "--config-profile", profile.value]) == 0
+    assets = files("tinysoul.assets")
+    expected = {
+        **_resource_snapshot(assets.joinpath("common")),
+        **_resource_snapshot(assets.joinpath(profile.value)),
     }
-    assert standard_home[user_path]
-    assert development_home[user_path]
-    assert set(_tree_snapshot(standard / "configs")) == set(
-        _tree_snapshot(development / "configs")
-    )
-    for root in (standard, development):
-        interface = root / "presentation/configs/interface.toml"
-        assert (
-            InterfaceSettings.from_mapping(
-                tomllib.loads(interface.read_text(encoding="utf-8"))
-            )
-            == InterfaceSettings()
+    assert _tree_snapshot(root) == expected
+    assert (root / "memory").is_dir()
+    environment = ConfigEnvironment.from_project_root(root, env={})
+    llm = LLMConfigParser().parse(environment.section_tree("llm"))
+    assert llm.models.ids()
+    example = parse_dotenv((root / ".env.example").read_text(encoding="utf-8"))
+    assert _config_environment_references(root / "configs") <= set(example)
+    InterfaceSettings.from_mapping(
+        tomllib.loads(
+            (root / "presentation/configs/interface.toml").read_text(encoding="utf-8")
         )
-        assert (root / "presentation/README.md").is_file()
-        example = parse_dotenv((root / ".env.example").read_text(encoding="utf-8"))
-        assert example
-        assert set(example.values()) == {""}
-        # Examples cover every configured reference and may reserve keys for
-        # optional providers that users add to their project's TOML later.
-        assert _config_environment_references(root / "configs") <= set(example)
+    )
 
 
-@pytest.mark.generation
+def _resource_snapshot(root: Traversable) -> dict[str, bytes]:
+    result: dict[str, bytes] = {}
+    for item in root.iterdir():
+        if item.is_dir():
+            result.update(
+                {
+                    f"{item.name}/{name}": data
+                    for name, data in _resource_snapshot(item).items()
+                }
+            )
+        else:
+            result[item.name] = item.read_bytes()
+    return result
+
+
 def test_project_initializer_accepts_empty_directory_and_rejects_nonempty(
     tmp_path: Path,
 ) -> None:
@@ -149,7 +74,7 @@ def test_project_initializer_accepts_empty_directory_and_rejects_nonempty(
     outcome = ProjectInitializer().initialize(empty)
 
     assert outcome.root == empty.resolve()
-    assert outcome.file_count > 10
+    assert outcome.file_count == len(_tree_snapshot(empty))
     marker = tmp_path / "existing" / "marker.txt"
     marker.parent.mkdir()
     marker.write_text("keep", encoding="utf-8")
@@ -311,22 +236,6 @@ def test_cli_reset_rejects_project_held_by_running_instance(
     assert result == 1
     assert "already running for this project" in captured.err
     assert marker.read_text(encoding="utf-8") == "active"
-
-
-def test_initialized_project_reports_model_chain_exhaustion_without_enabled_provider(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    root = tmp_path / "agent"
-    copy_initialized_project(root)
-
-    result = cli.main(["start", "--root", str(root), "--once", "hello"])
-
-    captured = capsys.readouterr()
-    assert result == 1
-    assert "llm.model_chain_exhausted" in captured.err
-    assert '"module":"llm"' in captured.err
-    assert '"reason":"runtime.turn_end"' in captured.err
 
 
 def _tree_snapshot(root: Path) -> dict[str, bytes]:

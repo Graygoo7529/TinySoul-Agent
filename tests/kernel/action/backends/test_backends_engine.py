@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.action_helpers import builtin_catalog
+from tests.support.actions import sample_catalog
 
 import asyncio
 import sys
@@ -10,7 +10,6 @@ from time import monotonic, sleep
 
 import pytest
 
-from tinysoul.plugins.execution.actions import EXECUTION_ACTIONS
 from tinysoul.kernel.action.backends.subprocess import (
     ControlledProcessRunner,
     ProcessRequest,
@@ -44,7 +43,7 @@ from tinysoul.runtime import (
     RunScope,
     RuntimeException,
 )
-from tests.action_helpers import (
+from tests.support.actions import (
     FunctionActionEngineBuilder,
     FunctionActionExecutor,
     load_action_catalog,
@@ -294,95 +293,13 @@ async def test_runtime_transfer_terminates_parallel_subprocess_without_deadline(
 
 async def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
     engine = (
-        FunctionActionEngineBuilder(builtin_catalog())
+        FunctionActionEngineBuilder(sample_catalog())
         .register_function("core.answer", lambda execution, context: {"text": "done"})
-        .register_function("core.ask", lambda execution, context: {"text": "choose"})
-        .register_function("core.reason", lambda execution, context: {"ok": True})
-        .register_function(
-            "home.resource.delete", lambda execution, context: {"deleted": True}
-        )
-        .register_function(
-            "home.resource.patch", lambda execution, context: {"patched": True}
-        )
         .register_function("home.inspect", lambda execution, context: {"read": True})
-        .register_function(
-            "home.resource.write", lambda execution, context: {"written": True}
-        )
-        .register_function(
-            "home.top.delete", lambda execution, context: {"deleted": True}
-        )
-        .register_function(
-            "home.top.patch", lambda execution, context: {"patched": True}
-        )
-        .register_function("home.search", lambda execution, context: {"items": []})
-        .register_function(
-            "home.top.write", lambda execution, context: {"written": True}
-        )
-        .register_function("memory.search", lambda execution, context: {"items": []})
-        .register_function("memory.memorize", lambda execution, context: {"digest": ""})
-        .register_function("memory.inspect", lambda execution, context: {"text": ""})
-        .register_function(
-            "home.prompt_mount.patch", lambda execution, context: {"patched": True}
-        )
-        .register_function(
-            "home.prompt_mount.write", lambda execution, context: {"written": True}
-        )
-        .register_function(
-            "core.context.inspect",
-            lambda execution, context: {},
-            executor_id="context.inspect",
-        )
-        .register_function(
-            "workspace.delete", lambda execution, context: {"deleted": True}
-        )
-        .register_function(
-            "workspace.describe", lambda execution, context: {"described": True}
-        )
-        .register_function(
-            "workspace.analyze", lambda execution, context: {"answer": "ok"}
-        )
-        .register_function("workspace.read", lambda execution, context: {"text": "ok"})
-        .register_function("workspace.search", lambda execution, context: {"items": []})
-        .register_function(
-            "workspace.append", lambda execution, context: {"appended": True}
-        )
-        .register_function(
-            "workspace.edit", lambda execution, context: {"patched": True}
-        )
-        .register_function(
-            "workspace.restore", lambda execution, context: {"restored": True}
-        )
-        .register_function(
-            "workspace.trash_list", lambda execution, context: {"items": []}
-        )
-        .register_function(
-            "workspace.compose", lambda execution, context: {"rewritten": True}
-        )
-        .register_function(
-            "workspace.list", lambda execution, context: {"scanned": True}
-        )
-        .mark_actions_unsupported(
-            "core.session.organize",
-            "core.wait",
-            "core.job.status",
-            "core.job.stop",
-            *EXECUTION_ACTIONS,
-            "workspace.write",
-            "workspace.move",
-            "workspace.mkdir",
-            "workspace.tag",
-            "workspace.convert_with_markitdown",
-            "workspace.convert_with_pypdf",
-            "web.discover_pages",
-            "web.fetch_with_defuddle",
-            "web.fetch_with_trafilatura",
-            "web.search_by_kimi",
-        )
         .build()
     )
-
-    assert "home" in engine.domain_names()
-    assert ("home", "home.top.write") in engine.action_identifiers()
+    assert set(engine.domain_names()) == {"core", "home"}
+    assert ("home", "home.inspect") in engine.action_identifiers()
     scope_preparation = engine.phase2_scope(("core",))
     normalization = engine.normalize(
         (

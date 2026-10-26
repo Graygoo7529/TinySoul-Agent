@@ -11,12 +11,14 @@ from threading import Thread
 from typing import cast
 
 import pytest
+
+pytestmark = pytest.mark.integration
 import httpx
 
 from tinysoul.gateway import cli
 from tinysoul.agent import AgentClosedError, UserTurnRequest
 from tinysoul.agent.composition.assembly import AgentAssembly, AgentRuntime
-from tinysoul.agent.composition.builder import AgentBuilder, standard_agent
+from tinysoul.agent.composition.builder import standard_agent
 from tinysoul.gateway.endpoint import EndpointHost, EndpointReady, EndpointSettings
 from tinysoul.infra import ConfigEnvironment
 from tinysoul.runtime import ObservationEvent, ObservationLevel, RuntimeException
@@ -112,7 +114,8 @@ async def test_cli_host_survives_http_restart_failure_and_uses_current_commands(
                 assert refused.json()["error"]["code"] == "service.unavailable"
                 assert (await client.get("/v2/config")).status_code == 409
                 saved_interface = await client.patch(
-                    "/v2/presentation/configs/interface", json={"changes": {"theme": "dark"}}
+                    "/v2/presentation/configs/interface",
+                    json={"changes": {"theme": "dark"}},
                 )
                 assert saved_interface.status_code == 200
                 assert (await client.get("/v2/health")).status_code == 200
@@ -135,7 +138,9 @@ async def test_cli_host_survives_http_restart_failure_and_uses_current_commands(
                 after["runtime"]["generation_id"] != before["runtime"]["generation_id"]
             )
             assert after["instance_id"] == before["instance_id"]
-            shared_interface = (await client.get("/v2/presentation/configs/interface")).json()
+            shared_interface = (
+                await client.get("/v2/presentation/configs/interface")
+            ).json()
             assert shared_interface["values"]["theme"] == "dark"
             assert host.engine is engine and len(handshakes) == 1
             assert not application.done()
@@ -271,7 +276,7 @@ def _configure_fake_provider(root: Path, *, port: int) -> None:
         "[llm.providers.fake]\n"
         "enabled = true\n"
         'api_key_envs = ["FAKE_API_KEY"]\n'
-        '[llm.providers.fake.endpoints.openai-chat]\n'
+        "[llm.providers.fake.endpoints.openai-chat]\n"
         f'base_url = "http://127.0.0.1:{port}/v1"\n',
         encoding="utf-8",
     )

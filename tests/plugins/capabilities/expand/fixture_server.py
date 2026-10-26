@@ -3,6 +3,7 @@
 import sys
 import asyncio
 import os
+import socket
 from pathlib import Path
 
 from mcp.server.mcpserver import MCPServer
@@ -47,8 +48,25 @@ if os.environ.get("TINYSOUL_MCP_FIXTURE_EXTENDED") == "1":
         os._exit(0)
 
 
+def serve_http() -> None:
+    import uvicorn
+
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+
+        class ReadyServer(uvicorn.Server):
+            async def startup(self, sockets: list[socket.socket] | None = None) -> None:
+                await super().startup(sockets)
+                print(listener.getsockname()[1], flush=True)
+
+        host = ReadyServer(
+            uvicorn.Config(server.streamable_http_app(), log_level="warning")
+        )
+        asyncio.run(host.serve(sockets=[listener]))
+
+
 if __name__ == "__main__":
-    if len(sys.argv) == 3 and sys.argv[1] == "--http":
-        asyncio.run(server.run_streamable_http_async(port=int(sys.argv[2])))
+    if sys.argv[1:] == ["--http"]:
+        serve_http()
     else:
         server.run()

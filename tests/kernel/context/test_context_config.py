@@ -22,8 +22,3 @@ def test_context_rejects_target_at_or_above_trigger() -> None:
                 "compression_target_ratio": 0.8,
             }
         )
-
-
-def test_context_rejects_removed_static_character_budget() -> None:
-    with pytest.raises(ConfigError, match="Unknown configuration key"):
-        parse_context_settings({"budget_max_chars": 120000})

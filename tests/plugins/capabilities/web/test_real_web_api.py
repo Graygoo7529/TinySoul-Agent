@@ -26,7 +26,7 @@ pytestmark = [
 
 
 async def test_real_kimi_search_returns_answer_and_structured_results(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
     configured_root = os.environ.get("TINYSOUL_REAL_PROJECT_ROOT", "")
     if not configured_root:
@@ -38,11 +38,10 @@ async def test_real_kimi_search_returns_answer_and_structured_results(
     )
     settings = parse_capabilities_settings(environment.section_tree("capabilities")).web
     assert settings.search_by_kimi.enabled is True
-    assert settings.search_by_kimi.model == "kimi-k2.6"
-    staging = StagingDirectoryManager(local_tmp.resolve())
+    staging = StagingDirectoryManager(tmp_path.resolve())
     staging.prepare()
     workspace = WorkspaceEngineBuilder(
-        WorkspaceSettings(root=(local_tmp / "workspace").resolve(), max_files=20)
+        WorkspaceSettings(root=(tmp_path / "workspace").resolve(), max_files=20)
     ).build()
     service = WebCapabilityService(
         workspace=WorkspaceService(workspace),

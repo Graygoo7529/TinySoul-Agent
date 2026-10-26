@@ -1,0 +1,23 @@
+[llm.tasks.frame-stage1]
+models = ["test"]
+required_capabilities = ["text_input"]
+answer_format = "json_object"
+tool_use = "disabled"
+max_retries_per_provider = 0
+max_cycles = 1
+
+[llm.tasks.frame-stage2]
+models = ["test"]
+required_capabilities = ["text_input"]
+answer_format = "json_object"
+tool_use = "disabled"
+max_retries_per_provider = 0
+max_cycles = 1
+
+[llm.tasks.llm-action]
+models = ["test"]
+required_capabilities = ["text_input"]
+answer_format = "json_object"
+tool_use = "disabled"
+max_retries_per_provider = 0
+max_cycles = 1

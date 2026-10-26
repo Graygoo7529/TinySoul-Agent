@@ -59,7 +59,7 @@ from tinysoul.infra import (
     StagingDirectoryManager,
 )
 from tinysoul.infra.config import ConfigError
-from tinysoul.runtime import RunScope, SignalBus
+from tinysoul.runtime import RunScope
 from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
 
@@ -115,17 +115,18 @@ def test_resource_config_rejects_nested_unknown_key() -> None:
     assert error.value.key == "capabilities.resource.convert_with_markitdown.fallback"
 
 
+@pytest.mark.integration
 async def test_markitdown_conversion_commits_markdown_and_docx_image(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    workspace = _workspace(local_tmp)
+    workspace = _workspace(tmp_path)
     source = workspace.root / "incoming" / "report.docx"
     _write_docx(source)
     workspace.reconcile()
     service = ResourceConversionService(
         workspace=WorkspaceService(workspace),
         settings=ResourceSettings(),
-        staging=_staging(local_tmp),
+        staging=_staging(tmp_path),
     )
 
     result = await service.convert(
@@ -149,10 +150,11 @@ async def test_markitdown_conversion_commits_markdown_and_docx_image(
     assert result.content_status is ResourceContentStatus.PARTIAL
 
 
+@pytest.mark.integration
 async def test_pypdf_conversion_renders_blank_page_as_workspace_image(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    workspace = _workspace(local_tmp)
+    workspace = _workspace(tmp_path)
     source = workspace.root / "incoming" / "blank.pdf"
     source.parent.mkdir(parents=True)
     writer = PdfWriter()
@@ -163,7 +165,7 @@ async def test_pypdf_conversion_renders_blank_page_as_workspace_image(
     service = ResourceConversionService(
         workspace=WorkspaceService(workspace),
         settings=ResourceSettings(),
-        staging=_staging(local_tmp),
+        staging=_staging(tmp_path),
     )
 
     result = await service.convert(
@@ -184,10 +186,11 @@ async def test_pypdf_conversion_renders_blank_page_as_workspace_image(
     assert result.visual_refs == ("workspace:converted/blank.assets/page-001.png",)
 
 
+@pytest.mark.integration
 async def test_blank_pdf_without_page_rendering_does_not_commit_placeholder_only_output(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    workspace = _workspace(local_tmp)
+    workspace = _workspace(tmp_path)
     source = workspace.root / "incoming" / "blank.pdf"
     source.parent.mkdir(parents=True)
     writer = PdfWriter()
@@ -198,7 +201,7 @@ async def test_blank_pdf_without_page_rendering_does_not_commit_placeholder_only
     service = ResourceConversionService(
         workspace=WorkspaceService(workspace),
         settings=ResourceSettings(render_pdf_pages=PdfPageRenderMode.DISABLED),
-        staging=_staging(local_tmp),
+        staging=_staging(tmp_path),
     )
 
     with pytest.raises(ResourceProcessingError) as error:
@@ -215,9 +218,9 @@ async def test_blank_pdf_without_page_rendering_does_not_commit_placeholder_only
 
 
 async def test_conversion_target_cannot_claim_its_source_as_a_stale_asset(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    workspace = _workspace(local_tmp)
+    workspace = _workspace(tmp_path)
     source = workspace.root / "converted" / "report.assets" / "source.pdf"
     source.parent.mkdir(parents=True)
     writer = PdfWriter()
@@ -228,7 +231,7 @@ async def test_conversion_target_cannot_claim_its_source_as_a_stale_asset(
     service = ResourceConversionService(
         workspace=WorkspaceService(workspace),
         settings=ResourceSettings(),
-        staging=_staging(local_tmp),
+        staging=_staging(tmp_path),
     )
 
     with pytest.raises(ResourceContractError, match="target asset bundle"):
@@ -243,6 +246,7 @@ async def test_conversion_target_cannot_claim_its_source_as_a_stale_asset(
     assert source.is_file()
 
 
+@pytest.mark.integration
 @pytest.mark.parametrize(
     ("settings", "reason"),
     (
@@ -263,18 +267,18 @@ async def test_conversion_target_cannot_claim_its_source_as_a_stale_asset(
     ),
 )
 async def test_pypdf_asset_limits_fail_without_committing_partial_output(
-    local_tmp: Path,
+    tmp_path: Path,
     settings: ResourceSettings,
     reason: str,
 ) -> None:
-    workspace = _workspace(local_tmp)
+    workspace = _workspace(tmp_path)
     source = workspace.root / "incoming" / "images.pdf"
     _write_image_pdf(source)
     before = workspace.reconcile().manifest
     service = ResourceConversionService(
         workspace=WorkspaceService(workspace),
         settings=settings,
-        staging=_staging(local_tmp),
+        staging=_staging(tmp_path),
     )
 
     with pytest.raises(ResourceProcessingError) as error:
@@ -316,9 +320,9 @@ def test_enabled_resource_dependency_must_be_available() -> None:
 
 
 def test_disabled_resource_actions_are_absent_from_effective_catalog(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    catalog_root = local_tmp / "catalog"
+    catalog_root = tmp_path / "catalog"
     with builtin_action_catalog_root() as package_catalog:
         workspace_catalog = catalog_root / "workspace"
         (workspace_catalog / "actions").mkdir(parents=True)
@@ -341,18 +345,19 @@ def test_disabled_resource_actions_are_absent_from_effective_catalog(
     engine = register_resource_actions(
         ActionEngineBuilder(ActionCatalogLoader().load(catalog_root)),
         settings=settings,
-        workspace=WorkspaceService(_workspace(local_tmp)),
-        staging=_staging(local_tmp),
+        workspace=WorkspaceService(_workspace(tmp_path)),
+        staging=_staging(tmp_path),
     ).build()
 
     assert "workspace" not in engine.domain_names()
     assert engine.action_identifiers() == ()
 
 
+@pytest.mark.integration
 async def test_resource_executor_returns_metadata_and_emits_one_workspace_signal(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    workspace = _workspace(local_tmp)
+    workspace = _workspace(tmp_path)
     source = workspace.root / "incoming" / "blank.pdf"
     source.parent.mkdir(parents=True)
     writer = PdfWriter()
@@ -363,7 +368,7 @@ async def test_resource_executor_returns_metadata_and_emits_one_workspace_signal
     service = ResourceConversionService(
         workspace=WorkspaceService(workspace),
         settings=ResourceSettings(),
-        staging=_staging(local_tmp),
+        staging=_staging(tmp_path),
     )
     executor = ResourceConversionExecutor(
         converter=ResourceConverter.PYPDF,
@@ -409,9 +414,9 @@ async def test_resource_executor_returns_metadata_and_emits_one_workspace_signal
 
 
 async def test_resource_executor_cancellation_after_worker_prevents_commit_and_signal(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    workspace = _workspace(local_tmp)
+    workspace = _workspace(tmp_path)
     source = workspace.root / "incoming" / "blank.pdf"
     source.parent.mkdir(parents=True)
     writer = PdfWriter()
@@ -423,7 +428,7 @@ async def test_resource_executor_cancellation_after_worker_prevents_commit_and_s
     service = ResourceConversionService(
         workspace=WorkspaceService(workspace),
         settings=ResourceSettings(),
-        staging=_staging(local_tmp),
+        staging=_staging(tmp_path),
         process_runner=_CompletedCancellingRunner(),
     )
     executor = ResourceConversionExecutor(
@@ -444,9 +449,9 @@ async def test_resource_executor_cancellation_after_worker_prevents_commit_and_s
 
 
 async def test_resource_executor_maps_invalid_worker_manifest_to_local_failure(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    workspace = _workspace(local_tmp)
+    workspace = _workspace(tmp_path)
     source = workspace.root / "incoming" / "blank.pdf"
     source.parent.mkdir(parents=True)
     writer = PdfWriter()
@@ -459,7 +464,7 @@ async def test_resource_executor_maps_invalid_worker_manifest_to_local_failure(
         service=ResourceConversionService(
             workspace=WorkspaceService(workspace),
             settings=ResourceSettings(),
-            staging=_staging(local_tmp),
+            staging=_staging(tmp_path),
             process_runner=_InvalidManifestRunner(),
         ),
     )

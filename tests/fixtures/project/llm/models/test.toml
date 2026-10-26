@@ -1,0 +1,6 @@
+[llm.models.test]
+adapter = "openai-chat"
+providers = [{ provider = "test", provider_model = "test-model" }]
+context_window_tokens = 32768
+capabilities = ["text_input", "tool_calling", "json_object_output"]
+

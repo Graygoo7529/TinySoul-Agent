@@ -1050,7 +1050,7 @@ async def test_compress_via_engine() -> None:
 
 
 async def test_question_and_choice_reply_are_readable_trace_facts() -> None:
-    from tests.action_helpers import builtin_catalog
+    from tests.support.actions import sample_catalog
     from tinysoul.infra.time import CalendarDay
     from tinysoul.kernel.action import ActionCall, ActionExecution, ActionFramework
     from tinysoul.kernel.action.builtins.core.actions import CoreAskActionExecutor
@@ -1083,7 +1083,7 @@ async def test_question_and_choice_reply_are_readable_trace_facts() -> None:
     context.register_action_calls((call,), cycle_id="c")
     result = await CoreAskActionExecutor().execute(
         ActionExecution(
-            builtin_catalog().get_action("core.ask"),
+            sample_catalog().get_action("core.ask"),
             call,
             ActionFramework("ask", "batch", scope, "core"),
         ),

@@ -24,12 +24,12 @@ pytestmark = [
 
 
 async def test_real_page_discovery_returns_same_origin_candidates(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    staging = StagingDirectoryManager(local_tmp.resolve())
+    staging = StagingDirectoryManager(tmp_path.resolve())
     staging.prepare()
     workspace = WorkspaceEngineBuilder(
-        WorkspaceSettings(root=(local_tmp / "workspace").resolve(), max_files=20)
+        WorkspaceSettings(root=(tmp_path / "workspace").resolve(), max_files=20)
     ).build()
     service = WebCapabilityService(
         workspace=WorkspaceService(workspace),

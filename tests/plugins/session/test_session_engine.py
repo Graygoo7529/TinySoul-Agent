@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.action_helpers import builtin_catalog
+from tests.support.actions import sample_catalog
 from tinysoul.infra import JsonObject, JsonValue
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.action import (
@@ -304,7 +304,7 @@ async def test_session_inspect_executor_returns_foldable_origin(
         status=TurnOutcomeStatus.EXHAUSTED,
         exhausted=True,
     )
-    catalog = builtin_catalog()
+    catalog = sample_catalog()
     action = catalog.get_action("core.context.inspect")
     execution = ActionExecution(
         action=action,

@@ -94,7 +94,7 @@ def http_routes():
             if self.path.endswith("/redirect"):
                 self.send_response(302)
                 self.send_header(
-                    "Location", f"http://localhost:{server.server_port}/direct"
+                    "Location", f"http://127.0.0.1:{server.server_port}/direct"
                 )
                 self.end_headers()
             else:
@@ -107,7 +107,9 @@ def http_routes():
             pass
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = Thread(target=server.serve_forever, daemon=True)
+    thread = Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+    )
     thread.start()
     try:
         yield server.server_port, seen
@@ -117,10 +119,11 @@ def http_routes():
         thread.join()
 
 
+@pytest.mark.integration
 @pytest.mark.parametrize("implementation", ["httpx", "httpx2"])
 async def test_proxy_no_proxy_and_redirect_use_actual_url(http_routes, implementation):
     port, seen = http_routes
-    network = ResolvedNetwork(f"http://127.0.0.1:{port}", None, "localhost")
+    network = ResolvedNetwork(f"http://127.0.0.1:{port}", None, "127.0.0.1")
     client = (
         httpx.AsyncClient(
             trust_env=False, mounts=httpx_mounts(network), follow_redirects=True
@@ -136,6 +139,7 @@ async def test_proxy_no_proxy_and_redirect_use_actual_url(http_routes, implement
     assert seen == ["http://remote.invalid/redirect", "/direct"]
 
 
+@pytest.mark.integration
 def test_sync_transport_and_no_proxy_all(http_routes):
     port, seen = http_routes
     network = ResolvedNetwork(f"http://127.0.0.1:{port}", None, "")
@@ -147,24 +151,17 @@ def test_sync_transport_and_no_proxy_all(http_routes):
 
 
 @pytest.mark.parametrize(
-    "bypass,host,direct",
-    [
-        (".localhost", "localhost", True),
-        ("127.0.0.1", "127.0.0.1", True),
-        ("localhost:{port}", "localhost", True),
-        ("localhost:1", "localhost", False),
-        ("other.localhost", "localhost", False),
-    ],
+    ("bypass", "pattern"),
+    (
+        (".example.test", "all://*example.test"),
+        ("127.0.0.1", "all://127.0.0.1"),
+        ("example.test:8080", "all://*example.test:8080"),
+        ("::1", "all://[::1]"),
+    ),
 )
-def test_bypass_domain_ip_and_port_routes(http_routes, bypass, host, direct):
-    port, seen = http_routes
-    network = ResolvedNetwork(
-        f"http://127.0.0.1:{port}", None, bypass.format(port=port)
-    )
-    url = f"http://{host}:{port}/page"
-    with httpx.Client(trust_env=False, mounts=httpx_sync_mounts(network)) as client:
-        assert client.get(url).status_code == 200
-    assert seen == ["/page" if direct else url]
+def test_bypass_domain_ip_and_port_routes(bypass: str, pattern: str) -> None:
+    network = ResolvedNetwork("http://proxy.test:8000", None, bypass)
+    assert network.routes() == {"http://": "http://proxy.test:8000", pattern: None}
 
 
 async def test_saved_network_object_replacement_and_environment_override(tmp_path):

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
+from types import MappingProxyType
 from typing import cast
 
 from tinysoul.infra.json import JsonObject, to_json_value
@@ -302,6 +303,9 @@ class ConfigCatalog:
         default_factory=tuple
     )
     rules: JsonObject = field(default_factory=dict)
+    _field_index: Mapping[
+        tuple[int, str], tuple[tuple[tuple[str, ...], ConfigFieldDescriptor], ...]
+    ] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         surfaces = tuple(self.surfaces)
@@ -365,6 +369,17 @@ class ConfigCatalog:
         object.__setattr__(self, "fields", fields)
         object.__setattr__(self, "document_fields", document_fields)
         object.__setattr__(self, "rules", dict(self.rules))
+        buckets: dict[
+            tuple[int, str], list[tuple[tuple[str, ...], ConfigFieldDescriptor]]
+        ] = {}
+        for item in fields:
+            parts = tuple(item.path.split("."))
+            buckets.setdefault((len(parts), parts[-1]), []).append((parts, item))
+        object.__setattr__(
+            self,
+            "_field_index",
+            MappingProxyType({key: tuple(items) for key, items in buckets.items()}),
+        )
 
     def with_rules(self, rules: Mapping[str, object]) -> "ConfigCatalog":
         """Return this catalog with runtime-owned machine rules attached."""
@@ -379,7 +394,16 @@ class ConfigCatalog:
         )
 
     def match(self, path: str) -> ConfigFieldDescriptor | None:
-        matches = tuple(item for item in self.fields if item.matches(path))
+        # Index immutable declarations, never filesystem contents or project values.
+        parts = tuple(path.split("."))
+        candidates = self._field_index.get((len(parts), parts[-1]), ())
+        if parts[-1] != "*":
+            candidates += self._field_index.get((len(parts), "*"), ())
+        matches = tuple(
+            item
+            for pattern, item in candidates
+            if all(left == "*" or left == right for left, right in zip(pattern, parts))
+        )
         if len(matches) > 1:
             raise ConfigCatalogError(
                 f"Configuration path matches multiple catalog fields: {path}"

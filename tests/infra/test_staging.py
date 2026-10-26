@@ -10,14 +10,14 @@ from tinysoul.infra import StagingDirectoryManager, StagingError
 from tinysoul.infra.concurrency import JoinedOperations
 
 
-def test_staging_prepare_removes_previous_process_children(local_tmp: Path) -> None:
-    stale_root = local_tmp / "runtime" / ".staging"
+def test_staging_prepare_removes_previous_process_children(tmp_path: Path) -> None:
+    stale_root = tmp_path / "runtime" / ".staging"
     stale_file = stale_root / "stale.txt"
     stale_directory = stale_root / "web-old"
     stale_directory.mkdir(parents=True)
     stale_file.write_text("stale", encoding="utf-8")
     (stale_directory / "source.html").write_text("stale", encoding="utf-8")
-    manager = StagingDirectoryManager(local_tmp.resolve())
+    manager = StagingDirectoryManager(tmp_path.resolve())
 
     manager.prepare()
 
@@ -27,9 +27,9 @@ def test_staging_prepare_removes_previous_process_children(local_tmp: Path) -> N
 
 
 def test_staging_allocate_uses_unique_children_and_cleans_scope(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    manager = StagingDirectoryManager(local_tmp.resolve())
+    manager = StagingDirectoryManager(tmp_path.resolve())
     manager.prepare()
 
     with manager.allocate("web") as first:
@@ -45,8 +45,8 @@ def test_staging_allocate_uses_unique_children_and_cleans_scope(
     assert tuple(manager.root.iterdir()) == ()
 
 
-def test_staging_rejects_unstable_prefix(local_tmp: Path) -> None:
-    manager = StagingDirectoryManager(local_tmp.resolve())
+def test_staging_rejects_unstable_prefix(tmp_path: Path) -> None:
+    manager = StagingDirectoryManager(tmp_path.resolve())
     manager.prepare()
 
     with pytest.raises(StagingError, match="prefix"):
@@ -54,7 +54,9 @@ def test_staging_rejects_unstable_prefix(local_tmp: Path) -> None:
             pass
 
 
-async def test_async_staging_cleanup_survives_cancelled_owner_operation(tmp_path: Path) -> None:
+async def test_async_staging_cleanup_survives_cancelled_owner_operation(
+    tmp_path: Path,
+) -> None:
     manager = StagingDirectoryManager(tmp_path)
     entered, release = Event(), Event()
 

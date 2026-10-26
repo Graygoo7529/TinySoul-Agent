@@ -38,9 +38,9 @@ class LoggingSettings:
     color: bool = True
 
 
-def test_environment_uses_dataclass_defaults_when_no_source(local_tmp: Path) -> None:
+def test_environment_uses_dataclass_defaults_when_no_source(tmp_path: Path) -> None:
     environment = ConfigEnvironment(
-        project=ProjectConfig(local_tmp),
+        project=ProjectConfig(tmp_path),
         sources=[],
     )
 
@@ -50,9 +50,9 @@ def test_environment_uses_dataclass_defaults_when_no_source(local_tmp: Path) -> 
     assert settings.parallel_workers == 5
 
 
-def test_environment_rejects_empty_section_as_config_error(local_tmp: Path) -> None:
+def test_environment_rejects_empty_section_as_config_error(tmp_path: Path) -> None:
     environment = ConfigEnvironment(
-        project=ProjectConfig(local_tmp),
+        project=ProjectConfig(tmp_path),
         sources=[],
     )
 
@@ -60,9 +60,9 @@ def test_environment_rejects_empty_section_as_config_error(local_tmp: Path) -> N
         environment.section_tree("")
 
 
-def test_environment_rejects_non_dataclass_settings_type(local_tmp: Path) -> None:
+def test_environment_rejects_non_dataclass_settings_type(tmp_path: Path) -> None:
     environment = ConfigEnvironment(
-        project=ProjectConfig(local_tmp),
+        project=ProjectConfig(tmp_path),
         sources=[],
     )
 
@@ -70,9 +70,9 @@ def test_environment_rejects_non_dataclass_settings_type(local_tmp: Path) -> Non
         environment.load_section("infra.runtime", dict)
 
 
-def test_environment_applies_sources_in_order(local_tmp: Path) -> None:
+def test_environment_applies_sources_in_order(tmp_path: Path) -> None:
     environment = ConfigEnvironment(
-        project=ProjectConfig(local_tmp),
+        project=ProjectConfig(tmp_path),
         sources=[
             ConfigSource("project", {"infra.runtime.max_turns": 21}),
             ConfigSource("dotenv", {"infra.runtime.max_turns": "22"}),
@@ -86,9 +86,9 @@ def test_environment_applies_sources_in_order(local_tmp: Path) -> None:
     assert settings.max_turns == 24
 
 
-def test_environment_converts_supported_types(local_tmp: Path) -> None:
+def test_environment_converts_supported_types(tmp_path: Path) -> None:
     environment = ConfigEnvironment(
-        project=ProjectConfig(local_tmp),
+        project=ProjectConfig(tmp_path),
         sources=[
             ConfigSource(
                 "source",
@@ -119,9 +119,9 @@ def test_environment_converts_supported_types(local_tmp: Path) -> None:
     assert logging.color is True
 
 
-def test_environment_reports_unknown_project_key(local_tmp: Path) -> None:
+def test_environment_reports_unknown_project_key(tmp_path: Path) -> None:
     environment = ConfigEnvironment(
-        project=ProjectConfig(local_tmp),
+        project=ProjectConfig(tmp_path),
         sources=[ConfigSource("project", {"infra.runtime.unknown": 1})],
     )
 
@@ -135,10 +135,10 @@ def test_environment_reports_unknown_project_key(local_tmp: Path) -> None:
 
 
 def test_environment_reports_unknown_top_level_section_with_source(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
     environment = ConfigEnvironment(
-        project=ProjectConfig(local_tmp),
+        project=ProjectConfig(tmp_path),
         sources=[ConfigSource("overrides", {"appp.interactive": True})],
     )
 
@@ -149,9 +149,9 @@ def test_environment_reports_unknown_top_level_section_with_source(
     assert exc_info.value.source == "overrides"
 
 
-def test_environment_reports_type_errors_with_source_and_value(local_tmp: Path) -> None:
+def test_environment_reports_type_errors_with_source_and_value(tmp_path: Path) -> None:
     environment = ConfigEnvironment(
-        project=ProjectConfig(local_tmp),
+        project=ProjectConfig(tmp_path),
         sources=[ConfigSource("project", {"infra.runtime.max_turns": "bad"})],
     )
 
@@ -165,17 +165,17 @@ def test_environment_reports_type_errors_with_source_and_value(local_tmp: Path) 
     assert "int" in message
 
 
-def test_environment_from_project_root_precedence(local_tmp: Path, monkeypatch) -> None:
-    (local_tmp / "tinysoul.toml").write_text(
+def test_environment_from_project_root_precedence(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "tinysoul.toml").write_text(
         "[infra.runtime]\nmax_turns = 21\n", encoding="utf-8"
     )
-    (local_tmp / ".env").write_text(
+    (tmp_path / ".env").write_text(
         "TINYSOUL_INFRA_RUNTIME_MAX_TURNS=22\n", encoding="utf-8"
     )
     monkeypatch.setenv("TINYSOUL_INFRA_RUNTIME_MAX_TURNS", "23")
 
     environment = ConfigEnvironment.from_project_root(
-        local_tmp,
+        tmp_path,
         overrides={"infra.runtime.max_turns": 24},
     )
     settings = environment.load_section("infra.runtime", RuntimeSettings)
@@ -184,23 +184,23 @@ def test_environment_from_project_root_precedence(local_tmp: Path, monkeypatch) 
 
 
 def test_environment_runtime_env_merges_dotenv_and_process_env(
-    local_tmp: Path, monkeypatch
+    tmp_path: Path, monkeypatch
 ) -> None:
-    (local_tmp / "tinysoul.toml").write_text("", encoding="utf-8")
-    (local_tmp / ".env").write_text(
-        "OPENAI_API_KEY=from-dotenv\n" "KIMI_API_KEY=from-dotenv\n",
+    (tmp_path / "tinysoul.toml").write_text("", encoding="utf-8")
+    (tmp_path / ".env").write_text(
+        "OPENAI_API_KEY=from-dotenv\nKIMI_API_KEY=from-dotenv\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("OPENAI_API_KEY", "from-process")
 
-    environment = ConfigEnvironment.from_project_root(local_tmp)
+    environment = ConfigEnvironment.from_project_root(tmp_path)
 
     assert environment.runtime_env["OPENAI_API_KEY"] == "from-process"
     assert environment.runtime_env["KIMI_API_KEY"] == "from-dotenv"
 
 
-def test_environment_section_tree_uses_all_sources(local_tmp: Path) -> None:
-    (local_tmp / "tinysoul.toml").write_text(
+def test_environment_section_tree_uses_all_sources(tmp_path: Path) -> None:
+    (tmp_path / "tinysoul.toml").write_text(
         """
         [llm.models.kimi-coding-latest]
         adapter = "kimi"
@@ -210,8 +210,10 @@ def test_environment_section_tree_uses_all_sources(local_tmp: Path) -> None:
     )
 
     environment = ConfigEnvironment.from_project_root(
-        local_tmp,
-        overrides={"llm.models.kimi-coding-latest.providers.0.provider_model": "kimi-k2.7"},
+        tmp_path,
+        overrides={
+            "llm.models.kimi-coding-latest.providers.0.provider_model": "kimi-k2.7"
+        },
     )
 
     tree = environment.section_tree("llm")
@@ -229,17 +231,17 @@ def test_environment_section_tree_uses_all_sources(local_tmp: Path) -> None:
 
 
 def test_environment_enriches_module_error_with_include_source(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    config_dir = local_tmp / "configs"
+    config_dir = tmp_path / "configs"
     config_dir.mkdir()
     include_path = config_dir / "agent.toml"
-    (local_tmp / "tinysoul.toml").write_text(
+    (tmp_path / "tinysoul.toml").write_text(
         '[config]\ninclude = ["configs/agent.toml"]\n',
         encoding="utf-8",
     )
     include_path.write_text("[agent]\ninterative = true\n", encoding="utf-8")
-    environment = ConfigEnvironment.from_project_root(local_tmp, env={})
+    environment = ConfigEnvironment.from_project_root(tmp_path, env={})
 
     def parse_app(tree: Mapping[str, object]) -> Mapping[str, object]:
         reject_unknown_keys(tree, {"interactive"}, key="agent")

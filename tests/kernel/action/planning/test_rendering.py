@@ -116,14 +116,14 @@ def test_result_renderer_renders_phase_result_payloads() -> None:
     assert trace_payload["frame_data"] == {"reason": "missing_action_call"}
 
 
-def test_canonical_result_parser_rejects_unknown_legacy_fields() -> None:
+def test_canonical_result_parser_rejects_unknown_fields() -> None:
     with pytest.raises(ActionInvariantError, match="unknown fields"):
         ActionResultEnvelope.from_json(
             {
                 "action": "workspace.list",
                 "status": "success",
                 "stage": "execute",
-                "feedback": "legacy",
+                "unknown_field": "invalid",
             }
         )
 

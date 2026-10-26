@@ -66,7 +66,10 @@ def _environment() -> ConfigEnvironment:
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     if "model_id" not in metafunc.fixturenames:
         return
-    if os.environ.get("TINYSOUL_RUN_REAL_LLM_API") != "1":
+    if (
+        metafunc.config.getoption("suite") != "external"
+        or os.environ.get("TINYSOUL_RUN_REAL_LLM_API") != "1"
+    ):
         metafunc.parametrize(
             "model_id",
             [

@@ -103,6 +103,14 @@ class LocalAgent(Agent):
                 ],
             )
             instruction = str(answer.outcome.model_dump())
+        if instruction in {"wait_forever", "ignore_cancel"}:
+            await self.client.session_update(
+                session_id,
+                AgentMessageChunk(
+                    session_update="agent_message_chunk",
+                    content=TextContentBlock(type="text", text=f"ready:{instruction}"),
+                ),
+            )
         if "wait_forever" in instruction:
             await self.cancelled[session_id].wait()
             return PromptResponse(stop_reason="cancelled")

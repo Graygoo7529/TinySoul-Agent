@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import json
 import shutil
 from dataclasses import replace
@@ -79,7 +81,7 @@ from tinysoul.plugins.capabilities.web.service import (
 )
 from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
 from tinysoul.plugins.workspace.services import WorkspaceService
-from tinysoul.runtime import RunScope, SignalBus
+from tinysoul.runtime import RunScope
 
 
 def test_web_config_parses_independent_kimi_search_and_fetch_actions() -> None:
@@ -102,13 +104,6 @@ def test_web_config_parses_independent_kimi_search_and_fetch_actions() -> None:
     assert settings.search_by_kimi.max_output_tokens == 4_096
     assert settings.fetch_with_defuddle.enabled is True
     assert settings.fetch_with_trafilatura.enabled is False
-
-
-def test_web_config_rejects_obsolete_search_mode() -> None:
-    with pytest.raises(ConfigError) as error:
-        parse_capabilities_settings({"web": {"search_by_kimi": {"mode": "answer"}}})
-
-    assert error.value.key == "capabilities.web.search_by_kimi.mode"
 
 
 def test_web_config_accepts_supported_no_thinking_kimi_model() -> None:
@@ -429,9 +424,9 @@ def test_public_https_validation_canonicalizes_public_target() -> None:
 
 
 async def test_kimi_search_returns_answer_and_results_without_mode(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    workspace = _workspace(local_tmp)
+    workspace = _workspace(tmp_path)
     service = WebCapabilityService(
         workspace=WorkspaceService(workspace),
         settings=WebSettings(
@@ -446,7 +441,7 @@ async def test_kimi_search_returns_answer_and_results_without_mode(
             ),
         ),
         runtime_env={"PATH": "test-path", "ALL_PROXY": "http://host:8000"},
-        staging=_staging(local_tmp),
+        staging=_staging(tmp_path),
         kimi_api_key="search-secret",
         process_runner=_SearchRunner(
             answer="Current answer", result_count=2, proxy="http://search:9000"
@@ -474,14 +469,14 @@ async def test_kimi_search_returns_answer_and_results_without_mode(
 
 @pytest.mark.parametrize("limit", [101, 203])
 async def test_query_failure_preserves_current_limit_and_actual_length(
-    local_tmp: Path,
+    tmp_path: Path,
     limit: int,
 ) -> None:
     service = WebCapabilityService(
-        workspace=WorkspaceService(_workspace(local_tmp)),
+        workspace=WorkspaceService(_workspace(tmp_path)),
         settings=WebSettings(search_by_kimi=KimiSearchSettings(max_query_chars=limit)),
         runtime_env={},
-        staging=_staging(local_tmp),
+        staging=_staging(tmp_path),
     )
     execution = _search_execution()
     execution = replace(
@@ -504,7 +499,7 @@ async def test_query_failure_preserves_current_limit_and_actual_length(
 
 @pytest.mark.parametrize("status_code", [429, None])
 async def test_network_feedback_preserves_status_without_raw_error(
-    local_tmp: Path,
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     status_code: int | None,
 ) -> None:
@@ -543,10 +538,10 @@ async def test_network_feedback_preserves_status_without_raw_error(
             )
 
     service = WebCapabilityService(
-        workspace=WorkspaceService(_workspace(local_tmp)),
+        workspace=WorkspaceService(_workspace(tmp_path)),
         settings=WebSettings(),
         runtime_env={},
-        staging=_staging(local_tmp),
+        staging=_staging(tmp_path),
         process_runner=NetworkRunner(),
     )
     result = await WebFetchExecutor(
@@ -566,13 +561,13 @@ async def test_network_feedback_preserves_status_without_raw_error(
 
 
 async def test_kimi_worker_failure_preserves_only_safe_shape_facts(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
     service = WebCapabilityService(
-        workspace=WorkspaceService(_workspace(local_tmp)),
+        workspace=WorkspaceService(_workspace(tmp_path)),
         settings=WebSettings(search_by_kimi=KimiSearchSettings(enabled=True)),
         runtime_env={},
-        staging=_staging(local_tmp),
+        staging=_staging(tmp_path),
         kimi_api_key="search-secret",
         process_runner=_SearchProtocolFailureRunner(),
     )
@@ -626,14 +621,14 @@ async def test_kimi_worker_failure_preserves_only_safe_shape_facts(
 
 @pytest.mark.parametrize("timeout_seconds", [17.0, 43.0])
 async def test_kimi_timeout_returns_model_visible_fallback_disposition(
-    local_tmp: Path,
+    tmp_path: Path,
     timeout_seconds: float,
 ) -> None:
     service = WebCapabilityService(
-        workspace=WorkspaceService(_workspace(local_tmp)),
+        workspace=WorkspaceService(_workspace(tmp_path)),
         settings=WebSettings(search_by_kimi=KimiSearchSettings(enabled=True)),
         runtime_env={},
-        staging=_staging(local_tmp),
+        staging=_staging(tmp_path),
         kimi_api_key="search-secret",
         process_runner=_SearchTimeoutRunner(),
     )
@@ -664,9 +659,9 @@ async def test_kimi_timeout_returns_model_visible_fallback_disposition(
 
 
 async def test_oversized_kimi_search_spills_complete_answer_and_results(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    workspace = _workspace(local_tmp)
+    workspace = _workspace(tmp_path)
     settings = WebSettings(
         search_by_kimi=KimiSearchSettings(
             enabled=True,
@@ -678,7 +673,7 @@ async def test_oversized_kimi_search_spills_complete_answer_and_results(
         workspace=WorkspaceService(workspace),
         settings=settings,
         runtime_env={},
-        staging=_staging(local_tmp),
+        staging=_staging(tmp_path),
         kimi_api_key="search-secret",
         process_runner=_SearchRunner(
             answer="A" * 2_000,
@@ -711,8 +706,8 @@ async def test_oversized_kimi_search_spills_complete_answer_and_results(
     assert result.manifest is not None
 
 
-def test_defuddle_staged_json_read_is_bounded(local_tmp: Path) -> None:
-    result = local_tmp / "defuddle.json"
+def test_defuddle_staged_json_read_is_bounded(tmp_path: Path) -> None:
+    result = tmp_path / "defuddle.json"
     result.write_bytes(b"x" * 101)
 
     with pytest.raises(WebProcessingError) as error:
@@ -721,12 +716,17 @@ def test_defuddle_staged_json_read_is_bounded(local_tmp: Path) -> None:
     assert error.value.reason == "staged_result_bytes_limit_exceeded"
 
 
-def test_local_defuddle_cli_extracts_only_staged_html(local_tmp: Path) -> None:
+@pytest.mark.external
+@pytest.mark.skipif(
+    os.environ.get("TINYSOUL_RUN_EXTERNAL_TOOLS") != "1",
+    reason="Set TINYSOUL_RUN_EXTERNAL_TOOLS=1 to exercise installed tools",
+)
+def test_local_defuddle_cli_extracts_only_staged_html(tmp_path: Path) -> None:
     executable = shutil.which("defuddle")
     if executable is None:
         pytest.skip("Defuddle CLI is not installed")
     assert executable is not None
-    manager = _staging(local_tmp)
+    manager = _staging(tmp_path)
     with manager.allocate("defuddle-test") as output_path:
         title, body = _extract_with_defuddle(
             FetchedPage(
@@ -748,14 +748,14 @@ def test_local_defuddle_cli_extracts_only_staged_html(local_tmp: Path) -> None:
 
 
 async def test_trafilatura_fetch_commits_only_workspace_markdown_and_metadata(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    workspace = _workspace(local_tmp)
+    workspace = _workspace(tmp_path)
     service = WebCapabilityService(
         workspace=WorkspaceService(workspace),
         settings=WebSettings(),
         runtime_env={},
-        staging=_staging(local_tmp),
+        staging=_staging(tmp_path),
         process_runner=_FetchRunner(),
     )
 
@@ -780,16 +780,16 @@ async def test_trafilatura_fetch_commits_only_workspace_markdown_and_metadata(
 
 
 async def test_fetch_action_result_omits_source_url_and_emits_workspace_signal(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    workspace = _workspace(local_tmp)
+    workspace = _workspace(tmp_path)
     executor = WebFetchExecutor(
         extractor=WebExtractor.TRAFILATURA,
         service=WebCapabilityService(
             workspace=WorkspaceService(workspace),
             settings=WebSettings(),
             runtime_env={},
-            staging=_staging(local_tmp),
+            staging=_staging(tmp_path),
             process_runner=_FetchRunner(),
         ),
     )
@@ -812,14 +812,14 @@ async def test_fetch_action_result_omits_source_url_and_emits_workspace_signal(
 
 
 async def test_fetch_cancellation_after_worker_prevents_workspace_commit(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    workspace = _workspace(local_tmp)
+    workspace = _workspace(tmp_path)
     service = WebCapabilityService(
         workspace=WorkspaceService(workspace),
         settings=WebSettings(),
         runtime_env={},
-        staging=_staging(local_tmp),
+        staging=_staging(tmp_path),
         process_runner=_FetchCancellingRunner(),
     )
 
@@ -838,9 +838,9 @@ async def test_fetch_cancellation_after_worker_prevents_workspace_commit(
 
 
 def test_disabled_web_actions_are_absent_from_effective_catalog(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    catalog_root = local_tmp / "catalog"
+    catalog_root = tmp_path / "catalog"
     with builtin_action_catalog_root() as package_catalog:
         shutil.copytree(package_catalog / "web", catalog_root / "web")
     settings = WebSettings(
@@ -852,8 +852,8 @@ def test_disabled_web_actions_are_absent_from_effective_catalog(
         ActionEngineBuilder(ActionCatalogLoader().load(catalog_root)),
         settings=settings,
         runtime_env={},
-        workspace=WorkspaceService(_workspace(local_tmp)),
-        staging=_staging(local_tmp),
+        workspace=WorkspaceService(_workspace(tmp_path)),
+        staging=_staging(tmp_path),
     ).build()
 
     assert "web" not in engine.domain_names()
@@ -861,9 +861,9 @@ def test_disabled_web_actions_are_absent_from_effective_catalog(
 
 
 def test_action_policy_does_not_skip_capability_credential_validation(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    catalog_root = local_tmp / "catalog"
+    catalog_root = tmp_path / "catalog"
     with builtin_action_catalog_root() as package_catalog:
         shutil.copytree(package_catalog / "web", catalog_root / "web")
     action_path = catalog_root / "web" / "actions" / "search_by_kimi.toml"
@@ -885,8 +885,8 @@ def test_action_policy_does_not_skip_capability_credential_validation(
             ActionEngineBuilder(ActionCatalogLoader().load(catalog_root)),
             settings=settings,
             runtime_env={},
-            workspace=WorkspaceService(_workspace(local_tmp)),
-            staging=_staging(local_tmp),
+            workspace=WorkspaceService(_workspace(tmp_path)),
+            staging=_staging(tmp_path),
             dependency_checker=_AvailableDependencyChecker(),
         )
 

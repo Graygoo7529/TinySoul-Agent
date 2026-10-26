@@ -28,6 +28,7 @@ dependencies = [
     "trafilatura>=2.0",
     "uvicorn>=0.35,<1",
     "websockets>=15,<16",
+    "tzdata",
 ]
 
 [project.scripts]
@@ -38,7 +39,8 @@ dev = [
     "tinysoul[external-tools]",
     "crawlee>=1.8,<2",
     "pytest",
-    "pytest-asyncio>=1.0,<2",
+    "anyio>=4.13,<5",
+    "pip",
     "setuptools>=70.1",
     "ty>=0.0.84",
 ]
@@ -70,13 +72,13 @@ include = ["tinysoul*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q --strict-markers --import-mode=importlib"
+addopts = "-q --strict-markers --import-mode=importlib --durations=10"
 anyio_mode = "auto"
 cache_dir = ".local-test/pytest-cache"
 markers = [
     "external: requires a real provider or network service",
-    "generation: exercises package-owned project or resource generation",
-    "release: builds and validates an installable wheel",
+    "integration: exercises real Agent, local service or process collaboration",
+    "packaging: validates package-owned assets, initialization or wheel installation",
 ]
 
 [tool.ty.environment]

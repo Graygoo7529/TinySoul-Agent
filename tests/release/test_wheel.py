@@ -10,7 +10,7 @@ import zipfile
 
 import pytest
 
-pytestmark = pytest.mark.release
+pytestmark = pytest.mark.packaging
 
 
 def test_wheel_contains_resources_and_installed_package_initializes_project(
@@ -114,7 +114,9 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
         assert reply["reason"] == reason
     script = f"""
 import asyncio
-import importlib.util
+import importlib
+import pkgutil
+import tinysoul
 from pathlib import Path
 
 from tinysoul.agent import Agent, AgentState, TurnState, UserTurnRequest
@@ -122,12 +124,14 @@ from tinysoul.infra.config import ConfigEnvironment
 from tinysoul.kernel.action.catalog.loader import ActionCatalogLoader
 from tinysoul.gateway.cli import main
 
+for module in pkgutil.walk_packages(tinysoul.__path__, tinysoul.__name__ + "."):
+    importlib.import_module(module.name)
+
 development = Path({str(development)!r})
 assert main(["init", {str(initialized)!r}]) == 0
 configuration = ConfigEnvironment.from_project_root(Path({str(initialized)!r}), env={{}})
 catalog = ActionCatalogLoader().load_documents(configuration.document_set("action.catalog")).catalog
 assert catalog.has_domain("core") and catalog.has_domain("memory")
-assert importlib.util.find_spec("tinysoul.app") is None
 
 async def verify_sdk():
     agent = await Agent.create(Path({str(initialized)!r}), overrides={{"reflection.schedule.enabled": False}})

@@ -21,160 +21,95 @@ from tinysoul.kernel.action.errors import ActionInvariantError
 from tinysoul.infra import JsonObject
 from tinysoul.infra.json import to_json_object
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
-from tests.support.project import copy_initialized_project
 
 
-def test_load_builtin_catalog() -> None:
+@pytest.mark.packaging
+def test_packaged_catalog_is_parseable_and_has_valid_domain_bindings() -> None:
     with builtin_action_catalog_root() as root:
         catalog = ActionCatalogLoader().load(root)
-
-    for identity in (
-        "execution.run",
-        "execution.start",
-        "execution.stdin",
-        "execution.collect",
-        "home.review",
-        "memory.write_daily",
-    ):
-        action = catalog.get_action(identity)
+    assert catalog.actions()
+    for action in catalog.actions():
         assert catalog.has_domain(action.domain)
-        assert action.execution.executor == identity
+        assert action.execution.executor
         assert action.tool.schema["type"] == "object"
-    run = catalog.get_action("execution.run")
-    start = catalog.get_action("execution.start")
-    properties = run.tool.schema.get("properties")
-    assert isinstance(properties, dict)
-    interpreter_schema = properties.get("interpreter")
-    assert isinstance(interpreter_schema, dict)
-    assert interpreter_schema.get("enum") == [
-        "python",
-        "bash",
-        "powershell",
-        "cmd",
-    ]
-    start_properties = start.tool.schema.get("properties")
-    assert isinstance(start_properties, dict)
-    start_interpreter_schema = start_properties.get("interpreter")
-    assert isinstance(start_interpreter_schema, dict)
-    assert start_interpreter_schema.get("enum") == interpreter_schema.get("enum")
-    run_variants = run.tool.schema.get("oneOf")
-    start_variants = start.tool.schema.get("oneOf")
-    assert isinstance(run_variants, list) and len(run_variants) == 2
-    assert isinstance(start_variants, list) and len(start_variants) == 2
-    assert not catalog.has_action("execution.run_script")
-    assert not catalog.has_action("execution.run_shell")
-    assert not catalog.has_action("core.job.wait")
-    assert catalog.has_action("core.job.stop")
-
-    for params in (
-        {"interpreter": "bash", "command": "echo ok"},
-        {"interpreter": "python", "source_ref": "workspace:script.py", "args": ["x"]},
-    ):
-        validate_action_params(to_json_object(params), schema=run.tool.schema)
-    for params in (
-        {"interpreter": "python", "command": "print(1)"},
-        {"interpreter": "bash", "command": "echo ok", "source_ref": "workspace:x"},
-        {"interpreter": "bash", "command": "echo ok", "args": ["x"]},
-    ):
-        with pytest.raises(ActionSchemaValidationError):
-            validate_action_params(to_json_object(params), schema=run.tool.schema)
-    validate_action_params(
-        to_json_object(
-            {"interpreter": "cmd", "command": "echo ok", "interactive": True}
-        ),
-        schema=start.tool.schema,
-    )
-    with pytest.raises(ActionSchemaValidationError):
-        validate_action_params(
-            to_json_object({"interpreter": "python", "command": "print(1)"}),
-            schema=start.tool.schema,
-        )
 
 
 def test_load_project_documents_preserves_sources_and_timeout_provenance(
     tmp_path: Path,
 ) -> None:
-    root = tmp_path / "project"
-    copy_initialized_project(root)
-    environment = ConfigEnvironment.from_project_root(root, env={})
-
+    _catalog_project(tmp_path)
     loaded = ActionCatalogLoader().load_documents(
-        environment.document_set("action.catalog")
-    )
-
-    assert loaded.catalog.has_action("workspace.read")
-    assert loaded.documents.domains["workspace"].source_id == (
-        "project-document:action.catalog:configs/action/catalog/workspace/domain.toml"
-    )
-    assert loaded.documents.actions["workspace.read"].path.endswith(
-        "workspace/actions/read.toml"
-    )
-    assert loaded.documents.timeout_sources["workspace.read"] == "domain"
-    assert loaded.documents.domain_runtimes["workspace"].timeout_seconds == 30.0
-
-
-def test_project_catalog_enabled_policy_inherits_and_tracks_provenance(
-    tmp_path: Path,
-) -> None:
-    root = tmp_path / "project"
-    copy_initialized_project(root)
-    domain_path = root / "configs" / "action" / "catalog" / "workspace" / "domain.toml"
-    domain_path.write_text(
-        domain_path.read_text(encoding="utf-8").replace(
-            "default = true",
-            "default = false",
-        ),
-        encoding="utf-8",
-    )
-    action_path = (
-        root / "configs" / "action" / "catalog" / "workspace" / "actions" / "read.toml"
-    )
-    action_path.write_text(
-        action_path.read_text(encoding="utf-8").replace(
-            "[runtime]\nparallel_policy",
-            "[visibility]\ndefault = true\n\n[runtime]\nparallel_policy",
-        ),
-        encoding="utf-8",
-    )
-    environment = ConfigEnvironment.from_project_root(root, env={})
-
-    loaded = ActionCatalogLoader().load_documents(
-        environment.document_set("action.catalog")
-    )
-
-    inherited = ActionPolicy.selection(
-        loaded.catalog, loaded.catalog.get_action("workspace.append"), "user"
-    )
-    override = ActionPolicy.selection(
-        loaded.catalog, loaded.catalog.get_action("workspace.read"), "user"
-    )
-    assert not inherited.enabled and inherited.source == "domain.visibility.default"
-    assert override.enabled and override.source == "action.visibility.default"
-    assert loaded.documents.domains["workspace"].source_id
-    assert loaded.documents.actions["workspace.read"].source_id
-
-
-@pytest.mark.parametrize("value", (True, False, 1, "true", None))
-def test_action_runtime_rejects_retired_enabled_field(value: object) -> None:
-    with pytest.raises(ConfigError) as raised:
-        ActionTomlParser().parse_runtime(
-            {"enabled": value},
-            key="action.runtime",
+        ConfigEnvironment.from_project_root(tmp_path, env={}).document_set(
+            "action.catalog"
         )
+    )
+    assert (
+        loaded.documents.domains["sample"].source_id
+        == "project-document:action.catalog:catalog/sample/domain.toml"
+    )
+    assert loaded.documents.actions["sample.read"].path.endswith(
+        "sample/actions/read.toml"
+    )
+    assert loaded.documents.timeout_sources["sample.read"] == "domain"
+    assert loaded.catalog.get_action("sample.read").runtime.timeout_seconds == 13
 
-    assert raised.value.key == "action.runtime.enabled"
+
+def _catalog_project(root: Path, *, domain: str = "", action: str = "") -> None:
+    actions = root / "catalog" / "sample" / "actions"
+    actions.mkdir(parents=True)
+    (root / "tinysoul.toml").write_text(
+        '[[config.document_sets]]\nid="action.catalog"\n'
+        'include=["catalog/*/domain.toml", "catalog/*/actions/*.toml"]\n',
+        encoding="utf-8",
+    )
+    (actions.parent / "domain.toml").write_text(
+        'name="sample"\ndescription="Sample"\n[runtime]\ntimeout_seconds=13\n' + domain,
+        encoding="utf-8",
+    )
+    (actions / "read.toml").write_text(
+        'name="sample.read"\ndomain="sample"\n[tool]\ndescription="Read"\n'
+        '[tool.schema]\ntype="object"\n[execution]\nexecutor="sample.read"\n' + action,
+        encoding="utf-8",
+    )
 
 
-def test_explicit_action_timeouts_override_domain_timeout() -> None:
-    with builtin_action_catalog_root() as root:
-        catalog = ActionCatalogLoader().load(root)
+@pytest.mark.parametrize(
+    ("domain", "action", "enabled", "source"),
+    (
+        ("", "", True, "default"),
+        ("[visibility]\ndefault=false\n", "", False, "domain.visibility.default"),
+        (
+            "[visibility]\ndefault=false\n",
+            "[visibility]\ndefault=true\n",
+            True,
+            "action.visibility.default",
+        ),
+    ),
+)
+def test_project_catalog_selection_inherits_and_tracks_provenance(
+    tmp_path: Path,
+    domain: str,
+    action: str,
+    enabled: bool,
+    source: str,
+) -> None:
+    _catalog_project(tmp_path, domain=domain, action=action)
+    catalog = ActionCatalogLoader().load(tmp_path / "catalog")
+    selection = ActionPolicy.selection(
+        catalog, catalog.get_action("sample.read"), "user"
+    )
+    assert (selection.enabled, selection.source) == (enabled, source)
 
-    assert catalog.get_action("core.answer").runtime.timeout_seconds == 600.0
-    assert catalog.get_action("core.reason").runtime.timeout_seconds == 600.0
-    assert catalog.get_action("workspace.describe").runtime.timeout_seconds == 600.0
-    assert catalog.get_action("workspace.compose").runtime.timeout_seconds == 600.0
-    assert catalog.get_action("workspace.analyze").runtime.timeout_seconds == 600.0
-    assert catalog.get_action("workspace.read").runtime.timeout_seconds == 30.0
+
+def test_explicit_action_timeouts_override_domain_timeout(tmp_path: Path) -> None:
+    _catalog_project(tmp_path, action="[runtime]\ntimeout_seconds=29\n")
+    loaded = ActionCatalogLoader().load_documents(
+        ConfigEnvironment.from_project_root(tmp_path, env={}).document_set(
+            "action.catalog"
+        )
+    )
+    assert loaded.catalog.get_action("sample.read").runtime.timeout_seconds == 29
+    assert loaded.documents.timeout_sources["sample.read"] == "action"
 
 
 @pytest.mark.parametrize("value", (0, -1, float("inf"), float("nan")))
@@ -191,30 +126,12 @@ def test_action_runtime_timeout_rejects_non_positive_or_non_finite_values(
     assert raised.value.expected == "positive finite number | null"
 
 
-def test_catalog_view_by_domain() -> None:
-    with builtin_action_catalog_root() as root:
-        catalog = ActionCatalogLoader().load(root)
-
-    view = catalog.with_domains(("workspace",))
-
-    assert [domain.name for domain in view.domains()] == ["workspace"]
-    assert {action.name for action in view.actions()} == {
-        action.name for action in catalog.actions_in_domain("workspace")
-    }
-
-    execution_view = catalog.with_domains(("execution",))
-    assert {action.name for action in execution_view.actions()} == {
-        action.name for action in catalog.actions_in_domain("execution")
-    }
-
-    home_view = catalog.with_domains(("home",))
-    assert {action.name for action in home_view.actions()} == {
-        action.name for action in catalog.actions_in_domain("home")
-    }
-    core_view = catalog.with_domains(("core",))
-    assert {action.name for action in core_view.actions()} == {
-        action.name for action in catalog.actions_in_domain("core")
-    }
+def test_catalog_view_by_domain(tmp_path: Path) -> None:
+    _catalog_project(tmp_path)
+    catalog = ActionCatalogLoader().load(tmp_path / "catalog")
+    view = catalog.with_domains(("sample",))
+    assert [domain.name for domain in view.domains()] == ["sample"]
+    assert view.actions() == catalog.actions_in_domain("sample")
 
 
 def test_missing_catalog_root_raises_config_error() -> None:

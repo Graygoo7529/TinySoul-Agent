@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from tests.action_helpers import builtin_catalog
+from tests.support.actions import sample_catalog
 
-from pathlib import Path
 from typing import cast
 
 import pytest
@@ -20,7 +19,6 @@ from tinysoul.kernel.action.execution.hooks import (
     ActionNormalizeHookPipeline,
     HookOutcome,
 )
-from tinysoul.kernel.action.catalog.loader import ActionCatalogLoader
 from tinysoul.kernel.action.result import (
     ActionFailureDisposition,
     ActionLocalFailure,
@@ -56,7 +54,7 @@ ANSWER_ARGS: JsonObject = {"guide_blocks": [{"text": "answer"}]}
 
 
 def test_normalize_tool_calls_to_action_calls() -> None:
-    catalog = builtin_catalog()
+    catalog = sample_catalog()
     tool_calls = (
         ToolCallRecord(
             id="call_1",
@@ -78,7 +76,7 @@ def test_normalize_tool_calls_to_action_calls() -> None:
 
 
 def test_normalizer_returns_result_for_non_action_tool_call() -> None:
-    catalog = builtin_catalog()
+    catalog = sample_catalog()
 
     normalization = ActionCallNormalizer().normalize(
         (
@@ -99,7 +97,7 @@ def test_normalizer_returns_result_for_non_action_tool_call() -> None:
 
 
 def test_normalizer_returns_result_for_invalid_action_arguments() -> None:
-    catalog = builtin_catalog()
+    catalog = sample_catalog()
 
     normalization = ActionCallNormalizer().normalize(
         (
@@ -123,7 +121,7 @@ def test_normalizer_returns_result_for_invalid_action_arguments() -> None:
 
 
 def test_normalizer_returns_result_for_duplicate_call_id() -> None:
-    catalog = builtin_catalog()
+    catalog = sample_catalog()
 
     normalization = ActionCallNormalizer().normalize(
         (
@@ -151,7 +149,7 @@ def test_normalizer_returns_result_for_duplicate_call_id() -> None:
 
 
 def test_normalizer_runs_configured_normalize_hook() -> None:
-    catalog = builtin_catalog()
+    catalog = sample_catalog()
     hooks = ActionNormalizeHookPipeline()
     hooks.registry.register_normalize_hook("reject", RejectNormalizeHook())
     hooks.registry.register_global_normalize("reject")
@@ -180,7 +178,7 @@ def test_normalizer_runs_configured_normalize_hook() -> None:
 
 
 def test_normalizer_returns_local_failure_for_invalid_hook_outcome() -> None:
-    catalog = builtin_catalog()
+    catalog = sample_catalog()
     hooks = ActionNormalizeHookPipeline()
     hooks.registry.register_normalize_hook("invalid", InvalidNormalizeHook())
     hooks.registry.register_global_normalize("invalid")
@@ -207,7 +205,7 @@ def test_normalizer_returns_local_failure_for_invalid_hook_outcome() -> None:
 
 
 def test_normalizer_returns_result_for_unexpected_action_arguments() -> None:
-    catalog = builtin_catalog()
+    catalog = sample_catalog()
 
     normalization = ActionCallNormalizer().normalize(
         (
@@ -229,7 +227,7 @@ def test_normalizer_returns_result_for_unexpected_action_arguments() -> None:
 
 
 def test_normalization_merges_results_by_original_sequence() -> None:
-    catalog = builtin_catalog()
+    catalog = sample_catalog()
 
     normalization = ActionCallNormalizer().normalize(
         (
@@ -266,7 +264,7 @@ def test_normalization_merges_results_by_original_sequence() -> None:
 
 
 def test_build_execution_batch_from_calls() -> None:
-    catalog = builtin_catalog()
+    catalog = sample_catalog()
     normalization = ActionCallNormalizer().normalize(
         (
             ToolCallRecord(
@@ -291,12 +289,12 @@ def test_build_execution_batch_from_calls() -> None:
     batch = preparation.batch
     assert batch.batch_id == "batch_1"
     assert batch.executions[0].framework.domain == "workspace"
-    assert batch.executions[0].framework.timeout_seconds == 30.0
+    assert batch.executions[0].framework.timeout_seconds == 17
 
 
 @pytest.mark.parametrize("action_name", ["workspace.compose"])
 def test_workspace_llm_edit_batch_uses_action_timeout(action_name: str) -> None:
-    catalog = builtin_catalog()
+    catalog = sample_catalog()
     preparation = ActionExecutionBuilder().prepare_batch(
         (
             ActionCall(
@@ -318,7 +316,7 @@ def test_workspace_llm_edit_batch_uses_action_timeout(action_name: str) -> None:
     assert preparation.phase_results == ()
     execution = preparation.batch.executions[0]
     assert execution.framework.domain == "workspace"
-    assert execution.framework.timeout_seconds == 600.0
+    assert execution.framework.timeout_seconds == 29
 
 
 def test_prepare_batch_returns_result_for_duplicate_call_id() -> None:
@@ -327,7 +325,7 @@ def test_prepare_batch_returns_result_for_duplicate_call_id() -> None:
             ActionCall("call_1", "core.answer", {}, 1),
             ActionCall("call_1", "workspace.list", {}, 2),
         ),
-        catalog=builtin_catalog(),
+        catalog=sample_catalog(),
         scope=RunScope(),
         batch_id="batch_1",
     )
@@ -343,7 +341,7 @@ def test_prepare_batch_returns_result_for_duplicate_call_id() -> None:
 def test_prepare_batch_returns_result_for_unknown_action() -> None:
     preparation = ActionExecutionBuilder().prepare_batch(
         (ActionCall("call_1", "missing.action", {}, 1),),
-        catalog=builtin_catalog(),
+        catalog=sample_catalog(),
         scope=RunScope(),
         batch_id="batch_1",
     )
@@ -355,7 +353,7 @@ def test_prepare_batch_returns_result_for_unknown_action() -> None:
 
 
 def test_action_batch_rejects_duplicate_call_id() -> None:
-    catalog = builtin_catalog()
+    catalog = sample_catalog()
     with pytest.raises(ActionInvariantError, match="Duplicate action call id"):
         ActionBatch(
             batch_id="batch_1",
@@ -385,7 +383,7 @@ def test_action_batch_rejects_duplicate_call_id() -> None:
 
 
 def test_action_batch_rejects_duplicate_sequence() -> None:
-    catalog = builtin_catalog()
+    catalog = sample_catalog()
     with pytest.raises(ActionInvariantError, match="Duplicate action sequence"):
         ActionBatch(
             batch_id="batch_1",

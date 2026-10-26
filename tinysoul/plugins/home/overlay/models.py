@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from datetime import date
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 
@@ -136,16 +135,8 @@ class HomeOverlayManifest:
     @classmethod
     def from_json(cls, value: JsonObject) -> "HomeOverlayManifest":
         schema_version = _non_negative_int(value, "schema_version")
-        if schema_version not in {1, 2}:
-            raise AgentHomeContractError("Home overlay schema_version must be 1 or 2")
-        if schema_version == 1:
-            legacy_day = _required_str(value, "day")
-            try:
-                date.fromisoformat(legacy_day)
-            except ValueError as exc:
-                raise AgentHomeContractError(
-                    "Legacy Home overlay day must be an ISO date"
-                ) from exc
+        if schema_version != 2:
+            raise AgentHomeContractError("Home overlay schema_version must be 2")
         records_value = value.get("records", [])
         if not isinstance(records_value, list):
             raise AgentHomeContractError("Home overlay records must be a list")

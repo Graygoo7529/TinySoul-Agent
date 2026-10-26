@@ -1,0 +1,7 @@
+# Test-owned configuration: no credentials and no dependency on bundled models.
+[llm.providers.test]
+enabled = false
+api_key_envs = ["TEST_LLM_API_KEY"]
+[llm.providers.test.endpoints.openai-chat]
+base_url = "http://127.0.0.1:1/v1"
+

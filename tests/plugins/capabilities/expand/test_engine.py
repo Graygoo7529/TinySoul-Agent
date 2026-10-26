@@ -1,9 +1,10 @@
 import asyncio
-import socket
 import sys
 from pathlib import Path
 
 import pytest
+
+pytestmark = pytest.mark.integration
 
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.network import NetworkMode, NetworkPolicy
@@ -128,51 +129,45 @@ async def test_real_sdk_stdio_discovery_validation_and_resource_output(
 
 
 async def test_real_sdk_streamable_http_discovery_and_call(tmp_path: Path) -> None:
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = listener.getsockname()[1]
     server_process = await StdioProcess.start(
         ManagedProcessRequest(
             (
                 sys.executable,
                 str(Path(__file__).with_name("fixture_server.py")),
                 "--http",
-                str(port),
             )
         )
-    )
-    engine = ExpandEngine(
-        ExpandSettings(
-            servers=(
-                MCPServerSettings(
-                    "http",
-                    enabled=True,
-                    transport=MCPTransport.HTTP,
-                    url=f"http://127.0.0.1:{port}/mcp",
-                ),
-            )
-        ),
-        root=tmp_path,
-        workspace=WorkspaceEngineBuilder(
-            WorkspaceSettings(root=tmp_path / "workspace")
-        ).build(),
-        environment={},
     )
     try:
-        directory = None
-        for _ in range(30):
-            directory = await engine.discover()
-            if directory.servers[0]["status"] == "available":
-                break
-            await asyncio.sleep(0.1)
-        assert directory is not None
-        assert directory.servers[0]["status"] == "available"
-        result = await engine.call(
-            "http", "add", {"a": 4, "b": 5}, operations=JoinedOperations()
+        ready = await asyncio.wait_for(server_process.stdout.readline(), 10)
+        port = int(ready.decode("ascii"))
+        engine = ExpandEngine(
+            ExpandSettings(
+                servers=(
+                    MCPServerSettings(
+                        "http",
+                        enabled=True,
+                        transport=MCPTransport.HTTP,
+                        url=f"http://127.0.0.1:{port}/mcp",
+                    ),
+                )
+            ),
+            root=tmp_path,
+            workspace=WorkspaceEngineBuilder(
+                WorkspaceSettings(root=tmp_path / "workspace")
+            ).build(),
+            environment={},
         )
-        assert result["structured"] == {"value": 9}
+        try:
+            directory = await engine.discover()
+            assert directory.servers[0]["status"] == "available"
+            result = await engine.call(
+                "http", "add", {"a": 4, "b": 5}, operations=JoinedOperations()
+            )
+            assert result["structured"] == {"value": 9}
+        finally:
+            await engine.close()
     finally:
-        await engine.close()
         await server_process.close()
 
 

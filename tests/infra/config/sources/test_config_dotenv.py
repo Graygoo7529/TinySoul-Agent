@@ -41,8 +41,8 @@ def test_parse_dotenv_rejects_unclosed_quote() -> None:
 from pathlib import Path
 
 
-def test_dotenv_source_does_not_mutate_process_environment(local_tmp: Path) -> None:
-    path = local_tmp / ".env"
+def test_dotenv_source_does_not_mutate_process_environment(tmp_path: Path) -> None:
+    path = tmp_path / ".env"
     path.write_text("TINYSOUL_INFRA_RUNTIME_MAX_TURNS=33\n", encoding="utf-8")
 
     before = os.environ.get("TINYSOUL_INFRA_RUNTIME_MAX_TURNS")
@@ -53,10 +53,10 @@ def test_dotenv_source_does_not_mutate_process_environment(local_tmp: Path) -> N
     assert source.values["infra.runtime.max_turns"] == "33"
 
 
-def test_dotenv_source_can_load_raw_environment_names(local_tmp: Path) -> None:
-    path = local_tmp / ".env"
+def test_dotenv_source_can_load_raw_environment_names(tmp_path: Path) -> None:
+    path = tmp_path / ".env"
     path.write_text(
-        "OPENAI_API_KEY=from-dotenv\n" "TINYSOUL_INFRA_RUNTIME_MAX_TURNS=33\n",
+        "OPENAI_API_KEY=from-dotenv\nTINYSOUL_INFRA_RUNTIME_MAX_TURNS=33\n",
         encoding="utf-8",
     )
 

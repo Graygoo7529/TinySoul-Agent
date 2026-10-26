@@ -295,40 +295,6 @@ def test_runtime_home_rejects_memory_overlay_content(tmp_path: Path) -> None:
         _home(tmp_path)
 
 
-def test_home_builder_migrates_day_bound_manifest_to_cross_day_schema(
-    tmp_path: Path,
-) -> None:
-    original = tmp_path / "home"
-    original.mkdir()
-    manifest_path = tmp_path / "runtime" / "home" / ".tinysoul" / "home_overlay.json"
-    manifest_path.parent.mkdir(parents=True)
-    manifest_path.write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "day": "2026-07-12",
-                "revision": 4,
-                "records": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    AgentHomeEngineBuilder(
-        AgentHomeSettings(
-            original_root=original,
-            runtime_root=tmp_path / "runtime" / "home",
-        )
-    ).build()
-
-    migrated = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert migrated == {
-        "records": [],
-        "revision": 4,
-        "schema_version": 2,
-    }
-
-
 @pytest.mark.parametrize(
     "ref",
     (

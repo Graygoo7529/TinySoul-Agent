@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from tests.action_helpers import builtin_catalog
+from tests.support.actions import sample_catalog
 
 from collections.abc import Mapping
 from dataclasses import replace
-from pathlib import Path
 from typing import cast
 
 import pytest
@@ -13,7 +12,6 @@ from tinysoul.kernel.action.errors import ActionContractError
 from tinysoul.kernel.action.catalog.catalog import ActionCatalog
 from tinysoul.kernel.action.execution.preparation import ActionExecutionBuilder
 from tinysoul.kernel.action.planning.normalization import ActionCallNormalizer
-from tinysoul.kernel.action.catalog.loader import ActionCatalogLoader
 from tinysoul.kernel.action.planning.scope import (
     ActionDomainPromptRenderer,
     Phase1DomainScopeBuilder,
@@ -26,7 +24,7 @@ from tinysoul.runtime import RunScope
 
 
 def test_phase1_scope_exposes_domain_control_tool() -> None:
-    catalog = builtin_catalog()
+    catalog = sample_catalog()
 
     scope = Phase1DomainScopeBuilder().build(catalog)
 
@@ -41,13 +39,11 @@ def test_phase1_scope_exposes_domain_control_tool() -> None:
     assert "home" in enum
     assert "workspace" in enum
     assert "execution" in enum
-    assert "script" not in enum
-    assert "shell" not in enum
     assert "x-tinysoul-domains" not in tools[0].parameters
 
 
 def test_phase1_domain_selection_normalizer_belongs_to_action() -> None:
-    catalog = builtin_catalog()
+    catalog = sample_catalog()
 
     selection = Phase1DomainScopeBuilder().normalize_selection(
         catalog,
@@ -66,7 +62,7 @@ def test_phase1_domain_selection_normalizer_belongs_to_action() -> None:
 
 
 def test_phase2_scope_exposes_selected_domain_actions_only() -> None:
-    catalog = builtin_catalog()
+    catalog = sample_catalog()
 
     scope = Phase2ActionScopeBuilder().build(
         catalog,
@@ -83,7 +79,7 @@ def test_phase2_scope_exposes_selected_domain_actions_only() -> None:
 
 @pytest.mark.parametrize("maximum", [7, 19])
 def test_catalog_values_reach_tools_validation_and_execution(maximum: int) -> None:
-    baseline = builtin_catalog()
+    baseline = sample_catalog()
     original = baseline.get_action("core.answer")
     description = f"Configured operation with maximum {maximum}"
     parameter_description = f"Configured count up to {maximum}"
@@ -166,7 +162,7 @@ def test_phase2_scope_prepare_returns_phase_result_for_domain_without_actions() 
 
 
 def test_domain_prompt_renderer_lists_actionable_domains() -> None:
-    catalog = builtin_catalog()
+    catalog = sample_catalog()
 
     text = ActionDomainPromptRenderer().render(catalog)
 

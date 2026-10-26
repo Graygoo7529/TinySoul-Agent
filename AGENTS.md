@@ -250,17 +250,21 @@ conda activate TinySoul
 .\scripts\typecheck.ps1
 ```
 
-`scripts/test.ps1` 默认运行 Fast 本地业务逻辑 pytest suite，排除项目/资源生成、wheel 发布验收和真实 provider/network 测试；`-Suite Generation` 只运行项目/资源生成契约与 wheel 验收，`-Suite Full` 运行全部非 external 本地测试，`-Suite External` 只选择真实 provider/network 测试，后者仍需显式环境开关和凭据。每次运行使用 `.local-test/runs/<uuid>` 隔离 pytest、临时文件、实例锁和 cache，失败时保留工件。若当前 PowerShell 禁止脚本执行，使用 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1`，不要把执行策略错误当作 pytest 失败。
+跨平台标准入口为 `python scripts/test.py`，默认 Fast；`python scripts/test.py --suite full` 是完整本地门禁。PowerShell 的 `scripts/test.ps1 -Suite Fast/Full` 仅选择解释器并转交；直接 `python -m pytest` 使用相同的 suite、隔离与报告规则。Fast 排除 `integration`、`packaging` 和 `external`；Full 包含全部非 external 测试。`--suite integration` / `--suite packaging` 分别选择本机集成或资源/安装验收；`--suite external` 选择真实 provider、公网或额外工具测试，仍需显式环境开关和凭据。若 PowerShell 禁止脚本执行，优先使用 Python 入口，也可使用 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1`。
 
-标准工作流为：先按修改模块运行聚焦路径，再运行默认 Fast；完成前运行 `-Suite Full` 和 typecheck。日常开发环境通过 `conda activate TinySoul` 或设置 `TINYSOUL_PYTHON` 选择包含 pytest/ty 的 Python，随后通过 `python -m pip install -e ".[dev]"` 安装依赖。直接 `python -m pytest` 仍有 `tests/conftest.py` 兜底，会创建唯一 `.local-test` 临时目录，但标准入口优先，因为它还负责 cache 生命周期和 suite 语义。
+标准工作流为：先按修改模块运行聚焦路径，再运行默认 Fast；完成前运行 Full 和 typecheck。聚焦路径仍受 suite 筛选：检查 Agent 集成或资源验收时使用 `python scripts/test.py --suite full tests/<模块>`，不能把零选中当作通过。`-k`、`--collect-only` 等 pytest 参数可直接使用。日常开发通过 `conda activate TinySoul` 选择 Python，使用 `python -m pip install -e ".[dev]"` 安装声明依赖；PowerShell wrapper 也支持 `TINYSOUL_PYTHON`。Python 入口始终使用当前解释器，类型检查可用 `python -m ty check`。
+
+运行准备和工件生命周期统一由 `tests/conftest.py` 管理。每次运行以 `.local-test/runs/<uuid>` 隔离临时文件、`TINYSOUL_INSTANCE_DIR` 和 pytest cache，固定 AnyIO 的 asyncio backend。本地 suite 清除宿主 `TINYSOUL_*` 覆盖；External 保留其显式开关和项目设置。成功清理运行目录，失败保留；`--keep-artifacts` 可保留成功工件。JUnit、耗时摘要及失败详情保存于 `.local-test/reports/<uuid>`，`latest-fast.json` / `latest-full.json` 指向最近摘要。所有产物都在 Git 忽略目录内，不在共享配置中写入个人解释器或临时路径。
 
 若已通过独立复现确认仓库内测试目录受到宿主文件访问干扰，可用 `scripts/test.ps1 -ArtifactRoot <临时目录>` 指定工件根目录；相对路径按仓库根解析，仍使用独立 `runs/<uuid>`，成功只清理本次目录，失败保留工件。不得通过跳过用例、吞掉失败或放宽业务断言换取通过。跨进程测试应等待明确的完成信号，不能用文件刚创建或固定延时替代写入完成。
 
 - 测试约定：
   - 测试按 `tests/<module>/test_<切面>.py` 组织，镜像模块结构；
   - 触网或调用真实供应商的测试默认 skip，需显式开启。
-  - `generation` marker 表示 package-owned 项目或资源生成契约；默认 Fast 不重复运行生产生成器。
-  - `release` marker 表示 wheel 构建和隔离安装验收；`external` marker 表示真实 provider 或网络服务，默认不进入 Fast/Full。
+  - `integration` marker 表示完整 Agent、真实本机服务或进程的协作验证；轻量 owner 测试不因使用 tmp_path 就自动归为集成。
+  - `packaging` marker 表示正式资源、项目初始化和 wheel 验收；`external` 表示真实 provider、公网或额外可执行工具，不进入 Fast/Full。
+  - 通用规则使用测试自有配置和小 catalog；正式 assets 集中验证结构、引用和装配，不固化模型/provider 清单、可编辑文案和默认策略值。活的 Agent、Job 和可变 owner 不跨测试复用。
+  - 源码风格与所有权守卫保留，使用 AST 表达代码约束并复用只读解析；不以源码子串扫描固化注释、文案或历史类名。
 
 - 用户对接：每次产生修改后阐述本轮改动了哪些文件，以及提供用于 commit 的文本内容
 - 前后端协作：后端 agent 仅修改后端项目代码，不过多考虑 visualization；前端 agent 工作仅限于在 visualization 目录下修改，不改动后端项目代码；后端项目代码接口应全部通过 endpoint 向前端提供能力支持，在修改后端实现时，若发生 endpoint 改动，需即时在 docs\endpoint 中建立和调整文档，供前端对接；前端在进行前端设计和实现时，若发生缺失能力，不要阻塞设计和实现工作，允许暂时假定可行接口，并通过 visualization\docs\demand 向后端 agent 提出进一步能力需求。

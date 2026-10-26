@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-from tests.action_helpers import builtin_catalog
+from tests.support.actions import sample_catalog
 
 import asyncio
-from pathlib import Path
 from threading import Event
 from time import monotonic, sleep
 from typing import cast
 
 import pytest
 
-from tests.action_helpers import FunctionActionExecutor
+from tests.support.actions import FunctionActionExecutor
 from tinysoul.kernel.action.planning.normalization import ActionCallNormalizer
 from tinysoul.kernel.action.execution.preparation import ActionExecutionBuilder
 from tinysoul.kernel.action.call import ActionExecution, ExecutionFact, ExecutionState
@@ -26,7 +25,6 @@ from tinysoul.kernel.action.execution.hooks import (
     ActionNormalizeHookPipeline,
     HookOutcome,
 )
-from tinysoul.kernel.action.catalog.loader import ActionCatalogLoader
 from tinysoul.kernel.action.result import (
     ActionFailureDisposition,
     ActionLocalFailure,
@@ -172,7 +170,7 @@ def _test_hook_failure() -> ActionLocalFailure:
 
 
 def _batch_for(action_name: str, arguments: JsonObject):
-    catalog = builtin_catalog()
+    catalog = sample_catalog()
     normalization = ActionCallNormalizer().normalize(
         (
             ToolCallRecord(
@@ -493,7 +491,7 @@ async def test_repeated_cancellation_joins_owner_before_propagating() -> None:
 
 
 def test_runner_rejects_invalid_max_workers() -> None:
-    catalog = builtin_catalog()
+    catalog = sample_catalog()
 
     with pytest.raises(ActionContractError, match="max_workers"):
         ActionBatchRunner(
@@ -503,7 +501,7 @@ def test_runner_rejects_invalid_max_workers() -> None:
 
 
 def test_executor_registry_validates_catalog_executors() -> None:
-    catalog = builtin_catalog()
+    catalog = sample_catalog()
     executors = ExecutorRegistry()
     executors.register(
         "core.answer",
@@ -728,7 +726,7 @@ async def test_runner_propagates_runtime_control_from_execution_hook(
 
 
 def test_normalizer_propagates_runtime_exception_from_hook() -> None:
-    catalog = builtin_catalog()
+    catalog = sample_catalog()
     hooks = ActionNormalizeHookPipeline()
     hooks.registry.register_normalize_hook("runtime", RuntimeNormalizeHook())
     hooks.registry.register_global_normalize("runtime")

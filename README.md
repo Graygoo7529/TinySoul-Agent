@@ -101,18 +101,23 @@ The frontend discovers the running TinySoul project automatically and does not m
 
 ### Checks
 
-```powershell
-.\scripts\test.ps1
-.\scripts\test.ps1 -TestPath tests/kernel/action/execution
-.\scripts\test.ps1 -Suite Full
-.\scripts\test.ps1 -Suite Generation
-$env:TINYSOUL_PYTHON=(Get-Command python).Source
-.\scripts\typecheck.ps1
+Run these commands from an environment installed with `python -m pip install -e ".[dev]"`:
+
+```shell
+python scripts/test.py                                      # Fast: everyday feedback
+python scripts/test.py tests/kernel/action/execution        # Focused Fast checks
+python scripts/test.py --suite full                         # All local tests
+python scripts/test.py --suite full tests/agent/lifecycle    # Focused integration checks
+python -m ty check                                          # Completion type check
 ```
 
-`test.ps1` runs the Fast local business-logic suite by default and creates a unique isolated run root under `.local-test/runs/`. Use `-TestPath` for focused feedback, `-Suite Generation` for the small set of package-owned project/resource generation contracts, and `-Suite Full` for the completion gate, which includes both local suites plus wheel build and isolated-install checks. Real-provider and opt-in network tests are excluded from Fast and Full and can only be selected with `-Suite External` plus their existing environment switches. If PowerShell blocks local script execution, invoke the same script with `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1`. `typecheck.ps1` runs `ty` with the selected Python environment.
+`fast` excludes `integration`, `packaging` and `external` tests. `full` includes every local test, including real Agent/service/process collaboration and wheel installation. Use `--suite integration` or `--suite packaging` to select those groups alone; `--suite external` additionally requires the relevant opt-in environment switches. A focused path still follows the selected suite, so use `--suite full` when checking an integration or packaging file. `-k`, `--collect-only` and other pytest options are passed through.
 
-If repository-local file operations are disrupted by the host environment, use `-ArtifactRoot <scratch-directory>` to place isolated runs elsewhere. Relative paths resolve against the repository. The script creates and cleans only its own `runs/<uuid>` directory; failed runs retain their artifacts. The selected suite and its assertions remain the same.
+On Windows, `.\scripts\test.ps1 -Suite Fast` / `-Suite Full` call the same Python entry. The wrapper selects `TINYSOUL_PYTHON` when set, otherwise `python` on PATH. Direct `python -m pytest` uses the same suite defaults and isolation. If PowerShell blocks scripts, use the Python entry or `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1`. `.\scripts\typecheck.ps1` checks with the selected interpreter.
+
+Each invocation isolates temporary files, instance records and pytest cache in `.local-test/runs/<uuid>`. Successful runs clean that directory; failures retain it, and `--keep-artifacts` retains successful runs too. JUnit results, timings and failure details remain in `.local-test/reports/<uuid>`; `latest-fast.json` and `latest-full.json` locate the latest summaries. These directories are ignored by Git. `--artifact-root <directory>` (PowerShell: `-ArtifactRoot`) is an optional diagnostic override; relative paths resolve against the repository. Tests use asyncio explicitly and do not require personal model credentials for Fast/Full.
+
+Tests mirror their owner under `tests/`; fixtures in `tests/fixtures/` and helpers in `tests/support/` own their inputs. Ordinary policy/parser tests must not assert the current packaged model IDs, provider list or prose. Packaging tests validate the actual resources and their references. See [test conventions](tests/README.md).
 
 Real model API checks load models and credentials from an initialized project's TOML and `.env`:
 

@@ -163,9 +163,9 @@ def test_workspace_settings_reject_unknown_nested_key(tmp_path: Path) -> None:
     assert exc_info.value.key == "workspace.search.semantic_provider"
 
 
-def test_workspace_document_read_is_bounded(local_tmp: Path) -> None:
+def test_workspace_document_read_is_bounded(tmp_path: Path) -> None:
     engine = WorkspaceEngineBuilder(
-        WorkspaceSettings(root=(local_tmp / "workspace").resolve())
+        WorkspaceSettings(root=(tmp_path / "workspace").resolve())
     ).build()
     source = engine.root / "report.pdf"
     source.parent.mkdir(parents=True, exist_ok=True)
@@ -689,29 +689,6 @@ async def test_workspace_search_action_returns_foldable_fragments(
     ]
 
 
-async def test_workspace_search_action_rejects_legacy_scope_shape(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "a.md").write_text("needle\n", encoding="utf-8")
-    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
-    engine.reconcile()
-
-    result = await _executor(engine).execute(
-        _execution(
-            "workspace.search",
-            {
-                "query": "needle",
-                "scope": {"kind": "file", "ref": "workspace:a.md"},
-            },
-        ),
-        ActionExecutionContext(),
-    )
-
-    assert result.status.value == "failed"
-    assert result.failure is not None
-    assert result.failure.reason == "invalid_request"
-
-
 async def test_workspace_analyze_returns_grounded_standard_result(
     tmp_path: Path,
 ) -> None:
@@ -983,7 +960,9 @@ async def test_catalog_tags_execute_and_persist(tmp_path: Path) -> None:
         "target_ref": "workspace:notes.md",
         "tags": ["pinned", "tmp", "important"],
     }
-    validate_action_params(params, schema=catalog.get_action("workspace.tag").tool.schema)
+    validate_action_params(
+        params, schema=catalog.get_action("workspace.tag").tool.schema
+    )
     preparation = ActionExecutionBuilder().prepare_batch(
         (ActionCall("tag_1", "workspace.tag", params, 1),),
         catalog=catalog,

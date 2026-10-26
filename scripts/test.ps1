@@ -1,130 +1,31 @@
 param(
-    [ValidateSet("Fast", "Full", "Generation", "External")]
+    [ValidateSet("Fast", "Full", "Integration", "Packaging", "External")]
     [string]$Suite = "Fast",
     [Alias("Path")]
     [string[]]$TestPath = @("tests"),
     [string]$Filter = "",
-    [string]$ArtifactRoot = "",
+    [string]$ArtifactRoot = ".local-test",
     [ValidateRange(0, 100)]
-    [int]$Durations = 10
+    [int]$Durations = 10,
+    [switch]$KeepArtifacts
 )
 
 $ErrorActionPreference = "Stop"
-
-if ($env:TINYSOUL_PYTHON) {
-    $pythonPath = $env:TINYSOUL_PYTHON
+$pythonPath = if ($env:TINYSOUL_PYTHON) {
+    $env:TINYSOUL_PYTHON
 } else {
-    $pythonCommand = Get-Command python -ErrorAction Stop
-    $pythonPath = $pythonCommand.Source
+    (Get-Command python -ErrorAction Stop).Source
 }
-
-& $pythonPath -c "import pytest" 2>$null
-if ($LASTEXITCODE -ne 0) {
-    throw (
-        "Selected Python '$pythonPath' cannot import pytest. " +
-        "Activate Conda environment 'TinySoul' or set TINYSOUL_PYTHON."
-    )
-}
-
-$repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
-$artifactBase = if ([string]::IsNullOrWhiteSpace($ArtifactRoot)) {
-    Join-Path $repositoryRoot ".local-test"
-} elseif ([System.IO.Path]::IsPathRooted($ArtifactRoot)) {
+$testArguments = @(
+    (Join-Path $PSScriptRoot "test.py")
+    "--suite"
+    $Suite.ToLowerInvariant()
+    "--artifact-root"
     $ArtifactRoot
-} else {
-    Join-Path $repositoryRoot $ArtifactRoot
-}
-$localTestRoot = [System.IO.Path]::GetFullPath($artifactBase)
-$runRoot = [System.IO.Path]::GetFullPath(
-    (Join-Path $localTestRoot ("runs\" + [guid]::NewGuid().ToString("N")))
-)
-$expectedPrefix = $localTestRoot.TrimEnd(
-    [System.IO.Path]::DirectorySeparatorChar,
-    [System.IO.Path]::AltDirectorySeparatorChar
-) + [System.IO.Path]::DirectorySeparatorChar
-if (-not $runRoot.StartsWith($expectedPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
-    throw "Test run root must stay under the artifact root"
-}
-
-$pytestRoot = Join-Path $runRoot "pytest"
-$pytestCacheRoot = Join-Path $runRoot "pytest-cache"
-$tempRoot = Join-Path $runRoot "temp"
-$localAppDataRoot = Join-Path $runRoot "local-app-data"
-$environmentNames = @(
-    "TEMP",
-    "TMP",
-    "TMPDIR",
-    "LOCALAPPDATA",
-    "PYTEST_TINYSOUL_RUN_ROOT",
-    "TINYSOUL_PYTHON"
-)
-$previousEnvironment = @{}
-foreach ($name in $environmentNames) {
-    $previousEnvironment[$name] = [System.Environment]::GetEnvironmentVariable(
-        $name,
-        [System.EnvironmentVariableTarget]::Process
-    )
-}
-
-$exitCode = 1
-$locationPushed = $false
-try {
-    New-Item -ItemType Directory -Force $pytestRoot | Out-Null
-    New-Item -ItemType Directory -Force $tempRoot | Out-Null
-    New-Item -ItemType Directory -Force $localAppDataRoot | Out-Null
-    $env:TEMP = $tempRoot
-    $env:TMP = $tempRoot
-    $env:TMPDIR = $tempRoot
-    $env:LOCALAPPDATA = $localAppDataRoot
-    $env:PYTEST_TINYSOUL_RUN_ROOT = $runRoot
-    Remove-Item Env:TINYSOUL_PYTHON -ErrorAction SilentlyContinue
-
-    Push-Location $repositoryRoot
-    $locationPushed = $true
-    switch ($Suite) {
-        "Fast" { $markerExpression = "not release and not generation and not external" }
-        "Full" { $markerExpression = "not external" }
-        "Generation" { $markerExpression = "generation or release" }
-        "External" { $markerExpression = "external" }
-    }
-    $pytestArguments = @(
-        $TestPath
-        "-m"
-        $markerExpression
-        "--basetemp"
-        $pytestRoot
-        "-o"
-        "cache_dir=$pytestCacheRoot"
-    )
-    if ($Filter) {
-        $pytestArguments += @("-k", $Filter)
-    }
-    if ($Durations -gt 0) {
-        $pytestArguments += @("--durations", $Durations)
-    }
-    Write-Host "TinySoul test suite: $($Suite.ToUpperInvariant())"
-    Write-Host "TinySoul test paths: $($TestPath -join ', ')"
-    Write-Host "TinySoul test run root: $runRoot"
-    & $pythonPath -m pytest @pytestArguments
-    $exitCode = $LASTEXITCODE
-} finally {
-    if ($locationPushed) {
-        Pop-Location
-    }
-    foreach ($name in $environmentNames) {
-        $value = $previousEnvironment[$name]
-        if ($null -eq $value) {
-            Remove-Item "Env:$name" -ErrorAction SilentlyContinue
-        } else {
-            Set-Item "Env:$name" $value
-        }
-    }
-    if ($exitCode -eq 0 -and (Test-Path -LiteralPath $runRoot)) {
-        Remove-Item -Recurse -Force -LiteralPath $runRoot
-    }
-}
-
-if ($exitCode -ne 0) {
-    Write-Host "Test artifacts retained at $runRoot"
-}
-exit $exitCode
+    "--durations"
+    $Durations
+) + $TestPath
+if ($Filter) { $testArguments += @("-k", $Filter) }
+if ($KeepArtifacts) { $testArguments += "--keep-artifacts" }
+& $pythonPath @testArguments
+exit $LASTEXITCODE

@@ -49,11 +49,6 @@ def test_loop_config_validates_shared_cycle_task_profiles() -> None:
         )
 
 
-def test_loop_config_rejects_removed_phase_retry_limit() -> None:
-    with pytest.raises(ConfigError, match="Unknown configuration key"):
-        parse_loop_settings({"phase_retry_limit": 3})
-
-
 def test_loop_config_defaults() -> None:
     assert parse_loop_settings({}) == LoopSettings()
 

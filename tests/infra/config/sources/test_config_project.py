@@ -8,11 +8,11 @@ import pytest
 from tinysoul.infra.config import ConfigError, ProjectConfig
 
 
-def test_project_config_loads_included_toml_files(local_tmp: Path) -> None:
-    llm_dir = local_tmp / "configs" / "llm"
+def test_project_config_loads_included_toml_files(tmp_path: Path) -> None:
+    llm_dir = tmp_path / "configs" / "llm"
     model_dir = llm_dir / "models"
     model_dir.mkdir(parents=True)
-    (local_tmp / "tinysoul.toml").write_text(
+    (tmp_path / "tinysoul.toml").write_text(
         """
         [config]
         include = ["configs/llm/models/*.toml", "configs/llm/tasks.toml"]
@@ -37,7 +37,7 @@ def test_project_config_loads_included_toml_files(local_tmp: Path) -> None:
         encoding="utf-8",
     )
 
-    config = ProjectConfig(local_tmp)
+    config = ProjectConfig(tmp_path)
 
     assert config.data["llm"]
     source = config.to_source()
@@ -49,10 +49,10 @@ def test_project_config_loads_included_toml_files(local_tmp: Path) -> None:
     ]
 
 
-def test_project_config_include_overrides_main_tree(local_tmp: Path) -> None:
-    config_dir = local_tmp / "configs"
+def test_project_config_include_overrides_main_tree(tmp_path: Path) -> None:
+    config_dir = tmp_path / "configs"
     config_dir.mkdir()
-    (local_tmp / "tinysoul.toml").write_text(
+    (tmp_path / "tinysoul.toml").write_text(
         """
         [config]
         include = ["configs/runtime.toml"]
@@ -71,18 +71,18 @@ def test_project_config_include_overrides_main_tree(local_tmp: Path) -> None:
         encoding="utf-8",
     )
 
-    source = ProjectConfig(local_tmp).to_source()
+    source = ProjectConfig(tmp_path).to_source()
 
     assert source.values["infra.runtime.max_turns"] == 20
     assert source.values["infra.runtime.timeout"] == 1.0
 
 
 def test_project_config_expands_include_globs_in_stable_order(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    config_dir = local_tmp / "configs" / "runtime"
+    config_dir = tmp_path / "configs" / "runtime"
     config_dir.mkdir(parents=True)
-    (local_tmp / "tinysoul.toml").write_text(
+    (tmp_path / "tinysoul.toml").write_text(
         """
         [config]
         include = ["configs/runtime/*.toml"]
@@ -105,16 +105,16 @@ def test_project_config_expands_include_globs_in_stable_order(
         encoding="utf-8",
     )
 
-    source = ProjectConfig(local_tmp).to_source()
+    source = ProjectConfig(tmp_path).to_source()
 
     assert source.values["infra.runtime.max_turns"] == 20
     assert source.values["infra.runtime.timeout"] == 2.0
 
 
-def test_project_config_deduplicates_include_paths(local_tmp: Path) -> None:
-    config_dir = local_tmp / "configs"
+def test_project_config_deduplicates_include_paths(tmp_path: Path) -> None:
+    config_dir = tmp_path / "configs"
     config_dir.mkdir()
-    (local_tmp / "tinysoul.toml").write_text(
+    (tmp_path / "tinysoul.toml").write_text(
         """
         [config]
         include = ["configs/runtime.toml", "configs/*.toml"]
@@ -129,13 +129,13 @@ def test_project_config_deduplicates_include_paths(local_tmp: Path) -> None:
         encoding="utf-8",
     )
 
-    source = ProjectConfig(local_tmp).to_source()
+    source = ProjectConfig(tmp_path).to_source()
 
     assert source.values["infra.runtime.max_turns"] == 20
 
 
-def test_project_config_reports_unmatched_include_glob(local_tmp: Path) -> None:
-    (local_tmp / "tinysoul.toml").write_text(
+def test_project_config_reports_unmatched_include_glob(tmp_path: Path) -> None:
+    (tmp_path / "tinysoul.toml").write_text(
         """
         [config]
         include = ["configs/*.toml"]
@@ -144,28 +144,28 @@ def test_project_config_reports_unmatched_include_glob(local_tmp: Path) -> None:
     )
 
     with pytest.raises(ConfigError):
-        ProjectConfig(local_tmp)
+        ProjectConfig(tmp_path)
 
 
 def test_project_config_rejects_include_glob_matching_directory(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    (local_tmp / "configs").mkdir()
-    (local_tmp / "tinysoul.toml").write_text(
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "tinysoul.toml").write_text(
         """
         [config]
         include = ["configs/*"]
         """,
         encoding="utf-8",
     )
-    (local_tmp / "configs" / "nested").mkdir()
+    (tmp_path / "configs" / "nested").mkdir()
 
     with pytest.raises(ConfigError):
-        ProjectConfig(local_tmp)
+        ProjectConfig(tmp_path)
 
 
-def test_project_config_data_deep_copies_nested_list_items(local_tmp: Path) -> None:
-    (local_tmp / "tinysoul.toml").write_text(
+def test_project_config_data_deep_copies_nested_list_items(tmp_path: Path) -> None:
+    (tmp_path / "tinysoul.toml").write_text(
         """
         [[infra.sources]]
         name = "a"
@@ -176,7 +176,7 @@ def test_project_config_data_deep_copies_nested_list_items(local_tmp: Path) -> N
         encoding="utf-8",
     )
 
-    config = ProjectConfig(local_tmp)
+    config = ProjectConfig(tmp_path)
 
     first = config.data
     sources = first["infra"]
@@ -207,8 +207,8 @@ def test_project_config_data_deep_copies_nested_list_items(local_tmp: Path) -> N
     assert typed_second_options["enabled"] is True
 
 
-def test_project_config_reports_missing_include(local_tmp: Path) -> None:
-    (local_tmp / "tinysoul.toml").write_text(
+def test_project_config_reports_missing_include(tmp_path: Path) -> None:
+    (tmp_path / "tinysoul.toml").write_text(
         """
         [config]
         include = ["configs/missing.toml"]
@@ -217,11 +217,11 @@ def test_project_config_reports_missing_include(local_tmp: Path) -> None:
     )
 
     with pytest.raises(ConfigError):
-        ProjectConfig(local_tmp)
+        ProjectConfig(tmp_path)
 
 
-def test_project_config_uses_configured_env_file(local_tmp: Path) -> None:
-    (local_tmp / "tinysoul.toml").write_text(
+def test_project_config_uses_configured_env_file(tmp_path: Path) -> None:
+    (tmp_path / "tinysoul.toml").write_text(
         """
         [config]
         env_file = "configs/.env"
@@ -229,34 +229,34 @@ def test_project_config_uses_configured_env_file(local_tmp: Path) -> None:
         encoding="utf-8",
     )
 
-    assert ProjectConfig(local_tmp).env_file_path() == local_tmp / "configs" / ".env"
+    assert ProjectConfig(tmp_path).env_file_path() == tmp_path / "configs" / ".env"
 
 
 def test_project_config_rejects_include_outside_project_root(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    outside = local_tmp.parent / "outside.toml"
+    outside = tmp_path.parent / "outside.toml"
     outside.write_text("[outside]\nvalue = true\n", encoding="utf-8")
-    (local_tmp / "tinysoul.toml").write_text(
+    (tmp_path / "tinysoul.toml").write_text(
         '[config]\ninclude = ["../outside.toml"]\n',
         encoding="utf-8",
     )
 
     with pytest.raises(ConfigError) as raised:
-        ProjectConfig(local_tmp)
+        ProjectConfig(tmp_path)
 
     assert raised.value.key == "config.include"
     assert raised.value.expected == "project-relative path without '..'"
 
 
 def test_project_config_rejects_env_file_outside_project_root(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    (local_tmp / "tinysoul.toml").write_text(
+    (tmp_path / "tinysoul.toml").write_text(
         '[config]\nenv_file = "../.env"\n',
         encoding="utf-8",
     )
-    config = ProjectConfig(local_tmp)
+    config = ProjectConfig(tmp_path)
 
     with pytest.raises(ConfigError) as raised:
         config.env_file_path()
@@ -266,11 +266,11 @@ def test_project_config_rejects_env_file_outside_project_root(
 
 
 def test_project_config_loads_independent_document_set_without_merging(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    action_dir = local_tmp / "configs" / "action" / "catalog" / "core"
+    action_dir = tmp_path / "configs" / "action" / "catalog" / "core"
     action_dir.mkdir(parents=True)
-    (local_tmp / "tinysoul.toml").write_text(
+    (tmp_path / "tinysoul.toml").write_text(
         """
         [config]
         include = []
@@ -287,7 +287,7 @@ def test_project_config_loads_independent_document_set_without_merging(
         encoding="utf-8",
     )
 
-    project = ProjectConfig(local_tmp)
+    project = ProjectConfig(tmp_path)
     document_set = project.document_sets[0]
 
     assert document_set.set_id == "action.catalog"
@@ -300,14 +300,14 @@ def test_project_config_loads_independent_document_set_without_merging(
 
 
 def test_project_config_rejects_document_owned_by_merged_include(
-    local_tmp: Path,
+    tmp_path: Path,
 ) -> None:
-    config_dir = local_tmp / "configs"
+    config_dir = tmp_path / "configs"
     config_dir.mkdir()
     (config_dir / "shared.toml").write_text(
         "[agent]\ninteractive = false\n", encoding="utf-8"
     )
-    (local_tmp / "tinysoul.toml").write_text(
+    (tmp_path / "tinysoul.toml").write_text(
         """
         [config]
         include = ["configs/shared.toml"]
@@ -320,4 +320,4 @@ def test_project_config_rejects_document_owned_by_merged_include(
     )
 
     with pytest.raises(ConfigError, match="already owned"):
-        ProjectConfig(local_tmp)
+        ProjectConfig(tmp_path)

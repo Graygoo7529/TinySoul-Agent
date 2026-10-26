@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import pytest
 
-from tinysoul.agent.errors import AgentInvariantError
 from tinysoul.agent.composition.activity import AgentTurnActivity
 from tinysoul.infra.concurrency import CleanupDiagnostic
 from tinysoul.kernel.context import ContextEngineBuilder
@@ -21,27 +19,11 @@ from tinysoul.kernel.registration import (
 from tinysoul.agent.config import AgentSettings
 from tinysoul.environment.inputs import InputEvent
 from tinysoul.environment.inputs import InputSink
-from tinysoul.agent.composition.builder import AgentBuilder, standard_agent
-from tinysoul.infra.config import ConfigEnvironment
-from tinysoul.llm.protocol.requests import TaskCall
-from tinysoul.llm.protocol.responses import TaskResult
+from tinysoul.agent.composition.builder import standard_agent
 from tinysoul.kernel.loop import LoopSettings, TurnSettings
 from tinysoul.plugins.reflection import ReflectionAvailability
 from tinysoul.runtime import RuntimeTransferAction, RunLevel
-from tests.support.project import copy_initialized_project
-
-
-class FakeLLM:
-    def __init__(self, results: tuple[TaskResult, ...]) -> None:
-        self.results = deque(results)
-        self.calls: list[TaskCall] = []
-
-    async def invoke(self, call: TaskCall) -> TaskResult:
-        return await self.run(call)
-
-    async def run(self, call: TaskCall) -> TaskResult:
-        self.calls.append(call)
-        return self.results.popleft()
+from tests.agent.composition.support import FakeLLM, _test_config
 
 
 async def test_turn_resources_release_jobs_before_sessions_and_synchronization() -> (
@@ -141,6 +123,7 @@ class _AvailabilityAwareService(_RecordingService):
         )
 
 
+@pytest.mark.integration
 async def test_tinysoul_agent_starts_and_stops_input_sources(tmp_path: Path) -> None:
     source = _SubmittingSource((InputEvent("exit", source="unit"),))
     app = (
@@ -164,6 +147,7 @@ async def test_tinysoul_agent_starts_and_stops_input_sources(tmp_path: Path) -> 
     assert outcome.transfer.target.level is RunLevel.AGENT
 
 
+@pytest.mark.integration
 async def test_tinysoul_agent_starts_services_before_inputs_and_stops_them(
     tmp_path: Path,
 ) -> None:
@@ -188,6 +172,7 @@ async def test_tinysoul_agent_starts_services_before_inputs_and_stops_them(
     assert service.stopped == 1
 
 
+@pytest.mark.integration
 async def test_tinysoul_agent_prepares_availability_before_starting_services(
     tmp_path: Path,
 ) -> None:
@@ -212,6 +197,7 @@ async def test_tinysoul_agent_prepares_availability_before_starting_services(
     assert service.availability_existed_at_start is True
 
 
+@pytest.mark.integration
 async def test_tinysoul_agent_stops_started_sources_when_later_start_fails(
     tmp_path: Path,
 ) -> None:
@@ -236,6 +222,7 @@ async def test_tinysoul_agent_stops_started_sources_when_later_start_fails(
     assert failing.started == 1
 
 
+@pytest.mark.integration
 async def test_tinysoul_agent_attempts_all_source_stops_and_reports_failure(
     tmp_path: Path,
 ) -> None:
@@ -260,6 +247,7 @@ async def test_tinysoul_agent_attempts_all_source_stops_and_reports_failure(
     assert second.stopped == 1
 
 
+@pytest.mark.integration
 async def test_tinysoul_agent_submit_event_uses_dispatcher(tmp_path: Path) -> None:
     app = (
         await standard_agent(root=tmp_path)
@@ -276,24 +264,3 @@ async def test_tinysoul_agent_submit_event_uses_dispatcher(tmp_path: Path) -> No
     assert outcome.transfer is not None
     assert outcome.transfer.action is RuntimeTransferAction.END
     assert outcome.transfer.target.level is RunLevel.AGENT
-
-
-def _test_config(tmp_path: Path) -> ConfigEnvironment:
-    project_root = tmp_path / ".config-project"
-    copy_initialized_project(project_root)
-    home_root = tmp_path / "home"
-    agent_path = home_root / "agent" / "AGENT.md"
-    agent_path.parent.mkdir(parents=True, exist_ok=True)
-    agent_path.write_text("# Test Agent\n", encoding="utf-8")
-    return ConfigEnvironment.from_project_root(
-        root=project_root,
-        overrides={
-            "agent.interactive": False,
-            "home.root": str(home_root),
-            "home.runtime_root": str(tmp_path / "runtime" / "home"),
-            "memory.root": str(tmp_path / "memory"),
-            "session.root": str(tmp_path / "runtime" / "session"),
-            "workspace.root": str(tmp_path / "runtime" / "workspace"),
-            "reflection.archive_root": str(tmp_path / "archive"),
-        },
-    )
