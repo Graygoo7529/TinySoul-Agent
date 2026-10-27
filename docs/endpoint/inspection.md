@@ -51,6 +51,8 @@ Reply 的 title 在各读取入口中保留核心问题及回答线索；部分�
 
 Interaction role 为 user.input/append/reply、agent.question/reason/action/output。id/ref 保留事实身份；输入 delivery 区分 installed/visible。pending_items 保留 Inbox sequence/record_id/kind/payload/state=accepted，与 Trace 顺序分开，和 items 共用有界页。queued_request 只是排队文本线索，不冒充 Context 输入。完成后用 Session 正式交互替换活动内容，不重复拼接；必要提交失败时 history_unavailable=true，不从事件伪造历史。
 
+回答的 references 记录正文明确引用的内部链接。Session 的资源出现项保留 target_ref；Workspace locator 带来源日，动态 Memory locator 使用记录时绑定并保留链接片段。unresolved_origin 表示历史绑定缺失，客户端不能自行换成当前资源绑定。
+
 Context segment descriptor 包含 id/owner/slot/shape/order/capabilities/root_refs 与 available/loaded/protected_refs；chars/image_bytes 不是精确 token。正文来自已安装段，不读取最新文件替换它；TaskPrompt 只在具体 LLM 调用中显示。GET inspect 不追加 Action 结果、不解除展示保护。关闭后 409 context.unavailable；历史转 Session 或 Observation。未找到 Turn/归档日返回 404 turn.resource_not_found；未知 Session ref 为 404 unknown_ref。
 
 段正文的集合字段为 `messages`，不同于资源和 Disclosure 页的 `items`；分页与 JSON fragment 仍复用同一基础协议，不应把段正文交给要求 `items` 的资源页类型。

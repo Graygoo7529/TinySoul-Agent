@@ -2,7 +2,7 @@ name = "core.answer"
 domain = "core"
 
 [tool]
-description = "Produce the user-facing response that concludes the current User Turn, optionally using read-only references."
+description = "Produce the user-facing response that concludes the current User Turn from the assembled Context and answer guidance."
 
 [tool.schema]
 type = "object"
@@ -28,7 +28,7 @@ description = "Guide text for the final answer task."
 
 [tool.schema.properties.input_blocks]
 type = "array"
-description = "Optional answer-specific input blocks."
+description = "Optional answer-specific input blocks. The current Context is included automatically. Inspect missing source content before calling this action."
 
 [tool.schema.properties.input_blocks.items]
 type = "object"
@@ -42,14 +42,6 @@ description = "Optional stable label for this input block."
 [tool.schema.properties.input_blocks.items.properties.text]
 type = "string"
 description = "Input text for the final answer task."
-
-[tool.schema.properties.references]
-type = "array"
-description = "Optional read-only resource references to use as answer sources."
-
-[tool.schema.properties.references.items]
-type = "string"
-description = "Read-only resource reference, for example workspace:docs/task.md."
 
 [semantic]
 use_when = [

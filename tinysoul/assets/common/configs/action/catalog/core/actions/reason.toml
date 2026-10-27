@@ -28,7 +28,7 @@ description = "Guide text for the reasoning task."
 
 [tool.schema.properties.input_blocks]
 type = "array"
-description = "Optional reasoning input blocks."
+description = "Optional reasoning input blocks. The current Context is included automatically. Inspect missing source content before calling this action."
 
 [tool.schema.properties.input_blocks.items]
 type = "object"
@@ -42,14 +42,6 @@ description = "Optional stable label for this input block."
 [tool.schema.properties.input_blocks.items.properties.text]
 type = "string"
 description = "Input text for this prompt block."
-
-[tool.schema.properties.references]
-type = "array"
-description = "Optional read-only resource references resolved into task prompt blocks."
-
-[tool.schema.properties.references.items]
-type = "string"
-description = "Read-only resource reference, for example workspace:docs/task.md."
 
 [tool.schema.properties.output_blocks]
 type = "array"
@@ -81,7 +73,7 @@ avoid_when = [
 ]
 effects = ["read_only"]
 examples = [
-    "Analyze workspace references to decide which approach fits the requirements",
+    "Analyze inspected evidence to decide which approach fits the requirements",
     "Synthesize memory and session evidence to identify a pattern",
     "Evaluate tradeoffs and return a JSON decision object with recommendations"
 ]

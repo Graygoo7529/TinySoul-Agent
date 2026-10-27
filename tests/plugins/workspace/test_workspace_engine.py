@@ -28,7 +28,6 @@ from tinysoul.kernel.action.execution.executor import ActionExecutionContext
 from tinysoul.kernel.action.execution.preparation import ActionExecutionBuilder
 from tinysoul.kernel.context import (
     ContextEngineBuilder,
-    PromptReferenceError,
 )
 from tinysoul.kernel.loop import TurnPreparationRequest
 from tinysoul.kernel.retrieval.contracts import (
@@ -60,7 +59,6 @@ from tinysoul.plugins.workspace import (
     WorkspaceEngineBuilder,
     WorkspaceManifest,
     WorkspacePromptInput,
-    WorkspacePromptReferenceResolver,
     WorkspaceReconcileStatus,
     WorkspaceRef,
     WorkspaceResourceKind,
@@ -74,6 +72,8 @@ from tinysoul.plugins.workspace.actions import (
     WorkspaceAnalyzeExecutor,
     WorkspaceExecutor,
 )
+from tinysoul.plugins.workspace.errors import WorkspacePromptReferenceError
+from tinysoul.plugins.workspace.prompts import WorkspacePromptReferenceResolver
 from tinysoul.plugins.workspace.engine import WORKSPACE_SEARCH_FILTERS, WorkspaceEngine
 from tinysoul.plugins.workspace.inspection.search import WorkspaceTextMatcher
 from tinysoul.plugins.workspace.projection import (
@@ -263,7 +263,7 @@ async def test_workspace_prompt_resolver_loads_images_and_rejects_documents(
     blocks = await resolver.resolve_reference("workspace:image.png")
 
     assert any(isinstance(part, ImagePart) for part in blocks[0].message.parts)
-    with pytest.raises(PromptReferenceError) as raised:
+    with pytest.raises(WorkspacePromptReferenceError) as raised:
         await resolver.resolve_reference("workspace:report.pdf")
     assert raised.value.reason == "conversion_required"
 
@@ -281,11 +281,28 @@ async def test_workspace_prompt_resolver_explains_directory_reference(
     ).build()
     resolver = WorkspacePromptReferenceResolver(WorkspaceService(engine))
 
-    with pytest.raises(PromptReferenceError) as raised:
+    with pytest.raises(WorkspacePromptReferenceError) as raised:
         await resolver.resolve_reference("workspace:logs")
 
     assert raised.value.reason == "directory_requires_inspection"
     assert "inspect" in str(raised.value).lower()
+
+    result = await _executor(engine).execute(
+        _execution(
+            "workspace.compose",
+            {
+                "target_ref": "workspace:summary.md",
+                "instruction": "Summarize the logs.",
+                "references": ["workspace:logs"],
+            },
+        ),
+        ActionExecutionContext(),
+    )
+    assert result.status.value == "failed"
+    assert result.failure is not None
+    assert result.failure.reason == raised.value.reason
+    assert result.failure.feedback == raised.value.feedback
+    assert not (tmp_path / "summary.md").exists()
 
 
 async def test_workspace_prompt_resolver_rejects_image_with_invalid_signature(
@@ -300,7 +317,7 @@ async def test_workspace_prompt_resolver_rejects_image_with_invalid_signature(
     ).build()
     resolver = WorkspacePromptReferenceResolver(WorkspaceService(engine))
 
-    with pytest.raises(PromptReferenceError) as raised:
+    with pytest.raises(WorkspacePromptReferenceError) as raised:
         await resolver.resolve_reference("workspace:image.png")
 
     assert raised.value.reason == "invalid_image_resource"

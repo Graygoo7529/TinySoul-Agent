@@ -53,9 +53,6 @@ from tinysoul.kernel.retrieval.selection import CandidateSelector
 from tinysoul.plugins.home import HomeActionSkillProvider
 from tinysoul.plugins.home.runtime_bridge import RuntimeAgentHomeBridge
 from tinysoul.plugins.home.services import HomeService
-from tinysoul.plugins.workspace import WorkspacePromptReferenceResolver
-from tinysoul.plugins.workspace.runtime_bridge import RuntimeWorkspaceBridge
-from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.runtime import ObservationEmitter
 
 from .activity import AgentTurnActivity
@@ -96,7 +93,7 @@ class CorePlugin:
         ),
     )
     provides = (JobRegistry, StagingDirectoryManager)
-    requires = (WorkspaceService, ModelServices, ReferenceResolver)
+    requires = (ModelServices, ReferenceResolver)
     configuration = (
         PluginConfig(
             "jobs",
@@ -121,7 +118,6 @@ class CorePlugin:
             raise RuntimeLoopBridge().from_exception(
                 LoopFailureKind.RESOURCE_PREPARATION_FAILED, exc
             ) from exc
-        workspace = context.services.get(WorkspaceService)
 
         async def invoke(call):
             return await context.llm.invoke(call)
@@ -164,16 +160,10 @@ class CorePlugin:
                     builder,
                     tasks=profile.tasks,
                     llm=profile.llm,
-                    reference_resolvers=(
-                        WorkspacePromptReferenceResolver(
-                            workspace, runtime_bridge=RuntimeWorkspaceBridge()
-                        ),
-                    ),
                 )
 
             return PluginProfileExtension(
                 self.id,
-                requires=(WorkspaceService,),
                 actions=register,
                 segments=(jobs_segment_registration(),),
                 preparation=(queries,),

@@ -31,7 +31,7 @@ from tests.agent.composition.support import (
     FakeLLM,
     _ProbePlugin,
     _ProbeService,
-    _json_result,
+    _text_result,
     _test_config,
     _tool_result,
 )
@@ -173,7 +173,7 @@ async def test_probe_plugin_composes_config_segment_action_event_sdk_and_restart
                     kind=ToolKind.ACTION,
                 )
             ),
-            _json_result({"text": "done"}),
+            _text_result("done"),
         )
     )
     assembly = (

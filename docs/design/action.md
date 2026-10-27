@@ -241,7 +241,11 @@ Catalog 的 `execution.executor` 是显式注册的实现身份；`runtime` 管�
 
 core.reason/core.answer 与 Workspace compose/describe/analyze 各自拥有 generate 用途。ActionTaskFactory 只准备 TaskCall：挂载 domain/action Skill、按 executor 选择构造 Context/TaskPrompt、传入输出约束和外层 cancellation。它不调用供应商或解释业务结果。唯一 LLMTaskRunner 的 invoke 返回 TaskResult 或可组合的 LLMInvocationFailure，run 在相同管线上增加 Runtime bridge，供 Phase1/2 使用。生成 Action 保留容量恢复和业务提交边界；Search 的有界 selector 使用局部容量反馈，由调用方缩小范围。
 
-业务参数继续使用 PromptBlock 和 references。目标与参考链接在所属 Action 内通过 owner 服务读取，正文只进入该任务的临时提示。Workspace compose 接受生成文本后在写入前校验完整工件上限，成功只返回 引用 和必要元数据。结构化结果经 ActionTaskOutput 处理模型协议失败后，仍由具体 executor 校验业务字段。取消和 deadline 沿同一 Action control 传播，迟返工件不能在取消后提交；不另设模型专属 Action 超时。
+core.reason/core.answer 通过 guide_blocks 和可选 input_blocks 描述本次任务，直接使用已组装的 Context；缺少材料时先由所属 owner 的 Inspect 或分析行动取得。reason 还使用 output_blocks 描述 JSON 对象结果。answer 的内部任务生成文本正文，由 Core 封装 text 和正文明确引用的内部 Markdown 链接 references；无需模型额外生成 JSON 包装或引用数组。普通文字、代码块和已加载但未引用的资源不自动成为引用来源。
+
+Workspace 的目标与参考资源在自身 Action 内通过 owner 服务读取，文本或图片只进入该任务的临时提示。compose 接受生成文本后在写入前校验完整工件上限，成功只返回引用和必要元数据。ActionTaskOutput 处理模型协议失败，具体 executor 负责业务结果；文件字符限制由工件 owner 显式提供，answer 不套用文件限制。取消和 deadline 沿同一 Action control 传播，迟返工件不能在取消后提交；不另设模型专属 Action 超时。
+
+局部失败沿现有 ActionResult 返回。参数反馈给出字段及期望形式，内部生成失败标明任务来源，资源准备失败保留 owner 提供的简短原因；reason、scope、disposition 与必要约束仍用于解释失败和下一步选择。生成被截断、过滤或未完成时，不把残缺正文发布为成功回答。
 
 `max_output_tokens` 属于 model-use binding；工件字符上限属于真实提交 owner。生成 Action 在 catalog 的 runtime 中显式保留有效时限。core.answer 成功只结束当前 User Turn，可以交付成果或提出进一步问题，不宣告多轮目标或全部 todos 完成。
 

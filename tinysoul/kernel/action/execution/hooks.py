@@ -141,7 +141,7 @@ class SchemaNormalizeHook:
                     reason="invalid_action_params",
                     scope="action.schema",
                     disposition=ActionFailureDisposition.CHANGE_REQUEST,
-                    feedback=str(exc),
+                    feedback=exc.feedback,
                 ),
                 frame_data={"error_type": type(exc).__name__},
             )

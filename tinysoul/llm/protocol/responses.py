@@ -310,7 +310,7 @@ class ResponseInterpreter:
             tool = visible.get(tool_call.name)
             if tool is None:
                 raise ResponseInterpretError(
-                    prompt_text.unexpected_tool_call(name=tool_call.name)
+                    prompt_text.unexpected_tool_call(name=tool_call.name[:200])
                 )
             if tool_call.kind is not None and tool_call.kind is not tool.kind:
                 raise ResponseInterpretError(
@@ -332,7 +332,9 @@ class ResponseInterpreter:
             value = json.loads(cleaned)
         except json.JSONDecodeError as exc:
             raise ResponseInterpretError(
-                prompt_text.invalid_json_response(detail=str(exc))
+                prompt_text.invalid_json_response(
+                    detail=exc.msg, line=exc.lineno, column=exc.colno
+                )
             ) from exc
         if not isinstance(value, dict):
             raise ResponseInterpretError(

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.references import append_locator_fragment
 from tinysoul.kernel.action.call import ExecutionState
 from tinysoul.kernel.context import ContextTurnFacts
 from tinysoul.kernel.interaction import (
@@ -148,17 +149,18 @@ def resource_locator(record: SessionTurnRecord, ref: str) -> JsonObject:
         "target_ref": ref,
         "basis": "fact",
     }
+    resource, _, fragment = ref.partition("#")
     if ref.startswith("workspace:"):
         value["source_day"] = record.day
         value["locator"] = {"ref": ref, "day": record.day}
-    elif ref in {"memory:current", "memory:latest", "memory:target"}:
+    elif resource in {"memory:current", "memory:latest", "memory:target"}:
         segment = record.segments.get("memory")
         bindings = (
             segment.get("resolved_references") if isinstance(segment, dict) else None
         )
-        locator = bindings.get(ref) if isinstance(bindings, dict) else None
+        locator = bindings.get(resource) if isinstance(bindings, dict) else None
         if isinstance(locator, dict):
-            value["locator"] = locator
+            value["locator"] = append_locator_fragment(locator, fragment)
         else:
             value["unresolved_origin"] = True
     return value

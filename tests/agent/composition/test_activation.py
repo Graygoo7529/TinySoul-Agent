@@ -22,7 +22,7 @@ from tests.agent.composition.support import (
     FakeLLM,
     _action_catalog_item,
     _json_object,
-    _json_result,
+    _text_result,
     _run_once,
     _test_config,
     _tool_result,
@@ -704,7 +704,7 @@ async def test_agent_workspace_mutation_reaches_endpoint_event_stream(
                             kind=ToolKind.ACTION,
                         )
                     ),
-                    _json_result({"text": "done"}),
+                    _text_result("done"),
                 )
             )
         )

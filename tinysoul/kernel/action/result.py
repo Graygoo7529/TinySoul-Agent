@@ -12,7 +12,7 @@ from tinysoul.runtime import CyclePhase
 from .errors import ActionInvariantError
 
 _FAILURE_IDENTIFIER_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789._-")
-_MAX_FAILURE_FEEDBACK_CHARS = 2000
+MAX_FAILURE_FEEDBACK_CHARS = 2000
 _MAX_FAILURE_CONSTRAINT_CHARS = 4000
 
 
@@ -72,7 +72,7 @@ class ActionLocalFailure:
             raise ActionInvariantError(
                 "ActionLocalFailure.feedback must be a non-empty string"
             )
-        if len(self.feedback) > _MAX_FAILURE_FEEDBACK_CHARS:
+        if len(self.feedback) > MAX_FAILURE_FEEDBACK_CHARS:
             raise ActionInvariantError(
                 "ActionLocalFailure.feedback exceeds its character limit"
             )

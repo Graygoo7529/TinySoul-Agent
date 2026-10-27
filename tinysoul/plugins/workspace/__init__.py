@@ -41,7 +41,6 @@ from .projection import (
     WorkspaceTurnPreparationHandler,
     workspace_refresh_signal,
 )
-from .prompts import WorkspacePromptReferenceResolver
 from .storage.manifest import (
     WorkspaceManifest,
     WorkspaceResourceKind,
@@ -85,7 +84,6 @@ __all__ = [
     "WorkspaceRef",
     "WorkspaceManifest",
     "WorkspacePromptInput",
-    "WorkspacePromptReferenceResolver",
     "WorkspaceReconcileResult",
     "WorkspaceReconcileStatus",
     "WorkspaceResourceKind",

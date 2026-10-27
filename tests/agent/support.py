@@ -18,7 +18,7 @@ from tinysoul.infra.clock import CalendarClock
 from tinysoul.infra.config import ConfigEnvironment
 from tinysoul.infra.time import CalendarDay
 from tinysoul.llm.protocol.requests import TaskCall
-from tinysoul.llm.protocol.responses import JsonAnswer, RawResponse, TaskResult
+from tinysoul.llm.protocol.responses import TextAnswer, RawResponse, TaskResult
 from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind
 
 
@@ -54,8 +54,8 @@ class _LLM:
                     for call in calls
                 ),
                 TaskResult.success(
-                    raw_response=RawResponse("{}", "fake", "fake"),
-                    answer=JsonAnswer({"text": "done"}),
+                    raw_response=RawResponse("done", "fake", "fake"),
+                    answer=TextAnswer("done"),
                     tool_calls=(),
                 ),
             ]

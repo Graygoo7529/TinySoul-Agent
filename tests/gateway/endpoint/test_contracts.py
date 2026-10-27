@@ -32,7 +32,7 @@ from tinysoul.infra.config import ConfigController, ConfigEnvironment
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.kernel.interaction import QuestionContent
 from tinysoul.llm.protocol.requests import TaskCall
-from tinysoul.llm.protocol.responses import JsonAnswer, RawResponse, TaskResult
+from tinysoul.llm.protocol.responses import JsonAnswer, RawResponse, TaskResult, TextAnswer
 from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind
 from tinysoul.plugins.memory import MemoryEngine, MemoryRef, MemorySettings
 from tinysoul.plugins.memory.documents.models import EntityMemoryDocument, MemoryStatus
@@ -166,7 +166,11 @@ class _ContractLLM:
         if call.consumer == "home.search.rerank":
             answer = {"items": [{"id": "c0", "basis_ids": ["u0"]}]}
         elif not self.calls:
-            answer = {"text": "Finished response"}
+            return TaskResult.success(
+                raw_response=RawResponse("Finished response", "fake", "fake"),
+                answer=TextAnswer("Finished response"),
+                tool_calls=(),
+            )
         else:
             name, args = self.calls.popleft()
             tool = ToolCallRecord(

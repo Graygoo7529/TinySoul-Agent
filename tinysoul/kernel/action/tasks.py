@@ -21,7 +21,6 @@ from tinysoul.llm.protocol.requests import (
 from tinysoul.llm.protocol.responses import (
     AnswerFormat,
     JsonAnswer,
-    TaskFailureReason,
     TaskResult,
     TaskResultStatus,
     TextAnswer,
@@ -33,6 +32,7 @@ from .call import ActionExecution
 from .execution.executor import ActionExecutionControl
 from .models import ModelImplementation, ModelUseRegistry
 from .result import (
+    MAX_FAILURE_FEEDBACK_CHARS,
     ActionFailureDisposition,
     ActionLocalFailure,
     ActionResult,
@@ -208,12 +208,16 @@ class ActionTaskOutput:
 
     @staticmethod
     def text(
-        result: TaskResult, execution: ActionExecution, *, subject: str, max_chars: int
+        result: TaskResult,
+        execution: ActionExecution,
+        *,
+        subject: str,
+        max_chars: int | None = None,
     ) -> str | ActionResult:
         failure = ActionTaskOutput.failure(result, execution, subject=subject)
         if failure is not None:
             return failure
-        if not isinstance(result.answer, TextAnswer) or not result.answer.text:
+        if not isinstance(result.answer, TextAnswer) or not result.answer.text.strip():
             return _failure(
                 execution,
                 feedback=prompt_text.missing_text_answer(subject=subject),
@@ -222,7 +226,7 @@ class ActionTaskOutput:
                 disposition=ActionFailureDisposition.RETRY_SAME,
             )
         text = result.answer.text
-        if len(text) > max_chars:
+        if max_chars is not None and len(text) > max_chars:
             return _failure(
                 execution,
                 feedback=prompt_text.artifact_limit_exceeded(
@@ -245,15 +249,9 @@ class ActionTaskOutput:
         failure = result.failure
         reason = failure.reason.value if failure else "task_failure"
         feedback = failure.model_feedback if failure else None
-        if (
-            failure
-            and failure.reason is TaskFailureReason.INVALID_OUTPUT_PROTOCOL
-            and feedback
-        ):
-            feedback = prompt_text.invalid_task_result(subject=subject, detail=feedback)
         return _failure(
             execution,
-            feedback=feedback or prompt_text.task_failed(subject=subject),
+            feedback=prompt_text.task_failed(subject=subject, detail=feedback or ""),
             reason=reason,
             scope=failure.scope.value if failure else "llm.task",
             disposition=ActionFailureDisposition.CHANGE_REQUEST
@@ -319,7 +317,7 @@ def _failure(
             reason=reason,
             scope=scope,
             disposition=disposition,
-            feedback=feedback,
+            feedback=feedback[:MAX_FAILURE_FEEDBACK_CHARS],
             constraint=constraint or {},
         ),
         frame_data=frame_data,

@@ -11,8 +11,8 @@ SELECT_DOMAINS_DESCRIPTION = (
 
 # Task instruction or output constraint. Used by kernel/action/builtins/core/actions.py:answer_prompt.
 ANSWER_EXPECTED_OUTPUT = (
-    "# Expected Output\nReturn a JSON object with a string field 'text'. If source refs"
-    " are used, include a 'references' array of source ref strings."
+    "# Expected Output\nReturn the final user-facing answer directly, "
+    "in the requested language and format."
 )
 
 # Task instruction or output constraint. Used by kernel/action/tasks.py:selection_input.
@@ -79,13 +79,8 @@ def domain_selection_hint(*, selection_hint: str) -> str:
 
 
 # Model task text or feedback. Used by kernel/action/tasks.py:failure.
-def task_failed(*, subject: str) -> str:
-    return f"{subject} failed."
-
-
-# Local model feedback. Used by kernel/action/tasks.py:failure.
-def invalid_task_result(*, subject: str, detail: str) -> str:
-    return f"{subject} returned an invalid result: {detail}"
+def task_failed(*, subject: str, detail: str = "") -> str:
+    return f"{subject} failed: {detail}" if detail else f"{subject} failed."
 
 
 # Model task text or feedback. Used by kernel/action/builtins/core/actions.py:_parse_block_item.
@@ -135,32 +130,23 @@ def prompt_block_label_required(*, key: str) -> str:
     return f"Model task '{key}' label must be non-empty when provided."
 
 
-# Local model feedback. Used by kernel/action/builtins/core/actions.py:_parse_reference_refs.
-REFERENCE_REFS_LIST_REQUIRED = "Model task 'references' must be a list when provided."
-
-# Local model feedback. Used by kernel/action/builtins/core/actions.py:_parse_reference_refs.
-REFERENCE_REF_STRINGS_REQUIRED = (
-    "Model task 'references' items must be non-empty strings."
-)
-
-
-# Local model feedback. Used by kernel/action/builtins/core/actions.py:_parse_reference_refs.
-def unsupported_reference(*, item: str) -> str:
-    return f"Unsupported task prompt reference ref: {item}"
-
-
-# Local model feedback. Used by kernel/action/builtins/core/actions.py:_parse_reference_refs.
-def empty_reference(*, item: str) -> str:
-    return f"Task prompt reference produced no content: {item}"
-
-
 # Local model feedback. Used by kernel/action/catalog/schema.py:_validate_value.
 INVALID_ONEOF_DEFINITION = "Invalid oneOf definition"
 
 
 # Local model feedback. Used by kernel/action/catalog/schema.py:_validate_value.
-def parameter_variant_mismatch(*, path: str) -> str:
-    return f"Action parameter {path} must match exactly one declared variant"
+def parameter_variant_mismatch(
+    *, path: str, matches: int, details: tuple[str, ...]
+) -> str:
+    if matches:
+        return (
+            f"Action parameter {path} matches {matches} variants; "
+            "choose exactly one form from the tool definition."
+        )
+    return (
+        f"Action parameter {path} matches no declared variant. "
+        + " Alternative: ".join(details)
+    )
 
 
 # Local model feedback. Used by kernel/action/catalog/schema.py:_validate_value.
@@ -169,13 +155,18 @@ def invalid_parameter_schema_type(*, path: str) -> str:
 
 
 # Local model feedback. Used by kernel/action/catalog/schema.py:_validate_value.
-def parameter_type_mismatch(*, path: str, expected_type: str) -> str:
-    return f"Action parameter {path} must be {expected_type}"
+def parameter_type_mismatch(*, path: str, expected_type: str, actual_type: str) -> str:
+    return (
+        f"Action parameter {path} must be {expected_type}; received {actual_type}. "
+        "Follow this field's tool definition."
+    )
 
 
 # Local model feedback. Used by kernel/action/catalog/schema.py:_validate_value.
-def parameter_enum_mismatch(*, path: str) -> str:
-    return f"Action parameter {path} must be one of the allowed values"
+def parameter_enum_mismatch(*, path: str, choices: tuple[str, ...], more: bool) -> str:
+    values = ", ".join(choices)
+    suffix = "; see the tool definition for remaining values" if more else ""
+    return f"Action parameter {path} must be one of: {values}{suffix}."
 
 
 # Local model feedback. Used by kernel/action/catalog/schema.py:_validate_value.
@@ -311,7 +302,7 @@ def missing_json_answer(*, subject: str) -> str:
 
 # Local model feedback. Used by kernel/action/tasks.py:text.
 def missing_text_answer(*, subject: str) -> str:
-    return f"{subject} did not return nonempty text."
+    return f"{subject} returned no usable text."
 
 
 # Local model feedback. Used by kernel/action/tasks.py:text.

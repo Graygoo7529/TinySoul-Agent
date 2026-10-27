@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from math import isfinite
 
-from tinysoul.infra.json import JsonObject, JsonTypeError, JsonValue, to_json_object
+from tinysoul.infra.json import JsonObject, JsonTypeError, to_json_object
+from tinysoul.infra.references import markdown_references
 from tinysoul.kernel.action.call import ActionExecution
 from tinysoul.kernel.action.engine import ActionEngineBuilder
 from tinysoul.kernel.action.execution.executor import ActionExecutionContext
@@ -17,12 +17,7 @@ from tinysoul.kernel.action.result import (
     ActionResultStage,
 )
 from tinysoul.kernel.action.tasks import ActionTaskFactory, ActionTaskOutput
-from tinysoul.kernel.context import (
-    PromptBlock,
-    PromptReferenceError,
-    PromptReferenceResolver,
-    TaskPrompt,
-)
+from tinysoul.kernel.context import PromptBlock, TaskPrompt
 from tinysoul.kernel.interaction import QuestionContent, QuestionError
 from tinysoul.kernel.loop.phases import LLMRunner
 from tinysoul.llm.protocol.responses import AnswerFormat
@@ -32,7 +27,6 @@ from tinysoul.prompts.kernel import action as prompt_text
 @dataclass(frozen=True)
 class _PromptParse:
     prompt: TaskPrompt | None = None
-    source_refs: tuple[str, ...] = ()
     model_feedback: str = ""
     failure_reason: str = ""
     frame_data: JsonObject = field(default_factory=dict)
@@ -59,19 +53,16 @@ class CoreReasonActionExecutor:
         *,
         tasks: ActionTaskFactory,
         llm: LLMRunner,
-        reference_resolvers: Sequence[PromptReferenceResolver] = (),
     ) -> None:
         self._tasks, self._llm = tasks, llm
-        self._prompt_builder = _PromptArgumentBuilder(
-            reference_resolvers=reference_resolvers,
-        )
+        self._prompt_builder = _PromptArgumentBuilder()
 
     async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
-        parse = await self._prompt_builder.context_task_prompt(execution.call.params)
+        parse = self._prompt_builder.context_task_prompt(execution.call.params)
         if parse.prompt is None:
             return _failed(
                 execution,
@@ -97,26 +88,23 @@ class CoreReasonActionExecutor:
 
 
 class CoreAnswerActionExecutor:
-    """Executor for the final answer action with read-only reference support."""
+    """Generate the answer body and package its explicit resource citations."""
 
     def __init__(
         self,
         *,
         tasks: ActionTaskFactory,
         llm: LLMRunner,
-        reference_resolvers: Sequence[PromptReferenceResolver] = (),
     ) -> None:
         self._tasks, self._llm = tasks, llm
-        self._prompt_builder = _PromptArgumentBuilder(
-            reference_resolvers=reference_resolvers,
-        )
+        self._prompt_builder = _PromptArgumentBuilder()
 
     async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
-        parse = await self._prompt_builder.answer_prompt(execution.call.params)
+        parse = self._prompt_builder.answer_prompt(execution.call.params)
         if parse.prompt is None:
             return _failed(
                 execution,
@@ -130,27 +118,17 @@ class CoreAnswerActionExecutor:
                 prompt=parse.prompt,
                 control=context.control,
                 consumer=f"{execution.call.action_name}.generate",
-                answer_format=AnswerFormat.JSON_OBJECT,
+                answer_format=AnswerFormat.TEXT,
             )
         )
-        payload = ActionTaskOutput.json(
-            _task_result, execution, subject="Answer LLM task"
+        text = ActionTaskOutput.text(
+            _task_result, execution, subject="Answer generation"
         )
-        if isinstance(payload, ActionResult):
-            return payload
-        payload_failure = _answer_payload_failure(payload)
-        if payload_failure is not None:
-            return _failed(
-                execution,
-                payload_failure.model_feedback,
-                reason=payload_failure.reason,
-            )
+        if isinstance(text, ActionResult):
+            return text
         return _success(
             execution,
-            _normalized_answer_payload(
-                payload,
-                source_refs=parse.source_refs,
-            ),
+            {"text": text, "references": list(_answer_references(text))},
         )
 
 
@@ -249,16 +227,8 @@ class CoreWaitActionExecutor:
 
 
 class _PromptArgumentBuilder:
-    def __init__(
-        self,
-        *,
-        reference_resolvers: Sequence[PromptReferenceResolver],
-    ) -> None:
-        self._reference_resolvers = tuple(reference_resolvers)
-
-    async def context_task_prompt(self, params: JsonObject) -> _PromptParse:
+    def context_task_prompt(self, params: JsonObject) -> _PromptParse:
         try:
-            references = params.get("references", [])
             return _PromptParse(
                 prompt=TaskPrompt(
                     guide_blocks=self._parse_blocks(
@@ -268,14 +238,11 @@ class _PromptArgumentBuilder:
                         heading=prompt_text.TASK_GUIDE_HEADING,
                         required=True,
                     ),
-                    input_blocks=(
-                        *self._parse_blocks(
-                            params.get("input_blocks", []),
-                            key="input_blocks",
-                            section="input",
-                            heading=prompt_text.TASK_INPUT_HEADING,
-                        ),
-                        *(await self._parse_reference_refs(references)),
+                    input_blocks=self._parse_blocks(
+                        params.get("input_blocks", []),
+                        key="input_blocks",
+                        section="input",
+                        heading=prompt_text.TASK_INPUT_HEADING,
                     ),
                     output_blocks=self._parse_blocks(
                         params.get("output_blocks"),
@@ -285,7 +252,6 @@ class _PromptArgumentBuilder:
                         required=True,
                     ),
                 ),
-                source_refs=self._source_refs(references),
             )
         except _PromptParameterError as exc:
             return _PromptParse(
@@ -293,16 +259,9 @@ class _PromptArgumentBuilder:
                 failure_reason=exc.reason,
                 frame_data=exc.payload,
             )
-        except PromptReferenceError as exc:
-            return _PromptParse(
-                model_feedback=str(exc),
-                failure_reason=exc.reason,
-                frame_data=exc.payload,
-            )
 
-    async def answer_prompt(self, params: JsonObject) -> _PromptParse:
+    def answer_prompt(self, params: JsonObject) -> _PromptParse:
         try:
-            references = params.get("references", [])
             return _PromptParse(
                 prompt=TaskPrompt(
                     guide_blocks=self._parse_blocks(
@@ -312,14 +271,11 @@ class _PromptArgumentBuilder:
                         heading=prompt_text.ANSWER_GUIDE_HEADING,
                         required=True,
                     ),
-                    input_blocks=(
-                        *self._parse_blocks(
-                            params.get("input_blocks", []),
-                            key="input_blocks",
-                            section="input",
-                            heading=prompt_text.ANSWER_INPUT_HEADING,
-                        ),
-                        *(await self._parse_reference_refs(references)),
+                    input_blocks=self._parse_blocks(
+                        params.get("input_blocks", []),
+                        key="input_blocks",
+                        section="input",
+                        heading=prompt_text.ANSWER_INPUT_HEADING,
                     ),
                     output_blocks=(
                         PromptBlock.from_text(
@@ -328,15 +284,8 @@ class _PromptArgumentBuilder:
                         ),
                     ),
                 ),
-                source_refs=self._source_refs(references),
             )
         except _PromptParameterError as exc:
-            return _PromptParse(
-                model_feedback=str(exc),
-                failure_reason=exc.reason,
-                frame_data=exc.payload,
-            )
-        except PromptReferenceError as exc:
             return _PromptParse(
                 model_feedback=str(exc),
                 failure_reason=exc.reason,
@@ -421,102 +370,18 @@ class _PromptArgumentBuilder:
             prompt_text.task_block(heading=heading, text=text),
         )
 
-    async def _parse_reference_refs(self, value: object) -> tuple[PromptBlock, ...]:
-        if value is None:
-            return ()
-        if not isinstance(value, list):
-            raise PromptReferenceError(
-                prompt_text.REFERENCE_REFS_LIST_REQUIRED,
-                reason="invalid_reference_refs",
+
+def _answer_references(text: str) -> tuple[str, ...]:
+    """Record explicit internal links, without loading or verifying their targets."""
+    return tuple(
+        dict.fromkeys(
+            link.target
+            for link in markdown_references(text)
+            if link.target.startswith(
+                ("home:", "memory:", "workspace:", "session:", "turn:")
             )
-        blocks: list[PromptBlock] = []
-        for index, item in enumerate(value, start=1):
-            if not isinstance(item, str) or not item:
-                raise PromptReferenceError(
-                    prompt_text.REFERENCE_REF_STRINGS_REQUIRED,
-                    reason="invalid_reference_ref",
-                    payload={"index": index},
-                )
-            resolver = self._resolver_for(item)
-            if resolver is None:
-                raise PromptReferenceError(
-                    prompt_text.unsupported_reference(item=item),
-                    reason="unsupported_reference_ref",
-                    payload={"index": index, "ref": item},
-                )
-            resolved = await resolver.resolve_reference(item)
-            if not resolved:
-                raise PromptReferenceError(
-                    prompt_text.empty_reference(item=item),
-                    reason="empty_reference",
-                    payload={"index": index, "ref": item},
-                )
-            blocks.extend(resolved)
-        return tuple(blocks)
-
-    def _source_refs(self, value: object) -> tuple[str, ...]:
-        if value is None or not isinstance(value, list):
-            return ()
-        refs: list[str] = []
-        for item in value:
-            if isinstance(item, str) and item and item not in refs:
-                refs.append(item)
-        return tuple(refs)
-
-    def _resolver_for(self, ref: str) -> PromptReferenceResolver | None:
-        for resolver in self._reference_resolvers:
-            if resolver.supports(ref):
-                return resolver
-        return None
-
-
-@dataclass(frozen=True)
-class _PayloadFailure:
-    model_feedback: str
-    reason: str
-
-
-def _answer_payload_failure(payload: JsonObject) -> _PayloadFailure | None:
-    text = payload.get("text")
-    if not isinstance(text, str) or not text:
-        return _PayloadFailure(
-            "Answer LLM task must return a JSON object with non-empty string field 'text'.",
-            "invalid_answer_text",
         )
-    references = payload.get("references")
-    if references is None:
-        return None
-    if not isinstance(references, list):
-        return _PayloadFailure(
-            "Answer LLM task 'references' field must be a string array.",
-            "invalid_answer_references",
-        )
-    for item in references:
-        if not isinstance(item, str) or not item:
-            return _PayloadFailure(
-                "Answer LLM task 'references' field must contain non-empty strings.",
-                "invalid_answer_references",
-            )
-    return None
-
-
-def _normalized_answer_payload(
-    payload: JsonObject,
-    *,
-    source_refs: tuple[str, ...],
-) -> JsonObject:
-    result: JsonObject = {"text": payload["text"]}
-    references_value: JsonValue = payload.get("references", [])
-    references: list[JsonValue] = []
-    if isinstance(references_value, list):
-        references.extend(
-            item for item in references_value if isinstance(item, str) and item
-        )
-    if not references:
-        references.extend(source_refs)
-    if references:
-        result["references"] = references
-    return result
+    )
 
 
 def register_core_actions(
@@ -524,7 +389,6 @@ def register_core_actions(
     *,
     tasks: ActionTaskFactory,
     llm: LLMRunner,
-    reference_resolvers: Sequence[PromptReferenceResolver] = (),
 ) -> ActionEngineBuilder:
     """Register built-in core actions on an action builder."""
 
@@ -542,7 +406,6 @@ def register_core_actions(
             CoreReasonActionExecutor(
                 tasks=tasks,
                 llm=llm,
-                reference_resolvers=reference_resolvers,
             ),
         )
         .register_executor(
@@ -550,7 +413,6 @@ def register_core_actions(
             CoreAnswerActionExecutor(
                 tasks=tasks,
                 llm=llm,
-                reference_resolvers=reference_resolvers,
             ),
         )
     )

@@ -600,7 +600,7 @@ async def test_runner_interprets_tool_call_output(kind: ToolKind) -> None:
 @pytest.mark.parametrize(
     ("answer_text", "feedback"),
     [
-        ("{bad json", "Failed to parse model response as JSON object"),
+        ("{bad json", "line 1, column 2"),
         ("[]", "JSON object, got an array"),
     ],
 )

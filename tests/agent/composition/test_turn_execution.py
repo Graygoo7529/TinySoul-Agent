@@ -12,11 +12,20 @@ from tinysoul.kernel.loop import (
     build_control_request_signal,
 )
 from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind
+from tinysoul.llm.protocol.responses import (
+    AnswerFormat,
+    RawResponse,
+    TaskFailure,
+    TaskFailureReason,
+    TaskFailureScope,
+    TaskResult,
+)
+from tinysoul.plugins.session.records.store import SessionStore
 from tinysoul.runtime import RunLevel, RuntimeTransferAction, SignalBus
 from tests.agent.composition.support import (
     FakeLLM,
     _CompletionRecorder,
-    _json_result,
+    _text_result,
     _run_once,
     _test_config,
     _tool_result,
@@ -42,39 +51,47 @@ def test_agent_test_config_isolates_all_mutable_roots(tmp_path: Path) -> None:
     assert reflection["archive_root"] == str(tmp_path / "archive")
 
 
+@pytest.mark.parametrize("fail_first", [False, True])
 async def test_agent_builder_run_once_answers_with_real_action_and_context(
-    tmp_path: Path,
+    tmp_path: Path, fail_first: bool,
 ) -> None:
     recorder = _CompletionRecorder()
+    decision = (
+        _tool_result(
+            ToolCallRecord(
+                id="select_1",
+                name="select_action_domains",
+                arguments={"domains": ["core"]},
+                kind=ToolKind.CONTROL,
+            )
+        ),
+        _tool_result(
+            ToolCallRecord(
+                id="answer_1",
+                name="core.answer",
+                arguments={"guide_blocks": [{"text": "answer"}]},
+                kind=ToolKind.ACTION,
+            )
+        ),
+    )
+    failed = TaskResult.failure_result(
+        raw_response=RawResponse("", "fake", "fake"),
+        failure=TaskFailure(
+            reason=TaskFailureReason.OUTPUT_LIMIT_REACHED,
+            scope=TaskFailureScope.OUTPUT,
+            model_feedback="The generation reached its output limit.",
+        ),
+    )
+    body = "Done. See [report](workspace:report.md#summary)."
+    first_attempt = (*decision, failed) if fail_first else ()
+    llm = FakeLLM((*first_attempt, *decision, _text_result(body)))
     app = (
         await standard_agent(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_agent_settings(AgentSettings(interactive=False))
         .with_loop_settings(LoopSettings(user=TurnSettings(max_cycles=2)))
         .with_user_turn_completion_handler(recorder)
-        .with_llm_runner(
-            FakeLLM(
-                (
-                    _tool_result(
-                        ToolCallRecord(
-                            id="select_1",
-                            name="select_action_domains",
-                            arguments={"domains": ["core"]},
-                            kind=ToolKind.CONTROL,
-                        )
-                    ),
-                    _tool_result(
-                        ToolCallRecord(
-                            id="answer_1",
-                            name="core.answer",
-                            arguments={"guide_blocks": [{"text": "answer"}]},
-                            kind=ToolKind.ACTION,
-                        )
-                    ),
-                    _json_result({"text": "done"}),
-                )
-            )
-        )
+        .with_llm_runner(llm)
         .build()
         .build_runtime()
     )
@@ -83,15 +100,21 @@ async def test_agent_builder_run_once_answers_with_real_action_and_context(
 
     assert outcome.answered is True
     assert outcome.context_completion is not None
-    assert [entry.kind.value for entry in outcome.context_completion.trace.entries] == [
-        "input",
-        "decision",
-        "action_result",
-    ]
+    assert [entry.kind.value for entry in outcome.context_completion.trace.entries] == (
+        ["input"] + ["decision", "action_result"] * (2 if fail_first else 1)
+    )
     assert outcome.context_completion.inputs[0].text == "please answer"
     assert len(recorder.completions) == 1
     assert recorder.completions[0].output is not None
-    assert recorder.completions[0].output.text == "done"
+    assert recorder.completions[0].output.text == body
+    assert llm.calls[-1].settings.answer_format is AnswerFormat.TEXT
+    (record,) = SessionStore(root=tmp_path / "runtime" / "session").list_records()
+    assert record.output is not None
+    assert record.output.text == body
+    assert record.output.references == ("workspace:report.md#summary",)
+    assert [action.outcome.value for action in record.actions] == (
+        ["failed", "success"] if fail_first else ["success"]
+    )
 
 
 async def test_agent_builder_runs_resource_conversion_through_real_action_chain(
@@ -147,7 +170,7 @@ async def test_agent_builder_runs_resource_conversion_through_real_action_chain(
                             kind=ToolKind.ACTION,
                         )
                     ),
-                    _json_result({"text": "converted"}),
+                    _text_result("converted"),
                 )
             )
         )
@@ -273,7 +296,7 @@ async def test_turn_runner_ignores_stop_control_without_turn_scope(
                     kind=ToolKind.ACTION,
                 )
             ),
-            _json_result({"text": "done"}),
+            _text_result("done"),
         )
     )
     app = (

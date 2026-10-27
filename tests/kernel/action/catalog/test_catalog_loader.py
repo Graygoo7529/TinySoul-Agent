@@ -34,6 +34,73 @@ def test_packaged_catalog_is_parseable_and_has_valid_domain_bindings() -> None:
         assert action.tool.schema["type"] == "object"
 
 
+@pytest.mark.packaging
+@pytest.mark.parametrize("name", ["core.answer", "core.reason"])
+def test_core_task_catalog_accepts_guidance_without_resource_loading(name: str) -> None:
+    with builtin_action_catalog_root() as root:
+        catalog = ActionCatalogLoader().load(root)
+    schema = catalog.get_action(name).tool.schema
+    params: JsonObject = {"guide_blocks": [{"text": "Use the available evidence."}]}
+    if name == "core.reason":
+        params["output_blocks"] = [{"text": "Return a decision object."}]
+    validate_action_params(params, schema=schema)
+    params["references"] = ["workspace:source.md"]
+    with pytest.raises(ActionSchemaValidationError) as error:
+        validate_action_params(params, schema=schema)
+    assert "references" in error.value.feedback
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "clues"),
+    [
+        ({"type": "array"}, "prose", ("params.input", "array", "string")),
+        ({"type": "string", "enum": ["python", "bash"]}, "sh", ("python", "bash")),
+        (
+            {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "properties": {"path": {"type": "string"}},
+                        "required": ["path"],
+                    },
+                    {
+                        "type": "object",
+                        "properties": {"query": {"type": "string"}},
+                        "required": ["query"],
+                    },
+                ]
+            },
+            {},
+            ("params.input.path", "params.input.query"),
+        ),
+        (
+            {"oneOf": [{"type": "object"}, {"type": "object"}]},
+            {},
+            ("2", "variant"),
+        ),
+    ],
+)
+def test_schema_feedback_identifies_the_field_and_expected_form(
+    field, value, clues,
+) -> None:
+    schema = to_json_object({"type": "object", "properties": {"input": field}})
+    with pytest.raises(ActionSchemaValidationError) as error:
+        validate_action_params(to_json_object({"input": value}), schema=schema)
+    assert all(clue in error.value.feedback for clue in clues)
+
+
+def test_schema_feedback_bounds_large_alternatives() -> None:
+    variant: JsonObject = {"type": "string", "enum": ["a" * 1000, "b" * 1000]}
+    schema: JsonObject = {
+        "type": "object",
+        "properties": {"input": {"oneOf": [variant] * 20}},
+    }
+    with pytest.raises(ActionSchemaValidationError) as error:
+        validate_action_params({"input": "unknown"}, schema=schema)
+    assert len(error.value.feedback) <= 2000
+    assert error.value.feedback.count("must be one of") == 1
+
+
 def test_load_project_documents_preserves_sources_and_timeout_provenance(
     tmp_path: Path,
 ) -> None:

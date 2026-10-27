@@ -12,7 +12,7 @@ from tinysoul.kernel.action import (
     ActionTraceProjection,
 )
 from tinysoul.kernel.action.tasks import ActionTaskFactory, ActionTaskOutput
-from tinysoul.kernel.context import PromptBlock, PromptReferenceError, TaskPrompt
+from tinysoul.kernel.context import PromptBlock, TaskPrompt
 from tinysoul.kernel.loop.phases import LLMRunner
 from tinysoul.kernel.retrieval.contracts import (
     ModelStep,
@@ -23,7 +23,7 @@ from tinysoul.kernel.retrieval.requests import parse_retrieval_request
 from tinysoul.llm.protocol.responses import AnswerFormat
 from tinysoul.prompts.plugins import workspace as prompt_text
 
-from ..errors import WorkspaceContractError, WorkspaceError
+from ..errors import WorkspaceContractError, WorkspaceError, WorkspacePromptReferenceError
 from ..inspection.models import WorkspaceTextRangeResult
 from ..inspection.text import WorkspaceTextPosition
 from ..prompts import WorkspacePromptReferenceResolver
@@ -63,10 +63,10 @@ class WorkspaceExecutor(ActionExecutor):
                 else prompt_text.INSPECT_CONTINUATION_INVALID,
                 {"reason": exc.reason.value, "ref": execution.call.params.get("ref")},
             )
-        except PromptReferenceError as exc:
+        except WorkspacePromptReferenceError as exc:
             return _failed(
                 execution,
-                prompt_text.TASK_SOURCES_UNAVAILABLE,
+                exc.feedback,
                 {"reason": exc.reason, **exc.payload},
             )
         except WorkspaceContractError:

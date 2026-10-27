@@ -129,25 +129,12 @@ class ReturningAfterReserveLLMRunner(FakeLLMRunner):
         return result
 
 
-class TestReferenceResolver:
-    def supports(self, ref: str) -> bool:
-        return ref in {"test:ref", "workspace:a.md"}
-
-    async def resolve_reference(self, ref: str) -> tuple[PromptBlock, ...]:
-        return (
-            PromptBlock.from_text(
-                "task_prompt:input:test-ref",
-                f"# Reference\nresolved reference: {ref}",
-            ),
-        )
-
-
 class TestActionSkillProvider:
     async def guidance_for(
         self, *, domain: str, action_name: str
     ) -> ActionSkillGuidance:
         assert domain == "core"
-        assert action_name == "core.reason"
+        assert action_name in {"core.reason", "core.answer"}
         return ActionSkillGuidance(
             domain=(
                 PromptGuidance(
@@ -157,14 +144,14 @@ class TestActionSkillProvider:
             action=(
                 PromptGuidance(
                     "Use the project rewrite style.",
-                    "home:mount/action/core/reason",
+                    f"home:mount/action/core/{action_name.split('.')[1]}",
                     "home",
                 ),
             ),
         )
 
 
-async def test_llm_action_uses_splittable_prompt_blocks_and_reference_links() -> None:
+async def test_reason_uses_context_and_explicit_prompt_blocks() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks", turn_id="2026-10-06/163")
     await context.open_segments(CalendarDate(2026, 7, 12))
@@ -172,14 +159,12 @@ async def test_llm_action_uses_splittable_prompt_blocks_and_reference_links() ->
     executor = CoreReasonActionExecutor(
         tasks=action_tasks(context),
         llm=llm,
-        reference_resolvers=(TestReferenceResolver(),),
     )
     execution = _execution(
         "core.reason",
         {
             "guide_blocks": [{"label": "main", "text": "analyze"}],
             "input_blocks": [{"label": "literal", "text": "literal input"}],
-            "references": ["test:ref"],
             "output_blocks": [{"label": "json", "text": '{"ok": true}'}],
         },
     )
@@ -188,52 +173,34 @@ async def test_llm_action_uses_splittable_prompt_blocks_and_reference_links() ->
 
     assert result.status is ActionResultStatus.SUCCESS
     assert result.payload == {"ok": True}
+    assert llm.calls[0].settings.answer_format is AnswerFormat.JSON_OBJECT
     labels = tuple(message.label for message in llm.calls[0].messages.messages)
     assert "task_prompt:input:literal" in labels
-    assert "task_prompt:input:test-ref" in labels
     text = _text_for_label(llm.calls[0], "task_prompt:input:literal")
     assert "literal input" in text
 
 
-async def test_llm_action_reports_unsupported_reference_link() -> None:
-    context = ContextEngineBuilder(system_text="sys").build()
-    context.begin_turn("user asks", turn_id="2026-10-06/194")
-    await context.open_segments(CalendarDate(2026, 7, 12))
-    llm = FakeLLMRunner({"text": "done"})
-    executor = CoreReasonActionExecutor(tasks=action_tasks(context), llm=llm)
-    execution = _execution(
-        "core.reason",
-        {
-            "guide_blocks": [{"text": "analyze"}],
-            "references": ["missing:ref"],
-            "output_blocks": [{"text": '{"ok": true}'}],
-        },
-    )
-
-    result = await executor.execute(execution, ActionExecutionContext())
-
-    assert result.status is ActionResultStatus.FAILED
-    assert result.failure is not None
-    assert result.failure.reason == "unsupported_reference_ref"
-    assert llm.calls == []
-
-
-async def test_llm_action_injects_domain_and_action_skills_as_guide_blocks() -> None:
+@pytest.mark.parametrize("action_name", ["core.reason", "core.answer"])
+async def test_llm_action_injects_domain_and_action_skills_as_guide_blocks(
+    action_name: str,
+) -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks", turn_id="2026-10-06/217")
     await context.open_segments(CalendarDate(2026, 7, 12))
-    llm = FakeLLMRunner()
-    executor = CoreReasonActionExecutor(
+    llm = FakeLLMRunner({"text": "done"})
+    executor_type = (
+        CoreReasonActionExecutor
+        if action_name == "core.reason"
+        else CoreAnswerActionExecutor
+    )
+    executor = executor_type(
         tasks=action_tasks(context, action_skills=TestActionSkillProvider()),
         llm=llm,
     )
-    execution = _execution(
-        "core.reason",
-        {
-            "guide_blocks": [{"text": "analyze"}],
-            "output_blocks": [{"text": '{"ok": true}'}],
-        },
-    )
+    params: JsonObject = {"guide_blocks": [{"text": "analyze"}]}
+    if action_name == "core.reason":
+        params["output_blocks"] = [{"text": '{"ok": true}'}]
+    execution = _execution(action_name, params)
 
     result = await executor.execute(execution, ActionExecutionContext())
 
@@ -249,23 +216,45 @@ async def test_llm_action_injects_domain_and_action_skills_as_guide_blocks() -> 
     assert "Use the project rewrite style." in action_text
 
 
-async def test_answer_executor_uses_reference_links_and_returns_answer_payload() -> (
-    None
-):
+@pytest.mark.parametrize(
+    ("body", "references"),
+    [
+        (
+            'A "quoted" answer.\n\n- See [source](workspace:a.md#L2-L4).\n'
+            '- [again](workspace:a.md#L2-L4), [memory](memory:latest#notes), '
+            '[guide](home:top/agent/context/using-context), '
+            '[turn](turn:trace/2026-10-01/1#action/0), '
+            '[session](session:turn/2026-10-01/1).\n'
+            '[web](https://example.com) [relative](a.md) [other](ftp://example.com)\n'
+            '`[inline](workspace:hidden.md)`\n\n```text\n'
+            '[code](workspace:code.md)\n```\n',
+            [
+                "workspace:a.md#L2-L4",
+                "memory:latest#notes",
+                "home:top/agent/context/using-context",
+                "turn:trace/2026-10-01/1#action/0",
+                "session:turn/2026-10-01/1",
+            ],
+        ),
+        ('```json\n{"answer": "requested JSON"}\n```', []),
+        ("long answer " + "a" * (32 * 1024), []),
+    ],
+    ids=["citations", "requested_json", "long_body"],
+)
+async def test_answer_returns_body_and_only_explicit_internal_citations(
+    body: str,
+    references: list[str],
+) -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks", turn_id="2026-10-06/250")
     await context.open_segments(CalendarDate(2026, 7, 12))
-    llm = FakeLLMRunner({"text": "done"})
-    executor = CoreAnswerActionExecutor(
-        tasks=action_tasks(context),
-        llm=llm,
-        reference_resolvers=(TestReferenceResolver(),),
-    )
+    llm = FakeLLMRunner({"text": body})
+    executor = CoreAnswerActionExecutor(tasks=action_tasks(context), llm=llm)
     execution = _execution(
         "core.answer",
         {
             "guide_blocks": [{"text": "answer"}],
-            "references": ["workspace:a.md"],
+            "input_blocks": [{"label": "evidence", "text": "workspace:unused.md"}],
         },
         executor_id="core.answer",
     )
@@ -273,18 +262,36 @@ async def test_answer_executor_uses_reference_links_and_returns_answer_payload()
     result = await executor.execute(execution, ActionExecutionContext())
 
     assert result.status is ActionResultStatus.SUCCESS
-    assert result.payload == {"text": "done", "references": ["workspace:a.md"]}
-    labels = tuple(message.label for message in llm.calls[0].messages.messages)
-    assert "task_prompt:input:test-ref" in labels
+    assert result.payload == {"text": body, "references": references}
+    call = llm.calls[0]
+    assert call.settings.answer_format is AnswerFormat.TEXT
+    assert "workspace:unused.md" in _text_for_label(call, "task_prompt:input:evidence")
+    assert any(
+        "user asks" in part.text
+        for message in call.messages.messages
+        for part in message.parts
+        if isinstance(part, TextPart)
+    )
+    await context.close_segments()
 
 
-async def test_answer_executor_identifies_invalid_task_output() -> None:
+@pytest.mark.parametrize(
+    "reason",
+    [
+        TaskFailureReason.INVALID_OUTPUT_PROTOCOL,
+        TaskFailureReason.OUTPUT_LIMIT_REACHED,
+        TaskFailureReason.CONTENT_FILTERED,
+    ],
+)
+async def test_answer_executor_identifies_failed_generation(
+    reason: TaskFailureReason,
+) -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("question", turn_id="2026-10-22/1")
     await context.open_segments(CalendarDate(2026, 10, 22))
-    feedback = "Expected a JSON object, got an array."
+    feedback = "The generation did not finish successfully."
     failure = TaskFailure(
-        reason=TaskFailureReason.INVALID_OUTPUT_PROTOCOL,
+        reason=reason,
         scope=TaskFailureScope.OUTPUT_PROTOCOL,
         model_feedback=feedback,
     )
@@ -304,8 +311,12 @@ async def test_answer_executor_identifies_invalid_task_output() -> None:
     assert result.failure is not None
     assert result.failure.reason == failure.reason.value
     assert result.failure.scope == failure.scope.value
-    assert result.failure.disposition is ActionFailureDisposition.RETRY_SAME
-    assert "Answer LLM task" in result.failure.feedback
+    assert result.failure.disposition is (
+        ActionFailureDisposition.RETRY_SAME
+        if reason is TaskFailureReason.INVALID_OUTPUT_PROTOCOL
+        else ActionFailureDisposition.CHANGE_REQUEST
+    )
+    assert "Answer generation" in result.failure.feedback
     assert feedback in result.failure.feedback
     assert len(llm.calls) == 1
     await context.close_segments()
@@ -343,6 +354,7 @@ async def test_task_output_keeps_owner_artifact_limit_and_task_failure() -> None
     result = TaskResult.success(
         raw_response=raw, answer=TextAnswer("123456"), tool_calls=()
     )
+    assert ActionTaskOutput.text(result, execution, subject="answer") == "123456"
     assert (
         ActionTaskOutput.text(result, execution, subject="artifact", max_chars=10)
         == "123456"
@@ -369,6 +381,25 @@ async def test_task_output_keeps_owner_artifact_limit_and_task_failure() -> None
     assert output.failure is not None
     assert output.failure.scope == "llm.output"
     assert output.failure.constraint == {"max_output_tokens": 2048}
+
+
+@pytest.mark.parametrize("body", ["", " \n\t"])
+async def test_answer_rejects_empty_or_whitespace_body(body: str) -> None:
+    context = ContextEngineBuilder(system_text="system").build()
+    context.begin_turn("answer", turn_id="2026-10-06/278")
+    await context.open_segments(CalendarDate(2026, 10, 6))
+    executor = CoreAnswerActionExecutor(
+        tasks=action_tasks(context), llm=FakeLLMRunner({"text": body})
+    )
+    result = await executor.execute(
+        _execution("core.answer", {"guide_blocks": [{"text": "answer"}]}),
+        ActionExecutionContext(),
+    )
+    assert result.status is ActionResultStatus.FAILED
+    assert result.failure is not None
+    assert result.failure.reason == "missing_text_answer"
+    assert result.payload == {}
+    await context.close_segments()
 
 
 @pytest.mark.parametrize("include_context", [True, False])
@@ -409,7 +440,7 @@ def _execution(
     action_name: str,
     params: JsonObject,
     *,
-    executor_id: str = "core.reason",
+    executor_id: str | None = None,
     options: JsonObject | None = None,
 ) -> ActionExecution:
     catalog = ActionCatalog(
@@ -431,7 +462,7 @@ def _execution(
                 semantic=ActionSemanticSpec(),
                 runtime=ActionRuntimeSpec(),
                 execution=ActionExecutionSpec(
-                    executor=executor_id,
+                    executor=executor_id or action_name,
                     options=options or {},
                 ),
             ),

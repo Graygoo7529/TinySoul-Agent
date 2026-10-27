@@ -107,11 +107,6 @@ INVALID_ANALYSIS_SOURCE_IDS = (
 )
 
 # Local model feedback. Used by plugins/workspace/actions/operations.py:execute.
-TASK_SOURCES_UNAVAILABLE = (
-    "Workspace task sources cannot be used; inspect the resource or reduce its scope."
-)
-
-# Local model feedback. Used by plugins/workspace/actions/operations.py:execute.
 INVALID_WORKSPACE_REQUEST = (
     "Workspace request is invalid, its target is unavailable, or the operation "
     "conflicts with current files. Inspect the target and adjust the request."

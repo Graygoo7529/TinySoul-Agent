@@ -14,10 +14,56 @@ from tinysoul.plugins.session.records.models import (
     SessionActionOutcome,
     SessionOutputRecord,
 )
+from tinysoul.plugins.session.views.navigation import project_relations, resource_locator
 
 from .synthetic import SyntheticAction, completion
 
 DAY = CalendarDay.parse("2026-07-25")
+
+
+@pytest.mark.parametrize(
+    ("ref", "locator"),
+    [
+        (
+            "workspace:report.md#L1-L3",
+            {"ref": "workspace:report.md#L1-L3", "day": str(DAY)},
+        ),
+        ("memory:latest", {"ref": "memory:daily/2026-07-24"}),
+        ("memory:latest#notes", {"ref": "memory:daily/2026-07-24#notes"}),
+        ("memory:current#notes", None),
+    ],
+)
+def test_output_citation_preserves_recorded_binding_and_fragment(ref, locator) -> None:
+    facts = replace(
+        completion("2026-07-25/10"),
+        segments={
+            "memory": {
+                "resolved_references": {
+                    "memory:latest": {"ref": "memory:daily/2026-07-24"},
+                }
+            }
+        },
+    )
+    record = project_turn_record(
+        facts,
+        day=DAY,
+        output=SessionOutputRecord(text=f"See [source]({ref}).", references=(ref,)),
+        exhausted=False,
+        status=TurnOutcomeStatus.ANSWERED,
+    )
+    occurrence = resource_locator(record, ref)
+    assert occurrence["target_ref"] == ref
+    if locator is None:
+        assert occurrence["unresolved_origin"] is True
+        assert "locator" not in occurrence
+    else:
+        assert occurrence["locator"] == locator
+    assert any(
+        edge["source"] == record.ref + "#output"
+        and edge["target"] == occurrence["ref"]
+        and edge["relation"] == "references"
+        for edge in project_relations(record)
+    )
 
 
 @pytest.mark.parametrize(

@@ -3,12 +3,7 @@
 from __future__ import annotations
 
 from tinysoul.prompts.plugins import workspace as prompt_text
-from tinysoul.kernel.context import (
-    PromptBlock,
-    PromptReferenceError,
-    PromptReferenceResolver,
-    TaskPrompt,
-)
+from tinysoul.kernel.context import PromptBlock, TaskPrompt
 from tinysoul.llm.protocol.messages import ImagePart, TextPart, UserMessage
 
 from .inspection.models import (
@@ -22,6 +17,7 @@ from .errors import (
     WorkspaceError,
     WorkspaceImageValidationError,
     WorkspaceContractError,
+    WorkspacePromptReferenceError,
 )
 from .refs import WORKSPACE_REF_PREFIX
 from .storage.manifest import WorkspaceResourceKind
@@ -83,7 +79,7 @@ class WorkspaceAnalysisPromptBuilder:
         )
 
 
-class WorkspacePromptReferenceResolver(PromptReferenceResolver):
+class WorkspacePromptReferenceResolver:
     """Resolve workspace refs into task prompt blocks."""
 
     def __init__(
@@ -110,12 +106,12 @@ class WorkspacePromptReferenceResolver(PromptReferenceResolver):
 
     async def _resolve(self, ref: str, *, role: str) -> tuple[PromptBlock, ...]:
         if not isinstance(ref, str) or not ref:
-            raise PromptReferenceError(
+            raise WorkspacePromptReferenceError(
                 prompt_text.REFERENCE_REF_REQUIRED,
                 reason="missing_workspace_ref",
             )
         if not self.supports(ref):
-            raise PromptReferenceError(
+            raise WorkspacePromptReferenceError(
                 prompt_text.WORKSPACE_REFERENCE_REQUIRED,
                 reason="unsupported_workspace_ref",
                 payload={"ref": ref},
@@ -153,14 +149,14 @@ class WorkspacePromptReferenceResolver(PromptReferenceResolver):
                     ),
                 )
             if record.kind is WorkspaceResourceKind.DIRECTORY:
-                raise PromptReferenceError(
-                    prompt_text.unsupported_directory_reference(ref=ref),
+                raise WorkspacePromptReferenceError(
+                    prompt_text.unsupported_directory_reference(ref=ref[:256]),
                     reason="directory_requires_inspection",
                     payload={"ref": ref, "kind": record.kind.value},
                 )
             if record.kind is WorkspaceResourceKind.DOCUMENT:
-                raise PromptReferenceError(
-                    prompt_text.reference_requires_conversion(ref=ref),
+                raise WorkspacePromptReferenceError(
+                    prompt_text.reference_requires_conversion(ref=ref[:256]),
                     reason="conversion_required",
                     payload={
                         "ref": ref,
@@ -168,8 +164,8 @@ class WorkspacePromptReferenceResolver(PromptReferenceResolver):
                         "media_type": record.media_type,
                     },
                 )
-            raise PromptReferenceError(
-                prompt_text.unsupported_binary_reference(ref=ref),
+            raise WorkspacePromptReferenceError(
+                prompt_text.unsupported_binary_reference(ref=ref[:256]),
                 reason="unsupported_binary_resource",
                 payload={
                     "ref": ref,
@@ -177,16 +173,16 @@ class WorkspacePromptReferenceResolver(PromptReferenceResolver):
                     "media_type": record.media_type,
                 },
             )
-        except PromptReferenceError:
+        except WorkspacePromptReferenceError:
             raise
         except WorkspaceImageValidationError as exc:
-            raise PromptReferenceError(
-                prompt_text.invalid_image_reference(ref=ref),
+            raise WorkspacePromptReferenceError(
+                prompt_text.invalid_image_reference(ref=ref[:256]),
                 reason="invalid_image_resource",
                 payload={"error_type": type(exc).__name__, "ref": ref},
             ) from exc
         except WorkspaceContractError as exc:
-            raise PromptReferenceError(
+            raise WorkspacePromptReferenceError(
                 prompt_text.REFERENCE_UNAVAILABLE,
                 reason="workspace_reference_failed",
                 payload={"error_type": type(exc).__name__, "ref": ref},

@@ -46,7 +46,9 @@ def unsupported_answer_format(*, answer_format: str) -> str:
 TOOL_CALLS_ARE_DISABLED_FOR_THIS_TASK = "Tool calls are disabled for this task"
 
 # Local model feedback. Used by llm/protocol/responses.py:_interpret_tool_calls.
-EXPECTED_AT_LEAST_ONE_TOOL_CALL = "Expected at least one tool call"
+EXPECTED_AT_LEAST_ONE_TOOL_CALL = (
+    "This response contained no tool calls. Call a tool available for this task."
+)
 
 
 # Local model feedback. Used by llm/protocol/responses.py:_interpret_tool_calls.
@@ -56,7 +58,7 @@ def unsupported_tool_use(*, tool_use: str) -> str:
 
 # Local model feedback. Used by llm/protocol/responses.py:_validate_tool_scope.
 def unexpected_tool_call(*, name: str) -> str:
-    return f"Unexpected tool call: {name}"
+    return f"Tool '{name}' is unavailable in this task. Use the current tool definitions."
 
 
 # Local model feedback. Used by llm/protocol/responses.py:_validate_tool_scope.
@@ -70,8 +72,11 @@ def missing_forced_tool(*, forced_name: str) -> str:
 
 
 # Local model feedback. Used by llm/protocol/responses.py:_parse_json_object.
-def invalid_json_response(*, detail: str) -> str:
-    return f"Failed to parse model response as JSON object: {detail}"
+def invalid_json_response(*, detail: str, line: int, column: int) -> str:
+    return (
+        "Return one JSON object. The response could not be parsed "
+        f"at line {line}, column {column}: {detail}."
+    )
 
 
 # Local model feedback. Used by llm/protocol/responses.py:_parse_json_object.

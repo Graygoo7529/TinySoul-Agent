@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tinysoul.infra.json import JsonObject
+
 
 class WorkspaceError(Exception):
     """Base class for workspace module errors."""
@@ -9,6 +11,22 @@ class WorkspaceError(Exception):
 
 class WorkspaceContractError(WorkspaceError):
     """Raised when callers violate the workspace module contract."""
+
+
+class WorkspacePromptReferenceError(WorkspaceContractError):
+    """A task source cannot be used; feedback is safe for the local Action result."""
+
+    def __init__(
+        self,
+        feedback: str,
+        *,
+        reason: str,
+        payload: JsonObject | None = None,
+    ) -> None:
+        super().__init__(feedback)
+        self.feedback = feedback
+        self.reason = reason
+        self.payload = payload or {}
 
 
 class WorkspaceImageValidationError(WorkspaceContractError):

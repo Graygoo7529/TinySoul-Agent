@@ -32,6 +32,8 @@ kind 默认 user；home/memory 表示同一 Agent 的独立 Reflection 情景，
 
 result 尚未完成时为 null；完成后与 SDK TurnResult.to_json() 一致。User 结果包含正式 output 或 completion、有限 failure、finish_failures 和独立 cleanup；Reflection 结果保留各任务及其目标日期；执行前取消/失败使用 request_failure，不伪造执行事实。结果不包含 Context trace、Runtime transfer 或私有对象。
 
+User output 的 text 是最终回答正文，references 是从正文内部 Markdown 链接提取的目标列表，按出现顺序去重，无引用时为空。该列表不代表所有已读材料或已经验证的证据；外部 Web 链接保留在正文。内部生成失败不会发布正式 output。字段形状不变，展示端继续按普通回答渲染。
+
 句柄保留有界。未知或已淘汰身份返回 404 turn.not_found；Endpoint 不从 Observation 或 Session 重新构造运行结果。reload 后已完成的句柄仍保留原结果；SDK restart 重新装配后，旧服务拒绝操作，旧持有句柄只能读取原结果。
 
 | 操作 | 请求体 | 回执 |

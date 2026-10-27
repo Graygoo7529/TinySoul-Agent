@@ -255,6 +255,8 @@ def test_initialized_project_runs_cli_through_fake_openai_provider(
     assert "hello from fake provider" in captured.out
     assert len(server.requests) == 3
     assert all(request.get("model") == "fake-model" for request in server.requests)
+    assert "response_format" not in server.requests[-1]
+    assert not server.requests[-1].get("tools")
 
 
 @contextmanager
@@ -343,7 +345,7 @@ def _provider_response(index: int) -> dict[str, object]:
     else:
         message = {
             "role": "assistant",
-            "content": json.dumps({"text": "hello from fake provider"}),
+            "content": "hello from fake provider",
         }
         finish_reason = "stop"
     return {

@@ -44,7 +44,7 @@ workspace:converted/report.assets/page-003.png
 
 图片、渲染页面和附件统一进入 Markdown 末尾的 `Extracted Resources`，使用 canonical Workspace 引用；资源 label 保留可确定的页面或原文件名信息。无有效文本但页面可渲染时，Markdown 对每页给出有界占位，并在资源段列出页面图片 引用，结果状态为 `visual_only` 或 `partial`，不是 OCR 失败。
 
-转换过程不产生 `ImagePart` 或 base64。Agent 后续把生成的图片 引用 用作 `references` 时，WorkspacePromptReferenceResolver 才读取图片并构造 ImagePart，LLM provider adapter 再编码供应商传输格式。
+转换过程不产生 `ImagePart` 或 base64。Workspace 自己的 compose/describe 模型任务读取图片目标或参考资源时，由 Workspace 的提示资源解析器构造 ImagePart，再由 LLM provider adapter 编码供应商传输格式。core.answer/core.reason 使用已组装 Context，不通过 references 参数加载图片；workspace.inspect 对图片只提供元数据，不等价于视觉读取。
 
 ## Workspace 协作
 

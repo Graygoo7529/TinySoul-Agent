@@ -43,7 +43,7 @@ from tinysoul.kernel.registration import (
 )
 from tinysoul.llm.protocol.messages import Message, UserMessage
 from tinysoul.llm.protocol.requests import TaskCall
-from tinysoul.llm.protocol.responses import JsonAnswer, RawResponse, TaskResult
+from tinysoul.llm.protocol.responses import TextAnswer, RawResponse, TaskResult
 from tinysoul.llm.protocol.tools import ToolCallRecord
 from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.runtime import RUNTIME_STARTUP_FAILED, RunScope, RuntimeException, Signal
@@ -319,14 +319,14 @@ def _tool_result(*tool_calls: ToolCallRecord) -> TaskResult:
     )
 
 
-def _json_result(value: JsonObject) -> TaskResult:
+def _text_result(value: str) -> TaskResult:
     return TaskResult.success(
         raw_response=RawResponse(
-            answer_text="{}",
+            answer_text=value,
             model_id="fake",
             provider_id="fake",
         ),
-        answer=JsonAnswer(value),
+        answer=TextAnswer(value),
         tool_calls=(),
     )
 

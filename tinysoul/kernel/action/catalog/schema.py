@@ -6,7 +6,9 @@ from collections.abc import Mapping
 
 from tinysoul.prompts.kernel import action as prompt_text
 from tinysoul.infra.config import ConfigError
-from tinysoul.infra.json import JsonObject, JsonValue
+from tinysoul.infra.json import JsonObject, JsonValue, dumps_json
+
+from ..result import MAX_FAILURE_FEEDBACK_CHARS
 
 SUPPORTED_SCHEMA_KEYS = {
     "oneOf",
@@ -40,6 +42,10 @@ SUPPORTED_TYPES = {
 
 class ActionSchemaValidationError(ValueError):
     """Raised when action parameters do not match an action schema."""
+
+    def __init__(self, feedback: str) -> None:
+        self.feedback = feedback[:MAX_FAILURE_FEEDBACK_CHARS]
+        super().__init__(self.feedback)
 
 
 class ActionSchemaDefinitionError(ValueError):
@@ -334,17 +340,23 @@ def _validate_value(value: JsonValue, *, schema: JsonObject, path: str) -> None:
     alternatives = schema.get("oneOf")
     if isinstance(alternatives, list):
         matches = 0
+        failures: list[str] = []
         for alternative in alternatives:
             if not isinstance(alternative, dict):
                 raise ActionSchemaValidationError(prompt_text.INVALID_ONEOF_DEFINITION)
             try:
                 _validate_value(value, schema=alternative, path=path)
-            except ActionSchemaValidationError:
+            except ActionSchemaValidationError as exc:
+                detail = exc.feedback[:320]
+                if detail not in failures and len(failures) < 3:
+                    failures.append(detail)
                 continue
             matches += 1
         if matches != 1:
             raise ActionSchemaValidationError(
-                prompt_text.parameter_variant_mismatch(path=path)
+                prompt_text.parameter_variant_mismatch(
+                    path=path, matches=matches, details=tuple(failures)
+                )
             )
     expected_type = schema.get("type")
     if expected_type is not None:
@@ -355,14 +367,18 @@ def _validate_value(value: JsonValue, *, schema: JsonObject, path: str) -> None:
         if not _matches_json_type(value, expected_type):
             raise ActionSchemaValidationError(
                 prompt_text.parameter_type_mismatch(
-                    path=path, expected_type=expected_type
+                    path=path, expected_type=expected_type, actual_type=_json_type(value)
                 )
             )
 
     enum_values = schema.get("enum")
     if isinstance(enum_values, list) and value not in enum_values:
         raise ActionSchemaValidationError(
-            prompt_text.parameter_enum_mismatch(path=path)
+            prompt_text.parameter_enum_mismatch(
+                path=path,
+                choices=tuple(dumps_json(item)[:120] for item in enum_values[:8]),
+                more=len(enum_values) > 8,
+            )
         )
 
     if isinstance(value, int | float) and not isinstance(value, bool):
@@ -434,13 +450,15 @@ def _validate_object(value: JsonObject, *, schema: JsonObject, path: str) -> Non
         )
     for name in required:
         if isinstance(name, str) and name not in value:
-            raise ActionSchemaValidationError(prompt_text.missing_parameter(name=name))
+            raise ActionSchemaValidationError(
+                prompt_text.missing_parameter(name=f"{path}.{name}")
+            )
 
     if schema.get("additionalProperties") is False:
         for name in value:
             if name not in properties:
                 raise ActionSchemaValidationError(
-                    prompt_text.unexpected_parameter(name=name)
+                    prompt_text.unexpected_parameter(name=f"{path}.{name}")
                 )
 
     for name, item in value.items():
@@ -450,18 +468,22 @@ def _validate_object(value: JsonObject, *, schema: JsonObject, path: str) -> Non
 
 
 def _matches_json_type(value: JsonValue, expected_type: str) -> bool:
-    if expected_type == "string":
-        return isinstance(value, str)
     if expected_type == "number":
         return isinstance(value, int | float) and not isinstance(value, bool)
-    if expected_type == "integer":
-        return isinstance(value, int) and not isinstance(value, bool)
-    if expected_type == "boolean":
-        return isinstance(value, bool)
-    if expected_type == "object":
-        return isinstance(value, dict)
-    if expected_type == "array":
-        return isinstance(value, list)
-    if expected_type == "null":
-        return value is None
-    return False
+    return _json_type(value) == expected_type
+
+
+def _json_type(value: JsonValue) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, float):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, dict):
+        return "object"
+    return "array"
