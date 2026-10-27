@@ -584,3 +584,36 @@ $env:TINYSOUL_REAL_MODELS = "deepseek-flash,grok-latest,claude-haiku,gemini-argo
 - typecheck：通过，`ty 0.0.84`。
 - Full：1378 passed、10 deselected，330.65 秒；随后仅修改默认 suite 不运行的 external 缓存断言，对应四项真实调用及再次 typecheck 均通过。
 - 本次没有前端实现变更；第 13 节已完成的 96 suites / 824 tests 和生产 build 记录继续适用。本次不为新增 binding 重复执行前端全量测试。
+
+## 15. GPT-6 Luna 补充实测（2026-10-27）
+
+状态：`done`（真实 API 验证）。复用现有参数化测试，将 `gpt-luna` 纳入 OpenCode 验证；development/standard 已有 `opencode/gpt-6-luna` binding，不新增模型 ID 或复制专属测试。调用继续使用 `gpt` adapter 和 OpenAI Responses API。
+
+测试使用当前 development 模板生成的隔离项目 `B:/tmp/tinysoul-opencode-luna-20261027-922ae52d`，凭据仅从仓库 `.env` 读取 `OPENCODE_API_KEY` 后注入测试进程。网络继承根 HTTP/HTTPS 7897 代理；reasoning_effort=high、native_replay=encrypted、prompt_cache_mode=implicit 及其它选项沿现有模型配置，没有为测试关闭特性。Python 使用仓库 uv 管理的 `.venv`（3.13.17）。
+
+| 测试 | 实际结果 |
+| --- | --- |
+| JSON | 通过；合法 JSON object，计算结果正确 |
+| 图片输入 | 通过；图片实际进入 SDK 请求，颜色识别正确 |
+| 工具调用与结果往返 | 通过；生成预期工具调用，回传结果后正确回答 |
+| 原生推理回放 | 通过；首轮返回 encrypted_content，后续请求实际携带原值并成功继续计算 |
+| 提示缓存 | 通过；首轮 usage 报告 cache_creation_input_tokens=10,851、cached_input_tokens=0；后续 cached_input_tokens=10,851、cache_creation_input_tokens=58，满足后续命中超过首次基线的断言 |
+| 请求身份与路由 | 实际 URL 为 `https://opencode.ai/inference/go/openai/v1/responses`，User-Agent 为 `TinySoul-Agent/0.1.0`；同一多步用例的 x-opencode-session 始终等于 PromptCache.key |
+
+结果：**5 passed，34.60 秒**，无失败、跳过或额外复测。缓存创建计数是本次 OpenCode 返回的实际 usage，不推断为 OpenAI 官方 Responses 必然提供相同字段，也不表示创建了独立缓存资源。覆盖图片输入，不包含图片生成。
+
+测试报告：`.local-test/reports/cf0230457690425db799a89642553907/`；含调用步骤和 usage 的日志位于上述隔离项目 `external-results.log`。日志不保存凭据或 encrypted_content 正文。
+
+可重复运行命令（指定项目需有 OpenCode binding 和可用的 OPENCODE_API_KEY 环境来源）：
+
+```powershell
+$env:TINYSOUL_RUN_REAL_LLM_API = "1"
+$env:TINYSOUL_REAL_PROJECT_ROOT = "<配置完成的测试项目绝对路径>"
+$env:TINYSOUL_REAL_PROVIDER = "opencode"
+$env:TINYSOUL_REAL_MODELS = "gpt-luna"
+uv run --locked --extra dev python scripts/test.py --suite external tests/llm/adapter/test_real_provider_api.py -s --tb=short
+```
+
+与前次四个模型一起验证时，将 TINYSOUL_REAL_MODELS 设置为 `gpt-luna,deepseek-flash,grok-latest,claude-haiku,gemini-argon`，由同一套测试按模型配置生成用例。
+
+本地核对：Full 1387 passed、3 deselected，179.97 秒；typecheck 通过。本次工具环境不能写入 uv 的用户缓存，因此直接使用已有仓库 `.venv/Scripts/python.exe` 运行 `scripts/test.py`，typecheck 显式以 `--python .venv/Scripts/python.exe` 选择同一环境，未修改依赖或锁文件。仓库仅更新本节验证记录。
