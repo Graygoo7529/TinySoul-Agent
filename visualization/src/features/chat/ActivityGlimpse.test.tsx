@@ -101,3 +101,51 @@ it("uses the first content line when an analysis report has no heading", () => {
   expect(host.textContent).toContain("第一条结论");
   expect(host.textContent).not.toContain("- 第一条结论");
 });
+
+it("keeps web gists focused on primary content and adds only discovery states", () => {
+  act(() => root.render(glimpseBody(result({
+    actionId: "web.search_by_kimi",
+    payload: {
+      answer: "不应重复插入 gist 的搜索回答",
+      result_count: 2,
+      results: [
+        { title: "Context design", url: "https://example.com/context", snippet: "Context slots and recovery" },
+        { title: "Disclosure", url: "https://example.com/disclosure", snippet: "Bounded pages" },
+      ],
+    },
+  }))));
+  expect(host.textContent).toContain("Context design");
+  expect(host.textContent).toContain("Context slots and recovery");
+  expect(host.textContent).not.toContain("不应重复插入 gist 的搜索回答");
+  expect(host.textContent).not.toContain("2 个来源");
+
+  act(() => root.render(glimpseBody(result({
+    actionId: "web.fetch_with_defuddle",
+    payload: { title: "Recovery guide", excerpt: "Bounded content is reclaimed.", content_chars: 18420, extractor: "defuddle" },
+  }))));
+  expect(host.textContent).toContain("Recovery guide");
+  expect(host.textContent).toContain("Bounded content is reclaimed.");
+  expect(host.textContent).not.toContain("18,420");
+  expect(host.textContent).not.toContain("defuddle");
+
+  act(() => root.render(glimpseBody(result({
+    actionId: "web.discover_pages",
+    payload: {
+      page_count: 4, visited_count: 2, failed_count: 1, candidate_count: 1,
+      pages: [
+        { title: "Getting started", state: "visited", url: "https://example.com/start" },
+        { title: "Advanced setup", state: "failed", failure_reason: "request timeout", url: "https://example.com/advanced" },
+        { anchor_text: "API reference", state: "candidate", url: "https://example.com/api" },
+        { title: "第四页不进入有界 gist", state: "candidate", url: "https://example.com/fourth" },
+      ],
+    },
+  }))));
+  expect(host.textContent).toContain("已访问");
+  expect(host.textContent).toContain("失败");
+  expect(host.textContent).toContain("候选");
+  expect(host.textContent).toContain("request timeout");
+  expect(host.textContent).toContain("API reference");
+  expect(host.textContent).not.toContain("4 页");
+  expect(host.textContent).not.toContain("2 已访问");
+  expect(host.textContent).not.toContain("第四页不进入有界 gist");
+});

@@ -459,6 +459,99 @@ describe("ActionDetailPanel", () => {
     expect(container.textContent).not.toContain("产物元数据，不是生成正文");
     expect(container.querySelector(".md-body")).toBeNull();
   });
+
+  it("renders search sources and fetch extraction facts in web result cards", async () => {
+    serveEvents([
+      event("action.call", 10, {
+        call_id: "c1", action: "web.search_by_kimi", domain: "web", sequence: 1,
+        params: { query: "Context recovery" },
+      }, [TURN, CYCLE, PHASE2]),
+      event("action.result", 20, {
+        result_id: "r1", call_id: "c1", action: "web.search_by_kimi",
+        status: "success", stage: "execution", sequence: 1, domain: "web",
+        invoke_id: "invoke_c1", batch_id: "b1", failure: null,
+        payload: {
+          answer: "Context owner drives recovery.", result_count: 1,
+          results: [{ title: "Context design", url: "https://example.com/context", snippet: "Slots and recovery" }],
+          untrusted_external_content: true,
+        },
+      }, [TURN, CYCLE, PHASE3]),
+    ]);
+    render(
+      <ActionDetailPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29"
+        selector={{ callId: "c1", action: "web.search_by_kimi", ordinal: 0 }} />,
+    );
+    await flush();
+    expect(container.textContent).toContain("Context owner drives recovery.");
+    expect(container.textContent).toContain("Context design");
+    expect(container.textContent).toContain("Slots and recovery");
+    expect(container.textContent).toContain("https://example.com/context");
+
+    serveEvents([
+      event("action.call", 30, {
+        call_id: "c2", action: "web.fetch_with_defuddle", domain: "web", sequence: 1,
+        params: { url: "https://example.com/guide", target_ref: "workspace:web/guide.md" },
+      }, [TURN, CYCLE, PHASE2]),
+      event("action.result", 40, {
+        result_id: "r2", call_id: "c2", action: "web.fetch_with_defuddle",
+        status: "success", stage: "execution", sequence: 1, domain: "web",
+        invoke_id: "invoke_c2", batch_id: "b1", failure: null,
+        payload: {
+          extractor: "defuddle", title: "Recovery guide", excerpt: "Bounded content is reclaimed.",
+          content_chars: 18420, markdown_ref: "workspace:web/guide.md", untrusted_external_content: true,
+        },
+      }, [TURN, CYCLE, PHASE3]),
+    ]);
+    render(
+      <ActionDetailPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29"
+        selector={{ callId: "c2", action: "web.fetch_with_defuddle", ordinal: 0 }} />,
+    );
+    await flush();
+    expect(container.textContent).toContain("defuddle");
+    expect(container.textContent).toContain("18,420 字符");
+    expect(container.textContent).toContain("Recovery guide");
+    expect(container.textContent).toContain("Bounded content is reclaimed.");
+    expect(container.textContent).toContain("原始页面");
+    expect(container.textContent).toContain("workspace:web/guide.md");
+  });
+
+  it("renders discovery counts, page states and failure reasons in the detail card", async () => {
+    serveEvents([
+      event("action.call", 10, {
+        call_id: "c1", action: "web.discover_pages", domain: "web", sequence: 1,
+        params: { start_url: "https://example.com/docs/", max_visit_depth: 2 },
+      }, [TURN, CYCLE, PHASE2]),
+      event("action.result", 20, {
+        result_id: "r1", call_id: "c1", action: "web.discover_pages",
+        status: "success", stage: "execution", sequence: 1, domain: "web",
+        invoke_id: "invoke_c1", batch_id: "b1", failure: null,
+        payload: {
+          source: { title: "Example docs", url: "https://example.com/docs/" },
+          page_count: 3, visited_count: 1, failed_count: 1, candidate_count: 1,
+          skipped_count: 0, stop_reason: "completed",
+          pages: [
+            { title: "Getting started", state: "visited", url: "https://example.com/docs/start" },
+            { title: "Advanced setup", state: "failed", failure_reason: "request timeout", url: "https://example.com/docs/advanced" },
+            { anchor_text: "API reference", state: "candidate", url: "https://example.com/docs/api" },
+          ],
+          untrusted_external_content: true,
+        },
+      }, [TURN, CYCLE, PHASE3]),
+    ]);
+    render(
+      <ActionDetailPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29"
+        selector={{ callId: "c1", action: "web.discover_pages", ordinal: 0 }} />,
+    );
+    await flush();
+    expect(container.textContent).toContain("Example docs");
+    expect(container.textContent).toContain("3 页");
+    expect(container.textContent).toContain("1 已访问");
+    expect(container.textContent).toContain("1 失败");
+    expect(container.textContent).toContain("1 候选");
+    expect(container.textContent).toContain("stop: completed");
+    expect(container.textContent).toContain("request timeout");
+    expect(container.textContent).toContain("API reference");
+  });
 });
 
 // ---------------------------------------------------------------------------

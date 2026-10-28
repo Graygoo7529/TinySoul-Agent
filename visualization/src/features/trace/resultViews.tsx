@@ -20,6 +20,14 @@ import { asNumber, asObject, asString, asStringArray } from "./facts";
 import { DiffGlimpse } from "../chat/ActivityGlimpse";
 import { Markdown } from "../../components/markdown/Markdown";
 import { analysisNarrative } from "./analysisModel";
+import {
+  webPageStateLabel,
+  webPageStateTone,
+  webResult,
+  type WebDiscoveryResult,
+  type WebFetchResult,
+  type WebSearchResult,
+} from "./webModel";
 import { openExternal } from "../resources/router";
 import type { ActionFamily, ResultViewProps } from "./registry";
 import { isSearchPage, SearchResultView } from "./SearchResultView";
@@ -504,161 +512,21 @@ function WriteView({ result, params, nav }: ResultViewProps) {
 // web
 // ---------------------------------------------------------------------------
 
-function WebView({ result, nav }: ResultViewProps) {
+function WebView({ action, result, params, nav }: ResultViewProps) {
   if (result === null) return <EmptyResult />;
-  const source = asObject(result.source);
-  const results = Array.isArray(result.results) ? result.results : null;
-  const pages = Array.isArray(result.pages) ? result.pages : null;
-  const answer = asString(result.answer);
+  const model = webResult(action, result);
+  if (model === null) return <GenericView result={result} params={params} nav={nav} />;
   const warningCodes = asStringArray(result.warning_codes);
-
   return (
     <div className="space-y-2">
-      {/* Fetch: extractor + extracted page. */}
-      {asString(result.extractor) !== null && (
-        <FactGrid>
-          <FactRow label="extractor" value={asString(result.extractor)} />
-          {asString(result.title) !== null && (
-            <FactRow label="title" value={asString(result.title)} />
-          )}
-          {asNumber(result.content_chars) !== null && (
-            <FactRow label="content" value={`${asNumber(result.content_chars)} chars`} />
-          )}
-        </FactGrid>
+      {model.kind === "search" && <WebSearchDetails model={model} />}
+      {model.kind === "fetch" && (
+        <WebFetchDetails
+          model={model}
+          sourceUrl={params !== null ? asString(params.url) : null}
+        />
       )}
-      {asString(result.excerpt) !== null && (
-        <Excerpt text={asString(result.excerpt)!} />
-      )}
-      {/* Kimi search: answer + result list with real URLs. */}
-      {answer !== null && answer !== "" && <Excerpt text={answer} max={1200} />}
-      {results !== null && (
-        <div className="space-y-1">
-          <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-            Web results ({results.length})
-          </div>
-          {results.slice(0, 12).map((entry, index) => {
-            const object = asObject(entry);
-            if (object === null) return null;
-            const url = asString(object.url);
-            const title = asString(object.title) ?? url;
-            return (
-              <button
-                key={index}
-                type="button"
-                onClick={() => url !== null && openExternal(url)}
-                className="flex w-full items-center gap-1.5 text-left text-[12px] text-accent hover:underline"
-                title={url ?? undefined}
-              >
-                <ExternalLink size={11} className="shrink-0" />
-                <span className="min-w-0 truncate">{title}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-      {/* Page discovery: seed source + per-page states. */}
-      {source !== null && (
-        <div className="space-y-1">
-          <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-            Discovery source
-          </div>
-          <FactGrid>
-            {asString(source.url) !== null && (
-              <FactRow
-                label="url"
-                value={
-                  <button
-                    type="button"
-                    className="text-accent hover:underline"
-                    onClick={() => openExternal(asString(source.url)!)}
-                  >
-                    {asString(source.url)}
-                  </button>
-                }
-              />
-            )}
-            {asString(source.title) !== null && (
-              <FactRow label="title" value={asString(source.title)} />
-            )}
-          </FactGrid>
-          <FactGrid>
-            {asNumber(result.page_count) !== null && (
-              <FactRow label="pages" value={asNumber(result.page_count)} />
-            )}
-            {asNumber(result.visited_count) !== null && (
-              <FactRow label="visited" value={asNumber(result.visited_count)} />
-            )}
-            {asNumber(result.failed_count) !== null &&
-              asNumber(result.failed_count)! > 0 && (
-                <FactRow label="failed" value={asNumber(result.failed_count)} />
-              )}
-            {asString(result.stop_reason) !== null && (
-              <FactRow label="stop" value={asString(result.stop_reason)} />
-            )}
-          </FactGrid>
-          {pages !== null && pages.length > 0 && (
-            <div className="space-y-0.5">
-              <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-                Discovered pages ({pages.length}
-                {asNumber(result.page_count) !== null &&
-                asNumber(result.page_count) !== pages.length
-                  ? ` of ${asNumber(result.page_count)}`
-                  : ""}
-                )
-              </div>
-              {pages.slice(0, 24).map((entry, index) => {
-                const page = asObject(entry);
-                if (page === null) return null;
-                const url = asString(page.url);
-                const state = asString(page.state) ?? "candidate";
-                const title =
-                  asString(page.title) ?? asString(page.anchor_text) ?? url;
-                return (
-                  <div key={index} className="flex items-center gap-1.5">
-                    <Badge
-                      tone={
-                        state === "visited"
-                          ? "green"
-                          : state === "failed"
-                            ? "red"
-                            : "gray"
-                      }
-                    >
-                      {state}
-                    </Badge>
-                    {url !== null ? (
-                      <button
-                        type="button"
-                        onClick={() => openExternal(url)}
-                        className="flex min-w-0 items-center gap-1 text-left text-[12px] text-accent hover:underline"
-                        title={url}
-                      >
-                        <ExternalLink size={11} className="shrink-0" />
-                        <span className="truncate">{title}</span>
-                      </button>
-                    ) : (
-                      <span className="truncate text-[12px] text-fg-muted">
-                        {title}
-                      </span>
-                    )}
-                    {state === "failed" &&
-                      asString(page.failure_reason) !== null && (
-                        <span className="truncate text-[11px] text-fg-faint">
-                          {asString(page.failure_reason)}
-                        </span>
-                      )}
-                  </div>
-                );
-              })}
-              {pages.length > 24 && (
-                <div className="text-[11px] text-fg-faint">
-                  … {pages.length - 24} more pages in the full result
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+      {model.kind === "discover" && <WebDiscoveryDetails model={model} />}
       {warningCodes.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {warningCodes.map((code) => (
@@ -682,6 +550,173 @@ function WebView({ result, nav }: ResultViewProps) {
         />
       )}
     </div>
+  );
+}
+
+function WebSearchDetails({ model }: { model: WebSearchResult }) {
+  const resultCount =
+    model.resultCount !== null && model.resultCount !== model.sources.length
+      ? ` / ${model.resultCount}`
+      : "";
+  return (
+    <div className="space-y-2">
+      {model.answer !== null && model.answer !== "" && (
+        <Excerpt text={model.answer} max={1200} />
+      )}
+      {model.sources.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[11px] font-medium text-fg-faint">
+            来源（{model.sources.length}{resultCount}）
+          </div>
+          {model.sources.slice(0, 12).map((source, index) => {
+            const title = source.title ?? source.url;
+            if (title === null) return null;
+            return (
+              <div key={source.url ?? index} className="rounded-lg border border-line/60 bg-bg-elev px-2.5 py-1.5">
+                <ExternalTitleLink url={source.url} title={title} />
+                {source.snippet !== null && source.snippet !== "" && (
+                  <div className="mt-0.5 line-clamp-2 text-[11px] leading-4.5 text-fg-muted">
+                    {source.snippet}
+                  </div>
+                )}
+                {source.url !== null && (
+                  <div className="mt-0.5 truncate font-mono text-[10px] text-fg-faint" title={source.url}>
+                    {source.url}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {model.sources.length > 12 && (
+            <div className="text-[11px] text-fg-faint">
+              … {model.sources.length - 12} more sources in the full result
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WebFetchDetails({ model, sourceUrl }: { model: WebFetchResult; sourceUrl: string | null }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {model.extractor !== null && <Badge tone="teal">{model.extractor}</Badge>}
+        {model.contentChars !== null && (
+          <span className="text-[11px] text-fg-faint">
+            正文 {model.contentChars.toLocaleString()} 字符
+          </span>
+        )}
+      </div>
+      {model.title !== null && model.title !== "" && (
+        <div className="text-[13px] font-medium text-fg">{model.title}</div>
+      )}
+      {model.excerpt !== null && model.excerpt !== "" && (
+        <Excerpt text={model.excerpt} />
+      )}
+      {sourceUrl !== null && (
+        <button
+          type="button"
+          onClick={() => openExternal(sourceUrl)}
+          className="flex max-w-full items-center gap-1 text-left text-[11px] text-accent hover:underline"
+          title={sourceUrl}
+        >
+          <ExternalLink size={11} className="shrink-0" />
+          <span className="truncate">原始页面</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+function WebDiscoveryDetails({ model }: { model: WebDiscoveryResult }) {
+  const metrics = [
+    model.pageCount !== null ? `${model.pageCount} 页` : null,
+    model.visitedCount !== null ? `${model.visitedCount} 已访问` : null,
+    model.failedCount !== null && model.failedCount > 0 ? `${model.failedCount} 失败` : null,
+    model.candidateCount !== null ? `${model.candidateCount} 候选` : null,
+    model.skippedCount !== null && model.skippedCount > 0 ? `${model.skippedCount} 跳过` : null,
+    model.stopReason !== null ? `stop: ${model.stopReason}` : null,
+  ].filter((value): value is string => value !== null);
+  return (
+    <div className="space-y-2">
+      <div>
+        {(model.sourceTitle !== null && model.sourceTitle !== "") || model.sourceUrl !== null ? (
+          <>
+            <div className="text-[13px] font-medium text-fg">
+              {model.sourceTitle || model.sourceUrl}
+            </div>
+            {model.sourceUrl !== null && (
+              <button
+                type="button"
+                onClick={() => openExternal(model.sourceUrl!)}
+                className="mt-0.5 flex max-w-full items-center gap-1 text-left font-mono text-[11px] text-accent hover:underline"
+                title={model.sourceUrl}
+              >
+                <ExternalLink size={11} className="shrink-0" />
+                <span className="truncate">{model.sourceUrl}</span>
+              </button>
+            )}
+          </>
+        ) : null}
+      </div>
+      {metrics.length > 0 && (
+        <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10.5px] text-fg-faint">
+          {metrics.map((metric) => <span key={metric}>{metric}</span>)}
+        </div>
+      )}
+      {model.pages.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[11px] font-medium text-fg-faint">
+            页面目录（{model.pages.length}）
+          </div>
+          {model.pages.slice(0, 24).map((page, index) => {
+            if (page.title === null) return null;
+            return (
+              <div key={page.url ?? index} className="flex items-start gap-2 rounded-lg border border-line/60 bg-bg-elev px-2.5 py-1.5">
+                <Badge tone={webPageStateTone(page.state)}>
+                  {webPageStateLabel(page.state)}
+                </Badge>
+                <div className="min-w-0 flex-1">
+                  <ExternalTitleLink url={page.url} title={page.title} />
+                  {page.url !== null && (
+                    <div className="mt-0.5 truncate font-mono text-[10px] text-fg-faint" title={page.url}>
+                      {page.url}
+                    </div>
+                  )}
+                  {page.state === "failed" && page.failureReason !== null && (
+                    <div className="mt-0.5 text-[11px] text-danger/80">
+                      {page.failureReason}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {model.pages.length > 24 && (
+            <div className="text-[11px] text-fg-faint">
+              … {model.pages.length - 24} more pages in the full result
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ExternalTitleLink({ url, title }: { url: string | null; title: string }) {
+  if (url === null) return <span className="text-[12px] text-fg-muted">{title}</span>;
+  return (
+    <button
+      type="button"
+      onClick={() => openExternal(url)}
+      className="flex max-w-full items-center gap-1 text-left text-[12px] text-accent hover:underline"
+      title={url}
+    >
+      <ExternalLink size={11} className="shrink-0" />
+      <span className="truncate">{title}</span>
+    </button>
   );
 }
 

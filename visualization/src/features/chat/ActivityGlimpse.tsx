@@ -10,6 +10,7 @@ import { diffLines } from "../../utils/diff";
 import { EASE_CALM } from "../../utils/motion";
 import { actionFamily } from "../trace/registry";
 import { analysisGist } from "../trace/analysisModel";
+import { webPageStateLabel, webResult } from "../trace/webModel";
 import { asObject, asString, asNumber } from "../trace/facts";
 import { pushActionDetail } from "../trace/entries";
 import { ActivityStep as Step } from "./ActivityStep";
@@ -86,6 +87,30 @@ export function glimpseBody(data: ActionGlimpseData) {
       {gist.title !== null && <div className="mt-0.5 truncate text-[11px] font-medium text-fg">{gist.title}</div>}
       {gist.summary !== null && <div className="line-clamp-2 break-words text-[11px] text-fg-muted">{gist.summary}</div>}
     </div>;
+  }
+  if (data.actionId === "web.discover_pages") {
+    const discovery = webResult(data.actionId, payload);
+    if (discovery?.kind === "discover" && discovery.pages.length > 0) {
+      return <div className="space-y-0.5">{discovery.pages.slice(0, SEARCH_GLIMPSE_ITEMS).map((page, index) => {
+        if (page.title === null) return null;
+        const stateClass = page.state === "visited"
+          ? "bg-success-soft text-success"
+          : page.state === "failed"
+            ? "bg-danger-soft text-danger"
+            : "bg-hover text-fg-faint";
+        return <div key={page.url ?? index} className="flex min-w-0 items-start gap-1.5 text-[11px]">
+          <span className={`shrink-0 rounded px-1 py-px text-[9px] ${stateClass}`}>
+            {webPageStateLabel(page.state)}
+          </span>
+          <div className="min-w-0">
+            <div className="truncate text-fg">{page.title}</div>
+            {page.state === "failed" && page.failureReason !== null && (
+              <div className="line-clamp-1 text-danger/80">{page.failureReason}</div>
+            )}
+          </div>
+        </div>;
+      })}</div>;
+    }
   }
   const items = Array.isArray(payload.items) ? payload.items : Array.isArray(payload.results) ? payload.results : [];
   if (items.length) return <div className="space-y-0.5">{items.slice(0, SEARCH_GLIMPSE_ITEMS).map((raw, i) => {
