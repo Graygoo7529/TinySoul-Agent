@@ -47,9 +47,7 @@ const ROLL_STRIDE_MS = 1100;
 const DRAIN_STRIDE_MS = 240;
 const SAFETY_THRESHOLD = 10;
 const SAFETY_RELEASE = 6;
-const ROLL_MS = 420;
 const REVEAL_MS = 340;
-const DRAIN_ROLL_MS = 320;
 const DRAIN_REVEAL_MS = 280;
 const THINK_ERASE_MS = 300;
 const THINK_REVEAL_DELAY_MS = 60;
@@ -239,21 +237,11 @@ export function LiveStatus({ activity, mode = "live", status, epoch, turnId, day
     const instant = !live || reduced === true;
     const drained = flushedIds.current.has(item.id);
     return (
-      <motion.div
+      <div
         key={item.id}
         data-activity-step={item.id}
+        className="grow-in"
         style={{ overflow: "hidden" }}
-        initial={instant ? false : { height: 0 }}
-        animate={{ height: "auto" }}
-        exit={{
-          height: 0,
-          opacity: 0,
-          transition: { duration: reduced ? 0 : 0.4, ease: EASE_CALM },
-        }}
-        transition={{
-          duration: reduced ? 0 : (drained ? DRAIN_ROLL_MS : ROLL_MS) / 1000,
-          ease: EASE_CALM,
-        }}
       >
         <div
           className="step-depth"
@@ -284,7 +272,7 @@ export function LiveStatus({ activity, mode = "live", status, epoch, turnId, day
             />
           </motion.div>
         </div>
-      </motion.div>
+      </div>
     );
   };
 
@@ -385,7 +373,7 @@ export function LiveStatus({ activity, mode = "live", status, epoch, turnId, day
               data-expanded={showAll || !live ? "" : undefined}
             >
               <div className="space-y-1.5 px-4 pb-2.5">
-                <AnimatePresence initial={false}>{visible.map(renderStep)}</AnimatePresence>
+                {visible.map(renderStep)}
               </div>
             </div>
           )}

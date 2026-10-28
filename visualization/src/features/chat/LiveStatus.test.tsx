@@ -37,6 +37,7 @@ it("lands the row before its gist; ongoing renders do not postpone it or undo a 
   expect(host.querySelector("[data-activity-gist]")?.textContent).toContain("Real body");
   act(() => host.querySelector<HTMLButtonElement>('[title="Hide the result detail"]')!.click());
   await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+  expect(host.querySelector("[data-activity-gist]")).toBeNull();
   expect(host.querySelector('[title="Show the result detail"]')).not.toBeNull();
   expect(host.querySelector('[title="Hide the result detail"]')).toBeNull();
 });
@@ -59,4 +60,54 @@ it("shows intent and domains independently while only reasoning enters the top s
   expect(host.querySelector('[data-activity-step="intent"]')?.textContent).toContain("Choose the relevant tools");
   expect(host.querySelector('[data-activity-step="intent"]')?.textContent).not.toContain("Selected domains");
   expect(host.querySelector('[data-activity-step="domains"]')?.textContent).toContain("Selected domains");
+});
+
+it("keeps new steps on top, removes old gists with their rows, and never shrinks the filled viewport", async () => {
+  vi.useRealTimers();
+  const observers = new Set<() => void>();
+  vi.stubGlobal("ResizeObserver", class {
+    private readonly callback: () => void;
+    constructor(callback: () => void) { this.callback = callback; observers.add(callback); }
+    observe() {}
+    disconnect() { observers.delete(this.callback); }
+  });
+  const makeStep = (index: number): ActivityPresentation["trail"][number] => ({
+    id: `step-${index}`, type: "action_result", timestamp: "", autoExpandGist: true,
+    content: { type: "action_result", glimpse: {
+      actionId: "workspace.read", domain: "workspace", stage: "result",
+      payload: { summary: `row-${index}`, text: `gist-${index}` }, result: { status: "success" },
+    } },
+  });
+  const trail = Array.from({ length: 20 }, (_, index) => makeStep(index + 1));
+  preference.reduced = true;
+  act(() => root.render(<LiveStatus epoch={1} turnId="turn" day="2026-10-02"
+    activity={{ ...activity, trail }} />));
+  const ids = () => [...host.querySelectorAll("[data-activity-step]")].map((node) => node.getAttribute("data-activity-step"));
+  expect(ids()).toEqual(Array.from({ length: 14 }, (_, index) => `step-${20 - index}`));
+  expect(host.textContent).toContain("gist-7");
+
+  const viewport = host.querySelector(".steps-viewport") as HTMLElement;
+  const inner = viewport.firstElementChild as HTMLElement;
+  Object.defineProperties(viewport, {
+    clientHeight: { value: 256, configurable: true },
+    scrollHeight: { value: 480, configurable: true },
+  });
+  Object.defineProperty(inner, "offsetHeight", { value: 480, configurable: true });
+  await act(async () => { observers.forEach((callback) => callback()); });
+  expect(viewport.style.minHeight).toBe("256px");
+
+  preference.reduced = false;
+  act(() => root.render(<LiveStatus epoch={1} turnId="turn" day="2026-10-02"
+    activity={{ ...activity, trail: [...trail, makeStep(21)] }} />));
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1200)); });
+  expect(ids()[0]).toBe("step-21");
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 800)); });
+  expect(ids()).toEqual(Array.from({ length: 14 }, (_, index) => `step-${21 - index}`));
+  expect(host.querySelector('[data-activity-step="step-7"]')).toBeNull();
+  expect(host.textContent).not.toContain("gist-7");
+
+  Object.defineProperty(viewport, "scrollHeight", { value: 200, configurable: true });
+  Object.defineProperty(inner, "offsetHeight", { value: 200, configurable: true });
+  await act(async () => { observers.forEach((callback) => callback()); });
+  expect(viewport.style.minHeight).toBe("256px");
 });
