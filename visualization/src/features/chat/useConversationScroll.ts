@@ -80,6 +80,7 @@ export function useConversationScroll(latestId: string | null, running: boolean,
     const content = contentRef.current;
     if (!scroll || !content) return;
     const onResize = () => {
+      if (scroll.clientHeight === 0) return;
       updateSpacer();
       if (current.current.recovering || !landed.current || previous.current !== current.current.latestId ||
           Date.now() < holdUntil.current || !following.current || glideFrame.current !== undefined) return;

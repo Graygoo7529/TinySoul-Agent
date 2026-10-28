@@ -47,10 +47,13 @@ export function AppShell() {
             </div>
           )}
           <div className="relative min-h-0 flex-1">
+            {connected && (
+              <div className={activeTab === "chat" ? "contents" : "hidden"}>
+                <ChatView />
+              </div>
+            )}
             {!connected && activeTab !== "settings" ? (
               <ConnectScreen />
-            ) : activeTab === "chat" ? (
-              <ChatView />
             ) : activeTab === "workspace" ? (
               <WorkspacePage />
             ) : activeTab === "home" ? (

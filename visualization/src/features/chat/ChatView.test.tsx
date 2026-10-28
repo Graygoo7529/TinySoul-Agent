@@ -402,6 +402,24 @@ describe("ChatView: scroll anchoring", () => {
     expect(pill).toBeDefined();
     expect(node.scrollTop).toBe(50);
   });
+
+  it("does not rewrite scroll state when a hidden ChatView reports zero size", async () => {
+    let resize: (() => void) | undefined;
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: () => void) { resize = callback; }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    await openLiveTurn([makeInteraction({ id: "i-1", role: "user.input", text: "start" })]);
+    await renderChat();
+    const node = fakeScrollMetrics(1000, 200);
+    node.scrollTop = 120;
+    Object.defineProperty(node, "clientHeight", { value: 0, configurable: true });
+    expect(resize).toBeDefined();
+    act(() => resize?.());
+    expect(node.scrollTop).toBe(120);
+  });
 });
 
 describe("ChatView: answer streaming and settle", () => {

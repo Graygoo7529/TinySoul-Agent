@@ -28,7 +28,7 @@ Composer 在没有未完成 User Turn 时创建新 Turn；已有可接受输入�
 
 活动缓冲不保留完整模型请求；响应只保留 reasoning、Phase1 域选择的 intent/域和控制调用身份。最多保留 2000 条事件并明确标记不完整。挂载或重连后，定向 replay 与现有流按 sequence 合并。需要查看完整模型请求、Context 和响应时，从 Trace 进入 ModelCall 详情。
 
-User 与 Reflection 使用同一套按 Turn ID 组织的活动缓冲、快照适配和 LiveStatus。运行中、最近收束或主动定位的卡片才定向读取活动，普通历史列表不批量加载模型正文；卡片保留自己的已捕获展示，离开时释放缓冲。正式终态与等待由快照决定，未知终态不默认显示成功。
+User 与 Reflection 使用同一套按 Turn ID 组织的活动缓冲、快照适配和 LiveStatus。运行中、最近收束或主动定位的卡片才定向读取活动，普通历史列表不批量加载模型正文；卡片保留自己的已捕获展示。连接存续期间 ChatView 始终保持挂载，切换到其它 Tab 时仅以 `display: none` 隐藏，因此 ActivityBuffer、滚动释放位置和 gist 状态连续保留，隐藏期间的新事件继续进入现有缓冲；断开连接时才卸载 ChatView 并释放对应缓冲。隐藏导致布局尺寸为零时，滚动测量不改写滚动位置或 spacer。正式终态与等待由快照决定，未知终态不默认显示成功。
 
 Activity 只把 `context.control.applied` 作为 todo、milestone、Background 加载/逐出的执行事实；初始背景快照和刷新事件不生成活动条目。模型请求提取局部任务 Skill provenance，以任务指导展示，同一 task 的相同挂载去重，并与 Background 共用资源标签。milestone 是事实寄存器，不默认标记为已完成任务。
 
