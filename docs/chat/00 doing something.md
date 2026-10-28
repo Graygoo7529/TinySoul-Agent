@@ -12,8 +12,9 @@
  
 ## WorkSpace
 - workspace action & context 段检查，摘要
+- workspace 完整读取；analyse 和 read；write 和 compose（phase2 决策是否需要 phase3 继续撰写）；phase3 生成的内容作为 action result 返回（可以类似 inspect 的效果返回预览和续接）；
 - workspace ignore 标记/目录（默认不放入上下文快照中）？或者指定类型的文件才放入 eorking 段中？或者可以放入 context 但不需要有摘要？
-- workspace 资源 pinned 标记，标记后日切不归档（或考虑复制归档，避免回顾时丢失）；检查归档最长保持时间
+- workspace 资源 pinned 标记，标记后日切不归档（或考虑复制归档，避免回顾时丢失）；检查归档最长保持时间；Job Directory 默认属性；
 - workspace 资源 tmp 标记，并鼓励即时清理
 - workspace 类型和动作支持，pdf/ppt/word/excel/scv、图片、二进制
 - 图片输入使用场景：workspace 图片和 input 图片；input 复制到工作区，旧 user turn 使用图片引用，可通过工作区工具本轮次读取图片内容（工具把图片按需求读成文本）；当 frame 模型不支持图片时，message stack 不产生异常（不回放 base64），并可用图片工具读取图片为文本内容
@@ -34,7 +35,7 @@
 ## Agent Behavior
 - 检查 core ask/reply：补充回答如何进入 turn trace；是否允许同时选择选项 + 补充回答；补充回答有气泡；
 - 加入 core idle 动作，运行跳过本轮执行
-- core 行动：发散方案 redirect / scout（research and exploration）、reason、review
+- core 行动：发散方案 redirect / scout（research and exploration）、决策、reason、review
 - core 行动：中间叙事（运行中回答）
 
 
@@ -85,6 +86,9 @@
 
 ## MCP/ACP 和相关功能接入
 - ACP Subagent 和状态呈现
+- Subagent 配置和使用
+- Subagent ACP 模式
+- Subagent 支持 headless 模式（ agy -p "任务"  跑完即退出、JSON 输出）
 - Execution 状态呈现
 - 后台 browser 状态呈现
 - Ego lite
@@ -99,6 +103,7 @@
 - Maths
 - Search/font-icon / ppt / scv skill
 - Email
+- https://github.com/lexmount/moli
 - Image Gen
 - Computer Use
 
