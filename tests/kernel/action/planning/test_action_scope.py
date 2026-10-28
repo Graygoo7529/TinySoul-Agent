@@ -23,6 +23,47 @@ from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind
 from tinysoul.runtime import RunScope
 
 
+@pytest.mark.parametrize(
+    ("intent", "expected", "valid"),
+    [
+        ("  Write the script.\nRun it later.  ", "Write the script.\nRun it later.", True),
+        ("", "", True),
+        (" \n", "", True),
+        (None, "", False),
+        (42, "", False),
+    ],
+)
+def test_domain_selection_normalizes_optional_cycle_intent(
+    intent: JsonValue, expected: str, valid: bool
+) -> None:
+    selection = Phase1DomainScopeBuilder().normalize_selection(
+        sample_catalog(),
+        (
+            ToolCallRecord(
+                "select", "select_action_domains",
+                {"domains": ["workspace"], "intent": intent}, ToolKind.CONTROL,
+            ),
+        ),
+    )
+    assert selection.intent == expected
+    assert bool(selection.feedback) is not valid
+    if not valid:
+        assert not selection.selected_domains
+
+
+def test_domain_selection_allows_absent_intent() -> None:
+    absent = Phase1DomainScopeBuilder().normalize_selection(
+        sample_catalog(),
+        (
+            ToolCallRecord(
+                "select", "select_action_domains", {"domains": ["core"]},
+                ToolKind.CONTROL,
+            ),
+        ),
+    )
+    assert absent.selected_domains == ("core",) and absent.intent == ""
+
+
 def test_phase1_scope_exposes_domain_control_tool() -> None:
     catalog = sample_catalog()
 

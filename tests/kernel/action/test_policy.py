@@ -60,6 +60,34 @@ def _builder(catalog: ActionCatalog, effects: list[str]) -> FunctionActionEngine
     return builder
 
 
+def test_runtime_hint_composes_with_profile_and_preserves_configuration() -> None:
+    catalog = _catalog()
+    builder = (
+        _builder(catalog, [])
+        .with_action_semantics(
+            "notes.read",
+            description="Profile reading guidance",
+            semantic=ActionSemanticSpec(use_when=("Profile condition",)),
+        )
+        .with_action_hint("notes.read", "Runtime reading hint")
+    )
+    for engine in (builder.build(), builder.build()):
+        scope = engine.phase2_scope(("notes",)).tool_scope
+        assert scope is not None
+        tools = {tool.name: tool for tool in scope.visible_tools()}
+        assert "Profile reading guidance" in tools["notes.read"].description
+        assert "Profile condition" in tools["notes.read"].description
+        assert tools["notes.read"].description.count("Runtime reading hint") == 1
+        assert "Runtime reading hint" not in tools["notes.organize"].description
+        assert "Runtime reading hint" not in str(engine.catalog_json())
+        assert (
+            tools["notes.read"].parameters == catalog.get_action("notes.read").tool.schema
+        )
+    assert catalog.get_action("notes.read").tool.description == "notes.read"
+    with pytest.raises(ActionContractError):
+        _builder(catalog, []).with_action_hint("unknown", "hint").build()
+
+
 async def test_action_override_isolated_from_other_views_and_enforced_before_effects() -> (
     None
 ):

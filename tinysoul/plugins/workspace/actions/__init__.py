@@ -18,6 +18,7 @@ WORKSPACE_ACTIONS = (
     "workspace.read",
     "workspace.write",
     "workspace.edit",
+    "workspace.insert",
     "workspace.append",
     "workspace.move",
     "workspace.mkdir",

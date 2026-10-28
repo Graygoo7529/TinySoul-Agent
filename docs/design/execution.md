@@ -1,5 +1,7 @@
 # Execution 与 Job
 
+Execution Engine 在世代装配时解析已启用且可用的解释器，向 run/start 的有效工具说明附加可用名称与 command/source_ref 使用提示。静态 interpreter enum 保留全部受支持身份，运行时提示不写回 Catalog 配置。未启用解释器的局部失败使用同一名单提供替代选择，不泄漏可执行文件路径；配置变更通过正常 reload 生效。
+
 Execution 接收 Infra 出站网络设置，先解析模块策略，再解析具体 interpreter 的覆盖。Python、bash、PowerShell 和 cmd 共用完整进程环境构造：保留普通宿主变量，移除继承的代理提示后写入有效值，不把项目 dotenv 整体导出。选择 direct 后不会通过进程继承补回 ALL_PROXY。PowerShell 7 HTTP cmdlet 可读取代理环境变量；Windows PowerShell 5.1 需要命令显式使用 `-Proxy`，或在解释器配置中选择 `pwsh`。此能力不修改系统代理或重写用户脚本。
 
 `plugins/execution` 将显式 script/shell 请求转换为受控进程；`kernel/jobs` 拥有 Job 受理、Turn 隔离、监视、终态通知与有界结果保留；`infra/process` 提供无业务依赖的进程组、标准输入输出和有界停止。Agent 组合根每个运行世代创建一个 JobRegistry，User、Home Reflection 与 Memory Reflection 复用该对象，各自按所属 Turn 访问。

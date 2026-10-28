@@ -20,6 +20,15 @@ from tinysoul.kernel.context import (
 )
 from tinysoul.kernel.context.builtin.trace import TraceKind
 from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind
+from tinysoul.llm.protocol.requests import TaskCall
+from tinysoul.llm.protocol.responses import (
+    AnswerFormat,
+    ResponseInterpreter,
+    ResponseInterpretError,
+    TaskResult,
+)
+from tinysoul.llm.protocol.tools import ToolUse
+from tinysoul.llm.protocol.messages import TextPart
 from tinysoul.kernel.loop import (
     CycleRunner,
     Phase1Outcome,
@@ -49,6 +58,136 @@ from tests.kernel.loop.phases.support import (
     _task_failure,
     _tool_result,
 )
+
+
+@pytest.mark.parametrize("failed_phase", [CyclePhase.PHASE1, CyclePhase.PHASE2])
+async def test_invalid_scope_ends_cycle_then_new_intent_reaches_only_next_phase2(
+    failed_phase: CyclePhase,
+) -> None:
+    class InterpretingLLM(FakeLLM):
+        async def run(self, call: TaskCall) -> TaskResult:
+            result = await super().run(call)
+            assert result.raw_response is not None
+            try:
+                return ResponseInterpreter().interpret(
+                    result.raw_response,
+                    AnswerFormat.NONE,
+                    ToolUse.REQUIRED,
+                    tool_scope=call.tool_scope,
+                )
+            except ResponseInterpretError as exc:
+                return _task_failure(str(exc))
+
+    selection = ToolCallRecord(
+        "select", "select_action_domains", {"domains": ["core"]}, ToolKind.CONTROL
+    )
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("work incrementally", turn_id="2026-10-28/9")
+    await context.open_segments(CalendarDate(2026, 10, 28))
+    before = context.working_snapshot()
+    if failed_phase is CyclePhase.PHASE1:
+        rejected = (
+            _tool_result(
+                selection,
+                ToolCallRecord(
+                    "todo", "set_todo",
+                    {"key": "t", "content": "unaccepted", "status": "pending"},
+                    ToolKind.CONTROL,
+                ),
+                ToolCallRecord("wrong", "core.reason", {}, ToolKind.ACTION),
+            ),
+        )
+    else:
+        rejected = (
+            _tool_result(selection),
+            _tool_result(
+                ToolCallRecord(
+                    "valid", "core.reason", {"guide_blocks": []}, ToolKind.ACTION
+                ),
+                ToolCallRecord("wrong", "workspace.list", {}, ToolKind.ACTION),
+            ),
+        )
+    intent = "Inspect one candidate, then reassess."
+    llm = InterpretingLLM((
+        *rejected,
+        _tool_result(ToolCallRecord(
+            "select", "select_action_domains",
+            {"domains": ["core"], "intent": "  " + intent + "  "},
+            ToolKind.CONTROL,
+        )),
+        _tool_result(ToolCallRecord(
+            "reason", "core.reason", {"guide_blocks": [{"text": "Review."}]},
+            ToolKind.ACTION,
+        )),
+        _tool_result(selection),
+        _tool_result(ToolCallRecord(
+            "reason2", "core.reason", {"guide_blocks": [{"text": "Review again."}]},
+            ToolKind.ACTION,
+        )),
+    ))
+    action, bus = _action_engine(), SignalBus()
+    observations = RecordingObservations()
+    runner = CycleRunner(
+        context=context,
+        bus=bus,
+        trap=RuntimeTrap(registry=TrapHandlerRegistry()),
+        phase1=Phase1Unit(
+            context=context, action=action, llm=llm, bus=bus, task_profile="framework"
+        ),
+        phase2=Phase2Unit(
+            context=context, action=action, llm=llm, bus=bus,
+            task_profile="framework", observations=observations,
+        ),
+        phase3=Phase3Unit(
+            context=context, action=action, bus=bus, observations=observations
+        ),
+    )
+    scope = RunScope().push(RunLevel.AGENT, "agent").push(RunLevel.TURN, turn_id)
+    failed = await runner.run(turn_id=turn_id, cycle_index=1, scope=scope)
+    assert failed.phase_failure is not None
+    assert failed.phase_failure.phase is failed_phase
+    assert len(llm.calls) == len(rejected)
+    assert context.working_snapshot() == before
+    assert not any(event.name == "action.call" for event in observations.events)
+    feedback = " ".join(failed.phase_failure.feedback)
+    assert "Phase2" in feedback
+    effect = (
+        "not applied" if failed_phase is CyclePhase.PHASE1 else "accepted or executed"
+    )
+    assert effect in feedback
+    if failed_phase is CyclePhase.PHASE2:
+        assert "Selected domains: core" in feedback
+    recovered = await runner.run(
+        turn_id=turn_id, cycle_index=2, scope=scope,
+        phase_feedback=failed.phase_failure.feedback,
+    )
+    assert recovered.phase_failure is None and recovered.failure is None
+    next_phase1 = llm.calls[len(rejected)]
+    next_context = "\n".join(
+        part.text
+        for message in next_phase1.messages.messages
+        for part in message.parts
+        if isinstance(part, TextPart)
+    )
+    assert all(item in next_context for item in failed.phase_failure.feedback)
+
+    def task_input(call: TaskCall) -> str:
+        return "\n".join(
+            part.text
+            for message in call.messages.messages
+            if message.label == "task_prompt:input:selected_domains"
+            for part in message.parts
+            if isinstance(part, TextPart)
+        )
+
+    assert "Cycle intent: " + intent in task_input(llm.calls[-1])
+    assert {tool.name for tool in llm.calls[-1].tool_scope.visible_tools()} <= {
+        name for domain, name in action.action_identifiers() if domain == "core"
+    }
+    final = await runner.run(turn_id=turn_id, cycle_index=3, scope=scope)
+    assert final.phase_failure is None and final.failure is None
+    assert "Cycle intent:" not in task_input(llm.calls[-1])
+    assert sum(event.name == "action.call" for event in observations.events) == 2
 
 
 async def test_phase1_returns_invalid_domain_selection_for_next_cycle() -> None:

@@ -69,10 +69,10 @@ class WorkspaceExecutor(ActionExecutor):
                 exc.feedback,
                 {"reason": exc.reason, **exc.payload},
             )
-        except WorkspaceContractError:
+        except WorkspaceContractError as exc:
             return _failed(
                 execution,
-                prompt_text.INVALID_WORKSPACE_REQUEST,
+                exc.feedback or prompt_text.INVALID_WORKSPACE_REQUEST,
                 {"reason": "request_conflict"},
             )
         except WorkspaceError as exc:
@@ -242,6 +242,16 @@ class WorkspaceExecutor(ActionExecutor):
                     )
                 )
             record = await workspace.edit_text(target, edits)
+        elif action == "workspace.insert":
+            after_line = params.get("after_line")
+            if type(after_line) is not int:
+                raise WorkspaceContractError(
+                    "Workspace insert requires an integer position",
+                    feedback=prompt_text.INSERT_LINE_REQUIRED,
+                )
+            record = await workspace.insert_text(
+                target, _text(params, "text", allow_empty=True), after_line=after_line
+            )
         elif action == "workspace.append":
             record = await workspace.append_text(
                 target, _text(params, "text", allow_empty=True)

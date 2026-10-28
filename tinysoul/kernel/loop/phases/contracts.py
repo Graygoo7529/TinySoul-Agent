@@ -54,6 +54,7 @@ class Phase1Outcome:
     """Phase1 selected domains and local control feedback."""
 
     selected_domains: tuple[str, ...]
+    intent: str = ""
     control_results: tuple[ControlResult, ...] = field(default_factory=tuple)
     attempts: int = 1
     failure: PhaseFailure | None = None

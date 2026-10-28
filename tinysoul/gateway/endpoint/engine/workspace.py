@@ -137,6 +137,11 @@ class EndpointWorkspaceEngine:
             lambda workspace: workspace.edit_text(ref, edits)
         )
 
+    async def insert(self, ref: str, text: str, *, after_line: int) -> JsonObject:
+        return await self._resource_change(
+            lambda workspace: workspace.insert_text(ref, text, after_line=after_line)
+        )
+
     async def append(self, ref: str, text: str) -> JsonObject:
         return await self._resource_change(
             lambda workspace: workspace.append_text(ref, text)
@@ -168,7 +173,8 @@ def _workspace_error(error: WorkspaceError) -> EndpointRequestError:
         return EndpointRequestError(
             status_code=409,
             code="workspace.conflict",
-            message="Workspace request conflicts with the current resource or is invalid.",
+            message=error.feedback
+            or "Workspace request conflicts with the current resource or is invalid.",
         )
     return EndpointRequestError(
         status_code=500,

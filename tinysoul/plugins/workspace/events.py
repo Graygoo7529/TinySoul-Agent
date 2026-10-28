@@ -38,6 +38,7 @@ class WorkspaceChangeOperation(StrEnum):
     DESCRIBE = "describe"
     WRITE = "write"
     APPEND = "append"
+    INSERT = "insert"
     BUNDLE = "bundle"
     EDIT = "edit"
     MOVE = "move"

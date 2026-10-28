@@ -183,6 +183,7 @@ class CycleRunner:
             phase2_scope,
             lambda: self._phase2.run(
                 selected_domains=phase1_outcome.selected_domains,
+                intent=phase1_outcome.intent,
                 scope=phase2_scope,
                 cycle_id=cycle_id,
                 turn_id=turn_id,

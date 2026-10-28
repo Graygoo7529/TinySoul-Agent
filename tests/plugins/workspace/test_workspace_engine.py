@@ -706,6 +706,44 @@ async def test_workspace_search_action_returns_foldable_fragments(
     ]
 
 
+@pytest.mark.parametrize("answer_limit", [37, 73])
+async def test_workspace_analyze_honors_configured_answer_limit(
+    tmp_path: Path, answer_limit: int
+) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            analysis=WorkspaceAnalysisSettings(max_answer_chars=answer_limit),
+        )
+    ).build()
+    engine.write_text("workspace:a.md", "source")
+    context = ContextEngineBuilder(system_text="system").build()
+    context.begin_turn("analyze", turn_id="2026-10-28/1")
+    await context.open_segments(CalendarDate(2026, 10, 28))
+    for size in (answer_limit, answer_limit + 1):
+        llm = FakeLLMRunner(answer={"answer": "x" * size, "source_ids": ["source_1"]})
+        result = await WorkspaceAnalyzeExecutor(
+            workspace=WorkspaceService(engine), tasks=action_tasks(context), llm=llm,
+        ).execute(
+            _execution(
+                "workspace.analyze",
+                {"intent": "Analyze.", "references": ["workspace:a.md"]},
+            ),
+            ActionExecutionContext(),
+        )
+        assert str(answer_limit) in "\n".join(
+            part.text
+            for message in llm.calls[0].messages.messages
+            for part in message.parts
+            if isinstance(part, TextPart)
+        )
+        assert (result.status.value == "success") is (size == answer_limit)
+        if size > answer_limit:
+            assert result.failure is not None
+            assert result.failure.reason == "analysis_answer_chars_exceeded"
+            assert result.failure.constraint["limit"] == answer_limit
+
+
 async def test_workspace_analyze_returns_grounded_standard_result(
     tmp_path: Path,
 ) -> None:
@@ -968,6 +1006,40 @@ def _executor(engine: WorkspaceEngine) -> WorkspaceExecutor:
         FakeLLMRunner(),
         RuntimeWorkspaceBridge(),
     )
+
+
+async def test_catalog_insert_executes_and_returns_owner_position_feedback(
+    tmp_path: Path,
+) -> None:
+    with builtin_action_catalog_root() as root:
+        catalog = ActionCatalogLoader().load(root)
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    engine.write_text("workspace:a.md", "A\nB\n")
+    for after_line in (1, 8):
+        params: JsonObject = {
+            "target_ref": "workspace:a.md", "after_line": after_line, "text": "X\n"
+        }
+        validate_action_params(
+            params, schema=catalog.get_action("workspace.insert").tool.schema
+        )
+        prepared = ActionExecutionBuilder().prepare_batch(
+            (ActionCall("insert", "workspace.insert", params, 1),),
+            catalog=catalog,
+            scope=RunScope().push(RunLevel.PHASE, "phase3"), batch_id="insert",
+        )
+        result = await _executor(engine).execute(
+            prepared.batch.executions[0], ActionExecutionContext()
+        )
+        if after_line == 1:
+            assert result.status.value == "success"
+            assert result.payload["ref"] == "workspace:a.md"
+            assert "text" not in result.payload
+        else:
+            assert result.failure is not None
+            assert result.failure.reason == "request_conflict"
+            assert result.failure.scope == "workspace.action"
+            assert "3 lines" in result.failure.feedback
+    assert engine.read_text("workspace:a.md").text == "A\nX\nB\n"
 
 
 async def test_catalog_tags_execute_and_persist(tmp_path: Path) -> None:

@@ -12,6 +12,7 @@ Workspace endpoint 使用 `workspace:` ref 和受约束 async WorkspaceService�
 - `PUT /v2/workspace/tags`：`{ref, tags}`，替换标签集合；标签为 `pinned/tmp/important`，空列表清空
 - `POST /v2/workspace/edit`：`{ref, edits: [{old_text, new_text}]}`，顺序验证 1–64 项唯一匹配后一次提交
 - `POST /v2/workspace/append`：`{ref, text}`，追加明确文本
+- `POST /v2/workspace/insert`：`{ref, after_line, text}`，在当前文本指定行之后插入明确文本
 - `GET/POST /v2/workspace/trash`
 - `POST /v2/workspace/restore`
 
@@ -20,6 +21,8 @@ Workspace endpoint 使用 `workspace:` ref 和受约束 async WorkspaceService�
 blob 流式读取，支持标准单 `Range: bytes=start-end`、`bytes=start-` 或 `bytes=-suffix`。部分响应 206 带 Content-Range，非法/不可满足范围 416；完整响应 200。Content-Length、Content-Type 来自实际打开文件；连接期间持有 day/generation lease。trash 为有界 items 页，接受 continuation/limit。所有写入路由仅操作活动日，不接受 day。
 
 成功 mutation 返回 record 和完整 manifest，并发布 `workspace.changed`。公开请求不携带 digest/revision CAS，也不存在 mirror/apply/discard。取消不会回滚已提交文件；若索引提交失败，错误包含有界的已提交 ref，不能伪称副作用未发生。
+
+insert 的 after_line 必须是非负整数，字符串或 bool 不隐式转换，类型错误和负数返回 422。0 表示开头；正数按 1-based 行号定位在该行已有换行符之后，末行没有换行时定位在 EOF。读取沿 owner 规范化换行，末尾换行不额外产生一行，空文件只接受 0。text 原样插入，所需分隔符由调用者提供。例如 `A\nB\n` 在 after_line=1 插入 `X\n` 得到 `A\nX\nB\n`。行号越界返回 409，错误说明当前实际行数；非文本目标和完整结果超写入上限沿既有请求错误处理。位置按执行时文件解释，不携带旧内容版本。
 
 正式写入和外部文件监听均由 Workspace owner 更新当前状态，后端自动通知活动 Turn 刷新工作台；前端无需再提交同步命令。`workspace.watch.enabled/debounce_ms` 沿配置接口保存并显式 reload。这里只监听当前 Workspace，观察事件仍是 UI 旁路，不能用 replay 代替 manifest 查询。
 

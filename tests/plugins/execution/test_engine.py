@@ -11,6 +11,13 @@ import pytest
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.network import NetworkMode, NetworkPolicy
 from tinysoul.kernel.jobs import JobRegistry, JobRequestError, JobState
+from tinysoul.kernel.action import ActionEngineBuilder, ActionCall, ActionFailureDisposition
+from tests.support.actions import sample_catalog
+from tinysoul.kernel.action.catalog.catalog import ActionCatalog
+from tinysoul.plugins.execution.actions import (
+    ExecutionActionExecutor, ExecutionOperation, register_execution_actions,
+)
+from tinysoul.runtime import RunLevel, RunScope
 from tinysoul.plugins.execution import (
     ExecutionSettings,
     Interpreter,
@@ -21,6 +28,7 @@ from tinysoul.plugins.execution.failures import ExecutionRequestError
 from tinysoul.plugins.home import AgentHomeEngineBuilder, AgentHomeSettings
 from tinysoul.plugins.home.services import HomeService
 from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
+from tinysoul.plugins.workspace.services import WorkspaceService
 
 
 def _owners(
@@ -268,6 +276,61 @@ async def test_interactive_input_reports_accepted_utf8_bytes_and_no_silence_infe
         await jobs.cleanup_turn("2026-10-06/1000")
 
 
+@pytest.mark.parametrize(
+    "names", [tuple(Interpreter), (Interpreter.PYTHON,), (Interpreter.CMD,), ()]
+)
+def test_runtime_interpreters_reach_effective_tools_only(
+    tmp_path: Path, names: tuple[Interpreter, ...]
+) -> None:
+    settings = ExecutionSettings(
+        enabled=True,
+        interpreters=tuple(
+            InterpreterSpec(name, sys.executable, enabled=name in names)
+            for name in Interpreter
+        ),
+    )
+    engine, _jobs, workspace, home = _owners(tmp_path, settings=settings)
+    assert engine.available_interpreters == names
+    baseline = sample_catalog()
+    run = baseline.get_action("execution.run")
+    catalog = ActionCatalog(
+        domains=baseline.domains(),
+        actions=tuple(
+            replace(
+                run, name=name, tool=replace(run.tool, name=name),
+                execution=replace(run.execution, executor=name),
+            )
+            for name in (
+                "execution.run", "execution.start", "execution.stdin", "execution.collect"
+            )
+        ),
+    )
+    actions = register_execution_actions(
+        ActionEngineBuilder(catalog), engine=engine,
+        home=home, workspace=WorkspaceService(workspace),
+    ).build()
+    assert "Available in this runtime:" not in str(actions.catalog_json())
+    if not names:
+        assert not actions.action_identifiers()
+        return
+    scope = actions.phase2_scope(("execution",)).tool_scope
+    assert scope is not None
+    for tool in scope.visible_tools():
+        if tool.name in {"execution.run", "execution.start"}:
+            assert (
+                "Available in this runtime: " + ", ".join(names) + "."
+            ) in tool.description
+            assert catalog.get_action(tool.name).tool.description in tool.description
+            assert tool.parameters == catalog.get_action(tool.name).tool.schema
+            if names == (Interpreter.PYTHON,):
+                assert "inline commands are unavailable" in tool.description
+            elif names == (Interpreter.CMD,):
+                assert "Inline commands use cmd" in tool.description
+                assert "Python uses" not in tool.description
+        else:
+            assert "Available in this runtime:" not in tool.description
+
+
 async def test_disabled_interpreter_has_bounded_corrective_feedback(
     tmp_path: Path,
 ) -> None:
@@ -286,7 +349,31 @@ async def test_disabled_interpreter_has_bounded_corrective_feedback(
         )
 
     assert "bash interpreter is not enabled" in raised.value.feedback
+    assert "Available interpreters: python" in raised.value.feedback
     assert len(raised.value.feedback) <= 240
+    assert not jobs.ids("2026-10-06/1000")
+
+    action = ActionEngineBuilder(sample_catalog().with_actions(("execution.run",)))
+    action.register_executor(
+        "execution.run",
+        ExecutionActionExecutor(
+            engine, ExecutionOperation.RUN, home=home,
+            workspace=WorkspaceService(workspace),
+        ),
+    )
+    actions = action.build()
+    prepared = actions.prepare_batch(
+        (ActionCall("disabled", "execution.run", {
+            "interpreter": "bash", "command": "echo unavailable",
+        }, 1),),
+        scope=RunScope().push(RunLevel.TURN, "2026-10-06/1000"),
+    )
+    result, = await actions.run_batch(prepared.batch)
+    assert result.failure is not None
+    assert result.failure.reason == "invalid_request"
+    assert result.failure.scope == "execution.action"
+    assert result.failure.disposition is ActionFailureDisposition.CHANGE_REQUEST
+    assert result.failure.feedback == raised.value.feedback
     assert not jobs.ids("2026-10-06/1000")
 
 

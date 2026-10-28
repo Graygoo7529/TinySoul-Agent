@@ -476,6 +476,40 @@ def test_endpoint_workspace_directory_edit_move_tags_and_rejects_old_guards(
     )
 
 
+def test_endpoint_workspace_insert_shares_owner_and_rejects_invalid_positions(
+    tmp_path: Path,
+) -> None:
+    engine, _gateway, _events = _engine(tmp_path)
+    client = TestClient(create_endpoint_app(engine, engine.settings))
+    created = client.put(
+        "/v2/workspace/resource", headers=_auth(),
+        json={"ref": "workspace:a.md", "text": "A\nB\n"},
+    )
+    assert created.status_code == 200
+    body = {"ref": "workspace:a.md", "text": "X\n", "after_line": 1}
+    result = client.post("/v2/workspace/insert", headers=_auth(), json=body)
+    assert result.status_code == 200
+    assert result.json()["record"]["ref"] == body["ref"]
+    assert any(
+        item["ref"] == body["ref"]
+        for item in result.json()["manifest"]["resources"]
+    )
+    for position in (True, "1", -1):
+        invalid = client.post(
+            "/v2/workspace/insert", headers=_auth(),
+            json={**body, "after_line": position},
+        )
+        assert invalid.status_code == 422
+    rejected = client.post(
+        "/v2/workspace/insert", headers=_auth(), json={**body, "after_line": 8}
+    )
+    assert rejected.status_code == 409 and "3 lines" in rejected.text
+    current = client.get(
+        "/v2/workspace/resource", headers=_auth(), params={"ref": body["ref"]}
+    )
+    assert current.json()["text"] == "A\nX\nB\n"
+
+
 def test_endpoint_workspace_blob_round_trip(tmp_path: Path) -> None:
     engine, _gateway, _events = _engine(tmp_path)
     client = TestClient(create_endpoint_app(engine, engine.settings))

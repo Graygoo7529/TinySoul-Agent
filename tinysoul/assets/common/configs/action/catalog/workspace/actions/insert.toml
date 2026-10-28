@@ -1,0 +1,35 @@
+name = "workspace.insert"
+domain = "workspace"
+
+[tool]
+description = "Insert exact UTF-8 text after a line in an existing Workspace text resource. Use after_line=0 for the beginning."
+
+[tool.schema]
+type = "object"
+required = ["target_ref", "after_line", "text"]
+additionalProperties = false
+
+[tool.schema.properties.target_ref]
+type = "string"
+description = "Existing Workspace text resource ref."
+
+[tool.schema.properties.after_line]
+type = "integer"
+minimum = 0
+description = "Insert after this 1-based line in the current file; 0 inserts at the beginning."
+
+[tool.schema.properties.text]
+type = "string"
+description = "Exact text to insert, including any required separator or newline."
+
+[semantic]
+use_when = ["Insert content at a line located through read or inspect"]
+avoid_when = ["Need to replace existing text; use workspace.edit", "Only adding at the end; use workspace.append"]
+effects = ["modifying"]
+examples = ["Insert a note after line 12 of workspace:docs/notes.md"]
+
+[runtime]
+parallel_policy = "serial"
+
+[execution]
+executor = "workspace.insert"

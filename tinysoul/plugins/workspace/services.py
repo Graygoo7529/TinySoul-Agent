@@ -118,6 +118,7 @@ class WorkspaceService(ScopedService[WorkspaceEngine]):
         self.write_text = scope.local(owner.write_text, after=owner.events.flush)
         self.write_bundle = scope.local(owner.write_bundle, after=owner.events.flush)
         self.edit_text = scope.local(owner.edit_text, after=owner.events.flush)
+        self.insert_text = scope.local(owner.insert_text, after=owner.events.flush)
         self.mkdir = scope.local(owner.mkdir, after=owner.events.flush)
         self.move = scope.local(owner.move, after=owner.events.flush)
         self.tag = scope.local(owner.tag, after=owner.events.flush)

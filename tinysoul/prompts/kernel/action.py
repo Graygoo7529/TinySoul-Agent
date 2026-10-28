@@ -92,7 +92,12 @@ def task_block(*, heading: str, text: str) -> str:
 DOMAIN_NAMES_DESCRIPTION = "Action domain names to expose in Phase2."
 
 # Model tool parameter description. Used by kernel/action/planning/scope.py:build.
-DOMAIN_INTENT_DESCRIPTION = "Brief reason for the selected action domains."
+DOMAIN_INTENT_DESCRIPTION = (
+    "Brief intent for this Cycle, passed to Phase2 with the selected action domains."
+)
+
+# Local feedback. Used by kernel/action/planning/scope.py:normalize_selection.
+DOMAIN_INTENT_TEXT_REQUIRED = "select_action_domains.intent must be text when supplied."
 # Local model feedback. Used by kernel/action/builtins/core/actions.py:execute.
 INVALID_QUESTION = (
     "Provide question and any needed details, with unique option IDs and labels. "

@@ -63,6 +63,14 @@ async def test_formal_operations_external_refresh_and_disabled_watch_share_owner
         )
         await watcher.changed()
         assert len(events) == 2  # Native echo of an owner write has no new fact.
+        inserted = await service.insert_text("workspace:a.md", "\ntwo", after_line=1)
+        assert inserted == owner.stat("workspace:a.md")
+        assert owner.read_text(inserted.ref).text == "one\ntwo"
+        assert inserted.description == "manual description"
+        assert events[-1].payload["operation"] == "insert"
+        assert events[-1].payload["refs"] == [inserted.ref]
+        await service.insert_text(inserted.ref, "", after_line=0)
+        assert len(events) == 4  # A committed write remains observable without new content.
         (tmp_path / "a.md").write_text("externally expanded", encoding="utf-8")
         await watcher.changed()
         assert events[-1].source == WORKSPACE_WATCH

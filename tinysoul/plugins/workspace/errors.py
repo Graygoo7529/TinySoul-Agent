@@ -12,6 +12,10 @@ class WorkspaceError(Exception):
 class WorkspaceContractError(WorkspaceError):
     """Raised when callers violate the workspace module contract."""
 
+    def __init__(self, message: str, *, feedback: str = "") -> None:
+        super().__init__(message)
+        self.feedback = feedback
+
 
 class WorkspacePromptReferenceError(WorkspaceContractError):
     """A task source cannot be used; feedback is safe for the local Action result."""
@@ -23,8 +27,7 @@ class WorkspacePromptReferenceError(WorkspaceContractError):
         reason: str,
         payload: JsonObject | None = None,
     ) -> None:
-        super().__init__(feedback)
-        self.feedback = feedback
+        super().__init__(feedback, feedback=feedback)
         self.reason = reason
         self.payload = payload or {}
 

@@ -1,7 +1,7 @@
 # Workspace 插入、执行提示与 Phase 衔接改进执行计划
 
 - 日期：2026-10-28。
-- 状态：`pending`；方案已核对，准备实施。本轮只编写计划，未修改业务代码。
+- 状态：`done`；实现、文档、测试及 AGENTS.md 逐项复核已完成，归档于 2026-10-28。
 - 依据：当前 `AGENTS.md`、Workspace / Execution / Action / Loop / TaskPrompt 的实际实现，以及本轮维护者确认。
 - 目标：提供直接的文本位置插入能力，让模型知道实际可用的解释器，明确整轮指导与阶段任务的层次，传递 Phase1 已生成的 Cycle 意图，并适度扩大 Workspace 分析容量。
 
@@ -71,7 +71,7 @@
 
 > Cannot insert after line 80: the file has 24 lines. Use 0 for the beginning or a line number from the current file.
 
-实现采用既有 `WorkspaceContractError` 的轻量扩展：增加默认空缺的可选 `feedback` 字段，表达 owner 明确整理过的安全文本；原来的异常 message 继续只承担诊断。新插入位置错误填写此字段，Workspace Action 边界在存在 feedback 时使用它，否则保留现有通用反馈。`WorkspacePromptReferenceError` 的专门 reason/payload 流程继续由原分支处理。
+实现采用既有 `WorkspaceContractError` 的轻量扩展：增加默认空字符串的可选 `feedback` 参数，表达 owner 明确整理过的安全文本；原来的异常 message 继续只承担诊断。新插入位置错误填写此字段，Workspace Action 边界在存在 feedback 时使用它，否则保留现有通用反馈。`WorkspacePromptReferenceError` 复用同一字符串字段，专门 reason/payload 流程继续由原分支处理。
 
 这样不必新增 insert 专属异常树，也不把全部 `str(exc)` 暴露给模型。固定反馈函数归 `prompts/plugins/workspace.py`，只接收已校验的数值；Action 的 reason、scope、disposition 沿用 `request_conflict`、`workspace.action`、`CHANGE_REQUEST`。I/O 错误和取消仍走现有边界，不能一律包装成可重试的请求错误。
 
@@ -403,14 +403,14 @@ uv run --locked --extra dev ty check
 
 - [x] 重新阅读 AGENTS.md，确认 owner、三阶段、失败与配置边界。
 - [x] 核对现有代码、可复用服务及正在进行的模型/窗口修改，形成方案和预览。
-- [ ] 实施前重新读取 git 状态和涉及文件，保留维护者的其它修改，按最新实现更新接入点。
-- [ ] 完成 insert 的 owner → Service → Action → Endpoint 主线及必要测试，同步 Workspace 文档。
-- [ ] 完成 Execution 可用名单、effective description hint 和失败反馈，验证 configured/effective 分离。
-- [ ] 完成 TaskPrompt 层次与 intent 的 Phase1 → Phase2 消费，更新阶段失败提示与协作测试。
-- [ ] 提高 analyze 三项默认容量，核对现有设置接口、动态提示和输出校验。
-- [ ] 同步 Catalog、Home、设计与 Endpoint 文档，检查模型请求和 ActionResult 的可读性。
-- [ ] 运行必要门禁，记录实际结果，逐项对照本计划和 AGENTS.md 复核。
-- [ ] 完成后改为 `done`，文件名加入 `-done-` 并移入 `docs/analysis/done/`。
+- [x] 实施前重新读取 git 状态和涉及文件，保留维护者的其它修改，按最新实现更新接入点。
+- [x] 完成 insert 的 owner → Service → Action → Endpoint 主线及必要测试，同步 Workspace 文档。
+- [x] 完成 Execution 可用名单、effective description hint 和失败反馈，验证 configured/effective 分离。
+- [x] 完成 TaskPrompt 层次与 intent 的 Phase1 → Phase2 消费，更新阶段失败提示与协作测试。
+- [x] 提高 analyze 三项默认容量，核对现有设置接口、动态提示和输出校验。
+- [x] 同步 Catalog、Home、设计与 Endpoint 文档，检查模型请求和 ActionResult 的可读性。
+- [x] 运行必要门禁，记录实际结果，逐项对照本计划和 AGENTS.md 复核。
+- [x] 完成后改为 `done`，文件名加入 `-done-` 并移入 `docs/analysis/done/`。
 
 ## 11. 可行性核对与实施状态
 
@@ -418,4 +418,40 @@ uv run --locked --extra dev ty check
 
 新增公共面只有一个 Workspace Action/服务方法及对应 Endpoint，以及 Action builder 的一条装配提示入口。现有对象增加必要字段，不建立新的 scheduler、Context 段、持久日志或配置系统。错误反馈使用已有结果语义和 owner 文案，不扩大结构化模型叙事。
 
-当前无阻断设计决策。行号定位、精确文本、运行时解释器名单、临时 Cycle 意图以及 32k/64k/8k 分析容量均已在本文明确；状态为准备实施。若实施时与维护者并行完成的代码出现实际语义冲突，再据真实差异讨论，不预先构建兼容层。
+实施未发现与已确认设计或维护者并行修改的冲突。行号定位、精确文本、运行时解释器名单、临时 Cycle 意图以及 32k/64k/8k 分析容量均已落实，无遗留决策项。
+
+## 12. 实施结果与核对记录
+
+实施基于提交 `711d784b`，开始时工作区干净；此前模型升级与窗口修改已经提交，本轮没有修改其配置或算法。
+
+| 验收项 | 实际实现与核对 |
+| --- | --- |
+| 位置插入 | WorkspaceMutations → Engine → Service → Action/Endpoint 共用同一操作；开头、中间、EOF、空文件、CRLF、无末尾换行和 LF 行边界已验证。位置错误、非文本及结果超限均在提交前拒绝，文件和索引不变 |
+| 提交与反馈 | INSERT 使用正式 written_refs 和既有事件发布；Service 返回前受理事件，空文本写入也保留提交事实。Action 沿用元数据结果；位置反馈到达模型和 HTTP，IO 与取消边界复用原实现 |
+| 解释器说明 | Engine 的只读枚举进入 run/start 有效描述；全开、仅 Python、仅 shell、全关闭均覆盖。原 description/semantic/schema、profile override 与 configured Catalog 分离已经验证；禁用解释器的 Action 仍返回 invalid_request / execution.action / CHANGE_REQUEST，且不创建 Job |
+| Phase 输入 | Turn → Phase → Skill → Input/feedback → Output 顺序和 Skill 来源经实际 message 验证。intent 从选择工具经 CycleRunner 到达 Phase2，缺省不渲染，下一 Cycle 不遗留；USER_TURN_GUIDANCE 全文保留 |
+| 失败后继续 | 真实 ResponseInterpreter 结合 Phase/Cycle 验证 Phase1 夹带 Action、Phase2 域外 Action：整次响应拒绝，未接受的 controls 不安装，Action 不执行；下一完整 Cycle 收到原因及方向，使用合法工具可以继续 |
+| 分析容量 | owner 默认值和 development/standard 模板统一为单来源 32768、合计 65536、回答 8192；来源完整读取和完整请求窗口检查保留。测试自有回答上限同时进入提示及结果校验，来源超限不调用模型 |
+| 资源与文档 | insert Catalog 已加载、校验并执行；append/edit 与 Domain/append Skill 只补必要选择说明。Workspace、Execution、Action、Loop、prompts 设计文档及 Workspace Endpoint 文档已同步 |
+
+### 验证记录
+
+使用 AGENTS.md 当前规定的 uv 仓库 `.venv` / Python 3.13 环境。uv 可执行文件通过主机安装位置调用，缓存使用 `B:/tmp/tinysoul-uv-cache`；未把这些机器路径写入项目配置。
+
+| 验证 | 结果 | 报告目录（仓库相对路径） |
+| --- | --- | --- |
+| 相关模块聚焦 Full | 375 passed | `.local-test/reports/30b93d59b04948748e3431e7c8f10809` |
+| Fast | 1303 passed，133 deselected | `.local-test/reports/7df6b476b7894c1abf36eaeb17f388dc` |
+| 最终 Full（包含后续补齐的缺省 intent 和 Action 反馈验证） | 1434 passed，3 deselected | `.local-test/reports/06d6ac73c33e4d1ba60eda95d9eb916f` |
+| ty check | All checks passed | 命令输出 |
+| git diff --check | 通过 | 命令输出 |
+
+门禁包含 owner、协作边界、Endpoint、真实本机进程、初始化及 wheel 资源验收；没有调用真实外部模型。它验证提示和数据流正确装配，不承诺模型不再产生协议错误。
+
+### AGENTS.md 与使用边界
+
+重新阅读规约后核对：持久事实、生命周期和失败解释仍归原 owner；新增文案留在所属 prompts 包，配置文案留在 Catalog/Home；未增加 CAS、阶段内部重试、持久 intent 或平行日志。任务提示仍使用 user role，Background/Trace/Working 不变。
+
+Trace 导出按 `task_prompt:` 标签处理并按标签去重，不依赖旧固定块位置。前端未知 Action 使用通用视图，因此 insert 的调用、参数和结果可展示；本轮没有增加编辑器插入按钮，也没有更改前端分类表。Endpoint 能力及参数已提供文档，后续可由前端按需求接入专门视图。
+
+已初始化实例需要同步新增 `configs/action/catalog/workspace/actions/insert.toml`；正式注册会校验 Catalog 是否包含该身份，不静默忽略缺失定义。分析容量及 Home/Catalog 文案的模板更新不会覆盖已有实例的显式设置；使用已有保存、apply/reload 或重启流程激活。实施未改写个人实例数据。

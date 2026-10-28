@@ -524,6 +524,7 @@ class ActionEngineBuilder:
         self._included_actions: set[str] | None = None
         self._bindings: dict[str, str] = {}
         self._semantics: dict[str, tuple[str, ActionSemanticSpec]] = {}
+        self._action_hints: dict[str, str] = {}
         if not scenarios or any(
             not isinstance(item, str) or not item.strip() for item in scenarios
         ):
@@ -568,6 +569,15 @@ class ActionEngineBuilder:
                 "Profile Action guidance must be typed and non-empty"
             )
         self._semantics[action_name] = (description, semantic)
+        return self
+
+    def with_action_hint(self, action_name: str, hint: str) -> Self:
+        """Append owner-provided runtime facts to the effective tool description."""
+        if not isinstance(action_name, str) or not action_name:
+            raise ActionContractError("Action guidance requires an Action name")
+        if not isinstance(hint, str) or not hint.strip():
+            raise ActionContractError("Action guidance must be non-empty text")
+        self._action_hints[action_name] = hint.strip()
         return self
 
     def mark_actions_unsupported(self, *action_names: str) -> Self:
@@ -671,6 +681,8 @@ class ActionEngineBuilder:
         )
         if self._semantics.keys() - complete_action_names:
             raise ActionContractError("Profile guidance names an unknown Action")
+        if self._action_hints.keys() - complete_action_names:
+            raise ActionContractError("Runtime guidance names an unknown Action")
         catalog = ActionCatalog(
             domains=catalog.domains(),
             actions=tuple(
@@ -685,6 +697,23 @@ class ActionEngineBuilder:
                     if action.name in self._semantics
                     else action
                 )
+                for action in catalog.actions()
+            ),
+        )
+        catalog = ActionCatalog(
+            domains=catalog.domains(),
+            actions=tuple(
+                replace(
+                    action,
+                    tool=replace(
+                        action.tool,
+                        description=(
+                            action.tool.description + "\n" + self._action_hints[action.name]
+                        ),
+                    ),
+                )
+                if action.name in self._action_hints
+                else action
                 for action in catalog.actions()
             ),
         )

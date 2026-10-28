@@ -22,13 +22,15 @@ Manifest schema v4 严格校验字段与版本，不接受旧 CAS 格式。recon
 |---|---|
 | list/search/read | 有界列举、literal/regex 搜索和显式正文读取 |
 | write | 写入明确 UTF-8 文本，默认拒绝覆盖已有目标 |
-| edit/append | 有序精确替换或追加，验证完整结果后一次写入 |
+| edit/insert/append | 唯一原文替换、按行插入或末尾追加，验证完整结果后一次写入 |
 | move/mkdir | 移动文件/目录或创建目录，已有目标冲突不覆盖 |
 | delete/restore/trash_list | 可恢复删除、按原位置恢复、查询仍持有内容的 Trash |
 | tag/describe | 维护标签与说明；describe 的模型输入只在当前 Action 中存在 |
 | compose/analyze | 局部模型生成完整文本工件，或基于显式来源返回结构化分析 |
 
-edit 对每一项在前项结果中检查匹配，零匹配或歧义均失败；后项失败不留下前项修改。append 和生成覆盖也受 owner 的完整写入上限约束。move 更新资源及子项的元数据身份，不重写已保存的 Session 引用。
+edit 对每一项在前项结果中检查匹配，零匹配或歧义均失败；后项失败不留下前项修改。insert 的 after_line 使用当前文本的行号，0 表示开头，正数表示该行已有换行符之后，末行没有换行时表示 EOF；末尾换行不额外产生一行，空文件只接受 0。行边界与 read 一样使用规范化后的 LF，插入文本原样保留，不自动补换行。位置无效在提交前返回可读反馈。
+
+insert、append 和生成覆盖同样受 owner 的完整写入上限约束，文件变化后行号按执行时内容解释，不建立版本守卫。move 更新资源及子项的元数据身份，不重写已保存的 Session 引用。
 
 move 与 restore 共用 owner 内部迁移边界：同一锁内先把目标及子项的说明、标签保存到现有 manifest，保留源记录，再原子移动内容，最后由普通 reconcile 按磁盘更新资源投影。元数据保存失败时不移动内容；移动未发生则扫描保留源，移动已发生则扫描保留目标，重新打开 owner 也不依赖丢失的内存参数。中间记录是 owner 的迁移元数据，不发布为成功变更。这里没有新增 journal、恢复状态机或多文件回滚承诺。
 
@@ -52,7 +54,9 @@ Inspect 的实际正文页进入正式 ActionResult，并以可读文字进入�
 
 `workspace.search` 使用 `query`、`directory`、`refs`、`backlinks`、`result` 来源，并可组合 `filter`、LLM/decision model `select` 与 `rerank`。query 保留 literal/regex 与文件/目录范围；backlinks 扫描当前 Workspace Markdown 的真实链接，可接收跨 owner anchor，返回源文件和行证据。文件资格由标签/类型/日期筛选，与 exclude_refs 一起在正文读取前处理；Workspace 不建立隐式 Embedding 索引。共享 SearchSession 保存完整结果快照，按 Turn 或 SDK 日 lease 隔离。
 
-compose 合并新建与替换生成。已有目标必须完整读入允许的写入预算；目标截断时在调用模型前失败，引导改用 edit/append。模型输出不完整、超限或取消时不提交。完整文本在 Action 内存中交给 owner，成功只返回元数据。生成期间不持文件锁，最终也不比较来源版本。analyze 消费明确有界来源，结论通过所属结果协议校验。
+compose 合并新建与替换生成。已有目标必须完整读入允许的写入预算；目标截断时在调用模型前失败，引导改用确定性编辑。模型输出不完整、超限或取消时不提交。完整文本在 Action 内存中交给 owner，成功只返回元数据。生成期间不持文件锁，最终也不比较来源版本。analyze 消费明确有界来源，结论通过所属结果协议校验。
+
+analyze 默认允许单来源 32k、来源合计 64k、回答 8k 字符（k=1024）。来源预算要求完整读取，超限在模型调用前失败，不静默截断；回答上限由同一配置注入提示并校验。来源字符不包含当前 Context、Skill 或工具开销，完整请求继续服从 LLM 的模型窗口约束。
 
 compose、describe、analyze 以各自的 generate consumer 绑定普通 LLM task profile。ActionTaskFactory 只准备本次 Context、局部来源和 Skill；唯一 LLMTaskRunner 调用模型，Workspace executor 验证结果并提交。模型用途切换不改变 executor 或 Action 总 deadline。
 
@@ -75,6 +79,8 @@ WorkspaceRuntime 绑定当前世代的 owner 发布端和可选文件监听。en
 链接不存在、范围无效、编辑歧义、覆盖冲突或模型输出无效属于可修正局部结果。根不可用、索引/Trash 损坏和持久提交失败停在 Workspace 边界，经所属 runtime_bridge 转换，不伪装成参数反馈。Runtime payload 只保留 module/kind、错误类型和已提交 引用 等有限事实，不包含原始异常、绝对路径、traceback 或正文。
 
 短 owner 操作开始后必须 join，再传播取消；长模型/进程工作使用各自执行生命周期。已提交文件与后续索引失败、取消或观察失败分别表达。
+
+WorkspaceContractError 可以携带 owner 明确整理的短 feedback；Action 和 Endpoint 使用该反馈，否则沿用通用请求错误。诊断 message 不自动成为模型叙事，原始 IO 异常仍由 Workspace bridge 处理。
 
 Engine 在同一提交锁内形成 WorkspaceChange，锁外分别投影为业务事件和 Observation。业务事件 topic 为 `workspace.changed`，source 区分 `workspace.owner` 与 `workspace.fswatch`，只携带日期、操作、数量和有界 引用/摘要；每个来源的未发布变化合并为一个待刷新状态。Service 在返回正式写入结果前等待发布受理。无活动订阅时只更新 owner，下一 Turn 从现态开始。
 

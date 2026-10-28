@@ -27,7 +27,7 @@ avoid_when = [
     "Need to replace specific text; use workspace.edit",
     "Target file doesn't exist; use workspace.write",
     "Target is not a UTF-8 text file",
-    "Need to insert in the middle; use workspace.edit"
+    "Need to insert at a known line; use workspace.insert"
 ]
 effects = ["modifying"]
 examples = [

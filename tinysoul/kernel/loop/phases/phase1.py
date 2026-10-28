@@ -162,6 +162,7 @@ class Phase1Unit:
             )
         return Phase1Outcome(
             selected_domains=selection.selected_domains,
+            intent=selection.intent,
             control_results=control_results,
         )
 

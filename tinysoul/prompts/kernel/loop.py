@@ -69,11 +69,18 @@ PHASE2_GUIDANCE = (
 
 # Phase TaskPrompt output. Used by kernel/loop/prompts.py:phase2_task_prompt.
 PHASE2_EXPECTED_OUTPUT = (
-    "# Expected Output\nReturn one or more action tool calls with valid arguments."
+    "# Expected Output\nReturn one or more action tool calls from the current tool "
+    "definitions, with valid arguments for the selected domains and this Cycle's intent."
 )
 
 # Model instruction or presentation. Used by kernel/loop/prompts.py:phase1_task_prompt, kernel/loop/prompts.py:phase2_task_prompt.
-PREVIOUS_FEEDBACK_HEADING = "Previous attempt feedback:\n"
+PREVIOUS_FEEDBACK_HEADING = "Previous cycle feedback:\n"
+
+# Model instruction. Used by kernel/loop/prompts.py:_turn_guide_blocks.
+TURN_GUIDANCE_HEADING = "# Turn Guidance\n"
+TURN_GUIDANCE_SCOPE = (
+    "Apply this Turn guidance through the tools available in the current phase."
+)
 
 # Model instruction or presentation. Used by kernel/loop/prompts.py:phase2_task_prompt, kernel/loop/prompts.py:phase1_task_prompt.
 TASK_GUIDE_HEADING = "# Task Guide\n"
@@ -85,7 +92,10 @@ DOMAIN_SKILL_HEADING = "# Domain Skill\n"
 TASK_INPUT_HEADING = "# Task Input\n"
 
 # Model instruction or presentation. Used by kernel/loop/prompts.py:phase2_task_prompt.
-SELECTED_DOMAINS_HEADING = "# Task Input\nSelected domains: "
+def phase2_input(*, domains: tuple[str, ...], intent: str) -> str:
+    text = "# Task Input\nSelected domains: " + ", ".join(domains)
+    return text + f"\nCycle intent: {intent}" if intent else text
+
 
 # Model instruction or presentation. Used by kernel/loop/phases/phase1.py:run.
 NO_DOMAIN_SELECTED = "Phase1 did not select any action domain."
@@ -96,26 +106,28 @@ INVALID_PHASE_OUTPUT = "LLM task output did not satisfy the phase protocol."
 # Model context feedback. Used by kernel/loop/phases/phase1.py.
 def phase1_task_failure(*, feedback: str) -> str:
     return (
-        "Phase1 did not complete: the required domain selection was not accepted; "
-        "this response's Context controls were not applied. "
-        f"Cause: {feedback}"
+        "Phase1 did not complete; this response's Context controls were not applied. "
+        f"Cause: {feedback} Select the needed action domains in Phase1; "
+        "concrete action calls are generated in Phase2."
     )
 
 
 # Model context feedback. Used by kernel/loop/phases/phase1.py.
 def phase1_domain_failure(*, feedback: str) -> str:
     return (
-        "Phase1 did not complete: a valid select_action_domains call is required; "
-        "this response's Context controls were not applied. "
-        f"Cause: {feedback}"
+        "Phase1 did not complete; this response's Context controls were not applied. "
+        f"Cause: {feedback} Call select_action_domains with the domains needed for "
+        "this Cycle; use the available Context controls when needed."
     )
 
 
 # Model context feedback. Used by kernel/loop/phases/phase2.py.
-def phase2_task_failure(*, feedback: str) -> str:
+def phase2_task_failure(*, feedback: str, domains: tuple[str, ...]) -> str:
     return (
-        "Phase2 did not complete: no Action from this response was accepted or "
-        f"executed. Cause: {feedback}"
+        "Phase2 did not complete; no Action from this response was accepted or "
+        f"executed. Cause: {feedback} Selected domains: {', '.join(domains)}. "
+        "In the next Cycle, select the domains needed for the intended actions "
+        "and use their current tool definitions in Phase2."
     )
 
 

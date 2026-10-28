@@ -8,6 +8,7 @@ from pathlib import Path
 from threading import RLock
 
 from tinysoul.infra.filesystem import atomic_write_bytes
+from tinysoul.prompts.plugins import workspace as prompt_text
 from ..config import WorkspaceSettings
 from ..errors import WorkspaceContractError, WorkspaceError, WorkspaceIOError
 from ..inspection.models import WorkspaceBundleResult, WorkspaceBundleWrite
@@ -139,6 +140,36 @@ class WorkspaceMutations:
         with self._lock:
             original = self._editable_text(ref)
             return self.write_text(ref, original + text, overwrite=True)
+
+    def insert_text(
+        self, ref: str, text: str, *, after_line: int
+    ) -> WorkspaceResourceRecord:
+        self._validate_text(text)
+        if type(after_line) is not int or after_line < 0:
+            raise WorkspaceContractError(
+                "Workspace insert position must be a non-negative integer",
+                feedback=prompt_text.INSERT_LINE_REQUIRED,
+            )
+        with self._lock:
+            original = self._editable_text(ref)
+            # Match read_text_range's normalized LF line boundaries, including
+            # an unterminated last line but not an extra empty line after EOF.
+            line_ends = [
+                index + 1 for index, char in enumerate(original) if char == "\n"
+            ]
+            if original and not original.endswith("\n"):
+                line_ends.append(len(original))
+            if after_line > len(line_ends):
+                raise WorkspaceContractError(
+                    "Workspace insert position exceeds the current file",
+                    feedback=prompt_text.insert_line_out_of_range(
+                        after_line=after_line, line_count=len(line_ends)
+                    ),
+                )
+            offset = line_ends[after_line - 1] if after_line else 0
+            return self.write_text(
+                ref, original[:offset] + text + original[offset:], overwrite=True
+            )
 
     def edit_text(
         self, ref: str, edits: Sequence[WorkspaceTextEdit]

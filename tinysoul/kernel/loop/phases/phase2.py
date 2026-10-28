@@ -80,6 +80,7 @@ class Phase2Unit:
         self,
         *,
         selected_domains: tuple[str, ...],
+        intent: str = "",
         scope: RunScope,
         cycle_id: str,
         turn_id: str = "",
@@ -118,6 +119,7 @@ class Phase2Unit:
             messages = self._context.compose(
                 phase2_task_prompt(
                     selected_domains=selected_domains,
+                    intent=intent,
                     domain_skills=await self._domain_skills.guidance_for(
                         selected_domains
                     ),
@@ -145,7 +147,8 @@ class Phase2Unit:
         if result.status is TaskResultStatus.FAILURE:
             feedback = (
                 prompt_text.phase2_task_failure(
-                    feedback=_task_result_feedback(result)
+                    feedback=_task_result_feedback(result),
+                    domains=selected_domains,
                 ),
             )
             (

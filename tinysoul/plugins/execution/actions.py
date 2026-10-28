@@ -239,6 +239,13 @@ def register_execution_actions(
                     engine, operation, home=home, workspace=workspace
                 ),
             )
+            if operation in {ExecutionOperation.RUN, ExecutionOperation.START}:
+                builder.with_action_hint(
+                    identity,
+                    prompt_text.available_interpreters_hint(
+                        names=tuple(item.value for item in engine.available_interpreters)
+                    ),
+                )
     return builder
 
 

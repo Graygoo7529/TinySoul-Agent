@@ -875,6 +875,14 @@ class WorkspaceEngine:
             lambda: self._mutations.append_text(ref, text),
         )
 
+    def insert_text(
+        self, ref: str, text: str, *, after_line: int
+    ) -> WorkspaceResourceRecord:
+        return self._change(
+            WorkspaceChangeOperation.INSERT,
+            lambda: self._mutations.insert_text(ref, text, after_line=after_line),
+        )
+
     def edit_text(
         self, ref: str, edits: Sequence[WorkspaceTextEdit]
     ) -> WorkspaceResourceRecord:
@@ -937,6 +945,7 @@ class WorkspaceEngine:
             elif operation in (
                 WorkspaceChangeOperation.WRITE,
                 WorkspaceChangeOperation.APPEND,
+                WorkspaceChangeOperation.INSERT,
                 WorkspaceChangeOperation.EDIT,
             ) and isinstance(result, WorkspaceResourceRecord):
                 written_refs = (result.ref,)

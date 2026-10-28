@@ -13,9 +13,11 @@ additionalProperties = false
 
 [tool.schema.properties.target_ref]
 type = "string"
+description = "Existing Workspace text resource ref."
 
 [tool.schema.properties.edits]
 type = "array"
+description = "Ordered array of replacements, validated together before one file commit."
 
 [tool.schema.properties.edits.items]
 type = "object"
@@ -26,9 +28,11 @@ additionalProperties = false
 
 [tool.schema.properties.edits.items.properties.old_text]
 type = "string"
+description = "Exact non-empty text occurring once in the current file."
 
 [tool.schema.properties.edits.items.properties.new_text]
 type = "string"
+description = "Exact replacement text; an empty string removes old_text."
 
 [semantic]
 use_when = [
@@ -44,7 +48,8 @@ avoid_when = [
 effects = ["modifying"]
 examples = [
     "Replace 'old_function_name' with 'new_function_name' in workspace:src/main.py",
-    "Apply multiple edits atomically to workspace:config.yaml"
+    "Apply multiple edits atomically to workspace:config.yaml",
+    "Insert before a unique heading by replacing that short heading with new text followed by the same heading"
 ]
 
 [runtime]

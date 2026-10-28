@@ -53,3 +53,7 @@ class WorkspaceEditRequest(WorkspaceDirectoryRequest):
 
 class WorkspaceAppendRequest(WorkspaceDirectoryRequest):
     text: str
+
+
+class WorkspaceInsertRequest(WorkspaceAppendRequest):
+    after_line: int = Field(ge=0, strict=True)

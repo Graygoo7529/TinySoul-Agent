@@ -271,6 +271,8 @@ Action 顶层包同时暴露业务模块实现 executor 所需的公共 SPI：`A
 
 `ActionCatalogLoader.load_documents()` 从 Infra 的候选 ConfigDocumentSet 解析并校验统一 catalog，保留 domain/action 文档绑定、运行默认值和 timeout 来源。ActionEngineBuilder 接收已验证 catalog、显式注册 executor/hook，按 grants、情景选择与 executor support 构造有效视图；不隐式打开配置路径，不由 registrar 动态改写 schema。
 
+业务 owner 可在装配时通过 with_action_hint 提供一条运行时能力说明，在 profile 语义覆盖后附加到有效工具 description。它不替换原说明或 semantic，不改 schema，也不写回 configured Catalog；配置展示仍保留可编辑原文。Execution 的可用解释器名单使用该入口。
+
 ## 情景动作策略
 
 ActionPolicy 从同一 domain/action TOML 的 visibility 读取选择，按动作情景→域情景→动作 default→域 default→true 取首个已配置值。domain 是可覆盖默认值；TurnProfile 不维护平行选择表。最终集合为 grants、visibility 与 executor support 的交集；显式越权启用在候选配置阶段拒绝。每个情景生成独立 immutable catalog 视图；Phase1、Phase2、normalize、prepare_batch 与 run_batch 使用同一有效集合。执行入口复验 ActionSpec，伪造 executor 或借自其他情景的批次在副作用前拒绝。

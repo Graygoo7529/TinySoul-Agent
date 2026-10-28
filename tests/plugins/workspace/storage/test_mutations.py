@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -19,6 +20,65 @@ from tinysoul.plugins.workspace.storage.manifest import (
     WorkspaceManifestStore,
 )
 from tinysoul.plugins.workspace.storage.reconcile import WorkspaceReconciler
+
+
+@pytest.mark.parametrize(
+    ("original", "after_line", "text", "expected"),
+    [
+        ("A\nB\n", 0, "X\n", "X\nA\nB\n"),
+        ("A\nB\n", 1, "X\n", "A\nX\nB\n"),
+        ("A\nB\n", 2, "X", "A\nB\nX"),
+        ("A", 1, "\nX", "A\nX"),
+        ("", 0, "X", "X"),
+        ("A\r\nB\r\n", 1, "X\n", "A\nX\nB\n"),
+        ("A\u2028B\nC", 1, "X", "A\u2028B\nXC"),
+        ("A\n", 1, "", "A\n"),
+    ],
+)
+def test_insert_uses_current_normalized_lines_and_exact_text(
+    tmp_path: Path, original: str, after_line: int, text: str, expected: str
+) -> None:
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    engine.write_text("workspace:a.txt", original)
+    engine.insert_text("workspace:a.txt", text, after_line=after_line)
+    assert (tmp_path / "a.txt").read_bytes() == expected.encode("utf-8")
+
+
+@pytest.mark.parametrize("after_line", [-1, True, "1", 2])
+def test_insert_rejects_invalid_position_without_changing_file_or_index(
+    tmp_path: Path, after_line: object
+) -> None:
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    engine.write_text("workspace:a.txt", "A\n")
+    before = engine.snapshot()
+    with pytest.raises(WorkspaceContractError) as raised:
+        engine.insert_text("workspace:a.txt", "X", after_line=cast(int, after_line))
+    assert raised.value.feedback and "0" in raised.value.feedback
+    if after_line == 2:
+        assert "1 lines" in raised.value.feedback
+    assert (tmp_path / "a.txt").read_bytes() == b"A\n"
+    assert engine.snapshot() == before
+
+
+@pytest.mark.parametrize("target", ["empty.txt", "folder", "data.bin", "full.txt"])
+def test_insert_rejects_invalid_target_or_capacity_before_commit(
+    tmp_path: Path, target: str
+) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(root=tmp_path, max_write_chars=8)
+    ).build()
+    engine.write_text("workspace:empty.txt", "")
+    engine.mkdir("workspace:folder")
+    engine.write_text("workspace:full.txt", "12345678")
+    (tmp_path / "data.bin").write_bytes(b"\xff\x00")
+    engine.reconcile()
+    before = engine.snapshot()
+    with pytest.raises(WorkspaceContractError):
+        engine.insert_text(f"workspace:{target}", "X", after_line=1)
+    assert engine.snapshot() == before
+    assert engine.read_text("workspace:empty.txt").text == ""
+    assert engine.read_text("workspace:full.txt").text == "12345678"
+    assert (tmp_path / "data.bin").read_bytes() == b"\xff\x00"
 
 
 @pytest.mark.parametrize(

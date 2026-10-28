@@ -320,6 +320,7 @@ def test_phase_prompt_content_preserves_scenario_and_skill_boundaries(
     )
     second = phase2_task_prompt(
         selected_domains=("core",),
+        intent="cycle {intent}",
         domain_skills=(skill,),
         turn_guidance=(scenario,),
         feedback=(feedback,),
@@ -331,10 +332,27 @@ def test_phase_prompt_content_preserves_scenario_and_skill_boundaries(
         assert all(
             isinstance(message, UserMessage) for message in prompt.render_messages()
         )
-        parts = prompt.guide_blocks[0].message.parts
-        text = "".join(part.text for part in parts if isinstance(part, TextPart))
-        assert text.index(marker) < text.index(scenario) < text.index(feedback)
-    assert len(first.guide_blocks) == 1
-    assert second.guide_blocks[1].owner == skill.owner
-    assert second.guide_blocks[1].refs == (skill.reference,)
-    assert second.provenance()[1].message_indices == (1,)
+        text = "\n".join(
+            part.text
+            for message in prompt.render_messages()
+            for part in message.parts
+            if isinstance(part, TextPart)
+        )
+        assert text.index(scenario) < text.index(marker) < text.index(feedback)
+        assert text.index(feedback) < text.index("# Expected Output")
+        if prompt is second:
+            assert text.index(marker) < text.index(skill.text) < text.index("cycle {intent}")
+            assert text.index("cycle {intent}") < text.index(feedback)
+    assert len(first.guide_blocks) == 2
+    assert second.guide_blocks[2].owner == skill.owner
+    assert second.guide_blocks[2].refs == (skill.reference,)
+    assert second.provenance()[2].message_indices == (2,)
+
+    minimal = phase2_task_prompt(selected_domains=("core",))
+    assert len(minimal.guide_blocks) == len(minimal.input_blocks) == 1
+    assert all(
+        part.text.strip() and "Cycle intent:" not in part.text
+        for message in minimal.render_messages()
+        for part in message.parts
+        if isinstance(part, TextPart)
+    )

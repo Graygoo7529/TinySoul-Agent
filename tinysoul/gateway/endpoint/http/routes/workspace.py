@@ -26,6 +26,7 @@ from ..schemas.workspace import (
     WorkspaceAppendRequest,
     WorkspaceDirectoryRequest,
     WorkspaceEditRequest,
+    WorkspaceInsertRequest,
     WorkspaceMoveRequest,
     WorkspaceTagRequest,
 )
@@ -51,6 +52,12 @@ def register_workspace_routes(app: FastAPI, engine: EndpointEngine) -> None:
             tuple(
                 WorkspaceTextEdit(item.old_text, item.new_text) for item in body.edits
             ),
+        )
+
+    @app.post("/v2/workspace/insert")
+    async def workspace_insert(body: WorkspaceInsertRequest) -> JsonObject:
+        return await engine.workspace.insert(
+            body.ref, body.text, after_line=body.after_line
         )
 
     @app.post("/v2/workspace/append")

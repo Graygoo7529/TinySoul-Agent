@@ -30,6 +30,10 @@ Phase1/Phase2 的可修正协议失败是 PhaseFailure，当前 Cycle 在失败 
 
 Phase task profile 由 loop.cycle 配置，三 profile 共用模型链选择；TaskPrompt 只叠加当前引导和 Skill。背景、Trace、Working 均由 Context 按段描述组合，Phase 不解释领域内容。
 
+TaskPrompt 按整轮指导 → 当前 Phase → 所选 Domain Skill（Phase2）→ 本次输入及失败反馈 → Expected Output 装配。整轮指导通过当前 Phase 的工具落实，不扩展工具范围。select_action_domains 的可选 intent 经域选择结果、Phase1Outcome 和 CycleRunner 传给 Phase2 输入；只规范化首尾空白，不形成长期状态或执行授权，下一 Cycle 使用新意图。
+
+Phase1 task/域选择拒绝明确说明当前响应的 controls 未安装；Phase2 task 拒绝明确说明没有接受或执行本次 Action，并提示下一 Cycle 重新选择必要域。已经接受的局部 control 结果和 Action 执行结果仍沿原路径反馈，不能笼统宣称没有副作用。
+
 Phase 固定指引和局部反馈由 `prompts/kernel/loop.py` 提供，User 情景固定指引由 `prompts/agent/user.py` 提供。Loop 继续拥有提示组合、role、顺序和失败处理；内容包只维护文字，边界见[固定模型文案设计](prompts.md)。
 
 ## 输入、问题与预算

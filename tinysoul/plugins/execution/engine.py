@@ -19,6 +19,7 @@ from tinysoul.infra.process import (
 from tinysoul.kernel.jobs import JobRegistry
 from tinysoul.plugins.home.services import HomeService
 from tinysoul.plugins.workspace.services import WorkspaceExecutionPort
+from tinysoul.prompts.plugins import execution as prompt_text
 
 from .backend import ProcessJobBackend
 from .config import ExecutionSettings, Interpreter
@@ -58,6 +59,10 @@ class ExecutionEngine:
                     self._executables[adapter.name] = executable
 
     @property
+    def available_interpreters(self) -> tuple[Interpreter, ...]:
+        return tuple(self._executables)
+
+    @property
     def script_available(self) -> bool:
         return bool(self._executables)
 
@@ -87,7 +92,10 @@ class ExecutionEngine:
         executable = self._executables.get(selected)
         if executable is None:
             raise ExecutionRequestError(
-                f"The {selected.value} interpreter is not enabled in this runtime."
+                prompt_text.interpreter_unavailable(
+                    interpreter=selected.value,
+                    available=tuple(item.value for item in self.available_interpreters),
+                )
             )
         if (command is None) == (source_ref is None):
             raise ExecutionRequestError("Provide exactly one of command or source_ref.")

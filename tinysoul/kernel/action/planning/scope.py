@@ -33,6 +33,7 @@ class ActionDomainSelection:
     """Normalized Phase1 action domain selection."""
 
     selected_domains: tuple[str, ...]
+    intent: str = ""
     feedback: tuple[str, ...] = ()
 
 
@@ -99,6 +100,12 @@ class Phase1DomainScopeBuilder:
                 selected_domains=(),
                 feedback=(prompt_text.DOMAIN_LIST_REQUIRED,),
             )
+        intent = selections[0].arguments.get("intent", "")
+        if not isinstance(intent, str):
+            return ActionDomainSelection(
+                selected_domains=(),
+                feedback=(prompt_text.DOMAIN_INTENT_TEXT_REQUIRED,),
+            )
         selected_domains: list[str] = []
         feedback: list[str] = []
         seen: set[str] = set()
@@ -118,6 +125,7 @@ class Phase1DomainScopeBuilder:
             feedback.append(prompt_text.NO_USABLE_DOMAINS)
         return ActionDomainSelection(
             selected_domains=tuple(selected_domains),
+            intent=intent.strip() if not feedback else "",
             feedback=tuple(feedback),
         )
 
