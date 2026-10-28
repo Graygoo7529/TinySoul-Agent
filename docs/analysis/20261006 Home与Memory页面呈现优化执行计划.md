@@ -1,195 +1,127 @@
 # Home 与 Memory 页面呈现优化执行计划
 
-日期：2026-10-06
+日期：2026-10-06；2026-10-27 按最新引用与页面实现复核
 
 状态：待逐项确认与实施
 
-范围：`visualization/src/features/home/`（HomePage.tsx、HomeDirectory.tsx、HomeContentView.tsx、HomeChanges.tsx）、`visualization/src/features/memory/`（MemoryNav.tsx、MemoryDocumentView.tsx、ActiveMemoryView.tsx）、`visualization/src/features/resources/ReferencesPanel.tsx`。
+范围：`visualization/src/features/home/`、`memory/`、`resources/ReferencesPanel.tsx`、SearchPanel 相关结果行及测试。
 
-**架构前提（不可逾越）**：Home/Memory 页面是**只读**呈现——持久 Memory 与 actual Home 的写入只属于 Reflection 的受约束服务，日常修改走对话。本计划不引入任何编辑/Save 能力、不新增后端端点；所有改进为纯前端呈现与导航增强。
+**架构前提**：Home/Memory 页面保持只读。持久 Memory 与 actual Home 的写入只属于 Reflection 的受约束服务；本计划不引入编辑/Save、不新增后端端点、不把引用面板变成审核工具。
 
-## 目标
+## 最新基线
 
-Home 持有身份、偏好、Skill 与行动指导；Memory 持有活动记忆与五类持久知识文档。两页的功能链路（目录/内容/变更/diff/引用/整理入口）已经完整，但呈现层是"裸数据直出"：五类文档视觉零区分、目录行无元信息、overlay 改动不渗透目录、引用关系是一串等宽 ref。本计划让两页的信息层次与图形语义配得上其数据模型的完整度。
-
----
+- Home 引用已统一为 `home:top|resource|mount/...`，内容页可直接使用真实 ref；
+- ReferencesPanel 的 direct refs 已展示 owner 提供的 `title + clue + ref`，backlinks 也已有标题、ref 与 evidence，不能再按旧描述把它们当成“只有机器 ref 的列表”；
+- Memory catalog 当前只有 ref/kind/display/status/redirect_to，没有更新时间、大小或摘要；
+- Active Memory 已有 Quote in conversation，能够跳转对话并预填 `memory:current`，因此取消重复的“就今日记忆提问”按钮。
 
 ## 改进点 1：Memory 五类文档色彩与图标系统
 
-### 现状分析
+### 现状与修改
 
-`features/memory/MemoryNav.tsx:238`：daily/entity/concept/fact/note 五类文档的 kind 徽标**全部粉色**（`<Badge tone="pink">{item.kind}</Badge>`），无图标、无色彩区分；`MemoryDocumentView.tsx` 头部同样处理。用户无法在列表中扫读文档类型。
+daily/entity/concept/fact/note 在目录和文档头部都使用粉色徽标，类型扫读弱。新建 `features/memory/kindMeta.ts` 作为唯一映射：
 
-### 修改范围与内容
-
-- 新建 `features/memory/kindMeta.ts`（单一来源）：
-
-| 类型 | 图标（lucide） | Badge tone | 语义 |
+| 类型 | 图标 | Badge tone | 中文语义 |
 |---|---|---|---|
-| daily | CalendarDays | yellow | 按日的记录 |
-| entity | User | blue | 人与项目 |
-| concept | Lightbulb | purple | 概念与模式 |
-| fact | Pin | green | 事实与引用 |
+| daily | CalendarDays | yellow | 日记 |
+| entity | User | blue | 实体 |
+| concept | Lightbulb | purple | 概念 |
+| fact | Pin | green | 事实 |
 | note | StickyNote | pink | 便签 |
 
-  导出 `memoryKindMeta(kind): { Icon, tone, label }`（label 中文：日记/实体/概念/事实/便签；未知 kind 灰 fallback）。
-- 应用到四处：`MemoryNav.tsx` 行徽标（图标+中文 label，替代纯粉色原值）、`MemoryDocumentView.tsx` 头部、Memory 页 kind tabs（All/Daily/… 切换处）、SearchPanel 在 memory 域的结果行（结果行组件若共享则自动获得，不共享则单独应用）。
+应用到 MemoryNav 行、MemoryDocumentView 头部、kind tabs 和 Memory 搜索结果行；未知 kind 使用灰色与原值，不猜类型。
 
 ### 预期效果
 
-列表扫读时类型一眼可辨（黄日记、蓝实体、紫概念、绿事实、粉便签）；kind 语义从机器枚举变成中文词 + 图标。
+五类文档在列表、头部、筛选和引用中保持同一视觉语言，机器枚举只在需要精确定位时保留。
 
----
-
-## 改进点 2：Memory catalog 行元信息与 status 语义化
-
-### 现状分析
-
-`MemoryNav.tsx` 目录行只有 display 名 + redirect 徽标 + 裸 status 枚举字符串（:236 `<Badge tone="gray">{item.status}</Badge>`）；无日期、无大小、无摘录。
+## 改进点 2：Memory catalog 状态语义化
 
 ### 修改范围与内容
 
-`MemoryNav.tsx` 行组件：
-
-- status 枚举翻译为语义词：active→"生效中"（绿）、其余状态灰色中文词（归档/重定向等按实际枚举值映射，未知值原样）；redirect 徽标保留橙色；
-- 行内追加元信息小字：daily 显示日期（名字本身即日期，不重复）；其余类型显示 catalog 提供的更新时间/大小字段（**先核实 catalog item 载荷里实际有哪些字段**，有则显示，无则不加——不向后端要新字段）；
-- 行 hover 显示一行摘录 tooltip（从文档首段推导需要额外请求，成本高——**不做**；仅在 catalog 已带摘要字段时显示，否则省略）。
+- 保留当前“active 不额外显示徽标”的克制列表，不给每行增加绿色噪声；
+- redirect 与非 active 状态显示中文语义和适宜色调，未知枚举保留原值；
+- 不添加更新时间、大小或首段摘录：catalog 没有这些字段，本计划不新增请求或端点；
+- display 继续作为主标题，完整 ref 留在 title/复制入口。
 
 ### 预期效果
 
-每行能读出"类型 + 状态 + 时间/规模"；裸枚举消失。
+状态可读且不稀释主标题；每行仍只表达 catalog 真正拥有的事实。
 
----
-
-## 改进点 3：引用呈现语义化（ReferencesPanel）
-
-### 现状分析
-
-`features/resources/ReferencesPanel.tsx:165-196`："It references"（direct refs）与 backlinks 都是等宽 ref 字符串按钮 + copy/quote 图标——`memory:entity/tinysoul` 这类机器标识是行的全部内容，无语义标题、无类型提示。
+## 改进点 3：引用呈现语义化
 
 ### 修改范围与内容
 
-`ReferencesPanel.tsx`（Home 与 Memory 共用此面板，改动两处同时受益）：
-
-- ref 行升级为 LinkChip 风格：按 ref 命名空间给图标（workspace→FileText、home→Home、memory→MemoryStick，memory 再按路径段细分五类图标——复用改进点 1 的 kindMeta）；显示文本为语义名（取 ref 末段，如 `memory:entity/tinysoul` → `tinysoul`），完整 ref 收 title。注意 `components/trace/semantic.tsx` 的 `LinkChip` 现有 prop 名为 `resourceRef`（引用统一后已改名），复用或扩展时按此签名；
-- copy/quote 图标按钮保留在行尾；
-- backlinks 区同样处理；空态文案中文化（"暂无引用"）。
+- direct refs 保留 owner 提供的 title 作为主文本、clue 作为辅助说明、完整 ref 作为精确定位，**不得用 ref 末段覆盖 title/clue**；
+- backlinks 保留 title/ref/evidence，增加与 Memory kind 或 Home/Workspace 命名空间一致的淡色图标；
+- copy/quote 和现有 ResourceRouter 导航保持；区标题与空态中文化；
+- LinkChip 若复用，按当前 `resourceRef` prop 签名，不恢复旧 link 字段。
 
 ### 预期效果
 
-引用列表从机器 ref 串变成"带类型图标的语义条目"，扫读与点击导航都更直接。
-
----
+引用从“可用但朴素”提升为类型可辨的知识条目，同时保留 owner 对标题与线索的解释权。
 
 ## 改进点 4：Home overlay 状态渗透目录
 
-### 现状分析
-
-- 哪些条目被 overlay 改过，只能切到 Changes 面板对照；header 的 "Changes" 按钮（`HomePage.tsx:127-135`）**无计数徽标**——用户无法一眼知道有待审改动（数量只在 ReflectionDialog 里出现）；
-- HomeChanges 面板每行已有 created/modified/deleted 三色徽标与 diverged 标记（`HomeChanges.tsx`，KIND_TONES green/yellow/red）——数据通道是现成的 `/v2/home/changes`。
-
 ### 修改范围与内容
 
-- `HomePage.tsx`：Changes 按钮加计数徽标（`Changes 3`）。计数来源：HomeChanges 已用 `usePagedSequence` 读 changes——将 changes 计数提升到 store（`useHomePage` 增加 `changeCount`），由 HomeChanges 的读取结果写入；首屏不主动读 changes（保持懒加载），但在用户开过 Changes 面板后计数常驻；ReflectionDialog 打开时已知 pending overlay 数，也同步写入该计数。
-- `HomeDirectory.tsx` DirectoryRow：对存在于 changes 集合中的 link，行右侧加状态点（绿 created/黄 modified/红 deleted/橙 diverged，复用 KIND_TONES），点击状态点直接打开对应 diff（`useHomePage.getState().openDiff(link)`，机制已有）；changes 集合同样来自提升后的 store，目录行在未读 changes 时不显示点（不伪造）。
+- Changes 按钮在已读取 changes 后显示计数；首屏不额外请求，打开 Changes 后计数常驻，ReflectionDialog 已取得 home_change_count 时可同步；
+- 将已加载的 changes 集合提升到 useHomePage，DirectoryRow 对实际匹配 ref 显示 created/modified/deleted/diverged 状态点；
+- 点击状态点调用现有 openDiff 直达对应 diff；未读取 changes 时不显示、不伪造；
+- effective 中不存在的 deleted 项不制造目录行，仍可从 Changes 列表读取。
 
 ### 预期效果
 
-有待审改动时 header 直接报数；目录里被改的条目有颜色标记，一点直达 diff——overlay 状态从"藏在另一个面板"变成目录的一层信息。
+overlay 不再只藏在独立面板里；目录能定位有变化的资源，同时不增加首屏数据请求。
 
----
-
-## 改进点 5：Home 内容头部去重
-
-### 现状分析
-
-`HomeContentView.tsx:86-91`：标题是 `ref.replace(/^home:/,"")`，下一行又放完整等宽 ref——两行几乎同一字符串，raw ref 对读者是噪声。（2026-10-07 核实：引用统一后 Home ref 形态为 `home:top/<space>/<name>`、`home:resource/<space>/<path>`、`home:mount/domain/<d>`、`home:mount/action/<d>/<a>`，origin/link 字段已统一改名 `ref`。）
+## 改进点 5：Home/Memory 内容头部去重
 
 ### 修改范围与内容
 
-`HomeContentView.tsx` 头部：
-
-- 标题只保留语义名（`home:top/agent/identity` → `agent · identity`；`home:mount/domain/workspace` → `域指导 · workspace`；`home:mount/action/workspace/edit` → `动作指导 · workspace/edit`；解析函数放 `home/catalogModel.ts` 或组件内小函数）；
-- 完整 ref 收进头部右侧的 ref chip（等宽小字 + 复制按钮，复用 copyReference）；view 徽标（effective/actual）保留；
-- MemoryDocumentView 头部同样检查：`display` + 等宽 ref 两行是否重复，重复则同样收口。
+- Home 标题按 top/resource/mount 转换为语义名，例如 `skills · review`、`域指导 · workspace`、`动作指导 · workspace/edit`；完整 ref 收为小 chip + 复制按钮，effective/actual 徽标保留；
+- Memory 保留 owner display 为主标题，kind/status 使用改进点 1、2 的映射，完整 ref 降级为辅助 chip；
+- 文档正文与 redirect 提示不变。
 
 ### 预期效果
 
-头部一行读懂"这是什么"，机器标识降级为可复制的小 chip。
-
----
+头部先回答“这是什么”，机器引用仍可复制但不再与标题重复抢占注意力。
 
 ## 改进点 6：diff 视图的聚焦整理入口
 
-### 现状分析
+- HomeDiffView 增加次级按钮“就这条发起整理”，打开现有 ReflectionDialog kind=home，并通过可选 initialText 预填聚焦当前 ref 的说明；
+- 仅预填用户可编辑的 instructions，提交仍走现有 POST /v2/reflection，不新增写权限或 review token；
+- diverged、actual/effective 差异和只读语义保持不变。
 
-HomeDiffView 只读（设计如此），diverged 横幅有说明文字但无可点击出口；唯一行动是 header 的 "Organize Home" 自由文本指令，用户需要自己描述"整理哪条"。
+预期效果：从发现可疑 overlay 到发起聚焦整理少一次手工描述，审核仍完全归 Reflection。
 
-### 修改范围与内容
+## 改进点 7：Memory 单文档关系图（ego graph）
 
-- `HomeDiffView.tsx`：头部增加一个次级按钮"就这条发起整理"——打开 `ReflectionDialog kind="home"` 并预填 instructions 为 `请聚焦 review <link> 的改动`（ReflectionDialog 已有 instructions 文本框，增加一个可选 initialText prop）；
-- 不新增任何写权限与后端调用——仍走现有 `POST /v2/reflection` 提交流程。
+### 数据与边界
 
-### 预期效果
-
-从"看到一条可疑改动"到"发起聚焦整理"一次点击；review 闭环仍完全由 Reflection 持有。
-
----
-
-## 改进点 7：Memory 单文档关系图（ego graph 第一期）
-
-### 现状分析
-
-引用/backlinks 只能在 ReferencesPanel 浮层里以列表读（改进点 3 语义化后仍是列表）；"这条知识与哪些知识相连"没有结构性呈现。数据通道已存在且够用：文档 `metadata.direct_refs`（它引用了谁，免费随文档返回）与 memory search 的 backlinks 来源（谁引用了它，现有"显式点击才查"的许可语义）。
+只使用文档 DisclosurePage items 中的 direct refs 与显式 memory.search backlinks；它们都是真实引用边。不做相似度猜边、不标注后端未提供的边类型、不建设全局 force 图谱。
 
 ### 修改范围与内容
 
-- `ReferencesPanel.tsx`：头部增加 List / Graph 分段切换（默认 List）；
-- 新增 `features/memory/MemoryGraph.tsx`（纯 SVG 手绘，**不引入 d3/react-flow 等任何新依赖**）：
-  - 布局：当前文档居中节点，左列"谁引用了它"（backlinks，入边指向中心），右列"它引用了谁"（direct refs，出边指出）；
-  - 节点：圆角块 + 改进点 1 的 kind 图标/色调 + 语义标题（ref 末段），完整 ref 收 title；
-  - 边：细线带方向；hover 高亮整条边与对端节点；
-  - 交互：点击邻居节点经 ResourceRouter 跳转该文档，图谱以新文档为中心重建（浏览即沿引用漫游）；
-  - 有界：每侧最多 12 个节点，超出折叠为 `+N 更多` 计数节点（点击展开该侧列表）；
-  - 许可：切到 Graph 模式才发起 backlinks 查询（与面板现状一致），direct refs 免费；
-  - 空态：两边都无引用时显示"该文档暂无引用边"，不画空图；
-- 语义红线：只呈现真实引用边（direct_refs + backlinks），不做词法猜测、不做"相似文档"伪边、不做边类型标注（后端引用边不携带类型）。
+- ReferencesPanel 仅在 `actionId="memory.search"` 时增加 List / Graph 切换，默认 List；Home 继续只有现有列表，不获得额外图谱入口；
+- 新增 `MemoryGraph.tsx`，纯 SVG，不引入 d3/react-flow：当前文档居中，左列为引用它的文档、右列为它引用的文档，方向与真实边一致；
+- 节点复用 kindMeta 图标/色调，跨到 Home/Workspace 的邻居使用对应命名空间图标；中心与邻居优先使用 owner title/display，clue 可作辅助，完整 ref 收 title；
+- 点击邻居沿 ResourceRouter 打开并以新文档为中心重建；hover 只高亮真实边与对端；
+- 每侧最多 12 个节点，超出为 `+N 更多` 并展开该侧列表；
+- Graph 首次需要 backlinks 时才发起查询，已查询结果可复用；空态直接说明无引用边，不画空图。
 
 ### 预期效果
 
-读任何一条 memory 都能一眼看到它在知识网中的位置，并沿边漫游到相关文档；图谱与列表两种视图服务不同阅读习惯。全局知识图谱（全量节点 force layout）**不在本计划内**——它需要后端全量引用边通道，届时单独评估立项。
-
----
-
-## 改进点 8：Active Memory 快捷提问入口
-
-### 现状分析
-
-Active Memory 视图（`ActiveMemoryView.tsx`）只读，操作只有 copy/quote `memory:current`；空库空态已有 "Start a conversation" 的真实下一步（好设计），但读到内容后没有"就此提问/补充"的快捷路径。
-
-### 修改范围与内容
-
-`ActiveMemoryView.tsx` 头部操作区增加一个次级按钮"就今日记忆提问"：跳转 chat tab 并向 Composer 预填对 `memory:current` 的引用（复用 `quoteReference`，机制已存在）——与 copy/quote 并列，不改变只读语义。
-
-### 预期效果
-
-从"读到今日记忆"到"就此与 agent 对话"一次点击，与空态的 "Start a conversation" 形成完整回路。
-
----
+用户能看到一篇知识在局部关系网中的位置并沿边漫游；列表服务阅读，图谱服务结构判断，二者共享同一份事实。
 
 ## 实施顺序与验收
 
-建议顺序：1（kind 系统，2/3/7 依赖）→ 4+5（Home 侧）→ 2+3（Memory 列表与引用）→ 6+8（小入口）→ 7（ego graph，最重，放最后）。
+顺序：1 → 4+5 → 2+3 → 6 → 7。
 
-验收标准：
+- 五类文档与状态在所有入口一致，active 列表不过度着色；
+- direct refs 的 title/clue 不丢失，catalog 不虚构元信息；
+- Home changes 计数和目录状态只来自已加载事实；
+- diff 可聚焦整理，仍无前端直接审核/编辑；
+- 图谱数据仅来自 direct refs/backlinks，邻接可导航、有界、无伪边；
+- `npx tsc --noEmit` 与 `npx vitest run` 通过。
 
-1. 五类文档在列表/头部/tabs/搜索结果中图标与色彩一致；kind 全中文；
-2. status 无语义裸枚举；行元信息按 catalog 实际字段显示；
-3. 引用行为图标+语义条目，ref 收 title；
-4. Changes 按钮有计数（开过面板后常驻）；目录改动条目有状态点且点击直达 diff；
-5. Home/Memory 内容头部无重复 link 行；
-6. diff 视图可一键发起聚焦整理（预填 instructions）；
-7. ReferencesPanel 有 Graph 模式；ego graph 纯 SVG、数据只来自 direct_refs/backlinks、邻居可点击漫游、超界折叠；
-8. Active Memory 头部有"就今日记忆提问"。
-
-边界：两页保持全只读；不改 catalog/content/changes/diff 的读取与分页逻辑；不动 ReflectionDialog 的提交链路（仅加 initialText prop）；不动 SearchPanel 的能力声明机制。
+边界：不新增 Active Memory 提问按钮（现有 Quote 已覆盖）；不改读取、分页、Search 能力声明或 Reflection 提交链路；不做全局知识图谱。
