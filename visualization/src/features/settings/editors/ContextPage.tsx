@@ -53,10 +53,11 @@ export function ContextPage() {
       />
 
       <FieldSection
-        title={settingsText("Context input budget")}
-        description={settingsText("The combined inline image byte limit for one constructed MessageStack; it applies across Background, Trace and Working.")}
-        paths={["context.max_image_bytes"]}
+        title={settingsText("Context budget")}
+        description={settingsText("The effective window includes input, tools, replay and reserved output. Inline image bytes have a separate limit.")}
+        paths={["context.max_window_tokens", "context.max_image_bytes"]}
         overrides={{
+          "context.max_window_tokens": { min: 1 },
           "context.max_image_bytes": { min: 1, slider: { min: MEBIBYTE, max: 64 * MEBIBYTE, step: MEBIBYTE } },
         }}
       />
@@ -83,7 +84,7 @@ export function ContextPage() {
       <SettingsDisclosure title={settingsText("Pressure and related limits")} paths={["context.compression_trigger_ratio", "context.compression_target_ratio"]}>
         <FieldSection
           title={settingsText("Compression")}
-          description={settingsText("Recomposition starts at the trigger ratio and aims for the target ratio. Task output budgets and provider windows remain on their owner pages.")}
+          description={settingsText("Compression starts above the trigger ratio of the effective window and aims for the target ratio. Reserved output also occupies this budget.")}
           paths={["context.compression_trigger_ratio", "context.compression_target_ratio"]}
           overrides={{
             "context.compression_trigger_ratio": { min: 0, max: 1, slider: { min: 0, max: 1, step: 0.01 } },
@@ -103,6 +104,7 @@ function RelatedContextLinks() {
     ["Workspace", "Read, write, analysis and image boundaries.", "workspace" as const],
     ["Retrieval", "Candidate input, snapshot and page budgets.", "search-policies" as const],
     ["Task and model limits", "LLM output budgets and provider windows remain owner facts.", "llm-tasks" as const],
+    ["Model windows", "Nominal model windows and provider bindings.", "llm-models" as const],
   ];
   return (
     <SectionCard title={settingsText("Related owner limits")} description={settingsText("These limits affect context inputs or results but remain editable by their owning module.")}>

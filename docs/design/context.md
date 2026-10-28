@@ -99,6 +99,8 @@ Heap 段快照保留本轮实际安装的资源正文、身份与加载来源。
 
 ## 失败边界
 
+Context 配置拥有可选的全局 `max_window_tokens` 及压缩触发/目标比例；Agent 将窗口上限与触发比例显式传给共享 LLM runner。LLM 按候选模型窗口与全局上限的较小值检查完整请求，包含工具、回放和预留输出。压力恢复消费 LLM 提供的有效窗口及占用分项，按目标比例计算回收量。ContextEngine 不复制 token 估算策略或按模型主动裁剪消息；图片字节预算仍独立约束内嵌图像。
+
 环境事件只在 TurnInbox 固定批次消费时经插件适配为更新意图；Workspace 段 prepare 读取 owner 已提交的当前状态，不执行扫描或文件写入。一个批次中的输入、事件 Trace 摘要和段更新一起安装，成功后才确认 Inbox。事件回调和原生 watcher 不直接修改 Context，也不把资源正文自动展开到 Working。
 
 无效 ref/continuation 是可修正的 `context.inspect` 局部 Action failure。Context 配置、资源准备或内部不变量失败经 RuntimeContextBridge 改变当前 Turn 控制流。Context 自身预算不足使用 Context-owned 恢复原因，LLM 容量不足使用独立 LLM 原因；User/Reflection 装配将两者接入各自压力策略。恢复有进展才重放可重建的 Task，否则结束 Turn，不为不同模型生成不同 MessageStack。Context bridge 位于自身 runtime_bridge.py，捕获的 Context signal batch 在 Module 重试中保持同一批次，不重新取队列。

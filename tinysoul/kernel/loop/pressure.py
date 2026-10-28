@@ -91,7 +91,7 @@ def _model_required_chars(
     *,
     target_ratio: float,
 ) -> int | None:
-    window = _non_negative_int(payload.get("context_window_tokens"), positive=True)
+    window = _non_negative_int(payload.get("effective_window_tokens"), positive=True)
     message_tokens = _non_negative_int(payload.get("estimated_message_tokens"))
     non_message_tokens = _non_negative_int(payload.get("estimated_non_message_tokens"))
     output_tokens = _non_negative_int(payload.get("reserved_output_tokens"))

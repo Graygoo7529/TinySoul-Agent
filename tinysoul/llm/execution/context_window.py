@@ -50,7 +50,7 @@ class ModelContextUsage:
     """Resolved hard-water usage for one candidate model attempt."""
 
     model_id: str
-    context_window_tokens: int
+    effective_window_tokens: int
     trigger_ratio: float
     estimate: RequestTokenEstimate
     reserved_output_tokens: int
@@ -62,7 +62,7 @@ class ModelContextUsage:
 
     @property
     def trigger_tokens(self) -> int:
-        return int(self.context_window_tokens * self.trigger_ratio)
+        return int(self.effective_window_tokens * self.trigger_ratio)
 
     @property
     def over_trigger(self) -> bool:
@@ -72,7 +72,7 @@ class ModelContextUsage:
         return to_json_object(
             {
                 "model_id": self.model_id,
-                "context_window_tokens": self.context_window_tokens,
+                "effective_window_tokens": self.effective_window_tokens,
                 "compression_trigger_ratio": self.trigger_ratio,
                 "estimated_message_tokens": self.estimate.message_tokens,
                 "estimated_non_message_tokens": self.estimate.non_message_tokens,
@@ -191,12 +191,13 @@ class ConservativeRequestTokenEstimator:
 
 
 class ModelContextPolicy:
-    """Apply the configured hard-water ratio to candidate model requests."""
+    """Resolve each candidate's effective window and hard-water usage."""
 
     def __init__(
         self,
         *,
         trigger_ratio: float,
+        max_window_tokens: int | None = None,
         estimator: RequestTokenEstimator | None = None,
     ) -> None:
         if (
@@ -207,6 +208,13 @@ class ModelContextPolicy:
             raise LLMContractError(
                 "Model context trigger ratio must be between 0 and 1"
             )
+        if max_window_tokens is not None and (
+            isinstance(max_window_tokens, bool)
+            or not isinstance(max_window_tokens, int)
+            or max_window_tokens <= 0
+        ):
+            raise LLMContractError("Model context window limit must be a positive integer")
+        self._max_window_tokens = max_window_tokens
         self._trigger_ratio = float(trigger_ratio)
         self._estimator = estimator or ConservativeRequestTokenEstimator()
 
@@ -219,9 +227,12 @@ class ModelContextPolicy:
         reserved_output_tokens: int,
         provider_reported_limit: bool = False,
     ) -> ModelContextUsage:
+        window = model.context_window_tokens
+        if self._max_window_tokens is not None:
+            window = min(window, self._max_window_tokens)
         return ModelContextUsage(
             model_id=model.id,
-            context_window_tokens=model.context_window_tokens,
+            effective_window_tokens=window,
             trigger_ratio=self._trigger_ratio,
             estimate=self._estimator.estimate(messages, tool_scope),
             reserved_output_tokens=reserved_output_tokens,

@@ -43,16 +43,20 @@ const PRESET_OTHER = {
 
 const OTHER_DETAIL: Preset = {
   ...PRESET_OTHER,
-  changes: [{ path: ["llm", "tasks", "deep-task", "temperature"], before: 0.8, after: 0.2 }],
+  changes: [
+    { path: ["llm", "tasks", "deep-task", "temperature"], before: 0.8, after: 0.2 },
+    { path: ["context", "max_window_tokens"], before: 200000, after: 100000 },
+  ],
   definition: {
     values: {
       "llm.tasks": { "deep-task": { models: ["gpt-sol", "deepseek-flash"], temperature: 0.2 } },
       "action.models.bindings": [],
       "loop.cycle.phase1_task_profile": "frame-stage1",
       "loop.cycle.phase2_task_profile": "deep-stage2",
+      "context.max_window_tokens": 100000,
     },
     retrieval: { "home.search": { "query.channels": ["lexical"] } },
-    include_budgets: false,
+    include_budgets: true,
   },
 } as unknown as Preset;
 
@@ -170,11 +174,13 @@ describe("PlansPage content and comparison", () => {
     await openOther();
     expect(text()).toContain("gpt-sol → deepseek-flash");
     expect(text()).toContain("调用参数");
+    expect(text()).toContain("100000");
     expect(text()).not.toContain("方案范围");
     const reads = endpoint.calls("/v2/config/presets/id-2", "GET").length;
     await click(button("应用变化"));
     expect(endpoint.calls("/v2/config/presets/id-2", "GET").length).toBeGreaterThan(reads);
     expect(text()).toContain("当前值");
+    expect(text()).toContain("200000");
     expect(text()).toContain("0.8");
     expect(text()).toContain("0.2");
     await act(async () => useConfigDraftStore.setState({ saved: { ...useConfigDraftStore.getState().saved! } }));

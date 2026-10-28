@@ -109,9 +109,14 @@ async def test_openai_responses_adapter_maps_request_payload() -> None:
     assert response.usage.input_tokens == 10 and response.usage.output_tokens == 3
 
 
-async def test_openai_responses_adapter_keeps_sampling_without_active_reasoning() -> (
-    None
-):
+@pytest.mark.parametrize(
+    "effort, sampling, sends_sampling",
+    [(None, "pass-through", False), ("none", "pass-through", True),
+     ("high", "pass-through", False), ("none", "omit", False)],
+)
+async def test_gpt_sampling_requires_explicit_non_reasoning_mode(
+    effort: str | None, sampling: str, sends_sampling: bool,
+) -> None:
     client = FakeCreateClient(
         response=SimpleNamespace(output_text="ok", output=[], usage={})
     )
@@ -128,17 +133,26 @@ async def test_openai_responses_adapter_keeps_sampling_without_active_reasoning(
                 answer_format=AnswerFormat.TEXT,
                 temperature=1.0,
                 max_output_tokens=128,
-                adapter_options={"choices": {"reasoning_effort": ["none"]}},
-                reasoning_effort="none",
+                adapter_options={
+                    "choices": {"reasoning_effort": ["none", "high"]},
+                    "sampling": sampling,
+                },
+                reasoning_effort=effort,
                 top_p=0.8,
             )
         )
     )
 
     call = client.calls[0]
-    assert call["temperature"] == pytest.approx(1.0)
-    assert call["top_p"] == pytest.approx(0.8)
-    assert call["reasoning"] == {"effort": "none"}
+    if sends_sampling:
+        assert call["temperature"] == pytest.approx(1.0)
+        assert call["top_p"] == pytest.approx(0.8)
+    else:
+        assert "temperature" not in call and "top_p" not in call
+    if effort is not None:
+        assert call["reasoning"] == {"effort": effort}
+    else:
+        assert "reasoning" not in call
     assert call["max_output_tokens"] == 128
 
 

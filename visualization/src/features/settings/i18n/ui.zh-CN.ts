@@ -1,5 +1,11 @@
 /** Authored UI copy only. Never apply this dictionary to user/configuration values. */
 export const uiText: Record<string, string> = {
+  "Context budget": "上下文预算",
+  "The effective window includes input, tools, replay and reserved output. Inline image bytes have a separate limit.": "有效窗口包含输入、工具、回放及预留输出；内嵌图像另有字节上限。",
+  "Compression starts above the trigger ratio of the effective window and aims for the target ratio. Reserved output also occupies this budget.": "占用超过有效窗口的触发比例时开始压缩，回收到目标比例；预留输出也占用此预算。",
+  "Configure the global window limit": "设置全局窗口上限",
+  "Model windows": "模型窗口",
+  "Nominal model windows and provider bindings.": "模型标称窗口与提供方绑定。",
   "Saved in this project. This interface updates immediately; other clients update when they read the settings again.": "保存在当前项目；本界面即时更新，其它客户端重新读取后更新。",
   "Connect to edit shared interface settings.": "连接项目后可编辑共享界面设置。",
   "Loading interface settings…": "正在读取界面设置…",

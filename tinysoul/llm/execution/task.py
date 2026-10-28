@@ -203,6 +203,7 @@ class LLMTaskRunner:
         runtime_bridge: RuntimeLLMBridge | None = None,
         observations: ObservationEmitter | None = None,
         context_trigger_ratio: float = 0.80,
+        context_max_window_tokens: int | None = None,
         token_estimator: RequestTokenEstimator | None = None,
     ) -> None:
         if chain_runner is not None and route_state is not None:
@@ -218,6 +219,7 @@ class LLMTaskRunner:
         self._observations = observations or NullObservationEmitter()
         self._context_policy = ModelContextPolicy(
             trigger_ratio=context_trigger_ratio,
+            max_window_tokens=context_max_window_tokens,
             estimator=token_estimator,
         )
         self._chain_runner = chain_runner or ModelChainRunner(

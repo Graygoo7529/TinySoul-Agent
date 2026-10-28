@@ -11,6 +11,8 @@ from tinysoul.infra.concurrency import CleanupDiagnostic
 from tinysoul.kernel.context import ContextEngineBuilder
 from tinysoul.kernel.jobs import JobRegistry
 from tinysoul.kernel.registration import (
+    GenerationBuildContext,
+    PluginGeneration,
     PluginProfileExtension,
     PluginRegistry,
     PluginTurnResource,
@@ -21,9 +23,55 @@ from tinysoul.environment.inputs import InputEvent
 from tinysoul.environment.inputs import InputSink
 from tinysoul.agent.composition.builder import standard_agent
 from tinysoul.kernel.loop import LoopSettings, TurnSettings
+from tinysoul.kernel.loop.phases import LLMRunner
+from tinysoul.llm.adapter.registry import ProviderRegistry
+from tinysoul.llm.protocol.messages import MessageStack, UserMessage
+from tinysoul.llm.protocol.requests import CallSettings, ModelContextOverflowPolicy, TaskCall
+from tests.llm.execution.support import FakeProvider
 from tinysoul.plugins.reflection import ReflectionAvailability
 from tinysoul.runtime import RuntimeTransferAction, RunLevel
 from tests.agent.composition.support import FakeLLM, _test_config
+
+
+@pytest.mark.integration
+async def test_context_window_limit_reaches_the_shared_llm_runner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class RunnerConsumer:
+        id = "runner_consumer"
+        provides = requires = configuration = model_uses = search_capabilities = ()
+        runner: LLMRunner | None = None
+
+        async def build_generation(self, context: GenerationBuildContext) -> PluginGeneration:
+            self.runner = context.llm
+            return PluginGeneration(self.id)
+
+    provider = FakeProvider(provider_id="test")
+
+    async def providers(*args: object, **kwargs: object) -> ProviderRegistry:
+        return ProviderRegistry([provider])
+
+    monkeypatch.setattr("tinysoul.agent.composition.builder.build_provider_registry", providers)
+    consumer = RunnerConsumer()
+    app = await (
+        standard_agent(root=tmp_path)
+        .with_config_environment(_test_config(tmp_path, {"context.max_window_tokens": 100}))
+        .use(consumer)
+        .build()
+        .build_runtime()
+    )
+    try:
+        assert consumer.runner is not None
+        result = await consumer.runner.invoke(TaskCall(
+            profile="llm-action",
+            messages=MessageStack.of(UserMessage.from_text("x" * 100)),
+            settings=CallSettings(max_output_tokens=10),
+            context_overflow_policy=ModelContextOverflowPolicy.RETURN_FAILURE,
+        ))
+        assert result.failure is not None and result.failure.reason.value == "input_capacity"
+        assert provider.calls == []
+    finally:
+        await app.close()
 
 
 async def test_turn_resources_release_jobs_before_sessions_and_synchronization() -> (

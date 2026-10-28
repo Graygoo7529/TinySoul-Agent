@@ -32,7 +32,7 @@ OpenCode Go 复用现有四类 API mode；模板只定义四个 endpoint、`x-op
 
 供应商表达外部 API 的接入方式，包括认证、端点、请求格式、参数差异、错误分类和响应归一化。供应商不决定某个业务任务应该使用哪个模型。
 
-模型表达可被调用的具体模型、有效上下文窗口及其能力。上下文窗口是当前 provider endpoint、套餐与真实模型组合的部署规格，以 token 为单位显式配置；模型能力仍保持抽象但真实，例如文本输入、图像输入、JSON 对象输出、推理输出和提示缓存支持。上层选择模型时应面向模型规格与能力，而不是直接面向供应商。
+模型表达可被调用的具体模型、标称上下文窗口及其能力。标称窗口按模型规格以 token 为单位显式配置；实际请求的有效窗口还受全局运行上限约束，不能反向改写模型规格。模型能力仍保持抽象但真实，例如文本输入、图像输入、JSON 对象输出、推理输出和提示缓存支持。上层选择模型时应面向模型规格与能力，而不是直接面向供应商。
 
 任务调用表达一次模型请求。它接收上层已经构造好的消息栈、回答格式、工具作用域、调用参数和可选缓存意图，完成能力校验、模型选择、调用执行、重试切换和输出解释。
 
@@ -142,7 +142,9 @@ JSON Schema 不属于当前核心回答格式。严格 schema 支持涉及供应
 
 `max_output_tokens` 始终是本次 provider 生成的 token 上限，同时参与上下文窗口输出预留；它不是 ActionResult、TurnTrace 或 Session 的字符预算。具体调用方可以显式覆盖 task profile 的该值，例如完整文档或脚本生成使用动作级 generation budget。生成成功后的业务工件大小、ActionResult 投影和 Context trace 生命周期分别由拥有该工件的 action/capability、Action Catalog 和 Context 负责，不能共用一个 `max_output_tokens` 假装表达三种边界。
 
-Context 配置的 `compression_trigger_ratio` 是硬运行水位。占用严格超过 `context_window_tokens * compression_trigger_ratio` 时不调用 provider；占用恰好等于水位仍允许调用。容量 payload 保留 message/non-message/output 分项、消息字符投影和 provider 是否实际拒绝请求，供 Runtime 压力恢复按 `compression_target_ratio` 计算字符回收量。
+Context 配置的可选正整数 `max_window_tokens` 是统一运行窗口上限。Agent 显式传给共享 LLM runner，由 ModelContextPolicy 对每次候选模型计算 `effective_window_tokens = min(模型标称窗口, 全局上限)`；未设置时使用模型标称窗口。User、Reflection 和 Action 内部共用 runner 的 LLM Task 遵循同一策略；Embedding/决策模型不属于这个预算。
+
+Context 配置的 `compression_trigger_ratio` 是硬运行水位。占用严格超过 `effective_window_tokens * compression_trigger_ratio` 时不调用 provider；占用恰好等于水位仍允许调用。容量 payload 保留有效窗口、message/non-message/output 分项、消息字符投影和 provider 是否实际拒绝请求，供 Runtime 压力恢复按同一个有效窗口及 `compression_target_ratio` 计算字符回收量。切换候选模型时重新计算窗口；供应商 context-limit 进入同一路径。模型能力查询仍返回标称窗口，不伪装成当前运行预算。
 
 ## 推理输出
 
@@ -214,7 +216,7 @@ LLM 为每个 Runtime Generation 投影只读、无 secret 的 Provider 凭据�
 
 `adapter/catalog.py` 组合 API 模式 → 专属 adapter → variant 的有效选项，统一验证并投影字段类型、候选值和来源。动态配置在 adapter 调用边界经同一规则校验后，映射器使用所属 API/专属 adapter 的 typed option view；不重复维护一份供应商参数校验表。Kimi `variant=k2/k3` 表示适配变体，不从模型名推断。k2 映射 thinking 与可选 thinking.keep；k3 使用顶层选定 effort，不生成 k2 的 thinking 参数。工具约束、DeepSeek 图片角色限制与资源不足错误等仍由专属 adapter 解释。
 
-通用 temperature、top_p、max_output_tokens 按任务默认 → 单次调用 → model.request_overrides 合并；adapter 最后执行必要的协议归一化。通用 `sampling=omit` 显式省略温度和 top_p，Chat 的 `output_token_field` 选择外部 token 上限字段；DeepSeek/GLM 默认 max_tokens。GPT 选定非 none effort 时省略温度和 top_p。DeepSeek 思考模式省略 temperature，top_p 按模型实际支持传递；带工具时必须声明 `native_replay=content`。DeepSeek `strict` tools 仅在 provider endpoint 配置为 `/beta` 时发送，常规 endpoint 会以配置错误拒绝，避免把 beta 字段静默漏掉或误发。GLM 的 do_sample/user_id 和 thinking，以及 MiniMax 的 thinking/reasoning_split 通过 SDK extra_body 发送；GLM 不复用静态 `request_id`。Kimi K2/K3 的固定采样参数由专用 adapter 省略；Kimi K2 以 `native_replay=content` 请求 reasoning_content，K3 始终按 provider 约定回放 reasoning_content。MiniMax 使用当前 API 的 reasoning_content 与通用 Chat 回放；不将旧 reasoning_details 的可读摘要拼成原始状态。
+通用 temperature、top_p、max_output_tokens 按任务默认 → 单次调用 → model.request_overrides 合并；adapter 最后执行必要的协议归一化。通用 `sampling=omit` 显式省略温度和 top_p，Chat 的 `output_token_field` 选择外部 token 上限字段；DeepSeek/GLM 默认 max_tokens。GPT 除显式选择 none 外省略温度和 top_p；强度留空使用远端默认推理，不等于 none。DeepSeek 思考模式省略 temperature，top_p 按模型实际支持传递；带工具时必须声明 `native_replay=content`。DeepSeek `strict` tools 仅在 provider endpoint 配置为 `/beta` 时发送，常规 endpoint 会以配置错误拒绝，避免把 beta 字段静默漏掉或误发。GLM 的 do_sample/user_id 和 thinking，以及 MiniMax 的 thinking/reasoning_split 通过 SDK extra_body 发送；GLM 不复用静态 `request_id`。Kimi K2/K3 的固定采样参数由专用 adapter 省略；Kimi K2 以 `native_replay=content` 请求 reasoning_content，K3 始终按 provider 约定回放 reasoning_content。MiniMax 使用当前 API 的 reasoning_content 与通用 Chat 回放；不将旧 reasoning_details 的可读摘要拼成原始状态。
 
 `adapter_options.choices` 声明模型允许使用的候选字符串值；顶层 `reasoning_effort` 保存选定强度，其它已选值仍属于 adapter_options。候选只参与配置，API 只收到选定值。前端逗号输入保存数组，常用面板选择当前值；清空选值表示服务默认，字符串 `none` 是模型声明的实际档位。`choice_rules` 按等值条件收窄候选，例如 Claude `between_tools` 的 effort。专用适配器的固定行为由 catalog 显式标注默认值，与 mapper 保持一致，无须重复写入 TOML。模型单值候选仍需对应的实际选值，不因隐藏控件而暗设默认。候选或模式变更后失效选值随同一次草稿清理；后端最终校验。
 

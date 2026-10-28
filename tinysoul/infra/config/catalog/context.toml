@@ -111,7 +111,7 @@ description = "Defines stable system identity and optional fixed Context journal
 id = "context_rules.budget"
 surface = "context_rules"
 title = "Content Budget"
-description = "Controls non-text content admitted to a constructed MessageStack."
+description = "Controls the effective model window and inline image content budget."
 
 [[field_group]]
 id = "context_rules.compression"
@@ -420,6 +420,14 @@ title = "Context Journal"
 description = "Optional fixed journal text added to the Context message construction."
 value_kind = "string"
 importance = "advanced"
+
+[[field]]
+path = "context.max_window_tokens"
+surface = "context_rules"
+group = "context_rules.budget"
+title = "Global Window Limit"
+description = "Optional token limit for input, tools, replay, and reserved output. The effective window is the smaller of this limit and the model window; unset uses the model window."
+value_kind = "integer"
 
 [[field]]
 path = "context.max_image_bytes"

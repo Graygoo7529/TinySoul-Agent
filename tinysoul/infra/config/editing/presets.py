@@ -22,6 +22,7 @@ _BUDGETS = (
     "reflection.home.max_cycles",
     "reflection.memory.max_cycles",
     "session.max_background_chars",
+    "context.max_window_tokens",
     "context.max_image_bytes",
     "context.compression_trigger_ratio",
     "context.compression_target_ratio",
@@ -129,8 +130,9 @@ class PresetDefinition:
     include_budgets: bool = True
 
     def __post_init__(self) -> None:
-        expected = {*_GROUPS, *_ROUTING, *(_BUDGETS if self.include_budgets else ())}
-        if set(self.values) != expected:
+        required = {*_GROUPS, *_ROUTING}
+        allowed = required | (set(_BUDGETS) if self.include_budgets else set())
+        if not required <= self.values.keys() <= allowed:
             raise ConfigError("Preset scopes are invalid", key="preset.definition")
         for profile, task in _object(self.values["llm.tasks"], "llm.tasks").items():
             if not profile or "." in profile or not isinstance(task, dict):

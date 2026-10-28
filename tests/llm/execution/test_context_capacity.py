@@ -14,6 +14,8 @@ from tinysoul.llm.protocol.requests import ModelContextOverflowPolicy, TaskCall
 from tinysoul.llm.protocol.responses import RawResponse
 from tinysoul.llm.failures import LLMFailureKind
 from tinysoul.llm.execution.task import LLMTaskRunner
+from tinysoul.llm.execution.context_window import ModelContextPolicy
+from tinysoul.llm.errors import LLMContractError
 from tinysoul.llm.failures import LLM_CONTEXT_CAPACITY_EXCEEDED
 from tinysoul.runtime import RUNTIME_TURN_END, RuntimeException
 from tests.llm.execution.support import (
@@ -25,12 +27,18 @@ from tests.llm.execution.support import (
 )
 
 
-async def test_context_hard_water_requests_runtime_recomposition_before_provider() -> (
-    None
-):
+def test_direct_window_policy_rejects_nonpositive_limit() -> None:
+    with pytest.raises(LLMContractError, match="positive integer"):
+        ModelContextPolicy(trigger_ratio=0.8, max_window_tokens=0)
+
+
+@pytest.mark.parametrize("window, limit", [(100, None), (1000, 100), (100, 1000)])
+async def test_context_hard_water_requests_runtime_recomposition_before_provider(
+    window: int, limit: int | None,
+) -> None:
     provider = FakeProvider(provider_id="fake")
     runner = LLMTaskRunner(
-        models=_window_models(("small", 100)),
+        models=_window_models(("small", window)),
         providers=ProviderRegistry([provider]),
         tasks=_tasks(
             ModelChain(
@@ -41,6 +49,7 @@ async def test_context_hard_water_requests_runtime_recomposition_before_provider
             max_output_tokens=10,
         ),
         context_trigger_ratio=0.8,
+        context_max_window_tokens=limit,
         token_estimator=FixedTokenEstimator(message_tokens=71),
     )
 
@@ -60,6 +69,7 @@ async def test_context_hard_water_requests_runtime_recomposition_before_provider
     assert exc_info.value.reason == LLM_CONTEXT_CAPACITY_EXCEEDED
     assert exc_info.value.payload["kind"] == LLMFailureKind.MODEL_CONTEXT_PRESSURE
     assert exc_info.value.payload["used_tokens"] == 81
+    assert exc_info.value.payload["effective_window_tokens"] == 100
     assert exc_info.value.payload["trigger_tokens"] == 80
     assert provider.calls == []
 
@@ -99,13 +109,14 @@ async def test_context_hard_water_ends_non_context_task() -> None:
 async def test_hard_water_allows_usage_equal_to_trigger() -> None:
     provider = FakeProvider(provider_id="fake")
     runner = LLMTaskRunner(
-        models=_window_models(("small", 100)),
+        models=_window_models(("small", 1000)),
         providers=ProviderRegistry([provider]),
         tasks=_tasks(
             ModelChain(profile="framework", model_ids=("small",)),
             max_output_tokens=10,
         ),
         context_trigger_ratio=0.8,
+        context_max_window_tokens=100,
         token_estimator=FixedTokenEstimator(message_tokens=70),
     )
 
@@ -153,6 +164,7 @@ async def test_smaller_fallback_requests_recomposition_without_chain_checkpoint(
             max_output_tokens=10,
         ),
         context_trigger_ratio=0.8,
+        context_max_window_tokens=500,
         token_estimator=estimator,
     )
     call = TaskCall(
@@ -166,6 +178,7 @@ async def test_smaller_fallback_requests_recomposition_without_chain_checkpoint(
 
     assert exc_info.value.reason == LLM_CONTEXT_CAPACITY_EXCEEDED
     assert exc_info.value.payload["model_id"] == "small"
+    assert exc_info.value.payload["effective_window_tokens"] == 100
     assert provider.calls == ["large"]
 
     estimator.message_tokens = 20
@@ -180,12 +193,13 @@ async def test_bounded_task_returns_capacity_failure_without_provider_response()
 ):
     provider = FakeProvider(provider_id="fake")
     runner = LLMTaskRunner(
-        models=_window_models(("small", 100)),
+        models=_window_models(("small", 1000)),
         providers=ProviderRegistry([provider]),
         tasks=_tasks(
             ModelChain(profile="framework", model_ids=("small",)), max_output_tokens=10
         ),
         context_trigger_ratio=0.8,
+        context_max_window_tokens=100,
         token_estimator=FixedTokenEstimator(message_tokens=71),
     )
     result = await runner.run(
@@ -216,6 +230,7 @@ async def test_provider_context_limit_uses_same_recomposition_path() -> None:
         models=_window_models(("model", 1000)),
         providers=ProviderRegistry([provider]),
         tasks=_tasks(ModelChain(profile="framework", model_ids=("model",))),
+        context_max_window_tokens=500,
         token_estimator=FixedTokenEstimator(message_tokens=20),
     )
 
@@ -234,4 +249,5 @@ async def test_provider_context_limit_uses_same_recomposition_path() -> None:
 
     assert exc_info.value.reason == LLM_CONTEXT_CAPACITY_EXCEEDED
     assert exc_info.value.payload["provider_reported_limit"] is True
+    assert exc_info.value.payload["effective_window_tokens"] == 500
     assert provider.calls == ["model"]

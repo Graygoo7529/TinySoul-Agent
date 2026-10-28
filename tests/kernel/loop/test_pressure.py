@@ -217,7 +217,7 @@ async def test_capacity_recovery_rebuilds_task_or_ends_without_replaying_complet
 def test_model_pressure_converts_target_token_gap_to_char_reclaim() -> None:
     required = required_chars(
         {
-            "context_window_tokens": 100,
+            "effective_window_tokens": 100,
             "estimated_message_tokens": 70,
             "estimated_non_message_tokens": 10,
             "reserved_output_tokens": 10,

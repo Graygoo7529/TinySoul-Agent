@@ -2,6 +2,12 @@
 
 本页描述 Agent 配置的结构化查询、编辑和激活协议。前端读取后端投影、维护本地草稿并提交修改；配置 owner 校验候选并经 Infra 写回项目文件，Endpoint 只映射协议。新增文件须进入受管加载范围，保存与生效遵循下述 PATCH/apply/reload 语义。整体职责见 [统一配置链路](../design/infra.md#统一配置链路)。
 
+## 上下文窗口配置
+
+`context.max_window_tokens` 是 catalog 中的可选正整数，单位为 tokens。它通过现有配置查询、草稿、PATCH/apply/reload 读写；删除该声明恢复为使用模型窗口，不写 TOML null。两套模板默认 262144；其它更高优先级配置来源仍遵循既有覆盖规则。
+
+`llm.models.<id>.context_window_tokens` 是模型标称窗口。后端对每个候选模型取标称窗口与全局上限的较小值作为有效窗口，输入、工具、回放和预留输出共同占用；压缩触发与恢复目标使用此窗口。配置视图提供两种原始值，不增加持久化的有效窗口字段。
+
 ## 出站网络配置
 
 网络设置复用配置 catalog、草稿、PATCH/apply/reload，并由 `GET /v2/config/network` 提供只读的脱敏路由概览。`network` 是一个原子 object；选择另一模式时整体替换，避免 direct/inherit 残留旧地址。支持 `mode = inherit | direct | override`；仅 override 接受 `http_proxy`、`https_proxy`、`no_proxy`，至少填写一个代理地址。override 完整替换父配置，未填协议直连；no_proxy 未填写默认绕过 localhost/127.0.0.1/::1，空字符串不绕过。
@@ -111,6 +117,8 @@ LLM 的 basis 为实际输入片段指认，Embedding 为真实向量贡献，de
 - 无法构造或校验候选时返回 `validation_issues`，省略 `changes`。客户端应显示不可比较并禁止确认应用，不能把缺失字段当成空差异。
 
 方案声明每条任务 profile 的完整配置、每个已捕获 Action consumer 的完整 binding、Phase1/2 路由，以及检索策略的 query.channels；可选包含执行与语境预算。应用时把这些声明项写回当前配置：任务按 profile、binding 按 consumer 更新，检索和预算只覆盖声明字段。任务中未声明的可选参数恢复默认；后来新增的任务、binding、检索 consumer 及未声明字段保留。空任务/绑定声明不表示清空整个集合。
+
+包含预算的方案允许只声明已登记预算的子集，新捕获包含 `context.max_window_tokens`。未声明该预算时保持当前值；显式 null 表示删除配置声明、恢复 owner 默认。关闭 `include_budgets` 时不允许携带预算字段。方案详情与应用差异均按真实声明项生成，不为缺失预算补默认值。
 
 方案只通过稳定 ID 引用模型，不捕获 `llm.models`、Provider 连接及凭据、专用模型目录、知识库 embedding_use、能力授权、路径或内容。只读来源或缺失依赖使候选不能符合声明时拒绝应用。预览与应用共用配置候选构造、校验和声明比较；读取详情不写文件。应用请求仍是 `{preset_id}`，服务端重新读取当前文件并沿既有流程保存和加载；差异为空也可应用。不提供预览 token 或第二套运行态 diff，文件与运行态的差异由全局配置状态负责呈现。
 

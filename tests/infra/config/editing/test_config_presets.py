@@ -154,6 +154,7 @@ async def test_capture_reads_current_files_without_applying_configuration(tmp_pa
     preset = await controller.save_preset(name="Current")
     definition = PresetDefinition.from_json(preset["definition"])
     assert definition.values["loop.user.max_cycles"] == 77
+    assert definition.values["context.max_window_tokens"] is None
     assert "llm.models" not in definition.values
     assert (tmp_path / "configs/a.toml").read_text(encoding="utf-8") == prior
     assert controller.status(view="active")["fields"] != controller.status()["fields"]
@@ -163,6 +164,37 @@ async def test_capture_reads_current_files_without_applying_configuration(tmp_pa
     assert renamed["definition"] == preset["definition"]
     recaptured = await controller.update_preset(identity, recapture=True)
     assert PresetDefinition.from_json(recaptured["definition"]).values["loop.user.max_cycles"] == 88
+
+
+async def test_preset_budget_subset_preserves_undeclared_and_clears_explicit_default(
+    tmp_path: Path,
+) -> None:
+    controller = ConfigController(root=tmp_path, environment=project(tmp_path))
+    core = PresetDefinition.capture(controller.environment, include_budgets=False)
+    await controller.patch((
+        ConfigMutation("project:configs/a.toml", "context.max_window_tokens", "set", 1000),
+    ))
+    current = ConfigEnvironment.from_project_root(tmp_path, env={})
+    captured = PresetDefinition.capture(current)
+    assert captured.values["context.max_window_tokens"] == 1000
+    partial = PresetDefinition(
+        {**core.values, "loop.user.max_cycles": 24}, core.retrieval,
+    )
+    assert "context.max_window_tokens" not in partial.replacements(current)
+    assert [change.to_json() for change in partial.changes(current)] == [
+        {"path": ["loop", "user", "max_cycles"], "before": 12, "after": 24},
+    ]
+    cleared = PresetDefinition(
+        {**core.values, "context.max_window_tokens": None}, core.retrieval,
+    )
+    assert cleared.replacements(current)["context.max_window_tokens"] is None
+    assert [change.to_json() for change in cleared.changes(current)] == [
+        {"path": ["context", "max_window_tokens"], "before": 1000, "after": None},
+    ]
+    with pytest.raises(ConfigError, match="scopes"):
+        PresetDefinition(cleared.values, cleared.retrieval, include_budgets=False)
+    with pytest.raises(ConfigError, match="scopes"):
+        PresetDefinition({**core.values, "context.unknown": 1}, core.retrieval)
 
 
 async def test_preset_declarations_preserve_new_members_and_preview_exact_changes(tmp_path: Path) -> None:

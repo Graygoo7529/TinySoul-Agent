@@ -85,6 +85,7 @@ function makeCatalog(): ConfigCatalog {
       field("reflection.home.max_cycles", "integer"),
       field("reflection.memory.max_cycles", "integer"),
       field("context.max_image_bytes", "integer"),
+      field("context.max_window_tokens", "integer"),
       field("session.max_background_chars", "integer"),
       field("context.compression_trigger_ratio", "number"),
       field("context.compression_target_ratio", "number"),
@@ -140,6 +141,7 @@ function makeSaved(): Configuration {
     "reflection.home.max_cycles": { value: 4, source: TINYSOUL },
     "reflection.memory.max_cycles": { value: 4, source: TINYSOUL },
     "context.max_image_bytes": { value: 1_000_000, source: TINYSOUL },
+    "context.max_window_tokens": { value: 100_000, source: TINYSOUL },
     "session.max_background_chars": { value: 20_000, source: TINYSOUL },
     "context.compression_trigger_ratio": { value: 0.8, source: TINYSOUL },
     "context.compression_target_ratio": { value: 0.5, source: TINYSOUL },
@@ -664,6 +666,23 @@ describe("SearchPoliciesPage", () => {
 // ---------------------------------------------------------------------------
 
 describe("BudgetsPage", () => {
+  it("edits and clears the global window through the shared draft", async () => {
+    await act(async () => root.render(<ContextPage />));
+    const row = container.querySelector('[data-field-path="context.max_window_tokens"]')!;
+    const input = row.querySelector<HTMLInputElement>('input[type="number"]')!;
+    expect(row.textContent).toContain("tokens");
+    expect(row.querySelector('input[type="range"]')).toBeNull();
+    expect(input.value).toBe("100000");
+    await act(async () => { setInputValue(input, "200000"); pressEnter(input); });
+    expect(draftOperations(store())).toEqual([
+      { op: "set", source_id: TINYSOUL, path: "context.max_window_tokens", value: 200000 },
+    ]);
+    await act(async () => { setInputValue(input, ""); pressEnter(input); });
+    expect(draftOperations(store())).toEqual([
+      { op: "delete", source_id: TINYSOUL, path: "context.max_window_tokens" },
+    ]);
+  });
+
   it("commits in-range numbers and rejects out-of-range ones locally", async () => {
     await act(async () => {
       root.render(<BudgetsPage />);

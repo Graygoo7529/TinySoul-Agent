@@ -1,12 +1,13 @@
 [llm.models.glm-latest]
+reasoning_effort = "high"
 family = "GLM"
 collapsed = false
 adapter = "glm"
 providers = [
-  { provider = "orca", provider_model = "z-ai/glm-5.1" },
-  { provider = "glm", provider_model = "glm-5.1" },
+  { provider = "orca", provider_model = "z-ai/glm-5.3" },
+  { provider = "glm", provider_model = "glm-5.3" },
 ]
-context_window_tokens = 262144
+context_window_tokens = 1000000
 capabilities = [
   "text_input",
   "json_object_output",
@@ -17,3 +18,5 @@ capabilities = [
 [llm.models.glm-latest.adapter_options]
 native_replay = "content"
 thinking = "enabled"
+choices.thinking = ["enabled"]
+choices.reasoning_effort = ["low", "high", "max"]

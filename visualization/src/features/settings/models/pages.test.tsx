@@ -19,6 +19,7 @@ import { V2Transport } from "../../../api/v2/transport";
 import { useConnectionStore } from "../../../store/connectionStore";
 import { draftOperations, useConfigDraftStore } from "../draft/store";
 import { pageForDraft } from "../pages";
+import { useSettingsUiStore } from "../uiStore";
 import { LlmModelsPage } from "./LlmModelsPage";
 import { LlmProvidersPage } from "./LlmProvidersPage";
 import { ModelSelectionList } from "./ModelPicker";
@@ -132,6 +133,7 @@ function makeSaved(): Configuration {
     "llm.providers.kimi.api_key_envs": { value: ["KIMI_API_KEY"], source: PROVIDERS },
     "llm.models.kimi-k2.adapter": { value: "kimi", source: MODELS_KIMI_SOURCE },
     "llm.models.kimi-k2.family": { value: "Kimi", source: MODELS_KIMI_SOURCE },
+    "llm.models.kimi-k2.context_window_tokens": { value: 1000000, source: MODELS_KIMI_SOURCE },
     "llm.models.kimi-k2.providers": {
       value: [{ provider: "kimi", provider_model: "kimi-k2" }],
       source: MODELS_KIMI_SOURCE,
@@ -449,6 +451,15 @@ describe("LlmProvidersPage", () => {
 // ---------------------------------------------------------------------------
 
 describe("LlmModelsPage", () => {
+  it("shows the nominal window and links to the global budget without editing the model", async () => {
+    await renderSelected("kimi-k2");
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="Context window tokens"]')!;
+    expect(input.value).toBe("1000000");
+    await act(async () => buttonByText("设置全局窗口上限").click());
+    expect(useSettingsUiStore.getState().page).toBe("context");
+    expect(draftOperations(store())).toEqual([]);
+  });
+
   it.each([true, false])("confirms adapter switching with retain=%s before staging the result", async (retain) => {
     const raw = makeCatalog();
     const llm = (raw.rules as Record<string, JsonValue>).llm as Record<string, JsonValue>;

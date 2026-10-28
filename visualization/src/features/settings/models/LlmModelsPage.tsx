@@ -392,6 +392,7 @@ function ModelEditor({
 }) {
   const state = useConfigDraftStore();
   const catalog = state.catalog;
+  const navigateTo = useSettingsUiStore((ui) => ui.navigateTo);
   const [adapterChange, setAdapterChange] = useState<{
     adapter: string;
     providerId: string;
@@ -506,6 +507,9 @@ function ModelEditor({
             }
           />
         </FieldRow>
+        <Button variant="ghost" size="sm" onClick={() => navigateTo("context")}>
+          {settingsText("Configure the global window limit")}
+        </Button>
         <FieldRow
           title={settingsText("Feature capabilities")}
           description={field("capabilities").meta?.description}

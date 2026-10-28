@@ -551,6 +551,7 @@ class AgentBuilder:
                     env=config.runtime_env,
                     network=plan.network,
                     context_trigger_ratio=context_settings.compression_trigger_ratio,
+                    context_max_window_tokens=context_settings.max_window_tokens,
                 )
                 resources.register("llm", owned_llm.close)
                 llm = owned_llm
@@ -944,6 +945,7 @@ class AgentBuilder:
         *,
         env: Mapping[str, str],
         context_trigger_ratio: float,
+        context_max_window_tokens: int | None,
         network: ResolvedNetwork,
     ) -> LLMTaskRunner:
         providers = await build_provider_registry(
@@ -957,6 +959,7 @@ class AgentBuilder:
                 runtime_bridge=bridge,
                 observations=observations,
                 context_trigger_ratio=context_trigger_ratio,
+                context_max_window_tokens=context_max_window_tokens,
             )
         except BaseException:
             await providers.close()

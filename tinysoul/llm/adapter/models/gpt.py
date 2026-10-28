@@ -20,6 +20,7 @@ class GptAdapter(OpenAIResponsesAdapter):
         self, kwargs: dict[str, object], request: ProviderRequest
     ) -> None:
         super().normalize_sampling(kwargs, request)
-        if request.model.reasoning_effort not in {None, "none"}:
+        # An unspecified effort uses the model's reasoning default.
+        if request.model.reasoning_effort != "none":
             kwargs.pop("temperature", None)
             kwargs.pop("top_p", None)

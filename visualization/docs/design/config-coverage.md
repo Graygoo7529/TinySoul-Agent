@@ -58,7 +58,7 @@ LLM Provider 按 API mode 提供入口，共用凭据；不枚举专属 adapter�
 | `.family` | string（默认空），仅显示元数据 | 可写 | 列表分组，不影响可用性 |
 | `.collapsed` | boolean（默认 false），仅显示元数据 | 可写 | 列表默认折叠，不影响可用性 |
 | `.providers` | 有序 `{provider, provider_model}` 列表，非空 | 整体提交；`provider_model` 是远端模型名，非 Provider ID | Provider Chain 顺序 |
-| `.context_window_tokens` | integer | 可写 | Context 压缩比例的分母 |
+| `.context_window_tokens` | integer | 可写 | 模型标称窗口；与全局上限取较小值后作为压缩比例的分母 |
 | `.capabilities` | string_list：`text_input/image_input/image_remote_url/json_object_output/tool_calling/reasoning_output/prompt_cache` | 可写 | 任务链 `required_capabilities` 的满足判断 |
 | `.adapter_options.variant` | enum：k2 / k3（advanced） | 按 adapter descriptor 显示 | Kimi 专属变体 |
 | `.adapter_options.thinking` | enum，候选来自 API mode / adapter | 可写 | 思考模式 |
@@ -172,6 +172,7 @@ catalog value_kind = object，**整张 map 原子提交**；source_id 为 `proje
 | `loop.user.max_cycles` | integer | 20 | 行为与调用 → 预算 |
 | `reflection.home.max_cycles` | integer | 20 | 行为与调用 → 预算 |
 | `reflection.memory.max_cycles` | integer | 20 | 行为与调用 → 预算 |
+| `context.max_window_tokens` | optional positive integer（tokens） | 262144；缺失时使用模型窗口 | 数据与知识 → Context |
 | `context.max_image_bytes` | integer | 10485760 | 数据与知识 → Context |
 | `context.compression_trigger_ratio` | number | 0.8 | 同上 |
 | `context.compression_target_ratio` | number | 0.5 | 同上 |
@@ -186,6 +187,8 @@ catalog value_kind = object，**整张 map 原子提交**；source_id 为 `proje
 | `reflection.schedule.daily_time` | string（HH:MM） | 00:15 | 同上 |
 | `context.system_text` | string | "You are TinySoul." | 数据与知识 → Context（稳定身份文本） |
 | `context.journal` | string | ""（advanced） | 同上 |
+
+窗口上限可直接编辑或清空，不提供任意范围滑条。模型页展示标称窗口并跳转至 Context；有效窗口由后端取模型窗口与全局上限的较小值，输入及预留输出共用该预算。方案内容与 diff 显示真实声明的窗口预算，未声明保留、显式 null 清除。
 
 ## 4. 工具与连接（计划 §18 / P13 前半）
 

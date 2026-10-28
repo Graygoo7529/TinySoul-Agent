@@ -234,8 +234,8 @@ value_kind = "string"
 path = "llm.models.*.context_window_tokens"
 surface = "models"
 group = "models.capabilities"
-title = "Context Window"
-description = "Maximum input and reserved output token budget accepted by the model."
+title = "Nominal Context Window"
+description = "Model input and reserved output token capacity. The effective window also respects context.max_window_tokens when set."
 value_kind = "integer"
 
 [[field]]

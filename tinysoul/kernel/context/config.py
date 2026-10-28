@@ -15,6 +15,7 @@ class ContextSettings:
 
     system_text: str = "You are TinySoul."
     journal: str = ""
+    max_window_tokens: int | None = None
     max_image_bytes: int | None = None
     compression_trigger_ratio: float = 0.80
     compression_target_ratio: float = 0.50
@@ -30,6 +31,17 @@ class ContextSettings:
                 key="context.system_text",
                 value=self.system_text,
                 expected="non-empty str",
+            )
+        if self.max_window_tokens is not None and (
+            isinstance(self.max_window_tokens, bool)
+            or not isinstance(self.max_window_tokens, int)
+            or self.max_window_tokens <= 0
+        ):
+            raise ConfigError(
+                "Context max_window_tokens must be a positive integer",
+                key="context.max_window_tokens",
+                value=self.max_window_tokens,
+                expected="positive int",
             )
         if (
             self.max_image_bytes is not None
@@ -86,6 +98,7 @@ def parse_context_settings(tree: Mapping[str, object]) -> ContextSettings:
         {
             "system_text",
             "journal",
+            "max_window_tokens",
             "max_image_bytes",
             "compression_trigger_ratio",
             "compression_target_ratio",
@@ -103,6 +116,7 @@ def parse_context_settings(tree: Mapping[str, object]) -> ContextSettings:
             default=ContextSettings.system_text,
         ),
         journal=_optional_str(tree, "journal", default="", allow_empty=True),
+        max_window_tokens=_optional_int(tree, "max_window_tokens", default=None),
         max_image_bytes=_optional_int(
             tree,
             "max_image_bytes",

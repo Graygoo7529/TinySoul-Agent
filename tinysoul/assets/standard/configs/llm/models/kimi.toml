@@ -30,8 +30,8 @@ family = "Kimi"
 collapsed = false
 adapter = "kimi"
 providers = [
-  { provider = "orca", provider_model = "kimi/kimi-k3" },
-  { provider = "kimi", provider_model = "kimi-k3" },
+  { provider = "orca", provider_model = "kimi/kimi-k3.1-pro" },
+  { provider = "kimi", provider_model = "kimi-k3.1-pro" },
 ]
 context_window_tokens = 1048576
 capabilities = [
@@ -45,6 +45,6 @@ capabilities = [
 
 [llm.models.kimi-latest.adapter_options]
 variant = "k3"
-choices.reasoning_effort = ["max"]
+choices.reasoning_effort = ["low", "high", "max"]
 prompt_cache_mode = "implicit"
 prompt_cache_ttl = "5m"
