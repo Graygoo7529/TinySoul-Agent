@@ -202,7 +202,7 @@ function ActionDetail({
         </Collapsible>
       )}
 
-      <FamilyView result={resultPayload} params={trace.call?.params ?? null} nav={nav} />
+      <FamilyView action={action} result={resultPayload} params={trace.call?.params ?? null} nav={nav} />
 
       {(trace.llmTaskIds.length > 0 || trace.searchIds.length > 0) && (
         <div className="space-y-1.5">

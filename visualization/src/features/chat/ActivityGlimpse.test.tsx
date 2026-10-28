@@ -66,3 +66,38 @@ it("labels Memory character counts and Home resource sizes with their actual uni
   expect(host.textContent).toContain("240 chars");
   expect(host.textContent).not.toContain("240 bytes");
 });
+
+it("summarizes analysis reports and descriptions from their actual fields", () => {
+  act(() => root.render(glimpseBody(result({
+    actionId: "workspace.analyze",
+    payload: { answer: "# 容量恢复分析\n\n先检查 Context，再决定是否重建。\n\n## 细节" },
+  }))));
+  expect(host.textContent).toMatch(/分析报告 · \d+ 字符/);
+  expect(host.textContent).toContain("容量恢复分析");
+  expect(host.textContent).toContain("先检查 Context，再决定是否重建。");
+  expect(host.textContent).not.toContain("# 容量恢复分析");
+
+  act(() => root.render(glimpseBody(result({
+    actionId: "workspace.describe",
+    payload: { description: "记录 Context 段组合与容量恢复边界。" },
+  }))));
+  expect(host.textContent).toMatch(/资源描述 · \d+ 字符/);
+  expect(host.textContent).toContain("记录 Context 段组合与容量恢复边界。");
+
+  act(() => root.render(glimpseBody(result({
+    actionId: "workspace.compose",
+    payload: { summary: "已有文件摘要", description: "不能被当成生成正文的元数据" },
+  }))));
+  expect(host.textContent).toContain("已有文件摘要");
+  expect(host.textContent).not.toContain("不能被当成生成正文的元数据");
+  expect(host.textContent).not.toContain("资源描述");
+});
+
+it("uses the first content line when an analysis report has no heading", () => {
+  act(() => root.render(glimpseBody(result({
+    actionId: "workspace.analyze",
+    payload: { answer: "\n- 第一条结论\n- 第二条结论" },
+  }))));
+  expect(host.textContent).toContain("第一条结论");
+  expect(host.textContent).not.toContain("- 第一条结论");
+});

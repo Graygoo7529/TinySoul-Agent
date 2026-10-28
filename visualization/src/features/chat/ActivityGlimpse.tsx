@@ -9,6 +9,7 @@ import { Crossfade } from "../../components/ui/Crossfade";
 import { diffLines } from "../../utils/diff";
 import { EASE_CALM } from "../../utils/motion";
 import { actionFamily } from "../trace/registry";
+import { analysisGist } from "../trace/analysisModel";
 import { asObject, asString, asNumber } from "../trace/facts";
 import { pushActionDetail } from "../trace/entries";
 import { ActivityStep as Step } from "./ActivityStep";
@@ -76,6 +77,16 @@ export function glimpseBody(data: ActionGlimpseData) {
   if (!payload) return null;
   if (family === "write") return <WriteResultGlimpse actionId={data.actionId} payload={payload} />;
   if (family === "execution") return <TerminalGlimpse payload={payload} />;
+  if (family === "analysis") {
+    const gist = analysisGist(data.actionId, payload);
+    if (gist !== null) return <div className="min-w-0">
+      <div className="text-[10px] font-medium text-accent">
+        {gist.kind === "report" ? "分析报告" : "资源描述"} · {gist.text.length.toLocaleString()} 字符
+      </div>
+      {gist.title !== null && <div className="mt-0.5 truncate text-[11px] font-medium text-fg">{gist.title}</div>}
+      {gist.summary !== null && <div className="line-clamp-2 break-words text-[11px] text-fg-muted">{gist.summary}</div>}
+    </div>;
+  }
   const items = Array.isArray(payload.items) ? payload.items : Array.isArray(payload.results) ? payload.results : [];
   if (items.length) return <div className="space-y-0.5">{items.slice(0, SEARCH_GLIMPSE_ITEMS).map((raw, i) => {
     const item = asObject(raw);

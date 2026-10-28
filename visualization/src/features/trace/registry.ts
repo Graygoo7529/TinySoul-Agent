@@ -161,6 +161,8 @@ export interface TraceNavigation {
 
 /** What a result-family view receives. */
 export interface ResultViewProps {
+  /** Canonical Action ID, allowing related actions in one family to keep their own facts. */
+  action: string;
   /**
    * The settled result payload — the full payload from the action.result
    * event when the detail read found it, otherwise the canonical projection

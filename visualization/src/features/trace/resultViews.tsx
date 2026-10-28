@@ -18,6 +18,8 @@ import { Collapsible } from "../../components/ui/Collapsible";
 import { JsonTree } from "../../components/ui/JsonTree";
 import { asNumber, asObject, asString, asStringArray } from "./facts";
 import { DiffGlimpse } from "../chat/ActivityGlimpse";
+import { Markdown } from "../../components/markdown/Markdown";
+import { analysisNarrative } from "./analysisModel";
 import { openExternal } from "../resources/router";
 import type { ActionFamily, ResultViewProps } from "./registry";
 import { isSearchPage, SearchResultView } from "./SearchResultView";
@@ -687,81 +689,141 @@ function WebView({ result, nav }: ResultViewProps) {
 // analysis (analyze / describe / compose / convert)
 // ---------------------------------------------------------------------------
 
-function AnalysisView({ result, params, nav }: ResultViewProps) {
+function AnalysisView({ action, result, params, nav }: ResultViewProps) {
   if (result === null) return <EmptyResult />;
-  const intent = asString(result.intent) ?? asString(result.instruction);
-  const answer = asString(result.answer) ?? asString(result.text);
-  const sources = Array.isArray(result.sources) ? result.sources : null;
+  const narrative = analysisNarrative(action, result);
+  const intent =
+    asString(result.intent) ??
+    asString(result.instruction) ??
+    (params !== null
+      ? (asString(params.intent) ?? asString(params.instruction))
+      : null);
+  const targetRef = params !== null ? asString(params.target_ref) : null;
+  const sourceRef = params !== null ? asString(params.source_ref) : null;
+  const requestedRefs = params !== null ? asStringArray(params.references) : [];
+  const sources = Array.isArray(result.sources) ? result.sources : [];
   const converter = asString(result.converter);
   const visualRefs = asStringArray(result.visual_refs);
   const warningCodes = asStringArray(result.warning_codes);
   const coverage = asObject(result.coverage);
   const coverageLine = coverage !== null ? analysisCoverageLine(coverage) : null;
+  const hasPlanZone =
+    intent !== null ||
+    targetRef !== null ||
+    sourceRef !== null ||
+    requestedRefs.length > 0;
   return (
     <div className="space-y-2">
-      <FactGrid>
-        {intent !== null && <FactRow label="intent" value={intent} />}
-        {converter !== null && <FactRow label="converter" value={converter} />}
-        {asString(result.content_status) !== null && (
-          <FactRow label="content" value={asString(result.content_status)} />
-        )}
-        {coverageLine !== null && <FactRow label="coverage" value={coverageLine} />}
-        {asNumber(result.generated_resource_count) !== null && (
-          <FactRow
-            label="generated"
-            value={`${asNumber(result.generated_resource_count)} resource(s)`}
-          />
-        )}
-      </FactGrid>
-      {answer !== null && (
-        <Collapsible title={`Answer (${answer.length} chars)`} defaultOpen={answer.length <= 1500}>
-          <Excerpt text={answer} max={6000} />
-        </Collapsible>
-      )}
-      {sources !== null && sources.length > 0 && (
-        <div className="space-y-0.5">
-          <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-            Input sources ({sources.length})
+      {hasPlanZone && (
+        <div>
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-accent">
+            规划输入
           </div>
-          {sources.map((entry, index) => {
-            const object = asObject(entry);
-            const link = object !== null ? asString(object.ref) : null;
-            return link !== null ? (
-              <ReferenceButton key={index} reference={link} onOpen={nav.openReference} />
-            ) : null;
-          })}
+          {intent !== null && (
+            <div className="mb-1.5 text-[12px] leading-5 text-fg-muted">{intent}</div>
+          )}
+          {(sourceRef !== null || targetRef !== null) && (
+            <FactGrid>
+              {sourceRef !== null && <FactRow label="source" value={sourceRef} />}
+              {targetRef !== null && <FactRow label="target" value={targetRef} />}
+            </FactGrid>
+          )}
+          {requestedRefs.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {requestedRefs.map((link) => (
+                <span key={link} className="max-w-full rounded-md bg-accent-soft/50 px-1.5 py-0.5">
+                  <ReferenceButton reference={link} onOpen={nav.openReference} />
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
-      {params !== null && asStringArray(params.references).length > 0 && (
-        <div className="space-y-0.5">
-          <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-            Requested references
-          </div>
-          {asStringArray(params.references).map((link) => (
-            <ReferenceButton key={link} reference={link} onOpen={nav.openReference} />
-          ))}
+      <div className={hasPlanZone ? "border-t border-line/60 pt-2" : ""}>
+        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-success">
+          执行结果
         </div>
-      )}
-      {visualRefs.length > 0 && (
-        <div className="space-y-0.5">
-          <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-            Visual review references
-          </div>
-          {visualRefs.map((link) => (
-            <ReferenceButton key={link} reference={link} onOpen={nav.openReference} />
-          ))}
+        <div className="space-y-2">
+          {narrative?.kind === "report" && (
+            <Collapsible
+              title={`分析报告（${narrative.text.length} 字符）`}
+              defaultOpen={narrative.text.length <= 3000}
+              className="border-accent/20"
+            >
+              <Markdown className="md-calm text-[12px]" origin={{ ref: "" }}>
+                {narrative.text}
+              </Markdown>
+            </Collapsible>
+          )}
+          {narrative?.kind === "description" && (
+            <Collapsible
+              title={`资源描述（${narrative.text.length} 字符）`}
+              defaultOpen={narrative.text.length <= 1500}
+              className="border-accent/20"
+            >
+              <div className="whitespace-pre-wrap text-[12px] leading-5 text-fg-muted">
+                {narrative.text}
+              </div>
+            </Collapsible>
+          )}
+          {(converter !== null ||
+            asString(result.content_status) !== null ||
+            asNumber(result.generated_resource_count) !== null) && (
+            <FactGrid>
+              {converter !== null && <FactRow label="converter" value={converter} />}
+              {asString(result.content_status) !== null && (
+                <FactRow label="content" value={asString(result.content_status)} />
+              )}
+              {asNumber(result.generated_resource_count) !== null && (
+                <FactRow
+                  label="generated"
+                  value={`${asNumber(result.generated_resource_count)} resource(s)`}
+                />
+              )}
+            </FactGrid>
+          )}
+          {(coverageLine !== null || narrative !== null) && (
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10.5px] text-fg-faint">
+              {coverageLine !== null && <span>{coverageLine}</span>}
+              {narrative !== null && <span>{narrative.text.length} 字符</span>}
+            </div>
+          )}
+          {sources.length > 0 && (
+            <div className="space-y-0.5">
+              <div className="text-[11px] font-medium text-fg-faint">
+                报告引用（{sources.length}）
+              </div>
+              {sources.map((entry, index) => {
+                const object = asObject(entry);
+                const link = object !== null ? asString(object.ref) : null;
+                return link !== null ? (
+                  <ReferenceButton key={index} reference={link} onOpen={nav.openReference} />
+                ) : null;
+              })}
+            </div>
+          )}
+          <LinksBlock payload={result} onOpen={nav.openReference} title="Output resources" />
+          {visualRefs.length > 0 && (
+            <div className="space-y-0.5">
+              <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
+                Visual review references
+              </div>
+              {visualRefs.map((link) => (
+                <ReferenceButton key={link} reference={link} onOpen={nav.openReference} />
+              ))}
+            </div>
+          )}
+          {warningCodes.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {warningCodes.map((code) => (
+                <Badge key={code} tone="yellow">
+                  {code}
+                </Badge>
+              ))}
+            </div>
+          )}
         </div>
-      )}
-      {warningCodes.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {warningCodes.map((code) => (
-            <Badge key={code} tone="yellow">
-              {code}
-            </Badge>
-          ))}
-        </div>
-      )}
-      <LinksBlock payload={result} onOpen={nav.openReference} title="Output resources" />
+      </div>
     </div>
   );
 }
@@ -1221,7 +1283,7 @@ function EmptyResult() {
  * the call params when there is nothing else). Unknown actions land here;
  * the result is never swallowed.
  */
-export function GenericView({ result, params }: ResultViewProps) {
+export function GenericView({ result, params }: Omit<ResultViewProps, "action">) {
   if (result === null && params === null) return <EmptyResult />;
   return (
     <div className="space-y-2">

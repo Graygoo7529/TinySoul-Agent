@@ -379,6 +379,86 @@ describe("ActionDetailPanel", () => {
     expect(entries).toHaveLength(1);
     expect(entries[0]!.key).toContain("trace:model:llm:task_7");
   });
+
+  it("renders analysis intent, actual sources and the Markdown report", async () => {
+    serveEvents([
+      event("action.call", 10, {
+        call_id: "c1", action: "workspace.analyze", domain: "workspace", sequence: 1,
+        params: { intent: "核对容量恢复边界", references: ["workspace:src/context.ts"] },
+      }, [TURN, CYCLE, PHASE2]),
+      event("action.result", 20, {
+        result_id: "r1", call_id: "c1", action: "workspace.analyze",
+        status: "success", stage: "execution", sequence: 1, domain: "workspace",
+        invoke_id: "invoke_c1", batch_id: "b1", failure: null,
+        payload: {
+          intent: "核对容量恢复边界",
+          answer: "# 容量恢复分析\n\n## 结论\n\n先回收 **Context**，再重建 `MessageStack`。",
+          sources: [{ ref: "workspace:src/context.ts", size: 1200 }],
+          coverage: { complete: true, files_loaded: 1, source_chars: 1200 },
+        },
+      }, [TURN, CYCLE, PHASE3]),
+    ]);
+    render(
+      <ActionDetailPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29"
+        selector={{ callId: "c1", action: "workspace.analyze", ordinal: 0 }} />,
+    );
+    await flush();
+    expect(container.textContent).toContain("规划输入");
+    expect(container.textContent).toContain("执行结果");
+    expect(container.textContent).toContain("核对容量恢复边界");
+    expect(container.querySelector(".md-body h1")?.textContent).toBe("容量恢复分析");
+    expect(container.querySelector(".md-body strong")?.textContent).toBe("Context");
+    expect(container.querySelector(".md-body code")?.textContent).toBe("MessageStack");
+    expect(container.textContent).toContain("报告引用（1）");
+    expect(container.textContent).toContain("1,200 source chars");
+  });
+
+  it("shows describe output as text without fabricating compose narrative", async () => {
+    serveEvents([
+      event("action.call", 10, {
+        call_id: "c1", action: "workspace.describe", domain: "workspace", sequence: 1,
+        params: { target_ref: "workspace:docs/context.md", instruction: "说明职责" },
+      }, [TURN, CYCLE, PHASE2]),
+      event("action.result", 20, {
+        result_id: "r1", call_id: "c1", action: "workspace.describe",
+        status: "success", stage: "execution", sequence: 1, domain: "workspace",
+        invoke_id: "invoke_c1", batch_id: "b1", failure: null,
+        payload: { ref: "workspace:docs/context.md", description: "记录 Context 的装配与恢复职责。" },
+      }, [TURN, CYCLE, PHASE3]),
+    ]);
+    render(
+      <ActionDetailPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29"
+        selector={{ callId: "c1", action: "workspace.describe", ordinal: 0 }} />,
+    );
+    await flush();
+    expect(container.textContent).toContain("资源描述");
+    expect(container.textContent).toContain("记录 Context 的装配与恢复职责。");
+
+    serveEvents([
+      event("action.call", 30, {
+        call_id: "c2", action: "workspace.compose", domain: "workspace", sequence: 1,
+        params: { target_ref: "workspace:reports/weekly.md", instruction: "汇总本周结果" },
+      }, [TURN, CYCLE, PHASE2]),
+      event("action.result", 40, {
+        result_id: "r2", call_id: "c2", action: "workspace.compose",
+        status: "success", stage: "execution", sequence: 1, domain: "workspace",
+        invoke_id: "invoke_c2", batch_id: "b1", failure: null,
+        payload: {
+          ref: "workspace:reports/weekly.md", kind: "text", media_type: "text/markdown",
+          size: 8420, description: "产物元数据，不是生成正文",
+        },
+      }, [TURN, CYCLE, PHASE3]),
+    ]);
+    render(
+      <ActionDetailPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29"
+        selector={{ callId: "c2", action: "workspace.compose", ordinal: 0 }} />,
+    );
+    await flush();
+    expect(container.textContent).toContain("汇总本周结果");
+    expect(container.textContent).toContain("workspace:reports/weekly.md");
+    expect(container.textContent).not.toContain("产物元数据，不是生成正文");
+    expect(container.querySelector(".md-body")).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
