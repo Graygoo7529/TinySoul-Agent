@@ -35,7 +35,7 @@
 ## Agent Behavior
 - 检查 core ask/reply：补充回答如何进入 turn trace；是否允许同时选择选项 + 补充回答；补充回答有气泡；
 - 加入 core idle 动作，运行跳过本轮执行
-- core 行动：发散方案 redirect / scout（research and exploration）、决策、reason、review
+- core 行动：发散方案 redirect / scout（research and exploration）、决策、reason、review、知识供应和对照
 - core 行动：中间叙事（运行中回答）
 
 
