@@ -10,6 +10,7 @@ from tinysoul.infra.continuation import ContinuationPosition, OpaqueContinuation
 from tinysoul.infra.filesystem import file_digest, read_text_prefix
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.paging import PageOptions
+from tinysoul.prompts.plugins import workspace as prompt_text
 from tinysoul.kernel.retrieval.disclosure import (
     DisclosurePage,
     DisclosureUnit,
@@ -69,7 +70,8 @@ class WorkspaceReader:
             text = path.read_text(encoding="utf-8")
         except UnicodeError as exc:
             raise WorkspaceContractError(
-                "Workspace resource is not UTF-8 text"
+                "Workspace resource is not UTF-8 text",
+                feedback=prompt_text.RESOURCE_NOT_UTF8,
             ) from exc
         except OSError as exc:
             raise WorkspaceIOError("Workspace text cannot be read") from exc
@@ -94,12 +96,16 @@ class WorkspaceReader:
         _positive(limit)
         record = self._stat(ref)
         if record.kind is not WorkspaceResourceKind.TEXT:
-            raise WorkspaceContractError("Workspace resource is not readable text")
+            raise WorkspaceContractError(
+                "Workspace resource is not readable text",
+                feedback=prompt_text.RESOURCE_NOT_TEXT,
+            )
         try:
             read = read_text_prefix(self._path_for(ref), max_chars=limit)
         except UnicodeError as exc:
             raise WorkspaceContractError(
-                "Workspace resource is not UTF-8 text"
+                "Workspace resource is not UTF-8 text",
+                feedback=prompt_text.RESOURCE_NOT_UTF8,
             ) from exc
         except OSError as exc:
             raise WorkspaceIOError("Workspace text cannot be read") from exc

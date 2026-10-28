@@ -1073,7 +1073,8 @@ class AgentHomeEngine:
         if record is not None:
             if record.state is HomeOverlayState.DELETED:
                 raise AgentHomeContractError(
-                    f"Home content was deleted in the active overlay: {ref}"
+                    f"Home content was deleted in the active overlay: {ref}",
+                    feedback=prompt_text.CONTENT_UNAVAILABLE,
                 )
             return self._layout.runtime_for_relative(relative)
         source = self._layout.source_for_relative(relative)
@@ -1082,7 +1083,10 @@ class AgentHomeEngine:
                 f"Actual Home content cannot be a symlink: {source}"
             )
         if not source.is_file():
-            raise AgentHomeContractError(f"Home content does not exist: {ref}")
+            raise AgentHomeContractError(
+                f"Home content does not exist: {ref}",
+                feedback=prompt_text.CONTENT_UNAVAILABLE,
+            )
         raise AgentHomeRuntimeCopyRequired(
             ref,
             source_path=source,
@@ -1129,12 +1133,14 @@ class AgentHomeEngine:
         parsed_ref = parse_home_ref(ref) if isinstance(ref, str) else ref
         if not isinstance(parsed_ref, HomeResourceRef):
             raise AgentHomeContractError(
-                "Home resource operation requires a progressive resource ref"
+                "Home resource operation requires a progressive resource ref",
+                feedback=prompt_text.RESOURCE_REF_REQUIRED,
             )
         self._validate_resource_semantics(parsed_ref)
         if _is_top_entry_resource(parsed_ref):
             raise AgentHomeContractError(
-                "Home resource operation cannot address a top-level Home file"
+                "Home resource operation cannot address a top-level Home file",
+                feedback=prompt_text.RESOURCE_REF_POINTS_TO_TOP_FILE,
             )
         return parsed_ref
 
@@ -1347,7 +1353,8 @@ def _read_text(path: Path) -> str:
         return path.read_text(encoding="utf-8")
     except UnicodeDecodeError as exc:
         raise AgentHomeContractError(
-            f"Agent Home file is not readable as UTF-8 text: {path}"
+            f"Agent Home file is not readable as UTF-8 text: {path}",
+            feedback=prompt_text.RESOURCE_NOT_UTF8,
         ) from exc
     except OSError as exc:
         raise AgentHomeIOError(f"Failed to read Agent Home file: {exc}") from exc
@@ -1358,7 +1365,8 @@ def _read_text_prefix(path: Path, max_chars: int) -> TextPrefixRead:
         return read_text_prefix(path, max_chars=max_chars)
     except UnicodeDecodeError as exc:
         raise AgentHomeContractError(
-            f"Agent Home file is not readable as UTF-8 text: {path}"
+            f"Agent Home file is not readable as UTF-8 text: {path}",
+            feedback=prompt_text.RESOURCE_NOT_UTF8,
         ) from exc
     except OSError as exc:
         raise AgentHomeIOError(f"Failed to read Agent Home file: {exc}") from exc

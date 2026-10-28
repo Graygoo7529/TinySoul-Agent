@@ -147,8 +147,9 @@ def test_top_files_cannot_be_addressed_as_progressive_resources(
         "home:resource/skills/refactor/SKILL.md",
     )
     for alias in aliases:
-        with pytest.raises(AgentHomeContractError, match="Home"):
+        with pytest.raises(AgentHomeContractError, match="Home") as raised:
             home.read_resource(alias)
+        assert raised.value.feedback and str(tmp_path) not in raised.value.feedback
         with pytest.raises(AgentHomeContractError, match="Home"):
             home.write_resource(alias, "replacement", overwrite=True)
 

@@ -27,3 +27,5 @@ Job 终态为 succeeded、failed 或 cancelled，超时与输出上限作为失�
 ACP 与进程 Job 共享同一 Registry、live/retained 容量和 answer guard。待答快照承载有界请求种类、问题、真实选项身份与结果引用。`core.wait(event_kind="job")` 在任意 Job 进入终态或出现待答请求时恢复 Turn；普通 Workspace 状态刷新只更新 Inbox，不单独恢复 Turn，显式 event_id/topic/source 监听时才会打断。等待恢复 note 只标出 `reason=job` 和触发的 `job_id`，详细状态继续由 jobs Working 投影提供；环境事件恢复 note 使用实际匹配事件的 topic/source。用户输入和需要决策的环境事件也能中断等待。Inbox 的 Job 保留位置可靠传递已接受请求与终态，普通输出不强制新增 Cycle。协议 future、session id 和 RPC id 留在 ACP owner 内。
 
 未知 Job、已关闭 stdin、无效参数与启动失败属于可修正的 Action 结果。Job 监督、Workspace/Home IO 或模块不变量失败经各自 owner bridge 转换；模型反馈不包含原始异常文本、绝对路径或 traceback。通用 answer guard 只阻止存在尚未关闭执行的 Job，未 collect 的终态结果本身不阻止回答。
+
+资源读取、工作目录和 Job 请求错误由所属 owner 提供简短反馈，Execution 在既有局部结果中保留该反馈；没有明确反馈时使用通用提示。活动 Job 容量与保留结果容量分别说明等待/停止和结束本轮的修正方向，数值取自实际配置。模型提示与异常诊断分别维护，避免把内部路径或底层异常交给模型解释。

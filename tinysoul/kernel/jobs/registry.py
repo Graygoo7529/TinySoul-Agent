@@ -13,6 +13,7 @@ from tinysoul.kernel.identity import TurnIdentity, TurnIdentityError
 from tinysoul.kernel.loop.interaction.inbox import InboxError, TurnInbox
 from tinysoul.runtime import RunScope, RuntimeException, Signal, SignalBus
 from tinysoul.runtime.control.exception import RUNTIME_AGENT_END
+from tinysoul.prompts.kernel import jobs as prompt_text
 
 from .failures import JobError, JobFailureKind, JobRequestError
 from .models import JobBackend, JobSnapshot, JobState
@@ -68,10 +69,18 @@ class JobRegistry:
             ) from exc
         active = tuple(job for job in self._jobs.values() if not job.execution_closed)
         if sum(job.turn_id == turn_id for job in active) >= self._per_turn_capacity:
-            raise JobRequestError("Turn already owns its maximum live Jobs")
+            raise JobRequestError(
+                "Turn already owns its maximum live Jobs",
+                feedback=prompt_text.live_job_capacity_reached(
+                    limit=self._per_turn_capacity,
+                ),
+            )
         if len(self._jobs) >= self._capacity:
             raise JobRequestError(
-                "Retained Job result capacity is full; finish this Turn before starting more work"
+                "Retained Job result capacity is full; finish this Turn before starting more work",
+                feedback=prompt_text.retained_job_capacity_reached(
+                    capacity=self._capacity,
+                ),
             )
         job_sequence = self._next_job_sequences.get(turn_id, 0) + 1
         self._next_job_sequences[turn_id] = job_sequence
@@ -102,7 +111,10 @@ class JobRegistry:
     def _owned(self, turn_id: str, job_id: str) -> _Job:
         job = self._jobs.get(job_id)
         if job is None or job.turn_id != turn_id or job.backend is None:
-            raise JobRequestError("Job is not available in this Turn")
+            raise JobRequestError(
+                "Job is not available in this Turn",
+                feedback=prompt_text.JOB_IS_NOT_AVAILABLE_IN_THIS_TURN,
+            )
         return job
 
     def get(self, turn_id: str, job_id: str) -> JobBackend:
@@ -115,7 +127,10 @@ class JobRegistry:
     def backend[B: JobBackend](self, turn_id: str, job_id: str, kind: type[B]) -> B:
         backend = self.get(turn_id, job_id)
         if not isinstance(backend, kind):
-            raise JobRequestError("Job belongs to a different capability")
+            raise JobRequestError(
+                "Job belongs to a different capability",
+                feedback=prompt_text.JOB_CAPABILITY_MISMATCH,
+            )
         return backend
 
     def ids(self, turn_id: str) -> tuple[str, ...]:

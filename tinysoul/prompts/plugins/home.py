@@ -3,6 +3,24 @@
 Consumers listed below decide visibility, role, data and failure semantics.
 """
 
+# Local feedback. Used by plugins/home/engine.py:_runtime_read_path.
+CONTENT_UNAVAILABLE = "Home content is unavailable. Choose an existing Home resource."
+
+# Local feedback. Used by plugins/home/engine.py:_resource_ref, plugins/home/refs.py:HomeResourceRef.parse.
+RESOURCE_REF_REQUIRED = (
+    "This operation requires a Home resource ref: home:resource/<space>/<path>."
+)
+
+# Local feedback. Used by plugins/home/engine.py:_resource_ref.
+RESOURCE_REF_POINTS_TO_TOP_FILE = (
+    "This is a top-level Home file. Choose a Home resource file for this operation."
+)
+
+# Local feedback. Used by plugins/home/engine.py:_read_text, _read_text_prefix.
+RESOURCE_NOT_UTF8 = (
+    "The referenced file is not readable as UTF-8 text. Use a UTF-8 text file."
+)
+
 # Local model feedback. Used by plugins/home/actions/content.py:execute.
 INVALID_INSPECT_REQUEST = "Inspect requires a known ref and valid page options"
 

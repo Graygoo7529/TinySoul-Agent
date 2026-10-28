@@ -478,7 +478,8 @@ class WorkspaceEngine:
                         )
             if cwd_ref and not cwd.is_dir():
                 raise WorkspaceContractError(
-                    "Execution cwd must be an existing Workspace directory"
+                    "Execution cwd must be an existing Workspace directory",
+                    feedback=prompt_text.EXECUTION_DIRECTORY_REQUIRED,
                 )
             script_path: Path | None = None
             try:

@@ -55,10 +55,10 @@ class JobActionExecutor:
                     turn_id, job_id, operations=context.owner_operations
                 ),
             )
-        except JobRequestError:
+        except JobRequestError as exc:
             return _failed(
                 execution,
-                prompt_text.JOB_IS_NOT_AVAILABLE_IN_THIS_TURN,
+                exc.feedback or prompt_text.JOB_IS_NOT_AVAILABLE_IN_THIS_TURN,
                 reason="unknown_job",
             )
         except JobError as exc:

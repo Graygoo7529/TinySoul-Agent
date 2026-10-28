@@ -88,6 +88,41 @@ from tinysoul.runtime import RunLevel, RunScope, SignalBus
 DAY = CalendarDay.parse("2026-07-12")
 
 
+@pytest.mark.parametrize(
+    ("case", "hint"),
+    [
+        ("missing", "ref"),
+        ("directory", "text"),
+        ("encoding", "UTF-8"),
+        ("cwd_missing", "cwd_ref"),
+        ("cwd_file", "cwd_ref"),
+    ],
+)
+def test_workspace_read_and_execution_feedback(
+    tmp_path: Path, case: str, hint: str,
+) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    workspace = WorkspaceEngineBuilder(WorkspaceSettings(root=root)).build()
+    ref = "workspace:source.py"
+    if case == "directory":
+        (root / "source.py").mkdir()
+    elif case == "encoding":
+        (root / "source.py").write_bytes(b"\xff")
+    elif case == "cwd_file":
+        workspace.write_text(ref, "print('ok')")
+
+    with pytest.raises(WorkspaceContractError) as raised:
+        if case.startswith("cwd_"):
+            workspace.prepare_execution("test-job", cwd_ref=ref)
+        else:
+            workspace.read_text(ref)
+    feedback = raised.value.feedback
+    assert hint in feedback and len(feedback) <= 240
+    assert str(root) not in feedback
+    assert not (root / "jobs" / "test-job").exists()
+
+
 class FakeLLMRunner:
     def __init__(
         self,

@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from tinysoul.infra.concurrency import JoinedOperations
+from tinysoul.infra.json import dumps_json
 from tinysoul.infra.network import NetworkMode, NetworkPolicy
 from tinysoul.kernel.jobs import JobRegistry, JobRequestError, JobState
 from tinysoul.kernel.action import ActionEngineBuilder, ActionCall, ActionFailureDisposition
@@ -26,9 +27,13 @@ from tinysoul.plugins.execution import (
 from tinysoul.plugins.execution.engine import ExecutionEngine
 from tinysoul.plugins.execution.failures import ExecutionRequestError
 from tinysoul.plugins.home import AgentHomeEngineBuilder, AgentHomeSettings
+from tinysoul.plugins.home.errors import AgentHomeContractError
 from tinysoul.plugins.home.services import HomeService
 from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
+from tinysoul.plugins.workspace.errors import WorkspaceContractError
 from tinysoul.plugins.workspace.services import WorkspaceService
+from tinysoul.llm.protocol.messages import JsonPart
+from tinysoul.prompts.plugins import execution as execution_text
 
 
 def _owners(
@@ -375,6 +380,64 @@ async def test_disabled_interpreter_has_bounded_corrective_feedback(
     assert result.failure.disposition is ActionFailureDisposition.CHANGE_REQUEST
     assert result.failure.feedback == raised.value.feedback
     assert not jobs.ids("2026-10-06/1000")
+
+
+@pytest.mark.parametrize(
+    ("error_type", "feedback"),
+    [
+        (WorkspaceContractError, "Check the requested resource."),
+        (AgentHomeContractError, "Choose an existing resource."),
+        (JobRequestError, "Wait for the active work to finish."),
+        (AgentHomeContractError, ""),
+    ],
+)
+async def test_owner_feedback_reaches_execution_tool_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error_type: (
+        type[WorkspaceContractError] | type[AgentHomeContractError] | type[JobRequestError]
+    ),
+    feedback: str,
+) -> None:
+    engine, jobs, workspace, home = _owners(tmp_path)
+    diagnostic = f"Internal diagnostic: {tmp_path / 'private-file'}"
+
+    async def reject_start(**_kwargs: object) -> None:
+        raise error_type(diagnostic, feedback=feedback)
+
+    monkeypatch.setattr(engine, "start", reject_start)
+    builder = ActionEngineBuilder(sample_catalog().with_actions(("execution.run",)))
+    builder.register_executor(
+        "execution.run",
+        ExecutionActionExecutor(
+            engine, ExecutionOperation.RUN, home=home,
+            workspace=WorkspaceService(workspace),
+        ),
+    )
+    actions = builder.build()
+    turn_id = "2026-10-06/1000"
+    prepared = actions.prepare_batch(
+        (ActionCall("request", "execution.run", {
+            "interpreter": "python", "source_ref": "workspace:input.py",
+        }, 1),),
+        scope=RunScope().push(RunLevel.TURN, turn_id),
+    )
+    results = await actions.run_batch(prepared.batch)
+    result, = results
+    failure = result.failure
+    assert failure is not None
+    assert failure.reason == "invalid_request" and failure.scope == "execution.action"
+    assert failure.disposition is ActionFailureDisposition.CHANGE_REQUEST
+    assert failure.feedback == (
+        feedback or execution_text.THE_EXECUTION_REQUEST_IS_UNAVAILABLE_OR_INVALID
+    )
+    rendered, = actions.render_tool_results(results)
+    part, = rendered.visible_message.parts
+    assert isinstance(part, JsonPart)
+    assert part.value["failure"] == failure.to_json()
+    assert "Internal diagnostic" not in dumps_json(part.value)
+    assert str(tmp_path) not in dumps_json(part.value)
+    assert not jobs.ids(turn_id)
 
 
 @pytest.mark.integration

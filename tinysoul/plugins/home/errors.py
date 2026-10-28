@@ -14,6 +14,10 @@ class AgentHomeError(Exception):
 class AgentHomeContractError(AgentHomeError):
     """Raised when callers violate Agent Home contracts."""
 
+    def __init__(self, message: str, *, feedback: str = "") -> None:
+        super().__init__(message)
+        self.feedback = feedback
+
 
 class AgentHomeInvariantError(AgentHomeError):
     """Raised when Agent Home internal invariants are broken."""

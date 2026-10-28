@@ -67,10 +67,11 @@ class ExecutionActionExecutor:
             JobRequestError,
             WorkspaceContractError,
             AgentHomeContractError,
-        ):
+        ) as exc:
             return _failed(
                 execution,
-                prompt_text.THE_EXECUTION_REQUEST_IS_UNAVAILABLE_OR_INVALID,
+                exc.feedback
+                or prompt_text.THE_EXECUTION_REQUEST_IS_UNAVAILABLE_OR_INVALID,
                 "invalid_request",
             )
         except ExecutionStartError:

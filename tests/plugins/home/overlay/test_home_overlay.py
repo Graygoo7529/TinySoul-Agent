@@ -26,6 +26,32 @@ _SKILL_TEXT = (
 )
 
 
+@pytest.mark.parametrize("case", ["missing", "deleted", "encoding"])
+def test_resource_read_feedback_keeps_diagnostics_private(
+    tmp_path: Path, case: str,
+) -> None:
+    home = _home(tmp_path)
+    ref = "home:resource/skills/demo/scripts/run.py"
+    path = home.layout.runtime_for_relative("skills/demo/scripts/run.py")
+    if case != "missing":
+        home.write_resource(ref, "print('ok')")
+        if case == "deleted":
+            home.delete_resource(ref)
+        else:
+            path.write_bytes(b"\xff")
+
+    with pytest.raises(AgentHomeContractError) as raised:
+        home.read_resource(ref)
+    feedback = raised.value.feedback
+    assert feedback and len(feedback) <= 240
+    assert str(tmp_path) not in feedback and ref not in feedback
+    if case == "encoding":
+        assert "UTF-8" in feedback
+        assert str(path) in str(raised.value)
+    else:
+        assert "Home" in feedback
+
+
 def test_legacy_home_memory_path_and_link_are_rejected(tmp_path: Path) -> None:
     memory = tmp_path / "home" / "memory" / "2026" / "07" / "2026-07-11.md"
     memory.parent.mkdir(parents=True)

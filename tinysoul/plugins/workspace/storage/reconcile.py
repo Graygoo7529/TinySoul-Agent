@@ -8,6 +8,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from tinysoul.infra.filesystem import FilesystemBoundaryError, resolve_under_root
+from tinysoul.prompts.plugins import workspace as prompt_text
 
 from ..config import WorkspaceSettings
 from ..errors import WorkspaceContractError, WorkspaceIOError, WorkspaceNotFoundError
@@ -161,7 +162,10 @@ class WorkspaceReconciler:
                     "Workspace resource must be a regular file or directory"
                 )
         except FileNotFoundError as exc:
-            raise WorkspaceNotFoundError("Workspace resource does not exist") from exc
+            raise WorkspaceNotFoundError(
+                "Workspace resource does not exist",
+                feedback=prompt_text.RESOURCE_NOT_FOUND,
+            ) from exc
         except OSError as exc:
             raise WorkspaceIOError("Workspace resource cannot be inspected") from exc
         return WorkspaceResourceRecord(

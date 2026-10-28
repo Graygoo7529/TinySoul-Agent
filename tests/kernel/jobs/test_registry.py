@@ -306,19 +306,45 @@ async def test_live_execution_close_failure_is_not_released_or_reported_stopped(
 async def test_terminal_results_are_bounded_without_consuming_live_capacity() -> None:
     registry = JobRegistry(capacity=2, per_turn_capacity=1)
     backends = []
-    for _ in range(2):
+    for index in range(2):
         backend = await registry.start(TURN_ID, "test", _Backend.create)
         backends.append(backend)
+        if index == 0:
+            with pytest.raises(JobRequestError) as live_limit:
+                await registry.start(TURN_ID, "test", _Backend.create)
+            assert "1" in live_limit.value.feedback
+            assert len(registry.ids(TURN_ID)) == 1
         backend.finished.set()
         async with asyncio.timeout(2):
             while registry.has_unresolved(TURN_ID):
                 await asyncio.sleep(0.01)
     assert len(registry.ids(TURN_ID)) == 2
-    with pytest.raises(JobRequestError, match="capacity"):
+    with pytest.raises(JobRequestError, match="capacity") as retained_limit:
         await registry.start(TURN_ID, "test", _Backend.create)
+    assert "2" in retained_limit.value.feedback
+    assert live_limit.value.feedback != retained_limit.value.feedback
     assert not backends[0].cleaned.is_set()
     assert registry.snapshot(TURN_ID, backends[-1].job_id).state is JobState.SUCCEEDED
     await registry.cleanup_turn(TURN_ID)
+
+
+async def test_job_identity_and_capability_have_distinct_request_feedback() -> None:
+    class OtherBackend(_Backend):
+        pass
+
+    registry = JobRegistry()
+    backend = await registry.start(TURN_ID, "test", _Backend.create)
+    try:
+        with pytest.raises(JobRequestError) as unavailable:
+            registry.get(OWNER_TURN, backend.job_id)
+        with pytest.raises(JobRequestError) as capability:
+            registry.backend(TURN_ID, backend.job_id, OtherBackend)
+        assert "job_id" in unavailable.value.feedback
+        assert capability.value.feedback
+        assert unavailable.value.feedback != capability.value.feedback
+        assert registry.get(TURN_ID, backend.job_id) is backend
+    finally:
+        await registry.cleanup_turn(TURN_ID)
 
 
 async def test_waiting_request_wakes_parent_with_full_inbox_and_is_delivered_once() -> (

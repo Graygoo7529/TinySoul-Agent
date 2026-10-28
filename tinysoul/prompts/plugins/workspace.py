@@ -3,6 +3,25 @@
 Consumers listed below decide visibility, role, data and failure semantics.
 """
 
+# Local feedback. Used by plugins/workspace/storage/reconcile.py:inspect_record.
+RESOURCE_NOT_FOUND = (
+    "Workspace resource does not exist. Check the ref or create the resource first."
+)
+
+# Local feedback. Used by plugins/workspace/inspection/reader.py:read_text.
+RESOURCE_NOT_TEXT = "Workspace resource is not a text file. Choose a text resource."
+
+# Local feedback. Used by plugins/workspace/inspection/reader.py:read_text, inspect_text.
+RESOURCE_NOT_UTF8 = (
+    "The referenced file is not readable as UTF-8 text. Use a UTF-8 text file."
+)
+
+# Local feedback. Used by plugins/workspace/engine.py:prepare_execution.
+EXECUTION_DIRECTORY_REQUIRED = (
+    "cwd_ref must point to an existing Workspace directory. "
+    "Omit it to use the Job directory."
+)
+
 # Local feedback. Used by plugins/workspace/storage/mutations.py:insert_text.
 INSERT_LINE_REQUIRED = "Use a non-negative integer after_line; 0 inserts at the beginning."
 

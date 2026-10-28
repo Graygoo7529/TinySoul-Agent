@@ -22,3 +22,7 @@ class JobError(Exception):
 
 class JobRequestError(JobError):
     """A caller can correct a Job identity or admission request."""
+
+    def __init__(self, message: str, *, feedback: str = "") -> None:
+        super().__init__(message)
+        self.feedback = feedback

@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
+from tinysoul.prompts.plugins import home as prompt_text
+
 from .errors import AgentHomeContractError, AgentHomeInvariantError
 
 HOME_REF_PREFIX = "home:"
@@ -82,7 +84,8 @@ class HomeResourceRef:
         body = _body(value)
         if not body.startswith("resource/") or body.count("/") < 2:
             raise AgentHomeContractError(
-                "Home resource ref must use home:resource/<space>/<path>"
+                "Home resource ref must use home:resource/<space>/<path>",
+                feedback=prompt_text.RESOURCE_REF_REQUIRED,
             )
         space, relative = body.removeprefix("resource/").split("/", 1)
         try:

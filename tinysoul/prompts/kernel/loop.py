@@ -52,8 +52,10 @@ PHASE2_GUIDANCE = (
         "resolve an uncertainty, perform necessary work, verify results, or produce the final answer."
     ),
     (
-        "When constructing action parameters, use exact references from Context (workspace:path, "
-        "memory:entity/name, etc.) rather than inventing new ones. Check Context for the actual refs."
+        "Use known refs when accessing existing resources. When constructing action parameters, "
+        "use exact references from Context (workspace:path, memory:entity/name, etc.) rather than "
+        "inventing refs for existing resources. For actions that create resources, choose a new "
+        "target ref according to the tool definition."
     ),
     (
         "If a previous attempt failed, adjust the limiting condition: change parameters that were "
