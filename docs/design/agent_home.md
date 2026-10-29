@@ -6,7 +6,7 @@ Home direct references are mapped through the layout owner before they are
 returned by browse/inspect or used for backlink evidence. Top and prompt-mount
 identities therefore remain canonical (`home:top/agent/...`, `home:top/skills/...`,
 `home:mount/domain/...`, and `home:mount/action/...`), while progressive
-resources retain their `home:<space>/<path>` form. The same mapping is used by
+resources use the `home:resource/<space>/<path>` form. The same mapping is used by
 `resolve_relative`, so a returned direct ref can be sent to Resource resolve
 without a client-side rewrite.
 
@@ -41,20 +41,19 @@ Agent Home 不维护 Turn 内 Context 状态，不驱动 Loop，也不管理 wor
 Agent Home 定义三类 `home:` 链接：
 
 ```text
-home:<space>@<relative-logical-path>
-home:<space>/<relative-posix-path>
-home:top/skills/<skill>
+home:top/<space>/<relative-logical-path>
+home:resource/<space>/<relative-posix-path>
 home:mount/domain/<domain>
 home:mount/action/<domain>/<action>
 ```
 
-`home:<space>@<relative-logical-path>` 表示 Agent 和通用 skill 顶层入口。引用 使用相对于对应 space 的无后缀逻辑路径；Agent 页面追加 `.md`，skill 映射目录中的固定入口是 `SKILL.md`。顶层内容可以加载为 BackgroundContext 条目。例如：
+`home:top/<space>/<relative-logical-path>` 表示 Agent 和通用 skill 顶层入口。引用使用相对于对应 space 的无后缀逻辑路径；Agent 页面追加 `.md`，skill 映射目录中的固定入口是 `SKILL.md`。顶层内容可以加载为 BackgroundContext 条目。例如：
 
 - `home:top/agent/AGENT`
 - `home:top/agent/user/preferences`
 - `home:top/skills/python_refactor`
 
-`home:<space>/<relative-posix-path>` 表示渐进式资源，只能通过 action 读取或使用，读取结果进入 TurnTraceHeap。例如：
+`home:resource/<space>/<relative-posix-path>` 表示渐进式资源，只能通过 action 读取或使用，读取结果进入 TurnTraceHeap。例如：
 
 - `home:resource/skills/python_refactor/references/checklist.md`
 - `home:resource/skills/python_refactor/scripts/inspect.py`
@@ -66,9 +65,9 @@ home:mount/action/<domain>/<action>
 链接规则:
 
 - 顶层 `space` 只能是 `agent` 和 `skills`；`skills_domain` 与 `skills_action` 只用于自动 prompt mount 链接；
-- 所有 Top 引用 的 `@` 后内容必须是无文件后缀的安全逻辑路径；skill 顶层 引用 必须使用单段 skill name；
+- 所有 Top 引用在 `home:top/<space>/` 后的内容必须是无文件后缀的安全逻辑路径；skill 顶层引用必须使用单段 skill name；
 - `skills_domain`/`skills_action` 是框架 mount identity，二者都不追加固定物理入口文件名；
-- `/` 形式始终表示资源路径，不能被 Context 直接加载为背景；已经映射为 Agent Top Markdown 或 skill `SKILL.md` 的物理文件不得再通过 Resource 引用 读取或修改；
+- `home:resource/` 形式表示资源路径，不能被 Context 直接加载为背景；已经映射为 Agent Top Markdown 或 skill `SKILL.md` 的物理文件不得再通过 Resource 引用读取或修改；
 - 渐进资源保留真实扩展名，例如 `.md`、`.py`；Workspace 引用 同样保留资源的真实扩展名；
 - 所有路径使用 POSIX `/` 分隔；
 - 不允许空路径、绝对路径、盘符、反斜杠、`.` 或 `..` 段。
@@ -188,7 +187,7 @@ BackgroundContext 是 Context-owned 的通用 Phase1 Background，不是 Home Ba
 - 默认加载条目；
 - 可由 Phase1 加载的顶层条目；
 - 全部 effective skill 的 引用、frontmatter title 与 description；
-- 每个条目的 `home:*@` 链接和渲染文本。
+- 每个条目的 `home:top/<space>/<relative-logical-path>` 链接和渲染文本。
 
 `ContextEngine.begin_turn` 会清空上一 Turn 的通用 Background；Turn preparation 在首个 Cycle 前重新读取全部 provider，原子组装 Home skill metadata 目录、必须存在的默认 core、effective 存在时的 allowlisted `agent/context/*` 与 user，以及其它模块的自动条目。默认 Agent Top 都不可逐出；除 core 外的 allowlisted 文件缺失或被 effective tombstone 隐藏时正常省略，因此旧项目不会因模板新增 Context 页面而启动失败。白名单是框架显式定义，不自动包含任意其它 Agent Top。skill metadata 目录自动且不可逐出，使 Phase1 能先判断应加载哪个 `home:top/skills/skill`；它不是 skill 正文、不是一个伪造的 Home top 引用，也不把 skill body 物化到 runtime。`home.max_skill_catalog_chars` 限制完整目录，超过上限显式失败，不截断 description、不丢弃条目。runtime 中创建、修改或 tombstone 的 skill 在下一个 Turn 的 effective 目录中反映。Home provider 不解释 Memory 日期，也不决定非 Home entry 的逐出政策。Phase1 加载项只存在于当前 Turn，跨 Turn 信息必须进入 Session、actual/runtime Home 或 Memory 持久事实。静态 `ref + content` 仍供测试或嵌入方使用，但不能与动态 provider 重复注册同一链接。
 
@@ -224,7 +223,7 @@ prompt mount create/delete action。文件存在但编码损坏、不可读或�
 
 当前已实现的 action：
 
-- `home.inspect`：读取已知 `home:*/` top/resource 的有界内容或 direct refs，使用稳定 fragment 与 continuation；inspect 不调用模型、不查询反链，也不要求先建立 runtime 副本。任何 prompt mount 在解析后立即拒绝。
+- `home.inspect`：读取已知 `home:top/...` 或 `home:resource/...` 引用的有界内容或 direct refs，使用稳定 fragment 与 continuation；inspect 不调用模型、不查询反链，也不要求先建立 runtime 副本。任何 prompt mount 在解析后立即拒绝。
 - `home.resource.write`：在 active overlay 创建 runtime-only 文本，或在显式 `overwrite` 和可选 `expected_digest` 前置条件下替换 effective 内容；
 - `home.resource.patch`：对 effective UTF-8 文本执行唯一 `old_text` 精确替换，校验 digest 与完整结果的 `max_write_chars`；
 - `home.resource.delete`：写入 tombstone 隐藏资源，不删除 actual Home。
@@ -329,7 +328,7 @@ AgentBuilder 的目标职责是：
 - AgentBuilder 不直接读取 `home/agent/AGENT.md`，项目根 `AGENT.md` 不参与 Home 映射；
 - Context 默认背景来自 Agent Home 门面；
 - `DomainSkillProvider` 能从 `home:mount/domain/domain` 获取 domain skill；`ActionSkillProvider` 能从 `home:mount/domain/domain` 与 `home:mount/action/<domain>/<action>` 获取 domain/action skill；
-- `home:*@` 与 `home:*/` 链接解析和越界防护有单元测试；
+- `home:top/...`、`home:resource/...` 与 `home:mount/...` 链接解析和越界防护有单元测试；
 - runtime home 显式副本准备行为有单元测试；
 - 每个 User Turn 的 preparation 通过动态 provider 重建默认 core 与 effective 存在时的 allowlisted Context/user Agent Top；其它背景在 Context Module frame 中按需复制并重放同一 signal batch；
 - `home:top/agent/AGENT` 的 runtime 副本位置稳定为 `agent/AGENT.md`；
